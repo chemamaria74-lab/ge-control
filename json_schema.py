@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 CAMPOS_REQUERIDOS = [
     "estacion_id","periodo","producto","unidad_base",
-    "densidad_utilizada","total_entradas","total_salidas",
+    "factor_utilizado","total_entradas","total_salidas",
     "inventario_inicial","inventario_final"
 ]
 
@@ -26,7 +26,7 @@ def validate_schema(data: dict) -> Tuple[bool, List[str]]:
                 "periodo":            {"type":"string","pattern":"^\\d{4}-(0[1-9]|1[0-2])$"},
                 "producto":           {"type":"string","enum":["gas_lp"]},
                 "unidad_base":        {"type":"string","enum":["kg","litros"]},
-                "densidad_utilizada": {"type":"number","exclusiveMinimum":0},
+                "factor_utilizado":   {"type":"number","exclusiveMinimum":0},
                 "total_entradas":     {"type":"number","minimum":0},
                 "total_salidas":      {"type":"number","minimum":0},
                 "inventario_inicial": {"type":"number","minimum":0},
