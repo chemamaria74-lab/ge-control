@@ -17,6 +17,7 @@ from routes.analytics import router as analytics_router
 from routes.facilities import router as facilities_router
 from routes.admin import router as admin_router
 from routes.facturas import router as facturas_router
+from routes.movimientos import router as movimientos_router
 from services.database import init_db
 from supabase_config import get_supabase
 from pydantic import BaseModel
@@ -54,8 +55,9 @@ app.include_router(history_router, prefix="/api", tags=["Historial"])
 app.include_router(providers_router, prefix="/api", tags=["Proveedores"])
 app.include_router(analytics_router, prefix="/api", tags=["Analíticos"])
 app.include_router(facilities_router, prefix="/api", tags=["Instalaciones"])
-app.include_router(admin_router,   prefix="/api", tags=["Admin"])
-app.include_router(facturas_router, prefix="/api", tags=["Facturas"])
+app.include_router(admin_router,      prefix="/api", tags=["Admin"])
+app.include_router(facturas_router,   prefix="/api", tags=["Facturas"])
+app.include_router(movimientos_router,prefix="/api", tags=["Movimientos"])
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 # ── Endpoints Supabase para Configuración de Clientes ─────────────────────
 @app.post("/api/supabase/config")
@@ -586,6 +588,7 @@ tr:hover td{background:#f8fafc}
   <div class="tabs">
     <button class="tab active" data-tab="excel"><i class="fa-solid fa-file-csv"></i> Excel / CSV</button>
     <button class="tab" data-tab="cfdi"><i class="fa-solid fa-file-invoice"></i> CFDI (XML / ZIP)</button>
+    <button class="tab" data-tab="autoconsumo"><i class="fa-solid fa-gas-pump"></i> Autoconsumo</button>
   </div>
   <div class="panel active" id="panel-excel">
     <div class="drop" id="dropExcel">
@@ -619,6 +622,87 @@ tr:hover td{background:#f8fafc}
     </div>
     <button class="btn btn-red" id="btnCFDI" disabled>Procesar CFDI</button>
     <div class="loading" id="loadCFDI">⏳ Consolidando y generando reporte SAT...</div>
+  </div>
+
+  <!-- ══ Panel: Autoconsumo ════════════════════════════════════════════════ -->
+  <div class="panel" id="panel-autoconsumo">
+    <div class="info-box" style="background:#fef9c3;border-color:#fcd34d;color:#92400e">
+      <b><i class="fa-solid fa-gas-pump" style="margin-right:.4rem"></i>Registro de Autoconsumo</b><br>
+      Registra volúmenes consumidos internamente (flota, operación) <b>sin CFDI</b>.<br>
+      Este volumen se descuenta del inventario y aparece en la Bitácora con
+      <b>TipoEvento 11</b> conforme §17.4 de la Guía SAT Mayo 2023.
+    </div>
+
+    <!-- Switch de autoconsumo + RFC auto -->
+    <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:1rem;padding:.75rem 1rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
+      <label class="switch-label" style="display:flex;align-items:center;gap:.6rem;cursor:pointer;flex:1">
+        <div id="switchAutoconsumo" onclick="toggleAutoconsumoSwitch()" style="
+          width:44px;height:24px;background:#cbd5e1;border-radius:12px;position:relative;
+          cursor:pointer;transition:background .2s;flex-shrink:0">
+          <div id="switchThumb" style="
+            position:absolute;top:3px;left:3px;width:18px;height:18px;
+            background:#fff;border-radius:50%;transition:left .2s;
+            box-shadow:0 1px 3px rgba(0,0,0,.2)"></div>
+        </div>
+        <span style="font-size:.88rem;font-weight:600;color:#374151">Autoconsumo activo</span>
+      </label>
+      <div style="font-size:.75rem;color:#64748b" id="autoconsumoStatus">RFC cliente: se llenará automáticamente</div>
+    </div>
+
+    <div class="grid2" style="margin-bottom:.7rem">
+      <div class="field">
+        <label>RFC Cliente <span style="color:#64748b;font-size:.72rem;font-weight:400">— se completa automáticamente</span></label>
+        <input id="ac_rfc_cliente" type="text" placeholder="RFC de la empresa (auto)" readonly
+          style="background:#f1f5f9;color:#475569;cursor:not-allowed;text-transform:uppercase">
+      </div>
+      <div class="field">
+        <label>Tipo de movimiento</label>
+        <select id="ac_tipo">
+          <option value="autoconsumo">🚛 Autoconsumo — flota/operación</option>
+          <option value="merma">📉 Merma operativa reconocida</option>
+          <option value="trasvase">🔄 Trasvase interno entre tanques</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-bottom:.7rem">
+      <div class="field">
+        <label>Volumen (Litros) <span style="color:#e63946">*</span></label>
+        <input id="ac_volumen" type="number" min="0.01" step="0.01" placeholder="Ej. 500.00">
+      </div>
+      <div class="field">
+        <label>Fecha del movimiento <span style="color:#e63946">*</span></label>
+        <input id="ac_fecha" type="date">
+      </div>
+    </div>
+
+    <div class="field" style="margin-bottom:.7rem">
+      <label>Descripción adicional <span style="color:#64748b;font-size:.72rem;font-weight:400">— opcional</span></label>
+      <input id="ac_descripcion" type="text" placeholder="Ej. Unidades de reparto semana 12, recorrido 3,200 km" maxlength="200">
+    </div>
+
+    <!-- Bitácora SAT preview -->
+    <div style="background:#fef9c3;border:1px solid #fcd34d;border-radius:8px;padding:.7rem .9rem;margin-bottom:.9rem;font-size:.76rem;color:#78350f">
+      <b><i class="fa-solid fa-scroll" style="margin-right:.3rem"></i>Bitácora SAT que se generará:</b><br>
+      <span style="font-family:monospace">TipoEvento: 11 | DescripcionEvento: "Consumo interno para flota/operacion"</span>
+    </div>
+
+    <button class="btn btn-red" id="btnAutoconsumo" onclick="registrarAutoconsumo()" disabled>
+      <i class="fa-solid fa-gas-pump" style="margin-right:.4rem"></i>Registrar Autoconsumo
+    </button>
+    <div class="loading" id="loadAutoconsumo"><i class="fa-solid fa-spinner fa-spin"></i> Guardando en Supabase...</div>
+    <div id="autoconsumoResult" style="display:none;margin-top:.8rem;padding:.8rem 1rem;border-radius:8px;font-size:.83rem"></div>
+
+    <!-- Lista de autoconsumos del periodo actual -->
+    <div style="margin-top:1.2rem">
+      <div style="font-size:.8rem;font-weight:600;color:#475569;margin-bottom:.5rem;display:flex;align-items:center;justify-content:space-between">
+        <span><i class="fa-solid fa-list" style="margin-right:.3rem"></i>Autoconsumos registrados este periodo</span>
+        <button onclick="cargarAutoconsumos()" style="font-size:.72rem;padding:.25rem .6rem;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;cursor:pointer;color:#475569">Actualizar</button>
+      </div>
+      <div id="autoconsumoList" style="font-size:.78rem;color:#64748b;background:#f8fafc;border-radius:8px;padding:.6rem .8rem;min-height:48px;overflow-x:auto">
+        <i>Sin autoconsumos registrados este periodo.</i>
+      </div>
+    </div>
   </div>
 </div>
 </div>
@@ -1280,19 +1364,28 @@ tr:hover td{background:#f8fafc}
   <div id="facilityFormWrap" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.9rem 1rem;margin-bottom:.4rem">
     <div style="font-size:.82rem;font-weight:700;color:#374151;margin-bottom:.7rem" id="facilityFormTitle">Nueva instalación</div>
     <input type="hidden" id="facilityEditId" value="">
-    <!-- Tipo + Modalidad (auto) -->
+    <!-- Tipo de Permiso SAT — determina actividad DIS/EXO en el archivo -->
     <div class="grid2" style="margin-bottom:.6rem">
       <div class="field" style="margin:0">
-        <label style="font-size:.72rem">Tipo de instalación <span style="color:#e63946">*</span></label>
-        <select id="fac_tipo" style="padding:.5rem .7rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.88rem;width:100%">
-          <option value="planta">Planta de Distribución (PER40)</option>
-          <option value="estacion">Estación de Carburación (PER42)</option>
+        <label style="font-size:.72rem">Tipo de Permiso CRE <span style="color:#e63946">*</span></label>
+        <select id="fac_tipo_permiso" style="padding:.5rem .7rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.88rem;width:100%" onchange="actualizarInfoPermiso(this.value)">
+          <option value="PER40">PER40 — Planta de Distribución GLP (LP/.../DIST/PLA/...)</option>
+          <option value="PER41">PER41 — Distribución GLP por Ductos LP (LP/.../DIST/DUC/...)</option>
+          <option value="PER42">PER42 — Distribución GLP por Ductos G/ (G/.../LPD/...)</option>
+          <option value="PER43">PER43 — Expendio / Estación de Carburación GLP (LP/.../EXP/ES/...)</option>
+          <option value="PER44">PER44 — Expendio GLP Autoconsumo (LP/.../EXP/AUT/...)</option>
+          <option value="PER45">PER45 — Comercialización GLP (LP/.../COM/...)</option>
+          <option value="PER50">PER50 — Almacenamiento GLP (LP/.../ALM/...)</option>
+          <option value="PER51">PER51 — Distribución GLP Vehículos Reparto (LP/.../DIST/REP/...)</option>
         </select>
       </div>
       <div class="field" style="margin:0">
-        <label style="font-size:.72rem">Modalidad Permiso <span style="color:#64748b;font-weight:400">(asignada automáticamente)</span></label>
-        <input id="fac_modalidad" readonly value="PER40"
-          style="background:#f1f5f9;color:#475569;cursor:not-allowed;padding:.5rem .7rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.88rem;width:100%;box-sizing:border-box">
+        <label style="font-size:.72rem">Actividad SAT <span style="color:#64748b;font-weight:400">(Apéndice 4 — auto)</span></label>
+        <div id="fac_actividad_badge" style="display:flex;align-items:center;gap:.5rem;padding:.5rem .7rem;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:.88rem;color:#1e40af;font-weight:700">
+          <span id="fac_actividad_code">DIS</span>
+          <span id="fac_actividad_desc" style="font-weight:400;font-size:.78rem;color:#475569">Distribución</span>
+        </div>
+        <div style="font-size:.65rem;color:#64748b;margin-top:.2rem">Se usa en el nombre del archivo ZIP generado</div>
       </div>
     </div>
     <div class="grid2" style="margin-bottom:.6rem">
@@ -1407,6 +1500,12 @@ tr:hover td{background:#f8fafc}
   </div>
   <div class="grid3">
     <div class="field">
+      <label>Clave del Tanque <span style="color:#e63946">*</span></label>
+      <input id="adv_clave_tanque" type="text" placeholder="Ej. T-01 o TQS-PDD-0001" maxlength="30"
+        style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"
+        title="Clave única del tanque conforme Apéndice 3 de la Guía SAT">
+    </div>
+    <div class="field">
       <label>Capacidad Total del Tanque (L) <span style="color:#e63946">*</span></label>
       <input id="adv_cap_total" type="number" min="0" step="0.01" placeholder="Ej. 50000.00"
         title="Capacidad física máxima del tanque en litros">
@@ -1415,6 +1514,11 @@ tr:hover td{background:#f8fafc}
       <label>Capacidad Operativa (L) <span style="color:#e63946">*</span></label>
       <input id="adv_cap_operativa" type="number" min="0" step="0.01" placeholder="Ej. 45000.00"
         title="Volumen máximo de operación segura (generalmente 90% de la capacidad total)">
+    </div>
+    <div class="field">
+      <label>Capacidad Útil (L) <span style="color:#64748b;font-weight:400">— opcional</span></label>
+      <input id="adv_cap_util" type="number" min="0" step="0.01" placeholder="Auto: Total − 5%"
+        title="CapacidadTotal − VolumenMínimoOperación. Si se deja vacío, el sistema calcula Total × 95%.">
     </div>
     <div class="field">
       <label>Fecha de Última Calibración <span style="color:#e63946">*</span></label>
@@ -2369,8 +2473,8 @@ function openAddFacility() {
   ['fac_nombre','fac_clave','fac_num_permiso','fac_permiso_alm','fac_desc'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
-  document.getElementById('fac_tipo').value         = 'planta';
-  document.getElementById('fac_modalidad').value    = 'PER40';
+  const tpEl = document.getElementById('fac_tipo_permiso');
+  if (tpEl) { tpEl.value = 'PER40'; actualizarInfoPermiso('PER40'); }
   document.getElementById('fac_temp_default').value = '';
   document.getElementById('fac_capacidad').value    = '0';
   document.getElementById('fac_tanques').value      = '1';
@@ -2383,19 +2487,21 @@ function openAddFacility() {
 function openEditFacility(id) {
   const fac = _facilities.find(f => f.id === id);
   if (!fac) return;
-  document.getElementById('facilityEditId').value         = id;
+  document.getElementById('facilityEditId').value          = id;
   document.getElementById('facilityFormTitle').textContent = `Editar: ${fac.nombre}`;
-  document.getElementById('fac_nombre').value             = fac.nombre || '';
-  document.getElementById('fac_tipo').value               = fac.tipo_instalacion || 'planta';
-  document.getElementById('fac_modalidad').value          = fac.modalidad_permiso || 'PER40';
-  document.getElementById('fac_temp_default').value       = fac.temperatura_default ?? '';
-  document.getElementById('fac_clave').value              = fac.clave_instalacion || '';
-  document.getElementById('fac_num_permiso').value        = fac.num_permiso || '';
-  document.getElementById('fac_permiso_alm').value        = fac.permiso_alm || '';
-  document.getElementById('fac_desc').value               = fac.descripcion || '';
-  document.getElementById('fac_capacidad').value          = fac.capacidad_tanque || 0;
-  document.getElementById('fac_tanques').value            = fac.num_tanques ?? 1;
-  document.getElementById('fac_dispensarios').value       = fac.num_dispensarios ?? 0;
+  document.getElementById('fac_nombre').value              = fac.nombre || '';
+  // Usar tipo_permiso si está, si no derivar de modalidad_permiso
+  const tp = fac.tipo_permiso || fac.modalidad_permiso || 'PER40';
+  const tpEl = document.getElementById('fac_tipo_permiso');
+  if (tpEl) { tpEl.value = tp; actualizarInfoPermiso(tp); }
+  document.getElementById('fac_temp_default').value        = fac.temperatura_default ?? '';
+  document.getElementById('fac_clave').value               = fac.clave_instalacion || '';
+  document.getElementById('fac_num_permiso').value         = fac.num_permiso || '';
+  document.getElementById('fac_permiso_alm').value         = fac.permiso_alm || '';
+  document.getElementById('fac_desc').value                = fac.descripcion || '';
+  document.getElementById('fac_capacidad').value           = fac.capacidad_tanque || 0;
+  document.getElementById('fac_tanques').value             = fac.num_tanques ?? 1;
+  document.getElementById('fac_dispensarios').value        = fac.num_dispensarios ?? 0;
   document.getElementById('facilityFormStatus').textContent = '';
   document.getElementById('facilityFormWrap').style.display = '';
   document.getElementById('fac_nombre').focus();
@@ -2412,12 +2518,15 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
   const nombre = document.getElementById('fac_nombre').value.trim();
   if (!nombre) { st.textContent = 'El nombre es requerido.'; st.style.color='#dc2626'; return; }
   st.textContent = 'Guardando...'; st.style.color = '#64748b';
-  const tipoFac = document.getElementById('fac_tipo').value;
+  const tipoPermiso = document.getElementById('fac_tipo_permiso')?.value || 'PER40';
+  const actividadInfo = PERMISO_ACTIVIDAD[tipoPermiso] || {code:'DIS'};
   const tempDefault = document.getElementById('fac_temp_default').value;
   const body = {
     nombre,
-    tipo_instalacion:    tipoFac,
-    modalidad_permiso:   tipoFac === 'estacion' ? 'PER42' : 'PER40',
+    tipo_instalacion:    tipoPermiso.startsWith('PER4') && tipoPermiso >= 'PER43' ? 'estacion' : 'planta',
+    tipo_permiso:        tipoPermiso,
+    modalidad_permiso:   tipoPermiso,
+    actividad_sat:       actividadInfo.code,
     caracter:            'permisionario',
     temperatura_default: tempDefault !== '' ? parseFloat(tempDefault) : null,
     clave_instalacion:   document.getElementById('fac_clave').value.trim(),
@@ -2911,10 +3020,31 @@ document.getElementById('btnClearCFDI').addEventListener('click', () => {
 });
 
 // ── Auto-asignar ModalidadPermiso según tipo de instalación ──────────────
-document.getElementById('fac_tipo').addEventListener('change', function() {
-  document.getElementById('fac_modalidad').value =
-    this.value === 'estacion' ? 'PER42' : 'PER40';
+document.getElementById('fac_tipo_permiso')?.addEventListener('change', function() {
+  actualizarInfoPermiso(this.value);
 });
+
+// Catálogo de permisos → actividad SAT (espeja PERMISO_CONFIG del backend)
+const PERMISO_ACTIVIDAD = {
+  'PER40': {code:'DIS', desc:'Distribución'}, 'PER41': {code:'DIS', desc:'Distribución'},
+  'PER42': {code:'DIS', desc:'Distribución'}, 'PER51': {code:'DIS', desc:'Distribución'},
+  'PER43': {code:'EXO', desc:'Expendio'},     'PER44': {code:'EXO', desc:'Expendio'},
+  'PER45': {code:'CMN', desc:'Comercialización'},
+  'PER50': {code:'ALM', desc:'Almacenamiento'},
+};
+function actualizarInfoPermiso(tipoPermiso) {
+  const info = PERMISO_ACTIVIDAD[tipoPermiso] || {code:'DIS', desc:'Distribución'};
+  const codeEl = document.getElementById('fac_actividad_code');
+  const descEl = document.getElementById('fac_actividad_desc');
+  const badge  = document.getElementById('fac_actividad_badge');
+  if (codeEl) codeEl.textContent = info.code;
+  if (descEl) descEl.textContent = info.desc;
+  if (badge) {
+    badge.style.background = info.code === 'EXO' ? '#fef9c3' : '#eff6ff';
+    badge.style.borderColor = info.code === 'EXO' ? '#fcd34d' : '#bfdbfe';
+    badge.style.color = info.code === 'EXO' ? '#92400e' : '#1e40af';
+  }
+}
 
 
 
@@ -3941,18 +4071,23 @@ function setStatusMsg(id, msg, ok) {
 }
 
 async function guardarPerfilTanques() {
+  const claveTanque = document.getElementById('adv_clave_tanque').value.trim().toUpperCase();
   const capTotal = parseFloat(document.getElementById('adv_cap_total').value);
   const capOp    = parseFloat(document.getElementById('adv_cap_operativa').value);
+  const capUtil  = document.getElementById('adv_cap_util').value ? parseFloat(document.getElementById('adv_cap_util').value) : null;
   const fecha    = document.getElementById('adv_fecha_calibracion').value;
   if (!capTotal || !capOp || !fecha) {
-    setStatusMsg('statusTanques', 'Completa todos los campos requeridos.', false); return;
+    setStatusMsg('statusTanques', 'Completa los campos requeridos (Capacidad Total, Operativa y Fecha).', false); return;
   }
   if (capOp > capTotal) {
     setStatusMsg('statusTanques', 'La capacidad operativa no puede superar la total.', false); return;
   }
+  if (capUtil !== null && capUtil > capTotal) {
+    setStatusMsg('statusTanques', 'La capacidad útil no puede superar la total.', false); return;
+  }
   try {
     const data = JSON.parse(localStorage.getItem(SUPABASE_SETTINGS_KEY) || '{}');
-    data.tanques = { cap_total: capTotal, cap_operativa: capOp, fecha_calibracion: fecha };
+    data.tanques = { clave_tanque: claveTanque, cap_total: capTotal, cap_operativa: capOp, cap_util: capUtil, fecha_calibracion: fecha };
     localStorage.setItem(SUPABASE_SETTINGS_KEY, JSON.stringify(data));
     const res = await fetch('/api/settings', {
       method: 'POST',
@@ -4089,8 +4224,10 @@ function cargarConfigAvanzada() {
   try {
     const data = JSON.parse(localStorage.getItem(SUPABASE_SETTINGS_KEY) || '{}');
     if (data.tanques) {
+      document.getElementById('adv_clave_tanque').value   = data.tanques.clave_tanque || '';
       document.getElementById('adv_cap_total').value = data.tanques.cap_total || '';
       document.getElementById('adv_cap_operativa').value = data.tanques.cap_operativa || '';
+      document.getElementById('adv_cap_util').value  = data.tanques.cap_util != null ? data.tanques.cap_util : '';
       document.getElementById('adv_fecha_calibracion').value = data.tanques.fecha_calibracion || '';
     }
     if (data.medicion) {
@@ -4121,6 +4258,192 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('adv_longitud')?.addEventListener('input', validarCoordenadas);
   document.getElementById('adv_propano')?.addEventListener('input', validarComposicion);
   document.getElementById('adv_butano')?.addEventListener('input', validarComposicion);
+});
+
+// ── Autoconsumo ───────────────────────────────────────────────────────────────
+
+let _autoconsumoActivo = false;
+
+function toggleAutoconsumoSwitch() {
+  _autoconsumoActivo = !_autoconsumoActivo;
+  const sw    = document.getElementById('switchAutoconsumo');
+  const thumb = document.getElementById('switchThumb');
+  const btn   = document.getElementById('btnAutoconsumo');
+  const status= document.getElementById('autoconsumoStatus');
+  const rfcEl = document.getElementById('ac_rfc_cliente');
+
+  if (_autoconsumoActivo) {
+    sw.style.background  = '#16a34a';
+    thumb.style.left     = '23px';
+    btn.disabled         = false;
+    // Auto-completar RFC con el de la empresa
+    const rfcEmpresa = document.getElementById('rfc')?.value?.trim()?.toUpperCase() || '';
+    rfcEl.value = rfcEmpresa || '(configura tu RFC en Configuración)';
+    status.textContent   = rfcEmpresa ? `RFC: ${rfcEmpresa}` : 'Configura tu RFC en Configuración';
+    status.style.color   = rfcEmpresa ? '#16a34a' : '#dc2626';
+    // Prefill fecha con hoy
+    if (!document.getElementById('ac_fecha').value) {
+      document.getElementById('ac_fecha').value = new Date().toISOString().slice(0,10);
+    }
+  } else {
+    sw.style.background  = '#cbd5e1';
+    thumb.style.left     = '3px';
+    btn.disabled         = true;
+    rfcEl.value          = '';
+    status.textContent   = 'RFC cliente: se llenará automáticamente';
+    status.style.color   = '#64748b';
+  }
+}
+
+async function registrarAutoconsumo() {
+  const volumen = parseFloat(document.getElementById('ac_volumen').value);
+  const fecha   = document.getElementById('ac_fecha').value;
+  const tipo    = document.getElementById('ac_tipo').value;
+  const desc    = document.getElementById('ac_descripcion').value.trim();
+  const rfcEl   = document.getElementById('ac_rfc_cliente').value.trim();
+  const resultEl= document.getElementById('autoconsumoResult');
+  const loadEl  = document.getElementById('loadAutoconsumo');
+
+  if (!volumen || volumen <= 0) { resultEl.style.display=''; resultEl.style.background='#fef2f2'; resultEl.style.border='1px solid #fca5a5'; resultEl.textContent='Ingresa un volumen válido mayor a 0.'; return; }
+  if (!fecha) { resultEl.style.display=''; resultEl.style.background='#fef2f2'; resultEl.style.border='1px solid #fca5a5'; resultEl.textContent='Selecciona la fecha del movimiento.'; return; }
+
+  // Inferir periodo desde la fecha
+  const periodo = fecha.slice(0, 7);  // YYYY-MM
+
+  loadEl.style.display = 'block';
+  resultEl.style.display = 'none';
+  document.getElementById('btnAutoconsumo').disabled = true;
+
+  try {
+    const rfc = document.getElementById('rfc')?.value?.trim()?.toUpperCase() || rfcEl;
+    const res = await fetch('/api/movimientos/autoconsumo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({
+        volumen_litros:    volumen,
+        fecha:             fecha,
+        periodo:           periodo,
+        rfc_contribuyente: rfc,
+        tipo_movimiento:   tipo,
+        descripcion:       desc,
+        facility_id:       _activeFacilityId || null,
+        temperatura:       parseFloat(document.getElementById('proc_temperatura')?.value || '20') || 20.0,
+        presion_absoluta:  101.325,
+      }),
+    });
+    const data = await res.json();
+    loadEl.style.display = 'none';
+
+    if (res.ok && data.ok) {
+      resultEl.style.display  = '';
+      resultEl.style.background = '#f0fdf4';
+      resultEl.style.border   = '1px solid #86efac';
+      resultEl.style.color    = '#15803d';
+      resultEl.innerHTML = `
+        <b><i class="fa-solid fa-check-circle" style="margin-right:.3rem"></i>Registrado correctamente</b><br>
+        <span style="font-family:monospace;font-size:.75rem">${data.uuid}</span><br>
+        ${volumen.toLocaleString('es-MX',{minimumFractionDigits:2})} L · TipoEvento SAT: <b>11</b> · 
+        Guardado en Supabase ✅
+      `;
+      // Limpiar formulario
+      document.getElementById('ac_volumen').value     = '';
+      document.getElementById('ac_descripcion').value = '';
+      showToast(`Autoconsumo de ${volumen.toLocaleString('es-MX',{minimumFractionDigits:2})} L registrado.`, 'success');
+      cargarAutoconsumos();
+    } else {
+      resultEl.style.display  = '';
+      resultEl.style.background = '#fef2f2';
+      resultEl.style.border   = '1px solid #fca5a5';
+      resultEl.style.color    = '#dc2626';
+      resultEl.textContent    = `Error: ${data.detail || 'No se pudo registrar.'}`;
+    }
+  } catch(e) {
+    loadEl.style.display = 'none';
+    resultEl.style.display = '';
+    resultEl.style.background = '#fef2f2';
+    resultEl.style.border   = '1px solid #fca5a5';
+    resultEl.style.color    = '#dc2626';
+    resultEl.textContent    = `Error de conexión: ${e.message}`;
+  } finally {
+    document.getElementById('btnAutoconsumo').disabled = !_autoconsumoActivo;
+  }
+}
+
+async function cargarAutoconsumos() {
+  const listEl = document.getElementById('autoconsumoList');
+  if (!listEl || !authToken) return;
+  const periodo = document.getElementById('procMes') && document.getElementById('procAnio')
+    ? `${document.getElementById('procAnio').value}-${document.getElementById('procMes').value}`
+    : new Date().toISOString().slice(0,7);
+  try {
+    const url = `/api/movimientos/autoconsumo?periodo=${periodo}` + (_activeFacilityId ? `&facility_id=${_activeFacilityId}` : '');
+    const res  = await fetch(url, { headers: authHeader() });
+    const data = await res.json();
+    const acs  = data.autoconsumos || [];
+    if (!acs.length) {
+      listEl.innerHTML = '<i>Sin autoconsumos registrados este periodo.</i>';
+      return;
+    }
+    const totalVol = acs.reduce((s, a) => s + parseFloat(a.volumen_litros || 0), 0);
+    listEl.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:.75rem">
+        <thead>
+          <tr style="background:#f1f5f9">
+            <th style="padding:.3rem .5rem;text-align:left;color:#475569">Fecha</th>
+            <th style="padding:.3rem .5rem;text-align:left;color:#475569">Tipo</th>
+            <th style="padding:.3rem .5rem;text-align:right;color:#475569">Volumen (L)</th>
+            <th style="padding:.3rem .5rem;text-align:left;color:#475569">UUID</th>
+            <th style="padding:.3rem .5rem;text-align:center;color:#475569">Eliminar</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${acs.map(a => `
+            <tr style="border-bottom:1px solid #f1f5f9">
+              <td style="padding:.3rem .5rem">${a.fecha}</td>
+              <td style="padding:.3rem .5rem">${(a.nombre_contraparte||'').replace('AUTOCONSUMO — ','')}</td>
+              <td style="padding:.3rem .5rem;text-align:right;font-weight:600;color:#dc2626">−${parseFloat(a.volumen_litros).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
+              <td style="padding:.3rem .5rem;font-family:monospace;color:#64748b;font-size:.68rem">${(a.uuid||'').slice(0,16)}…</td>
+              <td style="padding:.3rem .5rem;text-align:center">
+                <button onclick="eliminarAutoconsumo(${a.id})" style="font-size:.68rem;padding:.15rem .4rem;border:1px solid #fca5a5;border-radius:4px;background:#fff1f2;color:#dc2626;cursor:pointer">✕</button>
+              </td>
+            </tr>
+          `).join('')}
+          <tr style="background:#f8fafc;font-weight:700">
+            <td colspan="2" style="padding:.3rem .5rem;font-size:.76rem;color:#374151">Total descargado</td>
+            <td style="padding:.3rem .5rem;text-align:right;color:#dc2626">−${totalVol.toLocaleString('es-MX',{minimumFractionDigits:2})} L</td>
+            <td colspan="2"></td>
+          </tr>
+        </tbody>
+      </table>`;
+  } catch(e) {
+    listEl.innerHTML = `<i style="color:#dc2626">Error cargando: ${e.message}</i>`;
+  }
+}
+
+async function eliminarAutoconsumo(id) {
+  if (!confirm('¿Eliminar este registro de autoconsumo? Esta acción no se puede deshacer.')) return;
+  try {
+    const res = await fetch(`/api/movimientos/autoconsumo/${id}`, { method: 'DELETE', headers: authHeader() });
+    const data = await res.json();
+    if (data.ok) { showToast('Autoconsumo eliminado.', 'info'); cargarAutoconsumos(); }
+    else alert(data.detail || 'Error al eliminar.');
+  } catch(e) { alert('Error de conexión: ' + e.message); }
+}
+
+// Cargar autoconsumos al cambiar al tab de autoconsumo
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.tab').forEach(t => {
+    if (t.dataset.tab === 'autoconsumo') {
+      t.addEventListener('click', () => {
+        setTimeout(cargarAutoconsumos, 100);
+        // Auto-completar RFC al abrir
+        const rfcEl = document.getElementById('ac_rfc_cliente');
+        if (rfcEl && _autoconsumoActivo) {
+          rfcEl.value = document.getElementById('rfc')?.value?.trim()?.toUpperCase() || '';
+        }
+      });
+    }
+  });
 });
 
 // Restore role from localStorage immediately (before verifySession returns)
