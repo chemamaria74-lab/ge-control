@@ -762,10 +762,11 @@ def save_report_files(
         zf.writestr(base_json + ".json", json_content.encode("utf-8"))
 
     return {
-        "xml_path":  xml_path,
-        "json_path": json_path,
-        "zip_path":  zip_path,
-        "xml_name":  base_xml  + ".xml",
-        "json_name": base_json + ".json",
-        "zip_name":  base_json + ".zip",
+        "xml_path":    xml_path,
+        "json_path":   json_path,
+        "zip_path":    zip_path,
+        "xml_name":    base_xml  + ".xml",
+        "json_name":   base_json + ".json",
+        "zip_name":    base_json + ".zip",
+        "json_content": json_content,   # para el response de la API
     }
