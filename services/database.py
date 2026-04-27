@@ -147,7 +147,9 @@ def create_facility_v2(user_id: str, data: dict) -> dict:
             "modulo_propietario": data.get("modulo_propietario", "gas_lp"),
             "nombre":             data.get("nombre", ""),
             "tipo_instalacion":   data.get("tipo_instalacion", "planta"),
+            "tipo_permiso":       data.get("tipo_permiso", "PER40"),
             "modalidad_permiso":  data.get("modalidad_permiso", "PER40"),
+            "actividad_sat":      data.get("actividad_sat", "DIS"),
             "caracter":           data.get("caracter", "permisionario"),
             "num_permiso":        data.get("num_permiso", ""),
             "permiso_alm":        data.get("permiso_alm", ""),
@@ -157,6 +159,8 @@ def create_facility_v2(user_id: str, data: dict) -> dict:
             "num_tanques":        int(data.get("num_tanques", 1)),
             "num_dispensarios":   int(data.get("num_dispensarios", 0)),
             "temperatura_default": data.get("temperatura_default"),
+            "latitud":            data.get("latitud"),
+            "longitud":           data.get("longitud"),
             "created_at":         _now(),
         }).execute()
         return result.data[0] if result.data else {}
@@ -171,7 +175,9 @@ def update_facility_v2(facility_id: int, user_id: str, data: dict) -> Optional[d
             "modulo_propietario": data.get("modulo_propietario", "gas_lp"),
             "nombre":             data.get("nombre", ""),
             "tipo_instalacion":   data.get("tipo_instalacion", "planta"),
+            "tipo_permiso":       data.get("tipo_permiso", "PER40"),
             "modalidad_permiso":  data.get("modalidad_permiso", "PER40"),
+            "actividad_sat":      data.get("actividad_sat", "DIS"),
             "caracter":           data.get("caracter", "permisionario"),
             "num_permiso":        data.get("num_permiso", ""),
             "permiso_alm":        data.get("permiso_alm", ""),
@@ -181,6 +187,8 @@ def update_facility_v2(facility_id: int, user_id: str, data: dict) -> Optional[d
             "num_tanques":        int(data.get("num_tanques", 1)),
             "num_dispensarios":   int(data.get("num_dispensarios", 0)),
             "temperatura_default": data.get("temperatura_default"),
+            "latitud":            data.get("latitud"),
+            "longitud":           data.get("longitud"),
         }).eq("id", facility_id).eq("user_id", user_id).execute()
         return get_facility(facility_id, user_id)
     except Exception as e:
