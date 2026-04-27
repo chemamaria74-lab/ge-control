@@ -463,6 +463,7 @@ tr:hover td{background:#f8fafc}
   <button class="main-nav-tab active" data-main="procesar"><i class="fa-solid fa-file-upload"></i> Procesar</button>
   <button class="main-nav-tab" data-main="controles"><i class="fa-solid fa-gauge-high"></i> Controles Volumétricos</button>
   <button class="main-nav-tab" data-main="ventas"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
+  <button class="main-nav-tab" data-main="proveedores"><i class="fa-solid fa-truck-fast"></i> Proveedores</button>
   <button class="main-nav-tab" data-main="historial"><i class="fa-solid fa-history"></i> Historial</button>
   <button class="main-nav-tab" data-main="config"><i class="fa-solid fa-gear"></i> Configuración</button>
   <button class="main-nav-tab" data-main="config-avanzada"><i class="fa-solid fa-triangle-exclamation" style="color:#dc2626"></i> Config. Avanzada</button>
@@ -1197,6 +1198,118 @@ tr:hover td{background:#f8fafc}
   </div>
 </div>
 </div><!-- /mpanel-ventas -->
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     PANEL: PROVEEDORES + PRONÓSTICO
+     ══════════════════════════════════════════════════════════════════════ -->
+<div class="main-panel" id="mpanel-proveedores">
+<div class="card" style="margin-bottom:1rem">
+  <h2><i class="fa-solid fa-truck-fast" style="margin-right:.4rem"></i>Análisis de Proveedores</h2>
+
+  <!-- Filtros -->
+  <div style="display:flex;gap:.8rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1rem">
+    <div class="field" style="margin:0;min-width:180px">
+      <label>Instalación</label>
+      <select id="provFacility" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+        <option value="">Todas</option>
+      </select>
+    </div>
+    <div class="field" style="margin:0;min-width:100px">
+      <label>Año</label>
+      <select id="provAnio" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem"></select>
+    </div>
+    <div class="field" style="margin:0">
+      <label>Gráfica</label>
+      <select id="provTipoGrafica" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+        <option value="todos">Todos los proveedores — participación</option>
+        <option value="uno">Un proveedor — evolución mensual</option>
+        <option value="precio">Comparativa precio/litro</option>
+      </select>
+    </div>
+    <div class="field" style="margin:0;min-width:160px" id="provSelectorWrap" style="display:none">
+      <label>Proveedor específico</label>
+      <select id="provEspecifico" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+        <option value="">— selecciona —</option>
+      </select>
+    </div>
+    <button class="btn-save" onclick="cargarProveedores()" style="margin-top:1.4rem">
+      <i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i>Actualizar
+    </button>
+  </div>
+
+  <!-- KPIs rápidos -->
+  <div id="provKpis" class="grid3" style="margin-bottom:1rem;display:none">
+    <div class="hist-total-box" style="border-color:#3b82f6">
+      <div class="label">Proveedor más económico</div>
+      <div class="value" id="provEconomicoNombre" style="color:#1e40af;font-size:1rem">—</div>
+      <div class="unit" id="provEconomicoPrecio">$/L</div>
+    </div>
+    <div class="hist-total-box" style="border-color:#10b981">
+      <div class="label">Mayor volumen suministrado</div>
+      <div class="value" id="provMayorNombre" style="color:#059669;font-size:1rem">—</div>
+      <div class="unit" id="provMayorVol">Litros</div>
+    </div>
+    <div class="hist-total-box" style="border-color:#f59e0b">
+      <div class="label">Total comprado en el año</div>
+      <div class="value" id="provTotalVol" style="color:#d97706">—</div>
+      <div class="unit">Litros</div>
+    </div>
+  </div>
+
+  <!-- Canvas gráfica -->
+  <div style="position:relative;height:280px">
+    <canvas id="provChart"></canvas>
+  </div>
+
+  <!-- Tabla de proveedores -->
+  <div style="overflow-x:auto;margin-top:1rem">
+    <table id="provTable" style="width:100%;border-collapse:collapse;font-size:.78rem;display:none">
+      <thead>
+        <tr style="background:#f1f5f9">
+          <th style="padding:.4rem .6rem;text-align:left;color:#475569">Proveedor</th>
+          <th style="padding:.4rem .6rem;text-align:left;color:#475569">RFC</th>
+          <th style="padding:.4rem .6rem;text-align:right;color:#475569">Volumen (L)</th>
+          <th style="padding:.4rem .6rem;text-align:right;color:#475569">Importe</th>
+          <th style="padding:.4rem .6rem;text-align:right;color:#475569">$/Litro</th>
+          <th style="padding:.4rem .6rem;text-align:right;color:#475569">Participación</th>
+        </tr>
+      </thead>
+      <tbody id="provTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Tarjeta Pronóstico -->
+<div class="card">
+  <h2><i class="fa-solid fa-chart-line" style="margin-right:.4rem"></i>Pronóstico de Compras</h2>
+  <p style="font-size:.8rem;color:#64748b;margin-bottom:1rem">
+    Basado en promedio móvil de los últimos meses para estimar cuándo y cuánto comprar.
+  </p>
+  <div id="forecastCards" class="grid3" style="margin-bottom:1rem;display:none">
+    <div class="hist-total-box" style="border-color:#6366f1">
+      <div class="label">Compra promedio/mes</div>
+      <div class="value" id="fcPromVol" style="color:#4338ca">—</div>
+      <div class="unit">Litros</div>
+    </div>
+    <div class="hist-total-box" style="border-color:#f43f5e">
+      <div class="label">Consumo diario estimado</div>
+      <div class="value" id="fcConsumo" style="color:#be123c">—</div>
+      <div class="unit">L/día</div>
+    </div>
+    <div class="hist-total-box" style="border-color:#14b8a6">
+      <div class="label">Precio promedio</div>
+      <div class="value" id="fcPrecio" style="color:#0f766e">—</div>
+      <div class="unit">$/Litro</div>
+    </div>
+  </div>
+  <div id="forecastRecomendacion" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:1rem;font-size:.85rem;color:#1e40af;line-height:1.7">
+  </div>
+  <div id="forecastEmpty" style="color:#94a3b8;text-align:center;padding:1.5rem;font-size:.88rem">
+    <i class="fa-solid fa-chart-line" style="font-size:1.8rem;margin-bottom:.4rem;display:block;color:#cbd5e1"></i>
+    Genera al menos 2 reportes para activar el pronóstico.
+  </div>
+</div>
+</div><!-- /mpanel-proveedores -->
 
 <!-- ══════════════════════════════════════════════════════════════════════
      PANEL: HISTORIAL
@@ -4444,6 +4557,195 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
   });
+});
+
+// ── Proveedores & Pronóstico ──────────────────────────────────────────────────
+
+let _provChart = null;
+let _provData  = null;
+
+function initProvAnios() {
+  const sel = document.getElementById('provAnio');
+  if (!sel) return;
+  const anio = new Date().getFullYear();
+  sel.innerHTML = '';
+  for (let y = anio; y >= anio - 4; y--) {
+    sel.innerHTML += `<option value="${y}"${y===anio?' selected':''}>${y}</option>`;
+  }
+}
+initProvAnios();
+
+document.getElementById('provTipoGrafica')?.addEventListener('change', function() {
+  const wrap = document.getElementById('provSelectorWrap');
+  if (wrap) wrap.style.display = this.value === 'uno' ? '' : 'none';
+  if (_provData) renderProvChart(_provData);
+});
+document.getElementById('provEspecifico')?.addEventListener('change', () => {
+  if (_provData) renderProvChart(_provData);
+});
+
+async function cargarProveedores() {
+  const year  = document.getElementById('provAnio')?.value || new Date().getFullYear();
+  const facId = document.getElementById('provFacility')?.value || '';
+  let url = `/api/analytics/proveedores?year=${year}`;
+  if (facId) url += `&facility_id=${facId}`;
+  try {
+    const res = await fetch(url, { headers: authHeader() });
+    const data = await res.json();
+    _provData  = data;
+    renderProvChart(data);
+    renderProvTable(data);
+    renderProvKpis(data);
+    // Popular selector de proveedor
+    const sel = document.getElementById('provEspecifico');
+    if (sel) {
+      sel.innerHTML = '<option value="">— selecciona —</option>';
+      (data.proveedores || []).forEach(p => {
+        sel.innerHTML += `<option value="${p.rfc}">${p.nombre} (${p.rfc})</option>`;
+      });
+    }
+    cargarForecast(facId);
+  } catch(e) { console.warn('cargarProveedores:', e); }
+}
+
+function renderProvKpis(data) {
+  const provs = data.proveedores || [];
+  if (!provs.length) return;
+  document.getElementById('provKpis').style.display = '';
+  const eco   = [...provs].filter(p => p.volumen_total > 0).sort((a,b) => a.precio_promedio_litro - b.precio_promedio_litro)[0];
+  const mayor = [...provs].sort((a,b) => b.volumen_total - a.volumen_total)[0];
+  document.getElementById('provEconomicoNombre').textContent = eco?.nombre?.slice(0,16) || '—';
+  document.getElementById('provEconomicoPrecio').textContent = eco ? `$${eco.precio_promedio_litro.toFixed(4)}/L` : '—';
+  document.getElementById('provMayorNombre').textContent  = mayor?.nombre?.slice(0,16) || '—';
+  document.getElementById('provMayorVol').textContent     = mayor ? `${mayor.volumen_total.toLocaleString('es-MX',{minimumFractionDigits:0})} L` : '—';
+  document.getElementById('provTotalVol').textContent     = data.total_volumen?.toLocaleString('es-MX',{minimumFractionDigits:0}) || '—';
+}
+
+const PROV_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f43f5e','#84cc16','#ec4899','#0ea5e9'];
+
+function renderProvChart(data) {
+  const ctx  = document.getElementById('provChart');
+  if (!ctx) return;
+  const tipo = document.getElementById('provTipoGrafica')?.value || 'todos';
+  const provs= data.proveedores || [];
+  if (_provChart) { _provChart.destroy(); _provChart = null; }
+
+  if (tipo === 'todos') {
+    _provChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: provs.map(p => p.nombre?.slice(0,20) || p.rfc),
+        datasets: [{ data: provs.map(p => p.volumen_total),
+          backgroundColor: PROV_COLORS.slice(0, provs.length),
+          borderWidth: 2, borderColor: '#fff' }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right', labels: { font:{ size:11 }, boxWidth:14 } },
+          tooltip: { callbacks: { label: c => ` ${c.label}: ${c.raw.toLocaleString('es-MX',{minimumFractionDigits:0})} L (${((c.raw/(data.total_volumen||1))*100).toFixed(1)}%)` } }
+        }
+      }
+    });
+  } else if (tipo === 'precio') {
+    const sorted = [...provs].filter(p=>p.precio_promedio_litro>0).sort((a,b) => a.precio_promedio_litro - b.precio_promedio_litro);
+    _provChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: sorted.map(p => p.nombre?.slice(0,18) || p.rfc),
+        datasets: [{ label: '$/Litro', data: sorted.map(p => p.precio_promedio_litro),
+          backgroundColor: PROV_COLORS.slice(0, sorted.length), borderRadius: 4 }]
+      },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: c => ` $${c.raw.toFixed(4)}/L` } } },
+        scales: { x:{ ticks:{ callback: v => '$'+v.toFixed(2) } } }
+      }
+    });
+  } else if (tipo === 'uno') {
+    const rfcSel = document.getElementById('provEspecifico')?.value;
+    const prov   = provs.find(p => p.rfc === rfcSel) || provs[0];
+    if (!prov) return;
+    const MESES  = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    _provChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: MESES,
+        datasets: [{ label: `${prov.nombre} — Volumen (L)`, data: prov.por_mes,
+          backgroundColor: '#3b82f680', borderColor: '#3b82f6', borderWidth:1, borderRadius:4 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend:{display:true}, tooltip:{ callbacks:{ label: c => ` ${c.raw.toLocaleString('es-MX',{minimumFractionDigits:0})} L` } } },
+        scales: { y:{ ticks:{ callback: v => v.toLocaleString('es-MX',{maximumFractionDigits:0})+' L' } } }
+      }
+    });
+  }
+}
+
+function renderProvTable(data) {
+  const tbody = document.getElementById('provTableBody');
+  const tbl   = document.getElementById('provTable');
+  if (!tbody || !tbl) return;
+  const total = data.total_volumen || 1;
+  tbody.innerHTML = (data.proveedores||[]).map((p,i) => `
+    <tr style="border-bottom:1px solid #f1f5f9;background:${i%2===0?'#fff':'#f8fafc'}">
+      <td style="padding:.4rem .6rem;font-weight:500">${p.nombre||p.rfc}</td>
+      <td style="padding:.4rem .6rem;font-family:monospace;font-size:.72rem;color:#64748b">${p.rfc}</td>
+      <td style="padding:.4rem .6rem;text-align:right">${p.volumen_total.toLocaleString('es-MX',{minimumFractionDigits:0})}</td>
+      <td style="padding:.4rem .6rem;text-align:right">$${p.importe_total.toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
+      <td style="padding:.4rem .6rem;text-align:right;color:#16a34a;font-weight:600">$${p.precio_promedio_litro.toFixed(4)}</td>
+      <td style="padding:.4rem .6rem;text-align:right">
+        <div style="display:flex;align-items:center;gap:.4rem;justify-content:flex-end">
+          <div style="height:8px;border-radius:4px;background:#3b82f6;width:${Math.round(p.volumen_total/total*80)}px;min-width:4px"></div>
+          ${((p.volumen_total/total)*100).toFixed(1)}%
+        </div>
+      </td>
+    </tr>`).join('');
+  tbl.style.display = '';
+}
+
+async function cargarForecast(facId='') {
+  let url = '/api/analytics/forecast';
+  if (facId) url += `?facility_id=${facId}`;
+  try {
+    const res  = await fetch(url, { headers: authHeader() });
+    const data = await res.json();
+    const empty= document.getElementById('forecastEmpty');
+    const cards= document.getElementById('forecastCards');
+    const rec  = document.getElementById('forecastRecomendacion');
+    if (!data.periodos_analizados || data.periodos_analizados < 2) {
+      if (empty) empty.style.display = '';
+      if (cards) cards.style.display = 'none';
+      if (rec)   rec.style.display   = 'none';
+      return;
+    }
+    if (empty) empty.style.display = 'none';
+    if (cards) cards.style.display = '';
+    document.getElementById('fcPromVol').textContent = data.promedio_compra_mes?.toLocaleString('es-MX',{minimumFractionDigits:0}) || '—';
+    document.getElementById('fcConsumo').textContent = data.consumo_diario_estimado?.toLocaleString('es-MX',{minimumFractionDigits:0}) || '—';
+    document.getElementById('fcPrecio').textContent  = data.precio_promedio_litro ? `$${data.precio_promedio_litro.toFixed(4)}` : '—';
+    if (rec) {
+      rec.style.display = '';
+      const eco  = data.proveedor_mas_economico;
+      const mVol = data.proveedor_mayor_volumen;
+      rec.innerHTML = `
+        <b><i class="fa-solid fa-lightbulb" style="margin-right:.4rem;color:#f59e0b"></i>Recomendaciones basadas en tu historial:</b>
+        <ul style="margin:.6rem 0 0 1.2rem;padding:0">
+          ${eco?.nombre ? `<li><b>Proveedor más económico:</b> ${eco.nombre} — $${eco.precio_litro?.toFixed(4)}/L. Considera priorizar sus pedidos para reducir costos.</li>` : ''}
+          ${mVol?.nombre ? `<li><b>Mayor confiabilidad de suministro:</b> ${mVol.nombre} (${mVol.volumen?.toLocaleString('es-MX',{minimumFractionDigits:0})} L entregados en el período).</li>` : ''}
+          <li><b>Volumen de compra sugerido:</b> ${data.promedio_compra_mes?.toLocaleString('es-MX',{minimumFractionDigits:0})} L/mes (promedio histórico).</li>
+          ${data.dias_stock_estimado ? `<li><b>Stock estimado:</b> ~${data.dias_stock_estimado} meses de operación con el consumo actual.</li>` : ''}
+        </ul>`;
+    }
+  } catch(e) { console.warn('cargarForecast:', e); }
+}
+
+// Cargar proveedores al activar el tab
+document.querySelectorAll('.main-nav-tab').forEach(btn => {
+  if (btn.dataset.main === 'proveedores') {
+    btn.addEventListener('click', () => setTimeout(cargarProveedores, 100));
+  }
 });
 
 // Restore role from localStorage immediately (before verifySession returns)
