@@ -106,57 +106,72 @@ def _fmt_iso_hhmm00(ts: str) -> str:
     return ts
 
 
+# ── Catálogo de actividades SAT por tipo de permiso (Apéndice 4, Guía SAT 2023) ─
+# Usado en el nombre del archivo y en el nodo raíz del JSON
+ACTIVIDAD_POR_PERMISO: dict = {
+    "PER40": "DIS",   # Distribución GLP mediante planta
+    "PER41": "DIS",   # Distribución GLP por ductos LP
+    "PER42": "DIS",   # Distribución GLP por ductos G/
+    "PER43": "EXO",   # Expendio GLP Estación de Servicio → Carburación
+    "PER44": "EXO",   # Expendio GLP Autoconsumo
+    "PER45": "CMN",   # Comercialización GLP
+    "PER50": "ALM",   # Almacenamiento GLP
+    "PER51": "DIS",   # Distribución GLP vehículos de reparto
+}
+
+
+def _actividad_sat(settings: dict) -> str:
+    """
+    Retorna la clave de actividad SAT según el permiso configurado.
+    Prioridad: 1) actividad_sat explícita, 2) derivada de ModalidadPermiso.
+    Default: DIS (Distribución).
+    """
+    act = (settings.get("actividad_sat", "") or "").strip().upper()
+    if act in ("DIS", "EXO", "CMN", "ALM", "TRA", "EXT", "PGN"):
+        return act
+    mod = (settings.get("ModalidadPermiso", "") or "").strip().upper()
+    return ACTIVIDAD_POR_PERMISO.get(mod, "DIS")
+
+
 # ── Nombre de archivo — Apéndice 4 Guía SAT Mayo 2023 ────────────────────────
-# Formato mensual:
-#   M_[GUID]_[RFC_CONTRIBUYENTE]_[RFC_PROVEEDOR_PROGRAMA]_[AAAA-MM-DD]_[CLAVE_INST]_DIS_[EXT]
+# Formato mensual Z-Control:
+#   M_[GUID]_[RFC_CONTRIBUYENTE]_[RFC_PROVEEDOR_PROGRAMA]_[AAAA-MM-DD]_[CLAVE_INST]_[ACTIVIDAD]_[EXT]
 #
-# Donde:
-#   M                      → prefijo reporte Mensual
-#   GUID                   → UUID de la primera entrega (folio fiscal CFDI), 36 chars
-#   RFC_CONTRIBUYENTE      → RFC del obligado (settings["RfcContribuyente"])
-#   RFC_PROVEEDOR_PROGRAMA → RFC del proveedor del programa informático
-#                            (settings["RfcProveedor"]), no el proveedor de Gas LP.
-#                            Si está vacío, usa el default PCO960701A49.
-#   AAAA-MM-DD             → fecha de cierre del periodo (último día del mes)
-#   CLAVE_INST             → ClaveInstalacion sin diagonales ni espacios
-#   DIS                    → clave de actividad (Distribución)
-#   EXT                    → JSON o XML (sin punto)
+# ACTIVIDAD depende del permiso (Apéndice 4):
+#   DIS → PER40 Planta Distribución, PER41/42 Ductos, PER51 Vehículos
+#   EXO → PER43 Expendio/Carburación Estación de Servicio, PER44 Autoconsumo
+#   CMN → PER45 Comercialización
+#   ALM → PER50 Almacenamiento
 
 def generate_filename(settings: dict, periodo: str, fmt: str, first_uuid: str = "") -> str:
     """
     Genera el nombre del archivo conforme al Apéndice 4 de la Guía SAT Mayo 2023.
 
-    M_[GUID]_[RFC_CV]_[RFC_PROV_PROG]_[AAAA-MM-DD]_[CLAVE_INST]_DIS_[JSON|XML]
+    M_[GUID]_[RFC_CV]_[RFC_PROV_PROG]_[AAAA-MM-DD]_[CLAVE_INST]_[ACTIVIDAD]_[JSON|XML]
 
-    - GUID             : UUID de la primera Entrega del mes (folio fiscal completo, mayúsculas).
-                         Si no hay entregas, usa la primera Recepción.
-                         Si no hay ninguna, genera un UUID v4 nuevo.
-    - RFC_CV           : RfcContribuyente (settings["RfcContribuyente"]).
-    - RFC_PROV_PROG    : RFC del proveedor del *programa informático* que genera el reporte
-                         (settings["RfcProveedor"]). Si está vacío, usa PCO960701A49.
-    - AAAA-MM-DD       : Último día del mes del periodo.
-    - CLAVE_INST       : ClaveInstalacion sin caracteres especiales.
-    - DIS              : Actividad — Distribución de petrolíferos.
-    - JSON / XML       : Formato del archivo (sin punto ni zip en el nombre base).
+    ACTIVIDAD es dinámica:
+    - PER40/41/42/51 → DIS (Distribución)
+    - PER43/44       → EXO (Expendio / Estación de Carburación)
+    - PER45          → CMN (Comercialización)
+    - PER50          → ALM (Almacenamiento)
     """
     anio = int(periodo[:4])
     mes  = int(periodo[5:7])
     fecha_cierre = _fin_de_mes_date(anio, mes)
 
     def clean(s: str) -> str:
-        """Elimina /, espacios y - para normalizar RFCs y claves."""
         return (s or "").replace("/", "").replace(" ", "").replace("-", "").upper()
 
-    guid         = first_uuid.strip().upper() if first_uuid else str(uuid4()).upper()
-    rfc_cv       = clean(settings.get("RfcContribuyente", "") or "RFC")
-    rfc_prov_prog= clean(settings.get("RfcProveedor", "")     or RFC_PROVEEDOR_SAT)
-    clave_inst   = (settings.get("ClaveInstalacion", "INST") or "INST").replace("/", "").replace(" ", "")
+    guid          = first_uuid.strip().upper() if first_uuid else str(uuid4()).upper()
+    rfc_cv        = clean(settings.get("RfcContribuyente", "") or "RFC")
+    rfc_prov_prog = clean(settings.get("RfcProveedor", "") or RFC_PROVEEDOR_SAT)
+    clave_inst    = (settings.get("ClaveInstalacion", "INST") or "INST").replace("/", "").replace(" ", "")
+    actividad     = _actividad_sat(settings)
 
-    # Protección: si RfcProveedor no fue configurado, usar el default del sistema
     if not rfc_prov_prog:
         rfc_prov_prog = RFC_PROVEEDOR_SAT
 
-    return f"M_{guid}_{rfc_cv}_{rfc_prov_prog}_{fecha_cierre}_{clave_inst}_DIS_{fmt.upper()}"
+    return f"M_{guid}_{rfc_cv}_{rfc_prov_prog}_{fecha_cierre}_{clave_inst}_{actividad}_{fmt.upper()}"
 
 
 # ── Agrupación de movimientos por UUID ───────────────────────────────────────
@@ -203,6 +218,132 @@ def _build_tanque_node(settings: dict, vol_existencias: float,
                        complementos_ent: list, importe_rec: float,
                        importe_ent: float, cnt_rec: int, cnt_ent: int,
                        fin_mes_iso: str, temp_base: float, pres_base: float) -> dict:
+    """
+    Construye el nodo TANQUE completo conforme §16.13 Guía SAT Mayo 2023.
+
+    Campos mapeados desde Config. Avanzada (adv_tanques / adv_medicion):
+      ClaveIdentificacionTanque      ← adv_tanques.clave_tanque  (default: TQS-{INST}-0001)
+      VigenciaCalibracionTanque      ← adv_tanques.fecha_calibracion
+      CapacidadTotalTanque           ← adv_tanques.cap_total      (ValorNumerico + UM03)
+      CapacidadOperativaTanque       ← adv_tanques.cap_operativa  (ValorNumerico + UM03)
+      CapacidadUtilTanque            ← adv_tanques.cap_util       (ValorNumerico + UM03)
+                                       Si no capturado: cap_total - (cap_total * 0.05)
+      EstadoTanque                   = "O" (en operación)
+      Medidores[0]:
+        SistemaMedicionTanque        ← SME-{ClaveIdentificacionTanque}
+        LocalizODescripSistMedicion  ← adv_medicion.modelo_sensor
+        VigenciaCalibracionSistMed   ← adv_tanques.fecha_calibracion
+        IncertidumbreMedicion        ← adv_medicion.incertidumbre
+      EXISTENCIAS / RECEPCIONES / ENTREGAS con Temperatura y PresionAbsoluta
+    """
+    adv_t = settings.get("adv_tanques")  or {}
+    adv_m = settings.get("adv_medicion") or {}
+
+    cap_total     = float(adv_t.get("cap_total",     0.0) or 0.0)
+    cap_operativa = float(adv_t.get("cap_operativa", 0.0) or 0.0)
+    # CapacidadUtilTanque = Total - VolumenMínimo de Operación
+    # Si el usuario capturó cap_util directamente, usarlo; si no, estimar 95% del total
+    cap_util_raw  = adv_t.get("cap_util")
+    if cap_util_raw is not None and float(cap_util_raw or 0) > 0:
+        cap_util = float(cap_util_raw)
+    elif cap_total > 0:
+        vol_min_op = round(cap_total * 0.05, 2)
+        cap_util   = round(cap_total - vol_min_op, 2)
+    else:
+        cap_util = 0.0
+
+    fecha_cal     = adv_t.get("fecha_calibracion", "") or "2020-01-01"
+    incertidumbre = float(adv_m.get("incertidumbre", 0.005) or 0.005)
+    modelo_sensor = adv_m.get("modelo_sensor", "Sistema de medicion estatico") or "Sistema de medicion estatico"
+    serie_sensor  = adv_m.get("serie_sensor",  "") or ""
+
+    # ClaveIdentificacionTanque: usar la que el usuario capturó en Config. Avanzada,
+    # si no existe, generarla con el patrón TQS-{CLAVE_INST}-0001
+    clave_inst   = (settings.get("ClaveInstalacion", "INST") or "INST").replace("/", "").replace(" ", "")
+    clave_tanque_manual = adv_t.get("clave_tanque", "") or ""
+    clave_tanque = clave_tanque_manual.strip().upper() if clave_tanque_manual.strip() else f"TQS-{clave_inst}-0001"
+    clave_sme    = f"SME-{clave_tanque}"   # SME = Sistema de Medición Estático
+
+    desc_sensor  = (f"{modelo_sensor} S/N {serie_sensor}".strip()
+                    if serie_sensor else modelo_sensor)
+    desc_inst    = (settings.get("DescripcionInstalacion", "") or
+                    "Tanque de almacenamiento Gas LP")
+
+    tanque = {
+        "ClaveIdentificacionTanque":        clave_tanque,
+        "LocalizacionY/ODescripcionTanque": desc_inst,
+        "VigenciaCalibracionTanque":        fecha_cal,
+        "CapacidadTotalTanque": {
+            "ValorNumerico":  _smart_num(cap_total) if cap_total > 0 else 0,
+            "UnidadDeMedida": UM03,
+        },
+        "CapacidadOperativaTanque": {
+            "ValorNumerico":  _smart_num(cap_operativa) if cap_operativa > 0 else 0,
+            "UnidadDeMedida": UM03,
+        },
+        "CapacidadUtilTanque": {
+            "ValorNumerico":  _smart_num(cap_util) if cap_util > 0 else 0,
+            "UnidadDeMedida": UM03,
+        },
+        "EstadoTanque": "O",
+        # En JSON el nodo se llama "Medidores" (en XML sería "MedicionTanque") — §16.13.11
+        "Medidores": [
+            {
+                "SistemaMedicionTanque":                   clave_sme,
+                "LocalizODescripSistMedicionTanque":       desc_sensor,
+                "VigenciaCalibracionSistMedicionTanque":   fecha_cal,
+                "IncertidumbreMedicionSistMedicionTanque": round(incertidumbre, 6),
+            }
+        ],
+        "EXISTENCIAS": {
+            "VolumenExistenciasAnterior": {
+                "ValorNumerico":  _smart_num(round(inventario_inicial, 2)),
+                "UnidadDeMedida": UM03,
+            },
+            "VolumenAcumOpsRecepcion": {
+                "ValorNumerico":  _smart_num(total_rec),
+                "UnidadDeMedida": UM03,
+            },
+            "VolumenAcumOpsEntrega": {
+                "ValorNumerico":  _smart_num(total_ent),
+                "UnidadDeMedida": UM03,
+            },
+            "VolumenExistencias": {
+                "ValorNumerico":  _smart_num(vol_existencias),
+                "UnidadDeMedida": UM03,
+            },
+            "FechaYHoraEstaMedicion": fin_mes_iso,
+        },
+        # RECEPCIONES — §16.13.13
+        # Temperatura (°C) y PresionAbsoluta (kPa) requeridos por §16.13.13.5.6/7
+        # Se usan valores base de configuración cuando no hay sensor en tiempo real
+        "RECEPCIONES": {
+            "TotalRecepciones": cnt_rec,
+            "SumaVolumenRecepcion": {
+                "ValorNumerico":  _smart_num(total_rec),
+                "UnidadDeMedida": UM03,
+            },
+            "TotalDocumentos":  cnt_rec,
+            "SumaCompras":      _smart_num(importe_rec),
+            "Temperatura":      round(temp_base, 2),
+            "PresionAbsoluta":  round(pres_base, 3),
+            "Complemento":      complementos_rec,
+        },
+        # ENTREGAS — §16.13.14
+        "ENTREGAS": {
+            "TotalEntregas": cnt_ent,
+            "SumaVolumenEntregado": {
+                "ValorNumerico":  _smart_num(total_ent),
+                "UnidadDeMedida": UM03,
+            },
+            "TotalDocumentos":  cnt_ent,
+            "SumaVentas":       _smart_num(importe_ent),
+            "Temperatura":      round(temp_base, 2),
+            "PresionAbsoluta":  round(pres_base, 3),
+            "Complemento":      complementos_ent,
+        },
+    }
+    return tanque
     """
     Construye el nodo TANQUE completo conforme §16.13 Guía SAT Mayo 2023.
     Incluye: ClaveIdentificacionTanque, VigenciaCalibracionTanque,
@@ -413,25 +554,40 @@ def build_sat_report(
         })
 
     # ── Complementos Entregas ─────────────────────────────────────────────────
-    # Conforme Guía: Entregas NUNCA incluyen PermisoClienteOProveedor
+    # Conforme Guía: Entregas NUNCA incluyen PermisoClienteOProveedor.
+    # Autoconsumos (UUID prefijo AUTO-) no tienen CFDI — no incluyen nodo CFDIs.
     complementos_ent = []
     for g in ventas.values():
+        uuid_val = g.get("uuid", "")
+        es_autoconsumo = uuid_val.startswith("AUTO-")
+
+        nacional: dict = {
+            "RfcClienteOProveedor":    g["rfc_cp"],
+            "NombreClienteOProveedor": g["nombre_cp"],
+        }
+
+        if not es_autoconsumo:
+            # Entrega normal con CFDI
+            nacional["CFDIs"] = [{
+                "Cfdi":                       uuid_val,
+                "TipoCfdi":                   "Ingreso",
+                "PrecioVentaOCompraOContrap": _smart_num(round(g["importe"], 2)),
+                "FechaYHoraTransaccion":      g["fecha_hora"],
+                "VolumenDocumentado": {
+                    "ValorNumerico":  _smart_num(round(g["volumen_litros"], 2)),
+                    "UnidadDeMedida": UM03,
+                },
+            }]
+        else:
+            # Autoconsumo: sin CFDI, con VolumenDocumentado para que cuadre el balance
+            nacional["VolumenDocumentado"] = {
+                "ValorNumerico":  _smart_num(round(g["volumen_litros"], 2)),
+                "UnidadDeMedida": UM03,
+            }
+
         complementos_ent.append({
             "TipoComplemento": "Distribucion",
-            "Nacional": [{
-                "RfcClienteOProveedor":    g["rfc_cp"],
-                "NombreClienteOProveedor": g["nombre_cp"],
-                "CFDIs": [{
-                    "Cfdi":                       g["uuid"],
-                    "TipoCfdi":                   "Ingreso",
-                    "PrecioVentaOCompraOContrap": _smart_num(round(g["importe"], 2)),
-                    "FechaYHoraTransaccion":      g["fecha_hora"],
-                    "VolumenDocumentado": {
-                        "ValorNumerico":  _smart_num(round(g["volumen_litros"], 2)),
-                        "UnidadDeMedida": UM03,
-                    },
-                }],
-            }],
+            "Nacional": [nacional],
         })
 
     # ── BitácoraMensual — catálogo oficial TipoEvento §17.4 ──────────────────
@@ -461,19 +617,27 @@ def build_sat_report(
             ),
         }); n += 1
 
-    # 4. Un evento por cada CFDI de entrega
+    # 4. Un evento por cada CFDI de entrega (TipoEvento=4)
+    # Autoconsumos manuales (UUID prefijo AUTO-) usan TipoEvento=11 (otros)
     for g in ventas.values():
+        uuid_val = g.get("uuid", "")
+        es_autoconsumo = uuid_val.startswith("AUTO-")
+        tipo_ev  = 11 if es_autoconsumo else 4
+        desc_ev  = (
+            f"Consumo interno para flota/operacion. UUID: {uuid_val[:12]}... "
+            f"Volumen: {g['volumen_litros']:,.2f} L. RFC: {g['rfc_cp']}."
+            if es_autoconsumo else
+            f"Entrega registrada. CFDI: {uuid_val[:8]}... "
+            f"RFC cliente: {g['rfc_cp']}. "
+            f"Volumen: {g['volumen_litros']:,.2f} L. "
+            f"Importe: ${g['importe']:,.2f}."
+        )
         bitacora.append({
             "NumeroRegistro":     n,
             "FechaYHoraEvento":   _fmt_iso_hhmm00(g["fecha_hora"]),
             "UsuarioResponsable": g.get("usuario", "Sistema"),
-            "TipoEvento":         4,
-            "DescripcionEvento":  (
-                f"Entrega registrada. CFDI: {g['uuid'][:8]}... "
-                f"RFC cliente: {g['rfc_cp']}. "
-                f"Volumen: {g['volumen_litros']:,.2f} L. "
-                f"Importe: ${g['importe']:,.2f}."
-            ),
+            "TipoEvento":         tipo_ev,
+            "DescripcionEvento":  desc_ev,
         }); n += 1
 
     # 7. Alarma si el inventario supera la capacidad física
@@ -570,20 +734,8 @@ def build_sat_report(
     except (TypeError, ValueError):
         pass
 
-    # ── Nodo TANQUE ───────────────────────────────────────────────────────────
-    num_tanques = int(settings.get("NumeroTanques", 1))
-    tanques_list = []
-    if num_tanques > 0:
-        tanque = _build_tanque_node(
-            settings, vol_existencias,
-            inventario_inicial_litros, total_rec, total_ent,
-            complementos_rec, complementos_ent,
-            importe_rec, importe_ent, cnt_rec, cnt_ent,
-            fin_mes_iso, temp_base, pres_base,
-        )
-        tanques_list.append(tanque)
-
     # ── Estructura raíz SAT ───────────────────────────────────────────────────
+    num_tanques = int(settings.get("NumeroTanques", 1))
     sat_dict: dict = {
         "Version":               "1.0",
         "RfcContribuyente":      settings.get("RfcContribuyente",      ""),
@@ -606,8 +758,22 @@ def build_sat_report(
     if geolocalizacion:
         sat_dict["Geolocalizacion"] = geolocalizacion
 
+    # § 16.13 — Nodo(s) TANQUE (se construyen aquí para insertarlos dentro de Producto)
+    num_tanques  = int(settings.get("NumeroTanques", 1))
+    tanques_list = []
+    if num_tanques > 0:
+        tanque = _build_tanque_node(
+            settings, vol_existencias,
+            inventario_inicial_litros, total_rec, total_ent,
+            complementos_rec, complementos_ent,
+            importe_rec, importe_ent, cnt_rec, cnt_ent,
+            fin_mes_iso, temp_base, pres_base,
+        )
+        tanques_list.append(tanque)
+
     # Producto con ComposDePropano y ComposDeButano reales
-    sat_dict["Producto"] = [{
+    # Los nodos TANQUE van dentro de Producto según la jerarquía SAT §16.13
+    producto_dict: dict = {
         "ClaveProducto":          CLAVE_PRODUCTO,
         "ComposDePropanoEnGasLP": compos_propano,
         "ComposDeButanoEnGasLP":  compos_butano,
@@ -637,11 +803,29 @@ def build_sat_report(
                 "Complemento": complementos_ent,
             },
         },
-    }]
-
-    # § 16.13 — Nodo(s) TANQUE
+    }
+    # Insertar TANQUE dentro del Producto (§16.13 — jerarquía correcta SAT)
     if tanques_list:
-        sat_dict["TANQUE"] = tanques_list
+        producto_dict["TANQUE"] = tanques_list
+
+    sat_dict["Producto"] = [producto_dict]
+
+    # § Dictamen de Software — SOLO si el usuario llenó los campos en Config. Avanzada
+    # (§16 de la guía: opcional; si está vacío NO debe aparecer en el JSON)
+    adv_dict = settings.get("adv_dictamen") or {}
+    rfc_ui      = (adv_dict.get("rfc_ui", "") or "").strip()
+    num_dictamen= (adv_dict.get("num_dictamen", "") or "").strip()
+    if rfc_ui and num_dictamen:
+        sat_dict["Dictamen"] = {
+            "RfcUnidadInspeccion": rfc_ui,
+            "NumeroDictamen":      num_dictamen,
+        }
+        fecha_vig = (adv_dict.get("fecha_vigencia", "") or "").strip()
+        version_sw= (adv_dict.get("version_sw", "") or "").strip()
+        if fecha_vig:
+            sat_dict["Dictamen"]["FechaVigenciaDictamen"] = fecha_vig
+        if version_sw:
+            sat_dict["Dictamen"]["VersionSoftwareCertificado"] = version_sw
 
     sat_dict["BitacoraMensual"] = bitacora
 
