@@ -1893,6 +1893,7 @@ function clearSession() {
   currentUserRole = 'user';
   localStorage.removeItem('sat_token');
   localStorage.removeItem('sat_user_id');
+  localStorage.removeItem('sat_email');
   localStorage.removeItem('sat_role');
   localStorage.removeItem('sat_modulo');
   applyRole('user');
@@ -1921,6 +1922,7 @@ document.getElementById('btnLogin').addEventListener('click', async () => {
       currentUserId = data.user_id;
       localStorage.setItem('sat_token', authToken);
       localStorage.setItem('sat_user_id', currentUserId);
+      localStorage.setItem('sat_email', user);   // guardar email para re-auth en modal crítico
       localStorage.setItem('sat_modulo', modulo);  // Guardar módulo
       hideLogin(data.display_name);
       applyRole(data.role);
@@ -3517,8 +3519,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const pass = document.getElementById('criticalPassword').value;
     const errEl = document.getElementById('criticalErr');
     errEl.textContent = 'Verificando contraseña...';
-    // Re-autenticar con la contraseña ingresada
-    const userEmail = localStorage.getItem('sat_user_id') || '';
+    // Usar el email guardado al iniciar sesión, no el UUID
+    const userEmail = localStorage.getItem('sat_email') || localStorage.getItem('sat_user_id') || '';
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
