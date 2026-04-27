@@ -1,0 +1,149 @@
+# routes/history.py
+# API para el dashboard histórico — consulta de periodos, registros y reportes.
+
+import os
+import logging
+from typing import Optional
+from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import JSONResponse, FileResponse
+
+from services.database import (
+    get_records, get_reports, get_available_periods, get_period_totals,
+    delete_period, delete_all_periods,
+)
+from services.sat_transformer import generate_filename
+from routes.auth import verify_token
+from routes.settings import _load as load_settings
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+
+def _auth(authorization: str) -> str:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(401, "No autenticado.")
+    uid = verify_token(authorization[7:])
+    if not uid:
+        raise HTTPException(401, "Token inválido o expirado.")
+    return uid
+
+
+@router.get("/history/periods")
+async def list_periods(
+    facility_id: Optional[int] = Query(default=None),
+    authorization: str = Header(default=""),
+):
+    uid = _auth(authorization)
+    return JSONResponse(content={
+        "periods": get_available_periods(uid, facility_id=facility_id)
+    })
+
+
+@router.get("/history/{periodo}")
+async def get_history(
+    periodo: str,
+    facility_id: Optional[int] = Query(default=None),
+    authorization: str = Header(default=""),
+):
+    uid = _auth(authorization)
+    records = get_records(uid, periodo, facility_id=facility_id)
+    totals  = get_period_totals(uid, periodo, facility_id=facility_id)
+    reports = get_reports(uid, periodo, facility_id=facility_id)
+    latest  = reports[0] if reports else None
+
+    sat_zip_filename = None
+    if latest:
+        stored_uuid   = latest.get("first_salida_uuid") or ""
+        filename_base = (latest.get("filename_base") or "").strip()
+        if filename_base:
+            sat_zip_filename = filename_base + ".zip"
+        else:
+            try:
+                settings = load_settings()
+                sat_zip_filename = generate_filename(settings, periodo, "JSON", stored_uuid) + ".zip"
+            except Exception:
+                if latest.get("zip_path"):
+                    sat_zip_filename = os.path.basename(latest["zip_path"])
+
+    return JSONResponse(content={
+        "periodo":      periodo,
+        "entradas":     records["entradas"],
+        "salidas":      records["salidas"],
+        "totals":       totals,
+        "report":       latest,
+        "zip_filename": sat_zip_filename,
+    })
+
+
+@router.delete("/history/all")
+async def wipe_all_history(authorization: str = Header(default="")):
+    uid = _auth(authorization)
+    counts = delete_all_periods(uid)
+    return JSONResponse(content={
+        "ok": True,
+        "deleted_records": counts.get("records", 0),
+        "deleted_reports": counts.get("reports", 0),
+    })
+
+
+@router.delete("/history/{periodo}")
+async def delete_history(
+    periodo: str,
+    facility_id: Optional[int] = Query(default=None),
+    authorization: str = Header(default=""),
+):
+    uid = _auth(authorization)
+    counts = delete_period(uid, periodo, facility_id=facility_id)
+    return JSONResponse(content={
+        "ok": True,
+        "periodo": periodo,
+        "deleted_records": counts.get("records", 0),
+        "deleted_reports": counts.get("reports", 0),
+    })
+
+
+@router.get("/history/{periodo}/download/{fmt}")
+async def download_report(
+    periodo: str,
+    fmt: str,
+    facility_id: Optional[int] = Query(default=None),
+    authorization: str = Header(default=""),
+):
+    uid  = _auth(authorization)
+    reps = get_reports(uid, periodo, facility_id=facility_id)
+    if not reps:
+        # Fallback: try without facility filter (for reports generated before multi-facility)
+        reps = get_reports(uid, periodo)
+    if not reps:
+        raise HTTPException(404, f"No se encontró reporte para el periodo {periodo}.")
+    rep   = reps[0]
+    fmt_l = fmt.lower()
+    path_map = {"xml": rep["xml_path"], "json": rep["json_path"], "zip": rep["zip_path"]}
+    path = path_map.get(fmt_l, "")
+    if not path or not os.path.exists(path):
+        raise HTTPException(404, f"Archivo {fmt.upper()} no disponible para {periodo}.")
+
+    media = {
+        "xml":  "application/xml",
+        "json": "application/json",
+        "zip":  "application/zip",
+    }.get(fmt_l, "application/octet-stream")
+
+    stored_uuid   = rep.get("first_salida_uuid") or ""
+    filename_base = (rep.get("filename_base") or "").strip()
+    try:
+        if filename_base:
+            if fmt_l == "xml":
+                xml_base = filename_base.replace("_DIS_JSON", "_DIS_XML")
+                filename = xml_base + ".xml"
+            else:
+                filename = filename_base + "." + fmt_l
+        else:
+            settings     = load_settings()
+            fmt_for_name = "JSON" if fmt_l == "zip" else fmt_l.upper()
+            sat_name     = generate_filename(settings, periodo, fmt_for_name, stored_uuid)
+            filename     = sat_name + "." + fmt_l
+    except Exception:
+        filename = os.path.basename(path)
+
+    return FileResponse(path, media_type=media, filename=filename)
