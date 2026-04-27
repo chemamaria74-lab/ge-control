@@ -78,6 +78,8 @@ async def upload_cfdi(
     # ── Sobrescribir con datos de la instalación seleccionada ────────────────
     fid: Optional[int] = None
     fac_capacidad: Optional[float] = None
+    temp_default_fac: Optional[float] = None  # temperatura_default de la instalación
+
     if facility_id:
         fac = get_facility(facility_id, user_id)
         if fac:
@@ -99,6 +101,16 @@ async def upload_cfdi(
                 settings["NumeroTanques"] = fac["num_tanques"]
             if fac.get("num_dispensarios") is not None:
                 settings["NumeroDispensarios"] = fac["num_dispensarios"]
+            if fac.get("modalidad_permiso"):
+                settings["ModalidadPermiso"] = fac["modalidad_permiso"]
+            if fac.get("caracter"):
+                settings["Caracter"] = fac["caracter"]
+            # Temperatura default de la instalación → fallback para Temperatura/PresionAbsoluta
+            if fac.get("temperatura_default") is not None:
+                try:
+                    temp_default_fac = float(fac["temperatura_default"])
+                except (TypeError, ValueError):
+                    pass
             todos_logs.append(
                 f"Instalación activa: [{fid}] {fac['nombre']} — "
                 f"Permiso={fac.get('num_permiso','—')} Clave={fac.get('clave_instalacion','—')} "
@@ -200,6 +212,23 @@ async def upload_cfdi(
         )
 
     try:
+        # Temperatura: preferencia 1) valor del form, 2) temperatura_default de instalación, 3) 20.0°C
+        temp_final = 20.0
+        if temperatura_medicion is not None and float(temperatura_medicion) != 20.0:
+            temp_final = float(temperatura_medicion)
+        elif temp_default_fac is not None:
+            temp_final = temp_default_fac
+            todos_logs.append(f"Temperatura: usando valor default de instalación ({temp_final}°C)")
+
+        # Composición PR12: preferencia 1) form, 2) adv_composicion_pr12 en settings
+        adv_compos = settings.get("adv_composicion_pr12") or {}
+        prop_final = composicion_propano
+        but_final  = composicion_butano
+        if prop_final is None and adv_compos.get("propano"):
+            prop_final = float(adv_compos["propano"])
+        if but_final is None and adv_compos.get("butano"):
+            but_final = float(adv_compos["butano"])
+
         sat_dict, sat_meta = build_sat_report(
             movimientos=movimientos,
             settings=settings,
@@ -207,9 +236,9 @@ async def upload_cfdi(
             factor_kg_a_litros=settings.get("FactorDeConversionKgALitros", 0.542),
             capacidad_tanque=fac_capacidad,
             inventario_final_medido=float(inventario_final) if inventario_final is not None else None,
-            temperatura_medicion=float(temperatura_medicion) if temperatura_medicion is not None else 20.0,
-            composicion_propano=float(composicion_propano) if composicion_propano is not None else None,
-            composicion_butano=float(composicion_butano) if composicion_butano is not None else None,
+            temperatura_medicion=temp_final,
+            composicion_propano=float(prop_final) if prop_final is not None else None,
+            composicion_butano=float(but_final) if but_final is not None else None,
         )
 
         if sat_meta.get("cap_applied"):
