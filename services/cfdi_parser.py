@@ -26,7 +26,7 @@ NS_TFD    = "http://www.sat.gob.mx/TimbreFiscalDigital"
 
 # Palabras clave Gas LP en descripciones libres
 KEYWORDS_GAS_LP = [
-    "gas lp", "gas l.p.", "gas licuado", "gas licuado de petróleo",
+    "gas lp", "gas l.p.", "gas l.p", "gas licuado", "gas licuado de petróleo",
     "gas licuado de petroleo", "propano", "butano", "lpg",
     "gas butano", "gas propano", "autogas",
 ]
