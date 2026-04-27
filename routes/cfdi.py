@@ -304,11 +304,8 @@ async def upload_cfdi(
     try:
         file_info = save_report_files(
             sat_dict=sat_dict,
-            sat_xml=sat_xml_str,
+            sat_meta=sat_meta,
             settings=settings,
-            meta=sat_meta,
-            user_id=user_id,
-            first_uuid=first_uuid,
         )
         periodo = sat_meta["periodo"]
         save_records(user_id, periodo, sat_meta["_compras"], "entrada", facility_id=fid)
@@ -316,14 +313,14 @@ async def upload_cfdi(
         todos_logs.append(f"UUID primera salida (nombramiento SAT): {first_uuid or '(generado aleatoriamente)'}")
         save_report(
             user_id=user_id, periodo=periodo, meta=sat_meta,
-            filename_base=file_info.get("filename_base", ""),
+            filename_base=file_info.get("json_name", ""),
             first_salida_uuid=first_uuid,
             xml_path=file_info.get("xml_path",  ""),
             json_path=file_info.get("json_path", ""),
             zip_path=file_info.get("zip_path",  ""),
             facility_id=fid,
         )
-        todos_logs.append(f"Archivos guardados: {file_info.get('json_filename', '')}")
+        todos_logs.append(f"Archivos guardados: {file_info.get('json_name', '')}")
     except Exception as e:
         todas_alertas.append(f"⚠ No se pudieron guardar archivos/registros: {e}")
         logger.warning("Error al persistir: %s", e)
@@ -339,9 +336,9 @@ async def upload_cfdi(
         conteo_compras=sat_meta["cnt_compras"],
         conteo_ventas=sat_meta["cnt_ventas"],
         sat_xml=sat_xml_str,
-        sat_json=file_info.get("sat_json", sat_dict_to_json(sat_dict)),
+        sat_json=file_info.get("json_content", sat_dict_to_json(sat_dict)),
         sat_meta=meta_resp,
-        sat_xml_filename=file_info.get("xml_filename",  "reporte_sat.xml"),
-        sat_json_filename=file_info.get("json_filename", "reporte_sat.json"),
-        sat_zip_filename=file_info.get("zip_filename",  "reporte_sat.zip"),
+        sat_xml_filename=file_info.get("xml_name",  "reporte_sat.xml"),
+        sat_json_filename=file_info.get("json_name", "reporte_sat.json"),
+        sat_zip_filename=file_info.get("zip_name",  "reporte_sat.zip"),
     )
