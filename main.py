@@ -150,6 +150,29 @@ header i{color:#f8fafc}
 .results-col::-webkit-scrollbar{width:5px}
 .results-col::-webkit-scrollbar-thumb{background:#e2e8f0;border-radius:3px}
 @media(max-width:860px){.main-grid{grid-template-columns:1fr}.results-col{position:static;max-height:none}}
+/* ── Responsive completo para móvil ───────────────────────────────────── */
+@media(max-width:640px){
+  .container{padding:0 .6rem;margin:.8rem auto}
+  .main-nav-tabs{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .main-nav-tabs::-webkit-scrollbar{display:none}
+  .main-nav-tab{white-space:nowrap;font-size:.78rem;padding:.55rem .9rem}
+  .grid2,.grid3{grid-template-columns:1fr!important}
+  .sat-meta{grid-template-columns:1fr 1fr!important}
+  .sat-meta-imp{grid-template-columns:1fr!important}
+  .hist-totals{grid-template-columns:1fr 1fr!important}
+  table{font-size:.74rem}
+  th,td{padding:.35rem .4rem}
+  .card{padding:1rem}
+  header{flex-wrap:wrap;gap:.5rem;padding:.8rem 1rem}
+  header h1{font-size:1rem}
+  .brand-logo{height:34px}
+  .user-chip{font-size:.76rem;padding:.4rem .7rem}
+  .btn-row{flex-direction:column}
+  .btn-row>*{min-width:unset;width:100%}
+  .main-grid{gap:12px}
+  #histImportes{grid-template-columns:1fr!important}
+  .field input,.field select{font-size:.88rem}
+}
 /* Drop zone */
 .drop{border:2px dashed #c8d0dc;border-radius:10px;padding:1.6rem 2rem;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:.7rem}
 .drop-locked{opacity:.38;pointer-events:none;filter:grayscale(.6);cursor:not-allowed}
@@ -436,7 +459,6 @@ tr:hover td{background:#f8fafc}
 <!-- ── Navegación principal ───────────────────────────────────────────── -->
 <div class="main-nav-tabs">
   <button class="main-nav-tab active" data-main="procesar"><i class="fa-solid fa-file-upload"></i> Procesar</button>
-  <button class="main-nav-tab" data-main="facturar"><i class="fa-solid fa-file-invoice-dollar"></i> Facturar</button>
   <button class="main-nav-tab" data-main="controles"><i class="fa-solid fa-gauge-high"></i> Controles Volumétricos</button>
   <button class="main-nav-tab" data-main="ventas"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
   <button class="main-nav-tab" data-main="historial"><i class="fa-solid fa-history"></i> Historial</button>
@@ -695,7 +717,7 @@ tr:hover td{background:#f8fafc}
 <!-- ══════════════════════════════════════════════════════════════════════
      PANEL: FACTURAR (Carta Porte)
      ══════════════════════════════════════════════════════════════════════ -->
-<div class="main-panel" id="mpanel-facturar">
+<div class="main-panel" id="mpanel-facturar" style="display:none!important">
 <div class="card">
   <h2><i class="fa-solid fa-file-invoice-dollar"></i> Generar Carta Porte 3.1</h2>
   <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap">
