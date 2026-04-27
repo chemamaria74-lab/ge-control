@@ -4,20 +4,20 @@
 
 try:
     from pydantic import BaseModel, field_validator
-    from typing import List, Optional, Literal
+    from typing import List, Optional, Literal, Any
     PYDANTIC = True
 
     class ConfigRequest(BaseModel):
         estacion_id: str = "PLANTA-001"
         rfc: str = ""
         unidad_base: Literal["kg", "litros"] = "kg"
-        densidad_kg_por_litro: float = 0.524
+        factor_de_conversion_kg_a_litros: float = 0.542
 
-        @field_validator("densidad_kg_por_litro")
+        @field_validator("factor_de_conversion_kg_a_litros")
         @classmethod
-        def densidad_valida(cls, v):
+        def factor_valido(cls, v):
             if not (0.01 < v < 2.0):
-                raise ValueError(f"Densidad {v} fuera de rango.")
+                raise ValueError(f"Factor {v} fuera de rango.")
             return v
 
     class Anexo30JSON(BaseModel):
@@ -26,7 +26,7 @@ try:
         periodo: str
         producto: str = "gas_lp"
         unidad_base: str
-        densidad_utilizada: float
+        factor_utilizado: float
         total_entradas: float
         total_salidas: float
         inventario_inicial: float
@@ -42,11 +42,21 @@ try:
         alertas: List[str] = []
         logs: List[str]
         data: Optional[Anexo30JSON] = None
+        conteo_compras: int = 0
+        conteo_ventas: int = 0
+        # SAT Anexo 30 campos (solo para flujo CFDI)
+        sat_xml:          Optional[str] = None
+        sat_json:         Optional[str] = None
+        sat_meta:         Optional[Any] = None
+        sat_xml_filename: Optional[str] = None
+        sat_json_filename:Optional[str] = None
+        sat_zip_filename: Optional[str] = None
+        period_conflict:  bool          = False
+        periodo:          Optional[str] = None
 
 except ImportError:
-    # Fallback sin pydantic — para entornos de prueba sin dependencias extra
     from dataclasses import dataclass, field
-    from typing import List, Optional
+    from typing import List, Optional, Any
     PYDANTIC = False
 
     @dataclass
@@ -54,7 +64,7 @@ except ImportError:
         estacion_id: str = "PLANTA-001"
         rfc: str = ""
         unidad_base: str = "kg"
-        densidad_kg_por_litro: float = 0.524
+        factor_de_conversion_kg_a_litros: float = 0.542
 
     @dataclass
     class Anexo30JSON:
@@ -63,7 +73,7 @@ except ImportError:
         periodo: str
         producto: str
         unidad_base: str
-        densidad_utilizada: float
+        factor_utilizado: float
         total_entradas: float
         total_salidas: float
         inventario_inicial: float
@@ -81,3 +91,7 @@ except ImportError:
         logs: List[str]
         alertas: List[str] = field(default_factory=list)
         data: Optional[object] = None
+        conteo_compras: int = 0
+        conteo_ventas: int = 0
+        sat_xml: Optional[str] = None
+        sat_meta: Optional[Any] = None
