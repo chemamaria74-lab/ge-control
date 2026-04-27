@@ -105,6 +105,11 @@ async def upload_cfdi(
                 settings["ModalidadPermiso"] = fac["modalidad_permiso"]
             if fac.get("caracter"):
                 settings["Caracter"] = fac["caracter"]
+            # actividad_sat determina DIS vs EXO en el nombre del archivo SAT
+            if fac.get("tipo_permiso"):
+                settings["tipo_permiso"] = fac["tipo_permiso"]
+            if fac.get("actividad_sat"):
+                settings["actividad_sat"] = fac["actividad_sat"]
             # Temperatura default de la instalación → fallback para Temperatura/PresionAbsoluta
             if fac.get("temperatura_default") is not None:
                 try:
@@ -198,6 +203,38 @@ async def upload_cfdi(
     todos_logs.append("=== PASO 2: Generación SAT Anexo 30 ===")
 
     init_db()
+
+    # ── Inyectar autoconsumos guardados en Supabase al conjunto de movimientos ─
+    # Los registros manuales (file_path="manual:*") se cargan del periodo para
+    # que queden incluidos en VolumenAcumOpsEntrega y en la BitácoraMensual.
+    try:
+        from services.database import get_records as _get_records
+        # Inferir periodo desde los movimientos parseados
+        fechas_mov = [m.get("fecha", "") for m in movimientos if m.get("fecha")]
+        periodo_inferido = sorted(fechas_mov)[-1][:7] if fechas_mov else None
+
+        if periodo_inferido:
+            recs = _get_records(user_id, periodo_inferido, facility_id=fid)
+            autoconsumos_db = [r for r in recs.get("salidas", [])
+                               if str(r.get("file_path", "")).startswith("manual:")]
+            if autoconsumos_db:
+                todos_logs.append(f"Autoconsumos encontrados en BD: {len(autoconsumos_db)} registros para {periodo_inferido}")
+                for ac in autoconsumos_db:
+                    # Convertir registro DB → formato movimiento del transformer
+                    movimientos.append({
+                        "tipo_movimiento": "salida",
+                        "fecha":           ac.get("fecha", ""),
+                        "volumen":         float(ac.get("volumen_litros", 0)),
+                        "unidad":          "litros",
+                        "_uuid":           ac.get("uuid", ""),
+                        "_rfc_receptor":   ac.get("rfc_contraparte", ""),
+                        "_nombre_receptor": ac.get("nombre_contraparte", ""),
+                        "_importe":        float(ac.get("importe", 0)),
+                        "_fecha_hora":     ac.get("fecha", "") + "T12:00:00+00:00",
+                        "usuario":         user_id,
+                    })
+    except Exception as e:
+        todos_logs.append(f"Info: no se pudieron cargar autoconsumos previos — {e}")
 
     # Inventario Inicial: valor manual del usuario. Requerido para que
     # VolumenExistenciasMes sea correcto; si no se ingresa se usa 0.
