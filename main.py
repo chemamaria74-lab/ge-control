@@ -4256,11 +4256,11 @@ async def choice_view():
     .choice-card.transporte:hover {
       box-shadow: 0 20px 40px rgba(59,130,246,0.3);
     }
-    .choice-card.gas-lp {
+    .choice-card.gas_lp {
       border-color: #10b981;
       background: linear-gradient(145deg, rgba(16,185,129,0.15) 0%, rgba(16,185,129,0.05) 100%);
     }
-    .choice-card.gas-lp:hover {
+    .choice-card.gas_lp:hover {
       box-shadow: 0 20px 40px rgba(16,185,129,0.3);
     }
     .choice-icon {
@@ -4268,7 +4268,7 @@ async def choice_view():
       margin-bottom: 1.5rem;
     }
     .choice-card.transporte .choice-icon { color: #60a5fa; }
-    .choice-card.gas-lp .choice-icon { color: #34d399; }
+    .choice-card.gas_lp .choice-icon { color: #34d399; }
     .choice-title {
       font-size: 1.5rem;
       font-weight: 700;
@@ -4289,7 +4289,7 @@ async def choice_view():
       margin-top: 1rem;
     }
     .choice-card.transporte .choice-badge { background: #3b82f6; color: #fff; }
-    .choice-card.gas-lp .choice-badge { background: #10b981; color: #fff; }
+    .choice-card.gas_lp .choice-badge { background: #10b981; color: #fff; }
     .brand-logo { margin-bottom: 2rem; text-align: center; }
     .brand-logo img { width: 200px; }
     @media (max-width: 640px) {
@@ -4309,7 +4309,7 @@ async def choice_view():
         <div class="choice-desc">Logística de Hidrocarburos<br>Servicios de flete y distribución</div>
         <span class="choice-badge"><i class="fa-solid fa-route"></i> Módulo Transporte</span>
       </a>
-      <a href="/login/gas-lp" class="choice-card gas-lp">
+      <a href="/login/gas_lp" class="choice-card gas_lp">
         <i class="fa-solid fa-industry choice-icon"></i>
         <div class="choice-title">Gas LP</div>
         <div class="choice-desc">Controles Volumétricos<br>Cumplimiento Anexo 30</div>
