@@ -1,8 +1,6 @@
 # routes/facilities.py
 # CRUD de instalaciones (plantas / estaciones) por usuario.
-# v2 — Agrega tipo_instalacion, modalidad_permiso, caracter, temperatura_default
-#       y endpoints para Sistemas de Medición (medidores Coriolis).
-# v3 — Agrega scope por módulo (gas_lp / transporte)
+# Almacenamiento: Supabase via services/database.py
 
 import logging
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -13,7 +11,7 @@ from typing import Optional
 from services.database import (
     init_db,
     get_facilities, get_facility,
-    create_facility, update_facility, delete_facility,
+    create_facility_v2, update_facility_v2, delete_facility,
     get_medidores, create_medidor, update_medidor, delete_medidor,
 )
 from routes.auth import verify_token
@@ -31,12 +29,10 @@ def _auth(authorization: str) -> str:
     return uid
 
 
-# ── Modelos ────────────────────────────────────────────────────────────────
-
 class FacilityPayload(BaseModel):
     nombre:              str   = ""
-    tipo_instalacion:    str   = "planta"      # "planta" | "estacion"
-    modalidad_permiso:   str   = "PER40"       # PER40 (Planta) | PER42 (Estación)
+    tipo_instalacion:    str   = "planta"
+    modalidad_permiso:   str   = "PER40"
     caracter:            str   = "permisionario"
     num_permiso:         str   = ""
     permiso_alm:         str   = ""
@@ -45,23 +41,24 @@ class FacilityPayload(BaseModel):
     capacidad_tanque:    float = 0.0
     num_tanques:         int   = 1
     num_dispensarios:    int   = 0
-    temperatura_default: Optional[float] = None   # °C — inyectada en JSON si no hay sensor
+    temperatura_default: Optional[float] = None
+    modulo_propietario:  str   = "gas_lp"
 
 
 class MedidorPayload(BaseModel):
     nombre:            str   = ""
-    tipo:              str   = "Coriolis"   # Coriolis | Turbina | Desplazamiento positivo
-    incertidumbre:     float = 0.05         # ej. 0.05 = ±0.05%
-    fecha_calibracion: str   = ""           # ISO date ej. "2025-11-15"
+    tipo:              str   = "Coriolis"
+    incertidumbre:     float = 0.05
+    fecha_calibracion: str   = ""
     facility_id:       Optional[int] = None
 
 
-# ── Instalaciones ──────────────────────────────────────────────────────────
+# ── Instalaciones ─────────────────────────────────────────────────────────────
 
 @router.get("/facilities")
 async def list_facilities(
-    modulo: Optional[str] = Query(None, description="Filtrar por módulo: gas_lp o transporte"),
-    authorization: str = Header(default="")
+    modulo: Optional[str] = Query(None),
+    authorization: str = Header(default=""),
 ):
     uid = _auth(authorization)
     init_db()
@@ -69,40 +66,28 @@ async def list_facilities(
 
 
 @router.post("/facilities")
-async def add_facility(
-    payload:       FacilityPayload,
-    authorization: str = Header(default=""),
-):
+async def add_facility(payload: FacilityPayload, authorization: str = Header(default="")):
     uid = _auth(authorization)
     init_db()
-
     if not payload.nombre.strip():
         raise HTTPException(400, "El nombre de la instalación es requerido.")
-
-    # Garantizar coherencia tipo ↔ modalidad
     data = payload.model_dump()
     data["modalidad_permiso"] = "PER42" if data["tipo_instalacion"] == "estacion" else "PER40"
     data["caracter"]          = "permisionario"
-
-    fac = create_facility(uid, data)
+    fac = create_facility_v2(uid, data)
     return JSONResponse(content={"ok": True, "facility": fac})
 
 
 @router.put("/facilities/{fid}")
-async def edit_facility(
-    fid:           int,
-    payload:       FacilityPayload,
-    authorization: str = Header(default=""),
-):
+async def edit_facility(fid: int, payload: FacilityPayload,
+                        authorization: str = Header(default="")):
     uid = _auth(authorization)
     if not get_facility(fid, uid):
         raise HTTPException(404, "Instalación no encontrada.")
-
     data = payload.model_dump()
     data["modalidad_permiso"] = "PER42" if data["tipo_instalacion"] == "estacion" else "PER40"
     data["caracter"]          = "permisionario"
-
-    fac = update_facility(fid, uid, data)
+    fac = update_facility_v2(fid, uid, data)
     return JSONResponse(content={"ok": True, "facility": fac})
 
 
@@ -114,11 +99,10 @@ async def remove_facility(fid: int, authorization: str = Header(default="")):
     return JSONResponse(content={"ok": True, "deleted_id": fid})
 
 
-# ── Sistemas de Medición (Medidores) ───────────────────────────────────────
+# ── Medidores (stubs — datos en adv_medicion de zc_settings) ─────────────────
 
 @router.get("/facilities/{fid}/medidores")
 async def list_medidores(fid: int, authorization: str = Header(default="")):
-    """Lista los medidores registrados para una instalación."""
     uid = _auth(authorization)
     if not get_facility(fid, uid):
         raise HTTPException(404, "Instalación no encontrada.")
@@ -126,18 +110,11 @@ async def list_medidores(fid: int, authorization: str = Header(default="")):
 
 
 @router.post("/facilities/{fid}/medidores")
-async def add_medidor(
-    fid:           int,
-    payload:       MedidorPayload,
-    authorization: str = Header(default=""),
-):
-    """Registra un nuevo sistema de medición en la instalación."""
+async def add_medidor(fid: int, payload: MedidorPayload,
+                      authorization: str = Header(default="")):
     uid = _auth(authorization)
     if not get_facility(fid, uid):
         raise HTTPException(404, "Instalación no encontrada.")
-    if not payload.nombre.strip():
-        raise HTTPException(400, "El nombre del medidor es requerido.")
-
     data = payload.model_dump()
     data["facility_id"] = fid
     med = create_medidor(uid, data)
@@ -145,12 +122,8 @@ async def add_medidor(
 
 
 @router.put("/medidores/{mid}")
-async def edit_medidor(
-    mid:           int,
-    payload:       MedidorPayload,
-    authorization: str = Header(default=""),
-):
-    """Actualiza los datos de un medidor existente."""
+async def edit_medidor(mid: int, payload: MedidorPayload,
+                       authorization: str = Header(default="")):
     uid = _auth(authorization)
     med = update_medidor(mid, uid, payload.model_dump())
     if not med:
@@ -160,7 +133,6 @@ async def edit_medidor(
 
 @router.delete("/medidores/{mid}")
 async def remove_medidor(mid: int, authorization: str = Header(default="")):
-    """Elimina un medidor."""
     uid = _auth(authorization)
     if not delete_medidor(mid, uid):
         raise HTTPException(404, "Medidor no encontrado.")
