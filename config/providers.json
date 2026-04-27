@@ -1,0 +1,24 @@
+{
+  "providers": [
+    {
+      "rfc": "MME141110IJ9",
+      "nombre": "MGC MEXICO",
+      "permiso": "H/10376/COM/2015"
+    },
+    {
+      "rfc": "INT1206211R2",
+      "nombre": "INTERSIM",
+      "permiso": "H/19246/COM/2016"
+    },
+    {
+      "rfc": "GLU760309457",
+      "nombre": "GAS LUX",
+      "permiso": "LP/23634/COM/2020"
+    },
+    {
+      "rfc": "E170512969",
+      "nombre": "PROPANE",
+      "permiso": "LP/20740/COM/2017"
+    }
+  ]
+}

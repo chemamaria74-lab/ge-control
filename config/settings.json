@@ -1,0 +1,14 @@
+{
+  "RfcContribuyente": "AGA990907II8",
+  "RfcRepresentanteLegal": "OEMR710420FCA",
+  "RfcProveedor": "PCO960701A49",
+  "NumPermiso": "",
+  "PermisoAlmYDist": "",
+  "ClaveInstalacion": "",
+  "DescripcionInstalacion": "",
+  "NumeroTanques": 1,
+  "NumeroDispensarios": 0,
+  "Caracter": "permisionario",
+  "ModalidadPermiso": "PER40",
+  "FactorDeConversionKgALitros": 0.524
+}
