@@ -6,7 +6,6 @@
 #   - Columna "unidad" requerida (kg / litros)
 #   - Conversión de unidades antes de validar consistencia de inventarios
 #   - Alertas (no bloqueantes) por mezcla de unidades
-
 import pandas as pd
 import logging
 from typing import Tuple, List
@@ -97,13 +96,13 @@ def validate(
     if hay_kg and hay_litros:
         alertas.append(
             f"⚠ Mezcla de unidades detectada ({unidades_presentes}). "
-            f"Se convertirá todo a '{config.unidad_base}' usando densidad "
-            f"{config.densidad_kg_por_litro} kg/L."
+            f"Se convertirá todo a '{config.unidad_base}' usando factor "
+            f"{config.factor_de_conversion_kg_a_litros} L/kg."
         )
     else:
         logs.append(f"Unidad uniforme: {unidades_presentes[0]}.")
 
-    # Advertencia si densidad está fuera del rango típico
+    # Advertencia si el factor de conversión está fuera del rango típico
     warns_config = config.validar()
     alertas.extend(warns_config)
 
