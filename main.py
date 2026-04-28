@@ -109,7 +109,7 @@ HTML_UI = r"""<!DOCTYPE html>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#edf7fb;--surface:#ffffff;--primary:#0f5c82;--primary-soft:#38bdf8;--secondary:#0a4e6e;--muted:#64748b;--border:#dbeafe;--text:#102a43}
-body{font-family:'Montserrat','Segoe UI','Roboto','Helvetica Neue',Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+body{font-family:'Montserrat','Segoe UI','Roboto','Helvetica Neue',Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;visibility:hidden}
 header{background:linear-gradient(135deg,#032c38 0%,#075358 100%);color:#f3f4f6;padding:1rem 1.4rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;position:relative;z-index:1;border-bottom:1px solid rgba(255,255,255,.1);box-shadow:0 18px 48px rgba(0,0,0,.08)}
 header h1{font-size:1.22rem;font-weight:700;flex:1;color:#f8fafc;line-height:1.3}
 .brand-logo{height:44px;width:auto;display:block}
@@ -173,7 +173,18 @@ header i{color:#f8fafc}
   .btn-row>*{min-width:unset;width:100%}
   .main-grid{gap:12px}
   #histImportes{grid-template-columns:1fr!important}
-  .field input,.field select{font-size:.88rem}
+  /* Formularios de medidores — táctiles en campo */
+  .field input,.field select,.field textarea{font-size:1rem!important;padding:.8rem 1rem!important;min-height:48px;border-radius:10px}
+  .field label{font-size:.8rem;margin-bottom:.3rem}
+  /* Grids de configuración avanzada */
+  .adv-grid,.med-grid{grid-template-columns:1fr!important}
+  /* Botones de acción — mínimo 48px de alto para dedos */
+  button,.btn{min-height:44px;font-size:.88rem}
+  /* Cards de tanques y medidores */
+  .tank-card,.med-card{padding:.8rem}
+  /* Modal de configuración avanzada */
+  .modal-body{padding:1rem .8rem}
+  .adv-section{padding:.8rem}
 }
 /* Drop zone */
 .drop{border:2px dashed #c8d0dc;border-radius:10px;padding:1.6rem 2rem;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:.7rem}
@@ -2102,7 +2113,14 @@ function hideLoadingScreen() {
 }
 
 async function verifySession() {
-  if (!authToken) { hideLoadingScreen(); showLogin(); return; }
+  // El body empieza con visibility:hidden vía CSS para evitar el flicker.
+  // Aquí lo revelamos SOLO cuando tengamos certeza del estado de sesión.
+  if (!authToken) {
+    hideLoadingScreen();
+    document.body.style.visibility = 'visible';
+    showLogin();
+    return;
+  }
   try {
     const res = await fetch('/api/auth/me', { headers: authHeader() });
     if (res.ok) {
@@ -2114,7 +2132,10 @@ async function verifySession() {
       showLogin();
     }
   } catch(e) { clearSession(); showLogin(); }
-  finally { hideLoadingScreen(); }
+  finally {
+    hideLoadingScreen();
+    document.body.style.visibility = 'visible';
+  }
 }
 
 function showLogin() {
