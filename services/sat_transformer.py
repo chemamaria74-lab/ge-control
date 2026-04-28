@@ -147,7 +147,7 @@ def generate_filename(settings: dict, periodo: str, fmt: str, first_uuid: str = 
     """
     Genera el nombre del archivo conforme al Apéndice 4 de la Guía SAT Mayo 2023.
 
-    D_[GUID]_[RFC_CV]_[RFC_PROV_PROG]_[AAAA-MM-DD]_[CLAVE_INST]_[ACTIVIDAD]_[JSON|XML]
+    M_[GUID]_[RFC_CV]_[RFC_PROV_PROG]_[AAAA-MM-DD]_[CLAVE_INST]_[ACTIVIDAD]_[JSON|XML]
 
     D     = reporte Diario (identificador obligatorio per Apéndice 4)
     GUID  = UUID del primer CFDI (36 chars con guiones, conforme patrón GUID)
@@ -183,7 +183,7 @@ def generate_filename(settings: dict, periodo: str, fmt: str, first_uuid: str = 
     clave_inst = clean_inst(settings.get("ClaveInstalacion", "INST") or "INST")
     actividad  = _actividad_sat(settings)
 
-    return f"D_{guid}_{rfc_cv}_{rfc_prov_prog}_{fecha_cierre}_{clave_inst}_{actividad}_{fmt.upper()}"
+    return f"M_{guid}_{rfc_cv}_{rfc_prov_prog}_{fecha_cierre}_{clave_inst}_{actividad}_{fmt.upper()}"
 
 
 # ── Agrupación de movimientos por UUID ───────────────────────────────────────
@@ -721,7 +721,7 @@ def build_sat_report(
                     "UnidadDeMedida": UM03,
                 },
                 "TotalDocumentosMes":   cnt_rec,
-                "SumaCompras":          _smart_num(importe_rec),   # §16.13.13.4 Guía SAT
+                "ImporteTotalRecepcionesMensual": _smart_num(importe_rec),   # §16.13.2.5 Guía Mensual
                 "Complemento":          complementos_rec,
             },
             "Entregas": {
@@ -731,14 +731,23 @@ def build_sat_report(
                     "UnidadDeMedida": UM03,
                 },
                 "TotalDocumentosMes":   cnt_ent,
-                "SumaVentas":           _smart_num(importe_ent),   # §16.13.14.4 Guía SAT
+                "ImporteTotalEntregasMes": _smart_num(importe_ent),   # §16.13.3.5 Guía Mensual
                 "Complemento":          complementos_ent,
             },
         },
     }
-    # Insertar TANQUE dentro del Producto (§16.13 — jerarquía correcta SAT)
+    # TANQUE debe ir ANTES de ReporteDeVolumenMensual en el Producto.
+    # Python 3.7+ preserva el orden de inserción en dict, así que reconstruimos
+    # el producto_dict con el orden correcto: composición → TANQUE → ReporteDeVolumenMensual
     if tanques_list:
-        producto_dict["TANQUE"] = tanques_list
+        producto_dict_ordered = {
+            "ClaveProducto":          producto_dict["ClaveProducto"],
+            "ComposDePropanoEnGasLP": producto_dict["ComposDePropanoEnGasLP"],
+            "ComposDeButanoEnGasLP":  producto_dict["ComposDeButanoEnGasLP"],
+            "TANQUE":                 tanques_list,                        # §16.13 — antes de RVM
+            "ReporteDeVolumenMensual": producto_dict["ReporteDeVolumenMensual"],
+        }
+        producto_dict = producto_dict_ordered
 
     sat_dict["Producto"] = [producto_dict]
 
