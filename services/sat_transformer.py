@@ -147,9 +147,14 @@ def generate_filename(settings: dict, periodo: str, fmt: str, first_uuid: str = 
     """
     Genera el nombre del archivo conforme al Apéndice 4 de la Guía SAT Mayo 2023.
 
-    M_[GUID]_[RFC_CV]_[RFC_PROV_PROG]_[AAAA-MM-DD]_[CLAVE_INST]_[ACTIVIDAD]_[JSON|XML]
+    D_[GUID]_[RFC_CV]_[RFC_PROV_PROG]_[AAAA-MM-DD]_[CLAVE_INST]_[ACTIVIDAD]_[JSON|XML]
 
-    ACTIVIDAD es dinámica:
+    D     = reporte Diario (identificador obligatorio per Apéndice 4)
+    GUID  = UUID del primer CFDI (36 chars con guiones, conforme patrón GUID)
+    RFC_PROV_PROG = RFC proveedor del software; XAX010101000 si es desarrollo propio
+    RFC se limpia de barras y espacios, pero CONSERVA guiones (son parte del GUID).
+
+    ACTIVIDAD depende del permiso (Apéndice 4):
     - PER40/41/42/51 → DIS (Distribución)
     - PER43/44       → EXO (Expendio / Estación de Carburación)
     - PER45          → CMN (Comercialización)
@@ -157,21 +162,28 @@ def generate_filename(settings: dict, periodo: str, fmt: str, first_uuid: str = 
     """
     anio = int(periodo[:4])
     mes  = int(periodo[5:7])
-    fecha_cierre = _fin_de_mes_date(anio, mes)
+    fecha_cierre = _fin_de_mes_date(anio, mes)   # AAAA-MM-DD (último día del mes)
 
-    def clean(s: str) -> str:
-        return (s or "").replace("/", "").replace(" ", "").replace("-", "").upper()
+    def clean_rfc(s: str) -> str:
+        """RFC: eliminar barras y espacios; conservar guiones del RFC."""
+        return (s or "").replace("/", "").replace(" ", "").strip().upper()
 
-    guid          = first_uuid.strip().upper() if first_uuid else str(uuid4()).upper()
-    rfc_cv        = clean(settings.get("RfcContribuyente", "") or "RFC")
-    rfc_prov_prog = clean(settings.get("RfcProveedor", "") or RFC_PROVEEDOR_SAT)
-    clave_inst    = (settings.get("ClaveInstalacion", "INST") or "INST").replace("/", "").replace(" ", "")
-    actividad     = _actividad_sat(settings)
+    def clean_inst(s: str) -> str:
+        return (s or "").replace("/", "").replace(" ", "").strip()
 
+    # GUID: el UUID del primer CFDI conserva sus guiones (formato oficial 36 chars)
+    guid = first_uuid.strip() if first_uuid and len(first_uuid.strip()) >= 32 else str(uuid4())
+    guid = guid.upper()
+
+    rfc_cv        = clean_rfc(settings.get("RfcContribuyente", "") or "RFC")
+    rfc_prov_prog = clean_rfc(settings.get("RfcProveedor", "") or "")
     if not rfc_prov_prog:
-        rfc_prov_prog = RFC_PROVEEDOR_SAT
+        rfc_prov_prog = "XAX010101000"   # RFC genérico SAT — desarrollo propio sin proveedor
 
-    return f"M_{guid}_{rfc_cv}_{rfc_prov_prog}_{fecha_cierre}_{clave_inst}_{actividad}_{fmt.upper()}"
+    clave_inst = clean_inst(settings.get("ClaveInstalacion", "INST") or "INST")
+    actividad  = _actividad_sat(settings)
+
+    return f"D_{guid}_{rfc_cv}_{rfc_prov_prog}_{fecha_cierre}_{clave_inst}_{actividad}_{fmt.upper()}"
 
 
 # ── Agrupación de movimientos por UUID ───────────────────────────────────────
@@ -344,104 +356,6 @@ def _build_tanque_node(settings: dict, vol_existencias: float,
         },
     }
     return tanque
-    """
-    Construye el nodo TANQUE completo conforme §16.13 Guía SAT Mayo 2023.
-    Incluye: ClaveIdentificacionTanque, VigenciaCalibracionTanque,
-             CapacidadTotalTanque, CapacidadOperativaTanque, CapacidadUtilTanque,
-             EstadoTanque, Medidores, EXISTENCIAS, RECEPCIONES, ENTREGAS.
-    """
-    adv_t = settings.get("adv_tanques")  or {}
-    adv_m = settings.get("adv_medicion") or {}
-
-    cap_total     = float(adv_t.get("cap_total",     0.0) or 0.0)
-    cap_operativa = float(adv_t.get("cap_operativa", 0.0) or 0.0)
-    # CapacidadUtilTanque = CapacidadTotal - VolumenMinimoOperacion (aprox cap*0.05)
-    vol_min_op    = round(cap_total * 0.05, 2) if cap_total > 0 else 0.0
-    cap_util      = round(cap_total - vol_min_op, 2) if cap_total > 0 else 0.0
-    fecha_cal     = adv_t.get("fecha_calibracion", "") or "2020-01-01"
-    incertidumbre = float(adv_m.get("incertidumbre", 0.005) or 0.005)
-    modelo_sensor = adv_m.get("modelo_sensor", "Sistema de medicion estatico") or "Sistema de medicion estatico"
-    serie_sensor  = adv_m.get("serie_sensor",  "") or ""
-    fecha_cal_med = fecha_cal  # misma fecha para medidor y tanque
-
-    clave_inst   = (settings.get("ClaveInstalacion", "INST") or "INST").replace("/", "").replace(" ", "")
-    clave_tanque = f"TQS-{clave_inst}-0001"
-    clave_sme    = f"SME-{clave_tanque}"     # SME = Sistema Medición Estático
-    desc_sensor  = f"{modelo_sensor} S/N {serie_sensor}".strip(" S/N") if not serie_sensor else f"{modelo_sensor} S/N {serie_sensor}"
-    desc_inst    = settings.get("DescripcionInstalacion", "Tanque de almacenamiento Gas LP") or "Tanque de almacenamiento Gas LP"
-
-    return {
-        "ClaveIdentificacionTanque":        clave_tanque,
-        "LocalizacionY/ODescripcionTanque": desc_inst,
-        "VigenciaCalibracionTanque":        fecha_cal,
-        "CapacidadTotalTanque": {
-            "ValorNumerico":  _smart_num(cap_total) if cap_total > 0 else 0,
-            "UnidadDeMedida": UM03,
-        },
-        "CapacidadOperativaTanque": {
-            "ValorNumerico":  _smart_num(cap_operativa) if cap_operativa > 0 else 0,
-            "UnidadDeMedida": UM03,
-        },
-        "CapacidadUtilTanque": {
-            "ValorNumerico":  _smart_num(cap_util) if cap_util > 0 else 0,
-            "UnidadDeMedida": UM03,
-        },
-        "EstadoTanque": "O",   # O = en Operación (única alternativa: F = Fuera)
-        # En JSON: "Medidores" (en XML: "MedicionTanque") — §16.13.11
-        "Medidores": [
-            {
-                "SistemaMedicionTanque":                   clave_sme,
-                "LocalizODescripSistMedicionTanque":       desc_sensor if serie_sensor else modelo_sensor,
-                "VigenciaCalibracionSistMedicionTanque":   fecha_cal_med,
-                "IncertidumbreMedicionSistMedicionTanque": round(incertidumbre, 6),
-            }
-        ],
-        "EXISTENCIAS": {
-            "VolumenExistenciasAnterior": {
-                "ValorNumerico":  _smart_num(round(inventario_inicial, 2)),
-                "UnidadDeMedida": UM03,
-            },
-            "VolumenAcumOpsRecepcion": {
-                "ValorNumerico":  _smart_num(total_rec),
-                "UnidadDeMedida": UM03,
-            },
-            "VolumenAcumOpsEntrega": {
-                "ValorNumerico":  _smart_num(total_ent),
-                "UnidadDeMedida": UM03,
-            },
-            "VolumenExistencias": {
-                "ValorNumerico":  _smart_num(vol_existencias),
-                "UnidadDeMedida": UM03,
-            },
-            "FechaYHoraEstaMedicion": fin_mes_iso,
-        },
-        "RECEPCIONES": {
-            "TotalRecepciones": cnt_rec,
-            "SumaVolumenRecepcion": {
-                "ValorNumerico":  _smart_num(total_rec),
-                "UnidadDeMedida": UM03,
-            },
-            "TotalDocumentos":  cnt_rec,
-            "SumaCompras":      _smart_num(importe_rec),
-            # Temperatura y PresionAbsoluta (§16.13.13.5.6/7) — valores base configurables
-            "Temperatura":      round(temp_base, 2),
-            "PresionAbsoluta":  round(pres_base, 3),
-            "Complemento":      complementos_rec,
-        },
-        "ENTREGAS": {
-            "TotalEntregas": cnt_ent,
-            "SumaVolumenEntregado": {
-                "ValorNumerico":  _smart_num(total_ent),
-                "UnidadDeMedida": UM03,
-            },
-            "TotalDocumentos":  cnt_ent,
-            "SumaVentas":       _smart_num(importe_ent),
-            # Temperatura y PresionAbsoluta (§16.13.14.5.6/7)
-            "Temperatura":      round(temp_base, 2),
-            "PresionAbsoluta":  round(pres_base, 3),
-            "Complemento":      complementos_ent,
-        },
-    }
 
 
 # ── Constructor principal ─────────────────────────────────────────────────────
@@ -630,10 +544,13 @@ def build_sat_report(
     for g in ventas.values():
         uuid_val = g.get("uuid", "")
         es_autoconsumo = uuid_val.startswith("AUTO-")
-        tipo_ev  = 11 if es_autoconsumo else 4
+        # Autoconsumo = TipoEvento 4 (entrega interna). RFC receptor = RFC contribuyente.
+        # TipoEvento 11 per Guía SAT §17.4 es "corte de energía" — no aplica aquí.
+        tipo_ev  = 4
         desc_ev  = (
-            f"Consumo interno para flota/operacion. UUID: {uuid_val[:12]}... "
-            f"Volumen: {g['volumen_litros']:,.2f} L. RFC: {g['rfc_cp']}."
+            f"Entrega por autoconsumo interno (flota/operacion). "
+            f"RFC receptor: {g['rfc_cp']}. "
+            f"Volumen: {g['volumen_litros']:,.2f} L."
             if es_autoconsumo else
             f"Entrega registrada. CFDI: {uuid_val[:8]}... "
             f"RFC cliente: {g['rfc_cp']}. "
@@ -744,11 +661,18 @@ def build_sat_report(
 
     # ── Estructura raíz SAT ───────────────────────────────────────────────────
     num_tanques = int(settings.get("NumeroTanques", 1))
+    # ── Limpieza de campos raíz — nunca enviar cadenas vacías al SAT ────────
+    _rfc_cv   = (settings.get("RfcContribuyente",      "") or "").strip()
+    _rfc_rep  = (settings.get("RfcRepresentanteLegal", "") or "").strip()
+    _rfc_prov = (settings.get("RfcProveedor",          "") or "").strip()
+    if not _rfc_prov:
+        _rfc_prov = "XAX010101000"   # RFC genérico SAT — sin proveedor externo
+
     sat_dict: dict = {
         "Version":               "1.0",
-        "RfcContribuyente":      settings.get("RfcContribuyente",      ""),
-        "RfcRepresentanteLegal": settings.get("RfcRepresentanteLegal", ""),
-        "RfcProveedor":          settings.get("RfcProveedor",          RFC_PROVEEDOR_SAT),
+        "RfcContribuyente":      _rfc_cv,
+        "RfcRepresentanteLegal": _rfc_rep if _rfc_rep else _rfc_cv,  # nunca vacío
+        "RfcProveedor":          _rfc_prov,
         "Caracter":              settings.get("Caracter",              "permisionario"),
         "ModalidadPermiso":      settings.get("ModalidadPermiso",      "PER40"),
         "NumPermiso":            settings.get("NumPermiso",            ""),
@@ -791,24 +715,24 @@ def build_sat_report(
                 "FechaYHoraEstaMedicionMes": fin_mes_iso,
             },
             "Recepciones": {
-                "TotalRecepcionesMes":            cnt_rec,
+                "TotalRecepcionesMes":  cnt_rec,
                 "SumaVolumenRecepcionMes": {
                     "ValorNumerico":  _smart_num(total_rec),
                     "UnidadDeMedida": UM03,
                 },
-                "TotalDocumentosMes":             cnt_rec,
-                "ImporteTotalRecepcionesMensual": _smart_num(importe_rec),
-                "Complemento": complementos_rec,
+                "TotalDocumentosMes":   cnt_rec,
+                "SumaCompras":          _smart_num(importe_rec),   # §16.13.13.4 Guía SAT
+                "Complemento":          complementos_rec,
             },
             "Entregas": {
-                "TotalEntregasMes":             cnt_ent,
+                "TotalEntregasMes":     cnt_ent,
                 "SumaVolumenEntregadoMes": {
                     "ValorNumerico":  _smart_num(total_ent),
                     "UnidadDeMedida": UM03,
                 },
-                "TotalDocumentosMes":             cnt_ent,
-                "ImporteTotalEntregasMes":        _smart_num(importe_ent),
-                "Complemento": complementos_ent,
+                "TotalDocumentosMes":   cnt_ent,
+                "SumaVentas":           _smart_num(importe_ent),   # §16.13.14.4 Guía SAT
+                "Complemento":          complementos_ent,
             },
         },
     }
