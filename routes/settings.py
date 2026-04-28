@@ -146,7 +146,9 @@ async def save_settings(payload: SettingsPayload,
                         authorization: str = Header(default="")):
     user_id  = _auth(authorization)
     current  = _load(user_id)
-    new_data = payload.model_dump(exclude_unset=False)
+    # exclude_unset=True: solo procesar campos explícitamente enviados.
+    # Evita que un POST parcial (ej: solo RFC) sobreescriba adv_dictamen, adv_tanques, etc.
+    new_data = payload.model_dump(exclude_unset=True)
 
     # Preservar campos adv_* existentes si no vienen en este request
     for adv_key in ("adv_tanques", "adv_medicion", "adv_geolocalizacion",
