@@ -333,21 +333,24 @@ def get_available_periods(user_id: str, facility_id: Optional[int] = None) -> li
 # ── DELETE ────────────────────────────────────────────────────────────────────
 
 def delete_period(user_id: str, periodo: str,
-                  facility_id: Optional[int] = None) -> dict:
+                  facility_id: Optional[int] = None,
+                  include_autoconsumos: bool = False) -> dict:
     counts = {"records": 0, "reports": 0}
     try:
-        sb   = get_supabase()
-        # Preservar registros manuales (autoconsumos) que tienen file_path="manual:*"
-        qr   = (sb.table("records").delete()
-                  .eq("user_id", user_id).eq("periodo", periodo)
-                  .not_.like("file_path", "manual:%"))
+        sb = get_supabase()
+        # Por defecto preservamos autoconsumos (file_path="manual:*").
+        # include_autoconsumos=True los borra también (cliente se equivocó al registrar).
+        qr = sb.table("records").delete().eq("user_id", user_id).eq("periodo", periodo)
+        if not include_autoconsumos:
+            qr = qr.not_.like("file_path", "manual:%")
         qrep = sb.table("reports").delete().eq("user_id", user_id).eq("periodo", periodo)
         if facility_id is not None:
             qr   = qr.eq("facility_id", facility_id)
             qrep = qrep.eq("facility_id", facility_id)
         counts["records"] = len(qr.execute().data or [])
         counts["reports"] = len(qrep.execute().data or [])
-        logger.info("delete_period %s/%s fid=%s → %s", user_id, periodo, facility_id, counts)
+        logger.info("delete_period %s/%s fid=%s inc_auto=%s → %s",
+                    user_id, periodo, facility_id, include_autoconsumos, counts)
     except Exception as e:
         logger.error("delete_period: %s", e)
     return counts
