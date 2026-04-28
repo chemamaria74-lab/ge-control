@@ -489,8 +489,11 @@ def build_sat_report(
     fin_mes_iso  = _fin_de_mes_iso(anio, mes)
     inicio_mes   = f"{anio:04d}-{mes:02d}-01T00:00:00+00:00"
 
-    from routes.providers import get_permiso_for_rfc
+    from routes.providers import get_permiso_for_rfc, get_permiso_almacenamiento_for_rfc
+    # permiso_alm_y_dist es el permiso ROOT del contribuyente (va en instalación).
+    # El permiso de cada terminal se lee del catálogo de proveedores por RFC.
     permiso_alm_y_dist = settings.get("PermisoAlmYDist") or settings.get("NumPermiso", "")
+    _user_id = settings.get("_user_id")   # inyectado por el caller cuando está disponible
 
     # ── Grupos por UUID ───────────────────────────────────────────────────────
     compras = _group_by_uuid(movimientos, "entrada", factor_kg_a_litros)
@@ -519,9 +522,14 @@ def build_sat_report(
     complementos_rec = []
     for g in compras.values():
         rfc_prov     = g["rfc_cp"]
-        permiso_prov = get_permiso_for_rfc(rfc_prov) or ""
+        # Permiso del proveedor (PermisoClienteOProveedor en Nacional)
+        permiso_prov = get_permiso_for_rfc(rfc_prov, _user_id) or ""
         if not permiso_prov and rfc_prov and not rfc_prov.startswith("SIN-"):
             missing_providers.add(rfc_prov)
+
+        # Permiso de almacenamiento de la terminal (TerminalAlmYDist.PermisoAlmYDist)
+        # Regla SAT Anexo 30: es el permiso CRE de la Terminal, NO el del contribuyente.
+        permiso_terminal = get_permiso_almacenamiento_for_rfc(rfc_prov, _user_id) or permiso_alm_y_dist
 
         nacional = {
             "RfcClienteOProveedor":     rfc_prov,
@@ -545,8 +553,8 @@ def build_sat_report(
             "TipoComplemento": "Distribucion",
             "TerminalAlmYDist": {
                 "Almacenamiento": {
-                    "TerminalAlmYDist":       "---",
-                    "PermisoAlmYDist":        permiso_alm_y_dist,
+                    "TerminalAlmYDist":       rfc_prov,          # RFC de la terminal
+                    "PermisoAlmYDist":        permiso_terminal,  # Permiso CRE de la terminal
                     "TarifaDeAlmacenamiento": _smart_num(round(g["importe"], 2)),
                 }
             },
