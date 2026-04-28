@@ -2259,10 +2259,10 @@ async function loadSettings() {
   try {
     const res  = await fetch('/api/settings', { headers: authHeader() });
     const data = await res.json();
+    // Siempre sobreescribir desde Supabase — prioridad: DB > lo que el usuario escribió
+    // Esto garantiza que el próximo JSON refleje exactamente lo guardado en DB.
     const rfcEl = document.getElementById('rfc');
-    if (rfcEl && data.RfcContribuyente && !rfcEl.value.trim()) {
-      rfcEl.value = data.RfcContribuyente;
-    }
+    if (rfcEl) rfcEl.value = data.RfcContribuyente || '';
     const repEl = document.getElementById('sat_rfc_rep');
     if (repEl) repEl.value = data.RfcRepresentanteLegal || '';
     const provEl = document.getElementById('sat_rfc_prov');
@@ -2280,12 +2280,15 @@ async function saveSettings() {
   const repVal  = (document.getElementById('sat_rfc_rep')?.value || '').trim().toUpperCase();
   const provVal = (document.getElementById('sat_rfc_prov')?.value || '').trim().toUpperCase();
   const factorVal = parseFloat(document.getElementById('factor_conversion')?.value || 0.542);
-  const payload = {
-    RfcContribuyente:      rfcVal,
-    RfcRepresentanteLegal: repVal,
-    RfcProveedor:          provVal,
-    FactorDeConversionKgALitros: factorVal,
-  };
+  // Construir payload solo con campos que tienen valor real.
+  // RfcRepresentanteLegal es CONDICIONAL (§3 Guía Mensual): omitir si vacío.
+  // Nunca enviar cadenas vacías "" al SAT ni a Supabase.
+  const payload = { FactorDeConversionKgALitros: factorVal };
+  if (rfcVal)  payload.RfcContribuyente      = rfcVal;
+  if (repVal)  payload.RfcRepresentanteLegal  = repVal;
+  if (provVal) payload.RfcProveedor           = provVal;
+  // Si repVal está vacío, guardar explícitamente vacío para borrarlo de DB
+  if (!repVal) payload.RfcRepresentanteLegal  = '';
   try {
     const res  = await fetch('/api/settings', {
       method: 'POST',
@@ -2295,9 +2298,12 @@ async function saveSettings() {
     const data = await res.json();
     if (data.success) {
       if (status) {
-        status.textContent = 'Perfil guardado correctamente';
+        const savedRfc = data.settings?.RfcContribuyente || rfcVal;
+        status.textContent = `✓ Perfil guardado — RFC: ${savedRfc}`;
         status.className   = 'settings-status settings-ok';
-        setTimeout(() => { status.textContent = ''; status.className = 'settings-status'; }, 3000);
+        // Recargar desde DB para confirmar que los cambios se persistieron
+        loadSettings();
+        setTimeout(() => { status.textContent = ''; status.className = 'settings-status'; }, 4000);
       }
       actualizarRfcHint();
     } else { throw new Error('Error al guardar'); }
