@@ -1529,8 +1529,14 @@ tr:hover td{background:#f8fafc}
         <input id="fac_num_permiso" placeholder="Ej. LP/14341/DIST/PLA/2016">
       </div>
       <div class="field" style="margin:0">
-        <label style="font-size:.72rem">Permiso Almacenamiento <span style="color:#64748b;font-weight:400">(solo si tú eres la terminal — fallback)</span></label>
-        <input id="fac_permiso_alm" placeholder="Ej. G/276/LPA/2012 — si vacío, usa Núm. Permiso">
+        <label style="font-size:.72rem;display:flex;align-items:center;gap:.4rem">
+          <span>Permiso Almacenamiento</span>
+          <span style="font-size:.68rem;color:#94a3b8;font-weight:400;cursor:pointer" onclick="document.getElementById('facAlmHint').style.display=document.getElementById('facAlmHint').style.display==='none'?'':'none'" title="Más info">ⓘ</span>
+        </label>
+        <div id="facAlmHint" style="display:none;font-size:.71rem;color:#64748b;background:#f8fafc;border-radius:6px;padding:.4rem .6rem;margin-bottom:.4rem;line-height:1.5">
+          Solo necesitas esto si <b>tú mismo eres la terminal de almacenamiento</b> (tienes permiso tipo ALM). En caso contrario, deja vacío — el permiso de almacenamiento se toma del catálogo de <b>Proveedores</b> por RFC.
+        </div>
+        <input id="fac_permiso_alm" placeholder="Vacío = se usa el permiso del Proveedor">
       </div>
     </div>
     <div class="grid3" style="margin-bottom:.7rem">
@@ -2171,6 +2177,7 @@ function clearSession() {
   localStorage.removeItem('sat_email');
   localStorage.removeItem('sat_role');
   localStorage.removeItem('sat_modulo');
+  localStorage.removeItem('zcontrol_adv_settings'); // limpiar datos del usuario anterior
   applyRole('user');
 }
 
@@ -4265,9 +4272,9 @@ async function guardarPerfilTanques() {
     setStatusMsg('statusTanques', 'La capacidad útil no puede superar la total.', false); return;
   }
   try {
-    const data = JSON.parse(localStorage.getItem(SUPABASE_SETTINGS_KEY) || '{}');
+    const data = {}; // adv data sent directly to Supabase
     data.tanques = { clave_tanque: claveTanque, cap_total: capTotal, cap_operativa: capOp, cap_util: capUtil, fecha_calibracion: fecha };
-    localStorage.setItem(SUPABASE_SETTINGS_KEY, JSON.stringify(data));
+    // (no localStorage - data isolated per user in Supabase)
     const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
@@ -4288,9 +4295,9 @@ async function guardarSistemasMedicion() {
     setStatusMsg('statusMedicion', 'Ingresa el modelo del sensor.', false); return;
   }
   try {
-    const data = JSON.parse(localStorage.getItem(SUPABASE_SETTINGS_KEY) || '{}');
+    const data = {}; // adv data sent directly to Supabase
     data.medicion = { incertidumbre: incert, modelo_sensor: modelo, serie_sensor: serie };
-    localStorage.setItem(SUPABASE_SETTINGS_KEY, JSON.stringify(data));
+    // (no localStorage - data isolated per user in Supabase)
     await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
@@ -4331,9 +4338,9 @@ async function guardarGeolocalizacion() {
     setStatusMsg('statusGeo', 'Las coordenadas 1.0,1.0 son un marcador de relleno. Ingresa las coordenadas reales.', false); return;
   }
   try {
-    const data = JSON.parse(localStorage.getItem(SUPABASE_SETTINGS_KEY) || '{}');
+    const data = {}; // adv data sent directly to Supabase
     data.geolocalizacion = { latitud: lat, longitud: lon };
-    localStorage.setItem(SUPABASE_SETTINGS_KEY, JSON.stringify(data));
+    // (no localStorage - data isolated per user in Supabase)
     await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
@@ -4357,9 +4364,9 @@ async function guardarDictamen() {
     setStatusMsg('statusDictamen', 'Ingresa el número de dictamen.', false); return;
   }
   try {
-    const data = JSON.parse(localStorage.getItem(SUPABASE_SETTINGS_KEY) || '{}');
+    const data = {}; // adv data sent directly to Supabase
     data.dictamen = { rfc_ui: rfcUi, num_dictamen: numDict, fecha_vigencia: fechaV, version_sw: verSw };
-    localStorage.setItem(SUPABASE_SETTINGS_KEY, JSON.stringify(data));
+    // (no localStorage - data isolated per user in Supabase)
     await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
@@ -4386,9 +4393,9 @@ async function guardarComposicionPR12() {
     setStatusMsg('statusCompos', 'La suma Propano + Butano no puede superar 1.0.', false); return;
   }
   try {
-    const data = JSON.parse(localStorage.getItem(SUPABASE_SETTINGS_KEY) || '{}');
+    const data = {}; // adv data sent directly to Supabase
     data.composicion_pr12 = { propano: prop, butano: but };
-    localStorage.setItem(SUPABASE_SETTINGS_KEY, JSON.stringify(data));
+    // (no localStorage - data isolated per user in Supabase)
     await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
@@ -4398,36 +4405,41 @@ async function guardarComposicionPR12() {
   } catch(e) { setStatusMsg('statusCompos', 'Error: ' + e.message, false); }
 }
 
-// Cargar valores guardados al abrir Config Avanzada
-function cargarConfigAvanzada() {
+// Cargar valores guardados al abrir Config Avanzada — SIEMPRE desde Supabase
+// (no localStorage) para garantizar aislamiento multi-tenant entre usuarios.
+async function cargarConfigAvanzada() {
   try {
-    const data = JSON.parse(localStorage.getItem(SUPABASE_SETTINGS_KEY) || '{}');
-    if (data.tanques) {
-      document.getElementById('adv_clave_tanque').value   = data.tanques.clave_tanque || '';
-      document.getElementById('adv_cap_total').value = data.tanques.cap_total || '';
-      document.getElementById('adv_cap_operativa').value = data.tanques.cap_operativa || '';
-      document.getElementById('adv_cap_util').value  = data.tanques.cap_util != null ? data.tanques.cap_util : '';
-      document.getElementById('adv_fecha_calibracion').value = data.tanques.fecha_calibracion || '';
-    }
-    if (data.medicion) {
-      document.getElementById('adv_incertidumbre').value = data.medicion.incertidumbre || '';
-      document.getElementById('adv_modelo_sensor').value = data.medicion.modelo_sensor || '';
-      document.getElementById('adv_serie_sensor').value  = data.medicion.serie_sensor  || '';
-    }
-    if (data.geolocalizacion) {
-      document.getElementById('adv_latitud').value  = data.geolocalizacion.latitud  || '';
-      document.getElementById('adv_longitud').value = data.geolocalizacion.longitud || '';
-    }
-    if (data.dictamen) {
-      document.getElementById('adv_rfc_ui').value        = data.dictamen.rfc_ui || '';
-      document.getElementById('adv_num_dictamen').value  = data.dictamen.num_dictamen || '';
-      document.getElementById('adv_fecha_dictamen').value= data.dictamen.fecha_vigencia || '';
-      document.getElementById('adv_version_sw').value    = data.dictamen.version_sw || '';
-    }
-    if (data.composicion_pr12) {
-      document.getElementById('adv_propano').value = data.composicion_pr12.propano || '';
-      document.getElementById('adv_butano').value  = data.composicion_pr12.butano  || '';
-    }
+    const res = await fetch('/api/settings', { headers: authHeader() });
+    if (!res.ok) throw new Error('settings fetch failed');
+    const data = await res.json();
+
+    const t = data.adv_tanques || {};
+    if (t.clave_tanque)       document.getElementById('adv_clave_tanque').value      = t.clave_tanque;
+    if (t.cap_total)          document.getElementById('adv_cap_total').value          = t.cap_total;
+    if (t.cap_operativa)      document.getElementById('adv_cap_operativa').value      = t.cap_operativa;
+    if (t.cap_util != null)   document.getElementById('adv_cap_util').value           = t.cap_util;
+    if (t.fecha_calibracion)  document.getElementById('adv_fecha_calibracion').value  = t.fecha_calibracion;
+
+    const m = data.adv_medicion || {};
+    if (m.incertidumbre) document.getElementById('adv_incertidumbre').value = m.incertidumbre;
+    if (m.modelo_sensor) document.getElementById('adv_modelo_sensor').value = m.modelo_sensor;
+    if (m.serie_sensor)  document.getElementById('adv_serie_sensor').value  = m.serie_sensor;
+
+    const g = data.adv_geolocalizacion || {};
+    if (g.latitud)  document.getElementById('adv_latitud').value  = g.latitud;
+    if (g.longitud) document.getElementById('adv_longitud').value = g.longitud;
+    if (g.latitud || g.longitud) validarCoordenadas();
+
+    const d = data.adv_dictamen || {};
+    if (d.rfc_ui)         document.getElementById('adv_rfc_ui').value         = d.rfc_ui;
+    if (d.num_dictamen)   document.getElementById('adv_num_dictamen').value   = d.num_dictamen;
+    if (d.fecha_vigencia) document.getElementById('adv_fecha_dictamen').value = d.fecha_vigencia;
+    if (d.version_sw)     document.getElementById('adv_version_sw').value     = d.version_sw;
+
+    const c = data.adv_composicion_pr12 || {};
+    if (c.propano) document.getElementById('adv_propano').value = c.propano;
+    if (c.butano)  document.getElementById('adv_butano').value  = c.butano;
+
   } catch(e) { console.warn('Error cargando config avanzada:', e); }
 }
 
