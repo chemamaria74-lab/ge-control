@@ -232,7 +232,7 @@ def get_records(user_id: str, periodo: str,
                 facility_id: Optional[int] = None) -> dict:
     try:
         q = (get_supabase().table("records")
-             .select("tipo,fecha,volumen_litros,uuid,rfc_contraparte,nombre_contraparte,importe")
+             .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,nombre_contraparte,importe,file_path")
              .eq("user_id", user_id).eq("periodo", periodo))
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
@@ -337,7 +337,10 @@ def delete_period(user_id: str, periodo: str,
     counts = {"records": 0, "reports": 0}
     try:
         sb   = get_supabase()
-        qr   = sb.table("records").delete().eq("user_id", user_id).eq("periodo", periodo)
+        # Preservar registros manuales (autoconsumos) que tienen file_path="manual:*"
+        qr   = (sb.table("records").delete()
+                  .eq("user_id", user_id).eq("periodo", periodo)
+                  .not_.like("file_path", "manual:%"))
         qrep = sb.table("reports").delete().eq("user_id", user_id).eq("periodo", periodo)
         if facility_id is not None:
             qr   = qr.eq("facility_id", facility_id)
