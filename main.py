@@ -1529,7 +1529,7 @@ tr:hover td{background:#f8fafc}
         <input id="fac_num_permiso" placeholder="Ej. LP/14341/DIST/PLA/2016">
       </div>
       <div class="field" style="margin:0">
-        <label style="font-size:.72rem">Permiso Almacenamiento <span style="color:#64748b;font-weight:400">(PermisoAlmYDist)</span></label>
+        <label style="font-size:.72rem">Permiso Almacenamiento <span style="color:#64748b;font-weight:400">(solo si tú eres la terminal — fallback)</span></label>
         <input id="fac_permiso_alm" placeholder="Ej. G/276/LPA/2012 — si vacío, usa Núm. Permiso">
       </div>
     </div>
@@ -1578,18 +1578,28 @@ tr:hover td{background:#f8fafc}
   <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:.8rem">
     <table id="tblProveedores" style="margin-bottom:0">
       <thead>
-        <tr><th>RFC Proveedor/Cliente</th><th>Nombre</th><th>Permiso CRE</th><th style="width:60px;text-align:center">Acción</th></tr>
+        <tr>
+          <th>RFC Proveedor/Cliente</th>
+          <th>Nombre</th>
+          <th>Permiso CRE <small style="font-weight:400;color:#94a3b8">(PermisoClienteOProveedor)</small></th>
+          <th>Permiso Almacenamiento Terminal <small style="font-weight:400;color:#94a3b8">(PermisoAlmYDist)</small></th>
+          <th style="width:60px;text-align:center">Acción</th>
+        </tr>
       </thead>
       <tbody id="tbodyProveedores">
-        <tr><td colspan="4" class="hist-empty">Cargando...</td></tr>
+        <tr><td colspan="5" class="hist-empty">Cargando...</td></tr>
       </tbody>
     </table>
   </div>
   <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.8rem 1rem">
-    <div style="font-size:.78rem;font-weight:600;color:#374151;margin-bottom:.6rem"><i class="fa-solid fa-plus-circle" style="margin-right:.35rem"></i>Agregar / actualizar proveedor</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:.6rem;align-items:flex-end">
+    <div style="font-size:.78rem;font-weight:600;color:#374151;margin-bottom:.3rem"><i class="fa-solid fa-plus-circle" style="margin-right:.35rem"></i>Agregar / actualizar proveedor</div>
+    <div style="font-size:.73rem;color:#64748b;margin-bottom:.6rem;line-height:1.5">
+      <b>Permiso CRE</b> → va en <code>Nacional.PermisoClienteOProveedor</code> (identificación del proveedor en el reporte).<br>
+      <b>Permiso Almacenamiento Terminal</b> → va en <code>TerminalAlmYDist.PermisoAlmYDist</code> (permiso CRE de la terminal que almacena el gas antes de enviártelo). Obligatorio para Recepciones.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:.6rem;align-items:flex-end">
       <div class="field" style="margin:0">
-        <label style="font-size:.72rem">RFC</label>
+        <label style="font-size:.72rem">RFC <span style="color:#e63946">*</span></label>
         <input id="provRfc" placeholder="Ej. MGC010101AAA" style="text-transform:uppercase">
       </div>
       <div class="field" style="margin:0">
@@ -1597,8 +1607,12 @@ tr:hover td{background:#f8fafc}
         <input id="provNombre" placeholder="Ej. Gas Natural Norte">
       </div>
       <div class="field" style="margin:0">
-        <label style="font-size:.72rem">Permiso CRE</label>
+        <label style="font-size:.72rem">Permiso CRE <span style="color:#64748b;font-weight:400">(PermisoClienteOProveedor)</span></label>
         <input id="provPermiso" placeholder="Ej. G/8761/COM/2017">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Permiso Almacenamiento Terminal <span style="color:#e63946">*</span> <span style="color:#64748b;font-weight:400">(PermisoAlmYDist)</span></label>
+        <input id="provPermisoAlm" placeholder="Ej. G/276/LPA/2012">
       </div>
       <button class="btn btn-red" id="btnAddProvider" style="padding:.52rem .9rem;font-size:.8rem;white-space:nowrap">
         Guardar
@@ -2306,29 +2320,36 @@ function renderProvidersTable(providers) {
   const tbody = document.getElementById('tbodyProveedores');
   if (!tbody) return;
   if (!providers || providers.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="hist-empty">Sin proveedores registrados</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="hist-empty">Sin proveedores registrados</td></tr>';
     return;
   }
-  tbody.innerHTML = providers.map(p => `
+  tbody.innerHTML = providers.map(p => {
+    const almWarn = !p.permiso_almacenamiento_terminal
+      ? `<span style="color:#f59e0b;font-style:italic;font-size:.75rem">⚠ Sin permiso terminal</span>`
+      : `<span style="color:#0f766e;font-weight:600">${p.permiso_almacenamiento_terminal}</span>`;
+    return `
     <tr>
       <td><code style="font-size:.8rem">${p.rfc || ''}</code></td>
       <td>${p.nombre || '<span style="color:#94a3b8;font-style:italic">—</span>'}</td>
       <td>${p.permiso
             ? `<span style="color:#16a34a;font-weight:600">${p.permiso}</span>`
-            : '<span style="color:#dc2626;font-style:italic">Sin permiso</span>'}</td>
+            : '<span style="color:#94a3b8;font-style:italic">—</span>'}</td>
+      <td>${almWarn}</td>
       <td style="text-align:center">
-        <button onclick="editProvider('${p.rfc}','${(p.nombre||'').replace(/'/g,'\\u0027')}','${p.permiso||''}')"
+        <button onclick="editProvider('${p.rfc}','${(p.nombre||'').replace(/'/g,'\\u0027')}','${p.permiso||''}','${p.permiso_almacenamiento_terminal||''}')"
           style="background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:.25rem .55rem;cursor:pointer;font-size:.75rem;margin-right:.2rem" title="Editar"><i class="fa-solid fa-pen-to-square"></i></button>
         <button onclick="deleteProvider('${p.rfc}')"
           style="background:#ef4444;color:#fff;border:none;border-radius:5px;padding:.25rem .55rem;cursor:pointer;font-size:.75rem" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
-function editProvider(rfc, nombre, permiso) {
-  document.getElementById('provRfc').value    = rfc;
-  document.getElementById('provNombre').value = nombre;
-  document.getElementById('provPermiso').value= permiso;
+function editProvider(rfc, nombre, permiso, permisoAlm) {
+  document.getElementById('provRfc').value       = rfc;
+  document.getElementById('provNombre').value    = nombre;
+  document.getElementById('provPermiso').value   = permiso;
+  document.getElementById('provPermisoAlm').value= permisoAlm || '';
   document.getElementById('provRfc').focus();
 }
 
@@ -2349,23 +2370,30 @@ async function deleteProvider(rfc) {
 }
 
 document.getElementById('btnAddProvider').addEventListener('click', async () => {
-  const rfc     = document.getElementById('provRfc').value.trim().toUpperCase();
-  const nombre  = document.getElementById('provNombre').value.trim();
-  const permiso = document.getElementById('provPermiso').value.trim();
-  const st      = document.getElementById('provStatus');
+  const rfc       = document.getElementById('provRfc').value.trim().toUpperCase();
+  const nombre    = document.getElementById('provNombre').value.trim();
+  const permiso   = document.getElementById('provPermiso').value.trim();
+  const permisoAlm= document.getElementById('provPermisoAlm').value.trim();
+  const st        = document.getElementById('provStatus');
   st.textContent = '';
   if (!rfc) { st.textContent = 'El RFC es obligatorio.'; st.style.color='#dc2626'; return; }
+  if (!permisoAlm) {
+    st.textContent = '⚠ Permiso Almacenamiento Terminal es recomendado para Recepciones SAT.';
+    st.style.color = '#b45309';
+    // No bloqueamos — continúa aunque muestre advertencia
+  }
   try {
     const res  = await fetch('/api/providers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ rfc, nombre, permiso }),
+      body: JSON.stringify({ rfc, nombre, permiso, permiso_almacenamiento_terminal: permisoAlm }),
     });
     const data = await res.json();
     renderProvidersTable(data.providers || []);
-    document.getElementById('provRfc').value    = '';
-    document.getElementById('provNombre').value = '';
-    document.getElementById('provPermiso').value= '';
+    document.getElementById('provRfc').value       = '';
+    document.getElementById('provNombre').value    = '';
+    document.getElementById('provPermiso').value   = '';
+    document.getElementById('provPermisoAlm').value= '';
     st.textContent = `${rfc} guardado correctamente`;
     st.style.color = '#16a34a';
     setTimeout(() => { st.textContent = ''; }, 3000);
@@ -3848,11 +3876,25 @@ document.getElementById('btnDelHist').addEventListener('click', () => {
   const facLabel = facilityIdForDelete
     ? (_facilities.find(f => f.id === facilityIdForDelete)?.nombre || `instalación #${facilityIdForDelete}`)
     : 'todas las instalaciones';
+
+  // Unique ID for the checkbox within this modal instance
+  const chkId = 'chkDelAutoconsumos_' + Date.now();
+
   showConfirmModal(
     `<i class="fa-solid fa-trash" style="margin-right:.35rem"></i>¿Estás seguro de que quieres <b>borrar</b> el reporte de <b>${histPeriodo}</b>?<br>
      <small style="color:#475569">Instalación: <b>${facLabel}</b></small><br>
-     <small style="color:#dc2626">Esta acción eliminará todos los registros de entradas, salidas y el reporte SAT de ese mes. No se puede deshacer.</small>`,
-    () => deleteHistPeriodo(histPeriodo, facilityIdForDelete)
+     <small style="color:#dc2626">Esta acción eliminará todos los registros de entradas, salidas y el reporte SAT de ese mes. No se puede deshacer.</small>
+     <div style="margin-top:.9rem;padding:.7rem .9rem;background:#fef3c7;border-radius:8px;border:1px solid #fcd34d;display:flex;align-items:center;gap:.6rem;">
+       <input type="checkbox" id="${chkId}" style="width:16px;height:16px;cursor:pointer;accent-color:#dc2626;">
+       <label for="${chkId}" style="font-size:.82rem;color:#92400e;cursor:pointer;margin:0;">
+         <b>También borrar autoconsumos</b> de este periodo<br>
+         <span style="font-weight:400">(marca esto si el cliente cometió un error al registrar)</span>
+       </label>
+     </div>`,
+    () => {
+      const includeAuto = document.getElementById(chkId)?.checked || false;
+      deleteHistPeriodo(histPeriodo, facilityIdForDelete, includeAuto);
+    }
   );
 });
 
@@ -4012,18 +4054,19 @@ function showConfirmModal(htmlMsg, onConfirm) {
 }
 
 // ── Borrar periodo desde historial ───────────────────────────────────────
-async function deleteHistPeriodo(periodo, facilityId) {
+async function deleteHistPeriodo(periodo, facilityId, includeAutoconsumos = false) {
   if (!authToken) return;
   // facilityId is passed explicitly from the confirm modal so there is no risk
   // of stale closure state. Fall back to module-level var for safety.
   const fid = (facilityId !== undefined) ? facilityId : _histFacilityId;
   try {
-    let url = `/api/history/${periodo}`;
-    if (fid) url += `?facility_id=${fid}`;
+    let url = `/api/history/${periodo}?include_autoconsumos=${includeAutoconsumos}`;
+    if (fid) url += `&facility_id=${fid}`;
     const res = await fetch(url, {
       method: 'DELETE', headers: authHeader(),
     });
     if (!res.ok) { alert('Error al borrar el periodo.'); return; }
+    const data = await res.json();
     // Reset UI
     document.getElementById('histContent').style.display = 'none';
     document.getElementById('btnDlHistZIP').style.display = 'none';
@@ -4035,9 +4078,10 @@ async function deleteHistPeriodo(periodo, facilityId) {
       loadVentasAnalytics();
     }
     // Mostrar confirmación
-    showToast(`Reporte de ${periodo} eliminado.`, 'success');
+    const autoMsg = includeAutoconsumos ? ' (incluidos autoconsumos)' : '';
+    showToast(`Reporte de ${periodo} eliminado${autoMsg}.`, 'success');
     const inf = document.getElementById('histReportInfo');
-    inf.textContent = `Reporte de ${periodo} eliminado correctamente.`;
+    inf.textContent = `Reporte de ${periodo} eliminado correctamente${autoMsg}.`;
     inf.style.color = '#15803d';
     inf.style.display = '';
     setTimeout(() => { inf.style.display = 'none'; inf.style.color = ''; inf.textContent = ''; }, 4000);
