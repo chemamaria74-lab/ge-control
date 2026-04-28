@@ -59,7 +59,7 @@ async def get_history(
             sat_zip_filename = filename_base + ".zip"
         else:
             try:
-                settings = load_settings()
+                settings = load_settings(uid)
                 sat_zip_filename = generate_filename(settings, periodo, "JSON", stored_uuid) + ".zip"
             except Exception:
                 if latest.get("zip_path"):
@@ -90,15 +90,18 @@ async def wipe_all_history(authorization: str = Header(default="")):
 async def delete_history(
     periodo: str,
     facility_id: Optional[int] = Query(default=None),
+    include_autoconsumos: bool  = Query(default=False),
     authorization: str = Header(default=""),
 ):
     uid = _auth(authorization)
-    counts = delete_period(uid, periodo, facility_id=facility_id)
+    counts = delete_period(uid, periodo, facility_id=facility_id,
+                           include_autoconsumos=include_autoconsumos)
     return JSONResponse(content={
         "ok": True,
         "periodo": periodo,
         "deleted_records": counts.get("records", 0),
         "deleted_reports": counts.get("reports", 0),
+        "autoconsumos_borrados": include_autoconsumos,
     })
 
 
@@ -139,7 +142,7 @@ async def download_report(
             else:
                 filename = filename_base + "." + fmt_l
         else:
-            settings     = load_settings()
+            settings     = load_settings(uid)
             fmt_for_name = "JSON" if fmt_l == "zip" else fmt_l.upper()
             sat_name     = generate_filename(settings, periodo, fmt_for_name, stored_uuid)
             filename     = sat_name + "." + fmt_l

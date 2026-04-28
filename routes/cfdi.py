@@ -69,11 +69,13 @@ async def upload_cfdi(
         if ext not in ALLOWED_EXTS:
             raise HTTPException(400, f"Solo se aceptan .xml o .zip (recibido: '{f.filename}').")
 
-    # ── Cargar configuración persistente ────────────────────────────────────
-    settings = load_settings()
+    # ── Cargar configuración persistente (FILTRADA por usuario) ─────────────
+    settings = load_settings(user_id)
     rfc_activo = rfc.strip().upper() or settings.get("RfcContribuyente", "").strip().upper()
     if rfc.strip():
         settings["RfcContribuyente"] = rfc_activo
+    # Inyectar user_id para que sat_transformer resuelva proveedores del usuario correcto
+    settings["_user_id"] = user_id
 
     # ── Sobrescribir con datos de la instalación seleccionada ────────────────
     fid: Optional[int] = None
