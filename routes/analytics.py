@@ -61,19 +61,44 @@ async def get_ventas_analytics(
         if mes not in by_month:
             by_month[mes] = rep
 
+    # Obtener autoconsumos del año para este usuario/instalación
+    autoconsumos_por_mes: dict = {}
+    try:
+        from supabase_config import get_supabase
+        sb = get_supabase()
+        q  = (sb.table("records")
+                .select("fecha,volumen_litros,nombre_contraparte")
+                .eq("user_id", uid)
+                .eq("tipo", "salida")
+                .like("file_path", "manual:%")
+                .gte("fecha", f"{year_str}-01-01")
+                .lte("fecha", f"{year_str}-12-31"))
+        if facility_id is not None:
+            q = q.eq("facility_id", facility_id)
+        ac_rows = q.execute().data or []
+        for row in ac_rows:
+            mes_ac = int((row.get("fecha") or "0000-01")[5:7])
+            autoconsumos_por_mes[mes_ac] = round(
+                autoconsumos_por_mes.get(mes_ac, 0.0) + float(row.get("volumen_litros") or 0), 2
+            )
+    except Exception as e:
+        logger.warning("analytics autoconsumos: %s", e)
+
     monthly = []
     for m in range(1, 13):
         r = by_month.get(m)
 
-        inv_ini  = round(float(r["inventario_inicial"]), 2) if r else None
-        litros_r = round(float(r["total_recepciones"]),  2) if r else 0.0
-        litros_e = round(float(r["total_entregas"]),     2) if r else 0.0
-        inv_fin  = round(float(r["vol_existencias"]),    2) if r else None
-        pesos_e  = round(float(r.get("importe_entregas",   0) or 0), 2) if r else 0.0
-        pesos_r  = round(float(r.get("importe_recepciones",0) or 0), 2) if r else 0.0
+        inv_ini       = round(float(r["inventario_inicial"]), 2) if r else None
+        litros_r      = round(float(r["total_recepciones"]),  2) if r else 0.0
+        litros_e_total= round(float(r["total_entregas"]),     2) if r else 0.0
+        litros_ac     = autoconsumos_por_mes.get(m, 0.0)
+        litros_e_cfdi = round(litros_e_total - litros_ac, 2) if litros_e_total > 0 else 0.0
+        inv_fin       = round(float(r["vol_existencias"]),    2) if r else None
+        pesos_e       = round(float(r.get("importe_entregas",   0) or 0), 2) if r else 0.0
+        pesos_r       = round(float(r.get("importe_recepciones",0) or 0), 2) if r else 0.0
 
         if r and inv_ini is not None and inv_fin is not None:
-            calc_val   = round(inv_ini + litros_r - litros_e, 2)
+            calc_val   = round(inv_ini + litros_r - litros_e_total, 2)
             balance_ok = abs(calc_val - inv_fin) <= 1.0
         else:
             calc_val   = None
@@ -85,7 +110,9 @@ async def get_ventas_analytics(
         monthly.append({
             "mes":               m,
             "label":             MESES[m - 1],
-            "litros":            litros_e,
+            "litros":            litros_e_total,     # total entregas (CFDI + autoconsumo)
+            "litros_cfdi":       litros_e_cfdi,      # solo entregas con CFDI
+            "litros_autoconsumo": litros_ac,         # solo autoconsumos manuales
             "pesos":             pesos_e,
             "litros_rec":        litros_r,
             "pesos_rec":         pesos_r,
