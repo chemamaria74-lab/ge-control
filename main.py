@@ -1182,7 +1182,8 @@ tr:hover td{background:#f8fafc}
             <th style="padding:.45rem .6rem;text-align:left;border-bottom:1px solid #e2e8f0">Mes</th>
             <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">Inv. Inicial (L)</th>
             <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">(+) Recepciones (L)</th>
-            <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">(-) Entregas (L)</th>
+            <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">(-) Entregas CFDI (L)</th>
+            <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0;color:#92400e">(-) Autoconsumo (L)</th>
             <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">(=) Inv. Final Calculado</th>
             <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">Inv. Final Guardado</th>
             <th style="padding:.45rem .6rem;text-align:center;border-bottom:1px solid #e2e8f0">Status</th>
@@ -2982,13 +2983,12 @@ function renderVentasCharts(monthly, capacidad) {
   const tbody = document.getElementById('balanceTbody');
   tbody.innerHTML = '';
 
-  // Show a capacity legend row if capacity is configured
   const capHdrRow = document.getElementById('balanceCapHdr');
   if (capHdrRow) capHdrRow.remove();
   if (capacidad) {
     const hdr = document.createElement('tr');
     hdr.id = 'balanceCapHdr';
-    hdr.innerHTML = '<td colspan="7" style="padding:.3rem .6rem;background:#fef2f2;color:#991b1b;font-size:.73rem;border-bottom:1px solid #fecaca">' +
+    hdr.innerHTML = '<td colspan="8" style="padding:.3rem .6rem;background:#fef2f2;color:#991b1b;font-size:.73rem;border-bottom:1px solid #fecaca">' +
       'Capacidad física del tanque: <strong>' + fmtNum(capacidad, 2) + ' L</strong> — ' +
       'Las celdas resaltadas en rojo indican que el inventario supera este límite.' +
       '</td>';
@@ -2996,42 +2996,43 @@ function renderVentasCharts(monthly, capacidad) {
   }
 
   monthly.forEach(m => {
-    const tr = document.createElement('tr');
+    const tr      = document.createElement('tr');
     const hasData = m.has_report && m.inv_inicial !== null;
     const stripe  = m.mes % 2 === 0 ? '#f8fafc' : '#fff';
+    const hasAc   = m.has_report && (m.litros_autoconsumo || 0) > 0;
+    const litrosCfdi = m.litros_cfdi !== undefined ? m.litros_cfdi : m.litros;
 
-    // Capacity-exceeded styles
-    const calcOver = hasData && m.calc_exceeds_cap;
-    const finOver  = m.has_report && m.exceeds_cap;
+    const calcOver     = hasData && m.calc_exceeds_cap;
+    const finOver      = m.has_report && m.exceeds_cap;
     const capCellStyle = 'background:#fee2e2;color:#991b1b;font-weight:700;';
 
     let statusCell = '<td style="text-align:center;font-size:1rem">—</td>';
     if (hasData) {
-      const capWarn = (calcOver || finOver) ? ' Supera capacidad' : '';
       if (m.balance_ok === true && !calcOver && !finOver) {
-        statusCell = '<td style="text-align:center;font-size:1rem" title="Balance correcto"><i class="fa-solid fa-circle-check"></i></td>';
+        statusCell = '<td style="text-align:center;font-size:1rem;color:#16a34a" title="Balance correcto"><i class="fa-solid fa-circle-check"></i></td>';
       } else if (calcOver || finOver) {
-        const diff = m.inv_final !== null && m.inv_calc !== null
-          ? ' Δ ' + fmtNum(Math.abs(m.inv_final - m.inv_calc), 2) + ' L'
-          : '';
-        statusCell = '<td style="text-align:center;font-size:.8rem;background:#fee2e2;color:#991b1b;font-weight:700" title="Supera capacidad del tanque' + diff + '"><i class="fa-solid fa-circle-exclamation"></i></td>';
+        const diff = m.inv_final !== null && m.inv_calc !== null ? ' Δ ' + fmtNum(Math.abs(m.inv_final - m.inv_calc), 2) + ' L' : '';
+        statusCell = '<td style="text-align:center;font-size:.8rem;background:#fee2e2;color:#991b1b;font-weight:700" title="Supera capacidad' + diff + '"><i class="fa-solid fa-circle-exclamation"></i></td>';
       } else if (m.balance_ok === false) {
-        const diff = m.inv_final !== null && m.inv_calc !== null
-          ? ' (Δ ' + fmtNum(Math.abs(m.inv_final - m.inv_calc), 2) + ' L)'
-          : '';
-        statusCell = '<td style="text-align:center;font-size:1rem" title="Diferencia detectada' + diff + '"><i class="fa-solid fa-triangle-exclamation"></i></td>';
+        const diff = m.inv_final !== null && m.inv_calc !== null ? ' (Δ ' + fmtNum(Math.abs(m.inv_final - m.inv_calc), 2) + ' L)' : '';
+        statusCell = '<td style="text-align:center;font-size:1rem;color:#d97706" title="Diferencia detectada' + diff + '"><i class="fa-solid fa-triangle-exclamation"></i></td>';
       }
     }
 
-    const tdStyle = 'padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;text-align:right;color:';
+    const tdR = 'padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;text-align:right;color:';
     tr.style.background = stripe;
     tr.innerHTML =
       '<td style="padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;color:#374151;font-weight:600">' + m.label + '</td>' +
-      '<td style="' + tdStyle + '#1e40af">' + (hasData ? fmtNum(m.inv_inicial,2) : '—') + '</td>' +
-      '<td style="' + tdStyle + '#15803d">' + (m.has_report ? fmtNum(m.litros_rec,2) : '—') + '</td>' +
-      '<td style="' + tdStyle + '#9a3412">' + (m.has_report ? fmtNum(m.litros,2) : '—') + '</td>' +
-      '<td style="padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;text-align:right;' + (calcOver ? capCellStyle : 'color:#374151;') + '">' + (hasData ? fmtNum(m.inv_calc,2) : '—') + '</td>' +
-      '<td style="padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;' + (finOver ? capCellStyle : 'color:#374151;') + '">' + (m.has_report && m.inv_final !== null ? fmtNum(m.inv_final,2) : '—') + '</td>' +
+      '<td style="' + tdR + '#1e40af">'  + (hasData      ? fmtNum(m.inv_inicial, 2)   : '—') + '</td>' +
+      '<td style="' + tdR + '#15803d">'  + (m.has_report ? fmtNum(m.litros_rec, 2)    : '—') + '</td>' +
+      // Entregas CFDI (rojo)
+      '<td style="' + tdR + '#9a3412">'  + (m.has_report ? fmtNum(litrosCfdi, 2)      : '—') + '</td>' +
+      // Autoconsumo (ámbar si hay, guión si no)
+      (hasAc
+        ? '<td style="' + tdR + '#92400e;background:#fffbeb;font-weight:700">' + fmtNum(m.litros_autoconsumo, 2) + ' <span title="Autoconsumo registrado" style="font-size:.7rem">🚛</span></td>'
+        : '<td style="' + tdR + '#94a3b8">—</td>') +
+      '<td style="padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;text-align:right;' + (calcOver ? capCellStyle : 'color:#374151;') + '">' + (hasData ? fmtNum(m.inv_calc, 2) : '—') + '</td>' +
+      '<td style="padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;' + (finOver ? capCellStyle : 'color:#374151;') + '">' + (m.has_report && m.inv_final !== null ? fmtNum(m.inv_final, 2) : '—') + '</td>' +
       statusCell;
     tbody.appendChild(tr);
   });
