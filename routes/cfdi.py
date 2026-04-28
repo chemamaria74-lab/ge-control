@@ -204,37 +204,54 @@ async def upload_cfdi(
 
     init_db()
 
-    # ── Inyectar autoconsumos guardados en Supabase al conjunto de movimientos ─
-    # Los registros manuales (file_path="manual:*") se cargan del periodo para
-    # que queden incluidos en VolumenAcumOpsEntrega y en la BitácoraMensual.
+    # ── Inyectar autoconsumos guardados en Supabase ───────────────────────────
+    # Query directa con filtro file_path para no depender de get_records
+    # que no diferencia entre CFDIs y movimientos manuales al guardar.
     try:
-        from services.database import get_records as _get_records
-        # Inferir periodo desde los movimientos parseados
+        from supabase_config import get_supabase as _get_sb
+        from datetime import datetime as _dt
+
+        # Determinar periodo desde los movimientos parseados o forma del form
         fechas_mov = [m.get("fecha", "") for m in movimientos if m.get("fecha")]
         periodo_inferido = sorted(fechas_mov)[-1][:7] if fechas_mov else None
 
         if periodo_inferido:
-            recs = _get_records(user_id, periodo_inferido, facility_id=fid)
-            autoconsumos_db = [r for r in recs.get("salidas", [])
-                               if str(r.get("file_path", "")).startswith("manual:")]
+            sb_q = (_get_sb().table("records")
+                    .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,nombre_contraparte,importe,file_path")
+                    .eq("user_id", user_id)
+                    .eq("periodo", periodo_inferido)
+                    .eq("tipo", "salida")
+                    .like("file_path", "manual:%"))
+            if fid is not None:
+                sb_q = sb_q.eq("facility_id", fid)
+            autoconsumos_db = sb_q.execute().data or []
+
             if autoconsumos_db:
-                todos_logs.append(f"Autoconsumos encontrados en BD: {len(autoconsumos_db)} registros para {periodo_inferido}")
+                todos_logs.append(
+                    f"Autoconsumos cargados de Supabase: {len(autoconsumos_db)} registros "
+                    f"para {periodo_inferido}"
+                )
                 for ac in autoconsumos_db:
-                    # Convertir registro DB → formato movimiento del transformer
+                    # Formato de movimiento que entiende _group_by_uuid en sat_transformer
                     movimientos.append({
-                        "tipo_movimiento": "salida",
-                        "fecha":           ac.get("fecha", ""),
-                        "volumen":         float(ac.get("volumen_litros", 0)),
-                        "unidad":          "litros",
-                        "_uuid":           ac.get("uuid", ""),
-                        "_rfc_receptor":   ac.get("rfc_contraparte", ""),
+                        "tipo_movimiento":  "salida",
+                        "fecha":            ac.get("fecha", ""),
+                        "volumen_litros":   float(ac.get("volumen_litros", 0)),
+                        "volumen":          float(ac.get("volumen_litros", 0)),
+                        "unidad":           "litros",
+                        "_uuid":            ac.get("uuid", ""),
+                        "_rfc_receptor":    ac.get("rfc_contraparte", ""),
                         "_nombre_receptor": ac.get("nombre_contraparte", ""),
-                        "_importe":        float(ac.get("importe", 0)),
-                        "_fecha_hora":     ac.get("fecha", "") + "T12:00:00+00:00",
-                        "usuario":         user_id,
+                        "_importe":         float(ac.get("importe", 0)),
+                        "_fecha_hora":      ac.get("fecha", "") + "T12:00:00+00:00",
+                        "usuario":          user_id,
                     })
+                    todos_logs.append(
+                        f"  ✓ Autoconsumo: {ac['uuid'][:16]}… "
+                        f"{float(ac['volumen_litros']):,.2f} L fecha={ac['fecha']}"
+                    )
     except Exception as e:
-        todos_logs.append(f"Info: no se pudieron cargar autoconsumos previos — {e}")
+        todos_logs.append(f"Info: autoconsumos no inyectados — {e}")
 
     # Inventario Inicial: valor manual del usuario. Requerido para que
     # VolumenExistenciasMes sea correcto; si no se ingresa se usa 0.
@@ -374,8 +391,14 @@ async def upload_cfdi(
             settings=settings,
         )
         periodo = sat_meta["periodo"]
-        save_records(user_id, periodo, sat_meta["_compras"], "entrada", facility_id=fid)
-        save_records(user_id, periodo, sat_meta["_ventas"],  "salida",  facility_id=fid)
+        # Guardar solo movimientos de CFDI (no los autoconsumos manuales,
+        # que ya están en Supabase y se preservaron en delete_period)
+        compras_cfdi = {k: v for k, v in sat_meta["_compras"].items()
+                        if not k.startswith("AUTO-")}
+        ventas_cfdi  = {k: v for k, v in sat_meta["_ventas"].items()
+                        if not k.startswith("AUTO-")}
+        save_records(user_id, periodo, compras_cfdi, "entrada", facility_id=fid)
+        save_records(user_id, periodo, ventas_cfdi,  "salida",  facility_id=fid)
         todos_logs.append(f"UUID primera salida (nombramiento SAT): {first_uuid or '(generado aleatoriamente)'}")
         save_report(
             user_id=user_id, periodo=periodo, meta=sat_meta,
