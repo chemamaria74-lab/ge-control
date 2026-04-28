@@ -337,8 +337,9 @@ def _build_tanque_node(settings: dict, vol_existencias: float,
             },
             "TotalDocumentos":  cnt_rec,
             "SumaCompras":      _smart_num(importe_rec),
-            "Temperatura":      round(temp_base, 2),
-            "PresionAbsoluta":  round(pres_base, 3),
+            # Temperatura/PresionAbsoluta van DENTRO de cada complemento individual
+            # (per §16.13.13.5.6/7 de la Guía Diaria — nivel de RECEPCION objeto)
+            # No a nivel del bloque RECEPCIONES total.
             "Complemento":      complementos_rec,
         },
         # ENTREGAS — §16.13.14
@@ -350,8 +351,7 @@ def _build_tanque_node(settings: dict, vol_existencias: float,
             },
             "TotalDocumentos":  cnt_ent,
             "SumaVentas":       _smart_num(importe_ent),
-            "Temperatura":      round(temp_base, 2),
-            "PresionAbsoluta":  round(pres_base, 3),
+            # Temperatura/PresionAbsoluta van DENTRO de cada complemento individual
             "Complemento":      complementos_ent,
         },
     }
@@ -458,6 +458,8 @@ def build_sat_report(
                     "ValorNumerico":  _smart_num(round(g["volumen_litros"], 2)),
                     "UnidadDeMedida": UM03,
                 },
+                "Temperatura":     round(temp_base, 2),     # §16.13.13.5.6 por CFDI
+                "PresionAbsoluta": round(pres_base, 3),     # §16.13.13.5.7 por CFDI
             }],
         }
         if not nacional["PermisoClienteOProveedor"]:
@@ -499,6 +501,8 @@ def build_sat_report(
                     "ValorNumerico":  _smart_num(round(g["volumen_litros"], 2)),
                     "UnidadDeMedida": UM03,
                 },
+                "Temperatura":     round(temp_base, 2),     # §16.13.14.5.6 por CFDI entrega
+                "PresionAbsoluta": round(pres_base, 3),     # §16.13.14.5.7 por CFDI entrega
             }]
         else:
             # Autoconsumo: sin CFDI, con VolumenDocumentado para que cuadre el balance
@@ -661,17 +665,24 @@ def build_sat_report(
 
     # ── Estructura raíz SAT ───────────────────────────────────────────────────
     num_tanques = int(settings.get("NumeroTanques", 1))
-    # ── Limpieza de campos raíz — nunca enviar cadenas vacías al SAT ────────
-    _rfc_cv   = (settings.get("RfcContribuyente",      "") or "").strip()
-    _rfc_rep  = (settings.get("RfcRepresentanteLegal", "") or "").strip()
-    _rfc_prov = (settings.get("RfcProveedor",          "") or "").strip()
+    # ── Limpieza de campos raíz — leer SIEMPRE de settings (Supabase) ──────
+    # PROHIBIDO hardcodear valores. Todos vienen del SELECT a zc_settings por user_id.
+    _rfc_cv   = (settings.get("RfcContribuyente",      "") or "").strip().upper()
+    _rfc_rep  = (settings.get("RfcRepresentanteLegal", "") or "").strip().upper()
+    _rfc_prov = (settings.get("RfcProveedor",          "") or "").strip().upper()
+
+    # RfcProveedor: XAX010101000 si el usuario no capturó proveedor (desarrollo propio)
     if not _rfc_prov:
-        _rfc_prov = "XAX010101000"   # RFC genérico SAT — sin proveedor externo
+        _rfc_prov = "XAX010101000"
+
+    # RfcRepresentanteLegal: CONDICIONAL per Guía Mensual §3.
+    # Solo incluir si la persona es moral (RFC 12 chars) Y el representante fue capturado.
+    # NUNCA duplicar el RFC del contribuyente — si está vacío, omitir el campo.
+    _include_rep = bool(_rfc_rep and _rfc_rep != _rfc_cv)
 
     sat_dict: dict = {
         "Version":               "1.0",
         "RfcContribuyente":      _rfc_cv,
-        "RfcRepresentanteLegal": _rfc_rep if _rfc_rep else _rfc_cv,  # nunca vacío
         "RfcProveedor":          _rfc_prov,
         "Caracter":              settings.get("Caracter",              "permisionario"),
         "ModalidadPermiso":      settings.get("ModalidadPermiso",      "PER40"),
@@ -685,6 +696,20 @@ def build_sat_report(
         "NumeroDispensarios":    int(settings.get("NumeroDispensarios", 0)),
         "FechaYHoraReporteMes":  fin_mes_iso,
     }
+
+    # § 3 — RfcRepresentanteLegal: CONDICIONAL (solo personas morales con representante capturado)
+    # Guía Mensual §3: "requerida si el contribuyente es una persona moral"
+    # Si el campo está vacío en Supabase → NO incluirlo (evita duplicar RfcContribuyente)
+    if _include_rep:
+        # Insertar después de RfcProveedor para respetar el orden del schema
+        sat_dict_ordered = {"Version": sat_dict["Version"]}
+        sat_dict_ordered["RfcContribuyente"]      = sat_dict["RfcContribuyente"]
+        sat_dict_ordered["RfcRepresentanteLegal"]  = _rfc_rep
+        sat_dict_ordered["RfcProveedor"]           = sat_dict["RfcProveedor"]
+        for k, v in sat_dict.items():
+            if k not in sat_dict_ordered:
+                sat_dict_ordered[k] = v
+        sat_dict = sat_dict_ordered
 
     # § 9 — Geolocalizacion (opcional pero recomendado)
     if geolocalizacion:
