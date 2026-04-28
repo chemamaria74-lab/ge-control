@@ -85,7 +85,7 @@ async def registrar_autoconsumo(
 
     now = datetime.now(timezone.utc).isoformat()
 
-    # Guardar en Supabase
+    # Guardar en Supabase con bandera es_autoconsumo=true (SAT Anexo 30 §17.4 TipoEvento=11)
     try:
         sb = get_supabase()
         row = {
@@ -96,10 +96,11 @@ async def registrar_autoconsumo(
             "fecha":              payload.fecha,
             "volumen_litros":     round(payload.volumen_litros, 4),
             "uuid":               uuid_sintetico,
-            "rfc_contraparte":    payload.rfc_contribuyente.upper().strip(),
+            "rfc_contraparte":    payload.rfc_contribuyente.upper().strip(),  # RFC del mismo contribuyente
             "nombre_contraparte": f"AUTOCONSUMO — {payload.tipo_movimiento.upper()}",
             "importe":            0.0,
             "file_path":          f"manual:{payload.tipo_movimiento}",
+            "es_autoconsumo":     True,   # NUEVO — bandera SAT: TipoEvento=11 en BitácoraMensual
             "created_at":         now,
         }
         result = sb.table("records").insert(row).execute()

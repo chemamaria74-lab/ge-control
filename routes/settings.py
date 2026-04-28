@@ -40,15 +40,21 @@ DEFAULT_SETTINGS = {
     "adv_composicion_pr12": None,
 }
 
-# ID fijo para la configuración global de la instalación
-_SETTINGS_USER = "global"
+def _auth(authorization: str) -> str:
+    """Extrae y valida el JWT; retorna user_id o lanza 401."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(401, "No autenticado.")
+    uid = verify_token(authorization[7:])
+    if not uid:
+        raise HTTPException(401, "Token inválido o expirado.")
+    return uid
 
 
-def _supabase_load() -> dict:
-    """Lee la configuración desde Supabase."""
+def _supabase_load(user_id: str) -> dict:
+    """Lee la configuración desde Supabase FILTRADA por user_id."""
     try:
         from supabase_config import get_supabase
-        rows = get_supabase().table("zc_settings").select("data").eq("user_id", _SETTINGS_USER).execute()
+        rows = get_supabase().table("zc_settings").select("data").eq("user_id", user_id).execute()
         if rows.data:
             return {**DEFAULT_SETTINGS, **rows.data[0]["data"]}
     except Exception as e:
@@ -56,13 +62,13 @@ def _supabase_load() -> dict:
     return None   # señal de fallo
 
 
-def _supabase_save(data: dict) -> bool:
-    """Guarda la configuración en Supabase. Retorna True si tuvo éxito."""
+def _supabase_save(user_id: str, data: dict) -> bool:
+    """Guarda la configuración en Supabase para el user_id del token."""
     try:
         from supabase_config import get_supabase
         from datetime import datetime, timezone
         get_supabase().table("zc_settings").upsert(
-            {"user_id": _SETTINGS_USER, "data": data,
+            {"user_id": user_id, "data": data,
              "updated_at": datetime.now(timezone.utc).isoformat()},
             on_conflict="user_id"
         ).execute()
@@ -72,36 +78,38 @@ def _supabase_save(data: dict) -> bool:
         return False
 
 
-def _file_load() -> dict:
-    """Fallback: lee desde config/settings.json."""
+def _file_load(user_id: str) -> dict:
+    """Fallback: lee desde config/settings_<user_id>.json (aislado por usuario)."""
+    path = SETTINGS_FILE.replace(".json", f"_{user_id[:8]}.json")
     try:
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return {**DEFAULT_SETTINGS, **json.load(f)}
     except (FileNotFoundError, json.JSONDecodeError):
         return DEFAULT_SETTINGS.copy()
 
 
-def _file_save(data: dict) -> None:
-    """Fallback: guarda en config/settings.json."""
-    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+def _file_save(user_id: str, data: dict) -> None:
+    """Fallback: guarda en config/settings_<user_id>.json."""
+    path = SETTINGS_FILE.replace(".json", f"_{user_id[:8]}.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
         json.dump({**DEFAULT_SETTINGS, **data}, f, ensure_ascii=False, indent=2)
 
 
-def _load() -> dict:
-    """Carga configuración: Supabase primero, JSON local como fallback."""
-    result = _supabase_load()
+def _load(user_id: str) -> dict:
+    """Carga configuración del usuario: Supabase primero, JSON local como fallback."""
+    result = _supabase_load(user_id)
     if result is not None:
         return result
-    logger.info("Usando fallback local para settings.")
-    return _file_load()
+    logger.info("Usando fallback local para settings user=%s.", user_id)
+    return _file_load(user_id)
 
 
-def _save(data: dict) -> None:
+def _save(user_id: str, data: dict) -> None:
     """Guarda en Supabase Y en JSON local (doble escritura como backup)."""
     merged = {**DEFAULT_SETTINGS, **data}
-    ok = _supabase_save(merged)
-    _file_save(merged)   # siempre escribir local también como backup
+    ok = _supabase_save(user_id, merged)
+    _file_save(user_id, merged)   # siempre escribir local también como backup
     if not ok:
         logger.warning("Settings guardados solo en local (Supabase no disponible).")
 
@@ -128,14 +136,16 @@ class SettingsPayload(BaseModel):
 
 
 @router.get("/settings", summary="Obtener configuración persistente")
-async def get_settings():
-    return JSONResponse(content=_load())
+async def get_settings(authorization: str = Header(default="")):
+    user_id = _auth(authorization)
+    return JSONResponse(content=_load(user_id))
 
 
 @router.post("/settings", summary="Guardar configuración persistente")
 async def save_settings(payload: SettingsPayload,
                         authorization: str = Header(default="")):
-    current  = _load()
+    user_id  = _auth(authorization)
+    current  = _load(user_id)
     new_data = payload.model_dump(exclude_unset=False)
 
     # Preservar campos adv_* existentes si no vienen en este request
@@ -144,20 +154,17 @@ async def save_settings(payload: SettingsPayload,
         if new_data.get(adv_key) is None and current.get(adv_key) is not None:
             new_data[adv_key] = current[adv_key]
 
-    _save(new_data)
+    _save(user_id, new_data)
 
     # Auditar cambio en el factor de conversión
     if current.get("FactorDeConversionKgALitros") != new_data.get("FactorDeConversionKgALitros"):
-        user_id = None
-        if authorization.startswith("Bearer "):
-            user_id = verify_token(authorization[7:])
         log_settings_audit(
-            user_id or "system",
+            user_id,
             "FactorDeConversionKgALitros",
             current.get("FactorDeConversionKgALitros"),
             new_data.get("FactorDeConversionKgALitros"),
         )
 
-    logger.info("Settings guardados para user=%s", _SETTINGS_USER)
-    return JSONResponse(content={"success": True, "settings": _load()})
+    logger.info("Settings guardados para user=%s", user_id)
+    return JSONResponse(content={"success": True, "settings": _load(user_id)})
 
