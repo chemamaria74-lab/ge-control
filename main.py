@@ -2532,10 +2532,27 @@ function actualizarSwitcherEmpresa(perfil) {
 }
 
 function cargarDatosDashboard() {
+  // Limpiar estado de UI antes de recargar (evita ver datos de empresa anterior)
+  const tbody = document.getElementById('tbodyProveedores');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="hist-empty">Cargando...</td></tr>';
+  const tbodyFac = document.getElementById('tbodyFacilities');
+  if (tbodyFac) tbodyFac.innerHTML = '<tr><td colspan="6" class="hist-empty">Cargando...</td></tr>';
+  // Limpiar selector de historial
+  const histSel = document.getElementById('histSelector') || document.getElementById('periodoSelect');
+  if (histSel) { histSel.innerHTML = '<option value="">Cargando periodos...</option>'; }
+
+  // Recargar todo con el nuevo perfil activo (authHeader ya inyecta X-Perfil-Id)
   loadSettings();
   loadProviders();
   loadFacilities();
+  // Recargar config avanzada si el tab está visible
+  if (document.getElementById('mpanel-config-avanzada')?.style.display !== 'none') {
+    cargarConfigAvanzada();
+  }
+  // Recargar periodos de historial
   try { prefillHistSelector(); } catch(e) {}
+  // Recargar panel de perfiles si está visible
+  try { cargarPanelPerfiles(); } catch(e) {}
 }
 
 // ── Modal nuevo perfil ────────────────────────────────────────────────────────
@@ -2696,6 +2713,13 @@ if (_rfcElChg) _rfcElChg.addEventListener('change', () => saveSettings());
 async function loadProviders() {
   if (!authToken) return;
   try {
+    // Si hay perfil activo, reasignar proveedores huérfanos (perfil_id IS NULL)
+    // al perfil actual. Operación idempotente — segura de llamar cada vez.
+    if (perfilId()) {
+      fetch('/api/providers/asignar-perfil', {
+        method: 'POST', headers: authHeader()
+      }).catch(() => {});  // fire-and-forget, no bloquea la UI
+    }
     const res  = await fetch('/api/providers', { headers: authHeader() });
     const data = await res.json();
     renderProvidersTable(data.providers || []);
