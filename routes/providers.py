@@ -23,37 +23,47 @@ PROVIDERS_DIR = os.path.join(os.path.dirname(__file__), "..", "config")
 
 # ── Supabase helpers ──────────────────────────────────────────────────────────
 
-def _sb_list(user_id: str) -> list:
+def _sb_list(user_id: str, perfil_id: int = None) -> list:
     try:
         from supabase_config import get_supabase
-        rows = get_supabase().table("providers").select("*").eq("user_id", user_id).order("rfc").execute()
-        return rows.data or []
+        q = get_supabase().table("providers").select("*").eq("user_id", user_id)
+        if perfil_id:
+            q = q.eq("perfil_id", perfil_id)
+        return q.order("rfc").execute().data or []
     except Exception as e:
         logger.warning("Supabase providers list: %s", e)
         return None   # señal de fallo
 
 
 def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,
-               permiso_almacenamiento_terminal: str) -> bool:
+               permiso_almacenamiento_terminal: str,
+               perfil_id: int = None) -> bool:
     try:
         from supabase_config import get_supabase
-        get_supabase().table("providers").upsert({
+        record = {
             "user_id": user_id,
             "rfc":     rfc.upper().strip(),
             "nombre":  nombre,
             "permiso": permiso,
             "permiso_almacenamiento_terminal": permiso_almacenamiento_terminal,
-        }, on_conflict="user_id,rfc").execute()
+        }
+        if perfil_id:
+            record["perfil_id"] = perfil_id
+        conflict_cols = "user_id,rfc,perfil_id" if perfil_id else "user_id,rfc"
+        get_supabase().table("providers").upsert(record, on_conflict=conflict_cols).execute()
         return True
     except Exception as e:
         logger.warning("Supabase providers upsert: %s", e)
         return False
 
 
-def _sb_delete(user_id: str, rfc: str) -> bool:
+def _sb_delete(user_id: str, rfc: str, perfil_id: int = None) -> bool:
     try:
         from supabase_config import get_supabase
-        get_supabase().table("providers").delete().eq("user_id", user_id).eq("rfc", rfc.upper()).execute()
+        q = get_supabase().table("providers").delete().eq("user_id", user_id).eq("rfc", rfc.upper())
+        if perfil_id:
+            q = q.eq("perfil_id", perfil_id)
+        q.execute()
         return True
     except Exception as e:
         logger.warning("Supabase providers delete: %s", e)
@@ -82,18 +92,19 @@ def _file_save(user_id: str, providers: list) -> None:
 
 # ── Unified API ───────────────────────────────────────────────────────────────
 
-def _load_providers(user_id: str) -> list:
+def _load_providers(user_id: str, perfil_id: int = None) -> list:
     """Carga desde Supabase; si falla usa JSON local del usuario."""
-    result = _sb_list(user_id)
+    result = _sb_list(user_id, perfil_id)
     if result is not None:
         return result
     return _file_list(user_id)
 
 
 def _upsert_provider(user_id: str, rfc: str, nombre: str, permiso: str,
-                     permiso_almacenamiento_terminal: str) -> None:
+                     permiso_almacenamiento_terminal: str,
+                     perfil_id: int = None) -> None:
     """Guarda en Supabase Y actualiza el JSON local del usuario."""
-    ok = _sb_upsert(user_id, rfc, nombre, permiso, permiso_almacenamiento_terminal)
+    ok = _sb_upsert(user_id, rfc, nombre, permiso, permiso_almacenamiento_terminal, perfil_id)
     providers = _file_list(user_id)
     rfc_upper = rfc.upper().strip()
     updated   = False
@@ -114,33 +125,39 @@ def _upsert_provider(user_id: str, rfc: str, nombre: str, permiso: str,
         logger.warning("Provider guardado solo en local (Supabase no disponible).")
 
 
-def _delete_provider(user_id: str, rfc: str) -> None:
+def _delete_provider(user_id: str, rfc: str, perfil_id: int = None) -> None:
     """Elimina de Supabase Y del JSON local del usuario."""
-    _sb_delete(user_id, rfc)
+    _sb_delete(user_id, rfc, perfil_id)
     rfc_upper = rfc.upper().strip()
     providers = [p for p in _file_list(user_id) if p.get("rfc", "").upper() != rfc_upper]
     _file_save(user_id, providers)
 
 
-def get_permiso_for_rfc(rfc: str, user_id: str = None) -> Optional[str]:
-    """Retorna el permiso CRE del proveedor para el usuario dado, o None.
-    Usado por sat_transformer para incluir PermisoClienteOProveedor en recepciones."""
+def _parse_perfil_id(raw: str) -> Optional[int]:
+    try:
+        v = int((raw or "").strip())
+        return v if v > 0 else None
+    except (ValueError, TypeError):
+        return None
+
+
+def get_permiso_for_rfc(rfc: str, user_id: str = None, perfil_id: int = None) -> Optional[str]:
+    """Retorna el permiso CRE del proveedor para el usuario/perfil dado, o None."""
     if not rfc or not user_id:
         return None
     rfc_upper = rfc.strip().upper()
-    for p in _load_providers(user_id):
+    for p in _load_providers(user_id, perfil_id):
         if p.get("rfc", "").strip().upper() == rfc_upper:
             return p.get("permiso", "") or None
     return None
 
 
-def get_permiso_almacenamiento_for_rfc(rfc: str, user_id: str = None) -> Optional[str]:
-    """Retorna el permiso_almacenamiento_terminal del proveedor/terminal.
-    Mapeo: nodo TerminalAlmYDist.Almacenamiento.PermisoAlmYDist en el JSON SAT."""
+def get_permiso_almacenamiento_for_rfc(rfc: str, user_id: str = None, perfil_id: int = None) -> Optional[str]:
+    """Retorna el permiso_almacenamiento_terminal del proveedor/terminal."""
     if not rfc or not user_id:
         return None
     rfc_upper = rfc.strip().upper()
-    for p in _load_providers(user_id):
+    for p in _load_providers(user_id, perfil_id):
         if p.get("rfc", "").strip().upper() == rfc_upper:
             return p.get("permiso_almacenamiento_terminal", "") or None
     return None
@@ -159,19 +176,27 @@ class ProviderPayload(BaseModel):
     rfc:     str
     nombre:  Optional[str] = ""
     permiso: Optional[str] = ""
-    permiso_almacenamiento_terminal: Optional[str] = ""  # NUEVO — Permiso CRE de la Terminal
+    permiso_almacenamiento_terminal: Optional[str] = ""
 
 
 @router.get("/providers")
-async def list_providers(authorization: str = Header(default="")):
-    user_id = _auth(authorization)
-    return JSONResponse(content={"providers": _load_providers(user_id)})
+async def list_providers(
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
+    user_id   = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    return JSONResponse(content={"providers": _load_providers(user_id, perfil_id)})
 
 
 @router.post("/providers")
-async def upsert_provider_endpoint(payload: ProviderPayload,
-                                   authorization: str = Header(default="")):
+async def upsert_provider_endpoint(
+    payload:       ProviderPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
     user_id   = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
     rfc_upper = payload.rfc.strip().upper()
     if not rfc_upper:
         raise HTTPException(400, "El RFC es obligatorio.")
@@ -181,16 +206,22 @@ async def upsert_provider_endpoint(payload: ProviderPayload,
         (payload.nombre or "").strip(),
         (payload.permiso or "").strip(),
         (payload.permiso_almacenamiento_terminal or "").strip(),
+        perfil_id,
     )
-    logger.info("Proveedor guardado: %s para user=%s", rfc_upper, user_id)
-    return JSONResponse(content={"success": True, "providers": _load_providers(user_id)})
+    logger.info("Proveedor guardado: %s user=%s perfil=%s", rfc_upper, user_id, perfil_id)
+    return JSONResponse(content={"success": True, "providers": _load_providers(user_id, perfil_id)})
 
 
 @router.delete("/providers/{rfc}")
-async def delete_provider_endpoint(rfc: str, authorization: str = Header(default="")):
-    user_id = _auth(authorization)
-    _delete_provider(user_id, rfc)
-    logger.info("Proveedor eliminado: %s para user=%s", rfc, user_id)
-    return JSONResponse(content={"success": True, "providers": _load_providers(user_id)})
+async def delete_provider_endpoint(
+    rfc:           str,
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
+    user_id   = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    _delete_provider(user_id, rfc, perfil_id)
+    logger.info("Proveedor eliminado: %s user=%s perfil=%s", rfc, user_id, perfil_id)
+    return JSONResponse(content={"success": True, "providers": _load_providers(user_id, perfil_id)})
 
 

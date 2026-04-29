@@ -49,6 +49,14 @@ def _get_modalidad_from_tipo(tipo_permiso: str) -> str:
     return tipo_permiso if tipo_permiso in PERMISO_CONFIG else "PER40"
 
 
+def _parse_perfil_id(raw: str) -> Optional[int]:
+    try:
+        v = int((raw or "").strip())
+        return v if v > 0 else None
+    except (ValueError, TypeError):
+        return None
+
+
 def _auth(authorization: str) -> str:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
@@ -101,11 +109,12 @@ class MedidorPayload(BaseModel):
 async def list_facilities(
     modulo: Optional[str] = Query(None),
     authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
 ):
     uid = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
     init_db()
-    facs = get_facilities(uid, modulo)
-    # Enriquecer con descripción del permiso
+    facs = get_facilities(uid, modulo, perfil_id=perfil_id)
     for f in facs:
         tp = f.get("tipo_permiso", "PER40") or "PER40"
         f["actividad_sat"]      = _get_actividad(tp)
@@ -123,17 +132,23 @@ async def list_permisos(authorization: str = Header(default="")):
 
 
 @router.post("/facilities")
-async def add_facility(payload: FacilityPayload, authorization: str = Header(default="")):
+async def add_facility(
+    payload: FacilityPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
     uid = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
     init_db()
     if not payload.nombre.strip():
         raise HTTPException(400, "El nombre de la instalación es requerido.")
     data = payload.model_dump()
-    # Derivar modalidad_permiso y actividad desde tipo_permiso
     tp = data.get("tipo_permiso", "PER40")
     data["modalidad_permiso"] = _get_modalidad_from_tipo(tp)
     data["actividad_sat"]     = _get_actividad(tp)
     data["caracter"]          = "permisionario"
+    if perfil_id:
+        data["perfil_id"] = perfil_id
     fac = create_facility_v2(uid, data)
     return JSONResponse(content={"ok": True, "facility": fac})
 

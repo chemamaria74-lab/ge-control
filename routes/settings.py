@@ -2,11 +2,12 @@
 # API para leer y guardar la configuración SAT persistente.
 # Almacenamiento primario: Supabase (tabla zc_settings, columna data JSONB).
 # Fallback local: config/settings.json (para desarrollo sin red).
+# v2: soporte multi-empresa via header X-Perfil-Id.
 
 import json
 import os
 import logging
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -40,6 +41,16 @@ DEFAULT_SETTINGS = {
     "adv_composicion_pr12": None,
 }
 
+
+def _parse_perfil_id(raw: str) -> Optional[int]:
+    """Extrae el perfil_id entero del header X-Perfil-Id. None si inválido."""
+    try:
+        v = int((raw or "").strip())
+        return v if v > 0 else None
+    except (ValueError, TypeError):
+        return None
+
+
 def _auth(authorization: str) -> str:
     """Extrae y valida el JWT; retorna user_id o lanza 401."""
     if not authorization.startswith("Bearer "):
@@ -50,27 +61,44 @@ def _auth(authorization: str) -> str:
     return uid
 
 
-def _supabase_load(user_id: str) -> dict:
-    """Lee la configuración desde Supabase FILTRADA por user_id."""
+def _supabase_load(user_id: str, perfil_id: Optional[int] = None) -> dict:
+    """Lee la configuración desde Supabase filtrada por user_id y perfil_id."""
     try:
         from supabase_config import get_supabase
-        rows = get_supabase().table("zc_settings").select("data").eq("user_id", user_id).execute()
+        q = get_supabase().table("zc_settings").select("data").eq("user_id", user_id)
+        if perfil_id:
+            q = q.eq("perfil_id", perfil_id)
+        else:
+            q = q.is_("perfil_id", "null")
+        rows = q.execute()
         if rows.data:
             return {**DEFAULT_SETTINGS, **rows.data[0]["data"]}
+        # Fallback: si no hay fila para este perfil, buscar fila global del usuario
+        if perfil_id:
+            rows2 = get_supabase().table("zc_settings").select("data").eq("user_id", user_id).is_("perfil_id", "null").execute()
+            if rows2.data:
+                return {**DEFAULT_SETTINGS, **rows2.data[0]["data"]}
     except Exception as e:
         logger.warning("Supabase settings load: %s", e)
     return None   # señal de fallo
 
 
-def _supabase_save(user_id: str, data: dict) -> bool:
-    """Guarda la configuración en Supabase para el user_id del token."""
+def _supabase_save(user_id: str, data: dict, perfil_id: Optional[int] = None) -> bool:
+    """Guarda la configuración en Supabase para el user_id + perfil_id."""
     try:
         from supabase_config import get_supabase
         from datetime import datetime, timezone
+        record = {
+            "user_id":    user_id,
+            "data":       data,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if perfil_id:
+            record["perfil_id"] = perfil_id
+        # upsert por user_id cuando perfil_id es NULL, por (user_id, perfil_id) cuando está presente
         get_supabase().table("zc_settings").upsert(
-            {"user_id": user_id, "data": data,
-             "updated_at": datetime.now(timezone.utc).isoformat()},
-            on_conflict="user_id"
+            record,
+            on_conflict="user_id,perfil_id" if perfil_id else "user_id"
         ).execute()
         return True
     except Exception as e:
@@ -96,19 +124,19 @@ def _file_save(user_id: str, data: dict) -> None:
         json.dump({**DEFAULT_SETTINGS, **data}, f, ensure_ascii=False, indent=2)
 
 
-def _load(user_id: str) -> dict:
-    """Carga configuración del usuario: Supabase primero, JSON local como fallback."""
-    result = _supabase_load(user_id)
+def _load(user_id: str, perfil_id: Optional[int] = None) -> dict:
+    """Carga configuración: Supabase primero, JSON local como fallback."""
+    result = _supabase_load(user_id, perfil_id)
     if result is not None:
         return result
     logger.info("Usando fallback local para settings user=%s.", user_id)
     return _file_load(user_id)
 
 
-def _save(user_id: str, data: dict) -> None:
+def _save(user_id: str, data: dict, perfil_id: Optional[int] = None) -> None:
     """Guarda en Supabase Y en JSON local (doble escritura como backup)."""
     merged = {**DEFAULT_SETTINGS, **data}
-    ok = _supabase_save(user_id, merged)
+    ok = _supabase_save(user_id, merged, perfil_id)
     _file_save(user_id, merged)   # siempre escribir local también como backup
     if not ok:
         logger.warning("Settings guardados solo en local (Supabase no disponible).")
@@ -136,18 +164,25 @@ class SettingsPayload(BaseModel):
 
 
 @router.get("/settings", summary="Obtener configuración persistente")
-async def get_settings(authorization: str = Header(default="")):
-    user_id = _auth(authorization)
-    return JSONResponse(content=_load(user_id))
+async def get_settings(
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
+    user_id   = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    return JSONResponse(content=_load(user_id, perfil_id))
 
 
 @router.post("/settings", summary="Guardar configuración persistente")
-async def save_settings(payload: SettingsPayload,
-                        authorization: str = Header(default="")):
-    user_id  = _auth(authorization)
-    current  = _load(user_id)
+async def save_settings(
+    payload:       SettingsPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
+    user_id   = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    current   = _load(user_id, perfil_id)
     # exclude_unset=True: solo procesar campos explícitamente enviados.
-    # Evita que un POST parcial (ej: solo RFC) sobreescriba adv_dictamen, adv_tanques, etc.
     new_data = payload.model_dump(exclude_unset=True)
 
     # Preservar campos adv_* existentes si no vienen en este request
@@ -156,7 +191,7 @@ async def save_settings(payload: SettingsPayload,
         if new_data.get(adv_key) is None and current.get(adv_key) is not None:
             new_data[adv_key] = current[adv_key]
 
-    _save(user_id, new_data)
+    _save(user_id, new_data, perfil_id)
 
     # Auditar cambio en el factor de conversión
     if current.get("FactorDeConversionKgALitros") != new_data.get("FactorDeConversionKgALitros"):
@@ -167,6 +202,7 @@ async def save_settings(payload: SettingsPayload,
             new_data.get("FactorDeConversionKgALitros"),
         )
 
-    logger.info("Settings guardados para user=%s", user_id)
-    return JSONResponse(content={"success": True, "settings": _load(user_id)})
+    logger.info("Settings guardados para user=%s perfil=%s", user_id, perfil_id)
+    return JSONResponse(content={"success": True, "settings": _load(user_id, perfil_id)})
+
 
