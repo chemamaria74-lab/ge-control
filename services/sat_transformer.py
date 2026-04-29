@@ -268,6 +268,10 @@ def _build_tanque_node(settings: dict, vol_existencias: float,
     incertidumbre = float(adv_m.get("incertidumbre", 0.005) or 0.005)
     modelo_sensor = adv_m.get("modelo_sensor", "Sistema de medicion estatico") or "Sistema de medicion estatico"
     serie_sensor  = adv_m.get("serie_sensor",  "") or ""
+    # Vigencia calibración del medidor: campo propio si está capturado, sino hereda del tanque
+    fecha_cal_medidor = (adv_m.get("fecha_calibracion_medidor", "") or "").strip()
+    if not fecha_cal_medidor:
+        fecha_cal_medidor = fecha_cal
 
     # ClaveIdentificacionTanque: usar la que el usuario capturó en Config. Avanzada,
     # si no existe, generarla con el patrón TQS-{CLAVE_INST}-0001
@@ -303,7 +307,7 @@ def _build_tanque_node(settings: dict, vol_existencias: float,
             {
                 "SistemaMedicionTanque":                   clave_sme,
                 "LocalizODescripSistMedicionTanque":       desc_sensor,
-                "VigenciaCalibracionSistMedicionTanque":   fecha_cal,
+                "VigenciaCalibracionSistMedicionTanque":   fecha_cal_medidor,
                 "IncertidumbreMedicionSistMedicionTanque": round(incertidumbre, 6),
             }
         ],
