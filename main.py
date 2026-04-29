@@ -18,6 +18,7 @@ from routes.facilities import router as facilities_router
 from routes.admin import router as admin_router
 from routes.facturas import router as facturas_router
 from routes.movimientos import router as movimientos_router
+from routes.perfiles import router as perfiles_router
 from services.database import init_db
 from supabase_config import get_supabase
 from pydantic import BaseModel
@@ -58,6 +59,7 @@ app.include_router(facilities_router, prefix="/api", tags=["Instalaciones"])
 app.include_router(admin_router,      prefix="/api", tags=["Admin"])
 app.include_router(facturas_router,   prefix="/api", tags=["Facturas"])
 app.include_router(movimientos_router,prefix="/api", tags=["Movimientos"])
+app.include_router(perfiles_router,   prefix="/api", tags=["Perfiles Empresa"])
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 # ── Endpoints Supabase para Configuración de Clientes ─────────────────────
 @app.post("/api/supabase/config")
@@ -186,7 +188,33 @@ header i{color:#f8fafc}
   .modal-body{padding:1rem .8rem}
   .adv-section{padding:.8rem}
 }
-/* Drop zone */
+/* ── Multi-empresa: overlay de selección ──────────────────────────────── */
+#empresaOverlay{position:fixed;inset:0;background:linear-gradient(135deg,#032c38 0%,#075358 100%);z-index:9000;display:flex;align-items:center;justify-content:center;visibility:hidden;opacity:0;transition:opacity .3s}
+#empresaOverlay.visible{visibility:visible;opacity:1}
+.empresa-card{background:#fff;border-radius:20px;padding:2.4rem 2.8rem;max-width:520px;width:95%;box-shadow:0 32px 64px rgba(0,0,0,.3)}
+.empresa-card h2{font-size:1.18rem;font-weight:700;color:#1e293b;margin-bottom:.4rem;display:flex;align-items:center;gap:.5rem}
+.empresa-card p{font-size:.82rem;color:#64748b;margin-bottom:1.4rem}
+.empresa-list{display:flex;flex-direction:column;gap:.7rem;max-height:340px;overflow-y:auto;margin-bottom:1.4rem}
+.empresa-item{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.2rem;border:2px solid #e2e8f0;border-radius:12px;cursor:pointer;transition:all .15s;gap:.8rem}
+.empresa-item:hover{border-color:#0f766e;background:#f0fdfa}
+.empresa-item.activo{border-color:#0f766e;background:#f0fdfa}
+.empresa-item-info{flex:1;min-width:0}
+.empresa-item-nombre{font-size:.92rem;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.empresa-item-rfc{font-size:.75rem;color:#64748b;font-family:monospace}
+.empresa-item-badge{background:#0f766e;color:#fff;border-radius:999px;font-size:.68rem;font-weight:700;padding:.2rem .6rem;white-space:nowrap}
+.empresa-nueva-btn{width:100%;padding:.7rem;border:2px dashed #cbd5e1;border-radius:10px;background:transparent;color:#64748b;font-size:.84rem;cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:.5rem}
+.empresa-nueva-btn:hover{border-color:#0f766e;color:#0f766e;background:#f0fdfa}
+/* ── Multi-empresa: selector en navbar ─────────────────────────────────── */
+.empresa-switcher{display:flex;align-items:center;gap:.5rem;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:20px;padding:.32rem .7rem .32rem .5rem;cursor:pointer;transition:background .15s;min-width:0;max-width:260px}
+.empresa-switcher:hover{background:rgba(255,255,255,.18)}
+.empresa-switcher-icon{font-size:.75rem;color:rgba(255,255,255,.7)}
+.empresa-switcher-name{font-size:.78rem;font-weight:600;color:#f8fafc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.empresa-switcher-arrow{font-size:.6rem;color:rgba(255,255,255,.6);flex-shrink:0}
+/* Modal nuevo perfil */
+#modalNuevoPerfil{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9500;display:none;align-items:center;justify-content:center}
+#modalNuevoPerfil.visible{display:flex}
+.modal-perfil-card{background:#fff;border-radius:16px;padding:2rem;width:460px;max-width:95%}
+.modal-perfil-card h3{font-size:1rem;font-weight:700;margin-bottom:1rem;color:#1e293b}
 .drop{border:2px dashed #c8d0dc;border-radius:10px;padding:1.6rem 2rem;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:.7rem}
 .drop-locked{opacity:.38;pointer-events:none;filter:grayscale(.6);cursor:not-allowed}
 .drop:hover,.drop.over{border-color:#e63946;background:#fff5f5}
@@ -456,11 +484,60 @@ tr:hover td{background:#f8fafc}
   </div>
 </div>
 
+<!-- ── OVERLAY: SELECCIÓN DE EMPRESA (post-login) ──────────────────────── -->
+<div id="empresaOverlay">
+  <div class="empresa-card">
+    <h2><i class="fa-solid fa-building" style="color:#0f766e"></i> Seleccionar Empresa</h2>
+    <p>Tienes acceso a varias razones sociales. Elige con cuál quieres trabajar en esta sesión.</p>
+    <div class="empresa-list" id="empresaList">
+      <!-- Se llena dinámicamente -->
+    </div>
+    <button class="empresa-nueva-btn" onclick="abrirModalNuevoPerfil()">
+      <i class="fa-solid fa-plus-circle"></i> Agregar nueva razón social
+    </button>
+  </div>
+</div>
+
+<!-- ── MODAL: NUEVO PERFIL DE EMPRESA ─────────────────────────────────── -->
+<div id="modalNuevoPerfil">
+  <div class="modal-perfil-card">
+    <h3><i class="fa-solid fa-building-circle-arrow-right" style="margin-right:.4rem;color:#0f766e"></i>Nueva Razón Social</h3>
+    <div class="field" style="margin-bottom:.7rem">
+      <label>Nombre de la empresa <span style="color:#e63946">*</span></label>
+      <input id="nuevoPerfil_nombre" type="text" placeholder="Ej. Gas del Norte S.A. de C.V." maxlength="120">
+    </div>
+    <div class="field" style="margin-bottom:.7rem">
+      <label>RFC de la empresa <span style="color:#e63946">*</span></label>
+      <input id="nuevoPerfil_rfc" type="text" placeholder="Ej. GNO010101AAA" maxlength="13"
+        style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+    </div>
+    <div class="field" style="margin-bottom:1.2rem">
+      <label>Descripción <span style="color:#94a3b8;font-weight:400">— opcional</span></label>
+      <input id="nuevoPerfil_desc" type="text" placeholder="Ej. Planta principal Monterrey" maxlength="200">
+    </div>
+    <div id="nuevoPerfil_err" style="font-size:.78rem;color:#dc2626;margin-bottom:.6rem;min-height:1em"></div>
+    <div style="display:flex;gap:.7rem">
+      <button onclick="guardarNuevoPerfil()" style="flex:1;padding:.65rem;background:#0f766e;color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;font-family:inherit;font-size:.9rem">
+        <i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar
+      </button>
+      <button onclick="cerrarModalNuevoPerfil()" style="padding:.65rem 1.2rem;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:10px;cursor:pointer;font-family:inherit;font-size:.9rem">
+        Cancelar
+      </button>
+    </div>
+  </div>
+</div>
+
 <header>
   <img src="/static/img/zlogo.png" alt="Controles Volumétricos" class="brand-logo">
   <h1>Anexo 30</h1>
   <span class="badge badge-blue" id="moduleBadge">Gas LP</span>
   <span class="badge badge-green">v3.0</span>
+  <!-- Selector multi-empresa (visible solo cuando hay sesión) -->
+  <div id="empresaSwitcher" class="empresa-switcher" style="display:none" onclick="mostrarSelectorEmpresas()" title="Cambiar razón social">
+    <i class="fa-solid fa-building empresa-switcher-icon"></i>
+    <span class="empresa-switcher-name" id="empresaSwitcherName">—</span>
+    <i class="fa-solid fa-chevron-down empresa-switcher-arrow"></i>
+  </div>
   <div class="user-chip" id="userChip" style="display:none">
     <span id="userDisplayName"></span>
     <button class="btn-logout" id="btnLogout">Salir</button>
@@ -575,15 +652,24 @@ tr:hover td{background:#f8fafc}
       <input id="proc_temperatura" type="number" step="0.1" min="-50" max="100" value="20.0" placeholder="20.0">
       <div style="font-size:.62rem;color:#64748b;margin-top:.2rem">Temperatura de la medición para compensar volumen a 20°C.</div>
     </div>
-    <div class="field" style="display:flex;gap:.5rem;align-items:flex-start">
-      <div style="flex:1">
-        <label>Propano PR12 <small style="color:#64748b;font-weight:400">(fracción)</small></label>
-        <input id="proc_propano" type="number" step="0.0001" min="0" max="1" placeholder="Ej. 0.6000">
+    <div class="field">
+      <label>Composición PR12 — Gas LP <small style="color:#64748b;font-weight:400">(% del mes, precargado de Config. Avanzada)</small></label>
+      <div style="display:flex;gap:.5rem;align-items:flex-start;margin-top:.3rem">
+        <div style="flex:1">
+          <label style="font-size:.72rem;color:#374151">Propano (%)</label>
+          <input id="proc_propano" type="number" step="0.01" min="0" max="100" placeholder="Ej. 60.00"
+            oninput="validarComposicionProcesar()" title="Porcentaje de propano. Suma con butano debe ser ≤ 100">
+        </div>
+        <div style="flex:1">
+          <label style="font-size:.72rem;color:#374151">Butano (%)</label>
+          <input id="proc_butano" type="number" step="0.01" min="0" max="100" placeholder="Ej. 40.00"
+            oninput="validarComposicionProcesar()" title="Porcentaje de butano. Suma con propano debe ser ≤ 100">
+        </div>
       </div>
-      <div style="flex:1">
-        <label>Butano PR12 <small style="color:#64748b;font-weight:400">(fracción)</small></label>
-        <input id="proc_butano" type="number" step="0.0001" min="0" max="1" placeholder="Ej. 0.4000">
+      <div id="procComposWarning" style="display:none;font-size:.71rem;color:#b45309;background:#fefce8;border:1px solid #fcd34d;border-radius:5px;padding:.3rem .6rem;margin-top:.3rem">
+        <i class="fa-solid fa-triangle-exclamation" style="margin-right:.3rem"></i>La suma Propano + Butano debe ser exactamente 100 para el reporte SAT.
       </div>
+      <div style="font-size:.62rem;color:#94a3b8;margin-top:.25rem">Los valores se convierten a fracción molar automáticamente al generar el JSON.</div>
     </div>
   </div>
 </div>
@@ -1427,6 +1513,34 @@ tr:hover td{background:#f8fafc}
      ══════════════════════════════════════════════════════════════ -->
 <div class="main-panel" id="mpanel-config">
 
+<!-- ── Razones Sociales (multi-empresa) ─────────────────────────────────── -->
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.8rem">
+    <h2 style="margin:0"><i class="fa-solid fa-building" style="margin-right:.35rem;color:#0f766e"></i>Razones Sociales <small style="font-size:.72rem;color:#888;font-weight:400">(multi-empresa)</small></h2>
+    <button onclick="abrirModalNuevoPerfil()" style="padding:.44rem 1rem;font-size:.8rem;font-weight:600;border-radius:8px;background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4;cursor:pointer;font-family:inherit">
+      <i class="fa-solid fa-plus" style="margin-right:.35rem"></i>Nueva razón social
+    </button>
+  </div>
+  <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem;line-height:1.5">
+    Cada razón social tiene su propia configuración SAT, instalaciones y proveedores. Cambia entre ellas con el selector en la barra superior.
+  </div>
+  <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px">
+    <table id="tblPerfiles" style="margin-bottom:0">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>RFC</th>
+          <th>Descripción</th>
+          <th style="width:120px;text-align:center">Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tbodyPerfiles">
+        <tr><td colspan="4" class="hist-empty">Cargando...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <!-- ── Perfil de la empresa (datos globales) ────────────────────────────── -->
 <div class="card">
   <h2><i class="fa-solid fa-building-columns" style="margin-right:.35rem"></i>Perfil de la Empresa <small style="font-size:.72rem;color:#888;font-weight:400">(se guarda automáticamente)</small></h2>
@@ -1436,8 +1550,10 @@ tr:hover td{background:#f8fafc}
   <div class="grid3">
     <div class="field"><label>RFC del Contribuyente</label>
       <input id="rfc" value="" placeholder="Ej. ABC010101AAA"></div>
-    <div class="field"><label>RFC Representante Legal</label>
-      <input id="sat_rfc_rep" placeholder="Ej. OEMR710420FCA"></div>
+    <div class="field"><label>RFC Representante Legal <span style="font-size:.68rem;color:#7c3aed;font-weight:600">(→ RfcRepresentanteLegal en JSON)</span></label>
+      <input id="sat_rfc_rep" placeholder="Ej. OEMR710420FCA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+      <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Solo personas morales. Si se captura, se incluye en el nodo raíz del Anexo 30 con prioridad alta.</div>
+    </div>
     <div class="field"><label>RFC Proveedor SAT (constante)</label>
       <input id="sat_rfc_prov" placeholder="Ej. PCO960701A49"></div>
   </div>
@@ -1682,11 +1798,15 @@ tr:hover td{background:#f8fafc}
 <!-- ── Sistemas de Medición ───────────────────────────────────────────── -->
 <div class="card">
   <h2><i class="fa-solid fa-gauge" style="margin-right:.4rem;color:#7c3aed"></i>Sistemas de Medición</h2>
+  <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem;line-height:1.6">
+    Datos del medidor instalado en el tanque. La vigencia de calibración se usa en el nodo <code>VigenciaCalibracionSistMedicionTanque</code> del Anexo 30.
+  </div>
   <div class="grid3">
     <div class="field">
-      <label>Incertidumbre de Medición</label>
+      <label>Incertidumbre de Medición <span style="color:#e63946">*</span></label>
       <input id="adv_incertidumbre" type="number" min="0" max="1" step="0.0001" placeholder="Ej. 0.0020"
-        title="Valor decimal entre 0 y 1. Ej: 0.002 = 0.2%">
+        title="Valor decimal entre 0 y 1. Ej: 0.002 = 0.2%. Campo IncertidumbreMedicionSistMedicionTanque">
+      <div style="font-size:.62rem;color:#94a3b8;margin-top:.2rem">Decimal 0-1. Ejemplo: 0.0020 = 0.2%</div>
     </div>
     <div class="field">
       <label>Modelo del Sensor / Medidor</label>
@@ -1696,6 +1816,12 @@ tr:hover td{background:#f8fafc}
     <div class="field">
       <label>Número de Serie del Sensor</label>
       <input id="adv_serie_sensor" type="text" placeholder="Ej. SN-4839201" maxlength="60">
+    </div>
+    <div class="field">
+      <label>Vigencia Calibración del Medidor <span style="color:#e63946">*</span></label>
+      <input id="adv_fecha_calibracion_medidor" type="date"
+        title="Fecha de vigencia de la última calibración del medidor. Campo VigenciaCalibracionSistMedicionTanque">
+      <div style="font-size:.62rem;color:#94a3b8;margin-top:.2rem">Si se deja vacío, se usa la fecha de calibración del tanque.</div>
     </div>
   </div>
   <div style="margin-top:.8rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
@@ -1779,22 +1905,31 @@ tr:hover td{background:#f8fafc}
 <div class="card">
   <h2><i class="fa-solid fa-flask" style="margin-right:.4rem;color:#0891b2"></i>Composición Real PR12 — Gas LP del Mes</h2>
   <div style="font-size:.76rem;color:#64748b;margin-bottom:.9rem;line-height:1.6">
-    Captura la composición real del Gas LP analizada en laboratorio. Si no se captura, el sistema usará los valores predeterminados (0.01 / 0.01) que generan advertencia en el dictamen.
+    Captura la composición real del Gas LP analizada en laboratorio o según dictamen de calidad.<br>
+    Ingresa los valores en <strong>porcentaje (%)</strong> — el sistema los convierte a fracción molar al generar el Anexo 30.<br>
+    Si no se captura, se usarán los valores predeterminados (1% / 1%) que generan advertencia en el dictamen.
   </div>
   <div class="grid2">
     <div class="field">
-      <label>Propano en Gas LP (fracción molar, 0-1) <span style="color:#e63946">*</span></label>
-      <input id="adv_propano" type="number" min="0" max="1" step="0.0001" placeholder="Ej. 0.6000"
-        title="Fracción molar de propano. Suma con butano debe ser ≤ 1.0">
+      <label>Propano en Gas LP (%) <span style="color:#e63946">*</span></label>
+      <input id="adv_propano" type="number" min="0" max="100" step="0.01" placeholder="Ej. 60.00"
+        oninput="validarComposicion()"
+        title="Porcentaje de propano. La suma Propano + Butano debe ser exactamente 100%">
+      <div style="font-size:.62rem;color:#94a3b8;margin-top:.2rem">Porcentaje 0–100. La suma con Butano debe ser 100.</div>
     </div>
     <div class="field">
-      <label>Butano en Gas LP (fracción molar, 0-1) <span style="color:#e63946">*</span></label>
-      <input id="adv_butano" type="number" min="0" max="1" step="0.0001" placeholder="Ej. 0.4000"
-        title="Fracción molar de butano. Suma con propano debe ser ≤ 1.0">
+      <label>Butano en Gas LP (%) <span style="color:#e63946">*</span></label>
+      <input id="adv_butano" type="number" min="0" max="100" step="0.01" placeholder="Ej. 40.00"
+        oninput="validarComposicion()"
+        title="Porcentaje de butano. La suma Propano + Butano debe ser exactamente 100%">
+      <div style="font-size:.62rem;color:#94a3b8;margin-top:.2rem">Porcentaje 0–100. La suma con Propano debe ser 100.</div>
     </div>
   </div>
   <div id="composWarning" style="display:none;font-size:.76rem;color:#b45309;background:#fefce8;border:1px solid #fcd34d;border-radius:6px;padding:.5rem .8rem;margin-top:.4rem">
-    <i class="fa-solid fa-triangle-exclamation" style="margin-right:.3rem"></i>La suma de Propano + Butano no puede superar 1.0
+    <i class="fa-solid fa-triangle-exclamation" style="margin-right:.3rem"></i>La suma de Propano + Butano debe ser exactamente <strong>100%</strong> para el reporte SAT.
+  </div>
+  <div id="composOk" style="display:none;font-size:.76rem;color:#15803d;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:.5rem .8rem;margin-top:.4rem">
+    <i class="fa-solid fa-circle-check" style="margin-right:.3rem"></i>Composición válida — se guardará como fracción molar en el JSON Anexo 30.
   </div>
   <div style="margin-top:.8rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
     <button class="btn-save" id="btnSaveCompos" onclick="guardarComposicionPR12()">
@@ -1929,9 +2064,45 @@ let _activeFacilityId = null;       // instalación seleccionada en Procesar
 let _histFacilityId   = null;       // instalación activa en Historial (capturada al cargar)
 let currentUserRole   = localStorage.getItem('sat_role') || 'user';
 
+// ── Estado multi-empresa (perfilSeleccionado) ──────────────────────────────
+// Se persiste en sessionStorage para sobrevivir refresh sin pedir selección nuevamente.
+// Se limpia al cerrar sesión o al cerrar la pestaña (sessionStorage, no localStorage).
+let _perfilSeleccionado = null;   // { id, nombre, rfc, descripcion }
+
+function _loadPerfilFromSession() {
+  try {
+    const raw = sessionStorage.getItem('zc_perfil');
+    if (raw) _perfilSeleccionado = JSON.parse(raw);
+  } catch(e) { _perfilSeleccionado = null; }
+}
+
+function _savePerfilToSession(perfil) {
+  _perfilSeleccionado = perfil;
+  try {
+    sessionStorage.setItem('zc_perfil', JSON.stringify(perfil));
+  } catch(e) {}
+}
+
+function _clearPerfilSession() {
+  _perfilSeleccionado = null;
+  sessionStorage.removeItem('zc_perfil');
+}
+
+function perfilId() {
+  return _perfilSeleccionado ? _perfilSeleccionado.id : null;
+}
+
+// Inicializar desde sessionStorage al cargar
+_loadPerfilFromSession();
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmt(n) { return Number(n||0).toLocaleString('es-MX', {maximumFractionDigits:2}); }
-function authHeader() { return authToken ? { 'Authorization': 'Bearer ' + authToken } : {}; }
+function authHeader() {
+  const h = authToken ? { 'Authorization': 'Bearer ' + authToken } : {};
+  const pid = perfilId();
+  if (pid) h['X-Perfil-Id'] = String(pid);
+  return h;
+}
 function truncUUID(s) { return (s||'').length > 20 ? (s||'').substring(0,8)+'…'+(s||'').slice(-4) : (s||''); }
 
 // ── Autenticación ────────────────────────────────────────────────────────────
@@ -2145,8 +2316,16 @@ async function verifySession() {
     const res = await fetch('/api/auth/me', { headers: authHeader() });
     if (res.ok) {
       const data = await res.json();
-      hideLogin(data.display_name);
+      hideLoginDirect(data.display_name);
       applyRole(data.role);
+      // Si ya teníamos perfil en session, restaurar sin pedir selección
+      if (_perfilSeleccionado) {
+        actualizarSwitcherEmpresa(_perfilSeleccionado);
+        cargarDatosDashboard();
+      } else {
+        // Sin perfil en session → pedir selección
+        await iniciarFlujoEmpresa();
+      }
     } else {
       clearSession();
       showLogin();
@@ -2156,6 +2335,14 @@ async function verifySession() {
     hideLoadingScreen();
     document.body.style.visibility = 'visible';
   }
+}
+
+function hideLoginDirect(displayName) {
+  // Muestra el dashboard sin disparar el flujo de empresa (ya se maneja por separado)
+  document.getElementById('loginOverlay').classList.add('hidden');
+  document.body.classList.remove('login-mode');
+  document.getElementById('userChip').style.display = 'flex';
+  document.getElementById('userDisplayName').textContent = displayName || currentUserId;
 }
 
 function showLogin() {
@@ -2168,6 +2355,8 @@ function hideLogin(displayName) {
   document.body.classList.remove('login-mode');
   document.getElementById('userChip').style.display = 'flex';
   document.getElementById('userDisplayName').textContent = displayName || currentUserId;
+  // Iniciar flujo multi-empresa
+  iniciarFlujoEmpresa();
 }
 function clearSession() {
   authToken = '';
@@ -2178,6 +2367,7 @@ function clearSession() {
   localStorage.removeItem('sat_role');
   localStorage.removeItem('sat_modulo');
   localStorage.removeItem('zcontrol_adv_settings'); // limpiar datos del usuario anterior
+  _clearPerfilSession();
   applyRole('user');
 }
 
@@ -2206,13 +2396,12 @@ document.getElementById('btnLogin').addEventListener('click', async () => {
       localStorage.setItem('sat_user_id', currentUserId);
       localStorage.setItem('sat_email', user);   // guardar email para re-auth en modal crítico
       localStorage.setItem('sat_modulo', modulo);  // Guardar módulo
-      hideLogin(data.display_name);
+      // Mostrar dashboard base sin cargar datos aún (se cargan tras seleccionar empresa)
+      hideLoginDirect(data.display_name);
       applyRole(data.role);
-      loadSettings();
-      loadProviders();
-      loadFacilities();
-      prefillHistSelector();
-      updateModuleUI(modulo);  // Actualizar UI según módulo
+      updateModuleUI(modulo);
+      // Flujo multi-empresa: seleccionar empresa antes de cargar datos
+      await iniciarFlujoEmpresa();
     } else {
       errEl.textContent = data.detail || 'Credenciales incorrectas.';
     }
@@ -2253,6 +2442,190 @@ function actualizarRfcHint() {
 const _rfcEl = document.getElementById('rfc');
 if (_rfcEl) _rfcEl.addEventListener('input', actualizarRfcHint);
 actualizarRfcHint();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MULTI-EMPRESA: Lógica de selección y cambio de perfil
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function cargarPerfiles() {
+  try {
+    const res = await fetch('/api/perfiles', { headers: authHeader() });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.perfiles || [];
+  } catch(e) {
+    console.warn('Error cargando perfiles:', e);
+    return [];
+  }
+}
+
+async function iniciarFlujoEmpresa() {
+  if (!authToken) return;
+  const perfiles = await cargarPerfiles();
+
+  if (perfiles.length === 0) {
+    abrirModalNuevoPerfil();
+    return;
+  }
+  if (perfiles.length === 1) {
+    // Solo un perfil → seleccionar automáticamente sin mostrar overlay
+    seleccionarEmpresa(perfiles[0], false);
+    return;
+  }
+  // Múltiples perfiles → mostrar overlay de selección
+  mostrarOverlayEmpresas(perfiles);
+}
+
+function mostrarOverlayEmpresas(perfiles) {
+  const list = document.getElementById('empresaList');
+  if (!list) return;
+  list.innerHTML = perfiles.map(p => {
+    const pJson = JSON.stringify(p).replace(/\\/g,'\\\\').replace(/"/g,'&quot;');
+    const isActivo = _perfilSeleccionado && _perfilSeleccionado.id === p.id;
+    return `
+    <div class="empresa-item${isActivo?' activo':''}"
+         onclick='seleccionarEmpresaById(${p.id})'>
+      <div class="empresa-item-info">
+        <div class="empresa-item-nombre">${p.nombre||'—'}</div>
+        <div class="empresa-item-rfc">${p.rfc||'—'}</div>
+        ${p.descripcion ? `<div style="font-size:.72rem;color:#94a3b8;margin-top:.15rem">${p.descripcion}</div>` : ''}
+      </div>
+      ${isActivo ? '<span class="empresa-item-badge">Activa</span>' : ''}
+    </div>`;
+  }).join('');
+  // Guardar perfiles en memoria para lookups rápidos
+  window._perfilesCache = perfiles;
+  const overlay = document.getElementById('empresaOverlay');
+  if (overlay) overlay.classList.add('visible');
+}
+
+function seleccionarEmpresaById(id) {
+  const cache = window._perfilesCache || [];
+  const perfil = cache.find(p => p.id === id);
+  if (perfil) seleccionarEmpresa(perfil, true);
+}
+
+function mostrarSelectorEmpresas() {
+  cargarPerfiles().then(perfiles => {
+    if (perfiles.length > 0) {
+      window._perfilesCache = perfiles;
+      mostrarOverlayEmpresas(perfiles);
+    }
+  });
+}
+
+function seleccionarEmpresa(perfil, cerrarOverlay) {
+  _savePerfilToSession(perfil);
+  actualizarSwitcherEmpresa(perfil);
+  if (cerrarOverlay) {
+    const overlay = document.getElementById('empresaOverlay');
+    if (overlay) overlay.classList.remove('visible');
+  }
+  cargarDatosDashboard();
+}
+
+function actualizarSwitcherEmpresa(perfil) {
+  const switcher = document.getElementById('empresaSwitcher');
+  const nameEl   = document.getElementById('empresaSwitcherName');
+  if (switcher) switcher.style.display = 'flex';
+  if (nameEl)   nameEl.textContent = perfil.nombre || '—';
+}
+
+function cargarDatosDashboard() {
+  loadSettings();
+  loadProviders();
+  loadFacilities();
+  try { prefillHistSelector(); } catch(e) {}
+}
+
+// ── Modal nuevo perfil ────────────────────────────────────────────────────────
+
+function abrirModalNuevoPerfil() {
+  ['nuevoPerfil_nombre','nuevoPerfil_rfc','nuevoPerfil_desc'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const errEl = document.getElementById('nuevoPerfil_err');
+  if (errEl) errEl.textContent = '';
+  const m = document.getElementById('modalNuevoPerfil');
+  if (m) m.classList.add('visible');
+}
+
+function cerrarModalNuevoPerfil() {
+  const m = document.getElementById('modalNuevoPerfil');
+  if (m) m.classList.remove('visible');
+}
+
+async function guardarNuevoPerfil() {
+  const nombre = (document.getElementById('nuevoPerfil_nombre')?.value || '').trim();
+  const rfc    = (document.getElementById('nuevoPerfil_rfc')?.value || '').trim().toUpperCase();
+  const desc   = (document.getElementById('nuevoPerfil_desc')?.value || '').trim();
+  const errEl  = document.getElementById('nuevoPerfil_err');
+  if (errEl) errEl.textContent = '';
+  if (!nombre) { if (errEl) errEl.textContent = 'El nombre es obligatorio.'; return; }
+  if (!rfc)    { if (errEl) errEl.textContent = 'El RFC es obligatorio.'; return; }
+  try {
+    const res = await fetch('/api/perfiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ nombre, rfc, descripcion: desc }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.detail || 'Error al guardar');
+    cerrarModalNuevoPerfil();
+    seleccionarEmpresa(data.perfil, true);
+  } catch(e) {
+    if (errEl) errEl.textContent = 'Error: ' + e.message;
+  }
+}
+
+// ── Panel de Perfiles dentro de Config ────────────────────────────────────────
+
+async function cargarPanelPerfiles() {
+  const tbody = document.getElementById('tbodyPerfiles');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="4" class="hist-empty">Cargando...</td></tr>';
+  const perfiles = await cargarPerfiles();
+  window._perfilesCache = perfiles;
+  if (!perfiles.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="hist-empty">Sin perfiles registrados.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = perfiles.map(p => {
+    const isActivo = _perfilSeleccionado && _perfilSeleccionado.id === p.id;
+    return `<tr>
+      <td style="font-weight:${isActivo?'700':'400'};color:${isActivo?'#0f766e':'inherit'}">
+        ${p.nombre}${isActivo?' <span style="font-size:.68rem;background:#0f766e;color:#fff;border-radius:99px;padding:.1rem .5rem">Activo</span>':''}
+      </td>
+      <td><code style="font-size:.8rem">${p.rfc||'—'}</code></td>
+      <td style="color:#64748b;font-size:.8rem">${p.descripcion||'—'}</td>
+      <td style="text-align:center;display:flex;gap:.3rem;justify-content:center">
+        ${!isActivo ? `<button onclick="seleccionarEmpresaById(${p.id})"
+          style="padding:.3rem .7rem;font-size:.75rem;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;font-family:inherit">
+          Usar</button>` : ''}
+        ${perfiles.length > 1 ? `<button onclick="eliminarPerfil(${p.id})"
+          style="padding:.3rem .5rem;font-size:.75rem;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;cursor:pointer;font-family:inherit">
+          <i class="fa-solid fa-trash"></i></button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function eliminarPerfil(perfilId) {
+  if (!confirm('¿Desactivar esta razón social? Sus datos no se eliminarán.')) return;
+  try {
+    const res = await fetch(`/api/perfiles/${perfilId}`, {
+      method: 'DELETE', headers: authHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Error');
+    await cargarPanelPerfiles();
+    if (_perfilSeleccionado && _perfilSeleccionado.id === perfilId) {
+      _clearPerfilSession();
+      await iniciarFlujoEmpresa();
+    }
+  } catch(e) { alert('Error: ' + e.message); }
+}
 
 // ── Configuración SAT Persistente ─────────────────────────────────────────
 async function loadSettings() {
@@ -2748,7 +3121,7 @@ function confirmDeleteFacility(id, nombre) {
 }
 
 // ── Navegación principal ──────────────────────────────────────────────────
-function switchTab(name) {
+async function switchTab(name) {
   document.querySelectorAll('.main-nav-tab').forEach(x => {
     x.classList.toggle('active', x.dataset.main === name);
   });
@@ -2758,17 +3131,25 @@ function switchTab(name) {
   if (name === 'ventas' && authToken) loadVentasAnalytics();
   if (name === 'admin'  && authToken && currentUserRole === 'admin') loadAdminPanel();
   if (name === 'config-avanzada') cargarConfigAvanzada();
-  // Al volver a Procesar, precargar composición PR12 guardada
+  if (name === 'config' && authToken) cargarPanelPerfiles();
+  // Al volver a Procesar, precargar composición PR12 guardada desde Supabase (no localStorage)
   if (name === 'procesar') {
     try {
-      const advData = JSON.parse(localStorage.getItem('zcontrol_adv_settings') || '{}');
-      if (advData.composicion_pr12) {
-        const p = document.getElementById('proc_propano');
-        const b = document.getElementById('proc_butano');
-        if (p && !p.value && advData.composicion_pr12.propano) p.value = advData.composicion_pr12.propano;
-        if (b && !b.value && advData.composicion_pr12.butano)  b.value = advData.composicion_pr12.butano;
+      const res = await fetch('/api/settings', { headers: authHeader() });
+      if (res.ok) {
+        const advData = await res.json();
+        if (advData.adv_composicion_pr12) {
+          const p = document.getElementById('proc_propano');
+          const b = document.getElementById('proc_butano');
+          // Supabase almacena fracción molar (0-1); mostrar en porcentaje (0-100)
+          if (p && !p.value && advData.adv_composicion_pr12.propano != null)
+            p.value = (parseFloat(advData.adv_composicion_pr12.propano) * 100).toFixed(2);
+          if (b && !b.value && advData.adv_composicion_pr12.butano != null)
+            b.value = (parseFloat(advData.adv_composicion_pr12.butano) * 100).toFixed(2);
+          validarComposicionProcesar();
+        }
       }
-    } catch(e) {}
+    } catch(e) { /* silencioso — los campos simplemente quedan vacíos */ }
   }
 }
 
@@ -3437,10 +3818,11 @@ async function processCFDI(files) {
   if (invFinal && invFinal !== '') fd.append('inventario_final', invFinal);
   const tempMed = document.getElementById('proc_temperatura')?.value;
   if (tempMed && tempMed !== '') fd.append('temperatura_medicion', tempMed);
-  const propano = document.getElementById('proc_propano')?.value;
-  if (propano && propano !== '') fd.append('composicion_propano', propano);
-  const butano = document.getElementById('proc_butano')?.value;
-  if (butano && butano !== '') fd.append('composicion_butano', butano);
+  // Composición PR12: UI en porcentaje (0-100), API espera fracción molar (0-1)
+  const propanoPct = document.getElementById('proc_propano')?.value;
+  if (propanoPct && propanoPct !== '') fd.append('composicion_propano', (parseFloat(propanoPct) / 100).toFixed(5));
+  const butanoPct = document.getElementById('proc_butano')?.value;
+  if (butanoPct && butanoPct !== '') fd.append('composicion_butano', (parseFloat(butanoPct) / 100).toFixed(5));
 
   try {
     const resp  = await fetch('/api/upload/cfdi', {
@@ -3605,10 +3987,11 @@ async function process(file, endpoint, loadId, source, isCFDI) {
   if (invFinalEx && invFinalEx !== '') fd.append('inventario_final', invFinalEx);
   const tempMedEx = document.getElementById('proc_temperatura')?.value;
   if (tempMedEx && tempMedEx !== '') fd.append('temperatura_medicion', tempMedEx);
+  // Composición PR12: UI en porcentaje (0-100), API espera fracción molar (0-1)
   const propanoEx = document.getElementById('proc_propano')?.value;
-  if (propanoEx && propanoEx !== '') fd.append('composicion_propano', propanoEx);
+  if (propanoEx && propanoEx !== '') fd.append('composicion_propano', (parseFloat(propanoEx) / 100).toFixed(5));
   const butanoEx = document.getElementById('proc_butano')?.value;
-  if (butanoEx && butanoEx !== '') fd.append('composicion_butano', butanoEx);
+  if (butanoEx && butanoEx !== '') fd.append('composicion_butano', (parseFloat(butanoEx) / 100).toFixed(5));
 
   try {
     const res  = await fetch(endpoint, {
@@ -4294,16 +4677,16 @@ async function guardarSistemasMedicion() {
   const incert = parseFloat(document.getElementById('adv_incertidumbre').value);
   const modelo = document.getElementById('adv_modelo_sensor').value.trim();
   const serie  = document.getElementById('adv_serie_sensor').value.trim();
+  const fechaCal = document.getElementById('adv_fecha_calibracion_medidor')?.value || '';
   if (isNaN(incert) || incert < 0 || incert > 1) {
-    setStatusMsg('statusMedicion', 'La incertidumbre debe ser un valor entre 0 y 1.', false); return;
+    setStatusMsg('statusMedicion', 'La incertidumbre debe ser un valor entre 0 y 1 (ej: 0.0020).', false); return;
   }
   if (!modelo) {
     setStatusMsg('statusMedicion', 'Ingresa el modelo del sensor.', false); return;
   }
   try {
-    const data = {}; // adv data sent directly to Supabase
-    data.medicion = { incertidumbre: incert, modelo_sensor: modelo, serie_sensor: serie };
-    // (no localStorage - data isolated per user in Supabase)
+    const data = {};
+    data.medicion = { incertidumbre: incert, modelo_sensor: modelo, serie_sensor: serie, fecha_calibracion_medidor: fechaCal };
     await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
@@ -4385,29 +4768,36 @@ async function guardarDictamen() {
 function validarComposicion() {
   const prop = parseFloat(document.getElementById('adv_propano').value) || 0;
   const but  = parseFloat(document.getElementById('adv_butano').value)  || 0;
-  const w    = document.getElementById('composWarning');
-  if (w) w.style.display = (prop + but > 1.0) ? '' : 'none';
+  const suma  = Math.round((prop + but) * 100) / 100;   // redondear para evitar flotantes
+  const w   = document.getElementById('composWarning');
+  const ok  = document.getElementById('composOk');
+  const ambosCapturados = document.getElementById('adv_propano').value !== '' && document.getElementById('adv_butano').value !== '';
+  if (w) w.style.display = (ambosCapturados && Math.abs(suma - 100) > 0.05) ? '' : 'none';
+  if (ok) ok.style.display = (ambosCapturados && Math.abs(suma - 100) <= 0.05) ? '' : 'none';
 }
 
 async function guardarComposicionPR12() {
   const prop = parseFloat(document.getElementById('adv_propano').value);
   const but  = parseFloat(document.getElementById('adv_butano').value);
-  if (isNaN(prop) || isNaN(but) || prop < 0 || but < 0 || prop > 1 || but > 1) {
-    setStatusMsg('statusCompos', 'Las fracciones molares deben estar entre 0 y 1.', false); return;
+  if (isNaN(prop) || isNaN(but) || prop < 0 || but < 0 || prop > 100 || but > 100) {
+    setStatusMsg('statusCompos', 'Los porcentajes deben estar entre 0 y 100.', false); return;
   }
-  if (prop + but > 1.0) {
-    setStatusMsg('statusCompos', 'La suma Propano + Butano no puede superar 1.0.', false); return;
+  const suma = Math.round((prop + but) * 100) / 100;
+  if (Math.abs(suma - 100) > 0.05) {
+    setStatusMsg('statusCompos', `La suma Propano + Butano debe ser 100% (actual: ${suma.toFixed(2)}%).`, false); return;
   }
+  // Convertir de porcentaje a fracción molar para almacenar (formato SAT)
+  const propFraccion = Math.round((prop / 100) * 100000) / 100000;
+  const butFraccion  = Math.round((but  / 100) * 100000) / 100000;
   try {
-    const data = {}; // adv data sent directly to Supabase
-    data.composicion_pr12 = { propano: prop, butano: but };
-    // (no localStorage - data isolated per user in Supabase)
+    const data = {};
+    data.composicion_pr12 = { propano: propFraccion, butano: butFraccion };
     await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ adv_composicion_pr12: data.composicion_pr12 })
     });
-    setStatusMsg('statusCompos', `✓ Composición guardada: C3H8=${prop.toFixed(4)}, C4H10=${but.toFixed(4)}`, true);
+    setStatusMsg('statusCompos', `✓ Guardado: C₃H₈ ${prop.toFixed(2)}% (${propFraccion}), C₄H₁₀ ${but.toFixed(2)}% (${butFraccion})`, true);
   } catch(e) { setStatusMsg('statusCompos', 'Error: ' + e.message, false); }
 }
 
@@ -4430,6 +4820,9 @@ async function cargarConfigAvanzada() {
     if (m.incertidumbre) document.getElementById('adv_incertidumbre').value = m.incertidumbre;
     if (m.modelo_sensor) document.getElementById('adv_modelo_sensor').value = m.modelo_sensor;
     if (m.serie_sensor)  document.getElementById('adv_serie_sensor').value  = m.serie_sensor;
+    // Vigencia de calibración del medidor (campo independiente del tanque)
+    const elFechaMed = document.getElementById('adv_fecha_calibracion_medidor');
+    if (elFechaMed && m.fecha_calibracion_medidor) elFechaMed.value = m.fecha_calibracion_medidor;
 
     const g = data.adv_geolocalizacion || {};
     if (g.latitud)  document.getElementById('adv_latitud').value  = g.latitud;
@@ -4442,9 +4835,11 @@ async function cargarConfigAvanzada() {
     if (d.fecha_vigencia) document.getElementById('adv_fecha_dictamen').value = d.fecha_vigencia;
     if (d.version_sw)     document.getElementById('adv_version_sw').value     = d.version_sw;
 
+    // Composición PR12: almacenada como fracción molar (0-1), mostrar en porcentaje (0-100)
     const c = data.adv_composicion_pr12 || {};
-    if (c.propano) document.getElementById('adv_propano').value = c.propano;
-    if (c.butano)  document.getElementById('adv_butano').value  = c.butano;
+    if (c.propano != null) document.getElementById('adv_propano').value = (parseFloat(c.propano) * 100).toFixed(2);
+    if (c.butano  != null) document.getElementById('adv_butano').value  = (parseFloat(c.butano)  * 100).toFixed(2);
+    if (c.propano || c.butano) validarComposicion();
 
   } catch(e) { console.warn('Error cargando config avanzada:', e); }
 }
@@ -4455,7 +4850,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('adv_longitud')?.addEventListener('input', validarCoordenadas);
   document.getElementById('adv_propano')?.addEventListener('input', validarComposicion);
   document.getElementById('adv_butano')?.addEventListener('input', validarComposicion);
+  document.getElementById('proc_propano')?.addEventListener('input', validarComposicionProcesar);
+  document.getElementById('proc_butano')?.addEventListener('input', validarComposicionProcesar);
 });
+
+function validarComposicionProcesar() {
+  const p = parseFloat(document.getElementById('proc_propano')?.value) || 0;
+  const b = parseFloat(document.getElementById('proc_butano')?.value)  || 0;
+  const suma = Math.round((p + b) * 100) / 100;
+  const w = document.getElementById('procComposWarning');
+  const pEl = document.getElementById('proc_propano');
+  const bEl = document.getElementById('proc_butano');
+  const ambos = (pEl?.value !== '' && bEl?.value !== '');
+  if (w) w.style.display = (ambos && Math.abs(suma - 100) > 0.05) ? '' : 'none';
+}
 
 // ── Autoconsumo ───────────────────────────────────────────────────────────────
 
@@ -4836,13 +5244,10 @@ document.querySelectorAll('.main-nav-tab').forEach(btn => {
 applyRole(currentUserRole);
 prefillHistSelector();
 loadModuleFromStorage();  // Cargar módulo guardado
-verifySession().then(() => {
-  if (authToken) {
-    loadSettings();
-    loadProviders();
-    loadFacilities();
-  }
-});
+// verifySession maneja el flujo completo:
+// token inválido → showLogin | token válido → empresa en session → cargarDatosDashboard
+//                                           | sin empresa en session → iniciarFlujoEmpresa
+verifySession();
 </script>
 <!-- ── Modal de Confirmación CRÍTICA (Limpiar Datos) ───────────────────── -->
 <div id="criticalModal" style="
