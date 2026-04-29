@@ -24,12 +24,31 @@ PROVIDERS_DIR = os.path.join(os.path.dirname(__file__), "..", "config")
 # ── Supabase helpers ──────────────────────────────────────────────────────────
 
 def _sb_list(user_id: str, perfil_id: int = None) -> list:
+    """
+    Lista proveedores del usuario. Cuando se provee perfil_id:
+    - Devuelve los que tienen ese perfil_id exacto, MÁS los que tienen perfil_id IS NULL
+      (huérfanos de la migración). Esto garantiza que los usuarios vean sus proveedores
+      existentes aunque la migración no les haya asignado perfil_id aún.
+    - Después de mostrarlos, el frontend puede llamar /api/providers/asignar-perfil para
+      reasignarlos al perfil activo.
+    """
     try:
         from supabase_config import get_supabase
-        q = get_supabase().table("providers").select("*").eq("user_id", user_id)
+        sb = get_supabase()
         if perfil_id:
-            q = q.eq("perfil_id", perfil_id)
-        return q.order("rfc").execute().data or []
+            # Obtener con perfil exacto
+            r1 = sb.table("providers").select("*").eq("user_id", user_id)\
+                   .eq("perfil_id", perfil_id).order("rfc").execute().data or []
+            # Obtener huérfanos (perfil_id IS NULL) — legado pre-migración
+            r2 = sb.table("providers").select("*").eq("user_id", user_id)\
+                   .is_("perfil_id", "null").order("rfc").execute().data or []
+            # Unir deduplicando por RFC (preferir el que tiene perfil asignado)
+            rfcs_con_perfil = {p["rfc"] for p in r1}
+            huerfanos = [p for p in r2 if p["rfc"] not in rfcs_con_perfil]
+            return r1 + huerfanos
+        else:
+            return sb.table("providers").select("*").eq("user_id", user_id)\
+                     .order("rfc").execute().data or []
     except Exception as e:
         logger.warning("Supabase providers list: %s", e)
         return None   # señal de fallo
@@ -177,6 +196,35 @@ class ProviderPayload(BaseModel):
     nombre:  Optional[str] = ""
     permiso: Optional[str] = ""
     permiso_almacenamiento_terminal: Optional[str] = ""
+
+
+@router.post("/providers/asignar-perfil")
+async def asignar_perfil_a_huerfanos(
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
+    """
+    Asigna el perfil_id activo a todos los proveedores del usuario que tienen
+    perfil_id IS NULL (huérfanos de la migración pre-multi-empresa).
+    Llamar una sola vez al acceder al tab de Proveedores con un perfil seleccionado.
+    """
+    user_id   = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    if not perfil_id:
+        return JSONResponse(content={"ok": True, "updated": 0, "msg": "Sin perfil activo"})
+    try:
+        from supabase_config import get_supabase
+        result = get_supabase().table("providers")\
+            .update({"perfil_id": perfil_id})\
+            .eq("user_id", user_id)\
+            .is_("perfil_id", "null")\
+            .execute()
+        updated = len(result.data or [])
+        logger.info("asignar_perfil_a_huerfanos: user=%s perfil=%s updated=%s", user_id, perfil_id, updated)
+        return JSONResponse(content={"ok": True, "updated": updated})
+    except Exception as e:
+        logger.error("asignar_perfil_a_huerfanos: %s", e)
+        return JSONResponse(content={"ok": False, "error": str(e)})
 
 
 @router.get("/providers")

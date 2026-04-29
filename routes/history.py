@@ -1,5 +1,6 @@
 # routes/history.py
 # API para el dashboard histórico — consulta de periodos, registros y reportes.
+# v2: soporte multi-empresa via header X-Perfil-Id.
 
 import os
 import logging
@@ -28,28 +29,40 @@ def _auth(authorization: str) -> str:
     return uid
 
 
+def _parse_perfil_id(raw: str) -> Optional[int]:
+    try:
+        v = int((raw or "").strip())
+        return v if v > 0 else None
+    except (ValueError, TypeError):
+        return None
+
+
 @router.get("/history/periods")
 async def list_periods(
-    facility_id: Optional[int] = Query(default=None),
+    facility_id:   Optional[int] = Query(default=None),
     authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    uid       = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
     return JSONResponse(content={
-        "periods": get_available_periods(uid, facility_id=facility_id)
+        "periods": get_available_periods(uid, facility_id=facility_id, perfil_id=perfil_id)
     })
 
 
 @router.get("/history/{periodo}")
 async def get_history(
-    periodo: str,
-    facility_id: Optional[int] = Query(default=None),
+    periodo:       str,
+    facility_id:   Optional[int] = Query(default=None),
     authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
 ):
-    uid = _auth(authorization)
-    records = get_records(uid, periodo, facility_id=facility_id)
-    totals  = get_period_totals(uid, periodo, facility_id=facility_id)
-    reports = get_reports(uid, periodo, facility_id=facility_id)
-    latest  = reports[0] if reports else None
+    uid       = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    records   = get_records(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    totals    = get_period_totals(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    reports   = get_reports(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    latest    = reports[0] if reports else None
 
     sat_zip_filename = None
     if latest:
@@ -59,7 +72,7 @@ async def get_history(
             sat_zip_filename = filename_base + ".zip"
         else:
             try:
-                settings = load_settings(uid)
+                settings = load_settings(uid, perfil_id)
                 sat_zip_filename = generate_filename(settings, periodo, "JSON", stored_uuid) + ".zip"
             except Exception:
                 if latest.get("zip_path"):
@@ -76,9 +89,13 @@ async def get_history(
 
 
 @router.delete("/history/all")
-async def wipe_all_history(authorization: str = Header(default="")):
-    uid = _auth(authorization)
-    counts = delete_all_periods(uid)
+async def wipe_all_history(
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
+    uid       = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    counts    = delete_all_periods(uid, perfil_id=perfil_id)
     return JSONResponse(content={
         "ok": True,
         "deleted_records": counts.get("records", 0),
@@ -88,14 +105,18 @@ async def wipe_all_history(authorization: str = Header(default="")):
 
 @router.delete("/history/{periodo}")
 async def delete_history(
-    periodo: str,
-    facility_id: Optional[int] = Query(default=None),
-    include_autoconsumos: bool  = Query(default=False),
-    authorization: str = Header(default=""),
+    periodo:              str,
+    facility_id:          Optional[int] = Query(default=None),
+    include_autoconsumos: bool           = Query(default=False),
+    authorization:        str = Header(default=""),
+    x_perfil_id:          str = Header(default=""),
 ):
-    uid = _auth(authorization)
-    counts = delete_period(uid, periodo, facility_id=facility_id,
-                           include_autoconsumos=include_autoconsumos)
+    uid       = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    counts    = delete_period(uid, periodo,
+                              facility_id=facility_id,
+                              include_autoconsumos=include_autoconsumos,
+                              perfil_id=perfil_id)
     return JSONResponse(content={
         "ok": True,
         "periodo": periodo,
@@ -107,16 +128,18 @@ async def delete_history(
 
 @router.get("/history/{periodo}/download/{fmt}")
 async def download_report(
-    periodo: str,
-    fmt: str,
-    facility_id: Optional[int] = Query(default=None),
+    periodo:       str,
+    fmt:           str,
+    facility_id:   Optional[int] = Query(default=None),
     authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
 ):
-    uid  = _auth(authorization)
-    reps = get_reports(uid, periodo, facility_id=facility_id)
+    uid       = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    reps = get_reports(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     if not reps:
-        # Fallback: try without facility filter (for reports generated before multi-facility)
-        reps = get_reports(uid, periodo)
+        # Fallback: reportes pre-multi-empresa sin perfil_id asignado
+        reps = get_reports(uid, periodo, facility_id=facility_id)
     if not reps:
         raise HTTPException(404, f"No se encontró reporte para el periodo {periodo}.")
     rep   = reps[0]
@@ -142,7 +165,7 @@ async def download_report(
             else:
                 filename = filename_base + "." + fmt_l
         else:
-            settings     = load_settings(uid)
+            settings     = load_settings(uid, perfil_id)
             fmt_for_name = "JSON" if fmt_l == "zip" else fmt_l.upper()
             sat_name     = generate_filename(settings, periodo, fmt_for_name, stored_uuid)
             filename     = sat_name + "." + fmt_l
