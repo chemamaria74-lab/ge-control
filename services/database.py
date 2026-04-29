@@ -100,11 +100,13 @@ def get_admin_metrics() -> dict:
 
 # ── FACILITIES ────────────────────────────────────────────────────────────────
 
-def get_facilities(user_id: str, modulo: str = None) -> list:
+def get_facilities(user_id: str, modulo: str = None, perfil_id: int = None) -> list:
     try:
         q = get_supabase().table("user_facilities").select("*").eq("user_id", user_id)
         if modulo:
             q = q.eq("modulo_propietario", modulo)
+        if perfil_id:
+            q = q.eq("perfil_id", perfil_id)
         return q.order("id").execute().data or []
     except Exception as e:
         logger.warning("get_facilities: %s", e)
@@ -142,7 +144,7 @@ def delete_facility(facility_id: int, user_id: str) -> bool:
 
 def create_facility_v2(user_id: str, data: dict) -> dict:
     try:
-        result = get_supabase().table("user_facilities").insert({
+        record = {
             "user_id":            user_id,
             "modulo_propietario": data.get("modulo_propietario", "gas_lp"),
             "nombre":             data.get("nombre", ""),
@@ -162,7 +164,11 @@ def create_facility_v2(user_id: str, data: dict) -> dict:
             "latitud":            data.get("latitud"),
             "longitud":           data.get("longitud"),
             "created_at":         _now(),
-        }).execute()
+        }
+        # Incluir perfil_id si fue provisto (multi-empresa)
+        if data.get("perfil_id"):
+            record["perfil_id"] = int(data["perfil_id"])
+        result = get_supabase().table("user_facilities").insert(record).execute()
         return result.data[0] if result.data else {}
     except Exception as e:
         logger.error("create_facility_v2: %s", e)
