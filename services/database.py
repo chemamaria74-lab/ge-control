@@ -235,13 +235,16 @@ def save_records(user_id: str, periodo: str, grupos: dict, tipo: str,
 
 
 def get_records(user_id: str, periodo: str,
-                facility_id: Optional[int] = None) -> dict:
+                facility_id: Optional[int] = None,
+                perfil_id: Optional[int] = None) -> dict:
     try:
         q = (get_supabase().table("records")
              .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,nombre_contraparte,importe,file_path")
              .eq("user_id", user_id).eq("periodo", periodo))
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
         rows     = q.order("fecha").execute().data or []
         entradas = [r for r in rows if r["tipo"] == "entrada"]
         salidas  = [r for r in rows if r["tipo"] == "salida"]
@@ -252,9 +255,10 @@ def get_records(user_id: str, periodo: str,
 
 
 def get_period_totals(user_id: str, periodo: str,
-                      facility_id: Optional[int] = None) -> dict:
+                      facility_id: Optional[int] = None,
+                      perfil_id: Optional[int] = None) -> dict:
     try:
-        r = get_records(user_id, periodo, facility_id)
+        r = get_records(user_id, periodo, facility_id, perfil_id)
         return {
             "total_entradas":   sum(x["volumen_litros"] for x in r["entradas"]),
             "total_salidas":    sum(x["volumen_litros"] for x in r["salidas"]),
@@ -275,9 +279,10 @@ def get_period_totals(user_id: str, periodo: str,
 def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
                 xml_path: str = "", json_path: str = "", zip_path: str = "",
                 first_salida_uuid: str = "",
-                facility_id: Optional[int] = None) -> None:
+                facility_id: Optional[int] = None,
+                perfil_id: Optional[int] = None) -> None:
     try:
-        get_supabase().table("reports").insert({
+        record = {
             "user_id":             user_id,
             "facility_id":         facility_id,
             "periodo":             periodo,
@@ -293,30 +298,39 @@ def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
             "importe_entregas":    meta.get("importe_entregas", 0.0),
             "first_salida_uuid":   first_salida_uuid.strip().upper() if first_salida_uuid else "",
             "created_at":          _now(),
-        }).execute()
+        }
+        if perfil_id:
+            record["perfil_id"] = perfil_id
+        get_supabase().table("reports").insert(record).execute()
     except Exception as e:
         logger.error("save_report: %s", e)
 
 
 def get_reports(user_id: str, periodo: Optional[str] = None,
-                facility_id: Optional[int] = None) -> list:
+                facility_id: Optional[int] = None,
+                perfil_id: Optional[int] = None) -> list:
     try:
         q = get_supabase().table("reports").select("*").eq("user_id", user_id)
         if periodo:
             q = q.eq("periodo", periodo)
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
         return q.order("created_at", desc=True).execute().data or []
     except Exception as e:
         logger.warning("get_reports: %s", e)
         return []
 
 
-def get_last_report(user_id: str, facility_id: Optional[int] = None) -> Optional[dict]:
+def get_last_report(user_id: str, facility_id: Optional[int] = None,
+                    perfil_id: Optional[int] = None) -> Optional[dict]:
     try:
         q = get_supabase().table("reports").select("*").eq("user_id", user_id)
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
         rows = q.order("periodo", desc=True).order("created_at", desc=True).limit(1).execute().data
         return rows[0] if rows else None
     except Exception as e:
@@ -324,11 +338,14 @@ def get_last_report(user_id: str, facility_id: Optional[int] = None) -> Optional
         return None
 
 
-def get_available_periods(user_id: str, facility_id: Optional[int] = None) -> list:
+def get_available_periods(user_id: str, facility_id: Optional[int] = None,
+                          perfil_id: Optional[int] = None) -> list:
     try:
         q = get_supabase().table("records").select("periodo").eq("user_id", user_id)
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
         rows = q.execute().data or []
         return sorted({r["periodo"] for r in rows}, reverse=True)
     except Exception as e:
@@ -340,35 +357,42 @@ def get_available_periods(user_id: str, facility_id: Optional[int] = None) -> li
 
 def delete_period(user_id: str, periodo: str,
                   facility_id: Optional[int] = None,
-                  include_autoconsumos: bool = False) -> dict:
+                  include_autoconsumos: bool = False,
+                  perfil_id: Optional[int] = None) -> dict:
     counts = {"records": 0, "reports": 0}
     try:
         sb = get_supabase()
-        # Por defecto preservamos autoconsumos (file_path="manual:*").
-        # include_autoconsumos=True los borra también (cliente se equivocó al registrar).
-        qr = sb.table("records").delete().eq("user_id", user_id).eq("periodo", periodo)
+        qr   = sb.table("records").delete().eq("user_id", user_id).eq("periodo", periodo)
+        qrep = sb.table("reports").delete().eq("user_id", user_id).eq("periodo", periodo)
         if not include_autoconsumos:
             qr = qr.not_.like("file_path", "manual:%")
-        qrep = sb.table("reports").delete().eq("user_id", user_id).eq("periodo", periodo)
         if facility_id is not None:
             qr   = qr.eq("facility_id", facility_id)
             qrep = qrep.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            qr   = qr.eq("perfil_id", perfil_id)
+            qrep = qrep.eq("perfil_id", perfil_id)
         counts["records"] = len(qr.execute().data or [])
         counts["reports"] = len(qrep.execute().data or [])
-        logger.info("delete_period %s/%s fid=%s inc_auto=%s → %s",
-                    user_id, periodo, facility_id, include_autoconsumos, counts)
+        logger.info("delete_period %s/%s fid=%s pid=%s inc_auto=%s → %s",
+                    user_id, periodo, facility_id, perfil_id, include_autoconsumos, counts)
     except Exception as e:
         logger.error("delete_period: %s", e)
     return counts
 
 
-def delete_all_periods(user_id: str) -> dict:
+def delete_all_periods(user_id: str, perfil_id: Optional[int] = None) -> dict:
     counts = {"records": 0, "reports": 0}
     try:
         sb = get_supabase()
-        counts["records"] = len(sb.table("records").delete().eq("user_id", user_id).execute().data or [])
-        counts["reports"] = len(sb.table("reports").delete().eq("user_id", user_id).execute().data or [])
-        logger.info("delete_all_periods %s → %s", user_id, counts)
+        qr   = sb.table("records").delete().eq("user_id", user_id)
+        qrep = sb.table("reports").delete().eq("user_id", user_id)
+        if perfil_id is not None:
+            qr   = qr.eq("perfil_id", perfil_id)
+            qrep = qrep.eq("perfil_id", perfil_id)
+        counts["records"] = len(qr.execute().data or [])
+        counts["reports"] = len(qrep.execute().data or [])
+        logger.info("delete_all_periods %s pid=%s → %s", user_id, perfil_id, counts)
     except Exception as e:
         logger.error("delete_all_periods: %s", e)
     return counts

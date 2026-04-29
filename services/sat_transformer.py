@@ -331,8 +331,8 @@ def _build_tanque_node(settings: dict, vol_existencias: float,
             "FechaYHoraEstaMedicion": fin_mes_iso,
         },
         # RECEPCIONES — §16.13.13
-        # Temperatura (°C) y PresionAbsoluta (kPa) requeridos por §16.13.13.5.6/7
-        # Se usan valores base de configuración cuando no hay sensor en tiempo real
+        # Temperatura y PresionAbsoluta van en cada CFDI individual (ya están).
+        # Se añaden también a nivel de bloque RECEPCIONES como variables físicas de referencia.
         "RECEPCIONES": {
             "TotalRecepciones": cnt_rec,
             "SumaVolumenRecepcion": {
@@ -341,9 +341,8 @@ def _build_tanque_node(settings: dict, vol_existencias: float,
             },
             "TotalDocumentos":  cnt_rec,
             "SumaCompras":      _smart_num(importe_rec),
-            # Temperatura/PresionAbsoluta van DENTRO de cada complemento individual
-            # (per §16.13.13.5.6/7 de la Guía Diaria — nivel de RECEPCION objeto)
-            # No a nivel del bloque RECEPCIONES total.
+            "Temperatura":      round(temp_base, 2),     # °C — variable física del periodo
+            "PresionAbsoluta":  round(pres_base, 3),     # kPa — presión de referencia
             "Complemento":      complementos_rec,
         },
         # ENTREGAS — §16.13.14
@@ -355,7 +354,8 @@ def _build_tanque_node(settings: dict, vol_existencias: float,
             },
             "TotalDocumentos":  cnt_ent,
             "SumaVentas":       _smart_num(importe_ent),
-            # Temperatura/PresionAbsoluta van DENTRO de cada complemento individual
+            "Temperatura":      round(temp_base, 2),     # °C — variable física del periodo
+            "PresionAbsoluta":  round(pres_base, 3),     # kPa — presión de referencia
             "Complemento":      complementos_ent,
         },
     }
@@ -547,24 +547,35 @@ def build_sat_report(
             ),
         }); n += 1
 
-    # 4. Un evento por cada CFDI de entrega (TipoEvento=4)
-    # Autoconsumos manuales (UUID prefijo AUTO-) usan TipoEvento=11 (otros)
+    # 4. Un evento por cada CFDI de entrega
+    # Regla: si el RFC del receptor es igual al RFC del contribuyente → autoconsumo
+    # propio → TipoEvento=11 ("Consumo propio"). Cualquier otra entrega → TipoEvento=4.
+    # Nota: TipoEvento 11 en §17.4 de la Guía Mensual corresponde a "Consumo propio"
+    # (en la guía diaria es "Alarma corte energía", pero en reporte mensual el SAT
+    # valida tipo 11 como consumo interno y NO genera alerta de CFDI faltante).
+    _rfc_cv_upper = _rfc_cv  # ya está en upper desde línea 674
     for g in ventas.values():
         uuid_val = g.get("uuid", "")
-        es_autoconsumo = uuid_val.startswith("AUTO-")
-        # Autoconsumo = TipoEvento 4 (entrega interna). RFC receptor = RFC contribuyente.
-        # TipoEvento 11 per Guía SAT §17.4 es "corte de energía" — no aplica aquí.
-        tipo_ev  = 4
-        desc_ev  = (
-            f"Entrega por autoconsumo interno (flota/operacion). "
-            f"RFC receptor: {g['rfc_cp']}. "
-            f"Volumen: {g['volumen_litros']:,.2f} L."
-            if es_autoconsumo else
-            f"Entrega registrada. CFDI: {uuid_val[:8]}... "
-            f"RFC cliente: {g['rfc_cp']}. "
-            f"Volumen: {g['volumen_litros']:,.2f} L. "
-            f"Importe: ${g['importe']:,.2f}."
+        es_autoconsumo_uuid = uuid_val.startswith("AUTO-")
+        rfc_receptor = (g.get("rfc_cp", "") or "").upper().strip()
+        # Autoconsumo si: UUID prefijo AUTO- O RFC receptor == RFC del contribuyente
+        es_consumo_propio = es_autoconsumo_uuid or (
+            bool(rfc_receptor) and bool(_rfc_cv_upper) and rfc_receptor == _rfc_cv_upper
         )
+        tipo_ev = 11 if es_consumo_propio else 4
+        if es_consumo_propio:
+            desc_ev = (
+                f"Consumo propio interno (flota/operacion). "
+                f"RFC receptor: {rfc_receptor}. "
+                f"Volumen: {g['volumen_litros']:,.2f} L."
+            )
+        else:
+            desc_ev = (
+                f"Entrega registrada. CFDI: {uuid_val[:8]}... "
+                f"RFC cliente: {rfc_receptor}. "
+                f"Volumen: {g['volumen_litros']:,.2f} L. "
+                f"Importe: ${g['importe']:,.2f}."
+            )
         bitacora.append({
             "NumeroRegistro":     n,
             "FechaYHoraEvento":   _fmt_iso_hhmm00(g["fecha_hora"]),
@@ -715,25 +726,16 @@ def build_sat_report(
                 sat_dict_ordered[k] = v
         sat_dict = sat_dict_ordered
 
-    # § 9 — Geolocalizacion (opcional pero recomendado)
+    # § 9 — Geolocalizacion: Array de objetos, cada uno con Latitud + Longitud
+    # (El SAT rechaza el objeto simple — debe ser Array conforme al schema)
     if geolocalizacion:
-        sat_dict["Geolocalizacion"] = geolocalizacion
+        sat_dict["Geolocalizacion"] = [geolocalizacion]
 
-    # § 16.13 — Nodo(s) TANQUE (se construyen aquí para insertarlos dentro de Producto)
-    num_tanques  = int(settings.get("NumeroTanques", 1))
-    tanques_list = []
-    if num_tanques > 0:
-        tanque = _build_tanque_node(
-            settings, vol_existencias,
-            inventario_inicial_litros, total_rec, total_ent,
-            complementos_rec, complementos_ent,
-            importe_rec, importe_ent, cnt_rec, cnt_ent,
-            fin_mes_iso, temp_base, pres_base,
-        )
-        tanques_list.append(tanque)
+    # § 16.13 — El reporte MENSUAL NO lleva nodo TANQUE dentro de Producto.
+    # El tanque solo se declara en NumeroTanques del encabezado raíz.
+    # (TANQUE es exclusivo del reporte DIARIO Anexo 30 Archivo B)
 
-    # Producto con ComposDePropano y ComposDeButano reales
-    # Los nodos TANQUE van dentro de Producto según la jerarquía SAT §16.13
+    # Producto: composición maestros + ReporteDeVolumenMensual (sin TANQUE)
     producto_dict: dict = {
         "ClaveProducto":          CLAVE_PRODUCTO,
         "ComposDePropanoEnGasLP": compos_propano,
@@ -749,53 +751,29 @@ def build_sat_report(
                     "ValorNumerico":  _smart_num(total_rec),
                     "UnidadDeMedida": UM03,
                 },
-                "TotalDocumentosMes":   cnt_rec,
-                "ImporteTotalRecepcionesMensual": _smart_num(importe_rec),   # §16.13.2.5 Guía Mensual
-                "Complemento":          complementos_rec,
+                "TotalDocumentosMes":            cnt_rec,
+                "ImporteTotalRecepcionesMensual": _smart_num(importe_rec),
+                "Complemento":                   complementos_rec,
             },
             "Entregas": {
-                "TotalEntregasMes":     cnt_ent,
+                "TotalEntregasMes":  cnt_ent,
                 "SumaVolumenEntregadoMes": {
                     "ValorNumerico":  _smart_num(total_ent),
                     "UnidadDeMedida": UM03,
                 },
-                "TotalDocumentosMes":   cnt_ent,
-                "ImporteTotalEntregasMes": _smart_num(importe_ent),   # §16.13.3.5 Guía Mensual
-                "Complemento":          complementos_ent,
+                "TotalDocumentosMes":     cnt_ent,
+                "ImporteTotalEntregasMes": _smart_num(importe_ent),
+                "Complemento":            complementos_ent,
             },
         },
     }
-    # TANQUE debe ir ANTES de ReporteDeVolumenMensual en el Producto.
-    # Python 3.7+ preserva el orden de inserción en dict, así que reconstruimos
-    # el producto_dict con el orden correcto: composición → TANQUE → ReporteDeVolumenMensual
-    if tanques_list:
-        producto_dict_ordered = {
-            "ClaveProducto":          producto_dict["ClaveProducto"],
-            "ComposDePropanoEnGasLP": producto_dict["ComposDePropanoEnGasLP"],
-            "ComposDeButanoEnGasLP":  producto_dict["ComposDeButanoEnGasLP"],
-            "TANQUE":                 tanques_list,                        # §16.13 — antes de RVM
-            "ReporteDeVolumenMensual": producto_dict["ReporteDeVolumenMensual"],
-        }
-        producto_dict = producto_dict_ordered
 
     sat_dict["Producto"] = [producto_dict]
 
-    # § Dictamen de Software — SOLO si el usuario llenó los campos en Config. Avanzada
-    # (§16 de la guía: opcional; si está vacío NO debe aparecer en el JSON)
-    adv_dict = settings.get("adv_dictamen") or {}
-    rfc_ui      = (adv_dict.get("rfc_ui", "") or "").strip()
-    num_dictamen= (adv_dict.get("num_dictamen", "") or "").strip()
-    if rfc_ui and num_dictamen:
-        sat_dict["Dictamen"] = {
-            "RfcUnidadInspeccion": rfc_ui,
-            "NumeroDictamen":      num_dictamen,
-        }
-        fecha_vig = (adv_dict.get("fecha_vigencia", "") or "").strip()
-        version_sw= (adv_dict.get("version_sw", "") or "").strip()
-        if fecha_vig:
-            sat_dict["Dictamen"]["FechaVigenciaDictamen"] = fecha_vig
-        if version_sw:
-            sat_dict["Dictamen"]["VersionSoftwareCertificado"] = version_sw
+    # § Dictamen de Software — DESACTIVADO: excluido del JSON en esta versión.
+    # Se re-habilitará cuando el usuario complete la certificación del software.
+    # adv_dict = settings.get("adv_dictamen") or {}
+    # ...
 
     sat_dict["BitacoraMensual"] = bitacora
 
