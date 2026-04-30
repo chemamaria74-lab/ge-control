@@ -1865,50 +1865,17 @@ tr:hover td{background:#f8fafc}
   </div>
 </div>
 
-<!-- ── Dictamen de Software ───────────────────────────────────────────── -->
+<!-- ── Dictamen de Composición del Gas LP ──────────────────────────────── -->
 <div class="card">
-  <h2><i class="fa-solid fa-file-shield" style="margin-right:.4rem;color:#0f5c82"></i>Dictamen de Software</h2>
-  <div style="font-size:.76rem;color:#64748b;margin-bottom:.9rem;line-height:1.6">
-    Datos emitidos por la Unidad de Inspección autorizada. Obligatorios en el nodo raíz del JSON Anexo 30.
+  <h2><i class="fa-solid fa-flask-vial" style="margin-right:.4rem;color:#0891b2"></i>Dictamen de Composición — Gas LP</h2>
+  <div style="font-size:.76rem;color:#64748b;margin-bottom:.9rem;line-height:1.7">
+    Registra la composición real del Gas LP según el dictamen de laboratorio o unidad de inspección.<br>
+    Los valores <strong>ComposDePropanoEnGasLP</strong> y <strong>ComposDeButanoEnGasLP</strong> se escriben
+    directamente en el nodo <code>Producto</code> del Anexo 30 (§16.6 Guía SAT Mayo 2023).<br>
+    <span style="color:#b45309">Si no se capturan, se usan 1% / 1% — el SAT marca advertencia en el dictamen.</span>
   </div>
-  <div class="grid2">
-    <div class="field">
-      <label>RFC de la Unidad de Inspección <span style="color:#e63946">*</span></label>
-      <input id="adv_rfc_ui" type="text" placeholder="Ej. UIC010101AAA" maxlength="13"
-        style="text-transform:uppercase"
-        oninput="this.value=this.value.toUpperCase()" title="RFC de 12 (moral) o 13 (física) caracteres">
-    </div>
-    <div class="field">
-      <label>Número de Dictamen <span style="color:#e63946">*</span></label>
-      <input id="adv_num_dictamen" type="text" placeholder="Ej. DIC-2025-00123" maxlength="60">
-    </div>
-  </div>
-  <div class="grid2" style="margin-top:.6rem">
-    <div class="field">
-      <label>Fecha de Vigencia del Dictamen</label>
-      <input id="adv_fecha_dictamen" type="date">
-    </div>
-    <div class="field">
-      <label>Versión del Software Certificado</label>
-      <input id="adv_version_sw" type="text" placeholder="Ej. Z-Control v3.0" maxlength="40">
-    </div>
-  </div>
-  <div style="margin-top:.8rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-    <button class="btn-save" id="btnSaveDictamen" onclick="guardarDictamen()">
-      <i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar Dictamen
-    </button>
-    <div id="statusDictamen" style="font-size:.78rem;min-height:1em"></div>
-  </div>
-</div>
 
-<!-- ── Composición PR12 (Gas LP) ──────────────────────────────────────── -->
-<div class="card">
-  <h2><i class="fa-solid fa-flask" style="margin-right:.4rem;color:#0891b2"></i>Composición Real PR12 — Gas LP del Mes</h2>
-  <div style="font-size:.76rem;color:#64748b;margin-bottom:.9rem;line-height:1.6">
-    Captura la composición real del Gas LP analizada en laboratorio o según dictamen de calidad.<br>
-    Ingresa los valores en <strong>porcentaje (%)</strong> — el sistema los convierte a fracción molar al generar el Anexo 30.<br>
-    Si no se captura, se usarán los valores predeterminados (1% / 1%) que generan advertencia en el dictamen.
-  </div>
+  <!-- Composición -->
   <div class="grid2">
     <div class="field">
       <label>Propano en Gas LP (%) <span style="color:#e63946">*</span></label>
@@ -1929,13 +1896,38 @@ tr:hover td{background:#f8fafc}
     <i class="fa-solid fa-triangle-exclamation" style="margin-right:.3rem"></i>La suma de Propano + Butano debe ser exactamente <strong>100%</strong> para el reporte SAT.
   </div>
   <div id="composOk" style="display:none;font-size:.76rem;color:#15803d;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:.5rem .8rem;margin-top:.4rem">
-    <i class="fa-solid fa-circle-check" style="margin-right:.3rem"></i>Composición válida — se guardará como fracción molar en el JSON Anexo 30.
+    <i class="fa-solid fa-circle-check" style="margin-right:.3rem"></i>Composición válida — se escribirá como <code>60.00 / 40.00</code> en el JSON Anexo 30.
   </div>
+
+  <!-- Datos del dictamen que respalda la composición (opcionales) -->
+  <div style="margin-top:1.1rem;padding-top:.9rem;border-top:1px solid #e2e8f0">
+    <div style="font-size:.78rem;font-weight:600;color:#374151;margin-bottom:.6rem">
+      <i class="fa-solid fa-file-lines" style="margin-right:.3rem;color:#64748b"></i>
+      Datos del dictamen que respalda esta composición <span style="font-weight:400;color:#94a3b8">— opcionales, para referencia interna</span>
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>Número de Dictamen / Laboratorio</label>
+        <input id="adv_num_dictamen" type="text" placeholder="Ej. LAB-2025-00123" maxlength="60"
+          title="Número del dictamen o análisis de laboratorio que respalda la composición">
+      </div>
+      <div class="field">
+        <label>Fecha de Vigencia del Dictamen</label>
+        <input id="adv_fecha_dictamen" type="date"
+          title="Fecha hasta la que es válido este dictamen de composición">
+      </div>
+    </div>
+    <!-- Mantener IDs ocultos para compatibilidad con cargarConfigAvanzada -->
+    <input id="adv_rfc_ui"    type="hidden" value="">
+    <input id="adv_version_sw" type="hidden" value="">
+  </div>
+
   <div style="margin-top:.8rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
     <button class="btn-save" id="btnSaveCompos" onclick="guardarComposicionPR12()">
       <i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar Composición del Mes
     </button>
     <div id="statusCompos" style="font-size:.78rem;min-height:1em"></div>
+    <div id="statusDictamen" style="font-size:.78rem;min-height:1em;display:none"></div>
   </div>
 </div>
 
@@ -4749,22 +4741,18 @@ async function guardarPerfilTanques() {
   if (!capTotal || !capOp || !fecha) {
     setStatusMsg('statusTanques', 'Completa los campos requeridos (Capacidad Total, Operativa y Fecha).', false); return;
   }
-  if (capOp > capTotal) {
-    setStatusMsg('statusTanques', 'La capacidad operativa no puede superar la total.', false); return;
-  }
-  if (capUtil !== null && capUtil > capTotal) {
-    setStatusMsg('statusTanques', 'La capacidad útil no puede superar la total.', false); return;
-  }
+  if (capOp > capTotal) { setStatusMsg('statusTanques', 'La capacidad operativa no puede superar la total.', false); return; }
+  if (capUtil !== null && capUtil > capTotal) { setStatusMsg('statusTanques', 'La capacidad útil no puede superar la total.', false); return; }
   try {
-    const data = {}; // adv data sent directly to Supabase
-    data.tanques = { clave_tanque: claveTanque, cap_total: capTotal, cap_operativa: capOp, cap_util: capUtil, fecha_calibracion: fecha };
-    // (no localStorage - data isolated per user in Supabase)
+    setStatusMsg('statusTanques', 'Guardando...', true);
     const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ adv_tanques: data.tanques })
+      body: JSON.stringify({ adv_tanques: { clave_tanque: claveTanque, cap_total: capTotal, cap_operativa: capOp, cap_util: capUtil, fecha_calibracion: fecha } })
     });
-    setStatusMsg('statusTanques', res.ok ? '✓ Guardado correctamente' : '✓ Guardado localmente', true);
+    const data = await res.json();
+    if (data.success) setStatusMsg('statusTanques', `✓ Guardado [perfil #${data.perfil_id||'?'}]`, true);
+    else setStatusMsg('statusTanques', 'Error al guardar en Supabase.', false);
   } catch(e) { setStatusMsg('statusTanques', 'Error al guardar: ' + e.message, false); }
 }
 
@@ -4776,18 +4764,17 @@ async function guardarSistemasMedicion() {
   if (isNaN(incert) || incert < 0 || incert > 1) {
     setStatusMsg('statusMedicion', 'La incertidumbre debe ser un valor entre 0 y 1 (ej: 0.0020).', false); return;
   }
-  if (!modelo) {
-    setStatusMsg('statusMedicion', 'Ingresa el modelo del sensor.', false); return;
-  }
+  if (!modelo) { setStatusMsg('statusMedicion', 'Ingresa el modelo del sensor.', false); return; }
   try {
-    const data = {};
-    data.medicion = { incertidumbre: incert, modelo_sensor: modelo, serie_sensor: serie, fecha_calibracion_medidor: fechaCal };
-    await fetch('/api/settings', {
+    setStatusMsg('statusMedicion', 'Guardando...', true);
+    const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ adv_medicion: data.medicion })
+      body: JSON.stringify({ adv_medicion: { incertidumbre: incert, modelo_sensor: modelo, serie_sensor: serie, fecha_calibracion_medidor: fechaCal } })
     });
-    setStatusMsg('statusMedicion', '✓ Sistemas de medición guardados', true);
+    const data = await res.json();
+    if (data.success) setStatusMsg('statusMedicion', `✓ Guardado [perfil #${data.perfil_id||'?'}]`, true);
+    else setStatusMsg('statusMedicion', 'Error al guardar en Supabase.', false);
   } catch(e) { setStatusMsg('statusMedicion', 'Error: ' + e.message, false); }
 }
 
@@ -4812,52 +4799,27 @@ function validarCoordenadas() {
 async function guardarGeolocalizacion() {
   const lat = parseFloat(document.getElementById('adv_latitud').value);
   const lon = parseFloat(document.getElementById('adv_longitud').value);
-  if (isNaN(lat) || isNaN(lon)) {
-    setStatusMsg('statusGeo', 'Ingresa coordenadas válidas.', false); return;
-  }
-  if (Math.abs(lat) < 0.01 && Math.abs(lon) < 0.01) {
-    setStatusMsg('statusGeo', 'Las coordenadas 0,0 no son válidas. Ingresa la ubicación real.', false); return;
-  }
-  if (lat === 1.0 && lon === 1.0) {
-    setStatusMsg('statusGeo', 'Las coordenadas 1.0,1.0 son un marcador de relleno. Ingresa las coordenadas reales.', false); return;
-  }
+  if (isNaN(lat) || isNaN(lon)) { setStatusMsg('statusGeo', 'Ingresa coordenadas válidas.', false); return; }
+  if (Math.abs(lat) < 0.01 && Math.abs(lon) < 0.01) { setStatusMsg('statusGeo', 'Las coordenadas 0,0 no son válidas.', false); return; }
+  if (lat === 1.0 && lon === 1.0) { setStatusMsg('statusGeo', 'Las coordenadas 1.0,1.0 son un marcador de relleno.', false); return; }
   try {
-    const data = {}; // adv data sent directly to Supabase
-    data.geolocalizacion = { latitud: lat, longitud: lon };
-    // (no localStorage - data isolated per user in Supabase)
-    await fetch('/api/settings', {
+    setStatusMsg('statusGeo', 'Guardando...', true);
+    const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ adv_geolocalizacion: data.geolocalizacion })
+      body: JSON.stringify({ adv_geolocalizacion: { latitud: lat, longitud: lon } })
     });
-    setStatusMsg('statusGeo', `✓ Coordenadas guardadas (${lat.toFixed(6)}, ${lon.toFixed(6)})`, true);
-    validarCoordenadas();
+    const data = await res.json();
+    if (data.success) {
+      setStatusMsg('statusGeo', `✓ Guardado [perfil #${data.perfil_id||'?'}]: (${lat.toFixed(6)}, ${lon.toFixed(6)})`, true);
+      validarCoordenadas();
+    } else setStatusMsg('statusGeo', 'Error al guardar en Supabase.', false);
   } catch(e) { setStatusMsg('statusGeo', 'Error: ' + e.message, false); }
 }
 
+// guardarDictamen ahora es solo un alias — la composición y el dictamen se guardan juntos
 async function guardarDictamen() {
-  const rfcUi   = document.getElementById('adv_rfc_ui').value.trim().toUpperCase();
-  const numDict = document.getElementById('adv_num_dictamen').value.trim();
-  const fechaV  = document.getElementById('adv_fecha_dictamen').value;
-  const verSw   = document.getElementById('adv_version_sw').value.trim();
-  const rfcRegex = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
-  if (!rfcUi || !rfcRegex.test(rfcUi)) {
-    setStatusMsg('statusDictamen', 'RFC inválido. Debe tener formato: ABC010101AAA o ABCD010101AAA.', false); return;
-  }
-  if (!numDict) {
-    setStatusMsg('statusDictamen', 'Ingresa el número de dictamen.', false); return;
-  }
-  try {
-    const data = {}; // adv data sent directly to Supabase
-    data.dictamen = { rfc_ui: rfcUi, num_dictamen: numDict, fecha_vigencia: fechaV, version_sw: verSw };
-    // (no localStorage - data isolated per user in Supabase)
-    await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ adv_dictamen: data.dictamen })
-    });
-    setStatusMsg('statusDictamen', '✓ Dictamen guardado correctamente', true);
-  } catch(e) { setStatusMsg('statusDictamen', 'Error: ' + e.message, false); }
+  await guardarComposicionPR12();
 }
 
 function validarComposicion() {
@@ -4881,18 +4843,34 @@ async function guardarComposicionPR12() {
   if (Math.abs(suma - 100) > 0.05) {
     setStatusMsg('statusCompos', `La suma Propano + Butano debe ser 100% (actual: ${suma.toFixed(2)}%).`, false); return;
   }
-  // Convertir de porcentaje a fracción molar para almacenar (formato SAT)
+  // Convertir de porcentaje a fracción molar para almacenar (el transformer lo convierte de vuelta)
   const propFraccion = Math.round((prop / 100) * 100000) / 100000;
   const butFraccion  = Math.round((but  / 100) * 100000) / 100000;
+  // Datos del dictamen de composición (opcionales)
+  const numDict  = (document.getElementById('adv_num_dictamen')?.value  || '').trim();
+  const fechaDict= (document.getElementById('adv_fecha_dictamen')?.value || '');
   try {
-    const data = {};
-    data.composicion_pr12 = { propano: propFraccion, butano: butFraccion };
-    await fetch('/api/settings', {
+    setStatusMsg('statusCompos', 'Guardando...', true);
+    const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ adv_composicion_pr12: data.composicion_pr12 })
+      body: JSON.stringify({
+        adv_composicion_pr12: { propano: propFraccion, butano: butFraccion },
+        adv_dictamen: {
+          rfc_ui: '',           // no aplica para dictamen de composición
+          num_dictamen:  numDict,
+          fecha_vigencia: fechaDict,
+          version_sw: '',
+        }
+      })
     });
-    setStatusMsg('statusCompos', `✓ Guardado: C₃H₈ ${prop.toFixed(2)}% (${propFraccion}), C₄H₁₀ ${but.toFixed(2)}% (${butFraccion})`, true);
+    const data = await res.json();
+    if (data.success) {
+      setStatusMsg('statusCompos',
+        `✓ Guardado [perfil #${data.perfil_id || '?'}]: C₃H₈ ${prop.toFixed(2)}% / C₄H₁₀ ${but.toFixed(2)}%`, true);
+    } else {
+      setStatusMsg('statusCompos', 'Error al guardar en Supabase.', false);
+    }
   } catch(e) { setStatusMsg('statusCompos', 'Error: ' + e.message, false); }
 }
 
