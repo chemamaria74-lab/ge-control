@@ -1804,9 +1804,9 @@ tr:hover td{background:#f8fafc}
   <div class="grid3">
     <div class="field">
       <label>Incertidumbre de Medición <span style="color:#e63946">*</span></label>
-      <input id="adv_incertidumbre" type="number" min="0" max="1" step="0.0001" placeholder="Ej. 0.0020"
-        title="Valor decimal entre 0 y 1. Ej: 0.002 = 0.2%. Campo IncertidumbreMedicionSistMedicionTanque">
-      <div style="font-size:.62rem;color:#94a3b8;margin-top:.2rem">Decimal 0-1. Ejemplo: 0.0020 = 0.2%</div>
+      <input id="adv_incertidumbre" type="text" inputmode="decimal" placeholder="Ej. 0.0050 ó 0,0050"
+        title="Valor decimal entre 0 y 1. Acepta punto o coma decimal. Ej: 0.005 ó 0,005 = 0.5%">
+      <div style="font-size:.62rem;color:#94a3b8;margin-top:.2rem">Decimal 0-1. Acepta coma o punto decimal.</div>
     </div>
     <div class="field">
       <label>Modelo del Sensor / Medidor</label>
@@ -2076,6 +2076,16 @@ function authHeader() {
   const pid = perfilId();
   if (pid) h['X-Perfil-Id'] = String(pid);
   return h;
+}
+
+// parseNum: convierte string con coma o punto decimal a float.
+// México usa coma como separador decimal en algunos contextos (ej: 0,005 → 0.005).
+// Siempre usar parseNum() en lugar de parseFloat() para campos numéricos del usuario.
+function parseNum(val, fallback = 0) {
+  if (val === null || val === undefined || val === '') return fallback;
+  const cleaned = String(val).trim().replace(/,/g, '.');
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? fallback : n;
 }
 // ── appState: caché global de settings por perfil ─────────────────────────────
 // Evita re-fetches innecesarios y pérdida de datos al cambiar de tab.
@@ -2757,7 +2767,7 @@ async function saveSettings() {
   const rfcVal  = (document.getElementById('rfc')?.value || '').trim().toUpperCase();
   const repVal  = (document.getElementById('sat_rfc_rep')?.value || '').trim().toUpperCase();
   const provVal = (document.getElementById('sat_rfc_prov')?.value || '').trim().toUpperCase();
-  const factorVal = parseFloat(document.getElementById('factor_conversion')?.value || 0.542);
+  const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
   const payload = { FactorDeConversionKgALitros: factorVal };
   if (rfcVal)  payload.RfcContribuyente      = rfcVal;
   if (repVal)  payload.RfcRepresentanteLegal  = repVal;
@@ -4779,9 +4789,9 @@ function setStatusMsg(id, msg, ok) {
 
 async function guardarPerfilTanques() {
   const claveTanque = document.getElementById('adv_clave_tanque').value.trim().toUpperCase();
-  const capTotal = parseFloat(document.getElementById('adv_cap_total').value);
-  const capOp    = parseFloat(document.getElementById('adv_cap_operativa').value);
-  const capUtil  = document.getElementById('adv_cap_util').value ? parseFloat(document.getElementById('adv_cap_util').value) : null;
+  const capTotal = parseNum(document.getElementById('adv_cap_total').value);
+  const capOp    = parseNum(document.getElementById('adv_cap_operativa').value);
+  const capUtil  = document.getElementById('adv_cap_util').value ? parseNum(document.getElementById('adv_cap_util').value) : null;
   const fecha    = document.getElementById('adv_fecha_calibracion').value;
   if (!capTotal || !capOp || !fecha) {
     setStatusMsg('statusTanques', 'Completa los campos requeridos (Capacidad Total, Operativa y Fecha).', false); return;
@@ -4802,12 +4812,13 @@ async function guardarPerfilTanques() {
 }
 
 async function guardarSistemasMedicion() {
-  const incert = parseFloat(document.getElementById('adv_incertidumbre').value);
+  const incertRaw = document.getElementById('adv_incertidumbre').value;
+  const incert = parseNum(incertRaw, -1);
   const modelo = document.getElementById('adv_modelo_sensor').value.trim();
   const serie  = document.getElementById('adv_serie_sensor').value.trim();
   const fechaCal = document.getElementById('adv_fecha_calibracion_medidor')?.value || '';
-  if (isNaN(incert) || incert < 0 || incert > 1) {
-    setStatusMsg('statusMedicion', 'La incertidumbre debe ser un valor entre 0 y 1 (ej: 0.0020).', false); return;
+  if (incert < 0 || incert > 1) {
+    setStatusMsg('statusMedicion', 'La incertidumbre debe ser un valor entre 0 y 1 (ej: 0.0020 ó 0,0020).', false); return;
   }
   if (!modelo) { setStatusMsg('statusMedicion', 'Ingresa el modelo del sensor.', false); return; }
   try {
@@ -4842,8 +4853,8 @@ function validarCoordenadas() {
 }
 
 async function guardarGeolocalizacion() {
-  const lat = parseFloat(document.getElementById('adv_latitud').value);
-  const lon = parseFloat(document.getElementById('adv_longitud').value);
+  const lat = parseNum(document.getElementById('adv_latitud').value, NaN);
+  const lon = parseNum(document.getElementById('adv_longitud').value, NaN);
   if (isNaN(lat) || isNaN(lon)) { setStatusMsg('statusGeo', 'Ingresa coordenadas válidas.', false); return; }
   if (Math.abs(lat) < 0.01 && Math.abs(lon) < 0.01) { setStatusMsg('statusGeo', 'Las coordenadas 0,0 no son válidas.', false); return; }
   if (lat === 1.0 && lon === 1.0) { setStatusMsg('statusGeo', 'Las coordenadas 1.0,1.0 son un marcador de relleno.', false); return; }
@@ -4880,8 +4891,8 @@ function validarComposicion() {
 }
 
 async function guardarComposicionPR12() {
-  const prop = parseFloat(document.getElementById('adv_propano').value);
-  const but  = parseFloat(document.getElementById('adv_butano').value);
+  const prop = parseNum(document.getElementById('adv_propano').value, NaN);
+  const but  = parseNum(document.getElementById('adv_butano').value, NaN);
   if (isNaN(prop) || isNaN(but) || prop < 0 || but < 0 || prop > 100 || but > 100) {
     setStatusMsg('statusCompos', 'Los porcentajes deben estar entre 0 y 100.', false); return;
   }
