@@ -236,9 +236,11 @@ async def upload_cfdi(
                     .eq("user_id", user_id)
                     .eq("periodo", periodo_inferido)
                     .eq("tipo", "salida")
-                    .like("file_path", "manual:%"))
+                    .ilike("file_path", "manual:%"))
             if fid is not None:
                 sb_q = sb_q.eq("facility_id", fid)
+            if perfil_id is not None:
+                sb_q = sb_q.eq("perfil_id", perfil_id)
             autoconsumos_db = sb_q.execute().data or []
 
             if autoconsumos_db:
