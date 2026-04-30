@@ -25,54 +25,68 @@ PROVIDERS_DIR = os.path.join(os.path.dirname(__file__), "..", "config")
 
 def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
     """
-    Lista proveedores del usuario filtrados por perfil_id.
-    Con perfil_id: devuelve los del perfil exacto + huérfanos (perfil_id IS NULL).
-    Sin perfil_id: devuelve todos.
-    Retorna None solo si Supabase lanza excepción (señal de fallo de red).
+    Lista proveedores filtrados por perfil_id.
+    Si el perfil no tiene proveedores propios ni huérfanos, busca proveedores
+    de otros perfiles del mismo usuario y los re-asigna (migración incremental).
+    Retorna None solo si Supabase falla por red.
     """
     try:
         from supabase_config import get_supabase
         sb = get_supabase()
 
-        if perfil_id:
-            # Filas del perfil activo
-            r1 = sb.table("providers").select("*")\
-                   .eq("user_id", user_id).eq("perfil_id", perfil_id)\
-                   .order("rfc").execute().data or []
-            # Huérfanos sin perfil asignado aún
-            r2 = sb.table("providers").select("*")\
-                   .eq("user_id", user_id).is_("perfil_id", "null")\
-                   .order("rfc").execute().data or []
-
-            if r2:
-                # Asignar huérfanos al perfil activo inline (en background)
-                ids_huerfanos = [p["id"] for p in r2]
-                try:
-                    sb.table("providers").update({"perfil_id": perfil_id})\
-                      .in_("id", ids_huerfanos).execute()
-                    # Actualizar perfil_id en memoria para devolverlos correctamente
-                    for p in r2:
-                        p["perfil_id"] = perfil_id
-                    logger.info("Huérfanos asignados: %s proveedores → perfil=%s", len(r2), perfil_id)
-                except Exception as e2:
-                    logger.warning("No se pudo asignar huérfanos: %s", e2)
-
-            # Deduplicar por RFC (preferir el del perfil si ya existía duplicado)
-            rfcs_vistas: set = set()
-            resultado = []
-            for p in r1 + r2:
-                rfc_key = p.get("rfc", "").upper()
-                if rfc_key not in rfcs_vistas:
-                    rfcs_vistas.add(rfc_key)
-                    resultado.append(p)
-            return resultado
-        else:
+        if not perfil_id:
             return sb.table("providers").select("*")\
                      .eq("user_id", user_id).order("rfc").execute().data or []
 
+        # 1. Proveedores ya asignados a este perfil
+        r1 = sb.table("providers").select("*")\
+               .eq("user_id", user_id).eq("perfil_id", perfil_id)\
+               .order("rfc").execute().data or []
+
+        # 2. Huérfanos sin perfil asignado
+        r2 = sb.table("providers").select("*")\
+               .eq("user_id", user_id).is_("perfil_id", "null")\
+               .order("rfc").execute().data or []
+
+        ids_a_asignar = [p["id"] for p in r2]
+
+        # 3. Si no hay proveedores ni huérfanos para este perfil,
+        #    buscar en otros perfiles del mismo usuario y reasignar
+        if not r1 and not r2:
+            logger.info("Perfil %s sin proveedores — buscando en otros perfiles del usuario", perfil_id)
+            r_otros = sb.table("providers").select("*")\
+                        .eq("user_id", user_id).neq("perfil_id", perfil_id)\
+                        .order("rfc").execute().data or []
+            if r_otros:
+                ids_a_asignar = [p["id"] for p in r_otros]
+                logger.info("Reasignando %s proveedores de otros perfiles → perfil=%s", len(r_otros), perfil_id)
+                r2 = r_otros  # tratar como huérfanos para asignarlos abajo
+
+        # 4. Asignar inline todos los que encontramos sin perfil correcto
+        if ids_a_asignar:
+            try:
+                sb.table("providers").update({"perfil_id": perfil_id})\
+                  .in_("id", ids_a_asignar).execute()
+                for p in r2:
+                    p["perfil_id"] = perfil_id
+                logger.info("Asignados %s proveedores → perfil=%s", len(ids_a_asignar), perfil_id)
+            except Exception as e2:
+                logger.warning("No se pudo asignar proveedores: %s", e2)
+
+        # 5. Deduplicar por RFC (los del perfil exacto tienen prioridad)
+        rfcs_vistas: set = set()
+        resultado = []
+        for p in r1 + r2:
+            rfc_key = p.get("rfc", "").upper()
+            if rfc_key not in rfcs_vistas:
+                rfcs_vistas.add(rfc_key)
+                resultado.append(p)
+
+        return resultado
+
     except Exception as e:
         logger.warning("Supabase providers list: %s", e)
-        return None  # señal de error de red — usar fallback JSON
+        return None  # señal de error de red
 
 
 def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,

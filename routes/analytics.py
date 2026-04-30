@@ -22,26 +22,34 @@ def _auth(authorization: str) -> str:
     return uid
 
 
+def _parse_perfil_id(raw: str) -> Optional[int]:
+    try:
+        v = int((raw or "").strip())
+        return v if v > 0 else None
+    except (ValueError, TypeError):
+        return None
+
+
 @router.get("/analytics/ventas")
 async def get_ventas_analytics(
     year:          int           = Query(default=None),
     facility_id:   Optional[int] = Query(default=None),
     authorization: str           = Header(default=""),
+    x_perfil_id:   str           = Header(default=""),
 ):
-    uid = _auth(authorization)
+    uid       = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
     if year is None:
         year = datetime.now().year
 
-    # Obtener capacidad del tanque si hay instalación seleccionada
     capacidad = None
     if facility_id is not None:
         fac = get_facility(facility_id, uid)
         if fac and fac.get("capacidad_tanque") and fac["capacidad_tanque"] > 0:
             capacidad = round(float(fac["capacidad_tanque"]), 2)
 
-    # Obtener todos los reportes del año para este usuario/instalación
     try:
-        all_reports = get_reports(uid, facility_id=facility_id)
+        all_reports = get_reports(uid, facility_id=facility_id, perfil_id=perfil_id)
     except Exception as e:
         logger.exception("Error obteniendo reportes de analytics")
         raise HTTPException(500, str(e))
@@ -137,12 +145,10 @@ async def get_proveedores_analytics(
     year:          int           = Query(default=None),
     facility_id:   Optional[int] = Query(default=None),
     authorization: str           = Header(default=""),
+    x_perfil_id:   str           = Header(default=""),
 ):
-    """
-    Retorna volumen e importe agrupados por proveedor (RFC) para el año.
-    Usado para la gráfica de 'Participación de Proveedores'.
-    """
-    uid = _auth(authorization)
+    uid       = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
     if year is None:
         year = datetime.now().year
 
@@ -150,7 +156,6 @@ async def get_proveedores_analytics(
         from supabase_config import get_supabase
         sb = get_supabase()
         year_str = str(year)
-        # Traer todas las entradas del año
         q = (sb.table("records")
                .select("fecha,volumen_litros,importe,rfc_contraparte,nombre_contraparte")
                .eq("user_id", uid)
@@ -159,6 +164,8 @@ async def get_proveedores_analytics(
                .lte("fecha", f"{year_str}-12-31"))
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
         rows = q.execute().data or []
     except Exception as e:
         logger.warning("get_proveedores_analytics: %s", e)
@@ -204,15 +211,12 @@ async def get_proveedores_analytics(
 @router.get("/analytics/forecast")
 async def get_forecast(
     facility_id:   Optional[int] = Query(default=None),
-    periodos_hist: int           = Query(default=6),   # meses de historia
+    periodos_hist: int           = Query(default=6),
     authorization: str           = Header(default=""),
+    x_perfil_id:   str           = Header(default=""),
 ):
-    """
-    Pronóstico de compras de combustible basado en promedio móvil simple.
-    Retorna: demanda promedio mensual, fecha estimada de próxima compra,
-    proveedor con mejor precio y proveedor con mayor volumen.
-    """
-    uid  = _auth(authorization)
+    uid       = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
     from supabase_config import get_supabase
     sb   = get_supabase()
 
@@ -224,6 +228,8 @@ async def get_forecast(
                .limit(periodos_hist * 200))
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
         rows = q.execute().data or []
     except Exception as e:
         raise HTTPException(500, str(e))
