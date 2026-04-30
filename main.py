@@ -1931,24 +1931,6 @@ tr:hover td{background:#f8fafc}
   </div>
 </div>
 
-<!-- ── Zona de Peligro: Limpiar Datos ────────────────────────────────── -->
-<div class="card" style="border:2px solid #fca5a5">
-  <h2 style="color:#dc2626"><i class="fa-solid fa-skull-crossbones" style="margin-right:.4rem"></i>Zona de Peligro — Operaciones Irreversibles</h2>
-  <div style="font-size:.8rem;color:#7f1d1d;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:.9rem;margin-bottom:1.2rem;line-height:1.7">
-    <strong>Advertencia:</strong> Las acciones en esta sección son <strong>permanentes e irreversibles</strong>.
-    Solo deben ejecutarse antes de cargar datos reales de producción. Requieren confirmación con contraseña.
-  </div>
-  <button id="btnWipeAll" style="
-    padding:.6rem 1.4rem;font-size:.84rem;font-weight:700;border-radius:8px;
-    background:#1a0000;color:#ef4444;border:1.5px solid #dc2626;
-    cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:.5rem;opacity:.8;
-    transition:opacity .2s">
-    <i class="fa-solid fa-trash-can"></i> Limpiar Base de Datos de Prueba
-  </button>
-  <div style="font-size:.74rem;color:#9f1239;margin-top:.5rem">
-    Elimina todos los registros, historial de reportes e inventarios. No se puede deshacer.
-  </div>
-</div>
 
 </div><!-- /mpanel-config-avanzada -->
 
@@ -2057,13 +2039,13 @@ let _histFacilityId   = null;       // instalación activa en Historial (captura
 let currentUserRole   = localStorage.getItem('sat_role') || 'user';
 
 // ── Estado multi-empresa (perfilSeleccionado) ──────────────────────────────
-// Se persiste en sessionStorage para sobrevivir refresh sin pedir selección nuevamente.
-// Se limpia al cerrar sesión o al cerrar la pestaña (sessionStorage, no localStorage).
+// Se persiste en localStorage para sobrevivir cierre de pestaña y recargas.
+// Se limpia SOLO al hacer logout explícito.
 let _perfilSeleccionado = null;   // { id, nombre, rfc, descripcion }
 
 function _loadPerfilFromSession() {
   try {
-    const raw = sessionStorage.getItem('zc_perfil');
+    const raw = localStorage.getItem('zc_perfil');
     if (raw) _perfilSeleccionado = JSON.parse(raw);
   } catch(e) { _perfilSeleccionado = null; }
 }
@@ -2071,13 +2053,13 @@ function _loadPerfilFromSession() {
 function _savePerfilToSession(perfil) {
   _perfilSeleccionado = perfil;
   try {
-    sessionStorage.setItem('zc_perfil', JSON.stringify(perfil));
+    localStorage.setItem('zc_perfil', JSON.stringify(perfil));
   } catch(e) {}
 }
 
 function _clearPerfilSession() {
   _perfilSeleccionado = null;
-  sessionStorage.removeItem('zc_perfil');
+  localStorage.removeItem('zc_perfil');
 }
 
 function perfilId() {
@@ -2296,8 +2278,6 @@ function hideLoadingScreen() {
 }
 
 async function verifySession() {
-  // El body empieza con visibility:hidden vía CSS para evitar el flicker.
-  // Aquí lo revelamos SOLO cuando tengamos certeza del estado de sesión.
   if (!authToken) {
     hideLoadingScreen();
     document.body.style.visibility = 'visible';
@@ -2310,12 +2290,22 @@ async function verifySession() {
       const data = await res.json();
       hideLoginDirect(data.display_name);
       applyRole(data.role);
-      // Si ya teníamos perfil en session, restaurar sin pedir selección
+
       if (_perfilSeleccionado) {
-        actualizarSwitcherEmpresa(_perfilSeleccionado);
-        cargarDatosDashboard();
+        // Validar que el perfil guardado sigue existiendo en Supabase
+        const perfiles = await cargarPerfiles();
+        const perfilValido = perfiles.find(p => p.id === _perfilSeleccionado.id);
+        if (perfilValido) {
+          // Actualizar datos del perfil por si cambiaron (nombre, rfc)
+          _savePerfilToSession(perfilValido);
+          actualizarSwitcherEmpresa(perfilValido);
+          cargarDatosDashboard();
+        } else {
+          // Perfil ya no existe → pedir selección
+          _clearPerfilSession();
+          await iniciarFlujoEmpresa();
+        }
       } else {
-        // Sin perfil en session → pedir selección
         await iniciarFlujoEmpresa();
       }
     } else {
@@ -3216,6 +3206,8 @@ async function switchTab(name) {
   if (panel) panel.classList.add('active');
   if (name === 'ventas' && authToken) loadVentasAnalytics();
   if (name === 'admin'  && authToken && currentUserRole === 'admin') loadAdminPanel();
+  // Proveedores analytics: cargar automáticamente al abrir la pestaña
+  if (name === 'proveedores' && authToken) cargarProveedores();
   // Config avanzada: siempre recargar desde Supabase al abrir (limpia + puebla)
   if (name === 'config-avanzada') cargarConfigAvanzada();
   if (name === 'config' && authToken) cargarPanelPerfiles();
@@ -3914,7 +3906,7 @@ async function processCFDI(files) {
   try {
     const resp  = await fetch('/api/upload/cfdi', {
       method: 'POST', body: fd,
-      headers: authToken ? { Authorization: 'Bearer ' + authToken } : {},
+      headers: authHeader(),   // incluye Authorization + X-Perfil-Id automáticamente
     });
     const data = await resp.json();
     document.getElementById('loadCFDI').style.display = 'none';
@@ -4285,10 +4277,8 @@ function prefillHistSelector() {
 document.getElementById('btnLoadHist').addEventListener('click', loadHistorial);
 document.getElementById('btnDlHistZIP').addEventListener('click', downloadHistZIP);
 
-document.getElementById('btnWipeAll').addEventListener('click', () => {
-  // Mostrar modal de confirmación crítica con verificación de contraseña
-  openCriticalModal();
-});
+// btnWipeAll eliminado de la UI — listener desactivado
+// document.getElementById('btnWipeAll')?.addEventListener('click', ...)
 
 function openCriticalModal() {
   document.getElementById('criticalModal').style.display = 'flex';
