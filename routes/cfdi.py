@@ -222,23 +222,6 @@ async def _upload_cfdi_impl(
         f"(entradas={conteo_compras}, salidas={conteo_ventas})"
     )
 
-    # Extraer UUID de la primera ENTREGA/SALIDA del mes — SAT Anexo 30 naming
-    # (M_[UUID_PRIME_FACTURA]_... usa el UUID completo del primer CFDI de venta)
-    first_uuid = ""
-    for m in movimientos:
-        if m.get("tipo_movimiento") == "salida":
-            uid = (m.get("_uuid") or "").strip()
-            if uid:
-                first_uuid = uid
-                break
-    # Si no hay salidas, usar la primera entrada como respaldo
-    if not first_uuid:
-        for m in movimientos:
-            uid = (m.get("_uuid") or "").strip()
-            if uid:
-                first_uuid = uid
-                break
-
     # ── PASO 2: Construir reporte SAT Anexo 30 ───────────────────────────────
     todos_logs.append("=== PASO 2: Generación SAT Anexo 30 ===")
 
@@ -413,14 +396,22 @@ async def _upload_cfdi_impl(
             logs=todos_logs, conteo_compras=conteo_compras, conteo_ventas=conteo_ventas,
         )
 
-    # ── PASO 4: Limpiar datos previos del mismo periodo + instalación ────────
+    # ── PASO 4: Limpiar datos previos del mismo periodo ───────────────────────
+    # include_autoconsumos=True: al reprocesar un periodo completo, borrar también
+    # los autoconsumos manuales guardados previamente. El usuario está rehaciendo
+    # el reporte desde cero — los autoconsumos del batch actual se añadirán de nuevo.
+    # Esto evita el bug de duplicados cuando se carga el mismo mes dos veces.
     periodo = sat_meta["periodo"]
+    first_uuid = sat_meta.get("first_uuid", "")
     init_db()
-    deleted = delete_period(user_id, periodo, facility_id=fid, perfil_id=perfil_id)
+    deleted = delete_period(user_id, periodo,
+                            facility_id=fid,
+                            perfil_id=perfil_id,
+                            include_autoconsumos=True)
     if deleted.get("records", 0) or deleted.get("reports", 0):
         todos_logs.append(
-            f"Limpieza automática {periodo} [fid={fid} pid={perfil_id}]: eliminados {deleted['records']} "
-            f"registros y {deleted['reports']} reportes anteriores."
+            f"Limpieza automática {periodo} [fid={fid} pid={perfil_id}]: "
+            f"eliminados {deleted['records']} registros y {deleted['reports']} reportes anteriores."
         )
 
     # ── PASO 5: Guardar archivos y persistir en DB ───────────────────────────
