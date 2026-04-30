@@ -550,10 +550,7 @@ def build_sat_report(
     # 4. Un evento por cada CFDI de entrega
     # Regla: si el RFC del receptor es igual al RFC del contribuyente → autoconsumo
     # propio → TipoEvento=11 ("Consumo propio"). Cualquier otra entrega → TipoEvento=4.
-    # Nota: TipoEvento 11 en §17.4 de la Guía Mensual corresponde a "Consumo propio"
-    # (en la guía diaria es "Alarma corte energía", pero en reporte mensual el SAT
-    # valida tipo 11 como consumo interno y NO genera alerta de CFDI faltante).
-    _rfc_cv_upper = _rfc_cv  # ya está en upper desde línea 674
+    _rfc_cv_upper = (settings.get("RfcContribuyente", "") or "").strip().upper()
     for g in ventas.values():
         uuid_val = g.get("uuid", "")
         es_autoconsumo_uuid = uuid_val.startswith("AUTO-")
