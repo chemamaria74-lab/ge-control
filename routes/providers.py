@@ -23,53 +23,98 @@ PROVIDERS_DIR = os.path.join(os.path.dirname(__file__), "..", "config")
 
 # ── Supabase helpers ──────────────────────────────────────────────────────────
 
-def _sb_list(user_id: str, perfil_id: int = None) -> list:
+def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
     """
-    Lista proveedores del usuario. Cuando se provee perfil_id:
-    - Devuelve los que tienen ese perfil_id exacto, MÁS los que tienen perfil_id IS NULL
-      (huérfanos de la migración). Esto garantiza que los usuarios vean sus proveedores
-      existentes aunque la migración no les haya asignado perfil_id aún.
-    - Después de mostrarlos, el frontend puede llamar /api/providers/asignar-perfil para
-      reasignarlos al perfil activo.
+    Lista proveedores del usuario filtrados por perfil_id.
+    Con perfil_id: devuelve los del perfil exacto + huérfanos (perfil_id IS NULL).
+    Sin perfil_id: devuelve todos.
+    Retorna None solo si Supabase lanza excepción (señal de fallo de red).
     """
     try:
         from supabase_config import get_supabase
         sb = get_supabase()
+
         if perfil_id:
-            # Obtener con perfil exacto
-            r1 = sb.table("providers").select("*").eq("user_id", user_id)\
-                   .eq("perfil_id", perfil_id).order("rfc").execute().data or []
-            # Obtener huérfanos (perfil_id IS NULL) — legado pre-migración
-            r2 = sb.table("providers").select("*").eq("user_id", user_id)\
-                   .is_("perfil_id", "null").order("rfc").execute().data or []
-            # Unir deduplicando por RFC (preferir el que tiene perfil asignado)
-            rfcs_con_perfil = {p["rfc"] for p in r1}
-            huerfanos = [p for p in r2 if p["rfc"] not in rfcs_con_perfil]
-            return r1 + huerfanos
+            # Filas del perfil activo
+            r1 = sb.table("providers").select("*")\
+                   .eq("user_id", user_id).eq("perfil_id", perfil_id)\
+                   .order("rfc").execute().data or []
+            # Huérfanos sin perfil asignado aún
+            r2 = sb.table("providers").select("*")\
+                   .eq("user_id", user_id).is_("perfil_id", "null")\
+                   .order("rfc").execute().data or []
+
+            if r2:
+                # Asignar huérfanos al perfil activo inline (en background)
+                ids_huerfanos = [p["id"] for p in r2]
+                try:
+                    sb.table("providers").update({"perfil_id": perfil_id})\
+                      .in_("id", ids_huerfanos).execute()
+                    # Actualizar perfil_id en memoria para devolverlos correctamente
+                    for p in r2:
+                        p["perfil_id"] = perfil_id
+                    logger.info("Huérfanos asignados: %s proveedores → perfil=%s", len(r2), perfil_id)
+                except Exception as e2:
+                    logger.warning("No se pudo asignar huérfanos: %s", e2)
+
+            # Deduplicar por RFC (preferir el del perfil si ya existía duplicado)
+            rfcs_vistas: set = set()
+            resultado = []
+            for p in r1 + r2:
+                rfc_key = p.get("rfc", "").upper()
+                if rfc_key not in rfcs_vistas:
+                    rfcs_vistas.add(rfc_key)
+                    resultado.append(p)
+            return resultado
         else:
-            return sb.table("providers").select("*").eq("user_id", user_id)\
-                     .order("rfc").execute().data or []
+            return sb.table("providers").select("*")\
+                     .eq("user_id", user_id).order("rfc").execute().data or []
+
     except Exception as e:
         logger.warning("Supabase providers list: %s", e)
-        return None   # señal de fallo
+        return None  # señal de error de red — usar fallback JSON
 
 
 def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,
                permiso_almacenamiento_terminal: str,
                perfil_id: int = None) -> bool:
+    """
+    Guarda un proveedor en Supabase usando SELECT→UPDATE/INSERT explícito.
+    NO usa upsert con on_conflict de 3 columnas porque esa constraint puede no existir.
+    Busca la fila exacta por (user_id, rfc, perfil_id) y actualiza; si no existe, inserta.
+    """
     try:
         from supabase_config import get_supabase
-        record = {
-            "user_id": user_id,
-            "rfc":     rfc.upper().strip(),
+        sb  = get_supabase()
+        rfc_upper = rfc.upper().strip()
+
+        # Buscar fila existente con el mismo (user_id, rfc, perfil_id)
+        q = sb.table("providers").select("id").eq("user_id", user_id).eq("rfc", rfc_upper)
+        if perfil_id:
+            q = q.eq("perfil_id", perfil_id)
+        else:
+            q = q.is_("perfil_id", "null")
+        existing = q.limit(1).execute().data
+
+        update_data = {
             "nombre":  nombre,
             "permiso": permiso,
             "permiso_almacenamiento_terminal": permiso_almacenamiento_terminal,
         }
-        if perfil_id:
-            record["perfil_id"] = perfil_id
-        conflict_cols = "user_id,rfc,perfil_id" if perfil_id else "user_id,rfc"
-        get_supabase().table("providers").upsert(record, on_conflict=conflict_cols).execute()
+
+        if existing:
+            # UPDATE — fila ya existe para este (user_id, rfc, perfil_id)
+            row_id = existing[0]["id"]
+            sb.table("providers").update(update_data).eq("id", row_id).execute()
+            logger.info("Provider updated id=%s rfc=%s perfil=%s", row_id, rfc_upper, perfil_id)
+        else:
+            # INSERT — nueva fila para este perfil
+            insert_data = {"user_id": user_id, "rfc": rfc_upper, **update_data}
+            if perfil_id:
+                insert_data["perfil_id"] = perfil_id
+            sb.table("providers").insert(insert_data).execute()
+            logger.info("Provider inserted rfc=%s perfil=%s", rfc_upper, perfil_id)
+
         return True
     except Exception as e:
         logger.warning("Supabase providers upsert: %s", e)
