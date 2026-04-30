@@ -563,14 +563,17 @@ def build_sat_report(
         }); n += 1
 
     # 4. Un evento por cada CFDI de entrega
-    # Regla: si el RFC del receptor es igual al RFC del contribuyente → autoconsumo
-    # propio → TipoEvento=11 ("Consumo propio"). Cualquier otra entrega → TipoEvento=4.
+    # TipoEvento=11 (Consumo propio) requiere IdentificacionComponenteAlarma obligatorio (SAT §17.4)
     _rfc_cv_upper = (settings.get("RfcContribuyente", "") or "").strip().upper()
+    # ID del componente del sistema de medición — viene de Config Avanzada del perfil
+    _adv_t = settings.get("adv_tanques") or {}
+    _clave_tanque = (_adv_t.get("clave_tanque") or "").strip().upper() or "T-01"
+    _id_sme = f"SME-{_clave_tanque}"   # "SME-T-01" por defecto
+
     for g in ventas.values():
         uuid_val = g.get("uuid", "")
         es_autoconsumo_uuid = uuid_val.startswith("AUTO-")
         rfc_receptor = (g.get("rfc_cp", "") or "").upper().strip()
-        # Autoconsumo si: UUID prefijo AUTO- O RFC receptor == RFC del contribuyente
         es_consumo_propio = es_autoconsumo_uuid or (
             bool(rfc_receptor) and bool(_rfc_cv_upper) and rfc_receptor == _rfc_cv_upper
         )
@@ -588,13 +591,17 @@ def build_sat_report(
                 f"Volumen: {g['volumen_litros']:,.2f} L. "
                 f"Importe: ${g['importe']:,.2f}."
             )
-        bitacora.append({
+        evento = {
             "NumeroRegistro":     n,
             "FechaYHoraEvento":   _fmt_iso_hhmm00(g["fecha_hora"]),
             "UsuarioResponsable": g.get("usuario", "Sistema"),
             "TipoEvento":         tipo_ev,
             "DescripcionEvento":  desc_ev,
-        }); n += 1
+        }
+        # §17.4 Guía SAT: IdentificacionComponenteAlarma es OBLIGATORIO cuando TipoEvento=11
+        if tipo_ev == 11:
+            evento["IdentificacionComponenteAlarma"] = _id_sme
+        bitacora.append(evento); n += 1
 
     # 7. Alarma si el inventario supera la capacidad física
     if cap_applied:
