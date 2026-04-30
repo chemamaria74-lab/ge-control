@@ -61,7 +61,7 @@ TIPO_EVENTO_DESC = {
 
 def _fin_de_mes_iso(anio: int, mes: int) -> str:
     ultimo_dia = calendar.monthrange(anio, mes)[1]
-    return f"{anio:04d}-{mes:02d}-{ultimo_dia:02d}T23:59:59+00:00"
+    return f"{anio:04d}-{mes:02d}-{ultimo_dia:02d}T23:59:59-06:00"
 
 
 def _fin_de_mes_date(anio: int, mes: int) -> str:
@@ -86,21 +86,27 @@ def _smart_num(v) -> Any:
 
 
 def _fmt_iso_hhmm00(ts: str) -> str:
-    """Normaliza timestamp ISO a HH:MM:00 (segundos en cero, requerido SAT)."""
+    """
+    Normaliza timestamp ISO a YYYY-MM-DDTHH:MM:00-06:00 (CST México).
+    - Segundos en cero (requerido SAT Anexo 30)
+    - Timezone -06:00 siempre (CST, hora de México)
+    """
     if not ts:
         return ts
     try:
         if "T" in ts:
             date_part, rest = ts.split("T", 1)
+            # Extraer solo HH:MM ignorando el timezone original
             for sep in ("+", "-"):
                 if sep in rest:
-                    time_part, offset = rest.rsplit(sep, 1)
-                    offset = sep + offset
+                    time_part = rest.rsplit(sep, 1)[0]
                     break
             else:
-                time_part, offset = rest, "+00:00"
+                time_part = rest
             hm = ":".join(time_part.split(":")[:2]) + ":00"
-            return f"{date_part}T{hm}{offset}"
+            return f"{date_part}T{hm}-06:00"
+        else:
+            return f"{ts}T00:00:00-06:00"
     except Exception:
         pass
     return ts
@@ -201,7 +207,7 @@ def _group_by_uuid(movimientos: list, tipo: str, factor_kg_a_litros: float) -> d
         if uuid not in grupos:
             rfc_cp    = m.get("_rfc_emisor" if tipo == "entrada" else "_rfc_receptor",    "")
             nombre_cp = m.get("_nombre_emisor" if tipo == "entrada" else "_nombre_receptor", "")
-            fecha_hora = m.get("_fecha_hora") or ((m.get("fecha") or "") + "T00:00:00+00:00")
+            fecha_hora = m.get("_fecha_hora") or ((m.get("fecha") or "") + "T00:00:00-06:00")
             grupos[uuid] = {
                 "uuid":           uuid,
                 "fecha_hora":     fecha_hora,
@@ -412,7 +418,9 @@ def build_sat_report(
             anio, mes = now.year, now.month
 
     fin_mes_iso  = _fin_de_mes_iso(anio, mes)
-    inicio_mes   = f"{anio:04d}-{mes:02d}-01T00:00:00+00:00"
+    inicio_mes   = f"{anio:04d}-{mes:02d}-01T00:00:00-06:00"
+    # Timestamp de generación del reporte en CST (UTC-6)
+    now_cst      = now.strftime("%Y-%m-%dT%H:%M:%S-06:00")
 
     from routes.providers import get_permiso_for_rfc, get_permiso_almacenamiento_for_rfc
     # permiso_alm_y_dist es el permiso ROOT del contribuyente (va en instalación).
@@ -650,7 +658,7 @@ def build_sat_report(
     # 6. Generación del reporte
     bitacora.append({
         "NumeroRegistro":    n,
-        "FechaYHoraEvento":  now.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+        "FechaYHoraEvento":  now_cst,
         "TipoEvento":        6,
         "DescripcionEvento": (
             f"Reporte mensual generado por Z-Control v3.3. "
@@ -734,97 +742,21 @@ def build_sat_report(
     if geolocalizacion:
         sat_dict["Geolocalizacion"] = [geolocalizacion]
 
-    # § 16.13 — Nodo TANQUE en el reporte MENSUAL
-    # Estructura compacta: ClaveIdentificacion, Capacidades, Medidores, ControlDeExistencias
-    # DIFERENTE al TANQUE del reporte DIARIO (Archivo B) que incluye RECEPCIONES/ENTREGAS.
-    adv_t = settings.get("adv_tanques")  or {}
-    adv_m = settings.get("adv_medicion") or {}
-
-    def _to_float_safe(v, default=0.0):
-        try: return float(str(v or default).replace(',', '.'))
-        except: return default
-
-    cap_total     = _to_float_safe(adv_t.get("cap_total"),     0.0)
-    cap_operativa = _to_float_safe(adv_t.get("cap_operativa"), 0.0)
-    cap_util_raw  = adv_t.get("cap_util")
-    if cap_util_raw is not None and _to_float_safe(cap_util_raw) > 0:
-        cap_util = _to_float_safe(cap_util_raw)
-    elif cap_total > 0:
-        cap_util = round(cap_total - cap_total * 0.05, 2)
-    else:
-        cap_util = 0.0
-
-    fecha_cal_tanque = (adv_t.get("fecha_calibracion") or "").strip() or "2020-01-01"
-    incertidumbre    = _to_float_safe(adv_m.get("incertidumbre"), 0.005)
-    if not (0 < incertidumbre <= 1): incertidumbre = 0.005
-    modelo_sensor    = (adv_m.get("modelo_sensor") or "Sistema de medicion estatico").strip()
-    serie_sensor     = (adv_m.get("serie_sensor")  or "").strip()
-    fecha_cal_med    = (adv_m.get("fecha_calibracion_medidor") or "").strip() or fecha_cal_tanque
-
-    clave_inst   = (settings.get("ClaveInstalacion", "INST") or "INST").replace("/","").replace(" ","")
-    clave_tanque = (adv_t.get("clave_tanque") or "").strip().upper() or f"TQS-{clave_inst}-0001"
-    clave_sme    = f"SME-{clave_tanque}"
-    desc_sensor  = f"{modelo_sensor} S/N {serie_sensor}".strip() if serie_sensor else modelo_sensor
-    desc_inst    = settings.get("DescripcionInstalacion") or "Tanque de almacenamiento Gas LP"
-
-    def _fecha_a_iso(fecha_str: str, hora: str = "T00:00:00-06:00") -> str:
-        """
-        Convierte YYYY-MM-DD a ISO 8601 completo con hora y zona horaria CST (UTC-6).
-        El SAT requiere formato: 2023-11-02T00:00:00-06:00
-        Si ya tiene la 'T', se devuelve tal cual.
-        """
-        s = (fecha_str or "").strip()
-        if not s or len(s) < 10:
-            return f"2020-01-01{hora}"
-        if "T" in s:
-            return s  # ya tiene hora
-        return f"{s[:10]}{hora}"
-
-    fecha_cal_tanque_iso = _fecha_a_iso(fecha_cal_tanque)
-    fecha_cal_med_iso    = _fecha_a_iso(fecha_cal_med)
-
-    tanque_mensual = {
-        "ClaveIdentificacionTanque":        clave_tanque,
-        "LocalizacionY/ODescripcionTanque": desc_inst,
-        "VigenciaCalibracionTanque":        fecha_cal_tanque_iso,
-        "CapacidadTotalTanque": {
-            "ValorNumerico":  _smart_num(cap_total) if cap_total > 0 else 0,
-            "UnidadDeMedida": UM03,
-        },
-        "CapacidadOperativaTanque": {
-            "ValorNumerico":  _smart_num(cap_operativa) if cap_operativa > 0 else 0,
-            "UnidadDeMedida": UM03,
-        },
-        "CapacidadUtilTanque": {
-            "ValorNumerico":  _smart_num(cap_util) if cap_util > 0 else 0,
-            "UnidadDeMedida": UM03,
-        },
-        "EstadoTanque": "O",
-        "Medidores": [
-            {
-                "SistemaMedicionTanque":                   clave_sme,
-                "LocalizODescripSistMedicionTanque":       desc_sensor,
-                "VigenciaCalibracionSistMedicionTanque":   fecha_cal_med_iso,
-                "IncertidumbreMedicionSistMedicionTanque": round(incertidumbre, 6),
-            }
-        ],
-    }
-
-    # Producto: composición + TANQUE + ReporteDeVolumenMensual
-    # ControlDeExistencias incluye el sistema de medición que midió el volumen final
+    # ── Producto mensual ──────────────────────────────────────────────────────
+    # IMPORTANTE: El schema JSON mensual del SAT (Guía Mayo 2023) NO incluye:
+    # - Nodo TANQUE dentro de Producto (es exclusivo del reporte DIARIO Archivo B)
+    # - SistemaMedicionMes, IncertidumbreMedicionMes, VigenciaCalibracionMedicionMes
+    #   (son campos del Archivo B — schema mensual los rechaza con error de posición)
+    # ControlDeExistencias mensual: SOLO VolumenExistenciasMes + FechaYHoraEstaMedicionMes
     ctrl_existencias = {
-        "VolumenExistenciasMes":          _smart_num(vol_existencias),
-        "FechaYHoraEstaMedicionMes":      fin_mes_iso,
-        "SistemaMedicionMes":             clave_sme,
-        "IncertidumbreMedicionMes":       round(incertidumbre, 6),
-        "VigenciaCalibracionMedicionMes": fecha_cal_med_iso,
+        "VolumenExistenciasMes":      _smart_num(vol_existencias),
+        "FechaYHoraEstaMedicionMes":  fin_mes_iso,
     }
 
     producto_dict: dict = {
         "ClaveProducto":          CLAVE_PRODUCTO,
         "ComposDePropanoEnGasLP": compos_propano,
         "ComposDeButanoEnGasLP":  compos_butano,
-        "TANQUE": [tanque_mensual],
         "ReporteDeVolumenMensual": {
             "ControlDeExistencias": ctrl_existencias,
             "Recepciones": {
@@ -894,6 +826,21 @@ def build_sat_report(
         "_ventas":  ventas,
     }
 
+    # first_uuid canónico: primera ENTREGA real (no AUTO-) o primera RECEPCIÓN.
+    # save_report_files Y cfdi.py deben usar este mismo valor para que
+    # el nombre del archivo coincida exactamente con el Identificador en el JSON.
+    _first_uuid_meta = ""
+    for g in ventas.values():
+        u = g.get("uuid", "")
+        if u and not u.startswith("AUTO-") and not u.startswith("SIN-"):
+            _first_uuid_meta = u; break
+    if not _first_uuid_meta:
+        for g in compras.values():
+            u = g.get("uuid", "")
+            if u and not u.startswith("SIN-"):
+                _first_uuid_meta = u; break
+    meta["first_uuid"] = _first_uuid_meta.upper()
+
     return sat_dict, meta
 
 
@@ -960,19 +907,23 @@ def save_report_files(
     """
     settings   = settings or {}
     periodo    = sat_meta.get("periodo", "2026-01")
-    compras    = sat_meta.get("_compras", {})
-    ventas     = sat_meta.get("_ventas",  {})
 
-    first_uuid = ""
-    for g in ventas.values():
-        u = g.get("uuid", "")
-        if u and not u.startswith("SIN-"):
-            first_uuid = u; break
+    # Usar el first_uuid canónico que ya calculó build_sat_report.
+    # Esto garantiza que el nombre del archivo == Identificador del JSON.
+    first_uuid = sat_meta.get("first_uuid", "")
     if not first_uuid:
-        for g in compras.values():
+        # Fallback por compatibilidad con versiones anteriores
+        compras = sat_meta.get("_compras", {})
+        ventas  = sat_meta.get("_ventas",  {})
+        for g in ventas.values():
             u = g.get("uuid", "")
             if u and not u.startswith("SIN-"):
                 first_uuid = u; break
+        if not first_uuid:
+            for g in compras.values():
+                u = g.get("uuid", "")
+                if u and not u.startswith("SIN-"):
+                    first_uuid = u; break
 
     base_xml  = generate_filename(settings, periodo, "XML",  first_uuid)
     base_json = generate_filename(settings, periodo, "JSON", first_uuid)
