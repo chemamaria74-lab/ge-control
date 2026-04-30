@@ -83,6 +83,8 @@ async def get_ventas_analytics(
                 .lte("fecha", f"{year_str}-12-31"))
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
         ac_rows = q.execute().data or []
         for row in ac_rows:
             mes_ac = int((row.get("fecha") or "0000-01")[5:7])
