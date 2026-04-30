@@ -251,13 +251,18 @@ def _build_tanque_node(settings: dict, vol_existencias: float,
     adv_t = settings.get("adv_tanques")  or {}
     adv_m = settings.get("adv_medicion") or {}
 
-    cap_total     = float(adv_t.get("cap_total",     0.0) or 0.0)
-    cap_operativa = float(adv_t.get("cap_operativa", 0.0) or 0.0)
-    # CapacidadUtilTanque = Total - VolumenMínimo de Operación
-    # Si el usuario capturó cap_util directamente, usarlo; si no, estimar 95% del total
+    def _to_float(v, default=0.0):
+        """Convierte a float aceptando coma o punto decimal."""
+        try:
+            return float(str(v).replace(',', '.'))
+        except (TypeError, ValueError):
+            return default
+
+    cap_total     = _to_float(adv_t.get("cap_total",     0.0))
+    cap_operativa = _to_float(adv_t.get("cap_operativa", 0.0))
     cap_util_raw  = adv_t.get("cap_util")
-    if cap_util_raw is not None and float(cap_util_raw or 0) > 0:
-        cap_util = float(cap_util_raw)
+    if cap_util_raw is not None and _to_float(cap_util_raw) > 0:
+        cap_util = _to_float(cap_util_raw)
     elif cap_total > 0:
         vol_min_op = round(cap_total * 0.05, 2)
         cap_util   = round(cap_total - vol_min_op, 2)
@@ -265,7 +270,9 @@ def _build_tanque_node(settings: dict, vol_existencias: float,
         cap_util = 0.0
 
     fecha_cal     = adv_t.get("fecha_calibracion", "") or "2020-01-01"
-    incertidumbre = float(adv_m.get("incertidumbre", 0.005) or 0.005)
+    incertidumbre = _to_float(adv_m.get("incertidumbre", 0.005), 0.005)
+    if incertidumbre <= 0 or incertidumbre > 1:
+        incertidumbre = 0.005  # default SAT-válido si el valor guardado es inválido
     modelo_sensor = adv_m.get("modelo_sensor", "Sistema de medicion estatico") or "Sistema de medicion estatico"
     serie_sensor  = adv_m.get("serie_sensor",  "") or ""
     # Vigencia calibración del medidor: campo propio si está capturado, sino hereda del tanque
@@ -671,8 +678,9 @@ def build_sat_report(
     adv_geo = settings.get("adv_geolocalizacion") or {}
     geolocalizacion = None
     try:
-        lat_f = float(adv_geo.get("latitud",  0))
-        lon_f = float(adv_geo.get("longitud", 0))
+        def _geo_float(v): return float(str(v or 0).replace(',', '.'))
+        lat_f = _geo_float(adv_geo.get("latitud",  0))
+        lon_f = _geo_float(adv_geo.get("longitud", 0))
         if not (abs(lat_f) < 0.01 and abs(lon_f) < 0.01) and not (lat_f == 1.0 and lon_f == 1.0):
             geolocalizacion = {
                 "GeolocalizacionLatitud":  lat_f,
