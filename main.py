@@ -2531,28 +2531,89 @@ function actualizarSwitcherEmpresa(perfil) {
   if (nameEl)   nameEl.textContent = perfil.nombre || '—';
 }
 
-function cargarDatosDashboard() {
-  // Limpiar estado de UI antes de recargar (evita ver datos de empresa anterior)
-  const tbody = document.getElementById('tbodyProveedores');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="hist-empty">Cargando...</td></tr>';
-  const tbodyFac = document.getElementById('tbodyFacilities');
-  if (tbodyFac) tbodyFac.innerHTML = '<tr><td colspan="6" class="hist-empty">Cargando...</td></tr>';
-  // Limpiar selector de historial
-  const histSel = document.getElementById('histSelector') || document.getElementById('periodoSelect');
-  if (histSel) { histSel.innerHTML = '<option value="">Cargando periodos...</option>'; }
+// ── resetAppState: limpia TODA la UI y recarga desde el perfil activo ─────────
+// Se dispara en seleccionarEmpresa() cada vez que cambia _perfilSeleccionado.
+// Garantiza aislamiento total entre perfiles.
+function resetAppState() {
+  // ── 1. Limpiar campos de Configuración básica ──────────────────────────────
+  ['rfc','sat_rfc_rep','sat_rfc_prov','factor_conversion'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = id === 'factor_conversion' ? '0.542' : '';
+  });
+  const stEl = document.getElementById('settingsStatus');
+  if (stEl) { stEl.textContent = ''; stEl.className = 'settings-status'; }
+  actualizarRfcHint();
 
-  // Recargar todo con el nuevo perfil activo (authHeader ya inyecta X-Perfil-Id)
-  loadSettings();
-  loadProviders();
-  loadFacilities();
-  // Recargar config avanzada si el tab está visible
+  // ── 2. Limpiar todos los campos de Config. Avanzada ───────────────────────
+  const advFields = [
+    'adv_clave_tanque','adv_cap_total','adv_cap_operativa','adv_cap_util',
+    'adv_fecha_calibracion','adv_incertidumbre','adv_modelo_sensor','adv_serie_sensor',
+    'adv_fecha_calibracion_medidor','adv_latitud','adv_longitud',
+    'adv_rfc_ui','adv_num_dictamen','adv_fecha_dictamen','adv_version_sw',
+    'adv_propano','adv_butano',
+  ];
+  advFields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  ['composWarning','composOk','geoWarning'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  ['statusTanque','statusMedicion','statusGeo','statusDictamen','statusCompos'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '';
+  });
+
+  // ── 3. Limpiar tablas de Proveedores e Instalaciones ──────────────────────
+  const tbodyProv = document.getElementById('tbodyProveedores');
+  if (tbodyProv) tbodyProv.innerHTML =
+    '<tr><td colspan="5" class="hist-empty">Cambiando empresa...</td></tr>';
+  const tbodyFac = document.getElementById('tbodyFacilities');
+  if (tbodyFac) tbodyFac.innerHTML =
+    '<tr><td colspan="6" class="hist-empty">Cambiando empresa...</td></tr>';
+
+  // ── 4. Limpiar Historial ──────────────────────────────────────────────────
+  histPeriodo     = null;
+  histZipFilename = null;
+  const histContent = document.getElementById('histContent');
+  if (histContent) histContent.style.display = 'none';
+  const histLoading = document.getElementById('histLoading');
+  if (histLoading) histLoading.style.display = 'none';
+  ['btnDlHistZIP','btnDelHist'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  // Limpiar resumen de historial
+  ['htInvIni','htRec','htRecCount','htEnt','htEntCount','htExist'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '—';
+  });
+
+  // ── 5. Limpiar Dashboard ──────────────────────────────────────────────────
+  _facilities       = [];
+  _activeFacilityId = null;
+  _histFacilityId   = null;
+
+  // ── 6. Re-fetch de datos con el nuevo perfil (authHeader ya lleva X-Perfil-Id) ──
+  // Usar Promise.all para paralelizar y reducir latencia
+  Promise.all([
+    loadSettings(),
+    loadProviders(),
+    loadFacilities(),
+  ]).catch(e => console.warn('resetAppState fetch error:', e));
+
+  // Config avanzada se carga solo si el tab está visible (lazy)
   if (document.getElementById('mpanel-config-avanzada')?.style.display !== 'none') {
     cargarConfigAvanzada();
   }
-  // Recargar periodos de historial
-  try { prefillHistSelector(); } catch(e) {}
-  // Recargar panel de perfiles si está visible
+
+  // Panel de perfiles
   try { cargarPanelPerfiles(); } catch(e) {}
+}
+
+function cargarDatosDashboard() {
+  resetAppState();
 }
 
 // ── Modal nuevo perfil ────────────────────────────────────────────────────────
@@ -2648,9 +2709,14 @@ async function eliminarPerfil(perfilId) {
 async function loadSettings() {
   try {
     const res  = await fetch('/api/settings', { headers: authHeader() });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    // Siempre sobreescribir desde Supabase — prioridad: DB > lo que el usuario escribió
-    // Esto garantiza que el próximo JSON refleje exactamente lo guardado en DB.
+    // Limpiar primero — no dejar rastros del perfil anterior
+    ['rfc','sat_rfc_rep','sat_rfc_prov'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    // Poblar con los valores del perfil activo
     const rfcEl = document.getElementById('rfc');
     if (rfcEl) rfcEl.value = data.RfcContribuyente || '';
     const repEl = document.getElementById('sat_rfc_rep');
@@ -2658,7 +2724,7 @@ async function loadSettings() {
     const provEl = document.getElementById('sat_rfc_prov');
     if (provEl) provEl.value = data.RfcProveedor || '';
     const factorEl = document.getElementById('factor_conversion');
-    if (factorEl) factorEl.value = data.FactorDeConversionKgALitros || 0.542;
+    if (factorEl) factorEl.value = data.FactorDeConversionKgALitros ?? 0.542;
     actualizarRfcHint();
   } catch(e) { console.warn('No se pudo cargar configuración SAT:', e); }
 }
@@ -2670,14 +2736,10 @@ async function saveSettings() {
   const repVal  = (document.getElementById('sat_rfc_rep')?.value || '').trim().toUpperCase();
   const provVal = (document.getElementById('sat_rfc_prov')?.value || '').trim().toUpperCase();
   const factorVal = parseFloat(document.getElementById('factor_conversion')?.value || 0.542);
-  // Construir payload solo con campos que tienen valor real.
-  // RfcRepresentanteLegal es CONDICIONAL (§3 Guía Mensual): omitir si vacío.
-  // Nunca enviar cadenas vacías "" al SAT ni a Supabase.
   const payload = { FactorDeConversionKgALitros: factorVal };
   if (rfcVal)  payload.RfcContribuyente      = rfcVal;
   if (repVal)  payload.RfcRepresentanteLegal  = repVal;
   if (provVal) payload.RfcProveedor           = provVal;
-  // Si repVal está vacío, guardar explícitamente vacío para borrarlo de DB
   if (!repVal) payload.RfcRepresentanteLegal  = '';
   try {
     const res  = await fetch('/api/settings', {
@@ -2689,9 +2751,9 @@ async function saveSettings() {
     if (data.success) {
       if (status) {
         const savedRfc = data.settings?.RfcContribuyente || rfcVal;
-        status.textContent = `✓ Perfil guardado — RFC: ${savedRfc}`;
+        const pid = data.perfil_id ? ` [perfil #${data.perfil_id}]` : '';
+        status.textContent = `✓ Guardado${pid} — RFC: ${savedRfc}`;
         status.className   = 'settings-status settings-ok';
-        // Recargar desde DB para confirmar que los cambios se persistieron
         loadSettings();
         setTimeout(() => { status.textContent = ''; status.className = 'settings-status'; }, 4000);
       }
@@ -3154,6 +3216,7 @@ async function switchTab(name) {
   if (panel) panel.classList.add('active');
   if (name === 'ventas' && authToken) loadVentasAnalytics();
   if (name === 'admin'  && authToken && currentUserRole === 'admin') loadAdminPanel();
+  // Config avanzada: siempre recargar desde Supabase al abrir (limpia + puebla)
   if (name === 'config-avanzada') cargarConfigAvanzada();
   if (name === 'config' && authToken) cargarPanelPerfiles();
   // Al volver a Procesar, precargar composición PR12 guardada desde Supabase (no localStorage)
@@ -4826,44 +4889,66 @@ async function guardarComposicionPR12() {
 }
 
 // Cargar valores guardados al abrir Config Avanzada — SIEMPRE desde Supabase
-// (no localStorage) para garantizar aislamiento multi-tenant entre usuarios.
+// REGLA: limpiar primero, poblar después. Nunca dejar datos del perfil anterior.
 async function cargarConfigAvanzada() {
+  // Limpiar TODOS los campos antes de cargar (evita Dictamen u otros datos del perfil anterior)
+  const advFields = [
+    'adv_clave_tanque','adv_cap_total','adv_cap_operativa','adv_cap_util',
+    'adv_fecha_calibracion','adv_incertidumbre','adv_modelo_sensor','adv_serie_sensor',
+    'adv_fecha_calibracion_medidor','adv_latitud','adv_longitud',
+    'adv_rfc_ui','adv_num_dictamen','adv_fecha_dictamen','adv_version_sw',
+    'adv_propano','adv_butano',
+  ];
+  advFields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  ['composWarning','composOk','geoWarning'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+
   try {
     const res = await fetch('/api/settings', { headers: authHeader() });
-    if (!res.ok) throw new Error('settings fetch failed');
+    if (!res.ok) throw new Error('settings fetch ' + res.status);
     const data = await res.json();
 
+    // Tanque
     const t = data.adv_tanques || {};
-    if (t.clave_tanque)       document.getElementById('adv_clave_tanque').value      = t.clave_tanque;
-    if (t.cap_total)          document.getElementById('adv_cap_total').value          = t.cap_total;
-    if (t.cap_operativa)      document.getElementById('adv_cap_operativa').value      = t.cap_operativa;
-    if (t.cap_util != null)   document.getElementById('adv_cap_util').value           = t.cap_util;
-    if (t.fecha_calibracion)  document.getElementById('adv_fecha_calibracion').value  = t.fecha_calibracion;
+    document.getElementById('adv_clave_tanque').value     = t.clave_tanque    || '';
+    document.getElementById('adv_cap_total').value        = t.cap_total       ?? '';
+    document.getElementById('adv_cap_operativa').value    = t.cap_operativa   ?? '';
+    document.getElementById('adv_cap_util').value         = t.cap_util        ?? '';
+    document.getElementById('adv_fecha_calibracion').value= t.fecha_calibracion || '';
 
+    // Medición
     const m = data.adv_medicion || {};
-    if (m.incertidumbre) document.getElementById('adv_incertidumbre').value = m.incertidumbre;
-    if (m.modelo_sensor) document.getElementById('adv_modelo_sensor').value = m.modelo_sensor;
-    if (m.serie_sensor)  document.getElementById('adv_serie_sensor').value  = m.serie_sensor;
-    // Vigencia de calibración del medidor (campo independiente del tanque)
-    const elFechaMed = document.getElementById('adv_fecha_calibracion_medidor');
-    if (elFechaMed && m.fecha_calibracion_medidor) elFechaMed.value = m.fecha_calibracion_medidor;
+    document.getElementById('adv_incertidumbre').value = m.incertidumbre ?? '';
+    document.getElementById('adv_modelo_sensor').value = m.modelo_sensor  || '';
+    document.getElementById('adv_serie_sensor').value  = m.serie_sensor   || '';
+    const elFM = document.getElementById('adv_fecha_calibracion_medidor');
+    if (elFM) elFM.value = m.fecha_calibracion_medidor || '';
 
+    // Geolocalización
     const g = data.adv_geolocalizacion || {};
-    if (g.latitud)  document.getElementById('adv_latitud').value  = g.latitud;
-    if (g.longitud) document.getElementById('adv_longitud').value = g.longitud;
+    document.getElementById('adv_latitud').value  = g.latitud  ?? '';
+    document.getElementById('adv_longitud').value = g.longitud ?? '';
     if (g.latitud || g.longitud) validarCoordenadas();
 
+    // Dictamen — siempre asignar (incluso vacío limpia el campo)
     const d = data.adv_dictamen || {};
-    if (d.rfc_ui)         document.getElementById('adv_rfc_ui').value         = d.rfc_ui;
-    if (d.num_dictamen)   document.getElementById('adv_num_dictamen').value   = d.num_dictamen;
-    if (d.fecha_vigencia) document.getElementById('adv_fecha_dictamen').value = d.fecha_vigencia;
-    if (d.version_sw)     document.getElementById('adv_version_sw').value     = d.version_sw;
+    document.getElementById('adv_rfc_ui').value       = d.rfc_ui        || '';
+    document.getElementById('adv_num_dictamen').value = d.num_dictamen   || '';
+    document.getElementById('adv_fecha_dictamen').value = d.fecha_vigencia || '';
+    document.getElementById('adv_version_sw').value   = d.version_sw    || '';
 
-    // Composición PR12: almacenada como fracción molar (0-1), mostrar en porcentaje (0-100)
+    // Composición PR12 (fracción molar → porcentaje)
     const c = data.adv_composicion_pr12 || {};
-    if (c.propano != null) document.getElementById('adv_propano').value = (parseFloat(c.propano) * 100).toFixed(2);
-    if (c.butano  != null) document.getElementById('adv_butano').value  = (parseFloat(c.butano)  * 100).toFixed(2);
-    if (c.propano || c.butano) validarComposicion();
+    document.getElementById('adv_propano').value = c.propano != null
+      ? (parseFloat(c.propano) * 100).toFixed(2) : '';
+    document.getElementById('adv_butano').value  = c.butano  != null
+      ? (parseFloat(c.butano)  * 100).toFixed(2) : '';
+    if (c.propano != null || c.butano != null) validarComposicion();
 
   } catch(e) { console.warn('Error cargando config avanzada:', e); }
 }
