@@ -2532,9 +2532,11 @@ function actualizarSwitcherEmpresa(perfil) {
 }
 
 // ── resetAppState: limpia TODA la UI y recarga desde el perfil activo ─────────
-// Se dispara en seleccionarEmpresa() cada vez que cambia _perfilSeleccionado.
-// Garantiza aislamiento total entre perfiles.
+let _resettingState = false;   // flag: bloquea auto-save durante limpieza
+
 function resetAppState() {
+  _resettingState = true;  // bloquear saveSettings mientras limpiamos
+
   // ── 1. Limpiar campos de Configuración básica ──────────────────────────────
   ['rfc','sat_rfc_rep','sat_rfc_prov','factor_conversion'].forEach(id => {
     const el = document.getElementById(id);
@@ -2584,7 +2586,6 @@ function resetAppState() {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
-  // Limpiar resumen de historial
   ['htInvIni','htRec','htRecCount','htEnt','htEntCount','htExist'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = '—';
@@ -2595,20 +2596,19 @@ function resetAppState() {
   _activeFacilityId = null;
   _histFacilityId   = null;
 
-  // ── 6. Re-fetch de datos con el nuevo perfil (authHeader ya lleva X-Perfil-Id) ──
-  // Usar Promise.all para paralelizar y reducir latencia
+  // ── 6. Re-fetch paralelo con el nuevo perfil ──────────────────────────────
   Promise.all([
     loadSettings(),
     loadProviders(),
     loadFacilities(),
-  ]).catch(e => console.warn('resetAppState fetch error:', e));
+  ]).finally(() => {
+    _resettingState = false;  // desbloquear auto-save
+  });
 
-  // Config avanzada se carga solo si el tab está visible (lazy)
+  // Config avanzada lazy
   if (document.getElementById('mpanel-config-avanzada')?.style.display !== 'none') {
     cargarConfigAvanzada();
   }
-
-  // Panel de perfiles
   try { cargarPanelPerfiles(); } catch(e) {}
 }
 
@@ -2726,10 +2726,14 @@ async function loadSettings() {
     const factorEl = document.getElementById('factor_conversion');
     if (factorEl) factorEl.value = data.FactorDeConversionKgALitros ?? 0.542;
     actualizarRfcHint();
+    // Sincronizar RFC en autoconsumo si está activo
+    _actualizarRfcAutoconsumo();
   } catch(e) { console.warn('No se pudo cargar configuración SAT:', e); }
 }
 
 async function saveSettings() {
+  // Bloquear si estamos en medio de un cambio de empresa
+  if (_resettingState) return;
   const status = document.getElementById('settingsStatus');
   if (status) status.textContent = '';
   const rfcVal  = (document.getElementById('rfc')?.value || '').trim().toUpperCase();
@@ -4986,25 +4990,43 @@ function toggleAutoconsumoSwitch() {
   const rfcEl = document.getElementById('ac_rfc_cliente');
 
   if (_autoconsumoActivo) {
-    sw.style.background  = '#16a34a';
-    thumb.style.left     = '23px';
-    btn.disabled         = false;
-    // Auto-completar RFC con el de la empresa
-    const rfcEmpresa = document.getElementById('rfc')?.value?.trim()?.toUpperCase() || '';
-    rfcEl.value = rfcEmpresa || '(configura tu RFC en Configuración)';
+    sw.style.background = '#16a34a';
+    thumb.style.left    = '23px';
+    btn.disabled        = false;
+    // RFC: 1) campo Config, 2) perfil en memoria, 3) aviso
+    const rfcCampo   = document.getElementById('rfc')?.value?.trim()?.toUpperCase() || '';
+    const rfcPerfil  = (_perfilSeleccionado?.rfc || '').trim().toUpperCase();
+    const rfcEmpresa = rfcCampo || rfcPerfil;
+    rfcEl.value          = rfcEmpresa || '(configura tu RFC en Configuración)';
+    rfcEl.style.color    = rfcEmpresa ? '#0f172a' : '#dc2626';
     status.textContent   = rfcEmpresa ? `RFC: ${rfcEmpresa}` : 'Configura tu RFC en Configuración';
     status.style.color   = rfcEmpresa ? '#16a34a' : '#dc2626';
-    // Prefill fecha con hoy
     if (!document.getElementById('ac_fecha').value) {
-      document.getElementById('ac_fecha').value = new Date().toISOString().slice(0,10);
+      document.getElementById('ac_fecha').value = new Date().toISOString().slice(0, 10);
     }
   } else {
-    sw.style.background  = '#cbd5e1';
-    thumb.style.left     = '3px';
-    btn.disabled         = true;
-    rfcEl.value          = '';
-    status.textContent   = 'RFC cliente: se llenará automáticamente';
-    status.style.color   = '#64748b';
+    sw.style.background = '#cbd5e1';
+    thumb.style.left    = '3px';
+    btn.disabled        = true;
+    rfcEl.value         = '';
+    rfcEl.style.color   = '';
+    status.textContent  = 'RFC cliente: se llenará automáticamente';
+    status.style.color  = '#64748b';
+  }
+}
+
+// Actualizar RFC del autoconsumo cuando loadSettings termina y ya tiene el RFC
+function _actualizarRfcAutoconsumo() {
+  if (!_autoconsumoActivo) return;
+  const rfcCampo = document.getElementById('rfc')?.value?.trim()?.toUpperCase() || '';
+  const rfcPerfil = (_perfilSeleccionado?.rfc || '').trim().toUpperCase();
+  const rfc = rfcCampo || rfcPerfil;
+  const rfcEl = document.getElementById('ac_rfc_cliente');
+  const status = document.getElementById('autoconsumoStatus');
+  if (rfcEl && rfc) {
+    rfcEl.value        = rfc;
+    rfcEl.style.color  = '#0f172a';
+    if (status) { status.textContent = `RFC: ${rfc}`; status.style.color = '#16a34a'; }
   }
 }
 
@@ -5028,17 +5050,18 @@ async function registrarAutoconsumo() {
   document.getElementById('btnAutoconsumo').disabled = true;
 
   try {
+    // RFC: 1) campo Config, 2) campo ac_rfc_cliente (ya pre-rellenado), 3) perfil en memoria
     const rfcCampo  = document.getElementById('rfc')?.value?.trim()?.toUpperCase() || '';
     const rfcAcEl   = document.getElementById('ac_rfc_cliente')?.value?.trim()?.toUpperCase() || '';
     const rfcPerfil = (_perfilSeleccionado?.rfc || '').trim().toUpperCase();
     const rfc       = rfcCampo || rfcAcEl || rfcPerfil;
     if (!rfc || rfc.startsWith('(CONFIGURA')) {
-        resultEl.style.display = ''; resultEl.style.background = '#fef2f2';
-        resultEl.style.border = '1px solid #fca5a5';
-        resultEl.textContent = 'Configura el RFC del contribuyente en Configuración antes de registrar autoconsumos.';
-        loadEl.style.display = 'none';
-        document.getElementById('btnAutoconsumo').disabled = false;
-        return;
+      loadEl.style.display = 'none';
+      resultEl.style.display = ''; resultEl.style.background = '#fef2f2';
+      resultEl.style.border = '1px solid #fca5a5'; resultEl.style.color = '#dc2626';
+      resultEl.textContent = 'Configura el RFC del contribuyente en la pestaña Configuración antes de registrar autoconsumos.';
+      document.getElementById('btnAutoconsumo').disabled = false;
+      return;
     }
     const res = await fetch('/api/movimientos/autoconsumo', {
       method: 'POST',
