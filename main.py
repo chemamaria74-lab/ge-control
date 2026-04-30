@@ -2077,6 +2077,44 @@ function authHeader() {
   if (pid) h['X-Perfil-Id'] = String(pid);
   return h;
 }
+// ── appState: caché global de settings por perfil ─────────────────────────────
+// Evita re-fetches innecesarios y pérdida de datos al cambiar de tab.
+// Se invalida SOLO cuando: (a) se cambia de empresa, (b) el usuario guarda cambios.
+const _appState = {
+  settings: null,        // último GET /api/settings exitoso
+  settingsPerfilId: null,// para qué perfil están cargados
+  settingsLoading: false, // evitar doble fetch simultáneo
+
+  // Cargar settings desde Supabase y cachear
+  async loadSettings(force = false) {
+    const pid = perfilId();
+    // Si ya tenemos datos del perfil actual y no forzamos, devolver caché
+    if (!force && this.settings && this.settingsPerfilId === pid) {
+      return this.settings;
+    }
+    if (this.settingsLoading) return this.settings;
+    this.settingsLoading = true;
+    try {
+      const res = await fetch('/api/settings', { headers: authHeader() });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      this.settings = data;
+      this.settingsPerfilId = pid;
+      return data;
+    } catch(e) {
+      console.warn('appState.loadSettings error:', e);
+      return this.settings || {};
+    } finally {
+      this.settingsLoading = false;
+    }
+  },
+
+  // Invalidar caché (al cambiar empresa o guardar)
+  invalidate() {
+    this.settings = null;
+    this.settingsPerfilId = null;
+  }
+};
 function truncUUID(s) { return (s||'').length > 20 ? (s||'').substring(0,8)+'…'+(s||'').slice(-4) : (s||''); }
 
 // ── Autenticación ────────────────────────────────────────────────────────────
@@ -2517,7 +2555,8 @@ function actualizarSwitcherEmpresa(perfil) {
 let _resettingState = false;   // flag: bloquea auto-save durante limpieza
 
 function resetAppState() {
-  _resettingState = true;  // bloquear saveSettings mientras limpiamos
+  _resettingState = true;
+  _appState.invalidate();  // forzar re-fetch de settings del nuevo perfil
 
   // ── 1. Limpiar campos de Configuración básica ──────────────────────────────
   ['rfc','sat_rfc_rep','sat_rfc_prov','factor_conversion'].forEach(id => {
@@ -2690,15 +2729,13 @@ async function eliminarPerfil(perfilId) {
 // ── Configuración SAT Persistente ─────────────────────────────────────────
 async function loadSettings() {
   try {
-    const res  = await fetch('/api/settings', { headers: authHeader() });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    // Limpiar primero — no dejar rastros del perfil anterior
+    const data = await _appState.loadSettings();
+    // Limpiar primero solo si el perfil cambió (appState detectó diferencia)
+    // Si es el mismo perfil, actualizar sin limpiar para no borrar input en curso
     ['rfc','sat_rfc_rep','sat_rfc_prov'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
-    // Poblar con los valores del perfil activo
     const rfcEl = document.getElementById('rfc');
     if (rfcEl) rfcEl.value = data.RfcContribuyente || '';
     const repEl = document.getElementById('sat_rfc_rep');
@@ -2708,7 +2745,6 @@ async function loadSettings() {
     const factorEl = document.getElementById('factor_conversion');
     if (factorEl) factorEl.value = data.FactorDeConversionKgALitros ?? 0.542;
     actualizarRfcHint();
-    // Sincronizar RFC en autoconsumo si está activo
     _actualizarRfcAutoconsumo();
   } catch(e) { console.warn('No se pudo cargar configuración SAT:', e); }
 }
@@ -2735,14 +2771,12 @@ async function saveSettings() {
     });
     const data = await res.json();
     if (data.success) {
+      _appState.invalidate();  // forzar re-fetch en próximo acceso
       if (status) {
         const savedRfc = data.settings?.RfcContribuyente || rfcVal;
         const pid = data.perfil_id ? ` [perfil #${data.perfil_id}]` : '';
         status.textContent = `✓ Guardado${pid} — RFC: ${savedRfc || '(vacío)'}`;
         status.className   = 'settings-status settings-ok';
-        // NO llamar loadSettings() aquí — evita que sobreescriba lo que el usuario escribió.
-        // Los campos ya tienen el valor correcto (el usuario lo escribió).
-        // Solo actualizar el hint del RFC.
         actualizarRfcHint();
         _actualizarRfcAutoconsumo();
         setTimeout(() => { if(status) { status.textContent = ''; status.className = 'settings-status'; } }, 4000);
@@ -3904,11 +3938,29 @@ async function processCFDI(files) {
   if (butanoPct && butanoPct !== '') fd.append('composicion_butano', (parseFloat(butanoPct) / 100).toFixed(5));
 
   try {
+    // Debug: confirmar que X-Perfil-Id viaja en el header
+    const hdrs = authHeader();
+    console.log('[processCFDI] Headers:', JSON.stringify(hdrs));
+    console.log('[processCFDI] perfil_id activo:', perfilId(), '| facility_id:', _activeFacilityId);
+
     const resp  = await fetch('/api/upload/cfdi', {
       method: 'POST', body: fd,
-      headers: authHeader(),   // incluye Authorization + X-Perfil-Id automáticamente
+      headers: hdrs,
     });
-    const data = await resp.json();
+
+    let data;
+    try {
+      data = await resp.json();
+    } catch(jsonErr) {
+      console.error('[processCFDI] Error parseando JSON:', jsonErr);
+      document.getElementById('loadCFDI').style.display = 'none';
+      document.getElementById('errorCard').style.display = '';
+      document.getElementById('errList').innerHTML =
+        `<li>Error del servidor (${resp.status}): la respuesta no es JSON válido. Revisa los logs del servidor.</li>`;
+      _cfdiProcessing = false;
+      document.getElementById('btnCFDI').disabled = false;
+      return;
+    }
     document.getElementById('loadCFDI').style.display = 'none';
 
     if (!resp.ok || !data.success) {
@@ -4042,8 +4094,11 @@ async function processCFDI(files) {
     const ul = document.getElementById('errList');
     ul.innerHTML = '';
     const li = document.createElement('li');
-    li.textContent = 'Error de red: ' + err.message;
+    li.textContent = `Error de red o servidor: ${err.message}`;
     ul.appendChild(li);
+    // Log detallado en consola para debugging
+    console.error('[processCFDI] Error:', err);
+    console.error('[processCFDI] perfil_id:', perfilId(), '| X-Perfil-Id en header:', authHeader()['X-Perfil-Id']);
     el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     _cfdiProcessing = false;
     document.getElementById('btnCFDI').disabled = false;
@@ -4741,7 +4796,7 @@ async function guardarPerfilTanques() {
       body: JSON.stringify({ adv_tanques: { clave_tanque: claveTanque, cap_total: capTotal, cap_operativa: capOp, cap_util: capUtil, fecha_calibracion: fecha } })
     });
     const data = await res.json();
-    if (data.success) setStatusMsg('statusTanques', `✓ Guardado [perfil #${data.perfil_id||'?'}]`, true);
+    if (data.success) { _appState.invalidate(); setStatusMsg('statusTanques', `✓ Guardado [perfil #${data.perfil_id||'?'}]`, true); }
     else setStatusMsg('statusTanques', 'Error al guardar en Supabase.', false);
   } catch(e) { setStatusMsg('statusTanques', 'Error al guardar: ' + e.message, false); }
 }
@@ -4763,7 +4818,7 @@ async function guardarSistemasMedicion() {
       body: JSON.stringify({ adv_medicion: { incertidumbre: incert, modelo_sensor: modelo, serie_sensor: serie, fecha_calibracion_medidor: fechaCal } })
     });
     const data = await res.json();
-    if (data.success) setStatusMsg('statusMedicion', `✓ Guardado [perfil #${data.perfil_id||'?'}]`, true);
+    if (data.success) { _appState.invalidate(); setStatusMsg('statusMedicion', `✓ Guardado [perfil #${data.perfil_id||'?'}]`, true); }
     else setStatusMsg('statusMedicion', 'Error al guardar en Supabase.', false);
   } catch(e) { setStatusMsg('statusMedicion', 'Error: ' + e.message, false); }
 }
@@ -4801,6 +4856,7 @@ async function guardarGeolocalizacion() {
     });
     const data = await res.json();
     if (data.success) {
+      _appState.invalidate();
       setStatusMsg('statusGeo', `✓ Guardado [perfil #${data.perfil_id||'?'}]: (${lat.toFixed(6)}, ${lon.toFixed(6)})`, true);
       validarCoordenadas();
     } else setStatusMsg('statusGeo', 'Error al guardar en Supabase.', false);
@@ -4856,6 +4912,7 @@ async function guardarComposicionPR12() {
     });
     const data = await res.json();
     if (data.success) {
+      _appState.invalidate();
       setStatusMsg('statusCompos',
         `✓ Guardado [perfil #${data.perfil_id || '?'}]: C₃H₈ ${prop.toFixed(2)}% / C₄H₁₀ ${but.toFixed(2)}%`, true);
     } else {
@@ -4864,10 +4921,13 @@ async function guardarComposicionPR12() {
   } catch(e) { setStatusMsg('statusCompos', 'Error: ' + e.message, false); }
 }
 
-// Cargar valores guardados al abrir Config Avanzada — SIEMPRE desde Supabase
-// REGLA: limpiar primero, poblar después. Nunca dejar datos del perfil anterior.
+// Cargar valores de Config Avanzada — usa appState para evitar fetches redundantes.
+// Solo limpia si es un perfil diferente al que está en caché.
 async function cargarConfigAvanzada() {
-  // Limpiar TODOS los campos antes de cargar (evita Dictamen u otros datos del perfil anterior)
+  const pid = perfilId();
+  const usandoCaché = _appState.settings && _appState.settingsPerfilId === pid;
+
+  // Siempre limpiar campos antes de poblar (evita mostrar datos del perfil anterior)
   const advFields = [
     'adv_clave_tanque','adv_cap_total','adv_cap_operativa','adv_cap_util',
     'adv_fecha_calibracion','adv_incertidumbre','adv_modelo_sensor','adv_serie_sensor',
@@ -4875,27 +4935,22 @@ async function cargarConfigAvanzada() {
     'adv_rfc_ui','adv_num_dictamen','adv_fecha_dictamen','adv_version_sw',
     'adv_propano','adv_butano',
   ];
-  advFields.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
+  advFields.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   ['composWarning','composOk','geoWarning'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
+    const el = document.getElementById(id); if (el) el.style.display = 'none';
   });
 
   try {
-    const res = await fetch('/api/settings', { headers: authHeader() });
-    if (!res.ok) throw new Error('settings fetch ' + res.status);
-    const data = await res.json();
+    // loadSettings con force=true si no hay caché del perfil actual
+    const data = await _appState.loadSettings(!usandoCaché);
 
     // Tanque
     const t = data.adv_tanques || {};
-    document.getElementById('adv_clave_tanque').value     = t.clave_tanque    || '';
-    document.getElementById('adv_cap_total').value        = t.cap_total       ?? '';
-    document.getElementById('adv_cap_operativa').value    = t.cap_operativa   ?? '';
-    document.getElementById('adv_cap_util').value         = t.cap_util        ?? '';
-    document.getElementById('adv_fecha_calibracion').value= t.fecha_calibracion || '';
+    document.getElementById('adv_clave_tanque').value      = t.clave_tanque     || '';
+    document.getElementById('adv_cap_total').value         = t.cap_total        ?? '';
+    document.getElementById('adv_cap_operativa').value     = t.cap_operativa    ?? '';
+    document.getElementById('adv_cap_util').value          = t.cap_util         ?? '';
+    document.getElementById('adv_fecha_calibracion').value = t.fecha_calibracion || '';
 
     // Medición
     const m = data.adv_medicion || {};
@@ -4911,12 +4966,12 @@ async function cargarConfigAvanzada() {
     document.getElementById('adv_longitud').value = g.longitud ?? '';
     if (g.latitud || g.longitud) validarCoordenadas();
 
-    // Dictamen — siempre asignar (incluso vacío limpia el campo)
+    // Dictamen / Composición
     const d = data.adv_dictamen || {};
-    document.getElementById('adv_rfc_ui').value       = d.rfc_ui        || '';
-    document.getElementById('adv_num_dictamen').value = d.num_dictamen   || '';
-    document.getElementById('adv_fecha_dictamen').value = d.fecha_vigencia || '';
-    document.getElementById('adv_version_sw').value   = d.version_sw    || '';
+    document.getElementById('adv_rfc_ui').value        = d.rfc_ui        || '';
+    document.getElementById('adv_num_dictamen').value  = d.num_dictamen   || '';
+    document.getElementById('adv_fecha_dictamen').value= d.fecha_vigencia || '';
+    document.getElementById('adv_version_sw').value    = d.version_sw    || '';
 
     // Composición PR12 (fracción molar → porcentaje)
     const c = data.adv_composicion_pr12 || {};
