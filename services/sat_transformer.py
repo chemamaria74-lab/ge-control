@@ -738,8 +738,8 @@ def build_sat_report(
     # Producto: composición maestros + ReporteDeVolumenMensual (sin TANQUE)
     producto_dict: dict = {
         "ClaveProducto":          CLAVE_PRODUCTO,
-        "ComposDePropanoEnGasLP": compos_propano,
-        "ComposDeButanoEnGasLP":  compos_butano,
+        "ComposDePropanoEnGasLP": round(compos_propano * 100, 2),
+        "ComposDeButanoEnGasLP":  round(compos_butano  * 100, 2),
         "ReporteDeVolumenMensual": {
             "ControlDeExistencias": {
                 "VolumenExistenciasMes":     _smart_num(vol_existencias),
