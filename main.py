@@ -2774,18 +2774,17 @@ if (_rfcElChg) _rfcElChg.addEventListener('change', () => saveSettings());
 // ── Gestión de Proveedores ─────────────────────────────────────────────────
 async function loadProviders() {
   if (!authToken) return;
+  const tbody = document.getElementById('tbodyProveedores');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="hist-empty" style="color:#6366f1"><i class="fa-solid fa-spinner fa-spin" style="margin-right:.4rem"></i>Cargando proveedores...</td></tr>';
   try {
-    // Si hay perfil activo, reasignar proveedores huérfanos (perfil_id IS NULL)
-    // al perfil actual. Operación idempotente — segura de llamar cada vez.
-    if (perfilId()) {
-      fetch('/api/providers/asignar-perfil', {
-        method: 'POST', headers: authHeader()
-      }).catch(() => {});  // fire-and-forget, no bloquea la UI
-    }
     const res  = await fetch('/api/providers', { headers: authHeader() });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     renderProvidersTable(data.providers || []);
-  } catch(e) { console.warn('No se pudo cargar proveedores:', e); }
+  } catch(e) {
+    console.warn('No se pudo cargar proveedores:', e);
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="hist-empty" style="color:#dc2626">Error al cargar proveedores. Recarga la página.</td></tr>';
+  }
 }
 
 function renderProvidersTable(providers) {
