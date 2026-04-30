@@ -2756,12 +2756,15 @@ async function saveSettings() {
       if (status) {
         const savedRfc = data.settings?.RfcContribuyente || rfcVal;
         const pid = data.perfil_id ? ` [perfil #${data.perfil_id}]` : '';
-        status.textContent = `✓ Guardado${pid} — RFC: ${savedRfc}`;
+        status.textContent = `✓ Guardado${pid} — RFC: ${savedRfc || '(vacío)'}`;
         status.className   = 'settings-status settings-ok';
-        loadSettings();
-        setTimeout(() => { status.textContent = ''; status.className = 'settings-status'; }, 4000);
+        // NO llamar loadSettings() aquí — evita que sobreescriba lo que el usuario escribió.
+        // Los campos ya tienen el valor correcto (el usuario lo escribió).
+        // Solo actualizar el hint del RFC.
+        actualizarRfcHint();
+        _actualizarRfcAutoconsumo();
+        setTimeout(() => { if(status) { status.textContent = ''; status.className = 'settings-status'; } }, 4000);
       }
-      actualizarRfcHint();
     } else { throw new Error('Error al guardar'); }
   } catch(e) {
     if (status) {
@@ -2772,8 +2775,10 @@ async function saveSettings() {
 }
 
 document.getElementById('btnSaveSettings').addEventListener('click', saveSettings);
-const _rfcElChg = document.getElementById('rfc');
-if (_rfcElChg) _rfcElChg.addEventListener('change', () => saveSettings());
+// Auto-save en change del RFC desactivado — se guarda solo con el botón "Guardar perfil"
+// (el evento change se disparaba cuando resetAppState limpiaba el campo, borrando el RFC)
+// const _rfcElChg = document.getElementById('rfc');
+// if (_rfcElChg) _rfcElChg.addEventListener('change', () => saveSettings());
 
 // ── Gestión de Proveedores ─────────────────────────────────────────────────
 async function loadProviders() {
