@@ -61,45 +61,69 @@ def _auth(authorization: str) -> str:
     return uid
 
 
-def _supabase_load(user_id: str, perfil_id: Optional[int] = None) -> dict:
-    """Lee la configuración desde Supabase filtrada por user_id y perfil_id."""
+def _supabase_load(user_id: str, perfil_id: Optional[int] = None) -> Optional[dict]:
+    """
+    Lee settings desde Supabase para el par exacto (user_id, perfil_id).
+    NUNCA hace fallback al perfil global — cada perfil es completamente independiente.
+    Retorna None si no hay fila (señal de fallo o perfil nuevo sin config aún).
+    """
     try:
         from supabase_config import get_supabase
-        q = get_supabase().table("zc_settings").select("data").eq("user_id", user_id)
+        sb = get_supabase()
+        q = sb.table("zc_settings").select("data").eq("user_id", user_id)
         if perfil_id:
             q = q.eq("perfil_id", perfil_id)
         else:
             q = q.is_("perfil_id", "null")
-        rows = q.execute()
+        rows = q.limit(1).execute()
         if rows.data:
-            return {**DEFAULT_SETTINGS, **rows.data[0]["data"]}
-        # Fallback: si no hay fila para este perfil, buscar fila global del usuario
+            stored = rows.data[0].get("data") or {}
+            return {**DEFAULT_SETTINGS, **stored}
+        # Sin fila para este perfil → retornar defaults limpios (perfil nuevo)
         if perfil_id:
-            rows2 = get_supabase().table("zc_settings").select("data").eq("user_id", user_id).is_("perfil_id", "null").execute()
-            if rows2.data:
-                return {**DEFAULT_SETTINGS, **rows2.data[0]["data"]}
+            logger.info("settings: no hay fila para perfil_id=%s — devolviendo defaults vacíos", perfil_id)
+            return DEFAULT_SETTINGS.copy()
+        return None  # sin perfil_id y sin fila → fallo real
     except Exception as e:
         logger.warning("Supabase settings load: %s", e)
-    return None   # señal de fallo
+        return None
 
 
 def _supabase_save(user_id: str, data: dict, perfil_id: Optional[int] = None) -> bool:
-    """Guarda la configuración en Supabase para el user_id + perfil_id."""
+    """
+    Guarda settings en Supabase para el par exacto (user_id, perfil_id).
+    Usa upsert con on_conflict=user_id si perfil_id es NULL,
+    o hace un DELETE+INSERT para perfil_id específico (evita problemas de constraint).
+    """
     try:
         from supabase_config import get_supabase
         from datetime import datetime, timezone
-        record = {
-            "user_id":    user_id,
-            "data":       data,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
+        sb = get_supabase()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
         if perfil_id:
-            record["perfil_id"] = perfil_id
-        # upsert por user_id cuando perfil_id es NULL, por (user_id, perfil_id) cuando está presente
-        get_supabase().table("zc_settings").upsert(
-            record,
-            on_conflict="user_id,perfil_id" if perfil_id else "user_id"
-        ).execute()
+            # Para filas con perfil_id específico: verificar si existe
+            existing = sb.table("zc_settings").select("id").eq("user_id", user_id)\
+                         .eq("perfil_id", perfil_id).limit(1).execute().data
+            if existing:
+                # UPDATE
+                sb.table("zc_settings").update({
+                    "data": data, "updated_at": now_iso
+                }).eq("user_id", user_id).eq("perfil_id", perfil_id).execute()
+            else:
+                # INSERT
+                sb.table("zc_settings").insert({
+                    "user_id": user_id, "perfil_id": perfil_id,
+                    "data": data, "updated_at": now_iso
+                }).execute()
+        else:
+            # Sin perfil_id → upsert global por user_id
+            sb.table("zc_settings").upsert(
+                {"user_id": user_id, "data": data, "updated_at": now_iso},
+                on_conflict="user_id"
+            ).execute()
+
+        logger.info("settings saved: user=%s perfil=%s", user_id, perfil_id)
         return True
     except Exception as e:
         logger.warning("Supabase settings save: %s", e)
@@ -125,12 +149,21 @@ def _file_save(user_id: str, data: dict) -> None:
 
 
 def _load(user_id: str, perfil_id: Optional[int] = None) -> dict:
-    """Carga configuración: Supabase primero, JSON local como fallback."""
+    """
+    Carga configuración: Supabase primero, JSON local solo si Supabase falla por red.
+    Con perfil_id: devuelve defaults vacíos si el perfil no tiene config aún.
+    Sin perfil_id: fallback local si no hay conexión.
+    """
     result = _supabase_load(user_id, perfil_id)
     if result is not None:
         return result
-    logger.info("Usando fallback local para settings user=%s.", user_id)
-    return _file_load(user_id)
+    # Solo llegar aquí si Supabase lanzó excepción (fallo de red)
+    if not perfil_id:
+        logger.info("Usando fallback local para settings user=%s.", user_id)
+        return _file_load(user_id)
+    # Con perfil_id y Supabase caído → defaults limpios (no contaminar con otro perfil)
+    logger.warning("Supabase caído: devolviendo defaults para perfil=%s", perfil_id)
+    return DEFAULT_SETTINGS.copy()
 
 
 def _save(user_id: str, data: dict, perfil_id: Optional[int] = None) -> None:
@@ -203,6 +236,11 @@ async def save_settings(
         )
 
     logger.info("Settings guardados para user=%s perfil=%s", user_id, perfil_id)
-    return JSONResponse(content={"success": True, "settings": _load(user_id, perfil_id)})
+    saved = _load(user_id, perfil_id)
+    return JSONResponse(content={
+        "success":   True,
+        "perfil_id": perfil_id,   # confirmación explícita del perfil donde se guardó
+        "settings":  saved,
+    })
 
 
