@@ -263,17 +263,24 @@ def get_period_totals(user_id: str, periodo: str,
                       perfil_id: Optional[int] = None) -> dict:
     try:
         r = get_records(user_id, periodo, facility_id, perfil_id)
+        entradas = r["entradas"]
+        salidas  = r["salidas"]
+        # Separar autoconsumos (registros manuales) de ventas con CFDI
+        autoconsumos = [s for s in salidas if (s.get("file_path") or "").startswith("manual:")]
         return {
-            "total_entradas":   sum(x["volumen_litros"] for x in r["entradas"]),
-            "total_salidas":    sum(x["volumen_litros"] for x in r["salidas"]),
-            "importe_entradas": sum(x["importe"]        for x in r["entradas"]),
-            "importe_salidas":  sum(x["importe"]        for x in r["salidas"]),
-            "cnt_entradas":     len(r["entradas"]),
-            "cnt_salidas":      len(r["salidas"]),
+            "total_entradas":     sum(x["volumen_litros"] for x in entradas),
+            "total_salidas":      sum(x["volumen_litros"] for x in salidas),
+            "total_autoconsumo":  round(sum(x["volumen_litros"] for x in autoconsumos), 2),
+            "cnt_autoconsumo":    len(autoconsumos),
+            "importe_entradas":   sum(x["importe"]        for x in entradas),
+            "importe_salidas":    sum(x["importe"]        for x in salidas),
+            "cnt_entradas":       len(entradas),
+            "cnt_salidas":        len(salidas),
         }
     except Exception as e:
         logger.warning("get_period_totals: %s", e)
         return {"total_entradas": 0, "total_salidas": 0,
+                "total_autoconsumo": 0, "cnt_autoconsumo": 0,
                 "importe_entradas": 0, "importe_salidas": 0,
                 "cnt_entradas": 0, "cnt_salidas": 0}
 
