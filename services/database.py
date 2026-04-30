@@ -205,12 +205,13 @@ def update_facility_v2(facility_id: int, user_id: str, data: dict) -> Optional[d
 # ── RECORDS ───────────────────────────────────────────────────────────────────
 
 def save_records(user_id: str, periodo: str, grupos: dict, tipo: str,
-                 facility_id: Optional[int] = None) -> int:
+                 facility_id: Optional[int] = None,
+                 perfil_id: Optional[int] = None) -> int:
     now  = _now()
     rows = []
     for g in grupos.values():
         fecha = (g.get("fecha_hora") or "")[:10] or periodo + "-01"
-        rows.append({
+        row = {
             "user_id":            user_id,
             "facility_id":        facility_id,
             "periodo":            periodo,
@@ -223,7 +224,10 @@ def save_records(user_id: str, periodo: str, grupos: dict, tipo: str,
             "importe":            round(g.get("importe", 0.0), 2),
             "file_path":          g.get("file_path", ""),
             "created_at":         now,
-        })
+        }
+        if perfil_id:
+            row["perfil_id"] = perfil_id
+        rows.append(row)
     if not rows:
         return 0
     try:
