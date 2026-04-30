@@ -91,42 +91,28 @@ def _supabase_load(user_id: str, perfil_id: Optional[int] = None) -> Optional[di
 
 def _supabase_save(user_id: str, data: dict, perfil_id: Optional[int] = None) -> bool:
     """
-    Guarda settings en Supabase para el par exacto (user_id, perfil_id).
-    Usa upsert con on_conflict=user_id si perfil_id es NULL,
-    o hace un DELETE+INSERT para perfil_id específico (evita problemas de constraint).
+    Guarda settings usando UPSERT con el constraint (user_id, perfil_id).
+    Requiere que zc_settings tenga UNIQUE (user_id, perfil_id) — ver fix_zc_settings_v2.sql
     """
     try:
         from supabase_config import get_supabase
         from datetime import datetime, timezone
-        sb = get_supabase()
+        sb      = get_supabase()
         now_iso = datetime.now(timezone.utc).isoformat()
 
+        row = {"user_id": user_id, "data": data, "updated_at": now_iso}
         if perfil_id:
-            # Para filas con perfil_id específico: verificar si existe
-            existing = sb.table("zc_settings").select("id").eq("user_id", user_id)\
-                         .eq("perfil_id", perfil_id).limit(1).execute().data
-            if existing:
-                # UPDATE
-                sb.table("zc_settings").update({
-                    "data": data, "updated_at": now_iso
-                }).eq("user_id", user_id).eq("perfil_id", perfil_id).execute()
-            else:
-                # INSERT
-                sb.table("zc_settings").insert({
-                    "user_id": user_id, "perfil_id": perfil_id,
-                    "data": data, "updated_at": now_iso
-                }).execute()
+            row["perfil_id"] = perfil_id
+            conflict_cols    = "user_id,perfil_id"
         else:
-            # Sin perfil_id → upsert global por user_id
-            sb.table("zc_settings").upsert(
-                {"user_id": user_id, "data": data, "updated_at": now_iso},
-                on_conflict="user_id"
-            ).execute()
+            conflict_cols    = "user_id"
 
-        logger.info("settings saved: user=%s perfil=%s", user_id, perfil_id)
-        return True
+        result = sb.table("zc_settings").upsert(row, on_conflict=conflict_cols).execute()
+        ok     = bool(result.data)
+        logger.info("_supabase_save: user=%s perfil=%s upsert ok=%s", user_id, perfil_id, ok)
+        return ok
     except Exception as e:
-        logger.warning("Supabase settings save: %s", e)
+        logger.error("_supabase_save FAILED: user=%s perfil=%s error=%s", user_id, perfil_id, e)
         return False
 
 
