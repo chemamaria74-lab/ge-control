@@ -657,12 +657,18 @@ def build_sat_report(
     })
 
     # ── Composición PR12 ──────────────────────────────────────────────────────
-    compos_propano = composicion_propano if (composicion_propano is not None and 0 < composicion_propano <= 1) else 0.01
-    compos_butano  = composicion_butano  if (composicion_butano  is not None and 0 < composicion_butano  <= 1) else 0.01
-    if compos_propano + compos_butano > 1.0:
-        compos_propano = 0.01; compos_butano = 0.01
+    # Internamente se almacena como fracción molar (0-1).
+    # El JSON SAT requiere porcentaje (0-100): ComposDePropanoEnGasLP = 60.00
+    # Guía SAT §16.6.1: "Ejemplo: ComposDePropanoEnGasLP = 60.00 → 60%"
+    compos_propano_frac = composicion_propano if (composicion_propano is not None and 0 < composicion_propano <= 1) else 0.01
+    compos_butano_frac  = composicion_butano  if (composicion_butano  is not None and 0 < composicion_butano  <= 1) else 0.01
+    if compos_propano_frac + compos_butano_frac > 1.0:
+        compos_propano_frac = 0.01; compos_butano_frac = 0.01
         logger.warning("PR12: suma fracciones molares > 1.0 → usando defaults 0.01/0.01")
     es_composicion_real = (composicion_propano is not None or composicion_butano is not None)
+    # Convertir a porcentaje para el JSON (lo que el SAT espera)
+    compos_propano = round(compos_propano_frac * 100, 2)
+    compos_butano  = round(compos_butano_frac  * 100, 2)
 
     # ── Geolocalización (§9) ──────────────────────────────────────────────────
     adv_geo = settings.get("adv_geolocalizacion") or {}
@@ -738,8 +744,8 @@ def build_sat_report(
     # Producto: composición maestros + ReporteDeVolumenMensual (sin TANQUE)
     producto_dict: dict = {
         "ClaveProducto":          CLAVE_PRODUCTO,
-        "ComposDePropanoEnGasLP": round(compos_propano * 100, 2),
-        "ComposDeButanoEnGasLP":  round(compos_butano  * 100, 2),
+        "ComposDePropanoEnGasLP": compos_propano,
+        "ComposDeButanoEnGasLP":  compos_butano,
         "ReporteDeVolumenMensual": {
             "ControlDeExistencias": {
                 "VolumenExistenciasMes":     _smart_num(vol_existencias),
