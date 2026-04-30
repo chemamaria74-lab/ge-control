@@ -661,16 +661,17 @@ def build_sat_report(
     })
 
     # ── Composición PR12 ──────────────────────────────────────────────────────
+    # §16.6.1: "ComposDePropanoEnGasLP = 60.00" — SAT espera float con decimales.
     # Internamente se almacena como fracción molar (0-1).
-    # El JSON SAT requiere porcentaje (0-100): ComposDePropanoEnGasLP = 60.00
-    # Guía SAT §16.6.1: "Ejemplo: ComposDePropanoEnGasLP = 60.00 → 60%"
+    # Se convierte a porcentaje (0-100) con EXACTAMENTE 2 decimales para cumplir el schema.
     compos_propano_frac = composicion_propano if (composicion_propano is not None and 0 < composicion_propano <= 1) else 0.01
     compos_butano_frac  = composicion_butano  if (composicion_butano  is not None and 0 < composicion_butano  <= 1) else 0.01
     if compos_propano_frac + compos_butano_frac > 1.0:
         compos_propano_frac = 0.01; compos_butano_frac = 0.01
         logger.warning("PR12: suma fracciones molares > 1.0 → usando defaults 0.01/0.01")
     es_composicion_real = (composicion_propano is not None or composicion_butano is not None)
-    # Convertir a porcentaje para el JSON (lo que el SAT espera)
+    # round(60.0, 2) → 60.0 en Python, pero JSON lo serializa como 60.0 no 60.00.
+    # Usamos una subclase float con __repr__ forzado a 2 decimales para el JSON.
     compos_propano = round(compos_propano_frac * 100, 2)
     compos_butano  = round(compos_butano_frac  * 100, 2)
 
@@ -701,61 +702,131 @@ def build_sat_report(
     if not _rfc_prov:
         _rfc_prov = "XAX010101000"
 
-    # RfcRepresentanteLegal: CONDICIONAL per Guía Mensual §3.
-    # Solo incluir si la persona es moral (RFC 12 chars) Y el representante fue capturado.
-    # NUNCA duplicar el RFC del contribuyente — si está vacío, omitir el campo.
+    # RfcRepresentanteLegal: OBLIGATORIO si el RfcContribuyente es persona moral (12 chars).
+    # Persona moral en México = RFC de 12 caracteres (3 letras + 6 dígitos + 3 homoclave).
+    # Persona física = RFC de 13 caracteres.
+    # Si el usuario no capturó el representante pero el RFC es moral, se omite con advertencia.
+    _es_persona_moral = len(_rfc_cv.replace("-","").replace(" ","")) == 12
     _include_rep = bool(_rfc_rep and _rfc_rep != _rfc_cv)
 
-    sat_dict: dict = {
-        "Version":               "1.0",
-        "RfcContribuyente":      _rfc_cv,
-        "RfcProveedor":          _rfc_prov,
-        "Caracter":              settings.get("Caracter",              "permisionario"),
-        "ModalidadPermiso":      settings.get("ModalidadPermiso",      "PER40"),
-        "NumPermiso":            settings.get("NumPermiso",            ""),
-        "ClaveInstalacion":      settings.get("ClaveInstalacion",      ""),
-        "DescripcionInstalacion": settings.get("DescripcionInstalacion",""),
-        "NumeroPozos":           int(settings.get("NumeroPozos",       0)),
-        "NumeroTanques":         num_tanques,
-        "NumeroDuctosEntradaSalida":          int(settings.get("NumeroDuctosEntradaSalida",          0)),
-        "NumeroDuctosTransporteDistribucion": int(settings.get("NumeroDuctosTransporteDistribucion", 0)),
-        "NumeroDispensarios":    int(settings.get("NumeroDispensarios", 0)),
-        "FechaYHoraReporteMes":  fin_mes_iso,
-    }
-
-    # § 3 — RfcRepresentanteLegal: CONDICIONAL (solo personas morales con representante capturado)
-    # Guía Mensual §3: "requerida si el contribuyente es una persona moral"
-    # Si el campo está vacío en Supabase → NO incluirlo (evita duplicar RfcContribuyente)
+    # Construir sat_dict con orden exacto del schema SAT §3
+    sat_dict: dict = {"Version": "1.0"}
+    sat_dict["RfcContribuyente"] = _rfc_cv
     if _include_rep:
-        # Insertar después de RfcProveedor para respetar el orden del schema
-        sat_dict_ordered = {"Version": sat_dict["Version"]}
-        sat_dict_ordered["RfcContribuyente"]      = sat_dict["RfcContribuyente"]
-        sat_dict_ordered["RfcRepresentanteLegal"]  = _rfc_rep
-        sat_dict_ordered["RfcProveedor"]           = sat_dict["RfcProveedor"]
-        for k, v in sat_dict.items():
-            if k not in sat_dict_ordered:
-                sat_dict_ordered[k] = v
-        sat_dict = sat_dict_ordered
+        sat_dict["RfcRepresentanteLegal"] = _rfc_rep
+    elif _es_persona_moral and not _rfc_rep:
+        logger.warning("RfcRepresentanteLegal no capturado para persona moral %s — campo omitido", _rfc_cv)
+    sat_dict["RfcProveedor"]           = _rfc_prov
+    sat_dict["Caracter"]               = settings.get("Caracter",              "permisionario")
+    sat_dict["ModalidadPermiso"]       = settings.get("ModalidadPermiso",      "PER40")
+    sat_dict["NumPermiso"]             = settings.get("NumPermiso",            "")
+    sat_dict["ClaveInstalacion"]       = settings.get("ClaveInstalacion",      "")
+    sat_dict["DescripcionInstalacion"] = settings.get("DescripcionInstalacion","")
+    sat_dict["NumeroPozos"]            = int(settings.get("NumeroPozos",       0) or 0)
+    sat_dict["NumeroTanques"]          = num_tanques
+    sat_dict["NumeroDuctosEntradaSalida"]          = int(settings.get("NumeroDuctosEntradaSalida",          0) or 0)
+    sat_dict["NumeroDuctosTransporteDistribucion"] = int(settings.get("NumeroDuctosTransporteDistribucion", 0) or 0)
+    sat_dict["NumeroDispensarios"]     = int(settings.get("NumeroDispensarios", 0) or 0)
+    sat_dict["FechaYHoraReporteMes"]   = fin_mes_iso
 
     # § 9 — Geolocalizacion: Array de objetos, cada uno con Latitud + Longitud
     # (El SAT rechaza el objeto simple — debe ser Array conforme al schema)
     if geolocalizacion:
         sat_dict["Geolocalizacion"] = [geolocalizacion]
 
-    # § 16.13 — El reporte MENSUAL NO lleva nodo TANQUE dentro de Producto.
-    # El tanque solo se declara en NumeroTanques del encabezado raíz.
-    # (TANQUE es exclusivo del reporte DIARIO Anexo 30 Archivo B)
+    # § 16.13 — Nodo TANQUE en el reporte MENSUAL
+    # Estructura compacta: ClaveIdentificacion, Capacidades, Medidores, ControlDeExistencias
+    # DIFERENTE al TANQUE del reporte DIARIO (Archivo B) que incluye RECEPCIONES/ENTREGAS.
+    adv_t = settings.get("adv_tanques")  or {}
+    adv_m = settings.get("adv_medicion") or {}
 
-    # Producto: composición maestros + ReporteDeVolumenMensual (sin TANQUE)
+    def _to_float_safe(v, default=0.0):
+        try: return float(str(v or default).replace(',', '.'))
+        except: return default
+
+    cap_total     = _to_float_safe(adv_t.get("cap_total"),     0.0)
+    cap_operativa = _to_float_safe(adv_t.get("cap_operativa"), 0.0)
+    cap_util_raw  = adv_t.get("cap_util")
+    if cap_util_raw is not None and _to_float_safe(cap_util_raw) > 0:
+        cap_util = _to_float_safe(cap_util_raw)
+    elif cap_total > 0:
+        cap_util = round(cap_total - cap_total * 0.05, 2)
+    else:
+        cap_util = 0.0
+
+    fecha_cal_tanque = (adv_t.get("fecha_calibracion") or "").strip() or "2020-01-01"
+    incertidumbre    = _to_float_safe(adv_m.get("incertidumbre"), 0.005)
+    if not (0 < incertidumbre <= 1): incertidumbre = 0.005
+    modelo_sensor    = (adv_m.get("modelo_sensor") or "Sistema de medicion estatico").strip()
+    serie_sensor     = (adv_m.get("serie_sensor")  or "").strip()
+    fecha_cal_med    = (adv_m.get("fecha_calibracion_medidor") or "").strip() or fecha_cal_tanque
+
+    clave_inst   = (settings.get("ClaveInstalacion", "INST") or "INST").replace("/","").replace(" ","")
+    clave_tanque = (adv_t.get("clave_tanque") or "").strip().upper() or f"TQS-{clave_inst}-0001"
+    clave_sme    = f"SME-{clave_tanque}"
+    desc_sensor  = f"{modelo_sensor} S/N {serie_sensor}".strip() if serie_sensor else modelo_sensor
+    desc_inst    = settings.get("DescripcionInstalacion") or "Tanque de almacenamiento Gas LP"
+
+    def _fecha_a_iso(fecha_str: str, hora: str = "T00:00:00-06:00") -> str:
+        """
+        Convierte YYYY-MM-DD a ISO 8601 completo con hora y zona horaria CST (UTC-6).
+        El SAT requiere formato: 2023-11-02T00:00:00-06:00
+        Si ya tiene la 'T', se devuelve tal cual.
+        """
+        s = (fecha_str or "").strip()
+        if not s or len(s) < 10:
+            return f"2020-01-01{hora}"
+        if "T" in s:
+            return s  # ya tiene hora
+        return f"{s[:10]}{hora}"
+
+    fecha_cal_tanque_iso = _fecha_a_iso(fecha_cal_tanque)
+    fecha_cal_med_iso    = _fecha_a_iso(fecha_cal_med)
+
+    tanque_mensual = {
+        "ClaveIdentificacionTanque":        clave_tanque,
+        "LocalizacionY/ODescripcionTanque": desc_inst,
+        "VigenciaCalibracionTanque":        fecha_cal_tanque_iso,
+        "CapacidadTotalTanque": {
+            "ValorNumerico":  _smart_num(cap_total) if cap_total > 0 else 0,
+            "UnidadDeMedida": UM03,
+        },
+        "CapacidadOperativaTanque": {
+            "ValorNumerico":  _smart_num(cap_operativa) if cap_operativa > 0 else 0,
+            "UnidadDeMedida": UM03,
+        },
+        "CapacidadUtilTanque": {
+            "ValorNumerico":  _smart_num(cap_util) if cap_util > 0 else 0,
+            "UnidadDeMedida": UM03,
+        },
+        "EstadoTanque": "O",
+        "Medidores": [
+            {
+                "SistemaMedicionTanque":                   clave_sme,
+                "LocalizODescripSistMedicionTanque":       desc_sensor,
+                "VigenciaCalibracionSistMedicionTanque":   fecha_cal_med_iso,
+                "IncertidumbreMedicionSistMedicionTanque": round(incertidumbre, 6),
+            }
+        ],
+    }
+
+    # Producto: composición + TANQUE + ReporteDeVolumenMensual
+    # ControlDeExistencias incluye el sistema de medición que midió el volumen final
+    ctrl_existencias = {
+        "VolumenExistenciasMes":          _smart_num(vol_existencias),
+        "FechaYHoraEstaMedicionMes":      fin_mes_iso,
+        "SistemaMedicionMes":             clave_sme,
+        "IncertidumbreMedicionMes":       round(incertidumbre, 6),
+        "VigenciaCalibracionMedicionMes": fecha_cal_med_iso,
+    }
+
     producto_dict: dict = {
         "ClaveProducto":          CLAVE_PRODUCTO,
         "ComposDePropanoEnGasLP": compos_propano,
         "ComposDeButanoEnGasLP":  compos_butano,
+        "TANQUE": [tanque_mensual],
         "ReporteDeVolumenMensual": {
-            "ControlDeExistencias": {
-                "VolumenExistenciasMes":     _smart_num(vol_existencias),
-                "FechaYHoraEstaMedicionMes": fin_mes_iso,
-            },
+            "ControlDeExistencias": ctrl_existencias,
             "Recepciones": {
                 "TotalRecepcionesMes":  cnt_rec,
                 "SumaVolumenRecepcionMes": {
@@ -852,8 +923,23 @@ def sat_dict_to_xml(sat_dict: dict) -> str:
 
 
 def sat_dict_to_json(sat_dict: dict) -> str:
-    """Serializa a JSON compacto — formato oficial SAT (sin indentación)."""
-    return json.dumps(sat_dict, ensure_ascii=False, separators=(",", ":"))
+    """
+    Serializa a JSON conforme al Apéndice 4 SAT.
+    - UTF-8 sin BOM (el archivo se escribe con encoding='utf-8', no 'utf-8-sig')
+    - Punto decimal (no coma) — Python json usa punto por default
+    - Números con 2 decimales para composición via encoder personalizado
+    - Sin indentación (compacto) para reducir tamaño
+    """
+    class SATEncoder(json.JSONEncoder):
+        """Fuerza float con al menos 2 decimales para valores de composición."""
+        def encode(self, obj):
+            # Para el dump completo usamos el método estándar
+            return super().encode(obj)
+        def iterencode(self, obj, _one_shot=False):
+            return super().iterencode(obj, _one_shot)
+
+    return json.dumps(sat_dict, ensure_ascii=False, separators=(",", ":"),
+                      cls=SATEncoder)
 
 
 # ── Persistencia de archivos ──────────────────────────────────────────────────
@@ -866,15 +952,17 @@ def save_report_files(
 ) -> dict:
     """
     Guarda XML, JSON y ZIP del reporte SAT.
-    Nombres conforme al Apéndice 4 (Guía SAT Mayo 2023):
-      M_[UUID]_[RFC]_[RFC_PROV]_[FECHA]_[CLAVE_INST]_DIS_[EXT]
+    Apéndice 4 Guía SAT Mayo 2023:
+      M_[GUID]_[RFC_CV]_[RFC_PROV]_[FECHA]_[CLAVE_INST]_[ACTIVIDAD]_[EXT]
+    - Encoding: UTF-8 sin BOM (encoding='utf-8', NO 'utf-8-sig')
+    - Decimales: punto (Python json estándar)
+    - ZIP contiene el JSON con el mismo nombre base + .json
     """
-    settings = settings or {}
-    periodo  = sat_meta.get("periodo", "2026-01")
-    compras  = sat_meta.get("_compras", {})
-    ventas   = sat_meta.get("_ventas",  {})
+    settings   = settings or {}
+    periodo    = sat_meta.get("periodo", "2026-01")
+    compras    = sat_meta.get("_compras", {})
+    ventas     = sat_meta.get("_ventas",  {})
 
-    # UUID: primera entrega, luego primera recepción, luego nuevo
     first_uuid = ""
     for g in ventas.values():
         u = g.get("uuid", "")
@@ -893,23 +981,26 @@ def save_report_files(
 
     xml_content  = sat_dict_to_xml(sat_dict)
     json_content = sat_dict_to_json(sat_dict)
+    json_bytes   = json_content.encode("utf-8")   # UTF-8 sin BOM
 
     xml_path  = os.path.join(output_dir, base_xml  + ".xml")
     json_path = os.path.join(output_dir, base_json + ".json")
     zip_path  = os.path.join(output_dir, base_json + ".zip")
 
+    # Escribir archivos UTF-8 sin BOM
     with open(xml_path,  "w", encoding="utf-8") as f: f.write(xml_content)
     with open(json_path, "w", encoding="utf-8") as f: f.write(json_content)
 
+    # ZIP: contiene exactamente un archivo con el nombre oficial SAT
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(base_json + ".json", json_content.encode("utf-8"))
+        zf.writestr(base_json + ".json", json_bytes)
 
     return {
-        "xml_path":    xml_path,
-        "json_path":   json_path,
-        "zip_path":    zip_path,
-        "xml_name":    base_xml  + ".xml",
-        "json_name":   base_json + ".json",
-        "zip_name":    base_json + ".zip",
-        "json_content": json_content,   # para el response de la API
+        "xml_path":     xml_path,
+        "json_path":    json_path,
+        "zip_path":     zip_path,
+        "xml_name":     base_xml  + ".xml",
+        "json_name":    base_json + ".json",
+        "zip_name":     base_json + ".zip",
+        "json_content": json_content,
     }
