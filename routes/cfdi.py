@@ -56,6 +56,31 @@ async def upload_cfdi(
     authorization:         str              = Header(default=""),
     x_perfil_id:           str              = Header(default=""),
 ):
+    # Wrap global — garantiza que SIEMPRE devuelve JSON aunque el servidor explote
+    try:
+        return await _upload_cfdi_impl(
+            files=files, estacion_id=estacion_id, rfc=rfc,
+            unidad_base=unidad_base, inventario_inicial=inventario_inicial,
+            inventario_final=inventario_final, facility_id=facility_id,
+            temperatura_medicion=temperatura_medicion,
+            composicion_propano=composicion_propano, composicion_butano=composicion_butano,
+            authorization=authorization, x_perfil_id=x_perfil_id,
+        )
+    except Exception as fatal:
+        logger.exception("FATAL upload_cfdi: %s", fatal)
+        return UploadResponse(
+            success=False,
+            errores=[f"Error interno del servidor: {type(fatal).__name__}: {fatal}"],
+            alertas=[], logs=[f"FATAL: {fatal}"],
+            conteo_compras=0, conteo_ventas=0,
+        )
+
+
+async def _upload_cfdi_impl(
+    files, estacion_id, rfc, unidad_base, inventario_inicial, inventario_final,
+    facility_id, temperatura_medicion, composicion_propano, composicion_butano,
+    authorization, x_perfil_id,
+):
     todos_logs:    list[str] = []
     todos_errores: list[str] = []
     todas_alertas: list[str] = []

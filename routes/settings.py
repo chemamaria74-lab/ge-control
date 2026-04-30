@@ -201,31 +201,31 @@ async def save_settings(
     user_id   = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
     current   = _load(user_id, perfil_id)
-    # exclude_unset=True: solo procesar campos explícitamente enviados.
+
+    # exclude_unset=True: solo los campos que el cliente envió explícitamente
     new_data = payload.model_dump(exclude_unset=True)
 
-    # Preservar campos adv_* existentes si no vienen en este request
-    for adv_key in ("adv_tanques", "adv_medicion", "adv_geolocalizacion",
-                    "adv_dictamen", "adv_composicion_pr12"):
-        if new_data.get(adv_key) is None and current.get(adv_key) is not None:
-            new_data[adv_key] = current[adv_key]
+    # MERGE: empezar con los datos existentes en Supabase y sobreescribir
+    # solo los campos que vienen en este request. Esto evita que un guardado
+    # parcial (ej: solo adv_tanques) borre el RFC u otros campos.
+    merged = {**current, **new_data}
 
-    _save(user_id, new_data, perfil_id)
+    _save(user_id, merged, perfil_id)
 
-    # Auditar cambio en el factor de conversión
-    if current.get("FactorDeConversionKgALitros") != new_data.get("FactorDeConversionKgALitros"):
+    if current.get("FactorDeConversionKgALitros") != merged.get("FactorDeConversionKgALitros"):
         log_settings_audit(
             user_id,
             "FactorDeConversionKgALitros",
             current.get("FactorDeConversionKgALitros"),
-            new_data.get("FactorDeConversionKgALitros"),
+            merged.get("FactorDeConversionKgALitros"),
         )
 
-    logger.info("Settings guardados para user=%s perfil=%s", user_id, perfil_id)
+    logger.info("Settings guardados: user=%s perfil=%s keys=%s",
+                user_id, perfil_id, list(new_data.keys()))
     saved = _load(user_id, perfil_id)
     return JSONResponse(content={
         "success":   True,
-        "perfil_id": perfil_id,   # confirmación explícita del perfil donde se guardó
+        "perfil_id": perfil_id,
         "settings":  saved,
     })
 
