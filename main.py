@@ -1455,7 +1455,7 @@ tr:hover td{background:#f8fafc}
     <div id="histReportInfo" style="font-size:.68rem;color:#64748b;margin-bottom:.4rem;display:none">
       ℹ Datos del reporte SAT oficial guardado para este periodo.
     </div>
-    <div class="hist-totals" style="grid-template-columns:repeat(6,1fr)">
+    <div class="hist-totals" style="grid-template-columns:repeat(8,1fr)">
       <div class="hist-total-box" style="border-color:#e2e8f0">
         <div class="label">Inv. Inicial</div><div class="value" id="htInvIni" style="color:#475569">—</div><div class="unit">Litros</div>
       </div>
@@ -1470,6 +1470,12 @@ tr:hover td{background:#f8fafc}
       </div>
       <div class="hist-total-box" style="border-color:#fed7aa">
         <div class="label">Total Entregas</div><div class="value" id="htEntCount" style="color:#9a3412">—</div><div class="unit">registros</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#fde68a">
+        <div class="label">Autoconsumo 🚛</div><div class="value" id="htAutoVol" style="color:#92400e">—</div><div class="unit">Litros</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#fde68a">
+        <div class="label">Autoconsumo 🚛</div><div class="value" id="htAutoCount" style="color:#92400e">—</div><div class="unit">registros</div>
       </div>
       <div class="hist-total-box" style="border-color:#bbf7d0">
         <div class="label">Inv. Final (Vol.Exist.)</div><div class="value" id="htExist" style="color:#15803d">—</div><div class="unit">Litros</div>
@@ -4477,6 +4483,14 @@ async function loadHistorial() {
     document.getElementById('htEntCount').textContent = totals.cnt_salidas || 0;
     document.getElementById('htExist').textContent = hasReport
       ? fmt(rep.vol_existencias)   + ' L' : '—';
+
+    // Autoconsumo — desglose de salidas manuales (file_path LIKE 'manual:%')
+    const autoVol   = totals.total_autoconsumo   || 0;
+    const autoCnt   = totals.cnt_autoconsumo     || 0;
+    const elAutoVol = document.getElementById('htAutoVol');
+    const elAutoCnt = document.getElementById('htAutoCount');
+    if (elAutoVol) elAutoVol.textContent = autoVol > 0 ? fmt(autoVol) + ' L' : '—';
+    if (elAutoCnt) elAutoCnt.textContent = autoCnt > 0 ? autoCnt : '—';
 
     // Importes en pesos — siempre visibles cuando existe reporte o registros
     const histImpEl = document.getElementById('histImportes');
