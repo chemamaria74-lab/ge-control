@@ -5028,7 +5028,18 @@ async function registrarAutoconsumo() {
   document.getElementById('btnAutoconsumo').disabled = true;
 
   try {
-    const rfc = document.getElementById('rfc')?.value?.trim()?.toUpperCase() || rfcEl;
+    const rfcCampo  = document.getElementById('rfc')?.value?.trim()?.toUpperCase() || '';
+    const rfcAcEl   = document.getElementById('ac_rfc_cliente')?.value?.trim()?.toUpperCase() || '';
+    const rfcPerfil = (_perfilSeleccionado?.rfc || '').trim().toUpperCase();
+    const rfc       = rfcCampo || rfcAcEl || rfcPerfil;
+    if (!rfc || rfc.startsWith('(CONFIGURA')) {
+        resultEl.style.display = ''; resultEl.style.background = '#fef2f2';
+        resultEl.style.border = '1px solid #fca5a5';
+        resultEl.textContent = 'Configura el RFC del contribuyente en Configuración antes de registrar autoconsumos.';
+        loadEl.style.display = 'none';
+        document.getElementById('btnAutoconsumo').disabled = false;
+        return;
+    }
     const res = await fetch('/api/movimientos/autoconsumo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
