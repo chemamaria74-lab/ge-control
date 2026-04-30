@@ -46,48 +46,46 @@ def _auth(authorization: str) -> str:
 
 
 class AutoconsumoPayload(BaseModel):
-    volumen_litros:   float                    # L a descontar del inventario
-    fecha:            str                      # YYYY-MM-DD
-    periodo:          str                      # YYYY-MM
-    rfc_contribuyente: str                     # RFC de la propia empresa
-    tipo_movimiento:  str   = "autoconsumo"    # autoconsumo | merma | trasvase
-    descripcion:      str   = ""               # descripción libre adicional
+    volumen_litros:   float
+    fecha:            str
+    periodo:          str
+    rfc_contribuyente: str
+    tipo_movimiento:  str   = "autoconsumo"
+    descripcion:      str   = ""
     facility_id:      Optional[int] = None
-    temperatura:      float = 20.0             # °C — para nodo Temperatura
-    presion_absoluta: float = 101.325          # kPa
+    temperatura:      float = 20.0
+    presion_absoluta: float = 101.325
+
+
+def _parse_perfil_id(raw: str) -> Optional[int]:
+    try:
+        v = int((raw or "").strip())
+        return v if v > 0 else None
+    except (ValueError, TypeError):
+        return None
 
 
 @router.post("/movimientos/autoconsumo")
 async def registrar_autoconsumo(
     payload: AutoconsumoPayload,
     authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
 ):
-    """
-    Registra un movimiento de autoconsumo / merma / trasvase.
-
-    - Se guarda en Supabase tabla `records` con tipo='salida'
-    - El UUID sintético tiene prefijo AUTO- para identificarlo como movimiento manual
-    - En el JSON SAT se incluye como entrega sin CFDI (Complemento vacío)
-    - En la BitácoraMensual usa TipoEvento=11 con descripción estándar SAT
-    """
-    user_id = _auth(authorization)
+    user_id   = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
 
     if payload.volumen_litros <= 0:
         raise HTTPException(400, "El volumen debe ser mayor a 0.")
     if payload.tipo_movimiento not in TIPO_MOVIMIENTO_VALIDOS:
         raise HTTPException(400, f"tipo_movimiento inválido. Valores: {list(TIPO_MOVIMIENTO_VALIDOS)}")
 
-    # UUID sintético con prefijo AUTO para distinguirlo de CFDIs reales
     uuid_sintetico = f"AUTO-{uuid4().hex[:8].upper()}-{uuid4().hex[:4].upper()}-{uuid4().hex[:4].upper()}-{uuid4().hex[:4].upper()}-{uuid4().hex[:12].upper()}"
-
     desc_base = TIPO_MOVIMIENTO_VALIDOS[payload.tipo_movimiento]
     descripcion_completa = f"{desc_base}. {payload.descripcion}".strip(". ")
-
     now = datetime.now(timezone.utc).isoformat()
 
-    # Guardar en Supabase con bandera es_autoconsumo=true (SAT Anexo 30 §17.4 TipoEvento=11)
     try:
-        sb = get_supabase()
+        sb  = get_supabase()
         row = {
             "user_id":            user_id,
             "facility_id":        payload.facility_id,
@@ -96,13 +94,15 @@ async def registrar_autoconsumo(
             "fecha":              payload.fecha,
             "volumen_litros":     round(payload.volumen_litros, 4),
             "uuid":               uuid_sintetico,
-            "rfc_contraparte":    payload.rfc_contribuyente.upper().strip(),  # RFC del mismo contribuyente
+            "rfc_contraparte":    payload.rfc_contribuyente.upper().strip(),
             "nombre_contraparte": f"AUTOCONSUMO — {payload.tipo_movimiento.upper()}",
             "importe":            0.0,
             "file_path":          f"manual:{payload.tipo_movimiento}",
-            "es_autoconsumo":     True,   # NUEVO — bandera SAT: TipoEvento=11 en BitácoraMensual
+            "es_autoconsumo":     True,
             "created_at":         now,
         }
+        if perfil_id:
+            row["perfil_id"] = perfil_id
         result = sb.table("records").insert(row).execute()
         if not result.data:
             raise Exception("Supabase no devolvió datos al insertar")
@@ -111,11 +111,9 @@ async def registrar_autoconsumo(
         logger.error("registrar_autoconsumo Supabase error: %s", e)
         raise HTTPException(500, f"Error al guardar en base de datos: {e}")
 
-    logger.info(
-        "Autoconsumo registrado: user=%s fid=%s periodo=%s vol=%.2f L tipo=%s uuid=%s",
-        user_id, payload.facility_id, payload.periodo,
-        payload.volumen_litros, payload.tipo_movimiento, uuid_sintetico
-    )
+    logger.info("Autoconsumo: user=%s perfil=%s fid=%s periodo=%s vol=%.2f uuid=%s",
+                user_id, perfil_id, payload.facility_id, payload.periodo,
+                payload.volumen_litros, uuid_sintetico)
 
     return JSONResponse(content={
         "ok":              True,
@@ -127,30 +125,33 @@ async def registrar_autoconsumo(
         "tipo_evento_sat": TIPO_EVENTO_AUTOCONSUMO,
         "descripcion_sat": DESC_AUTOCONSUMO,
         "record_id":       saved_record.get("id"),
-        "message":         f"Autoconsumo de {payload.volumen_litros:,.2f} L registrado correctamente. Se incluirá en el próximo reporte mensual.",
+        "message":         f"Autoconsumo de {payload.volumen_litros:,.2f} L registrado. Se incluirá en el próximo reporte mensual.",
     })
 
 
 @router.get("/movimientos/autoconsumo")
 async def listar_autoconsumos(
-    periodo:     str           = None,
-    facility_id: Optional[int] = None,
-    authorization: str         = Header(default=""),
+    periodo:       str           = None,
+    facility_id:   Optional[int] = None,
+    authorization: str           = Header(default=""),
+    x_perfil_id:   str           = Header(default=""),
 ):
-    """Lista los movimientos manuales de autoconsumo del periodo."""
-    user_id = _auth(authorization)
+    user_id   = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
 
     try:
         sb = get_supabase()
         q  = (sb.table("records")
                 .select("*")
                 .eq("user_id", user_id)
-                .like("file_path", "manual:%")   # identificador de movimientos manuales
+                .like("file_path", "manual:")
                 .eq("tipo", "salida"))
         if periodo:
             q = q.eq("periodo", periodo)
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
         rows = q.order("fecha", desc=True).execute().data or []
         return JSONResponse(content={"autoconsumos": rows, "total": len(rows)})
     except Exception as e:

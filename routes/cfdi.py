@@ -22,6 +22,13 @@ from models.schemas import UploadResponse
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+def _parse_perfil_id(raw: str) -> Optional[int]:
+    try:
+        v = int((raw or "").strip())
+        return v if v > 0 else None
+    except (ValueError, TypeError):
+        return None
+
 def _alerta_capacidad_msg(cap_limit: float, raw: float, capped: float) -> str:
     return (
         f"⚠ AJUSTE DE CAPACIDAD: El inventario calculado ({raw:,.2f} L) supera "
@@ -43,21 +50,26 @@ async def upload_cfdi(
     inventario_inicial:    Optional[float]  = Form(default=None),
     inventario_final:      Optional[float]  = Form(default=None),
     facility_id:           Optional[int]    = Form(default=None),
-    temperatura_medicion:  Optional[float]  = Form(default=20.0),   # °C para VCM
-    composicion_propano:   Optional[float]  = Form(default=None),   # Fracción molar real PR12
-    composicion_butano:    Optional[float]  = Form(default=None),   # Fracción molar real PR12
+    temperatura_medicion:  Optional[float]  = Form(default=20.0),
+    composicion_propano:   Optional[float]  = Form(default=None),
+    composicion_butano:    Optional[float]  = Form(default=None),
     authorization:         str              = Header(default=""),
+    x_perfil_id:           str              = Header(default=""),
 ):
     todos_logs:    list[str] = []
     todos_errores: list[str] = []
     todas_alertas: list[str] = []
 
     # ── Autenticación ────────────────────────────────────────────────────────
-    user_id = "default"
+    user_id   = "default"
+    perfil_id = _parse_perfil_id(x_perfil_id)
     if authorization.startswith("Bearer "):
         uid = verify_token(authorization[7:])
         if uid:
             user_id = uid
+
+    logger.info("upload_cfdi: user=%s perfil=%s facility=%s files=%d",
+                user_id, perfil_id, facility_id, len(files))
 
     # ── Validar archivos ─────────────────────────────────────────────────────
     if not files:
@@ -69,13 +81,14 @@ async def upload_cfdi(
         if ext not in ALLOWED_EXTS:
             raise HTTPException(400, f"Solo se aceptan .xml o .zip (recibido: '{f.filename}').")
 
-    # ── Cargar configuración persistente (FILTRADA por usuario) ─────────────
-    settings = load_settings(user_id)
+    # ── Cargar configuración persistente (FILTRADA por usuario Y perfil) ─────
+    settings = load_settings(user_id, perfil_id)
     rfc_activo = rfc.strip().upper() or settings.get("RfcContribuyente", "").strip().upper()
     if rfc.strip():
         settings["RfcContribuyente"] = rfc_activo
-    # Inyectar user_id para que sat_transformer resuelva proveedores del usuario correcto
-    settings["_user_id"] = user_id
+    # Inyectar user_id y perfil_id para que sat_transformer resuelva proveedores correctos
+    settings["_user_id"]   = user_id
+    settings["_perfil_id"] = perfil_id
 
     # ── Sobrescribir con datos de la instalación seleccionada ────────────────
     fid: Optional[int] = None
@@ -376,10 +389,10 @@ async def upload_cfdi(
     # ── PASO 4: Limpiar datos previos del mismo periodo + instalación ────────
     periodo = sat_meta["periodo"]
     init_db()
-    deleted = delete_period(user_id, periodo, facility_id=fid)
+    deleted = delete_period(user_id, periodo, facility_id=fid, perfil_id=perfil_id)
     if deleted.get("records", 0) or deleted.get("reports", 0):
         todos_logs.append(
-            f"Limpieza automática {periodo} [fid={fid}]: eliminados {deleted['records']} "
+            f"Limpieza automática {periodo} [fid={fid} pid={perfil_id}]: eliminados {deleted['records']} "
             f"registros y {deleted['reports']} reportes anteriores."
         )
 
@@ -393,14 +406,14 @@ async def upload_cfdi(
             settings=settings,
         )
         periodo = sat_meta["periodo"]
-        # Guardar solo movimientos de CFDI (no los autoconsumos manuales,
-        # que ya están en Supabase y se preservaron en delete_period)
         compras_cfdi = {k: v for k, v in sat_meta["_compras"].items()
                         if not k.startswith("AUTO-")}
         ventas_cfdi  = {k: v for k, v in sat_meta["_ventas"].items()
                         if not k.startswith("AUTO-")}
-        save_records(user_id, periodo, compras_cfdi, "entrada", facility_id=fid)
-        save_records(user_id, periodo, ventas_cfdi,  "salida",  facility_id=fid)
+        save_records(user_id, periodo, compras_cfdi, "entrada",
+                     facility_id=fid, perfil_id=perfil_id)
+        save_records(user_id, periodo, ventas_cfdi,  "salida",
+                     facility_id=fid, perfil_id=perfil_id)
         todos_logs.append(f"UUID primera salida (nombramiento SAT): {first_uuid or '(generado aleatoriamente)'}")
         save_report(
             user_id=user_id, periodo=periodo, meta=sat_meta,
@@ -410,11 +423,12 @@ async def upload_cfdi(
             json_path=file_info.get("json_path", ""),
             zip_path=file_info.get("zip_path",  ""),
             facility_id=fid,
+            perfil_id=perfil_id,
         )
         todos_logs.append(f"Archivos guardados: {file_info.get('json_name', '')}")
     except Exception as e:
         todas_alertas.append(f"⚠ No se pudieron guardar archivos/registros: {e}")
-        logger.warning("Error al persistir: %s", e)
+        logger.exception("Error al persistir records/report: %s", e)
 
     meta_resp = {k: v for k, v in sat_meta.items() if not k.startswith("_")}
 
