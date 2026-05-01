@@ -217,6 +217,8 @@ def _group_by_uuid(movimientos: list, tipo: str, factor_kg_a_litros: float) -> d
                 "volumen_litros": vol_litros,
                 "file_path":      m.get("_source", ""),
                 "usuario":        m.get("usuario", "Sistema"),
+                "_excluir_json":  m.get("_excluir_json", False),
+                "_es_trasvase":   m.get("_es_trasvase", False),
             }
         else:
             grupos[uuid]["volumen_litros"] += vol_litros
@@ -430,15 +432,30 @@ def build_sat_report(
 
     # ── Grupos por UUID ───────────────────────────────────────────────────────
     compras = _group_by_uuid(movimientos, "entrada", factor_kg_a_litros)
-    ventas  = _group_by_uuid(movimientos, "salida",  factor_kg_a_litros)
+    # Separar ventas: trasvases excluidos del JSON vs ventas normales
+    ventas_todas    = _group_by_uuid(movimientos, "salida", factor_kg_a_litros)
+    ventas          = {k:v for k,v in ventas_todas.items() if not v.get("_excluir_json")}
+    trasvases_excl  = {k:v for k,v in ventas_todas.items() if v.get("_excluir_json")}
 
     total_rec = round(sum(g["volumen_litros"] for g in compras.values()), 2)
     total_ent = round(sum(g["volumen_litros"] for g in ventas.values()),  2)
     importe_rec = round(sum(g["importe"] for g in compras.values()), 2)
     importe_ent = round(sum(g["importe"] for g in ventas.values()),  2)
-    vol_existencias_raw = round(inventario_inicial_litros + total_rec - total_ent, 2)
+    # Incluir trasvases en balance de existencias (salen del tanque aunque no van al JSON)
+    total_ent_real = round(total_ent + sum(g["volumen_litros"] for g in trasvases_excl.values()), 2)
+    vol_existencias_raw = round(inventario_inicial_litros + total_rec - total_ent_real, 2)
     cnt_rec = len(compras)
     cnt_ent = len(ventas)
+
+    # ── Inventario negativo → clamp a 0 ──────────────────────────────────────
+    # Si el balance da negativo es imposible físicamente → reportar y usar 0
+    if vol_existencias_raw < 0:
+        logger.warning(
+            "Inventario calculado negativo (%.2f L) → ajustado a 0. "
+            "Verifica el inventario inicial o si faltan recepciones.",
+            vol_existencias_raw
+        )
+        vol_existencias_raw = 0.0
 
     # ── Límite de capacidad ───────────────────────────────────────────────────
     cap_limit   = capacidad_tanque if (capacidad_tanque and capacidad_tanque > 0) else CAPACIDAD_MAX
@@ -562,22 +579,28 @@ def build_sat_report(
             ),
         }); n += 1
 
-    # 4. Un evento por cada CFDI de entrega
-    # TipoEvento=11 (Consumo propio) requiere IdentificacionComponenteAlarma obligatorio (SAT §17.4)
+    # 4. Eventos de entregas — ventas normales (TipoEvento=4) + trasvases excluidos (TipoEvento=11)
     _rfc_cv_upper = (settings.get("RfcContribuyente", "") or "").strip().upper()
-    # ID del componente del sistema de medición — viene de Config Avanzada del perfil
     _adv_t = settings.get("adv_tanques") or {}
     _clave_tanque = (_adv_t.get("clave_tanque") or "").strip().upper() or "T-01"
-    _id_sme = f"SME-{_clave_tanque}"   # "SME-T-01" por defecto
+    _id_sme = f"SME-{_clave_tanque}"
 
-    for g in ventas.values():
+    # Combinar ventas normales + trasvases para la bitácora (todos tienen evento)
+    todos_eventos_salida = {**ventas, **trasvases_excl}
+
+    for g in todos_eventos_salida.values():
         uuid_val = g.get("uuid", "")
         es_autoconsumo_uuid = uuid_val.startswith("AUTO-")
         rfc_receptor = (g.get("rfc_cp", "") or "").upper().strip()
-        es_consumo_propio = es_autoconsumo_uuid or (
-            bool(rfc_receptor) and bool(_rfc_cv_upper) and rfc_receptor == _rfc_cv_upper
+        es_trasvase  = g.get("_es_trasvase", False) or g.get("_excluir_json", False)
+
+        # TipoEvento=11: autoconsumo UUID, trasvase excluido, o RFC receptor == contribuyente
+        es_consumo_propio = (
+            es_autoconsumo_uuid or es_trasvase or
+            (bool(rfc_receptor) and bool(_rfc_cv_upper) and rfc_receptor == _rfc_cv_upper)
         )
         tipo_ev = 11 if es_consumo_propio else 4
+
         if es_consumo_propio:
             desc_ev = (
                 f"Consumo propio interno (flota/operacion). "
@@ -598,7 +621,6 @@ def build_sat_report(
             "TipoEvento":         tipo_ev,
             "DescripcionEvento":  desc_ev,
         }
-        # §17.4 Guía SAT: IdentificacionComponenteAlarma es OBLIGATORIO cuando TipoEvento=11
         if tipo_ev == 11:
             evento["IdentificacionComponenteAlarma"] = _id_sme
         bitacora.append(evento); n += 1
