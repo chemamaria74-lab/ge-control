@@ -419,7 +419,14 @@ def delete_period(user_id: str, periodo: str,
         qr   = sb.table("records").delete().eq("user_id", user_id).eq("periodo", periodo)
         qrep = sb.table("reports").delete().eq("user_id", user_id).eq("periodo", periodo)
         if not include_autoconsumos:
-            qr = qr.not_.like("file_path", "manual:%")
+            # Proteger autoconsumos: NO borrar los que tienen file_path='manual:*' O uuid='AUTO-*'
+            # Supabase soporta .not_.like() pero encadenar dos .not_.like() hace AND, no OR
+            # Solución: usar filtro raw con not(or(...))
+            try:
+                qr = qr.not_.or_("file_path.like.manual:%,uuid.like.AUTO-%")
+            except Exception:
+                # Fallback si la versión del cliente no soporta not_.or_
+                qr = qr.not_.like("file_path", "manual:%").not_.like("uuid", "AUTO-%")
         if facility_id is not None:
             qr   = qr.eq("facility_id", facility_id)
             qrep = qrep.eq("facility_id", facility_id)
