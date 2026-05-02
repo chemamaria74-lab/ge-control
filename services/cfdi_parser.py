@@ -339,13 +339,11 @@ def _parse_xml_con_filtro(
                     rfc_emisor_clean, rfc_receptor_clean,
                     source, logs, filtro
                 )
+        # Filtrar completamente los eliminados
+        movs_candidatos = [m for m in movs_candidatos if not m.get('_eliminar')]
         movimientos.extend(movs_candidatos)
         if movs_candidatos:
-            excl = movs_candidatos[0].get('_excluir_json', False)
-            logs.append(
-                f"[{source}] ✓ gas_lp: {volumen} {unidad} ({tipo_movimiento}) "
-                f"fecha={fecha}" + (" [TRASVASE→bitácora]" if excl else "")
-            )
+            logs.append(f"[{source}] ✓ gas_lp: {volumen} {unidad} ({tipo_movimiento}) fecha={fecha}")
 
     if not movimientos and not errores:
         logs.append(f"[{source}] No se encontraron conceptos de Gas LP en este CFDI.")
@@ -362,7 +360,11 @@ def _aplicar_regla_trasvase_inline(
     logs: list,
     filtro: dict,
 ) -> None:
-    """Modifica el movimiento in-place aplicando la regla de trasvase empresa→empresa."""
+    """
+    Regla empresa→misma empresa:
+    - >5,000 L → eliminar completamente (ni JSON ni historial ni bitácora)
+    - ≤5,000 L → procesar como venta normal (entrega a estación propia)
+    """
     rfc_a = rfc_activo.strip().upper()
     rfc_e = rfc_emisor.strip().upper()
     rfc_r = rfc_receptor.strip().upper()
@@ -370,19 +372,20 @@ def _aplicar_regla_trasvase_inline(
     if rfc_e == rfc_a and rfc_r == rfc_a:
         vol = mov['volumen']
         if vol > UMBRAL_TRASVASE_LITROS:
-            mov['_es_trasvase']  = True
-            mov['_excluir_json'] = True
+            mov['_eliminar'] = True   # señal para ignorar completamente
             filtro['trasvase_excluido'] += 1
             logs.append(
-                f"[{source}] TRASVASE EXCLUIDO: {vol:,.0f} L empresa→empresa "
-                f">5,000 L → solo BitácoraMensual (TipoEvento=11)."
+                f"[{source}] ELIMINADO: {vol:,.0f} L empresa→empresa "
+                f">5,000 L → no se incluye en JSON, historial ni bitácora."
             )
         else:
-            mov['_es_trasvase']  = False
-            mov['_excluir_json'] = False
+            # ≤5,000 L → venta normal a estación propia
+            mov['_eliminar'] = False
             logs.append(
-                f"[{source}] Trasvase ≤5,000 L ({vol:,.0f} L): venta normal (TipoEvento=4)."
+                f"[{source}] Trasvase ≤5,000 L ({vol:,.0f} L): procesado como venta normal."
             )
+    else:
+        mov.setdefault('_eliminar', False)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
