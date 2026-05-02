@@ -584,12 +584,11 @@ def build_sat_report(
     for g in ventas.values():
         uuid_val     = g.get("uuid", "")
         rfc_receptor = (g.get("rfc_cp", "") or "").upper().strip()
-        es_autoconsumo = (
-            uuid_val.startswith("AUTO-") or
-            (bool(rfc_receptor) and bool(_rfc_cv_upper) and rfc_receptor == _rfc_cv_upper)
-        )
-        tipo_ev = 11 if es_autoconsumo else 4
-        if es_autoconsumo:
+        # TipoEvento=11 SOLO para autoconsumos manuales registrados desde la app (UUID prefijo AUTO-)
+        # Las ventas empresa→empresa ≤5kL son entregas normales → TipoEvento=4
+        es_autoconsumo_manual = uuid_val.startswith("AUTO-")
+        tipo_ev = 11 if es_autoconsumo_manual else 4
+        if es_autoconsumo_manual:
             desc_ev = (
                 f"Consumo propio interno (flota/operacion). "
                 f"RFC receptor: {rfc_receptor}. "

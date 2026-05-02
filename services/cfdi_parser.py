@@ -119,20 +119,32 @@ def parse_zip(
         return movimientos, errores, logs
 
     # ── Resumen de filtrado para mostrar al usuario ──────────────────────────
-    resumen = []
-    if cnt_nomina   > 0: resumen.append(f"{cnt_nomina} nómina(s)")
-    if cnt_traslado > 0: resumen.append(f"{cnt_traslado} traslado(s)")
-    if cnt_pago     > 0: resumen.append(f"{cnt_pago} complemento(s) de pago")
-    if cnt_carta    > 0: resumen.append(f"{cnt_carta} carta(s) porte")
-    if cnt_trasvase_excl > 0:
-        resumen.append(
-            f"{cnt_trasvase_excl} trasvase(s) empresa→empresa >5,000 L "
-            f"(excluidos del JSON SAT, incluidos en BitácoraMensual como TipoEvento=11)"
-        )
-    if resumen:
+    if cnt_nomina or cnt_traslado or cnt_pago or cnt_carta or cnt_trasvase_excl:
+        partes = []
+        if cnt_nomina > 0:
+            partes.append(
+                f"📋 {cnt_nomina} nómina(s) — no aplican al Anexo 30"
+            )
+        if cnt_traslado > 0:
+            partes.append(
+                f"🚚 {cnt_traslado} traslado(s) — no aplican al Anexo 30"
+            )
+        if cnt_pago > 0:
+            partes.append(
+                f"💳 {cnt_pago} complemento(s) de pago — no aplican al Anexo 30"
+            )
+        if cnt_carta > 0:
+            partes.append(
+                f"📦 {cnt_carta} carta(s) porte — no aplican al Anexo 30"
+            )
+        if cnt_trasvase_excl > 0:
+            partes.append(
+                f"🏭 {cnt_trasvase_excl} factura(s) empresa→empresa >5,000 L — "
+                f"excluidas del reporte SAT (trasvase interno, no es venta ni autoconsumo)"
+            )
         logs.append(
-            f"⚠ FILTRADO AUTOMÁTICO: Se excluyeron del reporte SAT → {' | '.join(resumen)}. "
-            f"Estos documentos no cumplen los criterios de inclusión en el Anexo 30 mensual."
+            "⚠ FILTRADO AUTOMÁTICO: Los siguientes documentos fueron excluidos del reporte SAT:\n  • "
+            + "\n  • ".join(partes)
         )
 
     return movimientos, errores, logs
