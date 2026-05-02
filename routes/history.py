@@ -146,14 +146,6 @@ async def download_report(
     fmt_l = fmt.lower()
     path_map = {"xml": rep["xml_path"], "json": rep["json_path"], "zip": rep["zip_path"]}
     path = path_map.get(fmt_l, "")
-    if not path or not os.path.exists(path):
-        raise HTTPException(404, f"Archivo {fmt.upper()} no disponible para {periodo}.")
-
-    media = {
-        "xml":  "application/xml",
-        "json": "application/json",
-        "zip":  "application/zip",
-    }.get(fmt_l, "application/octet-stream")
 
     stored_uuid   = rep.get("first_salida_uuid") or ""
     filename_base = (rep.get("filename_base") or "").strip()
@@ -170,6 +162,39 @@ async def download_report(
             sat_name     = generate_filename(settings, periodo, fmt_for_name, stored_uuid)
             filename     = sat_name + "." + fmt_l
     except Exception:
-        filename = os.path.basename(path)
+        filename = os.path.basename(path) if path else f"reporte_{periodo}.{fmt_l}"
+
+    media = {
+        "xml":  "application/xml",
+        "json": "application/json",
+        "zip":  "application/zip",
+    }.get(fmt_l, "application/octet-stream")
+
+    # ── Intentar servir desde contenido guardado en Supabase (persistente) ──
+    # Esto garantiza que el ZIP del historial sea IDÉNTICO al que se generó
+    if fmt_l == "zip" and rep.get("zip_content"):
+        import base64, io
+        from fastapi.responses import StreamingResponse
+        zip_bytes = base64.b64decode(rep["zip_content"])
+        return StreamingResponse(
+            io.BytesIO(zip_bytes),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+
+    if fmt_l == "json" and rep.get("json_content"):
+        import io
+        from fastapi.responses import StreamingResponse
+        json_bytes = rep["json_content"].encode("utf-8")
+        return StreamingResponse(
+            io.BytesIO(json_bytes),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+
+    # ── Fallback: servir desde disco ────────────────────────────────────────
+    if not path or not os.path.exists(path):
+        raise HTTPException(404, f"Archivo {fmt.upper()} no disponible para {periodo}. "
+                                 f"Vuelve a procesar los ZIPs para regenerarlo.")
 
     return FileResponse(path, media_type=media, filename=filename)
