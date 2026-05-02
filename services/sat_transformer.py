@@ -555,17 +555,13 @@ def build_sat_report(
     # Obtener display_name del usuario para UsuarioResponsable
     _usuario_resp = settings.get("display_name") or settings.get("user_display_name") or "Sistema"
 
-    # 1. Inicio del periodo — incluye VolumenInicialMes (inventario inicial)
+    # 1. Inicio del periodo
     bitacora.append({
-        "NumeroRegistro":    n,
-        "FechaYHoraEvento":  inicio_mes,
+        "NumeroRegistro":     n,
+        "FechaYHoraEvento":   inicio_mes,
         "UsuarioResponsable": _usuario_resp,
-        "TipoEvento":        1,
-        "DescripcionEvento": TIPO_EVENTO_DESC[1],
-        "VolumenInicialMes": {
-            "ValorNumerico": round(inventario_inicial_litros, 2),
-            "UnidadDeMedida": "UM03",
-        },
+        "TipoEvento":         1,
+        "DescripcionEvento":  TIPO_EVENTO_DESC[1],
     }); n += 1
 
     # 3. Un evento por cada CFDI de recepción
