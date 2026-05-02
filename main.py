@@ -883,6 +883,17 @@ tr:hover td{background:#f8fafc}
       <ul class="alert-list" id="alertList"></ul>
     </div>
   </div>
+
+  <!-- Banner de filtrado automático — se muestra cuando hay nóminas, traslados, carta porte o trasvases excluidos -->
+  <div id="filtradoBanner" style="display:none;background:#f0f9ff;border:1.5px solid #7dd3fc;border-radius:10px;padding:1rem 1.2rem;margin-bottom:.8rem">
+    <div style="font-size:.82rem;font-weight:700;color:#0369a1;margin-bottom:.5rem">
+      <i class="fa-solid fa-filter" style="margin-right:.4rem"></i>Filtrado automático aplicado
+    </div>
+    <ul id="filtradoList" style="margin:0;padding-left:1.2rem;font-size:.78rem;color:#0c4a6e;line-height:1.9"></ul>
+    <div style="font-size:.72rem;color:#64748b;margin-top:.5rem;border-top:1px solid #bae6fd;padding-top:.4rem">
+      Estos documentos no afectan el balance ni el reporte SAT — solo se notifican por transparencia.
+    </div>
+  </div>
   <div class="json-pre" id="jsonPre"></div>
   <div class="btn-row" id="downloadRow">
     <button class="btn btn-green" id="btnDownload" style="display:none"><i class="fa-solid fa-file-arrow-down" style="margin-right:.35rem"></i>JSON (Excel/CSV)</button>
@@ -4287,9 +4298,33 @@ async function processCFDI(files) {
     document.getElementById('badgeSource').textContent  = `${(data.conteo_compras||0) + (data.conteo_ventas||0)} CFDIs`;
     document.getElementById('badgeUnidad').textContent  = 'UM03 · Litros';
 
-    // Alertas de capacidad y generales
-    const capAlerts   = alerts.filter(a => a.includes('ADVERTENCIA DE CAPACIDAD') || a.includes('277'));
-    const otherAlerts = alerts.filter(a => !capAlerts.includes(a));
+    // Alertas: separar filtrado automático de alertas de capacidad y generales
+    const filtradoAlerts = alerts.filter(a => a.startsWith('⚠ FILTRADO AUTOMÁTICO'));
+    const capAlerts      = alerts.filter(a => a.includes('ADVERTENCIA DE CAPACIDAD') || a.includes('277'));
+    const otherAlerts    = alerts.filter(a => !filtradoAlerts.includes(a) && !capAlerts.includes(a));
+
+    // Banner de filtrado (azul informativo)
+    const filtBanner = document.getElementById('filtradoBanner');
+    const filtList   = document.getElementById('filtradoList');
+    if (filtradoAlerts.length && filtBanner && filtList) {
+      filtBanner.style.display = 'block';
+      filtList.innerHTML = '';
+      filtradoAlerts.forEach(msg => {
+        // Parsear las líneas del mensaje multilinea
+        const lineas = msg.replace('⚠ FILTRADO AUTOMÁTICO: Los siguientes documentos fueron excluidos del reporte SAT:\n  • ', '')
+                          .split('\n  • ');
+        lineas.forEach(linea => {
+          if (linea.trim()) {
+            const li = document.createElement('li');
+            li.textContent = linea.trim();
+            filtList.appendChild(li);
+          }
+        });
+      });
+    } else if (filtBanner) {
+      filtBanner.style.display = 'none';
+    }
+
     document.getElementById('alertCapacidad').style.display = capAlerts.length ? 'block' : 'none';
     if (otherAlerts.length) {
       document.getElementById('alertSection').style.display = 'block';
@@ -4581,6 +4616,8 @@ function resetResult() {
   document.getElementById('alertSection').style.display  = 'none';
   document.getElementById('errList').innerHTML    = '';
   document.getElementById('alertList').innerHTML  = '';
+  const _fb = document.getElementById('filtradoBanner');
+  if (_fb) _fb.style.display = 'none';
   document.getElementById('jsonPre').textContent  = '';
   document.getElementById('logPre').textContent   = '';
   document.getElementById('errLog').textContent   = '';
