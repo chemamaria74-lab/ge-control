@@ -552,12 +552,20 @@ def build_sat_report(
     bitacora = []
     n = 1
 
-    # 1. Inicio del periodo
+    # Obtener display_name del usuario para UsuarioResponsable
+    _usuario_resp = settings.get("display_name") or settings.get("user_display_name") or "Sistema"
+
+    # 1. Inicio del periodo — incluye VolumenInicialMes (inventario inicial)
     bitacora.append({
         "NumeroRegistro":    n,
         "FechaYHoraEvento":  inicio_mes,
+        "UsuarioResponsable": _usuario_resp,
         "TipoEvento":        1,
         "DescripcionEvento": TIPO_EVENTO_DESC[1],
+        "VolumenInicialMes": {
+            "ValorNumerico": round(inventario_inicial_litros, 2),
+            "UnidadDeMedida": "UM03",
+        },
     }); n += 1
 
     # 3. Un evento por cada CFDI de recepción
@@ -565,7 +573,7 @@ def build_sat_report(
         bitacora.append({
             "NumeroRegistro":     n,
             "FechaYHoraEvento":   _fmt_iso_hhmm00(g["fecha_hora"]),
-            "UsuarioResponsable": g.get("usuario", "Sistema"),
+            "UsuarioResponsable": _usuario_resp,
             "TipoEvento":         3,
             "DescripcionEvento":  (
                 f"Recepcion registrada. CFDI: {g['uuid'][:8]}... "
@@ -604,7 +612,7 @@ def build_sat_report(
         evento = {
             "NumeroRegistro":     n,
             "FechaYHoraEvento":   _fmt_iso_hhmm00(g["fecha_hora"]),
-            "UsuarioResponsable": g.get("usuario", "Sistema"),
+            "UsuarioResponsable": _usuario_resp,
             "TipoEvento":         tipo_ev,
             "DescripcionEvento":  desc_ev,
         }
