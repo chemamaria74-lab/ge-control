@@ -4831,20 +4831,23 @@ async function loadHistorial() {
 
     // Prefer values from the saved SAT report (exact); fallback to aggregated records
     const hasReport = rep && rep.total_recepciones != null && rep.total_recepciones > 0;
-    const hasInvIni = rep && rep.inventario_inicial != null;
-    const hasExist  = rep && rep.vol_existencias   != null;
+    // Inv. inicial: del reporte si > 0; si no, calcularlo implícito desde el balance
+    let invIni = (rep && rep.inventario_inicial > 0) ? rep.inventario_inicial : null;
+    let invFin = (rep && rep.vol_existencias   > 0) ? rep.vol_existencias    : null;
+    if (invIni == null && hasReport && invFin != null) {
+      const calc = invFin + (rep.total_entregas || 0) - (rep.total_recepciones || 0);
+      if (calc > 0) invIni = calc;
+    }
     document.getElementById('histReportInfo').style.display = hasReport ? '' : 'none';
     document.getElementById('htFormula').style.display      = hasReport ? '' : 'none';
-    document.getElementById('htInvIni').textContent = hasInvIni
-      ? fmt(rep.inventario_inicial) + ' L' : '—';
+    document.getElementById('htInvIni').textContent = invIni != null ? fmt(invIni) + ' L' : '—';
     document.getElementById('htRec').textContent = hasReport
       ? fmt(rep.total_recepciones) + ' L' : fmt(totals.total_entradas) + ' L';
     document.getElementById('htRecCount').textContent = totals.cnt_entradas || 0;
     document.getElementById('htEnt').textContent = hasReport
       ? fmt(rep.total_entregas)    + ' L' : fmt(totals.total_salidas)  + ' L';
     document.getElementById('htEntCount').textContent = totals.cnt_salidas || 0;
-    document.getElementById('htExist').textContent = hasExist
-      ? fmt(rep.vol_existencias)   + ' L' : '—';
+    document.getElementById('htExist').textContent = invFin != null ? fmt(invFin) + ' L' : '—';
 
     // Autoconsumo
     const autoVol   = totals.total_autoconsumo   || 0;
