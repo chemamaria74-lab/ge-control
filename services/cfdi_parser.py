@@ -50,7 +50,7 @@ def _normalizar_unidad(unidad_raw: str) -> str:
     u = unidad_raw.strip().lower()
     if u in ("kg", "kgm", "kilogramo", "kilogramos", "kilo", "kilos"):
         return "kg"
-    # H83 = Litro (clave c_ClaveUnidad SAT), E34 = Litro también
+    # H83 = Litro (clave c_ClaveUnidad SAT), E34 = Litro también, LTR = Litro
     if u in ("l", "lt", "ltr", "lts", "litro", "litros", "liter", "liters", "h83", "e34"):
         return "litros"
     return u
