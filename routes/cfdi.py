@@ -101,6 +101,10 @@ async def _upload_cfdi_impl(
                     display_name = row[0]["display_name"]
                 elif row and row[0].get("email"):
                     display_name = row[0]["email"].split("@")[0]
+                else:
+                    # Fallback: usar RFC del contribuyente del perfil activo
+                    _s = load_settings(uid, perfil_id)
+                    display_name = _s.get("RfcContribuyente") or uid[:8]
             except Exception:
                 display_name = uid[:8]  # fallback: primeros 8 chars del UUID
 
