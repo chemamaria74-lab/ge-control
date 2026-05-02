@@ -122,9 +122,10 @@ async def _upload_cfdi_impl(
     rfc_activo = rfc.strip().upper() or settings.get("RfcContribuyente", "").strip().upper()
     if rfc.strip():
         settings["RfcContribuyente"] = rfc_activo
-    # Inyectar user_id y perfil_id para que sat_transformer resuelva proveedores correctos
-    settings["_user_id"]   = user_id
-    settings["_perfil_id"] = perfil_id
+    # Inyectar user_id, perfil_id y display_name para sat_transformer
+    settings["_user_id"]        = user_id
+    settings["_perfil_id"]      = perfil_id
+    settings["display_name"]    = display_name  # para UsuarioResponsable en bitácora
 
     # ── Sobrescribir con datos de la instalación seleccionada ────────────────
     fid: Optional[int] = None
