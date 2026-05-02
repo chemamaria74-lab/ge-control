@@ -265,26 +265,34 @@ def get_period_totals(user_id: str, periodo: str,
         r = get_records(user_id, periodo, facility_id, perfil_id)
         entradas = r["entradas"]
         salidas  = r["salidas"]
-        # Separar por tipo de salida
-        autoconsumos = [s for s in salidas if (s.get("file_path") or "").startswith("manual:")]
-        # Traspasos: salidas donde rfc_contraparte == rfc del mismo contribuyente
-        # Identificados por importe simbólico (<1 peso por litro)
+
+        # Autoconsumos: registros manuales — detectados por file_path O por UUID prefijo AUTO-
+        autoconsumos = [s for s in salidas
+                        if (s.get("file_path") or "").startswith("manual:")
+                        or (s.get("uuid") or "").upper().startswith("AUTO-")]
+
+        # Traspasos: ventas donde importe > 0 pero precio simbólico < $1/L y NO son autoconsumos
         traspasos = [s for s in salidas
                      if not (s.get("file_path") or "").startswith("manual:")
-                     and s.get("volumen_litros",0) > 0
-                     and s.get("importe",0) / s.get("volumen_litros",1) < 1.0]
+                     and not (s.get("uuid") or "").upper().startswith("AUTO-")
+                     and s.get("volumen_litros", 0) > 0
+                     and s.get("importe", 0) > 0
+                     and s.get("importe", 0) / s.get("volumen_litros", 1) < 1.0]
+
+        # Ventas reales: CFDI con precio normal ≥$1/L, no manuales
         ventas_reales = [s for s in salidas
                          if not (s.get("file_path") or "").startswith("manual:")
-                         and s.get("volumen_litros",0) > 0
-                         and s.get("importe",0) / s.get("volumen_litros",1) >= 1.0]
+                         and not (s.get("uuid") or "").upper().startswith("AUTO-")
+                         and s.get("volumen_litros", 0) > 0
+                         and s.get("importe", 0) / s.get("volumen_litros", 1) >= 1.0]
 
-        # Precios promedio
-        vol_compra = sum(e.get("volumen_litros",0) for e in entradas)
-        imp_compra = sum(e.get("importe",0) for e in entradas)
+        # ── Precios promedio ──────────────────────────────────────────────────
+        vol_compra = sum(e.get("volumen_litros", 0) for e in entradas)
+        imp_compra = sum(e.get("importe", 0) for e in entradas)
         precio_compra = round(imp_compra / vol_compra, 4) if vol_compra > 0 else 0
 
-        vol_venta = sum(s.get("volumen_litros",0) for s in ventas_reales)
-        imp_venta = sum(s.get("importe",0) for s in ventas_reales)
+        vol_venta = sum(s.get("volumen_litros", 0) for s in ventas_reales)
+        imp_venta = sum(s.get("importe", 0) for s in ventas_reales)
         precio_venta = round(imp_venta / vol_venta, 4) if vol_venta > 0 else 0
 
         return {
@@ -297,7 +305,7 @@ def get_period_totals(user_id: str, periodo: str,
             "precio_compra_prom": precio_compra,
             "precio_venta_prom":  precio_venta,
             "importe_entradas":   round(imp_compra, 2),
-            "importe_salidas":    round(sum(x.get("importe",0) for x in salidas), 2),
+            "importe_salidas":    round(sum(x.get("importe", 0) for x in salidas), 2),
             "cnt_entradas":       len(entradas),
             "cnt_salidas":        len(salidas),
         }
