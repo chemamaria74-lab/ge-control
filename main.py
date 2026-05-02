@@ -2633,32 +2633,65 @@ actualizarRfcHint();
 // MULTI-EMPRESA: Lógica de selección y cambio de perfil
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function cargarPerfiles() {
-  try {
-    const res = await fetch('/api/perfiles', { headers: authHeader() });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.perfiles || [];
-  } catch(e) {
-    console.warn('Error cargando perfiles:', e);
-    return [];
+async function cargarPerfiles(intentos = 3) {
+  for (let i = 0; i < intentos; i++) {
+    try {
+      const res = await fetch('/api/perfiles', { headers: authHeader() });
+      if (res.ok) {
+        const data = await res.json();
+        const perfiles = data.perfiles || [];
+        if (perfiles.length > 0) return perfiles;
+        // Si vino vacío pero no es el último intento, esperar y reintentar
+        if (i < intentos - 1) await new Promise(r => setTimeout(r, 800));
+      } else if (res.status === 401) {
+        return [];  // sesión expirada, no reintentar
+      } else if (i < intentos - 1) {
+        await new Promise(r => setTimeout(r, 800));
+      }
+    } catch(e) {
+      console.warn(`cargarPerfiles intento ${i+1}/${intentos}:`, e);
+      if (i < intentos - 1) await new Promise(r => setTimeout(r, 1000));
+    }
   }
+  return [];
 }
 
 async function iniciarFlujoEmpresa() {
   if (!authToken) return;
-  const perfiles = await cargarPerfiles();
+  const perfiles = await cargarPerfiles(3);
 
   if (perfiles.length === 0) {
-    abrirModalNuevoPerfil();
+    // Antes de abrir modal de nuevo perfil, verificar si es error de red
+    // mostrando un botón de reintento al usuario
+    const overlay = document.getElementById('empresaOverlay');
+    if (overlay) {
+      const list = document.getElementById('empresaList');
+      if (list) list.innerHTML = `
+        <div style="text-align:center;padding:2rem;color:#64748b">
+          <div style="font-size:1.5rem;margin-bottom:.5rem">⚠️</div>
+          <div style="font-weight:600;margin-bottom:.5rem">No se pudieron cargar las empresas</div>
+          <div style="font-size:.8rem;margin-bottom:1rem">Puede ser un problema de conexión temporal</div>
+          <button onclick="iniciarFlujoEmpresa()" 
+                  style="background:#0f172a;color:#fff;border:none;padding:.5rem 1.2rem;border-radius:8px;cursor:pointer;font-size:.85rem">
+            🔄 Reintentar
+          </button>
+          <div style="margin-top:.8rem">
+            <button onclick="abrirModalNuevoPerfil()" 
+                    style="background:transparent;border:1px solid #e2e8f0;padding:.4rem .8rem;border-radius:8px;cursor:pointer;font-size:.75rem;color:#475569">
+              + Crear nueva empresa
+            </button>
+          </div>
+        </div>`;
+      overlay.classList.add('visible');
+    } else {
+      abrirModalNuevoPerfil();
+    }
     return;
   }
   if (perfiles.length === 1) {
-    // Solo un perfil → seleccionar automáticamente sin mostrar overlay
     seleccionarEmpresa(perfiles[0], false);
     return;
   }
-  // Múltiples perfiles → mostrar overlay de selección
   mostrarOverlayEmpresas(perfiles);
 }
 
