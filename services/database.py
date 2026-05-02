@@ -327,6 +327,7 @@ def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
                 facility_id: Optional[int] = None,
                 perfil_id: Optional[int] = None) -> None:
     try:
+        import base64
         record = {
             "user_id":             user_id,
             "facility_id":         facility_id,
@@ -346,6 +347,14 @@ def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
         }
         if perfil_id:
             record["perfil_id"] = perfil_id
+        # Guardar contenido del ZIP y JSON en Supabase (base64)
+        # Así el historial sirve exactamente el mismo archivo sin depender del disco
+        if zip_path and os.path.exists(zip_path):
+            with open(zip_path, "rb") as f:
+                record["zip_content"] = base64.b64encode(f.read()).decode("utf-8")
+        if json_path and os.path.exists(json_path):
+            with open(json_path, "r", encoding="utf-8") as f:
+                record["json_content"] = f.read()
         get_supabase().table("reports").insert(record).execute()
     except Exception as e:
         logger.error("save_report: %s", e)
