@@ -4797,11 +4797,11 @@ async function loadHistorial() {
     histZipFilename = data.zip_filename || null;
 
     // Prefer values from the saved SAT report (exact); fallback to aggregated records
-    // hasReport: true si existe reporte Y tiene vol_existencias > 0 (reporte válido)
-    const hasReport = rep && rep.vol_existencias != null && rep.vol_existencias > 0;
-    const hasInvIni = rep && rep.inventario_inicial != null && rep.inventario_inicial > 0;
-    document.getElementById('histReportInfo').style.display = (hasReport || hasInvIni) ? '' : 'none';
-    document.getElementById('htFormula').style.display      = (hasReport || hasInvIni) ? '' : 'none';
+    const hasReport = rep && rep.total_recepciones != null && rep.total_recepciones > 0;
+    const hasInvIni = rep && rep.inventario_inicial != null;
+    const hasExist  = rep && rep.vol_existencias   != null;
+    document.getElementById('histReportInfo').style.display = hasReport ? '' : 'none';
+    document.getElementById('htFormula').style.display      = hasReport ? '' : 'none';
     document.getElementById('htInvIni').textContent = hasInvIni
       ? fmt(rep.inventario_inicial) + ' L' : '—';
     document.getElementById('htRec').textContent = hasReport
@@ -4810,7 +4810,7 @@ async function loadHistorial() {
     document.getElementById('htEnt').textContent = hasReport
       ? fmt(rep.total_entregas)    + ' L' : fmt(totals.total_salidas)  + ' L';
     document.getElementById('htEntCount').textContent = totals.cnt_salidas || 0;
-    document.getElementById('htExist').textContent = hasReport
+    document.getElementById('htExist').textContent = hasExist
       ? fmt(rep.vol_existencias)   + ' L' : '—';
 
     // Autoconsumo
