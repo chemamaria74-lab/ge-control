@@ -86,12 +86,23 @@ async def _upload_cfdi_impl(
     todas_alertas: list[str] = []
 
     # ── Autenticación ────────────────────────────────────────────────────────
-    user_id   = "default"
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    user_id      = "default"
+    display_name = "Sistema"
+    perfil_id    = _parse_perfil_id(x_perfil_id)
     if authorization.startswith("Bearer "):
         uid = verify_token(authorization[7:])
         if uid:
             user_id = uid
+            # Obtener username desde la tabla user_sections o auth.users
+            try:
+                from supabase_config import get_supabase as _gsb
+                row = _gsb().table("user_sections").select("display_name,email").eq("user_id", uid).limit(1).execute().data
+                if row and row[0].get("display_name"):
+                    display_name = row[0]["display_name"]
+                elif row and row[0].get("email"):
+                    display_name = row[0]["email"].split("@")[0]
+            except Exception:
+                display_name = uid[:8]  # fallback: primeros 8 chars del UUID
 
     logger.info("upload_cfdi: user=%s perfil=%s facility=%s files=%d",
                 user_id, perfil_id, facility_id, len(files))
@@ -193,6 +204,10 @@ async def _upload_cfdi_impl(
 
         todos_logs.extend(lgs)
         todos_errores.extend(errs)
+        # Promover mensajes de FILTRADO a alertas prominentes
+        for lg in lgs:
+            if lg.startswith("⚠ FILTRADO AUTOMÁTICO"):
+                todas_alertas.append(lg)
         todos_movimientos.extend(movs)
         todos_logs.append(
             f"  → {upload.filename}: {sum(1 for m in movs if m.get('tipo_movimiento')=='entrada')} entradas, "
@@ -201,7 +216,7 @@ async def _upload_cfdi_impl(
 
     # Agregar usuario a cada movimiento
     for m in todos_movimientos:
-        m["usuario"] = user_id
+        m["usuario"] = display_name or user_id
 
     movimientos = todos_movimientos
     if not movimientos:
@@ -257,7 +272,6 @@ async def _upload_cfdi_impl(
                     f"para {periodo_inferido}"
                 )
                 for ac in autoconsumos_db:
-                    # Formato de movimiento que entiende _group_by_uuid en sat_transformer
                     movimientos.append({
                         "tipo_movimiento":  "salida",
                         "fecha":            ac.get("fecha", ""),
@@ -268,8 +282,8 @@ async def _upload_cfdi_impl(
                         "_rfc_receptor":    ac.get("rfc_contraparte", ""),
                         "_nombre_receptor": ac.get("nombre_contraparte", ""),
                         "_importe":         float(ac.get("importe", 0)),
-                        "_fecha_hora":      ac.get("fecha", "") + "T12:00:00+00:00",
-                        "usuario":          user_id,
+                        "_fecha_hora":      ac.get("fecha", "") + "T12:00:00-06:00",
+                        "usuario":          display_name or user_id,
                     })
                     todos_logs.append(
                         f"  ✓ Autoconsumo: {ac['uuid'][:16]}… "
@@ -397,21 +411,21 @@ async def _upload_cfdi_impl(
         )
 
     # ── PASO 4: Limpiar datos previos del mismo periodo ───────────────────────
-    # include_autoconsumos=True: al reprocesar un periodo completo, borrar también
-    # los autoconsumos manuales guardados previamente. El usuario está rehaciendo
-    # el reporte desde cero — los autoconsumos del batch actual se añadirán de nuevo.
-    # Esto evita el bug de duplicados cuando se carga el mismo mes dos veces.
+    # include_autoconsumos=False: preservar los autoconsumos manuales que el usuario
+    # registró antes de procesar. Ya los inyectamos en el reporte (PASO 2) y los
+    # volveremos a guardar en el PASO 5 para que el historial los muestre.
     periodo = sat_meta["periodo"]
     first_uuid = sat_meta.get("first_uuid", "")
     init_db()
     deleted = delete_period(user_id, periodo,
                             facility_id=fid,
                             perfil_id=perfil_id,
-                            include_autoconsumos=True)
+                            include_autoconsumos=False)
     if deleted.get("records", 0) or deleted.get("reports", 0):
         todos_logs.append(
             f"Limpieza automática {periodo} [fid={fid} pid={perfil_id}]: "
-            f"eliminados {deleted['records']} registros y {deleted['reports']} reportes anteriores."
+            f"eliminados {deleted['records']} registros CFDI y {deleted['reports']} reportes anteriores "
+            f"(autoconsumos manuales preservados)."
         )
 
     # ── PASO 5: Guardar archivos y persistir en DB ───────────────────────────
@@ -432,6 +446,13 @@ async def _upload_cfdi_impl(
                      facility_id=fid, perfil_id=perfil_id)
         save_records(user_id, periodo, ventas_cfdi,  "salida",
                      facility_id=fid, perfil_id=perfil_id)
+        # Re-guardar autoconsumos manuales para que aparezcan en el historial
+        autoconsumos_meta = {k: v for k, v in sat_meta["_ventas"].items()
+                             if k.startswith("AUTO-")}
+        if autoconsumos_meta:
+            save_records(user_id, periodo, autoconsumos_meta, "salida",
+                         facility_id=fid, perfil_id=perfil_id)
+            todos_logs.append(f"Autoconsumos manuales re-guardados: {len(autoconsumos_meta)}")
         todos_logs.append(f"UUID primera salida (nombramiento SAT): {first_uuid or '(generado aleatoriamente)'}")
         save_report(
             user_id=user_id, periodo=periodo, meta=sat_meta,
