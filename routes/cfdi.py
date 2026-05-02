@@ -411,21 +411,19 @@ async def _upload_cfdi_impl(
         )
 
     # ── PASO 4: Limpiar datos previos del mismo periodo ───────────────────────
-    # include_autoconsumos=False: preservar los autoconsumos manuales que el usuario
-    # registró antes de procesar. Ya los inyectamos en el reporte (PASO 2) y los
-    # volveremos a guardar en el PASO 5 para que el historial los muestre.
+    # include_autoconsumos=True: borrar TODO incluyendo manuales para evitar duplicados.
+    # El PASO 5 re-inserta los autoconsumos del sat_meta (que ya los inyectó en PASO 2).
     periodo = sat_meta["periodo"]
     first_uuid = sat_meta.get("first_uuid", "")
     init_db()
     deleted = delete_period(user_id, periodo,
                             facility_id=fid,
                             perfil_id=perfil_id,
-                            include_autoconsumos=False)
+                            include_autoconsumos=True)
     if deleted.get("records", 0) or deleted.get("reports", 0):
         todos_logs.append(
             f"Limpieza automática {periodo} [fid={fid} pid={perfil_id}]: "
-            f"eliminados {deleted['records']} registros CFDI y {deleted['reports']} reportes anteriores "
-            f"(autoconsumos manuales preservados)."
+            f"eliminados {deleted['records']} registros y {deleted['reports']} reportes anteriores."
         )
 
     # ── PASO 5: Guardar archivos y persistir en DB ───────────────────────────
