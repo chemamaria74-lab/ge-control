@@ -1607,6 +1607,30 @@ tr:hover td{background:#f8fafc}
         <div class="label">Inv. Final (Vol.Exist.)</div><div class="value" id="htExist" style="color:#15803d">—</div><div class="unit">Litros</div>
       </div>
     </div>
+
+    <!-- Segunda fila: traspasos + precios -->
+    <div class="hist-totals" style="grid-template-columns:repeat(4,1fr);margin-top:.4rem">
+      <div class="hist-total-box" style="border-color:#c7d2fe">
+        <div class="label">Traspasos a Estaciones 🏪</div>
+        <div class="value" id="htTraspVol" style="color:#4338ca">—</div>
+        <div class="unit">Litros (emp→emp ≤5kL)</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#c7d2fe">
+        <div class="label">Traspasos a Estaciones 🏪</div>
+        <div class="value" id="htTraspCount" style="color:#4338ca">—</div>
+        <div class="unit">registros</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#d1fae5">
+        <div class="label">Precio Compra Promedio</div>
+        <div class="value" id="htPrecioCompra" style="color:#065f46;font-size:.88rem">—</div>
+        <div class="unit">$/Litro (recepciones)</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#fce7f3">
+        <div class="label">Precio Venta Promedio</div>
+        <div class="value" id="htPrecioVenta" style="color:#9d174d;font-size:.88rem">—</div>
+        <div class="unit">$/Litro (entregas CFDI)</div>
+      </div>
+    </div>
     <div id="htFormula" style="font-size:.62rem;color:#94a3b8;margin:-.2rem 0 .4rem;display:none">
       Ini + Recepciones − Entregas = VolumenExistenciasMes
     </div>
@@ -2749,7 +2773,8 @@ function resetAppState() {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
-  ['htInvIni','htRec','htRecCount','htEnt','htEntCount','htExist'].forEach(id => {
+  ['htInvIni','htRec','htRecCount','htEnt','htEntCount','htExist',
+   'htAutoVol','htAutoCount','htTraspVol','htTraspCount','htPrecioCompra','htPrecioVenta'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = '—';
   });
@@ -4786,13 +4811,29 @@ async function loadHistorial() {
     document.getElementById('htExist').textContent = hasReport
       ? fmt(rep.vol_existencias)   + ' L' : '—';
 
-    // Autoconsumo — desglose de salidas manuales (file_path LIKE 'manual:%')
+    // Autoconsumo
     const autoVol   = totals.total_autoconsumo   || 0;
     const autoCnt   = totals.cnt_autoconsumo     || 0;
     const elAutoVol = document.getElementById('htAutoVol');
     const elAutoCnt = document.getElementById('htAutoCount');
     if (elAutoVol) elAutoVol.textContent = autoVol > 0 ? fmt(autoVol) + ' L' : '—';
     if (elAutoCnt) elAutoCnt.textContent = autoCnt > 0 ? autoCnt : '—';
+
+    // Traspasos a estaciones
+    const traspVol   = totals.total_traspasos || 0;
+    const traspCnt   = totals.cnt_traspasos   || 0;
+    const elTrVol    = document.getElementById('htTraspVol');
+    const elTrCnt    = document.getElementById('htTraspCount');
+    if (elTrVol) elTrVol.textContent = traspVol > 0 ? fmt(traspVol) + ' L' : '—';
+    if (elTrCnt) elTrCnt.textContent = traspCnt > 0 ? traspCnt : '—';
+
+    // Precios promedio
+    const precCompra = totals.precio_compra_prom || 0;
+    const precVenta  = totals.precio_venta_prom  || 0;
+    const elPC = document.getElementById('htPrecioCompra');
+    const elPV = document.getElementById('htPrecioVenta');
+    if (elPC) elPC.textContent = precCompra > 0 ? '$' + precCompra.toFixed(4) + '/L' : '—';
+    if (elPV) elPV.textContent = precVenta  > 0 ? '$' + precVenta.toFixed(4)  + '/L' : '—';
 
     // Importes en pesos — siempre visibles cuando existe reporte o registros
     const histImpEl = document.getElementById('histImportes');
