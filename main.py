@@ -4797,10 +4797,12 @@ async function loadHistorial() {
     histZipFilename = data.zip_filename || null;
 
     // Prefer values from the saved SAT report (exact); fallback to aggregated records
-    const hasReport = rep && (rep.inventario_inicial != null);
-    document.getElementById('histReportInfo').style.display = hasReport ? '' : 'none';
-    document.getElementById('htFormula').style.display      = hasReport ? '' : 'none';
-    document.getElementById('htInvIni').textContent = hasReport
+    // hasReport: true si existe reporte Y tiene vol_existencias > 0 (reporte válido)
+    const hasReport = rep && rep.vol_existencias != null && rep.vol_existencias > 0;
+    const hasInvIni = rep && rep.inventario_inicial != null && rep.inventario_inicial > 0;
+    document.getElementById('histReportInfo').style.display = (hasReport || hasInvIni) ? '' : 'none';
+    document.getElementById('htFormula').style.display      = (hasReport || hasInvIni) ? '' : 'none';
+    document.getElementById('htInvIni').textContent = hasInvIni
       ? fmt(rep.inventario_inicial) + ' L' : '—';
     document.getElementById('htRec').textContent = hasReport
       ? fmt(rep.total_recepciones) + ' L' : fmt(totals.total_entradas) + ' L';
