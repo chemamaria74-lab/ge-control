@@ -265,15 +265,39 @@ def get_period_totals(user_id: str, periodo: str,
         r = get_records(user_id, periodo, facility_id, perfil_id)
         entradas = r["entradas"]
         salidas  = r["salidas"]
-        # Separar autoconsumos (registros manuales) de ventas con CFDI
+        # Separar por tipo de salida
         autoconsumos = [s for s in salidas if (s.get("file_path") or "").startswith("manual:")]
+        # Traspasos: salidas donde rfc_contraparte == rfc del mismo contribuyente
+        # Identificados por importe simbólico (<1 peso por litro)
+        traspasos = [s for s in salidas
+                     if not (s.get("file_path") or "").startswith("manual:")
+                     and s.get("volumen_litros",0) > 0
+                     and s.get("importe",0) / s.get("volumen_litros",1) < 1.0]
+        ventas_reales = [s for s in salidas
+                         if not (s.get("file_path") or "").startswith("manual:")
+                         and s.get("volumen_litros",0) > 0
+                         and s.get("importe",0) / s.get("volumen_litros",1) >= 1.0]
+
+        # Precios promedio
+        vol_compra = sum(e.get("volumen_litros",0) for e in entradas)
+        imp_compra = sum(e.get("importe",0) for e in entradas)
+        precio_compra = round(imp_compra / vol_compra, 4) if vol_compra > 0 else 0
+
+        vol_venta = sum(s.get("volumen_litros",0) for s in ventas_reales)
+        imp_venta = sum(s.get("importe",0) for s in ventas_reales)
+        precio_venta = round(imp_venta / vol_venta, 4) if vol_venta > 0 else 0
+
         return {
-            "total_entradas":     sum(x["volumen_litros"] for x in entradas),
-            "total_salidas":      sum(x["volumen_litros"] for x in salidas),
+            "total_entradas":     round(sum(x["volumen_litros"] for x in entradas), 2),
+            "total_salidas":      round(sum(x["volumen_litros"] for x in salidas), 2),
             "total_autoconsumo":  round(sum(x["volumen_litros"] for x in autoconsumos), 2),
             "cnt_autoconsumo":    len(autoconsumos),
-            "importe_entradas":   sum(x["importe"]        for x in entradas),
-            "importe_salidas":    sum(x["importe"]        for x in salidas),
+            "total_traspasos":    round(sum(x["volumen_litros"] for x in traspasos), 2),
+            "cnt_traspasos":      len(traspasos),
+            "precio_compra_prom": precio_compra,
+            "precio_venta_prom":  precio_venta,
+            "importe_entradas":   round(imp_compra, 2),
+            "importe_salidas":    round(sum(x.get("importe",0) for x in salidas), 2),
             "cnt_entradas":       len(entradas),
             "cnt_salidas":        len(salidas),
         }
@@ -281,6 +305,8 @@ def get_period_totals(user_id: str, periodo: str,
         logger.warning("get_period_totals: %s", e)
         return {"total_entradas": 0, "total_salidas": 0,
                 "total_autoconsumo": 0, "cnt_autoconsumo": 0,
+                "total_traspasos": 0, "cnt_traspasos": 0,
+                "precio_compra_prom": 0, "precio_venta_prom": 0,
                 "importe_entradas": 0, "importe_salidas": 0,
                 "cnt_entradas": 0, "cnt_salidas": 0}
 
