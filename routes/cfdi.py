@@ -93,20 +93,18 @@ async def _upload_cfdi_impl(
         uid = verify_token(authorization[7:])
         if uid:
             user_id = uid
-            # Obtener username desde la tabla user_sections o auth.users
+            # Obtener display_name desde user_sections (solo columnas que existen)
             try:
                 from supabase_config import get_supabase as _gsb
-                row = _gsb().table("user_sections").select("display_name,email").eq("user_id", uid).limit(1).execute().data
+                row = _gsb().table("user_sections").select("display_name").eq("user_id", uid).limit(1).execute().data
                 if row and row[0].get("display_name"):
                     display_name = row[0]["display_name"]
-                elif row and row[0].get("email"):
-                    display_name = row[0]["email"].split("@")[0]
                 else:
-                    # Fallback: usar RFC del contribuyente del perfil activo
+                    # Fallback: RFC del contribuyente del perfil activo
                     _s = load_settings(uid, perfil_id)
-                    display_name = _s.get("RfcContribuyente") or uid[:8]
+                    display_name = _s.get("RfcContribuyente") or "Operador"
             except Exception:
-                display_name = uid[:8]  # fallback: primeros 8 chars del UUID
+                display_name = "Operador"
 
     logger.info("upload_cfdi: user=%s perfil=%s facility=%s files=%d",
                 user_id, perfil_id, facility_id, len(files))
