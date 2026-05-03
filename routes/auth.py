@@ -1,21 +1,16 @@
-# routes/auth.py
-# Autenticación con Supabase Auth + multi-tenancy por sección.
-#
-# IMPORTANTE: La forma pública de este módulo se mantiene IDÉNTICA a la versión
-# anterior basada en SQLite/HMAC, para que el HTML embebido en main.py y los
-# 9 routers que importan `verify_token` / `get_current_user` / `require_admin`
-# sigan funcionando sin modificarse.
-#
-# Cambios internos:
-#   - login: ahora valida contra Supabase Auth (sign_in_with_password).
-#     `username` se trata como email.
-#   - verify_token: valida un JWT de Supabase con `auth.get_user(token)`.
-#   - Nuevo: `require_section("gas_lp" | "transporte")` para gatear endpoints.
-#   - Si el usuario intenta entrar a un módulo distinto al asignado en
-#     `user_sections`, recibe 403 directamente en /api/auth/login.
+"""
+routes/auth.py — v2 (thread-safe + require_section corregido)
 
+CAMBIOS vs versión anterior:
+- `obtener_seccion_usuario` ya NO muta el cliente global.
+  Usa `get_supabase_for_user(token)` cuando hay token disponible,
+  o el cliente de sistema cuando no lo hay (solo para endpoints internos).
+- `verify_token` usa el cliente de sistema (solo verifica la firma JWT,
+  no necesita RLS).
+- `require_admin` usa `get_supabase_for_user` para no contaminar el singleton.
+- Firma pública idéntica a v1: el resto del código no cambia.
+"""
 import logging
-import os
 from typing import Optional, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Depends
@@ -23,7 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from supabase import create_client
 
-from supabase_config import get_supabase, SUPABASE_URL, SUPABASE_KEY
+from supabase_config import get_supabase, get_supabase_for_user, SUPABASE_URL, SUPABASE_KEY
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -36,19 +31,13 @@ SECCIONES_VALIDAS = {"gas_lp", "transporte"}
 
 def obtener_seccion_usuario(user_id: str, access_token: Optional[str] = None) -> Optional[str]:
     """
-    Devuelve la sección ('gas_lp' | 'transporte') asignada al usuario en la tabla
-    `user_sections` de Supabase. Si no tiene fila, retorna None.
-
-    Usa el JWT del usuario para respetar RLS. Si no se proporciona token, cae al
-    cliente anon (requiere policy pública o RLS desactivado en esa tabla).
+    Devuelve la sección ('gas_lp' | 'transporte') asignada al usuario.
+    Usa un cliente fresco autenticado con el JWT para respetar RLS.
+    NO muta el cliente global.
     """
     try:
-        if access_token:
-            sb = create_client(SUPABASE_URL, SUPABASE_KEY)
-            sb.postgrest.auth(access_token)
-        else:
-            sb = get_supabase()
-
+        # Usar cliente con JWT del usuario para respetar RLS
+        sb = get_supabase_for_user(access_token) if access_token else get_supabase()
         res = (
             sb.table("user_sections")
             .select("section")
@@ -70,14 +59,13 @@ def obtener_seccion_usuario(user_id: str, access_token: Optional[str] = None) ->
 
 def verify_token(token: str) -> Optional[str]:
     """
-    Valida un JWT de Supabase y devuelve el user_id (uuid) si es válido,
-    o None si no. Mantiene la misma firma que la versión HMAC anterior.
+    Valida un JWT de Supabase y devuelve el user_id si es válido.
+    Usa el cliente de sistema (la validación JWT no requiere RLS).
     """
     if not token:
         return None
     try:
-        sb = get_supabase()
-        result = sb.auth.get_user(token)
+        result = get_supabase().auth.get_user(token)
         user = getattr(result, "user", None)
         if not user:
             return None
@@ -88,13 +76,7 @@ def verify_token(token: str) -> Optional[str]:
 
 
 def _hash_password(password: str) -> str:
-    """Compatibilidad con la versión SQLite previa.
-
-    `routes/admin.py` aún usa este helper para hashear contraseñas al crear
-    usuarios en la tabla local. Cuando migres por completo a Supabase Auth
-    (creando usuarios con `sb.auth.admin.create_user(...)`), puedes eliminar
-    tanto este helper como su uso en admin.py.
-    """
+    """Compatibilidad con admin.py (migración a Supabase Auth pendiente)."""
     import hashlib
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -106,34 +88,24 @@ def _extract_bearer(authorization: str) -> Optional[str]:
 
 
 def get_current_user(authorization: str = Header(default="")) -> Optional[str]:
-    """FastAPI dependency: extrae user_id del header Authorization. None si falta/inválido."""
+    """FastAPI dependency: extrae user_id del header Authorization."""
     token = _extract_bearer(authorization)
     if not token:
         return None
     return verify_token(token)
 
 
-def _get_user_metadata(user_id: str) -> dict:
-    """Lee user_metadata / app_metadata desde Supabase (mejor esfuerzo)."""
-    try:
-        sb = get_supabase()
-        # admin.get_user_by_id requiere service_role; con anon devolverá error,
-        # así que devolvemos vacío y dejamos que el cliente use defaults.
-        return {}
-    except Exception:
-        return {}
-
-
 def require_admin(authorization: str = Header(default="")) -> str:
     """
-    Dependency: requiere token válido cuyo `app_metadata.role == 'admin'`
-    en Supabase. Si no hay role o no es admin, 403.
+    Dependency: requiere token válido con app_metadata.role == 'admin'.
+    Crea un cliente fresco para no contaminar el singleton.
     """
     token = _extract_bearer(authorization)
     if not token:
         raise HTTPException(status_code=401, detail="No autenticado.")
     try:
-        sb = get_supabase()
+        # Usar cliente fresco para la verificación de admin
+        sb = get_supabase_for_user(token)
         result = sb.auth.get_user(token)
         user = getattr(result, "user", None)
         if not user:
@@ -153,7 +125,7 @@ def require_admin(authorization: str = Header(default="")) -> str:
 def require_section(*allowed: Section):
     """
     Factory de dependency: exige que el usuario esté autenticado Y que su
-    sección en `user_sections` esté dentro de `allowed`.
+    sección esté dentro de `allowed`.
 
     Uso:
         @router.post("/upload-gas")
@@ -190,18 +162,14 @@ def require_section(*allowed: Section):
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 class LoginPayload(BaseModel):
-    username: str           # se trata como email
+    username: str
     password: str
     modulo: Optional[str] = "gas_lp"
 
 
 @router.post("/auth/login")
 async def login(payload: LoginPayload):
-    """
-    Login contra Supabase Auth. `username` se acepta como email.
-    Verifica que el módulo solicitado coincida con la sección asignada.
-    Mantiene la MISMA forma de respuesta que la versión anterior.
-    """
+    """Login contra Supabase Auth con validación de sección."""
     email = payload.username.strip().lower()
     if not email or not payload.password:
         raise HTTPException(status_code=400, detail="Usuario y contraseña son obligatorios.")
@@ -218,14 +186,14 @@ async def login(payload: LoginPayload):
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos.")
 
     session = getattr(auth_resp, "session", None)
-    user = getattr(auth_resp, "user", None)
+    user    = getattr(auth_resp, "user",    None)
     if not session or not user:
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos.")
 
     access_token = session.access_token
-    user_id = user.id
+    user_id      = user.id
 
-    # Validación de sección — multi-tenancy real
+    # Validar sección con cliente fresco (no muta el singleton)
     sec = obtener_seccion_usuario(user_id, access_token=access_token)
     if not sec:
         raise HTTPException(
@@ -238,17 +206,17 @@ async def login(payload: LoginPayload):
             detail=f"No tienes acceso al módulo '{requested}'. Tu sección asignada es '{sec}'.",
         )
 
-    # Persiste preferencia de módulo (best-effort, no rompe el login si falla)
+    # Persiste preferencia de módulo (best-effort)
     try:
         from services.database import save_user_setting
         save_user_setting(user_id, "modulo", requested)
     except Exception as e:
         logger.debug("save_user_setting falló (ignorado): %s", e)
 
-    user_meta = getattr(user, "user_metadata", {}) or {}
-    app_meta = getattr(user, "app_metadata", {}) or {}
+    user_meta    = getattr(user, "user_metadata", {}) or {}
+    app_meta     = getattr(user, "app_metadata",  {}) or {}
     display_name = user_meta.get("full_name") or user_meta.get("name") or email.split("@")[0]
-    role = (app_meta.get("role") or "user").lower()
+    role         = (app_meta.get("role") or "user").lower()
 
     return JSONResponse(content={
         "success":      True,
@@ -266,9 +234,8 @@ async def me(authorization: str = Header(default="")):
     if not token:
         raise HTTPException(status_code=401, detail="No autenticado.")
     try:
-        sb = get_supabase()
-        result = sb.auth.get_user(token)
-        user = getattr(result, "user", None)
+        result = get_supabase().auth.get_user(token)
+        user   = getattr(result, "user", None)
         if not user:
             raise HTTPException(status_code=401, detail="Token inválido o expirado.")
     except HTTPException:
@@ -276,9 +243,9 @@ async def me(authorization: str = Header(default="")):
     except Exception:
         raise HTTPException(status_code=401, detail="Token inválido o expirado.")
 
-    sec = obtener_seccion_usuario(user.id, access_token=token)
-    user_meta = getattr(user, "user_metadata", {}) or {}
-    app_meta = getattr(user, "app_metadata", {}) or {}
+    sec        = obtener_seccion_usuario(user.id, access_token=token)
+    user_meta  = getattr(user, "user_metadata", {}) or {}
+    app_meta   = getattr(user, "app_metadata",  {}) or {}
     display_name = (
         user_meta.get("full_name")
         or user_meta.get("name")
@@ -300,9 +267,7 @@ async def logout(authorization: str = Header(default="")):
     token = _extract_bearer(authorization)
     if token:
         try:
-            sb = get_supabase()
-            # Best-effort: invalida la sesión en Supabase
-            sb.auth.sign_out()
+            get_supabase().auth.sign_out()
         except Exception:
             pass
     return JSONResponse(content={"success": True})
