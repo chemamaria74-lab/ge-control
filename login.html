@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Z Control - {{ nombre_modulo }}</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, {{ color_secundario }} 0%, #0f172a 100%);
+    }
+    .login-card {
+      background: rgba(255,255,255,0.08);
+      backdrop-filter: blur(20px);
+      border-radius: 24px;
+      padding: 3rem;
+      width: 100%;
+      max-width: 400px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .login-brand {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    .login-brand img {
+      width: 220px;
+      margin-bottom: 1rem;
+    }
+    .login-brand h2 {
+      color: #fff;
+      font-size: 1.3rem;
+      font-weight: 700;
+    }
+    .login-brand .module-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 1rem;
+      background: {{ color_primario }};
+      border-radius: 20px;
+      color: #fff;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-top: 0.5rem;
+    }
+    .field { margin-bottom: 1.2rem; }
+    .field label {
+      display: block;
+      color: #cbd5e1;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .field input {
+      width: 100%;
+      padding: 1rem;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+      font-size: 1rem;
+      transition: border-color 0.2s;
+    }
+    .field input:focus {
+      outline: none;
+      border-color: {{ color_primario }};
+    }
+    .field input::placeholder { color: #64748b; }
+    .btn-login {
+      width: 100%;
+      padding: 1rem;
+      background: {{ color_primario }};
+      border: none;
+      border-radius: 12px;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-login:hover { background: {{ color_secundario }}; }
+    .login-err {
+      color: #f87171;
+      text-align: center;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+    .back-link {
+      text-align: center;
+      margin-top: 1.5rem;
+    }
+    .back-link a {
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .back-link a:hover { color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="login-brand">
+      <img src="/static/img/z_logo.png" alt="Z Control">
+      <h2>{{ nombre_modulo }}</h2>
+      <span class="module-badge"><i class="fa-solid {{ icon_module }}"></i> {{ nombre_modulo }}</span>
+    </div>
+    <form id="loginForm">
+      <div class="field">
+        <label>Usuario</label>
+        <input type="text" id="loginUser" placeholder="usuario" autocomplete="username">
+      </div>
+      <div class="field">
+        <label>Contraseña</label>
+        <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <input type="hidden" id="modulo" value="{{ modulo }}">
+      <button type="submit" class="btn-login">Iniciar sesión</button>
+    </form>
+    <div class="login-err" id="loginErr"></div>
+    <div class="back-link">
+      <a href="/choice"><i class="fa-solid fa-arrow-left"></i> Cambiar módulo</a>
+    </div>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const user = document.getElementById('loginUser').value.trim();
+      const pass = document.getElementById('loginPass').value;
+      const modulo = document.getElementById('modulo').value;
+      const errEl = document.getElementById('loginErr');
+      errEl.textContent = '';
+      if (!user || !pass) { errEl.textContent = 'Ingresa usuario y contraseña.'; return; }
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user, password: pass, modulo: modulo }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          localStorage.setItem('sat_token', data.token);
+          localStorage.setItem('sat_user_id', data.user_id);
+          localStorage.setItem('sat_modulo', modulo);
+          window.location.href = '/app';
+        } else {
+          errEl.textContent = data.detail || 'Credenciales incorrectas.';
+        }
+      } catch(e) { errEl.textContent = 'Error de conexión.'; }
+    });
+  </script>
+</body>
+</html>
