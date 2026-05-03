@@ -1,109 +1,157 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" id="htmlRoot">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Z Control - Seleccionar Módulo</title>
+  <title>Z Control</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { 
-      font-family: 'Segoe UI', system-ui, sans-serif; 
-      min-height: 100vh; 
-      display: flex; 
-      align-items: center; 
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
       justify-content: center;
       background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
     }
-    .choice-container {
+    .lang-switcher {
+      position: fixed;
+      top: 1.2rem;
+      right: 1.4rem;
       display: flex;
-      gap: 2rem;
-      padding: 2rem;
-      max-width: 900px;
-      width: 100%;
+      gap: .5rem;
+      z-index: 100;
     }
-    .choice-card {
-      flex: 1;
-      background: rgba(255,255,255,0.05);
-      border-radius: 24px;
-      padding: 3rem 2rem;
-      text-align: center;
+    .lang-btn {
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .4rem .85rem;
+      border-radius: 999px;
+      border: 1.5px solid rgba(255,255,255,.2);
+      background: rgba(255,255,255,.07);
+      color: rgba(255,255,255,.55);
+      font-size: .78rem;
+      font-weight: 600;
       cursor: pointer;
-      transition: all 0.3s ease;
-      border: 2px solid transparent;
-      text-decoration: none;
-      display: block;
+      transition: all .18s;
+      font-family: inherit;
     }
-    .choice-card:hover {
-      transform: translateY(-8px);
+    .lang-btn:hover { background: rgba(255,255,255,.14); color: #fff; border-color: rgba(255,255,255,.4); }
+    .lang-btn.active { background: rgba(255,255,255,.18); color: #fff; border-color: rgba(255,255,255,.55); }
+    .lang-flag { font-size: 1rem; }
+    .wrapper { text-align: center; }
+    .choice-container { display: flex; gap: 2rem; padding: 2rem; max-width: 900px; width: 100%; }
+    .choice-card {
+      flex: 1; background: rgba(255,255,255,0.05); border-radius: 24px;
+      padding: 3rem 2rem; text-align: center; cursor: pointer;
+      transition: all 0.3s ease; border: 2px solid transparent;
+      text-decoration: none; display: block;
     }
-    .choice-card.transporte {
-      border-color: #3b82f6;
-      background: linear-gradient(145deg, rgba(59,130,246,0.15) 0%, rgba(59,130,246,0.05) 100%);
-    }
-    .choice-card.transporte:hover {
-      box-shadow: 0 20px 40px rgba(59,130,246,0.3);
-    }
-    .choice-card.gas-lp {
-      border-color: #10b981;
-      background: linear-gradient(145deg, rgba(16,185,129,0.15) 0%, rgba(16,185,129,0.05) 100%);
-    }
-    .choice-card.gas-lp:hover {
-      box-shadow: 0 20px 40px rgba(16,185,129,0.3);
-    }
-    .choice-icon {
-      font-size: 4rem;
-      margin-bottom: 1.5rem;
-    }
+    .choice-card:hover { transform: translateY(-8px); }
+    .choice-card.transporte { border-color: #3b82f6; background: linear-gradient(145deg, rgba(59,130,246,0.15) 0%, rgba(59,130,246,0.05) 100%); }
+    .choice-card.transporte:hover { box-shadow: 0 20px 40px rgba(59,130,246,0.3); }
+    .choice-card.gas-lp { border-color: #10b981; background: linear-gradient(145deg, rgba(16,185,129,0.15) 0%, rgba(16,185,129,0.05) 100%); }
+    .choice-card.gas-lp:hover { box-shadow: 0 20px 40px rgba(16,185,129,0.3); }
+    .choice-icon { font-size: 4rem; margin-bottom: 1.5rem; }
     .choice-card.transporte .choice-icon { color: #60a5fa; }
     .choice-card.gas-lp .choice-icon { color: #34d399; }
-    .choice-title {
-      font-size: 1.5rem;
-      font-weight: 700;
-      color: #fff;
-      margin-bottom: 0.5rem;
-    }
-    .choice-desc {
-      font-size: 0.9rem;
-      color: #94a3b8;
-      line-height: 1.5;
-    }
-    .choice-badge {
-      display: inline-block;
-      padding: 0.4rem 1rem;
-      border-radius: 20px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      margin-top: 1rem;
-    }
+    .choice-title { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem; }
+    .choice-desc { font-size: 0.9rem; color: #94a3b8; line-height: 1.5; }
+    .choice-badge { display: inline-block; padding: .4rem 1rem; border-radius: 20px; font-size: .75rem; font-weight: 600; margin-top: 1rem; }
     .choice-card.transporte .choice-badge { background: #3b82f6; color: #fff; }
     .choice-card.gas-lp .choice-badge { background: #10b981; color: #fff; }
-    .brand-logo { margin-bottom: 2rem; text-align: center; }
+    .brand-logo { margin-bottom: 2rem; }
     .brand-logo img { width: 200px; }
     @media (max-width: 640px) {
       .choice-container { flex-direction: column; }
+      .lang-switcher { top: .8rem; right: .8rem; }
     }
   </style>
 </head>
 <body>
-  <div style="text-align:center">
+
+  <div class="lang-switcher">
+    <button class="lang-btn" id="btnEs" onclick="setLang('es')">
+      <span class="lang-flag">🇲🇽</span> ES
+    </button>
+    <button class="lang-btn" id="btnEn" onclick="setLang('en')">
+      <span class="lang-flag">🇺🇸</span> EN
+    </button>
+  </div>
+
+  <div class="wrapper">
     <div class="brand-logo">
       <img src="/static/img/z_logo.png" alt="Z Control">
     </div>
     <div class="choice-container">
-      <a href="/login/transporte" class="choice-card transporte">
+      <a id="cardTransporte" class="choice-card transporte">
         <i class="fa-solid fa-truck-fast choice-icon"></i>
-        <div class="choice-title">Transporte</div>
-        <div class="choice-desc">Logística de Hidrocarburos<br>Servicios de flete y distribución</div>
-        <span class="choice-badge"><i class="fa-solid fa-route"></i> Módulo Transporte</span>
+        <div class="choice-title" id="titleTransporte">Transporte</div>
+        <div class="choice-desc" id="descTransporte">Logística de Hidrocarburos<br>Servicios de flete y distribución</div>
+        <span class="choice-badge"><i class="fa-solid fa-route"></i> <span id="badgeTransporte">Módulo Transporte</span></span>
       </a>
-      <a href="/login/gas-lp" class="choice-card gas-lp">
+      <a id="cardGasLp" class="choice-card gas-lp">
         <i class="fa-solid fa-industry choice-icon"></i>
-        <div class="choice-title">Gas LP</div>
-        <div class="choice-desc">Controles Volumétricos<br>Cumplimiento Anexo 30</div>
-        <span class="choice-badge"><i class="fa-solid fa-fire-flame-curved"></i> Módulo Gas LP</span>
+        <div class="choice-title" id="titleGasLp">Gas LP</div>
+        <div class="choice-desc" id="descGasLp">Controles Volumétricos<br>Cumplimiento Anexo 30</div>
+        <span class="choice-badge"><i class="fa-solid fa-fire-flame-curved"></i> <span id="badgeGasLp">Módulo Gas LP</span></span>
       </a>
     </div>
   </div>
+
+  <script>
+    const TEXTS = {
+      es: {
+        title:           'Z Control - Seleccionar Módulo',
+        titleTransporte: 'Transporte',
+        descTransporte:  'Logística de Hidrocarburos<br>Servicios de flete y distribución',
+        badgeTransporte: 'Módulo Transporte',
+        titleGasLp:      'Gas LP',
+        descGasLp:       'Controles Volumétricos<br>Cumplimiento Anexo 30',
+        badgeGasLp:      'Módulo Gas LP',
+        hrefTransporte:  '/login/transporte',
+        hrefGasLp:       '/login/gas-lp',
+      },
+      en: {
+        title:           'Z Control - Select Module',
+        titleTransporte: 'Transport',
+        descTransporte:  'Hydrocarbon Logistics<br>Freight & distribution services',
+        badgeTransporte: 'Transport Module',
+        titleGasLp:      'LPG',
+        descGasLp:       'Volumetric Controls<br>Regulatory Compliance',
+        badgeGasLp:      'LPG Module',
+        hrefTransporte:  '/login/transporte?lang=en',
+        hrefGasLp:       '/login/gas-lp?lang=en',
+      },
+    };
+
+    let _lang = localStorage.getItem('zc_lang') || 'es';
+
+    function applyLang(lang) {
+      const t = TEXTS[lang];
+      document.title = t.title;
+      document.getElementById('htmlRoot').lang = lang;
+      document.getElementById('titleTransporte').textContent  = t.titleTransporte;
+      document.getElementById('descTransporte').innerHTML     = t.descTransporte;
+      document.getElementById('badgeTransporte').textContent  = t.badgeTransporte;
+      document.getElementById('cardTransporte').href          = t.hrefTransporte;
+      document.getElementById('titleGasLp').textContent      = t.titleGasLp;
+      document.getElementById('descGasLp').innerHTML          = t.descGasLp;
+      document.getElementById('badgeGasLp').textContent       = t.badgeGasLp;
+      document.getElementById('cardGasLp').href               = t.hrefGasLp;
+      document.getElementById('btnEs').classList.toggle('active', lang === 'es');
+      document.getElementById('btnEn').classList.toggle('active', lang === 'en');
+    }
+
+    function setLang(lang) {
+      _lang = lang;
+      localStorage.setItem('zc_lang', lang);
+      applyLang(lang);
+    }
+
+    applyLang(_lang);
+  </script>
 </body>
 </html>
