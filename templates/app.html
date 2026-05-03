@@ -113,6 +113,18 @@ header i{color:#f8fafc}
 #modalNuevoPerfil.visible{display:flex}
 .modal-perfil-card{background:#fff;border-radius:16px;padding:2rem;width:460px;max-width:95%}
 .modal-perfil-card h3{font-size:1rem;font-weight:700;margin-bottom:1rem;color:#1e293b}
+/* ── Onboarding: registro obligatorio de empresa ───────────────────────── */
+#onboardingOverlay{position:fixed;inset:0;background:linear-gradient(135deg,#0f172a 0%,#0f4c3a 100%);z-index:10000;display:none;align-items:center;justify-content:center}
+#onboardingOverlay.visible{display:flex}
+.onboarding-card{background:#fff;border-radius:20px;padding:2.8rem;max-width:480px;width:95%;box-shadow:0 32px 64px rgba(0,0,0,.4)}
+.onboarding-logo{text-align:center;margin-bottom:1.6rem}
+.onboarding-logo img{width:140px}
+.onboarding-card h2{font-size:1.2rem;font-weight:700;color:#0f172a;margin-bottom:.5rem;text-align:center}
+.onboarding-card .sub{font-size:.84rem;color:#64748b;text-align:center;margin-bottom:1.8rem;line-height:1.6}
+.onboarding-step{display:flex;align-items:center;gap:.6rem;margin-bottom:1rem;padding:.65rem .9rem;background:#f0fdfa;border-radius:10px;border-left:3px solid #0f766e}
+.onboarding-step-num{min-width:22px;height:22px;border-radius:50%;background:#0f766e;color:#fff;font-size:.7rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.onboarding-step-text{font-size:.82rem;color:#1e293b}
+
 .drop{border:2px dashed #c8d0dc;border-radius:10px;padding:1.6rem 2rem;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:.7rem}
 .drop-locked{opacity:.38;pointer-events:none;filter:grayscale(.6);cursor:not-allowed}
 .drop:hover,.drop.over{border-color:#e63946;background:#fff5f5}
@@ -337,6 +349,165 @@ tr:hover td{background:#f8fafc}
 .hist-empty{font-size:.82rem;color:#94a3b8;text-align:center;padding:1.5rem}
 .tab-title{font-size:.82rem;font-weight:600;color:#475569;margin:.8rem 0 .4rem}
 </style>
+
+<!-- ══ i18n: ES / EN via ?lang=en ══════════════════════════════════════════ -->
+<script>
+(function(){
+  // Leer idioma: 1) localStorage (guardado en choice.html), 2) ?lang= en URL, 3) default ES
+  const _langUrl = new URLSearchParams(location.search).get('lang');
+  const _langStored = localStorage.getItem('zc_lang');
+  const _lang = (_langUrl === 'en' || _langUrl === 'es') ? _langUrl
+              : (_langStored === 'en' || _langStored === 'es') ? _langStored
+              : 'es';
+  // Sincronizar localStorage con el valor resuelto
+  localStorage.setItem('zc_lang', _lang);
+  window._lang = _lang;
+
+  // ── Diccionario completo ────────────────────────────────────────────────
+  const T = {
+    // Título
+    'Controles Volumétricos — Gas LP': {en:'Volumetric Controls — LPG'},
+    'Z Control - Controles Volumétricos': {en:'Z Control - Volumetric Controls'},
+    // Nav principal
+    'Procesar':             {en:'Process'},
+    'Controles Volumétricos':{en:'Volumetric Controls'},
+    'Dashboard':             {en:'Dashboard'},
+    'Historial':             {en:'History'},
+    'Configuración':         {en:'Settings'},
+    'Config. Avanzada':      {en:'Advanced Config.'},
+    // Sub-tabs Procesar
+    'Excel / CSV':           {en:'Excel / CSV'},
+    'CFDI (XML / ZIP)':      {en:'CFDI (XML / ZIP)'},
+    'Autoconsumo':           {en:'Own Consumption'},
+    // Botones de acción
+    'Procesar Excel / CSV':  {en:'Process Excel / CSV'},
+    'Procesar CFDI':         {en:'Process CFDI'},
+    'Registrar Autoconsumo': {en:'Register Consumption'},
+    'Actualizar':            {en:'Refresh'},
+    'Guardar':               {en:'Save'},
+    'Cancelar':              {en:'Cancel'},
+    'Salir':                 {en:'Sign out'},
+    // Multi-empresa
+    'Seleccionar Empresa':   {en:'Select Company'},
+    'Agregar nueva razón social': {en:'Add new company'},
+    'Nueva razón social':    {en:'New company'},
+    'Razones Sociales':      {en:'Companies'},
+    'Nueva razón social':    {en:'New company'},
+    'Sin perfiles registrados.': {en:'No companies registered.'},
+    'Tienes acceso a varias razones sociales. Elige con cuál quieres trabajar en esta sesión.':
+      {en:'You have access to multiple companies. Choose which one to work with in this session.'},
+    // Modal empresa
+    'Nombre de la empresa':  {en:'Company name'},
+    'RFC de la empresa':     {en:'Tax ID (RFC)'},
+    'Descripción':           {en:'Description'},
+    // Registro empresa obligatorio
+    'Bienvenido a Z Control': {en:'Welcome to Z Control'},
+    'Antes de continuar, registra tu empresa. El RFC es obligatorio para generar reportes SAT válidos.':
+      {en:'Before continuing, register your company. The Tax ID is required to generate valid SAT reports.'},
+    'Registrar mi empresa':  {en:'Register my company'},
+    // Autoconsumo
+    'Registro de Autoconsumo': {en:'Own Consumption Record'},
+    'Registra volúmenes consumidos internamente (flota, operación)':
+      {en:'Record volumes consumed internally (fleet, operations)'},
+    'sin CFDI':              {en:'without invoice'},
+    'Autoconsumo activo':    {en:'Own consumption active'},
+    'RFC cliente: se llenará automáticamente': {en:'Tax ID: filled automatically'},
+    'RFC Cliente':           {en:'Client Tax ID'},
+    'Tipo de movimiento':    {en:'Movement type'},
+    'Volumen (Litros)':      {en:'Volume (Liters)'},
+    'Fecha del movimiento':  {en:'Movement date'},
+    'Descripción adicional': {en:'Additional description'},
+    'Bitácora SAT que se generará:': {en:'SAT log entry that will be generated:'},
+    'Autoconsumos registrados este periodo': {en:'Consumption records this period'},
+    // Configuración
+    'Perfil de la Empresa':  {en:'Company Profile'},
+    'RFC del contribuyente': {en:'Taxpayer Tax ID'},
+    'RFC del representante legal': {en:'Legal representative Tax ID'},
+    'RFC del proveedor del software': {en:'Software provider Tax ID'},
+    'Número de permiso CRE': {en:'CRE permit number'},
+    'Clave de instalación':  {en:'Facility code'},
+    'Descripción de instalación': {en:'Facility description'},
+    'Número de tanques':     {en:'Number of tanks'},
+    'Número de dispensarios':{en:'Number of dispensers'},
+    'Instalaciones':         {en:'Facilities'},
+    'Nueva instalación':     {en:'New facility'},
+    'Proveedores':           {en:'Providers'},
+    'Nuevo proveedor':       {en:'New provider'},
+    // Historial
+    'Periodo':               {en:'Period'},
+    'Generar reporte':       {en:'Generate report'},
+    'Descargar ZIP':         {en:'Download ZIP'},
+    'Eliminar periodo':      {en:'Delete period'},
+    'Inventario inicial':    {en:'Opening inventory'},
+    'Recepciones':           {en:'Receipts'},
+    'Entregas':              {en:'Deliveries'},
+    'Existencias':           {en:'Stock'},
+    // Dashboard
+    'Ventas anuales':        {en:'Annual sales'},
+    'Análisis de Proveedores':{en:'Provider Analysis'},
+    // Controles
+    'Controles Volumétricos de Gas LP': {en:'LPG Volumetric Controls'},
+    'Historial de lecturas': {en:'Readings history'},
+    // Mensajes de estado
+    'Cargando...':           {en:'Loading...'},
+    'Sin datos':             {en:'No data'},
+    'Error':                 {en:'Error'},
+    'Guardando en Supabase...': {en:'Saving...'},
+    'No tienes ninguna instalación registrada.': {en:'No facilities registered.'},
+    'Crea una instalación en Configuración': {en:'Create a facility in Settings'},
+  };
+
+  // Traducir si lang=en
+  window._t = function(s){ return (_lang==='en' && T[s]) ? T[s].en : s; };
+
+  // Aplicar al DOM una vez cargado
+  if (_lang === 'en') {
+    document.addEventListener('DOMContentLoaded', function(){
+      // Cambiar title
+      document.title = 'Z Control - Volumetric Controls';
+
+      // Recorrer todos los nodos de texto y traducir
+      function translateNode(node){
+        if(node.nodeType === 3){ // TEXT_NODE
+          const s = node.textContent.trim();
+          if(s && T[s]) node.textContent = node.textContent.replace(s, T[s].en);
+        } else if(node.nodeType === 1 && !['SCRIPT','STYLE','INPUT','TEXTAREA'].includes(node.tagName)){
+          // Traducir atributos visibles
+          if(node.placeholder && T[node.placeholder]) node.placeholder = T[node.placeholder].en;
+          if(node.title && T[node.title]) node.title = T[node.title].en;
+          node.childNodes.forEach(translateNode);
+        }
+      }
+      translateNode(document.body);
+
+      // Agregar badge de idioma en la navbar
+      const header = document.querySelector('header');
+      if(header){
+        const badge = document.createElement('a');
+        badge.href = '?lang=es';
+        badge.title = 'Cambiar a Español';
+        badge.style.cssText = 'margin-left:8px;padding:4px 10px;border-radius:14px;background:rgba(255,255,255,.15);color:#f8fafc;font-size:.72rem;font-weight:600;text-decoration:none;border:1px solid rgba(255,255,255,.25);flex-shrink:0';
+        badge.textContent = 'ES';
+        header.appendChild(badge);
+      }
+    });
+  } else {
+    // Español: agregar badge EN
+    document.addEventListener('DOMContentLoaded', function(){
+      const header = document.querySelector('header');
+      if(header){
+        const badge = document.createElement('a');
+        badge.href = '?lang=en';
+        badge.title = 'Switch to English';
+        badge.style.cssText = 'margin-left:8px;padding:4px 10px;border-radius:14px;background:rgba(255,255,255,.15);color:#f8fafc;font-size:.72rem;font-weight:600;text-decoration:none;border:1px solid rgba(255,255,255,.25);flex-shrink:0';
+        badge.textContent = 'EN';
+        header.appendChild(badge);
+      }
+    });
+  }
+})();
+</script>
+
 </head>
 <body class="login-mode">
 
@@ -383,7 +554,7 @@ tr:hover td{background:#f8fafc}
 </div>
 
 <!-- ── OVERLAY: SELECCIÓN DE EMPRESA (post-login) ──────────────────────── -->
-<div id="empresaOverlay">
+<div id="empresaOverlay" onclick="cerrarOverlayEmpresaBackdrop(event)">
   <div class="empresa-card">
     <h2><i class="fa-solid fa-building" style="color:#0f766e"></i> Seleccionar Empresa</h2>
     <p>Tienes acceso a varias razones sociales. Elige con cuál quieres trabajar en esta sesión.</p>
@@ -420,6 +591,49 @@ tr:hover td{background:#f8fafc}
       </button>
       <button onclick="cerrarModalNuevoPerfil()" style="padding:.65rem 1.2rem;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:10px;cursor:pointer;font-family:inherit;font-size:.9rem">
         Cancelar
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── MODAL: ONBOARDING — registro obligatorio de empresa ─────────────── -->
+<div id="onboardingOverlay">
+  <div class="onboarding-card">
+    <div class="onboarding-logo">
+      <img src="/static/img/zlogo.png" alt="Z Control">
+    </div>
+    <h2 id="ob_title">Bienvenido a Z Control</h2>
+    <p class="sub" id="ob_sub">Antes de continuar, registra tu empresa. El RFC es obligatorio para generar reportes SAT válidos.</p>
+    <div class="onboarding-step">
+      <div class="onboarding-step-num">1</div>
+      <div class="onboarding-step-text" id="ob_step1">Escribe el nombre oficial de tu empresa o razón social</div>
+    </div>
+    <div class="onboarding-step">
+      <div class="onboarding-step-num">2</div>
+      <div class="onboarding-step-text" id="ob_step2">Ingresa el RFC — aparecerá en todos los reportes SAT</div>
+    </div>
+    <div class="onboarding-step">
+      <div class="onboarding-step-num">3</div>
+      <div class="onboarding-step-text" id="ob_step3">Listo — podrás agregar más razones sociales después</div>
+    </div>
+    <div style="margin-top:1.4rem">
+      <div class="field" style="margin-bottom:.7rem">
+        <label id="ob_label_nombre">Nombre de la empresa <span style="color:#e63946">*</span></label>
+        <input id="ob_nombre" type="text" placeholder="Ej. Gas del Norte S.A. de C.V." maxlength="120"
+          style="width:100%;padding:.75rem;border:1.5px solid #e2e8f0;border-radius:10px;font-size:.9rem">
+      </div>
+      <div class="field" style="margin-bottom:.7rem">
+        <label id="ob_label_rfc">RFC de la empresa <span style="color:#e63946">*</span></label>
+        <input id="ob_rfc" type="text" placeholder="Ej. GNO010101AAA" maxlength="13"
+          style="width:100%;padding:.75rem;border:1.5px solid #e2e8f0;border-radius:10px;font-size:.9rem;text-transform:uppercase;font-family:monospace"
+          oninput="this.value=this.value.toUpperCase()">
+      </div>
+      <div id="ob_err" style="font-size:.78rem;color:#dc2626;margin-bottom:.6rem;min-height:1em"></div>
+      <button id="ob_btn" onclick="guardarEmpresaOnboarding()"
+        style="width:100%;padding:.8rem;background:#0f766e;color:#fff;border:none;border-radius:12px;font-size:.95rem;font-weight:700;cursor:pointer;font-family:inherit">
+        <i class="fa-solid fa-building-circle-check" style="margin-right:.4rem"></i>
+        <span id="ob_btn_text">Registrar mi empresa</span>
       </button>
     </div>
   </div>
@@ -2559,31 +2773,8 @@ async function iniciarFlujoEmpresa() {
   const perfiles = await cargarPerfiles(3);
 
   if (perfiles.length === 0) {
-    // Antes de abrir modal de nuevo perfil, verificar si es error de red
-    // mostrando un botón de reintento al usuario
-    const overlay = document.getElementById('empresaOverlay');
-    if (overlay) {
-      const list = document.getElementById('empresaList');
-      if (list) list.innerHTML = `
-        <div style="text-align:center;padding:2rem;color:#64748b">
-          <div style="font-size:1.5rem;margin-bottom:.5rem">⚠️</div>
-          <div style="font-weight:600;margin-bottom:.5rem">No se pudieron cargar las empresas</div>
-          <div style="font-size:.8rem;margin-bottom:1rem">Puede ser un problema de conexión temporal</div>
-          <button onclick="iniciarFlujoEmpresa()" 
-                  style="background:#0f172a;color:#fff;border:none;padding:.5rem 1.2rem;border-radius:8px;cursor:pointer;font-size:.85rem">
-            🔄 Reintentar
-          </button>
-          <div style="margin-top:.8rem">
-            <button onclick="abrirModalNuevoPerfil()" 
-                    style="background:transparent;border:1px solid #e2e8f0;padding:.4rem .8rem;border-radius:8px;cursor:pointer;font-size:.75rem;color:#475569">
-              + Crear nueva empresa
-            </button>
-          </div>
-        </div>`;
-      overlay.classList.add('visible');
-    } else {
-      abrirModalNuevoPerfil();
-    }
+    // Sin empresas → mostrar onboarding obligatorio (no se puede cerrar)
+    mostrarOnboarding();
     return;
   }
   if (perfiles.length === 1) {
@@ -2622,12 +2813,59 @@ function seleccionarEmpresaById(id) {
   if (perfil) seleccionarEmpresa(perfil, true);
 }
 
+function cerrarOverlayEmpresaBackdrop(e) {
+  // Solo cerrar si el click fue en el fondo oscuro (no en la card)
+  // y solo si ya hay una empresa activa seleccionada
+  if (e.target.id === 'empresaOverlay' && _perfilSeleccionado) {
+    document.getElementById('empresaOverlay').classList.remove('visible');
+  }
+}
+
 function mostrarSelectorEmpresas() {
+  // Siempre abrir el overlay inmediatamente para que el botón responda
+  const overlay = document.getElementById('empresaOverlay');
+  const list    = document.getElementById('empresaList');
+  if (!overlay) return;
+
+  // Mostrar spinner mientras carga
+  if (list) list.innerHTML = `
+    <div style="text-align:center;padding:1.5rem;color:#64748b;font-size:.85rem">
+      <i class="fa-solid fa-spinner fa-spin" style="margin-right:.4rem"></i> Cargando empresas...
+    </div>`;
+  overlay.classList.add('visible');
+
   cargarPerfiles().then(perfiles => {
     if (perfiles.length > 0) {
       window._perfilesCache = perfiles;
-      mostrarOverlayEmpresas(perfiles);
+      // Renderizar lista dentro del overlay ya abierto
+      if (list) list.innerHTML = perfiles.map(p => {
+        const isActivo = _perfilSeleccionado && _perfilSeleccionado.id === p.id;
+        return `
+        <div class="empresa-item${isActivo?' activo':''}" onclick="seleccionarEmpresaById(${p.id})">
+          <div class="empresa-item-info">
+            <div class="empresa-item-nombre">${p.nombre||'—'}</div>
+            <div class="empresa-item-rfc">${p.rfc||'—'}</div>
+            ${p.descripcion ? `<div style="font-size:.72rem;color:#94a3b8;margin-top:.15rem">${p.descripcion}</div>` : ''}
+          </div>
+          ${isActivo ? '<span class="empresa-item-badge">Activa</span>' : ''}
+        </div>`;
+      }).join('');
+    } else {
+      // Error de red o sin empresas — mostrar reintento dentro del overlay
+      if (list) list.innerHTML = `
+        <div style="text-align:center;padding:1.5rem;color:#64748b">
+          <div style="font-size:1.3rem;margin-bottom:.5rem">⚠️</div>
+          <div style="font-weight:600;font-size:.85rem;margin-bottom:.4rem">No se pudieron cargar las empresas</div>
+          <div style="font-size:.75rem;margin-bottom:1rem">Verifica tu conexión e intenta de nuevo</div>
+          <button onclick="mostrarSelectorEmpresas()"
+            style="background:#0f172a;color:#fff;border:none;padding:.45rem 1.1rem;border-radius:8px;cursor:pointer;font-size:.82rem">
+            🔄 Reintentar
+          </button>
+        </div>`;
     }
+  }).catch(() => {
+    // Error inesperado — cerrar overlay para no bloquear
+    overlay.classList.remove('visible');
   });
 }
 
@@ -5782,6 +6020,106 @@ document.addEventListener('DOMContentLoaded', () => {
     observer.observe(btn, { attributes: true, attributeFilter: ['disabled'] });
   }
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ONBOARDING: Registro obligatorio de empresa en primer login
+// ══════════════════════════════════════════════════════════════════════════════
+
+function mostrarOnboarding() {
+  // Aplicar traducciones si lang=en
+  if (window._lang === 'en') {
+    const set = (id, txt) => { const el = document.getElementById(id); if(el) el.textContent = txt; };
+    set('ob_title',      'Welcome to Z Control');
+    set('ob_sub',        'Before continuing, register your company. The Tax ID is required to generate valid reports.');
+    set('ob_step1',      'Enter the official name of your company');
+    set('ob_step2',      'Enter your Tax ID — it will appear on all reports');
+    set('ob_step3',      'Done — you can add more companies later');
+    set('ob_label_nombre','Company name');
+    set('ob_label_rfc',   'Tax ID');
+    set('ob_btn_text',    'Register my company');
+    const inp = document.getElementById('ob_nombre');
+    if(inp) inp.placeholder = 'e.g. North Gas Corp.';
+    const inp2 = document.getElementById('ob_rfc');
+    if(inp2) inp2.placeholder = 'e.g. GNO010101AAA';
+  }
+  const overlay = document.getElementById('onboardingOverlay');
+  if (overlay) overlay.classList.add('visible');
+  // Focus en el primer campo
+  setTimeout(() => { document.getElementById('ob_nombre')?.focus(); }, 300);
+}
+
+function cerrarOnboarding() {
+  const overlay = document.getElementById('onboardingOverlay');
+  if (overlay) overlay.classList.remove('visible');
+}
+
+async function guardarEmpresaOnboarding() {
+  const nombre = (document.getElementById('ob_nombre')?.value || '').trim();
+  const rfc    = (document.getElementById('ob_rfc')?.value    || '').trim().toUpperCase();
+  const errEl  = document.getElementById('ob_err');
+  const btn    = document.getElementById('ob_btn');
+
+  if (errEl) errEl.textContent = '';
+
+  if (!nombre) {
+    if (errEl) errEl.textContent = window._lang === 'en'
+      ? 'Company name is required.'
+      : 'El nombre de la empresa es obligatorio.';
+    document.getElementById('ob_nombre')?.focus();
+    return;
+  }
+  if (!rfc) {
+    if (errEl) errEl.textContent = window._lang === 'en'
+      ? 'Tax ID is required.'
+      : 'El RFC es obligatorio.';
+    document.getElementById('ob_rfc')?.focus();
+    return;
+  }
+  // Validación básica de RFC
+  if (rfc.length < 12 || rfc.length > 13) {
+    if (errEl) errEl.textContent = window._lang === 'en'
+      ? 'Tax ID must be 12 (company) or 13 (individual) characters.'
+      : 'El RFC debe tener 12 (persona moral) o 13 (persona física) caracteres.';
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.style.opacity = '.7'; }
+
+  try {
+    const res = await fetch('/api/perfiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ nombre, rfc, descripcion: '' }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.detail || 'Error al guardar');
+
+    cerrarOnboarding();
+    // Seleccionar automáticamente la empresa recién creada
+    seleccionarEmpresa(data.perfil, true);
+    showToast(
+      window._lang === 'en'
+        ? `Company "${nombre}" registered successfully.`
+        : `Empresa "${nombre}" registrada correctamente.`,
+      'success'
+    );
+  } catch(e) {
+    if (errEl) errEl.textContent = (window._lang === 'en' ? 'Error: ' : 'Error: ') + e.message;
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+  }
+}
+
+// Enter key en campos del onboarding
+document.addEventListener('DOMContentLoaded', function(){
+  document.getElementById('ob_nombre')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('ob_rfc')?.focus();
+  });
+  document.getElementById('ob_rfc')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') guardarEmpresaOnboarding();
+  });
+});
+
 </script>
 
 
