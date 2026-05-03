@@ -350,163 +350,225 @@ tr:hover td{background:#f8fafc}
 .tab-title{font-size:.82rem;font-weight:600;color:#475569;margin:.8rem 0 .4rem}
 </style>
 
-<!-- ══ i18n: ES / EN via ?lang=en ══════════════════════════════════════════ -->
+<!-- ══ i18n: ES / EN ══════════════════════════════════════════════════════ -->
 <script>
 (function(){
-  // Leer idioma: 1) localStorage (guardado en choice.html), 2) ?lang= en URL, 3) default ES
-  const _langUrl = new URLSearchParams(location.search).get('lang');
+  // 1) URL param, 2) localStorage guardado desde choice.html, 3) default ES
+  const _langUrl    = new URLSearchParams(location.search).get('lang');
   const _langStored = localStorage.getItem('zc_lang');
   const _lang = (_langUrl === 'en' || _langUrl === 'es') ? _langUrl
               : (_langStored === 'en' || _langStored === 'es') ? _langStored
               : 'es';
-  // Sincronizar localStorage con el valor resuelto
   localStorage.setItem('zc_lang', _lang);
   window._lang = _lang;
+  window._t    = function(s){ return s; }; // fallback, se sobreescribe abajo si en
 
-  // ── Diccionario completo ────────────────────────────────────────────────
-  const T = {
-    // Título
-    'Controles Volumétricos — Gas LP': {en:'Volumetric Controls — LPG'},
-    'Z Control - Controles Volumétricos': {en:'Z Control - Volumetric Controls'},
-    // Nav principal
-    'Procesar':             {en:'Process'},
-    'Controles Volumétricos':{en:'Volumetric Controls'},
-    'Dashboard':             {en:'Dashboard'},
-    'Historial':             {en:'History'},
-    'Configuración':         {en:'Settings'},
-    'Config. Avanzada':      {en:'Advanced Config.'},
-    // Sub-tabs Procesar
-    'Excel / CSV':           {en:'Excel / CSV'},
-    'CFDI (XML / ZIP)':      {en:'CFDI (XML / ZIP)'},
-    'Autoconsumo':           {en:'Own Consumption'},
-    // Botones de acción
-    'Procesar Excel / CSV':  {en:'Process Excel / CSV'},
-    'Procesar CFDI':         {en:'Process CFDI'},
-    'Registrar Autoconsumo': {en:'Register Consumption'},
-    'Actualizar':            {en:'Refresh'},
-    'Guardar':               {en:'Save'},
-    'Cancelar':              {en:'Cancel'},
-    'Salir':                 {en:'Sign out'},
-    // Multi-empresa
-    'Seleccionar Empresa':   {en:'Select Company'},
-    'Agregar nueva razón social': {en:'Add new company'},
-    'Nueva razón social':    {en:'New company'},
-    'Razones Sociales':      {en:'Companies'},
-    'Nueva razón social':    {en:'New company'},
-    'Sin perfiles registrados.': {en:'No companies registered.'},
-    'Tienes acceso a varias razones sociales. Elige con cuál quieres trabajar en esta sesión.':
-      {en:'You have access to multiple companies. Choose which one to work with in this session.'},
-    // Modal empresa
-    'Nombre de la empresa':  {en:'Company name'},
-    'RFC de la empresa':     {en:'Tax ID (RFC)'},
-    'Descripción':           {en:'Description'},
-    // Registro empresa obligatorio
-    'Bienvenido a Z Control': {en:'Welcome to Z Control'},
-    'Antes de continuar, registra tu empresa. El RFC es obligatorio para generar reportes SAT válidos.':
-      {en:'Before continuing, register your company. The Tax ID is required to generate valid SAT reports.'},
-    'Registrar mi empresa':  {en:'Register my company'},
-    // Autoconsumo
-    'Registro de Autoconsumo': {en:'Own Consumption Record'},
-    'Registra volúmenes consumidos internamente (flota, operación)':
-      {en:'Record volumes consumed internally (fleet, operations)'},
-    'sin CFDI':              {en:'without invoice'},
-    'Autoconsumo activo':    {en:'Own consumption active'},
-    'RFC cliente: se llenará automáticamente': {en:'Tax ID: filled automatically'},
-    'RFC Cliente':           {en:'Client Tax ID'},
-    'Tipo de movimiento':    {en:'Movement type'},
-    'Volumen (Litros)':      {en:'Volume (Liters)'},
-    'Fecha del movimiento':  {en:'Movement date'},
-    'Descripción adicional': {en:'Additional description'},
-    'Bitácora SAT que se generará:': {en:'SAT log entry that will be generated:'},
-    'Autoconsumos registrados este periodo': {en:'Consumption records this period'},
-    // Configuración
-    'Perfil de la Empresa':  {en:'Company Profile'},
-    'RFC del contribuyente': {en:'Taxpayer Tax ID'},
-    'RFC del representante legal': {en:'Legal representative Tax ID'},
-    'RFC del proveedor del software': {en:'Software provider Tax ID'},
-    'Número de permiso CRE': {en:'CRE permit number'},
-    'Clave de instalación':  {en:'Facility code'},
-    'Descripción de instalación': {en:'Facility description'},
-    'Número de tanques':     {en:'Number of tanks'},
-    'Número de dispensarios':{en:'Number of dispensers'},
-    'Instalaciones':         {en:'Facilities'},
-    'Nueva instalación':     {en:'New facility'},
-    'Proveedores':           {en:'Providers'},
-    'Nuevo proveedor':       {en:'New provider'},
-    // Historial
-    'Periodo':               {en:'Period'},
-    'Generar reporte':       {en:'Generate report'},
-    'Descargar ZIP':         {en:'Download ZIP'},
-    'Eliminar periodo':      {en:'Delete period'},
-    'Inventario inicial':    {en:'Opening inventory'},
-    'Recepciones':           {en:'Receipts'},
-    'Entregas':              {en:'Deliveries'},
-    'Existencias':           {en:'Stock'},
-    // Dashboard
-    'Ventas anuales':        {en:'Annual sales'},
-    'Análisis de Proveedores':{en:'Provider Analysis'},
-    // Controles
-    'Controles Volumétricos de Gas LP': {en:'LPG Volumetric Controls'},
-    'Historial de lecturas': {en:'Readings history'},
-    // Mensajes de estado
-    'Cargando...':           {en:'Loading...'},
-    'Sin datos':             {en:'No data'},
-    'Error':                 {en:'Error'},
-    'Guardando en Supabase...': {en:'Saving...'},
-    'No tienes ninguna instalación registrada.': {en:'No facilities registered.'},
-    'Crea una instalación en Configuración': {en:'Create a facility in Settings'},
+  if (_lang !== 'en') {
+    // Español: solo agregar badge EN en navbar
+    document.addEventListener('DOMContentLoaded', function(){
+      _addLangBadge('?lang=en', 'EN', 'Switch to English');
+    });
+    return;
+  }
+
+  // ── Diccionario ES → EN ───────────────────────────────────────────────
+  // Formato: [buscar_exacto, reemplazar_con]
+  // Se aplica como innerHTML replace sobre document.body después de cargar
+  const PAIRS = [
+    // ── Nav / tabs ────────────────────────────────────────────────────────
+    [' Procesar</button>',              ' Process</button>'],
+    ['>Controles Volumétricos<',        '>Volumetric Controls<'],
+    ['>Dashboard<',                     '>Dashboard<'],
+    [' Historial</button>',             ' History</button>'],
+    [' Configuración</button>',         ' Settings</button>'],
+    ['Config. Avanzada</button>',       'Advanced Config.</button>'],
+    [' Excel / CSV</button>',           ' Excel / CSV</button>'],
+    ['CFDI (XML / ZIP)',                'CFDI (XML / ZIP)'],
+    ['>Autoconsumo</button>',           '>Own Consumption</button>'],
+    // ── Header / empresa ──────────────────────────────────────────────────
+    ['> Instalación activa:</div>',     '> Active Facility:</div>'],
+    ['Gestionar instalaciones',         'Manage facilities'],
+    ['Cambiar razón social',            'Switch company'],
+    // ── Parámetros del proceso ────────────────────────────────────────────
+    ['>Parámetros del proceso</h2>',    '>Process Parameters</h2>'],
+    ['>Carga de datos</h2>',            '>Data Upload</h2>'],
+    ['>RFC del contribuyente</label>',  '>Taxpayer Tax ID</label>'],
+    ['>Unidad base de reporte</label>', '>Report base unit</label>'],
+    ['>Mes a procesar</label>',         '>Month to process</label>'],
+    ['Inventario Inicial (litros — lectura de tanque)', 'Opening Inventory (liters — tank reading)'],
+    ['Inventario Final Medido (L)',      'Final Measured Inventory (L)'],
+    ['— Balance de Masa',               '— Mass Balance'],
+    ['Temperatura de Medición (°C)',     'Measurement Temperature (°C)'],
+    ['— VCM a 20°C',                    '— VCM at 20°C'],
+    ['Composición PR12 — Gas LP',       'PR12 Composition — LPG'],
+    ['% del mes, precargado de Config. Avanzada', '% for the month, preloaded from Advanced Config.'],
+    ['>Propano (%)</label>',            '>Propane (%)</label>'],
+    ['>Butano (%)</label>',             '>Butane (%)</label>'],
+    ['La suma Propano + Butano debe ser exactamente 100 para el reporte SAT.',
+     'Propane + Butane must add up to exactly 100 for the SAT report.'],
+    ['Lectura del tanque al inicio del mes.', 'Tank reading at the start of the month.'],
+    ['Activa el cálculo de Ajuste por Variación (Anexo 30).', 'Activates the Variance Adjustment calculation (Annex 30).'],
+    ['Temperatura de la medición para compensar volumen a 20°C.', 'Measurement temperature to compensate volume to 20°C.'],
+    ['Los valores se convierten a fracción molar automáticamente al generar el JSON.', 'Values are automatically converted to molar fraction when generating the JSON.'],
+    ['Selecciona una <strong>Instalación activa</strong> en el selector de arriba para habilitar la carga de datos.',
+     'Select an <strong>Active Facility</strong> in the selector above to enable data upload.'],
+    // ── CFDI info box ─────────────────────────────────────────────────────
+    ['Múltiples archivos — Categorización automática por RFC', 'Multiple files — Automatic categorization by Tax ID'],
+    ['<b>Emisor = RFC activo</b>', '<b>Issuer = Active Tax ID</b>'],
+    ['<b>Venta / Entrega</b> (salida del inventario)', '<b>Sale / Delivery</b> (inventory outflow)'],
+    ['<b>Receptor = RFC activo</b>', '<b>Recipient = Active Tax ID</b>'],
+    ['<b>Compra / Recepción</b> (entrada al inventario)', '<b>Purchase / Receipt</b> (inventory inflow)'],
+    ['Sube uno o varios archivos ZIP/XML y haz clic en', 'Upload one or more ZIP/XML files and click'],
+    ['<b>Procesar CFDI</b>', '<b>Process CFDI</b>'],
+    ['>Procesar Excel / CSV</button>', '>Process Excel / CSV</button>'],
+    ['>Procesar CFDI</button>',        '>Process CFDI</button>'],
+    ['El reporte generado aparecerá aquí', 'Generated report will appear here'],
+    // ── Autoconsumo ───────────────────────────────────────────────────────
+    ['Registro de Autoconsumo</b>',     'Own Consumption Record</b>'],
+    ['Registra volúmenes consumidos internamente (flota, operación)', 'Record volumes consumed internally (fleet, operations)'],
+    ['<b>sin CFDI</b>',                 '<b>without invoice</b>'],
+    ['Autoconsumo activo</span>',       'Own consumption active</span>'],
+    ['RFC cliente: se llenará automáticamente', 'Tax ID: filled automatically'],
+    ['>RFC Cliente <',                  '>Client Tax ID <'],
+    ['>Tipo de movimiento</label>',     '>Movement type</label>'],
+    ['>Volumen (Litros) <',             '>Volume (Liters) <'],
+    ['>Fecha del movimiento <',         '>Movement date <'],
+    ['>Descripción adicional <',        '>Additional notes <'],
+    ['Bitácora SAT que se generará:', 'SAT log entry that will be generated:'],
+    ['Autoconsumos registrados este periodo', 'Consumption records this period'],
+    ['>Registrar Autoconsumo<',         '>Register Consumption<'],
+    ['🚛 Autoconsumo — flota/operación', '🚛 Own consumption — fleet/operations'],
+    ['📉 Merma operativa reconocida',    '📉 Recognized operational loss'],
+    ['🔄 Trasvase interno entre tanques','🔄 Internal transfer between tanks'],
+    // ── Configuración / Settings ──────────────────────────────────────────
+    ['>Razones Sociales<',              '>Companies<'],
+    ['(multi-empresa)',                  '(multi-company)'],
+    ['Cada razón social tiene su propia configuración SAT',
+     'Each company has its own SAT configuration'],
+    ['Cambia entre ellas con el selector en la barra superior.',
+     'Switch between them using the selector in the top bar.'],
+    ['>Nueva razón social<',            '>New company<'],
+    ['>Agregar nueva razón social<',    '>Add new company<'],
+    ['Sin perfiles registrados.',       'No companies registered.'],
+    ['>Perfil de la Empresa <',         '>Company Profile <'],
+    ['(se guarda automáticamente)',     '(auto-saved)'],
+    ['Datos globales del RFC titular. Los permisos y claves por instalación se configuran en la tabla de Instalaciones.',
+     'Global taxpayer data. Facility-specific permits and codes are configured in the Facilities table.'],
+    ['>RFC del Contribuyente</label>',  '>Taxpayer Tax ID</label>'],
+    ['RFC Representante Legal',         'Legal Representative Tax ID'],
+    ['RfcRepresentanteLegal en JSON',   'RfcRepresentanteLegal in JSON'],
+    ['Solo personas morales.',          'Legal entities only.'],
+    ['>RFC Proveedor SAT (constante)</label>', '>SAT Software Provider Tax ID</label>'],
+    ['>Factor de Conversión (Kg a Litros)</label>', '>Conversion Factor (Kg to Liters)</label>'],
+    ['> Guardar perfil</button>',       '> Save profile</button>'],
+    ['>Instalaciones (Plantas / Estaciones)</h2>', '>Facilities (Plants / Stations)</h2>'],
+    ['Cada instalación tiene su propio Permiso CRE y Clave de Instalación.',
+     'Each facility has its own CRE Permit and Installation Code.'],
+    ['Al procesar CFDIs, selecciona la instalación activa en la pestaña',
+     'When processing CFDIs, select the active facility in the'],
+    ['>Nueva instalación<',             '>New facility<'],
+    ['>Nombre interno<',                '>Internal name<'],
+    ['Nombre interno <span',            'Internal name <span'],
+    ['Tipo de instalación',             'Facility type'],
+    ['Número de permiso',               'Permit number'],
+    ['Permiso almacenamiento',          'Storage permit'],
+    ['Clave de instalación',            'Installation code'],
+    ['Número de tanques',               'Number of tanks'],
+    ['Número de dispensarios',          'Number of dispensers'],
+    ['Capacidad del tanque (L)',         'Tank capacity (L)'],
+    ['>Guardar instalación<',           '>Save facility<'],
+    ['>Proveedores<',                   '>Providers<'],
+    ['>Nuevo proveedor<',               '>New provider<'],
+    ['RFC Proveedor',                   'Provider Tax ID'],
+    ['Permiso CRE',                     'CRE Permit'],
+    ['>Nombre</th>',                    '>Name</th>'],
+    ['>Acciones</th>',                  '>Actions</th>'],
+    ['Nombre / Razón Social',           'Company Name'],
+    ['Nombre / RFC',                    'Name / Tax ID'],
+    // ── Historial ─────────────────────────────────────────────────────────
+    ['>Periodo</',                       '>Period</'],
+    ['Inventario inicial',              'Opening inventory'],
+    ['Recepciones</',                   'Receipts</'],
+    ['Entregas</',                      'Deliveries</'],
+    ['Existencias</',                   'Stock</'],
+    ['>Generar reporte SAT<',           '>Generate SAT report<'],
+    ['>Descargar ZIP<',                 '>Download ZIP<'],
+    ['>Eliminar periodo<',              '>Delete period<'],
+    // ── Dashboard ─────────────────────────────────────────────────────────
+    ['Análisis de Proveedores',         'Provider Analysis'],
+    ['>Dashboard Anual<',               '>Annual Dashboard<'],
+    ['Sin datos para el año seleccionado', 'No data for the selected year'],
+    ['(-) Autoconsumo (L)',              '(-) Own Consumption (L)'],
+    // ── Controles Volumétricos ────────────────────────────────────────────
+    ['Controles Volumétricos de Gas LP', 'LPG Volumetric Controls'],
+    ['Historial de lecturas',           'Readings history'],
+    // ── Botones comunes ───────────────────────────────────────────────────
+    ['>Actualizar<',                    '>Refresh<'],
+    [' Guardar</button>',               ' Save</button>'],
+    [' Cancelar</button>',              ' Cancel</button>'],
+    ['>Salir</',                        '>Sign out</'],
+    ['Guardando en Supabase...',        'Saving...'],
+    ['Cargando...',                     'Loading...'],
+    // ── Empresa overlay ───────────────────────────────────────────────────
+    ['> Seleccionar Empresa</h2>',      '> Select Company</h2>'],
+    ['Tienes acceso a varias razones sociales. Elige con cuál quieres trabajar en esta sesión.',
+     'You have access to multiple companies. Choose which one to work with in this session.'],
+    // ── Login (por si alguien llega a /app sin pasar por login) ──────────
+    ['USUARIO',  'USERNAME'],
+    ['CONTRASEÑA', 'PASSWORD'],
+    ['>Iniciar sesión</button>', '>Sign in</button>'],
+  ];
+
+  window._t = function(s){
+    for (const [es, en] of PAIRS){ if(s === es) return en; }
+    return s;
   };
 
-  // Traducir si lang=en
-  window._t = function(s){ return (_lang==='en' && T[s]) ? T[s].en : s; };
-
-  // Aplicar al DOM una vez cargado
-  if (_lang === 'en') {
-    document.addEventListener('DOMContentLoaded', function(){
-      // Cambiar title
-      document.title = 'Z Control - Volumetric Controls';
-
-      // Recorrer todos los nodos de texto y traducir
-      function translateNode(node){
-        if(node.nodeType === 3){ // TEXT_NODE
-          const s = node.textContent.trim();
-          if(s && T[s]) node.textContent = node.textContent.replace(s, T[s].en);
-        } else if(node.nodeType === 1 && !['SCRIPT','STYLE','INPUT','TEXTAREA'].includes(node.tagName)){
-          // Traducir atributos visibles
-          if(node.placeholder && T[node.placeholder]) node.placeholder = T[node.placeholder].en;
-          if(node.title && T[node.title]) node.title = T[node.title].en;
-          node.childNodes.forEach(translateNode);
-        }
+  document.addEventListener('DOMContentLoaded', function(){
+    // Aplicar traducciones reemplazando innerHTML del body
+    // Es más robusto que traversar nodos texto a texto
+    let bodyHTML = document.body.innerHTML;
+    for (const [es, en] of PAIRS){
+      // Reemplazar todas las ocurrencias
+      while (bodyHTML.includes(es)){
+        bodyHTML = bodyHTML.replace(es, en);
       }
-      translateNode(document.body);
+    }
+    document.body.innerHTML = bodyHTML;
 
-      // Agregar badge de idioma en la navbar
-      const header = document.querySelector('header');
-      if(header){
-        const badge = document.createElement('a');
-        badge.href = '?lang=es';
-        badge.title = 'Cambiar a Español';
-        badge.style.cssText = 'margin-left:8px;padding:4px 10px;border-radius:14px;background:rgba(255,255,255,.15);color:#f8fafc;font-size:.72rem;font-weight:600;text-decoration:none;border:1px solid rgba(255,255,255,.25);flex-shrink:0';
-        badge.textContent = 'ES';
-        header.appendChild(badge);
-      }
-    });
-  } else {
-    // Español: agregar badge EN
-    document.addEventListener('DOMContentLoaded', function(){
-      const header = document.querySelector('header');
-      if(header){
-        const badge = document.createElement('a');
-        badge.href = '?lang=en';
-        badge.title = 'Switch to English';
-        badge.style.cssText = 'margin-left:8px;padding:4px 10px;border-radius:14px;background:rgba(255,255,255,.15);color:#f8fafc;font-size:.72rem;font-weight:600;text-decoration:none;border:1px solid rgba(255,255,255,.25);flex-shrink:0';
-        badge.textContent = 'EN';
-        header.appendChild(badge);
-      }
-    });
-  }
+    // Cambiar title
+    document.title = 'Z Control - Volumetric Controls';
+
+    // Badge de idioma en navbar
+    _addLangBadge('?lang=es', 'ES', 'Cambiar a Español');
+  });
 })();
+
+function _addLangBadge(href, label, title){
+  const header = document.querySelector('header');
+  if(!header) return;
+  if(header.querySelector('.lang-badge')) return;
+  const badge = document.createElement('button');
+  badge.title = title;
+  badge.className = 'lang-badge';
+  badge.style.cssText = 'margin-left:8px;padding:4px 12px;border-radius:14px;background:rgba(255,255,255,.15);color:#f8fafc;font-size:.72rem;font-weight:700;border:1px solid rgba(255,255,255,.25);flex-shrink:0;letter-spacing:.04em;cursor:pointer;font-family:inherit';
+  badge.textContent = label;
+  // Cambiar idioma SIN recargar la página — solo guarda en localStorage y re-aplica
+  badge.onclick = function(e){
+    e.preventDefault();
+    const newLang = (window._lang === 'en') ? 'es' : 'en';
+    localStorage.setItem('zc_lang', newLang);
+    // Recargar solo actualizando el param de URL para que el i18n se aplique
+    // Pero sin perder el estado — usamos location.replace que no agrega al historial
+    const url = new URL(location.href);
+    url.searchParams.set('lang', newLang);
+    location.replace(url.toString());
+  };
+  header.appendChild(badge);
+}
 </script>
+
+
 
 </head>
 <body class="login-mode">
@@ -2773,7 +2835,38 @@ async function iniciarFlujoEmpresa() {
   const perfiles = await cargarPerfiles(3);
 
   if (perfiles.length === 0) {
-    // Sin empresas → mostrar onboarding obligatorio (no se puede cerrar)
+    // Antes de mostrar onboarding, verificar si hay perfil guardado en localStorage.
+    // Si hay uno guardado, es un problema de red temporal — no es usuario nuevo.
+    // Mostrar un aviso de reintento en lugar del onboarding de bienvenida.
+    if (_perfilSeleccionado) {
+      // Ya tenía empresa — problema de conexión temporal
+      const overlay = document.getElementById('empresaOverlay');
+      const list    = document.getElementById('empresaList');
+      if (overlay && list) {
+        list.innerHTML = `
+          <div style="text-align:center;padding:1.5rem;color:#64748b">
+            <div style="font-size:1.3rem;margin-bottom:.6rem">⚠️</div>
+            <div style="font-weight:600;font-size:.88rem;margin-bottom:.3rem">
+              ${window._lang==='en' ? 'Could not load companies' : 'No se pudieron cargar las empresas'}
+            </div>
+            <div style="font-size:.76rem;margin-bottom:1rem;color:#94a3b8">
+              ${window._lang==='en' ? 'Check your connection and try again' : 'Verifica tu conexión e intenta de nuevo'}
+            </div>
+            <button onclick="iniciarFlujoEmpresa()"
+              style="background:#0f172a;color:#fff;border:none;padding:.5rem 1.2rem;border-radius:8px;cursor:pointer;font-size:.83rem">
+              ${window._lang==='en' ? '🔄 Retry' : '🔄 Reintentar'}
+            </button>
+            <div style="margin-top:.8rem;font-size:.75rem;color:#94a3b8">
+              ${window._lang==='en'
+                ? `Last used: <b>${_perfilSeleccionado.nombre}</b>`
+                : `Último usado: <b>${_perfilSeleccionado.nombre}</b>`}
+            </div>
+          </div>`;
+        overlay.classList.add('visible');
+      }
+      return;
+    }
+    // Usuario genuinamente nuevo sin empresas → onboarding
     mostrarOnboarding();
     return;
   }

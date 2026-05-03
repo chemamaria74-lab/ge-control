@@ -104,6 +104,47 @@
     }
     .back-link a:hover { color: #fff; }
   </style>
+
+<script>
+(function(){
+  const _langUrl    = new URLSearchParams(location.search).get('lang');
+  const _langStored = localStorage.getItem('zc_lang');
+  const _lang = (_langUrl === 'en' || _langUrl === 'es') ? _langUrl
+              : (_langStored === 'en' || _langStored === 'es') ? _langStored
+              : 'es';
+  localStorage.setItem('zc_lang', _lang);
+  if (_lang !== 'en') return;
+
+  const EN = {
+    title:       'Z Control - {{ nombre_modulo }}',
+    usuario:     'USERNAME',
+    contrasena:  'PASSWORD',
+    placeholder_user: 'username',
+    placeholder_pass: '••••••••',
+    btn_login:   'Sign in',
+    back:        'Change module',
+  };
+
+  document.addEventListener('DOMContentLoaded', function(){
+    // Labels
+    const labels = document.querySelectorAll('.field label');
+    if(labels[0]) labels[0].textContent = EN.usuario;
+    if(labels[1]) labels[1].textContent = EN.contrasena;
+    // Placeholders
+    const userInput = document.getElementById('loginUser');
+    const passInput = document.getElementById('loginPass');
+    if(userInput) userInput.placeholder = EN.placeholder_user;
+    if(passInput) passInput.placeholder = EN.placeholder_pass;
+    // Botón
+    const btn = document.querySelector('.btn-login');
+    if(btn) btn.textContent = EN.btn_login;
+    // Link de regreso
+    const back = document.querySelector('.back-link a');
+    if(back) back.innerHTML = '<i class="fa-solid fa-arrow-left"></i> ' + EN.back;
+  });
+})();
+</script>
+
 </head>
 <body>
   <div class="login-card">
