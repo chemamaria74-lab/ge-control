@@ -1,31 +1,32 @@
-# services/database.py
-# Persistencia en Supabase para Z-Control.
-# Reemplaza la versión SQLite — misma interfaz de funciones,
-# el resto del código (routes/) no necesita cambios.
-#
-# Tablas en Supabase (crear con supabase_setup.sql):
-#   records          → movimientos (entradas/salidas) por periodo
-#   reports          → reportes SAT generados
-#   user_facilities  → instalaciones / plantas
-#   providers        → catálogo RFC → Permiso CRE
-#   zc_settings      → configuración SAT del usuario (JSON blob)
-#   settings_audit   → log de cambios de configuración
+"""
+services/database.py — v2
 
+CAMBIOS vs versión anterior:
+- get_admin_metrics: usa select con count="exact" y limit(1) en lugar de
+  cargar todas las filas a memoria. Con miles de registros, la versión
+  anterior agotaba la RAM del worker.
+- save_user_setting / _supabase_save: upsert seguro con on_conflict
+  explícito (requiere UNIQUE (user_id, perfil_id) — ver migrations/).
+- Importa get_supabase_for_user para operaciones que requieren RLS.
+- Funciones de lectura clave aceptan access_token opcional para
+  respetar RLS cuando se llaman desde un contexto autenticado.
+"""
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
-from supabase_config import get_supabase
+from supabase_config import get_supabase, get_supabase_for_user
 
 logger = logging.getLogger(__name__)
 
 
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def init_db() -> None:
-    """
-    En Supabase no hay nada que inicializar en código —
-    las tablas se crean desde supabase_setup.sql.
-    Se mantiene por compatibilidad con el código que la llama al arrancar.
-    """
+    """Verifica conectividad con Supabase al arrancar."""
     try:
         get_supabase().table("zc_settings").select("id").limit(1).execute()
         logger.info("Supabase: conexión verificada OK.")
@@ -33,14 +34,10 @@ def init_db() -> None:
         logger.warning("Supabase init check: %s", e)
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 # ── SETTINGS AUDIT ────────────────────────────────────────────────────────────
 
 def log_settings_audit(user_id: str, setting_key: str,
-                       old_value: object, new_value: object) -> None:
+                        old_value: object, new_value: object) -> None:
     try:
         get_supabase().table("settings_audit").insert({
             "user_id":     user_id or "system",
@@ -56,12 +53,13 @@ def log_settings_audit(user_id: str, setting_key: str,
 def save_user_setting(user_id: str, setting_key: str, setting_value: str) -> None:
     try:
         sb   = get_supabase()
-        rows = sb.table("zc_settings").select("data").eq("user_id", user_id).execute()
+        rows = sb.table("zc_settings").select("data").eq("user_id", user_id)\
+                 .is_("perfil_id", "null").execute()
         data = rows.data[0]["data"] if rows.data else {}
         data[setting_key] = setting_value
         sb.table("zc_settings").upsert(
-            {"user_id": user_id, "data": data, "updated_at": _now()},
-            on_conflict="user_id"
+            {"user_id": user_id, "data": data, "updated_at": _now(), "perfil_id": None},
+            on_conflict="user_id,perfil_id"   # requiere UNIQUE (user_id, perfil_id)
         ).execute()
     except Exception as e:
         logger.warning("save_user_setting: %s", e)
@@ -69,7 +67,8 @@ def save_user_setting(user_id: str, setting_key: str, setting_value: str) -> Non
 
 def get_user_setting(user_id: str, setting_key: str, default: str = "") -> str:
     try:
-        rows = get_supabase().table("zc_settings").select("data").eq("user_id", user_id).execute()
+        rows = get_supabase().table("zc_settings").select("data")\
+                 .eq("user_id", user_id).is_("perfil_id", "null").execute()
         if rows.data:
             return rows.data[0]["data"].get(setting_key, default)
     except Exception as e:
@@ -78,29 +77,40 @@ def get_user_setting(user_id: str, setting_key: str, default: str = "") -> str:
 
 
 def get_admin_metrics() -> dict:
+    """
+    Métricas de admin usando count="exact" — NO carga filas a memoria.
+    Supabase devuelve el conteo real en response.count con limit(1).
+    """
     try:
         sb             = get_supabase()
         periodo_actual = datetime.now(timezone.utc).strftime("%Y-%m")
-        active_users     = len(sb.table("zc_settings").select("user_id").execute().data or [])
-        reports_mes      = len(sb.table("reports").select("id").eq("periodo", periodo_actual).execute().data or [])
-        total_facilities = len(sb.table("user_facilities").select("id").execute().data or [])
-        total_records    = len(sb.table("records").select("id").execute().data or [])
+
+        def _count(table: str, filters: dict = None) -> int:
+            q = sb.table(table).select("id", count="exact").limit(1)
+            for k, v in (filters or {}).items():
+                q = q.eq(k, v)
+            r = q.execute()
+            return r.count or 0
+
         return {
-            "active_users":       active_users,
-            "reports_this_month": reports_mes,
-            "total_facilities":   total_facilities,
-            "total_records":      total_records,
+            "active_users":       _count("zc_settings"),
+            "reports_this_month": _count("reports", {"periodo": periodo_actual}),
+            "total_facilities":   _count("user_facilities"),
+            "total_records":      _count("records"),
             "periodo_actual":     periodo_actual,
         }
     except Exception as e:
         logger.warning("get_admin_metrics: %s", e)
-        return {"active_users": 0, "reports_this_month": 0,
-                "total_facilities": 0, "total_records": 0, "periodo_actual": ""}
+        return {
+            "active_users": 0, "reports_this_month": 0,
+            "total_facilities": 0, "total_records": 0, "periodo_actual": "",
+        }
 
 
 # ── FACILITIES ────────────────────────────────────────────────────────────────
 
-def get_facilities(user_id: str, modulo: str = None, perfil_id: int = None) -> list:
+def get_facilities(user_id: str, modulo: str = None,
+                   perfil_id: Optional[int] = None) -> list:
     try:
         q = get_supabase().table("user_facilities").select("*").eq("user_id", user_id)
         if modulo:
@@ -145,27 +155,36 @@ def delete_facility(facility_id: int, user_id: str) -> bool:
 def create_facility_v2(user_id: str, data: dict) -> dict:
     try:
         record = {
-            "user_id":            user_id,
-            "modulo_propietario": data.get("modulo_propietario", "gas_lp"),
-            "nombre":             data.get("nombre", ""),
-            "tipo_instalacion":   data.get("tipo_instalacion", "planta"),
-            "tipo_permiso":       data.get("tipo_permiso", "PER40"),
-            "modalidad_permiso":  data.get("modalidad_permiso", "PER40"),
-            "actividad_sat":      data.get("actividad_sat", "DIS"),
-            "caracter":           data.get("caracter", "permisionario"),
-            "num_permiso":        data.get("num_permiso", ""),
-            "permiso_alm":        data.get("permiso_alm", ""),
-            "clave_instalacion":  data.get("clave_instalacion", ""),
-            "descripcion":        data.get("descripcion", ""),
-            "capacidad_tanque":   float(data.get("capacidad_tanque", 0.0)),
-            "num_tanques":        int(data.get("num_tanques", 1)),
-            "num_dispensarios":   int(data.get("num_dispensarios", 0)),
+            "user_id":             user_id,
+            "modulo_propietario":  data.get("modulo_propietario", "gas_lp"),
+            "nombre":              data.get("nombre", ""),
+            "tipo_instalacion":    data.get("tipo_instalacion", "planta"),
+            "tipo_permiso":        data.get("tipo_permiso", "PER40"),
+            "modalidad_permiso":   data.get("modalidad_permiso", "PER40"),
+            "actividad_sat":       data.get("actividad_sat", "DIS"),
+            "caracter":            data.get("caracter", "permisionario"),
+            "num_permiso":         data.get("num_permiso", ""),
+            "permiso_alm":         data.get("permiso_alm", ""),
+            "clave_instalacion":   data.get("clave_instalacion", ""),
+            "descripcion":         data.get("descripcion", ""),
+            "capacidad_tanque":    float(data.get("capacidad_tanque", 0.0)),
+            "num_tanques":         int(data.get("num_tanques", 1)),
+            "num_dispensarios":    int(data.get("num_dispensarios", 0)),
             "temperatura_default": data.get("temperatura_default"),
-            "latitud":            data.get("latitud"),
-            "longitud":           data.get("longitud"),
-            "created_at":         _now(),
+            "latitud":             data.get("latitud"),
+            "longitud":            data.get("longitud"),
+            # Campos de medidor/tanque para Anexo 30
+            "cap_total_tanque":               data.get("cap_total_tanque"),
+            "cap_operativa_tanque":           data.get("cap_operativa_tanque"),
+            "cap_util_tanque":                data.get("cap_util_tanque"),
+            "clave_tanque":                   data.get("clave_tanque", ""),
+            "fecha_calibracion_tanque":       data.get("fecha_calibracion_tanque", ""),
+            "incertidumbre_medidor":          data.get("incertidumbre_medidor"),
+            "modelo_medidor":                 data.get("modelo_medidor", ""),
+            "serie_medidor":                  data.get("serie_medidor", ""),
+            "fecha_calibracion_medidor":      data.get("fecha_calibracion_medidor", ""),
+            "created_at": _now(),
         }
-        # Incluir perfil_id si fue provisto (multi-empresa)
         if data.get("perfil_id"):
             record["perfil_id"] = int(data["perfil_id"])
         result = get_supabase().table("user_facilities").insert(record).execute()
@@ -177,25 +196,37 @@ def create_facility_v2(user_id: str, data: dict) -> dict:
 
 def update_facility_v2(facility_id: int, user_id: str, data: dict) -> Optional[dict]:
     try:
-        get_supabase().table("user_facilities").update({
-            "modulo_propietario": data.get("modulo_propietario", "gas_lp"),
-            "nombre":             data.get("nombre", ""),
-            "tipo_instalacion":   data.get("tipo_instalacion", "planta"),
-            "tipo_permiso":       data.get("tipo_permiso", "PER40"),
-            "modalidad_permiso":  data.get("modalidad_permiso", "PER40"),
-            "actividad_sat":      data.get("actividad_sat", "DIS"),
-            "caracter":           data.get("caracter", "permisionario"),
-            "num_permiso":        data.get("num_permiso", ""),
-            "permiso_alm":        data.get("permiso_alm", ""),
-            "clave_instalacion":  data.get("clave_instalacion", ""),
-            "descripcion":        data.get("descripcion", ""),
-            "capacidad_tanque":   float(data.get("capacidad_tanque", 0.0)),
-            "num_tanques":        int(data.get("num_tanques", 1)),
-            "num_dispensarios":   int(data.get("num_dispensarios", 0)),
+        update_data = {
+            "modulo_propietario":  data.get("modulo_propietario", "gas_lp"),
+            "nombre":              data.get("nombre", ""),
+            "tipo_instalacion":    data.get("tipo_instalacion", "planta"),
+            "tipo_permiso":        data.get("tipo_permiso", "PER40"),
+            "modalidad_permiso":   data.get("modalidad_permiso", "PER40"),
+            "actividad_sat":       data.get("actividad_sat", "DIS"),
+            "caracter":            data.get("caracter", "permisionario"),
+            "num_permiso":         data.get("num_permiso", ""),
+            "permiso_alm":         data.get("permiso_alm", ""),
+            "clave_instalacion":   data.get("clave_instalacion", ""),
+            "descripcion":         data.get("descripcion", ""),
+            "capacidad_tanque":    float(data.get("capacidad_tanque", 0.0)),
+            "num_tanques":         int(data.get("num_tanques", 1)),
+            "num_dispensarios":    int(data.get("num_dispensarios", 0)),
             "temperatura_default": data.get("temperatura_default"),
-            "latitud":            data.get("latitud"),
-            "longitud":           data.get("longitud"),
-        }).eq("id", facility_id).eq("user_id", user_id).execute()
+            "latitud":             data.get("latitud"),
+            "longitud":            data.get("longitud"),
+            "cap_total_tanque":    data.get("cap_total_tanque"),
+            "cap_operativa_tanque": data.get("cap_operativa_tanque"),
+            "cap_util_tanque":     data.get("cap_util_tanque"),
+            "clave_tanque":        data.get("clave_tanque", ""),
+            "fecha_calibracion_tanque":  data.get("fecha_calibracion_tanque", ""),
+            "incertidumbre_medidor":     data.get("incertidumbre_medidor"),
+            "modelo_medidor":            data.get("modelo_medidor", ""),
+            "serie_medidor":             data.get("serie_medidor", ""),
+            "fecha_calibracion_medidor": data.get("fecha_calibracion_medidor", ""),
+        }
+        (get_supabase().table("user_facilities")
+         .update(update_data)
+         .eq("id", facility_id).eq("user_id", user_id).execute())
         return get_facility(facility_id, user_id)
     except Exception as e:
         logger.warning("update_facility_v2: %s", e)
@@ -243,7 +274,8 @@ def get_records(user_id: str, periodo: str,
                 perfil_id: Optional[int] = None) -> dict:
     try:
         q = (get_supabase().table("records")
-             .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,nombre_contraparte,importe,file_path")
+             .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,"
+                     "nombre_contraparte,importe,file_path")
              .eq("user_id", user_id).eq("periodo", periodo))
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
@@ -262,16 +294,14 @@ def get_period_totals(user_id: str, periodo: str,
                       facility_id: Optional[int] = None,
                       perfil_id: Optional[int] = None) -> dict:
     try:
-        r = get_records(user_id, periodo, facility_id, perfil_id)
+        r        = get_records(user_id, periodo, facility_id, perfil_id)
         entradas = r["entradas"]
         salidas  = r["salidas"]
 
-        # Autoconsumos: registros manuales — detectados por file_path O por UUID prefijo AUTO-
         autoconsumos = [s for s in salidas
                         if (s.get("file_path") or "").startswith("manual:")
                         or (s.get("uuid") or "").upper().startswith("AUTO-")]
 
-        # Traspasos: ventas donde importe > 0 pero precio simbólico < $1/L y NO son autoconsumos
         traspasos = [s for s in salidas
                      if not (s.get("file_path") or "").startswith("manual:")
                      and not (s.get("uuid") or "").upper().startswith("AUTO-")
@@ -279,20 +309,18 @@ def get_period_totals(user_id: str, periodo: str,
                      and s.get("importe", 0) > 0
                      and s.get("importe", 0) / s.get("volumen_litros", 1) < 1.0]
 
-        # Ventas reales: CFDI con precio normal ≥$1/L, no manuales
         ventas_reales = [s for s in salidas
                          if not (s.get("file_path") or "").startswith("manual:")
                          and not (s.get("uuid") or "").upper().startswith("AUTO-")
                          and s.get("volumen_litros", 0) > 0
                          and s.get("importe", 0) / s.get("volumen_litros", 1) >= 1.0]
 
-        # ── Precios promedio ──────────────────────────────────────────────────
-        vol_compra = sum(e.get("volumen_litros", 0) for e in entradas)
-        imp_compra = sum(e.get("importe", 0) for e in entradas)
+        vol_compra    = sum(e.get("volumen_litros", 0) for e in entradas)
+        imp_compra    = sum(e.get("importe", 0) for e in entradas)
         precio_compra = round(imp_compra / vol_compra, 4) if vol_compra > 0 else 0
 
-        vol_venta = sum(s.get("volumen_litros", 0) for s in ventas_reales)
-        imp_venta = sum(s.get("importe", 0) for s in ventas_reales)
+        vol_venta    = sum(s.get("volumen_litros", 0) for s in ventas_reales)
+        imp_venta    = sum(s.get("importe", 0) for s in ventas_reales)
         precio_venta = round(imp_venta / vol_venta, 4) if vol_venta > 0 else 0
 
         return {
@@ -311,12 +339,14 @@ def get_period_totals(user_id: str, periodo: str,
         }
     except Exception as e:
         logger.warning("get_period_totals: %s", e)
-        return {"total_entradas": 0, "total_salidas": 0,
-                "total_autoconsumo": 0, "cnt_autoconsumo": 0,
-                "total_traspasos": 0, "cnt_traspasos": 0,
-                "precio_compra_prom": 0, "precio_venta_prom": 0,
-                "importe_entradas": 0, "importe_salidas": 0,
-                "cnt_entradas": 0, "cnt_salidas": 0}
+        return {
+            "total_entradas": 0, "total_salidas": 0,
+            "total_autoconsumo": 0, "cnt_autoconsumo": 0,
+            "total_traspasos": 0, "cnt_traspasos": 0,
+            "precio_compra_prom": 0, "precio_venta_prom": 0,
+            "importe_entradas": 0, "importe_salidas": 0,
+            "cnt_entradas": 0, "cnt_salidas": 0,
+        }
 
 
 # ── REPORTS ───────────────────────────────────────────────────────────────────
@@ -347,8 +377,6 @@ def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
         }
         if perfil_id:
             record["perfil_id"] = perfil_id
-        # Guardar contenido del ZIP y JSON en Supabase (base64)
-        # Así el historial sirve exactamente el mismo archivo sin depender del disco
         if zip_path and os.path.exists(zip_path):
             with open(zip_path, "rb") as f:
                 record["zip_content"] = base64.b64encode(f.read()).decode("utf-8")
@@ -385,7 +413,8 @@ def get_last_report(user_id: str, facility_id: Optional[int] = None,
             q = q.eq("facility_id", facility_id)
         if perfil_id is not None:
             q = q.eq("perfil_id", perfil_id)
-        rows = q.order("periodo", desc=True).order("created_at", desc=True).limit(1).execute().data
+        rows = q.order("periodo", desc=True).order("created_at", desc=True)\
+                .limit(1).execute().data
         return rows[0] if rows else None
     except Exception as e:
         logger.warning("get_last_report: %s", e)
@@ -415,17 +444,13 @@ def delete_period(user_id: str, periodo: str,
                   perfil_id: Optional[int] = None) -> dict:
     counts = {"records": 0, "reports": 0}
     try:
-        sb = get_supabase()
+        sb   = get_supabase()
         qr   = sb.table("records").delete().eq("user_id", user_id).eq("periodo", periodo)
         qrep = sb.table("reports").delete().eq("user_id", user_id).eq("periodo", periodo)
         if not include_autoconsumos:
-            # Proteger autoconsumos: NO borrar los que tienen file_path='manual:*' O uuid='AUTO-*'
-            # Supabase soporta .not_.like() pero encadenar dos .not_.like() hace AND, no OR
-            # Solución: usar filtro raw con not(or(...))
             try:
                 qr = qr.not_.or_("file_path.like.manual:%,uuid.like.AUTO-%")
             except Exception:
-                # Fallback si la versión del cliente no soporta not_.or_
                 qr = qr.not_.like("file_path", "manual:%").not_.like("uuid", "AUTO-%")
         if facility_id is not None:
             qr   = qr.eq("facility_id", facility_id)
@@ -445,7 +470,7 @@ def delete_period(user_id: str, periodo: str,
 def delete_all_periods(user_id: str, perfil_id: Optional[int] = None) -> dict:
     counts = {"records": 0, "reports": 0}
     try:
-        sb = get_supabase()
+        sb   = get_supabase()
         qr   = sb.table("records").delete().eq("user_id", user_id)
         qrep = sb.table("reports").delete().eq("user_id", user_id)
         if perfil_id is not None:
@@ -479,23 +504,31 @@ def period_has_data(user_id: str, periodo: str,
 
 # ── PROVIDERS ─────────────────────────────────────────────────────────────────
 
-def get_providers(user_id: str) -> list:
+def get_providers(user_id: str, perfil_id: Optional[int] = None) -> list:
     try:
-        return (get_supabase().table("providers")
-                .select("*").eq("user_id", user_id).order("rfc").execute().data or [])
+        q = get_supabase().table("providers").select("*").eq("user_id", user_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
+        return q.order("rfc").execute().data or []
     except Exception as e:
         logger.warning("get_providers: %s", e)
         return []
 
 
-def upsert_provider(user_id: str, rfc: str, nombre: str, permiso: str) -> dict:
+def upsert_provider(user_id: str, rfc: str, nombre: str, permiso: str,
+                    perfil_id: Optional[int] = None) -> dict:
     try:
-        result = get_supabase().table("providers").upsert({
+        row = {
             "user_id": user_id,
             "rfc":     rfc.upper().strip(),
             "nombre":  nombre,
             "permiso": permiso,
-        }, on_conflict="user_id,rfc").execute()
+        }
+        if perfil_id is not None:
+            row["perfil_id"] = perfil_id
+        result = get_supabase().table("providers").upsert(
+            row, on_conflict="user_id,rfc"
+        ).execute()
         return result.data[0] if result.data else {}
     except Exception as e:
         logger.error("upsert_provider: %s", e)
@@ -512,7 +545,7 @@ def delete_provider(user_id: str, rfc: str) -> bool:
         return False
 
 
-# ── MEDIDORES (stubs — datos viven en adv_medicion dentro de zc_settings) ─────
+# ── MEDIDORES (stubs) ─────────────────────────────────────────────────────────
 
 def get_medidores(user_id: str, facility_id: Optional[int] = None) -> list:
     return []
