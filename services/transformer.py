@@ -7,6 +7,7 @@ from typing import Tuple, List
 
 from models.schemas import Anexo30JSON
 from config.cliente import ConfigCliente
+from services.decimal_precision import to_decimal, quantize_volumen, sum_decimal
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +19,7 @@ def transform(
 ) -> Tuple[object, List[str], List[str]]:
     """
     Transforma el DataFrame validado en el objeto JSON del Anexo 30.
-
-    Returns:
-        (anexo30, errores, logs)
+    Usa Decimal para precisión fiscal.
     """
     errores: List[str] = []
     logs:    List[str] = []
@@ -31,34 +30,36 @@ def transform(
         periodo = df["fecha"].dt.to_period("M").mode()[0].strftime("%Y-%m")
         logs.append(f"Periodo inferido: {periodo}")
 
-        entradas = df[df["tipo_movimiento"] == "entrada"]["volumen_base"].sum()
-        salidas  = df[df["tipo_movimiento"] == "salida"]["volumen_base"].sum()
+        # Usar Decimal para todos los cálculos
+        entradas = sum_decimal(df[df["tipo_movimiento"] == "entrada"]["volumen_base"].tolist())
+        salidas  = sum_decimal(df[df["tipo_movimiento"] == "salida"]["volumen_base"].tolist())
 
-        # Inventario inicial: primer valor no nulo, convertido a unidad_base
+        # Inventario inicial
         inv_ini_vals = df["inventario_inicial"].dropna()
         if not inv_ini_vals.empty:
-            # El inventario del Excel puede estar en cualquier unidad —
-            # se asume misma unidad que la primera fila con inventario_inicial
             primera_fila_ini = df[df["inventario_inicial"].notna()].iloc[0]
             inv_inicial = config.convertir_a_base(
-                float(primera_fila_ini["inventario_inicial"]),
-                primera_fila_ini["unidad"],
+                float(primera_fila_ini["inventario_inicial"]),  # temporal
+                primera_fila_ini["unidad"]
             )
+            inv_inicial = to_decimal(inv_inicial)
         else:
-            inv_inicial = 0.0
+            inv_inicial = Decimal('0')
             logs.append("inventario_inicial no provisto; se usa 0.")
 
-        # Inventario final: si se proveyó, convertir; si no, calcular
+        # Inventario final
         inv_fin_vals = df["inventario_final"].dropna()
         if not inv_fin_vals.empty:
             ultima_fila_fin = df[df["inventario_final"].notna()].iloc[-1]
             inv_final = config.convertir_a_base(
                 float(ultima_fila_fin["inventario_final"]),
-                ultima_fila_fin["unidad"],
+                ultima_fila_fin["unidad"]
             )
+            inv_final = to_decimal(inv_final)
             logs.append(f"inventario_final tomado del archivo: {inv_final:.4f} {config.unidad_base}.")
         else:
-            inv_final = round(inv_inicial + float(entradas) - float(salidas), 4)
+            inv_final = inv_inicial + entradas - salidas
+            inv_final = quantize_volumen(inv_final)
             logs.append(f"inventario_final calculado: {inv_final:.4f} {config.unidad_base}.")
 
         logs.append(
@@ -72,15 +73,15 @@ def transform(
             periodo           = periodo,
             producto          = "gas_lp",
             unidad_base       = config.unidad_base,
-            factor_utilizado  = config.factor_de_conversion_kg_a_litros,
-            total_entradas    = round(float(entradas), 4),
-            total_salidas     = round(float(salidas), 4),
-            inventario_inicial= round(inv_inicial, 4),
-            inventario_final  = round(inv_final, 4),
+            factor_utilizado  = to_decimal(config.factor_de_conversion_kg_a_litros),
+            total_entradas    = quantize_volumen(entradas),
+            total_salidas     = quantize_volumen(salidas),
+            inventario_inicial= quantize_volumen(inv_inicial),
+            inventario_final  = quantize_volumen(inv_final),
             alertas           = alertas,
         )
 
-        logs.append("JSON Anexo 30 generado exitosamente.")
+        logs.append("JSON Anexo 30 generado exitosamente con Decimal.")
         return resultado, errores, logs
 
     except Exception as e:
