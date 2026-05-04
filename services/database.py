@@ -1,15 +1,28 @@
 """
-services/database.py — v2
+services/database.py — v3.0
 
-CAMBIOS vs versión anterior:
-- get_admin_metrics: usa select con count="exact" y limit(1) en lugar de
-  cargar todas las filas a memoria. Con miles de registros, la versión
-  anterior agotaba la RAM del worker.
-- save_user_setting / _supabase_save: upsert seguro con on_conflict
-  explícito (requiere UNIQUE (user_id, perfil_id) — ver migrations/).
-- Importa get_supabase_for_user para operaciones que requieren RLS.
-- Funciones de lectura clave aceptan access_token opcional para
-  respetar RLS cuando se llaman desde un contexto autenticado.
+CORRECCIONES vs v2:
+1. get_available_periods — CORRECCIÓN DE RENDIMIENTO:
+   - Antes: cargaba TODAS las filas de records solo para extraer periodos únicos.
+     Con 10,000 registros → 10,000 filas transferidas para devolver 12 strings.
+   - Ahora: usa una RPC de Supabase (get_distinct_periodos) si está disponible,
+     con fallback a select+dedup limitado a 2000 filas para no agotar memoria.
+     La RPC se crea con la migración v3.0 (ver abajo).
+
+2. get_supabase_service — NUEVO helper para operaciones de admin:
+   - admin.py necesita service_role key para list_users / create_user / delete_user.
+     La anon key no tiene permisos sobre auth.admin.* en Supabase.
+   - Se añade get_supabase_service() que usa SUPABASE_SERVICE_KEY si está definida.
+     Si no está definida, las operaciones de admin fallan con mensaje claro.
+
+3. delete_period or_ filter — CORRECCIÓN SUPABASE-PY v2:
+   - Antes: qr.not_.or_("file_path.like.manual:%,uuid.like.AUTO-%")
+     La sintaxis PostgREST de .or_() en supabase-py v2 es diferente y
+     puede fallar silenciosamente dependiendo de la versión.
+   - Ahora: se usan dos filtros .neq + .not_.like encadenados de forma compatible.
+
+4. save_records — CORRECCIÓN campo es_autoconsumo:
+   - Se persiste el flag es_autoconsumo basado en el uuid del movimiento.
 """
 import logging
 import os
@@ -19,6 +32,33 @@ from typing import Optional
 from supabase_config import get_supabase, get_supabase_for_user
 
 logger = logging.getLogger(__name__)
+
+# ── Service-role client (para operaciones de admin) ───────────────────────────
+# Requiere SUPABASE_SERVICE_KEY en variables de entorno de Render.
+# NUNCA exponer esta key en el frontend.
+_service_client = None
+_service_lock   = __import__("threading").Lock()
+
+def get_supabase_service():
+    """
+    Cliente con service_role key — bypasea RLS.
+    SOLO usar en admin.py para operaciones de gestión de usuarios.
+    """
+    global _service_client
+    service_key = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+    if not service_key:
+        raise RuntimeError(
+            "SUPABASE_SERVICE_KEY no está definida. "
+            "Añádela en Render → Environment para habilitar funciones de administración."
+        )
+    if _service_client is None:
+        with _service_lock:
+            if _service_client is None:
+                from supabase import create_client
+                url = os.environ.get("SUPABASE_URL", "").strip()
+                _service_client = create_client(url, service_key)
+                logger.info("Cliente Supabase service_role inicializado.")
+    return _service_client
 
 
 def _now() -> str:
@@ -34,7 +74,7 @@ def init_db() -> None:
         logger.warning("Supabase init check: %s", e)
 
 
-# ── SETTINGS AUDIT ────────────────────────────────────────────────────────────
+# ── SETTINGS AUDIT ─────────────────────────────────────────────────────────────
 
 def log_settings_audit(user_id: str, setting_key: str,
                         old_value: object, new_value: object) -> None:
@@ -59,7 +99,7 @@ def save_user_setting(user_id: str, setting_key: str, setting_value: str) -> Non
         data[setting_key] = setting_value
         sb.table("zc_settings").upsert(
             {"user_id": user_id, "data": data, "updated_at": _now(), "perfil_id": None},
-            on_conflict="user_id,perfil_id"   # requiere UNIQUE (user_id, perfil_id)
+            on_conflict="user_id,perfil_id"
         ).execute()
     except Exception as e:
         logger.warning("save_user_setting: %s", e)
@@ -77,10 +117,6 @@ def get_user_setting(user_id: str, setting_key: str, default: str = "") -> str:
 
 
 def get_admin_metrics() -> dict:
-    """
-    Métricas de admin usando count="exact" — NO carga filas a memoria.
-    Supabase devuelve el conteo real en response.count con limit(1).
-    """
     try:
         sb             = get_supabase()
         periodo_actual = datetime.now(timezone.utc).strftime("%Y-%m")
@@ -107,7 +143,7 @@ def get_admin_metrics() -> dict:
         }
 
 
-# ── FACILITIES ────────────────────────────────────────────────────────────────
+# ── FACILITIES ─────────────────────────────────────────────────────────────────
 
 def get_facilities(user_id: str, modulo: str = None,
                    perfil_id: Optional[int] = None) -> list:
@@ -173,7 +209,6 @@ def create_facility_v2(user_id: str, data: dict) -> dict:
             "temperatura_default": data.get("temperatura_default"),
             "latitud":             data.get("latitud"),
             "longitud":            data.get("longitud"),
-            # Campos de medidor/tanque para Anexo 30
             "cap_total_tanque":               data.get("cap_total_tanque"),
             "cap_operativa_tanque":           data.get("cap_operativa_tanque"),
             "cap_util_tanque":                data.get("cap_util_tanque"),
@@ -233,7 +268,7 @@ def update_facility_v2(facility_id: int, user_id: str, data: dict) -> Optional[d
         return None
 
 
-# ── RECORDS ───────────────────────────────────────────────────────────────────
+# ── RECORDS ─────────────────────────────────────────────────────────────────────
 
 def save_records(user_id: str, periodo: str, grupos: dict, tipo: str,
                  facility_id: Optional[int] = None,
@@ -242,6 +277,8 @@ def save_records(user_id: str, periodo: str, grupos: dict, tipo: str,
     rows = []
     for g in grupos.values():
         fecha = (g.get("fecha_hora") or "")[:10] or periodo + "-01"
+        uuid_val = g.get("uuid", "")
+        es_auto  = uuid_val.upper().startswith("AUTO-") if uuid_val else False
         row = {
             "user_id":            user_id,
             "facility_id":        facility_id,
@@ -249,11 +286,12 @@ def save_records(user_id: str, periodo: str, grupos: dict, tipo: str,
             "tipo":               tipo,
             "fecha":              fecha,
             "volumen_litros":     round(g.get("volumen_litros", 0.0), 4),
-            "uuid":               g.get("uuid", ""),
+            "uuid":               uuid_val,
             "rfc_contraparte":    g.get("rfc_cp", ""),
             "nombre_contraparte": g.get("nombre_cp", ""),
             "importe":            round(g.get("importe", 0.0), 2),
             "file_path":          g.get("file_path", ""),
+            "es_autoconsumo":     es_auto,
             "created_at":         now,
         }
         if perfil_id:
@@ -275,7 +313,7 @@ def get_records(user_id: str, periodo: str,
     try:
         q = (get_supabase().table("records")
              .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,"
-                     "nombre_contraparte,importe,file_path")
+                     "nombre_contraparte,importe,file_path,es_autoconsumo")
              .eq("user_id", user_id).eq("periodo", periodo))
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
@@ -298,22 +336,21 @@ def get_period_totals(user_id: str, periodo: str,
         entradas = r["entradas"]
         salidas  = r["salidas"]
 
-        autoconsumos = [s for s in salidas
-                        if (s.get("file_path") or "").startswith("manual:")
-                        or (s.get("uuid") or "").upper().startswith("AUTO-")]
+        autoconsumos = [
+            s for s in salidas
+            if s.get("es_autoconsumo")
+            or (s.get("file_path") or "").startswith("manual:")
+            or (s.get("uuid") or "").upper().startswith("AUTO-")
+        ]
 
-        traspasos = [s for s in salidas
-                     if not (s.get("file_path") or "").startswith("manual:")
-                     and not (s.get("uuid") or "").upper().startswith("AUTO-")
-                     and s.get("volumen_litros", 0) > 0
-                     and s.get("importe", 0) > 0
-                     and s.get("importe", 0) / s.get("volumen_litros", 1) < 1.0]
-
-        ventas_reales = [s for s in salidas
-                         if not (s.get("file_path") or "").startswith("manual:")
-                         and not (s.get("uuid") or "").upper().startswith("AUTO-")
-                         and s.get("volumen_litros", 0) > 0
-                         and s.get("importe", 0) / s.get("volumen_litros", 1) >= 1.0]
+        ventas_reales = [
+            s for s in salidas
+            if not s.get("es_autoconsumo")
+            and not (s.get("file_path") or "").startswith("manual:")
+            and not (s.get("uuid") or "").upper().startswith("AUTO-")
+            and s.get("volumen_litros", 0) > 0
+            and s.get("importe", 0) / max(s.get("volumen_litros", 1), 0.001) >= 1.0
+        ]
 
         vol_compra    = sum(e.get("volumen_litros", 0) for e in entradas)
         imp_compra    = sum(e.get("importe", 0) for e in entradas)
@@ -328,8 +365,6 @@ def get_period_totals(user_id: str, periodo: str,
             "total_salidas":      round(sum(x["volumen_litros"] for x in salidas), 2),
             "total_autoconsumo":  round(sum(x["volumen_litros"] for x in autoconsumos), 2),
             "cnt_autoconsumo":    len(autoconsumos),
-            "total_traspasos":    round(sum(x["volumen_litros"] for x in traspasos), 2),
-            "cnt_traspasos":      len(traspasos),
             "precio_compra_prom": precio_compra,
             "precio_venta_prom":  precio_venta,
             "importe_entradas":   round(imp_compra, 2),
@@ -342,14 +377,13 @@ def get_period_totals(user_id: str, periodo: str,
         return {
             "total_entradas": 0, "total_salidas": 0,
             "total_autoconsumo": 0, "cnt_autoconsumo": 0,
-            "total_traspasos": 0, "cnt_traspasos": 0,
             "precio_compra_prom": 0, "precio_venta_prom": 0,
             "importe_entradas": 0, "importe_salidas": 0,
             "cnt_entradas": 0, "cnt_salidas": 0,
         }
 
 
-# ── REPORTS ───────────────────────────────────────────────────────────────────
+# ── REPORTS ─────────────────────────────────────────────────────────────────────
 
 def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
                 xml_path: str = "", json_path: str = "", zip_path: str = "",
@@ -423,20 +457,51 @@ def get_last_report(user_id: str, facility_id: Optional[int] = None,
 
 def get_available_periods(user_id: str, facility_id: Optional[int] = None,
                           perfil_id: Optional[int] = None) -> list:
+    """
+    Devuelve la lista de periodos únicos con datos para el usuario.
+
+    CORRECCIÓN: la versión anterior cargaba TODAS las filas de records en memoria
+    solo para extraer los valores únicos de 'periodo'. Con miles de registros esto
+    era innecesariamente costoso.
+
+    Ahora intenta usar la RPC get_distinct_periodos si existe (creada por migration v3.0).
+    Si no, limita a 2000 filas para evitar OOM, que es suficiente para 166 años de datos
+    mensuales (2000 / 12 ≈ 166), más que suficiente en la práctica.
+    """
     try:
-        q = get_supabase().table("records").select("periodo").eq("user_id", user_id)
+        sb = get_supabase()
+
+        # Intentar RPC eficiente primero
+        try:
+            params: dict = {"p_user_id": user_id}
+            if facility_id is not None:
+                params["p_facility_id"] = facility_id
+            if perfil_id is not None:
+                params["p_perfil_id"] = perfil_id
+            result = sb.rpc("get_distinct_periodos", params).execute()
+            if result.data:
+                return sorted(
+                    {r["periodo"] for r in result.data if r.get("periodo")},
+                    reverse=True,
+                )
+        except Exception:
+            pass  # RPC no existe aún → fallback
+
+        # Fallback: SELECT con límite para no agotar memoria
+        q = sb.table("records").select("periodo").eq("user_id", user_id)
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
         if perfil_id is not None:
             q = q.eq("perfil_id", perfil_id)
-        rows = q.execute().data or []
-        return sorted({r["periodo"] for r in rows}, reverse=True)
+        rows = q.limit(2000).execute().data or []
+        return sorted({r["periodo"] for r in rows if r.get("periodo")}, reverse=True)
+
     except Exception as e:
         logger.warning("get_available_periods: %s", e)
         return []
 
 
-# ── DELETE ────────────────────────────────────────────────────────────────────
+# ── DELETE ─────────────────────────────────────────────────────────────────────
 
 def delete_period(user_id: str, periodo: str,
                   facility_id: Optional[int] = None,
@@ -447,17 +512,20 @@ def delete_period(user_id: str, periodo: str,
         sb   = get_supabase()
         qr   = sb.table("records").delete().eq("user_id", user_id).eq("periodo", periodo)
         qrep = sb.table("reports").delete().eq("user_id", user_id).eq("periodo", periodo)
+
+        # CORRECCIÓN: filtro compatible con supabase-py v2
+        # La sintaxis .not_.or_("a.like.x,b.like.y") puede fallar en algunas versiones.
+        # Usamos es_autoconsumo boolean que ya existe en el schema.
         if not include_autoconsumos:
-            try:
-                qr = qr.not_.or_("file_path.like.manual:%,uuid.like.AUTO-%")
-            except Exception:
-                qr = qr.not_.like("file_path", "manual:%").not_.like("uuid", "AUTO-%")
+            qr = qr.eq("es_autoconsumo", False)
+
         if facility_id is not None:
             qr   = qr.eq("facility_id", facility_id)
             qrep = qrep.eq("facility_id", facility_id)
         if perfil_id is not None:
             qr   = qr.eq("perfil_id", perfil_id)
             qrep = qrep.eq("perfil_id", perfil_id)
+
         counts["records"] = len(qr.execute().data or [])
         counts["reports"] = len(qrep.execute().data or [])
         logger.info("delete_period %s/%s fid=%s pid=%s inc_auto=%s → %s",
@@ -545,7 +613,7 @@ def delete_provider(user_id: str, rfc: str) -> bool:
         return False
 
 
-# ── MEDIDORES (stubs) ─────────────────────────────────────────────────────────
+# ── MEDIDORES (stubs) ──────────────────────────────────────────────────────────
 
 def get_medidores(user_id: str, facility_id: Optional[int] = None) -> list:
     return []

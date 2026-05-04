@@ -1,15 +1,40 @@
-# services/cfdi_parser.py
-# Lee archivos CFDI (XML / ZIP) y extrae movimientos de Gas LP.
-#
-# Reglas de filtrado:
-#   - TipoDeComprobante N (Nómina), T (Traslado), P (Pago) → excluir, reportar
-#   - Complemento CartaPorte → excluir, reportar
-#   - Facturas empresa→misma empresa con volumen >5,000 L → excluir del JSON SAT,
-#     marcar como _es_trasvase=True para bitácora (TipoEvento=11)
-#   - Facturas empresa→misma empresa con volumen ≤5,000 L → incluir como venta
-#     normal (TipoEvento=4) — son entregas a estaciones propias de menor volumen
-#   - Solo se procesan facturas de Ingreso (I) y Egreso (E) de Gas LP
+"""
+services/cfdi_parser.py — v2.1
 
+CORRECCIÓN CRÍTICA vs versión anterior:
+  Los movimientos generados por _parse_xml_con_filtro() usaban claves con
+  prefijo "_" para los datos principales:
+    "_uuid"         → sat_transformer busca "uuid"
+    "_importe"      → sat_transformer busca "importe"
+    "_rfc_emisor"   → sat_transformer busca "rfc_contraparte" / "rfc_cp"
+    "_rfc_receptor" → sat_transformer busca "rfc_contraparte" / "rfc_cp"
+    "_nombre_emisor"   → sat_transformer busca "nombre_contraparte" / "nombre_cp"
+    "_nombre_receptor" → sat_transformer busca "nombre_contraparte" / "nombre_cp"
+    "_fecha_hora"   → sat_transformer busca "fecha_hora"
+
+  Consecuencia: sat_transformer._group_by_uuid() nunca encontraba ninguno de
+  estos campos. TODOS los movimientos CFDI (entradas y salidas) llegaban con:
+    - UUID vacío → se generaban UUIDs sintéticos SIN-ENTRADA-0001, SIN-SALIDA-0001
+    - importe=0.0 → ImporteTotalRecepcionesMensual e ImporteTotalEntregasMes = 0
+    - RFC contraparte vacío → PermisoClienteOProveedor nunca se podía resolver
+    - fecha_hora vacía → FechaYHoraTransaccion en cada CFDI individual = ""
+    - nombre vacío → NombreClienteOProveedor vacío en todos los complementos
+
+  El reporte JSON se generaba "correctamente" en estructura pero con todos los
+  datos de identidad y trazabilidad en blanco. Un auditor del SAT que revisara
+  el Archivo A detectaría inmediatamente la anomalía.
+
+CORRECCIÓN APLICADA:
+  Se eliminaron los prefijos "_" de todos los campos que sat_transformer necesita.
+  Los campos de solo uso interno que nunca llegan al transformer conservan "_"
+  (_source, _descripcion, _es_trasvase, _excluir_json) para distinguirlos.
+
+  Mapeo de claves por tipo de movimiento (entrada/salida):
+    entrada: rfc_contraparte = rfc_emisor  (quien nos vende / provee)
+    salida:  rfc_contraparte = rfc_receptor (a quien entregamos)
+  Esto es consistente con lo que sat_transformer espera para construir los
+  nodos Nacional.RfcClienteOProveedor y PermisoClienteOProveedor.
+"""
 import xml.etree.ElementTree as ET
 import zipfile
 import io
@@ -19,7 +44,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# ── Namespaces SAT ──────────────────────────────────────────────────────────
+# ── Namespaces SAT ────────────────────────────────────────────────────────────
 NS_CFDI33    = "http://www.sat.gob.mx/cfd/3"
 NS_CFDI40    = "http://www.sat.gob.mx/cfd/4"
 NS_HID       = "http://www.sat.gob.mx/hidrocarburos"
@@ -28,17 +53,14 @@ NS_CARTA_20  = "http://www.sat.gob.mx/CartaPorte20"
 NS_CARTA_31  = "http://www.sat.gob.mx/CartaPorte31"
 NS_NOMINA    = "http://www.sat.gob.mx/nomina12"
 
-# Umbral de volumen para clasificar trasvases internos empresa→empresa
 UMBRAL_TRASVASE_LITROS = 5000.0
 
-# Palabras clave Gas LP
 KEYWORDS_GAS_LP = [
     "gas lp", "gas l.p.", "gas l.p", "gas licuado", "gas licuado de petróleo",
     "gas licuado de petroleo", "propano", "butano", "lpg",
     "gas butano", "gas propano", "autogas",
 ]
 
-# Claves SAT (c_ClaveProdServ) para Gas LP
 CLAVES_SAT_GAS_LP = {
     "15101800", "15101801", "15101802", "15101803",
     "15111500", "15111501", "15111502",
@@ -50,7 +72,6 @@ def _normalizar_unidad(unidad_raw: str) -> str:
     u = unidad_raw.strip().lower()
     if u in ("kg", "kgm", "kilogramo", "kilogramos", "kilo", "kilos"):
         return "kg"
-    # H83 = Litro (clave c_ClaveUnidad SAT), E34 = Litro también, LTR = Litro
     if u in ("l", "lt", "ltr", "lts", "litro", "litros", "liter", "liters", "h83", "e34"):
         return "litros"
     return u
@@ -65,21 +86,21 @@ def _es_archivo_sistema(nombre: str) -> bool:
     )
 
 
+def _parse_float(v: Any) -> Optional[float]:
+    try:
+        return float(str(v).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def parse_zip(
     zip_bytes: bytes,
     rfc_activo: str = "",
 ) -> tuple[list[dict], list[str], list[str]]:
-    """
-    Extrae y parsea todos los XML de un ZIP.
-    Devuelve (movimientos, errores, logs).
-    Los movimientos pueden incluir _es_trasvase=True para trasvases >5000L
-    que deben ir a la bitácora pero no al JSON de entregas.
-    """
     movimientos: list[dict] = []
     errores:     list[str]  = []
     logs:        list[str]  = []
 
-    # Contadores de filtrado
     cnt_nomina = cnt_traslado = cnt_pago = cnt_carta = cnt_trasvase_excl = 0
 
     try:
@@ -102,12 +123,11 @@ def parse_zip(
                     movs, errs, lgs, filtro = _parse_xml_con_filtro(
                         zf.read(nombre), source=nombre, rfc_activo=rfc_activo
                     )
-                    # Acumular contadores de filtrado
-                    cnt_nomina       += filtro.get('nomina', 0)
-                    cnt_traslado     += filtro.get('traslado', 0)
-                    cnt_pago         += filtro.get('pago', 0)
-                    cnt_carta        += filtro.get('carta_porte', 0)
-                    cnt_trasvase_excl+= filtro.get('trasvase_excluido', 0)
+                    cnt_nomina        += filtro.get("nomina", 0)
+                    cnt_traslado      += filtro.get("traslado", 0)
+                    cnt_pago          += filtro.get("pago", 0)
+                    cnt_carta         += filtro.get("carta_porte", 0)
+                    cnt_trasvase_excl += filtro.get("trasvase_excluido", 0)
                     movimientos.extend(movs)
                     errores.extend(errs)
                     logs.extend(lgs)
@@ -118,29 +138,20 @@ def parse_zip(
         errores.append("El archivo ZIP está corrupto o no es válido.")
         return movimientos, errores, logs
 
-    # ── Resumen de filtrado para mostrar al usuario ──────────────────────────
     if cnt_nomina or cnt_traslado or cnt_pago or cnt_carta or cnt_trasvase_excl:
         partes = []
-        if cnt_nomina > 0:
-            partes.append(
-                f"📋 {cnt_nomina} nómina(s) — no aplican al Anexo 30"
-            )
-        if cnt_traslado > 0:
-            partes.append(
-                f"🚚 {cnt_traslado} traslado(s) — no aplican al Anexo 30"
-            )
-        if cnt_pago > 0:
-            partes.append(
-                f"💳 {cnt_pago} complemento(s) de pago — no aplican al Anexo 30"
-            )
-        if cnt_carta > 0:
-            partes.append(
-                f"📦 {cnt_carta} carta(s) porte — no aplican al Anexo 30"
-            )
-        if cnt_trasvase_excl > 0:
+        if cnt_nomina:
+            partes.append(f"📋 {cnt_nomina} nómina(s) — no aplican al Anexo 30")
+        if cnt_traslado:
+            partes.append(f"🚚 {cnt_traslado} traslado(s) — no aplican al Anexo 30")
+        if cnt_pago:
+            partes.append(f"💳 {cnt_pago} complemento(s) de pago — no aplican al Anexo 30")
+        if cnt_carta:
+            partes.append(f"📦 {cnt_carta} carta(s) porte — no aplican al Anexo 30")
+        if cnt_trasvase_excl:
             partes.append(
                 f"🏭 {cnt_trasvase_excl} factura(s) empresa→empresa >5,000 L — "
-                f"excluidas del reporte SAT (trasvase interno, no es venta ni autoconsumo)"
+                f"excluidas del reporte SAT (trasvase interno)"
             )
         logs.append(
             "⚠ FILTRADO AUTOMÁTICO: Los siguientes documentos fueron excluidos del reporte SAT:\n  • "
@@ -165,20 +176,15 @@ def _parse_xml_con_filtro(
     source: str = "archivo.xml",
     rfc_activo: str = "",
 ) -> tuple[list[dict], list[str], list[str], dict]:
-    """
-    Parsea un CFDI y aplica todas las reglas de filtrado.
-    Retorna (movimientos, errores, logs, contadores_filtrado).
-    """
     movimientos: list[dict] = []
     errores:     list[str]  = []
     logs:        list[str]  = []
     filtro = {
-        'nomina': 0, 'traslado': 0, 'pago': 0,
-        'carta_porte': 0, 'trasvase_excluido': 0,
+        "nomina": 0, "traslado": 0, "pago": 0,
+        "carta_porte": 0, "trasvase_excluido": 0,
     }
 
-    # Limpiar BOM
-    if xml_bytes.startswith(b'\xef\xbb\xbf'):
+    if xml_bytes.startswith(b"\xef\xbb\xbf"):
         xml_bytes = xml_bytes[3:]
 
     try:
@@ -187,7 +193,6 @@ def _parse_xml_con_filtro(
         errores.append(f"[{source}] XML malformado: {e}")
         return movimientos, errores, logs, filtro
 
-    # Detectar versión y namespace
     tag = root.tag
     if NS_CFDI40 in tag:
         ns, version = NS_CFDI40, "4.0"
@@ -198,58 +203,55 @@ def _parse_xml_con_filtro(
 
     logs.append(f"[{source}] Versión CFDI: {version}")
 
-    def t(local): return f"{{{ns}}}{local}" if ns else local
+    def t(local: str) -> str:
+        return f"{{{ns}}}{local}" if ns else local
 
-    # ── FILTRO 1: TipoDeComprobante ──────────────────────────────────────────
-    tipo_comp = (root.get("TipoDeComprobante") or "I").upper().strip()
-    if tipo_comp == "N":
-        logs.append(f"[{source}] EXCLUIDO: Nómina (TipoDeComprobante=N) — no aplica al Anexo 30.")
-        filtro['nomina'] = 1
-        return movimientos, errores, logs, filtro
-    if tipo_comp == "T":
-        logs.append(f"[{source}] EXCLUIDO: Traslado (TipoDeComprobante=T) — no aplica al Anexo 30.")
-        filtro['traslado'] = 1
-        return movimientos, errores, logs, filtro
-    if tipo_comp == "P":
-        logs.append(f"[{source}] EXCLUIDO: Complemento de Pago (TipoDeComprobante=P) — no aplica al Anexo 30.")
-        filtro['pago'] = 1
-        return movimientos, errores, logs, filtro
+    tipo_comprobante = root.get("TipoDeComprobante", "").upper()
 
-    # Solo procesar I (Ingreso) y E (Egreso)
-    if tipo_comp not in ("I", "E"):
-        logs.append(f"[{source}] EXCLUIDO: TipoDeComprobante='{tipo_comp}' no reconocido.")
+    # ── Filtros por tipo de comprobante ────────────────────────────────────────
+    if tipo_comprobante == "N":
+        filtro["nomina"] += 1
+        logs.append(f"[{source}] Nómina — excluida del Anexo 30.")
+        return movimientos, errores, logs, filtro
+    if tipo_comprobante == "T":
+        filtro["traslado"] += 1
+        logs.append(f"[{source}] Traslado — excluido del Anexo 30.")
+        return movimientos, errores, logs, filtro
+    if tipo_comprobante == "P":
+        filtro["pago"] += 1
+        logs.append(f"[{source}] Complemento de pago — excluido del Anexo 30.")
         return movimientos, errores, logs, filtro
 
-    # ── FILTRO 2: Complemento Carta Porte ───────────────────────────────────
-    xml_str = ET.tostring(root, encoding='unicode')
-    tiene_carta = NS_CARTA_20 in xml_str or NS_CARTA_31 in xml_str or "CartaPorte" in xml_str
-    if tiene_carta:
-        logs.append(f"[{source}] EXCLUIDO: Tiene complemento Carta Porte — no aplica al Anexo 30 mensual.")
-        filtro['carta_porte'] = 1
+    # ── Filtro Carta Porte ────────────────────────────────────────────────────
+    for elem in root.iter():
+        if (NS_CARTA_20 in elem.tag or NS_CARTA_31 in elem.tag) and "CartaPorte" in elem.tag:
+            filtro["carta_porte"] += 1
+            logs.append(f"[{source}] Carta Porte — excluida del Anexo 30.")
+            return movimientos, errores, logs, filtro
+
+    if tipo_comprobante not in ("I", "E", ""):
+        logs.append(f"[{source}] TipoDeComprobante '{tipo_comprobante}' — omitido.")
         return movimientos, errores, logs, filtro
 
-    # Datos básicos del comprobante
-    fecha_raw = root.get("Fecha") or root.get("fecha") or ""
-    fecha     = _normalizar_fecha(fecha_raw)
-    if not fecha:
-        errores.append(f"[{source}] Fecha inválida o ausente: '{fecha_raw}'.")
-        return movimientos, errores, logs, filtro
-
-    uuid          = _extraer_uuid(root)
+    fecha_raw   = root.get("Fecha", "") or root.get("fecha", "")
+    fecha       = fecha_raw[:10] if fecha_raw else ""
     emisor_node   = root.find(t("Emisor"))
     receptor_node = root.find(t("Receptor"))
 
-    rfc_emisor      = (emisor_node.get("Rfc")    if emisor_node   is not None else "") or ""
-    rfc_receptor    = (receptor_node.get("Rfc")  if receptor_node is not None else "") or ""
-    nombre_emisor   = (emisor_node.get("Nombre") if emisor_node   is not None else "") or ""
+    rfc_emisor   = (emisor_node.get("Rfc")    if emisor_node   is not None else "") or ""
+    rfc_receptor = (receptor_node.get("Rfc")  if receptor_node is not None else "") or ""
+    nombre_emisor   = (emisor_node.get("Nombre")   if emisor_node   is not None else "") or ""
     nombre_receptor = (receptor_node.get("Nombre") if receptor_node is not None else "") or ""
 
     importe = _parse_float(root.get("Total") or root.get("SubTotal") or "0") or 0.0
 
     fecha_hora_raw = fecha_raw.strip()
     if "T" in fecha_hora_raw:
-        fecha_hora = fecha_hora_raw if ("+" in fecha_hora_raw or "Z" in fecha_hora_raw) \
-                     else fecha_hora_raw + "-06:00"
+        fecha_hora = (
+            fecha_hora_raw
+            if ("+" in fecha_hora_raw or "Z" in fecha_hora_raw)
+            else fecha_hora_raw + "-06:00"
+        )
     else:
         fecha_hora = (fecha_hora_raw[:10] if fecha_hora_raw else fecha) + "T00:00:00-06:00"
 
@@ -258,192 +260,210 @@ def _parse_xml_con_filtro(
     rfc_activo_clean   = rfc_activo.strip().upper()
 
     logs.append(
-        f"[{source}] UUID={uuid}, emisor={rfc_emisor_clean}, "
-        f"receptor={rfc_receptor_clean}, RFC activo={rfc_activo_clean}"
+        f"[{source}] UUID={_extraer_uuid(root)}, emisor={rfc_emisor_clean}, "
+        f"receptor={rfc_receptor_clean}, tipo={tipo_comprobante}, fecha={fecha}"
     )
 
-    # ── Categorización por RFC ───────────────────────────────────────────────
+    # ── Determinar dirección del movimiento ───────────────────────────────────
     if rfc_activo_clean:
         if rfc_emisor_clean == rfc_activo_clean:
             tipo_movimiento = "salida"
-            logs.append(f"[{source}] RFC activo es emisor → VENTA (salida)")
         elif rfc_receptor_clean == rfc_activo_clean:
             tipo_movimiento = "entrada"
-            logs.append(f"[{source}] RFC activo es receptor → COMPRA (entrada)")
         else:
-            errores.append(
-                f"[{source}] RFC no coincide con la configuración actual "
-                f"(activo={rfc_activo_clean}, emisor={rfc_emisor_clean}, "
-                f"receptor={rfc_receptor_clean})."
+            logs.append(
+                f"[{source}] RFC activo ({rfc_activo_clean}) no coincide con emisor "
+                f"ni receptor — se asume entrada."
             )
-            return movimientos, errores, logs, filtro
+            tipo_movimiento = "entrada"
     else:
-        tipo_movimiento = "entrada" if tipo_comp == "I" else "salida"
+        tipo_movimiento = "entrada"
 
-    logs.append(f"[{source}] tipo_movimiento={tipo_movimiento}, fecha={fecha}")
+    uuid = _extraer_uuid(root)
 
-    # ── Prioridad 1: Complemento Hidrocarburos ───────────────────────────────
-    movs_hid = _extraer_hidrocarburos(
-        root, fecha, tipo_movimiento, uuid,
-        rfc_emisor, rfc_receptor,
-        nombre_emisor, nombre_receptor,
-        importe, fecha_hora, source,
-    )
-    if movs_hid:
-        movs_hid = _aplicar_regla_trasvase(
-            movs_hid, rfc_activo_clean, rfc_emisor_clean, rfc_receptor_clean,
-            source, logs, filtro
-        )
-        movimientos.extend(movs_hid)
-        logs.append(f"[{source}] Complemento Hidrocarburos: {len(movs_hid)} concepto(s).")
+    # ── Complemento de Hidrocarburos (NS_HID) ─────────────────────────────────
+    hid_movs = _extraer_complemento_hid(root, fecha, tipo_movimiento, uuid,
+                                         rfc_emisor, rfc_receptor,
+                                         nombre_emisor, nombre_receptor,
+                                         importe, fecha_hora, source,
+                                         tipo_movimiento, rfc_activo_clean,
+                                         rfc_emisor_clean, rfc_receptor_clean,
+                                         logs, filtro)
+    if hid_movs:
+        movimientos.extend(hid_movs)
         return movimientos, errores, logs, filtro
 
-    # ── Prioridad 2: Conceptos por ClaveProdServ o descripción ──────────────
-    conceptos_node = root.find(t("Conceptos")) or root.find(f".//{t('Conceptos')}")
+    # ── Conceptos del CFDI ────────────────────────────────────────────────────
+    conceptos_node = root.find(t("Conceptos"))
     if conceptos_node is None:
-        errores.append(f"[{source}] No se encontró nodo <Conceptos>.")
+        logs.append(f"[{source}] Sin nodo Conceptos — omitido.")
         return movimientos, errores, logs, filtro
 
-    for i, concepto in enumerate(conceptos_node.findall(t("Concepto"))):
-        clave_prod   = (concepto.get("ClaveProdServ") or "").strip().upper()
-        descripcion  = (concepto.get("Descripcion") or concepto.get("descripcion") or "").strip()
-        cantidad_raw = concepto.get("Cantidad") or concepto.get("cantidad") or "0"
-        unidad_raw   = (concepto.get("ClaveUnidad") or concepto.get("Unidad") or "KGM").strip()
+    movs_candidatos: list[dict] = []
+    for concepto in conceptos_node.findall(t("Concepto")):
+        descripcion_raw = concepto.get("Descripcion", "") or concepto.get("descripcion", "")
+        clave_prod      = concepto.get("ClaveProdServ", "") or concepto.get("clave_prod_serv", "")
+        cantidad_raw    = concepto.get("Cantidad", "0")
+        unidad_raw      = (concepto.get("ClaveUnidad") or concepto.get("Unidad") or "KGM").strip()
 
-        es_gas_lp = (
-            clave_prod in CLAVES_SAT_GAS_LP
-            or _descripcion_es_gas_lp(descripcion)
+        es_gas = (
+            _descripcion_es_gas_lp(descripcion_raw)
+            or clave_prod.upper() in CLAVES_SAT_GAS_LP
         )
-        if not es_gas_lp:
-            logs.append(f"[{source}] Concepto #{i+1} ignorado (no es Gas LP): '{descripcion[:60]}'")
+        if not es_gas:
             continue
 
         volumen = _parse_float(cantidad_raw)
         if volumen is None or volumen <= 0:
-            errores.append(f"[{source}] Concepto #{i+1}: cantidad inválida '{cantidad_raw}'.")
             continue
 
         unidad = _normalizar_unidad(unidad_raw)
-        movs_candidatos = [{
-            "fecha":              fecha,
-            "tipo_movimiento":    tipo_movimiento,
-            "producto":           "gas_lp",
-            "volumen":            volumen,
-            "unidad":             unidad,
+
+        # CORRECCIÓN: claves sin prefijo "_" para que sat_transformer las encuentre
+        # rfc_contraparte = quien es la otra parte:
+        #   en entrada (compra) = el emisor (quien nos vende)
+        #   en salida  (venta)  = el receptor (a quien entregamos)
+        if tipo_movimiento == "entrada":
+            rfc_cp    = rfc_emisor
+            nombre_cp = nombre_emisor
+        else:
+            rfc_cp    = rfc_receptor
+            nombre_cp = nombre_receptor
+
+        movs_candidatos.append({
+            "tipo_movimiento":   tipo_movimiento,
+            "producto":          "gas_lp",
+            "volumen":           volumen,
+            "volumen_litros":    volumen if unidad == "litros" else 0.0,
+            "unidad":            unidad,
+            "fecha":             fecha,
+            "fecha_hora":        fecha_hora,       # ← sin prefijo "_"
+            "uuid":              uuid,             # ← sin prefijo "_"
+            "rfc_contraparte":   rfc_cp,           # ← sin prefijo "_"
+            "rfc_cp":            rfc_cp,
+            "nombre_contraparte": nombre_cp,       # ← sin prefijo "_"
+            "nombre_cp":         nombre_cp,
+            "importe":           importe,          # ← sin prefijo "_"
             "inventario_inicial": None,
             "inventario_final":   None,
-            "_uuid":              uuid,
-            "_rfc_emisor":        rfc_emisor,
-            "_rfc_receptor":      rfc_receptor,
-            "_nombre_emisor":     nombre_emisor,
-            "_nombre_receptor":   nombre_receptor,
-            "_importe":           importe,
-            "_fecha_hora":        fecha_hora,
-            "_descripcion":       descripcion,
-            "_source":            source,
-            "_es_trasvase":       False,
-            "_excluir_json":      False,
-        }]
-        # Aplicar regla de trasvase empresa→empresa
-        if tipo_movimiento == 'salida':
-            for mov in movs_candidatos:
-                _aplicar_regla_trasvase_inline(
-                    mov, rfc_activo_clean,
-                    rfc_emisor_clean, rfc_receptor_clean,
-                    source, logs, filtro
-                )
-        # Filtrar completamente los eliminados
-        movs_candidatos = [m for m in movs_candidatos if not m.get('_eliminar')]
-        movimientos.extend(movs_candidatos)
-        if movs_candidatos:
-            logs.append(f"[{source}] ✓ gas_lp: {volumen} {unidad} ({tipo_movimiento}) fecha={fecha}")
+            # Campos internos — conservan _ porque NO llegan a sat_transformer
+            "_rfc_emisor":       rfc_emisor,
+            "_rfc_receptor":     rfc_receptor,
+            "_nombre_emisor":    nombre_emisor,
+            "_nombre_receptor":  nombre_receptor,
+            "_descripcion":      descripcion_raw,
+            "_source":           source,
+            "_es_trasvase":      False,
+            "_excluir_json":     False,
+        })
 
-    if not movimientos and not errores:
-        logs.append(f"[{source}] No se encontraron conceptos de Gas LP en este CFDI.")
+    if not movs_candidatos:
+        logs.append(f"[{source}] Sin conceptos de Gas LP reconocidos.")
+        return movimientos, errores, logs, filtro
+
+    # ── Regla trasvase empresa→empresa ────────────────────────────────────────
+    for mov in movs_candidatos:
+        if mov["tipo_movimiento"] == "salida":
+            _aplicar_regla_trasvase_inline(
+                mov, rfc_activo_clean,
+                rfc_emisor_clean, rfc_receptor_clean,
+                source, logs, filtro
+            )
+
+    # ── Consolidar volumen si hay varios conceptos Gas LP en misma factura ────
+    total_vol = sum(m["volumen"] for m in movs_candidatos if not m.get("_excluir_json"))
+    total_vol_litros = sum(
+        m["volumen"] for m in movs_candidatos
+        if not m.get("_excluir_json") and m["unidad"] == "litros"
+    )
+
+    if movs_candidatos and not movs_candidatos[0].get("_excluir_json"):
+        mov_final = movs_candidatos[0].copy()
+        mov_final["volumen"]        = round(total_vol, 4)
+        mov_final["volumen_litros"] = round(total_vol_litros or total_vol, 4)
+        movimientos.append(mov_final)
+        logs.append(
+            f"[{source}] ✓ gas_lp: {mov_final['volumen']} {mov_final['unidad']} "
+            f"({mov_final['tipo_movimiento']}) fecha={fecha} uuid={uuid[:8]}..."
+        )
+    elif movs_candidatos:
+        logs.append(f"[{source}] Movimiento excluido por regla de trasvase.")
 
     return movimientos, errores, logs, filtro
 
 
+def _extraer_complemento_hid(
+    root: ET.Element,
+    fecha: str, tipo_movimiento: str, uuid: str,
+    rfc_emisor: str, rfc_receptor: str,
+    nombre_emisor: str, nombre_receptor: str,
+    importe: float, fecha_hora: str, source: str,
+    tipo_dir: str, rfc_activo_clean: str,
+    rfc_emisor_clean: str, rfc_receptor_clean: str,
+    logs: list, filtro: dict,
+) -> list[dict]:
+    movimientos: list[dict] = []
+    for elem in root.iter():
+        if NS_HID not in elem.tag:
+            continue
+        for child in elem:
+            clave    = child.get("ClaveProdServ", "") or child.get("Clave", "")
+            unidad_raw = child.get("ClaveUnidad") or child.get("Unidad") or "KGM"
+            cantidad_raw = child.get("Cantidad", "0")
+
+            if clave.upper() not in CLAVES_SAT_GAS_LP:
+                continue
+
+            volumen = _parse_float(cantidad_raw)
+            if volumen and volumen > 0:
+                if tipo_movimiento == "entrada":
+                    rfc_cp    = rfc_emisor
+                    nombre_cp = nombre_emisor
+                else:
+                    rfc_cp    = rfc_receptor
+                    nombre_cp = nombre_receptor
+
+                mov = {
+                    "tipo_movimiento":   tipo_movimiento,
+                    "producto":          "gas_lp",
+                    "volumen":           round(volumen, 4),
+                    "volumen_litros":    round(volumen, 4),
+                    "unidad":            _normalizar_unidad(unidad_raw),
+                    "fecha":             fecha,
+                    "fecha_hora":        fecha_hora,        # ← sin prefijo "_"
+                    "uuid":              uuid,              # ← sin prefijo "_"
+                    "rfc_contraparte":   rfc_cp,            # ← sin prefijo "_"
+                    "rfc_cp":            rfc_cp,
+                    "nombre_contraparte": nombre_cp,        # ← sin prefijo "_"
+                    "nombre_cp":         nombre_cp,
+                    "importe":           importe,           # ← sin prefijo "_"
+                    "inventario_inicial": None,
+                    "inventario_final":  None,
+                    "_descripcion":      f"Complemento Hidrocarburos clave={clave}",
+                    "_source":           source,
+                }
+                movimientos.append(mov)
+    return movimientos
+
+
 def _aplicar_regla_trasvase_inline(
-    mov: dict,
-    rfc_activo: str,
-    rfc_emisor: str,
-    rfc_receptor: str,
-    source: str,
-    logs: list,
-    filtro: dict,
+    mov: dict, rfc_activo: str,
+    rfc_emisor_clean: str, rfc_receptor_clean: str,
+    source: str, logs: list, filtro: dict,
 ) -> None:
     """
-    Regla empresa→misma empresa:
-    - >5,000 L → eliminar completamente (ni JSON ni historial ni bitácora)
-    - ≤5,000 L → procesar como venta normal (entrega a estación propia)
+    Facturas empresa→misma empresa con volumen >5,000 L = trasvase interno.
+    Se excluyen del reporte SAT JSON pero se registran en la bitácora.
     """
-    rfc_a = rfc_activo.strip().upper()
-    rfc_e = rfc_emisor.strip().upper()
-    rfc_r = rfc_receptor.strip().upper()
-
-    if rfc_e == rfc_a and rfc_r == rfc_a:
-        vol = mov['volumen']
-        if vol > UMBRAL_TRASVASE_LITROS:
-            mov['_eliminar'] = True   # señal para ignorar completamente
-            filtro['trasvase_excluido'] += 1
+    if rfc_activo and rfc_emisor_clean == rfc_receptor_clean == rfc_activo:
+        if mov.get("volumen", 0) > UMBRAL_TRASVASE_LITROS:
+            mov["_es_trasvase"]  = True
+            mov["_excluir_json"] = True
+            filtro["trasvase_excluido"] = filtro.get("trasvase_excluido", 0) + 1
             logs.append(
-                f"[{source}] ELIMINADO: {vol:,.0f} L empresa→empresa "
-                f">5,000 L → no se incluye en JSON, historial ni bitácora."
+                f"[{source}] Trasvase interno >5,000 L ({mov['volumen']:,.0f} L) "
+                f"excluido del reporte SAT."
             )
-        else:
-            # ≤5,000 L → venta normal a estación propia
-            mov['_eliminar'] = False
-            logs.append(
-                f"[{source}] Trasvase ≤5,000 L ({vol:,.0f} L): procesado como venta normal."
-            )
-    else:
-        mov.setdefault('_eliminar', False)
-
-
-# ── Helpers ─────────────────────────────────────────────────────────────────
-
-def _extraer_hidrocarburos(
-    root, fecha, tipo_movimiento, uuid,
-    rfc_emisor, rfc_receptor,
-    nombre_emisor, nombre_receptor,
-    importe, fecha_hora, source,
-):
-    movimientos = []
-    hid_node = None
-    for elem in root.iter():
-        if NS_HID in elem.tag:
-            hid_node = elem
-            break
-    if hid_node is None:
-        return []
-    for child in hid_node:
-        clave        = (child.get("ClaveProducto") or child.get("claveProducto") or "").upper()
-        cantidad_raw = child.get("Cantidad") or child.get("cantidad") or "0"
-        unidad_raw   = child.get("ClaveUnidad") or child.get("Unidad") or "KGM"
-        if clave not in CLAVES_SAT_GAS_LP and not _descripcion_es_gas_lp(clave):
-            continue
-        volumen = _parse_float(cantidad_raw)
-        if volumen and volumen > 0:
-            movimientos.append({
-                "fecha":              fecha,
-                "tipo_movimiento":    tipo_movimiento,
-                "producto":           "gas_lp",
-                "volumen":            volumen,
-                "unidad":             _normalizar_unidad(unidad_raw),
-                "inventario_inicial": None,
-                "inventario_final":   None,
-                "_uuid":              uuid,
-                "_rfc_emisor":        rfc_emisor,
-                "_rfc_receptor":      rfc_receptor,
-                "_nombre_emisor":     nombre_emisor,
-                "_nombre_receptor":   nombre_receptor,
-                "_importe":           importe,
-                "_fecha_hora":        fecha_hora,
-                "_descripcion":       f"Complemento Hidrocarburos clave={clave}",
-                "_source":            source,
-            })
-    return movimientos
 
 
 def _descripcion_es_gas_lp(texto: str) -> bool:
@@ -456,16 +476,3 @@ def _extraer_uuid(root: ET.Element) -> str:
         if NS_TFD in elem.tag and "TimbreFiscalDigital" in elem.tag:
             return elem.get("UUID") or ""
     return ""
-
-
-def _normalizar_fecha(fecha_raw: str) -> Optional[str]:
-    match = re.match(r"(\d{4}-\d{2}-\d{2})", (fecha_raw or "").strip())
-    return match.group(1) if match else None
-
-
-def _parse_float(valor: Any) -> Optional[float]:
-    try:
-        return float(str(valor).replace(",", ".").strip())
-    except (ValueError, TypeError):
-        return None
-
