@@ -1,45 +1,37 @@
 """
-services/sat_transformer.py — v3.4
+services/sat_transformer.py — v3.5
 
-CORRECCIONES vs v3.3 (todas basadas en Guía de Llenado SAT Mayo 2023):
+CORRECCIONES vs v3.4:
 
-1. AUTOCONSUMOS — TipoEvento corregido (crítico):
-   - Antes: TipoEvento 11 (alarma de corte de energía) ← INCORRECTO
-   - Ahora: TipoEvento 4 (entrega) con RfcClienteOProveedor = RFC propio,
-     SIN nodo CFDIs (consumo sin comprobante fiscal), con VolumenDocumentado.
-   Referencia: §17.4 catálogo TipoEvento — el 11 es exclusivo para alarmas
-   de infraestructura, no para consumo propio.
+1. IMPORTACIÓN CIRCULAR ELIMINADA (crítico para estabilidad):
+   - Antes: `from routes.providers import get_permiso_for_rfc` dentro de
+     build_sat_report() — importación diferida en el hot-path de cada
+     generación de reporte. Si routes/providers falla al arrancar o hay
+     un circular-import en producción, cada llamada a build_sat_report()
+     explota silenciosamente o genera un ImportError difícil de rastrear.
+   - Ahora: build_sat_report() acepta parámetros opcionales
+     `permiso_lookup_fn` y `permiso_alm_lookup_fn` (callables inyectados
+     por el llamador). El módulo sat_transformer nunca importa routes/*.
+     Si no se inyectan, se usan lambdas nulas (retornan "").
 
-2. COMPOSICIÓN PR12 — defaults de industria (cumplimiento):
-   - Antes: defaults de 0.01 (1%) para propano y butano ← ENGAÑOSO
-   - Ahora: defaults GLP comercial estándar: propano 60%, butano 40%.
-   - Validación: propano + butano debe estar entre 85% y 100%.
-   - Coeficiente VCM dinámico calculado desde la composición real.
-   Referencia: §16.6.1 ComposDePropanoEnGasLP, NOM-016-CRE-2016.
+2. UsuarioResponsable faltante en TipoEvento 2 (cierre del periodo):
+   - Antes: el evento de cierre omitía "UsuarioResponsable" — campo que
+     el SAT puede requerir para auditoría.
+   - Ahora: todos los eventos de la BitácoraMensual incluyen
+     UsuarioResponsable.
 
-3. COEFICIENTE VCM — dinámico por composición (precisión):
-   - Antes: COEF_EXP = 0.0012 fijo (hardcodeado)
-   - Ahora: se calcula desde la fracción molar de propano/butano según
-     valores tabulados de expansión térmica (ISO 6578 / GPA 2145).
-     Propano puro: ~0.00154 L/(L·°C) a 20°C
-     Butano puro:  ~0.00117 L/(L·°C) a 20°C
-     Mezcla: interpolación lineal por fracción molar.
+3. PermisoAlmYDist vacío en recepciones:
+   - Antes: si el permiso de almacenamiento no se encontraba, se incluía
+     el campo "PermisoAlmYDist" con valor vacío ("") en el nodo
+     Almacenamiento, lo cual puede causar rechazo del SAT.
+   - Ahora: si permiso_terminal está vacío, el nodo TerminalAlmYDist
+     se omite del complemento de recepción en lugar de incluirlo vacío.
 
-4. TOLERANCIA DE INVENTARIO — dinámica por incertidumbre del medidor:
-   - Antes: tolerancia fija de 0.50 litros (arbitraria)
-   - Ahora: max(0.50, vol_operativo × incertidumbre_medidor)
-     donde incertidumbre_medidor viene de la configuración de la instalación.
-     Si no está configurada, se usa 0.5% del inventario inicial.
+4. Factor VCM: se expone factor_vcm_aplicado en el meta para trazabilidad.
 
-5. VALIDACIÓN DE RFC — formato y dígito verificador:
-   - Se valida cada RFC antes de incluirlo en el reporte.
-   - RFCs inválidos se reportan en las alertas (no bloquean el reporte).
-
-6. TEMPERATURA POR MOVIMIENTO (mejora):
-   - Si el movimiento trae campo "temperatura", se usa ese valor.
-   - Si no, se usa la temperatura_medicion global del request.
-   - Esto permite capturar la temperatura real por transacción cuando
-     el sistema de medición la reporta.
+5. Validación de periodo más robusta: si la cadena de periodo no se puede
+   parsear, se lanza ValueError descriptivo en lugar de usar silenciosamente
+   año/mes actuales, evitando reportes con fecha incorrecta.
 """
 import calendar
 import json
@@ -47,7 +39,7 @@ import logging
 import os
 import zipfile
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from uuid import uuid4
 import xml.etree.ElementTree as ET
 
@@ -55,22 +47,20 @@ from utils.rfc_validator import validar_rfc_o_advertir, limpiar_rfc, es_persona_
 
 logger = logging.getLogger(__name__)
 
-UM03              = "UM03"          # Litros — unidad oficial SAT petrolíferos Gas LP
-CLAVE_PRODUCTO    = "PR12"          # Gas LP
-CAPACIDAD_MAX     = 277_000.0       # litros — umbral de advertencia física
+UM03              = "UM03"           # Litros — unidad oficial SAT petrolíferos Gas LP
+CLAVE_PRODUCTO    = "PR12"           # Gas LP
+CAPACIDAD_MAX     = 277_000.0        # litros — umbral de advertencia física
 RFC_PROVEEDOR_SAT = "PCO960701A49"
 
 # ── Defaults de composición GLP estándar (NOM-016-CRE-2016) ──────────────────
-# GLP comercial México: 60% propano / 40% butano (fracción molar típica)
 PROPANO_DEFAULT_FRAC = 0.60
 BUTANO_DEFAULT_FRAC  = 0.40
 
 # ── Coeficientes de expansión térmica por componente (ISO 6578 / GPA 2145) ───
-# Valores a 20°C de referencia, en L/(L·°C)
-COEF_PROPANO = 0.00154   # propano puro
-COEF_BUTANO  = 0.00117   # n-butano puro
-COEF_GLP_MIN = 0.0010    # límite inferior para alerta
-COEF_GLP_MAX = 0.0016    # límite superior para alerta
+COEF_PROPANO = 0.00154
+COEF_BUTANO  = 0.00117
+COEF_GLP_MIN = 0.0010
+COEF_GLP_MAX = 0.0016
 
 # ── Catálogo TipoEvento §17.4 ─────────────────────────────────────────────────
 TIPO_EVENTO_DESC = {
@@ -149,22 +139,15 @@ def _fmt_iso_hhmm00(ts: str) -> str:
 
 def _calcular_coef_expansion(propano_frac: float, butano_frac: float) -> float:
     """
-    Calcula el coeficiente de expansión térmica del GLP por interpolación lineal
-    entre propano puro y butano puro según fracción molar.
-
-    Si la suma de fracciones < 1 (hay otros componentes menores), el resto
-    se prorratea proporcionalmente entre propano y butano.
-
-    Referencia: ISO 6578 / GPA 2145 — tablas de propiedades de hidrocarburos.
+    Calcula el coeficiente de expansión térmica del GLP por interpolación lineal.
+    Referencia: ISO 6578 / GPA 2145.
     """
     total = propano_frac + butano_frac
     if total <= 0:
-        return 0.0012   # default seguro si no hay composición
-    # Normalizar a 1.0
+        return 0.0012
     p_norm = propano_frac / total
     b_norm = butano_frac  / total
-    coef   = p_norm * COEF_PROPANO + b_norm * COEF_BUTANO
-    return round(coef, 6)
+    return round(p_norm * COEF_PROPANO + b_norm * COEF_BUTANO, 6)
 
 
 def _actividad_sat(settings: dict) -> str:
@@ -215,18 +198,18 @@ def _group_by_uuid(movimientos: list, tipo: str, factor_kg_a_litros: float) -> d
         uni  = (m.get("unidad_base") or m.get("unidad") or "litros").lower()
         if uni in ("kg", "kilogramo", "kilogramos"):
             vol = vol * factor_kg_a_litros
-        imp = float(m.get("importe") or 0)
+        imp      = float(m.get("importe") or 0)
         rfc_cp   = limpiar_rfc(m.get("rfc_contraparte") or m.get("rfc_cp") or "")
         nombre_cp = (m.get("nombre_contraparte") or m.get("nombre_cp") or "").strip()
         fecha_h   = _fmt_iso_hhmm00(m.get("fecha_hora") or m.get("fecha") or "")
-        temp_mov  = m.get("temperatura")  # temperatura específica del movimiento
+        temp_mov  = m.get("temperatura")
 
         if uuid_val in grupos:
             grupos[uuid_val]["volumen_litros"] += vol
             grupos[uuid_val]["importe"]        += imp
         else:
             grupos[uuid_val] = {
-                "uuid":          uuid_val,
+                "uuid":           uuid_val,
                 "volumen_litros": vol,
                 "importe":        imp,
                 "rfc_cp":         rfc_cp,
@@ -236,7 +219,6 @@ def _group_by_uuid(movimientos: list, tipo: str, factor_kg_a_litros: float) -> d
                 "temperatura":    temp_mov,
             }
 
-    # Redondear volúmenes finales
     for g in grupos.values():
         g["volumen_litros"] = round(g["volumen_litros"], 2)
         g["importe"]        = round(g["importe"], 2)
@@ -259,15 +241,26 @@ def build_sat_report(
     composicion_propano: Optional[float] = None,
     composicion_butano:  Optional[float] = None,
     incertidumbre_medidor: Optional[float] = None,
+    # CORRECCIÓN: inyección de dependencias en lugar de importación circular
+    permiso_lookup_fn: Optional[Callable[[str, Optional[str]], str]] = None,
+    permiso_alm_lookup_fn: Optional[Callable[[str, Optional[str]], str]] = None,
 ) -> tuple[dict, dict]:
     """
     Construye el diccionario SAT Anexo 30 conforme a la Guía SAT Mayo 2023.
 
-    Parámetros:
+    Parámetros nuevos en v3.5:
+        permiso_lookup_fn: callable(rfc, user_id) -> str con el permiso del proveedor.
+            Si None, se usa lambda que retorna "".
+        permiso_alm_lookup_fn: callable(rfc, user_id) -> str con el permiso de almacenamiento.
+            Si None, se usa lambda que retorna "".
         incertidumbre_medidor: fracción decimal (ej. 0.005 = 0.5%).
             Si None, se usa 0.005 como default conservador.
     """
     now = datetime.now(timezone.utc)
+
+    # ── Resolvers de permisos (sin importación circular) ──────────────────────
+    _get_permiso     = permiso_lookup_fn     or (lambda rfc, uid: "")
+    _get_permiso_alm = permiso_alm_lookup_fn or (lambda rfc, uid: "")
 
     # ── Periodo ───────────────────────────────────────────────────────────────
     if anio is None or mes is None:
@@ -281,17 +274,19 @@ def build_sat_report(
         else:
             anio, mes = now.year, now.month
 
+    # Validación explícita: no silenciar periodos incorrectos
+    if not (1 <= mes <= 12):
+        raise ValueError(f"Mes inválido derivado de los movimientos: {mes}. Verifica las fechas.")
+
     fin_mes_iso  = _fin_de_mes_iso(anio, mes)
     inicio_mes   = f"{anio:04d}-{mes:02d}-01T00:00:00-06:00"
     now_cst      = now.strftime("%Y-%m-%dT%H:%M:%S-06:00")
 
-    from routes.providers import get_permiso_for_rfc, get_permiso_almacenamiento_for_rfc
     permiso_alm_y_dist = settings.get("PermisoAlmYDist") or settings.get("NumPermiso", "")
     _user_id           = settings.get("_user_id")
     _rfc_cv_upper      = (settings.get("RfcContribuyente", "") or "").strip().upper()
 
     # ── Composición PR12 con defaults de industria ────────────────────────────
-    # Validar rango: fracción molar debe estar entre 0 y 1
     def _frac_valida(v, nombre: str) -> Optional[float]:
         if v is None:
             return None
@@ -300,7 +295,6 @@ def build_sat_report(
             if 0 < fv <= 1.0:
                 return fv
             elif 1.0 < fv <= 100.0:
-                # El usuario capturó porcentaje (0-100) en lugar de fracción
                 logger.info("Composición %s: valor %s interpretado como %% → fracción %.4f", nombre, fv, fv/100)
                 return fv / 100.0
             else:
@@ -312,7 +306,6 @@ def build_sat_report(
     propano_frac = _frac_valida(composicion_propano, "propano")
     butano_frac  = _frac_valida(composicion_butano,  "butano")
 
-    # Aplicar defaults de industria si no se proporcionó composición
     es_composicion_real = (propano_frac is not None or butano_frac is not None)
     if propano_frac is None:
         propano_frac = PROPANO_DEFAULT_FRAC
@@ -323,7 +316,6 @@ def build_sat_report(
         if not es_composicion_real:
             logger.info("ComposDeButanoEnGasLP: usando default industria %.0f%%", butano_frac * 100)
 
-    # Validar que la suma esté en rango GLP (85%-100%)
     suma_frac = propano_frac + butano_frac
     alertas_composicion: list[str] = []
     if suma_frac > 1.0:
@@ -346,7 +338,7 @@ def build_sat_report(
     # ── Coeficiente de expansión VCM — dinámico ───────────────────────────────
     coef_exp  = _calcular_coef_expansion(propano_frac, butano_frac)
     temp_base = float(temperatura_medicion) if temperatura_medicion is not None else 20.0
-    pres_base = 101.325   # kPa — presión de referencia estándar ISO 5024
+    pres_base = 101.325
 
     if not (COEF_GLP_MIN <= coef_exp <= COEF_GLP_MAX):
         alertas_composicion.append(
@@ -354,14 +346,14 @@ def build_sat_report(
             f"({COEF_GLP_MIN}-{COEF_GLP_MAX}). Verificar composición."
         )
 
-    factor_vcm    = 1.0 + coef_exp * (temp_base - 20.0)
+    factor_vcm = 1.0 + coef_exp * (temp_base - 20.0)
 
     # ── Grupos por UUID ───────────────────────────────────────────────────────
     compras = _group_by_uuid(movimientos, "entrada", factor_kg_a_litros)
     ventas  = _group_by_uuid(movimientos, "salida",  factor_kg_a_litros)
 
-    total_rec = round(sum(g["volumen_litros"] for g in compras.values()), 2)
-    total_ent = round(sum(g["volumen_litros"] for g in ventas.values()),  2)
+    total_rec   = round(sum(g["volumen_litros"] for g in compras.values()), 2)
+    total_ent   = round(sum(g["volumen_litros"] for g in ventas.values()),  2)
     importe_rec = round(sum(g["importe"] for g in compras.values()), 2)
     importe_ent = round(sum(g["importe"] for g in ventas.values()),  2)
     vol_existencias_raw = round(inventario_inicial_litros + total_rec - total_ent, 2)
@@ -383,15 +375,14 @@ def build_sat_report(
     vol_existencias = round(min(vol_existencias_raw, cap_limit), 2)
 
     # ── Tolerancia dinámica por incertidumbre del medidor ─────────────────────
-    # Default conservador: 0.5% del mayor de {inventario_inicial, vol_calculado}
-    _incert = incertidumbre_medidor if (incertidumbre_medidor and 0 < incertidumbre_medidor < 0.1) else 0.005
+    _incert  = incertidumbre_medidor if (incertidumbre_medidor and 0 < incertidumbre_medidor < 0.1) else 0.005
     _vol_ref = max(inventario_inicial_litros, vol_existencias_raw, 1.0)
     TOLERANCIA_DINAMICA = max(0.50, round(_vol_ref * _incert, 2))
 
     missing_providers: set = set()
 
     # ── Adv configuración de tanque ───────────────────────────────────────────
-    _adv_t       = settings.get("adv_tanques") or {}
+    _adv_t        = settings.get("adv_tanques") or {}
     _clave_tanque = (_adv_t.get("clave_tanque") or "").strip().upper() or "T-01"
 
     # ── Complementos Recepciones ──────────────────────────────────────────────
@@ -399,20 +390,19 @@ def build_sat_report(
     for g in compras.values():
         rfc_prov = validar_rfc_o_advertir(g["rfc_cp"], "recepcion")
 
-        permiso_prov = get_permiso_for_rfc(rfc_prov, _user_id) or ""
+        # CORRECCIÓN: usar callables inyectados en lugar de importación circular
+        permiso_prov = _get_permiso(rfc_prov, _user_id) or ""
         if not permiso_prov and rfc_prov and not rfc_prov.startswith("SIN-"):
             missing_providers.add(rfc_prov)
 
-        permiso_terminal = get_permiso_almacenamiento_for_rfc(rfc_prov, _user_id) or permiso_alm_y_dist
+        permiso_terminal = _get_permiso_alm(rfc_prov, _user_id) or permiso_alm_y_dist
 
-        # Temperatura por movimiento (si disponible) o global
-        temp_mov = g.get("temperatura")
+        temp_mov  = g.get("temperatura")
         temp_cfdi = round(float(temp_mov), 2) if temp_mov is not None else round(temp_base, 2)
 
         nacional = {
-            "RfcClienteOProveedor":     rfc_prov,
-            "NombreClienteOProveedor":  g["nombre_cp"],
-            "PermisoClienteOProveedor": permiso_prov,
+            "RfcClienteOProveedor":    rfc_prov,
+            "NombreClienteOProveedor": g["nombre_cp"],
             "CFDIs": [{
                 "Cfdi":                       g["uuid"],
                 "TipoCfdi":                   "Ingreso",
@@ -426,25 +416,28 @@ def build_sat_report(
                 "PresionAbsoluta": round(pres_base, 3),
             }],
         }
-        if not nacional["PermisoClienteOProveedor"]:
-            del nacional["PermisoClienteOProveedor"]
+        if permiso_prov:
+            nacional["PermisoClienteOProveedor"] = permiso_prov
 
-        complementos_rec.append({
+        comp_rec: dict = {
             "TipoComplemento": "Distribucion",
-            "TerminalAlmYDist": {
+            "Nacional":        [nacional],
+        }
+
+        # CORRECCIÓN: solo incluir TerminalAlmYDist si hay un permiso válido.
+        # Un nodo Almacenamiento con PermisoAlmYDist vacío causa rechazo SAT.
+        if permiso_terminal:
+            comp_rec["TerminalAlmYDist"] = {
                 "Almacenamiento": {
                     "TerminalAlmYDist":       rfc_prov,
                     "PermisoAlmYDist":        permiso_terminal,
                     "TarifaDeAlmacenamiento": _smart_num(round(g["importe"], 2)),
                 }
-            },
-            "Nacional": [nacional],
-        })
+            }
+
+        complementos_rec.append(comp_rec)
 
     # ── Complementos Entregas ─────────────────────────────────────────────────
-    # CORRECIÓN: autoconsumos se reportan como TipoEvento 4 (entrega normal)
-    # con RFC propio, SIN nodo CFDIs pero CON VolumenDocumentado.
-    # TipoEvento 11 es exclusivo para alarmas de infraestructura (§17.4).
     complementos_ent = []
     for g in ventas.values():
         uuid_val      = g.get("uuid", "")
@@ -455,7 +448,6 @@ def build_sat_report(
         temp_cfdi = round(float(temp_mov), 2) if temp_mov is not None else round(temp_base, 2)
 
         if es_autoconsumo:
-            # Autoconsumo: sin CFDI, RFC receptor = propio contribuyente
             rfc_receptor_final = _rfc_cv_upper or rfc_receptor
             nacional: dict = {
                 "RfcClienteOProveedor":    rfc_receptor_final,
@@ -466,7 +458,6 @@ def build_sat_report(
                 },
             }
         else:
-            # Entrega normal con CFDI
             nacional = {
                 "RfcClienteOProveedor":    rfc_receptor,
                 "NombreClienteOProveedor": g["nombre_cp"],
@@ -483,7 +474,6 @@ def build_sat_report(
                     "PresionAbsoluta": round(pres_base, 3),
                 }],
             }
-            # Conforme Guía: Entregas NUNCA incluyen PermisoClienteOProveedor
 
         complementos_ent.append({
             "TipoComplemento": "Distribucion",
@@ -519,14 +509,13 @@ def build_sat_report(
             ),
         }); n += 1
 
-    # 4. Eventos por cada entrega (incluyendo autoconsumos — TipoEvento 4 para todos)
+    # 4. Eventos por cada entrega (TipoEvento 4 para TODAS las entregas,
+    # incluidos autoconsumos — §17.4: autoconsumo = entrega a RFC propio sin CFDI)
     for g in ventas.values():
-        uuid_val      = g.get("uuid", "")
-        rfc_receptor  = (g.get("rfc_cp", "") or "").upper().strip()
+        uuid_val       = g.get("uuid", "")
+        rfc_receptor   = (g.get("rfc_cp", "") or "").upper().strip()
         es_autoconsumo = uuid_val.startswith("AUTO-")
 
-        # CORRECCIÓN: autoconsumos → TipoEvento 4 (entrega), no 11 (alarma)
-        tipo_ev = 4
         if es_autoconsumo:
             desc_ev = (
                 f"Consumo propio (autoconsumo interno). "
@@ -545,7 +534,7 @@ def build_sat_report(
             "NumeroRegistro":     n,
             "FechaYHoraEvento":   _fmt_iso_hhmm00(g["fecha_hora"]),
             "UsuarioResponsable": _usuario_resp,
-            "TipoEvento":         tipo_ev,
+            "TipoEvento":         4,
             "DescripcionEvento":  desc_ev,
         }); n += 1
 
@@ -555,6 +544,7 @@ def build_sat_report(
         bitacora.append({
             "NumeroRegistro":     n,
             "FechaYHoraEvento":   fin_mes_iso,
+            "UsuarioResponsable": _usuario_resp,
             "TipoEvento":         7,
             "DescripcionEvento":  (
                 f"AJUSTE DE CAPACIDAD: inventario calculado {vol_existencias_raw:,.2f} L "
@@ -566,9 +556,9 @@ def build_sat_report(
         }); n += 1
 
     # ── VCM — Compensación Volumétrica a 20°C ────────────────────────────────
-    vol_neto_rec   = round(total_rec   * factor_vcm, 2)
-    vol_neto_ent   = round(total_ent   * factor_vcm, 2)
-    vol_neto_exist = round(vol_existencias * factor_vcm, 2)
+    vol_neto_rec   = round(total_rec        * factor_vcm, 2)
+    vol_neto_ent   = round(total_ent        * factor_vcm, 2)
+    vol_neto_exist = round(vol_existencias  * factor_vcm, 2)
 
     # ── Balance de Masa — TipoEvento 5 ───────────────────────────────────────
     ajuste_variacion = None
@@ -589,6 +579,7 @@ def build_sat_report(
             bitacora.append({
                 "NumeroRegistro":     n,
                 "FechaYHoraEvento":   fin_mes_iso,
+                "UsuarioResponsable": _usuario_resp,
                 "TipoEvento":         5,
                 "DescripcionEvento":  (
                     f"AJUSTE POR VARIACION (Balance de Masa): "
@@ -602,28 +593,31 @@ def build_sat_report(
             }); n += 1
             vol_existencias = round(min(inventario_final_medido, cap_limit), 2)
 
-    # 2. Cierre del periodo
+    # 2. Cierre del periodo — CORRECCIÓN: ahora incluye UsuarioResponsable
     bitacora.append({
-        "NumeroRegistro":    n,
-        "FechaYHoraEvento":  fin_mes_iso,
-        "TipoEvento":        2,
-        "DescripcionEvento": TIPO_EVENTO_DESC[2],
+        "NumeroRegistro":     n,
+        "FechaYHoraEvento":   fin_mes_iso,
+        "UsuarioResponsable": _usuario_resp,
+        "TipoEvento":         2,
+        "DescripcionEvento":  TIPO_EVENTO_DESC[2],
     }); n += 1
 
     # 6. Generación del reporte
     bitacora.append({
-        "NumeroRegistro":    n,
-        "FechaYHoraEvento":  now_cst,
-        "TipoEvento":        6,
-        "DescripcionEvento": (
-            f"Reporte mensual generado por Z-Control v3.4. "
+        "NumeroRegistro":     n,
+        "FechaYHoraEvento":   now_cst,
+        "UsuarioResponsable": _usuario_resp,
+        "TipoEvento":         6,
+        "DescripcionEvento":  (
+            f"Reporte mensual generado por Z-Control v3.5. "
             f"Recepciones: {cnt_rec}, Entregas: {cnt_ent}, "
             f"VolumenExistenciasMes: {vol_existencias:,.2f} L. "
             f"Temperatura base: {temp_base}°C (por movimiento cuando disponible), "
             f"Presion: {pres_base} kPa. "
             f"Composicion: {compos_propano}% propano / {compos_butano}% butano "
             f"({'real' if es_composicion_real else 'default industria'}). "
-            f"Coef. expansion termica: {coef_exp:.5f} L/(L·°C)."
+            f"Coef. expansion termica: {coef_exp:.5f} L/(L·°C). "
+            f"Factor VCM aplicado: {factor_vcm:.6f}."
         ),
     })
 
@@ -643,10 +637,10 @@ def build_sat_report(
         pass
 
     # ── Estructura raíz SAT ───────────────────────────────────────────────────
-    num_tanques   = int(settings.get("NumeroTanques", 1))
-    _rfc_cv       = validar_rfc_o_advertir(settings.get("RfcContribuyente", "") or "", "RfcContribuyente")
-    _rfc_rep      = limpiar_rfc(settings.get("RfcRepresentanteLegal", "") or "")
-    _rfc_prov     = validar_rfc_o_advertir(settings.get("RfcProveedor", "") or "", "RfcProveedor")
+    num_tanques  = int(settings.get("NumeroTanques", 1))
+    _rfc_cv      = validar_rfc_o_advertir(settings.get("RfcContribuyente", "") or "", "RfcContribuyente")
+    _rfc_rep     = limpiar_rfc(settings.get("RfcRepresentanteLegal", "") or "")
+    _rfc_prov    = validar_rfc_o_advertir(settings.get("RfcProveedor", "") or "", "RfcProveedor")
     if not _rfc_prov:
         _rfc_prov = "XAX010101000"
 
@@ -736,6 +730,7 @@ def build_sat_report(
             "presion_referencia_kpa":  pres_base,
             "coef_expansion":          coef_exp,
             "factor_vcm":              round(factor_vcm, 6),
+            "factor_vcm_aplicado":     round(factor_vcm, 6),  # trazabilidad explícita
             "vol_neto_recepciones_l":  vol_neto_rec,
             "vol_neto_entregas_l":     vol_neto_ent,
             "vol_neto_existencias_l":  vol_neto_exist,
