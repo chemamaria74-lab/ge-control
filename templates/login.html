@@ -190,7 +190,9 @@
           localStorage.setItem('sat_token', data.token);
           localStorage.setItem('sat_user_id', data.user_id);
           localStorage.setItem('sat_modulo', modulo);
-          window.location.href = '/app';
+          // Pasar el idioma elegido al /app para que se sirva en el idioma correcto
+          const _lang = localStorage.getItem('zc_lang') || 'es';
+          window.location.href = '/app?lang=' + _lang;
         } else {
           errEl.textContent = data.detail || 'Credenciales incorrectas.';
         }
