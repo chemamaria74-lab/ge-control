@@ -195,12 +195,127 @@ async def login_view(modulo: str):
     return HTMLResponse(content=html)
 
 
+# ── Diccionario de traducción ES → EN ────────────────────────────────────────
+# Las traducciones se aplican en el servidor antes de enviar el HTML.
+# Esto evita manipular el DOM en el cliente (que rompe los event listeners).
+_EN_TRANSLATIONS: list[tuple[str, str]] = [
+    # Nav / tabs
+    (' Procesar</button>',                  ' Process</button>'),
+    ('>Controles Volumétricos<',            '>Volumetric Controls<'),
+    (' Historial</button>',                 ' History</button>'),
+    (' Configuración</button>',             ' Settings</button>'),
+    ('Config. Avanzada</button>',           'Advanced Config.</button>'),
+    ('>Autoconsumo</button>',               '>Own Consumption</button>'),
+    # Header
+    ('> Instalación activa:</div>',         '> Active Facility:</div>'),
+    ('Gestionar instalaciones',             'Manage facilities'),
+    # Parámetros del proceso
+    ('>Parámetros del proceso</h2>',        '>Process Parameters</h2>'),
+    ('>Carga de datos</h2>',                '>Data Upload</h2>'),
+    ('>RFC del contribuyente</label>',      '>Taxpayer Tax ID</label>'),
+    ('>Unidad base de reporte</label>',     '>Report base unit</label>'),
+    ('>Mes a procesar</label>',             '>Month to process</label>'),
+    ('Inventario Inicial (litros — lectura de tanque)', 'Opening Inventory (liters — tank reading)'),
+    ('Inventario Final Medido (L)',          'Final Measured Inventory (L)'),
+    ('— Balance de Masa',              '— Mass Balance'),
+    ('Temperatura de Medición (°C)', 'Measurement Temperature (°C)'),
+    ('— VCM a 20°C',              '— VCM at 20°C'),
+    ('Composición PR12 — Gas LP', 'PR12 Composition — LPG'),
+    ('% del mes, precargado de Config. Avanzada', '% for the month, preloaded from Advanced Config.'),
+    ('>Propano (%)</label>',                '>Propane (%)</label>'),
+    ('>Butano (%)</label>',                 '>Butane (%)</label>'),
+    ('La suma Propano + Butano debe ser exactamente 100 para el reporte SAT.',
+     'Propane + Butane must add up to exactly 100 for the SAT report.'),
+    ('Lectura del tanque al inicio del mes.', 'Tank reading at the start of the month.'),
+    ('Activa el cálculo de Ajuste por Variación (Anexo 30).', 'Activates the Variance Adjustment calculation (Annex 30).'),
+    ('Los valores se convierten a fracción molar automáticamente al generar el JSON.',
+     'Values are automatically converted to molar fraction when generating the JSON.'),
+    # CFDI info
+    ('Múltiples archivos — Categorización automática por RFC',
+     'Multiple files — Automatic categorization by Tax ID'),
+    ('El reporte generado aparecerá aquí', 'Generated report will appear here'),
+    ('>Procesar Excel / CSV</button>',      '>Process Excel / CSV</button>'),
+    ('>Procesar CFDI</button>',             '>Process CFDI</button>'),
+    ('Sube uno o varios archivos ZIP/XML y haz clic en', 'Upload one or more ZIP/XML files and click'),
+    # Autoconsumo
+    ('Registro de Autoconsumo</b>',         'Own Consumption Record</b>'),
+    ('Registra volúmenes consumidos internamente (flota, operación)',
+     'Record volumes consumed internally (fleet, operations)'),
+    ('<b>sin CFDI</b>',                     '<b>without invoice</b>'),
+    ('RFC cliente: se llenará automáticamente', 'Tax ID: filled automatically'),
+    ('>RFC Cliente <',                      '>Client Tax ID <'),
+    ('>Tipo de movimiento</label>',         '>Movement type</label>'),
+    ('>Fecha del movimiento <',             '>Movement date <'),
+    ('Bitácora SAT que se generará:', 'SAT log entry that will be generated:'),
+    ('Autoconsumos registrados este periodo', 'Consumption records this period'),
+    ('>Registrar Autoconsumo<',             '>Register Consumption<'),
+    # Configuración
+    ('>Razones Sociales<',                  '>Companies<'),
+    ('(multi-empresa)',                      '(multi-company)'),
+    ('>Nueva razón social<',           '>New company<'),
+    ('Sin perfiles registrados.',           'No companies registered.'),
+    ('>Perfil de la Empresa <',             '>Company Profile <'),
+    ('(se guarda automáticamente)',     '(auto-saved)'),
+    ('Datos globales del RFC titular. Los permisos y claves por instalación se configuran en la tabla de Instalaciones.',
+     'Global taxpayer data. Facility permits and codes are configured in the Facilities table.'),
+    ('>RFC del Contribuyente</label>',      '>Taxpayer Tax ID</label>'),
+    ('RFC Representante Legal',             'Legal Representative Tax ID'),
+    ('>RFC Proveedor SAT (constante)</label>', '>SAT Software Provider Tax ID</label>'),
+    ('>Factor de Conversión (Kg a Litros)</label>', '>Conversion Factor (Kg to Liters)</label>'),
+    ('> Guardar perfil</button>',           '> Save profile</button>'),
+    ('>Instalaciones (Plantas / Estaciones)</h2>', '>Facilities (Plants / Stations)</h2>'),
+    ('>Nueva instalación<',            '>New facility<'),
+    ('Número de permiso',              'Permit number'),
+    ('Clave de instalación',           'Installation code'),
+    ('>Guardar instalación<',          '>Save facility<'),
+    ('>Proveedores<',                       '>Providers<'),
+    ('>Nuevo proveedor<',                   '>New provider<'),
+    ('>Nombre</th>',                        '>Name</th>'),
+    ('>Acciones</th>',                      '>Actions</th>'),
+    ('Nombre / Razón Social',          'Company Name'),
+    # Historial
+    ('Inventario inicial',                  'Opening inventory'),
+    ('>Generar reporte SAT<',               '>Generate SAT report<'),
+    ('>Descargar ZIP<',                     '>Download ZIP<'),
+    ('>Eliminar periodo<',                  '>Delete period<'),
+    # Dashboard
+    ('Análisis de Proveedores',        'Provider Analysis'),
+    # Controles
+    ('Controles Volumétricos de Gas LP', 'LPG Volumetric Controls'),
+    # Botones comunes
+    ('>Actualizar<',                        '>Refresh<'),
+    (' Guardar</button>',                   ' Save</button>'),
+    (' Cancelar</button>',                  ' Cancel</button>'),
+    ('>Salir</',                            '>Sign out</'),
+    # Empresa overlay
+    ('> Seleccionar Empresa</h2>',          '> Select Company</h2>'),
+    ('Tienes acceso a varias razones sociales. Elige con cuál quieres trabajar en esta sesión.',
+     'You have access to multiple companies. Choose which one to work with in this session.'),
+    # Onboarding
+    ('Bienvenido a Z Control',              'Welcome to Z Control'),
+    ('Antes de continuar, registra tu empresa. El RFC es obligatorio para generar reportes SAT válidos.',
+     'Before continuing, register your company. The Tax ID is required to generate valid SAT reports.'),
+    ('Registrar mi empresa',                'Register my company'),
+    ('Nombre de la empresa',                'Company name'),
+    ('RFC de la empresa',                   'Tax ID'),
+]
+
+
+def _apply_translations(html_str: str, lang: str) -> str:
+    if lang != "en":
+        return html_str
+    for es, en in _EN_TRANSLATIONS:
+        html_str = html_str.replace(es, en)
+    return html_str
+
+
 @app.get("/app", response_class=HTMLResponse, include_in_schema=False)
-async def frontend():
-    """Aplicación principal — carga templates/app.html."""
-    with open(os.path.join(BASE_DIR, "templates", "app.html"),
-              encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+async def frontend(lang: str = "es"):
+    """Aplicación principal — sirve app.html con traducciones aplicadas en servidor."""
+    with open(os.path.join(BASE_DIR, "templates", "app.html"), encoding="utf-8") as f:
+        html = f.read()
+    html = _apply_translations(html, lang)
+    return HTMLResponse(content=html)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
