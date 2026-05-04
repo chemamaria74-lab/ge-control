@@ -1,4 +1,4 @@
-# main.py — Z.Control Anexo 30 SAT v3.4
+# main.py — Z.Control Anexo 30 SAT v3.5
 # ─────────────────────────────────────────────────────────────────────────────
 # Este archivo contiene SOLO lógica Python. Todo el HTML vive en templates/:
 #
@@ -59,14 +59,27 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 app = FastAPI(
     title="Z.Control — Gas LP",
     description="Controles Volumétricos Anexo 30 SAT — Gas LP / Transporte.",
-    version="3.4.0",
+    version="3.5.0",
 )
+
+# ── CORS seguro ───────────────────────────────────────────────────────────────
+# Dominio de producción fijo + localhost para desarrollo local.
+# Para añadir otro dominio: agrega ALLOWED_ORIGIN_EXTRA en Render → Environment.
+_EXTRA_ORIGIN = os.environ.get("ALLOWED_ORIGIN_EXTRA", "").strip()
+_CORS_ORIGINS = [
+    "https://z-control-program.onrender.com",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+if _EXTRA_ORIGIN:
+    _CORS_ORIGINS.append(_EXTRA_ORIGIN)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Perfil-Id"],
 )
 
 # ── Routers API ───────────────────────────────────────────────────────────────
@@ -160,7 +173,6 @@ async def choice_view():
 @app.get("/login/{modulo}", response_class=HTMLResponse, include_in_schema=False)
 async def login_view(modulo: str):
     """Pantalla de login parametrizada por módulo."""
-    # Normalizar: gas-lp → gas_lp
     modulo = modulo.replace("-", "_")
 
     if modulo == "transporte":
@@ -174,11 +186,6 @@ async def login_view(modulo: str):
         icon_module       = "fa-fire-flame-curved"
         nombre_modulo     = "Gas LP"
 
-    from fastapi import Request
-    from fastapi.responses import HTMLResponse as _HR
-
-    # Renderizar el template Jinja2 con las variables del módulo
-    tmpl_path = os.path.join(BASE_DIR, "templates", "login.html")
     from jinja2 import Environment, FileSystemLoader, select_autoescape
     env = Environment(
         loader=FileSystemLoader(os.path.join(BASE_DIR, "templates")),
@@ -195,10 +202,7 @@ async def login_view(modulo: str):
     return HTMLResponse(content=html)
 
 
-
 # ── Diccionario de traducción ES → EN ────────────────────────────────────────
-# Las traducciones se aplican en el servidor antes de enviar el HTML.
-# Esto evita manipular el DOM en el cliente (que rompe los event listeners).
 _EN_TRANSLATIONS: list[tuple[str, str]] = [
     ('<title>Z Control - Controles Volumétricos</title>',
      '<title>Z Control - Volumetric Controls</title>'),
@@ -373,26 +377,19 @@ _EN_TRANSLATIONS: list[tuple[str, str]] = [
     ('> Guardar Sistemas de Medición</button>',
      '> Save Measurement Systems</button>'),
     ('>Eliminar Todo\n      </button>',      '>Delete All\n      </button>'),
-    ('> Historial de Reportes</h2>',          '>Report History</h2>'),
-
     ('>Catálogo de Tanques\n',           '>Tank Catalog\n'),
     ('Catálogo de Tanques\n    <small',   'Tank Catalog\n    <small'),
     ('>Sistemas de Medición</h2>',        '>Measurement Systems</h2>'),
     ('>Análisis de Proveedores</h2>',     '>Provider Analysis</h2>'),
-
     ('disabled>Procesar CFDI</button>',       'disabled>Process CFDI</button>'),
     ('Catálogo de Tanques ─',         'Tank Catalog ─'),
     ('Sistemas de Medición ─',        'Measurement Systems ─'),
     ('> Guardar Sistemas de Medición\n', '> Save Measurement Systems\n'),
-
     ('<b>Procesar CFDI</b>',                  '<b>Process CFDI</b>'),
-
-    # Los últimos 2 — con contexto exacto del HTML
     ('id="btnCFDI" disabled>Procesar CFDI</button>',
      'id="btnCFDI" disabled>Process CFDI</button>'),
     ('<p>Controles Volumétricos — Gas LP &nbsp;&nbsp;</p>',
      '<p>LPG Volumetric Controls &nbsp;&nbsp;</p>'),
-
 ]
 
 
@@ -416,7 +413,7 @@ async def frontend(lang: str = "es"):
 # ── Health check ──────────────────────────────────────────────────────────────
 @app.get("/health", tags=["Sistema"])
 async def health():
-    return {"status": "ok", "version": "3.4.0", "producto": "gas_lp"}
+    return {"status": "ok", "version": "3.5.0", "producto": "gas_lp"}
 
 
 # ── Arranque local ────────────────────────────────────────────────────────────
