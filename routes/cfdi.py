@@ -355,17 +355,28 @@ async def _upload_cfdi_impl(
         if but_final is None and adv_compos.get("butano"):
             but_final = float(adv_compos["butano"])
 
-        # ── CORRECCIÓN: inyectar permiso_lookup_fn para evitar importación circular ──
-        # sat_transformer v3.5 acepta estos callables en lugar de importar routes.providers
+        # ── Permisos de proveedores: UN SOLO query, luego dict lookup ────────────
+        # CORRECCIÓN RENDIMIENTO: _load_providers() hace un round-trip Supabase cada
+        # vez que se llama. sat_transformer la llama una vez por movimiento dentro del
+        # loop de _group_by_uuid → N round-trips para N CFDIs del ZIP.
+        # Solución: cargar el catálogo una sola vez aquí y pasar lambdas de dict lookup.
         try:
-            from routes.providers import (
-                get_permiso_for_rfc,
-                get_permiso_almacenamiento_for_rfc,
-            )
-            _permiso_fn     = get_permiso_for_rfc
-            _permiso_alm_fn = get_permiso_almacenamiento_for_rfc
-        except ImportError:
-            logger.warning("routes.providers no disponible — permisos de proveedores deshabilitados")
+            from routes.providers import _load_providers
+            _providers_cache = {
+                p["rfc"].strip().upper(): p
+                for p in _load_providers(user_id, perfil_id)
+                if p.get("rfc")
+            }
+            todos_logs.append(f"Proveedores cargados: {len(_providers_cache)} RFCs en caché")
+
+            def _permiso_fn(rfc: str, uid=None) -> str:
+                return _providers_cache.get((rfc or "").strip().upper(), {}).get("permiso", "") or ""
+
+            def _permiso_alm_fn(rfc: str, uid=None) -> str:
+                return _providers_cache.get((rfc or "").strip().upper(), {}).get("permiso_almacenamiento_terminal", "") or ""
+
+        except Exception as _prov_err:
+            logger.warning("Proveedores no disponibles: %s — permisos omitidos", _prov_err)
             _permiso_fn     = None
             _permiso_alm_fn = None
 
@@ -461,7 +472,6 @@ async def _upload_cfdi_impl(
     # ── PASO 4: Limpiar datos previos del mismo periodo ───────────────────────
     periodo    = sat_meta["periodo"]
     first_uuid = sat_meta.get("first_uuid", "")
-    init_db()
     deleted = delete_period(
         user_id, periodo, facility_id=fid, perfil_id=perfil_id,
         include_autoconsumos=True,
