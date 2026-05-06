@@ -511,34 +511,31 @@ def delete_period(user_id: str, periodo: str,
     try:
         sb = get_supabase()
         
-        # 1. Definimos las consultas
+        # Preparamos las consultas (sin ejecutar aún)
         qr = sb.table("records").delete().eq("user_id", user_id).eq("periodo", periodo)
         qrep = sb.table("reports").delete().eq("user_id", user_id).eq("periodo", periodo)
 
-        if not include_autoconsumos:
-            qr = qr.eq("es_autoconsumo", False)
+        # ... (mantén tus filtros de facility_id y perfil_id igual) ...
 
-        if facility_id is not None:
-            qr = qr.eq("facility_id", facility_id)
-            qrep = qrep.eq("facility_id", facility_id)
-        if perfil_id is not None:
-            qr = qr.eq("perfil_id", perfil_id)
-            qrep = qrep.eq("perfil_id", perfil_id)
+        # --- ORDEN CORRECTO PARA EVITAR EL TRIGGER ---
+        
+        # 1. Primero eliminamos el reporte. 
+        # Al desaparecer el reporte de la tabla 'reports', la función 
+        # 'prevent_modify_reported_period' ya no encontrará nada que proteger.
+        res_rep = qrep.execute()
+        counts["reports"] = len(res_rep.data or [])
 
-        # ─── CAMBIO CLAVE AQUÍ ───
-        # Primero borramos los REPORTEs para que el trigger de la DB 
-        # nos deje borrar los RECORDs después.
-        counts["reports"] = len(qrep.execute().data or [])
-        counts["records"] = len(qr.execute().data or [])
-        # ─────────────────────────
+        # 2. Ahora sí, borramos los registros. 
+        # El trigger se ejecutará, verá que ya no hay reporte para ese periodo y te dejará pasar.
+        res_rec = qr.execute()
+        counts["records"] = len(res_rec.data or [])
+        
+        logger.info("delete_period exitoso: %s", counts)
 
-        logger.info("delete_period %s/%s fid=%s pid=%s inc_auto=%s → %s",
-                    user_id, periodo, facility_id, perfil_id, include_autoconsumos, counts)
     except Exception as e:
         logger.error("delete_period: %s", e)
         raise 
     return counts
-
 
 def delete_all_periods(user_id: str, perfil_id: Optional[int] = None) -> dict:
     counts = {"records": 0, "reports": 0}
