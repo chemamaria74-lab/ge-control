@@ -452,18 +452,39 @@ def _aplicar_regla_trasvase_inline(
     source: str, logs: list, filtro: dict,
 ) -> None:
     """
-    Facturas empresa→misma empresa con volumen >5,000 L = trasvase interno.
-    Se excluyen del reporte SAT JSON pero se registran en la bitácora.
+    Clasifica traspasos empresa→misma empresa.
+
+    CORRECCIÓN v3.6: se eliminó el umbral de 5,000 L para facturas
+    donde emisor == receptor == rfc_activo. Cualquier factura donde
+    la empresa se emite a sí misma ES un traspaso interno,
+    independientemente del volumen. El umbral de 5,000 L solo aplica
+    cuando emisor == receptor pero alguno de los dos NO es el rfc_activo
+    (ej. dos proveedores distintos con el mismo RFC, caso improbable pero
+    defensivo).
     """
-    if rfc_activo and rfc_emisor_clean == rfc_receptor_clean == rfc_activo:
-        if mov.get("volumen", 0) > UMBRAL_TRASVASE_LITROS:
-            mov["_es_trasvase"]  = True
-            mov["_excluir_json"] = True
-            filtro["trasvase_excluido"] = filtro.get("trasvase_excluido", 0) + 1
-            logs.append(
-                f"[{source}] Trasvase interno >5,000 L ({mov['volumen']:,.0f} L) "
-                f"excluido del reporte SAT."
-            )
+    if not rfc_activo:
+        return
+
+    es_mismo_rfc = (rfc_emisor_clean == rfc_receptor_clean)
+
+    if es_mismo_rfc and rfc_emisor_clean == rfc_activo:
+        # Mismo RFC que el contribuyente activo — siempre trasvase, sin umbral
+        mov["_es_trasvase"]  = True
+        mov["_excluir_json"] = True
+        filtro["trasvase_excluido"] = filtro.get("trasvase_excluido", 0) + 1
+        logs.append(
+            f"[{source}] Trasvase interno RFC propio ({rfc_activo}) "
+            f"({mov['volumen']:,.2f} L) — excluido del reporte SAT."
+        )
+    elif es_mismo_rfc and mov.get("volumen", 0) > UMBRAL_TRASVASE_LITROS:
+        # Mismo RFC externo (no el activo) con volumen alto — también trasvase
+        mov["_es_trasvase"]  = True
+        mov["_excluir_json"] = True
+        filtro["trasvase_excluido"] = filtro.get("trasvase_excluido", 0) + 1
+        logs.append(
+            f"[{source}] Trasvase empresa→empresa >5,000 L ({mov['volumen']:,.2f} L) "
+            f"excluido del reporte SAT."
+        )
 
 
 def _descripcion_es_gas_lp(texto: str) -> bool:
