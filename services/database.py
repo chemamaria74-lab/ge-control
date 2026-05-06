@@ -507,6 +507,9 @@ def delete_period(user_id: str, periodo: str,
                   facility_id: Optional[int] = None,
                   include_autoconsumos: bool = False,
                   perfil_id: Optional[int] = None) -> dict:
+    # CORRECCIÓN BUG 1: antes el except silenciaba el error y retornaba counts={0,0},
+    # provocando que el router respondiera {"ok": True} aunque NADA se hubiera borrado.
+    # Ahora re-lanzamos la excepción para que el router emita HTTP 500 al cliente.
     counts = {"records": 0, "reports": 0}
     try:
         sb   = get_supabase()
@@ -532,6 +535,7 @@ def delete_period(user_id: str, periodo: str,
                     user_id, periodo, facility_id, perfil_id, include_autoconsumos, counts)
     except Exception as e:
         logger.error("delete_period: %s", e)
+        raise  # ← CORRECCIÓN: propagar para que el router retorne HTTP 500 real
     return counts
 
 
@@ -549,6 +553,7 @@ def delete_all_periods(user_id: str, perfil_id: Optional[int] = None) -> dict:
         logger.info("delete_all_periods %s pid=%s → %s", user_id, perfil_id, counts)
     except Exception as e:
         logger.error("delete_all_periods: %s", e)
+        raise  # ← CORRECCIÓN: misma corrección para delete_all_periods
     return counts
 
 
