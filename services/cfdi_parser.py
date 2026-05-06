@@ -433,7 +433,7 @@ def _aplicar_regla_trasvase_inline(
 
     if es_mismo_rfc:
         volumen_actual = mov.get("volumen", 0)
-        mov["_es_trasvase"] = True
+        mov["es_trasvase"] = True
         
         if volumen_actual >= 5000:
             # CASO 1: Mayor o igual a 5,000 L -> SE EXCLUYE
@@ -446,7 +446,7 @@ def _aplicar_regla_trasvase_inline(
             # CASO 2: Menor a 5,000 L -> SE INCLUYE COMO TRASPASO
             mov["_excluir_json"] = False
             # Aquí puedes forzar el tipo de movimiento si es necesario
-            mov["tipo_movimiento"] = "traspaso" 
+            mov["tipo_movimiento"] = "salida" 
             logs.append(
                 f"[{source}] Trasvase <5,000 L ({volumen_actual:,.2f} L) — INCLUIDO como Traspaso."
             )
