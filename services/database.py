@@ -1,29 +1,4 @@
-"""
-services/database.py — v3.0
 
-CORRECCIONES vs v2:
-1. get_available_periods — CORRECCIÓN DE RENDIMIENTO:
-   - Antes: cargaba TODAS las filas de records solo para extraer periodos únicos.
-     Con 10,000 registros → 10,000 filas transferidas para devolver 12 strings.
-   - Ahora: usa una RPC de Supabase (get_distinct_periodos) si está disponible,
-     con fallback a select+dedup limitado a 2000 filas para no agotar memoria.
-     La RPC se crea con la migración v3.0 (ver abajo).
-
-2. get_supabase_service — NUEVO helper para operaciones de admin:
-   - admin.py necesita service_role key para list_users / create_user / delete_user.
-     La anon key no tiene permisos sobre auth.admin.* en Supabase.
-   - Se añade get_supabase_service() que usa SUPABASE_SERVICE_KEY si está definida.
-     Si no está definida, las operaciones de admin fallan con mensaje claro.
-
-3. delete_period or_ filter — CORRECCIÓN SUPABASE-PY v2:
-   - Antes: qr.not_.or_("file_path.like.manual:%,uuid.like.AUTO-%")
-     La sintaxis PostgREST de .or_() en supabase-py v2 es diferente y
-     puede fallar silenciosamente dependiendo de la versión.
-   - Ahora: se usan dos filtros .neq + .not_.like encadenados de forma compatible.
-
-4. save_records — CORRECCIÓN campo es_autoconsumo:
-   - Se persiste el flag es_autoconsumo basado en el uuid del movimiento.
-"""
 import logging
 import os
 from datetime import datetime, timezone
