@@ -310,23 +310,29 @@ def get_period_totals(user_id: str, periodo: str,
         entradas = r["entradas"]
         salidas  = r["salidas"]
 
-       traspasos_list = [
+        # 1. Identificar Traspasos (Movimientos entre mismas terminales/RFC)
+        traspasos_list = [
             s for s in salidas 
             if s.get("es_trasvase") or (s.get("file_path") or "").startswith("traspaso:")
         ]
 
+        # 2. Autoconsumos (Excluimos los traspasos para evitar duplicados)
         autoconsumos = [
             s for s in salidas
-            if s.get("es_autoconsumo")
+            if (s.get("es_autoconsumo")
             or (s.get("file_path") or "").startswith("manual:")
-            or (s.get("uuid") or "").upper().startswith("AUTO-")
+            or (s.get("uuid") or "").upper().startswith("AUTO-"))
+            and not (s.get("es_trasvase") or (s.get("file_path") or "").startswith("traspaso:"))
         ]
 
+        # 3. Ventas Reales (Excluimos autoconsumo y traspasos para el precio promedio)
         ventas_reales = [
             s for s in salidas
             if not s.get("es_autoconsumo")
             and not (s.get("file_path") or "").startswith("manual:")
             and not (s.get("uuid") or "").upper().startswith("AUTO-")
+            and not s.get("es_trasvase")
+            and not (s.get("file_path") or "").startswith("traspaso:")
             and s.get("volumen_litros", 0) > 0
             and s.get("importe", 0) / max(s.get("volumen_litros", 1), 0.001) >= 1.0
         ]
@@ -363,7 +369,6 @@ def get_period_totals(user_id: str, periodo: str,
             "importe_entradas": 0, "importe_salidas": 0,
             "cnt_entradas": 0, "cnt_salidas": 0,
         }
-
 
 # ── REPORTS ─────────────────────────────────────────────────────────────────────
 
