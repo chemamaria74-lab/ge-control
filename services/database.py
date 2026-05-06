@@ -507,35 +507,36 @@ def delete_period(user_id: str, periodo: str,
                   facility_id: Optional[int] = None,
                   include_autoconsumos: bool = False,
                   perfil_id: Optional[int] = None) -> dict:
-    # CORRECCIÓN BUG 1: antes el except silenciaba el error y retornaba counts={0,0},
-    # provocando que el router respondiera {"ok": True} aunque NADA se hubiera borrado.
-    # Ahora re-lanzamos la excepción para que el router emita HTTP 500 al cliente.
     counts = {"records": 0, "reports": 0}
     try:
-        sb   = get_supabase()
-        qr   = sb.table("records").delete().eq("user_id", user_id).eq("periodo", periodo)
+        sb = get_supabase()
+        
+        # 1. Definimos las consultas
+        qr = sb.table("records").delete().eq("user_id", user_id).eq("periodo", periodo)
         qrep = sb.table("reports").delete().eq("user_id", user_id).eq("periodo", periodo)
 
-        # CORRECCIÓN: filtro compatible con supabase-py v2
-        # La sintaxis .not_.or_("a.like.x,b.like.y") puede fallar en algunas versiones.
-        # Usamos es_autoconsumo boolean que ya existe en el schema.
         if not include_autoconsumos:
             qr = qr.eq("es_autoconsumo", False)
 
         if facility_id is not None:
-            qr   = qr.eq("facility_id", facility_id)
+            qr = qr.eq("facility_id", facility_id)
             qrep = qrep.eq("facility_id", facility_id)
         if perfil_id is not None:
-            qr   = qr.eq("perfil_id", perfil_id)
+            qr = qr.eq("perfil_id", perfil_id)
             qrep = qrep.eq("perfil_id", perfil_id)
 
-        counts["records"] = len(qr.execute().data or [])
+        # ─── CAMBIO CLAVE AQUÍ ───
+        # Primero borramos los REPORTEs para que el trigger de la DB 
+        # nos deje borrar los RECORDs después.
         counts["reports"] = len(qrep.execute().data or [])
+        counts["records"] = len(qr.execute().data or [])
+        # ─────────────────────────
+
         logger.info("delete_period %s/%s fid=%s pid=%s inc_auto=%s → %s",
                     user_id, periodo, facility_id, perfil_id, include_autoconsumos, counts)
     except Exception as e:
         logger.error("delete_period: %s", e)
-        raise  # ← CORRECCIÓN: propagar para que el router retorne HTTP 500 real
+        raise 
     return counts
 
 
