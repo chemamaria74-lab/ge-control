@@ -415,17 +415,7 @@ def _aplicar_regla_trasvase_inline(
     rfc_emisor_clean: str, rfc_receptor_clean: str,
     source: str, logs: list, filtro: dict,
 ) -> None:
-    """
-    Clasifica traspasos empresa→misma empresa.
 
-    CORRECCIÓN v3.6: se eliminó el umbral de 5,000 L para facturas
-    donde emisor == receptor == rfc_activo. Cualquier factura donde
-    la empresa se emite a sí misma ES un traspaso interno,
-    independientemente del volumen. El umbral de 5,000 L solo aplica
-    cuando emisor == receptor pero alguno de los dos NO es el rfc_activo
-    (ej. dos proveedores distintos con el mismo RFC, caso improbable pero
-    defensivo).
-    """
     if not rfc_activo:
         return
 
@@ -447,6 +437,7 @@ def _aplicar_regla_trasvase_inline(
             mov["_excluir_json"] = False
             # Aquí puedes forzar el tipo de movimiento si es necesario
             mov["tipo_movimiento"] = "salida" 
+            mov["file_path"] = "traspaso:interno"
             logs.append(
                 f"[{source}] Trasvase <5,000 L ({volumen_actual:,.2f} L) — INCLUIDO como Traspaso."
             )
