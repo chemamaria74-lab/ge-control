@@ -502,7 +502,6 @@ def get_available_periods(user_id: str, facility_id: Optional[int] = None,
 
 
 # ── DELETE ─────────────────────────────────────────────────────────────────────
-
 def delete_period(user_id: str, periodo: str,
                   facility_id: Optional[int] = None,
                   include_autoconsumos: bool = False,
@@ -511,26 +510,39 @@ def delete_period(user_id: str, periodo: str,
     try:
         sb = get_supabase()
         
-        # Preparamos las consultas (sin ejecutar aún)
+        # 1. Definimos la base del borrado de registros
         qr = sb.table("records").delete().eq("user_id", user_id).eq("periodo", periodo)
-        qrep = sb.table("reports").delete().eq("user_id", user_id).eq("periodo", periodo)
-
-        # ... (mantén tus filtros de facility_id y perfil_id igual) ...
-
-        # --- ORDEN CORRECTO PARA EVITAR EL TRIGGER ---
         
-        # 1. Primero eliminamos el reporte. 
-        # Al desaparecer el reporte de la tabla 'reports', la función 
-        # 'prevent_modify_reported_period' ya no encontrará nada que proteger.
+        if facility_id is not None:
+            qr = qr.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            qr = qr.eq("perfil_id", perfil_id)
+
+        # --- LÓGICA DE PROTECCIÓN DE AUTOCONSUMO ---
+        if not include_autoconsumos:
+            # Si NO queremos borrar autoconsumo, protegemos:
+            # 1. Los que tienen el flag es_autoconsumo en True
+            # 2. Los que vienen de carga manual (file_path empieza con manual:)
+            # 3. Los que tienen UUID sintético de autoconsumo (AUTO-)
+            qr = qr.eq("es_autoconsumo", False)\
+                   .not_.like("file_path", "manual:%")\
+                   .not_.like("uuid", "AUTO-%")
+        
+        # 2. Borramos primero el reporte para liberar el trigger de protección
+        qrep = sb.table("reports").delete().eq("user_id", user_id).eq("periodo", periodo)
+        if facility_id is not None:
+            qrep = qrep.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            qrep = qrep.eq("perfil_id", perfil_id)
+            
         res_rep = qrep.execute()
         counts["reports"] = len(res_rep.data or [])
 
-        # 2. Ahora sí, borramos los registros. 
-        # El trigger se ejecutará, verá que ya no hay reporte para ese periodo y te dejará pasar.
+        # 3. Ahora borramos los registros filtrados
         res_rec = qr.execute()
         counts["records"] = len(res_rec.data or [])
         
-        logger.info("delete_period exitoso: %s", counts)
+        logger.info(f"delete_period: Borrados {counts['records']} registros (Incluyó autoconsumo: {include_autoconsumos})")
 
     except Exception as e:
         logger.error("delete_period: %s", e)
