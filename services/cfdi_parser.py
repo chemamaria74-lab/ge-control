@@ -1,40 +1,4 @@
-"""
-services/cfdi_parser.py — v2.1
 
-CORRECCIÓN CRÍTICA vs versión anterior:
-  Los movimientos generados por _parse_xml_con_filtro() usaban claves con
-  prefijo "_" para los datos principales:
-    "_uuid"         → sat_transformer busca "uuid"
-    "_importe"      → sat_transformer busca "importe"
-    "_rfc_emisor"   → sat_transformer busca "rfc_contraparte" / "rfc_cp"
-    "_rfc_receptor" → sat_transformer busca "rfc_contraparte" / "rfc_cp"
-    "_nombre_emisor"   → sat_transformer busca "nombre_contraparte" / "nombre_cp"
-    "_nombre_receptor" → sat_transformer busca "nombre_contraparte" / "nombre_cp"
-    "_fecha_hora"   → sat_transformer busca "fecha_hora"
-
-  Consecuencia: sat_transformer._group_by_uuid() nunca encontraba ninguno de
-  estos campos. TODOS los movimientos CFDI (entradas y salidas) llegaban con:
-    - UUID vacío → se generaban UUIDs sintéticos SIN-ENTRADA-0001, SIN-SALIDA-0001
-    - importe=0.0 → ImporteTotalRecepcionesMensual e ImporteTotalEntregasMes = 0
-    - RFC contraparte vacío → PermisoClienteOProveedor nunca se podía resolver
-    - fecha_hora vacía → FechaYHoraTransaccion en cada CFDI individual = ""
-    - nombre vacío → NombreClienteOProveedor vacío en todos los complementos
-
-  El reporte JSON se generaba "correctamente" en estructura pero con todos los
-  datos de identidad y trazabilidad en blanco. Un auditor del SAT que revisara
-  el Archivo A detectaría inmediatamente la anomalía.
-
-CORRECCIÓN APLICADA:
-  Se eliminaron los prefijos "_" de todos los campos que sat_transformer necesita.
-  Los campos de solo uso interno que nunca llegan al transformer conservan "_"
-  (_source, _descripcion, _es_trasvase, _excluir_json) para distinguirlos.
-
-  Mapeo de claves por tipo de movimiento (entrada/salida):
-    entrada: rfc_contraparte = rfc_emisor  (quien nos vende / provee)
-    salida:  rfc_contraparte = rfc_receptor (a quien entregamos)
-  Esto es consistente con lo que sat_transformer espera para construir los
-  nodos Nacional.RfcClienteOProveedor y PermisoClienteOProveedor.
-"""
 import xml.etree.ElementTree as ET
 import zipfile
 import io
@@ -467,24 +431,26 @@ def _aplicar_regla_trasvase_inline(
 
     es_mismo_rfc = (rfc_emisor_clean == rfc_receptor_clean)
 
-    if es_mismo_rfc and rfc_emisor_clean == rfc_activo:
-        # Mismo RFC que el contribuyente activo — siempre trasvase, sin umbral
-        mov["_es_trasvase"]  = True
-        mov["_excluir_json"] = True
-        filtro["trasvase_excluido"] = filtro.get("trasvase_excluido", 0) + 1
-        logs.append(
-            f"[{source}] Trasvase interno RFC propio ({rfc_activo}) "
-            f"({mov['volumen']:,.2f} L) — excluido del reporte SAT."
-        )
-    elif es_mismo_rfc and mov.get("volumen", 0) > UMBRAL_TRASVASE_LITROS:
-        # Mismo RFC externo (no el activo) con volumen alto — también trasvase
-        mov["_es_trasvase"]  = True
-        mov["_excluir_json"] = True
-        filtro["trasvase_excluido"] = filtro.get("trasvase_excluido", 0) + 1
-        logs.append(
-            f"[{source}] Trasvase empresa→empresa >5,000 L ({mov['volumen']:,.2f} L) "
-            f"excluido del reporte SAT."
-        )
+    if es_mismo_rfc:
+        volumen_actual = mov.get("volumen", 0)
+        mov["_es_trasvase"] = True
+        
+        if volumen_actual >= 5000:
+            # CASO 1: Mayor o igual a 5,000 L -> SE EXCLUYE
+            mov["_excluir_json"] = True
+            filtro["trasvase_excluido"] = filtro.get("trasvase_excluido", 0) + 1
+            logs.append(
+                f"[{source}] Trasvase >5,000 L ({volumen_actual:,.2f} L) — EXCLUIDO del reporte SAT."
+            )
+        else:
+            # CASO 2: Menor a 5,000 L -> SE INCLUYE COMO TRASPASO
+            mov["_excluir_json"] = False
+            # Aquí puedes forzar el tipo de movimiento si es necesario
+            mov["tipo_movimiento"] = "salida" 
+            logs.append(
+                f"[{source}] Trasvase <5,000 L ({volumen_actual:,.2f} L) — INCLUIDO como Traspaso."
+            )
+
 
 
 def _descripcion_es_gas_lp(texto: str) -> bool:
