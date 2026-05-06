@@ -20,7 +20,7 @@ from utils.rfc_validator import validar_rfc, limpiar_rfc
 
 logger = logging.getLogger(__name__)
 
-TIPOS_MOVIMIENTO_VALIDOS = {"entrada", "salida"}
+TIPOS_MOVIMIENTO_VALIDOS = {"entrada", "salida","traspaso"}
 PRODUCTOS_VALIDOS        = {"gas_lp"}
 UNIDADES_VALIDAS_KG      = {"kg", "kilogramo", "kilogramos"}
 UNIDADES_VALIDAS_LITROS  = {"litros", "l", "lt", "lts", "ltr", "litro"}
