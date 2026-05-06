@@ -343,18 +343,6 @@ def get_period_totals(user_id: str, periodo: str,
             or (s.get("uuid") or "").upper().startswith("AUTO-")
         ]
 
-        # CORRECCIÓN: traspasos = salidas donde rfc_contraparte == rfc del usuario
-        # Se identifican por importe ≈ 0 o importe/litro < $1 (precio simbólico interno)
-        # O bien por file_path que empiece con "manual:trasvase"
-        traspasos = [
-            s for s in salidas
-            if not s.get("es_autoconsumo")
-            and not (s.get("file_path") or "").startswith("manual:")
-            and not (s.get("uuid") or "").upper().startswith("AUTO-")
-            and s.get("volumen_litros", 0) > 0
-            and s.get("importe", 0) / max(s.get("volumen_litros", 1), 0.001) < 1.0
-        ]
-
         ventas_reales = [
             s for s in salidas
             if not s.get("es_autoconsumo")
@@ -377,8 +365,6 @@ def get_period_totals(user_id: str, periodo: str,
             "total_salidas":      round(sum(x["volumen_litros"] for x in salidas), 2),
             "total_autoconsumo":  round(sum(x["volumen_litros"] for x in autoconsumos), 2),
             "cnt_autoconsumo":    len(autoconsumos),
-            "total_traspasos":    round(sum(x["volumen_litros"] for x in traspasos), 2),
-            "cnt_traspasos":      len(traspasos),
             "precio_compra_prom": precio_compra,
             "precio_venta_prom":  precio_venta,
             "importe_entradas":   round(imp_compra, 2),
@@ -391,7 +377,6 @@ def get_period_totals(user_id: str, periodo: str,
         return {
             "total_entradas": 0, "total_salidas": 0,
             "total_autoconsumo": 0, "cnt_autoconsumo": 0,
-            "total_traspasos": 0, "cnt_traspasos": 0,
             "precio_compra_prom": 0, "precio_venta_prom": 0,
             "importe_entradas": 0, "importe_salidas": 0,
             "cnt_entradas": 0, "cnt_salidas": 0,
