@@ -336,6 +336,11 @@ def get_period_totals(user_id: str, periodo: str,
         entradas = r["entradas"]
         salidas  = r["salidas"]
 
+       traspasos_list = [
+            s for s in salidas 
+            if s.get("es_trasvase") or (s.get("file_path") or "").startswith("traspaso:")
+        ]
+
         autoconsumos = [
             s for s in salidas
             if s.get("es_autoconsumo")
@@ -365,6 +370,8 @@ def get_period_totals(user_id: str, periodo: str,
             "total_salidas":      round(sum(x["volumen_litros"] for x in salidas), 2),
             "total_autoconsumo":  round(sum(x["volumen_litros"] for x in autoconsumos), 2),
             "cnt_autoconsumo":    len(autoconsumos),
+            "total_traspasos":    round(sum(x.get("volumen_litros", 0) for x in traspasos_list), 2),
+            "cnt_traspasos":      len(traspasos_list),
             "precio_compra_prom": precio_compra,
             "precio_venta_prom":  precio_venta,
             "importe_entradas":   round(imp_compra, 2),
@@ -377,6 +384,7 @@ def get_period_totals(user_id: str, periodo: str,
         return {
             "total_entradas": 0, "total_salidas": 0,
             "total_autoconsumo": 0, "cnt_autoconsumo": 0,
+            "total_traspasos": 0, "cnt_traspasos": 0,
             "precio_compra_prom": 0, "precio_venta_prom": 0,
             "importe_entradas": 0, "importe_salidas": 0,
             "cnt_entradas": 0, "cnt_salidas": 0,
