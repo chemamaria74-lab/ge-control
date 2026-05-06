@@ -446,7 +446,7 @@ def _aplicar_regla_trasvase_inline(
             # CASO 2: Menor a 5,000 L -> SE INCLUYE COMO TRASPASO
             mov["_excluir_json"] = False
             # Aquí puedes forzar el tipo de movimiento si es necesario
-            mov["tipo_movimiento"] = "salida" 
+            mov["tipo_movimiento"] = "traspaso" 
             logs.append(
                 f"[{source}] Trasvase <5,000 L ({volumen_actual:,.2f} L) — INCLUIDO como Traspaso."
             )
