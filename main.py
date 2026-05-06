@@ -390,6 +390,94 @@ _EN_TRANSLATIONS: list[tuple[str, str]] = [
      'id="btnCFDI" disabled>Process CFDI</button>'),
     ('<p>Controles Volumétricos — Gas LP &nbsp;&nbsp;</p>',
      '<p>LPG Volumetric Controls &nbsp;&nbsp;</p>'),
+
+    # ── CORRECCIÓN BUG 2: cadenas faltantes en la interfaz ────────────────────
+
+    # Traspasos / Estaciones
+    ('Traspasos a Estaciones 🏪',         'Station Transfers 🏪'),
+    ('Trasvase interno',                  'Internal transfer'),
+
+    # Dashboard KPIs
+    ('CONSUMO DIARIO EST.',               'EST. DAILY CONSUMPTION'),
+    ('DÍAS DE STOCK ACTUAL',              'CURRENT STOCK DAYS'),
+    ('Consumo diario estimado',           'Estimated daily consumption'),
+    ('Días de stock estimados',           'Estimated stock days'),
+    ('Compra promedio/mes',               'Avg. purchase/month'),
+
+    # Clientes
+    ('Clientes Registrados',             'Registered Customers'),
+    ('Clientes activos',                 'Active customers'),
+    ('Crear Nuevo Cliente',              'Create New Customer'),
+    ('Datos del cliente',                'Customer data'),
+    ('CP Cliente (5 dígitos)',           'Customer ZIP (5 digits)'),
+    ('CP Cliente',                       'Customer ZIP'),
+    ('Cliente:',                         'Customer:'),
+
+    # Facturación / Carta Porte
+    ('Carta Porte timbrada correctamente', 'Carta Porte successfully stamped'),
+    ('Config. Vehicular',                'Vehicle Config.'),
+    ('Año Modelo',                       'Model Year'),
+    ('Chofer',                           'Driver'),
+    ('Distancia (KM)',                   'Distance (KM)'),
+    ('>Distribución<',                   '>Distribution<'),
+    ('Datos del vehículo',               'Vehicle data'),
+    ('Aseguradora',                      'Insurance company'),
+
+    # Instalaciones
+    ('Descripción Instalación',          'Facility description'),
+    ('Clave Instalación',                'Facility code'),
+    ('Cargando instalaciones...',        'Loading facilities...'),
+
+    # Proveedores
+    ('Cargando proveedores...',          'Loading providers...'),
+    ('Agregar / actualizar proveedor',   'Add / update provider'),
+
+    # Composición Gas LP
+    ('Dictamen de Composición — Gas LP', 'Composition Report — LPG'),
+
+    # Eliminación / Confirmación
+    ('Confirmación de Eliminación Permanente', 'Permanent Deletion Confirmation'),
+    ('CONFIRMO ELIMINACIÓN PERMANENTE',  'I CONFIRM PERMANENT DELETION'),
+    ('Confirmar eliminación',            'Confirm deletion'),
+    ('Cancelar',                         'Cancel'),
+
+    # Estados de carga
+    ('Cargando...',                      'Loading...'),
+    ('Cargando\u2026',                   'Loading\u2026'),
+    ('Cambiando empresa...',             'Switching company...'),
+
+    # Inventario / Alertas
+    ('Ajuste de inventario',             'Inventory adjustment'),
+    ('Alerta capacidad',                 'Capacity alert'),
+    ('ADVERTENCIA DE CAPACIDAD FÍSICA',  'PHYSICAL CAPACITY WARNING'),
+    ('Alertas (no bloqueantes)',         'Alerts (non-blocking)'),
+
+    # Análisis
+    ('Carga el dashboard para ver el análisis de proveedores',
+     'Load the dashboard to view provider analysis'),
+
+    # Settings
+    ('Activa el cálculo de Ajuste por Variación (Anexo 30).',
+     'Enables Variance Adjustment calculation (Annex 30).'),
+
+    # Accesos
+    ('Acceso restringido',               'Restricted access'),
+    ('>Acción<',                         '>Action<'),
+    ('Acepta múltiples archivos — Categorización automática por RFC',
+     'Accepts multiple files — Automatic categorization by Tax ID'),
+    ('Arrastra tu archivo de movimientos aquí',
+     'Drag your movements file here'),
+    ('Arrastra uno o varios archivos ZIP/XML aquí',
+     'Drag one or more ZIP/XML files here'),
+
+    # Misceláneos
+    ('>Descripción<',                    '>Description<'),
+    ('Compra / Recepción',               'Purchase / Receipt'),
+    ('Capacidad Tanque (L)',             'Tank Capacity (L)'),
+    ('>Acciones<',                       '>Actions<'),
+    ('Activa',                           'Active'),
+    ('Activo',                           'Active'),
+    ('Historial de lecturas',            'Readings history'),
 ]
 
 
