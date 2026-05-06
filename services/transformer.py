@@ -32,7 +32,7 @@ def transform(
 
         # Usar Decimal para todos los cálculos
         entradas = sum_decimal(df[df["tipo_movimiento"] == "entrada"]["volumen_base"].tolist())
-        salidas  = sum_decimal(df[df["tipo_movimiento"] == "salida"]["volumen_base"].tolist())
+        salidas  = sum_decimal(df[df["tipo_movimiento"].isin(["salida", "traspaso"])]["volumen_base"].tolist())
 
         # Inventario inicial
         inv_ini_vals = df["inventario_inicial"].dropna()
