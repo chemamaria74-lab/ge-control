@@ -1,0 +1,11 @@
+[
+  {
+    "_AVISO": "ESTE ARCHIVO ES SOLO DE EJEMPLO — NO subir a Git el auth.json real",
+    "_MIGRACION": "Los usuarios deben crearse en Supabase Authentication (Dashboard → Authentication → Users)",
+    "_SHA256_INSEGURO": "SHA-256 sin salt es reversible con rainbow tables. NO usar para nuevos usuarios.",
+    "user_id": "ejemplo-uuid-aqui",
+    "username": "usuario@tudominio.com",
+    "password_hash": "REEMPLAZAR_CON_HASH_BCRYPT_O_USAR_SUPABASE_AUTH",
+    "display_name": "Nombre Visible"
+  }
+]
