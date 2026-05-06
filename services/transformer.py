@@ -67,6 +67,8 @@ def transform(
             f"inv_final={inv_final:.4f} [{config.unidad_base}]"
         )
 
+        df.loc[df["tipo_movimiento"] == "traspaso", "tipo_movimiento"] = "salida"
+
         resultado = Anexo30JSON(
             estacion_id       = config.estacion_id,
             rfc               = config.rfc,
