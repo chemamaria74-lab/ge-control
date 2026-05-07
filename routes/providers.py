@@ -25,28 +25,69 @@ PROVIDERS_DIR = os.path.join(os.path.dirname(__file__), "..", "config")
 
 def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
     """
-    Lista proveedores con aislamiento estricto por perfil.
+    Lista proveedores filtrados por perfil_id.
+    Si el perfil no tiene proveedores propios ni huérfanos, busca proveedores
+    de otros perfiles del mismo usuario y los re-asigna (migración incremental).
+    Retorna None solo si Supabase falla por red.
     """
     try:
         from supabase_config import get_supabase
         sb = get_supabase()
 
-        # Consulta simple y directa
-        query = sb.table("providers").select("*").eq("user_id", user_id)
-        
-        if perfil_id:
-            # Solo los que pertenecen a ESTE perfil
-            query = query.eq("perfil_id", perfil_id)
-        else:
-            # Si no hay perfil, solo los que no tienen perfil (globales)
-            query = query.is_("perfil_id", "null")
-        
-        data = query.order("rfc").execute().data
-        return data or []
+        if not perfil_id:
+            return sb.table("providers").select("*")\
+                     .eq("user_id", user_id).order("rfc").execute().data or []
+
+        # 1. Proveedores ya asignados a este perfil
+        r1 = sb.table("providers").select("*")\
+               .eq("user_id", user_id).eq("perfil_id", perfil_id)\
+               .order("rfc").execute().data or []
+
+        # 2. Huérfanos sin perfil asignado
+        r2 = sb.table("providers").select("*")\
+               .eq("user_id", user_id).is_("perfil_id", "null")\
+               .order("rfc").execute().data or []
+
+        ids_a_asignar = [p["id"] for p in r2]
+
+        # 3. Si no hay proveedores ni huérfanos para este perfil,
+        #    buscar en otros perfiles del mismo usuario y reasignar
+        if not r1 and not r2:
+            logger.info("Perfil %s sin proveedores — buscando en otros perfiles del usuario", perfil_id)
+            r_otros = sb.table("providers").select("*")\
+                        .eq("user_id", user_id).neq("perfil_id", perfil_id)\
+                        .order("rfc").execute().data or []
+            if r_otros:
+                ids_a_asignar = [p["id"] for p in r_otros]
+                logger.info("Reasignando %s proveedores de otros perfiles → perfil=%s", len(r_otros), perfil_id)
+                r2 = r_otros  # tratar como huérfanos para asignarlos abajo
+
+        # 4. Asignar inline todos los que encontramos sin perfil correcto
+        if ids_a_asignar:
+            try:
+                sb.table("providers").update({"perfil_id": perfil_id})\
+                  .in_("id", ids_a_asignar).execute()
+                for p in r2:
+                    p["perfil_id"] = perfil_id
+                logger.info("Asignados %s proveedores → perfil=%s", len(ids_a_asignar), perfil_id)
+            except Exception as e2:
+                logger.warning("No se pudo asignar proveedores: %s", e2)
+
+        # 5. Deduplicar por RFC (los del perfil exacto tienen prioridad)
+        rfcs_vistas: set = set()
+        resultado = []
+        for p in r1 + r2:
+            rfc_key = p.get("rfc", "").upper()
+            if rfc_key not in rfcs_vistas:
+                rfcs_vistas.add(rfc_key)
+                resultado.append(p)
+
+        return resultado
 
     except Exception as e:
-        logger.error(f"Error listando proveedores: {e}")
-        return []
+        logger.warning("Supabase providers list: %s", e)
+        return None  # señal de error de red
+
 
 def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,
                permiso_almacenamiento_terminal: str,
@@ -137,40 +178,29 @@ def _load_providers(user_id: str, perfil_id: int = None) -> list:
     return _file_list(user_id)
 
 
-def _upsert_provider(user_id: str, rfc: str, nombre: str, permiso: str, 
-                     permiso_almacenamiento_terminal: str, 
+def _upsert_provider(user_id: str, rfc: str, nombre: str, permiso: str,
+                     permiso_almacenamiento_terminal: str,
                      perfil_id: int = None) -> None:
-    """Guarda en Supabase con aislamiento por perfil."""
-    # 1. Intentar guardar en Supabase (Prioridad)
+    """Guarda en Supabase Y actualiza el JSON local del usuario."""
     ok = _sb_upsert(user_id, rfc, nombre, permiso, permiso_almacenamiento_terminal, perfil_id)
-    
-    # 2. Actualizar JSON local (Opcional, pero para mantener consistencia)
-    # Nota: Si usas mucho los perfiles, lo ideal es que el JSON local también 
-    # sepa a qué perfil pertenece, pero lo más importante es Supabase.
     providers = _file_list(user_id)
     rfc_upper = rfc.upper().strip()
-    updated = False
+    updated   = False
     for p in providers:
-        # Aquí el local suele ser por usuario, por eso se mezclan en el fallback.
         if p.get("rfc", "").upper() == rfc_upper:
-            p["nombre"] = nombre
+            p["nombre"]  = nombre
             p["permiso"] = permiso
             p["permiso_almacenamiento_terminal"] = permiso_almacenamiento_terminal
-            p["perfil_id"] = perfil_id # Guardar el perfil también en el local
             updated = True
             break
     if not updated:
         providers.append({
-            "rfc": rfc_upper, 
-            "nombre": nombre, 
-            "permiso": permiso,
+            "rfc": rfc_upper, "nombre": nombre, "permiso": permiso,
             "permiso_almacenamiento_terminal": permiso_almacenamiento_terminal,
-            "perfil_id": perfil_id
         })
     _file_save(user_id, providers)
-    
     if not ok:
-        logger.warning("Provider guardado solo en local (Supabase no disponible o error de duplicidad).")
+        logger.warning("Provider guardado solo en local (Supabase no disponible).")
 
 
 def _delete_provider(user_id: str, rfc: str, perfil_id: int = None) -> None:

@@ -1,3 +1,34 @@
+"""
+routes/analytics.py — v2.1
+
+CORRECCIONES vs versión anterior:
+1. FÓRMULA dias_stock_estimado — BUG CRÍTICO CORREGIDO:
+   - Antes: prom_vol / prom_sal_dia / 30  ← INCORRECTO (resultado off por 30×)
+     Ejemplo: 50,000 L/mes ÷ 100 L/día ÷ 30 = 16.7 días  ← FALSO
+   - Ahora: prom_vol / prom_sal_dia        ← CORRECTO
+     Ejemplo: 50,000 L/mes ÷ 100 L/día = 500 días  ← REAL
+   El volumen promedio ya es mensual y la tasa ya es diaria; dividir entre 30
+   de nuevo causaba una subestimación de 30× en los días de stock disponible.
+
+2. CONSUMO DIARIO ESTIMADO — algoritmo mejorado:
+   - Antes: promediaba volumenes individuales de registros de salida (no
+     agrupados por periodo), lo que daba un promedio por-registro, no por día.
+   - Ahora: agrupa las salidas por mes, calcula el promedio mensual de litros
+     vendidos/entregados, y lo divide entre los días del mes (usando el
+     número real de días por mes via calendar, no siempre 30).
+
+3. COEFICIENTE DE VARIACIÓN (nuevo):
+   - Se añade cv_volumen (desviación estándar / media) para que el frontend
+     pueda mostrar qué tan estable es la demanda histórica.
+
+4. TENDENCIA LINEAL (nuevo):
+   - Se calcula la pendiente de la regresión lineal simple sobre los
+     volúmenes históricos para indicar si el consumo sube, baja o es estable.
+     Fórmula: mínimos cuadrados ordinarios en Python puro (sin numpy).
+
+5. ALERTAS DE STOCK (nuevo):
+   - Se devuelve dias_alerta=True si los días de stock estimado < 30.
+"""
 import calendar
 import logging
 from collections import defaultdict
