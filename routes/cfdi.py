@@ -198,6 +198,43 @@ async def _upload_cfdi_impl(
                     temp_default_fac = float(fac["temperatura_default"])
                 except (TypeError, ValueError):
                     pass
+            # ── Campos avanzados: inyectar en settings con el formato
+            #    que espera el transformer (adv_tanques, adv_medicion, adv_geolocalizacion)
+            #    Antes se leían de zc_settings; ahora vienen de user_facilities.
+            #    Solo sobreescribir si la facility tiene el dato (no pisar config global).
+            adv_t = settings.get("adv_tanques") or {}
+            if fac.get("clave_tanque"):
+                adv_t["clave_tanque"] = fac["clave_tanque"]
+            if fac.get("cap_total_tanque"):
+                adv_t["cap_total"] = float(fac["cap_total_tanque"])
+            if fac.get("cap_operativa_tanque"):
+                adv_t["cap_operativa"] = float(fac["cap_operativa_tanque"])
+            if fac.get("cap_util_tanque"):
+                adv_t["cap_util"] = float(fac["cap_util_tanque"])
+            if fac.get("fecha_calibracion_tanque"):
+                adv_t["fecha_calibracion"] = fac["fecha_calibracion_tanque"]
+            if adv_t:
+                settings["adv_tanques"] = adv_t
+
+            adv_m = settings.get("adv_medicion") or {}
+            if fac.get("incertidumbre_medidor") is not None:
+                adv_m["incertidumbre"] = float(fac["incertidumbre_medidor"])
+            if fac.get("modelo_medidor"):
+                adv_m["modelo_sensor"] = fac["modelo_medidor"]
+            if fac.get("serie_medidor"):
+                adv_m["serie_sensor"] = fac["serie_medidor"]
+            if fac.get("fecha_calibracion_medidor"):
+                adv_m["fecha_calibracion_medidor"] = fac["fecha_calibracion_medidor"]
+            if adv_m:
+                settings["adv_medicion"] = adv_m
+
+            adv_geo = settings.get("adv_geolocalizacion") or {}
+            if fac.get("latitud") is not None:
+                adv_geo["latitud"] = float(fac["latitud"])
+            if fac.get("longitud") is not None:
+                adv_geo["longitud"] = float(fac["longitud"])
+            if adv_geo:
+                settings["adv_geolocalizacion"] = adv_geo
             cap_str = f"{fac_capacidad:,.0f} L" if fac_capacidad else "no configurada"
             todos_logs.append(
                 f"Instalación activa: [{fid}] {fac['nombre']} — "
