@@ -6,6 +6,7 @@
 <title>Z Control - Controles Volumétricos</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-pk6NzVJqKt/98qwY4hOSV4bohsM8eQZJaZJpbrx3yunvV8mXnBPSwfnO7xUEgj4Xy6H7H8t1S5dPzS7x9t5yUg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#edf7fb;--surface:#ffffff;--primary:#0f5c82;--primary-soft:#38bdf8;--secondary:#0a4e6e;--muted:#64748b;--border:#dbeafe;--text:#102a43}
@@ -1798,11 +1799,12 @@ tr:hover td{background:#f8fafc}
     <!-- ── Config. Avanzada (colapsable) ──────────────────────────────── -->
     <div style="margin-top:.9rem;border-top:1px solid #e2e8f0;padding-top:.7rem">
       <button type="button" id="btnToggleAdvFacility"
-        style="background:none;border:none;cursor:pointer;font-size:.8rem;font-weight:600;color:#7c3aed;font-family:inherit;padding:0;display:flex;align-items:center;gap:.4rem"
-        onclick="toggleAdvFacility()">
-        <i class="fa-solid fa-chevron-right" id="advFacilityChevron" style="font-size:.65rem;transition:transform .2s"></i>
-        <i class="fa-solid fa-gear" style="font-size:.75rem"></i>
-        Config. Avanzada — Tanque · Medidor · Geolocalización
+        onclick="toggleAdvFacility()"
+        style="display:flex;align-items:center;gap:.5rem;padding:.45rem .9rem;border-radius:8px;border:1px solid #e9d5ff;background:#f5f3ff;color:#7c3aed;font-size:.8rem;font-weight:600;cursor:pointer;font-family:inherit;width:100%;text-align:left">
+        <i class="fa-solid fa-chevron-right" id="advFacilityChevron" style="font-size:.65rem;transition:transform .2s;flex-shrink:0"></i>
+        <i class="fa-solid fa-gear"></i>
+        <span>Config. Avanzada</span>
+        <span style="font-weight:400;color:#a78bfa;font-size:.75rem">— Tanque · Medidor · Geolocalización</span>
       </button>
       <div id="advFacilityPanel" style="display:none;margin-top:.8rem">
 
@@ -3100,6 +3102,8 @@ function renderFacilitiesTable(facilities) {
       <td style="text-align:center">
         <button onclick="openEditFacility(${f.id})"
           style="background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:.25rem .55rem;cursor:pointer;font-size:.75rem;margin-right:.2rem" title="Editar"><i class="fa-solid fa-pen-to-square"></i></button>
+        <button onclick="migrarAdvFacility(${f.id},'${(f.nombre||'').replace(/'/g,"\\u0027")}')"
+          style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:.25rem .55rem;cursor:pointer;font-size:.75rem;margin-right:.2rem" title="Importar Config. Avanzada anterior a esta instalación"><i class="fa-solid fa-arrow-down-to-line"></i></button>
         <button onclick="confirmDeleteFacility(${f.id},'${(f.nombre||'').replace(/'/g,"\\u0027")}')"
           style="background:#ef4444;color:#fff;border:none;border-radius:5px;padding:.25rem .55rem;cursor:pointer;font-size:.75rem" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
       </td>
@@ -3391,16 +3395,16 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
     capacidad_tanque:    parseFloat(document.getElementById('fac_cap_total').value) || 0,
     num_tanques:         parseInt(document.getElementById('fac_tanques').value) || 1,
     num_dispensarios:    parseInt(document.getElementById('fac_dispensarios').value) || 0,
-    // Adv fields — only send if the panel was expanded (non-empty)
-    clave_tanque:               document.getElementById('fac_clave_tanque').value.trim().toUpperCase() || null,
-    cap_total_tanque:           parseFloat(document.getElementById('fac_cap_total').value) || null,
-    cap_operativa_tanque:       parseFloat(document.getElementById('fac_cap_operativa').value) || null,
+    // Adv fields — str fields always send "" (never null), Optional float fields send null when empty
+    clave_tanque:               document.getElementById('fac_clave_tanque').value.trim().toUpperCase(),
+    cap_total_tanque:           document.getElementById('fac_cap_total').value ? parseFloat(document.getElementById('fac_cap_total').value) : null,
+    cap_operativa_tanque:       document.getElementById('fac_cap_operativa').value ? parseFloat(document.getElementById('fac_cap_operativa').value) : null,
     cap_util_tanque:            document.getElementById('fac_cap_util').value ? parseFloat(document.getElementById('fac_cap_util').value) : null,
-    fecha_calibracion_tanque:   document.getElementById('fac_fecha_calibracion_tanque').value || null,
+    fecha_calibracion_tanque:   document.getElementById('fac_fecha_calibracion_tanque').value || '',
     incertidumbre_medidor:      document.getElementById('fac_incertidumbre').value ? parseFloat(document.getElementById('fac_incertidumbre').value.replace(',','.')) : null,
-    modelo_medidor:             document.getElementById('fac_modelo_medidor').value.trim() || null,
-    serie_medidor:              document.getElementById('fac_serie_medidor').value.trim() || null,
-    fecha_calibracion_medidor:  document.getElementById('fac_fecha_calibracion_medidor').value || null,
+    modelo_medidor:             document.getElementById('fac_modelo_medidor').value.trim(),
+    serie_medidor:              document.getElementById('fac_serie_medidor').value.trim(),
+    fecha_calibracion_medidor:  document.getElementById('fac_fecha_calibracion_medidor').value || '',
     latitud:                    document.getElementById('fac_latitud').value ? parseFloat(document.getElementById('fac_latitud').value) : null,
     longitud:                   document.getElementById('fac_longitud').value ? parseFloat(document.getElementById('fac_longitud').value) : null,
   };
@@ -5148,6 +5152,33 @@ async function cargarConfigAvanzada() {
     if (document.getElementById('adv_num_dictamen'))  document.getElementById('adv_num_dictamen').value  = d.num_dictamen   || '';
     if (document.getElementById('adv_fecha_dictamen')) document.getElementById('adv_fecha_dictamen').value= d.fecha_vigencia || '';
   } catch(e) { console.warn('Error cargando config avanzada:', e); }
+}
+
+// ── Migrar Config. Avanzada antigua (zc_settings) → instalación ─────────────
+async function migrarAdvFacility(facId, nombre) {
+  const msg = `Migrar Config. Avanzada guardada anteriormente hacia "${nombre}"?
+
+` +
+    `Esto toma los datos de Tanque, Medidor y Geolocalización que configuraste ` +
+    `en el panel anterior de Config. Avanzada y los asocia a esta instalación.
+` +
+    `Solo se copian campos que la instalación aún no tenga — no sobreescribe datos existentes.`;
+  if (!confirm(msg)) return;
+  try {
+    const res  = await fetch(`/api/facilities/${facId}/migrate-adv`, {
+      method: 'POST', headers: authHeader()
+    });
+    const data = await res.json();
+    if (data.migrated) {
+      alert(`✅ Migración exitosa.
+Campos migrados: ${data.campos.join(', ')}`);
+      await loadFacilities();
+    } else {
+      alert(`ℹ️ ${data.msg}`);
+    }
+  } catch(e) {
+    alert('Error en migración: ' + e.message);
+  }
 }
 
 // ── Config Avanzada — helpers para el formulario de instalación ──────────
