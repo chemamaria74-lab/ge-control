@@ -159,7 +159,7 @@ async def get_ventas_analytics(
                 .select("fecha,volumen_litros,nombre_contraparte")
                 .eq("user_id", uid)
                 .eq("tipo", "salida")
-                .like("file_path", "manual:%")
+                .eq("es_autoconsumo", True)
                 .gte("fecha", f"{year_str}-01-01")
                 .lte("fecha", f"{year_str}-12-31"))
         if facility_id is not None:
