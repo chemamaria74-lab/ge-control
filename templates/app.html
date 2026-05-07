@@ -350,75 +350,38 @@ tr:hover td{background:#f8fafc}
 .tab-title{font-size:.82rem;font-weight:600;color:#475569;margin:.8rem 0 .4rem}
 </style>
 
+<!-- ══ i18n: badge de idioma en navbar ════════════════════════════════════ -->
 <script>
 (function(){
-  // 1. Detección y Persistencia del Idioma
-  const _langUrl = new URLSearchParams(location.search).get('lang');
+  const _langUrl    = new URLSearchParams(location.search).get('lang');
   const _langStored = localStorage.getItem('zc_lang');
   const _lang = (_langUrl === 'en' || _langUrl === 'es') ? _langUrl
               : (_langStored === 'en' || _langStored === 'es') ? _langStored
               : 'es';
   localStorage.setItem('zc_lang', _lang);
   window._lang = _lang;
-
-  // 2. Diccionario de Traducción (Solo texto visible para no romper el Layout)
-  const i18n = {
-    "en": {
-      "Procesar": "Process",
-      "Historial": "History",
-      "Configuración": "Settings",
-      "Config. Avanzada": "Advanced Config.",
-      "Autoconsumo": "Own Consumption",
-      "Traspasos a Estaciones": "Station Transfers",
-      "Consumo diario estimado": "Estimated daily consumption",
-      "Días de stock estimados": "Estimated stock days",
-      "Entradas": "Inbound",
-      "Salidas": "Outbound",
-      "Nombre": "Name",
-      "Acciones": "Actions"
-    }
-  };
-
-  // 3. Función de Traducción Segura (Protege IDs y Clases)
-  function translateApp() {
-    if (_lang !== 'en') return;
-    const dict = i18n["en"];
-
-    // Buscamos solo en nodos de texto para no alterar atributos técnicos de JS
-    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-    let node;
-    while(node = walk.nextNode()) {
-      const text = node.nodeValue.trim();
-      if (dict[text]) {
-        node.nodeValue = node.nodeValue.replace(text, dict[text]);
-      }
-    }
-  }
+  window._t    = function(s){ return s; };
 
   document.addEventListener('DOMContentLoaded', function(){
-    // A. Crear el Botón en el Header
     const header = document.querySelector('header');
-    if (header && !header.querySelector('.lang-badge')) {
-      const badge = document.createElement('button');
-      badge.className = 'lang-badge';
-      badge.title = _lang === 'en' ? 'Cambiar a Español' : 'Switch to English';
-      badge.textContent = _lang === 'en' ? 'ES' : 'EN';
-      badge.style.cssText = 'margin-left:8px;padding:4px 12px;border-radius:14px;background:rgba(255,255,255,.15);color:#f8fafc;font-size:.72rem;font-weight:700;border:1px solid rgba(255,255,255,.25);flex-shrink:0;letter-spacing:.04em;cursor:pointer;';
-      badge.onclick = function(){
-        const next = (_lang === 'en') ? 'es' : 'en';
-        localStorage.setItem('zc_lang', next);
-        const url = new URL(location.href);
-        url.searchParams.set('lang', next);
-        location.replace(url.toString());
-      };
-      header.appendChild(badge);
-    }
-
-    // B. Aplicar la traducción automáticamente
-    translateApp();
+    if (!header || header.querySelector('.lang-badge')) return;
+    const badge = document.createElement('button');
+    badge.className  = 'lang-badge';
+    badge.title      = _lang === 'en' ? 'Cambiar a Español' : 'Switch to English';
+    badge.textContent = _lang === 'en' ? 'ES' : 'EN';
+    badge.style.cssText = 'margin-left:8px;padding:4px 12px;border-radius:14px;background:rgba(255,255,255,.15);color:#f8fafc;font-size:.72rem;font-weight:700;border:1px solid rgba(255,255,255,.25);flex-shrink:0;letter-spacing:.04em;cursor:pointer;font-family:inherit';
+    badge.onclick = function(){
+      const next = (_lang === 'en') ? 'es' : 'en';
+      localStorage.setItem('zc_lang', next);
+      const url = new URL(location.href);
+      url.searchParams.set('lang', next);
+      location.replace(url.toString());
+    };
+    header.appendChild(badge);
   });
 })();
 </script>
+
 
 
 
