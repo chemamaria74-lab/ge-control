@@ -626,7 +626,6 @@ tr:hover td{background:#f8fafc}
   <button class="main-nav-tab" data-main="historial"><i class="fa-solid fa-history"></i> <span data-i18n="nav.historial">Historial</span></button>
   <button class="main-nav-tab" data-main="config"><i class="fa-solid fa-gear"></i> <span data-i18n="nav.config">Configuración</span></button>
   <button class="main-nav-tab" data-main="proveedores"><i class="fa-solid fa-truck-fast"></i> <span data-i18n="nav.proveedores">Proveedores</span></button>
-  <button class="main-nav-tab" data-main="config-avanzada"><i class="fa-solid fa-triangle-exclamation" style="color:#dc2626"></i> Config. Avanzada</button>
   <button class="main-nav-tab" id="tabAdmin" data-main="admin" style="display:none;color:#7c3aed"><i class="fa-solid fa-shield-alt"></i> Panel Admin</button>
 </div>
 
@@ -1793,7 +1792,99 @@ tr:hover td{background:#f8fafc}
         </div>
       </div>
     </div>
-    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+    <!-- ── Config. Avanzada (colapsable) ──────────────────────────────── -->
+    <div style="margin-top:.9rem;border-top:1px solid #e2e8f0;padding-top:.7rem">
+      <button type="button" id="btnToggleAdvFacility"
+        style="background:none;border:none;cursor:pointer;font-size:.8rem;font-weight:600;color:#7c3aed;font-family:inherit;padding:0;display:flex;align-items:center;gap:.4rem"
+        onclick="toggleAdvFacility()">
+        <i class="fa-solid fa-chevron-right" id="advFacilityChevron" style="font-size:.65rem;transition:transform .2s"></i>
+        <i class="fa-solid fa-gear" style="font-size:.75rem"></i>
+        Config. Avanzada — Tanque · Medidor · Geolocalización
+      </button>
+      <div id="advFacilityPanel" style="display:none;margin-top:.8rem">
+
+        <!-- Tanque -->
+        <div style="font-size:.72rem;font-weight:700;color:#0f766e;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">
+          <i class="fa-solid fa-database" style="margin-right:.3rem"></i>Catálogo de Tanques
+        </div>
+        <div class="grid3" style="margin-bottom:.8rem">
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Clave del Tanque</label>
+            <input id="fac_clave_tanque" type="text" placeholder="Ej. T-01" maxlength="30"
+              style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Capacidad Total (L)</label>
+            <input id="fac_cap_total" type="number" min="0" step="0.01" placeholder="Ej. 50000.00">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Capacidad Operativa (L)</label>
+            <input id="fac_cap_operativa" type="number" min="0" step="0.01" placeholder="Ej. 45000.00">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Capacidad Útil (L) <span style="color:#94a3b8;font-weight:400">— opcional</span></label>
+            <input id="fac_cap_util" type="number" min="0" step="0.01" placeholder="Auto: Total × 95%">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Fecha Última Calibración</label>
+            <input id="fac_fecha_calibracion_tanque" type="date">
+          </div>
+        </div>
+
+        <!-- Medidor -->
+        <div style="font-size:.72rem;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">
+          <i class="fa-solid fa-gauge" style="margin-right:.3rem"></i>Sistema de Medición
+        </div>
+        <div class="grid3" style="margin-bottom:.8rem">
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Incertidumbre <span style="color:#94a3b8;font-weight:400">(0–1)</span></label>
+            <input id="fac_incertidumbre" type="text" inputmode="decimal" placeholder="Ej. 0.0050">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Modelo del Medidor</label>
+            <input id="fac_modelo_medidor" type="text" placeholder="Ej. Endress+Hauser Promass 300" maxlength="100">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Número de Serie</label>
+            <input id="fac_serie_medidor" type="text" placeholder="Ej. SN-4839201" maxlength="60">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Vigencia Calibración Medidor</label>
+            <input id="fac_fecha_calibracion_medidor" type="date">
+          </div>
+        </div>
+
+        <!-- Geolocalización -->
+        <div style="font-size:.72rem;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">
+          <i class="fa-solid fa-location-dot" style="margin-right:.3rem"></i>Geolocalización (WGS84)
+        </div>
+        <div style="font-size:.71rem;color:#b45309;background:#fefce8;border:1px solid #fcd34d;border-radius:6px;padding:.4rem .7rem;margin-bottom:.5rem">
+          <i class="fa-solid fa-triangle-exclamation" style="margin-right:.3rem"></i>
+          Evitar coordenadas de relleno (1.0, 1.0). Obligatorio para certificación SAT.
+        </div>
+        <div class="grid2" style="margin-bottom:.5rem">
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Latitud (decimal)</label>
+            <input id="fac_latitud" type="number" step="0.000001" min="-90" max="90" placeholder="Ej. 21.884520"
+              oninput="validarCoordenadasFac()">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Longitud (decimal)</label>
+            <input id="fac_longitud" type="number" step="0.000001" min="-180" max="180" placeholder="Ej. -102.291950"
+              oninput="validarCoordenadasFac()">
+          </div>
+        </div>
+        <div id="geoFacWarning" style="display:none;font-size:.71rem;color:#b45309;background:#fefce8;border:1px solid #fcd34d;border-radius:6px;padding:.4rem .7rem;margin-bottom:.5rem">
+          <i class="fa-solid fa-circle-exclamation" style="margin-right:.3rem"></i>Coordenadas fuera de México.
+        </div>
+        <button type="button" onclick="detectarUbicacionFac()"
+          style="padding:.38rem .8rem;font-size:.78rem;border:1px solid #e2e8f0;border-radius:7px;background:#f8fafc;color:#475569;cursor:pointer;font-family:inherit">
+          <i class="fa-solid fa-crosshairs" style="margin-right:.3rem"></i>Detectar GPS
+        </button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-top:.9rem">
       <button class="btn btn-red" id="btnSaveFacility" style="padding:.52rem 1.2rem;font-size:.84rem"><i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar</button>
       <button id="btnCancelFacility" style="padding:.5rem 1rem;font-size:.84rem;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;font-family:inherit">Cancelar</button>
       <div id="facilityFormStatus" style="font-size:.78rem;color:#64748b"></div>
@@ -1858,195 +1949,59 @@ tr:hover td{background:#f8fafc}
   </div>
 </div>
 
-</div><!-- /mpanel-config -->
-
-<!-- ══════════════════════════════════════════════════════════════════════
-     PANEL: CONFIGURACIÓN AVANZADA
-     ══════════════════════════════════════════════════════════════════════ -->
-<div class="main-panel" id="mpanel-config-avanzada">
-
-<!-- ── Perfil de Instalación: Catálogo de Tanques ─────────────────────── -->
+<!-- ── Composición Gas LP (aplica a toda la razón social) ─────────────── -->
 <div class="card">
-  <h2><i class="fa-solid fa-database" style="margin-right:.4rem;color:#0f766e"></i>Catálogo de Tanques
-    <small style="font-size:.72rem;color:#888;font-weight:400">(Campos técnicos Anexo 30)</small>
+  <h2><i class="fa-solid fa-flask-vial" style="margin-right:.4rem;color:#0891b2"></i>Composición Gas LP — Dictamen PR12
+    <small style="font-size:.72rem;color:#888;font-weight:400">(se aplica a toda la razón social)</small>
   </h2>
-  <div style="font-size:.76rem;color:#64748b;margin-bottom:1rem;line-height:1.6">
-    Datos de medición precisos requeridos para el dictamen técnico. Se guardan en Supabase.
-  </div>
-  <div class="grid3">
-    <div class="field">
-      <label>Clave del Tanque <span style="color:#e63946">*</span></label>
-      <input id="adv_clave_tanque" type="text" placeholder="Ej. T-01 o TQS-PDD-0001" maxlength="30"
-        style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"
-        title="Clave única del tanque conforme Apéndice 3 de la Guía SAT">
-    </div>
-    <div class="field">
-      <label>Capacidad Total del Tanque (L) <span style="color:#e63946">*</span></label>
-      <input id="adv_cap_total" type="number" min="0" step="0.01" placeholder="Ej. 50000.00"
-        title="Capacidad física máxima del tanque en litros">
-    </div>
-    <div class="field">
-      <label>Capacidad Operativa (L) <span style="color:#e63946">*</span></label>
-      <input id="adv_cap_operativa" type="number" min="0" step="0.01" placeholder="Ej. 45000.00"
-        title="Volumen máximo de operación segura (generalmente 90% de la capacidad total)">
-    </div>
-    <div class="field">
-      <label>Capacidad Útil (L) <span style="color:#64748b;font-weight:400">— opcional</span></label>
-      <input id="adv_cap_util" type="number" min="0" step="0.01" placeholder="Auto: Total − 5%"
-        title="CapacidadTotal − VolumenMínimoOperación. Si se deja vacío, el sistema calcula Total × 95%.">
-    </div>
-    <div class="field">
-      <label>Fecha de Última Calibración <span style="color:#e63946">*</span></label>
-      <input id="adv_fecha_calibracion" type="date"
-        title="Fecha de la última calibración oficial del medidor">
-    </div>
-  </div>
-  <div style="margin-top:.8rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-    <button class="btn-save" id="btnSaveTanques" onclick="guardarPerfilTanques()">
-      <i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar Catálogo de Tanques
-    </button>
-    <div id="statusTanques" style="font-size:.78rem;min-height:1em"></div>
-  </div>
-</div>
-
-<!-- ── Sistemas de Medición ───────────────────────────────────────────── -->
-<div class="card">
-  <h2><i class="fa-solid fa-gauge" style="margin-right:.4rem;color:#7c3aed"></i>Sistemas de Medición</h2>
-  <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem;line-height:1.6">
-    Datos del medidor instalado en el tanque. La vigencia de calibración se usa en el nodo <code>VigenciaCalibracionSistMedicionTanque</code> del Anexo 30.
-  </div>
-  <div class="grid3">
-    <div class="field">
-      <label>Incertidumbre de Medición <span style="color:#e63946">*</span></label>
-      <input id="adv_incertidumbre" type="text" inputmode="decimal" placeholder="Ej. 0.0050 ó 0,0050"
-        title="Valor decimal entre 0 y 1. Acepta punto o coma decimal. Ej: 0.005 ó 0,005 = 0.5%">
-      <div style="font-size:.62rem;color:#94a3b8;margin-top:.2rem">Decimal 0-1. Acepta coma o punto decimal.</div>
-    </div>
-    <div class="field">
-      <label>Modelo del Sensor / Medidor</label>
-      <input id="adv_modelo_sensor" type="text" placeholder="Ej. Endress+Hauser Promass 300"
-        maxlength="100">
-    </div>
-    <div class="field">
-      <label>Número de Serie del Sensor</label>
-      <input id="adv_serie_sensor" type="text" placeholder="Ej. SN-4839201" maxlength="60">
-    </div>
-    <div class="field">
-      <label>Vigencia Calibración del Medidor <span style="color:#e63946">*</span></label>
-      <input id="adv_fecha_calibracion_medidor" type="date"
-        title="Fecha de vigencia de la última calibración del medidor. Campo VigenciaCalibracionSistMedicionTanque">
-      <div style="font-size:.62rem;color:#94a3b8;margin-top:.2rem">Si se deja vacío, se usa la fecha de calibración del tanque.</div>
-    </div>
-  </div>
-  <div style="margin-top:.8rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-    <button class="btn-save" id="btnSaveMedicion" onclick="guardarSistemasMedicion()">
-      <i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar Sistemas de Medición
-    </button>
-    <div id="statusMedicion" style="font-size:.78rem;min-height:1em"></div>
-  </div>
-</div>
-
-<!-- ── Geolocalización Real ───────────────────────────────────────────── -->
-<div class="card">
-  <h2><i class="fa-solid fa-location-dot" style="margin-right:.4rem;color:#dc2626"></i>Geolocalización Real de la Instalación</h2>
-  <div style="font-size:.76rem;color:#ef4444;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:.7rem .9rem;margin-bottom:.9rem">
-    <i class="fa-solid fa-triangle-exclamation" style="margin-right:.4rem"></i>
-    <strong>Importante:</strong> Evitar coordenadas de relleno (1.0, 1.0). Las coordenadas deben ser reales y verificables. Obligatorio para certificación SAT.
-  </div>
-  <div class="grid2">
-    <div class="field">
-      <label>Latitud (decimal, WGS84) <span style="color:#e63946">*</span></label>
-      <input id="adv_latitud" type="number" step="0.000001" min="-90" max="90"
-        placeholder="Ej. 21.884520" title="Latitud en grados decimales. México: entre 14.5 y 32.7">
-    </div>
-    <div class="field">
-      <label>Longitud (decimal, WGS84) <span style="color:#e63946">*</span></label>
-      <input id="adv_longitud" type="number" step="0.000001" min="-180" max="180"
-        placeholder="Ej. -102.291950" title="Longitud en grados decimales. México: entre -117.1 y -86.7">
-    </div>
-  </div>
-  <div id="geoWarning" style="display:none;font-size:.76rem;color:#b45309;background:#fefce8;border:1px solid #fcd34d;border-radius:6px;padding:.5rem .8rem;margin-top:.4rem">
-    <i class="fa-solid fa-circle-exclamation" style="margin-right:.3rem"></i>Coordenadas fuera del territorio mexicano. Verifica los valores.
-  </div>
-  <div style="margin-top:.8rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-    <button class="btn-save" id="btnSaveGeo" onclick="guardarGeolocalizacion()">
-      <i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar Coordenadas
-    </button>
-    <button style="padding:.52rem 1rem;font-size:.82rem;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;color:#475569;cursor:pointer;font-family:inherit" onclick="detectarUbicacion()">
-      <i class="fa-solid fa-crosshairs" style="margin-right:.3rem"></i>Detectar GPS
-    </button>
-    <div id="statusGeo" style="font-size:.78rem;min-height:1em"></div>
-  </div>
-</div>
-
-<!-- ── Dictamen de Composición del Gas LP ──────────────────────────────── -->
-<div class="card">
-  <h2><i class="fa-solid fa-flask-vial" style="margin-right:.4rem;color:#0891b2"></i>Dictamen de Composición — Gas LP</h2>
   <div style="font-size:.76rem;color:#64748b;margin-bottom:.9rem;line-height:1.7">
-    Registra la composición real del Gas LP según el dictamen de laboratorio o unidad de inspección.<br>
-    Los valores <strong>ComposDePropanoEnGasLP</strong> y <strong>ComposDeButanoEnGasLP</strong> se escriben
-    directamente en el nodo <code>Producto</code> del Anexo 30 (§16.6 Guía SAT Mayo 2023).<br>
-    <span style="color:#b45309">Si no se capturan, se usan 1% / 1% — el SAT marca advertencia en el dictamen.</span>
+    Porcentajes de <strong>Propano</strong> y <strong>Butano</strong> del dictamen de laboratorio.
+    Se escriben en el nodo <code>Producto</code> del Anexo 30. Si no se capturan, el SAT marca advertencia.
   </div>
-
-  <!-- Composición -->
   <div class="grid2">
     <div class="field">
       <label>Propano en Gas LP (%) <span style="color:#e63946">*</span></label>
       <input id="adv_propano" type="number" min="0" max="100" step="0.01" placeholder="Ej. 60.00"
-        oninput="validarComposicion()"
-        title="Porcentaje de propano. La suma Propano + Butano debe ser exactamente 100%">
-      <div style="font-size:.62rem;color:#94a3b8;margin-top:.2rem">Porcentaje 0–100. La suma con Butano debe ser 100.</div>
+        oninput="validarComposicion()">
     </div>
     <div class="field">
       <label>Butano en Gas LP (%) <span style="color:#e63946">*</span></label>
       <input id="adv_butano" type="number" min="0" max="100" step="0.01" placeholder="Ej. 40.00"
-        oninput="validarComposicion()"
-        title="Porcentaje de butano. La suma Propano + Butano debe ser exactamente 100%">
-      <div style="font-size:.62rem;color:#94a3b8;margin-top:.2rem">Porcentaje 0–100. La suma con Propano debe ser 100.</div>
+        oninput="validarComposicion()">
     </div>
   </div>
   <div id="composWarning" style="display:none;font-size:.76rem;color:#b45309;background:#fefce8;border:1px solid #fcd34d;border-radius:6px;padding:.5rem .8rem;margin-top:.4rem">
-    <i class="fa-solid fa-triangle-exclamation" style="margin-right:.3rem"></i>La suma de Propano + Butano debe ser exactamente <strong>100%</strong> para el reporte SAT.
+    <i class="fa-solid fa-triangle-exclamation" style="margin-right:.3rem"></i>La suma Propano + Butano debe ser exactamente <strong>100%</strong>.
   </div>
   <div id="composOk" style="display:none;font-size:.76rem;color:#15803d;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:.5rem .8rem;margin-top:.4rem">
-    <i class="fa-solid fa-circle-check" style="margin-right:.3rem"></i>Composición válida — se escribirá como <code>60.00 / 40.00</code> en el JSON Anexo 30.
+    <i class="fa-solid fa-circle-check" style="margin-right:.3rem"></i>Composición válida.
   </div>
-
-  <!-- Datos del dictamen que respalda la composición (opcionales) -->
-  <div style="margin-top:1.1rem;padding-top:.9rem;border-top:1px solid #e2e8f0">
-    <div style="font-size:.78rem;font-weight:600;color:#374151;margin-bottom:.6rem">
-      <i class="fa-solid fa-file-lines" style="margin-right:.3rem;color:#64748b"></i>
-      Datos del dictamen que respalda esta composición <span style="font-weight:400;color:#94a3b8">— opcionales, para referencia interna</span>
-    </div>
+  <div style="margin-top:.8rem;padding-top:.7rem;border-top:1px solid #f1f5f9">
+    <div style="font-size:.75rem;font-weight:600;color:#374151;margin-bottom:.5rem">Datos del dictamen <span style="font-weight:400;color:#94a3b8">— opcionales</span></div>
     <div class="grid2">
       <div class="field">
-        <label>Número de Dictamen / Laboratorio</label>
-        <input id="adv_num_dictamen" type="text" placeholder="Ej. LAB-2025-00123" maxlength="60"
-          title="Número del dictamen o análisis de laboratorio que respalda la composición">
+        <label style="font-size:.72rem">Número de Dictamen / Laboratorio</label>
+        <input id="adv_num_dictamen" type="text" placeholder="Ej. LAB-2025-00123" maxlength="60">
       </div>
       <div class="field">
-        <label>Fecha de Vigencia del Dictamen</label>
-        <input id="adv_fecha_dictamen" type="date"
-          title="Fecha hasta la que es válido este dictamen de composición">
+        <label style="font-size:.72rem">Fecha de Vigencia del Dictamen</label>
+        <input id="adv_fecha_dictamen" type="date">
       </div>
     </div>
-    <!-- Mantener IDs ocultos para compatibilidad con cargarConfigAvanzada -->
     <input id="adv_rfc_ui"    type="hidden" value="">
     <input id="adv_version_sw" type="hidden" value="">
   </div>
-
   <div style="margin-top:.8rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
     <button class="btn-save" id="btnSaveCompos" onclick="guardarComposicionPR12()">
-      <i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar Composición del Mes
+      <i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar Composición
     </button>
     <div id="statusCompos" style="font-size:.78rem;min-height:1em"></div>
     <div id="statusDictamen" style="font-size:.78rem;min-height:1em;display:none"></div>
   </div>
 </div>
 
+</div><!-- /mpanel-config -->
 
-</div><!-- /mpanel-config-avanzada -->
 
 <!-- ══════════════════════════════════════════════════════════════════════
      PANEL: ADMIN
@@ -2840,9 +2795,7 @@ function resetAppState() {
   });
 
   // Config avanzada lazy
-  if (document.getElementById('mpanel-config-avanzada')?.style.display !== 'none') {
-    cargarConfigAvanzada();
-  }
+  // config-avanzada panel removed
   try { cargarPanelPerfiles(); } catch(e) {}
 }
 
@@ -3131,9 +3084,12 @@ function renderFacilitiesTable(facilities) {
     tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Sin instalaciones registradas — haz clic en "Nueva instalación" para agregar una.</td></tr>';
     return;
   }
-  tbody.innerHTML = facilities.map(f => `
+  tbody.innerHTML = facilities.map(f => {
+    const hasAdv  = f.latitud || f.clave_tanque || f.incertidumbre_medidor;
+    const advBadge = hasAdv ? ' <span title="Config. Avanzada configurada" style="font-size:.65rem;background:#ede9fe;color:#7c3aed;border-radius:4px;padding:.1rem .35rem;font-weight:600">⚙</span>' : '';
+    return `
     <tr>
-      <td><b>${f.nombre || ''}</b></td>
+      <td><b>${f.nombre || ''}</b>${advBadge}</td>
       <td><code style="font-size:.78rem">${f.num_permiso || '<span style="color:#94a3b8">—</span>'}</code></td>
       <td><code style="font-size:.78rem">${f.clave_instalacion || '<span style="color:#94a3b8">—</span>'}</code></td>
       <td style="font-size:.78rem;color:#475569">${f.descripcion || ''}</td>
@@ -3144,7 +3100,8 @@ function renderFacilitiesTable(facilities) {
         <button onclick="confirmDeleteFacility(${f.id},'${(f.nombre||'').replace(/'/g,"\\u0027")}')"
           style="background:#ef4444;color:#fff;border:none;border-radius:5px;padding:.25rem .55rem;cursor:pointer;font-size:.75rem" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 // ── Uploader lock: disable/enable file inputs and buttons ─────────────────
@@ -3352,6 +3309,14 @@ function openAddFacility() {
   document.getElementById('fac_tanques').value      = '1';
   document.getElementById('fac_dispensarios').value = '0';
   document.getElementById('facilityFormStatus').textContent = '';
+  // Clear adv fields
+  ['fac_clave_tanque','fac_cap_total','fac_cap_operativa','fac_cap_util',
+   'fac_fecha_calibracion_tanque','fac_incertidumbre','fac_modelo_medidor',
+   'fac_serie_medidor','fac_fecha_calibracion_medidor','fac_latitud','fac_longitud'
+  ].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('geoFacWarning').style.display = 'none';
+  document.getElementById('advFacilityPanel').style.display = 'none';
+  document.getElementById('advFacilityChevron').style.transform = '';
   document.getElementById('facilityFormWrap').style.display = '';
   document.getElementById('fac_nombre').focus();
 }
@@ -3375,6 +3340,28 @@ function openEditFacility(id) {
   document.getElementById('fac_tanques').value             = fac.num_tanques ?? 1;
   document.getElementById('fac_dispensarios').value        = fac.num_dispensarios ?? 0;
   document.getElementById('facilityFormStatus').textContent = '';
+  // Populate adv fields from existing facility data
+  document.getElementById('fac_clave_tanque').value              = fac.clave_tanque || '';
+  document.getElementById('fac_cap_total').value                 = fac.cap_total_tanque ?? '';
+  document.getElementById('fac_cap_operativa').value             = fac.cap_operativa_tanque ?? '';
+  document.getElementById('fac_cap_util').value                  = fac.cap_util_tanque ?? '';
+  document.getElementById('fac_fecha_calibracion_tanque').value  = fac.fecha_calibracion_tanque || '';
+  document.getElementById('fac_incertidumbre').value             = fac.incertidumbre_medidor ?? '';
+  document.getElementById('fac_modelo_medidor').value            = fac.modelo_medidor || '';
+  document.getElementById('fac_serie_medidor').value             = fac.serie_medidor || '';
+  document.getElementById('fac_fecha_calibracion_medidor').value = fac.fecha_calibracion_medidor || '';
+  document.getElementById('fac_latitud').value                   = fac.latitud ?? '';
+  document.getElementById('fac_longitud').value                  = fac.longitud ?? '';
+  validarCoordenadasFac();
+  // Auto-expand adv panel if any adv data exists
+  const hasAdv = fac.clave_tanque || fac.cap_total_tanque || fac.latitud || fac.incertidumbre_medidor;
+  if (hasAdv) {
+    document.getElementById('advFacilityPanel').style.display = '';
+    document.getElementById('advFacilityChevron').style.transform = 'rotate(90deg)';
+  } else {
+    document.getElementById('advFacilityPanel').style.display = 'none';
+    document.getElementById('advFacilityChevron').style.transform = '';
+  }
   document.getElementById('facilityFormWrap').style.display = '';
   document.getElementById('fac_nombre').focus();
 }
@@ -3408,6 +3395,18 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
     capacidad_tanque:    parseFloat(document.getElementById('fac_capacidad').value) || 0,
     num_tanques:         parseInt(document.getElementById('fac_tanques').value) || 1,
     num_dispensarios:    parseInt(document.getElementById('fac_dispensarios').value) || 0,
+    // Adv fields — only send if the panel was expanded (non-empty)
+    clave_tanque:               document.getElementById('fac_clave_tanque').value.trim().toUpperCase() || null,
+    cap_total_tanque:           parseFloat(document.getElementById('fac_cap_total').value) || null,
+    cap_operativa_tanque:       parseFloat(document.getElementById('fac_cap_operativa').value) || null,
+    cap_util_tanque:            document.getElementById('fac_cap_util').value ? parseFloat(document.getElementById('fac_cap_util').value) : null,
+    fecha_calibracion_tanque:   document.getElementById('fac_fecha_calibracion_tanque').value || null,
+    incertidumbre_medidor:      document.getElementById('fac_incertidumbre').value ? parseFloat(document.getElementById('fac_incertidumbre').value.replace(',','.')) : null,
+    modelo_medidor:             document.getElementById('fac_modelo_medidor').value.trim() || null,
+    serie_medidor:              document.getElementById('fac_serie_medidor').value.trim() || null,
+    fecha_calibracion_medidor:  document.getElementById('fac_fecha_calibracion_medidor').value || null,
+    latitud:                    document.getElementById('fac_latitud').value ? parseFloat(document.getElementById('fac_latitud').value) : null,
+    longitud:                   document.getElementById('fac_longitud').value ? parseFloat(document.getElementById('fac_longitud').value) : null,
   };
   try {
     const url    = editId ? `/api/facilities/${editId}` : '/api/facilities';
@@ -3454,7 +3453,8 @@ async function switchTab(name) {
   if (name === 'ventas' && authToken) loadVentasAnalytics();
   if (name === 'admin'  && authToken && currentUserRole === 'admin') loadAdminPanel();
   // Config avanzada: siempre recargar desde Supabase al abrir (limpia + puebla)
-  if (name === 'config-avanzada') cargarConfigAvanzada();
+  // config-avanzada tab removed — adv config is now inside each facility form
+  if (name === 'config') cargarConfigAvanzada();
   if (name === 'config' && authToken) cargarPanelPerfiles();
   // Al volver a Procesar, precargar composición PR12 guardada desde Supabase (no localStorage)
   if (name === 'procesar') {
@@ -5057,92 +5057,14 @@ function setStatusMsg(id, msg, ok) {
   setTimeout(() => { el.textContent = ''; el.style.background = ''; el.style.padding = ''; el.style.borderRadius = ''; }, 5000);
 }
 
-async function guardarPerfilTanques() {
-  const claveTanque = document.getElementById('adv_clave_tanque').value.trim().toUpperCase();
-  const capTotal = parseNum(document.getElementById('adv_cap_total').value);
-  const capOp    = parseNum(document.getElementById('adv_cap_operativa').value);
-  const capUtil  = document.getElementById('adv_cap_util').value ? parseNum(document.getElementById('adv_cap_util').value) : null;
-  const fecha    = document.getElementById('adv_fecha_calibracion').value;
-  if (!capTotal || !capOp || !fecha) {
-    setStatusMsg('statusTanques', 'Completa los campos requeridos (Capacidad Total, Operativa y Fecha).', false); return;
-  }
-  if (capOp > capTotal) { setStatusMsg('statusTanques', 'La capacidad operativa no puede superar la total.', false); return; }
-  if (capUtil !== null && capUtil > capTotal) { setStatusMsg('statusTanques', 'La capacidad útil no puede superar la total.', false); return; }
-  try {
-    setStatusMsg('statusTanques', 'Guardando...', true);
-    const res = await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ adv_tanques: { clave_tanque: claveTanque, cap_total: capTotal, cap_operativa: capOp, cap_util: capUtil, fecha_calibracion: fecha } })
-    });
-    const data = await res.json();
-    if (data.success) { _appState.invalidate(); setStatusMsg('statusTanques', `✓ Guardado [perfil #${data.perfil_id||'?'}]`, true); }
-    else setStatusMsg('statusTanques', 'Error al guardar en Supabase.', false);
-  } catch(e) { setStatusMsg('statusTanques', 'Error al guardar: ' + e.message, false); }
-}
 
-async function guardarSistemasMedicion() {
-  const incertRaw = document.getElementById('adv_incertidumbre').value;
-  const incert = parseNum(incertRaw, -1);
-  const modelo = document.getElementById('adv_modelo_sensor').value.trim();
-  const serie  = document.getElementById('adv_serie_sensor').value.trim();
-  const fechaCal = document.getElementById('adv_fecha_calibracion_medidor')?.value || '';
-  if (incert < 0 || incert > 1) {
-    setStatusMsg('statusMedicion', 'La incertidumbre debe ser un valor entre 0 y 1 (ej: 0.0020 ó 0,0020).', false); return;
-  }
-  if (!modelo) { setStatusMsg('statusMedicion', 'Ingresa el modelo del sensor.', false); return; }
-  try {
-    setStatusMsg('statusMedicion', 'Guardando...', true);
-    const res = await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ adv_medicion: { incertidumbre: incert, modelo_sensor: modelo, serie_sensor: serie, fecha_calibracion_medidor: fechaCal } })
-    });
-    const data = await res.json();
-    if (data.success) { _appState.invalidate(); setStatusMsg('statusMedicion', `✓ Guardado [perfil #${data.perfil_id||'?'}]`, true); }
-    else setStatusMsg('statusMedicion', 'Error al guardar en Supabase.', false);
-  } catch(e) { setStatusMsg('statusMedicion', 'Error: ' + e.message, false); }
-}
 
-function detectarUbicacion() {
-  if (!navigator.geolocation) { alert('Tu navegador no soporta geolocalización.'); return; }
-  navigator.geolocation.getCurrentPosition(pos => {
-    document.getElementById('adv_latitud').value  = pos.coords.latitude.toFixed(6);
-    document.getElementById('adv_longitud').value = pos.coords.longitude.toFixed(6);
-    validarCoordenadas();
-  }, () => { alert('No se pudo obtener la ubicación. Verifica los permisos del navegador.'); });
-}
+// detectarUbicacion removed — use detectarUbicacionFac() in facility form
 
 function validarCoordenadas() {
-  const lat = parseFloat(document.getElementById('adv_latitud').value);
-  const lon = parseFloat(document.getElementById('adv_longitud').value);
-  const w   = document.getElementById('geoWarning');
-  if (!w) return;
-  const fueraMexico = lat < 14.5 || lat > 32.7 || lon < -117.1 || lon > -86.7;
-  w.style.display = (lat && lon && fueraMexico) ? '' : 'none';
+  // Legacy stub — geo validation moved to validarCoordenadasFac() in facility form
 }
 
-async function guardarGeolocalizacion() {
-  const lat = parseNum(document.getElementById('adv_latitud').value, NaN);
-  const lon = parseNum(document.getElementById('adv_longitud').value, NaN);
-  if (isNaN(lat) || isNaN(lon)) { setStatusMsg('statusGeo', 'Ingresa coordenadas válidas.', false); return; }
-  if (Math.abs(lat) < 0.01 && Math.abs(lon) < 0.01) { setStatusMsg('statusGeo', 'Las coordenadas 0,0 no son válidas.', false); return; }
-  if (lat === 1.0 && lon === 1.0) { setStatusMsg('statusGeo', 'Las coordenadas 1.0,1.0 son un marcador de relleno.', false); return; }
-  try {
-    setStatusMsg('statusGeo', 'Guardando...', true);
-    const res = await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ adv_geolocalizacion: { latitud: lat, longitud: lon } })
-    });
-    const data = await res.json();
-    if (data.success) {
-      _appState.invalidate();
-      setStatusMsg('statusGeo', `✓ Guardado [perfil #${data.perfil_id||'?'}]: (${lat.toFixed(6)}, ${lon.toFixed(6)})`, true);
-      validarCoordenadas();
-    } else setStatusMsg('statusGeo', 'Error al guardar en Supabase.', false);
-  } catch(e) { setStatusMsg('statusGeo', 'Error: ' + e.message, false); }
-}
 
 // guardarDictamen ahora es solo un alias — la composición y el dictamen se guardan juntos
 async function guardarDictamen() {
@@ -5205,64 +5127,57 @@ async function guardarComposicionPR12() {
 // Cargar valores de Config Avanzada — usa appState para evitar fetches redundantes.
 // Solo limpia si es un perfil diferente al que está en caché.
 async function cargarConfigAvanzada() {
+  // Loads only composición PR12 and dictamen — tank/medidor/geo are now per-facility
   const pid = perfilId();
   const usandoCaché = _appState.settings && _appState.settingsPerfilId === pid;
-
-  // Siempre limpiar campos antes de poblar (evita mostrar datos del perfil anterior)
-  const advFields = [
-    'adv_clave_tanque','adv_cap_total','adv_cap_operativa','adv_cap_util',
-    'adv_fecha_calibracion','adv_incertidumbre','adv_modelo_sensor','adv_serie_sensor',
-    'adv_fecha_calibracion_medidor','adv_latitud','adv_longitud',
-    'adv_rfc_ui','adv_num_dictamen','adv_fecha_dictamen','adv_version_sw',
-    'adv_propano','adv_butano',
-  ];
-  advFields.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-  ['composWarning','composOk','geoWarning'].forEach(id => {
+  // Clear fields
+  ['adv_propano','adv_butano','adv_num_dictamen','adv_fecha_dictamen','adv_rfc_ui','adv_version_sw'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  ['composWarning','composOk'].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = 'none';
   });
-
   try {
-    // loadSettings con force=true si no hay caché del perfil actual
     const data = await _appState.loadSettings(!usandoCaché);
-
-    // Tanque
-    const t = data.adv_tanques || {};
-    document.getElementById('adv_clave_tanque').value      = t.clave_tanque     || '';
-    document.getElementById('adv_cap_total').value         = t.cap_total        ?? '';
-    document.getElementById('adv_cap_operativa').value     = t.cap_operativa    ?? '';
-    document.getElementById('adv_cap_util').value          = t.cap_util         ?? '';
-    document.getElementById('adv_fecha_calibracion').value = t.fecha_calibracion || '';
-
-    // Medición
-    const m = data.adv_medicion || {};
-    document.getElementById('adv_incertidumbre').value = m.incertidumbre ?? '';
-    document.getElementById('adv_modelo_sensor').value = m.modelo_sensor  || '';
-    document.getElementById('adv_serie_sensor').value  = m.serie_sensor   || '';
-    const elFM = document.getElementById('adv_fecha_calibracion_medidor');
-    if (elFM) elFM.value = m.fecha_calibracion_medidor || '';
-
-    // Geolocalización
-    const g = data.adv_geolocalizacion || {};
-    document.getElementById('adv_latitud').value  = g.latitud  ?? '';
-    document.getElementById('adv_longitud').value = g.longitud ?? '';
-    if (g.latitud || g.longitud) validarCoordenadas();
-
-    // Dictamen / Composición
-    const d = data.adv_dictamen || {};
-    document.getElementById('adv_rfc_ui').value        = d.rfc_ui        || '';
-    document.getElementById('adv_num_dictamen').value  = d.num_dictamen   || '';
-    document.getElementById('adv_fecha_dictamen').value= d.fecha_vigencia || '';
-    document.getElementById('adv_version_sw').value    = d.version_sw    || '';
-
-    // Composición PR12 (fracción molar → porcentaje)
+    // Composición PR12
     const c = data.adv_composicion_pr12 || {};
-    document.getElementById('adv_propano').value = c.propano != null
-      ? (parseFloat(c.propano) * 100).toFixed(2) : '';
-    document.getElementById('adv_butano').value  = c.butano  != null
-      ? (parseFloat(c.butano)  * 100).toFixed(2) : '';
+    if (document.getElementById('adv_propano'))
+      document.getElementById('adv_propano').value = c.propano != null ? (parseFloat(c.propano) * 100).toFixed(2) : '';
+    if (document.getElementById('adv_butano'))
+      document.getElementById('adv_butano').value  = c.butano  != null ? (parseFloat(c.butano)  * 100).toFixed(2) : '';
     if (c.propano != null || c.butano != null) validarComposicion();
-
+    // Dictamen
+    const d = data.adv_dictamen || {};
+    if (document.getElementById('adv_num_dictamen'))  document.getElementById('adv_num_dictamen').value  = d.num_dictamen   || '';
+    if (document.getElementById('adv_fecha_dictamen')) document.getElementById('adv_fecha_dictamen').value= d.fecha_vigencia || '';
   } catch(e) { console.warn('Error cargando config avanzada:', e); }
+}
+
+// ── Config Avanzada — helpers para el formulario de instalación ──────────
+function toggleAdvFacility() {
+  const panel   = document.getElementById('advFacilityPanel');
+  const chevron = document.getElementById('advFacilityChevron');
+  const open    = panel.style.display !== 'none';
+  panel.style.display   = open ? 'none' : '';
+  chevron.style.transform = open ? '' : 'rotate(90deg)';
+}
+
+function validarCoordenadasFac() {
+  const lat = parseFloat(document.getElementById('fac_latitud')?.value);
+  const lon = parseFloat(document.getElementById('fac_longitud')?.value);
+  const w   = document.getElementById('geoFacWarning');
+  if (!w) return;
+  const fueraMexico = lat < 14.5 || lat > 32.7 || lon < -117.1 || lon > -86.7;
+  w.style.display = (lat && lon && fueraMexico) ? '' : 'none';
+}
+
+function detectarUbicacionFac() {
+  if (!navigator.geolocation) { alert('Tu navegador no soporta geolocalización.'); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    document.getElementById('fac_latitud').value  = pos.coords.latitude.toFixed(6);
+    document.getElementById('fac_longitud').value = pos.coords.longitude.toFixed(6);
+    validarCoordenadasFac();
+  }, () => alert('No se pudo obtener la ubicación. Verifica los permisos del navegador.'));
 }
 
 // Inicializar validaciones de Config Avanzada
