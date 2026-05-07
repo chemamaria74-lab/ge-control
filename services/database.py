@@ -285,18 +285,41 @@ def get_records(user_id: str, periodo: str,
                 facility_id: Optional[int] = None,
                 perfil_id: Optional[int] = None) -> dict:
     try:
+        # 1. Traemos todos los campos necesarios para clasificar bien
         q = (get_supabase().table("records")
              .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,"
-                     "nombre_contraparte,importe,file_path,es_autoconsumo")
+                     "nombre_contraparte,importe,file_path,es_autoconsumo,es_trasvase") # Agregamos es_trasvase
              .eq("user_id", user_id).eq("periodo", periodo))
+        
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
         if perfil_id is not None:
             q = q.eq("perfil_id", perfil_id)
-        rows     = q.order("fecha").execute().data or []
-        entradas = [r for r in rows if r["tipo"] == "entrada"]
-        salidas  = [r for r in rows if r["tipo"] == "salida"]
+            
+        rows = q.order("fecha").execute().data or []
+        
+        entradas = []
+        salidas  = []
+
+        for r in rows:
+            tipo = (r.get("tipo") or "").lower()
+            fp   = (r.get("file_path") or "").lower()
+            uuid_val = (r.get("uuid") or "").upper()
+
+            # Lógica de clasificación robusta para que nada se quede fuera
+            if tipo == "entrada":
+                entradas.append(r)
+            
+            # Es salida si el tipo es salida O si tiene marcas de autoconsumo/traspaso
+            elif (tipo == "salida" or 
+                  r.get("es_autoconsumo") is True or 
+                  r.get("es_trasvase") is True or
+                  fp.startswith("manual:") or 
+                  uuid_val.startswith("AUTO-")):
+                salidas.append(r)
+
         return {"entradas": entradas, "salidas": salidas}
+
     except Exception as e:
         logger.warning("get_records: %s", e)
         return {"entradas": [], "salidas": []}
