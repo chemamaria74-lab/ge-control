@@ -438,13 +438,19 @@ tr:hover td{background:#f8fafc}
     return (_lang === 'en' && window._i18n[key]) ? window._i18n[key] : null;
   };
 
-  // Apply data-i18n attributes after DOM ready
+  // Apply translations after DOM ready
+  // Elements with data-en="..." get their textContent replaced when lang=en
+  // Elements with data-i18n="key" use the _i18n dictionary (legacy, nav tabs etc)
   document.addEventListener('DOMContentLoaded', function(){
     if (_lang === 'en') {
+      // data-i18n keys (nav tabs, section titles already tagged)
       document.querySelectorAll('[data-i18n]').forEach(el => {
-        const key = el.dataset.i18n;
-        const val = window._i18n[key];
+        const val = window._i18n[el.dataset.i18n];
         if (val) el.textContent = val;
+      });
+      // data-en — direct inline English text (simpler, no dictionary needed)
+      document.querySelectorAll('[data-en]').forEach(el => {
+        el.textContent = el.dataset.en;
       });
     }
 
@@ -637,7 +643,7 @@ tr:hover td{background:#f8fafc}
 <!-- Selector de instalación activa -->
 <div class="card" id="facilityPickerCard" style="padding:.9rem 1.2rem">
   <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-    <div style="font-size:.92rem;font-weight:700;color:#1e293b;white-space:nowrap"><i class="fa-solid fa-industry" style="margin-right:.35rem"></i> Instalación activa:</div>
+    <div style="font-size:.92rem;font-weight:700;color:#1e293b;white-space:nowrap"><i class="fa-solid fa-industry" style="margin-right:.35rem"></i> <span data-en="Active Facility:">Instalación activa:</span></div>
     <div class="field" style="margin:0;flex:1;min-width:220px">
       <select id="activeFacilitySelect" style="padding:.46rem .7rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.88rem;width:100%;background:#f8fafc">
         <option value="">— Sin instalación (usar configuración global) —</option>
@@ -658,16 +664,16 @@ tr:hover td{background:#f8fafc}
 
 <!-- Configuración del cliente (planta + inventario) -->
 <div class="card">
-  <h2><i class="fa-solid fa-sliders"></i> Parámetros del proceso</h2>
+  <h2><i class="fa-solid fa-sliders"></i> <span data-en="Process Parameters">Parámetros del proceso</span></h2>
   <div class="grid2">
     <div class="field">
-      <label>RFC del contribuyente</label>
+      <label><span data-en="Taxpayer RFC">RFC del contribuyente</span></label>
       <div style="display:flex;align-items:center;gap:.5rem">
         <span id="rfcDisplay" style="font-size:.88rem;color:#1e293b;font-weight:600;min-width:120px">—</span>
         <a href="#" onclick="switchTab('config');return false" style="font-size:.72rem;color:#6366f1"><i class="fa-solid fa-pen-to-square" style="margin-right:.25rem"></i>Editar en Config.</a>
       </div>
     </div>
-    <div class="field"><label>Unidad base de reporte</label>
+    <div class="field"><label><span data-en="Base Unit of Report">Unidad base de reporte</span></label>
       <select id="unidad_base">
         <option value="litros" selected>Litros (UM03)</option>
         <option value="kg">kg (kilogramos)</option>
@@ -677,7 +683,7 @@ tr:hover td{background:#f8fafc}
   <!-- Período a procesar -->
   <div class="grid2" style="margin-top:.8rem">
     <div class="field">
-      <label>Mes a procesar</label>
+      <label><span data-en="Month to Process">Mes a procesar</span></label>
       <div style="display:flex;gap:.5rem">
         <input id="procAnio" type="number" min="2020" max="2050" placeholder="2026"
           style="flex:1;padding:.5rem .7rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.88rem">
@@ -704,7 +710,7 @@ tr:hover td{background:#f8fafc}
   </div>
   <div class="grid2" style="margin-top:.8rem">
     <div class="field">
-      <label>Inventario Inicial (litros — lectura de tanque)</label>
+      <label><span data-en="Initial Inventory (liters — tank reading)">Inventario Inicial (litros — lectura de tanque)</span></label>
       <input id="inv_inicial" type="number" step="0.01" min="0" placeholder="Ej. 3269817.25">
       <div id="invIniAutoNote" style="display:none;font-size:.7rem;color:#1d4ed8;margin-top:.3rem;background:#eff6ff;border-radius:6px;padding:.25rem .5rem;border-left:3px solid #3b82f6"></div>
       <div id="invIniManualNote" style="font-size:.62rem;color:#64748b;margin-top:.2rem">
@@ -712,19 +718,19 @@ tr:hover td{background:#f8fafc}
       </div>
     </div>
     <div class="field">
-      <label>Inventario Final Medido (L) <small style="color:#64748b;font-weight:400">— Balance de Masa</small></label>
+      <label><span data-en="Final Measured Inventory (L)">Inventario Final Medido (L)</span> <small style="color:#64748b;font-weight:400">— Balance de Masa</small></label>
       <input id="inv_final_medido" type="number" step="0.01" min="0" placeholder="Opcional — lectura sensor fin de mes">
       <div style="font-size:.62rem;color:#64748b;margin-top:.2rem">Activa el cálculo de Ajuste por Variación (Anexo 30).</div>
     </div>
   </div>
   <div class="grid2" style="margin-top:.6rem">
     <div class="field">
-      <label>Temperatura de Medición (°C) <small style="color:#64748b;font-weight:400">— VCM a 20°C</small></label>
+      <label><span data-en="Measurement Temp. (°C)">Temperatura de Medición (°C)</span> <small style="color:#64748b;font-weight:400">— VCM a 20°C</small></label>
       <input id="proc_temperatura" type="number" step="0.1" min="-50" max="100" value="20.0" placeholder="20.0">
       <div style="font-size:.62rem;color:#64748b;margin-top:.2rem">Temperatura de la medición para compensar volumen a 20°C.</div>
     </div>
     <div class="field">
-      <label>Composición PR12 — Gas LP <small style="color:#64748b;font-weight:400">(% del mes, precargado de Config. Avanzada)</small></label>
+      <label><span data-en="PR12 Composition — LP Gas">Composición PR12 — Gas LP</span> <small style="color:#64748b;font-weight:400">(% del mes, precargado de Config. Avanzada)</small></label>
       <div style="display:flex;gap:.5rem;align-items:flex-start;margin-top:.3rem">
         <div style="flex:1">
           <label style="font-size:.72rem;color:#374151">Propano (%)</label>
@@ -749,7 +755,7 @@ tr:hover td{background:#f8fafc}
 <div class="main-grid">
 <div>
 <div class="card" id="uploadCard">
-  <h2><i class="fa-solid fa-file-import" style="margin-right:.4rem"></i> Carga de datos</h2>
+  <h2><i class="fa-solid fa-file-import" style="margin-right:.4rem"></i> <span data-en="Data Upload">Carga de datos</span></h2>
   <!-- Lock overlay banner — visible when no facility is selected -->
   <div id="uploaderLockBanner" style="display:none;margin-bottom:1rem;padding:.7rem 1rem;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:.83rem;color:#991b1b;font-weight:600;text-align:center">
     <i class="fa-solid fa-lock" style="margin-right:.35rem"></i> Selecciona una <strong>Instalación activa</strong> en el selector de arriba para habilitar la carga de datos.
@@ -767,7 +773,7 @@ tr:hover td{background:#f8fafc}
     </div>
     <input type="file" id="fileExcel" accept=".xlsx,.xls,.csv" style="display:none">
     <a class="sample-link" id="dlSampleExcel"><i class="fa-solid fa-download" style="margin-right:.35rem"></i> Descargar plantilla CSV de ejemplo</a>
-    <button class="btn btn-red" id="btnExcel" disabled>Procesar Excel / CSV</button>
+    <button class="btn btn-red" id="btnExcel" disabled><span data-en="Process Excel / CSV">Procesar Excel / CSV</span></button>
     <div class="loading" id="loadExcel"><i class="fa-solid fa-spinner fa-spin"></i> Procesando archivo...</div>
   </div>
   <div class="panel" id="panel-cfdi">
@@ -789,7 +795,7 @@ tr:hover td{background:#f8fafc}
       <a class="sample-link" id="dlSampleXML" style="margin-bottom:0"><i class="fa-solid fa-download" style="margin-right:.35rem"></i> Descargar XML de ejemplo</a>
       <button class="btn-clear" id="btnClearCFDI" style="display:none"><i class="fa-solid fa-xmark" style="margin-right:.35rem"></i> Limpiar archivos</button>
     </div>
-    <button class="btn btn-red" id="btnCFDI" disabled>Procesar CFDI</button>
+    <button class="btn btn-red" id="btnCFDI" disabled><span data-en="Process CFDI">Procesar CFDI</span></button>
     <div class="loading" id="loadCFDI">⏳ Consolidando y generando reporte SAT...</div>
   </div>
 
@@ -866,7 +872,7 @@ tr:hover td{background:#f8fafc}
     <div style="margin-top:1.2rem">
       <div style="font-size:.8rem;font-weight:600;color:#475569;margin-bottom:.5rem;display:flex;align-items:center;justify-content:space-between">
         <span><i class="fa-solid fa-list" style="margin-right:.3rem"></i>Autoconsumos registrados este periodo</span>
-        <button onclick="cargarAutoconsumos()" style="font-size:.72rem;padding:.25rem .6rem;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;cursor:pointer;color:#475569">Actualizar</button>
+        <button onclick="cargarAutoconsumos()" style="font-size:.72rem;padding:.25rem .6rem;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;cursor:pointer;color:#475569"><span data-en="Refresh">Actualizar</span></button>
       </div>
       <div id="autoconsumoList" style="font-size:.78rem;color:#64748b;background:#f8fafc;border-radius:8px;padding:.6rem .8rem;min-height:48px;overflow-x:auto">
         <i>Sin autoconsumos registrados este periodo.</i>
@@ -1344,7 +1350,7 @@ tr:hover td{background:#f8fafc}
 
   <!-- Line chart: Inventario final (almacenamiento) -->
   <div class="chart-wrap">
-    <div class="chart-title"><i class="fa-solid fa-droplet" style="margin-right:.35rem"></i>Comportamiento del Almacenamiento — Inventario Final por Mes</div>
+    <div class="chart-title"><i class="fa-solid fa-droplet" style="margin-right:.35rem"></i><span data-en="Storage Trend — Final Inventory by Month">Comportamiento del Almacenamiento — Inventario Final por Mes</span></div>
     <div style="position:relative;height:180px">
       <svg id="lineChartInv" class="svg-line-wrap" style="width:100%;height:180px" viewBox="0 0 800 180" preserveAspectRatio="none"></svg>
     </div>
@@ -1385,7 +1391,7 @@ tr:hover td{background:#f8fafc}
      ══════════════════════════════════════════════════════════════════════ -->
 <div class="main-panel" id="mpanel-proveedores">
 <div class="card" style="margin-bottom:1rem">
-  <h2><i class="fa-solid fa-truck-fast" style="margin-right:.4rem"></i>Análisis de Proveedores</h2>
+  <h2><i class="fa-solid fa-truck-fast" style="margin-right:.4rem"></i><span data-en="Supplier Analysis">Análisis de Proveedores</span></h2>
 
   <!-- Filtros -->
   <div style="display:flex;gap:.8rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1rem">
@@ -1462,7 +1468,7 @@ tr:hover td{background:#f8fafc}
 
 <!-- Tarjeta Pronóstico -->
 <div class="card">
-  <h2><i class="fa-solid fa-chart-line" style="margin-right:.4rem"></i>Pronóstico de Compras</h2>
+  <h2><i class="fa-solid fa-chart-line" style="margin-right:.4rem"></i><span data-en="Purchase Forecast">Pronóstico de Compras</span></h2>
   <p style="font-size:.8rem;color:#64748b;margin-bottom:1rem">
     Basado en promedio móvil de los últimos meses para estimar cuándo y cuánto comprar.
   </p>
@@ -1498,7 +1504,7 @@ tr:hover td{background:#f8fafc}
 <div class="main-panel" id="mpanel-historial">
 <div class="card" id="histCard">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.8rem">
-    <h2 style="margin:0"><i class="fa-solid fa-clock-rotate-left" style="margin-right:.4rem"></i> Historial de Reportes</h2>
+    <h2 style="margin:0"><i class="fa-solid fa-clock-rotate-left" style="margin-right:.4rem"></i> <span data-en="Report History">Historial de Reportes</span></h2>
   </div>
   <div class="hist-selector">
     <div class="field" style="max-width:180px"><label>Instalación</label>
@@ -1629,7 +1635,7 @@ tr:hover td{background:#f8fafc}
 <!-- ── Razones Sociales (multi-empresa) ─────────────────────────────────── -->
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.8rem">
-    <h2 style="margin:0"><i class="fa-solid fa-building" style="margin-right:.35rem;color:#0f766e"></i>Razones Sociales <small style="font-size:.72rem;color:#888;font-weight:400">(multi-empresa)</small></h2>
+    <h2 style="margin:0"><i class="fa-solid fa-building" style="margin-right:.35rem;color:#0f766e"></i><span data-en="Companies">Razones Sociales</span> <small style="font-size:.72rem;color:#888;font-weight:400">(multi-empresa)</small></h2>
     <button onclick="abrirModalNuevoPerfil()" style="padding:.44rem 1rem;font-size:.8rem;font-weight:600;border-radius:8px;background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4;cursor:pointer;font-family:inherit">
       <i class="fa-solid fa-plus" style="margin-right:.35rem"></i>Nueva razón social
     </button>
@@ -1656,12 +1662,12 @@ tr:hover td{background:#f8fafc}
 
 <!-- ── Perfil de la empresa (datos globales) ────────────────────────────── -->
 <div class="card">
-  <h2><i class="fa-solid fa-building-columns" style="margin-right:.35rem"></i>Perfil de la Empresa <small style="font-size:.72rem;color:#888;font-weight:400">(se guarda automáticamente)</small></h2>
+  <h2><i class="fa-solid fa-building-columns" style="margin-right:.35rem"></i><span data-en="Company Profile">Perfil de la Empresa</span> <small style="font-size:.72rem;color:#888;font-weight:400">(se guarda automáticamente)</small></h2>
   <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem">
     Datos globales del RFC titular. Los permisos y claves por instalación se configuran en la tabla de Instalaciones.
   </div>
   <div class="grid3">
-    <div class="field"><label>RFC del Contribuyente</label>
+    <div class="field"><label><span data-en="Taxpayer RFC">RFC del Contribuyente</span></label>
       <input id="rfc" value="" placeholder="Ej. ABC010101AAA"></div>
     <div class="field"><label>RFC Representante Legal <span style="font-size:.68rem;color:#7c3aed;font-weight:600">(→ RfcRepresentanteLegal en JSON)</span></label>
       <input id="sat_rfc_rep" placeholder="Ej. OEMR710420FCA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
@@ -1685,7 +1691,7 @@ tr:hover td{background:#f8fafc}
 <!-- ── Instalaciones (multi-facilidad) ─────────────────────────────────── -->
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.8rem">
-    <h2 style="margin:0"><i class="fa-solid fa-industry" style="margin-right:.35rem"></i>Instalaciones (Plantas / Estaciones)</h2>
+    <h2 style="margin:0"><i class="fa-solid fa-industry" style="margin-right:.35rem"></i><span data-en="Facilities (Plants / Stations)">Instalaciones (Plantas / Estaciones)</span></h2>
     <button id="btnShowAddFacility" style="
       padding:.44rem 1rem;font-size:.8rem;font-weight:600;border-radius:8px;
       background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;
@@ -1778,10 +1784,7 @@ tr:hover td{background:#f8fafc}
         <input id="fac_temp_default" type="number" step="0.1" placeholder="Ej. 20.0"
           title="Se inyecta en el JSON Anexo 30 cuando no hay lectura de sensor disponible">
       </div>
-      <div class="field" style="margin:0">
-        <label style="font-size:.72rem">Capacidad Tanque (L)</label>
-        <input id="fac_capacidad" type="number" min="0" step="1" placeholder="0">
-      </div>
+
     </div>
     <div class="grid2" style="margin-bottom:.7rem">
       <div class="field" style="margin:0">
@@ -3305,7 +3308,6 @@ function openAddFacility() {
   const tpEl = document.getElementById('fac_tipo_permiso');
   if (tpEl) { tpEl.value = 'PER40'; actualizarInfoPermiso('PER40'); }
   document.getElementById('fac_temp_default').value = '';
-  document.getElementById('fac_capacidad').value    = '0';
   document.getElementById('fac_tanques').value      = '1';
   document.getElementById('fac_dispensarios').value = '0';
   document.getElementById('facilityFormStatus').textContent = '';
@@ -3336,7 +3338,6 @@ function openEditFacility(id) {
   document.getElementById('fac_num_permiso').value         = fac.num_permiso || '';
   document.getElementById('fac_permiso_alm').value         = fac.permiso_alm || '';
   document.getElementById('fac_desc').value                = fac.descripcion || '';
-  document.getElementById('fac_capacidad').value           = fac.capacidad_tanque || 0;
   document.getElementById('fac_tanques').value             = fac.num_tanques ?? 1;
   document.getElementById('fac_dispensarios').value        = fac.num_dispensarios ?? 0;
   document.getElementById('facilityFormStatus').textContent = '';
@@ -3353,15 +3354,9 @@ function openEditFacility(id) {
   document.getElementById('fac_latitud').value                   = fac.latitud ?? '';
   document.getElementById('fac_longitud').value                  = fac.longitud ?? '';
   validarCoordenadasFac();
-  // Auto-expand adv panel if any adv data exists
-  const hasAdv = fac.clave_tanque || fac.cap_total_tanque || fac.latitud || fac.incertidumbre_medidor;
-  if (hasAdv) {
-    document.getElementById('advFacilityPanel').style.display = '';
-    document.getElementById('advFacilityChevron').style.transform = 'rotate(90deg)';
-  } else {
-    document.getElementById('advFacilityPanel').style.display = 'none';
-    document.getElementById('advFacilityChevron').style.transform = '';
-  }
+  // Always keep adv panel closed — user opens manually
+  document.getElementById('advFacilityPanel').style.display = 'none';
+  document.getElementById('advFacilityChevron').style.transform = '';
   document.getElementById('facilityFormWrap').style.display = '';
   document.getElementById('fac_nombre').focus();
 }
@@ -3392,7 +3387,8 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
     num_permiso:         document.getElementById('fac_num_permiso').value.trim(),
     permiso_alm:         document.getElementById('fac_permiso_alm').value.trim(),
     descripcion:         document.getElementById('fac_desc').value.trim(),
-    capacidad_tanque:    parseFloat(document.getElementById('fac_capacidad').value) || 0,
+    // capacidad_tanque mirrors cap_total_tanque for balance alerts
+    capacidad_tanque:    parseFloat(document.getElementById('fac_cap_total').value) || 0,
     num_tanques:         parseInt(document.getElementById('fac_tanques').value) || 1,
     num_dispensarios:    parseInt(document.getElementById('fac_dispensarios').value) || 0,
     // Adv fields — only send if the panel was expanded (non-empty)
@@ -3450,8 +3446,9 @@ async function switchTab(name) {
   document.querySelectorAll('.main-panel').forEach(x => x.classList.remove('active'));
   const panel = document.getElementById('mpanel-' + name);
   if (panel) panel.classList.add('active');
-  if (name === 'ventas' && authToken) loadVentasAnalytics();
-  if (name === 'admin'  && authToken && currentUserRole === 'admin') loadAdminPanel();
+  if (name === 'ventas'      && authToken) loadVentasAnalytics();
+  if (name === 'proveedores' && authToken) { setTimeout(cargarProveedores, 100); }
+  if (name === 'admin'       && authToken && currentUserRole === 'admin') loadAdminPanel();
   // Config avanzada: siempre recargar desde Supabase al abrir (limpia + puebla)
   // config-avanzada tab removed — adv config is now inside each facility form
   if (name === 'config') cargarConfigAvanzada();
@@ -5599,12 +5596,7 @@ async function cargarForecast(facId='') {
   } catch(e) { console.warn('cargarForecast:', e); }
 }
 
-// Cargar proveedores al activar el tab
-document.querySelectorAll('.main-nav-tab').forEach(btn => {
-  if (btn.dataset.main === 'proveedores') {
-    btn.addEventListener('click', () => setTimeout(cargarProveedores, 100));
-  }
-});
+// proveedores load handled in switchTab()
 
 // Restore role from localStorage immediately (before verifySession returns)
 applyRole(currentUserRole);
