@@ -350,26 +350,71 @@ tr:hover td{background:#f8fafc}
 .tab-title{font-size:.82rem;font-weight:600;color:#475569;margin:.8rem 0 .4rem}
 </style>
 
-<!-- ══ i18n: badge de idioma en navbar ════════════════════════════════════ -->
 <script>
 (function(){
-  const _langUrl    = new URLSearchParams(location.search).get('lang');
+  // 1. Detección de idioma
+  const _langUrl = new URLSearchParams(location.search).get('lang');
   const _langStored = localStorage.getItem('zc_lang');
   const _lang = (_langUrl === 'en' || _langUrl === 'es') ? _langUrl
               : (_langStored === 'en' || _langStored === 'es') ? _langStored
               : 'es';
   localStorage.setItem('zc_lang', _lang);
   window._lang = _lang;
-  window._t    = function(s){ return s; };
+
+  // 2. Diccionario de traducción (Solo texto visible)
+  const dictionary = {
+    "en": {
+      "Procesar": "Process",
+      "Historial": "History",
+      "Configuración": "Settings",
+      "Config. Avanzada": "Advanced Config.",
+      "Razones Sociales": "Companies",
+      "Nueva razón social": "New Company",
+      "Perfil de la Empresa": "Company Profile",
+      "Guardar perfil": "Save Profile",
+      "Nombre": "Name",
+      "Acciones": "Actions",
+      "Actualizar": "Refresh",
+      "Pronóstico Inteligente": "Smart Forecast",
+      "Consumo diario estimado": "Estimated daily consumption",
+      "Días de stock estimados": "Estimated stock days",
+      "Próxima Compra Estimada": "Estimated Next Purchase",
+      "Ventas Esperadas": "Expected Sales",
+      "DÍAS DE STOCK ACTUAL": "CURRENT STOCK DAYS",
+      "CONSUMO DIARIO EST.": "EST. DAILY CONSUMPTION"
+    }
+  };
+
+  // 3. Función que traduce sin deformar el diseño (Layout)
+  function applyTranslation() {
+    if (_lang !== 'en') return;
+    const dict = dictionary['en'];
+    
+    // Recorremos solo el texto que el usuario ve, protegiendo IDs y Clases
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+    let node;
+    while(node = walk.nextNode()) {
+      const text = node.nodeValue.trim();
+      if (dict[text]) {
+        node.nodeValue = node.nodeValue.replace(text, dict[text]);
+      }
+    }
+  }
 
   document.addEventListener('DOMContentLoaded', function(){
+    // A. Ejecutar traducción
+    applyTranslation();
+
+    // B. Crear/Gestionar el botón en el header
     const header = document.querySelector('header');
     if (!header || header.querySelector('.lang-badge')) return;
+    
     const badge = document.createElement('button');
-    badge.className  = 'lang-badge';
-    badge.title      = _lang === 'en' ? 'Cambiar a Español' : 'Switch to English';
+    badge.className = 'lang-badge';
+    badge.title = _lang === 'en' ? 'Cambiar a Español' : 'Switch to English';
     badge.textContent = _lang === 'en' ? 'ES' : 'EN';
     badge.style.cssText = 'margin-left:8px;padding:4px 12px;border-radius:14px;background:rgba(255,255,255,.15);color:#f8fafc;font-size:.72rem;font-weight:700;border:1px solid rgba(255,255,255,.25);flex-shrink:0;letter-spacing:.04em;cursor:pointer;font-family:inherit';
+    
     badge.onclick = function(){
       const next = (_lang === 'en') ? 'es' : 'en';
       localStorage.setItem('zc_lang', next);
@@ -381,11 +426,7 @@ tr:hover td{background:#f8fafc}
   });
 })();
 </script>
-
-
-
-
-
+  
 </head>
 <body class="login-mode">
 
