@@ -214,3 +214,86 @@ async def remove_medidor(mid: int, authorization: str = Header(default="")):
     if not delete_medidor(mid, uid):
         raise HTTPException(404, "Medidor no encontrado.")
     return JSONResponse(content={"ok": True, "deleted_id": mid})
+
+
+# ── Migración: mover adv_* de zc_settings → user_facilities ──────────────
+# Ejecutar UNA VEZ por instalación. Toma los datos que estaban en Config
+# Avanzada (guardados en zc_settings) y los mueve a la columna correcta
+# de user_facilities. Después de migrar, los campos en zc_settings se
+# mantienen pero ya no se usan — user_facilities es la fuente de verdad.
+
+@router.post("/facilities/{fid}/migrate-adv")
+async def migrate_adv_settings(
+    fid:           int,
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
+    """
+    Lee adv_tanques, adv_medicion, adv_geolocalizacion de zc_settings
+    y los escribe en los campos correspondientes de user_facilities[fid].
+    Solo sobreescribe si el campo en la facility está vacío/null.
+    """
+    uid       = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+
+    fac = get_facility(fid, uid)
+    if not fac:
+        raise HTTPException(404, "Instalación no encontrada.")
+
+    # Leer settings guardados anteriormente
+    try:
+        from supabase_config import get_supabase
+        from routes.settings import _load as load_settings
+        settings = load_settings(uid, perfil_id)
+    except Exception as e:
+        raise HTTPException(500, f"Error leyendo settings: {e}")
+
+    adv_t   = settings.get("adv_tanques")       or {}
+    adv_m   = settings.get("adv_medicion")      or {}
+    adv_geo = settings.get("adv_geolocalizacion") or {}
+
+    if not adv_t and not adv_m and not adv_geo:
+        return JSONResponse(content={"ok": True, "migrated": False,
+                                     "msg": "No hay datos de Config. Avanzada en settings para migrar."})
+
+    # Construir update solo con campos que tengan valor y que en la facility
+    # estén vacíos (no pisar datos que el usuario ya guardó en la nueva UI)
+    update: dict = {}
+
+    def _set_if_empty(fac_val, new_val, key):
+        if new_val and not fac_val:
+            update[key] = new_val
+
+    _set_if_empty(fac.get("clave_tanque"),              adv_t.get("clave_tanque"),    "clave_tanque")
+    _set_if_empty(fac.get("cap_total_tanque"),          adv_t.get("cap_total"),       "cap_total_tanque")
+    _set_if_empty(fac.get("cap_operativa_tanque"),      adv_t.get("cap_operativa"),   "cap_operativa_tanque")
+    _set_if_empty(fac.get("cap_util_tanque"),           adv_t.get("cap_util"),        "cap_util_tanque")
+    _set_if_empty(fac.get("fecha_calibracion_tanque"),  adv_t.get("fecha_calibracion"), "fecha_calibracion_tanque")
+    _set_if_empty(fac.get("incertidumbre_medidor"),     adv_m.get("incertidumbre"),   "incertidumbre_medidor")
+    _set_if_empty(fac.get("modelo_medidor"),            adv_m.get("modelo_sensor"),   "modelo_medidor")
+    _set_if_empty(fac.get("serie_medidor"),             adv_m.get("serie_sensor"),    "serie_medidor")
+    _set_if_empty(fac.get("fecha_calibracion_medidor"), adv_m.get("fecha_calibracion_medidor"), "fecha_calibracion_medidor")
+    _set_if_empty(fac.get("latitud"),                   adv_geo.get("latitud"),       "latitud")
+    _set_if_empty(fac.get("longitud"),                  adv_geo.get("longitud"),      "longitud")
+
+    # También sincronizar capacidad_tanque si cap_total existe
+    if update.get("cap_total_tanque") and not fac.get("capacidad_tanque"):
+        update["capacidad_tanque"] = float(update["cap_total_tanque"])
+
+    if not update:
+        return JSONResponse(content={"ok": True, "migrated": False,
+                                     "msg": "La instalación ya tiene todos los datos — nada que migrar."})
+
+    try:
+        get_supabase().table("user_facilities") \
+            .update(update).eq("id", fid).eq("user_id", uid).execute()
+    except Exception as e:
+        raise HTTPException(500, f"Error actualizando instalación: {e}")
+
+    logger.info("migrate-adv: user=%s fid=%s campos=%s", uid, fid, list(update.keys()))
+    return JSONResponse(content={
+        "ok":      True,
+        "migrated": True,
+        "campos":  list(update.keys()),
+        "msg":     f"Migrados {len(update)} campos desde Config. Avanzada anterior."
+    })
