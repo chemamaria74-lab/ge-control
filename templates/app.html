@@ -413,6 +413,15 @@ tr:hover td{background:#f8fafc}
     "prov.th_proveedor":   "Supplier",
     "prov.th_rfc":         "RFC",
     "fore.compra_prom":    "Avg Purchase/Month",
+    // Facility form
+    "fac.nueva":           "New Facility",
+    "fac.editar":          "Edit",
+    "fac.eliminar":        "Delete",
+    "fac.guardar":         "Save",
+    "fac.cancelar":        "Cancel",
+    "fac.guardado":        "Facility saved",
+    // Config avanzada toggle
+    "adv.toggle":          "Advanced Config — Tank · Meter · Geolocation",
     "fore.consumo_diario": "EST. DAILY CONSUMPTION",
     // Configuración
     "cfg.titulo":          "Settings",
@@ -671,7 +680,7 @@ tr:hover td{background:#f8fafc}
       <label><span data-en="Taxpayer RFC">RFC del contribuyente</span></label>
       <div style="display:flex;align-items:center;gap:.5rem">
         <span id="rfcDisplay" style="font-size:.88rem;color:#1e293b;font-weight:600;min-width:120px">—</span>
-        <a href="#" onclick="switchTab('config');return false" style="font-size:.72rem;color:#6366f1"><i class="fa-solid fa-pen-to-square" style="margin-right:.25rem"></i>Editar en Config.</a>
+        <a href="#" onclick="switchTab('config');return false" style="font-size:.72rem;color:#6366f1"><i class="fa-solid fa-pen-to-square" style="margin-right:.25rem"></i><span data-en="Edit in Settings">Editar en Config.</span></a>
       </div>
     </div>
     <div class="field"><label><span data-en="Base Unit of Report">Unidad base de reporte</span></label>
@@ -774,7 +783,7 @@ tr:hover td{background:#f8fafc}
     </div>
     <input type="file" id="fileExcel" accept=".xlsx,.xls,.csv" style="display:none">
     <a class="sample-link" id="dlSampleExcel"><i class="fa-solid fa-download" style="margin-right:.35rem"></i> Descargar plantilla CSV de ejemplo</a>
-    <button class="btn btn-red" id="btnExcel" disabled><span data-en="Process Excel / CSV">Procesar Excel / CSV</span></button>
+    <button class="btn btn-red" id="btnExcel" disabled><span data-en="Process Excel / CSV"><span data-en="Process Excel / CSV">Procesar Excel / CSV</span></span></button>
     <div class="loading" id="loadExcel"><i class="fa-solid fa-spinner fa-spin"></i> Procesando archivo...</div>
   </div>
   <div class="panel" id="panel-cfdi">
@@ -1648,10 +1657,10 @@ tr:hover td{background:#f8fafc}
     <table id="tblPerfiles" style="margin-bottom:0">
       <thead>
         <tr>
-          <th>Nombre</th>
+          <th><span data-en="Name">Nombre</span></th>
           <th>RFC</th>
-          <th>Descripción</th>
-          <th style="width:120px;text-align:center">Acciones</th>
+          <th><span data-en="Description">Descripción</span></th>
+          <th style="width:120px;text-align:center"><span data-en="Actions">Acciones</span></th>
         </tr>
       </thead>
       <tbody id="tbodyPerfiles">
@@ -1697,7 +1706,7 @@ tr:hover td{background:#f8fafc}
       padding:.44rem 1rem;font-size:.8rem;font-weight:600;border-radius:8px;
       background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;
       cursor:pointer;font-family:inherit">
-      <i class="fa-solid fa-plus" style="margin-right:.35rem"></i>Nueva instalación
+      <i class="fa-solid fa-plus" style="margin-right:.35rem"></i><span data-en="New Facility">Nueva instalación</span>
     </button>
   </div>
   <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem;line-height:1.5">
@@ -1707,11 +1716,11 @@ tr:hover td{background:#f8fafc}
     <table id="tblFacilities" style="margin-bottom:0">
       <thead>
         <tr>
-          <th>Nombre interno</th>
-          <th>Núm. Permiso CRE</th>
-          <th>Clave Instalación</th>
+          <th><span data-en="Internal Name">Nombre interno</span></th>
+          <th><span data-en="CRE Permit No.">Núm. Permiso CRE</span></th>
+          <th><span data-en="Facility Key"><span data-en="Facility Key">Clave Instalación</span></span></th>
           <th>Descripción</th>
-          <th>Tanques</th>
+          <th><span data-en="Tanks">Tanques</span></th>
           <th style="width:80px;text-align:center">Acciones</th>
         </tr>
       </thead>
@@ -1723,12 +1732,12 @@ tr:hover td{background:#f8fafc}
 
   <!-- Add / edit form (initially hidden) -->
   <div id="facilityFormWrap" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.9rem 1rem;margin-bottom:.4rem">
-    <div style="font-size:.82rem;font-weight:700;color:#374151;margin-bottom:.7rem" id="facilityFormTitle">Nueva instalación</div>
+    <div style="font-size:.82rem;font-weight:700;color:#374151;margin-bottom:.7rem" id="facilityFormTitle"><span data-en="New Facility">Nueva instalación</span></div>
     <input type="hidden" id="facilityEditId" value="">
     <!-- Tipo de Permiso SAT — determina actividad DIS/EXO en el archivo -->
     <div class="grid2" style="margin-bottom:.6rem">
       <div class="field" style="margin:0">
-        <label style="font-size:.72rem">Tipo de Permiso CRE <span style="color:#e63946">*</span></label>
+        <label style="font-size:.72rem"><span data-en="CRE Permit Type">Tipo de Permiso CRE</span> <span style="color:#e63946">*</span></label>
         <select id="fac_tipo_permiso" style="padding:.5rem .7rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.88rem;width:100%" onchange="actualizarInfoPermiso(this.value)">
           <option value="PER40">PER40 — Planta de Distribución GLP (LP/.../DIST/PLA/...)</option>
           <option value="PER41">PER41 — Distribución GLP por Ductos LP (LP/.../DIST/DUC/...)</option>
@@ -1751,7 +1760,7 @@ tr:hover td{background:#f8fafc}
     </div>
     <div class="grid2" style="margin-bottom:.6rem">
       <div class="field" style="margin:0">
-        <label style="font-size:.72rem">Nombre interno <span style="color:#e63946">*</span></label>
+        <label style="font-size:.72rem"><span data-en="Internal Name">Nombre interno</span> <span style="color:#e63946">*</span></label>
         <input id="fac_nombre" placeholder="Ej. Planta Monterrey">
       </div>
       <div class="field" style="margin:0">
@@ -1777,11 +1786,11 @@ tr:hover td{background:#f8fafc}
     </div>
     <div class="grid3" style="margin-bottom:.7rem">
       <div class="field" style="margin:0">
-        <label style="font-size:.72rem">Descripción Instalación</label>
+        <label style="font-size:.72rem"><span data-en="Facility Description">Descripción Instalación</span></label>
         <input id="fac_desc" placeholder="Ej. Planta de distribucion 14341">
       </div>
       <div class="field" style="margin:0">
-        <label style="font-size:.72rem">Temperatura Default (°C)</label>
+        <label style="font-size:.72rem"><span data-en="Default Temperature (°C)">Temperatura Default (°C)</span></label>
         <input id="fac_temp_default" type="number" step="0.1" placeholder="Ej. 20.0"
           title="Se inyecta en el JSON Anexo 30 cuando no hay lectura de sensor disponible">
       </div>
@@ -1789,7 +1798,7 @@ tr:hover td{background:#f8fafc}
     </div>
     <div class="grid2" style="margin-bottom:.7rem">
       <div class="field" style="margin:0">
-        <label style="font-size:.72rem">Núm. Tanques / Dispensarios</label>
+        <label style="font-size:.72rem"><span data-en="No. Tanks / Dispensers">Núm. Tanques / Dispensarios</span></label>
         <div style="display:flex;gap:.4rem">
           <input id="fac_tanques" type="number" min="0" step="1" value="1" style="width:60px">
           <input id="fac_dispensarios" type="number" min="0" step="1" value="0" style="width:60px">
@@ -1814,16 +1823,16 @@ tr:hover td{background:#f8fafc}
         </div>
         <div class="grid3" style="margin-bottom:.8rem">
           <div class="field" style="margin:0">
-            <label style="font-size:.72rem">Clave del Tanque</label>
+            <label style="font-size:.72rem"><span data-en="Tank Key">Clave del Tanque</span></label>
             <input id="fac_clave_tanque" type="text" placeholder="Ej. T-01" maxlength="30"
               style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
           </div>
           <div class="field" style="margin:0">
-            <label style="font-size:.72rem">Capacidad Total (L)</label>
+            <label style="font-size:.72rem"><span data-en="Total Capacity (L)">Capacidad Total (L)</span></label>
             <input id="fac_cap_total" type="number" min="0" step="0.01" placeholder="Ej. 50000.00">
           </div>
           <div class="field" style="margin:0">
-            <label style="font-size:.72rem">Capacidad Operativa (L)</label>
+            <label style="font-size:.72rem"><span data-en="Operating Capacity (L)">Capacidad Operativa (L)</span></label>
             <input id="fac_cap_operativa" type="number" min="0" step="0.01" placeholder="Ej. 45000.00">
           </div>
           <div class="field" style="margin:0">
@@ -1831,7 +1840,7 @@ tr:hover td{background:#f8fafc}
             <input id="fac_cap_util" type="number" min="0" step="0.01" placeholder="Auto: Total × 95%">
           </div>
           <div class="field" style="margin:0">
-            <label style="font-size:.72rem">Fecha Última Calibración</label>
+            <label style="font-size:.72rem"><span data-en="Last Calibration Date">Fecha Última Calibración</span></label>
             <input id="fac_fecha_calibracion_tanque" type="date">
           </div>
         </div>
@@ -1846,15 +1855,15 @@ tr:hover td{background:#f8fafc}
             <input id="fac_incertidumbre" type="text" inputmode="decimal" placeholder="Ej. 0.0050">
           </div>
           <div class="field" style="margin:0">
-            <label style="font-size:.72rem">Modelo del Medidor</label>
+            <label style="font-size:.72rem"><span data-en="Meter Model">Modelo del Medidor</span></label>
             <input id="fac_modelo_medidor" type="text" placeholder="Ej. Endress+Hauser Promass 300" maxlength="100">
           </div>
           <div class="field" style="margin:0">
-            <label style="font-size:.72rem">Número de Serie</label>
+            <label style="font-size:.72rem"><span data-en="Serial Number">Número de Serie</span></label>
             <input id="fac_serie_medidor" type="text" placeholder="Ej. SN-4839201" maxlength="60">
           </div>
           <div class="field" style="margin:0">
-            <label style="font-size:.72rem">Vigencia Calibración Medidor</label>
+            <label style="font-size:.72rem"><span data-en="Meter Calibration Validity">Vigencia Calibración Medidor</span></label>
             <input id="fac_fecha_calibracion_medidor" type="date">
           </div>
         </div>
@@ -1869,12 +1878,12 @@ tr:hover td{background:#f8fafc}
         </div>
         <div class="grid2" style="margin-bottom:.5rem">
           <div class="field" style="margin:0">
-            <label style="font-size:.72rem">Latitud (decimal)</label>
+            <label style="font-size:.72rem"><span data-en="Latitude (decimal)">Latitud (decimal)</span></label>
             <input id="fac_latitud" type="number" step="0.000001" min="-90" max="90" placeholder="Ej. 21.884520"
               oninput="validarCoordenadasFac()">
           </div>
           <div class="field" style="margin:0">
-            <label style="font-size:.72rem">Longitud (decimal)</label>
+            <label style="font-size:.72rem"><span data-en="Longitude (decimal)">Longitud (decimal)</span></label>
             <input id="fac_longitud" type="number" step="0.000001" min="-180" max="180" placeholder="Ej. -102.291950"
               oninput="validarCoordenadasFac()">
           </div>
@@ -1891,7 +1900,7 @@ tr:hover td{background:#f8fafc}
 
     <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-top:.9rem">
       <button class="btn btn-red" id="btnSaveFacility" style="padding:.52rem 1.2rem;font-size:.84rem"><i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar</button>
-      <button id="btnCancelFacility" style="padding:.5rem 1rem;font-size:.84rem;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;font-family:inherit">Cancelar</button>
+      <button id="btnCancelFacility" style="padding:.5rem 1rem;font-size:.84rem;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;font-family:inherit"><span data-en="Cancel">Cancelar</span></button>
       <div id="facilityFormStatus" style="font-size:.78rem;color:#64748b"></div>
     </div>
   </div>
@@ -1911,11 +1920,11 @@ tr:hover td{background:#f8fafc}
     <table id="tblProveedores" style="margin-bottom:0">
       <thead>
         <tr>
-          <th>RFC Proveedor/Cliente</th>
+          <th><span data-en="Supplier/Client RFC">RFC Proveedor/Cliente</span></th>
           <th>Nombre</th>
           <th>Permiso CRE <small style="font-weight:400;color:#94a3b8">(PermisoClienteOProveedor)</small></th>
           <th>Permiso Almacenamiento Terminal <small style="font-weight:400;color:#94a3b8">(PermisoAlmYDist)</small></th>
-          <th style="width:60px;text-align:center">Acción</th>
+          <th style="width:60px;text-align:center"><span data-en="Action">Acción</span></th>
         </tr>
       </thead>
       <tbody id="tbodyProveedores">
@@ -1965,12 +1974,12 @@ tr:hover td{background:#f8fafc}
   </div>
   <div class="grid2">
     <div class="field">
-      <label>Propano en Gas LP (%) <span style="color:#e63946">*</span></label>
+      <label><span data-en="Propane in LP Gas (%)">Propano en Gas LP (%)</span> <span style="color:#e63946">*</span></label>
       <input id="adv_propano" type="number" min="0" max="100" step="0.01" placeholder="Ej. 60.00"
         oninput="validarComposicion()">
     </div>
     <div class="field">
-      <label>Butano en Gas LP (%) <span style="color:#e63946">*</span></label>
+      <label><span data-en="Butane in LP Gas (%)">Butano en Gas LP (%)</span> <span style="color:#e63946">*</span></label>
       <input id="adv_butano" type="number" min="0" max="100" step="0.01" placeholder="Ej. 40.00"
         oninput="validarComposicion()">
     </div>
@@ -2739,26 +2748,29 @@ function resetAppState() {
   if (stEl) { stEl.textContent = ''; stEl.className = 'settings-status'; }
   actualizarRfcHint();
 
-  // ── 2. Limpiar todos los campos de Config. Avanzada ───────────────────────
-  const advFields = [
-    'adv_clave_tanque','adv_cap_total','adv_cap_operativa','adv_cap_util',
-    'adv_fecha_calibracion','adv_incertidumbre','adv_modelo_sensor','adv_serie_sensor',
-    'adv_fecha_calibracion_medidor','adv_latitud','adv_longitud',
-    'adv_rfc_ui','adv_num_dictamen','adv_fecha_dictamen','adv_version_sw',
-    'adv_propano','adv_butano',
-  ];
-  advFields.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
+  // ── 2. Limpiar composición PR12 (adv tank/geo/medidor están en facility form) ──
+  ['adv_propano','adv_butano','adv_num_dictamen','adv_fecha_dictamen'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
   });
-  ['composWarning','composOk','geoWarning'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
+  ['composWarning','composOk'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = 'none';
   });
-  ['statusTanque','statusMedicion','statusGeo','statusDictamen','statusCompos'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = '';
+  const stCompos = document.getElementById('statusCompos'); if (stCompos) stCompos.textContent = '';
+
+  // ── 2b. Limpiar panel Proveedores/Forecast al cambiar empresa ──────────────────────
+  if (typeof _provChart !== 'undefined' && _provChart) { _provChart.destroy(); _provChart = null; }
+  if (typeof _provData  !== 'undefined') _provData = null;
+  ['provEconomicoNombre','provEconomicoPrecio','provMayorNombre','provMayorVol','provTotalVol'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.textContent = '—';
   });
+  const provKpisEl = document.getElementById('provKpis'); if (provKpisEl) provKpisEl.style.display = 'none';
+  const provTblEl  = document.getElementById('provTable'); if (provTblEl) provTblEl.style.display = 'none';
+  const provTbodyEl = document.getElementById('provTableBody'); if (provTbodyEl) provTbodyEl.innerHTML = '';
+  const provTipoEl = document.getElementById('provTipoGrafica'); if (provTipoEl) provTipoEl.value = 'todos';
+  const provWrap = document.getElementById('provSelectorWrap'); if (provWrap) provWrap.style.display = 'none';
+  const fcCards = document.getElementById('forecastCards'); if (fcCards) fcCards.style.display = 'none';
+  const fcRec   = document.getElementById('forecastRecomendacion'); if (fcRec) fcRec.style.display = 'none';
+  const fcEmpty = document.getElementById('forecastEmpty'); if (fcEmpty) fcEmpty.style.display = '';
 
   // ── 3. Limpiar tablas de Proveedores e Instalaciones ──────────────────────
   const tbodyProv = document.getElementById('tbodyProveedores');
@@ -3101,11 +3113,11 @@ function renderFacilitiesTable(facilities) {
       <td style="text-align:center;font-size:.78rem">${f.num_tanques ?? 1}T / ${f.num_dispensarios ?? 0}D</td>
       <td style="text-align:center">
         <button onclick="openEditFacility(${f.id})"
-          style="background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:.25rem .55rem;cursor:pointer;font-size:.75rem;margin-right:.2rem" title="Editar"><i class="fa-solid fa-pen-to-square"></i></button>
-        <button onclick="migrarAdvFacility(${f.id},'${(f.nombre||'').replace(/'/g,"\\u0027")}')"
-          style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:.25rem .55rem;cursor:pointer;font-size:.75rem;margin-right:.2rem" title="Importar Config. Avanzada anterior a esta instalación"><i class="fa-solid fa-arrow-down-to-line"></i></button>
-        <button onclick="confirmDeleteFacility(${f.id},'${(f.nombre||'').replace(/'/g,"\\u0027")}')"
-          style="background:#ef4444;color:#fff;border:none;border-radius:5px;padding:.25rem .55rem;cursor:pointer;font-size:.75rem" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
+          style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:.28rem .7rem;cursor:pointer;font-size:.72rem;margin-right:.3rem;font-family:inherit;font-weight:600">
+          <i class="fa-solid fa-pen-to-square" style="margin-right:.3rem"></i><span data-en="Edit">Editar</span></button>
+        <button onclick="confirmDeleteFacility(${f.id},'${(f.nombre||'').replace(/'/g,'\\u0027')}')"
+          style="background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;padding:.28rem .7rem;cursor:pointer;font-size:.72rem;font-family:inherit;font-weight:600">
+          <i class="fa-solid fa-trash" style="margin-right:.3rem"></i><span data-en="Delete">Eliminar</span></button>
       </td>
     </tr>`;
   }).join('');
