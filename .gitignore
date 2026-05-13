@@ -53,6 +53,12 @@ config/*.json
 !.env.example
 storage/
 *.key
+*.cer
+*.pfx
+*.p12
+*.sdg
+Certificados_Pruebas*/
+Certificados_Pruebas*.zip
 secret.key
 
 .cursor/rules/nx-rules.mdc
