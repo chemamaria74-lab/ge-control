@@ -10,6 +10,8 @@ from pydantic import BaseModel
 
 from routes.upload      import router as upload_router
 from routes.cfdi        import router as cfdi_router
+from routes.perfiles    import router as perfiles_router
+from routes.transporte  import router as transporte_router
 from routes.settings    import router as settings_router
 from routes.auth        import router as auth_router
 from routes.history     import router as history_router
@@ -80,6 +82,10 @@ app.include_router(admin_router,       prefix="/api", tags=["Admin"])
 app.include_router(facturas_router,    prefix="/api", tags=["Facturas"])
 app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
 app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
+app.include_router(facturas_router,    prefix="/api", tags=["Facturas"])
+app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
+app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
+app.include_router(transporte_router,  prefix="/api", tags=["Transporte"])   # ← AGREGAR AQUÍ
 
 # ── Archivos estáticos ────────────────────────────────────────────────────────
 app.mount(
