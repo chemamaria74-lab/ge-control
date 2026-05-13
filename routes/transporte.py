@@ -11,6 +11,8 @@
 #   POST /api/tr/viajes                  — Registrar viaje
 #   GET  /api/tr/viajes                  — Listar viajes del usuario
 #   GET  /api/tr/viajes/{id}             — Detalle de un viaje
+#   PUT  /api/tr/viajes/{id}             — Editar viaje no timbrado
+#   DELETE /api/tr/viajes/{id}           — Eliminar viaje no timbrado
 #   POST /api/tr/viajes/{id}/timbrar     — Timbrar CFDI del viaje
 #   POST /api/tr/viajes/{id}/cancelar    — Cancelar CFDI
 #   GET  /api/tr/facturas                — Listar CFDIs timbrados
@@ -40,6 +42,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -56,6 +59,7 @@ from services.transport_transformer import (
 )
 from models.transport_schemas import (
     ViajeCreate, TimbradoViajeRequest, CancelacionViajeRequest,
+    FacturaServicioCreate,
     GenerarCovolRequest, ChoferTransporteCreate, VehiculoTransporteCreate,
     RutaTransporteCreate, ClienteTransporteCreate,
 )
@@ -68,6 +72,7 @@ router = APIRouter()
 # NUNCA modificar tablas sin prefijo tr_ (esas son de Gas LP)
 _TBL_VIAJES    = "tr_viajes"
 _TBL_CFDI      = "tr_cfdi"
+_TBL_FACT_SERV = "tr_facturas_servicio"
 _TBL_CHOFERES  = "tr_choferes"
 _TBL_VEHICULOS = "tr_vehiculos"
 _TBL_RUTAS     = "tr_rutas"
@@ -76,6 +81,8 @@ _TBL_SETTINGS  = "tr_settings"
 _TBL_COVOL     = "tr_covol_reports"
 
 MODULO = "transporte"
+_RFC_RE = re.compile(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$", re.IGNORECASE)
+_CP_RE = re.compile(r"^\d{5}$")
 
 
 # ── Helpers de autenticación ──────────────────────────────────────────────────
@@ -144,6 +151,62 @@ def _get_vehiculo(uid: str, token: str, vehiculo_id: int) -> dict:
     return rows[0]
 
 
+def _editable_viaje(status: str) -> bool:
+    """Permite cambios solo antes de timbrar Carta Porte."""
+    return (status or "").lower() in {"borrador", "programado", "error"}
+
+
+def _validar_rfc_cp_config(data: dict) -> None:
+    for campo in ("RfcContribuyente", "RfcProveedor"):
+        valor = str(data.get(campo, "") or "").strip().upper()
+        if valor and not _RFC_RE.match(valor):
+            raise HTTPException(400, f"{campo} tiene formato inválido para SAT.")
+    cp = str(data.get("CodigoPostal", "") or "").strip()
+    if cp and not _CP_RE.match(cp):
+        raise HTTPException(400, "CodigoPostal debe tener 5 dígitos.")
+
+
+def _ruta_payload(payload: RutaTransporteCreate) -> dict:
+    return {
+        "nombre":        payload.nombre.strip(),
+        "cp_origen":     payload.cp_origen,
+        "nombre_origen": payload.nombre_origen.strip(),
+        "cp_destino":    payload.cp_destino,
+        "nombre_destino": payload.nombre_destino.strip(),
+        "distancia_km":  payload.distancia_km,
+        "duracion_estimada_min": max(int(payload.duracion_estimada_min or 0), 0),
+    }
+
+
+def _viaje_row(uid: str, payload: ViajeCreate, productos_json: str, volumen_total: float, status: str = "programado") -> dict:
+    return {
+        "user_id":              uid,
+        "perfil_id":            payload.perfil_id,
+        "facility_id":          payload.facility_id,
+        "chofer_id":            payload.chofer_id,
+        "vehiculo_id":          payload.vehiculo_id,
+        "ruta_id":              payload.ruta_id,
+        "cp_origen":            payload.cp_origen,
+        "nombre_origen":        payload.nombre_origen,
+        "cp_destino":           payload.cp_destino,
+        "nombre_destino":       payload.nombre_destino,
+        "fecha_hora_salida":    payload.fecha_hora_salida,
+        "fecha_hora_llegada":   payload.fecha_hora_llegada,
+        "productos_json":       productos_json,
+        "tipo_cfdi":            payload.tipo_cfdi,
+        "rfc_receptor":         payload.rfc_receptor,
+        "nombre_receptor":      payload.nombre_receptor,
+        "cp_receptor":          payload.cp_receptor,
+        "uso_cfdi":             payload.uso_cfdi,
+        "num_permiso_cne":      payload.num_permiso_cne,
+        "distancia_km":         payload.distancia_km,
+        "duracion_estimada_min": max(int(payload.duracion_estimada_min or 0), 0),
+        "volumen_total_litros": volumen_total,
+        "status":               status,
+        "observaciones":        payload.observaciones,
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. CATÁLOGO DE PRODUCTOS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -209,40 +272,19 @@ async def crear_viaje(payload: ViajeCreate, authorization: str = Header(default=
                 cp_destino  = cp_destino  or r.get("cp_destino", "")
                 nom_origen  = nom_origen  or r.get("nombre_origen", "")
                 nom_destino = nom_destino or r.get("nombre_destino", "")
+                payload.duracion_estimada_min = payload.duracion_estimada_min or int(r.get("duracion_estimada_min") or 0)
         except Exception as e:
             logger.warning("No se pudo obtener ruta %s: %s", payload.ruta_id, e)
 
     volumen_total = round(sum(p.volumen_litros for p in payload.productos), 3)
+    payload.cp_origen = cp_origen
+    payload.cp_destino = cp_destino
+    payload.nombre_origen = nom_origen
+    payload.nombre_destino = nom_destino
 
     now = datetime.now(timezone.utc).isoformat()
-    row = {
-        "user_id":              uid,
-        "perfil_id":            payload.perfil_id,
-        "facility_id":          payload.facility_id,
-        "chofer_id":            payload.chofer_id,
-        "vehiculo_id":          payload.vehiculo_id,
-        "ruta_id":              payload.ruta_id,
-        "cp_origen":            cp_origen,
-        "nombre_origen":        nom_origen,
-        "cp_destino":           cp_destino,
-        "nombre_destino":       nom_destino,
-        "fecha_hora_salida":    payload.fecha_hora_salida,
-        "fecha_hora_llegada":   payload.fecha_hora_llegada,
-        "productos_json":       productos_json,
-        "tipo_cfdi":            payload.tipo_cfdi,
-        "rfc_receptor":         payload.rfc_receptor,
-        "nombre_receptor":      payload.nombre_receptor,
-        "cp_receptor":          payload.cp_receptor,
-        "uso_cfdi":             payload.uso_cfdi,
-        "num_permiso_cne":      payload.num_permiso_cne,
-        "distancia_km":         payload.distancia_km,
-        "volumen_total_litros": volumen_total,
-        "status":               "programado",
-        "uuid_cfdi":            "",
-        "id_ccp":               "",
-        "observaciones":        payload.observaciones,
-        "created_at":           now,
-    }
+    row = _viaje_row(uid, payload, productos_json, volumen_total, status="programado")
+    row.update({"uuid_cfdi": "", "id_ccp": "", "created_at": now})
 
     try:
         sb  = _sb(token)
@@ -259,6 +301,67 @@ async def crear_viaje(payload: ViajeCreate, authorization: str = Header(default=
         "volumen_total_litros": volumen_total,
         "status":   "programado",
     })
+
+
+@router.put("/tr/viajes/{viaje_id}")
+async def actualizar_viaje(viaje_id: int, payload: ViajeCreate, authorization: str = Header(default="")):
+    """Edita un viaje mientras no tenga Carta Porte timbrada."""
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    res = sb.table(_TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).limit(1).execute()
+    rows = res.data or []
+    if not rows:
+        raise HTTPException(404, f"Viaje {viaje_id} no encontrado.")
+    if not _editable_viaje(rows[0].get("status", "")):
+        raise HTTPException(400, "Solo se pueden editar viajes en Borrador, Programado o Error.")
+
+    _get_chofer(uid, token, payload.chofer_id)
+    _get_vehiculo(uid, token, payload.vehiculo_id)
+    for prod in payload.productos:
+        ok, msg = validar_producto_completo(prod.clave_producto, prod.clave_subproducto)
+        if not ok:
+            raise HTTPException(400, f"Producto inválido: {msg}")
+
+    if payload.ruta_id:
+        ruta_res = sb.table(_TBL_RUTAS).select("*").eq("id", payload.ruta_id).eq("user_id", uid).limit(1).execute()
+        ruta_rows = ruta_res.data or []
+        if ruta_rows:
+            r = ruta_rows[0]
+            payload.cp_origen = payload.cp_origen or r.get("cp_origen", "")
+            payload.cp_destino = payload.cp_destino or r.get("cp_destino", "")
+            payload.nombre_origen = payload.nombre_origen or r.get("nombre_origen", "")
+            payload.nombre_destino = payload.nombre_destino or r.get("nombre_destino", "")
+            payload.duracion_estimada_min = payload.duracion_estimada_min or int(r.get("duracion_estimada_min") or 0)
+
+    productos_json = json.dumps([p.model_dump() for p in payload.productos], ensure_ascii=False)
+    volumen_total = round(sum(p.volumen_litros for p in payload.productos), 3)
+    row = _viaje_row(uid, payload, productos_json, volumen_total, status=rows[0].get("status", "programado"))
+    row.pop("user_id", None)
+    try:
+        sb.table(_TBL_VIAJES).update(row).eq("id", viaje_id).eq("user_id", uid).execute()
+    except Exception as e:
+        raise HTTPException(500, f"Error al actualizar viaje: {e}")
+
+    return JSONResponse({"ok": True, "viaje_id": viaje_id, "volumen_total_litros": volumen_total})
+
+
+@router.delete("/tr/viajes/{viaje_id}")
+async def eliminar_viaje(viaje_id: int, authorization: str = Header(default="")):
+    """Elimina un viaje si todavía no tiene Carta Porte timbrada."""
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    res = sb.table(_TBL_VIAJES).select("id,status,uuid_cfdi").eq("id", viaje_id).eq("user_id", uid).limit(1).execute()
+    rows = res.data or []
+    if not rows:
+        raise HTTPException(404, f"Viaje {viaje_id} no encontrado.")
+    row = rows[0]
+    if row.get("uuid_cfdi") or not _editable_viaje(row.get("status", "")):
+        raise HTTPException(400, "No se puede eliminar un viaje con Carta Porte timbrada.")
+    try:
+        sb.table(_TBL_VIAJES).delete().eq("id", viaje_id).eq("user_id", uid).execute()
+    except Exception as e:
+        raise HTTPException(500, f"Error al eliminar viaje: {e}")
+    return JSONResponse({"ok": True})
 
 
 @router.get("/tr/viajes")
@@ -551,6 +654,73 @@ async def cancelar_viaje(
 # 4. FACTURAS (listado y descarga)
 # ══════════════════════════════════════════════════════════════════════════════
 
+@router.get("/tr/facturas-servicio")
+async def listar_facturas_servicio(
+    periodo:       Optional[str] = Query(None),
+    authorization: str           = Header(default=""),
+):
+    """Lista facturas del servicio de transporte emitidas o preparadas."""
+    uid, token = _auth(authorization)
+    try:
+        q = _sb(token).table(_TBL_FACT_SERV).select("*").eq("user_id", uid).order("created_at", desc=True)
+        if periodo:
+            q = q.like("created_at", f"{periodo}%")
+        res = q.execute()
+        return JSONResponse({"ok": True, "facturas_servicio": res.data or []})
+    except Exception as e:
+        raise HTTPException(500, f"Error al listar facturas de servicio: {e}")
+
+
+@router.post("/tr/facturas-servicio")
+async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: str = Header(default="")):
+    """
+    Prepara una factura de ingreso por servicio de transporte y la relaciona con una o varias Cartas Porte.
+    El timbrado fiscal puede conectarse al PAC reutilizando esta misma estructura.
+    """
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+
+    viajes_res = sb.table(_TBL_VIAJES).select("id,status,uuid_cfdi,id_ccp").eq("user_id", uid).in_("id", payload.viaje_ids).execute()
+    viajes = viajes_res.data or []
+    encontrados = {int(v["id"]) for v in viajes}
+    faltantes = [vid for vid in payload.viaje_ids if vid not in encontrados]
+    if faltantes:
+        raise HTTPException(404, f"Viajes no encontrados: {faltantes}")
+    no_timbrados = [v["id"] for v in viajes if not v.get("uuid_cfdi")]
+    if no_timbrados:
+        raise HTTPException(400, f"Para facturar el servicio, primero timbra la Carta Porte de los viajes: {no_timbrados}")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    row = {
+        "user_id":         uid,
+        "cliente_id":      payload.cliente_id,
+        "viaje_ids":       payload.viaje_ids,
+        "cfdi_relacionados": [
+            {"viaje_id": v["id"], "uuid_cfdi": v.get("uuid_cfdi", ""), "id_ccp": v.get("id_ccp", "")}
+            for v in viajes
+        ],
+        "rfc_receptor":    payload.rfc_receptor,
+        "nombre_receptor": payload.nombre_receptor,
+        "cp_receptor":     payload.cp_receptor,
+        "regimen_fiscal":  payload.regimen_fiscal,
+        "uso_cfdi":        payload.uso_cfdi,
+        "concepto":        payload.concepto,
+        "subtotal":        round(payload.subtotal, 2),
+        "iva":             round(payload.iva, 2),
+        "total":           round(payload.total, 2),
+        "forma_pago":      payload.forma_pago,
+        "metodo_pago":     payload.metodo_pago,
+        "moneda":          payload.moneda,
+        "status":          "preparada",
+        "created_at":      now_iso,
+    }
+    try:
+        res = sb.table(_TBL_FACT_SERV).insert(row).execute()
+        return JSONResponse({"ok": True, "id": res.data[0]["id"] if res.data else None, "status": "preparada"})
+    except Exception as e:
+        raise HTTPException(500, f"Error al crear factura de servicio: {e}")
+
+
 @router.get("/tr/facturas")
 async def listar_facturas_transporte(
     periodo:       Optional[str] = Query(None),
@@ -842,17 +1012,13 @@ async def listar_rutas(authorization: str = Header(default="")):
 async def crear_ruta(payload: RutaTransporteCreate, authorization: str = Header(default="")):
     uid, token = _auth(authorization)
     try:
-        res = _sb(token).table(_TBL_RUTAS).insert({
+        row = _ruta_payload(payload)
+        row.update({
             "user_id":       uid,
-            "nombre":        payload.nombre.strip(),
-            "cp_origen":     payload.cp_origen,
-            "nombre_origen": payload.nombre_origen.strip(),
-            "cp_destino":    payload.cp_destino,
-            "nombre_destino": payload.nombre_destino.strip(),
-            "distancia_km":  payload.distancia_km,
             "activo":        True,
             "created_at":    datetime.now(timezone.utc).isoformat(),
-        }).execute()
+        })
+        res = _sb(token).table(_TBL_RUTAS).insert(row).execute()
         return JSONResponse({"ok": True, "id": res.data[0]["id"] if res.data else None})
     except Exception as e:
         raise HTTPException(500, f"Error al crear ruta: {e}")
@@ -864,14 +1030,7 @@ async def actualizar_ruta(
     authorization: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    _sb(token).table(_TBL_RUTAS).update({
-        "nombre":        payload.nombre.strip(),
-        "cp_origen":     payload.cp_origen,
-        "nombre_origen": payload.nombre_origen.strip(),
-        "cp_destino":    payload.cp_destino,
-        "nombre_destino": payload.nombre_destino.strip(),
-        "distancia_km":  payload.distancia_km,
-    }).eq("id", ruta_id).eq("user_id", uid).execute()
+    _sb(token).table(_TBL_RUTAS).update(_ruta_payload(payload)).eq("id", ruta_id).eq("user_id", uid).execute()
     return JSONResponse({"ok": True})
 
 
@@ -967,6 +1126,7 @@ async def update_settings_transporte(
 
     # Limpiar campos sensibles
     data_limpia = {k: v for k, v in data.items() if isinstance(v, (str, int, float, bool))}
+    _validar_rfc_cp_config(data_limpia)
 
     try:
         # Verificar si ya existe un registro
