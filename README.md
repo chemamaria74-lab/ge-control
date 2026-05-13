@@ -18,6 +18,8 @@ Z Control integra controles volumétricos, generación de reportes para SAT, man
 - Procesamiento de recepciones y entregas desde Excel, CSV, XML o ZIP.
 - Generación de reportes SAT Anexo 30.
 - Dashboard de inventario mensual.
+- Pronóstico de compra con selección del mejor modelo entre promedio móvil, suavizamiento exponencial y regresión lineal.
+- Análisis de proveedores desde XML de compra: subtotal, litros, precio por litro, volumen, número de compras y tendencia.
 - Historial de reportes generados.
 - Catálogo de proveedores y permisos.
 - Manejo de instalaciones y razones sociales.
@@ -30,12 +32,15 @@ Z Control integra controles volumétricos, generación de reportes para SAT, man
 - Captura de fecha/hora de salida con autollenado de fecha actual.
 - Rutas con distancia y duración estimada.
 - Cálculo automático de hora de llegada al seleccionar ruta.
-- Selección simple de producto transportado: Magna, Premium y Diésel.
+- Selección simple de producto transportado: Magna, Premium, Diésel y Gas LP.
+- Combustibles habilitados configurables y guardados por usuario.
 - Mapeo interno a claves SAT/Anexo 30.
 - Catálogos de clientes, rutas, vehículos y choferes.
-- Facturación del servicio al cliente relacionando una o varias Cartas Porte.
+- Dashboard, análisis y pronóstico con datos propios de Transporte.
+- Facturación del servicio al cliente con selector de Cartas Porte timbradas, autollenado fiscal del receptor y timbrado CFDI 4.0.
+- Bloqueo de doble facturación: una Carta Porte solo puede relacionarse a una factura de servicio.
 - Generación de JSON/ZIP de control volumétrico para transporte.
-- Validaciones básicas de RFC y código postal para reducir rechazos.
+- Validaciones de RFC, código postal, régimen fiscal, uso CFDI, ObjetoImp e IVA para reducir rechazos.
 
 ## Stack
 
@@ -72,6 +77,7 @@ z-control-program/
 │   ├── cfdi_parser.py
 │   ├── transformer.py
 │   ├── transport_builder.py
+│   ├── service_invoice_builder.py
 │   ├── transport_transformer.py
 │   ├── product_catalog.py
 │   ├── cne_validator.py
@@ -91,7 +97,10 @@ z-control-program/
 │       ├── z_logo.png
 │       └── zlogo.png
 ├── migrations/
-│   └── transporte_urgentes_20260513.sql
+│   ├── transporte_urgentes_20260513.sql
+│   └── zcontrol_multimodulo_facturacion_20260513.sql
+├── docs/
+│   └── investigacion_cfdi_transporte_sw_sapien_20260513.md
 ├── tests/
 └── utils/
 ```
@@ -103,11 +112,15 @@ Configura estas variables en Render o en un archivo `.env` local.
 ```env
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_KEY=your-service-role-key
+SW_ENV=test
+SW_USER=tu_usuario_sw
+SW_PASSWORD=tu_password_sw
 ```
 
 Para timbrado con PAC/SW Sapien, configurar también las variables que correspondan en `services/sw_sapien.py` o en el entorno de Render según la integración activa.
 
 No subas `.env` al repositorio.
+Tampoco subas CSD, llaves privadas, PFX/P12, ZIP de certificados ni contraseñas.
 
 ## Base de Datos
 
@@ -138,6 +151,7 @@ El proyecto usa Supabase con tablas para Gas LP y tablas separadas para Transpor
 | `tr_covol_reports` | Reportes de control volumétrico transporte |
 | `tr_settings` | Configuración del módulo transporte |
 | `tr_facturas_servicio` | Facturas del servicio de transporte |
+| `tr_facturas_servicio_cartas` | Relación única entre factura de servicio y Carta Porte para evitar doble facturación |
 
 ## Migraciones
 
@@ -147,6 +161,7 @@ Archivo actual importante:
 
 ```text
 migrations/transporte_urgentes_20260513.sql
+migrations/zcontrol_multimodulo_facturacion_20260513.sql
 ```
 
 Esta migración agrega:
@@ -156,6 +171,13 @@ Esta migración agrega:
 - Estatus `borrador` y `error` para viajes.
 - Tabla `tr_facturas_servicio`.
 - Políticas RLS para facturas de servicio.
+
+La segunda migración agrega:
+
+- Régimen fiscal receptor en viajes de Transporte.
+- UUID/XML/PDF en facturas de servicio.
+- Tabla `tr_facturas_servicio_cartas` con llave única por usuario y viaje.
+- Índice único en `user_sections(user_id, section)` para habilitar Gas LP y Transporte al mismo usuario.
 
 Si ya ejecutaste la migración en Supabase, de todos modos conviene mantener el archivo en GitHub como historial técnico del proyecto.
 
@@ -212,8 +234,19 @@ Health check:
 7. Revisar fecha/hora de salida y llegada calculada.
 8. Seleccionar producto transportado.
 9. Timbrar Carta Porte.
-10. Emitir factura del servicio relacionando una o varias Cartas Porte.
+10. Emitir factura del servicio desde el selector de Cartas Porte timbradas disponibles.
 11. Generar JSON/ZIP de control volumétrico mensual.
+
+## Investigación SAT/SW
+
+La investigación obligatoria de CFDI 4.0, Carta Porte y SW Sapien queda guardada en:
+
+```text
+docs/investigacion_cfdi_transporte_sw_sapien_20260513.md
+docs/configuracion_sw_sapien_pruebas.md
+```
+
+Hallazgo clave: SW Sapien documenta Emisión Timbrado JSON en `POST /v3/cfdi33/issue/json/v4`, con `Content-Type: application/jsontoxml` y el JSON del comprobante directo. ZControl ya no envía el CFDI JSON como base64 al endpoint anterior.
 
 ## Validaciones y Cumplimiento
 
