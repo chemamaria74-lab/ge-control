@@ -202,6 +202,12 @@ async def frontend(lang: str = "es"):
     html = html.replace('<html lang="es">', f'<html lang="{lang}">')
     return HTMLResponse(content=html)
 
+@app.get("/transporte", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_transporte():
+    """Sirve el frontend del módulo de Transporte de Hidrocarburos."""
+    with open(os.path.join(BASE_DIR, "templates", "transporte.html"), encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
 
 # ── Health check ──────────────────────────────────────────────────────────────
 @app.get("/health", tags=["Sistema"])
