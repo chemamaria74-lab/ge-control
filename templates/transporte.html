@@ -1129,8 +1129,8 @@ function addMinutesToInput(value, minutes) {
   return d.toISOString().slice(0,16);
 }
 function validarRfcCampo(value, nombre='RFC') {
-  const v = (value || '').trim().toUpperCase();
-  if (v && !RFC_RE.test(v)) throw new Error(`${nombre} tiene formato inválido para SAT.`);
+  const v = (value || '').toUpperCase().replace(/[^A-Z0-9Ñ&]/g, '');
+  if (v && !RFC_RE.test(v)) throw new Error(`${nombre} tiene formato inválido para SAT: "${v}".`);
   return v;
 }
 function validarCpCampo(value, nombre='Código postal') {
