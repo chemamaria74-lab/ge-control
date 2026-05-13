@@ -160,13 +160,14 @@ select option{background:#fff}
 <!-- TOPBAR -->
 <div class="topbar">
   <a href="/" class="logo">
-    <img src="/static/img/z_logo.png" alt="Z Control" class="brand-logo">
+    <img src="/static/img/zlogo.png" alt="Z" class="brand-logo">
     <span>Transporte</span>
   </a>
   <span class="badge module"><i class="fa-solid fa-truck-fast"></i> Transporte</span>
   <span class="badge" id="topbar-version">v3.5</span>
   <div class="topbar-right">
-    <span class="badge" id="topbar-rfc" style="color:var(--text2)">—</span>
+    <span class="badge" id="topbar-rfc">RFC —</span>
+    <span class="badge" id="topbar-email">—</span>
     <div class="avatar" id="topbar-avatar">?</div>
     <button class="btn-sm" onclick="location.href='/choice'">Cambiar módulo</button>
     <button class="btn-sm" onclick="logout()">Salir</button>
@@ -175,7 +176,16 @@ select option{background:#fff}
 
 <!-- TABS -->
 <div class="tabs-bar">
-  <div class="tab active" data-tab="viajes" onclick="switchTab('viajes')">
+  <div class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')">
+    <i class="fa-solid fa-chart-line"></i> Dashboard
+  </div>
+  <div class="tab" data-tab="analisis" onclick="switchTab('analisis')">
+    <i class="fa-solid fa-chart-simple"></i> Análisis
+  </div>
+  <div class="tab" data-tab="pronostico" onclick="switchTab('pronostico')">
+    <i class="fa-solid fa-chart-area"></i> Pronóstico
+  </div>
+  <div class="tab" data-tab="viajes" onclick="switchTab('viajes')">
     <i class="fa-solid fa-route"></i> Viajes <span class="count" id="cnt-viajes">0</span>
   </div>
   <div class="tab" data-tab="facturacion" onclick="switchTab('facturacion')">
@@ -198,7 +208,35 @@ select option{background:#fff}
 <!-- ════════════════════════════════════════════════════════
      TAB: VIAJES
 ════════════════════════════════════════════════════════ -->
-<div id="tab-viajes" class="section active">
+<div id="tab-dashboard" class="section active">
+  <div class="section-hdr"><h2>Dashboard Transporte</h2></div>
+  <div class="grid-4" style="margin-bottom:20px">
+    <div class="stat blue"><div class="stat-label">Viajes</div><div class="stat-value" id="td-viajes">—</div></div>
+    <div class="stat green"><div class="stat-label">Cartas timbradas</div><div class="stat-value" id="td-timbradas">—</div></div>
+    <div class="stat amber"><div class="stat-label">Pendientes</div><div class="stat-value" id="td-pendientes">—</div></div>
+    <div class="stat"><div class="stat-label">Facturación servicio</div><div class="stat-value" id="td-facturacion">—</div></div>
+  </div>
+  <div class="card"><div class="card-title"><i class="fa-solid fa-gauge"></i> Volumen transportado</div><div class="stat-value" id="td-volumen">— L</div></div>
+</div>
+
+<div id="tab-analisis" class="section">
+  <div class="section-hdr"><h2>Análisis Transporte</h2></div>
+  <div class="grid-2">
+    <div class="card"><div class="card-title">Rutas por volumen</div><div id="ta-rutas" class="hint">Cargando...</div></div>
+    <div class="card"><div class="card-title">Productos transportados</div><div id="ta-productos" class="hint">Cargando...</div></div>
+  </div>
+</div>
+
+<div id="tab-pronostico" class="section">
+  <div class="section-hdr"><h2>Pronóstico Transporte</h2></div>
+  <div class="card">
+    <div class="card-title"><i class="fa-solid fa-chart-area"></i> Volumen esperado</div>
+    <div class="stat-value" id="tp-volumen">—</div>
+    <p class="hint" id="tp-modelo">Sin datos suficientes.</p>
+  </div>
+</div>
+
+<div id="tab-viajes" class="section">
 
   <div class="section-hdr">
     <div>
@@ -515,6 +553,18 @@ select option{background:#fff}
         <div class="form-group">
           <label>RFC Proveedor programa (SAT)</label>
           <input type="text" id="cfg-rfc-proveedor" value="ATI9404219D5" maxlength="13">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Combustibles habilitados</label>
+          <div class="grid-2" style="gap:8px">
+            <label><input type="checkbox" class="cfg-fuel" value="magna" checked> Magna</label>
+            <label><input type="checkbox" class="cfg-fuel" value="premium" checked> Premium</label>
+            <label><input type="checkbox" class="cfg-fuel" value="diesel" checked> Diésel</label>
+            <label><input type="checkbox" class="cfg-fuel" value="gas_lp" checked> Gas LP</label>
+          </div>
+          <span class="hint">Se guarda por usuario y se reutiliza al crear viajes.</span>
         </div>
       </div>
     </div>
@@ -863,7 +913,7 @@ select option{background:#fff}
     </div>
     <div class="form-group">
       <label>Cartas Porte timbradas <span class="req">*</span></label>
-      <select id="fs-viajes" multiple size="5"></select>
+      <select id="fs-viajes" multiple size="5" onchange="autoCartaServicio()"></select>
       <span class="hint">Usa Cmd/Ctrl para seleccionar varias.</span>
     </div>
   </div>
@@ -882,7 +932,7 @@ select option{background:#fff}
   </div>
   <div class="modal-footer">
     <button class="btn btn-ghost" onclick="cerrarModal('modal-factura-servicio')">Cancelar</button>
-    <button class="btn btn-primary" id="btn-guardar-fs" onclick="guardarFacturaServicio()"><i class="fa-solid fa-file-invoice-dollar"></i> Preparar factura</button>
+    <button class="btn btn-primary" id="btn-guardar-fs" onclick="guardarFacturaServicio()"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar factura de servicio</button>
   </div>
 </div>
 </div>
@@ -905,6 +955,7 @@ let PRODUCTOS_SAT = [];
 let VIAJES = [];
 let FACTURAS = [];
 let FACTURAS_SERVICIO = [];
+let CARTAS_FACTURABLES = [];
 let COVOL_RESULT = null;
 let EDIT_ID = null;
 
@@ -912,7 +963,12 @@ const PRODUCTOS_COMERCIALES = [
   { key:'magna', label:'Magna', clave_producto:'PR06', clave_subproducto:'SP1', descripcion:'Gasolina regular Magna' },
   { key:'premium', label:'Premium', clave_producto:'PR07', clave_subproducto:'SP2', descripcion:'Gasolina premium' },
   { key:'diesel', label:'Diésel', clave_producto:'PR05', clave_subproducto:'SP6', descripcion:'Diésel automotriz' },
+  { key:'gas_lp', label:'Gas LP', clave_producto:'PR12', clave_subproducto:'SP46', descripcion:'Gas LP' },
 ];
+function productosHabilitados() {
+  const enabled = CONFIG_DATA.CombustiblesTransporte || ['magna','premium','diesel','gas_lp'];
+  return PRODUCTOS_COMERCIALES.filter(p => enabled.includes(p.key));
+}
 const RFC_RE = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 const CP_RE = /^\d{5}$/;
 const EDITABLE_STATUS = new Set(['borrador', 'programado', 'error']);
@@ -970,11 +1026,12 @@ window.addEventListener('DOMContentLoaded', async () => {
       const d = await sb.json();
       const name = d.display_name || d.email || 'Usuario';
       document.getElementById('topbar-avatar').textContent = name[0].toUpperCase();
+      document.getElementById('topbar-email').textContent = d.email || name;
     }
   } catch(e) {}
 
   // Cargar todo en paralelo
-  await Promise.all([cargarConfig(), cargarCatalogos(), cargarViajes(), cargarProductosSAT()]);
+  await Promise.all([cargarConfig(), cargarCatalogos(), cargarViajes(), cargarProductosSAT(), cargarDashboardTransporte()]);
   cargarFacturas();
 });
 
@@ -986,6 +1043,9 @@ function switchTab(tab) {
   document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
   if (tab === 'catalogos') cargarCatalogos();
   if (tab === 'facturacion') cargarFacturas();
+  if (tab === 'dashboard') cargarDashboardTransporte();
+  if (tab === 'analisis') cargarAnalisisTransporte();
+  if (tab === 'pronostico') cargarPronosticoTransporte();
 }
 
 function switchCatTab(which) {
@@ -1012,6 +1072,32 @@ function toast(msg, type='info') {
 function actionBtn(kind, title, handler, label='') {
   const classes = kind === 'danger' ? 'btn btn-danger' : kind === 'success' ? 'btn btn-success' : 'btn btn-ghost';
   return `<button class="${classes}" title="${title}" style="padding:4px 10px;font-size:11px" onclick="${handler}">${label}</button>`;
+}
+
+async function cargarDashboardTransporte() {
+  const periodo = document.getElementById('filtro-periodo-viajes')?.value || '';
+  const q = periodo ? `?periodo=${periodo}` : '';
+  const d = await api('GET', '/api/tr/dashboard'+q);
+  if (!d) return;
+  document.getElementById('td-viajes').textContent = d.total_viajes ?? '—';
+  document.getElementById('td-timbradas').textContent = d.cartas_timbradas ?? '—';
+  document.getElementById('td-pendientes').textContent = d.pendientes ?? '—';
+  document.getElementById('td-volumen').textContent = `${Number(d.volumen_total||0).toLocaleString('es-MX')} L`;
+  document.getElementById('td-facturacion').textContent = `$${Number(d.facturacion_servicio||0).toLocaleString('es-MX',{minimumFractionDigits:2})}`;
+}
+
+async function cargarAnalisisTransporte() {
+  const d = await api('GET', '/api/tr/analytics');
+  if (!d) return;
+  document.getElementById('ta-rutas').innerHTML = (d.rutas||[]).slice(0,6).map(r => `<div>${r.ruta}: <b>${Number(r.volumen||0).toLocaleString()} L</b></div>`).join('') || 'Sin datos';
+  document.getElementById('ta-productos').innerHTML = (d.productos||[]).slice(0,6).map(p => `<div>${p.producto}: <b>${Number(p.volumen||0).toLocaleString()} L</b></div>`).join('') || 'Sin datos';
+}
+
+async function cargarPronosticoTransporte() {
+  const d = await api('GET', '/api/tr/forecast');
+  if (!d) return;
+  document.getElementById('tp-volumen').textContent = `${Number(d.pronostico_volumen||0).toLocaleString('es-MX')} L`;
+  document.getElementById('tp-modelo').textContent = `Modelo: ${d.modelo || 'sin datos'}`;
 }
 
 // ─── MODAL ──────────────────────────────────────────────
@@ -1054,7 +1140,9 @@ async function cargarConfig() {
   document.getElementById('cfg-clave-inst').value      = c.ClaveInstalacion || '';
   document.getElementById('cfg-num-autotanques').value = VEHICULOS.length || c.NumeroAutotanques || 0;
   document.getElementById('cfg-rfc-proveedor').value   = c.RfcProveedor || 'ATI9404219D5';
-  document.getElementById('topbar-rfc').textContent    = c.RfcContribuyente || '—';
+  document.getElementById('topbar-rfc').textContent    = c.RfcContribuyente ? `RFC ${c.RfcContribuyente}` : 'RFC —';
+  const combustibles = c.CombustiblesTransporte || ['magna','premium','diesel','gas_lp'];
+  document.querySelectorAll('.cfg-fuel').forEach(ch => { ch.checked = combustibles.includes(ch.value); });
   // Pre-llenar permiso en covol
   if (c.NumPermiso) document.getElementById('covol-permiso').value = c.NumPermiso;
   if (c.ClaveInstalacion) document.getElementById('covol-clave-inst').value = c.ClaveInstalacion;
@@ -1081,6 +1169,7 @@ async function guardarConfig() {
     ClaveInstalacion:    document.getElementById('cfg-clave-inst').value.trim(),
     NumeroAutotanques:   VEHICULOS.length,
     RfcProveedor:        rfcProv,
+    CombustiblesTransporte: Array.from(document.querySelectorAll('.cfg-fuel:checked')).map(ch => ch.value),
     Caracter:            'permisionario',
   };
   const r = await api('PUT', '/api/tr/settings', data);
@@ -1409,7 +1498,7 @@ function renderProductosViaje() {
         <div class="form-group">
           <label>Producto transportado <span class="req">*</span></label>
           <select id="prod-tipo-${i}" onchange="actualizarProductoComercial(${i})">
-            ${PRODUCTOS_COMERCIALES.map(p2 => `<option value="${p2.key}" ${p2.key===(p.producto_key||'')?'selected':''}>${p2.label}</option>`).join('')}
+            ${productosHabilitados().map(p2 => `<option value="${p2.key}" ${p2.key===(p.producto_key||'')?'selected':''}>${p2.label}</option>`).join('')}
           </select>
           <span class="hint" id="prod-map-${i}">${productoSatHint(p.producto_key || 'magna')}</span>
         </div>
@@ -1463,7 +1552,7 @@ function quitarProducto(idx) {
 
 function leerProductos() {
   return PRODUCTOS_VIAJE.map((_, i) => {
-    const seleccionado = PRODUCTOS_COMERCIALES.find(p => p.key === (document.getElementById(`prod-tipo-${i}`)?.value || 'magna')) || PRODUCTOS_COMERCIALES[0];
+    const seleccionado = PRODUCTOS_COMERCIALES.find(p => p.key === (document.getElementById(`prod-tipo-${i}`)?.value || 'magna')) || productosHabilitados()[0] || PRODUCTOS_COMERCIALES[0];
     return {
     clave_producto:    seleccionado.clave_producto,
     clave_subproducto: seleccionado.clave_subproducto,
@@ -1613,16 +1702,19 @@ function renderFacturasServicio() {
     t.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div><h3>No hay facturas de servicio en este periodo</h3></div></td></tr>';
     return;
   }
-  t.innerHTML = FACTURAS_SERVICIO.map(f => `
+  t.innerHTML = FACTURAS_SERVICIO.map(f => {
+    const ids = Array.isArray(f.viaje_ids) ? f.viaje_ids : [];
+    return `
     <tr>
       <td class="td-mono">#${f.id}</td>
       <td>${f.nombre_receptor || '—'}</td>
       <td class="td-mono">${f.rfc_receptor || '—'}</td>
-      <td>${Array.isArray(f.viaje_ids) ? f.viaje_ids.length : 0}</td>
+      <td>${ids.length}</td>
       <td style="text-align:right">$${Number(f.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
-      <td><span class="chip chip-blue">${f.status || 'preparada'}</span></td>
+      <td><span class="chip chip-blue">${f.status || 'timbrada'}</span></td>
       <td>${(f.created_at||'').substring(0,10)}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 async function descargarXML(id) {
@@ -1637,11 +1729,30 @@ async function descargarXML(id) {
 function abrirModalFacturaServicio() {
   actualizarSelects();
   const sel = document.getElementById('fs-viajes');
-  const timbrados = VIAJES.filter(v => v.uuid_cfdi && v.status === 'timbrado');
-  sel.innerHTML = timbrados.map(v => `<option value="${v.id}">#${v.id} - ${v.uuid_cfdi.substring(0,8)} - ${v.cp_origen} a ${v.cp_destino}</option>`).join('');
+  api('GET', '/api/tr/cartas-porte-facturables').then(d => {
+    CARTAS_FACTURABLES = d?.cartas || [];
+    sel.innerHTML = CARTAS_FACTURABLES.map(c => `<option value="${c.viaje_id}">#${c.viaje_id} - ${(c.uuid_cfdi||'').substring(0,8)} - ${c.rfc_receptor||'sin RFC'}</option>`).join('');
+    if (CARTAS_FACTURABLES[0]) { sel.value = CARTAS_FACTURABLES[0].viaje_id; autoCartaServicio(); }
+  });
   ['fs-rfc','fs-nombre','fs-cp','fs-subtotal','fs-iva','fs-total'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('fs-concepto').value = 'Servicio de transporte de hidrocarburos';
+  document.getElementById('fs-concepto').value = 'Servicio de transporte de carga correspondiente a la Carta Porte.';
   abrirModal('modal-factura-servicio');
+}
+
+function autoCartaServicio() {
+  const ids = Array.from(document.getElementById('fs-viajes').selectedOptions).map(o => parseInt(o.value));
+  const cartas = CARTAS_FACTURABLES.filter(c => ids.includes(parseInt(c.viaje_id)));
+  const first = cartas[0];
+  if (!first) return;
+  document.getElementById('fs-rfc').value = first.rfc_receptor || '';
+  document.getElementById('fs-nombre').value = first.nombre_receptor || '';
+  document.getElementById('fs-cp').value = first.cp_receptor || '';
+  const sub = cartas.reduce((s,c) => s + Number(c.subtotal||0), 0);
+  const iva = Math.round(sub * 0.16 * 100) / 100;
+  document.getElementById('fs-subtotal').value = sub.toFixed(2);
+  document.getElementById('fs-iva').value = iva.toFixed(2);
+  document.getElementById('fs-total').value = (sub + iva).toFixed(2);
+  document.getElementById('fs-concepto').value = `Servicio de transporte de carga correspondiente a la Carta Porte ${cartas.map(c => c.folio || c.viaje_id).join(', ')}.`;
 }
 
 function autoClienteServicio() {
@@ -1674,8 +1785,8 @@ async function guardarFacturaServicio() {
     rfc_receptor: rfc,
     nombre_receptor: document.getElementById('fs-nombre').value.trim(),
     cp_receptor: cp,
-    regimen_fiscal: clienteSel.options[clienteSel.selectedIndex]?.dataset?.regimen || '601',
-    uso_cfdi: clienteSel.options[clienteSel.selectedIndex]?.dataset?.uso || 'G03',
+    regimen_fiscal: clienteSel.options[clienteSel.selectedIndex]?.dataset?.regimen || (CARTAS_FACTURABLES.find(c => viajes.includes(parseInt(c.viaje_id)))?.regimen_fiscal) || '601',
+    uso_cfdi: clienteSel.options[clienteSel.selectedIndex]?.dataset?.uso || (CARTAS_FACTURABLES.find(c => viajes.includes(parseInt(c.viaje_id)))?.uso_cfdi) || 'G03',
     concepto: document.getElementById('fs-concepto').value.trim() || 'Servicio de transporte de hidrocarburos',
     subtotal: parseFloat(document.getElementById('fs-subtotal').value || 0),
     iva: parseFloat(document.getElementById('fs-iva').value || 0),
@@ -1683,12 +1794,12 @@ async function guardarFacturaServicio() {
   };
   if (!body.viaje_ids.length) { toast('Selecciona al menos una Carta Porte timbrada', 'error'); return; }
   if (!body.rfc_receptor || !body.nombre_receptor) { toast('Cliente receptor requerido', 'error'); return; }
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Preparando...';
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Timbrando factura...';
   const r = await api('POST', '/api/tr/facturas-servicio', body);
-  btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-file-invoice-dollar"></i> Preparar factura';
+  btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-file-invoice-dollar"></i> Timbrar factura de servicio';
   if (r?.ok) {
     cerrarModal('modal-factura-servicio');
-    toast('Factura de servicio preparada', 'success');
+    toast('Factura de servicio timbrada', 'success');
     cargarFacturas();
   }
 }
