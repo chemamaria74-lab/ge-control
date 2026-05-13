@@ -1,149 +1,242 @@
-# Z Control — Controles Volumétricos Anexo 30 SAT
+# Z Control
 
-**Sistema de gestión y reporte de controles volumétricos para distribuidores de Gas LP en México.**
+Sistema web para cumplimiento fiscal y operativo de hidrocarburos en México.
 
-Z Control automatiza la generación del reporte Anexo 30 que exige el SAT a todos los permisionarios de Gas LP — desde la carga de facturas y CFDIs hasta la generación del XML final, con dashboard de inventario, análisis de proveedores y pronóstico de compras.
+Z Control integra controles volumétricos, generación de reportes para SAT, manejo de CFDI, Carta Porte, catálogos operativos y configuración multiempresa. El proyecto está dividido en módulos para Gas LP y Transporte de Hidrocarburos.
 
----
-
-## ¿Qué hace?
+## Módulos
 
 | Módulo | Descripción |
 |---|---|
-| **Procesar** | Carga de Excel/CSV (recepciones) y CFDIs XML/ZIP (entregas). Genera el JSON y XML Anexo 30 listo para enviar al SAT. |
-| **Controles Volumétricos** | Registro manual de autoconsumos, mermas y trasvases. |
-| **Dashboard** | Balance mensual de inventario (Inv. Inicial → Recepciones → Entregas → Autoconsumo → Inv. Final), gráfica de tendencia anual y auditoría de balance. |
-| **Proveedores** | Análisis anual de proveedores: volumen comprado, precio promedio por litro, proveedor más económico, proveedor principal. Pronóstico de compra del mes siguiente. |
-| **Historial** | Consulta de reportes generados, detalle de recepciones/entregas/autoconsumos por periodo, descarga del ZIP oficial. |
-| **Configuración** | Gestión de razones sociales (multi-empresa), instalaciones/plantas (multi-instalación), catálogo de permisos CRE de proveedores/clientes, composición Gas LP (PR12). |
+| Gas LP | Carga de Excel/CSV y CFDI XML/ZIP, generación de JSON/XML Anexo 30, dashboard de inventario, historial de reportes, proveedores y configuración multiempresa/multiinstalación. |
+| Transporte | Gestión de viajes de autotanques, Carta Porte 3.1, Complemento Hidrocarburos, clientes, rutas, vehículos, choferes, control volumétrico mensual y facturación del servicio de transporte. |
 
----
+## Funcionalidad Principal
+
+### Gas LP
+
+- Procesamiento de recepciones y entregas desde Excel, CSV, XML o ZIP.
+- Generación de reportes SAT Anexo 30.
+- Dashboard de inventario mensual.
+- Historial de reportes generados.
+- Catálogo de proveedores y permisos.
+- Manejo de instalaciones y razones sociales.
+- Registro manual de autoconsumos, mermas y trasvases.
+
+### Transporte
+
+- Alta, edición y eliminación de viajes no timbrados.
+- Timbrado de Carta Porte para viajes programados.
+- Captura de fecha/hora de salida con autollenado de fecha actual.
+- Rutas con distancia y duración estimada.
+- Cálculo automático de hora de llegada al seleccionar ruta.
+- Selección simple de producto transportado: Magna, Premium y Diésel.
+- Mapeo interno a claves SAT/Anexo 30.
+- Catálogos de clientes, rutas, vehículos y choferes.
+- Facturación del servicio al cliente relacionando una o varias Cartas Porte.
+- Generación de JSON/ZIP de control volumétrico para transporte.
+- Validaciones básicas de RFC y código postal para reducir rechazos.
 
 ## Stack
 
-- **Backend:** Python 3.11 · FastAPI · Gunicorn + Uvicorn
-- **Base de datos / Auth:** Supabase (PostgreSQL + Supabase Auth)
-- **Frontend:** HTML/CSS/JS vanilla — single-page app servida desde FastAPI
-- **Deploy:** Render (declarativo vía `render.yaml`)
-- **Dependencias clave:** `pandas`, `openpyxl`, `lxml`, `pydantic v2`, `supabase-py`
+- Backend: Python 3.11+, FastAPI, Gunicorn, Uvicorn
+- Base de datos y Auth: Supabase, PostgreSQL, Supabase Auth
+- Frontend: HTML, CSS y JavaScript vanilla
+- Deploy: Render
+- Dependencias principales: `pandas`, `openpyxl`, `lxml`, `pydantic v2`, `supabase-py`, `requests`, `jinja2`
 
----
+## Estructura
 
-## Estructura del proyecto
-
-```
-z-control/
-├── main.py                  # FastAPI app, rutas HTML, CORS, health check
-├── supabase_config.py       # Cliente Supabase singleton
-├── pyproject.toml           # Dependencias (uv)
-├── render.yaml              # Deploy declarativo en Render
+```text
+z-control-program/
+├── main.py
+├── supabase_config.py
+├── pyproject.toml
+├── render.yaml
 ├── routes/
-│   ├── upload.py            # Carga Excel/CSV → records
-│   ├── cfdi.py              # Procesamiento CFDI XML/ZIP → JSON + XML Anexo 30
-│   ├── analytics.py         # Dashboard, balance anual, proveedores, forecast
-│   ├── facilities.py        # CRUD instalaciones (user_facilities)
-│   ├── movimientos.py       # Autoconsumos, mermas, trasvases
-│   ├── history.py           # Historial de reportes por periodo
-│   ├── providers.py         # Catálogo de permisos CRE
-│   ├── settings.py          # Configuración por perfil (RFC, composición PR12)
-│   ├── perfiles.py          # Multi-empresa (razones sociales)
-│   ├── auth.py              # Login / sesión via Supabase Auth
-│   ├── facturas.py          # Módulo transporte (Carta Porte — en desarrollo)
-│   └── admin.py             # Panel de administración
+│   ├── auth.py
+│   ├── upload.py
+│   ├── cfdi.py
+│   ├── settings.py
+│   ├── analytics.py
+│   ├── facilities.py
+│   ├── history.py
+│   ├── providers.py
+│   ├── movimientos.py
+│   ├── perfiles.py
+│   ├── facturas.py
+│   ├── transporte.py
+│   └── admin.py
 ├── services/
-│   ├── sat_transformer.py   # Motor principal: genera JSON/XML Anexo 30
-│   ├── cfdi_parser.py       # Parser de CFDIs XML (recepciones y entregas)
-│   ├── transformer.py       # Transformación Excel/CSV → records
-│   ├── database.py          # Operaciones Supabase (facilities, records, reports)
-│   ├── validator.py         # Validación RFC, permisos CRE
-│   └── parser.py            # Utilidades de parsing
+│   ├── sat_transformer.py
+│   ├── cfdi_parser.py
+│   ├── transformer.py
+│   ├── transport_builder.py
+│   ├── transport_transformer.py
+│   ├── product_catalog.py
+│   ├── cne_validator.py
+│   ├── sw_sapien.py
+│   ├── database.py
+│   └── validator.py
+├── models/
+│   ├── schemas.py
+│   └── transport_schemas.py
 ├── templates/
-│   ├── app.html             # Single-page app (UI completa)
-│   ├── login.html           # Pantalla de login
-│   └── choice.html          # Selección de módulo (Gas LP / Transporte)
+│   ├── choice.html
+│   ├── login.html
+│   ├── app.html
+│   └── transporte.html
+├── static/
+│   └── img/
+│       ├── z_logo.png
+│       └── zlogo.png
+├── migrations/
+│   └── transporte_urgentes_20260513.sql
+├── tests/
 └── utils/
-    ├── rfc_validator.py     # Validación formato RFC SAT
-    └── json_schema.py       # Schema del JSON Anexo 30
 ```
 
----
+## Variables de Entorno
 
-## Variables de entorno
-
-Crea un archivo `.env` en la raíz (o configura en Render → Environment):
+Configura estas variables en Render o en un archivo `.env` local.
 
 ```env
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_KEY=your-service-role-key
 ```
 
-> **Nunca** subas el `.env` al repositorio. Ya está en `.gitignore`.
+Para timbrado con PAC/SW Sapien, configurar también las variables que correspondan en `services/sw_sapien.py` o en el entorno de Render según la integración activa.
 
----
+No subas `.env` al repositorio.
 
-## Correr en local
+## Base de Datos
+
+El proyecto usa Supabase con tablas para Gas LP y tablas separadas para Transporte.
+
+### Tablas generales
+
+| Tabla | Uso |
+|---|---|
+| `records` | Movimientos de Gas LP |
+| `reports` | Reportes generados |
+| `user_facilities` | Instalaciones y plantas |
+| `providers` | Proveedores y permisos |
+| `perfiles_empresa` | Razones sociales |
+| `zc_settings` | Configuración por perfil |
+| `user_sections` | Acceso por módulo |
+
+### Tablas de Transporte
+
+| Tabla | Uso |
+|---|---|
+| `tr_choferes` | Catálogo de operadores |
+| `tr_vehiculos` | Vehículos y autotanques |
+| `tr_rutas` | Rutas con origen, destino, distancia y duración |
+| `tr_clientes` | Clientes/receptores |
+| `tr_viajes` | Viajes de transporte |
+| `tr_cfdi` | Cartas Porte/CFDI timbrados |
+| `tr_covol_reports` | Reportes de control volumétrico transporte |
+| `tr_settings` | Configuración del módulo transporte |
+| `tr_facturas_servicio` | Facturas del servicio de transporte |
+
+## Migraciones
+
+Las migraciones SQL se guardan en la carpeta `migrations`.
+
+Archivo actual importante:
+
+```text
+migrations/transporte_urgentes_20260513.sql
+```
+
+Esta migración agrega:
+
+- Duración estimada en rutas.
+- Duración estimada en viajes.
+- Estatus `borrador` y `error` para viajes.
+- Tabla `tr_facturas_servicio`.
+- Políticas RLS para facturas de servicio.
+
+Si ya ejecutaste la migración en Supabase, de todos modos conviene mantener el archivo en GitHub como historial técnico del proyecto.
+
+## Correr en Local
 
 ```bash
-# 1. Instalar dependencias (requiere uv)
 pip install uv
 uv sync
-
-# 2. Crear .env con tus credenciales de Supabase
-
-# 3. Arrancar
-python main.py
-# → http://localhost:8000
 ```
 
-O con uvicorn directamente:
+Crear `.env` con credenciales de Supabase:
+
+```env
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_KEY=your-service-role-key
+```
+
+Arrancar:
 
 ```bash
-uvicorn main:app --reload --port 8000
+uv run uvicorn main:app --reload --port 8000
 ```
 
----
+Abrir:
+
+```text
+http://localhost:8000
+```
 
 ## Deploy en Render
 
-El archivo `render.yaml` ya tiene todo configurado. Solo:
+1. Subir cambios a GitHub.
+2. Conectar el repo en Render.
+3. Configurar variables de entorno.
+4. Ejecutar migraciones pendientes en Supabase.
+5. Hacer deploy.
 
-1. Conecta el repo en Render → **New → Blueprint**
-2. Agrega las variables de entorno `SUPABASE_URL` y `SUPABASE_KEY`
-3. Deploy automático en cada push a `main`
+El archivo `render.yaml` contiene la configuración base del servicio.
 
-Health check disponible en `/health`.
+Health check:
 
----
+```text
+/health
+```
 
-## Base de datos (Supabase)
+## Flujo Recomendado para Transporte
 
-Tablas principales:
+1. Configurar datos fiscales del contribuyente.
+2. Registrar vehículos/autotanques.
+3. Registrar choferes.
+4. Registrar clientes.
+5. Crear rutas con duración estimada.
+6. Crear viaje.
+7. Revisar fecha/hora de salida y llegada calculada.
+8. Seleccionar producto transportado.
+9. Timbrar Carta Porte.
+10. Emitir factura del servicio relacionando una o varias Cartas Porte.
+11. Generar JSON/ZIP de control volumétrico mensual.
 
-| Tabla | Descripción |
-|---|---|
-| `records` | Todos los movimientos (recepciones, entregas, autoconsumos) |
-| `reports` | Reportes generados por periodo e instalación |
-| `user_facilities` | Instalaciones/plantas con su config técnica (tanque, medidor, geo) |
-| `providers` | Catálogo de permisos CRE de proveedores y clientes |
-| `perfiles_empresa` | Razones sociales (multi-empresa por usuario) |
-| `zc_settings` | Configuración por perfil (RFC, composición PR12) |
-| `user_sections` | Control de acceso por módulo (gas_lp / transporte) |
+## Validaciones y Cumplimiento
 
-> El schema completo está disponible en el panel de Supabase del proyecto.
+El sistema incluye validaciones básicas para:
 
-**Trigger importante:** `prevent_modify_reported_period` en la tabla `records` — bloquea modificaciones a registros de periodos ya reportados al SAT, excepto autoconsumos y movimientos manuales.
+- Formato de RFC.
+- Código postal de 5 dígitos.
+- Producto transportado y claves internas SAT/Anexo 30.
+- Viajes editables solo antes de timbrar.
+- Facturación de servicio solo con Cartas Porte timbradas.
 
----
+La validación final de CFDI, Carta Porte, PAC y reglas SAT depende del timbrado y de los catálogos oficiales vigentes.
 
-## Roadmap
+## Pruebas
 
-- [ ] **Integración hardware** — conexión directa a sensores de tanques, pipas y dispensarios vía Modbus/MQTT para eliminar captura manual de inventario
-- [ ] **Facturación desde plataforma** — emisión de CFDI directo desde Z Control al momento de la entrega (integración con PAC/timbrado)
-- [ ] **Módulo Transporte** — controles volumétricos y Carta Porte para empresas transportistas de Gas LP que reportan al SAT sin inventario de tanque
-- [ ] **Anti-robo en tiempo real** — detección de movimientos de gas sin registro cruzando lecturas de hardware vs CFDIs emitidos
+Ejecutar:
 
----
+```bash
+uv run --with pytest pytest
+```
+
+Nota: algunas pruebas heredadas pueden requerir ajustes si el módulo correspondiente cambió de API interna.
 
 ## Licencia
 
-Propietario — © Z Control. Todos los derechos reservados.
+Propietario. Todos los derechos reservados.
