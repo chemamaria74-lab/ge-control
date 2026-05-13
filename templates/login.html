@@ -187,10 +187,11 @@
         });
         const data = await res.json();
         if (data.success) {
-          localStorage.setItem('sat_token', data.token);
+          // sat_token → Gas LP (app.html) | zc_token → Transporte (transporte.html)
+          localStorage.setItem('sat_token',   data.token);
+          localStorage.setItem('zc_token',    data.token);
           localStorage.setItem('sat_user_id', data.user_id);
-          localStorage.setItem('sat_modulo', modulo);
-          // Pasar el idioma elegido al /app para que se sirva en el idioma correcto
+          localStorage.setItem('sat_modulo',  modulo);
           const _lang = localStorage.getItem('zc_lang') || 'es';
           window.location.href = data.modulo === 'transporte'
             ? '/transporte'
