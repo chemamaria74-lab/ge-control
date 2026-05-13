@@ -159,9 +159,11 @@ def _editable_viaje(status: str) -> bool:
 
 def _validar_rfc_cp_config(data: dict) -> None:
     for campo in ("RfcContribuyente", "RfcProveedor"):
-        valor = str(data.get(campo, "") or "").strip().upper()
+        valor = re.sub(r"[^A-Z0-9Ñ&]", "", str(data.get(campo, "") or "").upper())
+        if valor:
+            data[campo] = valor
         if valor and not _RFC_RE.match(valor):
-            raise HTTPException(400, f"{campo} tiene formato inválido para SAT.")
+            raise HTTPException(400, f"{campo} tiene formato inválido para SAT: {valor}.")
     cp = str(data.get("CodigoPostal", "") or "").strip()
     if cp and not _CP_RE.match(cp):
         raise HTTPException(400, "CodigoPostal debe tener 5 dígitos.")
@@ -1301,7 +1303,10 @@ async def update_settings_transporte(
     now_iso = datetime.now(timezone.utc).isoformat()
 
     # Limpiar campos sensibles
-    data_limpia = {k: v for k, v in data.items() if isinstance(v, (str, int, float, bool))}
+    data_limpia = {
+        k: v for k, v in data.items()
+        if isinstance(v, (str, int, float, bool, list, dict))
+    }
     _validar_rfc_cp_config(data_limpia)
 
     try:
