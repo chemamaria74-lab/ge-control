@@ -48,6 +48,7 @@ else:
 
 SW_TOKEN_URL  = f"{BASE_URL}/v2/security/authenticate"
 SW_STAMP_URL  = f"{BASE_URL}/cfdi40/stamp/v1"
+SW_JSON_ISSUE_URL = f"{BASE_URL}/v3/cfdi33/issue/json/v4"
 SW_CANCEL_URL = f"{BASE_URL}/cfdi40/cancel"
 
 # Credenciales vía variables de entorno
@@ -257,6 +258,34 @@ def timbrar_cfdi(xml_str: str) -> dict:
     except Exception as e:
         logger.error("timbrar_cfdi error: %s", e)
         return {"uuid": "", "xml_timbrado": "", "pdf_url": "", "error": str(e)}
+
+
+def emitir_timbrar_json(cfdi_dict: dict) -> dict:
+    """
+    Envia un CFDI JSON a SW Sapien usando Emision Timbrado JSON.
+    SW documenta JSON directo con Content-Type application/jsontoxml.
+    """
+    try:
+        token = _get_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/jsontoxml",
+        }
+        resp = requests.post(SW_JSON_ISSUE_URL, json=cfdi_dict, headers=headers, timeout=45)
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"status": "error", "message": resp.text}
+        if resp.status_code >= 400 or data.get("status") != "success":
+            return {
+                "ok": False,
+                "error": data.get("message") or data.get("messageDetail") or resp.text,
+                "raw": data,
+            }
+        return {"ok": True, "data": data.get("data") or {}, "raw": data}
+    except Exception as e:
+        logger.error("emitir_timbrar_json error: %s", e)
+        return {"ok": False, "error": str(e)}
 
 
 # ── Cancelación ───────────────────────────────────────────────────────────────

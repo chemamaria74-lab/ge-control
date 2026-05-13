@@ -376,7 +376,7 @@ def build_cfdi_transporte(
             "Rfc":                     (viaje.rfc_receptor or "XAXX010101000").strip().upper(),
             "Nombre":                  (viaje.nombre_receptor or "PÚBLICO EN GENERAL").strip(),
             "DomicilioFiscalReceptor": (viaje.cp_receptor or "20000").strip(),
-            "RegimenFiscalReceptor":   "616",
+            "RegimenFiscalReceptor":   getattr(viaje, "regimen_fiscal_receptor", "601") or "601",
             "UsoCFDI":                 (viaje.uso_cfdi or "S01"),
         },
         "Conceptos": conceptos_list,
