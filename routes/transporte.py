@@ -54,6 +54,7 @@ from supabase_config import get_supabase, get_supabase_for_user
 from services.product_catalog import get_all_productos, validar_producto_completo
 from services.cne_validator import validar_num_permiso
 from services.transport_builder import build_cfdi_transporte, build_cfdi_cancelacion_transporte
+from services.service_invoice_builder import build_cfdi_servicio_transporte, IVA_TASA, money
 from services.transport_transformer import (
     build_transport_covol, save_transport_covol, transport_covol_to_json
 )
@@ -63,7 +64,7 @@ from models.transport_schemas import (
     GenerarCovolRequest, ChoferTransporteCreate, VehiculoTransporteCreate,
     RutaTransporteCreate, ClienteTransporteCreate,
 )
-from services.sw_sapien import _get_token, timbrar_cfdi, cancelar_cfdi
+from services.sw_sapien import timbrar_cfdi, cancelar_cfdi, emitir_timbrar_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -73,6 +74,7 @@ router = APIRouter()
 _TBL_VIAJES    = "tr_viajes"
 _TBL_CFDI      = "tr_cfdi"
 _TBL_FACT_SERV = "tr_facturas_servicio"
+_TBL_FACT_SERV_CARTAS = "tr_facturas_servicio_cartas"
 _TBL_CHOFERES  = "tr_choferes"
 _TBL_VEHICULOS = "tr_vehiculos"
 _TBL_RUTAS     = "tr_rutas"
@@ -101,10 +103,9 @@ def _auth(authorization: str) -> tuple[str, str]:
     # Verificar sección transporte
     try:
         sb = get_supabase_for_user(token)
-        res = sb.table("user_sections").select("section").eq("user_id", uid).limit(1).execute()
-        rows = res.data or []
-        seccion = rows[0].get("section", "") if rows else ""
-        if seccion != MODULO:
+        res = sb.table("user_sections").select("section").eq("user_id", uid).execute()
+        secciones = {(r.get("section") or "").strip().lower() for r in (res.data or [])}
+        if MODULO not in secciones:
             raise HTTPException(403, "Este usuario no tiene acceso al módulo de transporte.")
     except HTTPException:
         raise
@@ -166,6 +167,17 @@ def _validar_rfc_cp_config(data: dict) -> None:
         raise HTTPException(400, "CodigoPostal debe tener 5 dígitos.")
 
 
+def _validar_datos_cfdi_receptor(rfc: str, regimen: str, cp: str, uso_cfdi: str) -> None:
+    if not _RFC_RE.match((rfc or "").strip().upper()):
+        raise HTTPException(400, "RFC receptor inválido para CFDI 4.0.")
+    if not _CP_RE.match((cp or "").strip()):
+        raise HTTPException(400, "Código postal receptor inválido para CFDI 4.0.")
+    if not str(regimen or "").strip():
+        raise HTTPException(400, "Régimen fiscal receptor requerido para CFDI 4.0.")
+    if not str(uso_cfdi or "").strip():
+        raise HTTPException(400, "Uso CFDI requerido para CFDI 4.0.")
+
+
 def _ruta_payload(payload: RutaTransporteCreate) -> dict:
     return {
         "nombre":        payload.nombre.strip(),
@@ -197,6 +209,7 @@ def _viaje_row(uid: str, payload: ViajeCreate, productos_json: str, volumen_tota
         "rfc_receptor":         payload.rfc_receptor,
         "nombre_receptor":      payload.nombre_receptor,
         "cp_receptor":          payload.cp_receptor,
+        "regimen_fiscal_receptor": getattr(payload, "regimen_fiscal_receptor", "601"),
         "uso_cfdi":             payload.uso_cfdi,
         "num_permiso_cne":      payload.num_permiso_cne,
         "distancia_km":         payload.distancia_km,
@@ -507,6 +520,7 @@ async def timbrar_viaje(
         rfc_receptor=       viaje_row.get("rfc_receptor", ""),
         nombre_receptor=    viaje_row.get("nombre_receptor", ""),
         cp_receptor=        viaje_row.get("cp_receptor", "20000"),
+        regimen_fiscal_receptor= viaje_row.get("regimen_fiscal_receptor", "601"),
         uso_cfdi=           viaje_row.get("uso_cfdi", "S01"),
         num_permiso_cne=    viaje_row.get("num_permiso_cne", ""),
         distancia_km=       float(viaje_row.get("distancia_km") or 1.0),
@@ -521,34 +535,13 @@ async def timbrar_viaje(
         logger.error("Error inesperado construyendo CFDI viaje %s: %s", viaje_id, e)
         raise HTTPException(500, f"Error interno al construir CFDI: {e}")
 
-    # Convertir a JSON para SW Sapien (Emisión Timbrado JSON)
-    cfdi_json_str = json.dumps(cfdi_dict, ensure_ascii=False)
+    # Timbrar via SW Sapien con Emision Timbrado JSON oficial.
+    resultado_sw = emitir_timbrar_json(cfdi_dict)
+    if not resultado_sw.get("ok"):
+        err_msg = resultado_sw.get("error") or "Error desconocido"
+        raise HTTPException(400, f"SW Sapien rechazó la Carta Porte: {err_msg}")
 
-    # Timbrar via SW Sapien
-    import base64
-    import requests as _requests
-    from services.sw_sapien import _get_token, BASE_URL
-
-    try:
-        sw_token = _get_token()
-        json_b64 = base64.b64encode(cfdi_json_str.encode("utf-8")).decode("utf-8")
-        sw_url   = f"{BASE_URL}/cfdi40/stamp/json/v4"
-        headers  = {
-            "Authorization": f"Bearer {sw_token}",
-            "Content-Type":  "application/json",
-        }
-        resp = _requests.post(sw_url, json={"json": json_b64}, headers=headers, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        logger.error("Error al timbrar viaje %s via SW Sapien: %s", viaje_id, e)
-        raise HTTPException(400, f"Error en timbrado SW Sapien: {e}")
-
-    if data.get("status") != "success":
-        err_msg = data.get("message") or data.get("messageDetail") or "Error desconocido"
-        raise HTTPException(400, f"SW Sapien rechazó el CFDI: {err_msg}")
-
-    result_data  = data.get("data", {}) or {}
+    result_data  = resultado_sw.get("data", {}) or {}
     uuid_sat     = result_data.get("uuid", "")
     xml_timbrado = result_data.get("cfdi", "")
     pdf_url      = result_data.get("pdfUrl", "")
@@ -671,6 +664,129 @@ async def listar_facturas_servicio(
         raise HTTPException(500, f"Error al listar facturas de servicio: {e}")
 
 
+@router.get("/tr/dashboard")
+async def dashboard_transporte(
+    periodo: Optional[str] = Query(None),
+    authorization: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    periodo = periodo or datetime.now(timezone.utc).strftime("%Y-%m")
+    viajes = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).like("fecha_hora_salida", f"{periodo}%").execute().data or []
+    facturas = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", uid).like("created_at", f"{periodo}%").execute().data or []
+    return JSONResponse({
+        "ok": True,
+        "periodo": periodo,
+        "total_viajes": len(viajes),
+        "cartas_timbradas": len([v for v in viajes if v.get("uuid_cfdi")]),
+        "pendientes": len([v for v in viajes if not v.get("uuid_cfdi")]),
+        "volumen_total": round(sum(float(v.get("volumen_total_litros") or 0) for v in viajes), 2),
+        "facturacion_servicio": round(sum(float(f.get("total") or 0) for f in facturas), 2),
+    })
+
+
+@router.get("/tr/analytics")
+async def analytics_transporte(
+    authorization: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    rows = _sb(token).table(_TBL_VIAJES).select("*").eq("user_id", uid).execute().data or []
+    por_ruta = {}
+    por_producto = {}
+    for v in rows:
+        ruta = f"{v.get('cp_origen') or '?'}-{v.get('cp_destino') or '?'}"
+        por_ruta.setdefault(ruta, {"ruta": ruta, "viajes": 0, "volumen": 0.0})
+        por_ruta[ruta]["viajes"] += 1
+        por_ruta[ruta]["volumen"] += float(v.get("volumen_total_litros") or 0)
+        try:
+            productos = json.loads(v.get("productos_json") or "[]")
+        except Exception:
+            productos = []
+        for p in productos:
+            nombre = p.get("descripcion") or p.get("clave_producto") or "Producto"
+            por_producto.setdefault(nombre, {"producto": nombre, "viajes": 0, "volumen": 0.0})
+            por_producto[nombre]["viajes"] += 1
+            por_producto[nombre]["volumen"] += float(p.get("volumen_litros") or 0)
+    return JSONResponse({
+        "ok": True,
+        "rutas": sorted(por_ruta.values(), key=lambda x: x["volumen"], reverse=True),
+        "productos": sorted(por_producto.values(), key=lambda x: x["volumen"], reverse=True),
+    })
+
+
+@router.get("/tr/forecast")
+async def forecast_transporte(
+    authorization: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    rows = _sb(token).table(_TBL_VIAJES).select("fecha_hora_salida,volumen_total_litros").eq("user_id", uid).order("fecha_hora_salida").execute().data or []
+    por_mes = {}
+    for r in rows:
+        periodo = (r.get("fecha_hora_salida") or "")[:7]
+        if len(periodo) == 7:
+            por_mes[periodo] = por_mes.get(periodo, 0.0) + float(r.get("volumen_total_litros") or 0)
+    series = [por_mes[k] for k in sorted(por_mes)]
+    if not series:
+        return JSONResponse({"ok": True, "modelo": "sin_datos", "pronostico_volumen": 0, "periodos": []})
+    prom = sum(series[-3:]) / min(len(series), 3)
+    if len(series) >= 2:
+        tendencia = (series[-1] - series[0]) / max(len(series) - 1, 1)
+    else:
+        tendencia = 0.0
+    pronostico = max(round(prom + tendencia, 2), 0)
+    return JSONResponse({"ok": True, "modelo": "promedio_movil_3m_con_tendencia", "pronostico_volumen": pronostico, "periodos": sorted(por_mes), "volumenes": series})
+
+
+@router.get("/tr/cartas-porte-facturables")
+async def listar_cartas_porte_facturables(
+    authorization: str = Header(default=""),
+):
+    """Cartas Porte timbradas que todavia no han sido usadas en factura de servicio."""
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    try:
+        fact_res = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid).execute()
+        facturados = {int(r.get("viaje_id")) for r in (fact_res.data or []) if r.get("viaje_id")}
+    except Exception:
+        facturados = set()
+    try:
+        cfdi_res = sb.table(_TBL_CFDI).select("*").eq("user_id", uid).eq("status", "Vigente").order("fecha_timbrado", desc=True).execute()
+        cfdis = [c for c in (cfdi_res.data or []) if int(c.get("viaje_id") or 0) not in facturados]
+        viajes_ids = [int(c.get("viaje_id")) for c in cfdis if c.get("viaje_id")]
+        viajes_map = {}
+        if viajes_ids:
+            v_res = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).in_("id", viajes_ids).execute()
+            viajes_map = {int(v["id"]): v for v in (v_res.data or [])}
+        clientes_res = sb.table(_TBL_CLIENTES).select("*").eq("user_id", uid).eq("activo", True).execute()
+        clientes = clientes_res.data or []
+        clientes_by_rfc = {str(c.get("rfc") or "").upper(): c for c in clientes}
+        items = []
+        for cfdi in cfdis:
+            viaje = viajes_map.get(int(cfdi.get("viaje_id") or 0), {})
+            cliente = clientes_by_rfc.get(str(viaje.get("rfc_receptor") or cfdi.get("rfc_receptor") or "").upper(), {})
+            subtotal = round(float(cfdi.get("importe_total") or 0), 2)
+            iva = round(subtotal * float(IVA_TASA), 2)
+            items.append({
+                "viaje_id": cfdi.get("viaje_id"),
+                "cfdi_id": cfdi.get("id"),
+                "uuid_cfdi": cfdi.get("uuid_sat"),
+                "id_ccp": cfdi.get("id_ccp"),
+                "folio": cfdi.get("id_ccp") or cfdi.get("uuid_sat"),
+                "cliente_id": cliente.get("id"),
+                "rfc_receptor": cliente.get("rfc") or viaje.get("rfc_receptor") or cfdi.get("rfc_receptor"),
+                "nombre_receptor": cliente.get("nombre") or viaje.get("nombre_receptor"),
+                "cp_receptor": cliente.get("cp") or viaje.get("cp_receptor"),
+                "regimen_fiscal": cliente.get("regimen_fiscal") or "601",
+                "uso_cfdi": cliente.get("uso_cfdi") or viaje.get("uso_cfdi") or "G03",
+                "subtotal": subtotal,
+                "iva": iva,
+                "total": round(subtotal + iva, 2),
+            })
+        return JSONResponse({"ok": True, "cartas": items})
+    except Exception as e:
+        raise HTTPException(500, f"Error al listar Cartas Porte facturables: {e}")
+
+
 @router.post("/tr/facturas-servicio")
 async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: str = Header(default="")):
     """
@@ -680,7 +796,8 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     uid, token = _auth(authorization)
     sb = _sb(token)
 
-    viajes_res = sb.table(_TBL_VIAJES).select("id,status,uuid_cfdi,id_ccp").eq("user_id", uid).in_("id", payload.viaje_ids).execute()
+    _validar_datos_cfdi_receptor(payload.rfc_receptor, payload.regimen_fiscal, payload.cp_receptor, payload.uso_cfdi)
+    viajes_res = sb.table(_TBL_VIAJES).select("id,status,uuid_cfdi,id_ccp,rfc_receptor,nombre_receptor,cp_receptor,uso_cfdi").eq("user_id", uid).in_("id", payload.viaje_ids).execute()
     viajes = viajes_res.data or []
     encontrados = {int(v["id"]) for v in viajes}
     faltantes = [vid for vid in payload.viaje_ids if vid not in encontrados]
@@ -689,6 +806,54 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     no_timbrados = [v["id"] for v in viajes if not v.get("uuid_cfdi")]
     if no_timbrados:
         raise HTTPException(400, f"Para facturar el servicio, primero timbra la Carta Porte de los viajes: {no_timbrados}")
+    try:
+        ya_res = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid).in_("viaje_id", payload.viaje_ids).execute()
+        ya = [r.get("viaje_id") for r in (ya_res.data or [])]
+        if ya:
+            raise HTTPException(400, f"Estas Cartas Porte ya tienen factura de servicio: {ya}")
+    except HTTPException:
+        raise
+    except Exception:
+        # Compatibilidad con bases que aun no tienen la tabla de control.
+        existentes = sb.table(_TBL_FACT_SERV).select("viaje_ids").eq("user_id", uid).execute().data or []
+        usados = set()
+        for f in existentes:
+            vals = f.get("viaje_ids") or []
+            if isinstance(vals, list):
+                usados.update(int(v) for v in vals if str(v).isdigit())
+        repetidos = [v for v in payload.viaje_ids if v in usados]
+        if repetidos:
+            raise HTTPException(400, f"Estas Cartas Porte ya tienen factura de servicio: {repetidos}")
+
+    settings = _settings_transporte(uid, token)
+    emisor = {
+        "rfc": settings.get("RfcContribuyente", ""),
+        "nombre": settings.get("DescripcionInstalacion", ""),
+        "regimen_fiscal": settings.get("RegimenFiscal", "601"),
+        "domicilio_fiscal": settings.get("CodigoPostal", ""),
+    }
+    if not emisor["rfc"] or not emisor["nombre"] or not emisor["domicilio_fiscal"]:
+        raise HTTPException(400, "Configura RFC, razón social y código postal del contribuyente antes de facturar.")
+    receptor = {
+        "rfc": payload.rfc_receptor,
+        "nombre": payload.nombre_receptor,
+        "cp": payload.cp_receptor,
+        "regimen_fiscal": payload.regimen_fiscal,
+        "uso_cfdi": payload.uso_cfdi,
+    }
+    cfdi_dict = build_cfdi_servicio_transporte(
+        emisor=emisor,
+        receptor=receptor,
+        cartas_porte=viajes,
+        subtotal=payload.subtotal,
+        forma_pago=payload.forma_pago,
+        metodo_pago=payload.metodo_pago,
+        uso_cfdi=payload.uso_cfdi,
+    )
+    sw = emitir_timbrar_json(cfdi_dict)
+    if not sw.get("ok"):
+        raise HTTPException(400, f"SW Sapien rechazó la factura de servicio: {sw.get('error')}")
+    sw_data = sw.get("data") or {}
 
     now_iso = datetime.now(timezone.utc).isoformat()
     row = {
@@ -711,12 +876,23 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "forma_pago":      payload.forma_pago,
         "metodo_pago":     payload.metodo_pago,
         "moneda":          payload.moneda,
-        "status":          "preparada",
+        "uuid_sat":        sw_data.get("uuid", ""),
+        "xml_content":     sw_data.get("cfdi", ""),
+        "pdf_url":         sw_data.get("pdfUrl", ""),
+        "status":          "timbrada",
         "created_at":      now_iso,
     }
     try:
         res = sb.table(_TBL_FACT_SERV).insert(row).execute()
-        return JSONResponse({"ok": True, "id": res.data[0]["id"] if res.data else None, "status": "preparada"})
+        factura_id = res.data[0]["id"] if res.data else None
+        try:
+            sb.table(_TBL_FACT_SERV_CARTAS).insert([
+                {"user_id": uid, "factura_servicio_id": factura_id, "viaje_id": vid, "created_at": now_iso}
+                for vid in payload.viaje_ids
+            ]).execute()
+        except Exception as e:
+            logger.warning("No se pudo registrar bloqueo de doble factura: %s", e)
+        return JSONResponse({"ok": True, "id": factura_id, "status": "timbrada", "uuid_sat": sw_data.get("uuid", "")})
     except Exception as e:
         raise HTTPException(500, f"Error al crear factura de servicio: {e}")
 

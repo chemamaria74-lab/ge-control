@@ -111,6 +111,42 @@ def _coef_variacion(valores: list) -> Optional[float]:
     return round((varianza ** 0.5 / media) * 100, 2)
 
 
+def _mae(real: list[float], pred: list[float]) -> float:
+    pares = [(r, p) for r, p in zip(real, pred) if p is not None]
+    if not pares:
+        return 999999999.0
+    return round(sum(abs(r - p) for r, p in pares) / len(pares), 2)
+
+
+def _evaluar_modelos_forecast(valores: list[float]) -> dict:
+    if not valores:
+        return {"modelo": "sin_datos", "forecast": 0.0, "modelos": []}
+    modelos = []
+    # Promedio movil 3 periodos
+    pred_ma = []
+    for i in range(len(valores)):
+        hist = valores[max(0, i - 3):i]
+        pred_ma.append(sum(hist) / len(hist) if hist else None)
+    forecast_ma = sum(valores[-3:]) / min(3, len(valores))
+    modelos.append({"modelo": "promedio_movil_3m", "mae": _mae(valores, pred_ma), "forecast": round(forecast_ma, 2)})
+    # Suavizamiento exponencial simple
+    alpha = 0.45
+    pred_es = [None]
+    level = valores[0]
+    for v in valores[1:]:
+        pred_es.append(level)
+        level = alpha * v + (1 - alpha) * level
+    modelos.append({"modelo": "suavizamiento_exponencial", "mae": _mae(valores, pred_es), "forecast": round(level, 2)})
+    # Regresion lineal
+    pendiente = _pendiente_lineal(valores)
+    intercepto = (sum(valores) / len(valores)) - pendiente * ((len(valores) - 1) / 2)
+    pred_lr = [intercepto + pendiente * i for i in range(len(valores))]
+    forecast_lr = max(intercepto + pendiente * len(valores), 0)
+    modelos.append({"modelo": "regresion_lineal", "mae": _mae(valores, pred_lr), "forecast": round(forecast_lr, 2)})
+    elegido = sorted(modelos, key=lambda m: m["mae"])[0]
+    return {"modelo": elegido["modelo"], "forecast": elegido["forecast"], "modelos": modelos}
+
+
 @router.get("/analytics/ventas")
 async def get_ventas_analytics(
     year:          int           = Query(default=None),
@@ -266,13 +302,17 @@ async def get_proveedores_analytics(
             proveedores[rfc] = {
                 "rfc": rfc, "nombre": nom,
                 "volumen_total": 0.0, "importe_total": 0.0,
-                "por_mes": [0.0] * 12,
+                "por_mes": [0.0] * 12, "importe_por_mes": [0.0] * 12,
+                "num_compras": 0,
             }
         proveedores[rfc]["volumen_total"] = round(proveedores[rfc]["volumen_total"] + vol, 2)
         proveedores[rfc]["importe_total"] = round(proveedores[rfc]["importe_total"] + imp, 2)
+        proveedores[rfc]["num_compras"] += 1
         if 1 <= mes <= 12:
             proveedores[rfc]["por_mes"][mes - 1] = round(
                 proveedores[rfc]["por_mes"][mes - 1] + vol, 2)
+            proveedores[rfc]["importe_por_mes"][mes - 1] = round(
+                proveedores[rfc]["importe_por_mes"][mes - 1] + imp, 2)
 
     lista = sorted(proveedores.values(), key=lambda x: x["volumen_total"], reverse=True)
 
@@ -280,6 +320,17 @@ async def get_proveedores_analytics(
         p["precio_promedio_litro"] = (
             round(p["importe_total"] / p["volumen_total"], 4)
             if p["volumen_total"] > 0 else 0.0
+        )
+        precios_mes = [
+            round(p["importe_por_mes"][i] / p["por_mes"][i], 4) if p["por_mes"][i] > 0 else None
+            for i in range(12)
+        ]
+        valores = [v for v in precios_mes if v is not None]
+        p["precio_por_mes"] = precios_mes
+        p["tendencia_precio"] = (
+            "alcista" if len(valores) >= 2 and valores[-1] > valores[0] else
+            "bajista" if len(valores) >= 2 and valores[-1] < valores[0] else
+            "estable"
         )
 
     return JSONResponse(content={
@@ -348,6 +399,8 @@ async def get_forecast(
     # ── Tendencia y variabilidad ──────────────────────────────────────────────
     # Los meses están en orden desc; invertir para que la regresión sea cronológica
     vols_cronologicos = list(reversed(vols))
+    seleccion_modelo = _evaluar_modelos_forecast(vols_cronologicos)
+    prom_vol = round(float(seleccion_modelo["forecast"]), 2)
     tendencia_litros_por_mes = _pendiente_lineal(vols_cronologicos)
     cv_volumen = _coef_variacion(vols_cronologicos)
 
@@ -413,6 +466,8 @@ async def get_forecast(
         "meses":                 meses_ordenados,
         "volumen_por_mes":       vols,
         "promedio_compra_mes":   prom_vol,
+        "modelo_seleccionado":   seleccion_modelo["modelo"],
+        "modelos_evaluados":     seleccion_modelo["modelos"],
         "promedio_importe_mes":  prom_imp,
         "precio_promedio_litro": precio_prom,
         "tendencia": {

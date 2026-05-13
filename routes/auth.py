@@ -29,9 +29,9 @@ SECCIONES_VALIDAS = {"gas_lp", "transporte"}
 
 # ── Lookup de sección (multi-tenancy) ────────────────────────────────────────
 
-def obtener_seccion_usuario(user_id: str, access_token: Optional[str] = None) -> Optional[str]:
+def obtener_secciones_usuario(user_id: str, access_token: Optional[str] = None) -> list[str]:
     """
-    Devuelve la sección ('gas_lp' | 'transporte') asignada al usuario.
+    Devuelve todas las secciones ('gas_lp' | 'transporte') asignadas al usuario.
     Usa un cliente fresco autenticado con el JWT para respetar RLS.
     NO muta el cliente global.
     """
@@ -42,17 +42,25 @@ def obtener_seccion_usuario(user_id: str, access_token: Optional[str] = None) ->
             sb.table("user_sections")
             .select("section")
             .eq("user_id", user_id)
-            .limit(1)
             .execute()
         )
         rows = res.data or []
-        if not rows:
-            return None
-        sec = (rows[0].get("section") or "").strip().lower()
-        return sec if sec in SECCIONES_VALIDAS else None
+        secciones = []
+        for row in rows:
+            sec = (row.get("section") or "").strip().lower()
+            if sec in SECCIONES_VALIDAS and sec not in secciones:
+                secciones.append(sec)
+        return secciones
     except Exception as e:
         logger.warning("obtener_seccion_usuario falló para %s: %s", user_id, e)
+        return []
+
+
+def obtener_seccion_usuario(user_id: str, access_token: Optional[str] = None) -> Optional[str]:
+    secciones = obtener_secciones_usuario(user_id, access_token=access_token)
+    if not secciones:
         return None
+    return secciones[0]
 
 
 # ── Validación de token (Supabase JWT) ───────────────────────────────────────
@@ -143,16 +151,16 @@ def require_section(*allowed: Section):
         uid = verify_token(token)
         if not uid:
             raise HTTPException(status_code=401, detail="Token inválido o expirado.")
-        sec = obtener_seccion_usuario(uid, access_token=token)
-        if not sec:
+        secciones = obtener_secciones_usuario(uid, access_token=token)
+        if not secciones:
             raise HTTPException(
                 status_code=403,
                 detail="Tu usuario no tiene una sección asignada. Contacta al administrador.",
             )
-        if sec not in allowed_set:
+        if not allowed_set.intersection(secciones):
             raise HTTPException(
                 status_code=403,
-                detail=f"Tu sección '{sec}' no tiene acceso a este módulo.",
+                detail="Tu usuario no tiene acceso a este módulo.",
             )
         return uid
 
@@ -194,16 +202,16 @@ async def login(payload: LoginPayload):
     user_id      = user.id
 
     # Validar sección con cliente fresco (no muta el singleton)
-    sec = obtener_seccion_usuario(user_id, access_token=access_token)
-    if not sec:
+    secciones = obtener_secciones_usuario(user_id, access_token=access_token)
+    if not secciones:
         raise HTTPException(
             status_code=403,
             detail="Tu usuario no tiene una sección asignada. Contacta al administrador.",
         )
-    if sec != requested:
+    if requested not in secciones:
         raise HTTPException(
             status_code=403,
-            detail=f"No tienes acceso al módulo '{requested}'. Tu sección asignada es '{sec}'.",
+            detail=f"No tienes acceso al módulo '{requested}'.",
         )
 
     # Persiste preferencia de módulo (best-effort)
@@ -224,7 +232,8 @@ async def login(payload: LoginPayload):
         "user_id":      user_id,
         "display_name": display_name,
         "role":         role,
-        "modulo":       sec,
+        "modulo":       requested,
+        "modulos":      secciones,
     })
 
 
@@ -243,7 +252,8 @@ async def me(authorization: str = Header(default="")):
     except Exception:
         raise HTTPException(status_code=401, detail="Token inválido o expirado.")
 
-    sec        = obtener_seccion_usuario(user.id, access_token=token)
+    secciones  = obtener_secciones_usuario(user.id, access_token=token)
+    sec        = secciones[0] if secciones else None
     user_meta  = getattr(user, "user_metadata", {}) or {}
     app_meta   = getattr(user, "app_metadata",  {}) or {}
     display_name = (
@@ -258,6 +268,8 @@ async def me(authorization: str = Header(default="")):
         "display_name": display_name,
         "role":         role,
         "modulo":       sec,
+        "modulos":      secciones,
+        "email":        user.email,
         "email":        user.email,
     })
 
