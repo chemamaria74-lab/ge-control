@@ -17,7 +17,7 @@ import re
 # ── Constantes de catálogo ────────────────────────────────────────────────────
 TIPOS_CFDI_TRANSPORTE = Literal["T", "I"]   # T=Traslado, I=Ingreso (flete)
 TIPO_MOVIMIENTO_T     = Literal["carga", "descarga", "trasferencia"]
-ESTADOS_VIAJE         = Literal["programado", "en_ruta", "completado", "cancelado"]
+ESTADOS_VIAJE         = Literal["borrador", "programado", "en_ruta", "timbrado", "cancelado", "error"]
 ESTADOS_CFDI          = Literal["Vigente", "Cancelada", "Pendiente", "Error"]
 CONFIG_VEHICULAR_VALS = Literal["C2", "C3", "T2S1", "T2S2", "T3S2", "T3S3",
                                   "T2S1R2", "T3S2R4", "OTROEVGP"]
@@ -137,6 +137,7 @@ class RutaTransporteCreate(BaseModel):
     cp_destino:     str   = ""
     nombre_destino: str   = ""      # Nombre del municipio/localidad destino
     distancia_km:   float = 1.0
+    duracion_estimada_min: int = 0   # Minutos estimados de traslado
 
     @field_validator("cp_origen", "cp_destino")
     @classmethod
@@ -157,6 +158,13 @@ class ClienteTransporteCreate(BaseModel):
     @field_validator("rfc")
     @classmethod
     def v_rfc(cls, v): return _validar_rfc(v, "RFC cliente")
+
+    @field_validator("cp")
+    @classmethod
+    def v_cp(cls, v):
+        if v and not _CP_RE.match(v.strip()):
+            raise ValueError(f"Código postal '{v}' debe tener 5 dígitos.")
+        return v.strip() if v else v
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -250,6 +258,7 @@ class ViajeCreate(BaseModel):
     uso_cfdi:       str             = "S01"
     num_permiso_cne: str            = ""     # NumPermiso del emisor ante CNE
     distancia_km:   float           = 1.0
+    duracion_estimada_min: int       = 0
 
     # Observaciones
     observaciones:  str             = ""
@@ -310,6 +319,7 @@ class ViajeResponse(BaseModel):
     cp_receptor:        str
     num_permiso_cne:    str
     distancia_km:       float
+    duracion_estimada_min: int = 0
     volumen_total_litros: float
     status:             str
     uuid_cfdi:          str
@@ -396,6 +406,52 @@ class CancelacionViajeRequest(BaseModel):
     viaje_id:   int
     motivo:     str = "02"   # 01=comprobante emitido errores, 02=relación no existe, 03=no se llevó a cabo operación, 04=operación nominativa relación tributaria
     uuid_sustitucion: str = ""   # Solo para motivo 01
+
+
+class FacturaServicioCreate(BaseModel):
+    """Factura del servicio de transporte al cliente, relacionada a una o varias Cartas Porte."""
+    cliente_id:          Optional[int] = None
+    viaje_ids:           list[int]
+    rfc_receptor:        str
+    nombre_receptor:     str
+    cp_receptor:         str = "20000"
+    regimen_fiscal:      str = "601"
+    uso_cfdi:            str = "G03"
+    concepto:            str = "Servicio de transporte de hidrocarburos"
+    subtotal:            float
+    iva:                 float = 0.0
+    total:               float = 0.0
+    forma_pago:          str = "99"
+    metodo_pago:         str = "PPD"
+    moneda:              str = "MXN"
+
+    @field_validator("viaje_ids")
+    @classmethod
+    def v_viajes(cls, v):
+        if not v:
+            raise ValueError("Relaciona al menos una Carta Porte.")
+        return v
+
+    @field_validator("rfc_receptor")
+    @classmethod
+    def v_rfc(cls, v): return _validar_rfc(v, "RFC receptor")
+
+    @field_validator("cp_receptor")
+    @classmethod
+    def v_cp_receptor(cls, v):
+        if v and not _CP_RE.match(v.strip()):
+            raise ValueError(f"Código postal '{v}' debe tener 5 dígitos.")
+        return v.strip() if v else v
+
+    @model_validator(mode="after")
+    def v_totales(self):
+        if self.subtotal <= 0:
+            raise ValueError("El subtotal debe ser mayor a 0.")
+        if self.iva < 0:
+            raise ValueError("El IVA no puede ser negativo.")
+        if not self.total:
+            self.total = round(self.subtotal + self.iva, 2)
+        return self
 
 
 # ══════════════════════════════════════════════════════════════════════════════
