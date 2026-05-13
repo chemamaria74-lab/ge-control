@@ -972,6 +972,147 @@ function productosHabilitados() {
 const RFC_RE = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 const CP_RE = /^\d{5}$/;
 const EDITABLE_STATUS = new Set(['borrador', 'programado', 'error']);
+const LANG_URL = new URLSearchParams(location.search).get('lang');
+const LANG_STORED = localStorage.getItem('zc_lang');
+const LANG = (LANG_URL === 'en' || LANG_URL === 'es') ? LANG_URL : (LANG_STORED === 'en' || LANG_STORED === 'es') ? LANG_STORED : 'es';
+localStorage.setItem('zc_lang', LANG);
+document.documentElement.lang = LANG;
+
+const I18N_EN = {
+  "Transporte": "Transport",
+  "Cambiar módulo": "Switch module",
+  "Salir": "Log out",
+  "Dashboard": "Dashboard",
+  "Análisis": "Analysis",
+  "Pronóstico": "Forecast",
+  "Viajes": "Trips",
+  "Facturación": "Billing",
+  "Control Volumétrico": "Volumetric Control",
+  "Catálogos": "Catalogs",
+  "Configuración": "Settings",
+  "Dashboard Transporte": "Transport Dashboard",
+  "Viajes de transporte": "Transport trips",
+  "Registra y gestiona cada trayecto de autotanque": "Register and manage each tanker trip",
+  "Nuevo viaje": "New trip",
+  "Total este mes": "Total this month",
+  "Timbrados": "Stamped",
+  "Pendientes": "Pending",
+  "Volumen total (L)": "Total volume (L)",
+  "Volumen transportado": "Transported volume",
+  "Cartas timbradas": "Stamped waybills",
+  "Facturación servicio": "Service billing",
+  "Análisis Transporte": "Transport Analysis",
+  "Rutas por volumen": "Routes by volume",
+  "Productos transportados": "Transported products",
+  "Pronóstico Transporte": "Transport Forecast",
+  "Volumen esperado": "Expected volume",
+  "Folio": "Folio",
+  "Fecha salida": "Departure date",
+  "Origen → Destino": "Origin → Destination",
+  "Producto(s)": "Product(s)",
+  "Volumen (L)": "Volume (L)",
+  "Chofer": "Driver",
+  "Vehículo": "Vehicle",
+  "Status": "Status",
+  "Acciones": "Actions",
+  "Carta Porte timbrada y factura del servicio al cliente": "Stamped Carta Porte and customer service invoice",
+  "Facturar servicio": "Bill service",
+  "Facturas del servicio de transporte": "Transport service invoices",
+  "Cliente": "Customer",
+  "Cartas Porte": "Carta Porte documents",
+  "Total": "Total",
+  "Fecha": "Date",
+  "Generar reporte mensual": "Generate monthly report",
+  "Año": "Year",
+  "Mes": "Month",
+  "Inventario inicial del autotanque (litros)": "Initial tanker inventory (liters)",
+  "Número de permiso CNE": "CNE permit number",
+  "Clave de instalación": "Facility key",
+  "Generar JSON de control volumétrico": "Generate volumetric control JSON",
+  "Datos del contribuyente": "Taxpayer data",
+  "RFC del contribuyente": "Taxpayer RFC",
+  "Nombre / Razón Social": "Name / Legal name",
+  "Código Postal": "Postal code",
+  "Régimen Fiscal": "Tax regime",
+  "Datos del permiso SAT": "SAT permit data",
+  "Modalidad permiso": "Permit type",
+  "Clave instalación SAT": "SAT facility key",
+  "Número de autotanques": "Number of tankers",
+  "RFC Proveedor programa (SAT)": "Software provider RFC (SAT)",
+  "Combustibles habilitados": "Enabled fuels",
+  "Guardar configuración": "Save settings",
+  "Recargar": "Reload",
+  "Registrar nuevo viaje": "Register new trip",
+  "Editar viaje": "Edit trip",
+  "Ruta predefinida": "Predefined route",
+  "Fecha y hora de salida": "Departure date and time",
+  "Fecha y hora de llegada": "Arrival date and time",
+  "Tiempo estimado de traslado (min)": "Estimated travel time (min)",
+  "Lectura operacional": "Operational note",
+  "CP Origen": "Origin postal code",
+  "Localidad origen": "Origin locality",
+  "CP Destino": "Destination postal code",
+  "Localidad destino": "Destination locality",
+  "Distancia (km)": "Distance (km)",
+  "Tipo CFDI": "CFDI type",
+  "Número permiso CNE": "CNE permit number",
+  "RFC Receptor": "Receiver RFC",
+  "Nombre receptor": "Receiver name",
+  "Producto transportado": "Transported product",
+  "Clave interna SAT/Anexo 30": "Internal SAT/Annex 30 key",
+  "Volumen (litros)": "Volume (liters)",
+  "Temperatura (°C)": "Temperature (°C)",
+  "Importe declarado ($)": "Declared amount ($)",
+  "Descripción libre": "Free description",
+  "Guardar viaje": "Save trip",
+  "Timbrar Carta Porte": "Stamp Carta Porte",
+  "Eliminar viaje": "Delete trip",
+  "Factura del servicio": "Service invoice",
+  "Cartas Porte timbradas": "Stamped Carta Porte documents",
+  "RFC receptor": "Receiver RFC",
+  "Nombre receptor": "Receiver name",
+  "Código postal": "Postal code",
+  "Subtotal": "Subtotal",
+  "IVA": "VAT",
+  "Concepto": "Concept",
+  "Timbrar factura de servicio": "Stamp service invoice",
+  "Cancelar": "Cancel",
+  "Cargando viajes...": "Loading trips...",
+  "No hay viajes en este periodo": "No trips in this period",
+  "No hay CFDIs en este periodo": "No CFDIs in this period",
+  "No hay facturas de servicio en este periodo": "No service invoices in this period",
+  "Sin datos": "No data",
+  "Sin rutas": "No routes",
+  "Sin clientes": "No customers",
+  "Sin vehículos": "No vehicles",
+  "Sin choferes": "No drivers",
+  "Configura el RFC del contribuyente en Ajustes del módulo Transporte.": "Configure the taxpayer RFC in Transport settings.",
+};
+
+function tr(txt) { return LANG === 'en' ? (I18N_EN[txt] || txt) : txt; }
+
+function applyI18n(root=document.body) {
+  if (LANG !== 'en' || !root) return;
+  root.querySelectorAll?.('[placeholder],[title],input[value]').forEach(el => {
+    ['placeholder','title','value'].forEach(attr => {
+      const v = el.getAttribute(attr);
+      if (v && I18N_EN[v]) el.setAttribute(attr, I18N_EN[v]);
+    });
+  });
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || ['SCRIPT','STYLE','TEXTAREA'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+      return I18N_EN[node.nodeValue.trim()] ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    }
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(node => {
+    const raw = node.nodeValue;
+    node.nodeValue = raw.match(/^\s*/)[0] + I18N_EN[raw.trim()] + raw.match(/\s*$/)[0];
+  });
+}
 
 function icon(name) { return `<i class="fa-solid fa-${name}"></i>`; }
 function nowLocalInput() {
@@ -1033,6 +1174,28 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Cargar todo en paralelo
   await Promise.all([cargarConfig(), cargarCatalogos(), cargarViajes(), cargarProductosSAT(), cargarDashboardTransporte()]);
   cargarFacturas();
+  applyI18n();
+  const topRight = document.querySelector('.topbar-right');
+  if (topRight && !document.getElementById('lang-toggle')) {
+    const b = document.createElement('button');
+    b.id = 'lang-toggle';
+    b.className = 'btn-sm';
+    b.textContent = LANG === 'en' ? 'ES' : 'EN';
+    b.title = LANG === 'en' ? 'Cambiar a Español' : 'Switch to English';
+    b.onclick = () => {
+      const next = LANG === 'en' ? 'es' : 'en';
+      localStorage.setItem('zc_lang', next);
+      const url = new URL(location.href);
+      url.searchParams.set('lang', next);
+      location.replace(url.toString());
+    };
+    topRight.prepend(b);
+  }
+  if (LANG === 'en') {
+    new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => {
+      if (n.nodeType === 1) applyI18n(n);
+    }))).observe(document.body, {childList:true, subtree:true});
+  }
 });
 
 // ─── TABS ───────────────────────────────────────────────

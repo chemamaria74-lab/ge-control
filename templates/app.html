@@ -443,25 +443,105 @@ tr:hover td{background:#f8fafc}
     "rs.acciones":         "Actions",
   };
 
+  window._autoI18n = {
+    "Gas LP": "LP Gas",
+    "Instalación activa:": "Active facility:",
+    "Parámetros del proceso": "Process parameters",
+    "RFC del contribuyente": "Taxpayer RFC",
+    "Editar en Config.": "Edit in Settings",
+    "Unidad base de reporte": "Base report unit",
+    "Mes a procesar": "Month to process",
+    "Inventario Inicial (litros — lectura de tanque)": "Initial inventory (liters — tank reading)",
+    "Inventario Final Medido (L)": "Final measured inventory (L)",
+    "Temperatura de Medición (°C)": "Measurement temperature (°C)",
+    "Composición PR12 — Gas LP": "PR12 composition — LP Gas",
+    "Carga de datos": "Data upload",
+    "Procesar Excel / CSV": "Process Excel / CSV",
+    "Procesar CFDI": "Process CFDI",
+    "Actualizar": "Refresh",
+    "Dashboard Anual": "Annual Dashboard",
+    "Historial de Reportes": "Report History",
+    "Razones Sociales": "Companies",
+    "Perfil de la Empresa": "Company Profile",
+    "Instalaciones (Plantas / Estaciones)": "Facilities (Plants / Stations)",
+    "Nueva instalación": "New facility",
+    "Nombre interno": "Internal name",
+    "Núm. Permiso CRE": "CRE Permit No.",
+    "Clave Instalación": "Facility key",
+    "Tanques": "Tanks",
+    "Cancelar": "Cancel",
+    "Guardar": "Save",
+    "Acciones": "Actions",
+    "Acción": "Action",
+    "Nombre": "Name",
+    "Descripción": "Description",
+    "Código Postal": "Postal code",
+    "Régimen Fiscal": "Tax regime",
+    "Proveedor más económico": "Cheapest supplier",
+    "Mayor volumen suministrado": "Highest supplied volume",
+    "Total comprado en el año": "Total purchased this year",
+    "Análisis de Proveedores": "Supplier Analysis",
+    "Pronóstico de Compras": "Purchase Forecast",
+    "Compra promedio/mes": "Avg purchase/month",
+    "Consumo diario estimado": "Estimated daily consumption",
+    "Precio promedio": "Average price",
+    "Sin proveedores registrados": "No suppliers registered",
+    "Error al cargar proveedores. Recarga la página.": "Error loading suppliers. Reload the page.",
+    "Sin autoconsumos registrados este periodo.": "No self-consumption records for this period.",
+    "Confirmación de Eliminación Permanente": "Permanent Deletion Confirmation",
+    "Tu contraseña de acceso": "Your access password",
+    "Escribe la frase exacta...": "Type the exact phrase...",
+    "Eliminar Todo": "Delete all",
+  };
+
   // t(key) — returns EN string if lang=en, else the key itself (ES text stays in HTML)
   window.t = function(key) {
     return (_lang === 'en' && window._i18n[key]) ? window._i18n[key] : null;
+  };
+
+  window.applyI18n = function(root) {
+    if (_lang !== 'en') return;
+    const scope = root || document.body;
+    if (!scope) return;
+    scope.querySelectorAll?.('[data-i18n]').forEach(el => {
+      const val = window._i18n[el.dataset.i18n];
+      if (val) el.textContent = val;
+    });
+    scope.querySelectorAll?.('[data-en]').forEach(el => { el.textContent = el.dataset.en; });
+    scope.querySelectorAll?.('[placeholder],[title]').forEach(el => {
+      ['placeholder', 'title'].forEach(attr => {
+        const val = el.getAttribute(attr);
+        if (val && window._autoI18n[val]) el.setAttribute(attr, window._autoI18n[val]);
+      });
+    });
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent || ['SCRIPT','STYLE','TEXTAREA'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        const text = node.nodeValue.trim();
+        return text && window._autoI18n[text] ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      }
+    });
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(node => {
+      const raw = node.nodeValue;
+      const leading = raw.match(/^\s*/)[0];
+      const trailing = raw.match(/\s*$/)[0];
+      node.nodeValue = leading + window._autoI18n[raw.trim()] + trailing;
+    });
   };
 
   // Apply translations after DOM ready
   // Elements with data-en="..." get their textContent replaced when lang=en
   // Elements with data-i18n="key" use the _i18n dictionary (legacy, nav tabs etc)
   document.addEventListener('DOMContentLoaded', function(){
+    window.applyI18n(document.body);
     if (_lang === 'en') {
-      // data-i18n keys (nav tabs, section titles already tagged)
-      document.querySelectorAll('[data-i18n]').forEach(el => {
-        const val = window._i18n[el.dataset.i18n];
-        if (val) el.textContent = val;
-      });
-      // data-en — direct inline English text (simpler, no dictionary needed)
-      document.querySelectorAll('[data-en]').forEach(el => {
-        el.textContent = el.dataset.en;
-      });
+      const obs = new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => {
+        if (n.nodeType === 1) window.applyI18n(n);
+      })));
+      obs.observe(document.body, { childList: true, subtree: true });
     }
 
     // Language toggle button in header
