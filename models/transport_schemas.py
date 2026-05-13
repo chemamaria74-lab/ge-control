@@ -255,6 +255,7 @@ class ViajeCreate(BaseModel):
     rfc_receptor:   str             = ""
     nombre_receptor: str            = ""
     cp_receptor:    str             = "20000"
+    regimen_fiscal_receptor: str    = "601"
     uso_cfdi:       str             = "S01"
     num_permiso_cne: str            = ""     # NumPermiso del emisor ante CNE
     distancia_km:   float           = 1.0
