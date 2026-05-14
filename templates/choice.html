@@ -3,17 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Z Control</title>
+  <title>GE CONTROL</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-family: var(--ge-font);
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      background:
+        radial-gradient(circle at 18% 18%, rgba(200,169,107,.16), transparent 28%),
+        linear-gradient(135deg, #5B0F1D 0%, #111111 100%);
     }
     .lang-switcher {
       position: fixed;
@@ -41,32 +46,23 @@
     .lang-btn:hover { background: rgba(255,255,255,.14); color: #fff; border-color: rgba(255,255,255,.4); }
     .lang-btn.active { background: rgba(255,255,255,.18); color: #fff; border-color: rgba(255,255,255,.55); }
     .wrapper { text-align: center; }
-    .choice-container { display: flex; gap: 1.4rem; padding: 2rem; max-width: 1120px; width: 100%; }
+    .choice-container { display: flex; gap: 1rem; padding: 2rem; max-width: 1120px; width: 100%; }
     .choice-card {
-      flex: 1; background: rgba(255,255,255,0.05); border-radius: 24px;
-      padding: 3rem 2rem; text-align: center; cursor: pointer;
-      transition: all 0.3s ease; border: 2px solid transparent;
+      flex: 1; background: rgba(255,255,255,0.06); border-radius: 12px;
+      padding: 2.2rem 1.6rem; text-align: left; cursor: pointer;
+      transition: all 0.2s ease; border: 1px solid rgba(200,169,107,.16);
       text-decoration: none; display: block;
     }
-    .choice-card:hover { transform: translateY(-8px); }
-    .choice-card.transporte { border-color: #3b82f6; background: linear-gradient(145deg, rgba(59,130,246,0.15) 0%, rgba(59,130,246,0.05) 100%); }
-    .choice-card.transporte:hover { box-shadow: 0 20px 40px rgba(59,130,246,0.3); }
-    .choice-card.gas-lp { border-color: #10b981; background: linear-gradient(145deg, rgba(16,185,129,0.15) 0%, rgba(16,185,129,0.05) 100%); }
-    .choice-card.gas-lp:hover { box-shadow: 0 20px 40px rgba(16,185,129,0.3); }
-    .choice-card.gasolineras { border-color: #0f5c82; background: linear-gradient(145deg, rgba(15,92,130,0.18) 0%, rgba(15,92,130,0.06) 100%); }
-    .choice-card.gasolineras:hover { box-shadow: 0 20px 40px rgba(15,92,130,0.3); }
-    .choice-icon { font-size: 4rem; margin-bottom: 1.5rem; }
-    .choice-card.transporte .choice-icon { color: #60a5fa; }
-    .choice-card.gas-lp .choice-icon { color: #34d399; }
-    .choice-card.gasolineras .choice-icon { color: #38bdf8; }
+    .choice-card:hover { transform: translateY(-4px); border-color: rgba(200,169,107,.5); background: rgba(255,255,255,0.10); }
+    .choice-card.transporte,.choice-card.gas-lp,.choice-card.gasolineras { border-color: rgba(200,169,107,.18); }
+    .choice-icon { font-size: 2rem; margin-bottom: 1.25rem; color:#C8A96B; }
+    .choice-card.transporte .choice-icon,.choice-card.gas-lp .choice-icon,.choice-card.gasolineras .choice-icon { color: #C8A96B; }
     .choice-title { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem; }
     .choice-desc { font-size: 0.9rem; color: #94a3b8; line-height: 1.5; }
-    .choice-badge { display: inline-block; padding: .4rem 1rem; border-radius: 20px; font-size: .75rem; font-weight: 600; margin-top: 1rem; }
-    .choice-card.transporte .choice-badge { background: #3b82f6; color: #fff; }
-    .choice-card.gas-lp .choice-badge { background: #10b981; color: #fff; }
-    .choice-card.gasolineras .choice-badge { background: #0f5c82; color: #fff; }
+    .choice-badge { display: inline-block; padding: .4rem .8rem; border-radius: 999px; font-size: .72rem; font-weight: 700; margin-top: 1rem; background:rgba(200,169,107,.16);color:#F5F5F5;border:1px solid rgba(200,169,107,.24); }
+    .choice-card.transporte .choice-badge,.choice-card.gas-lp .choice-badge,.choice-card.gasolineras .choice-badge { background:rgba(200,169,107,.16);color:#F5F5F5; }
     .brand-logo { margin-bottom: 2rem; }
-    .brand-logo img { width: 200px; }
+    .brand-logo img { width: 310px; max-width:80vw; }
     @media (max-width: 640px) {
       .choice-container { flex-direction: column; }
       .lang-switcher { top: .8rem; right: .8rem; }
@@ -86,7 +82,7 @@
 
   <div class="wrapper">
     <div class="brand-logo">
-      <img src="/static/img/z_logo.png" alt="Z Control">
+      <img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL">
     </div>
     <div class="choice-container">
       <a id="cardTransporte" class="choice-card transporte">
@@ -113,7 +109,7 @@
   <script>
     const TEXTS = {
       es: {
-        title:           'Z Control - Seleccionar Módulo',
+        title:           'GE CONTROL - Seleccionar Módulo',
         titleTransporte: 'Transporte',
         descTransporte:  'Logística de Hidrocarburos<br>Servicios de flete y distribución',
         badgeTransporte: 'Módulo Transporte',
@@ -128,7 +124,7 @@
         hrefGasolineras: '/login/gasolineras',
       },
       en: {
-        title:           'Z Control - Select Module',
+        title:           'GE CONTROL - Select Module',
         titleTransporte: 'Transport',
         descTransporte:  'Hydrocarbon Logistics<br>Freight & distribution services',
         badgeTransporte: 'Transport Module',

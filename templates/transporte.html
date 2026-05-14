@@ -3,28 +3,32 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Z Control - Transporte de Hidrocarburos</title>
+<title>GE CONTROL - Transporte</title>
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="/static/css/ge-brand.css">
 <style>
 :root{
-  --bg:#edf7fb;--bg2:#ffffff;--bg3:#f8fafc;--card:#ffffff;--card2:#ffffff;
-  --border:#dbeafe;--border2:#cbd5e1;
-  --blue:#0f5c82;--blue2:#0a4e6e;--blue-light:#0d6ba6;
-  --green:#0d8b96;--green2:#0b777e;
-  --amber:#b7791f;--red:#c1121f;--purple:#4f46e5;
-  --text:#102a43;--text2:#475569;--text3:#64748b;
+  --bg:#F5F5F5;--bg2:#ffffff;--bg3:#FAF9F7;--card:#ffffff;--card2:#ffffff;
+  --border:#E7E3DC;--border2:#D8D0C4;
+  --blue:#7A1E2C;--blue2:#5B0F1D;--blue-light:#7A1E2C;
+  --green:#2B2B2B;--green2:#111111;
+  --amber:#C8A96B;--red:#B4232F;--purple:#7A1E2C;
+  --text:#111111;--text2:#2B2B2B;--text3:#6F6A64;
   --radius:10px;--radius-sm:7px;
   --shadow:0 10px 30px rgba(15,28,45,.08);
-  --font:'Montserrat','Segoe UI','Roboto','Helvetica Neue',Arial,sans-serif;
+  --font:Inter,'Geist','General Sans','Satoshi','Segoe UI',system-ui,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;min-height:100vh}
 a{color:var(--blue-light);text-decoration:none}
 
 /* ── TOPBAR ── */
-.topbar{background:linear-gradient(135deg,#032c38 0%,#075358 100%);color:#f8fafc;border-bottom:1px solid rgba(255,255,255,.12);padding:0 24px;height:64px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;box-shadow:0 18px 48px rgba(0,0,0,.08)}
+.topbar{background:#5B0F1D;color:#f8fafc;border-bottom:1px solid rgba(200,169,107,.22);padding:0 24px;height:64px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;box-shadow:none}
 .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;color:#fff;text-decoration:none}
 .brand-logo{height:42px;width:auto;display:block}
+.brand-logo-mark{height:38px;width:38px;display:none}
 .badge{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.18);padding:5px 11px;border-radius:20px;font-size:12px;color:#f8fafc}
 .badge.module{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.22);color:#f8fafc}
 .topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px}
@@ -152,6 +156,11 @@ select option{background:#fff}
   .grid-2,.grid-3,.grid-4{grid-template-columns:1fr}
   .form-row.cols-2,.form-row.cols-3{grid-template-columns:1fr}
   .main{padding:16px}
+  .brand-logo{display:none}
+  .brand-logo-mark{display:block}
+  .topbar{padding:0 14px;gap:8px}
+  .topbar .logo span{display:none}
+  .topbar-right{gap:6px}
 }
 </style>
 </head>
@@ -160,7 +169,8 @@ select option{background:#fff}
 <!-- TOPBAR -->
 <div class="topbar">
   <a href="/" class="logo">
-    <img src="/static/img/zlogo.png" alt="Z" class="brand-logo">
+    <img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL" class="brand-logo">
+    <img src="/static/img/ge-isotype-light.svg" alt="GE" class="brand-logo-mark">
     <span>Transporte</span>
   </a>
   <span class="badge module"><i class="fa-solid fa-truck-fast"></i> Transporte</span>

@@ -3,17 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Z Control - Controles Volumétricos</title>
+<title>GE CONTROL - Gas LP</title>
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-pk6NzVJqKt/98qwY4hOSV4bohsM8eQZJaZJpbrx3yunvV8mXnBPSwfnO7xUEgj4Xy6H7H8t1S5dPzS7x9t5yUg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+<link rel="stylesheet" href="/static/css/ge-brand.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#edf7fb;--surface:#ffffff;--primary:#0f5c82;--primary-soft:#38bdf8;--secondary:#0a4e6e;--muted:#64748b;--border:#dbeafe;--text:#102a43}
-body{font-family:'Montserrat','Segoe UI','Roboto','Helvetica Neue',Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;visibility:hidden}
-header{background:linear-gradient(135deg,#032c38 0%,#075358 100%);color:#f3f4f6;padding:1rem 1.4rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;position:relative;z-index:1;border-bottom:1px solid rgba(255,255,255,.1);box-shadow:0 18px 48px rgba(0,0,0,.08)}
+:root{--bg:#F5F5F5;--surface:#ffffff;--primary:#7A1E2C;--primary-soft:#C8A96B;--secondary:#5B0F1D;--muted:#6F6A64;--border:#E7E3DC;--text:#111111}
+body{font-family:var(--ge-font);background:var(--bg);color:var(--text);min-height:100vh;visibility:hidden}
+header{background:#5B0F1D;color:#f3f4f6;padding:1rem 1.4rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;position:relative;z-index:1;border-bottom:1px solid rgba(200,169,107,.22);box-shadow:none}
 header h1{font-size:1.22rem;font-weight:700;flex:1;color:#f8fafc;line-height:1.3}
 .brand-logo{height:44px;width:auto;display:block}
+.brand-logo-mark{height:38px;width:38px;display:none}
 header .badge{background:rgba(255,255,255,.16);color:#f8fafc;border:1px solid rgba(255,255,255,.18);padding:.45rem .8rem;border-radius:999px;font-size:.78rem;font-weight:700}
 header .badge-red{background:rgba(255,255,255,.16);color:#f8fafc}
 header .badge-blue{background:rgba(255,255,255,.16);color:#f8fafc}
@@ -69,6 +73,8 @@ header i{color:#f8fafc}
   header{flex-wrap:wrap;gap:.5rem;padding:.8rem 1rem}
   header h1{font-size:1rem}
   .brand-logo{height:34px}
+  .brand-logo.ge-logo-full{display:none}
+  .brand-logo-mark{display:block;height:36px;width:36px}
   .user-chip{font-size:.76rem;padding:.4rem .7rem}
   .btn-row{flex-direction:column}
   .btn-row>*{min-width:unset;width:100%}
@@ -88,7 +94,7 @@ header i{color:#f8fafc}
   .adv-section{padding:.8rem}
 }
 /* ── Multi-empresa: overlay de selección ──────────────────────────────── */
-#empresaOverlay{position:fixed;inset:0;background:linear-gradient(135deg,#032c38 0%,#075358 100%);z-index:9000;display:flex;align-items:center;justify-content:center;visibility:hidden;opacity:0;transition:opacity .3s}
+#empresaOverlay{position:fixed;inset:0;background:linear-gradient(135deg,#5B0F1D 0%,#111111 100%);z-index:9000;display:flex;align-items:center;justify-content:center;visibility:hidden;opacity:0;transition:opacity .3s}
 #empresaOverlay.visible{visibility:visible;opacity:1}
 .empresa-card{background:#fff;border-radius:20px;padding:2.4rem 2.8rem;max-width:520px;width:95%;box-shadow:0 32px 64px rgba(0,0,0,.3)}
 .empresa-card h2{font-size:1.18rem;font-weight:700;color:#1e293b;margin-bottom:.4rem;display:flex;align-items:center;gap:.5rem}
@@ -198,28 +204,27 @@ header i{color:#f8fafc}
 /* ── Loading Screen ──────────────────────────────────────────────────── */
 #loadingScreen {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  background: radial-gradient(circle at center, #003d33 0%, #001f1c 70%, #000a08 100%);
+  background: radial-gradient(circle at center, #5B0F1D 0%, #21050B 70%, #111111 100%);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   z-index: 10000; transition: opacity .35s ease;
 }
 #loadingScreen.fade-out { opacity: 0; pointer-events: none; }
 #loadingScreen.hidden { display: none !important; }
-.loading-logo { width: 220px; height: auto; margin-bottom: 2.2rem; filter: drop-shadow(0 0 24px rgba(20,184,166,.35)); }
+.loading-logo { width: 240px; height: auto; margin-bottom: 2.2rem; filter: drop-shadow(0 0 24px rgba(200,169,107,.22)); }
 .loading-spinner {
   width: 44px; height: 44px;
-  border: 3px solid rgba(20,184,166,.2);
-  border-top-color: #14b8a6;
+  border: 3px solid rgba(200,169,107,.2);
+  border-top-color: #C8A96B;
   border-radius: 50%;
   animation: spin .8s linear infinite;
   margin-bottom: 1.1rem;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.loading-text { font-size: .82rem; color: #5eead4; letter-spacing: .08em; font-weight: 600; }
+.loading-text { font-size: .82rem; color: #C8A96B; letter-spacing: .08em; font-weight: 600; }
 
 /* Login wall — full-screen background image with blur, hides all app content */
 #loginOverlay {
-    /* Degradado Radial Premium: Verde oscuro/negro en orillas, Verde bosque al centro */
-    background: radial-gradient(circle at center, #003d33 0%, #001f1c 70%, #000a08 100%) !important;
+    background: radial-gradient(circle at center, #5B0F1D 0%, #21050B 70%, #111111 100%) !important;
     position: fixed;
     top: 0; left: 0; width: 100%; height: 100%;
     display: flex; align-items: center; justify-content: center;
@@ -231,7 +236,7 @@ header i{color:#f8fafc}
     top: 50%; left: 50%; /* Centramos */
     transform: translate(-50%, -50%); /* Ajuste de centrado perfecto */
     
-    background-image: url('/static/img/z_logo.png'); /* Tu logo de fondo */
+    background-image: url('/static/img/ge-control-logo-light.svg');
     
     /* Hacemos que la Z de fondo sea más chica y no cubra todo */
     width: 600px; /* Tamaño fijo, no cover */
@@ -293,8 +298,8 @@ body.login-mode .container{visibility:hidden;pointer-events:none}
 /* Efecto cuando el usuario hace clic (Focus) - El borde azul que mencionas */
 .login-card input:focus {
     outline: none !important;
-    border-color: #3b82f6 !important; /* Azul profesional brillante */
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important; /* Brillo azul sutil alrededor */
+    border-color: #C8A96B !important;
+    box-shadow: 0 0 0 3px rgba(200, 169, 107, 0.16) !important;
     background-color: #ffffff !important;
 }
 
@@ -305,7 +310,7 @@ body.login-mode .container{visibility:hidden;pointer-events:none}
   content:'';
   position:absolute;top:0;left:50%;transform:translateX(-50%);
   width:72px;height:4px;border-radius:999px;
-  background:linear-gradient(135deg,#14b8a6,#0f766e);
+  background:#C8A96B;
 }
 .login-brand{text-align:center;margin-bottom:2rem;position:relative;z-index:1}
 .login-brand h2{font-size:1.35rem;font-weight:800;color:#e2f9f6;margin:0 0 .3rem}
@@ -314,16 +319,16 @@ body.login-mode .container{visibility:hidden;pointer-events:none}
 .login-card .field label{font-size:.78rem;font-weight:700;color:#cbd5e1;margin-bottom:.35rem;display:block;text-transform:uppercase;letter-spacing:.06em}
 .login-card .field input{width:100%;padding:.88rem 1rem;border:1px solid rgba(255,255,255,.12);border-radius:14px;font-size:.95rem;color:#fff;background:rgba(255,255,255,.08);box-sizing:border-box;transition:border-color .2s,box-shadow .2s}
 .login-card .field input::placeholder{color:rgba(255,255,255,.58)}
-.login-card .field input:focus{outline:none;border-color:#14b8a6;box-shadow:0 0 0 4px rgba(20,184,166,.16)}
+.login-card .field input:focus{outline:none;border-color:#C8A96B;box-shadow:0 0 0 4px rgba(200,169,107,.16)}
 .btn-login{
   width:100%;padding:.95rem;
-  background:linear-gradient(135deg,#14b8a6,#0f766e);
+  background:#7A1E2C;
   color:#fff;border:none;border-radius:14px;font-size:1rem;font-weight:800;
   cursor:pointer;margin-top:.8rem;letter-spacing:.015em;
-  box-shadow:0 18px 40px rgba(20,184,166,.28);
+  box-shadow:0 18px 40px rgba(91,15,29,.28);
   transition:transform .15s,box-shadow .2s,opacity .2s;
 }
-.btn-login:hover{opacity:.98;box-shadow:0 22px 45px rgba(20,184,166,.34);transform:translateY(-1px)}
+.btn-login:hover{opacity:.98;box-shadow:0 22px 45px rgba(91,15,29,.34);transform:translateY(-1px)}
 .btn-login:active{transform:translateY(1px)}
 .login-err{font-size:.82rem;color:#f8b4b4;text-align:center;margin-top:.7rem;min-height:1.2em;font-weight:600}
 .login-footer{margin-top:1.3rem;text-align:center;font-size:.78rem;color:#94a3b8;}
@@ -607,7 +612,7 @@ tr:hover td{background:#f8fafc}
 
 <!-- ── LOADING SCREEN (mostrada mientras se verifica sesión) ───────────── -->
 <div id="loadingScreen">
-  <img src="/static/img/z_logo.png" alt="Z Control" class="loading-logo">
+  <img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL" class="loading-logo">
   <div class="loading-spinner"></div>
   <div class="loading-text">Verificando sesión...</div>
 </div>
@@ -616,7 +621,7 @@ tr:hover td{background:#f8fafc}
 <div id="loginOverlay">
   <div class="login-card">
     <div class="login-brand">
-      <img src="/static/img/z_logo.png" alt="Z Control Logo" style="width: 280px; height: auto; margin-bottom: 3px;">
+      <img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL" style="width: 280px; height: auto; margin-bottom: 3px;">
       <p>Controles Volumétricos — Gas LP &nbsp;&nbsp;</p>
     </div>
     
@@ -695,9 +700,9 @@ tr:hover td{background:#f8fafc}
 <div id="onboardingOverlay">
   <div class="onboarding-card">
     <div class="onboarding-logo">
-      <img src="/static/img/zlogo.png" alt="Z Control">
+      <img src="/static/img/ge-isotype.svg" alt="GE CONTROL">
     </div>
-    <h2 id="ob_title">Bienvenido a Z Control</h2>
+    <h2 id="ob_title">Bienvenido a GE CONTROL</h2>
     <p class="sub" id="ob_sub">Antes de continuar, registra tu empresa. El RFC es obligatorio para generar reportes SAT válidos.</p>
     <div class="onboarding-step">
       <div class="onboarding-step-num">1</div>
@@ -734,7 +739,8 @@ tr:hover td{background:#f8fafc}
 </div>
 
 <header>
-  <img src="/static/img/zlogo.png" alt="Controles Volumétricos" class="brand-logo">
+  <img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL" class="brand-logo ge-logo-full">
+  <img src="/static/img/ge-isotype-light.svg" alt="GE" class="brand-logo-mark">
   <h1>Gas LP</h1>
   <span class="badge badge-blue" id="moduleBadge">Gas LP</span>
   <span class="badge badge-green">v3.0</span>
@@ -1629,7 +1635,7 @@ tr:hover td{background:#f8fafc}
       <div class="value" id="fcConsumo" style="color:#be123c">—</div>
       <div class="unit">L/día</div>
     </div>
-    <div class="hist-total-box" style="border-color:#14b8a6">
+    <div class="hist-total-box" style="border-color:#C8A96B">
       <div class="label"><span data-i18n="fore.precio_compra">Precio promedio</span></div>
       <div class="value" id="fcPrecio" style="color:#0f766e">—</div>
       <div class="unit">$/Litro</div>
@@ -3851,7 +3857,7 @@ function renderVentasCharts(monthly, capacidad) {
   const plInv = document.createElementNS('http://www.w3.org/2000/svg','polyline');
   plInv.setAttribute('points', ptsInv.map(p=>p[0]+','+p[1]).join(' '));
   plInv.setAttribute('fill','none');
-  plInv.setAttribute('stroke','#14b8a6');
+  plInv.setAttribute('stroke','#C8A96B');
   plInv.setAttribute('stroke-width','2.5');
   plInv.setAttribute('stroke-linecap','round');
   plInv.setAttribute('stroke-linejoin','round');
@@ -3861,7 +3867,7 @@ function renderVentasCharts(monthly, capacidad) {
   ptsInv.forEach(([x, y, m]) => {
     const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
     c.setAttribute('cx',x); c.setAttribute('cy',y); c.setAttribute('r',5);
-    c.setAttribute('fill', m.has_report ? '#14b8a6' : '#e2e8f0');
+    c.setAttribute('fill', m.has_report ? '#C8A96B' : '#e2e8f0');
     c.setAttribute('stroke','#fff'); c.setAttribute('stroke-width','2');
     const t = document.createElementNS('http://www.w3.org/2000/svg','title');
     t.textContent = m.label + ': ' + (m.has_report ? fmtNum(m.inv_final,2) + ' L' : 'Sin reporte');
@@ -5864,7 +5870,7 @@ function mostrarOnboarding() {
   // Aplicar traducciones si lang=en
   if (window._lang === 'en') {
     const set = (id, txt) => { const el = document.getElementById(id); if(el) el.textContent = txt; };
-    set('ob_title',      'Welcome to Z Control');
+    set('ob_title',      'Welcome to GE CONTROL');
     set('ob_sub',        'Before continuing, register your company. The Tax ID is required to generate valid reports.');
     set('ob_step1',      'Enter the official name of your company');
     set('ob_step2',      'Enter your Tax ID — it will appear on all reports');

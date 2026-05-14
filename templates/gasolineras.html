@@ -3,50 +3,40 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Z Control - Gasolineras</title>
+<title>GE CONTROL - Gasolineras</title>
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="/static/css/ge-brand.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#edf7fb;--surface:#fff;--primary:#0f5c82;--primary2:#075358;--text:#102a43;--muted:#64748b;--border:#dbeafe;--ok:#0f766e;--warn:#b45309;--red:#dc2626;--radius:12px;--radius-sm:8px}
-body{font-family:'Montserrat','Segoe UI','Roboto','Helvetica Neue',Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-.topbar{background:linear-gradient(135deg,#032c38 0%,#075358 100%);color:#f8fafc;padding:14px 22px;display:flex;align-items:center;gap:12px;box-shadow:0 18px 48px rgba(0,0,0,.08)}
-.logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:#f8fafc;font-weight:800;font-size:20px}
-.logo img{width:42px;height:42px;object-fit:contain}
-.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:700;color:#f8fafc}
-.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.btn-sm,.btn{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;border-radius:8px;padding:8px 11px;font-family:inherit;font-weight:700;cursor:pointer}
-.btn{background:var(--primary);border:1px solid var(--primary);padding:10px 14px}
-.btn-ghost{background:#fff;color:var(--text);border-color:#cbd5e1}
-.main{max-width:1280px;margin:0 auto;padding:22px}
-.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:18px;overflow-x:auto}
-.tab{padding:12px 16px;border-bottom:3px solid transparent;cursor:pointer;font-weight:800;color:var(--muted);white-space:nowrap}
-.tab.active{color:var(--text);border-bottom-color:var(--primary)}
-.section{display:none}.section.active{display:block}
-.section-hdr{display:flex;align-items:end;justify-content:space-between;gap:14px;margin-bottom:16px}
-h1{font-size:26px;line-height:1.15} h2{font-size:18px} p{color:var(--muted);line-height:1.5}
-.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.grid-2{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}
-.kpi .label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:800}.kpi .value{font-size:24px;font-weight:900;margin-top:6px}.kpi .unit{font-size:12px;color:var(--muted);margin-top:2px}
-.list{display:grid;gap:10px}.item{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:11px;border:1px solid var(--border);border-radius:var(--radius-sm);background:#f8fafc}.item i{color:var(--primary);margin-top:2px}.item b{display:block;margin-bottom:3px}
-.map-frame,.vision-frame{width:100%;height:650px;border:1px solid var(--border);border-radius:var(--radius);background:#fff}
-.vision-frame{height:760px}
-.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:800;background:#e0f2fe;color:#075985}
-.status-ok{background:#dcfce7;color:#166534}.status-warn{background:#fef3c7;color:#92400e}
-.table{width:100%;border-collapse:collapse;font-size:13px}.table th{background:#f1f5f9;text-align:left;color:#475569;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:10px}.table td{border-bottom:1px solid #eef2f7;padding:11px;color:#1e293b}
-@media(max-width:900px){.grid,.grid-2{grid-template-columns:1fr}.topbar{align-items:flex-start;flex-wrap:wrap}.topbar-right{margin-left:0}.map-frame,.vision-frame{height:520px}}
+:root{--bg:#F5F5F5;--surface:#fff;--primary:#7A1E2C;--primary2:#5B0F1D;--text:#111111;--muted:#6F6A64;--border:#E7E3DC;--line:#e2e8f0;--ok:#0f766e;--warn:#b45309;--red:#dc2626;--radius:10px;--radius-sm:8px}
+body{font-family:var(--ge-font);background:var(--bg);color:var(--text);min-height:100vh}
+.topbar{background:#5B0F1D;color:#f8fafc;padding:14px 22px;display:flex;align-items:center;gap:12px;box-shadow:none;border-bottom:1px solid rgba(200,169,107,.22)}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:#f8fafc;font-weight:800;font-size:20px}.logo img{width:42px;height:42px;object-fit:contain}
+.logo .logo-full{width:178px;height:auto}.logo .logo-mark{display:none}
+.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:700;color:#f8fafc}.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.btn-sm,.btn{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;border-radius:8px;padding:8px 11px;font-family:inherit;font-weight:700;cursor:pointer}.btn{background:var(--primary);border:1px solid var(--primary);padding:10px 14px}.btn-ghost{background:#fff;color:var(--text);border-color:#cbd5e1}.btn-danger{background:#fff;color:var(--red);border-color:#fecaca}
+.main{max-width:1360px;margin:0 auto;padding:22px}.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:18px;overflow-x:auto}.tab{padding:12px 14px;border-bottom:3px solid transparent;cursor:pointer;font-weight:800;color:var(--muted);white-space:nowrap}.tab.active{color:var(--text);border-bottom-color:var(--primary)}
+.section{display:none}.section.active{display:block}.section-hdr{display:flex;align-items:end;justify-content:space-between;gap:14px;margin-bottom:16px}
+h1{font-size:26px;line-height:1.15}h2{font-size:18px}h3{font-size:15px}p{color:var(--muted);line-height:1.5}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.grid-2{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.kpi .label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:800}.kpi .value{font-size:24px;font-weight:900;margin-top:6px}.kpi .unit{font-size:12px;color:var(--muted);margin-top:2px}
+.list{display:grid;gap:10px}.item{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:11px;border:1px solid var(--border);border-radius:var(--radius-sm);background:#f8fafc}.item i{color:var(--primary);margin-top:2px}.item b{display:block;margin-bottom:3px}.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:800;background:#e0f2fe;color:#075985}.status-ok{background:#dcfce7;color:#166534}.status-warn{background:#fef3c7;color:#92400e}.status-red{background:#fee2e2;color:#991b1b}
+.table-wrap{overflow-x:auto}.table{width:100%;border-collapse:collapse;font-size:13px}.table th{background:#f1f5f9;text-align:left;color:#475569;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:10px}.table td{border-bottom:1px solid #eef2f7;padding:11px;color:#1e293b;vertical-align:top}
+label{display:block;font-size:12px;font-weight:800;color:var(--muted);margin-bottom:6px}.form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}input,select{width:100%;border:1px solid #cfe3ff;border-radius:8px;padding:10px 12px;font:inherit;color:var(--text);background:#fff}input[type=file]{padding:8px}.actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px}.bar{height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden}.bar>span{display:block;height:100%;background:var(--primary);border-radius:999px}.score-total{font-size:34px;font-weight:900;color:var(--primary)}
+.alert{padding:12px;border:1px solid #bae6fd;background:#eff6ff;border-radius:8px;color:#075985;margin-bottom:14px}.muted{color:var(--muted)}.hidden{display:none!important}
+@media(max-width:980px){.grid,.grid-2,.grid-3,.form-grid{grid-template-columns:1fr}.topbar{align-items:flex-start;flex-wrap:wrap}.topbar-right{margin-left:0}.main{padding:14px}.logo .logo-full{display:none}.logo .logo-mark{display:block}.logo span{display:none}}
 </style>
 </head>
 <body>
 <div class="topbar">
-  <a href="/choice" class="logo"><img src="/static/img/zlogo.png" alt="Z"><span>Gasolineras</span></a>
-  <span class="badge"><i class="fa-solid fa-gas-pump"></i> Gasolineras</span>
+  <a href="/choice" class="logo"><img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL" class="logo-full"><img src="/static/img/ge-isotype-light.svg" alt="GE" class="logo-mark"><span>Gasolineras</span></a>
+  <span class="badge"><i class="fa-solid fa-gas-pump"></i> Mercado MX</span>
   <span class="badge" id="topbarEmpresa">Empresa -</span>
   <div class="topbar-right">
     <span class="badge" id="topbarRfc">RFC -</span>
     <span class="badge" id="topbarEmail">-</span>
-    <button class="btn-sm" id="langBtn">EN</button>
-    <button class="btn-sm" onclick="location.href='/choice'">Cambiar modulo</button>
+    <button class="btn-sm" onclick="location.href='/choice'">Cambiar módulo</button>
     <button class="btn-sm" onclick="logout()">Salir</button>
   </div>
 </div>
@@ -54,144 +44,327 @@ h1{font-size:26px;line-height:1.15} h2{font-size:18px} p{color:var(--muted);line
 <main class="main">
   <div class="tabs">
     <div class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')"><i class="fa-solid fa-chart-line"></i> Dashboard</div>
-    <div class="tab" data-tab="mapa" onclick="switchTab('mapa')"><i class="fa-solid fa-map-location-dot"></i> Mapa</div>
-    <div class="tab" data-tab="vision" onclick="switchTab('vision')"><i class="fa-solid fa-lightbulb"></i> Estrategia</div>
+    <div class="tab" data-tab="fuentes" onclick="switchTab('fuentes')"><i class="fa-solid fa-database"></i> Fuentes</div>
+    <div class="tab" data-tab="estaciones" onclick="switchTab('estaciones')"><i class="fa-solid fa-store"></i> Mis estaciones</div>
+    <div class="tab" data-tab="precios" onclick="switchTab('precios')"><i class="fa-solid fa-clock-rotate-left"></i> Precios</div>
+    <div class="tab" data-tab="radar" onclick="switchTab('radar')"><i class="fa-solid fa-location-crosshairs"></i> Radar</div>
+    <div class="tab" data-tab="score" onclick="switchTab('score')"><i class="fa-solid fa-ranking-star"></i> Score v2</div>
+    <div class="tab" data-tab="marcas" onclick="switchTab('marcas')"><i class="fa-solid fa-flag"></i> Marcas</div>
+    <div class="tab" data-tab="operacion" onclick="switchTab('operacion')"><i class="fa-solid fa-file-import"></i> Operación</div>
+    <div class="tab" data-tab="pnl" onclick="switchTab('pnl')"><i class="fa-solid fa-scale-unbalanced"></i> P&L</div>
+    <div class="tab" data-tab="consultor" onclick="switchTab('consultor')"><i class="fa-solid fa-briefcase"></i> Consultor AI</div>
     <div class="tab" data-tab="cumplimiento" onclick="switchTab('cumplimiento')"><i class="fa-solid fa-scale-balanced"></i> Cumplimiento</div>
-    <div class="tab" data-tab="pdf" onclick="switchTab('pdf')"><i class="fa-solid fa-file-pdf"></i> PDF CFDI</div>
   </div>
 
   <section class="section active" id="tab-dashboard">
     <div class="section-hdr">
-      <div><h1>Gasolineras</h1><p>Analisis comercial, precios, competencia y cumplimiento fiscal por estacion.</p></div>
+      <div><h1>Inteligencia de mercado para gasolineras</h1><p>CRE/CNE, precios, competencia, margen, expansión y operación por estación.</p></div>
       <button class="btn" onclick="loadSummary()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
     </div>
-    <div class="grid">
-      <div class="card kpi"><div class="label">Modulo</div><div class="value">Aislado</div><div class="unit">Gasolineras</div></div>
-      <div class="card kpi"><div class="label">PDF CFDI</div><div class="value">Interno</div><div class="unit">Recomendado</div></div>
-      <div class="card kpi"><div class="label">Mapa</div><div class="value">MX</div><div class="unit">Estaciones y precios</div></div>
-      <div class="card kpi"><div class="label">Datos</div><div class="value">Por perfil</div><div class="unit">No se mezcla</div></div>
-    </div>
+    <div class="grid" id="kpiGrid"></div>
     <div class="grid-2" style="margin-top:14px">
       <div class="card">
-        <h2>Alcance del modulo</h2>
-        <div class="list" id="scopeList" style="margin-top:12px"></div>
+        <h2>Red del cliente</h2>
+        <div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Estación</th><th>Marca</th><th>Regular</th><th>Volumen</th><th>CNE</th></tr></thead><tbody id="networkRows"></tbody></table></div>
       </div>
       <div class="card">
-        <h2>Separacion de datos</h2>
-        <p style="margin-top:8px">Cada consulta usa usuario y empresa activa. La configuracion fiscal puede compartirse, pero estaciones, mapas operativos, facturas y analisis quedan bajo el modulo Gasolineras.</p>
-        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-          <span class="pill status-ok">user_id</span>
-          <span class="pill status-ok">perfil_id</span>
-          <span class="pill status-ok">module=gasolineras</span>
-        </div>
+        <h2>Accesos internos</h2>
+        <div class="list" id="accessList" style="margin-top:12px"></div>
       </div>
     </div>
   </section>
 
-  <section class="section" id="tab-mapa">
-    <div class="section-hdr"><div><h1>Mapa nacional</h1><p>Vista de estaciones, permisos y precios de referencia.</p></div></div>
-    <iframe class="map-frame" src="/static/gasolineras/mapa_gasolineras.html"></iframe>
+  <section class="section" id="tab-fuentes">
+    <div class="section-hdr"><div><h1>Fuentes de datos</h1><p>Arquitectura separada para precios, estaciones, permisos, demanda, tráfico, marcas y datos del cliente.</p></div></div>
+    <div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Fuente</th><th>Frecuencia</th><th>Pipeline</th><th>Estado</th><th>Campos</th></tr></thead><tbody id="sourceRows"></tbody></table></div></div>
   </section>
 
-  <section class="section" id="tab-vision">
-    <div class="section-hdr"><div><h1>Estrategia comercial</h1><p>Base inicial de analisis de marcas, zonas, competencia y oportunidades.</p></div></div>
-    <iframe class="vision-frame" src="/static/gasolineras/vision_completa_v2.html"></iframe>
+  <section class="section" id="tab-estaciones">
+    <div class="section-hdr"><div><h1>Mis estaciones</h1><p>Estaciones propias del cliente. No se mezclan con el mercado.</p></div><button class="btn" onclick="toggleStationForm()"><i class="fa-solid fa-plus"></i> Nueva estación</button></div>
+    <div class="card hidden" id="stationFormCard">
+      <h2>Alta de estación propia</h2>
+      <div class="form-grid" style="margin-top:12px">
+        <div><label>Nombre</label><input id="stNombre" placeholder="Estación Centro"></div>
+        <div><label>Permiso CRE</label><input id="stPermiso" placeholder="PL/00000/EXP/ES/2020"></div>
+        <div><label>Permiso CNE</label><input id="stCne" placeholder="CNE/EXP/..."></div>
+        <div><label>Marca</label><select id="stMarca"><option>PEMEX</option><option>VALERO</option><option>SHELL</option><option>BP</option><option>G500</option><option>HIDROSINA</option><option>MOBIL</option><option>REPSOL</option><option>GULF</option><option>AKRON</option></select></div>
+        <div><label>Estado</label><input id="stEstado" placeholder="Aguascalientes"></div>
+        <div><label>Municipio</label><input id="stMunicipio" placeholder="Aguascalientes"></div>
+        <div><label>Latitud</label><input id="stLat" type="number" step="0.000001" value="21.8853"></div>
+        <div><label>Longitud</label><input id="stLng" type="number" step="0.000001" value="-102.2916"></div>
+        <div><label>Semáforo CNE</label><select id="stCneStatus"><option value="vigente">Vigente</option><option value="revision">Revisión</option><option value="irregular">Irregular</option></select></div>
+        <div><label>Precio regular</label><input id="stRegular" type="number" step="0.01" value="23.90"></div>
+        <div><label>Precio premium</label><input id="stPremium" type="number" step="0.01" value="25.70"></div>
+        <div><label>Precio diésel</label><input id="stDiesel" type="number" step="0.01" value="24.80"></div>
+        <div><label>Costo regular</label><input id="stCostoRegular" type="number" step="0.01" value="22.70"></div>
+        <div><label>Volumen mensual litros</label><input id="stVolumen" type="number" step="1" value="180000"></div>
+        <div><label>OPEX mensual</label><input id="stOpex" type="number" step="1" value="220000"></div>
+      </div>
+      <div class="actions"><button class="btn-ghost btn" onclick="toggleStationForm()">Cancelar</button><button class="btn" onclick="saveStation()"><i class="fa-solid fa-floppy-disk"></i> Guardar</button></div>
+    </div>
+    <div class="card" style="margin-top:14px"><div class="table-wrap"><table class="table"><thead><tr><th>Nombre</th><th>CRE</th><th>Ubicación</th><th>Marca</th><th>Precios</th><th>Margen estimado</th><th>Acciones</th></tr></thead><tbody id="stationRows"></tbody></table></div></div>
+  </section>
+
+  <section class="section" id="tab-precios">
+    <div class="section-hdr"><div><h1>Histórico de precios</h1><p>Snapshot por estación, producto, fuente y delta contra precio anterior.</p></div></div>
+    <div class="card">
+      <div class="form-grid">
+        <div><label>Estación</label><select id="priceStation"></select></div>
+        <div><label>Producto</label><select id="priceProduct"><option value="regular">Regular</option><option value="premium">Premium</option><option value="diesel">Diésel</option></select></div>
+        <div><label>Precio</label><input id="priceValue" type="number" step="0.01" value="23.90"></div>
+      </div>
+      <div class="actions"><button class="btn" onclick="savePrice()">Guardar snapshot</button><button class="btn-ghost btn" onclick="loadPriceHistory()">Ver histórico</button></div>
+    </div>
+    <div class="card" style="margin-top:14px"><div class="table-wrap"><table class="table"><thead><tr><th>Timestamp</th><th>Producto</th><th>Precio</th><th>Delta</th><th>Fuente</th></tr></thead><tbody id="priceRows"></tbody></table></div></div>
+  </section>
+
+  <section class="section" id="tab-radar">
+    <div class="section-hdr"><div><h1>Radar de competidores</h1><p>Haversine por radio configurable: 1, 3 o 5 km.</p></div></div>
+    <div class="card">
+      <div class="form-grid">
+        <div><label>Estación propia</label><select id="radarStation"></select></div>
+        <div><label>Radio</label><select id="radarRadius"><option value="1">1 km</option><option value="3" selected>3 km</option><option value="5">5 km</option></select></div>
+        <div><label>Producto</label><select id="radarProduct"><option value="regular">Regular</option><option value="premium">Premium</option><option value="diesel">Diésel</option></select></div>
+      </div>
+      <div class="actions"><button class="btn" onclick="loadRadar()">Analizar</button></div>
+    </div>
+    <div class="card" style="margin-top:14px"><div class="table-wrap"><table class="table"><thead><tr><th>Competidor</th><th>Marca</th><th>Distancia</th><th>Precio</th><th>Delta vs cliente</th><th>CNE</th><th>Tendencia</th><th>Agresividad</th></tr></thead><tbody id="radarRows"></tbody></table></div></div>
+  </section>
+
+  <section class="section" id="tab-score">
+    <div class="section-hdr"><div><h1>Score de oportunidad v2</h1><p>Fórmula ponderada con gap carretero, demanda, CONAPO, TAD, competencia y CNE.</p></div><button class="btn" onclick="calcScore()">Calcular</button></div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="form-grid">
+          <div><label>Gap carretero km</label><input id="scGap" type="number" value="18"></div>
+          <div><label>TDPA</label><input id="scTdpa" type="number" value="12000"></div>
+          <div><label>Población municipal</label><input id="scPob" type="number" value="85000"></div>
+          <div><label>PEA</label><input id="scPea" type="number" step="0.01" value="0.52"></div>
+          <div><label>Crecimiento CONAPO %</label><input id="scCrec" type="number" step="0.1" value="1.8"></div>
+          <div><label>Distancia TAD km</label><input id="scTad" type="number" value="120"></div>
+          <div><label>Competidores 5 km</label><input id="scComp" type="number" value="2"></div>
+          <div><label>Entorno CNE</label><select id="scCne"><option value="vigente">Vigente</option><option value="revision">Revisión</option><option value="irregular">Irregular</option></select></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="score-total" id="scoreTotal">0/100</div>
+        <p id="scoreLabel">Sin calcular</p>
+        <div id="scoreBars" class="list" style="margin-top:14px"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="tab-marcas">
+    <div class="section-hdr"><div><h1>Comparador de marcas y comercializadoras</h1><p>TAR estimado editable/mock, margen típico, cobertura, imagen y ahorro potencial.</p></div><button class="btn" onclick="compareBrands()">Comparar</button></div>
+    <div class="card">
+      <div class="form-grid">
+        <div><label>Marca actual</label><select id="brMarca"><option>PEMEX</option><option>VALERO</option><option>SHELL</option><option>BP</option><option>G500</option><option>HIDROSINA</option><option>MOBIL</option><option>REPSOL</option><option>GULF</option><option>AKRON</option></select></div>
+        <div><label>Producto</label><select id="brProducto"><option value="regular">Regular</option><option value="premium">Premium</option><option value="diesel">Diésel</option></select></div>
+        <div><label>Precio venta</label><input id="brPrecio" type="number" step="0.01" value="23.90"></div>
+        <div><label>Volumen mensual litros</label><input id="brVolumen" type="number" value="180000"></div>
+        <div><label>Zona</label><input id="brZona" value="centro"></div>
+      </div>
+    </div>
+    <div class="alert" id="brandRecommendation" style="margin-top:14px"></div>
+    <div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Marca</th><th>TAR estimado</th><th>Margen $/L</th><th>Ahorro mensual</th><th>Cobertura</th><th>Imagen</th></tr></thead><tbody id="brandRows"></tbody></table></div></div>
+  </section>
+
+  <section class="section" id="tab-operacion">
+    <div class="section-hdr"><div><h1>Datos operativos del cliente</h1><p>CFDI XML de compras y CSV/Excel de ventas para calcular costo real, margen e inventario.</p></div></div>
+    <div class="grid-2">
+      <div class="card">
+        <h2>Upload CFDI XML de compras</h2>
+        <p>Extrae RFC emisor, receptor, fecha, conceptos, litros, precio unitario, importe, impuestos y costo real por litro.</p>
+        <div style="margin-top:12px"><label>Archivo XML</label><input id="cfdiFile" type="file" accept=".xml"></div>
+        <div class="actions"><button class="btn" onclick="uploadCfdi()">Procesar XML</button></div>
+        <pre id="cfdiResult" class="muted" style="white-space:pre-wrap;margin-top:12px"></pre>
+      </div>
+      <div class="card">
+        <h2>Upload CSV ventas</h2>
+        <p>Columnas esperadas: fecha, estación, producto, litros vendidos, transacciones, turno, precio venta, dispensario.</p>
+        <div style="margin-top:12px"><label>Archivo CSV</label><input id="salesFile" type="file" accept=".csv,.txt"></div>
+        <div class="actions"><button class="btn" onclick="uploadSales()">Procesar ventas</button></div>
+        <pre id="salesResult" class="muted" style="white-space:pre-wrap;margin-top:12px"></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="tab-pnl">
+    <div class="section-hdr"><div><h1>P&L por estación</h1><p>Ingreso bruto, margen bruto, utilidad neta mensual y margen ponderado $/L.</p></div><button class="btn" onclick="loadPnl()">Calcular</button></div>
+    <div class="card"><label>Estación</label><select id="pnlStation"></select></div>
+    <div class="grid" id="pnlGrid" style="margin-top:14px"></div>
+  </section>
+
+  <section class="section" id="tab-consultor">
+    <div class="section-hdr"><div><h1>Consultor AI ejecutivo</h1><p>Informe interactivo con contexto real de estaciones, precios, costos, competidores, alertas y oportunidades.</p></div><button class="btn" onclick="loadReport()">Generar informe</button></div>
+    <div class="grid" id="reportKpis"></div>
+    <div class="grid-2" style="margin-top:14px">
+      <div class="card"><h2>Riesgos</h2><div class="list" id="reportRisks" style="margin-top:12px"></div></div>
+      <div class="card"><h2>Recomendaciones accionables</h2><div class="list" id="reportRecs" style="margin-top:12px"></div></div>
+    </div>
   </section>
 
   <section class="section" id="tab-cumplimiento">
-    <div class="section-hdr"><div><h1>Cumplimiento SAT / Anexo 30</h1><p>Checklist profesional para estaciones de servicio.</p></div></div>
-    <div class="card"><table class="table"><thead><tr><th>Area</th><th>Requisitos</th></tr></thead><tbody id="complianceRows"></tbody></table></div>
-  </section>
-
-  <section class="section" id="tab-pdf">
-    <div class="section-hdr"><div><h1>PDF de CFDI</h1><p>Decision recomendada para reducir costo y dependencia del PAC.</p></div></div>
+    <div class="section-hdr"><div><h1>Cumplimiento y roadmap</h1><p>SAT, Anexo 30, CNE, precios CRE y arquitectura SaaS multi-tenant.</p></div></div>
     <div class="grid-2">
-      <div class="card">
-        <h2>Recomendacion</h2>
-        <p id="pdfReason" style="margin-top:8px"></p>
-        <div style="margin-top:12px"><span class="pill status-ok">Generar en Z Control</span></div>
-      </div>
-      <div class="card">
-        <h2>Confirmar con SW</h2>
-        <p id="pdfPac" style="margin-top:8px"></p>
-        <div style="margin-top:12px"><span class="pill status-warn">Revisar costo contractual</span></div>
-      </div>
+      <div class="card"><h2>Checklist</h2><table class="table" style="margin-top:12px"><thead><tr><th>Área</th><th>Requisitos</th></tr></thead><tbody id="complianceRows"></tbody></table></div>
+      <div class="card"><h2>Roadmap 5 sprints</h2><div class="list" id="roadmapRows" style="margin-top:12px"></div></div>
     </div>
   </section>
 </main>
 
 <script>
-const API = '';
 let TOKEN = localStorage.getItem('zc_token') || localStorage.getItem('sat_token') || '';
 let PERFIL = null;
+let STATIONS = [];
 try { PERFIL = JSON.parse(localStorage.getItem('zc_perfil') || 'null'); } catch(e) { PERFIL = null; }
-const LANG = localStorage.getItem('zc_lang') || 'es';
-
 function perfilId(){ return PERFIL && PERFIL.id ? String(PERFIL.id) : ''; }
-function headers(){ return {'Authorization': 'Bearer ' + TOKEN, ...(perfilId() ? {'X-Perfil-Id': perfilId()} : {})}; }
+function headers(json=true){ return {'Authorization':'Bearer '+TOKEN, ...(json?{'Content-Type':'application/json'}:{}), ...(perfilId()?{'X-Perfil-Id':perfilId()}:{})}; }
+function fmt(n,d=2){ return Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function money(n){ return '$'+fmt(n,2); }
 
 function switchTab(tab){
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
   document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
-  if(tab === 'cumplimiento') loadCompliance();
+  if(tab==='fuentes') loadSources();
+  if(tab==='estaciones') loadStations();
+  if(tab==='cumplimiento') { loadCompliance(); loadRoadmap(); }
 }
 
-async function api(path){
-  const r = await fetch(API + path, {headers: headers()});
-  if(r.status === 401) { location.href = '/login/gasolineras'; return null; }
-  if(r.status === 403) { alert('Tu usuario aun no tiene habilitado el modulo Gasolineras.'); return null; }
-  const data = await r.json();
-  if(!r.ok) throw new Error(data.detail || 'Error');
-  return data;
+async function api(path, opts={}){
+  const r = await fetch('/api'+path, opts);
+  if(r.status===401){ location.href='/login/gasolineras'; return null; }
+  if(r.status===403){ alert('Tu usuario aún no tiene habilitado Gasolineras.'); return null; }
+  const d = await r.json();
+  if(!r.ok) throw new Error(d.detail || 'Error');
+  return d;
 }
 
 async function init(){
-  if(!TOKEN){ location.href = '/login/gasolineras'; return; }
-  if(PERFIL){
-    document.getElementById('topbarEmpresa').textContent = PERFIL.nombre || 'Empresa activa';
-    document.getElementById('topbarRfc').textContent = PERFIL.rfc ? 'RFC ' + PERFIL.rfc : 'RFC -';
-  }
-  try {
-    const me = await fetch('/api/auth/me', {headers: headers()});
-    if(me.ok) {
-      const d = await me.json();
-      document.getElementById('topbarEmail').textContent = d.email || d.display_name || '-';
-    }
-  } catch(e){}
-  loadSummary();
+  if(!TOKEN){ location.href='/login/gasolineras'; return; }
+  if(PERFIL){ topbarEmpresa.textContent=PERFIL.nombre||'Empresa activa'; topbarRfc.textContent=PERFIL.rfc?'RFC '+PERFIL.rfc:'RFC -'; }
+  try{ const me=await fetch('/api/auth/me',{headers:headers(false)}); if(me.ok){ const d=await me.json(); topbarEmail.textContent=d.email||d.display_name||'-'; }}catch(e){}
+  await loadSummary();
 }
 
 async function loadSummary(){
-  const d = await api('/api/gaso/summary');
-  if(!d) return;
-  const scope = document.getElementById('scopeList');
-  scope.innerHTML = (d.scope || []).map(s => `<div class="item"><i class="fa-solid fa-check"></i><div>${s}</div></div>`).join('');
-  document.getElementById('pdfReason').textContent = d.pdf_strategy?.reason || '';
-  document.getElementById('pdfPac').textContent = d.pdf_strategy?.pac_option || '';
-  if(d.taxpayer?.rfc) document.getElementById('topbarRfc').textContent = 'RFC ' + d.taxpayer.rfc;
+  const d = await api('/gaso/summary', {headers:headers(false)}); if(!d) return;
+  const k=d.kpis||{};
+  kpiGrid.innerHTML = [
+    ['Estaciones CRE', k.estaciones_cre_referencia, 'referencia mercado'],
+    ['Precios reportados', k.precios_reportados_referencia, 'cobertura CRE'],
+    ['Precio regular prom.', money(k.precio_promedio_regular), 'mercado visible'],
+    ['Score promedio', (k.score_promedio||0)+'/100', 'oportunidad v2'],
+    ['Mis estaciones', k.mis_estaciones, 'red del cliente'],
+    ['Alertas activas', k.alertas_activas, 'precio, margen, CNE'],
+    ['Regulatorias', k.alertas_regulatorias, 'semáforo CNE'],
+    ['Módulo', 'Aislado', 'user_id + perfil_id']
+  ].map(x=>`<div class="card kpi"><div class="label">${x[0]}</div><div class="value">${x[1]}</div><div class="unit">${x[2]}</div></div>`).join('');
+  STATIONS = d.network?.stations || [];
+  renderStationSelects();
+  networkRows.innerHTML = STATIONS.length ? STATIONS.map(s=>`<tr><td><b>${s.nombre}</b><div class="muted">${s.permiso_cre||''}</div></td><td>${s.marca}</td><td>${money(s.precio_regular)}</td><td>${fmt(s.volumen_mensual_litros,0)} L/mes</td><td><span class="pill ${s.cne_status==='vigente'?'status-ok':'status-warn'}">${s.cne_status}</span></td></tr>`).join('') : '<tr><td colspan="5">Aún no hay estaciones propias. Da de alta una en Mis estaciones.</td></tr>';
+  accessList.innerHTML = (d.access||[]).map(a=>`<div class="item" onclick="switchTab('${a.tab}')" style="cursor:pointer"><i class="fa-solid fa-arrow-right"></i><div><b>${a.module}</b><span class="muted">Abrir módulo interno</span></div></div>`).join('');
+  if(d.taxpayer?.rfc) topbarRfc.textContent='RFC '+d.taxpayer.rfc;
+}
+
+async function loadSources(){
+  const d=await api('/gaso/data-sources',{headers:headers(false)}); if(!d) return;
+  sourceRows.innerHTML=(d.sources||[]).map(s=>`<tr><td><b>${s.nombre}</b><div class="muted">${s.codigo}</div></td><td>${s.frecuencia}</td><td>${s.pipeline}</td><td><span class="pill">${s.estado}</span></td><td>${(s.campos||[]).join(', ')}</td></tr>`).join('');
+}
+
+function toggleStationForm(){ stationFormCard.classList.toggle('hidden'); }
+async function loadStations(){
+  const d=await api('/gaso/stations',{headers:headers(false)}); if(!d) return;
+  STATIONS=d.stations||[]; renderStationSelects();
+  stationRows.innerHTML=STATIONS.length?STATIONS.map(s=>{
+    const margin=(Number(s.precio_regular||0)-Number(s.costo_regular||0));
+    return `<tr><td><b>${s.nombre}</b><div class="muted">${s.marca}</div></td><td>${s.permiso_cre||'-'}</td><td>${s.municipio||''}, ${s.estado||''}<div class="muted">${s.lat}, ${s.lng}</div></td><td>${s.marca}</td><td>R ${money(s.precio_regular)}<br>P ${money(s.precio_premium)}<br>D ${money(s.precio_diesel)}</td><td>${money(margin)}/L</td><td><button class="btn-danger btn-sm" onclick="deleteStation(${s.id})">Eliminar</button></td></tr>`;
+  }).join(''):'<tr><td colspan="7">Sin estaciones propias registradas.</td></tr>';
+}
+async function saveStation(){
+  const payload={nombre:stNombre.value,permiso_cre:stPermiso.value,permiso_cne:stCne.value,marca:stMarca.value,estado:stEstado.value,municipio:stMunicipio.value,direccion:'',lat:Number(stLat.value),lng:Number(stLng.value),precio_regular:Number(stRegular.value),precio_premium:Number(stPremium.value),precio_diesel:Number(stDiesel.value),costo_regular:Number(stCostoRegular.value),costo_premium:0,costo_diesel:0,volumen_mensual_litros:Number(stVolumen.value),opex_mensual:Number(stOpex.value),cne_status:stCneStatus.value,propia:true};
+  await api('/gaso/stations',{method:'POST',headers:headers(),body:JSON.stringify(payload)});
+  toggleStationForm(); await loadStations(); await loadSummary();
+}
+async function deleteStation(id){ if(!confirm('Eliminar estación de tu red?')) return; await api('/gaso/stations/'+id,{method:'DELETE',headers:headers(false)}); await loadStations(); await loadSummary(); }
+function renderStationSelects(){
+  const opts=STATIONS.map(s=>`<option value="${s.id}">${s.nombre}</option>`).join('');
+  [priceStation,radarStation,pnlStation].forEach(el=>{ if(el) el.innerHTML=opts || '<option value="">Sin estaciones</option>'; });
+}
+
+async function savePrice(){
+  if(!priceStation.value) return alert('Primero registra una estación.');
+  const payload={estacion_id:Number(priceStation.value),producto:priceProduct.value,precio:Number(priceValue.value),fuente:'CLIENTE_MANUAL'};
+  await api('/gaso/prices',{method:'POST',headers:headers(),body:JSON.stringify(payload)});
+  await loadPriceHistory();
+}
+async function loadPriceHistory(){
+  if(!priceStation.value) return;
+  const d=await api(`/gaso/prices/history?estacion_id=${priceStation.value}&producto=${priceProduct.value}`,{headers:headers(false)}); if(!d) return;
+  priceRows.innerHTML=(d.history||[]).map(r=>`<tr><td>${r.timestamp||''}</td><td>${r.producto}</td><td>${money(r.precio)}</td><td>${money(r.delta_anterior)}</td><td>${r.fuente}</td></tr>`).join('') || '<tr><td colspan="5">Sin histórico.</td></tr>';
+}
+
+async function loadRadar(){
+  if(!radarStation.value) return alert('Primero registra una estación.');
+  const payload={estacion_id:Number(radarStation.value),radio_km:Number(radarRadius.value),producto:radarProduct.value};
+  const d=await api('/gaso/radar',{method:'POST',headers:headers(),body:JSON.stringify(payload)}); if(!d) return;
+  radarRows.innerHTML=(d.competitors||[]).map(c=>`<tr><td><b>${c.nombre}</b><div class="muted">${c.permiso}</div></td><td>${c.marca}</td><td>${fmt(c.distancia_km,2)} km</td><td>${money(c.precio)}</td><td>${money(c.delta_vs_cliente)}</td><td><span class="pill ${c.cne_status==='vigente'?'status-ok':'status-warn'}">${c.cne_status}</span></td><td>${c.tendencia}</td><td><div class="bar"><span style="width:${c.agresividad}%"></span></div>${c.agresividad}/100</td></tr>`).join('') || '<tr><td colspan="8">Sin competidores en ese radio.</td></tr>';
+}
+
+async function calcScore(){
+  const payload={distancia_gap_km:Number(scGap.value),tdpa:Number(scTdpa.value),poblacion_municipal:Number(scPob.value),pea:Number(scPea.value),crecimiento_conapo_pct:Number(scCrec.value),distancia_tad_km:Number(scTad.value),competidores_5km:Number(scComp.value),cne_status:scCne.value};
+  const d=await api('/gaso/score',{method:'POST',headers:headers(),body:JSON.stringify(payload)}); if(!d) return;
+  scoreTotal.textContent=d.score+'/100'; scoreLabel.textContent=d.label;
+  scoreBars.innerHTML=Object.entries(d.components||{}).map(([k,v])=>`<div><div style="display:flex;justify-content:space-between"><b>${k}</b><span>${v}/100</span></div><div class="bar"><span style="width:${v}%"></span></div></div>`).join('');
+}
+
+async function compareBrands(){
+  const payload={marca_actual:brMarca.value,zona:brZona.value,producto:brProducto.value,precio_venta:Number(brPrecio.value),volumen_mensual_litros:Number(brVolumen.value)};
+  const d=await api('/gaso/brands/compare',{method:'POST',headers:headers(),body:JSON.stringify(payload)}); if(!d) return;
+  brandRecommendation.textContent=d.recommendation;
+  brandRows.innerHTML=(d.ranking||[]).map(r=>`<tr><td><b>${r.marca}</b></td><td>${money(r.tar_estimado)}</td><td>${money(r.margen_estimado_litro)}</td><td>${money(r.ahorro_vs_actual_mensual)}</td><td>${r.cobertura}</td><td>${r.imagen}</td></tr>`).join('');
+}
+
+async function uploadCfdi(){
+  const f=cfdiFile.files[0]; if(!f) return alert('Selecciona XML.');
+  const fd=new FormData(); fd.append('file',f);
+  const d=await api('/gaso/uploads/cfdi',{method:'POST',headers:headers(false),body:fd}); if(!d) return;
+  cfdiResult.textContent=JSON.stringify(d.parsed,null,2);
+}
+async function uploadSales(){
+  const f=salesFile.files[0]; if(!f) return alert('Selecciona CSV.');
+  const fd=new FormData(); fd.append('file',f);
+  const d=await api('/gaso/uploads/sales',{method:'POST',headers:headers(false),body:fd}); if(!d) return;
+  salesResult.textContent=JSON.stringify(d,null,2);
+}
+
+async function loadPnl(){
+  if(!pnlStation.value) return alert('Primero registra una estación.');
+  const d=await api('/gaso/pnl',{method:'POST',headers:headers(),body:JSON.stringify({estacion_id:Number(pnlStation.value),dias:30})}); if(!d) return;
+  const p=d.pnl||{};
+  pnlGrid.innerHTML=[['Ingreso bruto diario',money(p.ingreso_bruto_diario)],['Margen bruto diario',money(p.margen_bruto_diario)],['Utilidad neta mensual',money(p.utilidad_neta_mensual)],['Margen ponderado $/L',money(p.margen_ponderado_litro)],['Volumen diario',fmt(p.volumen_diario_litros,0)+' L'],['OPEX mensual',money(p.opex_mensual)]].map(x=>`<div class="card kpi"><div class="label">${x[0]}</div><div class="value">${x[1]}</div></div>`).join('');
+}
+
+async function loadReport(){
+  const d=await api('/gaso/executive-report',{headers:headers(false)}); if(!d) return;
+  const g=d.diagnostico||{};
+  reportKpis.innerHTML=Object.entries(g).map(([k,v])=>`<div class="card kpi"><div class="label">${k.replaceAll('_',' ')}</div><div class="value">${typeof v==='number'?fmt(v,2):v}</div></div>`).join('');
+  reportRisks.innerHTML=(d.riesgos||[]).map(r=>`<div class="item"><i class="fa-solid fa-triangle-exclamation"></i><div>${r}</div></div>`).join('') || '<div class="item"><i class="fa-solid fa-check"></i><div>Sin riesgos críticos con datos actuales.</div></div>';
+  reportRecs.innerHTML=(d.recomendaciones||[]).map(r=>`<div class="item"><i class="fa-solid fa-arrow-trend-up"></i><div>${r}</div></div>`).join('');
 }
 
 async function loadCompliance(){
-  const d = await api('/api/gaso/compliance');
-  if(!d) return;
-  document.getElementById('complianceRows').innerHTML = (d.items || []).map(item => `
-    <tr><td><b>${item.area}</b></td><td>${item.requirements.map(r => `<div style="margin-bottom:5px">${r}</div>`).join('')}</td></tr>
-  `).join('');
+  const d=await api('/gaso/compliance',{headers:headers(false)}); if(!d) return;
+  complianceRows.innerHTML=(d.items||[]).map(item=>`<tr><td><b>${item.area}</b></td><td>${item.requirements.map(r=>`<div>${r}</div>`).join('')}</td></tr>`).join('');
+}
+async function loadRoadmap(){
+  const d=await api('/gaso/roadmap',{headers:headers(false)}); if(!d) return;
+  roadmapRows.innerHTML=(d.sprints||[]).map(s=>`<div class="item"><i class="fa-solid fa-layer-group"></i><div><b>Sprint ${s.sprint}: ${s.nombre}</b><span class="muted">${s.items.join(' · ')}</span></div></div>`).join('');
 }
 
-async function logout(){
-  await fetch('/api/auth/logout', {method:'POST', headers:headers()}).catch(()=>{});
-  localStorage.removeItem('zc_token'); localStorage.removeItem('sat_token');
-  location.href = '/choice';
-}
-
-document.getElementById('langBtn').onclick = () => {
-  localStorage.setItem('zc_lang', LANG === 'en' ? 'es' : 'en');
-  location.reload();
-};
-
+async function logout(){ await fetch('/api/auth/logout',{method:'POST',headers:headers(false)}).catch(()=>{}); localStorage.removeItem('zc_token'); localStorage.removeItem('sat_token'); location.href='/choice'; }
 init();
 </script>
 </body>

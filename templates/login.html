@@ -3,33 +3,39 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Z Control - {{ nombre_modulo }}</title>
+  <title>GE CONTROL - {{ nombre_modulo }}</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-family: var(--ge-font);
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(135deg, {{ color_secundario }} 0%, #0f172a 100%);
+      background:
+        radial-gradient(circle at 18% 16%, rgba(200,169,107,.18), transparent 28%),
+        linear-gradient(135deg, #5B0F1D 0%, #111111 100%);
     }
     .login-card {
-      background: rgba(255,255,255,0.08);
+      background: rgba(17,17,17,0.74);
       backdrop-filter: blur(20px);
-      border-radius: 24px;
+      border-radius: 14px;
       padding: 3rem;
       width: 100%;
       max-width: 400px;
-      border: 1px solid rgba(255,255,255,0.1);
+      border: 1px solid rgba(200,169,107,0.18);
+      box-shadow: 0 32px 80px rgba(0,0,0,.26);
     }
     .login-brand {
       text-align: center;
       margin-bottom: 2rem;
     }
     .login-brand img {
-      width: 220px;
+      width: 260px;
       margin-bottom: 1rem;
     }
     .login-brand h2 {
@@ -42,8 +48,9 @@
       align-items: center;
       gap: 0.5rem;
       padding: 0.4rem 1rem;
-      background: {{ color_primario }};
-      border-radius: 20px;
+      background: rgba(200,169,107,.16);
+      border: 1px solid rgba(200,169,107,.28);
+      border-radius: 999px;
       color: #fff;
       font-size: 0.8rem;
       font-weight: 600;
@@ -63,7 +70,7 @@
       width: 100%;
       padding: 1rem;
       border: 1px solid rgba(255,255,255,0.15);
-      border-radius: 12px;
+      border-radius: 8px;
       background: rgba(255,255,255,0.08);
       color: #fff;
       font-size: 1rem;
@@ -71,22 +78,22 @@
     }
     .field input:focus {
       outline: none;
-      border-color: {{ color_primario }};
+      border-color: #C8A96B;
     }
     .field input::placeholder { color: #64748b; }
     .btn-login {
       width: 100%;
       padding: 1rem;
-      background: {{ color_primario }};
+      background: #7A1E2C;
       border: none;
-      border-radius: 12px;
+      border-radius: 8px;
       color: #fff;
       font-size: 1rem;
       font-weight: 600;
       cursor: pointer;
       transition: background 0.2s;
     }
-    .btn-login:hover { background: {{ color_secundario }}; }
+    .btn-login:hover { background: #5B0F1D; }
     .login-err {
       color: #f87171;
       text-align: center;
@@ -116,7 +123,7 @@
   if (_lang !== 'en') return;
 
   const EN = {
-    title:       'Z Control - {{ nombre_modulo }}',
+    title:       'GE CONTROL - {{ nombre_modulo }}',
     usuario:     'USERNAME',
     contrasena:  'PASSWORD',
     placeholder_user: 'username',
@@ -149,7 +156,7 @@
 <body>
   <div class="login-card">
     <div class="login-brand">
-      <img src="/static/img/z_logo.png" alt="Z Control">
+      <img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL">
       <h2>{{ nombre_modulo }}</h2>
       <span class="module-badge"><i class="fa-solid {{ icon_module }}"></i> {{ nombre_modulo }}</span>
     </div>
