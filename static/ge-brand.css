@@ -1,0 +1,167 @@
+:root {
+  --ge-tinto: #7A1E2C;
+  --ge-tinto-dark: #5B0F1D;
+  --ge-gold: #C8A96B;
+  --ge-black: #111111;
+  --ge-graphite: #2B2B2B;
+  --ge-soft-white: #F5F5F5;
+  --ge-bg: #F5F5F5;
+  --ge-surface: #FFFFFF;
+  --ge-line: #E7E3DC;
+  --ge-muted: #6F6A64;
+  --ge-radius: 10px;
+  --ge-shadow: 0 12px 34px rgba(17, 17, 17, .07);
+  --ge-font: Inter, "Geist", "General Sans", "Satoshi", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+html {
+  font-family: var(--ge-font);
+}
+
+body {
+  font-family: var(--ge-font) !important;
+  background: var(--ge-bg) !important;
+  color: var(--ge-black) !important;
+}
+
+::selection {
+  background: rgba(122, 30, 44, .18);
+}
+
+.ge-logo-full,
+.brand-logo.ge-logo-full {
+  width: 178px;
+  height: auto;
+  display: block;
+}
+
+.ge-logo-mark {
+  width: 42px;
+  height: 42px;
+  display: block;
+}
+
+.ge-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 650;
+}
+
+.ge-wordmark span,
+.ge-control-title {
+  letter-spacing: .22em;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.topbar,
+header {
+  background: #5B0F1D !important;
+  color: var(--ge-soft-white) !important;
+  border-bottom: 1px solid rgba(200,169,107,.22) !important;
+  box-shadow: none !important;
+}
+
+.topbar .badge,
+header .badge,
+.badge {
+  border-radius: 999px;
+}
+
+.topbar .badge,
+header .badge {
+  background: rgba(245,245,245,.08) !important;
+  border-color: rgba(200,169,107,.24) !important;
+  color: var(--ge-soft-white) !important;
+}
+
+.card,
+.stat,
+.login-card,
+.choice-card {
+  border-radius: var(--ge-radius) !important;
+  box-shadow: var(--ge-shadow) !important;
+  border-color: var(--ge-line) !important;
+}
+
+.btn-primary,
+.btn-login,
+.btn.btn-primary,
+.btn {
+  border-radius: 8px;
+}
+
+.btn-primary,
+.btn-login,
+.btn.btn-primary {
+  background: var(--ge-tinto) !important;
+  color: #fff !important;
+}
+
+.btn-primary:hover,
+.btn-login:hover,
+.btn.btn-primary:hover {
+  background: var(--ge-tinto-dark) !important;
+}
+
+input,
+select,
+textarea {
+  border-radius: 8px !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--ge-tinto) !important;
+  box-shadow: 0 0 0 3px rgba(122,30,44,.12) !important;
+}
+
+table thead tr,
+th {
+  background: #F4F1EC !important;
+}
+
+.tab.active,
+.main-nav-tab.active {
+  border-bottom-color: var(--ge-tinto) !important;
+  color: var(--ge-black) !important;
+}
+
+.tabs-bar,
+.main-nav-tabs,
+.tabs {
+  border-bottom-color: var(--ge-line) !important;
+}
+
+@media (max-width: 720px) {
+  .ge-logo-full {
+    display: none !important;
+  }
+
+  .ge-mobile-mark {
+    display: block !important;
+  }
+
+  .topbar,
+  header {
+    min-height: 62px;
+  }
+
+  .tabs,
+  .tabs-bar,
+  .main-nav-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .tabs::-webkit-scrollbar,
+  .tabs-bar::-webkit-scrollbar,
+  .main-nav-tabs::-webkit-scrollbar {
+    display: none;
+  }
+}
