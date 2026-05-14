@@ -28,20 +28,26 @@ a{color:var(--blue-light);text-decoration:none}
 .topbar{background:#5B0F1D;color:#f8fafc;border-bottom:1px solid rgba(200,169,107,.22);padding:0 24px;height:64px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;box-shadow:none}
 .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;color:#fff;text-decoration:none}
 .brand-logo{height:42px;width:auto;display:block}
-.brand-logo-mark{height:38px;width:38px;display:none}
+.brand-logo-mark{height:34px;width:58px;display:block;object-fit:contain}
 .badge{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.18);padding:5px 11px;border-radius:20px;font-size:12px;color:#f8fafc}
 .badge.module{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.22);color:#f8fafc}
-.topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px;min-width:0}
 .avatar{width:32px;height:32px;background:var(--blue2);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;cursor:default}
 .btn-sm{padding:6px 12px;border-radius:var(--radius-sm);font-size:12px;cursor:pointer;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);color:#f8fafc;transition:.15s}
 .btn-sm:hover{background:rgba(255,255,255,.16);color:#fff}
 
 /* ── TABS ── */
-.tabs-bar{background:#fff;border-bottom:1px solid var(--border);padding:0 24px;display:flex;gap:2px;overflow-x:auto;box-shadow:0 6px 18px rgba(15,28,45,.04)}
+.tabs-bar{background:#fff;border-bottom:1px solid var(--border);padding:0 24px;display:flex;gap:2px;align-items:stretch;overflow:visible;box-shadow:0 6px 18px rgba(15,28,45,.04);position:sticky;top:64px;z-index:90}
 .tab{padding:14px 18px;font-size:13px;font-weight:500;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;transition:.15s;white-space:nowrap;display:flex;align-items:center;gap:6px}
 .tab:hover{color:var(--text2)}
 .tab.active{color:var(--text);border-bottom-color:var(--blue);background:#f8fafc}
 .tab .count{background:var(--blue2);color:#fff;font-size:10px;padding:1px 6px;border-radius:10px}
+.tab-menu{position:relative;display:flex}
+.tab-menu-btn{border:0;background:transparent;font-family:inherit}
+.tab-menu-panel{position:absolute;top:calc(100% + 1px);right:0;min-width:230px;background:#fff;border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);box-shadow:var(--shadow);padding:6px;display:none;z-index:120}
+.tab-menu:hover .tab-menu-panel,.tab-menu:focus-within .tab-menu-panel{display:grid;gap:2px}
+.tab-menu-panel .tab{border-bottom:0;border-radius:7px;padding:11px 12px;width:100%;justify-content:flex-start}
+.tab-menu-panel .tab.active{background:#F5F1E8;color:#5B0F1D;border-bottom:0}
 
 /* ── LAYOUT ── */
 .main{padding:24px;max-width:1400px;margin:0 auto}
@@ -157,10 +163,18 @@ select option{background:#fff}
   .form-row.cols-2,.form-row.cols-3{grid-template-columns:1fr}
   .main{padding:16px}
   .brand-logo{display:none}
-  .brand-logo-mark{display:block}
-  .topbar{padding:0 14px;gap:8px}
+  .brand-logo-mark{height:30px;width:52px}
+  .topbar{padding:0 12px;gap:8px;height:auto;min-height:58px;flex-wrap:wrap}
   .topbar .logo span{display:none}
-  .topbar-right{gap:6px}
+  .topbar-right{gap:6px;margin-left:0;flex:1;justify-content:flex-end;flex-wrap:wrap}
+  #topbar-version,.avatar{display:none}
+  .badge{font-size:11px;padding:4px 8px}
+  .tabs-bar{top:58px;padding:0 10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;overflow:visible}
+  .tab{justify-content:center;padding:12px 8px;font-size:12px}
+  .tab-menu{display:block}
+  .tab-menu-btn{width:100%;justify-content:center}
+  .tab-menu-panel{position:absolute;right:0;left:auto;min-width:220px}
+  .btn-sm{padding:5px 9px}
 }
 </style>
 </head>
@@ -169,7 +183,6 @@ select option{background:#fff}
 <!-- TOPBAR -->
 <div class="topbar">
   <a href="/" class="logo">
-    <img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL" class="brand-logo">
     <img src="/static/img/ge-isotype-light.svg" alt="GE" class="brand-logo-mark">
     <span>Transporte</span>
   </a>
@@ -189,26 +202,36 @@ select option{background:#fff}
   <div class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')">
     <i class="fa-solid fa-chart-line"></i> Dashboard
   </div>
-  <div class="tab" data-tab="analisis" onclick="switchTab('analisis')">
-    <i class="fa-solid fa-chart-simple"></i> Análisis
-  </div>
-  <div class="tab" data-tab="pronostico" onclick="switchTab('pronostico')">
-    <i class="fa-solid fa-chart-area"></i> Pronóstico
-  </div>
   <div class="tab" data-tab="viajes" onclick="switchTab('viajes')">
     <i class="fa-solid fa-route"></i> Viajes <span class="count" id="cnt-viajes">0</span>
   </div>
   <div class="tab" data-tab="facturacion" onclick="switchTab('facturacion')">
     <i class="fa-solid fa-file-invoice-dollar"></i> Facturación <span class="count" id="cnt-facturas">0</span>
   </div>
-  <div class="tab" data-tab="covol" onclick="switchTab('covol')">
-    <i class="fa-solid fa-chart-column"></i> Control Volumétrico
-  </div>
   <div class="tab" data-tab="catalogos" onclick="switchTab('catalogos')">
     <i class="fa-solid fa-table-list"></i> Catálogos
   </div>
-  <div class="tab" data-tab="configuracion" onclick="switchTab('configuracion')">
-    <i class="fa-solid fa-gear"></i> Configuración
+  <div class="tab" data-tab="covol" onclick="switchTab('covol')">
+    <i class="fa-solid fa-chart-column"></i> Control Volumétrico
+  </div>
+  <div class="tab-menu">
+    <button class="tab tab-menu-btn" type="button">
+      <i class="fa-solid fa-ellipsis"></i> Administración
+    </button>
+    <div class="tab-menu-panel">
+      <button class="tab" type="button" data-tab="operacion" onclick="switchTab('operacion')">
+        <i class="fa-solid fa-clipboard-list"></i> Operación 360
+      </button>
+      <button class="tab" type="button" data-tab="analisis" onclick="switchTab('analisis')">
+        <i class="fa-solid fa-chart-simple"></i> Análisis
+      </button>
+      <button class="tab" type="button" data-tab="pronostico" onclick="switchTab('pronostico')">
+        <i class="fa-solid fa-chart-area"></i> Pronóstico
+      </button>
+      <button class="tab" type="button" data-tab="configuracion" onclick="switchTab('configuracion')">
+        <i class="fa-solid fa-gear"></i> Configuración
+      </button>
+    </div>
   </div>
 </div>
 
@@ -280,6 +303,79 @@ select option{background:#fff}
         <tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-truck-fast"></i></div><h3>Cargando viajes...</h3></div></td></tr>
       </tbody>
     </table>
+  </div>
+</div>
+
+<div id="tab-operacion" class="section">
+  <div class="section-hdr">
+    <div>
+      <h2>Operación Transporte</h2>
+      <p style="color:var(--text3);font-size:13px;margin-top:2px">Viaje 360, documentos, tarifas, liquidaciones y bitácora operativa</p>
+    </div>
+    <div class="hdr-actions">
+      <input type="month" id="filtro-periodo-operacion" style="width:160px" onchange="cargarOperacion()">
+      <button class="btn btn-ghost" onclick="abrirImportadorExcel()"><i class="fa-solid fa-file-excel"></i> Importar Excel</button>
+    </div>
+  </div>
+
+  <div class="grid-4" style="margin-bottom:20px">
+    <div class="stat blue"><div class="stat-label">Programados</div><div class="stat-value" id="op-programados">—</div></div>
+    <div class="stat amber"><div class="stat-label">Sin confirmación</div><div class="stat-value" id="op-sin-confirmacion">—</div></div>
+    <div class="stat green"><div class="stat-label">Entregados</div><div class="stat-value" id="op-entregados">—</div></div>
+    <div class="stat"><div class="stat-label">Pendientes liquidación</div><div class="stat-value" id="op-liquidaciones">—</div></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-list-check"></i> Alertas operativas</div>
+      <div id="op-alertas" class="hint">Cargando...</div>
+    </div>
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-link"></i> Portal operador</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Chofer</label><select id="op-chofer-token"></select></div>
+        <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="generarLinkOperador()">Generar link</button></div>
+      </div>
+      <input id="op-link-operador" readonly placeholder="Link del operador..." style="margin-top:8px">
+      <span class="hint">El operador solo ve tarjetas de viaje y 4 botones: recibido, en camino, entregado o problema.</span>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-top:20px">
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-route"></i> Viaje 360</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Viaje</label><select id="op-viaje-360"></select></div>
+        <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="cargarViaje360()">Abrir expediente</button></div>
+      </div>
+      <div id="op-viaje360" class="hint">Selecciona un viaje para ver timeline, documentos y datos fiscales/operativos.</div>
+    </div>
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-money-check-dollar"></i> Liquidaciones</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Chofer</label><select id="liq-chofer"></select></div>
+        <div class="form-group"><label>Periodo</label><input type="month" id="liq-periodo"></div>
+      </div>
+      <button class="btn btn-primary" onclick="generarLiquidacion()">Generar liquidación</button>
+      <div id="op-liquidaciones-list" class="hint" style="margin-top:12px">Sin liquidaciones cargadas.</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:20px">
+    <div class="card-title"><i class="fa-solid fa-tags"></i> Tarifas configurables</div>
+    <div class="form-row cols-4">
+      <div class="form-group"><label>Origen</label><input id="tar-origen" placeholder="Origen"></div>
+      <div class="form-group"><label>Destino</label><input id="tar-destino" placeholder="Destino"></div>
+      <div class="form-group"><label>Producto</label><input id="tar-producto" placeholder="Magna, Diésel, Gas LP..."></div>
+      <div class="form-group"><label>Regla</label><select id="tar-regla"><option value="litros">Litros</option><option value="kilos">Kilos</option><option value="viaje">Viaje</option><option value="distancia">Distancia</option><option value="manual">Manual</option></select></div>
+    </div>
+    <div class="form-row cols-4">
+      <div class="form-group"><label>Tarifa</label><input type="number" id="tar-tarifa" step="0.0001" placeholder="0.00"></div>
+      <div class="form-group"><label>IVA</label><input type="number" id="tar-iva" step="0.01" value="0.16"></div>
+      <div class="form-group"><label>Retención</label><input type="number" id="tar-ret" step="0.01" value="0.04"></div>
+      <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="guardarTarifa()">Guardar tarifa</button></div>
+    </div>
+    <div id="op-tarifas-list" class="hint">Cargando tarifas...</div>
   </div>
 </div>
 
@@ -588,6 +684,23 @@ select option{background:#fff}
 </div><!-- /main -->
 
 <!-- ════ MODALES ════ -->
+
+<div class="overlay" id="modal-importar-excel">
+<div class="modal" style="max-width:620px">
+  <div class="modal-title"><i class="fa-solid fa-file-excel"></i> Importar histórico operativo</div>
+  <p class="hint" style="margin-bottom:14px">Este importador no reemplaza viajes ni timbrados. Lee el Excel operativo, detecta pestañas y puede cargar tarifas configurables.</p>
+  <div class="form-group">
+    <label>Excel operativo</label>
+    <input type="file" id="import-excel-file" accept=".xlsx,.xls">
+  </div>
+  <div id="import-excel-result" class="hint"></div>
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="cerrarModal('modal-importar-excel')">Cerrar</button>
+    <button class="btn btn-ghost" onclick="importarExcelRuth(true)">Previsualizar</button>
+    <button class="btn btn-primary" onclick="importarExcelRuth(false)">Importar tarifas</button>
+  </div>
+</div>
+</div>
 
 <!-- Modal: Nuevo/Editar Viaje -->
 <div class="overlay" id="modal-viaje">
@@ -973,6 +1086,8 @@ let CARTAS_FACTURABLES = [];
 let COVOL_RESULT = null;
 let EDIT_ID = null;
 let PERFIL = null;
+let TARIFAS = [];
+let LIQUIDACIONES = [];
 
 try {
   PERFIL = JSON.parse(localStorage.getItem('zc_perfil') || 'null');
@@ -1191,6 +1306,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   const periodoHoy = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
   document.getElementById('filtro-periodo-viajes').value = periodoHoy;
   document.getElementById('filtro-periodo-fact').value   = periodoHoy;
+  document.getElementById('filtro-periodo-operacion').value = periodoHoy;
+  document.getElementById('liq-periodo').value = periodoHoy;
   document.getElementById('covol-mes').value = hoy.getMonth()+1;
   document.getElementById('covol-anio').value = hoy.getFullYear();
 
@@ -1218,6 +1335,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Cargar todo en paralelo
   await Promise.all([cargarConfig(), cargarCatalogos(), cargarViajes(), cargarProductosSAT(), cargarDashboardTransporte()]);
+  cargarOperacion();
   cargarFacturas();
   applyI18n();
   const topRight = document.querySelector('.topbar-right');
@@ -1248,12 +1366,16 @@ function switchTab(tab) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
-  document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+  const activeNav = document.querySelector(`[data-tab="${tab}"]`);
+  if (activeNav) activeNav.classList.add('active');
+  const adminTabs = ['operacion','analisis','pronostico','configuracion'];
+  document.querySelector('.tab-menu-btn')?.classList.toggle('active', adminTabs.includes(tab));
   if (tab === 'catalogos') cargarCatalogos();
   if (tab === 'facturacion') cargarFacturas();
   if (tab === 'dashboard') cargarDashboardTransporte();
   if (tab === 'analisis') cargarAnalisisTransporte();
   if (tab === 'pronostico') cargarPronosticoTransporte();
+  if (tab === 'operacion') cargarOperacion();
 }
 
 function switchCatTab(which) {
@@ -1522,6 +1644,10 @@ function actualizarSelects() {
     fsCliente.innerHTML = '<option value="">Selecciona cliente</option>' +
       CLIENTES.map(c => `<option value="${c.id}" data-rfc="${c.rfc}" data-nom="${c.nombre}" data-cp="${c.cp}" data-regimen="${c.regimen_fiscal}" data-uso="${c.uso_cfdi}">${c.rfc} — ${c.nombre}</option>`).join('');
   }
+  ['op-chofer-token','liq-chofer'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '<option value="">Selecciona chofer</option>' + CHOFERES.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1584,6 +1710,7 @@ function renderViajes() {
       <td class="td-mono">${v.vehiculo_id||'—'}</td>
       <td>${chipStatus(v.status)}</td>
       <td style="white-space:nowrap">
+        ${actionBtn('ghost','Viaje 360',`abrirViaje360DesdeTabla(${v.id})`, icon('folder-open'))}
         ${editable ? actionBtn('ghost','Editar viaje',`editarViaje(${v.id})`, icon('pen')) : ''}
         ${editable ? actionBtn('danger','Eliminar viaje',`eliminarViaje(${v.id})`, icon('trash')) : ''}
         ${editable ? actionBtn('success','Timbrar Carta Porte',`timbrarViaje(${v.id})`, `${icon('file-signature')} Timbrar Carta Porte`) : ''}
@@ -1873,6 +2000,143 @@ async function cancelarViaje(id) {
 
 function verCFDI(uuid) {
   window.open(`https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx?id=${uuid}`, '_blank');
+}
+
+// ═══════════════════════════════════════════════════════
+// OPERACIÓN: Viaje 360, tarifas, liquidaciones, operador
+// ═══════════════════════════════════════════════════════
+async function cargarOperacion() {
+  const periodo = document.getElementById('filtro-periodo-operacion')?.value || document.getElementById('filtro-periodo-viajes')?.value || '';
+  const q = periodo ? `?periodo=${periodo}` : '';
+  const [dash, tarifas, liqs] = await Promise.all([
+    api('GET', '/api/tr/dashboard-operativo'+q).catch(()=>null),
+    api('GET', '/api/tr/tarifas').catch(()=>null),
+    api('GET', '/api/tr/liquidaciones'+q).catch(()=>null),
+  ]);
+  const r = dash?.resumen || {};
+  document.getElementById('op-programados').textContent = r.programados ?? '—';
+  document.getElementById('op-sin-confirmacion').textContent = r.sin_confirmacion ?? '—';
+  document.getElementById('op-entregados').textContent = r.entregados ?? '—';
+  document.getElementById('op-liquidaciones').textContent = r.liquidaciones_pendientes ?? '—';
+  document.getElementById('op-alertas').innerHTML = (r.alertas||[]).map(a => `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)"><span>${a.label}</span><strong>${a.count}</strong></div>`).join('') || 'Sin alertas.';
+  TARIFAS = tarifas?.tarifas || [];
+  LIQUIDACIONES = liqs?.liquidaciones || [];
+  renderTarifasOperacion();
+  renderLiquidacionesOperacion();
+  actualizarSelectViaje360();
+}
+
+function actualizarSelectViaje360() {
+  const sel = document.getElementById('op-viaje-360');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Selecciona viaje</option>' + VIAJES.map(v => `<option value="${v.id}">#${v.id} · ${(v.nombre_origen||v.cp_origen||'?')} → ${(v.nombre_destino||v.cp_destino||'?')}</option>`).join('');
+}
+
+function abrirViaje360DesdeTabla(id) {
+  switchTab('operacion');
+  setTimeout(() => {
+    const sel = document.getElementById('op-viaje-360');
+    if (sel) sel.value = id;
+    cargarViaje360();
+  }, 50);
+}
+
+async function cargarViaje360() {
+  const id = document.getElementById('op-viaje-360').value;
+  if (!id) { toast('Selecciona un viaje', 'error'); return; }
+  const d = await api('GET', `/api/tr/viajes/${id}/360`);
+  const v = d.viaje || {};
+  const eventos = d.eventos || [];
+  const docs = d.documentos || [];
+  document.getElementById('op-viaje360').innerHTML = `
+    <div style="display:grid;gap:10px;margin-top:12px">
+      <div><strong>Viaje #${v.id}</strong> · ${v.nombre_origen||v.cp_origen||'?'} → ${v.nombre_destino||v.cp_destino||'?'}</div>
+      <div class="hint">Chofer: ${d.chofer?.nombre || v.chofer_id || '—'} · Vehículo: ${d.vehiculo?.placas || v.vehiculo_id || '—'}</div>
+      <div class="hint">Fiscal: ${v.uuid_cfdi ? 'Carta Porte timbrada ' + v.uuid_cfdi.substring(0,8) : 'Carta Porte pendiente'} · Operación: ${v.operacion_status || v.status}</div>
+      <div><button class="btn btn-ghost" onclick="calcularTarifa(${v.id})">Calcular tarifa</button> <button class="btn btn-ghost" onclick="actualizarStatusOperacion(${v.id},'entregado')">Marcar entregado</button> <button class="btn btn-ghost" onclick="actualizarStatusOperacion(${v.id},'cerrado')">Cerrar viaje</button></div>
+      <div><strong>Documentos</strong>${docs.map(x=>`<div class="hint">${x.tipo}: ${x.nombre || x.storage_path || 'Documento'}</div>`).join('') || '<div class="hint">Sin documentos registrados.</div>'}</div>
+      <div><strong>Timeline</strong>${eventos.map(e=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)"><span class="td-mono">${(e.created_at||'').substring(0,16)}</span> · <strong>${e.title}</strong><div class="hint">${e.description||''}</div></div>`).join('') || '<div class="hint">Sin eventos todavía.</div>'}</div>
+    </div>`;
+}
+
+async function actualizarStatusOperacion(id, status) {
+  const r = await api('POST', `/api/tr/viajes/${id}/operacion-status`, { operacion_status: status });
+  if (r?.ok) { toast('Estatus operativo actualizado', 'success'); cargarViajes(); cargarOperacion(); cargarViaje360(); }
+}
+
+async function calcularTarifa(id) {
+  const r = await api('POST', `/api/tr/viajes/${id}/calcular-tarifa`, {});
+  if (r?.ok) {
+    const c = r.calculo;
+    toast(`Tarifa calculada: $${Number(c.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}`, 'success');
+    cargarViaje360();
+  }
+}
+
+function renderTarifasOperacion() {
+  const el = document.getElementById('op-tarifas-list');
+  if (!el) return;
+  if (!TARIFAS.length) { el.innerHTML = 'Sin tarifas configuradas.'; return; }
+  el.innerHTML = TARIFAS.slice(0,30).map(t => `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)"><span>${t.origen||'*'} → ${t.destino||'*'} · ${t.producto||'Todos'} · ${t.regla_calculo}</span><strong>$${Number(t.tarifa||0).toLocaleString('es-MX',{minimumFractionDigits:4})}</strong></div>`).join('');
+}
+
+async function guardarTarifa() {
+  const body = {
+    origen: document.getElementById('tar-origen').value.trim(),
+    destino: document.getElementById('tar-destino').value.trim(),
+    producto: document.getElementById('tar-producto').value.trim(),
+    regla_calculo: document.getElementById('tar-regla').value,
+    tarifa: parseFloat(document.getElementById('tar-tarifa').value || 0),
+    iva_tasa: parseFloat(document.getElementById('tar-iva').value || 0.16),
+    retencion_tasa: parseFloat(document.getElementById('tar-ret').value || 0.04),
+  };
+  if (!body.tarifa) { toast('Captura una tarifa', 'error'); return; }
+  const r = await api('POST', '/api/tr/tarifas', body);
+  if (r?.ok) { toast('Tarifa guardada', 'success'); cargarOperacion(); }
+}
+
+async function generarLinkOperador() {
+  const choferId = document.getElementById('op-chofer-token').value;
+  if (!choferId) { toast('Selecciona chofer', 'error'); return; }
+  const r = await api('POST', '/api/tr/operador/acceso', { chofer_id: parseInt(choferId) });
+  if (r?.ok) {
+    const full = location.origin + r.url;
+    document.getElementById('op-link-operador').value = full;
+    toast('Link generado', 'success');
+  }
+}
+
+function renderLiquidacionesOperacion() {
+  const el = document.getElementById('op-liquidaciones-list');
+  if (!el) return;
+  if (!LIQUIDACIONES.length) { el.innerHTML = 'Sin liquidaciones cargadas.'; return; }
+  el.innerHTML = LIQUIDACIONES.slice(0,20).map(l => `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)"><span>#${l.id} · chofer ${l.chofer_id} · ${l.status}</span><strong>$${Number(l.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</strong></div>`).join('');
+}
+
+async function generarLiquidacion() {
+  const choferId = document.getElementById('liq-chofer').value;
+  const periodo = document.getElementById('liq-periodo').value;
+  if (!choferId || !periodo) { toast('Selecciona chofer y periodo', 'error'); return; }
+  const r = await api('POST', '/api/tr/liquidaciones/generar', { chofer_id: parseInt(choferId), periodo });
+  if (r?.ok) { toast(`Liquidación generada: $${Number(r.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}`, 'success'); cargarOperacion(); }
+}
+
+function abrirImportadorExcel() {
+  document.getElementById('import-excel-result').textContent = '';
+  abrirModal('modal-importar-excel');
+}
+
+async function importarExcelRuth(dryRun=true) {
+  const file = document.getElementById('import-excel-file').files[0];
+  if (!file) { toast('Selecciona el Excel', 'error'); return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('dry_run', dryRun ? 'true' : 'false');
+  const r = await fetch(withPerfil('/api/tr/importar/excel-ruth'), { method:'POST', headers:{'Authorization':`Bearer ${TOKEN}`}, body:fd });
+  const d = await r.json().catch(()=>({}));
+  if (!r.ok) { toast(d.detail || 'Error importando Excel', 'error'); return; }
+  document.getElementById('import-excel-result').innerHTML = `Pestañas: ${Object.keys(d.resumen?.sheets||{}).join(', ')}<br>Viajes detectados: ${d.resumen?.viajes_detectados || 0}<br>Tarifas detectadas: ${d.resumen?.tarifas_detectadas || 0}<br>Tarifas insertadas: ${d.tarifas_insertadas || 0}`;
+  cargarOperacion();
 }
 
 // ═══════════════════════════════════════════════════════

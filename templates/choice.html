@@ -17,8 +17,10 @@
       align-items: center;
       justify-content: center;
       background:
-        radial-gradient(circle at 18% 18%, rgba(200,169,107,.16), transparent 28%),
-        linear-gradient(135deg, #5B0F1D 0%, #111111 100%);
+        radial-gradient(circle at 18% 14%, rgba(200,169,107,.16), transparent 30%),
+        linear-gradient(180deg, #ffffff 0%, #F5F5F5 100%);
+      color: #111111;
+      padding: 5rem 1.2rem 3rem;
     }
     .lang-switcher {
       position: fixed;
@@ -34,38 +36,45 @@
       gap: .4rem;
       padding: .4rem .85rem;
       border-radius: 999px;
-      border: 1.5px solid rgba(255,255,255,.2);
-      background: rgba(255,255,255,.07);
-      color: rgba(255,255,255,.55);
+      border: 1px solid #D8D0C4;
+      background: #fff;
+      color: #5B0F1D;
       font-size: .78rem;
       font-weight: 600;
       cursor: pointer;
       transition: all .18s;
       font-family: inherit;
     }
-    .lang-btn:hover { background: rgba(255,255,255,.14); color: #fff; border-color: rgba(255,255,255,.4); }
-    .lang-btn.active { background: rgba(255,255,255,.18); color: #fff; border-color: rgba(255,255,255,.55); }
-    .wrapper { text-align: center; }
-    .choice-container { display: flex; gap: 1rem; padding: 2rem; max-width: 1120px; width: 100%; }
+    .lang-btn:hover { background: #F5F5F5; border-color: #C8A96B; }
+    .lang-btn.active { background: #5B0F1D; color: #fff; border-color: #5B0F1D; }
+    .wrapper { text-align: center; width: 100%; }
+    .choice-container { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; max-width: 1120px; width: 100%; margin: 0 auto; }
     .choice-card {
-      flex: 1; background: rgba(255,255,255,0.06); border-radius: 12px;
+      background: #fff; border-radius: 12px;
       padding: 2.2rem 1.6rem; text-align: left; cursor: pointer;
-      transition: all 0.2s ease; border: 1px solid rgba(200,169,107,.16);
+      transition: all 0.2s ease; border: 1px solid #E7E3DC;
       text-decoration: none; display: block;
+      box-shadow: 0 18px 45px rgba(17,17,17,.07);
+      min-height: 260px;
     }
-    .choice-card:hover { transform: translateY(-4px); border-color: rgba(200,169,107,.5); background: rgba(255,255,255,0.10); }
-    .choice-card.transporte,.choice-card.gas-lp,.choice-card.gasolineras { border-color: rgba(200,169,107,.18); }
+    .choice-card:hover { transform: translateY(-4px); border-color: #C8A96B; box-shadow: 0 24px 60px rgba(17,17,17,.11); }
     .choice-icon { font-size: 2rem; margin-bottom: 1.25rem; color:#C8A96B; }
     .choice-card.transporte .choice-icon,.choice-card.gas-lp .choice-icon,.choice-card.gasolineras .choice-icon { color: #C8A96B; }
-    .choice-title { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem; }
-    .choice-desc { font-size: 0.9rem; color: #94a3b8; line-height: 1.5; }
-    .choice-badge { display: inline-block; padding: .4rem .8rem; border-radius: 999px; font-size: .72rem; font-weight: 700; margin-top: 1rem; background:rgba(200,169,107,.16);color:#F5F5F5;border:1px solid rgba(200,169,107,.24); }
-    .choice-card.transporte .choice-badge,.choice-card.gas-lp .choice-badge,.choice-card.gasolineras .choice-badge { background:rgba(200,169,107,.16);color:#F5F5F5; }
+    .choice-title { font-size: 1.55rem; font-weight: 800; color: #111111; margin-bottom: 0.55rem; letter-spacing: -.01em; }
+    .choice-desc { font-size: 0.96rem; color: #6F6A64; line-height: 1.55; min-height: 4.4rem; }
+    .choice-badge { display: inline-flex; align-items:center; gap:.45rem; padding: .48rem .9rem; border-radius: 999px; font-size: .75rem; font-weight: 800; margin-top: 1.2rem; background:#F5F1E8;color:#5B0F1D;border:1px solid #E3D4B4; }
+    .choice-card:hover .choice-badge { background:#7A1E2C;color:#fff;border-color:#7A1E2C; }
     .brand-logo { margin-bottom: 2rem; }
-    .brand-logo img { width: 310px; max-width:80vw; }
+    .brand-logo img { width: 360px; max-width:86vw; display:block; margin:0 auto; }
+    @media (max-width: 900px) {
+      .choice-container { grid-template-columns: 1fr; max-width: 520px; }
+      .choice-card { min-height: auto; }
+    }
     @media (max-width: 640px) {
-      .choice-container { flex-direction: column; }
+      body { align-items:flex-start; padding-top: 4.6rem; }
       .lang-switcher { top: .8rem; right: .8rem; }
+      .brand-logo { margin-bottom: 1.4rem; }
+      .brand-logo img { width: 300px; }
     }
   </style>
 </head>
@@ -82,7 +91,7 @@
 
   <div class="wrapper">
     <div class="brand-logo">
-      <img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL">
+      <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
     </div>
     <div class="choice-container">
       <a id="cardTransporte" class="choice-card transporte">

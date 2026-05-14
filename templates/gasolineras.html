@@ -13,11 +13,12 @@
 :root{--bg:#F5F5F5;--surface:#fff;--primary:#7A1E2C;--primary2:#5B0F1D;--text:#111111;--muted:#6F6A64;--border:#E7E3DC;--line:#e2e8f0;--ok:#0f766e;--warn:#b45309;--red:#dc2626;--radius:10px;--radius-sm:8px}
 body{font-family:var(--ge-font);background:var(--bg);color:var(--text);min-height:100vh}
 .topbar{background:#5B0F1D;color:#f8fafc;padding:14px 22px;display:flex;align-items:center;gap:12px;box-shadow:none;border-bottom:1px solid rgba(200,169,107,.22)}
-.logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:#f8fafc;font-weight:800;font-size:20px}.logo img{width:42px;height:42px;object-fit:contain}
-.logo .logo-full{width:178px;height:auto}.logo .logo-mark{display:none}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:#f8fafc;font-weight:800;font-size:20px}.logo img{width:58px;height:34px;object-fit:contain}
+.logo .logo-full{display:none}.logo .logo-mark{display:block}
 .badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:700;color:#f8fafc}.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .btn-sm,.btn{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;border-radius:8px;padding:8px 11px;font-family:inherit;font-weight:700;cursor:pointer}.btn{background:var(--primary);border:1px solid var(--primary);padding:10px 14px}.btn-ghost{background:#fff;color:var(--text);border-color:#cbd5e1}.btn-danger{background:#fff;color:var(--red);border-color:#fecaca}
-.main{max-width:1360px;margin:0 auto;padding:22px}.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:18px;overflow-x:auto}.tab{padding:12px 14px;border-bottom:3px solid transparent;cursor:pointer;font-weight:800;color:var(--muted);white-space:nowrap}.tab.active{color:var(--text);border-bottom-color:var(--primary)}
+.main{max-width:1360px;margin:0 auto;padding:22px}.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:18px;overflow:visible;align-items:stretch}.tab{padding:12px 14px;border-bottom:3px solid transparent;cursor:pointer;font-weight:800;color:var(--muted);white-space:nowrap;background:transparent;font-family:inherit;font-size:14px}.tab.active{color:var(--text);border-bottom-color:var(--primary)}
+.tab-menu{position:relative;display:flex}.tab-menu-btn{border:0}.tab-menu-panel{position:absolute;right:0;top:calc(100% + 1px);min-width:220px;background:#fff;border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 16px 40px rgba(15,28,45,.12);padding:6px;display:none;z-index:80}.tab-menu:hover .tab-menu-panel,.tab-menu:focus-within .tab-menu-panel{display:grid;gap:2px}.tab-menu-panel .tab{border-bottom:0;border-radius:8px;width:100%;text-align:left}.tab-menu-panel .tab.active{background:#F5F1E8;color:#5B0F1D;border-bottom:0}
 .section{display:none}.section.active{display:block}.section-hdr{display:flex;align-items:end;justify-content:space-between;gap:14px;margin-bottom:16px}
 h1{font-size:26px;line-height:1.15}h2{font-size:18px}h3{font-size:15px}p{color:var(--muted);line-height:1.5}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.grid-2{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.kpi .label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:800}.kpi .value{font-size:24px;font-weight:900;margin-top:6px}.kpi .unit{font-size:12px;color:var(--muted);margin-top:2px}
@@ -25,17 +26,18 @@ h1{font-size:26px;line-height:1.15}h2{font-size:18px}h3{font-size:15px}p{color:v
 .table-wrap{overflow-x:auto}.table{width:100%;border-collapse:collapse;font-size:13px}.table th{background:#f1f5f9;text-align:left;color:#475569;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:10px}.table td{border-bottom:1px solid #eef2f7;padding:11px;color:#1e293b;vertical-align:top}
 label{display:block;font-size:12px;font-weight:800;color:var(--muted);margin-bottom:6px}.form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}input,select{width:100%;border:1px solid #cfe3ff;border-radius:8px;padding:10px 12px;font:inherit;color:var(--text);background:#fff}input[type=file]{padding:8px}.actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px}.bar{height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden}.bar>span{display:block;height:100%;background:var(--primary);border-radius:999px}.score-total{font-size:34px;font-weight:900;color:var(--primary)}
 .alert{padding:12px;border:1px solid #bae6fd;background:#eff6ff;border-radius:8px;color:#075985;margin-bottom:14px}.muted{color:var(--muted)}.hidden{display:none!important}
-@media(max-width:980px){.grid,.grid-2,.grid-3,.form-grid{grid-template-columns:1fr}.topbar{align-items:flex-start;flex-wrap:wrap}.topbar-right{margin-left:0}.main{padding:14px}.logo .logo-full{display:none}.logo .logo-mark{display:block}.logo span{display:none}}
+@media(max-width:980px){.grid,.grid-2,.grid-3,.form-grid{grid-template-columns:1fr}.topbar{align-items:center;flex-wrap:wrap;padding:12px}.topbar-right{margin-left:0;flex:1;justify-content:flex-end}.main{padding:14px}.logo span{display:none}.badge{font-size:11px;padding:5px 8px}.tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;overflow:visible}.tab{font-size:12px;padding:11px 8px;text-align:center;justify-content:center}.tab-menu{display:block}.tab-menu-btn{width:100%}.tab-menu-panel{min-width:220px;right:0}.section-hdr{align-items:start;flex-direction:column}h1{font-size:23px}}
 </style>
 </head>
 <body>
 <div class="topbar">
-  <a href="/choice" class="logo"><img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL" class="logo-full"><img src="/static/img/ge-isotype-light.svg" alt="GE" class="logo-mark"><span>Gasolineras</span></a>
+  <a href="/choice" class="logo"><img src="/static/img/ge-isotype-light.svg" alt="GE" class="logo-mark"><span>Gasolineras</span></a>
   <span class="badge"><i class="fa-solid fa-gas-pump"></i> Mercado MX</span>
   <span class="badge" id="topbarEmpresa">Empresa -</span>
   <div class="topbar-right">
     <span class="badge" id="topbarRfc">RFC -</span>
     <span class="badge" id="topbarEmail">-</span>
+    <button class="btn-sm" id="langToggle" onclick="toggleLang()">EN</button>
     <button class="btn-sm" onclick="location.href='/choice'">Cambiar módulo</button>
     <button class="btn-sm" onclick="logout()">Salir</button>
   </div>
@@ -44,16 +46,21 @@ label{display:block;font-size:12px;font-weight:800;color:var(--muted);margin-bot
 <main class="main">
   <div class="tabs">
     <div class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')"><i class="fa-solid fa-chart-line"></i> Dashboard</div>
-    <div class="tab" data-tab="fuentes" onclick="switchTab('fuentes')"><i class="fa-solid fa-database"></i> Fuentes</div>
     <div class="tab" data-tab="estaciones" onclick="switchTab('estaciones')"><i class="fa-solid fa-store"></i> Mis estaciones</div>
-    <div class="tab" data-tab="precios" onclick="switchTab('precios')"><i class="fa-solid fa-clock-rotate-left"></i> Precios</div>
     <div class="tab" data-tab="radar" onclick="switchTab('radar')"><i class="fa-solid fa-location-crosshairs"></i> Radar</div>
-    <div class="tab" data-tab="score" onclick="switchTab('score')"><i class="fa-solid fa-ranking-star"></i> Score v2</div>
-    <div class="tab" data-tab="marcas" onclick="switchTab('marcas')"><i class="fa-solid fa-flag"></i> Marcas</div>
+    <div class="tab" data-tab="precios" onclick="switchTab('precios')"><i class="fa-solid fa-clock-rotate-left"></i> Precios</div>
     <div class="tab" data-tab="operacion" onclick="switchTab('operacion')"><i class="fa-solid fa-file-import"></i> Operación</div>
-    <div class="tab" data-tab="pnl" onclick="switchTab('pnl')"><i class="fa-solid fa-scale-unbalanced"></i> P&L</div>
-    <div class="tab" data-tab="consultor" onclick="switchTab('consultor')"><i class="fa-solid fa-briefcase"></i> Consultor AI</div>
-    <div class="tab" data-tab="cumplimiento" onclick="switchTab('cumplimiento')"><i class="fa-solid fa-scale-balanced"></i> Cumplimiento</div>
+    <div class="tab-menu">
+      <button class="tab tab-menu-btn" type="button"><i class="fa-solid fa-ellipsis"></i> Más</button>
+      <div class="tab-menu-panel">
+        <button class="tab" type="button" data-tab="fuentes" onclick="switchTab('fuentes')"><i class="fa-solid fa-database"></i> Fuentes</button>
+        <button class="tab" type="button" data-tab="score" onclick="switchTab('score')"><i class="fa-solid fa-ranking-star"></i> Score v2</button>
+        <button class="tab" type="button" data-tab="marcas" onclick="switchTab('marcas')"><i class="fa-solid fa-flag"></i> Marcas</button>
+        <button class="tab" type="button" data-tab="pnl" onclick="switchTab('pnl')"><i class="fa-solid fa-scale-unbalanced"></i> P&L</button>
+        <button class="tab" type="button" data-tab="consultor" onclick="switchTab('consultor')"><i class="fa-solid fa-briefcase"></i> Consultor AI</button>
+        <button class="tab" type="button" data-tab="cumplimiento" onclick="switchTab('cumplimiento')"><i class="fa-solid fa-scale-balanced"></i> Cumplimiento</button>
+      </div>
+    </div>
   </div>
 
   <section class="section active" id="tab-dashboard">
@@ -215,6 +222,23 @@ label{display:block;font-size:12px;font-weight:800;color:var(--muted);margin-bot
 
 <script>
 let TOKEN = localStorage.getItem('zc_token') || localStorage.getItem('sat_token') || '';
+const LANG_URL = new URLSearchParams(location.search).get('lang');
+const LANG_STORED = localStorage.getItem('zc_lang');
+const LANG = (LANG_URL === 'en' || LANG_URL === 'es') ? LANG_URL : ((LANG_STORED === 'en' || LANG_STORED === 'es') ? LANG_STORED : 'es');
+localStorage.setItem('zc_lang', LANG);
+document.documentElement.lang = LANG;
+function syncLangToggle(){
+  const btn = document.getElementById('langToggle');
+  if(btn) btn.textContent = LANG === 'en' ? 'ES' : 'EN';
+}
+function toggleLang(){
+  const next = LANG === 'en' ? 'es' : 'en';
+  localStorage.setItem('zc_lang', next);
+  const url = new URL(location.href);
+  url.searchParams.set('lang', next);
+  location.replace(url.toString());
+}
+document.addEventListener('DOMContentLoaded', syncLangToggle);
 let PERFIL = null;
 let STATIONS = [];
 try { PERFIL = JSON.parse(localStorage.getItem('zc_perfil') || 'null'); } catch(e) { PERFIL = null; }
@@ -227,7 +251,10 @@ function switchTab(tab){
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
-  document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+  const activeNav = document.querySelector(`[data-tab="${tab}"]`);
+  if(activeNav) activeNav.classList.add('active');
+  const secondaryTabs = ['fuentes','score','marcas','pnl','consultor','cumplimiento'];
+  document.querySelector('.tab-menu-btn')?.classList.toggle('active', secondaryTabs.includes(tab));
   if(tab==='fuentes') loadSources();
   if(tab==='estaciones') loadStations();
   if(tab==='cumplimiento') { loadCompliance(); loadRoadmap(); }

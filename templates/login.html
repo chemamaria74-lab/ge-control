@@ -20,6 +20,30 @@
         radial-gradient(circle at 18% 16%, rgba(200,169,107,.18), transparent 28%),
         linear-gradient(135deg, #5B0F1D 0%, #111111 100%);
     }
+    .lang-switcher {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      display: flex;
+      gap: .45rem;
+      z-index: 5;
+    }
+    .lang-btn {
+      border: 1px solid rgba(255,255,255,.24);
+      background: rgba(255,255,255,.1);
+      color: rgba(255,255,255,.72);
+      border-radius: 999px;
+      padding: .42rem .85rem;
+      font-family: inherit;
+      font-size: .76rem;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .lang-btn.active {
+      background: #F5F5F5;
+      border-color: #F5F5F5;
+      color: #5B0F1D;
+    }
     .login-card {
       background: rgba(17,17,17,0.74);
       backdrop-filter: blur(20px);
@@ -154,6 +178,10 @@
 
 </head>
 <body>
+  <div class="lang-switcher" aria-label="Idioma">
+    <button class="lang-btn" id="loginLangEs" type="button" onclick="setLoginLang('es')">ES</button>
+    <button class="lang-btn" id="loginLangEn" type="button" onclick="setLoginLang('en')">EN</button>
+  </div>
   <div class="login-card">
     <div class="login-brand">
       <img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL">
@@ -178,6 +206,24 @@
     </div>
   </div>
   <script>
+    function currentLoginLang() {
+      const urlLang = new URLSearchParams(location.search).get('lang');
+      const stored = localStorage.getItem('zc_lang');
+      return (urlLang === 'en' || urlLang === 'es') ? urlLang : ((stored === 'en' || stored === 'es') ? stored : 'es');
+    }
+    function syncLoginLangButtons() {
+      const lang = currentLoginLang();
+      document.getElementById('loginLangEs')?.classList.toggle('active', lang === 'es');
+      document.getElementById('loginLangEn')?.classList.toggle('active', lang === 'en');
+    }
+    function setLoginLang(lang) {
+      localStorage.setItem('zc_lang', lang);
+      const url = new URL(location.href);
+      url.searchParams.set('lang', lang);
+      location.replace(url.toString());
+    }
+    syncLoginLangButtons();
+
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const user = document.getElementById('loginUser').value.trim();
@@ -201,9 +247,9 @@
           localStorage.setItem('sat_modulo',  modulo);
           const _lang = localStorage.getItem('zc_lang') || 'es';
           window.location.href = data.modulo === 'transporte'
-            ? '/transporte'
+            ? '/transporte?lang=' + _lang
             : data.modulo === 'gasolineras'
-              ? '/gasolineras'
+              ? '/gasolineras?lang=' + _lang
               : '/app?lang=' + _lang;
         } else {
           errEl.textContent = data.detail || 'Credenciales incorrectas.';

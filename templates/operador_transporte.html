@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GE CONTROL | Operador</title>
+  <link rel="icon" href="/static/img/favicon.svg">
+  <style>
+    :root{--wine:#7A1E2C;--wine2:#5B0F1D;--gold:#C8A96B;--ink:#111;--muted:#667085;--line:#E4E7EC;--bg:#F5F5F5}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--ink)}
+    .top{position:sticky;top:0;background:linear-gradient(135deg,var(--wine2),var(--wine));color:white;padding:16px 18px;box-shadow:0 10px 24px rgba(17,17,17,.14)}
+    .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.08em}.brand img{width:34px;height:34px;object-fit:contain}.sub{font-size:13px;color:rgba(255,255,255,.78);margin-top:4px}
+    main{padding:18px;max-width:680px;margin:auto}.card{background:white;border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 10px 24px rgba(16,24,40,.06)}
+    .route{font-size:18px;font-weight:800}.meta{margin-top:8px;color:var(--muted);font-size:14px;display:grid;gap:3px}.products{margin-top:10px;font-size:13px;color:#344054}
+    .actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}.btn{border:0;border-radius:12px;padding:15px 10px;font-weight:800;font-size:15px;cursor:pointer}
+    .primary{background:var(--wine);color:white}.dark{background:#2B2B2B;color:white}.ok{background:#ECFDF3;color:#027A48}.warn{background:#FFF7E6;color:#9A6700}
+    .empty{padding:38px 18px;text-align:center;color:var(--muted)}.toast{position:fixed;left:16px;right:16px;bottom:16px;background:#111;color:white;padding:13px 15px;border-radius:12px;display:none}
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><img src="/static/img/ge-isotype-light.svg" alt=""> GE CONTROL</div>
+    <div class="sub">Portal de operador</div>
+  </header>
+  <main id="app"><div class="empty">Cargando viajes asignados...</div></main>
+  <div id="toast" class="toast"></div>
+  <script>
+    const token = new URLSearchParams(location.search).get('token') || '';
+    const app = document.getElementById('app');
+    const toast = (m)=>{const t=document.getElementById('toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2600)};
+    const money = n => Number(n||0).toLocaleString('es-MX',{style:'currency',currency:'MXN'});
+    async function api(path, opts={}){
+      const r = await fetch(path + (path.includes('?')?'&':'?') + 'token=' + encodeURIComponent(token), {
+        method: opts.method || 'GET',
+        headers: {'Content-Type':'application/json'},
+        body: opts.body ? JSON.stringify(opts.body) : undefined
+      });
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(d.detail || d.error || 'Error');
+      return d;
+    }
+    function render(viajes){
+      if(!token){app.innerHTML='<div class="empty">Falta token de acceso.</div>';return}
+      if(!viajes.length){app.innerHTML='<div class="empty">No tienes viajes activos asignados.</div>';return}
+      app.innerHTML = viajes.map(v => {
+        const prods = (v.productos||[]).map(p => `${p.descripcion || p.clave_producto || 'Producto'} · ${Number(p.volumen_litros||0).toLocaleString('es-MX')} L`).join('<br>');
+        return `<section class="card">
+          <div class="route">${v.nombre_origen || v.cp_origen || 'Origen'} → ${v.nombre_destino || v.cp_destino || 'Destino'}</div>
+          <div class="meta">
+            <span>Salida: ${(v.fecha_hora_salida||'').replace('T',' ').slice(0,16) || 'Pendiente'}</span>
+            <span>Volumen: ${Number(v.volumen_total_litros||0).toLocaleString('es-MX')} L</span>
+            <span>Estatus: ${v.operacion_status || v.status || 'programado'}</span>
+          </div>
+          <div class="products">${prods}</div>
+          <div class="actions">
+            <button class="btn ok" onclick="accion(${v.id},'recibido')">Ya lo recibí</button>
+            <button class="btn primary" onclick="accion(${v.id},'en_camino')">Voy en camino</button>
+            <button class="btn dark" onclick="accion(${v.id},'entregado')">Ya entregué</button>
+            <button class="btn warn" onclick="accion(${v.id},'problema')">Tengo problema</button>
+          </div>
+        </section>`
+      }).join('');
+    }
+    async function load(){try{const d=await api('/api/tr/operador/viajes');render(d.viajes||[])}catch(e){app.innerHTML=`<div class="empty">${e.message}</div>`}}
+    async function accion(id, accion){try{await api(`/api/tr/operador/viajes/${id}/accion`,{method:'POST',body:{accion}});toast('Actualizado');load()}catch(e){toast(e.message)}}
+    load();
+  </script>
+</body>
+</html>
