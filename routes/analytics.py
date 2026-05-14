@@ -262,6 +262,7 @@ async def get_ventas_analytics(
 @router.get("/analytics/proveedores")
 async def get_proveedores_analytics(
     year:          int           = Query(default=None),
+    month:         Optional[int] = Query(default=None, ge=1, le=12),
     facility_id:   Optional[int] = Query(default=None),
     authorization: str           = Header(default=""),
     x_perfil_id:   str           = Header(default=""),
@@ -275,12 +276,21 @@ async def get_proveedores_analytics(
         from supabase_config import get_supabase
         sb = get_supabase()
         year_str = str(year)
+        if month:
+            ini = f"{year_str}-{month:02d}-01"
+            if month == 12:
+                fin = f"{year + 1}-01-01"
+            else:
+                fin = f"{year_str}-{month + 1:02d}-01"
+        else:
+            ini = f"{year_str}-01-01"
+            fin = f"{year + 1}-01-01"
         q = (sb.table("records")
                .select("fecha,volumen_litros,importe,rfc_contraparte,nombre_contraparte")
                .eq("user_id", uid)
                .eq("tipo", "entrada")
-               .gte("fecha", f"{year_str}-01-01")
-               .lte("fecha", f"{year_str}-12-31"))
+               .gte("fecha", ini)
+               .lt("fecha", fin))
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
         if perfil_id is not None:
@@ -335,6 +345,7 @@ async def get_proveedores_analytics(
 
     return JSONResponse(content={
         "year": year,
+        "month": month,
         "proveedores": lista,
         "total_volumen": round(sum(p["volumen_total"] for p in lista), 2),
         "total_importe": round(sum(p["importe_total"] for p in lista), 2),
