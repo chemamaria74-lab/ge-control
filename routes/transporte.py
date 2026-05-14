@@ -43,14 +43,16 @@ import json
 import logging
 import os
 import re
+import hashlib
+import secrets
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
 
 from routes.auth import verify_token
-from supabase_config import get_supabase, get_supabase_for_user
+from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user
 from services.product_catalog import get_all_productos, validar_producto_completo
 from services.cne_validator import validar_num_permiso
 from services.transport_builder import build_cfdi_transporte, build_cfdi_cancelacion_transporte
@@ -81,6 +83,15 @@ _TBL_RUTAS     = "tr_rutas"
 _TBL_CLIENTES  = "tr_clientes"
 _TBL_SETTINGS  = "tr_settings"
 _TBL_COVOL     = "tr_covol_reports"
+_TBL_EVENTOS   = "tr_viaje_eventos"
+_TBL_DOCS      = "tr_viaje_documentos"
+_TBL_TARIFAS   = "tr_tarifas"
+_TBL_GASTOS    = "tr_gastos_viaje"
+_TBL_LIQS      = "tr_liquidaciones"
+_TBL_LIQ_ITEMS = "tr_liquidacion_items"
+_TBL_NOTIFS    = "tr_notificaciones"
+_TBL_OPER_ACC  = "tr_operador_accesos"
+_TBL_IMPORTS   = "tr_importaciones"
 
 MODULO = "transporte"
 _RFC_RE = re.compile(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$", re.IGNORECASE)
@@ -213,6 +224,129 @@ def _periodo_bounds(periodo: str) -> tuple[str, str]:
     return inicio.isoformat(), fin.isoformat()
 
 
+def _safe_float(v, default: float = 0.0) -> float:
+    try:
+        if v is None or v == "":
+            return default
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _productos_from_row(viaje: dict) -> list[dict]:
+    try:
+        productos = json.loads(viaje.get("productos_json") or "[]")
+        return productos if isinstance(productos, list) else []
+    except Exception:
+        return []
+
+
+def _registrar_evento(
+    sb,
+    uid: str,
+    perfil_id: Optional[int],
+    viaje_id: int,
+    event_type: str,
+    title: str,
+    description: str = "",
+    actor_type: str = "system",
+    actor_id: str = "",
+    metadata: Optional[dict] = None,
+) -> None:
+    """Bitacora operativa no critica: nunca debe romper timbrado/facturacion."""
+    try:
+        sb.table(_TBL_EVENTOS).insert({
+            "user_id": uid,
+            "perfil_id": perfil_id,
+            "viaje_id": viaje_id,
+            "event_type": event_type,
+            "title": title,
+            "description": description,
+            "actor_type": actor_type,
+            "actor_id": actor_id,
+            "metadata": metadata or {},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }).execute()
+    except Exception as e:
+        logger.info("Evento operativo omitido (%s/%s): %s", viaje_id, event_type, e)
+
+
+def _build_document_path(uid: str, perfil_id: Optional[int], viaje_id: int, tipo: str, filename: str) -> str:
+    clean_name = re.sub(r"[^A-Za-z0-9._-]+", "_", filename or "documento")
+    perfil = str(perfil_id or "default")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return f"{uid}/{perfil}/viajes/{viaje_id}/{tipo}/{stamp}_{clean_name}"
+
+
+def _hash_operator_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _normalizar(texto: str) -> str:
+    return re.sub(r"\s+", " ", (texto or "").strip().lower())
+
+
+def _calcular_tarifa_operativa(viaje: dict, tarifas: list[dict]) -> dict:
+    """Selecciona la mejor tarifa configurable por prioridad y calcula totales."""
+    productos = _productos_from_row(viaje)
+    primer_producto = productos[0] if productos else {}
+    litros = sum(_safe_float(p.get("volumen_litros")) for p in productos)
+    kilos = sum(_safe_float(p.get("kilos") or p.get("peso_kg")) for p in productos)
+    if kilos <= 0:
+        kilos = litros * 0.75
+    ruta_id = viaje.get("ruta_id")
+    cliente_rfc = _normalizar(viaje.get("rfc_receptor"))
+    origen = _normalizar(viaje.get("nombre_origen") or viaje.get("cp_origen"))
+    destino = _normalizar(viaje.get("nombre_destino") or viaje.get("cp_destino"))
+    producto = _normalizar(primer_producto.get("descripcion") or primer_producto.get("clave_producto") or "")
+
+    def score(t: dict) -> int:
+        s = 0
+        if t.get("ruta_id") and ruta_id and int(t.get("ruta_id")) == int(ruta_id):
+            s += 80
+        if t.get("cliente_id"):
+            s += 20
+        if _normalizar(t.get("origen")) and _normalizar(t.get("origen")) in origen:
+            s += 20
+        if _normalizar(t.get("destino")) and _normalizar(t.get("destino")) in destino:
+            s += 20
+        tp = _normalizar(t.get("producto"))
+        if tp and (tp in producto or tp in {"magna/diesel/premium", "todos", "*"}):
+            s += 15
+        return s - int(t.get("prioridad") or 100)
+
+    activas = [t for t in tarifas if t.get("activo", True)]
+    tarifa = sorted(activas, key=score, reverse=True)[0] if activas else {}
+    regla = tarifa.get("regla_calculo") or "manual"
+    rate = _safe_float(tarifa.get("tarifa"))
+    if regla == "litros":
+        subtotal = litros * rate
+    elif regla == "kilos":
+        subtotal = kilos * rate
+    elif regla == "distancia":
+        subtotal = _safe_float(viaje.get("distancia_km")) * rate
+    elif regla == "viaje":
+        subtotal = rate
+    else:
+        subtotal = sum(_safe_float(p.get("importe")) for p in productos)
+    subtotal = round(subtotal, 2)
+    iva = round(subtotal * _safe_float(tarifa.get("iva_tasa"), 0.16), 2) if tarifa.get("aplica_iva", True) else 0.0
+    ret = round(subtotal * _safe_float(tarifa.get("retencion_tasa"), 0.04), 2) if tarifa.get("aplica_retencion", True) else 0.0
+    total = round(subtotal + iva - ret, 2)
+    return {
+        "tarifa_id": tarifa.get("id"),
+        "regla_calculo": regla,
+        "tarifa": rate,
+        "litros": round(litros, 3),
+        "kilos": round(kilos, 3),
+        "subtotal": subtotal,
+        "iva": iva,
+        "retencion": ret,
+        "total": total,
+        "match_score": score(tarifa) if tarifa else 0,
+    }
+
+
 def _ruta_payload(payload: RutaTransporteCreate) -> dict:
     return {
         "nombre":        payload.nombre.strip(),
@@ -338,6 +472,12 @@ async def crear_viaje(payload: ViajeCreate, authorization: str = Header(default=
         sb  = _sb(token)
         res = sb.table(_TBL_VIAJES).insert(row).execute()
         viaje_id = res.data[0]["id"] if res.data else None
+        if viaje_id:
+            _registrar_evento(
+                sb, uid, payload.perfil_id, int(viaje_id), "viaje_creado",
+                "Viaje creado", "Registro inicial del viaje.", "oficina", uid,
+                {"status": "programado", "volumen_total_litros": volumen_total},
+            )
     except Exception as e:
         logger.error("Error al crear viaje: %s", e)
         raise HTTPException(500, f"Error al registrar viaje: {e}")
@@ -387,6 +527,11 @@ async def actualizar_viaje(viaje_id: int, payload: ViajeCreate, authorization: s
     row.pop("user_id", None)
     try:
         sb.table(_TBL_VIAJES).update(row).eq("id", viaje_id).eq("user_id", uid).execute()
+        _registrar_evento(
+            sb, uid, rows[0].get("perfil_id"), viaje_id, "viaje_actualizado",
+            "Viaje actualizado", "La oficina modifico datos operativos del viaje.",
+            "oficina", uid, {"volumen_total_litros": volumen_total},
+        )
     except Exception as e:
         raise HTTPException(500, f"Error al actualizar viaje: {e}")
 
@@ -609,6 +754,12 @@ async def timbrar_viaje(
             "uuid_cfdi": uuid_sat,
             "id_ccp":    id_ccp,
         }).eq("id", viaje_id).execute()
+        _registrar_evento(
+            sb, uid, viaje_row.get("perfil_id"), viaje_id, "carta_porte_timbrada",
+            "Carta Porte timbrada",
+            f"UUID SAT {uuid_sat}" if uuid_sat else "CFDI con complemento Carta Porte timbrado.",
+            "system", "sw_sapien", {"uuid_sat": uuid_sat, "id_ccp": id_ccp},
+        )
     except Exception as e:
         logger.error("Error al guardar CFDI timbrado en BD: %s", e)
         # El CFDI ya fue timbrado — retornar el UUID aunque falle la BD
@@ -668,6 +819,11 @@ async def cancelar_viaje(
         try:
             sb.table(_TBL_CFDI).update({"status": "Cancelada"}).eq("id", cfdi_row["id"]).execute()
             sb.table(_TBL_VIAJES).update({"status": "cancelado"}).eq("id", viaje_id).execute()
+            _registrar_evento(
+                sb, uid, cfdi_row.get("perfil_id"), viaje_id, "carta_porte_cancelada",
+                "CFDI/Carta Porte cancelado", f"Motivo SAT {payload.motivo}.",
+                "oficina", uid, {"uuid_sat": cfdi_row.get("uuid_sat"), "motivo": payload.motivo},
+            )
         except Exception as e:
             logger.error("Error al actualizar status cancelación: %s", e)
 
@@ -800,6 +956,290 @@ async def forecast_transporte(
     return JSONResponse({"ok": True, "modelo": "promedio_movil_3m_con_tendencia", "pronostico_volumen": pronostico, "periodos": sorted(por_mes), "volumenes": series})
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 3B. OPERACION: Dashboard, Viaje 360, documentos, tarifas y operador
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/tr/dashboard-operativo")
+async def dashboard_operativo_transporte(
+    periodo: Optional[str] = Query(None),
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
+    periodo = periodo or datetime.now(timezone.utc).strftime("%Y-%m")
+    q = _sb(token).table(_TBL_VIAJES).select("*").eq("user_id", uid).like("fecha_hora_salida", f"{periodo}%")
+    if pid:
+        q = q.eq("perfil_id", pid)
+    viajes = q.execute().data or []
+    resumen = {
+        "programados": 0, "sin_confirmacion": 0, "en_ruta": 0, "entregados": 0,
+        "cartas_pendientes": 0, "facturas_pendientes": 0, "liquidaciones_pendientes": 0,
+    }
+    for v in viajes:
+        op = (v.get("operacion_status") or v.get("status") or "programado").lower()
+        if op in {"programado", "borrador", "asignado"}:
+            resumen["programados"] += 1
+        if op == "en_ruta":
+            resumen["en_ruta"] += 1
+        if op in {"entregado", "cerrado"}:
+            resumen["entregados"] += 1
+        if not v.get("fecha_entrega_confirmada") and op not in {"cancelado", "cerrado"}:
+            resumen["sin_confirmacion"] += 1
+        if not v.get("uuid_cfdi"):
+            resumen["cartas_pendientes"] += 1
+        if v.get("uuid_cfdi") and (v.get("factura_status") or "pendiente") == "pendiente":
+            resumen["facturas_pendientes"] += 1
+        if (v.get("liquidacion_status") or "pendiente") == "pendiente":
+            resumen["liquidaciones_pendientes"] += 1
+    resumen["alertas"] = [
+        {"tipo": "carta_porte", "label": "Viajes sin Carta Porte", "count": resumen["cartas_pendientes"]},
+        {"tipo": "factura", "label": "Cartas Porte pendientes de factura", "count": resumen["facturas_pendientes"]},
+        {"tipo": "operador", "label": "Viajes sin confirmacion de operador", "count": resumen["sin_confirmacion"]},
+    ]
+    return JSONResponse({"ok": True, "periodo": periodo, "resumen": resumen, "viajes": viajes[:100]})
+
+
+@router.get("/tr/viajes/{viaje_id}/360")
+async def viaje_360(viaje_id: int, authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    viaje_res = sb.table(_TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).limit(1).execute()
+    rows = viaje_res.data or []
+    if not rows:
+        raise HTTPException(404, "Viaje no encontrado.")
+    viaje = rows[0]
+    try:
+        viaje["productos"] = _productos_from_row(viaje)
+        chofer = sb.table(_TBL_CHOFERES).select("*").eq("id", viaje.get("chofer_id")).eq("user_id", uid).limit(1).execute().data or []
+        vehiculo = sb.table(_TBL_VEHICULOS).select("*").eq("id", viaje.get("vehiculo_id")).eq("user_id", uid).limit(1).execute().data or []
+        docs = sb.table(_TBL_DOCS).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).order("created_at", desc=True).execute().data or []
+        eventos = sb.table(_TBL_EVENTOS).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).order("created_at", desc=False).execute().data or []
+        facturas = sb.table(_TBL_FACT_SERV_CARTAS).select("factura_servicio_id,viaje_id,created_at").eq("user_id", uid).eq("viaje_id", viaje_id).execute().data or []
+        gastos = sb.table(_TBL_GASTOS).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).execute().data or []
+    except Exception as e:
+        logger.info("Viaje 360 parcial para %s: %s", viaje_id, e)
+        docs, eventos, facturas, gastos, chofer, vehiculo = [], [], [], [], [], []
+    return JSONResponse({
+        "ok": True, "viaje": viaje, "chofer": chofer[0] if chofer else None,
+        "vehiculo": vehiculo[0] if vehiculo else None, "documentos": docs,
+        "eventos": eventos, "facturas_servicio": facturas, "gastos": gastos,
+    })
+
+
+@router.post("/tr/viajes/{viaje_id}/eventos")
+async def crear_evento_manual(viaje_id: int, payload: dict, authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    v = sb.table(_TBL_VIAJES).select("id,perfil_id").eq("id", viaje_id).eq("user_id", uid).limit(1).execute().data or []
+    if not v:
+        raise HTTPException(404, "Viaje no encontrado.")
+    _registrar_evento(
+        sb, uid, v[0].get("perfil_id"), viaje_id,
+        str(payload.get("event_type") or "nota_manual"),
+        str(payload.get("title") or "Nota manual"),
+        str(payload.get("description") or ""),
+        "oficina", uid, payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
+    )
+    return JSONResponse({"ok": True})
+
+
+@router.post("/tr/viajes/{viaje_id}/operacion-status")
+async def actualizar_operacion_status(viaje_id: int, payload: dict, authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    status = str(payload.get("operacion_status") or "").strip().lower()
+    validos = {"programado", "asignado", "recibido", "en_ruta", "entregado", "problema", "cerrado", "cancelado"}
+    if status not in validos:
+        raise HTTPException(400, "Estatus operativo invalido.")
+    rows = sb.table(_TBL_VIAJES).select("id,perfil_id").eq("id", viaje_id).eq("user_id", uid).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Viaje no encontrado.")
+    update = {"operacion_status": status}
+    if status == "entregado":
+        update["fecha_entrega_confirmada"] = datetime.now(timezone.utc).isoformat()
+    if status == "cerrado":
+        update["closed_at"] = datetime.now(timezone.utc).isoformat()
+    sb.table(_TBL_VIAJES).update(update).eq("id", viaje_id).eq("user_id", uid).execute()
+    _registrar_evento(sb, uid, rows[0].get("perfil_id"), viaje_id, "operacion_actualizada", f"Estatus operativo: {status}", str(payload.get("nota") or ""), "oficina", uid, update)
+    return JSONResponse({"ok": True, "operacion_status": status})
+
+
+@router.get("/tr/viajes/{viaje_id}/documentos")
+async def listar_documentos_viaje(viaje_id: int, authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    rows = _sb(token).table(_TBL_DOCS).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).order("created_at", desc=True).execute().data or []
+    return JSONResponse({"ok": True, "documentos": rows})
+
+
+@router.post("/tr/viajes/{viaje_id}/documentos")
+async def registrar_documento_viaje(viaje_id: int, payload: dict, authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    v = sb.table(_TBL_VIAJES).select("id,perfil_id").eq("id", viaje_id).eq("user_id", uid).limit(1).execute().data or []
+    if not v:
+        raise HTTPException(404, "Viaje no encontrado.")
+    pid = v[0].get("perfil_id")
+    row = {
+        "user_id": uid, "perfil_id": pid, "viaje_id": viaje_id,
+        "tipo": str(payload.get("tipo") or "otro"),
+        "nombre": str(payload.get("nombre") or payload.get("storage_path") or "Documento"),
+        "storage_bucket": str(payload.get("storage_bucket") or "transport-documents"),
+        "storage_path": str(payload.get("storage_path") or ""),
+        "mime_type": str(payload.get("mime_type") or ""),
+        "size_bytes": int(payload.get("size_bytes") or 0),
+        "uuid_sat": str(payload.get("uuid_sat") or ""),
+        "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
+        "created_by": uid,
+    }
+    res = sb.table(_TBL_DOCS).insert(row).execute()
+    _registrar_evento(sb, uid, pid, viaje_id, "documento_registrado", "Documento registrado", row["nombre"], "oficina", uid, {"tipo": row["tipo"]})
+    return JSONResponse({"ok": True, "documento": (res.data or [None])[0]})
+
+
+@router.post("/tr/viajes/{viaje_id}/documentos/upload")
+async def subir_documento_viaje(
+    viaje_id: int,
+    tipo: str = Form("otro"),
+    file: UploadFile = File(...),
+    authorization: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    v = sb.table(_TBL_VIAJES).select("id,perfil_id").eq("id", viaje_id).eq("user_id", uid).limit(1).execute().data or []
+    if not v:
+        raise HTTPException(404, "Viaje no encontrado.")
+    pid = v[0].get("perfil_id")
+    content = await file.read()
+    bucket = "transport-documents"
+    path = _build_document_path(uid, pid, viaje_id, tipo, file.filename or "documento")
+    try:
+        sb.storage.from_(bucket).upload(path, content, {"content-type": file.content_type or "application/octet-stream", "upsert": "true"})
+    except Exception as e:
+        raise HTTPException(500, f"No se pudo subir a Supabase Storage. Verifica que exista el bucket '{bucket}': {e}")
+    row = {
+        "user_id": uid, "perfil_id": pid, "viaje_id": viaje_id, "tipo": tipo,
+        "nombre": file.filename or "Documento", "storage_bucket": bucket,
+        "storage_path": path, "mime_type": file.content_type or "",
+        "size_bytes": len(content), "created_by": uid,
+    }
+    res = sb.table(_TBL_DOCS).insert(row).execute()
+    _registrar_evento(sb, uid, pid, viaje_id, "documento_subido", "Documento subido", row["nombre"], "oficina", uid, {"tipo": tipo, "storage_path": path})
+    return JSONResponse({"ok": True, "documento": (res.data or [None])[0]})
+
+
+@router.get("/tr/tarifas")
+async def listar_tarifas(perfil_id: Optional[int] = Query(None), authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_TARIFAS).select("*").eq("user_id", uid).eq("activo", True).order("prioridad")
+    if pid:
+        q = q.eq("perfil_id", pid)
+    return JSONResponse({"ok": True, "tarifas": q.execute().data or []})
+
+
+@router.post("/tr/tarifas")
+async def crear_tarifa(payload: dict, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    uid, token = _auth(authorization)
+    pid = _perfil(payload.get("perfil_id"), x_perfil_id)
+    row = {
+        "user_id": uid, "perfil_id": pid, "cliente_id": payload.get("cliente_id"),
+        "ruta_id": payload.get("ruta_id"), "origen": str(payload.get("origen") or ""),
+        "destino": str(payload.get("destino") or ""), "producto": str(payload.get("producto") or ""),
+        "regla_calculo": str(payload.get("regla_calculo") or "litros"),
+        "tarifa": _safe_float(payload.get("tarifa")), "iva_tasa": _safe_float(payload.get("iva_tasa"), 0.16),
+        "retencion_tasa": _safe_float(payload.get("retencion_tasa"), 0.04),
+        "aplica_iva": bool(payload.get("aplica_iva", True)), "aplica_retencion": bool(payload.get("aplica_retencion", True)),
+        "moneda": str(payload.get("moneda") or "MXN"), "prioridad": int(payload.get("prioridad") or 100),
+        "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
+    }
+    res = _sb(token).table(_TBL_TARIFAS).insert(row).execute()
+    return JSONResponse({"ok": True, "tarifa": (res.data or [None])[0]})
+
+
+@router.put("/tr/tarifas/{tarifa_id}")
+async def actualizar_tarifa(tarifa_id: int, payload: dict, authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    allowed = {"cliente_id","ruta_id","origen","destino","producto","regla_calculo","tarifa","iva_tasa","retencion_tasa","aplica_iva","aplica_retencion","moneda","prioridad","activo","metadata"}
+    row = {k: v for k, v in payload.items() if k in allowed}
+    row["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _sb(token).table(_TBL_TARIFAS).update(row).eq("id", tarifa_id).eq("user_id", uid).execute()
+    return JSONResponse({"ok": True})
+
+
+@router.post("/tr/viajes/{viaje_id}/calcular-tarifa")
+async def calcular_tarifa_viaje(viaje_id: int, authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    viaje_rows = sb.table(_TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).limit(1).execute().data or []
+    if not viaje_rows:
+        raise HTTPException(404, "Viaje no encontrado.")
+    viaje = viaje_rows[0]
+    q = sb.table(_TBL_TARIFAS).select("*").eq("user_id", uid).eq("activo", True)
+    if viaje.get("perfil_id"):
+        q = q.eq("perfil_id", viaje.get("perfil_id"))
+    calc = _calcular_tarifa_operativa(viaje, q.execute().data or [])
+    try:
+        sb.table(_TBL_VIAJES).update({"tarifa_total": calc["subtotal"], "retencion": calc["retencion"], "total_operativo": calc["total"]}).eq("id", viaje_id).eq("user_id", uid).execute()
+    except Exception as e:
+        logger.info("No se pudieron guardar totales operativos para viaje %s: %s", viaje_id, e)
+    _registrar_evento(sb, uid, viaje.get("perfil_id"), viaje_id, "tarifa_calculada", "Tarifa calculada", "", "system", "tarifas", calc)
+    return JSONResponse({"ok": True, "calculo": calc})
+
+
+@router.post("/tr/operador/acceso")
+async def crear_acceso_operador(payload: dict, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    uid, token = _auth(authorization)
+    pid = _perfil(payload.get("perfil_id"), x_perfil_id)
+    chofer_id = int(payload.get("chofer_id") or 0)
+    if not chofer_id:
+        raise HTTPException(400, "chofer_id requerido.")
+    token_plain = secrets.token_urlsafe(24)
+    _sb(token).table(_TBL_OPER_ACC).insert({"user_id": uid, "perfil_id": pid, "chofer_id": chofer_id, "token_hash": _hash_operator_token(token_plain), "status": "activo"}).execute()
+    return JSONResponse({"ok": True, "token": token_plain, "url": f"/operador/transporte?token={token_plain}"})
+
+
+def _operador_context(token_plain: str):
+    sb = get_supabase_admin()
+    rows = sb.table(_TBL_OPER_ACC).select("*").eq("token_hash", _hash_operator_token(token_plain)).eq("status", "activo").limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(401, "Acceso de operador invalido.")
+    return sb, rows[0]
+
+
+@router.get("/tr/operador/viajes")
+async def operador_viajes(token: str = Query(...)):
+    sb, acc = _operador_context(token)
+    q = sb.table(_TBL_VIAJES).select("*").eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"])
+    if acc.get("perfil_id"):
+        q = q.eq("perfil_id", acc.get("perfil_id"))
+    viajes = q.in_("operacion_status", ["programado", "asignado", "recibido", "en_ruta", "problema"]).order("fecha_hora_salida").execute().data or []
+    for v in viajes:
+        v["productos"] = _productos_from_row(v)
+    return JSONResponse({"ok": True, "viajes": viajes})
+
+
+@router.post("/tr/operador/viajes/{viaje_id}/accion")
+async def operador_accion(viaje_id: int, payload: dict, token: str = Query(...)):
+    sb, acc = _operador_context(token)
+    accion = str(payload.get("accion") or "").strip()
+    mapping = {"recibido": ("recibido", "Ya lo recibio"), "en_camino": ("en_ruta", "Va en camino"), "entregado": ("entregado", "Ya entrego"), "problema": ("problema", "Reporto problema")}
+    if accion not in mapping:
+        raise HTTPException(400, "Accion no valida.")
+    status, title = mapping[accion]
+    viaje_rows = sb.table(_TBL_VIAJES).select("id,user_id,perfil_id,chofer_id").eq("id", viaje_id).eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"]).limit(1).execute().data or []
+    if not viaje_rows:
+        raise HTTPException(404, "Viaje no encontrado para este operador.")
+    update = {"operacion_status": status}
+    if accion == "entregado":
+        update["fecha_entrega_confirmada"] = datetime.now(timezone.utc).isoformat()
+    sb.table(_TBL_VIAJES).update(update).eq("id", viaje_id).eq("user_id", acc["user_id"]).execute()
+    _registrar_evento(sb, acc["user_id"], viaje_rows[0].get("perfil_id"), viaje_id, f"operador_{accion}", title, str(payload.get("nota") or ""), "operador", str(acc["chofer_id"]), {"accion": accion})
+    return JSONResponse({"ok": True, "operacion_status": status})
+
+
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
     perfil_id: Optional[int] = Query(None),
@@ -876,8 +1316,9 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
 
     _validar_datos_cfdi_receptor(payload.rfc_receptor, payload.regimen_fiscal, payload.cp_receptor, payload.uso_cfdi)
     _validar_totales_servicio(payload.subtotal, payload.iva, payload.total)
-    viajes_res = sb.table(_TBL_VIAJES).select("id,status,uuid_cfdi,id_ccp,rfc_receptor,nombre_receptor,cp_receptor,uso_cfdi").eq("user_id", uid).in_("id", payload.viaje_ids).execute()
+    viajes_res = sb.table(_TBL_VIAJES).select("id,perfil_id,status,uuid_cfdi,id_ccp,rfc_receptor,nombre_receptor,cp_receptor,uso_cfdi").eq("user_id", uid).in_("id", payload.viaje_ids).execute()
     viajes = viajes_res.data or []
+    perfil_factura = payload.perfil_id or (viajes[0].get("perfil_id") if viajes else None)
     encontrados = {int(v["id"]) for v in viajes}
     faltantes = [vid for vid in payload.viaje_ids if vid not in encontrados]
     if faltantes:
@@ -886,7 +1327,10 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     if no_timbrados:
         raise HTTPException(400, f"Para facturar el servicio, primero timbra la Carta Porte de los viajes: {no_timbrados}")
     try:
-        ya_res = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid).in_("viaje_id", payload.viaje_ids).execute()
+        ya_q = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid).in_("viaje_id", payload.viaje_ids)
+        if perfil_factura:
+            ya_q = ya_q.eq("perfil_id", perfil_factura)
+        ya_res = ya_q.execute()
         ya = [r.get("viaje_id") for r in (ya_res.data or [])]
         if ya:
             raise HTTPException(400, f"Estas Cartas Porte ya tienen factura de servicio: {ya}")
@@ -904,7 +1348,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         if repetidos:
             raise HTTPException(400, f"Estas Cartas Porte ya tienen factura de servicio: {repetidos}")
 
-    settings = _settings_transporte(uid, token)
+    settings = _settings_transporte(uid, token, perfil_factura)
     emisor = {
         "rfc": settings.get("RfcContribuyente", ""),
         "nombre": settings.get("DescripcionInstalacion", ""),
@@ -937,6 +1381,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     now_iso = datetime.now(timezone.utc).isoformat()
     row = {
         "user_id":         uid,
+        "perfil_id":       perfil_factura,
         "cliente_id":      payload.cliente_id,
         "viaje_ids":       payload.viaje_ids,
         "cfdi_relacionados": [
@@ -966,14 +1411,196 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         factura_id = res.data[0]["id"] if res.data else None
         try:
             sb.table(_TBL_FACT_SERV_CARTAS).insert([
-                {"user_id": uid, "perfil_id": payload.perfil_id, "factura_servicio_id": factura_id, "viaje_id": vid, "created_at": now_iso}
+                {"user_id": uid, "perfil_id": perfil_factura, "factura_servicio_id": factura_id, "viaje_id": vid, "created_at": now_iso}
                 for vid in payload.viaje_ids
             ]).execute()
         except Exception as e:
             logger.warning("No se pudo registrar bloqueo de doble factura: %s", e)
+        for vid in payload.viaje_ids:
+            _registrar_evento(
+                sb, uid, perfil_factura, int(vid), "factura_servicio_timbrada",
+                "Factura de servicio timbrada",
+                f"UUID SAT {sw_data.get('uuid', '')}" if sw_data.get("uuid") else "Factura de servicio generada.",
+                "system", "sw_sapien", {"factura_servicio_id": factura_id, "uuid_sat": sw_data.get("uuid", "")},
+            )
         return JSONResponse({"ok": True, "id": factura_id, "status": "timbrada", "uuid_sat": sw_data.get("uuid", "")})
     except Exception as e:
         raise HTTPException(500, f"Error al crear factura de servicio: {e}")
+
+
+@router.get("/tr/liquidaciones")
+async def listar_liquidaciones(
+    periodo: Optional[str] = Query(None),
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_LIQS).select("*").eq("user_id", uid).order("created_at", desc=True)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    if periodo:
+        q = q.eq("periodo", periodo)
+    return JSONResponse({"ok": True, "liquidaciones": q.execute().data or []})
+
+
+@router.get("/tr/liquidaciones/{liquidacion_id}")
+async def detalle_liquidacion(liquidacion_id: int, authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    liq = sb.table(_TBL_LIQS).select("*").eq("id", liquidacion_id).eq("user_id", uid).limit(1).execute().data or []
+    if not liq:
+        raise HTTPException(404, "Liquidacion no encontrada.")
+    items = sb.table(_TBL_LIQ_ITEMS).select("*").eq("liquidacion_id", liquidacion_id).eq("user_id", uid).execute().data or []
+    return JSONResponse({"ok": True, "liquidacion": liq[0], "items": items})
+
+
+@router.post("/tr/liquidaciones/generar")
+async def generar_liquidacion(payload: dict, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    pid = _perfil(payload.get("perfil_id"), x_perfil_id)
+    chofer_id = int(payload.get("chofer_id") or 0)
+    periodo = str(payload.get("periodo") or datetime.now(timezone.utc).strftime("%Y-%m"))
+    if not chofer_id:
+        raise HTTPException(400, "chofer_id requerido.")
+    q = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).eq("chofer_id", chofer_id).like("fecha_hora_salida", f"{periodo}%")
+    if pid:
+        q = q.eq("perfil_id", pid)
+    viajes = q.execute().data or []
+    viajes = [v for v in viajes if (v.get("liquidacion_status") or "pendiente") in {"pendiente", "error", "borrador"}]
+    if not viajes:
+        raise HTTPException(404, "No hay viajes pendientes de liquidar para ese chofer/periodo.")
+
+    tq = sb.table(_TBL_TARIFAS).select("*").eq("user_id", uid).eq("activo", True)
+    if pid:
+        tq = tq.eq("perfil_id", pid)
+    tarifas = tq.execute().data or []
+
+    items = []
+    subtotal = iva = retencion = total = 0.0
+    for v in viajes:
+        calc = _calcular_tarifa_operativa(v, tarifas)
+        gastos = sb.table(_TBL_GASTOS).select("importe").eq("user_id", uid).eq("viaje_id", v["id"]).eq("status", "aprobado").execute().data or []
+        gastos_total = round(sum(_safe_float(g.get("importe")) for g in gastos), 2)
+        item_total = round(calc["total"] + gastos_total, 2)
+        subtotal += calc["subtotal"]
+        iva += calc["iva"]
+        retencion += calc["retencion"]
+        total += item_total
+        items.append({
+            "user_id": uid, "perfil_id": pid, "viaje_id": v["id"],
+            "concepto": f"Flete viaje #{v['id']}",
+            "litros": calc["litros"], "kilos": calc["kilos"], "tarifa": calc["tarifa"],
+            "subtotal": calc["subtotal"], "iva": calc["iva"], "retencion": calc["retencion"],
+            "gastos": gastos_total, "total": item_total, "metadata": calc,
+        })
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    liq_row = {
+        "user_id": uid, "perfil_id": pid, "chofer_id": chofer_id, "periodo": periodo,
+        "subtotal": round(subtotal, 2), "iva": round(iva, 2), "retencion": round(retencion, 2),
+        "gastos": round(sum(i["gastos"] for i in items), 2),
+        "anticipos": _safe_float(payload.get("anticipos")),
+        "total": round(total - _safe_float(payload.get("anticipos")), 2),
+        "status": str(payload.get("status") or "emitida"),
+        "notas": str(payload.get("notas") or ""),
+        "created_at": now_iso,
+    }
+    res = sb.table(_TBL_LIQS).insert(liq_row).execute()
+    liquidacion_id = res.data[0]["id"] if res.data else None
+    for item in items:
+        item["liquidacion_id"] = liquidacion_id
+    if items:
+        sb.table(_TBL_LIQ_ITEMS).insert(items).execute()
+        ids = [i["viaje_id"] for i in items]
+        sb.table(_TBL_VIAJES).update({"liquidacion_status": "emitida"}).eq("user_id", uid).in_("id", ids).execute()
+        for vid in ids:
+            _registrar_evento(sb, uid, pid, int(vid), "liquidacion_generada", "Liquidacion generada", f"Liquidacion #{liquidacion_id}", "oficina", uid, {"liquidacion_id": liquidacion_id})
+    return JSONResponse({"ok": True, "liquidacion_id": liquidacion_id, "items": len(items), "total": liq_row["total"]})
+
+
+@router.post("/tr/liquidaciones/{liquidacion_id}/pagar")
+async def pagar_liquidacion(liquidacion_id: int, authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    sb.table(_TBL_LIQS).update({"status": "pagada", "paid_at": now_iso}).eq("id", liquidacion_id).eq("user_id", uid).execute()
+    items = sb.table(_TBL_LIQ_ITEMS).select("viaje_id,perfil_id").eq("liquidacion_id", liquidacion_id).eq("user_id", uid).execute().data or []
+    ids = [int(i["viaje_id"]) for i in items if i.get("viaje_id")]
+    if ids:
+        sb.table(_TBL_VIAJES).update({"liquidacion_status": "pagada"}).eq("user_id", uid).in_("id", ids).execute()
+        for item in items:
+            _registrar_evento(sb, uid, item.get("perfil_id"), int(item["viaje_id"]), "liquidacion_pagada", "Liquidacion pagada", f"Liquidacion #{liquidacion_id}", "oficina", uid, {"liquidacion_id": liquidacion_id})
+    return JSONResponse({"ok": True})
+
+
+@router.post("/tr/importar/excel-ruth")
+async def importar_excel_ruth(
+    file: UploadFile = File(...),
+    dry_run: bool = Form(True),
+    perfil_id: Optional[int] = Form(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """Importador historico no destructivo: extrae resumen y tarifas del Excel operativo."""
+    uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
+    try:
+        import openpyxl
+        from io import BytesIO
+        wb = openpyxl.load_workbook(BytesIO(await file.read()), data_only=True)
+    except Exception as e:
+        raise HTTPException(400, f"No se pudo leer el Excel: {e}")
+
+    resumen: dict = {"sheets": {}, "tarifas_detectadas": 0, "viajes_detectados": 0}
+    for s in wb.sheetnames:
+        ws = wb[s]
+        nonempty = 0
+        for row in ws.iter_rows():
+            if any(c.value is not None and str(c.value).strip() for c in row):
+                nonempty += 1
+        resumen["sheets"][s] = {"rows": ws.max_row, "cols": ws.max_column, "nonempty_rows": nonempty}
+
+    tarifas = []
+    if "Precio.Tarifas" in wb.sheetnames:
+        ws = wb["Precio.Tarifas"]
+        for r in range(7, 13):
+            origen, destino, producto, tiempos, tarifa = [ws.cell(r, c).value for c in range(2, 7)]
+            if origen and destino and tarifa not in (None, ""):
+                tarifas.append({
+                    "user_id": uid, "perfil_id": pid, "origen": str(origen), "destino": str(destino),
+                    "producto": str(producto or ""), "regla_calculo": "litros",
+                    "tarifa": _safe_float(tarifa), "metadata": {"tiempos": str(tiempos or ""), "fuente": "Facturas de Ingreso Ruth.xlsx"},
+                })
+        for r in range(36, 40):
+            destino = ws.cell(r, 2).value
+            for c in range(3, 9):
+                origen = ws.cell(35, c).value
+                tarifa = ws.cell(r, c).value
+                if origen and destino and tarifa not in (None, ""):
+                    tarifas.append({
+                        "user_id": uid, "perfil_id": pid, "origen": str(origen), "destino": str(destino),
+                        "producto": "Gas LP", "regla_calculo": "kilos",
+                        "tarifa": _safe_float(tarifa), "metadata": {"fuente": "Facturas de Ingreso Ruth.xlsx"},
+                    })
+    resumen["tarifas_detectadas"] = len(tarifas)
+    for sheet in ("Gasolina Tabla", "Gas Tabla", "Gas LP", "Gaso Antiguo"):
+        if sheet in wb.sheetnames:
+            resumen["viajes_detectados"] += max((resumen["sheets"][sheet]["nonempty_rows"] - 1), 0)
+
+    sb = _sb(token)
+    inserted = 0
+    if not dry_run and tarifas:
+        res = sb.table(_TBL_TARIFAS).insert(tarifas).execute()
+        inserted = len(res.data or [])
+    sb.table(_TBL_IMPORTS).insert({
+        "user_id": uid, "perfil_id": pid, "fuente": "excel_ruth",
+        "filename": file.filename or "Facturas de Ingreso Ruth.xlsx",
+        "resumen": resumen, "status": "preview" if dry_run else "procesada",
+    }).execute()
+    return JSONResponse({"ok": True, "dry_run": dry_run, "resumen": resumen, "tarifas_insertadas": inserted})
 
 
 @router.get("/tr/facturas")
