@@ -98,6 +98,14 @@ _RFC_RE = re.compile(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$", re.IGNORECASE)
 _CP_RE = re.compile(r"^\d{5}$")
 _REGIMENES_PERSONA_MORAL = {"601", "603", "610", "620", "622", "623", "624", "626"}
 _REGIMENES_PERSONA_FISICA = {"605", "606", "607", "608", "611", "612", "614", "615", "616", "621", "625", "626"}
+_RFC_PRUEBAS_SAT = {
+    # CSD/RFC de pruebas publicado por SAT/SW. El nombre debe ir exactamente así para CFDI 4.0.
+    "EKU9003173C9": {
+        "nombre": "ESCUELA KEMPER URGATE",
+        "cp": "42501",
+        "regimen_fiscal": "601",
+    },
+}
 
 
 # ── Helpers de autenticación ──────────────────────────────────────────────────
@@ -216,6 +224,24 @@ def _validar_regimen_para_rfc(rfc: str, regimen: str, contexto: str = "emisor") 
             f"Régimen fiscal {contexto} {regimen or '(vacío)'} no corresponde al RFC {rfc} ({etiqueta}). "
             f"Corrige Configuración antes de timbrar."
         )
+
+
+def _normalizar_nombre_fiscal(nombre: str) -> str:
+    return re.sub(r"\s+", " ", str(nombre or "").strip().upper())
+
+
+def _normalizar_receptor_cfdi(rfc: str, nombre: str, cp: str = "", regimen: str = "") -> dict:
+    rfc_limpio = re.sub(r"[^A-Z0-9Ñ&]", "", str(rfc or "").upper())
+    normalizado = {
+        "rfc": rfc_limpio,
+        "nombre": _normalizar_nombre_fiscal(nombre),
+        "cp": str(cp or "").strip(),
+        "regimen_fiscal": str(regimen or "").strip(),
+    }
+    prueba = _RFC_PRUEBAS_SAT.get(rfc_limpio)
+    if prueba:
+        normalizado.update(prueba)
+    return normalizado
 
 
 def _validar_datos_cfdi_receptor(rfc: str, regimen: str, cp: str, uso_cfdi: str) -> None:
@@ -387,6 +413,12 @@ def _ruta_payload(payload: RutaTransporteCreate) -> dict:
 
 
 def _viaje_row(uid: str, payload: ViajeCreate, productos_json: str, volumen_total: float, status: str = "programado") -> dict:
+    receptor = _normalizar_receptor_cfdi(
+        payload.rfc_receptor,
+        payload.nombre_receptor,
+        payload.cp_receptor,
+        getattr(payload, "regimen_fiscal_receptor", "601"),
+    )
     return {
         "user_id":              uid,
         "perfil_id":            payload.perfil_id,
@@ -402,10 +434,10 @@ def _viaje_row(uid: str, payload: ViajeCreate, productos_json: str, volumen_tota
         "fecha_hora_llegada":   payload.fecha_hora_llegada,
         "productos_json":       productos_json,
         "tipo_cfdi":            payload.tipo_cfdi,
-        "rfc_receptor":         payload.rfc_receptor,
-        "nombre_receptor":      payload.nombre_receptor,
-        "cp_receptor":          payload.cp_receptor,
-        "regimen_fiscal_receptor": getattr(payload, "regimen_fiscal_receptor", "601"),
+        "rfc_receptor":         receptor["rfc"],
+        "nombre_receptor":      receptor["nombre"],
+        "cp_receptor":          receptor["cp"],
+        "regimen_fiscal_receptor": receptor["regimen_fiscal"] or getattr(payload, "regimen_fiscal_receptor", "601"),
         "uso_cfdi":             payload.uso_cfdi,
         "num_permiso_cne":      payload.num_permiso_cne,
         "distancia_km":         payload.distancia_km,
@@ -715,6 +747,12 @@ async def timbrar_viaje(
         raise HTTPException(400, f"Productos del viaje inválidos: {e}")
 
     from models.transport_schemas import ViajeCreate
+    receptor_cfdi = _normalizar_receptor_cfdi(
+        viaje_row.get("rfc_receptor", ""),
+        viaje_row.get("nombre_receptor", ""),
+        viaje_row.get("cp_receptor", "20000"),
+        viaje_row.get("regimen_fiscal_receptor", "601"),
+    )
     viaje_obj = ViajeCreate(
         chofer_id=          viaje_row["chofer_id"],
         vehiculo_id=        viaje_row["vehiculo_id"],
@@ -727,10 +765,10 @@ async def timbrar_viaje(
         fecha_hora_llegada= viaje_row.get("fecha_hora_llegada"),
         productos=          productos,
         tipo_cfdi=          payload.tipo_cfdi or viaje_row.get("tipo_cfdi", "T"),
-        rfc_receptor=       viaje_row.get("rfc_receptor", ""),
-        nombre_receptor=    viaje_row.get("nombre_receptor", ""),
-        cp_receptor=        viaje_row.get("cp_receptor", "20000"),
-        regimen_fiscal_receptor= viaje_row.get("regimen_fiscal_receptor", "601"),
+        rfc_receptor=       receptor_cfdi["rfc"],
+        nombre_receptor=    receptor_cfdi["nombre"],
+        cp_receptor=        receptor_cfdi["cp"] or "20000",
+        regimen_fiscal_receptor= receptor_cfdi["regimen_fiscal"] or "601",
         uso_cfdi=           viaje_row.get("uso_cfdi", "S01"),
         num_permiso_cne=    viaje_row.get("num_permiso_cne", ""),
         distancia_km=       float(viaje_row.get("distancia_km") or 1.0),
@@ -2070,14 +2108,16 @@ async def crear_cliente_transporte(
 ):
     uid, token = _auth(authorization)
     pid = _perfil(perfil_id, x_perfil_id)
+    receptor = _normalizar_receptor_cfdi(payload.rfc, payload.nombre, payload.cp, payload.regimen_fiscal)
+    _validar_datos_cfdi_receptor(receptor["rfc"], receptor["regimen_fiscal"], receptor["cp"], payload.uso_cfdi)
     try:
         res = _sb(token).table(_TBL_CLIENTES).insert({
             "user_id":        uid,
             "perfil_id":      pid,
-            "rfc":            payload.rfc,
-            "nombre":         payload.nombre.strip(),
-            "cp":             payload.cp,
-            "regimen_fiscal": payload.regimen_fiscal,
+            "rfc":            receptor["rfc"],
+            "nombre":         receptor["nombre"],
+            "cp":             receptor["cp"],
+            "regimen_fiscal": receptor["regimen_fiscal"],
             "uso_cfdi":       payload.uso_cfdi,
             "activo":         True,
             "created_at":     datetime.now(timezone.utc).isoformat(),
@@ -2096,11 +2136,13 @@ async def actualizar_cliente_transporte(
 ):
     uid, token = _auth(authorization)
     pid = _perfil(perfil_id, x_perfil_id)
+    receptor = _normalizar_receptor_cfdi(payload.rfc, payload.nombre, payload.cp, payload.regimen_fiscal)
+    _validar_datos_cfdi_receptor(receptor["rfc"], receptor["regimen_fiscal"], receptor["cp"], payload.uso_cfdi)
     q = _sb(token).table(_TBL_CLIENTES).update({
-        "rfc":            payload.rfc,
-        "nombre":         payload.nombre.strip(),
-        "cp":             payload.cp,
-        "regimen_fiscal": payload.regimen_fiscal,
+        "rfc":            receptor["rfc"],
+        "nombre":         receptor["nombre"],
+        "cp":             receptor["cp"],
+        "regimen_fiscal": receptor["regimen_fiscal"],
         "uso_cfdi":       payload.uso_cfdi,
     }).eq("id", cliente_id).eq("user_id", uid)
     if pid:
