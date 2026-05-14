@@ -151,6 +151,11 @@ select option{background:#fff}
 
 /* ── DIVIDER ── */
 .divider{height:1px;background:var(--border);margin:20px 0}
+.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.detail-box{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px}
+.detail-box b{display:block;font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.detail-box span,.detail-box div{font-size:13px;color:var(--text2);word-break:break-word}
+.xml-preview{background:#111;color:#f5f5f5;border-radius:var(--radius-sm);padding:12px;font-size:11px;line-height:1.45;max-height:260px;overflow:auto;white-space:pre-wrap}
 
 /* ── PRODUCT ITEMS ── */
 .product-item{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;margin-bottom:10px;position:relative}
@@ -175,6 +180,7 @@ select option{background:#fff}
   .tab-menu-btn{width:100%;justify-content:center}
   .tab-menu-panel{position:absolute;right:0;left:auto;min-width:220px}
   .btn-sm{padding:5px 9px}
+  .detail-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -1060,6 +1066,17 @@ select option{background:#fff}
   <div class="modal-footer">
     <button class="btn btn-ghost" onclick="cerrarModal('modal-factura-servicio')">Cancelar</button>
     <button class="btn btn-primary" id="btn-guardar-fs" onclick="guardarFacturaServicio()"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar factura de servicio</button>
+  </div>
+</div>
+</div>
+
+<!-- Modal: Detalle CFDI timbrado -->
+<div class="overlay" id="modal-cfdi-detalle">
+<div class="modal wide">
+  <div class="modal-title"><i class="fa-solid fa-file-circle-check"></i> Detalle del CFDI timbrado</div>
+  <div id="cfdi-detalle-body"></div>
+  <div class="modal-footer">
+    <button class="btn btn-ghost" onclick="cerrarModal('modal-cfdi-detalle')">Cerrar</button>
   </div>
 </div>
 </div>
@@ -2216,8 +2233,9 @@ function renderFacturas() {
       <td style="white-space:nowrap">${f.fecha_timbrado?.substring(0,10)||'—'}</td>
       <td>${f.status==='Vigente' ? '<span class="chip chip-green">Vigente</span>' : '<span class="chip chip-red">Cancelada</span>'}</td>
       <td style="white-space:nowrap">
+        ${actionBtn('ghost','Ver detalle fiscal',`verDetalleCFDI(${f.id})`, `${icon('eye')} Detalle`)}
         ${actionBtn('ghost','Descargar XML',`descargarXML(${f.id})`, `${icon('download')} XML`)}
-        ${f.pdf_url ? `<a href="${f.pdf_url}" target="_blank" class="btn btn-ghost" style="padding:4px 10px;font-size:11px">${icon('file-pdf')} PDF</a>` : ''}
+        ${f.pdf_url ? `<a href="${f.pdf_url}" target="_blank" class="btn btn-ghost" style="padding:4px 10px;font-size:11px">${icon('file-pdf')} PDF</a>` : `<button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;opacity:.55" title="SW no devolvió PDF para este timbrado" disabled>${icon('file-pdf')} PDF</button>`}
       </td>
     </tr>`).join('');
 }
@@ -2251,6 +2269,96 @@ async function descargarXML(id) {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a'); a.href = url; a.download = `cfdi_tr_${id}.xml`;
   a.click(); URL.revokeObjectURL(url);
+}
+
+async function obtenerXmlCFDI(id) {
+  const r = await fetch(`${API}/api/tr/facturas/${id}/xml`, { headers: H() });
+  if (!r.ok) throw new Error('No se pudo obtener el XML');
+  return await r.text();
+}
+
+function nodoPorNombre(doc, localName) {
+  return Array.from(doc.getElementsByTagName('*')).find(n => n.localName === localName) || null;
+}
+
+function nodosPorNombre(doc, localName) {
+  return Array.from(doc.getElementsByTagName('*')).filter(n => n.localName === localName);
+}
+
+function attr(n, key, fallback='—') {
+  return n?.getAttribute?.(key) || fallback;
+}
+
+function detalleBox(label, value) {
+  return `<div class="detail-box"><b>${label}</b><span>${value || '—'}</span></div>`;
+}
+
+async function verDetalleCFDI(id) {
+  try {
+    const xml = await obtenerXmlCFDI(id);
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const parserError = doc.getElementsByTagName('parsererror')[0];
+    if (parserError) throw new Error('El XML guardado no se pudo leer correctamente.');
+
+    const comp = nodoPorNombre(doc, 'Comprobante');
+    const emisor = nodoPorNombre(doc, 'Emisor');
+    const receptor = nodoPorNombre(doc, 'Receptor');
+    const timbre = nodoPorNombre(doc, 'TimbreFiscalDigital');
+    const carta = nodoPorNombre(doc, 'CartaPorte');
+    const conceptos = nodosPorNombre(doc, 'Concepto');
+    const mercancias = nodosPorNombre(doc, 'Mercancia');
+    const conceptoRows = conceptos.map(c => `
+      <tr>
+        <td>${attr(c,'ClaveProdServ')}</td>
+        <td>${attr(c,'Descripcion')}</td>
+        <td style="text-align:right">${attr(c,'Cantidad')}</td>
+        <td>${attr(c,'ClaveUnidad')}</td>
+        <td style="text-align:right">$${Number(attr(c,'ValorUnitario','0')).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
+        <td style="text-align:right">$${Number(attr(c,'Importe','0')).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
+        <td>${attr(c,'ObjetoImp')}</td>
+      </tr>`).join('');
+    const mercanciaRows = mercancias.map(m => `
+      <tr>
+        <td>${attr(m,'BienesTransp')}</td>
+        <td>${attr(m,'Descripcion')}</td>
+        <td style="text-align:right">${attr(m,'Cantidad')}</td>
+        <td>${attr(m,'ClaveUnidad')}</td>
+        <td style="text-align:right">${attr(m,'PesoEnKg')}</td>
+        <td>${attr(m,'MaterialPeligroso')}</td>
+        <td style="text-align:right">${attr(m,'ValorMercancia')}</td>
+      </tr>`).join('');
+
+    document.getElementById('cfdi-detalle-body').innerHTML = `
+      <div class="detail-grid">
+        ${detalleBox('UUID SAT', attr(timbre,'UUID'))}
+        ${detalleBox('IdCCP', attr(carta,'IdCCP'))}
+        ${detalleBox('Tipo CFDI', `${attr(comp,'TipoDeComprobante')} · ${attr(comp,'Moneda')}`)}
+        ${detalleBox('Fecha timbrado', attr(timbre,'FechaTimbrado'))}
+        ${detalleBox('Emisor', `${attr(emisor,'Rfc')} · ${attr(emisor,'Nombre')} · Régimen ${attr(emisor,'RegimenFiscal')}`)}
+        ${detalleBox('Receptor', `${attr(receptor,'Rfc')} · ${attr(receptor,'Nombre')} · CP ${attr(receptor,'DomicilioFiscalReceptor')} · Régimen ${attr(receptor,'RegimenFiscalReceptor')} · Uso ${attr(receptor,'UsoCFDI')}`)}
+        ${detalleBox('Subtotal', '$' + Number(attr(comp,'SubTotal','0')).toLocaleString('es-MX',{minimumFractionDigits:2}))}
+        ${detalleBox('Total', '$' + Number(attr(comp,'Total','0')).toLocaleString('es-MX',{minimumFractionDigits:2}))}
+      </div>
+      <div class="divider"></div>
+      <div class="card-title"><i class="fa-solid fa-file-lines"></i> Conceptos CFDI</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Clave</th><th>Descripción</th><th>Cantidad</th><th>Unidad</th><th>Valor unitario</th><th>Importe</th><th>ObjetoImp</th></tr></thead>
+        <tbody>${conceptoRows || '<tr><td colspan="7">Sin conceptos</td></tr>'}</tbody>
+      </table></div>
+      <div class="divider"></div>
+      <div class="card-title"><i class="fa-solid fa-gas-pump"></i> Mercancías Carta Porte</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>BienesTransp</th><th>Descripción</th><th>Cantidad</th><th>Unidad</th><th>Peso kg</th><th>Mat. peligroso</th><th>Valor mercancía</th></tr></thead>
+        <tbody>${mercanciaRows || '<tr><td colspan="7">Sin mercancías</td></tr>'}</tbody>
+      </table></div>
+      <div class="divider"></div>
+      <div class="card-title"><i class="fa-solid fa-code"></i> XML timbrado</div>
+      <pre class="xml-preview">${xml.replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]))}</pre>
+    `;
+    abrirModal('modal-cfdi-detalle');
+  } catch(e) {
+    toast('Error leyendo detalle CFDI: ' + e.message, 'error');
+  }
 }
 
 function abrirModalFacturaServicio() {
