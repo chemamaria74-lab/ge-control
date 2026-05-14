@@ -12,6 +12,7 @@ from routes.upload      import router as upload_router
 from routes.cfdi        import router as cfdi_router
 from routes.perfiles    import router as perfiles_router
 from routes.transporte  import router as transporte_router
+from routes.gasolineras import router as gasolineras_router
 from routes.settings    import router as settings_router
 from routes.auth        import router as auth_router
 from routes.history     import router as history_router
@@ -86,6 +87,7 @@ app.include_router(facturas_router,    prefix="/api", tags=["Facturas"])
 app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
 app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
 app.include_router(transporte_router,  prefix="/api", tags=["Transporte"])   # ← AGREGAR AQUÍ
+app.include_router(gasolineras_router, prefix="/api", tags=["Gasolineras"])
 
 # ── Archivos estáticos ────────────────────────────────────────────────────────
 app.mount(
@@ -171,6 +173,11 @@ async def login_view(modulo: str):
         color_secundario  = "#1e40af"
         icon_module       = "fa-truck"
         nombre_modulo     = "Transporte"
+    elif modulo == "gasolineras":
+        color_primario    = "#0f5c82"
+        color_secundario  = "#075358"
+        icon_module       = "fa-gas-pump"
+        nombre_modulo     = "Gasolineras"
     else:
         color_primario    = "#10b981"
         color_secundario  = "#047857"
@@ -206,6 +213,13 @@ async def frontend(lang: str = "es"):
 async def frontend_transporte():
     """Sirve el frontend del módulo de Transporte de Hidrocarburos."""
     with open(os.path.join(BASE_DIR, "templates", "transporte.html"), encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/gasolineras", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_gasolineras():
+    """Sirve el frontend del módulo Gasolineras."""
+    with open(os.path.join(BASE_DIR, "templates", "gasolineras.html"), encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
