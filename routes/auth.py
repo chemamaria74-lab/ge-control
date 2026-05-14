@@ -23,15 +23,15 @@ from supabase_config import get_supabase, get_supabase_for_user, SUPABASE_URL, S
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-Section = Literal["gas_lp", "transporte"]
-SECCIONES_VALIDAS = {"gas_lp", "transporte"}
+Section = Literal["gas_lp", "transporte", "gasolineras"]
+SECCIONES_VALIDAS = {"gas_lp", "transporte", "gasolineras"}
 
 
 # ── Lookup de sección (multi-tenancy) ────────────────────────────────────────
 
 def obtener_secciones_usuario(user_id: str, access_token: Optional[str] = None) -> list[str]:
     """
-    Devuelve todas las secciones ('gas_lp' | 'transporte') asignadas al usuario.
+    Devuelve todas las secciones ('gas_lp' | 'transporte' | 'gasolineras') asignadas al usuario.
     Usa un cliente fresco autenticado con el JWT para respetar RLS.
     NO muta el cliente global.
     """
