@@ -180,6 +180,27 @@ def _validar_datos_cfdi_receptor(rfc: str, regimen: str, cp: str, uso_cfdi: str)
         raise HTTPException(400, "Uso CFDI requerido para CFDI 4.0.")
 
 
+def _validar_totales_servicio(subtotal: float, iva: float, total: float) -> None:
+    iva_calc = round(float(subtotal or 0) * 0.16, 2)
+    total_calc = round(float(subtotal or 0) + iva_calc, 2)
+    if abs(float(iva or 0) - iva_calc) > 0.01:
+        raise HTTPException(400, f"IVA inválido. Para servicio gravado debe ser 16%: {iva_calc:.2f}.")
+    if abs(float(total or 0) - total_calc) > 0.01:
+        raise HTTPException(400, f"Total inválido. Debe ser subtotal + IVA: {total_calc:.2f}.")
+
+
+def _periodo_bounds(periodo: str) -> tuple[str, str]:
+    """Convierte YYYY-MM a rango ISO para columnas timestamptz."""
+    anio = int(periodo[:4])
+    mes = int(periodo[5:7])
+    inicio = datetime(anio, mes, 1, tzinfo=timezone.utc)
+    if mes == 12:
+        fin = datetime(anio + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        fin = datetime(anio, mes + 1, 1, tzinfo=timezone.utc)
+    return inicio.isoformat(), fin.isoformat()
+
+
 def _ruta_payload(payload: RutaTransporteCreate) -> dict:
     return {
         "nombre":        payload.nombre.strip(),
@@ -659,7 +680,8 @@ async def listar_facturas_servicio(
     try:
         q = _sb(token).table(_TBL_FACT_SERV).select("*").eq("user_id", uid).order("created_at", desc=True)
         if periodo:
-            q = q.like("created_at", f"{periodo}%")
+            ini, fin = _periodo_bounds(periodo)
+            q = q.gte("created_at", ini).lt("created_at", fin)
         res = q.execute()
         return JSONResponse({"ok": True, "facturas_servicio": res.data or []})
     except Exception as e:
@@ -675,7 +697,8 @@ async def dashboard_transporte(
     sb = _sb(token)
     periodo = periodo or datetime.now(timezone.utc).strftime("%Y-%m")
     viajes = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).like("fecha_hora_salida", f"{periodo}%").execute().data or []
-    facturas = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", uid).like("created_at", f"{periodo}%").execute().data or []
+    ini, fin = _periodo_bounds(periodo)
+    facturas = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", uid).gte("created_at", ini).lt("created_at", fin).execute().data or []
     return JSONResponse({
         "ok": True,
         "periodo": periodo,
@@ -799,6 +822,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     sb = _sb(token)
 
     _validar_datos_cfdi_receptor(payload.rfc_receptor, payload.regimen_fiscal, payload.cp_receptor, payload.uso_cfdi)
+    _validar_totales_servicio(payload.subtotal, payload.iva, payload.total)
     viajes_res = sb.table(_TBL_VIAJES).select("id,status,uuid_cfdi,id_ccp,rfc_receptor,nombre_receptor,cp_receptor,uso_cfdi").eq("user_id", uid).in_("id", payload.viaje_ids).execute()
     viajes = viajes_res.data or []
     encontrados = {int(v["id"]) for v in viajes}
@@ -911,7 +935,8 @@ async def listar_facturas_transporte(
     try:
         q = sb.table(_TBL_CFDI).select("*").eq("user_id", uid).order("fecha_timbrado", desc=True)
         if periodo:
-            q = q.like("fecha_timbrado", f"{periodo}%")
+            ini, fin = _periodo_bounds(periodo)
+            q = q.gte("fecha_timbrado", ini).lt("fecha_timbrado", fin)
         if perfil_id:
             q = q.eq("perfil_id", perfil_id)
         res  = q.execute()
