@@ -1113,6 +1113,9 @@ const RFC_RE = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 const CP_RE = /^\d{5}$/;
 const REGIMENES_PM = new Set(['601','603','610','620','622','623','624','626']);
 const REGIMENES_PF = new Set(['605','606','607','608','611','612','614','615','616','621','625','626']);
+const RFC_PRUEBAS_SAT = {
+  EKU9003173C9: { nombre: 'ESCUELA KEMPER URGATE', cp: '42501', regimen_fiscal: '601' },
+};
 const EDITABLE_STATUS = new Set(['borrador', 'programado', 'error']);
 const LANG_URL = new URLSearchParams(location.search).get('lang');
 const LANG_STORED = localStorage.getItem('zc_lang');
@@ -1295,6 +1298,19 @@ function validarRegimenParaRfc(rfc, regimen, nombre='emisor') {
     const etiqueta = tipo === 'moral' ? 'persona moral' : 'persona física';
     throw new Error(`El régimen fiscal ${regimen} no corresponde al RFC ${nombre} (${etiqueta}).`);
   }
+}
+function normalizarNombreFiscal(nombre) {
+  return (nombre || '').trim().replace(/\s+/g, ' ').toUpperCase();
+}
+function normalizarReceptorSat(rfc, nombre='', cp='', regimen='') {
+  const limpio = (rfc || '').toUpperCase().replace(/[^A-Z0-9Ñ&]/g, '');
+  const prueba = RFC_PRUEBAS_SAT[limpio];
+  return {
+    rfc: limpio,
+    nombre: prueba?.nombre || normalizarNombreFiscal(nombre),
+    cp: prueba?.cp || (cp || '').trim(),
+    regimen_fiscal: prueba?.regimen_fiscal || regimen,
+  };
 }
 
 // ─── AUTH headers ───────────────────────────────────────
@@ -1835,7 +1851,8 @@ function autoCliente() {
   const sel = document.getElementById('v-rfc-receptor-sel');
   const opt = sel.options[sel.selectedIndex];
   if (!opt.value) return;
-  document.getElementById('v-nombre-receptor').value = opt.dataset.nom || '';
+  const receptor = normalizarReceptorSat(opt.dataset.rfc || '', opt.dataset.nom || '', opt.dataset.cp || '', opt.dataset.regimen || '');
+  document.getElementById('v-nombre-receptor').value = receptor.nombre;
 }
 
 // ─── Productos del viaje ────────────────────────────────
@@ -1950,6 +1967,7 @@ async function guardarViaje() {
 
   const tipo = document.getElementById('v-tipo-cfdi').value;
   let rfc_receptor = '', nombre_receptor = '', cp_receptor = '20000';
+  let regimen_fiscal_receptor = '601';
   if (tipo === 'I') {
     const clSel = document.getElementById('v-rfc-receptor-sel');
     const opt   = clSel.options[clSel.selectedIndex];
@@ -1959,6 +1977,12 @@ async function guardarViaje() {
     try {
       validarRfcCampo(rfc_receptor, 'RFC receptor');
       validarCpCampo(cp_receptor, 'Código postal receptor');
+      const receptor = normalizarReceptorSat(rfc_receptor, nombre_receptor, cp_receptor, opt.dataset?.regimen || '601');
+      rfc_receptor = receptor.rfc;
+      nombre_receptor = receptor.nombre;
+      cp_receptor = receptor.cp;
+      regimen_fiscal_receptor = receptor.regimen_fiscal || '601';
+      validarRegimenParaRfc(rfc_receptor, receptor.regimen_fiscal, 'receptor');
     } catch(e) { toast(e.message, 'error'); btn.disabled = false; return; }
   }
 
@@ -1978,6 +2002,7 @@ async function guardarViaje() {
     rfc_receptor,
     nombre_receptor,
     cp_receptor,
+    regimen_fiscal_receptor,
     uso_cfdi:            'S01',
     num_permiso_cne:     document.getElementById('v-permiso').value.trim(),
     productos,
@@ -2548,6 +2573,18 @@ async function guardarCliente() {
   try {
     rfcCliente = validarRfcCampo(document.getElementById('cl-rfc').value, 'RFC cliente');
     cpCliente = validarCpCampo(document.getElementById('cl-cp').value, 'Código postal cliente');
+    const receptor = normalizarReceptorSat(
+      rfcCliente,
+      document.getElementById('cl-nombre').value,
+      cpCliente,
+      document.getElementById('cl-regimen').value
+    );
+    rfcCliente = receptor.rfc;
+    cpCliente = receptor.cp;
+    document.getElementById('cl-nombre').value = receptor.nombre;
+    document.getElementById('cl-cp').value = receptor.cp;
+    document.getElementById('cl-regimen').value = receptor.regimen_fiscal;
+    validarRegimenParaRfc(rfcCliente, receptor.regimen_fiscal, 'cliente');
   } catch(e) { toast(e.message, 'error'); return; }
   const body = {
     rfc:            rfcCliente,
