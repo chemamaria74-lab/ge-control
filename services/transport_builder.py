@@ -27,7 +27,7 @@ import uuid as _uuid_mod
 from datetime import datetime, timezone
 from typing import Optional
 
-from services.product_catalog import get_producto, CLAVE_UNIDAD_LITROS
+from services.product_catalog import get_producto, ClaveProdServCFDI
 from services.cne_validator import validar_num_permiso
 from models.transport_schemas import ViajeCreate, ProductoTransporte
 
@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 # ── Constantes ────────────────────────────────────────────────────────────────
 IVA_TASA      = 0.16
+CLAVE_UNIDAD_SERVICIO = "H87"
+CLAVE_UNIDAD_LITRO_CFDI = "LTR"
 NS_HIDRO      = "http://www.sat.gob.mx/hidrocarburospetroliferos"
 NS_CP31       = "http://www.sat.gob.mx/CartaPorte31"
 SCHEMA_HIDRO  = "http://www.sat.gob.mx/sitio_internet/cfd/hidrocarburospetroliferos.xsd"
@@ -70,7 +72,7 @@ def _smart_round(v: float, decimales: int = 2) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BLOQUE 1: Conceptos CFDI con Complemento de Hidrocarburos
+# BLOQUE 1: Conceptos CFDI de servicio de transporte
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _build_concepto_hidrocarburo(
@@ -80,20 +82,20 @@ def _build_concepto_hidrocarburo(
     indice:           int = 0,
 ) -> dict:
     """
-    Construye el nodo Concepto del CFDI con el Complemento de Hidrocarburos
-    embebido en ComplementoConcepto.
+    Construye el nodo Concepto del CFDI.
+
+    En Carta Porte para transportistas, el Concepto del CFDI es el servicio de
+    transporte, no el combustible transportado. Las mercancías se detallan en
+    cartaporte31:Mercancias.
 
     Para tipo T (Traslado): ValorUnitario=0, sin impuestos.
     Para tipo I (Ingreso):  ValorUnitario calculado, IVA 16%.
     """
-    prod_cat = get_producto(producto.clave_producto)
-    clave_prod_serv = prod_cat.clave_prod_serv_cfdi if prod_cat else "15101514"
     descripcion = (
         producto.descripcion
-        or (prod_cat.nombre if prod_cat else "Hidrocarburo")
+        or "Servicio de transporte de carga por carretera"
     )
 
-    volumen  = round(producto.volumen_litros, 3)
     importe  = round(producto.importe, 2)
 
     if tipo_cfdi == "T":
@@ -102,30 +104,29 @@ def _build_concepto_hidrocarburo(
         importe_str    = "0.00"
         objeto_imp     = "01"  # No objeto de impuesto
         concepto: dict = {
-            "ClaveProdServ":   clave_prod_serv,
-            "NoIdentificacion": f"HIDRO-{indice+1:03d}",
-            "Cantidad":        _smart_round(volumen, 3),
-            "ClaveUnidad":     CLAVE_UNIDAD_LITROS,
-            "Unidad":          "Litro",
+            "ClaveProdServ":   ClaveProdServCFDI.SERVICIO_FLETE,
+            "NoIdentificacion": f"TR-{indice+1:03d}",
+            "Cantidad":        "1",
+            "ClaveUnidad":     CLAVE_UNIDAD_SERVICIO,
+            "Unidad":          "Pieza",
             "Descripcion":     descripcion,
             "ValorUnitario":   valor_unitario,
             "Importe":         importe_str,
             "ObjetoImp":       objeto_imp,
         }
     else:
-        # Ingreso (flete con valor declarado)
-        precio_unit = round(importe / volumen, 6) if volumen > 0 else 0.0
+        # Ingreso: servicio de flete
         iva         = round(importe * IVA_TASA, 2)
         objeto_imp  = "02"  # Sí objeto de impuesto
 
         concepto = {
-            "ClaveProdServ":   clave_prod_serv,
-            "NoIdentificacion": f"HIDRO-{indice+1:03d}",
-            "Cantidad":        _smart_round(volumen, 3),
-            "ClaveUnidad":     CLAVE_UNIDAD_LITROS,
-            "Unidad":          "Litro",
+            "ClaveProdServ":   ClaveProdServCFDI.SERVICIO_FLETE,
+            "NoIdentificacion": f"TR-{indice+1:03d}",
+            "Cantidad":        "1",
+            "ClaveUnidad":     CLAVE_UNIDAD_SERVICIO,
+            "Unidad":          "Pieza",
             "Descripcion":     descripcion,
-            "ValorUnitario":   _smart_round(precio_unit, 6),
+            "ValorUnitario":   _smart_round(importe, 2),
             "Importe":         _smart_round(importe, 2),
             "ObjetoImp":       objeto_imp,
             "Impuestos": {
@@ -138,21 +139,6 @@ def _build_concepto_hidrocarburo(
                 }]
             },
         }
-
-    # ── Complemento Hidrocarburos (Anexo 29 RMF 2026) ────────────────────────
-    # Estructura oficial SW Sapien: ComplementoConcepto → Any → dict con namespace
-    complemento_hidro = {
-        "hidrocarburospetroliferos:HidroYPetro": {
-            "@xmlns:hidrocarburospetroliferos": NS_HIDRO,
-            "@xsi:schemaLocation": f"{NS_HIDRO} {SCHEMA_HIDRO}",
-            "@Version":        "1.0",
-            "@NumPermiso":     num_permiso_cne.strip(),
-            "@ClaveProducto":  producto.clave_producto.strip().upper(),
-            "@ClaveSubProducto": producto.clave_subproducto.strip().upper(),
-        }
-    }
-
-    concepto["ComplementoConcepto"] = {"Any": [complemento_hidro]}
     return concepto
 
 
@@ -175,35 +161,6 @@ def _build_carta_porte(
     volumen_total = round(sum(p.volumen_litros for p in productos), 3)
     peso_total    = round(volumen_total * 0.75, 3)  # Estimado conservador kg/L
 
-    # ── Mercancías (una por producto) ─────────────────────────────────────────
-    mercancias_list = []
-    for i, prod in enumerate(productos):
-        prod_cat = get_producto(prod.clave_producto)
-        cve_mat  = (prod_cat.cve_material_peligroso if prod_cat else CVE_MATERIAL_DEFAULT)
-        desc_mat = (prod_cat.descripcion_material   if prod_cat else DESC_MATERIAL_DEFAULT)
-        clave_ps = (prod_cat.clave_prod_serv_cfdi   if prod_cat else "15101514")
-        vol_prod = round(prod.volumen_litros, 3)
-        peso_prod = round(vol_prod * 0.75, 3)
-
-        mercancia: dict = {
-            "BienesTransp":           clave_ps,
-            "Descripcion":            desc_mat,
-            "Cantidad":               _smart_round(vol_prod, 3),
-            "ClaveUnidad":            CLAVE_UNIDAD_LITROS,
-            "PesoEnKg":               _smart_round(peso_prod, 3),
-            "MaterialPeligroso":      "Sí",
-            "CveMaterialPeligroso":   cve_mat,
-            "Embalaje":               "4H2",  # Código ONU para líquidos peligrosos
-        }
-        mercancias_list.append(mercancia)
-
-    mercancias: dict = {
-        "NumTotalMercancias": str(len(mercancias_list)),
-        "PesoBrutoTotal":     _smart_round(peso_total, 3),
-        "UnidadPeso":         "KGM",
-        "Mercancia":          mercancias_list,
-    }
-
     # ── Autotransporte ────────────────────────────────────────────────────────
     perm_sct    = vehiculo.get("permiso_sct", "TPAF01")
     num_perm_sct = vehiculo.get("num_permiso_sct", "Sin permiso")
@@ -219,6 +176,40 @@ def _build_carta_porte(
             "AseguraRespCivil": vehiculo.get("aseguradora", ""),
             "PolizaRespCivil":  vehiculo.get("poliza_seguro", ""),
         },
+    }
+
+    # ── Mercancías (una por producto) ─────────────────────────────────────────
+    mercancias_list = []
+    for i, prod in enumerate(productos):
+        prod_cat = get_producto(prod.clave_producto)
+        cve_mat  = (prod_cat.cve_material_peligroso if prod_cat else CVE_MATERIAL_DEFAULT)
+        desc_mat = (prod_cat.descripcion_material   if prod_cat else DESC_MATERIAL_DEFAULT)
+        clave_ps = (prod_cat.clave_prod_serv_cfdi   if prod_cat else "15101514")
+        vol_prod = round(prod.volumen_litros, 3)
+        peso_prod = round(vol_prod * 0.75, 3)
+
+        mercancia: dict = {
+            "BienesTransp":           clave_ps,
+            "Descripcion":            desc_mat,
+            "Cantidad":               _smart_round(vol_prod, 3),
+            "ClaveUnidad":            CLAVE_UNIDAD_LITRO_CFDI,
+            "PesoEnKg":               _smart_round(peso_prod, 3),
+            "MaterialPeligroso":      "Sí",
+            "CveMaterialPeligroso":   cve_mat,
+            "Embalaje":               "4H2",  # Código ONU para líquidos peligrosos
+        }
+        valor_mercancia = round(float(getattr(prod, "valor_mercancia", 0.0) or 0.0), 2)
+        if valor_mercancia > 0:
+            mercancia["ValorMercancia"] = _smart_round(valor_mercancia, 2)
+            mercancia["Moneda"] = "MXN"
+        mercancias_list.append(mercancia)
+
+    mercancias: dict = {
+        "NumTotalMercancias": str(len(mercancias_list)),
+        "PesoBrutoTotal":     _smart_round(peso_total, 3),
+        "UnidadPeso":         "KGM",
+        "Mercancia":          mercancias_list,
+        "Autotransporte":     autotransporte,
     }
 
     # ── Figura (chofer) ───────────────────────────────────────────────────────
@@ -268,8 +259,7 @@ def _build_carta_porte(
         "@TotalDistRec":        _smart_round(distancia, 1),
         "Ubicaciones":          {"Ubicacion": ubicaciones},
         "Mercancias":           mercancias,
-        "Autotransporte":       autotransporte,
-        "FiguraTransporte":     {"Figuras": figuras},
+        "FiguraTransporte":     {"TiposFigura": figuras},
     }
 
     return {"cartaporte31:CartaPorte": carta_porte}
@@ -329,7 +319,7 @@ def build_cfdi_transporte(
 
     total = round(subtotal + total_iva, 2)
 
-    # ── Conceptos con Complemento Hidrocarburos ───────────────────────────────
+    # ── Conceptos CFDI de servicio de autotransporte ──────────────────────────
     conceptos_list = [
         _build_concepto_hidrocarburo(prod, num_permiso, tipo_cfdi, i)
         for i, prod in enumerate(productos)
@@ -362,7 +352,7 @@ def build_cfdi_transporte(
         "NoCertificado":      "",
         "Certificado":        "",
         "SubTotal":           _smart_round(subtotal, 2),
-        "Moneda":             "MXN",
+        "Moneda":             "MXN" if tipo_cfdi == "I" else "XXX",
         "Total":              _smart_round(total, 2),
         "TipoDeComprobante":  tipo_cfdi,
         "Exportacion":        "01",
@@ -373,10 +363,10 @@ def build_cfdi_transporte(
             "RegimenFiscal": emisor.get("regimen_fiscal", "601"),
         },
         "Receptor": {
-            "Rfc":                     (viaje.rfc_receptor or "XAXX010101000").strip().upper(),
-            "Nombre":                  (viaje.nombre_receptor or "PÚBLICO EN GENERAL").strip(),
-            "DomicilioFiscalReceptor": (viaje.cp_receptor or "20000").strip(),
-            "RegimenFiscalReceptor":   getattr(viaje, "regimen_fiscal_receptor", "601") or "601",
+            "Rfc":                     ((viaje.rfc_receptor if tipo_cfdi == "I" else emisor.get("rfc")) or "XAXX010101000").strip().upper(),
+            "Nombre":                  ((viaje.nombre_receptor if tipo_cfdi == "I" else emisor.get("nombre")) or "PÚBLICO EN GENERAL").strip(),
+            "DomicilioFiscalReceptor": ((viaje.cp_receptor if tipo_cfdi == "I" else emisor.get("domicilio_fiscal")) or "20000").strip(),
+            "RegimenFiscalReceptor":   (getattr(viaje, "regimen_fiscal_receptor", "601") if tipo_cfdi == "I" else emisor.get("regimen_fiscal", "601")) or "601",
             "UsoCFDI":                 (viaje.uso_cfdi or "S01"),
         },
         "Conceptos": conceptos_list,
