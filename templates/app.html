@@ -423,6 +423,13 @@ tr:hover td{background:#f8fafc}
     // Config avanzada toggle
     "adv.toggle":          "Advanced Config — Tank · Meter · Geolocation",
     "fore.consumo_diario": "EST. DAILY CONSUMPTION",
+    "fore.recomendaciones": "Recommendations based on your history:",
+    "fore.prov_economico": "Cheapest supplier:",
+    "fore.prov_confiable": "Most reliable supply:",
+    "fore.vol_sugerido": "Suggested purchase volume:",
+    "fore.stock_estimado": "Estimated stock:",
+    "fore.stock_dias_suffix": "days of operation at the current consumption rate.",
+    "fore.stock_help": "This is an estimated coverage period: available/expected purchase volume divided by estimated daily consumption.",
     // Configuración
     "cfg.titulo":          "Settings",
     "cfg.rfc":             "Taxpayer RFC",
@@ -488,6 +495,37 @@ tr:hover td{background:#f8fafc}
     "Sin proveedores registrados": "No suppliers registered",
     "Error al cargar proveedores. Recarga la página.": "Error loading suppliers. Reload the page.",
     "Sin autoconsumos registrados este periodo.": "No self-consumption records for this period.",
+    "Autoconsumo": "Self-consumption",
+    "Registro de Autoconsumo": "Self-Consumption Entry",
+    "Autoconsumo activo": "Self-consumption active",
+    "RFC cliente: se llenará automáticamente": "Customer RFC: filled automatically",
+    "RFC Cliente": "Customer RFC",
+    "Tipo de movimiento": "Movement type",
+    "Autoconsumo — flota/operación": "Self-consumption — fleet/operation",
+    "Merma operativa reconocida": "Recognized operating loss",
+    "Trasvase interno entre tanques": "Internal transfer between tanks",
+    "Volumen (Litros)": "Volume (Liters)",
+    "Fecha del movimiento": "Movement date",
+    "Descripción adicional": "Additional description",
+    "Bitácora SAT que se generará:": "SAT log that will be generated:",
+    "Registrar Autoconsumo": "Register Self-Consumption",
+    "Guardando en Supabase...": "Saving to Supabase...",
+    "Autoconsumos registrados este periodo": "Self-consumption records this period",
+    "Todo el año": "Full year",
+    "Todas": "All",
+    "Año": "Year",
+    "Mes": "Month",
+    "Gráfica": "Chart",
+    "Proveedor específico": "Specific supplier",
+    "Todos los proveedores — participación": "All suppliers — share",
+    "Un proveedor — evolución mensual": "One supplier — monthly trend",
+    "Comparativa precio/litro": "Price per liter comparison",
+    "Volumen (L)": "Volume (L)",
+    "Importe": "Amount",
+    "$/Litro": "$/Liter",
+    "Participación": "Share",
+    "Evalúa promedio móvil, suavizamiento exponencial y regresión lineal; usa el modelo con menor error histórico.": "Evaluates moving average, exponential smoothing, and linear regression; uses the model with the lowest historical error.",
+    "Genera al menos 2 reportes para activar el pronóstico.": "Generate at least 2 reports to activate the forecast.",
     "Confirmación de Eliminación Permanente": "Permanent Deletion Confirmation",
     "Tu contraseña de acceso": "Your access password",
     "Escribe la frase exacta...": "Type the exact phrase...",
@@ -853,7 +891,7 @@ tr:hover td{background:#f8fafc}
   <div class="tabs">
     <button class="tab active" data-tab="excel"><i class="fa-solid fa-file-csv"></i> Excel / CSV</button>
     <button class="tab" data-tab="cfdi"><i class="fa-solid fa-file-invoice"></i> CFDI (XML / ZIP)</button>
-    <button class="tab" data-tab="autoconsumo"><i class="fa-solid fa-gas-pump"></i> Autoconsumo</button>
+    <button class="tab" data-tab="autoconsumo"><i class="fa-solid fa-gas-pump"></i> <span data-en="Self-consumption">Autoconsumo</span></button>
   </div>
   <div class="panel active" id="panel-excel">
     <div class="drop" id="dropExcel">
@@ -892,7 +930,7 @@ tr:hover td{background:#f8fafc}
   <!-- ══ Panel: Autoconsumo ════════════════════════════════════════════════ -->
   <div class="panel" id="panel-autoconsumo">
     <div class="info-box" style="background:#fef9c3;border-color:#fcd34d;color:#92400e">
-      <b><i class="fa-solid fa-gas-pump" style="margin-right:.4rem"></i>Registro de Autoconsumo</b><br>
+      <b><i class="fa-solid fa-gas-pump" style="margin-right:.4rem"></i><span data-en="Self-Consumption Entry">Registro de Autoconsumo</span></b><br>
       Registra volúmenes consumidos internamente (flota, operación) <b>sin CFDI</b>.<br>
       Este volumen se descuenta del inventario y aparece en la Bitácora con
       <b>TipoEvento 4</b> (entrega) conforme §17.4 de la Guía SAT Mayo 2023.
@@ -909,7 +947,7 @@ tr:hover td{background:#f8fafc}
             background:#fff;border-radius:50%;transition:left .2s;
             box-shadow:0 1px 3px rgba(0,0,0,.2)"></div>
         </div>
-        <span style="font-size:.88rem;font-weight:600;color:#374151">Autoconsumo activo</span>
+        <span style="font-size:.88rem;font-weight:600;color:#374151" data-en="Self-consumption active">Autoconsumo activo</span>
       </label>
       <div style="font-size:.75rem;color:#64748b" id="autoconsumoStatus">RFC cliente: se llenará automáticamente</div>
     </div>
@@ -923,9 +961,9 @@ tr:hover td{background:#f8fafc}
       <div class="field">
         <label>Tipo de movimiento</label>
         <select id="ac_tipo">
-          <option value="autoconsumo">🚛 Autoconsumo — flota/operación</option>
-          <option value="merma">📉 Merma operativa reconocida</option>
-          <option value="trasvase">🔄 Trasvase interno entre tanques</option>
+          <option value="autoconsumo">Autoconsumo — flota/operación</option>
+          <option value="merma">Merma operativa reconocida</option>
+          <option value="trasvase">Trasvase interno entre tanques</option>
         </select>
       </div>
     </div>
@@ -948,12 +986,12 @@ tr:hover td{background:#f8fafc}
 
     <!-- Bitácora SAT preview -->
     <div style="background:#fef9c3;border:1px solid #fcd34d;border-radius:8px;padding:.7rem .9rem;margin-bottom:.9rem;font-size:.76rem;color:#78350f">
-      <b><i class="fa-solid fa-scroll" style="margin-right:.3rem"></i>Bitácora SAT que se generará:</b><br>
+      <b><i class="fa-solid fa-scroll" style="margin-right:.3rem"></i><span data-en="SAT log that will be generated:">Bitácora SAT que se generará:</span></b><br>
       <span style="font-family:monospace">TipoEvento: 4  | DescripcionEvento: "Consumo propio (autoconsumo interno). Sin CFDI — TipoEvento 4 entrega."</span>
     </div>
 
     <button class="btn btn-red" id="btnAutoconsumo" onclick="registrarAutoconsumo()" disabled>
-      <i class="fa-solid fa-gas-pump" style="margin-right:.4rem"></i>Registrar Autoconsumo
+      <i class="fa-solid fa-gas-pump" style="margin-right:.4rem"></i><span data-en="Register Self-Consumption">Registrar Autoconsumo</span>
     </button>
     <div class="loading" id="loadAutoconsumo"><i class="fa-solid fa-spinner fa-spin"></i> Guardando en Supabase...</div>
     <div id="autoconsumoResult" style="display:none;margin-top:.8rem;padding:.8rem 1rem;border-radius:8px;font-size:.83rem"></div>
@@ -961,7 +999,7 @@ tr:hover td{background:#f8fafc}
     <!-- Lista de autoconsumos del periodo actual -->
     <div style="margin-top:1.2rem">
       <div style="font-size:.8rem;font-weight:600;color:#475569;margin-bottom:.5rem;display:flex;align-items:center;justify-content:space-between">
-        <span><i class="fa-solid fa-list" style="margin-right:.3rem"></i>Autoconsumos registrados este periodo</span>
+        <span><i class="fa-solid fa-list" style="margin-right:.3rem"></i><span data-en="Self-consumption records this period">Autoconsumos registrados este periodo</span></span>
         <button onclick="cargarAutoconsumos()" style="font-size:.72rem;padding:.25rem .6rem;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;cursor:pointer;color:#475569"><span data-en="Refresh">Actualizar</span></button>
       </div>
       <div id="autoconsumoList" style="font-size:.78rem;color:#64748b;background:#f8fafc;border-radius:8px;padding:.6rem .8rem;min-height:48px;overflow-x:auto">
@@ -1458,7 +1496,7 @@ tr:hover td{background:#f8fafc}
             <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">Inv. Inicial (L)</th>
             <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">(+) Recepciones (L)</th>
             <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">(-) Entregas CFDI (L)</th>
-            <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0;color:#92400e">(-) Autoconsumo (L)</th>
+            <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0;color:#92400e"><span data-en="(-) Self-Consumption (L)">(-) Autoconsumo (L)</span></th>
             <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">(=) Inv. Final Calculado</th>
             <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">Inv. Final Guardado</th>
             <th style="padding:.45rem .6rem;text-align:center;border-bottom:1px solid #e2e8f0">Status</th>
@@ -1494,6 +1532,24 @@ tr:hover td{background:#f8fafc}
     <div class="field" style="margin:0;min-width:100px">
       <label>Año</label>
       <select id="provAnio" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem"></select>
+    </div>
+    <div class="field" style="margin:0;min-width:150px">
+      <label>Mes</label>
+      <select id="provMes" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+        <option value="">Todo el año</option>
+        <option value="1">01 — Enero</option>
+        <option value="2">02 — Febrero</option>
+        <option value="3">03 — Marzo</option>
+        <option value="4">04 — Abril</option>
+        <option value="5">05 — Mayo</option>
+        <option value="6">06 — Junio</option>
+        <option value="7">07 — Julio</option>
+        <option value="8">08 — Agosto</option>
+        <option value="9">09 — Septiembre</option>
+        <option value="10">10 — Octubre</option>
+        <option value="11">11 — Noviembre</option>
+        <option value="12">12 — Diciembre</option>
+      </select>
     </div>
     <div class="field" style="margin:0">
       <label>Gráfica</label>
@@ -1545,10 +1601,10 @@ tr:hover td{background:#f8fafc}
         <tr style="background:#f1f5f9">
           <th style="padding:.4rem .6rem;text-align:left;color:#475569"><span data-i18n="prov.th_proveedor">Proveedor</span></th>
           <th style="padding:.4rem .6rem;text-align:left;color:#475569"><span data-i18n="prov.th_rfc">RFC</span></th>
-          <th style="padding:.4rem .6rem;text-align:right;color:#475569">Volumen (L)</th>
-          <th style="padding:.4rem .6rem;text-align:right;color:#475569">Importe</th>
-          <th style="padding:.4rem .6rem;text-align:right;color:#475569">$/Litro</th>
-          <th style="padding:.4rem .6rem;text-align:right;color:#475569">Participación</th>
+          <th style="padding:.4rem .6rem;text-align:right;color:#475569"><span data-en="Volume (L)">Volumen (L)</span></th>
+          <th style="padding:.4rem .6rem;text-align:right;color:#475569"><span data-en="Amount">Importe</span></th>
+          <th style="padding:.4rem .6rem;text-align:right;color:#475569"><span data-en="$/Liter">$/Litro</span></th>
+          <th style="padding:.4rem .6rem;text-align:right;color:#475569"><span data-en="Share">Participación</span></th>
         </tr>
       </thead>
       <tbody id="provTableBody"></tbody>
@@ -1651,10 +1707,10 @@ tr:hover td{background:#f8fafc}
         <div class="label">Total Entregas</div><div class="value" id="htEntCount" style="color:#9a3412">—</div><div class="unit">registros</div>
       </div>
       <div class="hist-total-box" style="border-color:#fde68a">
-        <div class="label">Autoconsumo 🚛</div><div class="value" id="htAutoVol" style="color:#92400e">—</div><div class="unit">Litros</div>
+        <div class="label"><span data-en="Self-consumption">Autoconsumo</span></div><div class="value" id="htAutoVol" style="color:#92400e">—</div><div class="unit">Litros</div>
       </div>
       <div class="hist-total-box" style="border-color:#fde68a">
-        <div class="label">Autoconsumo 🚛</div><div class="value" id="htAutoCount" style="color:#92400e">—</div><div class="unit">registros</div>
+        <div class="label"><span data-en="Self-consumption">Autoconsumo</span></div><div class="value" id="htAutoCount" style="color:#92400e">—</div><div class="unit">registros</div>
       </div>
       <div class="hist-total-box" style="border-color:#bbf7d0">
         <div class="label">Inv. Final (Vol.Exist.)</div><div class="value" id="htExist" style="color:#15803d">—</div><div class="unit">Litros</div>
@@ -2687,7 +2743,7 @@ async function iniciarFlujoEmpresa() {
             </div>
             <button onclick="iniciarFlujoEmpresa()"
               style="background:#0f172a;color:#fff;border:none;padding:.5rem 1.2rem;border-radius:8px;cursor:pointer;font-size:.83rem">
-              ${window._lang==='en' ? '🔄 Retry' : '🔄 Reintentar'}
+              ${window._lang==='en' ? 'Retry' : 'Reintentar'}
             </button>
             <div style="margin-top:.8rem;font-size:.75rem;color:#94a3b8">
               ${window._lang==='en'
@@ -2785,7 +2841,7 @@ function mostrarSelectorEmpresas() {
           <div style="font-size:.75rem;margin-bottom:1rem">Verifica tu conexión e intenta de nuevo</div>
           <button onclick="mostrarSelectorEmpresas()"
             style="background:#0f172a;color:#fff;border:none;padding:.45rem 1.1rem;border-radius:8px;cursor:pointer;font-size:.82rem">
-            🔄 Reintentar
+            Reintentar
           </button>
         </div>`;
     }
@@ -3889,7 +3945,7 @@ function renderVentasCharts(monthly, capacidad) {
       '<td style="' + tdR + '#9a3412">'  + (m.has_report ? fmtNum(litrosCfdi, 2)      : '—') + '</td>' +
       // Autoconsumo (ámbar si hay, guión si no)
       (hasAc
-        ? '<td style="' + tdR + '#92400e;background:#fffbeb;font-weight:700">' + fmtNum(m.litros_autoconsumo, 2) + ' <span title="Autoconsumo registrado" style="font-size:.7rem">🚛</span></td>'
+        ? '<td style="' + tdR + '#92400e;background:#fffbeb;font-weight:700">' + fmtNum(m.litros_autoconsumo, 2) + ' <span title="Autoconsumo registrado" style="font-size:.7rem">AC</span></td>'
         : '<td style="' + tdR + '#94a3b8">—</td>') +
       '<td style="padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;text-align:right;' + (calcOver ? capCellStyle : 'color:#374151;') + '">' + (hasData ? fmtNum(m.inv_calc, 2) : '—') + '</td>' +
       '<td style="padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;' + (finOver ? capCellStyle : 'color:#374151;') + '">' + (m.has_report && m.inv_final !== null ? fmtNum(m.inv_final, 2) : '—') + '</td>' +
@@ -5262,7 +5318,7 @@ async function migrarAdvFacility(facId, nombre) {
     });
     const data = await res.json();
     if (data.migrated) {
-      alert(`✅ Migración exitosa.
+      alert(`Migración exitosa.
 Campos migrados: ${data.campos.join(', ')}`);
       await loadFacilities();
     } else {
@@ -5341,9 +5397,9 @@ function toggleAutoconsumoSwitch() {
     const rfcCampo   = document.getElementById('rfc')?.value?.trim()?.toUpperCase() || '';
     const rfcPerfil  = (_perfilSeleccionado?.rfc || '').trim().toUpperCase();
     const rfcEmpresa = rfcCampo || rfcPerfil;
-    rfcEl.value          = rfcEmpresa || '(configura tu RFC en Configuración)';
+    rfcEl.value          = rfcEmpresa || (window._lang === 'en' ? '(configure your RFC in Settings)' : '(configura tu RFC en Configuración)');
     rfcEl.style.color    = rfcEmpresa ? '#0f172a' : '#dc2626';
-    status.textContent   = rfcEmpresa ? `RFC: ${rfcEmpresa}` : 'Configura tu RFC en Configuración';
+    status.textContent   = rfcEmpresa ? `RFC: ${rfcEmpresa}` : (window._lang === 'en' ? 'Configure your RFC in Settings' : 'Configura tu RFC en Configuración');
     status.style.color   = rfcEmpresa ? '#16a34a' : '#dc2626';
     if (!document.getElementById('ac_fecha').value) {
       document.getElementById('ac_fecha').value = new Date().toISOString().slice(0, 10);
@@ -5354,7 +5410,7 @@ function toggleAutoconsumoSwitch() {
     btn.disabled        = true;
     rfcEl.value         = '';
     rfcEl.style.color   = '';
-    status.textContent  = 'RFC cliente: se llenará automáticamente';
+    status.textContent  = window._lang === 'en' ? 'Customer RFC: filled automatically' : 'RFC cliente: se llenará automáticamente';
     status.style.color  = '#64748b';
   }
 }
@@ -5383,8 +5439,8 @@ async function registrarAutoconsumo() {
   const resultEl= document.getElementById('autoconsumoResult');
   const loadEl  = document.getElementById('loadAutoconsumo');
 
-  if (!volumen || volumen <= 0) { resultEl.style.display=''; resultEl.style.background='#fef2f2'; resultEl.style.border='1px solid #fca5a5'; resultEl.textContent='Ingresa un volumen válido mayor a 0.'; return; }
-  if (!fecha) { resultEl.style.display=''; resultEl.style.background='#fef2f2'; resultEl.style.border='1px solid #fca5a5'; resultEl.textContent='Selecciona la fecha del movimiento.'; return; }
+  if (!volumen || volumen <= 0) { resultEl.style.display=''; resultEl.style.background='#fef2f2'; resultEl.style.border='1px solid #fca5a5'; resultEl.textContent=window._lang === 'en' ? 'Enter a valid volume greater than 0.' : 'Ingresa un volumen válido mayor a 0.'; return; }
+  if (!fecha) { resultEl.style.display=''; resultEl.style.background='#fef2f2'; resultEl.style.border='1px solid #fca5a5'; resultEl.textContent=window._lang === 'en' ? 'Select the movement date.' : 'Selecciona la fecha del movimiento.'; return; }
 
   // Inferir periodo desde la fecha
   const periodo = fecha.slice(0, 7);  // YYYY-MM
@@ -5403,7 +5459,9 @@ async function registrarAutoconsumo() {
       loadEl.style.display = 'none';
       resultEl.style.display = ''; resultEl.style.background = '#fef2f2';
       resultEl.style.border = '1px solid #fca5a5'; resultEl.style.color = '#dc2626';
-      resultEl.textContent = 'Configura el RFC del contribuyente en la pestaña Configuración antes de registrar autoconsumos.';
+      resultEl.textContent = window._lang === 'en'
+        ? 'Configure the taxpayer RFC in Settings before registering self-consumption.'
+        : 'Configura el RFC del contribuyente en la pestaña Configuración antes de registrar autoconsumos.';
       document.getElementById('btnAutoconsumo').disabled = false;
       return;
     }
@@ -5431,15 +5489,17 @@ async function registrarAutoconsumo() {
       resultEl.style.border   = '1px solid #86efac';
       resultEl.style.color    = '#15803d';
       resultEl.innerHTML = `
-        <b><i class="fa-solid fa-check-circle" style="margin-right:.3rem"></i>Registrado correctamente</b><br>
+        <b><i class="fa-solid fa-check-circle" style="margin-right:.3rem"></i>${window._lang === 'en' ? 'Registered successfully' : 'Registrado correctamente'}</b><br>
         <span style="font-family:monospace;font-size:.75rem">${data.uuid}</span><br>
         ${volumen.toLocaleString('es-MX',{minimumFractionDigits:2})} L · TipoEvento SAT: <b>4</b> · 
-        Guardado en Supabase ✅
+        ${window._lang === 'en' ? 'Saved in Supabase' : 'Guardado en Supabase'}
       `;
       // Limpiar formulario
       document.getElementById('ac_volumen').value     = '';
       document.getElementById('ac_descripcion').value = '';
-      showToast(`Autoconsumo de ${volumen.toLocaleString('es-MX',{minimumFractionDigits:2})} L registrado.`, 'success');
+      showToast(window._lang === 'en'
+        ? `Self-consumption of ${volumen.toLocaleString('es-MX',{minimumFractionDigits:2})} L registered.`
+        : `Autoconsumo de ${volumen.toLocaleString('es-MX',{minimumFractionDigits:2})} L registrado.`, 'success');
       cargarAutoconsumos();
     } else {
       resultEl.style.display  = '';
@@ -5472,7 +5532,7 @@ async function cargarAutoconsumos() {
     const data = await res.json();
     const acs  = data.autoconsumos || [];
     if (!acs.length) {
-      listEl.innerHTML = '<i>Sin autoconsumos registrados este periodo.</i>';
+      listEl.innerHTML = `<i>${window._lang === 'en' ? 'No self-consumption records for this period.' : 'Sin autoconsumos registrados este periodo.'}</i>`;
       return;
     }
     const totalVol = acs.reduce((s, a) => s + parseFloat(a.volumen_litros || 0), 0);
@@ -5480,11 +5540,11 @@ async function cargarAutoconsumos() {
       <table style="width:100%;border-collapse:collapse;font-size:.75rem">
         <thead>
           <tr style="background:#f1f5f9">
-            <th style="padding:.3rem .5rem;text-align:left;color:#475569">Fecha</th>
-            <th style="padding:.3rem .5rem;text-align:left;color:#475569">Tipo</th>
-            <th style="padding:.3rem .5rem;text-align:right;color:#475569">Volumen (L)</th>
+            <th style="padding:.3rem .5rem;text-align:left;color:#475569">${window._lang === 'en' ? 'Date' : 'Fecha'}</th>
+            <th style="padding:.3rem .5rem;text-align:left;color:#475569">${window._lang === 'en' ? 'Type' : 'Tipo'}</th>
+            <th style="padding:.3rem .5rem;text-align:right;color:#475569">${window._lang === 'en' ? 'Volume (L)' : 'Volumen (L)'}</th>
             <th style="padding:.3rem .5rem;text-align:left;color:#475569">UUID</th>
-            <th style="padding:.3rem .5rem;text-align:center;color:#475569">Eliminar</th>
+            <th style="padding:.3rem .5rem;text-align:center;color:#475569">${window._lang === 'en' ? 'Delete' : 'Eliminar'}</th>
           </tr>
         </thead>
         <tbody>
@@ -5500,25 +5560,25 @@ async function cargarAutoconsumos() {
             </tr>
           `).join('')}
           <tr style="background:#f8fafc;font-weight:700">
-            <td colspan="2" style="padding:.3rem .5rem;font-size:.76rem;color:#374151">Total descargado</td>
+            <td colspan="2" style="padding:.3rem .5rem;font-size:.76rem;color:#374151">${window._lang === 'en' ? 'Total deducted' : 'Total descargado'}</td>
             <td style="padding:.3rem .5rem;text-align:right;color:#dc2626">−${totalVol.toLocaleString('es-MX',{minimumFractionDigits:2})} L</td>
             <td colspan="2"></td>
           </tr>
         </tbody>
       </table>`;
   } catch(e) {
-    listEl.innerHTML = `<i style="color:#dc2626">Error cargando: ${e.message}</i>`;
+    listEl.innerHTML = `<i style="color:#dc2626">${window._lang === 'en' ? 'Loading error' : 'Error cargando'}: ${e.message}</i>`;
   }
 }
 
 async function eliminarAutoconsumo(id) {
-  if (!confirm('¿Eliminar este registro de autoconsumo? Esta acción no se puede deshacer.')) return;
+  if (!confirm(window._lang === 'en' ? 'Delete this self-consumption record? This action cannot be undone.' : '¿Eliminar este registro de autoconsumo? Esta acción no se puede deshacer.')) return;
   try {
     const res = await fetch(`/api/movimientos/autoconsumo/${id}`, { method: 'DELETE', headers: authHeader() });
     const data = await res.json();
-    if (data.ok) { showToast('Autoconsumo eliminado.', 'info'); cargarAutoconsumos(); }
-    else alert(data.detail || 'Error al eliminar.');
-  } catch(e) { alert('Error de conexión: ' + e.message); }
+    if (data.ok) { showToast(window._lang === 'en' ? 'Self-consumption deleted.' : 'Autoconsumo eliminado.', 'info'); cargarAutoconsumos(); }
+    else alert(data.detail || (window._lang === 'en' ? 'Delete failed.' : 'Error al eliminar.'));
+  } catch(e) { alert((window._lang === 'en' ? 'Connection error: ' : 'Error de conexión: ') + e.message); }
 }
 
 // Cargar autoconsumos al cambiar al tab de autoconsumo
@@ -5561,11 +5621,16 @@ document.getElementById('provTipoGrafica')?.addEventListener('change', function(
 document.getElementById('provEspecifico')?.addEventListener('change', () => {
   if (_provData) renderProvChart(_provData);
 });
+document.getElementById('provMes')?.addEventListener('change', () => {
+  cargarProveedores();
+});
 
 async function cargarProveedores() {
   const year  = document.getElementById('provAnio')?.value || new Date().getFullYear();
+  const month = document.getElementById('provMes')?.value || '';
   const facId = document.getElementById('provFacility')?.value || '';
   let url = `/api/analytics/proveedores?year=${year}`;
+  if (month) url += `&month=${month}`;
   if (facId) url += `&facility_id=${facId}`;
   try {
     const res = await fetch(url, { headers: authHeader() });
@@ -5707,13 +5772,14 @@ async function cargarForecast(facId='') {
       rec.style.display = '';
       const eco  = data.proveedor_mas_economico;
       const mVol = data.proveedor_mayor_volumen;
+      const stockDias = data.dias_stock_estimado;
       rec.innerHTML = `
-        <b><i class="fa-solid fa-lightbulb" style="margin-right:.4rem;color:#f59e0b"></i>Recomendaciones basadas en tu historial:</b>
+        <b><i class="fa-solid fa-lightbulb" style="margin-right:.4rem;color:#f59e0b"></i>${window.t('fore.recomendaciones') || 'Recomendaciones basadas en tu historial:'}</b>
         <ul style="margin:.6rem 0 0 1.2rem;padding:0">
-          ${eco?.nombre ? `<li><b>Proveedor más económico:</b> ${eco.nombre} — $${eco.precio_litro?.toFixed(4)}/L. Considera priorizar sus pedidos para reducir costos.</li>` : ''}
-          ${mVol?.nombre ? `<li><b>Mayor confiabilidad de suministro:</b> ${mVol.nombre} (${mVol.volumen?.toLocaleString('es-MX',{minimumFractionDigits:0})} L entregados en el período).</li>` : ''}
-          <li><b>Volumen de compra sugerido:</b> ${data.promedio_compra_mes?.toLocaleString('es-MX',{minimumFractionDigits:0})} L/mes (promedio histórico).</li>
-          ${data.dias_stock_estimado ? `<li><b>Stock estimado:</b> ~${data.dias_stock_estimado} meses de operación con el consumo actual.</li>` : ''}
+          ${eco?.nombre ? `<li><b>${window.t('fore.prov_economico') || 'Proveedor más económico:'}</b> ${eco.nombre} — $${eco.precio_litro?.toFixed(4)}/L. ${window._lang === 'en' ? 'Consider prioritizing its orders to reduce costs.' : 'Considera priorizar sus pedidos para reducir costos.'}</li>` : ''}
+          ${mVol?.nombre ? `<li><b>${window.t('fore.prov_confiable') || 'Mayor confiabilidad de suministro:'}</b> ${mVol.nombre} (${mVol.volumen?.toLocaleString('es-MX',{minimumFractionDigits:0})} L ${window._lang === 'en' ? 'delivered in the period' : 'entregados en el período'}).</li>` : ''}
+          <li><b>${window.t('fore.vol_sugerido') || 'Volumen de compra sugerido:'}</b> ${data.promedio_compra_mes?.toLocaleString('es-MX',{minimumFractionDigits:0})} L/mes (${window._lang === 'en' ? 'historical average' : 'promedio histórico'}).</li>
+          ${stockDias ? `<li><b>${window.t('fore.stock_estimado') || 'Stock estimado:'}</b> ~${stockDias} ${window.t('fore.stock_dias_suffix') || 'días de operación con el consumo actual.'}<br><span style="font-size:.78rem;color:#64748b">${window.t('fore.stock_help') || 'Es una cobertura estimada: volumen disponible o compra esperada dividido entre el consumo diario estimado.'}</span></li>` : ''}
         </ul>`;
     }
   } catch(e) { console.warn('cargarForecast:', e); }

@@ -649,9 +649,10 @@ select option{background:#fff}
     <div class="form-group">
       <label>Tipo CFDI</label>
       <select id="v-tipo-cfdi">
-        <option value="T">T — Traslado (producto propio)</option>
-        <option value="I">I — Ingreso (servicio de flete)</option>
+        <option value="I">I — Ingreso (servicio de transporte)</option>
+        <option value="T">T — Traslado (solo dueño/poseedor de mercancía)</option>
       </select>
+      <span class="hint">Para transportistas contratados normalmente corresponde Ingreso con Carta Porte.</span>
     </div>
     <div class="form-group">
       <label>Número permiso CNE <span class="req">*</span></label>
@@ -717,16 +718,17 @@ select option{background:#fff}
     <div class="form-group">
       <label>Licencia federal</label>
       <input type="text" id="ch-licencia" placeholder="M123456">
+      <span class="hint">Número de licencia federal vigente del operador.</span>
     </div>
     <div class="form-group">
-      <label>Tipo licencia</label>
+      <label>Tipo de licencia federal</label>
       <select id="ch-tipo-lic">
-        <option value="E">E - Especial (camión federal)</option>
-        <option value="A">A - Automóvil</option>
-        <option value="B">B - Autobús</option>
-        <option value="C">C - Camión unitario</option>
-        <option value="D">D - Combinado</option>
+        <option value="E">E - Carga especializada / materiales peligrosos</option>
+        <option value="B">B - Carga general federal</option>
+        <option value="C">C - Carga de dos o tres ejes</option>
+        <option value="D">D - Carga articulada</option>
       </select>
+      <span class="hint">Para hidrocarburos suele requerirse licencia federal tipo E.</span>
     </div>
     <div class="form-group">
       <label>Teléfono</label>
@@ -763,13 +765,14 @@ select option{background:#fff}
     <div class="form-group">
       <label>Configuración vehicular</label>
       <select id="ve-config">
-        <option value="C2">C2 (camión 2 ejes)</option>
-        <option value="C3">C3 (camión 3 ejes)</option>
-        <option value="T2S1">T2S1</option>
-        <option value="T2S2">T2S2</option>
-        <option value="T3S2">T3S2</option>
-        <option value="T3S3">T3S3</option>
+        <option value="C2">C2 - Camión unitario 2 ejes</option>
+        <option value="C3">C3 - Camión unitario 3 ejes</option>
+        <option value="T2S1">T2S1 - Tractocamión 2 ejes + semirremolque 1 eje</option>
+        <option value="T2S2">T2S2 - Tractocamión 2 ejes + semirremolque 2 ejes</option>
+        <option value="T3S2">T3S2 - Tractocamión 3 ejes + semirremolque 2 ejes</option>
+        <option value="T3S3">T3S3 - Tractocamión 3 ejes + semirremolque 3 ejes</option>
       </select>
+      <span class="hint">Clave SAT/SICT de configuración vehicular para Carta Porte.</span>
     </div>
     <div class="form-group">
       <label>Capacidad tanque (L)</label>
@@ -872,11 +875,12 @@ select option{background:#fff}
   </div>
   <div class="form-row cols-3">
     <div class="form-group">
-      <label>Código Postal</label>
+      <label>Código Postal <span class="req">*</span></label>
       <input type="text" id="cl-cp" placeholder="44100" maxlength="5">
+      <span class="hint">Debe coincidir con el domicilio fiscal del RFC receptor en SAT.</span>
     </div>
     <div class="form-group">
-      <label>Régimen Fiscal</label>
+      <label>Régimen Fiscal <span class="req">*</span></label>
       <select id="cl-regimen">
         <option value="601">601 - General PM</option>
         <option value="612">612 - PF Actividades</option>
@@ -885,7 +889,7 @@ select option{background:#fff}
       </select>
     </div>
     <div class="form-group">
-      <label>Uso CFDI</label>
+      <label>Uso CFDI <span class="req">*</span></label>
       <select id="cl-uso-cfdi">
         <option value="S01">S01 - Sin efectos fiscales</option>
         <option value="G01">G01 - Adquisición mercancias</option>
@@ -924,7 +928,7 @@ select option{background:#fff}
   </div>
   <div class="form-row cols-3">
     <div class="form-group"><label>Subtotal</label><input type="number" id="fs-subtotal" min="0" step="0.01" oninput="calcularTotalServicio()"></div>
-    <div class="form-group"><label>IVA</label><input type="number" id="fs-iva" min="0" step="0.01" oninput="calcularTotalServicio()"></div>
+    <div class="form-group"><label>IVA 16%</label><input type="number" id="fs-iva" min="0" step="0.01" readonly></div>
     <div class="form-group"><label>Total</label><input type="number" id="fs-total" min="0" step="0.01" readonly></div>
   </div>
   <div class="form-row">
@@ -1062,7 +1066,7 @@ const I18N_EN = {
   "Clave interna SAT/Anexo 30": "Internal SAT/Annex 30 key",
   "Volumen (litros)": "Volume (liters)",
   "Temperatura (°C)": "Temperature (°C)",
-  "Importe declarado ($)": "Declared amount ($)",
+  "Tarifa del servicio de transporte ($)": "Transport service fee ($)",
   "Descripción libre": "Free description",
   "Guardar viaje": "Save trip",
   "Timbrar Carta Porte": "Stamp Carta Porte",
@@ -1563,7 +1567,7 @@ function abrirModalViaje() {
   document.getElementById('v-duracion').value = '';
   document.getElementById('v-resumen-ruta').value = 'Selecciona una ruta para calcular llegada';
   document.getElementById('v-distancia').value = '';
-  document.getElementById('v-tipo-cfdi').value = 'T';
+  document.getElementById('v-tipo-cfdi').value = 'I';
   document.getElementById('v-permiso').value = CONFIG_DATA.NumPermiso || '';
   toggleReceptorBlock();
   renderProductosViaje();
@@ -1681,9 +1685,9 @@ function renderProductosViaje() {
           <span class="hint">Se conserva para Anexo 30 cuando aplique por medición/catálogo.</span>
         </div>
         <div class="form-group">
-          <label>Importe declarado ($)</label>
+          <label>Tarifa del servicio de transporte ($)</label>
           <input type="number" id="prod-imp-${i}" value="${p.importe||0}" step="0.01" min="0">
-          <span class="hint">Solo para CFDI tipo I (flete)</span>
+          <span class="hint">Importe del flete que se usará para facturar el servicio; no es el valor del combustible.</span>
         </div>
         <div class="form-group">
           <label>Descripción libre</label>
@@ -1892,9 +1896,12 @@ async function descargarXML(id) {
 function abrirModalFacturaServicio() {
   actualizarSelects();
   const sel = document.getElementById('fs-viajes');
+  sel.innerHTML = '<option value="">Cargando Cartas Porte timbradas...</option>';
   api('GET', '/api/tr/cartas-porte-facturables').then(d => {
     CARTAS_FACTURABLES = d?.cartas || [];
-    sel.innerHTML = CARTAS_FACTURABLES.map(c => `<option value="${c.viaje_id}">#${c.viaje_id} - ${(c.uuid_cfdi||'').substring(0,8)} - ${c.rfc_receptor||'sin RFC'}</option>`).join('');
+    sel.innerHTML = CARTAS_FACTURABLES.length
+      ? CARTAS_FACTURABLES.map(c => `<option value="${c.viaje_id}">#${c.viaje_id} - ${(c.uuid_cfdi||'').substring(0,8)} - ${c.rfc_receptor||'sin RFC'}</option>`).join('')
+      : '<option value="">No hay Cartas Porte timbradas disponibles</option>';
     if (CARTAS_FACTURABLES[0]) { sel.value = CARTAS_FACTURABLES[0].viaje_id; autoCartaServicio(); }
   });
   ['fs-rfc','fs-nombre','fs-cp','fs-subtotal','fs-iva','fs-total'].forEach(id => document.getElementById(id).value = '');
@@ -1929,7 +1936,8 @@ function autoClienteServicio() {
 
 function calcularTotalServicio() {
   const subtotal = parseFloat(document.getElementById('fs-subtotal').value || 0);
-  const iva = parseFloat(document.getElementById('fs-iva').value || 0);
+  const iva = Math.round(subtotal * 0.16 * 100) / 100;
+  document.getElementById('fs-iva').value = iva.toFixed(2);
   document.getElementById('fs-total').value = (subtotal + iva).toFixed(2);
 }
 
@@ -1956,7 +1964,12 @@ async function guardarFacturaServicio() {
     total: parseFloat(document.getElementById('fs-total').value || 0),
   };
   if (!body.viaje_ids.length) { toast('Selecciona al menos una Carta Porte timbrada', 'error'); return; }
-  if (!body.rfc_receptor || !body.nombre_receptor) { toast('Cliente receptor requerido', 'error'); return; }
+  if (!body.rfc_receptor || !body.nombre_receptor || !body.cp_receptor || !body.regimen_fiscal || !body.uso_cfdi) {
+    toast('Cliente receptor fiscal completo requerido: RFC, razón social, CP, régimen y uso CFDI.', 'error'); return;
+  }
+  if (Math.abs(body.iva - Math.round(body.subtotal * 0.16 * 100) / 100) > 0.01) {
+    toast('El IVA debe calcularse al 16%.', 'error'); return;
+  }
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Timbrando factura...';
   const r = await api('POST', '/api/tr/facturas-servicio', body);
   btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-file-invoice-dollar"></i> Timbrar factura de servicio';
@@ -2208,7 +2221,9 @@ async function guardarCliente() {
     regimen_fiscal: document.getElementById('cl-regimen').value,
     uso_cfdi:       document.getElementById('cl-uso-cfdi').value,
   };
-  if (!body.rfc || !body.nombre) { toast('RFC y nombre son requeridos', 'error'); return; }
+  if (!body.rfc || !body.nombre || !body.cp || !body.regimen_fiscal || !body.uso_cfdi) {
+    toast('RFC, nombre, código postal, régimen fiscal y uso CFDI son requeridos.', 'error'); return;
+  }
   const url = id ? `/api/tr/clientes/${id}` : '/api/tr/clientes';
   const r   = await api(id?'PUT':'POST', url, body);
   if (r?.ok) { cerrarModal('modal-cliente'); toast('Cliente guardado', 'success'); cargarCatalogos(); }
