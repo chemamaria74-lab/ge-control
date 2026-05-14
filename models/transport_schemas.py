@@ -339,8 +339,8 @@ class ViajeResponse(BaseModel):
 class TimbradoViajeRequest(BaseModel):
     """Solicitud de timbrado para un viaje registrado."""
     viaje_id:       int
-    # Opcionalmente sobreescribir datos del emisor
-    regimen_fiscal_emisor: str = "601"
+    # Opcionalmente sobreescribir datos del emisor. Si viene vacío, se usa Configuración.
+    regimen_fiscal_emisor: Optional[str] = None
     # Forzar tipo CFDI (si no, usa el del viaje)
     tipo_cfdi:      Optional[TIPOS_CFDI_TRANSPORTE] = None
 
@@ -414,6 +414,7 @@ class CancelacionViajeRequest(BaseModel):
 
 class FacturaServicioCreate(BaseModel):
     """Factura del servicio de transporte al cliente, relacionada a una o varias Cartas Porte."""
+    perfil_id:           Optional[int] = None
     cliente_id:          Optional[int] = None
     viaje_ids:           list[int]
     rfc_receptor:        str
