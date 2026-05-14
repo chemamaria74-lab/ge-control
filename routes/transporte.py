@@ -96,6 +96,8 @@ _TBL_IMPORTS   = "tr_importaciones"
 MODULO = "transporte"
 _RFC_RE = re.compile(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$", re.IGNORECASE)
 _CP_RE = re.compile(r"^\d{5}$")
+_REGIMENES_PERSONA_MORAL = {"601", "603", "610", "620", "622", "623", "624", "626"}
+_REGIMENES_PERSONA_FISICA = {"605", "606", "607", "608", "611", "612", "614", "615", "616", "621", "625", "626"}
 
 
 # ── Helpers de autenticación ──────────────────────────────────────────────────
@@ -190,6 +192,30 @@ def _validar_rfc_cp_config(data: dict) -> None:
     cp = str(data.get("CodigoPostal", "") or "").strip()
     if cp and not _CP_RE.match(cp):
         raise HTTPException(400, "CodigoPostal debe tener 5 dígitos.")
+    if data.get("RfcContribuyente") and data.get("RegimenFiscal"):
+        _validar_regimen_para_rfc(data.get("RfcContribuyente", ""), data.get("RegimenFiscal", ""), "emisor")
+
+
+def _tipo_persona_rfc(rfc: str) -> str:
+    limpio = re.sub(r"[^A-Z0-9Ñ&]", "", str(rfc or "").upper())
+    if len(limpio) == 12:
+        return "moral"
+    if len(limpio) == 13:
+        return "fisica"
+    raise HTTPException(400, f"RFC emisor inválido para SAT: {limpio or '(vacío)'}.")
+
+
+def _validar_regimen_para_rfc(rfc: str, regimen: str, contexto: str = "emisor") -> None:
+    regimen = str(regimen or "").strip()
+    tipo = _tipo_persona_rfc(rfc)
+    permitidos = _REGIMENES_PERSONA_MORAL if tipo == "moral" else _REGIMENES_PERSONA_FISICA
+    if regimen not in permitidos:
+        etiqueta = "persona moral" if tipo == "moral" else "persona física"
+        raise HTTPException(
+            400,
+            f"Régimen fiscal {contexto} {regimen or '(vacío)'} no corresponde al RFC {rfc} ({etiqueta}). "
+            f"Corrige Configuración antes de timbrar."
+        )
 
 
 def _validar_datos_cfdi_receptor(rfc: str, regimen: str, cp: str, uso_cfdi: str) -> None:
@@ -199,6 +225,7 @@ def _validar_datos_cfdi_receptor(rfc: str, regimen: str, cp: str, uso_cfdi: str)
         raise HTTPException(400, "Código postal receptor inválido para CFDI 4.0.")
     if not str(regimen or "").strip():
         raise HTTPException(400, "Régimen fiscal receptor requerido para CFDI 4.0.")
+    _validar_regimen_para_rfc(rfc, regimen, "receptor")
     if not str(uso_cfdi or "").strip():
         raise HTTPException(400, "Uso CFDI requerido para CFDI 4.0.")
 
@@ -668,10 +695,13 @@ async def timbrar_viaje(
     if not settings.get("RfcContribuyente"):
         raise HTTPException(400, "Configura el RFC del contribuyente en Ajustes del módulo Transporte.")
 
+    regimen_emisor = (payload.regimen_fiscal_emisor or settings.get("RegimenFiscal") or "").strip()
+    _validar_regimen_para_rfc(settings.get("RfcContribuyente", ""), regimen_emisor, "emisor")
+
     emisor = {
         "rfc":              settings.get("RfcContribuyente", ""),
         "nombre":           settings.get("DescripcionInstalacion", ""),
-        "regimen_fiscal":   payload.regimen_fiscal_emisor or settings.get("RegimenFiscal", "601"),
+        "regimen_fiscal":   regimen_emisor,
         "domicilio_fiscal": settings.get("CodigoPostal", "20000"),
         "num_permiso_cne":  viaje_row.get("num_permiso_cne") or settings.get("NumPermiso", ""),
     }
