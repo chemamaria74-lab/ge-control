@@ -962,6 +962,17 @@ let FACTURAS_SERVICIO = [];
 let CARTAS_FACTURABLES = [];
 let COVOL_RESULT = null;
 let EDIT_ID = null;
+let PERFIL = null;
+
+try {
+  PERFIL = JSON.parse(localStorage.getItem('zc_perfil') || 'null');
+} catch(e) {
+  PERFIL = null;
+}
+
+function perfilId() {
+  return PERFIL && PERFIL.id ? Number(PERFIL.id) : null;
+}
 
 const PRODUCTOS_COMERCIALES = [
   { key:'magna', label:'Magna', clave_producto:'PR06', clave_subproducto:'SP1', descripcion:'Gasolina regular Magna' },
@@ -1066,7 +1077,8 @@ const I18N_EN = {
   "Clave interna SAT/Anexo 30": "Internal SAT/Annex 30 key",
   "Volumen (litros)": "Volume (liters)",
   "Temperatura (°C)": "Temperature (°C)",
-  "Tarifa del servicio de transporte ($)": "Transport service fee ($)",
+  "Valor de la mercancía ($)": "Goods value ($)",
+  "Tarifa/flete del servicio ($)": "Transport service fee ($)",
   "Descripción libre": "Free description",
   "Guardar viaje": "Save trip",
   "Timbrar Carta Porte": "Stamp Carta Porte",
@@ -1146,8 +1158,16 @@ function validarCpCampo(value, nombre='Código postal') {
 // ─── AUTH headers ───────────────────────────────────────
 const H = () => ({
   'Content-Type': 'application/json',
-  'Authorization': `Bearer ${TOKEN}`
+  'Authorization': `Bearer ${TOKEN}`,
+  ...(perfilId() ? {'X-Perfil-Id': String(perfilId())} : {})
 });
+
+function withPerfil(path) {
+  const pid = perfilId();
+  if (!pid || !path.startsWith('/api/tr/')) return path;
+  const sep = path.includes('?') ? '&' : '?';
+  return `${path}${sep}perfil_id=${encodeURIComponent(pid)}`;
+}
 
 // ─── INIT ───────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
@@ -1174,6 +1194,17 @@ window.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('topbar-email').textContent = d.email || name;
     }
   } catch(e) {}
+  if (PERFIL) {
+    document.getElementById('topbar-rfc').textContent = PERFIL.rfc ? `RFC ${PERFIL.rfc}` : 'RFC —';
+    const topRight = document.querySelector('.topbar-right');
+    if (topRight && !document.getElementById('topbar-empresa')) {
+      const emp = document.createElement('span');
+      emp.className = 'badge';
+      emp.id = 'topbar-empresa';
+      emp.textContent = PERFIL.nombre || 'Empresa activa';
+      topRight.prepend(emp);
+    }
+  }
 
   // Cargar todo en paralelo
   await Promise.all([cargarConfig(), cargarCatalogos(), cargarViajes(), cargarProductosSAT(), cargarDashboardTransporte()]);
@@ -1278,8 +1309,12 @@ document.querySelectorAll('.overlay').forEach(o => {
 async function api(method, path, body) {
   try {
     const opts = { method, headers: H() };
+    const pid = perfilId();
+    if (body && typeof body === 'object' && pid && !Array.isArray(body) && !body.perfil_id) {
+      body = {...body, perfil_id: pid};
+    }
     if (body) opts.body = JSON.stringify(body);
-    const r = await fetch(API + path, opts);
+    const r = await fetch(API + withPerfil(path), opts);
     if (r.status === 401) { location.href = '/login/transporte'; return null; }
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
@@ -1651,7 +1686,7 @@ function autoCliente() {
 // ─── Productos del viaje ────────────────────────────────
 function agregarProducto() {
   const idx = PRODUCTOS_VIAJE.length;
-  PRODUCTOS_VIAJE.push({ producto_key:'magna', clave_producto:'PR06', clave_subproducto:'SP1', volumen_litros:0, temperatura_c:20, importe:0, descripcion:'Magna' });
+  PRODUCTOS_VIAJE.push({ producto_key:'magna', clave_producto:'PR06', clave_subproducto:'SP1', volumen_litros:0, temperatura_c:20, valor_mercancia:0, importe:0, descripcion:'Magna' });
   renderProductosViaje();
 }
 
@@ -1685,13 +1720,20 @@ function renderProductosViaje() {
           <span class="hint">Se conserva para Anexo 30 cuando aplique por medición/catálogo.</span>
         </div>
         <div class="form-group">
-          <label>Tarifa del servicio de transporte ($)</label>
-          <input type="number" id="prod-imp-${i}" value="${p.importe||0}" step="0.01" min="0">
-          <span class="hint">Importe del flete que se usará para facturar el servicio; no es el valor del combustible.</span>
+          <label>Valor de la mercancía ($)</label>
+          <input type="number" id="prod-valor-merc-${i}" value="${p.valor_mercancia||0}" step="0.01" min="0">
+          <span class="hint">Valor declarado del combustible para Carta Porte (ValorMercancia); no es la tarifa del flete.</span>
         </div>
         <div class="form-group">
           <label>Descripción libre</label>
           <input type="text" id="prod-desc-${i}" value="${p.descripcion||''}" placeholder="Opcional">
+        </div>
+      </div>
+      <div class="form-row cols-3" style="margin-bottom:0;margin-top:10px">
+        <div class="form-group">
+          <label>Tarifa/flete del servicio ($)</label>
+          <input type="number" id="prod-imp-${i}" value="${p.importe||0}" step="0.01" min="0">
+          <span class="hint">Solo para CFDI tipo I; la factura de servicio también puede tomar este importe.</span>
         </div>
       </div>
     </div>`).join('');
@@ -1725,6 +1767,7 @@ function leerProductos() {
     clave_subproducto: seleccionado.clave_subproducto,
     volumen_litros:    parseFloat(document.getElementById(`prod-vol-${i}`)?.value  || 0),
     temperatura_c:     parseFloat(document.getElementById(`prod-temp-${i}`)?.value || 20),
+    valor_mercancia:   parseFloat(document.getElementById(`prod-valor-merc-${i}`)?.value || 0),
     importe:           parseFloat(document.getElementById(`prod-imp-${i}`)?.value  || 0),
     descripcion:       document.getElementById(`prod-desc-${i}`)?.value || seleccionado.label,
   };
