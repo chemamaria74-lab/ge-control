@@ -45,8 +45,8 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 # ── App FastAPI ───────────────────────────────────────────────────────────────
 app = FastAPI(
-    title="Z.Control — Gas LP",
-    description="Controles Volumétricos Anexo 30 SAT — Gas LP / Transporte.",
+    title="GE CONTROL",
+    description="Plataforma inteligente de control operativo para Gas LP, Transporte y Gasolineras.",
     version="3.5.0",
 )
 
@@ -169,18 +169,18 @@ async def login_view(modulo: str):
     modulo = modulo.replace("-", "_")
 
     if modulo == "transporte":
-        color_primario    = "#3b82f6"
-        color_secundario  = "#1e40af"
+        color_primario    = "#7A1E2C"
+        color_secundario  = "#5B0F1D"
         icon_module       = "fa-truck"
         nombre_modulo     = "Transporte"
     elif modulo == "gasolineras":
-        color_primario    = "#0f5c82"
-        color_secundario  = "#075358"
+        color_primario    = "#7A1E2C"
+        color_secundario  = "#5B0F1D"
         icon_module       = "fa-gas-pump"
         nombre_modulo     = "Gasolineras"
     else:
-        color_primario    = "#10b981"
-        color_secundario  = "#047857"
+        color_primario    = "#7A1E2C"
+        color_secundario  = "#5B0F1D"
         icon_module       = "fa-fire-flame-curved"
         nombre_modulo     = "Gas LP"
 

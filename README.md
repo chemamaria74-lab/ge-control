@@ -1,46 +1,61 @@
-# Z Control
+# GE CONTROL
 
-Sistema web para cumplimiento fiscal y operativo de hidrocarburos en México.
+Sistema web para cumplimiento fiscal, operativo y comercial de hidrocarburos en México.
 
-Z Control integra controles volumétricos, generación de reportes para SAT, manejo de CFDI, Carta Porte, catálogos operativos y configuración multiempresa. El proyecto está dividido en módulos para Gas LP y Transporte de Hidrocarburos.
-
-## Módulos
+GE CONTROL integra controles volumétricos, reportes SAT/Anexo 30, CFDI 4.0, Carta Porte, facturación, análisis operativo y configuración multiempresa. El proyecto está dividido en tres módulos independientes:
 
 | Módulo | Descripción |
 |---|---|
-| Gas LP | Carga de Excel/CSV y CFDI XML/ZIP, generación de JSON/XML Anexo 30, dashboard de inventario, historial de reportes, proveedores y configuración multiempresa/multiinstalación. |
-| Transporte | Gestión de viajes de autotanques, Carta Porte 3.1, Complemento Hidrocarburos, clientes, rutas, vehículos, choferes, control volumétrico mensual y facturación del servicio de transporte. |
+| Gas LP | Control volumétrico para Gas LP: carga de Excel/CSV/XML/ZIP, reportes SAT Anexo 30, inventarios, proveedores, pronóstico, autoconsumos e instalaciones. |
+| Transporte | Viajes de autotanques, Carta Porte 3.1, CFDI de servicio de transporte, clientes, rutas, vehículos, choferes y control volumétrico de transporte. |
+| Gasolineras | Estaciones de servicio: mapa nacional, análisis comercial de precios/competencia, checklist SAT/Anexo 30 y base para CFDI/PDF por estación. |
 
-## Funcionalidad Principal
+Los datos operativos de cada módulo se mantienen separados por `user_id`, `perfil_id` y tablas/prefijos propios. Los datos fiscales compartidos de la razón social pueden reutilizarse cuando aplica.
+
+## Funcionalidad
 
 ### Gas LP
 
 - Procesamiento de recepciones y entregas desde Excel, CSV, XML o ZIP.
-- Generación de reportes SAT Anexo 30.
-- Dashboard de inventario mensual.
+- Generación de JSON/XML/ZIP para reportes SAT Anexo 30.
+- Dashboard de inventario mensual y balance anual.
 - Pronóstico de compra con selección del mejor modelo entre promedio móvil, suavizamiento exponencial y regresión lineal.
-- Análisis de proveedores desde XML de compra: subtotal, litros, precio por litro, volumen, número de compras y tendencia.
-- Historial de reportes generados.
-- Catálogo de proveedores y permisos.
-- Manejo de instalaciones y razones sociales.
+- Análisis de proveedores desde XML de compra: subtotal, litros, precio por litro, volumen, compras y tendencia.
 - Registro manual de autoconsumos, mermas y trasvases.
+- Catálogo de proveedores, permisos, instalaciones y razones sociales.
+- Preparado para integrar facturación CFDI de Gas LP en una etapa posterior.
 
 ### Transporte
 
 - Alta, edición y eliminación de viajes no timbrados.
-- Timbrado de Carta Porte para viajes programados.
-- Captura de fecha/hora de salida con autollenado de fecha actual.
-- Rutas con distancia y duración estimada.
-- Cálculo automático de hora de llegada al seleccionar ruta.
-- Selección simple de producto transportado: Magna, Premium, Diésel y Gas LP.
-- Combustibles habilitados configurables y guardados por usuario.
-- Mapeo interno a claves SAT/Anexo 30.
-- Catálogos de clientes, rutas, vehículos y choferes.
+- Timbrado de CFDI 4.0 con complemento Carta Porte 3.1 para autotransporte.
+- Tipo CFDI limitado a casos de transporte: `I - Ingreso` y `T - Traslado`.
+- Concepto CFDI de servicio de transporte con `ClaveProdServ 78101800` y `ClaveUnidad H87`.
+- Mercancías separadas en Carta Porte con volumen, unidad `LTR`, material peligroso, valor de mercancía y moneda cuando aplique.
+- Rutas con distancia y duración estimada; cálculo automático de hora de llegada.
+- Productos transportados: Magna, Premium, Diésel y Gas LP, con mapeo interno SAT/Anexo 30.
+- Factura de servicio de transporte relacionada con una o varias Cartas Porte timbradas.
+- Bloqueo de doble facturación: una Carta Porte solo puede generar una factura de servicio.
 - Dashboard, análisis y pronóstico con datos propios de Transporte.
-- Facturación del servicio al cliente con selector de Cartas Porte timbradas, autollenado fiscal del receptor y timbrado CFDI 4.0.
-- Bloqueo de doble facturación: una Carta Porte solo puede relacionarse a una factura de servicio.
-- Generación de JSON/ZIP de control volumétrico para transporte.
-- Validaciones de RFC, código postal, régimen fiscal, uso CFDI, ObjetoImp e IVA para reducir rechazos.
+- Generación de JSON/ZIP de control volumétrico de transporte.
+- Validaciones de RFC, código postal, régimen fiscal, uso CFDI, ObjetoImp, IVA y estatus de viajes.
+
+### Gasolineras
+
+- Nuevo módulo independiente para estaciones de servicio.
+- Mapa nacional de gasolineras y precios de referencia.
+- Vista estratégica de marcas, competencia, precios y oportunidades comerciales.
+- Checklist SAT/Anexo 30 para estaciones.
+- Base para guardar estaciones, CFDI y configuración propia del módulo.
+- Estrategia recomendada de PDF: generar internamente en GE CONTROL desde XML timbrado, UUID y datos fiscales; confirmar con SW Sapien si su PDF tiene costo adicional.
+
+### Branding
+
+- Nueva identidad visual: `GE CONTROL`.
+- Paleta oficial: tinto `#7A1E2C`, tinto oscuro `#5B0F1D`, dorado `#C8A96B`, negro `#111111`, gris `#2B2B2B`, blanco suave `#F5F5F5`.
+- Logos y favicons en `static/img/`: variantes claras/oscuras, isotipo, horizontal, PNG y app icon.
+- Tokens visuales globales en `static/css/ge-brand.css`.
+- Script reproducible para PNG/app icons: `scripts/generate_ge_png_assets.js`.
 
 ## Stack
 
@@ -48,6 +63,7 @@ Z Control integra controles volumétricos, generación de reportes para SAT, man
 - Base de datos y Auth: Supabase, PostgreSQL, Supabase Auth
 - Frontend: HTML, CSS y JavaScript vanilla
 - Deploy: Render
+- PAC/timbrado: SW Sapien, configurable por variables de entorno
 - Dependencias principales: `pandas`, `openpyxl`, `lxml`, `pydantic v2`, `supabase-py`, `requests`, `jinja2`
 
 ## Estructura
@@ -71,6 +87,7 @@ z-control-program/
 │   ├── perfiles.py
 │   ├── facturas.py
 │   ├── transporte.py
+│   ├── gasolineras.py
 │   └── admin.py
 ├── services/
 │   ├── sat_transformer.py
@@ -83,24 +100,48 @@ z-control-program/
 │   ├── cne_validator.py
 │   ├── sw_sapien.py
 │   ├── database.py
+│   ├── gasolineras_engine.py
 │   └── validator.py
 ├── models/
 │   ├── schemas.py
-│   └── transport_schemas.py
+│   ├── transport_schemas.py
+│   └── gasolineras_schemas.py
 ├── templates/
 │   ├── choice.html
 │   ├── login.html
 │   ├── app.html
-│   └── transporte.html
+│   ├── transporte.html
+│   └── gasolineras.html
 ├── static/
-│   └── img/
-│       ├── z_logo.png
-│       └── zlogo.png
+│   ├── css/
+│   │   └── ge-brand.css
+│   ├── img/
+│   │   ├── ge-control-logo.svg
+│   │   ├── ge-control-logo-light.svg
+│   │   ├── ge-control-logo.png
+│   │   ├── ge-control-logo-light.png
+│   │   ├── ge-control-horizontal.svg
+│   │   ├── ge-isotype.svg
+│   │   ├── ge-isotype-light.svg
+│   │   ├── ge-isotype.png
+│   │   ├── ge-isotype-light.png
+│   │   ├── ge-icon-192.png
+│   │   ├── ge-icon-512.png
+│   │   ├── apple-touch-icon.png
+│   │   └── favicon.svg
+│   └── gasolineras/
+│       ├── mapa_gasolineras.html
+│       └── vision_completa_v2.html
 ├── migrations/
 │   ├── transporte_urgentes_20260513.sql
-│   └── zcontrol_multimodulo_facturacion_20260513.sql
+│   ├── zcontrol_multimodulo_facturacion_20260513.sql
+│   ├── transporte_multiempresa_20260513.sql
+│   └── gasolineras_modulo_20260514.sql
 ├── docs/
-│   └── investigacion_cfdi_transporte_sw_sapien_20260513.md
+│   ├── investigacion_cfdi_transporte_sw_sapien_20260513.md
+│   └── configuracion_sw_sapien_pruebas.md
+├── scripts/
+│   └── generate_ge_png_assets.js
 ├── tests/
 └── utils/
 ```
@@ -117,69 +158,113 @@ SW_USER=tu_usuario_sw
 SW_PASSWORD=tu_password_sw
 ```
 
-Para timbrado con PAC/SW Sapien, configurar también las variables que correspondan en `services/sw_sapien.py` o en el entorno de Render según la integración activa.
+`SW_ENV=test` usa ambiente de pruebas. Para producción real usar `SW_ENV=prod` solo cuando el PAC y los certificados estén listos.
 
-No subas `.env` al repositorio.
-Tampoco subas CSD, llaves privadas, PFX/P12, ZIP de certificados ni contraseñas.
+No subir al repositorio:
+
+- `.env`
+- `.cer`
+- `.key`
+- `.pfx`
+- `.p12`
+- `.sdg`
+- ZIPs de certificados
+- contraseñas
+- credenciales SW/SAT/Supabase
+
+## SW Sapien y PDF
+
+GE CONTROL está preparado para integrarse con SW Sapien mediante API REST.
+
+Casos contemplados:
+
+- CFDI 4.0
+- Carta Porte 3.1
+- Factura de servicio de transporte
+- Cancelación
+- Integración futura de facturación para Gas LP y Gasolineras
+
+Estrategia recomendada para PDF:
+
+- Timbrar con SW Sapien y guardar XML/UUID.
+- Generar internamente la representación impresa PDF desde GE CONTROL.
+- Confirmar con SW Sapien si su generación/regeneración de PDF tiene costo adicional antes de contratar ese servicio.
 
 ## Base de Datos
-
-El proyecto usa Supabase con tablas para Gas LP y tablas separadas para Transporte.
 
 ### Tablas generales
 
 | Tabla | Uso |
 |---|---|
-| `records` | Movimientos de Gas LP |
-| `reports` | Reportes generados |
+| `records` | Movimientos Gas LP |
+| `reports` | Reportes Gas LP generados |
 | `user_facilities` | Instalaciones y plantas |
 | `providers` | Proveedores y permisos |
 | `perfiles_empresa` | Razones sociales |
-| `zc_settings` | Configuración por perfil |
+| `zc_settings` | Configuración fiscal por perfil |
 | `user_sections` | Acceso por módulo |
 
 ### Tablas de Transporte
 
 | Tabla | Uso |
 |---|---|
-| `tr_choferes` | Catálogo de operadores |
-| `tr_vehiculos` | Vehículos y autotanques |
-| `tr_rutas` | Rutas con origen, destino, distancia y duración |
+| `tr_choferes` | Operadores |
+| `tr_vehiculos` | Vehículos/autotanques |
+| `tr_rutas` | Rutas |
 | `tr_clientes` | Clientes/receptores |
-| `tr_viajes` | Viajes de transporte |
+| `tr_viajes` | Viajes |
 | `tr_cfdi` | Cartas Porte/CFDI timbrados |
-| `tr_covol_reports` | Reportes de control volumétrico transporte |
-| `tr_settings` | Configuración del módulo transporte |
-| `tr_facturas_servicio` | Facturas del servicio de transporte |
-| `tr_facturas_servicio_cartas` | Relación única entre factura de servicio y Carta Porte para evitar doble facturación |
+| `tr_covol_reports` | Control volumétrico transporte |
+| `tr_settings` | Configuración Transporte |
+| `tr_facturas_servicio` | Facturas de servicio de transporte |
+| `tr_facturas_servicio_cartas` | Relación única factura-Carta Porte |
+
+### Tablas de Gasolineras
+
+| Tabla | Uso |
+|---|---|
+| `gaso_settings` | Configuración propia del módulo Gasolineras |
+| `gaso_estaciones` | Estaciones de servicio por usuario/perfil |
+| `gaso_cfdi` | CFDI/XML/PDF asociados a estaciones |
 
 ## Migraciones
 
-Las migraciones SQL se guardan en la carpeta `migrations`.
-
-Archivo actual importante:
+Ejecutar en Supabase SQL Editor:
 
 ```text
 migrations/transporte_urgentes_20260513.sql
 migrations/zcontrol_multimodulo_facturacion_20260513.sql
+migrations/transporte_multiempresa_20260513.sql
+migrations/gasolineras_modulo_20260514.sql
 ```
 
-Esta migración agrega:
+Resumen:
 
-- Duración estimada en rutas.
-- Duración estimada en viajes.
-- Estatus `borrador` y `error` para viajes.
-- Tabla `tr_facturas_servicio`.
-- Políticas RLS para facturas de servicio.
+- `transporte_urgentes_20260513.sql`: duración de rutas/viajes, estatus editables y facturas de servicio.
+- `zcontrol_multimodulo_facturacion_20260513.sql`: régimen fiscal receptor, UUID/XML/PDF en facturas, relación única para evitar doble facturación.
+- `transporte_multiempresa_20260513.sql`: `perfil_id` e índices en tablas de Transporte para multiempresa.
+- `gasolineras_modulo_20260514.sql`: tablas base de Gasolineras y soporte de sección `gasolineras`.
 
-La segunda migración agrega:
+Para habilitar el módulo Gasolineras a un usuario:
 
-- Régimen fiscal receptor en viajes de Transporte.
-- UUID/XML/PDF en facturas de servicio.
-- Tabla `tr_facturas_servicio_cartas` con llave única por usuario y viaje.
-- Índice único en `user_sections(user_id, section)` para habilitar Gas LP y Transporte al mismo usuario.
+```sql
+insert into user_sections (user_id, section)
+values ('UUID_DEL_USUARIO', 'gasolineras')
+on conflict do nothing;
+```
 
-Si ya ejecutaste la migración en Supabase, de todos modos conviene mantener el archivo en GitHub como historial técnico del proyecto.
+También pueden coexistir:
+
+```sql
+insert into user_sections (user_id, section)
+values
+  ('UUID_DEL_USUARIO', 'gas_lp'),
+  ('UUID_DEL_USUARIO', 'transporte'),
+  ('UUID_DEL_USUARIO', 'gasolineras')
+on conflict do nothing;
+```
+
+Si una migración ya fue ejecutada, conservar el archivo en GitHub como historial técnico.
 
 ## Correr en Local
 
@@ -188,11 +273,14 @@ pip install uv
 uv sync
 ```
 
-Crear `.env` con credenciales de Supabase:
+Crear `.env` local:
 
 ```env
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_KEY=your-service-role-key
+SW_ENV=test
+SW_USER=tu_usuario_sw
+SW_PASSWORD=tu_password_sw
 ```
 
 Arrancar:
@@ -207,15 +295,23 @@ Abrir:
 http://localhost:8000
 ```
 
+Rutas principales:
+
+```text
+/choice
+/app
+/transporte
+/gasolineras
+```
+
 ## Deploy en Render
 
 1. Subir cambios a GitHub.
 2. Conectar el repo en Render.
 3. Configurar variables de entorno.
 4. Ejecutar migraciones pendientes en Supabase.
-5. Hacer deploy.
-
-El archivo `render.yaml` contiene la configuración base del servicio.
+5. Asignar módulos en `user_sections`.
+6. Hacer deploy.
 
 Health check:
 
@@ -223,7 +319,9 @@ Health check:
 /health
 ```
 
-## Flujo Recomendado para Transporte
+## Flujos Recomendados
+
+### Transporte
 
 1. Configurar datos fiscales del contribuyente.
 2. Registrar vehículos/autotanques.
@@ -231,34 +329,46 @@ Health check:
 4. Registrar clientes.
 5. Crear rutas con duración estimada.
 6. Crear viaje.
-7. Revisar fecha/hora de salida y llegada calculada.
-8. Seleccionar producto transportado.
-9. Timbrar Carta Porte.
-10. Emitir factura del servicio desde el selector de Cartas Porte timbradas disponibles.
-11. Generar JSON/ZIP de control volumétrico mensual.
+7. Capturar producto, volumen, valor de mercancía y tarifa/flete.
+8. Timbrar Carta Porte.
+9. Emitir factura del servicio desde Cartas Porte timbradas disponibles.
+10. Generar JSON/ZIP de control volumétrico mensual.
+
+### Gas LP
+
+1. Seleccionar razón social e instalación.
+2. Configurar datos fiscales y permisos.
+3. Cargar XML/ZIP o Excel/CSV.
+4. Revisar recepciones, entregas e inventarios.
+5. Registrar autoconsumos/mermas/trasvases si aplica.
+6. Generar reporte SAT Anexo 30.
+7. Revisar proveedores y pronóstico.
+
+### Gasolineras
+
+1. Habilitar módulo `gasolineras` al usuario.
+2. Entrar desde `/choice`.
+3. Revisar mapa nacional y visión comercial.
+4. Registrar estaciones y configuración en tablas `gaso_*` cuando se conecte captura operativa.
+5. Usar PDF interno para representaciones impresas de CFDI timbrados.
 
 ## Investigación SAT/SW
 
-La investigación obligatoria de CFDI 4.0, Carta Porte y SW Sapien queda guardada en:
+Documentos internos:
 
 ```text
 docs/investigacion_cfdi_transporte_sw_sapien_20260513.md
 docs/configuracion_sw_sapien_pruebas.md
 ```
 
-Hallazgo clave: SW Sapien documenta Emisión Timbrado JSON en `POST /v3/cfdi33/issue/json/v4`, con `Content-Type: application/jsontoxml` y el JSON del comprobante directo. ZControl ya no envía el CFDI JSON como base64 al endpoint anterior.
+Hallazgos técnicos:
 
-## Validaciones y Cumplimiento
-
-El sistema incluye validaciones básicas para:
-
-- Formato de RFC.
-- Código postal de 5 dígitos.
-- Producto transportado y claves internas SAT/Anexo 30.
-- Viajes editables solo antes de timbrar.
-- Facturación de servicio solo con Cartas Porte timbradas.
-
-La validación final de CFDI, Carta Porte, PAC y reglas SAT depende del timbrado y de los catálogos oficiales vigentes.
+- Para transportistas, el concepto del CFDI debe representar el servicio de transporte, no el combustible transportado.
+- La mercancía se declara dentro del complemento Carta Porte.
+- `ValorMercancia` corresponde al valor declarado de los bienes transportados, no a la tarifa del flete.
+- Para tipo `I`, el servicio de transporte normalmente causa IVA 16%.
+- Para tipo `T`, el comprobante debe manejar subtotal/total cero y moneda `XXX`.
+- La validación final depende de SAT/PAC y catálogos vigentes.
 
 ## Pruebas
 
@@ -266,6 +376,12 @@ Ejecutar:
 
 ```bash
 uv run --with pytest pytest
+```
+
+También se recomienda validar sintaxis antes de subir:
+
+```bash
+python -m py_compile main.py routes/*.py services/*.py models/*.py
 ```
 
 Nota: algunas pruebas heredadas pueden requerir ajustes si el módulo correspondiente cambió de API interna.
