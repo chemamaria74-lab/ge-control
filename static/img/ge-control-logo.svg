@@ -1,0 +1,15 @@
+<svg width="1800" height="500" viewBox="0 0 1800 500" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">GE CONTROL horizontal logo</title>
+  <desc id="desc">GE isotype plus CONTROL wordmark for light backgrounds.</desc>
+  <g transform="translate(44 78) scale(.54)">
+    <g fill="#7A1E2C">
+      <path d="M300 90H582L602 185H308C199 185 124 253 124 338C124 428 201 490 314 490H560V382H314L257 286H672V590H313C130 590 28 480 28 338C28 197 139 90 300 90Z"/>
+      <path d="M692 286H914V382H692V286Z"/>
+      <path d="M692 490H938L914 590H692V490Z"/>
+    </g>
+    <path d="M660 90H946L918 185H688L660 90Z" fill="#C8A96B"/>
+  </g>
+  <path d="M600 70V330" stroke="#C8A96B" stroke-width="4"/>
+  <text x="700" y="214" fill="#111111" font-family="Inter, Montserrat, Arial, sans-serif" font-size="86" font-weight="300" letter-spacing="32">CONTROL</text>
+  <text x="705" y="292" fill="#2B2B2B" font-family="Inter, Montserrat, Arial, sans-serif" font-size="29" font-weight="500" letter-spacing="4.5">PLATAFORMA INTELIGENTE DE CONTROL OPERATIVO</text>
+</svg>

@@ -1,0 +1,10 @@
+<svg width="1024" height="640" viewBox="0 0 1024 640" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">GE CONTROL isotype light</title>
+  <desc id="desc">GE monogram in white and gold on transparent background.</desc>
+  <g fill="#F5F5F5">
+    <path d="M300 90H582L602 185H308C199 185 124 253 124 338C124 428 201 490 314 490H560V382H314L257 286H672V590H313C130 590 28 480 28 338C28 197 139 90 300 90Z"/>
+    <path d="M692 286H914V382H692V286Z"/>
+    <path d="M692 490H938L914 590H692V490Z"/>
+  </g>
+  <path d="M660 90H946L918 185H688L660 90Z" fill="#C8A96B"/>
+</svg>

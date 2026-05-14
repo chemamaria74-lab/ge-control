@@ -1,0 +1,14 @@
+<svg width="1200" height="250" viewBox="0 0 1200 250" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">GE CONTROL compact horizontal logo</title>
+  <desc id="desc">Compact GE CONTROL logo for navigation bars.</desc>
+  <g transform="translate(24 31) scale(.31)">
+    <g fill="#F5F5F5">
+      <path d="M300 90H582L602 185H308C199 185 124 253 124 338C124 428 201 490 314 490H560V382H314L257 286H672V590H313C130 590 28 480 28 338C28 197 139 90 300 90Z"/>
+      <path d="M692 286H914V382H692V286Z"/>
+      <path d="M692 490H938L914 590H692V490Z"/>
+    </g>
+    <path d="M660 90H946L918 185H688L660 90Z" fill="#C8A96B"/>
+  </g>
+  <path d="M350 38V205" stroke="#C8A96B" stroke-width="3"/>
+  <text x="405" y="151" fill="#F5F5F5" font-family="Inter, Montserrat, Arial, sans-serif" font-size="66" font-weight="300" letter-spacing="24">CONTROL</text>
+</svg>
