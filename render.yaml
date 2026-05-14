@@ -9,7 +9,7 @@ services:
     runtime: python
     plan: free
     region: oregon
-    buildCommand: pip install uv && uv sync --frozen --no-dev
+    buildCommand: pip install uv && uv sync --no-dev
     startCommand: gunicorn main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     healthCheckPath: /health
     autoDeploy: true
