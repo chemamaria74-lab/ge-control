@@ -60,6 +60,7 @@ from services.service_invoice_builder import build_cfdi_servicio_transporte, IVA
 from services.transport_transformer import (
     build_transport_covol, save_transport_covol, transport_covol_to_json
 )
+from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml, xml_tiene_carta_porte
 from models.transport_schemas import (
     ViajeCreate, TimbradoViajeRequest, CancelacionViajeRequest,
     FacturaServicioCreate,
@@ -329,6 +330,61 @@ def _build_document_path(uid: str, perfil_id: Optional[int], viaje_id: int, tipo
     perfil = str(perfil_id or "default")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     return f"{uid}/{perfil}/viajes/{viaje_id}/{tipo}/{stamp}_{clean_name}"
+
+
+def _build_cfdi_document_path(uid: str, perfil_id: Optional[int], viaje_id: int, tipo: str, filename: str) -> str:
+    clean_name = re.sub(r"[^A-Za-z0-9._-]+", "_", filename or "documento")
+    perfil = str(perfil_id or "default")
+    return f"{uid}/{perfil}/viajes/{viaje_id}/{tipo}/{clean_name}"
+
+
+def _guardar_cfdi_pdf_en_expediente(sb, uid: str, cfdi_row: dict, pdf_bytes: bytes, filename: str, metadata: dict) -> None:
+    """Guarda el PDF generado en Storage/documentos sin bloquear la descarga si Storage falla."""
+    viaje_id = cfdi_row.get("viaje_id")
+    if not viaje_id:
+        return
+    perfil_id = cfdi_row.get("perfil_id")
+    bucket = "transport-documents"
+    path = _build_cfdi_document_path(uid, perfil_id, int(viaje_id), "carta_porte_pdf", filename)
+    try:
+        sb.storage.from_(bucket).upload(path, pdf_bytes, {"content-type": "application/pdf", "upsert": "true"})
+    except Exception as e:
+        logger.info("PDF Carta Porte generado pero no guardado en Storage (%s): %s", viaje_id, e)
+        return
+    try:
+        existentes = (
+            sb.table(_TBL_DOCS)
+            .select("id")
+            .eq("user_id", uid)
+            .eq("viaje_id", viaje_id)
+            .eq("storage_path", path)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not existentes:
+            sb.table(_TBL_DOCS).insert({
+                "user_id": uid,
+                "perfil_id": perfil_id,
+                "viaje_id": viaje_id,
+                "tipo": "carta_porte_pdf",
+                "nombre": filename,
+                "storage_bucket": bucket,
+                "storage_path": path,
+                "mime_type": "application/pdf",
+                "size_bytes": len(pdf_bytes),
+                "uuid_sat": str(cfdi_row.get("uuid_sat") or ""),
+                "metadata": metadata,
+                "created_by": uid,
+            }).execute()
+            _registrar_evento(
+                sb, uid, perfil_id, int(viaje_id), "documento_generado",
+                "PDF Carta Porte generado", filename, "system", "ge_control",
+                {"tipo": "carta_porte_pdf", "storage_path": path, **metadata},
+            )
+    except Exception as e:
+        logger.info("PDF Carta Porte guardado en Storage pero no registrado en documentos (%s): %s", viaje_id, e)
 
 
 def _hash_operator_token(token: str) -> str:
@@ -794,6 +850,7 @@ async def timbrar_viaje(
     xml_timbrado = result_data.get("cfdi", "")
     pdf_url      = result_data.get("pdfUrl", "")
     now_iso      = datetime.now(timezone.utc).isoformat()
+    contiene_carta_porte = xml_tiene_carta_porte(xml_timbrado) if xml_timbrado else False
 
     # Guardar CFDI en tr_cfdi
     cfdi_row = {
@@ -828,6 +885,13 @@ async def timbrar_viaje(
             f"UUID SAT {uuid_sat}" if uuid_sat else "CFDI con complemento Carta Porte timbrado.",
             "system", "sw_sapien", {"uuid_sat": uuid_sat, "id_ccp": id_ccp},
         )
+        if not contiene_carta_porte:
+            _registrar_evento(
+                sb, uid, viaje_row.get("perfil_id"), viaje_id, "validacion_carta_porte",
+                "XML timbrado sin complemento Carta Porte",
+                "SW Sapien devolvió un CFDI timbrado, pero el XML no contiene el nodo CartaPorte31. Revisar payload antes de producción.",
+                "system", "ge_control", {"uuid_sat": uuid_sat, "id_ccp_generado": id_ccp},
+            )
     except Exception as e:
         logger.error("Error al guardar CFDI timbrado en BD: %s", e)
         # El CFDI ya fue timbrado — retornar el UUID aunque falle la BD
@@ -851,6 +915,7 @@ async def timbrar_viaje(
         "pdf_url":        pdf_url,
         "status":         "Vigente",
         "fecha_timbrado": now_iso,
+        "advertencia": None if contiene_carta_porte else "El XML timbrado no contiene complemento Carta Porte 3.1.",
     })
 
 
@@ -1308,6 +1373,49 @@ async def operador_accion(viaje_id: int, payload: dict, token: str = Query(...))
     return JSONResponse({"ok": True, "operacion_status": status})
 
 
+@router.get("/tr/operador/viajes/{viaje_id}/pdf")
+async def operador_pdf_carta_porte(viaje_id: int, token: str = Query(...), download: bool = Query(False)):
+    """PDF imprimible de Carta Porte para el operador asignado."""
+    sb, acc = _operador_context(token)
+    viaje_rows = (
+        sb.table(_TBL_VIAJES)
+        .select("id,user_id,perfil_id,chofer_id")
+        .eq("id", viaje_id)
+        .eq("user_id", acc["user_id"])
+        .eq("chofer_id", acc["chofer_id"])
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not viaje_rows:
+        raise HTTPException(404, "Viaje no encontrado para este operador.")
+    cfdi_rows = (
+        sb.table(_TBL_CFDI)
+        .select("id,user_id,perfil_id,viaje_id,uuid_sat,id_ccp,xml_content,pdf_url")
+        .eq("user_id", acc["user_id"])
+        .eq("viaje_id", viaje_id)
+        .order("fecha_timbrado", desc=True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not cfdi_rows:
+        raise HTTPException(404, "Este viaje todavía no tiene Carta Porte timbrada.")
+    row = cfdi_rows[0]
+    if not row.get("xml_content"):
+        raise HTTPException(404, "La Carta Porte no tiene XML guardado.")
+    info = extraer_info_pdf(row["xml_content"])
+    pdf_bytes = generar_pdf_carta_porte_desde_xml(row["xml_content"])
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'},
+    )
+
+
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
     perfil_id: Optional[int] = Query(None),
@@ -1717,6 +1825,66 @@ async def descargar_xml_transporte(cfdi_id: int, authorization: str = Header(def
         raise
     except Exception as e:
         raise HTTPException(500, f"Error al obtener XML: {e}")
+
+
+@router.get("/tr/facturas/{cfdi_id}/pdf")
+async def ver_pdf_carta_porte_transporte(
+    cfdi_id: int,
+    download: bool = Query(False),
+    authorization: str = Header(default=""),
+):
+    """
+    Genera y entrega la representación impresa del CFDI/Carta Porte desde el XML timbrado.
+    No depende de que SW Sapien regrese pdfUrl.
+    """
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    try:
+        res = (
+            sb.table(_TBL_CFDI)
+            .select("id,user_id,perfil_id,viaje_id,uuid_sat,id_ccp,xml_content,pdf_url")
+            .eq("id", cfdi_id)
+            .eq("user_id", uid)
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(404, "CFDI no encontrado.")
+        row = rows[0]
+        xml_content = row.get("xml_content") or ""
+        if not xml_content:
+            raise HTTPException(404, "Este CFDI no tiene XML timbrado guardado.")
+
+        info = extraer_info_pdf(xml_content)
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content)
+        _guardar_cfdi_pdf_en_expediente(
+            sb,
+            uid,
+            row,
+            pdf_bytes,
+            info.filename,
+            {
+                "cfdi_id": cfdi_id,
+                "uuid_sat": info.uuid,
+                "id_ccp": info.id_ccp,
+                "has_carta_porte": info.has_carta_porte,
+                "source": "xml_timbrado",
+            },
+        )
+        disposition = "attachment" if download else "inline"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'},
+        )
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+    except Exception as e:
+        logger.exception("Error generando PDF Carta Porte cfdi=%s", cfdi_id)
+        raise HTTPException(500, f"Error al generar PDF Carta Porte: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
