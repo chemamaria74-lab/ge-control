@@ -183,7 +183,8 @@ class ProductoTransporte(BaseModel):
     volumen_litros:    float         # Volumen transportado en litros
     temperatura_c:     float = 20.0  # Temperatura de medición (°C)
     presion_kpa:       float = 101.325
-    importe:           float = 0.0   # Para CFDI tipo I (flete con valor declarado)
+    valor_mercancia:   float = 0.0   # Valor declarado de los bienes en Carta Porte
+    importe:           float = 0.0   # Tarifa/flete del servicio para CFDI tipo I
     descripcion:       str   = ""    # Descripción libre para el concepto CFDI
 
     @field_validator("clave_producto")
