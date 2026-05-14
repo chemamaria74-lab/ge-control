@@ -41,7 +41,7 @@
     .lang-btn:hover { background: rgba(255,255,255,.14); color: #fff; border-color: rgba(255,255,255,.4); }
     .lang-btn.active { background: rgba(255,255,255,.18); color: #fff; border-color: rgba(255,255,255,.55); }
     .wrapper { text-align: center; }
-    .choice-container { display: flex; gap: 2rem; padding: 2rem; max-width: 900px; width: 100%; }
+    .choice-container { display: flex; gap: 1.4rem; padding: 2rem; max-width: 1120px; width: 100%; }
     .choice-card {
       flex: 1; background: rgba(255,255,255,0.05); border-radius: 24px;
       padding: 3rem 2rem; text-align: center; cursor: pointer;
@@ -53,14 +53,18 @@
     .choice-card.transporte:hover { box-shadow: 0 20px 40px rgba(59,130,246,0.3); }
     .choice-card.gas-lp { border-color: #10b981; background: linear-gradient(145deg, rgba(16,185,129,0.15) 0%, rgba(16,185,129,0.05) 100%); }
     .choice-card.gas-lp:hover { box-shadow: 0 20px 40px rgba(16,185,129,0.3); }
+    .choice-card.gasolineras { border-color: #0f5c82; background: linear-gradient(145deg, rgba(15,92,130,0.18) 0%, rgba(15,92,130,0.06) 100%); }
+    .choice-card.gasolineras:hover { box-shadow: 0 20px 40px rgba(15,92,130,0.3); }
     .choice-icon { font-size: 4rem; margin-bottom: 1.5rem; }
     .choice-card.transporte .choice-icon { color: #60a5fa; }
     .choice-card.gas-lp .choice-icon { color: #34d399; }
+    .choice-card.gasolineras .choice-icon { color: #38bdf8; }
     .choice-title { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem; }
     .choice-desc { font-size: 0.9rem; color: #94a3b8; line-height: 1.5; }
     .choice-badge { display: inline-block; padding: .4rem 1rem; border-radius: 20px; font-size: .75rem; font-weight: 600; margin-top: 1rem; }
     .choice-card.transporte .choice-badge { background: #3b82f6; color: #fff; }
     .choice-card.gas-lp .choice-badge { background: #10b981; color: #fff; }
+    .choice-card.gasolineras .choice-badge { background: #0f5c82; color: #fff; }
     .brand-logo { margin-bottom: 2rem; }
     .brand-logo img { width: 200px; }
     @media (max-width: 640px) {
@@ -97,6 +101,12 @@
         <div class="choice-desc" id="descGasLp">Controles Volumétricos<br>Cumplimiento Anexo 30</div>
         <span class="choice-badge"><i class="fa-solid fa-fire-flame-curved"></i> <span id="badgeGasLp">Módulo Gas LP</span></span>
       </a>
+      <a id="cardGasolineras" class="choice-card gasolineras">
+        <i class="fa-solid fa-gas-pump choice-icon"></i>
+        <div class="choice-title" id="titleGasolineras">Gasolineras</div>
+        <div class="choice-desc" id="descGasolineras">Estaciones de servicio<br>Precios, competencia y CFDI</div>
+        <span class="choice-badge"><i class="fa-solid fa-map-location-dot"></i> <span id="badgeGasolineras">Módulo Gasolineras</span></span>
+      </a>
     </div>
   </div>
 
@@ -110,8 +120,12 @@
         titleGasLp:      'Gas LP',
         descGasLp:       'Controles Volumétricos<br>Cumplimiento Anexo 30',
         badgeGasLp:      'Módulo Gas LP',
+        titleGasolineras:'Gasolineras',
+        descGasolineras: 'Estaciones de servicio<br>Precios, competencia y CFDI',
+        badgeGasolineras:'Módulo Gasolineras',
         hrefTransporte:  '/login/transporte',
         hrefGasLp:       '/login/gas-lp',
+        hrefGasolineras: '/login/gasolineras',
       },
       en: {
         title:           'Z Control - Select Module',
@@ -121,8 +135,12 @@
         titleGasLp:      'LPG',
         descGasLp:       'Volumetric Controls<br>Regulatory Compliance',
         badgeGasLp:      'LPG Module',
+        titleGasolineras:'Gas Stations',
+        descGasolineras: 'Service stations<br>Prices, competition & CFDI',
+        badgeGasolineras:'Gas Stations Module',
         hrefTransporte:  '/login/transporte?lang=en',
         hrefGasLp:       '/login/gas-lp?lang=en',
+        hrefGasolineras: '/login/gasolineras?lang=en',
       },
     };
 
@@ -140,6 +158,10 @@
       document.getElementById('descGasLp').innerHTML          = t.descGasLp;
       document.getElementById('badgeGasLp').textContent       = t.badgeGasLp;
       document.getElementById('cardGasLp').href               = t.hrefGasLp;
+      document.getElementById('titleGasolineras').textContent  = t.titleGasolineras;
+      document.getElementById('descGasolineras').innerHTML     = t.descGasolineras;
+      document.getElementById('badgeGasolineras').textContent  = t.badgeGasolineras;
+      document.getElementById('cardGasolineras').href          = t.hrefGasolineras;
       document.getElementById('btnEs').classList.toggle('active', lang === 'es');
       document.getElementById('btnEn').classList.toggle('active', lang === 'en');
     }
