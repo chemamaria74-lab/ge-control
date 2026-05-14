@@ -156,6 +156,8 @@ select option{background:#fff}
 .detail-box b{display:block;font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
 .detail-box span,.detail-box div{font-size:13px;color:var(--text2);word-break:break-word}
 .xml-preview{background:#111;color:#f5f5f5;border-radius:var(--radius-sm);padding:12px;font-size:11px;line-height:1.45;max-height:260px;overflow:auto;white-space:pre-wrap}
+.doc-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.doc-actions .btn{padding:4px 10px;font-size:11px}
 
 /* ── PRODUCT ITEMS ── */
 .product-item{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;margin-bottom:10px;position:relative}
@@ -2232,10 +2234,14 @@ function renderFacturas() {
       <td style="text-align:right">$${Number(f.importe_total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
       <td style="white-space:nowrap">${f.fecha_timbrado?.substring(0,10)||'—'}</td>
       <td>${f.status==='Vigente' ? '<span class="chip chip-green">Vigente</span>' : '<span class="chip chip-red">Cancelada</span>'}</td>
-      <td style="white-space:nowrap">
+      <td>
+        <div class="doc-actions">
         ${actionBtn('ghost','Ver detalle fiscal',`verDetalleCFDI(${f.id})`, `${icon('eye')} Detalle`)}
+        ${actionBtn('ghost','Ver XML',`verXML(${f.id})`, `${icon('code')} Ver XML`)}
         ${actionBtn('ghost','Descargar XML',`descargarXML(${f.id})`, `${icon('download')} XML`)}
-        ${f.pdf_url ? `<a href="${f.pdf_url}" target="_blank" class="btn btn-ghost" style="padding:4px 10px;font-size:11px">${icon('file-pdf')} PDF</a>` : `<button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;opacity:.55" title="SW no devolvió PDF para este timbrado" disabled>${icon('file-pdf')} PDF</button>`}
+        ${actionBtn('ghost','Ver Carta Porte PDF',`verPDFCartaPorte(${f.id})`, `${icon('file-pdf')} Ver PDF`)}
+        ${actionBtn('ghost','Descargar Carta Porte PDF',`descargarPDFCartaPorte(${f.id})`, `${icon('download')} PDF`)}
+        </div>
       </td>
     </tr>`).join('');
 }
@@ -2269,6 +2275,47 @@ async function descargarXML(id) {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a'); a.href = url; a.download = `cfdi_tr_${id}.xml`;
   a.click(); URL.revokeObjectURL(url);
+}
+
+async function verXML(id) {
+  const r = await fetch(`${API}/api/tr/facturas/${id}/xml`, { headers: H() });
+  if (!r.ok) { toast('No se pudo abrir el XML', 'error'); return; }
+  const blob = await r.blob();
+  const url  = URL.createObjectURL(new Blob([blob], { type:'application/xml' }));
+  window.open(url, '_blank', 'noopener');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function obtenerPDFCartaPorte(id, download=false) {
+  const r = await fetch(`${API}/api/tr/facturas/${id}/pdf${download ? '?download=true' : ''}`, { headers: H() });
+  if (!r.ok) {
+    const msg = await r.text().catch(() => '');
+    throw new Error(msg || 'No se pudo generar el PDF');
+  }
+  return await r.blob();
+}
+
+async function verPDFCartaPorte(id) {
+  try {
+    toast('Generando representación impresa de Carta Porte...');
+    const blob = await obtenerPDFCartaPorte(id, false);
+    const url  = URL.createObjectURL(new Blob([blob], { type:'application/pdf' }));
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } catch (e) {
+    toast('No se pudo abrir el PDF: ' + e.message, 'error');
+  }
+}
+
+async function descargarPDFCartaPorte(id) {
+  try {
+    const blob = await obtenerPDFCartaPorte(id, true);
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a'); a.href = url; a.download = `carta_porte_${id}.pdf`;
+    a.click(); URL.revokeObjectURL(url);
+  } catch (e) {
+    toast('No se pudo descargar el PDF: ' + e.message, 'error');
+  }
 }
 
 async function obtenerXmlCFDI(id) {
@@ -2329,6 +2376,7 @@ async function verDetalleCFDI(id) {
       </tr>`).join('');
 
     document.getElementById('cfdi-detalle-body').innerHTML = `
+      ${!carta ? '<div class="alert alert-error"><i class="fa-solid fa-triangle-exclamation"></i> Este XML timbrado no contiene complemento Carta Porte 3.1. No debe usarse como Carta Porte válida para carretera.</div>' : ''}
       <div class="detail-grid">
         ${detalleBox('UUID SAT', attr(timbre,'UUID'))}
         ${detalleBox('IdCCP', attr(carta,'IdCCP'))}

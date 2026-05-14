@@ -12,7 +12,7 @@
     .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.08em}.brand img{width:34px;height:34px;object-fit:contain}.sub{font-size:13px;color:rgba(255,255,255,.78);margin-top:4px}
     main{padding:18px;max-width:680px;margin:auto}.card{background:white;border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 10px 24px rgba(16,24,40,.06)}
     .route{font-size:18px;font-weight:800}.meta{margin-top:8px;color:var(--muted);font-size:14px;display:grid;gap:3px}.products{margin-top:10px;font-size:13px;color:#344054}
-    .actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}.btn{border:0;border-radius:12px;padding:15px 10px;font-weight:800;font-size:15px;cursor:pointer}
+    .doc-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}.btn{border:0;border-radius:12px;padding:15px 10px;font-weight:800;font-size:15px;cursor:pointer;text-align:center;text-decoration:none}
     .primary{background:var(--wine);color:white}.dark{background:#2B2B2B;color:white}.ok{background:#ECFDF3;color:#027A48}.warn{background:#FFF7E6;color:#9A6700}
     .empty{padding:38px 18px;text-align:center;color:var(--muted)}.toast{position:fixed;left:16px;right:16px;bottom:16px;background:#111;color:white;padding:13px 15px;border-radius:12px;display:none}
   </style>
@@ -52,6 +52,10 @@
             <span>Estatus: ${v.operacion_status || v.status || 'programado'}</span>
           </div>
           <div class="products">${prods}</div>
+          ${v.uuid_cfdi ? `<div class="doc-actions">
+            <a class="btn dark" href="/api/tr/operador/viajes/${v.id}/pdf?token=${encodeURIComponent(token)}" target="_blank" rel="noopener">Ver Carta Porte PDF</a>
+            <a class="btn ok" href="/api/tr/operador/viajes/${v.id}/pdf?token=${encodeURIComponent(token)}&download=true">Descargar PDF</a>
+          </div>` : ''}
           <div class="actions">
             <button class="btn ok" onclick="accion(${v.id},'recibido')">Ya lo recibí</button>
             <button class="btn primary" onclick="accion(${v.id},'en_camino')">Voy en camino</button>
