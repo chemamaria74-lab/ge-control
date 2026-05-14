@@ -91,10 +91,7 @@ def _build_concepto_hidrocarburo(
     Para tipo T (Traslado): ValorUnitario=0, sin impuestos.
     Para tipo I (Ingreso):  ValorUnitario calculado, IVA 16%.
     """
-    descripcion = (
-        producto.descripcion
-        or "Servicio de transporte de carga por carretera"
-    )
+    descripcion = "Servicio de transporte de carga por carretera"
 
     importe  = round(producto.importe, 2)
 
