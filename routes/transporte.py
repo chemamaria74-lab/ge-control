@@ -119,6 +119,18 @@ def _sb(token: str):
     return get_supabase_for_user(token)
 
 
+def _parse_perfil_id(raw: str | None) -> Optional[int]:
+    try:
+        v = int(str(raw or "").strip())
+        return v if v > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _perfil(perfil_id: Optional[int] = None, x_perfil_id: str = "") -> Optional[int]:
+    return perfil_id or _parse_perfil_id(x_perfil_id)
+
+
 def _settings_transporte(uid: str, token: str, perfil_id: Optional[int] = None) -> dict:
     """Obtiene la configuración del módulo transporte para el usuario/perfil."""
     try:
@@ -673,15 +685,20 @@ async def cancelar_viaje(
 @router.get("/tr/facturas-servicio")
 async def listar_facturas_servicio(
     periodo:       Optional[str] = Query(None),
+    perfil_id:     Optional[int] = Query(None),
     authorization: str           = Header(default=""),
+    x_perfil_id:   str           = Header(default=""),
 ):
     """Lista facturas del servicio de transporte emitidas o preparadas."""
     uid, token = _auth(authorization)
     try:
+        pid = _perfil(perfil_id, x_perfil_id)
         q = _sb(token).table(_TBL_FACT_SERV).select("*").eq("user_id", uid).order("created_at", desc=True)
         if periodo:
             ini, fin = _periodo_bounds(periodo)
             q = q.gte("created_at", ini).lt("created_at", fin)
+        if pid:
+            q = q.eq("perfil_id", pid)
         res = q.execute()
         return JSONResponse({"ok": True, "facturas_servicio": res.data or []})
     except Exception as e:
@@ -691,14 +708,23 @@ async def listar_facturas_servicio(
 @router.get("/tr/dashboard")
 async def dashboard_transporte(
     periodo: Optional[str] = Query(None),
+    perfil_id: Optional[int] = Query(None),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
     sb = _sb(token)
+    pid = _perfil(perfil_id, x_perfil_id)
     periodo = periodo or datetime.now(timezone.utc).strftime("%Y-%m")
-    viajes = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).like("fecha_hora_salida", f"{periodo}%").execute().data or []
+    qv = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).like("fecha_hora_salida", f"{periodo}%")
+    if pid:
+        qv = qv.eq("perfil_id", pid)
+    viajes = qv.execute().data or []
     ini, fin = _periodo_bounds(periodo)
-    facturas = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", uid).gte("created_at", ini).lt("created_at", fin).execute().data or []
+    qf = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", uid).gte("created_at", ini).lt("created_at", fin)
+    if pid:
+        qf = qf.eq("perfil_id", pid)
+    facturas = qf.execute().data or []
     return JSONResponse({
         "ok": True,
         "periodo": periodo,
@@ -713,9 +739,15 @@ async def dashboard_transporte(
 @router.get("/tr/analytics")
 async def analytics_transporte(
     authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(None),
+    x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    rows = _sb(token).table(_TBL_VIAJES).select("*").eq("user_id", uid).execute().data or []
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_VIAJES).select("*").eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    rows = q.execute().data or []
     por_ruta = {}
     por_producto = {}
     for v in rows:
@@ -742,9 +774,15 @@ async def analytics_transporte(
 @router.get("/tr/forecast")
 async def forecast_transporte(
     authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(None),
+    x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    rows = _sb(token).table(_TBL_VIAJES).select("fecha_hora_salida,volumen_total_litros").eq("user_id", uid).order("fecha_hora_salida").execute().data or []
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_VIAJES).select("fecha_hora_salida,volumen_total_litros").eq("user_id", uid).order("fecha_hora_salida")
+    if pid:
+        q = q.eq("perfil_id", pid)
+    rows = q.execute().data or []
     por_mes = {}
     for r in rows:
         periodo = (r.get("fecha_hora_salida") or "")[:7]
@@ -764,25 +802,40 @@ async def forecast_transporte(
 
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
+    perfil_id: Optional[int] = Query(None),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
     """Cartas Porte timbradas que todavia no han sido usadas en factura de servicio."""
     uid, token = _auth(authorization)
     sb = _sb(token)
+    pid = _perfil(perfil_id, x_perfil_id)
     try:
-        fact_res = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid).execute()
+        fact_q = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid)
+        if pid:
+            fact_q = fact_q.eq("perfil_id", pid)
+        fact_res = fact_q.execute()
         facturados = {int(r.get("viaje_id")) for r in (fact_res.data or []) if r.get("viaje_id")}
     except Exception:
         facturados = set()
     try:
-        cfdi_res = sb.table(_TBL_CFDI).select("*").eq("user_id", uid).eq("status", "Vigente").order("fecha_timbrado", desc=True).execute()
+        cfdi_q = sb.table(_TBL_CFDI).select("*").eq("user_id", uid).eq("status", "Vigente")
+        if pid:
+            cfdi_q = cfdi_q.eq("perfil_id", pid)
+        cfdi_res = cfdi_q.order("fecha_timbrado", desc=True).execute()
         cfdis = [c for c in (cfdi_res.data or []) if int(c.get("viaje_id") or 0) not in facturados]
         viajes_ids = [int(c.get("viaje_id")) for c in cfdis if c.get("viaje_id")]
         viajes_map = {}
         if viajes_ids:
-            v_res = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).in_("id", viajes_ids).execute()
+            vq = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).in_("id", viajes_ids)
+            if pid:
+                vq = vq.eq("perfil_id", pid)
+            v_res = vq.execute()
             viajes_map = {int(v["id"]): v for v in (v_res.data or [])}
-        clientes_res = sb.table(_TBL_CLIENTES).select("*").eq("user_id", uid).eq("activo", True).execute()
+        cq = sb.table(_TBL_CLIENTES).select("*").eq("user_id", uid).eq("activo", True)
+        if pid:
+            cq = cq.eq("perfil_id", pid)
+        clientes_res = cq.execute()
         clientes = clientes_res.data or []
         clientes_by_rfc = {str(c.get("rfc") or "").upper(): c for c in clientes}
         items = []
@@ -913,7 +966,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         factura_id = res.data[0]["id"] if res.data else None
         try:
             sb.table(_TBL_FACT_SERV_CARTAS).insert([
-                {"user_id": uid, "factura_servicio_id": factura_id, "viaje_id": vid, "created_at": now_iso}
+                {"user_id": uid, "perfil_id": payload.perfil_id, "factura_servicio_id": factura_id, "viaje_id": vid, "created_at": now_iso}
                 for vid in payload.viaje_ids
             ]).execute()
         except Exception as e:
@@ -1089,20 +1142,35 @@ async def generar_covol_transporte(
 # ── Choferes ──────────────────────────────────────────────────────────────────
 
 @router.get("/tr/choferes")
-async def listar_choferes(authorization: str = Header(default="")):
+async def listar_choferes(
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid, token = _auth(authorization)
     sb = _sb(token)
-    res = sb.table(_TBL_CHOFERES).select("*").eq("user_id", uid).eq("activo", True).order("nombre").execute()
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = sb.table(_TBL_CHOFERES).select("*").eq("user_id", uid).eq("activo", True)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    res = q.order("nombre").execute()
     return JSONResponse({"choferes": res.data or []})
 
 
 @router.post("/tr/choferes")
-async def crear_chofer(payload: ChoferTransporteCreate, authorization: str = Header(default="")):
+async def crear_chofer(
+    payload: ChoferTransporteCreate,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid, token = _auth(authorization)
     sb = _sb(token)
+    pid = _perfil(perfil_id, x_perfil_id)
     try:
         res = sb.table(_TBL_CHOFERES).insert({
             "user_id":      uid,
+            "perfil_id":    pid,
             "nombre":       payload.nombre.strip(),
             "rfc":          payload.rfc,
             "licencia":     payload.licencia.strip(),
@@ -1120,43 +1188,73 @@ async def crear_chofer(payload: ChoferTransporteCreate, authorization: str = Hea
 @router.put("/tr/choferes/{chofer_id}")
 async def actualizar_chofer(
     chofer_id: int, payload: ChoferTransporteCreate,
+    perfil_id: Optional[int] = Query(None),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
     sb = _sb(token)
-    sb.table(_TBL_CHOFERES).update({
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = sb.table(_TBL_CHOFERES).update({
         "nombre":       payload.nombre.strip(),
         "rfc":          payload.rfc,
         "licencia":     payload.licencia.strip(),
         "tipo_licencia": payload.tipo_licencia,
         "telefono":     payload.telefono.strip(),
         "curp":         payload.curp.strip().upper(),
-    }).eq("id", chofer_id).eq("user_id", uid).execute()
+    }).eq("id", chofer_id).eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    q.execute()
     return JSONResponse({"ok": True})
 
 
 @router.delete("/tr/choferes/{chofer_id}")
-async def eliminar_chofer(chofer_id: int, authorization: str = Header(default="")):
+async def eliminar_chofer(
+    chofer_id: int,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid, token = _auth(authorization)
-    _sb(token).table(_TBL_CHOFERES).update({"activo": False}).eq("id", chofer_id).eq("user_id", uid).execute()
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_CHOFERES).update({"activo": False}).eq("id", chofer_id).eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    q.execute()
     return JSONResponse({"ok": True})
 
 
 # ── Vehículos ─────────────────────────────────────────────────────────────────
 
 @router.get("/tr/vehiculos")
-async def listar_vehiculos(authorization: str = Header(default="")):
+async def listar_vehiculos(
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid, token = _auth(authorization)
-    res = _sb(token).table(_TBL_VEHICULOS).select("*").eq("user_id", uid).eq("activo", True).order("placas").execute()
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_VEHICULOS).select("*").eq("user_id", uid).eq("activo", True)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    res = q.order("placas").execute()
     return JSONResponse({"vehiculos": res.data or []})
 
 
 @router.post("/tr/vehiculos")
-async def crear_vehiculo(payload: VehiculoTransporteCreate, authorization: str = Header(default="")):
+async def crear_vehiculo(
+    payload: VehiculoTransporteCreate,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
     try:
         res = _sb(token).table(_TBL_VEHICULOS).insert({
             "user_id":           uid,
+            "perfil_id":         pid,
             "placas":            payload.placas,
             "modelo":            payload.modelo.strip(),
             "anio":              payload.anio,
@@ -1178,10 +1276,13 @@ async def crear_vehiculo(payload: VehiculoTransporteCreate, authorization: str =
 @router.put("/tr/vehiculos/{vehiculo_id}")
 async def actualizar_vehiculo(
     vehiculo_id: int, payload: VehiculoTransporteCreate,
+    perfil_id: Optional[int] = Query(None),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    _sb(token).table(_TBL_VEHICULOS).update({
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_VEHICULOS).update({
         "placas":          payload.placas,
         "modelo":          payload.modelo.strip(),
         "anio":            payload.anio,
@@ -1191,33 +1292,60 @@ async def actualizar_vehiculo(
         "permiso_sct":     payload.permiso_sct.strip(),
         "num_permiso_sct": payload.num_permiso_sct.strip(),
         "capacidad_litros": payload.capacidad_litros,
-    }).eq("id", vehiculo_id).eq("user_id", uid).execute()
+    }).eq("id", vehiculo_id).eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    q.execute()
     return JSONResponse({"ok": True})
 
 
 @router.delete("/tr/vehiculos/{vehiculo_id}")
-async def eliminar_vehiculo(vehiculo_id: int, authorization: str = Header(default="")):
+async def eliminar_vehiculo(
+    vehiculo_id: int,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid, token = _auth(authorization)
-    _sb(token).table(_TBL_VEHICULOS).update({"activo": False}).eq("id", vehiculo_id).eq("user_id", uid).execute()
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_VEHICULOS).update({"activo": False}).eq("id", vehiculo_id).eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    q.execute()
     return JSONResponse({"ok": True})
 
 
 # ── Rutas ─────────────────────────────────────────────────────────────────────
 
 @router.get("/tr/rutas")
-async def listar_rutas(authorization: str = Header(default="")):
+async def listar_rutas(
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid, token = _auth(authorization)
-    res = _sb(token).table(_TBL_RUTAS).select("*").eq("user_id", uid).eq("activo", True).order("nombre").execute()
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_RUTAS).select("*").eq("user_id", uid).eq("activo", True)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    res = q.order("nombre").execute()
     return JSONResponse({"rutas": res.data or []})
 
 
 @router.post("/tr/rutas")
-async def crear_ruta(payload: RutaTransporteCreate, authorization: str = Header(default="")):
+async def crear_ruta(
+    payload: RutaTransporteCreate,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
     try:
         row = _ruta_payload(payload)
         row.update({
             "user_id":       uid,
+            "perfil_id":     pid,
             "activo":        True,
             "created_at":    datetime.now(timezone.utc).isoformat(),
         })
@@ -1230,35 +1358,65 @@ async def crear_ruta(payload: RutaTransporteCreate, authorization: str = Header(
 @router.put("/tr/rutas/{ruta_id}")
 async def actualizar_ruta(
     ruta_id: int, payload: RutaTransporteCreate,
+    perfil_id: Optional[int] = Query(None),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    _sb(token).table(_TBL_RUTAS).update(_ruta_payload(payload)).eq("id", ruta_id).eq("user_id", uid).execute()
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_RUTAS).update(_ruta_payload(payload)).eq("id", ruta_id).eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    q.execute()
     return JSONResponse({"ok": True})
 
 
 @router.delete("/tr/rutas/{ruta_id}")
-async def eliminar_ruta(ruta_id: int, authorization: str = Header(default="")):
+async def eliminar_ruta(
+    ruta_id: int,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid, token = _auth(authorization)
-    _sb(token).table(_TBL_RUTAS).update({"activo": False}).eq("id", ruta_id).eq("user_id", uid).execute()
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_RUTAS).update({"activo": False}).eq("id", ruta_id).eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    q.execute()
     return JSONResponse({"ok": True})
 
 
 # ── Clientes transporte ────────────────────────────────────────────────────────
 
 @router.get("/tr/clientes")
-async def listar_clientes_transporte(authorization: str = Header(default="")):
+async def listar_clientes_transporte(
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid, token = _auth(authorization)
-    res = _sb(token).table(_TBL_CLIENTES).select("*").eq("user_id", uid).eq("activo", True).order("nombre").execute()
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_CLIENTES).select("*").eq("user_id", uid).eq("activo", True)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    res = q.order("nombre").execute()
     return JSONResponse({"clientes": res.data or []})
 
 
 @router.post("/tr/clientes")
-async def crear_cliente_transporte(payload: ClienteTransporteCreate, authorization: str = Header(default="")):
+async def crear_cliente_transporte(
+    payload: ClienteTransporteCreate,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
     try:
         res = _sb(token).table(_TBL_CLIENTES).insert({
             "user_id":        uid,
+            "perfil_id":      pid,
             "rfc":            payload.rfc,
             "nombre":         payload.nombre.strip(),
             "cp":             payload.cp,
@@ -1275,23 +1433,38 @@ async def crear_cliente_transporte(payload: ClienteTransporteCreate, authorizati
 @router.put("/tr/clientes/{cliente_id}")
 async def actualizar_cliente_transporte(
     cliente_id: int, payload: ClienteTransporteCreate,
+    perfil_id: Optional[int] = Query(None),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    _sb(token).table(_TBL_CLIENTES).update({
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_CLIENTES).update({
         "rfc":            payload.rfc,
         "nombre":         payload.nombre.strip(),
         "cp":             payload.cp,
         "regimen_fiscal": payload.regimen_fiscal,
         "uso_cfdi":       payload.uso_cfdi,
-    }).eq("id", cliente_id).eq("user_id", uid).execute()
+    }).eq("id", cliente_id).eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    q.execute()
     return JSONResponse({"ok": True})
 
 
 @router.delete("/tr/clientes/{cliente_id}")
-async def eliminar_cliente_transporte(cliente_id: int, authorization: str = Header(default="")):
+async def eliminar_cliente_transporte(
+    cliente_id: int,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid, token = _auth(authorization)
-    _sb(token).table(_TBL_CLIENTES).update({"activo": False}).eq("id", cliente_id).eq("user_id", uid).execute()
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_CLIENTES).update({"activo": False}).eq("id", cliente_id).eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    q.execute()
     return JSONResponse({"ok": True})
 
 
@@ -1303,10 +1476,11 @@ async def eliminar_cliente_transporte(cliente_id: int, authorization: str = Head
 async def get_settings_transporte(
     perfil_id:     Optional[int] = Query(None),
     authorization: str           = Header(default=""),
+    x_perfil_id:   str           = Header(default=""),
 ):
     """Obtiene la configuración del módulo transporte."""
     uid, token = _auth(authorization)
-    settings = _settings_transporte(uid, token, perfil_id)
+    settings = _settings_transporte(uid, token, _perfil(perfil_id, x_perfil_id))
     return JSONResponse({"ok": True, "settings": settings})
 
 
@@ -1315,6 +1489,7 @@ async def update_settings_transporte(
     data:          dict,
     perfil_id:     Optional[int] = Query(None),
     authorization: str           = Header(default=""),
+    x_perfil_id:   str           = Header(default=""),
 ):
     """
     Guarda/actualiza la configuración del módulo transporte.
@@ -1325,12 +1500,13 @@ async def update_settings_transporte(
     """
     uid, token = _auth(authorization)
     sb = _sb(token)
+    perfil_id = _perfil(perfil_id, x_perfil_id)
     now_iso = datetime.now(timezone.utc).isoformat()
 
     # Limpiar campos sensibles
     data_limpia = {
         k: v for k, v in data.items()
-        if isinstance(v, (str, int, float, bool, list, dict))
+        if k != "perfil_id" and isinstance(v, (str, int, float, bool, list, dict))
     }
     _validar_rfc_cp_config(data_limpia)
 
