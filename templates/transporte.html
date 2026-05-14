@@ -1111,6 +1111,8 @@ function productosHabilitados() {
 }
 const RFC_RE = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 const CP_RE = /^\d{5}$/;
+const REGIMENES_PM = new Set(['601','603','610','620','622','623','624','626']);
+const REGIMENES_PF = new Set(['605','606','607','608','611','612','614','615','616','621','625','626']);
 const EDITABLE_STATUS = new Set(['borrador', 'programado', 'error']);
 const LANG_URL = new URLSearchParams(location.search).get('lang');
 const LANG_STORED = localStorage.getItem('zc_lang');
@@ -1278,6 +1280,21 @@ function validarCpCampo(value, nombre='Código postal') {
   const v = (value || '').trim();
   if (v && !CP_RE.test(v)) throw new Error(`${nombre} debe tener 5 dígitos.`);
   return v;
+}
+function tipoPersonaRfc(rfc) {
+  const v = (rfc || '').toUpperCase().replace(/[^A-Z0-9Ñ&]/g, '');
+  if (v.length === 12) return 'moral';
+  if (v.length === 13) return 'fisica';
+  return '';
+}
+function validarRegimenParaRfc(rfc, regimen, nombre='emisor') {
+  const tipo = tipoPersonaRfc(rfc);
+  if (!tipo || !regimen) return;
+  const ok = tipo === 'moral' ? REGIMENES_PM.has(regimen) : REGIMENES_PF.has(regimen);
+  if (!ok) {
+    const etiqueta = tipo === 'moral' ? 'persona moral' : 'persona física';
+    throw new Error(`El régimen fiscal ${regimen} no corresponde al RFC ${nombre} (${etiqueta}).`);
+  }
 }
 
 // ─── AUTH headers ───────────────────────────────────────
@@ -1491,6 +1508,7 @@ async function guardarConfig() {
     rfcContrib = validarRfcCampo(document.getElementById('cfg-rfc').value, 'RFC del contribuyente');
     cpContrib = validarCpCampo(document.getElementById('cfg-cp').value, 'Código postal fiscal');
     rfcProv = validarRfcCampo(document.getElementById('cfg-rfc-proveedor').value, 'RFC proveedor');
+    validarRegimenParaRfc(rfcContrib, document.getElementById('cfg-regimen').value, 'del contribuyente');
   } catch(e) { toast(e.message, 'error'); return; }
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Guardando...';
   const data = {
