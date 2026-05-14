@@ -216,7 +216,7 @@ async def gasolineras_summary(
         ],
         "pdf_strategy": {
             "recommended": "internal",
-            "reason": "El XML timbrado es el comprobante fiscal; el PDF es representación impresa. Conviene generarlo internamente con plantilla Z Control y confirmar con SW Sapien si su PDF tiene costo adicional.",
+            "reason": "El XML timbrado es el comprobante fiscal; el PDF es representación impresa. Conviene generarlo internamente con plantilla GE CONTROL y confirmar con SW Sapien si su PDF tiene costo adicional.",
         },
     })
 
