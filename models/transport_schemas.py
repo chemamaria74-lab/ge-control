@@ -162,9 +162,11 @@ class ClienteTransporteCreate(BaseModel):
     @field_validator("cp")
     @classmethod
     def v_cp(cls, v):
-        if v and not _CP_RE.match(v.strip()):
+        if not v or not v.strip():
+            raise ValueError("Código postal fiscal del cliente es requerido.")
+        if not _CP_RE.match(v.strip()):
             raise ValueError(f"Código postal '{v}' debe tener 5 dígitos.")
-        return v.strip() if v else v
+        return v.strip()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
