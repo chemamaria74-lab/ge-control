@@ -216,6 +216,13 @@ async def frontend_transporte():
         return HTMLResponse(content=f.read())
 
 
+@app.get("/operador/transporte", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_operador_transporte():
+    """Portal movil simple para operadores de Transporte."""
+    with open(os.path.join(BASE_DIR, "templates", "operador_transporte.html"), encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
 @app.get("/gasolineras", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_gasolineras():
     """Sirve el frontend del módulo Gasolineras."""

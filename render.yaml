@@ -18,6 +18,8 @@ services:
         sync: false
       - key: SUPABASE_KEY
         sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
       - key: SW_ENV
         value: "test"
       - key: SW_USER

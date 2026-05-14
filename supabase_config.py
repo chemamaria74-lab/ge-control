@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "").strip()
 SUPABASE_KEY: str = os.environ.get("SUPABASE_KEY", "").strip()
+SUPABASE_SERVICE_ROLE_KEY: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError(
@@ -44,6 +45,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 # ── Singleton de sistema (anon key, solo para operaciones sin RLS de usuario) ──
 _lock: threading.Lock = threading.Lock()
 _system_client: Client | None = None
+_admin_client: Client | None = None
 
 
 def get_supabase() -> Client:
@@ -59,6 +61,22 @@ def get_supabase() -> Client:
                 _system_client = create_client(SUPABASE_URL, SUPABASE_KEY)
                 logger.info("Cliente Supabase (sistema) inicializado: %s", SUPABASE_URL)
     return _system_client
+
+
+def get_supabase_admin() -> Client:
+    """
+    Cliente de servidor para flujos sin sesion de usuario, como portal de operador
+    con token firmado. Requiere SUPABASE_SERVICE_ROLE_KEY en Render.
+    """
+    if not SUPABASE_SERVICE_ROLE_KEY:
+        raise RuntimeError("Falta SUPABASE_SERVICE_ROLE_KEY para operaciones de servidor.")
+    global _admin_client
+    if _admin_client is None:
+        with _lock:
+            if _admin_client is None:
+                _admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+                logger.info("Cliente Supabase admin inicializado: %s", SUPABASE_URL)
+    return _admin_client
 
 
 def get_supabase_for_user(access_token: str) -> Client:

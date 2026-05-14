@@ -129,9 +129,6 @@ z-control-program/
 │   │   ├── ge-icon-512.png
 │   │   ├── apple-touch-icon.png
 │   │   └── favicon.svg
-│   └── gasolineras/
-│       ├── mapa_gasolineras.html
-│       └── vision_completa_v2.html
 ├── migrations/
 │   ├── transporte_urgentes_20260513.sql
 │   ├── zcontrol_multimodulo_facturacion_20260513.sql
@@ -152,13 +149,15 @@ Configura estas variables en Render o en un archivo `.env` local.
 
 ```env
 SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_KEY=your-service-role-key
+SUPABASE_KEY=your-anon-or-service-role-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-for-server-flows
 SW_ENV=test
 SW_USER=tu_usuario_sw
 SW_PASSWORD=tu_password_sw
 ```
 
 `SW_ENV=test` usa ambiente de pruebas. Para producción real usar `SW_ENV=prod` solo cuando el PAC y los certificados estén listos.
+`SUPABASE_SERVICE_ROLE_KEY` se usa para flujos de servidor sin sesión de Supabase Auth, como el portal simple de operador con token seguro.
 
 No subir al repositorio:
 
@@ -218,6 +217,16 @@ Estrategia recomendada para PDF:
 | `tr_settings` | Configuración Transporte |
 | `tr_facturas_servicio` | Facturas de servicio de transporte |
 | `tr_facturas_servicio_cartas` | Relación única factura-Carta Porte |
+| `tr_viaje_eventos` | Timeline y bitácora operativa por viaje |
+| `tr_viaje_documentos` | Metadata de documentos por viaje en Supabase Storage |
+| `tr_tarifas` | Tarifas configurables por usuario/perfil/cliente/ruta/producto |
+| `tr_gastos_viaje` | Gastos operativos y evidencias de viaje |
+| `tr_liquidaciones` | Liquidaciones de chofer por periodo |
+| `tr_liquidacion_items` | Viajes incluidos en cada liquidación |
+| `tr_cliente_contactos` | Contactos operativos/fiscales por cliente |
+| `tr_notificaciones` | Bitácora de envíos por canal, incluido WhatsApp manual |
+| `tr_operador_accesos` | Tokens de acceso simple para portal de operador |
+| `tr_importaciones` | Auditoría de importaciones históricas de Excel |
 
 ### Tablas de Gasolineras
 
@@ -235,6 +244,7 @@ Ejecutar en Supabase SQL Editor:
 migrations/transporte_urgentes_20260513.sql
 migrations/zcontrol_multimodulo_facturacion_20260513.sql
 migrations/transporte_multiempresa_20260513.sql
+migrations/transporte_operativo_20260514.sql
 migrations/gasolineras_modulo_20260514.sql
 ```
 
@@ -243,6 +253,7 @@ Resumen:
 - `transporte_urgentes_20260513.sql`: duración de rutas/viajes, estatus editables y facturas de servicio.
 - `zcontrol_multimodulo_facturacion_20260513.sql`: régimen fiscal receptor, UUID/XML/PDF en facturas, relación única para evitar doble facturación.
 - `transporte_multiempresa_20260513.sql`: `perfil_id` e índices en tablas de Transporte para multiempresa.
+- `transporte_operativo_20260514.sql`: Viaje 360, eventos, documentos, tarifas, liquidaciones, portal operador e importaciones históricas.
 - `gasolineras_modulo_20260514.sql`: tablas base de Gasolineras y soporte de sección `gasolineras`.
 
 Para habilitar el módulo Gasolineras a un usuario:
@@ -277,7 +288,8 @@ Crear `.env` local:
 
 ```env
 SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_KEY=your-service-role-key
+SUPABASE_KEY=your-anon-or-service-role-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-for-server-flows
 SW_ENV=test
 SW_USER=tu_usuario_sw
 SW_PASSWORD=tu_password_sw
@@ -333,6 +345,16 @@ Health check:
 8. Timbrar Carta Porte.
 9. Emitir factura del servicio desde Cartas Porte timbradas disponibles.
 10. Generar JSON/ZIP de control volumétrico mensual.
+11. Usar Operación para Viaje 360, documentos, timeline, tarifas y liquidaciones.
+12. Usar portal de operador únicamente para confirmaciones simples: recibido, en camino, entregado o problema.
+
+Para documentos operativos crear en Supabase Storage el bucket:
+
+```text
+transport-documents
+```
+
+La app guarda rutas bajo `user_id/perfil_id/viajes/viaje_id/...`; la metadata vive en `tr_viaje_documentos`.
 
 ### Gas LP
 
