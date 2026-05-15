@@ -16,6 +16,7 @@
     .primary{background:var(--wine);color:white}.dark{background:#2B2B2B;color:white}.ok{background:#ECFDF3;color:#027A48}.warn{background:#FFF7E6;color:#9A6700}
     .pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;margin-top:10px}.pill.ok{border-color:#ABEFC6}
     .empty{padding:38px 18px;text-align:center;color:var(--muted)}.toast{position:fixed;left:16px;right:16px;bottom:16px;background:#111;color:white;padding:13px 15px;border-radius:12px;display:none}
+    .task{border-left:4px solid var(--gold)}.task h2{font-size:16px;margin:0 0 8px}.task ul{margin:10px 0 0;padding-left:18px;color:#344054;font-size:13px}.task small{color:var(--muted)}
   </style>
 </head>
 <body>
@@ -40,10 +41,19 @@
       if(!r.ok) throw new Error(d.detail || d.error || 'Error');
       return d;
     }
-    function render(viajes){
+    function renderTasks(tasks){
+      if(!tasks.length) return '';
+      return tasks.map(t => `<section class="card task">
+        <h2>${t.titulo || 'Tarea de Carta Aporte'}</h2>
+        <small>${(t.window_start||'').slice(0,16).replace('T',' ')} - ${(t.window_end||'').slice(0,16).replace('T',' ')}</small>
+        <ul>${(t.facturas||[]).slice(0,8).map(f => `<li>${f.uuid || 'UUID pendiente'} · ${Number(f.litros||0).toLocaleString('es-MX')} L · ${f.producto || 'Producto'} · ${money(f.importe)}</li>`).join('')}</ul>
+      </section>`).join('');
+    }
+    function render(viajes, tasks=[]){
       if(!token){app.innerHTML='<div class="empty">Falta token de acceso.</div>';return}
-      if(!viajes.length){app.innerHTML='<div class="empty">No tienes viajes activos asignados.</div>';return}
-      app.innerHTML = viajes.map(v => {
+      const tasksHtml = renderTasks(tasks);
+      if(!viajes.length){app.innerHTML=tasksHtml + '<div class="empty">No tienes viajes activos asignados.</div>';return}
+      app.innerHTML = tasksHtml + viajes.map(v => {
         const prods = (v.productos||[]).map(p => `${p.descripcion || p.clave_producto || 'Producto'} · ${Number(p.volumen_litros||0).toLocaleString('es-MX')} L`).join('<br>');
         return `<section class="card">
           <div class="route">${v.nombre_origen || v.cp_origen || 'Origen'} → ${v.nombre_destino || v.cp_destino || 'Destino'}</div>
@@ -67,7 +77,7 @@
         </section>`
       }).join('');
     }
-    async function load(){try{const d=await api('/api/tr/operador/viajes');render(d.viajes||[])}catch(e){app.innerHTML=`<div class="empty">${e.message}</div>`}}
+    async function load(){try{const [d,t]=await Promise.all([api('/api/tr/operador/viajes'),api('/api/tr/operador/carta-aporte/tareas')]);render(d.viajes||[],t.tasks||[])}catch(e){app.innerHTML=`<div class="empty">${e.message}</div>`}}
     async function accion(id, accion){
       let nota = '';
       if (accion === 'problema') nota = prompt('Describe brevemente el problema para oficina:') || '';

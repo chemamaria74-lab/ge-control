@@ -655,11 +655,12 @@ tr:hover td{background:#f8fafc}
   <div class="empresa-card">
     <h2><i class="fa-solid fa-building" style="color:#0f766e"></i> Seleccionar Empresa</h2>
     <p>Tienes acceso a varias razones sociales. Elige con cuál quieres trabajar en esta sesión.</p>
+    <div id="empresaPlanUsage" style="font-size:.78rem;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.55rem .75rem;margin-bottom:.8rem;display:none"></div>
     <div class="empresa-list" id="empresaList">
       <!-- Se llena dinámicamente -->
     </div>
     <button class="empresa-nueva-btn" onclick="abrirModalNuevoPerfil()">
-      <i class="fa-solid fa-plus-circle"></i> Agregar nueva razón social
+      <i class="fa-solid fa-plus-circle"></i> Crear nueva empresa
     </button>
   </div>
 </div>
@@ -1781,6 +1782,20 @@ tr:hover td{background:#f8fafc}
      ══════════════════════════════════════════════════════════════ -->
 <div class="main-panel" id="mpanel-config">
 
+<!-- ── Suscripción ─────────────────────────────────────────────────────── -->
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:.8rem;flex-wrap:wrap">
+    <h2 style="margin:0"><i class="fa-solid fa-credit-card" style="margin-right:.35rem;color:#7A1E2C"></i>Suscripción</h2>
+    <button type="button" onclick="alert('Para actualizar tu plan, contacta al equipo comercial de GE CONTROL.')" style="padding:.44rem 1rem;font-size:.8rem;font-weight:700;border-radius:8px;background:#7A1E2C;color:#fff;border:0;cursor:pointer;font-family:inherit">Actualizar plan</button>
+  </div>
+  <div id="subscriptionPanel" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.7rem;margin-top:1rem">
+    <div class="sat-meta-box"><div class="label">Plan actual</div><div class="value" id="subPlanName">—</div></div>
+    <div class="sat-meta-box"><div class="label">Empresas utilizadas</div><div class="value" id="subCompaniesUsed">—</div></div>
+    <div class="sat-meta-box"><div class="label">Límite</div><div class="value" id="subCompaniesLimit">—</div></div>
+    <div class="sat-meta-box"><div class="label">Renovación</div><div class="value" id="subExpiresAt">—</div></div>
+  </div>
+</div>
+
 <!-- ── Razones Sociales (multi-empresa) ─────────────────────────────────── -->
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.8rem">
@@ -2252,13 +2267,15 @@ let satJsonResult = null;
 let satMetaResult = null;
 let satFilenames  = {};
 let authToken     = localStorage.getItem('sat_token') || '';
-let currentUserId = localStorage.getItem('sat_user_id') || 'default';
+let currentUserId = localStorage.getItem('sat_user_id') || '';
 let histPeriodo      = null;
 let histZipFilename  = null;
 let _facilities       = [];          // lista de instalaciones del usuario
 let _activeFacilityId = null;       // instalación seleccionada en Procesar
 let _histFacilityId   = null;       // instalación activa en Historial (capturada al cargar)
 let currentUserRole   = localStorage.getItem('sat_role') || 'user';
+let assignedPerfilId  = Number(localStorage.getItem('sat_assigned_perfil_id') || '0') || null;
+let subscriptionUsage = null;
 
 // ── Estado multi-empresa (perfilSeleccionado) ──────────────────────────────
 // Se persiste en localStorage para sobrevivir cierre de pestaña y recargas.
@@ -2355,6 +2372,14 @@ function applyRole(role) {
   localStorage.setItem('sat_role', currentUserRole);
   const tab = document.getElementById('tabAdmin');
   if (tab) tab.style.display = currentUserRole === 'admin' ? '' : 'none';
+  const facturacionOnly = ['asistente_facturacion', 'planta'].includes(currentUserRole);
+  document.querySelectorAll('.main-nav-tab').forEach(t => {
+    const allowed = t.dataset.main === 'procesar';
+    if (facturacionOnly && !allowed) t.style.display = 'none';
+    if (!facturacionOnly && t.id !== 'tabAdmin') t.style.display = '';
+  });
+  const switcher = document.getElementById('empresaSwitcher');
+  if (switcher && facturacionOnly) switcher.style.pointerEvents = 'none';
 }
 
 // Actualizar UI según el módulo seleccionado (Gas LP vs Transporte)
@@ -2560,6 +2585,8 @@ async function verifySession() {
       const data = await res.json();
       hideLoginDirect(data.display_name);
       applyRole(data.role);
+      assignedPerfilId = Number(data.perfil_id || 0) || null;
+      if (assignedPerfilId) localStorage.setItem('sat_assigned_perfil_id', String(assignedPerfilId));
 
       if (_perfilSeleccionado) {
         // Validar que el perfil guardado sigue existiendo en Supabase
@@ -2617,6 +2644,7 @@ function clearSession() {
   localStorage.removeItem('sat_user_id');
   localStorage.removeItem('sat_email');
   localStorage.removeItem('sat_role');
+  localStorage.removeItem('sat_assigned_perfil_id');
   localStorage.removeItem('sat_modulo');
   localStorage.removeItem('zcontrol_adv_settings'); // limpiar datos del usuario anterior
   _clearPerfilSession();
@@ -2648,6 +2676,8 @@ document.getElementById('btnLogin').addEventListener('click', async () => {
       localStorage.setItem('sat_user_id', currentUserId);
       localStorage.setItem('sat_email', user);   // guardar email para re-auth en modal crítico
       localStorage.setItem('sat_modulo', modulo);  // Guardar módulo
+      assignedPerfilId = Number(data.perfil_id || 0) || null;
+      if (assignedPerfilId) localStorage.setItem('sat_assigned_perfil_id', String(assignedPerfilId));
       // Mostrar dashboard base sin cargar datos aún (se cargan tras seleccionar empresa)
       hideLoginDirect(data.display_name);
       applyRole(data.role);
@@ -2705,6 +2735,8 @@ async function cargarPerfiles(intentos = 3) {
       const res = await fetch('/api/perfiles', { headers: authHeader() });
       if (res.ok) {
         const data = await res.json();
+        subscriptionUsage = data.subscription || subscriptionUsage;
+        renderSubscriptionUsage();
         const perfiles = data.perfiles || [];
         if (perfiles.length > 0) return perfiles;
         // Si vino vacío pero no es el último intento, esperar y reintentar
@@ -2720,6 +2752,39 @@ async function cargarPerfiles(intentos = 3) {
     }
   }
   return [];
+}
+
+function subscriptionLimitLabel() {
+  if (!subscriptionUsage) return '—';
+  return subscriptionUsage.max_companies == null ? 'Ilimitado' : String(subscriptionUsage.max_companies);
+}
+
+function renderSubscriptionUsage() {
+  if (!subscriptionUsage) return;
+  const used = Number(subscriptionUsage.companies_used || 0);
+  const limit = subscriptionLimitLabel();
+  const usageText = `Empresas utilizadas: ${used} de ${limit} disponibles.`;
+  const overlayUsage = document.getElementById('empresaPlanUsage');
+  if (overlayUsage) {
+    overlayUsage.textContent = usageText;
+    overlayUsage.style.display = '';
+  }
+  const plan = document.getElementById('subPlanName');
+  const usedEl = document.getElementById('subCompaniesUsed');
+  const limitEl = document.getElementById('subCompaniesLimit');
+  const expires = document.getElementById('subExpiresAt');
+  if (plan) plan.textContent = subscriptionUsage.plan_name || 'Básico';
+  if (usedEl) usedEl.textContent = String(used);
+  if (limitEl) limitEl.textContent = limit;
+  if (expires) expires.textContent = subscriptionUsage.expires_at ? String(subscriptionUsage.expires_at).slice(0,10) : '—';
+}
+
+function canCreateCompanyFromPlan(errEl = null) {
+  if (!subscriptionUsage || subscriptionUsage.can_create_company !== false) return true;
+  const msg = 'Has alcanzado el límite de empresas permitido por tu suscripción.';
+  if (errEl) errEl.textContent = msg;
+  else alert(msg);
+  return false;
 }
 
 async function iniciarFlujoEmpresa() {
@@ -2758,11 +2823,21 @@ async function iniciarFlujoEmpresa() {
       }
       return;
     }
-    // Usuario genuinamente nuevo sin empresas → onboarding
-    mostrarOnboarding();
+    mostrarOverlayEmpresas([]);
     return;
   }
   if (perfiles.length === 1) {
+    seleccionarEmpresa(perfiles[0], false);
+    return;
+  }
+  if (assignedPerfilId) {
+    const asignado = perfiles.find(p => Number(p.id) === Number(assignedPerfilId));
+    if (asignado) {
+      seleccionarEmpresa(asignado, false);
+      return;
+    }
+  }
+  if (['asistente_facturacion', 'planta'].includes(currentUserRole)) {
     seleccionarEmpresa(perfiles[0], false);
     return;
   }
@@ -2772,7 +2847,11 @@ async function iniciarFlujoEmpresa() {
 function mostrarOverlayEmpresas(perfiles) {
   const list = document.getElementById('empresaList');
   if (!list) return;
-  list.innerHTML = perfiles.map(p => {
+  renderSubscriptionUsage();
+  if (!perfiles.length) {
+    list.innerHTML = '<div style="border:1px dashed #cbd5e1;border-radius:10px;padding:1rem;color:#64748b;background:#f8fafc;text-align:center">Aún no tienes empresas registradas.</div>';
+  } else {
+    list.innerHTML = perfiles.map(p => {
     const pJson = JSON.stringify(p).replace(/\\/g,'\\\\').replace(/"/g,'&quot;');
     const isActivo = _perfilSeleccionado && _perfilSeleccionado.id === p.id;
     return `
@@ -2785,7 +2864,8 @@ function mostrarOverlayEmpresas(perfiles) {
       </div>
       ${isActivo ? '<span class="empresa-item-badge">Activa</span>' : ''}
     </div>`;
-  }).join('');
+    }).join('');
+  }
   // Guardar perfiles en memoria para lookups rápidos
   window._perfilesCache = perfiles;
   const overlay = document.getElementById('empresaOverlay');
@@ -2820,34 +2900,7 @@ function mostrarSelectorEmpresas() {
   overlay.classList.add('visible');
 
   cargarPerfiles().then(perfiles => {
-    if (perfiles.length > 0) {
-      window._perfilesCache = perfiles;
-      // Renderizar lista dentro del overlay ya abierto
-      if (list) list.innerHTML = perfiles.map(p => {
-        const isActivo = _perfilSeleccionado && _perfilSeleccionado.id === p.id;
-        return `
-        <div class="empresa-item${isActivo?' activo':''}" onclick="seleccionarEmpresaById(${p.id})">
-          <div class="empresa-item-info">
-            <div class="empresa-item-nombre">${p.nombre||'—'}</div>
-            <div class="empresa-item-rfc">${p.rfc||'—'}</div>
-            ${p.descripcion ? `<div style="font-size:.72rem;color:#94a3b8;margin-top:.15rem">${p.descripcion}</div>` : ''}
-          </div>
-          ${isActivo ? '<span class="empresa-item-badge">Activa</span>' : ''}
-        </div>`;
-      }).join('');
-    } else {
-      // Error de red o sin empresas — mostrar reintento dentro del overlay
-      if (list) list.innerHTML = `
-        <div style="text-align:center;padding:1.5rem;color:#64748b">
-          <div style="font-size:1.3rem;margin-bottom:.5rem">⚠️</div>
-          <div style="font-weight:600;font-size:.85rem;margin-bottom:.4rem">No se pudieron cargar las empresas</div>
-          <div style="font-size:.75rem;margin-bottom:1rem">Verifica tu conexión e intenta de nuevo</div>
-          <button onclick="mostrarSelectorEmpresas()"
-            style="background:#0f172a;color:#fff;border:none;padding:.45rem 1.1rem;border-radius:8px;cursor:pointer;font-size:.82rem">
-            Reintentar
-          </button>
-        </div>`;
-    }
+    mostrarOverlayEmpresas(perfiles);
   }).catch(() => {
     // Error inesperado — cerrar overlay para no bloquear
     overlay.classList.remove('visible');
@@ -2962,12 +3015,13 @@ function cargarDatosDashboard() {
 // ── Modal nuevo perfil ────────────────────────────────────────────────────────
 
 function abrirModalNuevoPerfil() {
+  const errEl = document.getElementById('nuevoPerfil_err');
+  if (errEl) errEl.textContent = '';
+  if (!canCreateCompanyFromPlan(errEl)) return;
   ['nuevoPerfil_nombre','nuevoPerfil_rfc','nuevoPerfil_desc'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
-  const errEl = document.getElementById('nuevoPerfil_err');
-  if (errEl) errEl.textContent = '';
   const m = document.getElementById('modalNuevoPerfil');
   if (m) m.classList.add('visible');
 }
@@ -2993,6 +3047,8 @@ async function guardarNuevoPerfil() {
     });
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.detail || 'Error al guardar');
+    subscriptionUsage = data.subscription || subscriptionUsage;
+    renderSubscriptionUsage();
     cerrarModalNuevoPerfil();
     seleccionarEmpresa(data.perfil, true);
   } catch(e) {
@@ -3595,6 +3651,9 @@ function confirmDeleteFacility(id, nombre) {
 
 // ── Navegación principal ──────────────────────────────────────────────────
 async function switchTab(name) {
+  if (['asistente_facturacion', 'planta'].includes(currentUserRole) && name !== 'procesar') {
+    name = 'procesar';
+  }
   document.querySelectorAll('.main-nav-tab').forEach(x => {
     x.classList.toggle('active', x.dataset.main === name);
   });
