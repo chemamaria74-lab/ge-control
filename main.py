@@ -10,7 +10,6 @@ from pydantic import BaseModel
 
 from routes.upload      import router as upload_router
 from routes.cfdi        import router as cfdi_router
-from routes.perfiles    import router as perfiles_router
 from routes.transporte  import router as transporte_router
 from routes.gasolineras import router as gasolineras_router
 from routes.settings    import router as settings_router
@@ -22,9 +21,7 @@ from routes.facilities  import router as facilities_router
 from routes.admin       import router as admin_router
 from routes.facturas    import router as facturas_router
 from routes.movimientos import router as movimientos_router
-from routes.perfiles    import router as perfiles_router
 from services.database  import init_db
-from supabase_config    import get_supabase
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -70,6 +67,17 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Perfil-Id"],
 )
 
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    """Cabeceras defensivas básicas. CSP estricta queda pendiente por JS inline legado."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    return response
+
 # ── Routers API ───────────────────────────────────────────────────────────────
 app.include_router(upload_router,      prefix="/api", tags=["Excel / CSV"])
 app.include_router(cfdi_router,        prefix="/api", tags=["CFDI"])
@@ -83,10 +91,7 @@ app.include_router(admin_router,       prefix="/api", tags=["Admin"])
 app.include_router(facturas_router,    prefix="/api", tags=["Facturas"])
 app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
 app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
-app.include_router(facturas_router,    prefix="/api", tags=["Facturas"])
-app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
-app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
-app.include_router(transporte_router,  prefix="/api", tags=["Transporte"])   # ← AGREGAR AQUÍ
+app.include_router(transporte_router,  prefix="/api", tags=["Transporte"])
 app.include_router(gasolineras_router, prefix="/api", tags=["Gasolineras"])
 
 # ── Archivos estáticos ────────────────────────────────────────────────────────
@@ -109,42 +114,32 @@ class ConfigClienteSchema(BaseModel):
 # ── Endpoints legacy Supabase config ─────────────────────────────────────────
 @app.post("/api/supabase/config")
 async def guardar_config_cliente(config: ConfigClienteSchema):
-    """Guarda la configuración del cliente en Supabase."""
-    try:
-        response = get_supabase().table("clientes").upsert({
-            "estacion_id":           config.estacion_id,
-            "nombre":                config.nombre,
-            "rfc":                   config.rfc,
-            "unidad_base":           config.unidad_base,
-            "densidad_kg_por_litro": config.densidad_kg_por_litro,
-        }).execute()
-        return {"success": True, "data": response.data}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    """Endpoint legacy deshabilitado: no cumplía aislamiento user_id/perfil_id."""
+    from fastapi import HTTPException
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint legacy deshabilitado por seguridad. Usa /api/settings con autenticación y perfil activo.",
+    )
 
 
 @app.get("/api/supabase/config/{estacion_id}")
 async def obtener_config_cliente(estacion_id: str):
-    """Obtiene la configuración del cliente desde Supabase."""
-    try:
-        response = get_supabase().table("clientes").select("*")\
-                      .eq("estacion_id", estacion_id).execute()
-        if response.data:
-            return {"success": True, "data": response.data[0]}
-        return {"success": False, "error": "Configuración no encontrada"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    """Endpoint legacy deshabilitado: no cumplía aislamiento user_id/perfil_id."""
+    from fastapi import HTTPException
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint legacy deshabilitado por seguridad. Usa /api/settings con autenticación y perfil activo.",
+    )
 
 
 @app.delete("/api/supabase/config/{estacion_id}")
 async def eliminar_config_cliente(estacion_id: str):
-    """Elimina la configuración del cliente de Supabase."""
-    try:
-        response = get_supabase().table("clientes").delete()\
-                      .eq("estacion_id", estacion_id).execute()
-        return {"success": True, "deleted": len(response.data) if response.data else 0}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    """Endpoint legacy deshabilitado: no cumplía aislamiento user_id/perfil_id."""
+    from fastapi import HTTPException
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint legacy deshabilitado por seguridad. Usa /api/settings con autenticación y perfil activo.",
+    )
 
 
 # ── Vistas HTML ───────────────────────────────────────────────────────────────
@@ -233,7 +228,7 @@ async def frontend_gasolineras():
 # ── Health check ──────────────────────────────────────────────────────────────
 @app.get("/health", tags=["Sistema"])
 async def health():
-    return {"status": "ok", "version": "3.5.0", "producto": "gas_lp"}
+    return {"status": "ok", "version": "3.5.0", "producto": "ge_control"}
 
 
 # ── Arranque local ────────────────────────────────────────────────────────────
