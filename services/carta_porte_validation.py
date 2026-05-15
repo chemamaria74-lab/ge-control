@@ -184,7 +184,15 @@ def _es_producto_hidrocarburo(productos: list[dict] | None) -> bool:
 
 def _parse_xml(xml_content: str | bytes):
     raw = xml_content.encode("utf-8") if isinstance(xml_content, str) else xml_content
-    return etree.fromstring(raw, parser=etree.XMLParser(recover=True, huge_tree=True))
+    if len(raw) > 15 * 1024 * 1024:
+        raise ValueError("XML demasiado grande para validación fiscal.")
+    parser = etree.XMLParser(
+        recover=False,
+        resolve_entities=False,
+        no_network=True,
+        huge_tree=False,
+    )
+    return etree.fromstring(raw, parser=parser)
 
 
 def _first(root, local_name: str):
