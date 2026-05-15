@@ -381,6 +381,7 @@ Documentos internos:
 ```text
 docs/investigacion_cfdi_transporte_sw_sapien_20260513.md
 docs/configuracion_sw_sapien_pruebas.md
+docs/security_hardening_20260515.md
 ```
 
 Hallazgos técnicos:
@@ -391,6 +392,21 @@ Hallazgos técnicos:
 - Para tipo `I`, el servicio de transporte normalmente causa IVA 16%.
 - Para tipo `T`, el comprobante debe manejar subtotal/total cero y moneda `XXX`.
 - La validación final depende de SAT/PAC y catálogos vigentes.
+
+## Seguridad antes de producción
+
+Ejecutar en Supabase:
+
+```text
+migrations/security_hardening_rls_storage_20260515.sql
+```
+
+Esta migración endurece RLS y deja privado el bucket `transport-documents`. Antes de timbrar en producción fiscal real, validar en Supabase que:
+
+- todas las tablas sensibles tienen RLS activo;
+- `transport-documents` no es público;
+- los XML/PDF solo se consultan con usuario autenticado y perfil correcto;
+- no existe acceso cruzado entre usuarios, perfiles u operadores.
 
 ## Pruebas
 
