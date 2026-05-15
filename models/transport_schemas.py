@@ -425,7 +425,12 @@ class FacturaServicioCreate(BaseModel):
     concepto:            str = "Servicio de transporte de hidrocarburos"
     subtotal:            float
     iva:                 float = 0.0
+    retencion:           float = 0.0
     total:               float = 0.0
+    iva_tasa:            float = 0.16
+    retencion_tasa:      float = 0.04
+    aplica_iva:          bool = True
+    aplica_retencion:    bool = False
     forma_pago:          str = "99"
     metodo_pago:         str = "PPD"
     moneda:              str = "MXN"
@@ -454,8 +459,12 @@ class FacturaServicioCreate(BaseModel):
             raise ValueError("El subtotal debe ser mayor a 0.")
         if self.iva < 0:
             raise ValueError("El IVA no puede ser negativo.")
+        if self.retencion < 0:
+            raise ValueError("La retención no puede ser negativa.")
+        if self.iva_tasa < 0 or self.retencion_tasa < 0:
+            raise ValueError("Las tasas de impuestos no pueden ser negativas.")
         if not self.total:
-            self.total = round(self.subtotal + self.iva, 2)
+            self.total = round(self.subtotal + self.iva - self.retencion, 2)
         return self
 
 
