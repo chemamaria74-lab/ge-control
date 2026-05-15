@@ -25,7 +25,7 @@
 
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -141,12 +141,18 @@ class PerfilPayload(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/perfiles", summary="Listar perfiles de empresa del usuario")
-async def list_perfiles(authorization: str = Header(default="")):
+async def list_perfiles(
+    authorization: str = Header(default=""),
+    auto_create: bool = Query(
+        True,
+        description="Crea un perfil default solo para flujos legacy/migracion.",
+    ),
+):
     user_id = _auth(authorization)
     perfiles = get_perfiles_for_user(user_id)
 
     # Migración silenciosa: crear perfil default si el usuario no tiene ninguno
-    if not perfiles:
+    if auto_create and not perfiles:
         nuevo = ensure_default_perfil(user_id)
         if nuevo:
             perfiles = [nuevo]
