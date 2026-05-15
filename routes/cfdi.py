@@ -31,7 +31,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 
 from models.schemas import UploadResponse
-from routes.auth import verify_token
+from routes.auth import verify_token, obtener_secciones_usuario
 from routes.settings import _load as load_settings
 from services.cfdi_parser import parse_xml, parse_zip
 from services.database import (
@@ -51,6 +51,8 @@ from services.sat_transformer import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+MAX_CFDI_FILE_BYTES = 12 * 1024 * 1024
+MAX_CFDI_TOTAL_BYTES = 35 * 1024 * 1024
 
 
 def _parse_perfil_id(raw: str) -> Optional[int]:
@@ -59,6 +61,25 @@ def _parse_perfil_id(raw: str) -> Optional[int]:
         return v if v > 0 else None
     except (ValueError, TypeError):
         return None
+
+
+def _require_perfil_id(raw: str) -> int:
+    perfil_id = _parse_perfil_id(raw)
+    if not perfil_id:
+        raise HTTPException(400, "Selecciona un perfil/empresa activo antes de procesar CFDI.")
+    return perfil_id
+
+
+def _auth_gas_lp(authorization: str) -> tuple[str, str]:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(401, "No autenticado.")
+    token = authorization[7:].strip()
+    uid = verify_token(token)
+    if not uid:
+        raise HTTPException(401, "Token inválido o expirado.")
+    if "gas_lp" not in obtener_secciones_usuario(uid, access_token=token):
+        raise HTTPException(403, "Tu usuario no tiene acceso al módulo Gas LP.")
+    return uid, token
 
 
 def _alerta_capacidad_msg(cap_limit: float, raw: float, capped: float) -> str:
@@ -98,12 +119,14 @@ async def upload_cfdi(
             composicion_propano=composicion_propano, composicion_butano=composicion_butano,
             authorization=authorization, x_perfil_id=x_perfil_id,
         )
+    except HTTPException:
+        raise
     except Exception as fatal:
         logger.exception("FATAL upload_cfdi: %s", fatal)
         return UploadResponse(
             success=False,
-            errores=[f"Error interno del servidor: {type(fatal).__name__}: {fatal}"],
-            alertas=[], logs=[f"FATAL: {fatal}"],
+            errores=["Error interno al procesar CFDI. Revisa el archivo o intenta más tarde."],
+            alertas=[], logs=["FATAL: error interno registrado en servidor."],
             conteo_compras=0, conteo_ventas=0,
         )
 
@@ -118,26 +141,22 @@ async def _upload_cfdi_impl(
     todas_alertas: list[str] = []
 
     # ── Autenticación ─────────────────────────────────────────────────────────
-    user_id      = "default"
-    display_name = "Sistema"
-    perfil_id    = _parse_perfil_id(x_perfil_id)
-    if authorization.startswith("Bearer "):
-        uid = verify_token(authorization[7:])
-        if uid:
-            user_id = uid
-            try:
-                from supabase_config import get_supabase as _gsb
-                row = (
-                    _gsb().table("user_sections")
-                    .select("display_name").eq("user_id", uid).limit(1).execute().data
-                )
-                if row and row[0].get("display_name"):
-                    display_name = row[0]["display_name"]
-                else:
-                    _s = load_settings(uid, perfil_id)
-                    display_name = _s.get("RfcContribuyente") or "Operador"
-            except Exception:
-                display_name = "Operador"
+    user_id, _token = _auth_gas_lp(authorization)
+    display_name = "Operador"
+    perfil_id = _require_perfil_id(x_perfil_id)
+    try:
+        from supabase_config import get_supabase as _gsb
+        row = (
+            _gsb().table("user_sections")
+            .select("display_name").eq("user_id", user_id).limit(1).execute().data
+        )
+        if row and row[0].get("display_name"):
+            display_name = row[0]["display_name"]
+        else:
+            _s = load_settings(user_id, perfil_id)
+            display_name = _s.get("RfcContribuyente") or "Operador"
+    except Exception:
+        display_name = "Operador"
 
     logger.info(
         "upload_cfdi: user=%s perfil=%s facility=%s files=%d",
@@ -263,6 +282,11 @@ async def _upload_cfdi_impl(
         filename  = (upload.filename or "archivo").lower()
         ext       = ("." + filename.rsplit(".", 1)[-1]) if "." in filename else ""
         file_bytes = await upload.read()
+        if len(file_bytes) > MAX_CFDI_FILE_BYTES:
+            raise HTTPException(413, f"{upload.filename}: archivo demasiado grande. Límite por archivo: 12 MB.")
+        if sum(len(getattr(f, '_cached_bytes', b'')) for f in files) + len(file_bytes) > MAX_CFDI_TOTAL_BYTES:
+            raise HTTPException(413, "Carga demasiado grande. Límite total: 35 MB.")
+        upload._cached_bytes = file_bytes
         todos_logs.append(f"Procesando: {upload.filename} ({len(file_bytes):,} bytes)")
 
         if ext == ".zip":

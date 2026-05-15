@@ -26,8 +26,7 @@ PROVIDERS_DIR = os.path.join(os.path.dirname(__file__), "..", "config")
 def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
     """
     Lista proveedores filtrados por perfil_id.
-    Si el perfil no tiene proveedores propios ni huérfanos, busca proveedores
-    de otros perfiles del mismo usuario y los re-asigna (migración incremental).
+    Seguridad multiempresa: nunca lee ni re-asigna proveedores de otros perfiles.
     Retorna None solo si Supabase falla por red.
     """
     try:
@@ -50,19 +49,8 @@ def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
 
         ids_a_asignar = [p["id"] for p in r2]
 
-        # 3. Si no hay proveedores ni huérfanos para este perfil,
-        #    buscar en otros perfiles del mismo usuario y reasignar
-        if not r1 and not r2:
-            logger.info("Perfil %s sin proveedores — buscando en otros perfiles del usuario", perfil_id)
-            r_otros = sb.table("providers").select("*")\
-                        .eq("user_id", user_id).neq("perfil_id", perfil_id)\
-                        .order("rfc").execute().data or []
-            if r_otros:
-                ids_a_asignar = [p["id"] for p in r_otros]
-                logger.info("Reasignando %s proveedores de otros perfiles → perfil=%s", len(r_otros), perfil_id)
-                r2 = r_otros  # tratar como huérfanos para asignarlos abajo
-
-        # 4. Asignar inline todos los que encontramos sin perfil correcto
+        # 3. Asignar solo huérfanos explícitos de migración pre-multiempresa.
+        #    Nunca tomar datos de otro perfil porque eso rompe aislamiento.
         if ids_a_asignar:
             try:
                 sb.table("providers").update({"perfil_id": perfil_id})\
@@ -73,7 +61,7 @@ def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
             except Exception as e2:
                 logger.warning("No se pudo asignar proveedores: %s", e2)
 
-        # 5. Deduplicar por RFC (los del perfil exacto tienen prioridad)
+        # 4. Deduplicar por RFC (los del perfil exacto tienen prioridad)
         rfcs_vistas: set = set()
         resultado = []
         for p in r1 + r2:
@@ -141,6 +129,8 @@ def _sb_delete(user_id: str, rfc: str, perfil_id: int = None) -> bool:
         q = get_supabase().table("providers").delete().eq("user_id", user_id).eq("rfc", rfc.upper())
         if perfil_id:
             q = q.eq("perfil_id", perfil_id)
+        else:
+            q = q.is_("perfil_id", "null")
         q.execute()
         return True
     except Exception as e:
@@ -157,6 +147,7 @@ def _providers_file(user_id: str) -> str:
 def _file_list(user_id: str) -> list:
     try:
         with open(_providers_file(user_id), "r", encoding="utf-8") as f:
+            logger.warning("Usando fallback local de proveedores para user=%s; no usar en producción.", user_id)
             return json.load(f).get("providers", [])
     except (FileNotFoundError, json.JSONDecodeError):
         return []
@@ -219,9 +210,16 @@ def _parse_perfil_id(raw: str) -> Optional[int]:
         return None
 
 
+def _require_perfil_id(raw: str) -> int:
+    perfil_id = _parse_perfil_id(raw)
+    if not perfil_id:
+        raise HTTPException(400, "Selecciona un perfil/empresa activo antes de administrar proveedores.")
+    return perfil_id
+
+
 def get_permiso_for_rfc(rfc: str, user_id: str = None, perfil_id: int = None) -> Optional[str]:
     """Retorna el permiso CRE del proveedor para el usuario/perfil dado, o None."""
-    if not rfc or not user_id:
+    if not rfc or not user_id or not perfil_id:
         return None
     rfc_upper = rfc.strip().upper()
     for p in _load_providers(user_id, perfil_id):
@@ -232,7 +230,7 @@ def get_permiso_for_rfc(rfc: str, user_id: str = None, perfil_id: int = None) ->
 
 def get_permiso_almacenamiento_for_rfc(rfc: str, user_id: str = None, perfil_id: int = None) -> Optional[str]:
     """Retorna el permiso_almacenamiento_terminal del proveedor/terminal."""
-    if not rfc or not user_id:
+    if not rfc or not user_id or not perfil_id:
         return None
     rfc_upper = rfc.strip().upper()
     for p in _load_providers(user_id, perfil_id):
@@ -268,9 +266,7 @@ async def asignar_perfil_a_huerfanos(
     Llamar una sola vez al acceder al tab de Proveedores con un perfil seleccionado.
     """
     user_id   = _auth(authorization)
-    perfil_id = _parse_perfil_id(x_perfil_id)
-    if not perfil_id:
-        return JSONResponse(content={"ok": True, "updated": 0, "msg": "Sin perfil activo"})
+    perfil_id = _require_perfil_id(x_perfil_id)
     try:
         from supabase_config import get_supabase
         result = get_supabase().table("providers")\
@@ -283,7 +279,7 @@ async def asignar_perfil_a_huerfanos(
         return JSONResponse(content={"ok": True, "updated": updated})
     except Exception as e:
         logger.error("asignar_perfil_a_huerfanos: %s", e)
-        return JSONResponse(content={"ok": False, "error": str(e)})
+        raise HTTPException(500, "No se pudieron asignar proveedores huérfanos.")
 
 
 @router.get("/providers")
@@ -292,7 +288,7 @@ async def list_providers(
     x_perfil_id:   str = Header(default=""),
 ):
     user_id   = _auth(authorization)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_perfil_id(x_perfil_id)
     return JSONResponse(content={"providers": _load_providers(user_id, perfil_id)})
 
 
@@ -303,7 +299,7 @@ async def upsert_provider_endpoint(
     x_perfil_id:   str = Header(default=""),
 ):
     user_id   = _auth(authorization)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_perfil_id(x_perfil_id)
     rfc_upper = payload.rfc.strip().upper()
     if not rfc_upper:
         raise HTTPException(400, "El RFC es obligatorio.")
@@ -326,9 +322,7 @@ async def delete_provider_endpoint(
     x_perfil_id:   str = Header(default=""),
 ):
     user_id   = _auth(authorization)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_perfil_id(x_perfil_id)
     _delete_provider(user_id, rfc, perfil_id)
     logger.info("Proveedor eliminado: %s user=%s perfil=%s", rfc, user_id, perfil_id)
     return JSONResponse(content={"success": True, "providers": _load_providers(user_id, perfil_id)})
-
-

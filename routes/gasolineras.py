@@ -37,6 +37,7 @@ from supabase_config import get_supabase_for_user
 logger = logging.getLogger(__name__)
 router = APIRouter()
 MODULO = "gasolineras"
+MAX_GASO_UPLOAD_BYTES = 10 * 1024 * 1024
 
 TBL_SETTINGS = "gaso_settings"
 TBL_STATIONS = "gaso_estaciones"
@@ -63,9 +64,11 @@ def _auth(authorization: str) -> tuple[str, str]:
 def _perfil_id(raw: str | None) -> int | None:
     try:
         value = int((raw or "").strip())
-        return value if value > 0 else None
+        if value > 0:
+            return value
     except (TypeError, ValueError):
-        return None
+        pass
+    raise HTTPException(400, "Selecciona un perfil/empresa activo antes de operar Gasolineras.")
 
 
 def _sb(token: str):
@@ -395,6 +398,8 @@ async def upload_cfdi(
     uid, token = _auth(authorization)
     perfil_id = _perfil_id(x_perfil_id)
     content = await file.read()
+    if len(content) > MAX_GASO_UPLOAD_BYTES:
+        raise HTTPException(413, "Archivo demasiado grande. Límite: 10 MB.")
     try:
         parsed = parse_cfdi_purchase_xml(content)
     except Exception as e:
@@ -429,7 +434,10 @@ async def upload_sales(
 ):
     uid, token = _auth(authorization)
     perfil_id = _perfil_id(x_perfil_id)
-    parsed = parse_sales_csv(await file.read())
+    content = await file.read()
+    if len(content) > MAX_GASO_UPLOAD_BYTES:
+        raise HTTPException(413, "Archivo demasiado grande. Límite: 10 MB.")
+    parsed = parse_sales_csv(content)
     rows = []
     for item in parsed["rows"]:
         rows.append({

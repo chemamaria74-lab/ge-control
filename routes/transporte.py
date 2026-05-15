@@ -46,7 +46,7 @@ import re
 import hashlib
 import secrets
 from io import BytesIO
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
@@ -152,7 +152,10 @@ def _parse_perfil_id(raw: str | None) -> Optional[int]:
 
 
 def _perfil(perfil_id: Optional[int] = None, x_perfil_id: str = "") -> Optional[int]:
-    return perfil_id or _parse_perfil_id(x_perfil_id)
+    pid = perfil_id or _parse_perfil_id(x_perfil_id)
+    if not pid:
+        raise HTTPException(400, "Selecciona un perfil/empresa activo para operar Transporte.")
+    return pid
 
 
 def _settings_transporte(uid: str, token: str, perfil_id: Optional[int] = None) -> dict:
@@ -162,6 +165,8 @@ def _settings_transporte(uid: str, token: str, perfil_id: Optional[int] = None) 
         q   = sb.table(_TBL_SETTINGS).select("data").eq("user_id", uid)
         if perfil_id:
             q = q.eq("perfil_id", perfil_id)
+        else:
+            q = q.is_("perfil_id", "null")
         res = q.limit(1).execute()
         rows = res.data or []
         return rows[0].get("data", {}) if rows else {}
@@ -1553,7 +1558,15 @@ async def crear_acceso_operador(payload: dict, authorization: str = Header(defau
     if not chofer_id:
         raise HTTPException(400, "chofer_id requerido.")
     token_plain = secrets.token_urlsafe(24)
-    _sb(token).table(_TBL_OPER_ACC).insert({"user_id": uid, "perfil_id": pid, "chofer_id": chofer_id, "token_hash": _hash_operator_token(token_plain), "status": "activo"}).execute()
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    _sb(token).table(_TBL_OPER_ACC).insert({
+        "user_id": uid,
+        "perfil_id": pid,
+        "chofer_id": chofer_id,
+        "token_hash": _hash_operator_token(token_plain),
+        "status": "activo",
+        "expires_at": expires_at.isoformat(),
+    }).execute()
     return JSONResponse({"ok": True, "token": token_plain, "url": f"/operador/transporte?token={token_plain}"})
 
 
@@ -1562,11 +1575,26 @@ def _operador_context(token_plain: str):
     rows = sb.table(_TBL_OPER_ACC).select("*").eq("token_hash", _hash_operator_token(token_plain)).eq("status", "activo").limit(1).execute().data or []
     if not rows:
         raise HTTPException(401, "Acceso de operador invalido.")
+    acc = rows[0]
+    expires_at = acc.get("expires_at")
+    if expires_at:
+        try:
+            exp = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if exp <= datetime.now(timezone.utc):
+                try:
+                    sb.table(_TBL_OPER_ACC).update({"status": "expirado"}).eq("id", acc["id"]).execute()
+                except Exception:
+                    pass
+                raise HTTPException(401, "Acceso de operador expirado.")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(401, "Acceso de operador inválido.")
     try:
-        sb.table(_TBL_OPER_ACC).update({"last_used_at": datetime.now(timezone.utc).isoformat()}).eq("id", rows[0]["id"]).execute()
+        sb.table(_TBL_OPER_ACC).update({"last_used_at": datetime.now(timezone.utc).isoformat()}).eq("id", acc["id"]).execute()
     except Exception:
         pass
-    return sb, rows[0]
+    return sb, acc
 
 
 @router.get("/tr/operador/viajes")
@@ -1602,7 +1630,10 @@ async def operador_accion(viaje_id: int, payload: dict, token: str = Query(...))
     update = {"operacion_status": status}
     if accion == "entregado":
         update["fecha_entrega_confirmada"] = datetime.now(timezone.utc).isoformat()
-    sb.table(_TBL_VIAJES).update(update).eq("id", viaje_id).eq("user_id", acc["user_id"]).execute()
+    uq = sb.table(_TBL_VIAJES).update(update).eq("id", viaje_id).eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"])
+    if acc.get("perfil_id"):
+        uq = uq.eq("perfil_id", acc.get("perfil_id"))
+    uq.execute()
     _registrar_evento(sb, acc["user_id"], viaje_rows[0].get("perfil_id"), viaje_id, f"operador_{accion}", title, str(payload.get("nota") or ""), "operador", str(acc["chofer_id"]), {"accion": accion})
     if accion == "problema":
         v = viaje_rows[0]

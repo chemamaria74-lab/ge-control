@@ -4,7 +4,7 @@
 import logging
 from typing import Optional
 import pandas as pd
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException
 
 from services.parser import parse_file
 from services.validator import validate
@@ -13,9 +13,33 @@ from utils.json_schema import validate_schema
 from models.schemas import UploadResponse
 from config.cliente import ConfigCliente
 from routes.settings import _load as load_settings
+from routes.auth import verify_token, obtener_secciones_usuario
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+def _parse_perfil_id(raw: str) -> int:
+    try:
+        value = int((raw or "").strip())
+    except (TypeError, ValueError):
+        value = 0
+    if value <= 0:
+        raise HTTPException(400, "Selecciona un perfil/empresa activo antes de subir archivos.")
+    return value
+
+
+def _auth_gas_lp(authorization: str) -> tuple[str, str]:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(401, "No autenticado.")
+    token = authorization[7:].strip()
+    uid = verify_token(token)
+    if not uid:
+        raise HTTPException(401, "Token inválido o expirado.")
+    if "gas_lp" not in obtener_secciones_usuario(uid, access_token=token):
+        raise HTTPException(403, "Tu usuario no tiene acceso al módulo Gas LP.")
+    return uid, token
 
 
 @router.post("/upload", response_model=UploadResponse, summary="Procesar Excel/CSV de Gas LP")
@@ -26,6 +50,8 @@ async def upload_file(
     unidad_base:           str             = Form(default="kg"),
     inventario_inicial:    Optional[float] = Form(default=None),
     inventario_final:      Optional[float] = Form(default=None),
+    authorization:         str             = Header(default=""),
+    x_perfil_id:           str             = Header(default=""),
 ):
     todos_logs:    list[str] = []
     todos_errores: list[str] = []
@@ -34,14 +60,18 @@ async def upload_file(
     filename = file.filename or ""
     if not any(filename.lower().endswith(ext) for ext in (".xlsx", ".xls", ".csv")):
         raise HTTPException(400, "Solo se aceptan .xlsx, .xls o .csv")
+    user_id, _token = _auth_gas_lp(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "Archivo demasiado grande. Límite: 10 MB.")
 
     config = ConfigCliente(
         estacion_id=estacion_id, rfc=rfc,
         unidad_base=unidad_base,
-        factor_de_conversion_kg_a_litros=load_settings().get("FactorDeConversionKgALitros", 0.542),
+        factor_de_conversion_kg_a_litros=load_settings(user_id, perfil_id).get("FactorDeConversionKgALitros", 0.542),
     )
-
-    file_bytes = await file.read()
 
     # PASO 1: Parseo
     todos_logs.append("=== PASO 1: Parseo ===")
