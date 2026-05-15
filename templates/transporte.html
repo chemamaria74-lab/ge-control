@@ -364,7 +364,31 @@ select option{background:#fff}
         <div class="form-group"><label>Chofer</label><select id="liq-chofer"></select></div>
         <div class="form-group"><label>Periodo</label><input type="month" id="liq-periodo"></div>
       </div>
+      <div class="form-row cols-3">
+        <div class="form-group">
+          <label>Quincena</label>
+          <select id="liq-periodo-tipo">
+            <option value="q1">1a quincena</option>
+            <option value="q2">2a quincena</option>
+            <option value="mes">Mes completo</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Anticipos</label><input type="number" id="liq-anticipos" step="0.01" value="0"></div>
+        <div class="form-group"><label>Comisión extra</label><input type="number" id="liq-comision" step="0.01" value="0"></div>
+      </div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label>Descuentos</label><input type="number" id="liq-descuentos" step="0.01" value="0"></div>
+        <div class="form-group">
+          <label>Método pago</label>
+          <select id="liq-metodo-pago"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="cheque">Cheque</option><option value="otro">Otro</option></select>
+        </div>
+        <div class="form-group"><label>Referencia</label><input id="liq-referencia" placeholder="Banco, folio o nota"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Notas</label><input id="liq-notas" placeholder="Notas internas de la quincena"></div>
+      </div>
       <button class="btn btn-primary" onclick="generarLiquidacion()">Generar liquidación</button>
+      <div id="liq-detalle" class="hint" style="margin-top:12px"></div>
       <div id="op-liquidaciones-list" class="hint" style="margin-top:12px">Sin liquidaciones cargadas.</div>
     </div>
   </div>
@@ -429,11 +453,11 @@ select option{background:#fff}
     <table>
       <thead>
         <tr>
-          <th>Folio</th><th>Cliente</th><th>RFC</th><th>Cartas Porte</th><th>Total</th><th>Status</th><th>Fecha</th>
+          <th>Folio</th><th>Cliente</th><th>RFC</th><th>Cartas Porte</th><th>Subtotal</th><th>IVA</th><th>Retención</th><th>Total</th><th>Status</th><th>Fecha</th>
         </tr>
       </thead>
       <tbody id="tbody-facturas-servicio">
-        <tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div><h3>Cargando facturas de servicio...</h3></div></td></tr>
+        <tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div><h3>Cargando facturas de servicio...</h3></div></td></tr>
       </tbody>
     </table>
   </div>
@@ -516,6 +540,7 @@ select option{background:#fff}
     <button class="btn btn-ghost" id="ctab-choferes" onclick="switchCatTab('choferes')" style="border-color:var(--blue);color:var(--blue-light)"><i class="fa-solid fa-id-card"></i> Choferes</button>
     <button class="btn btn-ghost" id="ctab-vehiculos" onclick="switchCatTab('vehiculos')"><i class="fa-solid fa-truck"></i> Vehículos</button>
     <button class="btn btn-ghost" id="ctab-rutas" onclick="switchCatTab('rutas')"><i class="fa-solid fa-route"></i> Rutas</button>
+    <button class="btn btn-ghost" id="ctab-tarifas" onclick="switchCatTab('tarifas')"><i class="fa-solid fa-tags"></i> Tarifas</button>
     <button class="btn btn-ghost" id="ctab-clientes" onclick="switchCatTab('clientes')"><i class="fa-solid fa-building"></i> Clientes</button>
     <button class="btn btn-ghost" id="ctab-productos" onclick="switchCatTab('productos')"><i class="fa-solid fa-gas-pump"></i> Catálogo Productos SAT</button>
   </div>
@@ -553,6 +578,21 @@ select option{background:#fff}
     <div class="table-wrap"><table>
       <thead><tr><th>Nombre</th><th>CP Origen</th><th>Localidad Origen</th><th>CP Destino</th><th>Localidad Destino</th><th>Distancia km</th><th>Duración</th><th>Acciones</th></tr></thead>
       <tbody id="tbody-rutas"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Tarifas -->
+  <div id="cat-tarifas" class="cat-section" style="display:none">
+    <div class="section-hdr" style="margin-bottom:16px">
+      <div>
+        <span style="font-size:15px;font-weight:600">Tarifas de servicio</span>
+        <p class="hint" style="margin-top:4px">Configura tarifa, IVA y retención por cliente, ruta, producto y tipo de cálculo.</p>
+      </div>
+      <button class="btn btn-primary" onclick="abrirModalTarifa()"><i class="fa-solid fa-plus"></i> Nueva tarifa</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Cliente</th><th>Ruta</th><th>Producto</th><th>Tipo</th><th>Tarifa</th><th>IVA</th><th>Retención</th><th>Vigencia</th><th>Acciones</th></tr></thead>
+      <tbody id="tbody-tarifas"></tbody>
     </table></div>
   </div>
 
@@ -630,6 +670,14 @@ select option{background:#fff}
             <option value="625">625 - Plataformas Tecnológicas</option>
             <option value="626">626 - RESICO</option>
           </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Logo para Carta Porte / PDF fiscal</label>
+          <input type="file" id="cfg-logo-pdf-file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onchange="cargarLogoPdfPerfil(event)">
+          <input type="hidden" id="cfg-logo-pdf-data">
+          <span class="hint" id="cfg-logo-pdf-hint">Opcional. Se usará como logo del emisor en la representación impresa fiscal.</span>
         </div>
       </div>
     </div>
@@ -1036,6 +1084,51 @@ select option{background:#fff}
 </div>
 </div>
 
+<!-- Modal: Tarifa -->
+<div class="overlay" id="modal-tarifa">
+<div class="modal wide">
+  <div class="modal-title"><i class="fa-solid fa-tags"></i> Nueva tarifa de servicio</div>
+  <div class="alert alert-info">La tarifa se guarda por usuario/perfil. El cálculo fiscal de la factura de servicio tomará estos valores del servidor.</div>
+  <div class="form-row cols-3">
+    <div class="form-group"><label>Cliente</label><select id="tf-cliente"><option value="">Todos</option></select></div>
+    <div class="form-group"><label>Ruta</label><select id="tf-ruta" onchange="autollenarTarifaRuta()"><option value="">Todas</option></select></div>
+    <div class="form-group"><label>Producto</label><input id="tf-producto" placeholder="Magna, Premium, Diésel, Gas LP o Todos"></div>
+  </div>
+  <div class="form-row cols-4">
+    <div class="form-group"><label>Origen</label><input id="tf-origen" placeholder="CP, ciudad o terminal"></div>
+    <div class="form-group"><label>Destino</label><input id="tf-destino" placeholder="CP, ciudad o cliente"></div>
+    <div class="form-group">
+      <label>Tipo tarifa</label>
+      <select id="tf-regla">
+        <option value="litros">Por litro</option>
+        <option value="kilos">Por kilo</option>
+        <option value="distancia">Por km</option>
+        <option value="viaje">Por viaje</option>
+        <option value="manual">Manual</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Tarifa</label><input type="number" id="tf-tarifa" step="0.0001" min="0" placeholder="0.00"></div>
+  </div>
+  <div class="form-row cols-4">
+    <div class="form-group"><label>IVA %</label><input type="number" id="tf-iva" step="0.01" min="0" value="16"></div>
+    <div class="form-group"><label>Retención %</label><input type="number" id="tf-ret" step="0.01" min="0" value="4"></div>
+    <div class="form-group"><label>Desde</label><input type="date" id="tf-desde"></div>
+    <div class="form-group"><label>Hasta</label><input type="date" id="tf-hasta"></div>
+  </div>
+  <div class="form-row cols-2">
+    <label class="check-row"><input type="checkbox" id="tf-aplica-iva" checked> Aplicar IVA</label>
+    <label class="check-row"><input type="checkbox" id="tf-aplica-ret" checked> Aplicar retención</label>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label>Observaciones</label><input id="tf-observaciones" placeholder="Convenio, folio de tarifa o notas internas"></div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-ghost" onclick="cerrarModal('modal-tarifa')">Cancelar</button>
+    <button class="btn btn-primary" onclick="guardarTarifa('modal')"><i class="fa-solid fa-floppy-disk"></i> Guardar tarifa</button>
+  </div>
+</div>
+</div>
+
 <!-- Modal: Factura de servicio -->
 <div class="overlay" id="modal-factura-servicio">
 <div class="modal wide">
@@ -1059,8 +1152,13 @@ select option{background:#fff}
   </div>
   <div class="form-row cols-3">
     <div class="form-group"><label>Subtotal</label><input type="number" id="fs-subtotal" min="0" step="0.01" oninput="calcularTotalServicio()"></div>
-    <div class="form-group"><label>IVA 16%</label><input type="number" id="fs-iva" min="0" step="0.01" readonly></div>
+    <div class="form-group"><label>IVA configurable</label><input type="number" id="fs-iva" min="0" step="0.01" readonly></div>
+    <div class="form-group"><label>Retención</label><input type="number" id="fs-retencion" min="0" step="0.01" readonly></div>
+  </div>
+  <div class="form-row cols-3">
     <div class="form-group"><label>Total</label><input type="number" id="fs-total" min="0" step="0.01" readonly></div>
+    <div class="form-group"><label>Tasa IVA</label><input type="text" id="fs-iva-tasa" readonly placeholder="Según tarifa"></div>
+    <div class="form-group"><label>Tasa retención</label><input type="text" id="fs-ret-tasa" readonly placeholder="Según tarifa"></div>
   </div>
   <div class="form-row">
     <div class="form-group"><label>Concepto</label><input type="text" id="fs-concepto" value="Servicio de transporte de hidrocarburos"></div>
@@ -1440,6 +1538,7 @@ function switchCatTab(which) {
   btn.style.borderColor = 'var(--blue)';
   btn.style.color = 'var(--blue-light)';
   if (which === 'productos' && !PRODUCTOS_SAT.length) cargarProductosSAT();
+  if (which === 'tarifas') renderTarifasCatalogo();
 }
 
 // ─── TOAST ──────────────────────────────────────────────
@@ -1526,6 +1625,8 @@ async function cargarConfig() {
   document.getElementById('cfg-clave-inst').value      = c.ClaveInstalacion || '';
   document.getElementById('cfg-num-autotanques').value = VEHICULOS.length || c.NumeroAutotanques || 0;
   document.getElementById('cfg-rfc-proveedor').value   = c.RfcProveedor || 'ATI9404219D5';
+  document.getElementById('cfg-logo-pdf-data').value    = c.PdfLogoDataUrl || '';
+  document.getElementById('cfg-logo-pdf-hint').textContent = c.PdfLogoDataUrl ? 'Logo cargado para PDFs fiscales.' : 'Opcional. Se usará como logo del emisor en la representación impresa fiscal.';
   document.getElementById('topbar-rfc').textContent    = c.RfcContribuyente ? `RFC ${c.RfcContribuyente}` : 'RFC —';
   const combustibles = c.CombustiblesTransporte || ['magna','premium','diesel','gas_lp'];
   document.querySelectorAll('.cfg-fuel').forEach(ch => { ch.checked = combustibles.includes(ch.value); });
@@ -1557,6 +1658,8 @@ async function guardarConfig() {
     NumeroAutotanques:   VEHICULOS.length,
     RfcProveedor:        rfcProv,
     CombustiblesTransporte: Array.from(document.querySelectorAll('.cfg-fuel:checked')).map(ch => ch.value),
+    PdfLogoDataUrl:      document.getElementById('cfg-logo-pdf-data').value || '',
+    ValidarComplementoHidrocarburos: true,
     Caracter:            'permisionario',
   };
   const r = await api('PUT', '/api/tr/settings', data);
@@ -1564,21 +1667,39 @@ async function guardarConfig() {
   if (r?.ok) { CONFIG_DATA = data; toast('Configuración guardada', 'success'); cargarConfig(); }
 }
 
+function cargarLogoPdfPerfil(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (file.size > 350000) {
+    toast('El logo debe pesar menos de 350 KB para guardarlo en la configuración del perfil.', 'error');
+    event.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById('cfg-logo-pdf-data').value = reader.result;
+    document.getElementById('cfg-logo-pdf-hint').textContent = `Logo listo: ${file.name}`;
+  };
+  reader.readAsDataURL(file);
+}
+
 // ═══════════════════════════════════════════════════════
 // CATÁLOGOS
 // ═══════════════════════════════════════════════════════
 async function cargarCatalogos() {
-  const [ch, ve, ru, cl] = await Promise.all([
+  const [ch, ve, ru, cl, ta] = await Promise.all([
     api('GET', '/api/tr/choferes'),
     api('GET', '/api/tr/vehiculos'),
     api('GET', '/api/tr/rutas'),
     api('GET', '/api/tr/clientes'),
+    api('GET', '/api/tr/tarifas').catch(()=>null),
   ]);
   CHOFERES  = ch?.choferes  || [];
   VEHICULOS = ve?.vehiculos || [];
   RUTAS     = ru?.rutas     || [];
   CLIENTES  = cl?.clientes  || [];
-  renderChoferes(); renderVehiculos(); renderRutas(); renderClientes();
+  TARIFAS   = ta?.tarifas   || TARIFAS || [];
+  renderChoferes(); renderVehiculos(); renderRutas(); renderClientes(); renderTarifasCatalogo();
   actualizarSelects();
   const autotanques = document.getElementById('cfg-num-autotanques');
   if (autotanques) autotanques.value = VEHICULOS.length;
@@ -1696,6 +1817,16 @@ function actualizarSelects() {
   if (fsCliente) {
     fsCliente.innerHTML = '<option value="">Selecciona cliente</option>' +
       CLIENTES.map(c => `<option value="${c.id}" data-rfc="${c.rfc}" data-nom="${c.nombre}" data-cp="${c.cp}" data-regimen="${c.regimen_fiscal}" data-uso="${c.uso_cfdi}">${c.rfc} — ${c.nombre}</option>`).join('');
+  }
+  const tfCliente = document.getElementById('tf-cliente');
+  if (tfCliente) {
+    tfCliente.innerHTML = '<option value="">Todos</option>' +
+      CLIENTES.map(c => `<option value="${c.id}">${c.rfc} — ${c.nombre}</option>`).join('');
+  }
+  const tfRuta = document.getElementById('tf-ruta');
+  if (tfRuta) {
+    tfRuta.innerHTML = '<option value="">Todas</option>' +
+      RUTAS.map(r => `<option value="${r.id}" data-origen="${r.nombre_origen||r.cp_origen||''}" data-destino="${r.nombre_destino||r.cp_destino||''}">${r.nombre}</option>`).join('');
   }
   ['op-chofer-token','liq-chofer'].forEach(id => {
     const el = document.getElementById(id);
@@ -2043,7 +2174,11 @@ async function timbrarViaje(id) {
   toast('Timbrando Carta Porte. Puede tardar unos segundos.');
   const r = await api('POST', `/api/tr/viajes/${id}/timbrar`, { viaje_id: id });
   if (r?.ok) {
-    toast(`Carta Porte timbrada. UUID: ${r.uuid_sat?.substring(0,8)}...`, 'success');
+    if (r.validacion_carta_porte && !r.validacion_carta_porte.ok) {
+      toast(`CFDI timbrado, pero XML inválido como Carta Porte: ${(r.validacion_carta_porte.errors||[])[0] || 'revisa detalle fiscal'}`, 'error');
+    } else {
+      toast(`Carta Porte timbrada. UUID: ${r.uuid_sat?.substring(0,8)}...`, 'success');
+    }
     cargarViajes(); cargarFacturas();
   }
 }
@@ -2110,6 +2245,7 @@ async function cargarViaje360() {
   const v = d.viaje || {};
   const eventos = d.eventos || [];
   const docs = d.documentos || [];
+  const gastos = d.gastos || [];
   document.getElementById('op-viaje360').innerHTML = `
     <div style="display:grid;gap:10px;margin-top:12px">
       <div><strong>Viaje #${v.id}</strong> · ${v.nombre_origen||v.cp_origen||'?'} → ${v.nombre_destino||v.cp_destino||'?'}</div>
@@ -2117,8 +2253,30 @@ async function cargarViaje360() {
       <div class="hint">Fiscal: ${v.uuid_cfdi ? 'Carta Porte timbrada ' + v.uuid_cfdi.substring(0,8) : 'Carta Porte pendiente'} · Operación: ${v.operacion_status || v.status}</div>
       <div><button class="btn btn-ghost" onclick="calcularTarifa(${v.id})">Calcular tarifa</button> <button class="btn btn-ghost" onclick="actualizarStatusOperacion(${v.id},'entregado')">Marcar entregado</button> <button class="btn btn-ghost" onclick="actualizarStatusOperacion(${v.id},'cerrado')">Cerrar viaje</button></div>
       <div><strong>Documentos</strong>${docs.map(x=>`<div class="hint">${x.tipo}: ${x.nombre || x.storage_path || 'Documento'}</div>`).join('') || '<div class="hint">Sin documentos registrados.</div>'}</div>
+      <div>
+        <strong>Gastos del viaje</strong>
+        ${gastos.map(g=>`<div class="hint">${g.tipo || 'Gasto'} · ${g.descripcion || ''} · $${Number(g.importe||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · ${g.status}</div>`).join('') || '<div class="hint">Sin gastos registrados.</div>'}
+        <div class="form-row cols-3" style="margin-top:8px">
+          <input id="gasto-tipo-${v.id}" placeholder="Tipo gasto">
+          <input id="gasto-desc-${v.id}" placeholder="Descripción">
+          <input type="number" id="gasto-importe-${v.id}" placeholder="Importe" step="0.01">
+        </div>
+        <button class="btn btn-ghost" onclick="agregarGastoViaje(${v.id})">Agregar gasto aprobado</button>
+      </div>
       <div><strong>Timeline</strong>${eventos.map(e=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)"><span class="td-mono">${(e.created_at||'').substring(0,16)}</span> · <strong>${e.title}</strong><div class="hint">${e.description||''}</div></div>`).join('') || '<div class="hint">Sin eventos todavía.</div>'}</div>
     </div>`;
+}
+
+async function agregarGastoViaje(id) {
+  const body = {
+    tipo: document.getElementById(`gasto-tipo-${id}`).value.trim() || 'otro',
+    descripcion: document.getElementById(`gasto-desc-${id}`).value.trim(),
+    importe: parseFloat(document.getElementById(`gasto-importe-${id}`).value || 0),
+    status: 'aprobado',
+  };
+  if (!body.importe) { toast('Captura importe del gasto', 'error'); return; }
+  const r = await api('POST', `/api/tr/viajes/${id}/gastos`, body);
+  if (r?.ok) { toast('Gasto agregado', 'success'); cargarViaje360(); }
 }
 
 async function actualizarStatusOperacion(id, status) {
@@ -2140,21 +2298,108 @@ function renderTarifasOperacion() {
   if (!el) return;
   if (!TARIFAS.length) { el.innerHTML = 'Sin tarifas configuradas.'; return; }
   el.innerHTML = TARIFAS.slice(0,30).map(t => `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)"><span>${t.origen||'*'} → ${t.destino||'*'} · ${t.producto||'Todos'} · ${t.regla_calculo}</span><strong>$${Number(t.tarifa||0).toLocaleString('es-MX',{minimumFractionDigits:4})}</strong></div>`).join('');
+  renderTarifasCatalogo();
 }
 
-async function guardarTarifa() {
-  const body = {
+function clienteNombre(id) {
+  const c = CLIENTES.find(x => String(x.id) === String(id));
+  return c ? `${c.rfc} · ${c.nombre}` : 'Todos';
+}
+
+function rutaNombre(id) {
+  const r = RUTAS.find(x => String(x.id) === String(id));
+  return r ? r.nombre : 'Todas';
+}
+
+function pct(v) {
+  return `${(Number(v || 0) * 100).toFixed(2).replace(/\.00$/,'')}%`;
+}
+
+function renderTarifasCatalogo() {
+  const t = document.getElementById('tbody-tarifas');
+  if (!t) return;
+  if (!TARIFAS.length) {
+    t.innerHTML = '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-tags"></i></div><h3>Sin tarifas configuradas</h3></div></td></tr>';
+    return;
+  }
+  t.innerHTML = TARIFAS.map(x => `
+    <tr>
+      <td>${clienteNombre(x.cliente_id)}</td>
+      <td>${rutaNombre(x.ruta_id)}<div class="hint">${x.origen||'*'} → ${x.destino||'*'}</div></td>
+      <td>${x.producto || 'Todos'}</td>
+      <td><span class="chip chip-gray">${x.regla_calculo === 'distancia' ? 'km' : x.regla_calculo}</span></td>
+      <td style="text-align:right">$${Number(x.tarifa||0).toLocaleString('es-MX',{minimumFractionDigits:4})}</td>
+      <td>${x.aplica_iva ? pct(x.iva_tasa) : 'No aplica'}</td>
+      <td>${x.aplica_retencion ? pct(x.retencion_tasa) : 'No aplica'}</td>
+      <td>${x.vigencia_desde || 'Siempre'} → ${x.vigencia_hasta || 'Sin fin'}</td>
+      <td>${actionBtn('danger','Desactivar tarifa',`desactivarTarifa(${x.id})`, icon('trash'))}</td>
+    </tr>`).join('');
+}
+
+function abrirModalTarifa() {
+  actualizarSelects();
+  ['tf-producto','tf-origen','tf-destino','tf-tarifa','tf-desde','tf-hasta','tf-observaciones'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('tf-cliente').value = '';
+  document.getElementById('tf-ruta').value = '';
+  document.getElementById('tf-regla').value = 'litros';
+  document.getElementById('tf-iva').value = '16';
+  document.getElementById('tf-ret').value = '4';
+  document.getElementById('tf-aplica-iva').checked = true;
+  document.getElementById('tf-aplica-ret').checked = true;
+  abrirModal('modal-tarifa');
+}
+
+function autollenarTarifaRuta() {
+  const sel = document.getElementById('tf-ruta');
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt?.value) return;
+  document.getElementById('tf-origen').value = opt.dataset.origen || '';
+  document.getElementById('tf-destino').value = opt.dataset.destino || '';
+}
+
+async function desactivarTarifa(id) {
+  const r = await api('PUT', `/api/tr/tarifas/${id}`, { activo: false });
+  if (r?.ok) { toast('Tarifa desactivada', 'success'); cargarCatalogos(); cargarOperacion(); }
+}
+
+async function guardarTarifa(source='operacion') {
+  const modal = source === 'modal';
+  const tasaIva = modal ? Number(document.getElementById('tf-iva').value || 0) / 100 : parseFloat(document.getElementById('tar-iva').value || 0.16);
+  const tasaRet = modal ? Number(document.getElementById('tf-ret').value || 0) / 100 : parseFloat(document.getElementById('tar-ret').value || 0.04);
+  const body = modal ? {
+    cliente_id: document.getElementById('tf-cliente').value ? parseInt(document.getElementById('tf-cliente').value) : null,
+    ruta_id: document.getElementById('tf-ruta').value ? parseInt(document.getElementById('tf-ruta').value) : null,
+    origen: document.getElementById('tf-origen').value.trim(),
+    destino: document.getElementById('tf-destino').value.trim(),
+    producto: document.getElementById('tf-producto').value.trim(),
+    regla_calculo: document.getElementById('tf-regla').value,
+    tarifa: parseFloat(document.getElementById('tf-tarifa').value || 0),
+    iva_tasa: tasaIva,
+    retencion_tasa: tasaRet,
+    aplica_iva: document.getElementById('tf-aplica-iva').checked,
+    aplica_retencion: document.getElementById('tf-aplica-ret').checked,
+    vigencia_desde: document.getElementById('tf-desde').value || null,
+    vigencia_hasta: document.getElementById('tf-hasta').value || null,
+    observaciones: document.getElementById('tf-observaciones').value.trim(),
+  } : {
     origen: document.getElementById('tar-origen').value.trim(),
     destino: document.getElementById('tar-destino').value.trim(),
     producto: document.getElementById('tar-producto').value.trim(),
     regla_calculo: document.getElementById('tar-regla').value,
     tarifa: parseFloat(document.getElementById('tar-tarifa').value || 0),
-    iva_tasa: parseFloat(document.getElementById('tar-iva').value || 0.16),
-    retencion_tasa: parseFloat(document.getElementById('tar-ret').value || 0.04),
+    iva_tasa: tasaIva,
+    retencion_tasa: tasaRet,
+    aplica_iva: true,
+    aplica_retencion: true,
   };
   if (!body.tarifa) { toast('Captura una tarifa', 'error'); return; }
   const r = await api('POST', '/api/tr/tarifas', body);
-  if (r?.ok) { toast('Tarifa guardada', 'success'); cargarOperacion(); }
+  if (r?.ok) {
+    toast('Tarifa guardada', 'success');
+    cerrarModal('modal-tarifa');
+    cargarCatalogos();
+    cargarOperacion();
+  }
 }
 
 async function generarLinkOperador() {
@@ -2172,15 +2417,75 @@ function renderLiquidacionesOperacion() {
   const el = document.getElementById('op-liquidaciones-list');
   if (!el) return;
   if (!LIQUIDACIONES.length) { el.innerHTML = 'Sin liquidaciones cargadas.'; return; }
-  el.innerHTML = LIQUIDACIONES.slice(0,20).map(l => `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)"><span>#${l.id} · chofer ${l.chofer_id} · ${l.status}</span><strong>$${Number(l.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</strong></div>`).join('');
+  el.innerHTML = LIQUIDACIONES.slice(0,20).map(l => `
+    <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)">
+      <div>
+        <strong>#${l.id}</strong> · chofer ${l.chofer_id} · ${l.periodo || '—'} · <span class="chip ${l.status==='pagada'?'chip-green':'chip-blue'}">${l.status}</span>
+        <div class="hint">Anticipos: $${Number(l.anticipos||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · Descuentos: $${Number(l.descuentos||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · Pago: ${l.metodo_pago || 'pendiente'}</div>
+      </div>
+      <div style="text-align:right">
+        <strong>$${Number(l.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</strong>
+        <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end;flex-wrap:wrap">
+          <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="verLiquidacion(${l.id})">Detalle</button>
+          <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="exportarLiquidacion(${l.id})">Excel</button>
+          ${l.status !== 'pagada' ? `<button class="btn btn-success" style="padding:4px 10px;font-size:11px" onclick="pagarLiquidacion(${l.id})">Pagar</button>` : ''}
+        </div>
+      </div>
+    </div>`).join('');
 }
 
 async function generarLiquidacion() {
   const choferId = document.getElementById('liq-chofer').value;
   const periodo = document.getElementById('liq-periodo').value;
   if (!choferId || !periodo) { toast('Selecciona chofer y periodo', 'error'); return; }
-  const r = await api('POST', '/api/tr/liquidaciones/generar', { chofer_id: parseInt(choferId), periodo });
+  const r = await api('POST', '/api/tr/liquidaciones/generar', {
+    chofer_id: parseInt(choferId),
+    periodo,
+    periodo_tipo: document.getElementById('liq-periodo-tipo').value,
+    anticipos: parseFloat(document.getElementById('liq-anticipos').value || 0),
+    comision_extra: parseFloat(document.getElementById('liq-comision').value || 0),
+    descuentos: parseFloat(document.getElementById('liq-descuentos').value || 0),
+    metodo_pago: document.getElementById('liq-metodo-pago').value,
+    referencia_pago: document.getElementById('liq-referencia').value.trim(),
+    notas: document.getElementById('liq-notas').value.trim(),
+  });
   if (r?.ok) { toast(`Liquidación generada: $${Number(r.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}`, 'success'); cargarOperacion(); }
+}
+
+async function verLiquidacion(id) {
+  const d = await api('GET', `/api/tr/liquidaciones/${id}`);
+  const l = d.liquidacion || {};
+  const items = d.items || [];
+  document.getElementById('liq-detalle').innerHTML = `
+    <div style="margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel)">
+      <strong>Liquidación #${l.id}</strong> · ${l.periodo || '—'} · ${l.status || '—'}
+      <div class="hint">Subtotal $${Number(l.subtotal||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · IVA $${Number(l.iva||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · Retención $${Number(l.retencion||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · Gastos $${Number(l.gastos||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</div>
+      <div class="hint">Comisión $${Number(l.comision_extra||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · Descuentos $${Number(l.descuentos||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · Anticipos $${Number(l.anticipos||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</div>
+      <div style="margin-top:8px">${items.map(i=>`<div style="display:flex;justify-content:space-between;border-top:1px solid var(--line);padding:6px 0"><span>Viaje #${i.viaje_id} · ${i.concepto}</span><strong>$${Number(i.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</strong></div>`).join('') || 'Sin partidas.'}</div>
+    </div>`;
+}
+
+async function pagarLiquidacion(id) {
+  const metodo = document.getElementById('liq-metodo-pago').value || 'efectivo';
+  const referencia = document.getElementById('liq-referencia').value.trim();
+  const r = await api('POST', `/api/tr/liquidaciones/${id}/pagar`, { metodo_pago: metodo, referencia_pago: referencia });
+  if (r?.ok) { toast('Liquidación marcada como pagada', 'success'); cargarOperacion(); }
+}
+
+async function exportarLiquidacion(id) {
+  const r = await fetch(withPerfil(`/api/tr/liquidaciones/${id}/export.xlsx`), { headers: H() });
+  if (!r.ok) {
+    const d = await r.json().catch(()=>({}));
+    toast(d.detail || 'No se pudo exportar liquidación', 'error');
+    return;
+  }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `liquidacion_${id}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function abrirImportadorExcel() {
@@ -2233,14 +2538,14 @@ function renderFacturas() {
       <td style="text-align:right">${Number(f.volumen_total||0).toLocaleString()}</td>
       <td style="text-align:right">$${Number(f.importe_total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
       <td style="white-space:nowrap">${f.fecha_timbrado?.substring(0,10)||'—'}</td>
-      <td>${f.status==='Vigente' ? '<span class="chip chip-green">Vigente</span>' : '<span class="chip chip-red">Cancelada</span>'}</td>
+      <td>${f.status==='Vigente' ? '<span class="chip chip-green">Vigente</span>' : (f.status==='ErrorValidacion' ? '<span class="chip chip-red">XML inválido</span>' : '<span class="chip chip-red">Cancelada</span>')}</td>
       <td>
         <div class="doc-actions">
         ${actionBtn('ghost','Ver detalle fiscal',`verDetalleCFDI(${f.id})`, `${icon('eye')} Detalle`)}
         ${actionBtn('ghost','Ver XML',`verXML(${f.id})`, `${icon('code')} Ver XML`)}
         ${actionBtn('ghost','Descargar XML',`descargarXML(${f.id})`, `${icon('download')} XML`)}
-        ${actionBtn('ghost','Ver Carta Porte PDF',`verPDFCartaPorte(${f.id})`, `${icon('file-pdf')} Ver PDF`)}
-        ${actionBtn('ghost','Descargar Carta Porte PDF',`descargarPDFCartaPorte(${f.id})`, `${icon('download')} PDF`)}
+        ${f.status==='Vigente' ? actionBtn('ghost','Ver Carta Porte PDF',`verPDFCartaPorte(${f.id})`, `${icon('file-pdf')} Ver PDF`) : `<button class="btn btn-ghost" title="PDF bloqueado: XML no válido como Carta Porte" disabled style="opacity:.55">${icon('file-pdf')} PDF bloqueado</button>`}
+        ${f.status==='Vigente' ? actionBtn('ghost','Descargar Carta Porte PDF',`descargarPDFCartaPorte(${f.id})`, `${icon('download')} PDF`) : ''}
         </div>
       </td>
     </tr>`).join('');
@@ -2250,7 +2555,7 @@ function renderFacturasServicio() {
   const t = document.getElementById('tbody-facturas-servicio');
   if (!t) return;
   if (!FACTURAS_SERVICIO.length) {
-    t.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div><h3>No hay facturas de servicio en este periodo</h3></div></td></tr>';
+    t.innerHTML = '<tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div><h3>No hay facturas de servicio en este periodo</h3></div></td></tr>';
     return;
   }
   t.innerHTML = FACTURAS_SERVICIO.map(f => {
@@ -2261,6 +2566,9 @@ function renderFacturasServicio() {
       <td>${f.nombre_receptor || '—'}</td>
       <td class="td-mono">${f.rfc_receptor || '—'}</td>
       <td>${ids.length}</td>
+      <td style="text-align:right">$${Number(f.subtotal||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
+      <td style="text-align:right">$${Number(f.iva||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
+      <td style="text-align:right">$${Number(f.retencion||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
       <td style="text-align:right">$${Number(f.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
       <td><span class="chip chip-blue">${f.status || 'timbrada'}</span></td>
       <td>${(f.created_at||'').substring(0,10)}</td>
@@ -2416,11 +2724,11 @@ function abrirModalFacturaServicio() {
   api('GET', '/api/tr/cartas-porte-facturables').then(d => {
     CARTAS_FACTURABLES = d?.cartas || [];
     sel.innerHTML = CARTAS_FACTURABLES.length
-      ? CARTAS_FACTURABLES.map(c => `<option value="${c.viaje_id}">#${c.viaje_id} - ${(c.uuid_cfdi||'').substring(0,8)} - ${c.rfc_receptor||'sin RFC'}</option>`).join('')
+      ? CARTAS_FACTURABLES.map(c => `<option value="${c.viaje_id}">#${c.viaje_id} - ${(c.uuid_cfdi||'').substring(0,8)} - ${c.rfc_receptor||'sin RFC'} - ${c.tarifa_id ? '$'+Number(c.total||0).toLocaleString('es-MX',{minimumFractionDigits:2}) : 'sin tarifa'}</option>`).join('')
       : '<option value="">No hay Cartas Porte timbradas disponibles</option>';
     if (CARTAS_FACTURABLES[0]) { sel.value = CARTAS_FACTURABLES[0].viaje_id; autoCartaServicio(); }
   });
-  ['fs-rfc','fs-nombre','fs-cp','fs-subtotal','fs-iva','fs-total'].forEach(id => document.getElementById(id).value = '');
+  ['fs-rfc','fs-nombre','fs-cp','fs-subtotal','fs-iva','fs-retencion','fs-total','fs-iva-tasa','fs-ret-tasa'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('fs-concepto').value = 'Servicio de transporte de carga correspondiente a la Carta Porte.';
   abrirModal('modal-factura-servicio');
 }
@@ -2434,10 +2742,17 @@ function autoCartaServicio() {
   document.getElementById('fs-nombre').value = first.nombre_receptor || '';
   document.getElementById('fs-cp').value = first.cp_receptor || '';
   const sub = cartas.reduce((s,c) => s + Number(c.subtotal||0), 0);
-  const iva = Math.round(sub * 0.16 * 100) / 100;
+  const iva = cartas.reduce((s,c) => s + Number(c.iva||0), 0);
+  const ret = cartas.reduce((s,c) => s + Number(c.retencion||0), 0);
+  const total = cartas.reduce((s,c) => s + Number(c.total||0), 0);
+  const ivaRates = [...new Set(cartas.filter(c => c.aplica_iva).map(c => Number(c.iva_tasa||0)))];
+  const retRates = [...new Set(cartas.filter(c => c.aplica_retencion).map(c => Number(c.retencion_tasa||0)))];
   document.getElementById('fs-subtotal').value = sub.toFixed(2);
   document.getElementById('fs-iva').value = iva.toFixed(2);
-  document.getElementById('fs-total').value = (sub + iva).toFixed(2);
+  document.getElementById('fs-retencion').value = ret.toFixed(2);
+  document.getElementById('fs-total').value = total.toFixed(2);
+  document.getElementById('fs-iva-tasa').value = ivaRates.length === 1 ? `${(ivaRates[0]*100).toFixed(2)}%` : (ivaRates.length ? 'Mixtas' : 'No aplica');
+  document.getElementById('fs-ret-tasa').value = retRates.length === 1 ? `${(retRates[0]*100).toFixed(2)}%` : (retRates.length ? 'Mixtas' : 'No aplica');
   document.getElementById('fs-concepto').value = `Servicio de transporte de carga correspondiente a la Carta Porte ${cartas.map(c => c.folio || c.viaje_id).join(', ')}.`;
 }
 
@@ -2451,10 +2766,16 @@ function autoClienteServicio() {
 }
 
 function calcularTotalServicio() {
+  const ids = Array.from(document.getElementById('fs-viajes').selectedOptions).map(o => parseInt(o.value));
+  const cartas = CARTAS_FACTURABLES.filter(c => ids.includes(parseInt(c.viaje_id)));
+  if (cartas.length) {
+    autoCartaServicio();
+    return;
+  }
   const subtotal = parseFloat(document.getElementById('fs-subtotal').value || 0);
-  const iva = Math.round(subtotal * 0.16 * 100) / 100;
-  document.getElementById('fs-iva').value = iva.toFixed(2);
-  document.getElementById('fs-total').value = (subtotal + iva).toFixed(2);
+  document.getElementById('fs-iva').value = '0.00';
+  document.getElementById('fs-retencion').value = '0.00';
+  document.getElementById('fs-total').value = subtotal.toFixed(2);
 }
 
 async function guardarFacturaServicio() {
@@ -2477,14 +2798,17 @@ async function guardarFacturaServicio() {
     concepto: document.getElementById('fs-concepto').value.trim() || 'Servicio de transporte de hidrocarburos',
     subtotal: parseFloat(document.getElementById('fs-subtotal').value || 0),
     iva: parseFloat(document.getElementById('fs-iva').value || 0),
+    retencion: parseFloat(document.getElementById('fs-retencion').value || 0),
     total: parseFloat(document.getElementById('fs-total').value || 0),
   };
   if (!body.viaje_ids.length) { toast('Selecciona al menos una Carta Porte timbrada', 'error'); return; }
+  const sinTarifa = CARTAS_FACTURABLES.filter(c => viajes.includes(parseInt(c.viaje_id)) && !c.tarifa_id).map(c => c.viaje_id);
+  if (sinTarifa.length) {
+    toast(`Configura tarifa antes de facturar los viajes: ${sinTarifa.join(', ')}`, 'error');
+    return;
+  }
   if (!body.rfc_receptor || !body.nombre_receptor || !body.cp_receptor || !body.regimen_fiscal || !body.uso_cfdi) {
     toast('Cliente receptor fiscal completo requerido: RFC, razón social, CP, régimen y uso CFDI.', 'error'); return;
-  }
-  if (Math.abs(body.iva - Math.round(body.subtotal * 0.16 * 100) / 100) > 0.01) {
-    toast('El IVA debe calcularse al 16%.', 'error'); return;
   }
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Timbrando factura...';
   const r = await api('POST', '/api/tr/facturas-servicio', body);
