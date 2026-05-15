@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import base64
 from io import BytesIO
 from xml.sax.saxutils import escape
 
@@ -35,14 +36,8 @@ def extraer_info_pdf(xml_content: str | bytes) -> CartaPortePdfInfo:
     return CartaPortePdfInfo(uuid=uuid, id_ccp=id_ccp, has_carta_porte=carta is not None, filename=f"carta_porte_{safe}.pdf")
 
 
-def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes) -> bytes:
-    """
-    Genera la representación impresa interna de un CFDI 4.0 con Carta Porte 3.1.
-
-    Si el XML timbrado no contiene el complemento Carta Porte, el PDF se genera con
-    una advertencia visible para evitar que un CFDI incompleto se use en carretera
-    como si fuera Carta Porte válida.
-    """
+def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: str = "") -> bytes:
+    """Genera la representación impresa fiscal de un CFDI 4.0 con Carta Porte 3.1."""
     try:
         from reportlab.lib import colors
         from reportlab.lib.enums import TA_CENTER
@@ -102,15 +97,20 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes) -> bytes:
     story = []
     uuid = _attr(timbre, "UUID")
     qr = _qr_flowable(_url_qr_fiscal(comp, emisor, receptor, timbre), Image)
+    issuer_logo = _logo_flowable(logo_data_url, Image)
+    issuer_title = (
+        f"{_text(_attr(emisor, 'Nombre', 'EMISOR'))}<br/>"
+        f"<font size='7'>RFC {_text(_attr(emisor, 'Rfc', '—'))} · Régimen {_text(_attr(emisor, 'RegimenFiscal', '—'))}</font>"
+    )
     header = Table(
         [
             [
-                Paragraph("<b>GE CONTROL</b><br/><font size='7'>Representación impresa interna</font>", styles["Brand"]),
-                Paragraph("<b>CFDI 4.0 con Complemento Carta Porte 3.1</b><br/>Documento para expediente y carretera", styles["TitleCenter"]),
+                issuer_logo or Paragraph(f"<b>{issuer_title}</b>", styles["Brand"]),
+                Paragraph("<b>Representación impresa de CFDI 4.0 con Complemento Carta Porte 3.1</b><br/>Documento fiscal para acreditar el transporte de mercancías", styles["TitleCenter"]),
                 qr or Paragraph("QR fiscal<br/>no disponible", styles["Tiny"]),
             ]
         ],
-        colWidths=[1.65 * inch, 4.0 * inch, 1.15 * inch],
+        colWidths=[1.9 * inch, 3.75 * inch, 1.15 * inch],
     )
     header.setStyle(_table_style(box=False, header=False))
     story += [header, Spacer(1, 6)]
@@ -402,6 +402,17 @@ def _url_qr_fiscal(comp, emisor, receptor, timbre) -> str:
 
 def _qr_flowable(url: str, Image):
     if not url or "id=&" in url:
+        return None
+
+
+def _logo_flowable(data_url: str, Image):
+    if not data_url or not data_url.startswith("data:image/"):
+        return None
+    try:
+        raw_b64 = data_url.split(",", 1)[1]
+        raw = base64.b64decode(raw_b64)
+        return Image(BytesIO(raw), width=1.45 * inch(), height=0.65 * inch(), kind="proportional")
+    except Exception:
         return None
     try:
         import qrcode
