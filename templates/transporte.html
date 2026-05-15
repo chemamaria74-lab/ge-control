@@ -1205,6 +1205,10 @@ let EDIT_ID = null;
 let PERFIL = null;
 let TARIFAS = [];
 let LIQUIDACIONES = [];
+let PERFILES_TRANSPORTE = [];
+let TRANSPORTE_BOOTSTRAPPED = false;
+let PERFIL_PROMPT_VISIBLE = false;
+let I18N_TRANSPORTE_INSTALLED = false;
 
 try {
   PERFIL = JSON.parse(localStorage.getItem('zc_perfil') || 'null');
@@ -1378,6 +1382,11 @@ function applyI18n(root=document.body) {
 }
 
 function icon(name) { return `<i class="fa-solid fa-${name}"></i>`; }
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
 function nowLocalInput() {
   const d = new Date();
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
@@ -1444,6 +1453,204 @@ function withPerfil(path) {
   return `${path}${sep}perfil_id=${encodeURIComponent(pid)}`;
 }
 
+function authHeaders() {
+  return {'Authorization': `Bearer ${TOKEN}`};
+}
+
+function actualizarHeaderPerfilTransporte() {
+  const rfcEl = document.getElementById('topbar-rfc');
+  if (rfcEl) rfcEl.textContent = PERFIL?.rfc ? `RFC ${PERFIL.rfc}` : 'RFC —';
+
+  const topRight = document.querySelector('.topbar-right');
+  if (!topRight) return;
+  let emp = document.getElementById('topbar-empresa');
+  if (!emp) {
+    emp = document.createElement('button');
+    emp.type = 'button';
+    emp.className = 'badge';
+    emp.id = 'topbar-empresa';
+    emp.style.border = '0';
+    emp.style.cursor = 'pointer';
+    emp.onclick = () => mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE);
+    topRight.prepend(emp);
+  }
+  emp.textContent = PERFIL?.nombre || 'Seleccionar empresa';
+  emp.title = 'Cambiar empresa activa';
+}
+
+function ensureEmpresaOverlayTransporte() {
+  if (document.getElementById('empresaOverlayTransporte')) return;
+
+  const style = document.createElement('style');
+  style.textContent = `
+    .empresa-overlay-transporte{position:fixed;inset:0;background:rgba(17,17,17,.46);z-index:9999;display:none;align-items:center;justify-content:center;padding:22px}
+    .empresa-overlay-transporte.open{display:flex}
+    .empresa-card-transporte{width:min(720px,100%);background:#fff;border:1px solid #e5ded2;border-radius:14px;box-shadow:0 24px 70px rgba(17,17,17,.22);padding:28px;color:#111}
+    .empresa-card-transporte h2{font-size:28px;margin:0 0 8px;font-weight:800;letter-spacing:0}
+    .empresa-card-transporte p{margin:0 0 20px;color:#6d6861;font-size:16px;line-height:1.45}
+    .empresa-list-transporte{display:grid;gap:12px;margin-top:14px}
+    .empresa-option-transporte{display:flex;justify-content:space-between;gap:16px;align-items:center;width:100%;text-align:left;background:#faf9f7;border:1px solid #e5ded2;border-radius:12px;padding:16px 18px;color:#111;cursor:pointer}
+    .empresa-option-transporte:hover{border-color:#7A1E2C;background:#fff}
+    .empresa-option-transporte strong{display:block;font-size:18px;margin-bottom:4px}
+    .empresa-option-transporte span{display:block;color:#6d6861}
+    .empresa-empty-transporte{border:1px dashed #d7cabb;border-radius:12px;padding:18px;color:#6d6861;background:#fbfaf8}
+    .empresa-actions-transporte{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;flex-wrap:wrap}
+    @media(max-width:640px){.empresa-card-transporte{padding:22px}.empresa-option-transporte{align-items:flex-start;flex-direction:column}.empresa-actions-transporte .btn{width:100%}}
+  `;
+  document.head.appendChild(style);
+
+  const overlay = document.createElement('div');
+  overlay.id = 'empresaOverlayTransporte';
+  overlay.className = 'empresa-overlay-transporte';
+  overlay.innerHTML = `
+    <div class="empresa-card-transporte" role="dialog" aria-modal="true" aria-labelledby="empresaTransporteTitle">
+      <h2 id="empresaTransporteTitle">Selecciona tu empresa</h2>
+      <p id="empresaTransporteMsg">Transporte necesita una empresa activa para separar viajes, CFDI, documentos, tarifas y liquidaciones.</p>
+      <div id="empresaTransporteList" class="empresa-list-transporte"></div>
+      <div class="empresa-actions-transporte">
+        <button class="btn btn-ghost" type="button" onclick="location.href='/choice'">Cambiar módulo</button>
+        <button class="btn btn-primary" type="button" onclick="resolverPerfilTransporte()">Reintentar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+async function cargarPerfilesTransporte() {
+  const r = await fetch('/api/perfiles?auto_create=false', {headers: authHeaders()});
+  if (r.status === 401) { location.href = '/login/transporte'; return []; }
+  if (!r.ok) throw new Error('No fue posible cargar las empresas del usuario.');
+  const data = await r.json();
+  return Array.isArray(data.perfiles) ? data.perfiles : [];
+}
+
+function guardarPerfilTransporte(perfil) {
+  PERFIL = perfil || null;
+  if (PERFIL?.id) {
+    localStorage.setItem('zc_perfil', JSON.stringify(PERFIL));
+  } else {
+    localStorage.removeItem('zc_perfil');
+  }
+  actualizarHeaderPerfilTransporte();
+}
+
+function mostrarSelectorEmpresaTransporte(perfiles = PERFILES_TRANSPORTE, mensaje = '') {
+  ensureEmpresaOverlayTransporte();
+  PERFIL_PROMPT_VISIBLE = true;
+  const overlay = document.getElementById('empresaOverlayTransporte');
+  const msg = document.getElementById('empresaTransporteMsg');
+  const list = document.getElementById('empresaTransporteList');
+  msg.textContent = mensaje || 'Transporte necesita una empresa activa para separar viajes, CFDI, documentos, tarifas y liquidaciones.';
+  if (!perfiles.length) {
+    list.innerHTML = `<div class="empresa-empty-transporte">No hay empresas activas para este usuario. Crea o activa un perfil de empresa antes de operar Transporte.</div>`;
+  } else {
+    list.innerHTML = perfiles.map(p => `
+      <button class="empresa-option-transporte" type="button" onclick="seleccionarPerfilTransporte(${Number(p.id)})">
+        <span>
+          <strong>${esc(p.nombre || 'Empresa sin nombre')}</strong>
+          <span>${esc(p.rfc || 'RFC pendiente')}</span>
+        </span>
+        <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+      </button>
+    `).join('');
+  }
+  overlay.classList.add('open');
+}
+
+function ocultarSelectorEmpresaTransporte() {
+  PERFIL_PROMPT_VISIBLE = false;
+  document.getElementById('empresaOverlayTransporte')?.classList.remove('open');
+}
+
+async function seleccionarPerfilTransporte(id) {
+  const perfil = PERFILES_TRANSPORTE.find(p => Number(p.id) === Number(id));
+  if (!perfil) return;
+  guardarPerfilTransporte(perfil);
+  ocultarSelectorEmpresaTransporte();
+  await bootstrapTransporte(true);
+}
+
+async function resolverPerfilTransporte() {
+  try {
+    PERFILES_TRANSPORTE = await cargarPerfilesTransporte();
+    const activo = perfilId()
+      ? PERFILES_TRANSPORTE.find(p => Number(p.id) === Number(perfilId()))
+      : null;
+    if (activo) {
+      guardarPerfilTransporte(activo);
+      ocultarSelectorEmpresaTransporte();
+      return true;
+    }
+    if (PERFILES_TRANSPORTE.length === 1) {
+      guardarPerfilTransporte(PERFILES_TRANSPORTE[0]);
+      ocultarSelectorEmpresaTransporte();
+      return true;
+    }
+    guardarPerfilTransporte(null);
+    mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE);
+    return false;
+  } catch (e) {
+    guardarPerfilTransporte(null);
+    mostrarSelectorEmpresaTransporte([], e.message || 'Selecciona una empresa activa para operar Transporte.');
+    return false;
+  }
+}
+
+function instalarLangToggleTransporte() {
+  const topRight = document.querySelector('.topbar-right');
+  if (!topRight || document.getElementById('lang-toggle')) return;
+  const b = document.createElement('button');
+  b.id = 'lang-toggle';
+  b.className = 'btn-sm';
+  b.textContent = LANG === 'en' ? 'ES' : 'EN';
+  b.title = LANG === 'en' ? 'Cambiar a Español' : 'Switch to English';
+  b.onclick = () => {
+    const next = LANG === 'en' ? 'es' : 'en';
+    localStorage.setItem('zc_lang', next);
+    const url = new URL(location.href);
+    url.searchParams.set('lang', next);
+    location.replace(url.toString());
+  };
+  topRight.prepend(b);
+}
+
+function instalarI18nTransporte() {
+  if (I18N_TRANSPORTE_INSTALLED) return;
+  I18N_TRANSPORTE_INSTALLED = true;
+  applyI18n();
+  if (LANG === 'en') {
+    new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => {
+      if (n.nodeType === 1) applyI18n(n);
+    }))).observe(document.body, {childList:true, subtree:true});
+  }
+}
+
+async function bootstrapTransporte(force=false) {
+  if (!perfilId()) {
+    mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE);
+    return;
+  }
+  if (TRANSPORTE_BOOTSTRAPPED && !force) return;
+  CONFIG_DATA = {};
+  CHOFERES = [];
+  VEHICULOS = [];
+  RUTAS = [];
+  CLIENTES = [];
+  PRODUCTOS_SAT = [];
+  VIAJES = [];
+  FACTURAS = [];
+  FACTURAS_SERVICIO = [];
+  CARTAS_FACTURABLES = [];
+  COVOL_RESULT = null;
+  TARIFAS = [];
+  LIQUIDACIONES = [];
+  TRANSPORTE_BOOTSTRAPPED = true;
+  await Promise.all([cargarConfig(), cargarCatalogos(), cargarViajes(), cargarProductosSAT(), cargarDashboardTransporte()]);
+  cargarOperacion();
+  cargarFacturas();
+  instalarI18nTransporte();
+}
+
 // ─── INIT ───────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
   // Detectar token del localStorage o URL
@@ -1463,7 +1670,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Mostrar usuario
   try {
-    const sb = await fetch('/api/auth/me', {headers: H()});
+    const sb = await fetch('/api/auth/me', {headers: authHeaders()});
     if (sb.ok) {
       const d = await sb.json();
       const name = d.display_name || d.email || 'Usuario';
@@ -1471,44 +1678,11 @@ window.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('topbar-email').textContent = d.email || name;
     }
   } catch(e) {}
-  if (PERFIL) {
-    document.getElementById('topbar-rfc').textContent = PERFIL.rfc ? `RFC ${PERFIL.rfc}` : 'RFC —';
-    const topRight = document.querySelector('.topbar-right');
-    if (topRight && !document.getElementById('topbar-empresa')) {
-      const emp = document.createElement('span');
-      emp.className = 'badge';
-      emp.id = 'topbar-empresa';
-      emp.textContent = PERFIL.nombre || 'Empresa activa';
-      topRight.prepend(emp);
-    }
-  }
-
-  // Cargar todo en paralelo
-  await Promise.all([cargarConfig(), cargarCatalogos(), cargarViajes(), cargarProductosSAT(), cargarDashboardTransporte()]);
-  cargarOperacion();
-  cargarFacturas();
-  applyI18n();
-  const topRight = document.querySelector('.topbar-right');
-  if (topRight && !document.getElementById('lang-toggle')) {
-    const b = document.createElement('button');
-    b.id = 'lang-toggle';
-    b.className = 'btn-sm';
-    b.textContent = LANG === 'en' ? 'ES' : 'EN';
-    b.title = LANG === 'en' ? 'Cambiar a Español' : 'Switch to English';
-    b.onclick = () => {
-      const next = LANG === 'en' ? 'es' : 'en';
-      localStorage.setItem('zc_lang', next);
-      const url = new URL(location.href);
-      url.searchParams.set('lang', next);
-      location.replace(url.toString());
-    };
-    topRight.prepend(b);
-  }
-  if (LANG === 'en') {
-    new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => {
-      if (n.nodeType === 1) applyI18n(n);
-    }))).observe(document.body, {childList:true, subtree:true});
-  }
+  instalarLangToggleTransporte();
+  actualizarHeaderPerfilTransporte();
+  const listo = await resolverPerfilTransporte();
+  if (listo) await bootstrapTransporte();
+  instalarI18nTransporte();
 });
 
 // ─── TABS ───────────────────────────────────────────────
@@ -1570,8 +1744,8 @@ async function cargarDashboardTransporte() {
 async function cargarAnalisisTransporte() {
   const d = await api('GET', '/api/tr/analytics');
   if (!d) return;
-  document.getElementById('ta-rutas').innerHTML = (d.rutas||[]).slice(0,6).map(r => `<div>${r.ruta}: <b>${Number(r.volumen||0).toLocaleString()} L</b></div>`).join('') || 'Sin datos';
-  document.getElementById('ta-productos').innerHTML = (d.productos||[]).slice(0,6).map(p => `<div>${p.producto}: <b>${Number(p.volumen||0).toLocaleString()} L</b></div>`).join('') || 'Sin datos';
+  document.getElementById('ta-rutas').innerHTML = (d.rutas||[]).slice(0,6).map(r => `<div>${esc(r.ruta)}: <b>${Number(r.volumen||0).toLocaleString()} L</b></div>`).join('') || 'Sin datos';
+  document.getElementById('ta-productos').innerHTML = (d.productos||[]).slice(0,6).map(p => `<div>${esc(p.producto)}: <b>${Number(p.volumen||0).toLocaleString()} L</b></div>`).join('') || 'Sin datos';
 }
 
 async function cargarPronosticoTransporte() {
@@ -1591,6 +1765,10 @@ document.querySelectorAll('.overlay').forEach(o => {
 // ─── API HELPER ─────────────────────────────────────────
 async function api(method, path, body) {
   try {
+    if (path.startsWith('/api/tr/') && !perfilId()) {
+      if (!PERFIL_PROMPT_VISIBLE) mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE);
+      return null;
+    }
     const opts = { method, headers: H() };
     const pid = perfilId();
     if (body && typeof body === 'object' && pid && !Array.isArray(body) && !body.perfil_id) {
@@ -1716,11 +1894,11 @@ function renderChoferes() {
   if (!CHOFERES.length) { t.innerHTML = '<tr><td colspan="6"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-id-card"></i></div><h3>Sin choferes</h3></div></td></tr>'; return; }
   t.innerHTML = CHOFERES.map(c => `
     <tr>
-      <td>${c.nombre}</td>
-      <td class="td-mono">${c.rfc||'—'}</td>
-      <td>${c.licencia||'—'}</td>
-      <td><span class="chip chip-gray">${c.tipo_licencia||'E'}</span></td>
-      <td>${c.telefono||'—'}</td>
+      <td>${esc(c.nombre)}</td>
+      <td class="td-mono">${esc(c.rfc||'—')}</td>
+      <td>${esc(c.licencia||'—')}</td>
+      <td><span class="chip chip-gray">${esc(c.tipo_licencia||'E')}</span></td>
+      <td>${esc(c.telefono||'—')}</td>
       <td>
         ${actionBtn('ghost','Editar chofer',`editarChofer(${c.id})`, icon('pen'))}
         ${actionBtn('danger','Eliminar chofer',`eliminarChofer(${c.id})`, icon('trash'))}
@@ -1733,13 +1911,13 @@ function renderVehiculos() {
   if (!VEHICULOS.length) { t.innerHTML = '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-truck"></i></div><h3>Sin vehículos</h3></div></td></tr>'; return; }
   t.innerHTML = VEHICULOS.map(v => `
     <tr>
-      <td class="td-mono">${v.placas}</td>
-      <td>${v.modelo||'—'}</td>
+      <td class="td-mono">${esc(v.placas)}</td>
+      <td>${esc(v.modelo||'—')}</td>
       <td>${v.anio}</td>
-      <td><span class="chip chip-blue">${v.config_vehicular}</span></td>
-      <td>${v.aseguradora||'—'}</td>
+      <td><span class="chip chip-blue">${esc(v.config_vehicular)}</span></td>
+      <td>${esc(v.aseguradora||'—')}</td>
       <td>${v.capacidad_litros ? Number(v.capacidad_litros).toLocaleString() : '—'}</td>
-      <td class="td-mono" style="font-size:11px">${v.permiso_sct}</td>
+      <td class="td-mono" style="font-size:11px">${esc(v.permiso_sct)}</td>
       <td>
         ${actionBtn('ghost','Editar vehículo',`editarVehiculo(${v.id})`, icon('pen'))}
         ${actionBtn('danger','Eliminar vehículo',`eliminarVehiculo(${v.id})`, icon('trash'))}
@@ -1752,11 +1930,11 @@ function renderRutas() {
   if (!RUTAS.length) { t.innerHTML = '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-route"></i></div><h3>Sin rutas</h3></div></td></tr>'; return; }
   t.innerHTML = RUTAS.map(r => `
     <tr>
-      <td>${r.nombre}</td>
-      <td class="td-mono">${r.cp_origen||'—'}</td>
-      <td>${r.nombre_origen||'—'}</td>
-      <td class="td-mono">${r.cp_destino||'—'}</td>
-      <td>${r.nombre_destino||'—'}</td>
+      <td>${esc(r.nombre)}</td>
+      <td class="td-mono">${esc(r.cp_origen||'—')}</td>
+      <td>${esc(r.nombre_origen||'—')}</td>
+      <td class="td-mono">${esc(r.cp_destino||'—')}</td>
+      <td>${esc(r.nombre_destino||'—')}</td>
       <td>${r.distancia_km||'—'} km</td>
       <td>${r.duracion_estimada_min ? `${r.duracion_estimada_min} min` : '—'}</td>
       <td>
@@ -1771,11 +1949,11 @@ function renderClientes() {
   if (!CLIENTES.length) { t.innerHTML = '<tr><td colspan="6"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-building"></i></div><h3>Sin clientes</h3></div></td></tr>'; return; }
   t.innerHTML = CLIENTES.map(c => `
     <tr>
-      <td class="td-mono">${c.rfc}</td>
-      <td>${c.nombre}</td>
-      <td>${c.cp||'—'}</td>
-      <td>${c.regimen_fiscal}</td>
-      <td>${c.uso_cfdi}</td>
+      <td class="td-mono">${esc(c.rfc)}</td>
+      <td>${esc(c.nombre)}</td>
+      <td>${esc(c.cp||'—')}</td>
+      <td>${esc(c.regimen_fiscal)}</td>
+      <td>${esc(c.uso_cfdi)}</td>
       <td>
         ${actionBtn('ghost','Editar cliente',`editarCliente(${c.id})`, icon('pen'))}
         ${actionBtn('danger','Eliminar cliente',`eliminarCliente(${c.id})`, icon('trash'))}
@@ -2473,6 +2651,7 @@ async function pagarLiquidacion(id) {
 }
 
 async function exportarLiquidacion(id) {
+  if (!perfilId()) { mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE); return; }
   const r = await fetch(withPerfil(`/api/tr/liquidaciones/${id}/export.xlsx`), { headers: H() });
   if (!r.ok) {
     const d = await r.json().catch(()=>({}));
@@ -2494,12 +2673,20 @@ function abrirImportadorExcel() {
 }
 
 async function importarExcelRuth(dryRun=true) {
+  if (!perfilId()) { mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE); return; }
   const file = document.getElementById('import-excel-file').files[0];
   if (!file) { toast('Selecciona el Excel', 'error'); return; }
   const fd = new FormData();
   fd.append('file', file);
   fd.append('dry_run', dryRun ? 'true' : 'false');
-  const r = await fetch(withPerfil('/api/tr/importar/excel-ruth'), { method:'POST', headers:{'Authorization':`Bearer ${TOKEN}`}, body:fd });
+  const r = await fetch(withPerfil('/api/tr/importar/excel-ruth'), {
+    method:'POST',
+    headers:{
+      'Authorization':`Bearer ${TOKEN}`,
+      'X-Perfil-Id': String(perfilId()),
+    },
+    body:fd
+  });
   const d = await r.json().catch(()=>({}));
   if (!r.ok) { toast(d.detail || 'Error importando Excel', 'error'); return; }
   document.getElementById('import-excel-result').innerHTML = `Pestañas: ${Object.keys(d.resumen?.sheets||{}).join(', ')}<br>Viajes detectados: ${d.resumen?.viajes_detectados || 0}<br>Tarifas detectadas: ${d.resumen?.tarifas_detectadas || 0}<br>Tarifas insertadas: ${d.tarifas_insertadas || 0}`;
@@ -2577,7 +2764,8 @@ function renderFacturasServicio() {
 }
 
 async function descargarXML(id) {
-  const r = await fetch(`${API}/api/tr/facturas/${id}/xml`, { headers: H() });
+  if (!perfilId()) { mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE); return; }
+  const r = await fetch(API + withPerfil(`/api/tr/facturas/${id}/xml`), { headers: H() });
   if (!r.ok) { toast('No se pudo descargar el XML', 'error'); return; }
   const blob = await r.blob();
   const url  = URL.createObjectURL(blob);
@@ -2586,7 +2774,8 @@ async function descargarXML(id) {
 }
 
 async function verXML(id) {
-  const r = await fetch(`${API}/api/tr/facturas/${id}/xml`, { headers: H() });
+  if (!perfilId()) { mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE); return; }
+  const r = await fetch(API + withPerfil(`/api/tr/facturas/${id}/xml`), { headers: H() });
   if (!r.ok) { toast('No se pudo abrir el XML', 'error'); return; }
   const blob = await r.blob();
   const url  = URL.createObjectURL(new Blob([blob], { type:'application/xml' }));
@@ -2595,7 +2784,11 @@ async function verXML(id) {
 }
 
 async function obtenerPDFCartaPorte(id, download=false) {
-  const r = await fetch(`${API}/api/tr/facturas/${id}/pdf${download ? '?download=true' : ''}`, { headers: H() });
+  if (!perfilId()) {
+    mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE);
+    throw new Error('Selecciona una empresa activa para operar Transporte.');
+  }
+  const r = await fetch(API + withPerfil(`/api/tr/facturas/${id}/pdf${download ? '?download=true' : ''}`), { headers: H() });
   if (!r.ok) {
     const msg = await r.text().catch(() => '');
     throw new Error(msg || 'No se pudo generar el PDF');
@@ -2627,7 +2820,8 @@ async function descargarPDFCartaPorte(id) {
 }
 
 async function obtenerXmlCFDI(id) {
-  const r = await fetch(`${API}/api/tr/facturas/${id}/xml`, { headers: H() });
+  if (!perfilId()) { mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE); throw new Error('Selecciona una empresa activa para operar Transporte.'); }
+  const r = await fetch(API + withPerfil(`/api/tr/facturas/${id}/xml`), { headers: H() });
   if (!r.ok) throw new Error('No se pudo obtener el XML');
   return await r.text();
 }
