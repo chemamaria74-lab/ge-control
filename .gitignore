@@ -10,6 +10,17 @@ out-tsc
 
 # dependencies
 node_modules
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # IDEs and editors
 /.idea
@@ -20,7 +31,7 @@ node_modules
 .settings/
 *.sublime-workspace
 
-# IDE - VSCode
+# VSCode
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
@@ -37,34 +48,51 @@ yarn-error.log
 testem.log
 /typings
 
-# System Files
+# System files
 .DS_Store
 Thumbs.db
 
-# ── CORRECCIÓN BUG 3: archivos sensibles que NO deben subir a Git ─────────────
-# config/auth.json contiene hashes de contraseñas (SHA-256 sin salt).
-# Estos archivos deben existir SOLO en el servidor / entorno local.
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Sensitive config
 config/auth.json
 config/settings.json
 config/providers.json
 config/*.json
-.env
-.env.*
-!.env.example
+secret.key
+
+# Storage / generated local data
 storage/
-*.key
+uploads/
+exports/
+*.log
+
+# SAT / CSD / certificates - NO subir
 *.cer
+*.key
 *.pfx
 *.p12
 *.sdg
-Certificados_Pruebas*/
-Certificados_Pruebas*.zip
-secret.key
+*.pem
+*.crt
+*.csr
+*.zip
 
-.cursor/rules/nx-rules.mdc
-.github/instructions/nx.instructions.md
+# SW Sapien / fiscal sensitive files
+certificados/
+Certificados/
+CSD/
+csd/
+*.xml.tmp
 
-# Replit
+# Replit / local cache
 .cache/
 .local/
+
+# Cursor / GitHub instruction local files
+.cursor/rules/nx-rules.mdc
+.github/instructions/nx.instructions.md
 
