@@ -195,6 +195,19 @@ async def login_view(modulo: str):
     )
     return HTMLResponse(content=html)
 
+
+@app.get("/modulo/{modulo}/roles", response_class=HTMLResponse, include_in_schema=False)
+async def module_role_view(modulo: str, lang: str = "es"):
+    modulo = modulo.replace("-", "_")
+    nombre = "Transporte" if modulo == "transporte" else "Gas LP"
+    roles = (
+        [("Administrador", "Selecciona empresa y entra al dashboard completo."), ("Operador", "Usa automáticamente la empresa asignada.")]
+        if modulo == "transporte"
+        else [("Administrador", "Selecciona empresa y entra al dashboard completo."), ("Asistente de facturación", "Usa la empresa asignada y solo accede a facturación.")]
+    )
+    html = templates.get_template("module_role.html").render(modulo=modulo, nombre=nombre, roles=roles, lang=lang)
+    return HTMLResponse(content=html)
+
 # main.py simplificado
 @app.get("/app", response_class=HTMLResponse, include_in_schema=False)
 async def frontend(lang: str = "es"):
