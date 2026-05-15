@@ -25,6 +25,7 @@ router = APIRouter()
 
 Section = Literal["gas_lp", "transporte", "gasolineras"]
 SECCIONES_VALIDAS = {"gas_lp", "transporte", "gasolineras"}
+ROLES_VALIDOS = {"admin", "user", "operador", "asistente_facturacion", "planta"}
 
 
 # ── Lookup de sección (multi-tenancy) ────────────────────────────────────────
@@ -54,6 +55,49 @@ def obtener_secciones_usuario(user_id: str, access_token: Optional[str] = None) 
     except Exception as e:
         logger.warning("obtener_seccion_usuario falló para %s: %s", user_id, e)
         return []
+
+
+def obtener_accesos_usuario(user_id: str, access_token: Optional[str] = None) -> list[dict]:
+    """
+    Devuelve las filas activas de user_sections con sección, rol y empresa asignada.
+    Es la fuente de verdad para flujos SaaS multiusuario.
+    """
+    try:
+        sb = get_supabase_for_user(access_token) if access_token else get_supabase()
+        rows = (
+            sb.table("user_sections")
+            .select("section, role, status, display_name, perfil_id")
+            .eq("user_id", user_id)
+            .execute()
+            .data or []
+        )
+        accesos = []
+        for row in rows:
+            section = (row.get("section") or "").strip().lower()
+            if section not in SECCIONES_VALIDAS:
+                continue
+            status = (row.get("status") or "active").strip().lower()
+            if status and status != "active":
+                continue
+            role = (row.get("role") or "user").strip().lower()
+            accesos.append({
+                "section": section,
+                "role": role if role in ROLES_VALIDOS else "user",
+                "display_name": row.get("display_name") or "",
+                "perfil_id": row.get("perfil_id"),
+            })
+        return accesos
+    except Exception as e:
+        logger.warning("obtener_accesos_usuario falló para %s: %s", user_id, e)
+        return []
+
+
+def obtener_acceso_modulo(user_id: str, section: str, access_token: Optional[str] = None) -> dict:
+    section = (section or "").strip().lower()
+    for acceso in obtener_accesos_usuario(user_id, access_token=access_token):
+        if acceso["section"] == section:
+            return acceso
+    return {}
 
 
 def obtener_seccion_usuario(user_id: str, access_token: Optional[str] = None) -> Optional[str]:
@@ -224,7 +268,8 @@ async def login(payload: LoginPayload):
     user_meta    = getattr(user, "user_metadata", {}) or {}
     app_meta     = getattr(user, "app_metadata",  {}) or {}
     display_name = user_meta.get("full_name") or user_meta.get("name") or email.split("@")[0]
-    role         = (app_meta.get("role") or "user").lower()
+    acceso       = obtener_acceso_modulo(user_id, requested, access_token=access_token)
+    role         = (acceso.get("role") or app_meta.get("role") or "user").lower()
 
     return JSONResponse(content={
         "success":      True,
@@ -232,6 +277,7 @@ async def login(payload: LoginPayload):
         "user_id":      user_id,
         "display_name": display_name,
         "role":         role,
+        "perfil_id":    acceso.get("perfil_id"),
         "modulo":       requested,
         "modulos":      secciones,
     })
@@ -261,15 +307,18 @@ async def me(authorization: str = Header(default="")):
         or user_meta.get("name")
         or (user.email or "").split("@")[0]
     )
-    role = (app_meta.get("role") or "user").lower()
+    accesos = obtener_accesos_usuario(user.id, access_token=token)
+    acceso_activo = accesos[0] if accesos else {}
+    role = (acceso_activo.get("role") or app_meta.get("role") or "user").lower()
 
     return JSONResponse(content={
         "user_id":      user.id,
         "display_name": display_name,
         "role":         role,
+        "perfil_id":    acceso_activo.get("perfil_id"),
+        "accesos":      accesos,
         "modulo":       sec,
         "modulos":      secciones,
-        "email":        user.email,
         "email":        user.email,
     })
 

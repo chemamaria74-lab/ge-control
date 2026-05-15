@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Any
 
-from routes.auth import verify_token
+from routes.auth import obtener_acceso_modulo, verify_token
 from services.database import log_settings_audit
 
 logger = logging.getLogger(__name__)
@@ -51,14 +51,21 @@ def _parse_perfil_id(raw: str) -> Optional[int]:
         return None
 
 
-def _auth(authorization: str) -> str:
+def _auth(authorization: str) -> tuple[str, str]:
     """Extrae y valida el JWT; retorna user_id o lanza 401."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
-    uid = verify_token(authorization[7:])
+    token = authorization[7:]
+    uid = verify_token(token)
     if not uid:
         raise HTTPException(401, "Token inválido o expirado.")
-    return uid
+    return uid, token
+
+
+def _deny_assistant_config(user_id: str, token: str) -> None:
+    role = (obtener_acceso_modulo(user_id, "gas_lp", access_token=token).get("role") or "user").lower()
+    if role in {"asistente_facturacion", "planta"}:
+        raise HTTPException(403, "El rol Asistente de facturación no puede modificar configuración.")
 
 
 def _supabase_load(user_id: str, perfil_id: Optional[int] = None) -> Optional[dict]:
@@ -187,7 +194,7 @@ async def get_settings(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    user_id   = _auth(authorization)
+    user_id, _token = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
     return JSONResponse(content=_load(user_id, perfil_id))
 
@@ -198,7 +205,8 @@ async def save_settings(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    user_id   = _auth(authorization)
+    user_id, token = _auth(authorization)
+    _deny_assistant_config(user_id, token)
     perfil_id = _parse_perfil_id(x_perfil_id)
     current   = _load(user_id, perfil_id)
 
@@ -228,5 +236,4 @@ async def save_settings(
         "perfil_id": perfil_id,
         "settings":  saved,
     })
-
 

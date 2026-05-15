@@ -13,20 +13,27 @@ from services.database import (
     delete_period, delete_all_periods,
 )
 from services.sat_transformer import generate_filename
-from routes.auth import verify_token
+from routes.auth import obtener_acceso_modulo, verify_token
 from routes.settings import _load as load_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _auth(authorization: str) -> str:
+def _auth(authorization: str) -> tuple[str, str]:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
-    uid = verify_token(authorization[7:])
+    token = authorization[7:]
+    uid = verify_token(token)
     if not uid:
         raise HTTPException(401, "Token inválido o expirado.")
-    return uid
+    return uid, token
+
+
+def _deny_assistant_reports(user_id: str, token: str) -> None:
+    role = (obtener_acceso_modulo(user_id, "gas_lp", access_token=token).get("role") or "user").lower()
+    if role in {"asistente_facturacion", "planta"}:
+        raise HTTPException(403, "El rol Asistente de facturación no puede consultar reportes administrativos.")
 
 
 def _parse_perfil_id(raw: str) -> Optional[int]:
@@ -43,7 +50,8 @@ async def list_periods(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    uid       = _auth(authorization)
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
     perfil_id = _parse_perfil_id(x_perfil_id)
     return JSONResponse(content={
         "periods": get_available_periods(uid, facility_id=facility_id, perfil_id=perfil_id)
@@ -57,7 +65,8 @@ async def get_history(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    uid       = _auth(authorization)
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
     perfil_id = _parse_perfil_id(x_perfil_id)
     records   = get_records(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     totals    = get_period_totals(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
@@ -93,7 +102,8 @@ async def wipe_all_history(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    uid       = _auth(authorization)
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
     perfil_id = _parse_perfil_id(x_perfil_id)
     counts    = delete_all_periods(uid, perfil_id=perfil_id)
     return JSONResponse(content={
@@ -111,7 +121,8 @@ async def delete_history(
     authorization:        str = Header(default=""),
     x_perfil_id:          str = Header(default=""),
 ):
-    uid       = _auth(authorization)
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
     perfil_id = _parse_perfil_id(x_perfil_id)
     counts    = delete_period(uid, periodo,
                               facility_id=facility_id,
@@ -134,7 +145,8 @@ async def download_report(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    uid       = _auth(authorization)
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
     perfil_id = _parse_perfil_id(x_perfil_id)
     reps = get_reports(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     if not reps:

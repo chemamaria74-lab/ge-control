@@ -31,7 +31,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 
 from models.schemas import UploadResponse
-from routes.auth import verify_token, obtener_secciones_usuario
+from routes.auth import obtener_acceso_modulo, verify_token, obtener_secciones_usuario
 from routes.settings import _load as load_settings
 from services.cfdi_parser import parse_xml, parse_zip
 from services.database import (
@@ -80,6 +80,12 @@ def _auth_gas_lp(authorization: str) -> tuple[str, str]:
     if "gas_lp" not in obtener_secciones_usuario(uid, access_token=token):
         raise HTTPException(403, "Tu usuario no tiene acceso al módulo Gas LP.")
     return uid, token
+
+
+def _deny_assistant_json(uid: str, token: str) -> None:
+    role = (obtener_acceso_modulo(uid, "gas_lp", access_token=token).get("role") or "user").lower()
+    if role in {"asistente_facturacion", "planta"}:
+        raise HTTPException(403, "El rol Asistente de facturación solo puede operar facturación de Gas LP.")
 
 
 def _alerta_capacidad_msg(cap_limit: float, raw: float, capped: float) -> str:
@@ -142,6 +148,7 @@ async def _upload_cfdi_impl(
 
     # ── Autenticación ─────────────────────────────────────────────────────────
     user_id, _token = _auth_gas_lp(authorization)
+    _deny_assistant_json(user_id, _token)
     display_name = "Operador"
     perfil_id = _require_perfil_id(x_perfil_id)
     try:

@@ -47,12 +47,13 @@ import hashlib
 import secrets
 from io import BytesIO
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
 
-from routes.auth import verify_token
+from routes.auth import obtener_acceso_modulo, verify_token
 from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user
 from services.product_catalog import get_all_productos, validar_producto_completo
 from services.cne_validator import validar_num_permiso
@@ -63,6 +64,7 @@ from services.transport_transformer import (
 )
 from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml
 from services.carta_porte_validation import requiere_complemento_hidrocarburos, validar_xml_carta_porte_transporte
+from services.sat_xml_extractor import extraer_factura_timbrada_sat
 from models.transport_schemas import (
     ViajeCreate, TimbradoViajeRequest, CancelacionViajeRequest,
     FacturaServicioCreate,
@@ -173,6 +175,16 @@ def _settings_transporte(uid: str, token: str, perfil_id: Optional[int] = None) 
     except Exception as e:
         logger.warning("No se pudo obtener settings transporte para %s: %s", uid, e)
         return {}
+
+
+def _role_transporte(uid: str, token: str) -> str:
+    acceso = obtener_acceso_modulo(uid, MODULO, access_token=token)
+    return (acceso.get("role") or "user").lower()
+
+
+def _require_admin_transporte(uid: str, token: str) -> None:
+    if _role_transporte(uid, token) != "admin":
+        raise HTTPException(403, "Acceso restringido a administradores de Transporte.")
 
 
 def _get_chofer(uid: str, token: str, chofer_id: int) -> dict:
@@ -1323,6 +1335,75 @@ async def dashboard_operativo_transporte(
     return JSONResponse({"ok": True, "periodo": periodo, "resumen": resumen, "viajes": viajes[:100]})
 
 
+@router.get("/tr/carta-aporte/tareas")
+async def tareas_carta_aporte_desde_sat(
+    perfil_id: Optional[int] = Query(None),
+    force: bool = Query(False),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """
+    Tarea operativa diaria: a partir de las 02:00 CDMX propone generar Carta Aporte
+    con las facturas timbradas en la ultima hora, leyendo datos fiscales desde XML SAT.
+    Disponible para administradores y operadores con acceso a Transporte.
+    """
+    uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
+    now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
+    if not force and (now_mx.hour, now_mx.minute) < (2, 0):
+        return JSONResponse({
+            "ok": True,
+            "tasks": [],
+            "next_run_local": now_mx.replace(hour=2, minute=0, second=0, microsecond=0).isoformat(),
+            "message": "La tarea automática de Carta Aporte aparece a partir de las 02:00.",
+        })
+
+    fin = datetime.now(timezone.utc)
+    ini = fin - timedelta(hours=1)
+    q = (
+        _sb(token).table(_TBL_CFDI)
+        .select("id, viaje_id, uuid_sat, fecha_timbrado, xml_content, status")
+        .eq("user_id", uid)
+        .eq("status", "Vigente")
+        .gte("fecha_timbrado", ini.isoformat())
+        .lte("fecha_timbrado", fin.isoformat())
+        .order("fecha_timbrado", desc=True)
+    )
+    if pid:
+        q = q.eq("perfil_id", pid)
+    rows = q.execute().data or []
+    facturas = []
+    errores = []
+    for row in rows:
+        xml = row.get("xml_content") or ""
+        if not xml:
+            errores.append({"cfdi_id": row.get("id"), "error": "CFDI sin XML timbrado almacenado."})
+            continue
+        try:
+            data = extraer_factura_timbrada_sat(xml).as_dict()
+            facturas.append({
+                "cfdi_id": row.get("id"),
+                "viaje_id": row.get("viaje_id"),
+                **data,
+            })
+        except Exception as exc:
+            errores.append({"cfdi_id": row.get("id"), "error": f"No se pudo leer XML SAT: {exc}"})
+
+    tasks = []
+    if facturas:
+        tasks.append({
+            "tipo": "generar_carta_aporte",
+            "titulo": "Generar Carta Aporte con las facturas timbradas en la ultima hora.",
+            "perfil_id": pid,
+            "window_start": ini.isoformat(),
+            "window_end": fin.isoformat(),
+            "facturas": facturas,
+            "errores": errores,
+            "manual_capture_required": False,
+        })
+    return JSONResponse({"ok": True, "tasks": tasks, "errores": errores})
+
+
 @router.get("/tr/viajes/{viaje_id}/360")
 async def viaje_360(viaje_id: int, authorization: str = Header(default="")):
     uid, token = _auth(authorization)
@@ -1614,6 +1695,47 @@ async def operador_viajes(token: str = Query(...)):
         v["cfdi"] = cfdi_map.get(int(v.get("id") or 0), {})
         v["tiene_pdf_carta_porte"] = bool(v.get("uuid_cfdi") or v["cfdi"].get("uuid_sat"))
     return JSONResponse({"ok": True, "viajes": viajes})
+
+
+@router.get("/tr/operador/carta-aporte/tareas")
+async def operador_tareas_carta_aporte(token: str = Query(...), force: bool = Query(False)):
+    sb, acc = _operador_context(token)
+    now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
+    if not force and (now_mx.hour, now_mx.minute) < (2, 0):
+        return JSONResponse({"ok": True, "tasks": []})
+    fin = datetime.now(timezone.utc)
+    ini = fin - timedelta(hours=1)
+    q = (
+        sb.table(_TBL_CFDI)
+        .select("id, viaje_id, uuid_sat, fecha_timbrado, xml_content, status")
+        .eq("user_id", acc["user_id"])
+        .eq("status", "Vigente")
+        .gte("fecha_timbrado", ini.isoformat())
+        .lte("fecha_timbrado", fin.isoformat())
+        .order("fecha_timbrado", desc=True)
+    )
+    if acc.get("perfil_id"):
+        q = q.eq("perfil_id", acc.get("perfil_id"))
+    rows = q.execute().data or []
+    facturas = []
+    errores = []
+    for row in rows:
+        try:
+            data = extraer_factura_timbrada_sat(row.get("xml_content") or "").as_dict()
+            facturas.append({"cfdi_id": row.get("id"), "viaje_id": row.get("viaje_id"), **data})
+        except Exception as exc:
+            errores.append({"cfdi_id": row.get("id"), "error": f"No se pudo leer XML SAT: {exc}"})
+    tasks = [{
+        "tipo": "generar_carta_aporte",
+        "titulo": "Generar Carta Aporte con las facturas timbradas en la ultima hora.",
+        "perfil_id": acc.get("perfil_id"),
+        "window_start": ini.isoformat(),
+        "window_end": fin.isoformat(),
+        "facturas": facturas,
+        "errores": errores,
+        "manual_capture_required": False,
+    }] if facturas else []
+    return JSONResponse({"ok": True, "tasks": tasks, "errores": errores})
 
 
 @router.post("/tr/operador/viajes/{viaje_id}/accion")
