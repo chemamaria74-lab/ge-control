@@ -21,6 +21,7 @@ from routes.facilities  import router as facilities_router
 from routes.admin       import router as admin_router
 from routes.facturas    import router as facturas_router
 from routes.movimientos import router as movimientos_router
+from routes.perfiles    import router as perfiles_router
 from services.database  import init_db
 
 # ── Logging ───────────────────────────────────────────────────────────────────
