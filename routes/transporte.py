@@ -45,6 +45,7 @@ import os
 import re
 import hashlib
 import secrets
+from io import BytesIO
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -56,11 +57,12 @@ from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_u
 from services.product_catalog import get_all_productos, validar_producto_completo
 from services.cne_validator import validar_num_permiso
 from services.transport_builder import build_cfdi_transporte, build_cfdi_cancelacion_transporte
-from services.service_invoice_builder import build_cfdi_servicio_transporte, IVA_TASA, money
+from services.service_invoice_builder import build_cfdi_servicio_transporte, money
 from services.transport_transformer import (
     build_transport_covol, save_transport_covol, transport_covol_to_json
 )
-from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml, xml_tiene_carta_porte
+from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml
+from services.carta_porte_validation import requiere_complemento_hidrocarburos, validar_xml_carta_porte_transporte
 from models.transport_schemas import (
     ViajeCreate, TimbradoViajeRequest, CancelacionViajeRequest,
     FacturaServicioCreate,
@@ -257,13 +259,23 @@ def _validar_datos_cfdi_receptor(rfc: str, regimen: str, cp: str, uso_cfdi: str)
         raise HTTPException(400, "Uso CFDI requerido para CFDI 4.0.")
 
 
-def _validar_totales_servicio(subtotal: float, iva: float, total: float) -> None:
-    iva_calc = round(float(subtotal or 0) * 0.16, 2)
-    total_calc = round(float(subtotal or 0) + iva_calc, 2)
-    if abs(float(iva or 0) - iva_calc) > 0.01:
-        raise HTTPException(400, f"IVA inválido. Para servicio gravado debe ser 16%: {iva_calc:.2f}.")
-    if abs(float(total or 0) - total_calc) > 0.01:
-        raise HTTPException(400, f"Total inválido. Debe ser subtotal + IVA: {total_calc:.2f}.")
+def _validar_totales_servicio(
+    payload: FacturaServicioCreate,
+    esperado: dict,
+) -> None:
+    """Evita facturar con impuestos manipulados en frontend; el servidor recalcula desde tarifas."""
+    checks = {
+        "subtotal": (payload.subtotal, esperado.get("subtotal")),
+        "iva": (payload.iva, esperado.get("iva")),
+        "retención": (payload.retencion, esperado.get("retencion")),
+        "total": (payload.total, esperado.get("total")),
+    }
+    for label, (recibido, calc) in checks.items():
+        if abs(float(recibido or 0) - float(calc or 0)) > 0.01:
+            raise HTTPException(
+                400,
+                f"{label.title()} inválido. El sistema calculó {float(calc or 0):.2f} con las tarifas/impuestos configurados.",
+            )
 
 
 def _periodo_bounds(periodo: str) -> tuple[str, str]:
@@ -276,6 +288,42 @@ def _periodo_bounds(periodo: str) -> tuple[str, str]:
     else:
         fin = datetime(anio, mes + 1, 1, tzinfo=timezone.utc)
     return inicio.isoformat(), fin.isoformat()
+
+
+def _periodo_liquidacion_bounds(periodo: str, periodo_tipo: str = "") -> tuple[str, str]:
+    """Soporta periodos mensuales YYYY-MM y quincenales YYYY-MM-Q1/Q2."""
+    raw = str(periodo or datetime.now(timezone.utc).strftime("%Y-%m")).strip()
+    tipo = str(periodo_tipo or "").strip().lower()
+    if raw.endswith("-Q1") or raw.endswith("-Q2"):
+        tipo = raw[-2:].lower()
+        raw = raw[:7]
+    anio = int(raw[:4])
+    mes = int(raw[5:7])
+    if tipo in {"q1", "quincena1", "primera"}:
+        inicio = datetime(anio, mes, 1, tzinfo=timezone.utc)
+        fin = datetime(anio, mes, 16, tzinfo=timezone.utc)
+    elif tipo in {"q2", "quincena2", "segunda"}:
+        inicio = datetime(anio, mes, 16, tzinfo=timezone.utc)
+        if mes == 12:
+            fin = datetime(anio + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            fin = datetime(anio, mes + 1, 1, tzinfo=timezone.utc)
+    else:
+        inicio_s, fin_s = _periodo_bounds(raw)
+        return inicio_s, fin_s
+    return inicio.isoformat(), fin.isoformat()
+
+
+def _periodo_liquidacion_label(periodo: str, periodo_tipo: str = "") -> str:
+    raw = str(periodo or datetime.now(timezone.utc).strftime("%Y-%m")).strip()
+    tipo = str(periodo_tipo or "").strip().lower()
+    if raw.endswith("-Q1") or raw.endswith("-Q2"):
+        return raw
+    if tipo in {"q1", "quincena1", "primera"}:
+        return f"{raw}-Q1"
+    if tipo in {"q2", "quincena2", "segunda"}:
+        return f"{raw}-Q2"
+    return raw
 
 
 def _safe_float(v, default: float = 0.0) -> float:
@@ -387,8 +435,70 @@ def _guardar_cfdi_pdf_en_expediente(sb, uid: str, cfdi_row: dict, pdf_bytes: byt
         logger.info("PDF Carta Porte guardado en Storage pero no registrado en documentos (%s): %s", viaje_id, e)
 
 
+def _guardar_cfdi_xml_en_expediente(sb, uid: str, cfdi_row: dict, xml_content: str, filename: str, metadata: dict) -> None:
+    """Guarda XML timbrado en Storage/documentos por UUID sin bloquear el timbrado si Storage falla."""
+    viaje_id = cfdi_row.get("viaje_id")
+    if not viaje_id or not xml_content:
+        return
+    perfil_id = cfdi_row.get("perfil_id")
+    bucket = "transport-documents"
+    path = _build_cfdi_document_path(uid, perfil_id, int(viaje_id), "carta_porte_xml", filename)
+    content = xml_content.encode("utf-8")
+    try:
+        sb.storage.from_(bucket).upload(path, content, {"content-type": "application/xml", "upsert": "true"})
+    except Exception as e:
+        logger.info("XML Carta Porte no guardado en Storage (%s): %s", viaje_id, e)
+        return
+    try:
+        existentes = (
+            sb.table(_TBL_DOCS)
+            .select("id")
+            .eq("user_id", uid)
+            .eq("viaje_id", viaje_id)
+            .eq("storage_path", path)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not existentes:
+            sb.table(_TBL_DOCS).insert({
+                "user_id": uid,
+                "perfil_id": perfil_id,
+                "viaje_id": viaje_id,
+                "tipo": "carta_porte_xml",
+                "nombre": filename,
+                "storage_bucket": bucket,
+                "storage_path": path,
+                "mime_type": "application/xml",
+                "size_bytes": len(content),
+                "uuid_sat": str(cfdi_row.get("uuid_sat") or ""),
+                "metadata": metadata,
+                "created_by": uid,
+            }).execute()
+    except Exception as e:
+        logger.info("XML Carta Porte guardado en Storage pero no registrado en documentos (%s): %s", viaje_id, e)
+
+
 def _hash_operator_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _crear_notificacion_manual(sb, uid: str, pid, viaje_id: int | None, mensaje: str, destinatario: str = "", metadata: Optional[dict] = None):
+    """Registra una notificación pendiente; WhatsApp/email quedan como canal futuro, no base de datos."""
+    try:
+        sb.table(_TBL_NOTIFS).insert({
+            "user_id": uid,
+            "perfil_id": pid,
+            "viaje_id": viaje_id,
+            "canal": "manual",
+            "destinatario": destinatario,
+            "mensaje": mensaje,
+            "status": "pendiente",
+            "metadata": metadata or {},
+        }).execute()
+    except Exception as e:
+        logger.info("No se pudo registrar notificación manual: %s", e)
 
 
 def _normalizar(texto: str) -> str:
@@ -404,6 +514,7 @@ def _calcular_tarifa_operativa(viaje: dict, tarifas: list[dict]) -> dict:
     if kilos <= 0:
         kilos = litros * 0.75
     ruta_id = viaje.get("ruta_id")
+    cliente_id = viaje.get("cliente_id")
     cliente_rfc = _normalizar(viaje.get("rfc_receptor"))
     origen = _normalizar(viaje.get("nombre_origen") or viaje.get("cp_origen"))
     destino = _normalizar(viaje.get("nombre_destino") or viaje.get("cp_destino"))
@@ -414,7 +525,10 @@ def _calcular_tarifa_operativa(viaje: dict, tarifas: list[dict]) -> dict:
         if t.get("ruta_id") and ruta_id and int(t.get("ruta_id")) == int(ruta_id):
             s += 80
         if t.get("cliente_id"):
-            s += 20
+            if cliente_id and int(t.get("cliente_id")) == int(cliente_id):
+                s += 35
+            else:
+                s -= 60
         if _normalizar(t.get("origen")) and _normalizar(t.get("origen")) in origen:
             s += 20
         if _normalizar(t.get("destino")) and _normalizar(t.get("destino")) in destino:
@@ -439,8 +553,12 @@ def _calcular_tarifa_operativa(viaje: dict, tarifas: list[dict]) -> dict:
     else:
         subtotal = sum(_safe_float(p.get("importe")) for p in productos)
     subtotal = round(subtotal, 2)
-    iva = round(subtotal * _safe_float(tarifa.get("iva_tasa"), 0.16), 2) if tarifa.get("aplica_iva", True) else 0.0
-    ret = round(subtotal * _safe_float(tarifa.get("retencion_tasa"), 0.04), 2) if tarifa.get("aplica_retencion", True) else 0.0
+    aplica_iva = bool(tarifa.get("aplica_iva", True)) if tarifa else True
+    aplica_retencion = bool(tarifa.get("aplica_retencion", True)) if tarifa else False
+    iva_tasa = _safe_float(tarifa.get("iva_tasa"), 0.16) if tarifa else 0.16
+    retencion_tasa = _safe_float(tarifa.get("retencion_tasa"), 0.04) if tarifa else 0.0
+    iva = round(subtotal * iva_tasa, 2) if aplica_iva else 0.0
+    ret = round(subtotal * retencion_tasa, 2) if aplica_retencion else 0.0
     total = round(subtotal + iva - ret, 2)
     return {
         "tarifa_id": tarifa.get("id"),
@@ -452,7 +570,46 @@ def _calcular_tarifa_operativa(viaje: dict, tarifas: list[dict]) -> dict:
         "iva": iva,
         "retencion": ret,
         "total": total,
+        "iva_tasa": iva_tasa,
+        "retencion_tasa": retencion_tasa,
+        "aplica_iva": aplica_iva,
+        "aplica_retencion": aplica_retencion,
         "match_score": score(tarifa) if tarifa else 0,
+    }
+
+
+def _sumar_calculos_servicio(viajes: list[dict], tarifas: list[dict]) -> dict:
+    """Suma subtotal, IVA, retención y total de una factura de servicio desde tarifas configurables."""
+    items = []
+    subtotal = iva = retencion = total = 0.0
+    tasas_iva: set[float] = set()
+    tasas_ret: set[float] = set()
+    aplica_iva = False
+    aplica_retencion = False
+    for viaje in viajes:
+        calc = _calcular_tarifa_operativa(viaje, tarifas)
+        items.append({"viaje_id": viaje.get("id"), **calc})
+        subtotal += calc["subtotal"]
+        iva += calc["iva"]
+        retencion += calc["retencion"]
+        total += calc["total"]
+        if calc.get("aplica_iva"):
+            aplica_iva = True
+            tasas_iva.add(float(calc.get("iva_tasa") or 0))
+        if calc.get("aplica_retencion"):
+            aplica_retencion = True
+            tasas_ret.add(float(calc.get("retencion_tasa") or 0))
+    return {
+        "subtotal": round(subtotal, 2),
+        "iva": round(iva, 2),
+        "retencion": round(retencion, 2),
+        "total": round(total, 2),
+        "iva_tasa": sorted(tasas_iva)[0] if len(tasas_iva) == 1 else (0.16 if aplica_iva else 0.0),
+        "retencion_tasa": sorted(tasas_ret)[0] if len(tasas_ret) == 1 else (0.04 if aplica_retencion else 0.0),
+        "aplica_iva": aplica_iva,
+        "aplica_retencion": aplica_retencion,
+        "items": items,
+        "tasas_mixtas": len(tasas_iva) > 1 or len(tasas_ret) > 1,
     }
 
 
@@ -801,6 +958,13 @@ async def timbrar_viaje(
         productos = [ProductoTransporte(**p) for p in productos_raw]
     except Exception as e:
         raise HTTPException(400, f"Productos del viaje inválidos: {e}")
+    enforce_hidro = bool(settings.get("ValidarComplementoHidrocarburos", True))
+    if enforce_hidro and requiere_complemento_hidrocarburos([p.model_dump() for p in productos]):
+        raise HTTPException(
+            400,
+            "Timbrado bloqueado para no gastar timbres: Magna/Premium/Diésel requieren validar e incorporar "
+            "el complemento Hidrocarburos y Petrolíferos junto con Carta Porte. Falta cerrar el payload exacto con SW Sapien."
+        )
 
     from models.transport_schemas import ViajeCreate
     receptor_cfdi = _normalizar_receptor_cfdi(
@@ -850,7 +1014,12 @@ async def timbrar_viaje(
     xml_timbrado = result_data.get("cfdi", "")
     pdf_url      = result_data.get("pdfUrl", "")
     now_iso      = datetime.now(timezone.utc).isoformat()
-    contiene_carta_porte = xml_tiene_carta_porte(xml_timbrado) if xml_timbrado else False
+    validacion_cp = validar_xml_carta_porte_transporte(
+        xml_timbrado,
+        [p.model_dump() for p in productos],
+        enforce_hidrocarburos=enforce_hidro,
+    ) if xml_timbrado else None
+    carta_porte_valida = bool(validacion_cp and validacion_cp.ok)
 
     # Guardar CFDI en tr_cfdi
     cfdi_row = {
@@ -862,7 +1031,7 @@ async def timbrar_viaje(
         "id_ccp":         id_ccp,
         "xml_content":    xml_timbrado,
         "pdf_url":        pdf_url,
-        "status":         "Vigente",
+        "status":         "Vigente" if carta_porte_valida else "ErrorValidacion",
         "fecha_timbrado": now_iso,
         "rfc_receptor":   viaje_obj.rfc_receptor,
         "volumen_total":  float(viaje_row.get("volumen_total_litros") or 0),
@@ -872,25 +1041,33 @@ async def timbrar_viaje(
     }
 
     try:
-        sb.table(_TBL_CFDI).insert(cfdi_row).execute()
-        # Actualizar status del viaje
+        inserted = sb.table(_TBL_CFDI).insert(cfdi_row).execute()
+        cfdi_saved = (inserted.data or [{}])[0]
+        if xml_timbrado:
+            xml_filename = f"cfdi_tr_{uuid_sat or id_ccp or viaje_id}.xml"
+            _guardar_cfdi_xml_en_expediente(
+                sb, uid, {**cfdi_row, "id": cfdi_saved.get("id")}, xml_timbrado, xml_filename,
+                {"cfdi_id": cfdi_saved.get("id"), "uuid_sat": uuid_sat, "id_ccp": id_ccp, "validacion": (validacion_cp.metadata if validacion_cp else {})},
+            )
+        # Actualizar status del viaje solo como timbrado cuando el XML contiene Carta Porte válida.
         sb.table(_TBL_VIAJES).update({
-            "status":   "timbrado",
+            "status":   "timbrado" if carta_porte_valida else "error",
             "uuid_cfdi": uuid_sat,
-            "id_ccp":    id_ccp,
+            "id_ccp":    id_ccp if carta_porte_valida else "",
         }).eq("id", viaje_id).execute()
         _registrar_evento(
-            sb, uid, viaje_row.get("perfil_id"), viaje_id, "carta_porte_timbrada",
-            "Carta Porte timbrada",
-            f"UUID SAT {uuid_sat}" if uuid_sat else "CFDI con complemento Carta Porte timbrado.",
+            sb, uid, viaje_row.get("perfil_id"), viaje_id,
+            "carta_porte_timbrada" if carta_porte_valida else "cfdi_timbrado_invalido_carta_porte",
+            "Carta Porte timbrada" if carta_porte_valida else "CFDI timbrado sin Carta Porte válida",
+            f"UUID SAT {uuid_sat}" if uuid_sat else "CFDI recibido de SW Sapien.",
             "system", "sw_sapien", {"uuid_sat": uuid_sat, "id_ccp": id_ccp},
         )
-        if not contiene_carta_porte:
+        if not carta_porte_valida:
             _registrar_evento(
                 sb, uid, viaje_row.get("perfil_id"), viaje_id, "validacion_carta_porte",
-                "XML timbrado sin complemento Carta Porte",
-                "SW Sapien devolvió un CFDI timbrado, pero el XML no contiene el nodo CartaPorte31. Revisar payload antes de producción.",
-                "system", "ge_control", {"uuid_sat": uuid_sat, "id_ccp_generado": id_ccp},
+                "XML no válido como Carta Porte de carretera",
+                "; ".join((validacion_cp.errors if validacion_cp else ["XML vacío o inválido"])[:6]),
+                "system", "ge_control", {"uuid_sat": uuid_sat, "id_ccp_generado": id_ccp, "validacion": (validacion_cp.metadata if validacion_cp else {})},
             )
     except Exception as e:
         logger.error("Error al guardar CFDI timbrado en BD: %s", e)
@@ -913,9 +1090,15 @@ async def timbrar_viaje(
         "uuid_sat":       uuid_sat,
         "id_ccp":         id_ccp,
         "pdf_url":        pdf_url,
-        "status":         "Vigente",
+        "status":         "Vigente" if carta_porte_valida else "ErrorValidacion",
         "fecha_timbrado": now_iso,
-        "advertencia": None if contiene_carta_porte else "El XML timbrado no contiene complemento Carta Porte 3.1.",
+        "advertencia": None if carta_porte_valida else "CFDI timbrado, pero XML no válido como Carta Porte de carretera. Revisa detalle fiscal.",
+        "validacion_carta_porte": {
+            "ok": carta_porte_valida,
+            "errors": validacion_cp.errors if validacion_cp else ["XML vacío o inválido"],
+            "warnings": validacion_cp.warnings if validacion_cp else [],
+            "metadata": validacion_cp.metadata if validacion_cp else {},
+        },
     })
 
 
@@ -1200,6 +1383,43 @@ async def actualizar_operacion_status(viaje_id: int, payload: dict, authorizatio
     return JSONResponse({"ok": True, "operacion_status": status})
 
 
+@router.post("/tr/viajes/{viaje_id}/gastos")
+async def crear_gasto_viaje(viaje_id: int, payload: dict, authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    viaje_rows = sb.table(_TBL_VIAJES).select("id,perfil_id,chofer_id").eq("id", viaje_id).eq("user_id", uid).limit(1).execute().data or []
+    if not viaje_rows:
+        raise HTTPException(404, "Viaje no encontrado.")
+    importe = _safe_float(payload.get("importe"))
+    if importe <= 0:
+        raise HTTPException(400, "El gasto debe ser mayor a 0.")
+    v = viaje_rows[0]
+    row = {
+        "user_id": uid,
+        "perfil_id": v.get("perfil_id"),
+        "viaje_id": viaje_id,
+        "chofer_id": v.get("chofer_id"),
+        "tipo": str(payload.get("tipo") or "otro"),
+        "descripcion": str(payload.get("descripcion") or ""),
+        "importe": importe,
+        "moneda": str(payload.get("moneda") or "MXN"),
+        "status": str(payload.get("status") or "aprobado"),
+        "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
+    }
+    res = sb.table(_TBL_GASTOS).insert(row).execute()
+    _registrar_evento(sb, uid, v.get("perfil_id"), viaje_id, "gasto_registrado", "Gasto registrado", f"{row['tipo']}: ${importe:.2f}", "oficina", uid, row)
+    return JSONResponse({"ok": True, "gasto": (res.data or [None])[0]})
+
+
+@router.put("/tr/gastos/{gasto_id}")
+async def actualizar_gasto_viaje(gasto_id: int, payload: dict, authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    allowed = {"tipo", "descripcion", "importe", "moneda", "status", "metadata"}
+    row = {k: v for k, v in payload.items() if k in allowed}
+    _sb(token).table(_TBL_GASTOS).update(row).eq("id", gasto_id).eq("user_id", uid).execute()
+    return JSONResponse({"ok": True})
+
+
 @router.get("/tr/viajes/{viaje_id}/documentos")
 async def listar_documentos_viaje(viaje_id: int, authorization: str = Header(default="")):
     uid, token = _auth(authorization)
@@ -1286,6 +1506,9 @@ async def crear_tarifa(payload: dict, authorization: str = Header(default=""), x
         "retencion_tasa": _safe_float(payload.get("retencion_tasa"), 0.04),
         "aplica_iva": bool(payload.get("aplica_iva", True)), "aplica_retencion": bool(payload.get("aplica_retencion", True)),
         "moneda": str(payload.get("moneda") or "MXN"), "prioridad": int(payload.get("prioridad") or 100),
+        "vigencia_desde": payload.get("vigencia_desde") or None,
+        "vigencia_hasta": payload.get("vigencia_hasta") or None,
+        "observaciones": str(payload.get("observaciones") or ""),
         "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
     }
     res = _sb(token).table(_TBL_TARIFAS).insert(row).execute()
@@ -1295,7 +1518,7 @@ async def crear_tarifa(payload: dict, authorization: str = Header(default=""), x
 @router.put("/tr/tarifas/{tarifa_id}")
 async def actualizar_tarifa(tarifa_id: int, payload: dict, authorization: str = Header(default="")):
     uid, token = _auth(authorization)
-    allowed = {"cliente_id","ruta_id","origen","destino","producto","regla_calculo","tarifa","iva_tasa","retencion_tasa","aplica_iva","aplica_retencion","moneda","prioridad","activo","metadata"}
+    allowed = {"cliente_id","ruta_id","origen","destino","producto","regla_calculo","tarifa","iva_tasa","retencion_tasa","aplica_iva","aplica_retencion","moneda","prioridad","activo","vigencia_desde","vigencia_hasta","observaciones","metadata"}
     row = {k: v for k, v in payload.items() if k in allowed}
     row["updated_at"] = datetime.now(timezone.utc).isoformat()
     _sb(token).table(_TBL_TARIFAS).update(row).eq("id", tarifa_id).eq("user_id", uid).execute()
@@ -1339,6 +1562,10 @@ def _operador_context(token_plain: str):
     rows = sb.table(_TBL_OPER_ACC).select("*").eq("token_hash", _hash_operator_token(token_plain)).eq("status", "activo").limit(1).execute().data or []
     if not rows:
         raise HTTPException(401, "Acceso de operador invalido.")
+    try:
+        sb.table(_TBL_OPER_ACC).update({"last_used_at": datetime.now(timezone.utc).isoformat()}).eq("id", rows[0]["id"]).execute()
+    except Exception:
+        pass
     return sb, rows[0]
 
 
@@ -1349,8 +1576,15 @@ async def operador_viajes(token: str = Query(...)):
     if acc.get("perfil_id"):
         q = q.eq("perfil_id", acc.get("perfil_id"))
     viajes = q.in_("operacion_status", ["programado", "asignado", "recibido", "en_ruta", "problema"]).order("fecha_hora_salida").execute().data or []
+    cfdis = []
+    ids = [int(v["id"]) for v in viajes if v.get("id")]
+    if ids:
+        cfdis = sb.table(_TBL_CFDI).select("viaje_id,uuid_sat,id_ccp,status").eq("user_id", acc["user_id"]).in_("viaje_id", ids).execute().data or []
+    cfdi_map = {int(c.get("viaje_id")): c for c in cfdis if c.get("viaje_id")}
     for v in viajes:
         v["productos"] = _productos_from_row(v)
+        v["cfdi"] = cfdi_map.get(int(v.get("id") or 0), {})
+        v["tiene_pdf_carta_porte"] = bool(v.get("uuid_cfdi") or v["cfdi"].get("uuid_sat"))
     return JSONResponse({"ok": True, "viajes": viajes})
 
 
@@ -1362,7 +1596,7 @@ async def operador_accion(viaje_id: int, payload: dict, token: str = Query(...))
     if accion not in mapping:
         raise HTTPException(400, "Accion no valida.")
     status, title = mapping[accion]
-    viaje_rows = sb.table(_TBL_VIAJES).select("id,user_id,perfil_id,chofer_id").eq("id", viaje_id).eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"]).limit(1).execute().data or []
+    viaje_rows = sb.table(_TBL_VIAJES).select("id,user_id,perfil_id,chofer_id,nombre_origen,nombre_destino,cp_origen,cp_destino").eq("id", viaje_id).eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"]).limit(1).execute().data or []
     if not viaje_rows:
         raise HTTPException(404, "Viaje no encontrado para este operador.")
     update = {"operacion_status": status}
@@ -1370,6 +1604,17 @@ async def operador_accion(viaje_id: int, payload: dict, token: str = Query(...))
         update["fecha_entrega_confirmada"] = datetime.now(timezone.utc).isoformat()
     sb.table(_TBL_VIAJES).update(update).eq("id", viaje_id).eq("user_id", acc["user_id"]).execute()
     _registrar_evento(sb, acc["user_id"], viaje_rows[0].get("perfil_id"), viaje_id, f"operador_{accion}", title, str(payload.get("nota") or ""), "operador", str(acc["chofer_id"]), {"accion": accion})
+    if accion == "problema":
+        v = viaje_rows[0]
+        ruta = f"{v.get('nombre_origen') or v.get('cp_origen') or '?'} → {v.get('nombre_destino') or v.get('cp_destino') or '?'}"
+        _crear_notificacion_manual(
+            sb,
+            acc["user_id"],
+            v.get("perfil_id"),
+            viaje_id,
+            f"Operador reportó problema en viaje #{viaje_id}: {ruta}. {str(payload.get('nota') or '').strip()}",
+            metadata={"accion": accion, "chofer_id": acc["chofer_id"]},
+        )
     return JSONResponse({"ok": True, "operacion_status": status})
 
 
@@ -1406,8 +1651,18 @@ async def operador_pdf_carta_porte(viaje_id: int, token: str = Query(...), downl
     row = cfdi_rows[0]
     if not row.get("xml_content"):
         raise HTTPException(404, "La Carta Porte no tiene XML guardado.")
+    viaje = viaje_rows[0]
+    productos = []
+    viaje_full = sb.table(_TBL_VIAJES).select("productos_json").eq("id", viaje_id).eq("user_id", acc["user_id"]).limit(1).execute().data or []
+    if viaje_full:
+        productos = _productos_from_row(viaje_full[0])
+    validacion = validar_xml_carta_porte_transporte(row["xml_content"], productos)
+    if validacion.bloquea_pdf:
+        raise HTTPException(409, "PDF bloqueado: XML no válido como Carta Porte de carretera. " + "; ".join(validacion.errors[:4]))
     info = extraer_info_pdf(row["xml_content"])
-    pdf_bytes = generar_pdf_carta_porte_desde_xml(row["xml_content"])
+    settings_rows = sb.table(_TBL_SETTINGS).select("data").eq("user_id", acc["user_id"]).eq("perfil_id", viaje.get("perfil_id")).limit(1).execute().data or []
+    settings = settings_rows[0].get("data", {}) if settings_rows else {}
+    pdf_bytes = generar_pdf_carta_porte_desde_xml(row["xml_content"], settings.get("PdfLogoDataUrl", ""))
     disposition = "attachment" if download else "inline"
     return Response(
         content=pdf_bytes,
@@ -1454,12 +1709,17 @@ async def listar_cartas_porte_facturables(
         clientes_res = cq.execute()
         clientes = clientes_res.data or []
         clientes_by_rfc = {str(c.get("rfc") or "").upper(): c for c in clientes}
+        tq = sb.table(_TBL_TARIFAS).select("*").eq("user_id", uid).eq("activo", True)
+        if pid:
+            tq = tq.eq("perfil_id", pid)
+        tarifas = tq.execute().data or []
         items = []
         for cfdi in cfdis:
             viaje = viajes_map.get(int(cfdi.get("viaje_id") or 0), {})
             cliente = clientes_by_rfc.get(str(viaje.get("rfc_receptor") or cfdi.get("rfc_receptor") or "").upper(), {})
-            subtotal = round(float(cfdi.get("importe_total") or 0), 2)
-            iva = round(subtotal * float(IVA_TASA), 2)
+            if cliente.get("id"):
+                viaje = {**viaje, "cliente_id": cliente.get("id")}
+            calc = _calcular_tarifa_operativa(viaje, tarifas)
             items.append({
                 "viaje_id": cfdi.get("viaje_id"),
                 "cfdi_id": cfdi.get("id"),
@@ -1472,9 +1732,16 @@ async def listar_cartas_porte_facturables(
                 "cp_receptor": cliente.get("cp") or viaje.get("cp_receptor"),
                 "regimen_fiscal": cliente.get("regimen_fiscal") or "601",
                 "uso_cfdi": cliente.get("uso_cfdi") or viaje.get("uso_cfdi") or "G03",
-                "subtotal": subtotal,
-                "iva": iva,
-                "total": round(subtotal + iva, 2),
+                "subtotal": calc["subtotal"],
+                "iva": calc["iva"],
+                "retencion": calc["retencion"],
+                "total": calc["total"],
+                "iva_tasa": calc["iva_tasa"],
+                "retencion_tasa": calc["retencion_tasa"],
+                "aplica_iva": calc["aplica_iva"],
+                "aplica_retencion": calc["aplica_retencion"],
+                "tarifa_id": calc.get("tarifa_id"),
+                "regla_calculo": calc.get("regla_calculo"),
             })
         return JSONResponse({"ok": True, "cartas": items})
     except Exception as e:
@@ -1491,8 +1758,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     sb = _sb(token)
 
     _validar_datos_cfdi_receptor(payload.rfc_receptor, payload.regimen_fiscal, payload.cp_receptor, payload.uso_cfdi)
-    _validar_totales_servicio(payload.subtotal, payload.iva, payload.total)
-    viajes_res = sb.table(_TBL_VIAJES).select("id,perfil_id,status,uuid_cfdi,id_ccp,rfc_receptor,nombre_receptor,cp_receptor,uso_cfdi").eq("user_id", uid).in_("id", payload.viaje_ids).execute()
+    viajes_res = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).in_("id", payload.viaje_ids).execute()
     viajes = viajes_res.data or []
     perfil_factura = payload.perfil_id or (viajes[0].get("perfil_id") if viajes else None)
     encontrados = {int(v["id"]) for v in viajes}
@@ -1524,6 +1790,22 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         if repetidos:
             raise HTTPException(400, f"Estas Cartas Porte ya tienen factura de servicio: {repetidos}")
 
+    tq = sb.table(_TBL_TARIFAS).select("*").eq("user_id", uid).eq("activo", True)
+    if perfil_factura:
+        tq = tq.eq("perfil_id", perfil_factura)
+    tarifas = tq.execute().data or []
+    if payload.cliente_id:
+        viajes_calc = [{**v, "cliente_id": payload.cliente_id} for v in viajes]
+    else:
+        viajes_calc = viajes
+    calculo_servicio = _sumar_calculos_servicio(viajes_calc, tarifas)
+    sin_tarifa = [i.get("viaje_id") for i in calculo_servicio.get("items", []) if not i.get("tarifa_id")]
+    if sin_tarifa:
+        raise HTTPException(400, f"Configura una tarifa de servicio antes de facturar estas Cartas Porte: {sin_tarifa}")
+    if calculo_servicio.get("tasas_mixtas"):
+        raise HTTPException(400, "No mezcles Cartas Porte con tasas distintas de IVA/retención en una sola factura de servicio.")
+    _validar_totales_servicio(payload, calculo_servicio)
+
     settings = _settings_transporte(uid, token, perfil_factura)
     emisor = {
         "rfc": settings.get("RfcContribuyente", ""),
@@ -1544,7 +1826,13 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         emisor=emisor,
         receptor=receptor,
         cartas_porte=viajes,
-        subtotal=payload.subtotal,
+        subtotal=calculo_servicio["subtotal"],
+        iva=calculo_servicio["iva"],
+        retencion=calculo_servicio["retencion"],
+        iva_tasa=calculo_servicio["iva_tasa"],
+        retencion_tasa=calculo_servicio["retencion_tasa"],
+        aplica_iva=calculo_servicio["aplica_iva"],
+        aplica_retencion=calculo_servicio["aplica_retencion"],
         forma_pago=payload.forma_pago,
         metodo_pago=payload.metodo_pago,
         uso_cfdi=payload.uso_cfdi,
@@ -1570,9 +1858,15 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "regimen_fiscal":  payload.regimen_fiscal,
         "uso_cfdi":        payload.uso_cfdi,
         "concepto":        payload.concepto,
-        "subtotal":        round(payload.subtotal, 2),
-        "iva":             round(payload.iva, 2),
-        "total":           round(payload.total, 2),
+        "subtotal":        calculo_servicio["subtotal"],
+        "iva":             calculo_servicio["iva"],
+        "retencion":       calculo_servicio["retencion"],
+        "total":           calculo_servicio["total"],
+        "iva_tasa":        calculo_servicio["iva_tasa"],
+        "retencion_tasa":  calculo_servicio["retencion_tasa"],
+        "aplica_iva":      calculo_servicio["aplica_iva"],
+        "aplica_retencion": calculo_servicio["aplica_retencion"],
+        "calculo_json":    calculo_servicio,
         "forma_pago":      payload.forma_pago,
         "metodo_pago":     payload.metodo_pago,
         "moneda":          payload.moneda,
@@ -1617,7 +1911,10 @@ async def listar_liquidaciones(
     if pid:
         q = q.eq("perfil_id", pid)
     if periodo:
-        q = q.eq("periodo", periodo)
+        if re.match(r"^\d{4}-\d{2}$", periodo):
+            q = q.in_("periodo", [periodo, f"{periodo}-Q1", f"{periodo}-Q2"])
+        else:
+            q = q.eq("periodo", periodo)
     return JSONResponse({"ok": True, "liquidaciones": q.execute().data or []})
 
 
@@ -1632,16 +1929,80 @@ async def detalle_liquidacion(liquidacion_id: int, authorization: str = Header(d
     return JSONResponse({"ok": True, "liquidacion": liq[0], "items": items})
 
 
+@router.get("/tr/liquidaciones/{liquidacion_id}/export.xlsx")
+async def exportar_liquidacion_xlsx(liquidacion_id: int, authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    liq_rows = sb.table(_TBL_LIQS).select("*").eq("id", liquidacion_id).eq("user_id", uid).limit(1).execute().data or []
+    if not liq_rows:
+        raise HTTPException(404, "Liquidación no encontrada.")
+    liq = liq_rows[0]
+    items = sb.table(_TBL_LIQ_ITEMS).select("*").eq("liquidacion_id", liquidacion_id).eq("user_id", uid).execute().data or []
+    chofer = {}
+    if liq.get("chofer_id"):
+        ch = sb.table(_TBL_CHOFERES).select("*").eq("id", liq.get("chofer_id")).eq("user_id", uid).limit(1).execute().data or []
+        chofer = ch[0] if ch else {}
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Liquidacion"
+        ws["A1"] = "GE CONTROL - Liquidación de chofer"
+        ws["A1"].font = Font(bold=True, size=14)
+        ws["A3"] = "Folio"; ws["B3"] = liq.get("id")
+        ws["A4"] = "Chofer"; ws["B4"] = chofer.get("nombre") or liq.get("chofer_id")
+        ws["A5"] = "Periodo"; ws["B5"] = liq.get("periodo")
+        ws["A6"] = "Estatus"; ws["B6"] = liq.get("status")
+        headers = ["Viaje", "Concepto", "Litros", "Kilos", "Tarifa", "Subtotal", "IVA", "Retención", "Gastos", "Total"]
+        ws.append([])
+        ws.append(headers)
+        header_row = ws.max_row
+        for cell in ws[header_row]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="7A1E2C")
+        for it in items:
+            ws.append([
+                it.get("viaje_id"), it.get("concepto"), float(it.get("litros") or 0),
+                float(it.get("kilos") or 0), float(it.get("tarifa") or 0),
+                float(it.get("subtotal") or 0), float(it.get("iva") or 0),
+                float(it.get("retencion") or 0), float(it.get("gastos") or 0),
+                float(it.get("total") or 0),
+            ])
+        ws.append([])
+        ws.append(["Subtotal", "", "", "", "", float(liq.get("subtotal") or 0)])
+        ws.append(["IVA", "", "", "", "", float(liq.get("iva") or 0)])
+        ws.append(["Retención", "", "", "", "", float(liq.get("retencion") or 0)])
+        ws.append(["Gastos", "", "", "", "", float(liq.get("gastos") or 0)])
+        ws.append(["Comisión extra", "", "", "", "", float(liq.get("comision_extra") or 0)])
+        ws.append(["Descuentos", "", "", "", "", float(liq.get("descuentos") or 0)])
+        ws.append(["Anticipos", "", "", "", "", float(liq.get("anticipos") or 0)])
+        ws.append(["Total a pagar", "", "", "", "", float(liq.get("total") or 0)])
+        for col in "ABCDEFGHIJ":
+            ws.column_dimensions[col].width = 16
+        bio = BytesIO()
+        wb.save(bio)
+        bio.seek(0)
+    except Exception as e:
+        raise HTTPException(500, f"No se pudo generar Excel de liquidación: {e}")
+    return Response(
+        content=bio.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="liquidacion_{liquidacion_id}.xlsx"'},
+    )
+
+
 @router.post("/tr/liquidaciones/generar")
 async def generar_liquidacion(payload: dict, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     uid, token = _auth(authorization)
     sb = _sb(token)
     pid = _perfil(payload.get("perfil_id"), x_perfil_id)
     chofer_id = int(payload.get("chofer_id") or 0)
-    periodo = str(payload.get("periodo") or datetime.now(timezone.utc).strftime("%Y-%m"))
+    periodo = _periodo_liquidacion_label(str(payload.get("periodo") or datetime.now(timezone.utc).strftime("%Y-%m")), str(payload.get("periodo_tipo") or ""))
+    periodo_inicio, periodo_fin = _periodo_liquidacion_bounds(periodo, str(payload.get("periodo_tipo") or ""))
     if not chofer_id:
         raise HTTPException(400, "chofer_id requerido.")
-    q = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).eq("chofer_id", chofer_id).like("fecha_hora_salida", f"{periodo}%")
+    q = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).eq("chofer_id", chofer_id).gte("fecha_hora_salida", periodo_inicio).lt("fecha_hora_salida", periodo_fin)
     if pid:
         q = q.eq("perfil_id", pid)
     viajes = q.execute().data or []
@@ -1656,8 +2017,12 @@ async def generar_liquidacion(payload: dict, authorization: str = Header(default
 
     items = []
     subtotal = iva = retencion = total = 0.0
+    sin_tarifa = []
     for v in viajes:
         calc = _calcular_tarifa_operativa(v, tarifas)
+        if not calc.get("tarifa_id"):
+            sin_tarifa.append(v["id"])
+            continue
         gastos = sb.table(_TBL_GASTOS).select("importe").eq("user_id", uid).eq("viaje_id", v["id"]).eq("status", "aprobado").execute().data or []
         gastos_total = round(sum(_safe_float(g.get("importe")) for g in gastos), 2)
         item_total = round(calc["total"] + gastos_total, 2)
@@ -1672,16 +2037,29 @@ async def generar_liquidacion(payload: dict, authorization: str = Header(default
             "subtotal": calc["subtotal"], "iva": calc["iva"], "retencion": calc["retencion"],
             "gastos": gastos_total, "total": item_total, "metadata": calc,
         })
+    if sin_tarifa:
+        raise HTTPException(400, f"Configura tarifa antes de liquidar estos viajes: {sin_tarifa}")
+    if not items:
+        raise HTTPException(404, "No hay viajes con tarifa configurada para liquidar.")
 
     now_iso = datetime.now(timezone.utc).isoformat()
+    anticipos = _safe_float(payload.get("anticipos"))
+    comision_extra = _safe_float(payload.get("comision_extra"))
+    descuentos = _safe_float(payload.get("descuentos"))
     liq_row = {
         "user_id": uid, "perfil_id": pid, "chofer_id": chofer_id, "periodo": periodo,
+        "periodo_inicio": periodo_inicio, "periodo_fin": periodo_fin,
         "subtotal": round(subtotal, 2), "iva": round(iva, 2), "retencion": round(retencion, 2),
         "gastos": round(sum(i["gastos"] for i in items), 2),
-        "anticipos": _safe_float(payload.get("anticipos")),
-        "total": round(total - _safe_float(payload.get("anticipos")), 2),
+        "anticipos": anticipos,
+        "comision_extra": comision_extra,
+        "descuentos": descuentos,
+        "total": round(total + comision_extra - anticipos - descuentos, 2),
         "status": str(payload.get("status") or "emitida"),
         "notas": str(payload.get("notas") or ""),
+        "metodo_pago": str(payload.get("metodo_pago") or ""),
+        "referencia_pago": str(payload.get("referencia_pago") or ""),
+        "metadata": {"periodo_inicio": periodo_inicio, "periodo_fin": periodo_fin, "items": len(items)},
         "created_at": now_iso,
     }
     res = sb.table(_TBL_LIQS).insert(liq_row).execute()
@@ -1698,17 +2076,24 @@ async def generar_liquidacion(payload: dict, authorization: str = Header(default
 
 
 @router.post("/tr/liquidaciones/{liquidacion_id}/pagar")
-async def pagar_liquidacion(liquidacion_id: int, authorization: str = Header(default="")):
+async def pagar_liquidacion(liquidacion_id: int, payload: dict, authorization: str = Header(default="")):
     uid, token = _auth(authorization)
     sb = _sb(token)
     now_iso = datetime.now(timezone.utc).isoformat()
-    sb.table(_TBL_LIQS).update({"status": "pagada", "paid_at": now_iso}).eq("id", liquidacion_id).eq("user_id", uid).execute()
+    metodo = str(payload.get("metodo_pago") or "").strip() or "efectivo"
+    referencia = str(payload.get("referencia_pago") or "").strip()
+    sb.table(_TBL_LIQS).update({
+        "status": "pagada",
+        "paid_at": now_iso,
+        "metodo_pago": metodo,
+        "referencia_pago": referencia,
+    }).eq("id", liquidacion_id).eq("user_id", uid).execute()
     items = sb.table(_TBL_LIQ_ITEMS).select("viaje_id,perfil_id").eq("liquidacion_id", liquidacion_id).eq("user_id", uid).execute().data or []
     ids = [int(i["viaje_id"]) for i in items if i.get("viaje_id")]
     if ids:
         sb.table(_TBL_VIAJES).update({"liquidacion_status": "pagada"}).eq("user_id", uid).in_("id", ids).execute()
         for item in items:
-            _registrar_evento(sb, uid, item.get("perfil_id"), int(item["viaje_id"]), "liquidacion_pagada", "Liquidacion pagada", f"Liquidacion #{liquidacion_id}", "oficina", uid, {"liquidacion_id": liquidacion_id})
+            _registrar_evento(sb, uid, item.get("perfil_id"), int(item["viaje_id"]), "liquidacion_pagada", "Liquidacion pagada", f"Liquidacion #{liquidacion_id} · {metodo}", "oficina", uid, {"liquidacion_id": liquidacion_id, "metodo_pago": metodo, "referencia_pago": referencia})
     return JSONResponse({"ok": True})
 
 
@@ -1856,8 +2241,18 @@ async def ver_pdf_carta_porte_transporte(
         if not xml_content:
             raise HTTPException(404, "Este CFDI no tiene XML timbrado guardado.")
 
+        viaje_rows = []
+        productos = []
+        if row.get("viaje_id"):
+            viaje_rows = sb.table(_TBL_VIAJES).select("id,perfil_id,productos_json").eq("id", row.get("viaje_id")).eq("user_id", uid).limit(1).execute().data or []
+            if viaje_rows:
+                productos = _productos_from_row(viaje_rows[0])
+        validacion = validar_xml_carta_porte_transporte(xml_content, productos)
+        if validacion.bloquea_pdf:
+            raise HTTPException(409, "PDF bloqueado: XML no válido como Carta Porte de carretera. " + "; ".join(validacion.errors[:5]))
+        settings = _settings_transporte(uid, token, row.get("perfil_id"))
         info = extraer_info_pdf(xml_content)
-        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content)
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, settings.get("PdfLogoDataUrl", ""))
         _guardar_cfdi_pdf_en_expediente(
             sb,
             uid,
