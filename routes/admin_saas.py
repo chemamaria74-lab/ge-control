@@ -68,6 +68,14 @@ def _allowed_values(env_name: str) -> set[str]:
     return {v.strip().lower() for v in os.environ.get(env_name, "").split(",") if v.strip()}
 
 
+def _superadmin_ids() -> set[str]:
+    return _allowed_values("SUPERADMIN_USER_IDS") | _allowed_values("SUPERADMIN_USER_ID")
+
+
+def _superadmin_emails() -> set[str]:
+    return _allowed_values("SUPERADMIN_EMAILS") | _allowed_values("SUPERADMIN_EMAIL")
+
+
 def _extract_token(authorization: str) -> str:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
@@ -87,8 +95,8 @@ def _require_superadmin(authorization: str) -> tuple[str, str, str]:
     except Exception:
         email = ""
 
-    allowed_ids = _allowed_values("SUPERADMIN_USER_IDS")
-    allowed_emails = _allowed_values("SUPERADMIN_EMAILS")
+    allowed_ids = _superadmin_ids()
+    allowed_emails = _superadmin_emails()
     if str(uid).lower() not in allowed_ids and email not in allowed_emails:
         raise HTTPException(403, "Acceso restringido a superadmin.")
     return uid, email, token
