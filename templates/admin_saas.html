@@ -218,7 +218,36 @@ function editSubscriptionFromTenant(tenantId){ const tenant=(TENANTS||[]).find(t
 async function saveSubscription(){ try{ const max=subPlan.value==='Ilimitado'?null:Number(subMax.value||0); await api('/subscriptions/'+encodeURIComponent(subTenant.value),{method:'PUT',headers:H(),body:JSON.stringify({plan_name:subPlan.value,max_companies:max,status:subStatus.value,expires_at:subExpires.value||null,notes_internal:subNotes.value||'',limits_json:buildLimitsJson(max)})}); msg('subMsg','Suscripción guardada'); await loadDashboard(); await loadTenants(); }catch(e){msg('subMsg',e.message,false);} }
 async function saveModule(){ try{ await api('/user-sections',{method:'PUT',headers:H(),body:JSON.stringify({user_id:modUser.value,section:modSection.value,role:modRole.value,status:modStatus.value,tenant_id:modTenant.value||null,perfil_id:modPerfil.value?Number(modPerfil.value):null,display_name:modDisplay.value})}); msg('modMsg','Acceso guardado'); await loadUsers(); }catch(e){msg('modMsg',e.message,false);} }
 async function setUserStatus(userId,status){ if(status==='inactive' && !confirm('Esto desactiva sus accesos a módulos sin borrar datos. ¿Continuar?')) return; await api('/users/'+encodeURIComponent(userId)+'/status',{method:'POST',headers:H(),body:JSON.stringify({status})}); await loadUsersHealth(); await loadUsers(); }
-async function deleteUserSafe(userId){ if(!confirm('Eliminar seguro solo borra usuarios sin historial. Si tiene datos, se bloqueará y se desactivará. ¿Continuar?')) return; try{ await api('/users/'+encodeURIComponent(userId),{method:'DELETE',headers:H(false)}); await loadUsersHealth(); await loadUsers(); alert('Usuario eliminado porque no tenía historial operativo.'); }catch(e){ alert(e.message); await loadUsersHealth(); } }
+function deleteSummary(preview){
+  const u=preview?.user||{};
+  const counts=preview?.counts||{};
+  const roles=(u.roles||[]).map(r=>`${r.section||'-'} / ${r.role||'-'} / ${r.status||'-'}`).join('\n') || 'Sin módulos';
+  const companies=(u.companies||[]).map(c=>`${c.nombre||c.perfil_id||'-'} ${c.rfc?('('+c.rfc+')'):''}`).join('\n') || 'Sin empresas';
+  const touched=Object.entries(counts).filter(([,v])=>Number(v)>0).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))).map(([k,v])=>`${k}: ${v}`).join('\n') || 'Sin registros relacionados';
+  return `Vas a eliminar DEFINITIVAMENTE este usuario y sus datos relacionados.\n\nUsuario: ${u.email||u.user_id||''}\nNombre: ${u.display_name||'—'}\nUser ID: ${u.user_id||''}\n\nRoles:\n${roles}\n\nEmpresas:\n${companies}\n\nRegistros que se limpiarán:\n${touched}\n\nEsta acción es transaccional: si falla una relación, se revierte todo.`;
+}
+async function deleteUserSafe(userId){
+  try{
+    const d=await api('/users/'+encodeURIComponent(userId)+'/delete-preview',{headers:H(false)});
+    const summary=deleteSummary(d.preview);
+    let transferUserId='';
+    if(d.preview?.requires_transfer){
+      transferUserId=prompt('Este usuario tiene empresas o historial fiscal/operativo. Para NO borrar datos legales, escribe el User ID o email del usuario que recibirá la propiedad de empresas, viajes, CFDI, controles y documentos.');
+      if(!transferUserId) return alert('Eliminación cancelada: se requiere transferir historial legal/operativo.');
+    }
+    if(!confirm(summary + '\n\n¿Continuar?')) return;
+    const typed=prompt('Para confirmar escribe ELIMINAR');
+    if((typed||'').trim().toUpperCase()!=='ELIMINAR') return alert('Eliminación cancelada.');
+    const qs=transferUserId ? ('?transfer_user_id='+encodeURIComponent(transferUserId.trim())) : '';
+    await api('/users/'+encodeURIComponent(userId)+qs,{method:'DELETE',headers:H(false)});
+    await loadAll();
+    alert('Usuario eliminado correctamente. Ya no debe aparecer en Superadmin ni en módulos cliente.');
+  }catch(e){
+    alert('No se pudo eliminar el usuario: '+e.message);
+    await loadUsersHealth().catch(()=>{});
+    await loadUsers().catch(()=>{});
+  }
+}
 async function repairUser(){ const value=document.getElementById('repairUser').value.trim(); repairResult.textContent='Procesando...'; try{ const d=await api('/repair/user/'+encodeURIComponent(value),{method:'POST',headers:H(false)}); repairResult.textContent=JSON.stringify(d.summary,null,2); await loadDashboard(); await loadUsersHealth(); }catch(e){repairResult.textContent=e.message;} }
 async function inspectUser(){ const value=document.getElementById('repairUser').value.trim(); repairResult.textContent='Inspeccionando...'; try{ const d=await api('/repair/user/'+encodeURIComponent(value)+'/inspect',{headers:H(false)}); repairResult.textContent=JSON.stringify(d.inspection,null,2); }catch(e){repairResult.textContent=e.message;} }
 async function loadAudit(){ const d=await api('/audit',{headers:H(false)}); auditRows.innerHTML=(d.audit||[]).map(a=>`<tr><td>${esc(a.created_at||'')}</td><td><code>${esc(a.actor_user_id||'')}</code></td><td>${esc(a.action)}</td><td>${esc(a.target_type)} <code>${esc(a.target_id||'')}</code></td><td><code>${esc(JSON.stringify(a.detail||{}).slice(0,220))}</code></td></tr>`).join('')||'<tr><td colspan="5">Sin auditoría o tabla no creada.</td></tr>'; }
