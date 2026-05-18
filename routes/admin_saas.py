@@ -201,6 +201,67 @@ def _inspect_user(identifier: str) -> dict:
         "tr_clientes": _count_rows(sb, "tr_clientes", "user_id", target_user_id),
         "internal_users_owner": _count_rows(sb, "internal_users", "owner_user_id", target_user_id),
     }
+
+
+def _user_health_rows() -> list[dict]:
+    sb = _sb_admin()
+    auth_users = _auth_users_by_id()
+    sections = sb.table("user_sections").select("*").execute().data or []
+    profiles = sb.table("perfiles_empresa").select("id,user_id,nombre,rfc,tenant_id,activo").execute().data or []
+    companies = sb.table("companies").select("id,tenant_id,name,rfc,active").execute().data or []
+    subscriptions = sb.table("subscriptions").select("tenant_id,plan_name,max_companies,status,expires_at").execute().data or []
+    user_ids = set(auth_users.keys()) | {str(s.get("user_id")) for s in sections if s.get("user_id")} | {str(p.get("user_id")) for p in profiles if p.get("user_id")}
+    company_by_id = {c.get("id"): c for c in companies}
+    rows = []
+    for user_id in sorted(user_ids):
+        user_sections = [s for s in sections if str(s.get("user_id")) == user_id]
+        user_profiles = [p for p in profiles if str(p.get("user_id")) == user_id and p.get("activo")]
+        tenant_ids = sorted({str(s.get("tenant_id")) for s in user_sections if s.get("tenant_id")} | {str(p.get("tenant_id")) for p in user_profiles if p.get("tenant_id")})
+        user_subscriptions = [s for s in subscriptions if str(s.get("tenant_id")) in tenant_ids]
+        warnings = []
+        if not user_sections:
+            warnings.append("sin user_sections")
+        if any(not s.get("tenant_id") for s in user_sections):
+            warnings.append("user_sections sin tenant")
+        if user_profiles and any(not p.get("tenant_id") for p in user_profiles):
+            warnings.append("perfiles sin tenant")
+        missing_company = [p for p in user_profiles if p.get("id") not in company_by_id]
+        if missing_company:
+            warnings.append("perfiles sin company")
+        if tenant_ids and not user_subscriptions:
+            warnings.append("sin subscription")
+        if user_sections and not any((s.get("status") or "active") == "active" for s in user_sections):
+            warnings.append("sin módulos activos")
+        rows.append({
+            "user_id": user_id,
+            "email": auth_users.get(user_id, {}).get("email", ""),
+            "tenant_ids": tenant_ids,
+            "modules": [
+                {
+                    "section": s.get("section"),
+                    "role": s.get("role"),
+                    "status": s.get("status") or "active",
+                    "perfil_id": s.get("perfil_id"),
+                    "tenant_id": s.get("tenant_id"),
+                    "can_open": bool(s.get("tenant_id")) and (s.get("status") or "active") == "active",
+                }
+                for s in user_sections
+            ],
+            "companies": [
+                {
+                    "perfil_id": p.get("id"),
+                    "nombre": p.get("nombre"),
+                    "rfc": p.get("rfc"),
+                    "tenant_id": p.get("tenant_id"),
+                    "has_company": p.get("id") in company_by_id,
+                }
+                for p in user_profiles
+            ],
+            "subscription": user_subscriptions[0] if user_subscriptions else None,
+            "warnings": warnings,
+            "status": "ok" if not warnings else "warning",
+        })
+    return rows
     warnings = []
     if counts["perfiles_empresa"] and counts["perfiles_sin_tenant"]:
         warnings.append("Hay perfiles_empresa legacy sin tenant_id.")
@@ -323,6 +384,14 @@ async def admin_saas_dashboard(authorization: str = Header(default="")):
         },
         "issues": issues,
     })
+
+
+@router.get("/admin-saas/health/users")
+async def users_health(authorization: str = Header(default="")):
+    uid, _, _ = _require_superadmin(authorization)
+    rows = _user_health_rows()
+    _audit(uid, "view_users_health", "admin_saas", "", {"warnings": len([r for r in rows if r["warnings"]])})
+    return JSONResponse({"ok": True, "users": rows})
 
 
 @router.get("/admin-saas/tenants")
