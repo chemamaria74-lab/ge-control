@@ -22,6 +22,7 @@ from routes.admin       import router as admin_router
 from routes.facturas    import router as facturas_router
 from routes.movimientos import router as movimientos_router
 from routes.perfiles    import router as perfiles_router
+from routes.internal_users import router as internal_users_router
 from services.database  import init_db
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -92,6 +93,7 @@ app.include_router(admin_router,       prefix="/api", tags=["Admin"])
 app.include_router(facturas_router,    prefix="/api", tags=["Facturas"])
 app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
 app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
+app.include_router(internal_users_router, prefix="/api", tags=["Usuarios internos"])
 app.include_router(transporte_router,  prefix="/api", tags=["Transporte"])
 app.include_router(gasolineras_router, prefix="/api", tags=["Gasolineras"])
 
@@ -229,6 +231,13 @@ async def frontend_transporte():
 async def frontend_operador_transporte():
     """Portal movil simple para operadores de Transporte."""
     with open(os.path.join(BASE_DIR, "templates", "operador_transporte.html"), encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/transporte/operador", response_class=HTMLResponse, include_in_schema=False)
+async def login_operador_transporte():
+    """Login de operador por codigo/PIN, sin cuenta Supabase Auth."""
+    with open(os.path.join(BASE_DIR, "templates", "operador_transporte_login.html"), encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
