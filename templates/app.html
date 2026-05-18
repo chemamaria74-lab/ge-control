@@ -2255,6 +2255,53 @@ tr:hover td{background:#f8fafc}
   </div>
 </div>
 
+<!-- Usuarios internos por empresa -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
+    <h2><i class="fa-solid fa-users-gear" style="margin-right:.35rem"></i>Usuarios y permisos</h2>
+    <button onclick="loadInternalUsersGasLp()" style="
+      padding:.4rem .9rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;
+      font-size:.78rem;cursor:pointer;font-family:inherit"><i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i> Actualizar</button>
+  </div>
+  <div class="grid2" style="margin-top:.6rem">
+    <div class="field"><label>Nombre</label><input id="gasInternalName" type="text" placeholder="Nombre del asistente"></div>
+    <div class="field"><label>Rol</label>
+      <select id="gasInternalRole">
+        <option value="asistente_facturacion">Asistente de facturación</option>
+        <option value="asistente_operativo">Asistente operativo</option>
+        <option value="planta">Planta</option>
+        <option value="solo_lectura">Solo lectura</option>
+      </select>
+    </div>
+    <div class="field"><label>Código</label><input id="gasInternalCode" type="text" placeholder="Auto" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
+    <div class="field"><label>PIN temporal</label><input id="gasInternalPin" type="text" placeholder="Auto"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:.8rem;margin-top:.8rem;flex-wrap:wrap">
+    <button onclick="createInternalUserGasLp()" style="
+      padding:.55rem 1.4rem;background:#0f766e;color:#fff;border:none;
+      border-radius:8px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.88rem">
+      Crear usuario interno
+    </button>
+    <span id="gasInternalStatus" style="font-size:.83rem"></span>
+  </div>
+  <div style="overflow-x:auto;margin-top:1rem">
+    <table style="width:100%;border-collapse:collapse;font-size:.84rem">
+      <thead><tr style="border-bottom:2px solid #e2e8f0;text-align:left">
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Usuario</th>
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Código</th>
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Rol</th>
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Estado</th>
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Último acceso</th>
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Acciones</th>
+      </tr></thead>
+      <tbody id="gasInternalTbody"></tbody>
+    </table>
+    <div id="gasInternalEmpty" style="display:none;text-align:center;padding:1.5rem;color:#94a3b8;font-size:.85rem">
+      No hay usuarios internos para esta empresa.
+    </div>
+  </div>
+</div>
+
 </div><!-- /mpanel-admin -->
 
 </div><!-- /container -->
@@ -2372,7 +2419,7 @@ function applyRole(role) {
   localStorage.setItem('sat_role', currentUserRole);
   const tab = document.getElementById('tabAdmin');
   if (tab) tab.style.display = currentUserRole === 'admin' ? '' : 'none';
-  const facturacionOnly = ['asistente_facturacion', 'planta'].includes(currentUserRole);
+  const facturacionOnly = ['asistente_facturacion', 'asistente_operativo', 'planta', 'solo_lectura'].includes(currentUserRole);
   document.querySelectorAll('.main-nav-tab').forEach(t => {
     const allowed = t.dataset.main === 'procesar';
     if (facturacionOnly && !allowed) t.style.display = 'none';
@@ -2837,7 +2884,7 @@ async function iniciarFlujoEmpresa() {
       return;
     }
   }
-  if (['asistente_facturacion', 'planta'].includes(currentUserRole)) {
+  if (['asistente_facturacion', 'asistente_operativo', 'planta', 'solo_lectura'].includes(currentUserRole)) {
     seleccionarEmpresa(perfiles[0], false);
     return;
   }
@@ -3651,7 +3698,7 @@ function confirmDeleteFacility(id, nombre) {
 
 // ── Navegación principal ──────────────────────────────────────────────────
 async function switchTab(name) {
-  if (['asistente_facturacion', 'planta'].includes(currentUserRole) && name !== 'procesar') {
+  if (['asistente_facturacion', 'asistente_operativo', 'planta', 'solo_lectura'].includes(currentUserRole) && name !== 'procesar') {
     name = 'procesar';
   }
   document.querySelectorAll('.main-nav-tab').forEach(x => {
@@ -5130,7 +5177,7 @@ function showToast(msg, type) {
 
 // ── Panel Admin ───────────────────────────────────────────────────────────────
 async function loadAdminPanel() {
-  await Promise.all([loadAdminMetrics(), loadAdminUsers()]);
+  await Promise.all([loadAdminMetrics(), loadAdminUsers(), loadInternalUsersGasLp()]);
 }
 
 async function loadAdminMetrics() {
@@ -5250,6 +5297,129 @@ async function createAdminUser() {
     statusEl.style.color = '#dc2626';
     statusEl.textContent = 'Error de conexión.';
   }
+}
+
+function internalRoleLabel(role) {
+  const labels = {
+    asistente_facturacion: 'Asistente facturación',
+    asistente_operativo: 'Asistente operativo',
+    planta: 'Planta',
+    solo_lectura: 'Solo lectura',
+    operador: 'Operador',
+    admin: 'Admin',
+  };
+  return labels[role] || role || '—';
+}
+
+async function loadInternalUsersGasLp() {
+  const tbody = document.getElementById('gasInternalTbody');
+  const empty = document.getElementById('gasInternalEmpty');
+  if (!tbody) return;
+  if (empty) empty.style.display = 'none';
+  tbody.innerHTML = '';
+  if (!perfilId()) {
+    if (empty) {
+      empty.style.display = '';
+      empty.textContent = 'Selecciona una empresa para ver usuarios internos.';
+    }
+    return;
+  }
+  try {
+    const url = `/api/internal-users?section=gas_lp&perfil_id=${encodeURIComponent(perfilId())}`;
+    const res = await fetch(url, { headers: { ...authHeader(), 'Content-Type': 'application/json' } });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible cargar usuarios internos.');
+    const users = data.users || [];
+    if (!users.length) {
+      if (empty) {
+        empty.style.display = '';
+        empty.textContent = 'No hay usuarios internos para esta empresa.';
+      }
+      return;
+    }
+    tbody.innerHTML = users.map(u => {
+      const active = (u.status || 'active') === 'active';
+      const badge = active
+        ? '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">Activo</span>'
+        : `<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">${u.status || 'Inactivo'}</span>`;
+      return `<tr style="border-bottom:1px solid #f1f5f9">
+        <td style="padding:.55rem .8rem;font-weight:600">${u.display_name || '—'}</td>
+        <td style="padding:.55rem .8rem;font-family:monospace">${u.code || '—'}</td>
+        <td style="padding:.55rem .8rem">${internalRoleLabel(u.role)}</td>
+        <td style="padding:.55rem .8rem">${badge}</td>
+        <td style="padding:.55rem .8rem;color:#94a3b8;font-size:.78rem">${u.last_access_at ? String(u.last_access_at).slice(0,16).replace('T',' ') : '—'}</td>
+        <td style="padding:.55rem .8rem;display:flex;gap:.35rem;flex-wrap:wrap">
+          <button onclick="resetInternalPinGasLp(${Number(u.id)})" style="padding:.32rem .65rem;border:1px solid #cbd5e1;background:#fff;border-radius:7px;font-size:.76rem;cursor:pointer">Reset PIN</button>
+          <button onclick="setInternalStatusGasLp(${Number(u.id)}, '${active ? 'inactive' : 'active'}')" style="padding:.32rem .65rem;border:1px solid ${active?'#fca5a5':'#86efac'};background:${active?'#fff1f2':'#f0fdf4'};color:${active?'#dc2626':'#15803d'};border-radius:7px;font-size:.76rem;cursor:pointer">${active ? 'Desactivar' : 'Activar'}</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    if (empty) {
+      empty.style.display = '';
+      empty.textContent = e.message;
+    }
+  }
+}
+
+async function createInternalUserGasLp() {
+  const statusEl = document.getElementById('gasInternalStatus');
+  if (statusEl) statusEl.textContent = '';
+  const payload = {
+    display_name: document.getElementById('gasInternalName').value.trim(),
+    section: 'gas_lp',
+    role: document.getElementById('gasInternalRole').value,
+    perfil_id: perfilId(),
+    code: document.getElementById('gasInternalCode').value.trim(),
+    pin: document.getElementById('gasInternalPin').value.trim(),
+  };
+  if (!payload.display_name || !payload.perfil_id) {
+    if (statusEl) {
+      statusEl.style.color = '#dc2626';
+      statusEl.textContent = 'Nombre y empresa activa son obligatorios.';
+    }
+    return;
+  }
+  try {
+    const res = await fetch('/api/internal-users', {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible crear usuario interno.');
+    if (statusEl) {
+      statusEl.style.color = '#15803d';
+      statusEl.innerHTML = `Creado. Código: <b>${data.user.code}</b> | PIN temporal: <b>${data.temporary_pin}</b>`;
+    }
+    ['gasInternalName','gasInternalCode','gasInternalPin'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    await loadInternalUsersGasLp();
+  } catch(e) {
+    if (statusEl) {
+      statusEl.style.color = '#dc2626';
+      statusEl.textContent = e.message;
+    }
+  }
+}
+
+async function setInternalStatusGasLp(id, status) {
+  await fetch(`/api/internal-users/${id}/status`, {
+    method: 'PUT',
+    headers: { ...authHeader(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  await loadInternalUsersGasLp();
+}
+
+async function resetInternalPinGasLp(id) {
+  const res = await fetch(`/api/internal-users/${id}/reset-pin`, {
+    method: 'POST',
+    headers: { ...authHeader(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  const data = await res.json();
+  if (data.ok) showToast(`PIN temporal: ${data.temporary_pin}`, 'success');
+  await loadInternalUsersGasLp();
 }
 
 // ── Inicialización ───────────────────────────────────────────────────────────

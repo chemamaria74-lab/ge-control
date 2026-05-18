@@ -228,7 +228,10 @@ select option{background:#fff}
     </button>
     <div class="tab-menu-panel">
       <button class="tab" type="button" data-tab="operacion" onclick="switchTab('operacion')">
-        <i class="fa-solid fa-clipboard-list"></i> Operación 360
+        <i class="fa-solid fa-clipboard-list"></i> Expediente del viaje
+      </button>
+      <button class="tab" type="button" data-tab="usuarios" onclick="switchTab('usuarios')">
+        <i class="fa-solid fa-users-gear"></i> Usuarios y permisos
       </button>
       <button class="tab" type="button" data-tab="analisis" onclick="switchTab('analisis')">
         <i class="fa-solid fa-chart-simple"></i> Análisis
@@ -318,7 +321,7 @@ select option{background:#fff}
   <div class="section-hdr">
     <div>
       <h2>Operación Transporte</h2>
-      <p style="color:var(--text3);font-size:13px;margin-top:2px">Viaje 360, documentos, tarifas, liquidaciones y bitácora operativa</p>
+      <p style="color:var(--text3);font-size:13px;margin-top:2px">Expediente del viaje, documentos, tarifas, liquidaciones y bitácora operativa</p>
     </div>
     <div class="hdr-actions">
       <input type="month" id="filtro-periodo-operacion" style="width:160px" onchange="cargarOperacion()">
@@ -351,7 +354,7 @@ select option{background:#fff}
 
   <div class="grid-2" style="margin-top:20px">
     <div class="card">
-      <div class="card-title"><i class="fa-solid fa-route"></i> Viaje 360</div>
+      <div class="card-title"><i class="fa-solid fa-route"></i> Expediente del viaje</div>
       <div class="form-row cols-2">
         <div class="form-group"><label>Viaje</label><select id="op-viaje-360"></select></div>
         <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="cargarViaje360()">Abrir expediente</button></div>
@@ -408,6 +411,48 @@ select option{background:#fff}
       <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="guardarTarifa()">Guardar tarifa</button></div>
     </div>
     <div id="op-tarifas-list" class="hint">Cargando tarifas...</div>
+  </div>
+</div>
+
+<div id="tab-usuarios" class="section">
+  <div class="section-hdr">
+    <div>
+      <h2>Usuarios y permisos</h2>
+      <p style="color:var(--text3);font-size:13px;margin-top:2px">Operadores internos por empresa. No requieren correo ni cuenta Supabase Auth.</p>
+    </div>
+    <button class="btn btn-ghost" onclick="cargarUsuariosInternosTransporte()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+  </div>
+
+  <div class="grid-2" style="gap:20px">
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-user-plus"></i> Crear operador interno</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Nombre <span class="req">*</span></label><input id="iu-nombre" placeholder="Nombre del operador"></div>
+        <div class="form-group"><label>Chofer vinculado <span class="req">*</span></label><select id="iu-chofer"></select></div>
+      </div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label>Código operador</label><input id="iu-code" placeholder="Auto" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="form-group"><label>PIN temporal</label><input id="iu-pin" inputmode="numeric" placeholder="Auto"></div>
+        <div class="form-group"><label>Rol</label><select id="iu-role"><option value="operador">Operador</option><option value="solo_lectura">Solo lectura</option></select></div>
+      </div>
+      <button class="btn btn-primary" onclick="crearUsuarioInternoTransporte()"><i class="fa-solid fa-floppy-disk"></i> Crear usuario</button>
+      <div id="iu-result" class="hint" style="margin-top:10px"></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-shield-halved"></i> Permisos efectivos</div>
+      <div class="hint" style="line-height:1.7">
+        El operador entra por <b>/transporte/operador</b> con código y PIN. Su sesión expira, el PIN se guarda en hash y el acceso se limita a su chofer, viajes, documentos, Carta Porte, quincenas y notificaciones.
+      </div>
+    </div>
+  </div>
+
+  <div class="table-wrap" style="margin-top:20px">
+    <table>
+      <thead><tr><th>Usuario</th><th>Código</th><th>Rol</th><th>Chofer</th><th>Estado</th><th>Último acceso</th><th>Acciones</th></tr></thead>
+      <tbody id="tbody-usuarios-internos">
+        <tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-users"></i></div><h3>Cargando usuarios...</h3></div></td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
@@ -1205,6 +1250,7 @@ let EDIT_ID = null;
 let PERFIL = null;
 let TARIFAS = [];
 let LIQUIDACIONES = [];
+let USUARIOS_INTERNOS_TR = [];
 let PERFILES_TRANSPORTE = [];
 let TRANSPORTE_BOOTSTRAPPED = false;
 let PERFIL_PROMPT_VISIBLE = false;
@@ -1786,7 +1832,7 @@ function switchTab(tab) {
   document.getElementById('tab-' + tab).classList.add('active');
   const activeNav = document.querySelector(`[data-tab="${tab}"]`);
   if (activeNav) activeNav.classList.add('active');
-  const adminTabs = ['operacion','analisis','pronostico','configuracion'];
+  const adminTabs = ['operacion','usuarios','analisis','pronostico','configuracion'];
   document.querySelector('.tab-menu-btn')?.classList.toggle('active', adminTabs.includes(tab));
   if (tab === 'catalogos') cargarCatalogos();
   if (tab === 'facturacion') cargarFacturas();
@@ -1794,6 +1840,7 @@ function switchTab(tab) {
   if (tab === 'analisis') cargarAnalisisTransporte();
   if (tab === 'pronostico') cargarPronosticoTransporte();
   if (tab === 'operacion') cargarOperacion();
+  if (tab === 'usuarios') cargarUsuariosInternosTransporte();
 }
 
 function switchCatTab(which) {
@@ -2104,6 +2151,119 @@ function actualizarSelects() {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<option value="">Selecciona chofer</option>' + CHOFERES.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
   });
+  const iuChofer = document.getElementById('iu-chofer');
+  if (iuChofer) {
+    iuChofer.innerHTML = '<option value="">Selecciona chofer</option>' + CHOFERES.map(c => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// USUARIOS INTERNOS
+// ═══════════════════════════════════════════════════════
+function internalUserHeaders() {
+  return {'Content-Type': 'application/json', ...authHeaders()};
+}
+
+function choferNombre(id) {
+  const c = CHOFERES.find(x => Number(x.id) === Number(id));
+  return c ? c.nombre : '—';
+}
+
+async function cargarUsuariosInternosTransporte() {
+  const tbody = document.getElementById('tbody-usuarios-internos');
+  if (!tbody) return;
+  if (!perfilId()) {
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><h3>Selecciona una empresa para ver usuarios.</h3></div></td></tr>';
+    return;
+  }
+  if (!CHOFERES.length) await cargarCatalogos();
+  tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><h3>Cargando usuarios...</h3></div></td></tr>';
+  try {
+    const url = `/api/internal-users?section=transporte&perfil_id=${encodeURIComponent(perfilId())}`;
+    const res = await fetch(url, {headers: internalUserHeaders()});
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible cargar usuarios internos.');
+    USUARIOS_INTERNOS_TR = data.users || [];
+    renderUsuariosInternosTransporte();
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty"><h3>${esc(e.message)}</h3></div></td></tr>`;
+  }
+}
+
+function renderUsuariosInternosTransporte() {
+  const tbody = document.getElementById('tbody-usuarios-internos');
+  if (!tbody) return;
+  if (!USUARIOS_INTERNOS_TR.length) {
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-users"></i></div><h3>Sin usuarios internos registrados.</h3></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = USUARIOS_INTERNOS_TR.map(u => {
+    const active = (u.status || 'active') === 'active';
+    const lastAccess = u.last_access_at ? String(u.last_access_at).slice(0,16).replace('T',' ') : '—';
+    return `<tr>
+      <td>${esc(u.display_name || '—')}</td>
+      <td class="td-mono">${esc(u.code || '—')}</td>
+      <td><span class="chip chip-blue">${esc(u.role || '—')}</span></td>
+      <td>${esc(choferNombre(u.chofer_id))}</td>
+      <td><span class="chip ${active ? 'chip-green' : 'chip-gray'}">${active ? 'Activo' : esc(u.status || 'Inactivo')}</span></td>
+      <td>${esc(lastAccess)}</td>
+      <td>
+        ${actionBtn('ghost','Resetear PIN',`resetPinInternoTransporte(${Number(u.id)})`, 'Reset PIN')}
+        ${actionBtn(active ? 'danger' : 'success', active ? 'Desactivar' : 'Activar', `toggleUsuarioInternoTransporte(${Number(u.id)},'${active ? 'inactive' : 'active'}')`, active ? 'Desactivar' : 'Activar')}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function crearUsuarioInternoTransporte() {
+  const result = document.getElementById('iu-result');
+  const payload = {
+    display_name: document.getElementById('iu-nombre')?.value.trim(),
+    section: 'transporte',
+    role: document.getElementById('iu-role')?.value || 'operador',
+    perfil_id: perfilId(),
+    chofer_id: Number(document.getElementById('iu-chofer')?.value || 0),
+    code: document.getElementById('iu-code')?.value.trim(),
+    pin: document.getElementById('iu-pin')?.value.trim(),
+  };
+  if (!payload.display_name || !payload.chofer_id) {
+    if (result) result.textContent = 'Nombre y chofer son obligatorios.';
+    return;
+  }
+  try {
+    const res = await fetch('/api/internal-users', {
+      method: 'POST',
+      headers: internalUserHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible crear el usuario.');
+    if (result) result.innerHTML = `Usuario creado. Código: <b>${esc(data.user.code)}</b> | PIN temporal: <b>${esc(data.temporary_pin)}</b>`;
+    ['iu-nombre','iu-code','iu-pin'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    await cargarUsuariosInternosTransporte();
+  } catch(e) {
+    if (result) result.textContent = e.message;
+  }
+}
+
+async function toggleUsuarioInternoTransporte(id, status) {
+  await fetch(`/api/internal-users/${id}/status`, {
+    method: 'PUT',
+    headers: internalUserHeaders(),
+    body: JSON.stringify({status}),
+  });
+  await cargarUsuariosInternosTransporte();
+}
+
+async function resetPinInternoTransporte(id) {
+  const res = await fetch(`/api/internal-users/${id}/reset-pin`, {
+    method: 'POST',
+    headers: internalUserHeaders(),
+    body: JSON.stringify({}),
+  });
+  const data = await res.json();
+  if (data.ok) alert(`PIN temporal: ${data.temporary_pin}`);
+  await cargarUsuariosInternosTransporte();
 }
 
 // ═══════════════════════════════════════════════════════

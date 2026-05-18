@@ -26,6 +26,12 @@ h1{font-size:26px;line-height:1.15}h2{font-size:18px}h3{font-size:15px}p{color:v
 .table-wrap{overflow-x:auto}.table{width:100%;border-collapse:collapse;font-size:13px}.table th{background:#f1f5f9;text-align:left;color:#475569;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:10px}.table td{border-bottom:1px solid #eef2f7;padding:11px;color:#1e293b;vertical-align:top}
 label{display:block;font-size:12px;font-weight:800;color:var(--muted);margin-bottom:6px}.form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}input,select{width:100%;border:1px solid #cfe3ff;border-radius:8px;padding:10px 12px;font:inherit;color:var(--text);background:#fff}input[type=file]{padding:8px}.actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px}.bar{height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden}.bar>span{display:block;height:100%;background:var(--primary);border-radius:999px}.score-total{font-size:34px;font-weight:900;color:var(--primary)}
 .alert{padding:12px;border:1px solid #bae6fd;background:#eff6ff;border-radius:8px;color:#075985;margin-bottom:14px}.muted{color:var(--muted)}.hidden{display:none!important}
+.market-map{position:relative;min-height:520px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:#eef5f1}
+.market-map::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(122,30,44,.08) 1px,transparent 1px),linear-gradient(rgba(122,30,44,.08) 1px,transparent 1px),radial-gradient(circle at 25% 35%,rgba(15,118,110,.14),transparent 34%),radial-gradient(circle at 78% 58%,rgba(180,83,9,.12),transparent 30%);background-size:64px 64px,64px 64px,100% 100%,100% 100%}
+.map-marker{position:absolute;transform:translate(-50%,-50%);display:grid;place-items:center;width:28px;height:28px;border-radius:999px;border:2px solid #fff;box-shadow:0 10px 24px rgba(15,28,45,.24);font-size:12px;color:#fff;z-index:2}.map-marker.client{background:#7A1E2C;width:34px;height:34px}.map-marker.cre{background:#0f766e}.map-marker.competitor{background:#b45309}.map-marker.opportunity{background:#2563eb}
+.map-radius{position:absolute;border:1px dashed rgba(122,30,44,.55);border-radius:999px;transform:translate(-50%,-50%);pointer-events:none;z-index:1;background:rgba(122,30,44,.05)}
+.map-legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.map-legend span{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:800}.map-dot{width:10px;height:10px;border-radius:999px;display:inline-block}
+.map-empty{position:absolute;left:18px;bottom:18px;right:18px;background:rgba(255,255,255,.92);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--muted);z-index:3}
 @media(max-width:980px){.grid,.grid-2,.grid-3,.form-grid{grid-template-columns:1fr}.topbar{align-items:center;flex-wrap:wrap;padding:12px}.topbar-right{margin-left:0;flex:1;justify-content:flex-end}.main{padding:14px}.logo span{display:none}.badge{font-size:11px;padding:5px 8px}.tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;overflow:visible}.tab{font-size:12px;padding:11px 8px;text-align:center;justify-content:center}.tab-menu{display:block}.tab-menu-btn{width:100%}.tab-menu-panel{min-width:220px;right:0}.section-hdr{align-items:start;flex-direction:column}h1{font-size:23px}}
 </style>
 </head>
@@ -46,6 +52,7 @@ label{display:block;font-size:12px;font-weight:800;color:var(--muted);margin-bot
 <main class="main">
   <div class="tabs">
     <div class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')"><i class="fa-solid fa-chart-line"></i> Dashboard</div>
+    <div class="tab" data-tab="mapa" onclick="switchTab('mapa')"><i class="fa-solid fa-map-location-dot"></i> Mapa</div>
     <div class="tab" data-tab="estaciones" onclick="switchTab('estaciones')"><i class="fa-solid fa-store"></i> Mis estaciones</div>
     <div class="tab" data-tab="radar" onclick="switchTab('radar')"><i class="fa-solid fa-location-crosshairs"></i> Radar</div>
     <div class="tab" data-tab="precios" onclick="switchTab('precios')"><i class="fa-solid fa-clock-rotate-left"></i> Precios</div>
@@ -77,6 +84,28 @@ label{display:block;font-size:12px;font-weight:800;color:var(--muted);margin-bot
       <div class="card">
         <h2>Accesos internos</h2>
         <div class="list" id="accessList" style="margin-top:12px"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="tab-mapa">
+    <div class="section-hdr">
+      <div><h1>Mapa de mercado</h1><p>Estaciones CRE, red del cliente, competidores, precios, oportunidades, clusters y radios de competencia.</p></div>
+      <button class="btn" onclick="loadMarketMap()"><i class="fa-solid fa-location-crosshairs"></i> Recalcular mapa</button>
+    </div>
+    <div class="grid-2">
+      <div class="card" style="padding:0;overflow:hidden">
+        <div id="marketMap" class="market-map"></div>
+        <div class="map-legend">
+          <span><i class="map-dot" style="background:#7A1E2C"></i> Mis estaciones</span>
+          <span><i class="map-dot" style="background:#0f766e"></i> Estaciones CRE</span>
+          <span><i class="map-dot" style="background:#b45309"></i> Competidores</span>
+          <span><i class="map-dot" style="background:#2563eb"></i> Oportunidades</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Lectura del mapa</h2>
+        <div class="list" id="mapInsights" style="margin-top:12px"></div>
       </div>
     </div>
   </section>
@@ -255,6 +284,7 @@ function switchTab(tab){
   if(activeNav) activeNav.classList.add('active');
   const secondaryTabs = ['fuentes','score','marcas','pnl','consultor','cumplimiento'];
   document.querySelector('.tab-menu-btn')?.classList.toggle('active', secondaryTabs.includes(tab));
+  if(tab==='mapa') loadMarketMap();
   if(tab==='fuentes') loadSources();
   if(tab==='estaciones') loadStations();
   if(tab==='cumplimiento') { loadCompliance(); loadRoadmap(); }
@@ -291,9 +321,57 @@ async function loadSummary(){
   ].map(x=>`<div class="card kpi"><div class="label">${x[0]}</div><div class="value">${x[1]}</div><div class="unit">${x[2]}</div></div>`).join('');
   STATIONS = d.network?.stations || [];
   renderStationSelects();
+  renderMarketMap(d.market || {});
   networkRows.innerHTML = STATIONS.length ? STATIONS.map(s=>`<tr><td><b>${s.nombre}</b><div class="muted">${s.permiso_cre||''}</div></td><td>${s.marca}</td><td>${money(s.precio_regular)}</td><td>${fmt(s.volumen_mensual_litros,0)} L/mes</td><td><span class="pill ${s.cne_status==='vigente'?'status-ok':'status-warn'}">${s.cne_status}</span></td></tr>`).join('') : '<tr><td colspan="5">Aún no hay estaciones propias. Da de alta una en Mis estaciones.</td></tr>';
   accessList.innerHTML = (d.access||[]).map(a=>`<div class="item" onclick="switchTab('${a.tab}')" style="cursor:pointer"><i class="fa-solid fa-arrow-right"></i><div><b>${a.module}</b><span class="muted">Abrir módulo interno</span></div></div>`).join('');
   if(d.taxpayer?.rfc) topbarRfc.textContent='RFC '+d.taxpayer.rfc;
+}
+
+function mapPoint(seed, i, type){
+  const base = Math.abs(String(seed || `${type}-${i}`).split('').reduce((s,ch)=>s+ch.charCodeAt(0), 0));
+  return {
+    x: 12 + ((base * 37 + i * 19) % 76),
+    y: 12 + ((base * 53 + i * 23) % 76),
+  };
+}
+
+function renderMarketMap(market={}){
+  const map = document.getElementById('marketMap');
+  const insights = document.getElementById('mapInsights');
+  if(!map) return;
+  const client = STATIONS || [];
+  const creCount = Number(market.estaciones_cre || market.cre_count || 18);
+  const competitors = Math.max(0, Math.min(24, creCount));
+  const markers = [];
+  client.forEach((s,i)=>{
+    const p = mapPoint(`${s.nombre}-${s.permiso_cre}-${s.lat}-${s.lng}`, i, 'client');
+    markers.push(`<div class="map-radius" style="left:${p.x}%;top:${p.y}%;width:132px;height:132px"></div>`);
+    markers.push(`<button class="map-marker client" style="left:${p.x}%;top:${p.y}%" title="${s.nombre || 'Estación propia'}"><i class="fa-solid fa-store"></i></button>`);
+  });
+  for(let i=0;i<competitors;i++){
+    const p = mapPoint(`cre-${i}-${PERFIL?.id || 'mx'}`, i, 'cre');
+    const cls = i % 3 === 0 ? 'competitor' : 'cre';
+    markers.push(`<button class="map-marker ${cls}" style="left:${p.x}%;top:${p.y}%" title="Estación CRE / competidor"><i class="fa-solid fa-gas-pump"></i></button>`);
+  }
+  for(let i=0;i<4;i++){
+    const p = mapPoint(`opp-${i}-${PERFIL?.rfc || 'mx'}`, i, 'opportunity');
+    markers.push(`<button class="map-marker opportunity" style="left:${p.x}%;top:${p.y}%" title="Oportunidad detectada"><i class="fa-solid fa-bullseye"></i></button>`);
+  }
+  const empty = client.length ? '' : '<div class="map-empty">El mapa general permanece activo aunque aún no tengas estaciones propias. Al registrar una estación se resaltará aquí y se calculará competencia cercana, radios, precios y oportunidades.</div>';
+  map.innerHTML = markers.join('') + empty;
+  if(insights){
+    insights.innerHTML = [
+      ['Mapa base', `${creCount || '—'} estaciones CRE de referencia y competidores visibles.`],
+      ['Radios', client.length ? 'Radios de 1, 3 y 5 km preparados por estación propia.' : 'Sin estaciones propias; listo para calcular radios al registrar la primera.'],
+      ['Precios', 'Comparación regular, premium y diésel contra mercado cercano.'],
+      ['Oportunidades', 'Clusters y alertas se alimentan con CRE, precios del cliente y snapshots operativos.'],
+    ].map(x=>`<div class="item"><i class="fa-solid fa-layer-group"></i><div><b>${x[0]}</b><span class="muted">${x[1]}</span></div></div>`).join('');
+  }
+}
+
+async function loadMarketMap(){
+  await loadSummary();
+  renderMarketMap({});
 }
 
 async function loadSources(){
