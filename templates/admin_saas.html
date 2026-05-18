@@ -11,6 +11,8 @@
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:var(--ge-font);background:#f5f5f5;color:#111;min-height:100vh}
     body.admin-locked .topbar,body.admin-locked .layout{display:none}
+    body.admin-login .topbar,body.admin-login .layout{display:none}
+    body:not(.admin-login) .login-wrap{display:none}
     .topbar{display:flex;align-items:center;gap:12px;background:#111;color:#fff;padding:14px 20px;border-bottom:3px solid #7A1E2C}
     .topbar img{width:46px;height:28px;object-fit:contain}.topbar h1{font-size:18px}.topbar-right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .badge{font-size:12px;padding:6px 10px;border:1px solid rgba(255,255,255,.22);border-radius:999px;color:#eee}
@@ -23,10 +25,25 @@
     .kpi .label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#6f6a64;font-weight:900}.kpi .value{font-size:28px;font-weight:900;margin-top:6px}
     label{display:block;font-size:12px;font-weight:900;color:#6f6a64;margin-bottom:6px}input,select{width:100%;border:1px solid #d8d0c4;border-radius:8px;padding:10px 11px;font:inherit;background:#fff}.form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
     table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;color:#64748b;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.04em;padding:10px}td{border-bottom:1px solid #eef2f7;padding:10px;vertical-align:top}code{font-size:11px;background:#f8fafc;padding:2px 4px;border-radius:4px}.muted{color:#6f6a64}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.status{font-size:12px;margin-left:8px}.ok{color:#15803d}.err{color:#b91c1c}
+    .login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px;background:#f5f5f5}
+    .login-card{width:min(430px,100%);background:#fff;border:1px solid #e7e3dc;border-radius:10px;padding:26px;box-shadow:0 24px 60px rgba(17,17,17,.1)}
+    .login-card img{width:86px;display:block;margin:0 0 18px}.login-card h1{font-size:26px;margin-bottom:6px}.login-card p{color:#6f6a64;line-height:1.45;margin-bottom:18px}.login-card .field{margin-bottom:12px}.login-card .btn{width:100%;margin-top:4px}.login-error{font-size:13px;color:#b91c1c;margin-top:12px;min-height:18px}
     @media(max-width:1000px){.layout{grid-template-columns:1fr}aside{position:sticky;top:0;z-index:2}.nav{grid-template-columns:repeat(2,1fr)}.grid,.grid-2,.form-grid{grid-template-columns:1fr}.hdr{align-items:start;flex-direction:column}}
   </style>
 </head>
 <body class="admin-locked">
+  <div class="login-wrap" id="adminLogin">
+    <form class="login-card" onsubmit="loginAdminSaas(event)">
+      <img src="/static/img/ge-isotype.svg" alt="GE">
+      <h1>Admin SaaS</h1>
+      <p>Acceso interno para operación de clientes, empresas, módulos y suscripciones.</p>
+      <div class="field"><label>Email</label><input id="adminEmail" type="email" autocomplete="username" required></div>
+      <div class="field"><label>Contraseña</label><input id="adminPassword" type="password" autocomplete="current-password" required></div>
+      <button class="btn" type="submit">Entrar</button>
+      <div class="login-error" id="adminLoginError"></div>
+      <div style="margin-top:14px"><a href="/choice" class="muted">Volver a módulos</a></div>
+    </form>
+  </div>
   <div class="topbar">
     <img src="/static/img/ge-isotype-light.svg" alt="GE">
     <div><h1>Admin SaaS</h1><span class="badge">Consola interna GE CONTROL</span></div>
@@ -101,7 +118,52 @@ function esc(v){ return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'
 async function api(path, opts={}){ const r=await fetch('/api/admin-saas'+path, opts); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail||'Error'); return d; }
 function showPanel(name){ document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active')); document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.panel===name)); document.getElementById('panel-'+name).classList.add('active'); if(name==='clientes')loadTenants(); if(name==='empresas')loadCompanies(); if(name==='usuarios')loadUsers(); if(name==='auditoria')loadAudit(); }
 function msg(id,text,ok=true){ const el=document.getElementById(id); if(el){el.textContent=text; el.className='status '+(ok?'ok':'err');} }
-async function init(){ if(!TOKEN){ location.href='/choice'; return; } try{ const me=await api('/me',{headers:H(false)}); document.body.classList.remove('admin-locked'); whoami.textContent=me.email||me.user_id; await loadAll(); }catch(e){ document.body.classList.remove('admin-locked'); document.body.innerHTML='<main style="padding:40px;font-family:system-ui"><h1>Acceso restringido</h1><p>'+esc(e.message)+'</p><p>Configura SUPERADMIN_USER_IDS o SUPERADMIN_EMAILS y entra con ese usuario.</p><a href="/choice">Volver</a></main>'; } }
+function showAdminLogin(message='') {
+  document.body.classList.remove('admin-locked');
+  document.body.classList.add('admin-login');
+  const err = document.getElementById('adminLoginError');
+  if (err) err.textContent = message;
+}
+async function verifySuperadmin() {
+  const me = await api('/me', {headers:H(false)});
+  document.body.classList.remove('admin-locked','admin-login');
+  whoami.textContent = me.email || me.user_id;
+  await loadAll();
+}
+async function init(){
+  if(!TOKEN){ showAdminLogin(); return; }
+  try{ await verifySuperadmin(); }
+  catch(e){
+    localStorage.removeItem('zc_token');
+    localStorage.removeItem('sat_token');
+    TOKEN = '';
+    showAdminLogin(e.message.includes('superadmin') ? 'Este usuario no está autorizado como superadmin.' : 'Tu sesión expiró. Entra de nuevo.');
+  }
+}
+async function loginAdminSaas(event) {
+  event.preventDefault();
+  const err = document.getElementById('adminLoginError');
+  err.textContent = 'Verificando...';
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        username: document.getElementById('adminEmail').value.trim(),
+        password: document.getElementById('adminPassword').value,
+        modulo: 'gas_lp',
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.detail || 'No fue posible iniciar sesión.');
+    TOKEN = data.token;
+    localStorage.setItem('zc_token', TOKEN);
+    localStorage.setItem('sat_token', TOKEN);
+    await verifySuperadmin();
+  } catch(e) {
+    err.textContent = e.message;
+  }
+}
 async function loadAll(){ await Promise.all([loadDashboard(),loadTenants().catch(()=>{}),loadUsers().catch(()=>{})]); }
 async function loadDashboard(){ const d=await api('/dashboard',{headers:H(false)}); kpis.innerHTML=Object.entries(d.metrics).map(([k,v])=>`<div class="card kpi"><div class="label">${esc(k.replaceAll('_',' '))}</div><div class="value">${esc(v)}</div></div>`).join(''); issues.innerHTML=Object.entries(d.issues).map(([k,v])=>`<div style="display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:8px 0"><span>${esc(k.replaceAll('_',' '))}</span><b class="${v?'err':'ok'}">${esc(v)}</b></div>`).join(''); }
 async function loadTenants(){ const d=await api('/tenants',{headers:H(false)}); TENANTS=d.tenants||[]; tenantsRows.innerHTML=TENANTS.map(t=>`<tr><td><b>${esc(t.name||'Sin nombre')}</b></td><td><code>${esc(t.id)}</code></td><td>${esc(t.status)}</td><td>${esc(t.companies_count)}</td><td>${esc(t.users_count)}</td><td>${esc((t.modules||[]).join(', '))}</td><td>${esc(t.subscription?.plan_name||'—')} (${t.subscription?.max_companies ?? '∞'})</td></tr>`).join('')||'<tr><td colspan="7">Sin clientes.</td></tr>'; }
