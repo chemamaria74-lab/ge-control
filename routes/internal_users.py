@@ -38,6 +38,11 @@ class InternalUserStatus(BaseModel):
     status: str
 
 
+class InternalUserUpdate(BaseModel):
+    role: Optional[str] = None
+    display_name: Optional[str] = None
+
+
 class InternalResetPin(BaseModel):
     pin: Optional[str] = ""
 
@@ -177,6 +182,25 @@ async def update_internal_user_status(internal_user_id: int, payload: InternalUs
     return JSONResponse({"ok": True})
 
 
+@router.put("/internal-users/{internal_user_id}")
+async def update_internal_user(internal_user_id: int, payload: InternalUserUpdate, authorization: str = Header(default="")):
+    admin_uid, token = _auth_admin(authorization)
+    tenant_id = _tenant_id_for_user(admin_uid, access_token=token)
+    data = {"updated_at": _now_iso()}
+    if payload.role is not None:
+        role = (payload.role or "").strip().lower()
+        if role not in ROLES:
+            raise HTTPException(400, "Rol inválido.")
+        data["role"] = role
+    if payload.display_name is not None:
+        name = (payload.display_name or "").strip()
+        if not name:
+            raise HTTPException(400, "Nombre requerido.")
+        data["display_name"] = name
+    get_supabase_for_user(token).table("internal_users").update(data).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+    return JSONResponse({"ok": True})
+
+
 @router.post("/internal-users/{internal_user_id}/reset-pin")
 async def reset_internal_pin(internal_user_id: int, payload: InternalResetPin, authorization: str = Header(default="")):
     admin_uid, token = _auth_admin(authorization)
@@ -190,6 +214,23 @@ async def reset_internal_pin(internal_user_id: int, payload: InternalResetPin, a
         "updated_at": _now_iso(),
     }).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
     return JSONResponse({"ok": True, "temporary_pin": temp_pin})
+
+
+@router.delete("/internal-users/{internal_user_id}")
+async def delete_internal_user_safe(internal_user_id: int, authorization: str = Header(default="")):
+    admin_uid, token = _auth_admin(authorization)
+    tenant_id = _tenant_id_for_user(admin_uid, access_token=token)
+    sb = get_supabase_for_user(token)
+    sessions = sb.table("internal_user_sessions").select("id", count="exact").eq("internal_user_id", internal_user_id).limit(1).execute()
+    has_history = bool(getattr(sessions, "count", 0) or (sessions.data or []))
+    if has_history:
+        sb.table("internal_users").update({
+            "status": "inactive",
+            "updated_at": _now_iso(),
+        }).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+        raise HTTPException(409, "Este usuario interno ya tiene historial de acceso. Se desactivó, no se eliminó.")
+    sb.table("internal_users").delete().eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+    return JSONResponse({"ok": True})
 
 
 @router.post("/internal-auth/login")
