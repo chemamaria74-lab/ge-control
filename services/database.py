@@ -8,7 +8,7 @@ from supabase_config import get_supabase, get_supabase_for_user
 logger = logging.getLogger(__name__)
 
 # ── Service-role client (para operaciones de admin) ───────────────────────────
-# Requiere SUPABASE_SERVICE_KEY en variables de entorno de Render.
+# Requiere SUPABASE_SERVICE_ROLE_KEY o SUPABASE_SERVICE_KEY en variables de entorno de Render.
 # NUNCA exponer esta key en el frontend.
 _service_client = None
 _service_lock   = __import__("threading").Lock()
@@ -19,10 +19,14 @@ def get_supabase_service():
     SOLO usar en admin.py para operaciones de gestión de usuarios.
     """
     global _service_client
-    service_key = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+    service_key = (
+        os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        or os.environ.get("SUPABASE_SERVICE_KEY")
+        or ""
+    ).strip()
     if not service_key:
         raise RuntimeError(
-            "SUPABASE_SERVICE_KEY no está definida. "
+            "SUPABASE_SERVICE_ROLE_KEY no está definida. "
             "Añádela en Render → Environment para habilitar funciones de administración."
         )
     if _service_client is None:
