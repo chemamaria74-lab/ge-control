@@ -760,11 +760,12 @@ tr:hover td{background:#f8fafc}
 <div class="main-nav-tabs">
   <button class="main-nav-tab" data-main="ventas"><i class="fa-solid fa-chart-line"></i> <span data-i18n="nav.ventas">Dashboard</span></button>
   <button class="main-nav-tab active" data-main="procesar"><i class="fa-solid fa-file-upload"></i> <span data-i18n="nav.procesar">Carga de archivos</span></button>
+  <button class="main-nav-tab" data-main="facturar"><i class="fa-solid fa-file-invoice-dollar"></i> Facturación</button>
   <button class="main-nav-tab" data-main="historial"><i class="fa-solid fa-file-lines"></i> <span data-i18n="nav.historial">Reportes SAT</span></button>
   <button class="main-nav-tab" data-main="controles"><i class="fa-solid fa-gauge-high"></i> <span data-i18n="nav.controles">Inventario</span></button>
   <button class="main-nav-tab" data-main="proveedores"><i class="fa-solid fa-truck-fast"></i> <span data-i18n="nav.proveedores">Proveedores</span></button>
-  <button class="main-nav-tab" data-main="config"><i class="fa-solid fa-gear"></i> <span data-i18n="nav.config">Configuración</span></button>
-  <button class="main-nav-tab" id="tabAdmin" data-main="admin" style="display:none"><i class="fa-solid fa-users-gear"></i> Usuarios internos</button>
+  <button class="main-nav-tab" data-main="config"><i class="fa-solid fa-gear"></i> Administración</button>
+  <button class="main-nav-tab" id="tabAdmin" data-main="admin" style="display:none"><i class="fa-solid fa-users-gear"></i> Asistentes</button>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════
@@ -1119,7 +1120,7 @@ tr:hover td{background:#f8fafc}
 <!-- ══════════════════════════════════════════════════════════════════════
      PANEL: FACTURAR (Carta Porte)
      ══════════════════════════════════════════════════════════════════════ -->
-<div class="main-panel" id="mpanel-facturar" style="display:none!important">
+<div class="main-panel" id="mpanel-facturar">
 <div class="card">
   <h2><i class="fa-solid fa-file-invoice-dollar"></i> Generar Carta Porte 3.1</h2>
   <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap">
@@ -2178,7 +2179,12 @@ tr:hover td{background:#f8fafc}
 <!-- Usuarios internos por empresa -->
 <div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
-    <h2><i class="fa-solid fa-users-gear" style="margin-right:.35rem"></i>Usuarios y permisos</h2>
+    <div>
+      <h2 style="margin:0"><i class="fa-solid fa-users-gear" style="margin-right:.35rem"></i>Usuarios y permisos</h2>
+      <div style="font-size:.78rem;color:#64748b;margin-top:.3rem;line-height:1.45">
+        Crea asistentes internos por empresa: facturación, operación, planta o solo lectura. No son usuarios globales del SaaS.
+      </div>
+    </div>
     <button onclick="loadInternalUsersGasLp()" style="
       padding:.4rem .9rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;
       font-size:.78rem;cursor:pointer;font-family:inherit"><i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i> Actualizar</button>
@@ -2192,6 +2198,7 @@ tr:hover td{background:#f8fafc}
         <option value="planta">Planta</option>
         <option value="solo_lectura">Solo lectura</option>
       </select>
+      <div style="font-size:.68rem;color:#64748b;margin-top:.25rem">Facturación: factura y carga XML. Operativo: apoya operación. Planta: captura de planta. Solo lectura: consulta.</div>
     </div>
     <div class="field"><label>Código</label><input id="gasInternalCode" type="text" placeholder="Auto" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
     <div class="field"><label>PIN temporal</label><input id="gasInternalPin" type="text" placeholder="Auto"></div>
@@ -2344,7 +2351,7 @@ function applyRole(role) {
   if (tab) tab.style.display = currentUserRole === 'admin' ? '' : 'none';
   const facturacionOnly = ['asistente_facturacion', 'asistente_operativo', 'planta', 'solo_lectura'].includes(currentUserRole);
   document.querySelectorAll('.main-nav-tab').forEach(t => {
-    const allowed = t.dataset.main === 'procesar';
+    const allowed = ['procesar','facturar'].includes(t.dataset.main);
     if (facturacionOnly && !allowed) t.style.display = 'none';
     if (!facturacionOnly && t.id !== 'tabAdmin') t.style.display = '';
   });
@@ -2977,7 +2984,6 @@ function resetAppState() {
   // ── 6. Re-fetch paralelo con el nuevo perfil ──────────────────────────────
   Promise.all([
     loadSettings(),
-    loadProviders(),
     loadFacilities(),
   ]).finally(() => {
     _resettingState = false;  // desbloquear auto-save
@@ -2985,7 +2991,6 @@ function resetAppState() {
 
   // Config avanzada lazy
   // config-avanzada panel removed
-  try { cargarPanelPerfiles(); } catch(e) {}
 }
 
 function cargarDatosDashboard() {
@@ -3635,7 +3640,7 @@ function confirmDeleteFacility(id, nombre) {
 
 // ── Navegación principal ──────────────────────────────────────────────────
 async function switchTab(name) {
-  if (['asistente_facturacion', 'asistente_operativo', 'planta', 'solo_lectura'].includes(currentUserRole) && name !== 'procesar') {
+  if (['asistente_facturacion', 'asistente_operativo', 'planta', 'solo_lectura'].includes(currentUserRole) && !['procesar','facturar'].includes(name)) {
     name = 'procesar';
   }
   document.querySelectorAll('.main-nav-tab').forEach(x => {
@@ -5163,8 +5168,10 @@ async function loadInternalUsersGasLp() {
         <td style="padding:.55rem .8rem">${badge}</td>
         <td style="padding:.55rem .8rem;color:#94a3b8;font-size:.78rem">${u.last_access_at ? String(u.last_access_at).slice(0,16).replace('T',' ') : '—'}</td>
         <td style="padding:.55rem .8rem;display:flex;gap:.35rem;flex-wrap:wrap">
-          <button onclick="resetInternalPinGasLp(${Number(u.id)})" style="padding:.32rem .65rem;border:1px solid #cbd5e1;background:#fff;border-radius:7px;font-size:.76rem;cursor:pointer">Reset PIN</button>
+          <button onclick="editInternalRoleGasLp(${Number(u.id)}, '${u.role || ''}')" style="padding:.32rem .65rem;border:1px solid #cbd5e1;background:#fff;border-radius:7px;font-size:.76rem;cursor:pointer">Editar rol</button>
+          <button onclick="resetInternalPinGasLp(${Number(u.id)})" style="padding:.32rem .65rem;border:1px solid #cbd5e1;background:#fff;border-radius:7px;font-size:.76rem;cursor:pointer">Resetear PIN</button>
           <button onclick="setInternalStatusGasLp(${Number(u.id)}, '${active ? 'inactive' : 'active'}')" style="padding:.32rem .65rem;border:1px solid ${active?'#fca5a5':'#86efac'};background:${active?'#fff1f2':'#f0fdf4'};color:${active?'#dc2626':'#15803d'};border-radius:7px;font-size:.76rem;cursor:pointer">${active ? 'Desactivar' : 'Activar'}</button>
+          <button onclick="deleteInternalUserGasLp(${Number(u.id)})" style="padding:.32rem .65rem;border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:7px;font-size:.76rem;cursor:pointer">Eliminar seguro</button>
         </td>
       </tr>`;
     }).join('');
@@ -5225,6 +5232,23 @@ async function setInternalStatusGasLp(id, status) {
   await loadInternalUsersGasLp();
 }
 
+async function editInternalRoleGasLp(id, currentRole) {
+  const roles = ['asistente_facturacion','asistente_operativo','planta','solo_lectura'];
+  const next = prompt(`Nuevo rol:\n${roles.join('\\n')}`, currentRole || 'asistente_facturacion');
+  if (!next) return;
+  if (!roles.includes(next)) { alert('Rol inválido.'); return; }
+  const res = await fetch(`/api/internal-users/${id}`, {
+    method: 'PUT',
+    headers: { ...authHeader(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: next }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(()=>({}));
+    alert(data.detail || 'No se pudo editar el rol.');
+  }
+  await loadInternalUsersGasLp();
+}
+
 async function resetInternalPinGasLp(id) {
   const res = await fetch(`/api/internal-users/${id}/reset-pin`, {
     method: 'POST',
@@ -5233,6 +5257,18 @@ async function resetInternalPinGasLp(id) {
   });
   const data = await res.json();
   if (data.ok) showToast(`PIN temporal: ${data.temporary_pin}`, 'success');
+  await loadInternalUsersGasLp();
+}
+
+async function deleteInternalUserGasLp(id) {
+  if (!confirm('Eliminar seguro solo borra asistentes sin historial de acceso. Si tiene historial, se desactivará. ¿Continuar?')) return;
+  const res = await fetch(`/api/internal-users/${id}`, {
+    method: 'DELETE',
+    headers: authHeader(),
+  });
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok) alert(data.detail || 'No se pudo eliminar; se dejó inactivo si tenía historial.');
+  else showToast('Usuario interno eliminado.', 'success');
   await loadInternalUsersGasLp();
 }
 
