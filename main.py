@@ -19,6 +19,7 @@ from routes.providers   import router as providers_router
 from routes.analytics   import router as analytics_router
 from routes.facilities  import router as facilities_router
 from routes.admin       import router as admin_router
+from routes.admin_saas  import router as admin_saas_router
 from routes.facturas    import router as facturas_router
 from routes.movimientos import router as movimientos_router
 from routes.perfiles    import router as perfiles_router
@@ -90,6 +91,7 @@ app.include_router(providers_router,   prefix="/api", tags=["Proveedores"])
 app.include_router(analytics_router,   prefix="/api", tags=["Analíticos"])
 app.include_router(facilities_router,  prefix="/api", tags=["Instalaciones"])
 app.include_router(admin_router,       prefix="/api", tags=["Admin"])
+app.include_router(admin_saas_router,  prefix="/api", tags=["Admin SaaS"])
 app.include_router(facturas_router,    prefix="/api", tags=["Facturas"])
 app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
 app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
@@ -158,6 +160,13 @@ async def choice_view():
     """Pantalla de selección de módulo (Gas LP / Transporte)."""
     with open(os.path.join(BASE_DIR, "templates", "choice.html"),
               encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/admin-saas", response_class=HTMLResponse, include_in_schema=False)
+async def admin_saas_view():
+    """Panel interno de operación SaaS. La protección real vive en /api/admin-saas/*."""
+    with open(os.path.join(BASE_DIR, "templates", "admin_saas.html"), encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
