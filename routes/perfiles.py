@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from routes.auth import obtener_accesos_usuario, verify_token
-from supabase_config import get_supabase
+from supabase_config import get_supabase, get_supabase_for_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -173,11 +173,49 @@ PLAN_LIMITS = {
 DEFAULT_PLAN = {"plan_name": "Básico", "max_companies": 1, "status": "active", "expires_at": None}
 
 
-def _tenant_id_for_user(user_id: str, access_token: str = "") -> str:
-    """Resuelve tenant actual. Mientras se migra, el user_id funciona como tenant legacy."""
+def _ensure_tenant_for_user(user_id: str) -> str:
+    """
+    Garantiza un tenant mínimo para usuarios migrados.
+
+    El schema actual tiene FK desde perfiles_empresa/companies/subscriptions hacia
+    tenants. Si user_sections.tenant_id aún viene vacío, usar el user_id como UUID
+    legacy solo es seguro cuando existe una fila tenants con ese mismo id.
+    """
+    sb = get_supabase()
+    tenant_id = str(user_id)
     try:
+        sb.table("tenants").upsert({
+            "id": tenant_id,
+            "name": "",
+            "status": "active",
+            "updated_at": _now(),
+        }, on_conflict="id").execute()
+    except Exception as e:
+        logger.info("No se pudo asegurar tenant legacy %s: %s", tenant_id, e)
+    try:
+        sb.table("user_sections").update({"tenant_id": tenant_id}).eq("user_id", user_id).is_("tenant_id", "null").execute()
+    except Exception as e:
+        logger.info("No se pudo backfill user_sections.tenant_id para %s: %s", user_id, e)
+    try:
+        existing = sb.table("subscriptions").select("id").eq("tenant_id", tenant_id).limit(1).execute().data or []
+        if not existing:
+            sb.table("subscriptions").insert({
+                "tenant_id": tenant_id,
+                "plan_name": DEFAULT_PLAN["plan_name"],
+                "max_companies": DEFAULT_PLAN["max_companies"],
+                "status": DEFAULT_PLAN["status"],
+            }).execute()
+    except Exception as e:
+        logger.info("No se pudo asegurar suscripción default para tenant %s: %s", tenant_id, e)
+    return tenant_id
+
+
+def _tenant_id_for_user(user_id: str, access_token: str = "") -> str:
+    """Resuelve tenant actual y crea un tenant legacy si el usuario aún no fue backfilleado."""
+    try:
+        sb = get_supabase_for_user(access_token) if access_token else get_supabase()
         rows = (
-            get_supabase()
+            sb
             .table("user_sections")
             .select("tenant_id")
             .eq("user_id", user_id)
@@ -189,7 +227,7 @@ def _tenant_id_for_user(user_id: str, access_token: str = "") -> str:
             return str(rows[0]["tenant_id"])
     except Exception:
         pass
-    return user_id
+    return _ensure_tenant_for_user(user_id)
 
 
 def _subscription_for_tenant(tenant_id: str) -> dict:
@@ -266,6 +304,13 @@ def _insert_company_compat(user_id: str, tenant_id: str, perfil: dict) -> None:
         }).execute()
     except Exception as e:
         logger.info("companies mirror omitido para perfil=%s: %s", perfil.get("id"), e)
+
+
+def _update_company_compat(tenant_id: str, perfil_id: int, values: dict) -> None:
+    try:
+        get_supabase().table("companies").update(values).eq("tenant_id", tenant_id).eq("id", perfil_id).execute()
+    except Exception as e:
+        logger.info("companies update omitido para perfil=%s: %s", perfil_id, e)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -348,7 +393,7 @@ async def subscription_usage(authorization: str = Header(default="")):
 @router.put("/perfiles/{perfil_id}", summary="Editar perfil de empresa")
 async def update_perfil(perfil_id: int, payload: PerfilPayload,
                         authorization: str = Header(default="")):
-    user_id, _token = _auth(authorization)
+    user_id, token = _auth(authorization)
     if not get_perfil(perfil_id, user_id):
         raise HTTPException(404, "Perfil no encontrado.")
 
@@ -371,6 +416,12 @@ async def update_perfil(perfil_id: int, payload: PerfilPayload,
             .execute()
         )
         perfil = result.data[0] if result.data else {}
+        _update_company_compat(_tenant_id_for_user(user_id, access_token=token), perfil_id, {
+            "name": nombre,
+            "rfc": (payload.rfc or "").strip().upper(),
+            "active": True,
+            "updated_at": _now(),
+        })
         return JSONResponse(content={"ok": True, "perfil": perfil})
     except Exception as e:
         logger.error("update_perfil: %s", e)
@@ -384,7 +435,7 @@ async def delete_perfil(perfil_id: int, authorization: str = Header(default=""))
     No elimina los datos asociados — solo oculta el perfil del selector.
     Protege contra eliminar el último perfil activo.
     """
-    user_id, _token = _auth(authorization)
+    user_id, token = _auth(authorization)
     if not get_perfil(perfil_id, user_id):
         raise HTTPException(404, "Perfil no encontrado.")
 
@@ -398,6 +449,10 @@ async def delete_perfil(perfil_id: int, authorization: str = Header(default=""))
         get_supabase().table("perfiles_empresa").update({
             "activo": False, "updated_at": _now()
         }).eq("id", perfil_id).eq("user_id", user_id).execute()
+        _update_company_compat(_tenant_id_for_user(user_id, access_token=token), perfil_id, {
+            "active": False,
+            "updated_at": _now(),
+        })
         return JSONResponse(content={"ok": True, "deleted_id": perfil_id})
     except Exception as e:
         logger.error("delete_perfil: %s", e)

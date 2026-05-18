@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from routes.auth import obtener_acceso_modulo, verify_token
 from routes.perfiles import _tenant_id_for_user
-from supabase_config import get_supabase, get_supabase_admin
+from supabase_config import get_supabase_admin, get_supabase_for_user
 
 
 router = APIRouter()
@@ -119,7 +119,8 @@ async def list_internal_users(
 ):
     admin_uid, token = _auth_admin(authorization)
     tenant_id = _tenant_id_for_user(admin_uid, access_token=token)
-    q = get_supabase().table("internal_users").select("*").eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid)
+    sb = get_supabase_for_user(token)
+    q = sb.table("internal_users").select("*").eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid)
     if section:
         q = q.eq("section", section.strip().lower())
     if perfil_id:
@@ -154,7 +155,7 @@ async def create_internal_user(payload: InternalUserCreate, authorization: str =
         "updated_at": _now_iso(),
     }
     try:
-        created = get_supabase().table("internal_users").insert(row).execute().data or [row]
+        created = get_supabase_for_user(token).table("internal_users").insert(row).execute().data or [row]
     except Exception as e:
         raise HTTPException(500, f"No se pudo crear usuario interno: {e}")
     response = created[0]
@@ -169,7 +170,7 @@ async def update_internal_user_status(internal_user_id: int, payload: InternalUs
     status = (payload.status or "").strip().lower()
     if status not in {"active", "inactive", "locked"}:
         raise HTTPException(400, "Estatus inválido.")
-    get_supabase().table("internal_users").update({
+    get_supabase_for_user(token).table("internal_users").update({
         "status": status,
         "updated_at": _now_iso(),
     }).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
@@ -181,7 +182,7 @@ async def reset_internal_pin(internal_user_id: int, payload: InternalResetPin, a
     admin_uid, token = _auth_admin(authorization)
     tenant_id = _tenant_id_for_user(admin_uid, access_token=token)
     temp_pin = (payload.pin or "").strip() or f"{secrets.randbelow(900000) + 100000}"
-    get_supabase().table("internal_users").update({
+    get_supabase_for_user(token).table("internal_users").update({
         "pin_hash": _hash_secret(temp_pin),
         "failed_attempts": 0,
         "locked_until": None,
