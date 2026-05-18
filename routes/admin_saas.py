@@ -141,6 +141,89 @@ def _auth_users_by_id() -> dict[str, dict]:
     return users
 
 
+def _resolve_user_identifier(identifier: str) -> str:
+    value = (identifier or "").strip()
+    if not value:
+        raise HTTPException(400, "User ID o email requerido.")
+    if "@" not in value:
+        return value
+    email = value.lower()
+    for uid, user in _auth_users_by_id().items():
+        if (user.get("email") or "").lower() == email:
+            return uid
+    raise HTTPException(404, f"No encontré usuario Auth con email {email}.")
+
+
+def _count_rows(sb, table: str, column: str, value: str) -> int:
+    try:
+        res = sb.table(table).select("id", count="exact").eq(column, value).execute()
+        if getattr(res, "count", None) is not None:
+            return int(res.count or 0)
+        return len(res.data or [])
+    except Exception:
+        return 0
+
+
+def _inspect_user(identifier: str) -> dict:
+    sb = _sb_admin()
+    target_user_id = _resolve_user_identifier(identifier)
+    auth_user = _auth_users_by_id().get(target_user_id, {"id": target_user_id})
+    sections = sb.table("user_sections").select("*").eq("user_id", target_user_id).execute().data or []
+    profiles = sb.table("perfiles_empresa").select("*").eq("user_id", target_user_id).order("created_at", desc=True).execute().data or []
+    tenant_ids = sorted({str(s.get("tenant_id")) for s in sections if s.get("tenant_id")} | {str(p.get("tenant_id")) for p in profiles if p.get("tenant_id")})
+    subscriptions = []
+    companies = []
+    if tenant_ids:
+        subscriptions = sb.table("subscriptions").select("*").in_("tenant_id", tenant_ids).execute().data or []
+        companies = sb.table("companies").select("*").in_("tenant_id", tenant_ids).execute().data or []
+    perfil_ids = [p.get("id") for p in profiles if p.get("id")]
+    profile_company_ids = {c.get("id") for c in companies}
+    counts = {
+        "perfiles_empresa": len(profiles),
+        "perfiles_activos": len([p for p in profiles if p.get("activo")]),
+        "perfiles_sin_tenant": len([p for p in profiles if not p.get("tenant_id")]),
+        "user_sections": len(sections),
+        "user_sections_sin_tenant": len([s for s in sections if not s.get("tenant_id")]),
+        "companies": len(companies),
+        "perfiles_sin_company": len([p for p in profiles if p.get("activo") and p.get("id") not in profile_company_ids]),
+        "subscriptions": len(subscriptions),
+        "records": _count_rows(sb, "records", "user_id", target_user_id),
+        "reports": _count_rows(sb, "reports", "user_id", target_user_id),
+        "user_facilities": _count_rows(sb, "user_facilities", "user_id", target_user_id),
+        "providers": _count_rows(sb, "providers", "user_id", target_user_id),
+        "gaso_estaciones": _count_rows(sb, "gaso_estaciones", "user_id", target_user_id),
+        "gaso_cfdi_compras": _count_rows(sb, "gaso_cfdi_compras", "user_id", target_user_id),
+        "gaso_ventas": _count_rows(sb, "gaso_ventas", "user_id", target_user_id),
+        "tr_viajes": _count_rows(sb, "tr_viajes", "user_id", target_user_id),
+        "tr_cfdi": _count_rows(sb, "tr_cfdi", "user_id", target_user_id),
+        "tr_choferes": _count_rows(sb, "tr_choferes", "user_id", target_user_id),
+        "tr_vehiculos": _count_rows(sb, "tr_vehiculos", "user_id", target_user_id),
+        "tr_clientes": _count_rows(sb, "tr_clientes", "user_id", target_user_id),
+        "internal_users_owner": _count_rows(sb, "internal_users", "owner_user_id", target_user_id),
+    }
+    warnings = []
+    if counts["perfiles_empresa"] and counts["perfiles_sin_tenant"]:
+        warnings.append("Hay perfiles_empresa legacy sin tenant_id.")
+    if counts["user_sections_sin_tenant"]:
+        warnings.append("Hay user_sections sin tenant_id.")
+    if counts["perfiles_sin_company"]:
+        warnings.append("Hay perfiles activos sin espejo en companies.")
+    if not counts["subscriptions"] and (sections or profiles):
+        warnings.append("No hay suscripción para el tenant del usuario.")
+    return {
+        "user_id": target_user_id,
+        "auth_user": auth_user,
+        "tenant_ids": tenant_ids,
+        "perfil_ids": perfil_ids,
+        "counts": counts,
+        "warnings": warnings,
+        "user_sections": sections,
+        "perfiles": profiles,
+        "subscriptions": subscriptions,
+        "companies": companies,
+    }
+
+
 def _sync_legacy_user(target_user_id: str, actor_id: str) -> dict:
     sb = _sb_admin()
     summary = {"tenant_id": None, "profiles_updated": 0, "companies_upserted": 0, "subscription_created": False, "sections_updated": 0}
@@ -426,7 +509,16 @@ async def upsert_subscription(tenant_id: str, payload: SubscriptionPayload, auth
 @router.post("/admin-saas/repair/user/{target_user_id}")
 async def repair_legacy_user(target_user_id: str, authorization: str = Header(default="")):
     uid, _, _ = _require_superadmin(authorization)
-    return JSONResponse({"ok": True, "summary": _sync_legacy_user(target_user_id, uid)})
+    resolved = _resolve_user_identifier(target_user_id)
+    return JSONResponse({"ok": True, "summary": _sync_legacy_user(resolved, uid)})
+
+
+@router.get("/admin-saas/repair/user/{target_user_id}/inspect")
+async def inspect_legacy_user(target_user_id: str, authorization: str = Header(default="")):
+    uid, _, _ = _require_superadmin(authorization)
+    data = _inspect_user(target_user_id)
+    _audit(uid, "inspect_legacy_user", "user", data["user_id"], {"counts": data["counts"], "warnings": data["warnings"]})
+    return JSONResponse({"ok": True, "inspection": data})
 
 
 @router.get("/admin-saas/internal-users")
