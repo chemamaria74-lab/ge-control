@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GE CONTROL - Admin SaaS</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--ge-font);background:#f5f5f5;color:#111;min-height:100vh}
+    body.admin-locked .topbar,body.admin-locked .layout{display:none}
+    .topbar{display:flex;align-items:center;gap:12px;background:#111;color:#fff;padding:14px 20px;border-bottom:3px solid #7A1E2C}
+    .topbar img{width:46px;height:28px;object-fit:contain}.topbar h1{font-size:18px}.topbar-right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .badge{font-size:12px;padding:6px 10px;border:1px solid rgba(255,255,255,.22);border-radius:999px;color:#eee}
+    .btn{border:1px solid #7A1E2C;background:#7A1E2C;color:#fff;border-radius:8px;padding:9px 12px;font:inherit;font-weight:800;cursor:pointer}.btn:hover{filter:brightness(.96)}.btn-ghost{background:#fff;color:#111;border-color:#ddd}.btn-danger{background:#fff;color:#b91c1c;border-color:#fecaca}.btn-sm{padding:6px 9px;font-size:12px}
+    .layout{display:grid;grid-template-columns:230px 1fr;min-height:calc(100vh - 60px)}
+    aside{background:#fff;border-right:1px solid #e7e3dc;padding:14px}.nav{display:grid;gap:4px}.nav button{border:0;background:transparent;text-align:left;padding:11px 12px;border-radius:8px;font:inherit;font-weight:800;color:#555;cursor:pointer}.nav button.active,.nav button:hover{background:#f5f1e8;color:#5B0F1D}
+    main{padding:22px;max-width:1500px}.panel{display:none}.panel.active{display:block}
+    .hdr{display:flex;justify-content:space-between;align-items:end;gap:14px;margin-bottom:16px}.hdr h2{font-size:28px}.hdr p{color:#6f6a64;margin-top:4px}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fff;border:1px solid #e7e3dc;border-radius:8px;padding:16px;box-shadow:0 16px 36px rgba(17,17,17,.05)}
+    .kpi .label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#6f6a64;font-weight:900}.kpi .value{font-size:28px;font-weight:900;margin-top:6px}
+    label{display:block;font-size:12px;font-weight:900;color:#6f6a64;margin-bottom:6px}input,select{width:100%;border:1px solid #d8d0c4;border-radius:8px;padding:10px 11px;font:inherit;background:#fff}.form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+    table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;color:#64748b;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.04em;padding:10px}td{border-bottom:1px solid #eef2f7;padding:10px;vertical-align:top}code{font-size:11px;background:#f8fafc;padding:2px 4px;border-radius:4px}.muted{color:#6f6a64}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.status{font-size:12px;margin-left:8px}.ok{color:#15803d}.err{color:#b91c1c}
+    @media(max-width:1000px){.layout{grid-template-columns:1fr}aside{position:sticky;top:0;z-index:2}.nav{grid-template-columns:repeat(2,1fr)}.grid,.grid-2,.form-grid{grid-template-columns:1fr}.hdr{align-items:start;flex-direction:column}}
+  </style>
+</head>
+<body class="admin-locked">
+  <div class="topbar">
+    <img src="/static/img/ge-isotype-light.svg" alt="GE">
+    <div><h1>Admin SaaS</h1><span class="badge">Consola interna GE CONTROL</span></div>
+    <div class="topbar-right">
+      <span class="badge" id="whoami">Verificando...</span>
+      <button class="btn btn-ghost btn-sm" onclick="location.href='/choice'">Módulos</button>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Salir</button>
+    </div>
+  </div>
+  <div class="layout">
+    <aside><div class="nav" id="nav">
+      <button class="active" data-panel="dashboard" onclick="showPanel('dashboard')"><i class="fa-solid fa-gauge"></i> Dashboard</button>
+      <button data-panel="clientes" onclick="showPanel('clientes')"><i class="fa-solid fa-building-user"></i> Clientes</button>
+      <button data-panel="empresas" onclick="showPanel('empresas')"><i class="fa-solid fa-building"></i> Empresas</button>
+      <button data-panel="usuarios" onclick="showPanel('usuarios')"><i class="fa-solid fa-users"></i> Usuarios</button>
+      <button data-panel="suscripciones" onclick="showPanel('suscripciones')"><i class="fa-solid fa-credit-card"></i> Suscripciones</button>
+      <button data-panel="modulos" onclick="showPanel('modulos')"><i class="fa-solid fa-toggle-on"></i> Módulos</button>
+      <button data-panel="reparacion" onclick="showPanel('reparacion')"><i class="fa-solid fa-screwdriver-wrench"></i> Reparación</button>
+      <button data-panel="auditoria" onclick="showPanel('auditoria')"><i class="fa-solid fa-clipboard-list"></i> Auditoría</button>
+    </div></aside>
+    <main>
+      <section class="panel active" id="panel-dashboard">
+        <div class="hdr"><div><h2>Dashboard SaaS</h2><p>Salud operativa de clientes, empresas, módulos y migración legacy.</p></div><button class="btn" onclick="loadAll()">Actualizar</button></div>
+        <div class="grid" id="kpis"></div>
+        <div class="grid-2" style="margin-top:14px"><div class="card"><h3>Problemas de sincronización</h3><div id="issues" style="margin-top:12px"></div></div><div class="card"><h3>Atajos</h3><div class="actions"><button class="btn btn-ghost" onclick="showPanel('reparacion')">Sincronizar legacy</button><button class="btn btn-ghost" onclick="showPanel('clientes')">Crear cliente</button><button class="btn btn-ghost" onclick="showPanel('usuarios')">Crear usuario</button></div></div></div>
+      </section>
+
+      <section class="panel" id="panel-clientes">
+        <div class="hdr"><div><h2>Clientes / Tenants</h2><p>Alta, estatus, tenant_id, empresas, usuarios, módulos y plan.</p></div><button class="btn" onclick="loadTenants()">Actualizar</button></div>
+        <div class="card"><div class="form-grid"><div><label>Nombre cliente</label><input id="tenantName"></div><div><label>Status</label><select id="tenantStatus"><option>active</option><option>inactive</option></select></div><div><label>&nbsp;</label><button class="btn" onclick="createTenant()">Crear cliente</button><span id="tenantStatusMsg" class="status"></span></div></div></div>
+        <div class="card" style="margin-top:14px;overflow:auto"><table><thead><tr><th>Cliente</th><th>Tenant ID</th><th>Status</th><th>Empresas</th><th>Usuarios</th><th>Módulos</th><th>Plan</th></tr></thead><tbody id="tenantsRows"></tbody></table></div>
+      </section>
+
+      <section class="panel" id="panel-empresas">
+        <div class="hdr"><div><h2>Empresas</h2><p>Razones sociales ligadas a `perfiles_empresa` y espejo `companies`.</p></div><button class="btn" onclick="loadCompanies()">Actualizar</button></div>
+        <div class="card"><div class="form-grid"><div><label>Tenant ID</label><input id="companyTenant"></div><div><label>User ID propietario</label><input id="companyUser"></div><div><label>Nombre</label><input id="companyName"></div><div><label>RFC</label><input id="companyRfc"></div><div><label>Descripción</label><input id="companyDesc"></div><div><label>&nbsp;</label><button class="btn" onclick="createCompany()">Crear empresa</button><span id="companyStatus" class="status"></span></div></div></div>
+        <div class="card" style="margin-top:14px;overflow:auto"><table><thead><tr><th>ID/perfil</th><th>Nombre</th><th>RFC</th><th>Tenant</th><th>User</th><th>Activa</th></tr></thead><tbody id="companiesRows"></tbody></table></div>
+      </section>
+
+      <section class="panel" id="panel-usuarios">
+        <div class="hdr"><div><h2>Usuarios</h2><p>Crear usuarios cliente y revisar accesos por módulo.</p></div><button class="btn" onclick="loadUsers()">Actualizar</button></div>
+        <div class="card"><div class="form-grid"><div><label>Email</label><input id="userEmail" type="email"></div><div><label>Password inicial</label><input id="userPassword" type="password"></div><div><label>Nombre</label><input id="userDisplay"></div><div><label>Tenant ID</label><input id="userTenant"></div><div><label>Módulo</label><select id="userSection"><option value="gas_lp">Gas LP</option><option value="transporte">Transporte</option><option value="gasolineras">Gasolineras</option></select></div><div><label>Rol</label><select id="userRole"><option>admin</option><option>user</option><option>operador</option><option>asistente_facturacion</option><option>asistente_operativo</option><option>planta</option><option>solo_lectura</option></select></div><div><label>Perfil ID</label><input id="userPerfil" type="number"></div><div><label>&nbsp;</label><button class="btn" onclick="createUser()">Crear usuario</button><span id="userStatus" class="status"></span></div></div></div>
+        <div class="card" style="margin-top:14px;overflow:auto"><table><thead><tr><th>Email/User</th><th>Módulo</th><th>Rol</th><th>Status</th><th>Tenant</th><th>Perfil</th><th>Último acceso</th></tr></thead><tbody id="usersRows"></tbody></table></div>
+      </section>
+
+      <section class="panel" id="panel-suscripciones">
+        <div class="hdr"><div><h2>Suscripciones</h2><p>Plan, límite de empresas, status y expiración.</p></div></div>
+        <div class="card"><div class="form-grid"><div><label>Tenant ID</label><input id="subTenant"></div><div><label>Plan</label><select id="subPlan"><option>Básico</option><option>Profesional</option><option>Empresarial</option><option>Ilimitado</option></select></div><div><label>Max empresas</label><input id="subMax" type="number" value="1"></div><div><label>Status</label><select id="subStatus"><option>active</option><option>trialing</option><option>past_due</option><option>canceled</option><option>expired</option></select></div><div><label>Expira</label><input id="subExpires" type="date"></div><div><label>&nbsp;</label><button class="btn" onclick="saveSubscription()">Guardar suscripción</button><span id="subMsg" class="status"></span></div></div></div>
+      </section>
+
+      <section class="panel" id="panel-modulos">
+        <div class="hdr"><div><h2>Módulos contratados</h2><p>Actualiza `user_sections` por usuario, módulo, rol, tenant y perfil.</p></div></div>
+        <div class="card"><div class="form-grid"><div><label>User ID</label><input id="modUser"></div><div><label>Módulo</label><select id="modSection"><option value="gas_lp">Gas LP</option><option value="transporte">Transporte</option><option value="gasolineras">Gasolineras</option></select></div><div><label>Rol</label><select id="modRole"><option>admin</option><option>user</option><option>operador</option><option>asistente_facturacion</option><option>asistente_operativo</option><option>planta</option><option>solo_lectura</option></select></div><div><label>Status</label><select id="modStatus"><option>active</option><option>inactive</option></select></div><div><label>Tenant ID</label><input id="modTenant"></div><div><label>Perfil ID</label><input id="modPerfil" type="number"></div><div><label>Nombre visible</label><input id="modDisplay"></div><div><label>&nbsp;</label><button class="btn" onclick="saveModule()">Guardar acceso</button><span id="modMsg" class="status"></span></div></div></div>
+      </section>
+
+      <section class="panel" id="panel-reparacion">
+        <div class="hdr"><div><h2>Reparación / Migración</h2><p>Herramientas no destructivas para usuarios legacy.</p></div></div>
+        <div class="card"><label>User ID legacy</label><input id="repairUser" placeholder="2883a5c0-1e8c-416f-a13a-6dc525825374"><div class="actions"><button class="btn" onclick="repairUser()">Sincronizar usuario legacy</button></div><pre id="repairResult" class="muted" style="white-space:pre-wrap;margin-top:12px"></pre></div>
+      </section>
+
+      <section class="panel" id="panel-auditoria">
+        <div class="hdr"><div><h2>Auditoría</h2><p>Últimas acciones del panel SaaS.</p></div><button class="btn" onclick="loadAudit()">Actualizar</button></div>
+        <div class="card" style="overflow:auto"><table><thead><tr><th>Fecha</th><th>Actor</th><th>Acción</th><th>Target</th><th>Detalle</th></tr></thead><tbody id="auditRows"></tbody></table></div>
+      </section>
+    </main>
+  </div>
+<script>
+let TOKEN = localStorage.getItem('zc_token') || localStorage.getItem('sat_token') || '';
+let TENANTS = [];
+function H(json=true){ return {'Authorization':'Bearer '+TOKEN, ...(json?{'Content-Type':'application/json'}:{})}; }
+function esc(v){ return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+async function api(path, opts={}){ const r=await fetch('/api/admin-saas'+path, opts); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail||'Error'); return d; }
+function showPanel(name){ document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active')); document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.panel===name)); document.getElementById('panel-'+name).classList.add('active'); if(name==='clientes')loadTenants(); if(name==='empresas')loadCompanies(); if(name==='usuarios')loadUsers(); if(name==='auditoria')loadAudit(); }
+function msg(id,text,ok=true){ const el=document.getElementById(id); if(el){el.textContent=text; el.className='status '+(ok?'ok':'err');} }
+async function init(){ if(!TOKEN){ location.href='/choice'; return; } try{ const me=await api('/me',{headers:H(false)}); document.body.classList.remove('admin-locked'); whoami.textContent=me.email||me.user_id; await loadAll(); }catch(e){ document.body.classList.remove('admin-locked'); document.body.innerHTML='<main style="padding:40px;font-family:system-ui"><h1>Acceso restringido</h1><p>'+esc(e.message)+'</p><p>Configura SUPERADMIN_USER_IDS o SUPERADMIN_EMAILS y entra con ese usuario.</p><a href="/choice">Volver</a></main>'; } }
+async function loadAll(){ await Promise.all([loadDashboard(),loadTenants().catch(()=>{}),loadUsers().catch(()=>{})]); }
+async function loadDashboard(){ const d=await api('/dashboard',{headers:H(false)}); kpis.innerHTML=Object.entries(d.metrics).map(([k,v])=>`<div class="card kpi"><div class="label">${esc(k.replaceAll('_',' '))}</div><div class="value">${esc(v)}</div></div>`).join(''); issues.innerHTML=Object.entries(d.issues).map(([k,v])=>`<div style="display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:8px 0"><span>${esc(k.replaceAll('_',' '))}</span><b class="${v?'err':'ok'}">${esc(v)}</b></div>`).join(''); }
+async function loadTenants(){ const d=await api('/tenants',{headers:H(false)}); TENANTS=d.tenants||[]; tenantsRows.innerHTML=TENANTS.map(t=>`<tr><td><b>${esc(t.name||'Sin nombre')}</b></td><td><code>${esc(t.id)}</code></td><td>${esc(t.status)}</td><td>${esc(t.companies_count)}</td><td>${esc(t.users_count)}</td><td>${esc((t.modules||[]).join(', '))}</td><td>${esc(t.subscription?.plan_name||'—')} (${t.subscription?.max_companies ?? '∞'})</td></tr>`).join('')||'<tr><td colspan="7">Sin clientes.</td></tr>'; }
+async function createTenant(){ try{ await api('/tenants',{method:'POST',headers:H(),body:JSON.stringify({name:tenantName.value,status:tenantStatus.value})}); msg('tenantStatusMsg','Creado'); tenantName.value=''; await loadTenants(); }catch(e){msg('tenantStatusMsg',e.message,false);} }
+async function loadCompanies(){ const d=await api('/companies',{headers:H(false)}); companiesRows.innerHTML=(d.companies||[]).map(c=>`<tr><td><code>${c.id}</code></td><td>${esc(c.nombre)}</td><td>${esc(c.rfc)}</td><td><code>${esc(c.tenant_id||'—')}</code></td><td><code>${esc(c.user_id)}</code></td><td>${c.activo?'Sí':'No'}</td></tr>`).join('')||'<tr><td colspan="6">Sin empresas.</td></tr>'; }
+async function createCompany(){ try{ await api('/companies',{method:'POST',headers:H(),body:JSON.stringify({tenant_id:companyTenant.value,nombre:companyName.value,rfc:companyRfc.value,descripcion:companyDesc.value,user_id:companyUser.value||null,active:true})}); msg('companyStatus','Empresa creada'); await loadCompanies(); }catch(e){msg('companyStatus',e.message,false);} }
+async function loadUsers(){ const d=await api('/users',{headers:H(false)}); usersRows.innerHTML=(d.users||[]).map(u=>`<tr><td>${esc(u.email||u.display_name||u.user_id)}<br><code>${esc(u.user_id)}</code></td><td>${esc(u.section)}</td><td>${esc(u.role)}</td><td>${esc(u.status||'active')}</td><td><code>${esc(u.tenant_id||'—')}</code></td><td>${esc(u.perfil_id||'—')}</td><td>${esc(u.last_sign_in_at||'—')}</td></tr>`).join('')||'<tr><td colspan="7">Sin usuarios.</td></tr>'; }
+async function createUser(){ try{ await api('/users',{method:'POST',headers:H(),body:JSON.stringify({email:userEmail.value,password:userPassword.value,display_name:userDisplay.value,tenant_id:userTenant.value||null,section:userSection.value,role:userRole.value,perfil_id:userPerfil.value?Number(userPerfil.value):null})}); msg('userStatus','Usuario creado'); await loadUsers(); }catch(e){msg('userStatus',e.message,false);} }
+async function saveSubscription(){ try{ const max=subPlan.value==='Ilimitado'?null:Number(subMax.value||0); await api('/subscriptions/'+encodeURIComponent(subTenant.value),{method:'PUT',headers:H(),body:JSON.stringify({plan_name:subPlan.value,max_companies:max,status:subStatus.value,expires_at:subExpires.value||null})}); msg('subMsg','Suscripción guardada'); await loadTenants(); }catch(e){msg('subMsg',e.message,false);} }
+async function saveModule(){ try{ await api('/user-sections',{method:'PUT',headers:H(),body:JSON.stringify({user_id:modUser.value,section:modSection.value,role:modRole.value,status:modStatus.value,tenant_id:modTenant.value||null,perfil_id:modPerfil.value?Number(modPerfil.value):null,display_name:modDisplay.value})}); msg('modMsg','Acceso guardado'); await loadUsers(); }catch(e){msg('modMsg',e.message,false);} }
+async function repairUser(){ repairResult.textContent='Procesando...'; try{ const d=await api('/repair/user/'+encodeURIComponent(repairUser.value),{method:'POST',headers:H(false)}); repairResult.textContent=JSON.stringify(d.summary,null,2); await loadDashboard(); }catch(e){repairResult.textContent=e.message;} }
+async function loadAudit(){ const d=await api('/audit',{headers:H(false)}); auditRows.innerHTML=(d.audit||[]).map(a=>`<tr><td>${esc(a.created_at||'')}</td><td><code>${esc(a.actor_user_id||'')}</code></td><td>${esc(a.action)}</td><td>${esc(a.target_type)} <code>${esc(a.target_id||'')}</code></td><td><code>${esc(JSON.stringify(a.detail||{}).slice(0,220))}</code></td></tr>`).join('')||'<tr><td colspan="5">Sin auditoría o tabla no creada.</td></tr>'; }
+function logout(){ localStorage.removeItem('zc_token'); localStorage.removeItem('sat_token'); location.href='/choice'; }
+init();
+</script>
+</body>
+</html>

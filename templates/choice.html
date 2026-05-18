@@ -66,6 +66,8 @@
     .choice-card:hover .choice-badge { background:#7A1E2C;color:#fff;border-color:#7A1E2C; }
     .brand-logo { margin-bottom: 2rem; }
     .brand-logo img { width: 360px; max-width:86vw; display:block; margin:0 auto; }
+    .superadmin-link{position:fixed;right:1.2rem;bottom:1rem;display:none;align-items:center;gap:.4rem;border:1px solid #d8d0c4;background:rgba(255,255,255,.92);color:#5B0F1D;border-radius:999px;padding:.42rem .75rem;font-size:.75rem;font-weight:800;text-decoration:none;box-shadow:0 10px 26px rgba(17,17,17,.08)}
+    .superadmin-link:hover{border-color:#7A1E2C;background:#fff}
     @media (max-width: 900px) {
       .choice-container { grid-template-columns: 1fr; max-width: 520px; }
       .choice-card { min-height: auto; }
@@ -88,6 +90,10 @@
       EN
     </button>
   </div>
+
+  <a id="superAdminLink" class="superadmin-link" href="/admin-saas" title="Admin SaaS">
+    <i class="fa-solid fa-shield-halved"></i> Admin
+  </a>
 
   <div class="wrapper">
     <div class="brand-logo">
@@ -178,6 +184,16 @@
     }
 
     applyLang(_lang);
+
+    async function checkSuperAdmin() {
+      const token = localStorage.getItem('zc_token') || localStorage.getItem('sat_token') || '';
+      if (!token) return;
+      try {
+        const res = await fetch('/api/admin-saas/me', {headers:{Authorization:'Bearer '+token}});
+        if (res.ok) document.getElementById('superAdminLink').style.display = 'inline-flex';
+      } catch(e) {}
+    }
+    checkSuperAdmin();
   </script>
 </body>
 </html>
