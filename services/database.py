@@ -71,14 +71,20 @@ def log_settings_audit(user_id: str, setting_key: str,
 def save_user_setting(user_id: str, setting_key: str, setting_value: str) -> None:
     try:
         sb   = get_supabase()
-        rows = sb.table("zc_settings").select("data").eq("user_id", user_id)\
-                 .is_("perfil_id", "null").execute()
-        data = rows.data[0]["data"] if rows.data else {}
+        rows = sb.table("zc_settings").select("id,data").eq("user_id", user_id)\
+                 .is_("perfil_id", "null").order("updated_at", desc=True).limit(1).execute()
+        row = rows.data[0] if rows.data else None
+        data = (row or {}).get("data") or {}
         data[setting_key] = setting_value
-        sb.table("zc_settings").upsert(
-            {"user_id": user_id, "data": data, "updated_at": _now(), "perfil_id": None},
-            on_conflict="user_id,perfil_id"
-        ).execute()
+        if row and row.get("id"):
+            sb.table("zc_settings").update({"data": data, "updated_at": _now()}).eq("id", row["id"]).execute()
+        else:
+            sb.table("zc_settings").insert({
+                "user_id": user_id,
+                "data": data,
+                "updated_at": _now(),
+                "perfil_id": None,
+            }).execute()
     except Exception as e:
         logger.warning("save_user_setting: %s", e)
 
