@@ -101,7 +101,7 @@
 
       <section class="panel" id="panel-reparacion">
         <div class="hdr"><div><h2>Reparación / Migración</h2><p>Herramientas no destructivas para usuarios legacy.</p></div></div>
-        <div class="card"><label>User ID legacy</label><input id="repairUser" placeholder="2883a5c0-1e8c-416f-a13a-6dc525825374"><div class="actions"><button class="btn" onclick="repairUser()">Sincronizar usuario legacy</button></div><pre id="repairResult" class="muted" style="white-space:pre-wrap;margin-top:12px"></pre></div>
+        <div class="card"><label>User ID o email legacy</label><input id="repairUser" placeholder="2883a5c0-1e8c-416f-a13a-6dc525825374"><div class="actions"><button class="btn btn-ghost" onclick="inspectUser()">Inspeccionar usuario</button><button class="btn" onclick="repairUser()">Sincronizar usuario legacy</button></div><pre id="repairResult" class="muted" style="white-space:pre-wrap;margin-top:12px"></pre></div>
       </section>
 
       <section class="panel" id="panel-auditoria">
@@ -175,6 +175,7 @@ async function createUser(){ try{ await api('/users',{method:'POST',headers:H(),
 async function saveSubscription(){ try{ const max=subPlan.value==='Ilimitado'?null:Number(subMax.value||0); await api('/subscriptions/'+encodeURIComponent(subTenant.value),{method:'PUT',headers:H(),body:JSON.stringify({plan_name:subPlan.value,max_companies:max,status:subStatus.value,expires_at:subExpires.value||null})}); msg('subMsg','Suscripción guardada'); await loadTenants(); }catch(e){msg('subMsg',e.message,false);} }
 async function saveModule(){ try{ await api('/user-sections',{method:'PUT',headers:H(),body:JSON.stringify({user_id:modUser.value,section:modSection.value,role:modRole.value,status:modStatus.value,tenant_id:modTenant.value||null,perfil_id:modPerfil.value?Number(modPerfil.value):null,display_name:modDisplay.value})}); msg('modMsg','Acceso guardado'); await loadUsers(); }catch(e){msg('modMsg',e.message,false);} }
 async function repairUser(){ repairResult.textContent='Procesando...'; try{ const d=await api('/repair/user/'+encodeURIComponent(repairUser.value),{method:'POST',headers:H(false)}); repairResult.textContent=JSON.stringify(d.summary,null,2); await loadDashboard(); }catch(e){repairResult.textContent=e.message;} }
+async function inspectUser(){ repairResult.textContent='Inspeccionando...'; try{ const d=await api('/repair/user/'+encodeURIComponent(repairUser.value)+'/inspect',{headers:H(false)}); repairResult.textContent=JSON.stringify(d.inspection,null,2); }catch(e){repairResult.textContent=e.message;} }
 async function loadAudit(){ const d=await api('/audit',{headers:H(false)}); auditRows.innerHTML=(d.audit||[]).map(a=>`<tr><td>${esc(a.created_at||'')}</td><td><code>${esc(a.actor_user_id||'')}</code></td><td>${esc(a.action)}</td><td>${esc(a.target_type)} <code>${esc(a.target_id||'')}</code></td><td><code>${esc(JSON.stringify(a.detail||{}).slice(0,220))}</code></td></tr>`).join('')||'<tr><td colspan="5">Sin auditoría o tabla no creada.</td></tr>'; }
 function logout(){ localStorage.removeItem('zc_token'); localStorage.removeItem('sat_token'); location.href='/choice'; }
 init();
