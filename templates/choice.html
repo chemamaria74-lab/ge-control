@@ -66,8 +66,14 @@
     .choice-card:hover .choice-badge { background:#7A1E2C;color:#fff;border-color:#7A1E2C; }
     .brand-logo { margin-bottom: 2rem; }
     .brand-logo img { width: 360px; max-width:86vw; display:block; margin:0 auto; }
-    .superadmin-link{position:fixed;right:1.2rem;bottom:1rem;display:none;align-items:center;gap:.4rem;border:1px solid #d8d0c4;background:rgba(255,255,255,.92);color:#5B0F1D;border-radius:999px;padding:.42rem .75rem;font-size:.75rem;font-weight:800;text-decoration:none;box-shadow:0 10px 26px rgba(17,17,17,.08)}
-    .superadmin-link:hover{border-color:#7A1E2C;background:#fff}
+    .superadmin-link{
+      position:fixed;left:1rem;bottom:1rem;width:36px;height:36px;
+      display:inline-grid;place-items:center;border:1px solid rgba(122,30,44,.22);
+      background:#7A1E2C;color:#fff;border-radius:999px;text-decoration:none;
+      box-shadow:0 10px 24px rgba(122,30,44,.18);opacity:.88;z-index:80;
+      transition:transform .15s,opacity .15s,box-shadow .15s;
+    }
+    .superadmin-link:hover{opacity:1;transform:translateY(-1px);box-shadow:0 12px 28px rgba(122,30,44,.24)}
     @media (max-width: 900px) {
       .choice-container { grid-template-columns: 1fr; max-width: 520px; }
       .choice-card { min-height: auto; }
@@ -92,7 +98,7 @@
   </div>
 
   <a id="superAdminLink" class="superadmin-link" href="/admin-saas" title="Admin SaaS">
-    <i class="fa-solid fa-shield-halved"></i> Admin
+    <i class="fa-solid fa-shield-halved"></i>
   </a>
 
   <div class="wrapper">
@@ -185,15 +191,6 @@
 
     applyLang(_lang);
 
-    async function checkSuperAdmin() {
-      const token = localStorage.getItem('zc_token') || localStorage.getItem('sat_token') || '';
-      if (!token) return;
-      try {
-        const res = await fetch('/api/admin-saas/me', {headers:{Authorization:'Bearer '+token}});
-        if (res.ok) document.getElementById('superAdminLink').style.display = 'inline-flex';
-      } catch(e) {}
-    }
-    checkSuperAdmin();
   </script>
 </body>
 </html>
