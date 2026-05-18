@@ -1590,7 +1590,8 @@ async function cargarPerfilesTransporte() {
 
 function planLimitTransporte() {
   if (!SUBSCRIPTION_TRANSPORTE) return '—';
-  return SUBSCRIPTION_TRANSPORTE.max_companies == null ? 'Ilimitado' : String(SUBSCRIPTION_TRANSPORTE.max_companies);
+  const displayLimit = SUBSCRIPTION_TRANSPORTE.display_max_companies ?? SUBSCRIPTION_TRANSPORTE.max_companies;
+  return displayLimit == null ? 'Ilimitado' : String(displayLimit);
 }
 
 function renderPlanTransporte() {

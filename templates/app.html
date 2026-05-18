@@ -764,7 +764,7 @@ tr:hover td{background:#f8fafc}
   <button class="main-nav-tab" data-main="controles"><i class="fa-solid fa-gauge-high"></i> <span data-i18n="nav.controles">Inventario</span></button>
   <button class="main-nav-tab" data-main="proveedores"><i class="fa-solid fa-truck-fast"></i> <span data-i18n="nav.proveedores">Proveedores</span></button>
   <button class="main-nav-tab" data-main="config"><i class="fa-solid fa-gear"></i> <span data-i18n="nav.config">Configuración</span></button>
-  <button class="main-nav-tab" id="tabAdmin" data-main="admin" style="display:none;color:#7c3aed"><i class="fa-solid fa-shield-alt"></i> Panel Admin</button>
+  <button class="main-nav-tab" id="tabAdmin" data-main="admin" style="display:none"><i class="fa-solid fa-users-gear"></i> Usuarios internos</button>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════
@@ -2172,89 +2172,9 @@ tr:hover td{background:#f8fafc}
 
 
 <!-- ══════════════════════════════════════════════════════════════════════
-     PANEL: ADMIN
+     PANEL: USUARIOS INTERNOS
      ══════════════════════════════════════════════════════════════════════ -->
 <div class="main-panel" id="mpanel-admin">
-
-<!-- Métricas -->
-<div class="card">
-  <h2><i class="fa-solid fa-chart-pie" style="margin-right:.4rem"></i> Métricas del Sistema</h2>
-  <div id="adminMetrics" style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:.8rem">
-    <div style="flex:1;min-width:150px;background:#f5f3ff;border-radius:10px;padding:1rem;text-align:center">
-      <div id="metActiveUsers" style="font-size:2rem;font-weight:800;color:#7c3aed">—</div>
-      <div style="font-size:.78rem;color:#6b7280;margin-top:.3rem">Clientes activos</div>
-    </div>
-    <div style="flex:1;min-width:150px;background:#f0fdf4;border-radius:10px;padding:1rem;text-align:center">
-      <div id="metReportsMes" style="font-size:2rem;font-weight:800;color:#15803d">—</div>
-      <div id="metReportsMesLabel" style="font-size:.78rem;color:#6b7280;margin-top:.3rem">Reportes este mes</div>
-    </div>
-    <div style="flex:1;min-width:150px;background:#fff7ed;border-radius:10px;padding:1rem;text-align:center">
-      <div id="metFacilities" style="font-size:2rem;font-weight:800;color:#c2410c">—</div>
-      <div style="font-size:.78rem;color:#6b7280;margin-top:.3rem">Sedes registradas</div>
-    </div>
-    <div style="flex:1;min-width:150px;background:#f0f9ff;border-radius:10px;padding:1rem;text-align:center">
-      <div id="metRecords" style="font-size:2rem;font-weight:800;color:#0369a1">—</div>
-      <div style="font-size:.78rem;color:#6b7280;margin-top:.3rem">Movimientos totales</div>
-    </div>
-  </div>
-</div>
-
-<!-- Crear nuevo usuario -->
-<div class="card">
-  <h2><i class="fa-solid fa-user-plus" style="margin-right:.35rem"></i>Crear Nuevo Cliente</h2>
-  <div class="grid2" style="margin-top:.6rem">
-    <div class="field"><label>Usuario</label>
-      <input id="newUserUsername" type="text" placeholder="nombre_usuario"></div>
-    <div class="field"><label>Contraseña</label>
-      <input id="newUserPassword" type="password" placeholder="Contraseña inicial"></div>
-    <div class="field"><label>Nombre / Razón Social</label>
-      <input id="newUserDisplay" type="text" placeholder="Ej: PEMEX Distribución S.A. de C.V."></div>
-    <div class="field"><label>Rol</label>
-      <select id="newUserRole">
-        <option value="user">Usuario (cliente)</option>
-        <option value="admin">Administrador</option>
-      </select>
-    </div>
-  </div>
-  <div style="display:flex;align-items:center;gap:.8rem;margin-top:.8rem">
-    <button onclick="createAdminUser()" style="
-      padding:.55rem 1.4rem;background:#7c3aed;color:#fff;border:none;
-      border-radius:8px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.88rem">
-      Crear cuenta
-    </button>
-    <span id="newUserStatus" style="font-size:.83rem"></span>
-  </div>
-</div>
-
-<!-- Lista de usuarios -->
-<div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem">
-    <h2><i class="fa-solid fa-users" style="margin-right:.35rem"></i>Clientes Registrados</h2>
-    <button onclick="loadAdminPanel()" style="
-      padding:.4rem .9rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;
-      font-size:.78rem;cursor:pointer;font-family:inherit"><i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i> Actualizar</button>
-  </div>
-  <div id="adminUsersLoading" style="display:none;color:#64748b;font-size:.85rem;padding:.5rem 0">Cargando…</div>
-  <div id="adminUsersWrap" style="overflow-x:auto">
-    <table id="adminUsersTable" style="width:100%;border-collapse:collapse;font-size:.84rem">
-      <thead>
-        <tr style="border-bottom:2px solid #e2e8f0;text-align:left">
-          <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Usuario</th>
-          <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Nombre / RFC</th>
-          <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Rol</th>
-          <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Estado</th>
-          <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Registrado</th>
-          <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Acción</th>
-        </tr>
-      </thead>
-      <tbody id="adminUsersTbody"></tbody>
-    </table>
-    <div id="adminUsersEmpty" style="display:none;text-align:center;padding:1.5rem;color:#94a3b8;font-size:.85rem">
-      No hay usuarios registrados.
-    </div>
-  </div>
-</div>
-
 <!-- Usuarios internos por empresa -->
 <div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
@@ -2323,6 +2243,9 @@ let _histFacilityId   = null;       // instalación activa en Historial (captura
 let currentUserRole   = localStorage.getItem('sat_role') || 'user';
 let assignedPerfilId  = Number(localStorage.getItem('sat_assigned_perfil_id') || '0') || null;
 let subscriptionUsage = null;
+let perfilesRequestPromise = null;
+let perfilesCache = null;
+let perfilesCacheAt = 0;
 
 // ── Estado multi-empresa (perfilSeleccionado) ──────────────────────────────
 // Se persiste en localStorage para sobrevivir cierre de pestaña y recargas.
@@ -2776,7 +2699,11 @@ actualizarRfcHint();
 // MULTI-EMPRESA: Lógica de selección y cambio de perfil
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function cargarPerfiles(intentos = 3) {
+async function cargarPerfiles(intentos = 1, force = false) {
+  const now = Date.now();
+  if (!force && perfilesCache && (now - perfilesCacheAt) < 15000) return perfilesCache;
+  if (!force && perfilesRequestPromise) return perfilesRequestPromise;
+  perfilesRequestPromise = (async () => {
   for (let i = 0; i < intentos; i++) {
     try {
       const res = await fetch('/api/perfiles', { headers: authHeader() });
@@ -2785,25 +2712,31 @@ async function cargarPerfiles(intentos = 3) {
         subscriptionUsage = data.subscription || subscriptionUsage;
         renderSubscriptionUsage();
         const perfiles = data.perfiles || [];
+        perfilesCache = perfiles;
+        perfilesCacheAt = Date.now();
         if (perfiles.length > 0) return perfiles;
         // Si vino vacío pero no es el último intento, esperar y reintentar
-        if (i < intentos - 1) await new Promise(r => setTimeout(r, 800));
+        if (i < intentos - 1) await new Promise(r => setTimeout(r, 350));
       } else if (res.status === 401) {
         return [];  // sesión expirada, no reintentar
       } else if (i < intentos - 1) {
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, 350));
       }
     } catch(e) {
       console.warn(`cargarPerfiles intento ${i+1}/${intentos}:`, e);
-      if (i < intentos - 1) await new Promise(r => setTimeout(r, 1000));
+      if (i < intentos - 1) await new Promise(r => setTimeout(r, 450));
     }
   }
   return [];
+  })();
+  try { return await perfilesRequestPromise; }
+  finally { perfilesRequestPromise = null; }
 }
 
 function subscriptionLimitLabel() {
   if (!subscriptionUsage) return '—';
-  return subscriptionUsage.max_companies == null ? 'Ilimitado' : String(subscriptionUsage.max_companies);
+  const displayLimit = subscriptionUsage.display_max_companies ?? subscriptionUsage.max_companies;
+  return displayLimit == null ? 'Ilimitado' : String(displayLimit);
 }
 
 function renderSubscriptionUsage() {
@@ -2836,7 +2769,7 @@ function canCreateCompanyFromPlan(errEl = null) {
 
 async function iniciarFlujoEmpresa() {
   if (!authToken) return;
-  const perfiles = await cargarPerfiles(3);
+  const perfiles = await cargarPerfiles(1);
 
   if (perfiles.length === 0) {
     // Antes de mostrar onboarding, verificar si hay perfil guardado en localStorage.
@@ -3095,6 +3028,8 @@ async function guardarNuevoPerfil() {
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.detail || 'Error al guardar');
     subscriptionUsage = data.subscription || subscriptionUsage;
+    perfilesCache = null;
+    perfilesCacheAt = 0;
     renderSubscriptionUsage();
     cerrarModalNuevoPerfil();
     seleccionarEmpresa(data.perfil, true);
@@ -3143,6 +3078,8 @@ async function eliminarPerfil(perfilId) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Error');
+    perfilesCache = null;
+    perfilesCacheAt = 0;
     await cargarPanelPerfiles();
     if (_perfilSeleccionado && _perfilSeleccionado.id === perfilId) {
       _clearPerfilSession();
@@ -3709,7 +3646,7 @@ async function switchTab(name) {
   if (panel) panel.classList.add('active');
   if (name === 'ventas'      && authToken) loadVentasAnalytics();
   if (name === 'proveedores' && authToken) { setTimeout(cargarProveedores, 100); }
-  if (name === 'admin'       && authToken && currentUserRole === 'admin') loadAdminPanel();
+  if (name === 'admin'       && authToken && currentUserRole === 'admin') loadInternalUsersGasLp();
   // Config avanzada: siempre recargar desde Supabase al abrir (limpia + puebla)
   // config-avanzada tab removed — adv config is now inside each facility form
   if (name === 'config') cargarConfigAvanzada();
@@ -5175,130 +5112,7 @@ function showToast(msg, type) {
   }, 3500);
 }
 
-// ── Panel Admin ───────────────────────────────────────────────────────────────
-async function loadAdminPanel() {
-  await Promise.all([loadAdminMetrics(), loadAdminUsers(), loadInternalUsersGasLp()]);
-}
-
-async function loadAdminMetrics() {
-  try {
-    const res  = await fetch('/api/admin/metrics', { headers: authHeader() });
-    if (!res.ok) return;
-    const data = await res.json();
-    document.getElementById('metActiveUsers').textContent = data.active_users ?? '—';
-    document.getElementById('metReportsMes').textContent  = data.reports_this_month ?? '—';
-    document.getElementById('metFacilities').textContent  = data.total_facilities ?? '—';
-    document.getElementById('metRecords').textContent     = data.total_records ?? '—';
-    const lbl = document.getElementById('metReportsMesLabel');
-    if (lbl && data.periodo_actual) lbl.textContent = `Reportes ${data.periodo_actual}`;
-  } catch(e) { /* silencioso */ }
-}
-
-async function loadAdminUsers() {
-  const loading = document.getElementById('adminUsersLoading');
-  const empty   = document.getElementById('adminUsersEmpty');
-  const tbody   = document.getElementById('adminUsersTbody');
-  if (!tbody) return;
-  if (loading) loading.style.display = 'block';
-  empty.style.display = 'none';
-  tbody.innerHTML = '';
-  try {
-    const res  = await fetch('/api/admin/users', { headers: authHeader() });
-    if (!res.ok) { if (loading) loading.style.display = 'none'; return; }
-    const data = await res.json();
-    if (loading) loading.style.display = 'none';
-    const users = data.users || [];
-    if (users.length === 0) { empty.style.display = ''; return; }
-    tbody.innerHTML = users.map(u => {
-      const isActive  = u.status === 'active';
-      const isMe      = u.user_id === currentUserId;
-      const roleLabel = u.role === 'admin'
-        ? '<span style="background:#ede9fe;color:#7c3aed;padding:2px 7px;border-radius:4px;font-size:.75rem;font-weight:700">Admin</span>'
-        : '<span style="background:#f1f5f9;color:#475569;padding:2px 7px;border-radius:4px;font-size:.75rem">Cliente</span>';
-      const statusBadge = isActive
-        ? '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">Activo</span>'
-        : '<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">Inactivo</span>';
-      const toggleBtn = isMe
-        ? '<span style="font-size:.75rem;color:#94a3b8">(tu cuenta)</span>'
-        : `<button onclick="toggleUserStatus('${u.user_id}','${u.status}')" style="
-            padding:.35rem .8rem;border:1px solid ${isActive?'#fca5a5':'#86efac'};
-            background:${isActive?'#fff1f2':'#f0fdf4'};color:${isActive?'#dc2626':'#15803d'};
-            border-radius:7px;font-size:.78rem;cursor:pointer;font-family:inherit;font-weight:600">
-            ${isActive ? '<i class="fa-solid fa-lock"></i> Desactivar' : '<i class="fa-solid fa-check-circle"></i> Activar'}
-          </button>`;
-      const created = (u.created_at||'').substring(0,10);
-      return `<tr style="border-bottom:1px solid #f1f5f9">
-        <td style="padding:.55rem .8rem;font-weight:600">${u.username}</td>
-        <td style="padding:.55rem .8rem;color:#475569">${u.display_name||'—'}</td>
-        <td style="padding:.55rem .8rem">${roleLabel}</td>
-        <td style="padding:.55rem .8rem">${statusBadge}</td>
-        <td style="padding:.55rem .8rem;color:#94a3b8;font-size:.78rem">${created}</td>
-        <td style="padding:.55rem .8rem">${toggleBtn}</td>
-      </tr>`;
-    }).join('');
-  } catch(e) {
-    if (loading) loading.style.display = 'none';
-  }
-}
-
-async function toggleUserStatus(userId, currentStatus) {
-  try {
-    const res  = await fetch(`/api/admin/users/${userId}/status`, {
-      method: 'PUT', headers: authHeader(),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showToast(
-        data.status === 'active' ? 'Cuenta activada.' : 'Cuenta desactivada.',
-        data.status === 'active' ? 'success' : 'info'
-      );
-      await loadAdminUsers();
-      await loadAdminMetrics();
-    } else {
-      showToast('Error al cambiar estado.', 'error');
-    }
-  } catch(e) { showToast('Error de conexión.', 'error'); }
-}
-
-async function createAdminUser() {
-  const username     = document.getElementById('newUserUsername').value.trim();
-  const password     = document.getElementById('newUserPassword').value;
-  const display_name = document.getElementById('newUserDisplay').value.trim();
-  const role         = document.getElementById('newUserRole').value;
-  const statusEl     = document.getElementById('newUserStatus');
-  statusEl.textContent = '';
-  if (!username || !password) {
-    statusEl.style.color = '#dc2626';
-    statusEl.textContent = 'Usuario y contraseña son requeridos.';
-    return;
-  }
-  try {
-    const res  = await fetch('/api/admin/users', {
-      method: 'POST',
-      headers: { ...authHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, display_name, role }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      statusEl.style.color = '#15803d';
-      statusEl.textContent = `Cuenta "${username}" creada correctamente.`;
-      document.getElementById('newUserUsername').value = '';
-      document.getElementById('newUserPassword').value = '';
-      document.getElementById('newUserDisplay').value  = '';
-      document.getElementById('newUserRole').value     = 'user';
-      showToast(`Cuenta "${username}" creada.`, 'success');
-      await loadAdminUsers();
-      await loadAdminMetrics();
-    } else {
-      statusEl.style.color = '#dc2626';
-      statusEl.textContent = data.detail || 'Error al crear la cuenta.';
-    }
-  } catch(e) {
-    statusEl.style.color = '#dc2626';
-    statusEl.textContent = 'Error de conexión.';
-  }
-}
-
+// ── Usuarios internos Gas LP ────────────────────────────────────────────────
 function internalRoleLabel(role) {
   const labels = {
     asistente_facturacion: 'Asistente facturación',
