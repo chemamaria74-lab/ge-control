@@ -25,7 +25,15 @@ router = APIRouter()
 
 Section = Literal["gas_lp", "transporte", "gasolineras"]
 SECCIONES_VALIDAS = {"gas_lp", "transporte", "gasolineras"}
-ROLES_VALIDOS = {"admin", "user", "operador", "asistente_facturacion", "planta"}
+ROLES_VALIDOS = {
+    "admin",
+    "user",
+    "operador",
+    "asistente_facturacion",
+    "asistente_operativo",
+    "planta",
+    "solo_lectura",
+}
 
 
 # ── Lookup de sección (multi-tenancy) ────────────────────────────────────────

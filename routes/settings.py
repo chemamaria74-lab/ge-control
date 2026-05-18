@@ -64,7 +64,7 @@ def _auth(authorization: str) -> tuple[str, str]:
 
 def _deny_assistant_config(user_id: str, token: str) -> None:
     role = (obtener_acceso_modulo(user_id, "gas_lp", access_token=token).get("role") or "user").lower()
-    if role in {"asistente_facturacion", "planta"}:
+    if role in {"asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"}:
         raise HTTPException(403, "El rol Asistente de facturación no puede modificar configuración.")
 
 
@@ -236,4 +236,3 @@ async def save_settings(
         "perfil_id": perfil_id,
         "settings":  saved,
     })
-
