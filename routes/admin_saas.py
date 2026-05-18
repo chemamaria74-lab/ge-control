@@ -5,7 +5,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -309,6 +309,8 @@ def _inspect_user(identifier: str) -> dict:
         "reports": _count_rows(sb, "reports", "user_id", target_user_id),
         "user_facilities": _count_rows(sb, "user_facilities", "user_id", target_user_id),
         "providers": _count_rows(sb, "providers", "user_id", target_user_id),
+        "zc_settings": _count_rows(sb, "zc_settings", "user_id", target_user_id),
+        "settings_audit": _count_rows(sb, "settings_audit", "user_id", target_user_id),
         "gaso_estaciones": _count_rows(sb, "gaso_estaciones", "user_id", target_user_id),
         "gaso_cfdi_compras": _count_rows(sb, "gaso_cfdi_compras", "user_id", target_user_id),
         "gaso_ventas": _count_rows(sb, "gaso_ventas", "user_id", target_user_id),
@@ -340,6 +342,30 @@ def _inspect_user(identifier: str) -> dict:
         "subscriptions": subscriptions,
         "companies": companies,
     }
+
+
+def _delete_user_cascade_safe_rpc(target_user_id: str, actor_user_id: str, confirm: bool, transfer_user_id: str | None = None) -> dict:
+    try:
+        res = _sb_admin().rpc("delete_user_cascade_safe", {
+            "p_target_user_id": target_user_id,
+            "p_actor_user_id": actor_user_id,
+            "p_confirm": confirm,
+            "p_transfer_user_id": transfer_user_id,
+        }).execute()
+    except Exception as e:
+        message = str(e)
+        if "delete_user_cascade_safe" in message or "function" in message.lower() or "schema cache" in message.lower():
+            raise HTTPException(
+                501,
+                "Falta aplicar la migración admin_saas_delete_user_cascade_safe_20260518.sql en Supabase.",
+            )
+        raise HTTPException(500, f"No se pudo ejecutar eliminación transaccional: {e}")
+    data = res.data
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    if not isinstance(data, dict):
+        data = {"ok": True, "result": data}
+    return data
 
 
 def _load_admin_snapshot() -> dict:
@@ -824,33 +850,41 @@ async def reset_saas_user_password(target_user_id: str, payload: ResetPasswordPa
     return JSONResponse({"ok": True})
 
 
-@router.delete("/admin-saas/users/{target_user_id}")
-async def delete_saas_user_safe(target_user_id: str, authorization: str = Header(default="")):
+@router.get("/admin-saas/users/{target_user_id}/delete-preview")
+async def preview_saas_user_delete(target_user_id: str, authorization: str = Header(default="")):
     uid, _, _ = _require_superadmin(authorization)
     resolved = _resolve_user_identifier(target_user_id)
-    inspection = _inspect_user(resolved)
-    data_counts = inspection.get("counts") or {}
-    protected_tables = [
-        "records", "reports", "user_facilities", "providers",
-        "gaso_estaciones", "gaso_cfdi_compras", "gaso_ventas",
-        "tr_viajes", "tr_cfdi", "tr_choferes", "tr_vehiculos", "tr_clientes",
-        "internal_users_owner",
-    ]
-    history = {k: int(data_counts.get(k) or 0) for k in protected_tables if int(data_counts.get(k) or 0) > 0}
-    if history:
-        _sb_admin().table("user_sections").update({"status": "inactive"}).eq("user_id", resolved).execute()
-        _audit(uid, "blocked_delete_user_with_history", "user", resolved, {"history": history})
-        raise HTTPException(409, {
-            "message": "El usuario tiene historial operativo/fiscal. Se desactivó el acceso, pero no se eliminó.",
-            "history": history,
+    preview = _delete_user_cascade_safe_rpc(resolved, uid, confirm=False)
+    _audit(uid, "preview_delete_user_cascade_safe", "user", resolved, {
+        "counts": preview.get("counts", {}),
+        "user": preview.get("user", {}),
+    })
+    return JSONResponse({"ok": True, "preview": preview})
+
+
+@router.delete("/admin-saas/users/{target_user_id}")
+async def delete_saas_user_safe(
+    target_user_id: str,
+    transfer_user_id: Optional[str] = Query(default=None),
+    authorization: str = Header(default=""),
+):
+    uid, _, _ = _require_superadmin(authorization)
+    resolved = _resolve_user_identifier(target_user_id)
+    transfer_resolved = _resolve_user_identifier(transfer_user_id) if transfer_user_id else None
+    result = _delete_user_cascade_safe_rpc(resolved, uid, confirm=True, transfer_user_id=transfer_resolved)
+    verification = _delete_user_cascade_safe_rpc(resolved, uid, confirm=False)
+    allowed_preserved = {"storage_objects"}
+    remaining = {
+        k: v for k, v in (verification.get("counts") or {}).items()
+        if k not in allowed_preserved and int(v or 0) > 0
+    }
+    if remaining:
+        raise HTTPException(500, {
+            "message": "La eliminación terminó, pero la verificación encontró registros pendientes.",
+            "remaining": remaining,
+            "result": result,
         })
-    _sb_admin().table("user_sections").delete().eq("user_id", resolved).execute()
-    try:
-        _sb_admin().auth.admin.delete_user(resolved)
-    except Exception as e:
-        raise HTTPException(500, f"No se pudo eliminar el usuario Auth: {e}")
-    _audit(uid, "delete_user_safe", "user", resolved, {"deleted": True})
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "result": result, "verification": verification})
 
 
 @router.post("/admin-saas/internal-users/{internal_user_id}/status")
