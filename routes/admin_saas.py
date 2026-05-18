@@ -185,13 +185,46 @@ def _limit_label(value) -> str:
 
 
 def _limit_usage(used: int, limit) -> dict:
+    raw_limit = limit
+    display_limit = limit
+    legacy_overage = False
+    if limit is not None and used > int(limit):
+        display_limit = used
+        legacy_overage = True
     return {
         "used": used,
-        "limit": limit,
-        "label": f"{used}/{_limit_label(limit)}",
-        "exceeded": limit is not None and used > int(limit),
-        "near_limit": limit is not None and int(limit) > 0 and used >= int(limit) * 0.8,
+        "limit": raw_limit,
+        "display_limit": display_limit,
+        "label": f"{used}/{_limit_label(display_limit)}",
+        "contract_label": f"{used}/{_limit_label(raw_limit)}",
+        "legacy_overage": legacy_overage,
+        "exceeded": raw_limit is not None and used > int(raw_limit),
+        "near_limit": raw_limit is not None and int(raw_limit) > 0 and used >= int(raw_limit) * 0.8,
     }
+
+
+def _short_id(value: str | None) -> str:
+    text = str(value or "")
+    return f"{text[:8]}...{text[-4:]}" if len(text) > 14 else text
+
+
+def _friendly_tenant_name(tenant: dict, profiles: list[dict], sections: list[dict], auth_users: dict[str, dict]) -> str:
+    name = (tenant.get("name") or "").strip()
+    if name:
+        return name
+    tid = str(tenant.get("id") or "")
+    profile = next((p for p in profiles if str(p.get("tenant_id")) == tid and p.get("activo") and (p.get("nombre") or "").strip()), None)
+    if profile:
+        return profile.get("nombre") or ""
+    section = next((s for s in sections if str(s.get("tenant_id")) == tid and s.get("user_id")), None)
+    if section:
+        email = auth_users.get(str(section.get("user_id")), {}).get("email")
+        if email:
+            return email
+        display = section.get("display_name")
+        if display:
+            return display
+    return f"Cliente {_short_id(tid)}"
 
 
 def _audit(actor_id: str, action: str, target_type: str = "", target_id: str = "", detail: dict | None = None) -> None:
@@ -365,7 +398,8 @@ def _tenant_license_rows(snapshot: dict) -> list[dict]:
         usage = _tenant_usage(snapshot, tenant_id)
         rows.append({
             "tenant_id": tenant_id,
-            "name": tenant.get("name") or "Sin nombre",
+            "short_tenant_id": _short_id(tenant_id),
+            "name": _friendly_tenant_name(tenant, snapshot["profiles"], snapshot["sections"], snapshot["auth_users"]),
             "status": tenant.get("status") or "active",
             "subscription": sub,
             "limits": limits,
@@ -586,6 +620,8 @@ async def list_tenants(authorization: str = Header(default="")):
         tenant["users_count"] = len({s.get("user_id") for s in sections if str(s.get("tenant_id")) == tid})
         tenant["modules"] = sorted({s.get("section") for s in sections if str(s.get("tenant_id")) == tid and (s.get("status") or "active") == "active"})
         tenant["license"] = licenses_by_tenant.get(tid)
+        tenant["display_name"] = _friendly_tenant_name(tenant, profiles, sections, snapshot["auth_users"])
+        tenant["short_id"] = _short_id(tid)
     return JSONResponse({"ok": True, "tenants": tenants})
 
 
@@ -785,6 +821,35 @@ async def reset_saas_user_password(target_user_id: str, payload: ResetPasswordPa
         raise HTTPException(400, "La contraseña temporal debe tener al menos 8 caracteres.")
     _sb_admin().auth.admin.update_user_by_id(resolved, {"password": password})
     _audit(uid, "reset_user_password", "user", resolved, {"password_changed": True})
+    return JSONResponse({"ok": True})
+
+
+@router.delete("/admin-saas/users/{target_user_id}")
+async def delete_saas_user_safe(target_user_id: str, authorization: str = Header(default="")):
+    uid, _, _ = _require_superadmin(authorization)
+    resolved = _resolve_user_identifier(target_user_id)
+    inspection = _inspect_user(resolved)
+    data_counts = inspection.get("counts") or {}
+    protected_tables = [
+        "records", "reports", "user_facilities", "providers",
+        "gaso_estaciones", "gaso_cfdi_compras", "gaso_ventas",
+        "tr_viajes", "tr_cfdi", "tr_choferes", "tr_vehiculos", "tr_clientes",
+        "internal_users_owner",
+    ]
+    history = {k: int(data_counts.get(k) or 0) for k in protected_tables if int(data_counts.get(k) or 0) > 0}
+    if history:
+        _sb_admin().table("user_sections").update({"status": "inactive"}).eq("user_id", resolved).execute()
+        _audit(uid, "blocked_delete_user_with_history", "user", resolved, {"history": history})
+        raise HTTPException(409, {
+            "message": "El usuario tiene historial operativo/fiscal. Se desactivó el acceso, pero no se eliminó.",
+            "history": history,
+        })
+    _sb_admin().table("user_sections").delete().eq("user_id", resolved).execute()
+    try:
+        _sb_admin().auth.admin.delete_user(resolved)
+    except Exception as e:
+        raise HTTPException(500, f"No se pudo eliminar el usuario Auth: {e}")
+    _audit(uid, "delete_user_safe", "user", resolved, {"deleted": True})
     return JSONResponse({"ok": True})
 
 

@@ -54,32 +54,63 @@ def _auth(authorization: str) -> tuple[str, str]:
 
 
 def get_perfiles_for_user(user_id: str, access_token: str = "") -> list:
-    """Devuelve todos los perfiles activos del usuario, ordenados por nombre."""
+    """
+    Devuelve todos los perfiles activos visibles para el usuario.
+
+    Compatibilidad SaaS/legacy:
+    - `perfiles_empresa` sigue siendo el source of truth temporal.
+    - Si ya hay tenant, incluye perfiles del tenant.
+    - Si hay datos legacy con tenant_id NULL, también los incluye por user_id.
+    - El contador de suscripción usa esta misma función para no mostrar 0/1
+      mientras el insert falla por límite.
+    """
     try:
+        sb = get_supabase_for_user(access_token) if access_token else get_supabase()
         accesos = obtener_accesos_usuario(user_id, access_token=access_token) if access_token else []
         roles = {a.get("role") for a in accesos}
         assigned_ids = [a.get("perfil_id") for a in accesos if a.get("perfil_id")]
-        q = (
-            get_supabase()
-            .table("perfiles_empresa")
-            .select("id, nombre, rfc, descripcion, activo, created_at")
-            .eq("activo", True)
-        )
-        if "admin" in roles:
-            q = q.eq("tenant_id", _tenant_id_for_user(user_id, access_token=access_token))
-        else:
-            q = q.eq("user_id", user_id)
+
+        rows_by_id: dict[int, dict] = {}
+        fields = "id, nombre, rfc, descripcion, activo, created_at, tenant_id"
+
+        def add_rows(rows: list[dict]) -> None:
+            for row in rows or []:
+                rid = row.get("id")
+                if rid is not None:
+                    rows_by_id[int(rid)] = row
+
+        # Legacy: perfiles creados antes de tenant/company.
+        legacy_q = sb.table("perfiles_empresa").select(fields).eq("user_id", user_id).eq("activo", True)
         if assigned_ids and "admin" not in roles:
-            q = q.in_("id", assigned_ids)
-        rows = q.order("nombre").execute().data or []
-        return rows
+            legacy_q = legacy_q.in_("id", assigned_ids)
+        add_rows(legacy_q.order("nombre").execute().data or [])
+
+        # SaaS: perfiles del tenant, útil para administradores con varias empresas.
+        if "admin" in roles:
+            tenant_id = _tenant_id_for_user(user_id, access_token=access_token)
+            try:
+                sb.table("perfiles_empresa").update({"tenant_id": tenant_id}).eq("user_id", user_id).is_("tenant_id", "null").execute()
+            except Exception as e:
+                logger.info("Backfill runtime perfiles_empresa.tenant_id omitido user=%s: %s", user_id, e)
+            add_rows(
+                sb.table("perfiles_empresa")
+                .select(fields)
+                .eq("tenant_id", tenant_id)
+                .eq("activo", True)
+                .order("nombre")
+                .execute()
+                .data or []
+            )
+
+        return sorted(rows_by_id.values(), key=lambda r: (r.get("nombre") or "").lower())
     except Exception as e:
         logger.warning("get_perfiles_for_user con tenant falló, usando legacy user_id: %s", e)
         try:
+            sb = get_supabase_for_user(access_token) if access_token else get_supabase()
             rows = (
-                get_supabase()
+                sb
                 .table("perfiles_empresa")
-                .select("id, nombre, rfc, descripcion, activo, created_at")
+                .select("id, nombre, rfc, descripcion, activo, created_at, tenant_id")
                 .eq("user_id", user_id)
                 .eq("activo", True)
                 .order("nombre")
@@ -258,27 +289,29 @@ def _subscription_usage(user_id: str, access_token: str = "") -> dict:
     tenant_id = _tenant_id_for_user(user_id, access_token=access_token)
     sub = _subscription_for_tenant(tenant_id)
     try:
-        q = get_supabase().table("perfiles_empresa").select("id", count="exact").eq("activo", True)
-        try:
-            q = q.eq("tenant_id", tenant_id)
-        except Exception:
-            q = q.eq("user_id", user_id)
-        res = q.execute()
-        used = res.count if getattr(res, "count", None) is not None else len(res.data or [])
+        used = len(get_perfiles_for_user(user_id, access_token=access_token))
     except Exception:
-        try:
-            used = len(get_perfiles_for_user(user_id, access_token=access_token))
-        except Exception:
-            used = 0
+        used = 0
     limit = sub.get("max_companies")
+    display_limit = limit
+    legacy_overage = False
+    if limit is not None and used > int(limit):
+        # Compatibilidad legacy: si el usuario ya tenía más empresas que su
+        # plan actual, no decimos "4 de 1 disponibles" en la UI operativa.
+        # Sigue bloqueado para crear nuevas empresas hasta que suba el límite.
+        display_limit = used
+        legacy_overage = True
     return {
         "tenant_id": tenant_id,
         "plan_name": sub.get("plan_name") or DEFAULT_PLAN["plan_name"],
         "max_companies": limit,
+        "display_max_companies": display_limit,
         "companies_used": used,
         "status": sub.get("status") or "active",
         "expires_at": sub.get("expires_at"),
         "can_create_company": limit is None or used < int(limit),
+        "legacy_overage": legacy_overage,
+        "source_of_truth": "perfiles_empresa",
     }
 
 
