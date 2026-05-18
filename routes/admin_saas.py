@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -9,6 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from routes.auth import verify_token
+from routes.internal_users import _hash_secret
 from supabase_config import get_supabase_admin, get_supabase_for_user
 
 
@@ -38,6 +40,8 @@ class SubscriptionPayload(BaseModel):
     max_companies: Optional[int] = 1
     status: str = "active"
     expires_at: Optional[str] = None
+    limits_json: Optional[dict] = None
+    notes_internal: Optional[str] = ""
 
 
 class CreateUserPayload(BaseModel):
@@ -58,6 +62,51 @@ class UserSectionPayload(BaseModel):
     tenant_id: Optional[str] = None
     perfil_id: Optional[int] = None
     display_name: Optional[str] = ""
+
+
+class ResetPasswordPayload(BaseModel):
+    password: str
+
+
+class InternalStatusPayload(BaseModel):
+    status: str
+
+
+class InternalPinPayload(BaseModel):
+    pin: Optional[str] = ""
+
+
+DEFAULT_LIMITS_JSON = {
+    "companies": 1,
+    "gas_lp": {
+        "enabled": True,
+        "companies": 1,
+        "assistants": 2,
+        "can_invoice": True,
+        "can_generate_json": True,
+        "can_upload_xml_excel": True,
+        "can_view_reports": True,
+    },
+    "transporte": {
+        "enabled": True,
+        "companies": 1,
+        "admins": 1,
+        "operators": 5,
+        "vehicles": None,
+        "can_stamp_carta_porte": True,
+        "can_invoice_service": True,
+        "can_use_liquidaciones": True,
+    },
+    "gasolineras": {
+        "enabled": False,
+        "stations": 0,
+        "users": 0,
+        "can_view_map": True,
+        "can_view_radar": False,
+        "can_use_operations": False,
+        "can_view_reports": False,
+    },
+}
 
 
 def _now() -> str:
@@ -107,6 +156,42 @@ def _sb_admin():
         return get_supabase_admin()
     except RuntimeError as e:
         raise HTTPException(501, f"{e} Configura SUPABASE_SERVICE_ROLE_KEY para el panel SaaS.")
+
+
+def _deep_merge(base: dict, override: dict | None) -> dict:
+    result = {}
+    for key, value in (base or {}).items():
+        if isinstance(value, dict):
+            result[key] = _deep_merge(value, {})
+        else:
+            result[key] = value
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _limits_for_subscription(sub: dict | None) -> dict:
+    limits = _deep_merge(DEFAULT_LIMITS_JSON, (sub or {}).get("limits_json") or {})
+    if (sub or {}).get("max_companies") is not None:
+        limits["companies"] = (sub or {}).get("max_companies")
+    return limits
+
+
+def _limit_label(value) -> str:
+    return "∞" if value is None else str(value)
+
+
+def _limit_usage(used: int, limit) -> dict:
+    return {
+        "used": used,
+        "limit": limit,
+        "label": f"{used}/{_limit_label(limit)}",
+        "exceeded": limit is not None and used > int(limit),
+        "near_limit": limit is not None and int(limit) > 0 and used >= int(limit) * 0.8,
+    }
 
 
 def _audit(actor_id: str, action: str, target_type: str = "", target_id: str = "", detail: dict | None = None) -> None:
@@ -201,15 +286,109 @@ def _inspect_user(identifier: str) -> dict:
         "tr_clientes": _count_rows(sb, "tr_clientes", "user_id", target_user_id),
         "internal_users_owner": _count_rows(sb, "internal_users", "owner_user_id", target_user_id),
     }
+    warnings = []
+    if counts["perfiles_empresa"] and counts["perfiles_sin_tenant"]:
+        warnings.append("Hay perfiles_empresa legacy sin tenant_id.")
+    if counts["user_sections_sin_tenant"]:
+        warnings.append("Hay user_sections sin tenant_id.")
+    if counts["perfiles_sin_company"]:
+        warnings.append("Hay perfiles activos sin espejo en companies.")
+    if not counts["subscriptions"] and (sections or profiles):
+        warnings.append("No hay suscripción para el tenant del usuario.")
+    return {
+        "user_id": target_user_id,
+        "auth_user": auth_user,
+        "tenant_ids": tenant_ids,
+        "perfil_ids": perfil_ids,
+        "counts": counts,
+        "warnings": warnings,
+        "user_sections": sections,
+        "perfiles": profiles,
+        "subscriptions": subscriptions,
+        "companies": companies,
+    }
 
 
-def _user_health_rows() -> list[dict]:
+def _load_admin_snapshot() -> dict:
     sb = _sb_admin()
-    auth_users = _auth_users_by_id()
-    sections = sb.table("user_sections").select("*").execute().data or []
-    profiles = sb.table("perfiles_empresa").select("id,user_id,nombre,rfc,tenant_id,activo").execute().data or []
-    companies = sb.table("companies").select("id,tenant_id,name,rfc,active").execute().data or []
-    subscriptions = sb.table("subscriptions").select("tenant_id,plan_name,max_companies,status,expires_at").execute().data or []
+    return {
+        "auth_users": _auth_users_by_id(),
+        "tenants": sb.table("tenants").select("*").execute().data or [],
+        "sections": sb.table("user_sections").select("*").execute().data or [],
+        "profiles": sb.table("perfiles_empresa").select("id,user_id,nombre,rfc,tenant_id,activo").execute().data or [],
+        "companies": sb.table("companies").select("*").execute().data or [],
+        "subscriptions": sb.table("subscriptions").select("*").execute().data or [],
+        "internal_users": sb.table("internal_users").select("id,tenant_id,owner_user_id,perfil_id,section,role,status,chofer_id,display_name,last_access_at,created_at").execute().data or [],
+        "choferes": sb.table("tr_choferes").select("id,user_id,perfil_id,activo").execute().data or [],
+        "vehiculos": sb.table("tr_vehiculos").select("id,user_id,perfil_id,activo").execute().data or [],
+        "gaso_estaciones": sb.table("gaso_estaciones").select("id,user_id,perfil_id,propia,activa").execute().data or [],
+    }
+
+
+def _tenant_usage(snapshot: dict, tenant_id: str) -> dict:
+    sections = [s for s in snapshot["sections"] if str(s.get("tenant_id")) == str(tenant_id)]
+    profiles = [p for p in snapshot["profiles"] if str(p.get("tenant_id")) == str(tenant_id) and p.get("activo")]
+    profile_ids = {p.get("id") for p in profiles}
+    internal_users = [u for u in snapshot["internal_users"] if str(u.get("tenant_id")) == str(tenant_id)]
+    choferes = [c for c in snapshot["choferes"] if c.get("perfil_id") in profile_ids and c.get("activo")]
+    vehiculos = [v for v in snapshot["vehiculos"] if v.get("perfil_id") in profile_ids and v.get("activo")]
+    stations = [e for e in snapshot["gaso_estaciones"] if e.get("perfil_id") in profile_ids and e.get("propia") and e.get("activa")]
+    assistants = [u for u in internal_users if u.get("section") == "gas_lp" and u.get("role") in {"asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"} and (u.get("status") or "active") == "active"]
+    operators = [u for u in internal_users if u.get("section") == "transporte" and u.get("role") == "operador" and (u.get("status") or "active") == "active"]
+    admin_users = [s for s in sections if (s.get("role") or "") == "admin" and (s.get("status") or "active") == "active"]
+    module_users = {
+        section: len({s.get("user_id") for s in sections if s.get("section") == section and (s.get("status") or "active") == "active"})
+        for section in SECTIONS
+    }
+    return {
+        "companies": len(profiles),
+        "users_active": len({s.get("user_id") for s in sections if (s.get("status") or "active") == "active"}),
+        "modules_active": len([s for s in sections if (s.get("status") or "active") == "active"]),
+        "module_users": module_users,
+        "assistants_gas_lp": len(assistants),
+        "operators_transporte": len(operators),
+        "admins_transporte": len([s for s in admin_users if s.get("section") == "transporte"]),
+        "choferes": len(choferes),
+        "vehiculos": len(vehiculos),
+        "stations_gasolineras": len(stations),
+    }
+
+
+def _tenant_license_rows(snapshot: dict) -> list[dict]:
+    rows = []
+    for tenant in snapshot["tenants"]:
+        tenant_id = str(tenant.get("id"))
+        sub = next((s for s in snapshot["subscriptions"] if str(s.get("tenant_id")) == tenant_id and (s.get("status") or "active") == "active"), None)
+        if not sub:
+            sub = next((s for s in snapshot["subscriptions"] if str(s.get("tenant_id")) == tenant_id), None)
+        limits = _limits_for_subscription(sub)
+        usage = _tenant_usage(snapshot, tenant_id)
+        rows.append({
+            "tenant_id": tenant_id,
+            "name": tenant.get("name") or "Sin nombre",
+            "status": tenant.get("status") or "active",
+            "subscription": sub,
+            "limits": limits,
+            "usage": usage,
+            "usage_labels": {
+                "companies": _limit_usage(usage["companies"], limits.get("companies")),
+                "gas_lp_assistants": _limit_usage(usage["assistants_gas_lp"], (limits.get("gas_lp") or {}).get("assistants")),
+                "transporte_operators": _limit_usage(usage["operators_transporte"], (limits.get("transporte") or {}).get("operators")),
+                "transporte_admins": _limit_usage(usage["admins_transporte"], (limits.get("transporte") or {}).get("admins")),
+                "gasolineras_stations": _limit_usage(usage["stations_gasolineras"], (limits.get("gasolineras") or {}).get("stations")),
+                "gasolineras_users": _limit_usage((usage["module_users"] or {}).get("gasolineras", 0), (limits.get("gasolineras") or {}).get("users")),
+            },
+        })
+    return rows
+
+
+def _user_health_rows(snapshot: dict | None = None) -> list[dict]:
+    snapshot = snapshot or _load_admin_snapshot()
+    auth_users = snapshot["auth_users"]
+    sections = snapshot["sections"]
+    profiles = snapshot["profiles"]
+    companies = snapshot["companies"]
+    subscriptions = snapshot["subscriptions"]
     user_ids = set(auth_users.keys()) | {str(s.get("user_id")) for s in sections if s.get("user_id")} | {str(p.get("user_id")) for p in profiles if p.get("user_id")}
     company_by_id = {c.get("id"): c for c in companies}
     rows = []
@@ -262,27 +441,6 @@ def _user_health_rows() -> list[dict]:
             "status": "ok" if not warnings else "warning",
         })
     return rows
-    warnings = []
-    if counts["perfiles_empresa"] and counts["perfiles_sin_tenant"]:
-        warnings.append("Hay perfiles_empresa legacy sin tenant_id.")
-    if counts["user_sections_sin_tenant"]:
-        warnings.append("Hay user_sections sin tenant_id.")
-    if counts["perfiles_sin_company"]:
-        warnings.append("Hay perfiles activos sin espejo en companies.")
-    if not counts["subscriptions"] and (sections or profiles):
-        warnings.append("No hay suscripción para el tenant del usuario.")
-    return {
-        "user_id": target_user_id,
-        "auth_user": auth_user,
-        "tenant_ids": tenant_ids,
-        "perfil_ids": perfil_ids,
-        "counts": counts,
-        "warnings": warnings,
-        "user_sections": sections,
-        "perfiles": profiles,
-        "subscriptions": subscriptions,
-        "companies": companies,
-    }
 
 
 def _sync_legacy_user(target_user_id: str, actor_id: str) -> dict:
@@ -333,12 +491,18 @@ def _sync_legacy_user(target_user_id: str, actor_id: str) -> dict:
 
     subs = sb.table("subscriptions").select("id").eq("tenant_id", tenant_id).limit(1).execute().data or []
     if not subs:
-        sb.table("subscriptions").insert({
+        sub_row = {
             "tenant_id": tenant_id,
             "plan_name": "Básico",
             "max_companies": max(1, len(profiles)),
+            "limits_json": _deep_merge(DEFAULT_LIMITS_JSON, {"companies": max(1, len(profiles))}),
             "status": "active",
-        }).execute()
+        }
+        try:
+            sb.table("subscriptions").insert(sub_row).execute()
+        except Exception:
+            sub_row.pop("limits_json", None)
+            sb.table("subscriptions").insert(sub_row).execute()
         summary["subscription_created"] = True
 
     _audit(actor_id, "sync_legacy_user", "user", target_user_id, summary)
@@ -354,18 +518,21 @@ async def admin_saas_me(authorization: str = Header(default="")):
 @router.get("/admin-saas/dashboard")
 async def admin_saas_dashboard(authorization: str = Header(default="")):
     uid, _, _ = _require_superadmin(authorization)
-    sb = _sb_admin()
-    tenants = sb.table("tenants").select("id,status").execute().data or []
-    profiles = sb.table("perfiles_empresa").select("id,tenant_id,activo").eq("activo", True).execute().data or []
-    companies = sb.table("companies").select("id,tenant_id,active").eq("active", True).execute().data or []
-    sections = sb.table("user_sections").select("user_id,section,status,tenant_id").execute().data or []
-    subs = sb.table("subscriptions").select("tenant_id,status,expires_at").execute().data or []
+    snapshot = _load_admin_snapshot()
+    tenants = snapshot["tenants"]
+    profiles = [p for p in snapshot["profiles"] if p.get("activo")]
+    companies = [c for c in snapshot["companies"] if c.get("active")]
+    sections = snapshot["sections"]
+    subs = snapshot["subscriptions"]
+    internal_users = snapshot["internal_users"]
+    tenant_license_rows = _tenant_license_rows(snapshot)
     modules_active = len([s for s in sections if (s.get("status") or "active") == "active"])
     issues = {
         "user_sections_sin_tenant": len([s for s in sections if not s.get("tenant_id")]),
         "perfiles_sin_tenant": len([p for p in profiles if not p.get("tenant_id")]),
         "perfiles_sin_company": len([p for p in profiles if p.get("id") not in {c.get("id") for c in companies}]),
         "subscriptions_duplicadas": 0,
+        "clientes_cerca_de_limite": len([r for r in tenant_license_rows if any(v.get("near_limit") for v in (r.get("usage_labels") or {}).values())]),
     }
     tenant_counts: dict[str, int] = {}
     for sub in subs:
@@ -377,12 +544,21 @@ async def admin_saas_dashboard(authorization: str = Header(default="")):
         "metrics": {
             "clientes_activos": len([t for t in tenants if (t.get("status") or "active") == "active"]),
             "empresas_activas": len(profiles),
+            "usuarios_totales": len(snapshot["auth_users"]),
             "usuarios_activos": len({s.get("user_id") for s in sections if (s.get("status") or "active") == "active"}),
+            "usuarios_gas_lp": len({s.get("user_id") for s in sections if s.get("section") == "gas_lp" and (s.get("status") or "active") == "active"}),
+            "usuarios_transporte": len({s.get("user_id") for s in sections if s.get("section") == "transporte" and (s.get("status") or "active") == "active"}),
+            "usuarios_gasolineras": len({s.get("user_id") for s in sections if s.get("section") == "gasolineras" and (s.get("status") or "active") == "active"}),
             "modulos_activos": modules_active,
+            "operadores_transporte": len([u for u in internal_users if u.get("section") == "transporte" and u.get("role") == "operador" and (u.get("status") or "active") == "active"]),
+            "asistentes_gas_lp": len([u for u in internal_users if u.get("section") == "gas_lp" and u.get("role") in {"asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"} and (u.get("status") or "active") == "active"]),
+            "estaciones_propias": len([e for e in snapshot["gaso_estaciones"] if e.get("propia") and e.get("activa")]),
+            "empresas_sin_tenant": issues["perfiles_sin_tenant"],
             "suscripciones_vencidas": len([s for s in subs if s.get("status") in {"expired", "canceled", "past_due"}]),
             "clientes_con_problemas": sum(1 for v in issues.values() if v),
         },
         "issues": issues,
+        "licenses": tenant_license_rows,
     })
 
 
@@ -397,17 +573,19 @@ async def users_health(authorization: str = Header(default="")):
 @router.get("/admin-saas/tenants")
 async def list_tenants(authorization: str = Header(default="")):
     _require_superadmin(authorization)
-    sb = _sb_admin()
-    tenants = sb.table("tenants").select("*").order("created_at", desc=True).execute().data or []
-    subs = sb.table("subscriptions").select("*").execute().data or []
-    profiles = sb.table("perfiles_empresa").select("id,nombre,rfc,tenant_id,activo").execute().data or []
-    sections = sb.table("user_sections").select("user_id,section,role,status,tenant_id,perfil_id,display_name").execute().data or []
+    snapshot = _load_admin_snapshot()
+    tenants = sorted(snapshot["tenants"], key=lambda t: str(t.get("created_at") or ""), reverse=True)
+    subs = snapshot["subscriptions"]
+    profiles = snapshot["profiles"]
+    sections = snapshot["sections"]
+    licenses_by_tenant = {r["tenant_id"]: r for r in _tenant_license_rows(snapshot)}
     for tenant in tenants:
-        tid = tenant.get("id")
-        tenant["subscription"] = next((s for s in subs if s.get("tenant_id") == tid and s.get("status") == "active"), None)
-        tenant["companies_count"] = len([p for p in profiles if p.get("tenant_id") == tid and p.get("activo")])
-        tenant["users_count"] = len({s.get("user_id") for s in sections if s.get("tenant_id") == tid})
-        tenant["modules"] = sorted({s.get("section") for s in sections if s.get("tenant_id") == tid and (s.get("status") or "active") == "active"})
+        tid = str(tenant.get("id"))
+        tenant["subscription"] = next((s for s in subs if str(s.get("tenant_id")) == tid and s.get("status") == "active"), None)
+        tenant["companies_count"] = len([p for p in profiles if str(p.get("tenant_id")) == tid and p.get("activo")])
+        tenant["users_count"] = len({s.get("user_id") for s in sections if str(s.get("tenant_id")) == tid})
+        tenant["modules"] = sorted({s.get("section") for s in sections if str(s.get("tenant_id")) == tid and (s.get("status") or "active") == "active"})
+        tenant["license"] = licenses_by_tenant.get(tid)
     return JSONResponse({"ok": True, "tenants": tenants})
 
 
@@ -564,15 +742,76 @@ async def upsert_subscription(tenant_id: str, payload: SubscriptionPayload, auth
         "max_companies": payload.max_companies,
         "status": payload.status,
         "expires_at": payload.expires_at,
+        "limits_json": _deep_merge(DEFAULT_LIMITS_JSON, payload.limits_json or {"companies": payload.max_companies}),
+        "notes_internal": payload.notes_internal or "",
         "updated_at": _now(),
     }
-    if existing:
-        _sb_admin().table("subscriptions").update(row).eq("id", existing[0]["id"]).execute()
-    else:
-        row["created_at"] = _now()
-        _sb_admin().table("subscriptions").insert(row).execute()
+    try:
+        if existing:
+            _sb_admin().table("subscriptions").update(row).eq("id", existing[0]["id"]).execute()
+        else:
+            row["created_at"] = _now()
+            _sb_admin().table("subscriptions").insert(row).execute()
+    except Exception:
+        row.pop("limits_json", None)
+        row.pop("notes_internal", None)
+        if existing:
+            _sb_admin().table("subscriptions").update(row).eq("id", existing[0]["id"]).execute()
+        else:
+            row["created_at"] = _now()
+            _sb_admin().table("subscriptions").insert(row).execute()
     _audit(uid, "upsert_subscription", "tenant", tenant_id, row)
     return JSONResponse({"ok": True})
+
+
+@router.post("/admin-saas/users/{target_user_id}/status")
+async def update_saas_user_status(target_user_id: str, payload: InternalStatusPayload, authorization: str = Header(default="")):
+    uid, _, _ = _require_superadmin(authorization)
+    status = (payload.status or "").strip().lower()
+    if status not in {"active", "inactive"}:
+        raise HTTPException(400, "Estatus inválido.")
+    resolved = _resolve_user_identifier(target_user_id)
+    _sb_admin().table("user_sections").update({"status": status}).eq("user_id", resolved).execute()
+    _audit(uid, "update_user_status", "user", resolved, {"status": status})
+    return JSONResponse({"ok": True})
+
+
+@router.post("/admin-saas/users/{target_user_id}/reset-password")
+async def reset_saas_user_password(target_user_id: str, payload: ResetPasswordPayload, authorization: str = Header(default="")):
+    uid, _, _ = _require_superadmin(authorization)
+    resolved = _resolve_user_identifier(target_user_id)
+    password = (payload.password or "").strip()
+    if len(password) < 8:
+        raise HTTPException(400, "La contraseña temporal debe tener al menos 8 caracteres.")
+    _sb_admin().auth.admin.update_user_by_id(resolved, {"password": password})
+    _audit(uid, "reset_user_password", "user", resolved, {"password_changed": True})
+    return JSONResponse({"ok": True})
+
+
+@router.post("/admin-saas/internal-users/{internal_user_id}/status")
+async def update_any_internal_user_status(internal_user_id: int, payload: InternalStatusPayload, authorization: str = Header(default="")):
+    uid, _, _ = _require_superadmin(authorization)
+    status = (payload.status or "").strip().lower()
+    if status not in {"active", "inactive", "locked"}:
+        raise HTTPException(400, "Estatus inválido.")
+    _sb_admin().table("internal_users").update({"status": status, "updated_at": _now()}).eq("id", internal_user_id).execute()
+    _audit(uid, "update_internal_user_status", "internal_user", str(internal_user_id), {"status": status})
+    return JSONResponse({"ok": True})
+
+
+@router.post("/admin-saas/internal-users/{internal_user_id}/reset-pin")
+async def reset_any_internal_user_pin(internal_user_id: int, payload: InternalPinPayload, authorization: str = Header(default="")):
+    uid, _, _ = _require_superadmin(authorization)
+    temp_pin = (payload.pin or "").strip() or f"{secrets.randbelow(900000) + 100000}"
+    _sb_admin().table("internal_users").update({
+        "pin_hash": _hash_secret(temp_pin),
+        "failed_attempts": 0,
+        "locked_until": None,
+        "status": "active",
+        "updated_at": _now(),
+    }).eq("id", internal_user_id).execute()
+    _audit(uid, "reset_internal_user_pin", "internal_user", str(internal_user_id), {"pin_reset": True})
+    return JSONResponse({"ok": True, "temporary_pin": temp_pin})
 
 
 @router.post("/admin-saas/repair/user/{target_user_id}")
