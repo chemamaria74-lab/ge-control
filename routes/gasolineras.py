@@ -399,8 +399,9 @@ async def ingest_market_from_config(authorization: str = Header(default="")):
         import io
         text = read_csv_text(url=url)
         rows, rejected, seen = [], 0, set()
+        source_period = datetime.now(timezone.utc).strftime("%Y-%m")
         for raw in csv.DictReader(io.StringIO(text)):
-            item = normalize_row(raw)
+            item = normalize_row(raw, source_url=url, source_period=source_period)
             if not item:
                 rejected += 1
                 continue
@@ -422,6 +423,13 @@ async def ingest_market_from_config(authorization: str = Header(default="")):
         run_id = run[0].get("id") if run else None
         for batch in chunks(rows):
             sb.table(TBL_MARKET).upsert(batch, on_conflict="permiso_cre").execute()
+        try:
+            from scripts.ingest_gasolineras_market import price_snapshot_rows
+            snapshots = price_snapshot_rows(rows, run_id, source_period)
+            for batch in chunks(snapshots):
+                sb.table("gaso_market_price_snapshots").insert(batch).execute()
+        except Exception as snapshot_error:
+            logger.warning("No se pudieron guardar snapshots de precio CRE: %s", snapshot_error)
         if run_id:
             sb.table("gaso_ingestion_runs").update({
                 "status": "success",
