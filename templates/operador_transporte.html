@@ -6,23 +6,26 @@
   <title>GE CONTROL | Operador</title>
   <link rel="icon" href="/static/img/favicon.svg">
   <style>
-    :root{--wine:#7A1E2C;--wine2:#5B0F1D;--gold:#C8A96B;--ink:#111;--muted:#667085;--line:#E4E7EC;--bg:#F5F5F5}
+    :root{--wine:#7A1E2C;--wine2:#5B0F1D;--gold:#C8A96B;--ink:#111;--muted:#667085;--line:#E4E7EC;--bg:#F5F5F5;--surface:#fff}
     *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--ink)}
-    .top{position:sticky;top:0;background:linear-gradient(135deg,var(--wine2),var(--wine));color:white;padding:16px 18px;box-shadow:0 10px 24px rgba(17,17,17,.14)}
-    .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.08em}.brand img{width:34px;height:34px;object-fit:contain}.sub{font-size:13px;color:rgba(255,255,255,.78);margin-top:4px}
-    main{padding:18px;max-width:680px;margin:auto}.card{background:white;border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 10px 24px rgba(16,24,40,.06)}
+    .top{position:sticky;top:0;background:#5B0F1D;color:white;padding:14px 18px;box-shadow:0 10px 24px rgba(17,17,17,.14);border-bottom:1px solid rgba(200,169,107,.22);z-index:10;display:flex;align-items:center;gap:12px}
+    .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.08em}.brand img{width:34px;height:34px;object-fit:contain}.sub{font-size:13px;color:rgba(255,255,255,.78);margin-top:4px}.top-actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800;color:#fff}
+    main{padding:18px;max-width:960px;margin:auto}.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:0 10px 24px rgba(16,24,40,.06)}
+    .hero{display:grid;grid-template-columns:1.4fr .6fr;gap:14px;align-items:stretch}.profile{display:grid;grid-template-columns:44px 1fr;gap:12px;align-items:center}.avatar{width:44px;height:44px;border-radius:10px;background:#F5F1E8;color:var(--wine);display:grid;place-items:center;font-weight:900}.profile h1{font-size:21px;margin:0 0 4px}.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}.kpi{border:1px solid var(--line);border-radius:8px;padding:12px;background:#FAF9F7}.kpi b{display:block;font-size:22px}.kpi span{font-size:12px;color:var(--muted);font-weight:800}
     .route{font-size:18px;font-weight:800}.meta{margin-top:8px;color:var(--muted);font-size:14px;display:grid;gap:3px}.products{margin-top:10px;font-size:13px;color:#344054}
     .doc-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}.btn{border:0;border-radius:12px;padding:15px 10px;font-weight:800;font-size:15px;cursor:pointer;text-align:center;text-decoration:none}
     .primary{background:var(--wine);color:white}.dark{background:#2B2B2B;color:white}.ok{background:#ECFDF3;color:#027A48}.warn{background:#FFF7E6;color:#9A6700}
     .pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;margin-top:10px}.pill.ok{border-color:#ABEFC6}
-    .empty{padding:38px 18px;text-align:center;color:var(--muted)}.toast{position:fixed;left:16px;right:16px;bottom:16px;background:#111;color:white;padding:13px 15px;border-radius:12px;display:none}
+    .empty{padding:38px 18px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:10px;background:#fff}.empty h2{margin:0 0 6px;color:var(--ink);font-size:18px}.toast{position:fixed;left:16px;right:16px;bottom:16px;background:#111;color:white;padding:13px 15px;border-radius:12px;display:none}
     .task{border-left:4px solid var(--gold)}.task h2{font-size:16px;margin:0 0 8px}.task ul{margin:10px 0 0;padding-left:18px;color:#344054;font-size:13px}.task small{color:var(--muted)}
+    .notice{display:grid;gap:10px}.notice-item{border:1px solid var(--line);border-radius:8px;padding:11px;background:#fff}.notice-item b{display:block;margin-bottom:3px}.section-title{font-size:15px;font-weight:900;margin:18px 0 10px;color:#344054}
+    @media(max-width:760px){.top{flex-wrap:wrap}.top-actions{margin-left:0;width:100%}.hero{grid-template-columns:1fr}.kpis{grid-template-columns:1fr}.doc-actions,.actions{grid-template-columns:1fr}.btn{width:100%}}
   </style>
 </head>
 <body>
   <header class="top">
-    <div class="brand"><img src="/static/img/ge-isotype-light.svg" alt=""> GE CONTROL</div>
-    <div class="sub">Portal de operador</div>
+    <div><div class="brand"><img src="/static/img/ge-isotype-light.svg" alt=""> GE CONTROL</div><div class="sub">Portal de operador</div></div>
+    <div class="top-actions"><span class="badge" id="empresaBadge">Empresa -</span><button class="btn dark" onclick="logout()">Salir</button></div>
   </header>
   <main id="app"><div class="empty">Cargando viajes asignados...</div></main>
   <div id="toast" class="toast"></div>
@@ -49,11 +52,27 @@
         <ul>${(t.facturas||[]).slice(0,8).map(f => `<li>${f.uuid || 'UUID pendiente'} · ${Number(f.litros||0).toLocaleString('es-MX')} L · ${f.producto || 'Producto'} · ${money(f.importe)}</li>`).join('')}</ul>
       </section>`).join('');
     }
-    function render(viajes, tasks=[]){
+    function renderShell(data, tasksHtml, viajesHtml){
+      const meta = data.meta || {};
+      const chofer = meta.chofer || {};
+      const empresa = meta.empresa || {};
+      const resumen = data.resumen || {};
+      empresaBadge.textContent = empresa.nombre || 'Empresa asignada';
+      const notifs = (meta.notificaciones || []).map(n=>`<div class="notice-item"><b>${n.titulo || n.title || 'Notificación'}</b><span>${n.mensaje || n.message || n.tipo || 'Pendiente de revisar'}</span></div>`).join('') || '<div class="notice-item"><b>Sin notificaciones</b><span>No hay avisos nuevos para este operador.</span></div>';
+      app.innerHTML = `<section class="card hero">
+        <div>
+          <div class="profile"><div class="avatar">${(chofer.nombre || '?').slice(0,1).toUpperCase()}</div><div><h1>${chofer.nombre || 'Operador'}</h1><div class="meta"><span>Chofer vinculado: ${chofer.nombre || '—'}</span><span>Licencia: ${chofer.licencia || '—'}</span><span>Empresa: ${empresa.nombre || '—'} ${empresa.rfc ? '· RFC '+empresa.rfc : ''}</span></div></div></div>
+          <div class="kpis"><div class="kpi"><b>${resumen.viajes_activos || 0}</b><span>viajes activos</span></div><div class="kpi"><b>${resumen.documentos_pendientes || 0}</b><span>docs pendientes</span></div><div class="kpi"><b>12 h</b><span>sesión limitada</span></div></div>
+        </div>
+        <div><div class="section-title" style="margin-top:0">Notificaciones</div><div class="notice">${notifs}</div></div>
+      </section>${tasksHtml}${viajesHtml}`;
+    }
+    function render(data, tasks=[]){
+      const viajes = data.viajes || [];
       if(!token){app.innerHTML='<div class="empty">Falta token de acceso.</div>';return}
       const tasksHtml = renderTasks(tasks);
-      if(!viajes.length){app.innerHTML=tasksHtml + '<div class="empty">No tienes viajes activos asignados.</div>';return}
-      app.innerHTML = tasksHtml + viajes.map(v => {
+      if(!viajes.length){renderShell(data, tasksHtml, '<div class="empty"><h2>Sin viajes activos</h2><div>Cuando oficina te asigne un viaje, aparecerá aquí con ruta, documentos y acciones rápidas.</div></div>');return}
+      const viajesHtml = '<div class="section-title">Viajes activos</div>' + viajes.map(v => {
         const prods = (v.productos||[]).map(p => `${p.descripcion || p.clave_producto || 'Producto'} · ${Number(p.volumen_litros||0).toLocaleString('es-MX')} L`).join('<br>');
         return `<section class="card">
           <div class="route">${v.nombre_origen || v.cp_origen || 'Origen'} → ${v.nombre_destino || v.cp_destino || 'Destino'}</div>
@@ -76,13 +95,15 @@
           </div>
         </section>`
       }).join('');
+      renderShell(data, tasksHtml, viajesHtml);
     }
-    async function load(){try{const [d,t]=await Promise.all([api('/api/tr/operador/viajes'),api('/api/tr/operador/carta-aporte/tareas')]);render(d.viajes||[],t.tasks||[])}catch(e){app.innerHTML=`<div class="empty">${e.message}</div>`}}
+    async function load(){try{const [d,t]=await Promise.all([api('/api/tr/operador/viajes'),api('/api/tr/operador/carta-aporte/tareas')]);render(d,t.tasks||[])}catch(e){app.innerHTML=`<div class="empty">${e.message}</div>`}}
     async function accion(id, accion){
       let nota = '';
       if (accion === 'problema') nota = prompt('Describe brevemente el problema para oficina:') || '';
       try{await api(`/api/tr/operador/viajes/${id}/accion`,{method:'POST',body:{accion, nota}});toast('Actualizado');load()}catch(e){toast(e.message)}
     }
+    function logout(){ location.href='/choice'; }
     load();
   </script>
 </body>

@@ -2349,14 +2349,20 @@ function applyRole(role) {
   localStorage.setItem('sat_role', currentUserRole);
   const tab = document.getElementById('tabAdmin');
   if (tab) tab.style.display = currentUserRole === 'admin' ? '' : 'none';
-  const facturacionOnly = ['asistente_facturacion', 'asistente_operativo', 'planta', 'solo_lectura'].includes(currentUserRole);
+  const assistantAllowed = {
+    asistente_facturacion: ['procesar','facturar'],
+    asistente_operativo: ['procesar','ventas','proveedores'],
+    planta: ['procesar','controles'],
+    solo_lectura: ['ventas','historial']
+  };
+  const allowedTabs = assistantAllowed[currentUserRole] || null;
   document.querySelectorAll('.main-nav-tab').forEach(t => {
-    const allowed = ['procesar','facturar'].includes(t.dataset.main);
-    if (facturacionOnly && !allowed) t.style.display = 'none';
-    if (!facturacionOnly && t.id !== 'tabAdmin') t.style.display = '';
+    const allowed = allowedTabs ? allowedTabs.includes(t.dataset.main) : true;
+    if (allowedTabs && !allowed) t.style.display = 'none';
+    if (!allowedTabs && t.id !== 'tabAdmin') t.style.display = '';
   });
   const switcher = document.getElementById('empresaSwitcher');
-  if (switcher && facturacionOnly) switcher.style.pointerEvents = 'none';
+  if (switcher && allowedTabs) switcher.style.pointerEvents = 'none';
 }
 
 // Actualizar UI según el módulo seleccionado (Gas LP vs Transporte)
@@ -3640,8 +3646,15 @@ function confirmDeleteFacility(id, nombre) {
 
 // ── Navegación principal ──────────────────────────────────────────────────
 async function switchTab(name) {
-  if (['asistente_facturacion', 'asistente_operativo', 'planta', 'solo_lectura'].includes(currentUserRole) && !['procesar','facturar'].includes(name)) {
-    name = 'procesar';
+  const assistantAllowed = {
+    asistente_facturacion: ['procesar','facturar'],
+    asistente_operativo: ['procesar','ventas','proveedores'],
+    planta: ['procesar','controles'],
+    solo_lectura: ['ventas','historial']
+  };
+  const allowedTabs = assistantAllowed[currentUserRole] || null;
+  if (allowedTabs && !allowedTabs.includes(name)) {
+    name = allowedTabs[0];
   }
   document.querySelectorAll('.main-nav-tab').forEach(x => {
     x.classList.toggle('active', x.dataset.main === name);
