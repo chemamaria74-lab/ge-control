@@ -250,6 +250,20 @@ async def login_operador_transporte():
         return HTMLResponse(content=f.read())
 
 
+@app.get("/gas-lp/asistente", response_class=HTMLResponse, include_in_schema=False)
+async def login_asistente_gas_lp():
+    """Login de asistente interno Gas LP por codigo/PIN."""
+    with open(os.path.join(BASE_DIR, "templates", "asistente_gas_lp_login.html"), encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/asistente/gas-lp", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_asistente_gas_lp():
+    """Dashboard limitado para asistentes internos Gas LP."""
+    with open(os.path.join(BASE_DIR, "templates", "asistente_gas_lp.html"), encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
 @app.get("/gasolineras", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_gasolineras():
     """Sirve el frontend del módulo Gasolineras."""

@@ -1,429 +1,227 @@
 # GE CONTROL
 
-Sistema web para cumplimiento fiscal, operativo y comercial de hidrocarburos en México.
+Plataforma SaaS multiempresa para operación y cumplimiento de hidrocarburos en México: Gas LP, Transporte y Gasolineras.
 
-GE CONTROL integra controles volumétricos, reportes SAT/Anexo 30, CFDI 4.0, Carta Porte, facturación, análisis operativo y configuración multiempresa. El proyecto está dividido en tres módulos independientes:
+Estado de release: **MVP Production-Ready controlado**, siempre que se apliquen las migraciones listadas, se configuren variables reales y Gasolineras cargue padrón CRE/CNE real antes de vender inteligencia de mercado como funcional completa.
 
-| Módulo | Descripción |
-|---|---|
-| Gas LP | Control volumétrico para Gas LP: carga de Excel/CSV/XML/ZIP, reportes SAT Anexo 30, inventarios, proveedores, pronóstico, autoconsumos e instalaciones. |
-| Transporte | Viajes de autotanques, Carta Porte 3.1, CFDI de servicio de transporte, clientes, rutas, vehículos, choferes y control volumétrico de transporte. |
-| Gasolineras | Estaciones de servicio: mapa nacional, análisis comercial de precios/competencia, checklist SAT/Anexo 30 y base para CFDI/PDF por estación. |
+## Módulos
 
-Los datos operativos de cada módulo se mantienen separados por `user_id`, `perfil_id` y tablas/prefijos propios. Los datos fiscales compartidos de la razón social pueden reutilizarse cuando aplica.
+| Módulo | Estado MVP | Alcance vendible |
+|---|---:|---|
+| Gas LP | Operable | Carga XML/Excel/ZIP, reportes SAT/Anexo 30, inventario, proveedores, perfiles de empresa, usuarios internos por rol y portal asistente. |
+| Transporte | Operable | Viajes, choferes, vehículos, rutas, Carta Porte, CFDI servicio, liquidaciones, documentos, portal operador con código/PIN. |
+| Gasolineras | Condicionado a ingesta | Estaciones propias, mapa real si `gaso_market_stations` está cargada, radar, precios, P&L, CFDI compras, ventas CSV e inteligencia comercial. |
 
-## Funcionalidad
+No vender como completo: certificación fiscal/SAT/PAC ni inteligencia nacional de gasolineras si no hay dataset real cargado y validado con clientes piloto.
 
-### Gas LP
+## Arquitectura
 
-- Procesamiento de recepciones y entregas desde Excel, CSV, XML o ZIP.
-- Generación de JSON/XML/ZIP para reportes SAT Anexo 30.
-- Dashboard de inventario mensual y balance anual.
-- Pronóstico de compra con selección del mejor modelo entre promedio móvil, suavizamiento exponencial y regresión lineal.
-- Análisis de proveedores desde XML de compra: subtotal, litros, precio por litro, volumen, compras y tendencia.
-- Registro manual de autoconsumos, mermas y trasvases.
-- Catálogo de proveedores, permisos, instalaciones y razones sociales.
-- Preparado para integrar facturación CFDI de Gas LP en una etapa posterior.
-
-### Transporte
-
-- Alta, edición y eliminación de viajes no timbrados.
-- Timbrado de CFDI 4.0 con complemento Carta Porte 3.1 para autotransporte.
-- Tipo CFDI limitado a casos de transporte: `I - Ingreso` y `T - Traslado`.
-- Concepto CFDI de servicio de transporte con `ClaveProdServ 78101800` y `ClaveUnidad H87`.
-- Mercancías separadas en Carta Porte con volumen, unidad `LTR`, material peligroso, valor de mercancía y moneda cuando aplique.
-- Rutas con distancia y duración estimada; cálculo automático de hora de llegada.
-- Productos transportados: Magna, Premium, Diésel y Gas LP, con mapeo interno SAT/Anexo 30.
-- Factura de servicio de transporte relacionada con una o varias Cartas Porte timbradas.
-- Bloqueo de doble facturación: una Carta Porte solo puede generar una factura de servicio.
-- Dashboard, análisis y pronóstico con datos propios de Transporte.
-- Generación de JSON/ZIP de control volumétrico de transporte.
-- Validaciones de RFC, código postal, régimen fiscal, uso CFDI, ObjetoImp, IVA y estatus de viajes.
-
-### Gasolineras
-
-- Nuevo módulo independiente para estaciones de servicio.
-- Mapa nacional de gasolineras y precios de referencia.
-- Vista estratégica de marcas, competencia, precios y oportunidades comerciales.
-- Checklist SAT/Anexo 30 para estaciones.
-- Base para guardar estaciones, CFDI y configuración propia del módulo.
-- Estrategia recomendada de PDF: generar internamente en GE CONTROL desde XML timbrado, UUID y datos fiscales; confirmar con SW Sapien si su PDF tiene costo adicional.
-
-### Branding
-
-- Nueva identidad visual: `GE CONTROL`.
-- Paleta oficial: tinto `#7A1E2C`, tinto oscuro `#5B0F1D`, dorado `#C8A96B`, negro `#111111`, gris `#2B2B2B`, blanco suave `#F5F5F5`.
-- Logos y favicons en `static/img/`: variantes claras/oscuras, isotipo, horizontal, PNG y app icon.
-- Tokens visuales globales en `static/css/ge-brand.css`.
-- Script reproducible para PNG/app icons: `scripts/generate_ge_png_assets.js`.
-
-## Stack
-
-- Backend: Python 3.11+, FastAPI, Gunicorn, Uvicorn
-- Base de datos y Auth: Supabase, PostgreSQL, Supabase Auth
-- Frontend: HTML, CSS y JavaScript vanilla
-- Deploy: Render
-- PAC/timbrado: SW Sapien, configurable por variables de entorno
-- Dependencias principales: `pandas`, `openpyxl`, `lxml`, `pydantic v2`, `supabase-py`, `requests`, `jinja2`
+- Backend: FastAPI + Uvicorn/Gunicorn.
+- Frontend: Jinja/HTML/CSS/JS vanilla en `templates/`.
+- Base de datos/Auth: Supabase/Postgres/Supabase Auth.
+- Multiempresa: `tenant_id`, `user_id`, `perfil_id`.
+- Módulos separados por tablas: Gas LP legacy/zc, Transporte `tr_*`, Gasolineras `gaso_*`.
+- Usuarios globales: Supabase Auth para administradores/clientes.
+- Usuarios internos: tabla `internal_users`, sin cuenta Auth, acceso por código/PIN y sesión en `internal_user_sessions`.
 
 ## Estructura
 
 ```text
-z-control-program/
-├── main.py
-├── supabase_config.py
-├── pyproject.toml
-├── render.yaml
-├── routes/
-│   ├── auth.py
-│   ├── upload.py
-│   ├── cfdi.py
-│   ├── settings.py
-│   ├── analytics.py
-│   ├── facilities.py
-│   ├── history.py
-│   ├── providers.py
-│   ├── movimientos.py
-│   ├── perfiles.py
-│   ├── facturas.py
-│   ├── transporte.py
-│   ├── gasolineras.py
-│   └── admin.py
-├── services/
-│   ├── sat_transformer.py
-│   ├── cfdi_parser.py
-│   ├── transformer.py
-│   ├── transport_builder.py
-│   ├── service_invoice_builder.py
-│   ├── transport_transformer.py
-│   ├── product_catalog.py
-│   ├── cne_validator.py
-│   ├── sw_sapien.py
-│   ├── database.py
-│   ├── gasolineras_engine.py
-│   └── validator.py
-├── models/
-│   ├── schemas.py
-│   ├── transport_schemas.py
-│   └── gasolineras_schemas.py
-├── templates/
-│   ├── choice.html
-│   ├── login.html
-│   ├── app.html
-│   ├── transporte.html
-│   └── gasolineras.html
-├── static/
-│   ├── css/
-│   │   └── ge-brand.css
-│   ├── img/
-│   │   ├── ge-control-logo.svg
-│   │   ├── ge-control-logo-light.svg
-│   │   ├── ge-control-logo.png
-│   │   ├── ge-control-logo-light.png
-│   │   ├── ge-control-horizontal.svg
-│   │   ├── ge-isotype.svg
-│   │   ├── ge-isotype-light.svg
-│   │   ├── ge-isotype.png
-│   │   ├── ge-isotype-light.png
-│   │   ├── ge-icon-192.png
-│   │   ├── ge-icon-512.png
-│   │   ├── apple-touch-icon.png
-│   │   └── favicon.svg
-├── migrations/
-│   ├── transporte_urgentes_20260513.sql
-│   ├── zcontrol_multimodulo_facturacion_20260513.sql
-│   ├── transporte_multiempresa_20260513.sql
-│   └── gasolineras_modulo_20260514.sql
-├── docs/
-│   ├── investigacion_cfdi_transporte_sw_sapien_20260513.md
-│   └── configuracion_sw_sapien_pruebas.md
-├── scripts/
-│   └── generate_ge_png_assets.js
-├── tests/
-└── utils/
+main.py                    # app FastAPI, vistas y routers
+routes/                    # endpoints por dominio
+services/                  # transformación SAT, CFDI, transporte, gasolineras
+models/                    # schemas Pydantic
+templates/                 # UI Gas LP, Transporte, Gasolineras y portales internos
+static/css/ge-brand.css    # sistema visual GE CONTROL
+migrations/                # SQL Supabase
+scripts/ingest_gasolineras_market.py
+docs/runbooks/             # operación sensible
 ```
 
-## Variables de Entorno
+## Variables
 
-Configura estas variables en Render o en un archivo `.env` local.
-
-```env
-SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_KEY=your-anon-or-service-role-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-for-server-flows
-SW_ENV=test
-SW_USER=tu_usuario_sw
-SW_PASSWORD=tu_password_sw
-```
-
-`SW_ENV=test` usa ambiente de pruebas. Para producción real usar `SW_ENV=prod` solo cuando el PAC y los certificados estén listos.
-`SUPABASE_SERVICE_ROLE_KEY` se usa para flujos de servidor sin sesión de Supabase Auth, como el portal simple de operador con token seguro.
-
-No subir al repositorio:
-
-- `.env`
-- `.cer`
-- `.key`
-- `.pfx`
-- `.p12`
-- `.sdg`
-- ZIPs de certificados
-- contraseñas
-- credenciales SW/SAT/Supabase
-
-## SW Sapien y PDF
-
-GE CONTROL está preparado para integrarse con SW Sapien mediante API REST.
-
-Casos contemplados:
-
-- CFDI 4.0
-- Carta Porte 3.1
-- Factura de servicio de transporte
-- Cancelación
-- Integración futura de facturación para Gas LP y Gasolineras
-
-Estrategia recomendada para PDF:
-
-- Timbrar con SW Sapien y guardar XML/UUID.
-- Generar internamente la representación impresa PDF desde GE CONTROL.
-- Confirmar con SW Sapien si su generación/regeneración de PDF tiene costo adicional antes de contratar ese servicio.
-
-## Base de Datos
-
-### Tablas generales
-
-| Tabla | Uso |
-|---|---|
-| `records` | Movimientos Gas LP |
-| `reports` | Reportes Gas LP generados |
-| `user_facilities` | Instalaciones y plantas |
-| `providers` | Proveedores y permisos |
-| `perfiles_empresa` | Razones sociales |
-| `zc_settings` | Configuración fiscal por perfil |
-| `user_sections` | Acceso por módulo |
-
-### Tablas de Transporte
-
-| Tabla | Uso |
-|---|---|
-| `tr_choferes` | Operadores |
-| `tr_vehiculos` | Vehículos/autotanques |
-| `tr_rutas` | Rutas |
-| `tr_clientes` | Clientes/receptores |
-| `tr_viajes` | Viajes |
-| `tr_cfdi` | Cartas Porte/CFDI timbrados |
-| `tr_covol_reports` | Control volumétrico transporte |
-| `tr_settings` | Configuración Transporte |
-| `tr_facturas_servicio` | Facturas de servicio de transporte |
-| `tr_facturas_servicio_cartas` | Relación única factura-Carta Porte |
-| `tr_viaje_eventos` | Timeline y bitácora operativa por viaje |
-| `tr_viaje_documentos` | Metadata de documentos por viaje en Supabase Storage |
-| `tr_tarifas` | Tarifas configurables por usuario/perfil/cliente/ruta/producto |
-| `tr_gastos_viaje` | Gastos operativos y evidencias de viaje |
-| `tr_liquidaciones` | Liquidaciones de chofer por periodo |
-| `tr_liquidacion_items` | Viajes incluidos en cada liquidación |
-| `tr_cliente_contactos` | Contactos operativos/fiscales por cliente |
-| `tr_notificaciones` | Bitácora de envíos por canal, incluido WhatsApp manual |
-| `tr_operador_accesos` | Tokens de acceso simple para portal de operador |
-| `tr_importaciones` | Auditoría de importaciones históricas de Excel |
-
-### Tablas de Gasolineras
-
-| Tabla | Uso |
-|---|---|
-| `gaso_settings` | Configuración propia del módulo Gasolineras |
-| `gaso_estaciones` | Estaciones de servicio por usuario/perfil |
-| `gaso_cfdi` | CFDI/XML/PDF asociados a estaciones |
-
-## Migraciones
-
-Ejecutar en Supabase SQL Editor:
-
-```text
-migrations/transporte_urgentes_20260513.sql
-migrations/zcontrol_multimodulo_facturacion_20260513.sql
-migrations/transporte_multiempresa_20260513.sql
-migrations/transporte_operativo_20260514.sql
-migrations/gasolineras_modulo_20260514.sql
-```
-
-Resumen:
-
-- `transporte_urgentes_20260513.sql`: duración de rutas/viajes, estatus editables y facturas de servicio.
-- `zcontrol_multimodulo_facturacion_20260513.sql`: régimen fiscal receptor, UUID/XML/PDF en facturas, relación única para evitar doble facturación.
-- `transporte_multiempresa_20260513.sql`: `perfil_id` e índices en tablas de Transporte para multiempresa.
-- `transporte_operativo_20260514.sql`: Viaje 360, eventos, documentos, tarifas, liquidaciones, portal operador e importaciones históricas.
-- `gasolineras_modulo_20260514.sql`: tablas base de Gasolineras y soporte de sección `gasolineras`.
-
-Para habilitar el módulo Gasolineras a un usuario:
-
-```sql
-insert into user_sections (user_id, section)
-values ('UUID_DEL_USUARIO', 'gasolineras')
-on conflict do nothing;
-```
-
-También pueden coexistir:
-
-```sql
-insert into user_sections (user_id, section)
-values
-  ('UUID_DEL_USUARIO', 'gas_lp'),
-  ('UUID_DEL_USUARIO', 'transporte'),
-  ('UUID_DEL_USUARIO', 'gasolineras')
-on conflict do nothing;
-```
-
-Si una migración ya fue ejecutada, conservar el archivo en GitHub como historial técnico.
-
-## Correr en Local
+Requeridas:
 
 ```bash
-pip install uv
+SUPABASE_URL=
+SUPABASE_KEY=              # anon/public key del proyecto
+SUPABASE_SERVICE_ROLE_KEY= # solo servidor, nunca frontend
+ALLOWED_ORIGIN_EXTRA=
+SW_SAPIEN_USER=
+SW_SAPIEN_PASSWORD=
+SW_SAPIEN_URL=
+```
+
+Gasolineras:
+
+```bash
+GASO_MARKET_CSV_URL=       # CSV oficial CRE/CNE/datos.gob.mx o espejo validado
+GASO_ALLOW_MOCK_MARKET=    # solo dev; no usar en clientes reales
+```
+
+## Deploy Render
+
+1. Crear servicio Web en Render desde este repo.
+2. Usar `render.yaml` o comando equivalente:
+
+```bash
 uv sync
+uv run gunicorn main:app -k uvicorn.workers.UvicornWorker
 ```
 
-Crear `.env` local:
-
-```env
-SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_KEY=your-anon-or-service-role-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-for-server-flows
-SW_ENV=test
-SW_USER=tu_usuario_sw
-SW_PASSWORD=tu_password_sw
-```
-
-Arrancar:
-
-```bash
-uv run uvicorn main:app --reload --port 8000
-```
-
-Abrir:
-
-```text
-http://localhost:8000
-```
-
-Rutas principales:
-
-```text
-/choice
-/app
-/transporte
-/gasolineras
-```
-
-## Deploy en Render
-
-1. Subir cambios a GitHub.
-2. Conectar el repo en Render.
 3. Configurar variables de entorno.
-4. Ejecutar migraciones pendientes en Supabase.
-5. Asignar módulos en `user_sections`.
-6. Hacer deploy.
+4. Aplicar migraciones SQL en Supabase antes de abrir a clientes.
+5. Ejecutar smoke test: login, perfiles, módulos habilitados, crear usuario interno, operación básica y reporte.
 
-Health check:
+## Migraciones Necesarias
 
-```text
-/health
-```
+Aplicar en orden lógico si la base está nueva:
 
-## Flujos Recomendados
+- `saas_tenant_subscription_companies_20260515.sql`
+- `admin_saas_panel_20260518.sql`
+- `admin_saas_licenses_20260518.sql`
+- `security_hardening_rls_storage_20260515.sql`
+- `saas_runtime_hardening_20260518.sql`
+- `internal_users_permissions_20260518.sql`
+- `admin_saas_delete_user_cascade_safe_20260518.sql`
+- `fix_security_definer_view_20260518.sql`
+- `transporte_multiempresa_20260513.sql`
+- `transporte_operativo_20260514.sql`
+- `transporte_bloque2_tarifas_facturacion_20260514.sql`
+- `transporte_bloque3_operador_liquidaciones_20260514.sql`
+- `zcontrol_multimodulo_facturacion_20260513.sql`
+- `gasolineras_modulo_20260514.sql`
+- `gasolineras_market_pipeline_20260519.sql`
 
-### Transporte
+## Usuarios Y Roles
 
-1. Configurar datos fiscales del contribuyente.
-2. Registrar vehículos/autotanques.
-3. Registrar choferes.
-4. Registrar clientes.
-5. Crear rutas con duración estimada.
-6. Crear viaje.
-7. Capturar producto, volumen, valor de mercancía y tarifa/flete.
-8. Timbrar Carta Porte.
-9. Emitir factura del servicio desde Cartas Porte timbradas disponibles.
-10. Generar JSON/ZIP de control volumétrico mensual.
-11. Usar Operación para Viaje 360, documentos, timeline, tarifas y liquidaciones.
-12. Usar portal de operador únicamente para confirmaciones simples: recibido, en camino, entregado o problema.
+Usuarios Auth globales:
 
-Para documentos operativos crear en Supabase Storage el bucket:
+- Administradores del cliente y superadmin SaaS.
+- Login por email/password Supabase.
+- Acceso por `user_sections`.
 
-```text
-transport-documents
-```
+Usuarios internos:
 
-La app guarda rutas bajo `user_id/perfil_id/viajes/viaje_id/...`; la metadata vive en `tr_viaje_documentos`.
+- No tienen Supabase Auth.
+- Se crean desde el admin del módulo.
+- Tienen `tenant_id`, `perfil_id`, `section`, `role`, `code`, `pin_hash`, `status`.
+- PIN en PBKDF2, sesiones hasheadas, expiración 12 horas.
+- Código auto: se genera con prefijo de módulo y tenant, reintenta ante choque de unique constraint.
+- Errores técnicos se loggean en servidor y se responde mensaje limpio.
 
 ### Gas LP
 
-1. Seleccionar razón social e instalación.
-2. Configurar datos fiscales y permisos.
-3. Cargar XML/ZIP o Excel/CSV.
-4. Revisar recepciones, entregas e inventarios.
-5. Registrar autoconsumos/mermas/trasvases si aplica.
-6. Generar reporte SAT Anexo 30.
-7. Revisar proveedores y pronóstico.
+Roles internos:
 
-### Gasolineras
+- `asistente_facturacion`: facturación, XML, Excel.
+- `asistente_operativo`: operación y consultas.
+- `planta`: captura/inventario/planta.
+- `solo_lectura`: consulta y reportes.
 
-1. Habilitar módulo `gasolineras` al usuario.
-2. Entrar desde `/choice`.
-3. Revisar mapa nacional y visión comercial.
-4. Registrar estaciones y configuración en tablas `gaso_*` cuando se conecte captura operativa.
-5. Usar PDF interno para representaciones impresas de CFDI timbrados.
+Portal:
 
-## Investigación SAT/SW
+- Login: `/gas-lp/asistente`
+- Dashboard limitado: `/asistente/gas-lp`
 
-Documentos internos:
+### Transporte
 
-```text
-docs/investigacion_cfdi_transporte_sw_sapien_20260513.md
-docs/configuracion_sw_sapien_pruebas.md
-docs/security_hardening_20260515.md
-```
+Roles internos:
 
-Hallazgos técnicos:
+- `operador`: vinculado a `tr_choferes`.
+- `solo_lectura`: consulta operativa.
 
-- Para transportistas, el concepto del CFDI debe representar el servicio de transporte, no el combustible transportado.
-- La mercancía se declara dentro del complemento Carta Porte.
-- `ValorMercancia` corresponde al valor declarado de los bienes transportados, no a la tarifa del flete.
-- Para tipo `I`, el servicio de transporte normalmente causa IVA 16%.
-- Para tipo `T`, el comprobante debe manejar subtotal/total cero y moneda `XXX`.
-- La validación final depende de SAT/PAC y catálogos vigentes.
+Portal:
 
-## Seguridad antes de producción
+- Login: `/transporte/operador`
+- Post-login: `/operador/transporte?token=...`
+- Muestra operador, chofer, empresa, viajes activos, documentos pendientes, notificaciones y estado vacío responsive.
 
-Ejecutar en Supabase:
+## Seguridad
 
-```text
-migrations/security_hardening_rls_storage_20260515.sql
-```
+Checklist mínimo antes de vender:
 
-Esta migración endurece RLS y deja privado el bucket `transport-documents`. Antes de timbrar en producción fiscal real, validar en Supabase que:
+- No usar `SUPABASE_SERVICE_ROLE_KEY` en frontend.
+- RLS activa en tablas operativas.
+- Endpoints sensibles con Bearer token o sesión interna.
+- Rutas legacy admin sin aislamiento devuelven `410` o están protegidas.
+- `user_id`, `tenant_id` y `perfil_id` filtrados en CRUD.
+- Delete seguro de usuarios SaaS aplicado o bloqueado si falta migración.
+- Errores críticos con `logger.exception`/`logger.error`, sin raw Postgres al usuario.
+- CORS limitado a producción y localhost.
+- Headers básicos: nosniff, deny frame, referrer policy.
 
-- todas las tablas sensibles tienen RLS activo;
-- `transport-documents` no es público;
-- los XML/PDF solo se consultan con usuario autenticado y perfil correcto;
-- no existe acceso cruzado entre usuarios, perfiles u operadores.
+## Gasolineras: Datos Reales
 
-## Pruebas
+Fuente recomendada: dataset público CRE/datos.gob.mx de estaciones de servicio y precios finales de gasolinas/diésel. La URL exacta puede cambiar, por eso se configura con `GASO_MARKET_CSV_URL`.
 
-Ejecutar:
+Pipeline:
 
 ```bash
-uv run --with pytest pytest
+GASO_MARKET_CSV_URL="https://..." uv run python scripts/ingest_gasolineras_market.py
+uv run python scripts/ingest_gasolineras_market.py --file /tmp/cre.csv --dry-run
 ```
 
-También se recomienda validar sintaxis antes de subir:
+Tablas:
 
-```bash
-python -m py_compile main.py routes/*.py services/*.py models/*.py
-```
+- `gaso_market_stations`: padrón nacional normalizado.
+- `gaso_market_price_snapshots`: histórico por permiso/producto.
+- `gaso_ingestion_runs`: bitácora de ingesta.
 
-Nota: algunas pruebas heredadas pueden requerir ajustes si el módulo correspondiente cambió de API interna.
+Estrategia:
 
-## Licencia
+- Upsert por `permiso_cre`.
+- Validación de coordenadas México.
+- Deduplicación por permiso.
+- Búsqueda por bbox/limit en `/api/gaso/market`.
+- Frontend usa carga lazy limitada, proyección nacional/regional/local y clustering simple.
 
-Propietario. Todos los derechos reservados.
+Scheduler diario:
+
+- Crear cron externo en Render Cron, GitHub Actions o Supabase scheduled function.
+- Frecuencia recomendada: diario 03:00 America/Cancun.
+- Comando: `uv run python scripts/ingest_gasolineras_market.py`.
+- Revisar `gaso_ingestion_runs` después de cada corrida.
+
+Transparencia:
+
+- Si `gaso_market_stations` está vacía, el mapa muestra aviso de dataset real pendiente.
+- `GASO_ALLOW_MOCK_MARKET=true` solo se permite en desarrollo.
+
+## SAT/PAC/SW Sapien
+
+- XML timbrado es fuente fiscal.
+- PDF es representación impresa y puede generarse internamente.
+- Confirmar con SW Sapien costos/flujo de PDF antes de venderlo.
+- Validar CFDI/Carta Porte con casos reales por cliente antes de prometer cumplimiento fiscal completo.
+
+## Runbooks
+
+- Eliminación segura: `docs/runbooks/eliminacion_segura_usuarios_superadmin_20260518.md`
+- Auditoría producción: `docs/auditoria_produccion_ge_control_20260518.md`
+- Config SW Sapien pruebas: `docs/configuracion_sw_sapien_pruebas.md`
+
+## Checklist Producción Controlada
+
+- Crear tenant.
+- Crear empresa/perfil.
+- Habilitar módulos en licencia.
+- Crear admin Auth y validar `user_sections`.
+- Crear asistente Gas LP y operador Transporte.
+- Reset PIN funciona.
+- Desactivar usuario interno funciona.
+- Delete seguro funciona o queda bloqueado con mensaje claro.
+- Gas LP genera reporte básico.
+- Transporte crea chofer/vehículo/ruta/viaje y portal operador muestra viaje.
+- Gasolineras tiene estación propia y, para vender inteligencia, padrón real cargado.
+- Exportaciones/uploads probados con archivos de cliente piloto.
+
+## Pendientes Post-Lanzamiento
+
+- Sustituir clustering simple por tiles GIS si el volumen supera el rendimiento esperado.
+- Automatizar cron desde infraestructura y alertar fallos de ingesta.
+- Completar snapshots de precios por producto desde fuente oficial cuando el CSV incluya histórico granular.
+- Pruebas E2E con Playwright por módulo.
+- Pruebas contractuales Supabase/RLS por rol.
+- Hardening CSP sin inline JS.
+- Validación fiscal ampliada con casos reales SAT/PAC.
