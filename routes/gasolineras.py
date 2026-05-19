@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, File, Header, HTTPException, Query, UploadFile
@@ -83,8 +84,11 @@ def _perfil_query(query, perfil_id: int | None):
 
 def _settings(uid: str, token: str, perfil_id: int | None) -> dict:
     try:
-        q = _sb(token).table("zc_settings").select("data").eq("user_id", uid)
+        sb = _sb(token)
+        q = sb.table("zc_settings").select("data").eq("user_id", uid)
         rows = _perfil_query(q, perfil_id).limit(1).execute().data or []
+        if not rows and perfil_id:
+            rows = sb.table("zc_settings").select("data").eq("user_id", uid).is_("perfil_id", "null").limit(1).execute().data or []
         return rows[0].get("data", {}) if rows else {}
     except Exception:
         return {}
@@ -92,8 +96,20 @@ def _settings(uid: str, token: str, perfil_id: int | None) -> dict:
 
 def _list_user_stations(uid: str, token: str, perfil_id: int | None) -> list[dict]:
     try:
-        q = _sb(token).table(TBL_STATIONS).select("*").eq("user_id", uid).eq("activa", True).order("id", desc=False)
+        sb = _sb(token)
+        q = sb.table(TBL_STATIONS).select("*").eq("user_id", uid).eq("activa", True).order("id", desc=False)
         rows = _perfil_query(q, perfil_id).execute().data or []
+        if not rows and perfil_id:
+            rows = (
+                sb.table(TBL_STATIONS)
+                .select("*")
+                .eq("user_id", uid)
+                .eq("activa", True)
+                .is_("perfil_id", "null")
+                .order("id", desc=False)
+                .execute()
+                .data or []
+            )
         return [r for r in rows if valid_mx_coord(r.get("lat"), r.get("lng"))]
     except Exception as e:
         logger.warning("No se pudieron cargar estaciones gasolineras: %s", e)
@@ -102,7 +118,7 @@ def _list_user_stations(uid: str, token: str, perfil_id: int | None) -> list[dic
 
 def _list_market(token: str) -> list[dict]:
     try:
-        rows = _sb(token).table(TBL_MARKET).select("*").eq("activa", True).limit(1000).execute().data or []
+        rows = _sb(token).table(TBL_MARKET).select("*").eq("activa", True).limit(1500).execute().data or []
         if rows:
             mapped = []
             for r in rows:
@@ -123,9 +139,27 @@ def _list_market(token: str) -> list[dict]:
                     "daily_changes": data.get("daily_changes", 1),
                 })
             return filter_mx_coordinates(mapped)
-    except Exception:
-        pass
-    return MOCK_MARKET_STATIONS
+    except Exception as e:
+        logger.warning("No se pudo cargar mercado gasolineras: %s", e)
+    if os.environ.get("GASO_ALLOW_MOCK_MARKET", "").lower() in {"1", "true", "yes"}:
+        return MOCK_MARKET_STATIONS
+    return []
+
+
+def _market_quality(market: list[dict]) -> dict:
+    mock_enabled = os.environ.get("GASO_ALLOW_MOCK_MARKET", "").lower() in {"1", "true", "yes"}
+    looks_mock = bool(market) and all(str(r.get("id", "")).startswith("mk-") for r in market[: min(len(market), len(MOCK_MARKET_STATIONS))])
+    is_real = bool(market and not looks_mock)
+    return {
+        "source": "gaso_market_stations" if is_real else ("mock" if mock_enabled and looks_mock else "empty"),
+        "is_real": is_real,
+        "count_loaded": len(market),
+        "message": (
+            "Mercado cargado desde gaso_market_stations."
+            if market and not mock_enabled
+            else "Sin padrón real cargado. Ejecuta scripts/ingest_gasolineras_market.py antes de vender inteligencia de mercado como real."
+        ),
+    }
 
 
 def _station_payload(uid: str, perfil_id: int | None, payload: GasoStationCreate) -> dict:
@@ -155,6 +189,11 @@ def _station_payload(uid: str, perfil_id: int | None, payload: GasoStationCreate
         "activa": True,
         "data": data,
     }
+
+
+def _clean_error(action: str, exc: Exception) -> HTTPException:
+    logger.exception("%s gasolineras failed: %s", action, exc)
+    return HTTPException(500, "No se pudo completar la operación. Intenta de nuevo o contacta a soporte.")
 
 
 @router.get("/gaso/summary")
@@ -195,8 +234,8 @@ async def gasolineras_summary(
             "regimen_fiscal": settings.get("RegimenFiscal", ""),
         },
         "kpis": {
-            "estaciones_cre_referencia": 18619,
-            "precios_reportados_referencia": 13079,
+            "estaciones_cre_referencia": len(market),
+            "precios_reportados_referencia": len([m for m in market if any(float(m.get(p) or 0) > 0 for p in ("regular", "premium", "diesel"))]),
             "precio_promedio_regular": avg_regular,
             "score_promedio": score["score"],
             "alertas_regulatorias": len([a for a in alerts if a["tipo"] == "permiso_cne"]),
@@ -206,6 +245,11 @@ async def gasolineras_summary(
         "network": {
             "stations": stations,
             "executive": report["diagnostico"],
+        },
+        "market": {
+            "stations": market[:500],
+            "cre_count": len(market),
+            "quality": _market_quality(market),
         },
         "access": [
             {"module": "Fuentes de datos", "tab": "fuentes"},
@@ -253,8 +297,7 @@ async def create_station(
         res = _sb(token).table(TBL_STATIONS).insert(row).execute()
         return JSONResponse({"ok": True, "station": (res.data or [row])[0]})
     except Exception as e:
-        logger.error("Error creando estacion gasolineras: %s", e)
-        raise HTTPException(500, f"Error al guardar estación: {e}")
+        raise _clean_error("create_station", e)
 
 
 @router.put("/gaso/stations/{station_id}")
@@ -273,7 +316,7 @@ async def update_station(
         _perfil_query(q, perfil_id).execute()
         return JSONResponse({"ok": True})
     except Exception as e:
-        raise HTTPException(500, f"Error al actualizar estación: {e}")
+        raise _clean_error("update_station", e)
 
 
 @router.delete("/gaso/stations/{station_id}")
@@ -289,13 +332,34 @@ async def delete_station(
         _perfil_query(q, perfil_id).execute()
         return JSONResponse({"ok": True})
     except Exception as e:
-        raise HTTPException(500, f"Error al eliminar estación: {e}")
+        raise _clean_error("delete_station", e)
 
 
 @router.get("/gaso/market")
-async def market(authorization: str = Header(default="")):
+async def market(
+    authorization: str = Header(default=""),
+    min_lat: float | None = Query(None),
+    max_lat: float | None = Query(None),
+    min_lng: float | None = Query(None),
+    max_lng: float | None = Query(None),
+    limit: int = Query(1200, ge=50, le=5000),
+):
     _, token = _auth(authorization)
-    return JSONResponse({"ok": True, "stations": _list_market(token), "coordinate_filter": {"lat": [14, 32], "lng": [-118, -87]}})
+    rows = _list_market(token)
+    if all(v is not None for v in (min_lat, max_lat, min_lng, max_lng)):
+        rows = [
+            r for r in rows
+            if min_lat <= float(r.get("lat") or 0) <= max_lat
+            and min_lng <= float(r.get("lng") or 0) <= max_lng
+        ]
+    return JSONResponse({
+        "ok": True,
+        "stations": rows[:limit],
+        "total_returned": min(len(rows), limit),
+        "total_matching": len(rows),
+        "quality": _market_quality(rows),
+        "coordinate_filter": {"lat": [14, 32], "lng": [-118, -87]},
+    })
 
 
 @router.post("/gaso/prices")
@@ -332,7 +396,7 @@ async def save_price_snapshot(
         res = _sb(token).table(TBL_PRICES).insert(row).execute()
         return JSONResponse({"ok": True, "snapshot": (res.data or [row])[0]})
     except Exception as e:
-        raise HTTPException(500, f"Error al guardar histórico de precio: {e}")
+        raise _clean_error("save_price_snapshot", e)
 
 
 @router.get("/gaso/prices/history")
@@ -351,7 +415,7 @@ async def price_history(
         rows = _perfil_query(q, perfil_id).limit(300).execute().data or []
         return JSONResponse({"ok": True, "history": rows})
     except Exception as e:
-        raise HTTPException(500, f"Error al listar histórico de precios: {e}")
+        raise _clean_error("price_history", e)
 
 
 @router.post("/gaso/radar")
