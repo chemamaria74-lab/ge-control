@@ -2253,6 +2253,8 @@ let subscriptionUsage = null;
 let perfilesRequestPromise = null;
 let perfilesCache = null;
 let perfilesCacheAt = 0;
+let facilitiesCacheByPerfil = new Map();
+let dashboardLoadPromise = null;
 
 // ── Estado multi-empresa (perfilSeleccionado) ──────────────────────────────
 // Se persiste en localStorage para sobrevivir cierre de pestaña y recargas.
@@ -2901,13 +2903,14 @@ function mostrarSelectorEmpresas() {
 }
 
 function seleccionarEmpresa(perfil, cerrarOverlay) {
+  const samePerfil = _perfilSeleccionado && Number(_perfilSeleccionado.id) === Number(perfil.id);
   _savePerfilToSession(perfil);
   actualizarSwitcherEmpresa(perfil);
   if (cerrarOverlay) {
     const overlay = document.getElementById('empresaOverlay');
     if (overlay) overlay.classList.remove('visible');
   }
-  cargarDatosDashboard();
+  if (!samePerfil) cargarDatosDashboard();
 }
 
 function actualizarSwitcherEmpresa(perfil) {
@@ -2922,6 +2925,8 @@ let _resettingState = false;   // flag: bloquea auto-save durante limpieza
 
 function resetAppState() {
   _resettingState = true;
+  const started = performance.now();
+  console.info('[GE] Gas LP cambio de empresa iniciado', { perfil_id: perfilId() });
   _appState.invalidate();  // forzar re-fetch de settings del nuevo perfil
 
   // ── 1. Limpiar campos de Configuración básica ──────────────────────────────
@@ -2988,11 +2993,13 @@ function resetAppState() {
   _histFacilityId   = null;
 
   // ── 6. Re-fetch paralelo con el nuevo perfil ──────────────────────────────
-  Promise.all([
+  dashboardLoadPromise = Promise.all([
     loadSettings(),
     loadFacilities(),
   ]).finally(() => {
+    console.info('[GE] Gas LP empresa lista', { perfil_id: perfilId(), ms: Math.round(performance.now() - started) });
     _resettingState = false;  // desbloquear auto-save
+    dashboardLoadPromise = null;
   });
 
   // Config avanzada lazy
@@ -3275,10 +3282,19 @@ document.getElementById('btnAddProvider').addEventListener('click', async () => 
 // ── Gestión de Instalaciones ───────────────────────────────────────────────
 async function loadFacilities() {
   if (!authToken) return;
+  const pid = perfilId() || 'none';
+  const cached = facilitiesCacheByPerfil.get(pid);
+  if (cached && (Date.now() - cached.at) < 30000) {
+    _facilities = cached.rows;
+    renderFacilitiesTable(_facilities);
+    populateFacilitySelectors(_facilities);
+    return;
+  }
   try {
     const res  = await fetch('/api/facilities', { headers: authHeader() });
     const data = await res.json();
     _facilities = data.facilities || [];
+    facilitiesCacheByPerfil.set(pid, { at: Date.now(), rows: _facilities });
     renderFacilitiesTable(_facilities);
     populateFacilitySelectors(_facilities);
   } catch(e) { console.warn('No se pudo cargar instalaciones:', e); }

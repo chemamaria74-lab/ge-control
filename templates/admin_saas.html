@@ -135,7 +135,13 @@ function H(json=true){ return {'Authorization':'Bearer '+TOKEN, ...(json?{'Conte
 function esc(v){ return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 function matchesSearch(obj, q){ return !q || JSON.stringify(obj||{}).toLowerCase().includes(q.toLowerCase()); }
 function pill(label, state=''){ return `<span class="pill ${state}">${esc(label)}</span>`; }
-async function api(path, opts={}){ const r=await fetch('/api/admin-saas'+path, opts); const d=await r.json().catch(()=>({})); if(!r.ok){ const detail=typeof d.detail==='object' ? (d.detail.message||JSON.stringify(d.detail)) : d.detail; throw new Error(detail||'Error'); } return d; }
+function cleanErrorText(detail){
+  let text = typeof detail === 'object' ? (detail?.message || detail?.detail || 'No se pudo completar la operación.') : String(detail || 'No se pudo completar la operación.');
+  const lower = text.toLowerCase();
+  if(lower.includes('p0001') || lower.includes('duplicate key') || lower.includes('details') || lower.includes('hint') || lower.includes('postgrest') || lower.includes('violates')) return 'No se pudo completar la operación. Revisa los datos y vuelve a intentar.';
+  return text;
+}
+async function api(path, opts={}){ const r=await fetch('/api/admin-saas'+path, opts); const d=await r.json().catch(()=>({})); if(!r.ok){ throw new Error(cleanErrorText(d.detail || d.error)); } return d; }
 function showPanel(name){ document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active')); document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.panel===name)); document.getElementById('panel-'+name).classList.add('active'); if(name==='clientes')loadTenants(); if(name==='empresas')loadCompanies(); if(name==='usuarios')loadUsers(); if(name==='auditoria')loadAudit(); }
 function msg(id,text,ok=true){ const el=document.getElementById(id); if(el){el.textContent=text; el.className='status '+(ok?'ok':'err');} }
 function showAdminLogin(message='') {
@@ -193,7 +199,7 @@ function renderClientCards(){ const sorted=[...(LICENSES||[])].sort((a,b)=>Numbe
 function hasAlerts(r){ return clientAlerts(r).length>0; }
 function clientAlerts(r){ const u=r.usage_labels||{}; const alerts=[]; for(const [label,item] of [['Empresas',u.companies],['Asistentes Gas LP',u.gas_lp_assistants],['Operadores Transporte',u.transporte_operators],['Estaciones',u.gasolineras_stations]]){ if(item?.exceeded) alerts.push(`${label}: límite superado. Ajusta licencia o revisa sincronización.`); else if(item?.near_limit) alerts.push(`${label}: cerca del límite.`); } if(!r.subscription) alerts.push('Sin suscripción activa.'); return alerts; }
 async function loadUsersHealth(){ const d=await api('/health/users',{headers:H(false)}); USERS_HEALTH=d.users||[]; renderUsersHealth(); }
-function renderUsersHealth(){ const q=document.getElementById('healthSearch')?.value||''; const rows=(USERS_HEALTH||[]).filter(u=>matchesSearch(u,q)).filter(u=>!showOnlyProblems || (u.warnings||[]).length); healthRows.innerHTML=rows.map(u=>{ const companies=(u.companies||[]).map(c=>`${esc(c.nombre||c.perfil_id)}${c.has_company?'':' ⚠'}`).join('<br>')||'—'; const modules=(u.modules||[]).map(m=>`${esc(m.section)}: ${esc(m.role)} / ${esc(m.status)}${m.can_open?'':' ⚠'}`).join('<br>')||'—'; return `<tr><td>${esc(u.email||'—')}<br><code>${esc((u.user_id||'').slice(0,8))}</code></td><td>${(u.tenant_ids||[]).map(t=>`<code>${esc((t||'').slice(0,8))}</code>`).join('<br>')||'—'}</td><td>${companies}</td><td>${modules}</td><td class="${u.warnings?.length?'err':'ok'}">${esc((u.warnings||['ok']).join(', '))}</td><td><button class="btn btn-ghost btn-sm" onclick="prefillRepair('${esc(u.user_id)}')">Reparar</button><button class="btn btn-danger btn-sm" onclick="setUserStatus('${esc(u.user_id)}','inactive')">Desactivar</button><button class="btn btn-danger btn-sm" onclick="deleteUserSafe('${esc(u.user_id)}')">Eliminar seguro</button></td></tr>`; }).join('')||'<tr><td colspan="6">Sin usuarios.</td></tr>'; }
+function renderUsersHealth(){ const q=document.getElementById('healthSearch')?.value||''; const rows=(USERS_HEALTH||[]).filter(u=>matchesSearch(u,q)).filter(u=>!showOnlyProblems || (u.warnings||[]).length); healthRows.innerHTML=rows.map(u=>{ const companies=(u.companies||[]).map(c=>`${esc(c.nombre||c.perfil_id)}${c.has_company?'':' ⚠'}`).join('<br>')||'—'; const modules=(u.modules||[]).map(m=>`${esc(m.section)}: ${esc(m.role)} / ${esc(m.status)}${m.can_open?'':' ⚠'}`).join('<br>')||'—'; return `<tr><td>${esc(u.email||'—')}<br><code>${esc((u.user_id||'').slice(0,8))}</code></td><td>${(u.tenant_ids||[]).map(t=>`<code>${esc((t||'').slice(0,8))}</code>`).join('<br>')||'—'}</td><td>${companies}</td><td>${modules}</td><td class="${u.warnings?.length?'err':'ok'}">${esc((u.warnings||['ok']).join(', '))}</td><td><button class="btn btn-ghost btn-sm" onclick="prefillRepair('${esc(u.user_id)}')">Reparar</button><button class="btn btn-danger btn-sm" onclick="setUserStatus('${esc(u.user_id)}','inactive')">Desactivar</button><button class="btn btn-danger btn-sm" onclick="deleteUserSafe('${esc(u.user_id)}')">Eliminar seguro</button><button class="btn btn-danger btn-sm" onclick="deleteTestUser('${esc(u.user_id)}')">Eliminar usuario de prueba</button></td></tr>`; }).join('')||'<tr><td colspan="6">Sin usuarios.</td></tr>'; }
 function prefillRepair(userId){ showPanel('reparacion'); document.getElementById('repairUser').value=userId; inspectUser(); }
 async function loadTenants(){ const d=await api('/tenants',{headers:H(false)}); TENANTS=d.tenants||[]; renderTenants(); }
 function miniUsage(item){ if(!item) return '—'; return `${item.used}/${item.display_limit==null?'∞':item.display_limit}`; }
@@ -226,13 +232,24 @@ function deleteSummary(preview){
   const touched=Object.entries(counts).filter(([,v])=>Number(v)>0).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))).map(([k,v])=>`${k}: ${v}`).join('\n') || 'Sin registros relacionados';
   return `Vas a eliminar DEFINITIVAMENTE este usuario y sus datos relacionados.\n\nUsuario: ${u.email||u.user_id||''}\nNombre: ${u.display_name||'—'}\nUser ID: ${u.user_id||''}\n\nRoles:\n${roles}\n\nEmpresas:\n${companies}\n\nRegistros que se limpiarán:\n${touched}\n\nEsta acción es transaccional: si falla una relación, se revierte todo.`;
 }
+function selectTransferReceiver(receivers, targetUserId){
+  return new Promise(resolve=>{
+    const wrap=document.createElement('div');
+    wrap.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:grid;place-items:center;padding:20px';
+    const options=(receivers||[]).filter(r=>String(r.user_id)!==String(targetUserId)).map(r=>`<option value="${esc(r.user_id)}">${esc(r.email||r.display_name||r.user_id)} · ${esc((r.user_id||'').slice(0,8))}</option>`).join('');
+    wrap.innerHTML=`<div style="width:min(520px,100%);background:#fff;border-radius:10px;padding:18px;border:1px solid #e7e3dc;box-shadow:0 30px 80px rgba(0,0,0,.25)"><h3 style="margin-bottom:6px">Selecciona receptor válido</h3><p class="muted" style="margin-bottom:12px">Este usuario tiene historial o empresas. Para conservar datos legales/operativos, elige otro usuario Auth del mismo tenant.</p><label>Receptor</label><select id="transferReceiverSelect">${options}</select><div class="actions"><button class="btn btn-ghost" id="transferCancel">Cancelar</button><button class="btn" id="transferOk">Usar receptor</button></div></div>`;
+    document.body.appendChild(wrap);
+    wrap.querySelector('#transferCancel').onclick=()=>{wrap.remove();resolve('');};
+    wrap.querySelector('#transferOk').onclick=()=>{const v=wrap.querySelector('#transferReceiverSelect').value;wrap.remove();resolve(v);};
+  });
+}
 async function deleteUserSafe(userId){
   try{
     const d=await api('/users/'+encodeURIComponent(userId)+'/delete-preview',{headers:H(false)});
     const summary=deleteSummary(d.preview);
     let transferUserId='';
     if(d.preview?.requires_transfer){
-      transferUserId=prompt('Este usuario tiene empresas o historial fiscal/operativo. Para NO borrar datos legales, escribe el User ID o email del usuario que recibirá la propiedad de empresas, viajes, CFDI, controles y documentos.');
+      transferUserId=await selectTransferReceiver(d.preview?.valid_receivers||[], userId);
       if(!transferUserId) return alert('Eliminación cancelada: se requiere transferir historial legal/operativo.');
     }
     if(!confirm(summary + '\n\n¿Continuar?')) return;
@@ -246,6 +263,20 @@ async function deleteUserSafe(userId){
     alert('No se pudo eliminar el usuario: '+e.message);
     await loadUsersHealth().catch(()=>{});
     await loadUsers().catch(()=>{});
+  }
+}
+async function deleteTestUser(userId){
+  try{
+    const d=await api('/users/'+encodeURIComponent(userId)+'/delete-preview',{headers:H(false)});
+    if(!d.preview?.test_delete_allowed) return alert('Este usuario no está marcado como test/example/demo y el ambiente no permite eliminación de prueba.');
+    if(!confirm(deleteSummary(d.preview)+'\n\nModo: ELIMINAR USUARIO DE PRUEBA. Esto limpia historial dummy y auth.users sin receptor.')) return;
+    const typed=prompt('Para confirmar escribe PRUEBA');
+    if((typed||'').trim().toUpperCase()!=='PRUEBA') return alert('Eliminación cancelada.');
+    await api('/users/'+encodeURIComponent(userId)+'/test',{method:'DELETE',headers:H(false)});
+    await loadAll();
+    alert('Usuario de prueba eliminado correctamente.');
+  }catch(e){
+    alert('No se pudo eliminar usuario de prueba: '+e.message);
   }
 }
 async function repairUser(){ const value=document.getElementById('repairUser').value.trim(); repairResult.textContent='Procesando...'; try{ const d=await api('/repair/user/'+encodeURIComponent(value),{method:'POST',headers:H(false)}); repairResult.textContent=JSON.stringify(d.summary,null,2); await loadDashboard(); await loadUsersHealth(); }catch(e){repairResult.textContent=e.message;} }

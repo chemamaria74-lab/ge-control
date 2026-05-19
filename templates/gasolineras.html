@@ -258,6 +258,7 @@ label{display:block;font-size:12px;font-weight:800;color:var(--muted);margin-bot
 
 <script>
 let TOKEN = localStorage.getItem('zc_token') || localStorage.getItem('sat_token') || '';
+let CURRENT_ROLE = localStorage.getItem('sat_role') || 'user';
 const LANG_URL = new URLSearchParams(location.search).get('lang');
 const LANG_STORED = localStorage.getItem('zc_lang');
 const LANG = (LANG_URL === 'en' || LANG_URL === 'es') ? LANG_URL : ((LANG_STORED === 'en' || LANG_STORED === 'es') ? LANG_STORED : 'es');
@@ -311,7 +312,7 @@ async function api(path, opts={}){
 async function init(){
   if(!TOKEN){ location.href='/login/gasolineras'; return; }
   if(PERFIL){ topbarEmpresa.textContent=PERFIL.nombre||'Empresa activa'; topbarRfc.textContent=PERFIL.rfc?'RFC '+PERFIL.rfc:'RFC -'; }
-  try{ const me=await fetch('/api/auth/me',{headers:headers(false)}); if(me.ok){ const d=await me.json(); topbarEmail.textContent=d.email||d.display_name||'-'; }}catch(e){}
+  try{ const me=await fetch('/api/auth/me',{headers:headers(false)}); if(me.ok){ const d=await me.json(); topbarEmail.textContent=d.email||d.display_name||'-'; CURRENT_ROLE=d.role||CURRENT_ROLE; localStorage.setItem('sat_role', CURRENT_ROLE); }}catch(e){}
   await loadSummary();
 }
 
@@ -386,7 +387,8 @@ function renderMarketMap(market={}){
     const p = mapPoint(`opp-${i}-${PERFIL?.rfc || 'mx'}`, i, 'opportunity');
     markers.push(`<button class="map-marker opportunity" style="left:${p.x}%;top:${p.y}%" title="Oportunidad detectada"><i class="fa-solid fa-bullseye"></i></button>`);
   }
-  const qualityWarning = quality.is_real ? '' : `<div class="map-empty market-warning">${quality.message || 'Sin dataset real cargado. Este mapa no debe venderse como inteligencia real todavía.'}</div>`;
+  const adminLoad = CURRENT_ROLE === 'admin' ? '<div style="margin-top:8px"><button class="btn" onclick="ingestCreMarket()"><i class="fa-solid fa-database"></i> Cargar padrón CRE</button></div>' : '';
+  const qualityWarning = quality.is_real ? '' : `<div class="map-empty market-warning">${quality.message || 'Sin dataset real cargado. Este mapa no debe venderse como inteligencia real todavía.'}${adminLoad}</div>`;
   const empty = client.length ? '' : '<div class="map-empty">Registra una estación propia para activar radios, competencia cercana y oportunidades específicas.</div>';
   map.innerHTML = markers.join('') + qualityWarning + empty;
   if(mapZoomLabel) mapZoomLabel.textContent = MAP_ZOOM === 1 ? 'Zoom nacional' : MAP_ZOOM === 2 ? 'Zoom regional' : 'Zoom local';
@@ -407,6 +409,13 @@ async function loadMarketMap(){
   renderMarketMap({stations: MARKET_STATIONS, cre_count: d.total_matching || MARKET_STATIONS.length, quality: d.quality || {}});
 }
 function changeMapZoom(delta){ MAP_ZOOM = Math.max(1, Math.min(3, MAP_ZOOM + delta)); renderMarketMap({stations: MARKET_STATIONS, cre_count: MARKET_STATIONS.length, quality: MARKET_STATIONS.length ? {is_real:true,message:'Mercado cargado.'} : {is_real:false}}); }
+async function ingestCreMarket(){
+  if(CURRENT_ROLE !== 'admin') return alert('Solo administradores pueden cargar el padrón CRE.');
+  if(!confirm('Se cargará el padrón CRE desde GASO_MARKET_CSV_URL. Puede tardar varios minutos.')) return;
+  const d = await api('/gaso/market/ingest',{method:'POST',headers:headers(false)}); if(!d) return;
+  alert(`Padrón CRE cargado: ${d.rows_upserted || 0} estaciones. Rechazadas: ${d.rows_rejected || 0}.`);
+  await loadMarketMap();
+}
 
 async function loadSources(){
   const d=await api('/gaso/data-sources',{headers:headers(false)}); if(!d) return;
