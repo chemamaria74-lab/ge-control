@@ -85,7 +85,7 @@ def valid_coord(lat: float | None, lng: float | None) -> bool:
     return lat is not None and lng is not None and MX_LAT[0] <= lat <= MX_LAT[1] and MX_LNG[0] <= lng <= MX_LNG[1]
 
 
-def normalize_row(raw: dict[str, Any]) -> dict[str, Any] | None:
+def normalize_row(raw: dict[str, Any], source_url: str = "", source_period: str = "") -> dict[str, Any] | None:
     row = {norm_key(k): v for k, v in raw.items()}
     lat = to_float(pick(row, "lat"))
     lng = to_float(pick(row, "lng"))
@@ -112,6 +112,9 @@ def normalize_row(raw: dict[str, Any]) -> dict[str, Any] | None:
         "cne_status": str(pick(row, "cne_status", "vigente")).strip().lower() or "vigente",
         "fuente": RUN_SOURCE,
         "activa": True,
+        "last_seen_at": now,
+        "source_url": source_url,
+        "source_period": source_period,
         "updated_at": now,
         "data": data | {"ingested_at": now},
     }
@@ -133,10 +136,33 @@ def chunks(rows: list[dict[str, Any]], size: int = 500):
         yield rows[i : i + size]
 
 
+def price_snapshot_rows(stations: list[dict[str, Any]], run_id: int | None, source_period: str) -> list[dict[str, Any]]:
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for station in stations:
+        for producto, column in (("regular", "precio_regular"), ("premium", "precio_premium"), ("diesel", "precio_diesel")):
+            precio = float(station.get(column) or 0)
+            if precio <= 0:
+                continue
+            rows.append({
+                "ingestion_run_id": run_id,
+                "permiso_cre": station["permiso_cre"],
+                "producto": producto,
+                "precio": precio,
+                "fuente": RUN_SOURCE,
+                "source_period": source_period,
+                "observed_at": now,
+                "ingested_at": now,
+                "data": {"source_url": station.get("source_url", "")},
+            })
+    return rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--file", default="")
     parser.add_argument("--url", default=DEFAULT_SOURCE_URL)
+    parser.add_argument("--period", default=datetime.now(timezone.utc).strftime("%Y-%m"))
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -147,7 +173,7 @@ def main() -> None:
     rows: list[dict[str, Any]] = []
     rejected = 0
     for raw in reader:
-        item = normalize_row(raw)
+        item = normalize_row(raw, source_url=args.url or args.file, source_period=args.period)
         if not item:
             rejected += 1
             continue
@@ -171,13 +197,17 @@ def main() -> None:
         "rows_seen": len(rows) + rejected,
         "rows_valid": len(rows),
         "rows_rejected": rejected,
-        "data": {"url": args.url, "file": args.file},
+        "data": {"url": args.url, "file": args.file, "period": args.period},
     }
     run = sb.table("gaso_ingestion_runs").insert(run_row).execute().data or [run_row]
     run_id = run[0].get("id")
     try:
         for batch in chunks(rows):
             sb.table("gaso_market_stations").upsert(batch, on_conflict="permiso_cre").execute()
+        if run_id:
+            snapshots = price_snapshot_rows(rows, run_id, args.period)
+            for batch in chunks(snapshots):
+                sb.table("gaso_market_price_snapshots").insert(batch).execute()
         sb.table("gaso_ingestion_runs").update({
             "status": "success",
             "finished_at": datetime.now(timezone.utc).isoformat(),
