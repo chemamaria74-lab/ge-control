@@ -151,6 +151,12 @@ Checklist mínimo antes de vender:
 - CORS limitado a producción y localhost.
 - Headers básicos: nosniff, deny frame, referrer policy.
 
+### Eliminación Superadmin
+
+- **Eliminar seguro**: usa `delete_user_cascade_safe`; si hay historial legal/operativo requiere receptor Auth distinto al usuario eliminado.
+- **Eliminar usuario de prueba**: endpoint Superadmin `/api/admin-saas/users/{id}/test`. Solo permite ambiente `APP_ENV=staging|demo|dev|test`, `ALLOW_TEST_USER_DELETE=true`, o usuario marcado por email/nombre/empresa como `example`, `test`, `demo`, `prueba`, `dummy` o `sandbox`.
+- Limpia Auth, perfiles, settings, módulos, empresas dummy e internal users relacionados. No debe usarse para clientes reales.
+
 ## Gasolineras: Datos Reales
 
 Fuente recomendada: dataset público CRE/datos.gob.mx de estaciones de servicio y precios finales de gasolinas/diésel. La URL exacta puede cambiar, por eso se configura con `GASO_MARKET_CSV_URL`.
@@ -179,9 +185,10 @@ Estrategia:
 Scheduler diario:
 
 - Crear cron externo en Render Cron, GitHub Actions o Supabase scheduled function.
-- Frecuencia recomendada: diario 03:00 America/Cancun.
+- Frecuencia recomendada: cada 6 horas para precios o diario 03:00 America/Cancun para padrón base.
 - Comando: `uv run python scripts/ingest_gasolineras_market.py`.
 - Revisar `gaso_ingestion_runs` después de cada corrida.
+- Desde UI, un admin de Gasolineras ve el botón **Cargar padrón CRE** cuando no hay datos reales; llama `/api/gaso/market/ingest` usando `GASO_MARKET_CSV_URL`.
 
 Transparencia:
 

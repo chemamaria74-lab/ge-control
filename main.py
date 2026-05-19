@@ -1,9 +1,9 @@
 import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -34,6 +34,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def _public_error_detail(detail):
+    text = detail.get("message") if isinstance(detail, dict) else str(detail or "")
+    lower = text.lower()
+    if "transfer_user_id no puede ser el mismo" in lower:
+        return "El receptor debe ser un usuario diferente al usuario que vas a eliminar."
+    if "transfer_user_id no existe" in lower:
+        return "El receptor seleccionado no existe o no es un usuario Auth válido."
+    if any(p in lower for p in (
+        "p0001",
+        "duplicate key",
+        "violates unique constraint",
+        "foreign key constraint",
+        "postgrest",
+        "details",
+        "hint",
+        "null value in column",
+        "23505",
+        "23503",
+    )):
+        if "duplicate" in lower or "23505" in lower:
+            return "Ya existe un registro con esos datos. Revisa la información e intenta de nuevo."
+        if "foreign key" in lower or "23503" in lower:
+            return "Falta una relación requerida. Verifica empresa, usuario o tenant antes de continuar."
+        return "No se pudo completar la operación. Intenta de nuevo o contacta a soporte."
+    return text
+
 # ── Inicialización ────────────────────────────────────────────────────────────
 init_db()
 
@@ -49,6 +76,15 @@ app = FastAPI(
     description="Plataforma inteligente de control operativo para Gas LP, Transporte y Gasolineras.",
     version="3.5.0",
 )
+
+
+@app.exception_handler(HTTPException)
+async def clean_http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": _public_error_detail(exc.detail)},
+        headers=getattr(exc, "headers", None),
+    )
 
 # ── CORS seguro ───────────────────────────────────────────────────────────────
 # Dominio de producción fijo + localhost para desarrollo local.
