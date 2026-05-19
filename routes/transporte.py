@@ -1678,6 +1678,31 @@ def _operador_context(token_plain: str):
     return sb, acc
 
 
+def _operador_meta(sb, acc: dict) -> dict:
+    chofer = {}
+    empresa = {}
+    notificaciones = []
+    try:
+        rows = sb.table(_TBL_CHOFERES).select("id,nombre,rfc,licencia,telefono").eq("id", acc.get("chofer_id")).eq("user_id", acc.get("user_id")).limit(1).execute().data or []
+        chofer = rows[0] if rows else {}
+    except Exception:
+        chofer = {}
+    try:
+        if acc.get("perfil_id"):
+            rows = sb.table("perfiles_empresa").select("id,nombre,rfc").eq("id", acc.get("perfil_id")).limit(1).execute().data or []
+            empresa = rows[0] if rows else {}
+    except Exception:
+        empresa = {}
+    try:
+        q = sb.table(_TBL_NOTIFS).select("*").eq("user_id", acc.get("user_id")).order("created_at", desc=True).limit(5)
+        if acc.get("perfil_id"):
+            q = q.eq("perfil_id", acc.get("perfil_id"))
+        notificaciones = q.execute().data or []
+    except Exception:
+        notificaciones = []
+    return {"chofer": chofer, "empresa": empresa, "notificaciones": notificaciones}
+
+
 @router.get("/tr/operador/viajes")
 async def operador_viajes(token: str = Query(...)):
     sb, acc = _operador_context(token)
@@ -1694,7 +1719,17 @@ async def operador_viajes(token: str = Query(...)):
         v["productos"] = _productos_from_row(v)
         v["cfdi"] = cfdi_map.get(int(v.get("id") or 0), {})
         v["tiene_pdf_carta_porte"] = bool(v.get("uuid_cfdi") or v["cfdi"].get("uuid_sat"))
-    return JSONResponse({"ok": True, "viajes": viajes})
+    pending_docs = [v for v in viajes if not v.get("tiene_pdf_carta_porte")]
+    return JSONResponse({
+        "ok": True,
+        "viajes": viajes,
+        "meta": _operador_meta(sb, acc),
+        "resumen": {
+            "viajes_activos": len(viajes),
+            "documentos_pendientes": len(pending_docs),
+            "expires_at": acc.get("expires_at"),
+        },
+    })
 
 
 @router.get("/tr/operador/carta-aporte/tareas")

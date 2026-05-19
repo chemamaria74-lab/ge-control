@@ -16,7 +16,7 @@ from models.gasolineras_schemas import (
     GasoScoreRequest,
     GasoStationCreate,
 )
-from routes.auth import obtener_secciones_usuario, verify_token
+from routes.auth import obtener_acceso_modulo, obtener_secciones_usuario, verify_token
 from services.gasolineras_engine import (
     BRAND_BENCHMARKS,
     DATA_SOURCES,
@@ -32,7 +32,7 @@ from services.gasolineras_engine import (
     parse_sales_csv,
     valid_mx_coord,
 )
-from supabase_config import get_supabase_for_user
+from supabase_config import get_supabase_admin, get_supabase_for_user
 
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,10 @@ def _perfil_id(raw: str | None) -> int | None:
 
 def _sb(token: str):
     return get_supabase_for_user(token)
+
+
+def _role(uid: str, token: str) -> str:
+    return (obtener_acceso_modulo(uid, MODULO, access_token=token).get("role") or "user").lower()
 
 
 def _perfil_query(query, perfil_id: int | None):
@@ -360,6 +364,75 @@ async def market(
         "quality": _market_quality(rows),
         "coordinate_filter": {"lat": [14, 32], "lng": [-118, -87]},
     })
+
+
+@router.get("/gaso/market/status")
+async def market_status(authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    rows = _list_market(token)
+    last_run = None
+    try:
+        last = get_supabase_admin().table("gaso_ingestion_runs").select("*").order("started_at", desc=True).limit(1).execute().data or []
+        last_run = last[0] if last else None
+    except Exception:
+        last_run = None
+    return JSONResponse({
+        "ok": True,
+        "quality": _market_quality(rows),
+        "can_ingest": _role(uid, token) == "admin",
+        "csv_url_configured": bool(os.environ.get("GASO_MARKET_CSV_URL", "").strip()),
+        "last_run": last_run,
+    })
+
+
+@router.post("/gaso/market/ingest")
+async def ingest_market_from_config(authorization: str = Header(default="")):
+    uid, token = _auth(authorization)
+    if _role(uid, token) != "admin":
+        raise HTTPException(403, "Solo administradores pueden cargar el padrón CRE.")
+    url = os.environ.get("GASO_MARKET_CSV_URL", "").strip()
+    if not url:
+        raise HTTPException(400, "Falta configurar GASO_MARKET_CSV_URL con CSV oficial o espejo validado.")
+    try:
+        from scripts.ingest_gasolineras_market import chunks, normalize_row, read_csv_text
+        import csv
+        import io
+        text = read_csv_text(url=url)
+        rows, rejected, seen = [], 0, set()
+        for raw in csv.DictReader(io.StringIO(text)):
+            item = normalize_row(raw)
+            if not item:
+                rejected += 1
+                continue
+            key = item["permiso_cre"]
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(item)
+        sb = get_supabase_admin()
+        run = sb.table("gaso_ingestion_runs").insert({
+            "source": "CRE_DATOS_ABIERTOS",
+            "status": "running",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "rows_seen": len(rows) + rejected,
+            "rows_valid": len(rows),
+            "rows_rejected": rejected,
+            "data": {"url": url, "triggered_by": uid},
+        }).execute().data or []
+        run_id = run[0].get("id") if run else None
+        for batch in chunks(rows):
+            sb.table(TBL_MARKET).upsert(batch, on_conflict="permiso_cre").execute()
+        if run_id:
+            sb.table("gaso_ingestion_runs").update({
+                "status": "success",
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "rows_upserted": len(rows),
+            }).eq("id", run_id).execute()
+        return JSONResponse({"ok": True, "rows_upserted": len(rows), "rows_rejected": rejected})
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise _clean_error("ingest_market", e)
 
 
 @router.post("/gaso/prices")

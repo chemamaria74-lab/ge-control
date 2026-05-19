@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -16,11 +17,13 @@ from supabase_config import get_supabase_admin, get_supabase_for_user
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 ROLES = {"admin", "operador", "asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"}
 SECTIONS = {"transporte", "gas_lp", "gasolineras"}
 MAX_FAILED_ATTEMPTS = 5
 LOCK_MINUTES = 15
+SESSION_HOURS = 12
 
 
 class InternalUserCreate(BaseModel):
@@ -53,6 +56,10 @@ class InternalLogin(BaseModel):
     pin: str
 
 
+class InternalLogout(BaseModel):
+    token: str
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -80,6 +87,16 @@ def _verify_secret(value: str, stored: str) -> bool:
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _clean_code(value: str) -> str:
+    code = "".join(ch for ch in str(value or "").upper().strip() if ch.isalnum() or ch in {"-", "_"})
+    return code[:24]
+
+
+def _safe_internal_error(action: str, exc: Exception) -> HTTPException:
+    logger.exception("%s internal_user failed: %s", action, exc)
+    return HTTPException(500, "No se pudo completar la operación. Intenta de nuevo o contacta a soporte.")
 
 
 def _auth_admin(authorization: str) -> tuple[str, str]:
@@ -116,6 +133,66 @@ def _clean_payload(payload: InternalUserCreate) -> tuple[str, str, str]:
     return name, section, role
 
 
+def _candidate_code(section: str, tenant_id: str) -> str:
+    tenant_hint = str(tenant_id or "").replace("-", "")[:4].upper() or "GE"
+    return f"{section[:2].upper()}-{tenant_hint}-{secrets.token_hex(2).upper()}"
+
+
+def _create_unique_internal_user(sb, row: dict, requested_code: str = "") -> tuple[dict, str]:
+    """
+    Crea usuario interno evitando choques de unique constraint.
+    Si el admin capturó código manual, no se reemplaza silenciosamente: se responde limpio.
+    Si el código es auto, se reintenta con códigos nuevos dentro del mismo tenant/section.
+    """
+    manual = bool(requested_code)
+    last_exc: Exception | None = None
+    for attempt in range(8):
+        if not manual:
+            row["code"] = _candidate_code(row["section"], row["tenant_id"])
+        try:
+            created = sb.table("internal_users").insert(row).execute().data or [row]
+            return created[0], row["code"]
+        except Exception as exc:
+            last_exc = exc
+            text = str(exc).lower()
+            duplicated = "duplicate" in text or "unique" in text or "23505" in text
+            if manual or not duplicated:
+                break
+    if manual:
+        raise HTTPException(409, "Ese código ya existe para esta empresa/módulo. Usa otro código o deja Auto.")
+    raise _safe_internal_error("create", last_exc or Exception("unknown create error"))
+
+
+def _internal_session(token_plain: str, section: str | None = None) -> dict:
+    if not token_plain:
+        raise HTTPException(401, "Sesión requerida.")
+    sb = get_supabase_admin()
+    token_hash = _hash_token(token_plain)
+    rows = (
+        sb.table("internal_user_sessions")
+        .select("*, internal_users(*)")
+        .eq("token_hash", token_hash)
+        .limit(1)
+        .execute()
+        .data or []
+    )
+    if not rows:
+        raise HTTPException(401, "Sesión inválida o expirada.")
+    session = rows[0]
+    if section and (session.get("section") or "") != section:
+        raise HTTPException(403, "Sesión no corresponde a este módulo.")
+    try:
+        expires_at = datetime.fromisoformat(str(session.get("expires_at")).replace("Z", "+00:00"))
+    except Exception:
+        raise HTTPException(401, "Sesión inválida o expirada.")
+    if expires_at <= _now():
+        raise HTTPException(401, "Sesión expirada.")
+    user = session.get("internal_users") or {}
+    if (user.get("status") or "active") != "active":
+        raise HTTPException(403, "Usuario interno inactivo.")
+    return {"session": session, "user": user}
+
+
 @router.get("/internal-users")
 async def list_internal_users(
     section: Optional[str] = None,
@@ -141,7 +218,8 @@ async def create_internal_user(payload: InternalUserCreate, authorization: str =
     admin_uid, token = _auth_admin(authorization)
     tenant_id = _tenant_id_for_user(admin_uid, access_token=token)
     name, section, role = _clean_payload(payload)
-    code = (payload.code or "").strip().upper() or f"{section[:2].upper()}-{secrets.token_hex(3).upper()}"
+    requested_code = _clean_code(payload.code or "")
+    code = requested_code or _candidate_code(section, tenant_id)
     temp_pin = (payload.pin or "").strip() or f"{secrets.randbelow(900000) + 100000}"
     row = {
         "tenant_id": tenant_id,
@@ -160,10 +238,11 @@ async def create_internal_user(payload: InternalUserCreate, authorization: str =
         "updated_at": _now_iso(),
     }
     try:
-        created = get_supabase_for_user(token).table("internal_users").insert(row).execute().data or [row]
+        response, code = _create_unique_internal_user(get_supabase_for_user(token), row, requested_code)
     except Exception as e:
-        raise HTTPException(500, f"No se pudo crear usuario interno: {e}")
-    response = created[0]
+        if isinstance(e, HTTPException):
+            raise
+        raise _safe_internal_error("create", e)
     response.pop("pin_hash", None)
     return JSONResponse({"ok": True, "user": response, "temporary_pin": temp_pin})
 
@@ -175,10 +254,13 @@ async def update_internal_user_status(internal_user_id: int, payload: InternalUs
     status = (payload.status or "").strip().lower()
     if status not in {"active", "inactive", "locked"}:
         raise HTTPException(400, "Estatus inválido.")
-    get_supabase_for_user(token).table("internal_users").update({
-        "status": status,
-        "updated_at": _now_iso(),
-    }).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+    try:
+        get_supabase_for_user(token).table("internal_users").update({
+            "status": status,
+            "updated_at": _now_iso(),
+        }).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+    except Exception as e:
+        raise _safe_internal_error("status", e)
     return JSONResponse({"ok": True})
 
 
@@ -197,7 +279,10 @@ async def update_internal_user(internal_user_id: int, payload: InternalUserUpdat
         if not name:
             raise HTTPException(400, "Nombre requerido.")
         data["display_name"] = name
-    get_supabase_for_user(token).table("internal_users").update(data).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+    try:
+        get_supabase_for_user(token).table("internal_users").update(data).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+    except Exception as e:
+        raise _safe_internal_error("update", e)
     return JSONResponse({"ok": True})
 
 
@@ -206,13 +291,16 @@ async def reset_internal_pin(internal_user_id: int, payload: InternalResetPin, a
     admin_uid, token = _auth_admin(authorization)
     tenant_id = _tenant_id_for_user(admin_uid, access_token=token)
     temp_pin = (payload.pin or "").strip() or f"{secrets.randbelow(900000) + 100000}"
-    get_supabase_for_user(token).table("internal_users").update({
-        "pin_hash": _hash_secret(temp_pin),
-        "failed_attempts": 0,
-        "locked_until": None,
-        "status": "active",
-        "updated_at": _now_iso(),
-    }).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+    try:
+        get_supabase_for_user(token).table("internal_users").update({
+            "pin_hash": _hash_secret(temp_pin),
+            "failed_attempts": 0,
+            "locked_until": None,
+            "status": "active",
+            "updated_at": _now_iso(),
+        }).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+    except Exception as e:
+        raise _safe_internal_error("reset_pin", e)
     return JSONResponse({"ok": True, "temporary_pin": temp_pin})
 
 
@@ -221,15 +309,20 @@ async def delete_internal_user_safe(internal_user_id: int, authorization: str = 
     admin_uid, token = _auth_admin(authorization)
     tenant_id = _tenant_id_for_user(admin_uid, access_token=token)
     sb = get_supabase_for_user(token)
-    sessions = sb.table("internal_user_sessions").select("id", count="exact").eq("internal_user_id", internal_user_id).limit(1).execute()
-    has_history = bool(getattr(sessions, "count", 0) or (sessions.data or []))
-    if has_history:
-        sb.table("internal_users").update({
-            "status": "inactive",
-            "updated_at": _now_iso(),
-        }).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
-        raise HTTPException(409, "Este usuario interno ya tiene historial de acceso. Se desactivó, no se eliminó.")
-    sb.table("internal_users").delete().eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+    try:
+        sessions = sb.table("internal_user_sessions").select("id", count="exact").eq("internal_user_id", internal_user_id).limit(1).execute()
+        has_history = bool(getattr(sessions, "count", 0) or (sessions.data or []))
+        if has_history:
+            sb.table("internal_users").update({
+                "status": "inactive",
+                "updated_at": _now_iso(),
+            }).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+            raise HTTPException(409, "Este usuario interno ya tiene historial de acceso. Se desactivó, no se eliminó.")
+        sb.table("internal_users").delete().eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise _safe_internal_error("delete", e)
     return JSONResponse({"ok": True})
 
 
@@ -240,10 +333,12 @@ async def internal_login(payload: InternalLogin):
     if section not in SECTIONS or not code or not payload.pin:
         raise HTTPException(400, "Código, PIN y módulo son obligatorios.")
     sb = get_supabase_admin()
-    rows = sb.table("internal_users").select("*").eq("section", section).eq("code", code).limit(1).execute().data or []
+    rows = sb.table("internal_users").select("*").eq("section", section).eq("code", code).limit(20).execute().data or []
     if not rows:
         raise HTTPException(401, "Código o PIN inválido.")
-    user = rows[0]
+    user = next((row for row in rows if _verify_secret(payload.pin, row.get("pin_hash") or "")), None)
+    if not user:
+        user = rows[0]
     if (user.get("status") or "active") != "active":
         raise HTTPException(403, "Usuario interno inactivo.")
     locked_until = user.get("locked_until")
@@ -263,7 +358,7 @@ async def internal_login(payload: InternalLogin):
         raise HTTPException(401, "Código o PIN inválido.")
 
     session_token = secrets.token_urlsafe(32)
-    expires_at = _now() + timedelta(hours=12)
+    expires_at = _now() + timedelta(hours=SESSION_HOURS)
     sb.table("internal_user_sessions").insert({
         "internal_user_id": user["id"],
         "tenant_id": user.get("tenant_id"),
@@ -290,6 +385,8 @@ async def internal_login(payload: InternalLogin):
         "role": user.get("role"),
         "perfil_id": user.get("perfil_id"),
         "display_name": user.get("display_name"),
+        "tenant_id": user.get("tenant_id"),
+        "permissions": user.get("permissions") or {},
     }
     if section == "transporte" and user.get("role") == "operador" and user.get("chofer_id"):
         operator_token = secrets.token_urlsafe(24)
@@ -303,3 +400,69 @@ async def internal_login(payload: InternalLogin):
         }).execute()
         result["operator_url"] = f"/operador/transporte?token={operator_token}"
     return JSONResponse(result)
+
+
+@router.get("/internal-auth/me")
+async def internal_me(token: str, section: str | None = None):
+    ctx = _internal_session(token, section)
+    user = ctx["user"]
+    session = ctx["session"]
+    return JSONResponse({
+        "ok": True,
+        "section": user.get("section"),
+        "role": user.get("role"),
+        "display_name": user.get("display_name"),
+        "perfil_id": user.get("perfil_id"),
+        "tenant_id": user.get("tenant_id"),
+        "permissions": user.get("permissions") or {},
+        "expires_at": session.get("expires_at"),
+    })
+
+
+@router.post("/internal-auth/logout")
+async def internal_logout(payload: InternalLogout):
+    if payload.token:
+        try:
+            get_supabase_admin().table("internal_user_sessions").delete().eq("token_hash", _hash_token(payload.token)).execute()
+        except Exception as e:
+            logger.warning("internal logout failed: %s", e)
+    return JSONResponse({"ok": True})
+
+
+@router.get("/internal-auth/gas-lp/summary")
+async def gas_lp_internal_summary(token: str):
+    ctx = _internal_session(token, "gas_lp")
+    user = ctx["user"]
+    role = user.get("role") or "solo_lectura"
+    role_modules = {
+        "asistente_facturacion": [
+            {"key": "facturacion", "title": "Facturación", "desc": "CFDI, XML, Excel y reportes fiscales permitidos."},
+            {"key": "xml_excel", "title": "XML / Excel", "desc": "Carga y validación de archivos operativos."},
+        ],
+        "asistente_operativo": [
+            {"key": "operacion", "title": "Operación", "desc": "Seguimiento operativo y datos de entregas."},
+            {"key": "consulta", "title": "Consultas", "desc": "Consulta de registros del periodo."},
+        ],
+        "planta": [
+            {"key": "planta", "title": "Captura de planta", "desc": "Inventario, composición y capturas operativas de planta."},
+        ],
+        "solo_lectura": [
+            {"key": "reportes", "title": "Consulta y reportes", "desc": "Lectura de reportes, historial y métricas sin edición."},
+        ],
+    }
+    modules = role_modules.get(role, role_modules["solo_lectura"])
+    return JSONResponse({
+        "ok": True,
+        "assistant": {
+            "display_name": user.get("display_name"),
+            "role": role,
+            "perfil_id": user.get("perfil_id"),
+            "tenant_id": user.get("tenant_id"),
+        },
+        "modules": modules,
+        "session": {"expires_at": ctx["session"].get("expires_at"), "hours": SESSION_HOURS},
+        "notices": [
+            "Este portal no usa cuenta global Supabase Auth.",
+            "Los permisos se limitan por empresa, módulo y rol interno.",
+        ],
+    })

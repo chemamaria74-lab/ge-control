@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import logging
+import re
 import secrets
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -15,10 +17,21 @@ from supabase_config import get_supabase_admin, get_supabase_for_user
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 SECTIONS = {"transporte", "gas_lp", "gasolineras"}
 ROLES = {"admin", "user", "operador", "asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"}
 SUB_STATUSES = {"active", "trialing", "past_due", "canceled", "expired"}
+RAW_ERROR_PATTERNS = (
+    "p0001",
+    "duplicate key",
+    "violates unique constraint",
+    "foreign key constraint",
+    "null value in column",
+    "details",
+    "hint",
+    "postgrest",
+)
 
 
 class TenantPayload(BaseModel):
@@ -111,6 +124,42 @@ DEFAULT_LIMITS_JSON = {
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _clean_error_message(exc: Exception | str, fallback: str = "No se pudo completar la operación.") -> str:
+    text = str(exc or "")
+    lower = text.lower()
+    if "transfer_user_id no puede ser el mismo" in lower:
+        return "El receptor debe ser un usuario diferente al usuario que vas a eliminar."
+    if "transfer_user_id no existe" in lower:
+        return "El receptor seleccionado no existe o no es un usuario Auth válido."
+    if "requiere transfer" in lower or "proporciona transfer_user_id" in lower:
+        return "Este usuario tiene historial o empresas. Selecciona un receptor válido o usa eliminación de prueba si aplica."
+    if "duplicate" in lower or "unique" in lower or "23505" in lower:
+        return "Ya existe un registro con esos datos. Revisa código, RFC, empresa o módulo e intenta de nuevo."
+    if "foreign key" in lower or "23503" in lower:
+        return "Falta una relación requerida. Valida tenant, usuario propietario y empresa antes de guardar."
+    if "invalid input syntax" in lower or "22p02" in lower:
+        return "Uno de los identificadores no tiene formato válido."
+    if any(p in lower for p in RAW_ERROR_PATTERNS):
+        return fallback
+    return text[:240] if text else fallback
+
+
+def _clean_http_error(status: int, exc: Exception | str, fallback: str) -> HTTPException:
+    logger.exception("%s: %s", fallback, exc)
+    return HTTPException(status, _clean_error_message(exc, fallback))
+
+
+def _normalize_rfc(value: str | None) -> str:
+    rfc = re.sub(r"[^A-Z0-9Ñ&]", "", str(value or "").upper())
+    if rfc and not re.match(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$", rfc):
+        raise HTTPException(400, "RFC inválido. Usa formato SAT de 12 o 13 caracteres.")
+    return rfc
+
+
+def _is_demo_env() -> bool:
+    return os.environ.get("APP_ENV", "").lower() in {"staging", "demo", "development", "dev", "test"} or os.environ.get("ALLOW_TEST_USER_DELETE", "").lower() in {"1", "true", "yes"}
 
 
 def _allowed_values(env_name: str) -> set[str]:
@@ -345,6 +394,8 @@ def _inspect_user(identifier: str) -> dict:
 
 
 def _delete_user_cascade_safe_rpc(target_user_id: str, actor_user_id: str, confirm: bool, transfer_user_id: str | None = None) -> dict:
+    if transfer_user_id and str(transfer_user_id) == str(target_user_id):
+        raise HTTPException(400, "El receptor debe ser un usuario diferente al usuario que vas a eliminar.")
     try:
         res = _sb_admin().rpc("delete_user_cascade_safe", {
             "p_target_user_id": target_user_id,
@@ -359,13 +410,134 @@ def _delete_user_cascade_safe_rpc(target_user_id: str, actor_user_id: str, confi
                 501,
                 "Falta aplicar la migración admin_saas_delete_user_cascade_safe_20260518.sql en Supabase.",
             )
-        raise HTTPException(500, f"No se pudo ejecutar eliminación transaccional: {e}")
+        raise _clean_http_error(500, e, "No se pudo ejecutar la eliminación transaccional.")
     data = res.data
     if isinstance(data, list):
         data = data[0] if data else {}
     if not isinstance(data, dict):
         data = {"ok": True, "result": data}
     return data
+
+
+def _valid_transfer_receivers(target_user_id: str, tenant_ids: list[str]) -> list[dict]:
+    users = _auth_users_by_id()
+    sections = []
+    try:
+        q = _sb_admin().table("user_sections").select("user_id, tenant_id, section, role, status")
+        if tenant_ids:
+            q = q.in_("tenant_id", tenant_ids)
+        sections = q.execute().data or []
+    except Exception:
+        sections = []
+    ids = []
+    for row in sections:
+        uid = str(row.get("user_id") or "")
+        if uid and uid != str(target_user_id) and uid not in ids:
+            ids.append(uid)
+    if not ids:
+        ids = [uid for uid in users.keys() if uid != str(target_user_id)]
+    return [
+        {
+            "user_id": uid,
+            "email": users.get(uid, {}).get("email", ""),
+            "display_name": users.get(uid, {}).get("display_name", ""),
+        }
+        for uid in ids[:100]
+    ]
+
+
+def _is_test_user(inspection: dict) -> bool:
+    user = inspection.get("auth_user") or {}
+    email = str(user.get("email") or "").lower()
+    names = " ".join(
+        [str(user.get("display_name") or "")]
+        + [str(p.get("nombre") or "") for p in inspection.get("perfiles") or []]
+    ).lower()
+    tenant_text = " ".join(str(t) for t in inspection.get("tenant_ids") or []).lower()
+    markers = ("example", "test", "demo", "prueba", "dummy", "sandbox")
+    return any(m in email or m in names or m in tenant_text for m in markers)
+
+
+def _delete_from_table(sb, table: str, column: str, value: Any) -> int:
+    try:
+        res = sb.table(table).delete().eq(column, value).execute()
+        return len(res.data or [])
+    except Exception as exc:
+        logger.info("delete test skip %s.%s: %s", table, column, exc)
+        return 0
+
+
+def _delete_test_user_local(target_user_id: str, actor_id: str) -> dict:
+    inspection = _inspect_user(target_user_id)
+    if not (_is_demo_env() or _is_test_user(inspection)):
+        raise HTTPException(403, "La eliminación de prueba solo aplica en staging/demo o para usuarios marcados como test/example/demo.")
+    sb = _sb_admin()
+    perfil_ids = inspection.get("perfil_ids") or []
+    tenant_ids = inspection.get("tenant_ids") or []
+    deleted: dict[str, int] = {}
+    perfil_tables = [
+        "internal_user_sessions",
+        "user_facilities",
+        "providers",
+        "records",
+        "reports",
+        "movimientos",
+        "gaso_precio_historico",
+        "gaso_cfdi_compras",
+        "gaso_ventas",
+        "gaso_alertas",
+        "gaso_estaciones",
+        "tr_viaje_documentos",
+        "tr_viaje_eventos",
+        "tr_gastos_viaje",
+        "tr_liquidaciones",
+        "tr_facturas_servicio",
+        "tr_cfdi",
+        "tr_viajes",
+        "tr_choferes",
+        "tr_vehiculos",
+        "tr_rutas",
+        "tr_clientes",
+        "tr_settings",
+    ]
+    for pid in perfil_ids:
+        for table in perfil_tables:
+            n = _delete_from_table(sb, table, "perfil_id", pid)
+            if n:
+                deleted[table] = deleted.get(table, 0) + n
+    user_tables = [
+        "internal_user_sessions",
+        "internal_users",
+        "user_sections",
+        "user_licenses",
+        "zc_settings",
+        "settings_audit",
+        "gaso_settings",
+        "tr_settings",
+        "perfiles_empresa",
+    ]
+    for table in user_tables:
+        column = "owner_user_id" if table == "internal_users" else "user_id"
+        n = _delete_from_table(sb, table, column, target_user_id)
+        if n:
+            deleted[table] = deleted.get(table, 0) + n
+    for tid in tenant_ids:
+        for table in ("subscriptions", "companies", "tenants"):
+            n = _delete_from_table(sb, table, "tenant_id" if table != "tenants" else "id", tid)
+            if n:
+                deleted[table] = deleted.get(table, 0) + n
+    auth_deleted = False
+    try:
+        admin = sb.auth.admin
+        if hasattr(admin, "delete_user"):
+            admin.delete_user(target_user_id)
+        else:
+            admin.delete_user_by_id(target_user_id)
+        auth_deleted = True
+    except Exception as exc:
+        raise _clean_http_error(500, exc, "Se limpiaron datos relacionados, pero no se pudo eliminar el usuario Auth.")
+    _audit(actor_id, "delete_test_user", "user", target_user_id, {"deleted": deleted, "auth_deleted": auth_deleted})
+    return {"deleted": deleted, "auth_deleted": auth_deleted, "inspection_before": inspection}
 
 
 def _load_admin_snapshot() -> dict:
@@ -685,32 +857,59 @@ async def list_companies(tenant_id: Optional[str] = None, authorization: str = H
 @router.post("/admin-saas/companies")
 async def create_company(payload: CompanyPayload, authorization: str = Header(default="")):
     uid, _, _ = _require_superadmin(authorization)
-    user_id = payload.user_id
-    if not user_id:
-        sections = _sb_admin().table("user_sections").select("user_id").eq("tenant_id", payload.tenant_id).limit(1).execute().data or []
+    sb = _sb_admin()
+    tenant_id = str(payload.tenant_id or "").strip()
+    nombre = (payload.nombre or "").strip()
+    rfc = _normalize_rfc(payload.rfc)
+    if not tenant_id:
+        raise HTTPException(400, "tenant_id requerido.")
+    if not nombre:
+        raise HTTPException(400, "Nombre de empresa requerido.")
+    tenants = sb.table("tenants").select("id").eq("id", tenant_id).limit(1).execute().data or []
+    if not tenants:
+        raise HTTPException(400, "El tenant_id no existe. Crea o selecciona un cliente válido.")
+    user_id = (payload.user_id or "").strip()
+    if user_id:
+        user_id = _resolve_user_identifier(user_id)
+    else:
+        sections = sb.table("user_sections").select("user_id").eq("tenant_id", tenant_id).limit(1).execute().data or []
         user_id = sections[0]["user_id"] if sections else None
     if not user_id:
         raise HTTPException(400, "user_id requerido si el tenant aún no tiene usuarios.")
+    owner_sections = sb.table("user_sections").select("tenant_id").eq("user_id", user_id).eq("tenant_id", tenant_id).limit(1).execute().data or []
+    if not owner_sections:
+        raise HTTPException(400, "El usuario propietario no pertenece a ese tenant.")
     row = {
         "user_id": user_id,
-        "tenant_id": payload.tenant_id,
-        "nombre": payload.nombre.strip(),
-        "rfc": (payload.rfc or "").strip().upper(),
+        "tenant_id": tenant_id,
+        "nombre": nombre,
+        "rfc": rfc,
         "descripcion": payload.descripcion or "",
         "activo": payload.active,
         "created_at": _now(),
         "updated_at": _now(),
     }
-    res = _sb_admin().table("perfiles_empresa").insert(row).execute()
-    profile = (res.data or [row])[0]
-    _sb_admin().table("companies").upsert({
-        "id": profile["id"],
-        "tenant_id": payload.tenant_id,
-        "name": profile["nombre"],
-        "rfc": profile["rfc"],
-        "active": payload.active,
-        "updated_at": _now(),
-    }, on_conflict="id").execute()
+    profile = None
+    try:
+        res = sb.table("perfiles_empresa").insert(row).execute()
+        profile = (res.data or [row])[0]
+        if not profile.get("id"):
+            raise RuntimeError("Supabase no devolvió el id del perfil creado.")
+        sb.table("companies").upsert({
+            "id": profile["id"],
+            "tenant_id": tenant_id,
+            "name": profile["nombre"],
+            "rfc": profile["rfc"],
+            "active": payload.active,
+            "updated_at": _now(),
+        }, on_conflict="id").execute()
+    except Exception as exc:
+        if profile and profile.get("id"):
+            try:
+                sb.table("perfiles_empresa").delete().eq("id", profile["id"]).execute()
+            except Exception:
+                logger.warning("rollback create_company failed profile=%s", profile.get("id"))
+        raise _clean_http_error(500, exc, "No se pudo crear la empresa sin dejar datos parciales.")
     _audit(uid, "create_company", "perfil", str(profile.get("id")), profile)
     return JSONResponse({"ok": True, "company": profile})
 
@@ -855,6 +1054,9 @@ async def preview_saas_user_delete(target_user_id: str, authorization: str = Hea
     uid, _, _ = _require_superadmin(authorization)
     resolved = _resolve_user_identifier(target_user_id)
     preview = _delete_user_cascade_safe_rpc(resolved, uid, confirm=False)
+    inspection = _inspect_user(resolved)
+    preview["test_delete_allowed"] = _is_demo_env() or _is_test_user(inspection)
+    preview["valid_receivers"] = _valid_transfer_receivers(resolved, inspection.get("tenant_ids") or [])
     _audit(uid, "preview_delete_user_cascade_safe", "user", resolved, {
         "counts": preview.get("counts", {}),
         "user": preview.get("user", {}),
@@ -871,6 +1073,8 @@ async def delete_saas_user_safe(
     uid, _, _ = _require_superadmin(authorization)
     resolved = _resolve_user_identifier(target_user_id)
     transfer_resolved = _resolve_user_identifier(transfer_user_id) if transfer_user_id else None
+    if transfer_resolved and transfer_resolved == resolved:
+        raise HTTPException(400, "El receptor debe ser un usuario diferente al usuario que vas a eliminar.")
     result = _delete_user_cascade_safe_rpc(resolved, uid, confirm=True, transfer_user_id=transfer_resolved)
     verification = _delete_user_cascade_safe_rpc(resolved, uid, confirm=False)
     allowed_preserved = {"storage_objects"}
@@ -885,6 +1089,16 @@ async def delete_saas_user_safe(
             "result": result,
         })
     return JSONResponse({"ok": True, "result": result, "verification": verification})
+
+
+@router.delete("/admin-saas/users/{target_user_id}/test")
+async def delete_saas_test_user(target_user_id: str, authorization: str = Header(default="")):
+    uid, _, _ = _require_superadmin(authorization)
+    resolved = _resolve_user_identifier(target_user_id)
+    if resolved == uid and not _is_demo_env():
+        raise HTTPException(400, "No puedes eliminar tu propio usuario fuera de ambiente demo/staging.")
+    result = _delete_test_user_local(resolved, uid)
+    return JSONResponse({"ok": True, "result": result})
 
 
 @router.post("/admin-saas/internal-users/{internal_user_id}/status")
