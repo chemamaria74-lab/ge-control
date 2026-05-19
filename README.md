@@ -165,13 +165,13 @@ Pipeline:
 
 ```bash
 GASO_MARKET_CSV_URL="https://..." uv run python scripts/ingest_gasolineras_market.py
-uv run python scripts/ingest_gasolineras_market.py --file /tmp/cre.csv --dry-run
+uv run python scripts/ingest_gasolineras_market.py --file /tmp/cre.csv --period 2026-05 --dry-run
 ```
 
 Tablas:
 
-- `gaso_market_stations`: padrón nacional normalizado.
-- `gaso_market_price_snapshots`: histórico por permiso/producto.
+- `gaso_market_stations`: padrón nacional normalizado con `last_seen_at`, `source_url` y `source_period`.
+- `gaso_market_price_snapshots`: histórico por permiso/producto/periodo.
 - `gaso_ingestion_runs`: bitácora de ingesta.
 
 Estrategia:
@@ -179,6 +179,7 @@ Estrategia:
 - Upsert por `permiso_cre`.
 - Validación de coordenadas México.
 - Deduplicación por permiso.
+- Refresh mensual/manual o cada 6 horas si la fuente trae precios recientes.
 - Búsqueda por bbox/limit en `/api/gaso/market`.
 - Frontend usa carga lazy limitada, proyección nacional/regional/local y clustering simple.
 
@@ -186,7 +187,7 @@ Scheduler diario:
 
 - Crear cron externo en Render Cron, GitHub Actions o Supabase scheduled function.
 - Frecuencia recomendada: cada 6 horas para precios o diario 03:00 America/Cancun para padrón base.
-- Comando: `uv run python scripts/ingest_gasolineras_market.py`.
+- Comando: `uv run python scripts/ingest_gasolineras_market.py --period YYYY-MM`.
 - Revisar `gaso_ingestion_runs` después de cada corrida.
 - Desde UI, un admin de Gasolineras ve el botón **Cargar padrón CRE** cuando no hay datos reales; llama `/api/gaso/market/ingest` usando `GASO_MARKET_CSV_URL`.
 
