@@ -205,7 +205,13 @@ async def choice_view():
 async def admin_saas_view():
     """Panel interno de operación SaaS. La protección real vive en /api/admin-saas/*."""
     with open(os.path.join(BASE_DIR, "templates", "admin_saas.html"), encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+        html = f.read()
+    html = html.replace(
+        '<link rel="stylesheet" href="/static/css/ge-brand.css">',
+        '<link rel="stylesheet" href="/static/css/ge-brand.css">\n  <link rel="stylesheet" href="/static/css/admin_saas_ops.css">',
+    )
+    html = html.replace("</body>", '  <script src="/static/js/admin_saas_ops.js"></script>\n</body>')
+    return HTMLResponse(content=html)
 
 
 @app.get("/login/{modulo}", response_class=HTMLResponse, include_in_schema=False)
