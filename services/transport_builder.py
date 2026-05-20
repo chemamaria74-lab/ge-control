@@ -61,9 +61,26 @@ def _fmt_fecha(iso: str) -> str:
         return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def _nuevo_uuid() -> str:
-    """UUID v4 en minúsculas — formato RFC 4122 que exige Carta Porte 3.1."""
-    return str(_uuid_mod.uuid4()).lower()
+def _nuevo_id_ccp() -> str:
+    """IdCCP Carta Porte 3.1: prefijo CCC + 32 hex sin guiones."""
+    return "CCC" + _uuid_mod.uuid4().hex.lower()
+
+
+def _normalizar_id_ccp(value: Optional[str]) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return _nuevo_id_ccp()
+    if raw.upper().startswith("CCC"):
+        hex_part = raw[3:].replace("-", "").lower()
+    else:
+        hex_part = raw.replace("-", "").lower()
+    if len(hex_part) != 32:
+        raise ValueError("IdCCP debe tener formato CCC + 32 caracteres hexadecimales.")
+    try:
+        int(hex_part, 16)
+    except ValueError as exc:
+        raise ValueError("IdCCP contiene caracteres inválidos.") from exc
+    return "CCC" + hex_part
 
 
 def _smart_round(v: float, decimales: int = 2) -> str:
@@ -149,6 +166,7 @@ def _build_carta_porte(
     vehiculo:   dict,
     id_ccp:     str,
     productos:  list[ProductoTransporte],
+    emisor_rfc: str,
 ) -> dict:
     """
     Construye el nodo CartaPorte versión 3.1.
@@ -227,7 +245,7 @@ def _build_carta_porte(
         {
             "TipoUbicacion":    "Origen",
             "IDUbicacion":      "OR000001",
-            "RFCRemitenteDestinatario": "",
+            "RFCRemitenteDestinatario": emisor_rfc,
             "FechaHoraSalidaLlegada":  fecha_salida,
             "Domicilio": {
                 "CodigoPostal": cp_origen,
@@ -292,7 +310,7 @@ def build_cfdi_transporte(
         ValueError: Si algún dato crítico es inválido antes de construir el XML.
     """
     # ── Generar IdCCP ─────────────────────────────────────────────────────────
-    ccp = id_ccp or _nuevo_uuid()
+    ccp = _normalizar_id_ccp(id_ccp)
 
     # ── Validar permiso CNE del emisor ────────────────────────────────────────
     num_permiso = (viaje.num_permiso_cne or emisor.get("num_permiso_cne", "")).strip()
@@ -337,7 +355,14 @@ def build_cfdi_transporte(
         }
 
     # ── Complemento Carta Porte ───────────────────────────────────────────────
-    carta_porte_dict = _build_carta_porte(viaje, chofer, vehiculo, ccp, productos)
+    carta_porte_dict = _build_carta_porte(
+        viaje,
+        chofer,
+        vehiculo,
+        ccp,
+        productos,
+        emisor.get("rfc", "").strip().upper(),
+    )
 
     # ── Nodo Comprobante raíz ──────────────────────────────────────────────────
     cfdi: dict = {
