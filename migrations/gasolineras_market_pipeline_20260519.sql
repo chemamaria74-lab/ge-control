@@ -32,6 +32,9 @@ create table if not exists public.gaso_market_price_snapshots (
   data jsonb not null default '{}'::jsonb
 );
 
+alter table if exists public.gaso_market_price_snapshots
+  add column if not exists source_period text not null default '';
+
 create index if not exists idx_gaso_market_price_permiso_producto
   on public.gaso_market_price_snapshots (permiso_cre, producto, observed_at desc);
 
