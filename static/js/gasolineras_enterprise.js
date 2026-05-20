@@ -211,6 +211,7 @@
         return result;
       };
     }
+    enhanceDashboardFromSummary({kpis:{}, market:{quality:{is_real:false, source:"empty"}}});
     setTimeout(async () => {
       await hydratePerfil();
       try{
