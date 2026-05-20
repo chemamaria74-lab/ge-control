@@ -4,10 +4,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from lxml import etree
+import re
 
 
 PRODUCTOS_HIDROCARBUROS = {"PR05", "PR06", "PR07", "PR08", "PR09", "PR10", "PR12", "PR13", "PR16", "PR17", "PR01", "PR03"}
 PRODUCTOS_PETROLIFEROS_MAS_COMUNES = {"PR05", "PR06", "PR07", "PR08", "PR09", "PR10", "PR13", "PR16", "PR17", "PR03"}
+ID_CCP_RE = re.compile(r"^CCC[0-9a-fA-F]{32}$")
 
 
 @dataclass
@@ -74,6 +76,8 @@ def validar_xml_carta_porte_transporte(
             errors.append(f"Carta Porte debe ser versión 3.1; XML trae '{_attr(carta, 'Version') or 'vacío'}'.")
         if not _attr(carta, "IdCCP"):
             errors.append("Carta Porte no contiene IdCCP.")
+        elif not ID_CCP_RE.match(_attr(carta, "IdCCP")):
+            errors.append("IdCCP debe tener formato CCC + 32 caracteres hexadecimales sin guiones.")
         if _attr(carta, "TranspInternac") == "":
             errors.append("Carta Porte no contiene TranspInternac.")
         if not _attr(carta, "TotalDistRec"):
