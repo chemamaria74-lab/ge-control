@@ -263,6 +263,53 @@ async def frontend(lang: str = "es"):
     """Sirve app.html e inyecta el idioma en la etiqueta html."""
     with open(os.path.join(BASE_DIR, "templates", "app.html"), encoding="utf-8") as f:
         html = f.read()
+    html = html.replace(
+        """<header>
+  <img src="/static/img/ge-isotype-light.svg" alt="GE" class="brand-logo-mark">
+  <h1>Gas LP</h1>
+  <span class="badge badge-blue" id="moduleBadge">Gas LP</span>
+  <span class="badge badge-green">v3.0</span>
+  <!-- Selector multi-empresa (visible solo cuando hay sesión) -->
+  <div id="empresaSwitcher" class="empresa-switcher" style="display:none" onclick="mostrarSelectorEmpresas()" title="Cambiar razón social">
+    <i class="fa-solid fa-building empresa-switcher-icon"></i>
+    <span class="empresa-switcher-name" id="empresaSwitcherName">—</span>
+    <i class="fa-solid fa-chevron-down empresa-switcher-arrow"></i>
+  </div>
+  <div class="user-chip" id="userChip" style="display:none">
+    <span id="userDisplayName"></span>
+    <button class="btn-logout" id="btnLogout">Salir</button>
+  </div>
+</header>""",
+        """<header>
+  <img src="/static/img/ge-isotype-light.svg" alt="GE" class="brand-logo-mark">
+  <h1>Gas LP</h1>
+  <span class="badge badge-blue module" id="moduleBadge"><i class="fa-solid fa-fire-flame-simple"></i> Gas LP</span>
+  <span class="badge badge-green">v3.0</span>
+  <div class="topbar-right">
+    <div id="empresaSwitcher" class="empresa-switcher" style="display:none" onclick="mostrarSelectorEmpresas()" title="Cambiar razón social">
+      <i class="fa-solid fa-building empresa-switcher-icon"></i>
+      <span class="empresa-switcher-name" id="empresaSwitcherName">—</span>
+      <i class="fa-solid fa-chevron-down empresa-switcher-arrow"></i>
+    </div>
+    <div class="user-chip" id="userChip" style="display:none">
+      <span id="userDisplayName"></span>
+    </div>
+    <button class="btn-sm" type="button" onclick="window.location.href='/choice'">Cambiar módulo</button>
+    <button class="btn-logout" id="btnLogout">Salir</button>
+  </div>
+</header>""",
+    )
+    html = html.replace(
+        """  <button class="main-nav-tab" data-main="config"><i class="fa-solid fa-gear"></i> Administración</button>
+  <button class="main-nav-tab" id="tabAdmin" data-main="admin" style="display:none"><i class="fa-solid fa-users-gear"></i> Asistentes</button>""",
+        """  <div class="tab-menu">
+    <button class="main-nav-tab tab-menu-btn" type="button" data-main="config"><i class="fa-solid fa-ellipsis"></i> Administración</button>
+    <div class="tab-menu-panel">
+      <button class="main-nav-tab" id="tabAdmin" type="button" data-main="admin" style="display:none"><i class="fa-solid fa-users-gear"></i> Usuarios y permisos</button>
+      <button class="main-nav-tab" type="button" data-main="config"><i class="fa-solid fa-gear"></i> Configuración</button>
+    </div>
+  </div>""",
+    )
     # Inyectamos el idioma para que el JS lo detecte
     html = html.replace('<html lang="es">', f'<html lang="{lang}">')
     return HTMLResponse(content=html)
@@ -306,7 +353,11 @@ async def frontend_asistente_gas_lp():
 async def frontend_gasolineras():
     """Sirve el frontend del módulo Gasolineras."""
     with open(os.path.join(BASE_DIR, "templates", "gasolineras.html"), encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+        html = f.read().replace(
+            '<span class="badge"><i class="fa-solid fa-gas-pump"></i> Mercado MX</span>',
+            '<span class="badge module"><i class="fa-solid fa-gas-pump"></i> Mercado MX</span><span class="badge" id="topbarVersion">v3.5</span>',
+        )
+        return HTMLResponse(content=html)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
