@@ -19,6 +19,7 @@ from routes.providers   import router as providers_router
 from routes.analytics   import router as analytics_router
 from routes.facilities  import router as facilities_router
 from routes.admin       import router as admin_router
+from routes.admin_saas_delete_fix import router as admin_saas_delete_fix_router
 from routes.admin_saas  import router as admin_saas_router
 from routes.facturas    import router as facturas_router
 from routes.movimientos import router as movimientos_router
@@ -127,6 +128,7 @@ app.include_router(providers_router,   prefix="/api", tags=["Proveedores"])
 app.include_router(analytics_router,   prefix="/api", tags=["Analíticos"])
 app.include_router(facilities_router,  prefix="/api", tags=["Instalaciones"])
 app.include_router(admin_router,       prefix="/api", tags=["Admin"])
+app.include_router(admin_saas_delete_fix_router, prefix="/api", tags=["Admin SaaS"])
 app.include_router(admin_saas_router,  prefix="/api", tags=["Admin SaaS"])
 app.include_router(facturas_router,    prefix="/api", tags=["Facturas"])
 app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
