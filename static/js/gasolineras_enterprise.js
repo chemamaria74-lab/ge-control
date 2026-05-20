@@ -15,6 +15,7 @@
   function ready(fn){ document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", fn) : fn(); }
   function esc(v){ return String(v ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m])); }
   function fmt(n,d=0){ return Number(n||0).toLocaleString("es-MX",{minimumFractionDigits:d,maximumFractionDigits:d}); }
+  function money(n){ return "$"+Number(n||0).toLocaleString("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
   function rebuildNavigation(){
     document.documentElement.classList.add("gaso-premium");
@@ -72,10 +73,15 @@
 
   async function hydratePerfil(){
     try{
-      if(typeof PERFIL !== "undefined" && PERFIL && PERFIL.id) return PERFIL;
       const meRes = await fetch("/api/auth/me", {headers:headers(false)});
       const me = meRes.ok ? await meRes.json() : {};
       const assigned = (me.accesos||[]).find(a => a.section === "gasolineras" && a.perfil_id)?.perfil_id;
+      const cached = (typeof PERFIL !== "undefined" && PERFIL && PERFIL.id) ? PERFIL : null;
+      if(cached && (!assigned || Number(cached.id) === Number(assigned))){
+        document.getElementById("topbarEmpresa").textContent = cached.nombre || "Empresa activa";
+        document.getElementById("topbarRfc").textContent = cached.rfc ? "RFC "+cached.rfc : "RFC -";
+        return cached;
+      }
       const res = await fetch("/api/perfiles", {headers:{"Authorization":"Bearer "+TOKEN}});
       if(!res.ok) return null;
       const data = await res.json();
@@ -175,13 +181,15 @@
       if(typeof original === "function") original(tab);
       if(tab === "oportunidades") refreshOpportunities();
       if(tab === "administracion") refreshAdmin();
-      if(tab === "consultor") decorateConsultor();
+      if(tab === "consultor") setTimeout(decorateConsultor, 0);
     };
   }
 
   function decorateConsultor(){
-    const panel = document.querySelector("#tab-consultor .section-hdr");
-    if(panel && !document.querySelector(".gaso-ai-panel")){
+    const section = document.getElementById("tab-consultor");
+    if(!section || section.querySelector(".gaso-ai-panel")) return;
+    const panel = section.querySelector(".section-hdr") || section.firstElementChild;
+    if(panel){
       panel.insertAdjacentHTML("afterend", `<div class="card gaso-ai-panel" style="margin-bottom:14px"><h2>AI Insights contextual</h2><p>Preparado para responder con datos del tenant, perfil activo, rol y modulo. Si no hay API key configurada, muestra informe ejecutivo deterministico sin enviar datos fuera.</p><span class="gaso-ai-chip">Tenant safe</span><span class="gaso-ai-chip">Rol aware</span><span class="gaso-ai-chip">No cross-company data</span><span class="gaso-ai-chip">Fallback sin API key</span></div>`);
     }
   }
