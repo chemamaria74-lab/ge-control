@@ -1,0 +1,22 @@
+.ops-shell{display:grid;gap:14px}
+.ops-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;flex-wrap:wrap}
+.ops-search{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.ops-search input{min-width:min(440px,100%)}
+.ops-matrix{display:grid;gap:10px}
+.ops-client{background:#fff;border:1px solid #e7e3dc;border-radius:8px;box-shadow:0 16px 36px rgba(17,17,17,.05);overflow:hidden}
+.ops-client summary{list-style:none;cursor:pointer;padding:14px 16px;display:grid;grid-template-columns:1.4fr .8fr .8fr auto;gap:12px;align-items:center}
+.ops-client summary::-webkit-details-marker{display:none}
+.ops-title{font-weight:900;font-size:16px}.ops-sub{font-size:12px;color:#6f6a64;margin-top:3px}.ops-metric{font-size:12px;font-weight:900;color:#443f3a}
+.ops-body{border-top:1px solid #efeae3;padding:14px 16px;display:grid;gap:12px;background:#fffdfa}
+.ops-section{border:1px solid #e7e3dc;border-radius:8px;background:#fff;padding:12px}
+.ops-section h4{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.ops-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.ops-list{display:grid;gap:7px}
+.ops-row{display:flex;justify-content:space-between;gap:10px;align-items:center;border:1px solid #eef2f7;border-radius:8px;padding:8px 10px;background:#f8fafc}
+.ops-row b{font-size:13px}.ops-row small{display:block;color:#64748b;margin-top:2px}
+.ops-actions{display:flex;gap:7px;flex-wrap:wrap}.ops-actions .btn{padding:6px 8px;font-size:12px}
+.ops-inline-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px;padding-top:10px;border-top:1px dashed #e7e3dc}
+.ops-inline-form .btn{align-self:end}
+.ops-empty{border:1px dashed #d8d0c4;border-radius:8px;padding:12px;color:#6f6a64;background:#fbfaf8}
+.ops-status-dot{width:9px;height:9px;border-radius:999px;background:#16a34a;display:inline-block}.ops-status-dot.warn{background:#dc2626}.ops-status-dot.off{background:#94a3b8}
+@media(max-width:1000px){.ops-client summary,.ops-grid,.ops-inline-form{grid-template-columns:1fr}.ops-client summary{align-items:start}}
