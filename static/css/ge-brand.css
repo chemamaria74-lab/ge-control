@@ -12,6 +12,7 @@
   --ge-radius: 10px;
   --ge-shadow: 0 12px 34px rgba(17, 17, 17, .07);
   --ge-font: Inter, "Geist", "General Sans", "Satoshi", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --ge-shell-height: 76px;
 }
 
 html {
@@ -63,6 +64,62 @@ header {
   color: var(--ge-soft-white) !important;
   border-bottom: 1px solid rgba(200,169,107,.22) !important;
   box-shadow: none !important;
+  min-height: var(--ge-shell-height);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 22px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.topbar::-webkit-scrollbar,
+header::-webkit-scrollbar {
+  display: none;
+}
+
+.topbar a,
+header a {
+  color: inherit;
+}
+
+.topbar .logo,
+header .logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: max-content;
+  color: var(--ge-soft-white);
+  text-decoration: none;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.topbar .logo img,
+header .logo img,
+header > img.brand-logo-mark {
+  width: 58px !important;
+  height: 34px !important;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+header > h1 {
+  color: var(--ge-soft-white) !important;
+  font-size: 20px !important;
+  line-height: 1.1;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.topbar-right,
+header .topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  min-width: max-content;
 }
 
 .topbar .badge,
@@ -76,6 +133,54 @@ header .badge {
   background: rgba(245,245,245,.08) !important;
   border-color: rgba(200,169,107,.24) !important;
   color: var(--ge-soft-white) !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 13px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.topbar .badge.module,
+header .badge.module,
+#moduleBadge {
+  background: rgba(245,245,245,.11) !important;
+  border-color: rgba(200,169,107,.3) !important;
+}
+
+.user-chip,
+.empresa-switcher,
+.btn-sm,
+.btn-logout {
+  border-radius: 8px !important;
+}
+
+.user-chip,
+.empresa-switcher {
+  min-height: 38px;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  background: rgba(245,245,245,.08) !important;
+  border: 1px solid rgba(200,169,107,.24) !important;
+  color: var(--ge-soft-white) !important;
+  padding: 6px 10px !important;
+}
+
+.btn-sm,
+.btn-logout {
+  min-height: 34px;
+  border: 1px solid rgba(200,169,107,.24) !important;
+  background: rgba(245,245,245,.1) !important;
+  color: var(--ge-soft-white) !important;
+  font-weight: 800;
+}
+
+.btn-sm:hover,
+.btn-logout:hover {
+  background: rgba(245,245,245,.18) !important;
 }
 
 .card,
@@ -135,6 +240,66 @@ th {
 .main-nav-tabs,
 .tabs {
   border-bottom-color: var(--ge-line) !important;
+  background: var(--ge-bg);
+}
+
+.tabs-bar,
+.tabs,
+.main-nav-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 0 clamp(14px, 3vw, 54px);
+}
+
+.tab,
+.main-nav-tab {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--ge-muted);
+  font-family: var(--ge-font);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.tab:hover,
+.main-nav-tab:hover {
+  color: var(--ge-black);
+  background: rgba(122,30,44,.04);
+}
+
+.tab-menu-panel {
+  border-color: var(--ge-line) !important;
+  border-radius: 0 0 var(--ge-radius) var(--ge-radius) !important;
+  box-shadow: 0 16px 40px rgba(15,28,45,.12) !important;
+}
+
+.tab-menu-panel .tab,
+.tab-menu-panel .main-nav-tab {
+  justify-content: flex-start;
+  min-height: 42px;
+  border-bottom: 0 !important;
+  border-radius: 8px;
+  width: 100%;
+}
+
+.tab-menu-panel .tab:hover,
+.tab-menu-panel .main-nav-tab:hover {
+  background: #F5F1E8 !important;
+  color: var(--ge-tinto-dark) !important;
+}
+
+.main,
+.container {
+  width: min(100%, 1440px);
+  margin-left: auto;
+  margin-right: auto;
 }
 
 @media (max-width: 720px) {
@@ -149,6 +314,28 @@ th {
   .topbar,
   header {
     min-height: 62px;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .topbar .logo span,
+  header .logo span {
+    display: none;
+  }
+
+  .topbar .badge,
+  header .badge,
+  .btn-sm,
+  .btn-logout {
+    font-size: 11px;
+    min-height: 32px;
+    padding: 5px 8px;
+  }
+
+  .user-chip,
+  .empresa-switcher {
+    min-height: 34px;
+    padding: 5px 8px !important;
   }
 
   .tabs,
@@ -157,6 +344,7 @@ th {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+    padding: 0 12px;
   }
 
   .tabs::-webkit-scrollbar,
