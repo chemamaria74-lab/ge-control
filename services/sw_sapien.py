@@ -30,6 +30,8 @@ import requests
 from datetime import datetime, timezone
 from typing import Optional
 
+from services.fiscal_audit import record_pac_request, record_pac_response, version_xml
+
 logger = logging.getLogger(__name__)
 
 # ── Entorno: test o producción ────────────────────────────────────────────────
@@ -230,6 +232,11 @@ def timbrar_cfdi(xml_str: str) -> dict:
     Envía el XML a SW Sapien para timbrado.
     Retorna dict con: uuid, xml_timbrado, pdf_url, error.
     """
+    audit_request_id = record_pac_request(
+        module="transporte",
+        operation="stamp_xml",
+        request_payload={"xml_hash": _hash_text(xml_str), "format": "xml"},
+    )
     try:
         token = _get_token()
         xml_b64 = base64.b64encode(xml_str.encode("utf-8")).decode("utf-8")
@@ -243,20 +250,40 @@ def timbrar_cfdi(xml_str: str) -> dict:
         data = resp.json()
 
         if data.get("status") != "success":
-            return {
+            result = {
                 "uuid": "", "xml_timbrado": "", "pdf_url": "",
                 "error": data.get("message") or data.get("messageDetail") or "Error desconocido SW Sapien",
             }
+            record_pac_response(request_id=audit_request_id, response_payload=data, status="error", error_message=result["error"])
+            return result
 
         result_data = data.get("data", {}) or {}
-        return {
+        result = {
             "uuid":         result_data.get("uuid", ""),
             "xml_timbrado": result_data.get("cfdi", ""),
             "pdf_url":      result_data.get("pdfUrl", ""),
             "error":        None,
         }
+        record_pac_response(
+            request_id=audit_request_id,
+            response_payload=data,
+            uuid_sat=result["uuid"],
+            xml_original=xml_str,
+            xml_timbrado=result["xml_timbrado"],
+            pdf_url=result["pdf_url"],
+            status="ok",
+        )
+        version_xml(
+            module="transporte",
+            entity_type="pac_stamp_xml",
+            entity_id=result["uuid"] or str(audit_request_id or ""),
+            uuid_sat=result["uuid"],
+            xml_content=result["xml_timbrado"],
+        )
+        return result
     except Exception as e:
         logger.error("timbrar_cfdi error: %s", e)
+        record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=str(e))
         return {"uuid": "", "xml_timbrado": "", "pdf_url": "", "error": str(e)}
 
 
@@ -265,6 +292,11 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
     Envia un CFDI JSON a SW Sapien usando Emision Timbrado JSON.
     SW documenta JSON directo con Content-Type application/jsontoxml.
     """
+    audit_request_id = record_pac_request(
+        module="transporte",
+        operation="stamp_json",
+        request_payload=cfdi_dict,
+    )
     try:
         token = _get_token()
         headers = {
@@ -277,14 +309,34 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
         except Exception:
             data = {"status": "error", "message": resp.text}
         if resp.status_code >= 400 or data.get("status") != "success":
-            return {
+            result = {
                 "ok": False,
                 "error": data.get("message") or data.get("messageDetail") or resp.text,
                 "raw": data,
             }
-        return {"ok": True, "data": data.get("data") or {}, "raw": data}
+            record_pac_response(request_id=audit_request_id, response_payload=data, status="error", error_message=result["error"])
+            return result
+        result = {"ok": True, "data": data.get("data") or {}, "raw": data}
+        result_data = result["data"]
+        record_pac_response(
+            request_id=audit_request_id,
+            response_payload=data,
+            uuid_sat=result_data.get("uuid", ""),
+            xml_timbrado=result_data.get("cfdi", ""),
+            pdf_url=result_data.get("pdfUrl", ""),
+            status="ok",
+        )
+        version_xml(
+            module="transporte",
+            entity_type="pac_stamp_json",
+            entity_id=result_data.get("uuid") or str(audit_request_id or ""),
+            uuid_sat=result_data.get("uuid", ""),
+            xml_content=result_data.get("cfdi", ""),
+        )
+        return result
     except Exception as e:
         logger.error("emitir_timbrar_json error: %s", e)
+        record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=str(e))
         return {"ok": False, "error": str(e)}
 
 
@@ -295,27 +347,55 @@ def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02") -> dict:
     Cancela un CFDI en el SAT vía SW Sapien.
     Retorna dict con: ok, status, error.
     """
+    payload = {
+        "uuid":      uuid_sat,
+        "rfcEmisor": rfc_emisor,
+        "motivo":    motivo,
+    }
+    audit_request_id = record_pac_request(
+        module="transporte",
+        operation="cancel",
+        request_payload={**payload, "rfcEmisor": _mask_rfc(rfc_emisor)},
+    )
     try:
         token = _get_token()
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type":  "application/json",
         }
-        payload = {
-            "uuid":      uuid_sat,
-            "rfcEmisor": rfc_emisor,
-            "motivo":    motivo,
-        }
         resp = requests.post(SW_CANCEL_URL, json=payload, headers=headers, timeout=30)
         resp.raise_for_status()
         data = resp.json()
 
         ok = data.get("status") == "success"
-        return {
+        result = {
             "ok":     ok,
             "status": "Cancelada" if ok else "Error",
             "error":  None if ok else (data.get("message") or "Error desconocido"),
         }
+        record_pac_response(
+            request_id=audit_request_id,
+            response_payload=data,
+            uuid_sat=uuid_sat,
+            acuse_cancelacion=json.dumps(data, ensure_ascii=False, default=str) if ok else "",
+            status="ok" if ok else "error",
+            error_message=result["error"] or "",
+        )
+        return result
     except Exception as e:
         logger.error("cancelar_cfdi error: %s", e)
+        record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=str(e))
         return {"ok": False, "status": "Error", "error": str(e)}
+
+
+def _hash_text(value: str) -> str:
+    import hashlib
+
+    return hashlib.sha256((value or "").encode("utf-8")).hexdigest()
+
+
+def _mask_rfc(value: str) -> str:
+    raw = (value or "").strip().upper()
+    if len(raw) <= 6:
+        return "***"
+    return f"{raw[:3]}***{raw[-3:]}"
