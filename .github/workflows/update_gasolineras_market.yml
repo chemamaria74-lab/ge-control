@@ -1,0 +1,33 @@
+name: Update Gasolineras Market
+
+on:
+  workflow_dispatch:
+    inputs:
+      period:
+        description: "Periodo YYYY-MM opcional"
+        required: false
+        type: string
+  schedule:
+    - cron: "17 9 * * *"
+
+jobs:
+  update-market:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Run official CRE/CNE market ingestion
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -n "${{ inputs.period }}" ]; then
+            uv run python scripts/update_gasolineras_market.py --period "${{ inputs.period }}"
+          else
+            uv run python scripts/update_gasolineras_market.py
+          fi
