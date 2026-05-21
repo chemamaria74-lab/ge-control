@@ -10,9 +10,10 @@
   <style>
     :root{--wine:#7A1E2C;--wine2:#5B0F1D;--gold:#C8A96B;--ink:#111;--muted:#6F6A64;--line:#E7E3DC;--bg:#F5F5F5;--surface:#fff}
     *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:var(--ge-font);color:var(--ink);min-height:100vh}
-    .top{position:sticky;top:0;background:#5B0F1D;color:white;padding:14px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(200,169,107,.22);z-index:10}.brand{display:flex;align-items:center;gap:10px;font-weight:800}.brand img{width:58px;height:34px;object-fit:contain}.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800}.right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.btn{border:1px solid var(--wine);background:var(--wine);color:#fff;border-radius:8px;padding:10px 13px;font:inherit;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;gap:7px;align-items:center}.btn.ghost{background:#fff;color:var(--ink);border-color:#D8D0C4}.btn.sm{padding:8px 11px;border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff}
+    .top{position:sticky;top:0;background:#5B0F1D;color:white;padding:14px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(200,169,107,.22);z-index:10}.brand{display:flex;align-items:center;gap:10px;font-weight:800}.brand img{width:58px;height:34px;object-fit:contain}.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800}.right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.btn{border:1px solid var(--wine);background:var(--wine);color:#fff;border-radius:8px;padding:10px 13px;font:inherit;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;gap:7px;align-items:center}.btn:hover{background:#5B0F1D;border-color:#C8A96B;box-shadow:0 8px 22px rgba(91,15,29,.18)}.btn.ghost{background:#fff;color:var(--ink);border-color:#D8D0C4}.btn.ghost:hover{color:#5B0F1D;border-color:#C8A96B;background:#F5F1E8}.btn.sm{padding:8px 11px;border-color:rgba(200,169,107,.45);background:#7A1E2C;color:#fff}.btn.sm:hover{background:#3B0A12;border-color:#C8A96B}.btn.gold{background:#C8A96B;color:#24150F;border-color:#C8A96B}.btn.danger{background:#fff;color:#991b1b;border-color:#fecaca}.btn.danger:hover{background:#fef2f2;border-color:#fca5a5}
     main{max-width:1180px;margin:0 auto;padding:22px}.hero{display:flex;justify-content:space-between;gap:14px;align-items:flex-end;margin-bottom:18px}h1{font-size:26px;margin:0 0 5px}.muted{color:var(--muted);line-height:1.5}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.kpi .label{font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:900;letter-spacing:.04em}.kpi .value{font-size:24px;font-weight:900;margin-top:6px}.module{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start}.module i{width:34px;height:34px;border-radius:8px;background:#F5F1E8;color:var(--wine);display:grid;place-items:center}.module b{display:block;margin-bottom:4px}.list{display:grid;gap:10px;margin-top:12px}.empty{text-align:center;padding:34px;color:var(--muted)}
-    @media(max-width:780px){.top{padding:12px;flex-wrap:wrap}.right{margin-left:0}.brand span{display:none}main{padding:14px}.hero{align-items:start;flex-direction:column}.grid{grid-template-columns:1fr}.btn{width:100%;justify-content:center}}
+    .tools{display:grid;grid-template-columns:1.4fr repeat(5, minmax(110px,1fr));gap:8px;margin:14px 0}.tools input{width:100%;border:1px solid #D8D0C4;border-radius:8px;padding:10px 11px;font:inherit}.statebar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.state{border:1px solid #E7E3DC;background:#fff;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:800;color:#6F6A64}.state.active{background:#F5F1E8;color:#5B0F1D;border-color:#C8A96B}.load-card{border:1px solid #E7E3DC;border-radius:10px;padding:14px;background:#fff;display:grid;gap:12px}.load-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.load-title{font-weight:900;font-size:17px;color:#5B0F1D}.load-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.load-meta div{background:#F8F6F2;border:1px solid #EFE7D9;border-radius:8px;padding:10px}.load-meta small{display:block;color:#6F6A64;font-weight:800;text-transform:uppercase;font-size:10px;margin-bottom:4px}.actions{display:flex;gap:8px;flex-wrap:wrap}.source-note{font-size:12px;color:#6F6A64;margin-top:6px}
+    @media(max-width:780px){.top{padding:12px;flex-wrap:wrap}.right{margin-left:0}.brand span{display:none}main{padding:14px}.hero{align-items:start;flex-direction:column}.grid{grid-template-columns:1fr}.tools{grid-template-columns:1fr}.load-meta{grid-template-columns:1fr}.btn{width:100%;justify-content:center}}
   </style>
 </head>
 <body>
@@ -31,7 +32,10 @@
         <h1>Portal de asistente</h1>
         <p class="muted">Acceso limitado por empresa, módulo y rol interno. No es una cuenta global del SaaS.</p>
       </div>
-      <a class="btn ghost" href="/app"><i class="fa-solid fa-up-right-from-square"></i> Abrir plataforma</a>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn gold" onclick="document.getElementById('cargasDetectadas').scrollIntoView({behavior:'smooth'})"><i class="fa-solid fa-magnifying-glass"></i> Buscar factura para Carta Porte</button>
+        <a class="btn ghost" href="/app"><i class="fa-solid fa-up-right-from-square"></i> Abrir plataforma</a>
+      </div>
     </div>
     <div class="grid" id="kpis">
       <div class="card kpi"><div class="label">Sesión</div><div class="value">—</div></div>
@@ -43,6 +47,26 @@
       <h2 style="margin:0;font-size:18px">Módulos permitidos</h2>
       <div class="list" id="modules"><div class="empty">Cargando permisos...</div></div>
     </section>
+    <section class="card" style="margin-top:14px" id="cargasDetectadas">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div>
+          <h2 style="margin:0;font-size:18px">Carta Porte / Cargas detectadas</h2>
+          <div class="muted">Facturas CFDI de proveedores configurados para confirmar y crear borrador de Carta Porte.</div>
+        </div>
+        <button class="btn" onclick="loadDetectedLoads('buscando_cfdi')"><i class="fa-solid fa-arrows-rotate"></i> Buscar CFDI</button>
+      </div>
+      <div class="statebar" id="syncStates"></div>
+      <div class="tools">
+        <input id="loadSearch" placeholder="Buscar proveedor, RFC, UUID, fecha, producto o litros">
+        <input id="fProveedor" placeholder="Proveedor">
+        <input id="fRfc" placeholder="RFC">
+        <input id="fUuid" placeholder="UUID">
+        <input id="fProducto" placeholder="Producto">
+        <input id="fLitros" placeholder="Litros">
+      </div>
+      <div class="source-note" id="loadSource">Sin sincronizar.</div>
+      <div class="list" id="detectedLoads"><div class="empty">Sin sincronizar. Presiona “Buscar CFDI”.</div></div>
+    </section>
     <section class="card" style="margin-top:14px">
       <h2 style="margin:0;font-size:18px">Notas operativas</h2>
       <div class="list" id="notices"></div>
@@ -51,6 +75,13 @@
   <script>
     const token = localStorage.getItem('ge_gaslp_internal_token') || '';
     function iconFor(key){ return {facturacion:'file-invoice-dollar',xml_excel:'file-excel',operacion:'clipboard-list',planta:'industry',reportes:'chart-simple',consulta:'magnifying-glass'}[key] || 'shield-halved'; }
+    const stateLabels = {
+      sin_sincronizar: 'Sin sincronizar',
+      buscando_cfdi: 'Buscando CFDI',
+      new: 'Nueva carga detectada',
+      pending_confirmation: 'Pendiente de confirmar',
+      carta_porte_created: 'Carta Porte borrador'
+    };
     async function api(path, opts={}) {
       const sep = path.includes('?') ? '&' : '?';
       const res = await fetch(path + sep + 'token=' + encodeURIComponent(token), opts);
@@ -73,6 +104,7 @@
         ].map(x=>`<div class="card kpi"><div class="label">${x[0]}</div><div class="value">${x[1]}</div><div class="muted">${x[2]}</div></div>`).join('');
         modules.innerHTML = (data.modules||[]).map(m=>`<div class="module"><i class="fa-solid fa-${iconFor(m.key)}"></i><div><b>${m.title}</b><span class="muted">${m.desc}</span></div></div>`).join('');
         notices.innerHTML = (data.notices||[]).map(n=>`<div class="module"><i class="fa-solid fa-circle-info"></i><div class="muted">${n}</div></div>`).join('');
+        renderStates('sin_sincronizar');
       }catch(e){
         localStorage.removeItem('ge_gaslp_internal_token');
         location.href='/gas-lp/asistente';
@@ -83,6 +115,67 @@
       localStorage.removeItem('ge_gaslp_internal_token');
       location.href='/choice';
     }
+    function renderStates(active){
+      syncStates.innerHTML = Object.entries(stateLabels).map(([key,label])=>`<span class="state ${key===active?'active':''}">${label}</span>`).join('');
+    }
+    function combinedSearch(){
+      return [loadSearch.value,fProveedor.value,fRfc.value,fUuid.value,fProducto.value,fLitros.value].map(v=>v.trim()).filter(Boolean).join(' ');
+    }
+    function esc(v){ return String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+    async function loadDetectedLoads(activeState='pending_confirmation'){
+      renderStates('buscando_cfdi');
+      detectedLoads.innerHTML = '<div class="empty"><i class="fa-solid fa-spinner fa-spin"></i> Buscando CFDI...</div>';
+      try{
+        const q = combinedSearch();
+        const data = await api('/api/internal-auth/gas-lp/detected-loads' + (q ? '?search=' + encodeURIComponent(q) : ''));
+        const loads = data.loads || [];
+        loadSource.textContent = data.source === 'real'
+          ? 'Datos reales desde detected_loads. La creación de Carta Porte queda como borrador controlado.'
+          : 'Vista mock: falta conectar SW Sapiens/SAT sandbox o cargar CFDI reales.';
+        renderStates(loads[0]?.status || activeState);
+        detectedLoads.innerHTML = loads.map(renderLoadCard).join('') || '<div class="empty">No hay cargas detectadas para esta búsqueda.</div>';
+      }catch(e){
+        renderStates('sin_sincronizar');
+        detectedLoads.innerHTML = `<div class="empty">${esc(e.message || 'No se pudo cargar CFDI.')}</div>`;
+      }
+    }
+    function renderLoadCard(load){
+      const status = load.status_label || stateLabels[load.status] || 'Nueva carga detectada';
+      return `<article class="load-card">
+        <div class="load-head">
+          <div><div class="load-title">${esc(status)}</div><div class="muted">Proveedor: <b>${esc(load.proveedor || 'Por confirmar')}</b></div></div>
+          <span class="state active">${esc(load.source === 'mock' ? 'Mock' : 'Real')}</span>
+        </div>
+        <div class="load-meta">
+          <div><small>Empresa</small>${esc(load.empresa || '—')}</div>
+          <div><small>Destino</small>${esc(load.destino_detectado || 'Por confirmar')}</div>
+          <div><small>Producto</small>${esc(load.producto_detectado || 'Gas LP')}</div>
+          <div><small>Litros</small>${esc(load.litros_detectados || '—')} ${esc(load.unidad_detectada || 'L')}</div>
+          <div><small>RFC</small>${esc(load.rfc_proveedor || '—')}</div>
+          <div><small>UUID</small>${esc(load.uuid || '—')}</div>
+        </div>
+        <div class="actions">
+          <button class="btn" onclick="detectedAction('${esc(load.id)}','confirm')"><i class="fa-solid fa-file-circle-plus"></i> Confirmar y crear Carta Porte</button>
+          <button class="btn ghost" onclick="detectedAction('${esc(load.id)}','edit')"><i class="fa-solid fa-pen"></i> Editar</button>
+          <button class="btn danger" onclick="detectedAction('${esc(load.id)}','ignore')"><i class="fa-solid fa-ban"></i> Ignorar</button>
+        </div>
+      </article>`;
+    }
+    async function detectedAction(id, action){
+      const res = await fetch(`/api/internal-auth/gas-lp/detected-loads/${encodeURIComponent(id)}/action?token=${encodeURIComponent(token)}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({action})
+      });
+      const data = await res.json().catch(()=>({}));
+      if(!res.ok) { alert(data.detail || 'No se pudo actualizar la carga.'); return; }
+      loadSource.textContent = data.message || 'Carga actualizada.';
+      renderStates(data.status || 'pending_confirmation');
+      if(action !== 'edit') await loadDetectedLoads(data.status || 'pending_confirmation');
+    }
+    ['loadSearch','fProveedor','fRfc','fUuid','fProducto','fLitros'].forEach(id => {
+      setTimeout(()=>document.getElementById(id)?.addEventListener('input', () => loadDetectedLoads('pending_confirmation')), 0);
+    });
     load();
   </script>
 </body>
