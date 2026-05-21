@@ -131,8 +131,8 @@ body:not(.login-mode) .tab-menu-panel .main-nav-tab:hover {
 
 /* Tabs internas de cards (Excel/CFDI/Autoconsumo): que nunca se salgan del cuadro. */
 body:not(.login-mode) .card .tabs {
-  display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  display: flex !important;
+  align-items: stretch !important;
   width: 100% !important;
   max-width: 100% !important;
   overflow: hidden !important;
@@ -142,7 +142,7 @@ body:not(.login-mode) .card .tabs {
 }
 
 body:not(.login-mode) .card .tabs .tab {
-  width: 100% !important;
+  flex: 1 1 0 !important;
   min-width: 0 !important;
   max-width: 100% !important;
   display: inline-flex !important;
@@ -155,6 +155,45 @@ body:not(.login-mode) .card .tabs .tab {
   white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
+}
+
+body:not(.login-mode) .ge-gaslp-ops-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 12px 0 20px;
+}
+
+body:not(.login-mode) .ge-gaslp-ops-strip article {
+  min-height: 112px;
+  background: #fff;
+  border: 1px solid var(--ge-line);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 12px 30px rgba(15,28,45,.06);
+}
+
+body:not(.login-mode) .ge-gaslp-ops-strip .ge-kicker {
+  color: #6F6A64;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+body:not(.login-mode) .ge-gaslp-ops-strip strong {
+  display: block;
+  color: #14151A;
+  font-size: 17px;
+  line-height: 1.2;
+  margin-bottom: 6px;
+}
+
+body:not(.login-mode) .ge-gaslp-ops-strip span {
+  color: #6F6A64;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 body:not(.login-mode) .card .tabs .tab span {
@@ -187,5 +226,9 @@ body:not(.login-mode) .card .tabs .tab span {
   body:not(.login-mode) .card .tabs .tab {
     font-size: 12px !important;
     padding-inline: 4px !important;
+  }
+
+  body:not(.login-mode) .ge-gaslp-ops-strip {
+    grid-template-columns: 1fr !important;
   }
 }
