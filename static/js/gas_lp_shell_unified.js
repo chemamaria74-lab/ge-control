@@ -8,6 +8,7 @@
   const RFC_PATTERN = /^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$/;
   let observer = null;
   let debounceId = 0;
+  let uxTimer = 0;
 
   function cleanRfc(value) {
     const rfc = String(value || "")
@@ -73,6 +74,101 @@
     window[name] = wrapped;
   }
 
+  function replaceText(root, from, to) {
+    if (!root) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach((node) => {
+      if (node.nodeValue && node.nodeValue.includes(from)) {
+        node.nodeValue = node.nodeValue.replaceAll(from, to);
+      }
+    });
+  }
+
+  function setLabelFor(inputId, label) {
+    const input = document.getElementById(inputId);
+    const field = input?.closest(".field");
+    const labelEl = field?.querySelector("label");
+    if (labelEl) labelEl.textContent = label;
+  }
+
+  function normalizeGasLpCopy() {
+    setLabelFor("gasInternalName", "Nombre");
+    setLabelFor("gasInternalCode", "Usuario");
+    setLabelFor("gasInternalPin", "Contraseña (PIN)");
+    const codeInput = document.getElementById("gasInternalCode");
+    if (codeInput) codeInput.placeholder = "Auto o usuario, ej. MARTHA";
+    const pinInput = document.getElementById("gasInternalPin");
+    if (pinInput) pinInput.placeholder = "Auto o contraseña temporal";
+
+    document.querySelectorAll("th").forEach((th) => {
+      if (th.textContent.trim() === "Código") th.textContent = "Usuario";
+    });
+    document.querySelectorAll("button").forEach((btn) => {
+      if (btn.textContent.trim() === "Crear usuario interno") btn.textContent = "Crear asistente";
+    });
+    replaceText(document.getElementById("mpanel-admin"), "código", "usuario");
+    replaceText(document.getElementById("mpanel-admin"), "Código", "Usuario");
+    replaceText(document.getElementById("mpanel-admin"), "PIN temporal", "Contraseña (PIN)");
+
+    const status = document.getElementById("gasInternalStatus");
+    if (status && status.innerHTML.includes("Código:")) {
+      status.innerHTML = status.innerHTML
+        .replace("Código:", "Usuario:")
+        .replace("PIN temporal:", "Contraseña (PIN):");
+    }
+
+    const facturar = document.getElementById("mpanel-facturar");
+    replaceText(facturar, "Generar Carta Porte 3.1", "Control de movimientos y Carta Porte");
+    replaceText(facturar, "Generar Carta Porte", "Crear salida / Carta Porte");
+    replaceText(facturar, "Cargar entregas", "Cargar movimientos");
+    replaceText(facturar, "No hay entregas registradas", "No hay movimientos registrados");
+  }
+
+  function enhanceDashboard() {
+    const dashboard = document.getElementById("mpanel-ventas");
+    if (!dashboard || dashboard.querySelector(".ge-gaslp-ops-strip")) return;
+    const card = document.createElement("section");
+    card.className = "ge-gaslp-ops-strip";
+    card.innerHTML = `
+      <article>
+        <div class="ge-kicker">Actividad reciente</div>
+        <strong>Movimientos del periodo</strong>
+        <span>Resumen de cargas, facturas y capturas por planta.</span>
+      </article>
+      <article>
+        <div class="ge-kicker">Facturas del día</div>
+        <strong>CFDI / XML</strong>
+        <span>Validación contra RFC activo y control mensual.</span>
+      </article>
+      <article>
+        <div class="ge-kicker">SAT Sync</div>
+        <strong>Pendiente de configurar</strong>
+        <span>Cargas detectadas aparecerán aquí al activar credenciales cifradas.</span>
+      </article>
+      <article>
+        <div class="ge-kicker">Accesos rápidos</div>
+        <strong>Planta, facturación y JSON</strong>
+        <span>Flujo operativo para cierre fiscal mensual.</span>
+      </article>`;
+    const h2 = dashboard.querySelector("h2");
+    if (h2?.parentElement) h2.parentElement.insertBefore(card, h2.nextSibling);
+  }
+
+  function runUxSync() {
+    normalizeGasLpCopy();
+    enhanceDashboard();
+  }
+
+  function scheduleUxSync() {
+    if (uxTimer) window.clearTimeout(uxTimer);
+    uxTimer = window.setTimeout(() => {
+      uxTimer = 0;
+      runUxSync();
+    }, 160);
+  }
+
   function boot() {
     if (!document.getElementById("gasLpRfcBadge")) return;
 
@@ -93,9 +189,17 @@
     });
 
     window.requestAnimationFrame(() => scheduleSync());
+    window.requestAnimationFrame(() => scheduleUxSync());
+    const uxObserver = new MutationObserver(() => scheduleUxSync());
+    ["mpanel-admin", "mpanel-facturar", "mpanel-ventas"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) uxObserver.observe(el, { childList: true, subtree: true, characterData: true });
+    });
     window.addEventListener("pagehide", () => {
       if (debounceId) window.clearTimeout(debounceId);
+      if (uxTimer) window.clearTimeout(uxTimer);
       if (observer) observer.disconnect();
+      uxObserver.disconnect();
       observer = null;
       window.__geGasLpShellBooted = false;
     }, { once: true });
