@@ -1,0 +1,152 @@
+/* Shell unificado Gas LP: mismo patron visual que Transporte/Gasolineras. */
+body:not(.login-mode) header {
+  min-height: 64px !important;
+  padding: 0 24px !important;
+  flex-wrap: nowrap !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 100 !important;
+  overflow-x: auto;
+}
+
+body:not(.login-mode) header h1 {
+  flex: 0 0 auto !important;
+  font-size: 20px !important;
+  font-weight: 800 !important;
+  white-space: nowrap;
+}
+
+body:not(.login-mode) header .topbar-right {
+  margin-left: auto !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-wrap: nowrap !important;
+  min-width: max-content;
+}
+
+body:not(.login-mode) header .user-chip {
+  margin-left: 0 !important;
+}
+
+body:not(.login-mode) .lang-badge {
+  min-height: 34px;
+  border: 1px solid rgba(200,169,107,.24);
+  background: rgba(245,245,245,.1);
+  color: #f8fafc;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 6px 12px;
+  font-family: var(--ge-font);
+}
+
+body:not(.login-mode) .lang-badge:hover {
+  background: rgba(245,245,245,.18);
+}
+
+body:not(.login-mode) .container {
+  max-width: 1440px !important;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+body:not(.login-mode) .main-nav-tabs {
+  width: 100vw !important;
+  margin: 0 calc(50% - 50vw) 1.4rem !important;
+  padding: 0 clamp(14px, 3vw, 54px) !important;
+  display: flex !important;
+  align-items: stretch !important;
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+  overflow: visible !important;
+  background: #fff !important;
+  border-bottom: 1px solid var(--ge-line) !important;
+  box-shadow: 0 6px 18px rgba(15,28,45,.04) !important;
+  position: sticky !important;
+  top: 64px !important;
+  z-index: 90 !important;
+}
+
+body:not(.login-mode) .main-nav-tab {
+  min-height: 48px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  border-radius: 0 !important;
+  margin-bottom: -1px !important;
+  padding: 12px 18px !important;
+  font-weight: 800 !important;
+  white-space: nowrap !important;
+}
+
+body:not(.login-mode) .tab-menu {
+  position: relative !important;
+  display: flex !important;
+}
+
+body:not(.login-mode) .tab-menu-btn {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+body:not(.login-mode) .tab-menu-panel {
+  position: absolute !important;
+  top: calc(100% + 1px) !important;
+  right: 0 !important;
+  min-width: 230px !important;
+  background: #fff !important;
+  border: 1px solid var(--ge-line) !important;
+  border-radius: 0 0 var(--ge-radius) var(--ge-radius) !important;
+  box-shadow: 0 16px 40px rgba(15,28,45,.12) !important;
+  padding: 6px !important;
+  display: none !important;
+  z-index: 120 !important;
+}
+
+body:not(.login-mode) .tab-menu:hover .tab-menu-panel,
+body:not(.login-mode) .tab-menu:focus-within .tab-menu-panel {
+  display: grid !important;
+  gap: 2px !important;
+}
+
+body:not(.login-mode) .tab-menu-panel .main-nav-tab {
+  width: 100% !important;
+  min-height: 42px !important;
+  justify-content: flex-start !important;
+  border-bottom: 0 !important;
+  border-radius: 8px !important;
+  margin: 0 !important;
+  padding: 11px 12px !important;
+  background: #fff !important;
+}
+
+body:not(.login-mode) .tab-menu-panel .main-nav-tab.active,
+body:not(.login-mode) .tab-menu-panel .main-nav-tab:hover {
+  background: #F5F1E8 !important;
+  color: #5B0F1D !important;
+}
+
+@media (max-width: 720px) {
+  body:not(.login-mode) header {
+    min-height: 62px !important;
+    padding: 10px 12px !important;
+    flex-wrap: wrap !important;
+  }
+
+  body:not(.login-mode) .main-nav-tabs {
+    top: 62px !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    padding: 0 12px !important;
+  }
+
+  body:not(.login-mode) .main-nav-tab {
+    white-space: normal !important;
+    text-align: center !important;
+    padding: 10px 8px !important;
+    font-size: 12px !important;
+  }
+}
