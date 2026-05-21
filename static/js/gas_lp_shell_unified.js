@@ -1,8 +1,13 @@
 (function () {
   "use strict";
 
+  if (window.__geGasLpShellBooted) return;
+  window.__geGasLpShellBooted = true;
+
   const RFC_EMPTY = "RFC —";
   const RFC_PATTERN = /^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$/;
+  let observer = null;
+  let debounceId = 0;
 
   function cleanRfc(value) {
     const rfc = String(value || "")
@@ -44,6 +49,18 @@
     setHeaderRfc(readVisibleRfc() || perfilRfc || "");
   }
 
+  function scheduleSync(fallbackPerfil) {
+    if (debounceId) window.clearTimeout(debounceId);
+    debounceId = window.setTimeout(() => {
+      debounceId = 0;
+      syncHeaderRfc(fallbackPerfil);
+      if (cleanRfc(document.getElementById("gasLpRfcBadge")?.textContent) && observer) {
+        observer.disconnect();
+        observer = null;
+      }
+    }, 120);
+  }
+
   function wrapGlobal(name, after) {
     const original = window[name];
     if (typeof original !== "function" || original.__geGasLpWrapped) return;
@@ -57,31 +74,31 @@
   }
 
   function boot() {
+    if (!document.getElementById("gasLpRfcBadge")) return;
+
     wrapGlobal("actualizarSwitcherEmpresa", function (perfil) {
-      syncHeaderRfc(perfil);
+      scheduleSync(perfil);
     });
     wrapGlobal("actualizarRfcHint", function () {
-      syncHeaderRfc();
+      scheduleSync();
     });
 
-    document.getElementById("rfc")?.addEventListener("input", () => syncHeaderRfc());
-    document.getElementById("rfc")?.addEventListener("change", () => syncHeaderRfc());
+    document.getElementById("rfc")?.addEventListener("input", () => scheduleSync(), { passive: true });
+    document.getElementById("rfc")?.addEventListener("change", () => scheduleSync(), { passive: true });
 
-    const observer = new MutationObserver(() => syncHeaderRfc());
+    observer = new MutationObserver(() => scheduleSync());
     ["rfcDisplay", "empresaSwitcherName", "tbodyPerfiles"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) observer.observe(el, { childList: true, subtree: true, characterData: true });
     });
 
-    syncHeaderRfc();
-    let attempts = 0;
-    const timer = window.setInterval(() => {
-      syncHeaderRfc();
-      attempts += 1;
-      if (attempts >= 24 || cleanRfc(document.getElementById("gasLpRfcBadge")?.textContent)) {
-        window.clearInterval(timer);
-      }
-    }, 500);
+    window.requestAnimationFrame(() => scheduleSync());
+    window.addEventListener("pagehide", () => {
+      if (debounceId) window.clearTimeout(debounceId);
+      if (observer) observer.disconnect();
+      observer = null;
+      window.__geGasLpShellBooted = false;
+    }, { once: true });
   }
 
   if (document.readyState === "loading") {

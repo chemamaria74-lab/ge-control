@@ -10,7 +10,7 @@ services:
     plan: free
     region: oregon
     buildCommand: pip install uv && uv sync --no-dev && uv run python scripts/predeploy_check.py
-    startCommand: gunicorn main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    startCommand: gunicorn main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 1 --timeout 120
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -28,3 +28,5 @@ services:
         sync: false
       - key: PYTHON_VERSION
         value: "3.11.9"
+      - key: WEB_CONCURRENCY
+        value: "1"
