@@ -30,6 +30,19 @@ from scripts.gasolineras_market_common import (  # noqa: E402
 )
 
 
+def insert_price_snapshot_batches(sb, snapshots: list[dict[str, Any]]) -> None:
+    try:
+        for batch in chunks(snapshots):
+            sb.table("gaso_market_price_snapshots").insert(batch).execute()
+    except Exception as exc:
+        text = str(exc)
+        if "PGRST204" not in text or "ingestion_run_id" not in text:
+            raise
+        legacy_rows = [{k: v for k, v in row.items() if k != "ingestion_run_id"} for row in snapshots]
+        for batch in chunks(legacy_rows):
+            sb.table("gaso_market_price_snapshots").insert(batch).execute()
+
+
 def price_snapshots(stations: list[dict[str, Any]], run_id: int | None, source_period: str) -> list[dict[str, Any]]:
     now = utc_now()
     rows: list[dict[str, Any]] = []
@@ -135,8 +148,7 @@ def write_dataset(rows: list[dict[str, Any]], metadata: dict[str, Any]) -> dict[
         for batch in chunks(rows):
             sb.table("gaso_market_stations").upsert(batch, on_conflict="permiso_cre").execute()
         snapshots = price_snapshots(rows, run_id, metadata["period"])
-        for batch in chunks(snapshots):
-            sb.table("gaso_market_price_snapshots").insert(batch).execute()
+        insert_price_snapshot_batches(sb, snapshots)
         sb.table("gaso_ingestion_runs").update({
             "status": "success",
             "finished_at": utc_now(),
