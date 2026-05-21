@@ -26,6 +26,19 @@ from scripts.gasolineras_market_common import (  # noqa: E402
 )
 
 
+def insert_snapshot_batches(sb, snapshots: list[dict[str, Any]]) -> None:
+    try:
+        for batch in chunks(snapshots):
+            sb.table("gaso_market_price_snapshots").insert(batch).execute()
+    except Exception as exc:
+        text = str(exc)
+        if "PGRST204" not in text or "ingestion_run_id" not in text:
+            raise
+        legacy_rows = [{k: v for k, v in row.items() if k != "ingestion_run_id"} for row in snapshots]
+        for batch in chunks(legacy_rows):
+            sb.table("gaso_market_price_snapshots").insert(batch).execute()
+
+
 def build_snapshots(price_rows: list[dict[str, Any]], run_id: int | None, period: str, limit: int = 0) -> list[dict[str, Any]]:
     now = utc_now()
     price_map = build_prices_by_permiso(price_rows)
@@ -131,8 +144,7 @@ def main() -> None:
             row["ingestion_run_id"] = run_id
         if args.with_deltas:
             snapshots = attach_deltas(sb, snapshots)
-        for batch in chunks(snapshots):
-            sb.table("gaso_market_price_snapshots").insert(batch).execute()
+        insert_snapshot_batches(sb, snapshots)
         if run_id:
             sb.table("gaso_ingestion_runs").update({
                 "status": "success",
