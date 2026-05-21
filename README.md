@@ -92,6 +92,8 @@ Aplicar en orden lógico si la base está nueva:
 - `zcontrol_multimodulo_facturacion_20260513.sql`
 - `gasolineras_modulo_20260514.sql`
 - `gasolineras_market_pipeline_20260519.sql`
+- `user_sections_scope_guard_20260520.sql`
+- `fiscal_audit_architecture_20260520.sql`
 
 ## Usuarios Y Roles
 
@@ -202,6 +204,288 @@ Transparencia:
 - PDF es representación impresa y puede generarse internamente.
 - Confirmar con SW Sapien costos/flujo de PDF antes de venderlo.
 - Validar CFDI/Carta Porte con casos reales por cliente antes de prometer cumplimiento fiscal completo.
+
+## Arquitectura Enterprise SaaS
+
+GE CONTROL se diseña como SaaS multiempresa con aislamiento por cliente, empresa operativa y módulo:
+
+- `tenant_id`: cliente contractual/SaaS. Agrupa licencias, módulos, usuarios y empresas.
+- `user_id`: usuario Auth global de Supabase. Identifica administradores o usuarios cliente.
+- `perfil_id`: razón social/empresa operativa dentro del tenant.
+- `section`: módulo habilitado (`gas_lp`, `transporte`, `gasolineras`).
+- `internal_users`: usuarios internos por módulo sin Supabase Auth, como operadores o asistentes.
+
+Regla de diseño: ningún endpoint operativo debe consultar datos por `user_id` solamente si existe `tenant_id`/`perfil_id` aplicable. En compatibilidad legacy se permite fallback controlado, pero debe quedar auditado y visible para Superadmin.
+
+### Roles y permisos
+
+- **Superadmin SaaS**: administra tenants, licencias, módulos, empresas, usuarios Auth e internos. Puede ejecutar eliminación segura en staging/demo o usuarios test.
+- **Administrador cliente**: opera solo su tenant y empresas asignadas. No ve empresas de otros clientes.
+- **Usuario por módulo**: usuario Auth con sección activa en `user_sections`.
+- **Usuario interno**: operador Transporte o asistente Gas LP con código/PIN y sesión limitada.
+- **Solo lectura**: acceso a consultas/reportes, sin mutar configuración ni facturación.
+
+### Tenant isolation
+
+Controles actuales:
+
+- `user_sections_active_requires_tenant` evita nuevos accesos activos sin `tenant_id`.
+- CRUD admin valida `tenant_id` existente antes de crear empresas/accesos.
+- Módulos operativos filtran por `user_id` y progresivamente por `perfil_id`.
+- Gasolineras usa `X-Perfil-Id` para separar estaciones propias y operaciones por empresa.
+- Superadmin ve todo, pero sus acciones quedan en `admin_saas_audit`.
+
+Pendiente técnico: llevar todo CRUD legacy de Gas LP a `tenant_id + perfil_id` de forma obligatoria cuando se complete migración de datos reales.
+
+### Seguridad, auditoría y logs
+
+- `SUPABASE_SERVICE_ROLE_KEY` solo vive en backend/Render. Nunca se expone en frontend.
+- Errores técnicos de Supabase/Postgres se limpian antes de llegar al usuario.
+- Eventos críticos usan `logger.error`/`logger.exception`.
+- Cambios SaaS se registran en `admin_saas_audit`.
+- Cambios fiscales/PAC deben registrarse en `pac_requests`, `pac_responses`, `xml_versions` e `invoice_cancellations`.
+- Los XML timbrados no se sobrescriben: se versionan por entidad y hash.
+
+## Arquitectura Fiscal SAT/PAC
+
+Tablas nuevas preparadas por `fiscal_audit_architecture_20260520.sql`:
+
+- `sat_catalog_cache`: cache de catálogos SAT/CRE/CNE con vigencia.
+- `pac_requests`: request JSON/XML enviado al PAC, ambiente, hash y correlación.
+- `pac_responses`: respuesta PAC, UUID, XML timbrado, PDF URL, acuse o error.
+- `xml_versions`: versiones de XML original/timbrado/cancelación por entidad.
+- `invoice_cancellations`: cancelaciones, motivo SAT, UUID sustituto y acuse.
+
+Ambientes:
+
+- `SW_ENV=test|sandbox`: pruebas, no vender como timbrado productivo.
+- `SW_ENV=prod`: solo con CSD, contrato PAC y casos reales validados.
+- Cada request debe indicar ambiente para evitar mezclar sandbox y producción.
+
+Reglas de trazabilidad:
+
+- Guardar request PAC antes de timbrar.
+- Guardar response PAC aunque falle.
+- Guardar UUID, fecha timbrado, XML timbrado, estado CFDI y error limpio.
+- En cancelación, guardar motivo, UUID sustitución si aplica y acuse.
+- Nunca modificar un CFDI timbrado; cancelar y sustituir.
+
+## Módulo Transporte Enterprise
+
+El módulo Transporte inicia enfocado en hidrocarburos, pero la arquitectura debe soportar transporte general futuro: refrigerados, material peligroso, paquetería, carga seca, full truckload, última milla, operadores independientes, fleteras grandes e internacional.
+
+### Cuándo usar CFDI Ingreso
+
+Usar `TipoDeComprobante=I` cuando GE CONTROL emite el cobro del servicio de transporte/flete a un cliente:
+
+- Transportista mueve mercancía de tercero y cobra flete.
+- Debe llevar concepto de servicio de transporte.
+- Debe calcular IVA trasladado y, si aplica por régimen, retención.
+- Puede relacionarse con Carta Porte previa mediante `CfdiRelacionados`.
+
+### Cuándo usar CFDI Traslado
+
+Usar `TipoDeComprobante=T` cuando el dueño de la mercancía traslada mercancía propia:
+
+- No hay cobro de flete.
+- Normalmente `SubTotal=0`, `Total=0`, `Moneda=XXX`.
+- Receptor suele ser el mismo emisor o destino operativo permitido.
+- No debe usarse para ocultar una operación de flete de terceros.
+
+### Cuándo usar Complemento Carta Porte
+
+Usar Carta Porte cuando hay traslado de bienes/mercancías en territorio nacional por vía federal o supuestos SAT aplicables. En GE CONTROL:
+
+- Cada viaje timbrable debe tener chofer, vehículo, ruta, ubicaciones, producto, volumen y datos fiscales.
+- Hidrocarburos/petrolíferos requieren validaciones adicionales y posible complemento Hidrocarburos y Petrolíferos.
+- El PDF de carretera se bloquea si el XML timbrado no contiene Carta Porte válida.
+
+### IdCCP
+
+Corrección técnica importante: no asumir que el `IdCCP` debe ir sin guiones. El análisis forense de XMLs reales timbrados y aceptados por SAT muestra patrón:
+
+```text
+CCC441d2-06a8-4ce9-8e10-08dead7e9244
+CCC935c4-962c-4e66-8d98-08dead78ce93
+CCC88cf7-ae4c-450d-8e56-08dead749788
+CCC9e6ed-7f1c-43e4-8e6d-08dead70ca9e
+```
+
+Patrón observado: `CCC + 5-4-4-4-12`, longitud 36, con guiones. GE CONTROL genera este patrón y valida de forma flexible. Si un PAC acepta un formato alterno válido, se debe documentar con XML timbrado real antes de endurecer reglas.
+
+### Validaciones críticas antes de timbrar
+
+- RFC, régimen fiscal, CP y uso CFDI compatibles.
+- Chofer con RFC, nombre y licencia.
+- Vehículo con placa, año, configuración vehicular, `PermSCT`, `NumPermisoSCT`, póliza RC.
+- Si hay material peligroso: `MaterialPeligroso`, clave ONU, embalaje y seguro ambiental cuando aplique.
+- Origen/destino con CP, RFC remitente/destinatario y distancia.
+- Productos con catálogo SAT (`ClaveProducto`, `ClaveSubProducto`) y volumen razonable.
+- Hidrocarburos: no timbrar si el complemento requerido no está cerrado con PAC.
+- No facturar servicio si la Carta Porte no tiene UUID/IdCCP válido.
+
+### Modelo objetivo Transporte
+
+Tablas actuales:
+
+- `tr_viajes`, `tr_cfdi`, `tr_facturas_servicio`, `tr_choferes`, `tr_vehiculos`, `tr_rutas`, `tr_clientes`, `tr_viaje_eventos`, `tr_viaje_documentos`, `tr_tarifas`, `tr_liquidaciones`, `tr_covol_reports`.
+
+Modelo enterprise progresivo:
+
+- `tr_viajes` funciona como `trips`.
+- `tr_cfdi` funciona como `carta_porte/cfdi`.
+- `tr_facturas_servicio` funciona como `invoices` de flete.
+- `tr_viaje_eventos` funciona como `route_events`.
+- `tr_viaje_documentos` funciona como `evidence_files`.
+- Pendiente: `trailers`, `gps_tracking`, `fuel_loads` y cache SAT más granular.
+- Fiscal común: `sat_catalog_cache`, `pac_requests`, `pac_responses`, `invoice_cancellations`, `xml_versions`.
+
+### Cancelaciones y sustituciones
+
+- Motivo `01`: requiere UUID sustituto.
+- Motivo `02`: errores sin relación.
+- Nunca borrar XML timbrado.
+- Guardar acuse y estado SAT/PAC.
+- Si se reemite, crear nuevo XML y relacionarlo; no mutar el anterior.
+
+### Errores comunes
+
+- Usar Traslado cuando corresponde Ingreso por flete.
+- Omitir `PermSCT` o `NumPermisoSCT`.
+- Falta `FiguraTransporte`.
+- IdCCP con patrón no aceptado por PAC.
+- RFC/CP/régimen incompatible.
+- Timbrar hidrocarburos sin complemento requerido.
+- No conservar request/response PAC para auditoría.
+
+## Módulo Gas LP Enterprise
+
+Gas LP cubre distribución, remisiones, XML/Excel, reportes SAT/Anexo 30, facturación futura y administración por empresa.
+
+### Alcance funcional objetivo
+
+- Clientes gaseros y público general.
+- Estaciones/plantas/instalaciones con permisos CRE.
+- Remisiones/tickets por venta.
+- Factura individual de producto.
+- Factura global con `InformacionGlobal`.
+- Crédito y cobranza.
+- Precios por periodo.
+- IVA e IEPS cuando aplique conforme regla vigente.
+- Reportes mensuales y conciliación XML.
+- Preparación para inteligencia de mercado y análisis de margen.
+
+### Facturación Gas LP
+
+No asumir reglas fiscales dudosas sin XML real y validación SAT/PAC. La arquitectura debe permitir:
+
+- Separar precio base antes de impuestos.
+- Calcular IEPS como cuota por litro cuando aplique y esté vigente.
+- Calcular IVA sobre la base fiscal correcta. La hipótesis actual documentada es `subtotal + IEPS`, pero debe validarse con contador/PAC y XMLs reales del cliente.
+- Incluir `InformacionGlobal` cuando se emite a público en general como factura global.
+- Relacionar remisiones/tickets con factura individual o global.
+- Guardar XML original, XML timbrado, UUID y response PAC.
+
+### Análisis de XMLs CONTPAQi / ATIO
+
+Cuando el cliente cargue XMLs reales, GE CONTROL debe detectar:
+
+- Errores SAT y combinaciones inválidas.
+- Campos faltantes o innecesarios.
+- Complementos incorrectos.
+- Omisión de IEPS si aplica.
+- Falta de `InformacionGlobal` en facturas globales.
+- RFC genérico usado fuera de regla.
+- Diferencias entre importe XML y remisión.
+- Dependencias peligrosas del sistema anterior.
+- Qué puede migrarse tal cual y qué debe normalizarse.
+
+### Modelo objetivo Gas LP
+
+Tablas actuales:
+
+- `records`, `reports`, `perfiles_empresa`, `zc_settings`, `facilities`, `internal_users`.
+
+Modelo enterprise progresivo:
+
+- `gas_lp_remisiones`: tickets/remisiones antes de CFDI.
+- `gas_lp_invoices`: facturas de producto.
+- `gas_lp_invoice_items`: litros, precio base, IEPS, IVA, total.
+- `gas_lp_global_invoice_batches`: agrupación para factura global.
+- `gas_lp_customer_accounts`: crédito/cobranza.
+- `gas_lp_price_periods`: precio/IEPS/IVA vigentes por periodo.
+- Fiscal común: `pac_requests`, `pac_responses`, `xml_versions`, `invoice_cancellations`.
+
+Pendiente: crear estas tablas cuando se conecte facturación Gas LP real. Mientras tanto, los XMLs cargados se procesan para reportes SAT/Anexo 30 y análisis.
+
+## Integración PAC SW Sapiens / SW smarter
+
+Flujo objetivo:
+
+1. Construir payload fiscal normalizado.
+2. Validar RFC, CP, régimen, uso CFDI, totales, impuestos y complementos.
+3. Guardar `pac_requests` con hash y ambiente.
+4. Enviar a SW Sapiens/SW smarter.
+5. Guardar `pac_responses` con UUID/XML/error.
+6. Guardar `xml_versions`.
+7. Actualizar estado de entidad (`timbrada`, `error_validacion`, `cancelada`, `sustituida`).
+8. Para PDF, usar URL PAC si existe o generación interna desde XML.
+
+Manejo de errores:
+
+- Usuario recibe mensaje limpio.
+- Log técnico conserva detalle.
+- Errores PAC no deben convertirse en raw dict.
+- Reintentos solo si son idempotentes o si el PAC permite recuperar CFDI por hash/UUID.
+- Duplicado de CFDI debe intentar recuperación antes de gastar otro timbre.
+
+## Migración desde CONTPAQi / ATIO
+
+Estrategia recomendada:
+
+1. Exportar XML timbrados, catálogos y layout de remisiones.
+2. Cargar en staging, nunca directo en producción.
+3. Analizar XMLs contra reglas SAT y reglas internas GE CONTROL.
+4. Mapear clientes, vehículos, choferes, permisos, productos y conceptos.
+5. Clasificar CFDI: ingreso, traslado, egreso, pago, global.
+6. Detectar errores históricos no corregibles y separarlos de reglas futuras.
+7. Generar reporte de brechas fiscales.
+8. Activar timbrado nuevo solo tras pruebas sandbox PAC.
+
+## Roadmap Enterprise
+
+### MVP controlado
+
+- Admin SaaS, tenants, empresas, usuarios internos.
+- Gas LP reportes SAT/Anexo 30 desde XML/Excel.
+- Transporte operación básica, Carta Porte preparada y portal operador.
+- Gasolineras con UI premium y dataset real pendiente.
+
+### V1 profesional
+
+- Auditoría PAC completa.
+- XML versionado.
+- Cancelaciones y sustituciones controladas.
+- Exports mensuales enterprise `monthly_transport` y `monthly_gas_lp`.
+- Facturación Gas LP con IEPS/IVA/InformacionGlobal validada con XMLs reales.
+- Playwright E2E por rol.
+
+### Enterprise
+
+- RLS contractual por tenant en todos los módulos.
+- Catálogos SAT cacheados con vigencia.
+- Alertas de pólizas, permisos, licencias y CSD.
+- GPS tracking y evidencias.
+- Dashboards financieros y cartera.
+- Pipeline CRE/CNE automatizado.
+
+### IA futura
+
+- Asistente contextual por tenant/módulo/rol.
+- Análisis forense de XMLs.
+- Detección de riesgo fiscal.
+- Recomendaciones operativas.
+- Nunca debe enviar datos de otro tenant ni usar service role desde frontend.
 
 ## Runbooks
 
