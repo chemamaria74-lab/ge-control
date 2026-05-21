@@ -62,25 +62,39 @@ def _fmt_fecha(iso: str) -> str:
 
 
 def _nuevo_id_ccp() -> str:
-    """IdCCP Carta Porte 3.1: prefijo CCC + 32 hex sin guiones."""
-    return "CCC" + _uuid_mod.uuid4().hex.lower()
+    """
+    IdCCP Carta Porte 3.1.
+
+    Los XMLs reales aceptados por SAT/PAC observados usan el patrón
+    CCC + 5-4-4-4-12, por ejemplo CCC441d2-06a8-4ce9-8e10-08dead7e9244.
+    Se genera sustituyendo los primeros 3 caracteres de un UUID v4 por CCC.
+    """
+    return "CCC" + str(_uuid_mod.uuid4()).lower()[3:]
 
 
 def _normalizar_id_ccp(value: Optional[str]) -> str:
     raw = (value or "").strip()
     if not raw:
         return _nuevo_id_ccp()
-    if raw.upper().startswith("CCC"):
+    compact = raw.replace("-", "").lower()
+    if raw.upper().startswith("CCC") and len(raw) == 36 and raw[8] == raw[13] == raw[18] == raw[23] == "-":
         hex_part = raw[3:].replace("-", "").lower()
-    else:
-        hex_part = raw.replace("-", "").lower()
-    if len(hex_part) != 32:
-        raise ValueError("IdCCP debe tener formato CCC + 32 caracteres hexadecimales.")
-    try:
-        int(hex_part, 16)
-    except ValueError as exc:
-        raise ValueError("IdCCP contiene caracteres inválidos.") from exc
-    return "CCC" + hex_part
+        if len(hex_part) != 29 or any(c not in "0123456789abcdef" for c in hex_part):
+            raise ValueError("IdCCP contiene caracteres inválidos.")
+        return "CCC" + raw[3:].lower()
+    if raw.upper().startswith("CCC") and len(compact) == 35:
+        try:
+            uuid_value = _uuid_mod.UUID(compact[3:])
+        except ValueError as exc:
+            raise ValueError("IdCCP contiene caracteres inválidos.") from exc
+        return "CCC" + str(uuid_value).lower()[3:]
+    if len(compact) == 32:
+        try:
+            _uuid_mod.UUID(compact)
+        except ValueError as exc:
+            raise ValueError("IdCCP contiene caracteres inválidos.") from exc
+        return "CCC" + str(_uuid_mod.UUID(compact)).lower()[3:]
+    raise ValueError("IdCCP debe usar formato UUID Carta Porte válido, preferentemente CCC + 5-4-4-4-12.")
 
 
 def _smart_round(v: float, decimales: int = 2) -> str:
@@ -170,7 +184,8 @@ def _build_carta_porte(
 ) -> dict:
     """
     Construye el nodo CartaPorte versión 3.1.
-    El IdCCP es un UUID v4 (RFC 4122) generado para esta carta porte.
+    El IdCCP usa el patrón observado en XMLs reales aceptados:
+    CCC + 5-4-4-4-12, derivado de UUID v4.
     """
     distancia = max(round(viaje.distancia_km, 1), 0.1)
     volumen_total = round(sum(p.volumen_litros for p in productos), 3)
