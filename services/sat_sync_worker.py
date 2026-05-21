@@ -20,6 +20,7 @@ SAT_SYNC_PROVIDERS = {"sw_sapiens", "sat_ws", "facturapi", "manual"}
 class SatSyncWindow:
     tenant_id: str
     company_id: str
+    perfil_id: int | None = None
     sync_type: str = "both"
     provider: str = "sw_sapiens"
     date_from: datetime | None = None
@@ -30,6 +31,7 @@ class SatSyncWindow:
         return SatSyncWindow(
             tenant_id=self.tenant_id,
             company_id=self.company_id,
+            perfil_id=self.perfil_id,
             sync_type=self.sync_type if self.sync_type in {"received", "issued", "both"} else "both",
             provider=self.provider if self.provider in SAT_SYNC_PROVIDERS else "sw_sapiens",
             date_from=self.date_from or now - timedelta(minutes=60),
@@ -78,6 +80,7 @@ def create_sat_sync_job(window: SatSyncWindow, created_by: str | None = None) ->
     row = {
         "tenant_id": win.tenant_id,
         "company_id": win.company_id,
+        "perfil_id": win.perfil_id,
         "status": "pending",
         "sync_type": win.sync_type,
         "provider": win.provider,
@@ -113,6 +116,7 @@ def run_sat_sync_once(window: SatSyncWindow, dry_run: bool = True) -> dict[str, 
         "window": {
             "tenant_id": win.tenant_id,
             "company_id": win.company_id,
+            "perfil_id": win.perfil_id,
             "sync_type": win.sync_type,
             "date_from": win.date_from.isoformat(),
             "date_to": win.date_to.isoformat(),
