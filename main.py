@@ -333,6 +333,10 @@ async def frontend(lang: str = "es"):
   btn.addEventListener('click', () => switchTab(btn.dataset.main));
 });""",
     )
+    html = html.replace(
+        "</body>",
+        '<script src="/static/js/gas_lp_shell_unified.js"></script>\n</body>',
+    )
     # Inyectamos el idioma para que el JS lo detecte
     html = html.replace('<html lang="es">', f'<html lang="{lang}">')
     return HTMLResponse(content=html)
