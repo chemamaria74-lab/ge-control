@@ -9,7 +9,8 @@ import re
 
 PRODUCTOS_HIDROCARBUROS = {"PR05", "PR06", "PR07", "PR08", "PR09", "PR10", "PR12", "PR13", "PR16", "PR17", "PR01", "PR03"}
 PRODUCTOS_PETROLIFEROS_MAS_COMUNES = {"PR05", "PR06", "PR07", "PR08", "PR09", "PR10", "PR13", "PR16", "PR17", "PR03"}
-ID_CCP_RE = re.compile(r"^CCC[0-9a-fA-F]{32}$")
+ID_CCP_OBSERVED_RE = re.compile(r"^CCC[0-9a-fA-F]{5}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+ID_CCP_COMPACT_RE = re.compile(r"^CCC[0-9a-fA-F]{32}$")
 
 
 @dataclass
@@ -76,8 +77,8 @@ def validar_xml_carta_porte_transporte(
             errors.append(f"Carta Porte debe ser versión 3.1; XML trae '{_attr(carta, 'Version') or 'vacío'}'.")
         if not _attr(carta, "IdCCP"):
             errors.append("Carta Porte no contiene IdCCP.")
-        elif not ID_CCP_RE.match(_attr(carta, "IdCCP")):
-            errors.append("IdCCP debe tener formato CCC + 32 caracteres hexadecimales sin guiones.")
+        elif not _id_ccp_valido(_attr(carta, "IdCCP")):
+            errors.append("IdCCP no cumple un patrón Carta Porte válido. Patrón observado aceptado: CCC + 5-4-4-4-12.")
         if _attr(carta, "TranspInternac") == "":
             errors.append("Carta Porte no contiene TranspInternac.")
         if not _attr(carta, "TotalDistRec"):
@@ -221,3 +222,8 @@ def _attr(node, key: str, default: str = "") -> str:
     if node is None:
         return default
     return str(node.get(key) or default)
+
+
+def _id_ccp_valido(value: str) -> bool:
+    raw = (value or "").strip()
+    return bool(ID_CCP_OBSERVED_RE.match(raw) or ID_CCP_COMPACT_RE.match(raw))
