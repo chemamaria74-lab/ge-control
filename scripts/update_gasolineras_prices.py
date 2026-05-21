@@ -79,6 +79,11 @@ def main() -> None:
     parser.add_argument("--prices-url", default=CRE_PRICES_URL)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--with-deltas",
+        action="store_true",
+        help="Calcula delta contra snapshot previo. No se usa en cron porque requiere lecturas por estacion/producto.",
+    )
     args = parser.parse_args()
 
     prices = fetch_source(args.prices_url)
@@ -99,6 +104,7 @@ def main() -> None:
         "source_hash": prices.get("source_hash", ""),
         "row_count": len(prices.rows),
         "snapshots": len(snapshots),
+        "deltas_enabled": args.with_deltas,
         "sources": {"prices": dict(prices)},
     }
     run_payload = {
@@ -123,7 +129,8 @@ def main() -> None:
     try:
         for row in snapshots:
             row["ingestion_run_id"] = run_id
-        snapshots = attach_deltas(sb, snapshots)
+        if args.with_deltas:
+            snapshots = attach_deltas(sb, snapshots)
         for batch in chunks(snapshots):
             sb.table("gaso_market_price_snapshots").insert(batch).execute()
         if run_id:
