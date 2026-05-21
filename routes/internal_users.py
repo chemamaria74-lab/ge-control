@@ -60,6 +60,11 @@ class InternalLogout(BaseModel):
     token: str
 
 
+class DetectedLoadAction(BaseModel):
+    action: str
+    updates: Optional[dict] = None
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -106,6 +111,38 @@ def _matches_login(row: dict, login: str, allow_display_name: bool = False) -> b
         return False
     display_name = _clean_login(row.get("display_name"))
     return bool(display_name and display_name == login)
+
+
+def _status_label(status: str) -> str:
+    return {
+        "sin_sincronizar": "Sin sincronizar",
+        "buscando_cfdi": "Buscando CFDI",
+        "new": "Nueva carga detectada",
+        "pending_confirmation": "Pendiente de confirmar",
+        "confirmed": "Carta Porte borrador",
+        "carta_porte_created": "Carta Porte borrador",
+        "rejected": "Ignorada",
+    }.get(status or "", status or "Sin sincronizar")
+
+
+def _mock_detected_load(user: dict) -> dict:
+    return {
+        "id": "mock-pemex-gas-lp",
+        "source": "mock",
+        "status": "pending_confirmation",
+        "status_label": "Nueva carga detectada",
+        "proveedor": "PEMEX",
+        "rfc_proveedor": "PME850101XXX",
+        "empresa": f"Perfil {user.get('perfil_id') or 'sin asignar'}",
+        "destino_detectado": "Monterrey",
+        "producto_detectado": "Gas LP",
+        "litros_detectados": 10,
+        "unidad_detectada": "L",
+        "uuid": "00000000-0000-4000-8000-000000000000",
+        "fecha_detectada": _now_iso(),
+        "confidence_score": 82,
+        "message": "Mock visible hasta conectar SW Sapiens/SAT sandbox o cargar CFDI reales.",
+    }
 
 
 def _safe_internal_error(action: str, exc: Exception) -> HTTPException:
@@ -484,3 +521,101 @@ async def gas_lp_internal_summary(token: str):
             "Los permisos se limitan por empresa, módulo y rol interno.",
         ],
     })
+
+
+@router.get("/internal-auth/gas-lp/detected-loads")
+async def gas_lp_detected_loads(token: str, search: str | None = None, status: str | None = None):
+    ctx = _internal_session(token, "gas_lp")
+    user = ctx["user"]
+    tenant_id = user.get("tenant_id")
+    perfil_id = user.get("perfil_id")
+    sb = get_supabase_admin()
+    try:
+        q = sb.table("detected_loads").select("*, cfdi_sat_inbox(uuid,rfc_emisor,nombre_emisor,fecha,total)")
+        q = q.eq("tenant_id", tenant_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
+        if status:
+            q = q.eq("status", status)
+        rows = q.order("created_at", desc=True).limit(50).execute().data or []
+    except Exception as exc:
+        raise _safe_internal_error("detected_loads", exc)
+
+    needle = (search or "").strip().lower()
+    loads = []
+    for row in rows:
+        cfdi = row.get("cfdi_sat_inbox") or {}
+        item = {
+            "id": row.get("id"),
+            "source": "detected_loads",
+            "status": row.get("status"),
+            "status_label": _status_label(row.get("status")),
+            "proveedor": cfdi.get("nombre_emisor") or row.get("proveedor_id") or "Proveedor por confirmar",
+            "rfc_proveedor": cfdi.get("rfc_emisor") or "",
+            "empresa": f"Perfil {perfil_id or '—'}",
+            "destino_detectado": row.get("destino_detectado") or "Por confirmar",
+            "producto_detectado": row.get("producto_detectado") or "Por confirmar",
+            "litros_detectados": row.get("litros_detectados"),
+            "unidad_detectada": row.get("unidad_detectada") or "L",
+            "uuid": cfdi.get("uuid") or "",
+            "fecha_detectada": row.get("fecha_detectada") or cfdi.get("fecha"),
+            "confidence_score": row.get("confidence_score") or 0,
+        }
+        haystack = " ".join(str(item.get(k) or "") for k in (
+            "proveedor", "rfc_proveedor", "uuid", "producto_detectado", "litros_detectados", "fecha_detectada"
+        )).lower()
+        if not needle or needle in haystack:
+            loads.append(item)
+
+    source = "real" if loads else "mock"
+    if not loads:
+        loads = [_mock_detected_load(user)]
+    states = [
+        {"key": "sin_sincronizar", "label": "Sin sincronizar"},
+        {"key": "buscando_cfdi", "label": "Buscando CFDI"},
+        {"key": "new", "label": "Nueva carga detectada"},
+        {"key": "pending_confirmation", "label": "Pendiente de confirmar"},
+        {"key": "carta_porte_created", "label": "Carta Porte borrador"},
+    ]
+    return JSONResponse({"ok": True, "source": source, "loads": loads, "states": states})
+
+
+@router.post("/internal-auth/gas-lp/detected-loads/{load_id}/action")
+async def gas_lp_detected_load_action(load_id: str, payload: DetectedLoadAction, token: str):
+    ctx = _internal_session(token, "gas_lp")
+    user = ctx["user"]
+    action = (payload.action or "").strip().lower()
+    if action not in {"confirm", "ignore", "edit"}:
+        raise HTTPException(400, "Acción inválida.")
+    if str(load_id).startswith("mock-"):
+        return JSONResponse({
+            "ok": True,
+            "mock": True,
+            "status": "carta_porte_created" if action == "confirm" else "rejected" if action == "ignore" else "pending_confirmation",
+            "message": "Acción simulada. Falta conectar CFDI real desde SW Sapiens/SAT sandbox.",
+        })
+
+    status_by_action = {
+        "confirm": "carta_porte_created",
+        "ignore": "rejected",
+        "edit": "pending_confirmation",
+    }
+    update = {
+        "status": status_by_action[action],
+        "updated_at": _now_iso(),
+    }
+    if action == "confirm":
+        update["confirmed_by"] = user.get("owner_user_id")
+        update["confirmed_at"] = _now_iso()
+    if payload.updates:
+        for key in ("producto_detectado", "litros_detectados", "unidad_detectada", "origen_detectado", "destino_detectado", "assigned_operator_id"):
+            if key in payload.updates:
+                update[key] = payload.updates[key]
+    try:
+        q = get_supabase_admin().table("detected_loads").update(update).eq("id", load_id).eq("tenant_id", user.get("tenant_id"))
+        if user.get("perfil_id") is not None:
+            q = q.eq("perfil_id", user.get("perfil_id"))
+        q.execute()
+    except Exception as exc:
+        raise _safe_internal_error("detected_load_action", exc)
+    return JSONResponse({"ok": True, "status": update["status"], "message": _status_label(update["status"])})
