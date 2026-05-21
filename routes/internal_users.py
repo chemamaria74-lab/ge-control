@@ -94,6 +94,20 @@ def _clean_code(value: str) -> str:
     return code[:24]
 
 
+def _clean_login(value: str) -> str:
+    return str(value or "").strip().upper()
+
+
+def _matches_login(row: dict, login: str, allow_display_name: bool = False) -> bool:
+    code = _clean_login(row.get("code"))
+    if code == login:
+        return True
+    if not allow_display_name:
+        return False
+    display_name = _clean_login(row.get("display_name"))
+    return bool(display_name and display_name == login)
+
+
 def _safe_internal_error(action: str, exc: Exception) -> HTTPException:
     logger.exception("%s internal_user failed: %s", action, exc)
     return HTTPException(500, "No se pudo completar la operación. Intenta de nuevo o contacta a soporte.")
@@ -329,13 +343,17 @@ async def delete_internal_user_safe(internal_user_id: int, authorization: str = 
 @router.post("/internal-auth/login")
 async def internal_login(payload: InternalLogin):
     section = (payload.section or "").strip().lower()
-    code = (payload.code or "").strip().upper()
-    if section not in SECTIONS or not code or not payload.pin:
-        raise HTTPException(400, "Código, PIN y módulo son obligatorios.")
+    login = _clean_login(payload.code)
+    if section not in SECTIONS or not login or not payload.pin:
+        raise HTTPException(400, "Usuario, contraseña y módulo son obligatorios.")
     sb = get_supabase_admin()
-    rows = sb.table("internal_users").select("*").eq("section", section).eq("code", code).limit(20).execute().data or []
+    rows = sb.table("internal_users").select("*").eq("section", section).limit(300).execute().data or []
+    code_rows = [row for row in rows if _matches_login(row, login)]
+    fallback_rows = [row for row in rows if _matches_login(row, login, allow_display_name=True)]
+    candidates = code_rows or fallback_rows
+    rows = candidates[:20]
     if not rows:
-        raise HTTPException(401, "Código o PIN inválido.")
+        raise HTTPException(401, "Usuario o contraseña incorrectos.")
     user = next((row for row in rows if _verify_secret(payload.pin, row.get("pin_hash") or "")), None)
     if not user:
         user = rows[0]
@@ -355,7 +373,7 @@ async def internal_login(payload: InternalLogin):
             update["locked_until"] = (_now() + timedelta(minutes=LOCK_MINUTES)).isoformat()
             update["status"] = "locked"
         sb.table("internal_users").update(update).eq("id", user["id"]).execute()
-        raise HTTPException(401, "Código o PIN inválido.")
+        raise HTTPException(401, "Usuario o contraseña incorrectos.")
 
     session_token = secrets.token_urlsafe(32)
     expires_at = _now() + timedelta(hours=SESSION_HOURS)
