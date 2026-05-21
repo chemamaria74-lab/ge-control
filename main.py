@@ -89,6 +89,8 @@ async def clean_http_exception_handler(request: Request, exc: HTTPException):
     )
 
 # ── CORS seguro ───────────────────────────────────────────────────────────────
+# Dominio de producción fijo + localhost para desarrollo local.
+# Para añadir otro dominio: agrega ALLOWED_ORIGIN_EXTRA en Render → Environment.
 _EXTRA_ORIGIN = os.environ.get("ALLOWED_ORIGIN_EXTRA", "").strip()
 _CORS_ORIGINS = [
     "https://z-control-program.onrender.com",
@@ -145,6 +147,7 @@ app.mount(
 )
 
 
+# ── Modelo legacy (compatibilidad con endpoints /api/supabase/config) ─────────
 class ConfigClienteSchema(BaseModel):
     estacion_id: str
     nombre: str
@@ -153,8 +156,10 @@ class ConfigClienteSchema(BaseModel):
     densidad_kg_por_litro: float = 0.524
 
 
+# ── Endpoints legacy Supabase config ─────────────────────────────────────────
 @app.post("/api/supabase/config")
 async def guardar_config_cliente(config: ConfigClienteSchema):
+    """Endpoint legacy deshabilitado: no cumplía aislamiento user_id/perfil_id."""
     from fastapi import HTTPException
     raise HTTPException(
         status_code=410,
@@ -164,6 +169,7 @@ async def guardar_config_cliente(config: ConfigClienteSchema):
 
 @app.get("/api/supabase/config/{estacion_id}")
 async def obtener_config_cliente(estacion_id: str):
+    """Endpoint legacy deshabilitado: no cumplía aislamiento user_id/perfil_id."""
     from fastapi import HTTPException
     raise HTTPException(
         status_code=410,
@@ -173,6 +179,7 @@ async def obtener_config_cliente(estacion_id: str):
 
 @app.delete("/api/supabase/config/{estacion_id}")
 async def eliminar_config_cliente(estacion_id: str):
+    """Endpoint legacy deshabilitado: no cumplía aislamiento user_id/perfil_id."""
     from fastapi import HTTPException
     raise HTTPException(
         status_code=410,
@@ -180,19 +187,25 @@ async def eliminar_config_cliente(estacion_id: str):
     )
 
 
+# ── Vistas HTML ───────────────────────────────────────────────────────────────
+
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def root():
+    """Redirige a la vista de selección de módulo."""
     return RedirectResponse(url="/choice", status_code=302)
 
 
 @app.get("/choice", response_class=HTMLResponse, include_in_schema=False)
 async def choice_view():
-    with open(os.path.join(BASE_DIR, "templates", "choice.html"), encoding="utf-8") as f:
+    """Pantalla de selección de módulo (Gas LP / Transporte)."""
+    with open(os.path.join(BASE_DIR, "templates", "choice.html"),
+              encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
 @app.get("/admin-saas", response_class=HTMLResponse, include_in_schema=False)
 async def admin_saas_view():
+    """Panel interno de operación SaaS. La protección real vive en /api/admin-saas/*."""
     with open(os.path.join(BASE_DIR, "templates", "admin_saas.html"), encoding="utf-8") as f:
         html = f.read()
     html = html.replace(
@@ -205,27 +218,38 @@ async def admin_saas_view():
 
 @app.get("/login/{modulo}", response_class=HTMLResponse, include_in_schema=False)
 async def login_view(modulo: str):
+    """Pantalla de login parametrizada por módulo."""
     modulo = modulo.replace("-", "_")
+
     if modulo == "transporte":
-        color_primario = "#7A1E2C"
-        color_secundario = "#5B0F1D"
-        icon_module = "fa-truck"
-        nombre_modulo = "Transporte"
+        color_primario    = "#7A1E2C"
+        color_secundario  = "#5B0F1D"
+        icon_module       = "fa-truck"
+        nombre_modulo     = "Transporte"
     elif modulo == "gasolineras":
-        color_primario = "#7A1E2C"
-        color_secundario = "#5B0F1D"
-        icon_module = "fa-gas-pump"
-        nombre_modulo = "Gasolineras"
+        color_primario    = "#7A1E2C"
+        color_secundario  = "#5B0F1D"
+        icon_module       = "fa-gas-pump"
+        nombre_modulo     = "Gasolineras"
     else:
-        color_primario = "#7A1E2C"
-        color_secundario = "#5B0F1D"
-        icon_module = "fa-fire-flame-curved"
-        nombre_modulo = "Gas LP"
+        color_primario    = "#7A1E2C"
+        color_secundario  = "#5B0F1D"
+        icon_module       = "fa-fire-flame-curved"
+        nombre_modulo     = "Gas LP"
 
     from jinja2 import Environment, FileSystemLoader, select_autoescape
-    env = Environment(loader=FileSystemLoader(os.path.join(BASE_DIR, "templates")), autoescape=select_autoescape(["html"]))
+    env = Environment(
+        loader=FileSystemLoader(os.path.join(BASE_DIR, "templates")),
+        autoescape=select_autoescape(["html"]),
+    )
     tmpl = env.get_template("login.html")
-    html = tmpl.render(modulo=modulo, nombre_modulo=nombre_modulo, color_primario=color_primario, color_secundario=color_secundario, icon_module=icon_module)
+    html = tmpl.render(
+        modulo=modulo,
+        nombre_modulo=nombre_modulo,
+        color_primario=color_primario,
+        color_secundario=color_secundario,
+        icon_module=icon_module,
+    )
     return HTMLResponse(content=html)
 
 
@@ -241,11 +265,16 @@ async def module_role_view(modulo: str, lang: str = "es"):
     html = templates.get_template("module_role.html").render(modulo=modulo, nombre=nombre, roles=roles, lang=lang)
     return HTMLResponse(content=html)
 
-
+# main.py simplificado
 @app.get("/app", response_class=HTMLResponse, include_in_schema=False)
 async def frontend(lang: str = "es"):
+    """Sirve app.html e inyecta el idioma en la etiqueta html."""
     with open(os.path.join(BASE_DIR, "templates", "app.html"), encoding="utf-8") as f:
         html = f.read()
+    html = html.replace(
+        '<link rel="stylesheet" href="/static/css/ge-brand.css">',
+        '<link rel="stylesheet" href="/static/css/ge-brand.css">\n<link rel="stylesheet" href="/static/css/gas_lp_shell_unified.css">',
+    )
     html = html.replace(
         """<header>
   <img src="/static/img/ge-isotype-light.svg" alt="GE" class="brand-logo-mark">
@@ -267,16 +296,18 @@ async def frontend(lang: str = "es"):
   <img src="/static/img/ge-isotype-light.svg" alt="GE" class="brand-logo-mark">
   <h1>Gas LP</h1>
   <span class="badge badge-blue module" id="moduleBadge"><i class="fa-solid fa-fire-flame-simple"></i> Gas LP</span>
-  <span class="badge badge-green">v3.0</span>
+  <span class="badge badge-green">v3.5</span>
+  <div id="empresaSwitcher" class="empresa-switcher" style="display:none" onclick="mostrarSelectorEmpresas()" title="Cambiar razón social">
+    <i class="fa-solid fa-building empresa-switcher-icon"></i>
+    <span class="empresa-switcher-name" id="empresaSwitcherName">—</span>
+    <i class="fa-solid fa-chevron-down empresa-switcher-arrow"></i>
+  </div>
   <div class="topbar-right">
-    <div id="empresaSwitcher" class="empresa-switcher" style="display:none" onclick="mostrarSelectorEmpresas()" title="Cambiar razón social">
-      <i class="fa-solid fa-building empresa-switcher-icon"></i>
-      <span class="empresa-switcher-name" id="empresaSwitcherName">—</span>
-      <i class="fa-solid fa-chevron-down empresa-switcher-arrow"></i>
-    </div>
+    <span class="badge" id="gasLpRfcBadge">RFC —</span>
     <div class="user-chip" id="userChip" style="display:none">
       <span id="userDisplayName"></span>
     </div>
+    <button class="lang-badge" type="button" onclick="const next=window._lang==='en'?'es':'en';localStorage.setItem('zc_lang',next);const url=new URL(location.href);url.searchParams.set('lang',next);location.replace(url.toString());">EN</button>
     <button class="btn-sm" type="button" onclick="window.location.href='/choice'">Cambiar módulo</button>
     <button class="btn-logout" id="btnLogout">Salir</button>
   </div>
@@ -286,49 +317,64 @@ async def frontend(lang: str = "es"):
         """  <button class="main-nav-tab" data-main="config"><i class="fa-solid fa-gear"></i> Administración</button>
   <button class="main-nav-tab" id="tabAdmin" data-main="admin" style="display:none"><i class="fa-solid fa-users-gear"></i> Asistentes</button>""",
         """  <div class="tab-menu">
-    <button class="main-nav-tab tab-menu-btn" type="button" data-main="config"><i class="fa-solid fa-ellipsis"></i> Administración</button>
+    <button class="main-nav-tab tab-menu-btn" type="button"><i class="fa-solid fa-ellipsis"></i> Administración</button>
     <div class="tab-menu-panel">
       <button class="main-nav-tab" id="tabAdmin" type="button" data-main="admin" style="display:none"><i class="fa-solid fa-users-gear"></i> Usuarios y permisos</button>
       <button class="main-nav-tab" type="button" data-main="config"><i class="fa-solid fa-gear"></i> Configuración</button>
     </div>
   </div>""",
     )
+    html = html.replace(
+        """document.querySelectorAll('.main-nav-tab').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.main));
+});""",
+        """document.querySelectorAll('.main-nav-tab').forEach(btn => {
+  if (!btn.dataset.main) return;
+  btn.addEventListener('click', () => switchTab(btn.dataset.main));
+});""",
+    )
+    # Inyectamos el idioma para que el JS lo detecte
     html = html.replace('<html lang="es">', f'<html lang="{lang}">')
     return HTMLResponse(content=html)
 
-
 @app.get("/transporte", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_transporte():
+    """Sirve el frontend del módulo de Transporte de Hidrocarburos."""
     with open(os.path.join(BASE_DIR, "templates", "transporte.html"), encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
 @app.get("/operador/transporte", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_operador_transporte():
+    """Portal movil simple para operadores de Transporte."""
     with open(os.path.join(BASE_DIR, "templates", "operador_transporte.html"), encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
 @app.get("/transporte/operador", response_class=HTMLResponse, include_in_schema=False)
 async def login_operador_transporte():
+    """Login de operador por codigo/PIN, sin cuenta Supabase Auth."""
     with open(os.path.join(BASE_DIR, "templates", "operador_transporte_login.html"), encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
 @app.get("/gas-lp/asistente", response_class=HTMLResponse, include_in_schema=False)
 async def login_asistente_gas_lp():
+    """Login de asistente interno Gas LP por codigo/PIN."""
     with open(os.path.join(BASE_DIR, "templates", "asistente_gas_lp_login.html"), encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
 @app.get("/asistente/gas-lp", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_asistente_gas_lp():
+    """Dashboard limitado para asistentes internos Gas LP."""
     with open(os.path.join(BASE_DIR, "templates", "asistente_gas_lp.html"), encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
 @app.get("/gasolineras", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_gasolineras():
+    """Sirve el frontend del módulo Gasolineras."""
     with open(os.path.join(BASE_DIR, "templates", "gasolineras.html"), encoding="utf-8") as f:
         html = f.read().replace(
             '<link rel="stylesheet" href="/static/css/ge-brand.css">',
@@ -343,13 +389,16 @@ async def frontend_gasolineras():
         return HTMLResponse(content=html)
 
 
+# ── Health check ──────────────────────────────────────────────────────────────
 @app.get("/health", tags=["Sistema"])
 async def health():
     return {"status": "ok", "version": "3.5.0", "producto": "ge_control"}
 
 
+# ── Arranque local ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", "8000"))
+    # En producción Render usa gunicorn (Procfile). Este bloque es solo para dev.
+    port   = int(os.environ.get("PORT", "8000"))
     reload = os.environ.get("UVICORN_RELOAD", "1") == "1"
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=reload)
