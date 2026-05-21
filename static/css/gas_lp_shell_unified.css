@@ -129,6 +129,40 @@ body:not(.login-mode) .tab-menu-panel .main-nav-tab:hover {
   color: #5B0F1D !important;
 }
 
+/* Tabs internas de cards (Excel/CFDI/Autoconsumo): que nunca se salgan del cuadro. */
+body:not(.login-mode) .card .tabs {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  gap: 0 !important;
+  background: #F5F1E8 !important;
+  border-bottom: 1px solid var(--ge-line) !important;
+}
+
+body:not(.login-mode) .card .tabs .tab {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  padding: 12px 8px !important;
+  margin-bottom: 0 !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+body:not(.login-mode) .card .tabs .tab span {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
 @media (max-width: 720px) {
   body:not(.login-mode) header {
     min-height: 62px !important;
@@ -148,5 +182,10 @@ body:not(.login-mode) .tab-menu-panel .main-nav-tab:hover {
     text-align: center !important;
     padding: 10px 8px !important;
     font-size: 12px !important;
+  }
+
+  body:not(.login-mode) .card .tabs .tab {
+    font-size: 12px !important;
+    padding-inline: 4px !important;
   }
 }
