@@ -192,8 +192,20 @@ def _build_carta_porte(
     peso_total    = round(volumen_total * 0.75, 3)  # Estimado conservador kg/L
 
     # ── Autotransporte ────────────────────────────────────────────────────────
-    perm_sct    = vehiculo.get("permiso_sct", "TPAF01")
-    num_perm_sct = vehiculo.get("num_permiso_sct", "Sin permiso")
+    perm_sct    = (vehiculo.get("permiso_sct") or "TPAF01").strip()
+    num_perm_sct = (vehiculo.get("num_permiso_sct") or "").strip()
+    if not num_perm_sct or num_perm_sct.lower() in {"sin permiso", "s/p", "na", "n/a"}:
+        raise ValueError("Configura NumPermisoSCT del vehículo antes de timbrar Carta Porte.")
+    asegura_resp = (vehiculo.get("aseguradora") or "").strip()
+    poliza_resp = (vehiculo.get("poliza_seguro") or "").strip()
+    seguros_operacion = vehiculo.get("seguros_operacion") or []
+    for seguro in seguros_operacion:
+        tipo = (seguro.get("tipo") or "").lower()
+        if "responsabilidad" in tipo:
+            asegura_resp = asegura_resp or (seguro.get("aseguradora") or "").strip()
+            poliza_resp = poliza_resp or (seguro.get("poliza") or "").strip()
+    if not asegura_resp or not poliza_resp:
+        raise ValueError("Configura aseguradora y póliza de responsabilidad civil del vehículo antes de timbrar Carta Porte.")
     autotransporte: dict = {
         "PermSCT":    perm_sct,
         "NumPermisoSCT": num_perm_sct,
@@ -203,10 +215,30 @@ def _build_carta_porte(
             "AnioModeloVM":    str(vehiculo.get("anio", 2020)),
         },
         "Seguros": {
-            "AseguraRespCivil": vehiculo.get("aseguradora", ""),
-            "PolizaRespCivil":  vehiculo.get("poliza_seguro", ""),
+            "AseguraRespCivil": asegura_resp,
+            "PolizaRespCivil":  poliza_resp,
         },
     }
+    asegura_med = ""
+    poliza_med = ""
+    for seguro in seguros_operacion:
+        tipo = (seguro.get("tipo") or "").lower()
+        if "ambient" in tipo:
+            asegura_med = (seguro.get("aseguradora_medio_ambiente") or seguro.get("aseguradora") or "").strip()
+            poliza_med = (seguro.get("poliza_medio_ambiente") or seguro.get("poliza") or "").strip()
+            break
+    if asegura_med and poliza_med:
+        autotransporte["Seguros"]["AseguraMedAmbiente"] = asegura_med
+        autotransporte["Seguros"]["PolizaMedAmbiente"] = poliza_med
+
+    remolques = []
+    for rem in vehiculo.get("remolques") or []:
+        placa = (rem.get("placas") or "").strip().upper()
+        subtipo = (rem.get("subtipo_rem") or "").strip()
+        if placa and subtipo:
+            remolques.append({"SubTipoRem": subtipo, "Placa": placa})
+    if remolques:
+        autotransporte["Remolques"] = {"Remolque": remolques}
 
     # ── Mercancías (una por producto) ─────────────────────────────────────────
     mercancias_list = []
