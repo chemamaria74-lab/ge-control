@@ -10,17 +10,23 @@
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { min-height: 100%; width: 100%; max-width: 100%; overflow-x: hidden; }
     body {
       font-family: var(--ge-font);
       min-height: 100vh;
       display: flex;
-      align-items: center;
+      flex-direction: column;
+      align-items: stretch;
       justify-content: center;
       background:
-        radial-gradient(circle at 18% 14%, rgba(200,169,107,.16), transparent 30%),
-        linear-gradient(180deg, #ffffff 0%, #F5F5F5 100%);
+        radial-gradient(circle at 18% 12%, rgba(200,169,107,.14), transparent 28%),
+        radial-gradient(circle at 86% 16%, rgba(122,30,44,.08), transparent 26%),
+        linear-gradient(180deg, #FFFFFF 0%, #F7F6F3 100%);
       color: #111111;
-      padding: 5rem 1.2rem 3rem;
+      padding: 0 1.2rem;
+      overflow-x: hidden;
+      width: 100%;
+      max-width: 100%;
     }
     .lang-switcher {
       position: fixed;
@@ -47,25 +53,98 @@
     }
     .lang-btn:hover { background: #F5F5F5; border-color: #C8A96B; }
     .lang-btn.active { background: #5B0F1D; color: #fff; border-color: #5B0F1D; }
-    .wrapper { text-align: center; width: 100%; }
-    .choice-container { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; max-width: 1120px; width: 100%; margin: 0 auto; }
+    .wrapper {
+      text-align: center;
+      width: 100%;
+      max-width: 100%;
+      min-height: calc(100vh - 86px);
+      display: grid;
+      place-items: center;
+      padding: 3.4rem 0 2.4rem;
+    }
+    .landing-shell {
+      width: min(100%, 980px);
+      max-width: 100%;
+      display: grid;
+      gap: 2rem;
+      justify-items: center;
+    }
+    .choice-container {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.2rem;
+      max-width: 820px;
+      width: 100%;
+      min-width: 0;
+      margin: 0 auto;
+    }
     .choice-card {
       background: #fff; border-radius: 12px;
-      padding: 2.2rem 1.6rem; text-align: left; cursor: pointer;
+      padding: 2rem 1.55rem; text-align: left; cursor: pointer;
       transition: all 0.2s ease; border: 1px solid #E7E3DC;
-      text-decoration: none; display: block;
-      box-shadow: 0 18px 45px rgba(17,17,17,.07);
-      min-height: 260px;
+      text-decoration: none; display: flex; flex-direction: column;
+      box-shadow: 0 18px 45px rgba(17,17,17,.065);
+      min-height: 236px;
+      position: relative;
+      overflow: hidden;
+      width: 100%;
+      min-width: 0;
     }
-    .choice-card:hover { transform: translateY(-4px); border-color: #C8A96B; box-shadow: 0 24px 60px rgba(17,17,17,.11); }
-    .choice-icon { font-size: 2rem; margin-bottom: 1.25rem; color:#C8A96B; }
-    .choice-card.transporte .choice-icon,.choice-card.gas-lp .choice-icon,.choice-card.gasolineras .choice-icon { color: #C8A96B; }
-    .choice-title { font-size: 1.55rem; font-weight: 800; color: #111111; margin-bottom: 0.55rem; letter-spacing: -.01em; }
-    .choice-desc { font-size: 0.96rem; color: #6F6A64; line-height: 1.55; min-height: 4.4rem; }
-    .choice-badge { display: inline-flex; align-items:center; gap:.45rem; padding: .48rem .9rem; border-radius: 999px; font-size: .75rem; font-weight: 800; margin-top: 1.2rem; background:#F5F1E8;color:#5B0F1D;border:1px solid #E3D4B4; }
+    .choice-card::after {
+      content: "";
+      position: absolute;
+      right: -48px;
+      top: -56px;
+      width: 132px;
+      height: 132px;
+      border-radius: 999px;
+      background: rgba(122,30,44,.045);
+      transition: transform .2s ease, background .2s ease;
+    }
+    .choice-card:hover { transform: translateY(-4px); border-color: #C8A96B; box-shadow: 0 26px 64px rgba(17,17,17,.11); }
+    .choice-card:hover::after { transform: scale(1.08); background: rgba(200,169,107,.14); }
+    .choice-icon { font-size: 1.9rem; margin-bottom: 1.15rem; color:#C8A96B; position: relative; z-index: 1; }
+    .choice-card.transporte .choice-icon,.choice-card.gas-lp .choice-icon { color: #C8A96B; }
+    .choice-title { font-size: 1.5rem; font-weight: 800; color: #111111; margin-bottom: 0.55rem; letter-spacing: 0; position: relative; z-index: 1; }
+    .choice-desc { font-size: 0.96rem; color: #6F6A64; line-height: 1.55; min-height: 3.2rem; position: relative; z-index: 1; }
+    .choice-badge { display: inline-flex; align-items:center; gap:.45rem; padding: .48rem .9rem; border-radius: 999px; font-size: .75rem; font-weight: 800; margin-top: auto; background:#F5F1E8;color:#5B0F1D;border:1px solid #E3D4B4; width: fit-content; position: relative; z-index: 1; }
     .choice-card:hover .choice-badge { background:#7A1E2C;color:#fff;border-color:#7A1E2C; }
-    .brand-logo { margin-bottom: 2rem; }
-    .brand-logo img { width: 360px; max-width:86vw; display:block; margin:0 auto; }
+    .brand-logo { display: grid; justify-items: center; gap: .75rem; }
+    .brand-logo img { width: 330px; max-width:78vw; display:block; margin:0 auto; }
+    .landing-subtitle {
+      color: #6F6A64;
+      font-size: .98rem;
+      line-height: 1.55;
+      max-width: 620px;
+    }
+    .ge-legal-footer {
+      width: min(100%, 760px);
+      margin: auto auto 16px;
+      padding: 10px 18px 0;
+      color: #6F6A64;
+      font-size: 11px;
+      line-height: 1.45;
+      text-align: center;
+    }
+    .ge-legal-footer strong { color: #3F3A36; font-weight: 700; }
+    .ge-legal-links {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      margin-top: 5px;
+      flex-wrap: wrap;
+    }
+    .ge-legal-links a {
+      color: #7A1E2C;
+      text-decoration: none;
+      font-weight: 700;
+    }
+    .ge-legal-links a:hover {
+      color: #5B0F1D;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
     .superadmin-link{
       position:fixed;left:1rem;bottom:1rem;width:36px;height:36px;
       display:inline-grid;place-items:center;border:1px solid rgba(122,30,44,.22);
@@ -75,14 +154,33 @@
     }
     .superadmin-link:hover{opacity:1;transform:translateY(-1px);box-shadow:0 12px 28px rgba(122,30,44,.24)}
     @media (max-width: 900px) {
+      .wrapper { min-height: calc(100vh - 96px); padding: 4.8rem 0 2rem; }
+      .landing-shell { gap: 1.7rem; }
       .choice-container { grid-template-columns: 1fr; max-width: 520px; }
       .choice-card { min-height: auto; }
     }
     @media (max-width: 640px) {
-      body { align-items:flex-start; padding-top: 4.6rem; }
-      .lang-switcher { top: .8rem; right: .8rem; }
-      .brand-logo { margin-bottom: 1.4rem; }
-      .brand-logo img { width: 300px; }
+      body { justify-content:flex-start; padding: 0; }
+      .wrapper { min-height: auto; padding: 4.4rem 0 1.35rem; }
+      .landing-shell { width: 100%; max-width: 362px; gap: 1.45rem; padding: 0; justify-self: start; margin-left: 14px; }
+      .choice-container { width: 100%; max-width: 100%; }
+      .lang-switcher { top: .8rem; right: auto; left: 50%; transform: translateX(-50%); }
+      .brand-logo img { width: 246px; max-width: calc(100vw - 48px); }
+      .landing-subtitle { font-size: .9rem; max-width: 100%; }
+      .choice-card { padding: 1.55rem 1.25rem; min-height: 205px; }
+      .choice-title { font-size: 1.34rem; }
+      .choice-desc { min-height: auto; }
+      .ge-legal-footer {
+        width: min(100%, 362px);
+        margin-bottom: 12px;
+        padding: 8px 14px 0;
+        font-size: 10.5px;
+      }
+      .ge-legal-links { gap: 10px; }
+      .superadmin-link { width: 34px; height: 34px; left: .8rem; bottom: .8rem; }
+    }
+    @media (min-width: 1200px) and (min-height: 760px) {
+      .wrapper { padding-top: 2.4rem; }
     }
   </style>
 </head>
@@ -102,28 +200,25 @@
   </a>
 
   <div class="wrapper">
-    <div class="brand-logo">
-      <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
-    </div>
-    <div class="choice-container">
-      <a id="cardTransporte" class="choice-card transporte">
-        <i class="fa-solid fa-truck-fast choice-icon"></i>
-        <div class="choice-title" id="titleTransporte">Transporte</div>
-        <div class="choice-desc" id="descTransporte">Logística de Hidrocarburos<br>Servicios de flete y distribución</div>
-        <span class="choice-badge"><i class="fa-solid fa-route"></i> <span id="badgeTransporte">Módulo Transporte</span></span>
-      </a>
-      <a id="cardGasLp" class="choice-card gas-lp">
-        <i class="fa-solid fa-industry choice-icon"></i>
-        <div class="choice-title" id="titleGasLp">Gas LP</div>
-        <div class="choice-desc" id="descGasLp">Controles Volumétricos<br>Cumplimiento Anexo 30</div>
-        <span class="choice-badge"><i class="fa-solid fa-fire-flame-curved"></i> <span id="badgeGasLp">Módulo Gas LP</span></span>
-      </a>
-      <a id="cardGasolineras" class="choice-card gasolineras">
-        <i class="fa-solid fa-gas-pump choice-icon"></i>
-        <div class="choice-title" id="titleGasolineras">Gasolineras</div>
-        <div class="choice-desc" id="descGasolineras">Estaciones de servicio<br>Precios, competencia y CFDI</div>
-        <span class="choice-badge"><i class="fa-solid fa-map-location-dot"></i> <span id="badgeGasolineras">Módulo Gasolineras</span></span>
-      </a>
+    <div class="landing-shell">
+      <div class="brand-logo">
+        <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
+        <p class="landing-subtitle" id="landingSubtitle">Selecciona el módulo operativo para continuar.</p>
+      </div>
+      <div class="choice-container">
+        <a id="cardTransporte" class="choice-card transporte">
+          <i class="fa-solid fa-truck-fast choice-icon"></i>
+          <div class="choice-title" id="titleTransporte">Transporte</div>
+          <div class="choice-desc" id="descTransporte">Logística de Hidrocarburos<br>Servicios de flete y distribución</div>
+          <span class="choice-badge"><i class="fa-solid fa-route"></i> <span id="badgeTransporte">Módulo Transporte</span></span>
+        </a>
+        <a id="cardGasLp" class="choice-card gas-lp">
+          <i class="fa-solid fa-industry choice-icon"></i>
+          <div class="choice-title" id="titleGasLp">Gas LP</div>
+          <div class="choice-desc" id="descGasLp">Controles Volumétricos<br>Cumplimiento Anexo 30</div>
+          <span class="choice-badge"><i class="fa-solid fa-fire-flame-curved"></i> <span id="badgeGasLp">Módulo Gas LP</span></span>
+        </a>
+      </div>
     </div>
   </div>
 
@@ -131,33 +226,27 @@
     const TEXTS = {
       es: {
         title:           'GE CONTROL - Seleccionar Módulo',
+        subtitle:        'Selecciona el módulo operativo para continuar.',
         titleTransporte: 'Transporte',
         descTransporte:  'Logística de Hidrocarburos<br>Servicios de flete y distribución',
         badgeTransporte: 'Módulo Transporte',
         titleGasLp:      'Gas LP',
         descGasLp:       'Controles Volumétricos<br>Cumplimiento Anexo 30',
         badgeGasLp:      'Módulo Gas LP',
-        titleGasolineras:'Gasolineras',
-        descGasolineras: 'Estaciones de servicio<br>Precios, competencia y CFDI',
-        badgeGasolineras:'Módulo Gasolineras',
         hrefTransporte:  '/modulo/transporte/roles',
         hrefGasLp:       '/modulo/gas-lp/roles',
-        hrefGasolineras: '/login/gasolineras',
       },
       en: {
         title:           'GE CONTROL - Select Module',
+        subtitle:        'Select an operating module to continue.',
         titleTransporte: 'Transport',
         descTransporte:  'Hydrocarbon Logistics<br>Freight & distribution services',
         badgeTransporte: 'Transport Module',
         titleGasLp:      'LPG',
         descGasLp:       'Volumetric Controls<br>Regulatory Compliance',
         badgeGasLp:      'LPG Module',
-        titleGasolineras:'Gas Stations',
-        descGasolineras: 'Service stations<br>Prices, competition & CFDI',
-        badgeGasolineras:'Gas Stations Module',
         hrefTransporte:  '/modulo/transporte/roles?lang=en',
         hrefGasLp:       '/modulo/gas-lp/roles?lang=en',
-        hrefGasolineras: '/login/gasolineras?lang=en',
       },
     };
 
@@ -167,6 +256,7 @@
       const t = TEXTS[lang];
       document.title = t.title;
       document.getElementById('htmlRoot').lang = lang;
+      document.getElementById('landingSubtitle').textContent = t.subtitle;
       document.getElementById('titleTransporte').textContent  = t.titleTransporte;
       document.getElementById('descTransporte').innerHTML     = t.descTransporte;
       document.getElementById('badgeTransporte').textContent  = t.badgeTransporte;
@@ -175,10 +265,6 @@
       document.getElementById('descGasLp').innerHTML          = t.descGasLp;
       document.getElementById('badgeGasLp').textContent       = t.badgeGasLp;
       document.getElementById('cardGasLp').href               = t.hrefGasLp;
-      document.getElementById('titleGasolineras').textContent  = t.titleGasolineras;
-      document.getElementById('descGasolineras').innerHTML     = t.descGasolineras;
-      document.getElementById('badgeGasolineras').textContent  = t.badgeGasolineras;
-      document.getElementById('cardGasolineras').href          = t.hrefGasolineras;
       document.getElementById('btnEs').classList.toggle('active', lang === 'es');
       document.getElementById('btnEn').classList.toggle('active', lang === 'en');
     }
