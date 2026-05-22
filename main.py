@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from routes.upload      import router as upload_router
 from routes.cfdi        import router as cfdi_router
 from routes.transporte  import router as transporte_router
+from routes.transporte_operator_detected import router as transporte_operator_detected_router
 from routes.gasolineras import router as gasolineras_router
 from routes.settings    import router as settings_router
 from routes.auth        import router as auth_router
@@ -22,6 +23,7 @@ from routes.admin       import router as admin_router
 from routes.admin_saas_delete_fix import router as admin_saas_delete_fix_router
 from routes.admin_saas_scope_guard import router as admin_saas_scope_guard_router
 from routes.admin_saas  import router as admin_saas_router
+from routes.admin_saas_billing import router as admin_saas_billing_router
 from routes.facturas    import router as facturas_router
 from routes.movimientos import router as movimientos_router
 from routes.perfiles    import router as perfiles_router
@@ -35,6 +37,48 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+LEGAL_FOOTER_HTML = """<footer class="ge-legal-footer" role="contentinfo">
+  <div><strong>© 2026 GE Control. Todos los derechos reservados.</strong></div>
+  <div>Sistema privado desarrollado por GE Control. Uso exclusivo para clientes autorizados.</div>
+  <div class="ge-legal-links"><a href="/terms">Términos y Condiciones</a><a href="/privacy">Aviso de Privacidad</a></div>
+</footer>"""
+
+
+def _inject_legal_branding(html: str) -> str:
+    """Agrega metadata y footer propietario sin tocar templates grandes."""
+    if "<head>" in html:
+        html = html.replace(
+            "<head>",
+            '<head>\n<meta name="author" content="GE Control">\n<meta name="copyright" content="© 2026 GE Control">',
+            1,
+        )
+    if "<title>" not in html and "</head>" in html:
+        html = html.replace("</head>", "<title>GE Control</title>\n</head>", 1)
+    if "/static/css/legal_footer.css" not in html:
+        if "</head>" in html:
+            html = html.replace(
+                "</head>",
+                '<link rel="stylesheet" href="/static/css/legal_footer.css">\n</head>',
+                1,
+            )
+        elif '<link rel="stylesheet" href="/static/css/ge-brand.css">' in html:
+            html = html.replace(
+                '<link rel="stylesheet" href="/static/css/ge-brand.css">',
+                '<link rel="stylesheet" href="/static/css/ge-brand.css">\n<link rel="stylesheet" href="/static/css/legal_footer.css">',
+                1,
+            )
+    if "ge-legal-footer" not in html:
+        if "</body>" in html:
+            html = html.replace("</body>", f"{LEGAL_FOOTER_HTML}\n</body>", 1)
+        elif "</html>" in html:
+            html = html.replace("</html>", f"{LEGAL_FOOTER_HTML}\n</html>", 1)
+    return html
+
+
+def _render_html_file(filename: str) -> HTMLResponse:
+    with open(os.path.join(BASE_DIR, "templates", filename), encoding="utf-8") as f:
+        return HTMLResponse(content=_inject_legal_branding(f.read()))
 
 
 def _public_error_detail(detail):
@@ -78,6 +122,16 @@ app = FastAPI(
     description="Plataforma inteligente de control operativo para Gas LP, Transporte y Gasolineras.",
     version="3.5.0",
 )
+
+
+@app.on_event("startup")
+async def log_memory_budget():
+    try:
+        import resource
+        rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        logger.info("Render memory budget mode: pid=%s rss_kb=%s workers=%s", os.getpid(), rss_kb, os.environ.get("WEB_CONCURRENCY", "1"))
+    except Exception:
+        logger.info("Render memory budget mode: pid=%s workers=%s", os.getpid(), os.environ.get("WEB_CONCURRENCY", "1"))
 
 
 @app.exception_handler(HTTPException)
@@ -132,11 +186,13 @@ app.include_router(admin_router,       prefix="/api", tags=["Admin"])
 app.include_router(admin_saas_delete_fix_router, prefix="/api", tags=["Admin SaaS"])
 app.include_router(admin_saas_scope_guard_router, prefix="/api", tags=["Admin SaaS"])
 app.include_router(admin_saas_router,  prefix="/api", tags=["Admin SaaS"])
+app.include_router(admin_saas_billing_router, prefix="/api", tags=["Admin SaaS Billing"])
 app.include_router(facturas_router,    prefix="/api", tags=["Facturas"])
 app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
 app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
 app.include_router(internal_users_router, prefix="/api", tags=["Usuarios internos"])
 app.include_router(transporte_router,  prefix="/api", tags=["Transporte"])
+app.include_router(transporte_operator_detected_router, prefix="/api", tags=["Transporte Operador"])
 app.include_router(gasolineras_router, prefix="/api", tags=["Gasolineras"])
 
 # ── Archivos estáticos ────────────────────────────────────────────────────────
@@ -198,9 +254,7 @@ async def root():
 @app.get("/choice", response_class=HTMLResponse, include_in_schema=False)
 async def choice_view():
     """Pantalla de selección de módulo (Gas LP / Transporte)."""
-    with open(os.path.join(BASE_DIR, "templates", "choice.html"),
-              encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+    return _render_html_file("choice.html")
 
 
 @app.get("/admin-saas", response_class=HTMLResponse, include_in_schema=False)
@@ -213,7 +267,7 @@ async def admin_saas_view():
         '<link rel="stylesheet" href="/static/css/ge-brand.css">\n  <link rel="stylesheet" href="/static/css/admin_saas_ops.css">',
     )
     html = html.replace("</body>", '  <script src="/static/js/admin_saas_ops.js"></script>\n</body>')
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=_inject_legal_branding(html))
 
 
 @app.get("/login/{modulo}", response_class=HTMLResponse, include_in_schema=False)
@@ -250,7 +304,7 @@ async def login_view(modulo: str):
         color_secundario=color_secundario,
         icon_module=icon_module,
     )
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=_inject_legal_branding(html))
 
 
 @app.get("/modulo/{modulo}/roles", response_class=HTMLResponse, include_in_schema=False)
@@ -263,7 +317,7 @@ async def module_role_view(modulo: str, lang: str = "es"):
         else [("Administrador", "Selecciona empresa y entra al dashboard completo."), ("Asistente de facturación", "Usa la empresa asignada y solo accede a facturación.")]
     )
     html = templates.get_template("module_role.html").render(modulo=modulo, nombre=nombre, roles=roles, lang=lang)
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=_inject_legal_branding(html))
 
 # main.py simplificado
 @app.get("/app", response_class=HTMLResponse, include_in_schema=False)
@@ -339,41 +393,36 @@ async def frontend(lang: str = "es"):
     )
     # Inyectamos el idioma para que el JS lo detecte
     html = html.replace('<html lang="es">', f'<html lang="{lang}">')
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=_inject_legal_branding(html))
 
 @app.get("/transporte", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_transporte():
     """Sirve el frontend del módulo de Transporte de Hidrocarburos."""
-    with open(os.path.join(BASE_DIR, "templates", "transporte.html"), encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+    return _render_html_file("transporte.html")
 
 
 @app.get("/operador/transporte", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_operador_transporte():
     """Portal movil simple para operadores de Transporte."""
-    with open(os.path.join(BASE_DIR, "templates", "operador_transporte.html"), encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+    return _render_html_file("operador_transporte.html")
 
 
 @app.get("/transporte/operador", response_class=HTMLResponse, include_in_schema=False)
 async def login_operador_transporte():
     """Login de operador por codigo/PIN, sin cuenta Supabase Auth."""
-    with open(os.path.join(BASE_DIR, "templates", "operador_transporte_login.html"), encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+    return _render_html_file("operador_transporte_login.html")
 
 
 @app.get("/gas-lp/asistente", response_class=HTMLResponse, include_in_schema=False)
 async def login_asistente_gas_lp():
     """Login de asistente interno Gas LP por codigo/PIN."""
-    with open(os.path.join(BASE_DIR, "templates", "asistente_gas_lp_login.html"), encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+    return _render_html_file("asistente_gas_lp_login.html")
 
 
 @app.get("/asistente/gas-lp", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_asistente_gas_lp():
     """Dashboard limitado para asistentes internos Gas LP."""
-    with open(os.path.join(BASE_DIR, "templates", "asistente_gas_lp.html"), encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+    return _render_html_file("asistente_gas_lp.html")
 
 
 @app.get("/gasolineras", response_class=HTMLResponse, include_in_schema=False)
@@ -390,7 +439,19 @@ async def frontend_gasolineras():
             "</body>",
             '<script src="/static/js/gasolineras_enterprise.js"></script>\n</body>',
         )
-        return HTMLResponse(content=html)
+        return HTMLResponse(content=_inject_legal_branding(html))
+
+
+@app.get("/terms", response_class=HTMLResponse, include_in_schema=False)
+async def terms_view():
+    html = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GE Control | Términos y Condiciones</title><link rel="stylesheet" href="/static/css/ge-brand.css"><style>body{margin:0;background:#f8fafc;color:#111827;font-family:var(--ge-font,Inter,system-ui,sans-serif)}main{max-width:820px;margin:48px auto;padding:32px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 16px 40px rgba(15,23,42,.08)}h1{color:#5B0F1D;margin-top:0}p{line-height:1.7;color:#475569}.back{display:inline-block;margin-top:18px;color:#7A1E2C;font-weight:700;text-decoration:none}</style></head><body><main><h1>Términos y Condiciones</h1><p>Placeholder legal temporal. GE Control es una plataforma SaaS privada para clientes autorizados. El uso definitivo queda sujeto al contrato comercial y anexos de seguridad vigentes.</p><p>No se autoriza copia, distribución, reventa, ingeniería inversa ni acceso no autorizado.</p><a class="back" href="/choice">Volver</a></main></body></html>"""
+    return HTMLResponse(content=_inject_legal_branding(html))
+
+
+@app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
+async def privacy_view():
+    html = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GE Control | Aviso de Privacidad</title><link rel="stylesheet" href="/static/css/ge-brand.css"><style>body{margin:0;background:#f8fafc;color:#111827;font-family:var(--ge-font,Inter,system-ui,sans-serif)}main{max-width:820px;margin:48px auto;padding:32px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 16px 40px rgba(15,23,42,.08)}h1{color:#5B0F1D;margin-top:0}p{line-height:1.7;color:#475569}.back{display:inline-block;margin-top:18px;color:#7A1E2C;font-weight:700;text-decoration:none}</style></head><body><main><h1>Aviso de Privacidad</h1><p>Placeholder legal temporal. GE Control tratará datos únicamente para operación, soporte, seguridad, auditoría y prestación del servicio contratado.</p><p>El aviso definitivo deberá validarse legalmente antes de operación con clientes productivos.</p><a class="back" href="/choice">Volver</a></main></body></html>"""
+    return HTMLResponse(content=_inject_legal_branding(html))
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
