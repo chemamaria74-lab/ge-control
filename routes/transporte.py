@@ -2606,6 +2606,27 @@ async def generar_covol_transporte(
     if not viajes_raw:
         raise HTTPException(404, f"No hay viajes timbrados en el periodo {periodo}.")
 
+    selected_permiso = (payload.num_permiso_cne or settings.get("NumPermiso", "") or "").strip()
+    if not selected_permiso:
+        raise HTTPException(
+            400,
+            "El número de permiso CNE es requerido para generar el JSON mensual de Transporte.",
+        )
+
+    def _permiso_viaje(row: dict) -> str:
+        return (row.get("num_permiso_cne") or settings.get("NumPermiso", "") or "").strip()
+
+    permisos_detectados = sorted({
+        p for p in (_permiso_viaje(v) for v in viajes_raw) if p
+    })
+    viajes_raw = [v for v in viajes_raw if _permiso_viaje(v) == selected_permiso]
+    if not viajes_raw:
+        detalle = f" Permisos detectados en el periodo: {', '.join(permisos_detectados)}." if permisos_detectados else ""
+        raise HTTPException(
+            404,
+            f"No hay viajes timbrados del periodo {periodo} para el permiso CNE {selected_permiso}.{detalle}",
+        )
+
     # Convertir viajes_raw a formato esperado por transport_transformer
     viajes_para_covol: list[dict] = []
     for v in viajes_raw:
@@ -2616,6 +2637,7 @@ async def generar_covol_transporte(
         viajes_para_covol.append({
             "uuid_cfdi":         v.get("uuid_cfdi", ""),
             "id_ccp":            v.get("id_ccp", ""),
+            "num_permiso_cne":    _permiso_viaje(v),
             "tipo_movimiento":   "descarga",   # El autotanque entrega → descarga en destino
             "fecha_hora_salida": v.get("fecha_hora_salida", ""),
             "rfc_receptor":      v.get("rfc_receptor", ""),
@@ -2626,7 +2648,7 @@ async def generar_covol_transporte(
     # Preparar settings para el transformer
     covol_settings = {
         **settings,
-        "NumPermiso":          payload.num_permiso_cne or settings.get("NumPermiso", ""),
+        "NumPermiso":          selected_permiso,
         "ClaveInstalacion":    payload.clave_instalacion or settings.get("ClaveInstalacion", ""),
         "DescripcionInstalacion": payload.descripcion_instalacion or settings.get("DescripcionInstalacion", ""),
         "ModalidadPermiso":    settings.get("ModalidadPermiso", "PER51"),
@@ -2672,7 +2694,9 @@ async def generar_covol_transporte(
         "zip_name":     archivos["zip_name"],
         "json_content": archivos["json_content"],
         "zip_b64":      archivos["zip_b64"],
-        "meta":         meta,
+        "num_permiso_cne": selected_permiso,
+        "permisos_detectados": permisos_detectados,
+        "meta":         {**meta, "num_permiso_cne": selected_permiso, "permisos_detectados": permisos_detectados},
     })
 
 
