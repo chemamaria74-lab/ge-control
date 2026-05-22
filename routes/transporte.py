@@ -111,6 +111,8 @@ _TBL_VEH_REM   = "tr_vehiculo_remolques"
 _TBL_SEGUROS   = "tr_vehiculo_seguros"
 _TBL_PERMISOS  = "tr_permisos_operacion"
 _TBL_VEH_PERM  = "tr_vehiculo_permisos"
+_TBL_PROV_OPS  = "tr_proveedores_operacion"
+_TBL_PROD_OPS  = "tr_productos_operacion"
 
 MODULO = "transporte"
 _RFC_RE = re.compile(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$", re.IGNORECASE)
@@ -217,6 +219,55 @@ def _get_vehiculo(uid: str, token: str, vehiculo_id: int) -> dict:
     if not rows:
         raise HTTPException(404, f"Vehículo {vehiculo_id} no encontrado.")
     return rows[0]
+
+
+def _enriquecer_vehiculo_operativo(uid: str, token: str, vehiculo: dict, perfil_id=None, producto: str = "") -> dict:
+    """Agrega remolques, seguros y permisos configurados al vehículo sin tocar XML fiscal si faltan datos."""
+    sb = _sb(token)
+    vid = vehiculo.get("id")
+    if not vid:
+        return vehiculo
+    try:
+        rem_links = sb.table(_TBL_VEH_REM).select("*").eq("user_id", uid).eq("vehiculo_id", vid).eq("activo", True).order("orden").execute().data or []
+        rem_ids = [int(x.get("remolque_id")) for x in rem_links if x.get("remolque_id")]
+        remolques = []
+        if rem_ids:
+            q = sb.table(_TBL_REMOLQUES).select("*").eq("user_id", uid).in_("id", rem_ids).eq("activo", True)
+            if perfil_id:
+                q = q.eq("perfil_id", perfil_id)
+            rem_rows = q.execute().data or []
+            by_id = {int(r.get("id")): r for r in rem_rows if r.get("id")}
+            for link in rem_links:
+                r = by_id.get(int(link.get("remolque_id") or 0))
+                if r:
+                    r = {**r, "orden": link.get("orden"), "frecuente": link.get("frecuente")}
+                    remolques.append(r)
+        seg_q = sb.table(_TBL_SEGUROS).select("*").eq("user_id", uid).eq("vehiculo_id", vid).eq("activo", True)
+        if perfil_id:
+            seg_q = seg_q.eq("perfil_id", perfil_id)
+        seguros = seg_q.execute().data or []
+        perm_links = sb.table(_TBL_VEH_PERM).select("*").eq("user_id", uid).eq("vehiculo_id", vid).eq("activo", True).execute().data or []
+        perm_ids = [int(x.get("permiso_id")) for x in perm_links if x.get("permiso_id")]
+        permisos = []
+        if perm_ids:
+            p_q = sb.table(_TBL_PERMISOS).select("*").eq("user_id", uid).in_("id", perm_ids).eq("activo", True)
+            if perfil_id:
+                p_q = p_q.eq("perfil_id", perfil_id)
+            perm_rows = p_q.execute().data or []
+            by_id = {int(p.get("id")): p for p in perm_rows if p.get("id")}
+            producto_norm = _normalizar(producto)
+            for link in perm_links:
+                p = by_id.get(int(link.get("permiso_id") or 0))
+                if not p:
+                    continue
+                link_prod = _normalizar(link.get("producto"))
+                if link_prod and producto_norm and link_prod not in producto_norm:
+                    continue
+                permisos.append({**p, "producto_link": link.get("producto") or ""})
+        vehiculo = {**vehiculo, "remolques": remolques, "seguros_operacion": seguros, "permisos_operacion": permisos}
+    except Exception as e:
+        logger.info("No se pudieron cargar datos operativos del vehículo %s: %s", vid, e)
+    return vehiculo
 
 
 def _editable_viaje(status: str) -> bool:
@@ -683,12 +734,16 @@ def _cliente_por_receptor(sb, uid: str, perfil_id, rfc: str) -> dict:
 def _ruta_payload(payload: RutaTransporteCreate) -> dict:
     return {
         "nombre":        payload.nombre.strip(),
+        "origen_id":     getattr(payload, "origen_id", None),
+        "destino_id":    getattr(payload, "destino_id", None),
         "cp_origen":     payload.cp_origen,
         "nombre_origen": payload.nombre_origen.strip(),
         "cp_destino":    payload.cp_destino,
         "nombre_destino": payload.nombre_destino.strip(),
         "distancia_km":  payload.distancia_km,
         "duracion_estimada_min": max(int(payload.duracion_estimada_min or 0), 0),
+        "tipo_camino":   str(getattr(payload, "tipo_camino", "") or "").strip(),
+        "tarifa_base":   _safe_float(getattr(payload, "tarifa_base", 0)),
     }
 
 
@@ -706,6 +761,18 @@ def _viaje_row(uid: str, payload: ViajeCreate, productos_json: str, volumen_tota
         "chofer_id":            payload.chofer_id,
         "vehiculo_id":          payload.vehiculo_id,
         "ruta_id":              payload.ruta_id,
+        "proveedor_id":         payload.proveedor_id,
+        "origen_id":            payload.origen_id,
+        "destino_id":           payload.destino_id,
+        "producto_operacion_id": payload.producto_operacion_id,
+        "programa_fecha":       payload.programa_fecha,
+        "programa_semana":      payload.programa_semana,
+        "tarifa_id":            payload.tarifa_id,
+        "subtotal_flete":       _safe_float(payload.subtotal_flete),
+        "comision_operador":    _safe_float(payload.comision_operador),
+        "override_tarifa":      bool(payload.override_tarifa),
+        "override_reason":      payload.override_reason,
+        "defaults_json":        payload.defaults_json if isinstance(payload.defaults_json, dict) else {},
         "cp_origen":            payload.cp_origen,
         "nombre_origen":        payload.nombre_origen,
         "cp_destino":           payload.cp_destino,
@@ -999,7 +1066,19 @@ async def timbrar_viaje(
 
     # Obtener datos relacionados
     chofer   = _get_chofer(uid, token, viaje_row["chofer_id"])
-    vehiculo = _get_vehiculo(uid, token, viaje_row["vehiculo_id"])
+    primer_producto_nombre = ""
+    try:
+        _productos_tmp = json.loads(viaje_row.get("productos_json") or "[]")
+        primer_producto_nombre = (_productos_tmp[0].get("descripcion") or _productos_tmp[0].get("clave_producto") or "") if _productos_tmp else ""
+    except Exception:
+        primer_producto_nombre = ""
+    vehiculo = _enriquecer_vehiculo_operativo(
+        uid,
+        token,
+        _get_vehiculo(uid, token, viaje_row["vehiculo_id"]),
+        viaje_row.get("perfil_id"),
+        primer_producto_nombre,
+    )
 
     # Obtener settings del módulo transporte
     settings = _settings_transporte(uid, token, viaje_row.get("perfil_id"))
@@ -1876,6 +1955,35 @@ async def operador_viajes(token: str = Query(...)):
     })
 
 
+@router.get("/tr/operador/semana")
+async def operador_semana(token: str = Query(...), week: str = Query(default="")):
+    sb, acc = _operador_context(token)
+    if not week:
+        today = datetime.now(timezone.utc).date()
+        week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}"
+    q = sb.table(_TBL_VIAJES).select("*").eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"])
+    if acc.get("perfil_id"):
+        q = q.eq("perfil_id", acc.get("perfil_id"))
+    rows = q.or_(f"programa_semana.eq.{week},status.eq.programado").order("fecha_hora_salida").limit(100).execute().data or []
+    for v in rows:
+        v["productos"] = _productos_from_row(v)
+    return JSONResponse({"ok": True, "week": week, "viajes": rows})
+
+
+@router.get("/tr/operador/liquidacion-actual")
+async def operador_liquidacion_actual(token: str = Query(...)):
+    sb, acc = _operador_context(token)
+    q = sb.table(_TBL_LIQS).select("*").eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"]).order("created_at", desc=True).limit(1)
+    if acc.get("perfil_id"):
+        q = q.eq("perfil_id", acc.get("perfil_id"))
+    rows = q.execute().data or []
+    liq = rows[0] if rows else {}
+    items = []
+    if liq.get("id"):
+        items = sb.table(_TBL_LIQ_ITEMS).select("*").eq("user_id", acc["user_id"]).eq("liquidacion_id", liq["id"]).execute().data or []
+    return JSONResponse({"ok": True, "liquidacion": liq, "items": items})
+
+
 @router.get("/tr/operador/carta-aporte/tareas")
 async def operador_tareas_carta_aporte(token: str = Query(...), force: bool = Query(False)):
     sb, acc = _operador_context(token)
@@ -2548,6 +2656,9 @@ async def generar_liquidacion(payload: dict, authorization: str = Header(default
         "anticipos": anticipos,
         "comision_extra": comision_extra,
         "descuentos": descuentos,
+        "pago_nomina": _safe_float(payload.get("pago_nomina")),
+        "pago_banco": _safe_float(payload.get("pago_banco")),
+        "diferencia_efectivo": _safe_float(payload.get("diferencia_efectivo")),
         "total": round(total + comision_extra - anticipos - descuentos, 2),
         "status": str(payload.get("status") or "emitida"),
         "notas": str(payload.get("notas") or ""),
@@ -2581,6 +2692,9 @@ async def pagar_liquidacion(liquidacion_id: int, payload: dict, authorization: s
         "paid_at": now_iso,
         "metodo_pago": metodo,
         "referencia_pago": referencia,
+        "pago_nomina": _safe_float(payload.get("pago_nomina")),
+        "pago_banco": _safe_float(payload.get("pago_banco")),
+        "diferencia_efectivo": _safe_float(payload.get("diferencia_efectivo")),
     }).eq("id", liquidacion_id).eq("user_id", uid).execute()
     items = sb.table(_TBL_LIQ_ITEMS).select("viaje_id,perfil_id").eq("liquidacion_id", liquidacion_id).eq("user_id", uid).execute().data or []
     ids = [int(i["viaje_id"]) for i in items if i.get("viaje_id")]
@@ -3208,6 +3322,9 @@ async def crear_cliente_transporte(
             "aplica_retencion_default": bool(getattr(payload, "aplica_retencion_default", False)),
             "observaciones_fiscales": str(getattr(payload, "observaciones_fiscales", "") or ""),
             "reglas_fiscales": getattr(payload, "reglas_fiscales", {}) if isinstance(getattr(payload, "reglas_fiscales", {}), dict) else {},
+            "destino_default_id": getattr(payload, "destino_default_id", None),
+            "ruta_default_id": getattr(payload, "ruta_default_id", None),
+            "producto_default_id": getattr(payload, "producto_default_id", None),
             "activo":         True,
             "created_at":     datetime.now(timezone.utc).isoformat(),
         }).execute()
@@ -3241,6 +3358,9 @@ async def actualizar_cliente_transporte(
         "aplica_retencion_default": bool(getattr(payload, "aplica_retencion_default", False)),
         "observaciones_fiscales": str(getattr(payload, "observaciones_fiscales", "") or ""),
         "reglas_fiscales": getattr(payload, "reglas_fiscales", {}) if isinstance(getattr(payload, "reglas_fiscales", {}), dict) else {},
+        "destino_default_id": getattr(payload, "destino_default_id", None),
+        "ruta_default_id": getattr(payload, "ruta_default_id", None),
+        "producto_default_id": getattr(payload, "producto_default_id", None),
     }).eq("id", cliente_id).eq("user_id", uid)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -3315,6 +3435,18 @@ _CATALOGOS_OPERATIVOS = {
         "fields": {"vehiculo_id", "permiso_id", "producto", "activo"},
         "order": "created_at",
     },
+    "proveedores-operacion": {
+        "table": _TBL_PROV_OPS,
+        "return_key": "proveedores_operacion",
+        "fields": {"rfc", "nombre", "producto_default_id", "origen_default_id", "metadata", "activo"},
+        "order": "nombre",
+    },
+    "productos-operacion": {
+        "table": _TBL_PROD_OPS,
+        "return_key": "productos_operacion",
+        "fields": {"nombre", "clave_producto", "clave_subproducto", "clave_prodserv_cfdi", "unidad", "densidad_kg_l", "material_peligroso", "cve_material_peligroso", "embalaje", "permiso_requerido", "metadata", "activo"},
+        "order": "nombre",
+    },
 }
 
 
@@ -3327,9 +3459,9 @@ def _clean_catalog_row(payload: dict, allowed: set[str]) -> dict:
             row[key] = value if isinstance(value, dict) else {}
         elif key.endswith("_id") or key in {"orden"}:
             row[key] = int(value) if value not in (None, "") else None
-        elif key in {"activo", "frecuente"}:
+        elif key in {"activo", "frecuente", "material_peligroso"}:
             row[key] = bool(value)
-        elif key in {"capacidad_litros"}:
+        elif key in {"capacidad_litros", "densidad_kg_l"}:
             row[key] = _safe_float(value)
         else:
             row[key] = str(value or "").strip()
@@ -3378,6 +3510,8 @@ async def crear_catalogo_operativo(
         raise HTTPException(400, "Placas del remolque requeridas.")
     if not row.get("numero_permiso") and catalogo == "permisos-operacion":
         raise HTTPException(400, "Número de permiso requerido.")
+    if not row.get("nombre") and catalogo in {"proveedores-operacion", "productos-operacion"}:
+        raise HTTPException(400, "Nombre requerido.")
     try:
         res = _sb(token).table(cfg["table"]).insert(row).execute()
     except Exception as e:
@@ -3408,6 +3542,133 @@ async def eliminar_catalogo_operativo(catalogo: str, item_id: int, authorization
     else:
         _sb(token).table(cfg["table"]).delete().eq("id", item_id).eq("user_id", uid).execute()
     return JSONResponse({"ok": True})
+
+
+def _pick_by_id(rows: list[dict], item_id) -> dict:
+    try:
+        iid = int(item_id)
+    except (TypeError, ValueError):
+        return {}
+    return next((r for r in rows if int(r.get("id") or 0) == iid), {})
+
+
+@router.get("/tr/relaciones/sugerir-viaje")
+async def sugerir_viaje_operativo(
+    perfil_id: Optional[int] = Query(None),
+    proveedor_id: Optional[int] = Query(None),
+    cliente_id: Optional[int] = Query(None),
+    chofer_id: Optional[int] = Query(None),
+    vehiculo_id: Optional[int] = Query(None),
+    producto_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """Sugiere origen/destino/ruta/tarifa/vehículo/remolque desde catálogos; no crea ni timbra nada."""
+    uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
+    sb = _sb(token)
+    def scoped(table: str):
+        return sb.table(table).select("*").eq("user_id", uid).eq("perfil_id", pid)
+
+    proveedores = scoped(_TBL_PROV_OPS).eq("activo", True).execute().data or []
+    clientes = scoped(_TBL_CLIENTES).eq("activo", True).execute().data or []
+    rutas = scoped(_TBL_RUTAS).eq("activo", True).execute().data or []
+    productos = scoped(_TBL_PROD_OPS).eq("activo", True).execute().data or []
+    origenes = scoped(_TBL_ORIGENES).eq("activo", True).execute().data or []
+    destinos = scoped(_TBL_DESTINOS).eq("activo", True).execute().data or []
+
+    proveedor = _pick_by_id(proveedores, proveedor_id)
+    cliente = _pick_by_id(clientes, cliente_id)
+    producto = _pick_by_id(productos, producto_id or cliente.get("producto_default_id") or proveedor.get("producto_default_id"))
+    origen = _pick_by_id(origenes, proveedor.get("origen_default_id"))
+    destino = _pick_by_id(destinos, cliente.get("destino_default_id"))
+    ruta = _pick_by_id(rutas, cliente.get("ruta_default_id"))
+    if not ruta and origen and destino:
+        ruta = next((r for r in rutas if int(r.get("origen_id") or 0) == int(origen["id"]) and int(r.get("destino_id") or 0) == int(destino["id"])), {})
+    if ruta:
+        origen = origen or _pick_by_id(origenes, ruta.get("origen_id"))
+        destino = destino or _pick_by_id(destinos, ruta.get("destino_id"))
+
+    chofer = _get_chofer(uid, token, chofer_id) if chofer_id else {}
+    vehiculo = {}
+    vid = vehiculo_id or chofer.get("vehiculo_frecuente_id")
+    if vid:
+        vehiculo = _enriquecer_vehiculo_operativo(uid, token, _get_vehiculo(uid, token, int(vid)), pid, producto.get("nombre") or producto.get("clave_producto") or "")
+
+    tarifas_q = scoped(_TBL_TARIFAS).eq("activo", True)
+    tarifas = tarifas_q.execute().data or []
+    pseudo_viaje = {
+        "ruta_id": ruta.get("id"),
+        "cliente_id": cliente.get("id"),
+        "rfc_receptor": cliente.get("rfc"),
+        "nombre_origen": origen.get("nombre") or ruta.get("nombre_origen"),
+        "nombre_destino": destino.get("nombre") or ruta.get("nombre_destino"),
+        "cp_origen": origen.get("cp") or ruta.get("cp_origen"),
+        "cp_destino": destino.get("cp") or ruta.get("cp_destino"),
+        "distancia_km": ruta.get("distancia_km") or 1,
+        "productos_json": json.dumps([{"descripcion": producto.get("nombre"), "clave_producto": producto.get("clave_producto"), "volumen_litros": 1, "importe": 0}]),
+    }
+    tarifa_calc = _calcular_tarifa_operativa(pseudo_viaje, tarifas)
+    suggestion = {
+        "proveedor": proveedor,
+        "cliente": cliente,
+        "origen": origen,
+        "destino": destino,
+        "ruta": ruta,
+        "producto": producto,
+        "chofer": chofer,
+        "vehiculo": vehiculo,
+        "tarifa": tarifa_calc,
+        "defaults": {
+            "proveedor_id": proveedor.get("id"),
+            "origen_id": origen.get("id"),
+            "destino_id": destino.get("id"),
+            "ruta_id": ruta.get("id"),
+            "producto_operacion_id": producto.get("id"),
+            "vehiculo_id": vehiculo.get("id"),
+            "distancia_km": ruta.get("distancia_km"),
+            "tarifa_id": tarifa_calc.get("tarifa_id"),
+            "subtotal_flete": tarifa_calc.get("subtotal"),
+            "comision_operador": _safe_float(chofer.get("comision_default")),
+        },
+    }
+    return JSONResponse({"ok": True, "suggestion": suggestion})
+
+
+@router.post("/tr/viajes/{viaje_id}/aplicar-defaults")
+async def aplicar_defaults_viaje(viaje_id: int, payload: dict, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    """Aplica defaults operativos a un viaje programado sin timbrar."""
+    uid, token = _auth(authorization)
+    pid = _perfil(payload.get("perfil_id"), x_perfil_id)
+    sb = _sb(token)
+    rows = sb.table(_TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).eq("perfil_id", pid).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Viaje no encontrado.")
+    if not _editable_viaje(rows[0].get("status")):
+        raise HTTPException(400, "Solo puedes aplicar defaults antes de timbrar.")
+    allowed = {"proveedor_id", "origen_id", "destino_id", "producto_operacion_id", "ruta_id", "tarifa_id", "subtotal_flete", "comision_operador", "programa_fecha", "programa_semana", "override_tarifa", "override_reason", "defaults_json"}
+    row = {k: v for k, v in (payload or {}).items() if k in allowed}
+    sb.table(_TBL_VIAJES).update(row).eq("id", viaje_id).eq("user_id", uid).eq("perfil_id", pid).execute()
+    _registrar_evento(sb, uid, pid, viaje_id, "defaults_operativos_aplicados", "Defaults operativos aplicados", "", "oficina", uid, row)
+    return JSONResponse({"ok": True})
+
+
+@router.get("/tr/programa-semanal")
+async def programa_semanal_transporte(
+    week: str = Query(default=""),
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
+    if not week:
+        today = datetime.now(timezone.utc).date()
+        week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}"
+    q = _sb(token).table(_TBL_VIAJES).select("*").eq("user_id", uid).eq("perfil_id", pid)
+    q = q.or_(f"programa_semana.eq.{week},status.eq.programado")
+    rows = q.order("fecha_hora_salida").limit(200).execute().data or []
+    return JSONResponse({"ok": True, "week": week, "viajes": rows})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
