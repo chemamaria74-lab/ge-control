@@ -38,6 +38,15 @@ class SaaSBillingInvoiceCreate(BaseModel):
     metodo_pago: str = "PPD"
 
 
+class SaaSBillingSettingsPayload(BaseModel):
+    rfc: str = ""
+    fiscal_name: str = ""
+    fiscal_cp: str = ""
+    fiscal_regimen: str = "626"
+    default_concept: str = "Servicio de uso/licencia plataforma GE Control"
+    default_price: float = 0
+
+
 def _money(value) -> Decimal:
     return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
@@ -46,13 +55,42 @@ def _money_str(value) -> str:
     return f"{_money(value):.2f}"
 
 
+def _billing_settings() -> dict:
+    settings = {
+        "rfc": os.getenv("GE_CONTROL_BILLING_RFC", "").strip().upper(),
+        "fiscal_name": os.getenv("GE_CONTROL_BILLING_NAME", "").strip(),
+        "fiscal_cp": os.getenv("GE_CONTROL_BILLING_CP", "").strip(),
+        "fiscal_regimen": os.getenv("GE_CONTROL_BILLING_REGIMEN", "626").strip(),
+        "default_concept": os.getenv("GE_CONTROL_BILLING_DEFAULT_CONCEPT", "Servicio de uso/licencia plataforma GE Control").strip(),
+        "default_price": float(os.getenv("GE_CONTROL_BILLING_DEFAULT_PRICE", "0") or 0),
+        "source": "env",
+    }
+    try:
+        rows = get_supabase_admin().table("saas_billing_settings").select("*").eq("id", 1).limit(1).execute().data or []
+        if rows:
+            row = rows[0]
+            settings.update({
+                "rfc": (row.get("rfc") or settings["rfc"] or "").strip().upper(),
+                "fiscal_name": (row.get("fiscal_name") or settings["fiscal_name"] or "").strip(),
+                "fiscal_cp": (row.get("fiscal_cp") or settings["fiscal_cp"] or "").strip(),
+                "fiscal_regimen": (row.get("fiscal_regimen") or settings["fiscal_regimen"] or "626").strip(),
+                "default_concept": (row.get("default_concept") or settings["default_concept"]).strip(),
+                "default_price": float(row.get("default_price") or settings["default_price"] or 0),
+                "source": "database",
+            })
+    except Exception:
+        settings["source"] = "env_fallback"
+    return settings
+
+
 def _issuer() -> dict:
-    rfc = os.getenv("GE_CONTROL_BILLING_RFC", "").strip().upper()
-    name = os.getenv("GE_CONTROL_BILLING_NAME", "").strip()
-    cp = os.getenv("GE_CONTROL_BILLING_CP", "").strip()
-    regimen = os.getenv("GE_CONTROL_BILLING_REGIMEN", "626").strip()
+    settings = _billing_settings()
+    rfc = settings["rfc"]
+    name = settings["fiscal_name"]
+    cp = settings["fiscal_cp"]
+    regimen = settings["fiscal_regimen"]
     if not rfc or not name or not cp:
-        raise HTTPException(400, "Configura GE_CONTROL_BILLING_RFC, GE_CONTROL_BILLING_NAME y GE_CONTROL_BILLING_CP para facturación SaaS.")
+        raise HTTPException(400, "Configura Datos fiscales GE Control o GE_CONTROL_BILLING_RFC, GE_CONTROL_BILLING_NAME y GE_CONTROL_BILLING_CP en Render.")
     return {"rfc": rfc, "name": name, "cp": cp, "regimen": regimen}
 
 
@@ -138,9 +176,44 @@ async def list_saas_billing_invoices(
     return JSONResponse({"ok": True, "invoices": rows})
 
 
+@router.get("/admin-saas/billing/settings")
+async def get_saas_billing_settings(authorization: str = Header(default="")):
+    _require_superadmin(authorization)
+    settings = _billing_settings()
+    return JSONResponse({
+        "ok": True,
+        "settings": settings,
+        "secret_fields": ["SW_TOKEN", "SUPABASE_SERVICE_ROLE_KEY"],
+        "notes": "Los secretos se configuran exclusivamente en Render ENV.",
+    })
+
+
+@router.put("/admin-saas/billing/settings")
+async def save_saas_billing_settings(payload: SaaSBillingSettingsPayload, authorization: str = Header(default="")):
+    uid, _email, _token = _require_superadmin(authorization)
+    row = {
+        "id": 1,
+        "rfc": payload.rfc.strip().upper(),
+        "fiscal_name": payload.fiscal_name.strip(),
+        "fiscal_cp": payload.fiscal_cp.strip(),
+        "fiscal_regimen": payload.fiscal_regimen.strip() or "626",
+        "default_concept": payload.default_concept.strip() or "Servicio de uso/licencia plataforma GE Control",
+        "default_price": _money_str(payload.default_price),
+        "updated_by": uid,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    get_supabase_admin().table("saas_billing_settings").upsert(row, on_conflict="id").execute()
+    return JSONResponse({"ok": True, "settings": _billing_settings()})
+
+
 @router.post("/admin-saas/billing/invoices")
 async def create_saas_billing_invoice(payload: SaaSBillingInvoiceCreate, authorization: str = Header(default="")):
     uid, _email, _token = _require_superadmin(authorization)
+    settings = _billing_settings()
+    if not payload.concept.strip():
+        payload.concept = settings["default_concept"]
+    if _money(payload.subtotal) <= 0 and settings.get("default_price"):
+        payload.subtotal = float(settings["default_price"])
     if not payload.customer_name.strip() or not payload.customer_rfc.strip() or not payload.customer_cp.strip():
         raise HTTPException(400, "Cliente, RFC y CP son obligatorios.")
     if _money(payload.subtotal) <= 0:
