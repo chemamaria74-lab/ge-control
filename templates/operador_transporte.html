@@ -13,7 +13,8 @@
     main{padding:18px;max-width:960px;margin:auto}.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:0 10px 24px rgba(16,24,40,.06)}
     .hero{display:grid;grid-template-columns:1.4fr .6fr;gap:14px;align-items:stretch}.profile{display:grid;grid-template-columns:44px 1fr;gap:12px;align-items:center}.avatar{width:44px;height:44px;border-radius:10px;background:#F5F1E8;color:var(--wine);display:grid;place-items:center;font-weight:900}.profile h1{font-size:21px;margin:0 0 4px}.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}.kpi{border:1px solid var(--line);border-radius:8px;padding:12px;background:#FAF9F7}.kpi b{display:block;font-size:22px}.kpi span{font-size:12px;color:var(--muted);font-weight:800}
     .route{font-size:18px;font-weight:800}.meta{margin-top:8px;color:var(--muted);font-size:14px;display:grid;gap:3px}.products{margin-top:10px;font-size:13px;color:#344054}
-    .doc-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}.btn{border:0;border-radius:12px;padding:15px 10px;font-weight:800;font-size:15px;cursor:pointer;text-align:center;text-decoration:none}
+    .doc-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}.btn{border:0;border-radius:12px;padding:15px 10px;font-weight:800;font-size:15px;cursor:pointer;text-align:center;text-decoration:none}
+    .doc-list{margin-top:12px;border:1px solid var(--line);border-radius:10px;padding:12px;background:#FAF9F7}.doc-list h3{font-size:14px;margin:0 0 10px}.doc-mini{display:flex;gap:8px;flex-wrap:wrap}
     .primary{background:var(--wine);color:white}.dark{background:#2B2B2B;color:white}.ok{background:#ECFDF3;color:#027A48}.warn{background:#FFF7E6;color:#9A6700}
     .pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;margin-top:10px}.pill.ok{border-color:#ABEFC6}
     .empty{padding:38px 18px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:10px;background:#fff}.empty h2{margin:0 0 6px;color:var(--ink);font-size:18px}.toast{position:fixed;left:16px;right:16px;bottom:16px;background:#111;color:white;padding:13px 15px;border-radius:12px;display:none}
@@ -87,6 +88,7 @@
             <a class="btn dark" href="/api/tr/operador/viajes/${v.id}/pdf?token=${encodeURIComponent(token)}" target="_blank" rel="noopener">Ver Carta Porte PDF</a>
             <a class="btn ok" href="/api/tr/operador/viajes/${v.id}/pdf?token=${encodeURIComponent(token)}&download=true">Descargar PDF</a>
           </div>` : ''}
+          <div class="doc-list" id="docs-${v.id}"><h3>Documentos relacionados</h3><div class="meta">Buscando PDF/XML relacionados...</div></div>
           <div class="actions">
             <button class="btn ok" onclick="accion(${v.id},'recibido')">Ya lo recibí</button>
             <button class="btn primary" onclick="accion(${v.id},'en_camino')">Voy en camino</button>
@@ -96,6 +98,19 @@
         </section>`
       }).join('');
       renderShell(data, tasksHtml, viajesHtml);
+      setTimeout(()=>viajes.forEach(v=>loadDocs(v.id)), 0);
+    }
+    async function loadDocs(id){
+      const box = document.getElementById(`docs-${id}`);
+      if(!box) return;
+      try{
+        const d = await api(`/api/tr/operador/viajes/${id}/documentos-relacionados`);
+        const docs = d.documentos || [];
+        if(!docs.length){ box.innerHTML = '<h3>Documentos relacionados</h3><div class="meta">Sin PDF/XML relacionados todavía.</div>'; return; }
+        box.innerHTML = `<h3>Documentos relacionados</h3><div class="doc-mini">${docs.map(x => `<a class="btn ${String(x.tipo||'').includes('xml') ? 'ok' : 'dark'}" href="${x.url}" target="_blank" rel="noopener">${x.label}</a>`).join('')}</div>`;
+      }catch(e){
+        box.innerHTML = '<h3>Documentos relacionados</h3><div class="meta">No se pudieron cargar documentos.</div>';
+      }
     }
     async function load(){try{const [d,t]=await Promise.all([api('/api/tr/operador/viajes'),api('/api/tr/operador/carta-aporte/tareas')]);render(d,t.tasks||[])}catch(e){app.innerHTML=`<div class="empty">${e.message}</div>`}}
     async function accion(id, accion){
