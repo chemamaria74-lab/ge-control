@@ -522,6 +522,7 @@ select option{background:#fff}
       <div class="card-title"><i class="fa-solid fa-chart-column"></i> Generar reporte mensual</div>
       <div class="alert alert-info" style="margin-bottom:16px;font-size:12px">
         El reporte consolida todos los viajes <strong>timbrados</strong> del periodo seleccionado. Actividad SAT: <strong>TRA</strong> (Transporte).
+        Si una empresa opera Gas LP y gasolina con permisos distintos, genera un JSON/ZIP separado por cada permiso CNE.
       </div>
       <div class="form-row cols-2">
         <div class="form-group">
@@ -551,6 +552,7 @@ select option{background:#fff}
         <div class="form-group">
           <label>Número de permiso CNE <span class="req">*</span></label>
           <input type="text" id="covol-permiso" placeholder="H/10376/TRA/2020">
+          <span class="hint">Solo se incluirán viajes timbrados capturados con este mismo permiso.</span>
         </div>
         <div class="form-group">
           <label>Clave de instalación</label>
@@ -3359,6 +3361,7 @@ async function generarCovol() {
     const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
     document.getElementById('covol-result-info').innerHTML = `
       <strong>Periodo:</strong> ${meses[mes]} ${anio}<br>
+      <strong>Permiso CNE:</strong> ${r.num_permiso_cne || r.meta?.num_permiso_cne || permiso}<br>
       <strong>Archivo JSON:</strong> ${r.json_name}<br>
       <strong>Viajes procesados:</strong> ${r.meta?.total_descargas||0} descargas, ${r.meta?.total_cargas||0} cargas<br>
       <strong>Productos:</strong> ${r.meta?.num_productos||0} ClaveProducto distintos<br>
