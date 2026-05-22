@@ -17,7 +17,7 @@
       display: flex;
       flex-direction: column;
       align-items: stretch;
-      justify-content: center;
+      justify-content: flex-start;
       background:
         radial-gradient(circle at 18% 12%, rgba(200,169,107,.14), transparent 28%),
         radial-gradient(circle at 86% 16%, rgba(122,30,44,.08), transparent 26%),
@@ -57,10 +57,11 @@
       text-align: center;
       width: 100%;
       max-width: 100%;
-      min-height: calc(100vh - 86px);
+      flex: 1 0 auto;
+      min-height: 0;
       display: grid;
       place-items: center;
-      padding: 3.4rem 0 2.4rem;
+      padding: 4.2rem 0 2rem;
     }
     .landing-shell {
       width: min(100%, 980px);
@@ -119,7 +120,8 @@
     }
     .ge-legal-footer {
       width: min(100%, 760px);
-      margin: auto auto 16px;
+      flex: 0 0 auto;
+      margin: 0 auto 16px;
       padding: 10px 18px 0;
       color: #6F6A64;
       font-size: 11px;
@@ -154,7 +156,7 @@
     }
     .superadmin-link:hover{opacity:1;transform:translateY(-1px);box-shadow:0 12px 28px rgba(122,30,44,.24)}
     @media (max-width: 900px) {
-      .wrapper { min-height: calc(100vh - 96px); padding: 4.8rem 0 2rem; }
+      .wrapper { padding: 4.8rem 0 2rem; }
       .landing-shell { gap: 1.7rem; }
       .choice-container { grid-template-columns: 1fr; max-width: 520px; }
       .choice-card { min-height: auto; }
@@ -267,6 +269,7 @@
       document.getElementById('cardGasLp').href               = t.hrefGasLp;
       document.getElementById('btnEs').classList.toggle('active', lang === 'es');
       document.getElementById('btnEn').classList.toggle('active', lang === 'en');
+      if (window.geApplyLegalFooterLang) window.geApplyLegalFooterLang();
     }
 
     function setLang(lang) {
@@ -276,6 +279,10 @@
     }
 
     applyLang(_lang);
+    document.addEventListener('DOMContentLoaded', () => {
+      applyLang(_lang);
+      setTimeout(() => window.geApplyLegalFooterLang && window.geApplyLegalFooterLang(), 0);
+    });
 
   </script>
 </body>
