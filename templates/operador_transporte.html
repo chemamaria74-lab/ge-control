@@ -53,7 +53,7 @@
         <ul>${(t.facturas||[]).slice(0,8).map(f => `<li>${f.uuid || 'UUID pendiente'} · ${Number(f.litros||0).toLocaleString('es-MX')} L · ${f.producto || 'Producto'} · ${money(f.importe)}</li>`).join('')}</ul>
       </section>`).join('');
     }
-    function renderShell(data, tasksHtml, viajesHtml){
+    function renderShell(data, tasksHtml, viajesHtml, semanaHtml='', liquidacionHtml=''){
       const meta = data.meta || {};
       const chofer = meta.chofer || {};
       const empresa = meta.empresa || {};
@@ -66,13 +66,25 @@
           <div class="kpis"><div class="kpi"><b>${resumen.viajes_activos || 0}</b><span>viajes activos</span></div><div class="kpi"><b>${resumen.documentos_pendientes || 0}</b><span>docs pendientes</span></div><div class="kpi"><b>12 h</b><span>sesión limitada</span></div></div>
         </div>
         <div><div class="section-title" style="margin-top:0">Notificaciones</div><div class="notice">${notifs}</div></div>
-      </section>${tasksHtml}${viajesHtml}`;
+      </section>${tasksHtml}${semanaHtml}${viajesHtml}${liquidacionHtml}`;
     }
-    function render(data, tasks=[]){
+    function renderSemana(semana){
+      const viajes = semana.viajes || [];
+      if(!viajes.length) return '<section class="card"><h2>Semana</h2><div class="meta">Sin viajes programados esta semana.</div></section>';
+      return `<section class="card"><h2>Viajes de la semana</h2>${viajes.slice(0,12).map(v=>`<div class="notice-item"><b>#${v.id} · ${v.nombre_origen || v.cp_origen || 'Origen'} → ${v.nombre_destino || v.cp_destino || 'Destino'}</b><span>${(v.fecha_hora_salida||'').replace('T',' ').slice(0,16)} · ${v.operacion_status || v.status || 'programado'} · Comisión ${money(v.comision_operador || 0)}</span></div>`).join('')}</section>`;
+    }
+    function renderLiquidacion(liqData){
+      const l = liqData.liquidacion || {};
+      if(!l.id) return '<section class="card"><h2>Liquidación actual</h2><div class="meta">Sin liquidación emitida todavía.</div></section>';
+      return `<section class="card"><h2>Liquidación actual</h2><div class="kpis"><div class="kpi"><b>${money(l.total||0)}</b><span>total</span></div><div class="kpi"><b>${money(l.pago_banco||0)}</b><span>banco</span></div><div class="kpi"><b>${money(l.diferencia_efectivo||0)}</b><span>diferencia/efectivo</span></div></div><div class="meta">Periodo ${l.periodo || '—'} · Estado ${l.status || '—'}</div></section>`;
+    }
+    function render(data, tasks=[], semana={}, liquidacion={}){
       const viajes = data.viajes || [];
       if(!token){app.innerHTML='<div class="empty">Falta token de acceso.</div>';return}
       const tasksHtml = renderTasks(tasks);
-      if(!viajes.length){renderShell(data, tasksHtml, '<div class="empty"><h2>Sin viajes activos</h2><div>Cuando oficina te asigne un viaje, aparecerá aquí con ruta, documentos y acciones rápidas.</div></div>');return}
+      const semanaHtml = renderSemana(semana);
+      const liquidacionHtml = renderLiquidacion(liquidacion);
+      if(!viajes.length){renderShell(data, tasksHtml, '<div class="empty"><h2>Sin viajes activos</h2><div>Cuando oficina te asigne un viaje, aparecerá aquí con ruta, documentos y acciones rápidas.</div></div>', semanaHtml, liquidacionHtml);return}
       const viajesHtml = '<div class="section-title">Viajes activos</div>' + viajes.map(v => {
         const prods = (v.productos||[]).map(p => `${p.descripcion || p.clave_producto || 'Producto'} · ${Number(p.volumen_litros||0).toLocaleString('es-MX')} L`).join('<br>');
         return `<section class="card">
@@ -81,6 +93,7 @@
             <span>Salida: ${(v.fecha_hora_salida||'').replace('T',' ').slice(0,16) || 'Pendiente'}</span>
             <span>Volumen: ${Number(v.volumen_total_litros||0).toLocaleString('es-MX')} L</span>
             <span>Estatus: ${v.operacion_status || v.status || 'programado'}</span>
+            <span>Comisión: ${money(v.comision_operador || 0)}</span>
           </div>
           <div class="products">${prods}</div>
           ${v.cfdi?.uuid_sat ? `<span class="pill ok">Carta Porte timbrada · ${String(v.cfdi.uuid_sat).slice(0,8)}</span>` : '<span class="pill">Carta Porte pendiente</span>'}
@@ -97,7 +110,7 @@
           </div>
         </section>`
       }).join('');
-      renderShell(data, tasksHtml, viajesHtml);
+      renderShell(data, tasksHtml, viajesHtml, semanaHtml, liquidacionHtml);
       setTimeout(()=>viajes.forEach(v=>loadDocs(v.id)), 0);
     }
     async function loadDocs(id){
@@ -112,7 +125,7 @@
         box.innerHTML = '<h3>Documentos relacionados</h3><div class="meta">No se pudieron cargar documentos.</div>';
       }
     }
-    async function load(){try{const [d,t]=await Promise.all([api('/api/tr/operador/viajes'),api('/api/tr/operador/carta-aporte/tareas')]);render(d,t.tasks||[])}catch(e){app.innerHTML=`<div class="empty">${e.message}</div>`}}
+    async function load(){try{const [d,t,s,l]=await Promise.all([api('/api/tr/operador/viajes'),api('/api/tr/operador/carta-aporte/tareas'),api('/api/tr/operador/semana'),api('/api/tr/operador/liquidacion-actual')]);render(d,t.tasks||[],s,l)}catch(e){app.innerHTML=`<div class="empty">${e.message}</div>`}}
     async function accion(id, accion){
       let nota = '';
       if (accion === 'problema') nota = prompt('Describe brevemente el problema para oficina:') || '';

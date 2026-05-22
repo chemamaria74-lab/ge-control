@@ -362,6 +362,17 @@ select option{background:#fff}
       <div id="op-viaje360" class="hint">Selecciona un viaje para ver timeline, documentos y datos fiscales/operativos.</div>
     </div>
     <div class="card">
+      <div class="card-title"><i class="fa-solid fa-calendar-week"></i> Programa semanal</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Semana</label><input type="week" id="prog-week" onchange="cargarProgramaSemanal()"></div>
+        <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="cargarProgramaSemanal()">Actualizar</button></div>
+      </div>
+      <div id="op-programa-semanal" class="hint">Los viajes programados aparecerán aquí por día.</div>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-top:20px">
+    <div class="card">
       <div class="card-title"><i class="fa-solid fa-money-check-dollar"></i> Liquidaciones</div>
       <div class="form-row cols-2">
         <div class="form-group"><label>Chofer</label><select id="liq-chofer"></select></div>
@@ -381,6 +392,11 @@ select option{background:#fff}
       </div>
       <div class="form-row cols-3">
         <div class="form-group"><label>Descuentos</label><input type="number" id="liq-descuentos" step="0.01" value="0"></div>
+        <div class="form-group"><label>Pago nómina</label><input type="number" id="liq-pago-nomina" step="0.01" value="0"></div>
+        <div class="form-group"><label>Pago banco</label><input type="number" id="liq-pago-banco" step="0.01" value="0"></div>
+      </div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label>Diferencia / efectivo</label><input type="number" id="liq-diferencia" step="0.01" value="0"></div>
         <div class="form-group">
           <label>Método pago</label>
           <select id="liq-metodo-pago"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="cheque">Cheque</option><option value="otro">Otro</option></select>
@@ -680,6 +696,8 @@ select option{background:#fff}
         <div class="form-group">
           <label>Catálogo</label>
           <select id="fo-catalogo" onchange="cargarFiscalOperativo()">
+            <option value="proveedores-operacion">Proveedores operación</option>
+            <option value="productos-operacion">Productos operación</option>
             <option value="origenes">Orígenes</option>
             <option value="destinos">Destinos</option>
             <option value="centros-emisores">Centros emisores</option>
@@ -1331,6 +1349,7 @@ let PERFIL = null;
 let TARIFAS = [];
 let LIQUIDACIONES = [];
 let FISCALES_OPERATIVOS = [];
+let PROGRAMA_SEMANAL = [];
 let USUARIOS_INTERNOS_TR = [];
 let PERFILES_TRANSPORTE = [];
 let TRANSPORTE_BOOTSTRAPPED = false;
@@ -2206,6 +2225,8 @@ function fiscalReturnKey(catalogo) {
     'centros-emisores': 'centros',
     'remolques': 'remolques',
     'permisos-operacion': 'permisos',
+    'proveedores-operacion': 'proveedores_operacion',
+    'productos-operacion': 'productos_operacion',
   }[catalogo] || catalogo;
 }
 
@@ -2227,8 +2248,8 @@ function renderFiscalOperativo(catalogo) {
   }
   t.innerHTML = FISCALES_OPERATIVOS.map(x => {
     const nombre = x.nombre || x.placas || x.numero_permiso || '—';
-    const dato = x.rfc || x.producto || x.titular_rfc || x.subtipo_rem || '—';
-    const cp = x.cp || x.modalidad || x.poliza_medio_ambiente || x.vigencia_hasta || '—';
+    const dato = x.rfc || x.producto || x.titular_rfc || x.subtipo_rem || x.clave_producto || '—';
+    const cp = x.cp || x.modalidad || x.poliza_medio_ambiente || x.vigencia_hasta || x.densidad_kg_l || '—';
     return `<tr><td>${catalogo}</td><td>${esc(nombre)}</td><td>${esc(dato)}</td><td>${esc(cp)}</td><td>${actionBtn('danger','Desactivar',`eliminarFiscalOperativo('${catalogo}',${x.id})`, icon('trash'))}</td></tr>`;
   }).join('');
 }
@@ -2241,6 +2262,8 @@ async function guardarFiscalOperativo() {
   let body = {};
   if (catalogo === 'remolques') body = { placas: nombre, subtipo_rem: rfc, poliza_medio_ambiente: cp };
   else if (catalogo === 'permisos-operacion') body = { numero_permiso: nombre, producto: rfc, modalidad: cp, tipo_permiso: 'CNE', autoridad: 'CNE' };
+  else if (catalogo === 'proveedores-operacion') body = { nombre, rfc };
+  else if (catalogo === 'productos-operacion') body = { nombre, clave_producto: rfc, densidad_kg_l: parseFloat(cp || '0.75'), material_peligroso: true };
   else if (catalogo === 'centros-emisores') body = { nombre, rfc, cp, regimen_fiscal: '601' };
   else body = { nombre, rfc, cp, tipo: catalogo === 'origenes' ? 'terminal' : 'cliente' };
   if (!nombre) { toast('Captura nombre, placas o permiso', 'error'); return; }
@@ -2797,6 +2820,33 @@ async function cargarOperacion() {
   renderTarifasOperacion();
   renderLiquidacionesOperacion();
   actualizarSelectViaje360();
+  cargarProgramaSemanal().catch(()=>{});
+}
+
+async function cargarProgramaSemanal() {
+  const el = document.getElementById('op-programa-semanal');
+  if (!el) return;
+  const week = document.getElementById('prog-week')?.value || '';
+  const q = week ? `?week=${encodeURIComponent(week)}` : '';
+  const d = await api('GET', '/api/tr/programa-semanal'+q).catch(e => ({viajes:[], error:e.message}));
+  PROGRAMA_SEMANAL = d.viajes || [];
+  if (!PROGRAMA_SEMANAL.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon"><i class="fa-solid fa-calendar-week"></i></div><h3>Sin viajes programados</h3><p>Crea viajes con estado programado para verlos en agenda.</p></div>';
+    return;
+  }
+  const byDay = {};
+  PROGRAMA_SEMANAL.forEach(v => {
+    const day = (v.programa_fecha || v.fecha_hora_salida || '').slice(0,10) || 'Sin fecha';
+    (byDay[day] ||= []).push(v);
+  });
+  el.innerHTML = Object.keys(byDay).sort().map(day => `
+    <div style="border-bottom:1px solid var(--line);padding:10px 0">
+      <strong>${esc(day)}</strong>
+      ${byDay[day].map(v => `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0">
+        <span>#${v.id} · ${esc(v.nombre_origen||v.cp_origen||'Origen')} → ${esc(v.nombre_destino||v.cp_destino||'Destino')}</span>
+        <span class="chip chip-gray">${esc(v.operacion_status || v.status || 'programado')}</span>
+      </div>`).join('')}
+    </div>`).join('');
 }
 
 function actualizarSelectViaje360() {
@@ -3021,6 +3071,9 @@ async function generarLiquidacion() {
     anticipos: parseFloat(document.getElementById('liq-anticipos').value || 0),
     comision_extra: parseFloat(document.getElementById('liq-comision').value || 0),
     descuentos: parseFloat(document.getElementById('liq-descuentos').value || 0),
+    pago_nomina: parseFloat(document.getElementById('liq-pago-nomina').value || 0),
+    pago_banco: parseFloat(document.getElementById('liq-pago-banco').value || 0),
+    diferencia_efectivo: parseFloat(document.getElementById('liq-diferencia').value || 0),
     metodo_pago: document.getElementById('liq-metodo-pago').value,
     referencia_pago: document.getElementById('liq-referencia').value.trim(),
     notas: document.getElementById('liq-notas').value.trim(),
@@ -3037,6 +3090,7 @@ async function verLiquidacion(id) {
       <strong>Liquidación #${l.id}</strong> · ${l.periodo || '—'} · ${l.status || '—'}
       <div class="hint">Subtotal $${Number(l.subtotal||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · IVA $${Number(l.iva||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · Retención $${Number(l.retencion||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · Gastos $${Number(l.gastos||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</div>
       <div class="hint">Comisión $${Number(l.comision_extra||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · Descuentos $${Number(l.descuentos||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · Anticipos $${Number(l.anticipos||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</div>
+      <div class="hint">Nómina $${Number(l.pago_nomina||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · Banco $${Number(l.pago_banco||0).toLocaleString('es-MX',{minimumFractionDigits:2})} · Diferencia/efectivo $${Number(l.diferencia_efectivo||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</div>
       <div style="margin-top:8px">${items.map(i=>`<div style="display:flex;justify-content:space-between;border-top:1px solid var(--line);padding:6px 0"><span>Viaje #${i.viaje_id} · ${i.concepto}</span><strong>$${Number(i.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</strong></div>`).join('') || 'Sin partidas.'}</div>
     </div>`;
 }
@@ -3044,7 +3098,13 @@ async function verLiquidacion(id) {
 async function pagarLiquidacion(id) {
   const metodo = document.getElementById('liq-metodo-pago').value || 'efectivo';
   const referencia = document.getElementById('liq-referencia').value.trim();
-  const r = await api('POST', `/api/tr/liquidaciones/${id}/pagar`, { metodo_pago: metodo, referencia_pago: referencia });
+  const r = await api('POST', `/api/tr/liquidaciones/${id}/pagar`, {
+    metodo_pago: metodo,
+    referencia_pago: referencia,
+    pago_nomina: parseFloat(document.getElementById('liq-pago-nomina').value || 0),
+    pago_banco: parseFloat(document.getElementById('liq-pago-banco').value || 0),
+    diferencia_efectivo: parseFloat(document.getElementById('liq-diferencia').value || 0),
+  });
   if (r?.ok) { toast('Liquidación marcada como pagada', 'success'); cargarOperacion(); }
 }
 
