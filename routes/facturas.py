@@ -36,7 +36,15 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from routes.auth import verify_token
+from services.fiscal_pdf import (
+    audit_fiscal_pdf_event,
+    fiscal_pdf_info,
+    generar_pdf_gas_lp_desde_xml,
+    generar_pdf_ingreso_desde_xml,
+    save_fiscal_artifacts,
+)
 from services.sw_sapien import build_carta_porte_xml, cancelar_cfdi, timbrar_cfdi
+from supabase_config import get_supabase_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -358,6 +366,126 @@ async def descargar_xml(factura_id: int, authorization: str = Header(default="")
         content=row["xml_content"],
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="factura_{row["uuid_sat"]}.xml"'},
+    )
+
+
+@router.get("/facturas/{factura_id}/pdf")
+async def ver_pdf_factura_gas_lp(
+    factura_id: int,
+    download: bool = Query(False),
+    authorization: str = Header(default=""),
+):
+    uid = _auth(authorization)
+    with _connect() as con:
+        _ensure_tables(con)
+        row = con.execute("SELECT * FROM facturas WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
+    if not row:
+        raise HTTPException(404, "Factura no encontrada.")
+    row = dict(row)
+    sb = get_supabase_admin()
+    xml_content = row.get("xml_content") or ""
+    if not xml_content:
+        raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")
+    info = fiscal_pdf_info(xml_content, "factura_gas_lp")
+    pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content)
+    storage = save_fiscal_artifacts(
+        sb,
+        bucket="fiscal-documents",
+        base_path=f"{uid}/gas_lp/facturas/{factura_id}",
+        xml_content=xml_content,
+        pdf_bytes=pdf_bytes,
+        pdf_filename=info.filename,
+        metadata={"module": "gas_lp", "entity_type": "factura_gas_lp", "uuid_sat": row.get("uuid_sat") or ""},
+    )
+    audit_fiscal_pdf_event(
+        sb,
+        user_id=uid,
+        module="gas_lp",
+        entity_type="factura_gas_lp",
+        entity_id=factura_id,
+        uuid_sat=row.get("uuid_sat") or "",
+        action="pdf_download_internal" if download else "pdf_generated_internal",
+        metadata={**storage, "sw_pdf_url_ignored": bool(row.get("pdf_url"))},
+    )
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'},
+    )
+
+
+@router.get("/facturas-servicio/{factura_id}/xml")
+async def descargar_xml_factura_servicio_legacy(factura_id: int, authorization: str = Header(default="")):
+    uid = _auth(authorization)
+    with _connect() as con:
+        _ensure_tables(con)
+        row = con.execute("SELECT * FROM facturas_servicio WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
+    if not row:
+        raise HTTPException(404, "Factura de servicio no encontrada.")
+    row = dict(row)
+    if not row.get("xml_content"):
+        raise HTTPException(404, "Factura de servicio sin XML timbrado.")
+    info = fiscal_pdf_info(row["xml_content"], "factura_servicio")
+    audit_fiscal_pdf_event(
+        get_supabase_admin(),
+        user_id=uid,
+        module="gas_lp",
+        entity_type="factura_servicio_legacy",
+        entity_id=factura_id,
+        uuid_sat=row.get("uuid_sat") or "",
+        action="xml_download",
+    )
+    return Response(
+        content=row["xml_content"],
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{info.filename.replace(".pdf", ".xml")}"'},
+    )
+
+
+@router.get("/facturas-servicio/{factura_id}/pdf")
+async def ver_pdf_factura_servicio_legacy(
+    factura_id: int,
+    download: bool = Query(False),
+    authorization: str = Header(default=""),
+):
+    uid = _auth(authorization)
+    with _connect() as con:
+        _ensure_tables(con)
+        row = con.execute("SELECT * FROM facturas_servicio WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
+    if not row:
+        raise HTTPException(404, "Factura de servicio no encontrada.")
+    row = dict(row)
+    sb = get_supabase_admin()
+    xml_content = row.get("xml_content") or ""
+    if not xml_content:
+        raise HTTPException(404, "Factura de servicio sin XML timbrado para generar PDF.")
+    info = fiscal_pdf_info(xml_content, "factura_servicio")
+    pdf_bytes = generar_pdf_ingreso_desde_xml(xml_content)
+    storage = save_fiscal_artifacts(
+        sb,
+        bucket="fiscal-documents",
+        base_path=f"{uid}/gas_lp/facturas_servicio/{factura_id}",
+        xml_content=xml_content,
+        pdf_bytes=pdf_bytes,
+        pdf_filename=info.filename,
+        metadata={"module": "gas_lp", "entity_type": "factura_servicio_legacy", "uuid_sat": row.get("uuid_sat") or ""},
+    )
+    audit_fiscal_pdf_event(
+        sb,
+        user_id=uid,
+        module="gas_lp",
+        entity_type="factura_servicio_legacy",
+        entity_id=factura_id,
+        uuid_sat=row.get("uuid_sat") or "",
+        action="pdf_download_internal" if download else "pdf_generated_internal",
+        metadata={**storage, "sw_pdf_url_ignored": bool(row.get("pdf_url"))},
+    )
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'},
     )
 
 

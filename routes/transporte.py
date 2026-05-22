@@ -63,6 +63,12 @@ from services.transport_transformer import (
     build_transport_covol, save_transport_covol, transport_covol_to_json
 )
 from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml
+from services.fiscal_pdf import (
+    audit_fiscal_pdf_event,
+    fiscal_pdf_info,
+    generar_pdf_ingreso_desde_xml,
+    save_fiscal_artifacts,
+)
 from services.carta_porte_validation import requiere_complemento_hidrocarburos, validar_xml_carta_porte_transporte
 from services.sat_xml_extractor import extraer_factura_timbrada_sat
 from models.transport_schemas import (
@@ -1192,6 +1198,95 @@ async def listar_facturas_servicio(
         return JSONResponse({"ok": True, "facturas_servicio": res.data or []})
     except Exception as e:
         raise HTTPException(500, f"Error al listar facturas de servicio: {e}")
+
+
+@router.get("/tr/facturas-servicio/{factura_id}/pdf")
+async def ver_pdf_factura_servicio_transporte(
+    factura_id: int,
+    download: bool = Query(False),
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
+    sb = _sb(token)
+    q = sb.table(_TBL_FACT_SERV).select("*").eq("id", factura_id).eq("user_id", uid).limit(1)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    rows = q.execute().data or []
+    if not rows:
+        raise HTTPException(404, "Factura de servicio no encontrada.")
+    row = rows[0]
+    xml_content = row.get("xml_content") or ""
+    if not xml_content:
+        raise HTTPException(404, "Factura de servicio sin XML timbrado para generar PDF.")
+    settings = _settings_transporte(uid, token, row.get("perfil_id") or pid)
+    info = fiscal_pdf_info(xml_content, "factura_servicio_transporte")
+    pdf_bytes = generar_pdf_ingreso_desde_xml(
+        xml_content,
+        logo_data_url=settings.get("PdfLogoDataUrl", ""),
+    )
+    storage = save_fiscal_artifacts(
+        get_supabase_admin(),
+        bucket="transport-documents",
+        base_path=f"{uid}/{row.get('perfil_id') or 'default'}/facturas_servicio/{factura_id}",
+        xml_content=xml_content,
+        pdf_bytes=pdf_bytes,
+        pdf_filename=info.filename,
+        metadata={"module": "transporte", "entity_type": "factura_servicio", "uuid_sat": row.get("uuid_sat") or ""},
+    )
+    audit_fiscal_pdf_event(
+        get_supabase_admin(),
+        user_id=uid,
+        module="transporte",
+        entity_type="factura_servicio",
+        entity_id=factura_id,
+        uuid_sat=row.get("uuid_sat") or "",
+        action="pdf_generated_internal" if not download else "pdf_download_internal",
+        metadata={**storage, "sw_pdf_url_ignored": bool(row.get("pdf_url"))},
+    )
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'},
+    )
+
+
+@router.get("/tr/facturas-servicio/{factura_id}/xml")
+async def descargar_xml_factura_servicio_transporte(
+    factura_id: int,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(_TBL_FACT_SERV).select("*").eq("id", factura_id).eq("user_id", uid).limit(1)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    rows = q.execute().data or []
+    if not rows:
+        raise HTTPException(404, "Factura de servicio no encontrada.")
+    row = rows[0]
+    if not row.get("xml_content"):
+        raise HTTPException(404, "Factura de servicio sin XML timbrado.")
+    info = fiscal_pdf_info(row["xml_content"], "factura_servicio_transporte")
+    audit_fiscal_pdf_event(
+        get_supabase_admin(),
+        user_id=uid,
+        module="transporte",
+        entity_type="factura_servicio",
+        entity_id=factura_id,
+        uuid_sat=row.get("uuid_sat") or "",
+        action="xml_download",
+    )
+    return Response(
+        content=row["xml_content"],
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{info.filename.replace(".pdf", ".xml")}"'},
+    )
 
 
 @router.get("/tr/dashboard")
