@@ -498,11 +498,11 @@ select option{background:#fff}
     <table>
       <thead>
         <tr>
-          <th>Folio</th><th>Cliente</th><th>RFC</th><th>Cartas Porte</th><th>Subtotal</th><th>IVA</th><th>Retención</th><th>Total</th><th>Status</th><th>Fecha</th>
+          <th>Folio</th><th>Cliente</th><th>RFC</th><th>Cartas Porte</th><th>Subtotal</th><th>IVA</th><th>Retención</th><th>Total</th><th>Status</th><th>Fecha</th><th>Acciones</th>
         </tr>
       </thead>
       <tbody id="tbody-facturas-servicio">
-        <tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div><h3>Cargando facturas de servicio...</h3></div></td></tr>
+        <tr><td colspan="11"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div><h3>Cargando facturas de servicio...</h3></div></td></tr>
       </tbody>
     </table>
   </div>
@@ -2997,7 +2997,7 @@ function renderFacturasServicio() {
   const t = document.getElementById('tbody-facturas-servicio');
   if (!t) return;
   if (!FACTURAS_SERVICIO.length) {
-    t.innerHTML = '<tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div><h3>No hay facturas de servicio en este periodo</h3></div></td></tr>';
+    t.innerHTML = '<tr><td colspan="11"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div><h3>No hay facturas de servicio en este periodo</h3></div></td></tr>';
     return;
   }
   t.innerHTML = FACTURAS_SERVICIO.map(f => {
@@ -3014,6 +3014,12 @@ function renderFacturasServicio() {
       <td style="text-align:right">$${Number(f.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
       <td><span class="chip chip-blue">${f.status || 'timbrada'}</span></td>
       <td>${(f.created_at||'').substring(0,10)}</td>
+      <td><div class="doc-actions">
+        ${actionBtn('ghost','Ver XML factura servicio',`verXMLFacturaServicio(${f.id})`, `${icon('code')} Ver XML`)}
+        ${actionBtn('ghost','Descargar XML factura servicio',`descargarXMLFacturaServicio(${f.id})`, `${icon('download')} XML`)}
+        ${actionBtn('ghost','Ver PDF factura servicio',`verPDFFacturaServicio(${f.id})`, `${icon('file-pdf')} Ver PDF`)}
+        ${actionBtn('ghost','Descargar PDF factura servicio',`descargarPDFFacturaServicio(${f.id})`, `${icon('download')} PDF`)}
+      </div></td>
     </tr>`;
   }).join('');
 }
@@ -3071,6 +3077,64 @@ async function descargarPDFCartaPorte(id) {
     a.click(); URL.revokeObjectURL(url);
   } catch (e) {
     toast('No se pudo descargar el PDF: ' + e.message, 'error');
+  }
+}
+
+async function fetchFacturaServicioFile(id, kind, download=false) {
+  if (!perfilId()) {
+    mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE);
+    throw new Error('Selecciona una empresa activa para operar Transporte.');
+  }
+  const suffix = kind === 'pdf' ? `/pdf${download ? '?download=true' : ''}` : '/xml';
+  const r = await fetch(API + withPerfil(`/api/tr/facturas-servicio/${id}${suffix}`), { headers: H() });
+  if (!r.ok) {
+    const msg = await r.text().catch(() => '');
+    throw new Error(msg || `No se pudo obtener ${kind.toUpperCase()}`);
+  }
+  return await r.blob();
+}
+
+async function verPDFFacturaServicio(id) {
+  try {
+    const blob = await fetchFacturaServicioFile(id, 'pdf', false);
+    const url = URL.createObjectURL(new Blob([blob], { type:'application/pdf' }));
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } catch(e) {
+    toast('No se pudo abrir PDF de servicio: ' + e.message, 'error');
+  }
+}
+
+async function descargarPDFFacturaServicio(id) {
+  try {
+    const blob = await fetchFacturaServicioFile(id, 'pdf', true);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `factura_servicio_${id}.pdf`;
+    a.click(); URL.revokeObjectURL(url);
+  } catch(e) {
+    toast('No se pudo descargar PDF de servicio: ' + e.message, 'error');
+  }
+}
+
+async function verXMLFacturaServicio(id) {
+  try {
+    const blob = await fetchFacturaServicioFile(id, 'xml', false);
+    const url = URL.createObjectURL(new Blob([blob], { type:'application/xml' }));
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch(e) {
+    toast('No se pudo abrir XML de servicio: ' + e.message, 'error');
+  }
+}
+
+async function descargarXMLFacturaServicio(id) {
+  try {
+    const blob = await fetchFacturaServicioFile(id, 'xml', true);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `factura_servicio_${id}.xml`;
+    a.click(); URL.revokeObjectURL(url);
+  } catch(e) {
+    toast('No se pudo descargar XML de servicio: ' + e.message, 'error');
   }
 }
 
