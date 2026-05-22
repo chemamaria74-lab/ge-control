@@ -38,15 +38,48 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-LEGAL_FOOTER_HTML = """<footer class="ge-legal-footer" role="contentinfo">
+LEGAL_FOOTER_ES = """<footer class="ge-legal-footer" role="contentinfo" data-ge-legal-footer>
   <div><strong>© 2026 GE Control. Todos los derechos reservados.</strong></div>
   <div>Sistema privado desarrollado por GE Control. Uso exclusivo para clientes autorizados.</div>
-  <div class="ge-legal-links"><a href="/terms">Términos y Condiciones</a><a href="/privacy">Aviso de Privacidad</a></div>
+  <div class="ge-legal-links"><a href="/terms?lang=es">Términos y Condiciones</a><a href="/privacy?lang=es">Aviso de Privacidad</a></div>
 </footer>"""
+
+LEGAL_FOOTER_EN = """<footer class="ge-legal-footer" role="contentinfo" data-ge-legal-footer>
+  <div><strong>© 2026 GE Control. All rights reserved.</strong></div>
+  <div>Private system developed by GE Control. Authorized client use only.</div>
+  <div class="ge-legal-links"><a href="/terms?lang=en">Terms and Conditions</a><a href="/privacy?lang=en">Privacy Notice</a></div>
+</footer>"""
+
+LEGAL_FOOTER_SYNC_JS = """<script>
+(function(){
+  function applyGeLegalFooterLang(){
+    var params = new URLSearchParams(location.search);
+    var lang = params.get('lang') || localStorage.getItem('zc_lang') || document.documentElement.lang || 'es';
+    var isEn = lang === 'en';
+    document.querySelectorAll('[data-ge-legal-footer]').forEach(function(f){
+      f.innerHTML = isEn
+        ? '<div><strong>© 2026 GE Control. All rights reserved.</strong></div><div>Private system developed by GE Control. Authorized client use only.</div><div class="ge-legal-links"><a href="/terms?lang=en">Terms and Conditions</a><a href="/privacy?lang=en">Privacy Notice</a></div>'
+        : '<div><strong>© 2026 GE Control. Todos los derechos reservados.</strong></div><div>Sistema privado desarrollado por GE Control. Uso exclusivo para clientes autorizados.</div><div class="ge-legal-links"><a href="/terms?lang=es">Términos y Condiciones</a><a href="/privacy?lang=es">Aviso de Privacidad</a></div>';
+    });
+  }
+  window.geApplyLegalFooterLang = applyGeLegalFooterLang;
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyGeLegalFooterLang);
+  else applyGeLegalFooterLang();
+})();
+</script>"""
+
+
+def _detect_lang_from_html(html: str) -> str:
+    lower = html.lower()
+    if 'lang="en"' in lower or "lang='en'" in lower or "zc_lang') || 'en'" in lower:
+        return "en"
+    return "es"
 
 
 def _inject_legal_branding(html: str) -> str:
     """Agrega metadata y footer propietario sin tocar templates grandes."""
+    lang = _detect_lang_from_html(html)
+    footer_html = LEGAL_FOOTER_EN if lang == "en" else LEGAL_FOOTER_ES
     if "<head>" in html:
         html = html.replace(
             "<head>",
@@ -72,11 +105,18 @@ def _inject_legal_branding(html: str) -> str:
         '<footer class="ge-legal-footer"' in html
         or "<footer class='ge-legal-footer'" in html
     )
+    if footer_already_rendered and "data-ge-legal-footer" not in html:
+        html = html.replace('class="ge-legal-footer"', 'class="ge-legal-footer" data-ge-legal-footer')
     if not footer_already_rendered:
         if "</body>" in html:
-            html = html.replace("</body>", f"{LEGAL_FOOTER_HTML}\n</body>", 1)
+            html = html.replace("</body>", f"{footer_html}\n</body>", 1)
         elif "</html>" in html:
-            html = html.replace("</html>", f"{LEGAL_FOOTER_HTML}\n</html>", 1)
+            html = html.replace("</html>", f"{footer_html}\n</html>", 1)
+    if "geApplyLegalFooterLang" not in html:
+        if "</body>" in html:
+            html = html.replace("</body>", f"{LEGAL_FOOTER_SYNC_JS}\n</body>", 1)
+        elif "</html>" in html:
+            html = html.replace("</html>", f"{LEGAL_FOOTER_SYNC_JS}\n</html>", 1)
     return html
 
 
@@ -447,14 +487,22 @@ async def frontend_gasolineras():
 
 
 @app.get("/terms", response_class=HTMLResponse, include_in_schema=False)
-async def terms_view():
-    html = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GE Control | Términos y Condiciones</title><link rel="stylesheet" href="/static/css/ge-brand.css"><style>body{margin:0;background:#f8fafc;color:#111827;font-family:var(--ge-font,Inter,system-ui,sans-serif)}main{max-width:980px;margin:48px auto;padding:34px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 16px 40px rgba(15,23,42,.08)}h1{color:#5B0F1D;margin:0 0 22px;font-size:clamp(2rem,4vw,3.3rem)}p{line-height:1.7;color:#475569;font-size:1.05rem;margin:0 0 16px}.note{padding:14px 16px;border:1px solid #eadfca;background:#fffaf0;border-radius:10px;color:#5f4b2f}.back{display:inline-block;margin-top:18px;color:#7A1E2C;font-weight:700;text-decoration:none}@media(max-width:680px){main{margin:22px 12px;padding:22px}p{font-size:1rem}}</style></head><body><main><h1>Términos y Condiciones</h1><p>GE Control es una plataforma SaaS privada para control operativo, fiscal y administrativo de clientes autorizados. El acceso y uso del sistema queda limitado a usuarios, empresas y módulos habilitados por GE Control o por el administrador autorizado del cliente.</p><p>El usuario se compromete a utilizar la plataforma únicamente para fines lícitos, operativos y comerciales relacionados con su empresa. Queda prohibida la copia, distribución, reventa, sublicenciamiento, ingeniería inversa, extracción masiva de datos o acceso no autorizado a cualquier parte del sistema.</p><p>La información generada en GE Control puede apoyar procesos fiscales, logísticos y administrativos; sin embargo, cada cliente conserva la responsabilidad de validar sus datos, documentos, timbrados, reportes y obligaciones con sus asesores fiscales, contables o legales.</p><p class="note">Versión informativa inicial. El texto legal definitivo deberá formalizarse en el contrato comercial, anexos de servicio, seguridad, soporte y tratamiento de datos aplicables.</p><a class="back" href="/choice">Volver</a></main></body></html>"""
+async def terms_view(request: Request):
+    lang = request.query_params.get("lang", "es")
+    if lang == "en":
+        html = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GE Control | Terms and Conditions</title><link rel="stylesheet" href="/static/css/ge-brand.css"><style>body{margin:0;background:#f8fafc;color:#111827;font-family:var(--ge-font,Inter,system-ui,sans-serif)}main{max-width:980px;margin:48px auto;padding:34px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 16px 40px rgba(15,23,42,.08)}h1{color:#5B0F1D;margin:0 0 22px;font-size:clamp(2rem,4vw,3.3rem)}p{line-height:1.7;color:#475569;font-size:1.05rem;margin:0 0 16px}.note{padding:14px 16px;border:1px solid #eadfca;background:#fffaf0;border-radius:10px;color:#5f4b2f}.back{display:inline-block;margin-top:18px;color:#7A1E2C;font-weight:700;text-decoration:none}@media(max-width:680px){main{margin:22px 12px;padding:22px}p{font-size:1rem}}</style></head><body><main><h1>Terms and Conditions</h1><p>GE Control is a private SaaS platform for operational, fiscal, and administrative control for authorized clients. Access and use are limited to users, companies, and modules enabled by GE Control or by the client’s authorized administrator.</p><p>Users agree to use the platform only for lawful operational and business purposes related to their company. Copying, distribution, resale, sublicensing, reverse engineering, bulk data extraction, or unauthorized access to any part of the system is prohibited.</p><p>Information generated in GE Control may support fiscal, logistics, and administrative processes; however, each client remains responsible for validating data, documents, stamped CFDI, reports, and obligations with its tax, accounting, or legal advisors.</p><p class="note">Initial informational version. The final legal text must be formalized in the commercial agreement and applicable service, security, support, and data processing annexes.</p><a class="back" href="/choice?lang=en">Back</a></main></body></html>"""
+    else:
+        html = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GE Control | Términos y Condiciones</title><link rel="stylesheet" href="/static/css/ge-brand.css"><style>body{margin:0;background:#f8fafc;color:#111827;font-family:var(--ge-font,Inter,system-ui,sans-serif)}main{max-width:980px;margin:48px auto;padding:34px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 16px 40px rgba(15,23,42,.08)}h1{color:#5B0F1D;margin:0 0 22px;font-size:clamp(2rem,4vw,3.3rem)}p{line-height:1.7;color:#475569;font-size:1.05rem;margin:0 0 16px}.note{padding:14px 16px;border:1px solid #eadfca;background:#fffaf0;border-radius:10px;color:#5f4b2f}.back{display:inline-block;margin-top:18px;color:#7A1E2C;font-weight:700;text-decoration:none}@media(max-width:680px){main{margin:22px 12px;padding:22px}p{font-size:1rem}}</style></head><body><main><h1>Términos y Condiciones</h1><p>GE Control es una plataforma SaaS privada para control operativo, fiscal y administrativo de clientes autorizados. El acceso y uso del sistema queda limitado a usuarios, empresas y módulos habilitados por GE Control o por el administrador autorizado del cliente.</p><p>El usuario se compromete a utilizar la plataforma únicamente para fines lícitos, operativos y comerciales relacionados con su empresa. Queda prohibida la copia, distribución, reventa, sublicenciamiento, ingeniería inversa, extracción masiva de datos o acceso no autorizado a cualquier parte del sistema.</p><p>La información generada en GE Control puede apoyar procesos fiscales, logísticos y administrativos; sin embargo, cada cliente conserva la responsabilidad de validar sus datos, documentos, timbrados, reportes y obligaciones con sus asesores fiscales, contables o legales.</p><p class="note">Versión informativa inicial. El texto legal definitivo deberá formalizarse en el contrato comercial, anexos de servicio, seguridad, soporte y tratamiento de datos aplicables.</p><a class="back" href="/choice?lang=es">Volver</a></main></body></html>"""
     return HTMLResponse(content=_inject_legal_branding(html))
 
 
 @app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
-async def privacy_view():
-    html = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GE Control | Aviso de Privacidad</title><link rel="stylesheet" href="/static/css/ge-brand.css"><style>body{margin:0;background:#f8fafc;color:#111827;font-family:var(--ge-font,Inter,system-ui,sans-serif)}main{max-width:980px;margin:48px auto;padding:34px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 16px 40px rgba(15,23,42,.08)}h1{color:#5B0F1D;margin:0 0 22px;font-size:clamp(2rem,4vw,3.3rem)}p{line-height:1.7;color:#475569;font-size:1.05rem;margin:0 0 16px}.note{padding:14px 16px;border:1px solid #eadfca;background:#fffaf0;border-radius:10px;color:#5f4b2f}.back{display:inline-block;margin-top:18px;color:#7A1E2C;font-weight:700;text-decoration:none}@media(max-width:680px){main{margin:22px 12px;padding:22px}p{font-size:1rem}}</style></head><body><main><h1>Aviso de Privacidad</h1><p>GE Control trata datos de identificación, contacto, operación, facturación, configuración de módulos, bitácoras técnicas y documentos cargados por usuarios autorizados, únicamente para prestar el servicio contratado, brindar soporte, mantener seguridad, generar auditoría y operar los módulos habilitados.</p><p>La plataforma aplica separación por cliente, empresa, módulo y rol. Las credenciales, llaves técnicas y datos sensibles deben almacenarse exclusivamente en mecanismos seguros autorizados, como variables de entorno o almacenamiento cifrado cuando aplique.</p><p>GE Control no vende ni publica información de clientes. El acceso interno se limita a fines de soporte, seguridad, cumplimiento contractual o atención de incidentes, conforme a los permisos y controles operativos disponibles.</p><p class="note">Versión informativa inicial. El aviso de privacidad definitivo deberá validarse legalmente antes de operar con clientes productivos y podrá ajustarse según contrato, jurisdicción, módulos contratados e integraciones activas.</p><a class="back" href="/choice">Volver</a></main></body></html>"""
+async def privacy_view(request: Request):
+    lang = request.query_params.get("lang", "es")
+    if lang == "en":
+        html = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GE Control | Privacy Notice</title><link rel="stylesheet" href="/static/css/ge-brand.css"><style>body{margin:0;background:#f8fafc;color:#111827;font-family:var(--ge-font,Inter,system-ui,sans-serif)}main{max-width:980px;margin:48px auto;padding:34px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 16px 40px rgba(15,23,42,.08)}h1{color:#5B0F1D;margin:0 0 22px;font-size:clamp(2rem,4vw,3.3rem)}p{line-height:1.7;color:#475569;font-size:1.05rem;margin:0 0 16px}.note{padding:14px 16px;border:1px solid #eadfca;background:#fffaf0;border-radius:10px;color:#5f4b2f}.back{display:inline-block;margin-top:18px;color:#7A1E2C;font-weight:700;text-decoration:none}@media(max-width:680px){main{margin:22px 12px;padding:22px}p{font-size:1rem}}</style></head><body><main><h1>Privacy Notice</h1><p>GE Control processes identification, contact, operational, billing, module configuration, technical log, and user-uploaded document data only to provide the contracted service, support operations, maintain security, generate audit trails, and operate enabled modules.</p><p>The platform applies separation by client, company, module, and role. Credentials, technical keys, and sensitive data must be stored only through authorized secure mechanisms, such as environment variables or encrypted storage where applicable.</p><p>GE Control does not sell or publish client information. Internal access is limited to support, security, contractual compliance, or incident response purposes, according to available permissions and operational controls.</p><p class="note">Initial informational version. The final privacy notice must be legally validated before operating with production clients and may be adjusted according to contract, jurisdiction, contracted modules, and active integrations.</p><a class="back" href="/choice?lang=en">Back</a></main></body></html>"""
+    else:
+        html = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GE Control | Aviso de Privacidad</title><link rel="stylesheet" href="/static/css/ge-brand.css"><style>body{margin:0;background:#f8fafc;color:#111827;font-family:var(--ge-font,Inter,system-ui,sans-serif)}main{max-width:980px;margin:48px auto;padding:34px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 16px 40px rgba(15,23,42,.08)}h1{color:#5B0F1D;margin:0 0 22px;font-size:clamp(2rem,4vw,3.3rem)}p{line-height:1.7;color:#475569;font-size:1.05rem;margin:0 0 16px}.note{padding:14px 16px;border:1px solid #eadfca;background:#fffaf0;border-radius:10px;color:#5f4b2f}.back{display:inline-block;margin-top:18px;color:#7A1E2C;font-weight:700;text-decoration:none}@media(max-width:680px){main{margin:22px 12px;padding:22px}p{font-size:1rem}}</style></head><body><main><h1>Aviso de Privacidad</h1><p>GE Control trata datos de identificación, contacto, operación, facturación, configuración de módulos, bitácoras técnicas y documentos cargados por usuarios autorizados, únicamente para prestar el servicio contratado, brindar soporte, mantener seguridad, generar auditoría y operar los módulos habilitados.</p><p>La plataforma aplica separación por cliente, empresa, módulo y rol. Las credenciales, llaves técnicas y datos sensibles deben almacenarse exclusivamente en mecanismos seguros autorizados, como variables de entorno o almacenamiento cifrado cuando aplique.</p><p>GE Control no vende ni publica información de clientes. El acceso interno se limita a fines de soporte, seguridad, cumplimiento contractual o atención de incidentes, conforme a los permisos y controles operativos disponibles.</p><p class="note">Versión informativa inicial. El aviso de privacidad definitivo deberá validarse legalmente antes de operar con clientes productivos y podrá ajustarse según contrato, jurisdicción, módulos contratados e integraciones activas.</p><a class="back" href="/choice?lang=es">Volver</a></main></body></html>"""
     return HTMLResponse(content=_inject_legal_branding(html))
 
 
