@@ -216,9 +216,6 @@ select option{background:#fff}
   <div class="tab" data-tab="facturacion" onclick="switchTab('facturacion')">
     <i class="fa-solid fa-file-invoice-dollar"></i> Facturación <span class="count" id="cnt-facturas">0</span>
   </div>
-  <div class="tab" data-tab="catalogos" onclick="switchTab('catalogos')">
-    <i class="fa-solid fa-table-list"></i> Catálogos
-  </div>
   <div class="tab" data-tab="covol" onclick="switchTab('covol')">
     <i class="fa-solid fa-chart-column"></i> Control Volumétrico
   </div>
@@ -229,6 +226,9 @@ select option{background:#fff}
     <div class="tab-menu-panel">
       <button class="tab" type="button" data-tab="operacion" onclick="switchTab('operacion')">
         <i class="fa-solid fa-clipboard-list"></i> Expediente del viaje
+      </button>
+      <button class="tab" type="button" data-tab="catalogos" onclick="switchTab('catalogos')">
+        <i class="fa-solid fa-table-list"></i> Catálogos
       </button>
       <button class="tab" type="button" data-tab="usuarios" onclick="switchTab('usuarios')">
         <i class="fa-solid fa-users-gear"></i> Usuarios y permisos
@@ -1833,7 +1833,7 @@ function switchTab(tab) {
   document.getElementById('tab-' + tab).classList.add('active');
   const activeNav = document.querySelector(`[data-tab="${tab}"]`);
   if (activeNav) activeNav.classList.add('active');
-  const adminTabs = ['operacion','usuarios','analisis','pronostico','configuracion'];
+  const adminTabs = ['operacion','catalogos','usuarios','analisis','pronostico','configuracion'];
   document.querySelector('.tab-menu-btn')?.classList.toggle('active', adminTabs.includes(tab));
   if (tab === 'catalogos') cargarCatalogos();
   if (tab === 'facturacion') cargarFacturas();
