@@ -132,12 +132,16 @@ class VehiculoTransporteResponse(BaseModel):
 class RutaTransporteCreate(BaseModel):
     """Alta de ruta predefinida origen → destino."""
     nombre:         str
+    origen_id:      Optional[int] = None
+    destino_id:     Optional[int] = None
     cp_origen:      str   = ""
     nombre_origen:  str   = ""      # Nombre del municipio/localidad origen
     cp_destino:     str   = ""
     nombre_destino: str   = ""      # Nombre del municipio/localidad destino
     distancia_km:   float = 1.0
     duracion_estimada_min: int = 0   # Minutos estimados de traslado
+    tipo_camino:    str   = ""
+    tarifa_base:    float = 0.0
 
     @field_validator("cp_origen", "cp_destino")
     @classmethod
@@ -162,6 +166,9 @@ class ClienteTransporteCreate(BaseModel):
     aplica_retencion_default: bool = False
     observaciones_fiscales: str = ""
     reglas_fiscales: dict = {}
+    destino_default_id: Optional[int] = None
+    ruta_default_id: Optional[int] = None
+    producto_default_id: Optional[int] = None
 
     @field_validator("rfc")
     @classmethod
@@ -247,6 +254,18 @@ class ViajeCreate(BaseModel):
     chofer_id:      int                      # FK → tr_choferes
     vehiculo_id:    int                      # FK → tr_vehiculos
     ruta_id:        Optional[int]   = None   # FK → tr_rutas (opcional)
+    proveedor_id:   Optional[int]   = None
+    origen_id:      Optional[int]   = None
+    destino_id:     Optional[int]   = None
+    producto_operacion_id: Optional[int] = None
+    programa_fecha: Optional[str] = None
+    programa_semana: str = ""
+    tarifa_id:      Optional[int] = None
+    subtotal_flete: float = 0.0
+    comision_operador: float = 0.0
+    override_tarifa: bool = False
+    override_reason: str = ""
+    defaults_json: dict = {}
 
     # Origen y destino (si no hay ruta_id)
     cp_origen:      str             = ""
