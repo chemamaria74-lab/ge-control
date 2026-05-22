@@ -154,6 +154,14 @@ class ClienteTransporteCreate(BaseModel):
     cp:             str   = "20000"
     regimen_fiscal: str   = "601"
     uso_cfdi:       str   = "S01"
+    metodo_pago_default: str = "PUE"
+    forma_pago_default:  str = "03"
+    iva_tasa_default: float = 0.16
+    retencion_tasa_default: float = 0.0
+    aplica_iva_default: bool = True
+    aplica_retencion_default: bool = False
+    observaciones_fiscales: str = ""
+    reglas_fiscales: dict = {}
 
     @field_validator("rfc")
     @classmethod
@@ -431,8 +439,8 @@ class FacturaServicioCreate(BaseModel):
     retencion_tasa:      float = 0.04
     aplica_iva:          bool = True
     aplica_retencion:    bool = False
-    forma_pago:          str = "99"
-    metodo_pago:         str = "PPD"
+    forma_pago:          str = "03"
+    metodo_pago:         str = "PUE"
     moneda:              str = "MXN"
 
     @field_validator("viaje_ids")
