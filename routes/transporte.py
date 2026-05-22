@@ -103,6 +103,14 @@ _TBL_LIQ_ITEMS = "tr_liquidacion_items"
 _TBL_NOTIFS    = "tr_notificaciones"
 _TBL_OPER_ACC  = "tr_operador_accesos"
 _TBL_IMPORTS   = "tr_importaciones"
+_TBL_ORIGENES  = "tr_origenes"
+_TBL_DESTINOS  = "tr_destinos"
+_TBL_CENTROS   = "tr_centros_emisores"
+_TBL_REMOLQUES = "tr_remolques"
+_TBL_VEH_REM   = "tr_vehiculo_remolques"
+_TBL_SEGUROS   = "tr_vehiculo_seguros"
+_TBL_PERMISOS  = "tr_permisos_operacion"
+_TBL_VEH_PERM  = "tr_vehiculo_permisos"
 
 MODULO = "transporte"
 _RFC_RE = re.compile(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$", re.IGNORECASE)
@@ -636,6 +644,42 @@ def _sumar_calculos_servicio(viajes: list[dict], tarifas: list[dict]) -> dict:
     }
 
 
+def _cliente_defaults_fiscales(cliente: dict | None = None, settings: dict | None = None) -> dict:
+    """Defaults fiscales configurables: cliente > settings módulo > fallback operativo."""
+    cliente = cliente or {}
+    settings = settings or {}
+    return {
+        "metodo_pago": str(
+            cliente.get("metodo_pago_default")
+            or settings.get("MetodoPagoDefault")
+            or "PUE"
+        ).strip(),
+        "forma_pago": str(
+            cliente.get("forma_pago_default")
+            or settings.get("FormaPagoDefault")
+            or "03"
+        ).strip(),
+        "iva_tasa": _safe_float(cliente.get("iva_tasa_default"), _safe_float(settings.get("IvaTasaDefault"), 0.16)),
+        "retencion_tasa": _safe_float(cliente.get("retencion_tasa_default"), _safe_float(settings.get("RetencionTasaDefault"), 0.0)),
+        "aplica_iva": bool(cliente.get("aplica_iva_default", settings.get("AplicaIvaDefault", True))),
+        "aplica_retencion": bool(cliente.get("aplica_retencion_default", settings.get("AplicaRetencionDefault", False))),
+        "uso_cfdi": str(cliente.get("uso_cfdi") or settings.get("UsoCfdiDefault") or "G03").strip(),
+    }
+
+
+def _cliente_por_receptor(sb, uid: str, perfil_id, rfc: str) -> dict:
+    if not rfc:
+        return {}
+    try:
+        q = sb.table(_TBL_CLIENTES).select("*").eq("user_id", uid).eq("rfc", rfc).eq("activo", True)
+        if perfil_id:
+            q = q.eq("perfil_id", perfil_id)
+        rows = q.limit(1).execute().data or []
+        return rows[0] if rows else {}
+    except Exception:
+        return {}
+
+
 def _ruta_payload(payload: RutaTransporteCreate) -> dict:
     return {
         "nombre":        payload.nombre.strip(),
@@ -1020,6 +1064,11 @@ async def timbrar_viaje(
     # Construir CFDI
     try:
         cfdi_dict, id_ccp = build_cfdi_transporte(viaje_obj, emisor, chofer, vehiculo)
+        if viaje_obj.tipo_cfdi == "I":
+            cliente_cfg = _cliente_por_receptor(sb, uid, viaje_row.get("perfil_id"), viaje_obj.rfc_receptor)
+            fiscal_defaults = _cliente_defaults_fiscales(cliente_cfg, settings)
+            cfdi_dict["MetodoPago"] = fiscal_defaults["metodo_pago"]
+            cfdi_dict["FormaPago"] = fiscal_defaults["forma_pago"]
     except ValueError as e:
         raise HTTPException(400, f"Error al construir CFDI: {e}")
     except Exception as e:
@@ -1954,6 +2003,159 @@ async def operador_pdf_carta_porte(viaje_id: int, token: str = Query(...), downl
     )
 
 
+@router.get("/tr/operador/viajes/{viaje_id}/xml")
+async def operador_xml_carta_porte(viaje_id: int, token: str = Query(...), download: bool = Query(True)):
+    """XML de Carta Porte para el operador asignado."""
+    sb, acc = _operador_context(token)
+    viaje_rows = (
+        sb.table(_TBL_VIAJES)
+        .select("id,user_id,perfil_id,chofer_id")
+        .eq("id", viaje_id)
+        .eq("user_id", acc["user_id"])
+        .eq("chofer_id", acc["chofer_id"])
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not viaje_rows:
+        raise HTTPException(404, "Viaje no encontrado para este operador.")
+    cfdi_rows = (
+        sb.table(_TBL_CFDI)
+        .select("uuid_sat,xml_content")
+        .eq("user_id", acc["user_id"])
+        .eq("viaje_id", viaje_id)
+        .order("fecha_timbrado", desc=True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not cfdi_rows or not cfdi_rows[0].get("xml_content"):
+        raise HTTPException(404, "Este viaje todavía no tiene XML de Carta Porte.")
+    filename = f"carta_porte_{cfdi_rows[0].get('uuid_sat') or viaje_id}.xml"
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=cfdi_rows[0]["xml_content"],
+        media_type="application/xml",
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+    )
+
+
+@router.get("/tr/operador/viajes/{viaje_id}/documentos-relacionados")
+async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...)):
+    """Documentos fiscales relacionados visibles para operador: Carta Porte, factura servicio y proveedor."""
+    sb, acc = _operador_context(token)
+    viaje_rows = (
+        sb.table(_TBL_VIAJES)
+        .select("id,user_id,perfil_id,chofer_id")
+        .eq("id", viaje_id)
+        .eq("user_id", acc["user_id"])
+        .eq("chofer_id", acc["chofer_id"])
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not viaje_rows:
+        raise HTTPException(404, "Viaje no encontrado para este operador.")
+    docs: list[dict] = []
+    cfdi_rows = sb.table(_TBL_CFDI).select("uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).eq("viaje_id", viaje_id).order("fecha_timbrado", desc=True).limit(1).execute().data or []
+    if cfdi_rows and cfdi_rows[0].get("xml_content"):
+        docs.extend([
+            {"tipo": "carta_porte_pdf", "label": "PDF Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/pdf?token={token}", "status": cfdi_rows[0].get("status")},
+            {"tipo": "carta_porte_xml", "label": "XML Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/xml?token={token}", "status": cfdi_rows[0].get("status")},
+        ])
+    links = sb.table(_TBL_FACT_SERV_CARTAS).select("factura_servicio_id").eq("user_id", acc["user_id"]).eq("viaje_id", viaje_id).execute().data or []
+    factura_ids = [int(x.get("factura_servicio_id")) for x in links if x.get("factura_servicio_id")]
+    if factura_ids:
+        facturas = sb.table(_TBL_FACT_SERV).select("id,uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).in_("id", factura_ids).execute().data or []
+        for f in facturas:
+            if f.get("xml_content"):
+                docs.extend([
+                    {"tipo": "factura_servicio_pdf", "label": "PDF factura servicio", "url": f"/api/tr/operador/facturas-servicio/{f['id']}/pdf?token={token}", "status": f.get("status")},
+                    {"tipo": "factura_servicio_xml", "label": "XML factura servicio", "url": f"/api/tr/operador/facturas-servicio/{f['id']}/xml?token={token}", "status": f.get("status")},
+                ])
+    provider_docs = (
+        sb.table(_TBL_DOCS)
+        .select("*")
+        .eq("user_id", acc["user_id"])
+        .eq("viaje_id", viaje_id)
+        .in_("tipo", ["factura_producto_pdf", "factura_producto_xml", "factura_proveedor_pdf", "factura_proveedor_xml", "cfdi_proveedor_pdf", "cfdi_proveedor_xml"])
+        .order("created_at", desc=True)
+        .execute()
+        .data
+        or []
+    )
+    for d in provider_docs:
+        docs.append({
+            "tipo": d.get("tipo"),
+            "label": d.get("nombre") or d.get("tipo"),
+            "url": f"/api/tr/operador/viajes/{viaje_id}/documentos/{d.get('id')}?token={token}",
+            "status": "registrado",
+        })
+    return JSONResponse({"ok": True, "documentos": docs})
+
+
+@router.get("/tr/operador/facturas-servicio/{factura_id}/pdf")
+async def operador_pdf_factura_servicio(factura_id: int, token: str = Query(...), download: bool = Query(False)):
+    sb, acc = _operador_context(token)
+    links = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", acc["user_id"]).eq("factura_servicio_id", factura_id).execute().data or []
+    viaje_ids = [int(x.get("viaje_id")) for x in links if x.get("viaje_id")]
+    if not viaje_ids:
+        raise HTTPException(404, "Factura de servicio no relacionada a viaje del operador.")
+    viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"]).in_("id", viaje_ids).execute().data or []
+    if not viajes:
+        raise HTTPException(404, "Factura de servicio no disponible para este operador.")
+    rows = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", acc["user_id"]).eq("id", factura_id).limit(1).execute().data or []
+    if not rows or not rows[0].get("xml_content"):
+        raise HTTPException(404, "Factura de servicio sin XML.")
+    row = rows[0]
+    settings_rows = get_supabase_admin().table(_TBL_SETTINGS).select("data").eq("user_id", acc["user_id"]).eq("perfil_id", row.get("perfil_id")).limit(1).execute().data or []
+    settings = settings_rows[0].get("data", {}) if settings_rows else {}
+    info = fiscal_pdf_info(row["xml_content"], "factura_servicio_transporte")
+    pdf_bytes = generar_pdf_ingreso_desde_xml(row["xml_content"], logo_data_url=settings.get("PdfLogoDataUrl", ""))
+    disposition = "attachment" if download else "inline"
+    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'})
+
+
+@router.get("/tr/operador/facturas-servicio/{factura_id}/xml")
+async def operador_xml_factura_servicio(factura_id: int, token: str = Query(...), download: bool = Query(True)):
+    sb, acc = _operador_context(token)
+    links = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", acc["user_id"]).eq("factura_servicio_id", factura_id).execute().data or []
+    viaje_ids = [int(x.get("viaje_id")) for x in links if x.get("viaje_id")]
+    viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"]).in_("id", viaje_ids or [-1]).execute().data or []
+    if not viajes:
+        raise HTTPException(404, "Factura de servicio no disponible para este operador.")
+    rows = sb.table(_TBL_FACT_SERV).select("uuid_sat,xml_content").eq("user_id", acc["user_id"]).eq("id", factura_id).limit(1).execute().data or []
+    if not rows or not rows[0].get("xml_content"):
+        raise HTTPException(404, "Factura de servicio sin XML.")
+    filename = f"factura_servicio_{rows[0].get('uuid_sat') or factura_id}.xml"
+    disposition = "attachment" if download else "inline"
+    return Response(content=rows[0]["xml_content"], media_type="application/xml", headers={"Content-Disposition": f'{disposition}; filename="{filename}"'})
+
+
+@router.get("/tr/operador/viajes/{viaje_id}/documentos/{documento_id}")
+async def operador_documento_storage(viaje_id: int, documento_id: int, token: str = Query(...)):
+    sb, acc = _operador_context(token)
+    viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"]).eq("id", viaje_id).limit(1).execute().data or []
+    if not viajes:
+        raise HTTPException(404, "Viaje no encontrado para este operador.")
+    docs = sb.table(_TBL_DOCS).select("*").eq("user_id", acc["user_id"]).eq("viaje_id", viaje_id).eq("id", documento_id).limit(1).execute().data or []
+    if not docs:
+        raise HTTPException(404, "Documento no encontrado.")
+    doc = docs[0]
+    try:
+        content = get_supabase_admin().storage.from_(doc.get("storage_bucket") or "transport-documents").download(doc.get("storage_path") or "")
+    except Exception:
+        raise HTTPException(404, "No se pudo descargar el documento de Storage.")
+    return Response(
+        content=content,
+        media_type=doc.get("mime_type") or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{doc.get("nombre") or "documento"}"'},
+    )
+
+
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
     perfil_id: Optional[int] = Query(None),
@@ -2105,6 +2307,15 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "regimen_fiscal": payload.regimen_fiscal,
         "uso_cfdi": payload.uso_cfdi,
     }
+    cliente_cfg = {}
+    if payload.cliente_id:
+        cliente_rows = sb.table(_TBL_CLIENTES).select("*").eq("user_id", uid).eq("id", payload.cliente_id).limit(1).execute().data or []
+        cliente_cfg = cliente_rows[0] if cliente_rows else {}
+    if not cliente_cfg:
+        cliente_cfg = _cliente_por_receptor(sb, uid, perfil_factura, payload.rfc_receptor)
+    fiscal_defaults = _cliente_defaults_fiscales(cliente_cfg, settings)
+    forma_pago = payload.forma_pago or fiscal_defaults["forma_pago"]
+    metodo_pago = payload.metodo_pago or fiscal_defaults["metodo_pago"]
     cfdi_dict = build_cfdi_servicio_transporte(
         emisor=emisor,
         receptor=receptor,
@@ -2116,8 +2327,8 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         retencion_tasa=calculo_servicio["retencion_tasa"],
         aplica_iva=calculo_servicio["aplica_iva"],
         aplica_retencion=calculo_servicio["aplica_retencion"],
-        forma_pago=payload.forma_pago,
-        metodo_pago=payload.metodo_pago,
+        forma_pago=forma_pago,
+        metodo_pago=metodo_pago,
         uso_cfdi=payload.uso_cfdi,
     )
     sw = emitir_timbrar_json(cfdi_dict)
@@ -2150,8 +2361,8 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "aplica_iva":      calculo_servicio["aplica_iva"],
         "aplica_retencion": calculo_servicio["aplica_retencion"],
         "calculo_json":    calculo_servicio,
-        "forma_pago":      payload.forma_pago,
-        "metodo_pago":     payload.metodo_pago,
+        "forma_pago":      forma_pago,
+        "metodo_pago":     metodo_pago,
         "moneda":          payload.moneda,
         "uuid_sat":        sw_data.get("uuid", ""),
         "xml_content":     sw_data.get("cfdi", ""),
@@ -2989,6 +3200,14 @@ async def crear_cliente_transporte(
             "cp":             receptor["cp"],
             "regimen_fiscal": receptor["regimen_fiscal"],
             "uso_cfdi":       payload.uso_cfdi,
+            "metodo_pago_default": str(getattr(payload, "metodo_pago_default", "PUE") or "PUE"),
+            "forma_pago_default": str(getattr(payload, "forma_pago_default", "03") or "03"),
+            "iva_tasa_default": _safe_float(getattr(payload, "iva_tasa_default", 0.16), 0.16),
+            "retencion_tasa_default": _safe_float(getattr(payload, "retencion_tasa_default", 0), 0),
+            "aplica_iva_default": bool(getattr(payload, "aplica_iva_default", True)),
+            "aplica_retencion_default": bool(getattr(payload, "aplica_retencion_default", False)),
+            "observaciones_fiscales": str(getattr(payload, "observaciones_fiscales", "") or ""),
+            "reglas_fiscales": getattr(payload, "reglas_fiscales", {}) if isinstance(getattr(payload, "reglas_fiscales", {}), dict) else {},
             "activo":         True,
             "created_at":     datetime.now(timezone.utc).isoformat(),
         }).execute()
@@ -3014,6 +3233,14 @@ async def actualizar_cliente_transporte(
         "cp":             receptor["cp"],
         "regimen_fiscal": receptor["regimen_fiscal"],
         "uso_cfdi":       payload.uso_cfdi,
+        "metodo_pago_default": str(getattr(payload, "metodo_pago_default", "PUE") or "PUE"),
+        "forma_pago_default": str(getattr(payload, "forma_pago_default", "03") or "03"),
+        "iva_tasa_default": _safe_float(getattr(payload, "iva_tasa_default", 0.16), 0.16),
+        "retencion_tasa_default": _safe_float(getattr(payload, "retencion_tasa_default", 0), 0),
+        "aplica_iva_default": bool(getattr(payload, "aplica_iva_default", True)),
+        "aplica_retencion_default": bool(getattr(payload, "aplica_retencion_default", False)),
+        "observaciones_fiscales": str(getattr(payload, "observaciones_fiscales", "") or ""),
+        "reglas_fiscales": getattr(payload, "reglas_fiscales", {}) if isinstance(getattr(payload, "reglas_fiscales", {}), dict) else {},
     }).eq("id", cliente_id).eq("user_id", uid)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -3034,6 +3261,152 @@ async def eliminar_cliente_transporte(
     if pid:
         q = q.eq("perfil_id", pid)
     q.execute()
+    return JSONResponse({"ok": True})
+
+
+# ── Catálogos fiscales-operativos fase 1 ─────────────────────────────────────
+
+_CATALOGOS_OPERATIVOS = {
+    "origenes": {
+        "table": _TBL_ORIGENES,
+        "return_key": "origenes",
+        "fields": {"nombre", "rfc", "cp", "direccion", "tipo", "permiso_operacion_id", "metadata", "activo"},
+        "order": "nombre",
+    },
+    "destinos": {
+        "table": _TBL_DESTINOS,
+        "return_key": "destinos",
+        "fields": {"cliente_id", "nombre", "rfc", "cp", "direccion", "tipo", "metadata", "activo"},
+        "order": "nombre",
+    },
+    "centros-emisores": {
+        "table": _TBL_CENTROS,
+        "return_key": "centros",
+        "fields": {"nombre", "rfc", "cp", "regimen_fiscal", "serie_cfdi", "serie_factura_servicio", "metadata", "activo"},
+        "order": "nombre",
+    },
+    "remolques": {
+        "table": _TBL_REMOLQUES,
+        "return_key": "remolques",
+        "fields": {"placas", "subtipo_rem", "capacidad_litros", "aseguradora", "poliza_seguro", "poliza_medio_ambiente", "metadata", "activo"},
+        "order": "placas",
+    },
+    "vehiculo-remolques": {
+        "table": _TBL_VEH_REM,
+        "return_key": "vehiculo_remolques",
+        "fields": {"vehiculo_id", "remolque_id", "frecuente", "orden", "activo"},
+        "order": "orden",
+    },
+    "vehiculo-seguros": {
+        "table": _TBL_SEGUROS,
+        "return_key": "seguros",
+        "fields": {"vehiculo_id", "remolque_id", "tipo", "aseguradora", "poliza", "vigencia_desde", "vigencia_hasta", "metadata", "activo"},
+        "order": "created_at",
+    },
+    "permisos-operacion": {
+        "table": _TBL_PERMISOS,
+        "return_key": "permisos",
+        "fields": {"tipo_permiso", "numero_permiso", "autoridad", "producto", "modalidad", "titular_rfc", "vigencia_desde", "vigencia_hasta", "metadata", "activo"},
+        "order": "numero_permiso",
+    },
+    "vehiculo-permisos": {
+        "table": _TBL_VEH_PERM,
+        "return_key": "vehiculo_permisos",
+        "fields": {"vehiculo_id", "permiso_id", "producto", "activo"},
+        "order": "created_at",
+    },
+}
+
+
+def _clean_catalog_row(payload: dict, allowed: set[str]) -> dict:
+    row = {}
+    for key, value in (payload or {}).items():
+        if key not in allowed:
+            continue
+        if key == "metadata":
+            row[key] = value if isinstance(value, dict) else {}
+        elif key.endswith("_id") or key in {"orden"}:
+            row[key] = int(value) if value not in (None, "") else None
+        elif key in {"activo", "frecuente"}:
+            row[key] = bool(value)
+        elif key in {"capacidad_litros"}:
+            row[key] = _safe_float(value)
+        else:
+            row[key] = str(value or "").strip()
+    return row
+
+
+@router.get("/tr/catalogos/{catalogo}")
+async def listar_catalogo_operativo(
+    catalogo: str,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    cfg = _CATALOGOS_OPERATIVOS.get(catalogo)
+    if not cfg:
+        raise HTTPException(404, "Catálogo no encontrado.")
+    uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
+    q = _sb(token).table(cfg["table"]).select("*").eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    if "activo" in cfg["fields"]:
+        q = q.eq("activo", True)
+    res = q.order(cfg["order"]).execute()
+    return JSONResponse({"ok": True, cfg["return_key"]: res.data or []})
+
+
+@router.post("/tr/catalogos/{catalogo}")
+async def crear_catalogo_operativo(
+    catalogo: str,
+    payload: dict,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    cfg = _CATALOGOS_OPERATIVOS.get(catalogo)
+    if not cfg:
+        raise HTTPException(404, "Catálogo no encontrado.")
+    uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
+    row = _clean_catalog_row(payload, cfg["fields"])
+    row.update({"user_id": uid, "perfil_id": pid, "created_at": datetime.now(timezone.utc).isoformat()})
+    if not row.get("nombre") and catalogo in {"origenes", "destinos", "centros-emisores"}:
+        raise HTTPException(400, "Nombre requerido.")
+    if not row.get("placas") and catalogo == "remolques":
+        raise HTTPException(400, "Placas del remolque requeridas.")
+    if not row.get("numero_permiso") and catalogo == "permisos-operacion":
+        raise HTTPException(400, "Número de permiso requerido.")
+    try:
+        res = _sb(token).table(cfg["table"]).insert(row).execute()
+    except Exception as e:
+        raise HTTPException(500, f"No se pudo guardar el catálogo: {e}")
+    return JSONResponse({"ok": True, "item": (res.data or [None])[0]})
+
+
+@router.put("/tr/catalogos/{catalogo}/{item_id}")
+async def actualizar_catalogo_operativo(catalogo: str, item_id: int, payload: dict, authorization: str = Header(default="")):
+    cfg = _CATALOGOS_OPERATIVOS.get(catalogo)
+    if not cfg:
+        raise HTTPException(404, "Catálogo no encontrado.")
+    uid, token = _auth(authorization)
+    row = _clean_catalog_row(payload, cfg["fields"])
+    row["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _sb(token).table(cfg["table"]).update(row).eq("id", item_id).eq("user_id", uid).execute()
+    return JSONResponse({"ok": True})
+
+
+@router.delete("/tr/catalogos/{catalogo}/{item_id}")
+async def eliminar_catalogo_operativo(catalogo: str, item_id: int, authorization: str = Header(default="")):
+    cfg = _CATALOGOS_OPERATIVOS.get(catalogo)
+    if not cfg:
+        raise HTTPException(404, "Catálogo no encontrado.")
+    uid, token = _auth(authorization)
+    if "activo" in cfg["fields"]:
+        _sb(token).table(cfg["table"]).update({"activo": False}).eq("id", item_id).eq("user_id", uid).execute()
+    else:
+        _sb(token).table(cfg["table"]).delete().eq("id", item_id).eq("user_id", uid).execute()
     return JSONResponse({"ok": True})
 
 
