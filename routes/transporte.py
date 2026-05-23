@@ -3520,27 +3520,48 @@ async def crear_catalogo_operativo(
 
 
 @router.put("/tr/catalogos/{catalogo}/{item_id}")
-async def actualizar_catalogo_operativo(catalogo: str, item_id: int, payload: dict, authorization: str = Header(default="")):
+async def actualizar_catalogo_operativo(
+    catalogo: str,
+    item_id: int,
+    payload: dict,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     cfg = _CATALOGOS_OPERATIVOS.get(catalogo)
     if not cfg:
         raise HTTPException(404, "Catálogo no encontrado.")
     uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
     row = _clean_catalog_row(payload, cfg["fields"])
     row["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _sb(token).table(cfg["table"]).update(row).eq("id", item_id).eq("user_id", uid).execute()
+    q = _sb(token).table(cfg["table"]).update(row).eq("id", item_id).eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    q.execute()
     return JSONResponse({"ok": True})
 
 
 @router.delete("/tr/catalogos/{catalogo}/{item_id}")
-async def eliminar_catalogo_operativo(catalogo: str, item_id: int, authorization: str = Header(default="")):
+async def eliminar_catalogo_operativo(
+    catalogo: str,
+    item_id: int,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     cfg = _CATALOGOS_OPERATIVOS.get(catalogo)
     if not cfg:
         raise HTTPException(404, "Catálogo no encontrado.")
     uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
     if "activo" in cfg["fields"]:
-        _sb(token).table(cfg["table"]).update({"activo": False}).eq("id", item_id).eq("user_id", uid).execute()
+        q = _sb(token).table(cfg["table"]).update({"activo": False}).eq("id", item_id).eq("user_id", uid)
     else:
-        _sb(token).table(cfg["table"]).delete().eq("id", item_id).eq("user_id", uid).execute()
+        q = _sb(token).table(cfg["table"]).delete().eq("id", item_id).eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    q.execute()
     return JSONResponse({"ok": True})
 
 
