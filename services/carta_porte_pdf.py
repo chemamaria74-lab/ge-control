@@ -201,6 +201,8 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     story.append(_long_block("Sello digital CFDI", _attr(comp, "Sello") or _attr(timbre, "SelloCFD"), Table, TableStyle, Paragraph, styles, colors))
     story.append(_long_block("Sello SAT", _attr(timbre, "SelloSAT"), Table, TableStyle, Paragraph, styles, colors))
     story.append(_long_block("Cadena original del complemento de certificación digital SAT", _cadena_original_tfd(timbre), Table, TableStyle, Paragraph, styles, colors))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("Generado por GE Control © 2026", styles["Tiny"]))
 
     doc.build(story)
     return buffer.getvalue()
