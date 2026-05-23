@@ -525,7 +525,13 @@ create index if not exists idx_tr_operador_accesos_chofer_id
 create or replace view public.security_legacy_scope_report as
 select
   'user_sections'::text as table_name,
-  id::text as row_id,
+  concat_ws(
+    ':',
+    user_id::text,
+    section::text,
+    coalesce(tenant_id::text, 'no_tenant'),
+    coalesce(perfil_id::text, 'no_perfil')
+  ) as row_id,
   user_id::text as user_id,
   tenant_id::text as tenant_id,
   perfil_id::text as perfil_id,

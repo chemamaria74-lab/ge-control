@@ -137,6 +137,82 @@ create table if not exists public.tr_vehiculo_permisos (
   unique (user_id, vehiculo_id, permiso_id, producto)
 );
 
+-- Compatibilidad con staging: si alguna tabla ya existia por una migracion
+-- parcial/legacy, CREATE TABLE IF NOT EXISTS no agrega columnas nuevas.
+alter table if exists public.tr_origenes
+  add column if not exists rfc text not null default '',
+  add column if not exists cp text not null default '',
+  add column if not exists direccion text not null default '',
+  add column if not exists tipo text not null default 'terminal',
+  add column if not exists permiso_operacion_id bigint,
+  add column if not exists metadata jsonb not null default '{}'::jsonb,
+  add column if not exists activo boolean not null default true,
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table if exists public.tr_destinos
+  add column if not exists cliente_id bigint,
+  add column if not exists rfc text not null default '',
+  add column if not exists cp text not null default '',
+  add column if not exists direccion text not null default '',
+  add column if not exists tipo text not null default 'cliente',
+  add column if not exists metadata jsonb not null default '{}'::jsonb,
+  add column if not exists activo boolean not null default true,
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table if exists public.tr_centros_emisores
+  add column if not exists rfc text not null default '',
+  add column if not exists cp text not null default '',
+  add column if not exists regimen_fiscal text not null default '',
+  add column if not exists serie_cfdi text not null default 'TR',
+  add column if not exists serie_factura_servicio text not null default 'FS',
+  add column if not exists activo boolean not null default true,
+  add column if not exists metadata jsonb not null default '{}'::jsonb,
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table if exists public.tr_remolques
+  add column if not exists subtipo_rem text not null default '',
+  add column if not exists capacidad_litros numeric not null default 0,
+  add column if not exists aseguradora text not null default '',
+  add column if not exists poliza_seguro text not null default '',
+  add column if not exists poliza_medio_ambiente text not null default '',
+  add column if not exists activo boolean not null default true,
+  add column if not exists metadata jsonb not null default '{}'::jsonb,
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table if exists public.tr_vehiculo_remolques
+  add column if not exists frecuente boolean not null default true,
+  add column if not exists orden integer not null default 1,
+  add column if not exists activo boolean not null default true,
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table if exists public.tr_vehiculo_seguros
+  add column if not exists remolque_id bigint,
+  add column if not exists tipo text not null default 'responsabilidad_civil',
+  add column if not exists aseguradora text not null default '',
+  add column if not exists poliza text not null default '',
+  add column if not exists vigencia_desde date,
+  add column if not exists vigencia_hasta date,
+  add column if not exists activo boolean not null default true,
+  add column if not exists metadata jsonb not null default '{}'::jsonb,
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table if exists public.tr_permisos_operacion
+  add column if not exists tipo_permiso text not null default 'CNE',
+  add column if not exists autoridad text not null default 'CNE',
+  add column if not exists producto text not null default '',
+  add column if not exists modalidad text not null default '',
+  add column if not exists titular_rfc text not null default '',
+  add column if not exists vigencia_desde date,
+  add column if not exists vigencia_hasta date,
+  add column if not exists activo boolean not null default true,
+  add column if not exists metadata jsonb not null default '{}'::jsonb,
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table if exists public.tr_vehiculo_permisos
+  add column if not exists producto text not null default '',
+  add column if not exists activo boolean not null default true,
+  add column if not exists updated_at timestamptz not null default now();
+
 create index if not exists idx_tr_origenes_user_perfil on public.tr_origenes(user_id, perfil_id, activo);
 create index if not exists idx_tr_destinos_user_perfil on public.tr_destinos(user_id, perfil_id, cliente_id, activo);
 create index if not exists idx_tr_centros_user_perfil on public.tr_centros_emisores(user_id, perfil_id, activo);
