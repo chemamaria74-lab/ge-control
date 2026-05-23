@@ -26,7 +26,13 @@
     btn.dataset.panel = "operacion360";
     btn.innerHTML = '<i class="fa-solid fa-table-cells-large"></i> Operación 360';
     btn.onclick = () => { window.showPanel ? window.showPanel("operacion360") : showPanelLocal(); loadOps360(); };
-    nav.insertBefore(btn, nav.firstElementChild?.nextSibling || null);
+    const advanced = nav.querySelector(".advanced-nav");
+    if (advanced) {
+      btn.innerHTML = '<i class="fa-solid fa-table-cells-large"></i> Operación 360';
+      advanced.appendChild(btn);
+    } else {
+      nav.appendChild(btn);
+    }
     const section = document.createElement("section");
     section.className = "panel";
     section.id = "panel-operacion360";
