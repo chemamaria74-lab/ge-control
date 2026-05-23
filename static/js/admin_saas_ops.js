@@ -148,7 +148,7 @@
   }
 
   function renderModuleUser(t, key, r){
-    return `<div class="ops-row"><div><b>${esc(r.user.email || short(r.user.user_id))}</b><small>${esc(r.role)} · ${esc(r.status)} · perfil ${esc(r.perfil_id || "—")}</small></div><div class="ops-actions"><button class="btn btn-ghost" onclick="AdminOps.editRole('${esc(r.user.user_id)}','${key}','${esc(t.id)}','${esc(r.perfil_id || "")}')">Editar rol</button><button class="btn btn-danger" onclick="AdminOps.disableUser('${esc(r.user.user_id)}')">Desactivar</button></div></div>`;
+    return `<div class="ops-row"><div><b>${esc(r.user.email || short(r.user.user_id))}</b><small>${esc(r.role)} · ${esc(r.status)} · perfil ${esc(r.perfil_id || "—")}</small></div><div class="ops-actions"><button class="btn btn-ghost" onclick="AdminOps.editRole('${esc(r.user.user_id)}','${key}','${esc(t.id)}','${esc(r.perfil_id || "")}')">Editar rol</button><button class="btn btn-danger" onclick="AdminOps.disableUser('${esc(r.user.user_id)}')">Desactivar</button><button class="btn btn-danger" onclick="AdminOps.deleteUserTest('${esc(r.user.user_id)}')">Eliminar test</button></div></div>`;
   }
 
   function roleOptions(section){
@@ -177,6 +177,12 @@
       await saveUserSection({user_id, section, role, status:"active", tenant_id, perfil_id:perfil_id ? Number(perfil_id) : null, display_name:""});
     },
     async disableUser(userId){ if(confirm("Desactivar accesos de este usuario?")) { await adminApi(`/users/${encodeURIComponent(userId)}/status`, {method:"POST", headers:authHeaders(), body:JSON.stringify({status:"inactive"})}); await loadOps360(); } },
+    async deleteUserTest(userId){
+      if(!confirm("Eliminar usuario de prueba/test y limpiar Supabase? Solo aplica si staging/demo lo permite.")) return;
+      await adminApi(`/users/${encodeURIComponent(userId)}/test`, {method:"DELETE", headers:authHeaders()});
+      await loadOps360();
+      window.loadUsersHealth?.();
+    },
     async setInternalStatus(id,status){ await adminApi(`/internal-users/${id}/status`, {method:"POST", headers:authHeaders(), body:JSON.stringify({status})}); await loadOps360(); },
     async resetPin(id){ const d = await adminApi(`/internal-users/${id}/reset-pin`, {method:"POST", headers:authHeaders(), body:JSON.stringify({})}); alert(`PIN temporal: ${d.temporary_pin}`); },
     async addCompany(tid){

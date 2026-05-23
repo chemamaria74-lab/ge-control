@@ -9,6 +9,7 @@
   let observer = null;
   let debounceId = 0;
   let uxTimer = 0;
+  let uxRuns = 0;
 
   function cleanRfc(value) {
     const rfc = String(value || "")
@@ -162,9 +163,11 @@
   }
 
   function scheduleUxSync() {
+    if (uxRuns > 12) return;
     if (uxTimer) window.clearTimeout(uxTimer);
     uxTimer = window.setTimeout(() => {
       uxTimer = 0;
+      uxRuns += 1;
       runUxSync();
     }, 160);
   }
