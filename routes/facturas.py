@@ -52,6 +52,13 @@ router = APIRouter()
 DB_PATH  = os.path.join(os.path.dirname(__file__), "..", "storage", "data.db")
 CFG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "settings.json")
 
+_SB_FACTURAS = "gas_lp_facturas"
+_SB_FACTURAS_SERVICIO = "gas_lp_facturas_servicio"
+_SB_CHOFERES = "gas_lp_choferes"
+_SB_VEHICULOS = "gas_lp_vehiculos"
+_SB_RUTAS = "gas_lp_rutas"
+_SB_CLIENTES = "gas_lp_clientes_facturacion"
+
 # Advertencia de datos efímeros en Render
 if os.environ.get("RENDER") or os.environ.get("IS_PULL_REQUEST"):
     logger.warning(
@@ -70,6 +77,125 @@ def _auth(authorization: str) -> str:
     if not uid:
         raise HTTPException(401, "Token inválido o expirado.")
     return uid
+
+
+def _parse_perfil_id(raw: str) -> Optional[int]:
+    try:
+        value = int((raw or "").strip())
+        return value if value > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _scope(authorization: str, x_perfil_id: str = "") -> dict:
+    uid = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    tenant_id = None
+    if perfil_id:
+        try:
+            rows = (
+                get_supabase_admin()
+                .table("perfiles_empresa")
+                .select("id,tenant_id,user_id,activo")
+                .eq("id", perfil_id)
+                .eq("user_id", uid)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if not rows:
+                raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario.")
+            tenant_id = rows[0].get("tenant_id")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning("facturas scope perfil lookup falló: user=%s perfil=%s err=%s", uid, perfil_id, exc)
+    return {"user_id": uid, "perfil_id": perfil_id, "tenant_id": tenant_id}
+
+
+def _scope_row(scope: dict, extra: Optional[dict] = None) -> dict:
+    row = {
+        "user_id": scope["user_id"],
+        "tenant_id": scope.get("tenant_id"),
+        "perfil_id": scope.get("perfil_id"),
+        "source": "supabase",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if extra:
+        row.update(extra)
+    return row
+
+
+def _sb_query(table: str, scope: dict, select: str = "*"):
+    q = get_supabase_admin().table(table).select(select).eq("user_id", scope["user_id"])
+    if scope.get("perfil_id"):
+        q = q.eq("perfil_id", scope["perfil_id"])
+    else:
+        q = q.is_("perfil_id", "null")
+    return q
+
+
+def _sb_get(table: str, row_id: int, scope: dict) -> Optional[dict]:
+    if not scope.get("perfil_id"):
+        return None
+    try:
+        rows = _sb_query(table, scope).eq("id", row_id).limit(1).execute().data or []
+        return rows[0] if rows else None
+    except Exception as exc:
+        logger.warning("Supabase get %s id=%s falló: %s", table, row_id, exc)
+        return None
+
+
+def _sb_list(table: str, scope: dict, *, active_only: bool = False, order: str = "created_at", desc: bool = True) -> list[dict]:
+    if not scope.get("perfil_id"):
+        return []
+    try:
+        q = _sb_query(table, scope)
+        if active_only:
+            q = q.eq("activo", True)
+        return q.order(order, desc=desc).execute().data or []
+    except Exception as exc:
+        logger.warning("Supabase list %s falló: %s", table, exc)
+        return []
+
+
+def _sb_insert(table: str, row: dict) -> Optional[dict]:
+    try:
+        data = get_supabase_admin().table(table).insert(row).execute().data or []
+        return data[0] if data else row
+    except Exception as exc:
+        logger.warning("Supabase insert %s falló: %s", table, exc)
+        return None
+
+
+def _sb_update(table: str, row_id: int, scope: dict, values: dict) -> bool:
+    if not scope.get("perfil_id"):
+        return False
+    try:
+        (
+            _sb_query(table, scope)
+            .eq("id", row_id)
+            .update({**values, "updated_at": datetime.now(timezone.utc).isoformat()})
+            .execute()
+        )
+        return True
+    except Exception as exc:
+        logger.warning("Supabase update %s id=%s falló: %s", table, row_id, exc)
+        return False
+
+
+def _rowdict(row) -> dict:
+    return dict(row) if row is not None else {}
+
+
+def _iso_or_none(value) -> Optional[str]:
+    if not value:
+        return None
+    text = str(value)
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    return text
 
 
 def _cfg() -> dict:
@@ -227,8 +353,10 @@ class FacturaFleteRequest(BaseModel):
 async def generar_carta_porte(
     payload:       CartaPorteRequest,
     authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
     cfg = _cfg()
 
     emisor = {
@@ -274,6 +402,23 @@ async def generar_carta_porte(
         raise HTTPException(400, f"Error en timbrado SW Sapien: {resultado['error']}")
 
     now = datetime.now(timezone.utc).isoformat()
+    supabase_row = None
+    if scope.get("perfil_id"):
+        supabase_row = _sb_insert(_SB_FACTURAS, _scope_row(scope, {
+            "facility_id": payload.facility_id,
+            "record_uuid": payload.record_uuid,
+            "uuid_sat": resultado["uuid"],
+            "xml_content": resultado["xml_timbrado"],
+            "pdf_url": resultado.get("pdf_url") or "",
+            "status": "Vigente",
+            "fecha_timbrado": now,
+            "rfc_receptor": payload.rfc_cliente,
+            "volumen_litros": payload.volumen_litros,
+            "importe": payload.importe,
+            "tipo_comprobante": payload.tipo_comprobante,
+            "distancia_km": payload.distancia_km,
+            "created_at": now,
+        }))
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
@@ -290,6 +435,8 @@ async def generar_carta_porte(
         "ok": True, "uuid_sat": resultado["uuid"],
         "pdf_url": resultado["pdf_url"], "status": "Vigente",
         "fecha_timbrado": now,
+        "id": supabase_row.get("id") if supabase_row else None,
+        "source": "supabase" if supabase_row else "sqlite",
     })
 
 
@@ -333,8 +480,18 @@ async def listar_facturas(
     periodo:       Optional[str] = Query(None),
     facility_id:   Optional[int] = Query(None),
     authorization: str           = Header(default=""),
+    x_perfil_id:   str           = Header(default=""),
 ):
-    uid     = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    if scope.get("perfil_id"):
+        rows = _sb_list(_SB_FACTURAS, scope)
+        if periodo:
+            rows = [r for r in rows if str(r.get("fecha_timbrado") or "").startswith(periodo)]
+        if facility_id is not None:
+            rows = [r for r in rows if str(r.get("facility_id") or "") == str(facility_id)]
+        if rows:
+            return JSONResponse({"facturas": rows, "source": "supabase"})
     clauses = ["user_id=?"]
     params: list = [uid]
     if periodo:
@@ -353,8 +510,20 @@ async def listar_facturas(
 
 
 @router.get("/facturas/{factura_id}/xml")
-async def descargar_xml(factura_id: int, authorization: str = Header(default="")):
-    uid = _auth(authorization)
+async def descargar_xml(
+    factura_id: int,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    row_sb = _sb_get(_SB_FACTURAS, factura_id, scope)
+    if row_sb:
+        return Response(
+            content=row_sb.get("xml_content") or "",
+            media_type="application/xml",
+            headers={"Content-Disposition": f'attachment; filename="factura_{row_sb.get("uuid_sat") or factura_id}.xml"'},
+        )
     with _connect() as con:
         _ensure_tables(con)
         row = con.execute(
@@ -374,14 +543,18 @@ async def ver_pdf_factura_gas_lp(
     factura_id: int,
     download: bool = Query(False),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
-    with _connect() as con:
-        _ensure_tables(con)
-        row = con.execute("SELECT * FROM facturas WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    row = _sb_get(_SB_FACTURAS, factura_id, scope)
+    if not row:
+        with _connect() as con:
+            _ensure_tables(con)
+            row = con.execute("SELECT * FROM facturas WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
     if not row:
         raise HTTPException(404, "Factura no encontrada.")
-    row = dict(row)
+    row = _rowdict(row)
     sb = get_supabase_admin()
     xml_content = row.get("xml_content") or ""
     if not xml_content:
@@ -416,11 +589,18 @@ async def ver_pdf_factura_gas_lp(
 
 
 @router.get("/facturas-servicio/{factura_id}/xml")
-async def descargar_xml_factura_servicio_legacy(factura_id: int, authorization: str = Header(default="")):
-    uid = _auth(authorization)
-    with _connect() as con:
-        _ensure_tables(con)
-        row = con.execute("SELECT * FROM facturas_servicio WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
+async def descargar_xml_factura_servicio_legacy(
+    factura_id: int,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    row = _sb_get(_SB_FACTURAS_SERVICIO, factura_id, scope)
+    if not row:
+        with _connect() as con:
+            _ensure_tables(con)
+            row = con.execute("SELECT * FROM facturas_servicio WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
     if not row:
         raise HTTPException(404, "Factura de servicio no encontrada.")
     row = dict(row)
@@ -448,11 +628,15 @@ async def ver_pdf_factura_servicio_legacy(
     factura_id: int,
     download: bool = Query(False),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
-    with _connect() as con:
-        _ensure_tables(con)
-        row = con.execute("SELECT * FROM facturas_servicio WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    row = _sb_get(_SB_FACTURAS_SERVICIO, factura_id, scope)
+    if not row:
+        with _connect() as con:
+            _ensure_tables(con)
+            row = con.execute("SELECT * FROM facturas_servicio WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
     if not row:
         raise HTTPException(404, "Factura de servicio no encontrada.")
     row = dict(row)
@@ -493,14 +677,19 @@ async def ver_pdf_factura_servicio_legacy(
 async def cancelar_factura(
     factura_id: int, payload: CancelRequest,
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
     cfg = _cfg()
-    with _connect() as con:
-        _ensure_tables(con)
-        row = con.execute(
-            "SELECT * FROM facturas WHERE id=? AND user_id=?", (factura_id, uid)
-        ).fetchone()
+    row = _sb_get(_SB_FACTURAS, factura_id, scope)
+    source = "supabase" if row else "sqlite"
+    if not row:
+        with _connect() as con:
+            _ensure_tables(con)
+            row = con.execute(
+                "SELECT * FROM facturas WHERE id=? AND user_id=?", (factura_id, uid)
+            ).fetchone()
     if not row:
         raise HTTPException(404, "Factura no encontrada.")
     if row["status"] == "Cancelada":
@@ -508,11 +697,14 @@ async def cancelar_factura(
     rfc_emisor = cfg.get("RfcContribuyente", "")
     resultado  = cancelar_cfdi(payload.uuid_sat, rfc_emisor, payload.motivo)
     if resultado["ok"]:
-        with _connect() as con:
-            con.execute(
-                "UPDATE facturas SET status='Cancelada' WHERE id=? AND user_id=?",
-                (factura_id, uid),
-            )
+        if source == "supabase":
+            _sb_update(_SB_FACTURAS, factura_id, scope, {"status": "Cancelada"})
+        else:
+            with _connect() as con:
+                con.execute(
+                    "UPDATE facturas SET status='Cancelada' WHERE id=? AND user_id=?",
+                    (factura_id, uid),
+                )
     return JSONResponse({"ok": resultado["ok"], "status": resultado["status"], "error": resultado["error"]})
 
 
@@ -521,17 +713,23 @@ async def cancelar_factura(
 @router.post("/facturas/flete")
 async def generar_factura_flete(
     payload: FacturaFleteRequest, authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
     cfg = _cfg()
-    with _connect() as con:
-        _ensure_tables(con)
-        cp = con.execute(
-            "SELECT * FROM facturas WHERE id=? AND user_id=?",
-            (payload.carta_porte_id, uid),
-        ).fetchone()
+    cp = _sb_get(_SB_FACTURAS, payload.carta_porte_id, scope)
+    cp_source = "supabase" if cp else "sqlite"
+    if not cp:
+        with _connect() as con:
+            _ensure_tables(con)
+            cp = con.execute(
+                "SELECT * FROM facturas WHERE id=? AND user_id=?",
+                (payload.carta_porte_id, uid),
+            ).fetchone()
     if not cp:
         raise HTTPException(404, "Carta Porte no encontrada.")
+    cp = _rowdict(cp)
     if cp["status"] != "Vigente":
         raise HTTPException(400, "La Carta Porte no está vigente.")
     emisor = {
@@ -566,6 +764,20 @@ async def generar_factura_flete(
     if resultado["error"]:
         raise HTTPException(400, f"Error en timbrado: {resultado['error']}")
     now = datetime.now(timezone.utc).isoformat()
+    supabase_row = None
+    if scope.get("perfil_id"):
+        supabase_row = _sb_insert(_SB_FACTURAS_SERVICIO, _scope_row(scope, {
+            "carta_porte_id": payload.carta_porte_id if cp_source == "supabase" else None,
+            "carta_porte_legacy_sqlite_id": payload.carta_porte_id if cp_source == "sqlite" else cp.get("legacy_sqlite_id"),
+            "uuid_sat": resultado["uuid"],
+            "xml_content": resultado["xml_timbrado"],
+            "pdf_url": resultado.get("pdf_url") or "",
+            "status": "Vigente",
+            "fecha_timbrado": now,
+            "rfc_receptor": payload.rfc_receptor,
+            "importe_flete": payload.importe_flete,
+            "created_at": now,
+        }))
     with _connect() as con:
         con.execute(
             """INSERT INTO facturas_servicio
@@ -579,6 +791,8 @@ async def generar_factura_flete(
     return JSONResponse({
         "ok": True, "uuid_sat": resultado["uuid"], "pdf_url": resultado["pdf_url"],
         "status": "Vigente", "carta_porte_original": cp["uuid_sat"],
+        "id": supabase_row.get("id") if supabase_row else None,
+        "source": "supabase" if supabase_row else "sqlite",
     })
 
 
@@ -588,8 +802,15 @@ async def generar_factura_flete(
 async def listar_choferes(
     modulo: Optional[str] = Query(None),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    rows_sb = _sb_list(_SB_CHOFERES, scope, active_only=True, order="nombre", desc=False)
+    if modulo:
+        rows_sb = [r for r in rows_sb if (r.get("modulo_propietario") or "") == modulo]
+    if rows_sb:
+        return JSONResponse({"choferes": rows_sb, "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
         if modulo:
@@ -608,8 +829,20 @@ async def listar_choferes(
 async def crear_chofer(
     nombre: str, rfc: str = "", licencia: str = "", telefono: str = "",
     modulo: str = "transporte", authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    supabase_row = None
+    if scope.get("perfil_id"):
+        supabase_row = _sb_insert(_SB_CHOFERES, _scope_row(scope, {
+            "modulo_propietario": modulo,
+            "nombre": nombre,
+            "rfc": rfc,
+            "licencia": licencia,
+            "telefono": telefono,
+            "activo": True,
+        }))
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
@@ -617,15 +850,19 @@ async def crear_chofer(
             (uid, modulo, nombre, rfc, licencia, telefono),
         )
         con.commit()
-    return JSONResponse({"ok": True, "message": "Chofer registrado"})
+    return JSONResponse({"ok": True, "message": "Chofer registrado", "id": supabase_row.get("id") if supabase_row else None, "source": "supabase" if supabase_row else "sqlite"})
 
 
 @router.put("/facturas/choferes/{chofer_id}")
 async def actualizar_chofer(
     chofer_id: int, nombre: str, licencia: str = "", telefono: str = "",
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    if _sb_update(_SB_CHOFERES, chofer_id, scope, {"nombre": nombre, "licencia": licencia, "telefono": telefono}):
+        return JSONResponse({"ok": True, "message": "Chofer actualizado", "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
@@ -637,8 +874,15 @@ async def actualizar_chofer(
 
 
 @router.delete("/facturas/choferes/{chofer_id}")
-async def eliminar_chofer(chofer_id: int, authorization: str = Header(default="")):
-    uid = _auth(authorization)
+async def eliminar_chofer(
+    chofer_id: int,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    if _sb_update(_SB_CHOFERES, chofer_id, scope, {"activo": False}):
+        return JSONResponse({"ok": True, "message": "Chofer eliminado", "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
@@ -654,8 +898,15 @@ async def eliminar_chofer(chofer_id: int, authorization: str = Header(default=""
 async def listar_vehiculos(
     modulo: Optional[str] = Query(None),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    rows_sb = _sb_list(_SB_VEHICULOS, scope, active_only=True, order="placas", desc=False)
+    if modulo:
+        rows_sb = [r for r in rows_sb if (r.get("modulo_propietario") or "") == modulo]
+    if rows_sb:
+        return JSONResponse({"vehiculos": rows_sb, "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
         if modulo:
@@ -675,8 +926,22 @@ async def crear_vehiculo(
     placa: str, anio: int = 2020, config_vehicular: str = "C2",
     aseguradora: str = "", poliza_seguro: str = "", permiso_cre: str = "",
     modulo: str = "transporte", authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    supabase_row = None
+    if scope.get("perfil_id"):
+        supabase_row = _sb_insert(_SB_VEHICULOS, _scope_row(scope, {
+            "modulo_propietario": modulo,
+            "placas": placa.upper(),
+            "anio": anio,
+            "config_vehicular": config_vehicular,
+            "aseguradora": aseguradora,
+            "poliza_seguro": poliza_seguro,
+            "permiso_cre": permiso_cre,
+            "activo": True,
+        }))
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
@@ -684,7 +949,7 @@ async def crear_vehiculo(
             (uid, modulo, placa.upper(), anio, config_vehicular, aseguradora, poliza_seguro, permiso_cre),
         )
         con.commit()
-    return JSONResponse({"ok": True, "message": "Vehículo registrado"})
+    return JSONResponse({"ok": True, "message": "Vehículo registrado", "id": supabase_row.get("id") if supabase_row else None, "source": "supabase" if supabase_row else "sqlite"})
 
 
 @router.put("/facturas/vehiculos/{vehiculo_id}")
@@ -692,8 +957,12 @@ async def actualizar_vehiculo(
     vehiculo_id: int, placa: str, anio_modelo: int = 2020, config_vehicular: str = "C2",
     nombre_asegurador: str = "", poliza_seguro: str = "", permiso_cre: str = "",
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    if _sb_update(_SB_VEHICULOS, vehiculo_id, scope, {"placas": placa.upper(), "anio": anio_modelo, "config_vehicular": config_vehicular, "aseguradora": nombre_asegurador, "poliza_seguro": poliza_seguro, "permiso_cre": permiso_cre}):
+        return JSONResponse({"ok": True, "message": "Vehículo actualizado", "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
@@ -705,8 +974,15 @@ async def actualizar_vehiculo(
 
 
 @router.delete("/facturas/vehiculos/{vehiculo_id}")
-async def eliminar_vehiculo(vehiculo_id: int, authorization: str = Header(default="")):
-    uid = _auth(authorization)
+async def eliminar_vehiculo(
+    vehiculo_id: int,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    if _sb_update(_SB_VEHICULOS, vehiculo_id, scope, {"activo": False}):
+        return JSONResponse({"ok": True, "message": "Vehículo eliminado", "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
@@ -722,8 +998,15 @@ async def eliminar_vehiculo(vehiculo_id: int, authorization: str = Header(defaul
 async def listar_rutas(
     modulo: Optional[str] = Query(None),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    rows_sb = _sb_list(_SB_RUTAS, scope, active_only=True, order="nombre", desc=False)
+    if modulo:
+        rows_sb = [r for r in rows_sb if (r.get("modulo_propietario") or "") == modulo]
+    if rows_sb:
+        return JSONResponse({"rutas": rows_sb, "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
         if modulo:
@@ -742,8 +1025,20 @@ async def listar_rutas(
 async def crear_ruta(
     nombre: str, cp_origen: str = "", cp_destino: str = "", distancia_km: float = 1.0,
     modulo: str = "transporte", authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    supabase_row = None
+    if scope.get("perfil_id"):
+        supabase_row = _sb_insert(_SB_RUTAS, _scope_row(scope, {
+            "modulo_propietario": modulo,
+            "nombre": nombre,
+            "cp_origen": cp_origen,
+            "cp_destino": cp_destino,
+            "distancia_km": distancia_km,
+            "activo": True,
+        }))
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
@@ -751,7 +1046,7 @@ async def crear_ruta(
             (uid, modulo, nombre, cp_origen, cp_destino, distancia_km),
         )
         con.commit()
-    return JSONResponse({"ok": True, "message": "Ruta registrada"})
+    return JSONResponse({"ok": True, "message": "Ruta registrada", "id": supabase_row.get("id") if supabase_row else None, "source": "supabase" if supabase_row else "sqlite"})
 
 
 @router.put("/facturas/rutas/{ruta_id}")
@@ -759,13 +1054,22 @@ async def actualizar_ruta(
     ruta_id: int, nombre: str,
     cp_origen: str = "", cp_destino: str = "", distancia_km: float = 1.0,
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
     """
     CORRECCIÓN: columnas renombradas de 'origen'/'destino' a 'cp_origen'/'cp_destino'
     para coincidir con el DDL de CREATE TABLE en _ensure_tables().
     La versión anterior usaba nombres incorrectos que causaban OperationalError silencioso.
     """
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    if _sb_update(_SB_RUTAS, ruta_id, scope, {
+        "nombre": nombre,
+        "cp_origen": cp_origen,
+        "cp_destino": cp_destino,
+        "distancia_km": distancia_km,
+    }):
+        return JSONResponse({"ok": True, "message": "Ruta actualizada", "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
@@ -777,8 +1081,15 @@ async def actualizar_ruta(
 
 
 @router.delete("/facturas/rutas/{ruta_id}")
-async def eliminar_ruta(ruta_id: int, authorization: str = Header(default="")):
-    uid = _auth(authorization)
+async def eliminar_ruta(
+    ruta_id: int,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    if _sb_update(_SB_RUTAS, ruta_id, scope, {"activo": False}):
+        return JSONResponse({"ok": True, "message": "Ruta eliminada", "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
@@ -794,8 +1105,15 @@ async def eliminar_ruta(ruta_id: int, authorization: str = Header(default="")):
 async def listar_clientes(
     modulo: Optional[str] = Query(None),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    rows_sb = _sb_list(_SB_CLIENTES, scope, active_only=True, order="nombre", desc=False)
+    if modulo:
+        rows_sb = [r for r in rows_sb if (r.get("modulo_propietario") or "") == modulo]
+    if rows_sb:
+        return JSONResponse({"clientes": rows_sb, "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
         if modulo:
@@ -815,8 +1133,21 @@ async def crear_cliente(
     rfc: str, nombre: str, cp: str = "", regimen_fiscal: str = "616",
     uso_cfdi: str = "S01", modulo: str = "gas_lp",
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    supabase_row = None
+    if scope.get("perfil_id"):
+        supabase_row = _sb_insert(_SB_CLIENTES, _scope_row(scope, {
+            "modulo_propietario": modulo,
+            "rfc": rfc.upper(),
+            "nombre": nombre,
+            "cp": cp,
+            "regimen_fiscal": regimen_fiscal,
+            "uso_cfdi": uso_cfdi,
+            "activo": True,
+        }))
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
@@ -824,7 +1155,7 @@ async def crear_cliente(
             (uid, modulo, rfc.upper(), nombre, cp, regimen_fiscal, uso_cfdi),
         )
         con.commit()
-    return JSONResponse({"ok": True, "message": "Cliente registrado"})
+    return JSONResponse({"ok": True, "message": "Cliente registrado", "id": supabase_row.get("id") if supabase_row else None, "source": "supabase" if supabase_row else "sqlite"})
 
 
 @router.put("/facturas/clientes/{cliente_id}")
@@ -832,8 +1163,18 @@ async def actualizar_cliente(
     cliente_id: int, rfc: str, nombre: str, cp: str = "",
     regimen_fiscal: str = "616", uso_cfdi: str = "S01",
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    uid = _auth(authorization)
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    if _sb_update(_SB_CLIENTES, cliente_id, scope, {
+        "rfc": rfc.upper(),
+        "nombre": nombre,
+        "cp": cp,
+        "regimen_fiscal": regimen_fiscal,
+        "uso_cfdi": uso_cfdi,
+    }):
+        return JSONResponse({"ok": True, "message": "Cliente actualizado", "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
@@ -845,8 +1186,15 @@ async def actualizar_cliente(
 
 
 @router.delete("/facturas/clientes/{cliente_id}")
-async def eliminar_cliente(cliente_id: int, authorization: str = Header(default="")):
-    uid = _auth(authorization)
+async def eliminar_cliente(
+    cliente_id: int,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    if _sb_update(_SB_CLIENTES, cliente_id, scope, {"activo": False}):
+        return JSONResponse({"ok": True, "message": "Cliente eliminado", "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
         con.execute(
