@@ -943,11 +943,29 @@ async def list_saas_users(authorization: str = Header(default="")):
     _require_superadmin(authorization)
     auth_users = _auth_users_by_id()
     sections = _sb_admin().table("user_sections").select("*").order("created_at", desc=True).execute().data or []
+    seen_user_ids = set()
     for s in sections:
+        seen_user_ids.add(str(s.get("user_id")))
         auth = auth_users.get(str(s.get("user_id")), {})
         s["email"] = auth.get("email", "")
         s["last_sign_in_at"] = auth.get("last_sign_in_at")
         s["auth_display_name"] = auth.get("display_name", "")
+        s["auth_only"] = False
+    for user_id, auth in auth_users.items():
+        if user_id in seen_user_ids:
+            continue
+        sections.append({
+            "user_id": user_id,
+            "email": auth.get("email", ""),
+            "last_sign_in_at": auth.get("last_sign_in_at"),
+            "auth_display_name": auth.get("display_name", ""),
+            "section": "sin_modulo",
+            "role": "sin_rol",
+            "status": "auth_only",
+            "tenant_id": None,
+            "perfil_id": None,
+            "auth_only": True,
+        })
     return JSONResponse({"ok": True, "users": sections})
 
 
