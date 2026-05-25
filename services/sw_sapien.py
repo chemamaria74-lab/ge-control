@@ -51,11 +51,13 @@ else:
 SW_TOKEN_URL  = f"{BASE_URL}/v2/security/authenticate"
 SW_STAMP_URL  = f"{BASE_URL}/cfdi40/stamp/v1"
 SW_JSON_ISSUE_URL = f"{BASE_URL}/v3/cfdi33/issue/json/v4"
-SW_CANCEL_URL = f"{BASE_URL}/cfdi40/cancel"
+SW_CANCEL_URL = os.environ.get("SW_CANCEL_URL", f"{BASE_URL}/cfdi33/cancel/pfx").strip()
 
 # Credenciales vía variables de entorno
 SW_USER     = os.environ.get("SW_USER", "").strip()
 SW_PASSWORD = os.environ.get("SW_PASSWORD", "").strip()
+SW_CANCEL_PFX_B64 = os.environ.get("SW_CANCEL_PFX_B64", "").strip()
+SW_CANCEL_PFX_PASSWORD = os.environ.get("SW_CANCEL_PFX_PASSWORD", "").strip()
 
 # ── Token cache thread-safe ───────────────────────────────────────────────────
 _token_lock:  threading.Lock = threading.Lock()
@@ -342,22 +344,41 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
 
 # ── Cancelación ───────────────────────────────────────────────────────────────
 
-def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02") -> dict:
+def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02", uuid_sustitucion: str = "", *, module: str = "transporte", user_id: str = "", perfil_id: Optional[int] = None, tenant_id: Optional[str] = None) -> dict:
     """
     Cancela un CFDI en el SAT vía SW Sapien.
     Retorna dict con: ok, status, error.
     """
-    payload = {
-        "uuid":      uuid_sat,
-        "rfcEmisor": rfc_emisor,
-        "motivo":    motivo,
-    }
+    uuid_sat = (uuid_sat or "").strip()
+    rfc_emisor = (rfc_emisor or "").strip().upper()
+    motivo = (motivo or "").strip()
+    uuid_sustitucion = (uuid_sustitucion or "").strip()
+    payload = {"uuid": uuid_sat, "rfc": rfc_emisor, "rfcEmisor": rfc_emisor, "motivo": motivo}
+    if uuid_sustitucion:
+        payload["folioSustitucion"] = uuid_sustitucion
+    if SW_CANCEL_PFX_B64:
+        payload["b64Pfx"] = SW_CANCEL_PFX_B64
+    if SW_CANCEL_PFX_PASSWORD:
+        payload["password"] = SW_CANCEL_PFX_PASSWORD
     audit_request_id = record_pac_request(
-        module="transporte",
+        module=module,
         operation="cancel",
-        request_payload={**payload, "rfcEmisor": _mask_rfc(rfc_emisor)},
+        request_payload={**payload, "rfc": _mask_rfc(rfc_emisor), "password": "***" if payload.get("password") else "", "b64Pfx": "***" if payload.get("b64Pfx") else ""},
+        user_id=user_id,
+        perfil_id=perfil_id,
+        tenant_id=tenant_id,
     )
     try:
+        if not uuid_sat:
+            raise ValueError("No se puede cancelar un CFDI sin UUID SAT.")
+        if not rfc_emisor:
+            raise ValueError("No se puede cancelar: falta RFC emisor.")
+        if motivo not in {"01", "02", "03", "04"}:
+            raise ValueError("Motivo SAT inválido. Usa 01, 02, 03 o 04.")
+        if motivo == "01" and not uuid_sustitucion:
+            raise ValueError("El motivo 01 requiere UUID de sustitución.")
+        if SW_CANCEL_URL.endswith("/pfx") and (not SW_CANCEL_PFX_B64 or not SW_CANCEL_PFX_PASSWORD):
+            raise ValueError("Cancelación SW sandbox no configurada: define SW_CANCEL_PFX_B64 y SW_CANCEL_PFX_PASSWORD en Render ENV.")
         token = _get_token()
         headers = {
             "Authorization": f"Bearer {token}",
@@ -368,24 +389,30 @@ def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02") -> dict:
         data = resp.json()
 
         ok = data.get("status") == "success"
+        acuse = _extract_cancel_ack(data)
         result = {
             "ok":     ok,
             "status": "Cancelada" if ok else "Error",
             "error":  None if ok else (data.get("message") or "Error desconocido"),
+            "acuse": acuse,
+            "pac_request_id": audit_request_id,
+            "pac_response_id": None,
+            "raw": data,
         }
-        record_pac_response(
+        pac_response_id = record_pac_response(
             request_id=audit_request_id,
             response_payload=data,
             uuid_sat=uuid_sat,
-            acuse_cancelacion=json.dumps(data, ensure_ascii=False, default=str) if ok else "",
+            acuse_cancelacion=acuse if ok else "",
             status="ok" if ok else "error",
             error_message=result["error"] or "",
         )
+        result["pac_response_id"] = pac_response_id
         return result
     except Exception as e:
         logger.error("cancelar_cfdi error: %s", e)
         record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=str(e))
-        return {"ok": False, "status": "Error", "error": str(e)}
+        return {"ok": False, "status": "Error", "error": str(e), "acuse": "", "pac_request_id": audit_request_id, "pac_response_id": None}
 
 
 def _hash_text(value: str) -> str:
@@ -399,3 +426,12 @@ def _mask_rfc(value: str) -> str:
     if len(raw) <= 6:
         return "***"
     return f"{raw[:3]}***{raw[-3:]}"
+
+
+def _extract_cancel_ack(data: dict) -> str:
+    nested = data.get("data") if isinstance(data.get("data"), dict) else {}
+    for key in ("acuse", "acuseXml", "acuse_xml", "xml", "AcuseXml", "AcuseXmlBase64"):
+        value = nested.get(key) or data.get(key)
+        if value:
+            return str(value)
+    return json.dumps(data, ensure_ascii=False, default=str)
