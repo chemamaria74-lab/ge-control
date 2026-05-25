@@ -22,4 +22,12 @@ create unique index if not exists idx_invoice_cancellations_uuid_active
   on public.invoice_cancellations(uuid_sat)
   where status in ('pending', 'sent', 'ok', 'cancelled');
 
+drop index if exists public.idx_internal_users_tenant_section_code;
+alter table if exists public.internal_users
+  drop constraint if exists internal_users_tenant_id_code_key;
+
+create unique index if not exists idx_internal_users_profile_section_code
+  on public.internal_users(tenant_id, perfil_id, section, code)
+  where tenant_id is not null and perfil_id is not null and status <> 'inactive';
+
 commit;
