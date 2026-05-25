@@ -19,7 +19,7 @@
     <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
     <div class="grid">
       {% for label, desc in roles %}
-      <a class="card" href="{% if modulo == 'transporte' and label == 'Operador' %}/transporte/operador{% else %}/login/{{ modulo|replace('_','-') }}?intent={{ label|lower|replace(' ', '_') }}{% if lang %}&lang={{ lang }}{% endif %}{% endif %}">
+      <a class="card" href="{% if modulo == 'transporte' and label == 'Operador' %}/transporte/operador{% elif modulo == 'gas_lp' and label == 'Asistente de facturación' %}/gas-lp/asistente{% if lang %}?lang={{ lang }}{% endif %}{% else %}/login/{{ modulo|replace('_','-') }}?intent={{ label|lower|replace(' ', '_') }}{% if lang %}&lang={{ lang }}{% endif %}{% endif %}">
         <h1>{{ label }}</h1>
         <p>{{ desc }}</p>
       </a>
