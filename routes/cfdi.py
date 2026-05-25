@@ -99,7 +99,7 @@ def _alerta_capacidad_msg(cap_limit: float, raw: float, capped: float) -> str:
 @router.post(
     "/upload/cfdi",
     response_model=UploadResponse,
-    summary="Procesar uno o varios CFDI XML/ZIP → SAT Anexo 30",
+    summary="Procesar uno o varios CFDI XML/ZIP → SAT Controles Volumétricos",
 )
 async def upload_cfdi(
     files:                 List[UploadFile] = File(...),
@@ -335,8 +335,8 @@ async def _upload_cfdi_impl(
         f"(entradas={conteo_compras}, salidas={conteo_ventas})"
     )
 
-    # ── PASO 2: Construir reporte SAT Anexo 30 ────────────────────────────────
-    todos_logs.append("=== PASO 2: Generación SAT Anexo 30 ===")
+    # ── PASO 2: Construir reporte SAT Controles Volumétricos ─────────────────
+    todos_logs.append("=== PASO 2: Generación SAT Controles Volumétricos ===")
     init_db()
 
     # ── Inyectar autoconsumos guardados en Supabase ───────────────────────────
@@ -476,7 +476,7 @@ async def _upload_cfdi_impl(
                 f"Inventario calculado={balance['inventario_calculado_l']:,.2f} L, "
                 f"Inventario medido={balance['inventario_medido_l']:,.2f} L, "
                 f"Diferencia={balance['diferencia_l']:+,.2f} L ({balance['variacion_pct']:.4f}%). "
-                f"Registrado en BitácoraMensual conforme Anexo 30."
+                f"Registrado en BitácoraMensual conforme a controles volumétricos SAT."
             )
 
         vcm = sat_meta.get("vcm", {})
