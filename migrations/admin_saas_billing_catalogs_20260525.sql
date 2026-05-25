@@ -18,4 +18,8 @@ alter table public.saas_billing_invoices
 create index if not exists idx_saas_billing_invoices_cancel_status
   on public.saas_billing_invoices(status, canceled_at desc);
 
+create unique index if not exists idx_invoice_cancellations_uuid_active
+  on public.invoice_cancellations(uuid_sat)
+  where status in ('pending', 'sent', 'ok', 'cancelled');
+
 commit;
