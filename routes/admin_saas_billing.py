@@ -3,11 +3,11 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from routes.admin_saas import _require_superadmin
 from services.fiscal_pdf import (
@@ -45,6 +45,14 @@ class SaaSBillingSettingsPayload(BaseModel):
     fiscal_regimen: str = "626"
     default_concept: str = "Servicio de uso/licencia plataforma GE Control"
     default_price: float = 0
+    frequent_customers: list[dict[str, Any]] = Field(default_factory=list)
+    default_concepts: list[dict[str, Any]] = Field(default_factory=list)
+    fiscal_configs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SaaSBillingCancelPayload(BaseModel):
+    motivo: str
+    uuid_sustitucion: Optional[str] = ""
 
 
 def _money(value) -> Decimal:
@@ -56,13 +64,18 @@ def _money_str(value) -> str:
 
 
 def _billing_settings() -> dict:
+    default_concept = os.getenv("GE_CONTROL_BILLING_DEFAULT_CONCEPT", "Servicio de uso/licencia plataforma GE Control").strip()
+    default_price = float(os.getenv("GE_CONTROL_BILLING_DEFAULT_PRICE", "0") or 0)
     settings = {
         "rfc": os.getenv("GE_CONTROL_BILLING_RFC", "").strip().upper(),
         "fiscal_name": os.getenv("GE_CONTROL_BILLING_NAME", "").strip(),
         "fiscal_cp": os.getenv("GE_CONTROL_BILLING_CP", "").strip(),
         "fiscal_regimen": os.getenv("GE_CONTROL_BILLING_REGIMEN", "626").strip(),
-        "default_concept": os.getenv("GE_CONTROL_BILLING_DEFAULT_CONCEPT", "Servicio de uso/licencia plataforma GE Control").strip(),
-        "default_price": float(os.getenv("GE_CONTROL_BILLING_DEFAULT_PRICE", "0") or 0),
+        "default_concept": default_concept,
+        "default_price": default_price,
+        "frequent_customers": [],
+        "default_concepts": [{"name": default_concept, "description": default_concept, "price": default_price, "iva_rate": 0.16}],
+        "fiscal_configs": [{"name": "RESICO SaaS default", "uso_cfdi": "G03", "metodo_pago": "PPD", "forma_pago": "99", "iva_rate": 0.16, "retencion_isr_rate": 0, "retencion_iva_rate": 0}],
         "source": "env",
     }
     try:
@@ -76,6 +89,9 @@ def _billing_settings() -> dict:
                 "fiscal_regimen": (row.get("fiscal_regimen") or settings["fiscal_regimen"] or "626").strip(),
                 "default_concept": (row.get("default_concept") or settings["default_concept"]).strip(),
                 "default_price": float(row.get("default_price") or settings["default_price"] or 0),
+                "frequent_customers": row.get("frequent_customers") or settings["frequent_customers"],
+                "default_concepts": row.get("default_concepts") or settings["default_concepts"],
+                "fiscal_configs": row.get("fiscal_configs") or settings["fiscal_configs"],
                 "source": "database",
             })
     except Exception:
@@ -199,6 +215,9 @@ async def save_saas_billing_settings(payload: SaaSBillingSettingsPayload, author
         "fiscal_regimen": payload.fiscal_regimen.strip() or "626",
         "default_concept": payload.default_concept.strip() or "Servicio de uso/licencia plataforma GE Control",
         "default_price": _money_str(payload.default_price),
+        "frequent_customers": payload.frequent_customers[:200],
+        "default_concepts": payload.default_concepts[:200],
+        "fiscal_configs": payload.fiscal_configs[:50],
         "updated_by": uid,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -318,3 +337,35 @@ async def superadmin_billing_invoice_pdf(
     audit_fiscal_pdf_event(sb, user_id=uid, module="admin_saas", entity_type="resico_saas_invoice", entity_id=invoice_id, uuid_sat=row.get("uuid_sat") or "", action="pdf_download_internal" if download else "pdf_generated_internal", metadata=storage)
     disposition = "attachment" if download else "inline"
     return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'})
+
+
+@router.post("/admin-saas/billing/invoices/{invoice_id}/cancel")
+async def cancel_saas_billing_invoice(
+    invoice_id: int,
+    payload: SaaSBillingCancelPayload,
+    authorization: str = Header(default=""),
+):
+    uid, _email, _token = _require_superadmin(authorization)
+    motivo = (payload.motivo or "").strip()
+    if not motivo:
+        raise HTTPException(400, "Selecciona un motivo de cancelación SAT.")
+    sb = get_supabase_admin()
+    rows = sb.table("saas_billing_invoices").select("*").eq("id", invoice_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Factura SaaS no encontrada.")
+    invoice = rows[0]
+    status = invoice.get("status")
+    if status == "cancelada":
+        return JSONResponse({"ok": True, "invoice": invoice, "message": "La factura ya estaba cancelada."})
+    if status == "timbrada":
+        raise HTTPException(409, "La cancelación de facturas timbradas requiere integración PAC/SW sandbox validada. No se marcó como cancelada.")
+    update = {
+        "status": "cancelada",
+        "cancel_reason": motivo,
+        "cancel_substitution_uuid": (payload.uuid_sustitucion or "").strip() or None,
+        "canceled_at": datetime.now(timezone.utc).isoformat(),
+        "canceled_by": uid,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    updated = sb.table("saas_billing_invoices").update(update).eq("id", invoice_id).execute().data or []
+    return JSONResponse({"ok": True, "invoice": updated[0] if updated else {**invoice, **update}})
