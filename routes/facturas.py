@@ -1,4 +1,4 @@
-# routes/facturas.py — v2.1
+# routes/facturas.py — v2.2
 #
 # CORRECCIONES vs versión anterior:
 #
@@ -15,10 +15,10 @@
 #      de choferes, vehiculos, rutas y clientes. Esto es ineficiente y propenso
 #      a divergencias. Ahora el DDL está centralizado en _ensure_tables().
 #
-# 3. ADVERTENCIA DE DATOS EFÍMEROS EN RENDER:
-#    - El storage/data.db en Render Free Plan es efímero (se borra en cada deploy).
-#      Se añade un WARNING en los logs al arrancar si se detecta entorno Render.
-#      Se recomienda migrar facturas a Supabase a largo plazo.
+# 3. SQLITE LEGACY READONLY:
+#    - storage/data.db queda como histórico temporal apagado por defecto.
+#      Para consultar documentos legacy durante backfill usar:
+#      GAS_LP_SQLITE_READONLY=true.
 #
 # 4. SQL INJECTION PREVENTION — VERIFICADO:
 #    - Todos los queries usan parámetros posicionales (?, ?,  ...) — no hay
@@ -44,7 +44,8 @@ from services.fiscal_pdf import (
     generar_pdf_ingreso_desde_xml,
     save_fiscal_artifacts,
 )
-from services.sw_sapien import build_carta_porte_xml, cancelar_cfdi, timbrar_cfdi
+from services.cfdi_cancellation import cancel_cfdi_universal
+from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
 from supabase_config import get_supabase_admin
 
 logger = logging.getLogger(__name__)
@@ -59,13 +60,13 @@ _SB_CHOFERES = "gas_lp_choferes"
 _SB_VEHICULOS = "gas_lp_vehiculos"
 _SB_RUTAS = "gas_lp_rutas"
 _SB_CLIENTES = "gas_lp_clientes_facturacion"
+_TRUE_VALUES = {"1", "true", "yes", "on", "si", "sí"}
+GAS_LP_SQLITE_READONLY = (os.environ.get("GAS_LP_SQLITE_READONLY") or "").strip().lower() in _TRUE_VALUES
 
-# Advertencia de datos efímeros en Render
-if os.environ.get("RENDER") or os.environ.get("IS_PULL_REQUEST"):
+if GAS_LP_SQLITE_READONLY:
     logger.warning(
-        "ADVERTENCIA: El archivo SQLite storage/data.db se almacena en disco efímero "
-        "de Render. Los datos de facturas/choferes/vehículos/rutas se BORRAN en cada "
-        "deploy. Migra estas tablas a Supabase para persistencia real en producción."
+        "Gas LP SQLite legacy READONLY está habilitado. Usar solo para backfill/consulta "
+        "temporal; producción debe operar contra Supabase gas_lp_*."
     )
 
 
@@ -118,6 +119,18 @@ def _scope(authorization: str, x_perfil_id: str = "") -> dict:
 def _require_supabase_scope(scope: dict) -> None:
     if not scope.get("perfil_id"):
         raise HTTPException(400, "Selecciona una empresa/perfil activo antes de guardar datos de Gas LP.")
+
+
+def _legacy_sqlite_enabled() -> bool:
+    return GAS_LP_SQLITE_READONLY
+
+
+def _legacy_not_found(entity: str) -> HTTPException:
+    return HTTPException(
+        404,
+        f"{entity} no existe en Supabase para la empresa seleccionada. "
+        "Si es histórico legacy, corre el backfill o habilita GAS_LP_SQLITE_READONLY temporalmente.",
+    )
 
 
 def _scope_row(scope: dict, extra: Optional[dict] = None) -> dict:
@@ -179,12 +192,15 @@ def _sb_update(table: str, row_id: int, scope: dict, values: dict) -> bool:
     if not scope.get("perfil_id"):
         return False
     try:
-        (
-            _sb_query(table, scope)
-            .eq("id", row_id)
+        q = (
+            get_supabase_admin()
+            .table(table)
             .update({**values, "updated_at": datetime.now(timezone.utc).isoformat()})
-            .execute()
+            .eq("user_id", scope["user_id"])
+            .eq("perfil_id", scope["perfil_id"])
+            .eq("id", row_id)
         )
+        q.execute()
         return True
     except Exception as exc:
         logger.warning("Supabase update %s id=%s falló: %s", table, row_id, exc)
@@ -348,6 +364,7 @@ class CartaPorteRequest(BaseModel):
 class CancelRequest(BaseModel):
     uuid_sat: str
     motivo:   str = "02"
+    uuid_sustitucion: str = ""
 
 
 class FacturaFleteRequest(BaseModel):
@@ -505,8 +522,9 @@ async def listar_facturas(
             rows = [r for r in rows if str(r.get("fecha_timbrado") or "").startswith(periodo)]
         if facility_id is not None:
             rows = [r for r in rows if str(r.get("facility_id") or "") == str(facility_id)]
-        if rows:
-            return JSONResponse({"facturas": rows, "source": "supabase"})
+        return JSONResponse({"facturas": rows, "source": "supabase"})
+    if not _legacy_sqlite_enabled():
+        return JSONResponse({"facturas": [], "source": "supabase", "warning": "Selecciona una empresa/perfil activo."})
     clauses = ["user_id=?"]
     params: list = [uid]
     if periodo:
@@ -539,6 +557,8 @@ async def descargar_xml(
             media_type="application/xml",
             headers={"Content-Disposition": f'attachment; filename="factura_{row_sb.get("uuid_sat") or factura_id}.xml"'},
         )
+    if not _legacy_sqlite_enabled():
+        raise _legacy_not_found("Factura")
     with _connect() as con:
         _ensure_tables(con)
         row = con.execute(
@@ -563,12 +583,12 @@ async def ver_pdf_factura_gas_lp(
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     row = _sb_get(_SB_FACTURAS, factura_id, scope)
-    if not row:
+    if not row and _legacy_sqlite_enabled():
         with _connect() as con:
             _ensure_tables(con)
             row = con.execute("SELECT * FROM facturas WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
     if not row:
-        raise HTTPException(404, "Factura no encontrada.")
+        raise _legacy_not_found("Factura")
     row = _rowdict(row)
     sb = get_supabase_admin()
     xml_content = row.get("xml_content") or ""
@@ -612,12 +632,12 @@ async def descargar_xml_factura_servicio_legacy(
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     row = _sb_get(_SB_FACTURAS_SERVICIO, factura_id, scope)
-    if not row:
+    if not row and _legacy_sqlite_enabled():
         with _connect() as con:
             _ensure_tables(con)
             row = con.execute("SELECT * FROM facturas_servicio WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
     if not row:
-        raise HTTPException(404, "Factura de servicio no encontrada.")
+        raise _legacy_not_found("Factura de servicio")
     row = dict(row)
     if not row.get("xml_content"):
         raise HTTPException(404, "Factura de servicio sin XML timbrado.")
@@ -648,12 +668,12 @@ async def ver_pdf_factura_servicio_legacy(
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     row = _sb_get(_SB_FACTURAS_SERVICIO, factura_id, scope)
-    if not row:
+    if not row and _legacy_sqlite_enabled():
         with _connect() as con:
             _ensure_tables(con)
             row = con.execute("SELECT * FROM facturas_servicio WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
     if not row:
-        raise HTTPException(404, "Factura de servicio no encontrada.")
+        raise _legacy_not_found("Factura de servicio")
     row = dict(row)
     sb = get_supabase_admin()
     xml_content = row.get("xml_content") or ""
@@ -688,6 +708,40 @@ async def ver_pdf_factura_servicio_legacy(
     )
 
 
+@router.post("/facturas-servicio/{factura_id}/cancelar")
+async def cancelar_factura_servicio_gas_lp(
+    factura_id: int,
+    payload: CancelRequest,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    uid = scope["user_id"]
+    _require_supabase_scope(scope)
+    row = _sb_get(_SB_FACTURAS_SERVICIO, factura_id, scope)
+    if not row:
+        raise _legacy_not_found("Factura de servicio")
+    if row.get("status") == "Cancelada":
+        raise HTTPException(400, "Esta factura de servicio ya está cancelada.")
+    cfg = _cfg()
+    resultado = cancel_cfdi_universal(
+        sb=get_supabase_admin(),
+        module="gas_lp",
+        invoice_table=_SB_FACTURAS_SERVICIO,
+        invoice_id=factura_id,
+        uuid_sat=row.get("uuid_sat") or payload.uuid_sat,
+        rfc_emisor=cfg.get("RfcContribuyente", ""),
+        motivo=payload.motivo,
+        uuid_sustitucion=payload.uuid_sustitucion,
+        user_id=uid,
+        perfil_id=scope.get("perfil_id"),
+        tenant_id=scope.get("tenant_id"),
+        requested_by=uid,
+    )
+    _sb_update(_SB_FACTURAS_SERVICIO, factura_id, scope, {"status": "Cancelada"})
+    return JSONResponse({"ok": True, "status": resultado["status"], "error": None})
+
+
 @router.post("/facturas/{factura_id}/cancelar")
 async def cancelar_factura(
     factura_id: int, payload: CancelRequest,
@@ -700,23 +754,35 @@ async def cancelar_factura(
     cfg = _cfg()
     row = _sb_get(_SB_FACTURAS, factura_id, scope)
     source = "supabase" if row else "sqlite"
-    if not row:
+    if not row and _legacy_sqlite_enabled():
         with _connect() as con:
             _ensure_tables(con)
             row = con.execute(
                 "SELECT * FROM facturas WHERE id=? AND user_id=?", (factura_id, uid)
             ).fetchone()
     if not row:
-        raise HTTPException(404, "Factura no encontrada.")
+        raise _legacy_not_found("Factura")
     if source == "sqlite":
         raise HTTPException(409, "Esta factura legacy debe migrarse a Supabase antes de cancelarse.")
     if row["status"] == "Cancelada":
         raise HTTPException(400, "Esta factura ya está cancelada.")
     rfc_emisor = cfg.get("RfcContribuyente", "")
-    resultado  = cancelar_cfdi(payload.uuid_sat, rfc_emisor, payload.motivo)
-    if resultado["ok"]:
-        _sb_update(_SB_FACTURAS, factura_id, scope, {"status": "Cancelada"})
-    return JSONResponse({"ok": resultado["ok"], "status": resultado["status"], "error": resultado["error"]})
+    resultado = cancel_cfdi_universal(
+        sb=get_supabase_admin(),
+        module="gas_lp",
+        invoice_table=_SB_FACTURAS,
+        invoice_id=factura_id,
+        uuid_sat=row.get("uuid_sat") or payload.uuid_sat,
+        rfc_emisor=rfc_emisor,
+        motivo=payload.motivo,
+        uuid_sustitucion=payload.uuid_sustitucion,
+        user_id=uid,
+        perfil_id=scope.get("perfil_id"),
+        tenant_id=scope.get("tenant_id"),
+        requested_by=uid,
+    )
+    _sb_update(_SB_FACTURAS, factura_id, scope, {"status": "Cancelada"})
+    return JSONResponse({"ok": True, "status": resultado["status"], "error": None})
 
 
 # ── Factura de Flete ──────────────────────────────────────────────────────────
@@ -731,7 +797,7 @@ async def generar_factura_flete(
     cfg = _cfg()
     cp = _sb_get(_SB_FACTURAS, payload.carta_porte_id, scope)
     cp_source = "supabase" if cp else "sqlite"
-    if not cp:
+    if not cp and _legacy_sqlite_enabled():
         with _connect() as con:
             _ensure_tables(con)
             cp = con.execute(
@@ -739,7 +805,7 @@ async def generar_factura_flete(
                 (payload.carta_porte_id, uid),
             ).fetchone()
     if not cp:
-        raise HTTPException(404, "Carta Porte no encontrada.")
+        raise _legacy_not_found("Carta Porte")
     cp = _rowdict(cp)
     if cp["status"] != "Vigente":
         raise HTTPException(400, "La Carta Porte no está vigente.")
@@ -812,7 +878,7 @@ async def listar_choferes(
     rows_sb = _sb_list(_SB_CHOFERES, scope, active_only=True, order="nombre", desc=False)
     if modulo:
         rows_sb = [r for r in rows_sb if (r.get("modulo_propietario") or "") == modulo]
-    if rows_sb:
+    if rows_sb or not _legacy_sqlite_enabled():
         return JSONResponse({"choferes": rows_sb, "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
@@ -891,7 +957,7 @@ async def listar_vehiculos(
     rows_sb = _sb_list(_SB_VEHICULOS, scope, active_only=True, order="placas", desc=False)
     if modulo:
         rows_sb = [r for r in rows_sb if (r.get("modulo_propietario") or "") == modulo]
-    if rows_sb:
+    if rows_sb or not _legacy_sqlite_enabled():
         return JSONResponse({"vehiculos": rows_sb, "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
@@ -974,7 +1040,7 @@ async def listar_rutas(
     rows_sb = _sb_list(_SB_RUTAS, scope, active_only=True, order="nombre", desc=False)
     if modulo:
         rows_sb = [r for r in rows_sb if (r.get("modulo_propietario") or "") == modulo]
-    if rows_sb:
+    if rows_sb or not _legacy_sqlite_enabled():
         return JSONResponse({"rutas": rows_sb, "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)
@@ -1064,7 +1130,7 @@ async def listar_clientes(
     rows_sb = _sb_list(_SB_CLIENTES, scope, active_only=True, order="nombre", desc=False)
     if modulo:
         rows_sb = [r for r in rows_sb if (r.get("modulo_propietario") or "") == modulo]
-    if rows_sb:
+    if rows_sb or not _legacy_sqlite_enabled():
         return JSONResponse({"clientes": rows_sb, "source": "supabase"})
     with _connect() as con:
         _ensure_tables(con)

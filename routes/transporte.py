@@ -52,6 +52,7 @@ from typing import Optional
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel
 
 from routes.auth import obtener_acceso_modulo, verify_token
 from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user
@@ -70,6 +71,7 @@ from services.fiscal_pdf import (
     save_fiscal_artifacts,
 )
 from services.carta_porte_validation import requiere_complemento_hidrocarburos, validar_xml_carta_porte_transporte
+from services.cfdi_cancellation import cancel_cfdi_universal
 from services.sat_xml_extractor import extraer_factura_timbrada_sat
 from models.transport_schemas import (
     ViajeCreate, TimbradoViajeRequest, CancelacionViajeRequest,
@@ -77,7 +79,7 @@ from models.transport_schemas import (
     GenerarCovolRequest, ChoferTransporteCreate, VehiculoTransporteCreate,
     RutaTransporteCreate, ClienteTransporteCreate,
 )
-from services.sw_sapien import timbrar_cfdi, cancelar_cfdi, emitir_timbrar_json
+from services.sw_sapien import timbrar_cfdi, emitir_timbrar_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -127,6 +129,11 @@ _RFC_PRUEBAS_SAT = {
         "regimen_fiscal": "601",
     },
 }
+
+
+class CancelacionFacturaServicioRequest(BaseModel):
+    motivo: str = "02"
+    uuid_sustitucion: str = ""
 
 
 # ── Helpers de autenticación ──────────────────────────────────────────────────
@@ -1281,18 +1288,29 @@ async def cancelar_viaje(
     settings   = _settings_transporte(uid, token)
     rfc_emisor = settings.get("RfcContribuyente", "")
 
-    resultado = cancelar_cfdi(cfdi_row["uuid_sat"], rfc_emisor, payload.motivo)
-    if resultado["ok"]:
-        try:
-            sb.table(_TBL_CFDI).update({"status": "Cancelada"}).eq("id", cfdi_row["id"]).execute()
-            sb.table(_TBL_VIAJES).update({"status": "cancelado"}).eq("id", viaje_id).execute()
-            _registrar_evento(
-                sb, uid, cfdi_row.get("perfil_id"), viaje_id, "carta_porte_cancelada",
-                "CFDI/Carta Porte cancelado", f"Motivo SAT {payload.motivo}.",
-                "oficina", uid, {"uuid_sat": cfdi_row.get("uuid_sat"), "motivo": payload.motivo},
-            )
-        except Exception as e:
-            logger.error("Error al actualizar status cancelación: %s", e)
+    resultado = cancel_cfdi_universal(
+        sb=get_supabase_admin(),
+        module="transporte",
+        invoice_table=_TBL_CFDI,
+        invoice_id=cfdi_row["id"],
+        uuid_sat=cfdi_row.get("uuid_sat") or "",
+        rfc_emisor=rfc_emisor,
+        motivo=payload.motivo,
+        uuid_sustitucion=payload.uuid_sustitucion,
+        user_id=uid,
+        perfil_id=cfdi_row.get("perfil_id"),
+        requested_by=uid,
+    )
+    try:
+        sb.table(_TBL_CFDI).update({"status": "Cancelada"}).eq("id", cfdi_row["id"]).execute()
+        sb.table(_TBL_VIAJES).update({"status": "cancelado"}).eq("id", viaje_id).execute()
+        _registrar_evento(
+            sb, uid, cfdi_row.get("perfil_id"), viaje_id, "carta_porte_cancelada",
+            "CFDI/Carta Porte cancelado", f"Motivo SAT {payload.motivo}.",
+            "oficina", uid, {"uuid_sat": cfdi_row.get("uuid_sat"), "motivo": payload.motivo},
+        )
+    except Exception as e:
+        logger.error("Error al actualizar status cancelación: %s", e)
 
     return JSONResponse({
         "ok":     resultado["ok"],
@@ -1415,6 +1433,44 @@ async def descargar_xml_factura_servicio_transporte(
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="{info.filename.replace(".pdf", ".xml")}"'},
     )
+
+
+@router.post("/tr/facturas-servicio/{factura_id}/cancelar")
+async def cancelar_factura_servicio_transporte(
+    factura_id: int,
+    payload: CancelacionFacturaServicioRequest,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _perfil(perfil_id, x_perfil_id)
+    sb = _sb(token)
+    q = sb.table(_TBL_FACT_SERV).select("*").eq("id", factura_id).eq("user_id", uid).limit(1)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    rows = q.execute().data or []
+    if not rows:
+        raise HTTPException(404, "Factura de servicio no encontrada.")
+    row = rows[0]
+    if row.get("status") in {"Cancelada", "cancelada"}:
+        raise HTTPException(400, "Esta factura de servicio ya está cancelada.")
+    settings = _settings_transporte(uid, token, row.get("perfil_id") or pid)
+    resultado = cancel_cfdi_universal(
+        sb=get_supabase_admin(),
+        module="transporte",
+        invoice_table=_TBL_FACT_SERV,
+        invoice_id=factura_id,
+        uuid_sat=row.get("uuid_sat") or "",
+        rfc_emisor=settings.get("RfcContribuyente", ""),
+        motivo=payload.motivo,
+        uuid_sustitucion=payload.uuid_sustitucion,
+        user_id=uid,
+        perfil_id=row.get("perfil_id") or pid,
+        requested_by=uid,
+    )
+    sb.table(_TBL_FACT_SERV).update({"status": "Cancelada"}).eq("id", factura_id).eq("user_id", uid).execute()
+    return JSONResponse({"ok": True, "status": resultado["status"], "error": None})
 
 
 @router.get("/tr/dashboard")

@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from routes.admin_saas import _require_superadmin
+from services.cfdi_cancellation import cancel_cfdi_universal
 from services.fiscal_pdf import (
     audit_fiscal_pdf_event,
     fiscal_pdf_info,
@@ -358,7 +359,30 @@ async def cancel_saas_billing_invoice(
     if status == "cancelada":
         return JSONResponse({"ok": True, "invoice": invoice, "message": "La factura ya estaba cancelada."})
     if status == "timbrada":
-        raise HTTPException(409, "La cancelación de facturas timbradas requiere integración PAC/SW sandbox validada. No se marcó como cancelada.")
+        issuer = _issuer()
+        resultado = cancel_cfdi_universal(
+            sb=sb,
+            module="admin_saas",
+            invoice_table="saas_billing_invoices",
+            invoice_id=invoice_id,
+            uuid_sat=invoice.get("uuid_sat") or "",
+            rfc_emisor=issuer["rfc"],
+            motivo=motivo,
+            uuid_sustitucion=payload.uuid_sustitucion or "",
+            tenant_id=invoice.get("tenant_id"),
+            requested_by=uid,
+        )
+        update = {
+            "status": "cancelada",
+            "cancel_reason": motivo,
+            "cancel_substitution_uuid": (payload.uuid_sustitucion or "").strip() or None,
+            "cancel_ack": resultado.get("acuse") or "",
+            "canceled_at": datetime.now(timezone.utc).isoformat(),
+            "canceled_by": uid,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        updated = sb.table("saas_billing_invoices").update(update).eq("id", invoice_id).execute().data or []
+        return JSONResponse({"ok": True, "invoice": updated[0] if updated else {**invoice, **update}})
     update = {
         "status": "cancelada",
         "cancel_reason": motivo,
