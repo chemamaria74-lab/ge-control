@@ -85,7 +85,7 @@ def check_operator_scope() -> CheckResult:
     token = os.getenv("GE_OPERATOR_TOKEN")
     if not token:
         return CheckResult("operator scope", "SKIP", "Set GE_OPERATOR_TOKEN from an internal operator session.")
-    status, data = _request("/api/transporte/operador/viajes", query={"token": token})
+    status, data = _request("/api/tr/operador/viajes", query={"token": token})
     if status >= 400:
         return CheckResult("operator scope", "FAIL", f"HTTP {status}: {data}")
     viajes = data.get("viajes") if isinstance(data, dict) else None
@@ -98,7 +98,7 @@ def check_gaslp_internal_scope() -> CheckResult:
     token = os.getenv("GE_GASLP_INTERNAL_TOKEN")
     if not token:
         return CheckResult("Gas LP assistant scope", "SKIP", "Set GE_GASLP_INTERNAL_TOKEN from assistant login.")
-    status, data = _request("/internal-auth/gas-lp/detected-loads", query={"token": token})
+    status, data = _request("/api/internal-auth/gas-lp/detected-loads", query={"token": token})
     if status >= 400:
         return CheckResult("Gas LP assistant scope", "FAIL", f"HTTP {status}: {data}")
     loads = data.get("loads") if isinstance(data, dict) else None
