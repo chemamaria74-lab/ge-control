@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import sqlite3
+from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -192,6 +193,12 @@ def _sb_update(table: str, row_id: int, scope: dict, values: dict) -> bool:
 
 def _rowdict(row) -> dict:
     return dict(row) if row is not None else {}
+
+
+def _json_scalar(value):
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
 
 
 def _iso_or_none(value) -> Optional[str]:
@@ -443,33 +450,44 @@ async def listar_entregas(
     month:         int           = Query(...),
     facility_id:   Optional[int] = Query(None),
     authorization: str           = Header(default=""),
+    x_perfil_id:   str           = Header(default=""),
 ):
-    uid     = _auth(authorization)
+    try:
+        scope = _scope(authorization, x_perfil_id)
+        uid = scope["user_id"]
+        _require_supabase_scope(scope)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("listar_entregas scope inválido: %s", exc)
+        raise HTTPException(400, "Selecciona una empresa/perfil activo antes de consultar entregas.") from exc
     periodo = f"{year}-{month:02d}"
-    clauses = ["user_id=?", "tipo=?", "periodo=?"]
-    params: list = [uid, "salida", periodo]
-    if facility_id is not None:
-        clauses.append("facility_id=?")
-        params.append(facility_id)
-    where = " AND ".join(clauses)
-    with _connect() as con:
-        _ensure_tables(con)
-        rows = con.execute(
-            f"""SELECT id, fecha, volumen_litros, rfc_contraparte,
-                       nombre_contraparte, importe, uuid
-                FROM records WHERE {where} ORDER BY fecha DESC""",
-            params,
-        ).fetchall()
+    try:
+        q = (
+            get_supabase_admin()
+            .table("records")
+            .select("id,fecha,volumen_litros,rfc_contraparte,nombre_contraparte,importe,uuid")
+            .eq("user_id", uid)
+            .eq("perfil_id", scope["perfil_id"])
+            .eq("tipo", "salida")
+            .eq("periodo", periodo)
+        )
+        if facility_id is not None:
+            q = q.eq("facility_id", facility_id)
+        rows = q.order("fecha", desc=True).execute().data or []
+    except Exception as exc:
+        logger.warning("listar_entregas Supabase falló: user=%s perfil=%s periodo=%s err=%s", uid, scope.get("perfil_id"), periodo, exc)
+        return JSONResponse({"entregas": [], "source": "supabase", "warning": "No se encontraron entregas para el periodo seleccionado."})
     return JSONResponse({"entregas": [
         {
-            "id": r["id"], "fecha": r["fecha"],
-            "volumen_litros": r["volumen_litros"],
-            "rfc_cliente": r["rfc_contraparte"],
-            "nombre_cliente": r["nombre_contraparte"],
-            "importe": r["importe"], "uuid": r["uuid"] or "",
+            "id": r.get("id"), "fecha": r.get("fecha"),
+            "volumen_litros": _json_scalar(r.get("volumen_litros")),
+            "rfc_cliente": r.get("rfc_contraparte"),
+            "nombre_cliente": r.get("nombre_contraparte"),
+            "importe": _json_scalar(r.get("importe")), "uuid": r.get("uuid") or "",
         }
         for r in rows
-    ]})
+    ], "source": "supabase"})
 
 
 @router.get("/facturas")
