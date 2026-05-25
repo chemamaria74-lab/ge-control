@@ -1,0 +1,26 @@
+{
+  "note": "Staging example only. Review with Grupo Emurcia before applying to production.",
+  "owner_user_email": "admon@grupoemurcia.com.mx",
+  "owner_user_id": "2883a5c0-1e8c-416f-a13a-6dc525825374",
+  "profiles": {
+    "3": "AURE GAS",
+    "4": "DISTRIBUIDORA DE GAS DEL CAÑON",
+    "5": "ALFA GAS",
+    "7": "GAS LUX"
+  },
+  "permit_to_perfil": {
+    "LP/14341/DIST/PLA/2016": 3,
+    "LP/17068/EXP/ES/2016": 3,
+    "LP/14442/DIST/PLA/2016": 5,
+    "LP/24457/EXP/ES/2022": 5,
+    "LP/15123/EXP/ES/2016": 5,
+    "LP/14163/DIST/PLA/2016": 7,
+    "LP/15094/EXP/ES/2016": 7,
+    "LP/23570/EXP/ES/2020": 7,
+    "LP/23569/EXP/ES/2020": 7,
+    "LP/14313/DIST/PLA/2016": 4,
+    "LP/15996/EXP/ES/2016": 4,
+    "LP/16201/EXP/ES/2016": 4,
+    "LP/16255/EXP/ES/2016": 4
+  }
+}
