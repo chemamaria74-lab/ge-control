@@ -7,19 +7,21 @@
   <link rel="icon" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <style>
-    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;grid-template-rows:1fr auto;place-items:center;background:linear-gradient(135deg,#5B0F1D,#111);font-family:var(--ge-font);padding:22px;color:#111;overflow-x:hidden}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;grid-template-rows:1fr auto;place-items:center;background:linear-gradient(135deg,#5B0F1D 0%,#111 100%);font-family:var(--ge-font);padding:22px;color:#111;overflow-x:hidden}
     .card{width:min(420px,100%);background:#fff;border:1px solid rgba(200,169,107,.28);border-radius:10px;padding:28px;box-shadow:0 24px 70px rgba(0,0,0,.3)}
-    img{width:220px;display:block;margin:0 auto 20px}h1{font-size:22px;margin:0 0 4px;text-align:center}.sub{text-align:center;color:#6F6A64;margin-bottom:22px}
-    label{display:block;font-size:12px;font-weight:800;color:#6F6A64;margin:0 0 6px}input{width:100%;border:1px solid #d8d0c4;border-radius:8px;padding:13px 14px;font:inherit}input.code{text-transform:uppercase}
-    .field{margin-bottom:14px}.btn{width:100%;border:0;border-radius:8px;background:#7A1E2C;color:#fff;padding:13px;font:inherit;font-weight:800;cursor:pointer}.err{color:#b91c1c;font-size:13px;min-height:18px;margin:12px 0;text-align:center}.back{text-align:center;margin-top:16px}.back a{color:#5B0F1D;text-decoration:none;font-weight:800}
+    .logo{width:190px;max-width:78%;height:auto;display:block;margin:0 auto 20px}
+    h1{font-size:22px;margin:0 0 4px;text-align:center;letter-spacing:0;color:#111}.sub{text-align:center;color:#6F6A64;margin-bottom:22px;line-height:1.4}
+    label{display:block;font-size:12px;font-weight:800;color:#6F6A64;margin:0 0 6px}input{width:100%;border:1px solid #d8d0c4;border-radius:8px;padding:13px 14px;font:inherit;background:#fff;color:#111;outline:none}input:focus{border-color:#7A1E2C;box-shadow:0 0 0 3px rgba(122,30,44,.12)}input.code{text-transform:uppercase}
+    .field{margin-bottom:14px}.btn{width:100%;border:0;border-radius:8px;background:#7A1E2C;color:#fff;padding:13px;font:inherit;font-weight:800;cursor:pointer;box-shadow:0 14px 26px rgba(122,30,44,.2)}.btn:hover{background:#5B0F1D}.err{color:#b91c1c;font-size:13px;min-height:18px;margin:12px 0;text-align:center;font-weight:700}.back{text-align:center;margin-top:16px}.back a{color:#5B0F1D;text-decoration:none;font-weight:800}
     .ge-legal-footer{grid-row:2;width:min(760px,calc(100vw - 44px));margin:14px auto 0;color:rgba(255,255,255,.72)}
     .ge-legal-footer strong{color:rgba(255,255,255,.9)}.ge-legal-links a{color:#E1C482}
-    @media(max-width:640px){body{padding:18px 14px}.card{padding:24px 18px}.ge-legal-footer{width:100%;font-size:10.5px}}
+    @media(max-width:640px){body{padding:18px 14px}.card{padding:24px 18px}.logo{width:168px}.ge-legal-footer{width:100%;font-size:10.5px}}
   </style>
 </head>
 <body>
   <main class="card">
-    <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
+    <img class="logo" src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
     <h1>Asistente Gas LP</h1>
     <div class="sub">Acceso con usuario y contraseña</div>
     <form id="loginForm">

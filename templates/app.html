@@ -110,6 +110,13 @@ header i{color:#f8fafc}
 .empresa-mini-btn:hover{border-color:#0f766e;color:#0f766e;background:#f0fdfa}
 .empresa-mini-btn.danger{border-color:#fecaca;color:#dc2626;background:#fff}
 .empresa-mini-btn.danger:hover{background:#fef2f2;border-color:#fca5a5}
+.empresa-table-wrap{max-width:100%;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px}
+.empresa-table{width:100%;table-layout:fixed;margin-bottom:0}
+.empresa-table th,.empresa-table td{vertical-align:middle}
+.empresa-col-name{width:38%}.empresa-col-rfc{width:18%}.empresa-col-desc{width:24%}.empresa-col-actions{width:20%}
+.empresa-name-cell,.empresa-desc-cell{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.empresa-actions-cell{display:flex;gap:.25rem;justify-content:flex-end;align-items:center;flex-wrap:nowrap}
+.empresa-actions-cell button,.empresa-actions-cell span{white-space:nowrap}
 .empresa-nueva-btn{width:100%;padding:.7rem;border:2px dashed #cbd5e1;border-radius:10px;background:transparent;color:#64748b;font-size:.84rem;cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:.5rem}
 .empresa-nueva-btn:hover{border-color:#0f766e;color:#0f766e;background:#f0fdfa}
 /* ── Multi-empresa: selector en navbar ─────────────────────────────────── */
@@ -357,6 +364,7 @@ td{padding:.45rem .7rem;border-bottom:1px solid #f1f5f9;color:#1a1a2e}
 tr:hover td{background:#f8fafc}
 .hist-empty{font-size:.82rem;color:#94a3b8;text-align:center;padding:1.5rem}
 .tab-title{font-size:.82rem;font-weight:600;color:#475569;margin:.8rem 0 .4rem}
+@media(max-width:820px){.empresa-col-desc{display:none}.empresa-col-name{width:42%}.empresa-col-rfc{width:24%}.empresa-col-actions{width:34%}.empresa-actions-cell{justify-content:flex-start;flex-wrap:wrap}.empresa-name-cell{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
 </style>
 
 <script>
@@ -1813,14 +1821,14 @@ tr:hover td{background:#f8fafc}
   <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem;line-height:1.5">
     Cada razón social tiene su propia configuración SAT, instalaciones y proveedores. Cambia entre ellas con el selector en la barra superior.
   </div>
-  <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px">
-    <table id="tblPerfiles" style="margin-bottom:0">
+  <div class="empresa-table-wrap">
+    <table id="tblPerfiles" class="empresa-table">
       <thead>
         <tr>
-          <th><span data-en="Name">Nombre</span></th>
-          <th>RFC</th>
-          <th><span data-en="Description">Descripción</span></th>
-          <th style="width:120px;text-align:center"><span data-en="Actions">Acciones</span></th>
+          <th class="empresa-col-name"><span data-en="Name">Nombre</span></th>
+          <th class="empresa-col-rfc">RFC</th>
+          <th class="empresa-col-desc"><span data-en="Description">Descripción</span></th>
+          <th class="empresa-col-actions"><span data-en="Actions">Acciones</span></th>
         </tr>
       </thead>
       <tbody id="tbodyPerfiles">
@@ -2186,8 +2194,8 @@ tr:hover td{background:#f8fafc}
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
     <div>
       <h2 style="margin:0"><i class="fa-solid fa-users-gear" style="margin-right:.35rem"></i>Usuarios y permisos</h2>
-      <div style="font-size:.78rem;color:#64748b;margin-top:.3rem;line-height:1.45">
-        Crea asistentes internos por empresa: facturación, operación, planta o solo lectura. No son usuarios globales del SaaS.
+      <div id="gasInternalScopeHint" style="font-size:.78rem;color:#64748b;margin-top:.3rem;line-height:1.45">
+        Crea asistentes internos solo para la empresa activa. No son usuarios globales del SaaS.
       </div>
     </div>
     <button onclick="loadInternalUsersGasLp()" style="
@@ -2205,8 +2213,8 @@ tr:hover td{background:#f8fafc}
       </select>
       <div style="font-size:.68rem;color:#64748b;margin-top:.25rem">Facturación: factura y carga XML. Operativo: apoya operación. Planta: captura de planta. Solo lectura: consulta.</div>
     </div>
-    <div class="field"><label>Código</label><input id="gasInternalCode" type="text" placeholder="Auto" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
-    <div class="field"><label>PIN temporal</label><input id="gasInternalPin" type="text" placeholder="Auto"></div>
+    <div class="field"><label>Usuario</label><input id="gasInternalCode" type="text" placeholder="Ej. MARTHA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
+    <div class="field"><label>Contraseña</label><input id="gasInternalPin" type="text" placeholder="Ej. MARTHA"></div>
   </div>
   <div style="display:flex;align-items:center;gap:.8rem;margin-top:.8rem;flex-wrap:wrap">
     <button onclick="createInternalUserGasLp()" style="
@@ -2940,6 +2948,8 @@ function actualizarSwitcherEmpresa(perfil) {
   const nameEl   = document.getElementById('empresaSwitcherName');
   if (switcher) switcher.style.display = 'flex';
   if (nameEl)   nameEl.textContent = perfil.nombre || '—';
+  const scopeHint = document.getElementById('gasInternalScopeHint');
+  if (scopeHint) scopeHint.innerHTML = `Asistentes internos de <b>${perfil.nombre || 'empresa activa'}</b>. Solo podrán entrar a este perfil Gas LP.`;
 }
 
 // ── resetAppState: limpia TODA la UI y recarga desde el perfil activo ─────────
@@ -3104,11 +3114,11 @@ async function cargarPanelPerfiles() {
     const isActivo = _perfilSeleccionado && _perfilSeleccionado.id === p.id;
     return `<tr>
       <td style="font-weight:${isActivo?'700':'400'};color:${isActivo?'#0f766e':'inherit'}">
-        ${p.nombre}${isActivo?' <span style="font-size:.68rem;background:#0f766e;color:#fff;border-radius:99px;padding:.1rem .5rem">Activo</span>':''}
+        <span class="empresa-name-cell" title="${(p.nombre||'').replace(/"/g,'&quot;')}">${p.nombre}</span>${isActivo?' <span style="font-size:.68rem;background:#0f766e;color:#fff;border-radius:99px;padding:.1rem .5rem">Activo</span>':''}
       </td>
       <td><code style="font-size:.8rem">${p.rfc||'—'}</code></td>
-      <td style="color:#64748b;font-size:.8rem">${p.descripcion||'—'}</td>
-      <td style="text-align:center;display:flex;gap:.3rem;justify-content:center;flex-wrap:wrap">
+      <td class="empresa-col-desc" style="color:#64748b;font-size:.8rem"><span class="empresa-desc-cell" title="${(p.descripcion||'').replace(/"/g,'&quot;')}">${p.descripcion||'—'}</span></td>
+      <td><div class="empresa-actions-cell">
         ${!isActivo ? `<button onclick="seleccionarEmpresaById(${p.id})"
           style="padding:.34rem .7rem;font-size:.75rem;background:#eff6ff;color:#1e40af;border:1px solid #93c5fd;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:700">
           <i class="fa-solid fa-right-to-bracket" style="margin-right:.25rem"></i>Usar</button>` : '<span class="empresa-item-badge">Activo</span>'}
@@ -3118,7 +3128,7 @@ async function cargarPanelPerfiles() {
         ${perfiles.length > 1 ? `<button onclick="eliminarPerfil(${p.id})"
           style="padding:.34rem .55rem;font-size:.75rem;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:700">
           <i class="fa-solid fa-ban" style="margin-right:.25rem"></i>Desactivar</button>` : `<button disabled title="No puedes desactivar la única razón social activa" style="padding:.34rem .55rem;font-size:.75rem;background:#f8fafc;color:#94a3b8;border:1px solid #e2e8f0;border-radius:6px;font-family:inherit;font-weight:700;cursor:not-allowed">Desactivar</button>`}
-      </td>
+      </div></td>
     </tr>`;
   }).join('');
 }
@@ -5258,10 +5268,10 @@ async function createInternalUserGasLp() {
     code: document.getElementById('gasInternalCode').value.trim(),
     pin: document.getElementById('gasInternalPin').value.trim(),
   };
-  if (!payload.display_name || !payload.perfil_id) {
+  if (!payload.display_name || !payload.perfil_id || !payload.code || !payload.pin) {
     if (statusEl) {
       statusEl.style.color = '#dc2626';
-      statusEl.textContent = 'Nombre y empresa activa son obligatorios.';
+      statusEl.textContent = 'Nombre, usuario, contraseña y empresa activa son obligatorios.';
     }
     return;
   }
