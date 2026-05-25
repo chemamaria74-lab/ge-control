@@ -59,7 +59,7 @@ class SubscriptionPayload(BaseModel):
 
 class CreateUserPayload(BaseModel):
     email: str
-    password: str
+    password: Optional[str] = ""
     display_name: Optional[str] = ""
     tenant_id: Optional[str] = None
     section: str = "gas_lp"
@@ -319,6 +319,45 @@ def _resolve_user_identifier(identifier: str) -> str:
         if (user.get("email") or "").lower() == email:
             return uid
     raise HTTPException(404, f"No encontré usuario Auth con email {email}.")
+
+
+def _auth_user_by_email(email: str) -> tuple[str | None, dict]:
+    target = (email or "").strip().lower()
+    if not target:
+        return None, {}
+    for uid, user in _auth_users_by_id().items():
+        if (user.get("email") or "").lower() == target:
+            return uid, user
+    return None, {}
+
+
+def _is_internal_admin_tenant(snapshot: dict, tenant_id: str) -> bool:
+    tenant = next((t for t in snapshot["tenants"] if str(t.get("id")) == str(tenant_id)), {})
+    tenant_text = " ".join(
+        [
+            str(tenant.get("name") or ""),
+            str(tenant.get("display_name") or ""),
+            *[
+                str(p.get("nombre") or "")
+                for p in snapshot["profiles"]
+                if str(p.get("tenant_id")) == str(tenant_id)
+            ],
+        ]
+    ).lower()
+    has_superadmin = any(
+        (snapshot["auth_users"].get(str(s.get("user_id")), {}).get("email") or "").lower() == "superadmin@gmail.com"
+        for s in snapshot["sections"]
+        if str(s.get("tenant_id")) == str(tenant_id)
+    )
+    has_real_client_user = any(
+        (snapshot["auth_users"].get(str(s.get("user_id")), {}).get("email") or "").lower()
+        and (snapshot["auth_users"].get(str(s.get("user_id")), {}).get("email") or "").lower() != "superadmin@gmail.com"
+        for s in snapshot["sections"]
+        if str(s.get("tenant_id")) == str(tenant_id)
+    )
+    has_subscription = any(str(s.get("tenant_id")) == str(tenant_id) for s in snapshot["subscriptions"])
+    looks_internal = "empresa principal" in tenant_text or "superadmin" in tenant_text or "ge control" in tenant_text
+    return bool(has_superadmin and looks_internal and not has_real_client_user and not has_subscription)
 
 
 def _count_rows(sb, table: str, column: str, value: str) -> int:
@@ -589,6 +628,8 @@ def _tenant_license_rows(snapshot: dict) -> list[dict]:
     rows = []
     for tenant in snapshot["tenants"]:
         tenant_id = str(tenant.get("id"))
+        if _is_internal_admin_tenant(snapshot, tenant_id):
+            continue
         sub = next((s for s in snapshot["subscriptions"] if str(s.get("tenant_id")) == tenant_id and (s.get("status") or "active") == "active"), None)
         if not sub:
             sub = next((s for s in snapshot["subscriptions"] if str(s.get("tenant_id")) == tenant_id), None)
@@ -806,7 +847,11 @@ async def users_health(authorization: str = Header(default="")):
 async def list_tenants(authorization: str = Header(default="")):
     _require_superadmin(authorization)
     snapshot = _load_admin_snapshot()
-    tenants = sorted(snapshot["tenants"], key=lambda t: str(t.get("created_at") or ""), reverse=True)
+    tenants = sorted(
+        [t for t in snapshot["tenants"] if not _is_internal_admin_tenant(snapshot, str(t.get("id")))],
+        key=lambda t: str(t.get("created_at") or ""),
+        reverse=True,
+    )
     subs = snapshot["subscriptions"]
     profiles = snapshot["profiles"]
     sections = snapshot["sections"]
@@ -974,14 +1019,21 @@ async def create_saas_user(payload: CreateUserPayload, authorization: str = Head
     uid, _, _ = _require_superadmin(authorization)
     if payload.section not in SECTIONS or payload.role not in ROLES:
         raise HTTPException(400, "Sección o rol inválido.")
-    resp = _sb_admin().auth.admin.create_user({
-        "email": str(payload.email),
-        "password": payload.password,
-        "email_confirm": True,
-        "user_metadata": {"display_name": payload.display_name or str(payload.email)},
-    })
-    user = getattr(resp, "user", resp)
-    target_uid = getattr(user, "id", None) or (user.get("id") if isinstance(user, dict) else None)
+    email = str(payload.email or "").strip().lower()
+    target_uid, existing_auth = _auth_user_by_email(email)
+    created_auth = False
+    if not target_uid:
+        if not (payload.password or "").strip():
+            raise HTTPException(400, "Password inicial requerido para usuarios nuevos. Si el usuario ya existe, verifica el email.")
+        resp = _sb_admin().auth.admin.create_user({
+            "email": email,
+            "password": payload.password,
+            "email_confirm": True,
+            "user_metadata": {"display_name": payload.display_name or email},
+        })
+        user = getattr(resp, "user", resp)
+        target_uid = getattr(user, "id", None) or (user.get("id") if isinstance(user, dict) else None)
+        created_auth = True
     if not target_uid:
         raise HTTPException(500, "Supabase no devolvió user_id.")
     section = {
@@ -989,13 +1041,13 @@ async def create_saas_user(payload: CreateUserPayload, authorization: str = Head
         "section": payload.section,
         "role": payload.role,
         "status": "active",
-        "display_name": payload.display_name or str(payload.email),
+        "display_name": payload.display_name or existing_auth.get("display_name") or email,
         "tenant_id": payload.tenant_id,
         "perfil_id": payload.perfil_id,
     }
     _sb_admin().table("user_sections").upsert(section, on_conflict="user_id,section").execute()
-    _audit(uid, "create_user", "user", str(target_uid), {"email": str(payload.email), "section": section})
-    return JSONResponse({"ok": True, "user_id": target_uid})
+    _audit(uid, "create_or_extend_user", "user", str(target_uid), {"email": email, "section": section, "created_auth": created_auth})
+    return JSONResponse({"ok": True, "user_id": target_uid, "created_auth": created_auth, "extended_existing": not created_auth})
 
 
 @router.put("/admin-saas/user-sections")
