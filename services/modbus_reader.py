@@ -289,7 +289,7 @@ def obtener_delta_periodo(
 ) -> float:
     """
     Calcula el volumen neto entregado en un periodo usando solo lecturas válidas.
-    Útil para conciliar totalizador vs. CFDIs en el Anexo 30.
+    Útil para conciliar totalizador vs. CFDIs en controles volumétricos.
 
     desde / hasta : ISO 8601, ej. "2026-04-01T00:00:00+00:00"
     Retorna: float litros netos en el período

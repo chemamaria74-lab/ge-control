@@ -306,7 +306,7 @@ def build_sat_report(
     permiso_alm_lookup_fn: Optional[Callable[[str, Optional[str]], str]] = None,
 ) -> tuple[dict, dict]:
     """
-    Construye el diccionario SAT Anexo 30 conforme a la Guía SAT Mayo 2023.
+    Construye el diccionario SAT de controles volumétricos para el reporte mensual.
 
     Parámetros nuevos en v3.5:
         permiso_lookup_fn: callable(rfc, user_id) -> str con el permiso del proveedor.
@@ -654,7 +654,7 @@ def build_sat_report(
                     f"Diferencia={signo}{diferencia:,.2f} L ({variacion_pct*100:.4f}%). "
                     f"Tolerancia medidor: {TOLERANCIA_DINAMICA:,.2f} L "
                     f"(incertidumbre {_incert*100:.2f}%). "
-                    f"Ajuste justificado incluido en el reporte conforme Anexo 30."
+                    f"Ajuste justificado incluido en el reporte mensual de controles volumétricos SAT."
                 ),
             }); n += 1
             vol_existencias = round(min(inventario_final_medido, cap_limit), 2)

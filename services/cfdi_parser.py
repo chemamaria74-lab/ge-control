@@ -4,6 +4,7 @@ import zipfile
 import io
 import re
 import logging
+from datetime import datetime
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -105,13 +106,13 @@ def parse_zip(
     if cnt_nomina or cnt_traslado or cnt_pago or cnt_carta or cnt_trasvase_excl:
         partes = []
         if cnt_nomina:
-            partes.append(f"📋 {cnt_nomina} nómina(s) — no aplican al Anexo 30")
+            partes.append(f"📋 {cnt_nomina} nómina(s) — no aplican a controles volumétricos")
         if cnt_traslado:
-            partes.append(f"🚚 {cnt_traslado} traslado(s) — no aplican al Anexo 30")
+            partes.append(f"🚚 {cnt_traslado} traslado(s) — no aplican a controles volumétricos")
         if cnt_pago:
-            partes.append(f"💳 {cnt_pago} complemento(s) de pago — no aplican al Anexo 30")
+            partes.append(f"💳 {cnt_pago} complemento(s) de pago — no aplican a controles volumétricos")
         if cnt_carta:
-            partes.append(f"📦 {cnt_carta} carta(s) porte — no aplican al Anexo 30")
+            partes.append(f"📦 {cnt_carta} carta(s) porte — no aplican a controles volumétricos")
         if cnt_trasvase_excl:
             partes.append(
                 f"🏭 {cnt_trasvase_excl} factura(s) empresa→empresa >5,000 L — "
@@ -175,22 +176,22 @@ def _parse_xml_con_filtro(
     # ── Filtros por tipo de comprobante ────────────────────────────────────────
     if tipo_comprobante == "N":
         filtro["nomina"] += 1
-        logs.append(f"[{source}] Nómina — excluida del Anexo 30.")
+        logs.append(f"[{source}] Nómina — excluida de controles volumétricos.")
         return movimientos, errores, logs, filtro
     if tipo_comprobante == "T":
         filtro["traslado"] += 1
-        logs.append(f"[{source}] Traslado — excluido del Anexo 30.")
+        logs.append(f"[{source}] Traslado — excluido de controles volumétricos.")
         return movimientos, errores, logs, filtro
     if tipo_comprobante == "P":
         filtro["pago"] += 1
-        logs.append(f"[{source}] Complemento de pago — excluido del Anexo 30.")
+        logs.append(f"[{source}] Complemento de pago — excluido de controles volumétricos.")
         return movimientos, errores, logs, filtro
 
     # ── Filtro Carta Porte ────────────────────────────────────────────────────
     for elem in root.iter():
         if (NS_CARTA_20 in elem.tag or NS_CARTA_31 in elem.tag) and "CartaPorte" in elem.tag:
             filtro["carta_porte"] += 1
-            logs.append(f"[{source}] Carta Porte — excluida del Anexo 30.")
+            logs.append(f"[{source}] Carta Porte — excluida de controles volumétricos.")
             return movimientos, errores, logs, filtro
 
     if tipo_comprobante not in ("I", "E", ""):
@@ -199,6 +200,13 @@ def _parse_xml_con_filtro(
 
     fecha_raw   = root.get("Fecha", "") or root.get("fecha", "")
     fecha       = fecha_raw[:10] if fecha_raw else ""
+    if fecha_raw:
+        fecha_validar = fecha_raw.replace("Z", "+00:00")
+        try:
+            datetime.fromisoformat(fecha_validar)
+        except ValueError:
+            errores.append(f"[{source}] Fecha CFDI inválida: {fecha_raw}.")
+            return movimientos, errores, logs, filtro
     emisor_node   = root.find(t("Emisor"))
     receptor_node = root.find(t("Receptor"))
 
@@ -303,6 +311,7 @@ def _parse_xml_con_filtro(
             "fecha":             fecha,
             "fecha_hora":        fecha_hora,       # ← sin prefijo "_"
             "uuid":              uuid,             # ← sin prefijo "_"
+            "_uuid":             uuid,             # compatibilidad legacy/QA
             "rfc_contraparte":   rfc_cp,           # ← sin prefijo "_"
             "rfc_cp":            rfc_cp,
             "nombre_contraparte": nombre_cp,       # ← sin prefijo "_"

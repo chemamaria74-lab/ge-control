@@ -1,5 +1,5 @@
 # services/transformer.py
-# Construye el objeto Anexo30JSON desde el DataFrame ya validado (Gas LP).
+# Construye el objeto legacy Anexo30JSON desde el DataFrame ya validado (Gas LP).
 
 import pandas as pd
 import logging
@@ -18,7 +18,7 @@ def transform(
     alertas_previas: List[str] = None,
 ) -> Tuple[object, List[str], List[str]]:
     """
-    Transforma el DataFrame validado en el objeto JSON del Anexo 30.
+    Transforma el DataFrame validado en el objeto JSON legacy de controles volumétricos.
     Usa Decimal para precisión fiscal.
     """
     errores: List[str] = []
@@ -83,7 +83,7 @@ def transform(
             alertas           = alertas,
         )
 
-        logs.append("JSON Anexo 30 generado exitosamente con Decimal.")
+        logs.append("JSON de controles volumétricos generado exitosamente con Decimal.")
         return resultado, errores, logs
 
     except Exception as e:

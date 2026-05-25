@@ -49,9 +49,14 @@ else:
     logger.info("SW Sapien: entorno TEST (%s) — CFDIs NO son fiscalmente válidos", BASE_URL)
 
 SW_TOKEN_URL  = f"{BASE_URL}/v2/security/authenticate"
-SW_STAMP_URL  = f"{BASE_URL}/cfdi40/stamp/v1"
-SW_JSON_ISSUE_URL = f"{BASE_URL}/v3/cfdi33/issue/json/v4"
+# SW documenta rutas /cfdi33 por compatibilidad, aunque aceptan CFDI vigente 4.0.
+# issue = XML/JSON sin Sello, Certificado y NoCertificado; SW sella con el CSD cargado.
+# stamp = XML ya sellado por GE Control; SW solo timbra.
+SW_XML_ISSUE_URL = os.environ.get("SW_XML_ISSUE_URL", f"{BASE_URL}/cfdi33/issue/json/v4/b64").strip()
+SW_XML_STAMP_URL = os.environ.get("SW_XML_STAMP_URL", f"{BASE_URL}/cfdi33/stamp/v4").strip()
+SW_JSON_ISSUE_URL = os.environ.get("SW_JSON_ISSUE_URL", f"{BASE_URL}/v3/cfdi33/issue/json/v4").strip()
 SW_CANCEL_URL = os.environ.get("SW_CANCEL_URL", f"{BASE_URL}/cfdi33/cancel/pfx").strip()
+SW_CANCEL_STATUS_URL = os.environ.get("SW_CANCEL_STATUS_URL", f"{BASE_URL}/cfdi33/cancel/pfx/status").strip()
 
 # Credenciales vía variables de entorno
 SW_USER     = os.environ.get("SW_USER", "").strip()
@@ -231,23 +236,31 @@ def build_carta_porte_xml(
 
 def timbrar_cfdi(xml_str: str) -> dict:
     """
-    Envía el XML a SW Sapien para timbrado.
+    Envía el XML a SW Sapien.
+
+    Si el CFDI viene sin Sello/Certificado/NoCertificado usa Emisión Timbrado
+    documentado por SW. Si ya viene sellado usa Timbrado multipart/form-data.
     Retorna dict con: uuid, xml_timbrado, pdf_url, error.
     """
+    issue_mode = _xml_needs_issue(xml_str)
     audit_request_id = record_pac_request(
         module="transporte",
-        operation="stamp_xml",
-        request_payload={"xml_hash": _hash_text(xml_str), "format": "xml"},
+        operation="issue_xml" if issue_mode else "stamp_xml",
+        request_payload={"xml_hash": _hash_text(xml_str), "format": "xml", "mode": "issue" if issue_mode else "stamp"},
     )
     try:
         token = _get_token()
-        xml_b64 = base64.b64encode(xml_str.encode("utf-8")).decode("utf-8")
-        payload = {"xml": xml_b64}
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type":  "application/json",
-        }
-        resp = requests.post(SW_STAMP_URL, json=payload, headers=headers, timeout=30)
+        if issue_mode:
+            xml_b64 = base64.b64encode(xml_str.encode("utf-8")).decode("utf-8")
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            }
+            resp = requests.post(SW_XML_ISSUE_URL, json={"data": xml_b64}, headers=headers, timeout=45)
+        else:
+            headers = {"Authorization": f"Bearer {token}"}
+            files = {"xml": ("cfdi.xml", xml_str.encode("utf-8"), "text/xml")}
+            resp = requests.post(SW_XML_STAMP_URL, files=files, headers=headers, timeout=45)
         resp.raise_for_status()
         data = resp.json()
 
@@ -342,6 +355,22 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def _xml_needs_issue(xml_str: str) -> bool:
+    """
+    SW separa issue/stamp así:
+    - issue: Sello, Certificado y NoCertificado vacíos; SW los genera con CSD cargado.
+    - stamp: XML previamente sellado por GE Control.
+    """
+    import re
+
+    raw = xml_str or ""
+    def empty_attr(name: str) -> bool:
+        m = re.search(rf'\b{name}\s*=\s*["\']([^"\']*)["\']', raw)
+        return (m is None) or (m.group(1).strip() == "")
+
+    return empty_attr("Sello") or empty_attr("Certificado") or empty_attr("NoCertificado")
+
+
 # ── Cancelación ───────────────────────────────────────────────────────────────
 
 def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02", uuid_sustitucion: str = "", *, module: str = "transporte", user_id: str = "", perfil_id: Optional[int] = None, tenant_id: Optional[str] = None) -> dict:
@@ -411,8 +440,8 @@ def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02", uuid_susti
         return result
     except Exception as e:
         logger.error("cancelar_cfdi error: %s", e)
-        record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=str(e))
-        return {"ok": False, "status": "Error", "error": str(e), "acuse": "", "pac_request_id": audit_request_id, "pac_response_id": None}
+        pac_response_id = record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=str(e))
+        return {"ok": False, "status": "Error", "error": str(e), "acuse": "", "pac_request_id": audit_request_id, "pac_response_id": pac_response_id}
 
 
 def _hash_text(value: str) -> str:
