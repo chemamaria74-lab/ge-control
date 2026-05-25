@@ -2789,8 +2789,12 @@ async function eliminarViaje(id) {
 }
 
 async function cancelarViaje(id) {
-  if (!confirm(`¿Cancelar el CFDI del viaje #${id}? Esta acción no se puede deshacer.`)) return;
-  const r = await api('POST', `/api/tr/viajes/${id}/cancelar`, { viaje_id: id, motivo: '03' });
+  const motivo = prompt('Motivo SAT de cancelación (01, 02, 03 o 04)', '03');
+  if (!motivo) return;
+  let uuid_sustitucion = '';
+  if (motivo === '01') uuid_sustitucion = prompt('UUID de sustitución', '') || '';
+  if (!confirm(`¿Cancelar el CFDI del viaje #${id}? Esta acción solo se guardará si SW confirma.`)) return;
+  const r = await api('POST', `/api/tr/viajes/${id}/cancelar`, { viaje_id: id, motivo, uuid_sustitucion });
   if (r?.ok) { toast('CFDI cancelado', 'success'); cargarViajes(); cargarFacturas(); }
 }
 
@@ -3191,6 +3195,7 @@ function renderFacturas() {
         ${actionBtn('ghost','Descargar XML',`descargarXML(${f.id})`, `${icon('download')} XML`)}
         ${f.status==='Vigente' ? actionBtn('ghost','Ver Carta Porte PDF',`verPDFCartaPorte(${f.id})`, `${icon('file-pdf')} Ver PDF`) : `<button class="btn btn-ghost" title="PDF bloqueado: XML no válido como Carta Porte" disabled style="opacity:.55">${icon('file-pdf')} PDF bloqueado</button>`}
         ${f.status==='Vigente' ? actionBtn('ghost','Descargar Carta Porte PDF',`descargarPDFCartaPorte(${f.id})`, `${icon('download')} PDF`) : ''}
+        ${f.status==='Vigente' ? actionBtn('danger','Cancelar CFDI',`cancelarViaje(${f.viaje_id})`, `${icon('xmark')} Cancelar`) : ''}
         </div>
       </td>
     </tr>`).join('');
@@ -3222,9 +3227,20 @@ function renderFacturasServicio() {
         ${actionBtn('ghost','Descargar XML factura servicio',`descargarXMLFacturaServicio(${f.id})`, `${icon('download')} XML`)}
         ${actionBtn('ghost','Ver PDF factura servicio',`verPDFFacturaServicio(${f.id})`, `${icon('file-pdf')} Ver PDF`)}
         ${actionBtn('ghost','Descargar PDF factura servicio',`descargarPDFFacturaServicio(${f.id})`, `${icon('download')} PDF`)}
+        ${String(f.status || '').toLowerCase() !== 'cancelada' ? actionBtn('danger','Cancelar factura servicio',`cancelarFacturaServicio(${f.id})`, `${icon('xmark')} Cancelar`) : ''}
       </div></td>
     </tr>`;
   }).join('');
+}
+
+async function cancelarFacturaServicio(id) {
+  const motivo = prompt('Motivo SAT de cancelación (01, 02, 03 o 04)', '02');
+  if (!motivo) return;
+  let uuid_sustitucion = '';
+  if (motivo === '01') uuid_sustitucion = prompt('UUID de sustitución', '') || '';
+  if (!confirm(`¿Cancelar la factura de servicio #${id}? Solo se actualizará si SW confirma.`)) return;
+  const r = await api('POST', `/api/tr/facturas-servicio/${id}/cancelar`, { motivo, uuid_sustitucion });
+  if (r?.ok) { toast('Factura de servicio cancelada', 'success'); cargarFacturas(); }
 }
 
 async function descargarXML(id) {

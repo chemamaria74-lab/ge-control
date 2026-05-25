@@ -105,6 +105,11 @@ header i{color:#f8fafc}
 .empresa-item-nombre{font-size:.92rem;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empresa-item-rfc{font-size:.75rem;color:#64748b;font-family:monospace}
 .empresa-item-badge{background:#0f766e;color:#fff;border-radius:999px;font-size:.68rem;font-weight:700;padding:.2rem .6rem;white-space:nowrap}
+.empresa-item-actions{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;justify-content:flex-end}
+.empresa-mini-btn{border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:7px;padding:.32rem .58rem;font-size:.74rem;font-weight:700;cursor:pointer;font-family:inherit}
+.empresa-mini-btn:hover{border-color:#0f766e;color:#0f766e;background:#f0fdfa}
+.empresa-mini-btn.danger{border-color:#fecaca;color:#dc2626;background:#fff}
+.empresa-mini-btn.danger:hover{background:#fef2f2;border-color:#fca5a5}
 .empresa-nueva-btn{width:100%;padding:.7rem;border:2px dashed #cbd5e1;border-radius:10px;background:transparent;color:#64748b;font-size:.84rem;cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:.5rem}
 .empresa-nueva-btn:hover{border-color:#0f766e;color:#0f766e;background:#f0fdfa}
 /* ── Multi-empresa: selector en navbar ─────────────────────────────────── */
@@ -659,7 +664,7 @@ tr:hover td{background:#f8fafc}
     <div class="empresa-list" id="empresaList">
       <!-- Se llena dinámicamente -->
     </div>
-    <button class="empresa-nueva-btn" onclick="abrirModalNuevoPerfil()">
+    <button class="empresa-nueva-btn" onclick="event.stopPropagation(); abrirModalNuevoPerfil()">
       <i class="fa-solid fa-plus-circle"></i> Crear nueva empresa
     </button>
   </div>
@@ -2848,7 +2853,7 @@ function mostrarOverlayEmpresas(perfiles) {
   } else {
     list.innerHTML = perfiles.map(p => {
     const pJson = JSON.stringify(p).replace(/\\/g,'\\\\').replace(/"/g,'&quot;');
-    const isActivo = _perfilSeleccionado && _perfilSeleccionado.id === p.id;
+    const isActivo = _perfilSeleccionado && Number(_perfilSeleccionado.id) === Number(p.id);
     return `
     <div class="empresa-item${isActivo?' activo':''}"
          onclick='seleccionarEmpresaById(${p.id})'>
@@ -2857,7 +2862,11 @@ function mostrarOverlayEmpresas(perfiles) {
         <div class="empresa-item-rfc">${p.rfc||'—'}</div>
         ${p.descripcion ? `<div style="font-size:.72rem;color:#94a3b8;margin-top:.15rem">${p.descripcion}</div>` : ''}
       </div>
-      ${isActivo ? '<span class="empresa-item-badge">Activa</span>' : ''}
+      <div class="empresa-item-actions">
+        ${isActivo ? '<span class="empresa-item-badge">Activa</span>' : '<button type="button" class="empresa-mini-btn" onclick="event.stopPropagation(); seleccionarEmpresaById('+Number(p.id)+')">Usar</button>'}
+        <button type="button" class="empresa-mini-btn" onclick="event.stopPropagation(); editarPerfilActivoById(${Number(p.id)})">Editar</button>
+        ${perfiles.length > 1 ? `<button type="button" class="empresa-mini-btn danger" onclick="event.stopPropagation(); eliminarPerfil(${Number(p.id)})">Desactivar</button>` : `<button type="button" class="empresa-mini-btn danger" disabled title="No puedes desactivar la única razón social activa">Desactivar</button>`}
+      </div>
     </div>`;
     }).join('');
   }
@@ -2869,8 +2878,17 @@ function mostrarOverlayEmpresas(perfiles) {
 
 function seleccionarEmpresaById(id) {
   const cache = window._perfilesCache || [];
-  const perfil = cache.find(p => p.id === id);
+  const perfil = cache.find(p => Number(p.id) === Number(id));
   if (perfil) seleccionarEmpresa(perfil, true);
+}
+
+function editarPerfilActivoById(id) {
+  const cache = window._perfilesCache || [];
+  const perfil = cache.find(p => Number(p.id) === Number(id));
+  if (!perfil) return;
+  seleccionarEmpresa(perfil, true);
+  switchTab('config');
+  setTimeout(() => document.getElementById('rfc')?.focus(), 120);
 }
 
 function cerrarOverlayEmpresaBackdrop(e) {
@@ -2903,6 +2921,10 @@ function mostrarSelectorEmpresas() {
 }
 
 function seleccionarEmpresa(perfil, cerrarOverlay) {
+  if (!perfil || !Number(perfil.id)) {
+    alert('Empresa inválida. Recarga la lista e intenta de nuevo.');
+    return;
+  }
   const samePerfil = _perfilSeleccionado && Number(_perfilSeleccionado.id) === Number(perfil.id);
   _savePerfilToSession(perfil);
   actualizarSwitcherEmpresa(perfil);
@@ -2969,6 +2991,13 @@ function resetAppState() {
   const tbodyFac = document.getElementById('tbodyFacilities');
   if (tbodyFac) tbodyFac.innerHTML =
     '<tr><td colspan="6" class="hist-empty">Cambiando empresa...</td></tr>';
+  const internalTbody = document.getElementById('gasInternalTbody');
+  const internalEmpty = document.getElementById('gasInternalEmpty');
+  if (internalTbody) internalTbody.innerHTML = '';
+  if (internalEmpty) {
+    internalEmpty.style.display = '';
+    internalEmpty.textContent = 'Cargando permisos de la empresa...';
+  }
 
   // ── 4. Limpiar Historial ──────────────────────────────────────────────────
   histPeriodo     = null;
@@ -2996,6 +3025,8 @@ function resetAppState() {
   dashboardLoadPromise = Promise.all([
     loadSettings(),
     loadFacilities(),
+    loadProviders(),
+    loadInternalUsersGasLp(),
   ]).finally(() => {
     console.info('[GE] Gas LP empresa lista', { perfil_id: perfilId(), ms: Math.round(performance.now() - started) });
     _resettingState = false;  // desbloquear auto-save
@@ -3051,6 +3082,7 @@ async function guardarNuevoPerfil() {
     renderSubscriptionUsage();
     cerrarModalNuevoPerfil();
     seleccionarEmpresa(data.perfil, true);
+    await cargarPanelPerfiles();
   } catch(e) {
     if (errEl) errEl.textContent = 'Error: ' + e.message;
   }
@@ -3076,13 +3108,16 @@ async function cargarPanelPerfiles() {
       </td>
       <td><code style="font-size:.8rem">${p.rfc||'—'}</code></td>
       <td style="color:#64748b;font-size:.8rem">${p.descripcion||'—'}</td>
-      <td style="text-align:center;display:flex;gap:.3rem;justify-content:center">
+      <td style="text-align:center;display:flex;gap:.3rem;justify-content:center;flex-wrap:wrap">
         ${!isActivo ? `<button onclick="seleccionarEmpresaById(${p.id})"
-          style="padding:.3rem .7rem;font-size:.75rem;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;font-family:inherit">
-          Usar</button>` : ''}
+          style="padding:.34rem .7rem;font-size:.75rem;background:#eff6ff;color:#1e40af;border:1px solid #93c5fd;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:700">
+          <i class="fa-solid fa-right-to-bracket" style="margin-right:.25rem"></i>Usar</button>` : '<span class="empresa-item-badge">Activo</span>'}
+        <button onclick="editarPerfilActivoById(${p.id})"
+          style="padding:.34rem .55rem;font-size:.75rem;background:#fff;color:#334155;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:700">
+          <i class="fa-solid fa-pen-to-square" style="margin-right:.25rem"></i>Editar</button>
         ${perfiles.length > 1 ? `<button onclick="eliminarPerfil(${p.id})"
-          style="padding:.3rem .5rem;font-size:.75rem;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;cursor:pointer;font-family:inherit">
-          <i class="fa-solid fa-trash"></i></button>` : ''}
+          style="padding:.34rem .55rem;font-size:.75rem;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:700">
+          <i class="fa-solid fa-ban" style="margin-right:.25rem"></i>Desactivar</button>` : `<button disabled title="No puedes desactivar la única razón social activa" style="padding:.34rem .55rem;font-size:.75rem;background:#f8fafc;color:#94a3b8;border:1px solid #e2e8f0;border-radius:6px;font-family:inherit;font-weight:700;cursor:not-allowed">Desactivar</button>`}
       </td>
     </tr>`;
   }).join('');
@@ -5181,7 +5216,7 @@ async function loadInternalUsersGasLp() {
     if (!users.length) {
       if (empty) {
         empty.style.display = '';
-        empty.textContent = 'No hay usuarios internos para esta empresa.';
+        empty.textContent = 'Sin permisos registrados';
       }
       return;
     }
@@ -5207,7 +5242,7 @@ async function loadInternalUsersGasLp() {
   } catch(e) {
     if (empty) {
       empty.style.display = '';
-      empty.textContent = e.message;
+      empty.textContent = 'No se pudieron cargar permisos';
     }
   }
 }

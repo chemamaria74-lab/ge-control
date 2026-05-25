@@ -10,7 +10,7 @@
     *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;grid-template-rows:1fr auto;place-items:center;background:linear-gradient(135deg,#5B0F1D,#111);font-family:var(--ge-font);padding:22px;color:#111;overflow-x:hidden}
     .card{width:min(420px,100%);background:#fff;border:1px solid rgba(200,169,107,.28);border-radius:10px;padding:28px;box-shadow:0 24px 70px rgba(0,0,0,.3)}
     img{width:220px;display:block;margin:0 auto 20px}h1{font-size:22px;margin:0 0 4px;text-align:center}.sub{text-align:center;color:#6F6A64;margin-bottom:22px}
-    label{display:block;font-size:12px;font-weight:800;color:#6F6A64;margin:0 0 6px}input{width:100%;border:1px solid #d8d0c4;border-radius:8px;padding:13px 14px;font:inherit;text-transform:uppercase}
+    label{display:block;font-size:12px;font-weight:800;color:#6F6A64;margin:0 0 6px}input{width:100%;border:1px solid #d8d0c4;border-radius:8px;padding:13px 14px;font:inherit}input.code{text-transform:uppercase}
     .field{margin-bottom:14px}.btn{width:100%;border:0;border-radius:8px;background:#7A1E2C;color:#fff;padding:13px;font:inherit;font-weight:800;cursor:pointer}.err{color:#b91c1c;font-size:13px;min-height:18px;margin:12px 0;text-align:center}.back{text-align:center;margin-top:16px}.back a{color:#5B0F1D;text-decoration:none;font-weight:800}
     .ge-legal-footer{grid-row:2;width:min(760px,calc(100vw - 44px));margin:14px auto 0;color:rgba(255,255,255,.72)}
     .ge-legal-footer strong{color:rgba(255,255,255,.9)}.ge-legal-links a{color:#E1C482}
@@ -20,16 +20,20 @@
 <body>
   <main class="card">
     <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
-    <h1>Asistente Facturación Gas LP</h1>
-    <div class="sub">Acceso con usuario y PIN</div>
+    <h1>Asistente Gas LP</h1>
+    <div class="sub">Acceso con usuario y contraseña</div>
     <form id="loginForm">
-      <div class="field"><label>Usuario o código de asistente</label><input id="code" autocomplete="username" placeholder="MAJO1"></div>
-      <div class="field"><label>PIN</label><input id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••••"></div>
+      <div class="field"><label>Usuario</label><input class="code" id="code" autocomplete="username" placeholder="MAJO1"></div>
+      <div class="field"><label>Contraseña</label><input id="pin" type="password" autocomplete="current-password" placeholder="••••••••"></div>
       <button class="btn" type="submit">Entrar</button>
     </form>
     <div class="err" id="err"></div>
     <div class="back"><a href="/modulo/gas-lp/roles">Cambiar acceso</a></div>
   </main>
+  <footer class="ge-legal-footer">
+    <strong>GE CONTROL</strong>
+    <span class="ge-legal-links"><a href="/terms">Términos</a><a href="/privacy">Privacidad</a></span>
+  </footer>
   <script>
     document.getElementById('loginForm').addEventListener('submit', async e => {
       e.preventDefault();
