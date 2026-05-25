@@ -113,6 +113,55 @@ def _matches_login(row: dict, login: str, allow_display_name: bool = False) -> b
     return bool(display_name and display_name == login)
 
 
+def _profile_for_admin(admin_uid: str, perfil_id: int, token: str = "") -> dict:
+    if not perfil_id:
+        raise HTTPException(400, "Selecciona una empresa activa antes de gestionar usuarios internos.")
+    rows = (
+        get_supabase_admin()
+        .table("perfiles_empresa")
+        .select("id,user_id,tenant_id,nombre,rfc,activo")
+        .eq("id", perfil_id)
+        .eq("user_id", admin_uid)
+        .eq("activo", True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
+    perfil = rows[0]
+    tenant_id = perfil.get("tenant_id") or _tenant_id_for_user(admin_uid, access_token=token)
+    if not tenant_id:
+        raise HTTPException(400, "La empresa activa no tiene tenant asignado.")
+    admin_tenant = _tenant_id_for_user(admin_uid, access_token=token)
+    if admin_tenant and str(tenant_id) != str(admin_tenant):
+        raise HTTPException(403, "La empresa activa no pertenece al tenant del usuario.")
+    perfil["tenant_id"] = tenant_id
+    return perfil
+
+
+def _validate_internal_scope(row: dict) -> None:
+    if not row.get("tenant_id") or not row.get("perfil_id"):
+        raise HTTPException(403, "Usuario interno huérfano: falta empresa asignada. Requiere backfill antes de usarlo.")
+    perfiles = (
+        get_supabase_admin()
+        .table("perfiles_empresa")
+        .select("id,tenant_id,activo")
+        .eq("id", row.get("perfil_id"))
+        .eq("activo", True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not perfiles:
+        raise HTTPException(403, "La empresa asignada al usuario interno está inactiva o no existe.")
+    perfil_tenant = str(perfiles[0].get("tenant_id") or "")
+    if perfil_tenant and perfil_tenant != str(row.get("tenant_id") or ""):
+        raise HTTPException(403, "Usuario interno con tenant/perfil inconsistente. Requiere revisión antes de usarlo.")
+
+
 def _status_label(status: str) -> str:
     return {
         "sin_sincronizar": "Sin sincronizar",
@@ -181,6 +230,11 @@ def _clean_payload(payload: InternalUserCreate) -> tuple[str, str, str]:
         raise HTTPException(400, "perfil_id requerido.")
     if section == "transporte" and role == "operador" and not payload.chofer_id:
         raise HTTPException(400, "El operador de Transporte debe vincularse con un chofer.")
+    if section == "gas_lp":
+        if not _clean_code(payload.code or ""):
+            raise HTTPException(400, "El usuario de asistente Gas LP es obligatorio.")
+        if not (payload.pin or "").strip():
+            raise HTTPException(400, "La contraseña de asistente Gas LP es obligatoria.")
     return name, section, role
 
 
@@ -241,6 +295,7 @@ def _internal_session(token_plain: str, section: str | None = None) -> dict:
     user = session.get("internal_users") or {}
     if (user.get("status") or "active") != "active":
         raise HTTPException(403, "Usuario interno inactivo.")
+    _validate_internal_scope(user)
     return {"session": session, "user": user}
 
 
@@ -256,7 +311,12 @@ async def list_internal_users(
     q = sb.table("internal_users").select("*").eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid)
     if section:
         q = q.eq("section", section.strip().lower())
-    if perfil_id:
+    if section and section.strip().lower() == "gas_lp":
+        if not perfil_id:
+            raise HTTPException(400, "Selecciona una empresa Gas LP para ver sus asistentes.")
+        perfil = _profile_for_admin(admin_uid, perfil_id, token)
+        q = q.eq("perfil_id", perfil["id"])
+    elif perfil_id:
         q = q.eq("perfil_id", perfil_id)
     rows = q.order("created_at", desc=True).execute().data or []
     for row in rows:
@@ -267,15 +327,16 @@ async def list_internal_users(
 @router.post("/internal-users")
 async def create_internal_user(payload: InternalUserCreate, authorization: str = Header(default="")):
     admin_uid, token = _auth_admin(authorization)
-    tenant_id = _tenant_id_for_user(admin_uid, access_token=token)
     name, section, role = _clean_payload(payload)
+    perfil = _profile_for_admin(admin_uid, payload.perfil_id, token)
+    tenant_id = perfil["tenant_id"]
     requested_code = _clean_code(payload.code or "")
     code = requested_code or _candidate_code(section, tenant_id)
     temp_pin = (payload.pin or "").strip() or f"{secrets.randbelow(900000) + 100000}"
     row = {
         "tenant_id": tenant_id,
         "owner_user_id": admin_uid,
-        "perfil_id": payload.perfil_id,
+        "perfil_id": perfil["id"],
         "section": section,
         "role": role,
         "display_name": name,
@@ -384,9 +445,18 @@ async def internal_login(payload: InternalLogin):
     if section not in SECTIONS or not login or not payload.pin:
         raise HTTPException(400, "Usuario, contraseña y módulo son obligatorios.")
     sb = get_supabase_admin()
-    rows = sb.table("internal_users").select("*").eq("section", section).limit(300).execute().data or []
+    rows = (
+        sb.table("internal_users")
+        .select("*")
+        .eq("section", section)
+        .limit(300)
+        .execute()
+        .data
+        or []
+    )
+    rows = [row for row in rows if row.get("tenant_id") and row.get("perfil_id")]
     code_rows = [row for row in rows if _matches_login(row, login)]
-    fallback_rows = [row for row in rows if _matches_login(row, login, allow_display_name=True)]
+    fallback_rows = [row for row in rows if _matches_login(row, login, allow_display_name=(section == "gas_lp"))]
     candidates = code_rows or fallback_rows
     rows = candidates[:20]
     if not rows:
@@ -396,6 +466,7 @@ async def internal_login(payload: InternalLogin):
         user = rows[0]
     if (user.get("status") or "active") != "active":
         raise HTTPException(403, "Usuario interno inactivo.")
+    _validate_internal_scope(user)
     locked_until = user.get("locked_until")
     if locked_until:
         try:
