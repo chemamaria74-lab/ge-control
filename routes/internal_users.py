@@ -4,8 +4,10 @@ import hashlib
 import hmac
 import logging
 import secrets
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from xml.sax.saxutils import escape as xml_escape
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import JSONResponse
@@ -13,6 +15,7 @@ from pydantic import BaseModel
 
 from routes.auth import obtener_acceso_modulo, verify_token
 from routes.perfiles import _tenant_id_for_user
+from services.sw_sapien import timbrar_cfdi
 from supabase_config import get_supabase_admin, get_supabase_for_user
 
 
@@ -63,6 +66,29 @@ class InternalLogout(BaseModel):
 class DetectedLoadAction(BaseModel):
     action: str
     updates: Optional[dict] = None
+
+
+class GasLpInternalClientePayload(BaseModel):
+    rfc: str = "XAXX010101000"
+    nombre: str = "PUBLICO EN GENERAL"
+    cp: str = ""
+    regimen_fiscal: str = "616"
+    uso_cfdi: str = "S01"
+
+
+class GasLpInternalFacturaPayload(BaseModel):
+    cliente_id: Optional[int] = None
+    publico_general: bool = False
+    rfc: str = "XAXX010101000"
+    nombre: str = "PUBLICO EN GENERAL"
+    cp: str = ""
+    regimen_fiscal: str = "616"
+    uso_cfdi: str = "S01"
+    litros: float
+    precio_unitario: float
+    concepto: str = "Venta de Gas LP"
+    forma_pago: str = "99"
+    metodo_pago: str = "PUE"
 
 
 def _now() -> datetime:
@@ -194,9 +220,157 @@ def _mock_detected_load(user: dict) -> dict:
     }
 
 
+def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dict:
+    rfc = _clean_rfc(payload.rfc)
+    cp = _clean_cp(payload.cp)
+    if not rfc or not payload.nombre.strip():
+        raise HTTPException(400, "RFC y nombre del cliente son obligatorios.")
+    if rfc == "XAXX010101000":
+        cp = cp or "00000"
+    elif not cp:
+        raise HTTPException(400, "CP del cliente requerido para CFDI 4.0.")
+    return {
+        "user_id": user.get("owner_user_id"),
+        "tenant_id": user.get("tenant_id"),
+        "perfil_id": user.get("perfil_id"),
+        "source": "assistant_portal",
+        "modulo_propietario": "gas_lp",
+        "rfc": rfc,
+        "nombre": payload.nombre.strip().upper() if rfc == "XAXX010101000" else payload.nombre.strip(),
+        "cp": cp,
+        "regimen_fiscal": (payload.regimen_fiscal or "616").strip(),
+        "uso_cfdi": (payload.uso_cfdi or "S01").strip(),
+        "activo": True,
+        "metadata": {"created_by_internal": user.get("id"), "created_by": user.get("display_name")},
+        "created_at": _now_iso(),
+        "updated_at": _now_iso(),
+    }
+
+
 def _safe_internal_error(action: str, exc: Exception) -> HTTPException:
     logger.exception("%s internal_user failed: %s", action, exc)
     return HTTPException(500, "No se pudo completar la operación. Intenta de nuevo o contacta a soporte.")
+
+
+def _money(value) -> Decimal:
+    return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _rate(value) -> Decimal:
+    return Decimal(str(value or 0)).quantize(Decimal("0.000000"), rounding=ROUND_HALF_UP)
+
+
+def _gas_lp_internal_context(token: str, *, write: bool = False) -> dict:
+    ctx = _internal_session(token, "gas_lp")
+    role = (ctx["user"].get("role") or "").lower()
+    if write and role not in {"asistente_facturacion", "admin"}:
+        raise HTTPException(403, "Tu rol no permite facturar en este portal.")
+    return ctx
+
+
+def _gas_lp_profile(user: dict) -> dict:
+    rows = (
+        get_supabase_admin()
+        .table("perfiles_empresa")
+        .select("id,user_id,tenant_id,nombre,rfc,activo")
+        .eq("id", user.get("perfil_id"))
+        .eq("tenant_id", user.get("tenant_id"))
+        .eq("activo", True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(403, "La empresa asignada al asistente no está activa o no existe.")
+    return rows[0]
+
+
+def _gas_lp_settings(owner_user_id: str, perfil_id: int) -> dict:
+    from routes.settings import _load as load_settings
+
+    return load_settings(owner_user_id, perfil_id)
+
+
+def _clean_rfc(value: str) -> str:
+    return "".join(ch for ch in str(value or "").upper().strip() if ch.isalnum() or ch == "&")[:13]
+
+
+def _clean_cp(value: str) -> str:
+    cp = "".join(ch for ch in str(value or "").strip() if ch.isdigit())
+    return cp[:5]
+
+
+def _require_gas_lp_issuer(profile: dict, settings: dict) -> dict:
+    rfc = _clean_rfc(settings.get("RfcContribuyente") or profile.get("rfc") or "")
+    name = str(settings.get("DescripcionInstalacion") or profile.get("nombre") or "").strip()
+    cp = _clean_cp(settings.get("CodigoPostal") or settings.get("codigo_postal") or "")
+    regimen = str(settings.get("RegimenFiscal") or settings.get("regimen_fiscal") or "601").strip()
+    if not rfc or not name or not cp:
+        raise HTTPException(
+            400,
+            "Configura RFC, nombre fiscal y código postal de la empresa antes de facturar.",
+        )
+    return {"rfc": rfc, "nombre": name, "cp": cp, "regimen": regimen or "601"}
+
+
+def _public_general_receptor(issuer_cp: str) -> dict:
+    return {
+        "rfc": "XAXX010101000",
+        "nombre": "PUBLICO EN GENERAL",
+        "cp": issuer_cp,
+        "regimen_fiscal": "616",
+        "uso_cfdi": "S01",
+    }
+
+
+def _build_gas_lp_consumo_xml(*, issuer: dict, receptor: dict, litros, precio_unitario, concepto: str, forma_pago: str, metodo_pago: str) -> tuple[str, dict]:
+    qty = Decimal(str(litros or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    unit = Decimal(str(precio_unitario or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    if qty <= 0 or unit <= 0:
+        raise HTTPException(400, "Litros y precio unitario deben ser mayores a cero.")
+    subtotal = _money(qty * unit)
+    iva = _money(subtotal * Decimal("0.16"))
+    total = _money(subtotal + iva)
+    folio = datetime.now().strftime("GLP%Y%m%d%H%M%S")
+    fecha = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    desc = concepto.strip() or "Venta de Gas LP"
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+        'xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd" '
+        f'Version="4.0" Serie="GLP" Folio="{folio}" Fecha="{fecha}" FormaPago="{xml_escape(forma_pago or "99")}" '
+        f'NoCertificado="" Certificado="" Sello="" SubTotal="{subtotal:.2f}" Moneda="MXN" Total="{total:.2f}" '
+        f'TipoDeComprobante="I" Exportacion="01" MetodoPago="{xml_escape(metodo_pago or "PUE")}" LugarExpedicion="{issuer["cp"]}">'
+        f'<cfdi:Emisor Rfc="{issuer["rfc"]}" Nombre="{xml_escape(issuer["nombre"])}" RegimenFiscal="{issuer["regimen"]}"/>'
+        f'<cfdi:Receptor Rfc="{receptor["rfc"]}" Nombre="{xml_escape(receptor["nombre"])}" '
+        f'DomicilioFiscalReceptor="{receptor["cp"]}" RegimenFiscalReceptor="{receptor["regimen_fiscal"]}" UsoCFDI="{receptor["uso_cfdi"]}"/>'
+        '<cfdi:Conceptos>'
+        f'<cfdi:Concepto ClaveProdServ="15111501" NoIdentificacion="{folio}" Cantidad="{qty:.3f}" '
+        f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{xml_escape(desc)}" ValorUnitario="{unit:.6f}" '
+        f'Importe="{subtotal:.2f}" ObjetoImp="02">'
+        '<cfdi:Impuestos><cfdi:Traslados>'
+        f'<cfdi:Traslado Base="{subtotal:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="{iva:.2f}"/>'
+        '</cfdi:Traslados></cfdi:Impuestos>'
+        '</cfdi:Concepto>'
+        '</cfdi:Conceptos>'
+        f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva:.2f}"><cfdi:Traslados>'
+        f'<cfdi:Traslado Base="{subtotal:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="{iva:.2f}"/>'
+        '</cfdi:Traslados></cfdi:Impuestos>'
+        '</cfdi:Comprobante>'
+    )
+    return xml, {"folio": folio, "subtotal": float(subtotal), "iva": float(iva), "total": float(total)}
+
+
+def _gas_lp_invoice_scope(user: dict, profile: dict) -> dict:
+    return {
+        "user_id": user.get("owner_user_id"),
+        "tenant_id": user.get("tenant_id"),
+        "perfil_id": user.get("perfil_id"),
+        "source": "assistant_portal",
+        "updated_at": _now_iso(),
+    }
 
 
 def _auth_admin(authorization: str) -> tuple[str, str]:
@@ -559,6 +733,7 @@ async def internal_logout(payload: InternalLogout):
 async def gas_lp_internal_summary(token: str):
     ctx = _internal_session(token, "gas_lp")
     user = ctx["user"]
+    profile = _gas_lp_profile(user)
     role = user.get("role") or "solo_lectura"
     role_modules = {
         "asistente_facturacion": [
@@ -585,6 +760,12 @@ async def gas_lp_internal_summary(token: str):
             "perfil_id": user.get("perfil_id"),
             "tenant_id": user.get("tenant_id"),
         },
+        "company": {
+            "id": profile.get("id"),
+            "name": profile.get("nombre"),
+            "rfc": profile.get("rfc"),
+            "tenant_id": profile.get("tenant_id"),
+        },
         "modules": modules,
         "session": {"expires_at": ctx["session"].get("expires_at"), "hours": SESSION_HOURS},
         "notices": [
@@ -592,6 +773,157 @@ async def gas_lp_internal_summary(token: str):
             "Los permisos se limitan por empresa, módulo y rol interno.",
         ],
     })
+
+
+@router.get("/internal-auth/gas-lp/clientes")
+async def gas_lp_internal_clientes(token: str):
+    ctx = _gas_lp_internal_context(token)
+    user = ctx["user"]
+    sb = get_supabase_admin()
+    try:
+        rows = (
+            sb.table("gas_lp_clientes_facturacion")
+            .select("*")
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .eq("activo", True)
+            .order("nombre", desc=False)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_clientes", exc)
+    return JSONResponse({"ok": True, "clientes": rows})
+
+
+@router.post("/internal-auth/gas-lp/clientes")
+async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, token: str):
+    ctx = _gas_lp_internal_context(token, write=True)
+    user = ctx["user"]
+    row = _gas_lp_cliente_row(user, payload)
+    try:
+        data = get_supabase_admin().table("gas_lp_clientes_facturacion").insert(row).execute().data or [row]
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_crear_cliente", exc)
+    return JSONResponse({"ok": True, "cliente": data[0]})
+
+
+@router.get("/internal-auth/gas-lp/facturas")
+async def gas_lp_internal_facturas(token: str):
+    ctx = _gas_lp_internal_context(token)
+    user = ctx["user"]
+    try:
+        rows = (
+            get_supabase_admin()
+            .table("gas_lp_facturas")
+            .select("*")
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .order("created_at", desc=True)
+            .limit(50)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_facturas", exc)
+    return JSONResponse({"ok": True, "facturas": rows})
+
+
+@router.post("/internal-auth/gas-lp/facturas")
+async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, token: str):
+    ctx = _gas_lp_internal_context(token, write=True)
+    user = ctx["user"]
+    profile = _gas_lp_profile(user)
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    issuer = _require_gas_lp_issuer(profile, settings)
+    receptor = _public_general_receptor(issuer["cp"]) if payload.publico_general else None
+    cliente_row = None
+    sb = get_supabase_admin()
+    if payload.cliente_id and not receptor:
+        rows = (
+            sb.table("gas_lp_clientes_facturacion")
+            .select("*")
+            .eq("id", payload.cliente_id)
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .eq("activo", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not rows:
+            raise HTTPException(404, "Cliente no encontrado para esta empresa.")
+        cliente_row = rows[0]
+        receptor = {
+            "rfc": _clean_rfc(cliente_row.get("rfc")),
+            "nombre": str(cliente_row.get("nombre") or "").strip(),
+            "cp": _clean_cp(cliente_row.get("cp")),
+            "regimen_fiscal": str(cliente_row.get("regimen_fiscal") or "616").strip(),
+            "uso_cfdi": str(cliente_row.get("uso_cfdi") or "S01").strip(),
+        }
+    if not receptor:
+        receptor = {
+            "rfc": _clean_rfc(payload.rfc),
+            "nombre": payload.nombre.strip(),
+            "cp": _clean_cp(payload.cp),
+            "regimen_fiscal": (payload.regimen_fiscal or "616").strip(),
+            "uso_cfdi": (payload.uso_cfdi or "S01").strip(),
+        }
+    if receptor["rfc"] == "XAXX010101000":
+        receptor = {**_public_general_receptor(issuer["cp"]), **{"uso_cfdi": receptor.get("uso_cfdi") or "S01"}}
+    if not receptor.get("rfc") or not receptor.get("nombre") or not receptor.get("cp"):
+        raise HTTPException(400, "Receptor incompleto: RFC, nombre y CP son obligatorios.")
+
+    xml, totals = _build_gas_lp_consumo_xml(
+        issuer=issuer,
+        receptor=receptor,
+        litros=payload.litros,
+        precio_unitario=payload.precio_unitario,
+        concepto=payload.concepto,
+        forma_pago=payload.forma_pago,
+        metodo_pago=payload.metodo_pago,
+    )
+    resultado = timbrar_cfdi(xml)
+    if resultado.get("error"):
+        raise HTTPException(400, f"PAC rechazó la factura: {resultado['error']}")
+    now = _now_iso()
+    row = {
+        **_gas_lp_invoice_scope(user, profile),
+        "facility_id": None,
+        "record_uuid": totals["folio"],
+        "uuid_sat": resultado.get("uuid") or "",
+        "xml_content": resultado.get("xml_timbrado") or xml,
+        "pdf_url": resultado.get("pdf_url") or "",
+        "status": "Vigente",
+        "fecha_timbrado": now,
+        "rfc_receptor": receptor["rfc"],
+        "volumen_litros": float(payload.litros),
+        "importe": totals["subtotal"],
+        "tipo_comprobante": "I",
+        "distancia_km": 1,
+        "metadata": {
+            "portal": "asistente_gas_lp",
+            "internal_user_id": user.get("id"),
+            "cliente_id": payload.cliente_id,
+            "cliente_nombre": receptor["nombre"],
+            "concepto": payload.concepto,
+            "precio_unitario": payload.precio_unitario,
+            "iva": totals["iva"],
+            "total": totals["total"],
+        },
+        "created_at": now,
+    }
+    try:
+        data = sb.table("gas_lp_facturas").insert(row).execute().data or [row]
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_crear_factura", exc)
+    return JSONResponse({"ok": True, "factura": data[0], "totals": totals})
 
 
 @router.get("/internal-auth/gas-lp/detected-loads")
