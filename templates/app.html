@@ -866,7 +866,7 @@ tr:hover td{background:#f8fafc}
     <div class="field">
       <label><span data-en="Final Measured Inventory (L)">Inventario Final Medido (L)</span> <small style="color:#64748b;font-weight:400">— Balance de Masa</small></label>
       <input id="inv_final_medido" type="number" step="0.01" min="0" placeholder="Opcional — lectura sensor fin de mes">
-      <div style="font-size:.62rem;color:#64748b;margin-top:.2rem">Activa el cálculo de Ajuste por Variación (Anexo 30).</div>
+      <div style="font-size:.62rem;color:#64748b;margin-top:.2rem">Activa el cálculo de Ajuste por Variación para el reporte mensual SAT.</div>
     </div>
   </div>
   <div class="grid2" style="margin-top:.6rem">
@@ -1849,7 +1849,7 @@ tr:hover td{background:#f8fafc}
       <input id="rfc" value="" placeholder="Ej. ABC010101AAA"></div>
     <div class="field"><label>RFC Representante Legal <span style="font-size:.68rem;color:#7c3aed;font-weight:600">(→ RfcRepresentanteLegal en JSON)</span></label>
       <input id="sat_rfc_rep" placeholder="Ej. OEMR710420FCA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
-      <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Solo personas morales. Si se captura, se incluye en el nodo raíz del Anexo 30 con prioridad alta.</div>
+      <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Solo personas morales. Si se captura, se incluye en el nodo raíz del reporte mensual SAT con prioridad alta.</div>
     </div>
     <div class="field"><label>RFC Proveedor SAT (constante)</label>
       <input id="sat_rfc_prov" placeholder="Ej. PCO960701A49"></div>
@@ -1960,7 +1960,7 @@ tr:hover td{background:#f8fafc}
       <div class="field" style="margin:0">
         <label style="font-size:.72rem"><span data-en="Default Temperature (°C)">Temperatura Default (°C)</span></label>
         <input id="fac_temp_default" type="number" step="0.1" placeholder="Ej. 20.0"
-          title="Se inyecta en el JSON Anexo 30 cuando no hay lectura de sensor disponible">
+          title="Se inyecta en el JSON de controles volumétricos cuando no hay lectura de sensor disponible">
       </div>
 
     </div>
@@ -4736,7 +4736,7 @@ async function process(file, endpoint, loadId, source, isCFDI) {
     }
 
     if (isCFDI && data.sat_xml) {
-      // ── Flujo CFDI → SAT Anexo 30 XML ──────────────────────────────────
+      // ── Flujo CFDI → SAT Controles Volumétricos XML ────────────────────
       satXmlResult  = data.sat_xml;
       satJsonResult = data.sat_json || '';
       satMetaResult = data.sat_meta;
@@ -4796,7 +4796,7 @@ async function process(file, endpoint, loadId, source, isCFDI) {
       }
 
     } else if (data.data) {
-      // ── Flujo Excel/CSV → JSON Anexo 30 ────────────────────────────────
+      // ── Flujo Excel/CSV → JSON Controles Volumétricos ──────────────────
       jsonResult = data.data;
       document.getElementById('badgePeriodo').textContent = data.data.periodo || '';
       document.getElementById('badgeUnidad').textContent  = (data.data.unidad_base || '').toUpperCase();
@@ -4824,7 +4824,7 @@ document.getElementById('btnDownload').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(jsonResult, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `anexo30_${jsonResult.ClaveInstalacion || jsonResult.estacion_id || 'reporte'}_${jsonResult.periodo || 'periodo'}.json`;
+  a.download = `anexo21_${jsonResult.ClaveInstalacion || jsonResult.estacion_id || 'reporte'}_${jsonResult.periodo || 'periodo'}.json`;
   a.click();
 });
 

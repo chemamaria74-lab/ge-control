@@ -801,7 +801,7 @@ select option{background:#fff}
         <div class="form-group">
           <label>Clave instalación SAT</label>
           <input type="text" id="cfg-clave-inst" placeholder="AUTOT-001">
-          <span class="hint">Para transportistas puede depender del escenario operativo; validar contra Anexo 30 antes del envío final.</span>
+          <span class="hint">Para transportistas puede depender del escenario operativo; validar contra Anexo 21 / controles volumétricos antes del envío final.</span>
         </div>
       </div>
       <div class="form-row cols-2">
@@ -1474,7 +1474,7 @@ const I18N_EN = {
   "RFC Receptor": "Receiver RFC",
   "Nombre receptor": "Receiver name",
   "Producto transportado": "Transported product",
-  "Clave interna SAT/Anexo 30": "Internal SAT/Annex 30 key",
+  "Clave interna SAT/Anexo 21": "Internal SAT/Annex 21 key",
   "Volumen (litros)": "Volume (liters)",
   "Temperatura (°C)": "Temperature (°C)",
   "Valor de la mercancía ($)": "Goods value ($)",
@@ -2626,7 +2626,7 @@ function renderProductosViaje() {
           <span class="hint" id="prod-map-${i}">${productoSatHint(p.producto_key || 'magna')}</span>
         </div>
         <div class="form-group">
-          <label>Clave interna SAT/Anexo 30</label>
+          <label>Clave interna SAT/Anexo 21</label>
           <input type="text" id="prod-clave-view-${i}" value="${(p.clave_producto||'PR06')} / ${(p.clave_subproducto||'SP1')}" readonly>
         </div>
         <div class="form-group">
@@ -2638,7 +2638,7 @@ function renderProductosViaje() {
         <div class="form-group">
           <label>Temperatura (°C)</label>
           <input type="number" id="prod-temp-${i}" value="${p.temperatura_c||20}" step="0.1">
-          <span class="hint">Se conserva para Anexo 30 cuando aplique por medición/catálogo.</span>
+          <span class="hint">Se conserva para Anexo 21 / controles volumétricos cuando aplique por medición/catálogo.</span>
         </div>
         <div class="form-group">
           <label>Valor de la mercancía ($)</label>
