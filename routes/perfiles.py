@@ -35,6 +35,7 @@ from supabase_config import get_supabase, get_supabase_for_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+MODULES_VALIDOS = {"gas_lp", "transporte", "gasolineras"}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -53,7 +54,25 @@ def _auth(authorization: str) -> tuple[str, str]:
     return uid, token
 
 
-def get_perfiles_for_user(user_id: str, access_token: str = "") -> list:
+def _module_marker(module: str) -> str:
+    return f"[module:{module}]"
+
+
+def _clean_module(value: str | None) -> str:
+    module = (value or "").strip().lower()
+    return module if module in MODULES_VALIDOS else ""
+
+
+def _clean_profile_for_response(row: dict) -> dict:
+    cleaned = dict(row or {})
+    desc = str(cleaned.get("descripcion") or "")
+    for module in MODULES_VALIDOS:
+        desc = desc.replace(_module_marker(module), "").strip()
+    cleaned["descripcion"] = desc
+    return cleaned
+
+
+def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | None = None) -> list:
     """
     Devuelve todos los perfiles activos visibles para el usuario.
 
@@ -68,7 +87,8 @@ def get_perfiles_for_user(user_id: str, access_token: str = "") -> list:
         sb = get_supabase_for_user(access_token) if access_token else get_supabase()
         accesos = obtener_accesos_usuario(user_id, access_token=access_token) if access_token else []
         roles = {a.get("role") for a in accesos}
-        assigned_ids = [a.get("perfil_id") for a in accesos if a.get("perfil_id")]
+        module = _clean_module(module)
+        assigned_ids = [a.get("perfil_id") for a in accesos if a.get("perfil_id") and (not module or a.get("section") == module)]
 
         rows_by_id: dict[int, dict] = {}
         fields = "id, nombre, rfc, descripcion, activo, created_at, tenant_id"
@@ -77,7 +97,31 @@ def get_perfiles_for_user(user_id: str, access_token: str = "") -> list:
             for row in rows or []:
                 rid = row.get("id")
                 if rid is not None:
-                    rows_by_id[int(rid)] = row
+                    rows_by_id[int(rid)] = _clean_profile_for_response(row)
+
+        if module:
+            tenant_id = _tenant_id_for_user(user_id, access_token=access_token)
+            if assigned_ids:
+                add_rows(
+                    sb.table("perfiles_empresa")
+                    .select(fields)
+                    .in_("id", assigned_ids)
+                    .eq("activo", True)
+                    .order("nombre")
+                    .execute()
+                    .data or []
+                )
+            marker = _module_marker(module)
+            try:
+                marker_q = sb.table("perfiles_empresa").select(fields).eq("activo", True).ilike("descripcion", f"%{marker}%")
+                if tenant_id:
+                    marker_q = marker_q.eq("tenant_id", tenant_id)
+                else:
+                    marker_q = marker_q.eq("user_id", user_id)
+                add_rows(marker_q.order("nombre").execute().data or [])
+            except Exception as marker_error:
+                logger.info("Filtro module=%s omitido en perfiles_empresa.descripcion: %s", module, marker_error)
+            return sorted(rows_by_id.values(), key=lambda r: (r.get("nombre") or "").lower())
 
         # Legacy: perfiles creados antes de tenant/company.
         legacy_q = sb.table("perfiles_empresa").select(fields).eq("user_id", user_id).eq("activo", True)
@@ -117,7 +161,7 @@ def get_perfiles_for_user(user_id: str, access_token: str = "") -> list:
                 .execute()
                 .data or []
             )
-            return rows
+            return [_clean_profile_for_response(row) for row in rows]
         except Exception as legacy_error:
             logger.warning("get_perfiles_for_user legacy: %s", legacy_error)
             return []
@@ -355,12 +399,14 @@ async def list_perfiles(
         True,
         description="Crea un perfil default solo para flujos legacy/migracion.",
     ),
+    module: str = Query("", description="Filtra perfiles operativos por módulo."),
 ):
     user_id, token = _auth(authorization)
-    perfiles = get_perfiles_for_user(user_id, access_token=token)
+    module = _clean_module(module)
+    perfiles = get_perfiles_for_user(user_id, access_token=token, module=module)
 
     # Migración silenciosa: crear perfil default si el usuario no tiene ninguno
-    if auto_create and not perfiles:
+    if auto_create and not module and not perfiles:
         nuevo = ensure_default_perfil(user_id)
         if nuevo:
             perfiles = [nuevo]
@@ -373,19 +419,26 @@ async def list_perfiles(
 
 @router.post("/perfiles", summary="Crear nuevo perfil de empresa")
 async def create_perfil(payload: PerfilPayload,
-                        authorization: str = Header(default="")):
+                        authorization: str = Header(default=""),
+                        module: str = Query("", description="Marca el perfil como operativo de un módulo.")):
     user_id, token = _auth(authorization)
+    module = _clean_module(module)
     nombre = (payload.nombre or "").strip()
     if not nombre:
         raise HTTPException(400, "El nombre de la empresa es requerido.")
 
-    usage = _assert_can_create_company(user_id, token)
+    usage = _subscription_usage(user_id, token) if module and module != "gas_lp" else _assert_can_create_company(user_id, token)
     try:
+        descripcion = (payload.descripcion or "").strip()
+        if module:
+            marker = _module_marker(module)
+            if marker not in descripcion:
+                descripcion = f"{marker} {descripcion}".strip()
         row = {
             "user_id":     user_id,
             "nombre":      nombre,
             "rfc":         (payload.rfc or "").strip().upper(),
-            "descripcion": (payload.descripcion or "").strip(),
+            "descripcion": descripcion,
             "activo":      True,
             "created_at":  _now(),
             "updated_at":  _now(),
@@ -409,7 +462,7 @@ async def create_perfil(payload: PerfilPayload,
         logger.info("Perfil creado: id=%s user=%s nombre=%s", perfil.get("id"), user_id, nombre)
         return JSONResponse(content={
             "ok": True,
-            "perfil": perfil,
+            "perfil": _clean_profile_for_response(perfil),
             "subscription": _subscription_usage(user_id, access_token=token),
         })
     except Exception as e:
