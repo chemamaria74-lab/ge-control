@@ -503,6 +503,17 @@ async def _upload_cfdi_impl(
                 "para mayor precisión en el coeficiente VCM."
             )
 
+        dictamen = sat_meta.get("dictamen_pr12") or {}
+        if dictamen.get("datos"):
+            datos_dictamen = dictamen["datos"]
+            todos_logs.append(
+                "Dictamen PR12 aplicado: "
+                f"fecha_emision={datos_dictamen.get('fecha_emision', 's/c')}, "
+                f"numero_lote={datos_dictamen.get('numero_lote', 's/c')}"
+            )
+        for alerta_dictamen in dictamen.get("alertas", []):
+            todas_alertas.append(alerta_dictamen)
+
         for rfc_sin_permiso in sat_meta.get("missing_providers", []):
             todas_alertas.append(
                 f"⚠ Sin permiso registrado para RFC: {rfc_sin_permiso} — "
