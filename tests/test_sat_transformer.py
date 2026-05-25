@@ -24,7 +24,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from services.sat_transformer import (
     build_sat_report, generate_filename,
-    _calcular_coef_expansion, sat_dict_to_json,
+    _calcular_coef_expansion, sat_dict_to_json, sat_dict_to_xml,
     PROPANO_DEFAULT_FRAC, BUTANO_DEFAULT_FRAC,
     COEF_PROPANO, COEF_BUTANO,
 )
@@ -272,6 +272,60 @@ class TestComposicionPR12:
         producto = sat["Producto"][0]
         assert producto["ComposDePropanoEnGasLP"] == pytest.approx(60.0, abs=0.01)
         assert producto["ComposDeButanoEnGasLP"]  == pytest.approx(40.0, abs=0.01)
+
+
+class TestDictamenPR12:
+
+    def test_dictamen_capturado_se_exporta_sin_inventar_fechas(self):
+        settings = _settings_base(adv_dictamen={
+            "num_dictamen": "DI-AGA9603186X8_MEK170403JK1000012026",
+            "fecha_emision": "2026-03-31",
+            "vigencia_desde": "2026-01-01",
+            "vigencia_hasta": "2026-03-31",
+            "numero_lote": "01T-2026",
+            "fecha_toma_muestra": "2026-03-30",
+            "fecha_realizacion_pruebas": "2026-03-31",
+            "fecha_resultados": "2026-03-31",
+            "observaciones": "Dictamen emitido 2026-03-31; muestra tomada 2026-03-30; lote 01T-2026.",
+        })
+        sat, meta = build_sat_report(
+            movimientos=[_mov("entrada", 1000.0, fecha="2026-03-15")],
+            settings=settings,
+            inventario_inicial_litros=5000.0,
+            composicion_propano=73.74089862969689,
+            composicion_butano=26.259101370303103,
+            anio=2026, mes=3,
+        )
+
+        dictamen = sat["Producto"][0]["Dictamen"]
+        assert dictamen["fecha_emision"] == "2026-03-31"
+        assert dictamen["fecha_toma_muestra"] == "2026-03-30"
+        assert dictamen["fecha_realizacion_pruebas"] == "2026-03-31"
+        assert dictamen["fecha_resultados"] == "2026-03-31"
+        assert dictamen["numero_lote"] == "01T-2026"
+        assert "fecha_caducidad" not in dictamen
+        assert meta["dictamen_pr12"]["alertas"] == []
+
+        json_out = sat_dict_to_json(sat)
+        xml_out = sat_dict_to_xml(sat)
+        assert '"fecha_emision":"2026-03-31"' in json_out
+        assert "<fecha_toma_muestra>2026-03-30</fecha_toma_muestra>" in xml_out
+
+    def test_dictamen_fuera_de_periodo_genera_alerta(self):
+        settings = _settings_base(adv_dictamen={
+            "fecha_emision": "2026-03-31",
+            "vigencia_desde": "2026-01-01",
+            "vigencia_hasta": "2026-03-31",
+            "numero_lote": "01T-2026",
+        })
+        _sat, meta = build_sat_report(
+            movimientos=[_mov("entrada", 1000.0, fecha="2026-04-15")],
+            settings=settings,
+            inventario_inicial_litros=5000.0,
+            anio=2026, mes=4,
+        )
+
+        assert any("no queda completamente cubierto" in a for a in meta["dictamen_pr12"]["alertas"])
 
 
 class TestCoeficienteVCM:
