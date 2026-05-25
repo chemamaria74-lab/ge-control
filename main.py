@@ -315,9 +315,17 @@ async def admin_saas_view():
 
 
 @app.get("/login/{modulo}", response_class=HTMLResponse, include_in_schema=False)
-async def login_view(modulo: str):
+async def login_view(modulo: str, request: Request):
     """Pantalla de login parametrizada por módulo."""
     modulo = modulo.replace("-", "_")
+    intent = (request.query_params.get("intent") or "").lower()
+
+    if modulo == "gas_lp" and "asistente" in intent:
+        lang = request.query_params.get("lang")
+        target = "/gas-lp/asistente"
+        if lang:
+            target = f"{target}?lang={lang}"
+        return RedirectResponse(url=target, status_code=307)
 
     if modulo == "transporte":
         color_primario    = "#7A1E2C"
