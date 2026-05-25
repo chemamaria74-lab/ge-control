@@ -89,6 +89,27 @@ def _parse_perfil_id(raw: str) -> Optional[int]:
         return None
 
 
+def _validar_cliente_cfdi_payload(rfc: str, nombre: str, cp: str, regimen_fiscal: str, uso_cfdi: str) -> dict:
+    from routes.transporte import _normalizar_receptor_cfdi, _validar_datos_cfdi_receptor
+
+    receptor = _normalizar_receptor_cfdi(rfc, nombre, cp, regimen_fiscal)
+    if receptor["rfc"] == "XAXX010101000":
+        receptor = {
+            "rfc": "XAXX010101000",
+            "nombre": "PUBLICO EN GENERAL",
+            "cp": receptor.get("cp") or "00000",
+            "regimen_fiscal": "616",
+        }
+        uso_cfdi = "S01"
+    _validar_datos_cfdi_receptor(
+        receptor["rfc"],
+        receptor["regimen_fiscal"],
+        receptor["cp"],
+        uso_cfdi,
+    )
+    return {**receptor, "uso_cfdi": uso_cfdi}
+
+
 def _scope(authorization: str, x_perfil_id: str = "") -> dict:
     uid = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
@@ -1156,13 +1177,14 @@ async def crear_cliente(
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
+    receptor = _validar_cliente_cfdi_payload(rfc, nombre, cp, regimen_fiscal, uso_cfdi)
     supabase_row = _sb_insert(_SB_CLIENTES, _scope_row(scope, {
         "modulo_propietario": modulo,
-        "rfc": rfc.upper(),
-        "nombre": nombre,
-        "cp": cp,
-        "regimen_fiscal": regimen_fiscal,
-        "uso_cfdi": uso_cfdi,
+        "rfc": receptor["rfc"],
+        "nombre": receptor["nombre"],
+        "cp": receptor["cp"],
+        "regimen_fiscal": receptor["regimen_fiscal"],
+        "uso_cfdi": receptor["uso_cfdi"],
         "activo": True,
     }))
     if supabase_row:
@@ -1180,12 +1202,13 @@ async def actualizar_cliente(
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
+    receptor = _validar_cliente_cfdi_payload(rfc, nombre, cp, regimen_fiscal, uso_cfdi)
     if _sb_update(_SB_CLIENTES, cliente_id, scope, {
-        "rfc": rfc.upper(),
-        "nombre": nombre,
-        "cp": cp,
-        "regimen_fiscal": regimen_fiscal,
-        "uso_cfdi": uso_cfdi,
+        "rfc": receptor["rfc"],
+        "nombre": receptor["nombre"],
+        "cp": receptor["cp"],
+        "regimen_fiscal": receptor["regimen_fiscal"],
+        "uso_cfdi": receptor["uso_cfdi"],
     }):
         return JSONResponse({"ok": True, "message": "Cliente actualizado", "source": "supabase"})
     raise HTTPException(404, "Cliente no encontrado en la empresa seleccionada.")

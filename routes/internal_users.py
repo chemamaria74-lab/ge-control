@@ -221,25 +221,42 @@ def _mock_detected_load(user: dict) -> dict:
 
 
 def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dict:
+    from routes.transporte import _normalizar_receptor_cfdi, _validar_datos_cfdi_receptor
+
     rfc = _clean_rfc(payload.rfc)
+    nombre = str(payload.nombre or "").strip()
+    uso_cfdi = str(payload.uso_cfdi or "S01").strip()
+    regimen = str(payload.regimen_fiscal or "616").strip()
     cp = _clean_cp(payload.cp)
-    if not rfc or not payload.nombre.strip():
+    if not rfc or not nombre:
         raise HTTPException(400, "RFC y nombre del cliente son obligatorios.")
     if rfc == "XAXX010101000":
-        cp = cp or "00000"
-    elif not cp:
-        raise HTTPException(400, "CP del cliente requerido para CFDI 4.0.")
+        receptor = {
+            "rfc": "XAXX010101000",
+            "nombre": "PUBLICO EN GENERAL",
+            "cp": cp or "00000",
+            "regimen_fiscal": "616",
+        }
+        uso_cfdi = "S01"
+    else:
+        receptor = _normalizar_receptor_cfdi(rfc, nombre, cp, regimen)
+        _validar_datos_cfdi_receptor(
+            receptor["rfc"],
+            receptor["regimen_fiscal"],
+            receptor["cp"],
+            uso_cfdi,
+        )
     return {
         "user_id": user.get("owner_user_id"),
         "tenant_id": user.get("tenant_id"),
         "perfil_id": user.get("perfil_id"),
         "source": "assistant_portal",
         "modulo_propietario": "gas_lp",
-        "rfc": rfc,
-        "nombre": payload.nombre.strip().upper() if rfc == "XAXX010101000" else payload.nombre.strip(),
-        "cp": cp,
-        "regimen_fiscal": (payload.regimen_fiscal or "616").strip(),
-        "uso_cfdi": (payload.uso_cfdi or "S01").strip(),
+        "rfc": receptor["rfc"],
+        "nombre": receptor["nombre"],
+        "cp": receptor["cp"],
+        "regimen_fiscal": receptor["regimen_fiscal"],
+        "uso_cfdi": uso_cfdi,
         "activo": True,
         "metadata": {"created_by_internal": user.get("id"), "created_by": user.get("display_name")},
         "created_at": _now_iso(),
@@ -810,6 +827,28 @@ async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, to
     return JSONResponse({"ok": True, "cliente": data[0]})
 
 
+@router.delete("/internal-auth/gas-lp/clientes/{cliente_id}")
+async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str):
+    ctx = _gas_lp_internal_context(token, write=True)
+    user = ctx["user"]
+    try:
+        q = (
+            get_supabase_admin()
+            .table("gas_lp_clientes_facturacion")
+            .update({"activo": False, "updated_at": _now_iso()})
+            .eq("id", cliente_id)
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+        )
+        data = q.execute().data or []
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_eliminar_cliente", exc)
+    if not data:
+        raise HTTPException(404, "Cliente no encontrado para esta empresa.")
+    return JSONResponse({"ok": True, "message": "Cliente eliminado"})
+
+
 @router.get("/internal-auth/gas-lp/facturas")
 async def gas_lp_internal_facturas(token: str):
     ctx = _gas_lp_internal_context(token)
@@ -835,6 +874,8 @@ async def gas_lp_internal_facturas(token: str):
 
 @router.post("/internal-auth/gas-lp/facturas")
 async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, token: str):
+    from routes.transporte import _normalizar_receptor_cfdi, _validar_datos_cfdi_receptor
+
     ctx = _gas_lp_internal_context(token, write=True)
     user = ctx["user"]
     profile = _gas_lp_profile(user)
@@ -879,6 +920,22 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         receptor = {**_public_general_receptor(issuer["cp"]), **{"uso_cfdi": receptor.get("uso_cfdi") or "S01"}}
     if not receptor.get("rfc") or not receptor.get("nombre") or not receptor.get("cp"):
         raise HTTPException(400, "Receptor incompleto: RFC, nombre y CP son obligatorios.")
+    if receptor["rfc"] != "XAXX010101000":
+        receptor = {
+            **receptor,
+            **_normalizar_receptor_cfdi(
+                receptor["rfc"],
+                receptor["nombre"],
+                receptor["cp"],
+                receptor["regimen_fiscal"],
+            ),
+        }
+    _validar_datos_cfdi_receptor(
+        receptor["rfc"],
+        receptor["regimen_fiscal"],
+        receptor["cp"],
+        receptor["uso_cfdi"],
+    )
 
     xml, totals = _build_gas_lp_consumo_xml(
         issuer=issuer,

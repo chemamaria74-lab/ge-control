@@ -64,6 +64,52 @@ def _money_str(value) -> str:
     return f"{_money(value):.2f}"
 
 
+def _validar_receptor_cfdi_payload(rfc: str, nombre: str, cp: str, regimen: str, uso_cfdi: str) -> dict:
+    from routes.transporte import _normalizar_receptor_cfdi, _validar_datos_cfdi_receptor
+
+    receptor = _normalizar_receptor_cfdi(rfc, nombre, cp, regimen)
+    if receptor["rfc"] == "XAXX010101000":
+        receptor = {
+            "rfc": "XAXX010101000",
+            "nombre": "PUBLICO EN GENERAL",
+            "cp": receptor.get("cp") or "00000",
+            "regimen_fiscal": "616",
+        }
+        uso_cfdi = "S01"
+    _validar_datos_cfdi_receptor(
+        receptor["rfc"],
+        receptor["regimen_fiscal"],
+        receptor["cp"],
+        uso_cfdi,
+    )
+    return {**receptor, "uso_cfdi": uso_cfdi}
+
+
+def _validar_clientes_frecuentes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    validados: list[dict[str, Any]] = []
+    for idx, row in enumerate(rows[:200], start=1):
+        rfc = str(row.get("rfc") or "").strip()
+        nombre = str(row.get("name") or row.get("nombre") or "").strip()
+        cp = str(row.get("cp") or "").strip()
+        regimen = str(row.get("regimen") or row.get("regimen_fiscal") or "").strip()
+        uso = str(row.get("uso_cfdi") or "G03").strip()
+        if not rfc and not nombre and not cp:
+            continue
+        try:
+            receptor = _validar_receptor_cfdi_payload(rfc, nombre, cp, regimen, uso)
+        except HTTPException as exc:
+            raise HTTPException(exc.status_code, f"Cliente frecuente #{idx}: {exc.detail}") from exc
+        validados.append({
+            **row,
+            "rfc": receptor["rfc"],
+            "name": receptor["nombre"],
+            "cp": receptor["cp"],
+            "regimen": receptor["regimen_fiscal"],
+            "uso_cfdi": receptor["uso_cfdi"],
+        })
+    return validados
+
+
 def _billing_settings() -> dict:
     default_concept = os.getenv("GE_CONTROL_BILLING_DEFAULT_CONCEPT", "Servicio de uso/licencia plataforma GE Control").strip()
     default_price = float(os.getenv("GE_CONTROL_BILLING_DEFAULT_PRICE", "0") or 0)
@@ -208,15 +254,31 @@ async def get_saas_billing_settings(authorization: str = Header(default="")):
 @router.put("/admin-saas/billing/settings")
 async def save_saas_billing_settings(payload: SaaSBillingSettingsPayload, authorization: str = Header(default="")):
     uid, _email, _token = _require_superadmin(authorization)
+    if payload.rfc.strip() or payload.fiscal_name.strip() or payload.fiscal_cp.strip():
+        issuer = _validar_receptor_cfdi_payload(
+            payload.rfc,
+            payload.fiscal_name,
+            payload.fiscal_cp,
+            payload.fiscal_regimen,
+            "G03",
+        )
+    else:
+        issuer = {
+            "rfc": "",
+            "nombre": "",
+            "cp": "",
+            "regimen_fiscal": payload.fiscal_regimen.strip() or "626",
+        }
+    frequent_customers = _validar_clientes_frecuentes(payload.frequent_customers)
     row = {
         "id": 1,
-        "rfc": payload.rfc.strip().upper(),
-        "fiscal_name": payload.fiscal_name.strip(),
-        "fiscal_cp": payload.fiscal_cp.strip(),
-        "fiscal_regimen": payload.fiscal_regimen.strip() or "626",
+        "rfc": issuer["rfc"],
+        "fiscal_name": issuer["nombre"],
+        "fiscal_cp": issuer["cp"],
+        "fiscal_regimen": issuer["regimen_fiscal"],
         "default_concept": payload.default_concept.strip() or "Servicio de uso/licencia plataforma GE Control",
         "default_price": _money_str(payload.default_price),
-        "frequent_customers": payload.frequent_customers[:200],
+        "frequent_customers": frequent_customers,
         "default_concepts": payload.default_concepts[:200],
         "fiscal_configs": payload.fiscal_configs[:50],
         "updated_by": uid,
@@ -238,6 +300,18 @@ async def create_saas_billing_invoice(payload: SaaSBillingInvoiceCreate, authori
         raise HTTPException(400, "Cliente, RFC y CP son obligatorios.")
     if _money(payload.subtotal) <= 0:
         raise HTTPException(400, "El subtotal debe ser mayor a cero.")
+    receptor = _validar_receptor_cfdi_payload(
+        payload.customer_rfc,
+        payload.customer_name,
+        payload.customer_cp,
+        payload.customer_regimen,
+        payload.uso_cfdi,
+    )
+    payload.customer_rfc = receptor["rfc"]
+    payload.customer_name = receptor["nombre"]
+    payload.customer_cp = receptor["cp"]
+    payload.customer_regimen = receptor["regimen_fiscal"]
+    payload.uso_cfdi = receptor["uso_cfdi"]
     folio = datetime.now().strftime("%Y%m%d%H%M%S")
     cfdi, totals = _build_resico_cfdi(payload, folio)
     sb = get_supabase_admin()
