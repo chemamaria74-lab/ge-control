@@ -77,6 +77,10 @@ class UserSectionPayload(BaseModel):
     display_name: Optional[str] = ""
 
 
+class DeleteTenantPayload(BaseModel):
+    confirm: str = ""
+
+
 class ResetPasswordPayload(BaseModel):
     password: str
 
@@ -887,6 +891,39 @@ async def update_tenant(tenant_id: str, payload: TenantPayload, authorization: s
     _sb_admin().table("tenants").update(data).eq("id", tenant_id).execute()
     _audit(uid, "update_tenant", "tenant", tenant_id, data)
     return JSONResponse({"ok": True})
+
+
+@router.delete("/admin-saas/tenants/{tenant_id}/test")
+async def delete_test_tenant(tenant_id: str, payload: DeleteTenantPayload, authorization: str = Header(default="")):
+    uid, _, _ = _require_superadmin(authorization)
+    if payload.confirm.strip().upper() != "ELIMINAR":
+        raise HTTPException(400, "Escribe ELIMINAR para confirmar.")
+    sb = _sb_admin()
+    tenant_rows = sb.table("tenants").select("*").eq("id", tenant_id).limit(1).execute().data or []
+    if not tenant_rows:
+        raise HTTPException(404, "Cliente/tenant no encontrado.")
+    tenant = tenant_rows[0]
+    name = str(tenant.get("name") or "").lower()
+    blocked_name = any(marker in name for marker in ("grupo emurcia", "emurcia"))
+    profiles = sb.table("perfiles_empresa").select("id,nombre,activo").eq("tenant_id", tenant_id).execute().data or []
+    sections = sb.table("user_sections").select("user_id,section,status").eq("tenant_id", tenant_id).execute().data or []
+    internal = sb.table("internal_users").select("id").eq("tenant_id", tenant_id).execute().data or []
+    active_profiles = [p for p in profiles if p.get("activo")]
+    if blocked_name or active_profiles or sections or internal:
+        raise HTTPException(
+            409,
+            "No se puede eliminar: tiene empresa activa, usuarios o accesos ligados. Desactívalo o limpia esos accesos primero.",
+        )
+    deleted: dict[str, int] = {}
+    for table in ("subscriptions", "companies"):
+        count = _delete_from_table(sb, table, "tenant_id", tenant_id)
+        if count:
+            deleted[table] = count
+    count = _delete_from_table(sb, "tenants", "id", tenant_id)
+    if count:
+        deleted["tenants"] = count
+    _audit(uid, "delete_test_tenant", "tenant", tenant_id, {"tenant": tenant, "deleted": deleted})
+    return JSONResponse({"ok": True, "deleted": deleted})
 
 
 @router.get("/admin-saas/companies")
