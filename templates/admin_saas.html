@@ -29,6 +29,7 @@
     .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0 12px}.toolbar input{max-width:420px}.pill{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:999px;background:#f8fafc;border:1px solid #e2e8f0;font-size:11px;font-weight:900;color:#475569}.pill.warn{color:#991b1b;background:#fef2f2;border-color:#fecaca}.pill.ok{color:#166534;background:#f0fdf4;border-color:#bbf7d0}
     .hero-strip{background:linear-gradient(135deg,#fff,#fbf8f3);border:1px solid #e7e3dc;border-radius:14px;padding:22px 24px;margin-bottom:16px;box-shadow:0 18px 46px rgba(17,17,17,.05)}.hero-strip h2{font-size:32px}.hero-strip p{max-width:780px;color:#6f6a64;margin-top:6px;line-height:1.45}
     .client-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.client-card{background:#fff;border:1px solid #e7e3dc;border-radius:14px;padding:18px;box-shadow:0 18px 38px rgba(17,17,17,.06)}.client-card.warn{border-color:#f0d7d7;background:#fffafa}.client-head{display:flex;justify-content:space-between;gap:12px;align-items:start}.client-title{font-size:20px;font-weight:950}.client-sub{font-size:12px;color:#64748b;margin-top:4px}.module-tags{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.progress-row{margin-top:10px}.progress-label{display:flex;justify-content:space-between;font-size:12px;font-weight:900;color:#443f3a;margin-bottom:5px}.progress{height:8px;border-radius:999px;background:#eef2f7;overflow:hidden}.progress span{display:block;height:100%;background:#7A1E2C;border-radius:999px}.progress.warn span{background:#dc2626}.alert-list{display:grid;gap:5px;margin-top:10px}.alert-item{font-size:12px;color:#991b1b;background:#fef2f2;border:1px solid #fecaca;border-radius:7px;padding:6px 8px}.client-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.internal-tools{margin-top:16px}.internal-tools summary{cursor:pointer;font-weight:900;color:#6f6a64}.billing-table td,.billing-table th{white-space:nowrap}.notice-box{border:1px solid #eadfcd;background:#fffbf2;color:#5f4d24;border-radius:10px;padding:12px;font-size:13px;line-height:1.45}
+    .catalog-list{display:grid;gap:8px;margin-top:10px}.catalog-item{border:1px solid #e7e3dc;border-radius:8px;padding:10px;background:#fbfaf8;display:flex;justify-content:space-between;gap:10px;align-items:start}.catalog-item b{display:block}.catalog-item small{display:block;color:#6f6a64;margin-top:2px}.soft-divider{height:1px;background:#eee6db;margin:16px 0}.hint{font-size:12px;color:#6f6a64;line-height:1.4;margin-top:6px}
     table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;color:#64748b;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.04em;padding:10px}td{border-bottom:1px solid #eef2f7;padding:10px;vertical-align:top}code{font-size:11px;background:#f8fafc;padding:2px 4px;border-radius:4px}.muted{color:#6f6a64}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.status{font-size:12px;margin-left:8px}.ok{color:#15803d}.err{color:#b91c1c}
     .login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px;background:#f5f5f5}
     .login-card{width:min(430px,100%);background:#fff;border:1px solid #e7e3dc;border-radius:10px;padding:26px;box-shadow:0 24px 60px rgba(17,17,17,.1)}
@@ -141,18 +142,21 @@
             <h3>Emitir factura</h3>
             <div class="notice-box" style="margin:10px 0 14px">No se improvisan impuestos: captura retenciones solo cuando correspondan fiscalmente. El endpoint timbra con SW si las credenciales sandbox/producción están configuradas.</div>
             <div class="form-grid" style="grid-template-columns:1fr 1fr">
-              <div><label>Cliente / tenant</label><select id="saasInvTenant" onchange="prefillSaasInvoiceTenant()"><option value="">Sin tenant ligado</option></select></div>
+              <div><label>Cliente frecuente</label><select id="saasInvCustomer" onchange="prefillSaasInvoiceCustomer()"><option value="">Selecciona cliente frecuente</option></select><div class="hint">Catálogo editable en Administración.</div></div>
+              <div><label>Tenant ligado</label><select id="saasInvTenant" onchange="prefillSaasInvoiceTenant()"><option value="">Sin tenant ligado</option></select></div>
+              <div><label>Concepto catálogo</label><select id="saasInvConceptSelect" onchange="prefillSaasInvoiceConcept()"><option value="">Selecciona concepto</option></select></div>
+              <div><label>Configuración fiscal</label><select id="saasInvFiscalConfig" onchange="prefillSaasFiscalConfig()"><option value="">Selecciona configuración</option></select></div>
               <div><label>Nombre fiscal receptor</label><input id="saasInvName"></div>
               <div><label>RFC receptor</label><input id="saasInvRfc"></div>
               <div><label>CP receptor</label><input id="saasInvCp"></div>
-              <div><label>Régimen receptor</label><input id="saasInvRegimen" placeholder="601 / 603 / 612..."></div>
-              <div><label>Uso CFDI</label><input id="saasInvUso" value="G03"></div>
+              <div><label>Régimen receptor</label><select id="saasInvRegimen"></select></div>
+              <div><label>Uso CFDI</label><select id="saasInvUso"></select></div>
               <div><label>Concepto</label><input id="saasInvConcept" placeholder="Servicio de uso/licencia plataforma GE Control"></div>
               <div><label>Subtotal</label><input id="saasInvSubtotal" type="number" step="0.01"></div>
               <div><label>IVA</label><input id="saasInvIva" type="number" step="0.01" placeholder="Auto 16% si vacío"></div>
               <div><label>Retención ISR</label><input id="saasInvRetIsr" type="number" step="0.01" value="0"></div>
               <div><label>Retención IVA</label><input id="saasInvRetIva" type="number" step="0.01" value="0"></div>
-              <div><label>Método / forma</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><input id="saasInvMetodo" value="PPD"><input id="saasInvForma" value="99"></div></div>
+              <div><label>Método / forma</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><select id="saasInvMetodo"></select><select id="saasInvForma"></select></div></div>
             </div>
             <div class="actions"><button class="btn" onclick="createSaasInvoice()">Crear y timbrar</button><span id="saasInvMsg" class="status"></span></div>
           </div>
@@ -171,12 +175,50 @@
             <div><label>RFC</label><input id="billRfc" placeholder="RFC emisor GE Control"></div>
             <div><label>Nombre fiscal</label><input id="billName" placeholder="Nombre o razón social"></div>
             <div><label>Código postal</label><input id="billCp" placeholder="CP fiscal"></div>
-            <div><label>Régimen fiscal</label><input id="billRegimen" placeholder="626"></div>
+            <div><label>Régimen fiscal</label><select id="billRegimen"></select></div>
             <div><label>Concepto default</label><input id="billConcept" placeholder="Servicio de uso/licencia plataforma GE Control"></div>
             <div><label>Precio default</label><input id="billPrice" type="number" step="0.01" placeholder="0.00"></div>
           </div>
           <div class="actions"><button class="btn" onclick="saveBillingSettings()">Guardar datos fiscales</button><span id="billingMsg" class="status"></span></div>
           <p class="muted" style="margin-top:12px">No guardar aquí SW_TOKEN, SUPABASE_SERVICE_ROLE_KEY, contraseñas ni llaves privadas. Esos secretos viven solo en Render Environment.</p>
+        </div>
+        <div class="grid-2" style="margin-top:14px">
+          <div class="card">
+            <h3>Clientes/receptores frecuentes</h3>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr">
+              <div><label>Alias</label><input id="catCustomerAlias"></div>
+              <div><label>Tenant ligado</label><select id="catCustomerTenant"><option value="">Sin tenant</option></select></div>
+              <div><label>RFC</label><input id="catCustomerRfc"></div>
+              <div><label>Nombre fiscal</label><input id="catCustomerName"></div>
+              <div><label>CP</label><input id="catCustomerCp"></div>
+              <div><label>Régimen receptor</label><select id="catCustomerRegimen"></select></div>
+              <div><label>Uso CFDI default</label><select id="catCustomerUso"></select></div>
+              <div><label>Método / forma</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><select id="catCustomerMetodo"></select><select id="catCustomerForma"></select></div></div>
+            </div>
+            <div class="actions"><button class="btn" onclick="addBillingCustomer()">Agregar cliente frecuente</button></div>
+            <div class="catalog-list" id="billingCustomerList"></div>
+          </div>
+          <div class="card">
+            <h3>Conceptos y configuraciones fiscales</h3>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr">
+              <div><label>Nombre concepto</label><input id="catConceptName"></div>
+              <div><label>Precio default</label><input id="catConceptPrice" type="number" step="0.01"></div>
+              <div style="grid-column:1/-1"><label>Descripción CFDI</label><input id="catConceptDesc" placeholder="Servicio de uso/licencia plataforma GE Control"></div>
+            </div>
+            <div class="actions"><button class="btn btn-ghost" onclick="addBillingConcept()">Agregar concepto</button></div>
+            <div class="soft-divider"></div>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr">
+              <div><label>Nombre configuración</label><input id="catConfigName" value="RESICO SaaS default"></div>
+              <div><label>IVA %</label><input id="catConfigIva" type="number" step="0.0001" value="16"></div>
+              <div><label>Retención ISR %</label><input id="catConfigRetIsr" type="number" step="0.0001" value="0"></div>
+              <div><label>Retención IVA %</label><input id="catConfigRetIva" type="number" step="0.0001" value="0"></div>
+              <div><label>Método / forma</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><select id="catConfigMetodo"></select><select id="catConfigForma"></select></div></div>
+              <div><label>Uso CFDI</label><select id="catConfigUso"></select></div>
+            </div>
+            <div class="actions"><button class="btn btn-ghost" onclick="addBillingFiscalConfig()">Agregar configuración</button></div>
+            <div class="catalog-list" id="billingConceptList"></div>
+            <div class="catalog-list" id="billingConfigList"></div>
+          </div>
         </div>
         <div class="card" style="margin-top:14px;overflow:auto">
           <h3>Administradores internos</h3>
@@ -208,7 +250,16 @@ let TENANTS = [];
 let COMPANIES = [];
 let USERS_HEALTH = [];
 let LICENSES = [];
+let BILLING_SETTINGS = {};
 let showOnlyProblems = false;
+const SAT_REGIMENES = [
+  ['601','General de Ley Personas Morales'],['603','Personas Morales con Fines no Lucrativos'],['605','Sueldos y Salarios'],
+  ['606','Arrendamiento'],['612','Personas Físicas con Actividades Empresariales y Profesionales'],['616','Sin obligaciones fiscales'],
+  ['621','Incorporación Fiscal'],['626','Régimen Simplificado de Confianza']
+];
+const USO_CFDI = [['G03','Gastos en general'],['S01','Sin efectos fiscales'],['CP01','Pagos'],['G01','Adquisición de mercancías'],['I04','Equipo de cómputo y accesorios']];
+const METODOS_PAGO = [['PUE','Pago en una sola exhibición'],['PPD','Pago en parcialidades o diferido']];
+const FORMAS_PAGO = [['03','Transferencia electrónica'],['99','Por definir'],['01','Efectivo'],['02','Cheque nominativo'],['04','Tarjeta de crédito'],['28','Tarjeta de débito']];
 function H(json=true){ return {'Authorization':'Bearer '+TOKEN, ...(json?{'Content-Type':'application/json'}:{})}; }
 function esc(v){ return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 function matchesSearch(obj, q){ return !q || JSON.stringify(obj||{}).toLowerCase().includes(q.toLowerCase()); }
@@ -246,6 +297,7 @@ async function verifySuperadmin() {
   await loadAll();
 }
 async function init(){
+  initFiscalSelects();
   if(!TOKEN){ showAdminLogin(); return; }
   try{ await verifySuperadmin(); }
   catch(e){
@@ -313,18 +365,61 @@ function numOrNull(id){ const v=document.getElementById(id)?.value; return v==='
 function buildLimitsJson(max){ return { companies:max, gas_lp:{enabled:bool('limGasEnabled'),companies:numOrNull('limGasCompanies'),assistants:numOrNull('limGasAssistants'),can_invoice:bool('limGasInvoice'),can_generate_json:bool('limGasJson'),can_upload_xml_excel:bool('limGasUpload'),can_view_reports:bool('limGasReports')}, transporte:{enabled:bool('limTrEnabled'),admins:numOrNull('limTrAdmins'),operators:numOrNull('limTrOperators'),vehicles:numOrNull('limTrVehicles'),can_stamp_carta_porte:bool('limTrCarta'),can_invoice_service:bool('limTrInvoice'),can_use_liquidaciones:bool('limTrLiquidaciones')}, gasolineras:{enabled:bool('limGasoEnabled'),stations:numOrNull('limGasoStations'),users:numOrNull('limGasoUsers'),can_view_map:bool('limGasoMap'),can_view_radar:bool('limGasoRadar'),can_use_operations:bool('limGasoOps'),can_view_reports:bool('limGasoReports')}}; }
 function setVal(id,v){ const el=document.getElementById(id); if(el) el.value=v ?? ''; }
 function setChk(id,v){ const el=document.getElementById(id); if(el) el.checked=!!v; }
+function optionList(items, selected=''){ return items.map(([v,l])=>`<option value="${esc(v)}" ${String(v)===String(selected)?'selected':''}>${esc(v)} - ${esc(l)}</option>`).join(''); }
+function fillSelect(id, items, selected='', emptyLabel=''){ const el=document.getElementById(id); if(!el) return; el.innerHTML=(emptyLabel?`<option value="">${esc(emptyLabel)}</option>`:'')+optionList(items, selected); }
+function initFiscalSelects(){
+  ['billRegimen','saasInvRegimen','catCustomerRegimen'].forEach(id=>fillSelect(id,SAT_REGIMENES, id==='billRegimen'?'626':'601'));
+  ['saasInvUso','catCustomerUso','catConfigUso'].forEach(id=>fillSelect(id,USO_CFDI,'G03'));
+  ['saasInvMetodo','catCustomerMetodo','catConfigMetodo'].forEach(id=>fillSelect(id,METODOS_PAGO,id==='saasInvMetodo'?'PPD':'PUE'));
+  ['saasInvForma','catCustomerForma','catConfigForma'].forEach(id=>fillSelect(id,FORMAS_PAGO,id==='saasInvForma'?'99':'03'));
+}
 function applyLimits(l){ l=l||{}; setVal('limGasCompanies',l.gas_lp?.companies??l.companies??1); setVal('limGasAssistants',l.gas_lp?.assistants??2); setChk('limGasEnabled',l.gas_lp?.enabled??true); setChk('limGasInvoice',l.gas_lp?.can_invoice??true); setChk('limGasJson',l.gas_lp?.can_generate_json??true); setChk('limGasUpload',l.gas_lp?.can_upload_xml_excel??true); setChk('limGasReports',l.gas_lp?.can_view_reports??true); setVal('limTrAdmins',l.transporte?.admins??1); setVal('limTrOperators',l.transporte?.operators??5); setVal('limTrVehicles',l.transporte?.vehicles??''); setChk('limTrEnabled',l.transporte?.enabled??true); setChk('limTrCarta',l.transporte?.can_stamp_carta_porte??true); setChk('limTrInvoice',l.transporte?.can_invoice_service??true); setChk('limTrLiquidaciones',l.transporte?.can_use_liquidaciones??true); setVal('limGasoStations',l.gasolineras?.stations??0); setVal('limGasoUsers',l.gasolineras?.users??0); setChk('limGasoEnabled',l.gasolineras?.enabled??false); setChk('limGasoMap',l.gasolineras?.can_view_map??true); setChk('limGasoRadar',l.gasolineras?.can_view_radar??false); setChk('limGasoOps',l.gasolineras?.can_use_operations??false); setChk('limGasoReports',l.gasolineras?.can_view_reports??false); }
 function fillPlanDefaults(){ const plan=subPlan.value; const defaults={Básico:{companies:1,gas_lp:{assistants:1},transporte:{operators:2,admins:1},gasolineras:{enabled:false,stations:0,users:0}},Profesional:{companies:4,gas_lp:{assistants:3},transporte:{operators:10,admins:2},gasolineras:{enabled:true,stations:3,users:2,can_view_radar:true}},Empresarial:{companies:10,gas_lp:{assistants:8},transporte:{operators:30,admins:5},gasolineras:{enabled:true,stations:12,users:6,can_view_radar:true,can_use_operations:true,can_view_reports:true}},Ilimitado:{companies:null,gas_lp:{assistants:null},transporte:{operators:null,admins:null},gasolineras:{enabled:true,stations:null,users:null,can_view_radar:true,can_use_operations:true,can_view_reports:true}}}; const d=defaults[plan]||defaults.Básico; subMax.value=d.companies??''; applyLimits(d); }
 function editSubscriptionFromTenant(tenantId){ const tenant=(TENANTS||[]).find(t=>String(t.id)===String(tenantId)) || {}; const sub=tenant.subscription || {}; const lic=tenant.license || {}; showPanel('suscripciones'); setVal('subTenant',tenantId); setVal('subPlan',sub.plan_name||'Básico'); setVal('subMax',sub.max_companies ?? lic.limits?.companies ?? 1); setVal('subStatus',sub.status||'active'); setVal('subExpires',(sub.expires_at||'').slice(0,10)); setVal('subNotes',sub.notes_internal||''); applyLimits(lic.limits || sub.limits_json || {}); }
 async function saveSubscription(){ try{ const max=subPlan.value==='Ilimitado'?null:Number(subMax.value||0); await api('/subscriptions/'+encodeURIComponent(subTenant.value),{method:'PUT',headers:H(),body:JSON.stringify({plan_name:subPlan.value,max_companies:max,status:subStatus.value,expires_at:subExpires.value||null,notes_internal:subNotes.value||'',limits_json:buildLimitsJson(max)})}); msg('subMsg','Suscripción guardada'); await loadDashboard(); await loadTenants(); }catch(e){msg('subMsg',e.message,false);} }
-async function loadBillingSettings(){ try{ const d=await api('/billing/settings',{headers:H(false)}); const s=d.settings||{}; setVal('billRfc',s.rfc||''); setVal('billName',s.fiscal_name||''); setVal('billCp',s.fiscal_cp||''); setVal('billRegimen',s.fiscal_regimen||'626'); setVal('billConcept',s.default_concept||'Servicio de uso/licencia plataforma GE Control'); setVal('billPrice',s.default_price||0); msg('billingMsg',`Cargado (${s.source||'config'})`); }catch(e){msg('billingMsg',e.message,false);} }
-async function saveBillingSettings(){ try{ await api('/billing/settings',{method:'PUT',headers:H(),body:JSON.stringify({rfc:billRfc.value,fiscal_name:billName.value,fiscal_cp:billCp.value,fiscal_regimen:billRegimen.value,default_concept:billConcept.value,default_price:Number(billPrice.value||0)})}); msg('billingMsg','Datos fiscales guardados'); }catch(e){msg('billingMsg',e.message,false);} }
+function normalizeBillingSettings(s={}){
+  const concept=s.default_concept||'Servicio de uso/licencia plataforma GE Control';
+  const price=Number(s.default_price||0);
+  return {
+    ...s,
+    default_concept: concept,
+    default_price: price,
+    frequent_customers: Array.isArray(s.frequent_customers)?s.frequent_customers:[],
+    default_concepts: Array.isArray(s.default_concepts)&&s.default_concepts.length?s.default_concepts:[{name:'Licencia GE Control',description:concept,price,iva_rate:0.16}],
+    fiscal_configs: Array.isArray(s.fiscal_configs)&&s.fiscal_configs.length?s.fiscal_configs:[{name:'RESICO SaaS default',uso_cfdi:'G03',metodo_pago:'PPD',forma_pago:'99',iva_rate:0.16,retencion_isr_rate:0,retencion_iva_rate:0}]
+  };
+}
+function renderBillingCatalogs(){
+  const s=normalizeBillingSettings(BILLING_SETTINGS);
+  const custSel=document.getElementById('saasInvCustomer');
+  if(custSel){ const current=custSel.value; custSel.innerHTML='<option value="">Selecciona cliente frecuente</option>'+s.frequent_customers.map((c,i)=>`<option value="${i}">${esc(c.alias||c.name||c.rfc||'Cliente')}</option>`).join(''); custSel.value=current; }
+  const conceptSel=document.getElementById('saasInvConceptSelect');
+  if(conceptSel){ const current=conceptSel.value; conceptSel.innerHTML='<option value="">Selecciona concepto</option>'+s.default_concepts.map((c,i)=>`<option value="${i}">${esc(c.name||c.description||'Concepto')}</option>`).join(''); conceptSel.value=current; }
+  const cfgSel=document.getElementById('saasInvFiscalConfig');
+  if(cfgSel){ const current=cfgSel.value; cfgSel.innerHTML='<option value="">Selecciona configuración</option>'+s.fiscal_configs.map((c,i)=>`<option value="${i}">${esc(c.name||'Configuración fiscal')}</option>`).join(''); cfgSel.value=current; }
+  const tenantCat=document.getElementById('catCustomerTenant');
+  if(tenantCat){ const current=tenantCat.value; tenantCat.innerHTML='<option value="">Sin tenant</option>'+(TENANTS||[]).map(t=>`<option value="${esc(t.id)}">${esc(t.display_name||t.name||t.id)}</option>`).join(''); tenantCat.value=current; }
+  const customerList=document.getElementById('billingCustomerList');
+  if(customerList) customerList.innerHTML=s.frequent_customers.map((c,i)=>`<div class="catalog-item"><div><b>${esc(c.alias||c.name||'Cliente')}</b><small>${esc(c.rfc||'RFC pendiente')} · ${esc(c.regimen||'Régimen pendiente')} · ${esc(c.uso_cfdi||'G03')}</small></div><button class="btn btn-danger btn-sm" onclick="removeBillingCatalog('frequent_customers',${i})">Quitar</button></div>`).join('')||'<div class="muted">Sin clientes frecuentes.</div>';
+  const conceptList=document.getElementById('billingConceptList');
+  if(conceptList) conceptList.innerHTML=s.default_concepts.map((c,i)=>`<div class="catalog-item"><div><b>${esc(c.name||'Concepto')}</b><small>${esc(c.description||'')} · $${esc(c.price||0)}</small></div><button class="btn btn-danger btn-sm" onclick="removeBillingCatalog('default_concepts',${i})">Quitar</button></div>`).join('');
+  const configList=document.getElementById('billingConfigList');
+  if(configList) configList.innerHTML=s.fiscal_configs.map((c,i)=>`<div class="catalog-item"><div><b>${esc(c.name||'Configuración fiscal')}</b><small>IVA ${esc(Number(c.iva_rate||0)*100)}% · ISR ${esc(Number(c.retencion_isr_rate||0)*100)}% · IVA ret ${esc(Number(c.retencion_iva_rate||0)*100)}%</small></div><button class="btn btn-danger btn-sm" onclick="removeBillingCatalog('fiscal_configs',${i})">Quitar</button></div>`).join('');
+}
+async function loadBillingSettings(){ try{ initFiscalSelects(); const d=await api('/billing/settings',{headers:H(false)}); const s=normalizeBillingSettings(d.settings||{}); BILLING_SETTINGS=s; setVal('billRfc',s.rfc||''); setVal('billName',s.fiscal_name||''); setVal('billCp',s.fiscal_cp||''); setVal('billRegimen',s.fiscal_regimen||'626'); setVal('billConcept',s.default_concept); setVal('billPrice',s.default_price||0); renderBillingCatalogs(); msg('billingMsg',`Cargado (${s.source||'config'})`); }catch(e){msg('billingMsg',e.message,false);} }
+async function saveBillingSettings(){ try{ const s=normalizeBillingSettings(BILLING_SETTINGS); const saved=await api('/billing/settings',{method:'PUT',headers:H(),body:JSON.stringify({rfc:billRfc.value,fiscal_name:billName.value,fiscal_cp:billCp.value,fiscal_regimen:billRegimen.value,default_concept:billConcept.value,default_price:Number(billPrice.value||0),frequent_customers:s.frequent_customers,default_concepts:s.default_concepts,fiscal_configs:s.fiscal_configs})}); BILLING_SETTINGS=normalizeBillingSettings(saved.settings||{}); renderBillingCatalogs(); msg('billingMsg','Datos fiscales guardados'); }catch(e){msg('billingMsg',e.message,false);} }
+async function saveBillingCatalogs(){ await saveBillingSettings(); }
+function addBillingCustomer(){ const s=normalizeBillingSettings(BILLING_SETTINGS); const customer={alias:catCustomerAlias.value||catCustomerName.value,tenant_id:catCustomerTenant.value||null,rfc:catCustomerRfc.value.trim().toUpperCase(),name:catCustomerName.value.trim(),cp:catCustomerCp.value.trim(),regimen:catCustomerRegimen.value,uso_cfdi:catCustomerUso.value,metodo_pago:catCustomerMetodo.value,forma_pago:catCustomerForma.value}; if(!customer.rfc||!customer.name||!customer.cp) return alert('RFC, nombre fiscal y CP son obligatorios.'); s.frequent_customers.push(customer); BILLING_SETTINGS=s; renderBillingCatalogs(); saveBillingCatalogs(); }
+function addBillingConcept(){ const s=normalizeBillingSettings(BILLING_SETTINGS); const concept={name:catConceptName.value||catConceptDesc.value||'Concepto',description:catConceptDesc.value||billConcept.value,price:Number(catConceptPrice.value||billPrice.value||0),iva_rate:0.16}; s.default_concepts.push(concept); BILLING_SETTINGS=s; renderBillingCatalogs(); saveBillingCatalogs(); }
+function addBillingFiscalConfig(){ const s=normalizeBillingSettings(BILLING_SETTINGS); const cfg={name:catConfigName.value||'Configuración fiscal',uso_cfdi:catConfigUso.value,metodo_pago:catConfigMetodo.value,forma_pago:catConfigForma.value,iva_rate:Number(catConfigIva.value||0)/100,retencion_isr_rate:Number(catConfigRetIsr.value||0)/100,retencion_iva_rate:Number(catConfigRetIva.value||0)/100}; s.fiscal_configs.push(cfg); BILLING_SETTINGS=s; renderBillingCatalogs(); saveBillingCatalogs(); }
+function removeBillingCatalog(key,index){ if(!confirm('Quitar este elemento del catálogo?')) return; const s=normalizeBillingSettings(BILLING_SETTINGS); s[key]=(s[key]||[]).filter((_,i)=>i!==index); BILLING_SETTINGS=s; renderBillingCatalogs(); saveBillingCatalogs(); }
 function fillTenantSelects(){
   const el=document.getElementById('saasInvTenant');
   if(!el) return;
   const current=el.value;
   el.innerHTML='<option value="">Sin tenant ligado</option>'+(TENANTS||[]).map(t=>`<option value="${esc(t.id)}">${esc(t.display_name||t.name||t.id)}</option>`).join('');
   el.value=current || '';
+  renderBillingCatalogs();
 }
 function prefillSaasInvoiceTenant(){
   const tid=document.getElementById('saasInvTenant')?.value||'';
@@ -334,6 +429,40 @@ function prefillSaasInvoiceTenant(){
   setVal('saasInvSubtotal',document.getElementById('billPrice')?.value||'');
   setVal('saasInvConcept',document.getElementById('billConcept')?.value||'Servicio de uso/licencia plataforma GE Control');
 }
+function prefillSaasInvoiceCustomer(){
+  const i=Number(document.getElementById('saasInvCustomer')?.value);
+  const c=normalizeBillingSettings(BILLING_SETTINGS).frequent_customers[i];
+  if(!c) return;
+  setVal('saasInvTenant',c.tenant_id||'');
+  setVal('saasInvName',c.name||'');
+  setVal('saasInvRfc',c.rfc||'');
+  setVal('saasInvCp',c.cp||'');
+  setVal('saasInvRegimen',c.regimen||'');
+  setVal('saasInvUso',c.uso_cfdi||'G03');
+  setVal('saasInvMetodo',c.metodo_pago||'PPD');
+  setVal('saasInvForma',c.forma_pago||'99');
+}
+function prefillSaasInvoiceConcept(){
+  const i=Number(document.getElementById('saasInvConceptSelect')?.value);
+  const c=normalizeBillingSettings(BILLING_SETTINGS).default_concepts[i];
+  if(!c) return;
+  setVal('saasInvConcept',c.description||c.name||billConcept.value);
+  setVal('saasInvSubtotal',c.price??billPrice.value);
+  const subtotal=Number(c.price||billPrice.value||0);
+  if(c.iva_rate!=null) setVal('saasInvIva',(subtotal*Number(c.iva_rate||0)).toFixed(2));
+}
+function prefillSaasFiscalConfig(){
+  const i=Number(document.getElementById('saasInvFiscalConfig')?.value);
+  const c=normalizeBillingSettings(BILLING_SETTINGS).fiscal_configs[i];
+  if(!c) return;
+  const subtotal=Number(saasInvSubtotal.value||billPrice.value||0);
+  setVal('saasInvUso',c.uso_cfdi||'G03');
+  setVal('saasInvMetodo',c.metodo_pago||'PPD');
+  setVal('saasInvForma',c.forma_pago||'99');
+  setVal('saasInvIva',(subtotal*Number(c.iva_rate||0)).toFixed(2));
+  setVal('saasInvRetIsr',(subtotal*Number(c.retencion_isr_rate||0)).toFixed(2));
+  setVal('saasInvRetIva',(subtotal*Number(c.retencion_iva_rate||0)).toFixed(2));
+}
 async function loadBillingInvoices(){
   try{
     if(!TENANTS.length) await loadTenants().catch(()=>{});
@@ -342,7 +471,7 @@ async function loadBillingInvoices(){
     const rows=d.invoices||[];
     const tbody=document.getElementById('saasBillingRows');
     if(!tbody) return;
-    tbody.innerHTML=rows.map(i=>`<tr><td>${esc((i.created_at||'').slice(0,10))}</td><td>${esc(i.customer_name||'—')}<br><span class="muted">${esc(i.customer_rfc||'')}</span></td><td>$${esc(i.total||'0.00')}</td><td>${pill(i.status||'borrador',i.status==='timbrada'?'ok':i.status==='error'?'warn':'')}</td><td><code>${esc(i.uuid_sat||'—')}</code></td><td><button class="btn btn-ghost btn-sm" onclick="openBillingFile(${Number(i.id)},'pdf',false)">Ver PDF</button><button class="btn btn-ghost btn-sm" onclick="openBillingFile(${Number(i.id)},'pdf',true)">Descargar PDF</button><button class="btn btn-ghost btn-sm" onclick="openBillingFile(${Number(i.id)},'xml',true)">XML</button></td></tr>`).join('')||'<tr><td colspan="6">Sin facturas SaaS.</td></tr>';
+    tbody.innerHTML=rows.map(i=>`<tr><td>${esc((i.created_at||'').slice(0,10))}</td><td>${esc(i.customer_name||'—')}<br><span class="muted">${esc(i.customer_rfc||'')}</span></td><td>$${esc(i.total||'0.00')}</td><td>${pill(i.status||'borrador',i.status==='timbrada'?'ok':i.status==='error'?'warn':'')}</td><td><code>${esc(i.uuid_sat||'—')}</code></td><td><button class="btn btn-ghost btn-sm" onclick="openBillingFile(${Number(i.id)},'pdf',false)">Ver PDF</button><button class="btn btn-ghost btn-sm" onclick="openBillingFile(${Number(i.id)},'pdf',true)">Descargar PDF</button><button class="btn btn-ghost btn-sm" onclick="openBillingFile(${Number(i.id)},'xml',true)">XML</button><button class="btn btn-danger btn-sm" onclick="cancelBillingInvoice(${Number(i.id)},'${esc(i.status||'')}')">Cancelar</button></td></tr>`).join('')||'<tr><td colspan="6">Sin facturas SaaS.</td></tr>';
   }catch(e){ const tbody=document.getElementById('saasBillingRows'); if(tbody) tbody.innerHTML=`<tr><td colspan="6" class="err">${esc(e.message)}</td></tr>`; }
 }
 async function createSaasInvoice(){
@@ -381,6 +510,18 @@ async function openBillingFile(id,kind,download){
       setTimeout(()=>URL.revokeObjectURL(url),30000);
     }
   }catch(e){ alert(e.message); }
+}
+async function cancelBillingInvoice(id,status){
+  const motivo=prompt('Motivo cancelación SAT (01, 02, 03 o 04)', '02');
+  if(!motivo) return;
+  let uuid_sustitucion='';
+  if(motivo==='01') uuid_sustitucion=prompt('UUID sustitución', '') || '';
+  try{
+    await api(`/billing/invoices/${id}/cancel`,{method:'POST',headers:H(),body:JSON.stringify({motivo,uuid_sustitucion})});
+    await loadBillingInvoices();
+  }catch(e){
+    alert(e.message || (status==='timbrada' ? 'La cancelación timbrada requiere PAC/SW validado.' : 'No se pudo cancelar.'));
+  }
 }
 async function saveModule(){ try{ await api('/user-sections',{method:'PUT',headers:H(),body:JSON.stringify({user_id:modUser.value,section:modSection.value,role:modRole.value,status:modStatus.value,tenant_id:modTenant.value||null,perfil_id:modPerfil.value?Number(modPerfil.value):null,display_name:modDisplay.value})}); msg('modMsg','Acceso guardado'); await loadUsers(); }catch(e){msg('modMsg',e.message,false);} }
 async function setUserStatus(userId,status){ if(status==='inactive' && !confirm('Esto desactiva sus accesos a módulos sin borrar datos. ¿Continuar?')) return; await api('/users/'+encodeURIComponent(userId)+'/status',{method:'POST',headers:H(),body:JSON.stringify({status})}); await loadUsersHealth(); await loadUsers(); }
