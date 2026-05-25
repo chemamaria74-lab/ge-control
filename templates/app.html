@@ -2329,6 +2329,14 @@ function perfilId() {
   return _perfilSeleccionado ? _perfilSeleccionado.id : null;
 }
 
+function perfilActivoRfc() {
+  return (_perfilSeleccionado?.rfc || '').trim().toUpperCase();
+}
+
+function normalizarRfc(valor) {
+  return String(valor || '').trim().toUpperCase();
+}
+
 // Inicializar desde sessionStorage al cargar
 _loadPerfilFromSession();
 
@@ -2980,6 +2988,9 @@ function actualizarSwitcherEmpresa(perfil) {
   const nameEl   = document.getElementById('empresaSwitcherName');
   if (switcher) switcher.style.display = 'flex';
   if (nameEl)   nameEl.textContent = perfil.nombre || '—';
+  const rfcEl = document.getElementById('rfc');
+  const perfilRfc = normalizarRfc(perfil.rfc);
+  if (rfcEl && perfilRfc && !rfcEl.value.trim()) rfcEl.value = perfilRfc;
   const scopeHint = document.getElementById('gasInternalScopeHint');
   if (scopeHint) scopeHint.innerHTML = `Asistentes internos de <b>${perfil.nombre || 'empresa activa'}</b>. Solo podrán entrar a este perfil Gas LP.`;
 }
@@ -3199,7 +3210,7 @@ async function loadSettings() {
       if (el) el.value = '';
     });
     const rfcEl = document.getElementById('rfc');
-    if (rfcEl) rfcEl.value = data.RfcContribuyente || '';
+    if (rfcEl) rfcEl.value = normalizarRfc(data.RfcContribuyente) || perfilActivoRfc();
     const repEl = document.getElementById('sat_rfc_rep');
     if (repEl) repEl.value = data.RfcRepresentanteLegal || '';
     const provEl = document.getElementById('sat_rfc_prov');
@@ -3216,9 +3227,9 @@ async function saveSettings() {
   if (_resettingState) return;
   const status = document.getElementById('settingsStatus');
   if (status) status.textContent = '';
-  const rfcVal  = (document.getElementById('rfc')?.value || '').trim().toUpperCase();
-  const repVal  = (document.getElementById('sat_rfc_rep')?.value || '').trim().toUpperCase();
-  const provVal = (document.getElementById('sat_rfc_prov')?.value || '').trim().toUpperCase();
+  const rfcVal  = normalizarRfc(document.getElementById('rfc')?.value) || perfilActivoRfc();
+  const repVal  = normalizarRfc(document.getElementById('sat_rfc_rep')?.value);
+  const provVal = normalizarRfc(document.getElementById('sat_rfc_prov')?.value);
   const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
   const payload = { FactorDeConversionKgALitros: factorVal };
   if (rfcVal)  payload.RfcContribuyente      = rfcVal;
