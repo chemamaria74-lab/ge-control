@@ -22,9 +22,17 @@ services:
         sync: false
       - key: SW_ENV
         value: "test"
+      - key: APP_ENV
+        value: "staging"
+      - key: SW_ALLOW_REAL_TIMBRADO
+        value: "false"
+      - key: SW_ALLOW_REAL_CANCELACION
+        value: "false"
       - key: SW_USER
         sync: false
       - key: SW_PASSWORD
+        sync: false
+      - key: SW_SAPIEN_URL
         sync: false
       - key: PYTHON_VERSION
         value: "3.11.9"

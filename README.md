@@ -47,9 +47,14 @@ SUPABASE_URL=
 SUPABASE_KEY=              # anon/public key del proyecto
 SUPABASE_SERVICE_ROLE_KEY= # solo servidor, nunca frontend
 ALLOWED_ORIGIN_EXTRA=
-SW_SAPIEN_USER=
-SW_SAPIEN_PASSWORD=
-SW_SAPIEN_URL=
+APP_ENV=staging|production
+SW_ENV=test|production
+SW_USER=                  # también se soporta SW_SAPIEN_USER
+SW_PASSWORD=              # también se soporta SW_SAPIEN_PASSWORD
+SW_SAPIEN_URL=https://services.sw.com.mx
+SW_ALLOW_REAL_TIMBRADO=false
+SW_ALLOW_REAL_CANCELACION=false
+SW_ALLOW_REAL_IN_STAGING=false
 ```
 
 Gasolineras:
@@ -259,7 +264,10 @@ Tablas nuevas preparadas por `fiscal_audit_architecture_20260520.sql`:
 Ambientes:
 
 - `SW_ENV=test|sandbox`: pruebas, no vender como timbrado productivo.
-- `SW_ENV=prod`: solo con CSD, contrato PAC y casos reales validados.
+- `SW_ENV=prod|production`: endpoint productivo SW.
+- `APP_ENV=production` y `SW_ALLOW_REAL_TIMBRADO=true` son requeridos para permitir timbrado/cancelación real.
+- `SW_ALLOW_REAL_CANCELACION=true` se requiere adicionalmente para cancelar CFDI reales.
+- Si `APP_ENV!=production`, el timbrado real queda bloqueado aunque `SW_ENV=production`, salvo `SW_ALLOW_REAL_IN_STAGING=true` para una prueba manual autorizada.
 - Cada request debe indicar ambiente para evitar mezclar sandbox y producción.
 
 Reglas de trazabilidad:
