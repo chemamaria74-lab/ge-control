@@ -1364,7 +1364,7 @@ async def create_admin_internal_user(payload: AdminInternalUserCreatePayload, au
     try:
         created = _sb_admin().table("internal_users").insert(row).execute().data or [row]
     except Exception as exc:
-        raise _clean_http_error(500, exc, "No se pudo crear el operador interno.")
+        raise _clean_http_error(500, exc, "No se pudo crear el usuario interno.")
     response = created[0]
     response.pop("pin_hash", None)
     _audit(uid, "create_internal_user", "internal_user", str(response.get("id")), {"tenant_id": tenant_id, "section": section, "role": role})
