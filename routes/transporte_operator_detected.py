@@ -34,27 +34,6 @@ def _status_label(status: str | None) -> str:
     }.get(status or "", status or "Sin sincronizar")
 
 
-def _mock_detected_load(meta: dict) -> dict:
-    empresa = meta.get("empresa") or {}
-    return {
-        "id": "mock-pemex-transporte",
-        "source": "mock",
-        "status": "pending_confirmation",
-        "status_label": "Nueva carga detectada",
-        "proveedor": "PEMEX",
-        "rfc_proveedor": "PME850101XXX",
-        "empresa": empresa.get("nombre") or "Empresa asignada",
-        "destino_detectado": "Monterrey",
-        "producto_detectado": "Gas LP",
-        "litros_detectados": 10,
-        "unidad_detectada": "L",
-        "uuid": "00000000-0000-4000-8000-000000000000",
-        "fecha_detectada": _now_iso(),
-        "confidence_score": 82,
-        "message": "Mock visible hasta conectar SW Sapiens/SAT sandbox o cargar CFDI reales.",
-    }
-
-
 def _matches(item: dict, search: str | None) -> bool:
     needle = (search or "").strip().lower()
     if not needle:
@@ -115,9 +94,7 @@ async def operador_cargas_detectadas(
         if _matches(item, search):
             loads.append(item)
 
-    source = "real" if loads else "mock"
-    if not loads:
-        loads = [_mock_detected_load(meta)]
+    source = "real" if loads else "empty"
     return JSONResponse(
         {
             "ok": True,
@@ -146,16 +123,6 @@ async def operador_cargas_detectadas_accion(load_id: str, payload: DetectedLoadA
         "edit": "pending_confirmation",
     }
     status = status_by_action[action]
-    if str(load_id).startswith("mock-"):
-        return JSONResponse(
-            {
-                "ok": True,
-                "mock": True,
-                "status": status,
-                "message": "Acción simulada. Falta conectar CFDI real desde SW Sapiens/SAT sandbox.",
-            }
-        )
-
     update = {"status": status, "updated_at": _now_iso()}
     if action == "confirm":
         update["confirmed_by"] = acc.get("user_id")

@@ -200,26 +200,6 @@ def _status_label(status: str) -> str:
     }.get(status or "", status or "Sin sincronizar")
 
 
-def _mock_detected_load(user: dict) -> dict:
-    return {
-        "id": "mock-pemex-gas-lp",
-        "source": "mock",
-        "status": "pending_confirmation",
-        "status_label": "Nueva carga detectada",
-        "proveedor": "PEMEX",
-        "rfc_proveedor": "PME850101XXX",
-        "empresa": f"Perfil {user.get('perfil_id') or 'sin asignar'}",
-        "destino_detectado": "Monterrey",
-        "producto_detectado": "Gas LP",
-        "litros_detectados": 10,
-        "unidad_detectada": "L",
-        "uuid": "00000000-0000-4000-8000-000000000000",
-        "fecha_detectada": _now_iso(),
-        "confidence_score": 82,
-        "message": "Mock visible hasta conectar SW Sapiens/SAT sandbox o cargar CFDI reales.",
-    }
-
-
 def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dict:
     from routes.transporte import _normalizar_receptor_cfdi, _validar_datos_cfdi_receptor
 
@@ -1030,9 +1010,7 @@ async def gas_lp_detected_loads(token: str, search: str | None = None, status: s
         if not needle or needle in haystack:
             loads.append(item)
 
-    source = "real" if loads else "mock"
-    if not loads:
-        loads = [_mock_detected_load(user)]
+    source = "real" if loads else "empty"
     states = [
         {"key": "sin_sincronizar", "label": "Sin sincronizar"},
         {"key": "buscando_cfdi", "label": "Buscando CFDI"},
@@ -1050,14 +1028,6 @@ async def gas_lp_detected_load_action(load_id: str, payload: DetectedLoadAction,
     action = (payload.action or "").strip().lower()
     if action not in {"confirm", "ignore", "edit"}:
         raise HTTPException(400, "Acción inválida.")
-    if str(load_id).startswith("mock-"):
-        return JSONResponse({
-            "ok": True,
-            "mock": True,
-            "status": "carta_porte_created" if action == "confirm" else "rejected" if action == "ignore" else "pending_confirmation",
-            "message": "Acción simulada. Falta conectar CFDI real desde SW Sapiens/SAT sandbox.",
-        })
-
     status_by_action = {
         "confirm": "carta_porte_created",
         "ignore": "rejected",
