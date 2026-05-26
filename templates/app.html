@@ -3379,7 +3379,7 @@ async function loadFacilities() {
   const cached = facilitiesCacheByPerfil.get(pid);
   if (cached && (Date.now() - cached.at) < 30000) {
     _facilities = cached.rows;
-    renderFacilitiesTable(_facilities);
+    renderFacilitiesTable(_facilities, cached.diagnostics || {});
     populateFacilitySelectors(_facilities);
     return;
   }
@@ -3387,17 +3387,33 @@ async function loadFacilities() {
     const res  = await fetch('/api/facilities', { headers: authHeader() });
     const data = await res.json();
     _facilities = data.facilities || [];
-    facilitiesCacheByPerfil.set(pid, { at: Date.now(), rows: _facilities });
-    renderFacilitiesTable(_facilities);
+    facilitiesCacheByPerfil.set(pid, { at: Date.now(), rows: _facilities, diagnostics: data.diagnostics || {} });
+    renderFacilitiesTable(_facilities, data.diagnostics || {});
     populateFacilitySelectors(_facilities);
   } catch(e) { console.warn('No se pudo cargar instalaciones:', e); }
 }
 
-function renderFacilitiesTable(facilities) {
+function invalidateFacilitiesCache(pid = perfilId() || 'none') {
+  facilitiesCacheByPerfil.delete(pid);
+}
+
+function renderFacilitiesTable(facilities, diagnostics = {}) {
   const tbody = document.getElementById('tbodyFacilities');
   if (!tbody) return;
   if (!facilities.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Sin instalaciones registradas — haz clic en "Nueva instalación" para agregar una.</td></tr>';
+    let msg = 'Sin instalaciones registradas para esta empresa — haz clic en "Nueva instalación" para agregar una.';
+    const total = Number(diagnostics.total_user_facilities || 0);
+    const legacy = Number(diagnostics.legacy_without_perfil || 0);
+    const byPerfil = diagnostics.by_perfil || {};
+    const otherProfiles = Object.entries(byPerfil)
+      .filter(([pid, count]) => Number(pid) !== Number(perfilId()) && Number(count) > 0)
+      .reduce((sum, [, count]) => sum + Number(count || 0), 0);
+    if (legacy || otherProfiles) {
+      msg = `Esta empresa no tiene instalaciones vinculadas. Hay ${legacy} sin perfil y ${otherProfiles} en otros perfiles; revisa importación o reparación de datos.`;
+    } else if (total > 0) {
+      msg = 'Esta empresa no tiene instalaciones vinculadas aunque existen instalaciones del usuario en otro alcance.';
+    }
+    tbody.innerHTML = `<tr><td colspan="6" class="hist-empty">${msg}</td></tr>`;
     return;
   }
   tbody.innerHTML = facilities.map(f => {
@@ -3731,6 +3747,7 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
     st.textContent = 'Instalación guardada';
     st.style.color = '#16a34a';
     setTimeout(() => { document.getElementById('facilityFormWrap').style.display = 'none'; st.textContent=''; }, 1200);
+    invalidateFacilitiesCache();
     await loadFacilities();
   } catch(e) {
     st.textContent = 'Error: ' + e.message;
@@ -3747,6 +3764,7 @@ function confirmDeleteFacility(id, nombre) {
         const res = await fetch(`/api/facilities/${id}`, { method: 'DELETE', headers: authHeader() });
         if (!res.ok) throw new Error('Error al eliminar');
         if (_activeFacilityId === id) { _activeFacilityId = null; updateFacilityBadge(null); }
+        invalidateFacilitiesCache();
         await loadFacilities();
       } catch(e) { alert('Error: ' + e.message); }
     }
