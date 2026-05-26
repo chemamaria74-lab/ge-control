@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -1048,7 +1049,7 @@ async def list_saas_users(authorization: str = Header(default="")):
             "perfil_id": None,
             "auth_only": True,
         })
-    return JSONResponse({"ok": True, "users": sections})
+    return JSONResponse(jsonable_encoder({"ok": True, "users": sections}))
 
 
 @router.post("/admin-saas/users")

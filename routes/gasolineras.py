@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, File, Header, HTTPException, Query, UploadFile
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from models.gasolineras_schemas import (
@@ -376,13 +377,13 @@ async def market_status(authorization: str = Header(default="")):
         last_run = last[0] if last else None
     except Exception:
         last_run = None
-    return JSONResponse({
+    return JSONResponse(jsonable_encoder({
         "ok": True,
         "quality": _market_quality(rows),
         "can_ingest": _role(uid, token) == "admin",
         "csv_url_configured": bool(os.environ.get("GASO_MARKET_CSV_URL", "").strip()),
         "last_run": last_run,
-    })
+    }))
 
 
 @router.post("/gaso/market/ingest")
