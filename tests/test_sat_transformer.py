@@ -73,12 +73,12 @@ def _mov(tipo: str, vol: float, uuid: str = None, rfc: str = "PROV010101XXX",
     }
 
 
-# ── Mock para get_permiso_for_rfc ─────────────────────────────────────────────
+# ── Fixture de compatibilidad ─────────────────────────────────────────────────
 @pytest.fixture(autouse=True)
 def mock_providers():
-    with patch("services.sat_transformer.get_permiso_for_rfc", return_value="G/99999/ALM/2020"), \
-         patch("services.sat_transformer.get_permiso_almacenamiento_for_rfc", return_value="G/99999/ALM/2020"):
-        yield
+    # build_sat_report ya recibe lookups de permisos por inyección de dependencias.
+    # Los tests base no necesitan parchear funciones globales inexistentes.
+    yield
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -276,7 +276,7 @@ class TestComposicionPR12:
 
 class TestDictamenPR12:
 
-    def test_dictamen_capturado_se_exporta_sin_inventar_fechas(self):
+    def test_dictamen_capturado_queda_solo_en_meta_interna(self):
         settings = _settings_base(adv_dictamen={
             "num_dictamen": "DI-AGA9603186X8_MEK170403JK1000012026",
             "fecha_emision": "2026-03-31",
@@ -297,7 +297,14 @@ class TestDictamenPR12:
             anio=2026, mes=3,
         )
 
-        dictamen = sat["Producto"][0]["Dictamen"]
+        producto = sat["Producto"][0]
+        complemento = producto["ReporteDeVolumenMensual"]["Recepciones"]["Complemento"][0]
+        assert "Dictamen" not in producto
+        assert "Dictamen" not in complemento
+        assert '"Dictamen"' not in sat_dict_to_json(sat)
+        assert "<Dictamen>" not in sat_dict_to_xml(sat)
+
+        dictamen = meta["dictamen_pr12"]["datos"]
         assert dictamen["fecha_emision"] == "2026-03-31"
         assert dictamen["fecha_toma_muestra"] == "2026-03-30"
         assert dictamen["fecha_realizacion_pruebas"] == "2026-03-31"
@@ -305,11 +312,6 @@ class TestDictamenPR12:
         assert dictamen["numero_lote"] == "01T-2026"
         assert "fecha_caducidad" not in dictamen
         assert meta["dictamen_pr12"]["alertas"] == []
-
-        json_out = sat_dict_to_json(sat)
-        xml_out = sat_dict_to_xml(sat)
-        assert '"fecha_emision":"2026-03-31"' in json_out
-        assert "<fecha_toma_muestra>2026-03-30</fecha_toma_muestra>" in xml_out
 
     def test_dictamen_fuera_de_periodo_genera_alerta(self):
         settings = _settings_base(adv_dictamen={
@@ -326,6 +328,22 @@ class TestDictamenPR12:
         )
 
         assert any("no queda completamente cubierto" in a for a in meta["dictamen_pr12"]["alertas"])
+
+    def test_sin_dictamen_no_exporta_bloques_vacios(self):
+        sat, meta = build_sat_report(
+            movimientos=[_mov("entrada", 1000.0, fecha="2026-03-15")],
+            settings=_settings_base(adv_dictamen={}),
+            inventario_inicial_litros=5000.0,
+            anio=2026, mes=3,
+        )
+
+        producto = sat["Producto"][0]
+        complemento = producto["ReporteDeVolumenMensual"]["Recepciones"]["Complemento"][0]
+        assert "Dictamen" not in producto
+        assert "Dictamen" not in complemento
+        assert meta["dictamen_pr12"]["datos"] is None
+        assert "<Dictamen>" not in sat_dict_to_xml(sat)
+        assert '"Dictamen"' not in sat_dict_to_json(sat)
 
 
 class TestCoeficienteVCM:
