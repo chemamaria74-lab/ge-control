@@ -172,6 +172,7 @@
       sumTotal.textContent = money(sub + iva);
     }
     async function crearFactura(){
+      if(!confirm('¿Timbrar factura real? Solo continúa si esta prueba fue autorizada.')) return;
       try{
         setStatus('facturaMsg','Timbrando con PAC...');
         const clienteId = clienteSelect.value ? Number(clienteSelect.value) : null;

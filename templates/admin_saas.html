@@ -524,6 +524,7 @@ async function loadBillingInvoices(){
   }catch(e){ const tbody=document.getElementById('saasBillingRows'); if(tbody) tbody.innerHTML=`<tr><td colspan="6" class="err">${esc(e.message)}</td></tr>`; }
 }
 async function createSaasInvoice(){
+  if(!confirm('¿Crear y timbrar factura GE Control? Solo continúa si el timbrado real fue autorizado.')) return;
   try{
     msg('saasInvMsg','Timbrando...');
     const payload={
@@ -561,6 +562,8 @@ async function openBillingFile(id,kind,download){
   }catch(e){ alert(e.message); }
 }
 async function cancelBillingInvoice(id,status){
+  alert('Cancelación real no se prueba todavía. Queda documentada y bloqueada por bandera de producción.');
+  return;
   const motivo=prompt('Motivo cancelación SAT (01, 02, 03 o 04)', '02');
   if(!motivo) return;
   let uuid_sustitucion='';
