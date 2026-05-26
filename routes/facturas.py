@@ -377,6 +377,11 @@ class CartaPorteRequest(BaseModel):
     nombre_asegurador: str   = ""
     poliza_seguro:     str   = ""
     facility_id:       Optional[int] = None
+    origen_facility_id: Optional[int] = None
+    destino_facility_id: Optional[int] = None
+    vehiculo_id:       Optional[int] = None
+    chofer_id:         Optional[int] = None
+    ruta_id:           Optional[int] = None
     tipo_comprobante:  str   = "T"
     distancia_km:      float = 1.0
     cfdi_relacionados: Optional[list] = None
@@ -455,7 +460,12 @@ async def generar_carta_porte(
     now = datetime.now(timezone.utc).isoformat()
     supabase_row = None
     supabase_row = _sb_insert(_SB_FACTURAS, _scope_row(scope, {
-        "facility_id": payload.facility_id,
+        "facility_id": payload.origen_facility_id or payload.facility_id,
+        "origen_facility_id": payload.origen_facility_id or payload.facility_id,
+        "destino_facility_id": payload.destino_facility_id,
+        "vehiculo_id": payload.vehiculo_id,
+        "chofer_id": payload.chofer_id,
+        "ruta_id": payload.ruta_id,
         "record_uuid": payload.record_uuid,
         "uuid_sat": resultado["uuid"],
         "xml_content": resultado["xml_timbrado"],
@@ -467,6 +477,14 @@ async def generar_carta_porte(
         "importe": payload.importe,
         "tipo_comprobante": payload.tipo_comprobante,
         "distancia_km": payload.distancia_km,
+        "metadata": {
+            "origen_facility_id": payload.origen_facility_id or payload.facility_id,
+            "destino_facility_id": payload.destino_facility_id,
+            "vehiculo_id": payload.vehiculo_id,
+            "chofer_id": payload.chofer_id,
+            "ruta_id": payload.ruta_id,
+            "tipo_flujo": "gas_lp_carta_porte_traspaso_interno",
+        },
         "created_at": now,
     }))
     if supabase_row:
@@ -956,14 +974,14 @@ async def crear_chofer(
 
 @router.put("/facturas/choferes/{chofer_id}")
 async def actualizar_chofer(
-    chofer_id: int, nombre: str, licencia: str = "", telefono: str = "",
+    chofer_id: int, nombre: str, rfc: str = "", licencia: str = "", telefono: str = "",
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
-    if _sb_update(_SB_CHOFERES, chofer_id, scope, {"nombre": nombre, "licencia": licencia, "telefono": telefono}):
+    if _sb_update(_SB_CHOFERES, chofer_id, scope, {"nombre": nombre, "rfc": rfc, "licencia": licencia, "telefono": telefono}):
         return JSONResponse({"ok": True, "message": "Chofer actualizado", "source": "supabase"})
     raise HTTPException(404, "Chofer no encontrado en la empresa seleccionada.")
 
@@ -1097,6 +1115,7 @@ async def listar_rutas(
 @router.post("/facturas/rutas")
 async def crear_ruta(
     nombre: str, cp_origen: str = "", cp_destino: str = "", distancia_km: float = 1.0,
+    origen_facility_id: Optional[int] = None, destino_facility_id: Optional[int] = None,
     modulo: str = "transporte", authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1106,6 +1125,8 @@ async def crear_ruta(
     supabase_row = _sb_insert(_SB_RUTAS, _scope_row(scope, {
         "modulo_propietario": modulo,
         "nombre": nombre,
+        "origen_facility_id": origen_facility_id,
+        "destino_facility_id": destino_facility_id,
         "cp_origen": cp_origen,
         "cp_destino": cp_destino,
         "distancia_km": distancia_km,
@@ -1120,6 +1141,7 @@ async def crear_ruta(
 async def actualizar_ruta(
     ruta_id: int, nombre: str,
     cp_origen: str = "", cp_destino: str = "", distancia_km: float = 1.0,
+    origen_facility_id: Optional[int] = None, destino_facility_id: Optional[int] = None,
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1133,6 +1155,8 @@ async def actualizar_ruta(
     _require_supabase_scope(scope)
     if _sb_update(_SB_RUTAS, ruta_id, scope, {
         "nombre": nombre,
+        "origen_facility_id": origen_facility_id,
+        "destino_facility_id": destino_facility_id,
         "cp_origen": cp_origen,
         "cp_destino": cp_destino,
         "distancia_km": distancia_km,
