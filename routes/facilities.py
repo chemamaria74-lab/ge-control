@@ -66,6 +66,32 @@ def _auth(authorization: str) -> str:
     return uid
 
 
+def _empty_scope_diagnostics(uid: str, modulo: Optional[str], perfil_id: Optional[int]) -> dict:
+    if not perfil_id:
+        return {}
+    try:
+        rows = get_facilities(uid, modulo, perfil_id=None)
+    except Exception as exc:
+        logger.debug("facilities diagnostics skipped: %s", exc)
+        return {}
+    if not rows:
+        return {"total_user_facilities": 0, "legacy_without_perfil": 0, "by_perfil": {}}
+    by_perfil: dict[str, int] = {}
+    legacy = 0
+    for row in rows:
+        pid = row.get("perfil_id")
+        if pid is None:
+            legacy += 1
+            continue
+        key = str(pid)
+        by_perfil[key] = by_perfil.get(key, 0) + 1
+    return {
+        "total_user_facilities": len(rows),
+        "legacy_without_perfil": legacy,
+        "by_perfil": by_perfil,
+    }
+
+
 class FacilityPayload(BaseModel):
     nombre:              str   = ""
     tipo_instalacion:    str   = "planta"           # "planta" | "estacion"
@@ -119,7 +145,8 @@ async def list_facilities(
         tp = f.get("tipo_permiso", "PER40") or "PER40"
         f["actividad_sat"]      = _get_actividad(tp)
         f["permiso_descripcion"] = PERMISO_CONFIG.get(tp, {}).get("descripcion", "")
-    return JSONResponse(content={"facilities": facs})
+    diagnostics = _empty_scope_diagnostics(uid, modulo, perfil_id) if not facs else {}
+    return JSONResponse(content={"facilities": facs, "diagnostics": diagnostics})
 
 
 @router.get("/facilities/permisos")
@@ -154,12 +181,19 @@ async def add_facility(
 
 
 @router.put("/facilities/{fid}")
-async def edit_facility(fid: int, payload: FacilityPayload,
-                        authorization: str = Header(default="")):
+async def edit_facility(
+    fid: int,
+    payload: FacilityPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
     uid = _auth(authorization)
-    if not get_facility(fid, uid):
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    if not get_facility(fid, uid, perfil_id=perfil_id):
         raise HTTPException(404, "Instalación no encontrada.")
     data = payload.model_dump()
+    if perfil_id:
+        data["perfil_id"] = perfil_id
     tp = data.get("tipo_permiso", "PER40")
     data["modalidad_permiso"] = _get_modalidad_from_tipo(tp)
     data["actividad_sat"]     = _get_actividad(tp)
@@ -169,9 +203,14 @@ async def edit_facility(fid: int, payload: FacilityPayload,
 
 
 @router.delete("/facilities/{fid}")
-async def remove_facility(fid: int, authorization: str = Header(default="")):
+async def remove_facility(
+    fid: int,
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
     uid = _auth(authorization)
-    if not delete_facility(fid, uid):
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    if not delete_facility(fid, uid, perfil_id=perfil_id):
         raise HTTPException(404, "Instalación no encontrada.")
     return JSONResponse(content={"ok": True, "deleted_id": fid})
 
