@@ -114,8 +114,6 @@ def _build_dictamen_producto(settings: dict, anio: int, mes: int) -> tuple[Optio
     """
     Dictamen PR12 capturado por el cliente para respaldo interno.
 
-    La vigencia_desde/hasta se usa como periodo operativo del lote dictaminado,
-    no como caducidad legal. No se derivan ni se inventan fechas.
     El JSON mensual SAT solo exporta ComposDePropanoEnGasLP y
     ComposDeButanoEnGasLP; no se agrega un nodo Dictamen.
     """
@@ -127,9 +125,8 @@ def _build_dictamen_producto(settings: dict, anio: int, mes: int) -> tuple[Optio
     dictamen = {
         "num_dictamen": _clean_str(raw.get("num_dictamen")),
         "fecha_emision": fecha_emision,
-        "vigencia_desde": _clean_str(raw.get("vigencia_desde")),
-        "vigencia_hasta": _clean_str(raw.get("vigencia_hasta")),
         "numero_lote": _clean_str(raw.get("numero_lote")),
+        "rfc_laboratorio": _clean_str(raw.get("rfc_laboratorio")),
         "fecha_toma_muestra": _clean_str(raw.get("fecha_toma_muestra")),
         "fecha_realizacion_pruebas": _clean_str(raw.get("fecha_realizacion_pruebas")),
         "fecha_resultados": _clean_str(raw.get("fecha_resultados")),
@@ -144,26 +141,6 @@ def _build_dictamen_producto(settings: dict, anio: int, mes: int) -> tuple[Optio
         alertas.append("⚠ Dictamen PR12: falta fecha_emision capturada por el cliente.")
     if not dictamen.get("numero_lote"):
         alertas.append("⚠ Dictamen PR12: falta numero_lote capturado por el cliente.")
-
-    desde = dictamen.get("vigencia_desde")
-    hasta = dictamen.get("vigencia_hasta")
-    if bool(desde) != bool(hasta):
-        alertas.append("⚠ Dictamen PR12: captura vigencia_desde y vigencia_hasta juntas para validar el periodo/lote.")
-    elif desde and hasta:
-        try:
-            inicio_lote = datetime.strptime(desde, "%Y-%m-%d").date()
-            fin_lote = datetime.strptime(hasta, "%Y-%m-%d").date()
-            inicio_reporte = datetime(anio, mes, 1).date()
-            fin_reporte = datetime(anio, mes, calendar.monthrange(anio, mes)[1]).date()
-            if inicio_lote > fin_lote:
-                alertas.append("⚠ Dictamen PR12: vigencia_desde es posterior a vigencia_hasta.")
-            elif inicio_reporte < inicio_lote or fin_reporte > fin_lote:
-                alertas.append(
-                    f"⚠ Dictamen PR12: el periodo del reporte {_periodo_str(anio, mes)} "
-                    f"no queda completamente cubierto por el lote dictaminado ({desde} a {hasta})."
-                )
-        except ValueError:
-            alertas.append("⚠ Dictamen PR12: vigencia_desde/vigencia_hasta deben usar formato AAAA-MM-DD.")
 
     return dictamen, alertas
 
