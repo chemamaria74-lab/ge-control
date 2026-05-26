@@ -280,9 +280,8 @@ class TestDictamenPR12:
         settings = _settings_base(adv_dictamen={
             "num_dictamen": "DI-AGA9603186X8_MEK170403JK1000012026",
             "fecha_emision": "2026-03-31",
-            "vigencia_desde": "2026-01-01",
-            "vigencia_hasta": "2026-03-31",
             "numero_lote": "01T-2026",
+            "rfc_laboratorio": "MEK170403JK1",
             "fecha_toma_muestra": "2026-03-30",
             "fecha_realizacion_pruebas": "2026-03-31",
             "fecha_resultados": "2026-03-31",
@@ -310,14 +309,15 @@ class TestDictamenPR12:
         assert dictamen["fecha_realizacion_pruebas"] == "2026-03-31"
         assert dictamen["fecha_resultados"] == "2026-03-31"
         assert dictamen["numero_lote"] == "01T-2026"
+        assert dictamen["rfc_laboratorio"] == "MEK170403JK1"
         assert "fecha_caducidad" not in dictamen
+        assert "vigencia_desde" not in dictamen
+        assert "vigencia_hasta" not in dictamen
         assert meta["dictamen_pr12"]["alertas"] == []
 
-    def test_dictamen_fuera_de_periodo_genera_alerta(self):
+    def test_dictamen_no_pide_vigencia_ni_alerta_por_periodo(self):
         settings = _settings_base(adv_dictamen={
             "fecha_emision": "2026-03-31",
-            "vigencia_desde": "2026-01-01",
-            "vigencia_hasta": "2026-03-31",
             "numero_lote": "01T-2026",
         })
         _sat, meta = build_sat_report(
@@ -327,7 +327,7 @@ class TestDictamenPR12:
             anio=2026, mes=4,
         )
 
-        assert any("no queda completamente cubierto" in a for a in meta["dictamen_pr12"]["alertas"])
+        assert meta["dictamen_pr12"]["alertas"] == []
 
     def test_sin_dictamen_no_exporta_bloques_vacios(self):
         sat, meta = build_sat_report(
