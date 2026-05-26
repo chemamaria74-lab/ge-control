@@ -1042,6 +1042,13 @@ async def list_saas_users(authorization: str = Header(default="")):
     _require_superadmin(authorization)
     auth_users = _auth_users_by_id()
     sections = _sb_admin().table("user_sections").select("*").order("created_at", desc=True).execute().data or []
+    superadmin_ids = _superadmin_ids()
+    superadmin_emails = _superadmin_emails()
+
+    def mark_admin(row: dict, auth: dict) -> None:
+        email = (auth.get("email") or "").strip().lower()
+        row["is_ge_admin"] = str(row.get("user_id") or "").strip().lower() in superadmin_ids or email in superadmin_emails
+
     seen_user_ids = set()
     for s in sections:
         seen_user_ids.add(str(s.get("user_id")))
@@ -1050,10 +1057,11 @@ async def list_saas_users(authorization: str = Header(default="")):
         s["last_sign_in_at"] = auth.get("last_sign_in_at")
         s["auth_display_name"] = auth.get("display_name", "")
         s["auth_only"] = False
+        mark_admin(s, auth)
     for user_id, auth in auth_users.items():
         if user_id in seen_user_ids:
             continue
-        sections.append({
+        row = {
             "user_id": user_id,
             "email": auth.get("email", ""),
             "last_sign_in_at": auth.get("last_sign_in_at"),
@@ -1064,7 +1072,9 @@ async def list_saas_users(authorization: str = Header(default="")):
             "tenant_id": None,
             "perfil_id": None,
             "auth_only": True,
-        })
+        }
+        mark_admin(row, auth)
+        sections.append(row)
     return JSONResponse(jsonable_encoder({"ok": True, "users": sections}))
 
 
