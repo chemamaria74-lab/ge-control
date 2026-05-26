@@ -2181,12 +2181,9 @@ tr:hover td{background:#f8fafc}
   </div>
   <div style="margin-top:.8rem;padding-top:.7rem;border-top:1px solid #f1f5f9">
     <div style="font-size:.75rem;font-weight:600;color:#374151;margin-bottom:.5rem">Dictamen / Calidad de producto <span style="font-weight:400;color:#94a3b8">— opcional</span></div>
-    <div style="font-size:.72rem;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:.55rem .7rem;margin-bottom:.7rem;line-height:1.55">
-      La vigencia corresponde al periodo operativo/lote dictaminado. No representa una caducidad legal del dictamen.
-    </div>
     <div class="grid2">
       <div class="field">
-        <label style="font-size:.72rem">Número de dictamen / laboratorio</label>
+        <label style="font-size:.72rem">Número de dictamen</label>
         <input id="adv_num_dictamen" type="text" placeholder="Ej. DI-AGA9603186X8_MEK170403JK1000012026" maxlength="80">
       </div>
       <div class="field">
@@ -2194,16 +2191,12 @@ tr:hover td{background:#f8fafc}
         <input id="adv_fecha_dictamen" type="date">
       </div>
       <div class="field">
-        <label style="font-size:.72rem">Vigencia desde <span style="font-weight:400;color:#94a3b8">(periodo/lote)</span></label>
-        <input id="adv_vigencia_desde" type="date">
-      </div>
-      <div class="field">
-        <label style="font-size:.72rem">Vigencia hasta <span style="font-weight:400;color:#94a3b8">(periodo/lote)</span></label>
-        <input id="adv_vigencia_hasta" type="date">
-      </div>
-      <div class="field">
         <label style="font-size:.72rem">Número de lote</label>
         <input id="adv_numero_lote" type="text" placeholder="Ej. 01T-2026" maxlength="40">
+      </div>
+      <div class="field">
+        <label style="font-size:.72rem">RFC laboratorio</label>
+        <input id="adv_rfc_laboratorio" type="text" placeholder="Ej. MEK170403JK1" maxlength="13" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
       </div>
       <div class="field">
         <label style="font-size:.72rem">Fecha toma de muestra</label>
@@ -3165,7 +3158,7 @@ function resetAppState() {
   // ── 2. Limpiar composición PR12 (adv tank/geo/medidor están en facility form) ──
   [
     'adv_propano','adv_butano','adv_num_dictamen','adv_fecha_dictamen',
-    'adv_vigencia_desde','adv_vigencia_hasta','adv_numero_lote',
+    'adv_numero_lote','adv_rfc_laboratorio',
     'adv_fecha_toma_muestra','adv_fecha_realizacion_pruebas',
     'adv_fecha_resultados','adv_dictamen_observaciones'
   ].forEach(id => {
@@ -6026,9 +6019,8 @@ async function guardarComposicionPR12() {
     rfc_ui: '',
     num_dictamen: numDict,
     fecha_emision: document.getElementById('adv_fecha_dictamen')?.value || '',
-    vigencia_desde: document.getElementById('adv_vigencia_desde')?.value || '',
-    vigencia_hasta: document.getElementById('adv_vigencia_hasta')?.value || '',
     numero_lote: (document.getElementById('adv_numero_lote')?.value || '').trim(),
+    rfc_laboratorio: (document.getElementById('adv_rfc_laboratorio')?.value || '').trim().toUpperCase(),
     fecha_toma_muestra: document.getElementById('adv_fecha_toma_muestra')?.value || '',
     fecha_realizacion_pruebas: document.getElementById('adv_fecha_realizacion_pruebas')?.value || '',
     fecha_resultados: document.getElementById('adv_fecha_resultados')?.value || '',
@@ -6046,12 +6038,6 @@ async function guardarComposicionPR12() {
     }
     if (!dictamen.numero_lote) {
       setStatusMsg('statusCompos', 'Captura el Número de lote del dictamen.', false); return;
-    }
-    if ((dictamen.vigencia_desde && !dictamen.vigencia_hasta) || (!dictamen.vigencia_desde && dictamen.vigencia_hasta)) {
-      setStatusMsg('statusCompos', 'Captura ambas fechas del periodo operativo: Vigencia desde y Vigencia hasta.', false); return;
-    }
-    if (dictamen.vigencia_desde && dictamen.vigencia_hasta && dictamen.vigencia_desde > dictamen.vigencia_hasta) {
-      setStatusMsg('statusCompos', 'La Vigencia desde no puede ser posterior a Vigencia hasta.', false); return;
     }
   }
   try {
@@ -6084,7 +6070,7 @@ async function cargarConfigAvanzada() {
   // Clear fields
   [
     'adv_propano','adv_butano','adv_num_dictamen','adv_fecha_dictamen',
-    'adv_vigencia_desde','adv_vigencia_hasta','adv_numero_lote',
+    'adv_numero_lote','adv_rfc_laboratorio',
     'adv_fecha_toma_muestra','adv_fecha_realizacion_pruebas',
     'adv_fecha_resultados','adv_dictamen_observaciones','adv_rfc_ui','adv_version_sw'
   ].forEach(id => {
@@ -6106,9 +6092,8 @@ async function cargarConfigAvanzada() {
     const d = data.adv_dictamen || {};
     if (document.getElementById('adv_num_dictamen'))  document.getElementById('adv_num_dictamen').value  = d.num_dictamen   || '';
     if (document.getElementById('adv_fecha_dictamen')) document.getElementById('adv_fecha_dictamen').value= d.fecha_emision || d.fecha_vigencia || '';
-    if (document.getElementById('adv_vigencia_desde')) document.getElementById('adv_vigencia_desde').value= d.vigencia_desde || '';
-    if (document.getElementById('adv_vigencia_hasta')) document.getElementById('adv_vigencia_hasta').value= d.vigencia_hasta || '';
     if (document.getElementById('adv_numero_lote')) document.getElementById('adv_numero_lote').value= d.numero_lote || '';
+    if (document.getElementById('adv_rfc_laboratorio')) document.getElementById('adv_rfc_laboratorio').value= d.rfc_laboratorio || '';
     if (document.getElementById('adv_fecha_toma_muestra')) document.getElementById('adv_fecha_toma_muestra').value= d.fecha_toma_muestra || '';
     if (document.getElementById('adv_fecha_realizacion_pruebas')) document.getElementById('adv_fecha_realizacion_pruebas').value= d.fecha_realizacion_pruebas || '';
     if (document.getElementById('adv_fecha_resultados')) document.getElementById('adv_fecha_resultados').value= d.fecha_resultados || '';
