@@ -143,11 +143,13 @@ def get_facilities(user_id: str, modulo: str = None,
         return []
 
 
-def get_facility(facility_id: int, user_id: str) -> Optional[dict]:
+def get_facility(facility_id: int, user_id: str, perfil_id: Optional[int] = None) -> Optional[dict]:
     try:
-        rows = (get_supabase().table("user_facilities")
-                .select("*").eq("id", facility_id).eq("user_id", user_id)
-                .execute().data)
+        q = (get_supabase().table("user_facilities")
+             .select("*").eq("id", facility_id).eq("user_id", user_id))
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
+        rows = q.execute().data
         return rows[0] if rows else None
     except Exception as e:
         logger.warning("get_facility: %s", e)
@@ -162,10 +164,13 @@ def update_facility(facility_id: int, user_id: str, data: dict) -> Optional[dict
     return update_facility_v2(facility_id, user_id, data)
 
 
-def delete_facility(facility_id: int, user_id: str) -> bool:
+def delete_facility(facility_id: int, user_id: str, perfil_id: Optional[int] = None) -> bool:
     try:
-        r = (get_supabase().table("user_facilities")
-             .delete().eq("id", facility_id).eq("user_id", user_id).execute())
+        q = (get_supabase().table("user_facilities")
+             .delete().eq("id", facility_id).eq("user_id", user_id))
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
+        r = q.execute()
         return len(r.data or []) > 0
     except Exception as e:
         logger.warning("delete_facility: %s", e)
@@ -243,10 +248,13 @@ def update_facility_v2(facility_id: int, user_id: str, data: dict) -> Optional[d
             "serie_medidor":             data.get("serie_medidor", ""),
             "fecha_calibracion_medidor": data.get("fecha_calibracion_medidor", ""),
         }
-        (get_supabase().table("user_facilities")
-         .update(update_data)
-         .eq("id", facility_id).eq("user_id", user_id).execute())
-        return get_facility(facility_id, user_id)
+        q = (get_supabase().table("user_facilities")
+             .update(update_data)
+             .eq("id", facility_id).eq("user_id", user_id))
+        if data.get("perfil_id"):
+            q = q.eq("perfil_id", int(data["perfil_id"]))
+        q.execute()
+        return get_facility(facility_id, user_id, data.get("perfil_id"))
     except Exception as e:
         logger.warning("update_facility_v2: %s", e)
         return None
