@@ -1135,7 +1135,7 @@ tr:hover td{background:#f8fafc}
      ══════════════════════════════════════════════════════════════════════ -->
 <div class="main-panel" id="mpanel-facturar">
 <div class="card">
-  <h2><i class="fa-solid fa-file-invoice-dollar"></i> Generar Carta Porte 3.1</h2>
+  <h2><i class="fa-solid fa-file-invoice-dollar"></i> Carta Porte de traspaso interno</h2>
   <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap">
     <div class="field" style="margin:0;min-width:120px">
       <label>Año</label>
@@ -1159,35 +1159,41 @@ tr:hover td{background:#f8fafc}
       </select>
     </div>
     <div class="field" style="margin:0;min-width:200px">
-      <label>Instalación</label>
+      <label>Origen</label>
       <select id="facturarFacility" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
-        <option value="">Todas las instalaciones</option>
+        <option value="">Todas las instalaciones origen</option>
       </select>
     </div>
-    <button class="btn-save" id="btnLoadEntregas" style="margin-top:1.4rem"><i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i> Cargar entregas</button>
+    <button class="btn-save" id="btnLoadEntregas" style="margin-top:1.4rem"><i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i> Cargar traspasos</button>
   </div>
 
   <div id="entregasList" style="max-height:250px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;padding:.5rem;display:none;margin-bottom:1rem">
     <!-- Las entregas se renderizan aquí -->
   </div>
-  <div id="noEntregasMsg" style="display:none;color:#64748b;font-size:.82rem;margin-bottom:1rem">No hay entregas registradas para este periodo.</div>
+  <div id="noEntregasMsg" style="display:none;color:#64748b;font-size:.82rem;margin-bottom:1rem">No hay traspasos internos registrados para este periodo.</div>
 
   <div id="facturarForm" style="display:none;padding:1rem;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">
-    <h4 style="margin:0 0 .8rem;color:#1e293b"><i class="fa-solid fa-user" style="margin-right:.35rem"></i>Datos del cliente</h4>
+    <h4 style="margin:0 0 .8rem;color:#1e293b"><i class="fa-solid fa-warehouse" style="margin-right:.35rem"></i>Destino interno</h4>
+    <div class="field" style="margin-bottom:.5rem">
+      <label>Estación de carburación / expendio destino</label>
+      <select id="facturarDestinoFacility">
+        <option value="">Selecciona estación destino...</option>
+      </select>
+    </div>
     <div class="grid2">
       <div class="field">
-        <label>RFC Cliente</label>
-        <input type="text" id="facturarRfcCliente" placeholder="XAXX010101000" style="text-transform:uppercase">
+        <label>RFC receptor</label>
+        <input type="text" id="facturarRfcCliente" placeholder="RFC de la empresa" style="text-transform:uppercase" readonly>
       </div>
       <div class="field">
-        <label>Nombre Cliente</label>
-        <input type="text" id="facturarNombreCliente" placeholder="Nombre del cliente">
+        <label>Nombre receptor</label>
+        <input type="text" id="facturarNombreCliente" placeholder="Nombre de la empresa" readonly>
       </div>
     </div>
     <div class="grid2" style="margin-top:.5rem">
       <div class="field">
-        <label>CP Cliente (5 dígitos)</label>
-        <input type="text" id="facturarCpCliente" placeholder="20000" maxlength="5">
+        <label>CP destino (5 dígitos)</label>
+        <input type="text" id="facturarCpCliente" placeholder="CP de estación destino" maxlength="5">
       </div>
       <div class="field">
         <label>Uso CFDI</label>
@@ -1200,6 +1206,20 @@ tr:hover td{background:#f8fafc}
     </div>
 
     <h4 style="margin:1rem 0 .8rem;color:#1e293b"><i class="fa-solid fa-truck" style="margin-right:.35rem"></i>Datos del vehículo</h4>
+    <div class="grid2" style="margin-bottom:.5rem">
+      <div class="field">
+        <label>Vehículo del catálogo</label>
+        <select id="facturarVehiculoCatalogo">
+          <option value="">Capturar vehículo manualmente...</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Chofer del catálogo</label>
+        <select id="facturarChoferCatalogo">
+          <option value="">Sin chofer asignado...</option>
+        </select>
+      </div>
+    </div>
     <div class="grid2">
       <div class="field">
         <label>Placa</label>
@@ -2271,6 +2291,135 @@ tr:hover td{background:#f8fafc}
     <div id="gasInternalEmpty" style="display:none;text-align:center;padding:1.5rem;color:#94a3b8;font-size:.85rem">
       No hay usuarios internos para esta empresa.
     </div>
+  </div>
+</div>
+
+<!-- Catálogos operativos Gas LP -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0"><i class="fa-solid fa-truck-moving" style="margin-right:.35rem"></i>Catálogos Carta Porte</h2>
+      <div style="font-size:.78rem;color:#64748b;margin-top:.3rem;line-height:1.45">
+        Vehículos, choferes y rutas internas de la empresa activa para traspasos a estaciones.
+      </div>
+    </div>
+    <button onclick="loadGasLpCartaPorteCatalogs()" style="
+      padding:.4rem .9rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;
+      font-size:.78rem;cursor:pointer;font-family:inherit"><i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i> Actualizar</button>
+  </div>
+
+  <div class="grid3" style="align-items:end">
+    <div class="field">
+      <label>Placas vehículo</label>
+      <input id="gasVehPlacas" placeholder="ABC-1234" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+    </div>
+    <div class="field">
+      <label>Año</label>
+      <input id="gasVehAnio" type="number" min="1990" max="2050" value="2024">
+    </div>
+    <div class="field">
+      <label>Config. vehicular</label>
+      <select id="gasVehConfig">
+        <option value="C2">C2 - Camión 2 ejes</option>
+        <option value="C3">C3 - Camión 3 ejes</option>
+        <option value="T2">T2 - Tractocamión 2 ejes</option>
+        <option value="T3">T3 - Tractocamión 3 ejes</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Aseguradora</label>
+      <input id="gasVehAseguradora" placeholder="Aseguradora">
+    </div>
+    <div class="field">
+      <label>Póliza</label>
+      <input id="gasVehPoliza" placeholder="Número de póliza">
+    </div>
+    <div class="field">
+      <label>Permiso CRE vehicular</label>
+      <input id="gasVehPermiso" placeholder="Opcional">
+    </div>
+  </div>
+  <div style="display:flex;gap:.6rem;align-items:center;margin:.2rem 0 1rem;flex-wrap:wrap">
+    <input type="hidden" id="gasVehEditId" value="">
+    <button class="btn btn-red" onclick="saveGasLpVehiculo()" style="padding:.5rem 1rem;font-size:.84rem">Guardar vehículo</button>
+    <button onclick="clearGasLpVehiculoForm()" style="padding:.48rem .9rem;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;font-family:inherit">Limpiar</button>
+    <span id="gasVehStatus" style="font-size:.78rem"></span>
+  </div>
+  <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:1rem">
+    <table style="margin-bottom:0">
+      <thead><tr><th>Placas</th><th>Año</th><th>Config.</th><th>Aseguradora</th><th>Póliza</th><th>Acciones</th></tr></thead>
+      <tbody id="gasVehTbody"><tr><td colspan="6" class="hist-empty">Cargando vehículos...</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="grid2" style="align-items:end">
+    <div class="field">
+      <label>Nombre chofer</label>
+      <input id="gasChoferNombre" placeholder="Nombre completo">
+    </div>
+    <div class="field">
+      <label>RFC chofer</label>
+      <input id="gasChoferRfc" placeholder="Opcional" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+    </div>
+    <div class="field">
+      <label>Licencia</label>
+      <input id="gasChoferLicencia" placeholder="Licencia">
+    </div>
+    <div class="field">
+      <label>Teléfono</label>
+      <input id="gasChoferTelefono" placeholder="Teléfono">
+    </div>
+  </div>
+  <div style="display:flex;gap:.6rem;align-items:center;margin:.2rem 0 1rem;flex-wrap:wrap">
+    <input type="hidden" id="gasChoferEditId" value="">
+    <button class="btn btn-red" onclick="saveGasLpChofer()" style="padding:.5rem 1rem;font-size:.84rem">Guardar chofer</button>
+    <button onclick="clearGasLpChoferForm()" style="padding:.48rem .9rem;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;font-family:inherit">Limpiar</button>
+    <span id="gasChoferStatus" style="font-size:.78rem"></span>
+  </div>
+  <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:1rem">
+    <table style="margin-bottom:0">
+      <thead><tr><th>Nombre</th><th>RFC</th><th>Licencia</th><th>Teléfono</th><th>Acciones</th></tr></thead>
+      <tbody id="gasChoferTbody"><tr><td colspan="5" class="hist-empty">Cargando choferes...</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="grid3" style="align-items:end">
+    <div class="field">
+      <label>Nombre ruta</label>
+      <input id="gasRutaNombre" placeholder="Planta a estación">
+    </div>
+    <div class="field">
+      <label>Origen</label>
+      <select id="gasRutaOrigen"><option value="">Selecciona origen...</option></select>
+    </div>
+    <div class="field">
+      <label>Destino</label>
+      <select id="gasRutaDestino"><option value="">Selecciona destino...</option></select>
+    </div>
+    <div class="field">
+      <label>CP origen</label>
+      <input id="gasRutaCpOrigen" maxlength="5" placeholder="00000">
+    </div>
+    <div class="field">
+      <label>CP destino</label>
+      <input id="gasRutaCpDestino" maxlength="5" placeholder="00000">
+    </div>
+    <div class="field">
+      <label>Distancia km</label>
+      <input id="gasRutaDistancia" type="number" step="0.1" min="0" value="1">
+    </div>
+  </div>
+  <div style="display:flex;gap:.6rem;align-items:center;margin:.2rem 0 1rem;flex-wrap:wrap">
+    <input type="hidden" id="gasRutaEditId" value="">
+    <button class="btn btn-red" onclick="saveGasLpRuta()" style="padding:.5rem 1rem;font-size:.84rem">Guardar ruta</button>
+    <button onclick="clearGasLpRutaForm()" style="padding:.48rem .9rem;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;font-family:inherit">Limpiar</button>
+    <span id="gasRutaStatus" style="font-size:.78rem"></span>
+  </div>
+  <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px">
+    <table style="margin-bottom:0">
+      <thead><tr><th>Ruta</th><th>Origen</th><th>Destino</th><th>CPs</th><th>Km</th><th>Acciones</th></tr></thead>
+      <tbody id="gasRutaTbody"><tr><td colspan="6" class="hist-empty">Cargando rutas...</td></tr></tbody>
+    </table>
   </div>
 </div>
 
@@ -3468,7 +3617,7 @@ function setUploaderLock(locked) {
 
 function populateFacilitySelectors(facilities) {
   // Populate all facility <select> dropdowns across all tabs
-  ['activeFacilitySelect','ventasFacility','histFacility','facturarFacility','controlesFacility','provFacility'].forEach(sid => {
+  ['activeFacilitySelect','ventasFacility','histFacility','facturarFacility','facturarDestinoFacility','gasRutaOrigen','gasRutaDestino','controlesFacility','provFacility'].forEach(sid => {
     const sel = document.getElementById(sid);
     if (!sel) return;
     const firstOpt = sel.options[0]; // keep the "— all / none —" option
@@ -3791,7 +3940,10 @@ async function switchTab(name) {
   if (panel) panel.classList.add('active');
   if (name === 'ventas'      && authToken) loadVentasAnalytics();
   if (name === 'proveedores' && authToken) { setTimeout(cargarProveedores, 100); }
-  if (name === 'admin'       && authToken && currentUserRole === 'admin') loadInternalUsersGasLp();
+  if (name === 'admin'       && authToken && currentUserRole === 'admin') {
+    loadInternalUsersGasLp();
+    loadGasLpCartaPorteCatalogs();
+  }
   // Config avanzada: siempre recargar desde Supabase al abrir (limpia + puebla)
   // config-avanzada tab removed — adv config is now inside each facility form
   if (name === 'config') cargarConfigAvanzada();
@@ -4330,6 +4482,100 @@ document.getElementById('btnCFDI').addEventListener('click', () => {
 let _selectedEntregaId = null;
 let _currentEntregas = [];
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+
+function perfilActivoNombre() {
+  return (_perfilSeleccionado?.nombre || _perfilSeleccionado?.razon_social || '').trim().toUpperCase();
+}
+
+function isTraspasoInterno(row) {
+  const ownRfc = perfilActivoRfc();
+  const rfc = normalizarRfc(row?.rfc_cliente || row?.rfc_contraparte);
+  const filePath = String(row?.file_path || '').toLowerCase();
+  const nombre = String(row?.nombre_cliente || row?.nombre_contraparte || '').toLowerCase();
+  return filePath.includes('traspaso:interno')
+    || filePath.includes('manual:trasvase')
+    || nombre.includes('traspaso')
+    || nombre.includes('trasvase')
+    || (ownRfc && rfc === ownRfc);
+}
+
+function fillCartaPorteReceptor() {
+  const rfcEl = document.getElementById('facturarRfcCliente');
+  const nombreEl = document.getElementById('facturarNombreCliente');
+  if (rfcEl) rfcEl.value = perfilActivoRfc();
+  if (nombreEl) nombreEl.value = perfilActivoNombre() || document.getElementById('empresaSwitcher')?.textContent?.trim() || '';
+}
+
+function updateCartaPorteDestinoCp() {
+  const destinoId = document.getElementById('facturarDestinoFacility')?.value;
+  const destino = destinoId ? _facilities.find(f => String(f.id) === String(destinoId)) : null;
+  const cp = destino?.codigo_postal || destino?.cp || destino?.domicilio_cp || '';
+  const cpEl = document.getElementById('facturarCpCliente');
+  if (cpEl && cp) cpEl.value = String(cp).slice(0, 5);
+}
+
+async function loadGasLpCartaPorteVehiculos() {
+  const select = document.getElementById('facturarVehiculoCatalogo');
+  if (!select) return;
+  try {
+    const res = await fetch('/api/facturas/vehiculos?modulo=gas_lp', { headers: authHeader() });
+    const data = await res.json();
+    const vehiculos = data.vehiculos || [];
+    select.innerHTML = '<option value="">Capturar vehículo manualmente...</option>';
+    vehiculos.forEach(v => {
+      const placa = v.placas || v.placa || '';
+      const anio = v.anio || v.anio_modelo || '';
+      const config = v.config_vehicular || 'C2';
+      const opt = document.createElement('option');
+      opt.value = v.id || placa;
+      opt.textContent = `${placa || 'Sin placa'}${anio ? ` (${anio})` : ''} - ${config}`;
+      opt.dataset.placa = placa;
+      opt.dataset.anio = anio;
+      opt.dataset.config = config;
+      opt.dataset.aseguradora = v.aseguradora || v.nombre_asegurador || '';
+      opt.dataset.poliza = v.poliza_seguro || '';
+      opt.dataset.id = v.id || '';
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    console.warn('No se pudo cargar catálogo de vehículos Gas LP:', e);
+  }
+}
+
+async function loadGasLpCartaPorteChoferes() {
+  const select = document.getElementById('facturarChoferCatalogo');
+  if (!select) return;
+  try {
+    const res = await fetch('/api/facturas/choferes?modulo=gas_lp', { headers: authHeader() });
+    const data = await res.json();
+    select.innerHTML = '<option value="">Sin chofer asignado...</option>';
+    (data.choferes || []).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id || '';
+      opt.textContent = `${c.nombre || 'Chofer'}${c.licencia ? ` - ${c.licencia}` : ''}`;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    console.warn('No se pudo cargar catálogo de choferes Gas LP:', e);
+  }
+}
+
+document.getElementById('facturarDestinoFacility')?.addEventListener('change', updateCartaPorteDestinoCp);
+document.getElementById('facturarVehiculoCatalogo')?.addEventListener('change', function() {
+  const opt = this.selectedOptions?.[0];
+  if (!opt || !opt.value) return;
+  document.getElementById('facturarPlaca').value = opt.dataset.placa || '';
+  document.getElementById('facturarAnioVehiculo').value = opt.dataset.anio || 2024;
+  document.getElementById('facturarConfigVehicular').value = opt.dataset.config || 'C2';
+  document.getElementById('facturarAseguradora').value = opt.dataset.aseguradora || '';
+  document.getElementById('facturarPoliza').value = opt.dataset.poliza || '';
+});
+
 document.getElementById('btnLoadEntregas').addEventListener('click', async () => {
   const year = document.getElementById('facturarAnio').value;
   const month = document.getElementById('facturarMes').value;
@@ -4339,11 +4585,12 @@ document.getElementById('btnLoadEntregas').addEventListener('click', async () =>
     alert('Selecciona el año y mes primero.');
     return;
   }
-  const url = `/api/facturas/entregas?year=${year}&month=${month}` + (facilityId ? `&facility_id=${facilityId}` : '');
+  const ownRfc = encodeURIComponent(perfilActivoRfc());
+  const url = `/api/facturas/entregas?year=${year}&month=${month}&solo_traspasos=true&rfc_receptor=${ownRfc}` + (facilityId ? `&facility_id=${facilityId}` : '');
   try {
     const res = await fetch(url, { headers: authHeader() });
     const data = await res.json();
-    _currentEntregas = data.entregas || [];
+    _currentEntregas = (data.entregas || []).filter(isTraspasoInterno);
     const list = document.getElementById('entregasList');
     const noMsg = document.getElementById('noEntregasMsg');
     if (_currentEntregas.length === 0) {
@@ -4355,22 +4602,25 @@ document.getElementById('btnLoadEntregas').addEventListener('click', async () =>
     list.style.display = '';
     list.innerHTML = _currentEntregas.map(e => `
       <label style="display:flex;align-items:center;gap:.5rem;padding:.4rem;border-bottom:1px solid #f1f5f9;cursor:pointer">
-        <input type="radio" name="entrega" value="${e.id}" data-fecha="${e.fecha}" data-volumen="${e.volumen_litros}" data-importe="${e.importe}" data-rfc="${e.rfc_cliente || ''}" data-nombre="${e.nombre_cliente || ''}">
+        <input type="radio" name="entrega" value="${escapeHtml(e.id)}" data-fecha="${escapeHtml(e.fecha)}" data-volumen="${escapeHtml(e.volumen_litros)}" data-importe="${escapeHtml(e.importe)}">
         <div style="flex:1">
-          <div style="font-size:.82rem;font-weight:600">${e.fecha}</div>
-          <div style="font-size:.75rem;color:#64748b">${e.volumen_litros}L — ${e.nombre_cliente || 'Sin cliente'}</div>
+          <div style="font-size:.82rem;font-weight:600">${escapeHtml(e.fecha)}</div>
+          <div style="font-size:.75rem;color:#64748b">${escapeHtml(e.volumen_litros)}L — traspaso interno</div>
         </div>
-        <div style="font-size:.75rem;color:#059669">$${(e.importe || 0).toFixed(2)}</div>
+        <div style="font-size:.75rem;color:#059669">$${Number(e.importe || 0).toFixed(2)}</div>
       </label>
     `).join('');
+    fillCartaPorteReceptor();
+    updateCartaPorteDestinoCp();
+    loadGasLpCartaPorteVehiculos();
+    loadGasLpCartaPorteChoferes();
     list.querySelectorAll('input[name="entrega"]').forEach(rb => {
       rb.addEventListener('change', () => {
         _selectedEntregaId = rb.value;
         const form = document.getElementById('facturarForm');
         form.style.display = '';
-        // Prellenar datos del cliente si existen
-        if (rb.dataset.rfc) document.getElementById('facturarRfcCliente').value = rb.dataset.rfc;
-        if (rb.dataset.nombre) document.getElementById('facturarNombreCliente').value = rb.dataset.nombre;
+        fillCartaPorteReceptor();
+        updateCartaPorteDestinoCp();
       });
     });
   } catch(e) {
@@ -4390,14 +4640,19 @@ document.getElementById('btnGenerarCartaPorte').addEventListener('click', async 
     return;
   }
   const facilitySelect = document.getElementById('facturarFacility');
+  const destinoSelect = document.getElementById('facturarDestinoFacility');
+  const vehiculoSelect = document.getElementById('facturarVehiculoCatalogo');
+  const choferSelect = document.getElementById('facturarChoferCatalogo');
+  fillCartaPorteReceptor();
+  updateCartaPorteDestinoCp();
   const payload = {
     record_uuid: entrega.uuid || `ENT-${entrega.id}`,
     volumen_litros: parseFloat(entrega.volumen_litros),
     importe: parseFloat(entrega.importe || 0),
     fecha_hora: entrega.fecha,
-    rfc_cliente: document.getElementById('facturarRfcCliente').value || 'XAXX010101000',
-    nombre_cliente: document.getElementById('facturarNombreCliente').value || 'PÚBLICO EN GENERAL',
-    domicilio_cliente: document.getElementById('facturarCpCliente').value || '20000',
+    rfc_cliente: document.getElementById('facturarRfcCliente').value,
+    nombre_cliente: document.getElementById('facturarNombreCliente').value,
+    domicilio_cliente: document.getElementById('facturarCpCliente').value,
     uso_cfdi: document.getElementById('facturarUsoCfdi').value,
     placa: document.getElementById('facturarPlaca').value || '',
     anio_modelo: parseInt(document.getElementById('facturarAnioVehiculo').value) || 2024,
@@ -4405,7 +4660,23 @@ document.getElementById('btnGenerarCartaPorte').addEventListener('click', async 
     nombre_asegurador: document.getElementById('facturarAseguradora').value || '',
     poliza_seguro: document.getElementById('facturarPoliza').value || '',
     facility_id: facilitySelect?.value || null,
+    origen_facility_id: facilitySelect?.value || null,
+    destino_facility_id: destinoSelect?.value || null,
+    vehiculo_id: vehiculoSelect?.value || null,
+    chofer_id: choferSelect?.value || null,
   };
+  if (!payload.rfc_cliente || !payload.nombre_cliente) {
+    alert('La empresa activa no tiene RFC/nombre cargado. Revísalo en Administración.');
+    return;
+  }
+  if (!payload.domicilio_cliente || payload.domicilio_cliente.length !== 5) {
+    alert('Selecciona estación destino o captura un CP destino de 5 dígitos.');
+    return;
+  }
+  if (!payload.destino_facility_id) {
+    alert('Selecciona la estación de carburación / expendio destino.');
+    return;
+  }
   document.getElementById('loadFacturar').style.display = 'block';
   document.getElementById('btnGenerarCartaPorte').disabled = true;
   document.getElementById('facturarResult').style.display = 'none';
@@ -5255,6 +5526,289 @@ function showToast(msg, type) {
     t.style.opacity = '0';
     setTimeout(() => t.remove(), 300);
   }, 3500);
+}
+
+// ── Catálogos Carta Porte Gas LP ────────────────────────────────────────────
+let _gasLpVehiculos = [];
+let _gasLpChoferes = [];
+let _gasLpRutas = [];
+
+function catalogStatus(id, msg, ok = true) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg || '';
+  el.style.color = ok ? '#15803d' : '#dc2626';
+}
+
+function findFacilityName(id) {
+  const fac = _facilities.find(f => String(f.id) === String(id));
+  return fac ? (fac.nombre || fac.clave_instalacion || `Instalación ${id}`) : '—';
+}
+
+function paramsToQuery(params) {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) qs.set(key, value);
+  });
+  return qs.toString();
+}
+
+async function catalogRequest(path, method, params) {
+  const qs = paramsToQuery(params || {});
+  const url = qs ? `${path}?${qs}` : path;
+  const res = await fetch(url, { method, headers: authHeader() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok === false) throw new Error(data.detail || data.error || data.message || `HTTP ${res.status}`);
+  return data;
+}
+
+async function loadGasLpCartaPorteCatalogs() {
+  if (!perfilId()) return;
+  await Promise.allSettled([loadGasLpVehiculosAdmin(), loadGasLpChoferesAdmin(), loadGasLpRutasAdmin()]);
+}
+
+async function loadGasLpVehiculosAdmin() {
+  const tbody = document.getElementById('gasVehTbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Cargando vehículos...</td></tr>';
+  try {
+    const res = await fetch('/api/facturas/vehiculos?modulo=gas_lp', { headers: authHeader() });
+    const data = await res.json();
+    _gasLpVehiculos = data.vehiculos || [];
+    if (!_gasLpVehiculos.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Sin vehículos registrados para esta empresa.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = _gasLpVehiculos.map(v => `
+      <tr>
+        <td>${escapeHtml(v.placas || v.placa || '')}</td>
+        <td>${escapeHtml(v.anio || v.anio_modelo || '')}</td>
+        <td>${escapeHtml(v.config_vehicular || '')}</td>
+        <td>${escapeHtml(v.aseguradora || '')}</td>
+        <td>${escapeHtml(v.poliza_seguro || '')}</td>
+        <td style="white-space:nowrap">
+          <button onclick="editGasLpVehiculo(${Number(v.id)})" style="padding:.3rem .55rem;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:6px;cursor:pointer">Editar</button>
+          <button onclick="deleteGasLpVehiculo(${Number(v.id)})" style="padding:.3rem .55rem;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;cursor:pointer">Desactivar</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="hist-empty">${escapeHtml(e.message)}</td></tr>`;
+  }
+}
+
+function clearGasLpVehiculoForm() {
+  ['gasVehEditId','gasVehPlacas','gasVehAseguradora','gasVehPoliza','gasVehPermiso'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('gasVehAnio').value = '2024';
+  document.getElementById('gasVehConfig').value = 'C2';
+  catalogStatus('gasVehStatus', '');
+}
+
+function editGasLpVehiculo(id) {
+  const v = _gasLpVehiculos.find(x => Number(x.id) === Number(id));
+  if (!v) return;
+  document.getElementById('gasVehEditId').value = v.id || '';
+  document.getElementById('gasVehPlacas').value = v.placas || '';
+  document.getElementById('gasVehAnio').value = v.anio || 2024;
+  document.getElementById('gasVehConfig').value = v.config_vehicular || 'C2';
+  document.getElementById('gasVehAseguradora').value = v.aseguradora || '';
+  document.getElementById('gasVehPoliza').value = v.poliza_seguro || '';
+  document.getElementById('gasVehPermiso').value = v.permiso_cre || '';
+}
+
+async function saveGasLpVehiculo() {
+  const id = document.getElementById('gasVehEditId').value;
+  const placa = document.getElementById('gasVehPlacas').value.trim().toUpperCase();
+  if (!placa) { catalogStatus('gasVehStatus', 'Captura placas.', false); return; }
+  const params = {
+    placa,
+    anio: document.getElementById('gasVehAnio').value || 2024,
+    anio_modelo: document.getElementById('gasVehAnio').value || 2024,
+    config_vehicular: document.getElementById('gasVehConfig').value,
+    aseguradora: document.getElementById('gasVehAseguradora').value.trim(),
+    nombre_asegurador: document.getElementById('gasVehAseguradora').value.trim(),
+    poliza_seguro: document.getElementById('gasVehPoliza').value.trim(),
+    permiso_cre: document.getElementById('gasVehPermiso').value.trim(),
+    modulo: 'gas_lp',
+  };
+  try {
+    await catalogRequest(id ? `/api/facturas/vehiculos/${id}` : '/api/facturas/vehiculos', id ? 'PUT' : 'POST', params);
+    catalogStatus('gasVehStatus', 'Vehículo guardado.');
+    clearGasLpVehiculoForm();
+    await loadGasLpVehiculosAdmin();
+  } catch(e) { catalogStatus('gasVehStatus', e.message, false); }
+}
+
+async function deleteGasLpVehiculo(id) {
+  if (!confirm('¿Desactivar este vehículo?')) return;
+  try {
+    await catalogRequest(`/api/facturas/vehiculos/${id}`, 'DELETE');
+    await loadGasLpVehiculosAdmin();
+  } catch(e) { alert(e.message); }
+}
+
+async function loadGasLpChoferesAdmin() {
+  const tbody = document.getElementById('gasChoferTbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="5" class="hist-empty">Cargando choferes...</td></tr>';
+  try {
+    const res = await fetch('/api/facturas/choferes?modulo=gas_lp', { headers: authHeader() });
+    const data = await res.json();
+    _gasLpChoferes = data.choferes || [];
+    if (!_gasLpChoferes.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="hist-empty">Sin choferes registrados para esta empresa.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = _gasLpChoferes.map(c => `
+      <tr>
+        <td>${escapeHtml(c.nombre || '')}</td>
+        <td>${escapeHtml(c.rfc || '')}</td>
+        <td>${escapeHtml(c.licencia || '')}</td>
+        <td>${escapeHtml(c.telefono || '')}</td>
+        <td style="white-space:nowrap">
+          <button onclick="editGasLpChofer(${Number(c.id)})" style="padding:.3rem .55rem;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:6px;cursor:pointer">Editar</button>
+          <button onclick="deleteGasLpChofer(${Number(c.id)})" style="padding:.3rem .55rem;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;cursor:pointer">Desactivar</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" class="hist-empty">${escapeHtml(e.message)}</td></tr>`;
+  }
+}
+
+function clearGasLpChoferForm() {
+  ['gasChoferEditId','gasChoferNombre','gasChoferRfc','gasChoferLicencia','gasChoferTelefono'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  catalogStatus('gasChoferStatus', '');
+}
+
+function editGasLpChofer(id) {
+  const c = _gasLpChoferes.find(x => Number(x.id) === Number(id));
+  if (!c) return;
+  document.getElementById('gasChoferEditId').value = c.id || '';
+  document.getElementById('gasChoferNombre').value = c.nombre || '';
+  document.getElementById('gasChoferRfc').value = c.rfc || '';
+  document.getElementById('gasChoferLicencia').value = c.licencia || '';
+  document.getElementById('gasChoferTelefono').value = c.telefono || '';
+}
+
+async function saveGasLpChofer() {
+  const id = document.getElementById('gasChoferEditId').value;
+  const nombre = document.getElementById('gasChoferNombre').value.trim();
+  if (!nombre) { catalogStatus('gasChoferStatus', 'Captura nombre.', false); return; }
+  const params = {
+    nombre,
+    rfc: document.getElementById('gasChoferRfc').value.trim().toUpperCase(),
+    licencia: document.getElementById('gasChoferLicencia').value.trim(),
+    telefono: document.getElementById('gasChoferTelefono').value.trim(),
+    modulo: 'gas_lp',
+  };
+  try {
+    await catalogRequest(id ? `/api/facturas/choferes/${id}` : '/api/facturas/choferes', id ? 'PUT' : 'POST', params);
+    catalogStatus('gasChoferStatus', 'Chofer guardado.');
+    clearGasLpChoferForm();
+    await loadGasLpChoferesAdmin();
+  } catch(e) { catalogStatus('gasChoferStatus', e.message, false); }
+}
+
+async function deleteGasLpChofer(id) {
+  if (!confirm('¿Desactivar este chofer?')) return;
+  try {
+    await catalogRequest(`/api/facturas/choferes/${id}`, 'DELETE');
+    await loadGasLpChoferesAdmin();
+  } catch(e) { alert(e.message); }
+}
+
+function facilityCp(id) {
+  const fac = _facilities.find(f => String(f.id) === String(id));
+  return String(fac?.codigo_postal || fac?.cp || fac?.domicilio_cp || '').slice(0, 5);
+}
+
+['gasRutaOrigen','gasRutaDestino'].forEach(id => {
+  document.getElementById(id)?.addEventListener('change', () => {
+    const originCp = facilityCp(document.getElementById('gasRutaOrigen')?.value);
+    const destCp = facilityCp(document.getElementById('gasRutaDestino')?.value);
+    if (originCp) document.getElementById('gasRutaCpOrigen').value = originCp;
+    if (destCp) document.getElementById('gasRutaCpDestino').value = destCp;
+  });
+});
+
+async function loadGasLpRutasAdmin() {
+  const tbody = document.getElementById('gasRutaTbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Cargando rutas...</td></tr>';
+  try {
+    const res = await fetch('/api/facturas/rutas?modulo=gas_lp', { headers: authHeader() });
+    const data = await res.json();
+    _gasLpRutas = data.rutas || [];
+    if (!_gasLpRutas.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Sin rutas internas registradas para esta empresa.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = _gasLpRutas.map(r => `
+      <tr>
+        <td>${escapeHtml(r.nombre || '')}</td>
+        <td>${escapeHtml(findFacilityName(r.origen_facility_id))}</td>
+        <td>${escapeHtml(findFacilityName(r.destino_facility_id))}</td>
+        <td>${escapeHtml(r.cp_origen || '')} → ${escapeHtml(r.cp_destino || '')}</td>
+        <td>${escapeHtml(r.distancia_km || '')}</td>
+        <td style="white-space:nowrap">
+          <button onclick="editGasLpRuta(${Number(r.id)})" style="padding:.3rem .55rem;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:6px;cursor:pointer">Editar</button>
+          <button onclick="deleteGasLpRuta(${Number(r.id)})" style="padding:.3rem .55rem;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;cursor:pointer">Desactivar</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="hist-empty">${escapeHtml(e.message)}</td></tr>`;
+  }
+}
+
+function clearGasLpRutaForm() {
+  ['gasRutaEditId','gasRutaNombre','gasRutaCpOrigen','gasRutaCpDestino'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('gasRutaOrigen').value = '';
+  document.getElementById('gasRutaDestino').value = '';
+  document.getElementById('gasRutaDistancia').value = '1';
+  catalogStatus('gasRutaStatus', '');
+}
+
+function editGasLpRuta(id) {
+  const r = _gasLpRutas.find(x => Number(x.id) === Number(id));
+  if (!r) return;
+  document.getElementById('gasRutaEditId').value = r.id || '';
+  document.getElementById('gasRutaNombre').value = r.nombre || '';
+  document.getElementById('gasRutaOrigen').value = r.origen_facility_id || '';
+  document.getElementById('gasRutaDestino').value = r.destino_facility_id || '';
+  document.getElementById('gasRutaCpOrigen').value = r.cp_origen || '';
+  document.getElementById('gasRutaCpDestino').value = r.cp_destino || '';
+  document.getElementById('gasRutaDistancia').value = r.distancia_km || 1;
+}
+
+async function saveGasLpRuta() {
+  const id = document.getElementById('gasRutaEditId').value;
+  const nombre = document.getElementById('gasRutaNombre').value.trim();
+  if (!nombre) { catalogStatus('gasRutaStatus', 'Captura nombre de ruta.', false); return; }
+  const params = {
+    nombre,
+    origen_facility_id: document.getElementById('gasRutaOrigen').value || null,
+    destino_facility_id: document.getElementById('gasRutaDestino').value || null,
+    cp_origen: document.getElementById('gasRutaCpOrigen').value.trim(),
+    cp_destino: document.getElementById('gasRutaCpDestino').value.trim(),
+    distancia_km: document.getElementById('gasRutaDistancia').value || 1,
+    modulo: 'gas_lp',
+  };
+  try {
+    await catalogRequest(id ? `/api/facturas/rutas/${id}` : '/api/facturas/rutas', id ? 'PUT' : 'POST', params);
+    catalogStatus('gasRutaStatus', 'Ruta guardada.');
+    clearGasLpRutaForm();
+    await loadGasLpRutasAdmin();
+  } catch(e) { catalogStatus('gasRutaStatus', e.message, false); }
+}
+
+async function deleteGasLpRuta(id) {
+  if (!confirm('¿Desactivar esta ruta?')) return;
+  try {
+    await catalogRequest(`/api/facturas/rutas/${id}`, 'DELETE');
+    await loadGasLpRutasAdmin();
+  } catch(e) { alert(e.message); }
 }
 
 // ── Usuarios internos Gas LP ────────────────────────────────────────────────

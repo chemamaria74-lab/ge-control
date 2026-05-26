@@ -1355,12 +1355,13 @@ let PERFILES_TRANSPORTE = [];
 let TRANSPORTE_BOOTSTRAPPED = false;
 let PERFIL_PROMPT_VISIBLE = false;
 let I18N_TRANSPORTE_INSTALLED = false;
+const TRANSPORTE_PERFIL_STORAGE_KEY = 'zc_perfil_transporte';
 let TRANSPORTE_ROLE = localStorage.getItem('zc_role') || 'user';
-let TRANSPORTE_ASSIGNED_PERFIL_ID = Number(localStorage.getItem('zc_assigned_perfil_id') || '0') || null;
+let TRANSPORTE_ASSIGNED_PERFIL_ID = Number(localStorage.getItem('zc_assigned_perfil_id_transporte') || '0') || null;
 let SUBSCRIPTION_TRANSPORTE = null;
 
 try {
-  PERFIL = JSON.parse(localStorage.getItem('zc_perfil') || 'null');
+  PERFIL = JSON.parse(localStorage.getItem(TRANSPORTE_PERFIL_STORAGE_KEY) || 'null');
 } catch(e) {
   PERFIL = null;
 }
@@ -1713,9 +1714,9 @@ function puedeCrearEmpresaTransporte() {
 function guardarPerfilTransporte(perfil) {
   PERFIL = perfil || null;
   if (PERFIL?.id) {
-    localStorage.setItem('zc_perfil', JSON.stringify(PERFIL));
+    localStorage.setItem(TRANSPORTE_PERFIL_STORAGE_KEY, JSON.stringify(PERFIL));
   } else {
-    localStorage.removeItem('zc_perfil');
+    localStorage.removeItem(TRANSPORTE_PERFIL_STORAGE_KEY);
   }
   actualizarHeaderPerfilTransporte();
 }
@@ -1911,10 +1912,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (sb.ok) {
       const d = await sb.json();
       const name = d.display_name || d.email || 'Usuario';
-      TRANSPORTE_ROLE = d.role || 'user';
-      TRANSPORTE_ASSIGNED_PERFIL_ID = Number(d.perfil_id || 0) || null;
+      const transporteAccess = (d.accesos || []).find(a => a.section === 'transporte') || {};
+      TRANSPORTE_ROLE = transporteAccess.role || d.role || 'user';
+      TRANSPORTE_ASSIGNED_PERFIL_ID = Number(transporteAccess.perfil_id || 0) || null;
       localStorage.setItem('zc_role', TRANSPORTE_ROLE);
-      if (TRANSPORTE_ASSIGNED_PERFIL_ID) localStorage.setItem('zc_assigned_perfil_id', String(TRANSPORTE_ASSIGNED_PERFIL_ID));
+      if (TRANSPORTE_ASSIGNED_PERFIL_ID) localStorage.setItem('zc_assigned_perfil_id_transporte', String(TRANSPORTE_ASSIGNED_PERFIL_ID));
+      else localStorage.removeItem('zc_assigned_perfil_id_transporte');
       document.getElementById('topbar-avatar').textContent = name[0].toUpperCase();
       document.getElementById('topbar-email').textContent = d.email || name;
     }
