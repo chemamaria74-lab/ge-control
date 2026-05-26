@@ -101,6 +101,11 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
 
         if module:
             tenant_id = _tenant_id_for_user(user_id, access_token=access_token)
+            module_access = [
+                a for a in accesos
+                if a.get("section") == module and (a.get("status") or "active") == "active"
+            ]
+            module_admin = any((a.get("role") or "").lower() == "admin" for a in module_access)
             if assigned_ids:
                 add_rows(
                     sb.table("perfiles_empresa")
@@ -121,6 +126,16 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
                 add_rows(marker_q.order("nombre").execute().data or [])
             except Exception as marker_error:
                 logger.info("Filtro module=%s omitido en perfiles_empresa.descripcion: %s", module, marker_error)
+            if tenant_id and module_admin:
+                add_rows(
+                    sb.table("perfiles_empresa")
+                    .select(fields)
+                    .eq("tenant_id", tenant_id)
+                    .eq("activo", True)
+                    .order("nombre")
+                    .execute()
+                    .data or []
+                )
             return sorted(rows_by_id.values(), key=lambda r: (r.get("nombre") or "").lower())
 
         # Legacy: perfiles creados antes de tenant/company.
@@ -427,7 +442,7 @@ async def create_perfil(payload: PerfilPayload,
     if not nombre:
         raise HTTPException(400, "El nombre de la empresa es requerido.")
 
-    usage = _subscription_usage(user_id, token) if module and module != "gas_lp" else _assert_can_create_company(user_id, token)
+    usage = _assert_can_create_company(user_id, token)
     try:
         descripcion = (payload.descripcion or "").strip()
         if module:

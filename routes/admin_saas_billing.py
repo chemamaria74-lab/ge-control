@@ -6,6 +6,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
@@ -62,6 +63,10 @@ def _money(value) -> Decimal:
 
 def _money_str(value) -> str:
     return f"{_money(value):.2f}"
+
+
+def _json_response(payload: dict, status_code: int = 200) -> JSONResponse:
+    return JSONResponse(content=jsonable_encoder(payload), status_code=status_code)
 
 
 def _validar_receptor_cfdi_payload(rfc: str, nombre: str, cp: str, regimen: str, uso_cfdi: str) -> dict:
@@ -229,26 +234,37 @@ def _build_resico_cfdi(payload: SaaSBillingInvoiceCreate, folio: str) -> tuple[d
 @router.get("/admin-saas/billing/invoices")
 async def list_saas_billing_invoices(
     tenant_id: Optional[str] = Query(None),
+    include_cancelled: bool = Query(False),
     authorization: str = Header(default=""),
 ):
     _require_superadmin(authorization)
     q = get_supabase_admin().table("saas_billing_invoices").select("*").order("created_at", desc=True).limit(100)
     if tenant_id:
         q = q.eq("tenant_id", tenant_id)
+    if not include_cancelled:
+        q = q.neq("status", "cancelada")
     rows = q.execute().data or []
-    return JSONResponse({"ok": True, "invoices": rows})
+    return _json_response({"ok": True, "invoices": rows})
 
 
 @router.get("/admin-saas/billing/settings")
 async def get_saas_billing_settings(authorization: str = Header(default="")):
     _require_superadmin(authorization)
-    settings = _billing_settings()
-    return JSONResponse({
-        "ok": True,
-        "settings": settings,
-        "secret_fields": ["SW_TOKEN", "SUPABASE_SERVICE_ROLE_KEY"],
-        "notes": "Los secretos se configuran exclusivamente en Render ENV.",
-    })
+    try:
+        settings = _billing_settings()
+        return _json_response({
+            "ok": True,
+            "settings": settings,
+            "secret_fields": ["SW_TOKEN", "SUPABASE_SERVICE_ROLE_KEY"],
+            "notes": "Los secretos se configuran exclusivamente en Render ENV.",
+        })
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            500,
+            "No se pudo cargar la configuración de facturación GE Control.",
+        ) from exc
 
 
 @router.put("/admin-saas/billing/settings")
@@ -285,7 +301,7 @@ async def save_saas_billing_settings(payload: SaaSBillingSettingsPayload, author
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     get_supabase_admin().table("saas_billing_settings").upsert(row, on_conflict="id").execute()
-    return JSONResponse({"ok": True, "settings": _billing_settings()})
+    return _json_response({"ok": True, "settings": _billing_settings()})
 
 
 @router.post("/admin-saas/billing/invoices")
@@ -366,7 +382,7 @@ async def create_saas_billing_invoice(payload: SaaSBillingInvoiceCreate, authori
     }
     sb.table("saas_billing_invoices").update(update).eq("id", invoice["id"]).execute()
     audit_fiscal_pdf_event(sb, user_id=uid, module="admin_saas", entity_type="resico_saas_invoice", entity_id=invoice["id"], uuid_sat=uuid, action="created_stamped_pdf_internal", metadata=storage)
-    return JSONResponse({"ok": True, "invoice": {**invoice, **update}})
+    return _json_response({"ok": True, "invoice": {**invoice, **update}})
 
 
 @router.get("/admin-saas/billing/invoices/{invoice_id}/xml")
@@ -431,7 +447,7 @@ async def cancel_saas_billing_invoice(
     invoice = rows[0]
     status = invoice.get("status")
     if status == "cancelada":
-        return JSONResponse({"ok": True, "invoice": invoice, "message": "La factura ya estaba cancelada."})
+        return _json_response({"ok": True, "invoice": invoice, "message": "La factura ya estaba cancelada."})
     if status == "timbrada":
         issuer = _issuer()
         resultado = cancel_cfdi_universal(
@@ -456,7 +472,7 @@ async def cancel_saas_billing_invoice(
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         updated = sb.table("saas_billing_invoices").update(update).eq("id", invoice_id).execute().data or []
-        return JSONResponse({"ok": True, "invoice": updated[0] if updated else {**invoice, **update}})
+        return _json_response({"ok": True, "invoice": updated[0] if updated else {**invoice, **update}})
     update = {
         "status": "cancelada",
         "cancel_reason": motivo,
@@ -466,4 +482,4 @@ async def cancel_saas_billing_invoice(
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     updated = sb.table("saas_billing_invoices").update(update).eq("id", invoice_id).execute().data or []
-    return JSONResponse({"ok": True, "invoice": updated[0] if updated else {**invoice, **update}})
+    return _json_response({"ok": True, "invoice": updated[0] if updated else {**invoice, **update}})

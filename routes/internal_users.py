@@ -231,10 +231,13 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
     if not rfc or not nombre:
         raise HTTPException(400, "RFC y nombre del cliente son obligatorios.")
     if rfc == "XAXX010101000":
+        profile = _gas_lp_profile(user)
+        settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+        issuer = _require_gas_lp_issuer(profile, settings)
         receptor = {
             "rfc": "XAXX010101000",
             "nombre": "PUBLICO EN GENERAL",
-            "cp": cp or "00000",
+            "cp": cp or issuer["cp"],
             "regimen_fiscal": "616",
         }
         uso_cfdi = "S01"

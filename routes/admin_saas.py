@@ -94,6 +94,17 @@ class InternalPinPayload(BaseModel):
     pin: Optional[str] = ""
 
 
+class AdminInternalUserCreatePayload(BaseModel):
+    tenant_id: str
+    perfil_id: int
+    display_name: str
+    section: str = "transporte"
+    role: str = "operador"
+    chofer_id: Optional[int] = None
+    code: Optional[str] = ""
+    pin: Optional[str] = ""
+
+
 DEFAULT_LIMITS_JSON = {
     "companies": 1,
     "gas_lp": {
@@ -260,6 +271,11 @@ def _limit_usage(used: int, limit) -> dict:
 def _short_id(value: str | None) -> str:
     text = str(value or "")
     return f"{text[:8]}...{text[-4:]}" if len(text) > 14 else text
+
+
+def _candidate_internal_code(section: str, tenant_id: str) -> str:
+    tenant_hint = str(tenant_id or "").replace("-", "")[:4].upper() or "GE"
+    return f"{section[:2].upper()}-{tenant_hint}-{secrets.token_hex(2).upper()}"
 
 
 def _friendly_tenant_name(tenant: dict, profiles: list[dict], sections: list[dict], auth_users: dict[str, dict]) -> str:
@@ -1260,6 +1276,99 @@ async def list_all_internal_users(tenant_id: Optional[str] = None, authorization
     for row in rows:
         row.pop("pin_hash", None)
     return JSONResponse({"ok": True, "internal_users": rows})
+
+
+@router.get("/admin-saas/choferes")
+async def list_admin_choferes(tenant_id: str, authorization: str = Header(default="")):
+    _require_superadmin(authorization)
+    profiles = _sb_admin().table("perfiles_empresa").select("id").eq("tenant_id", tenant_id).eq("activo", True).execute().data or []
+    profile_ids = [p.get("id") for p in profiles if p.get("id")]
+    if not profile_ids:
+        return JSONResponse({"ok": True, "choferes": []})
+    rows = (
+        _sb_admin()
+        .table("tr_choferes")
+        .select("id,nombre,rfc,perfil_id,activo")
+        .in_("perfil_id", profile_ids)
+        .eq("activo", True)
+        .order("nombre")
+        .limit(300)
+        .execute()
+        .data
+        or []
+    )
+    return JSONResponse({"ok": True, "choferes": rows})
+
+
+@router.post("/admin-saas/internal-users")
+async def create_admin_internal_user(payload: AdminInternalUserCreatePayload, authorization: str = Header(default="")):
+    uid, _, _ = _require_superadmin(authorization)
+    tenant_id = str(payload.tenant_id or "").strip()
+    section = str(payload.section or "").strip().lower()
+    role = str(payload.role or "").strip().lower()
+    name = str(payload.display_name or "").strip()
+    if section not in SECTIONS or role not in ROLES:
+        raise HTTPException(400, "Módulo o rol inválido.")
+    if not name:
+        raise HTTPException(400, "Nombre requerido.")
+    if section == "transporte" and role == "operador" and not payload.chofer_id:
+        raise HTTPException(400, "Selecciona el chofer ligado al operador.")
+    profile_rows = (
+        _sb_admin()
+        .table("perfiles_empresa")
+        .select("id,user_id,tenant_id,activo")
+        .eq("id", payload.perfil_id)
+        .eq("tenant_id", tenant_id)
+        .eq("activo", True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not profile_rows:
+        raise HTTPException(400, "Empresa/perfil inválido para ese tenant.")
+    if payload.chofer_id:
+        driver = (
+            _sb_admin()
+            .table("tr_choferes")
+            .select("id")
+            .eq("id", payload.chofer_id)
+            .eq("perfil_id", payload.perfil_id)
+            .eq("activo", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not driver:
+            raise HTTPException(400, "El chofer no pertenece a la empresa seleccionada o está inactivo.")
+    requested_code = re.sub(r"[^A-Z0-9_-]", "", str(payload.code or "").upper().strip())
+    temp_pin = str(payload.pin or "").strip() or f"{secrets.randbelow(900000) + 100000}"
+    code = requested_code or _candidate_internal_code(section, tenant_id)
+    row = {
+        "tenant_id": tenant_id,
+        "owner_user_id": profile_rows[0]["user_id"],
+        "perfil_id": payload.perfil_id,
+        "section": section,
+        "role": role,
+        "display_name": name,
+        "code": code,
+        "pin_hash": _hash_secret(temp_pin),
+        "status": "active",
+        "chofer_id": payload.chofer_id,
+        "permissions": {},
+        "failed_attempts": 0,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    try:
+        created = _sb_admin().table("internal_users").insert(row).execute().data or [row]
+    except Exception as exc:
+        raise _clean_http_error(500, exc, "No se pudo crear el operador interno.")
+    response = created[0]
+    response.pop("pin_hash", None)
+    _audit(uid, "create_internal_user", "internal_user", str(response.get("id")), {"tenant_id": tenant_id, "section": section, "role": role})
+    return JSONResponse({"ok": True, "user": response, "temporary_pin": temp_pin})
 
 
 @router.get("/admin-saas/audit")
