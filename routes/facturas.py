@@ -487,6 +487,8 @@ async def listar_entregas(
     year:          int           = Query(...),
     month:         int           = Query(...),
     facility_id:   Optional[int] = Query(None),
+    solo_traspasos: bool          = Query(False),
+    rfc_receptor:  str           = Query(""),
     authorization: str           = Header(default=""),
     x_perfil_id:   str           = Header(default=""),
 ):
@@ -504,7 +506,7 @@ async def listar_entregas(
         q = (
             get_supabase_admin()
             .table("records")
-            .select("id,fecha,volumen_litros,rfc_contraparte,nombre_contraparte,importe,uuid")
+            .select("id,fecha,volumen_litros,rfc_contraparte,nombre_contraparte,importe,uuid,file_path")
             .eq("user_id", uid)
             .eq("perfil_id", scope["perfil_id"])
             .eq("tipo", "salida")
@@ -516,6 +518,20 @@ async def listar_entregas(
     except Exception as exc:
         logger.warning("listar_entregas Supabase falló: user=%s perfil=%s periodo=%s err=%s", uid, scope.get("perfil_id"), periodo, exc)
         return JSONResponse({"entregas": [], "source": "supabase", "warning": "No se encontraron entregas para el periodo seleccionado."})
+    if solo_traspasos:
+        own_rfc = (rfc_receptor or "").strip().upper()
+        def _is_internal_transfer(row: dict) -> bool:
+            file_path = str(row.get("file_path") or "").lower()
+            nombre = str(row.get("nombre_contraparte") or "").lower()
+            rfc = str(row.get("rfc_contraparte") or "").strip().upper()
+            return (
+                "traspaso:interno" in file_path
+                or "manual:trasvase" in file_path
+                or "traspaso" in nombre
+                or "trasvase" in nombre
+                or (own_rfc and rfc == own_rfc)
+            )
+        rows = [r for r in rows if _is_internal_transfer(r)]
     return JSONResponse({"entregas": [
         {
             "id": r.get("id"), "fecha": r.get("fecha"),
@@ -523,6 +539,7 @@ async def listar_entregas(
             "rfc_cliente": r.get("rfc_contraparte"),
             "nombre_cliente": r.get("nombre_contraparte"),
             "importe": _json_scalar(r.get("importe")), "uuid": r.get("uuid") or "",
+            "file_path": r.get("file_path") or "",
         }
         for r in rows
     ], "source": "supabase"})
