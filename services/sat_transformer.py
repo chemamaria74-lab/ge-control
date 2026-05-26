@@ -112,10 +112,12 @@ def _clean_str(value: Any) -> str:
 
 def _build_dictamen_producto(settings: dict, anio: int, mes: int) -> tuple[Optional[dict], list[str]]:
     """
-    Dictamen PR12 capturado por el cliente.
+    Dictamen PR12 capturado por el cliente para respaldo interno.
 
     La vigencia_desde/hasta se usa como periodo operativo del lote dictaminado,
     no como caducidad legal. No se derivan ni se inventan fechas.
+    El JSON mensual SAT solo exporta ComposDePropanoEnGasLP y
+    ComposDeButanoEnGasLP; no se agrega un nodo Dictamen.
     """
     raw = settings.get("adv_dictamen") or {}
     if not isinstance(raw, dict):
@@ -495,9 +497,6 @@ def build_sat_report(
                     "TarifaDeAlmacenamiento": _smart_num(round(g["importe"], 2)),
                 }
             }
-        if dictamen_producto:
-            comp_rec["Dictamen"] = dictamen_producto.copy()
-
         complementos_rec.append(comp_rec)
 
     # ── Complementos Entregas ─────────────────────────────────────────────────
@@ -542,8 +541,6 @@ def build_sat_report(
             "TipoComplemento": "Distribucion",
             "Nacional":        [nacional],
         }
-        if dictamen_producto:
-            comp_ent["Dictamen"] = dictamen_producto.copy()
         complementos_ent.append(comp_ent)
 
     # ── BitácoraMensual — catálogo oficial TipoEvento §17.4 ──────────────────
@@ -771,9 +768,6 @@ def build_sat_report(
             },
         },
     }
-    if dictamen_producto:
-        producto_dict["Dictamen"] = dictamen_producto.copy()
-
     sat_dict["Producto"]        = [producto_dict]
     sat_dict["BitacoraMensual"] = bitacora
 
