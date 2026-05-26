@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 def pac_environment() -> str:
-    return (os.environ.get("SW_ENV") or os.environ.get("PAC_ENV") or "sandbox").strip().lower() or "sandbox"
+    raw = (os.environ.get("SW_ENV") or os.environ.get("PAC_ENV") or "sandbox").strip().lower() or "sandbox"
+    return "production" if raw in {"prod", "production", "real"} else raw
 
 
 def record_pac_request(

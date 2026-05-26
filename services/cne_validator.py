@@ -88,8 +88,8 @@ def _formato_valido(num_permiso: str) -> bool:
 
 
 def _es_entorno_pruebas() -> bool:
-    """Detecta si estamos en sandbox (SW_ENV != 'prod')."""
-    return os.environ.get("SW_ENV", "test").strip().lower() != "prod"
+    """Detecta si estamos en sandbox (SW_ENV no es producción)."""
+    return os.environ.get("SW_ENV", "test").strip().lower() not in {"prod", "production", "real"}
 
 
 def validar_num_permiso(

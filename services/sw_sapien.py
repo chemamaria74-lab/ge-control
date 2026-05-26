@@ -29,23 +29,48 @@ import time
 import requests
 from datetime import datetime, timezone
 from typing import Optional
+from xml.etree import ElementTree as ET
 
 from services.fiscal_audit import record_pac_request, record_pac_response, version_xml
 
 logger = logging.getLogger(__name__)
 
 # ── Entorno: test o producción ────────────────────────────────────────────────
-# Para timbrar en producción real: añadir en Render → Environment:
-#   SW_ENV = prod
-# Para desarrollo/pruebas (default seguro):
-#   SW_ENV = test  (o simplemente no definir la variable)
-_SW_ENV = os.environ.get("SW_ENV", "test").strip().lower()
+def _env(name: str, default: str = "") -> str:
+    return os.environ.get(name, default).strip()
 
-if _SW_ENV == "prod":
-    BASE_URL = "https://services.sw.com.mx"
+
+def _truthy_env(name: str) -> bool:
+    return _env(name).lower() in {"1", "true", "yes", "si", "sí", "on"}
+
+
+def _normalize_sw_env(value: str) -> str:
+    raw = (value or "test").strip().lower()
+    if raw in {"prod", "production", "real"}:
+        return "production"
+    if raw in {"test", "sandbox", "staging", "dev", "development"}:
+        return "test"
+    return raw or "test"
+
+
+def _normalize_app_env(value: str) -> str:
+    raw = (value or "development").strip().lower()
+    if raw in {"prod", "production"}:
+        return "production"
+    if raw in {"stage", "staging"}:
+        return "staging"
+    return raw or "development"
+
+
+_SW_ENV = _normalize_sw_env(os.environ.get("SW_ENV", "test"))
+_APP_ENV = _normalize_app_env(os.environ.get("APP_ENV", "development"))
+_SW_BASE_URL = _env("SW_SAPIEN_URL") or _env("SW_BASE_URL")
+
+if _SW_ENV == "production":
+    BASE_URL = _SW_BASE_URL or "https://services.sw.com.mx"
     logger.info("SW Sapien: entorno PRODUCCIÓN (%s)", BASE_URL)
 else:
-    BASE_URL = "https://services.test.sw.com.mx"
+    BASE_URL = _SW_BASE_URL or "https://services.test.sw.com.mx"
     logger.info("SW Sapien: entorno TEST (%s) — CFDIs NO son fiscalmente válidos", BASE_URL)
 
 SW_TOKEN_URL  = f"{BASE_URL}/v2/security/authenticate"
@@ -58,11 +83,58 @@ SW_JSON_ISSUE_URL = os.environ.get("SW_JSON_ISSUE_URL", f"{BASE_URL}/v3/cfdi33/i
 SW_CANCEL_URL = os.environ.get("SW_CANCEL_URL", f"{BASE_URL}/cfdi33/cancel/pfx").strip()
 SW_CANCEL_STATUS_URL = os.environ.get("SW_CANCEL_STATUS_URL", f"{BASE_URL}/cfdi33/cancel/pfx/status").strip()
 
-# Credenciales vía variables de entorno
-SW_USER     = os.environ.get("SW_USER", "").strip()
-SW_PASSWORD = os.environ.get("SW_PASSWORD", "").strip()
+# Credenciales vía variables de entorno. Se soportan ambos nombres para evitar
+# fallas de despliegue durante la transición del cierre productivo.
+SW_USER     = _env("SW_USER") or _env("SW_SAPIEN_USER")
+SW_PASSWORD = _env("SW_PASSWORD") or _env("SW_SAPIEN_PASSWORD")
 SW_CANCEL_PFX_B64 = os.environ.get("SW_CANCEL_PFX_B64", "").strip()
 SW_CANCEL_PFX_PASSWORD = os.environ.get("SW_CANCEL_PFX_PASSWORD", "").strip()
+
+
+def sw_runtime_config() -> dict:
+    """Config no sensible para healthchecks y checklist GO/NO GO."""
+    return {
+        "app_env": _APP_ENV,
+        "sw_env": _SW_ENV,
+        "base_url": BASE_URL,
+        "token_url": SW_TOKEN_URL,
+        "xml_issue_url": SW_XML_ISSUE_URL,
+        "xml_stamp_url": SW_XML_STAMP_URL,
+        "json_issue_url": SW_JSON_ISSUE_URL,
+        "cancel_url": SW_CANCEL_URL,
+        "has_credentials": bool(SW_USER and SW_PASSWORD),
+        "credential_names_supported": ["SW_USER/SW_PASSWORD", "SW_SAPIEN_USER/SW_SAPIEN_PASSWORD"],
+        "real_stamping_allowed": _real_pac_allowed(),
+        "real_staging_override": _truthy_env("SW_ALLOW_REAL_IN_STAGING"),
+        "real_timbrado_flag": _truthy_env("SW_ALLOW_REAL_TIMBRADO"),
+        "real_cancelacion_flag": _truthy_env("SW_ALLOW_REAL_CANCELACION"),
+    }
+
+
+def _real_pac_allowed() -> bool:
+    if _SW_ENV != "production":
+        return True
+    if _APP_ENV != "production" and not _truthy_env("SW_ALLOW_REAL_IN_STAGING"):
+        return False
+    return _truthy_env("SW_ALLOW_REAL_TIMBRADO")
+
+
+def _real_pac_block_message(operation: str) -> str:
+    if _SW_ENV != "production":
+        return ""
+    if _APP_ENV != "production" and not _truthy_env("SW_ALLOW_REAL_IN_STAGING"):
+        return f"{operation} real bloqueado en {_APP_ENV}. Cambia APP_ENV=production o define SW_ALLOW_REAL_IN_STAGING=true solo para prueba autorizada."
+    if operation.lower().startswith("cancel") and not _truthy_env("SW_ALLOW_REAL_CANCELACION"):
+        return "Cancelación real bloqueada. Define SW_ALLOW_REAL_CANCELACION=true solo cuando se autorice probar cancelación."
+    if not _truthy_env("SW_ALLOW_REAL_TIMBRADO"):
+        return f"{operation} real bloqueado. Define SW_ALLOW_REAL_TIMBRADO=true solo durante la prueba autorizada."
+    return ""
+
+
+def _guard_real_pac_operation(operation: str) -> None:
+    msg = _real_pac_block_message(operation)
+    if msg:
+        raise PermissionError(msg)
 
 # ── Token cache thread-safe ───────────────────────────────────────────────────
 _token_lock:  threading.Lock = threading.Lock()
@@ -86,7 +158,7 @@ def _get_token() -> str:
         if not SW_USER or not SW_PASSWORD:
             raise ValueError(
                 "Credenciales SW Sapien no configuradas. "
-                "Define SW_USER y SW_PASSWORD como variables de entorno en Render."
+                "Define SW_USER/SW_PASSWORD o SW_SAPIEN_USER/SW_SAPIEN_PASSWORD como variables de entorno en Render."
             )
 
         last_error: Optional[Exception] = None
@@ -242,6 +314,20 @@ def timbrar_cfdi(xml_str: str) -> dict:
     documentado por SW. Si ya viene sellado usa Timbrado multipart/form-data.
     Retorna dict con: uuid, xml_timbrado, pdf_url, error.
     """
+    validation_error = _validate_cfdi_xml_before_sw(xml_str)
+    if validation_error:
+        audit_request_id = record_pac_request(
+            module="transporte",
+            operation="validate_xml",
+            request_payload={"xml_hash": _hash_text(xml_str), "format": "xml"},
+        )
+        record_pac_response(
+            request_id=audit_request_id,
+            response_payload={"error": validation_error, "stage": "local_validation"},
+            status="error",
+            error_message=validation_error,
+        )
+        return {"uuid": "", "xml_timbrado": "", "pdf_url": "", "error": validation_error}
     issue_mode = _xml_needs_issue(xml_str)
     audit_request_id = record_pac_request(
         module="transporte",
@@ -249,6 +335,7 @@ def timbrar_cfdi(xml_str: str) -> dict:
         request_payload={"xml_hash": _hash_text(xml_str), "format": "xml", "mode": "issue" if issue_mode else "stamp"},
     )
     try:
+        _guard_real_pac_operation("Timbrado")
         token = _get_token()
         if issue_mode:
             xml_b64 = base64.b64encode(xml_str.encode("utf-8")).decode("utf-8")
@@ -297,7 +384,10 @@ def timbrar_cfdi(xml_str: str) -> dict:
         )
         return result
     except Exception as e:
-        logger.error("timbrar_cfdi error: %s", e)
+        if isinstance(e, PermissionError):
+            logger.warning("timbrar_cfdi bloqueado: %s", e)
+        else:
+            logger.error("timbrar_cfdi error: %s", e)
         record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=str(e))
         return {"uuid": "", "xml_timbrado": "", "pdf_url": "", "error": str(e)}
 
@@ -307,12 +397,27 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
     Envia un CFDI JSON a SW Sapien usando Emision Timbrado JSON.
     SW documenta JSON directo con Content-Type application/jsontoxml.
     """
+    validation_error = _validate_cfdi_json_before_sw(cfdi_dict)
+    if validation_error:
+        audit_request_id = record_pac_request(
+            module="transporte",
+            operation="validate_json",
+            request_payload=cfdi_dict if isinstance(cfdi_dict, dict) else {"invalid": True},
+        )
+        record_pac_response(
+            request_id=audit_request_id,
+            response_payload={"error": validation_error, "stage": "local_validation"},
+            status="error",
+            error_message=validation_error,
+        )
+        return {"ok": False, "error": validation_error}
     audit_request_id = record_pac_request(
         module="transporte",
         operation="stamp_json",
         request_payload=cfdi_dict,
     )
     try:
+        _guard_real_pac_operation("Timbrado")
         token = _get_token()
         headers = {
             "Authorization": f"Bearer {token}",
@@ -350,7 +455,10 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
         )
         return result
     except Exception as e:
-        logger.error("emitir_timbrar_json error: %s", e)
+        if isinstance(e, PermissionError):
+            logger.warning("emitir_timbrar_json bloqueado: %s", e)
+        else:
+            logger.error("emitir_timbrar_json error: %s", e)
         record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=str(e))
         return {"ok": False, "error": str(e)}
 
@@ -369,6 +477,55 @@ def _xml_needs_issue(xml_str: str) -> bool:
         return (m is None) or (m.group(1).strip() == "")
 
     return empty_attr("Sello") or empty_attr("Certificado") or empty_attr("NoCertificado")
+
+
+def _validate_cfdi_xml_before_sw(xml_str: str) -> str:
+    raw = (xml_str or "").strip()
+    if not raw:
+        return "XML CFDI vacío. No se envió a SW Sapien."
+    try:
+        root = ET.fromstring(raw.encode("utf-8"))
+    except Exception as exc:
+        return f"XML CFDI inválido antes de timbrar: {exc}"
+    tag = root.tag.split("}")[-1].lower()
+    if tag != "comprobante":
+        return "XML CFDI inválido: el nodo raíz debe ser cfdi:Comprobante."
+    version = root.attrib.get("Version") or root.attrib.get("version")
+    if version != "4.0":
+        return "XML CFDI inválido: solo se permite CFDI 4.0."
+    required = ("TipoDeComprobante", "LugarExpedicion", "Moneda", "SubTotal", "Total")
+    missing = [name for name in required if not (root.attrib.get(name) or "").strip()]
+    if missing:
+        return "XML CFDI incompleto antes de timbrar: faltan " + ", ".join(missing) + "."
+    if _first_xml_child(root, "Emisor") is None:
+        return "XML CFDI incompleto antes de timbrar: falta Emisor."
+    if _first_xml_child(root, "Receptor") is None:
+        return "XML CFDI incompleto antes de timbrar: falta Receptor."
+    conceptos = _first_xml_child(root, "Conceptos")
+    if conceptos is None or not list(conceptos):
+        return "XML CFDI incompleto antes de timbrar: falta Conceptos."
+    return ""
+
+
+def _first_xml_child(root: ET.Element, local_name: str) -> Optional[ET.Element]:
+    for elem in root.iter():
+        if elem.tag.split("}")[-1] == local_name:
+            return elem
+    return None
+
+
+def _validate_cfdi_json_before_sw(cfdi_dict: dict) -> str:
+    if not isinstance(cfdi_dict, dict) or not cfdi_dict:
+        return "CFDI JSON vacío. No se envió a SW Sapien."
+    if str(cfdi_dict.get("Version") or "") != "4.0":
+        return "CFDI JSON inválido: solo se permite CFDI 4.0."
+    for key in ("Emisor", "Receptor", "Conceptos"):
+        if not cfdi_dict.get(key):
+            return f"CFDI JSON incompleto antes de timbrar: falta {key}."
+    conceptos = cfdi_dict.get("Conceptos")
+    if not isinstance(conceptos, list) or not conceptos:
+        return "CFDI JSON incompleto antes de timbrar: Conceptos debe tener al menos un concepto."
+    return ""
 
 
 # ── Cancelación ───────────────────────────────────────────────────────────────
@@ -398,6 +555,7 @@ def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02", uuid_susti
         tenant_id=tenant_id,
     )
     try:
+        _guard_real_pac_operation("Cancelación")
         if not uuid_sat:
             raise ValueError("No se puede cancelar un CFDI sin UUID SAT.")
         if not rfc_emisor:
@@ -439,7 +597,10 @@ def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02", uuid_susti
         result["pac_response_id"] = pac_response_id
         return result
     except Exception as e:
-        logger.error("cancelar_cfdi error: %s", e)
+        if isinstance(e, PermissionError):
+            logger.warning("cancelar_cfdi bloqueado: %s", e)
+        else:
+            logger.error("cancelar_cfdi error: %s", e)
         pac_response_id = record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=str(e))
         return {"ok": False, "status": "Error", "error": str(e), "acuse": "", "pac_request_id": audit_request_id, "pac_response_id": pac_response_id}
 
