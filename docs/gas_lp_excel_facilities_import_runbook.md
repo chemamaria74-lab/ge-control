@@ -38,7 +38,7 @@ Detected fields include:
 
 Use the existing `public.user_facilities` table.
 
-Reason: it is already consumed by Gas LP UI, Anexo 30/history flows, facility selector and configuration.
+Reason: it is already consumed by Gas LP UI, controls/history flows, facility selector and configuration.
 
 The additive migration `migrations/gas_lp_facility_import_metadata_20260524.sql` adds import metadata:
 
