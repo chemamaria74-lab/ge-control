@@ -53,7 +53,7 @@
   </div>
   <div class="topbar">
     <img src="/static/img/ge-isotype-light.svg" alt="GE">
-    <div><h1>Admin SaaS</h1><span class="badge">Consola interna GE CONTROL</span></div>
+    <div><h1>Admin SaaS</h1><span class="badge">Plataforma Superadmin GE CONTROL</span></div>
     <div class="topbar-right">
       <span class="badge" id="whoami">Verificando...</span>
       <button class="btn btn-ghost btn-sm" onclick="location.href='/choice'">Módulos</button>
@@ -238,10 +238,10 @@
           </div>
         </div>
         <div class="card" style="margin-top:14px;overflow:auto">
-          <h3>Administradores internos</h3>
-          <p class="muted" style="margin:6px 0 12px">Vista operativa de usuarios globales. El alta completa sigue en herramientas avanzadas para evitar capturas accidentales.</p>
-          <table><thead><tr><th>Usuario</th><th>Módulo</th><th>Rol</th><th>Status</th><th>Tenant</th><th>Perfil</th></tr></thead><tbody id="adminUsersRows"></tbody></table>
-          <div class="actions"><button class="btn btn-ghost" onclick="showPanel('usuarios')">Agregar / editar administrador</button></div>
+          <h3>Administradores GE Control</h3>
+          <p class="muted" style="margin:6px 0 12px">Solo usuarios internos de GE Control con acceso Superadmin. Los administradores de clientes, como admon@grupoemurcia.com.mx, viven dentro de Clientes y se cobran como parte del tenant.</p>
+          <table><thead><tr><th>Usuario</th><th>Acceso</th><th>Status</th><th>Último acceso</th></tr></thead><tbody id="adminUsersRows"></tbody></table>
+          <div class="actions"><button class="btn btn-ghost" onclick="showPanel('usuarios')">Herramientas avanzadas de usuarios</button></div>
         </div>
       </section>
 
@@ -418,7 +418,7 @@ function prefillRepairFromTenant(tenantId){ const user=(USERS_HEALTH||[]).find(u
 async function loadCompanies(){ const d=await api('/companies',{headers:H(false)}); COMPANIES=d.companies||[]; renderCompanies(); }
 function renderCompanies(){ const q=document.getElementById('companySearch')?.value||''; const rows=(COMPANIES||[]).filter(c=>matchesSearch(c,q)); companiesRows.innerHTML=rows.map(c=>`<tr><td><code>${c.id}</code></td><td>${esc(c.nombre)}</td><td>${esc(c.rfc)}</td><td><code>${esc(c.tenant_id||'—')}</code></td><td><code>${esc(c.user_id)}</code></td><td>${c.activo?'Sí':'No'}</td></tr>`).join('')||'<tr><td colspan="6">Sin empresas.</td></tr>'; }
 async function createCompany(){ try{ await api('/companies',{method:'POST',headers:H(),body:JSON.stringify({tenant_id:companyTenant.value,nombre:companyName.value,rfc:companyRfc.value,descripcion:companyDesc.value,user_id:companyUser.value||null,active:true})}); msg('companyStatus','Empresa creada'); await loadCompanies(); }catch(e){msg('companyStatus',e.message,false);} }
-async function loadUsers(){ const d=await api('/users',{headers:H(false)}); const rows=(d.users||[]); const html=rows.map(u=>`<tr><td>${esc(u.email||u.display_name||u.user_id)}<br><code>${esc(u.user_id)}</code></td><td>${esc(u.section)}</td><td>${esc(u.role)}</td><td>${esc(u.status||'active')}</td><td><code>${esc(u.tenant_id||'—')}</code></td><td>${esc(u.perfil_id||'—')}</td><td>${esc(u.last_sign_in_at||'—')}</td></tr>`).join('')||'<tr><td colspan="7">Sin usuarios.</td></tr>'; if(document.getElementById('usersRows')) usersRows.innerHTML=html; const adminEl=document.getElementById('adminUsersRows'); if(adminEl) adminEl.innerHTML=rows.filter(u=>String(u.role||'').includes('admin')).map(u=>`<tr><td>${esc(u.email||u.display_name||u.user_id)}</td><td>${esc(u.section||'—')}</td><td>${esc(u.role||'—')}</td><td>${esc(u.status||'active')}</td><td><code>${esc(u.tenant_id||'—')}</code></td><td>${esc(u.perfil_id||'—')}</td></tr>`).join('')||'<tr><td colspan="6">Sin administradores internos.</td></tr>'; }
+async function loadUsers(){ const d=await api('/users',{headers:H(false)}); const rows=(d.users||[]); const html=rows.map(u=>`<tr><td>${esc(u.email||u.display_name||u.user_id)}<br><code>${esc(u.user_id)}</code></td><td>${esc(u.section)}</td><td>${esc(u.role)}</td><td>${esc(u.status||'active')}</td><td><code>${esc(u.tenant_id||'—')}</code></td><td>${esc(u.perfil_id||'—')}</td><td>${esc(u.last_sign_in_at||'—')}</td></tr>`).join('')||'<tr><td colspan="7">Sin usuarios.</td></tr>'; if(document.getElementById('usersRows')) usersRows.innerHTML=html; const adminEl=document.getElementById('adminUsersRows'); if(adminEl){ const admins=[]; const seen=new Set(); rows.filter(u=>u.is_ge_admin).forEach(u=>{ const key=String(u.user_id||u.email||''); if(seen.has(key)) return; seen.add(key); admins.push(u); }); adminEl.innerHTML=admins.map(u=>`<tr><td>${esc(u.email||u.auth_display_name||u.user_id)}<br><code>${esc(u.user_id||'—')}</code></td><td>${pill('Superadmin GE Control','ok')}</td><td>${esc(u.status||'active')}</td><td>${esc(u.last_sign_in_at||'—')}</td></tr>`).join('')||'<tr><td colspan="4">Sin administradores GE Control configurados en SUPERADMIN_EMAILS.</td></tr>'; } }
 async function createUser(){ try{ const data=await api('/users',{method:'POST',headers:H(),body:JSON.stringify({email:userEmail.value,password:userPassword.value,display_name:userDisplay.value,tenant_id:userTenant.value||null,section:userSection.value,role:userRole.value,perfil_id:userPerfil.value?Number(userPerfil.value):null})}); msg('userStatus',data.extended_existing?'Acceso extendido al usuario existente':'Usuario creado'); await loadUsers(); await loadUsersHealth(); await loadTenants(); }catch(e){msg('userStatus',e.message,false);} }
 function bool(id){ return !!document.getElementById(id)?.checked; }
 function numOrNull(id){ const v=document.getElementById(id)?.value; return v===''?null:Number(v||0); }
