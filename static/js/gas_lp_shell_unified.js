@@ -121,40 +121,14 @@
     }
 
     const facturar = document.getElementById("mpanel-facturar");
-    replaceText(facturar, "Generar Carta Porte 3.1", "Control de movimientos y Carta Porte");
-    replaceText(facturar, "Generar Carta Porte", "Crear salida / Carta Porte");
-    replaceText(facturar, "Cargar entregas", "Cargar movimientos");
-    replaceText(facturar, "No hay entregas registradas", "No hay movimientos registrados");
+    replaceText(facturar, "Generar Carta Porte 3.1", "Carta Porte de traspaso interno");
+    replaceText(facturar, "Generar Carta Porte", "Timbrar Carta Porte de traslado");
+    replaceText(facturar, "Cargar entregas", "Cargar traspasos");
+    replaceText(facturar, "No hay entregas registradas", "No hay traspasos internos registrados");
   }
 
   function enhanceDashboard() {
-    const dashboard = document.getElementById("mpanel-ventas");
-    if (!dashboard || dashboard.querySelector(".ge-gaslp-ops-strip")) return;
-    const card = document.createElement("section");
-    card.className = "ge-gaslp-ops-strip";
-    card.innerHTML = `
-      <article>
-        <div class="ge-kicker">Actividad reciente</div>
-        <strong>Movimientos del periodo</strong>
-        <span>Resumen de cargas, facturas y capturas por planta.</span>
-      </article>
-      <article>
-        <div class="ge-kicker">Facturas del día</div>
-        <strong>CFDI / XML</strong>
-        <span>Validación contra RFC activo y control mensual.</span>
-      </article>
-      <article>
-        <div class="ge-kicker">SAT Sync</div>
-        <strong>Pendiente de configurar</strong>
-        <span>Cargas detectadas aparecerán aquí al activar credenciales cifradas.</span>
-      </article>
-      <article>
-        <div class="ge-kicker">Accesos rápidos</div>
-        <strong>Planta, facturación y JSON</strong>
-        <span>Flujo operativo para cierre fiscal mensual.</span>
-      </article>`;
-    const h2 = dashboard.querySelector("h2");
-    if (h2?.parentElement) h2.parentElement.insertBefore(card, h2.nextSibling);
+    document.querySelectorAll(".ge-gaslp-ops-strip").forEach(el => el.remove());
   }
 
   function runUxSync() {
