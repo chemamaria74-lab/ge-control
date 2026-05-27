@@ -65,7 +65,14 @@
           <div class="toolbar" style="margin-top:10px"><button class="btn" type="button" onclick="saveCliente()">Guardar cliente</button><span id="clienteMsg" class="status"></span></div>
         </div>
         <div class="form-grid">
-          <div><label>Cliente</label><select id="clienteSelect" onchange="selectCliente()"><option value="">Público en general</option></select></div>
+          <div><label>Operación</label><select id="tipoOperacion" onchange="updateOperacionUI()"><option value="venta">Venta a cliente</option><option value="traspaso">Traspaso interno a estación</option></select></div>
+          <div><label>Instalación origen</label><select id="facilitySelect" onchange="filterRutasForTransfer()"><option value="">Selecciona instalación</option></select></div>
+          <div id="clienteField"><label>Cliente</label><select id="clienteSelect" onchange="selectCliente()"><option value="">Público en general</option></select></div>
+          <div id="destinoField" class="hide"><label>Estación destino</label><select id="destinoFacilitySelect" onchange="filterRutasForTransfer()"><option value="">Selecciona estación destino</option></select></div>
+          <div id="cartaPorteField" class="hide"><label>Carta Porte</label><select id="generarCartaPorte" onchange="updateOperacionUI()"><option value="0">Sólo registrar traspaso</option><option value="1">Timbrar Carta Porte</option></select></div>
+          <div id="vehiculoField" class="hide"><label>Vehículo</label><select id="vehiculoSelect"><option value="">Selecciona vehículo</option></select></div>
+          <div id="choferField" class="hide"><label>Chofer</label><select id="choferSelect"><option value="">Selecciona chofer</option></select></div>
+          <div id="rutaField" class="hide"><label>Ruta</label><select id="rutaSelect"><option value="">Selecciona ruta</option></select></div>
           <div><label>Concepto</label><input id="concepto" value="LITRO DE GAS LP"></div>
           <div><label>Litros</label><input id="litros" type="number" min="0" step="0.00001" value="0" oninput="updateTotals()"></div>
           <div><label>Precio unitario</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
@@ -87,7 +94,7 @@
           <div><span>Total</span><b id="sumTotal">$0.00</b></div>
         </div>
         <div class="toolbar" style="margin-top:12px">
-          <button class="btn" type="button" onclick="crearFactura()"><i class="fa-solid fa-stamp"></i> Timbrar factura</button>
+          <button class="btn" id="btnTimbrar" type="button" onclick="crearFactura()"><i class="fa-solid fa-stamp"></i> Timbrar factura</button>
           <span id="facturaMsg" class="status"></span>
         </div>
       </div>
@@ -98,12 +105,14 @@
     </section>
     <section class="card" style="margin-top:14px">
       <div class="section-title"><h2>Facturas recientes</h2><button class="btn ghost" type="button" onclick="loadFacturas()">Actualizar</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Litros</th><th>Total</th><th>Estado</th><th>UUID</th></tr></thead><tbody id="facturasRows"><tr><td colspan="6">Cargando...</td></tr></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Operación</th><th>Instalación</th><th>Cliente/Destino</th><th>Litros</th><th>Total</th><th>Estado</th><th>UUID</th></tr></thead><tbody id="facturasRows"><tr><td colspan="8">Cargando...</td></tr></tbody></table></div>
     </section>
   </main>
   <script>
     const token = localStorage.getItem('ge_gaslp_internal_token') || '';
     let CLIENTES = [];
+    let FACILITIES = [];
+    let CATALOGOS = {choferes:[], vehiculos:[], rutas:[]};
     let CURRENT_COMPANY = null;
     function iconFor(key){ return {facturacion:'file-invoice-dollar',xml_excel:'file-excel',operacion:'clipboard-list',planta:'industry',reportes:'chart-simple',consulta:'magnifying-glass'}[key] || 'shield-halved'; }
     function money(v){ return '$' + Number(v || 0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -146,7 +155,8 @@
         companyRfcTop.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
         setPublicoGeneralDefaults();
         ensureFechaEmision();
-        await Promise.all([loadClientes(), loadFacturas()]);
+        await Promise.all([loadClientes(), loadFacilities(), loadCatalogos(), loadFacturas()]);
+        updateOperacionUI();
       }catch(e){
         localStorage.removeItem('ge_gaslp_internal_token');
         location.href='/gas-lp/asistente';
@@ -167,6 +177,50 @@
       CLIENTES = data.clientes || [];
       clienteSelect.innerHTML = '<option value="">Público en general</option>' + CLIENTES.map(c=>`<option value="${esc(c.id)}">${esc(c.nombre)} · ${esc(c.rfc)}</option>`).join('');
       clientesList.innerHTML = CLIENTES.length ? CLIENTES.map(c=>`<div class="module"><i class="fa-solid fa-user"></i><div><b>${esc(c.nombre)}</b><span class="muted">${esc(c.rfc)} · CP ${esc(c.cp||'—')} · ${esc(c.uso_cfdi||'S01')}</span><div class="toolbar" style="margin-top:8px"><button class="btn ghost" type="button" onclick="deleteCliente(${Number(c.id)})"><i class="fa-solid fa-trash-can"></i> Eliminar</button></div></div></div>`).join('') : '<div class="empty">Sin clientes. Puedes facturar a Público en general o agregar clientes aquí.</div>';
+    }
+    async function loadFacilities(){
+      const data = await api('/api/internal-auth/gas-lp/facilities');
+      FACILITIES = data.facilities || [];
+      const opts = FACILITIES.map(f=>`<option value="${esc(f.id)}">${esc(f.nombre)}${f.clave_instalacion ? ` [${esc(f.clave_instalacion)}]` : ''}</option>`).join('');
+      facilitySelect.innerHTML = '<option value="">Selecciona instalación</option>' + opts;
+      if(FACILITIES.length === 1) facilitySelect.value = String(FACILITIES[0].id);
+      renderDestinoFacilities();
+    }
+    async function loadCatalogos(){
+      const data = await api('/api/internal-auth/gas-lp/catalogos?modulo=gas_lp');
+      CATALOGOS = {choferes:data.choferes||[], vehiculos:data.vehiculos||[], rutas:data.rutas||[]};
+      choferSelect.innerHTML = '<option value="">Selecciona chofer</option>' + CATALOGOS.choferes.map(c=>`<option value="${esc(c.id)}">${esc(c.nombre)}${c.rfc ? ` · ${esc(c.rfc)}` : ''}</option>`).join('');
+      vehiculoSelect.innerHTML = '<option value="">Selecciona vehículo</option>' + CATALOGOS.vehiculos.map(v=>`<option value="${esc(v.id)}">${esc(v.placas)}${v.config_vehicular ? ` · ${esc(v.config_vehicular)}` : ''}</option>`).join('');
+      filterRutasForTransfer();
+    }
+    function isStation(f){
+      const text = ['tipo_instalacion','tipo_permiso','descripcion','nombre','actividad_sat'].map(k => String(f?.[k]||'').toLowerCase()).join(' ');
+      return ['estacion','estación','expendio','carburacion','carburación','per43','per44','exo'].some(t => text.includes(t));
+    }
+    function renderDestinoFacilities(){
+      const stations = FACILITIES.filter(isStation);
+      destinoFacilitySelect.innerHTML = '<option value="">Selecciona estación destino</option>' + stations.map(f=>`<option value="${esc(f.id)}">${esc(f.nombre)}${f.clave_instalacion ? ` [${esc(f.clave_instalacion)}]` : ''}</option>`).join('');
+    }
+    function filterRutasForTransfer(){
+      const origen = Number(facilitySelect.value || 0);
+      const destino = Number(destinoFacilitySelect.value || 0);
+      const rutas = (CATALOGOS.rutas || []).filter(r => {
+        const ro = Number(r.origen_facility_id || 0);
+        const rd = Number(r.destino_facility_id || 0);
+        return (!origen || !ro || ro === origen) && (!destino || !rd || rd === destino);
+      });
+      rutaSelect.innerHTML = '<option value="">Selecciona ruta</option>' + rutas.map(r=>`<option value="${esc(r.id)}">${esc(r.nombre)}${r.distancia_km ? ` · ${esc(r.distancia_km)} km` : ''}</option>`).join('');
+    }
+    function updateOperacionUI(){
+      const traspaso = tipoOperacion.value === 'traspaso';
+      [destinoField,cartaPorteField].forEach(el => el.classList.toggle('hide', !traspaso));
+      const cp = traspaso && generarCartaPorte.value === '1';
+      [vehiculoField,choferField,rutaField].forEach(el => el.classList.toggle('hide', !cp));
+      clienteField.classList.toggle('hide', traspaso);
+      btnPublicoGeneral.disabled = traspaso;
+      btnTimbrar.innerHTML = traspaso ? (cp ? '<i class="fa-solid fa-truck-fast"></i> Timbrar Carta Porte' : '<i class="fa-solid fa-right-left"></i> Registrar traspaso') : '<i class="fa-solid fa-stamp"></i> Timbrar factura';
+      concepto.value = traspaso ? 'TRASPASO INTERNO DE GAS LP' : (concepto.value === 'TRASPASO INTERNO DE GAS LP' ? 'LITRO DE GAS LP' : concepto.value);
+      if(traspaso) setStatus('facturaMsg','Traspaso interno: se registrará salida en origen y entrada en estación destino.');
     }
     function selectCliente(){
       const c = CLIENTES.find(x => String(x.id) === String(clienteSelect.value));
@@ -212,6 +266,12 @@
       const precioVal = Number(precioUnitario.value || 0);
       if(litrosVal <= 0 || precioVal <= 0){ setStatus('facturaMsg','Captura litros y precio unitario mayores a cero.',false); return; }
       if(Number(descuento.value || 0) < 0 || Number(descuento.value || 0) > litrosVal * precioVal){ setStatus('facturaMsg','El descuento debe estar entre $0 y el subtotal.',false); return; }
+      if(!facilitySelect.value){ setStatus('facturaMsg','Selecciona la instalación origen.',false); return; }
+      const isTraspaso = tipoOperacion.value === 'traspaso';
+      if(isTraspaso && !destinoFacilitySelect.value){ setStatus('facturaMsg','Selecciona la estación destino.',false); return; }
+      if(isTraspaso && String(facilitySelect.value) === String(destinoFacilitySelect.value)){ setStatus('facturaMsg','Origen y destino deben ser distintos.',false); return; }
+      const wantsCarta = isTraspaso && generarCartaPorte.value === '1';
+      if(wantsCarta && (!vehiculoSelect.value || !choferSelect.value || !rutaSelect.value)){ setStatus('facturaMsg','Para preparar Carta Porte selecciona vehículo, chofer y ruta.',false); return; }
       if(!confirm('¿Timbrar factura real? Solo continúa si esta prueba fue autorizada.')) return;
       const btn = document.querySelector('button[onclick="crearFactura()"]');
       try{
@@ -236,10 +296,17 @@
           no_identificacion: noIdentificacion.value || '001',
           unidad: unidadConcepto.value || 'LITRO GAS',
           metodo_pago: metodoPago.value,
-          forma_pago: formaPago.value
+          forma_pago: formaPago.value,
+          facility_id: Number(facilitySelect.value),
+          tipo_operacion: tipoOperacion.value,
+          destino_facility_id: isTraspaso ? Number(destinoFacilitySelect.value) : null,
+          generar_carta_porte: wantsCarta,
+          vehiculo_id: wantsCarta ? Number(vehiculoSelect.value) : null,
+          chofer_id: wantsCarta ? Number(choferSelect.value) : null,
+          ruta_id: wantsCarta ? Number(rutaSelect.value) : null
         };
         const data = await api('/api/internal-auth/gas-lp/facturas',{method:'POST',body:JSON.stringify(payload)});
-        setStatus('facturaMsg',`Factura timbrada: ${data.factura?.uuid_sat || 'UUID pendiente'}`);
+        setStatus('facturaMsg',`${isTraspaso ? 'Traspaso registrado' : 'Factura timbrada'}: ${data.factura?.uuid_sat || 'UUID pendiente'}`);
         await loadFacturas();
       }catch(e){ setStatus('facturaMsg',e.message,false); }
       finally{ if(btn) btn.disabled = false; }
@@ -249,8 +316,10 @@
       const rows = data.facturas || [];
       facturasRows.innerHTML = rows.length ? rows.map(f=>{
         const md = f.metadata || {};
-        return `<tr><td>${esc((f.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(md.cliente_nombre || f.rfc_receptor || '—')}</td><td>${esc(f.volumen_litros || 0)}</td><td>${money(md.total || (Number(f.importe||0)*1.16))}</td><td>${esc(f.status || '—')}</td><td><code>${esc(f.uuid_sat || '—')}</code></td></tr>`;
-      }).join('') : '<tr><td colspan="6">Sin facturas todavía.</td></tr>';
+        const op = md.tipo_operacion === 'traspaso' ? 'Traspaso' : 'Venta';
+        const destino = md.tipo_operacion === 'traspaso' ? md.destino_nombre : (md.cliente_nombre || f.rfc_receptor || '—');
+        return `<tr><td>${esc((f.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(op)}</td><td>${esc(md.origen_nombre || '—')}</td><td>${esc(destino || '—')}</td><td>${esc(f.volumen_litros || 0)}</td><td>${money(md.total || (Number(f.importe||0)*1.16))}</td><td>${esc(f.status || '—')}</td><td><code>${esc(f.uuid_sat || '—')}</code></td></tr>`;
+      }).join('') : '<tr><td colspan="8">Sin facturas todavía.</td></tr>';
     }
     async function logout(){
       try{
