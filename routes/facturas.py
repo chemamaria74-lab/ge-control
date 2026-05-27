@@ -306,6 +306,41 @@ def _rowdict(row) -> dict:
     return dict(row) if row is not None else {}
 
 
+def _persist_gas_lp_fiscal_artifacts(
+    *,
+    sb,
+    table: str,
+    scope: dict,
+    row: dict,
+    xml_content: str,
+    entity_type: str,
+    base_folder: str,
+    pdf_generator,
+) -> dict:
+    row_id = row.get("id")
+    if not row_id or not xml_content:
+        return {}
+    try:
+        prefix = "factura_gas_lp" if entity_type == "factura_gas_lp" else "factura_servicio"
+        info = fiscal_pdf_info(xml_content, prefix)
+        storage = save_fiscal_artifacts(
+            sb,
+            bucket="fiscal-documents",
+            base_path=f"{scope['user_id']}/gas_lp/{base_folder}/{row_id}",
+            xml_content=xml_content,
+            pdf_bytes=pdf_generator(xml_content),
+            pdf_filename=info.filename,
+            metadata={"module": "gas_lp", "entity_type": entity_type, "uuid_sat": row.get("uuid_sat") or ""},
+        )
+        metadata = {**(row.get("metadata") or {}), "fiscal_storage": storage}
+        _sb_update(table, int(row_id), scope, {"metadata": metadata})
+        row["metadata"] = metadata
+        return storage
+    except Exception as exc:
+        logger.info("Gas LP fiscal artifacts skipped entity=%s id=%s: %s", entity_type, row_id, exc)
+        return {}
+
+
 def _json_scalar(value):
     if isinstance(value, Decimal):
         return float(value)
@@ -582,12 +617,23 @@ async def generar_carta_porte(
             tenant_id=scope.get("tenant_id"),
             source="sw_sapien",
         )
+        storage = _persist_gas_lp_fiscal_artifacts(
+            sb=get_supabase_admin(),
+            table=_SB_FACTURAS,
+            scope=scope,
+            row=supabase_row,
+            xml_content=resultado["xml_timbrado"],
+            entity_type="factura_gas_lp",
+            base_folder="facturas",
+            pdf_generator=generar_pdf_gas_lp_desde_xml,
+        )
         logger.info("Carta Porte timbrada: user=%s uuid_sat=%s source=supabase", uid, resultado["uuid"])
         return JSONResponse({
             "ok": True, "uuid_sat": resultado["uuid"],
             "pdf_url": resultado["pdf_url"], "status": "Vigente",
             "fecha_timbrado": now,
             "id": supabase_row.get("id"),
+            "fiscal_storage": storage,
             "source": "supabase",
         })
 
@@ -1034,10 +1080,21 @@ async def generar_factura_flete(
             tenant_id=scope.get("tenant_id"),
             source="sw_sapien",
         )
+        storage = _persist_gas_lp_fiscal_artifacts(
+            sb=get_supabase_admin(),
+            table=_SB_FACTURAS_SERVICIO,
+            scope=scope,
+            row=supabase_row,
+            xml_content=resultado["xml_timbrado"],
+            entity_type="factura_servicio",
+            base_folder="facturas_servicio",
+            pdf_generator=generar_pdf_ingreso_desde_xml,
+        )
         return JSONResponse({
             "ok": True, "uuid_sat": resultado["uuid"], "pdf_url": resultado["pdf_url"],
             "status": "Vigente", "carta_porte_original": cp["uuid_sat"],
             "id": supabase_row.get("id"),
+            "fiscal_storage": storage,
             "source": "supabase",
         })
 

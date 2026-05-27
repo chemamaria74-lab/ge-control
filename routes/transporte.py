@@ -2684,7 +2684,27 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             perfil_id=perfil_factura,
             source="sw_sapien",
         )
-        return JSONResponse({"ok": True, "id": factura_id, "status": "timbrada", "uuid_sat": sw_data.get("uuid", "")})
+        storage = {}
+        xml_content = sw_data.get("cfdi", "")
+        if factura_id and xml_content:
+            try:
+                info = fiscal_pdf_info(xml_content, "factura_servicio_transporte")
+                storage = save_fiscal_artifacts(
+                    sb,
+                    bucket="transport-documents",
+                    base_path=f"{uid}/{perfil_factura or 'default'}/facturas_servicio/{factura_id}",
+                    xml_content=xml_content,
+                    pdf_bytes=generar_pdf_ingreso_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", "")),
+                    pdf_filename=info.filename,
+                    metadata={"module": "transporte", "entity_type": "factura_servicio", "uuid_sat": sw_data.get("uuid", "")},
+                )
+                sb.table(_TBL_FACT_SERV).update({
+                    "calculo_json": {**calculo_servicio, "fiscal_storage": storage},
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }).eq("id", factura_id).eq("user_id", uid).execute()
+            except Exception as e:
+                logger.info("Factura servicio transporte timbrada pero no se guardaron artifacts fiscales (%s): %s", factura_id, e)
+        return JSONResponse({"ok": True, "id": factura_id, "status": "timbrada", "uuid_sat": sw_data.get("uuid", ""), "fiscal_storage": storage})
     except Exception as e:
         raise HTTPException(500, f"Error al crear factura de servicio: {e}")
 
