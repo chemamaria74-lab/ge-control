@@ -15,6 +15,8 @@ from pydantic import BaseModel
 
 from routes.auth import obtener_acceso_modulo, verify_token
 from routes.perfiles import _tenant_id_for_user
+from services.fiscal_audit import version_xml
+from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml, save_fiscal_artifacts
 from services.sw_sapien import timbrar_cfdi
 from supabase_config import get_supabase_admin, get_supabase_for_user
 
@@ -325,7 +327,7 @@ def _public_general_receptor(issuer_cp: str) -> dict:
 
 
 def _build_gas_lp_consumo_xml(*, issuer: dict, receptor: dict, litros, precio_unitario, concepto: str, forma_pago: str, metodo_pago: str) -> tuple[str, dict]:
-    qty = Decimal(str(litros or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    qty = Decimal(str(litros or 0)).quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP)
     unit = Decimal(str(precio_unitario or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     if qty <= 0 or unit <= 0:
         raise HTTPException(400, "Litros y precio unitario deben ser mayores a cero.")
@@ -347,7 +349,7 @@ def _build_gas_lp_consumo_xml(*, issuer: dict, receptor: dict, litros, precio_un
         f'<cfdi:Receptor Rfc="{receptor["rfc"]}" Nombre="{xml_escape(receptor["nombre"])}" '
         f'DomicilioFiscalReceptor="{receptor["cp"]}" RegimenFiscalReceptor="{receptor["regimen_fiscal"]}" UsoCFDI="{receptor["uso_cfdi"]}"/>'
         '<cfdi:Conceptos>'
-        f'<cfdi:Concepto ClaveProdServ="15111501" NoIdentificacion="{folio}" Cantidad="{qty:.3f}" '
+        f'<cfdi:Concepto ClaveProdServ="15111501" NoIdentificacion="{folio}" Cantidad="{qty:.5f}" '
         f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{xml_escape(desc)}" ValorUnitario="{unit:.6f}" '
         f'Importe="{subtotal:.2f}" ObjetoImp="02">'
         '<cfdi:Impuestos><cfdi:Traslados>'
@@ -963,7 +965,43 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         data = sb.table("gas_lp_facturas").insert(row).execute().data or [row]
     except Exception as exc:
         raise _safe_internal_error("gas_lp_crear_factura", exc)
-    return JSONResponse({"ok": True, "factura": data[0], "totals": totals})
+    factura = data[0]
+    xml_timbrado = factura.get("xml_content") or row["xml_content"]
+    factura_id = factura.get("id")
+    if factura_id and xml_timbrado:
+        version_xml(
+            module="gas_lp",
+            entity_type="factura_gas_lp",
+            entity_id=factura_id,
+            uuid_sat=factura.get("uuid_sat") or row["uuid_sat"],
+            xml_content=xml_timbrado,
+            user_id=user.get("owner_user_id"),
+            perfil_id=user.get("perfil_id"),
+            tenant_id=user.get("tenant_id"),
+            source="sw_sapien",
+        )
+        try:
+            info = fiscal_pdf_info(xml_timbrado, "factura_gas_lp")
+            storage = save_fiscal_artifacts(
+                sb,
+                bucket="fiscal-documents",
+                base_path=f"{user.get('owner_user_id')}/gas_lp/facturas/{factura_id}",
+                xml_content=xml_timbrado,
+                pdf_bytes=generar_pdf_gas_lp_desde_xml(xml_timbrado),
+                pdf_filename=info.filename,
+                metadata={
+                    "module": "gas_lp",
+                    "entity_type": "factura_gas_lp",
+                    "uuid_sat": factura.get("uuid_sat") or row["uuid_sat"],
+                },
+            )
+            if storage:
+                metadata = {**(factura.get("metadata") or {}), "fiscal_storage": storage}
+                sb.table("gas_lp_facturas").update({"metadata": metadata}).eq("id", factura_id).execute()
+                factura["metadata"] = metadata
+        except Exception as exc:
+            logger.info("Gas LP fiscal artifact save skipped factura_id=%s: %s", factura_id, exc)
+    return JSONResponse({"ok": True, "factura": factura, "totals": totals})
 
 
 @router.get("/internal-auth/gas-lp/detected-loads")
