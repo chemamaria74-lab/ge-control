@@ -679,10 +679,10 @@ def _logo_flowable(data_url: str, Image):
 
 
 def _default_full_logo_header_cell(Image, Table, TableStyle, colors):
-    logo = _asset_logo_flowable(Image, "ge-control-logo.png", width=1.65 * 72, height=0.46 * 72)
+    logo = _asset_logo_flowable(Image, "ge-control-logo.png", width=3.2 * 72, height=0.89 * 72)
     if not logo:
         return None
-    table = Table([[logo]], colWidths=[1.9 * 72], rowHeights=[0.62 * 72])
+    table = Table([[logo]], colWidths=[3.3 * 72], rowHeights=[1.0 * 72])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("ALIGN", (0, 0), (-1, -1), "LEFT"),
