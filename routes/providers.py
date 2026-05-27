@@ -226,6 +226,32 @@ def _require_perfil_id(raw: str) -> int:
     return perfil_id
 
 
+def _require_perfil_owner(user_id: str, perfil_id: int) -> None:
+    """
+    Proveedores Gas LP pertenecen a la razon social activa. No basta confiar en
+    X-Perfil-Id del frontend: debe existir y pertenecer al usuario autenticado.
+    """
+    try:
+        from supabase_config import get_supabase_admin
+        rows = (
+            get_supabase_admin()
+            .table("perfiles_empresa")
+            .select("id")
+            .eq("id", perfil_id)
+            .eq("user_id", user_id)
+            .eq("activo", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as e:
+        logger.warning("providers perfil validation: %s", e)
+        raise HTTPException(500, "No se pudo validar la empresa activa.")
+    if not rows:
+        raise HTTPException(403, "La empresa activa no pertenece a este usuario.")
+
+
 def get_permiso_for_rfc(rfc: str, user_id: str = None, perfil_id: int = None) -> Optional[str]:
     """Retorna el permiso CRE del proveedor para el usuario/perfil dado, o None."""
     if not rfc or not user_id or not perfil_id:
@@ -276,6 +302,7 @@ async def asignar_perfil_a_huerfanos(
     """
     user_id   = _auth(authorization)
     perfil_id = _require_perfil_id(x_perfil_id)
+    _require_perfil_owner(user_id, perfil_id)
     try:
         from supabase_config import get_supabase_admin
         result = get_supabase_admin().table("providers")\
@@ -298,6 +325,7 @@ async def list_providers(
 ):
     user_id   = _auth(authorization)
     perfil_id = _require_perfil_id(x_perfil_id)
+    _require_perfil_owner(user_id, perfil_id)
     return JSONResponse(content={"providers": _load_providers(user_id, perfil_id)})
 
 
@@ -309,6 +337,7 @@ async def upsert_provider_endpoint(
 ):
     user_id   = _auth(authorization)
     perfil_id = _require_perfil_id(x_perfil_id)
+    _require_perfil_owner(user_id, perfil_id)
     rfc_upper = payload.rfc.strip().upper()
     if not rfc_upper:
         raise HTTPException(400, "El RFC es obligatorio.")
@@ -332,6 +361,7 @@ async def delete_provider_endpoint(
 ):
     user_id   = _auth(authorization)
     perfil_id = _require_perfil_id(x_perfil_id)
+    _require_perfil_owner(user_id, perfil_id)
     _delete_provider(user_id, rfc, perfil_id)
     logger.info("Proveedor eliminado: %s user=%s perfil=%s", rfc, user_id, perfil_id)
     return JSONResponse(content={"success": True, "providers": _load_providers(user_id, perfil_id)})
