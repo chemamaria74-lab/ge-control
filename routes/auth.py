@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from supabase import create_client
 
 from supabase_config import get_supabase, get_supabase_for_user, SUPABASE_URL, SUPABASE_KEY
+from services.logout import revoke_supabase_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -501,9 +502,7 @@ async def me(authorization: str = Header(default="")):
 @router.post("/auth/logout")
 async def logout(authorization: str = Header(default="")):
     token = _extract_bearer(authorization)
-    if token:
-        try:
-            get_supabase().auth.sign_out()
-        except Exception:
-            pass
-    return JSONResponse(content={"success": True})
+    result = revoke_supabase_session(token)
+    if not result.ok:
+        raise HTTPException(502, f"No se pudo cerrar la sesión en Supabase: {result.reason}")
+    return JSONResponse(content=result.as_dict())

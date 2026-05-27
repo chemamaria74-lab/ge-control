@@ -62,7 +62,7 @@ class InternalLogin(BaseModel):
 
 
 class InternalLogout(BaseModel):
-    token: str
+    token: Optional[str] = ""
 
 
 class DetectedLoadAction(BaseModel):
@@ -722,13 +722,18 @@ async def internal_me(token: str, section: str | None = None):
 
 
 @router.post("/internal-auth/logout")
-async def internal_logout(payload: InternalLogout):
-    if payload.token:
+async def internal_logout(payload: InternalLogout, authorization: str = Header(default="")):
+    token = (payload.token or "").strip()
+    if not token and authorization.startswith("Bearer "):
+        token = authorization[7:].strip()
+    if token:
         try:
-            get_supabase_admin().table("internal_user_sessions").delete().eq("token_hash", _hash_token(payload.token)).execute()
+            get_supabase_admin().table("internal_user_sessions").delete().eq("token_hash", _hash_token(token)).execute()
         except Exception as e:
             logger.warning("internal logout failed: %s", e)
-    return JSONResponse({"ok": True})
+            raise HTTPException(502, f"No se pudo cerrar la sesión interna: {e}")
+        return JSONResponse({"ok": True, "success": True, "revoked": True})
+    return JSONResponse({"ok": True, "success": True, "revoked": False, "reason": "missing_token"})
 
 
 @router.get("/internal-auth/gas-lp/summary")

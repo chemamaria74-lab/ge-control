@@ -526,7 +526,7 @@ def _is_test_user(inspection: dict) -> bool:
         + [str(p.get("nombre") or "") for p in inspection.get("perfiles") or []]
     ).lower()
     tenant_text = " ".join(str(t) for t in inspection.get("tenant_ids") or []).lower()
-    markers = ("example", "test", "demo", "prueba", "dummy", "sandbox")
+    markers = ("example", "test", "demo", "prueba", "dummy", "sandbox", "smoke", "phase2", "phase3")
     return any(m in email or m in names or m in tenant_text for m in markers)
 
 

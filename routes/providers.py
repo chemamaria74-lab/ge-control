@@ -149,7 +149,11 @@ def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,
         logger.warning("Supabase providers upsert: %s", e)
         msg = str(e)
         if "duplicate" in msg.lower() or "unique" in msg.lower():
-            return False, "Supabase rechazó un duplicado de RFC. Falta ajustar la restricción multiempresa de proveedores."
+            return False, (
+                "Supabase rechazó un duplicado de RFC. Aplica la migración "
+                "migrations/providers_multiempresa_unique_20260527.sql para permitir "
+                "el mismo RFC por empresa/perfil."
+            )
         return False, msg or "No se pudo guardar el proveedor en Supabase."
 
 

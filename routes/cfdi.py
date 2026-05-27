@@ -572,15 +572,21 @@ async def _upload_cfdi_impl(
                         if not k.startswith("AUTO-")}
         ventas_cfdi  = {k: v for k, v in sat_meta["_ventas"].items()
                         if not k.startswith("AUTO-")}
-        save_records(user_id, periodo, compras_cfdi, "entrada",
-                     facility_id=fid, perfil_id=perfil_id)
-        save_records(user_id, periodo, ventas_cfdi,  "salida",
-                     facility_id=fid, perfil_id=perfil_id)
+        saved_compras = save_records(user_id, periodo, compras_cfdi, "entrada",
+                                     facility_id=fid, perfil_id=perfil_id)
+        saved_ventas = save_records(user_id, periodo, ventas_cfdi,  "salida",
+                                    facility_id=fid, perfil_id=perfil_id)
+        if compras_cfdi and saved_compras != len(compras_cfdi):
+            raise RuntimeError(f"Persistencia incompleta de recepciones: {saved_compras}/{len(compras_cfdi)}.")
+        if ventas_cfdi and saved_ventas != len(ventas_cfdi):
+            raise RuntimeError(f"Persistencia incompleta de entregas: {saved_ventas}/{len(ventas_cfdi)}.")
         autoconsumos_meta = {k: v for k, v in sat_meta["_ventas"].items()
                              if k.startswith("AUTO-")}
         if autoconsumos_meta:
-            save_records(user_id, periodo, autoconsumos_meta, "salida",
-                         facility_id=fid, perfil_id=perfil_id)
+            saved_auto = save_records(user_id, periodo, autoconsumos_meta, "salida",
+                                      facility_id=fid, perfil_id=perfil_id)
+            if saved_auto != len(autoconsumos_meta):
+                raise RuntimeError(f"Persistencia incompleta de autoconsumos: {saved_auto}/{len(autoconsumos_meta)}.")
             todos_logs.append(f"Autoconsumos manuales re-guardados: {len(autoconsumos_meta)}")
         todos_logs.append(
             f"UUID primera salida (nombramiento SAT): {first_uuid or '(generado aleatoriamente)'}"
@@ -597,8 +603,19 @@ async def _upload_cfdi_impl(
         )
         todos_logs.append(f"Archivos guardados: {file_info.get('json_name', '')}")
     except Exception as e:
-        todas_alertas.append(f"⚠ No se pudieron guardar archivos/registros: {e}")
+        todos_errores.append(f"No se pudieron guardar archivos/registros del reporte SAT: {e}")
         logger.exception("Error al persistir records/report: %s", e)
+        return UploadResponse(
+            success=False,
+            errores=todos_errores,
+            alertas=todas_alertas,
+            logs=todos_logs,
+            conteo_compras=sat_meta["cnt_compras"],
+            conteo_ventas=sat_meta["cnt_ventas"],
+            sat_xml=sat_xml_str,
+            sat_json=file_info.get("json_content", sat_dict_to_json(sat_dict)),
+            sat_meta={k: v for k, v in sat_meta.items() if not k.startswith("_")},
+        )
 
     meta_resp = {k: v for k, v in sat_meta.items() if not k.startswith("_")}
 
