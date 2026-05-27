@@ -36,7 +36,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
-from routes.auth import verify_token
+from routes.auth import obtener_acceso_modulo, verify_token
 from services.fiscal_pdf import (
     audit_fiscal_pdf_event,
     fiscal_pdf_info,
@@ -44,6 +44,7 @@ from services.fiscal_pdf import (
     generar_pdf_ingreso_desde_xml,
     save_fiscal_artifacts,
 )
+from services.fiscal_audit import version_xml
 from services.cfdi_cancellation import cancel_cfdi_universal
 from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
 from supabase_config import get_supabase_admin
@@ -72,12 +73,26 @@ if GAS_LP_SQLITE_READONLY:
 
 # ── Auth helper ───────────────────────────────────────────────────────────────
 
-def _auth(authorization: str) -> str:
+def _auth_token(authorization: str) -> tuple[str, str]:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
-    uid = verify_token(authorization[7:])
+    token = authorization[7:]
+    uid = verify_token(token)
     if not uid:
         raise HTTPException(401, "Token inválido o expirado.")
+    return uid, token
+
+
+def _auth(authorization: str) -> str:
+    uid, _token = _auth_token(authorization)
+    return uid
+
+
+def _require_admin_gas_lp(authorization: str) -> str:
+    uid, token = _auth_token(authorization)
+    role = (obtener_acceso_modulo(uid, "gas_lp", access_token=token).get("role") or "user").lower()
+    if role != "admin":
+        raise HTTPException(403, "Solo administradores de Gas LP pueden cancelar CFDI.")
     return uid
 
 
@@ -114,27 +129,30 @@ def _scope(authorization: str, x_perfil_id: str = "") -> dict:
     uid = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
     tenant_id = None
+    profile = None
     if perfil_id:
         try:
             rows = (
                 get_supabase_admin()
                 .table("perfiles_empresa")
-                .select("id,tenant_id,user_id,activo")
+                .select("id,tenant_id,user_id,nombre,rfc,activo")
                 .eq("id", perfil_id)
                 .eq("user_id", uid)
+                .eq("activo", True)
                 .limit(1)
                 .execute()
                 .data
                 or []
             )
             if not rows:
-                raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario.")
+                raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
+            profile = rows[0]
             tenant_id = rows[0].get("tenant_id")
         except HTTPException:
             raise
         except Exception as exc:
             logger.warning("facturas scope perfil lookup falló: user=%s perfil=%s err=%s", uid, perfil_id, exc)
-    return {"user_id": uid, "perfil_id": perfil_id, "tenant_id": tenant_id}
+    return {"user_id": uid, "perfil_id": perfil_id, "tenant_id": tenant_id, "profile": profile}
 
 
 def _require_supabase_scope(scope: dict) -> None:
@@ -164,6 +182,62 @@ def _scope_row(scope: dict, extra: Optional[dict] = None) -> dict:
     }
     if extra:
         row.update(extra)
+    return row
+
+
+def _clean_rfc(value: str) -> str:
+    return "".join(ch for ch in str(value or "").upper().strip() if ch.isalnum() or ch == "&")[:13]
+
+
+def _clean_cp(value: str) -> str:
+    return "".join(ch for ch in str(value or "").strip() if ch.isdigit())[:5]
+
+
+def _emisor_from_scope(scope: dict) -> dict:
+    from routes.settings import _load as load_settings
+
+    settings = load_settings(scope["user_id"], int(scope["perfil_id"]))
+    profile = scope.get("profile") or {}
+    rfc = _clean_rfc(settings.get("RfcContribuyente") or profile.get("rfc") or "")
+    nombre = str(settings.get("DescripcionInstalacion") or profile.get("nombre") or "Empresa").strip()
+    cp = _clean_cp(settings.get("CodigoPostal") or settings.get("codigo_postal") or "")
+    regimen = str(settings.get("RegimenFiscal") or settings.get("regimen_fiscal") or "601").strip()
+    if not rfc or not nombre or not cp:
+        raise HTTPException(400, "Configura RFC, nombre fiscal y código postal de la empresa activa antes de timbrar.")
+    return {"rfc": rfc, "nombre": nombre, "regimen_fiscal": regimen or "601", "domicilio_fiscal": cp}
+
+
+def _require_scope_facility(scope: dict, facility_id: Optional[int], label: str) -> dict:
+    if not facility_id:
+        raise HTTPException(400, f"Selecciona {label}.")
+    rows = (
+        get_supabase_admin()
+        .table("user_facilities")
+        .select("*")
+        .eq("id", facility_id)
+        .eq("user_id", scope["user_id"])
+        .eq("perfil_id", scope["perfil_id"])
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, f"{label.capitalize()} no existe en la empresa activa.")
+    return rows[0]
+
+
+def _is_destination_station(facility: dict) -> bool:
+    text = " ".join(str(facility.get(k) or "").lower() for k in ("tipo_instalacion", "tipo_permiso", "descripcion", "nombre", "actividad_sat"))
+    return any(term in text for term in ("estacion", "expendio", "carburacion", "carburación", "per43", "per44", "exo"))
+
+
+def _require_active_catalog_row(table: str, scope: dict, row_id: Optional[int], label: str) -> dict:
+    if not row_id:
+        raise HTTPException(400, f"Selecciona {label}.")
+    row = _sb_get(table, int(row_id), scope)
+    if not row or row.get("activo") is False:
+        raise HTTPException(404, f"{label.capitalize()} no existe o está inactivo en la empresa activa.")
     return row
 
 
@@ -257,8 +331,7 @@ def _cfg() -> dict:
 
 
 def _connect() -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    con = sqlite3.connect(DB_PATH)
+    con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     return con
 
@@ -413,27 +486,32 @@ async def generar_carta_porte(
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
-    cfg = _cfg()
+    emisor = _emisor_from_scope(scope)
+    origen = _require_scope_facility(scope, payload.origen_facility_id or payload.facility_id, "instalación origen")
+    destino = _require_scope_facility(scope, payload.destino_facility_id, "estación destino")
+    if int(origen.get("id")) == int(destino.get("id")):
+        raise HTTPException(400, "Origen y destino deben ser instalaciones distintas para Carta Porte interna.")
+    if not _is_destination_station(destino):
+        raise HTTPException(400, "Carta Porte interna solo permite destino estación de carburación/expendio de la empresa activa.")
+    chofer_row = _require_active_catalog_row(_SB_CHOFERES, scope, payload.chofer_id, "chofer")
+    vehiculo_row = _require_active_catalog_row(_SB_VEHICULOS, scope, payload.vehiculo_id, "vehículo")
+    ruta_row = _sb_get(_SB_RUTAS, int(payload.ruta_id), scope) if payload.ruta_id else None
+    if payload.rfc_cliente and _clean_rfc(payload.rfc_cliente) != emisor["rfc"]:
+        raise HTTPException(400, "Carta Porte interna debe usar como receptor el mismo RFC de la empresa activa.")
 
-    emisor = {
-        "rfc":             cfg.get("RfcContribuyente", ""),
-        "nombre":          cfg.get("DescripcionInstalacion", "Empresa"),
-        "regimen_fiscal":  "601",
-        "domicilio_fiscal": "20000",
-    }
     receptor = {
-        "rfc":             payload.rfc_cliente,
-        "nombre":          payload.nombre_cliente,
-        "regimen_fiscal":  "616",
-        "uso_cfdi":        payload.uso_cfdi,
-        "domicilio_fiscal": payload.domicilio_cliente,
+        "rfc":             emisor["rfc"],
+        "nombre":          emisor["nombre"],
+        "regimen_fiscal":  emisor["regimen_fiscal"],
+        "uso_cfdi":        "S01",
+        "domicilio_fiscal": emisor["domicilio_fiscal"],
     }
     vehiculo = {
-        "placa":             payload.placa,
-        "anio_modelo":       payload.anio_modelo,
-        "config_vehicular":  payload.config_vehicular,
-        "nombre_asegurador": payload.nombre_asegurador,
-        "poliza_seguro":     payload.poliza_seguro,
+        "placa":             vehiculo_row.get("placas") or payload.placa,
+        "anio_modelo":       vehiculo_row.get("anio") or payload.anio_modelo,
+        "config_vehicular":  vehiculo_row.get("config_vehicular") or payload.config_vehicular,
+        "nombre_asegurador": vehiculo_row.get("aseguradora") or payload.nombre_asegurador,
+        "poliza_seguro":     vehiculo_row.get("poliza_seguro") or payload.poliza_seguro,
     }
     entrega = {
         "uuid_mov":       payload.record_uuid,
@@ -441,7 +519,8 @@ async def generar_carta_porte(
         "importe":        payload.importe,
         "fecha_hora":     payload.fecha_hora,
     }
-    ruta = {"distancia_km": payload.distancia_km} if payload.tipo_comprobante == "I" else None
+    distancia_km = float((ruta_row or {}).get("distancia_km") or payload.distancia_km or 1)
+    ruta = {"distancia_km": distancia_km} if payload.tipo_comprobante == "I" else None
 
     try:
         xml = build_carta_porte_xml(
@@ -472,11 +551,11 @@ async def generar_carta_porte(
         "pdf_url": resultado.get("pdf_url") or "",
         "status": "Vigente",
         "fecha_timbrado": now,
-        "rfc_receptor": payload.rfc_cliente,
+        "rfc_receptor": receptor["rfc"],
         "volumen_litros": payload.volumen_litros,
         "importe": payload.importe,
         "tipo_comprobante": payload.tipo_comprobante,
-        "distancia_km": payload.distancia_km,
+        "distancia_km": distancia_km,
         "metadata": {
             "origen_facility_id": payload.origen_facility_id or payload.facility_id,
             "destino_facility_id": payload.destino_facility_id,
@@ -484,10 +563,25 @@ async def generar_carta_porte(
             "chofer_id": payload.chofer_id,
             "ruta_id": payload.ruta_id,
             "tipo_flujo": "gas_lp_carta_porte_traspaso_interno",
+            "origen_nombre": origen.get("nombre"),
+            "destino_nombre": destino.get("nombre"),
+            "chofer_nombre": chofer_row.get("nombre"),
+            "vehiculo_placas": vehiculo_row.get("placas"),
         },
         "created_at": now,
     }))
     if supabase_row:
+        version_xml(
+            module="gas_lp",
+            entity_type="factura_gas_lp",
+            entity_id=supabase_row.get("id"),
+            uuid_sat=resultado["uuid"],
+            xml_content=resultado["xml_timbrado"],
+            user_id=uid,
+            perfil_id=scope.get("perfil_id"),
+            tenant_id=scope.get("tenant_id"),
+            source="sw_sapien",
+        )
         logger.info("Carta Porte timbrada: user=%s uuid_sat=%s source=supabase", uid, resultado["uuid"])
         return JSONResponse({
             "ok": True, "uuid_sat": resultado["uuid"],
@@ -498,6 +592,15 @@ async def generar_carta_porte(
         })
 
     raise HTTPException(500, f"CFDI timbrado con UUID {resultado['uuid']}, pero no se pudo guardar en Supabase. Revisar auditoría inmediatamente.")
+
+
+@router.post("/facturas/traspasos-internos")
+async def generar_carta_porte_traspaso_interno(
+    payload:       CartaPorteRequest,
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
+    return await generar_carta_porte(payload, authorization=authorization, x_perfil_id=x_perfil_id)
 
 
 @router.get("/facturas/entregas")
@@ -591,7 +694,6 @@ async def listar_facturas(
         params.append(facility_id)
     where = " AND ".join(clauses)
     with _connect() as con:
-        _ensure_tables(con)
         rows = con.execute(
             f"SELECT * FROM facturas WHERE {where} ORDER BY created_at DESC", params,
         ).fetchall()
@@ -608,6 +710,17 @@ async def descargar_xml(
     uid = scope["user_id"]
     row_sb = _sb_get(_SB_FACTURAS, factura_id, scope)
     if row_sb:
+        audit_fiscal_pdf_event(
+            get_supabase_admin(),
+            user_id=uid,
+            module="gas_lp",
+            entity_type="factura_gas_lp",
+            entity_id=factura_id,
+            uuid_sat=row_sb.get("uuid_sat") or "",
+            action="xml_download",
+            tenant_id=scope.get("tenant_id"),
+            perfil_id=scope.get("perfil_id"),
+        )
         return Response(
             content=row_sb.get("xml_content") or "",
             media_type="application/xml",
@@ -616,12 +729,20 @@ async def descargar_xml(
     if not _legacy_sqlite_enabled():
         raise _legacy_not_found("Factura")
     with _connect() as con:
-        _ensure_tables(con)
         row = con.execute(
             "SELECT * FROM facturas WHERE id=? AND user_id=?", (factura_id, uid)
         ).fetchone()
     if not row:
         raise HTTPException(404, "Factura no encontrada.")
+    audit_fiscal_pdf_event(
+        get_supabase_admin(),
+        user_id=uid,
+        module="gas_lp",
+        entity_type="factura_gas_lp_legacy",
+        entity_id=factura_id,
+        uuid_sat=row["uuid_sat"],
+        action="xml_download",
+    )
     return Response(
         content=row["xml_content"],
         media_type="application/xml",
@@ -641,7 +762,6 @@ async def ver_pdf_factura_gas_lp(
     row = _sb_get(_SB_FACTURAS, factura_id, scope)
     if not row and _legacy_sqlite_enabled():
         with _connect() as con:
-            _ensure_tables(con)
             row = con.execute("SELECT * FROM facturas WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
     if not row:
         raise _legacy_not_found("Factura")
@@ -690,7 +810,6 @@ async def descargar_xml_factura_servicio_legacy(
     row = _sb_get(_SB_FACTURAS_SERVICIO, factura_id, scope)
     if not row and _legacy_sqlite_enabled():
         with _connect() as con:
-            _ensure_tables(con)
             row = con.execute("SELECT * FROM facturas_servicio WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
     if not row:
         raise _legacy_not_found("Factura de servicio")
@@ -726,7 +845,6 @@ async def ver_pdf_factura_servicio_legacy(
     row = _sb_get(_SB_FACTURAS_SERVICIO, factura_id, scope)
     if not row and _legacy_sqlite_enabled():
         with _connect() as con:
-            _ensure_tables(con)
             row = con.execute("SELECT * FROM facturas_servicio WHERE id=? AND user_id=?", (factura_id, uid)).fetchone()
     if not row:
         raise _legacy_not_found("Factura de servicio")
@@ -771,6 +889,7 @@ async def cancelar_factura_servicio_gas_lp(
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
+    _require_admin_gas_lp(authorization)
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
@@ -779,14 +898,14 @@ async def cancelar_factura_servicio_gas_lp(
         raise _legacy_not_found("Factura de servicio")
     if row.get("status") == "Cancelada":
         raise HTTPException(400, "Esta factura de servicio ya está cancelada.")
-    cfg = _cfg()
+    emisor_scope = _emisor_from_scope(scope)
     resultado = cancel_cfdi_universal(
         sb=get_supabase_admin(),
         module="gas_lp",
         invoice_table=_SB_FACTURAS_SERVICIO,
         invoice_id=factura_id,
         uuid_sat=row.get("uuid_sat") or payload.uuid_sat,
-        rfc_emisor=cfg.get("RfcContribuyente", ""),
+        rfc_emisor=emisor_scope["rfc"],
         motivo=payload.motivo,
         uuid_sustitucion=payload.uuid_sustitucion,
         user_id=uid,
@@ -804,15 +923,15 @@ async def cancelar_factura(
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
+    _require_admin_gas_lp(authorization)
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
-    cfg = _cfg()
+    emisor_scope = _emisor_from_scope(scope)
     row = _sb_get(_SB_FACTURAS, factura_id, scope)
     source = "supabase" if row else "sqlite"
     if not row and _legacy_sqlite_enabled():
         with _connect() as con:
-            _ensure_tables(con)
             row = con.execute(
                 "SELECT * FROM facturas WHERE id=? AND user_id=?", (factura_id, uid)
             ).fetchone()
@@ -822,14 +941,13 @@ async def cancelar_factura(
         raise HTTPException(409, "Esta factura legacy debe migrarse a Supabase antes de cancelarse.")
     if row["status"] == "Cancelada":
         raise HTTPException(400, "Esta factura ya está cancelada.")
-    rfc_emisor = cfg.get("RfcContribuyente", "")
     resultado = cancel_cfdi_universal(
         sb=get_supabase_admin(),
         module="gas_lp",
         invoice_table=_SB_FACTURAS,
         invoice_id=factura_id,
         uuid_sat=row.get("uuid_sat") or payload.uuid_sat,
-        rfc_emisor=rfc_emisor,
+        rfc_emisor=emisor_scope["rfc"],
         motivo=payload.motivo,
         uuid_sustitucion=payload.uuid_sustitucion,
         user_id=uid,
@@ -850,12 +968,12 @@ async def generar_factura_flete(
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
-    cfg = _cfg()
+    _require_supabase_scope(scope)
+    emisor = _emisor_from_scope(scope)
     cp = _sb_get(_SB_FACTURAS, payload.carta_porte_id, scope)
     cp_source = "supabase" if cp else "sqlite"
     if not cp and _legacy_sqlite_enabled():
         with _connect() as con:
-            _ensure_tables(con)
             cp = con.execute(
                 "SELECT * FROM facturas WHERE id=? AND user_id=?",
                 (payload.carta_porte_id, uid),
@@ -865,12 +983,6 @@ async def generar_factura_flete(
     cp = _rowdict(cp)
     if cp["status"] != "Vigente":
         raise HTTPException(400, "La Carta Porte no está vigente.")
-    emisor = {
-        "rfc": cfg.get("RfcContribuyente", ""),
-        "nombre": cfg.get("DescripcionInstalacion", "Empresa"),
-        "regimen_fiscal": "601",
-        "domicilio_fiscal": cfg.get("CodigoPostal", "20000"),
-    }
     receptor = {
         "rfc": payload.rfc_receptor, "nombre": payload.nombre_receptor,
         "regimen_fiscal": "616", "uso_cfdi": payload.uso_cfdi,
@@ -911,6 +1023,17 @@ async def generar_factura_flete(
         "created_at": now,
     }))
     if supabase_row:
+        version_xml(
+            module="gas_lp",
+            entity_type="factura_servicio",
+            entity_id=supabase_row.get("id"),
+            uuid_sat=resultado["uuid"],
+            xml_content=resultado["xml_timbrado"],
+            user_id=uid,
+            perfil_id=scope.get("perfil_id"),
+            tenant_id=scope.get("tenant_id"),
+            source="sw_sapien",
+        )
         return JSONResponse({
             "ok": True, "uuid_sat": resultado["uuid"], "pdf_url": resultado["pdf_url"],
             "status": "Vigente", "carta_porte_original": cp["uuid_sat"],
@@ -937,7 +1060,6 @@ async def listar_choferes(
     if rows_sb or not _legacy_sqlite_enabled():
         return JSONResponse({"choferes": rows_sb, "source": "supabase"})
     with _connect() as con:
-        _ensure_tables(con)
         if modulo:
             rows = con.execute(
                 "SELECT * FROM choferes WHERE user_id=? AND modulo_propietario=? AND activo=1 ORDER BY nombre",
@@ -1016,7 +1138,6 @@ async def listar_vehiculos(
     if rows_sb or not _legacy_sqlite_enabled():
         return JSONResponse({"vehiculos": rows_sb, "source": "supabase"})
     with _connect() as con:
-        _ensure_tables(con)
         if modulo:
             rows = con.execute(
                 "SELECT * FROM vehiculos WHERE user_id=? AND modulo_propietario=? AND activo=1 ORDER BY placas",
@@ -1099,7 +1220,6 @@ async def listar_rutas(
     if rows_sb or not _legacy_sqlite_enabled():
         return JSONResponse({"rutas": rows_sb, "source": "supabase"})
     with _connect() as con:
-        _ensure_tables(con)
         if modulo:
             rows = con.execute(
                 "SELECT * FROM rutas WHERE user_id=? AND modulo_propietario=? AND activo=1 ORDER BY nombre",
@@ -1195,7 +1315,6 @@ async def listar_clientes(
     if rows_sb or not _legacy_sqlite_enabled():
         return JSONResponse({"clientes": rows_sb, "source": "supabase"})
     with _connect() as con:
-        _ensure_tables(con)
         if modulo:
             rows = con.execute(
                 "SELECT * FROM clientes WHERE user_id=? AND modulo_propietario=? AND activo=1 ORDER BY nombre",

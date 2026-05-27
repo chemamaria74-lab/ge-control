@@ -38,7 +38,7 @@ from typing import Optional
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from routes.auth import verify_token
+from routes.auth import require_profile_access, verify_token
 from services.database import get_facility, get_reports
 
 logger = logging.getLogger(__name__)
@@ -50,13 +50,14 @@ MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"
 DIAS_ALERTA_STOCK = 30
 
 
-def _auth(authorization: str) -> str:
+def _auth(authorization: str) -> tuple[str, str]:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
-    uid = verify_token(authorization[7:])
+    token = authorization[7:]
+    uid = verify_token(token)
     if not uid:
         raise HTTPException(401, "Token inválido o expirado.")
-    return uid
+    return uid, token
 
 
 def _parse_perfil_id(raw: str) -> Optional[int]:
@@ -65,6 +66,14 @@ def _parse_perfil_id(raw: str) -> Optional[int]:
         return v if v > 0 else None
     except (ValueError, TypeError):
         return None
+
+
+def _require_perfil(uid: str, token: str, raw: str) -> int:
+    perfil_id = _parse_perfil_id(raw)
+    if not perfil_id:
+        raise HTTPException(400, "Selecciona una empresa activa antes de consultar analítica.")
+    require_profile_access(uid, "gas_lp", perfil_id, access_token=token)
+    return perfil_id
 
 
 def _dias_en_mes(periodo: str) -> int:
@@ -154,14 +163,14 @@ async def get_ventas_analytics(
     authorization: str           = Header(default=""),
     x_perfil_id:   str           = Header(default=""),
 ):
-    uid       = _auth(authorization)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    uid, token = _auth(authorization)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
     if year is None:
         year = datetime.now().year
 
     capacidad = None
     if facility_id is not None:
-        fac = get_facility(facility_id, uid)
+        fac = get_facility(facility_id, uid, perfil_id=perfil_id)
         if fac and fac.get("capacidad_tanque") and fac["capacidad_tanque"] > 0:
             capacidad = round(float(fac["capacidad_tanque"]), 2)
 
@@ -189,8 +198,8 @@ async def get_ventas_analytics(
     # Obtener autoconsumos del año para este usuario/instalación
     autoconsumos_por_mes: dict = {}
     try:
-        from supabase_config import get_supabase
-        sb = get_supabase()
+        from supabase_config import get_supabase_admin
+        sb = get_supabase_admin()
         q  = (sb.table("records")
                 .select("fecha,volumen_litros,nombre_contraparte")
                 .eq("user_id", uid)
@@ -267,14 +276,14 @@ async def get_proveedores_analytics(
     authorization: str           = Header(default=""),
     x_perfil_id:   str           = Header(default=""),
 ):
-    uid       = _auth(authorization)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    uid, token = _auth(authorization)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
     if year is None:
         year = datetime.now().year
 
     try:
-        from supabase_config import get_supabase
-        sb = get_supabase()
+        from supabase_config import get_supabase_admin
+        sb = get_supabase_admin()
         year_str = str(year)
         if month:
             ini = f"{year_str}-{month:02d}-01"
@@ -367,10 +376,10 @@ async def get_forecast(
     - consumo_diario_estimado: calculado desde totales mensuales reales (no por registro)
     - Se añade pendiente de tendencia y coeficiente de variación
     """
-    uid       = _auth(authorization)
-    perfil_id = _parse_perfil_id(x_perfil_id)
-    from supabase_config import get_supabase
-    sb = get_supabase()
+    uid, token = _auth(authorization)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
+    from supabase_config import get_supabase_admin
+    sb = get_supabase_admin()
 
     try:
         q = (sb.table("records")

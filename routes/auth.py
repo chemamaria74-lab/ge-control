@@ -74,7 +74,7 @@ def obtener_accesos_usuario(user_id: str, access_token: Optional[str] = None) ->
         sb = get_supabase_for_user(access_token) if access_token else get_supabase()
         rows = (
             sb.table("user_sections")
-            .select("section, role, status, display_name, perfil_id")
+            .select("section, role, status, display_name, tenant_id, perfil_id")
             .eq("user_id", user_id)
             .execute()
             .data or []
@@ -92,6 +92,7 @@ def obtener_accesos_usuario(user_id: str, access_token: Optional[str] = None) ->
                 "section": section,
                 "role": role if role in ROLES_VALIDOS else "user",
                 "display_name": row.get("display_name") or "",
+                "tenant_id": row.get("tenant_id"),
                 "perfil_id": row.get("perfil_id"),
             })
         return accesos
@@ -106,6 +107,58 @@ def obtener_acceso_modulo(user_id: str, section: str, access_token: Optional[str
         if acceso["section"] == section:
             return acceso
     return {}
+
+
+def usuario_tiene_acceso_perfil(
+    user_id: str,
+    section: str,
+    perfil_id: int,
+    access_token: Optional[str] = None,
+) -> bool:
+    """
+    Valida que el usuario tenga una fila activa de `user_sections` para el
+    módulo y perfil. Los admins de tenant sin `perfil_id` conservan acceso
+    global dentro de su tenant.
+    """
+    section = (section or "").strip().lower()
+    if section not in SECCIONES_VALIDAS or not perfil_id:
+        return False
+    for acceso in obtener_accesos_usuario(user_id, access_token=access_token):
+        if acceso.get("section") != section:
+            continue
+        role = (acceso.get("role") or "user").lower()
+        assigned = acceso.get("perfil_id")
+        if assigned is not None and str(assigned) == str(perfil_id):
+            return True
+        if assigned is None and role == "admin":
+            try:
+                sb = get_supabase_for_user(access_token) if access_token else get_supabase()
+                rows = (
+                    sb.table("perfiles_empresa")
+                    .select("id,tenant_id,activo")
+                    .eq("id", perfil_id)
+                    .eq("tenant_id", acceso.get("tenant_id"))
+                    .eq("activo", True)
+                    .limit(1)
+                    .execute()
+                    .data
+                    or []
+                )
+                if rows:
+                    return True
+            except Exception as e:
+                logger.warning("usuario_tiene_acceso_perfil falló user=%s section=%s perfil=%s: %s", user_id, section, perfil_id, e)
+    return False
+
+
+def require_profile_access(
+    user_id: str,
+    section: str,
+    perfil_id: int,
+    access_token: Optional[str] = None,
+) -> None:
+    if not usuario_tiene_acceso_perfil(user_id, section, perfil_id, access_token=access_token):
+        raise HTTPException(403, "Tu usuario no tiene acceso a esta empresa/perfil.")
 
 
 def obtener_seccion_usuario(user_id: str, access_token: Optional[str] = None) -> Optional[str]:

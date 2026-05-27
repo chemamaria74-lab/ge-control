@@ -195,7 +195,7 @@ async def _upload_cfdi_impl(
     temp_default_fac: Optional[float] = None
 
     if facility_id:
-        fac = get_facility(facility_id, user_id)
+        fac = get_facility(facility_id, user_id, perfil_id=perfil_id)
         if fac:
             fid = facility_id
             cap = fac.get("capacidad_tanque") or 0.0
@@ -268,9 +268,7 @@ async def _upload_cfdi_impl(
                 f"Clave={fac.get('clave_instalacion','—')} Capacidad={cap_str}"
             )
         else:
-            todas_alertas.append(
-                f"⚠ Instalación ID {facility_id} no encontrada; usando configuración global."
-            )
+            raise HTTPException(404, "La instalación seleccionada no pertenece a la empresa activa.")
 
     if not rfc_activo:
         todas_alertas.append(

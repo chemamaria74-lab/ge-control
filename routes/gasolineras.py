@@ -17,7 +17,7 @@ from models.gasolineras_schemas import (
     GasoScoreRequest,
     GasoStationCreate,
 )
-from routes.auth import obtener_acceso_modulo, obtener_secciones_usuario, verify_token
+from routes.auth import obtener_acceso_modulo, obtener_secciones_usuario, require_profile_access, verify_token
 from services.gasolineras_engine import (
     BRAND_BENCHMARKS,
     DATA_SOURCES,
@@ -71,6 +71,12 @@ def _perfil_id(raw: str | None) -> int | None:
     except (TypeError, ValueError):
         pass
     raise HTTPException(400, "Selecciona un perfil/empresa activo antes de operar Gasolineras.")
+
+
+def _perfil_autorizado(uid: str, token: str, raw: str | None) -> int:
+    perfil_id = _perfil_id(raw)
+    require_profile_access(uid, MODULO, perfil_id, access_token=token)
+    return perfil_id
 
 
 def _sb(token: str):
@@ -207,7 +213,7 @@ async def gasolineras_summary(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     settings = _settings(uid, token, perfil_id)
     stations = _list_user_stations(uid, token, perfil_id)
     market = _list_market(token)
@@ -285,7 +291,7 @@ async def list_stations(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     return JSONResponse({"ok": True, "stations": _list_user_stations(uid, token, perfil_id)})
 
 
@@ -296,7 +302,7 @@ async def create_station(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     row = _station_payload(uid, perfil_id, payload)
     try:
         res = _sb(token).table(TBL_STATIONS).insert(row).execute()
@@ -313,7 +319,7 @@ async def update_station(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     row = _station_payload(uid, perfil_id, payload)
     row.pop("user_id", None)
     try:
@@ -331,7 +337,7 @@ async def delete_station(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     try:
         q = _sb(token).table(TBL_STATIONS).update({"activa": False}).eq("id", station_id).eq("user_id", uid)
         _perfil_query(q, perfil_id).execute()
@@ -451,7 +457,7 @@ async def save_price_snapshot(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     timestamp = payload.timestamp or datetime.now(timezone.utc)
     previous_price = None
     try:
@@ -489,7 +495,7 @@ async def price_history(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     try:
         q = _sb(token).table(TBL_PRICES).select("*").eq("user_id", uid).eq("producto", producto).order("timestamp", desc=True)
         if estacion_id:
@@ -507,7 +513,7 @@ async def radar(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     stations = _list_user_stations(uid, token, perfil_id)
     station = next((s for s in stations if int(s.get("id") or 0) == payload.estacion_id), None)
     if not station:
@@ -542,7 +548,7 @@ async def upload_cfdi(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     content = await file.read()
     if len(content) > MAX_GASO_UPLOAD_BYTES:
         raise HTTPException(413, "Archivo demasiado grande. Límite: 10 MB.")
@@ -579,7 +585,7 @@ async def upload_sales(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     content = await file.read()
     if len(content) > MAX_GASO_UPLOAD_BYTES:
         raise HTTPException(413, "Archivo demasiado grande. Límite: 10 MB.")
@@ -614,7 +620,7 @@ async def pnl(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     stations = _list_user_stations(uid, token, perfil_id)
     station = next((s for s in stations if int(s.get("id") or 0) == payload.estacion_id), None)
     if not station:
@@ -634,7 +640,7 @@ async def alerts(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     stations = _list_user_stations(uid, token, perfil_id)
     market = _list_market(token)
     radars = {int(s["id"]): build_competitor_radar(s, market, 3, "regular") for s in stations if s.get("id")}
@@ -647,7 +653,7 @@ async def report(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    perfil_id = _perfil_id(x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, x_perfil_id)
     stations = _list_user_stations(uid, token, perfil_id)
     market = _list_market(token)
     radars = {int(s["id"]): build_competitor_radar(s, market, 3, "regular") for s in stations if s.get("id")}

@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "..", "config", "settings.json")
+LOCAL_SETTINGS_FALLBACK = (os.environ.get("GAS_LP_LOCAL_SETTINGS_FALLBACK") or "").strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
 
 DEFAULT_SETTINGS = {
     "RfcContribuyente":      "",
@@ -68,6 +69,35 @@ def _deny_assistant_config(user_id: str, token: str) -> None:
         raise HTTPException(403, "El rol Asistente de facturación no puede modificar configuración.")
 
 
+def _require_perfil_id(raw: str) -> int:
+    perfil_id = _parse_perfil_id(raw)
+    if not perfil_id:
+        raise HTTPException(400, "Selecciona una empresa activa antes de consultar configuración.")
+    return perfil_id
+
+
+def _require_active_profile(user_id: str, perfil_id: int) -> None:
+    try:
+        from supabase_config import get_supabase_admin
+        rows = (
+            get_supabase_admin()
+            .table("perfiles_empresa")
+            .select("id")
+            .eq("id", perfil_id)
+            .eq("user_id", user_id)
+            .eq("activo", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("settings profile check failed: user=%s perfil=%s err=%s", user_id, perfil_id, exc)
+        raise HTTPException(500, "No se pudo validar la empresa activa.") from exc
+    if not rows:
+        raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
+
+
 def _supabase_load(user_id: str, perfil_id: Optional[int] = None) -> Optional[dict]:
     """
     Lee settings desde Supabase para el par exacto (user_id, perfil_id).
@@ -75,8 +105,8 @@ def _supabase_load(user_id: str, perfil_id: Optional[int] = None) -> Optional[di
     Retorna None si no hay fila (señal de fallo o perfil nuevo sin config aún).
     """
     try:
-        from supabase_config import get_supabase
-        sb = get_supabase()
+        from supabase_config import get_supabase_admin
+        sb = get_supabase_admin()
         q = sb.table("zc_settings").select("data").eq("user_id", user_id)
         if perfil_id:
             q = q.eq("perfil_id", perfil_id)
@@ -102,9 +132,9 @@ def _supabase_save(user_id: str, data: dict, perfil_id: Optional[int] = None) ->
     Requiere que zc_settings tenga UNIQUE (user_id, perfil_id) — ver fix_zc_settings_v2.sql
     """
     try:
-        from supabase_config import get_supabase
+        from supabase_config import get_supabase_admin
         from datetime import datetime, timezone
-        sb      = get_supabase()
+        sb      = get_supabase_admin()
         now_iso = datetime.now(timezone.utc).isoformat()
 
         row = {"user_id": user_id, "data": data, "updated_at": now_iso}
@@ -125,6 +155,8 @@ def _supabase_save(user_id: str, data: dict, perfil_id: Optional[int] = None) ->
 
 def _file_load(user_id: str) -> dict:
     """Fallback: lee desde config/settings_<user_id>.json (aislado por usuario)."""
+    if not LOCAL_SETTINGS_FALLBACK:
+        return DEFAULT_SETTINGS.copy()
     path = SETTINGS_FILE.replace(".json", f"_{user_id[:8]}.json")
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -135,6 +167,8 @@ def _file_load(user_id: str) -> dict:
 
 def _file_save(user_id: str, data: dict) -> None:
     """Fallback: guarda en config/settings_<user_id>.json."""
+    if not LOCAL_SETTINGS_FALLBACK:
+        return
     path = SETTINGS_FILE.replace(".json", f"_{user_id[:8]}.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -151,7 +185,7 @@ def _load(user_id: str, perfil_id: Optional[int] = None) -> dict:
     if result is not None:
         return result
     # Solo llegar aquí si Supabase lanzó excepción (fallo de red)
-    if not perfil_id:
+    if not perfil_id and LOCAL_SETTINGS_FALLBACK:
         logger.info("Usando fallback local para settings user=%s.", user_id)
         return _file_load(user_id)
     # Con perfil_id y Supabase caído → defaults limpios (no contaminar con otro perfil)
@@ -160,12 +194,15 @@ def _load(user_id: str, perfil_id: Optional[int] = None) -> dict:
 
 
 def _save(user_id: str, data: dict, perfil_id: Optional[int] = None) -> None:
-    """Guarda en Supabase Y en JSON local (doble escritura como backup)."""
+    """Guarda en Supabase; el JSON local solo existe si se habilita explicitamente."""
     merged = {**DEFAULT_SETTINGS, **data}
     ok = _supabase_save(user_id, merged, perfil_id)
-    _file_save(user_id, merged)   # siempre escribir local también como backup
+    _file_save(user_id, merged)
     if not ok:
-        logger.warning("Settings guardados solo en local (Supabase no disponible).")
+        if LOCAL_SETTINGS_FALLBACK:
+            logger.warning("Settings guardados solo en local (Supabase no disponible).")
+        else:
+            raise HTTPException(500, "No se pudo guardar configuración en Supabase.")
 
 
 class SettingsPayload(BaseModel):
@@ -195,7 +232,8 @@ async def get_settings(
     x_perfil_id:   str = Header(default=""),
 ):
     user_id, _token = _auth(authorization)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_perfil_id(x_perfil_id)
+    _require_active_profile(user_id, perfil_id)
     return JSONResponse(content=_load(user_id, perfil_id))
 
 
@@ -207,7 +245,8 @@ async def save_settings(
 ):
     user_id, token = _auth(authorization)
     _deny_assistant_config(user_id, token)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_perfil_id(x_perfil_id)
+    _require_active_profile(user_id, perfil_id)
     current   = _load(user_id, perfil_id)
 
     # exclude_unset=True: solo los campos que el cliente envió explícitamente

@@ -18,6 +18,7 @@ from services.fiscal_pdf import (
     generar_pdf_resico_saas_desde_xml,
     save_fiscal_artifacts,
 )
+from services.fiscal_audit import version_xml
 from services.sw_sapien import emitir_timbrar_json
 from supabase_config import get_supabase_admin
 
@@ -381,6 +382,16 @@ async def create_saas_billing_invoice(payload: SaaSBillingInvoiceCreate, authori
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     sb.table("saas_billing_invoices").update(update).eq("id", invoice["id"]).execute()
+    version_xml(
+        module="admin_saas",
+        entity_type="resico_saas_invoice",
+        entity_id=invoice["id"],
+        uuid_sat=uuid,
+        xml_content=xml,
+        user_id=uid,
+        tenant_id=invoice.get("tenant_id"),
+        source="sw_sapien",
+    )
     audit_fiscal_pdf_event(sb, user_id=uid, module="admin_saas", entity_type="resico_saas_invoice", entity_id=invoice["id"], uuid_sat=uuid, action="created_stamped_pdf_internal", metadata=storage)
     return _json_response({"ok": True, "invoice": {**invoice, **update}})
 

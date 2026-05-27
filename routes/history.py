@@ -13,7 +13,7 @@ from services.database import (
     delete_period, delete_all_periods,
 )
 from services.sat_transformer import generate_filename
-from routes.auth import obtener_acceso_modulo, verify_token
+from routes.auth import obtener_acceso_modulo, require_profile_access, verify_token
 from routes.settings import _load as load_settings
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,14 @@ def _parse_perfil_id(raw: str) -> Optional[int]:
         return None
 
 
+def _require_perfil(uid: str, token: str, raw: str) -> int:
+    perfil_id = _parse_perfil_id(raw)
+    if not perfil_id:
+        raise HTTPException(400, "Selecciona una empresa activa antes de consultar historial.")
+    require_profile_access(uid, "gas_lp", perfil_id, access_token=token)
+    return perfil_id
+
+
 @router.get("/history/periods")
 async def list_periods(
     facility_id:   Optional[int] = Query(default=None),
@@ -52,7 +60,7 @@ async def list_periods(
 ):
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
     return JSONResponse(content={
         "periods": get_available_periods(uid, facility_id=facility_id, perfil_id=perfil_id)
     })
@@ -67,7 +75,7 @@ async def get_history(
 ):
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
     records   = get_records(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     totals    = get_period_totals(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     reports   = get_reports(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
@@ -104,7 +112,7 @@ async def wipe_all_history(
 ):
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
     counts    = delete_all_periods(uid, perfil_id=perfil_id)
     return JSONResponse(content={
         "ok": True,
@@ -123,7 +131,7 @@ async def delete_history(
 ):
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
     counts    = delete_period(uid, periodo,
                               facility_id=facility_id,
                               include_autoconsumos=include_autoconsumos,
@@ -147,11 +155,8 @@ async def download_report(
 ):
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
     reps = get_reports(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
-    if not reps:
-        # Fallback: reportes pre-multi-empresa sin perfil_id asignado
-        reps = get_reports(uid, periodo, facility_id=facility_id)
     if not reps:
         raise HTTPException(404, f"No se encontró reporte para el periodo {periodo}.")
     rep   = reps[0]

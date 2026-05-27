@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from routes.auth import verify_token
-from supabase_config import get_supabase
+from supabase_config import get_supabase_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -76,6 +76,49 @@ def _parse_perfil_id(raw: str) -> Optional[int]:
         return None
 
 
+def _require_perfil_id(raw: str) -> int:
+    perfil_id = _parse_perfil_id(raw)
+    if not perfil_id:
+        raise HTTPException(400, "Selecciona una empresa activa antes de registrar movimientos Gas LP.")
+    return perfil_id
+
+
+def _require_active_profile(user_id: str, perfil_id: int) -> None:
+    rows = (
+        get_supabase_admin()
+        .table("perfiles_empresa")
+        .select("id")
+        .eq("id", perfil_id)
+        .eq("user_id", user_id)
+        .eq("activo", True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
+
+
+def _require_scope_facility(user_id: str, perfil_id: int, facility_id: Optional[int]) -> None:
+    if facility_id is None:
+        return
+    rows = (
+        get_supabase_admin()
+        .table("user_facilities")
+        .select("id")
+        .eq("id", facility_id)
+        .eq("user_id", user_id)
+        .eq("perfil_id", perfil_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, "La instalación seleccionada no pertenece a la empresa activa.")
+
+
 @router.post("/movimientos/autoconsumo")
 async def registrar_autoconsumo(
     payload: AutoconsumoPayload,
@@ -83,7 +126,9 @@ async def registrar_autoconsumo(
     x_perfil_id:   str = Header(default=""),
 ):
     user_id   = _auth(authorization)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_perfil_id(x_perfil_id)
+    _require_active_profile(user_id, perfil_id)
+    _require_scope_facility(user_id, perfil_id, payload.facility_id)
 
     if payload.volumen_litros <= 0:
         raise HTTPException(400, "El volumen debe ser mayor a 0.")
@@ -102,7 +147,7 @@ async def registrar_autoconsumo(
     now = datetime.now(timezone.utc).isoformat()
 
     try:
-        sb  = get_supabase()
+        sb  = get_supabase_admin()
         row = {
             "user_id":            user_id,
             "facility_id":        payload.facility_id,
@@ -118,8 +163,7 @@ async def registrar_autoconsumo(
             "es_autoconsumo":     True,
             "created_at":         now,
         }
-        if perfil_id:
-            row["perfil_id"] = perfil_id
+        row["perfil_id"] = perfil_id
         result = sb.table("records").insert(row).execute()
         if not result.data:
             raise Exception("Supabase no devolvió datos al insertar")
@@ -160,10 +204,12 @@ async def listar_autoconsumos(
     x_perfil_id:   str           = Header(default=""),
 ):
     user_id   = _auth(authorization)
-    perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_perfil_id(x_perfil_id)
+    _require_active_profile(user_id, perfil_id)
+    _require_scope_facility(user_id, perfil_id, facility_id)
 
     try:
-        sb = get_supabase()
+        sb = get_supabase_admin()
         # CORRECCIÓN: "manual:" → "manual:%" (wildcard para LIKE en SQL)
         # Sin el %, solo matchea el string exacto "manual:", excluyendo
         # "manual:autoconsumo", "manual:merma", "manual:trasvase", etc.
@@ -176,8 +222,7 @@ async def listar_autoconsumos(
             q = q.eq("periodo", periodo)
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
-        if perfil_id is not None:
-            q = q.eq("perfil_id", perfil_id)
+        q = q.eq("perfil_id", perfil_id)
         rows = q.order("fecha", desc=True).execute().data or []
         return JSONResponse(content={"autoconsumos": rows, "total": len(rows)})
     except Exception as e:
@@ -189,15 +234,19 @@ async def listar_autoconsumos(
 async def eliminar_autoconsumo(
     record_id: int,
     authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
 ):
     """Elimina un registro de autoconsumo (solo si fue creado manualmente)."""
     user_id = _auth(authorization)
+    perfil_id = _require_perfil_id(x_perfil_id)
+    _require_active_profile(user_id, perfil_id)
     try:
-        sb   = get_supabase()
+        sb   = get_supabase_admin()
         rows = (sb.table("records")
                   .select("id,file_path,uuid")
                   .eq("id", record_id)
                   .eq("user_id", user_id)
+                  .eq("perfil_id", perfil_id)
                   .execute().data or [])
         if not rows:
             raise HTTPException(404, "Registro no encontrado.")
@@ -207,7 +256,7 @@ async def eliminar_autoconsumo(
                 400,
                 "Solo se pueden eliminar movimientos manuales de autoconsumo/merma/trasvase."
             )
-        sb.table("records").delete().eq("id", record_id).eq("user_id", user_id).execute()
+        sb.table("records").delete().eq("id", record_id).eq("user_id", user_id).eq("perfil_id", perfil_id).execute()
         return JSONResponse(content={"ok": True, "deleted_id": record_id})
     except HTTPException:
         raise

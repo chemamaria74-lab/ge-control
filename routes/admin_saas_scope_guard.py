@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from routes.auth import verify_token
+from routes.admin_saas import _assert_tenant_can_add
 from supabase_config import get_supabase_admin, get_supabase_for_user
 
 
@@ -71,6 +72,26 @@ def _validate_scope(sb, row: dict) -> None:
         profile_tenant = str(profile[0].get("tenant_id") or "")
         if tenant_id and profile_tenant and profile_tenant != tenant_id:
             raise HTTPException(400, "La empresa seleccionada no pertenece al tenant indicado.")
+    if status == "active" and tenant_id:
+        bucket = None
+        section = row.get("section")
+        role = row.get("role")
+        if section == "transporte" and role == "admin":
+            bucket = "transporte_admins"
+        elif section == "gasolineras":
+            bucket = "gasolineras_users"
+        existing = (
+            sb.table("user_sections")
+            .select("user_id")
+            .eq("user_id", row.get("user_id"))
+            .eq("section", section)
+            .eq("status", "active")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        _assert_tenant_can_add(tenant_id, section=section, bucket=None if existing else bucket)
 
 
 @router.put("/admin-saas/user-sections")

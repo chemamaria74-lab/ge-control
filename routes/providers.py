@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 PROVIDERS_DIR = os.path.join(os.path.dirname(__file__), "..", "config")
+LOCAL_PROVIDER_FALLBACK = (os.environ.get("GAS_LP_LOCAL_PROVIDER_FALLBACK") or "").strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
 
 
 # ── Supabase helpers ──────────────────────────────────────────────────────────
@@ -30,8 +31,8 @@ def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
     Retorna None solo si Supabase falla por red.
     """
     try:
-        from supabase_config import get_supabase
-        sb = get_supabase()
+        from supabase_config import get_supabase_admin
+        sb = get_supabase_admin()
 
         if not perfil_id:
             return sb.table("providers").select("*")\
@@ -86,8 +87,8 @@ def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,
     Busca la fila exacta por (user_id, rfc, perfil_id) y actualiza; si no existe, inserta.
     """
     try:
-        from supabase_config import get_supabase
-        sb  = get_supabase()
+        from supabase_config import get_supabase_admin
+        sb  = get_supabase_admin()
         rfc_upper = rfc.upper().strip()
 
         # Buscar fila existente con el mismo (user_id, rfc, perfil_id)
@@ -125,8 +126,8 @@ def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,
 
 def _sb_delete(user_id: str, rfc: str, perfil_id: int = None) -> bool:
     try:
-        from supabase_config import get_supabase
-        q = get_supabase().table("providers").delete().eq("user_id", user_id).eq("rfc", rfc.upper())
+        from supabase_config import get_supabase_admin
+        q = get_supabase_admin().table("providers").delete().eq("user_id", user_id).eq("rfc", rfc.upper())
         if perfil_id:
             q = q.eq("perfil_id", perfil_id)
         else:
@@ -145,6 +146,8 @@ def _providers_file(user_id: str) -> str:
 
 
 def _file_list(user_id: str) -> list:
+    if not LOCAL_PROVIDER_FALLBACK:
+        return []
     try:
         with open(_providers_file(user_id), "r", encoding="utf-8") as f:
             logger.warning("Usando fallback local de proveedores para user=%s; no usar en producción.", user_id)
@@ -154,6 +157,8 @@ def _file_list(user_id: str) -> list:
 
 
 def _file_save(user_id: str, providers: list) -> None:
+    if not LOCAL_PROVIDER_FALLBACK:
+        return
     os.makedirs(PROVIDERS_DIR, exist_ok=True)
     with open(_providers_file(user_id), "w", encoding="utf-8") as f:
         json.dump({"providers": providers}, f, ensure_ascii=False, indent=2)
@@ -162,7 +167,7 @@ def _file_save(user_id: str, providers: list) -> None:
 # ── Unified API ───────────────────────────────────────────────────────────────
 
 def _load_providers(user_id: str, perfil_id: int = None) -> list:
-    """Carga desde Supabase; si falla usa JSON local del usuario."""
+    """Carga desde Supabase; el JSON local solo existe si se habilita explícitamente en desarrollo."""
     result = _sb_list(user_id, perfil_id)
     if result is not None:
         return result
@@ -172,8 +177,10 @@ def _load_providers(user_id: str, perfil_id: int = None) -> list:
 def _upsert_provider(user_id: str, rfc: str, nombre: str, permiso: str,
                      permiso_almacenamiento_terminal: str,
                      perfil_id: int = None) -> None:
-    """Guarda en Supabase Y actualiza el JSON local del usuario."""
+    """Guarda en Supabase; el respaldo JSON local está apagado por defecto."""
     ok = _sb_upsert(user_id, rfc, nombre, permiso, permiso_almacenamiento_terminal, perfil_id)
+    if not ok and not LOCAL_PROVIDER_FALLBACK:
+        raise HTTPException(500, "No se pudo guardar el proveedor en Supabase.")
     providers = _file_list(user_id)
     rfc_upper = rfc.upper().strip()
     updated   = False
@@ -195,8 +202,10 @@ def _upsert_provider(user_id: str, rfc: str, nombre: str, permiso: str,
 
 
 def _delete_provider(user_id: str, rfc: str, perfil_id: int = None) -> None:
-    """Elimina de Supabase Y del JSON local del usuario."""
-    _sb_delete(user_id, rfc, perfil_id)
+    """Elimina de Supabase; el respaldo JSON local está apagado por defecto."""
+    ok = _sb_delete(user_id, rfc, perfil_id)
+    if not ok and not LOCAL_PROVIDER_FALLBACK:
+        raise HTTPException(500, "No se pudo eliminar el proveedor en Supabase.")
     rfc_upper = rfc.upper().strip()
     providers = [p for p in _file_list(user_id) if p.get("rfc", "").upper() != rfc_upper]
     _file_save(user_id, providers)
@@ -268,8 +277,8 @@ async def asignar_perfil_a_huerfanos(
     user_id   = _auth(authorization)
     perfil_id = _require_perfil_id(x_perfil_id)
     try:
-        from supabase_config import get_supabase
-        result = get_supabase().table("providers")\
+        from supabase_config import get_supabase_admin
+        result = get_supabase_admin().table("providers")\
             .update({"perfil_id": perfil_id})\
             .eq("user_id", user_id)\
             .is_("perfil_id", "null")\

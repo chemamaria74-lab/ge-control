@@ -190,6 +190,14 @@ def _superadmin_emails() -> set[str]:
     return _allowed_values("SUPERADMIN_EMAILS") | _allowed_values("SUPERADMIN_EMAIL")
 
 
+def _is_ge_admin_user(user_id: str | None, email: str | None, auth_users: dict[str, dict] | None = None) -> bool:
+    uid = str(user_id or "").strip().lower()
+    mail = str(email or "").strip().lower()
+    if auth_users is not None and uid and not mail:
+        mail = str((auth_users.get(str(user_id or "")) or {}).get("email") or "").strip().lower()
+    return uid in _superadmin_ids() or mail in _superadmin_emails()
+
+
 def _extract_token(authorization: str) -> str:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
@@ -266,6 +274,10 @@ def _limit_usage(used: int, limit) -> dict:
         "exceeded": raw_limit is not None and used > int(raw_limit),
         "near_limit": raw_limit is not None and int(raw_limit) > 0 and used >= int(raw_limit) * 0.8,
     }
+
+
+def _limit_blocks_create(used: int, limit) -> bool:
+    return limit is not None and used >= int(limit)
 
 
 def _short_id(value: str | None) -> str:
@@ -366,13 +378,13 @@ def _is_internal_admin_tenant(snapshot: dict, tenant_id: str) -> bool:
         ]
     ).lower()
     has_superadmin = any(
-        (snapshot["auth_users"].get(str(s.get("user_id")), {}).get("email") or "").lower() == "superadmin@gmail.com"
+        _is_ge_admin_user(str(s.get("user_id") or ""), None, snapshot["auth_users"])
         for s in snapshot["sections"]
         if str(s.get("tenant_id")) == str(tenant_id)
     )
     has_real_client_user = any(
         (snapshot["auth_users"].get(str(s.get("user_id")), {}).get("email") or "").lower()
-        and (snapshot["auth_users"].get(str(s.get("user_id")), {}).get("email") or "").lower() != "superadmin@gmail.com"
+        and not _is_ge_admin_user(str(s.get("user_id") or ""), None, snapshot["auth_users"])
         for s in snapshot["sections"]
         if str(s.get("tenant_id")) == str(tenant_id)
     )
@@ -617,7 +629,11 @@ def _load_admin_snapshot() -> dict:
 
 
 def _tenant_usage(snapshot: dict, tenant_id: str) -> dict:
-    sections = [s for s in snapshot["sections"] if str(s.get("tenant_id")) == str(tenant_id)]
+    sections = [
+        s for s in snapshot["sections"]
+        if str(s.get("tenant_id")) == str(tenant_id)
+        and not _is_ge_admin_user(str(s.get("user_id") or ""), None, snapshot["auth_users"])
+    ]
     profiles = [p for p in snapshot["profiles"] if str(p.get("tenant_id")) == str(tenant_id) and p.get("activo")]
     profile_ids = {p.get("id") for p in profiles}
     internal_users = [u for u in snapshot["internal_users"] if str(u.get("tenant_id")) == str(tenant_id)]
@@ -643,6 +659,34 @@ def _tenant_usage(snapshot: dict, tenant_id: str) -> dict:
         "vehiculos": len(vehiculos),
         "stations_gasolineras": len(stations),
     }
+
+
+def _tenant_subscription_and_usage(tenant_id: str) -> tuple[dict | None, dict, dict]:
+    snapshot = _load_admin_snapshot()
+    sub = next((s for s in snapshot["subscriptions"] if str(s.get("tenant_id")) == str(tenant_id) and (s.get("status") or "active") == "active"), None)
+    if not sub:
+        sub = next((s for s in snapshot["subscriptions"] if str(s.get("tenant_id")) == str(tenant_id)), None)
+    return sub, _limits_for_subscription(sub), _tenant_usage(snapshot, tenant_id)
+
+
+def _assert_tenant_can_add(tenant_id: str, section: str | None = None, bucket: str | None = None) -> None:
+    sub, limits, usage = _tenant_subscription_and_usage(tenant_id)
+    if sub and (sub.get("status") or "active") not in {"active", "trialing"}:
+        raise HTTPException(403, "La suscripción del cliente no está activa.")
+    if section:
+        section_limits = limits.get(section) or {}
+        if section_limits.get("enabled") is False:
+            raise HTTPException(403, f"El módulo {section} no está habilitado en la suscripción.")
+    if bucket == "companies" and _limit_blocks_create(usage["companies"], limits.get("companies")):
+        raise HTTPException(403, "El cliente alcanzó el límite de empresas de su suscripción.")
+    if bucket == "gas_lp_assistants" and _limit_blocks_create(usage["assistants_gas_lp"], (limits.get("gas_lp") or {}).get("assistants")):
+        raise HTTPException(403, "El cliente alcanzó el límite de asistentes Gas LP.")
+    if bucket == "transporte_operators" and _limit_blocks_create(usage["operators_transporte"], (limits.get("transporte") or {}).get("operators")):
+        raise HTTPException(403, "El cliente alcanzó el límite de operadores Transporte.")
+    if bucket == "transporte_admins" and _limit_blocks_create(usage["admins_transporte"], (limits.get("transporte") or {}).get("admins")):
+        raise HTTPException(403, "El cliente alcanzó el límite de administradores Transporte.")
+    if bucket == "gasolineras_users" and _limit_blocks_create((usage["module_users"] or {}).get("gasolineras", 0), (limits.get("gasolineras") or {}).get("users")):
+        raise HTTPException(403, "El cliente alcanzó el límite de usuarios Gasolineras.")
 
 
 def _tenant_license_rows(snapshot: dict) -> list[dict]:
@@ -679,7 +723,7 @@ def _tenant_license_rows(snapshot: dict) -> list[dict]:
 def _user_health_rows(snapshot: dict | None = None) -> list[dict]:
     snapshot = snapshot or _load_admin_snapshot()
     auth_users = snapshot["auth_users"]
-    sections = snapshot["sections"]
+    sections = [s for s in snapshot["sections"] if not _is_ge_admin_user(str(s.get("user_id") or ""), None, snapshot["auth_users"])]
     profiles = snapshot["profiles"]
     companies = snapshot["companies"]
     subscriptions = snapshot["subscriptions"]
@@ -687,6 +731,9 @@ def _user_health_rows(snapshot: dict | None = None) -> list[dict]:
     company_by_id = {c.get("id"): c for c in companies}
     rows = []
     for user_id in sorted(user_ids):
+        auth = auth_users.get(user_id, {})
+        if _is_ge_admin_user(user_id, auth.get("email"), auth_users):
+            continue
         user_sections = [s for s in sections if str(s.get("user_id")) == user_id]
         user_profiles = [p for p in profiles if str(p.get("user_id")) == user_id and p.get("activo")]
         tenant_ids = sorted({str(s.get("tenant_id")) for s in user_sections if s.get("tenant_id")} | {str(p.get("tenant_id")) for p in user_profiles if p.get("tenant_id")})
@@ -705,9 +752,14 @@ def _user_health_rows(snapshot: dict | None = None) -> list[dict]:
             warnings.append("sin subscription")
         if user_sections and not any((s.get("status") or "active") == "active" for s in user_sections):
             warnings.append("sin módulos activos")
+        test_text = " ".join(
+            [auth.get("email", ""), auth.get("display_name", "")]
+            + [str(p.get("nombre") or "") for p in user_profiles]
+        ).lower()
+        test_delete_allowed = _is_demo_env() or any(m in test_text for m in ("example", "test", "demo", "prueba", "dummy", "sandbox"))
         rows.append({
             "user_id": user_id,
-            "email": auth_users.get(user_id, {}).get("email", ""),
+            "email": auth.get("email", ""),
             "tenant_ids": tenant_ids,
             "modules": [
                 {
@@ -733,6 +785,7 @@ def _user_health_rows(snapshot: dict | None = None) -> list[dict]:
             "subscription": user_subscriptions[0] if user_subscriptions else None,
             "warnings": warnings,
             "status": "ok" if not warnings else "warning",
+            "test_delete_allowed": test_delete_allowed,
         })
     return rows
 
@@ -813,10 +866,10 @@ async def admin_saas_me(authorization: str = Header(default="")):
 async def admin_saas_dashboard(authorization: str = Header(default="")):
     uid, _, _ = _require_superadmin(authorization)
     snapshot = _load_admin_snapshot()
-    tenants = snapshot["tenants"]
+    tenants = [t for t in snapshot["tenants"] if not _is_internal_admin_tenant(snapshot, str(t.get("id")))]
     profiles = [p for p in snapshot["profiles"] if p.get("activo")]
     companies = [c for c in snapshot["companies"] if c.get("active")]
-    sections = snapshot["sections"]
+    sections = [s for s in snapshot["sections"] if not _is_ge_admin_user(str(s.get("user_id") or ""), None, snapshot["auth_users"])]
     subs = snapshot["subscriptions"]
     internal_users = snapshot["internal_users"]
     tenant_license_rows = _tenant_license_rows(snapshot)
@@ -838,7 +891,7 @@ async def admin_saas_dashboard(authorization: str = Header(default="")):
         "metrics": {
             "clientes_activos": len([t for t in tenants if (t.get("status") or "active") == "active"]),
             "empresas_activas": len(profiles),
-            "usuarios_totales": len(snapshot["auth_users"]),
+            "usuarios_totales": len([uid for uid, user in snapshot["auth_users"].items() if not _is_ge_admin_user(uid, user.get("email"), snapshot["auth_users"])]),
             "usuarios_activos": len({s.get("user_id") for s in sections if (s.get("status") or "active") == "active"}),
             "usuarios_gas_lp": len({s.get("user_id") for s in sections if s.get("section") == "gas_lp" and (s.get("status") or "active") == "active"}),
             "usuarios_transporte": len({s.get("user_id") for s in sections if s.get("section") == "transporte" and (s.get("status") or "active") == "active"}),
@@ -875,7 +928,7 @@ async def list_tenants(authorization: str = Header(default="")):
     )
     subs = snapshot["subscriptions"]
     profiles = snapshot["profiles"]
-    sections = snapshot["sections"]
+    sections = [s for s in snapshot["sections"] if not _is_ge_admin_user(str(s.get("user_id") or ""), None, snapshot["auth_users"])]
     licenses_by_tenant = {r["tenant_id"]: r for r in _tenant_license_rows(snapshot)}
     for tenant in tenants:
         tid = str(tenant.get("id"))
@@ -967,6 +1020,7 @@ async def create_company(payload: CompanyPayload, authorization: str = Header(de
     tenants = sb.table("tenants").select("id").eq("id", tenant_id).limit(1).execute().data or []
     if not tenants:
         raise HTTPException(400, "El tenant_id no existe. Crea o selecciona un cliente válido.")
+    _assert_tenant_can_add(tenant_id, bucket="companies")
     user_id = (payload.user_id or "").strip()
     if user_id:
         user_id = _resolve_user_identifier(user_id)
@@ -1042,12 +1096,8 @@ async def list_saas_users(authorization: str = Header(default="")):
     _require_superadmin(authorization)
     auth_users = _auth_users_by_id()
     sections = _sb_admin().table("user_sections").select("*").order("created_at", desc=True).execute().data or []
-    superadmin_ids = _superadmin_ids()
-    superadmin_emails = _superadmin_emails()
-
     def mark_admin(row: dict, auth: dict) -> None:
-        email = (auth.get("email") or "").strip().lower()
-        row["is_ge_admin"] = str(row.get("user_id") or "").strip().lower() in superadmin_ids or email in superadmin_emails
+        row["is_ge_admin"] = _is_ge_admin_user(row.get("user_id"), auth.get("email"))
 
     seen_user_ids = set()
     for s in sections:
@@ -1100,6 +1150,14 @@ async def create_saas_user(payload: CreateUserPayload, authorization: str = Head
         created_auth = True
     if not target_uid:
         raise HTTPException(500, "Supabase no devolvió user_id.")
+    if payload.tenant_id:
+        bucket = None
+        if payload.section == "transporte" and payload.role == "admin":
+            bucket = "transporte_admins"
+        elif payload.section == "gasolineras":
+            bucket = "gasolineras_users"
+        existing_section = _sb_admin().table("user_sections").select("user_id").eq("user_id", target_uid).eq("section", payload.section).eq("status", "active").limit(1).execute().data or []
+        _assert_tenant_can_add(str(payload.tenant_id), section=payload.section, bucket=None if existing_section else bucket)
     section = {
         "user_id": target_uid,
         "section": payload.section,
@@ -1119,6 +1177,14 @@ async def upsert_user_section(payload: UserSectionPayload, authorization: str = 
     uid, _, _ = _require_superadmin(authorization)
     if payload.section not in SECTIONS or payload.role not in ROLES:
         raise HTTPException(400, "Sección o rol inválido.")
+    if payload.status == "active" and payload.tenant_id:
+        bucket = None
+        if payload.section == "transporte" and payload.role == "admin":
+            bucket = "transporte_admins"
+        elif payload.section == "gasolineras":
+            bucket = "gasolineras_users"
+        existing_section = _sb_admin().table("user_sections").select("user_id").eq("user_id", payload.user_id).eq("section", payload.section).eq("status", "active").limit(1).execute().data or []
+        _assert_tenant_can_add(str(payload.tenant_id), section=payload.section, bucket=None if existing_section else bucket)
     row = payload.model_dump()
     _sb_admin().table("user_sections").upsert(row, on_conflict="user_id,section").execute()
     _audit(uid, "upsert_user_section", "user", payload.user_id, row)
@@ -1337,6 +1403,12 @@ async def create_admin_internal_user(payload: AdminInternalUserCreatePayload, au
     )
     if not profile_rows:
         raise HTTPException(400, "Empresa/perfil inválido para ese tenant.")
+    bucket = None
+    if section == "gas_lp" and role in {"asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"}:
+        bucket = "gas_lp_assistants"
+    elif section == "transporte" and role == "operador":
+        bucket = "transporte_operators"
+    _assert_tenant_can_add(tenant_id, section=section, bucket=bucket)
     if payload.chofer_id:
         driver = (
             _sb_admin()

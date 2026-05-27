@@ -66,6 +66,31 @@ def _auth(authorization: str) -> str:
     return uid
 
 
+def _require_active_profile(uid: str, perfil_id: Optional[int]) -> int:
+    if not perfil_id:
+        raise HTTPException(400, "Selecciona una empresa activa antes de administrar instalaciones.")
+    try:
+        from supabase_config import get_supabase_admin
+        rows = (
+            get_supabase_admin()
+            .table("perfiles_empresa")
+            .select("id")
+            .eq("id", perfil_id)
+            .eq("user_id", uid)
+            .eq("activo", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("facilities profile check failed: user=%s perfil=%s err=%s", uid, perfil_id, exc)
+        raise HTTPException(500, "No se pudo validar la empresa activa.") from exc
+    if not rows:
+        raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
+    return perfil_id
+
+
 def _empty_scope_diagnostics(uid: str, modulo: Optional[str], perfil_id: Optional[int]) -> dict:
     if not perfil_id:
         return {}
@@ -139,6 +164,8 @@ async def list_facilities(
 ):
     uid = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
+    if modulo == "gas_lp":
+        _require_active_profile(uid, perfil_id)
     init_db()
     facs = get_facilities(uid, modulo, perfil_id=perfil_id)
     for f in facs:
@@ -166,6 +193,7 @@ async def add_facility(
 ):
     uid = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_active_profile(uid, perfil_id)
     init_db()
     if not payload.nombre.strip():
         raise HTTPException(400, "El nombre de la instalación es requerido.")
@@ -174,8 +202,7 @@ async def add_facility(
     data["modalidad_permiso"] = _get_modalidad_from_tipo(tp)
     data["actividad_sat"]     = _get_actividad(tp)
     data["caracter"]          = "permisionario"
-    if perfil_id:
-        data["perfil_id"] = perfil_id
+    data["perfil_id"] = perfil_id
     fac = create_facility_v2(uid, data)
     return JSONResponse(content={"ok": True, "facility": fac})
 
@@ -189,11 +216,11 @@ async def edit_facility(
 ):
     uid = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_active_profile(uid, perfil_id)
     if not get_facility(fid, uid, perfil_id=perfil_id):
         raise HTTPException(404, "Instalación no encontrada.")
     data = payload.model_dump()
-    if perfil_id:
-        data["perfil_id"] = perfil_id
+    data["perfil_id"] = perfil_id
     tp = data.get("tipo_permiso", "PER40")
     data["modalidad_permiso"] = _get_modalidad_from_tipo(tp)
     data["actividad_sat"]     = _get_actividad(tp)
@@ -210,6 +237,7 @@ async def remove_facility(
 ):
     uid = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_active_profile(uid, perfil_id)
     if not delete_facility(fid, uid, perfil_id=perfil_id):
         raise HTTPException(404, "Instalación no encontrada.")
     return JSONResponse(content={"ok": True, "deleted_id": fid})
@@ -218,18 +246,25 @@ async def remove_facility(
 # ── Medidores ─────────────────────────────────────────────────────────────────
 
 @router.get("/facilities/{fid}/medidores")
-async def list_medidores(fid: int, authorization: str = Header(default="")):
+async def list_medidores(
+    fid: int,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     uid = _auth(authorization)
-    if not get_facility(fid, uid):
+    perfil_id = _require_active_profile(uid, _parse_perfil_id(x_perfil_id))
+    if not get_facility(fid, uid, perfil_id=perfil_id):
         raise HTTPException(404, "Instalación no encontrada.")
     return JSONResponse(content={"medidores": get_medidores(uid, fid)})
 
 
 @router.post("/facilities/{fid}/medidores")
 async def add_medidor(fid: int, payload: MedidorPayload,
-                      authorization: str = Header(default="")):
+                      authorization: str = Header(default=""),
+                      x_perfil_id: str = Header(default="")):
     uid = _auth(authorization)
-    if not get_facility(fid, uid):
+    perfil_id = _require_active_profile(uid, _parse_perfil_id(x_perfil_id))
+    if not get_facility(fid, uid, perfil_id=perfil_id):
         raise HTTPException(404, "Instalación no encontrada.")
     data = payload.model_dump()
     data["facility_id"] = fid
@@ -274,14 +309,15 @@ async def migrate_adv_settings(
     """
     uid       = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
+    perfil_id = _require_active_profile(uid, perfil_id)
 
-    fac = get_facility(fid, uid)
+    fac = get_facility(fid, uid, perfil_id=perfil_id)
     if not fac:
         raise HTTPException(404, "Instalación no encontrada.")
 
     # Leer settings guardados anteriormente
     try:
-        from supabase_config import get_supabase
+        from supabase_config import get_supabase_admin
         from routes.settings import _load as load_settings
         settings = load_settings(uid, perfil_id)
     except Exception as e:
@@ -324,8 +360,8 @@ async def migrate_adv_settings(
                                      "msg": "La instalación ya tiene todos los datos — nada que migrar."})
 
     try:
-        get_supabase().table("user_facilities") \
-            .update(update).eq("id", fid).eq("user_id", uid).execute()
+        get_supabase_admin().table("user_facilities") \
+            .update(update).eq("id", fid).eq("user_id", uid).eq("perfil_id", perfil_id).execute()
     except Exception as e:
         raise HTTPException(500, f"Error actualizando instalación: {e}")
 

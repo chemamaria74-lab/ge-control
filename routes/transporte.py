@@ -54,7 +54,7 @@ from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadF
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
-from routes.auth import obtener_acceso_modulo, verify_token
+from routes.auth import obtener_acceso_modulo, require_profile_access, verify_token
 from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user
 from services.product_catalog import get_all_productos, validar_producto_completo
 from services.cne_validator import validar_num_permiso
@@ -70,9 +70,11 @@ from services.fiscal_pdf import (
     generar_pdf_ingreso_desde_xml,
     save_fiscal_artifacts,
 )
+from services.fiscal_audit import version_xml
 from services.carta_porte_validation import requiere_complemento_hidrocarburos, validar_xml_carta_porte_transporte
 from services.cfdi_cancellation import cancel_cfdi_universal
 from services.sat_xml_extractor import extraer_factura_timbrada_sat
+from services.sat_sync_worker import SatSyncWindow, ingest_manual_sat_xmls
 from models.transport_schemas import (
     ViajeCreate, TimbradoViajeRequest, CancelacionViajeRequest,
     FacturaServicioCreate,
@@ -183,6 +185,48 @@ def _perfil(perfil_id: Optional[int] = None, x_perfil_id: str = "") -> Optional[
     return pid
 
 
+def _perfil_autorizado(uid: str, token: str, perfil_id: Optional[int] = None, x_perfil_id: str = "") -> int:
+    pid = _perfil(perfil_id, x_perfil_id)
+    require_profile_access(uid, MODULO, pid, access_token=token)
+    return pid
+
+
+def _perfil_sat_scope(uid: str, token: str, perfil_id: Optional[int] = None, x_perfil_id: str = "") -> dict:
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
+    rows = (
+        get_supabase_admin()
+        .table("perfiles_empresa")
+        .select("id,tenant_id,nombre,rfc,activo")
+        .eq("id", pid)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, "Perfil/empresa no encontrado.")
+    profile = rows[0]
+    if profile.get("activo") is False:
+        raise HTTPException(400, "Perfil/empresa inactivo.")
+    tenant_id = profile.get("tenant_id")
+    if not tenant_id:
+        raise HTTPException(409, "El perfil no tiene tenant_id; corre el backfill SaaS antes de SAT Sync.")
+    return {
+        "perfil_id": pid,
+        "tenant_id": tenant_id,
+        # sat_sync_base.company_id es UUID; mientras companies se normaliza, usamos tenant_id y perfil_id como scope real.
+        "company_id": tenant_id,
+        "profile": profile,
+    }
+
+
+def _require_row_profile(uid: str, token: str, row: dict) -> None:
+    pid = row.get("perfil_id")
+    if not pid:
+        raise HTTPException(403, "Registro legacy sin perfil_id: requiere migración antes de operar.")
+    require_profile_access(uid, MODULO, int(pid), access_token=token)
+
+
 def _settings_transporte(uid: str, token: str, perfil_id: Optional[int] = None) -> dict:
     """Obtiene la configuración del módulo transporte para el usuario/perfil."""
     try:
@@ -216,6 +260,7 @@ def _get_chofer(uid: str, token: str, chofer_id: int) -> dict:
     rows = res.data or []
     if not rows:
         raise HTTPException(404, f"Chofer {chofer_id} no encontrado.")
+    _require_row_profile(uid, token, rows[0])
     return rows[0]
 
 
@@ -225,6 +270,7 @@ def _get_vehiculo(uid: str, token: str, vehiculo_id: int) -> dict:
     rows = res.data or []
     if not rows:
         raise HTTPException(404, f"Vehículo {vehiculo_id} no encontrado.")
+    _require_row_profile(uid, token, rows[0])
     return rows[0]
 
 
@@ -833,10 +879,13 @@ async def validar_clave_producto(
 async def crear_viaje(payload: ViajeCreate, authorization: str = Header(default="")):
     """Registra un nuevo viaje de transporte de hidrocarburos."""
     uid, token = _auth(authorization)
+    pid = _perfil_autorizado(uid, token, payload.perfil_id)
 
     # Validar existencia de chofer y vehículo
     chofer   = _get_chofer(uid, token, payload.chofer_id)
     vehiculo = _get_vehiculo(uid, token, payload.vehiculo_id)
+    if int(chofer.get("perfil_id") or 0) != pid or int(vehiculo.get("perfil_id") or 0) != pid:
+        raise HTTPException(403, "Chofer y vehículo deben pertenecer al mismo perfil del viaje.")
 
     # Validar todos los productos del viaje
     for prod in payload.productos:
@@ -863,6 +912,9 @@ async def crear_viaje(payload: ViajeCreate, authorization: str = Header(default=
             ruta_rows = res.data or []
             if ruta_rows:
                 r = ruta_rows[0]
+                _require_row_profile(uid, token, r)
+                if int(r.get("perfil_id") or 0) != pid:
+                    raise HTTPException(403, "La ruta seleccionada no pertenece al perfil del viaje.")
                 cp_origen   = cp_origen   or r.get("cp_origen", "")
                 cp_destino  = cp_destino  or r.get("cp_destino", "")
                 nom_origen  = nom_origen  or r.get("nombre_origen", "")
@@ -913,11 +965,17 @@ async def actualizar_viaje(viaje_id: int, payload: ViajeCreate, authorization: s
     rows = res.data or []
     if not rows:
         raise HTTPException(404, f"Viaje {viaje_id} no encontrado.")
+    _require_row_profile(uid, token, rows[0])
+    pid = _perfil_autorizado(uid, token, payload.perfil_id)
+    if int(rows[0].get("perfil_id") or 0) != pid:
+        raise HTTPException(403, "No puedes mover un viaje a otro perfil.")
     if not _editable_viaje(rows[0].get("status", "")):
         raise HTTPException(400, "Solo se pueden editar viajes en Borrador, Programado o Error.")
 
-    _get_chofer(uid, token, payload.chofer_id)
-    _get_vehiculo(uid, token, payload.vehiculo_id)
+    chofer = _get_chofer(uid, token, payload.chofer_id)
+    vehiculo = _get_vehiculo(uid, token, payload.vehiculo_id)
+    if int(chofer.get("perfil_id") or 0) != pid or int(vehiculo.get("perfil_id") or 0) != pid:
+        raise HTTPException(403, "Chofer y vehículo deben pertenecer al mismo perfil del viaje.")
     for prod in payload.productos:
         ok, msg = validar_producto_completo(prod.clave_producto, prod.clave_subproducto)
         if not ok:
@@ -928,6 +986,9 @@ async def actualizar_viaje(viaje_id: int, payload: ViajeCreate, authorization: s
         ruta_rows = ruta_res.data or []
         if ruta_rows:
             r = ruta_rows[0]
+            _require_row_profile(uid, token, r)
+            if int(r.get("perfil_id") or 0) != pid:
+                raise HTTPException(403, "La ruta seleccionada no pertenece al perfil del viaje.")
             payload.cp_origen = payload.cp_origen or r.get("cp_origen", "")
             payload.cp_destino = payload.cp_destino or r.get("cp_destino", "")
             payload.nombre_origen = payload.nombre_origen or r.get("nombre_origen", "")
@@ -939,7 +1000,7 @@ async def actualizar_viaje(viaje_id: int, payload: ViajeCreate, authorization: s
     row = _viaje_row(uid, payload, productos_json, volumen_total, status=rows[0].get("status", "programado"))
     row.pop("user_id", None)
     try:
-        sb.table(_TBL_VIAJES).update(row).eq("id", viaje_id).eq("user_id", uid).execute()
+        sb.table(_TBL_VIAJES).update(row).eq("id", viaje_id).eq("user_id", uid).eq("perfil_id", rows[0].get("perfil_id")).execute()
         _registrar_evento(
             sb, uid, rows[0].get("perfil_id"), viaje_id, "viaje_actualizado",
             "Viaje actualizado", "La oficina modifico datos operativos del viaje.",
@@ -956,15 +1017,16 @@ async def eliminar_viaje(viaje_id: int, authorization: str = Header(default=""))
     """Elimina un viaje si todavía no tiene Carta Porte timbrada."""
     uid, token = _auth(authorization)
     sb = _sb(token)
-    res = sb.table(_TBL_VIAJES).select("id,status,uuid_cfdi").eq("id", viaje_id).eq("user_id", uid).limit(1).execute()
+    res = sb.table(_TBL_VIAJES).select("id,status,uuid_cfdi,perfil_id").eq("id", viaje_id).eq("user_id", uid).limit(1).execute()
     rows = res.data or []
     if not rows:
         raise HTTPException(404, f"Viaje {viaje_id} no encontrado.")
     row = rows[0]
+    _require_row_profile(uid, token, row)
     if row.get("uuid_cfdi") or not _editable_viaje(row.get("status", "")):
         raise HTTPException(400, "No se puede eliminar un viaje con Carta Porte timbrada.")
     try:
-        sb.table(_TBL_VIAJES).delete().eq("id", viaje_id).eq("user_id", uid).execute()
+        sb.table(_TBL_VIAJES).delete().eq("id", viaje_id).eq("user_id", uid).eq("perfil_id", row.get("perfil_id")).execute()
     except Exception as e:
         raise HTTPException(500, f"Error al eliminar viaje: {e}")
     return JSONResponse({"ok": True})
@@ -979,10 +1041,12 @@ async def listar_viajes(
     page:           int           = Query(1, ge=1),
     page_size:      int           = Query(50, ge=1, le=200),
     authorization:  str           = Header(default=""),
+    x_perfil_id:    str           = Header(default=""),
 ):
     """Lista los viajes del usuario con filtros."""
     uid, token = _auth(authorization)
     sb = _sb(token)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
 
     try:
         q = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).order("fecha_hora_salida", desc=True)
@@ -990,8 +1054,7 @@ async def listar_viajes(
             q = q.like("fecha_hora_salida", f"{periodo}%")
         if status:
             q = q.eq("status", status)
-        if perfil_id:
-            q = q.eq("perfil_id", perfil_id)
+        q = q.eq("perfil_id", pid)
 
         offset = (page - 1) * page_size
         q = q.range(offset, offset + page_size - 1)
@@ -1025,6 +1088,7 @@ async def detalle_viaje(viaje_id: int, authorization: str = Header(default="")):
         if not rows:
             raise HTTPException(404, f"Viaje {viaje_id} no encontrado.")
         viaje = rows[0]
+        _require_row_profile(uid, token, viaje)
         # Deserializar productos
         try:
             viaje["productos"] = json.loads(viaje.get("productos_json") or "[]")
@@ -1063,6 +1127,7 @@ async def timbrar_viaje(
         if not rows:
             raise HTTPException(404, f"Viaje {viaje_id} no encontrado.")
         viaje_row = rows[0]
+        _require_row_profile(uid, token, viaje_row)
     except HTTPException:
         raise
     except Exception as e:
@@ -1207,12 +1272,22 @@ async def timbrar_viaje(
                 sb, uid, {**cfdi_row, "id": cfdi_saved.get("id")}, xml_timbrado, xml_filename,
                 {"cfdi_id": cfdi_saved.get("id"), "uuid_sat": uuid_sat, "id_ccp": id_ccp, "validacion": (validacion_cp.metadata if validacion_cp else {})},
             )
+            version_xml(
+                module="transporte",
+                entity_type="carta_porte",
+                entity_id=cfdi_saved.get("id"),
+                uuid_sat=uuid_sat,
+                xml_content=xml_timbrado,
+                user_id=uid,
+                perfil_id=viaje_row.get("perfil_id"),
+                source="sw_sapien",
+            )
         # Actualizar status del viaje solo como timbrado cuando el XML contiene Carta Porte válida.
         sb.table(_TBL_VIAJES).update({
             "status":   "timbrado" if carta_porte_valida else "error",
             "uuid_cfdi": uuid_sat,
             "id_ccp":    id_ccp if carta_porte_valida else "",
-        }).eq("id", viaje_id).execute()
+        }).eq("id", viaje_id).eq("user_id", uid).eq("perfil_id", viaje_row.get("perfil_id")).execute()
         _registrar_evento(
             sb, uid, viaje_row.get("perfil_id"), viaje_id,
             "carta_porte_timbrada" if carta_porte_valida else "cfdi_timbrado_invalido_carta_porte",
@@ -1268,6 +1343,7 @@ async def cancelar_viaje(
 ):
     """Cancela el CFDI de un viaje."""
     uid, token = _auth(authorization)
+    _require_admin_transporte(uid, token)
     sb = _sb(token)
 
     # Obtener CFDI del viaje
@@ -1277,6 +1353,7 @@ async def cancelar_viaje(
         if not rows:
             raise HTTPException(404, "No se encontró CFDI para este viaje.")
         cfdi_row = rows[0]
+        _require_row_profile(uid, token, cfdi_row)
     except HTTPException:
         raise
     except Exception as e:
@@ -1285,7 +1362,7 @@ async def cancelar_viaje(
     if cfdi_row.get("status") == "Cancelada":
         raise HTTPException(400, "Este CFDI ya está cancelado.")
 
-    settings   = _settings_transporte(uid, token)
+    settings   = _settings_transporte(uid, token, cfdi_row.get("perfil_id"))
     rfc_emisor = settings.get("RfcContribuyente", "")
 
     resultado = cancel_cfdi_universal(
@@ -1302,8 +1379,8 @@ async def cancelar_viaje(
         requested_by=uid,
     )
     try:
-        sb.table(_TBL_CFDI).update({"status": "Cancelada"}).eq("id", cfdi_row["id"]).execute()
-        sb.table(_TBL_VIAJES).update({"status": "cancelado"}).eq("id", viaje_id).execute()
+        sb.table(_TBL_CFDI).update({"status": "Cancelada"}).eq("id", cfdi_row["id"]).eq("user_id", uid).eq("perfil_id", cfdi_row.get("perfil_id")).execute()
+        sb.table(_TBL_VIAJES).update({"status": "cancelado"}).eq("id", viaje_id).eq("user_id", uid).eq("perfil_id", cfdi_row.get("perfil_id")).execute()
         _registrar_evento(
             sb, uid, cfdi_row.get("perfil_id"), viaje_id, "carta_porte_cancelada",
             "CFDI/Carta Porte cancelado", f"Motivo SAT {payload.motivo}.",
@@ -1333,7 +1410,7 @@ async def listar_facturas_servicio(
     """Lista facturas del servicio de transporte emitidas o preparadas."""
     uid, token = _auth(authorization)
     try:
-        pid = _perfil(perfil_id, x_perfil_id)
+        pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
         q = _sb(token).table(_TBL_FACT_SERV).select("*").eq("user_id", uid).order("created_at", desc=True)
         if periodo:
             ini, fin = _periodo_bounds(periodo)
@@ -1342,6 +1419,8 @@ async def listar_facturas_servicio(
             q = q.eq("perfil_id", pid)
         res = q.execute()
         return JSONResponse({"ok": True, "facturas_servicio": res.data or []})
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"Error al listar facturas de servicio: {e}")
 
@@ -1355,7 +1434,7 @@ async def ver_pdf_factura_servicio_transporte(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     sb = _sb(token)
     q = sb.table(_TBL_FACT_SERV).select("*").eq("id", factura_id).eq("user_id", uid).limit(1)
     if pid:
@@ -1408,7 +1487,7 @@ async def descargar_xml_factura_servicio_transporte(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_FACT_SERV).select("*").eq("id", factura_id).eq("user_id", uid).limit(1)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -1444,7 +1523,8 @@ async def cancelar_factura_servicio_transporte(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    _require_admin_transporte(uid, token)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     sb = _sb(token)
     q = sb.table(_TBL_FACT_SERV).select("*").eq("id", factura_id).eq("user_id", uid).limit(1)
     if pid:
@@ -1482,7 +1562,7 @@ async def dashboard_transporte(
 ):
     uid, token = _auth(authorization)
     sb = _sb(token)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     periodo = periodo or datetime.now(timezone.utc).strftime("%Y-%m")
     qv = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).like("fecha_hora_salida", f"{periodo}%")
     if pid:
@@ -1511,7 +1591,7 @@ async def analytics_transporte(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_VIAJES).select("*").eq("user_id", uid)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -1546,7 +1626,7 @@ async def forecast_transporte(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_VIAJES).select("fecha_hora_salida,volumen_total_litros").eq("user_id", uid).order("fecha_hora_salida")
     if pid:
         q = q.eq("perfil_id", pid)
@@ -1580,7 +1660,7 @@ async def dashboard_operativo_transporte(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     periodo = periodo or datetime.now(timezone.utc).strftime("%Y-%m")
     q = _sb(token).table(_TBL_VIAJES).select("*").eq("user_id", uid).like("fecha_hora_salida", f"{periodo}%")
     if pid:
@@ -1627,7 +1707,7 @@ async def tareas_carta_aporte_desde_sat(
     Disponible para administradores y operadores con acceso a Transporte.
     """
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
     if not force and (now_mx.hour, now_mx.minute) < (2, 0):
         return JSONResponse({
@@ -1851,7 +1931,7 @@ async def subir_documento_viaje(
 @router.get("/tr/tarifas")
 async def listar_tarifas(perfil_id: Optional[int] = Query(None), authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_TARIFAS).select("*").eq("user_id", uid).eq("activo", True).order("prioridad")
     if pid:
         q = q.eq("perfil_id", pid)
@@ -1861,7 +1941,7 @@ async def listar_tarifas(perfil_id: Optional[int] = Query(None), authorization: 
 @router.post("/tr/tarifas")
 async def crear_tarifa(payload: dict, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     uid, token = _auth(authorization)
-    pid = _perfil(payload.get("perfil_id"), x_perfil_id)
+    pid = _perfil_autorizado(uid, token, payload.get("perfil_id"), x_perfil_id)
     row = {
         "user_id": uid, "perfil_id": pid, "cliente_id": payload.get("cliente_id"),
         "ruta_id": payload.get("ruta_id"), "origen": str(payload.get("origen") or ""),
@@ -1913,12 +1993,34 @@ async def calcular_tarifa_viaje(viaje_id: int, authorization: str = Header(defau
 @router.post("/tr/operador/acceso")
 async def crear_acceso_operador(payload: dict, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     uid, token = _auth(authorization)
-    pid = _perfil(payload.get("perfil_id"), x_perfil_id)
+    pid = _perfil_autorizado(uid, token, payload.get("perfil_id"), x_perfil_id)
     chofer_id = int(payload.get("chofer_id") or 0)
     if not chofer_id:
         raise HTTPException(400, "chofer_id requerido.")
+    chofer_rows = (
+        _sb(token)
+        .table(_TBL_CHOFERES)
+        .select("id,perfil_id,activo")
+        .eq("id", chofer_id)
+        .eq("user_id", uid)
+        .eq("perfil_id", pid)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not chofer_rows:
+        raise HTTPException(404, "Chofer no encontrado en el perfil activo.")
+    if chofer_rows[0].get("activo") is False:
+        raise HTTPException(400, "No puedes generar acceso para un chofer inactivo.")
     token_plain = secrets.token_urlsafe(24)
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    try:
+        _sb(token).table(_TBL_OPER_ACC).update({
+            "status": "reemplazado",
+        }).eq("user_id", uid).eq("perfil_id", pid).eq("chofer_id", chofer_id).eq("status", "activo").execute()
+    except Exception as e:
+        logger.info("No se pudieron reemplazar accesos anteriores del operador %s/%s: %s", pid, chofer_id, e)
     _sb(token).table(_TBL_OPER_ACC).insert({
         "user_id": uid,
         "perfil_id": pid,
@@ -1936,6 +2038,8 @@ def _operador_context(token_plain: str):
     if not rows:
         raise HTTPException(401, "Acceso de operador invalido.")
     acc = rows[0]
+    if not acc.get("perfil_id") or not acc.get("chofer_id") or not acc.get("user_id"):
+        raise HTTPException(403, "Acceso de operador incompleto. Requiere regenerar el link.")
     expires_at = acc.get("expires_at")
     if expires_at:
         try:
@@ -1950,6 +2054,19 @@ def _operador_context(token_plain: str):
             raise
         except Exception:
             raise HTTPException(401, "Acceso de operador inválido.")
+    chofer_rows = (
+        sb.table(_TBL_CHOFERES)
+        .select("id,perfil_id,activo")
+        .eq("id", acc.get("chofer_id"))
+        .eq("user_id", acc.get("user_id"))
+        .eq("perfil_id", acc.get("perfil_id"))
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not chofer_rows or chofer_rows[0].get("activo") is False:
+        raise HTTPException(403, "El operador no pertenece al perfil activo o está inactivo.")
     try:
         sb.table(_TBL_OPER_ACC).update({"last_used_at": datetime.now(timezone.utc).isoformat()}).eq("id", acc["id"]).execute()
     except Exception:
@@ -1962,7 +2079,10 @@ def _operador_meta(sb, acc: dict) -> dict:
     empresa = {}
     notificaciones = []
     try:
-        rows = sb.table(_TBL_CHOFERES).select("id,nombre,rfc,licencia,telefono").eq("id", acc.get("chofer_id")).eq("user_id", acc.get("user_id")).limit(1).execute().data or []
+        q = sb.table(_TBL_CHOFERES).select("id,nombre,rfc,licencia,telefono").eq("id", acc.get("chofer_id")).eq("user_id", acc.get("user_id"))
+        if acc.get("perfil_id"):
+            q = q.eq("perfil_id", acc.get("perfil_id"))
+        rows = q.limit(1).execute().data or []
         chofer = rows[0] if rows else {}
     except Exception:
         chofer = {}
@@ -2089,16 +2209,13 @@ async def operador_accion(viaje_id: int, payload: dict, token: str = Query(...))
     if accion not in mapping:
         raise HTTPException(400, "Accion no valida.")
     status, title = mapping[accion]
-    viaje_rows = sb.table(_TBL_VIAJES).select("id,user_id,perfil_id,chofer_id,nombre_origen,nombre_destino,cp_origen,cp_destino").eq("id", viaje_id).eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"]).limit(1).execute().data or []
+    viaje_rows = sb.table(_TBL_VIAJES).select("id,user_id,perfil_id,chofer_id,nombre_origen,nombre_destino,cp_origen,cp_destino").eq("id", viaje_id).eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("chofer_id", acc["chofer_id"]).limit(1).execute().data or []
     if not viaje_rows:
         raise HTTPException(404, "Viaje no encontrado para este operador.")
     update = {"operacion_status": status}
     if accion == "entregado":
         update["fecha_entrega_confirmada"] = datetime.now(timezone.utc).isoformat()
-    uq = sb.table(_TBL_VIAJES).update(update).eq("id", viaje_id).eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"])
-    if acc.get("perfil_id"):
-        uq = uq.eq("perfil_id", acc.get("perfil_id"))
-    uq.execute()
+    sb.table(_TBL_VIAJES).update(update).eq("id", viaje_id).eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("chofer_id", acc["chofer_id"]).execute()
     _registrar_evento(sb, acc["user_id"], viaje_rows[0].get("perfil_id"), viaje_id, f"operador_{accion}", title, str(payload.get("nota") or ""), "operador", str(acc["chofer_id"]), {"accion": accion})
     if accion == "problema":
         v = viaje_rows[0]
@@ -2123,6 +2240,7 @@ async def operador_pdf_carta_porte(viaje_id: int, token: str = Query(...), downl
         .select("id,user_id,perfil_id,chofer_id")
         .eq("id", viaje_id)
         .eq("user_id", acc["user_id"])
+        .eq("perfil_id", acc["perfil_id"])
         .eq("chofer_id", acc["chofer_id"])
         .limit(1)
         .execute()
@@ -2135,6 +2253,7 @@ async def operador_pdf_carta_porte(viaje_id: int, token: str = Query(...), downl
         sb.table(_TBL_CFDI)
         .select("id,user_id,perfil_id,viaje_id,uuid_sat,id_ccp,xml_content,pdf_url")
         .eq("user_id", acc["user_id"])
+        .eq("perfil_id", acc["perfil_id"])
         .eq("viaje_id", viaje_id)
         .order("fecha_timbrado", desc=True)
         .limit(1)
@@ -2149,7 +2268,7 @@ async def operador_pdf_carta_porte(viaje_id: int, token: str = Query(...), downl
         raise HTTPException(404, "La Carta Porte no tiene XML guardado.")
     viaje = viaje_rows[0]
     productos = []
-    viaje_full = sb.table(_TBL_VIAJES).select("productos_json").eq("id", viaje_id).eq("user_id", acc["user_id"]).limit(1).execute().data or []
+    viaje_full = sb.table(_TBL_VIAJES).select("productos_json").eq("id", viaje_id).eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).limit(1).execute().data or []
     if viaje_full:
         productos = _productos_from_row(viaje_full[0])
     validacion = validar_xml_carta_porte_transporte(row["xml_content"], productos)
@@ -2176,6 +2295,7 @@ async def operador_xml_carta_porte(viaje_id: int, token: str = Query(...), downl
         .select("id,user_id,perfil_id,chofer_id")
         .eq("id", viaje_id)
         .eq("user_id", acc["user_id"])
+        .eq("perfil_id", acc["perfil_id"])
         .eq("chofer_id", acc["chofer_id"])
         .limit(1)
         .execute()
@@ -2188,6 +2308,7 @@ async def operador_xml_carta_porte(viaje_id: int, token: str = Query(...), downl
         sb.table(_TBL_CFDI)
         .select("uuid_sat,xml_content")
         .eq("user_id", acc["user_id"])
+        .eq("perfil_id", acc["perfil_id"])
         .eq("viaje_id", viaje_id)
         .order("fecha_timbrado", desc=True)
         .limit(1)
@@ -2215,6 +2336,7 @@ async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...
         .select("id,user_id,perfil_id,chofer_id")
         .eq("id", viaje_id)
         .eq("user_id", acc["user_id"])
+        .eq("perfil_id", acc["perfil_id"])
         .eq("chofer_id", acc["chofer_id"])
         .limit(1)
         .execute()
@@ -2224,16 +2346,16 @@ async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...
     if not viaje_rows:
         raise HTTPException(404, "Viaje no encontrado para este operador.")
     docs: list[dict] = []
-    cfdi_rows = sb.table(_TBL_CFDI).select("uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).eq("viaje_id", viaje_id).order("fecha_timbrado", desc=True).limit(1).execute().data or []
+    cfdi_rows = sb.table(_TBL_CFDI).select("uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("viaje_id", viaje_id).order("fecha_timbrado", desc=True).limit(1).execute().data or []
     if cfdi_rows and cfdi_rows[0].get("xml_content"):
         docs.extend([
             {"tipo": "carta_porte_pdf", "label": "PDF Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/pdf?token={token}", "status": cfdi_rows[0].get("status")},
             {"tipo": "carta_porte_xml", "label": "XML Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/xml?token={token}", "status": cfdi_rows[0].get("status")},
         ])
-    links = sb.table(_TBL_FACT_SERV_CARTAS).select("factura_servicio_id").eq("user_id", acc["user_id"]).eq("viaje_id", viaje_id).execute().data or []
+    links = sb.table(_TBL_FACT_SERV_CARTAS).select("factura_servicio_id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("viaje_id", viaje_id).execute().data or []
     factura_ids = [int(x.get("factura_servicio_id")) for x in links if x.get("factura_servicio_id")]
     if factura_ids:
-        facturas = sb.table(_TBL_FACT_SERV).select("id,uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).in_("id", factura_ids).execute().data or []
+        facturas = sb.table(_TBL_FACT_SERV).select("id,uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).in_("id", factura_ids).execute().data or []
         for f in facturas:
             if f.get("xml_content"):
                 docs.extend([
@@ -2244,6 +2366,7 @@ async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...
         sb.table(_TBL_DOCS)
         .select("*")
         .eq("user_id", acc["user_id"])
+        .eq("perfil_id", acc["perfil_id"])
         .eq("viaje_id", viaje_id)
         .in_("tipo", ["factura_producto_pdf", "factura_producto_xml", "factura_proveedor_pdf", "factura_proveedor_xml", "cfdi_proveedor_pdf", "cfdi_proveedor_xml"])
         .order("created_at", desc=True)
@@ -2264,14 +2387,14 @@ async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...
 @router.get("/tr/operador/facturas-servicio/{factura_id}/pdf")
 async def operador_pdf_factura_servicio(factura_id: int, token: str = Query(...), download: bool = Query(False)):
     sb, acc = _operador_context(token)
-    links = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", acc["user_id"]).eq("factura_servicio_id", factura_id).execute().data or []
+    links = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("factura_servicio_id", factura_id).execute().data or []
     viaje_ids = [int(x.get("viaje_id")) for x in links if x.get("viaje_id")]
     if not viaje_ids:
         raise HTTPException(404, "Factura de servicio no relacionada a viaje del operador.")
-    viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"]).in_("id", viaje_ids).execute().data or []
+    viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("chofer_id", acc["chofer_id"]).in_("id", viaje_ids).execute().data or []
     if not viajes:
         raise HTTPException(404, "Factura de servicio no disponible para este operador.")
-    rows = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", acc["user_id"]).eq("id", factura_id).limit(1).execute().data or []
+    rows = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("id", factura_id).limit(1).execute().data or []
     if not rows or not rows[0].get("xml_content"):
         raise HTTPException(404, "Factura de servicio sin XML.")
     row = rows[0]
@@ -2286,12 +2409,12 @@ async def operador_pdf_factura_servicio(factura_id: int, token: str = Query(...)
 @router.get("/tr/operador/facturas-servicio/{factura_id}/xml")
 async def operador_xml_factura_servicio(factura_id: int, token: str = Query(...), download: bool = Query(True)):
     sb, acc = _operador_context(token)
-    links = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", acc["user_id"]).eq("factura_servicio_id", factura_id).execute().data or []
+    links = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("factura_servicio_id", factura_id).execute().data or []
     viaje_ids = [int(x.get("viaje_id")) for x in links if x.get("viaje_id")]
-    viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"]).in_("id", viaje_ids or [-1]).execute().data or []
+    viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("chofer_id", acc["chofer_id"]).in_("id", viaje_ids or [-1]).execute().data or []
     if not viajes:
         raise HTTPException(404, "Factura de servicio no disponible para este operador.")
-    rows = sb.table(_TBL_FACT_SERV).select("uuid_sat,xml_content").eq("user_id", acc["user_id"]).eq("id", factura_id).limit(1).execute().data or []
+    rows = sb.table(_TBL_FACT_SERV).select("uuid_sat,xml_content").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("id", factura_id).limit(1).execute().data or []
     if not rows or not rows[0].get("xml_content"):
         raise HTTPException(404, "Factura de servicio sin XML.")
     filename = f"factura_servicio_{rows[0].get('uuid_sat') or factura_id}.xml"
@@ -2302,10 +2425,10 @@ async def operador_xml_factura_servicio(factura_id: int, token: str = Query(...)
 @router.get("/tr/operador/viajes/{viaje_id}/documentos/{documento_id}")
 async def operador_documento_storage(viaje_id: int, documento_id: int, token: str = Query(...)):
     sb, acc = _operador_context(token)
-    viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"]).eq("id", viaje_id).limit(1).execute().data or []
+    viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("chofer_id", acc["chofer_id"]).eq("id", viaje_id).limit(1).execute().data or []
     if not viajes:
         raise HTTPException(404, "Viaje no encontrado para este operador.")
-    docs = sb.table(_TBL_DOCS).select("*").eq("user_id", acc["user_id"]).eq("viaje_id", viaje_id).eq("id", documento_id).limit(1).execute().data or []
+    docs = sb.table(_TBL_DOCS).select("*").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("viaje_id", viaje_id).eq("id", documento_id).limit(1).execute().data or []
     if not docs:
         raise HTTPException(404, "Documento no encontrado.")
     doc = docs[0]
@@ -2329,7 +2452,7 @@ async def listar_cartas_porte_facturables(
     """Cartas Porte timbradas que todavia no han sido usadas en factura de servicio."""
     uid, token = _auth(authorization)
     sb = _sb(token)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     try:
         fact_q = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid)
         if pid:
@@ -2551,9 +2674,59 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                 f"UUID SAT {sw_data.get('uuid', '')}" if sw_data.get("uuid") else "Factura de servicio generada.",
                 "system", "sw_sapien", {"factura_servicio_id": factura_id, "uuid_sat": sw_data.get("uuid", "")},
             )
+        version_xml(
+            module="transporte",
+            entity_type="factura_servicio",
+            entity_id=factura_id,
+            uuid_sat=sw_data.get("uuid", ""),
+            xml_content=sw_data.get("cfdi", ""),
+            user_id=uid,
+            perfil_id=perfil_factura,
+            source="sw_sapien",
+        )
         return JSONResponse({"ok": True, "id": factura_id, "status": "timbrada", "uuid_sat": sw_data.get("uuid", "")})
     except Exception as e:
         raise HTTPException(500, f"Error al crear factura de servicio: {e}")
+
+
+@router.post("/tr/sat-sync/manual-xml")
+async def sat_sync_manual_xml_transporte(
+    files: list[UploadFile] = File(...),
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    _require_admin_transporte(uid, token)
+    scope = _perfil_sat_scope(uid, token, perfil_id, x_perfil_id)
+    if not files:
+        raise HTTPException(400, "Sube al menos un XML SAT.")
+    if len(files) > 50:
+        raise HTTPException(400, "Máximo 50 XML por carga manual.")
+
+    xml_items = []
+    for file in files:
+        filename = file.filename or "cfdi.xml"
+        if not filename.lower().endswith(".xml"):
+            raise HTTPException(400, f"Solo se aceptan XML SAT. Archivo inválido: {filename}")
+        content = await file.read()
+        if len(content) > 2_000_000:
+            raise HTTPException(400, f"XML demasiado grande: {filename}")
+        xml_items.append({"filename": filename, "content": content})
+
+    result = ingest_manual_sat_xmls(
+        sb=get_supabase_admin(),
+        window=SatSyncWindow(
+            tenant_id=scope["tenant_id"],
+            company_id=scope["company_id"],
+            perfil_id=scope["perfil_id"],
+            sync_type="both",
+            provider="manual",
+        ),
+        xml_items=xml_items,
+        created_by=uid,
+    )
+    return JSONResponse(result, status_code=200 if result.get("ok") else 207)
 
 
 @router.get("/tr/liquidaciones")
@@ -2564,7 +2737,7 @@ async def listar_liquidaciones(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_LIQS).select("*").eq("user_id", uid).order("created_at", desc=True)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -2654,7 +2827,7 @@ async def exportar_liquidacion_xlsx(liquidacion_id: int, authorization: str = He
 async def generar_liquidacion(payload: dict, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     uid, token = _auth(authorization)
     sb = _sb(token)
-    pid = _perfil(payload.get("perfil_id"), x_perfil_id)
+    pid = _perfil_autorizado(uid, token, payload.get("perfil_id"), x_perfil_id)
     chofer_id = int(payload.get("chofer_id") or 0)
     periodo = _periodo_liquidacion_label(str(payload.get("periodo") or datetime.now(timezone.utc).strftime("%Y-%m")), str(payload.get("periodo_tipo") or ""))
     periodo_inicio, periodo_fin = _periodo_liquidacion_bounds(periodo, str(payload.get("periodo_tipo") or ""))
@@ -2771,7 +2944,7 @@ async def importar_excel_ruth(
 ):
     """Importador historico no destructivo: extrae resumen y tarifas del Excel operativo."""
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     try:
         import openpyxl
         from io import BytesIO
@@ -2865,6 +3038,15 @@ async def descargar_xml_transporte(cfdi_id: int, authorization: str = Header(def
         if not rows:
             raise HTTPException(404, "CFDI no encontrado.")
         row = rows[0]
+        audit_fiscal_pdf_event(
+            get_supabase_admin(),
+            user_id=uid,
+            module="transporte",
+            entity_type="carta_porte",
+            entity_id=cfdi_id,
+            uuid_sat=row.get("uuid_sat") or "",
+            action="xml_download",
+        )
         return Response(
             content=row["xml_content"],
             media_type="application/xml",
@@ -3095,7 +3277,7 @@ async def listar_choferes(
 ):
     uid, token = _auth(authorization)
     sb = _sb(token)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = sb.table(_TBL_CHOFERES).select("*").eq("user_id", uid).eq("activo", True)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -3112,7 +3294,7 @@ async def crear_chofer(
 ):
     uid, token = _auth(authorization)
     sb = _sb(token)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     try:
         res = sb.table(_TBL_CHOFERES).insert({
             "user_id":      uid,
@@ -3140,7 +3322,7 @@ async def actualizar_chofer(
 ):
     uid, token = _auth(authorization)
     sb = _sb(token)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = sb.table(_TBL_CHOFERES).update({
         "nombre":       payload.nombre.strip(),
         "rfc":          payload.rfc,
@@ -3163,7 +3345,7 @@ async def eliminar_chofer(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_CHOFERES).update({"activo": False}).eq("id", chofer_id).eq("user_id", uid)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -3180,7 +3362,7 @@ async def listar_vehiculos(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_VEHICULOS).select("*").eq("user_id", uid).eq("activo", True)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -3196,7 +3378,7 @@ async def crear_vehiculo(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     try:
         res = _sb(token).table(_TBL_VEHICULOS).insert({
             "user_id":           uid,
@@ -3227,7 +3409,7 @@ async def actualizar_vehiculo(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_VEHICULOS).update({
         "placas":          payload.placas,
         "modelo":          payload.modelo.strip(),
@@ -3253,7 +3435,7 @@ async def eliminar_vehiculo(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_VEHICULOS).update({"activo": False}).eq("id", vehiculo_id).eq("user_id", uid)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -3270,7 +3452,7 @@ async def listar_rutas(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_RUTAS).select("*").eq("user_id", uid).eq("activo", True)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -3286,7 +3468,7 @@ async def crear_ruta(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     try:
         row = _ruta_payload(payload)
         row.update({
@@ -3309,7 +3491,7 @@ async def actualizar_ruta(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_RUTAS).update(_ruta_payload(payload)).eq("id", ruta_id).eq("user_id", uid)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -3325,7 +3507,7 @@ async def eliminar_ruta(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_RUTAS).update({"activo": False}).eq("id", ruta_id).eq("user_id", uid)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -3342,7 +3524,7 @@ async def listar_clientes_transporte(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_CLIENTES).select("*").eq("user_id", uid).eq("activo", True)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -3358,7 +3540,7 @@ async def crear_cliente_transporte(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     receptor = _normalizar_receptor_cfdi(payload.rfc, payload.nombre, payload.cp, payload.regimen_fiscal)
     _validar_datos_cfdi_receptor(receptor["rfc"], receptor["regimen_fiscal"], receptor["cp"], payload.uso_cfdi)
     try:
@@ -3397,7 +3579,7 @@ async def actualizar_cliente_transporte(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     receptor = _normalizar_receptor_cfdi(payload.rfc, payload.nombre, payload.cp, payload.regimen_fiscal)
     _validar_datos_cfdi_receptor(receptor["rfc"], receptor["regimen_fiscal"], receptor["cp"], payload.uso_cfdi)
     q = _sb(token).table(_TBL_CLIENTES).update({
@@ -3432,7 +3614,7 @@ async def eliminar_cliente_transporte(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(_TBL_CLIENTES).update({"activo": False}).eq("id", cliente_id).eq("user_id", uid)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -3535,7 +3717,7 @@ async def listar_catalogo_operativo(
     if not cfg:
         raise HTTPException(404, "Catálogo no encontrado.")
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(cfg["table"]).select("*").eq("user_id", uid)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -3557,7 +3739,7 @@ async def crear_catalogo_operativo(
     if not cfg:
         raise HTTPException(404, "Catálogo no encontrado.")
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     row = _clean_catalog_row(payload, cfg["fields"])
     row.update({"user_id": uid, "perfil_id": pid, "created_at": datetime.now(timezone.utc).isoformat()})
     if not row.get("nombre") and catalogo in {"origenes", "destinos", "centros-emisores"}:
@@ -3588,7 +3770,7 @@ async def actualizar_catalogo_operativo(
     if not cfg:
         raise HTTPException(404, "Catálogo no encontrado.")
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     row = _clean_catalog_row(payload, cfg["fields"])
     row["updated_at"] = datetime.now(timezone.utc).isoformat()
     q = _sb(token).table(cfg["table"]).update(row).eq("id", item_id).eq("user_id", uid)
@@ -3610,7 +3792,7 @@ async def eliminar_catalogo_operativo(
     if not cfg:
         raise HTTPException(404, "Catálogo no encontrado.")
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     if "activo" in cfg["fields"]:
         q = _sb(token).table(cfg["table"]).update({"activo": False}).eq("id", item_id).eq("user_id", uid)
     else:
@@ -3642,7 +3824,7 @@ async def sugerir_viaje_operativo(
 ):
     """Sugiere origen/destino/ruta/tarifa/vehículo/remolque desde catálogos; no crea ni timbra nada."""
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     sb = _sb(token)
     def scoped(table: str):
         return sb.table(table).select("*").eq("user_id", uid).eq("perfil_id", pid)
@@ -3716,7 +3898,7 @@ async def sugerir_viaje_operativo(
 async def aplicar_defaults_viaje(viaje_id: int, payload: dict, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     """Aplica defaults operativos a un viaje programado sin timbrar."""
     uid, token = _auth(authorization)
-    pid = _perfil(payload.get("perfil_id"), x_perfil_id)
+    pid = _perfil_autorizado(uid, token, payload.get("perfil_id"), x_perfil_id)
     sb = _sb(token)
     rows = sb.table(_TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).eq("perfil_id", pid).limit(1).execute().data or []
     if not rows:
@@ -3738,7 +3920,7 @@ async def programa_semanal_transporte(
     x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
-    pid = _perfil(perfil_id, x_perfil_id)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     if not week:
         today = datetime.now(timezone.utc).date()
         week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}"
@@ -3760,7 +3942,7 @@ async def get_settings_transporte(
 ):
     """Obtiene la configuración del módulo transporte."""
     uid, token = _auth(authorization)
-    settings = _settings_transporte(uid, token, _perfil(perfil_id, x_perfil_id))
+    settings = _settings_transporte(uid, token, _perfil_autorizado(uid, token, perfil_id, x_perfil_id))
     return JSONResponse({"ok": True, "settings": settings})
 
 
@@ -3780,7 +3962,7 @@ async def update_settings_transporte(
     """
     uid, token = _auth(authorization)
     sb = _sb(token)
-    perfil_id = _perfil(perfil_id, x_perfil_id)
+    perfil_id = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     now_iso = datetime.now(timezone.utc).isoformat()
 
     # Limpiar campos sensibles
