@@ -88,7 +88,15 @@ class GasLpInternalFacturaPayload(BaseModel):
     uso_cfdi: str = "S01"
     litros: float
     precio_unitario: float
-    concepto: str = "Venta de Gas LP"
+    concepto: str = "LITRO DE GAS LP"
+    descuento: float = 0
+    iva_rate: float = 0.16
+    serie: str = "GLP"
+    folio: str = ""
+    fecha: str = ""
+    clave_prod_serv: str = "15111510"
+    no_identificacion: str = "001"
+    unidad: str = "LITRO GAS"
     forma_pago: str = "99"
     metodo_pago: str = "PUE"
 
@@ -326,43 +334,88 @@ def _public_general_receptor(issuer_cp: str) -> dict:
     }
 
 
-def _build_gas_lp_consumo_xml(*, issuer: dict, receptor: dict, litros, precio_unitario, concepto: str, forma_pago: str, metodo_pago: str) -> tuple[str, dict]:
+def _build_gas_lp_consumo_xml(
+    *,
+    issuer: dict,
+    receptor: dict,
+    litros,
+    precio_unitario,
+    concepto: str,
+    forma_pago: str,
+    metodo_pago: str,
+    descuento=0,
+    iva_rate=0.16,
+    serie: str = "GLP",
+    folio: str = "",
+    fecha: str = "",
+    clave_prod_serv: str = "15111510",
+    no_identificacion: str = "001",
+    unidad: str = "LITRO GAS",
+) -> tuple[str, dict]:
     qty = Decimal(str(litros or 0)).quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP)
     unit = Decimal(str(precio_unitario or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     if qty <= 0 or unit <= 0:
         raise HTTPException(400, "Litros y precio unitario deben ser mayores a cero.")
     subtotal = _money(qty * unit)
-    iva = _money(subtotal * Decimal("0.16"))
-    total = _money(subtotal + iva)
-    folio = datetime.now().strftime("GLP%Y%m%d%H%M%S")
-    fecha = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    desc = concepto.strip() or "Venta de Gas LP"
+    discount = _money(descuento)
+    if discount < 0:
+        raise HTTPException(400, "El descuento no puede ser negativo.")
+    if discount > subtotal:
+        raise HTTPException(400, "El descuento no puede ser mayor al subtotal.")
+    tax_rate = Decimal(str(iva_rate if iva_rate is not None else 0.16)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    if tax_rate < 0:
+        raise HTTPException(400, "La tasa de IVA no puede ser negativa.")
+    base = _money(subtotal - discount)
+    iva = _money(base * tax_rate)
+    total = _money(base + iva)
+    serie = (serie or "GLP").strip().upper()[:10] or "GLP"
+    folio = (folio or datetime.now().strftime("%Y%m%d%H%M%S")).strip()[:40]
+    fecha = (fecha or datetime.now().strftime("%Y-%m-%dT%H:%M:%S")).strip()[:19]
+    desc = concepto.strip() or "LITRO DE GAS LP"
+    clave_prod_serv = "".join(ch for ch in str(clave_prod_serv or "15111510").strip() if ch.isdigit())[:8] or "15111510"
+    no_identificacion = str(no_identificacion or "001").strip()[:100] or "001"
+    unidad = str(unidad or "LITRO GAS").strip()[:20] or "LITRO GAS"
+    descuento_root = f' Descuento="{discount:.2f}"' if discount > 0 else ""
+    descuento_concepto = f' Descuento="{discount:.2f}"' if discount > 0 else ""
+    tasa = f"{tax_rate:.6f}"
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" '
         'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
         'xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd" '
-        f'Version="4.0" Serie="GLP" Folio="{folio}" Fecha="{fecha}" FormaPago="{xml_escape(forma_pago or "99")}" '
-        f'NoCertificado="" Certificado="" Sello="" SubTotal="{subtotal:.2f}" Moneda="MXN" Total="{total:.2f}" '
+        f'Version="4.0" Serie="{xml_escape(serie)}" Folio="{xml_escape(folio)}" Fecha="{xml_escape(fecha)}" FormaPago="{xml_escape(forma_pago or "99")}" '
+        f'NoCertificado="" Certificado="" Sello="" SubTotal="{subtotal:.2f}"{descuento_root} Moneda="MXN" Total="{total:.2f}" '
         f'TipoDeComprobante="I" Exportacion="01" MetodoPago="{xml_escape(metodo_pago or "PUE")}" LugarExpedicion="{issuer["cp"]}">'
         f'<cfdi:Emisor Rfc="{issuer["rfc"]}" Nombre="{xml_escape(issuer["nombre"])}" RegimenFiscal="{issuer["regimen"]}"/>'
         f'<cfdi:Receptor Rfc="{receptor["rfc"]}" Nombre="{xml_escape(receptor["nombre"])}" '
         f'DomicilioFiscalReceptor="{receptor["cp"]}" RegimenFiscalReceptor="{receptor["regimen_fiscal"]}" UsoCFDI="{receptor["uso_cfdi"]}"/>'
         '<cfdi:Conceptos>'
-        f'<cfdi:Concepto ClaveProdServ="15111501" NoIdentificacion="{folio}" Cantidad="{qty:.5f}" '
-        f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{xml_escape(desc)}" ValorUnitario="{unit:.6f}" '
-        f'Importe="{subtotal:.2f}" ObjetoImp="02">'
+        f'<cfdi:Concepto ClaveProdServ="{xml_escape(clave_prod_serv)}" NoIdentificacion="{xml_escape(no_identificacion)}" Cantidad="{qty:.5f}" '
+        f'ClaveUnidad="LTR" Unidad="{xml_escape(unidad)}" Descripcion="{xml_escape(desc)}" ValorUnitario="{unit:.6f}" '
+        f'Importe="{subtotal:.2f}"{descuento_concepto} ObjetoImp="02">'
         '<cfdi:Impuestos><cfdi:Traslados>'
-        f'<cfdi:Traslado Base="{subtotal:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="{iva:.2f}"/>'
+        f'<cfdi:Traslado Base="{base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tasa}" Importe="{iva:.2f}"/>'
         '</cfdi:Traslados></cfdi:Impuestos>'
         '</cfdi:Concepto>'
         '</cfdi:Conceptos>'
         f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva:.2f}"><cfdi:Traslados>'
-        f'<cfdi:Traslado Base="{subtotal:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="{iva:.2f}"/>'
+        f'<cfdi:Traslado Base="{base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tasa}" Importe="{iva:.2f}"/>'
         '</cfdi:Traslados></cfdi:Impuestos>'
         '</cfdi:Comprobante>'
     )
-    return xml, {"folio": folio, "subtotal": float(subtotal), "iva": float(iva), "total": float(total)}
+    return xml, {
+        "serie": serie,
+        "folio": folio,
+        "subtotal": float(subtotal),
+        "descuento": float(discount),
+        "base": float(base),
+        "iva_rate": float(tax_rate),
+        "iva": float(iva),
+        "total": float(total),
+        "clave_prod_serv": clave_prod_serv,
+        "no_identificacion": no_identificacion,
+        "unidad": unidad,
+    }
 
 
 def _gas_lp_invoice_scope(user: dict, profile: dict) -> dict:
@@ -935,6 +988,14 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         concepto=payload.concepto,
         forma_pago=payload.forma_pago,
         metodo_pago=payload.metodo_pago,
+        descuento=payload.descuento,
+        iva_rate=payload.iva_rate,
+        serie=payload.serie,
+        folio=payload.folio,
+        fecha=payload.fecha,
+        clave_prod_serv=payload.clave_prod_serv,
+        no_identificacion=payload.no_identificacion,
+        unidad=payload.unidad,
     )
     resultado = timbrar_cfdi(xml)
     if resultado.get("error"):
@@ -961,8 +1022,15 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "cliente_nombre": receptor["nombre"],
             "concepto": payload.concepto,
             "precio_unitario": payload.precio_unitario,
+            "descuento": totals["descuento"],
+            "iva_rate": totals["iva_rate"],
             "iva": totals["iva"],
             "total": totals["total"],
+            "serie": totals["serie"],
+            "folio": totals["folio"],
+            "clave_prod_serv": totals["clave_prod_serv"],
+            "no_identificacion": totals["no_identificacion"],
+            "unidad": totals["unidad"],
         },
         "created_at": now,
     }

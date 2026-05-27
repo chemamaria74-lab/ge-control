@@ -36,7 +36,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
-from routes.auth import obtener_acceso_modulo, verify_token
+from routes.auth import obtener_acceso_modulo, resolve_profile_scope, verify_token
 from services.fiscal_pdf import (
     audit_fiscal_pdf_event,
     fiscal_pdf_info,
@@ -126,33 +126,25 @@ def _validar_cliente_cfdi_payload(rfc: str, nombre: str, cp: str, regimen_fiscal
 
 
 def _scope(authorization: str, x_perfil_id: str = "") -> dict:
-    uid = _auth(authorization)
+    uid, token = _auth_token(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
-    tenant_id = None
-    profile = None
     if perfil_id:
-        try:
-            rows = (
-                get_supabase_admin()
-                .table("perfiles_empresa")
-                .select("id,tenant_id,user_id,nombre,rfc,activo")
-                .eq("id", perfil_id)
-                .eq("user_id", uid)
-                .eq("activo", True)
-                .limit(1)
-                .execute()
-                .data
-                or []
-            )
-            if not rows:
-                raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
-            profile = rows[0]
-            tenant_id = rows[0].get("tenant_id")
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.warning("facturas scope perfil lookup falló: user=%s perfil=%s err=%s", uid, perfil_id, exc)
-    return {"user_id": uid, "perfil_id": perfil_id, "tenant_id": tenant_id, "profile": profile}
+        resolved = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+        return {
+            "request_user_id": uid,
+            "user_id": resolved["data_user_id"],
+            "perfil_id": resolved["perfil_id"],
+            "tenant_id": resolved.get("tenant_id"),
+            "profile": {
+                "id": resolved["perfil_id"],
+                "user_id": resolved["data_user_id"],
+                "tenant_id": resolved.get("tenant_id"),
+                "nombre": resolved.get("nombre"),
+                "rfc": resolved.get("rfc"),
+                "activo": True,
+            },
+        }
+    return {"request_user_id": uid, "user_id": uid, "perfil_id": None, "tenant_id": None, "profile": None}
 
 
 def _require_supabase_scope(scope: dict) -> None:

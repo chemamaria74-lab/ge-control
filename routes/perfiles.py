@@ -73,10 +73,7 @@ def _clean_profile_for_response(row: dict) -> dict:
 
 
 def _module_requires_owner_scope(module: str) -> bool:
-    # Gas LP legacy endpoints validate perfiles_empresa.user_id directly.
-    # Listing tenant-wide profiles here can hand the UI a company that later
-    # fails settings/facilities/facturas with "empresa inactiva/no pertenece".
-    return module == "gas_lp"
+    return False
 
 
 def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | None = None) -> list:
@@ -140,7 +137,7 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
             # Admin global del módulo: mostrar sus razones sociales legacy aunque
             # todavía no tengan marcador [module:*]. Se limita a user_id para no
             # mezclar perfiles QA u otros usuarios del mismo tenant.
-            if not owner_scope and (has_global_module_admin or "admin" in module_roles):
+            if not owner_scope and has_global_module_admin:
                 add_rows(
                     sb.table("perfiles_empresa")
                     .select(fields)
