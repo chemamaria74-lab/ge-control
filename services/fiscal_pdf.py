@@ -84,18 +84,21 @@ def generar_pdf_cfdi_desde_xml(
     )
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=13, textColor=colors.HexColor("#7A1E2C"), leading=15))
-    styles.add(ParagraphStyle(name="TitleCenter", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=13, leading=15, textColor=colors.HexColor("#111111")))
-    styles.add(ParagraphStyle(name="Right", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=7.2, leading=8.6))
-    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontSize=9.2, leading=11, textColor=colors.HexColor("#7A1E2C"), spaceBefore=7, spaceAfter=3))
-    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.2, leading=7.3))
-    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=7.2, leading=8.7))
+    styles.add(ParagraphStyle(name="TitleCenter", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=14.5, leading=16.8))
+    styles.add(ParagraphStyle(name="Right", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=8.3, leading=9.9))
+    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontSize=10, leading=12, textColor=colors.HexColor("#7A1E2C"), spaceBefore=7, spaceAfter=3))
+    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=7.3, leading=8.6))
+    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=8.7, leading=10.4))
     styles.add(ParagraphStyle(name="SmallBold", parent=styles["Small"], fontName="Helvetica-Bold"))
     styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=colors.white))
     styles.add(ParagraphStyle(name="HeaderSmallBold", parent=styles["SmallBold"], textColor=colors.white))
 
     qr = _qr_flowable(_url_qr_fiscal(root, emisor, receptor, timbre), Image)
     logo = None if using_default_logo else _logo_flowable(logo_data_url, Image)
-    logo_cell = _default_logo_header_cell(Table, TableStyle, colors) if using_default_logo else logo
+    if using_default_logo and template == "resico_saas":
+        logo_cell = _default_full_logo_header_cell(Image, Table, TableStyle, colors)
+    else:
+        logo_cell = _default_logo_header_cell(Table, TableStyle, colors) if using_default_logo else logo
     story = []
     header_left = [
         logo_cell or Paragraph("<b>GE Control</b><br/><font size='7'>Representación fiscal</font>", styles["Brand"]),
@@ -374,7 +377,7 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors):
             data.append(["", "", "", Paragraph(_text(_impuestos_line(impuestos)), styles["Tiny"]), "", ""])
     if len(conceptos) > 35:
         data.append(["", "", "", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", ""])
-    table = Table(data, colWidths=[0.65 * 72, 0.62 * 72, 0.78 * 72, 2.95 * 72, 0.85 * 72, 0.85 * 72], repeatRows=1)
+    table = Table(data, colWidths=[0.78 * 72, 0.64 * 72, 0.76 * 72, 2.68 * 72, 0.92 * 72, 0.92 * 72], repeatRows=1)
     style_cmds = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#111111")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -671,6 +674,31 @@ def _logo_flowable(data_url: str, Image):
         raw = base64.b64decode(data_url.split(",", 1)[1])
         buf = BytesIO(raw)
         return Image(buf, width=1.1 * 72, height=0.62 * 72, kind="proportional")
+    except Exception:
+        return None
+
+
+def _default_full_logo_header_cell(Image, Table, TableStyle, colors):
+    logo = _asset_logo_flowable(Image, "ge-control-logo.png", width=1.65 * 72, height=0.46 * 72)
+    if not logo:
+        return None
+    table = Table([[logo]], colWidths=[1.9 * 72], rowHeights=[0.62 * 72])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return table
+
+
+def _asset_logo_flowable(Image, filename: str, *, width: float, height: float):
+    path = os.path.join(os.getcwd(), "static", "img", filename)
+    try:
+        return Image(path, width=width, height=height, kind="proportional")
     except Exception:
         return None
 
