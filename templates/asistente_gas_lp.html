@@ -78,7 +78,7 @@
           <div><label>Clave SAT producto</label><input id="claveProdServ" value="15111510" maxlength="8" inputmode="numeric"></div>
           <div><label>No. identificación</label><input id="noIdentificacion" value="001" maxlength="100"></div>
           <div><label>Unidad</label><input id="unidadConcepto" value="LITRO GAS" maxlength="20"></div>
-          <div><label>Fecha emisión <span class="muted">(opcional)</span></label><input id="fechaEmision" type="datetime-local"></div>
+          <div><label>Fecha emisión</label><input id="fechaEmision" type="datetime-local"></div>
         </div>
         <div class="invoice-summary" style="margin-top:12px">
           <div><span>Subtotal</span><b id="sumSubtotal">$0.00</b></div>
@@ -109,6 +109,21 @@
     function money(v){ return '$' + Number(v || 0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2}); }
     function esc(v){ return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
     function setStatus(id,text,ok=true){ const el=document.getElementById(id); if(el){ el.textContent=text; el.className='status '+(ok?'ok':'err'); } }
+    function localDateTimeValue(date=new Date()){
+      const pad = n => String(n).padStart(2,'0');
+      return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+    function issuerCp(){ return String(CURRENT_COMPANY?.cp || '').replace(/\D/g,'').slice(0,5); }
+    function setPublicoGeneralDefaults(){
+      newRfc.value = 'XAXX010101000';
+      newNombre.value = 'PUBLICO EN GENERAL';
+      newCp.value = issuerCp();
+      newRegimen.value = '616';
+      newUso.value = 'S01';
+    }
+    function ensureFechaEmision(){
+      if(!fechaEmision.value) fechaEmision.value = localDateTimeValue();
+    }
     async function api(path, opts={}) {
       const sep = path.includes('?') ? '&' : '?';
       const headers = opts.body ? {'Content-Type':'application/json', ...(opts.headers||{})} : (opts.headers||{});
@@ -129,6 +144,8 @@
         companyNameTop.textContent = CURRENT_COMPANY.name || 'Empresa asignada';
         companyRfc.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
         companyRfcTop.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
+        setPublicoGeneralDefaults();
+        ensureFechaEmision();
         await Promise.all([loadClientes(), loadFacturas()]);
       }catch(e){
         localStorage.removeItem('ge_gaslp_internal_token');
@@ -140,11 +157,10 @@
       clienteSelect.value = '';
       btnPublicoGeneral.classList.add('active');
       clienteForm.classList.add('hide');
-      newRfc.value = 'XAXX010101000';
-      newNombre.value = 'PUBLICO EN GENERAL';
-      newRegimen.value = '616';
-      newUso.value = 'S01';
-      setStatus('facturaMsg','Público en general seleccionado.');
+      setPublicoGeneralDefaults();
+      ensureFechaEmision();
+      const cpMsg = issuerCp() ? ` CP ${issuerCp()}.` : '.';
+      setStatus('facturaMsg',`Público en general seleccionado. Se usará el CP del emisor${cpMsg}`);
     }
     async function loadClientes(){
       const data = await api('/api/internal-auth/gas-lp/clientes');
@@ -159,7 +175,8 @@
         setStatus('facturaMsg',`Cliente seleccionado: ${c.nombre}`);
       } else {
         btnPublicoGeneral.classList.add('active');
-        setStatus('facturaMsg','Público en general seleccionado.');
+        setPublicoGeneralDefaults();
+        setStatus('facturaMsg','Público en general seleccionado. Se usará el CP del emisor.');
       }
     }
     async function saveCliente(){
@@ -201,6 +218,7 @@
         if(btn) btn.disabled = true;
         setStatus('facturaMsg','Timbrando con PAC...');
         const clienteId = clienteSelect.value ? Number(clienteSelect.value) : null;
+        ensureFechaEmision();
         const fechaRaw = fechaEmision.value || '';
         const fechaCfdi = fechaRaw ? (fechaRaw.length === 16 ? `${fechaRaw}:00` : fechaRaw) : '';
         const payload = {
