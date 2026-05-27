@@ -15,6 +15,11 @@ from lxml import etree
 
 logger = logging.getLogger(__name__)
 
+try:
+    from reportlab.platypus import Flowable as _ReportLabFlowable
+except Exception:  # pragma: no cover
+    _ReportLabFlowable = object
+
 
 @dataclass
 class FiscalPdfInfo:
@@ -67,8 +72,6 @@ def generar_pdf_cfdi_desde_xml(
 
     buffer = BytesIO()
     using_default_logo = not logo_data_url
-    if using_default_logo:
-        logo_data_url = _default_logo_data_url()
 
     doc = SimpleDocTemplate(
         buffer,
@@ -91,8 +94,8 @@ def generar_pdf_cfdi_desde_xml(
     styles.add(ParagraphStyle(name="HeaderSmallBold", parent=styles["SmallBold"], textColor=colors.white))
 
     qr = _qr_flowable(_url_qr_fiscal(root, emisor, receptor, timbre), Image)
-    logo = _logo_flowable(logo_data_url, Image)
-    logo_cell = _logo_header_cell(logo, Table, TableStyle, colors) if using_default_logo else logo
+    logo = None if using_default_logo else _logo_flowable(logo_data_url, Image)
+    logo_cell = _default_logo_header_cell(Table, TableStyle, colors) if using_default_logo else logo
     story = []
     header_left = [
         logo_cell or Paragraph("<b>GE Control</b><br/><font size='7'>Representación fiscal</font>", styles["Brand"]),
@@ -672,10 +675,9 @@ def _logo_flowable(data_url: str, Image):
         return None
 
 
-def _logo_header_cell(logo, Table, TableStyle, colors):
-    if not logo:
-        return None
-    table = Table([[logo]], colWidths=[1.45 * 72], rowHeights=[0.54 * 72])
+def _default_logo_header_cell(Table, TableStyle, colors):
+    logo = _HeaderIsotypeFlowable(width=1.78 * 72, height=1.12 * 72)
+    table = Table([[logo]], colWidths=[2.05 * 72], rowHeights=[1.22 * 72])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#631422")),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
@@ -686,3 +688,96 @@ def _logo_header_cell(logo, Table, TableStyle, colors):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     return table
+
+
+class _HeaderIsotypeFlowable(_ReportLabFlowable):
+    """Draws the same GE isotype paths used by static/img/ge-isotype-light.svg."""
+
+    width: float
+    height: float
+
+    _PATHS = (
+        (
+            "#F5F5F5",
+            "M300 90H582L602 185H308C199 185 124 253 124 338C124 428 201 490 314 490H560V382H314L257 286H672V590H313C130 590 28 480 28 338C28 197 139 90 300 90Z",
+        ),
+        ("#F5F5F5", "M692 286H914V382H692V286Z"),
+        ("#F5F5F5", "M692 490H938L914 590H692V490Z"),
+        ("#C8A96B", "M660 90H946L918 185H688L660 90Z"),
+    )
+
+    def __init__(self, width: float, height: float):
+        super().__init__()
+        self.width = width
+        self.height = height
+
+    def wrap(self, availWidth, availHeight):
+        return self.width, self.height
+
+    def drawOn(self, canvas, x, y, _sW=0):
+        canvas.saveState()
+        canvas.translate(x, y)
+        self.draw(canvas)
+        canvas.restoreState()
+
+    def draw(self, canvas):
+        from reportlab.lib.colors import HexColor
+
+        sx = self.width / 1024.0
+        sy = self.height / 640.0
+        canvas.saveState()
+        canvas.translate(0, self.height)
+        canvas.scale(sx, -sy)
+        for fill, path_data in self._PATHS:
+            path = _svg_path_to_reportlab(canvas, path_data)
+            canvas.setFillColor(HexColor(fill))
+            canvas.drawPath(path, stroke=0, fill=1)
+        canvas.restoreState()
+
+
+def _svg_path_to_reportlab(canvas, path_data: str):
+    tokens = re.findall(r"[A-Za-z]|-?\d+(?:\.\d+)?", path_data)
+    path = canvas.beginPath()
+    idx = 0
+    cmd = ""
+    current = (0.0, 0.0)
+    start = (0.0, 0.0)
+
+    def number() -> float:
+        nonlocal idx
+        value = float(tokens[idx])
+        idx += 1
+        return value
+
+    while idx < len(tokens):
+        if re.match(r"[A-Za-z]", tokens[idx]):
+            cmd = tokens[idx]
+            idx += 1
+        if cmd == "M":
+            x, y = number(), number()
+            path.moveTo(x, y)
+            current = start = (x, y)
+            cmd = "L"
+        elif cmd == "L":
+            x, y = number(), number()
+            path.lineTo(x, y)
+            current = (x, y)
+        elif cmd == "H":
+            x = number()
+            path.lineTo(x, current[1])
+            current = (x, current[1])
+        elif cmd == "V":
+            y = number()
+            path.lineTo(current[0], y)
+            current = (current[0], y)
+        elif cmd == "C":
+            x1, y1, x2, y2, x3, y3 = number(), number(), number(), number(), number(), number()
+            path.curveTo(x1, y1, x2, y2, x3, y3)
+            current = (x3, y3)
+        elif cmd in {"Z", "z"}:
+            path.close()
+            current = start
+            cmd = ""
+        else:
+            raise ValueError(f"Unsupported SVG path command: {cmd}")
+    return path
