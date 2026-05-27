@@ -388,7 +388,7 @@ async def frontend(lang: str = "es"):
   <span class="badge badge-blue" id="moduleBadge">Gas LP</span>
   <span class="badge badge-green">v3.0</span>
   <!-- Selector multi-empresa (visible solo cuando hay sesión) -->
-  <div id="empresaSwitcher" class="empresa-switcher" style="display:none" onclick="mostrarSelectorEmpresas()" title="Cambiar razón social">
+  <div id="empresaSwitcher" class="empresa-switcher" role="button" tabindex="0" aria-label="Cambiar razón social" style="display:none" onclick="mostrarSelectorEmpresas()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();mostrarSelectorEmpresas();}" title="Cambiar razón social">
     <i class="fa-solid fa-building empresa-switcher-icon"></i>
     <span class="empresa-switcher-name" id="empresaSwitcherName">—</span>
     <i class="fa-solid fa-chevron-down empresa-switcher-arrow"></i>
@@ -403,7 +403,7 @@ async def frontend(lang: str = "es"):
   <h1>Gas LP</h1>
   <span class="badge badge-blue module" id="moduleBadge"><i class="fa-solid fa-fire-flame-simple"></i> Gas LP</span>
   <span class="badge badge-green">v3.5</span>
-  <div id="empresaSwitcher" class="empresa-switcher" style="display:none" onclick="mostrarSelectorEmpresas()" title="Cambiar razón social">
+  <div id="empresaSwitcher" class="empresa-switcher" role="button" tabindex="0" aria-label="Cambiar razón social" style="display:none" onclick="mostrarSelectorEmpresas()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();mostrarSelectorEmpresas();}" title="Cambiar razón social">
     <i class="fa-solid fa-building empresa-switcher-icon"></i>
     <span class="empresa-switcher-name" id="empresaSwitcherName">—</span>
     <i class="fa-solid fa-chevron-down empresa-switcher-arrow"></i>

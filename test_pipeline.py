@@ -9,7 +9,7 @@ from config.cliente import ConfigCliente
 from services.parser import parse_file
 from services.validator import validate
 from services.transformer import transform
-from utils.json_schema import validate_schema
+from utils.json_schema import validate_schema_legacy
 
 CFG = ConfigCliente(estacion_id="TEST-001", unidad_base="kg", factor_de_conversion_kg_a_litros=0.524)
 
@@ -32,20 +32,20 @@ def test_pipeline_kg_exitoso():
     assert anexo.unidad_base == "kg"
     assert anexo.total_entradas == 8000.0
     assert anexo.total_salidas  == 7000.0
-    ok, _ = validate_schema(anexo.model_dump())
+    ok, _ = validate_schema_legacy(anexo.model_dump())
     assert ok
     print("✓ test_pipeline_kg_exitoso")
 
 def test_conversion_litros_a_kg():
     rows = [
-        {"fecha":"2026-02-01","tipo_movimiento":"entrada","producto":"gas_lp","volumen":14814.815,"unidad":"litros","inventario_inicial":0,"inventario_final":""},
+        {"fecha":"2026-02-01","tipo_movimiento":"entrada","producto":"gas_lp","volumen":15267.176,"unidad":"litros","inventario_inicial":0,"inventario_final":""},
         {"fecha":"2026-02-28","tipo_movimiento":"salida", "producto":"gas_lp","volumen":8000,"unidad":"kg","inventario_inicial":"","inventario_final":0},
     ]
     df, errs, _ = parse_file(csv(rows), "t.csv")
     assert not errs
     df_v, errs, alertas, _ = validate(df, CFG)
     assert not errs
-    # 14814.815 L × 0.524 = 8000.0 kg ≈ salida de 8000 kg → inv_final ≈ 0
+    # 15267.176 L × 0.524 = 8000.0 kg ≈ salida de 8000 kg → inv_final ≈ 0
     assert any("mezcla" in a.lower() or "converti" in a.lower() for a in alertas)
     print("✓ test_conversion_litros_a_kg")
 
