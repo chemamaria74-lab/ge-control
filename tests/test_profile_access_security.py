@@ -91,12 +91,12 @@ class ProfileAccessSecurityTest(unittest.TestCase):
         self.assertTrue(auth.usuario_tiene_acceso_perfil("u1", "transporte", 10, access_token="tok"))
         self.assertFalse(auth.usuario_tiene_acceso_perfil("u1", "transporte", 11, access_token="tok"))
 
-    def test_assigned_profile_must_be_active_and_owned(self):
-        self.assertFalse(auth.usuario_tiene_acceso_perfil("gas-admin", "gas_lp", 99, access_token="tok"))
+    def test_assigned_profile_can_be_tenant_company_for_gas_lp(self):
+        self.assertTrue(auth.usuario_tiene_acceso_perfil("gas-admin", "gas_lp", 99, access_token="tok"))
 
-    def test_login_profile_resolution_skips_cross_owner_assignment(self):
+    def test_login_profile_resolution_keeps_assigned_tenant_company(self):
         acceso = auth._resolve_active_module_access("gas-admin", "gas_lp", access_token="tok")
-        self.assertEqual(acceso["perfil_id"], 21)
+        self.assertEqual(acceso["perfil_id"], 99)
 
     def test_tenant_admin_can_use_profiles_in_same_tenant_only(self):
         self.assertTrue(auth.usuario_tiene_acceso_perfil("admin", "transporte", 11, access_token="tok"))

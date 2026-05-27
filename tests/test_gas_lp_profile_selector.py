@@ -86,7 +86,7 @@ class FakeDB:
 
 
 class GasLpProfileSelectorTest(unittest.TestCase):
-    def test_gas_lp_module_list_uses_owned_gas_lp_profiles_only(self):
+    def test_gas_lp_module_list_uses_tenant_visible_gas_lp_profiles(self):
         db = FakeDB()
         accesses = [
             {"section": "gas_lp", "role": "admin", "tenant_id": "tenant-a", "perfil_id": 7},
@@ -97,7 +97,7 @@ class GasLpProfileSelectorTest(unittest.TestCase):
              patch.object(perfiles, "_tenant_id_for_user", lambda uid, access_token="": "tenant-a"):
             rows = perfiles.get_perfiles_for_user("admin", access_token="tok", module="gas_lp")
 
-        self.assertEqual([row["id"] for row in rows], [500])
+        self.assertEqual([row["id"] for row in rows], [7, 500])
 
 
 if __name__ == "__main__":
