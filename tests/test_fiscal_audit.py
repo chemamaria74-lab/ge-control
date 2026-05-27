@@ -4,6 +4,7 @@ os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "dummy")
 
 from services import fiscal_audit
+from services.fiscal_pdf import audit_fiscal_pdf_event
 
 
 class _Result:
@@ -118,3 +119,27 @@ def test_version_xml_increments_per_entity(monkeypatch):
     assert row["uuid_sat"] == "UUID-9"
     assert row["created_by"] == "user-1"
     assert row["xml_hash"]
+
+
+def test_audit_fiscal_pdf_event_records_download_or_generation():
+    fake = _FakeSupabase()
+
+    audit_fiscal_pdf_event(
+        fake,
+        user_id="user-1",
+        module="gas_lp",
+        entity_type="factura_gas_lp",
+        entity_id=99,
+        uuid_sat="UUID-99",
+        action="xml_download",
+        metadata={"source": "test"},
+        tenant_id="00000000-0000-0000-0000-000000000001",
+        perfil_id=7,
+    )
+
+    row = fake.db["fiscal_document_events"][0]
+    assert row["module"] == "gas_lp"
+    assert row["entity_id"] == "99"
+    assert row["uuid_sat"] == "UUID-99"
+    assert row["action"] == "xml_download"
+    assert row["metadata"]["source"] == "test"
