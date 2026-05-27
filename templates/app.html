@@ -1888,8 +1888,19 @@ tr:hover td{background:#f8fafc}
   <div class="grid3" style="margin-top:.8rem">
     <div class="field"><label>Factor de Conversión (Kg a Litros)</label>
       <input id="factor_conversion" type="number" step="0.001" min="0.4" max="2.0" placeholder="0.542"></div>
-    <div></div>
-    <div></div>
+    <div class="field">
+      <label>Logo para PDF fiscal</label>
+      <input id="pdf_logo_file" type="file" accept="image/png,image/jpeg,image/webp" onchange="cargarLogoPdfGasLp(event)">
+      <input id="pdf_logo_data" type="hidden">
+      <div id="pdf_logo_hint" style="font-size:.63rem;color:#6b7280;margin-top:.25rem">Opcional. Se usará en las facturas PDF de litros de Gas LP.</div>
+    </div>
+    <div class="field">
+      <label>Vista previa</label>
+      <div style="height:54px;border:1px solid #e2e8f0;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#fff">
+        <img id="pdf_logo_preview" alt="" style="max-width:150px;max-height:42px;display:none;object-fit:contain">
+        <span id="pdf_logo_empty" style="font-size:.72rem;color:#94a3b8">Sin logo</span>
+      </div>
+    </div>
   </div>
   <div style="margin-top:.8rem">
     <button class="btn-save" id="btnSaveSettings"><i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar perfil</button>
@@ -3412,9 +3423,37 @@ async function loadSettings() {
     if (provEl) provEl.value = data.RfcProveedor || '';
     const factorEl = document.getElementById('factor_conversion');
     if (factorEl) factorEl.value = data.FactorDeConversionKgALitros ?? 0.542;
+    setLogoPdfGasLp(data.PdfLogoDataUrl || '');
     actualizarRfcHint();
     _actualizarRfcAutoconsumo();
   } catch(e) { console.warn('No se pudo cargar configuración SAT:', e); }
+}
+
+function setLogoPdfGasLp(dataUrl) {
+  const input = document.getElementById('pdf_logo_data');
+  const img = document.getElementById('pdf_logo_preview');
+  const empty = document.getElementById('pdf_logo_empty');
+  const hint = document.getElementById('pdf_logo_hint');
+  if (input) input.value = dataUrl || '';
+  if (img) {
+    img.src = dataUrl || '';
+    img.style.display = dataUrl ? 'block' : 'none';
+  }
+  if (empty) empty.style.display = dataUrl ? 'none' : 'inline';
+  if (hint) hint.textContent = dataUrl ? 'Logo cargado para facturas PDF de Gas LP.' : 'Opcional. Se usará en las facturas PDF de litros de Gas LP.';
+}
+
+function cargarLogoPdfGasLp(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (file.size > 350 * 1024) {
+    alert('El logo debe pesar menos de 350 KB para guardarlo en la configuración de la empresa.');
+    event.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => setLogoPdfGasLp(reader.result);
+  reader.readAsDataURL(file);
 }
 
 async function saveSettings() {
@@ -3426,7 +3465,8 @@ async function saveSettings() {
   const repVal  = normalizarRfc(document.getElementById('sat_rfc_rep')?.value);
   const provVal = normalizarRfc(document.getElementById('sat_rfc_prov')?.value);
   const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
-  const payload = { FactorDeConversionKgALitros: factorVal };
+  const logoVal = document.getElementById('pdf_logo_data')?.value || '';
+  const payload = { FactorDeConversionKgALitros: factorVal, PdfLogoDataUrl: logoVal };
   if (rfcVal)  payload.RfcContribuyente      = rfcVal;
   if (repVal)  payload.RfcRepresentanteLegal  = repVal;
   if (provVal) payload.RfcProveedor           = provVal;

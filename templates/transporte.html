@@ -3265,13 +3265,19 @@ async function cancelarFacturaServicio(id) {
   if (r?.ok) { toast('Factura de servicio cancelada', 'success'); cargarFacturas(); }
 }
 
+function filenameFromDisposition(res, fallback) {
+  const cd = res.headers.get('Content-Disposition') || res.headers.get('content-disposition') || '';
+  const m = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+  return m ? decodeURIComponent(m[1].replace(/^"|"$/g, '')) : fallback;
+}
+
 async function descargarXML(id) {
   if (!perfilId()) { mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE); return; }
   const r = await fetch(API + withPerfil(`/api/tr/facturas/${id}/xml`), { headers: H() });
   if (!r.ok) { toast('No se pudo descargar el XML', 'error'); return; }
   const blob = await r.blob();
   const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a'); a.href = url; a.download = `cfdi_tr_${id}.xml`;
+  const a    = document.createElement('a'); a.href = url; a.download = filenameFromDisposition(r, `${id}.xml`);
   a.click(); URL.revokeObjectURL(url);
 }
 
@@ -3295,14 +3301,14 @@ async function obtenerPDFCartaPorte(id, download=false) {
     const msg = await r.text().catch(() => '');
     throw new Error(msg || 'No se pudo generar el PDF');
   }
-  return await r.blob();
+  return { blob: await r.blob(), filename: filenameFromDisposition(r, `${id}.pdf`) };
 }
 
 async function verPDFCartaPorte(id) {
   try {
     toast('Generando representación impresa de Carta Porte...');
-    const blob = await obtenerPDFCartaPorte(id, false);
-    const url  = URL.createObjectURL(new Blob([blob], { type:'application/pdf' }));
+    const file = await obtenerPDFCartaPorte(id, false);
+    const url  = URL.createObjectURL(new Blob([file.blob], { type:'application/pdf' }));
     window.open(url, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   } catch (e) {
@@ -3312,9 +3318,9 @@ async function verPDFCartaPorte(id) {
 
 async function descargarPDFCartaPorte(id) {
   try {
-    const blob = await obtenerPDFCartaPorte(id, true);
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a'); a.href = url; a.download = `carta_porte_${id}.pdf`;
+    const file = await obtenerPDFCartaPorte(id, true);
+    const url  = URL.createObjectURL(file.blob);
+    const a    = document.createElement('a'); a.href = url; a.download = file.filename;
     a.click(); URL.revokeObjectURL(url);
   } catch (e) {
     toast('No se pudo descargar el PDF: ' + e.message, 'error');
@@ -3332,13 +3338,13 @@ async function fetchFacturaServicioFile(id, kind, download=false) {
     const msg = await r.text().catch(() => '');
     throw new Error(msg || `No se pudo obtener ${kind.toUpperCase()}`);
   }
-  return await r.blob();
+  return { blob: await r.blob(), filename: filenameFromDisposition(r, `${id}.${kind}`) };
 }
 
 async function verPDFFacturaServicio(id) {
   try {
-    const blob = await fetchFacturaServicioFile(id, 'pdf', false);
-    const url = URL.createObjectURL(new Blob([blob], { type:'application/pdf' }));
+    const file = await fetchFacturaServicioFile(id, 'pdf', false);
+    const url = URL.createObjectURL(new Blob([file.blob], { type:'application/pdf' }));
     window.open(url, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   } catch(e) {
@@ -3348,9 +3354,9 @@ async function verPDFFacturaServicio(id) {
 
 async function descargarPDFFacturaServicio(id) {
   try {
-    const blob = await fetchFacturaServicioFile(id, 'pdf', true);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `factura_servicio_${id}.pdf`;
+    const file = await fetchFacturaServicioFile(id, 'pdf', true);
+    const url = URL.createObjectURL(file.blob);
+    const a = document.createElement('a'); a.href = url; a.download = file.filename;
     a.click(); URL.revokeObjectURL(url);
   } catch(e) {
     toast('No se pudo descargar PDF de servicio: ' + e.message, 'error');
@@ -3359,8 +3365,8 @@ async function descargarPDFFacturaServicio(id) {
 
 async function verXMLFacturaServicio(id) {
   try {
-    const blob = await fetchFacturaServicioFile(id, 'xml', false);
-    const url = URL.createObjectURL(new Blob([blob], { type:'application/xml' }));
+    const file = await fetchFacturaServicioFile(id, 'xml', false);
+    const url = URL.createObjectURL(new Blob([file.blob], { type:'application/xml' }));
     window.open(url, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch(e) {
@@ -3370,9 +3376,9 @@ async function verXMLFacturaServicio(id) {
 
 async function descargarXMLFacturaServicio(id) {
   try {
-    const blob = await fetchFacturaServicioFile(id, 'xml', true);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `factura_servicio_${id}.xml`;
+    const file = await fetchFacturaServicioFile(id, 'xml', true);
+    const url = URL.createObjectURL(file.blob);
+    const a = document.createElement('a'); a.href = url; a.download = file.filename;
     a.click(); URL.revokeObjectURL(url);
   } catch(e) {
     toast('No se pudo descargar XML de servicio: ' + e.message, 'error');

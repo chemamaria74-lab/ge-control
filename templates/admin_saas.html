@@ -475,6 +475,7 @@ function addBillingCustomer(){ const s=normalizeBillingSettings(BILLING_SETTINGS
 function addBillingConcept(){ const s=normalizeBillingSettings(BILLING_SETTINGS); const concept={name:catConceptName.value||catConceptDesc.value||'Concepto',description:catConceptDesc.value||billConcept.value,price:Number(catConceptPrice.value||billPrice.value||0),iva_rate:0.16}; s.default_concepts.push(concept); BILLING_SETTINGS=s; renderBillingCatalogs(); saveBillingCatalogs(); }
 function addBillingFiscalConfig(){ const s=normalizeBillingSettings(BILLING_SETTINGS); const cfg={name:catConfigName.value||'Configuración fiscal',uso_cfdi:catConfigUso.value,metodo_pago:catConfigMetodo.value,forma_pago:catConfigForma.value,iva_rate:Number(catConfigIva.value||0)/100,retencion_isr_rate:Number(catConfigRetIsr.value||0)/100,retencion_iva_rate:Number(catConfigRetIva.value||0)/100}; s.fiscal_configs.push(cfg); BILLING_SETTINGS=s; renderBillingCatalogs(); saveBillingCatalogs(); }
 function removeBillingCatalog(key,index){ if(!confirm('Quitar este elemento del catálogo?')) return; const s=normalizeBillingSettings(BILLING_SETTINGS); s[key]=(s[key]||[]).filter((_,i)=>i!==index); BILLING_SETTINGS=s; renderBillingCatalogs(); saveBillingCatalogs(); }
+function filenameFromDisposition(res,fallback){ const cd=res.headers.get('Content-Disposition')||res.headers.get('content-disposition')||''; const m=cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i); return m ? decodeURIComponent(m[1].replace(/^"|"$/g,'')) : fallback; }
 function fillTenantSelects(){
   const el=document.getElementById('saasInvTenant');
   if(!el) return;
@@ -571,7 +572,7 @@ async function openBillingFile(id,kind,download){
     const blob=await res.blob();
     const url=URL.createObjectURL(blob);
     if(download){
-      const a=document.createElement('a'); a.href=url; a.download=`ge-control-${id}.${kind}`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),2000);
+      const a=document.createElement('a'); a.href=url; a.download=filenameFromDisposition(res,`${id}.${kind}`); document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),2000);
     }else{
       window.open(url,'_blank','noopener');
       setTimeout(()=>URL.revokeObjectURL(url),30000);
