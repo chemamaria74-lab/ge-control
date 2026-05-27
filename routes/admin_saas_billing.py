@@ -438,7 +438,15 @@ async def superadmin_billing_invoice_pdf(
     )
     audit_fiscal_pdf_event(sb, user_id=uid, module="admin_saas", entity_type="resico_saas_invoice", entity_id=invoice_id, uuid_sat=row.get("uuid_sat") or "", action="pdf_download_internal" if download else "pdf_generated_internal", metadata=storage)
     disposition = "attachment" if download else "inline"
-    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'})
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{info.filename}"',
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @router.post("/admin-saas/billing/invoices/{invoice_id}/cancel")
