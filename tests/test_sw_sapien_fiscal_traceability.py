@@ -73,6 +73,40 @@ def test_emitir_timbrar_json_records_pac_request_response_and_xml_version(monkey
     assert calls["versions"][0]["xml_content"].startswith("<cfdi:Comprobante")
 
 
+def test_emitir_timbrar_json_refreshes_fecha_before_pac_call(monkeypatch):
+    _patch_audit(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(sw_sapien, "_get_token", lambda: "token-test")
+    monkeypatch.setattr(sw_sapien, "_cfdi_issue_timestamp", lambda: "2026-05-27T12:45:00")
+
+    def fake_post(*args, **kwargs):
+        seen["json"] = kwargs.get("json")
+        return _FakeResponse(
+            {
+                "status": "success",
+                "data": {
+                    "uuid": "UUID-FECHA",
+                    "cfdi": "<cfdi:Comprobante Version=\"4.0\"/>",
+                },
+            }
+        )
+
+    monkeypatch.setattr(sw_sapien.requests, "post", fake_post)
+
+    result = sw_sapien.emitir_timbrar_json(
+        {
+            "Version": "4.0",
+            "Fecha": "2026-01-01T00:00:00",
+            "Emisor": {"Rfc": "AAA010101AAA"},
+            "Receptor": {"Rfc": "XAXX010101000"},
+            "Conceptos": [{"ClaveProdServ": "78101800"}],
+        }
+    )
+
+    assert result["ok"] is True
+    assert seen["json"]["Fecha"] == "2026-05-27T12:45:00"
+
+
 def test_emitir_timbrar_json_returns_controlled_error_but_audits_raw_payload(monkeypatch):
     calls = _patch_audit(monkeypatch)
     monkeypatch.setattr(sw_sapien, "_get_token", lambda: "token-test")
