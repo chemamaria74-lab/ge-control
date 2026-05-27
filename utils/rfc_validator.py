@@ -101,4 +101,6 @@ def validar_rfc_o_advertir(rfc: str, contexto: str = "") -> str:
 def es_persona_moral(rfc: str) -> bool:
     """True si el RFC tiene 12 caracteres (persona moral)."""
     rfc_bare = re.sub(r"[^A-Z0-9Ñ&]", "", limpiar_rfc(rfc))
+    if rfc_bare in _RFC_GENERICOS:
+        return True
     return len(rfc_bare) == 12
