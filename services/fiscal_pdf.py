@@ -95,24 +95,41 @@ def generar_pdf_cfdi_desde_xml(
 
     qr = _qr_flowable(_url_qr_fiscal(root, emisor, receptor, timbre), Image)
     logo = None if using_default_logo else _logo_flowable(logo_data_url, Image)
-    if using_default_logo and template == "resico_saas":
-        logo_cell = _default_full_logo_header_cell(Image, Table, TableStyle, colors)
+    resico_default_logo = using_default_logo and template == "resico_saas"
+    if resico_default_logo:
+        logo_cell = None
     else:
         logo_cell = _default_logo_header_cell(Table, TableStyle, colors) if using_default_logo else logo
     story = []
-    header_left = [
-        logo_cell or Paragraph("<b>GE Control</b><br/><font size='7'>Representación fiscal</font>", styles["Brand"]),
-        Spacer(1, 4),
+    if resico_default_logo:
+        story.append(_default_full_logo_header_cell(
+            Image,
+            Table,
+            TableStyle,
+            colors,
+            width=5.95 * inch,
+            height=1.65 * inch,
+            col_width=6.15 * inch,
+            row_height=1.78 * inch,
+        ))
+        story.append(Spacer(1, 3))
+    header_left = []
+    if not resico_default_logo:
+        header_left += [
+            logo_cell or Paragraph("<b>GE Control</b><br/><font size='7'>Representación fiscal</font>", styles["Brand"]),
+            Spacer(1, 4),
+        ]
+    header_left.append(
         Paragraph(
             f"<b>{_text(_attr(emisor, 'Nombre'))}</b><br/>"
             f"RFC: {_text(_attr(emisor, 'Rfc'))}<br/>"
             f"Régimen fiscal: {_text(_attr(emisor, 'RegimenFiscal'))}<br/>"
             f"Lugar de expedición: {_text(_attr(root, 'LugarExpedicion'))}",
             styles["Small"],
-        ),
-    ]
+        )
+    )
     header_box = _summary_box(root, timbre, Paragraph, styles, colors, Table, TableStyle)
-    header = Table([[header_left, header_box]], colWidths=[4.05 * inch, 2.65 * inch])
+    header = Table([[header_left, header_box]], colWidths=[4.85 * inch, 2.65 * inch])
     header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
     story += [header, Spacer(1, 10)]
 
@@ -678,11 +695,13 @@ def _logo_flowable(data_url: str, Image):
         return None
 
 
-def _default_full_logo_header_cell(Image, Table, TableStyle, colors):
-    logo = _asset_logo_flowable(Image, "ge-control-logo.png", width=3.2 * 72, height=0.89 * 72)
+def _default_full_logo_header_cell(Image, Table, TableStyle, colors, *, width: float | None = None, height: float | None = None, col_width: float | None = None, row_height: float | None = None):
+    logo_width = width or (4.55 * 72)
+    logo_height = height or (1.26 * 72)
+    logo = _asset_logo_flowable(Image, "ge-control-logo.png", width=logo_width, height=logo_height)
     if not logo:
         return None
-    table = Table([[logo]], colWidths=[3.3 * 72], rowHeights=[1.0 * 72])
+    table = Table([[logo]], colWidths=[col_width or (4.65 * 72)], rowHeights=[row_height or (1.34 * 72)])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("ALIGN", (0, 0), (-1, -1), "LEFT"),
