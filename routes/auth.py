@@ -109,6 +109,112 @@ def obtener_acceso_modulo(user_id: str, section: str, access_token: Optional[str
     return {}
 
 
+def _module_marker(section: str) -> str:
+    return f"[module:{section}]"
+
+
+def _module_requires_owner_scope(section: str) -> bool:
+    return section == "gas_lp"
+
+
+def _active_profile_exists(perfil_id: int, access_token: Optional[str] = None) -> Optional[dict]:
+    try:
+        sb = get_supabase_for_user(access_token) if access_token else get_supabase()
+        rows = (
+            sb.table("perfiles_empresa")
+            .select("id,user_id,tenant_id,nombre,rfc,descripcion,activo")
+            .eq("id", perfil_id)
+            .eq("activo", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return rows[0] if rows else None
+    except Exception as e:
+        logger.warning("active profile lookup failed perfil=%s: %s", perfil_id, e)
+        return None
+
+
+def _active_profile_owned_by_user(user_id: str, perfil_id: int, access_token: Optional[str] = None) -> Optional[dict]:
+    try:
+        sb = get_supabase_for_user(access_token) if access_token else get_supabase()
+        rows = (
+            sb.table("perfiles_empresa")
+            .select("id,user_id,tenant_id,nombre,rfc,descripcion,activo")
+            .eq("id", perfil_id)
+            .eq("user_id", user_id)
+            .eq("activo", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return rows[0] if rows else None
+    except Exception as e:
+        logger.warning("active profile lookup failed user=%s perfil=%s: %s", user_id, perfil_id, e)
+        return None
+
+
+def _active_profile_allowed_for_module(
+    user_id: str,
+    section: str,
+    perfil_id: int,
+    access_token: Optional[str] = None,
+) -> Optional[dict]:
+    if _module_requires_owner_scope(section):
+        return _active_profile_owned_by_user(user_id, perfil_id, access_token=access_token)
+    return _active_profile_exists(perfil_id, access_token=access_token)
+
+
+def _first_marked_profile_for_module(user_id: str, section: str, access_token: Optional[str] = None) -> Optional[int]:
+    try:
+        sb = get_supabase_for_user(access_token) if access_token else get_supabase()
+        rows = (
+            sb.table("perfiles_empresa")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("activo", True)
+            .ilike("descripcion", f"%{_module_marker(section)}%")
+            .order("nombre")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return rows[0].get("id") if rows else None
+    except Exception as e:
+        logger.info("marked profile lookup skipped user=%s section=%s: %s", user_id, section, e)
+        return None
+
+
+def _resolve_active_module_access(user_id: str, section: str, access_token: Optional[str] = None) -> dict:
+    """
+    Return the user's access row for a module, but only expose a perfil_id that
+    is an active company owned by that user. Gas LP legacy routes still require
+    user_id ownership, so leaking an inactive/cross-module perfil_id breaks the
+    selector and downstream route guards.
+    """
+    section = (section or "").strip().lower()
+    selected: dict = {}
+    for acceso in obtener_accesos_usuario(user_id, access_token=access_token):
+        if acceso.get("section") != section:
+            continue
+        candidate = dict(acceso)
+        selected = selected or candidate
+        perfil_id = candidate.get("perfil_id")
+        if perfil_id:
+            try:
+                perfil_int = int(perfil_id)
+            except (TypeError, ValueError):
+                perfil_int = 0
+            if perfil_int and _active_profile_allowed_for_module(user_id, section, perfil_int, access_token=access_token):
+                return candidate
+    if selected:
+        selected["perfil_id"] = _first_marked_profile_for_module(user_id, section, access_token=access_token)
+    return selected
+
+
 def usuario_tiene_acceso_perfil(
     user_id: str,
     section: str,
@@ -129,7 +235,7 @@ def usuario_tiene_acceso_perfil(
         role = (acceso.get("role") or "user").lower()
         assigned = acceso.get("perfil_id")
         if assigned is not None and str(assigned) == str(perfil_id):
-            return True
+            return _active_profile_allowed_for_module(user_id, section, perfil_id, access_token=access_token) is not None
         if assigned is None and role == "admin":
             try:
                 sb = get_supabase_for_user(access_token) if access_token else get_supabase()
@@ -329,7 +435,7 @@ async def login(payload: LoginPayload):
     user_meta    = getattr(user, "user_metadata", {}) or {}
     app_meta     = getattr(user, "app_metadata",  {}) or {}
     display_name = user_meta.get("full_name") or user_meta.get("name") or email.split("@")[0]
-    acceso       = obtener_acceso_modulo(user_id, requested, access_token=access_token)
+    acceso       = _resolve_active_module_access(user_id, requested, access_token=access_token)
     role         = (acceso.get("role") or app_meta.get("role") or "user").lower()
 
     return JSONResponse(content={
@@ -368,7 +474,15 @@ async def me(authorization: str = Header(default="")):
         or user_meta.get("name")
         or (user.email or "").split("@")[0]
     )
-    accesos = obtener_accesos_usuario(user.id, access_token=token)
+    accesos = []
+    for acceso in obtener_accesos_usuario(user.id, access_token=token):
+        normalized = dict(acceso)
+        normalized["perfil_id"] = _resolve_active_module_access(
+            user.id,
+            normalized.get("section") or "",
+            access_token=token,
+        ).get("perfil_id")
+        accesos.append(normalized)
     acceso_activo = accesos[0] if accesos else {}
     role = (acceso_activo.get("role") or app_meta.get("role") or "user").lower()
 

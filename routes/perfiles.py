@@ -72,6 +72,13 @@ def _clean_profile_for_response(row: dict) -> dict:
     return cleaned
 
 
+def _module_requires_owner_scope(module: str) -> bool:
+    # Gas LP legacy endpoints validate perfiles_empresa.user_id directly.
+    # Listing tenant-wide profiles here can hand the UI a company that later
+    # fails settings/facilities/facturas with "empresa inactiva/no pertenece".
+    return module == "gas_lp"
+
+
 def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | None = None) -> list:
     """
     Devuelve todos los perfiles activos visibles para el usuario.
@@ -103,24 +110,27 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
             tenant_id = _tenant_id_for_user(user_id, access_token=access_token)
             module_accesses = [a for a in accesos if a.get("section") == module]
             module_roles = {a.get("role") for a in module_accesses}
+            owner_scope = _module_requires_owner_scope(module)
             has_global_module_admin = any(
                 (a.get("role") == "admin") and not a.get("perfil_id")
                 for a in module_accesses
             )
             if assigned_ids:
-                add_rows(
+                assigned_q = (
                     sb.table("perfiles_empresa")
                     .select(fields)
                     .in_("id", assigned_ids)
                     .eq("activo", True)
-                    .order("nombre")
-                    .execute()
-                    .data or []
                 )
+                if owner_scope:
+                    assigned_q = assigned_q.eq("user_id", user_id)
+                add_rows(assigned_q.order("nombre").execute().data or [])
             marker = _module_marker(module)
             try:
                 marker_q = sb.table("perfiles_empresa").select(fields).eq("activo", True).ilike("descripcion", f"%{marker}%")
-                if tenant_id:
+                if owner_scope:
+                    marker_q = marker_q.eq("user_id", user_id)
+                elif tenant_id:
                     marker_q = marker_q.eq("tenant_id", tenant_id)
                 else:
                     marker_q = marker_q.eq("user_id", user_id)
@@ -130,7 +140,7 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
             # Admin global del módulo: mostrar sus razones sociales legacy aunque
             # todavía no tengan marcador [module:*]. Se limita a user_id para no
             # mezclar perfiles QA u otros usuarios del mismo tenant.
-            if has_global_module_admin or "admin" in module_roles:
+            if not owner_scope and (has_global_module_admin or "admin" in module_roles):
                 add_rows(
                     sb.table("perfiles_empresa")
                     .select(fields)

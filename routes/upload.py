@@ -9,7 +9,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException
 from services.parser import parse_file
 from services.validator import validate
 from services.transformer import transform
-from utils.json_schema import validate_schema
+from utils.json_schema import validate_schema_legacy
 from models.schemas import UploadResponse
 from config.cliente import ConfigCliente
 from routes.settings import _load as load_settings
@@ -111,7 +111,7 @@ async def upload_file(
 
     # PASO 4: JSON Schema
     todos_logs.append("=== PASO 4: JSON Schema ===")
-    ok, errs_s = validate_schema(anexo.model_dump())
+    ok, errs_s = validate_schema_legacy(anexo.model_dump())
     if ok:
         todos_logs.append("JSON Schema válido ✓")
     else:
