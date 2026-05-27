@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Optional
 
 from routes.auth import obtener_accesos_usuario, verify_token
 from supabase_config import get_supabase, get_supabase_for_user
@@ -101,6 +101,12 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
 
         if module:
             tenant_id = _tenant_id_for_user(user_id, access_token=access_token)
+            module_accesses = [a for a in accesos if a.get("section") == module]
+            module_roles = {a.get("role") for a in module_accesses}
+            has_global_module_admin = any(
+                (a.get("role") == "admin") and not a.get("perfil_id")
+                for a in module_accesses
+            )
             if assigned_ids:
                 add_rows(
                     sb.table("perfiles_empresa")
@@ -121,10 +127,19 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
                 add_rows(marker_q.order("nombre").execute().data or [])
             except Exception as marker_error:
                 logger.info("Filtro module=%s omitido en perfiles_empresa.descripcion: %s", module, marker_error)
-            # No incluir todos los perfiles del tenant por ser admin del módulo:
-            # un mismo cliente puede operar Gas LP y Transporte con razones
-            # sociales distintas. La visibilidad por módulo debe venir de
-            # perfil_id asignado o del marcador [module:<modulo>] en el perfil.
+            # Admin global del módulo: mostrar sus razones sociales legacy aunque
+            # todavía no tengan marcador [module:*]. Se limita a user_id para no
+            # mezclar perfiles QA u otros usuarios del mismo tenant.
+            if has_global_module_admin or "admin" in module_roles:
+                add_rows(
+                    sb.table("perfiles_empresa")
+                    .select(fields)
+                    .eq("user_id", user_id)
+                    .eq("activo", True)
+                    .order("nombre")
+                    .execute()
+                    .data or []
+                )
             return sorted(rows_by_id.values(), key=lambda r: (r.get("nombre") or "").lower())
 
         # Legacy: perfiles creados antes de tenant/company.
@@ -311,17 +326,32 @@ def _tenant_id_for_user(user_id: str, access_token: str = "") -> str:
 
 def _subscription_for_tenant(tenant_id: str) -> dict:
     try:
-        rows = (
-            get_supabase()
-            .table("subscriptions")
-            .select("id, tenant_id, plan_name, max_companies, status, expires_at")
-            .eq("tenant_id", tenant_id)
-            .eq("status", "active")
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-            .data or []
-        )
+        sb = get_supabase()
+        try:
+            rows = (
+                sb
+                .table("subscriptions")
+                .select("id, tenant_id, plan_name, max_companies, limits_json, status, expires_at")
+                .eq("tenant_id", tenant_id)
+                .eq("status", "active")
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+                .data or []
+            )
+        except Exception as rich_select_error:
+            logger.info("subscriptions sin limits_json tenant=%s: %s", tenant_id, rich_select_error)
+            rows = (
+                sb
+                .table("subscriptions")
+                .select("id, tenant_id, plan_name, max_companies, status, expires_at")
+                .eq("tenant_id", tenant_id)
+                .eq("status", "active")
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+                .data or []
+            )
         if rows:
             sub = rows[0]
             if sub.get("max_companies") is None:
@@ -333,14 +363,27 @@ def _subscription_for_tenant(tenant_id: str) -> dict:
     return DEFAULT_PLAN.copy()
 
 
-def _subscription_usage(user_id: str, access_token: str = "") -> dict:
+def _module_company_limit(sub: dict[str, Any], module: str = "") -> Any:
+    """Límite de empresas por módulo, con fallback al límite general legacy."""
+    limits = sub.get("limits_json") if isinstance(sub, dict) else {}
+    if module and isinstance(limits, dict):
+        module_limits = limits.get(module) or {}
+        if isinstance(module_limits, dict) and module_limits.get("companies") is not None:
+            return module_limits.get("companies")
+    if isinstance(limits, dict) and limits.get("companies") is not None:
+        return limits.get("companies")
+    return sub.get("max_companies")
+
+
+def _subscription_usage(user_id: str, access_token: str = "", module: str | None = None) -> dict:
     tenant_id = _tenant_id_for_user(user_id, access_token=access_token)
     sub = _subscription_for_tenant(tenant_id)
+    module = _clean_module(module)
     try:
-        used = len(get_perfiles_for_user(user_id, access_token=access_token))
+        used = len(get_perfiles_for_user(user_id, access_token=access_token, module=module))
     except Exception:
         used = 0
-    limit = sub.get("max_companies")
+    limit = _module_company_limit(sub, module)
     display_limit = limit
     legacy_overage = False
     if limit is not None and used > int(limit):
@@ -351,6 +394,7 @@ def _subscription_usage(user_id: str, access_token: str = "") -> dict:
         legacy_overage = True
     return {
         "tenant_id": tenant_id,
+        "module": module or None,
         "plan_name": sub.get("plan_name") or DEFAULT_PLAN["plan_name"],
         "max_companies": limit,
         "display_max_companies": display_limit,
@@ -359,16 +403,21 @@ def _subscription_usage(user_id: str, access_token: str = "") -> dict:
         "expires_at": sub.get("expires_at"),
         "can_create_company": limit is None or used < int(limit),
         "legacy_overage": legacy_overage,
-        "source_of_truth": "perfiles_empresa",
+        "source_of_truth": f"perfiles_empresa:{module}" if module else "perfiles_empresa",
     }
 
 
-def _assert_can_create_company(user_id: str, access_token: str) -> dict:
-    usage = _subscription_usage(user_id, access_token=access_token)
+def _assert_can_create_company(user_id: str, access_token: str, module: str | None = None) -> dict:
+    usage = _subscription_usage(user_id, access_token=access_token, module=module)
     if not usage["can_create_company"]:
+        label = {
+            "gas_lp": "Gas LP",
+            "transporte": "Transporte",
+            "gasolineras": "Gasolineras",
+        }.get(usage.get("module") or "", "")
         raise HTTPException(
             403,
-            "Has alcanzado el límite de empresas permitido por tu suscripción.",
+            f"Has alcanzado el límite de empresas permitido para {label}.".strip(),
         )
     return usage
 
@@ -417,7 +466,7 @@ async def list_perfiles(
 
     return JSONResponse(content={
         "perfiles": perfiles,
-        "subscription": _subscription_usage(user_id, access_token=token),
+        "subscription": _subscription_usage(user_id, access_token=token, module=module),
     })
 
 
@@ -431,7 +480,7 @@ async def create_perfil(payload: PerfilPayload,
     if not nombre:
         raise HTTPException(400, "El nombre de la empresa es requerido.")
 
-    usage = _assert_can_create_company(user_id, token)
+    usage = _assert_can_create_company(user_id, token, module=module)
     try:
         descripcion = (payload.descripcion or "").strip()
         if module:
@@ -467,7 +516,7 @@ async def create_perfil(payload: PerfilPayload,
         return JSONResponse(content={
             "ok": True,
             "perfil": _clean_profile_for_response(perfil),
-            "subscription": _subscription_usage(user_id, access_token=token),
+            "subscription": _subscription_usage(user_id, access_token=token, module=module),
         })
     except Exception as e:
         logger.error("create_perfil: %s", e)
