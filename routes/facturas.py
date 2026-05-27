@@ -770,7 +770,7 @@ async def descargar_xml(
         return Response(
             content=row_sb.get("xml_content") or "",
             media_type="application/xml",
-            headers={"Content-Disposition": f'attachment; filename="factura_{row_sb.get("uuid_sat") or factura_id}.xml"'},
+            headers={"Content-Disposition": f'attachment; filename="{row_sb.get("uuid_sat") or factura_id}.xml"'},
         )
     if not _legacy_sqlite_enabled():
         raise _legacy_not_found("Factura")
@@ -792,7 +792,7 @@ async def descargar_xml(
     return Response(
         content=row["xml_content"],
         media_type="application/xml",
-        headers={"Content-Disposition": f'attachment; filename="factura_{row["uuid_sat"]}.xml"'},
+        headers={"Content-Disposition": f'attachment; filename="{row["uuid_sat"]}.xml"'},
     )
 
 

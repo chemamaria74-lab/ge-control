@@ -1267,7 +1267,7 @@ async def timbrar_viaje(
         inserted = sb.table(_TBL_CFDI).insert(cfdi_row).execute()
         cfdi_saved = (inserted.data or [{}])[0]
         if xml_timbrado:
-            xml_filename = f"cfdi_tr_{uuid_sat or id_ccp or viaje_id}.xml"
+            xml_filename = f"{uuid_sat or id_ccp or viaje_id}.xml"
             _guardar_cfdi_xml_en_expediente(
                 sb, uid, {**cfdi_row, "id": cfdi_saved.get("id")}, xml_timbrado, xml_filename,
                 {"cfdi_id": cfdi_saved.get("id"), "uuid_sat": uuid_sat, "id_ccp": id_ccp, "validacion": (validacion_cp.metadata if validacion_cp else {})},
@@ -2318,7 +2318,7 @@ async def operador_xml_carta_porte(viaje_id: int, token: str = Query(...), downl
     )
     if not cfdi_rows or not cfdi_rows[0].get("xml_content"):
         raise HTTPException(404, "Este viaje todavía no tiene XML de Carta Porte.")
-    filename = f"carta_porte_{cfdi_rows[0].get('uuid_sat') or viaje_id}.xml"
+    filename = f"{cfdi_rows[0].get('uuid_sat') or viaje_id}.xml"
     disposition = "attachment" if download else "inline"
     return Response(
         content=cfdi_rows[0]["xml_content"],
@@ -2417,7 +2417,7 @@ async def operador_xml_factura_servicio(factura_id: int, token: str = Query(...)
     rows = sb.table(_TBL_FACT_SERV).select("uuid_sat,xml_content").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("id", factura_id).limit(1).execute().data or []
     if not rows or not rows[0].get("xml_content"):
         raise HTTPException(404, "Factura de servicio sin XML.")
-    filename = f"factura_servicio_{rows[0].get('uuid_sat') or factura_id}.xml"
+    filename = f"{rows[0].get('uuid_sat') or factura_id}.xml"
     disposition = "attachment" if download else "inline"
     return Response(content=rows[0]["xml_content"], media_type="application/xml", headers={"Content-Disposition": f'{disposition}; filename="{filename}"'})
 
@@ -3070,7 +3070,7 @@ async def descargar_xml_transporte(cfdi_id: int, authorization: str = Header(def
         return Response(
             content=row["xml_content"],
             media_type="application/xml",
-            headers={"Content-Disposition": f'attachment; filename="cfdi_tr_{row["uuid_sat"]}.xml"'},
+            headers={"Content-Disposition": f'attachment; filename="{row["uuid_sat"]}.xml"'},
         )
     except HTTPException:
         raise
