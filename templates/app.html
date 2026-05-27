@@ -4717,26 +4717,8 @@ document.getElementById('btnLoadControles').addEventListener('click', async () =
     return;
   }
   
-  try {
-    // Simular datos de controles volumétricos (aquí integrarías con el gateway LINOVISION)
-    // Por ahora mostraremos datos de ejemplo
-    const mockData = {
-      inventario: 125000,
-      nivel: 45,
-      ultimaLectura: new Date().toISOString(),
-      estado: 'Conectado'
-    };
-    
-    document.getElementById('ctrlInventario').textContent = mockData.inventario.toLocaleString();
-    document.getElementById('ctrlNivel').textContent = mockData.nivel + '%';
-    document.getElementById('ctrlUltimaLectura').textContent = new Date(mockData.ultimaLectura).toLocaleString();
-    document.getElementById('ctrlEstado').textContent = mockData.estado;
-    
-    info.style.display = '';
-  } catch(e) {
-    document.getElementById('controlesErrorMsg').textContent = e.message;
-    error.style.display = '';
-  }
+  document.getElementById('controlesErrorMsg').textContent = 'Sin lectura real de gateway configurada para esta instalación.';
+  error.style.display = '';
 });
 
 // ── Procesar CFDI (múltiples archivos) ────────────────────────────────────

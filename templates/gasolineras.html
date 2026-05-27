@@ -97,9 +97,9 @@ label{display:block;font-size:12px;font-weight:800;color:var(--muted);margin-bot
     <div class="grid-2">
       <div class="card" style="padding:0;overflow:hidden">
         <div class="map-tools" style="padding:12px">
-          <button class="btn-ghost btn" onclick="changeMapZoom(-1)"><i class="fa-solid fa-minus"></i></button>
+          <button class="btn-ghost btn" onclick="changeMapZoom(-1)" aria-label="Alejar mapa" title="Alejar mapa"><i class="fa-solid fa-minus"></i></button>
           <span class="pill" id="mapZoomLabel">Zoom nacional</span>
-          <button class="btn-ghost btn" onclick="changeMapZoom(1)"><i class="fa-solid fa-plus"></i></button>
+          <button class="btn-ghost btn" onclick="changeMapZoom(1)" aria-label="Acercar mapa" title="Acercar mapa"><i class="fa-solid fa-plus"></i></button>
           <span class="muted" id="mapDataLabel"></span>
         </div>
         <div id="marketMap" class="market-map"></div>
@@ -198,7 +198,7 @@ label{display:block;font-size:12px;font-weight:800;color:var(--muted);margin-bot
   </section>
 
   <section class="section" id="tab-marcas">
-    <div class="section-hdr"><div><h1>Comparador de marcas y comercializadoras</h1><p>TAR estimado editable/mock, margen típico, cobertura, imagen y ahorro potencial.</p></div><button class="btn" onclick="compareBrands()">Comparar</button></div>
+    <div class="section-hdr"><div><h1>Comparador de marcas y comercializadoras</h1><p>TAR estimado editable, margen típico, cobertura, imagen y ahorro potencial.</p></div><button class="btn" onclick="compareBrands()">Comparar</button></div>
     <div class="card">
       <div class="form-grid">
         <div><label>Marca actual</label><select id="brMarca"><option>PEMEX</option><option>VALERO</option><option>SHELL</option><option>BP</option><option>G500</option><option>HIDROSINA</option><option>MOBIL</option><option>REPSOL</option><option>GULF</option><option>AKRON</option></select></div>
@@ -369,7 +369,7 @@ function renderMarketMap(market={}){
     const p = project(s.lat, s.lng);
     if(p.x < -5 || p.x > 105 || p.y < -5 || p.y > 105) return;
     markers.push(`<div class="map-radius" style="left:${p.x}%;top:${p.y}%;width:132px;height:132px"></div>`);
-    markers.push(`<button class="map-marker client" style="left:${p.x}%;top:${p.y}%" title="${s.nombre || 'Estación propia'}"><i class="fa-solid fa-store"></i></button>`);
+    markers.push(`<button class="map-marker client" style="left:${p.x}%;top:${p.y}%" aria-label="${s.nombre || 'Estación propia'}" title="${s.nombre || 'Estación propia'}"><i class="fa-solid fa-store"></i></button>`);
   });
   const grid = new Map();
   marketStations.forEach((s,i)=>{
@@ -381,11 +381,11 @@ function renderMarketMap(market={}){
   });
   [...grid.values()].slice(0,900).forEach((g,i)=>{
     if(g.count > 5 && MAP_ZOOM < 3) markers.push(`<button class="map-marker cluster" style="left:${g.x}%;top:${g.y}%" title="${g.count} estaciones">${g.count}</button>`);
-    else markers.push(`<button class="map-marker ${i % 3 === 0 ? 'competitor' : 'cre'}" style="left:${g.x}%;top:${g.y}%" title="${g.sample.nombre || 'Estación CRE'} · ${g.sample.marca || ''}"><i class="fa-solid fa-gas-pump"></i></button>`);
+    else markers.push(`<button class="map-marker ${i % 3 === 0 ? 'competitor' : 'cre'}" style="left:${g.x}%;top:${g.y}%" aria-label="${g.sample.nombre || 'Estación CRE'} ${g.sample.marca || ''}" title="${g.sample.nombre || 'Estación CRE'} · ${g.sample.marca || ''}"><i class="fa-solid fa-gas-pump"></i></button>`);
   });
   for(let i=0;i<4;i++){
     const p = mapPoint(`opp-${i}-${PERFIL?.rfc || 'mx'}`, i, 'opportunity');
-    markers.push(`<button class="map-marker opportunity" style="left:${p.x}%;top:${p.y}%" title="Oportunidad detectada"><i class="fa-solid fa-bullseye"></i></button>`);
+    markers.push(`<button class="map-marker opportunity" style="left:${p.x}%;top:${p.y}%" aria-label="Oportunidad detectada" title="Oportunidad detectada"><i class="fa-solid fa-bullseye"></i></button>`);
   }
   const adminLoad = CURRENT_ROLE === 'admin' ? '<div style="margin-top:8px"><button class="btn" onclick="ingestCreMarket()"><i class="fa-solid fa-database"></i> Cargar padrón CRE</button></div>' : '';
   const qualityWarning = quality.is_real ? '' : `<div class="map-empty market-warning">${quality.message || 'Sin dataset real cargado. Este mapa no debe venderse como inteligencia real todavía.'}${adminLoad}</div>`;
