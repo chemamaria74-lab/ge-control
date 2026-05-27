@@ -183,10 +183,24 @@ def save_fiscal_artifacts(
     return result
 
 
-def audit_fiscal_pdf_event(sb: Any, *, user_id: str, module: str, entity_type: str, entity_id: str | int, uuid_sat: str = "", action: str, metadata: dict[str, Any] | None = None) -> None:
+def audit_fiscal_pdf_event(
+    sb: Any,
+    *,
+    user_id: str,
+    module: str,
+    entity_type: str,
+    entity_id: str | int,
+    uuid_sat: str = "",
+    action: str,
+    metadata: dict[str, Any] | None = None,
+    tenant_id: str | None = None,
+    perfil_id: int | None = None,
+) -> None:
     try:
         sb.table("fiscal_document_events").insert({
+            "tenant_id": tenant_id,
             "user_id": user_id or None,
+            "perfil_id": perfil_id,
             "module": module,
             "entity_type": entity_type,
             "entity_id": str(entity_id),

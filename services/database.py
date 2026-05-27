@@ -3,7 +3,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-from supabase_config import get_supabase, get_supabase_for_user
+from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def _now() -> str:
 def init_db() -> None:
     """Verifica conectividad con Supabase al arrancar."""
     try:
-        get_supabase().table("zc_settings").select("id").limit(1).execute()
+        get_supabase_admin().table("zc_settings").select("id").limit(1).execute()
         logger.info("Supabase: conexión verificada OK.")
     except Exception as e:
         logger.warning("Supabase init check: %s", e)
@@ -57,7 +57,7 @@ def init_db() -> None:
 def log_settings_audit(user_id: str, setting_key: str,
                         old_value: object, new_value: object) -> None:
     try:
-        get_supabase().table("settings_audit").insert({
+        get_supabase_admin().table("settings_audit").insert({
             "user_id":     user_id or "system",
             "setting_key": setting_key,
             "old_value":   "" if old_value is None else str(old_value),
@@ -70,7 +70,7 @@ def log_settings_audit(user_id: str, setting_key: str,
 
 def save_user_setting(user_id: str, setting_key: str, setting_value: str) -> None:
     try:
-        sb   = get_supabase()
+        sb   = get_supabase_admin()
         rows = sb.table("zc_settings").select("id,data").eq("user_id", user_id)\
                  .is_("perfil_id", "null").order("updated_at", desc=True).limit(1).execute()
         row = rows.data[0] if rows.data else None
@@ -91,7 +91,7 @@ def save_user_setting(user_id: str, setting_key: str, setting_value: str) -> Non
 
 def get_user_setting(user_id: str, setting_key: str, default: str = "") -> str:
     try:
-        rows = get_supabase().table("zc_settings").select("data")\
+        rows = get_supabase_admin().table("zc_settings").select("data")\
                  .eq("user_id", user_id).is_("perfil_id", "null").execute()
         if rows.data:
             return rows.data[0]["data"].get(setting_key, default)
@@ -102,7 +102,7 @@ def get_user_setting(user_id: str, setting_key: str, default: str = "") -> str:
 
 def get_admin_metrics() -> dict:
     try:
-        sb             = get_supabase()
+        sb             = get_supabase_admin()
         periodo_actual = datetime.now(timezone.utc).strftime("%Y-%m")
 
         def _count(table: str, filters: dict = None) -> int:
@@ -132,7 +132,7 @@ def get_admin_metrics() -> dict:
 def get_facilities(user_id: str, modulo: str = None,
                    perfil_id: Optional[int] = None) -> list:
     try:
-        q = get_supabase().table("user_facilities").select("*").eq("user_id", user_id)
+        q = get_supabase_admin().table("user_facilities").select("*").eq("user_id", user_id)
         if modulo:
             q = q.eq("modulo_propietario", modulo)
         if perfil_id:
@@ -145,7 +145,7 @@ def get_facilities(user_id: str, modulo: str = None,
 
 def get_facility(facility_id: int, user_id: str, perfil_id: Optional[int] = None) -> Optional[dict]:
     try:
-        q = (get_supabase().table("user_facilities")
+        q = (get_supabase_admin().table("user_facilities")
              .select("*").eq("id", facility_id).eq("user_id", user_id))
         if perfil_id is not None:
             q = q.eq("perfil_id", perfil_id)
@@ -166,7 +166,7 @@ def update_facility(facility_id: int, user_id: str, data: dict) -> Optional[dict
 
 def delete_facility(facility_id: int, user_id: str, perfil_id: Optional[int] = None) -> bool:
     try:
-        q = (get_supabase().table("user_facilities")
+        q = (get_supabase_admin().table("user_facilities")
              .delete().eq("id", facility_id).eq("user_id", user_id))
         if perfil_id is not None:
             q = q.eq("perfil_id", perfil_id)
@@ -211,7 +211,7 @@ def create_facility_v2(user_id: str, data: dict) -> dict:
         }
         if data.get("perfil_id"):
             record["perfil_id"] = int(data["perfil_id"])
-        result = get_supabase().table("user_facilities").insert(record).execute()
+        result = get_supabase_admin().table("user_facilities").insert(record).execute()
         return result.data[0] if result.data else {}
     except Exception as e:
         logger.error("create_facility_v2: %s", e)
@@ -248,7 +248,7 @@ def update_facility_v2(facility_id: int, user_id: str, data: dict) -> Optional[d
             "serie_medidor":             data.get("serie_medidor", ""),
             "fecha_calibracion_medidor": data.get("fecha_calibracion_medidor", ""),
         }
-        q = (get_supabase().table("user_facilities")
+        q = (get_supabase_admin().table("user_facilities")
              .update(update_data)
              .eq("id", facility_id).eq("user_id", user_id))
         if data.get("perfil_id"):
@@ -292,7 +292,7 @@ def save_records(user_id: str, periodo: str, grupos: dict, tipo: str,
     if not rows:
         return 0
     try:
-        result = get_supabase().table("records").insert(rows).execute()
+        result = get_supabase_admin().table("records").insert(rows).execute()
         return len(result.data or [])
     except Exception as e:
         logger.error("save_records: %s", e)
@@ -303,7 +303,7 @@ def get_records(user_id: str, periodo: str,
                 facility_id: Optional[int] = None,
                 perfil_id: Optional[int] = None) -> dict:
     try:
-        q = (get_supabase().table("records")
+        q = (get_supabase_admin().table("records")
              .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,"
                      "nombre_contraparte,importe,file_path,es_autoconsumo")
              .eq("user_id", user_id).eq("periodo", periodo))
@@ -422,7 +422,7 @@ def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
         if json_path and os.path.exists(json_path):
             with open(json_path, "r", encoding="utf-8") as f:
                 record["json_content"] = f.read()
-        get_supabase().table("reports").insert(record).execute()
+        get_supabase_admin().table("reports").insert(record).execute()
     except Exception as e:
         logger.error("save_report: %s", e)
 
@@ -431,7 +431,7 @@ def get_reports(user_id: str, periodo: Optional[str] = None,
                 facility_id: Optional[int] = None,
                 perfil_id: Optional[int] = None) -> list:
     try:
-        q = get_supabase().table("reports").select("*").eq("user_id", user_id)
+        q = get_supabase_admin().table("reports").select("*").eq("user_id", user_id)
         if periodo:
             q = q.eq("periodo", periodo)
         if facility_id is not None:
@@ -447,7 +447,7 @@ def get_reports(user_id: str, periodo: Optional[str] = None,
 def get_last_report(user_id: str, facility_id: Optional[int] = None,
                     perfil_id: Optional[int] = None) -> Optional[dict]:
     try:
-        q = get_supabase().table("reports").select("*").eq("user_id", user_id)
+        q = get_supabase_admin().table("reports").select("*").eq("user_id", user_id)
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
         if perfil_id is not None:
@@ -474,7 +474,7 @@ def get_available_periods(user_id: str, facility_id: Optional[int] = None,
     mensuales (2000 / 12 ≈ 166), más que suficiente en la práctica.
     """
     try:
-        sb = get_supabase()
+        sb = get_supabase_admin()
 
         # Intentar RPC eficiente primero
         try:
@@ -513,7 +513,7 @@ def delete_period(user_id: str, periodo: str,
                   perfil_id: Optional[int] = None) -> dict:
     counts = {"records": 0, "reports": 0}
     try:
-        sb = get_supabase()
+        sb = get_supabase_admin()
         
         # 1. Definimos la base del borrado de registros
         qr = sb.table("records").delete().eq("user_id", user_id).eq("periodo", periodo)
@@ -557,7 +557,7 @@ def delete_period(user_id: str, periodo: str,
 def delete_all_periods(user_id: str, perfil_id: Optional[int] = None) -> dict:
     counts = {"records": 0, "reports": 0}
     try:
-        sb   = get_supabase()
+        sb   = get_supabase_admin()
         qr   = sb.table("records").delete().eq("user_id", user_id)
         qrep = sb.table("reports").delete().eq("user_id", user_id)
         if perfil_id is not None:
@@ -575,7 +575,7 @@ def delete_all_periods(user_id: str, perfil_id: Optional[int] = None) -> dict:
 def period_has_data(user_id: str, periodo: str,
                     facility_id: Optional[int] = None) -> bool:
     try:
-        sb = get_supabase()
+        sb = get_supabase_admin()
         q  = sb.table("records").select("id").eq("user_id", user_id).eq("periodo", periodo)
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
@@ -594,7 +594,7 @@ def period_has_data(user_id: str, periodo: str,
 
 def get_providers(user_id: str, perfil_id: Optional[int] = None) -> list:
     try:
-        q = get_supabase().table("providers").select("*").eq("user_id", user_id)
+        q = get_supabase_admin().table("providers").select("*").eq("user_id", user_id)
         if perfil_id is not None:
             q = q.eq("perfil_id", perfil_id)
         return q.order("rfc").execute().data or []
@@ -614,7 +614,7 @@ def upsert_provider(user_id: str, rfc: str, nombre: str, permiso: str,
         }
         if perfil_id is not None:
             row["perfil_id"] = perfil_id
-        result = get_supabase().table("providers").upsert(
+        result = get_supabase_admin().table("providers").upsert(
             row, on_conflict="user_id,rfc"
         ).execute()
         return result.data[0] if result.data else {}
@@ -625,7 +625,7 @@ def upsert_provider(user_id: str, rfc: str, nombre: str, permiso: str,
 
 def delete_provider(user_id: str, rfc: str) -> bool:
     try:
-        r = (get_supabase().table("providers")
+        r = (get_supabase_admin().table("providers")
              .delete().eq("user_id", user_id).eq("rfc", rfc.upper()).execute())
         return len(r.data or []) > 0
     except Exception as e:
