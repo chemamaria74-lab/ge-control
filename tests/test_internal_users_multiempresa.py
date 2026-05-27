@@ -246,6 +246,30 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
         self.assertEqual(receptor["regimen_fiscal"], "616")
         self.assertEqual(receptor["uso_cfdi"], "S01")
 
+    def test_gas_lp_sale_xml_uses_locked_sat_catalog_defaults(self):
+        xml, totals = internal_users._build_gas_lp_consumo_xml(
+            issuer={"rfc": "DGC881020LC4", "nombre": "DISTRIBUIDORA DE GAS DEL CAÑON", "cp": "20120", "regimen": "601"},
+            receptor=internal_users._public_general_receptor("20120"),
+            litros=57,
+            precio_unitario=11.05,
+            concepto="LITRO DE GAS LP",
+            forma_pago="01",
+            metodo_pago="PUE",
+        )
+
+        self.assertIn('Serie="AA"', xml)
+        self.assertIn('ClaveProdServ="15111510"', xml)
+        self.assertIn('ClaveUnidad="LTR"', xml)
+        self.assertIn('Unidad="Litro"', xml)
+        self.assertIn('NoIdentificacion="GLP-LTR"', xml)
+        self.assertIn('ObjetoImp="02"', xml)
+        self.assertIn('Impuesto="002"', xml)
+        self.assertIn('TasaOCuota="0.160000"', xml)
+        self.assertEqual(totals["serie"], "AA")
+        self.assertEqual(totals["clave_prod_serv"], "15111510")
+        self.assertEqual(totals["no_identificacion"], "GLP-LTR")
+        self.assertEqual(totals["unidad"], "Litro")
+
 
 if __name__ == "__main__":
     unittest.main()
