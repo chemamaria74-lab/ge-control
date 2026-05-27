@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Any
 
-from routes.auth import obtener_acceso_modulo, verify_token
+from routes.auth import obtener_acceso_modulo, resolve_profile_scope, verify_token
 from services.database import log_settings_audit
 
 logger = logging.getLogger(__name__)
@@ -77,26 +77,9 @@ def _require_perfil_id(raw: str) -> int:
     return perfil_id
 
 
-def _require_active_profile(user_id: str, perfil_id: int) -> None:
-    try:
-        from supabase_config import get_supabase_admin
-        rows = (
-            get_supabase_admin()
-            .table("perfiles_empresa")
-            .select("id")
-            .eq("id", perfil_id)
-            .eq("user_id", user_id)
-            .eq("activo", True)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-    except Exception as exc:
-        logger.warning("settings profile check failed: user=%s perfil=%s err=%s", user_id, perfil_id, exc)
-        raise HTTPException(500, "No se pudo validar la empresa activa.") from exc
-    if not rows:
-        raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
+def _scope(user_id: str, token: str, raw: str) -> dict:
+    perfil_id = _require_perfil_id(raw)
+    return resolve_profile_scope(user_id, "gas_lp", perfil_id, access_token=token)
 
 
 def _supabase_load(user_id: str, perfil_id: Optional[int] = None) -> Optional[dict]:
@@ -234,9 +217,8 @@ async def get_settings(
     x_perfil_id:   str = Header(default=""),
 ):
     user_id, _token = _auth(authorization)
-    perfil_id = _require_perfil_id(x_perfil_id)
-    _require_active_profile(user_id, perfil_id)
-    return JSONResponse(content=_load(user_id, perfil_id))
+    scope = _scope(user_id, _token, x_perfil_id)
+    return JSONResponse(content=_load(scope["data_user_id"], scope["perfil_id"]))
 
 
 @router.post("/settings", summary="Guardar configuración persistente")
@@ -247,9 +229,10 @@ async def save_settings(
 ):
     user_id, token = _auth(authorization)
     _deny_assistant_config(user_id, token)
-    perfil_id = _require_perfil_id(x_perfil_id)
-    _require_active_profile(user_id, perfil_id)
-    current   = _load(user_id, perfil_id)
+    scope = _scope(user_id, token, x_perfil_id)
+    data_user_id = scope["data_user_id"]
+    perfil_id = scope["perfil_id"]
+    current   = _load(data_user_id, perfil_id)
 
     # exclude_unset=True: solo los campos que el cliente envió explícitamente
     new_data = payload.model_dump(exclude_unset=True)
@@ -259,7 +242,7 @@ async def save_settings(
     # parcial (ej: solo adv_tanques) borre el RFC u otros campos.
     merged = {**current, **new_data}
 
-    _save(user_id, merged, perfil_id)
+    _save(data_user_id, merged, perfil_id)
 
     if current.get("FactorDeConversionKgALitros") != merged.get("FactorDeConversionKgALitros"):
         log_settings_audit(
@@ -269,9 +252,9 @@ async def save_settings(
             merged.get("FactorDeConversionKgALitros"),
         )
 
-    logger.info("Settings guardados: user=%s perfil=%s keys=%s",
-                user_id, perfil_id, list(new_data.keys()))
-    saved = _load(user_id, perfil_id)
+    logger.info("Settings guardados: request_user=%s data_user=%s perfil=%s keys=%s",
+                user_id, data_user_id, perfil_id, list(new_data.keys()))
+    saved = _load(data_user_id, perfil_id)
     return JSONResponse(content={
         "success":   True,
         "perfil_id": perfil_id,

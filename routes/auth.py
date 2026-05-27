@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from supabase import create_client
 
-from supabase_config import get_supabase, get_supabase_for_user, SUPABASE_URL, SUPABASE_KEY
+from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user, SUPABASE_URL, SUPABASE_KEY
 from services.logout import revoke_supabase_session
 
 logger = logging.getLogger(__name__)
@@ -163,8 +163,6 @@ def _active_profile_allowed_for_module(
     perfil_id: int,
     access_token: Optional[str] = None,
 ) -> Optional[dict]:
-    if _module_requires_owner_scope(section):
-        return _active_profile_owned_by_user(user_id, perfil_id, access_token=access_token)
     return _active_profile_exists(perfil_id, access_token=access_token)
 
 
@@ -233,6 +231,8 @@ def usuario_tiene_acceso_perfil(
     for acceso in obtener_accesos_usuario(user_id, access_token=access_token):
         if acceso.get("section") != section:
             continue
+        if _active_profile_owned_by_user(user_id, perfil_id, access_token=access_token):
+            return True
         role = (acceso.get("role") or "user").lower()
         assigned = acceso.get("perfil_id")
         if assigned is not None and str(assigned) == str(perfil_id):
@@ -266,6 +266,51 @@ def require_profile_access(
 ) -> None:
     if not usuario_tiene_acceso_perfil(user_id, section, perfil_id, access_token=access_token):
         raise HTTPException(403, "Tu usuario no tiene acceso a esta empresa/perfil.")
+
+
+def resolve_profile_scope(
+    user_id: str,
+    section: str,
+    perfil_id: int,
+    access_token: Optional[str] = None,
+) -> dict:
+    """
+    Valida acceso al perfil y devuelve el owner real de datos.
+
+    Gas LP aun guarda tablas operativas legacy bajo `perfiles_empresa.user_id`.
+    Si un admin/usuario del tenant entra con otro uid pero con acceso al mismo
+    perfil, las consultas por uid autenticado regresan vacias aunque los datos
+    existan. Este helper centraliza el owner que deben usar records/reports/etc.
+    """
+    require_profile_access(user_id, section, perfil_id, access_token=access_token)
+    try:
+        rows = (
+            get_supabase_admin()
+            .table("perfiles_empresa")
+            .select("id,user_id,tenant_id,nombre,rfc,activo")
+            .eq("id", perfil_id)
+            .eq("activo", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not rows:
+            raise HTTPException(404, "Perfil/empresa no encontrado.")
+        perfil = rows[0]
+        return {
+            "request_user_id": user_id,
+            "data_user_id": str(perfil.get("user_id") or user_id),
+            "perfil_id": int(perfil["id"]),
+            "tenant_id": perfil.get("tenant_id"),
+            "nombre": perfil.get("nombre"),
+            "rfc": perfil.get("rfc"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("resolve_profile_scope failed user=%s section=%s perfil=%s: %s", user_id, section, perfil_id, e)
+        raise HTTPException(500, "No se pudo resolver el alcance de la empresa activa.")
 
 
 def obtener_seccion_usuario(user_id: str, access_token: Optional[str] = None) -> Optional[str]:

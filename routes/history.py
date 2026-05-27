@@ -13,7 +13,7 @@ from services.database import (
     delete_period, delete_all_periods, get_archived_records, get_archived_reports,
 )
 from services.sat_transformer import generate_filename
-from routes.auth import obtener_acceso_modulo, require_profile_access, verify_token
+from routes.auth import obtener_acceso_modulo, resolve_profile_scope, verify_token
 from routes.settings import _load as load_settings
 
 logger = logging.getLogger(__name__)
@@ -48,8 +48,12 @@ def _require_perfil(uid: str, token: str, raw: str) -> int:
     perfil_id = _parse_perfil_id(raw)
     if not perfil_id:
         raise HTTPException(400, "Selecciona una empresa activa antes de consultar historial.")
-    require_profile_access(uid, "gas_lp", perfil_id, access_token=token)
     return perfil_id
+
+
+def _scope(uid: str, token: str, raw: str) -> dict:
+    perfil_id = _require_perfil(uid, token, raw)
+    return resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
 
 
 def _totals_from_records(records: dict) -> dict:
@@ -93,9 +97,11 @@ async def list_periods(
 ):
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
-    perfil_id = _require_perfil(uid, token, x_perfil_id)
+    scope = _scope(uid, token, x_perfil_id)
+    data_uid = scope["data_user_id"]
+    perfil_id = scope["perfil_id"]
     return JSONResponse(content={
-        "periods": get_available_periods(uid, facility_id=facility_id, perfil_id=perfil_id)
+        "periods": get_available_periods(data_uid, facility_id=facility_id, perfil_id=perfil_id)
     })
 
 
@@ -108,14 +114,16 @@ async def get_history(
 ):
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
-    perfil_id = _require_perfil(uid, token, x_perfil_id)
-    records   = get_records(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
-    totals    = get_period_totals(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
-    reports   = get_reports(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    scope = _scope(uid, token, x_perfil_id)
+    data_uid = scope["data_user_id"]
+    perfil_id = scope["perfil_id"]
+    records   = get_records(data_uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    totals    = get_period_totals(data_uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    reports   = get_reports(data_uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     source = "active"
     if not reports and not records["entradas"] and not records["salidas"]:
-        archived_records = get_archived_records(uid, periodo, facility_id=facility_id)
-        archived_reports = get_archived_reports(uid, periodo, facility_id=facility_id)
+        archived_records = get_archived_records(data_uid, periodo, facility_id=facility_id)
+        archived_reports = get_archived_reports(data_uid, periodo, facility_id=facility_id)
         if archived_reports or archived_records["entradas"] or archived_records["salidas"]:
             records = archived_records
             reports = archived_reports
@@ -131,7 +139,7 @@ async def get_history(
             sat_zip_filename = filename_base + ".zip"
         else:
             try:
-                settings = load_settings(uid, perfil_id)
+                settings = load_settings(data_uid, perfil_id)
                 sat_zip_filename = generate_filename(settings, periodo, "JSON", stored_uuid) + ".zip"
             except Exception:
                 if latest.get("zip_path"):
@@ -155,8 +163,8 @@ async def wipe_all_history(
 ):
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
-    perfil_id = _require_perfil(uid, token, x_perfil_id)
-    counts    = delete_all_periods(uid, perfil_id=perfil_id)
+    scope = _scope(uid, token, x_perfil_id)
+    counts = delete_all_periods(scope["data_user_id"], perfil_id=scope["perfil_id"])
     return JSONResponse(content={
         "ok": True,
         "deleted_records": counts.get("records", 0),
@@ -174,11 +182,11 @@ async def delete_history(
 ):
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
-    perfil_id = _require_perfil(uid, token, x_perfil_id)
-    counts    = delete_period(uid, periodo,
+    scope = _scope(uid, token, x_perfil_id)
+    counts    = delete_period(scope["data_user_id"], periodo,
                               facility_id=facility_id,
                               include_autoconsumos=include_autoconsumos,
-                              perfil_id=perfil_id)
+                              perfil_id=scope["perfil_id"])
     return JSONResponse(content={
         "ok": True,
         "periodo": periodo,
@@ -198,8 +206,10 @@ async def download_report(
 ):
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
-    perfil_id = _require_perfil(uid, token, x_perfil_id)
-    reps = get_reports(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    scope = _scope(uid, token, x_perfil_id)
+    data_uid = scope["data_user_id"]
+    perfil_id = scope["perfil_id"]
+    reps = get_reports(data_uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     if not reps:
         raise HTTPException(404, f"No se encontró reporte para el periodo {periodo}.")
     rep   = reps[0]
@@ -217,7 +227,7 @@ async def download_report(
             else:
                 filename = filename_base + "." + fmt_l
         else:
-            settings     = load_settings(uid, perfil_id)
+            settings     = load_settings(data_uid, perfil_id)
             fmt_for_name = "JSON" if fmt_l == "zip" else fmt_l.upper()
             sat_name     = generate_filename(settings, periodo, fmt_for_name, stored_uuid)
             filename     = sat_name + "." + fmt_l

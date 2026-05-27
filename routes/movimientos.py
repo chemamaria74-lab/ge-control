@@ -28,7 +28,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 
-from routes.auth import verify_token
+from routes.auth import resolve_profile_scope, verify_token
 from supabase_config import get_supabase_admin
 
 logger = logging.getLogger(__name__)
@@ -47,13 +47,14 @@ TIPO_MOVIMIENTO_VALIDOS = {
 }
 
 
-def _auth(authorization: str) -> str:
+def _auth(authorization: str) -> tuple[str, str]:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
-    uid = verify_token(authorization[7:])
+    token = authorization[7:]
+    uid = verify_token(token)
     if not uid:
         raise HTTPException(401, "Token inválido o expirado.")
-    return uid
+    return uid, token
 
 
 class AutoconsumoPayload(BaseModel):
@@ -83,21 +84,9 @@ def _require_perfil_id(raw: str) -> int:
     return perfil_id
 
 
-def _require_active_profile(user_id: str, perfil_id: int) -> None:
-    rows = (
-        get_supabase_admin()
-        .table("perfiles_empresa")
-        .select("id")
-        .eq("id", perfil_id)
-        .eq("user_id", user_id)
-        .eq("activo", True)
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
-    if not rows:
-        raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
+def _scope(user_id: str, token: str, raw: str) -> dict:
+    perfil_id = _require_perfil_id(raw)
+    return resolve_profile_scope(user_id, "gas_lp", perfil_id, access_token=token)
 
 
 def _require_scope_facility(user_id: str, perfil_id: int, facility_id: Optional[int]) -> None:
@@ -125,9 +114,10 @@ async def registrar_autoconsumo(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    user_id   = _auth(authorization)
-    perfil_id = _require_perfil_id(x_perfil_id)
-    _require_active_profile(user_id, perfil_id)
+    request_user_id, token = _auth(authorization)
+    scope = _scope(request_user_id, token, x_perfil_id)
+    user_id = scope["data_user_id"]
+    perfil_id = scope["perfil_id"]
     _require_scope_facility(user_id, perfil_id, payload.facility_id)
 
     if payload.volumen_litros <= 0:
@@ -203,9 +193,10 @@ async def listar_autoconsumos(
     authorization: str           = Header(default=""),
     x_perfil_id:   str           = Header(default=""),
 ):
-    user_id   = _auth(authorization)
-    perfil_id = _require_perfil_id(x_perfil_id)
-    _require_active_profile(user_id, perfil_id)
+    request_user_id, token = _auth(authorization)
+    scope = _scope(request_user_id, token, x_perfil_id)
+    user_id = scope["data_user_id"]
+    perfil_id = scope["perfil_id"]
     _require_scope_facility(user_id, perfil_id, facility_id)
 
     try:
@@ -237,9 +228,10 @@ async def eliminar_autoconsumo(
     x_perfil_id:   str = Header(default=""),
 ):
     """Elimina un registro de autoconsumo (solo si fue creado manualmente)."""
-    user_id = _auth(authorization)
-    perfil_id = _require_perfil_id(x_perfil_id)
-    _require_active_profile(user_id, perfil_id)
+    request_user_id, token = _auth(authorization)
+    scope = _scope(request_user_id, token, x_perfil_id)
+    user_id = scope["data_user_id"]
+    perfil_id = scope["perfil_id"]
     try:
         sb   = get_supabase_admin()
         rows = (sb.table("records")

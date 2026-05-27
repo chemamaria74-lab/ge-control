@@ -31,7 +31,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 
 from models.schemas import UploadResponse
-from routes.auth import obtener_acceso_modulo, verify_token, obtener_secciones_usuario
+from routes.auth import obtener_acceso_modulo, resolve_profile_scope, verify_token, obtener_secciones_usuario
 from routes.settings import _load as load_settings
 from services.cfdi_parser import parse_xml, parse_zip
 from services.database import (
@@ -153,6 +153,8 @@ async def _upload_cfdi_impl(
     _deny_assistant_json(user_id, _token)
     display_name = "Operador"
     perfil_id = _require_perfil_id(x_perfil_id)
+    scope = resolve_profile_scope(user_id, "gas_lp", perfil_id, access_token=_token)
+    data_user_id = scope["data_user_id"]
     try:
         from supabase_config import get_supabase as _gsb
         row = (
@@ -162,14 +164,14 @@ async def _upload_cfdi_impl(
         if row and row[0].get("display_name"):
             display_name = row[0]["display_name"]
         else:
-            _s = load_settings(user_id, perfil_id)
+            _s = load_settings(data_user_id, perfil_id)
             display_name = _s.get("RfcContribuyente") or "Operador"
     except Exception:
         display_name = "Operador"
 
     logger.info(
         "upload_cfdi: user=%s perfil=%s facility=%s files=%d",
-        user_id, perfil_id, facility_id, len(files),
+        data_user_id, perfil_id, facility_id, len(files),
     )
 
     # ── Validar archivos ──────────────────────────────────────────────────────
@@ -183,11 +185,11 @@ async def _upload_cfdi_impl(
             raise HTTPException(400, f"Solo se aceptan .xml o .zip (recibido: '{f.filename}').")
 
     # ── Cargar configuración persistente ─────────────────────────────────────
-    settings = load_settings(user_id, perfil_id)
+    settings = load_settings(data_user_id, perfil_id)
     rfc_activo = rfc.strip().upper() or settings.get("RfcContribuyente", "").strip().upper()
     if rfc.strip():
         settings["RfcContribuyente"] = rfc_activo
-    settings["_user_id"]     = user_id
+    settings["_user_id"]     = data_user_id
     settings["_perfil_id"]   = perfil_id
     settings["display_name"] = display_name
 
@@ -197,7 +199,7 @@ async def _upload_cfdi_impl(
     temp_default_fac: Optional[float] = None
 
     if facility_id:
-        fac = get_facility(facility_id, user_id, perfil_id=perfil_id)
+        fac = get_facility(facility_id, data_user_id, perfil_id=perfil_id)
         if fac:
             fid = facility_id
             cap = fac.get("capacidad_tanque") or 0.0
@@ -350,7 +352,7 @@ async def _upload_cfdi_impl(
             sb_q = (
                 _get_sb().table("records")
                 .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,nombre_contraparte,importe,file_path")
-                .eq("user_id", user_id)
+                .eq("user_id", data_user_id)
                 .eq("periodo", periodo_inferido)
                 .eq("tipo", "salida")
                 .ilike("file_path", "manual:%")
@@ -432,7 +434,7 @@ async def _upload_cfdi_impl(
             from routes.providers import _load_providers
             _providers_cache = {
                 p["rfc"].strip().upper(): p
-                for p in _load_providers(user_id, perfil_id)
+                for p in _load_providers(data_user_id, perfil_id)
                 if p.get("rfc")
             }
             todos_logs.append(f"Proveedores cargados: {len(_providers_cache)} RFCs en caché")
@@ -552,7 +554,7 @@ async def _upload_cfdi_impl(
     periodo    = sat_meta["periodo"]
     first_uuid = sat_meta.get("first_uuid", "")
     deleted = delete_period(
-        user_id, periodo, facility_id=fid, perfil_id=perfil_id,
+        data_user_id, periodo, facility_id=fid, perfil_id=perfil_id,
         include_autoconsumos=True,
     )
     if deleted.get("records", 0) or deleted.get("reports", 0):
@@ -574,9 +576,9 @@ async def _upload_cfdi_impl(
                         if not k.startswith("AUTO-")}
         ventas_cfdi  = {k: v for k, v in sat_meta["_ventas"].items()
                         if not k.startswith("AUTO-")}
-        saved_compras = save_records(user_id, periodo, compras_cfdi, "entrada",
+        saved_compras = save_records(data_user_id, periodo, compras_cfdi, "entrada",
                                      facility_id=fid, perfil_id=perfil_id)
-        saved_ventas = save_records(user_id, periodo, ventas_cfdi,  "salida",
+        saved_ventas = save_records(data_user_id, periodo, ventas_cfdi,  "salida",
                                     facility_id=fid, perfil_id=perfil_id)
         if compras_cfdi and saved_compras != len(compras_cfdi):
             raise RuntimeError(f"Persistencia incompleta de recepciones: {saved_compras}/{len(compras_cfdi)}.")
@@ -585,7 +587,7 @@ async def _upload_cfdi_impl(
         autoconsumos_meta = {k: v for k, v in sat_meta["_ventas"].items()
                              if k.startswith("AUTO-")}
         if autoconsumos_meta:
-            saved_auto = save_records(user_id, periodo, autoconsumos_meta, "salida",
+            saved_auto = save_records(data_user_id, periodo, autoconsumos_meta, "salida",
                                       facility_id=fid, perfil_id=perfil_id)
             if saved_auto != len(autoconsumos_meta):
                 raise RuntimeError(f"Persistencia incompleta de autoconsumos: {saved_auto}/{len(autoconsumos_meta)}.")
@@ -594,7 +596,7 @@ async def _upload_cfdi_impl(
             f"UUID primera salida (nombramiento SAT): {first_uuid or '(generado aleatoriamente)'}"
         )
         save_report(
-            user_id=user_id, periodo=periodo, meta=sat_meta,
+            user_id=data_user_id, periodo=periodo, meta=sat_meta,
             filename_base=file_info.get("json_name", ""),
             first_salida_uuid=first_uuid,
             xml_path=file_info.get("xml_path",  ""),
@@ -603,8 +605,8 @@ async def _upload_cfdi_impl(
             facility_id=fid,
             perfil_id=perfil_id,
         )
-        persisted = get_records(user_id, periodo, facility_id=fid, perfil_id=perfil_id)
-        persisted_reports = get_reports(user_id, periodo, facility_id=fid, perfil_id=perfil_id)
+        persisted = get_records(data_user_id, periodo, facility_id=fid, perfil_id=perfil_id)
+        persisted_reports = get_reports(data_user_id, periodo, facility_id=fid, perfil_id=perfil_id)
         persisted_count = len(persisted.get("entradas") or []) + len(persisted.get("salidas") or [])
         expected_count = len(compras_cfdi) + len(ventas_cfdi) + len(autoconsumos_meta)
         if expected_count and persisted_count < expected_count:
