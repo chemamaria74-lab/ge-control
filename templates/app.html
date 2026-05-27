@@ -90,6 +90,16 @@ header i{color:#f8fafc}
   /* Modal de configuración avanzada */
   .modal-body{padding:1rem .8rem}
   .adv-section{padding:.8rem}
+  .empresa-card,.onboarding-card{padding:1.4rem;width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto}
+  .empresa-item{align-items:flex-start;flex-direction:column}
+  .empresa-item-actions{width:100%;justify-content:stretch}
+  .empresa-mini-btn{flex:1}
+  .empresa-table-wrap{overflow-x:auto}
+  .empresa-table{min-width:560px}
+  .hist-selector{align-items:stretch}
+  .hist-selector .field{min-width:0!important}
+  div[style*="display:flex"][style*="max-width:360px"]{max-width:100%!important;flex-direction:column}
+  .field[style*="min-width"],span[style*="min-width"]{min-width:0!important}
 }
 /* ── Multi-empresa: overlay de selección ──────────────────────────────── */
 #empresaOverlay{position:fixed;inset:0;background:linear-gradient(135deg,#5B0F1D 0%,#111111 100%);z-index:9000;display:flex;align-items:center;justify-content:center;visibility:hidden;opacity:0;transition:opacity .3s}
@@ -122,6 +132,7 @@ header i{color:#f8fafc}
 /* ── Multi-empresa: selector en navbar ─────────────────────────────────── */
 .empresa-switcher{display:flex;align-items:center;gap:.5rem;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:20px;padding:.32rem .7rem .32rem .5rem;cursor:pointer;transition:background .15s;min-width:0;max-width:260px}
 .empresa-switcher:hover{background:rgba(255,255,255,.18)}
+.empresa-switcher:focus-visible{outline:2px solid #C8A96B;outline-offset:2px}
 .empresa-switcher-icon{font-size:.75rem;color:rgba(255,255,255,.7)}
 .empresa-switcher-name{font-size:.78rem;font-weight:600;color:#f8fafc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
 .empresa-switcher-arrow{font-size:.6rem;color:rgba(255,255,255,.6);flex-shrink:0}
@@ -756,7 +767,7 @@ tr:hover td{background:#f8fafc}
   <span class="badge badge-blue" id="moduleBadge">Gas LP</span>
   <span class="badge badge-green">v3.0</span>
   <!-- Selector multi-empresa (visible solo cuando hay sesión) -->
-  <div id="empresaSwitcher" class="empresa-switcher" style="display:none" onclick="mostrarSelectorEmpresas()" title="Cambiar razón social">
+  <div id="empresaSwitcher" class="empresa-switcher" role="button" tabindex="0" aria-label="Cambiar razón social" style="display:none" onclick="mostrarSelectorEmpresas()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();mostrarSelectorEmpresas();}" title="Cambiar razón social">
     <i class="fa-solid fa-building empresa-switcher-icon"></i>
     <span class="empresa-switcher-name" id="empresaSwitcherName">—</span>
     <i class="fa-solid fa-chevron-down empresa-switcher-arrow"></i>
