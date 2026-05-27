@@ -85,10 +85,10 @@ def generar_pdf_cfdi_desde_xml(
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=13, textColor=colors.HexColor("#7A1E2C"), leading=15))
     styles.add(ParagraphStyle(name="TitleCenter", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=14.5, leading=16.8))
-    styles.add(ParagraphStyle(name="Right", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=8.3, leading=9.9))
+    styles.add(ParagraphStyle(name="Right", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=8.6, leading=10.2))
     styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontSize=10, leading=12, textColor=colors.HexColor("#7A1E2C"), spaceBefore=7, spaceAfter=3))
-    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=7.3, leading=8.6))
-    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=8.7, leading=10.4))
+    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=7.6, leading=9.0))
+    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=9.0, leading=10.8))
     styles.add(ParagraphStyle(name="SmallBold", parent=styles["Small"], fontName="Helvetica-Bold"))
     styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=colors.white))
     styles.add(ParagraphStyle(name="HeaderSmallBold", parent=styles["SmallBold"], textColor=colors.white))
@@ -97,28 +97,24 @@ def generar_pdf_cfdi_desde_xml(
     logo = None if using_default_logo else _logo_flowable(logo_data_url, Image)
     resico_default_logo = using_default_logo and template == "resico_saas"
     if resico_default_logo:
-        logo_cell = None
-    else:
-        logo_cell = _default_logo_header_cell(Table, TableStyle, colors) if using_default_logo else logo
-    story = []
-    if resico_default_logo:
-        story.append(_default_full_logo_header_cell(
+        logo_cell = _default_full_logo_header_cell(
             Image,
             Table,
             TableStyle,
             colors,
-            width=5.95 * inch,
-            height=1.65 * inch,
-            col_width=6.15 * inch,
-            row_height=1.78 * inch,
-        ))
-        story.append(Spacer(1, 3))
+            width=1.8 * inch,
+            height=1.13 * inch,
+            col_width=1.95 * inch,
+            row_height=1.22 * inch,
+        )
+    else:
+        logo_cell = _default_logo_header_cell(Table, TableStyle, colors) if using_default_logo else logo
+    story = []
     header_left = []
-    if not resico_default_logo:
-        header_left += [
-            logo_cell or Paragraph("<b>GE Control</b><br/><font size='7'>Representación fiscal</font>", styles["Brand"]),
-            Spacer(1, 4),
-        ]
+    header_left += [
+        logo_cell or Paragraph("<b>GE Control</b><br/><font size='7'>Representación fiscal</font>", styles["Brand"]),
+        Spacer(1, 4),
+    ]
     header_left.append(
         Paragraph(
             f"<b>{_text(_attr(emisor, 'Nombre'))}</b><br/>"
@@ -129,7 +125,7 @@ def generar_pdf_cfdi_desde_xml(
         )
     )
     header_box = _summary_box(root, timbre, Paragraph, styles, colors, Table, TableStyle)
-    header = Table([[header_left, header_box]], colWidths=[4.85 * inch, 2.65 * inch])
+    header = Table([[header_left, header_box]], colWidths=[4.05 * inch, 2.65 * inch])
     header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
     story += [header, Spacer(1, 10)]
 
@@ -698,9 +694,11 @@ def _logo_flowable(data_url: str, Image):
 def _default_full_logo_header_cell(Image, Table, TableStyle, colors, *, width: float | None = None, height: float | None = None, col_width: float | None = None, row_height: float | None = None):
     logo_width = width or (4.55 * 72)
     logo_height = height or (1.26 * 72)
-    logo = _asset_logo_flowable(Image, "ge-control-logo.png", width=logo_width, height=logo_height)
-    if not logo:
-        return None
+    logo = _HeaderIsotypeFlowable(
+        width=logo_width,
+        height=logo_height,
+        fills=("#7A1E2C", "#7A1E2C", "#7A1E2C", "#C8A96B"),
+    )
     table = Table([[logo]], colWidths=[col_width or (4.65 * 72)], rowHeights=[row_height or (1.34 * 72)])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.white),
@@ -753,10 +751,11 @@ class _HeaderIsotypeFlowable(_ReportLabFlowable):
         ("#C8A96B", "M660 90H946L918 185H688L660 90Z"),
     )
 
-    def __init__(self, width: float, height: float):
+    def __init__(self, width: float, height: float, fills: tuple[str, ...] | None = None):
         super().__init__()
         self.width = width
         self.height = height
+        self.fills = fills
 
     def wrap(self, availWidth, availHeight):
         return self.width, self.height
@@ -775,9 +774,9 @@ class _HeaderIsotypeFlowable(_ReportLabFlowable):
         canvas.saveState()
         canvas.translate(0, self.height)
         canvas.scale(sx, -sy)
-        for fill, path_data in self._PATHS:
+        for idx, (fill, path_data) in enumerate(self._PATHS):
             path = _svg_path_to_reportlab(canvas, path_data)
-            canvas.setFillColor(HexColor(fill))
+            canvas.setFillColor(HexColor((self.fills or ())[idx] if self.fills else fill))
             canvas.drawPath(path, stroke=0, fill=1)
         canvas.restoreState()
 
