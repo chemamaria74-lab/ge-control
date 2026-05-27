@@ -12,6 +12,7 @@
     *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:var(--ge-font);color:var(--ink);min-height:100vh}
     .top{position:sticky;top:0;background:#5B0F1D;color:white;padding:14px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(200,169,107,.22);z-index:10}.brand{display:flex;align-items:center;gap:10px;font-weight:800}.brand img{width:58px;height:34px;object-fit:contain}.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800}.right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.btn{border:1px solid var(--wine);background:var(--wine);color:#fff;border-radius:8px;padding:10px 13px;font:inherit;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;gap:7px;align-items:center;justify-content:center}.btn:hover{background:var(--wine2)}.btn.ghost{background:#fff;color:var(--ink);border-color:#D8D0C4}.btn.ghost:hover,.btn.ghost.active{background:#fff7ed;color:var(--wine2);border-color:var(--wine)}.btn.sm{padding:8px 11px;border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff}
     main{max-width:1180px;margin:0 auto;padding:22px}.hero{display:flex;justify-content:space-between;gap:14px;align-items:flex-end;margin-bottom:18px}h1{font-size:26px;margin:0 0 5px}h2{font-size:20px;margin:0}.muted{color:var(--muted);line-height:1.5}.work-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:14px}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.company-band{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:14px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.company-band strong{display:block;font-size:24px;line-height:1.1;margin-top:4px}.module{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start}.module i{width:34px;height:34px;border-radius:8px;background:#F5F1E8;color:var(--wine);display:grid;place-items:center}.module b{display:block;margin-bottom:4px}.list{display:grid;gap:10px;margin-top:12px}.empty{text-align:center;padding:34px;color:var(--muted)}label{display:block;font-size:12px;font-weight:900;color:var(--muted);margin-bottom:6px}input,select,textarea{width:100%;border:1px solid #D8D0C4;border-radius:8px;padding:10px 11px;font:inherit;background:#fff}textarea{min-height:80px;resize:vertical}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.toolbar .btn{white-space:nowrap}.status{font-size:13px;font-weight:800;margin-top:8px}.ok{color:#15803d}.err{color:#b91c1c}.pill{display:inline-flex;align-items:center;gap:5px;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:900}.invoice-summary{display:grid;gap:6px;border:1px dashed #D8D0C4;border-radius:8px;padding:12px;background:#fbfaf8}.invoice-summary div{display:flex;justify-content:space-between;gap:12px}.invoice-summary b{font-size:18px}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;color:#64748b;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.04em;padding:9px}td{border-bottom:1px solid #eef2f7;padding:9px;vertical-align:top}.table-wrap{overflow:auto}.section-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.hide{display:none!important}
+    .locked-field{background:#f8fafc;color:#374151}
     @media(max-width:900px){.top{padding:12px;flex-wrap:wrap}.right{margin-left:0}.brand span{display:none}main{padding:14px}.hero,.company-band{align-items:start;flex-direction:column}.work-grid,.form-grid{grid-template-columns:1fr}.btn{width:100%}}
   </style>
 </head>
@@ -73,18 +74,19 @@
           <div id="vehiculoField" class="hide"><label>Vehículo</label><select id="vehiculoSelect"><option value="">Selecciona vehículo</option></select></div>
           <div id="choferField" class="hide"><label>Chofer</label><select id="choferSelect"><option value="">Selecciona chofer</option></select></div>
           <div id="rutaField" class="hide"><label>Ruta</label><select id="rutaSelect"><option value="">Selecciona ruta</option></select></div>
-          <div><label>Concepto</label><input id="concepto" value="LITRO DE GAS LP"></div>
+          <div><label>Concepto</label><select id="conceptoCatalogo" onchange="applyConceptCatalog()"><option value="gas_lp_litro">Venta de Gas LP por litro</option></select></div>
+          <input id="concepto" type="hidden" value="LITRO DE GAS LP">
           <div><label>Litros</label><input id="litros" type="number" min="0" step="0.00001" value="0" oninput="updateTotals()"></div>
           <div><label>Precio unitario</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
           <div><label>Descuento</label><input id="descuento" type="number" min="0" step="0.01" value="0" oninput="updateTotals()"></div>
-          <div><label>IVA</label><select id="ivaRate" onchange="updateTotals()"><option value="0.16">16%</option><option value="0">0%</option></select></div>
+          <div><label>IVA</label><select id="ivaRate" class="locked-field" disabled><option value="0.16">16%</option></select></div>
           <div><label>Método de pago</label><select id="metodoPago"><option value="PUE">PUE - Pago en una sola exhibición</option><option value="PPD">PPD - Pago en parcialidades</option></select></div>
           <div><label>Forma de pago</label><select id="formaPago"><option value="01">01 - Efectivo</option><option value="02">02 - Cheque nominativo</option><option value="03">03 - Transferencia</option><option value="04">04 - Tarjeta de crédito</option><option value="28">28 - Tarjeta de débito</option><option value="99">99 - Por definir</option></select></div>
-          <div><label>Serie</label><input id="serie" value="GLP" maxlength="10" oninput="this.value=this.value.toUpperCase()"></div>
+          <div><label>Serie</label><input id="serie" class="locked-field" value="AA" maxlength="10" readonly></div>
           <div><label>Folio <span class="muted">(opcional)</span></label><input id="folio" placeholder="Auto si se deja vacío" maxlength="40"></div>
-          <div><label>Clave SAT producto</label><input id="claveProdServ" value="15111510" maxlength="8" inputmode="numeric"></div>
-          <div><label>No. identificación</label><input id="noIdentificacion" value="001" maxlength="100"></div>
-          <div><label>Unidad</label><input id="unidadConcepto" value="LITRO GAS" maxlength="20"></div>
+          <div><label>Clave SAT producto</label><input id="claveProdServ" class="locked-field" value="15111510" maxlength="8" readonly></div>
+          <div><label>No. identificación</label><input id="noIdentificacion" class="locked-field" value="GLP-LTR" maxlength="100" readonly></div>
+          <div><label>Unidad</label><input id="unidadConcepto" class="locked-field" value="Litro" maxlength="20" readonly></div>
           <div><label>Fecha emisión</label><input id="fechaEmision" type="datetime-local"></div>
         </div>
         <div class="invoice-summary" style="margin-top:12px">
@@ -114,6 +116,17 @@
     let FACILITIES = [];
     let CATALOGOS = {choferes:[], vehiculos:[], rutas:[]};
     let CURRENT_COMPANY = null;
+    const CONCEPTOS_FACTURA = {
+      gas_lp_litro: {
+        descripcion: 'LITRO DE GAS LP',
+        clave_prod_serv: '15111510',
+        clave_unidad: 'LTR',
+        unidad: 'Litro',
+        no_identificacion: 'GLP-LTR',
+        iva_rate: '0.16',
+        serie: 'AA'
+      }
+    };
     function iconFor(key){ return {facturacion:'file-invoice-dollar',xml_excel:'file-excel',operacion:'clipboard-list',planta:'industry',reportes:'chart-simple',consulta:'magnifying-glass'}[key] || 'shield-halved'; }
     function money(v){ return '$' + Number(v || 0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2}); }
     function esc(v){ return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
@@ -132,6 +145,16 @@
     }
     function ensureFechaEmision(){
       if(!fechaEmision.value) fechaEmision.value = localDateTimeValue();
+    }
+    function applyConceptCatalog(){
+      const item = CONCEPTOS_FACTURA[conceptoCatalogo.value] || CONCEPTOS_FACTURA.gas_lp_litro;
+      concepto.value = item.descripcion;
+      claveProdServ.value = item.clave_prod_serv;
+      noIdentificacion.value = item.no_identificacion;
+      unidadConcepto.value = item.unidad;
+      ivaRate.value = item.iva_rate;
+      serie.value = item.serie;
+      updateTotals();
     }
     async function api(path, opts={}) {
       const sep = path.includes('?') ? '&' : '?';
@@ -153,6 +176,7 @@
         companyNameTop.textContent = CURRENT_COMPANY.name || 'Empresa asignada';
         companyRfc.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
         companyRfcTop.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
+        applyConceptCatalog();
         setPublicoGeneralDefaults();
         ensureFechaEmision();
         await Promise.all([loadClientes(), loadFacilities(), loadCatalogos(), loadFacturas()]);
@@ -219,7 +243,7 @@
       clienteField.classList.toggle('hide', traspaso);
       btnPublicoGeneral.disabled = traspaso;
       btnTimbrar.innerHTML = traspaso ? (cp ? '<i class="fa-solid fa-truck-fast"></i> Timbrar Carta Porte' : '<i class="fa-solid fa-right-left"></i> Registrar traspaso') : '<i class="fa-solid fa-stamp"></i> Timbrar factura';
-      concepto.value = traspaso ? 'TRASPASO INTERNO DE GAS LP' : (concepto.value === 'TRASPASO INTERNO DE GAS LP' ? 'LITRO DE GAS LP' : concepto.value);
+      concepto.value = traspaso ? 'TRASPASO INTERNO DE GAS LP' : (concepto.value === 'TRASPASO INTERNO DE GAS LP' ? CONCEPTOS_FACTURA.gas_lp_litro.descripcion : concepto.value);
       if(traspaso) setStatus('facturaMsg','Traspaso interno: se registrará salida en origen y entrada en estación destino.');
     }
     function selectCliente(){
@@ -289,12 +313,12 @@
           concepto: concepto.value || 'LITRO DE GAS LP',
           descuento: Number(descuento.value || 0),
           iva_rate: Number(ivaRate.value || 0),
-          serie: serie.value || 'GLP',
+          serie: serie.value || 'AA',
           folio: folio.value || '',
           fecha: fechaCfdi,
           clave_prod_serv: claveProdServ.value || '15111510',
-          no_identificacion: noIdentificacion.value || '001',
-          unidad: unidadConcepto.value || 'LITRO GAS',
+          no_identificacion: noIdentificacion.value || 'GLP-LTR',
+          unidad: unidadConcepto.value || 'Litro',
           metodo_pago: metodoPago.value,
           forma_pago: formaPago.value,
           facility_id: Number(facilitySelect.value),
