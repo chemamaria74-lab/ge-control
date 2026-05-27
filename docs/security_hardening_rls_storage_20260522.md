@@ -48,7 +48,7 @@ Detectadas:
 - `settings_audit.backend_full_access_audit`
 - `settings_audit.audit_insert_system`
 
-La migracion NO las retira por default porque el codigo legacy de Gas LP todavia usa `get_supabase()` con anon key desde backend y filtros app-level por `user_id`.
+La migracion base NO las retira por default porque, al momento de esa fase, el codigo legacy de Gas LP todavia usaba `get_supabase()` con anon key desde backend y filtros app-level por `user_id`.
 
 Para retirarlas sin romper Gas LP, primero hay que cambiar esos accesos a service role o a cliente Supabase con JWT de usuario. Despues se puede ejecutar la misma migracion cambiando al inicio del archivo:
 
@@ -57,6 +57,22 @@ select set_config('app.ge_drop_legacy_open_policies', 'true', true);
 ```
 
 Las policies user-owned nuevas de `settings_audit` ya quedan creadas como preparacion.
+
+## Bloque C - cierre de seguridad
+
+Archivo:
+
+`migrations/security_bloque_c_gas_lp_scope_closure_20260526.sql`
+
+Estado local:
+
+- Archiva filas operativas Gas LP con `perfil_id IS NULL` en `security_profile_null_archive`.
+- Elimina policies legacy abiertas `backend_full_access_*`.
+- Reemplaza policies de `providers`, `records`, `reports`, `user_facilities`, `zc_settings` y `gas_lp_*` por scope obligatorio de `perfil_id`.
+- Bloquea lecturas/escrituras authenticated sobre filas sin perfil. El backend conserva acceso por `service_role`.
+- Debe aplicarse despues del deploy que mueve rutas Gas LP legacy a `get_supabase_admin()` y bloquea endpoints sin `X-Perfil-Id`.
+
+Las migraciones antiguas pueden contener clauses tipo `perfil_id is null or ...`; Bloque C debe ejecutarse despues de ellas y deja la policy final estricta.
 
 ## Storage
 
@@ -92,6 +108,7 @@ GE_USER_B_TOKEN=...
 GE_PERFIL_A=...
 GE_PERFIL_B=...
 GE_OPERATOR_TOKEN=...
+GE_OPERATOR_TOKEN_B=...
 GE_GASLP_INTERNAL_TOKEN=...
 GE_SUPERADMIN_TOKEN=...
 python3 scripts/security_ab_smoke.py
@@ -101,7 +118,7 @@ Si faltan tokens, el script marca `SKIP` y funciona como checklist ejecutable.
 
 ## Riesgos de compatibilidad
 
-- Las policies legacy abiertas de Gas LP quedan como riesgo conocido hasta refactorizar `get_supabase()` legacy. Esto evita romper operacion actual, pero impide declarar produccion segura completa.
+- Antes de Bloque C, las policies legacy abiertas de Gas LP eran riesgo conocido. Con Bloque C aplicado, las rutas legacy criticas usan `service_role`, exigen perfil activo y las policies `backend_full_access_*` quedan retiradas.
 - Si se activa `app.ge_drop_legacy_open_policies`, `settings_audit` ya no acepta inserts anonimos abiertos. Si algun flujo viejo insertaba auditoria con cliente anonimo, puede fallar solo ese log. El flujo operativo no debe bloquearse; si bloquea, cambiar ese insert a backend/service role.
 - `sat_credentials` queda totalmente backend-only. Correcto por seguridad: contiene credenciales cifradas.
 - `saas_billing_*` queda backend-only. Correcto: Superadmin debe operar por APIs protegidas.
@@ -118,10 +135,17 @@ Si faltan tokens, el script marca `SKIP` y funciona como checklist ejecutable.
 7. Probar descarga de XML/PDF por endpoints backend.
 8. Correr `scripts/security_ab_smoke.py` con tokens reales de staging.
 
+Validaciones A/B esperadas:
+
+- usuario contra usuario: un token no debe poder leer perfil ajeno.
+- perfil contra perfil: dos perfiles del mismo usuario no deben compartir viajes/documentos.
+- asistente contra transporte: token interno Gas LP no debe abrir rutas Transporte.
+- operador contra otro operador: dos links operador no deben compartir viajes.
+
 ## GO/NO GO
 
 Despues de aplicar la migracion:
 
 - Staging controlado: GO si login, Admin SaaS, Transporte, Gas LP y descargas backend siguen OK.
-- Produccion SaaS base: NO GO completo hasta migrar tablas legacy de Gas LP a service role/JWT y retirar las policies abiertas.
+- Produccion SaaS base: GO solo si Bloque C esta aplicado, sin filas operativas `perfil_id IS NULL`, y `scripts/security_ab_smoke.py` pasa con tokens reales.
 - Produccion fiscal/documentos: GO condicionado a que todos los XML/PDF se sirvan por backend/signed URL y no haya objetos publicos.

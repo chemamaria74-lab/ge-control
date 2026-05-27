@@ -36,6 +36,9 @@ Falta confirmar con SW Sapien si la cancelacion usara CSD/certificados cargados 
 - Login cliente y superadmin funcionando.
 - Perfiles/empresas sin mezcla de datos.
 - Gas LP operativo sin timbrar real en smoke.
+- Gas LP Fase 4 desplegada: facturacion, proveedores, instalaciones y autoconsumos exigen empresa activa.
+- Carta Porte Gas LP solo permite traspaso interno entre instalaciones de la misma empresa.
+- Bloque C aplicado: filas operativas `perfil_id IS NULL` archivadas, policies legacy abiertas cerradas y smoke A/B aprobado.
 - Transporte operativo sin timbrar real en smoke.
 - PDF/XML de documentos existentes funcionando.
 - Admin billing settings guardan configuracion.
@@ -50,3 +53,6 @@ Falta confirmar con SW Sapien si la cancelacion usara CSD/certificados cargados 
 - `SW_ALLOW_REAL_TIMBRADO=true` permanente.
 - 500/502 en login, perfiles, Gas LP, Transporte o Admin SaaS.
 - Facturas demo visibles como historial normal.
+- Gas LP escribe en SQLite o JSON local sin flag explicito de legacy/desarrollo.
+- Carta Porte Gas LP permite clientes externos o publico general.
+- Existe lectura/escritura operativa sin `X-Perfil-Id` o policies que permitan `perfil_id IS NULL`.

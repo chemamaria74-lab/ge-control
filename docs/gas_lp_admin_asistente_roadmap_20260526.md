@@ -45,9 +45,9 @@ Regla funcional:
 - El destino operativo debe ser una estacion de carburacion/expendio registrada.
 
 Pendiente tecnico:
-- Guardar tipo de movimiento explicito en `records` o tabla dedicada: `traspaso_interno`, `venta_consumo`, `autoconsumo`, `merma`, `trasvase`.
-- Crear endpoint dedicado `/api/facturas/traspasos-internos` para no depender de `/api/facturas/entregas`.
-- Relacionar Carta Porte con origen, destino, vehiculo, chofer y record UUID.
+- Pendiente: guardar tipo de movimiento explicito en `records` o tabla dedicada: `traspaso_interno`, `venta_consumo`, `autoconsumo`, `merma`, `trasvase`.
+- Cerrado local: crear endpoint dedicado `/api/facturas/traspasos-internos` para no depender de `/api/facturas/entregas`.
+- Cerrado local: relacionar Carta Porte con origen, destino, vehiculo, chofer y record UUID en `gas_lp_facturas`.
 
 ## Multiempresa
 
@@ -75,6 +75,11 @@ Regla:
 - Registrar intento, XML, respuesta, UUID o error.
 
 ## GO / NO GO Gas LP
+
+Estado local Fase 4:
+- Cerrada local en seguridad.
+- Pendiente despliegue, smoke real y validacion de tablas `gas_lp_facturas` / `gas_lp_facturas_servicio`.
+- Ver detalle en `docs/gas_lp_fase4_cierre_local_20260526.md`.
 
 GO si:
 - Login funciona.
