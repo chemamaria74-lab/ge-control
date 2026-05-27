@@ -293,10 +293,13 @@ def save_records(user_id: str, periodo: str, grupos: dict, tipo: str,
         return 0
     try:
         result = get_supabase_admin().table("records").insert(rows).execute()
-        return len(result.data or [])
+        inserted = len(result.data or [])
+        if inserted != len(rows):
+            raise RuntimeError(f"Supabase insertó {inserted}/{len(rows)} records.")
+        return inserted
     except Exception as e:
         logger.error("save_records: %s", e)
-        return 0
+        raise
 
 
 def get_records(user_id: str, periodo: str,
@@ -394,7 +397,7 @@ def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
                 xml_path: str = "", json_path: str = "", zip_path: str = "",
                 first_salida_uuid: str = "",
                 facility_id: Optional[int] = None,
-                perfil_id: Optional[int] = None) -> None:
+                perfil_id: Optional[int] = None) -> dict:
     try:
         import base64
         record = {
@@ -422,9 +425,14 @@ def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
         if json_path and os.path.exists(json_path):
             with open(json_path, "r", encoding="utf-8") as f:
                 record["json_content"] = f.read()
-        get_supabase_admin().table("reports").insert(record).execute()
+        result = get_supabase_admin().table("reports").insert(record).execute()
+        rows = result.data or []
+        if not rows:
+            raise RuntimeError("Supabase no devolvió confirmación al guardar reports.")
+        return rows[0]
     except Exception as e:
         logger.error("save_report: %s", e)
+        raise
 
 
 def get_reports(user_id: str, periodo: Optional[str] = None,

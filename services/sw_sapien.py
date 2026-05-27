@@ -31,6 +31,7 @@ import requests
 from datetime import datetime, timezone
 from typing import Optional
 from xml.etree import ElementTree as ET
+from zoneinfo import ZoneInfo
 
 from services.fiscal_audit import record_pac_request, record_pac_response, version_xml
 
@@ -90,6 +91,7 @@ SW_USER     = _env("SW_USER") or _env("SW_SAPIEN_USER")
 SW_PASSWORD = _env("SW_PASSWORD") or _env("SW_SAPIEN_PASSWORD")
 SW_CANCEL_PFX_B64 = os.environ.get("SW_CANCEL_PFX_B64", "").strip()
 SW_CANCEL_PFX_PASSWORD = os.environ.get("SW_CANCEL_PFX_PASSWORD", "").strip()
+SAT_TIMEZONE = ZoneInfo(os.environ.get("SAT_TIMEZONE", "America/Mexico_City"))
 
 
 def sw_runtime_config() -> dict:
@@ -400,6 +402,8 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
     Envia un CFDI JSON a SW Sapien usando Emision Timbrado JSON.
     SW documenta JSON directo con Content-Type application/jsontoxml.
     """
+    if isinstance(cfdi_dict, dict):
+        cfdi_dict = {**cfdi_dict, "Fecha": _cfdi_issue_timestamp()}
     validation_error = _validate_cfdi_json_before_sw(cfdi_dict)
     if validation_error:
         audit_request_id = record_pac_request(
@@ -466,6 +470,11 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
         public_error = _public_pac_error(e)
         record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=public_error)
         return {"ok": False, "error": public_error}
+
+
+def _cfdi_issue_timestamp() -> str:
+    """Fecha CFDI SAT sin zona horaria, generada justo antes de enviar al PAC."""
+    return datetime.now(SAT_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def _xml_needs_issue(xml_str: str) -> bool:
