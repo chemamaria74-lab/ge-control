@@ -171,18 +171,26 @@ select option{background:#fff}
   .main{padding:16px}
   .brand-logo{display:none}
   .brand-logo-mark{height:30px;width:52px}
-  .topbar{padding:0 12px;gap:8px;height:auto;min-height:58px;flex-wrap:wrap}
+  .topbar{padding:10px 12px;gap:8px;height:auto;min-height:58px;display:grid;grid-template-columns:auto 1fr;align-items:center}
   .topbar .logo span{display:none}
-  .topbar-right{gap:6px;margin-left:0;flex:1;justify-content:flex-end;flex-wrap:wrap}
-  #topbar-version,.avatar{display:none}
+  .topbar-right{gap:6px;margin-left:0;min-width:0;display:grid;grid-template-columns:1fr auto auto;justify-content:stretch;align-items:center}
+  #topbar-version,.avatar,#topbar-email{display:none}
+  #topbar-empresa{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;justify-content:center}
+  #topbar-rfc{display:none}
   .badge{font-size:11px;padding:4px 8px}
-  .tabs-bar{top:58px;padding:0 10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;overflow:visible}
+  .tabs-bar{position:sticky;top:58px;padding:0 10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;overflow:visible}
   .tab{justify-content:center;padding:12px 8px;font-size:12px}
   .tab-menu{display:block}
   .tab-menu-btn{width:100%;justify-content:center}
   .tab-menu-panel{position:absolute;right:0;left:auto;min-width:220px}
   .btn-sm{padding:5px 9px}
   .detail-grid{grid-template-columns:1fr}
+}
+@media(max-width:420px){
+  .topbar{grid-template-columns:56px 1fr}
+  .topbar-right{grid-template-columns:1fr auto auto}
+  #lang-toggle{padding:7px 9px}
+  .topbar-right .btn-sm{padding:7px 10px}
 }
 </style>
 </head>
@@ -1698,16 +1706,18 @@ function planLimitTransporte() {
 function renderPlanTransporte() {
   const el = document.getElementById('empresaPlanTransporte');
   if (!el || !SUBSCRIPTION_TRANSPORTE) return;
-  el.textContent = `Empresas utilizadas: ${Number(SUBSCRIPTION_TRANSPORTE.companies_used || 0)} de ${planLimitTransporte()} disponibles.`;
+  el.textContent = `Empresas Transporte: ${Number(SUBSCRIPTION_TRANSPORTE.companies_used || 0)} usadas de ${planLimitTransporte()} permitidas.`;
   el.style.display = '';
 }
 
 function puedeCrearEmpresaTransporte() {
   if (!SUBSCRIPTION_TRANSPORTE || SUBSCRIPTION_TRANSPORTE.can_create_company !== false) return true;
   const err = document.getElementById('empresaTrErr');
-  const msg = 'Has alcanzado el límite de empresas permitido por tu suscripción.';
+  const msgEl = document.getElementById('empresaTransporteMsg');
+  const msg = 'Has alcanzado el límite de empresas permitido para Transporte. Ajusta la licencia desde Superadmin o desactiva una empresa de Transporte.';
+  if (msgEl) msgEl.textContent = msg;
   if (err) err.textContent = msg;
-  else toast(msg, 'error');
+  if (typeof toast === 'function') toast(msg, 'error');
   return false;
 }
 
