@@ -207,6 +207,18 @@ def _emisor_from_scope(scope: dict) -> dict:
     return {"rfc": rfc, "nombre": nombre, "regimen_fiscal": regimen or "601", "domicilio_fiscal": cp}
 
 
+def _settings_from_scope(scope: dict) -> dict:
+    from routes.settings import _load as load_settings
+
+    if not scope.get("perfil_id"):
+        return {}
+    return load_settings(scope["user_id"], int(scope["perfil_id"]))
+
+
+def _gas_lp_pdf_logo(scope: dict) -> str:
+    return str(_settings_from_scope(scope).get("PdfLogoDataUrl") or "")
+
+
 def _require_scope_facility(scope: dict, facility_id: Optional[int], label: str) -> dict:
     if not facility_id:
         raise HTTPException(400, f"Selecciona {label}.")
@@ -625,7 +637,7 @@ async def generar_carta_porte(
             xml_content=resultado["xml_timbrado"],
             entity_type="factura_gas_lp",
             base_folder="facturas",
-            pdf_generator=generar_pdf_gas_lp_desde_xml,
+            pdf_generator=lambda xml_content: generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=_gas_lp_pdf_logo(scope)),
         )
         logger.info("Carta Porte timbrada: user=%s uuid_sat=%s source=supabase", uid, resultado["uuid"])
         return JSONResponse({
@@ -817,7 +829,7 @@ async def ver_pdf_factura_gas_lp(
     if not xml_content:
         raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")
     info = fiscal_pdf_info(xml_content, "factura_gas_lp")
-    pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content)
+    pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=_gas_lp_pdf_logo(scope))
     storage = save_fiscal_artifacts(
         sb,
         bucket="fiscal-documents",
@@ -900,7 +912,7 @@ async def ver_pdf_factura_servicio_legacy(
     if not xml_content:
         raise HTTPException(404, "Factura de servicio sin XML timbrado para generar PDF.")
     info = fiscal_pdf_info(xml_content, "factura_servicio")
-    pdf_bytes = generar_pdf_ingreso_desde_xml(xml_content)
+    pdf_bytes = generar_pdf_ingreso_desde_xml(xml_content, logo_data_url=_gas_lp_pdf_logo(scope))
     storage = save_fiscal_artifacts(
         sb,
         bucket="fiscal-documents",
@@ -1088,7 +1100,7 @@ async def generar_factura_flete(
             xml_content=resultado["xml_timbrado"],
             entity_type="factura_servicio",
             base_folder="facturas_servicio",
-            pdf_generator=generar_pdf_ingreso_desde_xml,
+            pdf_generator=lambda xml_content: generar_pdf_ingreso_desde_xml(xml_content, logo_data_url=_gas_lp_pdf_logo(scope)),
         )
         return JSONResponse({
             "ok": True, "uuid_sat": resultado["uuid"], "pdf_url": resultado["pdf_url"],

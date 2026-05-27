@@ -986,13 +986,16 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             source="sw_sapien",
         )
         try:
+            from routes.settings import _load as load_settings
+
             info = fiscal_pdf_info(xml_timbrado, "factura_gas_lp")
+            settings = load_settings(user.get("owner_user_id"), int(user.get("perfil_id"))) if user.get("perfil_id") else {}
             storage = save_fiscal_artifacts(
                 sb,
                 bucket="fiscal-documents",
                 base_path=f"{user.get('owner_user_id')}/gas_lp/facturas/{factura_id}",
                 xml_content=xml_timbrado,
-                pdf_bytes=generar_pdf_gas_lp_desde_xml(xml_timbrado),
+                pdf_bytes=generar_pdf_gas_lp_desde_xml(xml_timbrado, logo_data_url=settings.get("PdfLogoDataUrl", "")),
                 pdf_filename=info.filename,
                 metadata={
                     "module": "gas_lp",
