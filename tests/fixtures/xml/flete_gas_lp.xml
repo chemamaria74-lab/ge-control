@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+    xmlns:cartaporte31="http://www.sat.gob.mx/CartaPorte31"
+    Version="4.0"
+    Fecha="2026-01-15T10:00:00"
+    SubTotal="63378.13"
+    Total="73518.63"
+    Moneda="MXN"
+    TipoDeComprobante="I">
+  <cfdi:Emisor Rfc="AAA010101AAA" Nombre="Transportes Gas LP" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="BBB010101BBB" Nombre="Cliente Gas LP" DomicilioFiscalReceptor="64000" RegimenFiscalReceptor="601" UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="78101800" ClaveUnidad="E48" Cantidad="1" Descripcion="Servicio de flete Gas LP" ValorUnitario="63378.13" Importe="63378.13" ObjetoImp="02"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosRetenidos="1014.05" TotalImpuestosTrasladados="10140.50">
+    <cfdi:Retenciones>
+      <cfdi:Retencion Base="63378.13" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.016000" Importe="1014.05"/>
+    </cfdi:Retenciones>
+    <cfdi:Traslados>
+      <cfdi:Traslado Base="63378.13" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="10140.50"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+  <cfdi:Complemento>
+    <cartaporte31:CartaPorte Version="3.1" IdCCP="CCC11111-2222-3333-4444-555555555555" TranspInternac="No" TotalDistRec="128.5">
+      <cartaporte31:Ubicaciones>
+        <cartaporte31:Ubicacion TipoUbicacion="Origen" IDUbicacion="OR000001" RFCRemitenteDestinatario="AAA010101AAA" NombreRemitenteDestinatario="Terminal Origen" FechaHoraSalidaLlegada="2026-01-15T10:00:00"/>
+        <cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="DE000001" RFCRemitenteDestinatario="BBB010101BBB" NombreRemitenteDestinatario="Cliente Destino" FechaHoraSalidaLlegada="2026-01-15T14:00:00" DistanciaRecorrida="128.5"/>
+      </cartaporte31:Ubicaciones>
+      <cartaporte31:Mercancias>
+        <cartaporte31:Mercancia BienesTransp="15111510" Descripcion="Gas LP" Cantidad="41023.75" ClaveUnidad="LTR" Unidad="Litros" PesoEnKg="21500" MaterialPeligroso="Si" CveMaterialPeligroso="1075"/>
+        <cartaporte31:Autotransporte PermSCT="TPAF01" NumPermisoSCT="SCT-123456">
+          <cartaporte31:IdentificacionVehicular ConfigVehicular="T3S2" PlacaVM="ABC123D"/>
+        </cartaporte31:Autotransporte>
+      </cartaporte31:Mercancias>
+      <cartaporte31:FiguraTransporte>
+        <cartaporte31:TiposFigura TipoFigura="01" RFCFigura="DOEJ8001015X9" NombreFigura="Juan Operador" NumLicencia="LIC123456"/>
+      </cartaporte31:FiguraTransporte>
+    </cartaporte31:CartaPorte>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="A1111111-2222-3333-4444-555555555555" FechaTimbrado="2026-01-15T10:01:00"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+    Version="4.0"
+    Fecha="2026-03-05T12:00:00"
+    SubTotal="227001.75"
+    Total="263322.03"
+    Moneda="MXN"
+    TipoDeComprobante="I">
+  <cfdi:Emisor Rfc="AAA010101AAA" Nombre="Gas LP Emisor" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="XAXX010101000" Nombre="PUBLICO EN GENERAL" DomicilioFiscalReceptor="64000" RegimenFiscalReceptor="616" UsoCFDI="S01"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="15111510" ClaveUnidad="LTR" Unidad="Litros" Cantidad="23981.9681" Descripcion="Gas LP" ValorUnitario="9.4655" Importe="227001.75" ObjetoImp="02">
+      <cfdi:Impuestos>
+        <cfdi:Traslados>
+          <cfdi:Traslado Base="227001.75" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="36320.28"/>
+        </cfdi:Traslados>
+      </cfdi:Impuestos>
+    </cfdi:Concepto>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="36320.28">
+    <cfdi:Traslados>
+      <cfdi:Traslado Base="227001.75" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="36320.28"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="C1111111-2222-3333-4444-555555555555" FechaTimbrado="2026-03-05T12:01:00"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

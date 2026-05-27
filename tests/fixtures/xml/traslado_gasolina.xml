@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+    xmlns:cartaporte31="http://www.sat.gob.mx/CartaPorte31"
+    Version="4.0"
+    Fecha="2026-02-12T08:30:00"
+    SubTotal="0"
+    Total="0"
+    Moneda="XXX"
+    TipoDeComprobante="T">
+  <cfdi:Emisor Rfc="AAA010101AAA" Nombre="Estacion Servicio" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="AAA010101AAA" Nombre="Estacion Servicio" DomicilioFiscalReceptor="64000" RegimenFiscalReceptor="601" UsoCFDI="S01"/>
+  <cfdi:Complemento>
+    <cartaporte31:CartaPorte Version="3.1" IdCCP="DDD11111-2222-3333-4444-555555555555" TranspInternac="No" TotalDistRec="18">
+      <cartaporte31:Ubicaciones>
+        <cartaporte31:Ubicacion TipoUbicacion="Origen" IDUbicacion="OR000001" RFCRemitenteDestinatario="AAA010101AAA" NombreRemitenteDestinatario="Terminal" FechaHoraSalidaLlegada="2026-02-12T08:30:00"/>
+        <cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="DE000001" RFCRemitenteDestinatario="PHN020815T83" NombreRemitenteDestinatario="Punto de Entrega" FechaHoraSalidaLlegada="2026-02-12T09:10:00" DistanciaRecorrida="18"/>
+      </cartaporte31:Ubicaciones>
+      <cartaporte31:Mercancias>
+        <cartaporte31:Mercancia BienesTransp="15101515" Descripcion="PREMIUM" Cantidad="12500" ClaveUnidad="LTR" Unidad="Litros" PesoEnKg="9200" MaterialPeligroso="Si" CveMaterialPeligroso="1203"/>
+      </cartaporte31:Mercancias>
+    </cartaporte31:CartaPorte>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="B1111111-2222-3333-4444-555555555555" FechaTimbrado="2026-02-12T08:31:00"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>
