@@ -67,7 +67,7 @@
         <div class="form-grid">
           <div><label>Cliente</label><select id="clienteSelect" onchange="selectCliente()"><option value="">Público en general</option></select></div>
           <div><label>Concepto</label><input id="concepto" value="Venta de Gas LP"></div>
-          <div><label>Litros</label><input id="litros" type="number" min="0" step="0.001" value="0" oninput="updateTotals()"></div>
+          <div><label>Litros</label><input id="litros" type="number" min="0" step="0.00001" value="0" oninput="updateTotals()"></div>
           <div><label>Precio unitario</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
           <div><label>Método de pago</label><select id="metodoPago"><option value="PUE">PUE - Pago en una sola exhibición</option><option value="PPD">PPD - Pago en parcialidades</option></select></div>
           <div><label>Forma de pago</label><select id="formaPago"><option value="99">99 - Por definir</option><option value="01">01 - Efectivo</option><option value="03">03 - Transferencia</option><option value="04">04 - Tarjeta de crédito</option><option value="28">28 - Tarjeta de débito</option></select></div>

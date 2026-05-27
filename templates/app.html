@@ -3475,6 +3475,15 @@ async function loadProviders() {
   }
 }
 
+async function providerResponseJson(res, fallbackMessage) {
+  let data = {};
+  try { data = await res.json(); } catch(e) {}
+  if (!res.ok || data.success === false) {
+    throw new Error(data.detail || data.message || fallbackMessage || `HTTP ${res.status}`);
+  }
+  return data;
+}
+
 function renderProvidersTable(providers) {
   const tbody = document.getElementById('tbodyProveedores');
   if (!tbody) return;
@@ -3514,17 +3523,23 @@ function editProvider(rfc, nombre, permiso, permisoAlm) {
 
 async function deleteProvider(rfc) {
   if (!confirm(`¿Eliminar proveedor ${rfc}?`)) return;
+  const st = document.getElementById('provStatus');
   try {
     const res  = await fetch(`/api/providers/${encodeURIComponent(rfc)}`, {
       method: 'DELETE', headers: authHeader()
     });
-    const data = await res.json();
-    renderProvidersTable(data.providers || []);
-    document.getElementById('provStatus').textContent = `${rfc} eliminado`;
-    document.getElementById('provStatus').style.color = '#16a34a';
+    const data = await providerResponseJson(res, 'No se pudo eliminar el proveedor.');
+    if (data.providers) renderProvidersTable(data.providers || []);
+    else await loadProviders();
+    if (st) {
+      st.textContent = `${rfc} eliminado`;
+      st.style.color = '#16a34a';
+    }
   } catch(e) {
-    document.getElementById('provStatus').textContent = 'Error al eliminar';
-    document.getElementById('provStatus').style.color = '#dc2626';
+    if (st) {
+      st.textContent = e.message || 'Error al eliminar';
+      st.style.color = '#dc2626';
+    }
   }
 }
 
@@ -3534,6 +3549,7 @@ document.getElementById('btnAddProvider').addEventListener('click', async () => 
   const permiso   = document.getElementById('provPermiso').value.trim();
   const permisoAlm= document.getElementById('provPermisoAlm').value.trim();
   const st        = document.getElementById('provStatus');
+  const btn       = document.getElementById('btnAddProvider');
   st.textContent = '';
   if (!rfc) { st.textContent = 'El RFC es obligatorio.'; st.style.color='#dc2626'; return; }
   if (!permisoAlm) {
@@ -3542,13 +3558,15 @@ document.getElementById('btnAddProvider').addEventListener('click', async () => 
     // No bloqueamos — continúa aunque muestre advertencia
   }
   try {
+    if (btn) btn.disabled = true;
     const res  = await fetch('/api/providers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ rfc, nombre, permiso, permiso_almacenamiento_terminal: permisoAlm }),
     });
-    const data = await res.json();
-    renderProvidersTable(data.providers || []);
+    const data = await providerResponseJson(res, 'No se pudo guardar el proveedor.');
+    if (data.providers) renderProvidersTable(data.providers || []);
+    else await loadProviders();
     document.getElementById('provRfc').value       = '';
     document.getElementById('provNombre').value    = '';
     document.getElementById('provPermiso').value   = '';
@@ -3557,8 +3575,10 @@ document.getElementById('btnAddProvider').addEventListener('click', async () => 
     st.style.color = '#16a34a';
     setTimeout(() => { st.textContent = ''; }, 3000);
   } catch(e) {
-    st.textContent = 'Error al guardar proveedor';
+    st.textContent = e.message || 'Error al guardar proveedor';
     st.style.color = '#dc2626';
+  } finally {
+    if (btn) btn.disabled = false;
   }
 });
 
