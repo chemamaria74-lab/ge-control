@@ -213,6 +213,39 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
                 internal_users._internal_session(token, "gas_lp")
         self.assertEqual(ctx.exception.status_code, 403)
 
+    def test_public_general_client_uses_issuer_cp_not_captured_cp(self):
+        user = {
+            "id": 10,
+            "tenant_id": "tenant-a",
+            "owner_user_id": "admin",
+            "perfil_id": 1,
+            "display_name": "MARTHA",
+        }
+        payload = internal_users.GasLpInternalClientePayload(
+            rfc="XAXX010101000",
+            nombre="PUBLICO EN GENERAL",
+            cp="99300",
+            regimen_fiscal="616",
+            uso_cfdi="S01",
+        )
+        with patch.object(internal_users, "_gas_lp_profile", lambda u: {"id": 1, "nombre": "DISTRIBUIDORA DE GAS DEL CAÑON", "rfc": "DGC881020LC4"}), \
+             patch.object(internal_users, "_gas_lp_settings", lambda owner, perfil: {"CodigoPostal": "20120", "RegimenFiscal": "601"}):
+            row = internal_users._gas_lp_cliente_row(user, payload)
+
+        self.assertEqual(row["rfc"], "XAXX010101000")
+        self.assertEqual(row["nombre"], "PUBLICO EN GENERAL")
+        self.assertEqual(row["cp"], "20120")
+        self.assertEqual(row["regimen_fiscal"], "616")
+        self.assertEqual(row["uso_cfdi"], "S01")
+
+    def test_public_general_invoice_receptor_uses_issuer_cp(self):
+        receptor = internal_users._public_general_receptor("20120")
+
+        self.assertEqual(receptor["rfc"], "XAXX010101000")
+        self.assertEqual(receptor["cp"], "20120")
+        self.assertEqual(receptor["regimen_fiscal"], "616")
+        self.assertEqual(receptor["uso_cfdi"], "S01")
+
 
 if __name__ == "__main__":
     unittest.main()
