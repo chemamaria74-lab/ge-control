@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 
-from routes.auth import verify_token
+from routes.auth import resolve_profile_scope, verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -273,30 +273,9 @@ def _require_perfil_id(raw: str) -> int:
     return perfil_id
 
 
-def _require_perfil_owner(user_id: str, perfil_id: int) -> None:
-    """
-    Proveedores Gas LP pertenecen a la razon social activa. No basta confiar en
-    X-Perfil-Id del frontend: debe existir y pertenecer al usuario autenticado.
-    """
-    try:
-        from supabase_config import get_supabase_admin
-        rows = (
-            get_supabase_admin()
-            .table("perfiles_empresa")
-            .select("id")
-            .eq("id", perfil_id)
-            .eq("user_id", user_id)
-            .eq("activo", True)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-    except Exception as e:
-        logger.warning("providers perfil validation: %s", e)
-        raise HTTPException(500, "No se pudo validar la empresa activa.")
-    if not rows:
-        raise HTTPException(403, "La empresa activa no pertenece a este usuario.")
+def _scope(user_id: str, token: str, raw: str) -> dict:
+    perfil_id = _require_perfil_id(raw)
+    return resolve_profile_scope(user_id, "gas_lp", perfil_id, access_token=token)
 
 
 def get_permiso_for_rfc(rfc: str, user_id: str = None, perfil_id: int = None) -> Optional[str]:
@@ -321,13 +300,14 @@ def get_permiso_almacenamiento_for_rfc(rfc: str, user_id: str = None, perfil_id:
     return None
 
 
-def _auth(authorization: str) -> str:
+def _auth(authorization: str) -> tuple[str, str]:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
-    uid = verify_token(authorization[7:])
+    token = authorization[7:]
+    uid = verify_token(token)
     if not uid:
         raise HTTPException(401, "Token inválido o expirado.")
-    return uid
+    return uid, token
 
 
 class ProviderPayload(BaseModel):
@@ -347,9 +327,10 @@ async def asignar_perfil_a_huerfanos(
     perfil_id IS NULL (huérfanos de la migración pre-multi-empresa).
     Llamar una sola vez al acceder al tab de Proveedores con un perfil seleccionado.
     """
-    user_id   = _auth(authorization)
-    perfil_id = _require_perfil_id(x_perfil_id)
-    _require_perfil_owner(user_id, perfil_id)
+    request_user_id, token = _auth(authorization)
+    scope = _scope(request_user_id, token, x_perfil_id)
+    user_id = scope["data_user_id"]
+    perfil_id = scope["perfil_id"]
     try:
         from supabase_config import get_supabase_admin
         result = get_supabase_admin().table("providers")\
@@ -370,9 +351,10 @@ async def list_providers(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    user_id   = _auth(authorization)
-    perfil_id = _require_perfil_id(x_perfil_id)
-    _require_perfil_owner(user_id, perfil_id)
+    request_user_id, token = _auth(authorization)
+    scope = _scope(request_user_id, token, x_perfil_id)
+    user_id = scope["data_user_id"]
+    perfil_id = scope["perfil_id"]
     return JSONResponse(content={"providers": _load_providers(user_id, perfil_id)})
 
 
@@ -382,9 +364,10 @@ async def upsert_provider_endpoint(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    user_id   = _auth(authorization)
-    perfil_id = _require_perfil_id(x_perfil_id)
-    _require_perfil_owner(user_id, perfil_id)
+    request_user_id, token = _auth(authorization)
+    scope = _scope(request_user_id, token, x_perfil_id)
+    user_id = scope["data_user_id"]
+    perfil_id = scope["perfil_id"]
     rfc_upper = payload.rfc.strip().upper()
     if not rfc_upper:
         raise HTTPException(400, "El RFC es obligatorio.")
@@ -406,9 +389,10 @@ async def delete_provider_endpoint(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    user_id   = _auth(authorization)
-    perfil_id = _require_perfil_id(x_perfil_id)
-    _require_perfil_owner(user_id, perfil_id)
+    request_user_id, token = _auth(authorization)
+    scope = _scope(request_user_id, token, x_perfil_id)
+    user_id = scope["data_user_id"]
+    perfil_id = scope["perfil_id"]
     _delete_provider(user_id, rfc, perfil_id)
     logger.info("Proveedor eliminado: %s user=%s perfil=%s", rfc, user_id, perfil_id)
     return JSONResponse(content={"success": True, "providers": _load_providers(user_id, perfil_id)})

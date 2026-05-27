@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from xml.sax.saxutils import escape as xml_escape
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -17,7 +17,7 @@ from routes.auth import obtener_acceso_modulo, verify_token
 from routes.perfiles import _tenant_id_for_user
 from services.fiscal_audit import version_xml
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml, save_fiscal_artifacts
-from services.sw_sapien import timbrar_cfdi
+from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
 from supabase_config import get_supabase_admin, get_supabase_for_user
 
 
@@ -99,6 +99,13 @@ class GasLpInternalFacturaPayload(BaseModel):
     unidad: str = "LITRO GAS"
     forma_pago: str = "99"
     metodo_pago: str = "PUE"
+    facility_id: Optional[int] = None
+    tipo_operacion: str = "venta"
+    destino_facility_id: Optional[int] = None
+    generar_carta_porte: bool = False
+    vehiculo_id: Optional[int] = None
+    chofer_id: Optional[int] = None
+    ruta_id: Optional[int] = None
 
 
 def _now() -> datetime:
@@ -426,6 +433,146 @@ def _gas_lp_invoice_scope(user: dict, profile: dict) -> dict:
         "source": "assistant_portal",
         "updated_at": _now_iso(),
     }
+
+
+def _gas_lp_facility(user: dict, facility_id: Optional[int], label: str = "instalación") -> dict:
+    if not facility_id:
+        raise HTTPException(400, f"Selecciona la {label}.")
+    rows = (
+        get_supabase_admin()
+        .table("user_facilities")
+        .select("*")
+        .eq("id", facility_id)
+        .eq("user_id", user.get("owner_user_id"))
+        .eq("perfil_id", user.get("perfil_id"))
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, f"La {label} no pertenece a la empresa asignada.")
+    return rows[0]
+
+
+def _is_station_facility(facility: dict) -> bool:
+    text = " ".join(
+        str(facility.get(k) or "").lower()
+        for k in ("tipo_instalacion", "tipo_permiso", "descripcion", "nombre", "actividad_sat")
+    )
+    return any(token in text for token in ("estacion", "estación", "expendio", "carburacion", "carburación", "per43", "per44", "exo"))
+
+
+def _period_from_cfdi_fecha(fecha_cfdi: str) -> str:
+    raw = (fecha_cfdi or "").strip()
+    if len(raw) >= 7 and raw[4] == "-":
+        return raw[:7]
+    return datetime.now().strftime("%Y-%m")
+
+
+def _record_group(*, uuid: str, fecha_hora: str, litros: float, importe: float, rfc: str, nombre: str, file_path: str) -> dict:
+    return {
+        uuid or datetime.now().strftime("%Y%m%d%H%M%S"): {
+            "uuid": uuid,
+            "fecha_hora": fecha_hora,
+            "volumen_litros": float(litros or 0),
+            "importe": float(importe or 0),
+            "rfc_cp": rfc,
+            "nombre_cp": nombre,
+            "file_path": file_path,
+        }
+    }
+
+
+def _gas_lp_catalog_row(user: dict, table: str, row_id: Optional[int], label: str) -> Optional[dict]:
+    if not row_id:
+        return None
+    rows = (
+        get_supabase_admin()
+        .table(table)
+        .select("*")
+        .eq("id", row_id)
+        .eq("user_id", user.get("owner_user_id"))
+        .eq("tenant_id", user.get("tenant_id"))
+        .eq("perfil_id", user.get("perfil_id"))
+        .eq("activo", True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, f"{label} no encontrado en la empresa asignada.")
+    return rows[0]
+
+
+def _rebuild_assistant_report(user: dict, periodo: str, facility_id: int) -> None:
+    from services.database import save_report
+
+    sb = get_supabase_admin()
+    owner_uid = user.get("owner_user_id")
+    perfil_id = int(user.get("perfil_id"))
+    try:
+        rows = (
+            sb.table("records")
+            .select("tipo,volumen_litros,importe")
+            .eq("user_id", owner_uid)
+            .eq("perfil_id", perfil_id)
+            .eq("facility_id", facility_id)
+            .eq("periodo", periodo)
+            .execute()
+            .data
+            or []
+        )
+        reports = (
+            sb.table("reports")
+            .select("inventario_inicial")
+            .eq("user_id", owner_uid)
+            .eq("perfil_id", perfil_id)
+            .eq("facility_id", facility_id)
+            .eq("periodo", periodo)
+            .not_.like("filename_base", "assistant:%")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        inv_inicial = float((reports[0] if reports else {}).get("inventario_inicial") or 0)
+        entradas = [r for r in rows if r.get("tipo") == "entrada"]
+        salidas = [r for r in rows if r.get("tipo") == "salida"]
+        total_rec = sum(float(r.get("volumen_litros") or 0) for r in entradas)
+        total_ent = sum(float(r.get("volumen_litros") or 0) for r in salidas)
+        importe_rec = sum(float(r.get("importe") or 0) for r in entradas)
+        importe_ent = sum(float(r.get("importe") or 0) for r in salidas)
+        filename = f"assistant:{perfil_id}:{facility_id}:{periodo}"
+        (
+            sb.table("reports")
+            .delete()
+            .eq("user_id", owner_uid)
+            .eq("perfil_id", perfil_id)
+            .eq("facility_id", facility_id)
+            .eq("periodo", periodo)
+            .eq("filename_base", filename)
+            .execute()
+        )
+        save_report(
+            owner_uid,
+            periodo,
+            {
+                "inventario_inicial_litros": inv_inicial,
+                "total_recepciones_litros": round(total_rec, 4),
+                "total_entregas_litros": round(total_ent, 4),
+                "vol_existencias_litros": round(inv_inicial + total_rec - total_ent, 4),
+                "importe_recepciones": round(importe_rec, 2),
+                "importe_entregas": round(importe_ent, 2),
+            },
+            filename,
+            facility_id=facility_id,
+            perfil_id=perfil_id,
+        )
+    except Exception as exc:
+        logger.warning("No se pudo recalcular reporte mensual de asistente: %s", exc)
 
 
 def _auth_admin(authorization: str) -> tuple[str, str]:
@@ -863,6 +1010,57 @@ async def gas_lp_internal_clientes(token: str):
     return JSONResponse({"ok": True, "clientes": rows})
 
 
+@router.get("/internal-auth/gas-lp/facilities")
+async def gas_lp_internal_facilities(token: str):
+    ctx = _gas_lp_internal_context(token)
+    user = ctx["user"]
+    try:
+        rows = (
+            get_supabase_admin()
+            .table("user_facilities")
+            .select("*")
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .order("nombre", desc=False)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_facilities", exc)
+    return JSONResponse({"ok": True, "facilities": rows})
+
+
+@router.get("/internal-auth/gas-lp/catalogos")
+async def gas_lp_internal_catalogos(token: str, modulo: str = Query(default="gas_lp")):
+    ctx = _gas_lp_internal_context(token)
+    user = ctx["user"]
+    sb = get_supabase_admin()
+
+    def list_table(table: str, order: str) -> list[dict]:
+        q = (
+            sb.table(table)
+            .select("*")
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .eq("activo", True)
+        )
+        if modulo:
+            q = q.eq("modulo_propietario", modulo)
+        return q.order(order, desc=False).execute().data or []
+
+    try:
+        return JSONResponse({
+            "ok": True,
+            "choferes": list_table("gas_lp_choferes", "nombre"),
+            "vehiculos": list_table("gas_lp_vehiculos", "placas"),
+            "rutas": list_table("gas_lp_rutas", "nombre"),
+        })
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_catalogos", exc)
+
+
 @router.post("/internal-auth/gas-lp/clientes")
 async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, token: str):
     ctx = _gas_lp_internal_context(token, write=True)
@@ -929,10 +1127,29 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     profile = _gas_lp_profile(user)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     issuer = _require_gas_lp_issuer(profile, settings)
+    tipo_operacion = str(payload.tipo_operacion or "venta").strip().lower()
+    if tipo_operacion not in {"venta", "traspaso"}:
+        raise HTTPException(400, "Tipo de operación inválido.")
+    origen = _gas_lp_facility(user, payload.facility_id, "instalación de venta/origen")
+    destino = None
+    if tipo_operacion == "traspaso":
+        destino = _gas_lp_facility(user, payload.destino_facility_id, "estación destino")
+        if int(origen.get("id")) == int(destino.get("id")):
+            raise HTTPException(400, "Origen y destino deben ser instalaciones distintas.")
+        if not _is_station_facility(destino):
+            raise HTTPException(400, "El destino del traspaso debe ser una estación de la empresa.")
     receptor = _public_general_receptor(issuer["cp"]) if payload.publico_general else None
     cliente_row = None
     sb = get_supabase_admin()
-    if payload.cliente_id and not receptor:
+    if tipo_operacion == "traspaso":
+        receptor = {
+            "rfc": issuer["rfc"],
+            "nombre": issuer["nombre"],
+            "cp": issuer["cp"],
+            "regimen_fiscal": issuer["regimen"],
+            "uso_cfdi": "S01",
+        }
+    elif payload.cliente_id and not receptor:
         rows = (
             sb.table("gas_lp_clientes_facturacion")
             .select("*")
@@ -956,7 +1173,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "regimen_fiscal": str(cliente_row.get("regimen_fiscal") or "616").strip(),
             "uso_cfdi": str(cliente_row.get("uso_cfdi") or "S01").strip(),
         }
-    if not receptor:
+    if tipo_operacion != "traspaso" and not receptor:
         receptor = {
             "rfc": _clean_rfc(payload.rfc),
             "nombre": payload.nombre.strip(),
@@ -964,7 +1181,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "regimen_fiscal": (payload.regimen_fiscal or "616").strip(),
             "uso_cfdi": (payload.uso_cfdi or "S01").strip(),
         }
-    if receptor["rfc"] == "XAXX010101000":
+    if tipo_operacion != "traspaso" and receptor["rfc"] == "XAXX010101000":
         receptor = {**_public_general_receptor(issuer["cp"]), **{"uso_cfdi": receptor.get("uso_cfdi") or "S01"}}
     if not receptor.get("rfc") or not receptor.get("nombre") or not receptor.get("cp"):
         raise HTTPException(400, "Receptor incompleto: RFC, nombre y CP son obligatorios.")
@@ -985,7 +1202,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         receptor["uso_cfdi"],
     )
 
-    xml, totals = _build_gas_lp_consumo_xml(
+    xml_consumo, totals = _build_gas_lp_consumo_xml(
         issuer=issuer,
         receptor=receptor,
         litros=payload.litros,
@@ -1002,29 +1219,95 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         no_identificacion=payload.no_identificacion,
         unidad=payload.unidad,
     )
-    resultado = timbrar_cfdi(xml)
-    if resultado.get("error"):
-        raise HTTPException(400, f"PAC rechazó la factura: {resultado['error']}")
     now = _now_iso()
+    fecha_mov = (payload.fecha or now)[:19]
+    periodo = _period_from_cfdi_fecha(fecha_mov)
+    xml_final = xml_consumo
+    resultado = {"uuid": "", "xml_timbrado": "", "pdf_url": "", "error": ""}
+    status = "Vigente"
+    tipo_comprobante = "I"
+    distancia_km = 1
+    chofer_row = vehiculo_row = ruta_row = None
+    if tipo_operacion == "traspaso":
+        tipo_comprobante = "T"
+        status = "Registrado"
+        if payload.generar_carta_porte:
+            chofer_row = _gas_lp_catalog_row(user, "gas_lp_choferes", payload.chofer_id, "Chofer")
+            vehiculo_row = _gas_lp_catalog_row(user, "gas_lp_vehiculos", payload.vehiculo_id, "Vehículo")
+            ruta_row = _gas_lp_catalog_row(user, "gas_lp_rutas", payload.ruta_id, "Ruta")
+            distancia_km = float((ruta_row or {}).get("distancia_km") or 1)
+            xml_final = build_carta_porte_xml(
+                {
+                    "uuid_mov": totals["folio"],
+                    "volumen_litros": payload.litros,
+                    "importe": totals["subtotal"],
+                    "fecha_hora": fecha_mov,
+                },
+                {
+                    "rfc": issuer["rfc"],
+                    "nombre": issuer["nombre"],
+                    "regimen_fiscal": issuer["regimen"],
+                    "domicilio_fiscal": issuer["cp"],
+                },
+                {
+                    "rfc": issuer["rfc"],
+                    "nombre": issuer["nombre"],
+                    "regimen_fiscal": issuer["regimen"],
+                    "uso_cfdi": "S01",
+                    "domicilio_fiscal": issuer["cp"],
+                },
+                {
+                    "placa": (vehiculo_row or {}).get("placas") or "",
+                    "anio_modelo": (vehiculo_row or {}).get("anio") or 2020,
+                    "config_vehicular": (vehiculo_row or {}).get("config_vehicular") or "C2",
+                    "nombre_asegurador": (vehiculo_row or {}).get("aseguradora") or "",
+                    "poliza_seguro": (vehiculo_row or {}).get("poliza_seguro") or "",
+                },
+                tipo_comprobante="T",
+                ruta={"distancia_km": distancia_km},
+            )
+            resultado = timbrar_cfdi(xml_final)
+            if resultado.get("error"):
+                raise HTTPException(400, f"PAC rechazó la Carta Porte: {resultado['error']}")
+            status = "Vigente"
+    else:
+        resultado = timbrar_cfdi(xml_final)
+        if resultado.get("error"):
+            raise HTTPException(400, f"PAC rechazó la factura: {resultado['error']}")
     row = {
         **_gas_lp_invoice_scope(user, profile),
-        "facility_id": None,
+        "facility_id": int(origen.get("id")),
+        "origen_facility_id": int(origen.get("id")),
+        "destino_facility_id": int(destino.get("id")) if destino else None,
         "record_uuid": totals["folio"],
         "uuid_sat": resultado.get("uuid") or "",
-        "xml_content": resultado.get("xml_timbrado") or xml,
+        "xml_content": resultado.get("xml_timbrado") or (xml_final if tipo_operacion != "traspaso" or payload.generar_carta_porte else ""),
         "pdf_url": resultado.get("pdf_url") or "",
-        "status": "Vigente",
-        "fecha_timbrado": now,
+        "status": status,
+        "fecha_timbrado": now if resultado.get("uuid") else "",
         "rfc_receptor": receptor["rfc"],
         "volumen_litros": float(payload.litros),
         "importe": totals["subtotal"],
-        "tipo_comprobante": "I",
-        "distancia_km": 1,
+        "tipo_comprobante": tipo_comprobante,
+        "distancia_km": distancia_km,
         "metadata": {
             "portal": "asistente_gas_lp",
             "internal_user_id": user.get("id"),
             "cliente_id": payload.cliente_id,
             "cliente_nombre": receptor["nombre"],
+            "tipo_operacion": tipo_operacion,
+            "periodo": periodo,
+            "origen_facility_id": int(origen.get("id")),
+            "origen_nombre": origen.get("nombre"),
+            "destino_facility_id": int(destino.get("id")) if destino else None,
+            "destino_nombre": destino.get("nombre") if destino else "",
+            "generar_carta_porte": bool(payload.generar_carta_porte),
+            "vehiculo_id": payload.vehiculo_id,
+            "chofer_id": payload.chofer_id,
+            "ruta_id": payload.ruta_id,
+            "chofer_nombre": (chofer_row or {}).get("nombre") or "",
+            "vehiculo_placas": (vehiculo_row or {}).get("placas") or "",
+            "ruta_nombre": (ruta_row or {}).get("nombre") or "",
             "concepto": payload.concepto,
             "precio_unitario": payload.precio_unitario,
             "descuento": totals["descuento"],
@@ -1044,6 +1327,49 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     except Exception as exc:
         raise _safe_internal_error("gas_lp_crear_factura", exc)
     factura = data[0]
+    uuid_sat = factura.get("uuid_sat") or row["uuid_sat"] or totals["folio"]
+    try:
+        from services.database import save_records
+
+        venta_path = "assistant:traspaso:interno:salida" if tipo_operacion == "traspaso" else "assistant:factura:venta"
+        save_records(
+            user.get("owner_user_id"),
+            periodo,
+            _record_group(
+                uuid=uuid_sat,
+                fecha_hora=fecha_mov,
+                litros=payload.litros,
+                importe=totals["subtotal"],
+                rfc=receptor["rfc"],
+                nombre=receptor["nombre"],
+                file_path=venta_path,
+            ),
+            "salida",
+            facility_id=int(origen.get("id")),
+            perfil_id=int(user.get("perfil_id")),
+        )
+        _rebuild_assistant_report(user, periodo, int(origen.get("id")))
+        if tipo_operacion == "traspaso" and destino:
+            save_records(
+                user.get("owner_user_id"),
+                periodo,
+                _record_group(
+                    uuid=f"{uuid_sat}-ENT",
+                    fecha_hora=fecha_mov,
+                    litros=payload.litros,
+                    importe=totals["subtotal"],
+                    rfc=issuer["rfc"],
+                    nombre=origen.get("nombre") or issuer["nombre"],
+                    file_path="assistant:traspaso:interno:entrada",
+                ),
+                "entrada",
+                facility_id=int(destino.get("id")),
+                perfil_id=int(user.get("perfil_id")),
+            )
+            _rebuild_assistant_report(user, periodo, int(destino.get("id")))
+    except Exception as exc:
+        logger.exception("Factura timbrada pero no se pudo registrar en records/reports: %s", exc)
+        raise HTTPException(500, f"Factura timbrada con UUID {uuid_sat}, pero no se pudo registrar en Reportes SAT. Revisar auditoría.") from exc
     xml_timbrado = factura.get("xml_content") or row["xml_content"]
     factura_id = factura.get("id")
     if factura_id and xml_timbrado:
