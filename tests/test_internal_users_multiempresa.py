@@ -73,6 +73,7 @@ class FakeDB:
             ],
             "internal_users": [],
             "internal_user_sessions": [],
+            "tr_operador_accesos": [],
         }
         self.ids = {"internal_users": 1, "internal_user_sessions": 1}
 
@@ -129,6 +130,88 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             asyncio.run(internal_users.internal_login(internal_users.InternalLogin(section="gas_lp", code="MARTHA", pin="NOPE")))
         self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_internal_session_rejects_cross_module_and_orphan_users(self):
+        db = FakeDB()
+        user = {
+            "id": 10,
+            "tenant_id": "tenant-a",
+            "owner_user_id": "admin",
+            "perfil_id": 1,
+            "section": "gas_lp",
+            "role": "asistente_facturacion",
+            "display_name": "MARTHA",
+            "status": "active",
+        }
+        token = "session-ok"
+        db.rows["internal_users"].append(user)
+        db.rows["internal_user_sessions"].append({
+            "id": 1,
+            "internal_user_id": 10,
+            "tenant_id": "tenant-a",
+            "perfil_id": 1,
+            "section": "gas_lp",
+            "role": "asistente_facturacion",
+            "token_hash": internal_users._hash_token(token),
+            "expires_at": "2099-01-01T00:00:00+00:00",
+            "internal_users": user,
+        })
+        patches = [patch.object(internal_users, "get_supabase_admin", lambda: db)]
+        for p in patches:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in patches])
+
+        with self.assertRaises(HTTPException) as ctx:
+            internal_users._internal_session(token, "transporte")
+        self.assertEqual(ctx.exception.status_code, 403)
+
+        self.assertEqual(internal_users._internal_session(token, "gas_lp")["user"]["perfil_id"], 1)
+
+        orphan = dict(user, id=11, perfil_id=None)
+        orphan_token = "session-orphan"
+        db.rows["internal_user_sessions"].append({
+            "id": 2,
+            "internal_user_id": 11,
+            "tenant_id": "tenant-a",
+            "perfil_id": None,
+            "section": "gas_lp",
+            "role": "asistente_facturacion",
+            "token_hash": internal_users._hash_token(orphan_token),
+            "expires_at": "2099-01-01T00:00:00+00:00",
+            "internal_users": orphan,
+        })
+        with self.assertRaises(HTTPException) as ctx:
+            internal_users._internal_session(orphan_token, "gas_lp")
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_internal_session_rejects_tenant_profile_mismatch(self):
+        db = FakeDB()
+        user = {
+            "id": 20,
+            "tenant_id": "tenant-b",
+            "owner_user_id": "admin",
+            "perfil_id": 1,
+            "section": "gas_lp",
+            "role": "asistente_facturacion",
+            "display_name": "MISMATCH",
+            "status": "active",
+        }
+        token = "session-mismatch"
+        db.rows["internal_user_sessions"].append({
+            "id": 3,
+            "internal_user_id": 20,
+            "tenant_id": "tenant-b",
+            "perfil_id": 1,
+            "section": "gas_lp",
+            "role": "asistente_facturacion",
+            "token_hash": internal_users._hash_token(token),
+            "expires_at": "2099-01-01T00:00:00+00:00",
+            "internal_users": user,
+        })
+        with patch.object(internal_users, "get_supabase_admin", lambda: db):
+            with self.assertRaises(HTTPException) as ctx:
+                internal_users._internal_session(token, "gas_lp")
+        self.assertEqual(ctx.exception.status_code, 403)
 
 
 if __name__ == "__main__":
