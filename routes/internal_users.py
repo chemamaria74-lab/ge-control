@@ -227,7 +227,7 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
         receptor = {
             "rfc": "XAXX010101000",
             "nombre": "PUBLICO EN GENERAL",
-            "cp": cp or issuer["cp"],
+            "cp": issuer["cp"],
             "regimen_fiscal": "616",
         }
         uso_cfdi = "S01"
@@ -794,6 +794,9 @@ async def gas_lp_internal_summary(token: str):
     ctx = _internal_session(token, "gas_lp")
     user = ctx["user"]
     profile = _gas_lp_profile(user)
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    issuer_cp = _clean_cp(settings.get("CodigoPostal") or settings.get("codigo_postal") or "")
+    issuer_regimen = str(settings.get("RegimenFiscal") or settings.get("regimen_fiscal") or "601").strip() or "601"
     role = user.get("role") or "solo_lectura"
     role_modules = {
         "asistente_facturacion": [
@@ -824,6 +827,8 @@ async def gas_lp_internal_summary(token: str):
             "id": profile.get("id"),
             "name": profile.get("nombre"),
             "rfc": profile.get("rfc"),
+            "cp": issuer_cp,
+            "regimen_fiscal": issuer_regimen,
             "tenant_id": profile.get("tenant_id"),
         },
         "modules": modules,
