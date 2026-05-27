@@ -89,7 +89,8 @@ begin
   if exists (select 1 from information_schema.columns where table_schema='public' and table_name='zc_settings' and column_name='perfil_id') then
     create index if not exists idx_zc_settings_user_perfil on public.zc_settings(user_id, perfil_id);
   end if;
-  if exists (select 1 from information_schema.columns where table_schema='public' and table_name='settings_audit' and column_name='user_id') then
+  if exists (select 1 from information_schema.columns where table_schema='public' and table_name='settings_audit' and column_name='user_id')
+     and exists (select 1 from information_schema.columns where table_schema='public' and table_name='settings_audit' and column_name='created_at') then
     create index if not exists idx_settings_audit_user_created on public.settings_audit(user_id, created_at);
   end if;
 end $$;
