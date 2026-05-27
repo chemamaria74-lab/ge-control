@@ -2453,24 +2453,28 @@ let perfilesCache = null;
 let perfilesCacheAt = 0;
 let facilitiesCacheByPerfil = new Map();
 let dashboardLoadPromise = null;
+let activeProfileGeneration = 0;
+
+function profileLoadContext() {
+  return { gen: activeProfileGeneration, pid: String(perfilId() || '') };
+}
+
+function isCurrentProfileLoad(ctx) {
+  return !!ctx && ctx.gen === activeProfileGeneration && ctx.pid === String(perfilId() || '');
+}
 
 // ── Estado multi-empresa (perfilSeleccionado) ──────────────────────────────
-// Se persiste en localStorage para sobrevivir cierre de pestaña y recargas.
-// Se limpia SOLO al hacer logout explícito.
+// Se conserva solo mientras la app está abierta. Al volver a entrar se pide
+// elegir razón social para evitar asumir la última empresa usada.
 let _perfilSeleccionado = null;   // { id, nombre, rfc, descripcion }
 
 function _loadPerfilFromSession() {
-  try {
-    const raw = localStorage.getItem('zc_perfil');
-    if (raw) _perfilSeleccionado = JSON.parse(raw);
-  } catch(e) { _perfilSeleccionado = null; }
+  _perfilSeleccionado = null;
+  localStorage.removeItem('zc_perfil');
 }
 
 function _savePerfilToSession(perfil) {
   _perfilSeleccionado = perfil;
-  try {
-    localStorage.setItem('zc_perfil', JSON.stringify(perfil));
-  } catch(e) {}
 }
 
 function _clearPerfilSession() {
@@ -2518,6 +2522,8 @@ const _appState = {
   settings: null,        // último GET /api/settings exitoso
   settingsPerfilId: null,// para qué perfil están cargados
   settingsLoading: false, // evitar doble fetch simultáneo
+  settingsLoadingPerfilId: null,
+  settingsPromise: null,
 
   // Cargar settings desde Supabase y cachear
   async loadSettings(force = false) {
@@ -2526,20 +2532,32 @@ const _appState = {
     if (!force && this.settings && this.settingsPerfilId === pid) {
       return this.settings;
     }
-    if (this.settingsLoading) return this.settings;
+    if (this.settingsLoading && this.settingsLoadingPerfilId === pid && this.settingsPromise) {
+      return this.settingsPromise;
+    }
     this.settingsLoading = true;
-    try {
+    this.settingsLoadingPerfilId = pid;
+    this.settingsPromise = (async () => {
       const res = await fetch('/api/settings', { headers: authHeader() });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
-      this.settings = data;
-      this.settingsPerfilId = pid;
+      if (pid === perfilId()) {
+        this.settings = data;
+        this.settingsPerfilId = pid;
+      }
       return data;
+    })();
+    try {
+      return await this.settingsPromise;
     } catch(e) {
       console.warn('appState.loadSettings error:', e);
-      return this.settings || {};
+      return (this.settingsPerfilId === pid ? this.settings : null) || {};
     } finally {
-      this.settingsLoading = false;
+      if (this.settingsLoadingPerfilId === pid) {
+        this.settingsLoading = false;
+        this.settingsLoadingPerfilId = null;
+        this.settingsPromise = null;
+      }
     }
   },
 
@@ -2547,6 +2565,9 @@ const _appState = {
   invalidate() {
     this.settings = null;
     this.settingsPerfilId = null;
+    this.settingsLoading = false;
+    this.settingsLoadingPerfilId = null;
+    this.settingsPromise = null;
   }
 };
 function truncUUID(s) { return (s||'').length > 20 ? (s||'').substring(0,8)+'…'+(s||'').slice(-4) : (s||''); }
@@ -2722,11 +2743,16 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('transporteVehiculo')?.addEventListener('change', function() {
     const opt = this.options[this.selectedIndex];
     if (opt.dataset.placa) {
-      document.getElementById('transportePlaca').value = opt.dataset.placa;
-      document.getElementById('transporteAnioVehiculo').value = opt.dataset.anio || 2024;
-      document.getElementById('transporteConfigVehicular').value = opt.dataset.config || 'C2';
-      document.getElementById('transporteAseguradora').value = opt.dataset.aseguradora || '';
-      document.getElementById('transportePoliza').value = opt.dataset.poliza || '';
+      const placa = document.getElementById('transportePlaca');
+      const anio = document.getElementById('transporteAnioVehiculo');
+      const config = document.getElementById('transporteConfigVehicular');
+      const aseguradora = document.getElementById('transporteAseguradora');
+      const poliza = document.getElementById('transportePoliza');
+      if (placa) placa.value = opt.dataset.placa;
+      if (anio) anio.value = opt.dataset.anio || 2024;
+      if (config) config.value = opt.dataset.config || 'C2';
+      if (aseguradora) aseguradora.value = opt.dataset.aseguradora || '';
+      if (poliza) poliza.value = opt.dataset.poliza || '';
     }
   });
   
@@ -2779,23 +2805,8 @@ async function verifySession() {
       assignedPerfilId = Number(data.perfil_id || 0) || null;
       if (assignedPerfilId) localStorage.setItem('sat_assigned_perfil_id', String(assignedPerfilId));
 
-      if (_perfilSeleccionado) {
-        // Validar que el perfil guardado sigue existiendo en Supabase
-        const perfiles = await cargarPerfiles();
-        const perfilValido = perfiles.find(p => p.id === _perfilSeleccionado.id);
-        if (perfilValido) {
-          // Actualizar datos del perfil por si cambiaron (nombre, rfc)
-          _savePerfilToSession(perfilValido);
-          actualizarSwitcherEmpresa(perfilValido);
-          cargarDatosDashboard();
-        } else {
-          // Perfil ya no existe → pedir selección
-          _clearPerfilSession();
-          await iniciarFlujoEmpresa();
-        }
-      } else {
-        await iniciarFlujoEmpresa();
-      }
+      _clearPerfilSession();
+      await iniciarFlujoEmpresa();
     } else {
       clearSession();
       showLogin();
@@ -2857,7 +2868,7 @@ document.getElementById('btnLogin').addEventListener('click', async () => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user, password: pass }),
+      body: JSON.stringify({ username: user, password: pass, modulo }),
     });
     const data = await res.json();
     if (data.success) {
@@ -3027,18 +3038,19 @@ async function iniciarFlujoEmpresa() {
     mostrarOverlayEmpresas([]);
     return;
   }
+  const restrictedRole = ['asistente_facturacion', 'asistente_operativo', 'planta', 'solo_lectura'].includes(currentUserRole);
   if (perfiles.length === 1) {
     seleccionarEmpresa(perfiles[0], false);
     return;
   }
-  if (assignedPerfilId) {
+  if (restrictedRole && assignedPerfilId) {
     const asignado = perfiles.find(p => Number(p.id) === Number(assignedPerfilId));
     if (asignado) {
       seleccionarEmpresa(asignado, false);
       return;
     }
   }
-  if (['asistente_facturacion', 'asistente_operativo', 'planta', 'solo_lectura'].includes(currentUserRole)) {
+  if (restrictedRole) {
     seleccionarEmpresa(perfiles[0], false);
     return;
   }
@@ -3153,6 +3165,8 @@ let _resettingState = false;   // flag: bloquea auto-save durante limpieza
 
 function resetAppState() {
   _resettingState = true;
+  activeProfileGeneration += 1;
+  const ctx = profileLoadContext();
   const started = performance.now();
   console.info('[GE] Gas LP cambio de empresa iniciado', { perfil_id: perfilId() });
   _appState.invalidate();  // forzar re-fetch de settings del nuevo perfil
@@ -3231,6 +3245,22 @@ function resetAppState() {
   _facilities       = [];
   _activeFacilityId = null;
   _histFacilityId   = null;
+  ['activeFacilitySelect','ventasFacility','histFacility','facturarFacility','facturarDestinoFacility','gasRutaOrigen','gasRutaDestino','controlesFacility','provFacility'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  ['kpiLitros','kpiPesos','kpiLitrosRec','kpiMeses'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '—';
+  });
+  ['barChartLitros','lineChartPesos','lineChartInv','lineLabels','lineLabelsInv','balanceTbody'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '';
+  });
+  const ventasStatus = document.getElementById('ventasStatus'); if (ventasStatus) ventasStatus.textContent = '';
+  const ventasNoData = document.getElementById('ventasNoData'); if (ventasNoData) ventasNoData.style.display = 'none';
+  const facBadge = document.getElementById('facilityBadge'); if (facBadge) { facBadge.style.display = 'none'; facBadge.textContent = ''; }
+  setUploaderLock(true);
 
   // ── 6. Re-fetch paralelo con el nuevo perfil ──────────────────────────────
   dashboardLoadPromise = Promise.all([
@@ -3239,9 +3269,11 @@ function resetAppState() {
     loadProviders(),
     loadInternalUsersGasLp(),
   ]).finally(() => {
-    console.info('[GE] Gas LP empresa lista', { perfil_id: perfilId(), ms: Math.round(performance.now() - started) });
-    _resettingState = false;  // desbloquear auto-save
-    dashboardLoadPromise = null;
+    if (isCurrentProfileLoad(ctx)) {
+      console.info('[GE] Gas LP empresa lista', { perfil_id: perfilId(), ms: Math.round(performance.now() - started) });
+      _resettingState = false;  // desbloquear auto-save
+      dashboardLoadPromise = null;
+    }
   });
 
   // Config avanzada lazy
@@ -3354,8 +3386,10 @@ async function eliminarPerfil(perfilId) {
 
 // ── Configuración SAT Persistente ─────────────────────────────────────────
 async function loadSettings() {
+  const ctx = profileLoadContext();
   try {
     const data = await _appState.loadSettings();
+    if (!isCurrentProfileLoad(ctx)) return;
     // Limpiar primero solo si el perfil cambió (appState detectó diferencia)
     // Si es el mismo perfil, actualizar sin limpiar para no borrar input en curso
     ['rfc','sat_rfc_rep','sat_rfc_prov'].forEach(id => {
@@ -3425,14 +3459,17 @@ document.getElementById('btnSaveSettings').addEventListener('click', saveSetting
 // ── Gestión de Proveedores ─────────────────────────────────────────────────
 async function loadProviders() {
   if (!authToken) return;
+  const ctx = profileLoadContext();
   const tbody = document.getElementById('tbodyProveedores');
   if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="hist-empty" style="color:#6366f1"><i class="fa-solid fa-spinner fa-spin" style="margin-right:.4rem"></i>Cargando proveedores...</td></tr>';
   try {
     const res  = await fetch('/api/providers', { headers: authHeader() });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
+    if (!isCurrentProfileLoad(ctx)) return;
     renderProvidersTable(data.providers || []);
   } catch(e) {
+    if (!isCurrentProfileLoad(ctx)) return;
     console.warn('No se pudo cargar proveedores:', e);
     if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="hist-empty" style="color:#dc2626">Error al cargar proveedores. Recarga la página.</td></tr>';
   }
@@ -3528,9 +3565,11 @@ document.getElementById('btnAddProvider').addEventListener('click', async () => 
 // ── Gestión de Instalaciones ───────────────────────────────────────────────
 async function loadFacilities() {
   if (!authToken) return;
+  const ctx = profileLoadContext();
   const pid = perfilId() || 'none';
   const cached = facilitiesCacheByPerfil.get(pid);
   if (cached && (Date.now() - cached.at) < 30000) {
+    if (!isCurrentProfileLoad(ctx)) return;
     _facilities = cached.rows;
     renderFacilitiesTable(_facilities, cached.diagnostics || {});
     populateFacilitySelectors(_facilities);
@@ -3539,11 +3578,15 @@ async function loadFacilities() {
   try {
     const res  = await fetch('/api/facilities', { headers: authHeader() });
     const data = await res.json();
+    if (!isCurrentProfileLoad(ctx)) return;
     _facilities = data.facilities || [];
     facilitiesCacheByPerfil.set(pid, { at: Date.now(), rows: _facilities, diagnostics: data.diagnostics || {} });
     renderFacilitiesTable(_facilities, data.diagnostics || {});
     populateFacilitySelectors(_facilities);
-  } catch(e) { console.warn('No se pudo cargar instalaciones:', e); }
+  } catch(e) {
+    if (!isCurrentProfileLoad(ctx)) return;
+    console.warn('No se pudo cargar instalaciones:', e);
+  }
 }
 
 function invalidateFacilitiesCache(pid = perfilId() || 'none') {
@@ -3954,10 +3997,12 @@ async function switchTab(name) {
   if (name === 'config' && authToken) cargarPanelPerfiles();
   // Al volver a Procesar, precargar composición PR12 guardada desde Supabase (no localStorage)
   if (name === 'procesar') {
+    const ctx = profileLoadContext();
     try {
       const res = await fetch('/api/settings', { headers: authHeader() });
       if (res.ok) {
         const advData = await res.json();
+        if (!isCurrentProfileLoad(ctx)) return;
         if (advData.adv_composicion_pr12) {
           const p = document.getElementById('proc_propano');
           const b = document.getElementById('proc_butano');
@@ -4021,6 +4066,7 @@ function fmtLitros(n) {
 
 async function loadVentasAnalytics() {
   if (!authToken) return;
+  const ctx = profileLoadContext();
   const year   = document.getElementById('ventasYear').value;
   const facSel = document.getElementById('ventasFacility');
   const facId  = facSel ? (parseInt(facSel.value) || '') : '';
@@ -4032,9 +4078,11 @@ async function loadVentasAnalytics() {
   try {
     const res  = await fetch(url, { headers: authHeader() });
     const data = await res.json();
+    if (!isCurrentProfileLoad(ctx)) return;
     renderVentasCharts(data.monthly || [], data.capacidad || null);
     st.textContent = '';
   } catch(e) {
+    if (!isCurrentProfileLoad(ctx)) return;
     st.textContent = 'Error al cargar datos.';
   }
 }
@@ -5213,10 +5261,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Usar el email guardado al iniciar sesión, no el UUID
     const userEmail = localStorage.getItem('sat_email') || localStorage.getItem('sat_user_id') || '';
     try {
+      const modulo = localStorage.getItem('sat_modulo') || 'gas_lp';
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: userEmail, password: pass }),
+        body: JSON.stringify({ username: userEmail, password: pass, modulo }),
       });
       const data = await res.json();
       if (!data.success) {
@@ -5275,6 +5324,7 @@ document.getElementById('btnDelHist').addEventListener('click', () => {
 });
 
 async function loadHistorial() {
+  const ctx = profileLoadContext();
   const anio = document.getElementById('histAnio').value;
   const mes  = document.getElementById('histMes').value;
   if (!anio || !mes) { alert('Selecciona año y mes.'); return; }
@@ -5293,6 +5343,7 @@ async function loadHistorial() {
   try {
     const res  = await fetch(url, { headers: authHeader() });
     const data = await res.json();
+    if (!isCurrentProfileLoad(ctx)) return;
     document.getElementById('histLoading').style.display = 'none';
 
     if (res.status === 401) { showLogin(); return; }
@@ -5402,6 +5453,7 @@ async function loadHistorial() {
     }
 
   } catch(e) {
+    if (!isCurrentProfileLoad(ctx)) return;
     document.getElementById('histLoading').style.display = 'none';
     alert('Error al cargar historial: ' + e.message);
   }
@@ -5811,6 +5863,7 @@ function internalRoleLabel(role) {
 }
 
 async function loadInternalUsersGasLp() {
+  const ctx = profileLoadContext();
   const tbody = document.getElementById('gasInternalTbody');
   const empty = document.getElementById('gasInternalEmpty');
   if (!tbody) return;
@@ -5827,6 +5880,7 @@ async function loadInternalUsersGasLp() {
     const url = `/api/internal-users?section=gas_lp&perfil_id=${encodeURIComponent(perfilId())}`;
     const res = await fetch(url, { headers: { ...authHeader(), 'Content-Type': 'application/json' } });
     const data = await res.json();
+    if (!isCurrentProfileLoad(ctx)) return;
     if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible cargar usuarios internos.');
     const users = data.users || [];
     if (!users.length) {
@@ -5856,6 +5910,7 @@ async function loadInternalUsersGasLp() {
       </tr>`;
     }).join('');
   } catch(e) {
+    if (!isCurrentProfileLoad(ctx)) return;
     if (empty) {
       empty.style.display = '';
       empty.textContent = 'No se pudieron cargar permisos';
@@ -6059,6 +6114,7 @@ async function guardarComposicionPR12() {
 async function cargarConfigAvanzada() {
   // Loads only composición PR12 and dictamen — tank/medidor/geo are now per-facility
   const pid = perfilId();
+  const ctx = profileLoadContext();
   const usandoCaché = _appState.settings && _appState.settingsPerfilId === pid;
   // Clear fields
   [
@@ -6074,6 +6130,7 @@ async function cargarConfigAvanzada() {
   });
   try {
     const data = await _appState.loadSettings(!usandoCaché);
+    if (!isCurrentProfileLoad(ctx)) return;
     // Composición PR12
     const c = data.adv_composicion_pr12 || {};
     if (document.getElementById('adv_propano'))
@@ -6418,6 +6475,7 @@ document.getElementById('provMes')?.addEventListener('change', () => {
 });
 
 async function cargarProveedores() {
+  const ctx = profileLoadContext();
   const year  = document.getElementById('provAnio')?.value || new Date().getFullYear();
   const month = document.getElementById('provMes')?.value || '';
   const facId = document.getElementById('provFacility')?.value || '';
@@ -6427,6 +6485,7 @@ async function cargarProveedores() {
   try {
     const res = await fetch(url, { headers: authHeader() });
     const data = await res.json();
+    if (!isCurrentProfileLoad(ctx)) return;
     _provData  = data;
     renderProvChart(data);
     renderProvTable(data);
@@ -6440,7 +6499,10 @@ async function cargarProveedores() {
       });
     }
     cargarForecast(facId);
-  } catch(e) { console.warn('cargarProveedores:', e); }
+  } catch(e) {
+    if (!isCurrentProfileLoad(ctx)) return;
+    console.warn('cargarProveedores:', e);
+  }
 }
 
 function renderProvKpis(data) {
@@ -6541,11 +6603,13 @@ function renderProvTable(data) {
 }
 
 async function cargarForecast(facId='') {
+  const ctx = profileLoadContext();
   let url = '/api/analytics/forecast';
   if (facId) url += `?facility_id=${facId}`;
   try {
     const res  = await fetch(url, { headers: authHeader() });
     const data = await res.json();
+    if (!isCurrentProfileLoad(ctx)) return;
     const empty= document.getElementById('forecastEmpty');
     const cards= document.getElementById('forecastCards');
     const rec  = document.getElementById('forecastRecomendacion');
@@ -6574,7 +6638,10 @@ async function cargarForecast(facId='') {
           ${stockDias ? `<li><b>${window.t('fore.stock_estimado') || 'Stock estimado:'}</b> ~${stockDias} ${window.t('fore.stock_dias_suffix') || 'días de operación con el consumo actual.'}<br><span style="font-size:.78rem;color:#64748b">${window.t('fore.stock_help') || 'Es una cobertura estimada: volumen disponible o compra esperada dividido entre el consumo diario estimado.'}</span></li>` : ''}
         </ul>`;
     }
-  } catch(e) { console.warn('cargarForecast:', e); }
+  } catch(e) {
+    if (!isCurrentProfileLoad(ctx)) return;
+    console.warn('cargarForecast:', e);
+  }
 }
 
 // proveedores load handled in switchTab()
@@ -6584,8 +6651,7 @@ applyRole(currentUserRole);
 prefillHistSelector();
 loadModuleFromStorage();  // Cargar módulo guardado
 // verifySession maneja el flujo completo:
-// token inválido → showLogin | token válido → empresa en session → cargarDatosDashboard
-//                                           | sin empresa en session → iniciarFlujoEmpresa
+// token inválido → showLogin | token válido → iniciarFlujoEmpresa
 verifySession();
 </script>
 <!-- ── Modal de Confirmación CRÍTICA (Limpiar Datos) ───────────────────── -->
