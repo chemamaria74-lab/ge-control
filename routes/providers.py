@@ -62,13 +62,25 @@ def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
             except Exception as e2:
                 logger.warning("No se pudo asignar proveedores: %s", e2)
 
-        # 4. Deduplicar por RFC (los del perfil exacto tienen prioridad)
+        # 4. Puente legacy: si produccion aun conserva la restriccion vieja
+        # user_id+rfc, el mismo RFC no puede insertarse por perfil. Mientras se
+        # aplica providers_multiempresa_unique_20260527.sql, leemos esos RFCs
+        # de otros perfiles del mismo usuario para que el SAT no quede sin
+        # PermisoClienteOProveedor. Los del perfil exacto siempre ganan.
+        r3 = sb.table("providers").select("*")\
+               .eq("user_id", user_id)\
+               .order("rfc").execute().data or []
+
+        # 5. Deduplicar por RFC (perfil exacto > huerfanos > legacy same-user)
         rfcs_vistas: set = set()
         resultado = []
-        for p in r1 + r2:
+        for p in r1 + r2 + r3:
             rfc_key = p.get("rfc", "").upper()
             if rfc_key not in rfcs_vistas:
                 rfcs_vistas.add(rfc_key)
+                if p.get("perfil_id") not in (None, "", perfil_id):
+                    p = dict(p)
+                    p["_legacy_cross_profile"] = True
                 resultado.append(p)
 
         return resultado
@@ -129,13 +141,15 @@ def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,
                     sb.table("providers").update({**update_data, "perfil_id": perfil_id}).eq("id", row_id).execute()
                     logger.info("Provider legacy row claimed id=%s rfc=%s perfil=%s", row_id, rfc_upper, perfil_id)
                     return True, ""
+                row_id = legacy_row["id"]
+                sb.table("providers").update(update_data).eq("id", row_id).execute()
                 logger.warning(
-                    "Provider duplicate blocked by legacy unique scope rfc=%s current_perfil=%s requested_perfil=%s",
+                    "Provider updated through legacy cross-profile bridge rfc=%s current_perfil=%s requested_perfil=%s",
                     rfc_upper, legacy_perfil, perfil_id,
                 )
-                return False, (
-                    "Ese RFC ya existe en otra empresa/perfil. Aplica la migración "
-                    "providers_multiempresa_unique_20260527.sql para permitir el mismo RFC por empresa."
+                return True, (
+                    "RFC actualizado en el registro legacy existente. Aplica "
+                    "providers_multiempresa_unique_20260527.sql para separarlo por empresa."
                 )
             # INSERT — nueva fila para este perfil
             insert_data = {"user_id": user_id, "rfc": rfc_upper, **update_data}

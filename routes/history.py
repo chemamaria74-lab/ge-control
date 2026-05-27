@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, FileResponse
 
 from services.database import (
     get_records, get_reports, get_available_periods, get_period_totals,
-    delete_period, delete_all_periods,
+    delete_period, delete_all_periods, get_archived_records, get_archived_reports,
 )
 from services.sat_transformer import generate_filename
 from routes.auth import obtener_acceso_modulo, require_profile_access, verify_token
@@ -52,6 +52,39 @@ def _require_perfil(uid: str, token: str, raw: str) -> int:
     return perfil_id
 
 
+def _totals_from_records(records: dict) -> dict:
+    entradas = records.get("entradas") or []
+    salidas = records.get("salidas") or []
+    autoconsumos = [
+        s for s in salidas
+        if s.get("es_autoconsumo")
+        or str(s.get("file_path") or "").startswith("manual:")
+        or str(s.get("uuid") or "").upper().startswith("AUTO-")
+    ]
+    ventas_reales = [
+        s for s in salidas
+        if s not in autoconsumos and (s.get("volumen_litros") or 0) > 0
+    ]
+    vol_compra = sum(e.get("volumen_litros") or 0 for e in entradas)
+    imp_compra = sum(e.get("importe") or 0 for e in entradas)
+    vol_venta = sum(s.get("volumen_litros") or 0 for s in ventas_reales)
+    imp_venta = sum(s.get("importe") or 0 for s in ventas_reales)
+    return {
+        "total_entradas": round(vol_compra, 2),
+        "total_salidas": round(sum(s.get("volumen_litros") or 0 for s in salidas), 2),
+        "total_autoconsumo": round(sum(s.get("volumen_litros") or 0 for s in autoconsumos), 2),
+        "cnt_autoconsumo": len(autoconsumos),
+        "total_traspasos": 0,
+        "cnt_traspasos": 0,
+        "precio_compra_prom": round(imp_compra / vol_compra, 4) if vol_compra > 0 else 0,
+        "precio_venta_prom": round(imp_venta / vol_venta, 4) if vol_venta > 0 else 0,
+        "importe_entradas": round(imp_compra, 2),
+        "importe_salidas": round(sum(s.get("importe") or 0 for s in salidas), 2),
+        "cnt_entradas": len(entradas),
+        "cnt_salidas": len(salidas),
+    }
+
+
 @router.get("/history/periods")
 async def list_periods(
     facility_id:   Optional[int] = Query(default=None),
@@ -79,6 +112,15 @@ async def get_history(
     records   = get_records(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     totals    = get_period_totals(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     reports   = get_reports(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    source = "active"
+    if not reports and not records["entradas"] and not records["salidas"]:
+        archived_records = get_archived_records(uid, periodo, facility_id=facility_id)
+        archived_reports = get_archived_reports(uid, periodo, facility_id=facility_id)
+        if archived_reports or archived_records["entradas"] or archived_records["salidas"]:
+            records = archived_records
+            reports = archived_reports
+            totals = _totals_from_records(records)
+            source = "archived_legacy"
     latest    = reports[0] if reports else None
 
     sat_zip_filename = None
@@ -102,6 +144,7 @@ async def get_history(
         "totals":       totals,
         "report":       latest,
         "zip_filename": sat_zip_filename,
+        "source":       source,
     })
 
 
