@@ -83,6 +83,7 @@ async def operador_cargas_detectadas(
             "proveedor": cfdi.get("nombre_emisor") or row.get("proveedor_id") or "Proveedor por confirmar",
             "rfc_proveedor": cfdi.get("rfc_emisor") or "",
             "empresa": empresa_nombre,
+            "origen_detectado": row.get("origen_detectado") or cfdi.get("nombre_emisor") or "Por confirmar",
             "destino_detectado": row.get("destino_detectado") or "Por confirmar",
             "producto_detectado": row.get("producto_detectado") or "Por confirmar",
             "litros_detectados": row.get("litros_detectados"),
@@ -90,6 +91,7 @@ async def operador_cargas_detectadas(
             "uuid": cfdi.get("uuid") or "",
             "fecha_detectada": row.get("fecha_detectada") or cfdi.get("fecha"),
             "confidence_score": row.get("confidence_score") or 0,
+            "assigned_operator_id": row.get("assigned_operator_id"),
         }
         if _matches(item, search):
             loads.append(item)
