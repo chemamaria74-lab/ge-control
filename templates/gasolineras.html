@@ -513,7 +513,20 @@ async function loadRoadmap(){
   roadmapRows.innerHTML=(d.sprints||[]).map(s=>`<div class="item"><i class="fa-solid fa-layer-group"></i><div><b>Sprint ${s.sprint}: ${s.nombre}</b><span class="muted">${s.items.join(' · ')}</span></div></div>`).join('');
 }
 
-async function logout(){ await fetch('/api/auth/logout',{method:'POST',headers:headers(false)}).catch(()=>{}); localStorage.removeItem('zc_token'); localStorage.removeItem('sat_token'); location.href='/choice'; }
+async function logout(){
+  try{
+    const res = await fetch('/api/auth/logout',{method:'POST',headers:headers(false)});
+    if(!res.ok){
+      const data = await res.json().catch(()=>({}));
+      alert(data.detail || 'No se pudo cerrar la sesión en servidor. Se limpiará esta sesión local.');
+    }
+  }catch(e){
+    alert('No se pudo contactar al servidor para cerrar sesión. Se limpiará esta sesión local.');
+  }
+  localStorage.removeItem('zc_token');
+  localStorage.removeItem('sat_token');
+  location.href='/choice';
+}
 init();
 </script>
 </body>

@@ -2900,7 +2900,15 @@ document.getElementById('loginPass').addEventListener('keydown', e => {
 });
 
 document.getElementById('btnLogout').addEventListener('click', async () => {
-  await fetch('/api/auth/logout', { method: 'POST', headers: authHeader() }).catch(()=>{});
+  try {
+    const res = await fetch('/api/auth/logout', { method: 'POST', headers: authHeader() });
+    if (!res.ok) {
+      const data = await res.json().catch(()=>({}));
+      alert(data.detail || 'No se pudo cerrar la sesión en servidor. Se limpiará esta sesión local.');
+    }
+  } catch(e) {
+    alert('No se pudo contactar al servidor para cerrar sesión. Se limpiará esta sesión local.');
+  }
   clearSession();
   window.location.href = '/choice';
 });

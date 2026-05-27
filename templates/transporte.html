@@ -3870,8 +3870,18 @@ async function eliminarCliente(id) {
 }
 
 // ─── LOGOUT ─────────────────────────────────────────────
-function logout() {
+async function logout() {
+  try{
+    const res = await fetch('/api/auth/logout', {method:'POST', headers:authHeaders()});
+    if(!res.ok){
+      const data = await res.json().catch(()=>({}));
+      alert(data.detail || 'No se pudo cerrar la sesión en servidor. Se limpiará esta sesión local.');
+    }
+  }catch(e){
+    alert('No se pudo contactar al servidor para cerrar sesión. Se limpiará esta sesión local.');
+  }
   localStorage.removeItem('zc_token');
+  localStorage.removeItem('sat_token');
   location.href = '/login/transporte';
 }
 </script>

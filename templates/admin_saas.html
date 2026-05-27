@@ -637,9 +637,13 @@ async function deleteUserSafe(userId){
 }
 async function deleteTestUser(userId){
   try{
-    const d=await api('/users/'+encodeURIComponent(userId)+'/delete-preview',{headers:H(false)});
-    if(!d.preview?.test_delete_allowed) return alert('Este usuario no está marcado como test/example/demo y el ambiente no permite eliminación de prueba.');
-    if(!confirm(deleteSummary(d.preview)+'\n\nModo: ELIMINAR USUARIO DE PRUEBA. Esto limpia historial dummy y auth.users sin receptor.')) return;
+    const d=await api('/repair/user/'+encodeURIComponent(userId)+'/inspect',{headers:H(false)});
+    const inspection=d.inspection||{};
+    const testText=JSON.stringify([inspection.auth_user, inspection.tenant_ids, inspection.perfiles]).toLowerCase();
+    const allowed=['example','test','demo','prueba','dummy','sandbox','smoke','phase2','phase3'].some(m=>testText.includes(m));
+    if(!allowed) return alert('Este usuario no está marcado como test/example/demo/smoke y el ambiente no permite eliminación de prueba.');
+    const preview={user:inspection.auth_user||{}, roles:inspection.user_sections||[], companies:inspection.perfiles||[], counts:inspection.counts||{}};
+    if(!confirm(deleteSummary(preview)+'\n\nModo: ELIMINAR USUARIO DE PRUEBA/SMOKE. Esto limpia historial dummy y auth.users sin receptor.')) return;
     const typed=prompt('Para confirmar escribe PRUEBA');
     if((typed||'').trim().toUpperCase()!=='PRUEBA') return alert('Eliminación cancelada.');
     await api('/users/'+encodeURIComponent(userId)+'/test',{method:'DELETE',headers:H(false)});
@@ -652,7 +656,20 @@ async function deleteTestUser(userId){
 async function repairUser(){ const value=document.getElementById('repairUser').value.trim(); repairResult.textContent='Procesando...'; try{ const d=await api('/repair/user/'+encodeURIComponent(value),{method:'POST',headers:H(false)}); repairResult.textContent=JSON.stringify(d.summary,null,2); await loadDashboard(); await loadUsersHealth(); }catch(e){repairResult.textContent=e.message;} }
 async function inspectUser(){ const value=document.getElementById('repairUser').value.trim(); repairResult.textContent='Inspeccionando...'; try{ const d=await api('/repair/user/'+encodeURIComponent(value)+'/inspect',{headers:H(false)}); repairResult.textContent=JSON.stringify(d.inspection,null,2); }catch(e){repairResult.textContent=e.message;} }
 async function loadAudit(){ const d=await api('/audit',{headers:H(false)}); auditRows.innerHTML=(d.audit||[]).map(a=>`<tr><td>${esc(a.created_at||'')}</td><td><code>${esc(a.actor_user_id||'')}</code></td><td>${esc(a.action)}</td><td>${esc(a.target_type)} <code>${esc(a.target_id||'')}</code></td><td><code>${esc(JSON.stringify(a.detail||{}).slice(0,220))}</code></td></tr>`).join('')||'<tr><td colspan="5">Sin auditoría o tabla no creada.</td></tr>'; }
-function logout(){ localStorage.removeItem('zc_token'); localStorage.removeItem('sat_token'); location.href='/choice'; }
+async function logout(){
+  try{
+    const res = await fetch('/api/auth/logout', {method:'POST', headers:H(false)});
+    if(!res.ok){
+      const data = await res.json().catch(()=>({}));
+      alert(data.detail || 'No se pudo cerrar la sesión en servidor. Se limpiará esta sesión local.');
+    }
+  }catch(e){
+    alert('No se pudo contactar al servidor para cerrar sesión. Se limpiará esta sesión local.');
+  }
+  localStorage.removeItem('zc_token');
+  localStorage.removeItem('sat_token');
+  location.href='/choice';
+}
 init();
 </script>
 </body>
