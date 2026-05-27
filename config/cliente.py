@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 # ── Constantes físicas Gas LP ────────────────────────────────────────────────
-# Factor de conversión Kg a Litros (litros = kg * factor)
-FACTOR_DEFAULT: float = 0.542          # L/kg
+# Factor de densidad Gas LP (kg = litros * factor)
+FACTOR_DEFAULT: float = 0.542          # kg/L
 FACTOR_MIN: float = 0.45
 FACTOR_MAX: float = 0.65
 
@@ -28,7 +28,7 @@ class ConfigCliente:
 
     # Unidades
     unidad_base: UnidadBase = "kg"       # Unidad en que se reporta al SAT
-    factor_de_conversion_kg_a_litros: float = FACTOR_DEFAULT  # Conversión kg → litros
+    factor_de_conversion_kg_a_litros: float = FACTOR_DEFAULT  # Densidad kg/L
 
     # Alertas
     alertar_factor_fuera_rango: bool = True
@@ -38,7 +38,7 @@ class ConfigCliente:
         advertencias = []
         if not (FACTOR_MIN <= self.factor_de_conversion_kg_a_litros <= FACTOR_MAX):
             advertencias.append(
-                f"⚠ Factor de conversión configurado ({self.factor_de_conversion_kg_a_litros} L/kg) fuera del rango "
+                f"⚠ Factor de conversión configurado ({self.factor_de_conversion_kg_a_litros} kg/L) fuera del rango "
                 f"típico del Gas LP ({FACTOR_MIN}–{FACTOR_MAX} L/kg). Verifica el valor."
             )
         if not self.estacion_id:
@@ -46,10 +46,10 @@ class ConfigCliente:
         return advertencias
 
     def kg_a_litros(self, kg: float) -> float:
-        return round(kg * self.factor_de_conversion_kg_a_litros, 4)
+        return round(kg / self.factor_de_conversion_kg_a_litros, 4)
 
     def litros_a_kg(self, litros: float) -> float:
-        return round(litros / self.factor_de_conversion_kg_a_litros, 4)
+        return round(litros * self.factor_de_conversion_kg_a_litros, 4)
 
     def convertir_a_base(self, valor: float, unidad_origen: str) -> float:
         """Convierte `valor` desde `unidad_origen` a la unidad_base del cliente."""
