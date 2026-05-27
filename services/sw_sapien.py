@@ -24,6 +24,7 @@ import base64
 import json
 import logging
 import os
+import re
 import threading
 import time
 import requests
@@ -173,7 +174,7 @@ def _get_token() -> str:
                 data = resp.json()
                 if data.get("status") != "success":
                     raise ValueError(
-                        f"Error de autenticación SW Sapien: {data.get('message', 'Sin detalle')}"
+                        f"Error de autenticación SW Sapien: {_public_pac_error(data.get('message'), fallback='Sin detalle')}"
                     )
                 token = data["data"]["token"]
                 _token_cache["token"]      = token
@@ -185,7 +186,7 @@ def _get_token() -> str:
                 if attempt == 0:
                     time.sleep(1)
 
-        raise ValueError(f"No se pudo obtener token SW Sapien tras 2 intentos: {last_error}")
+        raise ValueError(f"No se pudo obtener token SW Sapien tras 2 intentos: {_public_pac_error(last_error)}")
 
 
 # ── Builder XML CFDI 4.0 + Carta Porte 3.1 ───────────────────────────────────
@@ -352,11 +353,12 @@ def timbrar_cfdi(xml_str: str) -> dict:
         data = resp.json()
 
         if data.get("status") != "success":
+            public_error = _public_pac_error(data.get("message") or data.get("messageDetail"), fallback="Error desconocido SW Sapien")
             result = {
                 "uuid": "", "xml_timbrado": "", "pdf_url": "",
-                "error": data.get("message") or data.get("messageDetail") or "Error desconocido SW Sapien",
+                "error": public_error,
             }
-            record_pac_response(request_id=audit_request_id, response_payload=data, status="error", error_message=result["error"])
+            record_pac_response(request_id=audit_request_id, response_payload=data, status="error", error_message=public_error)
             return result
 
         result_data = data.get("data", {}) or {}
@@ -388,8 +390,9 @@ def timbrar_cfdi(xml_str: str) -> dict:
             logger.warning("timbrar_cfdi bloqueado: %s", e)
         else:
             logger.error("timbrar_cfdi error: %s", e)
-        record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=str(e))
-        return {"uuid": "", "xml_timbrado": "", "pdf_url": "", "error": str(e)}
+        public_error = _public_pac_error(e)
+        record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=public_error)
+        return {"uuid": "", "xml_timbrado": "", "pdf_url": "", "error": public_error}
 
 
 def emitir_timbrar_json(cfdi_dict: dict) -> dict:
@@ -429,12 +432,13 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
         except Exception:
             data = {"status": "error", "message": resp.text}
         if resp.status_code >= 400 or data.get("status") != "success":
+            public_error = _public_pac_error(data.get("message") or data.get("messageDetail") or resp.text, fallback="SW Sapien rechazó el CFDI.")
             result = {
                 "ok": False,
-                "error": data.get("message") or data.get("messageDetail") or resp.text,
+                "error": public_error,
                 "raw": data,
             }
-            record_pac_response(request_id=audit_request_id, response_payload=data, status="error", error_message=result["error"])
+            record_pac_response(request_id=audit_request_id, response_payload=data, status="error", error_message=public_error)
             return result
         result = {"ok": True, "data": data.get("data") or {}, "raw": data}
         result_data = result["data"]
@@ -459,8 +463,9 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
             logger.warning("emitir_timbrar_json bloqueado: %s", e)
         else:
             logger.error("emitir_timbrar_json error: %s", e)
-        record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=str(e))
-        return {"ok": False, "error": str(e)}
+        public_error = _public_pac_error(e)
+        record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=public_error)
+        return {"ok": False, "error": public_error}
 
 
 def _xml_needs_issue(xml_str: str) -> bool:
@@ -580,7 +585,7 @@ def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02", uuid_susti
         result = {
             "ok":     ok,
             "status": "Cancelada" if ok else "Error",
-            "error":  None if ok else (data.get("message") or "Error desconocido"),
+            "error":  None if ok else _public_pac_error(data.get("message") or data.get("messageDetail"), fallback="Error desconocido"),
             "acuse": acuse,
             "pac_request_id": audit_request_id,
             "pac_response_id": None,
@@ -601,8 +606,9 @@ def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02", uuid_susti
             logger.warning("cancelar_cfdi bloqueado: %s", e)
         else:
             logger.error("cancelar_cfdi error: %s", e)
-        pac_response_id = record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=str(e))
-        return {"ok": False, "status": "Error", "error": str(e), "acuse": "", "pac_request_id": audit_request_id, "pac_response_id": pac_response_id}
+        public_error = _public_pac_error(e)
+        pac_response_id = record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=public_error)
+        return {"ok": False, "status": "Error", "error": public_error, "acuse": "", "pac_request_id": audit_request_id, "pac_response_id": pac_response_id}
 
 
 def _hash_text(value: str) -> str:
@@ -625,3 +631,30 @@ def _extract_cancel_ack(data: dict) -> str:
         if value:
             return str(value)
     return json.dumps(data, ensure_ascii=False, default=str)
+
+
+def _public_pac_error(value: object, *, fallback: str = "Error controlado de PAC. Revisa la auditoría fiscal para el detalle técnico.") -> str:
+    """Return a short user-facing PAC error without raw XML, HTML, traces or tokens."""
+    raw = str(value or "").strip()
+    if not raw:
+        return fallback
+    lowered = raw.lower()
+    sensitive_markers = (
+        "traceback",
+        "stack trace",
+        "<html",
+        "<!doctype",
+        "<?xml",
+        "<cfdi:",
+        "authorization:",
+        "bearer ",
+        "token",
+        "password",
+        "b64pfx",
+        "-----begin",
+    )
+    if any(marker in lowered for marker in sensitive_markers):
+        return fallback
+    compact = re.sub(r"\s+", " ", raw)
+    compact = re.sub(r"https?://\S+", "[url]", compact)
+    return compact[:280]

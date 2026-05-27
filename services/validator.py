@@ -165,7 +165,7 @@ def validate(
         alertas.append(
             f"⚠ Mezcla de unidades detectada ({unidades_presentes}). "
             f"Se convertirá todo a '{config.unidad_base}' usando factor "
-            f"{config.factor_de_conversion_kg_a_litros} L/kg."
+            f"{config.factor_de_conversion_kg_a_litros} kg/L."
         )
     else:
         logs.append(f"Unidad uniforme: {unidades_presentes[0]}.")
