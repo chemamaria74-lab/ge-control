@@ -33,7 +33,7 @@ def extraer_info_pdf(xml_content: str | bytes) -> CartaPortePdfInfo:
     uuid = _attr(timbre, "UUID", "sin_uuid")
     id_ccp = _attr(carta, "IdCCP", "")
     safe = (uuid or id_ccp or "carta_porte").replace("/", "_")
-    return CartaPortePdfInfo(uuid=uuid, id_ccp=id_ccp, has_carta_porte=carta is not None, filename=f"carta_porte_{safe}.pdf")
+    return CartaPortePdfInfo(uuid=uuid, id_ccp=id_ccp, has_carta_porte=carta is not None, filename=f"{safe}.pdf")
 
 
 def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: str = "") -> bytes:

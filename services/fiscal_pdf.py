@@ -6,6 +6,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 from typing import Any
 from urllib.parse import quote_plus
@@ -30,8 +31,9 @@ def fiscal_pdf_info(xml_content: str | bytes, prefix: str = "cfdi") -> FiscalPdf
     serie = _attr(root, "Serie", "")
     folio = _attr(root, "Folio", "")
     tipo = _attr(root, "TipoDeComprobante", "")
-    safe = _safe_name(uuid or f"{serie}_{folio}" or prefix)
-    return FiscalPdfInfo(uuid=uuid, tipo=tipo, serie_folio=f"{serie}/{folio}".strip("/"), filename=f"{prefix}_{safe}.pdf")
+    safe_uuid = _safe_name(uuid) if uuid and uuid != "sin_uuid" else ""
+    safe = safe_uuid or f"{prefix}_{_safe_name(f'{serie}_{folio}' or prefix)}"
+    return FiscalPdfInfo(uuid=uuid, tipo=tipo, serie_folio=f"{serie}/{folio}".strip("/"), filename=f"{safe}.pdf")
 
 
 def generar_pdf_cfdi_desde_xml(
@@ -64,7 +66,8 @@ def generar_pdf_cfdi_desde_xml(
     retenciones = _root_tax_nodes(root, "Retencion")
 
     buffer = BytesIO()
-    if not logo_data_url:
+    using_default_logo = not logo_data_url
+    if using_default_logo:
         logo_data_url = _default_logo_data_url()
 
     doc = SimpleDocTemplate(
@@ -84,12 +87,15 @@ def generar_pdf_cfdi_desde_xml(
     styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.2, leading=7.3))
     styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=7.2, leading=8.7))
     styles.add(ParagraphStyle(name="SmallBold", parent=styles["Small"], fontName="Helvetica-Bold"))
+    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=colors.white))
+    styles.add(ParagraphStyle(name="HeaderSmallBold", parent=styles["SmallBold"], textColor=colors.white))
 
     qr = _qr_flowable(_url_qr_fiscal(root, emisor, receptor, timbre), Image)
     logo = _logo_flowable(logo_data_url, Image)
+    logo_cell = _logo_header_cell(logo, Table, TableStyle, colors) if using_default_logo else logo
     story = []
     header_left = [
-        logo or Paragraph("<b>GE Control</b><br/><font size='7'>Representación fiscal</font>", styles["Brand"]),
+        logo_cell or Paragraph("<b>GE Control</b><br/><font size='7'>Representación fiscal</font>", styles["Brand"]),
         Spacer(1, 4),
         Paragraph(
             f"<b>{_text(_attr(emisor, 'Nombre'))}</b><br/>"
@@ -295,8 +301,8 @@ def _summary_box(root, timbre, Paragraph, styles, colors, Table, TableStyle):
 def _party_table(root, emisor, receptor, Paragraph, styles, colors, Table, TableStyle):
     data = [
         [
-            Paragraph("<b>CLIENTE / RECEPTOR</b>", styles["SmallBold"]),
-            Paragraph("<b>DATOS DEL COMPROBANTE</b>", styles["SmallBold"]),
+            Paragraph("<b>CLIENTE / RECEPTOR</b>", styles["HeaderSmallBold"]),
+            Paragraph("<b>DATOS DEL COMPROBANTE</b>", styles["HeaderSmallBold"]),
         ],
         [
             Paragraph(
@@ -343,12 +349,12 @@ def _kv_table(title, rows, Table, TableStyle, Paragraph, styles, colors):
 def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors):
     span_rows = []
     data = [[
-        Paragraph("<b>CANTIDAD</b>", styles["Tiny"]),
-        Paragraph("<b>UNIDAD</b>", styles["Tiny"]),
-        Paragraph("<b>CLAVE</b>", styles["Tiny"]),
-        Paragraph("<b>DESCRIPCIÓN</b>", styles["Tiny"]),
-        Paragraph("<b>P. UNITARIO</b>", styles["Tiny"]),
-        Paragraph("<b>IMPORTE</b>", styles["Tiny"]),
+        Paragraph("<b>CANTIDAD</b>", styles["HeaderTiny"]),
+        Paragraph("<b>UNIDAD</b>", styles["HeaderTiny"]),
+        Paragraph("<b>CLAVE</b>", styles["HeaderTiny"]),
+        Paragraph("<b>DESCRIPCIÓN</b>", styles["HeaderTiny"]),
+        Paragraph("<b>P. UNITARIO</b>", styles["HeaderTiny"]),
+        Paragraph("<b>IMPORTE</b>", styles["HeaderTiny"]),
     ]]
     for c in conceptos[:35]:
         data.append([
@@ -486,12 +492,59 @@ def _sum_attr(nodes: list, attr: str) -> str:
 
 def _amount_label(total: str, moneda: str) -> str:
     try:
-        value = float(str(total).replace(",", ""))
+        value = Decimal(str(total).replace(",", "")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         entero = int(value)
-        centavos = int(round((value - entero) * 100))
-        return f"{entero:,} PESOS {centavos:02d}/100 {moneda or 'MXN'}"
+        centavos = int((value - Decimal(entero)) * 100)
+        currency = (moneda or "MXN").upper()
+        unidad = "PESO" if entero == 1 and currency == "MXN" else "PESOS"
+        return f"{_numero_a_letras(entero).upper()} {unidad} {centavos:02d}/100 {currency}"
     except Exception:
         return f"{total} {moneda or 'MXN'}"
+
+
+def _numero_a_letras(value: int) -> str:
+    if value == 0:
+        return "cero"
+    if value < 0:
+        return "menos " + _numero_a_letras(abs(value))
+
+    unidades = (
+        "cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve",
+        "diez", "once", "doce", "trece", "catorce", "quince", "dieciseis", "diecisiete",
+        "dieciocho", "diecinueve", "veinte", "veintiuno", "veintidos", "veintitres",
+        "veinticuatro", "veinticinco", "veintiseis", "veintisiete", "veintiocho", "veintinueve",
+    )
+    decenas = ("", "", "veinte", "treinta", "cuarenta", "cincuenta", "sesenta", "setenta", "ochenta", "noventa")
+    centenas = ("", "ciento", "doscientos", "trescientos", "cuatrocientos", "quinientos", "seiscientos", "setecientos", "ochocientos", "novecientos")
+
+    def under_thousand(n: int) -> str:
+        if n < 30:
+            return unidades[n]
+        if n == 100:
+            return "cien"
+        if n < 100:
+            d, u = divmod(n, 10)
+            return decenas[d] if u == 0 else f"{decenas[d]} y {unidades[u]}"
+        c, rest = divmod(n, 100)
+        return centenas[c] if rest == 0 else f"{centenas[c]} {under_thousand(rest)}"
+
+    def chunk(n: int, singular: str, plural: str) -> str:
+        if n == 0:
+            return ""
+        if n == 1:
+            return singular
+        return f"{_numero_a_letras(n)} {plural}"
+
+    millones, rem = divmod(value, 1_000_000)
+    miles, cientos = divmod(rem, 1000)
+    parts = []
+    if millones:
+        parts.append(chunk(millones, "un millon", "millones"))
+    if miles:
+        parts.append("mil" if miles == 1 else f"{under_thousand(miles)} mil")
+    if cientos:
+        parts.append(under_thousand(cientos))
+    return " ".join(parts)
 
 
 def _cadena_original_tfd(timbre) -> str:
@@ -599,7 +652,7 @@ def _qr_flowable(url: str, Image):
 
 
 def _default_logo_data_url() -> str:
-    path = os.path.join(os.getcwd(), "static", "img", "ge-isotype.png")
+    path = os.path.join(os.getcwd(), "static", "img", "ge-isotype-light.png")
     try:
         with open(path, "rb") as fh:
             raw = base64.b64encode(fh.read()).decode("ascii")
@@ -617,3 +670,19 @@ def _logo_flowable(data_url: str, Image):
         return Image(buf, width=1.1 * 72, height=0.62 * 72, kind="proportional")
     except Exception:
         return None
+
+
+def _logo_header_cell(logo, Table, TableStyle, colors):
+    if not logo:
+        return None
+    table = Table([[logo]], colWidths=[1.45 * 72], rowHeights=[0.54 * 72])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#631422")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    return table
