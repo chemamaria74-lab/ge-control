@@ -37,6 +37,8 @@ from services.cfdi_parser import parse_xml, parse_zip
 from services.database import (
     delete_period,
     get_facility,
+    get_records,
+    get_reports,
     init_db,
     save_records,
     save_report,
@@ -601,6 +603,16 @@ async def _upload_cfdi_impl(
             facility_id=fid,
             perfil_id=perfil_id,
         )
+        persisted = get_records(user_id, periodo, facility_id=fid, perfil_id=perfil_id)
+        persisted_reports = get_reports(user_id, periodo, facility_id=fid, perfil_id=perfil_id)
+        persisted_count = len(persisted.get("entradas") or []) + len(persisted.get("salidas") or [])
+        expected_count = len(compras_cfdi) + len(ventas_cfdi) + len(autoconsumos_meta)
+        if expected_count and persisted_count < expected_count:
+            raise RuntimeError(
+                f"Verificacion de historial falló: se leen {persisted_count}/{expected_count} registros guardados."
+            )
+        if not persisted_reports:
+            raise RuntimeError("Verificacion de historial falló: no se lee el reporte SAT guardado.")
         todos_logs.append(f"Archivos guardados: {file_info.get('json_name', '')}")
     except Exception as e:
         todos_errores.append(f"No se pudieron guardar archivos/registros del reporte SAT: {e}")
