@@ -91,12 +91,12 @@ class GasLpInternalFacturaPayload(BaseModel):
     concepto: str = "LITRO DE GAS LP"
     descuento: float = 0
     iva_rate: float = 0.16
-    serie: str = "GLP"
+    serie: str = "AA"
     folio: str = ""
     fecha: str = ""
     clave_prod_serv: str = "15111510"
-    no_identificacion: str = "001"
-    unidad: str = "LITRO GAS"
+    no_identificacion: str = "GLP-LTR"
+    unidad: str = "Litro"
     forma_pago: str = "99"
     metodo_pago: str = "PUE"
     facility_id: Optional[int] = None
@@ -352,12 +352,12 @@ def _build_gas_lp_consumo_xml(
     metodo_pago: str,
     descuento=0,
     iva_rate=0.16,
-    serie: str = "GLP",
+    serie: str = "AA",
     folio: str = "",
     fecha: str = "",
     clave_prod_serv: str = "15111510",
-    no_identificacion: str = "001",
-    unidad: str = "LITRO GAS",
+    no_identificacion: str = "GLP-LTR",
+    unidad: str = "Litro",
 ) -> tuple[str, dict]:
     qty = Decimal(str(litros or 0)).quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP)
     unit = Decimal(str(precio_unitario or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
@@ -375,13 +375,13 @@ def _build_gas_lp_consumo_xml(
     base = _money(subtotal - discount)
     iva = _money(base * tax_rate)
     total = _money(base + iva)
-    serie = (serie or "GLP").strip().upper()[:10] or "GLP"
+    serie = (serie or "AA").strip().upper()[:10] or "AA"
     folio = (folio or datetime.now().strftime("%Y%m%d%H%M%S")).strip()[:40]
     fecha = (fecha or datetime.now().strftime("%Y-%m-%dT%H:%M:%S")).strip()[:19]
     desc = concepto.strip() or "LITRO DE GAS LP"
     clave_prod_serv = "".join(ch for ch in str(clave_prod_serv or "15111510").strip() if ch.isdigit())[:8] or "15111510"
-    no_identificacion = str(no_identificacion or "001").strip()[:100] or "001"
-    unidad = str(unidad or "LITRO GAS").strip()[:20] or "LITRO GAS"
+    no_identificacion = str(no_identificacion or "GLP-LTR").strip()[:100] or "GLP-LTR"
+    unidad = str(unidad or "Litro").strip()[:20] or "Litro"
     descuento_root = f' Descuento="{discount:.2f}"' if discount > 0 else ""
     descuento_concepto = f' Descuento="{discount:.2f}"' if discount > 0 else ""
     tasa = f"{tax_rate:.6f}"
