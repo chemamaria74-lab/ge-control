@@ -190,7 +190,7 @@
     if(!section || section.querySelector(".gaso-ai-panel")) return;
     const panel = section.querySelector(".section-hdr") || section.firstElementChild;
     if(panel){
-      panel.insertAdjacentHTML("afterend", `<div class="card gaso-ai-panel" style="margin-bottom:14px"><h2>AI Insights contextual</h2><p>Preparado para responder con datos del tenant, perfil activo, rol y modulo. Si no hay API key configurada, muestra informe ejecutivo deterministico sin enviar datos fuera.</p><span class="gaso-ai-chip">Tenant safe</span><span class="gaso-ai-chip">Rol aware</span><span class="gaso-ai-chip">No cross-company data</span><span class="gaso-ai-chip">Fallback sin API key</span></div>`);
+      panel.insertAdjacentHTML("afterend", `<div class="card gaso-ai-panel" style="margin-bottom:14px"><h2>AI Insights contextual</h2><p>Preparado para responder con datos del tenant, perfil activo, rol y modulo. Si no hay API key configurada, muestra informe ejecutivo local sin enviar datos fuera.</p><span class="gaso-ai-chip">Tenant safe</span><span class="gaso-ai-chip">Rol aware</span><span class="gaso-ai-chip">No cross-company data</span><span class="gaso-ai-chip">Informe local</span></div>`);
     }
   }
 

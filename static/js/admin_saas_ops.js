@@ -87,7 +87,8 @@
     renderOps360();
   }
 
-  function tenantUsers(tid){ return state.users.filter(u => (u.tenant_ids || []).map(String).includes(String(tid))); }
+  function isGeAdminUser(u){ return String(u?.email || "").toLowerCase() === "superadmin@gmail.com" || u?.is_ge_admin === true; }
+  function tenantUsers(tid){ return state.users.filter(u => !isGeAdminUser(u) && (u.tenant_ids || []).map(String).includes(String(tid))); }
   function tenantCompanies(tid){ return state.companies.filter(c => String(c.tenant_id || "") === String(tid)); }
   function tenantInternal(tid, section){ return state.internal.filter(u => String(u.tenant_id || "") === String(tid) && (!section || u.section === section)); }
   function moduleRows(tid, section){ return tenantUsers(tid).flatMap(u => (u.modules || []).filter(m => m.section === section).map(m => ({...m, user:u}))); }
@@ -154,7 +155,7 @@
   }
 
   function renderModuleUser(t, key, r){
-    return `<div class="ops-row"><div><b>${esc(r.user.email || short(r.user.user_id))}</b><small>${esc(r.role)} · ${esc(r.status)} · perfil ${esc(r.perfil_id || "—")}</small></div><div class="ops-actions"><button class="btn btn-ghost" onclick="AdminOps.editRole('${esc(r.user.user_id)}','${key}','${esc(t.id)}','${esc(r.perfil_id || "")}')">Editar rol</button><button class="btn btn-danger" onclick="AdminOps.disableUser('${esc(r.user.user_id)}')">Desactivar</button><button class="btn btn-danger" onclick="AdminOps.deleteUserTest('${esc(r.user.user_id)}')">Eliminar test</button></div></div>`;
+    return `<div class="ops-row"><div><b>${esc(r.user.email || short(r.user.user_id))}</b><small>${esc(r.role)} · ${esc(r.status)} · perfil ${esc(r.perfil_id || "—")}</small></div><div class="ops-actions"><button class="btn btn-ghost" onclick="AdminOps.editRole('${esc(r.user.user_id)}','${key}','${esc(t.id)}','${esc(r.perfil_id || "")}')">Editar rol</button><button class="btn btn-danger" onclick="AdminOps.disableUser('${esc(r.user.user_id)}')">Desactivar</button></div></div>`;
   }
 
   function roleOptions(section){
