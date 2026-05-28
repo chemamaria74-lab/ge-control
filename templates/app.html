@@ -1889,6 +1889,11 @@ tr:hover td{background:#f8fafc}
     <div class="field"><label>Factor de Conversión (Kg a Litros)</label>
       <input id="factor_conversion" type="number" step="0.001" min="0.4" max="2.0" placeholder="0.542"></div>
     <div class="field">
+      <label>Precio vigente de venta ($/L)</label>
+      <input id="precio_venta_litro" type="number" step="0.000001" min="0" placeholder="Ej. 11.05">
+      <div id="precio_venta_hint" style="font-size:.63rem;color:#6b7280;margin-top:.25rem">Lo usa el asistente de facturación Gas LP; se guarda por empresa activa.</div>
+    </div>
+    <div class="field">
       <label>Logo para PDF fiscal</label>
       <input id="pdf_logo_file" type="file" accept="image/png,image/jpeg,image/webp" onchange="cargarLogoPdfGasLp(event)">
       <input id="pdf_logo_data" type="hidden">
@@ -3423,6 +3428,15 @@ async function loadSettings() {
     if (provEl) provEl.value = data.RfcProveedor || '';
     const factorEl = document.getElementById('factor_conversion');
     if (factorEl) factorEl.value = data.FactorDeConversionKgALitros ?? 0.542;
+    const precioEl = document.getElementById('precio_venta_litro');
+    if (precioEl) precioEl.value = data.PrecioVentaLitroGasLp ? Number(data.PrecioVentaLitroGasLp) : '';
+    const precioHint = document.getElementById('precio_venta_hint');
+    if (precioHint) {
+      const upd = data.PrecioVentaLitroGasLpUpdatedAt ? String(data.PrecioVentaLitroGasLpUpdatedAt).slice(0,16).replace('T',' ') : '';
+      precioHint.textContent = upd
+        ? `Precio vigente para asistentes. Última actualización: ${upd}.`
+        : 'Lo usa el asistente de facturación Gas LP; se guarda por empresa activa.';
+    }
     setLogoPdfGasLp(data.PdfLogoDataUrl || '');
     actualizarRfcHint();
     _actualizarRfcAutoconsumo();
@@ -3465,8 +3479,11 @@ async function saveSettings() {
   const repVal  = normalizarRfc(document.getElementById('sat_rfc_rep')?.value);
   const provVal = normalizarRfc(document.getElementById('sat_rfc_prov')?.value);
   const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
+  const precioVal = parseNum(document.getElementById('precio_venta_litro')?.value, 0);
   const logoVal = document.getElementById('pdf_logo_data')?.value || '';
-  const payload = { FactorDeConversionKgALitros: factorVal, PdfLogoDataUrl: logoVal };
+  const previousPrice = Number(_appState.settings?.PrecioVentaLitroGasLp || 0);
+  const payload = { FactorDeConversionKgALitros: factorVal, PdfLogoDataUrl: logoVal, PrecioVentaLitroGasLp: precioVal };
+  if (Number(precioVal || 0) !== previousPrice) payload.PrecioVentaLitroGasLpUpdatedAt = new Date().toISOString();
   if (rfcVal)  payload.RfcContribuyente      = rfcVal;
   if (repVal)  payload.RfcRepresentanteLegal  = repVal;
   if (provVal) payload.RfcProveedor           = provVal;
