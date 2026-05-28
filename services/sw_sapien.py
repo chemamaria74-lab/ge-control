@@ -369,11 +369,19 @@ def timbrar_cfdi(xml_str: str) -> dict:
             headers = {"Authorization": f"Bearer {token}"}
             files = {"xml": ("cfdi.xml", xml_str.encode("utf-8"), "text/xml")}
             resp = requests.post(SW_XML_STAMP_URL, files=files, headers=headers, timeout=45)
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"status": "error", "message": resp.text}
 
-        if data.get("status") != "success":
-            public_error = _public_pac_error(data.get("message") or data.get("messageDetail"), fallback="Error desconocido SW Sapien")
+        if resp.status_code >= 400 or data.get("status") != "success":
+            public_error = _public_pac_error(
+                data.get("message")
+                or data.get("messageDetail")
+                or data.get("messageDetailList")
+                or resp.text,
+                fallback="SW Sapien rechazó el CFDI.",
+            )
             result = {
                 "uuid": "", "xml_timbrado": "", "pdf_url": "",
                 "error": public_error,
@@ -683,5 +691,6 @@ def _public_pac_error(value: object, *, fallback: str = "Error controlado de PAC
     if any(marker in lowered for marker in sensitive_markers):
         return fallback
     compact = re.sub(r"\s+", " ", raw)
-    compact = re.sub(r"https?://\S+", "[url]", compact)
+    if "bad request for url" not in compact.lower():
+        compact = re.sub(r"https?://\S+", "[url]", compact)
     return compact[:280]
