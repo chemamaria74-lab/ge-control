@@ -1912,7 +1912,7 @@ tr:hover td{background:#f8fafc}
       <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Solo personas morales. Si se captura, se incluye en el nodo raíz del reporte mensual SAT con prioridad alta.</div>
     </div>
     <div class="field"><label>RFC Proveedor SAT (constante)</label>
-      <input id="sat_rfc_prov" placeholder="Ej. PCO960701A49"></div>
+      <input id="sat_rfc_prov" value="XAXX010101000" readonly></div>
   </div>
   <div class="grid3" style="margin-top:.8rem">
     <div class="field"><label>Factor de Conversión (Kg a Litros)</label>
@@ -3024,7 +3024,7 @@ async function cargarPerfiles(intentos = 1, force = false) {
   perfilesRequestPromise = (async () => {
   for (let i = 0; i < intentos; i++) {
     try {
-      const res = await fetch('/api/perfiles', { headers: authHeader() });
+      const res = await fetch('/api/perfiles?module=gas_lp', { headers: authHeader() });
       if (res.ok) {
         const data = await res.json();
         subscriptionUsage = data.subscription || subscriptionUsage;
@@ -3398,7 +3398,7 @@ async function guardarNuevoPerfil() {
   if (!nombre) { if (errEl) errEl.textContent = 'El nombre es obligatorio.'; return; }
   if (!rfc)    { if (errEl) errEl.textContent = 'El RFC es obligatorio.'; return; }
   try {
-    const res = await fetch('/api/perfiles', {
+    const res = await fetch('/api/perfiles?module=gas_lp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ nombre, rfc, descripcion: desc }),
@@ -3493,7 +3493,10 @@ async function loadSettings() {
     const repEl = document.getElementById('sat_rfc_rep');
     if (repEl) repEl.value = data.RfcRepresentanteLegal || '';
     const provEl = document.getElementById('sat_rfc_prov');
-    if (provEl) provEl.value = data.RfcProveedor || '';
+    if (provEl) {
+      provEl.value = 'XAXX010101000';
+      provEl.readOnly = true;
+    }
     const factorEl = document.getElementById('factor_conversion');
     if (factorEl) factorEl.value = data.FactorDeConversionKgALitros ?? 0.542;
     const precioEl = document.getElementById('precio_venta_litro');
@@ -3548,7 +3551,7 @@ async function saveSettings() {
   const cpVal = String(document.getElementById('codigo_postal_fiscal')?.value || '').replace(/\D/g, '').slice(0, 5);
   const regimenVal = String(document.getElementById('regimen_fiscal_emisor')?.value || '601').trim();
   const repVal  = normalizarRfc(document.getElementById('sat_rfc_rep')?.value);
-  const provVal = normalizarRfc(document.getElementById('sat_rfc_prov')?.value);
+  const provVal = 'XAXX010101000';
   const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
   const precioVal = parseNum(document.getElementById('precio_venta_litro')?.value, 0);
   const logoVal = document.getElementById('pdf_logo_data')?.value || '';
@@ -3563,7 +3566,7 @@ async function saveSettings() {
   if (cpVal) payload.CodigoPostal = cpVal;
   if (regimenVal) payload.RegimenFiscal = regimenVal;
   if (repVal)  payload.RfcRepresentanteLegal  = repVal;
-  if (provVal) payload.RfcProveedor           = provVal;
+  payload.RfcProveedor = provVal;
   if (!repVal) payload.RfcRepresentanteLegal  = '';
   try {
     const res  = await fetch('/api/settings', {
@@ -6960,7 +6963,7 @@ async function guardarEmpresaOnboarding() {
   if (btn) { btn.disabled = true; btn.style.opacity = '.7'; }
 
   try {
-    const res = await fetch('/api/perfiles', {
+    const res = await fetch('/api/perfiles?module=gas_lp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ nombre, rfc, descripcion: '' }),

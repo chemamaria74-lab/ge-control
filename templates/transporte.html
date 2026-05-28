@@ -829,7 +829,7 @@ select option{background:#fff}
         </div>
         <div class="form-group">
           <label>RFC Proveedor programa (SAT)</label>
-          <input type="text" id="cfg-rfc-proveedor" value="ATI9404219D5" maxlength="13">
+          <input type="text" id="cfg-rfc-proveedor" value="XAXX010101000" maxlength="13" readonly>
         </div>
       </div>
       <div class="form-row">
@@ -2067,7 +2067,7 @@ async function cargarConfig() {
   document.getElementById('cfg-modalidad').value       = c.ModalidadPermiso || 'PER51';
   document.getElementById('cfg-clave-inst').value      = c.ClaveInstalacion || '';
   document.getElementById('cfg-num-autotanques').value = VEHICULOS.length || c.NumeroAutotanques || 0;
-  document.getElementById('cfg-rfc-proveedor').value   = c.RfcProveedor || 'ATI9404219D5';
+  document.getElementById('cfg-rfc-proveedor').value   = 'XAXX010101000';
   document.getElementById('cfg-logo-pdf-data').value    = c.PdfLogoDataUrl || '';
   document.getElementById('cfg-logo-pdf-hint').textContent = c.PdfLogoDataUrl ? 'Logo cargado para PDFs fiscales.' : 'Opcional. Se usará como logo del emisor en la representación impresa fiscal.';
   document.getElementById('topbar-rfc').textContent    = c.RfcContribuyente ? `RFC ${c.RfcContribuyente}` : 'RFC —';
@@ -2082,11 +2082,10 @@ async function cargarConfig() {
 
 async function guardarConfig() {
   const btn = document.getElementById('btn-guardar-cfg');
-  let rfcContrib = '', cpContrib = '', rfcProv = '';
+  let rfcContrib = '', cpContrib = '', rfcProv = 'XAXX010101000';
   try {
     rfcContrib = validarRfcCampo(document.getElementById('cfg-rfc').value, 'RFC del contribuyente');
     cpContrib = validarCpCampo(document.getElementById('cfg-cp').value, 'Código postal fiscal');
-    rfcProv = validarRfcCampo(document.getElementById('cfg-rfc-proveedor').value, 'RFC proveedor');
     validarRegimenParaRfc(rfcContrib, document.getElementById('cfg-regimen').value, 'del contribuyente');
   } catch(e) { toast(e.message, 'error'); return; }
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Guardando...';
