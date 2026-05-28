@@ -43,6 +43,13 @@ header i{color:#f8fafc}
 .main-nav-tab.active{color:#1a1a2e;border-bottom-color:#e63946;background:#f8fafc}
 .main-nav-tab:hover:not(.active){color:#374151;background:#f1f5f9}
 .main-panel{display:none}.main-panel.active{display:block}
+.admin-switch,.catalog-switch{display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:1rem}
+.admin-switch button,.catalog-switch button{border:1px solid #e2e8f0;background:#fff;color:#475569;border-radius:999px;padding:.48rem .85rem;font-family:inherit;font-weight:700;font-size:.78rem;cursor:pointer;min-height:0}
+.admin-switch button.active,.catalog-switch button.active{background:#7A1E2C;color:#fff;border-color:#7A1E2C}
+.admin-pane,.catalog-pane{display:none}
+.admin-pane.active,.catalog-pane.active{display:block}
+.compact-actions{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap}
+.compact-actions .btn,.compact-actions button{width:auto;min-height:0}
 .chart-wrap{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1rem 1.2rem;margin-bottom:1.2rem}
 .chart-title{font-size:.82rem;font-weight:700;color:#374151;margin-bottom:.8rem}
 .bar-chart{display:flex;align-items:flex-end;gap:6px;height:180px;padding-bottom:0}
@@ -1878,6 +1885,26 @@ tr:hover td{background:#f8fafc}
   <div class="grid3">
     <div class="field"><label><span data-en="Taxpayer RFC">RFC del Contribuyente</span></label>
       <input id="rfc" value="" placeholder="Ej. ABC010101AAA"></div>
+    <div class="field"><label>Nombre fiscal / Razón social</label>
+      <input id="nombre_fiscal" placeholder="Ej. GAS LUX" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+      <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Este nombre sale como emisor en facturas del asistente.</div>
+    </div>
+    <div class="field"><label>Código postal fiscal</label>
+      <input id="codigo_postal_fiscal" maxlength="5" inputmode="numeric" placeholder="Ej. 64000">
+      <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">También se usa para Público en general.</div>
+    </div>
+  </div>
+  <div class="grid3" style="margin-top:.8rem">
+    <div class="field"><label>Régimen fiscal emisor</label>
+      <select id="regimen_fiscal_emisor">
+        <option value="601">601 - General de Ley Personas Morales</option>
+        <option value="603">603 - Personas Morales con Fines no Lucrativos</option>
+        <option value="605">605 - Sueldos y Salarios</option>
+        <option value="606">606 - Arrendamiento</option>
+        <option value="612">612 - Personas Físicas con Actividades Empresariales</option>
+        <option value="626">626 - RESICO</option>
+      </select>
+    </div>
     <div class="field"><label>RFC Representante Legal <span style="font-size:.68rem;color:#7c3aed;font-weight:600">(→ RfcRepresentanteLegal en JSON)</span></label>
       <input id="sat_rfc_rep" placeholder="Ej. OEMR710420FCA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
       <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Solo personas morales. Si se captura, se incluye en el nodo raíz del reporte mensual SAT con prioridad alta.</div>
@@ -2261,8 +2288,12 @@ tr:hover td{background:#f8fafc}
      PANEL: USUARIOS INTERNOS
      ══════════════════════════════════════════════════════════════════════ -->
 <div class="main-panel" id="mpanel-admin">
+<div class="admin-switch" role="tablist" aria-label="Administración Gas LP">
+  <button class="active" type="button" data-admin-pane="usuarios" onclick="switchGasLpAdminPane('usuarios')"><i class="fa-solid fa-users-gear"></i> Usuarios</button>
+  <button type="button" data-admin-pane="catalogos" onclick="switchGasLpAdminPane('catalogos')"><i class="fa-solid fa-table-list"></i> Catálogos Carta Porte</button>
+</div>
 <!-- Usuarios internos por empresa -->
-<div class="card">
+<div class="card admin-pane active" id="gasAdminPaneUsuarios">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
     <div>
       <h2 style="margin:0"><i class="fa-solid fa-users-gear" style="margin-right:.35rem"></i>Usuarios y permisos</h2>
@@ -2289,7 +2320,7 @@ tr:hover td{background:#f8fafc}
     <div class="field"><label>Usuario</label><input id="gasInternalCode" type="text" placeholder="Ej. MARTHA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
     <div class="field"><label>Contraseña</label><input id="gasInternalPin" type="text" placeholder="Ej. MARTHA"></div>
   </div>
-  <div style="display:flex;align-items:center;gap:.8rem;margin-top:.8rem;flex-wrap:wrap">
+  <div class="compact-actions" style="margin-top:.8rem">
     <button onclick="createInternalUserGasLp()" style="
       padding:.55rem 1.4rem;background:#0f766e;color:#fff;border:none;
       border-radius:8px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.88rem">
@@ -2316,7 +2347,7 @@ tr:hover td{background:#f8fafc}
 </div>
 
 <!-- Catálogos operativos Gas LP -->
-<div class="card">
+<div class="card admin-pane" id="gasAdminPaneCatalogos">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
     <div>
       <h2 style="margin:0"><i class="fa-solid fa-truck-moving" style="margin-right:.35rem"></i>Catálogos Carta Porte</h2>
@@ -2328,7 +2359,13 @@ tr:hover td{background:#f8fafc}
       padding:.4rem .9rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;
       font-size:.78rem;cursor:pointer;font-family:inherit"><i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i> Actualizar</button>
   </div>
+  <div class="catalog-switch" role="tablist" aria-label="Catálogos Carta Porte Gas LP">
+    <button class="active" type="button" data-catalog-pane="vehiculos" onclick="switchGasLpCatalogPane('vehiculos')"><i class="fa-solid fa-truck"></i> Vehículos</button>
+    <button type="button" data-catalog-pane="choferes" onclick="switchGasLpCatalogPane('choferes')"><i class="fa-solid fa-id-card"></i> Choferes</button>
+    <button type="button" data-catalog-pane="rutas" onclick="switchGasLpCatalogPane('rutas')"><i class="fa-solid fa-route"></i> Rutas</button>
+  </div>
 
+  <div class="catalog-pane active" id="gasCatalogPaneVehiculos">
   <div class="grid3" style="align-items:end">
     <div class="field">
       <label>Placas vehículo</label>
@@ -2372,7 +2409,9 @@ tr:hover td{background:#f8fafc}
       <tbody id="gasVehTbody"><tr><td colspan="6" class="hist-empty">Cargando vehículos...</td></tr></tbody>
     </table>
   </div>
+  </div>
 
+  <div class="catalog-pane" id="gasCatalogPaneChoferes">
   <div class="grid2" style="align-items:end">
     <div class="field">
       <label>Nombre chofer</label>
@@ -2403,7 +2442,9 @@ tr:hover td{background:#f8fafc}
       <tbody id="gasChoferTbody"><tr><td colspan="5" class="hist-empty">Cargando choferes...</td></tr></tbody>
     </table>
   </div>
+  </div>
 
+  <div class="catalog-pane" id="gasCatalogPaneRutas">
   <div class="grid3" style="align-items:end">
     <div class="field">
       <label>Nombre ruta</label>
@@ -2441,6 +2482,7 @@ tr:hover td{background:#f8fafc}
       <thead><tr><th>Ruta</th><th>Origen</th><th>Destino</th><th>CPs</th><th>Km</th><th>Acciones</th></tr></thead>
       <tbody id="gasRutaTbody"><tr><td colspan="6" class="hist-empty">Cargando rutas...</td></tr></tbody>
     </table>
+  </div>
   </div>
 </div>
 
@@ -2509,6 +2551,22 @@ function perfilActivoRfc() {
 
 function normalizarRfc(valor) {
   return String(valor || '').trim().toUpperCase();
+}
+
+function switchGasLpAdminPane(pane) {
+  const key = pane === 'catalogos' ? 'catalogos' : 'usuarios';
+  document.querySelectorAll('[data-admin-pane]').forEach(btn => btn.classList.toggle('active', btn.dataset.adminPane === key));
+  document.getElementById('gasAdminPaneUsuarios')?.classList.toggle('active', key === 'usuarios');
+  document.getElementById('gasAdminPaneCatalogos')?.classList.toggle('active', key === 'catalogos');
+  if (key === 'catalogos') loadGasLpCartaPorteCatalogs?.();
+}
+
+function switchGasLpCatalogPane(pane) {
+  const key = ['vehiculos', 'choferes', 'rutas'].includes(pane) ? pane : 'vehiculos';
+  document.querySelectorAll('[data-catalog-pane]').forEach(btn => btn.classList.toggle('active', btn.dataset.catalogPane === key));
+  document.getElementById('gasCatalogPaneVehiculos')?.classList.toggle('active', key === 'vehiculos');
+  document.getElementById('gasCatalogPaneChoferes')?.classList.toggle('active', key === 'choferes');
+  document.getElementById('gasCatalogPaneRutas')?.classList.toggle('active', key === 'rutas');
 }
 
 // Inicializar desde sessionStorage al cargar
@@ -3418,12 +3476,18 @@ async function loadSettings() {
     if (!isCurrentProfileLoad(ctx)) return;
     // Limpiar primero solo si el perfil cambió (appState detectó diferencia)
     // Si es el mismo perfil, actualizar sin limpiar para no borrar input en curso
-    ['rfc','sat_rfc_rep','sat_rfc_prov'].forEach(id => {
+    ['rfc','nombre_fiscal','codigo_postal_fiscal','regimen_fiscal_emisor','sat_rfc_rep','sat_rfc_prov'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
     const rfcEl = document.getElementById('rfc');
     if (rfcEl) rfcEl.value = normalizarRfc(data.RfcContribuyente) || perfilActivoRfc();
+    const nombreEl = document.getElementById('nombre_fiscal');
+    if (nombreEl) nombreEl.value = data.NombreFiscal || data.DescripcionInstalacion || _perfilSeleccionado?.nombre || '';
+    const cpEl = document.getElementById('codigo_postal_fiscal');
+    if (cpEl) cpEl.value = data.CodigoPostal || data.codigo_postal || '';
+    const regimenEl = document.getElementById('regimen_fiscal_emisor');
+    if (regimenEl) regimenEl.value = data.RegimenFiscal || data.regimen_fiscal || '601';
     const repEl = document.getElementById('sat_rfc_rep');
     if (repEl) repEl.value = data.RfcRepresentanteLegal || '';
     const provEl = document.getElementById('sat_rfc_prov');
@@ -3478,6 +3542,9 @@ async function saveSettings() {
   const status = document.getElementById('settingsStatus');
   if (status) status.textContent = '';
   const rfcVal  = normalizarRfc(document.getElementById('rfc')?.value) || perfilActivoRfc();
+  const nombreVal = String(document.getElementById('nombre_fiscal')?.value || '').trim().toUpperCase();
+  const cpVal = String(document.getElementById('codigo_postal_fiscal')?.value || '').replace(/\D/g, '').slice(0, 5);
+  const regimenVal = String(document.getElementById('regimen_fiscal_emisor')?.value || '601').trim();
   const repVal  = normalizarRfc(document.getElementById('sat_rfc_rep')?.value);
   const provVal = normalizarRfc(document.getElementById('sat_rfc_prov')?.value);
   const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
@@ -3487,6 +3554,12 @@ async function saveSettings() {
   const payload = { FactorDeConversionKgALitros: factorVal, PdfLogoDataUrl: logoVal, PrecioVentaLitroGasLp: precioVal };
   if (Number(precioVal || 0) !== previousPrice) payload.PrecioVentaLitroGasLpUpdatedAt = new Date().toISOString();
   if (rfcVal)  payload.RfcContribuyente      = rfcVal;
+  if (nombreVal) {
+    payload.NombreFiscal = nombreVal;
+    payload.DescripcionInstalacion = nombreVal;
+  }
+  if (cpVal) payload.CodigoPostal = cpVal;
+  if (regimenVal) payload.RegimenFiscal = regimenVal;
   if (repVal)  payload.RfcRepresentanteLegal  = repVal;
   if (provVal) payload.RfcProveedor           = provVal;
   if (!repVal) payload.RfcRepresentanteLegal  = '';
