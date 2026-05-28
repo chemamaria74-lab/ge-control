@@ -440,6 +440,9 @@ def _build_gas_lp_consumo_xml(
     descuento_root = f' Descuento="{discount:.2f}"' if discount > 0 else ""
     descuento_concepto = f' Descuento="{discount:.2f}"' if discount > 0 else ""
     tasa = f"{tax_rate:.6f}"
+    info_global_xml = ""
+    if _clean_rfc(receptor.get("rfc")) == "XAXX010101000" and str(receptor.get("nombre") or "").strip().upper() == "PUBLICO EN GENERAL":
+        info_global_xml = '<cfdi:InformacionGlobal Periodicidad="01" Meses="13" Año="' + fecha[:4] + '"/>'
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" '
@@ -448,6 +451,7 @@ def _build_gas_lp_consumo_xml(
         f'Version="4.0" Serie="{xml_escape(serie)}" Folio="{xml_escape(folio)}" Fecha="{xml_escape(fecha)}" FormaPago="{xml_escape(forma_pago or "99")}" '
         f'NoCertificado="" Certificado="" Sello="" SubTotal="{subtotal:.2f}"{descuento_root} Moneda="MXN" Total="{total:.2f}" '
         f'TipoDeComprobante="I" Exportacion="01" MetodoPago="{xml_escape(metodo_pago or "PUE")}" LugarExpedicion="{issuer["cp"]}">'
+        f'{info_global_xml}'
         f'<cfdi:Emisor Rfc="{issuer["rfc"]}" Nombre="{xml_escape(issuer["nombre"])}" RegimenFiscal="{issuer["regimen"]}"/>'
         f'<cfdi:Receptor Rfc="{receptor["rfc"]}" Nombre="{xml_escape(receptor["nombre"])}" '
         f'DomicilioFiscalReceptor="{receptor["cp"]}" RegimenFiscalReceptor="{receptor["regimen_fiscal"]}" UsoCFDI="{receptor["uso_cfdi"]}"/>'
@@ -1571,7 +1575,13 @@ async def gas_lp_internal_crear_factura(
                     "poliza_seguro": (vehiculo_row or {}).get("poliza_seguro") or "",
                 },
                 tipo_comprobante="T",
-                ruta={"distancia_km": distancia_km},
+                ruta={
+                    "distancia_km": distancia_km,
+                    "cp_origen": (ruta_row or {}).get("cp_origen") or origen.get("codigo_postal") or origen.get("cp") or issuer["cp"],
+                    "cp_destino": (ruta_row or {}).get("cp_destino") or destino.get("codigo_postal") or destino.get("cp") or issuer["cp"],
+                    "origen_nombre": origen.get("nombre") or "Origen",
+                    "destino_nombre": destino.get("nombre") or "Destino",
+                },
             )
             resultado = timbrar_cfdi(xml_final)
             if resultado.get("error"):
