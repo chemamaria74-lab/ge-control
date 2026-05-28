@@ -130,6 +130,34 @@ def test_emitir_timbrar_json_returns_controlled_error_but_audits_raw_payload(mon
     assert calls["responses"][0]["error_message"] == result["error"]
 
 
+def test_emitir_timbrar_json_prevalidation_blocks_publico_general_before_pac(monkeypatch):
+    calls = _patch_audit(monkeypatch)
+    post_called = {"value": False}
+
+    def fake_post(*args, **kwargs):
+        post_called["value"] = True
+        return _FakeResponse({"status": "success", "data": {}})
+
+    monkeypatch.setattr(sw_sapien.requests, "post", fake_post)
+
+    result = sw_sapien.emitir_timbrar_json(
+        {
+            "Version": "4.0",
+            "TipoDeComprobante": "I",
+            "Emisor": {"Rfc": "GLU760309457"},
+            "Receptor": {"Rfc": "XAXX010101000", "Nombre": "PUBLICO EN GENERAL"},
+            "Conceptos": [{"ClaveProdServ": "15111510"}],
+        }
+    )
+
+    assert result["ok"] is False
+    assert "Prevalidación fiscal" in result["error"]
+    assert "CFDI40130" in result["error"]
+    assert post_called["value"] is False
+    assert calls["requests"][0]["operation"] == "validate_json"
+    assert calls["responses"][0]["status"] == "error"
+
+
 def test_cancelar_cfdi_controlled_validation_error_records_request_and_response(monkeypatch):
     calls = _patch_audit(monkeypatch)
 
