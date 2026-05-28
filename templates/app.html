@@ -5981,10 +5981,27 @@ function editGasLpRuta(id) {
   document.getElementById('gasRutaDistancia').value = r.distancia_km || 1;
 }
 
+function selectedFacilityLabel(selectId) {
+  const value = document.getElementById(selectId)?.value || '';
+  return value ? findFacilityName(value) : '';
+}
+
 async function saveGasLpRuta() {
   const id = document.getElementById('gasRutaEditId').value;
-  const nombre = document.getElementById('gasRutaNombre').value.trim();
+  let nombre = document.getElementById('gasRutaNombre').value.trim();
+  if (!nombre) {
+    const origen = selectedFacilityLabel('gasRutaOrigen');
+    const destino = selectedFacilityLabel('gasRutaDestino');
+    if (origen && destino) {
+      nombre = `${origen} a ${destino}`;
+      document.getElementById('gasRutaNombre').value = nombre;
+    }
+  }
   if (!nombre) { catalogStatus('gasRutaStatus', 'Captura nombre de ruta.', false); return; }
+  if (!document.getElementById('gasRutaOrigen').value || !document.getElementById('gasRutaDestino').value) {
+    catalogStatus('gasRutaStatus', 'Selecciona origen y destino para que el asistente pueda encontrar la ruta.', false);
+    return;
+  }
   const params = {
     nombre,
     origen_facility_id: document.getElementById('gasRutaOrigen').value || null,

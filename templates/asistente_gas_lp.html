@@ -238,9 +238,12 @@
       const rutas = (CATALOGOS.rutas || []).filter(r => {
         const ro = Number(r.origen_facility_id || 0);
         const rd = Number(r.destino_facility_id || 0);
-        return (!origen || !ro || ro === origen) && (!destino || !rd || rd === destino);
+        const matches = (!origen || !ro || ro === origen) && (!destino || !rd || rd === destino);
+        return matches;
       });
       rutaSelect.innerHTML = '<option value="">Selecciona ruta</option>' + rutas.map(r=>`<option value="${esc(r.id)}">${esc(r.nombre)}${r.distancia_km ? ` · ${esc(r.distancia_km)} km` : ''}</option>`).join('');
+      if(rutas.length === 1) rutaSelect.value = String(rutas[0].id);
+      if(origen && destino && !rutas.length) setStatus('facturaMsg','No hay ruta para ese origen/destino. Crea o edita la ruta en Catálogos Carta Porte.',false);
     }
     function updateOperacionUI(){
       const traspaso = tipoOperacion.value === 'traspaso';
