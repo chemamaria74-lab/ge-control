@@ -99,6 +99,19 @@ class GasLpProfileSelectorTest(unittest.TestCase):
 
         self.assertEqual([row["id"] for row in rows], [7, 500])
 
+    def test_transporte_module_list_does_not_mix_gas_lp_profiles(self):
+        db = FakeDB()
+        accesses = [
+            {"section": "gas_lp", "role": "admin", "tenant_id": "tenant-a", "perfil_id": 7},
+            {"section": "transporte", "role": "admin", "tenant_id": "tenant-a", "perfil_id": 407},
+        ]
+        with patch.object(perfiles, "get_supabase_for_user", lambda token: db), \
+             patch.object(perfiles, "obtener_accesos_usuario", lambda uid, access_token="": accesses), \
+             patch.object(perfiles, "_tenant_id_for_user", lambda uid, access_token="": "tenant-a"):
+            rows = perfiles.get_perfiles_for_user("admin", access_token="tok", module="transporte")
+
+        self.assertEqual([row["id"] for row in rows], [407])
+
 
 if __name__ == "__main__":
     unittest.main()
