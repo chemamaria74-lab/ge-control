@@ -29,6 +29,7 @@ import threading
 import time
 import requests
 from datetime import datetime, timezone
+from html import escape as xml_escape
 from typing import Optional
 from xml.etree import ElementTree as ET
 from urllib.parse import urlparse
@@ -240,6 +241,10 @@ def build_carta_porte_xml(
     regimen_receptor = receptor.get("regimen_fiscal", "616")
     uso_cfdi        = receptor.get("uso_cfdi", "S01")
     cp_receptor     = receptor.get("domicilio_fiscal", "20000")
+    cp_origen = str((ruta or {}).get("cp_origen") or cp_emisor or "20000").strip()[:5]
+    cp_destino = str((ruta or {}).get("cp_destino") or cp_receptor or cp_emisor or "20000").strip()[:5]
+    nombre_origen = str((ruta or {}).get("origen_nombre") or "Origen").strip()
+    nombre_destino = str((ruta or {}).get("destino_nombre") or "Destino").strip()
 
     placa            = vehiculo.get("placa", "SIN-PLACA")
     anio_modelo      = vehiculo.get("anio_modelo", 2020)
@@ -249,6 +254,7 @@ def build_carta_porte_xml(
 
     clave_prod_serv = "15111501"  # Gas LP
     distancia_km    = round(float((ruta or {}).get("distancia_km", 1) or 1), 1)
+    peso_kg = round(vol * 0.524, 3)
 
     cfdi_rel_xml = ""
     if cfdi_relacionados:
@@ -301,11 +307,19 @@ def build_carta_porte_xml(
         f'<cfdi:Complemento>'
         f'<cartaporte31:CartaPorte Version="3.1" TranspInternac="No" '
         f'TotalDistRec="{distancia_km}">'
+        f'<cartaporte31:Ubicaciones>'
+        f'<cartaporte31:Ubicacion TipoUbicacion="Origen" IDUbicacion="OR000001" '
+        f'RFCRemitenteDestinatario="{rfc_emisor}" NombreRemitenteDestinatario="{xml_escape(nombre_origen)}" '
+        f'FechaHoraSalidaLlegada="{fecha}"><cartaporte31:Domicilio Pais="MEX" CodigoPostal="{cp_origen}"/></cartaporte31:Ubicacion>'
+        f'<cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="DE000001" '
+        f'RFCRemitenteDestinatario="{rfc_receptor}" NombreRemitenteDestinatario="{xml_escape(nombre_destino)}" '
+        f'FechaHoraSalidaLlegada="{fecha}" DistanciaRecorrida="{distancia_km}"><cartaporte31:Domicilio Pais="MEX" CodigoPostal="{cp_destino}"/></cartaporte31:Ubicacion>'
+        f'</cartaporte31:Ubicaciones>'
         f'<cartaporte31:Mercancias NumTotalMercancias="1" '
-        f'PesoBrutoTotal="{round(vol * 0.524, 3)}" UnidadPeso="KGM">'
+        f'PesoBrutoTotal="{peso_kg}" UnidadPeso="KGM">'
         f'<cartaporte31:Mercancia BienesTransp="{clave_prod_serv}" '
         f'Descripcion="Gas LP" Cantidad="{vol}" ClaveUnidad="LTR" '
-        f'PesoEnKg="{round(vol * 0.524, 3)}"/>'
+        f'PesoEnKg="{peso_kg}"/>'
         f'</cartaporte31:Mercancias>'
         f'<cartaporte31:Autotransporte PermSCT="TPAF01" NumPermisoSCT="Sin permiso">'
         f'<cartaporte31:IdentificacionVehicular ConfigVehicular="{config_vehicular}" '
