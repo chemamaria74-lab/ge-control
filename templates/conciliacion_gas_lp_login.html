@@ -41,13 +41,17 @@
       const err = document.getElementById('err');
       err.textContent = '';
       try {
-        const res = await fetch('/api/internal-auth/login', {
+        const code = document.getElementById('code').value.trim();
+        const isEmail = code.includes('@');
+        const res = await fetch(isEmail ? '/api/auth/login' : '/api/internal-auth/login', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({section: 'gas_lp', code: document.getElementById('code').value, pin: document.getElementById('pin').value})
+          body: JSON.stringify(isEmail
+            ? {username: code, password: document.getElementById('pin').value, modulo: 'gas_lp'}
+            : {section: 'gas_lp', code, pin: document.getElementById('pin').value})
         });
         const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible entrar.');
+        if (!res.ok || (!data.ok && !data.success)) throw new Error(data.detail || 'No fue posible entrar.');
         localStorage.setItem('ge_gaslp_conciliacion_token', data.token);
         location.href = '/conciliacion/gas-lp';
       } catch (ex) {
