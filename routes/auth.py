@@ -120,6 +120,17 @@ def _module_requires_owner_scope(section: str) -> bool:
     return section == "gas_lp"
 
 
+def _profile_matches_module(row: Optional[dict], section: str) -> bool:
+    section = (section or "").strip().lower()
+    desc = str((row or {}).get("descripcion") or "").lower()
+    marker = _module_marker(section)
+    if marker in desc:
+        return True
+    if section == "gas_lp":
+        return not any(_module_marker(other) in desc for other in SECCIONES_VALIDAS if other != section)
+    return False
+
+
 def _active_profile_exists(perfil_id: int, access_token: Optional[str] = None) -> Optional[dict]:
     try:
         sb = get_supabase_for_user(access_token) if access_token else get_supabase()
@@ -165,7 +176,10 @@ def _active_profile_allowed_for_module(
     perfil_id: int,
     access_token: Optional[str] = None,
 ) -> Optional[dict]:
-    return _active_profile_exists(perfil_id, access_token=access_token)
+    row = _active_profile_exists(perfil_id, access_token=access_token)
+    if row and _profile_matches_module(row, section):
+        return row
+    return None
 
 
 def _first_marked_profile_for_module(user_id: str, section: str, access_token: Optional[str] = None) -> Optional[int]:
@@ -233,7 +247,8 @@ def usuario_tiene_acceso_perfil(
     for acceso in obtener_accesos_usuario(user_id, access_token=access_token):
         if acceso.get("section") != section:
             continue
-        if _active_profile_owned_by_user(user_id, perfil_id, access_token=access_token):
+        owned = _active_profile_owned_by_user(user_id, perfil_id, access_token=access_token)
+        if owned and _profile_matches_module(owned, section):
             return True
         role = (acceso.get("role") or "user").lower()
         assigned = acceso.get("perfil_id")
@@ -244,7 +259,7 @@ def usuario_tiene_acceso_perfil(
                 sb = get_supabase_for_user(access_token) if access_token else get_supabase()
                 rows = (
                     sb.table("perfiles_empresa")
-                    .select("id,tenant_id,activo")
+                    .select("id,tenant_id,descripcion,activo")
                     .eq("id", perfil_id)
                     .eq("tenant_id", acceso.get("tenant_id"))
                     .eq("activo", True)
@@ -253,7 +268,7 @@ def usuario_tiene_acceso_perfil(
                     .data
                     or []
                 )
-                if rows:
+                if rows and _profile_matches_module(rows[0], section):
                     return True
             except Exception as e:
                 logger.warning("usuario_tiene_acceso_perfil falló user=%s section=%s perfil=%s: %s", user_id, section, perfil_id, e)

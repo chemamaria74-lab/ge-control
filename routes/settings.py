@@ -20,6 +20,7 @@ router = APIRouter()
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "..", "config", "settings.json")
 LOCAL_SETTINGS_FALLBACK = (os.environ.get("GAS_LP_LOCAL_SETTINGS_FALLBACK") or "").strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
+RFC_PROVEEDOR_PROGRAMA = "XAXX010101000"
 
 DEFAULT_SETTINGS = {
     "RfcContribuyente":      "",
@@ -27,7 +28,7 @@ DEFAULT_SETTINGS = {
     "CodigoPostal":          "",
     "RegimenFiscal":         "601",
     "RfcRepresentanteLegal": "",
-    "RfcProveedor":          "",
+    "RfcProveedor":          RFC_PROVEEDOR_PROGRAMA,
     "NumPermiso":            "",
     "PermisoAlmYDist":       "",
     "ClaveInstalacion":      "",
@@ -104,11 +105,11 @@ def _supabase_load(user_id: str, perfil_id: Optional[int] = None) -> Optional[di
         rows = q.limit(1).execute()
         if rows.data:
             stored = rows.data[0].get("data") or {}
-            return {**DEFAULT_SETTINGS, **stored}
+            return {**DEFAULT_SETTINGS, **stored, "RfcProveedor": RFC_PROVEEDOR_PROGRAMA}
         # Sin fila para este perfil → retornar defaults limpios (perfil nuevo)
         if perfil_id:
             logger.info("settings: no hay fila para perfil_id=%s — devolviendo defaults vacíos", perfil_id)
-            return DEFAULT_SETTINGS.copy()
+            return {**DEFAULT_SETTINGS, "RfcProveedor": RFC_PROVEEDOR_PROGRAMA}
         return None  # sin perfil_id y sin fila → fallo real
     except Exception as e:
         logger.warning("Supabase settings load: %s", e)
@@ -176,15 +177,15 @@ def _load(user_id: str, perfil_id: Optional[int] = None) -> dict:
     # Solo llegar aquí si Supabase lanzó excepción (fallo de red)
     if not perfil_id and LOCAL_SETTINGS_FALLBACK:
         logger.info("Usando fallback local para settings user=%s.", user_id)
-        return _file_load(user_id)
+        return {**_file_load(user_id), "RfcProveedor": RFC_PROVEEDOR_PROGRAMA}
     # Con perfil_id y Supabase caído → defaults limpios (no contaminar con otro perfil)
     logger.warning("Supabase caído: devolviendo defaults para perfil=%s", perfil_id)
-    return DEFAULT_SETTINGS.copy()
+    return {**DEFAULT_SETTINGS, "RfcProveedor": RFC_PROVEEDOR_PROGRAMA}
 
 
 def _save(user_id: str, data: dict, perfil_id: Optional[int] = None) -> None:
     """Guarda en Supabase; el JSON local solo existe si se habilita explicitamente."""
-    merged = {**DEFAULT_SETTINGS, **data}
+    merged = {**DEFAULT_SETTINGS, **data, "RfcProveedor": RFC_PROVEEDOR_PROGRAMA}
     ok = _supabase_save(user_id, merged, perfil_id)
     _file_save(user_id, merged)
     if not ok:

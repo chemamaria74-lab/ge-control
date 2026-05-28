@@ -244,7 +244,8 @@ def _settings_transporte(uid: str, token: str, perfil_id: Optional[int] = None) 
             q = q.is_("perfil_id", "null")
         res = q.limit(1).execute()
         rows = res.data or []
-        return rows[0].get("data", {}) if rows else {}
+        data = rows[0].get("data", {}) if rows else {}
+        return {**data, "RfcProveedor": "XAXX010101000"}
     except Exception as e:
         logger.warning("No se pudo obtener settings transporte para %s: %s", uid, e)
         return {}
@@ -335,6 +336,7 @@ def _editable_viaje(status: str) -> bool:
 
 
 def _validar_rfc_cp_config(data: dict) -> None:
+    data["RfcProveedor"] = "XAXX010101000"
     for campo in ("RfcContribuyente", "RfcProveedor"):
         valor = re.sub(r"[^A-Z0-9Ñ&]", "", str(data.get(campo, "") or "").upper())
         if valor:
@@ -4003,6 +4005,7 @@ async def update_settings_transporte(
         k: v for k, v in data.items()
         if k != "perfil_id" and isinstance(v, (str, int, float, bool, list, dict))
     }
+    data_limpia["RfcProveedor"] = "XAXX010101000"
     _validar_rfc_cp_config(data_limpia)
 
     try:

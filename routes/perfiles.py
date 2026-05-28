@@ -58,6 +58,16 @@ def _module_marker(module: str) -> str:
     return f"[module:{module}]"
 
 
+def _has_any_module_marker(value: str | None) -> bool:
+    desc = str(value or "").lower()
+    return any(_module_marker(module) in desc for module in MODULES_VALIDOS)
+
+
+def _is_marked_for_other_module(value: str | None, module: str) -> bool:
+    desc = str(value or "").lower()
+    return any(_module_marker(other) in desc for other in MODULES_VALIDOS if other != module)
+
+
 def _clean_module(value: str | None) -> str:
     module = (value or "").strip().lower()
     return module if module in MODULES_VALIDOS else ""
@@ -134,9 +144,26 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
                 add_rows(marker_q.order("nombre").execute().data or [])
             except Exception as marker_error:
                 logger.info("Filtro module=%s omitido en perfiles_empresa.descripcion: %s", module, marker_error)
-            # Para módulos operativos no mezclamos razones sociales de otros
-            # módulos. Un admin global ve solo perfiles marcados/asignados a
-            # este módulo; las empresas nuevas se marcan al crearse.
+            if module == "gas_lp" and "admin" in module_roles:
+                try:
+                    legacy_q = sb.table("perfiles_empresa").select(fields).eq("activo", True)
+                    if owner_scope:
+                        legacy_q = legacy_q.eq("user_id", user_id)
+                    elif tenant_id:
+                        legacy_q = legacy_q.eq("tenant_id", tenant_id)
+                    else:
+                        legacy_q = legacy_q.eq("user_id", user_id)
+                    legacy_rows = legacy_q.order("nombre").execute().data or []
+                    add_rows([
+                        row for row in legacy_rows
+                        if not _has_any_module_marker(row.get("descripcion"))
+                        or not _is_marked_for_other_module(row.get("descripcion"), module)
+                    ])
+                except Exception as legacy_error:
+                    logger.info("Filtro legacy Gas LP omitido user=%s: %s", user_id, legacy_error)
+            # Para módulos operativos no mezclamos razones sociales de otros módulos.
+            # Gas LP conserva empresas legacy sin marcador; Transporte y demás solo
+            # usan perfiles asignados o marcados explícitamente.
             return sorted(rows_by_id.values(), key=lambda r: (r.get("nombre") or "").lower())
 
         # Legacy: perfiles creados antes de tenant/company.
