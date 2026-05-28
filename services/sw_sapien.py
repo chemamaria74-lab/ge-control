@@ -31,6 +31,7 @@ import requests
 from datetime import datetime, timezone
 from typing import Optional
 from xml.etree import ElementTree as ET
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from services.fiscal_audit import record_pac_request, record_pac_response, version_xml
@@ -79,11 +80,23 @@ SW_TOKEN_URL  = f"{BASE_URL}/v2/security/authenticate"
 # SW documenta rutas /cfdi33 por compatibilidad, aunque aceptan CFDI vigente 4.0.
 # issue = XML/JSON sin Sello, Certificado y NoCertificado; SW sella con el CSD cargado.
 # stamp = XML ya sellado por GE Control; SW solo timbra.
-SW_XML_ISSUE_URL = os.environ.get("SW_XML_ISSUE_URL", f"{BASE_URL}/cfdi33/issue/json/v4/b64").strip()
-SW_XML_STAMP_URL = os.environ.get("SW_XML_STAMP_URL", f"{BASE_URL}/cfdi33/stamp/v4").strip()
-SW_JSON_ISSUE_URL = os.environ.get("SW_JSON_ISSUE_URL", f"{BASE_URL}/v3/cfdi33/issue/json/v4").strip()
-SW_CANCEL_URL = os.environ.get("SW_CANCEL_URL", f"{BASE_URL}/cfdi33/cancel/pfx").strip()
-SW_CANCEL_STATUS_URL = os.environ.get("SW_CANCEL_STATUS_URL", f"{BASE_URL}/cfdi33/cancel/pfx/status").strip()
+def _sw_url(env_name: str, default: str) -> str:
+    raw = os.environ.get(env_name, "").strip()
+    if not raw:
+        return default
+    parsed = urlparse(raw)
+    placeholder = raw.strip().lower() in {"[url]", "{url}", "url", "http://[url]", "https://[url]"}
+    if placeholder or parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        logger.warning("%s inválida (%r); usando default %s", env_name, raw, default)
+        return default
+    return raw
+
+
+SW_XML_ISSUE_URL = _sw_url("SW_XML_ISSUE_URL", f"{BASE_URL}/cfdi33/issue/v4")
+SW_XML_STAMP_URL = _sw_url("SW_XML_STAMP_URL", f"{BASE_URL}/cfdi33/stamp/v4")
+SW_JSON_ISSUE_URL = _sw_url("SW_JSON_ISSUE_URL", f"{BASE_URL}/v3/cfdi33/issue/json/v4")
+SW_CANCEL_URL = _sw_url("SW_CANCEL_URL", f"{BASE_URL}/cfdi33/cancel/pfx")
+SW_CANCEL_STATUS_URL = _sw_url("SW_CANCEL_STATUS_URL", f"{BASE_URL}/cfdi33/cancel/pfx/status")
 
 # Credenciales vía variables de entorno. Se soportan ambos nombres para evitar
 # fallas de despliegue durante la transición del cierre productivo.
@@ -341,12 +354,17 @@ def timbrar_cfdi(xml_str: str) -> dict:
         _guard_real_pac_operation("Timbrado")
         token = _get_token()
         if issue_mode:
-            xml_b64 = base64.b64encode(xml_str.encode("utf-8")).decode("utf-8")
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            }
-            resp = requests.post(SW_XML_ISSUE_URL, json={"data": xml_b64}, headers=headers, timeout=45)
+            if "/json/" in SW_XML_ISSUE_URL.lower() or SW_XML_ISSUE_URL.lower().endswith("/b64"):
+                xml_b64 = base64.b64encode(xml_str.encode("utf-8")).decode("utf-8")
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                }
+                resp = requests.post(SW_XML_ISSUE_URL, json={"data": xml_b64}, headers=headers, timeout=45)
+            else:
+                headers = {"Authorization": f"Bearer {token}"}
+                files = {"xml": ("cfdi.xml", xml_str.encode("utf-8"), "text/xml")}
+                resp = requests.post(SW_XML_ISSUE_URL, files=files, headers=headers, timeout=45)
         else:
             headers = {"Authorization": f"Bearer {token}"}
             files = {"xml": ("cfdi.xml", xml_str.encode("utf-8"), "text/xml")}
