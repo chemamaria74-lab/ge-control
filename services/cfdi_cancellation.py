@@ -80,6 +80,13 @@ def cancel_cfdi_universal(
     except Exception:
         pass
     if not result.get("ok"):
+        error = result.get("error") or "sin detalle"
+        if "Cancelación real bloqueada" in error or "SW_ALLOW_REAL_CANCELACION" in error:
+            raise HTTPException(
+                403,
+                "Cancelación no enviada a SW: GE Control tiene bloqueada la cancelación real para evitar cargos/pruebas accidentales. "
+                "Si ya la cancelaste directamente en SW/SAT, deja el CFDI como cancelado externo en la auditoría o habilita SW_ALLOW_REAL_CANCELACION=true solo durante la prueba autorizada.",
+            )
         raise HTTPException(400, f"SW Sapien rechazó la cancelación: {result.get('error') or 'sin detalle'}")
     return {**result, "cancellation": {**cancellation, **update}}
 
