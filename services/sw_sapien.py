@@ -36,6 +36,7 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from services.fiscal_audit import record_pac_request, record_pac_response, version_xml
+from services.fiscal_prevalidation import validate_cfdi_json_before_pac, validate_cfdi_xml_before_pac
 
 logger = logging.getLogger(__name__)
 
@@ -344,7 +345,7 @@ def timbrar_cfdi(xml_str: str) -> dict:
     documentado por SW. Si ya viene sellado usa Timbrado multipart/form-data.
     Retorna dict con: uuid, xml_timbrado, pdf_url, error.
     """
-    validation_error = _validate_cfdi_xml_before_sw(xml_str)
+    validation_error = _prevalidate_cfdi_xml_before_sw(xml_str)
     if validation_error:
         audit_request_id = record_pac_request(
             module="transporte",
@@ -444,7 +445,7 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
     """
     if isinstance(cfdi_dict, dict):
         cfdi_dict = {**cfdi_dict, "Fecha": _cfdi_issue_timestamp()}
-    validation_error = _validate_cfdi_json_before_sw(cfdi_dict)
+    validation_error = _prevalidate_cfdi_json_before_sw(cfdi_dict)
     if validation_error:
         audit_request_id = record_pac_request(
             module="transporte",
@@ -531,6 +532,20 @@ def _xml_needs_issue(xml_str: str) -> bool:
         return (m is None) or (m.group(1).strip() == "")
 
     return empty_attr("Sello") or empty_attr("Certificado") or empty_attr("NoCertificado")
+
+
+def _prevalidate_cfdi_xml_before_sw(xml_str: str) -> str:
+    result = validate_cfdi_xml_before_pac(xml_str)
+    if not result.ok:
+        return "Prevalidación fiscal: " + result.message()
+    return _validate_cfdi_xml_before_sw(xml_str)
+
+
+def _prevalidate_cfdi_json_before_sw(cfdi_dict: dict) -> str:
+    result = validate_cfdi_json_before_pac(cfdi_dict)
+    if not result.ok:
+        return "Prevalidación fiscal: " + result.message()
+    return _validate_cfdi_json_before_sw(cfdi_dict)
 
 
 def _validate_cfdi_xml_before_sw(xml_str: str) -> str:
