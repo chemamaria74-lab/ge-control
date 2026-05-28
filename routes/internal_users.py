@@ -492,7 +492,7 @@ def _gas_lp_invoice_scope(user: dict, profile: dict) -> dict:
 
 def _gas_lp_facility(user: dict, facility_id: Optional[int], label: str = "instalación") -> dict:
     if not facility_id:
-        raise HTTPException(400, f"Selecciona la {label}.")
+        raise HTTPException(400, f"Selecciona la {label}. Es obligatoria para control y operación GE Control.")
     rows = (
         get_supabase_admin()
         .table("user_facilities")
