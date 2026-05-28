@@ -21,7 +21,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 SECTIONS = {"transporte", "gas_lp", "gasolineras"}
-ROLES = {"admin", "user", "operador", "asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"}
+ROLES = {"admin", "user", "operador", "asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"}
 SUB_STATUSES = {"active", "trialing", "past_due", "canceled", "expired"}
 RAW_ERROR_PATTERNS = (
     "p0001",
@@ -624,7 +624,7 @@ def _tenant_usage(snapshot: dict, tenant_id: str) -> dict:
     choferes = [c for c in snapshot["choferes"] if c.get("perfil_id") in profile_ids and c.get("activo")]
     vehiculos = [v for v in snapshot["vehiculos"] if v.get("perfil_id") in profile_ids and v.get("activo")]
     stations = [e for e in snapshot["gaso_estaciones"] if e.get("perfil_id") in profile_ids and e.get("propia") and e.get("activa")]
-    assistants = [u for u in internal_users if u.get("section") == "gas_lp" and u.get("role") in {"asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"} and (u.get("status") or "active") == "active"]
+    assistants = [u for u in internal_users if u.get("section") == "gas_lp" and u.get("role") in {"asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"} and (u.get("status") or "active") == "active"]
     operators = [u for u in internal_users if u.get("section") == "transporte" and u.get("role") == "operador" and (u.get("status") or "active") == "active"]
     admin_users = [s for s in sections if (s.get("role") or "") == "admin" and (s.get("status") or "active") == "active"]
     module_users = {
@@ -845,7 +845,7 @@ async def admin_saas_dashboard(authorization: str = Header(default="")):
             "usuarios_gasolineras": len({s.get("user_id") for s in sections if s.get("section") == "gasolineras" and (s.get("status") or "active") == "active"}),
             "modulos_activos": modules_active,
             "operadores_transporte": len([u for u in internal_users if u.get("section") == "transporte" and u.get("role") == "operador" and (u.get("status") or "active") == "active"]),
-            "asistentes_gas_lp": len([u for u in internal_users if u.get("section") == "gas_lp" and u.get("role") in {"asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"} and (u.get("status") or "active") == "active"]),
+            "asistentes_gas_lp": len([u for u in internal_users if u.get("section") == "gas_lp" and u.get("role") in {"asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"} and (u.get("status") or "active") == "active"]),
             "estaciones_propias": len([e for e in snapshot["gaso_estaciones"] if e.get("propia") and e.get("activa")]),
             "empresas_sin_tenant": issues["perfiles_sin_tenant"],
             "suscripciones_vencidas": len([s for s in subs if s.get("status") in {"expired", "canceled", "past_due"}]),

@@ -3,11 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Cookie, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from routes.transporte import _operador_context, _operador_meta
+from routes.transporte import _operador_context, _operador_meta, _operator_token
 from supabase_config import get_supabase_admin
 
 router = APIRouter()
@@ -54,11 +54,13 @@ def _matches(item: dict, search: str | None) -> bool:
 
 @router.get("/tr/operador/cargas-detectadas")
 async def operador_cargas_detectadas(
-    token: str = Query(...),
+    token: str | None = None,
     search: str | None = None,
     status: str | None = None,
+    authorization: str = Header(default=""),
+    ge_operator_session: str | None = Cookie(default=None),
 ):
-    sb, acc = _operador_context(token)
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     meta = _operador_meta(sb, acc)
     rows = []
     try:
@@ -112,8 +114,14 @@ async def operador_cargas_detectadas(
 
 
 @router.post("/tr/operador/cargas-detectadas/{load_id}/accion")
-async def operador_cargas_detectadas_accion(load_id: str, payload: DetectedLoadAction, token: str = Query(...)):
-    sb, acc = _operador_context(token)
+async def operador_cargas_detectadas_accion(
+    load_id: str,
+    payload: DetectedLoadAction,
+    token: str | None = None,
+    authorization: str = Header(default=""),
+    ge_operator_session: str | None = Cookie(default=None),
+):
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     action = (payload.action or "").strip().lower()
     if action not in {"confirm", "ignore", "edit"}:
         raise HTTPException(400, "Acción inválida.")

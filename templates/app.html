@@ -2280,10 +2280,11 @@ tr:hover td{background:#f8fafc}
       <select id="gasInternalRole">
         <option value="asistente_facturacion">Asistente de facturación</option>
         <option value="asistente_operativo">Asistente operativo</option>
+        <option value="conciliacion">Conciliación</option>
         <option value="planta">Planta</option>
         <option value="solo_lectura">Solo lectura</option>
       </select>
-      <div style="font-size:.68rem;color:#64748b;margin-top:.25rem">Facturación: factura y carga XML. Operativo: apoya operación. Planta: captura de planta. Solo lectura: consulta.</div>
+      <div style="font-size:.68rem;color:#64748b;margin-top:.25rem">Facturación: factura y carga XML. Conciliación: cierre diario/banco. Operativo: apoya operación. Planta: captura de planta. Solo lectura: consulta.</div>
     </div>
     <div class="field"><label>Usuario</label><input id="gasInternalCode" type="text" placeholder="Ej. MARTHA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
     <div class="field"><label>Contraseña</label><input id="gasInternalPin" type="text" placeholder="Ej. MARTHA"></div>
@@ -2597,6 +2598,7 @@ function applyRole(role) {
   const assistantAllowed = {
     asistente_facturacion: ['procesar','facturar'],
     asistente_operativo: ['procesar','ventas','proveedores'],
+    conciliacion: ['facturar','historial'],
     planta: ['procesar','controles'],
     solo_lectura: ['ventas','historial']
   };
@@ -3062,7 +3064,7 @@ async function iniciarFlujoEmpresa() {
     mostrarOverlayEmpresas([]);
     return;
   }
-  const restrictedRole = ['asistente_facturacion', 'asistente_operativo', 'planta', 'solo_lectura'].includes(currentUserRole);
+  const restrictedRole = ['asistente_facturacion', 'asistente_operativo', 'conciliacion', 'planta', 'solo_lectura'].includes(currentUserRole);
   if (perfiles.length === 1) {
     seleccionarEmpresa(perfiles[0], false);
     return;
@@ -4057,6 +4059,7 @@ async function switchTab(name) {
   const assistantAllowed = {
     asistente_facturacion: ['procesar','facturar'],
     asistente_operativo: ['procesar','ventas','proveedores'],
+    conciliacion: ['facturar','historial'],
     planta: ['procesar','controles'],
     solo_lectura: ['ventas','historial']
   };
@@ -5939,6 +5942,7 @@ function internalRoleLabel(role) {
   const labels = {
     asistente_facturacion: 'Asistente facturación',
     asistente_operativo: 'Asistente operativo',
+    conciliacion: 'Conciliación',
     planta: 'Planta',
     solo_lectura: 'Solo lectura',
     operador: 'Operador',
@@ -6053,7 +6057,7 @@ async function setInternalStatusGasLp(id, status) {
 }
 
 async function editInternalRoleGasLp(id, currentRole) {
-  const roles = ['asistente_facturacion','asistente_operativo','planta','solo_lectura'];
+  const roles = ['asistente_facturacion','asistente_operativo','conciliacion','planta','solo_lectura'];
   const next = prompt(`Nuevo rol:\n${roles.join('\\n')}`, currentRole || 'asistente_facturacion');
   if (!next) return;
   if (!roles.includes(next)) { alert('Rol inválido.'); return; }

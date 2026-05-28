@@ -32,19 +32,47 @@
   <main id="app"><div class="empty">Cargando viajes asignados...</div></main>
   <div id="toast" class="toast"></div>
   <script>
-    const token = new URLSearchParams(location.search).get('token') || '';
+    const params = new URLSearchParams(location.search);
+    const hashParams = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+    const incomingToken = hashParams.get('token') || params.get('token') || '';
+    let token = incomingToken || localStorage.getItem('ge_transporte_operator_token') || '';
+    if(incomingToken){
+      localStorage.setItem('ge_transporte_operator_token', incomingToken);
+      history.replaceState(null, '', location.pathname);
+    }
     const app = document.getElementById('app');
     const toast = (m)=>{const t=document.getElementById('toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2600)};
     const money = n => Number(n||0).toLocaleString('es-MX',{style:'currency',currency:'MXN'});
     async function api(path, opts={}){
-      const r = await fetch(path + (path.includes('?')?'&':'?') + 'token=' + encodeURIComponent(token), {
+      const r = await fetch(path, {
         method: opts.method || 'GET',
-        headers: {'Content-Type':'application/json'},
+        headers: {'Content-Type':'application/json','Authorization':'Bearer '+token},
         body: opts.body ? JSON.stringify(opts.body) : undefined
       });
       const d = await r.json().catch(()=>({}));
       if(!r.ok) throw new Error(d.detail || d.error || 'Error');
       return d;
+    }
+    async function fetchFile(path, filename, openInline=false){
+      const r = await fetch(path, {headers:{'Authorization':'Bearer '+token}});
+      if(!r.ok){
+        const d = await r.json().catch(()=>({}));
+        throw new Error(d.detail || d.error || 'No se pudo descargar el documento');
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      if(openInline){
+        window.open(url, '_blank', 'noopener');
+        setTimeout(()=>URL.revokeObjectURL(url), 60000);
+        return;
+      }
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'documento';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 1000);
     }
     function renderTasks(tasks){
       if(!tasks.length) return '';
@@ -122,8 +150,8 @@
           <div class="products">${prods}</div>
           ${v.cfdi?.uuid_sat ? `<span class="pill ok">Carta Porte timbrada · ${String(v.cfdi.uuid_sat).slice(0,8)}</span>` : '<span class="pill">Carta Porte pendiente</span>'}
           ${v.uuid_cfdi ? `<div class="doc-actions">
-            <a class="btn dark" href="/api/tr/operador/viajes/${v.id}/pdf?token=${encodeURIComponent(token)}" target="_blank" rel="noopener">Ver Carta Porte PDF</a>
-            <a class="btn ok" href="/api/tr/operador/viajes/${v.id}/pdf?token=${encodeURIComponent(token)}&download=true">Descargar PDF</a>
+            <button class="btn dark" onclick="openDoc('/api/tr/operador/viajes/${v.id}/pdf','carta-porte-${v.id}.pdf',true)">Ver Carta Porte PDF</button>
+            <button class="btn ok" onclick="openDoc('/api/tr/operador/viajes/${v.id}/pdf?download=true','carta-porte-${v.id}.pdf')">Descargar PDF</button>
           </div>` : ''}
           <div class="doc-list" id="docs-${v.id}"><h3>Documentos relacionados</h3><div class="meta">Buscando PDF/XML relacionados...</div></div>
           <div class="actions">
@@ -144,7 +172,7 @@
         const d = await api(`/api/tr/operador/viajes/${id}/documentos-relacionados`);
         const docs = d.documentos || [];
         if(!docs.length){ box.innerHTML = '<h3>Documentos relacionados</h3><div class="meta">Sin PDF/XML relacionados todavía.</div>'; return; }
-        box.innerHTML = `<h3>Documentos relacionados</h3><div class="doc-mini">${docs.map(x => `<a class="btn ${String(x.tipo||'').includes('xml') ? 'ok' : 'dark'}" href="${x.url}" target="_blank" rel="noopener">${x.label}</a>`).join('')}</div>`;
+        box.innerHTML = `<h3>Documentos relacionados</h3><div class="doc-mini">${docs.map((x,i) => `<button class="btn ${String(x.tipo||'').includes('xml') ? 'ok' : 'dark'}" onclick="openDoc('${escAttr(x.url)}','${escAttr((x.label || 'documento') + (String(x.tipo||'').includes('xml') ? '.xml' : '.pdf'))}',true)">${esc(x.label)}</button>`).join('')}</div>`;
       }catch(e){
         box.innerHTML = '<h3>Documentos relacionados</h3><div class="meta">No se pudieron cargar documentos.</div>';
       }
@@ -160,7 +188,15 @@
       if (accion === 'problema') nota = prompt('Describe brevemente el problema para oficina:') || '';
       try{await api(`/api/tr/operador/viajes/${id}/accion`,{method:'POST',body:{accion, nota}});toast('Actualizado');load()}catch(e){toast(e.message)}
     }
-    function logout(){ location.href='/choice'; }
+    async function openDoc(url, filename, inline=false){
+      try{ await fetchFile(url, filename, inline); }catch(e){ toast(e.message); }
+    }
+    function escAttr(v){ return esc(v).replace(/`/g,'&#96;'); }
+    async function logout(){
+      await fetch('/api/tr/operador/logout',{method:'POST',headers:{'Authorization':'Bearer '+token}}).catch(()=>{});
+      localStorage.removeItem('ge_transporte_operator_token');
+      location.href='/choice';
+    }
     load();
   </script>
 </body>

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GE CONTROL | Conciliación Gas LP</title>
+  <link rel="icon" href="/static/img/favicon.svg">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;grid-template-rows:1fr auto;place-items:center;background:linear-gradient(135deg,#5B0F1D 0%,#111 100%);font-family:var(--ge-font);padding:22px;color:#111;overflow-x:hidden}
+    .card{width:min(420px,100%);background:#fff;border:1px solid rgba(200,169,107,.28);border-radius:10px;padding:28px;box-shadow:0 24px 70px rgba(0,0,0,.3)}
+    .logo{width:190px;max-width:78%;height:auto;display:block;margin:0 auto 20px}
+    h1{font-size:22px;margin:0 0 4px;text-align:center;color:#111}.sub{text-align:center;color:#6F6A64;margin-bottom:22px;line-height:1.4}
+    label{display:block;font-size:12px;font-weight:800;color:#6F6A64;margin:0 0 6px}input{width:100%;border:1px solid #d8d0c4;border-radius:8px;padding:13px 14px;font:inherit;background:#fff;color:#111;outline:none}input:focus{border-color:#7A1E2C;box-shadow:0 0 0 3px rgba(122,30,44,.12)}input.code{text-transform:uppercase}
+    .field{margin-bottom:14px}.btn{width:100%;border:0;border-radius:8px;background:#7A1E2C;color:#fff;padding:13px;font:inherit;font-weight:800;cursor:pointer;box-shadow:0 14px 26px rgba(122,30,44,.2)}.btn:hover{background:#5B0F1D}.err{color:#b91c1c;font-size:13px;min-height:18px;margin:12px 0;text-align:center;font-weight:700}.back{text-align:center;margin-top:16px}.back a{color:#5B0F1D;text-decoration:none;font-weight:800}
+    .ge-legal-footer{grid-row:2;width:min(760px,calc(100vw - 44px));margin:14px auto 0;color:rgba(255,255,255,.72)}
+    .ge-legal-footer strong{color:rgba(255,255,255,.9)}.ge-legal-links a{color:#E1C482}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <img class="logo" src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
+    <h1>Conciliación Gas LP</h1>
+    <div class="sub">Cierre diario, banco y cobranza</div>
+    <form id="loginForm">
+      <div class="field"><label>Usuario</label><input class="code" id="code" autocomplete="username" placeholder="CONCILIACION"></div>
+      <div class="field"><label>Contraseña</label><input id="pin" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+      <button class="btn" type="submit">Entrar</button>
+    </form>
+    <div class="err" id="err"></div>
+    <div class="back"><a href="/modulo/gas-lp/roles">Cambiar acceso</a></div>
+  </main>
+  <footer class="ge-legal-footer">
+    <strong>GE CONTROL</strong>
+    <span class="ge-legal-links"><a href="/terms">Términos</a><a href="/privacy">Privacidad</a></span>
+  </footer>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const err = document.getElementById('err');
+      err.textContent = '';
+      try {
+        const res = await fetch('/api/internal-auth/login', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({section: 'gas_lp', code: document.getElementById('code').value, pin: document.getElementById('pin').value})
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible entrar.');
+        localStorage.setItem('ge_gaslp_conciliacion_token', data.token);
+        location.href = '/conciliacion/gas-lp';
+      } catch (ex) {
+        err.textContent = ex.message;
+      }
+    });
+  </script>
+</body>
+</html>

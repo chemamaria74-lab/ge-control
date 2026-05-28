@@ -163,9 +163,8 @@
       updateTotals();
     }
     async function api(path, opts={}) {
-      const sep = path.includes('?') ? '&' : '?';
-      const headers = opts.body ? {'Content-Type':'application/json', ...(opts.headers||{})} : (opts.headers||{});
-      const res = await fetch(path + sep + 'token=' + encodeURIComponent(token), {...opts, headers});
+      const headers = {'Authorization':'Bearer '+token, ...(opts.body ? {'Content-Type':'application/json'} : {}), ...(opts.headers||{})};
+      const res = await fetch(path, {...opts, headers});
       const data = await res.json().catch(()=>({}));
       if(!res.ok) throw new Error(data.detail || 'Sesión inválida.');
       return data;
@@ -354,7 +353,7 @@
     }
     async function logout(){
       try{
-        const res = await fetch('/api/internal-auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});
+        const res = await fetch('/api/internal-auth/logout',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({})});
         if(!res.ok){
           const data = await res.json().catch(()=>({}));
           alert(data.detail || 'No se pudo cerrar la sesión interna. Se limpiará esta sesión local.');
