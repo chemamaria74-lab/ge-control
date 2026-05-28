@@ -134,19 +134,9 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
                 add_rows(marker_q.order("nombre").execute().data or [])
             except Exception as marker_error:
                 logger.info("Filtro module=%s omitido en perfiles_empresa.descripcion: %s", module, marker_error)
-            # Admin global del módulo: mostrar sus razones sociales legacy aunque
-            # todavía no tengan marcador [module:*]. Se limita a user_id para no
-            # mezclar perfiles QA u otros usuarios del mismo tenant.
-            if not owner_scope and has_global_module_admin:
-                add_rows(
-                    sb.table("perfiles_empresa")
-                    .select(fields)
-                    .eq("user_id", user_id)
-                    .eq("activo", True)
-                    .order("nombre")
-                    .execute()
-                    .data or []
-                )
+            # Para módulos operativos no mezclamos razones sociales de otros
+            # módulos. Un admin global ve solo perfiles marcados/asignados a
+            # este módulo; las empresas nuevas se marcan al crearse.
             return sorted(rows_by_id.values(), key=lambda r: (r.get("nombre") or "").lower())
 
         # Legacy: perfiles creados antes de tenant/company.

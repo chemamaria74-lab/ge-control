@@ -324,13 +324,65 @@ def _gas_lp_internal_context(token: str, *, write: bool = False) -> dict:
 
 
 def _gas_lp_conciliation_context(token: str, *, write: bool = False) -> dict:
-    ctx = _internal_session(token, "gas_lp")
+    try:
+        ctx = _internal_session(token, "gas_lp")
+    except HTTPException as exc:
+        if exc.status_code not in {401, 403}:
+            raise
+        ctx = _gas_lp_conciliation_auth_context(token)
     role = (ctx["user"].get("role") or "").lower()
     if role not in {"conciliacion", "admin"}:
         raise HTTPException(403, "Tu rol no permite acceder al portal de conciliación.")
     if write and role not in {"conciliacion", "admin"}:
         raise HTTPException(403, "Tu rol no permite modificar conciliación.")
     return ctx
+
+
+def _gas_lp_conciliation_auth_context(token: str) -> dict:
+    uid = verify_token(token)
+    if not uid:
+        raise HTTPException(401, "Usuario o contraseña incorrectos.")
+    access = obtener_acceso_modulo(uid, "gas_lp", access_token=token)
+    role = (access.get("role") or "").strip().lower()
+    if role not in {"admin", "conciliacion"}:
+        raise HTTPException(403, "Tu usuario principal no tiene acceso a Conciliación Gas LP.")
+    perfil_id = access.get("perfil_id")
+    if not perfil_id:
+        try:
+            from routes.perfiles import get_perfiles_for_user
+
+            perfiles = get_perfiles_for_user(uid, access_token=token, module="gas_lp")
+            perfil_id = (perfiles[0] or {}).get("id") if perfiles else None
+        except Exception:
+            perfil_id = None
+    tenant_id = access.get("tenant_id") or _tenant_id_for_user(uid, access_token=token)
+    if not perfil_id or not tenant_id:
+        raise HTTPException(403, "Selecciona o configura una empresa Gas LP antes de entrar a conciliación.")
+    return {
+        "session": {"section": "gas_lp", "role": role, "auth_session": True},
+        "user": {
+            "id": uid,
+            "owner_user_id": uid,
+            "tenant_id": tenant_id,
+            "perfil_id": int(perfil_id),
+            "section": "gas_lp",
+            "role": role,
+            "display_name": access.get("display_name") or "Admin",
+            "permissions": {},
+            "status": "active",
+        },
+    }
+
+
+def _internal_numeric_id(user: dict) -> Optional[int]:
+    try:
+        value = user.get("id")
+        if isinstance(value, int):
+            return value
+        text = str(value or "").strip()
+        return int(text) if text.isdigit() else None
+    except Exception:
+        return None
 
 
 def _gas_lp_profile(user: dict) -> dict:
@@ -1415,7 +1467,7 @@ async def gas_lp_conciliacion_crear_cierre(
         "descuento": float(payload.descuento or 0),
         "status": payload.status if payload.status in {"pendiente_deposito", "parcial", "depositado", "diferencia", "revision"} else "pendiente_deposito",
         "notas": payload.notas.strip(),
-        "created_by_internal": user.get("id"),
+        "created_by_internal": _internal_numeric_id(user),
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
@@ -1473,7 +1525,7 @@ async def gas_lp_conciliacion_crear_banco(
         "retiro": float(payload.retiro or 0),
         "status": "sin_relacionar",
         "notas": payload.notas.strip(),
-        "created_by_internal": user.get("id"),
+        "created_by_internal": _internal_numeric_id(user),
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
