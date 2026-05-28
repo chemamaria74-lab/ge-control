@@ -214,9 +214,7 @@ def generate_filename(settings: dict, periodo: str, fmt: str,
     guid = guid.upper()
 
     rfc_cv        = clean_rfc(settings.get("RfcContribuyente", "") or "RFC")
-    rfc_prov_prog = clean_rfc(settings.get("RfcProveedor", "") or "")
-    if not rfc_prov_prog:
-        rfc_prov_prog = "XAX010101000"
+    rfc_prov_prog = "XAXX010101000"
 
     clave_inst = clean_inst(settings.get("ClaveInstalacion", "INST") or "INST")
     actividad  = _actividad_sat(settings)
@@ -680,9 +678,7 @@ def build_sat_report(
     num_tanques  = int(settings.get("NumeroTanques", 1))
     _rfc_cv      = validar_rfc_o_advertir(settings.get("RfcContribuyente", "") or "", "RfcContribuyente")
     _rfc_rep     = limpiar_rfc(settings.get("RfcRepresentanteLegal", "") or "")
-    _rfc_prov    = validar_rfc_o_advertir(settings.get("RfcProveedor", "") or "", "RfcProveedor")
-    if not _rfc_prov:
-        _rfc_prov = "XAX010101000"
+    _rfc_prov    = "XAXX010101000"
 
     _es_moral    = es_persona_moral(_rfc_cv)
     _include_rep = bool(_rfc_rep and _rfc_rep != _rfc_cv)
