@@ -270,6 +270,11 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
         self.assertEqual(totals["no_identificacion"], "GLP-LTR")
         self.assertEqual(totals["unidad"], "Litro")
 
+    def test_configured_sale_price_parses_positive_price_only(self):
+        self.assertEqual(str(internal_users._configured_sale_price({"PrecioVentaLitroGasLp": "11.05"})), "11.050000")
+        self.assertEqual(str(internal_users._configured_sale_price({"PrecioVentaLitroGasLp": ""})), "0")
+        self.assertEqual(str(internal_users._configured_sale_price({"PrecioVentaLitroGasLp": -1})), "0")
+
 
 if __name__ == "__main__":
     unittest.main()
