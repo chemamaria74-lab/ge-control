@@ -17,6 +17,7 @@ from routes.auth import obtener_acceso_modulo, verify_token
 from routes.perfiles import _tenant_id_for_user
 from services.fiscal_audit import version_xml
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml, save_fiscal_artifacts
+from services.carta_porte_validation import validar_xml_carta_porte_transporte
 from services.security import client_ip, enforce_rate_limit
 from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
 from supabase_config import get_supabase_admin, get_supabase_for_user
@@ -442,7 +443,7 @@ def _build_gas_lp_consumo_xml(
     tasa = f"{tax_rate:.6f}"
     info_global_xml = ""
     if _clean_rfc(receptor.get("rfc")) == "XAXX010101000" and str(receptor.get("nombre") or "").strip().upper() == "PUBLICO EN GENERAL":
-        info_global_xml = '<cfdi:InformacionGlobal Periodicidad="01" Meses="13" Año="' + fecha[:4] + '"/>'
+        info_global_xml = '<cfdi:InformacionGlobal Periodicidad="01" Meses="' + fecha[5:7] + '" Año="' + fecha[:4] + '"/>'
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" '
@@ -1583,6 +1584,17 @@ async def gas_lp_internal_crear_factura(
                     "destino_nombre": destino.get("nombre") or "Destino",
                 },
             )
+            validacion_cp = validar_xml_carta_porte_transporte(
+                xml_final,
+                [{"clave_producto": "PR12", "descripcion": "Gas LP"}],
+                enforce_hidrocarburos=False,
+            )
+            if not validacion_cp.ok:
+                raise HTTPException(
+                    400,
+                    "Carta Porte Gas LP incompleta antes de enviar al PAC: "
+                    + "; ".join(validacion_cp.errors[:6]),
+                )
             resultado = timbrar_cfdi(xml_final)
             if resultado.get("error"):
                 raise HTTPException(400, f"PAC rechazó la Carta Porte: {resultado['error']}")
