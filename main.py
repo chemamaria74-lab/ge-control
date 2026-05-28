@@ -215,6 +215,19 @@ async def security_headers(request, call_next):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'; "
+        "object-src 'none'; "
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+        "font-src 'self' https://cdnjs.cloudflare.com data:; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self' https://*.supabase.co;",
+    )
     return response
 
 # ── Routers API ───────────────────────────────────────────────────────────────
@@ -368,6 +381,8 @@ async def module_role_view(modulo: str, lang: str = "es"):
         if modulo == "transporte"
         else [("Administrador", "Selecciona empresa y entra al dashboard completo."), ("Asistente de facturación", "Usa la empresa asignada y solo accede a facturación.")]
     )
+    if modulo == "gas_lp":
+        roles.append(("Conciliación", "Portal separado para cierre diario, banco y cobranza."))
     html = templates.get_template("module_role.html").render(modulo=modulo, nombre=nombre, roles=roles, lang=lang)
     return HTMLResponse(content=_inject_legal_branding(html))
 
@@ -475,6 +490,18 @@ async def login_asistente_gas_lp():
 async def frontend_asistente_gas_lp():
     """Dashboard limitado para asistentes internos Gas LP."""
     return _render_html_file("asistente_gas_lp.html")
+
+
+@app.get("/gas-lp/conciliacion", response_class=HTMLResponse, include_in_schema=False)
+async def login_conciliacion_gas_lp():
+    """Login de conciliación Gas LP por codigo/PIN."""
+    return _render_html_file("conciliacion_gas_lp_login.html")
+
+
+@app.get("/conciliacion/gas-lp", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_conciliacion_gas_lp():
+    """Portal beta separado para conciliación y cierre diario Gas LP."""
+    return _render_html_file("conciliacion_gas_lp.html")
 
 
 @app.get("/gasolineras", response_class=HTMLResponse, include_in_schema=False)
