@@ -13,13 +13,14 @@ CAMBIOS vs versión anterior:
 import logging
 from typing import Optional, Literal
 
-from fastapi import APIRouter, Header, HTTPException, Depends
+from fastapi import APIRouter, Header, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from supabase import create_client
 
 from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user, SUPABASE_URL, SUPABASE_KEY
 from services.logout import revoke_supabase_session
+from services.security import client_ip, enforce_rate_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -32,6 +33,7 @@ ROLES_VALIDOS = {
     "operador",
     "asistente_facturacion",
     "asistente_operativo",
+    "conciliacion",
     "planta",
     "solo_lectura",
 }
@@ -433,7 +435,7 @@ class LoginPayload(BaseModel):
 
 
 @router.post("/auth/login")
-async def login(payload: LoginPayload):
+async def login(payload: LoginPayload, request: Request = None):
     """Login contra Supabase Auth con validación de sección."""
     email = payload.username.strip().lower()
     if not email or not payload.password:
@@ -442,6 +444,9 @@ async def login(payload: LoginPayload):
     requested = (payload.modulo or "gas_lp").strip().lower()
     if requested not in SECCIONES_VALIDAS:
         raise HTTPException(status_code=400, detail=f"Módulo inválido: {payload.modulo}")
+    ip = client_ip(request)
+    enforce_rate_limit(f"auth-login:ip:{ip}", limit=40, window_seconds=60)
+    enforce_rate_limit(f"auth-login:user:{requested}:{email}", limit=8, window_seconds=300)
 
     sb = get_supabase()
     try:
@@ -484,7 +489,7 @@ async def login(payload: LoginPayload):
     acceso       = _resolve_active_module_access(user_id, requested, access_token=access_token)
     role         = (acceso.get("role") or app_meta.get("role") or "user").lower()
 
-    return JSONResponse(content={
+    response = JSONResponse(content={
         "success":      True,
         "token":        access_token,
         "user_id":      user_id,
@@ -494,6 +499,16 @@ async def login(payload: LoginPayload):
         "modulo":       requested,
         "modulos":      secciones,
     })
+    response.set_cookie(
+        "ge_auth_session",
+        access_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=60 * 60 * 24,
+        path="/api",
+    )
+    return response
 
 
 @router.get("/auth/me")
@@ -550,4 +565,6 @@ async def logout(authorization: str = Header(default="")):
     result = revoke_supabase_session(token)
     if not result.ok:
         raise HTTPException(502, f"No se pudo cerrar la sesión en Supabase: {result.reason}")
-    return JSONResponse(content=result.as_dict())
+    response = JSONResponse(content=result.as_dict())
+    response.delete_cookie("ge_auth_session", path="/api")
+    return response

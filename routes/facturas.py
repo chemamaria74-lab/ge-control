@@ -191,7 +191,7 @@ def _emisor_from_scope(scope: dict) -> dict:
     settings = load_settings(scope["user_id"], int(scope["perfil_id"]))
     profile = scope.get("profile") or {}
     rfc = _clean_rfc(settings.get("RfcContribuyente") or profile.get("rfc") or "")
-    nombre = str(settings.get("DescripcionInstalacion") or profile.get("nombre") or "Empresa").strip()
+    nombre = str(settings.get("NombreFiscal") or settings.get("DescripcionInstalacion") or profile.get("nombre") or "Empresa").strip()
     cp = _clean_cp(settings.get("CodigoPostal") or settings.get("codigo_postal") or "")
     regimen = str(settings.get("RegimenFiscal") or settings.get("regimen_fiscal") or "601").strip()
     if not rfc or not nombre or not cp:

@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from xml.sax.saxutils import escape as xml_escape
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Cookie, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -17,6 +17,7 @@ from routes.auth import obtener_acceso_modulo, verify_token
 from routes.perfiles import _tenant_id_for_user
 from services.fiscal_audit import version_xml
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml, save_fiscal_artifacts
+from services.security import client_ip, enforce_rate_limit
 from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
 from supabase_config import get_supabase_admin, get_supabase_for_user
 
@@ -24,7 +25,7 @@ from supabase_config import get_supabase_admin, get_supabase_for_user
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-ROLES = {"admin", "operador", "asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"}
+ROLES = {"admin", "operador", "asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"}
 SECTIONS = {"transporte", "gas_lp", "gasolineras"}
 MAX_FAILED_ATTEMPTS = 5
 LOCK_MINUTES = 15
@@ -108,6 +109,32 @@ class GasLpInternalFacturaPayload(BaseModel):
     ruta_id: Optional[int] = None
 
 
+class GasLpConciliacionCierrePayload(BaseModel):
+    fecha: str
+    facility_id: Optional[int] = None
+    zona: str = ""
+    efectivo_reportado: float = 0
+    transferencia_reportada: float = 0
+    voucher_reportado: float = 0
+    cheque_reportado: float = 0
+    credito_reportado: float = 0
+    venta_publico_general: float = 0
+    descuento: float = 0
+    notas: str = ""
+    status: str = "pendiente_deposito"
+
+
+class GasLpConciliacionBancoPayload(BaseModel):
+    fecha_banco: str
+    banco: str = ""
+    cuenta: str = ""
+    descripcion: str = ""
+    referencia: str = ""
+    deposito: float = 0
+    retiro: float = 0
+    notas: str = ""
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -135,6 +162,16 @@ def _verify_secret(value: str, stored: str) -> bool:
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _token_from_header_or_query(
+    authorization: str = "",
+    token: str | None = None,
+    cookie_token: str | None = None,
+) -> str:
+    if authorization.startswith("Bearer "):
+        return authorization[7:].strip()
+    return (token or cookie_token or "").strip()
 
 
 def _clean_code(value: str) -> str:
@@ -285,6 +322,16 @@ def _gas_lp_internal_context(token: str, *, write: bool = False) -> dict:
     return ctx
 
 
+def _gas_lp_conciliation_context(token: str, *, write: bool = False) -> dict:
+    ctx = _internal_session(token, "gas_lp")
+    role = (ctx["user"].get("role") or "").lower()
+    if role not in {"conciliacion", "admin"}:
+        raise HTTPException(403, "Tu rol no permite acceder al portal de conciliación.")
+    if write and role not in {"conciliacion", "admin"}:
+        raise HTTPException(403, "Tu rol no permite modificar conciliación.")
+    return ctx
+
+
 def _gas_lp_profile(user: dict) -> dict:
     rows = (
         get_supabase_admin()
@@ -320,7 +367,7 @@ def _clean_cp(value: str) -> str:
 
 def _require_gas_lp_issuer(profile: dict, settings: dict) -> dict:
     rfc = _clean_rfc(settings.get("RfcContribuyente") or profile.get("rfc") or "")
-    name = str(settings.get("DescripcionInstalacion") or profile.get("nombre") or "").strip()
+    name = str(settings.get("NombreFiscal") or settings.get("DescripcionInstalacion") or profile.get("nombre") or "").strip()
     cp = _clean_cp(settings.get("CodigoPostal") or settings.get("codigo_postal") or "")
     regimen = str(settings.get("RegimenFiscal") or settings.get("regimen_fiscal") or "601").strip()
     if not rfc or not name or not cp:
@@ -823,11 +870,14 @@ async def delete_internal_user_safe(internal_user_id: int, authorization: str = 
 
 
 @router.post("/internal-auth/login")
-async def internal_login(payload: InternalLogin):
+async def internal_login(payload: InternalLogin, request: Request = None):
     section = (payload.section or "").strip().lower()
     login = _clean_login(payload.code)
     if section not in SECTIONS or not login or not payload.pin:
         raise HTTPException(400, "Usuario, contraseña y módulo son obligatorios.")
+    ip = client_ip(request)
+    enforce_rate_limit(f"internal-login:ip:{ip}", limit=30, window_seconds=60)
+    enforce_rate_limit(f"internal-login:user:{section}:{login}", limit=8, window_seconds=300)
     sb = get_supabase_admin()
     rows = (
         sb.table("internal_users")
@@ -908,13 +958,38 @@ async def internal_login(payload: InternalLogin):
             "status": "activo",
             "expires_at": expires_at.isoformat(),
         }).execute()
-        result["operator_url"] = f"/operador/transporte?token={operator_token}"
-    return JSONResponse(result)
+        result["operator_url"] = f"/operador/transporte#token={operator_token}"
+    response = JSONResponse(result)
+    response.set_cookie(
+        "ge_internal_session",
+        session_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=SESSION_HOURS * 3600,
+        path="/api/internal-auth",
+    )
+    if result.get("operator_url") and operator_token:
+        response.set_cookie(
+            "ge_operator_session",
+            operator_token,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=SESSION_HOURS * 3600,
+            path="/api/tr/operador",
+        )
+    return response
 
 
 @router.get("/internal-auth/me")
-async def internal_me(token: str, section: str | None = None):
-    ctx = _internal_session(token, section)
+async def internal_me(
+    token: str | None = None,
+    section: str | None = None,
+    authorization: str = Header(default=""),
+    ge_internal_session: str | None = Cookie(default=None),
+):
+    ctx = _internal_session(_token_from_header_or_query(authorization, token, ge_internal_session), section)
     user = ctx["user"]
     session = ctx["session"]
     return JSONResponse({
@@ -940,13 +1015,17 @@ async def internal_logout(payload: InternalLogout, authorization: str = Header(d
         except Exception as e:
             logger.warning("internal logout failed: %s", e)
             raise HTTPException(502, f"No se pudo cerrar la sesión interna: {e}")
-        return JSONResponse({"ok": True, "success": True, "revoked": True})
-    return JSONResponse({"ok": True, "success": True, "revoked": False, "reason": "missing_token"})
+        response = JSONResponse({"ok": True, "success": True, "revoked": True})
+        response.delete_cookie("ge_internal_session", path="/api/internal-auth")
+        return response
+    response = JSONResponse({"ok": True, "success": True, "revoked": False, "reason": "missing_token"})
+    response.delete_cookie("ge_internal_session", path="/api/internal-auth")
+    return response
 
 
 @router.get("/internal-auth/gas-lp/summary")
-async def gas_lp_internal_summary(token: str):
-    ctx = _internal_session(token, "gas_lp")
+async def gas_lp_internal_summary(token: str | None = None, authorization: str = Header(default="")):
+    ctx = _internal_session(_token_from_header_or_query(authorization, token), "gas_lp")
     user = ctx["user"]
     profile = _gas_lp_profile(user)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
@@ -962,6 +1041,10 @@ async def gas_lp_internal_summary(token: str):
         "asistente_operativo": [
             {"key": "operacion", "title": "Operación", "desc": "Seguimiento operativo y datos de entregas."},
             {"key": "consulta", "title": "Consultas", "desc": "Consulta de registros del periodo."},
+        ],
+        "conciliacion": [
+            {"key": "cierre_diario", "title": "Cierre diario", "desc": "Control de caja, efectivo por depositar y banco."},
+            {"key": "facturas", "title": "Facturas", "desc": "Consulta de facturas generadas en el portal de facturación."},
         ],
         "planta": [
             {"key": "planta", "title": "Captura de planta", "desc": "Inventario, composición y capturas operativas de planta."},
@@ -999,8 +1082,8 @@ async def gas_lp_internal_summary(token: str):
 
 
 @router.get("/internal-auth/gas-lp/clientes")
-async def gas_lp_internal_clientes(token: str):
-    ctx = _gas_lp_internal_context(token)
+async def gas_lp_internal_clientes(token: str | None = None, authorization: str = Header(default="")):
+    ctx = _gas_lp_internal_context(_token_from_header_or_query(authorization, token))
     user = ctx["user"]
     sb = get_supabase_admin()
     try:
@@ -1022,8 +1105,8 @@ async def gas_lp_internal_clientes(token: str):
 
 
 @router.get("/internal-auth/gas-lp/facilities")
-async def gas_lp_internal_facilities(token: str):
-    ctx = _gas_lp_internal_context(token)
+async def gas_lp_internal_facilities(token: str | None = None, authorization: str = Header(default="")):
+    ctx = _gas_lp_internal_context(_token_from_header_or_query(authorization, token))
     user = ctx["user"]
     try:
         rows = (
@@ -1043,8 +1126,12 @@ async def gas_lp_internal_facilities(token: str):
 
 
 @router.get("/internal-auth/gas-lp/catalogos")
-async def gas_lp_internal_catalogos(token: str, modulo: str = Query(default="gas_lp")):
-    ctx = _gas_lp_internal_context(token)
+async def gas_lp_internal_catalogos(
+    token: str | None = None,
+    modulo: str = Query(default="gas_lp"),
+    authorization: str = Header(default=""),
+):
+    ctx = _gas_lp_internal_context(_token_from_header_or_query(authorization, token))
     user = ctx["user"]
     sb = get_supabase_admin()
 
@@ -1073,8 +1160,12 @@ async def gas_lp_internal_catalogos(token: str, modulo: str = Query(default="gas
 
 
 @router.post("/internal-auth/gas-lp/clientes")
-async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, token: str):
-    ctx = _gas_lp_internal_context(token, write=True)
+async def gas_lp_internal_crear_cliente(
+    payload: GasLpInternalClientePayload,
+    token: str | None = None,
+    authorization: str = Header(default=""),
+):
+    ctx = _gas_lp_internal_context(_token_from_header_or_query(authorization, token), write=True)
     user = ctx["user"]
     row = _gas_lp_cliente_row(user, payload)
     try:
@@ -1085,8 +1176,8 @@ async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, to
 
 
 @router.delete("/internal-auth/gas-lp/clientes/{cliente_id}")
-async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str):
-    ctx = _gas_lp_internal_context(token, write=True)
+async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str | None = None, authorization: str = Header(default="")):
+    ctx = _gas_lp_internal_context(_token_from_header_or_query(authorization, token), write=True)
     user = ctx["user"]
     try:
         q = (
@@ -1107,8 +1198,8 @@ async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str):
 
 
 @router.get("/internal-auth/gas-lp/facturas")
-async def gas_lp_internal_facturas(token: str):
-    ctx = _gas_lp_internal_context(token)
+async def gas_lp_internal_facturas(token: str | None = None, authorization: str = Header(default="")):
+    ctx = _gas_lp_internal_context(_token_from_header_or_query(authorization, token))
     user = ctx["user"]
     try:
         rows = (
@@ -1129,11 +1220,211 @@ async def gas_lp_internal_facturas(token: str):
     return JSONResponse({"ok": True, "facturas": rows})
 
 
+def _parse_date_prefix(value: str) -> str:
+    raw = str(value or "").strip()
+    if len(raw) >= 10:
+        return raw[:10]
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def _cash_pending_for_closure(cierre: dict) -> float:
+    efectivo = float(cierre.get("efectivo_reportado") or 0)
+    depositado = float(cierre.get("efectivo_depositado") or 0)
+    return round(efectivo - depositado, 2)
+
+
+@router.get("/internal-auth/gas-lp/conciliacion/summary")
+async def gas_lp_conciliacion_summary(
+    token: str | None = None,
+    fecha: str | None = None,
+    authorization: str = Header(default=""),
+):
+    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token))
+    user = ctx["user"]
+    profile = _gas_lp_profile(user)
+    day = _parse_date_prefix(fecha or _now_iso())
+    sb = get_supabase_admin()
+    try:
+        facturas = (
+            sb.table("gas_lp_facturas")
+            .select("id,created_at,fecha_timbrado,rfc_receptor,volumen_litros,importe,status,uuid_sat,metadata,facility_id,origen_facility_id,destino_facility_id")
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .gte("created_at", f"{day}T00:00:00")
+            .lte("created_at", f"{day}T23:59:59")
+            .order("created_at", desc=True)
+            .limit(200)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_conciliacion_facturas", exc)
+    total_facturado = 0.0
+    publico_general = 0.0
+    credito = 0.0
+    traspasos = 0.0
+    for f in facturas:
+        md = f.get("metadata") or {}
+        total = float(md.get("total") or f.get("importe") or 0)
+        if (f.get("status") or "").lower() == "cancelado":
+            continue
+        if md.get("tipo_operacion") == "traspaso":
+            traspasos += total
+            continue
+        total_facturado += total
+        if (f.get("rfc_receptor") or "").upper() == "XAXX010101000":
+            publico_general += total
+        if (md.get("metodo_pago") or "").upper() == "PPD":
+            credito += total
+    return JSONResponse({
+        "ok": True,
+        "company": {"id": profile.get("id"), "name": profile.get("nombre"), "rfc": profile.get("rfc")},
+        "fecha": day,
+        "kpis": {
+            "facturas": len(facturas),
+            "total_facturado": round(total_facturado, 2),
+            "publico_general": round(publico_general, 2),
+            "credito_estimado": round(credito, 2),
+            "traspasos": round(traspasos, 2),
+        },
+        "facturas": facturas,
+    })
+
+
+@router.get("/internal-auth/gas-lp/conciliacion/cierres")
+async def gas_lp_conciliacion_cierres(
+    token: str | None = None,
+    status: str | None = None,
+    authorization: str = Header(default=""),
+):
+    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token))
+    user = ctx["user"]
+    try:
+        q = (
+            get_supabase_admin()
+            .table("gas_lp_conciliacion_cierres")
+            .select("*")
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+        )
+        if status:
+            q = q.eq("status", status)
+        rows = q.order("fecha", desc=True).limit(100).execute().data or []
+    except Exception as exc:
+        logger.info("gas_lp_conciliacion_cierres unavailable: %s", exc)
+        rows = []
+    for row in rows:
+        row["efectivo_pendiente"] = _cash_pending_for_closure(row)
+    return JSONResponse({"ok": True, "cierres": rows})
+
+
+@router.post("/internal-auth/gas-lp/conciliacion/cierres")
+async def gas_lp_conciliacion_crear_cierre(
+    payload: GasLpConciliacionCierrePayload,
+    token: str | None = None,
+    authorization: str = Header(default=""),
+):
+    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token), write=True)
+    user = ctx["user"]
+    fecha = _parse_date_prefix(payload.fecha)
+    row = {
+        "user_id": user.get("owner_user_id"),
+        "tenant_id": user.get("tenant_id"),
+        "perfil_id": user.get("perfil_id"),
+        "facility_id": payload.facility_id,
+        "fecha": fecha,
+        "zona": payload.zona.strip(),
+        "efectivo_reportado": float(payload.efectivo_reportado or 0),
+        "efectivo_depositado": 0,
+        "transferencia_reportada": float(payload.transferencia_reportada or 0),
+        "voucher_reportado": float(payload.voucher_reportado or 0),
+        "cheque_reportado": float(payload.cheque_reportado or 0),
+        "credito_reportado": float(payload.credito_reportado or 0),
+        "venta_publico_general": float(payload.venta_publico_general or 0),
+        "descuento": float(payload.descuento or 0),
+        "status": payload.status if payload.status in {"pendiente_deposito", "parcial", "depositado", "diferencia", "revision"} else "pendiente_deposito",
+        "notas": payload.notas.strip(),
+        "created_by_internal": user.get("id"),
+        "created_at": _now_iso(),
+        "updated_at": _now_iso(),
+    }
+    try:
+        data = get_supabase_admin().table("gas_lp_conciliacion_cierres").insert(row).execute().data or [row]
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_conciliacion_crear_cierre", exc)
+    cierre = data[0]
+    cierre["efectivo_pendiente"] = _cash_pending_for_closure(cierre)
+    return JSONResponse({"ok": True, "cierre": cierre})
+
+
+@router.get("/internal-auth/gas-lp/conciliacion/banco")
+async def gas_lp_conciliacion_banco(token: str | None = None, authorization: str = Header(default="")):
+    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token))
+    user = ctx["user"]
+    try:
+        rows = (
+            get_supabase_admin()
+            .table("gas_lp_conciliacion_banco")
+            .select("*")
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .order("fecha_banco", desc=True)
+            .limit(100)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.info("gas_lp_conciliacion_banco unavailable: %s", exc)
+        rows = []
+    return JSONResponse({"ok": True, "movimientos": rows})
+
+
+@router.post("/internal-auth/gas-lp/conciliacion/banco")
+async def gas_lp_conciliacion_crear_banco(
+    payload: GasLpConciliacionBancoPayload,
+    token: str | None = None,
+    authorization: str = Header(default=""),
+):
+    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token), write=True)
+    user = ctx["user"]
+    row = {
+        "user_id": user.get("owner_user_id"),
+        "tenant_id": user.get("tenant_id"),
+        "perfil_id": user.get("perfil_id"),
+        "fecha_banco": _parse_date_prefix(payload.fecha_banco),
+        "banco": payload.banco.strip(),
+        "cuenta": payload.cuenta.strip(),
+        "descripcion": payload.descripcion.strip(),
+        "referencia": payload.referencia.strip(),
+        "deposito": float(payload.deposito or 0),
+        "retiro": float(payload.retiro or 0),
+        "status": "sin_relacionar",
+        "notas": payload.notas.strip(),
+        "created_by_internal": user.get("id"),
+        "created_at": _now_iso(),
+        "updated_at": _now_iso(),
+    }
+    try:
+        data = get_supabase_admin().table("gas_lp_conciliacion_banco").insert(row).execute().data or [row]
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_conciliacion_crear_banco", exc)
+    return JSONResponse({"ok": True, "movimiento": data[0]})
+
+
 @router.post("/internal-auth/gas-lp/facturas")
-async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, token: str):
+async def gas_lp_internal_crear_factura(
+    payload: GasLpInternalFacturaPayload,
+    token: str | None = None,
+    authorization: str = Header(default=""),
+):
     from routes.transporte import _normalizar_receptor_cfdi, _validar_datos_cfdi_receptor
 
-    ctx = _gas_lp_internal_context(token, write=True)
+    ctx = _gas_lp_internal_context(_token_from_header_or_query(authorization, token), write=True)
     user = ctx["user"]
     profile = _gas_lp_profile(user)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
@@ -1337,6 +1628,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "clave_prod_serv": totals["clave_prod_serv"],
             "no_identificacion": totals["no_identificacion"],
             "unidad": totals["unidad"],
+            "metodo_pago": payload.metodo_pago,
+            "forma_pago": payload.forma_pago,
         },
         "created_at": now,
     }
@@ -1430,8 +1723,13 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
 
 
 @router.get("/internal-auth/gas-lp/detected-loads")
-async def gas_lp_detected_loads(token: str, search: str | None = None, status: str | None = None):
-    ctx = _internal_session(token, "gas_lp")
+async def gas_lp_detected_loads(
+    token: str | None = None,
+    search: str | None = None,
+    status: str | None = None,
+    authorization: str = Header(default=""),
+):
+    ctx = _internal_session(_token_from_header_or_query(authorization, token), "gas_lp")
     user = ctx["user"]
     tenant_id = user.get("tenant_id")
     perfil_id = user.get("perfil_id")
@@ -1485,8 +1783,13 @@ async def gas_lp_detected_loads(token: str, search: str | None = None, status: s
 
 
 @router.post("/internal-auth/gas-lp/detected-loads/{load_id}/action")
-async def gas_lp_detected_load_action(load_id: str, payload: DetectedLoadAction, token: str):
-    ctx = _internal_session(token, "gas_lp")
+async def gas_lp_detected_load_action(
+    load_id: str,
+    payload: DetectedLoadAction,
+    token: str | None = None,
+    authorization: str = Header(default=""),
+):
+    ctx = _internal_session(_token_from_header_or_query(authorization, token), "gas_lp")
     user = ctx["user"]
     action = (payload.action or "").strip().lower()
     if action not in {"confirm", "ignore", "edit"}:

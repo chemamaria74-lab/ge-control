@@ -16,7 +16,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 SECTIONS = {"transporte", "gas_lp", "gasolineras"}
-ROLES = {"admin", "user", "operador", "asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"}
+ROLES = {"admin", "user", "operador", "asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"}
 
 
 class UserSectionPayload(BaseModel):

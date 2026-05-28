@@ -23,6 +23,9 @@ LOCAL_SETTINGS_FALLBACK = (os.environ.get("GAS_LP_LOCAL_SETTINGS_FALLBACK") or "
 
 DEFAULT_SETTINGS = {
     "RfcContribuyente":      "",
+    "NombreFiscal":          "",
+    "CodigoPostal":          "",
+    "RegimenFiscal":         "601",
     "RfcRepresentanteLegal": "",
     "RfcProveedor":          "",
     "NumPermiso":            "",
@@ -68,7 +71,7 @@ def _auth(authorization: str) -> tuple[str, str]:
 
 def _deny_assistant_config(user_id: str, token: str) -> None:
     role = (obtener_acceso_modulo(user_id, "gas_lp", access_token=token).get("role") or "user").lower()
-    if role in {"asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"}:
+    if role in {"asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"}:
         raise HTTPException(403, "El rol Asistente de facturación no puede modificar configuración.")
 
 
@@ -193,6 +196,9 @@ def _save(user_id: str, data: dict, perfil_id: Optional[int] = None) -> None:
 
 class SettingsPayload(BaseModel):
     RfcContribuyente:      Optional[str]   = ""
+    NombreFiscal:          Optional[str]   = ""
+    CodigoPostal:          Optional[str]   = ""
+    RegimenFiscal:         Optional[str]   = "601"
     RfcRepresentanteLegal: Optional[str]   = ""
     RfcProveedor:          Optional[str]   = ""
     NumPermiso:            Optional[str]   = ""

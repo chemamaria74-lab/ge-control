@@ -50,7 +50,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Cookie, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
@@ -168,6 +168,12 @@ def _auth(authorization: str) -> tuple[str, str]:
 
 def _sb(token: str):
     return get_supabase_for_user(token)
+
+
+def _operator_token(authorization: str = "", token: str | None = None, cookie_token: str | None = None) -> str:
+    if authorization.startswith("Bearer "):
+        return authorization[7:].strip()
+    return (token or cookie_token or "").strip()
 
 
 def _parse_perfil_id(raw: str | None) -> Optional[int]:
@@ -2029,7 +2035,7 @@ async def crear_acceso_operador(payload: dict, authorization: str = Header(defau
         "status": "activo",
         "expires_at": expires_at.isoformat(),
     }).execute()
-    return JSONResponse({"ok": True, "token": token_plain, "url": f"/operador/transporte?token={token_plain}"})
+    return JSONResponse({"ok": True, "token": token_plain, "url": f"/operador/transporte#token={token_plain}"})
 
 
 def _operador_context(token_plain: str):
@@ -2102,9 +2108,16 @@ def _operador_meta(sb, acc: dict) -> dict:
     return {"chofer": chofer, "empresa": empresa, "notificaciones": notificaciones}
 
 
+@router.post("/tr/operador/logout")
+async def operador_logout():
+    response = JSONResponse({"ok": True, "success": True})
+    response.delete_cookie("ge_operator_session", path="/api/tr/operador")
+    return response
+
+
 @router.get("/tr/operador/viajes")
-async def operador_viajes(token: str = Query(...)):
-    sb, acc = _operador_context(token)
+async def operador_viajes(token: str | None = None, authorization: str = Header(default=""), ge_operator_session: str | None = Cookie(default=None)):
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     q = sb.table(_TBL_VIAJES).select("*").eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"])
     if acc.get("perfil_id"):
         q = q.eq("perfil_id", acc.get("perfil_id"))
@@ -2132,8 +2145,8 @@ async def operador_viajes(token: str = Query(...)):
 
 
 @router.get("/tr/operador/semana")
-async def operador_semana(token: str = Query(...), week: str = Query(default="")):
-    sb, acc = _operador_context(token)
+async def operador_semana(token: str | None = None, week: str = Query(default=""), authorization: str = Header(default=""), ge_operator_session: str | None = Cookie(default=None)):
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     if not week:
         today = datetime.now(timezone.utc).date()
         week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}"
@@ -2147,8 +2160,8 @@ async def operador_semana(token: str = Query(...), week: str = Query(default="")
 
 
 @router.get("/tr/operador/liquidacion-actual")
-async def operador_liquidacion_actual(token: str = Query(...)):
-    sb, acc = _operador_context(token)
+async def operador_liquidacion_actual(token: str | None = None, authorization: str = Header(default=""), ge_operator_session: str | None = Cookie(default=None)):
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     q = sb.table(_TBL_LIQS).select("*").eq("user_id", acc["user_id"]).eq("chofer_id", acc["chofer_id"]).order("created_at", desc=True).limit(1)
     if acc.get("perfil_id"):
         q = q.eq("perfil_id", acc.get("perfil_id"))
@@ -2161,8 +2174,8 @@ async def operador_liquidacion_actual(token: str = Query(...)):
 
 
 @router.get("/tr/operador/carta-aporte/tareas")
-async def operador_tareas_carta_aporte(token: str = Query(...), force: bool = Query(False)):
-    sb, acc = _operador_context(token)
+async def operador_tareas_carta_aporte(token: str | None = None, force: bool = Query(False), authorization: str = Header(default=""), ge_operator_session: str | None = Cookie(default=None)):
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
     if not force and (now_mx.hour, now_mx.minute) < (2, 0):
         return JSONResponse({"ok": True, "tasks": []})
@@ -2202,8 +2215,8 @@ async def operador_tareas_carta_aporte(token: str = Query(...), force: bool = Qu
 
 
 @router.post("/tr/operador/viajes/{viaje_id}/accion")
-async def operador_accion(viaje_id: int, payload: dict, token: str = Query(...)):
-    sb, acc = _operador_context(token)
+async def operador_accion(viaje_id: int, payload: dict, token: str | None = None, authorization: str = Header(default=""), ge_operator_session: str | None = Cookie(default=None)):
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     accion = str(payload.get("accion") or "").strip()
     mapping = {"recibido": ("recibido", "Ya lo recibio"), "en_camino": ("en_ruta", "Va en camino"), "entregado": ("entregado", "Ya entrego"), "problema": ("problema", "Reporto problema")}
     if accion not in mapping:
@@ -2232,9 +2245,9 @@ async def operador_accion(viaje_id: int, payload: dict, token: str = Query(...))
 
 
 @router.get("/tr/operador/viajes/{viaje_id}/pdf")
-async def operador_pdf_carta_porte(viaje_id: int, token: str = Query(...), download: bool = Query(False)):
+async def operador_pdf_carta_porte(viaje_id: int, token: str | None = None, download: bool = Query(False), authorization: str = Header(default=""), ge_operator_session: str | None = Cookie(default=None)):
     """PDF imprimible de Carta Porte para el operador asignado."""
-    sb, acc = _operador_context(token)
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     viaje_rows = (
         sb.table(_TBL_VIAJES)
         .select("id,user_id,perfil_id,chofer_id")
@@ -2287,9 +2300,9 @@ async def operador_pdf_carta_porte(viaje_id: int, token: str = Query(...), downl
 
 
 @router.get("/tr/operador/viajes/{viaje_id}/xml")
-async def operador_xml_carta_porte(viaje_id: int, token: str = Query(...), download: bool = Query(True)):
+async def operador_xml_carta_porte(viaje_id: int, token: str | None = None, download: bool = Query(True), authorization: str = Header(default=""), ge_operator_session: str | None = Cookie(default=None)):
     """XML de Carta Porte para el operador asignado."""
-    sb, acc = _operador_context(token)
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     viaje_rows = (
         sb.table(_TBL_VIAJES)
         .select("id,user_id,perfil_id,chofer_id")
@@ -2328,9 +2341,9 @@ async def operador_xml_carta_porte(viaje_id: int, token: str = Query(...), downl
 
 
 @router.get("/tr/operador/viajes/{viaje_id}/documentos-relacionados")
-async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...)):
+async def operador_documentos_relacionados(viaje_id: int, token: str | None = None, authorization: str = Header(default=""), ge_operator_session: str | None = Cookie(default=None)):
     """Documentos fiscales relacionados visibles para operador: Carta Porte, factura servicio y proveedor."""
-    sb, acc = _operador_context(token)
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     viaje_rows = (
         sb.table(_TBL_VIAJES)
         .select("id,user_id,perfil_id,chofer_id")
@@ -2349,8 +2362,8 @@ async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...
     cfdi_rows = sb.table(_TBL_CFDI).select("uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("viaje_id", viaje_id).order("fecha_timbrado", desc=True).limit(1).execute().data or []
     if cfdi_rows and cfdi_rows[0].get("xml_content"):
         docs.extend([
-            {"tipo": "carta_porte_pdf", "label": "PDF Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/pdf?token={token}", "status": cfdi_rows[0].get("status")},
-            {"tipo": "carta_porte_xml", "label": "XML Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/xml?token={token}", "status": cfdi_rows[0].get("status")},
+            {"tipo": "carta_porte_pdf", "label": "PDF Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/pdf", "status": cfdi_rows[0].get("status")},
+            {"tipo": "carta_porte_xml", "label": "XML Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/xml", "status": cfdi_rows[0].get("status")},
         ])
     links = sb.table(_TBL_FACT_SERV_CARTAS).select("factura_servicio_id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("viaje_id", viaje_id).execute().data or []
     factura_ids = [int(x.get("factura_servicio_id")) for x in links if x.get("factura_servicio_id")]
@@ -2359,8 +2372,8 @@ async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...
         for f in facturas:
             if f.get("xml_content"):
                 docs.extend([
-                    {"tipo": "factura_servicio_pdf", "label": "PDF factura servicio", "url": f"/api/tr/operador/facturas-servicio/{f['id']}/pdf?token={token}", "status": f.get("status")},
-                    {"tipo": "factura_servicio_xml", "label": "XML factura servicio", "url": f"/api/tr/operador/facturas-servicio/{f['id']}/xml?token={token}", "status": f.get("status")},
+                    {"tipo": "factura_servicio_pdf", "label": "PDF factura servicio", "url": f"/api/tr/operador/facturas-servicio/{f['id']}/pdf", "status": f.get("status")},
+                    {"tipo": "factura_servicio_xml", "label": "XML factura servicio", "url": f"/api/tr/operador/facturas-servicio/{f['id']}/xml", "status": f.get("status")},
                 ])
     provider_docs = (
         sb.table(_TBL_DOCS)
@@ -2378,15 +2391,15 @@ async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...
         docs.append({
             "tipo": d.get("tipo"),
             "label": d.get("nombre") or d.get("tipo"),
-            "url": f"/api/tr/operador/viajes/{viaje_id}/documentos/{d.get('id')}?token={token}",
+            "url": f"/api/tr/operador/viajes/{viaje_id}/documentos/{d.get('id')}",
             "status": "registrado",
         })
     return JSONResponse({"ok": True, "documentos": docs})
 
 
 @router.get("/tr/operador/facturas-servicio/{factura_id}/pdf")
-async def operador_pdf_factura_servicio(factura_id: int, token: str = Query(...), download: bool = Query(False)):
-    sb, acc = _operador_context(token)
+async def operador_pdf_factura_servicio(factura_id: int, token: str | None = None, download: bool = Query(False), authorization: str = Header(default=""), ge_operator_session: str | None = Cookie(default=None)):
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     links = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("factura_servicio_id", factura_id).execute().data or []
     viaje_ids = [int(x.get("viaje_id")) for x in links if x.get("viaje_id")]
     if not viaje_ids:
@@ -2407,8 +2420,8 @@ async def operador_pdf_factura_servicio(factura_id: int, token: str = Query(...)
 
 
 @router.get("/tr/operador/facturas-servicio/{factura_id}/xml")
-async def operador_xml_factura_servicio(factura_id: int, token: str = Query(...), download: bool = Query(True)):
-    sb, acc = _operador_context(token)
+async def operador_xml_factura_servicio(factura_id: int, token: str | None = None, download: bool = Query(True), authorization: str = Header(default=""), ge_operator_session: str | None = Cookie(default=None)):
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     links = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("factura_servicio_id", factura_id).execute().data or []
     viaje_ids = [int(x.get("viaje_id")) for x in links if x.get("viaje_id")]
     viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("chofer_id", acc["chofer_id"]).in_("id", viaje_ids or [-1]).execute().data or []
@@ -2423,8 +2436,8 @@ async def operador_xml_factura_servicio(factura_id: int, token: str = Query(...)
 
 
 @router.get("/tr/operador/viajes/{viaje_id}/documentos/{documento_id}")
-async def operador_documento_storage(viaje_id: int, documento_id: int, token: str = Query(...)):
-    sb, acc = _operador_context(token)
+async def operador_documento_storage(viaje_id: int, documento_id: int, token: str | None = None, authorization: str = Header(default=""), ge_operator_session: str | None = Cookie(default=None)):
+    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
     viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("chofer_id", acc["chofer_id"]).eq("id", viaje_id).limit(1).execute().data or []
     if not viajes:
         raise HTTPException(404, "Viaje no encontrado para este operador.")
