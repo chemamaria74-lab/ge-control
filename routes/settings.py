@@ -35,6 +35,8 @@ DEFAULT_SETTINGS = {
     "ModalidadPermiso":      "PER40",
     "FactorDeConversionKgALitros": 0.542,
     "PdfLogoDataUrl":        "",
+    "PrecioVentaLitroGasLp": 0,
+    "PrecioVentaLitroGasLpUpdatedAt": "",
     # Configuración Avanzada
     "adv_tanques":         None,
     "adv_medicion":        None,
@@ -203,6 +205,8 @@ class SettingsPayload(BaseModel):
     ModalidadPermiso:      Optional[str]   = "PER40"
     FactorDeConversionKgALitros: Optional[float] = 0.542
     PdfLogoDataUrl:          Optional[str] = ""
+    PrecioVentaLitroGasLp:   Optional[float] = 0
+    PrecioVentaLitroGasLpUpdatedAt: Optional[str] = ""
     # Configuración Avanzada — actualizaciones parciales
     adv_tanques:          Optional[Any] = None
     adv_medicion:         Optional[Any] = None
@@ -250,6 +254,13 @@ async def save_settings(
             "FactorDeConversionKgALitros",
             current.get("FactorDeConversionKgALitros"),
             merged.get("FactorDeConversionKgALitros"),
+        )
+    if current.get("PrecioVentaLitroGasLp") != merged.get("PrecioVentaLitroGasLp"):
+        log_settings_audit(
+            user_id,
+            "PrecioVentaLitroGasLp",
+            current.get("PrecioVentaLitroGasLp"),
+            merged.get("PrecioVentaLitroGasLp"),
         )
 
     logger.info("Settings guardados: request_user=%s data_user=%s perfil=%s keys=%s",

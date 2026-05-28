@@ -331,6 +331,14 @@ def _require_gas_lp_issuer(profile: dict, settings: dict) -> dict:
     return {"rfc": rfc, "nombre": name, "cp": cp, "regimen": regimen or "601"}
 
 
+def _configured_sale_price(settings: dict) -> Decimal:
+    try:
+        price = Decimal(str(settings.get("PrecioVentaLitroGasLp") or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    except Exception:
+        price = Decimal("0")
+    return price if price > 0 else Decimal("0")
+
+
 def _public_general_receptor(issuer_cp: str) -> dict:
     return {
         "rfc": "XAXX010101000",
@@ -944,6 +952,7 @@ async def gas_lp_internal_summary(token: str):
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     issuer_cp = _clean_cp(settings.get("CodigoPostal") or settings.get("codigo_postal") or "")
     issuer_regimen = str(settings.get("RegimenFiscal") or settings.get("regimen_fiscal") or "601").strip() or "601"
+    sale_price = _configured_sale_price(settings)
     role = user.get("role") or "solo_lectura"
     role_modules = {
         "asistente_facturacion": [
@@ -976,6 +985,8 @@ async def gas_lp_internal_summary(token: str):
             "rfc": profile.get("rfc"),
             "cp": issuer_cp,
             "regimen_fiscal": issuer_regimen,
+            "precio_venta_litro": float(sale_price),
+            "precio_venta_litro_updated_at": settings.get("PrecioVentaLitroGasLpUpdatedAt") or "",
             "tenant_id": profile.get("tenant_id"),
         },
         "modules": modules,
@@ -1202,11 +1213,16 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         receptor["uso_cfdi"],
     )
 
+    configured_price = _configured_sale_price(settings)
+    precio_unitario = configured_price if tipo_operacion == "venta" and configured_price > 0 else Decimal(str(payload.precio_unitario or 0))
+    if tipo_operacion == "venta" and configured_price <= 0:
+        raise HTTPException(400, "Configura el precio vigente por litro en Configuración antes de facturar.")
+
     xml_consumo, totals = _build_gas_lp_consumo_xml(
         issuer=issuer,
         receptor=receptor,
         litros=payload.litros,
-        precio_unitario=payload.precio_unitario,
+        precio_unitario=precio_unitario,
         concepto=payload.concepto,
         forma_pago=payload.forma_pago,
         metodo_pago=payload.metodo_pago,
@@ -1309,7 +1325,9 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "vehiculo_placas": (vehiculo_row or {}).get("placas") or "",
             "ruta_nombre": (ruta_row or {}).get("nombre") or "",
             "concepto": payload.concepto,
-            "precio_unitario": payload.precio_unitario,
+            "precio_unitario": float(precio_unitario),
+            "precio_unitario_capturado": payload.precio_unitario,
+            "precio_source": "settings.PrecioVentaLitroGasLp" if tipo_operacion == "venta" and configured_price > 0 else "payload",
             "descuento": totals["descuento"],
             "iva_rate": totals["iva_rate"],
             "iva": totals["iva"],
