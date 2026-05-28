@@ -67,7 +67,7 @@
         </div>
         <div class="form-grid">
           <div><label>Operación</label><select id="tipoOperacion" onchange="updateOperacionUI()"><option value="venta">Venta a cliente</option><option value="traspaso">Traspaso interno a estación</option></select></div>
-          <div><label>Instalación origen</label><select id="facilitySelect" onchange="filterRutasForTransfer()"><option value="">Selecciona instalación</option></select></div>
+          <div><label>Instalación origen *</label><select id="facilitySelect" required onchange="filterRutasForTransfer()"><option value="">Selecciona instalación</option></select></div>
           <div id="clienteField"><label>Cliente</label><select id="clienteSelect" onchange="selectCliente()"><option value="">Público en general</option></select></div>
           <div id="destinoField" class="hide"><label>Estación destino</label><select id="destinoFacilitySelect" onchange="filterRutasForTransfer()"><option value="">Selecciona estación destino</option></select></div>
           <div id="cartaPorteField" class="hide"><label>Carta Porte</label><select id="generarCartaPorte" onchange="updateOperacionUI()"><option value="0">Sólo registrar traspaso</option><option value="1">Timbrar Carta Porte</option></select></div>
@@ -213,7 +213,7 @@
       FACILITIES = data.facilities || [];
       const opts = FACILITIES.map(f=>`<option value="${esc(f.id)}">${esc(f.nombre)}${f.clave_instalacion ? ` [${esc(f.clave_instalacion)}]` : ''}</option>`).join('');
       facilitySelect.innerHTML = '<option value="">Selecciona instalación</option>' + opts;
-      if(FACILITIES.length === 1) facilitySelect.value = String(FACILITIES[0].id);
+      if(!FACILITIES.length) setStatus('facturaMsg','Primero crea una instalación en GE Control. Es obligatoria para control y operación.',false);
       renderDestinoFacilities();
     }
     async function loadCatalogos(){
@@ -234,6 +234,7 @@
     function filterRutasForTransfer(){
       const origen = Number(facilitySelect.value || 0);
       const destino = Number(destinoFacilitySelect.value || 0);
+      if(origen) setStatus('facturaMsg','Instalación origen seleccionada.');
       const rutas = (CATALOGOS.rutas || []).filter(r => {
         const ro = Number(r.origen_facility_id || 0);
         const rd = Number(r.destino_facility_id || 0);
@@ -294,9 +295,9 @@
     async function crearFactura(){
       const litrosVal = Number(litros.value || 0);
       const precioVal = Number(precioUnitario.value || 0);
+      if(!facilitySelect.value){ setStatus('facturaMsg','Selecciona la instalación origen. Es obligatoria para control operativo GE Control.',false); facilitySelect.focus(); return; }
       if(litrosVal <= 0 || precioVal <= 0){ setStatus('facturaMsg','Captura litros y configura un precio vigente mayor a cero.',false); return; }
       if(Number(descuento.value || 0) < 0 || Number(descuento.value || 0) > litrosVal * precioVal){ setStatus('facturaMsg','El descuento debe estar entre $0 y el subtotal.',false); return; }
-      if(!facilitySelect.value){ setStatus('facturaMsg','Selecciona la instalación origen.',false); return; }
       const isTraspaso = tipoOperacion.value === 'traspaso';
       if(isTraspaso && !destinoFacilitySelect.value){ setStatus('facturaMsg','Selecciona la estación destino.',false); return; }
       if(isTraspaso && String(facilitySelect.value) === String(destinoFacilitySelect.value)){ setStatus('facturaMsg','Origen y destino deben ser distintos.',false); return; }
