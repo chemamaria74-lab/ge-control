@@ -10,7 +10,7 @@ from typing import Optional
 from xml.sax.saxutils import escape as xml_escape
 
 from fastapi import APIRouter, Cookie, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from routes.auth import obtener_acceso_modulo, verify_token
@@ -1223,6 +1223,69 @@ async def gas_lp_internal_facturas(token: str | None = None, authorization: str 
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
     return JSONResponse({"ok": True, "facturas": rows})
+
+
+def _gas_lp_internal_factura_row(user: dict, factura_id: int) -> dict:
+    rows = (
+        get_supabase_admin()
+        .table("gas_lp_facturas")
+        .select("*")
+        .eq("id", factura_id)
+        .eq("user_id", user.get("owner_user_id"))
+        .eq("tenant_id", user.get("tenant_id"))
+        .eq("perfil_id", user.get("perfil_id"))
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, "Factura no encontrada para esta empresa.")
+    return rows[0]
+
+
+@router.get("/internal-auth/gas-lp/facturas/{factura_id}/xml")
+async def gas_lp_internal_factura_xml(
+    factura_id: int,
+    token: str | None = None,
+    authorization: str = Header(default=""),
+):
+    ctx = _gas_lp_internal_context(_token_from_header_or_query(authorization, token))
+    factura = _gas_lp_internal_factura_row(ctx["user"], factura_id)
+    xml_content = factura.get("xml_content") or ""
+    if not xml_content:
+        raise HTTPException(404, "Factura sin XML timbrado.")
+    info = fiscal_pdf_info(xml_content, "factura_gas_lp")
+    filename = info.filename.replace(".pdf", ".xml")
+    return Response(
+        content=xml_content,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/internal-auth/gas-lp/facturas/{factura_id}/pdf")
+async def gas_lp_internal_factura_pdf(
+    factura_id: int,
+    token: str | None = None,
+    download: bool = Query(True),
+    authorization: str = Header(default=""),
+):
+    ctx = _gas_lp_internal_context(_token_from_header_or_query(authorization, token))
+    user = ctx["user"]
+    factura = _gas_lp_internal_factura_row(user, factura_id)
+    xml_content = factura.get("xml_content") or ""
+    if not xml_content:
+        raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    info = fiscal_pdf_info(xml_content, "factura_gas_lp")
+    pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'},
+    )
 
 
 def _parse_date_prefix(value: str) -> str:
