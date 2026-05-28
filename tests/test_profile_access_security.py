@@ -66,9 +66,9 @@ class FakeDB:
                 {"user_id": "u2", "section": "transporte", "role": "user", "status": "active", "tenant_id": "t2", "perfil_id": 20},
             ],
             "perfiles_empresa": [
-                {"id": 10, "user_id": "u1", "tenant_id": "t1", "activo": True, "descripcion": ""},
-                {"id": 11, "user_id": "someone", "tenant_id": "t1", "activo": True, "descripcion": ""},
-                {"id": 20, "user_id": "u2", "tenant_id": "t2", "activo": True, "descripcion": ""},
+                {"id": 10, "user_id": "u1", "tenant_id": "t1", "activo": True, "descripcion": "[module:transporte]"},
+                {"id": 11, "user_id": "someone", "tenant_id": "t1", "activo": True, "descripcion": "[module:transporte]"},
+                {"id": 20, "user_id": "u2", "tenant_id": "t2", "activo": True, "descripcion": "[module:transporte]"},
                 {"id": 21, "user_id": "gas-admin", "tenant_id": "t1", "activo": True, "descripcion": "[module:gas_lp] Gas LP real"},
                 {"id": 99, "user_id": "someone-else", "tenant_id": "t1", "activo": True, "descripcion": "[module:gas_lp] Ajena"},
             ],

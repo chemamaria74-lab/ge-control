@@ -70,12 +70,30 @@ class FakeDB:
                     "activo": True,
                 },
                 {
+                    "id": 410,
+                    "user_id": "admin",
+                    "tenant_id": "tenant-a",
+                    "nombre": "Ruth Transporte",
+                    "rfc": "OEMR710420FCA",
+                    "descripcion": "[module:transporte] Transportes Ruth",
+                    "activo": True,
+                },
+                {
                     "id": 500,
                     "user_id": "admin",
                     "tenant_id": "tenant-a",
                     "nombre": "Gas LP Real",
                     "rfc": "GLP010101AAA",
                     "descripcion": "[module:gas_lp] Empresa operativa",
+                    "activo": True,
+                },
+                {
+                    "id": 501,
+                    "user_id": "admin",
+                    "tenant_id": "tenant-a",
+                    "nombre": "Gas LP legacy sin marcador",
+                    "rfc": "LEG010101AAA",
+                    "descripcion": "",
                     "activo": True,
                 },
             ]
@@ -97,7 +115,7 @@ class GasLpProfileSelectorTest(unittest.TestCase):
              patch.object(perfiles, "_tenant_id_for_user", lambda uid, access_token="": "tenant-a"):
             rows = perfiles.get_perfiles_for_user("admin", access_token="tok", module="gas_lp")
 
-        self.assertEqual([row["id"] for row in rows], [7, 500])
+        self.assertEqual([row["id"] for row in rows], [7, 501, 500])
 
     def test_transporte_module_list_does_not_mix_gas_lp_profiles(self):
         db = FakeDB()
@@ -110,7 +128,7 @@ class GasLpProfileSelectorTest(unittest.TestCase):
              patch.object(perfiles, "_tenant_id_for_user", lambda uid, access_token="": "tenant-a"):
             rows = perfiles.get_perfiles_for_user("admin", access_token="tok", module="transporte")
 
-        self.assertEqual([row["id"] for row in rows], [407])
+        self.assertEqual([row["id"] for row in rows], [407, 410])
 
 
 if __name__ == "__main__":

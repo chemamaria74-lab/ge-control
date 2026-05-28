@@ -36,7 +36,7 @@ def _settings_base(**kwargs) -> dict:
     s = {
         "RfcContribuyente":      "ABC010101XXX",
         "RfcRepresentanteLegal": "",
-        "RfcProveedor":          "XAX010101000",
+        "RfcProveedor":          "XAXX010101000",
         "NumPermiso":            "G/12345/DIS/GLP/2020",
         "PermisoAlmYDist":       "G/12345/DIS/GLP/2020",
         "ClaveInstalacion":      "PLANTA-TEST",
