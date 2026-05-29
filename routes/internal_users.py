@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
 import logging
 import secrets
+import xml.etree.ElementTree as ET
+import zipfile
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -16,7 +19,7 @@ from pydantic import BaseModel
 from routes.auth import obtener_acceso_modulo, verify_token
 from routes.perfiles import _tenant_id_for_user
 from services.fiscal_audit import version_xml
-from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml, save_fiscal_artifacts
+from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_cfdi_desde_xml, generar_pdf_gas_lp_desde_xml, save_fiscal_artifacts
 from services.carta_porte_validation import validar_xml_carta_porte_transporte
 from services.security import client_ip, enforce_rate_limit
 from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
@@ -133,6 +136,15 @@ class GasLpConciliacionBancoPayload(BaseModel):
     referencia: str = ""
     deposito: float = 0
     retiro: float = 0
+    notas: str = ""
+
+
+class GasLpComplementoPagoPayload(BaseModel):
+    fecha_pago: str = ""
+    forma_pago: str = "03"
+    monto: float
+    referencia: str = ""
+    banco: str = ""
     notas: str = ""
 
 
@@ -472,6 +484,177 @@ def _normalize_payment_fields(metodo_pago: str, forma_pago: str) -> tuple[str, s
     return metodo, forma
 
 
+def _cfdi_root(xml_content: str) -> ET.Element:
+    try:
+        return ET.fromstring(str(xml_content or "").encode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(400, f"XML CFDI base inválido para complemento de pago: {exc}") from exc
+
+
+def _xml_local(tag: str) -> str:
+    return str(tag or "").split("}", 1)[-1]
+
+
+def _xml_first(root: ET.Element, local_name: str) -> Optional[ET.Element]:
+    for elem in root.iter():
+        if _xml_local(elem.tag) == local_name:
+            return elem
+    return None
+
+
+def _xml_child(elem: Optional[ET.Element], local_name: str) -> Optional[ET.Element]:
+    if elem is None:
+        return None
+    for child in list(elem):
+        if _xml_local(child.tag) == local_name:
+            return child
+    return None
+
+
+def _xml_all(root: ET.Element, local_name: str) -> list[ET.Element]:
+    return [elem for elem in root.iter() if _xml_local(elem.tag) == local_name]
+
+
+def _xml_attr(elem: Optional[ET.Element], name: str, default: str = "") -> str:
+    if elem is None:
+        return default
+    return str(elem.attrib.get(name) or default)
+
+
+def _decimal_xml(value, scale: str = "0.01") -> Decimal:
+    return Decimal(str(value or 0)).quantize(Decimal(scale), rounding=ROUND_HALF_UP)
+
+
+def _payment_datetime(value: str) -> str:
+    raw = str(value or "").strip()
+    if raw:
+        raw = raw.replace("Z", "").replace(" ", "T")
+        if len(raw) == 16:
+            raw = f"{raw}:00"
+        return raw[:19]
+    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _build_gas_lp_pago20_xml(
+    *,
+    factura: dict,
+    issuer: dict,
+    fecha_pago: str,
+    forma_pago: str,
+    monto,
+    parcialidad: int,
+    saldo_anterior,
+) -> tuple[str, dict]:
+    xml_base = factura.get("xml_content") or ""
+    root = _cfdi_root(xml_base)
+    if _xml_attr(root, "TipoDeComprobante") != "I":
+        raise HTTPException(400, "Solo se puede generar complemento de pago sobre una factura de ingreso.")
+    if _xml_attr(root, "MetodoPago") != "PPD":
+        raise HTTPException(400, "Solo las facturas PPD requieren complemento de pago.")
+    timbre = _xml_first(root, "TimbreFiscalDigital")
+    uuid_rel = _xml_attr(timbre, "UUID")
+    if not uuid_rel:
+        raise HTTPException(400, "La factura PPD no tiene UUID timbrado para relacionar el pago.")
+    receptor_base = _xml_first(root, "Receptor")
+    receptor = {
+        "rfc": _xml_attr(receptor_base, "Rfc"),
+        "nombre": _xml_attr(receptor_base, "Nombre"),
+        "cp": _xml_attr(receptor_base, "DomicilioFiscalReceptor"),
+        "regimen": _xml_attr(receptor_base, "RegimenFiscalReceptor"),
+    }
+    if not all(receptor.values()):
+        raise HTTPException(400, "El receptor de la factura base está incompleto para generar el complemento.")
+
+    total_doc = _decimal_xml(_xml_attr(root, "Total"))
+    saldo_ant = _decimal_xml(saldo_anterior)
+    pagado = _decimal_xml(monto)
+    if pagado <= 0:
+        raise HTTPException(400, "El monto pagado debe ser mayor a cero.")
+    if pagado > saldo_ant:
+        raise HTTPException(400, "El monto pagado no puede ser mayor al saldo pendiente de la factura.")
+    saldo_insoluto = _decimal_xml(saldo_ant - pagado)
+    if total_doc <= 0:
+        raise HTTPException(400, "La factura base no tiene Total válido.")
+
+    base_total = Decimal("0.00")
+    iva_total = Decimal("0.00")
+    root_impuestos = _xml_child(root, "Impuestos")
+    root_traslados = _xml_child(root_impuestos, "Traslados")
+    traslado_nodes = list(root_traslados) if root_traslados is not None else []
+    if not traslado_nodes:
+        traslado_nodes = _xml_all(root, "Traslado")
+    for traslado in traslado_nodes:
+        if _xml_attr(traslado, "Impuesto") == "002" and _xml_attr(traslado, "TipoFactor") == "Tasa":
+            base_total += _decimal_xml(_xml_attr(traslado, "Base"))
+            iva_total += _decimal_xml(_xml_attr(traslado, "Importe"))
+    if base_total <= 0 and iva_total <= 0:
+        base_total = _decimal_xml(_xml_attr(root, "SubTotal"))
+        iva_total = _decimal_xml(total_doc - base_total)
+
+    proportion = (pagado / total_doc) if total_doc else Decimal("1")
+    base_pagada = _decimal_xml(base_total * proportion)
+    iva_pagado = _decimal_xml(pagado - base_pagada)
+    tasa = Decimal("0.160000")
+    serie = _xml_attr(root, "Serie")
+    folio = _xml_attr(root, "Folio")
+    fecha_cfdi = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    folio_pago = datetime.now().strftime("%Y%m%d%H%M%S")
+    forma_pago = "".join(ch for ch in str(forma_pago or "03") if ch.isdigit())[:2] or "03"
+    fecha_pago = _payment_datetime(fecha_pago)
+    serie_attr = f' Serie="{xml_escape(serie)}"' if serie else ""
+    folio_attr = f' Folio="{xml_escape(folio)}"' if folio else ""
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" '
+        'xmlns:pago20="http://www.sat.gob.mx/Pagos20" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+        'xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd '
+        'http://www.sat.gob.mx/Pagos20 http://www.sat.gob.mx/sitio_internet/cfd/Pagos/Pagos20.xsd" '
+        f'Version="4.0" Serie="PAGO" Folio="{folio_pago}" Fecha="{fecha_cfdi}" '
+        'Sello="" NoCertificado="" Certificado="" SubTotal="0" Moneda="XXX" Total="0" '
+        f'TipoDeComprobante="P" Exportacion="01" LugarExpedicion="{xml_escape(issuer["cp"])}">'
+        f'<cfdi:Emisor Rfc="{xml_escape(issuer["rfc"])}" Nombre="{xml_escape(issuer["nombre"])}" RegimenFiscal="{xml_escape(issuer["regimen"])}"/>'
+        f'<cfdi:Receptor Rfc="{xml_escape(receptor["rfc"])}" Nombre="{xml_escape(receptor["nombre"])}" '
+        f'DomicilioFiscalReceptor="{xml_escape(receptor["cp"])}" RegimenFiscalReceptor="{xml_escape(receptor["regimen"])}" UsoCFDI="CP01"/>'
+        '<cfdi:Conceptos>'
+        '<cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT" Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/>'
+        '</cfdi:Conceptos>'
+        '<cfdi:Complemento>'
+        '<pago20:Pagos Version="2.0">'
+        f'<pago20:Totales TotalTrasladosBaseIVA16="{base_pagada:.2f}" TotalTrasladosImpuestoIVA16="{iva_pagado:.2f}" MontoTotalPagos="{pagado:.2f}"/>'
+        f'<pago20:Pago FechaPago="{xml_escape(fecha_pago)}" FormaDePagoP="{xml_escape(forma_pago)}" MonedaP="MXN" TipoCambioP="1" Monto="{pagado:.2f}">'
+        f'<pago20:DoctoRelacionado IdDocumento="{xml_escape(uuid_rel)}"'
+        f'{serie_attr}'
+        f'{folio_attr}'
+        f' MonedaDR="MXN" EquivalenciaDR="1" NumParcialidad="{int(parcialidad)}" '
+        f'ImpSaldoAnt="{saldo_ant:.2f}" ImpPagado="{pagado:.2f}" ImpSaldoInsoluto="{saldo_insoluto:.2f}" ObjetoImpDR="02">'
+        '<pago20:ImpuestosDR><pago20:TrasladosDR>'
+        f'<pago20:TrasladoDR BaseDR="{base_pagada:.2f}" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="{tasa:.6f}" ImporteDR="{iva_pagado:.2f}"/>'
+        '</pago20:TrasladosDR></pago20:ImpuestosDR>'
+        '</pago20:DoctoRelacionado>'
+        '<pago20:ImpuestosP><pago20:TrasladosP>'
+        f'<pago20:TrasladoP BaseP="{base_pagada:.2f}" ImpuestoP="002" TipoFactorP="Tasa" TasaOCuotaP="{tasa:.6f}" ImporteP="{iva_pagado:.2f}"/>'
+        '</pago20:TrasladosP></pago20:ImpuestosP>'
+        '</pago20:Pago>'
+        '</pago20:Pagos>'
+        '</cfdi:Complemento>'
+        '</cfdi:Comprobante>'
+    )
+    return xml, {
+        "uuid_relacionado": uuid_rel,
+        "serie_relacionada": serie,
+        "folio_relacionado": folio,
+        "fecha_pago": fecha_pago,
+        "forma_pago": forma_pago,
+        "monto": float(pagado),
+        "saldo_anterior": float(saldo_ant),
+        "saldo_insoluto": float(saldo_insoluto),
+        "parcialidad": int(parcialidad),
+        "base_pagada": float(base_pagada),
+        "iva_pagado": float(iva_pagado),
+    }
+
+
 def _gas_lp_profile(user: dict) -> dict:
     rows = (
         get_supabase_admin()
@@ -703,6 +886,50 @@ def _gas_lp_catalog_row(user: dict, table: str, row_id: Optional[int], label: st
     if not rows:
         raise HTTPException(404, f"{label} no encontrado en la empresa asignada.")
     return rows[0]
+
+
+def _date_from_catalog(value: object) -> Optional[datetime.date]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw[:10]).date()
+    except Exception:
+        return None
+
+
+def _validate_gas_lp_carta_porte_catalogs(vehiculo: dict, chofer: dict) -> None:
+    """Bloquea Carta Porte Gas LP si faltan permisos o vigencias operativas."""
+    today = datetime.now().date()
+    errors: list[str] = []
+    if not str((vehiculo or {}).get("permiso_sct") or "").strip():
+        errors.append("Vehículo: captura PermSCT/SICT.")
+    if not str((vehiculo or {}).get("num_permiso_sct") or "").strip():
+        errors.append("Vehículo: captura número de permiso SCT/SICT real; no puede ir vacío ni 'Sin permiso'.")
+    if not str((vehiculo or {}).get("aseguradora") or "").strip():
+        errors.append("Vehículo: captura aseguradora de responsabilidad civil.")
+    if not str((vehiculo or {}).get("poliza_seguro") or "").strip():
+        errors.append("Vehículo: captura póliza de responsabilidad civil.")
+
+    if not str((chofer or {}).get("rfc") or "").strip():
+        errors.append("Chofer: captura RFC.")
+    if not str((chofer or {}).get("licencia") or "").strip():
+        errors.append("Chofer: captura número de licencia federal.")
+    tipo_licencia = str((chofer or {}).get("tipo_licencia") or "").strip().upper()
+    if tipo_licencia != "E":
+        errors.append("Chofer: Gas LP/material peligroso requiere licencia federal tipo E vigente.")
+    lic_vig = _date_from_catalog((chofer or {}).get("licencia_vigencia"))
+    if not lic_vig:
+        errors.append("Chofer: captura vigencia de licencia.")
+    elif lic_vig < today:
+        errors.append(f"Chofer: licencia vencida ({lic_vig.isoformat()}).")
+    med_vig = _date_from_catalog((chofer or {}).get("examen_medico_vigencia"))
+    if not med_vig:
+        errors.append("Chofer: captura vigencia de examen médico/aptitud psicofísica.")
+    elif med_vig < today:
+        errors.append(f"Chofer: examen médico vencido ({med_vig.isoformat()}).")
+    if errors:
+        raise HTTPException(400, "Carta Porte Gas LP detenida por prevalidación: " + "; ".join(errors))
 
 
 def _rebuild_assistant_report(user: dict, periodo: str, facility_id: int) -> None:
@@ -1385,6 +1612,25 @@ def _gas_lp_internal_factura_row(user: dict, factura_id: int) -> dict:
     return rows[0]
 
 
+def _gas_lp_complemento_pago_row(user: dict, complemento_id: int) -> dict:
+    rows = (
+        get_supabase_admin()
+        .table("gas_lp_complementos_pago")
+        .select("*")
+        .eq("id", complemento_id)
+        .eq("user_id", user.get("owner_user_id"))
+        .eq("tenant_id", user.get("tenant_id"))
+        .eq("perfil_id", user.get("perfil_id"))
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, "Complemento de pago no encontrado para esta empresa.")
+    return rows[0]
+
+
 @router.get("/internal-auth/gas-lp/facturas/{factura_id}/xml")
 async def gas_lp_internal_factura_xml(
     factura_id: int,
@@ -1429,11 +1675,83 @@ async def gas_lp_internal_factura_pdf(
     )
 
 
+@router.get("/internal-auth/gas-lp/complementos-pago/{complemento_id}/xml")
+async def gas_lp_complemento_pago_xml(
+    complemento_id: int,
+    token: str | None = None,
+    authorization: str = Header(default=""),
+):
+    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token))
+    complemento = _gas_lp_complemento_pago_row(ctx["user"], complemento_id)
+    xml_content = complemento.get("xml_content") or ""
+    if not xml_content:
+        raise HTTPException(404, "Complemento sin XML timbrado.")
+    info = fiscal_pdf_info(xml_content, "complemento_pago")
+    filename = info.filename.replace(".pdf", ".xml")
+    return Response(
+        content=xml_content,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/internal-auth/gas-lp/complementos-pago/{complemento_id}/pdf")
+async def gas_lp_complemento_pago_pdf(
+    complemento_id: int,
+    token: str | None = None,
+    download: bool = Query(True),
+    authorization: str = Header(default=""),
+):
+    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token))
+    user = ctx["user"]
+    complemento = _gas_lp_complemento_pago_row(user, complemento_id)
+    xml_content = complemento.get("xml_content") or ""
+    if not xml_content:
+        raise HTTPException(404, "Complemento sin XML timbrado para generar PDF.")
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    info = fiscal_pdf_info(xml_content, "complemento_pago")
+    pdf_bytes = generar_pdf_cfdi_desde_xml(
+        xml_content,
+        title="Complemento de pago CFDI",
+        logo_data_url=settings.get("PdfLogoDataUrl", ""),
+        template="pago",
+    )
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'},
+    )
+
+
 def _parse_date_prefix(value: str) -> str:
     raw = str(value or "").strip()
     if len(raw) >= 10:
         return raw[:10]
     return datetime.now().strftime("%Y-%m-%d")
+
+
+def _parse_month_prefix(value: str) -> str:
+    raw = str(value or "").strip()
+    if len(raw) >= 7 and raw[4] == "-":
+        return raw[:7]
+    return datetime.now().strftime("%Y-%m")
+
+
+def _next_month_start(periodo: str) -> str:
+    try:
+        year, month = [int(part) for part in periodo.split("-", 1)]
+        if month == 12:
+            year += 1
+            month = 1
+        else:
+            month += 1
+        return f"{year:04d}-{month:02d}-01T00:00:00"
+    except Exception:
+        now = datetime.now()
+        year = now.year + (1 if now.month == 12 else 0)
+        month = 1 if now.month == 12 else now.month + 1
+        return f"{year:04d}-{month:02d}-01T00:00:00"
 
 
 def _cash_pending_for_closure(cierre: dict) -> float:
@@ -1469,6 +1787,26 @@ async def gas_lp_conciliacion_summary(
             or []
         )
         facturas = _hydrate_factura_actor_rows(facturas, sb)
+        factura_ids = [f.get("id") for f in facturas if f.get("id")]
+        if factura_ids:
+            complementos = (
+                sb.table("gas_lp_complementos_pago")
+                .select("id,factura_id,uuid_sat,monto,saldo_insoluto,parcialidad,created_at,status")
+                .in_("factura_id", factura_ids)
+                .eq("status", "timbrado")
+                .order("created_at", desc=True)
+                .execute()
+                .data
+                or []
+            )
+            latest_by_factura: dict[int, dict] = {}
+            for comp in complementos:
+                fid = comp.get("factura_id")
+                if fid and fid not in latest_by_factura:
+                    latest_by_factura[int(fid)] = comp
+            for factura in facturas:
+                if factura.get("id") in latest_by_factura:
+                    factura["latest_complemento_pago"] = latest_by_factura[int(factura["id"])]
     except Exception as exc:
         raise _safe_internal_error("gas_lp_conciliacion_facturas", exc)
     total_facturado = 0.0
@@ -1626,6 +1964,90 @@ async def gas_lp_conciliacion_crear_banco(
     return JSONResponse({"ok": True, "movimiento": data[0]})
 
 
+@router.get("/internal-auth/gas-lp/conciliacion/documentos.zip")
+async def gas_lp_conciliacion_documentos_zip(
+    token: str | None = None,
+    periodo: str | None = None,
+    tipo: str = Query(default="todos"),
+    authorization: str = Header(default=""),
+):
+    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token))
+    user = ctx["user"]
+    month = _parse_month_prefix(periodo or _now_iso())
+    doc_type = (tipo or "todos").strip().lower()
+    if doc_type not in {"todos", "facturas", "complementos"}:
+        raise HTTPException(400, "Tipo inválido. Usa todos, facturas o complementos.")
+    sb = get_supabase_admin()
+    buffer = io.BytesIO()
+    count = 0
+    try:
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            if doc_type in {"todos", "facturas"}:
+                facturas = (
+                    sb.table("gas_lp_facturas")
+                    .select("id,created_at,uuid_sat,xml_content,metadata")
+                    .eq("user_id", user.get("owner_user_id"))
+                    .eq("tenant_id", user.get("tenant_id"))
+                    .eq("perfil_id", user.get("perfil_id"))
+                    .gte("created_at", f"{month}-01T00:00:00")
+                    .lt("created_at", _next_month_start(month))
+                    .execute()
+                    .data
+                    or []
+                )
+                for factura in facturas:
+                    xml = factura.get("xml_content") or ""
+                    if not xml:
+                        continue
+                    info = fiscal_pdf_info(xml, "factura_gas_lp")
+                    name = f"facturas/{info.filename.replace('.pdf', '.xml')}"
+                    zf.writestr(name, xml.encode("utf-8"))
+                    count += 1
+            if doc_type in {"todos", "complementos"}:
+                complementos = (
+                    sb.table("gas_lp_complementos_pago")
+                    .select("id,created_at,uuid_sat,xml_content,metadata")
+                    .eq("user_id", user.get("owner_user_id"))
+                    .eq("tenant_id", user.get("tenant_id"))
+                    .eq("perfil_id", user.get("perfil_id"))
+                    .gte("created_at", f"{month}-01T00:00:00")
+                    .lt("created_at", _next_month_start(month))
+                    .eq("status", "timbrado")
+                    .execute()
+                    .data
+                    or []
+                )
+                for complemento in complementos:
+                    xml = complemento.get("xml_content") or ""
+                    if not xml:
+                        continue
+                    info = fiscal_pdf_info(xml, "complemento_pago")
+                    name = f"complementos_pago/{info.filename.replace('.pdf', '.xml')}"
+                    zf.writestr(name, xml.encode("utf-8"))
+                    count += 1
+            zf.writestr(
+                "manifest.json",
+                (
+                    "{"
+                    f"\"periodo\":\"{month}\","
+                    f"\"tipo\":\"{doc_type}\","
+                    f"\"documentos\":{count}"
+                    "}"
+                ).encode("utf-8"),
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_conciliacion_documentos_zip", exc)
+    buffer.seek(0)
+    filename = f"gas_lp_{doc_type}_{month}_xml.zip"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/internal-auth/gas-lp/facturas")
 async def gas_lp_internal_crear_factura(
     payload: GasLpInternalFacturaPayload,
@@ -1753,6 +2175,7 @@ async def gas_lp_internal_crear_factura(
             chofer_row = _gas_lp_catalog_row(user, "gas_lp_choferes", payload.chofer_id, "Chofer")
             vehiculo_row = _gas_lp_catalog_row(user, "gas_lp_vehiculos", payload.vehiculo_id, "Vehículo")
             ruta_row = _gas_lp_catalog_row(user, "gas_lp_rutas", payload.ruta_id, "Ruta")
+            _validate_gas_lp_carta_porte_catalogs(vehiculo_row or {}, chofer_row or {})
             distancia_km = float((ruta_row or {}).get("distancia_km") or 1)
             xml_final = build_carta_porte_xml(
                 {
@@ -1760,6 +2183,11 @@ async def gas_lp_internal_crear_factura(
                     "volumen_litros": payload.litros,
                     "importe": totals["subtotal"],
                     "fecha_hora": fecha_mov,
+                    "clave_prod_serv": payload.clave_prod_serv or "15111510",
+                    "descripcion": payload.concepto or "LITRO DE GAS LP",
+                    "material_peligroso": "Sí",
+                    "cve_material_peligroso": "1075",
+                    "embalaje": "Z01",
                 },
                 {
                     "rfc": issuer["rfc"],
@@ -1780,6 +2208,11 @@ async def gas_lp_internal_crear_factura(
                     "config_vehicular": (vehiculo_row or {}).get("config_vehicular") or "C2",
                     "nombre_asegurador": (vehiculo_row or {}).get("aseguradora") or "",
                     "poliza_seguro": (vehiculo_row or {}).get("poliza_seguro") or "",
+                    "permiso_sct": (vehiculo_row or {}).get("permiso_sct") or "TPAF01",
+                    "num_permiso_sct": (vehiculo_row or {}).get("num_permiso_sct") or "",
+                    "operador_nombre": (chofer_row or {}).get("nombre") or "",
+                    "operador_rfc": (chofer_row or {}).get("rfc") or "",
+                    "operador_licencia": (chofer_row or {}).get("licencia") or "",
                 },
                 tipo_comprobante="T",
                 ruta={
@@ -1794,6 +2227,7 @@ async def gas_lp_internal_crear_factura(
                 xml_final,
                 [{"clave_producto": "PR12", "descripcion": "Gas LP"}],
                 enforce_hidrocarburos=False,
+                require_timbre=False,
             )
             if not validacion_cp.ok:
                 raise HTTPException(
@@ -1826,7 +2260,7 @@ async def gas_lp_internal_crear_factura(
         "fecha_timbrado": now if resultado.get("uuid") else "",
         "rfc_receptor": receptor["rfc"],
         "volumen_litros": float(payload.litros),
-        "importe": totals["subtotal"],
+        "importe": totals["subtotal"] if tipo_operacion == "traspaso" else totals["total"],
         "tipo_comprobante": tipo_comprobante,
         "distancia_km": distancia_km,
         "created_by_internal": actor.get("created_by_internal_id"),
@@ -1886,7 +2320,7 @@ async def gas_lp_internal_crear_factura(
                 uuid=uuid_sat,
                 fecha_hora=fecha_mov,
                 litros=payload.litros,
-                importe=totals["subtotal"],
+                importe=totals["subtotal"] if tipo_operacion == "traspaso" else totals["total"],
                 rfc=receptor["rfc"],
                 nombre=receptor["nombre"],
                 file_path=venta_path,
@@ -1975,6 +2409,146 @@ async def gas_lp_internal_crear_factura(
         except Exception as exc:
             logger.info("Gas LP fiscal artifact save skipped factura_id=%s: %s", factura_id, exc)
     return JSONResponse({"ok": True, "factura": factura, "totals": totals})
+
+
+@router.post("/internal-auth/gas-lp/facturas/{factura_id}/complemento-pago")
+async def gas_lp_generar_complemento_pago(
+    factura_id: int,
+    payload: GasLpComplementoPagoPayload,
+    token: str | None = None,
+    authorization: str = Header(default=""),
+):
+    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token), write=True)
+    user = ctx["user"]
+    profile = _gas_lp_profile(user)
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    issuer = _require_gas_lp_issuer(profile, settings)
+    sb = get_supabase_admin()
+    factura = _gas_lp_internal_factura_row(user, factura_id)
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    if md.get("tipo_operacion") == "traspaso" or factura.get("tipo_comprobante") == "T":
+        raise HTTPException(400, "Los traspasos/Carta Porte traslado no generan complemento de pago.")
+    if (md.get("metodo_pago") or "").upper() != "PPD":
+        raise HTTPException(400, "Solo puedes generar complemento en facturas PPD.")
+    if (factura.get("status") or "").lower() == "cancelado":
+        raise HTTPException(400, "No se puede generar complemento sobre una factura cancelada.")
+    if not factura.get("uuid_sat") or not factura.get("xml_content"):
+        raise HTTPException(400, "La factura debe estar timbrada y tener XML para generar complemento.")
+
+    complementos = (
+        sb.table("gas_lp_complementos_pago")
+        .select("*")
+        .eq("factura_id", factura_id)
+        .eq("status", "timbrado")
+        .order("created_at", desc=True)
+        .execute()
+        .data
+        or []
+    )
+    total = _decimal_xml(md.get("total") or factura.get("importe") or 0)
+    pagado_previo = sum((_decimal_xml(c.get("monto")) for c in complementos), Decimal("0.00"))
+    saldo_anterior = _decimal_xml(total - pagado_previo)
+    parcialidad = len(complementos) + 1
+    actor = _invoice_actor_metadata(user)
+    xml_pago, pago_totals = _build_gas_lp_pago20_xml(
+        factura=factura,
+        issuer=issuer,
+        fecha_pago=payload.fecha_pago,
+        forma_pago=payload.forma_pago,
+        monto=payload.monto,
+        parcialidad=parcialidad,
+        saldo_anterior=saldo_anterior,
+    )
+    resultado = timbrar_cfdi(xml_pago)
+    if resultado.get("error"):
+        raise HTTPException(400, f"PAC rechazó el complemento de pago: {resultado['error']}")
+    xml_timbrado = resultado.get("xml_timbrado") or xml_pago
+    complemento_row = {
+        "factura_id": factura_id,
+        "user_id": user.get("owner_user_id"),
+        "tenant_id": user.get("tenant_id"),
+        "perfil_id": user.get("perfil_id"),
+        "uuid_sat": resultado.get("uuid") or "",
+        "xml_content": xml_timbrado,
+        "pdf_url": resultado.get("pdf_url") or "",
+        "status": "timbrado",
+        "fecha_pago": pago_totals["fecha_pago"],
+        "forma_pago": pago_totals["forma_pago"],
+        "moneda": "MXN",
+        "monto": pago_totals["monto"],
+        "saldo_anterior": pago_totals["saldo_anterior"],
+        "saldo_insoluto": pago_totals["saldo_insoluto"],
+        "parcialidad": pago_totals["parcialidad"],
+        "created_by_internal": actor.get("created_by_internal_id"),
+        "created_by_internal_name": actor.get("created_by_internal_name") or "",
+        "metadata": {
+            **actor,
+            "referencia": payload.referencia.strip(),
+            "banco": payload.banco.strip(),
+            "notas": payload.notas.strip(),
+            "factura_uuid": factura.get("uuid_sat") or "",
+            **pago_totals,
+        },
+        "created_at": _now_iso(),
+        "updated_at": _now_iso(),
+    }
+    try:
+        data = sb.table("gas_lp_complementos_pago").insert(complemento_row).execute().data or [complemento_row]
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_complemento_pago_insert", exc)
+    complemento = data[0]
+    new_payment_status = "pagado_con_complemento" if _decimal_xml(pago_totals["saldo_insoluto"]) <= 0 else "pago_parcial"
+    updated_metadata = {
+        **md,
+        "payment_status": new_payment_status,
+        "ultimo_complemento_pago_uuid": complemento.get("uuid_sat") or complemento_row["uuid_sat"],
+        "saldo_insoluto": pago_totals["saldo_insoluto"],
+        "monto_pagado_acumulado": float(total - _decimal_xml(pago_totals["saldo_insoluto"])),
+    }
+    sb.table("gas_lp_facturas").update({
+        "payment_status": new_payment_status,
+        "metadata": updated_metadata,
+        "updated_at": _now_iso(),
+    }).eq("id", factura_id).execute()
+    try:
+        version_xml(
+            module="gas_lp",
+            entity_type="complemento_pago_gas_lp",
+            entity_id=complemento.get("id") or "",
+            uuid_sat=complemento.get("uuid_sat") or complemento_row["uuid_sat"],
+            xml_content=xml_timbrado,
+            user_id=user.get("owner_user_id"),
+            perfil_id=user.get("perfil_id"),
+            tenant_id=user.get("tenant_id"),
+            source="sw_sapien",
+        )
+        info = fiscal_pdf_info(xml_timbrado, "complemento_pago")
+        storage = save_fiscal_artifacts(
+            sb,
+            bucket="fiscal-documents",
+            base_path=f"{user.get('owner_user_id')}/gas_lp/complementos_pago/{complemento.get('id') or factura_id}",
+            xml_content=xml_timbrado,
+            pdf_bytes=generar_pdf_cfdi_desde_xml(
+                xml_timbrado,
+                title="Complemento de pago CFDI",
+                logo_data_url=settings.get("PdfLogoDataUrl", ""),
+                template="pago",
+            ),
+            pdf_filename=info.filename,
+            metadata={
+                "module": "gas_lp",
+                "entity_type": "complemento_pago_gas_lp",
+                "uuid_sat": complemento.get("uuid_sat") or complemento_row["uuid_sat"],
+                "factura_id": factura_id,
+            },
+        )
+        if storage and complemento.get("id"):
+            comp_md = {**(complemento.get("metadata") or {}), "fiscal_storage": storage}
+            sb.table("gas_lp_complementos_pago").update({"metadata": comp_md}).eq("id", complemento["id"]).execute()
+            complemento["metadata"] = comp_md
+    except Exception as exc:
+        logger.info("Gas LP complemento artifact save skipped factura_id=%s: %s", factura_id, exc)
+    return JSONResponse({"ok": True, "complemento": complemento, "factura_payment_status": new_payment_status})
 
 
 @router.get("/internal-auth/gas-lp/detected-loads")

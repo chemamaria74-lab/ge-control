@@ -1169,6 +1169,7 @@ async def listar_choferes(
 @router.post("/facturas/choferes")
 async def crear_chofer(
     nombre: str, rfc: str = "", licencia: str = "", telefono: str = "",
+    tipo_licencia: str = "", licencia_vigencia: str = "", examen_medico_vigencia: str = "",
     modulo: str = "transporte", authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1180,6 +1181,9 @@ async def crear_chofer(
         "nombre": nombre,
         "rfc": rfc,
         "licencia": licencia,
+        "tipo_licencia": tipo_licencia.upper(),
+        "licencia_vigencia": licencia_vigencia or None,
+        "examen_medico_vigencia": examen_medico_vigencia or None,
         "telefono": telefono,
         "activo": True,
     }))
@@ -1191,13 +1195,22 @@ async def crear_chofer(
 @router.put("/facturas/choferes/{chofer_id}")
 async def actualizar_chofer(
     chofer_id: int, nombre: str, rfc: str = "", licencia: str = "", telefono: str = "",
+    tipo_licencia: str = "", licencia_vigencia: str = "", examen_medico_vigencia: str = "",
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
-    if _sb_update(_SB_CHOFERES, chofer_id, scope, {"nombre": nombre, "rfc": rfc, "licencia": licencia, "telefono": telefono}):
+    if _sb_update(_SB_CHOFERES, chofer_id, scope, {
+        "nombre": nombre,
+        "rfc": rfc,
+        "licencia": licencia,
+        "tipo_licencia": tipo_licencia.upper(),
+        "licencia_vigencia": licencia_vigencia or None,
+        "examen_medico_vigencia": examen_medico_vigencia or None,
+        "telefono": telefono,
+    }):
         return JSONResponse({"ok": True, "message": "Chofer actualizado", "source": "supabase"})
     raise HTTPException(404, "Chofer no encontrado en la empresa seleccionada.")
 
@@ -1248,6 +1261,7 @@ async def listar_vehiculos(
 async def crear_vehiculo(
     placa: str, anio: int = 2020, config_vehicular: str = "C2",
     aseguradora: str = "", poliza_seguro: str = "", permiso_cre: str = "",
+    permiso_sct: str = "TPAF01", num_permiso_sct: str = "",
     modulo: str = "transporte", authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1262,6 +1276,8 @@ async def crear_vehiculo(
         "aseguradora": aseguradora,
         "poliza_seguro": poliza_seguro,
         "permiso_cre": permiso_cre,
+        "permiso_sct": permiso_sct or "TPAF01",
+        "num_permiso_sct": num_permiso_sct,
         "activo": True,
     }))
     if supabase_row:
@@ -1273,13 +1289,23 @@ async def crear_vehiculo(
 async def actualizar_vehiculo(
     vehiculo_id: int, placa: str, anio_modelo: int = 2020, config_vehicular: str = "C2",
     nombre_asegurador: str = "", poliza_seguro: str = "", permiso_cre: str = "",
+    permiso_sct: str = "TPAF01", num_permiso_sct: str = "",
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
-    if _sb_update(_SB_VEHICULOS, vehiculo_id, scope, {"placas": placa.upper(), "anio": anio_modelo, "config_vehicular": config_vehicular, "aseguradora": nombre_asegurador, "poliza_seguro": poliza_seguro, "permiso_cre": permiso_cre}):
+    if _sb_update(_SB_VEHICULOS, vehiculo_id, scope, {
+        "placas": placa.upper(),
+        "anio": anio_modelo,
+        "config_vehicular": config_vehicular,
+        "aseguradora": nombre_asegurador,
+        "poliza_seguro": poliza_seguro,
+        "permiso_cre": permiso_cre,
+        "permiso_sct": permiso_sct or "TPAF01",
+        "num_permiso_sct": num_permiso_sct,
+    }):
         return JSONResponse({"ok": True, "message": "Vehículo actualizado", "source": "supabase"})
     raise HTTPException(404, "Vehículo no encontrado en la empresa seleccionada.")
 
