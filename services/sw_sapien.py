@@ -27,6 +27,7 @@ import os
 import re
 import threading
 import time
+import uuid
 import requests
 from datetime import datetime, timezone
 from html import escape as xml_escape
@@ -227,8 +228,10 @@ def build_carta_porte_xml(
     fecha    = (entrega.get("fecha_hora") or datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))[:19]
     vol      = round(float(entrega.get("volumen_litros", 0)), 3)
     imp      = round(float(entrega.get("importe", 0)), 2)
-    iva      = round(imp * 0.16, 2)
-    total    = round(imp + iva, 2)
+    is_traslado = str(tipo_comprobante).upper() == "T"
+    cfdi_subtotal = 0.0 if is_traslado else imp
+    iva      = 0.0 if is_traslado else round(imp * 0.16, 2)
+    total    = 0.0 if is_traslado else round(imp + iva, 2)
 
     folio = str(entrega.get("uuid_mov", ""))[:8] or "0001"
 
@@ -252,8 +255,18 @@ def build_carta_porte_xml(
     config_vehicular = vehiculo.get("config_vehicular", "C2")
     aseguradora      = vehiculo.get("nombre_asegurador", "")
     poliza           = vehiculo.get("poliza_seguro", "")
+    perm_sct         = (vehiculo.get("perm_sct") or vehiculo.get("permiso_sct") or "TPAF01").strip()
+    num_permiso_sct  = (vehiculo.get("num_permiso_sct") or vehiculo.get("permiso_sct_numero") or "").strip()
+    operador_nombre  = (vehiculo.get("operador_nombre") or vehiculo.get("chofer_nombre") or "").strip()
+    operador_rfc     = (vehiculo.get("operador_rfc") or vehiculo.get("chofer_rfc") or "").strip()
+    operador_licencia = (vehiculo.get("operador_licencia") or vehiculo.get("chofer_licencia") or "").strip()
 
-    clave_prod_serv = "15111501"  # Gas LP
+    clave_prod_serv = str(entrega.get("clave_prod_serv") or "15111510").strip()[:8]  # Gas LP por litro
+    descripcion_mercancia = xml_escape(str(entrega.get("descripcion") or "LITRO DE GAS LP").strip() or "LITRO DE GAS LP")
+    material_peligroso = str(entrega.get("material_peligroso") or "Sí").strip()
+    cve_material_peligroso = str(entrega.get("cve_material_peligroso") or "1075").strip()
+    embalaje = str(entrega.get("embalaje") or "Z01").strip()
+    id_ccp = str(entrega.get("id_ccp") or f"CCC{str(uuid.uuid4())[3:]}").strip()
     distancia_km    = round(float((ruta or {}).get("distancia_km", 1) or 1), 1)
     peso_kg = round(vol * 0.524, 3)
 
@@ -266,18 +279,38 @@ def build_carta_porte_xml(
             f'<cfdi:CfdiRelacionados TipoRelacion="04">{uuids_xml}</cfdi:CfdiRelacionados>'
         )
 
-    concepto_xml = (
-        f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" '
-        f'NoIdentificacion="{folio}" Cantidad="{vol}" '
-        f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="Gas LP" '
-        f'ValorUnitario="{round(imp/vol, 6) if vol > 0 else imp}" '
-        f'Importe="{imp}" ObjetoImp="02">'
-        f'<cfdi:Impuestos><cfdi:Traslados>'
-        f'<cfdi:Traslado Base="{imp}" Impuesto="002" TipoFactor="Tasa" '
-        f'TasaOCuota="0.160000" Importe="{iva}"/>'
-        f'</cfdi:Traslados></cfdi:Impuestos>'
-        f'</cfdi:Concepto>'
-    )
+    if is_traslado:
+        concepto_xml = (
+            f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" '
+            f'NoIdentificacion="{folio}" Cantidad="{vol}" '
+            f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{descripcion_mercancia}" '
+            f'ValorUnitario="0" Importe="0" ObjetoImp="01"/>'
+        )
+        pago_attrs = ''
+        impuestos_xml = ''
+        moneda = 'XXX'
+    else:
+        concepto_xml = (
+            f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" '
+            f'NoIdentificacion="{folio}" Cantidad="{vol}" '
+            f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{descripcion_mercancia}" '
+            f'ValorUnitario="{round(imp/vol, 6) if vol > 0 else imp}" '
+            f'Importe="{imp}" ObjetoImp="02">'
+            f'<cfdi:Impuestos><cfdi:Traslados>'
+            f'<cfdi:Traslado Base="{imp}" Impuesto="002" TipoFactor="Tasa" '
+            f'TasaOCuota="0.160000" Importe="{iva}"/>'
+            f'</cfdi:Traslados></cfdi:Impuestos>'
+            f'</cfdi:Concepto>'
+        )
+        pago_attrs = 'FormaPago="99" '
+        impuestos_xml = (
+            f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva}">'
+            f'<cfdi:Traslados>'
+            f'<cfdi:Traslado Base="{imp}" Impuesto="002" TipoFactor="Tasa" '
+            f'TasaOCuota="0.160000" Importe="{iva}"/>'
+            f'</cfdi:Traslados></cfdi:Impuestos>'
+        )
+        moneda = 'MXN'
 
     xml = (
         f'<?xml version="1.0" encoding="UTF-8"?>'
@@ -289,9 +322,9 @@ def build_carta_porte_xml(
         f'http://www.sat.gob.mx/CartaPorte31 '
         f'http://www.sat.gob.mx/sitio_internet/cfd/CartaPorte/CartaPorte31.xsd" '
         f'Version="4.0" Folio="{folio}" Fecha="{fecha}" '
-        f'FormaPago="99" NoCertificado="" Certificado="" Sello="" '
-        f'SubTotal="{imp}" Total="{total}" '
-        f'Moneda="MXN" TipoDeComprobante="{tipo_comprobante}" '
+        f'{pago_attrs}NoCertificado="" Certificado="" Sello="" '
+        f'SubTotal="{cfdi_subtotal}" Total="{total}" '
+        f'Moneda="{moneda}" TipoDeComprobante="{tipo_comprobante}" '
         f'Exportacion="01" LugarExpedicion="{cp_emisor}">'
         f'{cfdi_rel_xml}'
         f'<cfdi:Emisor Rfc="{rfc_emisor}" Nombre="{nombre_emisor}" '
@@ -300,13 +333,9 @@ def build_carta_porte_xml(
         f'DomicilioFiscalReceptor="{cp_receptor}" '
         f'RegimenFiscalReceptor="{regimen_receptor}" UsoCFDI="{uso_cfdi}"/>'
         f'<cfdi:Conceptos>{concepto_xml}</cfdi:Conceptos>'
-        f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva}">'
-        f'<cfdi:Traslados>'
-        f'<cfdi:Traslado Base="{imp}" Impuesto="002" TipoFactor="Tasa" '
-        f'TasaOCuota="0.160000" Importe="{iva}"/>'
-        f'</cfdi:Traslados></cfdi:Impuestos>'
+        f'{impuestos_xml}'
         f'<cfdi:Complemento>'
-        f'<cartaporte31:CartaPorte Version="3.1" TranspInternac="No" '
+        f'<cartaporte31:CartaPorte Version="3.1" IdCCP="{id_ccp}" TranspInternac="No" '
         f'TotalDistRec="{distancia_km}">'
         f'<cartaporte31:Ubicaciones>'
         f'<cartaporte31:Ubicacion TipoUbicacion="Origen" IDUbicacion="OR000001" '
@@ -319,15 +348,21 @@ def build_carta_porte_xml(
         f'<cartaporte31:Mercancias NumTotalMercancias="1" '
         f'PesoBrutoTotal="{peso_kg}" UnidadPeso="KGM">'
         f'<cartaporte31:Mercancia BienesTransp="{clave_prod_serv}" '
-        f'Descripcion="Gas LP" Cantidad="{vol}" ClaveUnidad="LTR" '
-        f'PesoEnKg="{peso_kg}"/>'
+        f'Descripcion="{descripcion_mercancia}" Cantidad="{vol}" ClaveUnidad="LTR" '
+        f'PesoEnKg="{peso_kg}" ValorMercancia="{imp}" Moneda="MXN" '
+        f'MaterialPeligroso="{material_peligroso}" CveMaterialPeligroso="{cve_material_peligroso}" '
+        f'Embalaje="{embalaje}"/>'
         f'</cartaporte31:Mercancias>'
-        f'<cartaporte31:Autotransporte PermSCT="TPAF01" NumPermisoSCT="Sin permiso">'
+        f'<cartaporte31:Autotransporte PermSCT="{xml_escape(perm_sct)}" NumPermisoSCT="{xml_escape(num_permiso_sct)}">'
         f'<cartaporte31:IdentificacionVehicular ConfigVehicular="{config_vehicular}" '
         f'PlacaVM="{placa}" AnioModeloVM="{anio_modelo}"/>'
         f'<cartaporte31:Seguros AseguraRespCivil="{aseguradora}" '
         f'PolizaRespCivil="{poliza}"/>'
         f'</cartaporte31:Autotransporte>'
+        f'<cartaporte31:FiguraTransporte>'
+        f'<cartaporte31:TiposFigura TipoFigura="01" RFCFigura="{xml_escape(operador_rfc)}" '
+        f'NombreFigura="{xml_escape(operador_nombre)}" NumLicencia="{xml_escape(operador_licencia)}"/>'
+        f'</cartaporte31:FiguraTransporte>'
         f'</cartaporte31:CartaPorte>'
         f'</cfdi:Complemento>'
         f'</cfdi:Comprobante>'
