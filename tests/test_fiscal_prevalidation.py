@@ -18,7 +18,14 @@ def _cfdi_xml(extra_before_emisor: str = "", receptor: str = "") -> str:
         <cfdi:Concepto ClaveProdServ="15111510" NoIdentificacion="GLP-LTR"
             Cantidad="57" ClaveUnidad="LTR" Unidad="Litro"
             Descripcion="Venta de Gas LP por litro" ValorUnitario="11.05"
-            Importe="629.85" ObjetoImp="02"/>
+            Importe="629.85" ObjetoImp="02">
+            <cfdi:ComplementoConcepto>
+                <hidrocarburospetroliferos:HidroYPetro
+                    xmlns:hidrocarburospetroliferos="http://www.sat.gob.mx/hidrocarburospetroliferos"
+                    Version="1.0" TipoPermiso="PER06" NumeroPermiso="G12345678901234"
+                    ClaveHYP="15111510" SubProductoHYP="SP46"/>
+            </cfdi:ComplementoConcepto>
+        </cfdi:Concepto>
     </cfdi:Conceptos>
 </cfdi:Comprobante>"""
 

@@ -36,7 +36,7 @@ def _settings_base(**kwargs) -> dict:
     s = {
         "RfcContribuyente":      "ABC010101XXX",
         "RfcRepresentanteLegal": "",
-        "RfcProveedor":          "XAXX010101000",
+        "RfcProveedor":          "XAX010101000",
         "NumPermiso":            "G/12345/DIS/GLP/2020",
         "PermisoAlmYDist":       "G/12345/DIS/GLP/2020",
         "ClaveInstalacion":      "PLANTA-TEST",
@@ -387,6 +387,16 @@ class TestNombreArchivo:
             first_uuid="12345678-1234-1234-1234-123456789012",
         )
         assert "ABC010101XXX" in nombre
+
+    def test_rfc_proveedor_programa_usa_xax_sin_x_extra(self):
+        nombre = generate_filename(
+            settings={"RfcContribuyente": "GLU760309457", "ClaveInstalacion": "PDD-1011", "ModalidadPermiso": "PER40"},
+            periodo="2026-04",
+            fmt="JSON",
+            first_uuid="7B4FCD26-1B2B-4931-862D-5E417D4CC0B6",
+        )
+        assert "_XAX010101000_" in nombre
+        assert "_XAXX010101000_" not in nombre
 
     def test_extension_json_mayusculas(self):
         nombre = generate_filename(
