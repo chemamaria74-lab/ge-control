@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import Any
 from xml.etree import ElementTree as ET
 
+from services.hidro_petro import validate_hidro_petro_fields
+
 
 MESES_MENSUALES = {f"{i:02d}" for i in range(1, 13)}
 PERIODICIDADES_INFO_GLOBAL = {"01", "02", "03", "04", "05"}
@@ -38,6 +40,7 @@ def validate_cfdi_xml_before_pac(xml_content: str | bytes) -> FiscalPrevalidatio
 
     _validate_common_cfdi_node(root, errors)
     _validate_publico_general_xml(root, errors)
+    _validate_hidro_petro_xml(root, errors)
     _validate_carta_porte_xml(root, errors, warnings)
     return FiscalPrevalidationResult(not errors, errors, warnings)
 
@@ -58,6 +61,7 @@ def validate_cfdi_json_before_pac(cfdi: dict[str, Any]) -> FiscalPrevalidationRe
         errors.append("CFDI JSON incompleto antes del PAC: Conceptos debe tener al menos un concepto.")
 
     _validate_publico_general_json(cfdi, errors)
+    _validate_hidro_petro_json(cfdi, errors)
     _validate_carta_porte_json(cfdi, errors, warnings)
     return FiscalPrevalidationResult(not errors, errors, warnings)
 
@@ -163,6 +167,32 @@ def _validate_carta_porte_xml(root: ET.Element, errors: list[str], warnings: lis
     _validate_cp_figuras_xml(root, errors)
 
 
+def _validate_hidro_petro_xml(root: ET.Element, errors: list[str]) -> None:
+    if _attr(root, "TipoDeComprobante") not in {"I", "E"}:
+        return
+    for concepto in _all(root, "Concepto"):
+        clave = _attr(concepto, "ClaveProdServ")
+        if not _looks_hydrocarbon(clave, _attr(concepto, "Descripcion")):
+            continue
+        hidro = None
+        for child in concepto.iter():
+            if _local(child.tag) == "HidroYPetro":
+                hidro = child
+                break
+        if hidro is None:
+            errors.append(f"Concepto {clave}: requiere ComplementoConcepto/HidroYPetro.")
+            continue
+        for err in validate_hidro_petro_fields(
+            tipo_permiso=_attr(hidro, "TipoPermiso"),
+            numero_permiso=_attr(hidro, "NumeroPermiso"),
+            clave_prod_serv=clave,
+            subproducto=_attr(hidro, "SubProductoHYP"),
+        ):
+            errors.append(f"Concepto {clave}: {err}")
+        if _attr(hidro, "ClaveHYP") != clave:
+            errors.append(f"Concepto {clave}: HidroYPetro.ClaveHYP debe coincidir con ClaveProdServ.")
+
+
 def _validate_cp_mercancias_xml(root: ET.Element, errors: list[str], warnings: list[str]) -> None:
     mercancias_node = _first(root, "Mercancias")
     mercancias = _all(root, "Mercancia")
@@ -259,6 +289,31 @@ def _validate_carta_porte_json(cfdi: dict[str, Any], errors: list[str], warnings
         errors.append("Carta Porte requiere FiguraTransporte/TiposFigura.")
     if not errors and not warnings:
         return
+
+
+def _validate_hidro_petro_json(cfdi: dict[str, Any], errors: list[str]) -> None:
+    if str(cfdi.get("TipoDeComprobante") or "") not in {"I", "E"}:
+        return
+    for concepto in _as_list(cfdi.get("Conceptos")):
+        if not isinstance(concepto, dict):
+            continue
+        clave = str(concepto.get("ClaveProdServ") or "")
+        if not _looks_hydrocarbon(clave, str(concepto.get("Descripcion") or "")):
+            continue
+        comp = concepto.get("ComplementoConcepto") if isinstance(concepto.get("ComplementoConcepto"), dict) else {}
+        hidro = comp.get("hidrocarburospetroliferos:HidroYPetro") or comp.get("HidroYPetro")
+        if not isinstance(hidro, dict):
+            errors.append(f"Concepto {clave}: requiere ComplementoConcepto/HidroYPetro.")
+            continue
+        for err in validate_hidro_petro_fields(
+            tipo_permiso=str(_j(hidro, "TipoPermiso", "@TipoPermiso") or ""),
+            numero_permiso=str(_j(hidro, "NumeroPermiso", "@NumeroPermiso") or ""),
+            clave_prod_serv=clave,
+            subproducto=str(_j(hidro, "SubProductoHYP", "@SubProductoHYP") or ""),
+        ):
+            errors.append(f"Concepto {clave}: {err}")
+        if str(_j(hidro, "ClaveHYP", "@ClaveHYP") or "") != clave:
+            errors.append(f"Concepto {clave}: HidroYPetro.ClaveHYP debe coincidir con ClaveProdServ.")
 
 
 def _find_carta_porte_json(complemento: Any) -> dict[str, Any] | None:
