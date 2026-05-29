@@ -3279,7 +3279,13 @@ function mostrarOverlayEmpresas(perfiles) {
   actualizarSelectorHeaderEmpresas(perfiles);
   renderSubscriptionUsage();
   if (!perfiles.length) {
-    list.innerHTML = '<div style="border:1px dashed #cbd5e1;border-radius:10px;padding:1rem;color:#64748b;background:#f8fafc;text-align:center">Aún no tienes empresas registradas.</div>';
+    const used = Number(subscriptionUsage?.companies_used || 0);
+    list.innerHTML = used > 0
+      ? `<div style="border:1px dashed #cbd5e1;border-radius:10px;padding:1rem;color:#64748b;background:#f8fafc;text-align:center">
+          No se pudieron cargar las empresas existentes. Actualiza la sesión o vuelve a intentar.
+          <div style="margin-top:.75rem"><button type="button" class="empresa-mini-btn" onclick="perfilesCache=null;perfilesCacheAt=0;iniciarFlujoEmpresa()">Reintentar</button></div>
+        </div>`
+      : '<div style="border:1px dashed #cbd5e1;border-radius:10px;padding:1rem;color:#64748b;background:#f8fafc;text-align:center">Aún no tienes empresas registradas.</div>';
   } else {
     list.innerHTML = perfiles.map(p => {
     const pJson = JSON.stringify(p).replace(/\\/g,'\\\\').replace(/"/g,'&quot;');
