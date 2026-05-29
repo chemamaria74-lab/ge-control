@@ -481,6 +481,11 @@ async def list_perfiles(
     user_id, token = _auth(authorization)
     module = _clean_module(module)
     perfiles = get_perfiles_for_user(user_id, access_token=token, module=module)
+    if module == "gas_lp" and not perfiles:
+        # Compatibilidad: algunos tenants legacy tienen empresas activas sin
+        # marcador de módulo. Admin Gas LP debe seguir mostrando esas razones
+        # sociales en el selector antes de bloquear por "sin empresas".
+        perfiles = get_perfiles_for_user(user_id, access_token=token, module=None)
 
     # Migración silenciosa: crear perfil default si el usuario no tiene ninguno
     if auto_create and not module and not perfiles:
