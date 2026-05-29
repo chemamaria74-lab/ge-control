@@ -175,6 +175,31 @@ header .badge.module,
   padding: 6px 10px !important;
 }
 
+.company-select,
+.topbar .company-select,
+header .company-select {
+  min-height: 38px;
+  min-width: 220px;
+  max-width: min(380px, 42vw);
+  border: 1px solid rgba(200,169,107,.24) !important;
+  border-radius: 8px !important;
+  background: rgba(245,245,245,.08) !important;
+  color: var(--ge-soft-white) !important;
+  padding: 6px 34px 6px 10px !important;
+  font-weight: 800;
+  font-family: var(--ge-font);
+}
+
+.company-select option {
+  color: var(--ge-black);
+  background: #fff;
+}
+
+.company-select:focus-visible {
+  outline: 2px solid var(--ge-gold);
+  outline-offset: 2px;
+}
+
 .empresa-switcher:focus-visible {
   outline: 2px solid var(--ge-gold);
   outline-offset: 2px;
@@ -363,7 +388,8 @@ video {
   }
 
   .user-chip,
-  .empresa-switcher {
+  .empresa-switcher,
+  .company-select {
     min-height: 34px;
     padding: 5px 8px !important;
   }
