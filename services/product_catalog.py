@@ -133,7 +133,7 @@ _CATALOGO: dict[str, Producto] = {
         nombre="Diésel automotriz",
         clave_prod_serv_cfdi=ClaveProdServCFDI.DIESEL,
         subproductos=["SP6", "SP7", "SP8", "SP9", "SP14"],
-        cve_material_peligroso="UN1202",
+        cve_material_peligroso="1202",
         descripcion_material="Diésel (combustible de petróleo, punto de inflamación entre 23°C y 60°C)",
     ),
     "PR06": Producto(
@@ -141,7 +141,7 @@ _CATALOGO: dict[str, Producto] = {
         nombre="Gasolina regular (Magna)",
         clave_prod_serv_cfdi=ClaveProdServCFDI.GASOLINA_REGULAR,
         subproductos=["SP1", "SP15", "SP36"],
-        cve_material_peligroso="UN1203",
+        cve_material_peligroso="1203",
         descripcion_material="Gasolina",
     ),
     "PR07": Producto(
@@ -149,7 +149,7 @@ _CATALOGO: dict[str, Producto] = {
         nombre="Gasolina premium",
         clave_prod_serv_cfdi=ClaveProdServCFDI.GASOLINA_PREMIUM,
         subproductos=["SP2", "SP16"],
-        cve_material_peligroso="UN1203",
+        cve_material_peligroso="1203",
         descripcion_material="Gasolina",
     ),
     "PR08": Producto(
@@ -157,7 +157,7 @@ _CATALOGO: dict[str, Producto] = {
         nombre="Diésel marino",
         clave_prod_serv_cfdi=ClaveProdServCFDI.DIESEL,
         subproductos=["SP7", "SP8"],
-        cve_material_peligroso="UN1202",
+        cve_material_peligroso="1202",
         descripcion_material="Combustible de petróleo marino",
     ),
     "PR09": Producto(
@@ -165,7 +165,7 @@ _CATALOGO: dict[str, Producto] = {
         nombre="Combustóleo",
         clave_prod_serv_cfdi=ClaveProdServCFDI.COMBUSTOLEO,
         subproductos=["SP10", "SP11"],
-        cve_material_peligroso="UN3082",
+        cve_material_peligroso="3082",
         descripcion_material="Combustóleo / fuel oil",
     ),
     "PR10": Producto(
@@ -173,7 +173,7 @@ _CATALOGO: dict[str, Producto] = {
         nombre="Queroseno",
         clave_prod_serv_cfdi="15101517",
         subproductos=["SP17", "SP18"],
-        cve_material_peligroso="UN1223",
+        cve_material_peligroso="1223",
         descripcion_material="Queroseno",
     ),
     "PR12": Producto(
@@ -181,7 +181,7 @@ _CATALOGO: dict[str, Producto] = {
         nombre="Gas LP (Gas licuado de petróleo)",
         clave_prod_serv_cfdi=ClaveProdServCFDI.GAS_LP,
         subproductos=["SP24", "SP25", "SP26", "SP29", "SP45", "SP46"],
-        cve_material_peligroso="UN1075",
+        cve_material_peligroso="1075",
         descripcion_material="Gas licuado de petróleo (propano/butano)",
     ),
     "PR13": Producto(
@@ -189,7 +189,7 @@ _CATALOGO: dict[str, Producto] = {
         nombre="Diésel industrial",
         clave_prod_serv_cfdi=ClaveProdServCFDI.DIESEL,
         subproductos=["SP9", "SP14"],
-        cve_material_peligroso="UN1202",
+        cve_material_peligroso="1202",
         descripcion_material="Diésel industrial",
     ),
     "PR16": Producto(
@@ -197,7 +197,7 @@ _CATALOGO: dict[str, Producto] = {
         nombre="Gasolina de aviación (avgas)",
         clave_prod_serv_cfdi="15101510",
         subproductos=["SP3"],
-        cve_material_peligroso="UN1203",
+        cve_material_peligroso="1203",
         descripcion_material="Gasolina de aviación",
     ),
     "PR17": Producto(
@@ -205,7 +205,7 @@ _CATALOGO: dict[str, Producto] = {
         nombre="Turbosina / Jet A-1",
         clave_prod_serv_cfdi=ClaveProdServCFDI.TURBOSINA,
         subproductos=["SP45", "SP46"],   # SAT: SOLO SP45 o SP46 cuando ClaveProducto=PR17
-        cve_material_peligroso="UN1863",
+        cve_material_peligroso="1863",
         descripcion_material="Combustible de aviación turbina (Jet A-1)",
     ),
     "PR01": Producto(
@@ -214,7 +214,7 @@ _CATALOGO: dict[str, Producto] = {
         clave_prod_serv_cfdi=ClaveProdServCFDI.GAS_NATURAL,
         subproductos=["SP19", "SP20", "SP21", "SP22"],
         unidad_medida="UM10",            # GJ — gas natural se mide en GJ
-        cve_material_peligroso="UN1971",
+        cve_material_peligroso="1971",
         descripcion_material="Gas natural comprimido",
     ),
     "PR03": Producto(
@@ -222,7 +222,7 @@ _CATALOGO: dict[str, Producto] = {
         nombre="Nafta",
         clave_prod_serv_cfdi="15101516",
         subproductos=["SP12", "SP13"],
-        cve_material_peligroso="UN1255",
+        cve_material_peligroso="1255",
         descripcion_material="Nafta de petróleo",
     ),
 }

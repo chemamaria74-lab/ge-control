@@ -29,6 +29,7 @@ from typing import Optional
 
 from services.product_catalog import get_producto, ClaveProdServCFDI
 from services.cne_validator import validar_num_permiso
+from services.hidro_petro import dangerous_material_code
 from models.transport_schemas import ViajeCreate, ProductoTransporte
 
 logger = logging.getLogger(__name__)
@@ -219,8 +220,8 @@ def _build_carta_porte(
             "PolizaRespCivil":  poliza_resp,
         },
     }
-    asegura_med = ""
-    poliza_med = ""
+    asegura_med = (vehiculo.get("aseguradora_medio_ambiente") or "").strip()
+    poliza_med = (vehiculo.get("poliza_medio_ambiente") or "").strip()
     for seguro in seguros_operacion:
         tipo = (seguro.get("tipo") or "").lower()
         if "ambient" in tipo:
@@ -230,6 +231,8 @@ def _build_carta_porte(
     if asegura_med and poliza_med:
         autotransporte["Seguros"]["AseguraMedAmbiente"] = asegura_med
         autotransporte["Seguros"]["PolizaMedAmbiente"] = poliza_med
+    elif any((get_producto(p.clave_producto) or None) for p in productos):
+        raise ValueError("Configura seguro de medio ambiente del vehículo para transportar material peligroso.")
 
     remolques = []
     for rem in vehiculo.get("remolques") or []:
@@ -244,7 +247,7 @@ def _build_carta_porte(
     mercancias_list = []
     for i, prod in enumerate(productos):
         prod_cat = get_producto(prod.clave_producto)
-        cve_mat  = (prod_cat.cve_material_peligroso if prod_cat else CVE_MATERIAL_DEFAULT)
+        cve_mat  = dangerous_material_code(prod_cat.cve_material_peligroso if prod_cat else CVE_MATERIAL_DEFAULT)
         desc_mat = (prod_cat.descripcion_material   if prod_cat else DESC_MATERIAL_DEFAULT)
         clave_ps = (prod_cat.clave_prod_serv_cfdi   if prod_cat else "15101514")
         vol_prod = round(prod.volumen_litros, 3)

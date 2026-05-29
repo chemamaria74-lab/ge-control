@@ -255,6 +255,8 @@ def build_carta_porte_xml(
     config_vehicular = vehiculo.get("config_vehicular", "C2")
     aseguradora      = vehiculo.get("nombre_asegurador", "")
     poliza           = vehiculo.get("poliza_seguro", "")
+    aseguradora_med  = vehiculo.get("aseguradora_medio_ambiente", "")
+    poliza_med       = vehiculo.get("poliza_medio_ambiente", "")
     perm_sct         = (vehiculo.get("perm_sct") or vehiculo.get("permiso_sct") or "TPAF01").strip()
     num_permiso_sct  = (vehiculo.get("num_permiso_sct") or vehiculo.get("permiso_sct_numero") or "").strip()
     operador_nombre  = (vehiculo.get("operador_nombre") or vehiculo.get("chofer_nombre") or "").strip()
@@ -357,7 +359,8 @@ def build_carta_porte_xml(
         f'<cartaporte31:IdentificacionVehicular ConfigVehicular="{config_vehicular}" '
         f'PlacaVM="{placa}" AnioModeloVM="{anio_modelo}"/>'
         f'<cartaporte31:Seguros AseguraRespCivil="{aseguradora}" '
-        f'PolizaRespCivil="{poliza}"/>'
+        f'PolizaRespCivil="{poliza}" AseguraMedAmbiente="{xml_escape(aseguradora_med)}" '
+        f'PolizaMedAmbiente="{xml_escape(poliza_med)}"/>'
         f'</cartaporte31:Autotransporte>'
         f'<cartaporte31:FiguraTransporte>'
         f'<cartaporte31:TiposFigura TipoFigura="01" RFCFigura="{xml_escape(operador_rfc)}" '
