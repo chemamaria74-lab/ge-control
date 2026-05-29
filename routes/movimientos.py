@@ -59,6 +59,7 @@ def _auth(authorization: str) -> tuple[str, str]:
 
 class AutoconsumoPayload(BaseModel):
     volumen_litros:    float
+    volumen_litros_raw: Optional[str] = None
     fecha:             str
     periodo:           str
     rfc_contribuyente: str
@@ -67,6 +68,33 @@ class AutoconsumoPayload(BaseModel):
     facility_id:       Optional[int] = None
     temperatura:       float = 20.0
     presion_absoluta:  float = 101.325
+
+
+def _parse_litros_humano(value: Optional[str], fallback: float) -> float:
+    if value is None:
+        return fallback
+    raw = str(value).strip().replace(" ", "")
+    if not raw:
+        return fallback
+    has_comma = "," in raw
+    has_dot = "." in raw
+    if has_comma and has_dot:
+        raw = raw.replace(".", "").replace(",", ".") if raw.rfind(",") > raw.rfind(".") else raw.replace(",", "")
+    elif has_comma:
+        parts = raw.split(",")
+        last = parts[-1] if parts else ""
+        first = parts[0] if parts else ""
+        raw = raw.replace(",", "") if len(last) == 3 and first != "0" else raw.replace(",", ".")
+    elif has_dot:
+        parts = raw.split(".")
+        last = parts[-1] if parts else ""
+        first = parts[0] if parts else ""
+        if len(parts) > 2 or (len(last) == 3 and first != "0"):
+            raw = raw.replace(".", "")
+    try:
+        return float(raw)
+    except ValueError:
+        return fallback
 
 
 def _parse_perfil_id(raw: str) -> Optional[int]:
@@ -120,7 +148,9 @@ async def registrar_autoconsumo(
     perfil_id = scope["perfil_id"]
     _require_scope_facility(user_id, perfil_id, payload.facility_id)
 
-    if payload.volumen_litros <= 0:
+    volumen_litros = _parse_litros_humano(payload.volumen_litros_raw, payload.volumen_litros)
+
+    if volumen_litros <= 0:
         raise HTTPException(400, "El volumen debe ser mayor a 0.")
     try:
         fecha_dt = datetime.strptime(payload.fecha, "%Y-%m-%d")
@@ -150,7 +180,7 @@ async def registrar_autoconsumo(
             "periodo":            payload.periodo,
             "tipo":               "salida",
             "fecha":              payload.fecha,
-            "volumen_litros":     round(payload.volumen_litros, 4),
+            "volumen_litros":     round(volumen_litros, 4),
             "uuid":               uuid_sintetico,
             "rfc_contraparte":    payload.rfc_contribuyente.upper().strip(),
             "nombre_contraparte": f"AUTOCONSUMO — {payload.tipo_movimiento.upper()}",
@@ -171,13 +201,13 @@ async def registrar_autoconsumo(
     logger.info(
         "Autoconsumo: user=%s perfil=%s fid=%s periodo=%s vol=%.2f uuid=%s tipo=%s",
         user_id, perfil_id, payload.facility_id, payload.periodo,
-        payload.volumen_litros, uuid_sintetico, payload.tipo_movimiento,
+        volumen_litros, uuid_sintetico, payload.tipo_movimiento,
     )
 
     return JSONResponse(content={
         "ok":              True,
         "uuid":            uuid_sintetico,
-        "volumen_litros":  round(payload.volumen_litros, 4),
+        "volumen_litros":  round(volumen_litros, 4),
         "tipo_movimiento": payload.tipo_movimiento,
         "periodo":         payload.periodo,
         "fecha":           payload.fecha,
@@ -185,7 +215,7 @@ async def registrar_autoconsumo(
         "descripcion_sat": DESC_AUTOCONSUMO,
         "record_id":       saved_record.get("id"),
         "message": (
-            f"{payload.tipo_movimiento.capitalize()} de {payload.volumen_litros:,.2f} L "
+            f"{payload.tipo_movimiento.capitalize()} de {volumen_litros:,.2f} L "
             f"registrado correctamente. Se incluirá en el próximo reporte mensual "
             f"como TipoEvento {TIPO_EVENTO_AUTOCONSUMO} (entrega sin CFDI, RFC propio)."
         ),
