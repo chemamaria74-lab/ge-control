@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from typing import Any, Optional
 
 from routes.auth import obtener_accesos_usuario, verify_token
-from supabase_config import get_supabase, get_supabase_for_user
+from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -80,6 +80,51 @@ def _clean_profile_for_response(row: dict) -> dict:
         desc = desc.replace(_module_marker(module), "").strip()
     cleaned["descripcion"] = desc
     return cleaned
+
+
+def _admin_profile_rows_for_user(user_id: str, tenant_id: str = "", module: str | None = None) -> list[dict]:
+    """
+    Respaldo server-side para selectores: primero valida tenant/user en backend
+    y luego lee con service-role para evitar que una policy RLS deje la UI sin
+    empresas aunque la suscripcion ya cuente perfiles activos.
+    """
+    sb = get_supabase_admin()
+    fields = "id, nombre, rfc, descripcion, activo, created_at, tenant_id"
+    rows_by_id: dict[int, dict] = {}
+
+    def add(rows: list[dict]) -> None:
+        for row in rows or []:
+            rid = row.get("id")
+            if rid is None:
+                continue
+            if module and _is_marked_for_other_module(row.get("descripcion"), module):
+                continue
+            rows_by_id[int(rid)] = _clean_profile_for_response(row)
+
+    if tenant_id:
+        add(
+            sb.table("perfiles_empresa")
+            .select(fields)
+            .eq("tenant_id", tenant_id)
+            .eq("activo", True)
+            .order("nombre")
+            .execute()
+            .data
+            or []
+        )
+
+    add(
+        sb.table("perfiles_empresa")
+        .select(fields)
+        .eq("user_id", user_id)
+        .eq("activo", True)
+        .order("nombre")
+        .execute()
+        .data
+        or []
+    )
+
+    return sorted(rows_by_id.values(), key=lambda r: (r.get("nombre") or "").lower())
 
 
 def _module_requires_owner_scope(module: str) -> bool:
@@ -404,7 +449,10 @@ def _subscription_usage(user_id: str, access_token: str = "", module: str | None
     sub = _subscription_for_tenant(tenant_id)
     module = _clean_module(module)
     try:
-        used = len(get_perfiles_for_user(user_id, access_token=access_token, module=module))
+        rows = get_perfiles_for_user(user_id, access_token=access_token, module=module)
+        if module == "gas_lp" and not rows:
+            rows = _admin_profile_rows_for_user(user_id, tenant_id=tenant_id, module=module)
+        used = len(rows)
     except Exception:
         used = 0
     limit = _module_company_limit(sub, module)
@@ -486,6 +534,12 @@ async def list_perfiles(
         # marcador de módulo. Admin Gas LP debe seguir mostrando esas razones
         # sociales en el selector antes de bloquear por "sin empresas".
         perfiles = get_perfiles_for_user(user_id, access_token=token, module=None)
+    if module == "gas_lp" and not perfiles:
+        tenant_id = _tenant_id_for_user(user_id, access_token=token)
+        try:
+            perfiles = _admin_profile_rows_for_user(user_id, tenant_id=tenant_id, module=module)
+        except Exception as admin_error:
+            logger.warning("fallback admin perfiles Gas LP falló user=%s tenant=%s: %s", user_id, tenant_id, admin_error)
 
     # Migración silenciosa: crear perfil default si el usuario no tiene ninguno
     if auto_create and not module and not perfiles:
