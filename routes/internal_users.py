@@ -336,7 +336,7 @@ def _gas_lp_internal_context(token: str, *, write: bool = False) -> dict:
     return ctx
 
 
-def _gas_lp_conciliation_context(token: str, *, write: bool = False) -> dict:
+def _gas_lp_conciliation_context(token: str, *, write: bool = False, perfil_id: int | None = None) -> dict:
     try:
         ctx = _internal_session(token, "gas_lp")
     except HTTPException as exc:
@@ -348,6 +348,40 @@ def _gas_lp_conciliation_context(token: str, *, write: bool = False) -> dict:
         raise HTTPException(403, "Tu rol no permite acceder al portal de conciliación.")
     if write and role not in {"conciliacion", "admin"}:
         raise HTTPException(403, "Tu rol no permite modificar conciliación.")
+    if perfil_id and int(perfil_id) != int(ctx["user"].get("perfil_id") or 0):
+        if not ctx.get("session", {}).get("auth_session") or role != "admin":
+            raise HTTPException(403, "Este usuario no puede cambiar de empresa en conciliación.")
+        try:
+            from routes.perfiles import get_perfiles_for_user
+
+            allowed = get_perfiles_for_user(ctx["user"]["id"], access_token=token, module="gas_lp")
+        except Exception as exc:
+            raise _safe_internal_error("gas_lp_conciliacion_profile_switch", exc)
+        perfil = next((p for p in allowed if int(p.get("id") or 0) == int(perfil_id)), None)
+        if not perfil:
+            raise HTTPException(403, "La empresa seleccionada no está disponible para Conciliación Gas LP.")
+        rows = (
+            get_supabase_admin()
+            .table("perfiles_empresa")
+            .select("id,user_id,tenant_id,nombre,rfc,activo")
+            .eq("id", int(perfil_id))
+            .eq("activo", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if rows:
+            perfil = {**perfil, **rows[0]}
+        ctx = {
+            **ctx,
+            "user": {
+                **ctx["user"],
+                "owner_user_id": perfil.get("user_id") or ctx["user"]["id"],
+                "tenant_id": perfil.get("tenant_id") or ctx["user"].get("tenant_id"),
+                "perfil_id": int(perfil["id"]),
+            },
+        }
     return ctx
 
 
@@ -385,6 +419,24 @@ def _gas_lp_conciliation_auth_context(token: str) -> dict:
             "status": "active",
         },
     }
+
+
+@router.get("/internal-auth/gas-lp/conciliacion/profiles")
+async def gas_lp_conciliacion_profiles(token: str | None = None, authorization: str = Header(default="")):
+    token_value = _token_from_header_or_query(authorization, token)
+    ctx = _gas_lp_conciliation_context(token_value)
+    user = ctx["user"]
+    role = (user.get("role") or "").lower()
+    if not ctx.get("session", {}).get("auth_session") or role != "admin":
+        profile = _gas_lp_profile(user)
+        return JSONResponse({"ok": True, "profiles": [profile], "current_perfil_id": user.get("perfil_id"), "can_switch": False})
+    try:
+        from routes.perfiles import get_perfiles_for_user
+
+        profiles = get_perfiles_for_user(user["id"], access_token=token_value, module="gas_lp")
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_conciliacion_profiles", exc)
+    return JSONResponse({"ok": True, "profiles": profiles, "current_perfil_id": user.get("perfil_id"), "can_switch": True})
 
 
 def _internal_numeric_id(user: dict) -> Optional[int]:
@@ -859,6 +911,16 @@ def _is_station_facility(facility: dict) -> bool:
         for k in ("tipo_instalacion", "tipo_permiso", "descripcion", "nombre", "actividad_sat")
     )
     return any(token in text for token in ("estacion", "estación", "expendio", "carburacion", "carburación", "per43", "per44", "exo"))
+
+
+def _facility_hyp_numero_permiso(facility: dict, settings: dict) -> str:
+    return str(
+        facility.get("num_permiso")
+        or facility.get("permiso_cre")
+        or settings.get("NumeroPermisoHYP")
+        or settings.get("NumPermiso")
+        or ""
+    ).strip()
 
 
 def _period_from_cfdi_fecha(fecha_cfdi: str) -> str:
@@ -1686,7 +1748,29 @@ async def gas_lp_internal_factura_pdf(
         raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     info = fiscal_pdf_info(xml_content, "factura_gas_lp")
-    pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+    facilities = (
+        get_supabase_admin()
+        .table("user_facilities")
+        .select("*")
+        .eq("user_id", user.get("owner_user_id"))
+        .eq("perfil_id", user.get("perfil_id"))
+        .eq("modulo_propietario", "gas_lp")
+        .order("id")
+        .execute()
+        .data
+        or []
+    )
+    facility_id = factura.get("origen_facility_id") or factura.get("facility_id")
+    facility = next((f for f in facilities if str(f.get("id")) == str(facility_id)), {}) if facility_id else {}
+    pdf_bytes = generar_pdf_gas_lp_desde_xml(
+        xml_content,
+        logo_data_url=settings.get("PdfLogoDataUrl", ""),
+        extra_context={
+            "facility": facility,
+            "facilities": facilities,
+            "regimen_emisor": settings.get("RegimenFiscal") or "",
+        },
+    )
     disposition = "attachment" if download else "inline"
     return Response(
         content=pdf_bytes,
@@ -1780,13 +1864,21 @@ def _cash_pending_for_closure(cierre: dict) -> float:
     return round(efectivo - depositado, 2)
 
 
+def _optional_perfil_header(raw: str | None) -> int | None:
+    return int(raw) if str(raw or "").strip().isdigit() else None
+
+
 @router.get("/internal-auth/gas-lp/conciliacion/summary")
 async def gas_lp_conciliacion_summary(
     token: str | None = None,
     fecha: str | None = None,
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token))
+    ctx = _gas_lp_conciliation_context(
+        _token_from_header_or_query(authorization, token),
+        perfil_id=_optional_perfil_header(x_perfil_id),
+    )
     user = ctx["user"]
     profile = _gas_lp_profile(user)
     day = _parse_date_prefix(fecha or _now_iso())
@@ -1866,8 +1958,12 @@ async def gas_lp_conciliacion_cierres(
     token: str | None = None,
     status: str | None = None,
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token))
+    ctx = _gas_lp_conciliation_context(
+        _token_from_header_or_query(authorization, token),
+        perfil_id=_optional_perfil_header(x_perfil_id),
+    )
     user = ctx["user"]
     try:
         q = (
@@ -1894,8 +1990,13 @@ async def gas_lp_conciliacion_crear_cierre(
     payload: GasLpConciliacionCierrePayload,
     token: str | None = None,
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token), write=True)
+    ctx = _gas_lp_conciliation_context(
+        _token_from_header_or_query(authorization, token),
+        write=True,
+        perfil_id=_optional_perfil_header(x_perfil_id),
+    )
     user = ctx["user"]
     fecha = _parse_date_prefix(payload.fecha)
     row = {
@@ -1929,8 +2030,15 @@ async def gas_lp_conciliacion_crear_cierre(
 
 
 @router.get("/internal-auth/gas-lp/conciliacion/banco")
-async def gas_lp_conciliacion_banco(token: str | None = None, authorization: str = Header(default="")):
-    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token))
+async def gas_lp_conciliacion_banco(
+    token: str | None = None,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    ctx = _gas_lp_conciliation_context(
+        _token_from_header_or_query(authorization, token),
+        perfil_id=_optional_perfil_header(x_perfil_id),
+    )
     user = ctx["user"]
     try:
         rows = (
@@ -1957,8 +2065,13 @@ async def gas_lp_conciliacion_crear_banco(
     payload: GasLpConciliacionBancoPayload,
     token: str | None = None,
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token), write=True)
+    ctx = _gas_lp_conciliation_context(
+        _token_from_header_or_query(authorization, token),
+        write=True,
+        perfil_id=_optional_perfil_header(x_perfil_id),
+    )
     user = ctx["user"]
     row = {
         "user_id": user.get("owner_user_id"),
@@ -1989,9 +2102,14 @@ async def gas_lp_conciliacion_documentos_zip(
     token: str | None = None,
     periodo: str | None = None,
     tipo: str = Query(default="todos"),
+    perfil_id: int | None = Query(default=None),
     authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
 ):
-    ctx = _gas_lp_conciliation_context(_token_from_header_or_query(authorization, token))
+    ctx = _gas_lp_conciliation_context(
+        _token_from_header_or_query(authorization, token),
+        perfil_id=perfil_id or _optional_perfil_header(x_perfil_id),
+    )
     user = ctx["user"]
     month = _parse_month_prefix(periodo or _now_iso())
     doc_type = (tipo or "todos").strip().lower()
@@ -2180,7 +2298,7 @@ async def gas_lp_internal_crear_factura(
         unidad=payload.unidad,
         hidro_petro={
             "tipo_permiso": settings.get("TipoPermisoHYP") or "",
-            "numero_permiso": settings.get("NumeroPermisoHYP") or settings.get("NumPermiso") or "",
+            "numero_permiso": _facility_hyp_numero_permiso(origen, settings),
             "subproducto": settings.get("SubProductoHYP") or "SP46",
         },
     )
