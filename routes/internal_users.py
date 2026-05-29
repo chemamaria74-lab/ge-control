@@ -385,6 +385,93 @@ def _internal_numeric_id(user: dict) -> Optional[int]:
         return None
 
 
+def _invoice_actor_metadata(user: dict) -> dict:
+    actor_id = _internal_numeric_id(user)
+    name = str(user.get("display_name") or user.get("code") or "Asistente").strip()
+    code = str(user.get("code") or "").strip()
+    role = str(user.get("role") or "").strip()
+    return {
+        "internal_user_id": actor_id or user.get("id"),
+        "created_by_internal_id": actor_id,
+        "created_by_internal_name": name,
+        "created_by_internal_code": code,
+        "created_by_internal_role": role,
+    }
+
+
+def _hydrate_factura_actor_rows(rows: list[dict], sb=None) -> list[dict]:
+    if not rows:
+        return rows
+    sb = sb or get_supabase_admin()
+    ids: set[int] = set()
+    for row in rows:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        actor_id = row.get("created_by_internal") or md.get("created_by_internal_id") or md.get("internal_user_id")
+        try:
+            actor_int = int(actor_id)
+        except Exception:
+            actor_int = None
+        if actor_int:
+            ids.add(actor_int)
+    actors: dict[int, dict] = {}
+    if ids:
+        try:
+            actor_rows = (
+                sb.table("internal_users")
+                .select("id,display_name,code,role")
+                .in_("id", list(ids))
+                .execute()
+                .data
+                or []
+            )
+            actors = {int(a.get("id")): a for a in actor_rows if a.get("id") is not None}
+        except Exception as exc:
+            logger.info("No se pudo hidratar asistentes de facturas Gas LP: %s", exc)
+    for row in rows:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        actor_id = row.get("created_by_internal") or md.get("created_by_internal_id") or md.get("internal_user_id")
+        try:
+            actor_int = int(actor_id)
+        except Exception:
+            actor_int = None
+        actor = actors.get(actor_int or -1, {})
+        name = (
+            row.get("created_by_internal_name")
+            or md.get("created_by_internal_name")
+            or actor.get("display_name")
+            or actor.get("code")
+            or ""
+        )
+        code = md.get("created_by_internal_code") or actor.get("code") or ""
+        role = md.get("created_by_internal_role") or actor.get("role") or ""
+        row["created_by_internal"] = {
+            "id": actor_int,
+            "name": name,
+            "code": code,
+            "role": role,
+        }
+        row["metadata"] = {
+            **md,
+            "created_by_internal_id": actor_int,
+            "created_by_internal_name": name,
+            "created_by_internal_code": code,
+            "created_by_internal_role": role,
+        }
+    return rows
+
+
+def _normalize_payment_fields(metodo_pago: str, forma_pago: str) -> tuple[str, str]:
+    metodo = str(metodo_pago or "PUE").strip().upper()
+    if metodo not in {"PUE", "PPD"}:
+        metodo = "PUE"
+    forma = "".join(ch for ch in str(forma_pago or "").strip() if ch.isdigit())[:2] or "99"
+    if metodo == "PPD":
+        forma = "99"
+    elif forma == "99":
+        forma = "01"
+    return metodo, forma
+
+
 def _gas_lp_profile(user: dict) -> dict:
     rows = (
         get_supabase_admin()
@@ -1259,8 +1346,9 @@ async def gas_lp_internal_facturas(token: str | None = None, authorization: str 
     ctx = _gas_lp_internal_context(_token_from_header_or_query(authorization, token))
     user = ctx["user"]
     try:
+        sb = get_supabase_admin()
         rows = (
-            get_supabase_admin()
+            sb
             .table("gas_lp_facturas")
             .select("*")
             .eq("user_id", user.get("owner_user_id"))
@@ -1272,6 +1360,7 @@ async def gas_lp_internal_facturas(token: str | None = None, authorization: str 
             .data
             or []
         )
+        rows = _hydrate_factura_actor_rows(rows, sb)
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
     return JSONResponse({"ok": True, "facturas": rows})
@@ -1367,7 +1456,7 @@ async def gas_lp_conciliacion_summary(
     try:
         facturas = (
             sb.table("gas_lp_facturas")
-            .select("id,created_at,fecha_timbrado,rfc_receptor,volumen_litros,importe,status,uuid_sat,metadata,facility_id,origen_facility_id,destino_facility_id")
+            .select("id,created_at,fecha_timbrado,rfc_receptor,volumen_litros,importe,status,uuid_sat,metadata,facility_id,origen_facility_id,destino_facility_id,created_by_internal,created_by_internal_name,payment_status")
             .eq("user_id", user.get("owner_user_id"))
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
@@ -1379,6 +1468,7 @@ async def gas_lp_conciliacion_summary(
             .data
             or []
         )
+        facturas = _hydrate_factura_actor_rows(facturas, sb)
     except Exception as exc:
         raise _safe_internal_error("gas_lp_conciliacion_facturas", exc)
     total_facturado = 0.0
@@ -1628,6 +1718,7 @@ async def gas_lp_internal_crear_factura(
     precio_unitario = configured_price if tipo_operacion == "venta" and configured_price > 0 else Decimal(str(payload.precio_unitario or 0))
     if tipo_operacion == "venta" and configured_price <= 0:
         raise HTTPException(400, "Configura el precio vigente por litro en Configuración antes de facturar.")
+    metodo_pago, forma_pago = _normalize_payment_fields(payload.metodo_pago, payload.forma_pago)
 
     xml_consumo, totals = _build_gas_lp_consumo_xml(
         issuer=issuer,
@@ -1635,8 +1726,8 @@ async def gas_lp_internal_crear_factura(
         litros=payload.litros,
         precio_unitario=precio_unitario,
         concepto=payload.concepto,
-        forma_pago=payload.forma_pago,
-        metodo_pago=payload.metodo_pago,
+        forma_pago=forma_pago,
+        metodo_pago=metodo_pago,
         descuento=payload.descuento,
         iva_rate=payload.iva_rate,
         serie=payload.serie,
@@ -1718,6 +1809,10 @@ async def gas_lp_internal_crear_factura(
         resultado = timbrar_cfdi(xml_final)
         if resultado.get("error"):
             raise HTTPException(400, f"PAC rechazó la factura: {resultado['error']}")
+    actor = _invoice_actor_metadata(user)
+    payment_status = "no_aplica"
+    if tipo_operacion != "traspaso":
+        payment_status = "pendiente_complemento" if metodo_pago == "PPD" else "pagado_pue"
     row = {
         **_gas_lp_invoice_scope(user, profile),
         "facility_id": int(origen.get("id")),
@@ -1734,9 +1829,12 @@ async def gas_lp_internal_crear_factura(
         "importe": totals["subtotal"],
         "tipo_comprobante": tipo_comprobante,
         "distancia_km": distancia_km,
+        "created_by_internal": actor.get("created_by_internal_id"),
+        "created_by_internal_name": actor.get("created_by_internal_name") or "",
+        "payment_status": payment_status,
         "metadata": {
             "portal": "asistente_gas_lp",
-            "internal_user_id": user.get("id"),
+            **actor,
             "cliente_id": payload.cliente_id,
             "cliente_nombre": receptor["nombre"],
             "tipo_operacion": tipo_operacion,
@@ -1765,8 +1863,9 @@ async def gas_lp_internal_crear_factura(
             "clave_prod_serv": totals["clave_prod_serv"],
             "no_identificacion": totals["no_identificacion"],
             "unidad": totals["unidad"],
-            "metodo_pago": payload.metodo_pago,
-            "forma_pago": payload.forma_pago,
+            "metodo_pago": metodo_pago,
+            "forma_pago": forma_pago,
+            "payment_status": payment_status,
         },
         "created_at": now,
     }
@@ -1837,12 +1936,31 @@ async def gas_lp_internal_crear_factura(
 
             info = fiscal_pdf_info(xml_timbrado, "factura_gas_lp")
             settings = load_settings(user.get("owner_user_id"), int(user.get("perfil_id"))) if user.get("perfil_id") else {}
+            facilities = (
+                sb.table("user_facilities")
+                .select("*")
+                .eq("user_id", user.get("owner_user_id"))
+                .eq("perfil_id", user.get("perfil_id"))
+                .eq("modulo_propietario", "gas_lp")
+                .order("id")
+                .execute()
+                .data
+                or []
+            )
             storage = save_fiscal_artifacts(
                 sb,
                 bucket="fiscal-documents",
                 base_path=f"{user.get('owner_user_id')}/gas_lp/facturas/{factura_id}",
                 xml_content=xml_timbrado,
-                pdf_bytes=generar_pdf_gas_lp_desde_xml(xml_timbrado, logo_data_url=settings.get("PdfLogoDataUrl", "")),
+                pdf_bytes=generar_pdf_gas_lp_desde_xml(
+                    xml_timbrado,
+                    logo_data_url=settings.get("PdfLogoDataUrl", ""),
+                    extra_context={
+                        "facility": origen,
+                        "facilities": facilities,
+                        "regimen_emisor": settings.get("RegimenFiscal") or "",
+                    },
+                ),
                 pdf_filename=info.filename,
                 metadata={
                     "module": "gas_lp",

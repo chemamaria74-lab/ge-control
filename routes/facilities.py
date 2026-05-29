@@ -109,6 +109,8 @@ class FacilityPayload(BaseModel):
     permiso_alm:         str   = ""
     clave_instalacion:   str   = ""
     descripcion:         str   = ""
+    domicilio_operativo: str   = ""
+    codigo_postal:       str   = ""
     capacidad_tanque:    float = 0.0
     num_tanques:         int   = 1
     num_dispensarios:    int   = 0

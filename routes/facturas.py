@@ -211,6 +211,35 @@ def _gas_lp_pdf_logo(scope: dict) -> str:
     return str(_settings_from_scope(scope).get("PdfLogoDataUrl") or "")
 
 
+def _gas_lp_pdf_context(scope: dict, row: dict) -> dict:
+    if not scope.get("perfil_id"):
+        return {}
+    try:
+        facilities = (
+            get_supabase_admin()
+            .table("user_facilities")
+            .select("*")
+            .eq("user_id", scope["user_id"])
+            .eq("perfil_id", scope["perfil_id"])
+            .eq("modulo_propietario", "gas_lp")
+            .order("id")
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.info("No se pudieron cargar domicilios para PDF Gas LP: %s", exc)
+        facilities = []
+    facility_id = row.get("origen_facility_id") or row.get("facility_id")
+    facility = next((f for f in facilities if str(f.get("id")) == str(facility_id)), None) if facility_id else None
+    settings = _settings_from_scope(scope)
+    return {
+        "facility": facility or {},
+        "facilities": facilities,
+        "regimen_emisor": settings.get("RegimenFiscal") or "",
+    }
+
+
 def _require_scope_facility(scope: dict, facility_id: Optional[int], label: str) -> dict:
     if not facility_id:
         raise HTTPException(400, f"Selecciona {label}.")
@@ -821,7 +850,11 @@ async def ver_pdf_factura_gas_lp(
     if not xml_content:
         raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")
     info = fiscal_pdf_info(xml_content, "factura_gas_lp")
-    pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=_gas_lp_pdf_logo(scope))
+    pdf_bytes = generar_pdf_gas_lp_desde_xml(
+        xml_content,
+        logo_data_url=_gas_lp_pdf_logo(scope),
+        extra_context=_gas_lp_pdf_context(scope, row),
+    )
     storage = save_fiscal_artifacts(
         sb,
         bucket="fiscal-documents",
