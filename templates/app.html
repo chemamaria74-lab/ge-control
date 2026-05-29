@@ -793,7 +793,6 @@ tr:hover td{background:#f8fafc}
 <div class="main-nav-tabs">
   <button class="main-nav-tab" data-main="ventas"><i class="fa-solid fa-chart-line"></i> <span data-i18n="nav.ventas">Dashboard</span></button>
   <button class="main-nav-tab active" data-main="procesar"><i class="fa-solid fa-file-upload"></i> <span data-i18n="nav.procesar">Carga de archivos</span></button>
-  <button class="main-nav-tab" data-main="facturar"><i class="fa-solid fa-file-invoice-dollar"></i> Facturación</button>
   <button class="main-nav-tab" data-main="historial"><i class="fa-solid fa-file-lines"></i> <span data-i18n="nav.historial">Reportes SAT</span></button>
   <button class="main-nav-tab" data-main="controles"><i class="fa-solid fa-gauge-high"></i> <span data-i18n="nav.controles">Inventario</span></button>
   <button class="main-nav-tab" data-main="proveedores"><i class="fa-solid fa-truck-fast"></i> <span data-i18n="nav.proveedores">Proveedores</span></button>
@@ -2406,6 +2405,14 @@ tr:hover td{background:#f8fafc}
       <label>Permiso CRE vehicular</label>
       <input id="gasVehPermiso" placeholder="Opcional">
     </div>
+    <div class="field">
+      <label>PermSCT / SICT</label>
+      <input id="gasVehPermisoSct" placeholder="TPAF01" value="TPAF01" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+    </div>
+    <div class="field">
+      <label>No. permiso SCT/SICT *</label>
+      <input id="gasVehNumPermisoSct" placeholder="Número de permiso real">
+    </div>
   </div>
   <div style="display:flex;gap:.6rem;align-items:center;margin:.2rem 0 1rem;flex-wrap:wrap">
     <input type="hidden" id="gasVehEditId" value="">
@@ -2415,8 +2422,8 @@ tr:hover td{background:#f8fafc}
   </div>
   <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:1rem">
     <table style="margin-bottom:0">
-      <thead><tr><th>Placas</th><th>Año</th><th>Config.</th><th>Aseguradora</th><th>Póliza</th><th>Acciones</th></tr></thead>
-      <tbody id="gasVehTbody"><tr><td colspan="6" class="hist-empty">Cargando vehículos...</td></tr></tbody>
+      <thead><tr><th>Placas</th><th>Año</th><th>Config.</th><th>PermSCT</th><th>No. permiso</th><th>Seguro</th><th>Acciones</th></tr></thead>
+      <tbody id="gasVehTbody"><tr><td colspan="7" class="hist-empty">Cargando vehículos...</td></tr></tbody>
     </table>
   </div>
   </div>
@@ -2436,6 +2443,23 @@ tr:hover td{background:#f8fafc}
       <input id="gasChoferLicencia" placeholder="Licencia">
     </div>
     <div class="field">
+      <label>Tipo licencia federal *</label>
+      <select id="gasChoferTipoLicencia">
+        <option value="">Selecciona...</option>
+        <option value="B">B - Carga general</option>
+        <option value="C">C - Carga 2/3 ejes</option>
+        <option value="E">E - Material peligroso / doble articulado</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Vigencia licencia *</label>
+      <input id="gasChoferLicenciaVigencia" type="date">
+    </div>
+    <div class="field">
+      <label>Vigencia examen médico *</label>
+      <input id="gasChoferMedicoVigencia" type="date">
+    </div>
+    <div class="field">
       <label>Teléfono</label>
       <input id="gasChoferTelefono" placeholder="Teléfono">
     </div>
@@ -2448,8 +2472,8 @@ tr:hover td{background:#f8fafc}
   </div>
   <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:1rem">
     <table style="margin-bottom:0">
-      <thead><tr><th>Nombre</th><th>RFC</th><th>Licencia</th><th>Teléfono</th><th>Acciones</th></tr></thead>
-      <tbody id="gasChoferTbody"><tr><td colspan="5" class="hist-empty">Cargando choferes...</td></tr></tbody>
+      <thead><tr><th>Nombre</th><th>RFC</th><th>Licencia</th><th>Tipo</th><th>Vigencias</th><th>Acciones</th></tr></thead>
+      <tbody id="gasChoferTbody"><tr><td colspan="6" class="hist-empty">Cargando choferes...</td></tr></tbody>
     </table>
   </div>
   </div>
@@ -2664,9 +2688,9 @@ function applyRole(role) {
   const tab = document.getElementById('tabAdmin');
   if (tab) tab.style.display = currentUserRole === 'admin' ? '' : 'none';
   const assistantAllowed = {
-    asistente_facturacion: ['procesar','facturar'],
+    asistente_facturacion: ['procesar','historial'],
     asistente_operativo: ['procesar','ventas','proveedores'],
-    conciliacion: ['facturar','historial'],
+    conciliacion: ['historial'],
     planta: ['procesar','controles'],
     solo_lectura: ['ventas','historial']
   };
@@ -4150,9 +4174,9 @@ function confirmDeleteFacility(id, nombre) {
 // ── Navegación principal ──────────────────────────────────────────────────
 async function switchTab(name) {
   const assistantAllowed = {
-    asistente_facturacion: ['procesar','facturar'],
+    asistente_facturacion: ['procesar','historial'],
     asistente_operativo: ['procesar','ventas','proveedores'],
-    conciliacion: ['facturar','historial'],
+    conciliacion: ['historial'],
     planta: ['procesar','controles'],
     solo_lectura: ['ventas','historial']
   };
@@ -5789,13 +5813,13 @@ async function loadGasLpCartaPorteCatalogs() {
 async function loadGasLpVehiculosAdmin() {
   const tbody = document.getElementById('gasVehTbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Cargando vehículos...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="7" class="hist-empty">Cargando vehículos...</td></tr>';
   try {
     const res = await fetch('/api/facturas/vehiculos?modulo=gas_lp', { headers: authHeader() });
     const data = await res.json();
     _gasLpVehiculos = data.vehiculos || [];
     if (!_gasLpVehiculos.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Sin vehículos registrados para esta empresa.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="hist-empty">Sin vehículos registrados para esta empresa.</td></tr>';
       return;
     }
     tbody.innerHTML = _gasLpVehiculos.map(v => `
@@ -5803,8 +5827,9 @@ async function loadGasLpVehiculosAdmin() {
         <td>${escapeHtml(v.placas || v.placa || '')}</td>
         <td>${escapeHtml(v.anio || v.anio_modelo || '')}</td>
         <td>${escapeHtml(v.config_vehicular || '')}</td>
-        <td>${escapeHtml(v.aseguradora || '')}</td>
-        <td>${escapeHtml(v.poliza_seguro || '')}</td>
+        <td>${escapeHtml(v.permiso_sct || '')}</td>
+        <td>${escapeHtml(v.num_permiso_sct || '')}</td>
+        <td>${escapeHtml([v.aseguradora, v.poliza_seguro].filter(Boolean).join(' · '))}</td>
         <td style="white-space:nowrap">
           <button onclick="editGasLpVehiculo(${Number(v.id)})" style="padding:.3rem .55rem;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:6px;cursor:pointer">Editar</button>
           <button onclick="deleteGasLpVehiculo(${Number(v.id)})" style="padding:.3rem .55rem;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;cursor:pointer">Desactivar</button>
@@ -5812,14 +5837,15 @@ async function loadGasLpVehiculosAdmin() {
       </tr>
     `).join('');
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="hist-empty">${escapeHtml(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="hist-empty">${escapeHtml(e.message)}</td></tr>`;
   }
 }
 
 function clearGasLpVehiculoForm() {
-  ['gasVehEditId','gasVehPlacas','gasVehAseguradora','gasVehPoliza','gasVehPermiso'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['gasVehEditId','gasVehPlacas','gasVehAseguradora','gasVehPoliza','gasVehPermiso','gasVehNumPermisoSct'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('gasVehAnio').value = '2024';
   document.getElementById('gasVehConfig').value = 'C2';
+  document.getElementById('gasVehPermisoSct').value = 'TPAF01';
   catalogStatus('gasVehStatus', '');
 }
 
@@ -5833,6 +5859,8 @@ function editGasLpVehiculo(id) {
   document.getElementById('gasVehAseguradora').value = v.aseguradora || '';
   document.getElementById('gasVehPoliza').value = v.poliza_seguro || '';
   document.getElementById('gasVehPermiso').value = v.permiso_cre || '';
+  document.getElementById('gasVehPermisoSct').value = v.permiso_sct || 'TPAF01';
+  document.getElementById('gasVehNumPermisoSct').value = v.num_permiso_sct || '';
 }
 
 async function saveGasLpVehiculo() {
@@ -5848,6 +5876,8 @@ async function saveGasLpVehiculo() {
     nombre_asegurador: document.getElementById('gasVehAseguradora').value.trim(),
     poliza_seguro: document.getElementById('gasVehPoliza').value.trim(),
     permiso_cre: document.getElementById('gasVehPermiso').value.trim(),
+    permiso_sct: document.getElementById('gasVehPermisoSct').value.trim().toUpperCase() || 'TPAF01',
+    num_permiso_sct: document.getElementById('gasVehNumPermisoSct').value.trim(),
     modulo: 'gas_lp',
   };
   try {
@@ -5869,13 +5899,13 @@ async function deleteGasLpVehiculo(id) {
 async function loadGasLpChoferesAdmin() {
   const tbody = document.getElementById('gasChoferTbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="5" class="hist-empty">Cargando choferes...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Cargando choferes...</td></tr>';
   try {
     const res = await fetch('/api/facturas/choferes?modulo=gas_lp', { headers: authHeader() });
     const data = await res.json();
     _gasLpChoferes = data.choferes || [];
     if (!_gasLpChoferes.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="hist-empty">Sin choferes registrados para esta empresa.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Sin choferes registrados para esta empresa.</td></tr>';
       return;
     }
     tbody.innerHTML = _gasLpChoferes.map(c => `
@@ -5883,7 +5913,8 @@ async function loadGasLpChoferesAdmin() {
         <td>${escapeHtml(c.nombre || '')}</td>
         <td>${escapeHtml(c.rfc || '')}</td>
         <td>${escapeHtml(c.licencia || '')}</td>
-        <td>${escapeHtml(c.telefono || '')}</td>
+        <td>${escapeHtml(c.tipo_licencia || '')}</td>
+        <td>${escapeHtml([c.licencia_vigencia && `Lic. ${c.licencia_vigencia}`, c.examen_medico_vigencia && `Med. ${c.examen_medico_vigencia}`].filter(Boolean).join(' · '))}</td>
         <td style="white-space:nowrap">
           <button onclick="editGasLpChofer(${Number(c.id)})" style="padding:.3rem .55rem;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:6px;cursor:pointer">Editar</button>
           <button onclick="deleteGasLpChofer(${Number(c.id)})" style="padding:.3rem .55rem;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;cursor:pointer">Desactivar</button>
@@ -5891,12 +5922,12 @@ async function loadGasLpChoferesAdmin() {
       </tr>
     `).join('');
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" class="hist-empty">${escapeHtml(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="hist-empty">${escapeHtml(e.message)}</td></tr>`;
   }
 }
 
 function clearGasLpChoferForm() {
-  ['gasChoferEditId','gasChoferNombre','gasChoferRfc','gasChoferLicencia','gasChoferTelefono'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['gasChoferEditId','gasChoferNombre','gasChoferRfc','gasChoferLicencia','gasChoferTelefono','gasChoferTipoLicencia','gasChoferLicenciaVigencia','gasChoferMedicoVigencia'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   catalogStatus('gasChoferStatus', '');
 }
 
@@ -5907,6 +5938,9 @@ function editGasLpChofer(id) {
   document.getElementById('gasChoferNombre').value = c.nombre || '';
   document.getElementById('gasChoferRfc').value = c.rfc || '';
   document.getElementById('gasChoferLicencia').value = c.licencia || '';
+  document.getElementById('gasChoferTipoLicencia').value = c.tipo_licencia || '';
+  document.getElementById('gasChoferLicenciaVigencia').value = (c.licencia_vigencia || '').slice(0, 10);
+  document.getElementById('gasChoferMedicoVigencia').value = (c.examen_medico_vigencia || '').slice(0, 10);
   document.getElementById('gasChoferTelefono').value = c.telefono || '';
 }
 
@@ -5918,6 +5952,9 @@ async function saveGasLpChofer() {
     nombre,
     rfc: document.getElementById('gasChoferRfc').value.trim().toUpperCase(),
     licencia: document.getElementById('gasChoferLicencia').value.trim(),
+    tipo_licencia: document.getElementById('gasChoferTipoLicencia').value.trim().toUpperCase(),
+    licencia_vigencia: document.getElementById('gasChoferLicenciaVigencia').value,
+    examen_medico_vigencia: document.getElementById('gasChoferMedicoVigencia').value,
     telefono: document.getElementById('gasChoferTelefono').value.trim(),
     modulo: 'gas_lp',
   };
