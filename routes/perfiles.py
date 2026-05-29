@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from typing import Any, Optional
 
 from routes.auth import obtener_accesos_usuario, verify_token
-from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user
+from supabase_config import get_supabase, get_supabase_for_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -58,16 +58,6 @@ def _module_marker(module: str) -> str:
     return f"[module:{module}]"
 
 
-def _has_any_module_marker(value: str | None) -> bool:
-    desc = str(value or "").lower()
-    return any(_module_marker(module) in desc for module in MODULES_VALIDOS)
-
-
-def _is_marked_for_other_module(value: str | None, module: str) -> bool:
-    desc = str(value or "").lower()
-    return any(_module_marker(other) in desc for other in MODULES_VALIDOS if other != module)
-
-
 def _clean_module(value: str | None) -> str:
     module = (value or "").strip().lower()
     return module if module in MODULES_VALIDOS else ""
@@ -82,53 +72,11 @@ def _clean_profile_for_response(row: dict) -> dict:
     return cleaned
 
 
-def _admin_profile_rows_for_user(user_id: str, tenant_id: str = "", module: str | None = None) -> list[dict]:
-    """
-    Respaldo server-side para selectores: primero valida tenant/user en backend
-    y luego lee con service-role para evitar que una policy RLS deje la UI sin
-    empresas aunque la suscripcion ya cuente perfiles activos.
-    """
-    sb = get_supabase_admin()
-    fields = "id, nombre, rfc, descripcion, activo, created_at, tenant_id"
-    rows_by_id: dict[int, dict] = {}
-
-    def add(rows: list[dict]) -> None:
-        for row in rows or []:
-            rid = row.get("id")
-            if rid is None:
-                continue
-            if module and _is_marked_for_other_module(row.get("descripcion"), module):
-                continue
-            rows_by_id[int(rid)] = _clean_profile_for_response(row)
-
-    if tenant_id:
-        add(
-            sb.table("perfiles_empresa")
-            .select(fields)
-            .eq("tenant_id", tenant_id)
-            .eq("activo", True)
-            .order("nombre")
-            .execute()
-            .data
-            or []
-        )
-
-    add(
-        sb.table("perfiles_empresa")
-        .select(fields)
-        .eq("user_id", user_id)
-        .eq("activo", True)
-        .order("nombre")
-        .execute()
-        .data
-        or []
-    )
-
-    return sorted(rows_by_id.values(), key=lambda r: (r.get("nombre") or "").lower())
-
-
 def _module_requires_owner_scope(module: str) -> bool:
-    return False
+    # Gas LP legacy endpoints validate perfiles_empresa.user_id directly.
+    # Listing tenant-wide profiles here can hand the UI a company that later
+    # fails settings/facilities/facturas with "empresa inactiva/no pertenece".
+    return module == "gas_lp"
 
 
 def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | None = None) -> list:
@@ -189,26 +137,19 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
                 add_rows(marker_q.order("nombre").execute().data or [])
             except Exception as marker_error:
                 logger.info("Filtro module=%s omitido en perfiles_empresa.descripcion: %s", module, marker_error)
-            if module == "gas_lp" and "admin" in module_roles:
-                try:
-                    legacy_q = sb.table("perfiles_empresa").select(fields).eq("activo", True)
-                    if owner_scope:
-                        legacy_q = legacy_q.eq("user_id", user_id)
-                    elif tenant_id:
-                        legacy_q = legacy_q.eq("tenant_id", tenant_id)
-                    else:
-                        legacy_q = legacy_q.eq("user_id", user_id)
-                    legacy_rows = legacy_q.order("nombre").execute().data or []
-                    add_rows([
-                        row for row in legacy_rows
-                        if not _has_any_module_marker(row.get("descripcion"))
-                        or not _is_marked_for_other_module(row.get("descripcion"), module)
-                    ])
-                except Exception as legacy_error:
-                    logger.info("Filtro legacy Gas LP omitido user=%s: %s", user_id, legacy_error)
-            # Para módulos operativos no mezclamos razones sociales de otros módulos.
-            # Gas LP conserva empresas legacy sin marcador; Transporte y demás solo
-            # usan perfiles asignados o marcados explícitamente.
+            # Admin global del módulo: mostrar sus razones sociales legacy aunque
+            # todavía no tengan marcador [module:*]. Se limita a user_id para no
+            # mezclar perfiles QA u otros usuarios del mismo tenant.
+            if not owner_scope and (has_global_module_admin or "admin" in module_roles):
+                add_rows(
+                    sb.table("perfiles_empresa")
+                    .select(fields)
+                    .eq("user_id", user_id)
+                    .eq("activo", True)
+                    .order("nombre")
+                    .execute()
+                    .data or []
+                )
             return sorted(rows_by_id.values(), key=lambda r: (r.get("nombre") or "").lower())
 
         # Legacy: perfiles creados antes de tenant/company.
@@ -449,10 +390,7 @@ def _subscription_usage(user_id: str, access_token: str = "", module: str | None
     sub = _subscription_for_tenant(tenant_id)
     module = _clean_module(module)
     try:
-        rows = get_perfiles_for_user(user_id, access_token=access_token, module=module)
-        if module == "gas_lp" and not rows:
-            rows = _admin_profile_rows_for_user(user_id, tenant_id=tenant_id, module=module)
-        used = len(rows)
+        used = len(get_perfiles_for_user(user_id, access_token=access_token, module=module))
     except Exception:
         used = 0
     limit = _module_company_limit(sub, module)
@@ -529,17 +467,6 @@ async def list_perfiles(
     user_id, token = _auth(authorization)
     module = _clean_module(module)
     perfiles = get_perfiles_for_user(user_id, access_token=token, module=module)
-    if module == "gas_lp" and not perfiles:
-        # Compatibilidad: algunos tenants legacy tienen empresas activas sin
-        # marcador de módulo. Admin Gas LP debe seguir mostrando esas razones
-        # sociales en el selector antes de bloquear por "sin empresas".
-        perfiles = get_perfiles_for_user(user_id, access_token=token, module=None)
-    if module == "gas_lp" and not perfiles:
-        tenant_id = _tenant_id_for_user(user_id, access_token=token)
-        try:
-            perfiles = _admin_profile_rows_for_user(user_id, tenant_id=tenant_id, module=module)
-        except Exception as admin_error:
-            logger.warning("fallback admin perfiles Gas LP falló user=%s tenant=%s: %s", user_id, tenant_id, admin_error)
 
     # Migración silenciosa: crear perfil default si el usuario no tiene ninguno
     if auto_create and not module and not perfiles:
