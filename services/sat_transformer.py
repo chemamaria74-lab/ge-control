@@ -77,6 +77,16 @@ TIPO_EVENTO_DESC = {
     11: "Alarma: corte de energia electrica en instalacion",
 }
 
+MAX_DESCRIPCION_EVENTO = 250
+
+
+def _desc_evento(texto: str) -> str:
+    """SAT limita DescripcionEvento a 250 caracteres."""
+    value = " ".join(str(texto or "").split())
+    if len(value) <= MAX_DESCRIPCION_EVENTO:
+        return value
+    return value[: MAX_DESCRIPCION_EVENTO - 3].rstrip(" .,;:") + "..."
+
 # ── Catálogo actividades SAT por permiso (Apéndice 4) ─────────────────────────
 ACTIVIDAD_POR_PERMISO: dict = {
     "PER40": "DIS",
@@ -235,6 +245,12 @@ def _group_by_uuid(movimientos: list, tipo: str, factor_kg_a_litros: float) -> d
         uni  = (m.get("unidad_base") or m.get("unidad") or "litros").lower()
         if uni in ("kg", "kilogramo", "kilogramos"):
             vol = vol * factor_kg_a_litros
+        if tipo == "salida" and (
+            uuid_val.startswith("AUTO-")
+            or m.get("es_autoconsumo")
+            or str(m.get("file_path") or "").startswith("manual:")
+        ):
+            vol = abs(vol)
         imp      = float(m.get("importe") or 0)
         rfc_cp   = limpiar_rfc(m.get("rfc_contraparte") or m.get("rfc_cp") or "")
         nombre_cp = (m.get("nombre_contraparte") or m.get("nombre_cp") or "").strip()
@@ -619,7 +635,7 @@ def build_sat_report(
                 "FechaYHoraEvento":   fin_mes_iso,
                 "UsuarioResponsable": _usuario_resp,
                 "TipoEvento":         5,
-                "DescripcionEvento":  (
+                "DescripcionEvento":  _desc_evento(
                     f"AJUSTE POR VARIACION (Balance de Masa): "
                     f"Inventario calculado={inv_calc:,.2f} L, "
                     f"Inventario medido={inventario_final_medido:,.2f} L, "
@@ -646,7 +662,7 @@ def build_sat_report(
         "FechaYHoraEvento":   now_cst,
         "UsuarioResponsable": _usuario_resp,
         "TipoEvento":         6,
-        "DescripcionEvento":  (
+        "DescripcionEvento":  _desc_evento(
             f"Reporte mensual generado por Z-Control v3.5. "
             f"Recepciones: {cnt_rec}, Entregas: {cnt_ent}, "
             f"VolumenExistenciasMes: {vol_existencias:,.2f} L. "
