@@ -1911,7 +1911,7 @@ tr:hover td{background:#f8fafc}
       <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Solo personas morales. Si se captura, se incluye en el nodo raíz del reporte mensual SAT con prioridad alta.</div>
     </div>
     <div class="field"><label>RFC Proveedor SAT (constante)</label>
-      <input id="sat_rfc_prov" value="XAXX010101000" readonly></div>
+      <input id="sat_rfc_prov" value="XAX010101000" readonly></div>
   </div>
   <div class="grid3" style="margin-top:.8rem">
     <div class="field"><label>Factor de Conversión (Kg a Litros)</label>
@@ -1920,6 +1920,25 @@ tr:hover td{background:#f8fafc}
       <label>Precio vigente de venta ($/L)</label>
       <input id="precio_venta_litro" type="number" step="0.000001" min="0" placeholder="Ej. 11.05">
       <div id="precio_venta_hint" style="font-size:.63rem;color:#6b7280;margin-top:.25rem">Lo usa el asistente de facturación Gas LP; se guarda por empresa activa.</div>
+    </div>
+    <div class="field">
+      <label>Tipo permiso HidroYPetro</label>
+      <select id="tipo_permiso_hyp">
+        <option value="">Selecciona PER01-PER11...</option>
+        <option value="PER01">PER01</option><option value="PER02">PER02</option><option value="PER03">PER03</option>
+        <option value="PER04">PER04</option><option value="PER05">PER05</option><option value="PER06">PER06 - Distribución</option>
+        <option value="PER07">PER07 - Expendio</option><option value="PER08">PER08</option><option value="PER09">PER09</option>
+        <option value="PER10">PER10</option><option value="PER11">PER11</option>
+      </select>
+      <div style="font-size:.63rem;color:#6b7280;margin-top:.25rem">Requerido para Complemento Concepto HidroYPetro.</div>
+    </div>
+    <div class="field">
+      <label>Número permiso HidroYPetro</label>
+      <input id="numero_permiso_hyp" placeholder="Permiso CNE/CRE vigente">
+    </div>
+    <div class="field">
+      <label>Subproducto HidroYPetro</label>
+      <input id="subproducto_hyp" placeholder="SP46" value="SP46" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
     </div>
     <div class="field">
       <label>Logo para PDF fiscal</label>
@@ -2412,6 +2431,14 @@ tr:hover td{background:#f8fafc}
     <div class="field">
       <label>No. permiso SCT/SICT *</label>
       <input id="gasVehNumPermisoSct" placeholder="Número de permiso real">
+    </div>
+    <div class="field">
+      <label>Aseg. medio ambiente *</label>
+      <input id="gasVehAsegMedAmb" placeholder="Aseguradora ambiental">
+    </div>
+    <div class="field">
+      <label>Póliza medio ambiente *</label>
+      <input id="gasVehPolizaMedAmb" placeholder="Póliza ambiental">
     </div>
   </div>
   <div style="display:flex;gap:.6rem;align-items:center;margin:.2rem 0 1rem;flex-wrap:wrap">
@@ -3510,7 +3537,7 @@ async function loadSettings() {
     if (!isCurrentProfileLoad(ctx)) return;
     // Limpiar primero solo si el perfil cambió (appState detectó diferencia)
     // Si es el mismo perfil, actualizar sin limpiar para no borrar input en curso
-    ['rfc','nombre_fiscal','codigo_postal_fiscal','regimen_fiscal_emisor','sat_rfc_rep','sat_rfc_prov'].forEach(id => {
+    ['rfc','nombre_fiscal','codigo_postal_fiscal','regimen_fiscal_emisor','sat_rfc_rep','sat_rfc_prov','tipo_permiso_hyp','numero_permiso_hyp','subproducto_hyp'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -3526,13 +3553,19 @@ async function loadSettings() {
     if (repEl) repEl.value = data.RfcRepresentanteLegal || '';
     const provEl = document.getElementById('sat_rfc_prov');
     if (provEl) {
-      provEl.value = 'XAXX010101000';
+      provEl.value = 'XAX010101000';
       provEl.readOnly = true;
     }
     const factorEl = document.getElementById('factor_conversion');
     if (factorEl) factorEl.value = data.FactorDeConversionKgALitros ?? 0.542;
     const precioEl = document.getElementById('precio_venta_litro');
     if (precioEl) precioEl.value = data.PrecioVentaLitroGasLp ? Number(data.PrecioVentaLitroGasLp) : '';
+    const tipoHypEl = document.getElementById('tipo_permiso_hyp');
+    if (tipoHypEl) tipoHypEl.value = data.TipoPermisoHYP || '';
+    const numHypEl = document.getElementById('numero_permiso_hyp');
+    if (numHypEl) numHypEl.value = data.NumeroPermisoHYP || data.NumPermiso || '';
+    const subHypEl = document.getElementById('subproducto_hyp');
+    if (subHypEl) subHypEl.value = data.SubProductoHYP || 'SP46';
     const precioHint = document.getElementById('precio_venta_hint');
     if (precioHint) {
       const upd = data.PrecioVentaLitroGasLpUpdatedAt ? String(data.PrecioVentaLitroGasLpUpdatedAt).slice(0,16).replace('T',' ') : '';
@@ -3583,9 +3616,12 @@ async function saveSettings() {
   const cpVal = String(document.getElementById('codigo_postal_fiscal')?.value || '').replace(/\D/g, '').slice(0, 5);
   const regimenVal = String(document.getElementById('regimen_fiscal_emisor')?.value || '601').trim();
   const repVal  = normalizarRfc(document.getElementById('sat_rfc_rep')?.value);
-  const provVal = 'XAXX010101000';
+  const provVal = 'XAX010101000';
   const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
   const precioVal = parseNum(document.getElementById('precio_venta_litro')?.value, 0);
+  const tipoHypVal = String(document.getElementById('tipo_permiso_hyp')?.value || '').trim().toUpperCase();
+  const numHypVal = String(document.getElementById('numero_permiso_hyp')?.value || '').trim();
+  const subHypVal = String(document.getElementById('subproducto_hyp')?.value || 'SP46').trim().toUpperCase();
   const logoVal = document.getElementById('pdf_logo_data')?.value || '';
   const previousPrice = Number(_appState.settings?.PrecioVentaLitroGasLp || 0);
   const payload = { FactorDeConversionKgALitros: factorVal, PdfLogoDataUrl: logoVal, PrecioVentaLitroGasLp: precioVal };
@@ -3597,6 +3633,9 @@ async function saveSettings() {
   }
   if (cpVal) payload.CodigoPostal = cpVal;
   if (regimenVal) payload.RegimenFiscal = regimenVal;
+  payload.TipoPermisoHYP = tipoHypVal;
+  payload.NumeroPermisoHYP = numHypVal;
+  payload.SubProductoHYP = subHypVal || 'SP46';
   if (repVal)  payload.RfcRepresentanteLegal  = repVal;
   payload.RfcProveedor = provVal;
   if (!repVal) payload.RfcRepresentanteLegal  = '';
@@ -5842,7 +5881,7 @@ async function loadGasLpVehiculosAdmin() {
 }
 
 function clearGasLpVehiculoForm() {
-  ['gasVehEditId','gasVehPlacas','gasVehAseguradora','gasVehPoliza','gasVehPermiso','gasVehNumPermisoSct'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['gasVehEditId','gasVehPlacas','gasVehAseguradora','gasVehPoliza','gasVehPermiso','gasVehNumPermisoSct','gasVehAsegMedAmb','gasVehPolizaMedAmb'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('gasVehAnio').value = '2024';
   document.getElementById('gasVehConfig').value = 'C2';
   document.getElementById('gasVehPermisoSct').value = 'TPAF01';
@@ -5861,6 +5900,8 @@ function editGasLpVehiculo(id) {
   document.getElementById('gasVehPermiso').value = v.permiso_cre || '';
   document.getElementById('gasVehPermisoSct').value = v.permiso_sct || 'TPAF01';
   document.getElementById('gasVehNumPermisoSct').value = v.num_permiso_sct || '';
+  document.getElementById('gasVehAsegMedAmb').value = v.aseguradora_medio_ambiente || '';
+  document.getElementById('gasVehPolizaMedAmb').value = v.poliza_medio_ambiente || '';
 }
 
 async function saveGasLpVehiculo() {
@@ -5878,6 +5919,8 @@ async function saveGasLpVehiculo() {
     permiso_cre: document.getElementById('gasVehPermiso').value.trim(),
     permiso_sct: document.getElementById('gasVehPermisoSct').value.trim().toUpperCase() || 'TPAF01',
     num_permiso_sct: document.getElementById('gasVehNumPermisoSct').value.trim(),
+    aseguradora_medio_ambiente: document.getElementById('gasVehAsegMedAmb').value.trim(),
+    poliza_medio_ambiente: document.getElementById('gasVehPolizaMedAmb').value.trim(),
     modulo: 'gas_lp',
   };
   try {

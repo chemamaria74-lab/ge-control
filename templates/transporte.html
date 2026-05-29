@@ -1085,6 +1085,16 @@ select option{background:#fff}
   </div>
   <div class="form-row cols-2">
     <div class="form-group">
+      <label>Aseg. medio ambiente</label>
+      <input type="text" id="ve-aseg-med" placeholder="Aseguradora ambiental">
+    </div>
+    <div class="form-group">
+      <label>Póliza medio ambiente</label>
+      <input type="text" id="ve-poliza-med" placeholder="POL-AMB-123">
+    </div>
+  </div>
+  <div class="form-row cols-2">
+    <div class="form-group">
       <label>Permiso SCT</label>
       <select id="ve-perm-sct">
         <option value="TPAF01">TPAF01 - Autotransporte federal</option>
@@ -3696,7 +3706,7 @@ async function eliminarChofer(id) {
 function abrirModalVehiculo(data=null) {
   EDIT_ID = data?.id || null;
   document.getElementById('modal-vehiculo-titulo').textContent = data ? 'Editar vehículo' : 'Nuevo vehículo';
-  ['ve-placas','ve-modelo','ve-aseguradora','ve-poliza','ve-num-sct'].forEach(id => { document.getElementById(id).value=''; });
+  ['ve-placas','ve-modelo','ve-aseguradora','ve-poliza','ve-aseg-med','ve-poliza-med','ve-num-sct'].forEach(id => { document.getElementById(id).value=''; });
   document.getElementById('vehiculo-id').value = '';
   document.getElementById('ve-anio').value      = 2020;
   document.getElementById('ve-capacidad').value = '';
@@ -3710,6 +3720,8 @@ function abrirModalVehiculo(data=null) {
     document.getElementById('ve-capacidad').value  = data.capacidad_litros||'';
     document.getElementById('ve-aseguradora').value= data.aseguradora||'';
     document.getElementById('ve-poliza').value     = data.poliza_seguro||'';
+    document.getElementById('ve-aseg-med').value   = data.aseguradora_medio_ambiente||'';
+    document.getElementById('ve-poliza-med').value = data.poliza_medio_ambiente||'';
     document.getElementById('ve-perm-sct').value   = data.permiso_sct||'TPAF01';
     document.getElementById('ve-num-sct').value    = data.num_permiso_sct||'';
     document.getElementById('vehiculo-id').value   = data.id;
@@ -3729,6 +3741,8 @@ async function guardarVehiculo() {
     capacidad_litros: parseFloat(document.getElementById('ve-capacidad').value)||0,
     aseguradora:      document.getElementById('ve-aseguradora').value.trim(),
     poliza_seguro:    document.getElementById('ve-poliza').value.trim(),
+    aseguradora_medio_ambiente: document.getElementById('ve-aseg-med').value.trim(),
+    poliza_medio_ambiente: document.getElementById('ve-poliza-med').value.trim(),
     permiso_sct:      document.getElementById('ve-perm-sct').value,
     num_permiso_sct:  document.getElementById('ve-num-sct').value.trim(),
   };
