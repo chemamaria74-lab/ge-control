@@ -3134,7 +3134,10 @@ async function cargarPerfiles(intentos = 1, force = false) {
         const data = await res.json();
         subscriptionUsage = data.subscription || subscriptionUsage;
         renderSubscriptionUsage();
-        const perfiles = data.perfiles || [];
+        let perfiles = perfilesFromResponse(data);
+        if (!perfiles.length && Number(subscriptionUsage?.companies_used || 0) > 0) {
+          perfiles = await cargarPerfilesFallbackGasLp();
+        }
         perfilesCache = perfiles;
         perfilesCacheAt = Date.now();
         actualizarSelectorHeaderEmpresas(perfiles);
@@ -3155,6 +3158,27 @@ async function cargarPerfiles(intentos = 1, force = false) {
   })();
   try { return await perfilesRequestPromise; }
   finally { perfilesRequestPromise = null; }
+}
+
+function perfilesFromResponse(data) {
+  if (Array.isArray(data?.perfiles)) return data.perfiles;
+  if (Array.isArray(data?.profiles)) return data.profiles;
+  if (Array.isArray(data?.companies)) return data.companies;
+  return [];
+}
+
+async function cargarPerfilesFallbackGasLp() {
+  try {
+    const res = await fetch('/api/perfiles?auto_create=false', { headers: authHeader() });
+    if (!res.ok) return [];
+    const data = await res.json();
+    subscriptionUsage = data.subscription || subscriptionUsage;
+    renderSubscriptionUsage();
+    return perfilesFromResponse(data);
+  } catch (e) {
+    console.warn('cargarPerfiles fallback Gas LP:', e);
+    return [];
+  }
 }
 
 function subscriptionLimitLabel() {
