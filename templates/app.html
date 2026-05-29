@@ -776,7 +776,6 @@ tr:hover td{background:#f8fafc}
   <span class="badge badge-blue" id="moduleBadge">Gas LP</span>
   <span class="badge badge-green">v3.0</span>
   <!-- Selector multi-empresa (visible solo cuando hay sesión) -->
-  <select id="empresaHeaderSelect" class="company-select" aria-label="Cambiar razón social" style="display:none" onchange="seleccionarEmpresaDesdeHeader(this.value)"></select>
   <div id="empresaSwitcher" class="empresa-switcher" role="button" tabindex="0" aria-label="Cambiar razón social" style="display:none" onclick="mostrarSelectorEmpresas()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();mostrarSelectorEmpresas();}" title="Cambiar razón social">
     <i class="fa-solid fa-building empresa-switcher-icon"></i>
     <span class="empresa-switcher-name" id="empresaSwitcherName">—</span>
@@ -3121,10 +3120,7 @@ actualizarRfcHint();
 
 async function cargarPerfiles(intentos = 1, force = false) {
   const now = Date.now();
-  if (!force && perfilesCache && (now - perfilesCacheAt) < 15000) {
-    actualizarSelectorHeaderEmpresas(perfilesCache);
-    return perfilesCache;
-  }
+  if (!force && perfilesCache && (now - perfilesCacheAt) < 15000) return perfilesCache;
   if (!force && perfilesRequestPromise) return perfilesRequestPromise;
   perfilesRequestPromise = (async () => {
   for (let i = 0; i < intentos; i++) {
@@ -3134,13 +3130,9 @@ async function cargarPerfiles(intentos = 1, force = false) {
         const data = await res.json();
         subscriptionUsage = data.subscription || subscriptionUsage;
         renderSubscriptionUsage();
-        let perfiles = perfilesFromResponse(data);
-        if (!perfiles.length && Number(subscriptionUsage?.companies_used || 0) > 0) {
-          perfiles = await cargarPerfilesFallbackGasLp();
-        }
+        const perfiles = data.perfiles || [];
         perfilesCache = perfiles;
         perfilesCacheAt = Date.now();
-        actualizarSelectorHeaderEmpresas(perfiles);
         if (perfiles.length > 0) return perfiles;
         // Si vino vacío pero no es el último intento, esperar y reintentar
         if (i < intentos - 1) await new Promise(r => setTimeout(r, 350));
@@ -3158,27 +3150,6 @@ async function cargarPerfiles(intentos = 1, force = false) {
   })();
   try { return await perfilesRequestPromise; }
   finally { perfilesRequestPromise = null; }
-}
-
-function perfilesFromResponse(data) {
-  if (Array.isArray(data?.perfiles)) return data.perfiles;
-  if (Array.isArray(data?.profiles)) return data.profiles;
-  if (Array.isArray(data?.companies)) return data.companies;
-  return [];
-}
-
-async function cargarPerfilesFallbackGasLp() {
-  try {
-    const res = await fetch('/api/perfiles?auto_create=false', { headers: authHeader() });
-    if (!res.ok) return [];
-    const data = await res.json();
-    subscriptionUsage = data.subscription || subscriptionUsage;
-    renderSubscriptionUsage();
-    return perfilesFromResponse(data);
-  } catch (e) {
-    console.warn('cargarPerfiles fallback Gas LP:', e);
-    return [];
-  }
 }
 
 function subscriptionLimitLabel() {
@@ -3276,16 +3247,9 @@ async function iniciarFlujoEmpresa() {
 function mostrarOverlayEmpresas(perfiles) {
   const list = document.getElementById('empresaList');
   if (!list) return;
-  actualizarSelectorHeaderEmpresas(perfiles);
   renderSubscriptionUsage();
   if (!perfiles.length) {
-    const used = Number(subscriptionUsage?.companies_used || 0);
-    list.innerHTML = used > 0
-      ? `<div style="border:1px dashed #cbd5e1;border-radius:10px;padding:1rem;color:#64748b;background:#f8fafc;text-align:center">
-          No se pudieron cargar las empresas existentes. Actualiza la sesión o vuelve a intentar.
-          <div style="margin-top:.75rem"><button type="button" class="empresa-mini-btn" onclick="perfilesCache=null;perfilesCacheAt=0;iniciarFlujoEmpresa()">Reintentar</button></div>
-        </div>`
-      : '<div style="border:1px dashed #cbd5e1;border-radius:10px;padding:1rem;color:#64748b;background:#f8fafc;text-align:center">Aún no tienes empresas registradas.</div>';
+    list.innerHTML = '<div style="border:1px dashed #cbd5e1;border-radius:10px;padding:1rem;color:#64748b;background:#f8fafc;text-align:center">Aún no tienes empresas registradas.</div>';
   } else {
     list.innerHTML = perfiles.map(p => {
     const pJson = JSON.stringify(p).replace(/\\/g,'\\\\').replace(/"/g,'&quot;');
@@ -3316,26 +3280,6 @@ function seleccionarEmpresaById(id) {
   const cache = window._perfilesCache || [];
   const perfil = cache.find(p => Number(p.id) === Number(id));
   if (perfil) seleccionarEmpresa(perfil, true);
-}
-
-function actualizarSelectorHeaderEmpresas(perfiles = window._perfilesCache || perfilesCache || []) {
-  const select = document.getElementById('empresaHeaderSelect');
-  if (!select) return;
-  const rows = Array.isArray(perfiles) ? perfiles : [];
-  window._perfilesCache = rows;
-  select.innerHTML = rows.map(p => `<option value="${Number(p.id)}">${esc(p.nombre || 'Empresa')}${p.rfc ? ' · ' + esc(p.rfc) : ''}</option>`).join('');
-  select.style.display = rows.length ? '' : 'none';
-  if (_perfilSeleccionado?.id) select.value = String(_perfilSeleccionado.id);
-}
-
-function seleccionarEmpresaDesdeHeader(id) {
-  const cache = window._perfilesCache || perfilesCache || [];
-  const perfil = cache.find(p => Number(p.id) === Number(id));
-  if (!perfil) {
-    mostrarSelectorEmpresas();
-    return;
-  }
-  seleccionarEmpresa(perfil, false);
 }
 
 function editarPerfilActivoById(id) {
@@ -3394,13 +3338,8 @@ function seleccionarEmpresa(perfil, cerrarOverlay) {
 function actualizarSwitcherEmpresa(perfil) {
   const switcher = document.getElementById('empresaSwitcher');
   const nameEl   = document.getElementById('empresaSwitcherName');
-  const select = document.getElementById('empresaHeaderSelect');
-  if (switcher) switcher.style.display = 'none';
+  if (switcher) switcher.style.display = 'flex';
   if (nameEl)   nameEl.textContent = perfil.nombre || '—';
-  if (select) {
-    select.style.display = '';
-    select.value = String(perfil.id || '');
-  }
   const rfcEl = document.getElementById('rfc');
   const perfilRfc = normalizarRfc(perfil.rfc);
   if (rfcEl && perfilRfc && !rfcEl.value.trim()) rfcEl.value = perfilRfc;

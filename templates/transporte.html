@@ -1642,28 +1642,16 @@ function actualizarHeaderPerfilTransporte() {
   if (!topRight) return;
   let emp = document.getElementById('topbar-empresa');
   if (!emp) {
-    emp = document.createElement('select');
-    emp.className = 'company-select';
+    emp = document.createElement('button');
+    emp.type = 'button';
+    emp.className = 'badge';
     emp.id = 'topbar-empresa';
-    emp.setAttribute('aria-label', 'Cambiar empresa activa');
-    emp.onchange = () => seleccionarPerfilTransporte(emp.value);
+    emp.style.border = '0';
+    emp.style.cursor = 'pointer';
+    emp.onclick = () => mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE);
     topRight.prepend(emp);
   }
-  if (emp.tagName !== 'SELECT') {
-    const select = document.createElement('select');
-    select.className = 'company-select';
-    select.id = 'topbar-empresa';
-    select.setAttribute('aria-label', 'Cambiar empresa activa');
-    select.onchange = () => seleccionarPerfilTransporte(select.value);
-    emp.replaceWith(select);
-    emp = select;
-  }
-  const perfiles = Array.isArray(PERFILES_TRANSPORTE) ? PERFILES_TRANSPORTE : [];
-  emp.innerHTML = perfiles.length
-    ? perfiles.map(p => `<option value="${Number(p.id)}">${esc(p.nombre || 'Empresa')}${p.rfc ? ' · ' + esc(p.rfc) : ''}</option>`).join('')
-    : `<option value="">Seleccionar empresa</option>`;
-  emp.style.display = perfiles.length || PERFIL?.id ? '' : 'none';
-  if (PERFIL?.id) emp.value = String(PERFIL.id);
+  emp.textContent = PERFIL?.nombre || 'Seleccionar empresa';
   emp.title = 'Cambiar empresa activa';
 }
 
