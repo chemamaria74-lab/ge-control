@@ -1262,6 +1262,7 @@ async def crear_vehiculo(
     placa: str, anio: int = 2020, config_vehicular: str = "C2",
     aseguradora: str = "", poliza_seguro: str = "", permiso_cre: str = "",
     permiso_sct: str = "TPAF01", num_permiso_sct: str = "",
+    aseguradora_medio_ambiente: str = "", poliza_medio_ambiente: str = "",
     modulo: str = "transporte", authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1278,6 +1279,8 @@ async def crear_vehiculo(
         "permiso_cre": permiso_cre,
         "permiso_sct": permiso_sct or "TPAF01",
         "num_permiso_sct": num_permiso_sct,
+        "aseguradora_medio_ambiente": aseguradora_medio_ambiente,
+        "poliza_medio_ambiente": poliza_medio_ambiente,
         "activo": True,
     }))
     if supabase_row:
@@ -1290,6 +1293,7 @@ async def actualizar_vehiculo(
     vehiculo_id: int, placa: str, anio_modelo: int = 2020, config_vehicular: str = "C2",
     nombre_asegurador: str = "", poliza_seguro: str = "", permiso_cre: str = "",
     permiso_sct: str = "TPAF01", num_permiso_sct: str = "",
+    aseguradora_medio_ambiente: str = "", poliza_medio_ambiente: str = "",
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1305,6 +1309,8 @@ async def actualizar_vehiculo(
         "permiso_cre": permiso_cre,
         "permiso_sct": permiso_sct or "TPAF01",
         "num_permiso_sct": num_permiso_sct,
+        "aseguradora_medio_ambiente": aseguradora_medio_ambiente,
+        "poliza_medio_ambiente": poliza_medio_ambiente,
     }):
         return JSONResponse({"ok": True, "message": "Vehículo actualizado", "source": "supabase"})
     raise HTTPException(404, "Vehículo no encontrado en la empresa seleccionada.")

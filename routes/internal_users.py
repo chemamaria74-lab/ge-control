@@ -21,6 +21,7 @@ from routes.perfiles import _tenant_id_for_user
 from services.fiscal_audit import version_xml
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_cfdi_desde_xml, generar_pdf_gas_lp_desde_xml, save_fiscal_artifacts
 from services.carta_porte_validation import validar_xml_carta_porte_transporte
+from services.hidro_petro import build_hidro_petro_node, xml_hidro_petro_node
 from services.security import client_ip, enforce_rate_limit
 from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
 from supabase_config import get_supabase_admin, get_supabase_for_user
@@ -736,6 +737,7 @@ def _build_gas_lp_consumo_xml(
     clave_prod_serv: str = "15111510",
     no_identificacion: str = "GLP-LTR",
     unidad: str = "Litro",
+    hidro_petro: dict | None = None,
 ) -> tuple[str, dict]:
     qty = Decimal(str(litros or 0)).quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP)
     unit = Decimal(str(precio_unitario or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
@@ -766,6 +768,19 @@ def _build_gas_lp_consumo_xml(
     info_global_xml = ""
     if _clean_rfc(receptor.get("rfc")) == "XAXX010101000" and str(receptor.get("nombre") or "").strip().upper() == "PUBLICO EN GENERAL":
         info_global_xml = '<cfdi:InformacionGlobal Periodicidad="01" Meses="' + fecha[5:7] + '" Año="' + fecha[:4] + '"/>'
+    hidro_xml = ""
+    if hidro_petro:
+        try:
+            hidro_xml = xml_hidro_petro_node(
+                build_hidro_petro_node(
+                    tipo_permiso=str(hidro_petro.get("tipo_permiso") or ""),
+                    numero_permiso=str(hidro_petro.get("numero_permiso") or ""),
+                    clave_prod_serv=clave_prod_serv,
+                    subproducto=str(hidro_petro.get("subproducto") or "SP46"),
+                )
+            )
+        except ValueError as exc:
+            raise HTTPException(400, f"Configura Complemento HidroYPetro antes de timbrar: {exc}") from exc
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" '
@@ -785,6 +800,7 @@ def _build_gas_lp_consumo_xml(
         '<cfdi:Impuestos><cfdi:Traslados>'
         f'<cfdi:Traslado Base="{base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tasa}" Importe="{iva:.2f}"/>'
         '</cfdi:Traslados></cfdi:Impuestos>'
+        f'{hidro_xml}'
         '</cfdi:Concepto>'
         '</cfdi:Conceptos>'
         f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva:.2f}"><cfdi:Traslados>'
@@ -910,6 +926,10 @@ def _validate_gas_lp_carta_porte_catalogs(vehiculo: dict, chofer: dict) -> None:
         errors.append("Vehículo: captura aseguradora de responsabilidad civil.")
     if not str((vehiculo or {}).get("poliza_seguro") or "").strip():
         errors.append("Vehículo: captura póliza de responsabilidad civil.")
+    if not str((vehiculo or {}).get("aseguradora_medio_ambiente") or "").strip():
+        errors.append("Vehículo: captura aseguradora de medio ambiente para material peligroso.")
+    if not str((vehiculo or {}).get("poliza_medio_ambiente") or "").strip():
+        errors.append("Vehículo: captura póliza de medio ambiente para material peligroso.")
 
     if not str((chofer or {}).get("rfc") or "").strip():
         errors.append("Chofer: captura RFC.")
@@ -2158,6 +2178,11 @@ async def gas_lp_internal_crear_factura(
         clave_prod_serv=payload.clave_prod_serv,
         no_identificacion=payload.no_identificacion,
         unidad=payload.unidad,
+        hidro_petro={
+            "tipo_permiso": settings.get("TipoPermisoHYP") or "",
+            "numero_permiso": settings.get("NumeroPermisoHYP") or settings.get("NumPermiso") or "",
+            "subproducto": settings.get("SubProductoHYP") or "SP46",
+        },
     )
     now = _now_iso()
     fecha_mov = (payload.fecha or now)[:19]
@@ -2208,6 +2233,8 @@ async def gas_lp_internal_crear_factura(
                     "config_vehicular": (vehiculo_row or {}).get("config_vehicular") or "C2",
                     "nombre_asegurador": (vehiculo_row or {}).get("aseguradora") or "",
                     "poliza_seguro": (vehiculo_row or {}).get("poliza_seguro") or "",
+                    "aseguradora_medio_ambiente": (vehiculo_row or {}).get("aseguradora_medio_ambiente") or "",
+                    "poliza_medio_ambiente": (vehiculo_row or {}).get("poliza_medio_ambiente") or "",
                     "permiso_sct": (vehiculo_row or {}).get("permiso_sct") or "TPAF01",
                     "num_permiso_sct": (vehiculo_row or {}).get("num_permiso_sct") or "",
                     "operador_nombre": (chofer_row or {}).get("nombre") or "",

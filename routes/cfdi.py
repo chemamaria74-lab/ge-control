@@ -597,7 +597,7 @@ async def _upload_cfdi_impl(
         )
         save_report(
             user_id=data_user_id, periodo=periodo, meta=sat_meta,
-            filename_base=file_info.get("json_name", ""),
+            filename_base=(file_info.get("json_name", "") or "").removesuffix(".json"),
             first_salida_uuid=first_uuid,
             xml_path=file_info.get("xml_path",  ""),
             json_path=file_info.get("json_path", ""),

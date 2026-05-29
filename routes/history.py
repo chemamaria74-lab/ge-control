@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _normalize_sat_filename_base(value: str) -> str:
+    base = (value or "").strip()
+    for suffix in (".json", ".xml", ".zip"):
+        if base.lower().endswith(suffix):
+            base = base[: -len(suffix)]
+    return base.replace("_XAXX010101000_", "_XAX010101000_")
+
+
 def _auth(authorization: str) -> tuple[str, str]:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
@@ -134,7 +142,7 @@ async def get_history(
     sat_zip_filename = None
     if latest:
         stored_uuid   = latest.get("first_salida_uuid") or ""
-        filename_base = (latest.get("filename_base") or "").strip()
+        filename_base = _normalize_sat_filename_base(latest.get("filename_base") or "")
         if filename_base:
             sat_zip_filename = filename_base + ".zip"
         else:
@@ -218,7 +226,7 @@ async def download_report(
     path = path_map.get(fmt_l, "")
 
     stored_uuid   = rep.get("first_salida_uuid") or ""
-    filename_base = (rep.get("filename_base") or "").strip()
+    filename_base = _normalize_sat_filename_base(rep.get("filename_base") or "")
     try:
         if filename_base:
             if fmt_l == "xml":
