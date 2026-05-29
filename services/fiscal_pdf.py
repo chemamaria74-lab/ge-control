@@ -47,6 +47,7 @@ def generar_pdf_cfdi_desde_xml(
     title: str = "Factura CFDI",
     logo_data_url: str = "",
     template: str = "ingreso",
+    extra_context: dict[str, Any] | None = None,
 ) -> bytes:
     """Genera representacion impresa fiscal basica desde XML timbrado CFDI 4.0.
 
@@ -69,6 +70,7 @@ def generar_pdf_cfdi_desde_xml(
     conceptos = _all(root, "Concepto")
     traslados = _root_tax_nodes(root, "Traslado")
     retenciones = _root_tax_nodes(root, "Retencion")
+    extra_context = extra_context or {}
 
     buffer = BytesIO()
     using_default_logo = not logo_data_url
@@ -130,6 +132,10 @@ def generar_pdf_cfdi_desde_xml(
     story += [header, Spacer(1, 10)]
 
     story.append(_party_table(root, emisor, receptor, Paragraph, styles, colors, Table, TableStyle))
+    fiscal_visual = _fiscal_visual_context_table(root, template, extra_context, Paragraph, styles, colors, Table, TableStyle)
+    if fiscal_visual is not None:
+        story.append(Spacer(1, 6))
+        story.append(fiscal_visual)
     story.append(Spacer(1, 8))
     story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors))
     story.append(Spacer(1, 8))
@@ -142,16 +148,16 @@ def generar_pdf_cfdi_desde_xml(
     return buffer.getvalue()
 
 
-def generar_pdf_ingreso_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "") -> bytes:
-    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura CFDI de ingreso", logo_data_url=logo_data_url, template="ingreso")
+def generar_pdf_ingreso_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "", extra_context: dict[str, Any] | None = None) -> bytes:
+    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura CFDI de ingreso", logo_data_url=logo_data_url, template="ingreso", extra_context=extra_context)
 
 
 def generar_pdf_ingreso_carta_porte_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "") -> bytes:
     return generar_pdf_cfdi_desde_xml(xml_content, title="CFDI ingreso con Carta Porte", logo_data_url=logo_data_url, template="ingreso_carta_porte")
 
 
-def generar_pdf_gas_lp_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "") -> bytes:
-    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura Gas LP / Hidrocarburos", logo_data_url=logo_data_url, template="gas_lp")
+def generar_pdf_gas_lp_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "", extra_context: dict[str, Any] | None = None) -> bytes:
+    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura Gas LP / Hidrocarburos", logo_data_url=logo_data_url, template="gas_lp", extra_context=extra_context)
 
 
 def generar_pdf_resico_saas_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "") -> bytes:
@@ -353,6 +359,90 @@ def _party_table(root, emisor, receptor, Paragraph, styles, colors, Table, Table
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return table
+
+
+def _facility_context_label(row: dict[str, Any] | None) -> str:
+    if not row:
+        return ""
+    parts = []
+    name = str(row.get("nombre") or "").strip()
+    if name:
+        parts.append(name)
+    domicilio = str(row.get("domicilio_operativo") or row.get("domicilio") or row.get("direccion") or "").strip()
+    cp = str(row.get("codigo_postal") or row.get("cp") or "").strip()
+    if domicilio:
+        parts.append(domicilio)
+    if cp:
+        parts.append(f"CP {cp}")
+    clave = str(row.get("clave_instalacion") or "").strip()
+    if clave:
+        parts.append(f"Clave {clave}")
+    permiso = str(row.get("num_permiso") or "").strip()
+    if permiso:
+        parts.append(f"Permiso {permiso}")
+    return " · ".join(parts)
+
+
+def _fiscal_visual_context_table(root, template, context, Paragraph, styles, colors, Table, TableStyle):
+    if template != "gas_lp" and not context:
+        return None
+    facilities = [f for f in (context.get("facilities") or []) if isinstance(f, dict)]
+    facility = context.get("facility") if isinstance(context.get("facility"), dict) else {}
+    lugar = _attr(root, "LugarExpedicion", "")
+    facility_label = _facility_context_label(facility)
+    if not facility_label and not facilities:
+        return None
+
+    if facilities:
+        other_count = max(len(facilities) - 1, 0)
+        domicilios_label = (
+            f"Sí. {len(facilities)} establecimientos/instalaciones configuradas"
+            if len(facilities) > 1 else "No se registran otros establecimientos en GE Control"
+        )
+        facilities_text = "; ".join(_facility_context_label(f) for f in facilities[:6] if _facility_context_label(f))
+        if other_count and facility.get("id"):
+            facilities_text = "; ".join(
+                _facility_context_label(f)
+                for f in facilities[:6]
+                if f.get("id") != facility.get("id") and _facility_context_label(f)
+            ) or facilities_text
+    else:
+        domicilios_label = "No capturado en GE Control"
+        facilities_text = ""
+
+    rows = [
+        [
+            Paragraph("<b>INFORMACIÓN FISCAL VISIBLE</b>", styles["Tiny"]),
+            Paragraph("<b>DOMICILIOS / ESTABLECIMIENTOS</b>", styles["Tiny"]),
+        ],
+        [
+            Paragraph(
+                f"<b>Régimen emisor:</b> {_text(context.get('regimen_emisor') or _attr(_first(root, 'Emisor'), 'RegimenFiscal'))}<br/>"
+                f"<b>Lugar de expedición:</b> {_text(lugar)}<br/>"
+                f"<b>Moneda:</b> {_text(_attr(root, 'Moneda'))} · <b>Exportación:</b> {_text(_attr(root, 'Exportacion'))}",
+                styles["Tiny"],
+            ),
+            Paragraph(
+                f"<b>Establecimiento de expedición:</b> {_text(facility_label or f'CP {lugar}')}<br/>"
+                f"<b>¿Cuenta con más domicilios?</b> {_text(domicilios_label)}"
+                + (f"<br/><b>Otros domicilios:</b> {_text(facilities_text)}" if facilities_text else ""),
+                styles["Tiny"],
+            ),
+        ],
+    ]
+    table = Table(rows, colWidths=[2.35 * 72, 4.35 * 72])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F5F1E8")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111111")),
+        ("BOX", (0, 0), (-1, -1), 0.55, colors.HexColor("#D8D1C8")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#D8D1C8")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     return table
 
