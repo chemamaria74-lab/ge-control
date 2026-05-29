@@ -92,6 +92,8 @@ class VehiculoTransporteCreate(BaseModel):
     config_vehicular:   CONFIG_VEHICULAR_VALS = "C2"
     aseguradora:        str   = ""
     poliza_seguro:      str   = ""
+    aseguradora_medio_ambiente: str = ""
+    poliza_medio_ambiente: str = ""
     permiso_sct:        str   = "TPAF01"    # Permiso SCT para autotransporte federal
     num_permiso_sct:    str   = ""          # Número del permiso SCT
     capacidad_litros:   float = 0.0         # Capacidad del tanque del autotanque
@@ -122,6 +124,8 @@ class VehiculoTransporteResponse(BaseModel):
     config_vehicular:   str
     aseguradora:        str
     poliza_seguro:      str
+    aseguradora_medio_ambiente: str = ""
+    poliza_medio_ambiente: str = ""
     permiso_sct:        str
     num_permiso_sct:    str
     capacidad_litros:   float
