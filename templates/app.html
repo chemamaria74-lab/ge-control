@@ -2034,6 +2034,14 @@ tr:hover td{background:#f8fafc}
         <input id="fac_desc" placeholder="Ej. Planta de distribucion 14341">
       </div>
       <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Domicilio del establecimiento</label>
+        <input id="fac_domicilio_operativo" placeholder="Calle, número, colonia, municipio, estado">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">CP establecimiento</label>
+        <input id="fac_codigo_postal" inputmode="numeric" maxlength="5" placeholder="99300">
+      </div>
+      <div class="field" style="margin:0">
         <label style="font-size:.72rem"><span data-en="Default Temperature (°C)">Temperatura Default (°C)</span></label>
         <input id="fac_temp_default" type="number" step="0.1" placeholder="Ej. 20.0"
           title="Se inyecta en el JSON de controles volumétricos cuando no hay lectura de sensor disponible">
@@ -3785,7 +3793,10 @@ function renderFacilitiesTable(facilities, diagnostics = {}) {
       <td><b>${f.nombre || ''}</b>${advBadge}</td>
       <td><code style="font-size:.78rem">${f.num_permiso || '<span style="color:#94a3b8">—</span>'}</code></td>
       <td><code style="font-size:.78rem">${f.clave_instalacion || '<span style="color:#94a3b8">—</span>'}</code></td>
-      <td style="font-size:.78rem;color:#475569">${f.descripcion || ''}</td>
+      <td style="font-size:.78rem;color:#475569">
+        ${f.descripcion || ''}
+        ${(f.domicilio_operativo || f.codigo_postal) ? `<br><span style="color:#64748b">${f.domicilio_operativo || ''}${f.codigo_postal ? ` · CP ${f.codigo_postal}` : ''}</span>` : ''}
+      </td>
       <td style="text-align:center;font-size:.78rem">${f.num_tanques ?? 1}T / ${f.num_dispensarios ?? 0}D</td>
       <td style="text-align:center">
         <button onclick="openEditFacility(${f.id})"
@@ -3994,7 +4005,7 @@ document.getElementById('inv_inicial').addEventListener('input', function() {
 function openAddFacility() {
   document.getElementById('facilityEditId').value = '';
   document.getElementById('facilityFormTitle').textContent = 'Nueva instalación';
-  ['fac_nombre','fac_clave','fac_num_permiso','fac_permiso_alm','fac_desc'].forEach(id => {
+  ['fac_nombre','fac_clave','fac_num_permiso','fac_permiso_alm','fac_desc','fac_domicilio_operativo','fac_codigo_postal'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   const tpEl = document.getElementById('fac_tipo_permiso');
@@ -4030,6 +4041,8 @@ function openEditFacility(id) {
   document.getElementById('fac_num_permiso').value         = fac.num_permiso || '';
   document.getElementById('fac_permiso_alm').value         = fac.permiso_alm || '';
   document.getElementById('fac_desc').value                = fac.descripcion || '';
+  document.getElementById('fac_domicilio_operativo').value = fac.domicilio_operativo || fac.domicilio || fac.direccion || '';
+  document.getElementById('fac_codigo_postal').value       = fac.codigo_postal || fac.cp || '';
   document.getElementById('fac_tanques').value             = fac.num_tanques ?? 1;
   document.getElementById('fac_dispensarios').value        = fac.num_dispensarios ?? 0;
   document.getElementById('facilityFormStatus').textContent = '';
@@ -4079,6 +4092,8 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
     num_permiso:         document.getElementById('fac_num_permiso').value.trim(),
     permiso_alm:         document.getElementById('fac_permiso_alm').value.trim(),
     descripcion:         document.getElementById('fac_desc').value.trim(),
+    domicilio_operativo: document.getElementById('fac_domicilio_operativo').value.trim(),
+    codigo_postal:       document.getElementById('fac_codigo_postal').value.replace(/\D/g, '').slice(0, 5),
     // capacidad_tanque mirrors cap_total_tanque for balance alerts
     capacidad_tanque:    parseFloat(document.getElementById('fac_cap_total').value) || 0,
     num_tanques:         parseInt(document.getElementById('fac_tanques').value) || 1,

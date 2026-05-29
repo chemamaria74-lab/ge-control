@@ -80,7 +80,7 @@
           <div><label>Precio unitario</label><input id="precioUnitario" class="locked-field" type="number" min="0" step="0.000001" value="0" readonly oninput="updateTotals()"></div>
           <div><label>Descuento</label><input id="descuento" type="number" min="0" step="0.01" value="0" oninput="updateTotals()"></div>
           <div><label>IVA</label><select id="ivaRate" class="locked-field" disabled><option value="0.16">16%</option></select></div>
-          <div><label>Método de pago</label><select id="metodoPago"><option value="PUE">PUE - Pago en una sola exhibición</option><option value="PPD">PPD - Pago en parcialidades</option></select></div>
+          <div><label>Método de pago</label><select id="metodoPago" onchange="syncPaymentMethod()"><option value="PUE">PUE - Pago en una sola exhibición</option><option value="PPD">PPD - Pago en parcialidades</option></select></div>
           <div><label>Forma de pago</label><select id="formaPago"><option value="01">01 - Efectivo</option><option value="02">02 - Cheque nominativo</option><option value="03">03 - Transferencia</option><option value="04">04 - Tarjeta de crédito</option><option value="28">28 - Tarjeta de débito</option><option value="99">99 - Por definir</option></select></div>
           <div><label>Serie</label><input id="serie" class="locked-field" value="AA" maxlength="10" readonly></div>
           <div><label>Folio <span class="muted">(opcional)</span></label><input id="folio" placeholder="Auto si se deja vacío" maxlength="40"></div>
@@ -107,7 +107,7 @@
     </section>
     <section class="card" style="margin-top:14px">
       <div class="section-title"><h2>Facturas recientes</h2><button class="btn ghost" type="button" onclick="loadFacturas()">Actualizar</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Operación</th><th>Instalación</th><th>Cliente/Destino</th><th>Litros</th><th>Total</th><th>Estado</th><th>UUID</th><th>Docs</th></tr></thead><tbody id="facturasRows"><tr><td colspan="9">Cargando...</td></tr></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Operación</th><th>Instalación</th><th>Cliente/Destino</th><th>Litros</th><th>Total</th><th>Pago</th><th>Asistente</th><th>Estado</th><th>UUID</th><th>Docs</th></tr></thead><tbody id="facturasRows"><tr><td colspan="11">Cargando...</td></tr></tbody></table></div>
     </section>
   </main>
   <script>
@@ -295,6 +295,15 @@
       sumIva.textContent = money(iva);
       sumTotal.textContent = money(sub - desc + iva);
     }
+    function syncPaymentMethod(){
+      if(metodoPago.value === 'PPD'){
+        formaPago.value = '99';
+        formaPago.disabled = true;
+      } else {
+        formaPago.disabled = false;
+        if(formaPago.value === '99') formaPago.value = '01';
+      }
+    }
     async function crearFactura(){
       const litrosVal = Number(litros.value || 0);
       const precioVal = Number(precioUnitario.value || 0);
@@ -306,7 +315,8 @@
       if(isTraspaso && String(facilitySelect.value) === String(destinoFacilitySelect.value)){ setStatus('facturaMsg','Origen y destino deben ser distintos.',false); return; }
       const wantsCarta = isTraspaso && generarCartaPorte.value === '1';
       if(wantsCarta && (!vehiculoSelect.value || !choferSelect.value || !rutaSelect.value)){ setStatus('facturaMsg','Para preparar Carta Porte selecciona vehículo, chofer y ruta.',false); return; }
-      if(!confirm('¿Timbrar factura real? Solo continúa si esta prueba fue autorizada.')) return;
+      syncPaymentMethod();
+      if(!confirm(wantsCarta ? '¿Timbrar Carta Porte de traslado real? Solo continúa si esta prueba fue autorizada.' : '¿Timbrar factura real? Solo continúa si esta prueba fue autorizada.')) return;
       const btn = document.querySelector('button[onclick="crearFactura()"]');
       try{
         if(btn) btn.disabled = true;
@@ -340,7 +350,8 @@
           ruta_id: wantsCarta ? Number(rutaSelect.value) : null
         };
         const data = await api('/api/internal-auth/gas-lp/facturas',{method:'POST',body:JSON.stringify(payload)});
-        setStatus('facturaMsg',`${isTraspaso ? 'Traspaso registrado' : 'Factura timbrada'}: ${data.factura?.uuid_sat || 'UUID pendiente'}`);
+        const successLabel = isTraspaso ? (wantsCarta ? 'Carta Porte traslado timbrada' : 'Traspaso registrado') : 'Factura timbrada';
+        setStatus('facturaMsg',`${successLabel}: ${data.factura?.uuid_sat || 'UUID pendiente'}`);
         await loadFacturas();
       }catch(e){ setStatus('facturaMsg',e.message,false); }
       finally{ if(btn) btn.disabled = false; }
@@ -352,11 +363,18 @@
         const md = f.metadata || {};
         const op = md.tipo_operacion === 'traspaso' ? 'Traspaso' : 'Venta';
         const destino = md.tipo_operacion === 'traspaso' ? md.destino_nombre : (md.cliente_nombre || f.rfc_receptor || '—');
+        const actor = f.created_by_internal || {};
+        const assistant = actor.name || md.created_by_internal_name || md.created_by || '—';
+        const metodo = String(md.metodo_pago || '').toUpperCase();
+        const paymentStatus = f.payment_status || md.payment_status || '';
+        const pago = md.tipo_operacion === 'traspaso'
+          ? 'Traslado'
+          : (metodo === 'PPD' ? 'PPD · complemento pendiente' : 'PUE');
         const id = encodeURIComponent(f.id || '');
         const q = `token=${encodeURIComponent(token)}`;
         const docs = f.id && f.xml_content ? `<div class="doc-actions"><a class="btn ghost" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost" href="/api/internal-auth/gas-lp/facturas/${id}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a></div>` : '<span class="muted">Pendiente</span>';
-        return `<tr><td>${esc((f.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(op)}</td><td>${esc(md.origen_nombre || '—')}</td><td>${esc(destino || '—')}</td><td>${esc(f.volumen_litros || 0)}</td><td>${money(md.total || (Number(f.importe||0)*1.16))}</td><td>${esc(f.status || '—')}</td><td><code>${esc(f.uuid_sat || '—')}</code></td><td>${docs}</td></tr>`;
-      }).join('') : '<tr><td colspan="9">Sin facturas todavía.</td></tr>';
+        return `<tr><td>${esc((f.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(op)}</td><td>${esc(md.origen_nombre || '—')}</td><td>${esc(destino || '—')}</td><td>${esc(f.volumen_litros || 0)}</td><td>${money(md.total || (Number(f.importe||0)*1.16))}</td><td>${esc(pago || paymentStatus || '—')}</td><td>${esc(assistant)}</td><td>${esc(f.status || '—')}</td><td><code>${esc(f.uuid_sat || '—')}</code></td><td>${docs}</td></tr>`;
+      }).join('') : '<tr><td colspan="11">Sin facturas todavía.</td></tr>';
     }
     async function logout(){
       try{
@@ -371,6 +389,7 @@
       localStorage.removeItem('ge_gaslp_internal_token');
       location.href='/choice';
     }
+    syncPaymentMethod();
     load();
   </script>
 </body>

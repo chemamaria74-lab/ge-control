@@ -82,7 +82,7 @@
     </section>
     <section class="card" style="margin-top:14px">
       <div class="section-title"><h2>Facturas del día</h2><span class="muted">Lectura directa del portal de facturación.</span></div>
-      <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Operación</th><th>Instalación</th><th>Cliente</th><th>Litros</th><th>Total</th><th>Estado</th><th>UUID</th></tr></thead><tbody id="facturasRows"></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Operación</th><th>Instalación</th><th>Cliente</th><th>Litros</th><th>Total</th><th>Pago</th><th>Asistente</th><th>Estado</th><th>UUID</th></tr></thead><tbody id="facturasRows"></tbody></table></div>
     </section>
   </main>
   <script>
@@ -122,8 +122,13 @@
     function renderFacturas(rows){
       facturasRows.innerHTML = rows.length ? rows.map(f=>{
         const md=f.metadata||{}; const op=md.tipo_operacion==='traspaso'?'Traspaso':'Venta';
-        return `<tr><td>${esc((f.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(op)}</td><td>${esc(md.origen_nombre||'—')}</td><td>${esc(md.cliente_nombre||f.rfc_receptor||'—')}</td><td>${esc(f.volumen_litros||0)}</td><td>${money(md.total||f.importe)}</td><td>${esc(f.status||'—')}</td><td><code>${esc(f.uuid_sat||'—')}</code></td></tr>`;
-      }).join('') : '<tr><td colspan="8">Sin facturas para el día.</td></tr>';
+        const actor=f.created_by_internal||{};
+        const assistant=actor.name||md.created_by_internal_name||md.created_by||'—';
+        const metodo=String(md.metodo_pago||'').toUpperCase();
+        const paymentStatus=f.payment_status||md.payment_status||'';
+        const pago=md.tipo_operacion==='traspaso' ? 'Traslado' : (metodo==='PPD' ? 'PPD · complemento pendiente' : 'PUE');
+        return `<tr><td>${esc((f.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(op)}</td><td>${esc(md.origen_nombre||'—')}</td><td>${esc(md.cliente_nombre||f.rfc_receptor||'—')}</td><td>${esc(f.volumen_litros||0)}</td><td>${money(md.total||f.importe)}</td><td>${esc(pago||paymentStatus||'—')}</td><td>${esc(assistant)}</td><td>${esc(f.status||'—')}</td><td><code>${esc(f.uuid_sat||'—')}</code></td></tr>`;
+      }).join('') : '<tr><td colspan="10">Sin facturas para el día.</td></tr>';
     }
     async function loadCierres(){
       const data = await api('/api/internal-auth/gas-lp/conciliacion/cierres');
