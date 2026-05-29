@@ -1184,14 +1184,6 @@ async def timbrar_viaje(
         productos = [ProductoTransporte(**p) for p in productos_raw]
     except Exception as e:
         raise HTTPException(400, f"Productos del viaje inválidos: {e}")
-    enforce_hidro = bool(settings.get("ValidarComplementoHidrocarburos", True))
-    if enforce_hidro and requiere_complemento_hidrocarburos([p.model_dump() for p in productos]):
-        raise HTTPException(
-            400,
-            "Timbrado bloqueado para no gastar timbres: Magna/Premium/Diésel requieren validar e incorporar "
-            "el complemento Hidrocarburos y Petrolíferos junto con Carta Porte. Falta cerrar el payload exacto con SW Sapien."
-        )
-
     from models.transport_schemas import ViajeCreate
     receptor_cfdi = _normalizar_receptor_cfdi(
         viaje_row.get("rfc_receptor", ""),
@@ -3424,6 +3416,8 @@ async def crear_vehiculo(
             "config_vehicular":  payload.config_vehicular,
             "aseguradora":       payload.aseguradora.strip(),
             "poliza_seguro":     payload.poliza_seguro.strip(),
+            "aseguradora_medio_ambiente": payload.aseguradora_medio_ambiente.strip(),
+            "poliza_medio_ambiente": payload.poliza_medio_ambiente.strip(),
             "permiso_sct":       payload.permiso_sct.strip(),
             "num_permiso_sct":   payload.num_permiso_sct.strip(),
             "capacidad_litros":  payload.capacidad_litros,
@@ -3452,6 +3446,8 @@ async def actualizar_vehiculo(
         "config_vehicular": payload.config_vehicular,
         "aseguradora":     payload.aseguradora.strip(),
         "poliza_seguro":   payload.poliza_seguro.strip(),
+        "aseguradora_medio_ambiente": payload.aseguradora_medio_ambiente.strip(),
+        "poliza_medio_ambiente": payload.poliza_medio_ambiente.strip(),
         "permiso_sct":     payload.permiso_sct.strip(),
         "num_permiso_sct": payload.num_permiso_sct.strip(),
         "capacidad_litros": payload.capacidad_litros,

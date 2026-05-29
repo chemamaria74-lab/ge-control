@@ -20,7 +20,7 @@ router = APIRouter()
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "..", "config", "settings.json")
 LOCAL_SETTINGS_FALLBACK = (os.environ.get("GAS_LP_LOCAL_SETTINGS_FALLBACK") or "").strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
-RFC_PROVEEDOR_PROGRAMA = "XAXX010101000"
+RFC_PROVEEDOR_PROGRAMA = "XAX010101000"
 
 DEFAULT_SETTINGS = {
     "RfcContribuyente":      "",
@@ -37,6 +37,9 @@ DEFAULT_SETTINGS = {
     "NumeroDispensarios":    0,
     "Caracter":              "permisionario",
     "ModalidadPermiso":      "PER40",
+    "TipoPermisoHYP":        "",
+    "NumeroPermisoHYP":      "",
+    "SubProductoHYP":        "SP46",
     "FactorDeConversionKgALitros": 0.542,
     "PdfLogoDataUrl":        "",
     "PrecioVentaLitroGasLp": 0,
@@ -210,6 +213,9 @@ class SettingsPayload(BaseModel):
     NumeroDispensarios:    Optional[int]   = 0
     Caracter:              Optional[str]   = "permisionario"
     ModalidadPermiso:      Optional[str]   = "PER40"
+    TipoPermisoHYP:        Optional[str]   = ""
+    NumeroPermisoHYP:      Optional[str]   = ""
+    SubProductoHYP:        Optional[str]   = "SP46"
     FactorDeConversionKgALitros: Optional[float] = 0.542
     PdfLogoDataUrl:          Optional[str] = ""
     PrecioVentaLitroGasLp:   Optional[float] = 0
