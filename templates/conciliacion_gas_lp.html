@@ -10,7 +10,7 @@
   <style>
     :root{--wine:#7A1E2C;--wine2:#5B0F1D;--ink:#111;--muted:#6F6A64;--line:#E7E3DC;--bg:#F5F5F5;--surface:#fff}
     *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:var(--ge-font);color:var(--ink);min-height:100vh}
-    .top{position:sticky;top:0;background:#5B0F1D;color:white;padding:14px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(200,169,107,.22);z-index:10}.brand{display:flex;align-items:center;gap:10px;font-weight:800}.brand img{width:58px;height:34px;object-fit:contain}.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800}.right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.btn{border:1px solid var(--wine);background:var(--wine);color:#fff;border-radius:8px;padding:10px 13px;font:inherit;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;gap:7px;align-items:center;justify-content:center}.btn:hover{background:var(--wine2)}.btn.ghost{background:#fff;color:var(--ink);border-color:#D8D0C4}.btn.sm{padding:8px 11px;border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff}
+    .top{position:sticky;top:0;background:#5B0F1D;color:white;padding:14px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(200,169,107,.22);z-index:10}.brand{display:flex;align-items:center;gap:10px;font-weight:800}.brand img{width:58px;height:34px;object-fit:contain}.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800}.right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.company-select{min-width:220px;max-width:340px;border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;font-weight:800}.company-select option{color:#111}.btn{border:1px solid var(--wine);background:var(--wine);color:#fff;border-radius:8px;padding:10px 13px;font:inherit;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;gap:7px;align-items:center;justify-content:center}.btn:hover{background:var(--wine2)}.btn.ghost{background:#fff;color:var(--ink);border-color:#D8D0C4}.btn.sm{padding:8px 11px;border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff}
     main{max-width:1220px;margin:0 auto;padding:22px}.hero{display:flex;justify-content:space-between;gap:14px;align-items:flex-end;margin-bottom:16px}h1{font-size:26px;margin:0 0 5px}h2{font-size:20px;margin:0}.muted{color:var(--muted);line-height:1.5}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:14px}.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.kpi .label{font-size:12px;color:var(--muted);font-weight:900}.kpi .value{font-size:24px;font-weight:900;margin-top:4px}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}label{display:block;font-size:12px;font-weight:900;color:var(--muted);margin-bottom:6px}input,select,textarea{width:100%;border:1px solid #D8D0C4;border-radius:8px;padding:10px 11px;font:inherit;background:#fff}textarea{min-height:74px;resize:vertical}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.status{font-size:13px;font-weight:800;margin-top:8px}.ok{color:#15803d}.err{color:#b91c1c}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;color:#64748b;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.04em;padding:9px;white-space:nowrap}td{border-bottom:1px solid #eef2f7;padding:9px;vertical-align:top}.section-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.pill{display:inline-flex;align-items:center;gap:5px;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:900}.doc-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.doc-tab{border:1px solid #D8D0C4;background:#fff;border-radius:999px;padding:9px 13px;font:inherit;font-weight:900;color:#475569;cursor:pointer}.doc-tab.active{background:var(--wine);border-color:var(--wine);color:#fff}.doc-section{display:none}.doc-section.active{display:block}.download-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
     @media(max-width:980px){.kpis,.grid,.form-grid{grid-template-columns:1fr}.hero{align-items:start;flex-direction:column}.btn{width:100%}}
   </style>
@@ -19,7 +19,7 @@
   <header class="top">
     <div class="brand"><img src="/static/img/ge-isotype-light.svg" alt="GE"><span>GE CONTROL</span></div>
     <span class="badge"><i class="fa-solid fa-scale-balanced"></i> Conciliación Gas LP</span>
-    <div class="right"><span class="badge" id="nameBadge">-</span><button class="btn sm" onclick="logout()">Salir</button></div>
+    <div class="right"><select class="company-select" id="perfilSelect" onchange="setConciliacionPerfil(this.value)" style="display:none"></select><span class="badge" id="nameBadge">-</span><button class="btn sm" onclick="logout()">Salir</button></div>
   </header>
   <main>
     <div class="hero">
@@ -100,17 +100,36 @@
   </main>
   <script>
     const token = localStorage.getItem('ge_gaslp_conciliacion_token') || '';
+    let activePerfilId = Number(localStorage.getItem('ge_gaslp_conciliacion_perfil_id') || '0') || null;
     function money(v){return '$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
     function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
     function today(){return new Date().toISOString().slice(0,10);}
     function currentMonth(){return (fechaFiltro.value || today()).slice(0,7);}
     function setStatus(id,text,ok=true){const el=document.getElementById(id); if(el){el.textContent=text; el.className='status '+(ok?'ok':'err');}}
     async function api(path, opts={}) {
-      const headers = {'Authorization':'Bearer '+token, ...(opts.body ? {'Content-Type':'application/json'} : {}), ...(opts.headers||{})};
+      const profileHeader = activePerfilId ? {'X-Perfil-Id': String(activePerfilId)} : {};
+      const headers = {'Authorization':'Bearer '+token, ...profileHeader, ...(opts.body ? {'Content-Type':'application/json'} : {}), ...(opts.headers||{})};
       const res = await fetch(path, {...opts, headers});
       const data = await res.json().catch(()=>({}));
       if(!res.ok) throw new Error(data.detail || 'Sesión inválida.');
       return data;
+    }
+    async function loadProfiles(){
+      if(!token) return;
+      const res = await fetch('/api/internal-auth/gas-lp/conciliacion/profiles', {headers:{'Authorization':'Bearer '+token}});
+      const data = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(data.detail || 'No fue posible cargar empresas.');
+      const profiles = data.profiles || [];
+      if(!activePerfilId) activePerfilId = Number(data.current_perfil_id || profiles[0]?.id || 0) || null;
+      if(activePerfilId) localStorage.setItem('ge_gaslp_conciliacion_perfil_id', String(activePerfilId));
+      perfilSelect.style.display = profiles.length > 1 ? '' : 'none';
+      perfilSelect.innerHTML = profiles.map(p => `<option value="${esc(p.id)}">${esc(p.nombre || 'Empresa')} · ${esc(p.rfc || '')}</option>`).join('');
+      if(activePerfilId) perfilSelect.value = String(activePerfilId);
+    }
+    async function setConciliacionPerfil(value){
+      activePerfilId = Number(value || 0) || null;
+      if(activePerfilId) localStorage.setItem('ge_gaslp_conciliacion_perfil_id', String(activePerfilId));
+      await loadAll();
     }
     async function loadAll(){
       if(!token){ location.href='/gas-lp/conciliacion'; return; }
@@ -141,7 +160,8 @@
     function downloadDocumentosZip(){
       const periodo = docPeriodo.value || currentMonth();
       const tipo = docTipo.value || 'todos';
-      const url = `/api/internal-auth/gas-lp/conciliacion/documentos.zip?periodo=${encodeURIComponent(periodo)}&tipo=${encodeURIComponent(tipo)}&token=${encodeURIComponent(token)}`;
+      const pid = activePerfilId ? `&perfil_id=${encodeURIComponent(activePerfilId)}` : '';
+      const url = `/api/internal-auth/gas-lp/conciliacion/documentos.zip?periodo=${encodeURIComponent(periodo)}&tipo=${encodeURIComponent(tipo)}&token=${encodeURIComponent(token)}${pid}`;
       window.open(url, '_blank', 'noopener');
     }
     function renderFacturas(rows){
@@ -212,9 +232,10 @@
     async function logout(){
       await fetch('/api/internal-auth/logout',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({})}).catch(()=>{});
       localStorage.removeItem('ge_gaslp_conciliacion_token');
+      localStorage.removeItem('ge_gaslp_conciliacion_perfil_id');
       location.href='/choice';
     }
-    loadAll();
+    (async()=>{ await loadProfiles(); await loadAll(); })();
   </script>
 </body>
 </html>
