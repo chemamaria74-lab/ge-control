@@ -351,17 +351,22 @@ async def _upload_cfdi_impl(
         if periodo_inferido:
             sb_q = (
                 _get_sb().table("records")
-                .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,nombre_contraparte,importe,file_path")
+                .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,nombre_contraparte,importe,file_path,es_autoconsumo")
                 .eq("user_id", data_user_id)
                 .eq("periodo", periodo_inferido)
                 .eq("tipo", "salida")
-                .ilike("file_path", "manual:%")
             )
             if fid is not None:
                 sb_q = sb_q.eq("facility_id", fid)
             if perfil_id is not None:
                 sb_q = sb_q.eq("perfil_id", perfil_id)
-            autoconsumos_db = sb_q.execute().data or []
+            salidas_db = sb_q.limit(10000).execute().data or []
+            autoconsumos_db = [
+                r for r in salidas_db
+                if r.get("es_autoconsumo")
+                or str(r.get("file_path") or "").startswith("manual:")
+                or str(r.get("uuid") or "").upper().startswith("AUTO-")
+            ]
 
             if autoconsumos_db:
                 todos_logs.append(
@@ -387,6 +392,7 @@ async def _upload_cfdi_impl(
                         "nombre_contraparte": ac.get("nombre_contraparte", ""),  # ← sin "_"
                         "nombre_cp":        ac.get("nombre_contraparte", ""),
                         "importe":          float(ac.get("importe", 0)),  # ← sin "_"
+                        "file_path":        ac.get("file_path") or "manual:autoconsumo",
                         "usuario":          display_name or user_id,
                     })
                     todos_logs.append(
@@ -555,7 +561,7 @@ async def _upload_cfdi_impl(
     first_uuid = sat_meta.get("first_uuid", "")
     deleted = delete_period(
         data_user_id, periodo, facility_id=fid, perfil_id=perfil_id,
-        include_autoconsumos=True,
+        include_autoconsumos=False,
     )
     if deleted.get("records", 0) or deleted.get("reports", 0):
         todos_logs.append(
@@ -587,11 +593,9 @@ async def _upload_cfdi_impl(
         autoconsumos_meta = {k: v for k, v in sat_meta["_ventas"].items()
                              if k.startswith("AUTO-")}
         if autoconsumos_meta:
-            saved_auto = save_records(data_user_id, periodo, autoconsumos_meta, "salida",
-                                      facility_id=fid, perfil_id=perfil_id)
-            if saved_auto != len(autoconsumos_meta):
-                raise RuntimeError(f"Persistencia incompleta de autoconsumos: {saved_auto}/{len(autoconsumos_meta)}.")
-            todos_logs.append(f"Autoconsumos manuales re-guardados: {len(autoconsumos_meta)}")
+            todos_logs.append(
+                f"Autoconsumos manuales preservados en historial: {len(autoconsumos_meta)}"
+            )
         todos_logs.append(
             f"UUID primera salida (nombramiento SAT): {first_uuid or '(generado aleatoriamente)'}"
         )

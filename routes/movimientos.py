@@ -122,6 +122,12 @@ async def registrar_autoconsumo(
 
     if payload.volumen_litros <= 0:
         raise HTTPException(400, "El volumen debe ser mayor a 0.")
+    try:
+        fecha_dt = datetime.strptime(payload.fecha, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "La fecha debe ser real y usar formato YYYY-MM-DD.")
+    if payload.periodo != fecha_dt.strftime("%Y-%m"):
+        raise HTTPException(400, "El periodo debe coincidir con el mes de la fecha.")
     if payload.tipo_movimiento not in TIPO_MOVIMIENTO_VALIDOS:
         raise HTTPException(
             400,
