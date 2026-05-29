@@ -1008,7 +1008,7 @@ tr:hover td{background:#f8fafc}
     <div class="grid2" style="margin-bottom:.7rem">
       <div class="field">
         <label>Volumen (Litros) <span style="color:#e63946">*</span></label>
-        <input id="ac_volumen" type="number" min="0.01" step="0.01" placeholder="Ej. 500.00">
+        <input id="ac_volumen" type="text" inputmode="decimal" placeholder="Ej. 35,606.00">
       </div>
       <div class="field">
         <label>Fecha del movimiento <span style="color:#e63946">*</span></label>
@@ -2650,6 +2650,34 @@ function parseNum(val, fallback = 0) {
   const cleaned = String(val).trim().replace(/,/g, '.');
   const n = parseFloat(cleaned);
   return isNaN(n) ? fallback : n;
+}
+
+function parseLitrosInput(val, fallback = 0) {
+  if (val === null || val === undefined) return fallback;
+  let raw = String(val).trim().replace(/\s/g, '');
+  if (!raw) return fallback;
+  const hasComma = raw.includes(',');
+  const hasDot = raw.includes('.');
+  if (hasComma && hasDot) {
+    const lastComma = raw.lastIndexOf(',');
+    const lastDot = raw.lastIndexOf('.');
+    raw = lastComma > lastDot
+      ? raw.replace(/\./g, '').replace(',', '.')
+      : raw.replace(/,/g, '');
+  } else if (hasComma) {
+    const parts = raw.split(',');
+    const last = parts[parts.length - 1] || '';
+    const first = parts[0] || '';
+    if (last.length === 3 && first !== '0') raw = raw.replace(/,/g, '');
+    else raw = raw.replace(',', '.');
+  } else if (hasDot) {
+    const parts = raw.split('.');
+    const last = parts[parts.length - 1] || '';
+    const first = parts[0] || '';
+    if (parts.length > 2 || (last.length === 3 && first !== '0')) raw = raw.replace(/\./g, '');
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
 }
 // ── appState: caché global de settings por perfil ─────────────────────────────
 // Evita re-fetches innecesarios y pérdida de datos al cambiar de tab.
@@ -6559,7 +6587,8 @@ function _actualizarRfcAutoconsumo() {
 }
 
 async function registrarAutoconsumo() {
-  const volumen = parseFloat(document.getElementById('ac_volumen').value);
+  const volumenRaw = document.getElementById('ac_volumen').value;
+  const volumen = parseLitrosInput(volumenRaw);
   const fecha   = document.getElementById('ac_fecha').value;
   const tipo    = document.getElementById('ac_tipo').value;
   const desc    = document.getElementById('ac_descripcion').value.trim();
@@ -6598,6 +6627,7 @@ async function registrarAutoconsumo() {
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({
         volumen_litros:    volumen,
+        volumen_litros_raw: volumenRaw,
         fecha:             fecha,
         periodo:           periodo,
         rfc_contribuyente: rfc,
