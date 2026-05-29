@@ -7,6 +7,7 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, FileResponse
+from pydantic import BaseModel
 
 from services.database import (
     get_records, get_reports, get_available_periods, get_period_totals,
@@ -14,10 +15,17 @@ from services.database import (
 )
 from services.sat_transformer import generate_filename
 from routes.auth import obtener_acceso_modulo, resolve_profile_scope, verify_token
-from routes.settings import _load as load_settings
+from routes.settings import _load as load_settings, _save as save_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class PeriodInventoryPayload(BaseModel):
+    inventario_inicial: float
+    status: str = "provisional"
+    source: str = "manual"
+    facility_id: Optional[int] = None
 
 
 def _normalize_sat_filename_base(value: str) -> str:
@@ -64,6 +72,20 @@ def _scope(uid: str, token: str, raw: str) -> dict:
     return resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
 
 
+def _inventory_key(periodo: str, facility_id: Optional[int]) -> str:
+    return f"{periodo}:{facility_id or 'all'}"
+
+
+def _period_inventory_from_settings(settings: dict, periodo: str, facility_id: Optional[int]) -> Optional[dict]:
+    inventories = settings.get("MonthlyInventories") or {}
+    value = inventories.get(_inventory_key(periodo, facility_id))
+    if value:
+        return value
+    if facility_id is not None:
+        return inventories.get(_inventory_key(periodo, None))
+    return None
+
+
 def _totals_from_records(records: dict) -> dict:
     entradas = records.get("entradas") or []
     salidas = records.get("salidas") or []
@@ -79,12 +101,16 @@ def _totals_from_records(records: dict) -> dict:
     ]
     vol_compra = sum(e.get("volumen_litros") or 0 for e in entradas)
     imp_compra = sum(e.get("importe") or 0 for e in entradas)
+    vol_auto = sum(abs(s.get("volumen_litros") or 0) for s in autoconsumos)
     vol_venta = sum(s.get("volumen_litros") or 0 for s in ventas_reales)
     imp_venta = sum(s.get("importe") or 0 for s in ventas_reales)
     return {
         "total_entradas": round(vol_compra, 2),
-        "total_salidas": round(sum(s.get("volumen_litros") or 0 for s in salidas), 2),
-        "total_autoconsumo": round(sum(s.get("volumen_litros") or 0 for s in autoconsumos), 2),
+        "total_salidas": round(
+            sum(s.get("volumen_litros") or 0 for s in ventas_reales) + vol_auto,
+            2,
+        ),
+        "total_autoconsumo": round(vol_auto, 2),
         "cnt_autoconsumo": len(autoconsumos),
         "total_traspasos": 0,
         "cnt_traspasos": 0,
@@ -162,6 +188,81 @@ async def get_history(
         "zip_filename": sat_zip_filename,
         "source":       source,
     })
+
+
+@router.get("/history/{periodo}/inventory")
+async def get_period_inventory(
+    periodo:       str,
+    facility_id:   Optional[int] = Query(default=None),
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
+    scope = _scope(uid, token, x_perfil_id)
+    settings = load_settings(scope["data_user_id"], scope["perfil_id"])
+    saved = _period_inventory_from_settings(settings, periodo, facility_id)
+    prev_report = None
+
+    try:
+        y, m = [int(x) for x in periodo.split("-", 1)]
+        prev_periodo = f"{y - 1}-12" if m == 1 else f"{y}-{m - 1:02d}"
+        reports = get_reports(
+            scope["data_user_id"],
+            prev_periodo,
+            facility_id=facility_id,
+            perfil_id=scope["perfil_id"],
+        )
+        if reports:
+            rep = reports[0]
+            prev_report = {
+                "periodo": prev_periodo,
+                "vol_existencias": rep.get("vol_existencias"),
+                "facility_id": rep.get("facility_id"),
+            }
+    except Exception:
+        prev_report = None
+
+    return JSONResponse(content={
+        "periodo": periodo,
+        "facility_id": facility_id,
+        "saved": saved,
+        "previous_report": prev_report,
+    })
+
+
+@router.post("/history/{periodo}/inventory")
+async def save_period_inventory(
+    periodo:       str,
+    payload:       PeriodInventoryPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
+    scope = _scope(uid, token, x_perfil_id)
+    value = round(max(float(payload.inventario_inicial or 0), 0), 2)
+    status = (payload.status or "provisional").strip().lower()
+    if status not in {"provisional", "confirmado"}:
+        status = "provisional"
+    source = (payload.source or "manual").strip().lower()[:40] or "manual"
+
+    settings = load_settings(scope["data_user_id"], scope["perfil_id"])
+    inventories = dict(settings.get("MonthlyInventories") or {})
+    import datetime as _dt
+    record = {
+        "periodo": periodo,
+        "facility_id": payload.facility_id,
+        "inventario_inicial": value,
+        "status": status,
+        "source": source,
+        "updated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+    }
+    inventories[_inventory_key(periodo, payload.facility_id)] = record
+    settings["MonthlyInventories"] = inventories
+    save_settings(scope["data_user_id"], settings, scope["perfil_id"])
+
+    return JSONResponse(content={"ok": True, "inventory": record})
 
 
 @router.delete("/history/all")

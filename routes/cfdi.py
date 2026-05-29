@@ -351,21 +351,26 @@ async def _upload_cfdi_impl(
         if periodo_inferido:
             sb_q = (
                 _get_sb().table("records")
-                .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,nombre_contraparte,importe,file_path,es_autoconsumo")
+                .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,nombre_contraparte,importe,file_path,es_autoconsumo,facility_id")
                 .eq("user_id", data_user_id)
                 .eq("periodo", periodo_inferido)
                 .eq("tipo", "salida")
             )
-            if fid is not None:
-                sb_q = sb_q.eq("facility_id", fid)
             if perfil_id is not None:
                 sb_q = sb_q.eq("perfil_id", perfil_id)
             salidas_db = sb_q.limit(10000).execute().data or []
             autoconsumos_db = [
                 r for r in salidas_db
-                if r.get("es_autoconsumo")
-                or str(r.get("file_path") or "").startswith("manual:")
-                or str(r.get("uuid") or "").upper().startswith("AUTO-")
+                if (
+                    r.get("es_autoconsumo")
+                    or str(r.get("file_path") or "").startswith("manual:")
+                    or str(r.get("uuid") or "").upper().startswith("AUTO-")
+                )
+                and (
+                    fid is None
+                    or r.get("facility_id") is None
+                    or str(r.get("facility_id")) == str(fid)
+                )
             ]
 
             if autoconsumos_db:
@@ -379,12 +384,13 @@ async def _upload_cfdi_impl(
                     # "importe", "fecha_hora". Antes se usaban "_uuid", "_rfc_receptor", etc.
                     # con prefijo "_" que el transformer nunca encontraba → autoconsumos se
                     # convertían en registros SIN-SALIDA con datos vacíos.
+                    volumen_auto = abs(float(ac.get("volumen_litros", 0) or 0))
                     movimientos.append({
                         "tipo_movimiento":  "salida",
                         "fecha":            ac.get("fecha", ""),
                         "fecha_hora":       ac.get("fecha", "") + "T12:00:00-06:00",
-                        "volumen_litros":   float(ac.get("volumen_litros", 0)),
-                        "volumen":          float(ac.get("volumen_litros", 0)),
+                        "volumen_litros":   volumen_auto,
+                        "volumen":          volumen_auto,
                         "unidad":           "litros",
                         "uuid":             ac.get("uuid", ""),          # ← sin "_" prefijo
                         "rfc_contraparte":  ac.get("rfc_contraparte", ""),   # ← sin "_"
@@ -393,11 +399,12 @@ async def _upload_cfdi_impl(
                         "nombre_cp":        ac.get("nombre_contraparte", ""),
                         "importe":          float(ac.get("importe", 0)),  # ← sin "_"
                         "file_path":        ac.get("file_path") or "manual:autoconsumo",
+                        "es_autoconsumo":   True,
                         "usuario":          display_name or user_id,
                     })
                     todos_logs.append(
                         f"  ✓ Autoconsumo: {ac['uuid'][:16]}… "
-                        f"{float(ac['volumen_litros']):,.2f} L fecha={ac['fecha']}"
+                        f"{volumen_auto:,.2f} L fecha={ac['fecha']}"
                     )
     except Exception as e:
         todos_logs.append(f"Info: autoconsumos no inyectados — {e}")
