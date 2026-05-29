@@ -776,6 +776,7 @@ tr:hover td{background:#f8fafc}
   <span class="badge badge-blue" id="moduleBadge">Gas LP</span>
   <span class="badge badge-green">v3.0</span>
   <!-- Selector multi-empresa (visible solo cuando hay sesión) -->
+  <select id="empresaHeaderSelect" class="company-select" aria-label="Cambiar razón social" style="display:none" onchange="seleccionarEmpresaDesdeHeader(this.value)"></select>
   <div id="empresaSwitcher" class="empresa-switcher" role="button" tabindex="0" aria-label="Cambiar razón social" style="display:none" onclick="mostrarSelectorEmpresas()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();mostrarSelectorEmpresas();}" title="Cambiar razón social">
     <i class="fa-solid fa-building empresa-switcher-icon"></i>
     <span class="empresa-switcher-name" id="empresaSwitcherName">—</span>
@@ -877,9 +878,21 @@ tr:hover td{background:#f8fafc}
     <div class="field">
       <label><span data-en="Initial Inventory (liters — tank reading)">Inventario Inicial (litros — lectura de tanque)</span></label>
       <input id="inv_inicial" type="number" step="0.01" min="0" placeholder="Ej. 3269817.25">
+      <div style="display:flex;gap:.45rem;align-items:center;flex-wrap:wrap;margin-top:.45rem">
+        <select id="invIniStatus" style="width:auto;min-width:130px;padding:.38rem .55rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.72rem;background:#fff">
+          <option value="provisional">Provisional</option>
+          <option value="confirmado">Confirmado</option>
+        </select>
+        <button type="button" class="btn" id="btnUsePrevInv" onclick="usePreviousInventory()" style="padding:.42rem .62rem;font-size:.72rem">
+          <i class="fa-solid fa-arrow-rotate-left" style="margin-right:.25rem"></i>Tomar mes anterior
+        </button>
+        <button type="button" class="btn" id="btnSaveInvIni" onclick="savePeriodInventory()" style="padding:.42rem .62rem;font-size:.72rem">
+          <i class="fa-solid fa-floppy-disk" style="margin-right:.25rem"></i>Guardar
+        </button>
+      </div>
       <div id="invIniAutoNote" style="display:none;font-size:.7rem;color:#1d4ed8;margin-top:.3rem;background:#eff6ff;border-radius:6px;padding:.25rem .5rem;border-left:3px solid #3b82f6"></div>
       <div id="invIniManualNote" style="font-size:.62rem;color:#64748b;margin-top:.2rem">
-        Lectura del tanque al inicio del mes.
+        Se guarda por mes e instalación. Puede quedar provisional y confirmarse cuando llegue el cierre del contador.
       </div>
     </div>
     <div class="field">
@@ -1930,15 +1943,17 @@ tr:hover td{background:#f8fafc}
         <option value="PER07">PER07 - Expendio</option><option value="PER08">PER08</option><option value="PER09">PER09</option>
         <option value="PER10">PER10</option><option value="PER11">PER11</option>
       </select>
-      <div style="font-size:.63rem;color:#6b7280;margin-top:.25rem">Requerido para Complemento Concepto HidroYPetro.</div>
+      <div style="font-size:.63rem;color:#6b7280;margin-top:.25rem">Clasificación del complemento. El número exacto se toma de la instalación origen al facturar.</div>
     </div>
     <div class="field">
-      <label>Número permiso HidroYPetro</label>
+      <label>Número permiso HidroYPetro global</label>
       <input id="numero_permiso_hyp" placeholder="Permiso CNE/CRE vigente">
+      <div style="font-size:.63rem;color:#6b7280;margin-top:.25rem">Respaldo global. Para Gas LP por litros manda el Permiso CRE de la instalación seleccionada.</div>
     </div>
     <div class="field">
       <label>Subproducto HidroYPetro</label>
       <input id="subproducto_hyp" placeholder="SP46" value="SP46" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+      <div style="font-size:.63rem;color:#6b7280;margin-top:.25rem">SP46 corresponde a Gas LP en la matriz interna PR12; no cambia por estación.</div>
     </div>
     <div class="field">
       <label>Logo para PDF fiscal</label>
@@ -1972,7 +1987,7 @@ tr:hover td{background:#f8fafc}
     </button>
   </div>
   <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem;line-height:1.5">
-    Cada instalación tiene su propio Permiso CRE y Clave de Instalación. Al procesar CFDIs, selecciona la instalación activa en la pestaña <strong>Procesar</strong>.
+    Cada instalación tiene su propio Permiso CRE, clave y domicilio operativo. Para facturación y PDF fiscal, GE Control usa la instalación origen seleccionada y muestra si existen más domicilios/establecimientos.
   </div>
   <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:.8rem">
     <table id="tblFacilities" style="margin-bottom:0">
@@ -3106,7 +3121,10 @@ actualizarRfcHint();
 
 async function cargarPerfiles(intentos = 1, force = false) {
   const now = Date.now();
-  if (!force && perfilesCache && (now - perfilesCacheAt) < 15000) return perfilesCache;
+  if (!force && perfilesCache && (now - perfilesCacheAt) < 15000) {
+    actualizarSelectorHeaderEmpresas(perfilesCache);
+    return perfilesCache;
+  }
   if (!force && perfilesRequestPromise) return perfilesRequestPromise;
   perfilesRequestPromise = (async () => {
   for (let i = 0; i < intentos; i++) {
@@ -3119,6 +3137,7 @@ async function cargarPerfiles(intentos = 1, force = false) {
         const perfiles = data.perfiles || [];
         perfilesCache = perfiles;
         perfilesCacheAt = Date.now();
+        actualizarSelectorHeaderEmpresas(perfiles);
         if (perfiles.length > 0) return perfiles;
         // Si vino vacío pero no es el último intento, esperar y reintentar
         if (i < intentos - 1) await new Promise(r => setTimeout(r, 350));
@@ -3233,6 +3252,7 @@ async function iniciarFlujoEmpresa() {
 function mostrarOverlayEmpresas(perfiles) {
   const list = document.getElementById('empresaList');
   if (!list) return;
+  actualizarSelectorHeaderEmpresas(perfiles);
   renderSubscriptionUsage();
   if (!perfiles.length) {
     list.innerHTML = '<div style="border:1px dashed #cbd5e1;border-radius:10px;padding:1rem;color:#64748b;background:#f8fafc;text-align:center">Aún no tienes empresas registradas.</div>';
@@ -3266,6 +3286,26 @@ function seleccionarEmpresaById(id) {
   const cache = window._perfilesCache || [];
   const perfil = cache.find(p => Number(p.id) === Number(id));
   if (perfil) seleccionarEmpresa(perfil, true);
+}
+
+function actualizarSelectorHeaderEmpresas(perfiles = window._perfilesCache || perfilesCache || []) {
+  const select = document.getElementById('empresaHeaderSelect');
+  if (!select) return;
+  const rows = Array.isArray(perfiles) ? perfiles : [];
+  window._perfilesCache = rows;
+  select.innerHTML = rows.map(p => `<option value="${Number(p.id)}">${esc(p.nombre || 'Empresa')}${p.rfc ? ' · ' + esc(p.rfc) : ''}</option>`).join('');
+  select.style.display = rows.length ? '' : 'none';
+  if (_perfilSeleccionado?.id) select.value = String(_perfilSeleccionado.id);
+}
+
+function seleccionarEmpresaDesdeHeader(id) {
+  const cache = window._perfilesCache || perfilesCache || [];
+  const perfil = cache.find(p => Number(p.id) === Number(id));
+  if (!perfil) {
+    mostrarSelectorEmpresas();
+    return;
+  }
+  seleccionarEmpresa(perfil, false);
 }
 
 function editarPerfilActivoById(id) {
@@ -3324,8 +3364,13 @@ function seleccionarEmpresa(perfil, cerrarOverlay) {
 function actualizarSwitcherEmpresa(perfil) {
   const switcher = document.getElementById('empresaSwitcher');
   const nameEl   = document.getElementById('empresaSwitcherName');
-  if (switcher) switcher.style.display = 'flex';
+  const select = document.getElementById('empresaHeaderSelect');
+  if (switcher) switcher.style.display = 'none';
   if (nameEl)   nameEl.textContent = perfil.nombre || '—';
+  if (select) {
+    select.style.display = '';
+    select.value = String(perfil.id || '');
+  }
   const rfcEl = document.getElementById('rfc');
   const perfilRfc = normalizarRfc(perfil.rfc);
   if (rfcEl && perfilRfc && !rfcEl.value.trim()) rfcEl.value = perfilRfc;
@@ -3962,7 +4007,7 @@ function populateFacilitySelectors(facilities) {
     _activeFacilityId = first.id;
     document.getElementById('activeFacilitySelect').value = first.id;
     updateFacilityBadge(first);
-    autofillInvInicial();
+  loadPeriodInventory();
   }
 
   // Apply uploader lock based on whether a facility is now active
@@ -3993,7 +4038,7 @@ document.getElementById('activeFacilitySelect').addEventListener('change', funct
   setUploaderLock(!id);
   const selWarn = document.getElementById('noFacilitySelectWarn');
   if (selWarn) selWarn.style.display = (!id && _facilities.length > 0) ? '' : 'none';
-  autofillInvInicial();        // try to fill from previous month when facility changes
+  loadPeriodInventory();        // load saved monthly inventory or suggest previous month
 });
 
 // ── Auto-fill Inventario Inicial desde el mes anterior ────────────────────
@@ -4010,33 +4055,123 @@ function _monthName(m) {
           'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m - 1] || '';
 }
 
-async function autofillInvInicial() {
+function _processPeriod() {
   const anio = document.getElementById('procAnio').value;
   const mes  = document.getElementById('procMes').value;
+  if (!anio || !mes) return null;
+  return `${anio}-${String(mes).padStart(2, '0')}`;
+}
+
+function _inventoryFacilityQuery() {
+  return _activeFacilityId ? `?facility_id=${_activeFacilityId}` : '';
+}
+
+function _setInventoryNote(text, tone = 'info') {
   const note = document.getElementById('invIniAutoNote');
   const manual = document.getElementById('invIniManualNote');
-
-  // Clear any previous auto note if no facility or period selected
-  if (!_activeFacilityId || !anio || !mes) {
+  if (!note || !manual) return;
+  if (!text) {
     note.style.display = 'none';
     manual.style.display = '';
     return;
   }
+  note.style.color = tone === 'warn' ? '#991b1b' : tone === 'ok' ? '#166534' : '#1d4ed8';
+  note.textContent = text;
+  note.style.display = '';
+  manual.style.display = 'none';
+}
+
+async function loadPeriodInventory() {
+  const periodo = _processPeriod();
+  if (!periodo) { _setInventoryNote(''); return; }
+  try {
+    const res = await fetch(`/api/history/${periodo}/inventory${_inventoryFacilityQuery()}`, { headers: authHeader() });
+    if (!res.ok) { await autofillInvInicial(); return; }
+    const data = await res.json();
+    const saved = data.saved;
+    if (saved && saved.inventario_inicial != null) {
+      document.getElementById('inv_inicial').value = Number(saved.inventario_inicial).toFixed(2);
+      const statusEl = document.getElementById('invIniStatus');
+      if (statusEl) statusEl.value = saved.status || 'provisional';
+      _invIniAutoSet = false;
+      const facLabel = _activeFacilityId
+        ? (_facilities.find(f => f.id === _activeFacilityId)?.nombre || `instalación #${_activeFacilityId}`)
+        : 'todas las instalaciones';
+      _setInventoryNote(
+        `Inventario inicial ${saved.status || 'provisional'} guardado para ${periodo} — ${facLabel}.`,
+        saved.status === 'confirmado' ? 'ok' : 'info'
+      );
+      return;
+    }
+    await autofillInvInicial(data.previous_report);
+  } catch(e) {
+    await autofillInvInicial();
+  }
+}
+
+async function savePeriodInventory(source = 'manual', silent = false) {
+  const periodo = _processPeriod();
+  const raw = document.getElementById('inv_inicial').value;
+  if (!periodo || raw === '') {
+    if (!silent) alert('Captura inventario inicial y periodo.');
+    return;
+  }
+  const status = document.getElementById('invIniStatus')?.value || 'provisional';
+  const btn = document.getElementById('btnSaveInvIni');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(`/api/history/${periodo}/inventory`, {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        inventario_inicial: Number(raw),
+        status,
+        source,
+        facility_id: _activeFacilityId || null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.detail || 'No se pudo guardar inventario.');
+    if (!silent) {
+      _setInventoryNote(
+        `Inventario inicial ${status} guardado para ${periodo}. Se usará al generar el JSON mensual.`,
+        status === 'confirmado' ? 'ok' : 'info'
+      );
+    }
+  } catch(e) {
+    if (!silent) alert(e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function usePreviousInventory() {
+  const filled = await autofillInvInicial();
+  if (filled) await savePeriodInventory('mes_anterior');
+}
+
+async function autofillInvInicial(previousReport = null) {
+  const anio = document.getElementById('procAnio').value;
+  const mes  = document.getElementById('procMes').value;
 
   const prev = _prevPeriod(anio, mes);
-  if (!prev) { note.style.display = 'none'; manual.style.display = ''; return; }
+  if (!prev) { _setInventoryNote(''); return false; }
   const prevStr = `${prev.y}-${String(prev.m).padStart(2,'0')}`;
 
   try {
-    const url = `/api/history/${prevStr}?facility_id=${_activeFacilityId}`;
-    const res  = await fetch(url, { headers: authHeader() });
-    if (!res.ok) { note.style.display = 'none'; manual.style.display = ''; return; }
-    const data = await res.json();
-    const rep  = data.report;
+    let rep = previousReport;
+    if (!rep) {
+      let url = `/api/history/${prevStr}`;
+      if (_activeFacilityId) url += `?facility_id=${_activeFacilityId}`;
+      const res  = await fetch(url, { headers: authHeader() });
+      if (!res.ok) { _setInventoryNote(''); return false; }
+      const data = await res.json();
+      rep = data.report;
+    }
 
     if (rep && rep.vol_existencias != null && rep.vol_existencias > 0) {
       const fac      = _facilities.find(f => f.id === _activeFacilityId);
-      const facLabel = fac ? (fac.clave_instalacion || fac.nombre) : `instalación #${_activeFacilityId}`;
+      const facLabel = fac ? (fac.clave_instalacion || fac.nombre) : 'todas las instalaciones';
       const cap      = fac && fac.capacidad_tanque > 0 ? fac.capacidad_tanque : null;
 
       let fillValue = rep.vol_existencias;
@@ -4050,30 +4185,30 @@ async function autofillInvInicial() {
       _invIniAutoSet = true;
 
       if (capped) {
-        note.style.color = '#991b1b';
-        note.textContent =
+        _setInventoryNote(
           `Advertencia: inventario final de ${_monthName(prev.m)} ${prev.y} fue ${rep.vol_existencias.toLocaleString('es-MX')} L, ` +
           `pero supera la capacidad del tanque (${cap.toLocaleString('es-MX')} L). ` +
-          `Inventario Inicial ajustado al límite de capacidad.`;
+          `Inventario Inicial ajustado al límite de capacidad.`,
+          'warn'
+        );
       } else {
-        note.style.color = '';
-        note.textContent =
-          `Dato recuperado automáticamente del inventario final de ${_monthName(prev.m)} ${prev.y} — ${facLabel}.`;
+        _setInventoryNote(
+          `Dato recuperado del inventario final de ${_monthName(prev.m)} ${prev.y} — ${facLabel}. Guárdalo como provisional o confirmado para este mes.`
+        );
       }
-      note.style.display = '';
-      manual.style.display = 'none';
+      return true;
     } else {
       // No previous report found — clear the field only if it was auto-set, leave manual value
       if (_invIniAutoSet) {
         document.getElementById('inv_inicial').value = '';
         _invIniAutoSet = false;
       }
-      note.style.display = 'none';
-      manual.style.display = '';
+      _setInventoryNote('');
+      return false;
     }
   } catch(e) {
-    note.style.display = 'none';
-    manual.style.display = '';
+    _setInventoryNote('');
+    return false;
   }
 }
 
@@ -4089,7 +4224,7 @@ document.getElementById('inv_inicial').addEventListener('input', function() {
 
 // Re-run auto-fill when period changes in Procesar tab
 ['procAnio','procMes'].forEach(id => {
-  document.getElementById(id).addEventListener('change', autofillInvInicial);
+  document.getElementById(id).addEventListener('change', loadPeriodInventory);
 });
 
 // ── Facility Form (add / edit) ────────────────────────────────────────────
@@ -5136,6 +5271,9 @@ async function processCFDI(files) {
     const meta    = data.sat_meta || {};
     const alerts  = data.alertas  || [];
     const logs    = data.logs     || [];
+    if (document.getElementById('inv_inicial').value !== '') {
+      await savePeriodInventory('procesamiento', true);
+    }
 
     // Ocultar placeholder y mostrar result card con transición suave
     document.getElementById('resultsPlaceholder').style.display = 'none';
@@ -5629,9 +5767,18 @@ async function loadHistorial() {
     // Inv. inicial: del reporte si > 0; si no, calcularlo implícito desde el balance
     let invIni = (rep && rep.inventario_inicial > 0) ? rep.inventario_inicial : null;
     let invFin = (rep && rep.vol_existencias   > 0) ? rep.vol_existencias    : null;
+    const autoVolForMath = Math.abs(Number(totals.total_autoconsumo || 0));
+    const reportEnt = Number(rep?.total_entregas || 0);
+    const recordEnt = Number(totals.total_salidas || 0);
+    const displayEnt = (hasReport && autoVolForMath > 0 && recordEnt > reportEnt + 0.01)
+      ? recordEnt
+      : (hasReport ? reportEnt : recordEnt);
     if (invIni == null && hasReport && invFin != null) {
-      const calc = invFin + (rep.total_entregas || 0) - (rep.total_recepciones || 0);
+      const calc = invFin + displayEnt - (rep.total_recepciones || 0);
       if (calc > 0) invIni = calc;
+    }
+    if (hasReport && autoVolForMath > 0 && recordEnt > reportEnt + 0.01 && invIni != null) {
+      invFin = invIni + (rep.total_recepciones || 0) - displayEnt;
     }
     document.getElementById('histReportInfo').style.display = hasReport ? '' : 'none';
     document.getElementById('htFormula').style.display      = hasReport ? '' : 'none';
@@ -5640,12 +5787,12 @@ async function loadHistorial() {
       ? fmt(rep.total_recepciones) + ' L' : fmt(totals.total_entradas) + ' L';
     document.getElementById('htRecCount').textContent = totals.cnt_entradas || 0;
     document.getElementById('htEnt').textContent = hasReport
-      ? fmt(rep.total_entregas)    + ' L' : fmt(totals.total_salidas)  + ' L';
-    document.getElementById('htEntCount').textContent = totals.cnt_salidas || 0;
+      ? fmt(displayEnt) + ' L' : fmt(recordEnt)  + ' L';
+    document.getElementById('htEntCount').textContent = Math.max(Number(totals.cnt_salidas || 0), Number(rep?.total_entregas_count || 0)) || 0;
     document.getElementById('htExist').textContent = invFin != null ? fmt(invFin) + ' L' : '—';
 
     // Autoconsumo
-    const autoVol   = totals.total_autoconsumo   || 0;
+    const autoVol   = autoVolForMath;
     const autoCnt   = totals.cnt_autoconsumo     || 0;
     const elAutoVol = document.getElementById('htAutoVol');
     const elAutoCnt = document.getElementById('htAutoCount');

@@ -1642,16 +1642,28 @@ function actualizarHeaderPerfilTransporte() {
   if (!topRight) return;
   let emp = document.getElementById('topbar-empresa');
   if (!emp) {
-    emp = document.createElement('button');
-    emp.type = 'button';
-    emp.className = 'badge';
+    emp = document.createElement('select');
+    emp.className = 'company-select';
     emp.id = 'topbar-empresa';
-    emp.style.border = '0';
-    emp.style.cursor = 'pointer';
-    emp.onclick = () => mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE);
+    emp.setAttribute('aria-label', 'Cambiar empresa activa');
+    emp.onchange = () => seleccionarPerfilTransporte(emp.value);
     topRight.prepend(emp);
   }
-  emp.textContent = PERFIL?.nombre || 'Seleccionar empresa';
+  if (emp.tagName !== 'SELECT') {
+    const select = document.createElement('select');
+    select.className = 'company-select';
+    select.id = 'topbar-empresa';
+    select.setAttribute('aria-label', 'Cambiar empresa activa');
+    select.onchange = () => seleccionarPerfilTransporte(select.value);
+    emp.replaceWith(select);
+    emp = select;
+  }
+  const perfiles = Array.isArray(PERFILES_TRANSPORTE) ? PERFILES_TRANSPORTE : [];
+  emp.innerHTML = perfiles.length
+    ? perfiles.map(p => `<option value="${Number(p.id)}">${esc(p.nombre || 'Empresa')}${p.rfc ? ' · ' + esc(p.rfc) : ''}</option>`).join('')
+    : `<option value="">Seleccionar empresa</option>`;
+  emp.style.display = perfiles.length || PERFIL?.id ? '' : 'none';
+  if (PERFIL?.id) emp.value = String(PERFIL.id);
   emp.title = 'Cambiar empresa activa';
 }
 
@@ -1713,7 +1725,10 @@ async function cargarPerfilesTransporte() {
   const data = await r.json();
   SUBSCRIPTION_TRANSPORTE = data.subscription || SUBSCRIPTION_TRANSPORTE;
   renderPlanTransporte();
-  return Array.isArray(data.perfiles) ? data.perfiles : [];
+  const perfiles = Array.isArray(data.perfiles) ? data.perfiles : [];
+  PERFILES_TRANSPORTE = perfiles;
+  actualizarHeaderPerfilTransporte();
+  return perfiles;
 }
 
 function planLimitTransporte() {
@@ -1753,6 +1768,7 @@ function guardarPerfilTransporte(perfil) {
 function mostrarSelectorEmpresaTransporte(perfiles = PERFILES_TRANSPORTE, mensaje = '') {
   ensureEmpresaOverlayTransporte();
   PERFIL_PROMPT_VISIBLE = true;
+  actualizarHeaderPerfilTransporte();
   const overlay = document.getElementById('empresaOverlayTransporte');
   const msg = document.getElementById('empresaTransporteMsg');
   const list = document.getElementById('empresaTransporteList');
@@ -1818,7 +1834,10 @@ function ocultarSelectorEmpresaTransporte() {
 
 async function seleccionarPerfilTransporte(id) {
   const perfil = PERFILES_TRANSPORTE.find(p => Number(p.id) === Number(id));
-  if (!perfil) return;
+  if (!perfil) {
+    mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE);
+    return;
+  }
   guardarPerfilTransporte(perfil);
   ocultarSelectorEmpresaTransporte();
   await bootstrapTransporte(true);
