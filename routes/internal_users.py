@@ -31,8 +31,8 @@ SECTIONS = {"transporte", "gas_lp", "gasolineras"}
 MAX_FAILED_ATTEMPTS = 5
 LOCK_MINUTES = 15
 SESSION_HOURS = 12
-GAS_LP_CLAVE_PROD_SERV = "15111510"
-GAS_LP_HYP_SUBPRODUCTO = "SP46"
+GAS_LP_CLAVE_PROD_SERV = "15101515"
+GAS_LP_HYP_SUBPRODUCTO = "SP23"
 GAS_LP_HIDRO_CLAVES = {GAS_LP_CLAVE_PROD_SERV}
 HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 12)}
 GAS_LP_HYP_TIPO_PERMISO_LEGACY_MAP = {
@@ -554,7 +554,7 @@ def _gas_lp_hyp_from_facility(facility: dict, clave_prod_serv: str) -> dict:
     if not tipo_permiso or not numero_permiso:
         raise HTTPException(
             400,
-            "La clave SAT 15111510 requiere ComplementoConcepto/HidroYPetro. "
+            "La clave HYP Gas LP requiere ComplementoConcepto/HidroYPetro. "
             "Configura tipo de permiso y número de permiso en la instalación origen.",
         )
     if tipo_permiso not in HYP_TIPO_PERMISOS_VALIDOS:
