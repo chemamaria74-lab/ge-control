@@ -356,6 +356,52 @@ def _gas_lp_internal_series(user: dict, settings: dict) -> str:
     return serie or "AA"
 
 
+def _folio_number(value: object) -> int:
+    text = str(value or "").strip()
+    return int(text) if text.isdigit() else 0
+
+
+def _gas_lp_next_invoice_folio(sb, user: dict, serie: str) -> str:
+    params = {
+        "p_user_id": user.get("owner_user_id"),
+        "p_tenant_id": user.get("tenant_id"),
+        "p_perfil_id": user.get("perfil_id"),
+        "p_serie": serie,
+    }
+    try:
+        value = sb.rpc("next_gas_lp_invoice_folio", params).execute().data
+        if isinstance(value, list):
+            value = value[0] if value else 0
+        number = int(value or 0)
+        if number > 0:
+            return f"{number:06d}"
+    except Exception as exc:
+        logger.warning("gas_lp_folio_counter_rpc_unavailable: serie=%s err=%s", serie, exc)
+
+    try:
+        rows = (
+            sb.table("gas_lp_facturas")
+            .select("record_uuid,metadata")
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .order("created_at", desc=True)
+            .limit(500)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_next_folio", exc)
+    current = 0
+    for row in rows:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        if str(md.get("serie") or "").strip().upper() != serie:
+            continue
+        current = max(current, _folio_number(md.get("folio_usuario")), _folio_number(row.get("record_uuid")))
+    return f"{current + 1:06d}"
+
+
 def _clean_rfc(value: str) -> str:
     return "".join(ch for ch in str(value or "").upper().strip() if ch.isalnum() or ch == "&")[:13]
 
@@ -1513,6 +1559,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         receptor["cp"],
         receptor["uso_cfdi"],
     )
+    serie_factura = _gas_lp_internal_series(user, settings)
+    folio_factura = _gas_lp_next_invoice_folio(sb, user, serie_factura)
 
     xml, totals = _build_gas_lp_consumo_xml(
         issuer=issuer,
