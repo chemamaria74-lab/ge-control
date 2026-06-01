@@ -334,6 +334,44 @@ def get_records(user_id: str, periodo: str,
         return {"entradas": [], "salidas": []}
 
 
+def _archive_table_matches(value: str, table: str) -> bool:
+    return str(value or "").split(".")[-1] == table
+
+
+def get_archived_records(user_id: str, periodo: str,
+                         facility_id: Optional[int] = None,
+                         perfil_id: Optional[int] = None) -> dict:
+    try:
+        rows = (
+            get_supabase_admin()
+            .table("security_profile_null_archive")
+            .select("table_name,payload")
+            .eq("user_id", user_id)
+            .execute()
+            .data
+            or []
+        )
+        records = []
+        for row in rows:
+            if not _archive_table_matches(row.get("table_name"), "records"):
+                continue
+            payload = row.get("payload") or {}
+            if payload.get("periodo") != periodo:
+                continue
+            if facility_id is not None and payload.get("facility_id") != facility_id:
+                continue
+            if perfil_id is not None and payload.get("perfil_id") not in {None, perfil_id}:
+                continue
+            records.append(payload)
+        return {
+            "entradas": [r for r in records if r.get("tipo") == "entrada"],
+            "salidas": [r for r in records if r.get("tipo") == "salida"],
+        }
+    except Exception as e:
+        logger.warning("get_archived_records: %s", e)
+        return {"entradas": [], "salidas": []}
+
+
 def get_period_totals(user_id: str, periodo: str,
                       facility_id: Optional[int] = None,
                       perfil_id: Optional[int] = None) -> dict:
@@ -458,6 +496,44 @@ def get_reports(user_id: str, periodo: Optional[str] = None,
         return []
 
 
+def get_archived_reports(user_id: str, periodo: Optional[str] = None,
+                         facility_id: Optional[int] = None,
+                         perfil_id: Optional[int] = None) -> list:
+    try:
+        rows = (
+            get_supabase_admin()
+            .table("security_profile_null_archive")
+            .select("table_name,payload,archived_at")
+            .eq("user_id", user_id)
+            .execute()
+            .data
+            or []
+        )
+        reports = []
+        for row in rows:
+            if not _archive_table_matches(row.get("table_name"), "reports"):
+                continue
+            payload = row.get("payload") or {}
+            if periodo and payload.get("periodo") != periodo:
+                continue
+            if facility_id is not None and payload.get("facility_id") != facility_id:
+                continue
+            if perfil_id is not None and payload.get("perfil_id") not in {None, perfil_id}:
+                continue
+            payload = dict(payload)
+            payload["_archived"] = True
+            payload["_archived_at"] = row.get("archived_at")
+            reports.append(payload)
+        return sorted(
+            reports,
+            key=lambda r: r.get("created_at") or r.get("_archived_at") or "",
+            reverse=True,
+        )
+    except Exception as e:
+        logger.warning("get_archived_reports: %s", e)
+        return []
+
+
 def get_last_report(user_id: str, facility_id: Optional[int] = None,
                     perfil_id: Optional[int] = None) -> Optional[dict]:
     try:
@@ -525,7 +601,7 @@ def delete_period(user_id: str, periodo: str,
                   facility_id: Optional[int] = None,
                   include_autoconsumos: bool = False,
                   perfil_id: Optional[int] = None) -> dict:
-    counts = {"records": 0, "reports": 0}
+    counts = {"records": 0, "reports": 0, "archived": 0}
     try:
         sb = get_supabase_admin()
         
@@ -562,6 +638,32 @@ def delete_period(user_id: str, periodo: str,
         counts["records"] = len(res_rec.data or [])
         
         logger.info(f"delete_period: Borrados {counts['records']} registros (Incluyó autoconsumo: {include_autoconsumos})")
+
+        try:
+            archived = (
+                sb.table("security_profile_null_archive")
+                .select("id,table_name,payload")
+                .eq("user_id", user_id)
+                .execute()
+                .data
+                or []
+            )
+            ids = []
+            for row in archived:
+                table = str(row.get("table_name") or "").split(".")[-1]
+                payload = row.get("payload") or {}
+                if table not in {"records", "reports"} or payload.get("periodo") != periodo:
+                    continue
+                if facility_id is not None and payload.get("facility_id") != facility_id:
+                    continue
+                if perfil_id is not None and payload.get("perfil_id") not in {None, perfil_id}:
+                    continue
+                ids.append(row["id"])
+            if ids:
+                res_arch = sb.table("security_profile_null_archive").delete().in_("id", ids).execute()
+                counts["archived"] = len(res_arch.data or [])
+        except Exception as archive_exc:
+            logger.warning("delete_period archive cleanup skipped: %s", archive_exc)
 
     except Exception as e:
         logger.error("delete_period: %s", e)
