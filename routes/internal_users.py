@@ -1168,12 +1168,14 @@ async def gas_lp_internal_factura_xml(factura_id: int, token: str):
 @router.get("/internal-auth/gas-lp/facturas/{factura_id}/pdf")
 async def gas_lp_internal_factura_pdf(factura_id: int, token: str):
     ctx = _gas_lp_internal_context(token)
-    row = _gas_lp_internal_factura(ctx["user"], factura_id)
+    user = ctx["user"]
+    row = _gas_lp_internal_factura(user, factura_id)
     xml_content = row.get("xml_content") or ""
     if not xml_content:
         raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     info = fiscal_pdf_info(xml_content, "factura_gas_lp")
-    pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content)
+    pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

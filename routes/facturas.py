@@ -36,7 +36,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
-from routes.auth import obtener_acceso_modulo, resolve_profile_scope, verify_token
+from routes.auth import obtener_acceso_modulo, verify_token
 from services.fiscal_pdf import (
     audit_fiscal_pdf_event,
     fiscal_pdf_info,
@@ -44,7 +44,6 @@ from services.fiscal_pdf import (
     generar_pdf_ingreso_desde_xml,
     save_fiscal_artifacts,
 )
-from services.carta_porte_pdf import generar_pdf_carta_porte_desde_xml, xml_tiene_carta_porte
 from services.fiscal_audit import version_xml
 from services.cfdi_cancellation import cancel_cfdi_universal
 from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
@@ -127,25 +126,33 @@ def _validar_cliente_cfdi_payload(rfc: str, nombre: str, cp: str, regimen_fiscal
 
 
 def _scope(authorization: str, x_perfil_id: str = "") -> dict:
-    uid, token = _auth_token(authorization)
+    uid = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
+    tenant_id = None
+    profile = None
     if perfil_id:
-        resolved = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
-        return {
-            "request_user_id": uid,
-            "user_id": resolved["data_user_id"],
-            "perfil_id": resolved["perfil_id"],
-            "tenant_id": resolved.get("tenant_id"),
-            "profile": {
-                "id": resolved["perfil_id"],
-                "user_id": resolved["data_user_id"],
-                "tenant_id": resolved.get("tenant_id"),
-                "nombre": resolved.get("nombre"),
-                "rfc": resolved.get("rfc"),
-                "activo": True,
-            },
-        }
-    return {"request_user_id": uid, "user_id": uid, "perfil_id": None, "tenant_id": None, "profile": None}
+        try:
+            rows = (
+                get_supabase_admin()
+                .table("perfiles_empresa")
+                .select("id,tenant_id,user_id,nombre,rfc,activo")
+                .eq("id", perfil_id)
+                .eq("user_id", uid)
+                .eq("activo", True)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if not rows:
+                raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
+            profile = rows[0]
+            tenant_id = rows[0].get("tenant_id")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning("facturas scope perfil lookup falló: user=%s perfil=%s err=%s", uid, perfil_id, exc)
+    return {"user_id": uid, "perfil_id": perfil_id, "tenant_id": tenant_id, "profile": profile}
 
 
 def _require_supabase_scope(scope: dict) -> None:
@@ -192,7 +199,7 @@ def _emisor_from_scope(scope: dict) -> dict:
     settings = load_settings(scope["user_id"], int(scope["perfil_id"]))
     profile = scope.get("profile") or {}
     rfc = _clean_rfc(settings.get("RfcContribuyente") or profile.get("rfc") or "")
-    nombre = str(settings.get("NombreFiscal") or settings.get("DescripcionInstalacion") or profile.get("nombre") or "Empresa").strip()
+    nombre = str(settings.get("DescripcionInstalacion") or profile.get("nombre") or "Empresa").strip()
     cp = _clean_cp(settings.get("CodigoPostal") or settings.get("codigo_postal") or "")
     regimen = str(settings.get("RegimenFiscal") or settings.get("regimen_fiscal") or "601").strip()
     if not rfc or not nombre or not cp:
@@ -201,45 +208,11 @@ def _emisor_from_scope(scope: dict) -> dict:
 
 
 def _settings_from_scope(scope: dict) -> dict:
+    if not scope.get("perfil_id"):
+        return {}
     from routes.settings import _load as load_settings
 
-    if not scope.get("perfil_id"):
-        return {}
     return load_settings(scope["user_id"], int(scope["perfil_id"]))
-
-
-def _gas_lp_pdf_logo(scope: dict) -> str:
-    return str(_settings_from_scope(scope).get("PdfLogoDataUrl") or "")
-
-
-def _gas_lp_pdf_context(scope: dict, row: dict) -> dict:
-    if not scope.get("perfil_id"):
-        return {}
-    try:
-        facilities = (
-            get_supabase_admin()
-            .table("user_facilities")
-            .select("*")
-            .eq("user_id", scope["user_id"])
-            .eq("perfil_id", scope["perfil_id"])
-            .eq("modulo_propietario", "gas_lp")
-            .order("id")
-            .execute()
-            .data
-            or []
-        )
-    except Exception as exc:
-        logger.info("No se pudieron cargar domicilios para PDF Gas LP: %s", exc)
-        facilities = []
-    facility_id = row.get("origen_facility_id") or row.get("facility_id")
-    facility = next((f for f in facilities if str(f.get("id")) == str(facility_id)), None) if facility_id else None
-    settings = _settings_from_scope(scope)
-    return {
-        "facility": facility or {},
-        "facilities": facilities,
-        "regimen_emisor": settings.get("RegimenFiscal") or "",
-        "cp_fiscal_emisor": settings.get("CodigoPostal") or settings.get("codigo_postal") or "",
-    }
 
 
 def _require_scope_facility(scope: dict, facility_id: Optional[int], label: str) -> dict:
@@ -339,41 +312,6 @@ def _sb_update(table: str, row_id: int, scope: dict, values: dict) -> bool:
 
 def _rowdict(row) -> dict:
     return dict(row) if row is not None else {}
-
-
-def _persist_gas_lp_fiscal_artifacts(
-    *,
-    sb,
-    table: str,
-    scope: dict,
-    row: dict,
-    xml_content: str,
-    entity_type: str,
-    base_folder: str,
-    pdf_generator,
-) -> dict:
-    row_id = row.get("id")
-    if not row_id or not xml_content:
-        return {}
-    try:
-        prefix = "factura_gas_lp" if entity_type == "factura_gas_lp" else "factura_servicio"
-        info = fiscal_pdf_info(xml_content, prefix)
-        storage = save_fiscal_artifacts(
-            sb,
-            bucket="fiscal-documents",
-            base_path=f"{scope['user_id']}/gas_lp/{base_folder}/{row_id}",
-            xml_content=xml_content,
-            pdf_bytes=pdf_generator(xml_content),
-            pdf_filename=info.filename,
-            metadata={"module": "gas_lp", "entity_type": entity_type, "uuid_sat": row.get("uuid_sat") or ""},
-        )
-        metadata = {**(row.get("metadata") or {}), "fiscal_storage": storage}
-        _sb_update(table, int(row_id), scope, {"metadata": metadata})
-        row["metadata"] = metadata
-        return storage
-    except Exception as exc:
-        logger.info("Gas LP fiscal artifacts skipped entity=%s id=%s: %s", entity_type, row_id, exc)
-        return {}
 
 
 def _json_scalar(value):
@@ -553,20 +491,12 @@ async def generar_carta_porte(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    if str(payload.tipo_comprobante or "T").upper() != "T":
-        raise HTTPException(400, "En Gas LP la Carta Porte interna solo se timbra como CFDI de traslado (Tipo T). Las facturas de ingreso por servicio de transporte se manejan en el módulo Transporte.")
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
     emisor = _emisor_from_scope(scope)
     origen = _require_scope_facility(scope, payload.origen_facility_id or payload.facility_id, "instalación origen")
     destino = _require_scope_facility(scope, payload.destino_facility_id, "estación destino")
-    origen_cp = _clean_cp(origen.get("codigo_postal") or origen.get("cp") or "")
-    destino_cp = _clean_cp(destino.get("codigo_postal") or destino.get("cp") or "")
-    if not str(origen.get("domicilio_operativo") or origen.get("domicilio") or origen.get("direccion") or "").strip() or not origen_cp:
-        raise HTTPException(400, "Captura domicilio y CP de la instalación origen antes de timbrar.")
-    if not str(destino.get("domicilio_operativo") or destino.get("domicilio") or destino.get("direccion") or "").strip() or not destino_cp:
-        raise HTTPException(400, "Captura domicilio y CP de la estación destino antes de timbrar.")
     if int(origen.get("id")) == int(destino.get("id")):
         raise HTTPException(400, "Origen y destino deben ser instalaciones distintas para Carta Porte interna.")
     if not _is_destination_station(destino):
@@ -598,12 +528,12 @@ async def generar_carta_porte(
         "fecha_hora":     payload.fecha_hora,
     }
     distancia_km = float((ruta_row or {}).get("distancia_km") or payload.distancia_km or 1)
-    ruta = {"distancia_km": distancia_km, "cp_origen": origen_cp, "cp_destino": destino_cp, "origen_nombre": origen.get("nombre") or "Origen", "destino_nombre": destino.get("nombre") or "Destino"}
+    ruta = {"distancia_km": distancia_km} if payload.tipo_comprobante == "I" else None
 
     try:
         xml = build_carta_porte_xml(
             entrega, emisor, receptor, vehiculo,
-            tipo_comprobante="T",
+            tipo_comprobante=payload.tipo_comprobante,
             cfdi_relacionados=payload.cfdi_relacionados,
             ruta=ruta,
         )
@@ -632,7 +562,7 @@ async def generar_carta_porte(
         "rfc_receptor": receptor["rfc"],
         "volumen_litros": payload.volumen_litros,
         "importe": payload.importe,
-        "tipo_comprobante": "T",
+        "tipo_comprobante": payload.tipo_comprobante,
         "distancia_km": distancia_km,
         "metadata": {
             "origen_facility_id": payload.origen_facility_id or payload.facility_id,
@@ -660,26 +590,12 @@ async def generar_carta_porte(
             tenant_id=scope.get("tenant_id"),
             source="sw_sapien",
         )
-        storage = _persist_gas_lp_fiscal_artifacts(
-            sb=get_supabase_admin(),
-            table=_SB_FACTURAS,
-            scope=scope,
-            row=supabase_row,
-            xml_content=resultado["xml_timbrado"],
-            entity_type="factura_gas_lp",
-            base_folder="facturas",
-            pdf_generator=lambda xml_content: generar_pdf_carta_porte_desde_xml(
-                xml_content,
-                logo_data_url=_gas_lp_pdf_logo(scope),
-            ),
-        )
         logger.info("Carta Porte timbrada: user=%s uuid_sat=%s source=supabase", uid, resultado["uuid"])
         return JSONResponse({
             "ok": True, "uuid_sat": resultado["uuid"],
             "pdf_url": resultado["pdf_url"], "status": "Vigente",
             "fecha_timbrado": now,
             "id": supabase_row.get("id"),
-            "fiscal_storage": storage,
             "source": "supabase",
         })
 
@@ -816,7 +732,7 @@ async def descargar_xml(
         return Response(
             content=row_sb.get("xml_content") or "",
             media_type="application/xml",
-            headers={"Content-Disposition": f'attachment; filename="{row_sb.get("uuid_sat") or factura_id}.xml"'},
+            headers={"Content-Disposition": f'attachment; filename="factura_{row_sb.get("uuid_sat") or factura_id}.xml"'},
         )
     if not _legacy_sqlite_enabled():
         raise _legacy_not_found("Factura")
@@ -838,7 +754,7 @@ async def descargar_xml(
     return Response(
         content=row["xml_content"],
         media_type="application/xml",
-        headers={"Content-Disposition": f'attachment; filename="{row["uuid_sat"]}.xml"'},
+        headers={"Content-Disposition": f'attachment; filename="factura_{row["uuid_sat"]}.xml"'},
     )
 
 
@@ -863,15 +779,8 @@ async def ver_pdf_factura_gas_lp(
     if not xml_content:
         raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")
     info = fiscal_pdf_info(xml_content, "factura_gas_lp")
-    pdf_bytes = (
-        generar_pdf_carta_porte_desde_xml(xml_content, logo_data_url=_gas_lp_pdf_logo(scope))
-        if xml_tiene_carta_porte(xml_content)
-        else generar_pdf_gas_lp_desde_xml(
-            xml_content,
-            logo_data_url=_gas_lp_pdf_logo(scope),
-            extra_context=_gas_lp_pdf_context(scope, row),
-        )
-    )
+    settings = _settings_from_scope(scope)
+    pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
     storage = save_fiscal_artifacts(
         sb,
         bucket="fiscal-documents",
@@ -954,7 +863,8 @@ async def ver_pdf_factura_servicio_legacy(
     if not xml_content:
         raise HTTPException(404, "Factura de servicio sin XML timbrado para generar PDF.")
     info = fiscal_pdf_info(xml_content, "factura_servicio")
-    pdf_bytes = generar_pdf_ingreso_desde_xml(xml_content, logo_data_url=_gas_lp_pdf_logo(scope))
+    settings = _settings_from_scope(scope)
+    pdf_bytes = generar_pdf_ingreso_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
     storage = save_fiscal_artifacts(
         sb,
         bucket="fiscal-documents",
@@ -1066,7 +976,6 @@ async def generar_factura_flete(
     payload: FacturaFleteRequest, authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
-    raise HTTPException(400, "Gas LP no timbra Carta Porte tipo ingreso ni factura de flete. Usa el módulo Transporte para servicios de transporte facturables.")
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
@@ -1135,21 +1044,10 @@ async def generar_factura_flete(
             tenant_id=scope.get("tenant_id"),
             source="sw_sapien",
         )
-        storage = _persist_gas_lp_fiscal_artifacts(
-            sb=get_supabase_admin(),
-            table=_SB_FACTURAS_SERVICIO,
-            scope=scope,
-            row=supabase_row,
-            xml_content=resultado["xml_timbrado"],
-            entity_type="factura_servicio",
-            base_folder="facturas_servicio",
-            pdf_generator=lambda xml_content: generar_pdf_ingreso_desde_xml(xml_content, logo_data_url=_gas_lp_pdf_logo(scope)),
-        )
         return JSONResponse({
             "ok": True, "uuid_sat": resultado["uuid"], "pdf_url": resultado["pdf_url"],
             "status": "Vigente", "carta_porte_original": cp["uuid_sat"],
             "id": supabase_row.get("id"),
-            "fiscal_storage": storage,
             "source": "supabase",
         })
 
@@ -1187,7 +1085,6 @@ async def listar_choferes(
 @router.post("/facturas/choferes")
 async def crear_chofer(
     nombre: str, rfc: str = "", licencia: str = "", telefono: str = "",
-    tipo_licencia: str = "", licencia_vigencia: str = "", examen_medico_vigencia: str = "",
     modulo: str = "transporte", authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1199,9 +1096,6 @@ async def crear_chofer(
         "nombre": nombre,
         "rfc": rfc,
         "licencia": licencia,
-        "tipo_licencia": tipo_licencia.upper(),
-        "licencia_vigencia": licencia_vigencia or None,
-        "examen_medico_vigencia": examen_medico_vigencia or None,
         "telefono": telefono,
         "activo": True,
     }))
@@ -1213,22 +1107,13 @@ async def crear_chofer(
 @router.put("/facturas/choferes/{chofer_id}")
 async def actualizar_chofer(
     chofer_id: int, nombre: str, rfc: str = "", licencia: str = "", telefono: str = "",
-    tipo_licencia: str = "", licencia_vigencia: str = "", examen_medico_vigencia: str = "",
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
-    if _sb_update(_SB_CHOFERES, chofer_id, scope, {
-        "nombre": nombre,
-        "rfc": rfc,
-        "licencia": licencia,
-        "tipo_licencia": tipo_licencia.upper(),
-        "licencia_vigencia": licencia_vigencia or None,
-        "examen_medico_vigencia": examen_medico_vigencia or None,
-        "telefono": telefono,
-    }):
+    if _sb_update(_SB_CHOFERES, chofer_id, scope, {"nombre": nombre, "rfc": rfc, "licencia": licencia, "telefono": telefono}):
         return JSONResponse({"ok": True, "message": "Chofer actualizado", "source": "supabase"})
     raise HTTPException(404, "Chofer no encontrado en la empresa seleccionada.")
 
@@ -1279,8 +1164,6 @@ async def listar_vehiculos(
 async def crear_vehiculo(
     placa: str, anio: int = 2020, config_vehicular: str = "C2",
     aseguradora: str = "", poliza_seguro: str = "", permiso_cre: str = "",
-    permiso_sct: str = "TPAF01", num_permiso_sct: str = "",
-    aseguradora_medio_ambiente: str = "", poliza_medio_ambiente: str = "",
     modulo: str = "transporte", authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1295,10 +1178,6 @@ async def crear_vehiculo(
         "aseguradora": aseguradora,
         "poliza_seguro": poliza_seguro,
         "permiso_cre": permiso_cre,
-        "permiso_sct": permiso_sct or "TPAF01",
-        "num_permiso_sct": num_permiso_sct,
-        "aseguradora_medio_ambiente": aseguradora_medio_ambiente,
-        "poliza_medio_ambiente": poliza_medio_ambiente,
         "activo": True,
     }))
     if supabase_row:
@@ -1310,26 +1189,13 @@ async def crear_vehiculo(
 async def actualizar_vehiculo(
     vehiculo_id: int, placa: str, anio_modelo: int = 2020, config_vehicular: str = "C2",
     nombre_asegurador: str = "", poliza_seguro: str = "", permiso_cre: str = "",
-    permiso_sct: str = "TPAF01", num_permiso_sct: str = "",
-    aseguradora_medio_ambiente: str = "", poliza_medio_ambiente: str = "",
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
-    if _sb_update(_SB_VEHICULOS, vehiculo_id, scope, {
-        "placas": placa.upper(),
-        "anio": anio_modelo,
-        "config_vehicular": config_vehicular,
-        "aseguradora": nombre_asegurador,
-        "poliza_seguro": poliza_seguro,
-        "permiso_cre": permiso_cre,
-        "permiso_sct": permiso_sct or "TPAF01",
-        "num_permiso_sct": num_permiso_sct,
-        "aseguradora_medio_ambiente": aseguradora_medio_ambiente,
-        "poliza_medio_ambiente": poliza_medio_ambiente,
-    }):
+    if _sb_update(_SB_VEHICULOS, vehiculo_id, scope, {"placas": placa.upper(), "anio": anio_modelo, "config_vehicular": config_vehicular, "aseguradora": nombre_asegurador, "poliza_seguro": poliza_seguro, "permiso_cre": permiso_cre}):
         return JSONResponse({"ok": True, "message": "Vehículo actualizado", "source": "supabase"})
     raise HTTPException(404, "Vehículo no encontrado en la empresa seleccionada.")
 
