@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from routes.auth import obtener_acceso_modulo, verify_token
 from routes.perfiles import _tenant_id_for_user
+from services.database import get_facilities
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml
 from services.sw_sapien import timbrar_cfdi
 from supabase_config import get_supabase_admin, get_supabase_for_user
@@ -91,6 +92,21 @@ class GasLpInternalFacturaPayload(BaseModel):
     concepto: str = "Venta de Gas LP"
     forma_pago: str = "99"
     metodo_pago: str = "PUE"
+    descuento: float = 0
+    iva_rate: float = 0.16
+    serie: str = "AA"
+    folio: str = ""
+    fecha: str = ""
+    clave_prod_serv: str = "15111510"
+    no_identificacion: str = "GLP-LTR"
+    unidad: str = "Litro"
+    facility_id: Optional[int] = None
+    tipo_operacion: str = "venta"
+    destino_facility_id: Optional[int] = None
+    generar_carta_porte: bool = False
+    vehiculo_id: Optional[int] = None
+    chofer_id: Optional[int] = None
+    ruta_id: Optional[int] = None
 
 
 class GasLpComplementoPagoPayload(BaseModel):
@@ -353,43 +369,72 @@ def _public_general_receptor(issuer_cp: str) -> dict:
     }
 
 
-def _build_gas_lp_consumo_xml(*, issuer: dict, receptor: dict, litros, precio_unitario, concepto: str, forma_pago: str, metodo_pago: str) -> tuple[str, dict]:
+def _build_gas_lp_consumo_xml(
+    *,
+    issuer: dict,
+    receptor: dict,
+    litros,
+    precio_unitario,
+    concepto: str,
+    forma_pago: str,
+    metodo_pago: str,
+    descuento=0,
+    iva_rate=0.16,
+    serie: str = "AA",
+    folio: str = "",
+    fecha: str = "",
+    clave_prod_serv: str = "15111510",
+    no_identificacion: str = "GLP-LTR",
+    unidad: str = "Litro",
+) -> tuple[str, dict]:
     qty = Decimal(str(litros or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
     unit = Decimal(str(precio_unitario or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    discount_unit = Decimal(str(descuento or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    tax_rate = Decimal(str(iva_rate if iva_rate not in {None, ""} else 0.16)).quantize(Decimal("0.000000"), rounding=ROUND_HALF_UP)
     if qty <= 0 or unit <= 0:
         raise HTTPException(400, "Litros y precio unitario deben ser mayores a cero.")
+    if discount_unit < 0 or discount_unit > unit:
+        raise HTTPException(400, "El descuento por litro debe estar entre $0 y el precio por litro.")
     subtotal = _money(qty * unit)
-    iva = _money(subtotal * Decimal("0.16"))
-    total = _money(subtotal + iva)
-    folio = datetime.now().strftime("GLP%Y%m%d%H%M%S")
-    fecha = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    discount_total = _money(qty * discount_unit)
+    taxable_base = _money(subtotal - discount_total)
+    iva = _money(taxable_base * tax_rate)
+    total = _money(taxable_base + iva)
+    folio = (str(folio or "").strip() or datetime.now().strftime("GLP%Y%m%d%H%M%S"))[:40]
+    serie = (str(serie or "AA").strip() or "AA")[:10]
+    fecha = (str(fecha or "").strip() or datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))[:19]
     desc = concepto.strip() or "Venta de Gas LP"
+    descuento_comprobante = f' Descuento="{discount_total:.2f}"' if discount_total > 0 else ""
+    descuento_concepto = f' Descuento="{discount_total:.2f}"' if discount_total > 0 else ""
+    clave_prod_serv = "".join(ch for ch in str(clave_prod_serv or "15111510") if ch.isdigit())[:8] or "15111510"
+    no_identificacion = str(no_identificacion or folio).strip()[:100] or folio
+    unidad = str(unidad or "Litro").strip()[:20] or "Litro"
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" '
         'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
         'xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd" '
-        f'Version="4.0" Serie="GLP" Folio="{folio}" Fecha="{fecha}" FormaPago="{xml_escape(forma_pago or "99")}" '
-        f'NoCertificado="" Certificado="" Sello="" SubTotal="{subtotal:.2f}" Moneda="MXN" Total="{total:.2f}" '
+        f'Version="4.0" Serie="{xml_escape(serie)}" Folio="{xml_escape(folio)}" Fecha="{fecha}" FormaPago="{xml_escape(forma_pago or "99")}" '
+        f'NoCertificado="" Certificado="" Sello="" SubTotal="{subtotal:.2f}"{descuento_comprobante} Moneda="MXN" Total="{total:.2f}" '
         f'TipoDeComprobante="I" Exportacion="01" MetodoPago="{xml_escape(metodo_pago or "PUE")}" LugarExpedicion="{issuer["cp"]}">'
         f'<cfdi:Emisor Rfc="{issuer["rfc"]}" Nombre="{xml_escape(issuer["nombre"])}" RegimenFiscal="{issuer["regimen"]}"/>'
         f'<cfdi:Receptor Rfc="{receptor["rfc"]}" Nombre="{xml_escape(receptor["nombre"])}" '
         f'DomicilioFiscalReceptor="{receptor["cp"]}" RegimenFiscalReceptor="{receptor["regimen_fiscal"]}" UsoCFDI="{receptor["uso_cfdi"]}"/>'
         '<cfdi:Conceptos>'
-        f'<cfdi:Concepto ClaveProdServ="15111501" NoIdentificacion="{folio}" Cantidad="{qty:.3f}" '
+        f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" NoIdentificacion="{xml_escape(no_identificacion)}" Cantidad="{qty:.3f}" '
         f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{xml_escape(desc)}" ValorUnitario="{unit:.6f}" '
-        f'Importe="{subtotal:.2f}" ObjetoImp="02">'
+        f'Importe="{subtotal:.2f}"{descuento_concepto} ObjetoImp="02">'
         '<cfdi:Impuestos><cfdi:Traslados>'
-        f'<cfdi:Traslado Base="{subtotal:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="{iva:.2f}"/>'
+        f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
         '</cfdi:Traslados></cfdi:Impuestos>'
         '</cfdi:Concepto>'
         '</cfdi:Conceptos>'
         f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva:.2f}"><cfdi:Traslados>'
-        f'<cfdi:Traslado Base="{subtotal:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="{iva:.2f}"/>'
+        f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
         '</cfdi:Traslados></cfdi:Impuestos>'
         '</cfdi:Comprobante>'
     )
-    return xml, {"folio": folio, "subtotal": float(subtotal), "iva": float(iva), "total": float(total)}
+    return xml, {"folio": folio, "subtotal": float(subtotal), "descuento": float(discount_total), "iva": float(iva), "total": float(total)}
 
 
 def _xml_local(tag: str) -> str:
@@ -935,6 +980,7 @@ async def gas_lp_internal_summary(token: str):
     ctx = _internal_session(token, "gas_lp")
     user = ctx["user"]
     profile = _gas_lp_profile(user)
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     role = user.get("role") or "solo_lectura"
     role_modules = {
         "asistente_facturacion": [
@@ -969,6 +1015,12 @@ async def gas_lp_internal_summary(token: str):
             "name": profile.get("nombre"),
             "rfc": profile.get("rfc"),
             "tenant_id": profile.get("tenant_id"),
+            "cp": _clean_cp(settings.get("CodigoPostal") or settings.get("codigo_postal") or ""),
+            "precio_venta_litro": settings.get("precio_venta_litro")
+                or settings.get("PrecioVentaLitro")
+                or settings.get("precio_default_litro")
+                or settings.get("precio_litro")
+                or 0,
         },
         "modules": modules,
         "session": {"expires_at": ctx["session"].get("expires_at"), "hours": SESSION_HOURS},
@@ -977,6 +1029,44 @@ async def gas_lp_internal_summary(token: str):
             "Los permisos se limitan por empresa, módulo y rol interno.",
         ],
     })
+
+
+@router.get("/internal-auth/gas-lp/facilities")
+async def gas_lp_internal_facilities(token: str):
+    ctx = _gas_lp_internal_context(token)
+    user = ctx["user"]
+    rows = get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+    return JSONResponse({"ok": True, "facilities": rows})
+
+
+@router.get("/internal-auth/gas-lp/catalogos")
+async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp"):
+    ctx = _gas_lp_internal_context(token)
+    user = ctx["user"]
+    sb = get_supabase_admin()
+
+    def scoped(table: str):
+        return (
+            sb.table(table)
+            .select("*")
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .eq("activo", True)
+        )
+
+    try:
+        choferes = scoped("tr_choferes").order("nombre").execute().data or []
+    except Exception:
+        choferes = []
+    try:
+        vehiculos = scoped("tr_vehiculos").order("placas").execute().data or []
+    except Exception:
+        vehiculos = []
+    try:
+        rutas = scoped("tr_rutas").order("nombre").execute().data or []
+    except Exception:
+        rutas = []
+    return JSONResponse({"ok": True, "modulo": modulo, "choferes": choferes, "vehiculos": vehiculos, "rutas": rutas})
 
 
 @router.get("/internal-auth/gas-lp/clientes")
@@ -1392,14 +1482,29 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         concepto=payload.concepto,
         forma_pago=payload.forma_pago,
         metodo_pago=payload.metodo_pago,
+        descuento=payload.descuento,
+        iva_rate=payload.iva_rate,
+        serie=payload.serie,
+        folio=payload.folio,
+        fecha=payload.fecha,
+        clave_prod_serv=payload.clave_prod_serv,
+        no_identificacion=payload.no_identificacion,
+        unidad=payload.unidad,
     )
     resultado = timbrar_cfdi(xml)
     if resultado.get("error"):
         raise HTTPException(400, f"PAC rechazó la factura: {resultado['error']}")
     now = _now_iso()
+    facilities_by_id = {
+        int(f["id"]): f
+        for f in get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+        if f.get("id") is not None
+    }
+    origen = facilities_by_id.get(int(payload.facility_id or 0), {})
+    destino = facilities_by_id.get(int(payload.destino_facility_id or 0), {})
     row = {
         **_gas_lp_invoice_scope(user, profile),
-        "facility_id": None,
+        "facility_id": payload.facility_id,
         "record_uuid": totals["folio"],
         "uuid_sat": resultado.get("uuid") or "",
         "xml_content": resultado.get("xml_timbrado") or xml,
@@ -1418,8 +1523,25 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "cliente_nombre": receptor["nombre"],
             "concepto": payload.concepto,
             "precio_unitario": payload.precio_unitario,
+            "descuento_por_litro": payload.descuento,
+            "descuento": totals["descuento"],
+            "iva_rate": payload.iva_rate,
+            "serie": payload.serie,
+            "folio_usuario": payload.folio,
+            "clave_prod_serv": payload.clave_prod_serv,
+            "no_identificacion": payload.no_identificacion,
+            "unidad": payload.unidad,
             "metodo_pago": payload.metodo_pago,
             "forma_pago": payload.forma_pago,
+            "tipo_operacion": payload.tipo_operacion,
+            "facility_id": payload.facility_id,
+            "origen_nombre": origen.get("nombre") or "",
+            "destino_facility_id": payload.destino_facility_id,
+            "destino_nombre": destino.get("nombre") or "",
+            "generar_carta_porte": payload.generar_carta_porte,
+            "vehiculo_id": payload.vehiculo_id,
+            "chofer_id": payload.chofer_id,
+            "ruta_id": payload.ruta_id,
             "payment_status": "pendiente_complemento" if payload.metodo_pago.upper() == "PPD" else "pagado_pue",
             "saldo_insoluto": totals["total"] if payload.metodo_pago.upper() == "PPD" else 0,
             "iva": totals["iva"],
