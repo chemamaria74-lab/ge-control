@@ -246,6 +246,27 @@ class TestAutoconsumo:
         assert len(autos) == 1
         assert autos[0]["VolumenDocumentado"]["ValorNumerico"] == 35606
 
+    def test_autoconsumo_negativo_se_reporta_como_salida_positiva(self):
+        """Si UI/BD guarda autoconsumo como descarga negativa, SAT lo suma positivo."""
+        movs = [
+            _mov("entrada", 1000.0, uuid="CFDI-ENTRADA-0001"),
+            _mov("salida", -125.50, uuid="AUTO-DESCARGA-NEGATIVA",
+                 rfc="GLU760309457", nombre="AUTOCONSUMO"),
+        ]
+        sat, meta = build_sat_report(
+            movimientos=movs,
+            settings=_settings_base(RfcContribuyente="GLU760309457"),
+            inventario_inicial_litros=500.0,
+            anio=2026, mes=4,
+            capacidad_tanque=10_000.0,
+        )
+        volumen = sat["Producto"][0]["ReporteDeVolumenMensual"]
+
+        assert meta["total_entregas_litros"] == 125.50
+        assert meta["vol_existencias_litros"] == 1374.50
+        assert volumen["Entregas"]["SumaVolumenEntregadoMes"]["ValorNumerico"] == 125.50
+        assert volumen["ControlDeExistencias"]["VolumenExistenciasMes"] == 1374.50
+
 
 class TestComposicionPR12:
 

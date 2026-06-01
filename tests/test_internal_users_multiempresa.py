@@ -270,6 +270,24 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
         self.assertEqual(totals["no_identificacion"], "GLP-LTR")
         self.assertEqual(totals["unidad"], "Litro")
 
+    def test_gas_lp_discount_is_per_liter(self):
+        xml, totals = internal_users._build_gas_lp_consumo_xml(
+            issuer={"rfc": "DGC881020LC4", "nombre": "DISTRIBUIDORA DE GAS DEL CAÑON", "cp": "20120", "regimen": "601"},
+            receptor=internal_users._public_general_receptor("20120"),
+            litros=10,
+            precio_unitario=11.05,
+            descuento=0.50,
+            concepto="LITRO DE GAS LP",
+            forma_pago="01",
+            metodo_pago="PUE",
+        )
+
+        self.assertIn('Descuento="5.00"', xml)
+        self.assertEqual(totals["subtotal"], 110.5)
+        self.assertEqual(totals["descuento_litro"], 0.5)
+        self.assertEqual(totals["descuento_total"], 5.0)
+        self.assertEqual(totals["base"], 105.5)
+
     def test_configured_sale_price_parses_positive_price_only(self):
         self.assertEqual(str(internal_users._configured_sale_price({"PrecioVentaLitroGasLp": "11.05"})), "11.050000")
         self.assertEqual(str(internal_users._configured_sale_price({"PrecioVentaLitroGasLp": ""})), "0")
