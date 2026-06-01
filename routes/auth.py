@@ -157,6 +157,13 @@ def _active_profile_owned_by_user(user_id: str, perfil_id: int, access_token: Op
         return None
 
 
+def _profile_has_module_marker(profile: Optional[dict], section: str) -> bool:
+    if not profile:
+        return False
+    desc = str(profile.get("descripcion") or "").lower()
+    return _module_marker(section).lower() in desc
+
+
 def _active_profile_allowed_for_module(
     user_id: str,
     section: str,
@@ -164,7 +171,8 @@ def _active_profile_allowed_for_module(
     access_token: Optional[str] = None,
 ) -> Optional[dict]:
     if _module_requires_owner_scope(section):
-        return _active_profile_owned_by_user(user_id, perfil_id, access_token=access_token)
+        profile = _active_profile_owned_by_user(user_id, perfil_id, access_token=access_token)
+        return profile if _profile_has_module_marker(profile, section) else None
     return _active_profile_exists(perfil_id, access_token=access_token)
 
 
@@ -237,6 +245,8 @@ def usuario_tiene_acceso_perfil(
         assigned = acceso.get("perfil_id")
         if assigned is not None and str(assigned) == str(perfil_id):
             return _active_profile_allowed_for_module(user_id, section, perfil_id, access_token=access_token) is not None
+        if role == "admin" and _active_profile_allowed_for_module(user_id, section, perfil_id, access_token=access_token):
+            return True
         if assigned is None and role == "admin":
             try:
                 sb = get_supabase_for_user(access_token) if access_token else get_supabase()
