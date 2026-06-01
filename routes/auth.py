@@ -291,9 +291,12 @@ def resolve_profile_scope(
             selected_int = 0
         if selected_int and usuario_tiene_acceso_perfil(user_id, section, selected_int, access_token=access_token):
             profile = _active_profile_allowed_for_module(user_id, section, selected_int, access_token=access_token) or {}
+            data_user_id = profile.get("user_id") or user_id
             return {
-                "user_id": profile.get("user_id") or user_id,
-                "owner_user_id": profile.get("user_id") or user_id,
+                "user_id": data_user_id,
+                "data_user_id": data_user_id,
+                "owner_user_id": data_user_id,
+                "auth_user_id": user_id,
                 "tenant_id": profile.get("tenant_id") or acceso.get("tenant_id"),
                 "perfil_id": selected_int,
                 "profile": profile,
