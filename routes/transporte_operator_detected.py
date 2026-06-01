@@ -3,11 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Cookie, Header, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from routes.transporte import _operador_context, _operador_meta, _operator_token
+from routes.transporte import _operador_context, _operador_meta
 from supabase_config import get_supabase_admin
 
 router = APIRouter()
@@ -54,13 +54,11 @@ def _matches(item: dict, search: str | None) -> bool:
 
 @router.get("/tr/operador/cargas-detectadas")
 async def operador_cargas_detectadas(
-    token: str | None = None,
+    token: str = Query(...),
     search: str | None = None,
     status: str | None = None,
-    authorization: str = Header(default=""),
-    ge_operator_session: str | None = Cookie(default=None),
 ):
-    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
+    sb, acc = _operador_context(token)
     meta = _operador_meta(sb, acc)
     rows = []
     try:
@@ -85,7 +83,6 @@ async def operador_cargas_detectadas(
             "proveedor": cfdi.get("nombre_emisor") or row.get("proveedor_id") or "Proveedor por confirmar",
             "rfc_proveedor": cfdi.get("rfc_emisor") or "",
             "empresa": empresa_nombre,
-            "origen_detectado": row.get("origen_detectado") or cfdi.get("nombre_emisor") or "Por confirmar",
             "destino_detectado": row.get("destino_detectado") or "Por confirmar",
             "producto_detectado": row.get("producto_detectado") or "Por confirmar",
             "litros_detectados": row.get("litros_detectados"),
@@ -93,7 +90,6 @@ async def operador_cargas_detectadas(
             "uuid": cfdi.get("uuid") or "",
             "fecha_detectada": row.get("fecha_detectada") or cfdi.get("fecha"),
             "confidence_score": row.get("confidence_score") or 0,
-            "assigned_operator_id": row.get("assigned_operator_id"),
         }
         if _matches(item, search):
             loads.append(item)
@@ -116,14 +112,8 @@ async def operador_cargas_detectadas(
 
 
 @router.post("/tr/operador/cargas-detectadas/{load_id}/accion")
-async def operador_cargas_detectadas_accion(
-    load_id: str,
-    payload: DetectedLoadAction,
-    token: str | None = None,
-    authorization: str = Header(default=""),
-    ge_operator_session: str | None = Cookie(default=None),
-):
-    sb, acc = _operador_context(_operator_token(authorization, token, ge_operator_session))
+async def operador_cargas_detectadas_accion(load_id: str, payload: DetectedLoadAction, token: str = Query(...)):
+    sb, acc = _operador_context(token)
     action = (payload.action or "").strip().lower()
     if action not in {"confirm", "ignore", "edit"}:
         raise HTTPException(400, "Acción inválida.")

@@ -13,14 +13,12 @@ CAMBIOS vs versión anterior:
 import logging
 from typing import Optional, Literal
 
-from fastapi import APIRouter, Header, HTTPException, Depends, Request
+from fastapi import APIRouter, Header, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from supabase import create_client
 
-from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user, SUPABASE_URL, SUPABASE_KEY
-from services.logout import revoke_supabase_session
-from services.security import client_ip, enforce_rate_limit
+from supabase_config import get_supabase, get_supabase_for_user, SUPABASE_URL, SUPABASE_KEY
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -120,17 +118,6 @@ def _module_requires_owner_scope(section: str) -> bool:
     return section == "gas_lp"
 
 
-def _profile_matches_module(row: Optional[dict], section: str) -> bool:
-    section = (section or "").strip().lower()
-    desc = str((row or {}).get("descripcion") or "").lower()
-    marker = _module_marker(section)
-    if marker in desc:
-        return True
-    if section == "gas_lp":
-        return not any(_module_marker(other) in desc for other in SECCIONES_VALIDAS if other != section)
-    return False
-
-
 def _active_profile_exists(perfil_id: int, access_token: Optional[str] = None) -> Optional[dict]:
     try:
         sb = get_supabase_for_user(access_token) if access_token else get_supabase()
@@ -176,10 +163,9 @@ def _active_profile_allowed_for_module(
     perfil_id: int,
     access_token: Optional[str] = None,
 ) -> Optional[dict]:
-    row = _active_profile_exists(perfil_id, access_token=access_token)
-    if row and _profile_matches_module(row, section):
-        return row
-    return None
+    if _module_requires_owner_scope(section):
+        return _active_profile_owned_by_user(user_id, perfil_id, access_token=access_token)
+    return _active_profile_exists(perfil_id, access_token=access_token)
 
 
 def _first_marked_profile_for_module(user_id: str, section: str, access_token: Optional[str] = None) -> Optional[int]:
@@ -247,9 +233,6 @@ def usuario_tiene_acceso_perfil(
     for acceso in obtener_accesos_usuario(user_id, access_token=access_token):
         if acceso.get("section") != section:
             continue
-        owned = _active_profile_owned_by_user(user_id, perfil_id, access_token=access_token)
-        if owned and _profile_matches_module(owned, section):
-            return True
         role = (acceso.get("role") or "user").lower()
         assigned = acceso.get("perfil_id")
         if assigned is not None and str(assigned) == str(perfil_id):
@@ -259,7 +242,7 @@ def usuario_tiene_acceso_perfil(
                 sb = get_supabase_for_user(access_token) if access_token else get_supabase()
                 rows = (
                     sb.table("perfiles_empresa")
-                    .select("id,tenant_id,descripcion,activo")
+                    .select("id,tenant_id,activo")
                     .eq("id", perfil_id)
                     .eq("tenant_id", acceso.get("tenant_id"))
                     .eq("activo", True)
@@ -268,7 +251,7 @@ def usuario_tiene_acceso_perfil(
                     .data
                     or []
                 )
-                if rows and _profile_matches_module(rows[0], section):
+                if rows:
                     return True
             except Exception as e:
                 logger.warning("usuario_tiene_acceso_perfil falló user=%s section=%s perfil=%s: %s", user_id, section, perfil_id, e)
@@ -283,51 +266,6 @@ def require_profile_access(
 ) -> None:
     if not usuario_tiene_acceso_perfil(user_id, section, perfil_id, access_token=access_token):
         raise HTTPException(403, "Tu usuario no tiene acceso a esta empresa/perfil.")
-
-
-def resolve_profile_scope(
-    user_id: str,
-    section: str,
-    perfil_id: int,
-    access_token: Optional[str] = None,
-) -> dict:
-    """
-    Valida acceso al perfil y devuelve el owner real de datos.
-
-    Gas LP aun guarda tablas operativas legacy bajo `perfiles_empresa.user_id`.
-    Si un admin/usuario del tenant entra con otro uid pero con acceso al mismo
-    perfil, las consultas por uid autenticado regresan vacias aunque los datos
-    existan. Este helper centraliza el owner que deben usar records/reports/etc.
-    """
-    require_profile_access(user_id, section, perfil_id, access_token=access_token)
-    try:
-        rows = (
-            get_supabase_admin()
-            .table("perfiles_empresa")
-            .select("id,user_id,tenant_id,nombre,rfc,activo")
-            .eq("id", perfil_id)
-            .eq("activo", True)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-        if not rows:
-            raise HTTPException(404, "Perfil/empresa no encontrado.")
-        perfil = rows[0]
-        return {
-            "request_user_id": user_id,
-            "data_user_id": str(perfil.get("user_id") or user_id),
-            "perfil_id": int(perfil["id"]),
-            "tenant_id": perfil.get("tenant_id"),
-            "nombre": perfil.get("nombre"),
-            "rfc": perfil.get("rfc"),
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning("resolve_profile_scope failed user=%s section=%s perfil=%s: %s", user_id, section, perfil_id, e)
-        raise HTTPException(500, "No se pudo resolver el alcance de la empresa activa.")
 
 
 def obtener_seccion_usuario(user_id: str, access_token: Optional[str] = None) -> Optional[str]:
@@ -450,7 +388,7 @@ class LoginPayload(BaseModel):
 
 
 @router.post("/auth/login")
-async def login(payload: LoginPayload, request: Request = None):
+async def login(payload: LoginPayload):
     """Login contra Supabase Auth con validación de sección."""
     email = payload.username.strip().lower()
     if not email or not payload.password:
@@ -459,9 +397,6 @@ async def login(payload: LoginPayload, request: Request = None):
     requested = (payload.modulo or "gas_lp").strip().lower()
     if requested not in SECCIONES_VALIDAS:
         raise HTTPException(status_code=400, detail=f"Módulo inválido: {payload.modulo}")
-    ip = client_ip(request)
-    enforce_rate_limit(f"auth-login:ip:{ip}", limit=40, window_seconds=60)
-    enforce_rate_limit(f"auth-login:user:{requested}:{email}", limit=8, window_seconds=300)
 
     sb = get_supabase()
     try:
@@ -504,7 +439,7 @@ async def login(payload: LoginPayload, request: Request = None):
     acceso       = _resolve_active_module_access(user_id, requested, access_token=access_token)
     role         = (acceso.get("role") or app_meta.get("role") or "user").lower()
 
-    response = JSONResponse(content={
+    return JSONResponse(content={
         "success":      True,
         "token":        access_token,
         "user_id":      user_id,
@@ -514,16 +449,6 @@ async def login(payload: LoginPayload, request: Request = None):
         "modulo":       requested,
         "modulos":      secciones,
     })
-    response.set_cookie(
-        "ge_auth_session",
-        access_token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        max_age=60 * 60 * 24,
-        path="/api",
-    )
-    return response
 
 
 @router.get("/auth/me")
@@ -577,9 +502,9 @@ async def me(authorization: str = Header(default="")):
 @router.post("/auth/logout")
 async def logout(authorization: str = Header(default="")):
     token = _extract_bearer(authorization)
-    result = revoke_supabase_session(token)
-    if not result.ok:
-        raise HTTPException(502, f"No se pudo cerrar la sesión en Supabase: {result.reason}")
-    response = JSONResponse(content=result.as_dict())
-    response.delete_cookie("ge_auth_session", path="/api")
-    return response
+    if token:
+        try:
+            get_supabase().auth.sign_out()
+        except Exception:
+            pass
+    return JSONResponse(content={"success": True})

@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Any
 
-from routes.auth import obtener_acceso_modulo, resolve_profile_scope, verify_token
+from routes.auth import obtener_acceso_modulo, verify_token
 from services.database import log_settings_audit
 
 logger = logging.getLogger(__name__)
@@ -20,15 +20,11 @@ router = APIRouter()
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "..", "config", "settings.json")
 LOCAL_SETTINGS_FALLBACK = (os.environ.get("GAS_LP_LOCAL_SETTINGS_FALLBACK") or "").strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
-RFC_PROVEEDOR_PROGRAMA = "XAX010101000"
 
 DEFAULT_SETTINGS = {
     "RfcContribuyente":      "",
-    "NombreFiscal":          "",
-    "CodigoPostal":          "",
-    "RegimenFiscal":         "601",
     "RfcRepresentanteLegal": "",
-    "RfcProveedor":          RFC_PROVEEDOR_PROGRAMA,
+    "RfcProveedor":          "",
     "NumPermiso":            "",
     "PermisoAlmYDist":       "",
     "ClaveInstalacion":      "",
@@ -37,13 +33,7 @@ DEFAULT_SETTINGS = {
     "NumeroDispensarios":    0,
     "Caracter":              "permisionario",
     "ModalidadPermiso":      "PER40",
-    "TipoPermisoHYP":        "",
-    "NumeroPermisoHYP":      "",
-    "SubProductoHYP":        "SP46",
     "FactorDeConversionKgALitros": 0.542,
-    "PdfLogoDataUrl":        "",
-    "PrecioVentaLitroGasLp": 0,
-    "PrecioVentaLitroGasLpUpdatedAt": "",
     # Configuración Avanzada
     "adv_tanques":         None,
     "adv_medicion":        None,
@@ -75,7 +65,7 @@ def _auth(authorization: str) -> tuple[str, str]:
 
 def _deny_assistant_config(user_id: str, token: str) -> None:
     role = (obtener_acceso_modulo(user_id, "gas_lp", access_token=token).get("role") or "user").lower()
-    if role in {"asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"}:
+    if role in {"asistente_facturacion", "asistente_operativo", "planta", "solo_lectura"}:
         raise HTTPException(403, "El rol Asistente de facturación no puede modificar configuración.")
 
 
@@ -86,9 +76,26 @@ def _require_perfil_id(raw: str) -> int:
     return perfil_id
 
 
-def _scope(user_id: str, token: str, raw: str) -> dict:
-    perfil_id = _require_perfil_id(raw)
-    return resolve_profile_scope(user_id, "gas_lp", perfil_id, access_token=token)
+def _require_active_profile(user_id: str, perfil_id: int) -> None:
+    try:
+        from supabase_config import get_supabase_admin
+        rows = (
+            get_supabase_admin()
+            .table("perfiles_empresa")
+            .select("id")
+            .eq("id", perfil_id)
+            .eq("user_id", user_id)
+            .eq("activo", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("settings profile check failed: user=%s perfil=%s err=%s", user_id, perfil_id, exc)
+        raise HTTPException(500, "No se pudo validar la empresa activa.") from exc
+    if not rows:
+        raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
 
 
 def _supabase_load(user_id: str, perfil_id: Optional[int] = None) -> Optional[dict]:
@@ -108,11 +115,11 @@ def _supabase_load(user_id: str, perfil_id: Optional[int] = None) -> Optional[di
         rows = q.limit(1).execute()
         if rows.data:
             stored = rows.data[0].get("data") or {}
-            return {**DEFAULT_SETTINGS, **stored, "RfcProveedor": RFC_PROVEEDOR_PROGRAMA}
+            return {**DEFAULT_SETTINGS, **stored}
         # Sin fila para este perfil → retornar defaults limpios (perfil nuevo)
         if perfil_id:
             logger.info("settings: no hay fila para perfil_id=%s — devolviendo defaults vacíos", perfil_id)
-            return {**DEFAULT_SETTINGS, "RfcProveedor": RFC_PROVEEDOR_PROGRAMA}
+            return DEFAULT_SETTINGS.copy()
         return None  # sin perfil_id y sin fila → fallo real
     except Exception as e:
         logger.warning("Supabase settings load: %s", e)
@@ -180,15 +187,15 @@ def _load(user_id: str, perfil_id: Optional[int] = None) -> dict:
     # Solo llegar aquí si Supabase lanzó excepción (fallo de red)
     if not perfil_id and LOCAL_SETTINGS_FALLBACK:
         logger.info("Usando fallback local para settings user=%s.", user_id)
-        return {**_file_load(user_id), "RfcProveedor": RFC_PROVEEDOR_PROGRAMA}
+        return _file_load(user_id)
     # Con perfil_id y Supabase caído → defaults limpios (no contaminar con otro perfil)
     logger.warning("Supabase caído: devolviendo defaults para perfil=%s", perfil_id)
-    return {**DEFAULT_SETTINGS, "RfcProveedor": RFC_PROVEEDOR_PROGRAMA}
+    return DEFAULT_SETTINGS.copy()
 
 
 def _save(user_id: str, data: dict, perfil_id: Optional[int] = None) -> None:
     """Guarda en Supabase; el JSON local solo existe si se habilita explicitamente."""
-    merged = {**DEFAULT_SETTINGS, **data, "RfcProveedor": RFC_PROVEEDOR_PROGRAMA}
+    merged = {**DEFAULT_SETTINGS, **data}
     ok = _supabase_save(user_id, merged, perfil_id)
     _file_save(user_id, merged)
     if not ok:
@@ -200,9 +207,6 @@ def _save(user_id: str, data: dict, perfil_id: Optional[int] = None) -> None:
 
 class SettingsPayload(BaseModel):
     RfcContribuyente:      Optional[str]   = ""
-    NombreFiscal:          Optional[str]   = ""
-    CodigoPostal:          Optional[str]   = ""
-    RegimenFiscal:         Optional[str]   = "601"
     RfcRepresentanteLegal: Optional[str]   = ""
     RfcProveedor:          Optional[str]   = ""
     NumPermiso:            Optional[str]   = ""
@@ -213,13 +217,7 @@ class SettingsPayload(BaseModel):
     NumeroDispensarios:    Optional[int]   = 0
     Caracter:              Optional[str]   = "permisionario"
     ModalidadPermiso:      Optional[str]   = "PER40"
-    TipoPermisoHYP:        Optional[str]   = ""
-    NumeroPermisoHYP:      Optional[str]   = ""
-    SubProductoHYP:        Optional[str]   = "SP46"
     FactorDeConversionKgALitros: Optional[float] = 0.542
-    PdfLogoDataUrl:          Optional[str] = ""
-    PrecioVentaLitroGasLp:   Optional[float] = 0
-    PrecioVentaLitroGasLpUpdatedAt: Optional[str] = ""
     # Configuración Avanzada — actualizaciones parciales
     adv_tanques:          Optional[Any] = None
     adv_medicion:         Optional[Any] = None
@@ -234,8 +232,9 @@ async def get_settings(
     x_perfil_id:   str = Header(default=""),
 ):
     user_id, _token = _auth(authorization)
-    scope = _scope(user_id, _token, x_perfil_id)
-    return JSONResponse(content=_load(scope["data_user_id"], scope["perfil_id"]))
+    perfil_id = _require_perfil_id(x_perfil_id)
+    _require_active_profile(user_id, perfil_id)
+    return JSONResponse(content=_load(user_id, perfil_id))
 
 
 @router.post("/settings", summary="Guardar configuración persistente")
@@ -246,10 +245,9 @@ async def save_settings(
 ):
     user_id, token = _auth(authorization)
     _deny_assistant_config(user_id, token)
-    scope = _scope(user_id, token, x_perfil_id)
-    data_user_id = scope["data_user_id"]
-    perfil_id = scope["perfil_id"]
-    current   = _load(data_user_id, perfil_id)
+    perfil_id = _require_perfil_id(x_perfil_id)
+    _require_active_profile(user_id, perfil_id)
+    current   = _load(user_id, perfil_id)
 
     # exclude_unset=True: solo los campos que el cliente envió explícitamente
     new_data = payload.model_dump(exclude_unset=True)
@@ -259,7 +257,7 @@ async def save_settings(
     # parcial (ej: solo adv_tanques) borre el RFC u otros campos.
     merged = {**current, **new_data}
 
-    _save(data_user_id, merged, perfil_id)
+    _save(user_id, merged, perfil_id)
 
     if current.get("FactorDeConversionKgALitros") != merged.get("FactorDeConversionKgALitros"):
         log_settings_audit(
@@ -268,17 +266,10 @@ async def save_settings(
             current.get("FactorDeConversionKgALitros"),
             merged.get("FactorDeConversionKgALitros"),
         )
-    if current.get("PrecioVentaLitroGasLp") != merged.get("PrecioVentaLitroGasLp"):
-        log_settings_audit(
-            user_id,
-            "PrecioVentaLitroGasLp",
-            current.get("PrecioVentaLitroGasLp"),
-            merged.get("PrecioVentaLitroGasLp"),
-        )
 
-    logger.info("Settings guardados: request_user=%s data_user=%s perfil=%s keys=%s",
-                user_id, data_user_id, perfil_id, list(new_data.keys()))
-    saved = _load(data_user_id, perfil_id)
+    logger.info("Settings guardados: user=%s perfil=%s keys=%s",
+                user_id, perfil_id, list(new_data.keys()))
+    saved = _load(user_id, perfil_id)
     return JSONResponse(content={
         "success":   True,
         "perfil_id": perfil_id,

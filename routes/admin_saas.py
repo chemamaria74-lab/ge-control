@@ -526,7 +526,7 @@ def _is_test_user(inspection: dict) -> bool:
         + [str(p.get("nombre") or "") for p in inspection.get("perfiles") or []]
     ).lower()
     tenant_text = " ".join(str(t) for t in inspection.get("tenant_ids") or []).lower()
-    markers = ("example", "test", "demo", "prueba", "dummy", "sandbox", "smoke", "phase2", "phase3")
+    markers = ("example", "test", "demo", "prueba", "dummy", "sandbox")
     return any(m in email or m in names or m in tenant_text for m in markers)
 
 
@@ -1253,20 +1253,8 @@ async def reset_saas_user_password(target_user_id: str, payload: ResetPasswordPa
 async def preview_saas_user_delete(target_user_id: str, authorization: str = Header(default="")):
     uid, _, _ = _require_superadmin(authorization)
     resolved = _resolve_user_identifier(target_user_id)
+    preview = _delete_user_cascade_safe_rpc(resolved, uid, confirm=False)
     inspection = _inspect_user(resolved)
-    try:
-        preview = _delete_user_cascade_safe_rpc(resolved, uid, confirm=False)
-    except HTTPException:
-        if not (_is_demo_env() or _is_test_user(inspection)):
-            raise
-        preview = {
-            "user": inspection.get("auth_user") or {},
-            "roles": inspection.get("user_sections") or [],
-            "companies": inspection.get("perfiles") or [],
-            "counts": inspection.get("counts") or {},
-            "requires_transfer": False,
-            "safe_delete_unavailable": True,
-        }
     preview["test_delete_allowed"] = _is_demo_env() or _is_test_user(inspection)
     preview["valid_receivers"] = _valid_transfer_receivers(resolved, inspection.get("tenant_ids") or [])
     _audit(uid, "preview_delete_user_cascade_safe", "user", resolved, {
@@ -1287,14 +1275,7 @@ async def delete_saas_user_safe(
     transfer_resolved = _resolve_user_identifier(transfer_user_id) if transfer_user_id else None
     if transfer_resolved and transfer_resolved == resolved:
         raise HTTPException(400, "El receptor debe ser un usuario diferente al usuario que vas a eliminar.")
-    try:
-        result = _delete_user_cascade_safe_rpc(resolved, uid, confirm=True, transfer_user_id=transfer_resolved)
-    except HTTPException:
-        inspection = _inspect_user(resolved)
-        if not (_is_demo_env() or _is_test_user(inspection)):
-            raise
-        result = _delete_test_user_local(resolved, uid)
-        return JSONResponse({"ok": True, "result": result, "mode": "test_delete_fallback"})
+    result = _delete_user_cascade_safe_rpc(resolved, uid, confirm=True, transfer_user_id=transfer_resolved)
     verification = _delete_user_cascade_safe_rpc(resolved, uid, confirm=False)
     allowed_preserved = {"storage_objects"}
     remaining = {

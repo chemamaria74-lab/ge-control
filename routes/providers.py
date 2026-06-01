@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 
-from routes.auth import resolve_profile_scope, verify_token
+from routes.auth import verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -62,25 +62,13 @@ def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
             except Exception as e2:
                 logger.warning("No se pudo asignar proveedores: %s", e2)
 
-        # 4. Puente legacy: si produccion aun conserva la restriccion vieja
-        # user_id+rfc, el mismo RFC no puede insertarse por perfil. Mientras se
-        # aplica providers_multiempresa_unique_20260527.sql, leemos esos RFCs
-        # de otros perfiles del mismo usuario para que el SAT no quede sin
-        # PermisoClienteOProveedor. Los del perfil exacto siempre ganan.
-        r3 = sb.table("providers").select("*")\
-               .eq("user_id", user_id)\
-               .order("rfc").execute().data or []
-
-        # 5. Deduplicar por RFC (perfil exacto > huerfanos > legacy same-user)
+        # 4. Deduplicar por RFC (los del perfil exacto tienen prioridad)
         rfcs_vistas: set = set()
         resultado = []
-        for p in r1 + r2 + r3:
+        for p in r1 + r2:
             rfc_key = p.get("rfc", "").upper()
             if rfc_key not in rfcs_vistas:
                 rfcs_vistas.add(rfc_key)
-                if p.get("perfil_id") not in (None, "", perfil_id):
-                    p = dict(p)
-                    p["_legacy_cross_profile"] = True
                 resultado.append(p)
 
         return resultado
@@ -92,7 +80,7 @@ def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
 
 def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,
                permiso_almacenamiento_terminal: str,
-               perfil_id: int = None) -> tuple[bool, str]:
+               perfil_id: int = None) -> bool:
     """
     Guarda un proveedor en Supabase usando SELECT→UPDATE/INSERT explícito.
     NO usa upsert con on_conflict de 3 columnas porque esa constraint puede no existir.
@@ -109,7 +97,7 @@ def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,
             q = q.eq("perfil_id", perfil_id)
         else:
             q = q.is_("perfil_id", "null")
-        existing = q.limit(1).execute().data or []
+        existing = q.limit(1).execute().data
 
         update_data = {
             "nombre":  nombre,
@@ -123,34 +111,6 @@ def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,
             sb.table("providers").update(update_data).eq("id", row_id).execute()
             logger.info("Provider updated id=%s rfc=%s perfil=%s", row_id, rfc_upper, perfil_id)
         else:
-            legacy = (
-                sb.table("providers")
-                .select("id,perfil_id")
-                .eq("user_id", user_id)
-                .eq("rfc", rfc_upper)
-                .limit(1)
-                .execute()
-                .data
-                or []
-            )
-            if legacy:
-                legacy_row = legacy[0]
-                legacy_perfil = legacy_row.get("perfil_id")
-                if legacy_perfil in (None, "", perfil_id):
-                    row_id = legacy_row["id"]
-                    sb.table("providers").update({**update_data, "perfil_id": perfil_id}).eq("id", row_id).execute()
-                    logger.info("Provider legacy row claimed id=%s rfc=%s perfil=%s", row_id, rfc_upper, perfil_id)
-                    return True, ""
-                row_id = legacy_row["id"]
-                sb.table("providers").update(update_data).eq("id", row_id).execute()
-                logger.warning(
-                    "Provider updated through legacy cross-profile bridge rfc=%s current_perfil=%s requested_perfil=%s",
-                    rfc_upper, legacy_perfil, perfil_id,
-                )
-                return True, (
-                    "RFC actualizado en el registro legacy existente. Aplica "
-                    "providers_multiempresa_unique_20260527.sql para separarlo por empresa."
-                )
             # INSERT — nueva fila para este perfil
             insert_data = {"user_id": user_id, "rfc": rfc_upper, **update_data}
             if perfil_id:
@@ -158,17 +118,10 @@ def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,
             sb.table("providers").insert(insert_data).execute()
             logger.info("Provider inserted rfc=%s perfil=%s", rfc_upper, perfil_id)
 
-        return True, ""
+        return True
     except Exception as e:
         logger.warning("Supabase providers upsert: %s", e)
-        msg = str(e)
-        if "duplicate" in msg.lower() or "unique" in msg.lower():
-            return False, (
-                "Supabase rechazó un duplicado de RFC. Aplica la migración "
-                "migrations/providers_multiempresa_unique_20260527.sql para permitir "
-                "el mismo RFC por empresa/perfil."
-            )
-        return False, msg or "No se pudo guardar el proveedor en Supabase."
+        return False
 
 
 def _sb_delete(user_id: str, rfc: str, perfil_id: int = None) -> bool:
@@ -225,9 +178,9 @@ def _upsert_provider(user_id: str, rfc: str, nombre: str, permiso: str,
                      permiso_almacenamiento_terminal: str,
                      perfil_id: int = None) -> None:
     """Guarda en Supabase; el respaldo JSON local está apagado por defecto."""
-    ok, error_msg = _sb_upsert(user_id, rfc, nombre, permiso, permiso_almacenamiento_terminal, perfil_id)
+    ok = _sb_upsert(user_id, rfc, nombre, permiso, permiso_almacenamiento_terminal, perfil_id)
     if not ok and not LOCAL_PROVIDER_FALLBACK:
-        raise HTTPException(500, error_msg or "No se pudo guardar el proveedor en Supabase.")
+        raise HTTPException(500, "No se pudo guardar el proveedor en Supabase.")
     providers = _file_list(user_id)
     rfc_upper = rfc.upper().strip()
     updated   = False
@@ -273,11 +226,6 @@ def _require_perfil_id(raw: str) -> int:
     return perfil_id
 
 
-def _scope(user_id: str, token: str, raw: str) -> dict:
-    perfil_id = _require_perfil_id(raw)
-    return resolve_profile_scope(user_id, "gas_lp", perfil_id, access_token=token)
-
-
 def get_permiso_for_rfc(rfc: str, user_id: str = None, perfil_id: int = None) -> Optional[str]:
     """Retorna el permiso CRE del proveedor para el usuario/perfil dado, o None."""
     if not rfc or not user_id or not perfil_id:
@@ -300,14 +248,13 @@ def get_permiso_almacenamiento_for_rfc(rfc: str, user_id: str = None, perfil_id:
     return None
 
 
-def _auth(authorization: str) -> tuple[str, str]:
+def _auth(authorization: str) -> str:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
-    token = authorization[7:]
-    uid = verify_token(token)
+    uid = verify_token(authorization[7:])
     if not uid:
         raise HTTPException(401, "Token inválido o expirado.")
-    return uid, token
+    return uid
 
 
 class ProviderPayload(BaseModel):
@@ -327,10 +274,8 @@ async def asignar_perfil_a_huerfanos(
     perfil_id IS NULL (huérfanos de la migración pre-multi-empresa).
     Llamar una sola vez al acceder al tab de Proveedores con un perfil seleccionado.
     """
-    request_user_id, token = _auth(authorization)
-    scope = _scope(request_user_id, token, x_perfil_id)
-    user_id = scope["data_user_id"]
-    perfil_id = scope["perfil_id"]
+    user_id   = _auth(authorization)
+    perfil_id = _require_perfil_id(x_perfil_id)
     try:
         from supabase_config import get_supabase_admin
         result = get_supabase_admin().table("providers")\
@@ -351,10 +296,8 @@ async def list_providers(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    request_user_id, token = _auth(authorization)
-    scope = _scope(request_user_id, token, x_perfil_id)
-    user_id = scope["data_user_id"]
-    perfil_id = scope["perfil_id"]
+    user_id   = _auth(authorization)
+    perfil_id = _require_perfil_id(x_perfil_id)
     return JSONResponse(content={"providers": _load_providers(user_id, perfil_id)})
 
 
@@ -364,10 +307,8 @@ async def upsert_provider_endpoint(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    request_user_id, token = _auth(authorization)
-    scope = _scope(request_user_id, token, x_perfil_id)
-    user_id = scope["data_user_id"]
-    perfil_id = scope["perfil_id"]
+    user_id   = _auth(authorization)
+    perfil_id = _require_perfil_id(x_perfil_id)
     rfc_upper = payload.rfc.strip().upper()
     if not rfc_upper:
         raise HTTPException(400, "El RFC es obligatorio.")
@@ -389,10 +330,8 @@ async def delete_provider_endpoint(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    request_user_id, token = _auth(authorization)
-    scope = _scope(request_user_id, token, x_perfil_id)
-    user_id = scope["data_user_id"]
-    perfil_id = scope["perfil_id"]
+    user_id   = _auth(authorization)
+    perfil_id = _require_perfil_id(x_perfil_id)
     _delete_provider(user_id, rfc, perfil_id)
     logger.info("Proveedor eliminado: %s user=%s perfil=%s", rfc, user_id, perfil_id)
     return JSONResponse(content={"success": True, "providers": _load_providers(user_id, perfil_id)})
