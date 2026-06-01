@@ -567,7 +567,6 @@ async def generar_carta_porte(
         raise HTTPException(400, "Captura domicilio y CP de la instalación origen antes de timbrar.")
     if not str(destino.get("domicilio_operativo") or destino.get("domicilio") or destino.get("direccion") or "").strip() or not destino_cp:
         raise HTTPException(400, "Captura domicilio y CP de la estación destino antes de timbrar.")
-    emisor = {**emisor, "domicilio_fiscal": origen_cp}
     if int(origen.get("id")) == int(destino.get("id")):
         raise HTTPException(400, "Origen y destino deben ser instalaciones distintas para Carta Porte interna.")
     if not _is_destination_station(destino):

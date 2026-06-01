@@ -156,7 +156,9 @@ class GasLpConciliacionCancelPayload(BaseModel):
 class GasLpComplementoPagoPayload(BaseModel):
     fecha_pago: str = ""
     forma_pago: str = "03"
-    monto: float
+    monto: Optional[float] = None
+    factura_ids: Optional[list[int]] = None
+    facturas: Optional[list[dict]] = None
     referencia: str = ""
     banco: str = ""
     notas: str = ""
@@ -773,6 +775,16 @@ def _configured_sale_price(settings: dict) -> Decimal:
     except Exception:
         price = Decimal("0")
     return price if price > 0 else Decimal("0")
+
+
+def _gas_lp_payload_price(value) -> Decimal:
+    try:
+        price = Decimal(str(value or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    except Exception:
+        price = Decimal("0")
+    if price <= 0:
+        raise HTTPException(400, "Captura un precio unitario mayor a cero.")
+    return price
 
 
 def _public_general_receptor(issuer_cp: str) -> dict:
@@ -2355,7 +2367,6 @@ async def gas_lp_internal_crear_factura(
         raise HTTPException(400, "Tipo de operación inválido.")
     origen = _gas_lp_facility(user, payload.facility_id, "instalación de venta/origen")
     _require_facility_fiscal_address(origen, "instalación de venta/origen")
-    issuer = {**issuer, "cp": _clean_cp(origen.get("codigo_postal") or origen.get("cp") or issuer["cp"])}
     destino = None
     if tipo_operacion == "traspaso":
         destino = _gas_lp_facility(user, payload.destino_facility_id, "estación destino")
@@ -2428,10 +2439,7 @@ async def gas_lp_internal_crear_factura(
         receptor["uso_cfdi"],
     )
 
-    configured_price = _configured_sale_price(settings)
-    precio_unitario = configured_price if tipo_operacion == "venta" and configured_price > 0 else Decimal(str(payload.precio_unitario or 0))
-    if tipo_operacion == "venta" and configured_price <= 0:
-        raise HTTPException(400, "Configura el precio vigente por litro en Configuración antes de facturar.")
+    precio_unitario = _gas_lp_payload_price(payload.precio_unitario)
     metodo_pago, forma_pago = _normalize_payment_fields(payload.metodo_pago, payload.forma_pago)
 
     xml_consumo, totals = _build_gas_lp_consumo_xml(
@@ -2444,8 +2452,8 @@ async def gas_lp_internal_crear_factura(
         metodo_pago=metodo_pago,
         descuento=payload.descuento,
         iva_rate=payload.iva_rate,
-        serie=payload.serie,
-        folio=payload.folio,
+        serie="AA",
+        folio="",
         fecha=payload.fecha,
         clave_prod_serv=payload.clave_prod_serv,
         no_identificacion=payload.no_identificacion,
@@ -2586,7 +2594,7 @@ async def gas_lp_internal_crear_factura(
             "concepto": payload.concepto,
             "precio_unitario": float(precio_unitario),
             "precio_unitario_capturado": payload.precio_unitario,
-            "precio_source": "settings.PrecioVentaLitroGasLp" if tipo_operacion == "venta" and configured_price > 0 else "payload",
+            "precio_source": "payload",
             "descuento_litro": totals["descuento_litro"],
             "descuento_total": totals["descuento_total"],
             "descuento": totals["descuento_total"],
