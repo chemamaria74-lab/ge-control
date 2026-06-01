@@ -34,21 +34,7 @@ SESSION_HOURS = 12
 GAS_LP_CLAVE_PROD_SERV = "15101515"
 GAS_LP_HYP_SUBPRODUCTO = "SP23"
 GAS_LP_HIDRO_CLAVES = {GAS_LP_CLAVE_PROD_SERV}
-HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 12)}
-GAS_LP_HYP_TIPO_PERMISO_LEGACY_MAP = {
-    "PER40": "PER03",  # Distribucion mediante planta.
-    "PER41": "PER03",
-    "PER42": "PER03",
-    "PER43": "PER04",  # Expendio al publico Gas LP.
-    "PER44": "PER04",
-    "PER45": "PER04",
-    "PER46": "PER04",
-    "PER47": "PER11",  # Comercializacion.
-    "PER48": "PER11",
-    "PER49": "PER11",
-    "PER50": "PER11",
-    "PER51": "PER11",
-}
+HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 57)}
 
 
 class InternalUserCreate(BaseModel):
@@ -514,8 +500,64 @@ def _clean_clave_prod_serv(value: str | None) -> str:
     return "".join(ch for ch in str(value or "").strip() if ch.isdigit())[:8] or GAS_LP_CLAVE_PROD_SERV
 
 
+def _infer_hyp_tipo_permiso_from_numero(numero_permiso: str) -> str:
+    permiso = str(numero_permiso or "").strip().upper()
+    if not permiso:
+        return ""
+    if permiso.startswith("LP/"):
+        if "/DIST/PLA/" in permiso:
+            return "PER40"
+        if "/DIST/DUC/" in permiso:
+            return "PER41"
+        if "/DIST/REP/" in permiso:
+            return "PER51"
+        if "/EXP/ES/" in permiso:
+            return "PER43"
+        if "/EXP/AUT/" in permiso:
+            return "PER44"
+        if "/COM/" in permiso:
+            return "PER45"
+        if "/TRA/DUC/" in permiso:
+            return "PER46"
+        if "/TRA/" in permiso:
+            return "PER48"
+        if "/ALM/" in permiso:
+            return "PER49"
+    if permiso.startswith("G/"):
+        if "/LPD/" in permiso:
+            return "PER42"
+        if "/LPT/" in permiso:
+            return "PER47"
+        if "/LPA/" in permiso:
+            return "PER50"
+    if permiso.startswith("PL/"):
+        if "/EXP/ES/MM/" in permiso:
+            return "PER04"
+        if "/EXP/ES/" in permiso:
+            return "PER01"
+        if "/DIS/OM/" in permiso:
+            return "PER03"
+    if permiso.startswith("H/") and "/COM/" in permiso:
+        return "PER02"
+    if permiso.startswith("CNE/PL/"):
+        if "/EXP/ES/MM/" in permiso:
+            return "PER08"
+        if "/EXP/ES/" in permiso:
+            return "PER05"
+        if "/DIS/OM/" in permiso:
+            return "PER07"
+        if "/COM/" in permiso:
+            return "PER09"
+    if permiso.startswith("CNE/H/") and "/COM/" in permiso:
+        return "PER06"
+    return ""
+
+
 def _gas_lp_hyp_tipo_permiso(facility: dict) -> str:
     md = facility.get("metadata") if isinstance(facility.get("metadata"), dict) else {}
+    inferred = _infer_hyp_tipo_permiso_from_numero(str(facility.get("num_permiso") or ""))
+    if inferred:
+        return inferred
     candidates = [
         md.get("hyp_tipo_permiso"),
         md.get("TipoPermisoHYP"),
@@ -530,8 +572,6 @@ def _gas_lp_hyp_tipo_permiso(facility: dict) -> str:
             continue
         if raw in HYP_TIPO_PERMISOS_VALIDOS:
             return raw
-        if raw in GAS_LP_HYP_TIPO_PERMISO_LEGACY_MAP:
-            return GAS_LP_HYP_TIPO_PERMISO_LEGACY_MAP[raw]
 
     permiso = str(facility.get("num_permiso") or "").upper()
     text = " ".join(
@@ -539,10 +579,10 @@ def _gas_lp_hyp_tipo_permiso(facility: dict) -> str:
         for k in ("tipo_instalacion", "tipo_permiso", "modalidad_permiso", "descripcion", "nombre", "actividad_sat")
     )
     if "/EXP/" in permiso or "expendio" in text or "estacion" in text:
-        return "PER04"
+        return "PER43"
     if "/COM/" in permiso or "comercial" in text:
-        return "PER11"
-    return "PER03"
+        return "PER45"
+    return "PER40"
 
 
 def _gas_lp_hyp_from_facility(facility: dict, clave_prod_serv: str) -> dict:
@@ -558,7 +598,7 @@ def _gas_lp_hyp_from_facility(facility: dict, clave_prod_serv: str) -> dict:
             "Configura tipo de permiso y número de permiso en la instalación origen.",
         )
     if tipo_permiso not in HYP_TIPO_PERMISOS_VALIDOS:
-        raise HTTPException(400, "El TipoPermiso HYP debe usar una clave SAT PER01-PER11.")
+        raise HTTPException(400, "El TipoPermiso HYP debe usar una clave SAT PER01-PER56.")
     return {
         "tipo_permiso": tipo_permiso,
         "numero_permiso": numero_permiso,
