@@ -16,7 +16,7 @@
     <h1>Conciliación Gas LP</h1>
     <div class="sub">Facturas, complementos y cancelación</div>
     <form id="loginForm">
-      <div class="field"><label>Usuario</label><input id="code" autocomplete="username"></div>
+      <div class="field"><label>Usuario o correo</label><input id="code" autocomplete="username"></div>
       <div class="field"><label>Contraseña</label><input id="pin" type="password" autocomplete="current-password"></div>
       <button class="btn" type="submit">Entrar</button>
     </form>
@@ -24,16 +24,67 @@
     <div class="back"><a href="/modulo/gas-lp/roles">Cambiar acceso</a></div>
   </main>
   <script>
+    const ALLOWED_ROLES = ['admin','conciliacion','asistente_facturacion'];
+    function roleAllowed(role) {
+      return ALLOWED_ROLES.includes(String(role || '').toLowerCase());
+    }
+    async function readJson(res) {
+      try { return await res.json(); } catch (_) { return {}; }
+    }
+    async function tryExistingSession() {
+      const token = localStorage.getItem('ge_gaslp_conciliacion_token') || localStorage.getItem('sat_token') || localStorage.getItem('zc_token') || '';
+      if (!token) return false;
+      const res = await fetch('/api/auth/me', {headers:{Authorization:'Bearer '+token}});
+      if (!res.ok) return false;
+      const data = await readJson(res);
+      const gasAccess = (data.accesos || []).find(a => String(a.section || '').toLowerCase() === 'gas_lp');
+      if (!gasAccess || !roleAllowed(gasAccess.role || data.role)) return false;
+      localStorage.setItem('ge_gaslp_conciliacion_token', token);
+      location.href = '/conciliacion/gas-lp';
+      return true;
+    }
+    async function loginSupabase(user, pass) {
+      const res = await fetch('/api/auth/login', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({modulo:'gas_lp',username:user,password:pass})
+      });
+      const data = await readJson(res);
+      if (!res.ok || !data.success) throw new Error(data.detail || 'Usuario o contraseña incorrectos.');
+      if (!roleAllowed(data.role)) throw new Error('Tu rol Gas LP no permite entrar a conciliación.');
+      return data.token;
+    }
+    async function loginInternal(user, pass) {
+      const res = await fetch('/api/internal-auth/login', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({section:'gas_lp',code:user,pin:pass})
+      });
+      const data = await readJson(res);
+      if (!res.ok || !data.ok) throw new Error(data.detail || 'Usuario o contraseña incorrectos.');
+      if (!roleAllowed(data.role)) throw new Error('Tu rol Gas LP no permite entrar a conciliación.');
+      return data.token;
+    }
     loginForm.addEventListener('submit', async e => {
       e.preventDefault(); err.textContent = '';
+      const user = code.value.trim();
+      const pass = pin.value;
+      if (!user || !pass) { err.textContent = 'Ingresa usuario y contraseña.'; return; }
       try {
-        const res = await fetch('/api/internal-auth/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({section:'gas_lp',code:code.value,pin:pin.value})});
-        const data = await res.json();
-        if(!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible entrar.');
-        localStorage.setItem('ge_gaslp_conciliacion_token', data.token);
+        let token = '';
+        if (user.includes('@')) {
+          token = await loginSupabase(user, pass);
+        } else {
+          try { token = await loginInternal(user, pass); }
+          catch (_) { token = await loginSupabase(user, pass); }
+        }
+        localStorage.setItem('ge_gaslp_conciliacion_token', token);
+        localStorage.setItem('sat_token', token);
+        localStorage.setItem('zc_token', token);
         location.href = '/conciliacion/gas-lp';
       } catch(ex) { err.textContent = ex.message; }
     });
+    tryExistingSession().catch(() => {});
   </script>
 </body>
 </html>
