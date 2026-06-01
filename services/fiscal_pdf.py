@@ -394,33 +394,24 @@ def _facility_context_label(row: dict[str, Any] | None) -> str:
 def _fiscal_visual_context_table(root, template, context, Paragraph, styles, colors, Table, TableStyle):
     if template != "gas_lp" and not context:
         return None
-    facilities = [f for f in (context.get("facilities") or []) if isinstance(f, dict)]
     facility = context.get("facility") if isinstance(context.get("facility"), dict) else {}
     lugar = _attr(root, "LugarExpedicion", "")
     facility_label = _facility_context_label(facility)
-    if not facility_label and not facilities:
+    if not facility_label:
         return None
 
     rows = [
         [
-            Paragraph("<b>DATOS FISCALES</b>", styles["Tiny"]),
             Paragraph("<b>ESTABLECIMIENTO DE EXPEDICIÓN</b>", styles["Tiny"]),
         ],
         [
-            Paragraph(
-                f"<b>Régimen emisor:</b> {_text(context.get('regimen_emisor') or _attr(_first(root, 'Emisor'), 'RegimenFiscal'))}<br/>"
-                + (f"<b>CP fiscal emisor:</b> {_text(context.get('cp_fiscal_emisor'))}<br/>" if context.get("cp_fiscal_emisor") else "")
-                + f"<b>Lugar de expedición:</b> {_text(lugar)}<br/>"
-                + f"<b>Moneda:</b> {_text(_attr(root, 'Moneda'))} · <b>Exportación:</b> {_text(_attr(root, 'Exportacion'))}",
-                styles["Tiny"],
-            ),
             Paragraph(
                 _text(facility_label or f"CP {lugar}"),
                 styles["Tiny"],
             ),
         ],
     ]
-    table = Table(rows, colWidths=[2.35 * 72, 4.35 * 72])
+    table = Table(rows, colWidths=[6.7 * 72])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F5F1E8")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111111")),
