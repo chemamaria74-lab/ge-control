@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from routes.auth import _resolve_active_module_access, obtener_acceso_modulo, verify_token
-from routes.perfiles import _tenant_id_for_user
+from routes.perfiles import _tenant_id_for_user, get_perfiles_for_user
 from services.database import get_facilities
 from services.email_delivery import send_gas_lp_invoice_email
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml
@@ -313,7 +313,7 @@ def _gas_lp_internal_context(token: str, *, write: bool = False) -> dict:
     return ctx
 
 
-def _gas_lp_conciliacion_context(token: str, *, write: bool = False) -> dict:
+def _gas_lp_conciliacion_context(token: str, *, write: bool = False, perfil_id: int | None = None) -> dict:
     if str(token or "").count(".") == 2:
         uid = verify_token(token)
         if not uid:
@@ -324,8 +324,31 @@ def _gas_lp_conciliacion_context(token: str, *, write: bool = False) -> dict:
             raise HTTPException(403, "Tu usuario no tiene acceso a conciliación Gas LP.")
         if write and role not in {"admin", "conciliacion"}:
             raise HTTPException(403, "Tu rol no permite modificar conciliación.")
-        perfil_id = access.get("perfil_id")
+        requested_perfil_id = int(perfil_id or 0) or None
+        perfil_id = requested_perfil_id or access.get("perfil_id")
         tenant_id = access.get("tenant_id") or _tenant_id_for_user(uid, access_token=token)
+        if requested_perfil_id:
+            try:
+                rows = (
+                    get_supabase_for_user(token)
+                    .table("perfiles_empresa")
+                    .select("id,tenant_id,descripcion")
+                    .eq("id", requested_perfil_id)
+                    .eq("user_id", uid)
+                    .eq("activo", True)
+                    .ilike("descripcion", "%[module:gas_lp]%")
+                    .limit(1)
+                    .execute()
+                    .data
+                    or []
+                )
+            except Exception as exc:
+                logger.warning("gas_lp_conciliacion_requested_profile_lookup failed user=%s perfil=%s err=%s", uid, requested_perfil_id, exc)
+                rows = []
+            if not rows:
+                raise HTTPException(403, "No tienes acceso a esa empresa Gas LP.")
+            perfil_id = rows[0].get("id")
+            tenant_id = rows[0].get("tenant_id") or tenant_id
         if not perfil_id:
             try:
                 rows = (
@@ -364,6 +387,8 @@ def _gas_lp_conciliacion_context(token: str, *, write: bool = False) -> dict:
         raise HTTPException(403, "Tu rol no permite acceder a conciliación.")
     if write and role not in {"conciliacion", "admin"}:
         raise HTTPException(403, "Tu rol no permite modificar conciliación.")
+    if perfil_id and int(perfil_id) != int(ctx["user"].get("perfil_id") or 0):
+        raise HTTPException(403, "Tu sesión interna sólo puede usar la empresa asignada.")
     return ctx
 
 
@@ -1397,9 +1422,21 @@ async def gas_lp_internal_factura_pdf(factura_id: int, token: str):
     )
 
 
-@router.get("/internal-auth/gas-lp/conciliacion/summary")
-async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None):
+@router.get("/internal-auth/gas-lp/conciliacion/perfiles")
+async def gas_lp_conciliacion_perfiles(token: str):
     ctx = _gas_lp_conciliacion_context(token)
+    user = ctx["user"]
+    if str(token or "").count(".") == 2:
+        perfiles = get_perfiles_for_user(user.get("owner_user_id"), access_token=token, module="gas_lp")
+    else:
+        profile = _gas_lp_profile(user, require_module_marker=True)
+        perfiles = [{"id": profile.get("id"), "nombre": profile.get("nombre"), "rfc": profile.get("rfc"), "descripcion": ""}]
+    return JSONResponse({"ok": True, "perfil_id": user.get("perfil_id"), "perfiles": perfiles})
+
+
+@router.get("/internal-auth/gas-lp/conciliacion/summary")
+async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, perfil_id: int | None = None):
+    ctx = _gas_lp_conciliacion_context(token, perfil_id=perfil_id)
     user = ctx["user"]
     profile = _gas_lp_profile(user, require_module_marker=True)
     month = (periodo or datetime.now().strftime("%Y-%m"))[:7]
@@ -1455,8 +1492,8 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None):
 
 
 @router.post("/internal-auth/gas-lp/facturas/{factura_id}/complemento-pago")
-async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplementoPagoPayload, token: str):
-    ctx = _gas_lp_conciliacion_context(token, write=True)
+async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplementoPagoPayload, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_conciliacion_context(token, write=True, perfil_id=perfil_id)
     user = ctx["user"]
     profile = _gas_lp_profile(user, require_module_marker=True)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
@@ -1580,8 +1617,8 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
 
 
 @router.get("/internal-auth/gas-lp/complementos-pago/{complemento_id}/xml")
-async def gas_lp_complemento_pago_xml(complemento_id: int, token: str):
-    ctx = _gas_lp_conciliacion_context(token)
+async def gas_lp_complemento_pago_xml(complemento_id: int, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_conciliacion_context(token, perfil_id=perfil_id)
     user = ctx["user"]
     _gas_lp_profile(user, require_module_marker=True)
     rows = (
@@ -1603,8 +1640,8 @@ async def gas_lp_complemento_pago_xml(complemento_id: int, token: str):
 
 
 @router.post("/internal-auth/gas-lp/conciliacion/facturas/{factura_id}/cancelar")
-async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacionPayload, token: str):
-    ctx = _gas_lp_conciliacion_context(token, write=True)
+async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacionPayload, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_conciliacion_context(token, write=True, perfil_id=perfil_id)
     user = ctx["user"]
     _gas_lp_profile(user, require_module_marker=True)
     now = _now_iso()
