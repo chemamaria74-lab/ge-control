@@ -31,8 +31,9 @@ SECTIONS = {"transporte", "gas_lp", "gasolineras"}
 MAX_FAILED_ATTEMPTS = 5
 LOCK_MINUTES = 15
 SESSION_HOURS = 12
-GAS_LP_SIMPLE_CLAVE_PROD_SERV = "15111501"
-GAS_LP_HIDRO_CLAVES = {"15111510"}
+GAS_LP_CLAVE_PROD_SERV = "15111510"
+GAS_LP_HYP_SUBPRODUCTO = "SP46"
+GAS_LP_HIDRO_CLAVES = {GAS_LP_CLAVE_PROD_SERV}
 
 
 class InternalUserCreate(BaseModel):
@@ -102,7 +103,7 @@ class GasLpInternalFacturaPayload(BaseModel):
     folio: str = ""
     comentarios: str = ""
     fecha: str = ""
-    clave_prod_serv: str = GAS_LP_SIMPLE_CLAVE_PROD_SERV
+    clave_prod_serv: str = GAS_LP_CLAVE_PROD_SERV
     no_identificacion: str = "GLP-LTR"
     unidad: str = "Litro"
     facility_id: Optional[int] = None
@@ -465,11 +466,28 @@ def _clean_billing_email(value: str | None) -> str:
     return email
 
 
-def _gas_lp_simple_clave_prod_serv(value: str | None) -> str:
-    clave = "".join(ch for ch in str(value or "").strip() if ch.isdigit())[:8]
-    if not clave or clave in GAS_LP_HIDRO_CLAVES:
-        return GAS_LP_SIMPLE_CLAVE_PROD_SERV
-    return clave
+def _clean_clave_prod_serv(value: str | None) -> str:
+    return "".join(ch for ch in str(value or "").strip() if ch.isdigit())[:8] or GAS_LP_CLAVE_PROD_SERV
+
+
+def _gas_lp_hyp_from_facility(facility: dict, clave_prod_serv: str) -> dict:
+    clave = _clean_clave_prod_serv(clave_prod_serv)
+    if clave not in GAS_LP_HIDRO_CLAVES:
+        return {}
+    tipo_permiso = str(facility.get("tipo_permiso") or facility.get("modalidad_permiso") or "").strip().upper()
+    numero_permiso = str(facility.get("num_permiso") or "").strip().upper()
+    if not tipo_permiso or not numero_permiso:
+        raise HTTPException(
+            400,
+            "La clave SAT 15111510 requiere ComplementoConcepto/HidroYPetro. "
+            "Configura tipo de permiso y número de permiso en la instalación origen.",
+        )
+    return {
+        "tipo_permiso": tipo_permiso,
+        "numero_permiso": numero_permiso,
+        "clave_hyp": clave,
+        "subproducto_hyp": GAS_LP_HYP_SUBPRODUCTO,
+    }
 
 
 def _require_gas_lp_issuer(profile: dict, settings: dict) -> dict:
@@ -510,7 +528,8 @@ def _build_gas_lp_consumo_xml(
     folio: str = "",
     comentarios: str = "",
     fecha: str = "",
-    clave_prod_serv: str = GAS_LP_SIMPLE_CLAVE_PROD_SERV,
+    clave_prod_serv: str = GAS_LP_CLAVE_PROD_SERV,
+    hyp: Optional[dict] = None,
     no_identificacion: str = "GLP-LTR",
     unidad: str = "Litro",
 ) -> tuple[str, dict]:
@@ -536,14 +555,28 @@ def _build_gas_lp_consumo_xml(
     descuento_concepto = f' Descuento="{discount_total:.2f}"' if discount_total > 0 else ""
     if total <= 0:
         raise HTTPException(400, "El total de la factura debe ser mayor a cero. Revisa precio y descuento.")
-    clave_prod_serv = _gas_lp_simple_clave_prod_serv(clave_prod_serv)
+    clave_prod_serv = _clean_clave_prod_serv(clave_prod_serv)
+    hyp = hyp or {}
+    hyp_ns = ' xmlns:hidrocarburospetroliferos="http://www.sat.gob.mx/hidrocarburospetroliferos"' if hyp else ""
+    hyp_schema = " http://www.sat.gob.mx/hidrocarburospetroliferos http://www.sat.gob.mx/sitio_internet/cfd/hidrocarburospetroliferos.xsd" if hyp else ""
+    hyp_xml = ""
+    if hyp:
+        hyp_xml = (
+            '<cfdi:ComplementoConcepto>'
+            f'<hidrocarburospetroliferos:HidroYPetro Version="1.0" '
+            f'TipoPermiso="{xml_escape(hyp["tipo_permiso"])}" '
+            f'NumeroPermiso="{xml_escape(hyp["numero_permiso"])}" '
+            f'ClaveHYP="{xml_escape(hyp["clave_hyp"])}" '
+            f'SubProductoHYP="{xml_escape(hyp["subproducto_hyp"])}"/>'
+            '</cfdi:ComplementoConcepto>'
+        )
     no_identificacion = str(no_identificacion or folio).strip()[:100] or folio
     unidad = str(unidad or "Litro").strip()[:20] or "Litro"
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
-        '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" '
+        f'<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"{hyp_ns} '
         'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
-        'xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd" '
+        f'xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd{hyp_schema}" '
         f'Version="4.0" Serie="{xml_escape(serie)}" Folio="{xml_escape(folio)}" Fecha="{fecha}" FormaPago="{xml_escape(forma_pago or "99")}" '
         f'NoCertificado="" Certificado="" Sello="" SubTotal="{subtotal:.2f}"{descuento_comprobante} Moneda="MXN" Total="{total:.2f}" '
         f'TipoDeComprobante="I" Exportacion="01" MetodoPago="{xml_escape(metodo_pago or "PUE")}" LugarExpedicion="{issuer["cp"]}">'
@@ -557,6 +590,7 @@ def _build_gas_lp_consumo_xml(
         '<cfdi:Impuestos><cfdi:Traslados>'
         f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
         '</cfdi:Traslados></cfdi:Impuestos>'
+        f'{hyp_xml}'
         '</cfdi:Concepto>'
         '</cfdi:Conceptos>'
         f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva:.2f}"><cfdi:Traslados>'
@@ -1623,6 +1657,17 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     )
     serie_factura = _gas_lp_internal_series(user, settings)
     folio_factura = _gas_lp_next_invoice_folio(sb, user, serie_factura)
+    facilities_by_id = {
+        int(f["id"]): f
+        for f in get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+        if f.get("id") is not None
+    }
+    origen = facilities_by_id.get(int(payload.facility_id or 0), {})
+    if not origen:
+        raise HTTPException(400, "Selecciona la instalación origen para timbrar Gas LP.")
+    destino = facilities_by_id.get(int(payload.destino_facility_id or 0), {})
+    clave_prod_serv = _clean_clave_prod_serv(payload.clave_prod_serv)
+    hyp = _gas_lp_hyp_from_facility(origen, clave_prod_serv)
 
     xml, totals = _build_gas_lp_consumo_xml(
         issuer=issuer,
@@ -1638,21 +1683,15 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         folio=folio_factura,
         comentarios=payload.comentarios,
         fecha=payload.fecha,
-        clave_prod_serv=payload.clave_prod_serv,
+        clave_prod_serv=clave_prod_serv,
         no_identificacion=payload.no_identificacion,
         unidad=payload.unidad,
+        hyp=hyp,
     )
     resultado = timbrar_cfdi(xml)
     if resultado.get("error"):
         raise HTTPException(400, f"PAC rechazó la factura: {resultado['error']}")
     now = _now_iso()
-    facilities_by_id = {
-        int(f["id"]): f
-        for f in get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
-        if f.get("id") is not None
-    }
-    origen = facilities_by_id.get(int(payload.facility_id or 0), {})
-    destino = facilities_by_id.get(int(payload.destino_facility_id or 0), {})
     row = {
         **_gas_lp_invoice_scope(user, profile),
         "facility_id": payload.facility_id,
@@ -1681,7 +1720,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "serie": serie_factura,
             "folio_usuario": folio_factura,
             "comentarios": payload.comentarios,
-            "clave_prod_serv": payload.clave_prod_serv,
+            "clave_prod_serv": clave_prod_serv,
+            "hidrocarburos_petroliferos": hyp,
             "no_identificacion": payload.no_identificacion,
             "unidad": payload.unidad,
             "metodo_pago": payload.metodo_pago,
