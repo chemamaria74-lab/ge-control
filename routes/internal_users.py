@@ -673,6 +673,21 @@ def _factura_payment_info(factura: dict) -> dict:
     }
 
 
+def _gas_lp_factura_date_key(factura: dict) -> str:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    for value in (md.get("fecha_emision"), md.get("fecha_cfdi"), factura.get("fecha_timbrado"), factura.get("created_at")):
+        text = str(value or "")
+        if len(text) >= 10:
+            return text[:10]
+    xml_content = str(factura.get("xml_content") or "")
+    if xml_content:
+        try:
+            return _xml_attr(ET.fromstring(xml_content.encode("utf-8")), "Fecha")[:10]
+        except Exception:
+            return ""
+    return ""
+
+
 def _gas_lp_complementos_por_factura(sb, factura_ids: list[int]) -> dict[int, list[dict]]:
     ids = [int(fid) for fid in factura_ids if fid]
     by_factura: dict[int, list[dict]] = {fid: [] for fid in ids}
@@ -704,7 +719,6 @@ def _gas_lp_internal_factura(user: dict, factura_id: int) -> dict:
         .table("gas_lp_facturas")
         .select("*")
         .eq("id", factura_id)
-        .eq("user_id", user.get("owner_user_id"))
         .eq("tenant_id", user.get("tenant_id"))
         .eq("perfil_id", user.get("perfil_id"))
         .limit(1)
@@ -1355,26 +1369,29 @@ async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str):
 
 
 @router.get("/internal-auth/gas-lp/facturas")
-async def gas_lp_internal_facturas(token: str):
+async def gas_lp_internal_facturas(token: str, mes: str | None = None):
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
     sb = get_supabase_admin()
+    month = str(mes or "").strip()[:7]
+    month = month if len(month) == 7 and month[4] == "-" else ""
     try:
         rows = (
             sb
             .table("gas_lp_facturas")
             .select("*")
-            .eq("user_id", user.get("owner_user_id"))
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
             .order("created_at", desc=True)
-            .limit(1000)
+            .limit(10000 if month else 1000)
             .execute()
             .data
             or []
         )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
+    if month:
+        rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
     comp_by_factura = _gas_lp_complementos_por_factura(sb, [int(r["id"]) for r in rows if r.get("id")])
     for row in rows:
         row["payment_info"] = _factura_payment_info(row)
@@ -1451,7 +1468,6 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
         rows = (
             sb.table("gas_lp_facturas")
             .select("*")
-            .eq("user_id", user.get("owner_user_id"))
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
             .gte("created_at", start_at)
@@ -1515,7 +1531,6 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
         sb.table("gas_lp_facturas")
         .select("*")
         .in_("id", factura_ids)
-        .eq("user_id", user.get("owner_user_id"))
         .eq("tenant_id", user.get("tenant_id"))
         .eq("perfil_id", user.get("perfil_id"))
         .execute()
@@ -1626,7 +1641,6 @@ async def gas_lp_complemento_pago_xml(complemento_id: int, token: str, perfil_id
         .table("gas_lp_complementos_pago")
         .select("*")
         .eq("id", complemento_id)
-        .eq("user_id", user.get("owner_user_id"))
         .eq("tenant_id", user.get("tenant_id"))
         .eq("perfil_id", user.get("perfil_id"))
         .limit(1)
@@ -1637,6 +1651,36 @@ async def gas_lp_complemento_pago_xml(complemento_id: int, token: str, perfil_id
     if not rows or not rows[0].get("xml_content"):
         raise HTTPException(404, "Complemento de pago no encontrado.")
     return Response(content=rows[0]["xml_content"], media_type="application/xml")
+
+
+@router.get("/internal-auth/gas-lp/complementos-pago/{complemento_id}/pdf")
+async def gas_lp_complemento_pago_pdf(complemento_id: int, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_conciliacion_context(token, perfil_id=perfil_id)
+    user = ctx["user"]
+    _gas_lp_profile(user, require_module_marker=True)
+    rows = (
+        get_supabase_admin()
+        .table("gas_lp_complementos_pago")
+        .select("*")
+        .eq("id", complemento_id)
+        .eq("tenant_id", user.get("tenant_id"))
+        .eq("perfil_id", user.get("perfil_id"))
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows or not rows[0].get("xml_content"):
+        raise HTTPException(404, "Complemento de pago no encontrado.")
+    xml_content = rows[0]["xml_content"]
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    info = fiscal_pdf_info(xml_content, "complemento_pago_gas_lp")
+    pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{info.filename}"'},
+    )
 
 
 @router.post("/internal-auth/gas-lp/conciliacion/facturas/{factura_id}/cancelar")
@@ -1650,7 +1694,6 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
         sb.table("gas_lp_facturas")
         .select("*")
         .eq("id", factura_id)
-        .eq("user_id", user.get("owner_user_id"))
         .eq("tenant_id", user.get("tenant_id"))
         .eq("perfil_id", user.get("perfil_id"))
         .limit(1)
