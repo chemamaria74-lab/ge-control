@@ -120,8 +120,8 @@
           <div><label>Concepto</label><select id="conceptoCatalogo" class="locked-field" disabled><option value="gas_lp_litro">LITRO DE GAS LP</option></select></div>
           <input id="concepto" type="hidden" value="LITRO DE GAS LP">
           <div><label>Litros</label><input id="litros" type="number" min="0" step="0.00001" value="0" oninput="updateTotals()"></div>
-          <div><label for="precioUnitario">Precio unitario</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
-          <div><label>Descuento por litro</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
+          <div><label for="precioUnitario">Precio por litro con IVA</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
+          <div><label>Descuento por litro con IVA</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
           <div><label>IVA</label><select id="ivaRate" class="locked-field" disabled><option value="0.16">16%</option></select></div>
           <div><label>Método de pago</label><select id="metodoPago" onchange="syncPaymentMethod()"><option value="PUE">PUE - Pago en una sola exhibición</option><option value="PPD">PPD - Pago en parcialidades</option></select></div>
           <div><label>Forma de pago</label><select id="formaPago"><option value="01">01 - Efectivo</option><option value="02">02 - Cheque nominativo</option><option value="03">03 - Transferencia</option><option value="04">04 - Tarjeta de crédito</option><option value="28">28 - Tarjeta de débito</option><option value="99">99 - Por definir</option></select></div>
@@ -661,15 +661,19 @@
     function updateTotals(){
       const litrosNum = Number(litros.value || 0);
       const precioNum = Number(precioUnitario.value || 0);
-      const sub = litrosNum * precioNum;
+      const rate = Number(ivaRate.value || 0);
+      const gross = litrosNum * precioNum;
       const descuentoLitro = Math.min(Math.max(Number(descuento.value || 0), 0), precioNum);
-      const desc = Math.min(descuentoLitro * litrosNum, sub);
-      const iva = (sub - desc) * Number(ivaRate.value || 0);
+      const descGross = Math.min(descuentoLitro * litrosNum, gross);
+      const netGross = Math.max(gross - descGross, 0);
+      const sub = rate > 0 ? netGross / (1 + rate) : netGross;
+      const desc = rate > 0 ? descGross / (1 + rate) : descGross;
+      const iva = netGross - sub;
       sumSubtotal.textContent = money(sub);
       sumDescuento.textContent = money(desc);
-      sumIva.previousElementSibling.textContent = `IVA ${Math.round(Number(ivaRate.value || 0) * 100)}%`;
+      sumIva.previousElementSibling.textContent = `IVA ${Math.round(rate * 100)}%`;
       sumIva.textContent = money(iva);
-      sumTotal.textContent = money(sub - desc + iva);
+      sumTotal.textContent = money(netGross);
     }
     function syncPaymentMethod(){
       if(metodoPago.value === 'PPD'){
@@ -685,7 +689,7 @@
       const precioVal = Number(precioUnitario.value || 0);
       if(!facilitySelect.value){ setStatus('facturaMsg','Selecciona la instalación origen. Es obligatoria para control operativo GE Control.',false); facilitySelect.focus(); return; }
       const descuentoVal = Number(descuento.value || 0);
-      const totalVal = (litrosVal * Math.max(precioVal - descuentoVal, 0)) * (1 + Number(ivaRate.value || 0));
+      const totalVal = litrosVal * Math.max(precioVal - descuentoVal, 0);
       if(litrosVal <= 0 || precioVal <= 0){ setStatus('facturaMsg','Captura litros y configura un precio vigente mayor a cero.',false); return; }
       if(descuentoVal < 0 || descuentoVal >= precioVal){ setStatus('facturaMsg','El descuento por litro debe ser menor al precio unitario para que la factura tenga total mayor a cero.',false); return; }
       if(totalVal <= 0){ setStatus('facturaMsg','El total de la factura debe ser mayor a cero. Revisa precio y descuento.',false); return; }
