@@ -839,6 +839,49 @@ def _gas_lp_factura_metodo_pago(factura: dict) -> str:
     return _xml_attr(root, "MetodoPago").upper() if root is not None else method
 
 
+def _gas_lp_factura_total_con_iva(factura: dict) -> Decimal:
+    root = _gas_lp_factura_xml_root(factura)
+    if root is not None:
+        total_xml = _xml_attr(root, "Total")
+        if total_xml:
+            return _money(total_xml)
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    if md.get("total") not in {None, ""}:
+        return _money(md.get("total"))
+    return _money(Decimal(str(factura.get("importe") or 0)) * Decimal("1.16"))
+
+
+def _gas_lp_attach_internal_creators(sb, rows: list[dict]) -> None:
+    ids = sorted({
+        int((row.get("metadata") or {}).get("internal_user_id") or 0)
+        for row in rows
+        if isinstance(row.get("metadata"), dict) and (row.get("metadata") or {}).get("internal_user_id")
+    })
+    if not ids:
+        return
+    try:
+        users = (
+            sb.table("internal_users")
+            .select("id,display_name,code")
+            .in_("id", ids)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        users = []
+    by_id = {int(user.get("id") or 0): user for user in users}
+    for row in rows:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        internal_id = int(md.get("internal_user_id") or 0)
+        internal_user = by_id.get(internal_id)
+        if internal_user:
+            row["created_by_internal"] = {
+                "id": internal_id,
+                "name": internal_user.get("display_name") or internal_user.get("code") or "Asistente",
+            }
+
+
 def _gas_lp_complementos_por_factura(sb, factura_ids: list[int]) -> dict[int, list[dict]]:
     ids = [int(fid) for fid in factura_ids if fid]
     by_factura: dict[int, list[dict]] = {fid: [] for fid in ids}
@@ -1543,6 +1586,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
         raise _safe_internal_error("gas_lp_facturas", exc)
     if month:
         rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
+    _gas_lp_attach_internal_creators(sb, rows)
     comp_by_factura = _gas_lp_complementos_por_factura(sb, [int(r["id"]) for r in rows if r.get("id")])
     for row in rows:
         row["payment_info"] = _factura_payment_info(row)
@@ -1592,13 +1636,12 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="7A1E2C")
     for row in rows:
-        total = _factura_payment_info(row).get("total")
         ws.append([
             _gas_lp_factura_date_key(row),
             _gas_lp_factura_folio_label(row),
             _gas_lp_factura_razon_social(row),
             float(row.get("volumen_litros") or 0),
-            float(total or 0),
+            float(_gas_lp_factura_total_con_iva(row)),
             _gas_lp_factura_metodo_pago(row),
         ])
     for width, column in zip([14, 18, 42, 14, 18, 14], "ABCDEF"):
