@@ -1568,20 +1568,40 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
     user = ctx["user"]
     sb = get_supabase_admin()
     month = str(mes or "").strip()[:7]
-    month = month if len(month) == 7 and month[4] == "-" else ""
+    if len(month) == 7 and month[4] == "-":
+        try:
+            datetime.strptime(f"{month}-01", "%Y-%m-%d")
+        except ValueError:
+            month = ""
+    else:
+        month = ""
     try:
-        rows = (
-            sb
-            .table("gas_lp_facturas")
+        q = (
+            sb.table("gas_lp_facturas")
             .select("*")
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
-            .order("created_at", desc=True)
-            .limit(10000 if month else 1000)
-            .execute()
-            .data
-            or []
         )
+        if month:
+            start = datetime.strptime(f"{month}-01", "%Y-%m-%d")
+            if start.month == 12:
+                end = start.replace(year=start.year + 1, month=1)
+            else:
+                end = start.replace(month=start.month + 1)
+            q = q.gte("created_at", start.date().isoformat()).lt("created_at", end.date().isoformat())
+        rows = q.order("created_at", desc=True).limit(10000 if month else 1000).execute().data or []
+        if month and not rows:
+            rows = (
+                sb.table("gas_lp_facturas")
+                .select("*")
+                .eq("tenant_id", user.get("tenant_id"))
+                .eq("perfil_id", user.get("perfil_id"))
+                .order("created_at", desc=True)
+                .limit(10000)
+                .execute()
+                .data
+                or []
+            )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
     if month:
