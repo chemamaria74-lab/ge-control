@@ -96,6 +96,7 @@ class GasLpInternalFacturaPayload(BaseModel):
     iva_rate: float = 0.16
     serie: str = "AA"
     folio: str = ""
+    comentarios: str = ""
     fecha: str = ""
     clave_prod_serv: str = "15111510"
     no_identificacion: str = "GLP-LTR"
@@ -382,6 +383,7 @@ def _build_gas_lp_consumo_xml(
     iva_rate=0.16,
     serie: str = "AA",
     folio: str = "",
+    comentarios: str = "",
     fecha: str = "",
     clave_prod_serv: str = "15111510",
     no_identificacion: str = "GLP-LTR",
@@ -404,6 +406,7 @@ def _build_gas_lp_consumo_xml(
     serie = (str(serie or "AA").strip() or "AA")[:10]
     fecha = (str(fecha or "").strip() or datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))[:19]
     desc = concepto.strip() or "Venta de Gas LP"
+    comments = str(comentarios or "").strip()[:500]
     descuento_comprobante = f' Descuento="{discount_total:.2f}"' if discount_total > 0 else ""
     descuento_concepto = f' Descuento="{discount_total:.2f}"' if discount_total > 0 else ""
     clave_prod_serv = "".join(ch for ch in str(clave_prod_serv or "15111510") if ch.isdigit())[:8] or "15111510"
@@ -432,6 +435,7 @@ def _build_gas_lp_consumo_xml(
         f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva:.2f}"><cfdi:Traslados>'
         f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
         '</cfdi:Traslados></cfdi:Impuestos>'
+        f'{f"<cfdi:Addenda><Observaciones>{xml_escape(comments)}</Observaciones></cfdi:Addenda>" if comments else ""}'
         '</cfdi:Comprobante>'
     )
     return xml, {"folio": folio, "subtotal": float(subtotal), "descuento": float(discount_total), "iva": float(iva), "total": float(total)}
@@ -1488,6 +1492,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         iva_rate=payload.iva_rate,
         serie=payload.serie,
         folio=payload.folio,
+        comentarios=payload.comentarios,
         fecha=payload.fecha,
         clave_prod_serv=payload.clave_prod_serv,
         no_identificacion=payload.no_identificacion,
@@ -1530,6 +1535,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "iva_rate": payload.iva_rate,
             "serie": payload.serie,
             "folio_usuario": payload.folio,
+            "comentarios": payload.comentarios,
             "clave_prod_serv": payload.clave_prod_serv,
             "no_identificacion": payload.no_identificacion,
             "unidad": payload.unidad,
