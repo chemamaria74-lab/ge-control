@@ -192,12 +192,17 @@ def create_facility_v2(user_id: str, data: dict) -> dict:
             "permiso_alm":         data.get("permiso_alm", ""),
             "clave_instalacion":   data.get("clave_instalacion", ""),
             "descripcion":         data.get("descripcion", ""),
-            "domicilio_operativo": data.get("domicilio_operativo", ""),
-            "codigo_postal":       data.get("codigo_postal", ""),
             "capacidad_tanque":    float(data.get("capacidad_tanque", 0.0)),
             "num_tanques":         int(data.get("num_tanques", 1)),
             "num_dispensarios":    int(data.get("num_dispensarios", 0)),
             "temperatura_default": data.get("temperatura_default"),
+            "codigo_postal":       data.get("codigo_postal", ""),
+            "domicilio":           data.get("domicilio", ""),
+            "calle":               data.get("calle", ""),
+            "num_ext":             data.get("num_ext", ""),
+            "colonia":             data.get("colonia", ""),
+            "municipio":           data.get("municipio", ""),
+            "estado":              data.get("estado", ""),
             "latitud":             data.get("latitud"),
             "longitud":            data.get("longitud"),
             "cap_total_tanque":               data.get("cap_total_tanque"),
@@ -234,12 +239,17 @@ def update_facility_v2(facility_id: int, user_id: str, data: dict) -> Optional[d
             "permiso_alm":         data.get("permiso_alm", ""),
             "clave_instalacion":   data.get("clave_instalacion", ""),
             "descripcion":         data.get("descripcion", ""),
-            "domicilio_operativo": data.get("domicilio_operativo", ""),
-            "codigo_postal":       data.get("codigo_postal", ""),
             "capacidad_tanque":    float(data.get("capacidad_tanque", 0.0)),
             "num_tanques":         int(data.get("num_tanques", 1)),
             "num_dispensarios":    int(data.get("num_dispensarios", 0)),
             "temperatura_default": data.get("temperatura_default"),
+            "codigo_postal":       data.get("codigo_postal", ""),
+            "domicilio":           data.get("domicilio", ""),
+            "calle":               data.get("calle", ""),
+            "num_ext":             data.get("num_ext", ""),
+            "colonia":             data.get("colonia", ""),
+            "municipio":           data.get("municipio", ""),
+            "estado":              data.get("estado", ""),
             "latitud":             data.get("latitud"),
             "longitud":            data.get("longitud"),
             "cap_total_tanque":    data.get("cap_total_tanque"),
@@ -297,13 +307,10 @@ def save_records(user_id: str, periodo: str, grupos: dict, tipo: str,
         return 0
     try:
         result = get_supabase_admin().table("records").insert(rows).execute()
-        inserted = len(result.data or [])
-        if inserted != len(rows):
-            raise RuntimeError(f"Supabase insertó {inserted}/{len(rows)} records.")
-        return inserted
+        return len(result.data or [])
     except Exception as e:
         logger.error("save_records: %s", e)
-        raise
+        return 0
 
 
 def get_records(user_id: str, periodo: str,
@@ -324,46 +331,6 @@ def get_records(user_id: str, periodo: str,
         return {"entradas": entradas, "salidas": salidas}
     except Exception as e:
         logger.warning("get_records: %s", e)
-        return {"entradas": [], "salidas": []}
-
-
-def _archive_table_matches(value: str, table: str) -> bool:
-    v = (value or "").split(".")[-1]
-    return v == table
-
-
-def get_archived_records(user_id: str, periodo: str,
-                         facility_id: Optional[int] = None) -> dict:
-    """
-    Lee respaldo creado por security_bloque_c_gas_lp_scope_closure_20260526.sql.
-    Es solo un puente para históricos legacy que quedaron invisibles al exigir
-    perfil_id; las cargas nuevas deben vivir en records/reports normales.
-    """
-    try:
-        rows = (
-            get_supabase_admin()
-            .table("security_profile_null_archive")
-            .select("table_name,payload")
-            .eq("user_id", user_id)
-            .execute()
-            .data
-            or []
-        )
-        records = []
-        for row in rows:
-            if not _archive_table_matches(row.get("table_name"), "records"):
-                continue
-            payload = row.get("payload") or {}
-            if payload.get("periodo") != periodo:
-                continue
-            if facility_id is not None and payload.get("facility_id") != facility_id:
-                continue
-            records.append(payload)
-        entradas = [r for r in records if r.get("tipo") == "entrada"]
-        salidas = [r for r in records if r.get("tipo") == "salida"]
-        return {"entradas": entradas, "salidas": salidas}
-    except Exception as e:
-        logger.warning("get_archived_records: %s", e)
         return {"entradas": [], "salidas": []}
 
 
@@ -406,15 +373,14 @@ def get_period_totals(user_id: str, periodo: str,
         imp_compra    = sum(e.get("importe", 0) for e in entradas)
         precio_compra = round(imp_compra / vol_compra, 4) if vol_compra > 0 else 0
 
-        vol_auto     = sum(abs(x.get("volumen_litros", 0)) for x in autoconsumos)
         vol_venta    = sum(s.get("volumen_litros", 0) for s in ventas_reales)
         imp_venta    = sum(s.get("importe", 0) for s in ventas_reales)
         precio_venta = round(imp_venta / vol_venta, 4) if vol_venta > 0 else 0
 
         return {
             "total_entradas":     round(sum(x["volumen_litros"] for x in entradas), 2),
-            "total_salidas":      round(sum(x.get("volumen_litros", 0) for x in ventas_reales) + vol_auto, 2),
-            "total_autoconsumo":  round(vol_auto, 2),
+            "total_salidas":      round(sum(x["volumen_litros"] for x in salidas), 2),
+            "total_autoconsumo":  round(sum(x["volumen_litros"] for x in autoconsumos), 2),
             "cnt_autoconsumo":    len(autoconsumos),
             "total_traspasos":    round(sum(x.get("volumen_litros", 0) for x in traspasos_list), 2),
             "cnt_traspasos":      len(traspasos_list),
@@ -442,7 +408,7 @@ def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
                 xml_path: str = "", json_path: str = "", zip_path: str = "",
                 first_salida_uuid: str = "",
                 facility_id: Optional[int] = None,
-                perfil_id: Optional[int] = None) -> dict:
+                perfil_id: Optional[int] = None) -> None:
     try:
         import base64
         record = {
@@ -470,14 +436,9 @@ def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
         if json_path and os.path.exists(json_path):
             with open(json_path, "r", encoding="utf-8") as f:
                 record["json_content"] = f.read()
-        result = get_supabase_admin().table("reports").insert(record).execute()
-        rows = result.data or []
-        if not rows:
-            raise RuntimeError("Supabase no devolvió confirmación al guardar reports.")
-        return rows[0]
+        get_supabase_admin().table("reports").insert(record).execute()
     except Exception as e:
         logger.error("save_report: %s", e)
-        raise
 
 
 def get_reports(user_id: str, periodo: Optional[str] = None,
@@ -494,37 +455,6 @@ def get_reports(user_id: str, periodo: Optional[str] = None,
         return q.order("created_at", desc=True).execute().data or []
     except Exception as e:
         logger.warning("get_reports: %s", e)
-        return []
-
-
-def get_archived_reports(user_id: str, periodo: Optional[str] = None,
-                         facility_id: Optional[int] = None) -> list:
-    try:
-        rows = (
-            get_supabase_admin()
-            .table("security_profile_null_archive")
-            .select("table_name,payload,archived_at")
-            .eq("user_id", user_id)
-            .execute()
-            .data
-            or []
-        )
-        reports = []
-        for row in rows:
-            if not _archive_table_matches(row.get("table_name"), "reports"):
-                continue
-            payload = row.get("payload") or {}
-            if periodo and payload.get("periodo") != periodo:
-                continue
-            if facility_id is not None and payload.get("facility_id") != facility_id:
-                continue
-            payload = dict(payload)
-            payload["_archived"] = True
-            payload["_archived_at"] = row.get("archived_at")
-            reports.append(payload)
-        return sorted(reports, key=lambda r: r.get("created_at") or r.get("_archived_at") or "", reverse=True)
-    except Exception as e:
-        logger.warning("get_archived_reports: %s", e)
         return []
 
 
@@ -595,7 +525,7 @@ def delete_period(user_id: str, periodo: str,
                   facility_id: Optional[int] = None,
                   include_autoconsumos: bool = False,
                   perfil_id: Optional[int] = None) -> dict:
-    counts = {"records": 0, "reports": 0, "archived": 0}
+    counts = {"records": 0, "reports": 0}
     try:
         sb = get_supabase_admin()
         
@@ -632,28 +562,6 @@ def delete_period(user_id: str, periodo: str,
         counts["records"] = len(res_rec.data or [])
         
         logger.info(f"delete_period: Borrados {counts['records']} registros (Incluyó autoconsumo: {include_autoconsumos})")
-
-        try:
-            archived = sb.table("security_profile_null_archive").select("id,table_name,payload").eq("user_id", user_id).execute().data or []
-            ids = []
-            for row in archived:
-                table = (row.get("table_name") or "").split(".")[-1]
-                payload = row.get("payload") or {}
-                if table not in {"records", "reports"} or payload.get("periodo") != periodo:
-                    continue
-                if facility_id is not None and payload.get("facility_id") != facility_id:
-                    continue
-                if not include_autoconsumos and table == "records":
-                    uuid_val = str(payload.get("uuid") or "")
-                    file_path = str(payload.get("file_path") or "")
-                    if payload.get("es_autoconsumo") or file_path.startswith("manual:") or uuid_val.upper().startswith("AUTO-"):
-                        continue
-                ids.append(row["id"])
-            if ids:
-                res_arch = sb.table("security_profile_null_archive").delete().in_("id", ids).execute()
-                counts["archived"] = len(res_arch.data or [])
-        except Exception as archive_exc:
-            logger.warning("delete_period archive cleanup skipped: %s", archive_exc)
 
     except Exception as e:
         logger.error("delete_period: %s", e)
