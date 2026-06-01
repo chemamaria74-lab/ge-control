@@ -11,8 +11,8 @@
     :root{--wine:#7A1E2C;--wine2:#5B0F1D;--ink:#111;--muted:#6F6A64;--line:#E7E3DC;--bg:#F5F5F5;--surface:#fff}
     *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:var(--ge-font);color:var(--ink);min-height:100vh}
     .top{position:sticky;top:0;background:#5B0F1D;color:white;padding:14px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(200,169,107,.22);z-index:10}.brand{display:flex;align-items:center;gap:10px;font-weight:800}.brand img{width:58px;height:34px;object-fit:contain}.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800}.right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.company-select{min-width:220px;max-width:340px;border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;font-weight:800}.company-select option{color:#111}.btn{border:1px solid var(--wine);background:var(--wine);color:#fff;border-radius:8px;padding:10px 13px;font:inherit;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;gap:7px;align-items:center;justify-content:center}.btn:hover{background:var(--wine2)}.btn.ghost{background:#fff;color:var(--ink);border-color:#D8D0C4}.btn.sm{padding:8px 11px;border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff}
-    main{max-width:1220px;margin:0 auto;padding:22px}.hero{display:flex;justify-content:space-between;gap:14px;align-items:flex-end;margin-bottom:16px}h1{font-size:26px;margin:0 0 5px}h2{font-size:20px;margin:0}.muted{color:var(--muted);line-height:1.5}.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:14px}.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.kpi .label{font-size:12px;color:var(--muted);font-weight:900}.kpi .value{font-size:24px;font-weight:900;margin-top:4px}label{display:block;font-size:12px;font-weight:900;color:var(--muted);margin-bottom:6px}input,select,textarea{width:100%;border:1px solid #D8D0C4;border-radius:8px;padding:10px 11px;font:inherit;background:#fff}textarea{min-height:74px;resize:vertical}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.status{font-size:13px;font-weight:800;margin-top:8px}.ok{color:#15803d}.err{color:#b91c1c}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;color:#64748b;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.04em;padding:9px;white-space:nowrap}td{border-bottom:1px solid #eef2f7;padding:9px;vertical-align:top}.section-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.pill{display:inline-flex;align-items:center;gap:5px;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:900}.pill.warn{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.pill.gray{border-color:#e2e8f0;background:#f8fafc;color:#475569}.doc-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.doc-tab{border:1px solid #D8D0C4;background:#fff;border-radius:999px;padding:9px 13px;font:inherit;font-weight:900;color:#475569;cursor:pointer}.doc-tab.active{background:var(--wine);border-color:var(--wine);color:#fff}.doc-section{display:none}.doc-section.active{display:block}.download-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}.paid-row{background:#f0fdf4}.paid-row td{border-bottom-color:#bbf7d0}.danger{background:#fff;color:#b91c1c;border-color:#fecaca}.danger:hover{background:#fef2f2;color:#991b1b}.invoice-actions{display:flex;gap:6px;flex-wrap:wrap}.invoice-actions .btn{padding:7px 9px;font-size:12px}
-    @media(max-width:980px){.kpis,.grid,.form-grid{grid-template-columns:1fr}.hero{align-items:start;flex-direction:column}.btn{width:100%}}
+    main{max-width:1220px;margin:0 auto;padding:22px}.hero{display:flex;justify-content:space-between;gap:14px;align-items:flex-end;margin-bottom:16px}h1{font-size:26px;margin:0 0 5px}h2{font-size:20px;margin:0}.muted{color:var(--muted);line-height:1.5}.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:14px}.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.kpi .label{font-size:12px;color:var(--muted);font-weight:900}.kpi .value{font-size:24px;font-weight:900;margin-top:4px}.split-panels{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}.mini-list{display:grid;gap:8px}.mini-row{border:1px solid var(--line);border-radius:8px;padding:10px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}.mini-row b{display:block}.mini-row .meta{font-size:12px;color:var(--muted);margin-top:3px}label{display:block;font-size:12px;font-weight:900;color:var(--muted);margin-bottom:6px}input,select,textarea{width:100%;border:1px solid #D8D0C4;border-radius:8px;padding:10px 11px;font:inherit;background:#fff}textarea{min-height:74px;resize:vertical}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.status{font-size:13px;font-weight:800;margin-top:8px}.ok{color:#15803d}.err{color:#b91c1c}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;color:#64748b;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.04em;padding:9px;white-space:nowrap}td{border-bottom:1px solid #eef2f7;padding:9px;vertical-align:top}.section-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.pill{display:inline-flex;align-items:center;gap:5px;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:900}.pill.warn{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.pill.gray{border-color:#e2e8f0;background:#f8fafc;color:#475569}.doc-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.doc-tab{border:1px solid #D8D0C4;background:#fff;border-radius:999px;padding:9px 13px;font:inherit;font-weight:900;color:#475569;cursor:pointer}.doc-tab.active{background:var(--wine);border-color:var(--wine);color:#fff}.doc-section{display:none}.doc-section.active{display:block}.download-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}.paid-row{background:#f0fdf4}.paid-row td{border-bottom-color:#bbf7d0}.danger{background:#fff;color:#b91c1c;border-color:#fecaca}.danger:hover{background:#fef2f2;color:#991b1b}.invoice-actions{display:flex;gap:6px;flex-wrap:wrap}.invoice-actions .btn{padding:7px 9px;font-size:12px}
+    @media(max-width:980px){.kpis,.grid,.form-grid,.split-panels{grid-template-columns:1fr}.hero{align-items:start;flex-direction:column}.btn{width:100%}}
   </style>
 </head>
 <body>
@@ -50,6 +50,16 @@
           <div><label>Mes</label><input id="docPeriodo" type="month" onchange="syncPeriodFromDocs()"></div>
           <div><label>Tipo</label><select id="docTipo"><option value="todos">Facturas y complementos</option><option value="facturas">Solo facturas</option><option value="complementos">Solo complementos de pago</option></select></div>
           <button class="btn" type="button" onclick="downloadDocumentosZip()"><i class="fa-solid fa-file-zipper"></i> XML ZIP</button>
+        </div>
+      </section>
+      <section class="split-panels">
+        <div class="card">
+          <div class="section-title"><h2>Créditos PPD</h2><span class="pill warn" id="kCreditosPendientes">0 pendientes</span></div>
+          <div class="mini-list" id="creditosRows"><div class="muted">Cargando...</div></div>
+        </div>
+        <div class="card">
+          <div class="section-title"><h2>Cartas Porte</h2><span class="pill gray" id="kCartasPorte">0 traslados</span></div>
+          <div class="mini-list" id="cartasPorteRows"><div class="muted">Cargando...</div></div>
         </div>
       </section>
       <section class="card">
@@ -113,6 +123,7 @@
         kCredito.textContent = money(data.kpis?.credito_estimado);
         kTraspasos.textContent = money(data.kpis?.traspasos);
         FACTURAS = data.facturas || [];
+        renderHighlights(FACTURAS);
         renderFacturas(FACTURAS);
         renderCuadre(FACTURAS);
       }catch(e){
@@ -162,6 +173,31 @@
         const action = `<div class="invoice-actions">${needsPayment ? `<button class="btn ghost" type="button" onclick="generarComplementoPago(${Number(f.id)}, ${Number(saldo||0)})">Pago</button>` : ''}${compDocs}${cancel}</div>`;
         return `<tr class="${isPaid(f)?'paid-row':''}"><td>${esc((f.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(op)}</td><td>${esc(md.origen_nombre||'—')}</td><td>${esc(md.cliente_nombre||f.rfc_receptor||'—')}</td><td>${esc(f.volumen_litros||0)}</td><td>${money(md.total||f.importe)}</td><td>${pagoLabel(f)}<br><span class="muted">${esc(pago||paymentStatus||'—')}</span></td><td>${esc(assistant)}</td><td>${esc(f.status||'—')}</td><td><code>${esc(f.uuid_sat||'—')}</code></td><td>${action}</td></tr>`;
       }).join('') : '<tr><td colspan="11">Sin facturas para el día.</td></tr>';
+    }
+    function renderHighlights(rows){
+      const creditos = rows.filter(f => {
+        const md=f.metadata||{};
+        const metodo=String(md.metodo_pago||'').toUpperCase();
+        const st=String(f.payment_status||md.payment_status||'pendiente_complemento').toLowerCase();
+        return md.tipo_operacion !== 'traspaso' && metodo === 'PPD' && !isPaid(f) && ['pendiente_complemento','pago_parcial'].includes(st);
+      });
+      const cartas = rows.filter(f => {
+        const md=f.metadata||{};
+        return md.tipo_operacion === 'traspaso' || String(f.tipo_comprobante||'').toUpperCase() === 'T' || md.generar_carta_porte === true;
+      });
+      kCreditosPendientes.textContent = `${creditos.length} pendientes`;
+      kCartasPorte.textContent = `${cartas.length} traslados`;
+      creditosRows.innerHTML = creditos.length ? creditos.slice(0,6).map(f=>{
+        const md=f.metadata||{};
+        const saldo = Number(md.saldo_insoluto || md.total || f.importe || 0);
+        return `<div class="mini-row"><div><b>${esc(md.cliente_nombre||f.rfc_receptor||'Cliente')}</b><div class="meta">${esc((f.created_at||'').slice(0,10))} · ${esc(md.origen_nombre||'—')} · ${money(saldo)}</div></div><button class="btn ghost" type="button" onclick="generarComplementoPago(${Number(f.id)}, ${saldo})">Pago</button></div>`;
+      }).join('') : '<div class="muted">Sin facturas PPD pendientes en este periodo.</div>';
+      cartasPorteRows.innerHTML = cartas.length ? cartas.slice(0,6).map(f=>{
+        const md=f.metadata||{};
+        const id=Number(f.id);
+        const docs = `<a class="btn ghost" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&token=${encodeURIComponent(token)}" target="_blank" rel="noopener">PDF</a>`;
+        return `<div class="mini-row"><div><b>${esc(md.origen_nombre||'Origen')} → ${esc(md.destino_nombre||'Destino')}</b><div class="meta">${esc((f.created_at||'').slice(0,10))} · ${esc(f.volumen_litros||0)} L · ${esc(f.uuid_sat||'sin UUID')}</div></div>${docs}</div>`;
+      }).join('') : '<div class="muted">Sin Cartas Porte en este periodo.</div>';
     }
     function renderCuadre(rows){
       const invoices = rows.filter(f => (f.metadata||{}).tipo_operacion !== 'traspaso');
