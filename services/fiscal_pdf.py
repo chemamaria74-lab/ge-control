@@ -71,6 +71,7 @@ def generar_pdf_cfdi_desde_xml(
     traslados = _root_tax_nodes(root, "Traslado")
     retenciones = _root_tax_nodes(root, "Retencion")
     extra_context = extra_context or {}
+    cp_fiscal_emisor = str(extra_context.get("cp_fiscal_emisor") or "").strip()
 
     buffer = BytesIO()
     using_default_logo = not logo_data_url
@@ -78,19 +79,20 @@ def generar_pdf_cfdi_desde_xml(
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        rightMargin=0.42 * inch,
-        leftMargin=0.42 * inch,
-        topMargin=0.38 * inch,
-        bottomMargin=0.38 * inch,
+        rightMargin=0.34 * inch,
+        leftMargin=0.34 * inch,
+        topMargin=0.30 * inch,
+        bottomMargin=0.30 * inch,
         title=title,
     )
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=13, textColor=colors.HexColor("#7A1E2C"), leading=15))
-    styles.add(ParagraphStyle(name="TitleCenter", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=14.5, leading=16.8))
-    styles.add(ParagraphStyle(name="Right", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=8.6, leading=10.2))
-    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontSize=10, leading=12, textColor=colors.HexColor("#7A1E2C"), spaceBefore=7, spaceAfter=3))
-    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=7.6, leading=9.0))
-    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=9.0, leading=10.8))
+    styles.add(ParagraphStyle(name="TitleCenter", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=13.8, leading=15.8))
+    styles.add(ParagraphStyle(name="Right", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=8.0, leading=9.3))
+    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontSize=9.2, leading=10.8, textColor=colors.HexColor("#7A1E2C"), spaceBefore=5, spaceAfter=2))
+    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.8, leading=7.7))
+    styles.add(ParagraphStyle(name="TinyCenter", parent=styles["Tiny"], alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=8.2, leading=9.4))
     styles.add(ParagraphStyle(name="SmallBold", parent=styles["Small"], fontName="Helvetica-Bold"))
     styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=colors.white))
     styles.add(ParagraphStyle(name="HeaderSmallBold", parent=styles["SmallBold"], textColor=colors.white))
@@ -122,28 +124,29 @@ def generar_pdf_cfdi_desde_xml(
             f"<b>{_text(_attr(emisor, 'Nombre'))}</b><br/>"
             f"RFC: {_text(_attr(emisor, 'Rfc'))}<br/>"
             f"Régimen fiscal: {_text(_attr(emisor, 'RegimenFiscal'))}<br/>"
-            f"Lugar de expedición: {_text(_attr(root, 'LugarExpedicion'))}",
+            + (f"CP fiscal emisor: {_text(cp_fiscal_emisor)}<br/>" if cp_fiscal_emisor else "")
+            + f"Lugar de expedición: {_text(_attr(root, 'LugarExpedicion'))}",
             styles["Small"],
         )
     )
     header_box = _summary_box(root, timbre, Paragraph, styles, colors, Table, TableStyle)
     header = Table([[header_left, header_box]], colWidths=[4.05 * inch, 2.65 * inch])
     header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    story += [header, Spacer(1, 10)]
+    story += [header, Spacer(1, 6)]
 
     story.append(_party_table(root, emisor, receptor, Paragraph, styles, colors, Table, TableStyle))
     fiscal_visual = _fiscal_visual_context_table(root, template, extra_context, Paragraph, styles, colors, Table, TableStyle)
     if fiscal_visual is not None:
-        story.append(Spacer(1, 6))
+        story.append(Spacer(1, 4))
         story.append(fiscal_visual)
-    story.append(Spacer(1, 8))
-    story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors))
-    story.append(Spacer(1, 8))
-    story.append(_payment_totals_table(root, traslados, retenciones, Paragraph, styles, colors, Table, TableStyle))
-    story.append(Spacer(1, 9))
-    story.append(_certification_table(root, timbre, qr, Paragraph, styles, colors, Table, TableStyle))
     story.append(Spacer(1, 5))
-    story.append(Paragraph("Este documento es una representación impresa de un CFDI. Generado por GE Control.", styles["Tiny"]))
+    story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors))
+    story.append(Spacer(1, 5))
+    story.append(_payment_totals_table(root, traslados, retenciones, Paragraph, styles, colors, Table, TableStyle))
+    story.append(Spacer(1, 5))
+    story.append(_certification_table(root, timbre, qr, Paragraph, styles, colors, Table, TableStyle))
+    story.append(Spacer(1, 3))
+    story.append(Paragraph("Este documento es una representación impresa de un CFDI.", styles["TinyCenter"]))
     doc.build(story, onFirstPage=_paint_page_background, onLaterPages=_paint_page_background)
     return buffer.getvalue()
 
@@ -398,36 +401,40 @@ def _fiscal_visual_context_table(root, template, context, Paragraph, styles, col
     if facilities:
         other_count = max(len(facilities) - 1, 0)
         domicilios_label = (
-            f"Sí. {len(facilities)} establecimientos/instalaciones configuradas"
-            if len(facilities) > 1 else "No se registran otros establecimientos en GE Control"
+            f"Sí. {len(facilities)} establecimientos configurados"
+            if len(facilities) > 1 else "No se registran otros establecimientos"
         )
-        facilities_text = "; ".join(_facility_context_label(f) for f in facilities[:6] if _facility_context_label(f))
+        facilities_text = ""
         if other_count and facility.get("id"):
-            facilities_text = "; ".join(
-                _facility_context_label(f)
-                for f in facilities[:6]
-                if f.get("id") != facility.get("id") and _facility_context_label(f)
-            ) or facilities_text
+            others = [
+                str(f.get("nombre") or "").strip()
+                for f in facilities[:8]
+                if f.get("id") != facility.get("id") and str(f.get("nombre") or "").strip()
+            ]
+            facilities_text = ", ".join(others[:4])
+            if len(others) > 4:
+                facilities_text += f" y {len(others)-4} más"
     else:
         domicilios_label = "No capturado en GE Control"
         facilities_text = ""
 
     rows = [
         [
-            Paragraph("<b>INFORMACIÓN FISCAL VISIBLE</b>", styles["Tiny"]),
-            Paragraph("<b>DOMICILIOS / ESTABLECIMIENTOS</b>", styles["Tiny"]),
+            Paragraph("<b>DATOS FISCALES</b>", styles["Tiny"]),
+            Paragraph("<b>ESTABLECIMIENTO DE EXPEDICIÓN</b>", styles["Tiny"]),
         ],
         [
             Paragraph(
                 f"<b>Régimen emisor:</b> {_text(context.get('regimen_emisor') or _attr(_first(root, 'Emisor'), 'RegimenFiscal'))}<br/>"
-                f"<b>Lugar de expedición:</b> {_text(lugar)}<br/>"
-                f"<b>Moneda:</b> {_text(_attr(root, 'Moneda'))} · <b>Exportación:</b> {_text(_attr(root, 'Exportacion'))}",
+                + (f"<b>CP fiscal emisor:</b> {_text(context.get('cp_fiscal_emisor'))}<br/>" if context.get("cp_fiscal_emisor") else "")
+                + f"<b>Lugar de expedición:</b> {_text(lugar)}<br/>"
+                + f"<b>Moneda:</b> {_text(_attr(root, 'Moneda'))} · <b>Exportación:</b> {_text(_attr(root, 'Exportacion'))}",
                 styles["Tiny"],
             ),
             Paragraph(
-                f"<b>Establecimiento de expedición:</b> {_text(facility_label or f'CP {lugar}')}<br/>"
+                f"{_text(facility_label or f'CP {lugar}')}<br/>"
                 f"<b>¿Cuenta con más domicilios?</b> {_text(domicilios_label)}"
-                + (f"<br/><b>Otros domicilios:</b> {_text(facilities_text)}" if facilities_text else ""),
+                + (f"<br/><b>Otros establecimientos:</b> {_text(facilities_text)}" if facilities_text else ""),
                 styles["Tiny"],
             ),
         ],

@@ -406,14 +406,15 @@ def get_period_totals(user_id: str, periodo: str,
         imp_compra    = sum(e.get("importe", 0) for e in entradas)
         precio_compra = round(imp_compra / vol_compra, 4) if vol_compra > 0 else 0
 
+        vol_auto     = sum(abs(x.get("volumen_litros", 0)) for x in autoconsumos)
         vol_venta    = sum(s.get("volumen_litros", 0) for s in ventas_reales)
         imp_venta    = sum(s.get("importe", 0) for s in ventas_reales)
         precio_venta = round(imp_venta / vol_venta, 4) if vol_venta > 0 else 0
 
         return {
             "total_entradas":     round(sum(x["volumen_litros"] for x in entradas), 2),
-            "total_salidas":      round(sum(x["volumen_litros"] for x in salidas), 2),
-            "total_autoconsumo":  round(sum(x["volumen_litros"] for x in autoconsumos), 2),
+            "total_salidas":      round(sum(x.get("volumen_litros", 0) for x in ventas_reales) + vol_auto, 2),
+            "total_autoconsumo":  round(vol_auto, 2),
             "cnt_autoconsumo":    len(autoconsumos),
             "total_traspasos":    round(sum(x.get("volumen_litros", 0) for x in traspasos_list), 2),
             "cnt_traspasos":      len(traspasos_list),
