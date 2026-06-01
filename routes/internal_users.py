@@ -14,7 +14,7 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
-from routes.auth import obtener_acceso_modulo, verify_token
+from routes.auth import _resolve_active_module_access, obtener_acceso_modulo, verify_token
 from routes.perfiles import _tenant_id_for_user
 from services.database import get_facilities
 from services.email_delivery import send_gas_lp_invoice_email
@@ -318,7 +318,7 @@ def _gas_lp_conciliacion_context(token: str, *, write: bool = False) -> dict:
         uid = verify_token(token)
         if not uid:
             raise HTTPException(401, "Sesión inválida o expirada.")
-        access = obtener_acceso_modulo(uid, "gas_lp", access_token=token)
+        access = _resolve_active_module_access(uid, "gas_lp", access_token=token)
         role = (access.get("role") or "").lower()
         if role not in {"admin", "conciliacion", "asistente_facturacion"}:
             raise HTTPException(403, "Tu usuario no tiene acceso a conciliación Gas LP.")
@@ -331,9 +331,10 @@ def _gas_lp_conciliacion_context(token: str, *, write: bool = False) -> dict:
                 rows = (
                     get_supabase_for_user(token)
                     .table("perfiles_empresa")
-                    .select("id,tenant_id")
+                    .select("id,tenant_id,descripcion")
                     .eq("user_id", uid)
                     .eq("activo", True)
+                    .ilike("descripcion", "%[module:gas_lp]%")
                     .limit(1)
                     .execute()
                     .data
@@ -366,11 +367,11 @@ def _gas_lp_conciliacion_context(token: str, *, write: bool = False) -> dict:
     return ctx
 
 
-def _gas_lp_profile(user: dict) -> dict:
+def _gas_lp_profile(user: dict, *, require_module_marker: bool = False) -> dict:
     rows = (
         get_supabase_admin()
         .table("perfiles_empresa")
-        .select("id,user_id,tenant_id,nombre,rfc,activo")
+        .select("id,user_id,tenant_id,nombre,rfc,descripcion,activo")
         .eq("id", user.get("perfil_id"))
         .eq("tenant_id", user.get("tenant_id"))
         .eq("activo", True)
@@ -381,7 +382,10 @@ def _gas_lp_profile(user: dict) -> dict:
     )
     if not rows:
         raise HTTPException(403, "La empresa asignada al asistente no está activa o no existe.")
-    return rows[0]
+    profile = rows[0]
+    if require_module_marker and "[module:gas_lp]" not in str(profile.get("descripcion") or "").lower():
+        raise HTTPException(403, "La empresa asignada no pertenece al módulo Gas LP.")
+    return profile
 
 
 def _gas_lp_settings(owner_user_id: str, perfil_id: int) -> dict:
@@ -432,7 +436,7 @@ def _gas_lp_next_invoice_folio(sb, user: dict, serie: str) -> str:
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
             .order("created_at", desc=True)
-            .limit(1000)
+            .limit(500)
             .execute()
             .data
             or []
@@ -1339,7 +1343,7 @@ async def gas_lp_internal_facturas(token: str):
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
             .order("created_at", desc=True)
-            .limit(500)
+            .limit(1000)
             .execute()
             .data
             or []
@@ -1452,7 +1456,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None):
 
 @router.post("/internal-auth/gas-lp/facturas/{factura_id}/complemento-pago")
 async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplementoPagoPayload, token: str):
-    ctx = _gas_lp_conciliacion_context(token)
+    ctx = _gas_lp_conciliacion_context(token, write=True)
     user = ctx["user"]
     profile = _gas_lp_profile(user)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
