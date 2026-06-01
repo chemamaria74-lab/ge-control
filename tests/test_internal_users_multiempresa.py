@@ -288,10 +288,29 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
         self.assertEqual(totals["descuento_total"], 5.0)
         self.assertEqual(totals["base"], 105.5)
 
+    def test_gas_lp_sale_uses_global_issuer_cp_as_lugar_expedicion(self):
+        xml, _totals = internal_users._build_gas_lp_consumo_xml(
+            issuer={"rfc": "DGC881020LC4", "nombre": "DISTRIBUIDORA DE GAS DEL CAÑON", "cp": "20120", "regimen": "601"},
+            receptor=internal_users._public_general_receptor("20120"),
+            litros=10,
+            precio_unitario=11.05,
+            concepto="LITRO DE GAS LP",
+            forma_pago="01",
+            metodo_pago="PUE",
+        )
+
+        self.assertIn('LugarExpedicion="20120"', xml)
+
     def test_configured_sale_price_parses_positive_price_only(self):
         self.assertEqual(str(internal_users._configured_sale_price({"PrecioVentaLitroGasLp": "11.05"})), "11.050000")
         self.assertEqual(str(internal_users._configured_sale_price({"PrecioVentaLitroGasLp": ""})), "0")
         self.assertEqual(str(internal_users._configured_sale_price({"PrecioVentaLitroGasLp": -1})), "0")
+
+    def test_gas_lp_payload_price_requires_positive_value(self):
+        self.assertEqual(str(internal_users._gas_lp_payload_price("11.05")), "11.050000")
+        with self.assertRaises(HTTPException) as ctx:
+            internal_users._gas_lp_payload_price(0)
+        self.assertEqual(ctx.exception.status_code, 400)
 
 
 if __name__ == "__main__":
