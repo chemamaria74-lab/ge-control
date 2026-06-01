@@ -373,18 +373,21 @@ def _facility_context_label(row: dict[str, Any] | None) -> str:
     name = str(row.get("nombre") or "").strip()
     if name:
         parts.append(name)
-    domicilio = str(row.get("domicilio_operativo") or row.get("domicilio") or row.get("direccion") or "").strip()
-    cp = str(row.get("codigo_postal") or row.get("cp") or "").strip()
-    if domicilio:
-        parts.append(domicilio)
-    if cp:
-        parts.append(f"CP {cp}")
     clave = str(row.get("clave_instalacion") or "").strip()
     if clave:
         parts.append(f"Clave {clave}")
-    permiso = str(row.get("num_permiso") or "").strip()
+    tipo = str(row.get("tipo_permiso") or row.get("tipo_instalacion") or row.get("actividad_sat") or "").strip()
+    if tipo:
+        parts.append(f"Tipo {tipo}")
+    permiso = str(row.get("num_permiso") or row.get("permiso_cre") or "").strip()
     if permiso:
         parts.append(f"Permiso {permiso}")
+    domicilio = str(row.get("domicilio_operativo") or row.get("domicilio") or row.get("direccion") or "").strip()
+    if domicilio:
+        parts.append(domicilio)
+    cp = str(row.get("codigo_postal") or row.get("cp") or "").strip()
+    if cp:
+        parts.append(f"CP {cp}")
     return " · ".join(parts)
 
 
@@ -397,26 +400,6 @@ def _fiscal_visual_context_table(root, template, context, Paragraph, styles, col
     facility_label = _facility_context_label(facility)
     if not facility_label and not facilities:
         return None
-
-    if facilities:
-        other_count = max(len(facilities) - 1, 0)
-        domicilios_label = (
-            f"Sí. {len(facilities)} establecimientos configurados"
-            if len(facilities) > 1 else "No se registran otros establecimientos"
-        )
-        facilities_text = ""
-        if other_count and facility.get("id"):
-            others = [
-                str(f.get("nombre") or "").strip()
-                for f in facilities[:8]
-                if f.get("id") != facility.get("id") and str(f.get("nombre") or "").strip()
-            ]
-            facilities_text = ", ".join(others[:4])
-            if len(others) > 4:
-                facilities_text += f" y {len(others)-4} más"
-    else:
-        domicilios_label = "No capturado en GE Control"
-        facilities_text = ""
 
     rows = [
         [
@@ -432,9 +415,7 @@ def _fiscal_visual_context_table(root, template, context, Paragraph, styles, col
                 styles["Tiny"],
             ),
             Paragraph(
-                f"{_text(facility_label or f'CP {lugar}')}<br/>"
-                f"<b>¿Cuenta con más domicilios?</b> {_text(domicilios_label)}"
-                + (f"<br/><b>Otros establecimientos:</b> {_text(facilities_text)}" if facilities_text else ""),
+                _text(facility_label or f"CP {lugar}"),
                 styles["Tiny"],
             ),
         ],
