@@ -129,7 +129,7 @@
           <div><label>Forma de pago</label><select id="formaPago"><option value="01">01 - Efectivo</option><option value="02">02 - Cheque nominativo</option><option value="03">03 - Transferencia</option><option value="04">04 - Tarjeta de crédito</option><option value="28">28 - Tarjeta de débito</option><option value="99">99 - Por definir</option></select></div>
           <div><label for="serie">Serie por usuario/empresa</label><input id="serie" class="locked-field" value="AA" maxlength="10" readonly></div>
           <div><label for="folio">Folio automático</label><input id="folio" class="locked-field" placeholder="Se asigna al timbrar" maxlength="40" readonly></div>
-          <div><label>Clave SAT producto</label><input id="claveProdServ" class="locked-field" value="15111501" maxlength="8" readonly></div>
+          <div><label>Clave SAT producto</label><input id="claveProdServ" class="locked-field" value="15111510" maxlength="8" readonly></div>
           <div><label>No. identificación</label><input id="noIdentificacion" class="locked-field" value="GLP-LTR" maxlength="100" readonly></div>
           <div><label>Unidad</label><input id="unidadConcepto" class="locked-field" value="Litro" maxlength="20" readonly></div>
           <div><label>Fecha emisión</label><input id="fechaEmision" type="datetime-local"></div>
@@ -306,7 +306,7 @@
     const CONCEPTOS_FACTURA = {
       gas_lp_litro: {
         descripcion: 'LITRO DE GAS LP',
-        clave_prod_serv: '15111501',
+        clave_prod_serv: '15111510',
         clave_unidad: 'LTR',
         unidad: 'Litro',
         no_identificacion: 'GLP-LTR',
@@ -679,7 +679,7 @@
           folio: folio.value || '',
           comentarios: comentarios.value || '',
           fecha: fechaCfdi,
-          clave_prod_serv: claveProdServ.value || '15111501',
+          clave_prod_serv: claveProdServ.value || '15111510',
           no_identificacion: noIdentificacion.value || 'GLP-LTR',
           unidad: unidadConcepto.value || 'Litro',
           metodo_pago: metodoPago.value,
