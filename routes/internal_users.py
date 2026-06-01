@@ -11,7 +11,7 @@ from typing import Optional
 from xml.sax.saxutils import escape as xml_escape
 
 from fastapi import APIRouter, Header, HTTPException
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from routes.auth import obtener_acceso_modulo, verify_token
@@ -1174,6 +1174,9 @@ async def gas_lp_internal_factura_pdf(factura_id: int, token: str):
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
     row = _gas_lp_internal_factura(user, factura_id)
+    pac_pdf_url = str(row.get("pdf_url") or "").strip()
+    if pac_pdf_url:
+        return RedirectResponse(pac_pdf_url, status_code=302)
     xml_content = row.get("xml_content") or ""
     if not xml_content:
         raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")

@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from routes.auth import obtener_acceso_modulo, verify_token
@@ -774,6 +774,9 @@ async def ver_pdf_factura_gas_lp(
     if not row:
         raise _legacy_not_found("Factura")
     row = _rowdict(row)
+    pac_pdf_url = str(row.get("pdf_url") or "").strip()
+    if pac_pdf_url:
+        return RedirectResponse(pac_pdf_url, status_code=302)
     sb = get_supabase_admin()
     xml_content = row.get("xml_content") or ""
     if not xml_content:
@@ -858,6 +861,9 @@ async def ver_pdf_factura_servicio_legacy(
     if not row:
         raise _legacy_not_found("Factura de servicio")
     row = dict(row)
+    pac_pdf_url = str(row.get("pdf_url") or "").strip()
+    if pac_pdf_url:
+        return RedirectResponse(pac_pdf_url, status_code=302)
     sb = get_supabase_admin()
     xml_content = row.get("xml_content") or ""
     if not xml_content:
