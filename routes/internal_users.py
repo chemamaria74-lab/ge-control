@@ -311,6 +311,49 @@ def _gas_lp_internal_context(token: str, *, write: bool = False) -> dict:
 
 
 def _gas_lp_conciliacion_context(token: str, *, write: bool = False) -> dict:
+    if str(token or "").count(".") == 2:
+        uid = verify_token(token)
+        if not uid:
+            raise HTTPException(401, "Sesión inválida o expirada.")
+        access = obtener_acceso_modulo(uid, "gas_lp", access_token=token)
+        role = (access.get("role") or "").lower()
+        if role not in {"admin", "conciliacion", "asistente_facturacion"}:
+            raise HTTPException(403, "Tu usuario no tiene acceso a conciliación Gas LP.")
+        if write and role not in {"admin", "conciliacion"}:
+            raise HTTPException(403, "Tu rol no permite modificar conciliación.")
+        perfil_id = access.get("perfil_id")
+        tenant_id = access.get("tenant_id") or _tenant_id_for_user(uid, access_token=token)
+        if not perfil_id:
+            try:
+                rows = (
+                    get_supabase_for_user(token)
+                    .table("perfiles_empresa")
+                    .select("id,tenant_id")
+                    .eq("user_id", uid)
+                    .eq("activo", True)
+                    .limit(1)
+                    .execute()
+                    .data
+                    or []
+                )
+                if rows:
+                    perfil_id = rows[0].get("id")
+                    tenant_id = tenant_id or rows[0].get("tenant_id")
+            except Exception as exc:
+                logger.warning("gas_lp_conciliacion_auth_profile_lookup failed user=%s err=%s", uid, exc)
+        if not perfil_id:
+            raise HTTPException(400, "Selecciona o asigna una empresa Gas LP antes de entrar a conciliación.")
+        user = {
+            "id": uid,
+            "owner_user_id": uid,
+            "tenant_id": tenant_id,
+            "perfil_id": perfil_id,
+            "section": "gas_lp",
+            "role": role,
+            "display_name": access.get("display_name") or "",
+            "status": "active",
+        }
+        return {"session": {"section": "gas_lp", "role": role, "tenant_id": tenant_id, "perfil_id": perfil_id}, "user": user}
     ctx = _internal_session(token, "gas_lp")
     role = (ctx["user"].get("role") or "").lower()
     if role not in {"conciliacion", "admin", "asistente_facturacion"}:
