@@ -20,7 +20,9 @@ from routes.auth import obtener_acceso_modulo, verify_token
 from routes.perfiles import _tenant_id_for_user
 from services.fiscal_audit import version_xml
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_cfdi_desde_xml, generar_pdf_gas_lp_desde_xml, save_fiscal_artifacts
+from services.carta_porte_pdf import generar_pdf_carta_porte_desde_xml, xml_tiene_carta_porte
 from services.carta_porte_validation import validar_xml_carta_porte_transporte
+from services.cfdi_cancellation import cancel_cfdi_universal
 from services.hidro_petro import build_hidro_petro_node, xml_hidro_petro_node
 from services.security import client_ip, enforce_rate_limit
 from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
@@ -138,6 +140,17 @@ class GasLpConciliacionBancoPayload(BaseModel):
     deposito: float = 0
     retiro: float = 0
     notas: str = ""
+
+
+class GasLpConciliacionPagoPayload(BaseModel):
+    pagado: bool = True
+
+
+class GasLpConciliacionCancelPayload(BaseModel):
+    uuid_sat: str = ""
+    motivo: str = "02"
+    uuid_sustitucion: str = ""
+    confirmation_code: str = ""
 
 
 class GasLpComplementoPagoPayload(BaseModel):
@@ -905,6 +918,15 @@ def _gas_lp_facility(user: dict, facility_id: Optional[int], label: str = "insta
     return rows[0]
 
 
+def _require_facility_fiscal_address(facility: dict, label: str = "instalación") -> None:
+    domicilio = str(facility.get("domicilio_operativo") or facility.get("domicilio") or facility.get("direccion") or "").strip()
+    cp = _clean_cp(facility.get("codigo_postal") or facility.get("cp") or "")
+    if not domicilio:
+        raise HTTPException(400, f"Captura el domicilio del establecimiento en la {label} antes de facturar.")
+    if len(cp) != 5:
+        raise HTTPException(400, f"Captura el CP del establecimiento en la {label} antes de facturar.")
+
+
 def _is_station_facility(facility: dict) -> bool:
     text = " ".join(
         str(facility.get(k) or "").lower()
@@ -921,6 +943,24 @@ def _facility_hyp_numero_permiso(facility: dict, settings: dict) -> str:
         or settings.get("NumPermiso")
         or ""
     ).strip()
+
+
+def _facility_hyp_tipo_permiso(facility: dict, settings: dict) -> str:
+    explicit = str(
+        facility.get("tipo_permiso_hyp")
+        or facility.get("tipo_permiso_hidro_petro")
+        or ""
+    ).strip().upper()
+    if explicit:
+        return explicit
+    tipo_cre = str(facility.get("tipo_permiso") or facility.get("modalidad_permiso") or "").strip().upper()
+    if tipo_cre in {"PER40", "PER41", "PER42", "PER51"}:
+        return "PER06"
+    if tipo_cre in {"PER43", "PER44"}:
+        return "PER07"
+    if tipo_cre == "PER50":
+        return "PER10"
+    return str(settings.get("TipoPermisoHYP") or "PER06").strip().upper()
 
 
 def _period_from_cfdi_fecha(fecha_cfdi: str) -> str:
@@ -1762,15 +1802,22 @@ async def gas_lp_internal_factura_pdf(
     )
     facility_id = factura.get("origen_facility_id") or factura.get("facility_id")
     facility = next((f for f in facilities if str(f.get("id")) == str(facility_id)), {}) if facility_id else {}
-    pdf_bytes = generar_pdf_gas_lp_desde_xml(
-        xml_content,
-        logo_data_url=settings.get("PdfLogoDataUrl", ""),
-        extra_context={
-            "facility": facility,
-            "facilities": facilities,
-            "regimen_emisor": settings.get("RegimenFiscal") or "",
-        },
-    )
+    if xml_tiene_carta_porte(xml_content):
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(
+            xml_content,
+            logo_data_url=settings.get("PdfLogoDataUrl", ""),
+        )
+    else:
+        pdf_bytes = generar_pdf_gas_lp_desde_xml(
+            xml_content,
+            logo_data_url=settings.get("PdfLogoDataUrl", ""),
+            extra_context={
+                "facility": facility,
+                "facilities": facilities,
+                "regimen_emisor": settings.get("RegimenFiscal") or "",
+                "cp_fiscal_emisor": settings.get("CodigoPostal") or settings.get("codigo_postal") or "",
+            },
+        )
     disposition = "attachment" if download else "inline"
     return Response(
         content=pdf_bytes,
@@ -1872,6 +1919,7 @@ def _optional_perfil_header(raw: str | None) -> int | None:
 async def gas_lp_conciliacion_summary(
     token: str | None = None,
     fecha: str | None = None,
+    periodo: str | None = None,
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1882,18 +1930,24 @@ async def gas_lp_conciliacion_summary(
     user = ctx["user"]
     profile = _gas_lp_profile(user)
     day = _parse_date_prefix(fecha or _now_iso())
+    month = _parse_month_prefix(periodo) if periodo else None
+    start_at = f"{month}-01T00:00:00" if month else f"{day}T00:00:00"
+    end_at = _next_month_start(month) if month else f"{day}T23:59:59"
     sb = get_supabase_admin()
     try:
-        facturas = (
+        q = (
             sb.table("gas_lp_facturas")
-            .select("id,created_at,fecha_timbrado,rfc_receptor,volumen_litros,importe,status,uuid_sat,metadata,facility_id,origen_facility_id,destino_facility_id,created_by_internal,created_by_internal_name,payment_status")
+            .select("id,created_at,fecha_timbrado,rfc_receptor,volumen_litros,importe,status,uuid_sat,metadata,facility_id,origen_facility_id,destino_facility_id,created_by_internal,created_by_internal_name,payment_status,tipo_comprobante")
             .eq("user_id", user.get("owner_user_id"))
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
-            .gte("created_at", f"{day}T00:00:00")
-            .lte("created_at", f"{day}T23:59:59")
+            .gte("created_at", start_at)
+        )
+        q = q.lt("created_at", end_at) if month else q.lte("created_at", end_at)
+        facturas = (
+            q
             .order("created_at", desc=True)
-            .limit(200)
+            .limit(500 if month else 200)
             .execute()
             .data
             or []
@@ -1949,8 +2003,102 @@ async def gas_lp_conciliacion_summary(
             "credito_estimado": round(credito, 2),
             "traspasos": round(traspasos, 2),
         },
+        "periodo": month,
         "facturas": facturas,
     })
+
+
+@router.post("/internal-auth/gas-lp/conciliacion/facturas/{factura_id}/pago")
+async def gas_lp_conciliacion_marcar_pago(
+    factura_id: int,
+    payload: GasLpConciliacionPagoPayload,
+    token: str | None = None,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    ctx = _gas_lp_conciliation_context(
+        _token_from_header_or_query(authorization, token),
+        write=True,
+        perfil_id=_optional_perfil_header(x_perfil_id),
+    )
+    user = ctx["user"]
+    sb = get_supabase_admin()
+    factura = _gas_lp_internal_factura_row(user, factura_id)
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    if md.get("tipo_operacion") == "traspaso":
+        raise HTTPException(400, "Los traspasos no se marcan como pagados.")
+    if (factura.get("status") or "").lower() in {"cancelado", "cancelada"}:
+        raise HTTPException(400, "No se puede marcar pago sobre una factura cancelada.")
+    payment_status = "pagado_manual" if payload.pagado else (
+        "pendiente_complemento" if (md.get("metodo_pago") or "").upper() == "PPD" else "pendiente_pago"
+    )
+    metadata = {
+        **md,
+        "payment_status": payment_status,
+        "conciliation_paid": bool(payload.pagado),
+        "conciliation_paid_at": _now_iso() if payload.pagado else "",
+        "conciliation_paid_by": user.get("display_name") or user.get("id") or "",
+    }
+    data = (
+        sb.table("gas_lp_facturas")
+        .update({"payment_status": payment_status, "metadata": metadata})
+        .eq("id", factura_id)
+        .eq("user_id", user.get("owner_user_id"))
+        .eq("tenant_id", user.get("tenant_id"))
+        .eq("perfil_id", user.get("perfil_id"))
+        .execute()
+        .data
+        or []
+    )
+    return JSONResponse({"ok": True, "factura": data[0] if data else {**factura, "payment_status": payment_status, "metadata": metadata}})
+
+
+@router.post("/internal-auth/gas-lp/conciliacion/facturas/{factura_id}/cancelar")
+async def gas_lp_conciliacion_cancelar_factura(
+    factura_id: int,
+    payload: GasLpConciliacionCancelPayload,
+    token: str | None = None,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    ctx = _gas_lp_conciliation_context(
+        _token_from_header_or_query(authorization, token),
+        write=True,
+        perfil_id=_optional_perfil_header(x_perfil_id),
+    )
+    user = ctx["user"]
+    if (user.get("role") or "").lower() != "admin":
+        raise HTTPException(403, "Solo un administrador puede cancelar CFDI desde conciliación.")
+    if (payload.confirmation_code or "").strip().upper() != "@CANCELAR":
+        raise HTTPException(403, "Código de cancelación incorrecto.")
+    factura = _gas_lp_internal_factura_row(user, factura_id)
+    if (factura.get("status") or "").lower() in {"cancelado", "cancelada"}:
+        raise HTTPException(400, "Esta factura ya está cancelada.")
+    profile = _gas_lp_profile(user)
+    resultado = cancel_cfdi_universal(
+        sb=get_supabase_admin(),
+        module="gas_lp",
+        invoice_table="gas_lp_facturas",
+        invoice_id=factura_id,
+        uuid_sat=factura.get("uuid_sat") or payload.uuid_sat,
+        rfc_emisor=profile.get("rfc") or "",
+        motivo=payload.motivo,
+        uuid_sustitucion=payload.uuid_sustitucion,
+        user_id=user.get("owner_user_id"),
+        perfil_id=user.get("perfil_id"),
+        tenant_id=user.get("tenant_id"),
+        requested_by=user.get("id"),
+    )
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    metadata = {
+        **md,
+        "cancel_reason": payload.motivo,
+        "cancelled_from": "conciliacion_gas_lp",
+        "cancelled_by": user.get("display_name") or user.get("id") or "",
+        "cancelled_at": _now_iso(),
+    }
+    get_supabase_admin().table("gas_lp_facturas").update({"status": "cancelado", "metadata": metadata}).eq("id", factura_id).execute()
+    return JSONResponse({"ok": True, "status": resultado.get("status"), "factura": {"id": factura_id, "status": "cancelado"}})
 
 
 @router.get("/internal-auth/gas-lp/conciliacion/cierres")
@@ -2203,9 +2351,12 @@ async def gas_lp_internal_crear_factura(
     if tipo_operacion not in {"venta", "traspaso"}:
         raise HTTPException(400, "Tipo de operación inválido.")
     origen = _gas_lp_facility(user, payload.facility_id, "instalación de venta/origen")
+    _require_facility_fiscal_address(origen, "instalación de venta/origen")
+    issuer = {**issuer, "cp": _clean_cp(origen.get("codigo_postal") or origen.get("cp") or issuer["cp"])}
     destino = None
     if tipo_operacion == "traspaso":
         destino = _gas_lp_facility(user, payload.destino_facility_id, "estación destino")
+        _require_facility_fiscal_address(destino, "estación destino")
         if int(origen.get("id")) == int(destino.get("id")):
             raise HTTPException(400, "Origen y destino deben ser instalaciones distintas.")
         if not _is_station_facility(destino):
@@ -2297,7 +2448,7 @@ async def gas_lp_internal_crear_factura(
         no_identificacion=payload.no_identificacion,
         unidad=payload.unidad,
         hidro_petro={
-            "tipo_permiso": settings.get("TipoPermisoHYP") or "",
+            "tipo_permiso": _facility_hyp_tipo_permiso(origen, settings),
             "numero_permiso": _facility_hyp_numero_permiso(origen, settings),
             "subproducto": settings.get("SubProductoHYP") or "SP46",
         },
@@ -2526,20 +2677,30 @@ async def gas_lp_internal_crear_factura(
                 .data
                 or []
             )
-            storage = save_fiscal_artifacts(
-                sb,
-                bucket="fiscal-documents",
-                base_path=f"{user.get('owner_user_id')}/gas_lp/facturas/{factura_id}",
-                xml_content=xml_timbrado,
-                pdf_bytes=generar_pdf_gas_lp_desde_xml(
+            is_carta_porte_pdf = xml_tiene_carta_porte(xml_timbrado)
+            pdf_bytes = (
+                generar_pdf_carta_porte_desde_xml(
+                    xml_timbrado,
+                    logo_data_url=settings.get("PdfLogoDataUrl", ""),
+                )
+                if is_carta_porte_pdf
+                else generar_pdf_gas_lp_desde_xml(
                     xml_timbrado,
                     logo_data_url=settings.get("PdfLogoDataUrl", ""),
                     extra_context={
                         "facility": origen,
                         "facilities": facilities,
                         "regimen_emisor": settings.get("RegimenFiscal") or "",
+                        "cp_fiscal_emisor": settings.get("CodigoPostal") or settings.get("codigo_postal") or "",
                     },
-                ),
+                )
+            )
+            storage = save_fiscal_artifacts(
+                sb,
+                bucket="fiscal-documents",
+                base_path=f"{user.get('owner_user_id')}/gas_lp/facturas/{factura_id}",
+                xml_content=xml_timbrado,
+                pdf_bytes=pdf_bytes,
                 pdf_filename=info.filename,
                 metadata={
                     "module": "gas_lp",

@@ -44,6 +44,7 @@ from services.fiscal_pdf import (
     generar_pdf_ingreso_desde_xml,
     save_fiscal_artifacts,
 )
+from services.carta_porte_pdf import generar_pdf_carta_porte_desde_xml, xml_tiene_carta_porte
 from services.fiscal_audit import version_xml
 from services.cfdi_cancellation import cancel_cfdi_universal
 from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
@@ -237,6 +238,7 @@ def _gas_lp_pdf_context(scope: dict, row: dict) -> dict:
         "facility": facility or {},
         "facilities": facilities,
         "regimen_emisor": settings.get("RegimenFiscal") or "",
+        "cp_fiscal_emisor": settings.get("CodigoPostal") or settings.get("codigo_postal") or "",
     }
 
 
@@ -557,6 +559,13 @@ async def generar_carta_porte(
     emisor = _emisor_from_scope(scope)
     origen = _require_scope_facility(scope, payload.origen_facility_id or payload.facility_id, "instalación origen")
     destino = _require_scope_facility(scope, payload.destino_facility_id, "estación destino")
+    origen_cp = _clean_cp(origen.get("codigo_postal") or origen.get("cp") or "")
+    destino_cp = _clean_cp(destino.get("codigo_postal") or destino.get("cp") or "")
+    if not str(origen.get("domicilio_operativo") or origen.get("domicilio") or origen.get("direccion") or "").strip() or not origen_cp:
+        raise HTTPException(400, "Captura domicilio y CP de la instalación origen antes de timbrar.")
+    if not str(destino.get("domicilio_operativo") or destino.get("domicilio") or destino.get("direccion") or "").strip() or not destino_cp:
+        raise HTTPException(400, "Captura domicilio y CP de la estación destino antes de timbrar.")
+    emisor = {**emisor, "domicilio_fiscal": origen_cp}
     if int(origen.get("id")) == int(destino.get("id")):
         raise HTTPException(400, "Origen y destino deben ser instalaciones distintas para Carta Porte interna.")
     if not _is_destination_station(destino):
@@ -589,6 +598,8 @@ async def generar_carta_porte(
     }
     distancia_km = float((ruta_row or {}).get("distancia_km") or payload.distancia_km or 1)
     ruta = {"distancia_km": distancia_km} if payload.tipo_comprobante == "I" else None
+    if payload.tipo_comprobante == "T":
+        ruta = {"distancia_km": distancia_km, "cp_origen": origen_cp, "cp_destino": destino_cp, "origen_nombre": origen.get("nombre") or "Origen", "destino_nombre": destino.get("nombre") or "Destino"}
 
     try:
         xml = build_carta_porte_xml(
@@ -658,7 +669,10 @@ async def generar_carta_porte(
             xml_content=resultado["xml_timbrado"],
             entity_type="factura_gas_lp",
             base_folder="facturas",
-            pdf_generator=lambda xml_content: generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=_gas_lp_pdf_logo(scope)),
+            pdf_generator=lambda xml_content: generar_pdf_carta_porte_desde_xml(
+                xml_content,
+                logo_data_url=_gas_lp_pdf_logo(scope),
+            ),
         )
         logger.info("Carta Porte timbrada: user=%s uuid_sat=%s source=supabase", uid, resultado["uuid"])
         return JSONResponse({
@@ -850,10 +864,14 @@ async def ver_pdf_factura_gas_lp(
     if not xml_content:
         raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")
     info = fiscal_pdf_info(xml_content, "factura_gas_lp")
-    pdf_bytes = generar_pdf_gas_lp_desde_xml(
-        xml_content,
-        logo_data_url=_gas_lp_pdf_logo(scope),
-        extra_context=_gas_lp_pdf_context(scope, row),
+    pdf_bytes = (
+        generar_pdf_carta_porte_desde_xml(xml_content, logo_data_url=_gas_lp_pdf_logo(scope))
+        if xml_tiene_carta_porte(xml_content)
+        else generar_pdf_gas_lp_desde_xml(
+            xml_content,
+            logo_data_url=_gas_lp_pdf_logo(scope),
+            extra_context=_gas_lp_pdf_context(scope, row),
+        )
     )
     storage = save_fiscal_artifacts(
         sb,
