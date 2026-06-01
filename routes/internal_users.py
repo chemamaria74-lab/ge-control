@@ -432,7 +432,7 @@ def _gas_lp_next_invoice_folio(sb, user: dict, serie: str) -> str:
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
             .order("created_at", desc=True)
-            .limit(500)
+            .limit(1000)
             .execute()
             .data
             or []
@@ -599,7 +599,7 @@ def _build_gas_lp_consumo_xml(
         f'{f"<cfdi:Addenda><Observaciones>{xml_escape(comments)}</Observaciones></cfdi:Addenda>" if comments else ""}'
         '</cfdi:Comprobante>'
     )
-    return xml, {"folio": folio, "subtotal": float(subtotal), "descuento": float(discount_total), "iva": float(iva), "total": float(total)}
+    return xml, {"folio": folio, "fecha": fecha, "subtotal": float(subtotal), "descuento": float(discount_total), "iva": float(iva), "total": float(total)}
 
 
 def _xml_local(tag: str) -> str:
@@ -1271,6 +1271,38 @@ async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, to
     return JSONResponse({"ok": True, "cliente": data[0]})
 
 
+@router.put("/internal-auth/gas-lp/clientes/{cliente_id}")
+async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInternalClientePayload, token: str):
+    ctx = _gas_lp_internal_context(token, write=True)
+    user = ctx["user"]
+    row = _gas_lp_cliente_row(user, payload)
+    row.pop("created_at", None)
+    row["metadata"] = {
+        **(row.get("metadata") or {}),
+        "updated_by_internal": user.get("id"),
+        "updated_by": user.get("display_name"),
+    }
+    try:
+        data = (
+            get_supabase_admin()
+            .table("gas_lp_clientes_facturacion")
+            .update(row)
+            .eq("id", cliente_id)
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .eq("activo", True)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_actualizar_cliente", exc)
+    if not data:
+        raise HTTPException(404, "Cliente no encontrado para esta empresa.")
+    return JSONResponse({"ok": True, "cliente": data[0]})
+
+
 @router.delete("/internal-auth/gas-lp/clientes/{cliente_id}")
 async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str):
     ctx = _gas_lp_internal_context(token, write=True)
@@ -1307,7 +1339,7 @@ async def gas_lp_internal_facturas(token: str):
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
             .order("created_at", desc=True)
-            .limit(50)
+            .limit(500)
             .execute()
             .data
             or []
@@ -1709,6 +1741,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         "metadata": {
             "portal": "asistente_gas_lp",
             "internal_user_id": user.get("id"),
+            "created_by_internal_name": user.get("display_name") or "",
+            "created_by": user.get("display_name") or "",
             "cliente_id": payload.cliente_id,
             "cliente_nombre": receptor["nombre"],
             "cliente_email": (cliente_row or {}).get("email_facturacion") or (cliente_row or {}).get("email") or "",
@@ -1720,6 +1754,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "serie": serie_factura,
             "folio_usuario": folio_factura,
             "comentarios": payload.comentarios,
+            "fecha_emision": totals["fecha"],
             "clave_prod_serv": clave_prod_serv,
             "hidrocarburos_petroliferos": hyp,
             "no_identificacion": payload.no_identificacion,
