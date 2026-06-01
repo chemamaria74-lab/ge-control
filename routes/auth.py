@@ -268,6 +268,40 @@ def require_profile_access(
         raise HTTPException(403, "Tu usuario no tiene acceso a esta empresa/perfil.")
 
 
+def resolve_profile_scope(
+    user_id: str,
+    section: str = "gas_lp",
+    perfil_id: Optional[int] = None,
+    access_token: Optional[str] = None,
+) -> dict:
+    """
+    Compatibilidad para routers que necesitan resolver la empresa/perfil activo.
+    Si llega perfil_id, valida acceso; si no, usa el perfil activo del acceso
+    del módulo o el primer perfil marcado para ese módulo.
+    """
+    section = (section or "gas_lp").strip().lower()
+    if section not in SECCIONES_VALIDAS:
+        raise HTTPException(400, f"Módulo inválido: {section}")
+    acceso = _resolve_active_module_access(user_id, section, access_token=access_token)
+    selected = perfil_id or acceso.get("perfil_id")
+    if selected:
+        try:
+            selected_int = int(selected)
+        except (TypeError, ValueError):
+            selected_int = 0
+        if selected_int and usuario_tiene_acceso_perfil(user_id, section, selected_int, access_token=access_token):
+            profile = _active_profile_allowed_for_module(user_id, section, selected_int, access_token=access_token) or {}
+            return {
+                "user_id": profile.get("user_id") or user_id,
+                "owner_user_id": profile.get("user_id") or user_id,
+                "tenant_id": profile.get("tenant_id") or acceso.get("tenant_id"),
+                "perfil_id": selected_int,
+                "profile": profile,
+                "access": acceso,
+            }
+    raise HTTPException(403, "Selecciona una empresa/perfil activo para este módulo.")
+
+
 def obtener_seccion_usuario(user_id: str, access_token: Optional[str] = None) -> Optional[str]:
     secciones = obtener_secciones_usuario(user_id, access_token=access_token)
     if not secciones:
