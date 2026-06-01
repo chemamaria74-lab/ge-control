@@ -117,8 +117,8 @@
           <div id="vehiculoField" class="hide"><label>Vehículo</label><select id="vehiculoSelect"><option value="">Selecciona vehículo</option></select></div>
           <div id="choferField" class="hide"><label>Chofer</label><select id="choferSelect"><option value="">Selecciona chofer</option></select></div>
           <div id="rutaField" class="hide"><label>Ruta</label><select id="rutaSelect"><option value="">Selecciona ruta</option></select></div>
-          <div><label>Concepto</label><select id="conceptoCatalogo" class="locked-field" disabled><option value="gas_lp_litro">LITRO DE GAS LP</option></select></div>
-          <input id="concepto" type="hidden" value="LITRO DE GAS LP">
+          <div><label>Concepto</label><select id="conceptoCatalogo" class="locked-field" disabled><option value="gas_lp_litro">Gas licuado de petróleo</option></select></div>
+          <input id="concepto" type="hidden" value="Gas licuado de petróleo">
           <div><label>Litros</label><input id="litros" type="number" min="0" step="0.00001" value="0" oninput="updateTotals()"></div>
           <div><label for="precioUnitario">Precio por litro con IVA</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
           <div><label>Descuento por litro con IVA</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
@@ -127,7 +127,7 @@
           <div><label>Forma de pago</label><select id="formaPago"><option value="01">01 - Efectivo</option><option value="02">02 - Cheque nominativo</option><option value="03">03 - Transferencia</option><option value="04">04 - Tarjeta de crédito</option><option value="28">28 - Tarjeta de débito</option><option value="99">99 - Por definir</option></select></div>
           <div class="system-field"><label for="serie">Serie por usuario/empresa</label><input id="serie" class="locked-field" value="AA" maxlength="10" readonly></div>
           <div class="system-field"><label for="folio">Folio automático</label><input id="folio" class="locked-field" placeholder="Se asigna al timbrar" maxlength="40" readonly></div>
-          <div class="system-field"><label>Clave SAT producto</label><input id="claveProdServ" class="locked-field" value="15101515" maxlength="8" readonly></div>
+          <div class="system-field"><label>Clave SAT producto</label><input id="claveProdServ" class="locked-field" value="15111510" maxlength="8" readonly></div>
           <div class="system-field"><label>No. identificación</label><input id="noIdentificacion" class="locked-field" value="GLP-LTR" maxlength="100" readonly></div>
           <div class="system-field"><label>Unidad</label><input id="unidadConcepto" class="locked-field" value="Litro" maxlength="20" readonly></div>
           <div><label>Fecha emisión</label><input id="fechaEmision" type="datetime-local"></div>
@@ -207,7 +207,11 @@
           <h2>Facturas</h2>
           <p class="muted" style="margin:4px 0 0">Consulta y filtra las facturas timbradas de la empresa asignada.</p>
         </div>
-        <button class="btn ghost" type="button" onclick="loadFacturas()">Actualizar</button>
+        <div class="toolbar">
+          <div><label>Exportar día</label><input id="facturaExportDia" type="date"></div>
+          <button class="btn ghost" type="button" onclick="exportFacturasDiaExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
+          <button class="btn ghost" type="button" onclick="loadFacturas()">Actualizar</button>
+        </div>
       </div>
       <div class="filters month-filters">
         <div><label>Cliente</label><select id="facturaClienteFilter" onchange="applyFacturasFilters()"><option value="">Todos los clientes</option></select></div>
@@ -307,8 +311,8 @@
     ];
     const CONCEPTOS_FACTURA = {
       gas_lp_litro: {
-        descripcion: 'LITRO DE GAS LP',
-        clave_prod_serv: '15101515',
+        descripcion: 'Gas licuado de petróleo',
+        clave_prod_serv: '15111510',
         clave_unidad: 'LTR',
         unidad: 'Litro',
         no_identificacion: 'GLP-LTR',
@@ -483,6 +487,7 @@
         setClientesTabDefaults();
         dashboardMes.value = todayKey().slice(0,7);
         facturaMes.value = todayKey().slice(0,7);
+        facturaExportDia.value = todayKey();
         compMes.value = todayKey().slice(0,7);
         compFechaPago.value = localDateTimeValue();
         ensureFechaEmision();
@@ -714,14 +719,14 @@
           publico_general: !clienteId,
           litros: litrosVal,
           precio_unitario: precioVal,
-          concepto: concepto.value || 'LITRO DE GAS LP',
+          concepto: concepto.value || 'Gas licuado de petróleo',
           descuento: Number(descuento.value || 0),
           iva_rate: Number(ivaRate.value || 0),
           serie: serie.value || 'AA',
           folio: folio.value || '',
           comentarios: comentarios.value || '',
           fecha: fechaCfdi,
-          clave_prod_serv: claveProdServ.value || '15101515',
+          clave_prod_serv: claveProdServ.value || '15111510',
           no_identificacion: noIdentificacion.value || 'GLP-LTR',
           unidad: unidadConcepto.value || 'Litro',
           metodo_pago: metodoPago.value,
@@ -936,6 +941,15 @@
       const month = document.getElementById('facturaMes')?.value || '';
       if(month) await loadFacturas(month);
       else applyFacturasFilters();
+    }
+    function exportFacturasDiaExcel(){
+      const day = document.getElementById('facturaExportDia')?.value || todayKey();
+      if(!day){
+        alert('Selecciona el día que quieres exportar.');
+        return;
+      }
+      const url = `/api/internal-auth/gas-lp/facturas/export-dia?fecha=${encodeURIComponent(day)}&token=${encodeURIComponent(token)}`;
+      window.open(url, '_blank', 'noopener');
     }
     function complementoClientKey(f){
       const md = f.metadata || {};
