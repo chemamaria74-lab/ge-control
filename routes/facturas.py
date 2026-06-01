@@ -553,6 +553,8 @@ async def generar_carta_porte(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
+    if str(payload.tipo_comprobante or "T").upper() != "T":
+        raise HTTPException(400, "En Gas LP la Carta Porte interna solo se timbra como CFDI de traslado (Tipo T). Las facturas de ingreso por servicio de transporte se manejan en el módulo Transporte.")
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
@@ -597,14 +599,12 @@ async def generar_carta_porte(
         "fecha_hora":     payload.fecha_hora,
     }
     distancia_km = float((ruta_row or {}).get("distancia_km") or payload.distancia_km or 1)
-    ruta = {"distancia_km": distancia_km} if payload.tipo_comprobante == "I" else None
-    if payload.tipo_comprobante == "T":
-        ruta = {"distancia_km": distancia_km, "cp_origen": origen_cp, "cp_destino": destino_cp, "origen_nombre": origen.get("nombre") or "Origen", "destino_nombre": destino.get("nombre") or "Destino"}
+    ruta = {"distancia_km": distancia_km, "cp_origen": origen_cp, "cp_destino": destino_cp, "origen_nombre": origen.get("nombre") or "Origen", "destino_nombre": destino.get("nombre") or "Destino"}
 
     try:
         xml = build_carta_porte_xml(
             entrega, emisor, receptor, vehiculo,
-            tipo_comprobante=payload.tipo_comprobante,
+            tipo_comprobante="T",
             cfdi_relacionados=payload.cfdi_relacionados,
             ruta=ruta,
         )
@@ -633,7 +633,7 @@ async def generar_carta_porte(
         "rfc_receptor": receptor["rfc"],
         "volumen_litros": payload.volumen_litros,
         "importe": payload.importe,
-        "tipo_comprobante": payload.tipo_comprobante,
+        "tipo_comprobante": "T",
         "distancia_km": distancia_km,
         "metadata": {
             "origen_facility_id": payload.origen_facility_id or payload.facility_id,
@@ -1067,6 +1067,7 @@ async def generar_factura_flete(
     payload: FacturaFleteRequest, authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
+    raise HTTPException(400, "Gas LP no timbra Carta Porte tipo ingreso ni factura de flete. Usa el módulo Transporte para servicios de transporte facturables.")
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
