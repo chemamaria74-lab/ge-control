@@ -456,7 +456,7 @@
     async function api(path, opts={}) {
       const sep = path.includes('?') ? '&' : '?';
       const headers = opts.body ? {'Content-Type':'application/json', ...(opts.headers||{})} : (opts.headers||{});
-      const res = await fetch(path + sep + 'token=' + encodeURIComponent(token), {...opts, headers});
+      const res = await fetch(path + sep + 'token=' + encodeURIComponent(token), {...opts, headers, cache:'no-store'});
       const data = await res.json().catch(()=>({}));
       if(!res.ok) {
         const err = new Error(detailText(data.detail || data.message));
@@ -755,8 +755,7 @@
     async function loadFacturas(month=''){
       const qs = month ? '?mes=' + encodeURIComponent(month) : '';
       const data = await api('/api/internal-auth/gas-lp/facturas' + qs);
-      if(month) mergeFacturas(data.facturas || []);
-      else FACTURAS = data.facturas || [];
+      FACTURAS = data.facturas || [];
       renderFacturaClientOptions();
       renderTodayFacturas();
       renderDashboard();
