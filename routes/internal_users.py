@@ -723,6 +723,173 @@ def _build_gas_lp_pago20_xml(
     }
 
 
+def _gas_lp_pago20_docto(
+    *,
+    factura: dict,
+    monto,
+    parcialidad: int,
+    saldo_anterior,
+) -> tuple[dict, dict]:
+    xml_base = factura.get("xml_content") or ""
+    root = _cfdi_root(xml_base)
+    if _xml_attr(root, "TipoDeComprobante") != "I":
+        raise HTTPException(400, "Solo se puede generar complemento de pago sobre facturas de ingreso.")
+    if _xml_attr(root, "MetodoPago") != "PPD":
+        raise HTTPException(400, "Solo las facturas PPD requieren complemento de pago.")
+    timbre = _xml_first(root, "TimbreFiscalDigital")
+    uuid_rel = _xml_attr(timbre, "UUID")
+    if not uuid_rel:
+        raise HTTPException(400, "Una factura PPD seleccionada no tiene UUID timbrado.")
+    receptor_base = _xml_first(root, "Receptor")
+    receptor = {
+        "rfc": _xml_attr(receptor_base, "Rfc"),
+        "nombre": _xml_attr(receptor_base, "Nombre"),
+        "cp": _xml_attr(receptor_base, "DomicilioFiscalReceptor"),
+        "regimen": _xml_attr(receptor_base, "RegimenFiscalReceptor"),
+    }
+    if not all(receptor.values()):
+        raise HTTPException(400, "El receptor de una factura seleccionada está incompleto.")
+
+    total_doc = _decimal_xml(_xml_attr(root, "Total"))
+    saldo_ant = _decimal_xml(saldo_anterior)
+    pagado = _decimal_xml(monto)
+    if pagado <= 0:
+        raise HTTPException(400, "El monto pagado debe ser mayor a cero.")
+    if pagado > saldo_ant:
+        raise HTTPException(400, "El monto pagado no puede ser mayor al saldo pendiente de una factura.")
+    saldo_insoluto = _decimal_xml(saldo_ant - pagado)
+    if total_doc <= 0:
+        raise HTTPException(400, "Una factura seleccionada no tiene Total válido.")
+
+    base_total = Decimal("0.00")
+    iva_total = Decimal("0.00")
+    root_impuestos = _xml_child(root, "Impuestos")
+    root_traslados = _xml_child(root_impuestos, "Traslados")
+    traslado_nodes = list(root_traslados) if root_traslados is not None else []
+    if not traslado_nodes:
+        traslado_nodes = _xml_all(root, "Traslado")
+    for traslado in traslado_nodes:
+        if _xml_attr(traslado, "Impuesto") == "002" and _xml_attr(traslado, "TipoFactor") == "Tasa":
+            base_total += _decimal_xml(_xml_attr(traslado, "Base"))
+            iva_total += _decimal_xml(_xml_attr(traslado, "Importe"))
+    if base_total <= 0 and iva_total <= 0:
+        base_total = _decimal_xml(_xml_attr(root, "SubTotal"))
+        iva_total = _decimal_xml(total_doc - base_total)
+
+    proportion = (pagado / total_doc) if total_doc else Decimal("1")
+    base_pagada = _decimal_xml(base_total * proportion)
+    iva_pagado = _decimal_xml(pagado - base_pagada)
+    serie = _xml_attr(root, "Serie")
+    folio = _xml_attr(root, "Folio")
+    serie_attr = f' Serie="{xml_escape(serie)}"' if serie else ""
+    folio_attr = f' Folio="{xml_escape(folio)}"' if folio else ""
+    tasa = Decimal("0.160000")
+    docto_xml = (
+        f'<pago20:DoctoRelacionado IdDocumento="{xml_escape(uuid_rel)}"'
+        f'{serie_attr}'
+        f'{folio_attr}'
+        f' MonedaDR="MXN" EquivalenciaDR="1" NumParcialidad="{int(parcialidad)}" '
+        f'ImpSaldoAnt="{saldo_ant:.2f}" ImpPagado="{pagado:.2f}" ImpSaldoInsoluto="{saldo_insoluto:.2f}" ObjetoImpDR="02">'
+        '<pago20:ImpuestosDR><pago20:TrasladosDR>'
+        f'<pago20:TrasladoDR BaseDR="{base_pagada:.2f}" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="{tasa:.6f}" ImporteDR="{iva_pagado:.2f}"/>'
+        '</pago20:TrasladosDR></pago20:ImpuestosDR>'
+        '</pago20:DoctoRelacionado>'
+    )
+    return receptor, {
+        "factura_id": factura.get("id"),
+        "uuid_relacionado": uuid_rel,
+        "serie_relacionada": serie,
+        "folio_relacionado": folio,
+        "monto": float(pagado),
+        "saldo_anterior": float(saldo_ant),
+        "saldo_insoluto": float(saldo_insoluto),
+        "parcialidad": int(parcialidad),
+        "base_pagada": float(base_pagada),
+        "iva_pagado": float(iva_pagado),
+        "docto_xml": docto_xml,
+    }
+
+
+def _build_gas_lp_pago20_multi_xml(
+    *,
+    facturas: list[dict],
+    issuer: dict,
+    fecha_pago: str,
+    forma_pago: str,
+    pagos: dict[int, dict],
+) -> tuple[str, dict]:
+    if not facturas:
+        raise HTTPException(400, "Selecciona al menos una factura PPD.")
+    doctos: list[dict] = []
+    receptor_ref: dict | None = None
+    for factura in facturas:
+        fid = int(factura.get("id") or 0)
+        pago = pagos.get(fid)
+        if not pago:
+            raise HTTPException(400, "Falta el importe de pago para una factura seleccionada.")
+        receptor, docto = _gas_lp_pago20_docto(
+            factura=factura,
+            monto=pago["monto"],
+            parcialidad=pago["parcialidad"],
+            saldo_anterior=pago["saldo_anterior"],
+        )
+        if receptor_ref is None:
+            receptor_ref = receptor
+        elif receptor_ref.get("rfc") != receptor.get("rfc"):
+            raise HTTPException(400, "Un complemento de pago con varias facturas debe ser del mismo cliente/RFC.")
+        doctos.append(docto)
+
+    receptor = receptor_ref or {}
+    fecha_cfdi = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    folio_pago = datetime.now().strftime("%Y%m%d%H%M%S")
+    forma_pago = "".join(ch for ch in str(forma_pago or "03") if ch.isdigit())[:2] or "03"
+    fecha_pago = _payment_datetime(fecha_pago)
+    total_pagado = _decimal_xml(sum((_decimal_xml(d["monto"]) for d in doctos), Decimal("0.00")))
+    base_pagada = _decimal_xml(sum((_decimal_xml(d["base_pagada"]) for d in doctos), Decimal("0.00")))
+    iva_pagado = _decimal_xml(sum((_decimal_xml(d["iva_pagado"]) for d in doctos), Decimal("0.00")))
+    tasa = Decimal("0.160000")
+    doctos_xml = "".join(str(d.pop("docto_xml")) for d in doctos)
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" '
+        'xmlns:pago20="http://www.sat.gob.mx/Pagos20" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+        'xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd '
+        'http://www.sat.gob.mx/Pagos20 http://www.sat.gob.mx/sitio_internet/cfd/Pagos/Pagos20.xsd" '
+        f'Version="4.0" Serie="PAGO" Folio="{folio_pago}" Fecha="{fecha_cfdi}" '
+        'Sello="" NoCertificado="" Certificado="" SubTotal="0" Moneda="XXX" Total="0" '
+        f'TipoDeComprobante="P" Exportacion="01" LugarExpedicion="{xml_escape(issuer["cp"])}">'
+        f'<cfdi:Emisor Rfc="{xml_escape(issuer["rfc"])}" Nombre="{xml_escape(issuer["nombre"])}" RegimenFiscal="{xml_escape(issuer["regimen"])}"/>'
+        f'<cfdi:Receptor Rfc="{xml_escape(receptor["rfc"])}" Nombre="{xml_escape(receptor["nombre"])}" '
+        f'DomicilioFiscalReceptor="{xml_escape(receptor["cp"])}" RegimenFiscalReceptor="{xml_escape(receptor["regimen"])}" UsoCFDI="CP01"/>'
+        '<cfdi:Conceptos>'
+        '<cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT" Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/>'
+        '</cfdi:Conceptos>'
+        '<cfdi:Complemento>'
+        '<pago20:Pagos Version="2.0">'
+        f'<pago20:Totales TotalTrasladosBaseIVA16="{base_pagada:.2f}" TotalTrasladosImpuestoIVA16="{iva_pagado:.2f}" MontoTotalPagos="{total_pagado:.2f}"/>'
+        f'<pago20:Pago FechaPago="{xml_escape(fecha_pago)}" FormaDePagoP="{xml_escape(forma_pago)}" MonedaP="MXN" TipoCambioP="1" Monto="{total_pagado:.2f}">'
+        f'{doctos_xml}'
+        '<pago20:ImpuestosP><pago20:TrasladosP>'
+        f'<pago20:TrasladoP BaseP="{base_pagada:.2f}" ImpuestoP="002" TipoFactorP="Tasa" TasaOCuotaP="{tasa:.6f}" ImporteP="{iva_pagado:.2f}"/>'
+        '</pago20:TrasladosP></pago20:ImpuestosP>'
+        '</pago20:Pago>'
+        '</pago20:Pagos>'
+        '</cfdi:Complemento>'
+        '</cfdi:Comprobante>'
+    )
+    return xml, {
+        "fecha_pago": fecha_pago,
+        "forma_pago": forma_pago,
+        "monto": float(total_pagado),
+        "base_pagada": float(base_pagada),
+        "iva_pagado": float(iva_pagado),
+        "facturas": doctos,
+        "factura_ids": [int(d["factura_id"]) for d in doctos if d.get("factura_id")],
+        "uuid_relacionados": [d["uuid_relacionado"] for d in doctos],
+    }
+
+
 def _gas_lp_profile(user: dict) -> dict:
     rows = (
         get_supabase_admin()
@@ -1768,6 +1935,46 @@ def _gas_lp_complemento_pago_row(user: dict, complemento_id: int) -> dict:
     return rows[0]
 
 
+def _gas_lp_complementos_por_factura(sb, factura_ids: list[int]) -> dict[int, list[dict]]:
+    ids = [int(fid) for fid in factura_ids if fid]
+    if not ids:
+        return {}
+    by_factura: dict[int, list[dict]] = {fid: [] for fid in ids}
+    legacy = (
+        sb.table("gas_lp_complementos_pago")
+        .select("id,factura_id,uuid_sat,monto,saldo_anterior,saldo_insoluto,parcialidad,created_at,status,metadata")
+        .in_("factura_id", ids)
+        .eq("status", "timbrado")
+        .execute()
+        .data
+        or []
+    )
+    for row in legacy:
+        fid = int(row.get("factura_id") or 0)
+        if fid in by_factura:
+            by_factura[fid].append(row)
+    try:
+        rels = (
+            sb.table("gas_lp_complementos_pago_facturas")
+            .select("factura_id,complemento_id,monto,saldo_anterior,saldo_insoluto,parcialidad,uuid_relacionado,created_at,status")
+            .in_("factura_id", ids)
+            .eq("status", "timbrado")
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        rels = []
+    for row in rels:
+        fid = int(row.get("factura_id") or 0)
+        comp_id = row.get("complemento_id")
+        if fid in by_factura and not any(str(item.get("id") or item.get("complemento_id")) == str(comp_id) for item in by_factura[fid]):
+            by_factura[fid].append(row)
+    for fid in by_factura:
+        by_factura[fid] = sorted(by_factura[fid], key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return by_factura
+
+
 @router.get("/internal-auth/gas-lp/facturas/{factura_id}/xml")
 async def gas_lp_internal_factura_xml(
     factura_id: int,
@@ -1970,24 +2177,12 @@ async def gas_lp_conciliacion_summary(
         facturas = _hydrate_factura_actor_rows(facturas, sb)
         factura_ids = [f.get("id") for f in facturas if f.get("id")]
         if factura_ids:
-            complementos = (
-                sb.table("gas_lp_complementos_pago")
-                .select("id,factura_id,uuid_sat,monto,saldo_insoluto,parcialidad,created_at,status")
-                .in_("factura_id", factura_ids)
-                .eq("status", "timbrado")
-                .order("created_at", desc=True)
-                .execute()
-                .data
-                or []
-            )
-            latest_by_factura: dict[int, dict] = {}
-            for comp in complementos:
-                fid = comp.get("factura_id")
-                if fid and fid not in latest_by_factura:
-                    latest_by_factura[int(fid)] = comp
+            complementos_by_factura = _gas_lp_complementos_por_factura(sb, [int(fid) for fid in factura_ids])
             for factura in facturas:
-                if factura.get("id") in latest_by_factura:
-                    factura["latest_complemento_pago"] = latest_by_factura[int(factura["id"])]
+                comps = complementos_by_factura.get(int(factura.get("id") or 0), [])
+                if comps:
+                    factura["latest_complemento_pago"] = comps[0]
+                    factura["complementos_pago"] = comps
     except Exception as exc:
         raise _safe_internal_error("gas_lp_conciliacion_facturas", exc)
     total_facturado = 0.0
