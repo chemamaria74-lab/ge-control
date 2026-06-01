@@ -2284,8 +2284,18 @@ tr:hover td{background:#f8fafc}
      PANEL: USUARIOS INTERNOS
      ══════════════════════════════════════════════════════════════════════ -->
 <div class="main-panel" id="mpanel-admin">
+<div class="card" style="padding:.7rem .9rem;margin-bottom:.8rem">
+  <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+    <button type="button" class="gas-admin-tab active" data-gas-admin-tab="usuarios" onclick="switchGasAdminTab('usuarios')" style="padding:.48rem .9rem;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit">
+      <i class="fa-solid fa-users-gear" style="margin-right:.3rem"></i>Usuarios y permisos
+    </button>
+    <button type="button" class="gas-admin-tab" data-gas-admin-tab="carta" onclick="switchGasAdminTab('carta')" style="padding:.48rem .9rem;border:1px solid #e2e8f0;background:#fff;color:#334155;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit">
+      <i class="fa-solid fa-truck-moving" style="margin-right:.3rem"></i>Catálogos Carta Porte
+    </button>
+  </div>
+</div>
 <!-- Usuarios internos por empresa -->
-<div class="card">
+<div class="card gas-admin-section" data-gas-admin-section="usuarios">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
     <div>
       <h2 style="margin:0"><i class="fa-solid fa-users-gear" style="margin-right:.35rem"></i>Usuarios y permisos</h2>
@@ -2338,7 +2348,7 @@ tr:hover td{background:#f8fafc}
 </div>
 
 <!-- Catálogos operativos Gas LP -->
-<div class="card">
+<div class="card gas-admin-section" data-gas-admin-section="carta" style="display:none">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
     <div>
       <h2 style="margin:0"><i class="fa-solid fa-truck-moving" style="margin-right:.35rem"></i>Catálogos Carta Porte</h2>
@@ -3216,9 +3226,9 @@ function resetAppState() {
   _appState.invalidate();  // forzar re-fetch de settings del nuevo perfil
 
   // ── 1. Limpiar campos de Configuración básica ──────────────────────────────
-  ['rfc','sat_rfc_rep','sat_rfc_prov','factor_conversion'].forEach(id => {
+  ['rfc','fiscal_name','fiscal_cp','fiscal_regimen','sat_rfc_rep','sat_rfc_prov','factor_conversion'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.value = id === 'factor_conversion' ? '0.542' : '';
+    if (el) el.value = id === 'factor_conversion' ? '0.542' : (id === 'fiscal_regimen' ? '601' : '');
   });
   const stEl = document.getElementById('settingsStatus');
   if (stEl) { stEl.textContent = ''; stEl.className = 'settings-status'; }
@@ -3416,12 +3426,18 @@ async function loadSettings() {
     const data = await _appState.loadSettings();
     // Limpiar primero solo si el perfil cambió (appState detectó diferencia)
     // Si es el mismo perfil, actualizar sin limpiar para no borrar input en curso
-    ['rfc','sat_rfc_rep','sat_rfc_prov'].forEach(id => {
+    ['rfc','fiscal_name','fiscal_cp','sat_rfc_rep','sat_rfc_prov'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
     const rfcEl = document.getElementById('rfc');
     if (rfcEl) rfcEl.value = normalizarRfc(data.RfcContribuyente) || perfilActivoRfc();
+    const fiscalNameEl = document.getElementById('fiscal_name');
+    if (fiscalNameEl) fiscalNameEl.value = data.DescripcionInstalacion || perfilActivoNombre() || '';
+    const fiscalCpEl = document.getElementById('fiscal_cp');
+    if (fiscalCpEl) fiscalCpEl.value = String(data.CodigoPostal || data.codigo_postal || '').slice(0, 5);
+    const fiscalRegimenEl = document.getElementById('fiscal_regimen');
+    if (fiscalRegimenEl) fiscalRegimenEl.value = data.RegimenFiscal || data.regimen_fiscal || '601';
     const repEl = document.getElementById('sat_rfc_rep');
     if (repEl) repEl.value = data.RfcRepresentanteLegal || '';
     const provEl = document.getElementById('sat_rfc_prov');
@@ -3441,9 +3457,15 @@ async function saveSettings() {
   const rfcVal  = normalizarRfc(document.getElementById('rfc')?.value) || perfilActivoRfc();
   const repVal  = normalizarRfc(document.getElementById('sat_rfc_rep')?.value);
   const provVal = normalizarRfc(document.getElementById('sat_rfc_prov')?.value);
+  const fiscalNameVal = (document.getElementById('fiscal_name')?.value || '').trim();
+  const fiscalCpVal = (document.getElementById('fiscal_cp')?.value || '').trim().replace(/\D/g, '').slice(0, 5);
+  const fiscalRegimenVal = (document.getElementById('fiscal_regimen')?.value || '601').trim();
   const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
   const payload = { FactorDeConversionKgALitros: factorVal };
   if (rfcVal)  payload.RfcContribuyente      = rfcVal;
+  payload.DescripcionInstalacion = fiscalNameVal;
+  payload.CodigoPostal = fiscalCpVal;
+  payload.RegimenFiscal = fiscalRegimenVal;
   if (repVal)  payload.RfcRepresentanteLegal  = repVal;
   if (provVal) payload.RfcProveedor           = provVal;
   if (!repVal) payload.RfcRepresentanteLegal  = '';
@@ -4005,6 +4027,22 @@ function confirmDeleteFacility(id, nombre) {
 }
 
 // ── Navegación principal ──────────────────────────────────────────────────
+function switchGasAdminTab(name, shouldLoad = true) {
+  const active = name === 'carta' ? 'carta' : 'usuarios';
+  document.querySelectorAll('.gas-admin-tab').forEach(btn => {
+    const isActive = btn.dataset.gasAdminTab === active;
+    btn.classList.toggle('active', isActive);
+    btn.style.background = isActive ? '#eff6ff' : '#fff';
+    btn.style.borderColor = isActive ? '#bfdbfe' : '#e2e8f0';
+    btn.style.color = isActive ? '#1e40af' : '#334155';
+  });
+  document.querySelectorAll('.gas-admin-section').forEach(section => {
+    section.style.display = section.dataset.gasAdminSection === active ? '' : 'none';
+  });
+  if (shouldLoad && active === 'usuarios') loadInternalUsersGasLp();
+  if (shouldLoad && active === 'carta') loadGasLpCartaPorteCatalogs();
+}
+
 async function switchTab(name) {
   const assistantAllowed = {
     asistente_facturacion: ['procesar','facturar'],
@@ -4025,6 +4063,7 @@ async function switchTab(name) {
   if (name === 'ventas'      && authToken) loadVentasAnalytics();
   if (name === 'proveedores' && authToken) { setTimeout(cargarProveedores, 100); }
   if (name === 'admin'       && authToken && currentUserRole === 'admin') {
+    switchGasAdminTab('usuarios', false);
     loadInternalUsersGasLp();
     loadGasLpCartaPorteCatalogs();
   }
