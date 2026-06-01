@@ -1786,6 +1786,113 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
     })
 
 
+@router.get("/internal-auth/gas-lp/conciliacion/export-excel")
+async def gas_lp_conciliacion_export_excel(
+    token: str,
+    periodo: str | None = None,
+    fecha: str | None = None,
+    perfil_id: int | None = None,
+):
+    ctx = _gas_lp_conciliacion_context(token, perfil_id=perfil_id)
+    user = ctx["user"]
+    day = str(fecha or "").strip()[:10]
+    month = str(periodo or "").strip()[:7]
+    if day:
+        try:
+            datetime.strptime(day, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, "Selecciona una fecha válida para exportar.")
+        month = day[:7]
+    elif len(month) == 7 and month[4] == "-":
+        try:
+            datetime.strptime(f"{month}-01", "%Y-%m-%d")
+        except ValueError:
+            month = datetime.now().strftime("%Y-%m")
+    else:
+        month = datetime.now().strftime("%Y-%m")
+
+    start = datetime.strptime(day or f"{month}-01", "%Y-%m-%d")
+    if day:
+        end = start + timedelta(days=1)
+    elif start.month == 12:
+        end = start.replace(year=start.year + 1, month=1)
+    else:
+        end = start.replace(month=start.month + 1)
+
+    sb = get_supabase_admin()
+    try:
+        rows = (
+            sb.table("gas_lp_facturas")
+            .select("*")
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .gte("created_at", start.isoformat())
+            .lt("created_at", end.isoformat())
+            .order("created_at", desc=True)
+            .limit(10000)
+            .execute()
+            .data
+            or []
+        )
+        if not rows:
+            rows = (
+                sb.table("gas_lp_facturas")
+                .select("*")
+                .eq("tenant_id", user.get("tenant_id"))
+                .eq("perfil_id", user.get("perfil_id"))
+                .order("created_at", desc=True)
+                .limit(10000)
+                .execute()
+                .data
+                or []
+            )
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_conciliacion_export_excel", exc)
+
+    if day:
+        rows = [row for row in rows if _gas_lp_factura_date_key(row) == day]
+    else:
+        rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Facturas"
+    headers = ["Fecha", "Folio de fact", "Razón social", "Litros", "Monto con IVA", "PUE o PPD"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="7A1E2C")
+    for row in rows:
+        ws.append([
+            _gas_lp_factura_date_key(row),
+            _gas_lp_factura_folio_label(row),
+            _gas_lp_factura_razon_social(row),
+            float(row.get("volumen_litros") or 0),
+            float(_gas_lp_factura_total_con_iva(row)),
+            _gas_lp_factura_metodo_pago(row),
+        ])
+    for width, column in zip([14, 18, 42, 14, 18, 14], "ABCDEF"):
+        ws.column_dimensions[column].width = width
+    for cell in ws["D"][1:]:
+        cell.number_format = "#,##0.000"
+    for cell in ws["E"][1:]:
+        cell.number_format = '$#,##0.00'
+
+    stream = BytesIO()
+    wb.save(stream)
+    stream.seek(0)
+    suffix = day or month
+    filename = f"conciliacion_gas_lp_{suffix}.xlsx"
+    return Response(
+        content=stream.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/internal-auth/gas-lp/facturas/{factura_id}/complemento-pago")
 async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplementoPagoPayload, token: str, perfil_id: int | None = None):
     ctx = _gas_lp_conciliacion_context(token, write=True, perfil_id=perfil_id)
