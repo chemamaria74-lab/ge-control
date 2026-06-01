@@ -11,9 +11,9 @@
     :root{--wine:#7A1E2C;--wine2:#5B0F1D;--gold:#C8A96B;--ink:#111;--muted:#6F6A64;--line:#E7E3DC;--bg:#F5F5F5;--surface:#fff}
     *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:var(--ge-font);color:var(--ink);min-height:100vh}
     .top{position:sticky;top:0;background:#5B0F1D;color:white;padding:14px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(200,169,107,.22);z-index:10}.brand{display:flex;align-items:center;gap:10px;font-weight:800}.brand img{width:58px;height:34px;object-fit:contain}.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800}.right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.btn{border:1px solid var(--wine);background:var(--wine);color:#fff;border-radius:8px;padding:10px 13px;font:inherit;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;gap:7px;align-items:center;justify-content:center}.btn:hover{background:var(--wine2)}.btn.ghost{background:#fff;color:var(--ink);border-color:#D8D0C4}.btn.ghost:hover,.btn.ghost.active{background:#fff7ed;color:var(--wine2);border-color:var(--wine)}.btn.sm{padding:8px 11px;border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff}
-    main{max-width:1180px;margin:0 auto;padding:22px}.hero{display:flex;justify-content:space-between;gap:14px;align-items:flex-end;margin-bottom:18px}h1{font-size:26px;margin:0 0 5px}h2{font-size:20px;margin:0}.muted{color:var(--muted);line-height:1.5}.work-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:14px}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.company-band{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:14px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.company-band strong{display:block;font-size:24px;line-height:1.1;margin-top:4px}.module{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start}.module i{width:34px;height:34px;border-radius:8px;background:#F5F1E8;color:var(--wine);display:grid;place-items:center}.module b{display:block;margin-bottom:4px}.list{display:grid;gap:10px;margin-top:12px}.empty{text-align:center;padding:34px;color:var(--muted)}label{display:block;font-size:12px;font-weight:900;color:var(--muted);margin-bottom:6px}input,select,textarea{width:100%;border:1px solid #D8D0C4;border-radius:8px;padding:10px 11px;font:inherit;background:#fff}textarea{min-height:80px;resize:vertical}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.toolbar .btn{white-space:nowrap}.status{font-size:13px;font-weight:800;margin-top:8px}.ok{color:#15803d}.err{color:#b91c1c}.pill{display:inline-flex;align-items:center;gap:5px;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:900}.invoice-summary{display:grid;gap:6px;border:1px dashed #D8D0C4;border-radius:8px;padding:12px;background:#fbfaf8}.invoice-summary div{display:flex;justify-content:space-between;gap:12px}.invoice-summary b{font-size:18px}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;color:#64748b;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.04em;padding:9px}td{border-bottom:1px solid #eef2f7;padding:9px;vertical-align:top}.table-wrap{overflow:auto}.section-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.hide{display:none!important}
-    .locked-field{background:#f8fafc;color:#374151}.doc-actions{display:flex;gap:6px;flex-wrap:wrap}.doc-actions .btn{padding:7px 9px;font-size:12px;border-radius:7px}.notice{border:1px solid #fed7aa;background:#fff7ed;color:#9a3412;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-weight:800}
-    @media(max-width:900px){.top{padding:12px;flex-wrap:wrap}.right{margin-left:0}.brand span{display:none}main{padding:14px}.hero,.company-band{align-items:start;flex-direction:column}.work-grid,.form-grid{grid-template-columns:1fr}.btn{width:100%}}
+    main{max-width:1180px;margin:0 auto;padding:22px}.hero{display:flex;justify-content:space-between;gap:14px;align-items:flex-end;margin-bottom:18px}h1{font-size:26px;margin:0 0 5px}h2{font-size:20px;margin:0}.muted{color:var(--muted);line-height:1.5}.work-grid{display:grid;grid-template-columns:1.18fr .82fr;gap:14px;align-items:start}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.form-span{grid-column:1 / -1}.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.company-band{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:14px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.company-band strong{display:block;font-size:24px;line-height:1.1;margin-top:4px}.module{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start}.module i{width:34px;height:34px;border-radius:8px;background:#F5F1E8;color:var(--wine);display:grid;place-items:center}.module b{display:block;margin-bottom:4px}.list{display:grid;gap:10px;margin-top:12px}.empty{text-align:center;padding:34px;color:var(--muted)}label{display:block;font-size:12px;font-weight:900;color:var(--muted);margin-bottom:6px}input,select,textarea{width:100%;border:1px solid #D8D0C4;border-radius:8px;padding:10px 11px;font:inherit;background:#fff}textarea{min-height:80px;resize:vertical}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.toolbar .btn{white-space:nowrap}.status{font-size:13px;font-weight:800;margin-top:8px}.ok{color:#15803d}.err{color:#b91c1c}.pill{display:inline-flex;align-items:center;gap:5px;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:900}.invoice-summary{display:grid;gap:6px;border:1px dashed #D8D0C4;border-radius:8px;padding:12px;background:#fbfaf8}.invoice-summary div{display:flex;justify-content:space-between;gap:12px}.invoice-summary b{font-size:18px}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;color:#64748b;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.04em;padding:9px}td{border-bottom:1px solid #eef2f7;padding:9px;vertical-align:top}.table-wrap{overflow:auto}.section-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.hide{display:none!important}
+    .locked-field{background:#f8fafc;color:#374151}.doc-actions{display:flex;gap:6px;flex-wrap:wrap}.doc-actions .btn{padding:7px 9px;font-size:12px;border-radius:7px}.notice{border:1px solid #fed7aa;background:#fff7ed;color:#9a3412;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-weight:800}.tabs{display:flex;gap:8px;align-items:center;margin:0 0 14px;border-bottom:1px solid var(--line);overflow:auto}.tab-btn{border:0;border-bottom:3px solid transparent;background:transparent;color:#5f5a55;padding:11px 12px;font:inherit;font-weight:900;cursor:pointer;display:inline-flex;gap:7px;align-items:center;white-space:nowrap}.tab-btn.active{color:var(--wine2);border-color:var(--wine);background:#fff7ed}.tab-panel{display:none}.tab-panel.active{display:block}.client-preview{border:1px solid #D8D0C4;background:#fbfaf8;border-radius:8px;padding:12px}.client-preview strong{display:block;font-size:16px;margin:2px 0 8px}.facts-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.fact-chip{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px}.fact-chip span{display:block;color:var(--muted);font-size:11px;font-weight:900;text-transform:uppercase}.fact-chip b{display:block;margin-top:2px;overflow-wrap:anywhere}.filters{display:grid;grid-template-columns:1.2fr repeat(4,minmax(130px,1fr));gap:10px;align-items:end;margin:12px 0}.client-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end}.client-row{display:grid;grid-template-columns:34px 1fr auto;gap:12px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff}.client-row b{display:block}.client-list{max-height:560px;overflow:auto;padding-right:4px}.icon-btn{width:38px;height:38px;padding:0;border-radius:8px}.danger{color:#8A2432!important;border-color:#ead1d5!important}.count-pill{border:1px solid var(--line);border-radius:999px;padding:5px 9px;font-size:12px;font-weight:900;color:var(--muted);background:#fff}.compact-card{position:sticky;top:82px}.mini-table th,.mini-table td{font-size:12px}.mini-table .doc-actions .btn{font-size:0;width:36px;height:34px;padding:0}.mini-table .doc-actions .btn i{font-size:13px;margin:0}
+    @media(max-width:900px){.top{padding:12px;flex-wrap:wrap}.right{margin-left:0}.brand span{display:none}main{padding:14px}.hero,.company-band{align-items:start;flex-direction:column}.work-grid,.form-grid,.filters,.facts-grid{grid-template-columns:1fr}.btn{width:100%}.tab-btn{flex:1;justify-content:center}.client-row{grid-template-columns:34px 1fr}.client-actions{grid-column:1 / -1;justify-content:stretch}.icon-btn{width:100%}.compact-card{position:static}}
   </style>
 </head>
 <body>
@@ -32,7 +32,7 @@
         <h1>Facturación Gas LP</h1>
         <p class="muted">Captura clientes de consumo y timbra facturas de la empresa asignada.</p>
       </div>
-      <a class="btn ghost" href="#facturacion"><i class="fa-solid fa-file-invoice-dollar"></i> Facturar consumo</a>
+      <button class="btn ghost" type="button" onclick="switchPortalTab('facturacion')"><i class="fa-solid fa-file-invoice-dollar"></i> Facturar consumo</button>
     </div>
     <section class="company-band">
       <div>
@@ -42,7 +42,13 @@
       <span class="pill" id="companyRfcTop">RFC —</span>
     </section>
     <div class="notice"><i class="fa-solid fa-circle-info"></i> Las facturas timbradas no se cancelan desde el portal de asistente. Si una factura requiere cancelación, avisa al administrador para revisarla en Conciliación.</div>
-    <section id="facturacion" class="work-grid">
+    <nav class="tabs" aria-label="Secciones de facturación">
+      <button class="tab-btn active" id="tab-facturacion" type="button" onclick="switchPortalTab('facturacion')"><i class="fa-solid fa-stamp"></i> Facturar</button>
+      <button class="tab-btn" id="tab-facturas" type="button" onclick="switchPortalTab('facturas')"><i class="fa-solid fa-file-invoice"></i> Facturas</button>
+      <button class="tab-btn" id="tab-clientes" type="button" onclick="switchPortalTab('clientes')"><i class="fa-solid fa-users"></i> Clientes</button>
+    </nav>
+    <section id="panel-facturacion" class="tab-panel active">
+    <div id="facturacion" class="work-grid">
       <div class="card">
         <div class="section-title">
           <div>
@@ -70,6 +76,16 @@
           <div><label>Operación</label><select id="tipoOperacion" onchange="updateOperacionUI()"><option value="venta">Venta a cliente</option><option value="traspaso">Traspaso interno a estación</option></select></div>
           <div><label>Instalación origen *</label><select id="facilitySelect" required onchange="filterRutasForTransfer()"><option value="">Selecciona instalación</option></select></div>
           <div id="clienteField"><label>Cliente</label><select id="clienteSelect" onchange="selectCliente()"><option value="">Público en general</option></select></div>
+          <div id="clientePreview" class="client-preview form-span">
+            <span class="muted">Receptor seleccionado</span>
+            <strong id="previewNombre">Público en general</strong>
+            <div class="facts-grid">
+              <div class="fact-chip"><span>RFC</span><b id="previewRfc">XAXX010101000</b></div>
+              <div class="fact-chip"><span>CP</span><b id="previewCp">—</b></div>
+              <div class="fact-chip"><span>Régimen</span><b id="previewRegimen">616</b></div>
+              <div class="fact-chip"><span>Uso CFDI</span><b id="previewUso">S01</b></div>
+            </div>
+          </div>
           <div id="destinoField" class="hide"><label>Estación destino</label><select id="destinoFacilitySelect" onchange="filterRutasForTransfer()"><option value="">Selecciona estación destino</option></select></div>
           <div id="cartaPorteField" class="hide"><label>Carta Porte</label><select id="generarCartaPorte" onchange="updateOperacionUI()"><option value="0">Sólo registrar traspaso</option><option value="1">Timbrar Carta Porte</option></select></div>
           <div id="vehiculoField" class="hide"><label>Vehículo</label><select id="vehiculoSelect"><option value="">Selecciona vehículo</option></select></div>
@@ -101,19 +117,55 @@
           <span id="facturaMsg" class="status"></span>
         </div>
       </div>
-      <div class="card">
-        <div class="section-title"><h2>Clientes</h2><button class="btn ghost" type="button" onclick="loadClientes()">Actualizar</button></div>
-        <div class="list" id="clientesList"><div class="empty">Cargando clientes...</div></div>
+      <div class="card compact-card">
+        <div class="section-title">
+          <div>
+            <h2>Facturas de hoy</h2>
+            <p class="muted" id="todayLabel" style="margin:4px 0 0">—</p>
+          </div>
+          <button class="btn ghost" type="button" onclick="loadFacturas()">Actualizar</button>
+        </div>
+        <div class="table-wrap"><table class="mini-table"><thead><tr><th>Hora</th><th>Cliente</th><th>Total</th><th>Pago</th><th>Docs</th></tr></thead><tbody id="todayFacturasRows"><tr><td colspan="5">Cargando...</td></tr></tbody></table></div>
       </div>
+    </div>
     </section>
-    <section class="card" style="margin-top:14px">
-      <div class="section-title"><h2>Facturas recientes</h2><button class="btn ghost" type="button" onclick="loadFacturas()">Actualizar</button></div>
+    <section id="panel-facturas" class="tab-panel card">
+      <div class="section-title">
+        <div>
+          <h2>Facturas</h2>
+          <p class="muted" style="margin:4px 0 0">Consulta y filtra las facturas timbradas de la empresa asignada.</p>
+        </div>
+        <button class="btn ghost" type="button" onclick="loadFacturas()">Actualizar</button>
+      </div>
+      <div class="filters">
+        <div><label>Cliente, RFC o UUID</label><input id="facturaSearch" placeholder="Buscar factura" oninput="applyFacturasFilters()"></div>
+        <div><label>Desde</label><input id="facturaDesde" type="date" onchange="applyFacturasFilters()"></div>
+        <div><label>Hasta</label><input id="facturaHasta" type="date" onchange="applyFacturasFilters()"></div>
+        <div><label>Pago</label><select id="facturaPago" onchange="applyFacturasFilters()"><option value="">Todos</option><option value="PUE">PUE</option><option value="PPD">PPD</option><option value="Traslado">Traslado</option></select></div>
+        <div><label>Mes</label><input id="facturaMes" type="month" onchange="applyMonthFilter()"></div>
+      </div>
       <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Operación</th><th>Instalación</th><th>Cliente/Destino</th><th>Litros</th><th>Total</th><th>Pago</th><th>Asistente</th><th>Estado</th><th>UUID</th><th>Docs</th></tr></thead><tbody id="facturasRows"><tr><td colspan="11">Cargando...</td></tr></tbody></table></div>
+    </section>
+    <section id="panel-clientes" class="tab-panel card">
+      <div class="section-title">
+        <div>
+          <h2>Clientes</h2>
+          <p class="muted" style="margin:4px 0 0">Catálogo de receptores frecuentes para seleccionar al facturar.</p>
+        </div>
+        <div class="toolbar">
+          <span class="count-pill" id="clientesCount">0 clientes</span>
+          <button class="btn ghost" type="button" onclick="loadClientes()">Actualizar</button>
+          <button class="btn" type="button" onclick="openClienteFormFromTab()"><i class="fa-solid fa-user-plus"></i> Agregar</button>
+        </div>
+      </div>
+      <div><label>Buscar cliente</label><input id="clienteSearch" placeholder="Nombre, RFC, CP o uso CFDI" oninput="renderClientesList()"></div>
+      <div class="list client-list" id="clientesList"><div class="empty">Cargando clientes...</div></div>
     </section>
   </main>
   <script>
     const token = localStorage.getItem('ge_gaslp_internal_token') || '';
     let CLIENTES = [];
+    let FACTURAS = [];
     let FACILITIES = [];
     let CATALOGOS = {choferes:[], vehiculos:[], rutas:[]};
     let CURRENT_COMPANY = null;
@@ -132,6 +184,20 @@
     function money(v){ return '$' + Number(v || 0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2}); }
     function esc(v){ return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
     function setStatus(id,text,ok=true){ const el=document.getElementById(id); if(el){ el.textContent=text; el.className='status '+(ok?'ok':'err'); } }
+    function todayKey(){
+      const d = new Date();
+      return localDateTimeValue(d).slice(0,10);
+    }
+    function facturaDateKey(f){ return String(f.created_at || '').slice(0,10); }
+    function facturaTimeLabel(f){ return String(f.created_at || '').slice(11,16) || '—'; }
+    function switchPortalTab(tab){
+      ['facturacion','facturas','clientes'].forEach(name => {
+        document.getElementById(`tab-${name}`)?.classList.toggle('active', name === tab);
+        document.getElementById(`panel-${name}`)?.classList.toggle('active', name === tab);
+      });
+      if(tab === 'facturas') applyFacturasFilters();
+      if(tab === 'clientes') renderClientesList();
+    }
     function localDateTimeValue(date=new Date()){
       const pad = n => String(n).padStart(2,'0');
       return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -143,6 +209,21 @@
       newCp.value = issuerCp();
       newRegimen.value = '616';
       newUso.value = 'S01';
+      updateClientePreview(null);
+    }
+    function updateClientePreview(c){
+      const receptor = c || {
+        nombre: 'Público en general',
+        rfc: 'XAXX010101000',
+        cp: issuerCp() || '—',
+        regimen_fiscal: '616',
+        uso_cfdi: 'S01'
+      };
+      previewNombre.textContent = receptor.nombre || 'Público en general';
+      previewRfc.textContent = receptor.rfc || 'XAXX010101000';
+      previewCp.textContent = receptor.cp || '—';
+      previewRegimen.textContent = receptor.regimen_fiscal || '616';
+      previewUso.textContent = receptor.uso_cfdi || 'S01';
     }
     function ensureFechaEmision(){
       if(!fechaEmision.value) fechaEmision.value = localDateTimeValue();
@@ -205,9 +286,43 @@
     }
     async function loadClientes(){
       const data = await api('/api/internal-auth/gas-lp/clientes');
+      const selectedId = clienteSelect.value;
       CLIENTES = data.clientes || [];
       clienteSelect.innerHTML = '<option value="">Público en general</option>' + CLIENTES.map(c=>`<option value="${esc(c.id)}">${esc(c.nombre)} · ${esc(c.rfc)}</option>`).join('');
-      clientesList.innerHTML = CLIENTES.length ? CLIENTES.map(c=>`<div class="module"><i class="fa-solid fa-user"></i><div><b>${esc(c.nombre)}</b><span class="muted">${esc(c.rfc)} · CP ${esc(c.cp||'—')} · ${esc(c.uso_cfdi||'S01')}</span><div class="toolbar" style="margin-top:8px"><button class="btn ghost" type="button" onclick="deleteCliente(${Number(c.id)})"><i class="fa-solid fa-trash-can"></i> Eliminar</button></div></div></div>`).join('') : '<div class="empty">Sin clientes. Puedes facturar a Público en general o agregar clientes aquí.</div>';
+      if(selectedId) clienteSelect.value = selectedId;
+      selectCliente();
+      renderClientesList();
+    }
+    function renderClientesList(){
+      const q = String(document.getElementById('clienteSearch')?.value || '').trim().toLowerCase();
+      const rows = CLIENTES.filter(c => {
+        if(!q) return true;
+        return [c.nombre,c.rfc,c.cp,c.regimen_fiscal,c.uso_cfdi].some(v => String(v || '').toLowerCase().includes(q));
+      });
+      clientesCount.textContent = `${CLIENTES.length} cliente${CLIENTES.length === 1 ? '' : 's'}`;
+      clientesList.innerHTML = rows.length ? rows.map(c=>`
+        <div class="client-row">
+          <i class="fa-solid fa-user"></i>
+          <div>
+            <b>${esc(c.nombre)}</b>
+            <span class="muted">${esc(c.rfc)} · CP ${esc(c.cp||'—')} · Régimen ${esc(c.regimen_fiscal||'616')} · ${esc(c.uso_cfdi||'S01')}</span>
+          </div>
+          <div class="client-actions">
+            <button class="btn ghost" type="button" onclick="selectClienteFromList(${Number(c.id)})"><i class="fa-solid fa-check"></i> Usar</button>
+            <button class="btn ghost icon-btn danger" title="Eliminar cliente" type="button" onclick="deleteCliente(${Number(c.id)})"><i class="fa-solid fa-trash-can"></i></button>
+          </div>
+        </div>`).join('') : '<div class="empty">Sin clientes con ese filtro.</div>';
+    }
+    function selectClienteFromList(id){
+      switchPortalTab('facturacion');
+      clienteSelect.value = String(id);
+      selectCliente();
+      clienteSelect.focus();
+    }
+    function openClienteFormFromTab(){
+      switchPortalTab('facturacion');
+      clienteForm.classList.remove('hide');
+      newRfc.focus();
     }
     async function loadFacilities(){
       const data = await api('/api/internal-auth/gas-lp/facilities');
@@ -252,6 +367,7 @@
       const cp = traspaso && generarCartaPorte.value === '1';
       [vehiculoField,choferField,rutaField].forEach(el => el.classList.toggle('hide', !cp));
       clienteField.classList.toggle('hide', traspaso);
+      clientePreview.classList.toggle('hide', traspaso);
       btnPublicoGeneral.disabled = traspaso;
       btnTimbrar.innerHTML = traspaso ? (cp ? '<i class="fa-solid fa-truck-fast"></i> Timbrar Carta Porte' : '<i class="fa-solid fa-right-left"></i> Registrar traspaso') : '<i class="fa-solid fa-stamp"></i> Timbrar factura';
       concepto.value = traspaso ? 'TRASPASO INTERNO DE GAS LP' : (concepto.value === 'TRASPASO INTERNO DE GAS LP' ? CONCEPTOS_FACTURA.gas_lp_litro.descripcion : concepto.value);
@@ -261,6 +377,7 @@
       const c = CLIENTES.find(x => String(x.id) === String(clienteSelect.value));
       if(c) {
         btnPublicoGeneral.classList.remove('active');
+        updateClientePreview(c);
         setStatus('facturaMsg',`Cliente seleccionado: ${c.nombre}`);
       } else {
         btnPublicoGeneral.classList.add('active');
@@ -362,8 +479,11 @@
     }
     async function loadFacturas(){
       const data = await api('/api/internal-auth/gas-lp/facturas');
-      const rows = data.facturas || [];
-      facturasRows.innerHTML = rows.length ? rows.map(f=>{
+      FACTURAS = data.facturas || [];
+      renderTodayFacturas();
+      applyFacturasFilters();
+    }
+    function facturaView(f){
         const md = f.metadata || {};
         const op = md.tipo_operacion === 'traspaso' ? 'Traspaso' : 'Venta';
         const destino = md.tipo_operacion === 'traspaso' ? md.destino_nombre : (md.cliente_nombre || f.rfc_receptor || '—');
@@ -377,8 +497,69 @@
         const id = encodeURIComponent(f.id || '');
         const q = `token=${encodeURIComponent(token)}`;
         const docs = f.id && f.xml_content ? `<div class="doc-actions"><a class="btn ghost" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost" href="/api/internal-auth/gas-lp/facturas/${id}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a></div>` : '<span class="muted">Pendiente</span>';
-        return `<tr><td>${esc((f.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(op)}</td><td>${esc(md.origen_nombre || '—')}</td><td>${esc(destino || '—')}</td><td>${esc(f.volumen_litros || 0)}</td><td>${money(md.total || (Number(f.importe||0)*1.16))}</td><td>${esc(pago || paymentStatus || '—')}</td><td>${esc(assistant)}</td><td>${esc(f.status || '—')}</td><td><code>${esc(f.uuid_sat || '—')}</code></td><td>${docs}</td></tr>`;
-      }).join('') : '<tr><td colspan="11">Sin facturas todavía.</td></tr>';
+        return {
+          fecha: esc((f.created_at||'').slice(0,16).replace('T',' ')),
+          hora: esc(facturaTimeLabel(f)),
+          op,
+          origen: md.origen_nombre || '—',
+          destino: destino || '—',
+          litros: f.volumen_litros || 0,
+          total: md.total || (Number(f.importe||0)*1.16),
+          pago: pago || paymentStatus || '—',
+          assistant,
+          status: f.status || '—',
+          uuid: f.uuid_sat || '—',
+          docs,
+          search: [f.uuid_sat,f.rfc_receptor,md.cliente_nombre,md.destino_nombre,md.origen_nombre,assistant,pago,paymentStatus].join(' ').toLowerCase()
+        };
+    }
+    function renderFacturasTable(rows, tbody, emptyText){
+      tbody.innerHTML = rows.length ? rows.map(f=>{
+        const v = facturaView(f);
+        return `<tr><td>${v.fecha}</td><td>${esc(v.op)}</td><td>${esc(v.origen)}</td><td>${esc(v.destino)}</td><td>${esc(v.litros)}</td><td>${money(v.total)}</td><td>${esc(v.pago)}</td><td>${esc(v.assistant)}</td><td>${esc(v.status)}</td><td><code>${esc(v.uuid)}</code></td><td>${v.docs}</td></tr>`;
+      }).join('') : `<tr><td colspan="11">${esc(emptyText)}</td></tr>`;
+    }
+    function renderTodayFacturas(){
+      const key = todayKey();
+      todayLabel.textContent = new Date(`${key}T00:00:00`).toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'});
+      const rows = FACTURAS.filter(f => facturaDateKey(f) === key);
+      todayFacturasRows.innerHTML = rows.length ? rows.map(f=>{
+        const v = facturaView(f);
+        return `<tr><td>${v.hora}</td><td>${esc(v.destino)}</td><td>${money(v.total)}</td><td>${esc(v.pago)}</td><td>${v.docs}</td></tr>`;
+      }).join('') : '<tr><td colspan="5">Sin facturas timbradas hoy.</td></tr>';
+    }
+    function applyFacturasFilters(){
+      const q = String(document.getElementById('facturaSearch')?.value || '').trim().toLowerCase();
+      const desde = document.getElementById('facturaDesde')?.value || '';
+      const hasta = document.getElementById('facturaHasta')?.value || '';
+      const pago = document.getElementById('facturaPago')?.value || '';
+      const rows = FACTURAS.filter(f => {
+        const key = facturaDateKey(f);
+        const v = facturaView(f);
+        if(q && !v.search.includes(q)) return false;
+        if(desde && key < desde) return false;
+        if(hasta && key > hasta) return false;
+        if(pago && !String(v.pago).toUpperCase().includes(pago.toUpperCase())) return false;
+        return true;
+      });
+      renderFacturasTable(rows, facturasRows, 'Sin facturas con esos filtros.');
+    }
+    function applyMonthFilter(){
+      const monthEl = document.getElementById('facturaMes');
+      const desdeEl = document.getElementById('facturaDesde');
+      const hastaEl = document.getElementById('facturaHasta');
+      const month = monthEl?.value || '';
+      if(month){
+        if(desdeEl) desdeEl.value = `${month}-01`;
+        const d = new Date(`${month}-01T00:00:00`);
+        d.setMonth(d.getMonth() + 1);
+        d.setDate(0);
+        if(hastaEl) hastaEl.value = localDateTimeValue(d).slice(0,10);
+      } else {
+        if(desdeEl) desdeEl.value = '';
+        if(hastaEl) hastaEl.value = '';
+      }
+      applyFacturasFilters();
     }
     async function logout(){
       try{

@@ -1928,11 +1928,6 @@ tr:hover td{background:#f8fafc}
   <div class="grid3" style="margin-top:.8rem">
     <div class="field"><label>Factor de Conversión (Kg a Litros)</label>
       <input id="factor_conversion" type="number" step="0.001" min="0.4" max="2.0" placeholder="0.542"></div>
-    <div class="field">
-      <label>Precio vigente de venta ($/L)</label>
-      <input id="precio_venta_litro" type="number" step="0.000001" min="0" placeholder="Ej. 11.05">
-      <div id="precio_venta_hint" style="font-size:.63rem;color:#6b7280;margin-top:.25rem">Lo usa el asistente de facturación Gas LP; se guarda por empresa activa.</div>
-    </div>
     <div class="field" style="display:none">
       <label>Tipo permiso HidroYPetro (auto por instalación)</label>
       <select id="tipo_permiso_hyp">
@@ -3601,21 +3596,12 @@ async function loadSettings() {
     }
     const factorEl = document.getElementById('factor_conversion');
     if (factorEl) factorEl.value = data.FactorDeConversionKgALitros ?? 0.542;
-    const precioEl = document.getElementById('precio_venta_litro');
-    if (precioEl) precioEl.value = data.PrecioVentaLitroGasLp ? Number(data.PrecioVentaLitroGasLp) : '';
     const tipoHypEl = document.getElementById('tipo_permiso_hyp');
     if (tipoHypEl) tipoHypEl.value = data.TipoPermisoHYP || '';
     const numHypEl = document.getElementById('numero_permiso_hyp');
     if (numHypEl) numHypEl.value = data.NumeroPermisoHYP || data.NumPermiso || '';
     const subHypEl = document.getElementById('subproducto_hyp');
     if (subHypEl) subHypEl.value = data.SubProductoHYP || 'SP46';
-    const precioHint = document.getElementById('precio_venta_hint');
-    if (precioHint) {
-      const upd = data.PrecioVentaLitroGasLpUpdatedAt ? String(data.PrecioVentaLitroGasLpUpdatedAt).slice(0,16).replace('T',' ') : '';
-      precioHint.textContent = upd
-        ? `Precio vigente para asistentes. Última actualización: ${upd}.`
-        : 'Lo usa el asistente de facturación Gas LP; se guarda por empresa activa.';
-    }
     setLogoPdfGasLp(data.PdfLogoDataUrl || '');
     actualizarRfcHint();
     _actualizarRfcAutoconsumo();
@@ -3661,14 +3647,11 @@ async function saveSettings() {
   const repVal  = normalizarRfc(document.getElementById('sat_rfc_rep')?.value);
   const provVal = 'XAX010101000';
   const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
-  const precioVal = parseNum(document.getElementById('precio_venta_litro')?.value, 0);
   const tipoHypVal = '';
   const numHypVal = '';
   const subHypVal = String(document.getElementById('subproducto_hyp')?.value || 'SP46').trim().toUpperCase();
   const logoVal = document.getElementById('pdf_logo_data')?.value || '';
-  const previousPrice = Number(_appState.settings?.PrecioVentaLitroGasLp || 0);
-  const payload = { FactorDeConversionKgALitros: factorVal, PdfLogoDataUrl: logoVal, PrecioVentaLitroGasLp: precioVal };
-  if (Number(precioVal || 0) !== previousPrice) payload.PrecioVentaLitroGasLpUpdatedAt = new Date().toISOString();
+  const payload = { FactorDeConversionKgALitros: factorVal, PdfLogoDataUrl: logoVal };
   if (rfcVal)  payload.RfcContribuyente      = rfcVal;
   if (nombreVal) {
     payload.NombreFiscal = nombreVal;
