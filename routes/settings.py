@@ -29,6 +29,8 @@ DEFAULT_SETTINGS = {
     "PermisoAlmYDist":       "",
     "ClaveInstalacion":      "",
     "DescripcionInstalacion":"",
+    "CodigoPostal":          "",
+    "RegimenFiscal":         "601",
     "NumeroTanques":         1,
     "NumeroDispensarios":    0,
     "Caracter":              "permisionario",
@@ -213,6 +215,8 @@ class SettingsPayload(BaseModel):
     PermisoAlmYDist:       Optional[str]   = ""
     ClaveInstalacion:      Optional[str]   = ""
     DescripcionInstalacion:Optional[str]   = ""
+    CodigoPostal:          Optional[str]   = ""
+    RegimenFiscal:         Optional[str]   = "601"
     NumeroTanques:         Optional[int]   = 1
     NumeroDispensarios:    Optional[int]   = 0
     Caracter:              Optional[str]   = "permisionario"

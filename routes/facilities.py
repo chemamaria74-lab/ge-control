@@ -23,7 +23,7 @@ from services.database import (
     create_facility_v2, update_facility_v2, delete_facility,
     get_medidores, create_medidor, update_medidor, delete_medidor,
 )
-from routes.auth import resolve_profile_scope, verify_token
+from routes.auth import verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -57,20 +57,38 @@ def _parse_perfil_id(raw: str) -> Optional[int]:
         return None
 
 
-def _auth(authorization: str) -> tuple[str, str]:
+def _auth(authorization: str) -> str:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
-    token = authorization[7:]
-    uid = verify_token(token)
+    uid = verify_token(authorization[7:])
     if not uid:
         raise HTTPException(401, "Token inválido o expirado.")
-    return uid, token
+    return uid
 
 
-def _scope(uid: str, token: str, perfil_id: Optional[int]) -> dict:
+def _require_active_profile(uid: str, perfil_id: Optional[int]) -> int:
     if not perfil_id:
         raise HTTPException(400, "Selecciona una empresa activa antes de administrar instalaciones.")
-    return resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+    try:
+        from supabase_config import get_supabase_admin
+        rows = (
+            get_supabase_admin()
+            .table("perfiles_empresa")
+            .select("id")
+            .eq("id", perfil_id)
+            .eq("user_id", uid)
+            .eq("activo", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("facilities profile check failed: user=%s perfil=%s err=%s", uid, perfil_id, exc)
+        raise HTTPException(500, "No se pudo validar la empresa activa.") from exc
+    if not rows:
+        raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
+    return perfil_id
 
 
 def _empty_scope_diagnostics(uid: str, modulo: Optional[str], perfil_id: Optional[int]) -> dict:
@@ -109,12 +127,17 @@ class FacilityPayload(BaseModel):
     permiso_alm:         str   = ""
     clave_instalacion:   str   = ""
     descripcion:         str   = ""
-    domicilio_operativo: str   = ""
-    codigo_postal:       str   = ""
     capacidad_tanque:    float = 0.0
     num_tanques:         int   = 1
     num_dispensarios:    int   = 0
     temperatura_default: Optional[float] = None
+    codigo_postal:       str   = ""
+    domicilio:           str   = ""
+    calle:               str   = ""
+    num_ext:             str   = ""
+    colonia:             str   = ""
+    municipio:           str   = ""
+    estado:              str   = ""
     modulo_propietario:  str   = "gas_lp"
     # Campos de Config. Avanzada persistidos en la instalación
     latitud:             Optional[float] = None
@@ -146,12 +169,10 @@ async def list_facilities(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    uid, token = _auth(authorization)
+    uid = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
     if modulo == "gas_lp":
-        scope = _scope(uid, token, perfil_id)
-        uid = scope["data_user_id"]
-        perfil_id = scope["perfil_id"]
+        _require_active_profile(uid, perfil_id)
     init_db()
     facs = get_facilities(uid, modulo, perfil_id=perfil_id)
     for f in facs:
@@ -177,11 +198,9 @@ async def add_facility(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    uid, token = _auth(authorization)
+    uid = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
-    scope = _scope(uid, token, perfil_id)
-    uid = scope["data_user_id"]
-    perfil_id = scope["perfil_id"]
+    perfil_id = _require_active_profile(uid, perfil_id)
     init_db()
     if not payload.nombre.strip():
         raise HTTPException(400, "El nombre de la instalación es requerido.")
@@ -202,11 +221,9 @@ async def edit_facility(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    uid, token = _auth(authorization)
+    uid = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
-    scope = _scope(uid, token, perfil_id)
-    uid = scope["data_user_id"]
-    perfil_id = scope["perfil_id"]
+    perfil_id = _require_active_profile(uid, perfil_id)
     if not get_facility(fid, uid, perfil_id=perfil_id):
         raise HTTPException(404, "Instalación no encontrada.")
     data = payload.model_dump()
@@ -225,11 +242,9 @@ async def remove_facility(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    uid, token = _auth(authorization)
+    uid = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
-    scope = _scope(uid, token, perfil_id)
-    uid = scope["data_user_id"]
-    perfil_id = scope["perfil_id"]
+    perfil_id = _require_active_profile(uid, perfil_id)
     if not delete_facility(fid, uid, perfil_id=perfil_id):
         raise HTTPException(404, "Instalación no encontrada.")
     return JSONResponse(content={"ok": True, "deleted_id": fid})
@@ -243,10 +258,8 @@ async def list_medidores(
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
-    uid, token = _auth(authorization)
-    scope = _scope(uid, token, _parse_perfil_id(x_perfil_id))
-    uid = scope["data_user_id"]
-    perfil_id = scope["perfil_id"]
+    uid = _auth(authorization)
+    perfil_id = _require_active_profile(uid, _parse_perfil_id(x_perfil_id))
     if not get_facility(fid, uid, perfil_id=perfil_id):
         raise HTTPException(404, "Instalación no encontrada.")
     return JSONResponse(content={"medidores": get_medidores(uid, fid)})
@@ -256,10 +269,8 @@ async def list_medidores(
 async def add_medidor(fid: int, payload: MedidorPayload,
                       authorization: str = Header(default=""),
                       x_perfil_id: str = Header(default="")):
-    uid, token = _auth(authorization)
-    scope = _scope(uid, token, _parse_perfil_id(x_perfil_id))
-    uid = scope["data_user_id"]
-    perfil_id = scope["perfil_id"]
+    uid = _auth(authorization)
+    perfil_id = _require_active_profile(uid, _parse_perfil_id(x_perfil_id))
     if not get_facility(fid, uid, perfil_id=perfil_id):
         raise HTTPException(404, "Instalación no encontrada.")
     data = payload.model_dump()
@@ -271,7 +282,7 @@ async def add_medidor(fid: int, payload: MedidorPayload,
 @router.put("/medidores/{mid}")
 async def edit_medidor(mid: int, payload: MedidorPayload,
                        authorization: str = Header(default="")):
-    uid, _token = _auth(authorization)
+    uid = _auth(authorization)
     med = update_medidor(mid, uid, payload.model_dump())
     if not med:
         raise HTTPException(404, "Medidor no encontrado.")
@@ -280,7 +291,7 @@ async def edit_medidor(mid: int, payload: MedidorPayload,
 
 @router.delete("/medidores/{mid}")
 async def remove_medidor(mid: int, authorization: str = Header(default="")):
-    uid, _token = _auth(authorization)
+    uid = _auth(authorization)
     if not delete_medidor(mid, uid):
         raise HTTPException(404, "Medidor no encontrado.")
     return JSONResponse(content={"ok": True, "deleted_id": mid})
@@ -303,11 +314,9 @@ async def migrate_adv_settings(
     y los escribe en los campos correspondientes de user_facilities[fid].
     Solo sobreescribe si el campo en la facility está vacío/null.
     """
-    uid, token = _auth(authorization)
+    uid       = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
-    scope = _scope(uid, token, perfil_id)
-    uid = scope["data_user_id"]
-    perfil_id = scope["perfil_id"]
+    perfil_id = _require_active_profile(uid, perfil_id)
 
     fac = get_facility(fid, uid, perfil_id=perfil_id)
     if not fac:

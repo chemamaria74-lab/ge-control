@@ -51,7 +51,8 @@ def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
         ids_a_asignar = [p["id"] for p in r2]
 
         # 3. Asignar solo huérfanos explícitos de migración pre-multiempresa.
-        #    Nunca tomar datos de otro perfil porque eso rompe aislamiento.
+        #    Filas de otros perfiles se muestran abajo como catálogo visible,
+        #    pero no se re-asignan automáticamente.
         if ids_a_asignar:
             try:
                 sb.table("providers").update({"perfil_id": perfil_id})\
@@ -62,10 +63,17 @@ def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
             except Exception as e2:
                 logger.warning("No se pudo asignar proveedores: %s", e2)
 
-        # 4. Deduplicar por RFC (los del perfil exacto tienen prioridad)
+        # 4. Catálogo visible: recuperar también proveedores que quedaron
+        #    ligados a un perfil anterior del mismo usuario durante migraciones.
+        #    Deduplicamos por RFC dando prioridad al perfil activo y a huérfanos.
+        r3 = sb.table("providers").select("*")\
+               .eq("user_id", user_id)\
+               .order("rfc").execute().data or []
+
+        # 5. Deduplicar por RFC (los del perfil exacto tienen prioridad)
         rfcs_vistas: set = set()
         resultado = []
-        for p in r1 + r2:
+        for p in r1 + r2 + r3:
             rfc_key = p.get("rfc", "").upper()
             if rfc_key not in rfcs_vistas:
                 rfcs_vistas.add(rfc_key)
