@@ -89,7 +89,7 @@
     </section>
     <section class="card" style="margin-top:14px">
       <div class="section-title"><h2>Facturas recientes</h2><button class="btn ghost" type="button" onclick="loadFacturas()">Actualizar</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Litros</th><th>Total</th><th>Estado</th><th>UUID</th></tr></thead><tbody id="facturasRows"><tr><td colspan="6">Cargando...</td></tr></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Litros</th><th>Total</th><th>Estado</th><th>UUID</th><th>Documentos</th></tr></thead><tbody id="facturasRows"><tr><td colspan="7">Cargando...</td></tr></tbody></table></div>
     </section>
   </main>
   <script>
@@ -206,8 +206,11 @@
       const rows = data.facturas || [];
       facturasRows.innerHTML = rows.length ? rows.map(f=>{
         const md = f.metadata || {};
-        return `<tr><td>${esc((f.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(md.cliente_nombre || f.rfc_receptor || '—')}</td><td>${esc(f.volumen_litros || 0)}</td><td>${money(md.total || (Number(f.importe||0)*1.16))}</td><td>${esc(f.status || '—')}</td><td><code>${esc(f.uuid_sat || '—')}</code></td></tr>`;
-      }).join('') : '<tr><td colspan="6">Sin facturas todavía.</td></tr>';
+        const id = encodeURIComponent(f.id || '');
+        const tokenParam = encodeURIComponent(token);
+        const docs = f.xml_content ? `<div class="toolbar"><a class="btn ghost" target="_blank" rel="noopener" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?token=${tokenParam}"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost" target="_blank" rel="noopener" href="/api/internal-auth/gas-lp/facturas/${id}/xml?token=${tokenParam}"><i class="fa-solid fa-file-code"></i> XML</a></div>` : '<span class="muted">Sin XML</span>';
+        return `<tr><td>${esc((f.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(md.cliente_nombre || f.rfc_receptor || '—')}</td><td>${esc(f.volumen_litros || 0)}</td><td>${money(md.total || (Number(f.importe||0)*1.16))}</td><td>${esc(f.status || '—')}</td><td><code>${esc(f.uuid_sat || '—')}</code></td><td>${docs}</td></tr>`;
+      }).join('') : '<tr><td colspan="7">Sin facturas todavía.</td></tr>';
     }
     async function logout(){
       await fetch('/api/internal-auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}).catch(()=>{});
