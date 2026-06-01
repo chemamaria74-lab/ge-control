@@ -618,11 +618,16 @@ def _build_gas_lp_consumo_xml(
         raise HTTPException(400, "Litros y precio unitario deben ser mayores a cero.")
     if discount_unit < 0 or discount_unit > unit:
         raise HTTPException(400, "El descuento por litro debe estar entre $0 y el precio por litro.")
-    subtotal = _money(qty * unit)
-    discount_total = _money(qty * discount_unit)
+    gross_total = _money(qty * unit)
+    discount_gross = _money(qty * discount_unit)
+    net_gross = _money(gross_total - discount_gross)
+    divisor = Decimal("1.00") + tax_rate
+    unit_net = _rate(unit / divisor) if tax_rate > 0 else unit
+    subtotal = _money(gross_total / divisor) if tax_rate > 0 else gross_total
+    discount_total = _money(discount_gross / divisor) if tax_rate > 0 else discount_gross
     taxable_base = _money(subtotal - discount_total)
-    iva = _money(taxable_base * tax_rate)
-    total = _money(taxable_base + iva)
+    iva = _money(net_gross - taxable_base)
+    total = net_gross
     folio = (str(folio or "").strip() or datetime.now().strftime("GLP%Y%m%d%H%M%S"))[:40]
     serie = (str(serie or "AA").strip() or "AA")[:10]
     fecha = (str(fecha or "").strip() or datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))[:19]
@@ -662,7 +667,7 @@ def _build_gas_lp_consumo_xml(
         f'DomicilioFiscalReceptor="{receptor["cp"]}" RegimenFiscalReceptor="{receptor["regimen_fiscal"]}" UsoCFDI="{receptor["uso_cfdi"]}"/>'
         '<cfdi:Conceptos>'
         f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" NoIdentificacion="{xml_escape(no_identificacion)}" Cantidad="{qty:.3f}" '
-        f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{xml_escape(desc)}" ValorUnitario="{unit:.6f}" '
+        f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{xml_escape(desc)}" ValorUnitario="{unit_net:.6f}" '
         f'Importe="{subtotal:.2f}"{descuento_concepto} ObjetoImp="02">'
         '<cfdi:Impuestos><cfdi:Traslados>'
         f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
@@ -676,7 +681,17 @@ def _build_gas_lp_consumo_xml(
         f'{f"<cfdi:Addenda><Observaciones>{xml_escape(comments)}</Observaciones></cfdi:Addenda>" if comments else ""}'
         '</cfdi:Comprobante>'
     )
-    return xml, {"folio": folio, "fecha": fecha, "subtotal": float(subtotal), "descuento": float(discount_total), "iva": float(iva), "total": float(total)}
+    return xml, {
+        "folio": folio,
+        "fecha": fecha,
+        "subtotal": float(subtotal),
+        "descuento": float(discount_total),
+        "descuento_con_iva": float(discount_gross),
+        "iva": float(iva),
+        "total": float(total),
+        "precio_unitario_con_iva": float(unit),
+        "precio_unitario_sin_iva": float(unit_net),
+    }
 
 
 def _xml_local(tag: str) -> str:
