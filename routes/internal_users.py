@@ -1401,7 +1401,7 @@ async def gas_lp_internal_factura_pdf(factura_id: int, token: str):
 async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None):
     ctx = _gas_lp_conciliacion_context(token)
     user = ctx["user"]
-    profile = _gas_lp_profile(user)
+    profile = _gas_lp_profile(user, require_module_marker=True)
     month = (periodo or datetime.now().strftime("%Y-%m"))[:7]
     start_at = f"{month}-01T00:00:00"
     year, mon = [int(x) for x in month.split("-")]
@@ -1458,7 +1458,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None):
 async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplementoPagoPayload, token: str):
     ctx = _gas_lp_conciliacion_context(token, write=True)
     user = ctx["user"]
-    profile = _gas_lp_profile(user)
+    profile = _gas_lp_profile(user, require_module_marker=True)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     issuer = _require_gas_lp_issuer(profile, settings)
     serie_factura = _gas_lp_internal_series(user, settings)
@@ -1583,6 +1583,7 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
 async def gas_lp_complemento_pago_xml(complemento_id: int, token: str):
     ctx = _gas_lp_conciliacion_context(token)
     user = ctx["user"]
+    _gas_lp_profile(user, require_module_marker=True)
     rows = (
         get_supabase_admin()
         .table("gas_lp_complementos_pago")
@@ -1605,6 +1606,7 @@ async def gas_lp_complemento_pago_xml(complemento_id: int, token: str):
 async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacionPayload, token: str):
     ctx = _gas_lp_conciliacion_context(token, write=True)
     user = ctx["user"]
+    _gas_lp_profile(user, require_module_marker=True)
     now = _now_iso()
     sb = get_supabase_admin()
     rows = (
