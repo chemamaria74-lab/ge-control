@@ -1868,6 +1868,22 @@ tr:hover td{background:#f8fafc}
   <div class="grid3">
     <div class="field"><label><span data-en="Taxpayer RFC">RFC del Contribuyente</span></label>
       <input id="rfc" value="" placeholder="Ej. ABC010101AAA"></div>
+    <div class="field"><label>Nombre fiscal / Razón social</label>
+      <input id="fiscal_name" placeholder="Nombre exactamente como en SAT"></div>
+    <div class="field"><label>CP fiscal / Lugar de expedición</label>
+      <input id="fiscal_cp" maxlength="5" inputmode="numeric" placeholder="Ej. 98600"></div>
+  </div>
+  <div class="grid3" style="margin-top:.8rem">
+    <div class="field"><label>Régimen fiscal emisor</label>
+      <select id="fiscal_regimen">
+        <option value="601">601 — General de Ley Personas Morales</option>
+        <option value="612">612 — Personas Físicas con Actividades Empresariales</option>
+        <option value="626">626 — Régimen Simplificado de Confianza</option>
+        <option value="603">603 — Personas Morales con Fines no Lucrativos</option>
+        <option value="616">616 — Sin obligaciones fiscales</option>
+      </select>
+      <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Se usa para timbrado CFDI y Carta Porte. El CP también se usa como LugarExpedición.</div>
+    </div>
     <div class="field"><label>RFC Representante Legal <span style="font-size:.68rem;color:#7c3aed;font-weight:600">(→ RfcRepresentanteLegal en JSON)</span></label>
       <input id="sat_rfc_rep" placeholder="Ej. OEMR710420FCA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
       <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Solo personas morales. Si se captura, se incluye en el nodo raíz del reporte mensual SAT con prioridad alta.</div>
@@ -1908,7 +1924,7 @@ tr:hover td{background:#f8fafc}
           <th><span data-en="Internal Name">Nombre interno</span></th>
           <th><span data-en="CRE Permit No.">Núm. Permiso CRE</span></th>
           <th><span data-en="Facility Key"><span data-en="Facility Key">Clave Instalación</span></span></th>
-          <th>Descripción</th>
+          <th>Descripción / Domicilio</th>
           <th><span data-en="Tanks">Tanques</span></th>
           <th style="width:80px;text-align:center">Acciones</th>
         </tr>
@@ -1993,6 +2009,39 @@ tr:hover td{background:#f8fafc}
           <input id="fac_dispensarios" type="number" min="0" step="1" value="0" style="width:60px">
         </div>
       </div>
+    </div>
+    <div style="font-size:.72rem;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:.05em;margin:.2rem 0 .5rem">
+      <i class="fa-solid fa-map-location-dot" style="margin-right:.3rem"></i>Domicilio de la instalación
+    </div>
+    <div class="grid3" style="margin-bottom:.7rem">
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Código Postal <span style="color:#e63946">*</span></label>
+        <input id="fac_codigo_postal" maxlength="5" placeholder="Ej. 98600" inputmode="numeric">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Estado</label>
+        <input id="fac_estado" placeholder="Ej. Zacatecas">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Municipio / Alcaldía</label>
+        <input id="fac_municipio" placeholder="Ej. Guadalupe">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Calle</label>
+        <input id="fac_calle" placeholder="Ej. Carretera Panamericana">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Núm. exterior</label>
+        <input id="fac_num_ext" placeholder="Ej. KM 12">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Colonia</label>
+        <input id="fac_colonia" placeholder="Ej. Centro">
+      </div>
+    </div>
+    <div class="field" style="margin:0 0 .7rem">
+      <label style="font-size:.72rem">Domicilio completo / referencia</label>
+      <input id="fac_domicilio" placeholder="Calle, número, colonia, municipio, estado">
     </div>
     <!-- ── Config. Avanzada (colapsable) ──────────────────────────────── -->
     <div style="margin-top:.9rem;border-top:1px solid #e2e8f0;padding-top:.7rem">
@@ -3581,12 +3630,17 @@ function renderFacilitiesTable(facilities, diagnostics = {}) {
   tbody.innerHTML = facilities.map(f => {
     const hasAdv  = f.latitud || f.clave_tanque || f.incertidumbre_medidor;
     const advBadge = hasAdv ? ' <span title="Config. Avanzada configurada" style="font-size:.65rem;background:#ede9fe;color:#7c3aed;border-radius:4px;padding:.1rem .35rem;font-weight:600">⚙</span>' : '';
+    const cp = f.codigo_postal || f.cp || f.domicilio_cp || '';
+    const domicilio = f.domicilio || f.direccion || f.address || [f.calle, f.num_ext, f.colonia, f.municipio, f.estado].filter(Boolean).join(', ');
     return `
     <tr>
       <td><b>${f.nombre || ''}</b>${advBadge}</td>
       <td><code style="font-size:.78rem">${f.num_permiso || '<span style="color:#94a3b8">—</span>'}</code></td>
       <td><code style="font-size:.78rem">${f.clave_instalacion || '<span style="color:#94a3b8">—</span>'}</code></td>
-      <td style="font-size:.78rem;color:#475569">${f.descripcion || ''}</td>
+      <td style="font-size:.78rem;color:#475569">
+        <div>${f.descripcion || ''}</div>
+        ${(cp || domicilio) ? `<div style="font-size:.7rem;color:#64748b;margin-top:.15rem">${cp ? `<b>CP ${cp}</b>` : ''}${cp && domicilio ? ' · ' : ''}${domicilio || ''}</div>` : '<div style="font-size:.7rem;color:#dc2626;margin-top:.15rem">Sin domicilio visible</div>'}
+      </td>
       <td style="text-align:center;font-size:.78rem">${f.num_tanques ?? 1}T / ${f.num_dispensarios ?? 0}D</td>
       <td style="text-align:center">
         <button onclick="openEditFacility(${f.id})"
@@ -3803,6 +3857,9 @@ function openAddFacility() {
   document.getElementById('fac_temp_default').value = '';
   document.getElementById('fac_tanques').value      = '1';
   document.getElementById('fac_dispensarios').value = '0';
+  ['fac_codigo_postal','fac_domicilio','fac_calle','fac_num_ext','fac_colonia','fac_municipio','fac_estado'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
   document.getElementById('facilityFormStatus').textContent = '';
   // Clear adv fields
   ['fac_clave_tanque','fac_cap_total','fac_cap_operativa','fac_cap_util',
@@ -3833,6 +3890,13 @@ function openEditFacility(id) {
   document.getElementById('fac_desc').value                = fac.descripcion || '';
   document.getElementById('fac_tanques').value             = fac.num_tanques ?? 1;
   document.getElementById('fac_dispensarios').value        = fac.num_dispensarios ?? 0;
+  document.getElementById('fac_codigo_postal').value        = fac.codigo_postal || fac.cp || fac.domicilio_cp || '';
+  document.getElementById('fac_domicilio').value            = fac.domicilio || fac.direccion || fac.address || '';
+  document.getElementById('fac_calle').value                = fac.calle || '';
+  document.getElementById('fac_num_ext').value              = fac.num_ext || fac.numero_exterior || '';
+  document.getElementById('fac_colonia').value              = fac.colonia || '';
+  document.getElementById('fac_municipio').value            = fac.municipio || '';
+  document.getElementById('fac_estado').value               = fac.estado || '';
   document.getElementById('facilityFormStatus').textContent = '';
   // Populate adv fields from existing facility data
   document.getElementById('fac_clave_tanque').value              = fac.clave_tanque || '';
@@ -3884,6 +3948,13 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
     capacidad_tanque:    parseFloat(document.getElementById('fac_cap_total').value) || 0,
     num_tanques:         parseInt(document.getElementById('fac_tanques').value) || 1,
     num_dispensarios:    parseInt(document.getElementById('fac_dispensarios').value) || 0,
+    codigo_postal:       document.getElementById('fac_codigo_postal').value.trim().replace(/\D/g, '').slice(0, 5),
+    domicilio:           document.getElementById('fac_domicilio').value.trim(),
+    calle:               document.getElementById('fac_calle').value.trim(),
+    num_ext:             document.getElementById('fac_num_ext').value.trim(),
+    colonia:             document.getElementById('fac_colonia').value.trim(),
+    municipio:           document.getElementById('fac_municipio').value.trim(),
+    estado:              document.getElementById('fac_estado').value.trim(),
     // Adv fields — str fields always send "" (never null), Optional float fields send null when empty
     clave_tanque:               document.getElementById('fac_clave_tanque').value.trim().toUpperCase(),
     cap_total_tanque:           document.getElementById('fac_cap_total').value ? parseFloat(document.getElementById('fac_cap_total').value) : null,
