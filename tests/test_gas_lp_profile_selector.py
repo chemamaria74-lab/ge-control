@@ -6,6 +6,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import routes.perfiles as perfiles
+import routes.auth as auth
 
 
 class FakeResult:
@@ -36,6 +37,9 @@ class FakeQuery:
         return self
 
     def order(self, *args, **kwargs):
+        return self
+
+    def limit(self, *args, **kwargs):
         return self
 
     def execute(self):
@@ -70,30 +74,12 @@ class FakeDB:
                     "activo": True,
                 },
                 {
-                    "id": 410,
-                    "user_id": "admin",
-                    "tenant_id": "tenant-a",
-                    "nombre": "Ruth Transporte",
-                    "rfc": "OEMR710420FCA",
-                    "descripcion": "[module:transporte] Transportes Ruth",
-                    "activo": True,
-                },
-                {
                     "id": 500,
                     "user_id": "admin",
                     "tenant_id": "tenant-a",
                     "nombre": "Gas LP Real",
                     "rfc": "GLP010101AAA",
                     "descripcion": "[module:gas_lp] Empresa operativa",
-                    "activo": True,
-                },
-                {
-                    "id": 501,
-                    "user_id": "admin",
-                    "tenant_id": "tenant-a",
-                    "nombre": "Gas LP legacy sin marcador",
-                    "rfc": "LEG010101AAA",
-                    "descripcion": "",
                     "activo": True,
                 },
             ]
@@ -104,7 +90,7 @@ class FakeDB:
 
 
 class GasLpProfileSelectorTest(unittest.TestCase):
-    def test_gas_lp_module_list_uses_tenant_visible_gas_lp_profiles(self):
+    def test_gas_lp_module_list_uses_owned_gas_lp_profiles_only(self):
         db = FakeDB()
         accesses = [
             {"section": "gas_lp", "role": "admin", "tenant_id": "tenant-a", "perfil_id": 7},
@@ -115,20 +101,20 @@ class GasLpProfileSelectorTest(unittest.TestCase):
              patch.object(perfiles, "_tenant_id_for_user", lambda uid, access_token="": "tenant-a"):
             rows = perfiles.get_perfiles_for_user("admin", access_token="tok", module="gas_lp")
 
-        self.assertEqual([row["id"] for row in rows], [7, 501, 500])
+        self.assertEqual([row["id"] for row in rows], [500])
 
-    def test_transporte_module_list_does_not_mix_gas_lp_profiles(self):
+    def test_auth_resolves_marked_gas_lp_profile_instead_of_stale_root_assignment(self):
         db = FakeDB()
         accesses = [
-            {"section": "gas_lp", "role": "admin", "tenant_id": "tenant-a", "perfil_id": 7},
-            {"section": "transporte", "role": "admin", "tenant_id": "tenant-a", "perfil_id": 407},
+            {"section": "gas_lp", "role": "admin", "tenant_id": "tenant-a", "perfil_id": 407},
         ]
-        with patch.object(perfiles, "get_supabase_for_user", lambda token: db), \
-             patch.object(perfiles, "obtener_accesos_usuario", lambda uid, access_token="": accesses), \
-             patch.object(perfiles, "_tenant_id_for_user", lambda uid, access_token="": "tenant-a"):
-            rows = perfiles.get_perfiles_for_user("admin", access_token="tok", module="transporte")
+        with patch.object(auth, "get_supabase_for_user", lambda token: db), \
+             patch.object(auth, "obtener_accesos_usuario", lambda uid, access_token="": accesses):
+            acceso = auth._resolve_active_module_access("admin", "gas_lp", access_token="tok")
+            allowed = auth.usuario_tiene_acceso_perfil("admin", "gas_lp", 500, access_token="tok")
 
-        self.assertEqual([row["id"] for row in rows], [407, 410])
+        self.assertEqual(acceso["perfil_id"], 500)
+        self.assertTrue(allowed)
 
 
 if __name__ == "__main__":

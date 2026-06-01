@@ -66,9 +66,9 @@ class FakeDB:
                 {"user_id": "u2", "section": "transporte", "role": "user", "status": "active", "tenant_id": "t2", "perfil_id": 20},
             ],
             "perfiles_empresa": [
-                {"id": 10, "user_id": "u1", "tenant_id": "t1", "activo": True, "descripcion": "[module:transporte]"},
-                {"id": 11, "user_id": "someone", "tenant_id": "t1", "activo": True, "descripcion": "[module:transporte]"},
-                {"id": 20, "user_id": "u2", "tenant_id": "t2", "activo": True, "descripcion": "[module:transporte]"},
+                {"id": 10, "user_id": "u1", "tenant_id": "t1", "activo": True, "descripcion": ""},
+                {"id": 11, "user_id": "someone", "tenant_id": "t1", "activo": True, "descripcion": ""},
+                {"id": 20, "user_id": "u2", "tenant_id": "t2", "activo": True, "descripcion": ""},
                 {"id": 21, "user_id": "gas-admin", "tenant_id": "t1", "activo": True, "descripcion": "[module:gas_lp] Gas LP real"},
                 {"id": 99, "user_id": "someone-else", "tenant_id": "t1", "activo": True, "descripcion": "[module:gas_lp] Ajena"},
             ],
@@ -91,12 +91,12 @@ class ProfileAccessSecurityTest(unittest.TestCase):
         self.assertTrue(auth.usuario_tiene_acceso_perfil("u1", "transporte", 10, access_token="tok"))
         self.assertFalse(auth.usuario_tiene_acceso_perfil("u1", "transporte", 11, access_token="tok"))
 
-    def test_assigned_profile_can_be_tenant_company_for_gas_lp(self):
-        self.assertTrue(auth.usuario_tiene_acceso_perfil("gas-admin", "gas_lp", 99, access_token="tok"))
+    def test_assigned_profile_must_be_active_and_owned(self):
+        self.assertFalse(auth.usuario_tiene_acceso_perfil("gas-admin", "gas_lp", 99, access_token="tok"))
 
-    def test_login_profile_resolution_keeps_assigned_tenant_company(self):
+    def test_login_profile_resolution_skips_cross_owner_assignment(self):
         acceso = auth._resolve_active_module_access("gas-admin", "gas_lp", access_token="tok")
-        self.assertEqual(acceso["perfil_id"], 99)
+        self.assertEqual(acceso["perfil_id"], 21)
 
     def test_tenant_admin_can_use_profiles_in_same_tenant_only(self):
         self.assertTrue(auth.usuario_tiene_acceso_perfil("admin", "transporte", 11, access_token="tok"))

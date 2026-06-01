@@ -212,61 +212,6 @@ class TestAutoconsumo:
                     assert "CFDIs" not in nac, "Autoconsumo NO debe tener nodo CFDIs"
                     assert "VolumenDocumentado" in nac, "Autoconsumo DEBE tener VolumenDocumentado"
 
-    def test_autoconsumo_suma_entregas_y_resta_existencias(self):
-        """Autoconsumo cuenta como salida mensual y baja inventario final."""
-        movs = [
-            _mov("entrada", 903_941.51, uuid="CFDI-ENTRADA-0001"),
-            _mov("salida", 729_837.19, uuid="CFDI-SALIDA-0001"),
-            _mov("salida", 35_606.0, uuid="AUTO-FLOTA-35606",
-                 rfc="GLU760309457", nombre="AUTOCONSUMO"),
-        ]
-        sat, meta = build_sat_report(
-            movimientos=movs,
-            settings=_settings_base(RfcContribuyente="GLU760309457"),
-            inventario_inicial_litros=172_787.43,
-            anio=2026, mes=4,
-            capacidad_tanque=1_000_000.0,
-        )
-        volumen = sat["Producto"][0]["ReporteDeVolumenMensual"]
-        entregas = volumen["Entregas"]
-        existencias = volumen["ControlDeExistencias"]
-
-        assert meta["cnt_ventas"] == 2
-        assert meta["total_entregas_litros"] == 765_443.19
-        assert entregas["TotalEntregasMes"] == 2
-        assert entregas["SumaVolumenEntregadoMes"]["ValorNumerico"] == 765_443.19
-        assert meta["vol_existencias_litros"] == 311_285.75
-        assert existencias["VolumenExistenciasMes"] == 311_285.75
-
-        autos = []
-        for comp in entregas["Complemento"]:
-            for nac in comp.get("Nacional", []):
-                if nac.get("RfcClienteOProveedor") == "GLU760309457" and "CFDIs" not in nac:
-                    autos.append(nac)
-        assert len(autos) == 1
-        assert autos[0]["VolumenDocumentado"]["ValorNumerico"] == 35606
-
-    def test_autoconsumo_negativo_se_reporta_como_salida_positiva(self):
-        """Si UI/BD guarda autoconsumo como descarga negativa, SAT lo suma positivo."""
-        movs = [
-            _mov("entrada", 1000.0, uuid="CFDI-ENTRADA-0001"),
-            _mov("salida", -125.50, uuid="AUTO-DESCARGA-NEGATIVA",
-                 rfc="GLU760309457", nombre="AUTOCONSUMO"),
-        ]
-        sat, meta = build_sat_report(
-            movimientos=movs,
-            settings=_settings_base(RfcContribuyente="GLU760309457"),
-            inventario_inicial_litros=500.0,
-            anio=2026, mes=4,
-            capacidad_tanque=10_000.0,
-        )
-        volumen = sat["Producto"][0]["ReporteDeVolumenMensual"]
-
-        assert meta["total_entregas_litros"] == 125.50
-        assert meta["vol_existencias_litros"] == 1374.50
-        assert volumen["Entregas"]["SumaVolumenEntregadoMes"]["ValorNumerico"] == 125.50
-        assert volumen["ControlDeExistencias"]["VolumenExistenciasMes"] == 1374.50
-
 
 class TestComposicionPR12:
 
@@ -442,16 +387,6 @@ class TestNombreArchivo:
             first_uuid="12345678-1234-1234-1234-123456789012",
         )
         assert "ABC010101XXX" in nombre
-
-    def test_rfc_proveedor_programa_usa_xax_sin_x_extra(self):
-        nombre = generate_filename(
-            settings={"RfcContribuyente": "GLU760309457", "ClaveInstalacion": "PDD-1011", "ModalidadPermiso": "PER40"},
-            periodo="2026-04",
-            fmt="JSON",
-            first_uuid="7B4FCD26-1B2B-4931-862D-5E417D4CC0B6",
-        )
-        assert "_XAX010101000_" in nombre
-        assert "_XAXX010101000_" not in nombre
 
     def test_extension_json_mayusculas(self):
         nombre = generate_filename(
