@@ -809,11 +809,12 @@ def _build_gas_lp_consumo_xml(
     if qty <= 0 or unit <= 0:
         raise HTTPException(400, "Litros y precio unitario deben ser mayores a cero.")
     subtotal = _money(qty * unit)
-    discount = _money(descuento)
-    if discount < 0:
-        raise HTTPException(400, "El descuento no puede ser negativo.")
-    if discount > subtotal:
-        raise HTTPException(400, "El descuento no puede ser mayor al subtotal.")
+    discount_per_liter = Decimal(str(descuento or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    if discount_per_liter < 0:
+        raise HTTPException(400, "El descuento por litro no puede ser negativo.")
+    if discount_per_liter > unit:
+        raise HTTPException(400, "El descuento por litro no puede ser mayor al precio unitario.")
+    discount = _money(qty * discount_per_liter)
     tax_rate = Decimal(str(iva_rate if iva_rate is not None else 0.16)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     if tax_rate < 0:
         raise HTTPException(400, "La tasa de IVA no puede ser negativa.")
@@ -878,6 +879,8 @@ def _build_gas_lp_consumo_xml(
         "folio": folio,
         "subtotal": float(subtotal),
         "descuento": float(discount),
+        "descuento_litro": float(discount_per_liter),
+        "descuento_total": float(discount),
         "base": float(base),
         "iva_rate": float(tax_rate),
         "iva": float(iva),
@@ -2584,7 +2587,9 @@ async def gas_lp_internal_crear_factura(
             "precio_unitario": float(precio_unitario),
             "precio_unitario_capturado": payload.precio_unitario,
             "precio_source": "settings.PrecioVentaLitroGasLp" if tipo_operacion == "venta" and configured_price > 0 else "payload",
-            "descuento": totals["descuento"],
+            "descuento_litro": totals["descuento_litro"],
+            "descuento_total": totals["descuento_total"],
+            "descuento": totals["descuento_total"],
             "iva_rate": totals["iva_rate"],
             "iva": totals["iva"],
             "total": totals["total"],
