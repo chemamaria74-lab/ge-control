@@ -3,10 +3,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
-import os
 import re
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 from typing import Any
 from urllib.parse import quote_plus
@@ -14,11 +12,6 @@ from urllib.parse import quote_plus
 from lxml import etree
 
 logger = logging.getLogger(__name__)
-
-try:
-    from reportlab.platypus import Flowable as _ReportLabFlowable
-except Exception:  # pragma: no cover
-    _ReportLabFlowable = object
 
 
 @dataclass
@@ -36,9 +29,8 @@ def fiscal_pdf_info(xml_content: str | bytes, prefix: str = "cfdi") -> FiscalPdf
     serie = _attr(root, "Serie", "")
     folio = _attr(root, "Folio", "")
     tipo = _attr(root, "TipoDeComprobante", "")
-    safe_uuid = _safe_name(uuid) if uuid and uuid != "sin_uuid" else ""
-    safe = safe_uuid or f"{prefix}_{_safe_name(f'{serie}_{folio}' or prefix)}"
-    return FiscalPdfInfo(uuid=uuid, tipo=tipo, serie_folio=f"{serie}/{folio}".strip("/"), filename=f"{safe}.pdf")
+    safe = _safe_name(uuid or f"{serie}_{folio}" or prefix)
+    return FiscalPdfInfo(uuid=uuid, tipo=tipo, serie_folio=f"{serie}/{folio}".strip("/"), filename=f"{prefix}_{safe}.pdf")
 
 
 def generar_pdf_cfdi_desde_xml(
@@ -47,7 +39,6 @@ def generar_pdf_cfdi_desde_xml(
     title: str = "Factura CFDI",
     logo_data_url: str = "",
     template: str = "ingreso",
-    extra_context: dict[str, Any] | None = None,
 ) -> bytes:
     """Genera representacion impresa fiscal basica desde XML timbrado CFDI 4.0.
 
@@ -55,7 +46,7 @@ def generar_pdf_cfdi_desde_xml(
     """
     try:
         from reportlab.lib import colors
-        from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+        from reportlab.lib.enums import TA_CENTER
         from reportlab.lib.pagesizes import letter
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import inch
@@ -68,99 +59,97 @@ def generar_pdf_cfdi_desde_xml(
     receptor = _first(root, "Receptor")
     timbre = _first(root, "TimbreFiscalDigital")
     conceptos = _all(root, "Concepto")
-    traslados = _root_tax_nodes(root, "Traslado")
-    retenciones = _root_tax_nodes(root, "Retencion")
-    extra_context = extra_context or {}
-    cp_fiscal_emisor = str(extra_context.get("cp_fiscal_emisor") or "").strip()
+    traslados = _all(root, "Traslado")
+    retenciones = _all(root, "Retencion")
 
     buffer = BytesIO()
-    using_default_logo = not logo_data_url
-
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        rightMargin=0.34 * inch,
-        leftMargin=0.34 * inch,
-        topMargin=0.30 * inch,
-        bottomMargin=0.30 * inch,
+        rightMargin=0.38 * inch,
+        leftMargin=0.38 * inch,
+        topMargin=0.34 * inch,
+        bottomMargin=0.38 * inch,
         title=title,
     )
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=13, textColor=colors.HexColor("#7A1E2C"), leading=15))
-    styles.add(ParagraphStyle(name="TitleCenter", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=13.8, leading=15.8))
-    styles.add(ParagraphStyle(name="Right", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=8.0, leading=9.3))
-    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontSize=9.2, leading=10.8, textColor=colors.HexColor("#7A1E2C"), spaceBefore=5, spaceAfter=2))
-    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.8, leading=7.7))
-    styles.add(ParagraphStyle(name="TinyCenter", parent=styles["Tiny"], alignment=TA_CENTER))
-    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=8.2, leading=9.4))
-    styles.add(ParagraphStyle(name="SmallBold", parent=styles["Small"], fontName="Helvetica-Bold"))
-    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=colors.white))
-    styles.add(ParagraphStyle(name="HeaderSmallBold", parent=styles["SmallBold"], textColor=colors.white))
+    styles.add(ParagraphStyle(name="TitleCenter", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=14, leading=17, textColor=colors.HexColor("#111111")))
+    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontSize=10.5, leading=13, textColor=colors.HexColor("#7A1E2C"), spaceBefore=8, spaceAfter=4))
+    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.8, leading=8.5))
+    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=7.6, leading=9.5))
 
     qr = _qr_flowable(_url_qr_fiscal(root, emisor, receptor, timbre), Image)
-    logo = None if using_default_logo else _logo_flowable(logo_data_url, Image)
-    resico_default_logo = using_default_logo and template == "resico_saas"
-    if resico_default_logo:
-        logo_cell = _default_full_logo_header_cell(
-            Image,
-            Table,
-            TableStyle,
-            colors,
-            width=1.8 * inch,
-            height=1.13 * inch,
-            col_width=1.95 * inch,
-            row_height=1.22 * inch,
-        )
-    else:
-        logo_cell = _default_logo_header_cell(Table, TableStyle, colors) if using_default_logo else logo
-    story = []
-    header_left = []
-    header_left += [
-        logo_cell or Paragraph("<b>GE Control</b><br/><font size='7'>Representación fiscal</font>", styles["Brand"]),
-        Spacer(1, 4),
-    ]
-    header_left.append(
-        Paragraph(
-            f"<b>{_text(_attr(emisor, 'Nombre'))}</b><br/>"
-            f"RFC: {_text(_attr(emisor, 'Rfc'))}<br/>"
-            f"Régimen fiscal: {_text(_attr(emisor, 'RegimenFiscal'))}<br/>"
-            + (f"CP fiscal emisor: {_text(cp_fiscal_emisor)}<br/>" if cp_fiscal_emisor else "")
-            + f"Lugar de expedición: {_text(_attr(root, 'LugarExpedicion'))}",
-            styles["Small"],
-        )
+    logo = _logo_flowable(logo_data_url, Image)
+    issuer_name = _attr(emisor, "Nombre", "Emisor")
+    issuer_rfc = _attr(emisor, "Rfc", "")
+    fallback_brand = Paragraph(
+        f"<b>{_text(issuer_name)}</b><br/><font size='7'>{_text(issuer_rfc)}</font>",
+        styles["Brand"],
     )
-    header_box = _summary_box(root, timbre, Paragraph, styles, colors, Table, TableStyle)
-    header = Table([[header_left, header_box]], colWidths=[4.05 * inch, 2.65 * inch])
-    header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    story += [header, Spacer(1, 6)]
+    story = []
+    header = Table(
+        [[
+            logo or fallback_brand,
+            Paragraph(f"<b>{_text(title)}</b><br/>Representación impresa de CFDI 4.0", styles["TitleCenter"]),
+            qr or Paragraph("QR fiscal<br/>no disponible", styles["Tiny"]),
+        ]],
+        colWidths=[1.75 * inch, 3.9 * inch, 1.15 * inch],
+    )
+    header.setStyle(_table_style(box=False, header=False))
+    story += [header, Spacer(1, 7)]
+    _append_template_intro(story, template, Paragraph, styles, colors, Table, TableStyle, Spacer)
 
-    story.append(_party_table(root, emisor, receptor, Paragraph, styles, colors, Table, TableStyle))
-    fiscal_visual = _fiscal_visual_context_table(root, template, extra_context, Paragraph, styles, colors, Table, TableStyle)
-    if fiscal_visual is not None:
-        story.append(Spacer(1, 4))
-        story.append(fiscal_visual)
-    story.append(Spacer(1, 5))
+    story.append(_kv_table("Datos fiscales", [
+        ("UUID SAT", _attr(timbre, "UUID")),
+        ("Serie / Folio", f"{_attr(root, 'Serie', '—')} / {_attr(root, 'Folio', '—')}"),
+        ("Tipo CFDI", f"{_tipo_cfdi(_attr(root, 'TipoDeComprobante'))} ({_attr(root, 'TipoDeComprobante')})"),
+        ("Fecha emisión", _attr(root, "Fecha")),
+        ("Fecha timbrado", _attr(timbre, "FechaTimbrado")),
+        ("Lugar expedición", _attr(root, "LugarExpedicion")),
+        ("Moneda", _attr(root, "Moneda")),
+        ("Método / Forma pago", f"{_attr(root, 'MetodoPago', '—')} / {_attr(root, 'FormaPago', '—')}"),
+        ("No. certificado emisor", _attr(root, "NoCertificado")),
+        ("No. certificado SAT", _attr(timbre, "NoCertificadoSAT")),
+        ("PAC", _attr(timbre, "RfcProvCertif")),
+    ], Table, TableStyle, Paragraph, styles, colors))
+
+    story.append(_kv_table("Emisor y receptor", [
+        ("Emisor", f"{_attr(emisor, 'Rfc')} - {_attr(emisor, 'Nombre')}"),
+        ("Régimen emisor", _attr(emisor, "RegimenFiscal")),
+        ("Receptor", f"{_attr(receptor, 'Rfc')} - {_attr(receptor, 'Nombre')}"),
+        ("CP receptor", _attr(receptor, "DomicilioFiscalReceptor")),
+        ("Régimen receptor", _attr(receptor, "RegimenFiscalReceptor")),
+        ("Uso CFDI", _attr(receptor, "UsoCFDI")),
+    ], Table, TableStyle, Paragraph, styles, colors))
+
+    story.append(_section("Conceptos", Paragraph, styles))
     story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors))
-    story.append(Spacer(1, 5))
-    story.append(_payment_totals_table(root, traslados, retenciones, Paragraph, styles, colors, Table, TableStyle))
-    story.append(Spacer(1, 5))
-    story.append(_certification_table(root, timbre, qr, Paragraph, styles, colors, Table, TableStyle))
-    story.append(Spacer(1, 3))
-    story.append(Paragraph("Este documento es una representación impresa de un CFDI.", styles["TinyCenter"]))
-    doc.build(story, onFirstPage=_paint_page_background, onLaterPages=_paint_page_background)
+    story.append(_section("Impuestos y totales", Paragraph, styles))
+    story.append(_totales_table(root, traslados, retenciones, Table, TableStyle, Paragraph, styles, colors))
+    story.append(_section("Sellos", Paragraph, styles))
+    story.append(_kv_table("Cadena técnica", [
+        ("Sello CFDI", _short(_attr(root, "Sello"), 300)),
+        ("Sello SAT", _short(_attr(timbre, "SelloSAT"), 300)),
+        ("Cadena original", _short(_attr(timbre, "SelloCFD"), 300)),
+    ], Table, TableStyle, Paragraph, styles, colors))
+    story.append(Spacer(1, 8))
+    footer = "Generado por GE Control © 2026" if template == "resico_saas" else "Representación impresa generada desde XML timbrado CFDI 4.0"
+    story.append(Paragraph(footer, styles["Tiny"]))
+    doc.build(story)
     return buffer.getvalue()
 
 
-def generar_pdf_ingreso_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "", extra_context: dict[str, Any] | None = None) -> bytes:
-    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura CFDI de ingreso", logo_data_url=logo_data_url, template="ingreso", extra_context=extra_context)
+def generar_pdf_ingreso_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "") -> bytes:
+    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura CFDI de ingreso", logo_data_url=logo_data_url, template="ingreso")
 
 
 def generar_pdf_ingreso_carta_porte_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "") -> bytes:
     return generar_pdf_cfdi_desde_xml(xml_content, title="CFDI ingreso con Carta Porte", logo_data_url=logo_data_url, template="ingreso_carta_porte")
 
 
-def generar_pdf_gas_lp_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "", extra_context: dict[str, Any] | None = None) -> bytes:
-    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura Gas LP / Hidrocarburos", logo_data_url=logo_data_url, template="gas_lp", extra_context=extra_context)
+def generar_pdf_gas_lp_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "") -> bytes:
+    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura Gas LP / Hidrocarburos", logo_data_url=logo_data_url, template="gas_lp")
 
 
 def generar_pdf_resico_saas_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "") -> bytes:
@@ -235,13 +224,6 @@ def _parse_xml(xml_content: str | bytes):
     return etree.fromstring(data)
 
 
-def _paint_page_background(canvas, doc) -> None:
-    canvas.saveState()
-    canvas.setFillColorRGB(1, 1, 1)
-    canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], stroke=0, fill=1)
-    canvas.restoreState()
-
-
 def _local_name(node) -> str:
     return etree.QName(node).localname if node is not None else ""
 
@@ -255,18 +237,6 @@ def _first(root, name: str):
 
 def _all(root, name: str) -> list:
     return [node for node in root.iter() if _local_name(node) == name]
-
-
-def _root_tax_nodes(root, name: str) -> list:
-    for child in root:
-        if _local_name(child) != "Impuestos":
-            continue
-        for group in child:
-            expected_group = "Traslados" if name == "Traslado" else "Retenciones"
-            if _local_name(group) != expected_group:
-                continue
-            return [node for node in group if _local_name(node) == name]
-    return []
 
 
 def _attr(node, key: str, default: str = "—") -> str:
@@ -300,132 +270,6 @@ def _section(text, Paragraph, styles):
     return Paragraph(f"<b>{_text(text)}</b>", styles["Section"])
 
 
-def _summary_box(root, timbre, Paragraph, styles, colors, Table, TableStyle):
-    rows = [
-        ("Factura No.", f"{_attr(root, 'Serie', '')}{_attr(root, 'Folio', '')}"),
-        ("Folio fiscal (UUID)", _attr(timbre, "UUID")),
-        ("Certificado SAT", _attr(timbre, "NoCertificadoSAT")),
-        ("Certificado emisor", _attr(root, "NoCertificado")),
-        ("Fecha emisión", _attr(root, "Fecha")),
-        ("Fecha certificación", _attr(timbre, "FechaTimbrado")),
-    ]
-    data = [[Paragraph("<b>FACTURA CFDI 4.0</b>", styles["TitleCenter"])]]
-    data += [[Paragraph(f"<b>{_text(k)}</b><br/>{_text(v)}", styles["Tiny"])] for k, v in rows]
-    table = Table(data, colWidths=[2.55 * 72])
-    table.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 1.15, colors.HexColor("#111111")),
-        ("INNERGRID", (0, 1), (-1, -1), 0.25, colors.HexColor("#D8D1C8")),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F5F1E8")),
-        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    return table
-
-
-def _party_table(root, emisor, receptor, Paragraph, styles, colors, Table, TableStyle):
-    data = [
-        [
-            Paragraph("<b>CLIENTE / RECEPTOR</b>", styles["HeaderSmallBold"]),
-            Paragraph("<b>DATOS DEL COMPROBANTE</b>", styles["HeaderSmallBold"]),
-        ],
-        [
-            Paragraph(
-                f"<b>{_text(_attr(receptor, 'Nombre'))}</b><br/>"
-                f"RFC: {_text(_attr(receptor, 'Rfc'))}<br/>"
-                f"CP fiscal: {_text(_attr(receptor, 'DomicilioFiscalReceptor'))}<br/>"
-                f"Régimen fiscal: {_text(_attr(receptor, 'RegimenFiscalReceptor'))}<br/>"
-                f"Uso CFDI: {_text(_attr(receptor, 'UsoCFDI'))}",
-                styles["Small"],
-            ),
-            Paragraph(
-                f"Tipo: {_text(_tipo_cfdi(_attr(root, 'TipoDeComprobante')))} ({_text(_attr(root, 'TipoDeComprobante'))})<br/>"
-                f"Método de pago: {_text(_attr(root, 'MetodoPago'))}<br/>"
-                f"Forma de pago: {_text(_attr(root, 'FormaPago'))}<br/>"
-                f"Moneda: {_text(_attr(root, 'Moneda'))}<br/>"
-                f"Exportación: {_text(_attr(root, 'Exportacion'))}",
-                styles["Small"],
-            ),
-        ],
-    ]
-    table = Table(data, colWidths=[3.65 * 72, 3.05 * 72])
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#7A1E2C")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#111111")),
-        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#D8D1C8")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
-    return table
-
-
-def _facility_context_label(row: dict[str, Any] | None) -> str:
-    if not row:
-        return ""
-    parts = []
-    name = str(row.get("nombre") or "").strip()
-    if name:
-        parts.append(name)
-    clave = str(row.get("clave_instalacion") or "").strip()
-    if clave:
-        parts.append(f"Clave {clave}")
-    tipo = str(row.get("tipo_permiso") or row.get("tipo_instalacion") or row.get("actividad_sat") or "").strip()
-    if tipo:
-        parts.append(f"Tipo {tipo}")
-    permiso = str(row.get("num_permiso") or row.get("permiso_cre") or "").strip()
-    if permiso:
-        parts.append(f"Permiso {permiso}")
-    domicilio = str(row.get("domicilio_operativo") or row.get("domicilio") or row.get("direccion") or "").strip()
-    if domicilio:
-        parts.append(domicilio)
-    cp = str(row.get("codigo_postal") or row.get("cp") or "").strip()
-    if cp:
-        parts.append(f"CP {cp}")
-    return " · ".join(parts)
-
-
-def _fiscal_visual_context_table(root, template, context, Paragraph, styles, colors, Table, TableStyle):
-    if template != "gas_lp" and not context:
-        return None
-    facility = context.get("facility") if isinstance(context.get("facility"), dict) else {}
-    lugar = _attr(root, "LugarExpedicion", "")
-    facility_label = _facility_context_label(facility)
-    if not facility_label:
-        return None
-
-    rows = [
-        [
-            Paragraph("<b>ESTABLECIMIENTO DE EXPEDICIÓN</b>", styles["Tiny"]),
-        ],
-        [
-            Paragraph(
-                _text(facility_label or f"CP {lugar}"),
-                styles["Tiny"],
-            ),
-        ],
-    ]
-    table = Table(rows, colWidths=[6.7 * 72])
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F5F1E8")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111111")),
-        ("BOX", (0, 0), (-1, -1), 0.55, colors.HexColor("#D8D1C8")),
-        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#D8D1C8")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    return table
-
-
 def _kv_table(title, rows, Table, TableStyle, Paragraph, styles, colors):
     data = [[Paragraph(f"<b>{_text(title)}</b>", styles["Small"]), ""]]
     data += [[Paragraph(f"<b>{_text(k)}</b>", styles["Tiny"]), Paragraph(_text(v), styles["Tiny"])] for k, v in rows]
@@ -435,216 +279,20 @@ def _kv_table(title, rows, Table, TableStyle, Paragraph, styles, colors):
 
 
 def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors):
-    span_rows = []
-    data = [[
-        Paragraph("<b>CANTIDAD</b>", styles["HeaderTiny"]),
-        Paragraph("<b>UNIDAD</b>", styles["HeaderTiny"]),
-        Paragraph("<b>CLAVE</b>", styles["HeaderTiny"]),
-        Paragraph("<b>DESCRIPCIÓN</b>", styles["HeaderTiny"]),
-        Paragraph("<b>P. UNITARIO</b>", styles["HeaderTiny"]),
-        Paragraph("<b>IMPORTE</b>", styles["HeaderTiny"]),
-    ]]
+    data = [[Paragraph("<b>Clave</b>", styles["Tiny"]), Paragraph("<b>Descripción</b>", styles["Tiny"]), Paragraph("<b>Cant.</b>", styles["Tiny"]), Paragraph("<b>Unidad</b>", styles["Tiny"]), Paragraph("<b>Importe</b>", styles["Tiny"])]]
     for c in conceptos[:35]:
         data.append([
-            Paragraph(_text(_attr(c, "Cantidad")), styles["Tiny"]),
-            Paragraph(_text(_attr(c, "ClaveUnidad")), styles["Tiny"]),
             Paragraph(_text(_attr(c, "ClaveProdServ")), styles["Tiny"]),
             Paragraph(_text(_attr(c, "Descripcion")), styles["Tiny"]),
-            Paragraph(_money_text(_attr(c, "ValorUnitario")), styles["Right"]),
-            Paragraph(_money_text(_attr(c, "Importe")), styles["Right"]),
+            Paragraph(_text(_attr(c, "Cantidad")), styles["Tiny"]),
+            Paragraph(_text(_attr(c, "ClaveUnidad")), styles["Tiny"]),
+            Paragraph(_text(_attr(c, "Importe")), styles["Tiny"]),
         ])
-        impuestos = _all(c, "Traslado") + _all(c, "Retencion")
-        if impuestos:
-            span_rows.append(len(data))
-            data.append(["", "", "", Paragraph(_text(_impuestos_line(impuestos)), styles["Tiny"]), "", ""])
     if len(conceptos) > 35:
-        data.append(["", "", "", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", ""])
-    table = Table(data, colWidths=[0.78 * 72, 0.64 * 72, 0.76 * 72, 2.68 * 72, 0.92 * 72, 0.92 * 72], repeatRows=1)
-    style_cmds = [
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#111111")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#111111")),
-        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#D8D1C8")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("ALIGN", (0, 1), (2, -1), "CENTER"),
-        ("ALIGN", (4, 1), (5, -1), "RIGHT"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]
-    for row in span_rows:
-        style_cmds += [("SPAN", (0, row), (2, row)), ("SPAN", (4, row), (5, row))]
-    table.setStyle(TableStyle(style_cmds))
+        data.append(["", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", "", ""])
+    table = Table(data, colWidths=[0.8 * 72, 3.35 * 72, 0.75 * 72, 0.75 * 72, 1.05 * 72])
+    table.setStyle(_table_style(colors=colors, header=True))
     return table
-
-
-def _payment_totals_table(root, traslados, retenciones, Paragraph, styles, colors, Table, TableStyle):
-    tax_lines = []
-    for t in traslados[:8]:
-        tax_lines.append(f"Traslado {_attr(t, 'Impuesto')} tasa {_attr(t, 'TasaOCuota')}: {_money_text(_attr(t, 'Importe'))}")
-    for r in retenciones[:8]:
-        tax_lines.append(f"Retención {_attr(r, 'Impuesto')}: {_money_text(_attr(r, 'Importe'))}")
-    left = Paragraph(
-        f"<b>Importe con letra</b><br/>{_text(_amount_label(_attr(root, 'Total'), _attr(root, 'Moneda')))}<br/><br/>"
-        f"<b>Impuestos</b><br/>{_text('; '.join(tax_lines) or '—')}",
-        styles["Small"],
-    )
-    totals = [
-        ("Subtotal", _money_text(_attr(root, "SubTotal"))),
-        ("Descuento", _money_text(_attr(root, "Descuento", "0"))),
-        ("IVA trasladado", _money_text(_sum_attr(traslados, "Importe"))),
-        ("Retenciones", _money_text(_sum_attr(retenciones, "Importe"))),
-        ("Total", _money_text(_attr(root, "Total"))),
-    ]
-    right_data = [[Paragraph(f"<b>{_text(k)}</b>", styles["Small"]), Paragraph(_text(v), styles["Right"])] for k, v in totals]
-    right = Table(right_data, colWidths=[1.05 * 72, 0.95 * 72])
-    right.setStyle(TableStyle([
-        ("LINEBELOW", (0, -1), (-1, -1), 0.7, colors.HexColor("#111111")),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#F5F1E8")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-    ]))
-    table = Table([[left, right]], colWidths=[4.55 * 72, 2.15 * 72])
-    table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    return table
-
-
-def _certification_table(root, timbre, qr, Paragraph, styles, colors, Table, TableStyle):
-    seal_data = [
-        ("SELLO DIGITAL DEL CFDI", _attr(root, "Sello")),
-        ("SELLO DIGITAL DEL SAT", _attr(timbre, "SelloSAT")),
-        ("CADENA ORIGINAL DEL COMPLEMENTO DE CERTIFICACIÓN DIGITAL DEL SAT", _cadena_original_tfd(timbre)),
-    ]
-    seal_rows = []
-    for title, value in seal_data:
-        seal_rows.append([Paragraph(f"<b>{_text(title)}</b>", styles["Tiny"])])
-        seal_rows.append([Paragraph(_text(value), styles["Tiny"])])
-    seals = Table(seal_rows, colWidths=[5.35 * 72])
-    seals.setStyle(TableStyle([
-        ("BOX", (0, 1), (-1, 1), 0.25, colors.HexColor("#999999")),
-        ("BOX", (0, 3), (-1, 3), 0.25, colors.HexColor("#999999")),
-        ("BOX", (0, 5), (-1, 5), 0.25, colors.HexColor("#999999")),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F5F1E8")),
-        ("BACKGROUND", (0, 2), (-1, 2), colors.HexColor("#F5F1E8")),
-        ("BACKGROUND", (0, 4), (-1, 4), colors.HexColor("#F5F1E8")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]))
-    qr_cell = qr or Paragraph("QR fiscal<br/>no disponible", styles["Tiny"])
-    qr_caption = Paragraph(
-        f"<b>Verificación SAT</b><br/>RFC PAC: {_text(_attr(timbre, 'RfcProvCertif'))}",
-        styles["Tiny"],
-    )
-    side = Table([[qr_cell], [qr_caption]], colWidths=[1.15 * 72])
-    side.setStyle(TableStyle([
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
-    table = Table([[seals, side]], colWidths=[5.45 * 72, 1.25 * 72])
-    table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM")]))
-    return table
-
-
-def _impuestos_line(nodes: list) -> str:
-    labels = []
-    for node in nodes:
-        kind = "Retención" if _local_name(node) == "Retencion" else "Traslado"
-        tasa = _attr(node, "TasaOCuota", "")
-        tasa_txt = f" tasa {tasa}" if tasa and tasa != "—" else ""
-        labels.append(f"{kind} {_attr(node, 'Impuesto')}{tasa_txt} importe {_money_text(_attr(node, 'Importe'))}")
-    return "; ".join(labels)
-
-
-def _money_text(value: str) -> str:
-    try:
-        return f"${float(str(value).replace(',', '')):,.2f}"
-    except Exception:
-        return _text(value)
-
-
-def _sum_attr(nodes: list, attr: str) -> str:
-    total = 0.0
-    for node in nodes:
-        try:
-            total += float(str(_attr(node, attr, "0")).replace(",", ""))
-        except Exception:
-            pass
-    return f"{total:.2f}"
-
-
-def _amount_label(total: str, moneda: str) -> str:
-    try:
-        value = Decimal(str(total).replace(",", "")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        entero = int(value)
-        centavos = int((value - Decimal(entero)) * 100)
-        currency = (moneda or "MXN").upper()
-        unidad = "PESO" if entero == 1 and currency == "MXN" else "PESOS"
-        return f"{_numero_a_letras(entero).upper()} {unidad} {centavos:02d}/100 {currency}"
-    except Exception:
-        return f"{total} {moneda or 'MXN'}"
-
-
-def _numero_a_letras(value: int) -> str:
-    if value == 0:
-        return "cero"
-    if value < 0:
-        return "menos " + _numero_a_letras(abs(value))
-
-    unidades = (
-        "cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve",
-        "diez", "once", "doce", "trece", "catorce", "quince", "dieciseis", "diecisiete",
-        "dieciocho", "diecinueve", "veinte", "veintiuno", "veintidos", "veintitres",
-        "veinticuatro", "veinticinco", "veintiseis", "veintisiete", "veintiocho", "veintinueve",
-    )
-    decenas = ("", "", "veinte", "treinta", "cuarenta", "cincuenta", "sesenta", "setenta", "ochenta", "noventa")
-    centenas = ("", "ciento", "doscientos", "trescientos", "cuatrocientos", "quinientos", "seiscientos", "setecientos", "ochocientos", "novecientos")
-
-    def under_thousand(n: int) -> str:
-        if n < 30:
-            return unidades[n]
-        if n == 100:
-            return "cien"
-        if n < 100:
-            d, u = divmod(n, 10)
-            return decenas[d] if u == 0 else f"{decenas[d]} y {unidades[u]}"
-        c, rest = divmod(n, 100)
-        return centenas[c] if rest == 0 else f"{centenas[c]} {under_thousand(rest)}"
-
-    def chunk(n: int, singular: str, plural: str) -> str:
-        if n == 0:
-            return ""
-        if n == 1:
-            return singular
-        return f"{_numero_a_letras(n)} {plural}"
-
-    millones, rem = divmod(value, 1_000_000)
-    miles, cientos = divmod(rem, 1000)
-    parts = []
-    if millones:
-        parts.append(chunk(millones, "un millon", "millones"))
-    if miles:
-        parts.append("mil" if miles == 1 else f"{under_thousand(miles)} mil")
-    if cientos:
-        parts.append(under_thousand(cientos))
-    return " ".join(parts)
-
-
-def _cadena_original_tfd(timbre) -> str:
-    if timbre is None:
-        return "—"
-    return "||1.1|{uuid}|{fecha}|{rfc}|{sello}|{cert}||".format(
-        uuid=_attr(timbre, "UUID", ""),
-        fecha=_attr(timbre, "FechaTimbrado", ""),
-        rfc=_attr(timbre, "RfcProvCertif", ""),
-        sello=_attr(timbre, "SelloCFD", ""),
-        cert=_attr(timbre, "NoCertificadoSAT", ""),
-    )
 
 
 def _totales_table(root, traslados, retenciones, Table, TableStyle, Paragraph, styles, colors):
@@ -739,160 +387,12 @@ def _qr_flowable(url: str, Image):
         return None
 
 
-def _default_logo_data_url() -> str:
-    path = os.path.join(os.getcwd(), "static", "img", "ge-isotype-light.png")
-    try:
-        with open(path, "rb") as fh:
-            raw = base64.b64encode(fh.read()).decode("ascii")
-        return f"data:image/png;base64,{raw}"
-    except Exception:
-        return ""
-
-
 def _logo_flowable(data_url: str, Image):
     if not data_url or "," not in data_url:
         return None
     try:
         raw = base64.b64decode(data_url.split(",", 1)[1])
         buf = BytesIO(raw)
-        return Image(buf, width=1.1 * 72, height=0.62 * 72, kind="proportional")
+        return Image(buf, width=1.35 * 72, height=0.58 * 72, kind="proportional")
     except Exception:
         return None
-
-
-def _default_full_logo_header_cell(Image, Table, TableStyle, colors, *, width: float | None = None, height: float | None = None, col_width: float | None = None, row_height: float | None = None):
-    logo_width = width or (4.55 * 72)
-    logo_height = height or (1.26 * 72)
-    logo = _HeaderIsotypeFlowable(
-        width=logo_width,
-        height=logo_height,
-        fills=("#7A1E2C", "#7A1E2C", "#7A1E2C", "#C8A96B"),
-    )
-    table = Table([[logo]], colWidths=[col_width or (4.65 * 72)], rowHeights=[row_height or (1.34 * 72)])
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ]))
-    return table
-
-
-def _asset_logo_flowable(Image, filename: str, *, width: float, height: float):
-    path = os.path.join(os.getcwd(), "static", "img", filename)
-    try:
-        return Image(path, width=width, height=height, kind="proportional")
-    except Exception:
-        return None
-
-
-def _default_logo_header_cell(Table, TableStyle, colors):
-    logo = _HeaderIsotypeFlowable(width=1.78 * 72, height=1.12 * 72)
-    table = Table([[logo]], colWidths=[2.05 * 72], rowHeights=[1.22 * 72])
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#631422")),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    return table
-
-
-class _HeaderIsotypeFlowable(_ReportLabFlowable):
-    """Draws the same GE isotype paths used by static/img/ge-isotype-light.svg."""
-
-    width: float
-    height: float
-
-    _PATHS = (
-        (
-            "#F5F5F5",
-            "M300 90H582L602 185H308C199 185 124 253 124 338C124 428 201 490 314 490H560V382H314L257 286H672V590H313C130 590 28 480 28 338C28 197 139 90 300 90Z",
-        ),
-        ("#F5F5F5", "M692 286H914V382H692V286Z"),
-        ("#F5F5F5", "M692 490H938L914 590H692V490Z"),
-        ("#C8A96B", "M660 90H946L918 185H688L660 90Z"),
-    )
-
-    def __init__(self, width: float, height: float, fills: tuple[str, ...] | None = None):
-        super().__init__()
-        self.width = width
-        self.height = height
-        self.fills = fills
-
-    def wrap(self, availWidth, availHeight):
-        return self.width, self.height
-
-    def drawOn(self, canvas, x, y, _sW=0):
-        canvas.saveState()
-        canvas.translate(x, y)
-        self.draw(canvas)
-        canvas.restoreState()
-
-    def draw(self, canvas):
-        from reportlab.lib.colors import HexColor
-
-        sx = self.width / 1024.0
-        sy = self.height / 640.0
-        canvas.saveState()
-        canvas.translate(0, self.height)
-        canvas.scale(sx, -sy)
-        for idx, (fill, path_data) in enumerate(self._PATHS):
-            path = _svg_path_to_reportlab(canvas, path_data)
-            canvas.setFillColor(HexColor((self.fills or ())[idx] if self.fills else fill))
-            canvas.drawPath(path, stroke=0, fill=1)
-        canvas.restoreState()
-
-
-def _svg_path_to_reportlab(canvas, path_data: str):
-    tokens = re.findall(r"[A-Za-z]|-?\d+(?:\.\d+)?", path_data)
-    path = canvas.beginPath()
-    idx = 0
-    cmd = ""
-    current = (0.0, 0.0)
-    start = (0.0, 0.0)
-
-    def number() -> float:
-        nonlocal idx
-        value = float(tokens[idx])
-        idx += 1
-        return value
-
-    while idx < len(tokens):
-        if re.match(r"[A-Za-z]", tokens[idx]):
-            cmd = tokens[idx]
-            idx += 1
-        if cmd == "M":
-            x, y = number(), number()
-            path.moveTo(x, y)
-            current = start = (x, y)
-            cmd = "L"
-        elif cmd == "L":
-            x, y = number(), number()
-            path.lineTo(x, y)
-            current = (x, y)
-        elif cmd == "H":
-            x = number()
-            path.lineTo(x, current[1])
-            current = (x, current[1])
-        elif cmd == "V":
-            y = number()
-            path.lineTo(current[0], y)
-            current = (current[0], y)
-        elif cmd == "C":
-            x1, y1, x2, y2, x3, y3 = number(), number(), number(), number(), number(), number()
-            path.curveTo(x1, y1, x2, y2, x3, y3)
-            current = (x3, y3)
-        elif cmd in {"Z", "z"}:
-            path.close()
-            current = start
-            cmd = ""
-        else:
-            raise ValueError(f"Unsupported SVG path command: {cmd}")
-    return path
