@@ -6,6 +6,7 @@ import logging
 import os
 import secrets
 import xml.etree.ElementTree as ET
+from io import BytesIO
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -32,15 +33,10 @@ SECTIONS = {"transporte", "gas_lp", "gasolineras"}
 MAX_FAILED_ATTEMPTS = 5
 LOCK_MINUTES = 15
 SESSION_HOURS = 12
-GAS_LP_CLAVE_PROD_SERV = "15101515"
+GAS_LP_CLAVE_PROD_SERV = "15111510"
 GAS_LP_HYP_SUBPRODUCTO = "SP23"
 GAS_LP_HIDRO_CLAVES = {GAS_LP_CLAVE_PROD_SERV}
 HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 12)}
-GAS_LP_HYP_TEST_PERMITS = {
-    "distribucion": ("PER03", "PL/364/DIS/OM/2015"),
-    "expendio": ("PER01", "PL/359/EXP/ES/2015"),
-    "comercializacion": ("PER02", "H/23421/COM/2020"),
-}
 
 
 class InternalUserCreate(BaseModel):
@@ -510,6 +506,13 @@ def _infer_hyp_tipo_permiso_from_numero(numero_permiso: str) -> str:
     permiso = str(numero_permiso or "").strip().upper()
     if not permiso:
         return ""
+    if permiso.startswith("LP/"):
+        if "/DIST/PLA/" in permiso or "/DIST/REP/" in permiso or "/DIST/AUT/" in permiso:
+            return "PER06"
+        if "/EXP/ES/" in permiso or "/EXP/AUT/" in permiso:
+            return "PER06"
+        if "/COM/" in permiso:
+            return "PER06"
     if permiso.startswith("PL/"):
         if "/EXP/ES/MM/" in permiso:
             return "PER04"
@@ -583,8 +586,9 @@ def _gas_lp_hyp_permit_from_facility(facility: dict) -> tuple[str, str]:
                 if _infer_hyp_tipo_permiso_from_numero(numero) == raw:
                     return raw, numero
 
-    if _sw_env_is_test():
-        return GAS_LP_HYP_TEST_PERMITS[_gas_lp_legacy_hyp_operation(facility)]
+    numero_real = str(facility.get("num_permiso") or "").strip().upper()
+    if numero_real.startswith("LP/"):
+        return "PER06", numero_real
     return "", ""
 
 
@@ -792,6 +796,47 @@ def _gas_lp_factura_date_key(factura: dict) -> str:
         except Exception:
             return ""
     return ""
+
+
+def _gas_lp_factura_xml_root(factura: dict) -> Optional[ET.Element]:
+    xml_content = str(factura.get("xml_content") or "")
+    if not xml_content:
+        return None
+    try:
+        return ET.fromstring(xml_content.encode("utf-8"))
+    except Exception:
+        return None
+
+
+def _gas_lp_factura_folio_label(factura: dict) -> str:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    serie = str(md.get("serie") or "").strip()
+    folio = str(md.get("folio_usuario") or md.get("folio") or factura.get("record_uuid") or "").strip()
+    root = _gas_lp_factura_xml_root(factura)
+    if root is not None:
+        serie = serie or _xml_attr(root, "Serie")
+        folio = folio or _xml_attr(root, "Folio")
+    label = f"{serie}{folio}" if serie and folio and not str(folio).startswith(serie) else (folio or serie)
+    return label or str(factura.get("id") or "")
+
+
+def _gas_lp_factura_razon_social(factura: dict) -> str:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    if md.get("cliente_nombre"):
+        return str(md.get("cliente_nombre") or "")
+    root = _gas_lp_factura_xml_root(factura)
+    receptor = _xml_first(root, "Receptor") if root is not None else None
+    return _xml_attr(receptor, "Nombre") or str(factura.get("rfc_receptor") or "")
+
+
+def _gas_lp_factura_metodo_pago(factura: dict) -> str:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    info = _factura_payment_info(factura)
+    method = str(info.get("metodo_pago") or md.get("metodo_pago") or "").upper()
+    if method in {"PUE", "PPD"}:
+        return method
+    root = _gas_lp_factura_xml_root(factura)
+    return _xml_attr(root, "MetodoPago").upper() if root is not None else method
 
 
 def _gas_lp_complementos_por_factura(sb, factura_ids: list[int]) -> dict[int, list[dict]]:
@@ -1508,6 +1553,71 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
     return JSONResponse({"ok": True, "facturas": rows})
 
 
+@router.get("/internal-auth/gas-lp/facturas/export-dia")
+async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
+    ctx = _gas_lp_internal_context(token)
+    user = ctx["user"]
+    day = str(fecha or "").strip()[:10]
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Selecciona una fecha válida para exportar.")
+    sb = get_supabase_admin()
+    try:
+        rows = (
+            sb
+            .table("gas_lp_facturas")
+            .select("*")
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .order("created_at", desc=True)
+            .limit(10000)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_facturas_export_dia", exc)
+    rows = [row for row in rows if _gas_lp_factura_date_key(row) == day]
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Facturas"
+    headers = ["Fecha", "Folio de fact", "Razón social", "Litros", "Monto con IVA", "PUE o PPD"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="7A1E2C")
+    for row in rows:
+        total = _factura_payment_info(row).get("total")
+        ws.append([
+            _gas_lp_factura_date_key(row),
+            _gas_lp_factura_folio_label(row),
+            _gas_lp_factura_razon_social(row),
+            float(row.get("volumen_litros") or 0),
+            float(total or 0),
+            _gas_lp_factura_metodo_pago(row),
+        ])
+    for width, column in zip([14, 18, 42, 14, 18, 14], "ABCDEF"):
+        ws.column_dimensions[column].width = width
+    for cell in ws["D"][1:]:
+        cell.number_format = "#,##0.000"
+    for cell in ws["E"][1:]:
+        cell.number_format = '$#,##0.00'
+    stream = BytesIO()
+    wb.save(stream)
+    stream.seek(0)
+    filename = f"facturas_gas_lp_{day}.xlsx"
+    return Response(
+        content=stream.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/internal-auth/gas-lp/facturas/{factura_id}/xml")
 async def gas_lp_internal_factura_xml(factura_id: int, token: str):
     ctx = _gas_lp_internal_context(token)
@@ -1914,7 +2024,14 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     )
     resultado = timbrar_cfdi(xml)
     if resultado.get("error"):
-        raise HTTPException(400, f"PAC rechazó la factura: {resultado['error']}")
+        pac_error = str(resultado["error"])
+        if "CCHYP107" in pac_error or "NumeroPermiso" in pac_error:
+            pac_error = (
+                f"{pac_error} "
+                "El PAC no acepta el permiso LP/.../DIST/PLA/... con el tipo de permiso seleccionado. "
+                "Validar con SW/SAT el TipoPermiso exacto para Gas LP planta de distribución y que el permiso esté cargado en L_CNE."
+            )
+        raise HTTPException(400, f"PAC rechazó la factura: {pac_error}")
     now = _now_iso()
     row = {
         **_gas_lp_invoice_scope(user, profile),
