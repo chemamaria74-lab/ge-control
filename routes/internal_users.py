@@ -31,6 +31,8 @@ SECTIONS = {"transporte", "gas_lp", "gasolineras"}
 MAX_FAILED_ATTEMPTS = 5
 LOCK_MINUTES = 15
 SESSION_HOURS = 12
+GAS_LP_SIMPLE_CLAVE_PROD_SERV = "15111501"
+GAS_LP_HIDRO_CLAVES = {"15111510"}
 
 
 class InternalUserCreate(BaseModel):
@@ -100,7 +102,7 @@ class GasLpInternalFacturaPayload(BaseModel):
     folio: str = ""
     comentarios: str = ""
     fecha: str = ""
-    clave_prod_serv: str = "15111510"
+    clave_prod_serv: str = GAS_LP_SIMPLE_CLAVE_PROD_SERV
     no_identificacion: str = "GLP-LTR"
     unidad: str = "Litro"
     facility_id: Optional[int] = None
@@ -463,6 +465,13 @@ def _clean_billing_email(value: str | None) -> str:
     return email
 
 
+def _gas_lp_simple_clave_prod_serv(value: str | None) -> str:
+    clave = "".join(ch for ch in str(value or "").strip() if ch.isdigit())[:8]
+    if not clave or clave in GAS_LP_HIDRO_CLAVES:
+        return GAS_LP_SIMPLE_CLAVE_PROD_SERV
+    return clave
+
+
 def _require_gas_lp_issuer(profile: dict, settings: dict) -> dict:
     rfc = _clean_rfc(settings.get("RfcContribuyente") or profile.get("rfc") or "")
     name = str(settings.get("DescripcionInstalacion") or profile.get("nombre") or "").strip()
@@ -501,7 +510,7 @@ def _build_gas_lp_consumo_xml(
     folio: str = "",
     comentarios: str = "",
     fecha: str = "",
-    clave_prod_serv: str = "15111510",
+    clave_prod_serv: str = GAS_LP_SIMPLE_CLAVE_PROD_SERV,
     no_identificacion: str = "GLP-LTR",
     unidad: str = "Litro",
 ) -> tuple[str, dict]:
@@ -525,7 +534,9 @@ def _build_gas_lp_consumo_xml(
     comments = str(comentarios or "").strip()[:500]
     descuento_comprobante = f' Descuento="{discount_total:.2f}"' if discount_total > 0 else ""
     descuento_concepto = f' Descuento="{discount_total:.2f}"' if discount_total > 0 else ""
-    clave_prod_serv = "".join(ch for ch in str(clave_prod_serv or "15111510") if ch.isdigit())[:8] or "15111510"
+    if total <= 0:
+        raise HTTPException(400, "El total de la factura debe ser mayor a cero. Revisa precio y descuento.")
+    clave_prod_serv = _gas_lp_simple_clave_prod_serv(clave_prod_serv)
     no_identificacion = str(no_identificacion or folio).strip()[:100] or folio
     unidad = str(unidad or "Litro").strip()[:20] or "Litro"
     xml = (
@@ -1252,9 +1263,10 @@ async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str):
 async def gas_lp_internal_facturas(token: str):
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
+    sb = get_supabase_admin()
     try:
         rows = (
-            get_supabase_admin()
+            sb
             .table("gas_lp_facturas")
             .select("*")
             .eq("user_id", user.get("owner_user_id"))
@@ -1268,6 +1280,13 @@ async def gas_lp_internal_facturas(token: str):
         )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
+    comp_by_factura = _gas_lp_complementos_por_factura(sb, [int(r["id"]) for r in rows if r.get("id")])
+    for row in rows:
+        row["payment_info"] = _factura_payment_info(row)
+        comps = comp_by_factura.get(int(row.get("id") or 0), [])
+        row["complementos_pago"] = comps
+        if comps:
+            row["latest_complemento_pago"] = comps[0]
     return JSONResponse({"ok": True, "facturas": rows})
 
 
@@ -1367,7 +1386,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None):
 
 @router.post("/internal-auth/gas-lp/facturas/{factura_id}/complemento-pago")
 async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplementoPagoPayload, token: str):
-    ctx = _gas_lp_conciliacion_context(token, write=True)
+    ctx = _gas_lp_conciliacion_context(token)
     user = ctx["user"]
     profile = _gas_lp_profile(user)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
