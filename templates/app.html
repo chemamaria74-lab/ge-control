@@ -2441,6 +2441,8 @@ let subscriptionUsage = null;
 let perfilesRequestPromise = null;
 let perfilesCache = null;
 let perfilesCacheAt = 0;
+const GAS_LP_MODULE = 'gas_lp';
+const GAS_LP_PROFILE_KEY = 'zc_perfil_gas_lp';
 let facilitiesCacheByPerfil = new Map();
 let dashboardLoadPromise = null;
 
@@ -2451,7 +2453,7 @@ let _perfilSeleccionado = null;   // { id, nombre, rfc, descripcion }
 
 function _loadPerfilFromSession() {
   try {
-    const raw = localStorage.getItem('zc_perfil');
+    const raw = localStorage.getItem(GAS_LP_PROFILE_KEY) || localStorage.getItem('zc_perfil');
     if (raw) _perfilSeleccionado = JSON.parse(raw);
   } catch(e) { _perfilSeleccionado = null; }
 }
@@ -2459,13 +2461,13 @@ function _loadPerfilFromSession() {
 function _savePerfilToSession(perfil) {
   _perfilSeleccionado = perfil;
   try {
-    localStorage.setItem('zc_perfil', JSON.stringify(perfil));
+    localStorage.setItem(GAS_LP_PROFILE_KEY, JSON.stringify(perfil));
   } catch(e) {}
 }
 
 function _clearPerfilSession() {
   _perfilSeleccionado = null;
-  localStorage.removeItem('zc_perfil');
+  localStorage.removeItem(GAS_LP_PROFILE_KEY);
 }
 
 function perfilId() {
@@ -2765,14 +2767,18 @@ async function verifySession() {
     if (res.ok) {
       const data = await res.json();
       hideLoginDirect(data.display_name);
-      applyRole(data.role);
-      assignedPerfilId = Number(data.perfil_id || 0) || null;
+      const gasAccess = (data.accesos || []).find(a => a.section === GAS_LP_MODULE) || {};
+      currentUserRole = (gasAccess.role || data.role || 'user').toLowerCase();
+      localStorage.setItem('sat_role', currentUserRole);
+      localStorage.setItem('sat_modulo', GAS_LP_MODULE);
+      applyRole(currentUserRole);
+      assignedPerfilId = Number(gasAccess.perfil_id || data.perfil_id || 0) || null;
       if (assignedPerfilId) localStorage.setItem('sat_assigned_perfil_id', String(assignedPerfilId));
 
       if (_perfilSeleccionado) {
-        // Validar que el perfil guardado sigue existiendo en Supabase
-        const perfiles = await cargarPerfiles();
-        const perfilValido = perfiles.find(p => p.id === _perfilSeleccionado.id);
+        // Validar que el perfil guardado sigue existiendo y pertenece a Gas LP.
+        const perfiles = await cargarPerfiles(1, true);
+        const perfilValido = perfiles.find(p => Number(p.id) === Number(_perfilSeleccionado.id));
         if (perfilValido) {
           // Actualizar datos del perfil por si cambiaron (nombre, rfc)
           _savePerfilToSession(perfilValido);
@@ -2847,7 +2853,7 @@ document.getElementById('btnLogin').addEventListener('click', async () => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user, password: pass }),
+      body: JSON.stringify({ username: user, password: pass, modulo }),
     });
     const data = await res.json();
     if (data.success) {
@@ -2856,7 +2862,7 @@ document.getElementById('btnLogin').addEventListener('click', async () => {
       localStorage.setItem('sat_token', authToken);
       localStorage.setItem('sat_user_id', currentUserId);
       localStorage.setItem('sat_email', user);   // guardar email para re-auth en modal crítico
-      localStorage.setItem('sat_modulo', modulo);  // Guardar módulo
+      localStorage.setItem('sat_modulo', GAS_LP_MODULE);  // Guardar módulo
       assignedPerfilId = Number(data.perfil_id || 0) || null;
       if (assignedPerfilId) localStorage.setItem('sat_assigned_perfil_id', String(assignedPerfilId));
       // Mostrar dashboard base sin cargar datos aún (se cargan tras seleccionar empresa)
@@ -2917,7 +2923,7 @@ async function cargarPerfiles(intentos = 1, force = false) {
   perfilesRequestPromise = (async () => {
   for (let i = 0; i < intentos; i++) {
     try {
-      const res = await fetch('/api/perfiles', { headers: authHeader() });
+      const res = await fetch(`/api/perfiles?module=${GAS_LP_MODULE}&auto_create=false`, { headers: authHeader() });
       if (res.ok) {
         const data = await res.json();
         subscriptionUsage = data.subscription || subscriptionUsage;
@@ -3270,7 +3276,7 @@ async function guardarNuevoPerfil() {
   if (!nombre) { if (errEl) errEl.textContent = 'El nombre es obligatorio.'; return; }
   if (!rfc)    { if (errEl) errEl.textContent = 'El RFC es obligatorio.'; return; }
   try {
-    const res = await fetch('/api/perfiles', {
+    const res = await fetch(`/api/perfiles?module=${GAS_LP_MODULE}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ nombre, rfc, descripcion: desc }),
@@ -6703,7 +6709,7 @@ async function guardarEmpresaOnboarding() {
   if (btn) { btn.disabled = true; btn.style.opacity = '.7'; }
 
   try {
-    const res = await fetch('/api/perfiles', {
+    const res = await fetch(`/api/perfiles?module=${GAS_LP_MODULE}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ nombre, rfc, descripcion: '' }),
