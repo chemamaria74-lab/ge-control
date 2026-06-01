@@ -46,7 +46,7 @@ def generar_pdf_cfdi_desde_xml(
     """
     try:
         from reportlab.lib import colors
-        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.enums import TA_CENTER, TA_RIGHT
         from reportlab.lib.pagesizes import letter
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import inch
@@ -66,18 +66,26 @@ def generar_pdf_cfdi_desde_xml(
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        rightMargin=0.38 * inch,
-        leftMargin=0.38 * inch,
-        topMargin=0.34 * inch,
-        bottomMargin=0.38 * inch,
+        rightMargin=0.34 * inch,
+        leftMargin=0.34 * inch,
+        topMargin=0.25 * inch,
+        bottomMargin=0.34 * inch,
         title=title,
     )
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=13, textColor=colors.HexColor("#7A1E2C"), leading=15))
-    styles.add(ParagraphStyle(name="TitleCenter", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=14, leading=17, textColor=colors.HexColor("#111111")))
-    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontSize=10.5, leading=13, textColor=colors.HexColor("#7A1E2C"), spaceBefore=8, spaceAfter=4))
-    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.8, leading=8.5))
-    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=7.6, leading=9.5))
+    wine = colors.HexColor("#7A1E2C")
+    wine_dark = colors.HexColor("#5B0F1D")
+    cream = colors.HexColor("#F5F1E8")
+    line = colors.HexColor("#BEB7AE")
+    styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=9.2, textColor=wine_dark, leading=11))
+    styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=11.5, leading=13.2, textColor=colors.black))
+    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=7.8, leading=9.2, textColor=colors.white, spaceBefore=5, spaceAfter=0))
+    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=5.6, leading=6.7))
+    styles.add(ParagraphStyle(name="TinyBold", parent=styles["Tiny"], fontName="Helvetica-Bold"))
+    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["TinyBold"], textColor=colors.white))
+    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=6.6, leading=7.8))
+    styles.add(ParagraphStyle(name="SmallBold", parent=styles["Small"], fontName="Helvetica-Bold"))
+    styles.add(ParagraphStyle(name="Money", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold"))
 
     qr = _qr_flowable(_url_qr_fiscal(root, emisor, receptor, timbre), Image)
     logo = _logo_flowable(logo_data_url, Image)
@@ -88,59 +96,76 @@ def generar_pdf_cfdi_desde_xml(
         styles["Brand"],
     )
     story = []
+    issuer_block = [
+        [logo or fallback_brand],
+        [Paragraph(
+            f"<b>{_text(_attr(emisor, 'Nombre', 'Emisor'))}</b><br/>"
+            f"RFC: {_text(_attr(emisor, 'Rfc'))}<br/>"
+            f"Régimen fiscal: {_text(_attr(emisor, 'RegimenFiscal'))}<br/>"
+            f"Lugar de expedición: {_text(_attr(root, 'LugarExpedicion'))}",
+            styles["Small"],
+        )],
+    ]
+    issuer_table = Table(issuer_block, colWidths=[3.0 * inch])
+    issuer_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+
+    fiscal_box = _fiscal_header_box(_display_title(title, root), root, timbre, Table, TableStyle, Paragraph, styles, colors)
     header = Table(
-        [[
-            logo or fallback_brand,
-            Paragraph(f"<b>{_text(title)}</b><br/>Representación impresa de CFDI 4.0", styles["TitleCenter"]),
-            qr or Paragraph("QR fiscal<br/>no disponible", styles["Tiny"]),
-        ]],
-        colWidths=[1.75 * inch, 3.9 * inch, 1.15 * inch],
+        [[issuer_table, fiscal_box]],
+        colWidths=[3.5 * inch, 3.3 * inch],
     )
-    header.setStyle(_table_style(box=False, header=False))
-    story += [header, Spacer(1, 7)]
-    _append_template_intro(story, template, Paragraph, styles, colors, Table, TableStyle, Spacer)
+    header.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story += [header, _bar("", Table, TableStyle, colors, wine), Spacer(1, 5)]
 
-    story.append(_kv_table("Datos fiscales", [
-        ("UUID SAT", _attr(timbre, "UUID")),
-        ("Serie / Folio", f"{_attr(root, 'Serie', '—')} / {_attr(root, 'Folio', '—')}"),
-        ("Tipo CFDI", f"{_tipo_cfdi(_attr(root, 'TipoDeComprobante'))} ({_attr(root, 'TipoDeComprobante')})"),
-        ("Fecha emisión", _attr(root, "Fecha")),
-        ("Fecha timbrado", _attr(timbre, "FechaTimbrado")),
-        ("Lugar expedición", _attr(root, "LugarExpedicion")),
-        ("Moneda", _attr(root, "Moneda")),
-        ("Método / Forma pago", f"{_attr(root, 'MetodoPago', '—')} / {_attr(root, 'FormaPago', '—')}"),
-        ("No. certificado emisor", _attr(root, "NoCertificado")),
-        ("No. certificado SAT", _attr(timbre, "NoCertificadoSAT")),
-        ("PAC", _attr(timbre, "RfcProvCertif")),
-    ], Table, TableStyle, Paragraph, styles, colors))
-
-    story.append(_kv_table("Emisor y receptor", [
-        ("Emisor", f"{_attr(emisor, 'Rfc')} - {_attr(emisor, 'Nombre')}"),
-        ("Régimen emisor", _attr(emisor, "RegimenFiscal")),
-        ("Receptor", f"{_attr(receptor, 'Rfc')} - {_attr(receptor, 'Nombre')}"),
-        ("CP receptor", _attr(receptor, "DomicilioFiscalReceptor")),
-        ("Régimen receptor", _attr(receptor, "RegimenFiscalReceptor")),
-        ("Uso CFDI", _attr(receptor, "UsoCFDI")),
-    ], Table, TableStyle, Paragraph, styles, colors))
+    story.append(_two_column_table(
+        "Cliente / Receptor",
+        [
+            ("Nombre", _attr(receptor, "Nombre")),
+            ("RFC", _attr(receptor, "Rfc")),
+            ("CP fiscal", _attr(receptor, "DomicilioFiscalReceptor")),
+            ("Régimen fiscal", _attr(receptor, "RegimenFiscalReceptor")),
+            ("Uso CFDI", _attr(receptor, "UsoCFDI")),
+        ],
+        "Datos del comprobante",
+        [
+            ("Tipo", f"{_tipo_cfdi(_attr(root, 'TipoDeComprobante'))} ({_attr(root, 'TipoDeComprobante')})"),
+            ("Método de pago", _attr(root, "MetodoPago")),
+            ("Forma de pago", _attr(root, "FormaPago")),
+            ("Moneda", _attr(root, "Moneda")),
+            ("Exportación", _attr(root, "Exportacion")),
+        ],
+        Table, TableStyle, Paragraph, styles, colors, wine, cream, line,
+    ))
 
     story.append(_section("Conceptos", Paragraph, styles))
-    story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors))
-    story.append(_section("Impuestos y totales", Paragraph, styles))
-    story.append(_totales_table(root, traslados, retenciones, Table, TableStyle, Paragraph, styles, colors))
+    story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wine, cream, line))
+    pagos = _all(root, "Pago")
+    if pagos:
+        story.append(_section("Complemento de pago", Paragraph, styles))
+        story.append(_pagos_table(pagos, Table, TableStyle, Paragraph, styles, colors, wine, cream, line))
+    story.append(_totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, styles, colors, cream, line))
     observaciones = _text_content(_first(root, "Observaciones"))
     if observaciones:
         story.append(_section("Observaciones", Paragraph, styles))
         story.append(Paragraph(_text(observaciones), styles["Small"]))
-    story.append(_section("Sellos", Paragraph, styles))
-    story.append(_kv_table("Cadena técnica", [
-        ("Sello CFDI", _short(_attr(root, "Sello"), 300)),
-        ("Sello SAT", _short(_attr(timbre, "SelloSAT"), 300)),
-        ("Cadena original", _short(_attr(timbre, "SelloCFD"), 300)),
-    ], Table, TableStyle, Paragraph, styles, colors))
-    story.append(Spacer(1, 8))
-    footer = "Generado por GE Control © 2026" if template == "resico_saas" else "Representación impresa generada desde XML timbrado CFDI 4.0"
-    story.append(Paragraph(footer, styles["Tiny"]))
-    doc.build(story)
+    story.append(Spacer(1, 4))
+    story.append(_seals_block(root, timbre, qr, Table, TableStyle, Paragraph, styles, colors, wine, cream, line))
+    story.append(Spacer(1, 5))
+    footer = "Generado por GE Control © 2026" if template == "resico_saas" else "Este documento es una representación impresa de un CFDI"
+    story.append(Paragraph(_text(footer), styles["Tiny"]))
+    doc.build(story, onFirstPage=_draw_pdf_page_background, onLaterPages=_draw_pdf_page_background)
     return buffer.getvalue()
 
 
@@ -228,6 +253,13 @@ def _parse_xml(xml_content: str | bytes):
     return etree.fromstring(data)
 
 
+def _draw_pdf_page_background(canvas, doc) -> None:
+    canvas.saveState()
+    canvas.setFillColorRGB(1, 1, 1)
+    canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1, stroke=0)
+    canvas.restoreState()
+
+
 def _local_name(node) -> str:
     return etree.QName(node).localname if node is not None else ""
 
@@ -275,7 +307,94 @@ def _tipo_cfdi(tipo: str) -> str:
 
 
 def _section(text, Paragraph, styles):
-    return Paragraph(f"<b>{_text(text)}</b>", styles["Section"])
+    from reportlab.platypus import Table, TableStyle
+    from reportlab.lib import colors
+
+    return _bar(text, Table, TableStyle, colors, colors.HexColor("#7A1E2C"))
+
+
+def _display_title(title: str, root) -> str:
+    tipo = _attr(root, "TipoDeComprobante", "")
+    if tipo == "P":
+        return "COMPLEMENTO DE PAGO CFDI 4.0"
+    if tipo == "I":
+        return "FACTURA CFDI 4.0"
+    return f"{title.upper()} CFDI 4.0"
+
+
+def _bar(text, Table, TableStyle, colors, color):
+    from reportlab.platypus import Paragraph
+
+    label = Paragraph(f"<b>{_text(text)}</b>", _bar_style()) if text else ""
+    table = Table([[label]], colWidths=[6.8 * 72], rowHeights=[0.14 * 72 if not text else 0.18 * 72])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), color),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    return table
+
+
+def _bar_style():
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
+
+    return ParagraphStyle("BarText", fontName="Helvetica-Bold", fontSize=7.6, leading=8.4, textColor=colors.white)
+
+
+def _fiscal_header_box(title, root, timbre, Table, TableStyle, Paragraph, styles, colors):
+    rows = [[Paragraph(f"<b>{_text(title)}</b>", styles["DocTitle"])]]
+    rows += [[Paragraph(f"<b>{_text(k)}</b><br/>{_text(v)}", styles["Tiny"])] for k, v in [
+        ("UUID", _attr(timbre, "UUID")),
+        ("Folio fiscal", f"{_attr(root, 'Serie', '')}{_attr(root, 'Folio', '')}".strip() or "—"),
+        ("Certificado SAT", _attr(timbre, "NoCertificadoSAT")),
+        ("Certificado emisor", _attr(root, "NoCertificado")),
+        ("Fecha emisión", _attr(root, "Fecha")),
+        ("Fecha certificación", _attr(timbre, "FechaTimbrado")),
+    ]]
+    table = Table(rows, colWidths=[3.15 * 72])
+    table.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.black),
+        ("GRID", (0, 1), (-1, -1), 0.25, colors.HexColor("#D6D0C8")),
+        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FAF9F6")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    return table
+
+
+def _two_column_table(left_title, left_rows, right_title, right_rows, Table, TableStyle, Paragraph, styles, colors, wine, cream, line):
+    def cell(title, rows):
+        inner = [[Paragraph(f"<b>{_text(title)}</b>", styles["HeaderTiny"])]]
+        inner += [[Paragraph(f"<b>{_text(k)}:</b> {_text(v)}", styles["Tiny"])] for k, v in rows]
+        t = Table(inner, colWidths=[3.3 * 72])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), wine),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("BOX", (0, 0), (-1, -1), 0.4, line),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        return t
+
+    table = Table([[cell(left_title, left_rows), cell(right_title, right_rows)]], colWidths=[3.4 * 72, 3.4 * 72])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return table
 
 
 def _kv_table(title, rows, Table, TableStyle, Paragraph, styles, colors):
@@ -286,32 +405,165 @@ def _kv_table(title, rows, Table, TableStyle, Paragraph, styles, colors):
     return table
 
 
-def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors):
-    data = [[Paragraph("<b>Clave</b>", styles["Tiny"]), Paragraph("<b>Descripción</b>", styles["Tiny"]), Paragraph("<b>Cant.</b>", styles["Tiny"]), Paragraph("<b>Unidad</b>", styles["Tiny"]), Paragraph("<b>Importe</b>", styles["Tiny"])]]
+def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wine=None, cream=None, line=None):
+    wine = wine or colors.HexColor("#7A1E2C")
+    line = line or colors.HexColor("#BEB7AE")
+    data = [[Paragraph("<b>Cantidad</b>", styles["HeaderTiny"]), Paragraph("<b>Unidad</b>", styles["HeaderTiny"]), Paragraph("<b>Clave</b>", styles["HeaderTiny"]), Paragraph("<b>Descripción</b>", styles["HeaderTiny"]), Paragraph("<b>P. unitario</b>", styles["HeaderTiny"]), Paragraph("<b>Importe</b>", styles["HeaderTiny"])]]
     for c in conceptos[:35]:
         data.append([
+            Paragraph(_text(_attr(c, "Cantidad")), styles["Tiny"]),
+            Paragraph(_text(_attr(c, "Unidad", _attr(c, "ClaveUnidad"))), styles["Tiny"]),
             Paragraph(_text(_attr(c, "ClaveProdServ")), styles["Tiny"]),
             Paragraph(_text(_attr(c, "Descripcion")), styles["Tiny"]),
-            Paragraph(_text(_attr(c, "Cantidad")), styles["Tiny"]),
-            Paragraph(_text(_attr(c, "ClaveUnidad")), styles["Tiny"]),
+            Paragraph(_text(_attr(c, "ValorUnitario")), styles["Tiny"]),
             Paragraph(_text(_attr(c, "Importe")), styles["Tiny"]),
         ])
     if len(conceptos) > 35:
-        data.append(["", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", "", ""])
-    table = Table(data, colWidths=[0.8 * 72, 3.35 * 72, 0.75 * 72, 0.75 * 72, 1.05 * 72])
-    table.setStyle(_table_style(colors=colors, header=True))
+        data.append(["", "", "", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", ""])
+    table = Table(data, colWidths=[0.65 * 72, 0.7 * 72, 0.82 * 72, 2.9 * 72, 0.85 * 72, 0.88 * 72], repeatRows=1)
+    table.setStyle(_detail_table_style(colors, wine, line))
     return table
 
 
-def _totales_table(root, traslados, retenciones, Table, TableStyle, Paragraph, styles, colors):
-    rows = [
-        ("Subtotal", _attr(root, "SubTotal")),
-        ("Descuento", _attr(root, "Descuento", "0")),
-        ("Traslados", "; ".join(f"{_attr(t, 'Impuesto')} tasa {_attr(t, 'TasaOCuota')} importe {_attr(t, 'Importe')}" for t in traslados[:8]) or "—"),
-        ("Retenciones", "; ".join(f"{_attr(r, 'Impuesto')} importe {_attr(r, 'Importe')}" for r in retenciones[:8]) or "—"),
-        ("Total", _attr(root, "Total")),
+def _pagos_table(pagos, Table, TableStyle, Paragraph, styles, colors, wine=None, cream=None, line=None):
+    wine = wine or colors.HexColor("#7A1E2C")
+    line = line or colors.HexColor("#BEB7AE")
+    data = [[Paragraph("<b>Fecha pago</b>", styles["HeaderTiny"]), Paragraph("<b>Forma</b>", styles["HeaderTiny"]), Paragraph("<b>Moneda</b>", styles["HeaderTiny"]), Paragraph("<b>Monto</b>", styles["HeaderTiny"]), Paragraph("<b>Documento relacionado</b>", styles["HeaderTiny"]), Paragraph("<b>Saldo insoluto</b>", styles["HeaderTiny"])]]
+    for pago in pagos[:18]:
+        doctos = [node for node in pago.iter() if _local_name(node) == "DoctoRelacionado"]
+        if not doctos:
+            data.append([
+                Paragraph(_text(_attr(pago, "FechaPago")), styles["Tiny"]),
+                Paragraph(_text(_attr(pago, "FormaDePagoP")), styles["Tiny"]),
+                Paragraph(_text(_attr(pago, "MonedaP")), styles["Tiny"]),
+                Paragraph(_text(_attr(pago, "Monto")), styles["Tiny"]),
+                Paragraph("—", styles["Tiny"]),
+                Paragraph("—", styles["Tiny"]),
+            ])
+        for docto in doctos[:4]:
+            data.append([
+                Paragraph(_text(_attr(pago, "FechaPago")), styles["Tiny"]),
+                Paragraph(_text(_attr(pago, "FormaDePagoP")), styles["Tiny"]),
+                Paragraph(_text(_attr(pago, "MonedaP")), styles["Tiny"]),
+                Paragraph(_text(_attr(pago, "Monto")), styles["Tiny"]),
+                Paragraph(_text(_attr(docto, "IdDocumento")), styles["Tiny"]),
+                Paragraph(_text(_attr(docto, "ImpSaldoInsoluto")), styles["Tiny"]),
+            ])
+    table = Table(data, colWidths=[0.95 * 72, 0.58 * 72, 0.55 * 72, 0.75 * 72, 3.05 * 72, 0.92 * 72], repeatRows=1)
+    table.setStyle(_detail_table_style(colors, wine, line))
+    return table
+
+
+def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, styles, colors, cream, line):
+    tax_text = "; ".join(f"{_attr(t, 'Impuesto')} tasa {_attr(t, 'TasaOCuota')} importe {_attr(t, 'Importe')}" for t in traslados[:8]) or "—"
+    ret_text = "; ".join(f"{_attr(r, 'Impuesto')} importe {_attr(r, 'Importe')}" for r in retenciones[:8]) or "—"
+    left = Table([
+        [Paragraph("<b>Importe con letra</b>", styles["TinyBold"])],
+        [Paragraph(f"Total en XML: {_text(_attr(root, 'Total'))} {_text(_attr(root, 'Moneda'))}", styles["Small"])],
+        [Paragraph("<b>Impuestos</b>", styles["TinyBold"])],
+        [Paragraph(_text(tax_text), styles["Tiny"])],
+        [Paragraph(_text(ret_text), styles["Tiny"])],
+    ], colWidths=[4.25 * 72])
+    left.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    right = Table([
+        [Paragraph("<b>Subtotal</b>", styles["Small"]), Paragraph(_text(_attr(root, "SubTotal")), styles["Money"])],
+        [Paragraph("<b>Descuento</b>", styles["Small"]), Paragraph(_text(_attr(root, "Descuento", "0")), styles["Money"])],
+        [Paragraph("<b>IVA trasladado</b>", styles["Small"]), Paragraph(_text(_sum_importes(traslados)), styles["Money"])],
+        [Paragraph("<b>Retenciones</b>", styles["Small"]), Paragraph(_text(_sum_importes(retenciones)), styles["Money"])],
+        [Paragraph("<b>Total</b>", styles["SmallBold"]), Paragraph(_text(_attr(root, "Total")), styles["Money"])],
+    ], colWidths=[1.15 * 72, 1.4 * 72])
+    right.setStyle(TableStyle([
+        ("LINEBELOW", (0, 0), (-1, -1), 0.25, line),
+        ("BACKGROUND", (0, -1), (-1, -1), cream),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    table = Table([[left, right]], colWidths=[4.25 * 72, 2.55 * 72])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return table
+
+
+def _seals_block(root, timbre, qr, Table, TableStyle, Paragraph, styles, colors, wine, cream, line):
+    seal_rows = [
+        [Paragraph("<b>Sello digital del CFDI</b>", styles["TinyBold"])],
+        [Paragraph(_text(_short(_attr(root, "Sello"), 560)), styles["Tiny"])],
+        [Paragraph("<b>Sello digital del SAT</b>", styles["TinyBold"])],
+        [Paragraph(_text(_short(_attr(timbre, "SelloSAT"), 560)), styles["Tiny"])],
+        [Paragraph("<b>Cadena original del complemento de certificación digital del SAT</b>", styles["TinyBold"])],
+        [Paragraph(_text(_short(_attr(timbre, "SelloCFD"), 560)), styles["Tiny"])],
     ]
-    return _kv_table("Totales", rows, Table, TableStyle, Paragraph, styles, colors)
+    seal_table = Table(seal_rows, colWidths=[5.25 * 72])
+    seal_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), cream),
+        ("BACKGROUND", (0, 2), (-1, 2), cream),
+        ("BACKGROUND", (0, 4), (-1, 4), cream),
+        ("BOX", (0, 0), (-1, -1), 0.35, line),
+        ("GRID", (0, 0), (-1, -1), 0.2, line),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    qr_block = Table([
+        [qr or Paragraph("QR fiscal no disponible", styles["Tiny"])],
+        [Paragraph(f"<b>Verificación SAT</b><br/>RFC PAC:<br/>{_text(_attr(timbre, 'RfcProvCertif'))}", styles["Tiny"])],
+    ], colWidths=[1.32 * 72])
+    qr_block.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    table = Table([[seal_table, qr_block]], colWidths=[5.35 * 72, 1.45 * 72])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return table
+
+
+def _detail_table_style(colors, wine, line):
+    from reportlab.platypus import TableStyle
+
+    return TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.black),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.25, line),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ])
+
+
+def _sum_importes(nodes) -> str:
+    total = 0.0
+    for node in nodes or []:
+        try:
+            total += float(str(_attr(node, "Importe", "0")).replace(",", ""))
+        except Exception:
+            continue
+    return f"{total:,.2f}"
 
 
 def _append_template_intro(story, template, Paragraph, styles, colors, Table, TableStyle, Spacer):
