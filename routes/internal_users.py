@@ -338,6 +338,18 @@ def _gas_lp_settings(owner_user_id: str, perfil_id: int) -> dict:
     return load_settings(owner_user_id, perfil_id)
 
 
+def _gas_lp_internal_series(user: dict, settings: dict) -> str:
+    configured = settings.get("SerieFacturaGasLp") or settings.get("serie_factura_gas_lp")
+    if isinstance(settings.get("series_asistente_facturacion"), dict):
+        configured = settings["series_asistente_facturacion"].get(str(user.get("id"))) or configured
+    if configured:
+        serie = str(configured).strip().upper()
+    else:
+        serie = f"P{user.get('perfil_id') or 0}U{user.get('id') or 0}"
+    serie = "".join(ch for ch in serie if ch.isalnum())[:10]
+    return serie or "AA"
+
+
 def _clean_rfc(value: str) -> str:
     return "".join(ch for ch in str(value or "").upper().strip() if ch.isalnum() or ch == "&")[:13]
 
@@ -1009,10 +1021,12 @@ async def gas_lp_internal_summary(token: str):
     return JSONResponse({
         "ok": True,
         "assistant": {
+            "id": user.get("id"),
             "display_name": user.get("display_name"),
             "role": role,
             "perfil_id": user.get("perfil_id"),
             "tenant_id": user.get("tenant_id"),
+            "serie_factura": _gas_lp_internal_series(user, settings),
         },
         "company": {
             "id": profile.get("id"),
@@ -1254,6 +1268,8 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
     profile = _gas_lp_profile(user)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     issuer = _require_gas_lp_issuer(profile, settings)
+    serie_factura = _gas_lp_internal_series(user, settings)
+    folio_factura = datetime.now().strftime("GLP%Y%m%d%H%M%S")
     sb = get_supabase_admin()
     requested: dict[int, Decimal | None] = {}
     for item in payload.facturas or []:
@@ -1493,8 +1509,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         metodo_pago=payload.metodo_pago,
         descuento=payload.descuento,
         iva_rate=payload.iva_rate,
-        serie=payload.serie,
-        folio=payload.folio,
+        serie=serie_factura,
+        folio=folio_factura,
         comentarios=payload.comentarios,
         fecha=payload.fecha,
         clave_prod_serv=payload.clave_prod_serv,
@@ -1536,8 +1552,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "descuento_por_litro": payload.descuento,
             "descuento": totals["descuento"],
             "iva_rate": payload.iva_rate,
-            "serie": payload.serie,
-            "folio_usuario": payload.folio,
+            "serie": serie_factura,
+            "folio_usuario": folio_factura,
             "comentarios": payload.comentarios,
             "clave_prod_serv": payload.clave_prod_serv,
             "no_identificacion": payload.no_identificacion,
