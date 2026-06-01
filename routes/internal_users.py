@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import os
 import secrets
 import xml.etree.ElementTree as ET
 from decimal import Decimal, ROUND_HALF_UP
@@ -34,7 +35,12 @@ SESSION_HOURS = 12
 GAS_LP_CLAVE_PROD_SERV = "15101515"
 GAS_LP_HYP_SUBPRODUCTO = "SP23"
 GAS_LP_HIDRO_CLAVES = {GAS_LP_CLAVE_PROD_SERV}
-HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 57)}
+HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 12)}
+GAS_LP_HYP_TEST_PERMITS = {
+    "distribucion": ("PER03", "PL/364/DIS/OM/2015"),
+    "expendio": ("PER01", "PL/359/EXP/ES/2015"),
+    "comercializacion": ("PER02", "H/23421/COM/2020"),
+}
 
 
 class InternalUserCreate(BaseModel):
@@ -504,32 +510,6 @@ def _infer_hyp_tipo_permiso_from_numero(numero_permiso: str) -> str:
     permiso = str(numero_permiso or "").strip().upper()
     if not permiso:
         return ""
-    if permiso.startswith("LP/"):
-        if "/DIST/PLA/" in permiso:
-            return "PER40"
-        if "/DIST/DUC/" in permiso:
-            return "PER41"
-        if "/DIST/REP/" in permiso:
-            return "PER51"
-        if "/EXP/ES/" in permiso:
-            return "PER43"
-        if "/EXP/AUT/" in permiso:
-            return "PER44"
-        if "/COM/" in permiso:
-            return "PER45"
-        if "/TRA/DUC/" in permiso:
-            return "PER46"
-        if "/TRA/" in permiso:
-            return "PER48"
-        if "/ALM/" in permiso:
-            return "PER49"
-    if permiso.startswith("G/"):
-        if "/LPD/" in permiso:
-            return "PER42"
-        if "/LPT/" in permiso:
-            return "PER47"
-        if "/LPA/" in permiso:
-            return "PER50"
     if permiso.startswith("PL/"):
         if "/EXP/ES/MM/" in permiso:
             return "PER04"
@@ -553,52 +533,75 @@ def _infer_hyp_tipo_permiso_from_numero(numero_permiso: str) -> str:
     return ""
 
 
-def _gas_lp_hyp_tipo_permiso(facility: dict) -> str:
-    md = facility.get("metadata") if isinstance(facility.get("metadata"), dict) else {}
-    inferred = _infer_hyp_tipo_permiso_from_numero(str(facility.get("num_permiso") or ""))
-    if inferred:
-        return inferred
-    candidates = [
-        md.get("hyp_tipo_permiso"),
-        md.get("TipoPermisoHYP"),
-        facility.get("hyp_tipo_permiso"),
-        facility.get("tipo_permiso_hyp"),
-        facility.get("tipo_permiso"),
-        facility.get("modalidad_permiso"),
-    ]
-    for value in candidates:
-        raw = str(value or "").strip().upper()
-        if not raw:
-            continue
-        if raw in HYP_TIPO_PERMISOS_VALIDOS:
-            return raw
+def _sw_env_is_test() -> bool:
+    return os.environ.get("SW_ENV", "test").strip().lower() not in {"prod", "production", "real"}
 
+
+def _gas_lp_legacy_hyp_operation(facility: dict) -> str:
     permiso = str(facility.get("num_permiso") or "").upper()
     text = " ".join(
         str(facility.get(k) or "").lower()
         for k in ("tipo_instalacion", "tipo_permiso", "modalidad_permiso", "descripcion", "nombre", "actividad_sat")
     )
     if "/EXP/" in permiso or "expendio" in text or "estacion" in text:
-        return "PER43"
+        return "expendio"
     if "/COM/" in permiso or "comercial" in text:
-        return "PER45"
-    return "PER40"
+        return "comercializacion"
+    return "distribucion"
+
+
+def _gas_lp_hyp_permit_from_facility(facility: dict) -> tuple[str, str]:
+    md = facility.get("metadata") if isinstance(facility.get("metadata"), dict) else {}
+    candidates = [
+        md.get("hyp_num_permiso"),
+        md.get("NumeroPermisoHYP"),
+        md.get("permiso_hyp"),
+        facility.get("hyp_num_permiso"),
+        facility.get("numero_permiso_hyp"),
+        facility.get("permiso_hyp"),
+        facility.get("permiso_alm"),
+        facility.get("num_permiso_hyp"),
+        facility.get("num_permiso"),
+    ]
+    for value in candidates:
+        numero = str(value or "").strip().upper()
+        tipo = _infer_hyp_tipo_permiso_from_numero(numero)
+        if tipo and tipo in HYP_TIPO_PERMISOS_VALIDOS:
+            return tipo, numero
+
+    type_candidates = [
+        md.get("hyp_tipo_permiso"),
+        md.get("TipoPermisoHYP"),
+        facility.get("hyp_tipo_permiso"),
+        facility.get("tipo_permiso_hyp"),
+    ]
+    for value in type_candidates:
+        raw = str(value or "").strip().upper()
+        if raw in HYP_TIPO_PERMISOS_VALIDOS:
+            for value_num in candidates:
+                numero = str(value_num or "").strip().upper()
+                if _infer_hyp_tipo_permiso_from_numero(numero) == raw:
+                    return raw, numero
+
+    if _sw_env_is_test():
+        return GAS_LP_HYP_TEST_PERMITS[_gas_lp_legacy_hyp_operation(facility)]
+    return "", ""
 
 
 def _gas_lp_hyp_from_facility(facility: dict, clave_prod_serv: str) -> dict:
     clave = _clean_clave_prod_serv(clave_prod_serv)
     if clave not in GAS_LP_HIDRO_CLAVES:
         return {}
-    tipo_permiso = _gas_lp_hyp_tipo_permiso(facility)
-    numero_permiso = str(facility.get("num_permiso") or "").strip().upper()
+    tipo_permiso, numero_permiso = _gas_lp_hyp_permit_from_facility(facility)
     if not tipo_permiso or not numero_permiso:
         raise HTTPException(
             400,
             "La clave HYP Gas LP requiere ComplementoConcepto/HidroYPetro. "
-            "Configura tipo de permiso y número de permiso en la instalación origen.",
+            "Configura un permiso HyP/CNE compatible en la instalación. "
+            "Para distribución usa una nomenclatura PL/.../DIS/OM/... o CNE/PL/.../DIS/OM/....",
         )
     if tipo_permiso not in HYP_TIPO_PERMISOS_VALIDOS:
-        raise HTTPException(400, "El TipoPermiso HYP debe usar una clave SAT PER01-PER56.")
+        raise HTTPException(400, "El TipoPermiso HYP debe usar una clave SAT PER01-PER11.")
     return {
         "tipo_permiso": tipo_permiso,
         "numero_permiso": numero_permiso,
