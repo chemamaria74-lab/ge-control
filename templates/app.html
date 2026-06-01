@@ -2445,6 +2445,7 @@ const GAS_LP_MODULE = 'gas_lp';
 const GAS_LP_PROFILE_KEY = 'zc_perfil_gas_lp';
 let facilitiesCacheByPerfil = new Map();
 let dashboardLoadPromise = null;
+let empresaChoiceRequired = false;
 
 // ── Estado multi-empresa (perfilSeleccionado) ──────────────────────────────
 // Se persiste en localStorage para sobrevivir cierre de pestaña y recargas.
@@ -2783,7 +2784,12 @@ async function verifySession() {
           // Actualizar datos del perfil por si cambiaron (nombre, rfc)
           _savePerfilToSession(perfilValido);
           actualizarSwitcherEmpresa(perfilValido);
-          cargarDatosDashboard();
+          if (currentUserRole === 'admin' && perfiles.length > 1) {
+            empresaChoiceRequired = true;
+            mostrarOverlayEmpresas(perfiles);
+          } else {
+            cargarDatosDashboard();
+          }
         } else {
           // Perfil ya no existe → pedir selección
           _clearPerfilSession();
@@ -3027,6 +3033,11 @@ async function iniciarFlujoEmpresa() {
     seleccionarEmpresa(perfiles[0], false);
     return;
   }
+  if (currentUserRole === 'admin') {
+    empresaChoiceRequired = true;
+    mostrarOverlayEmpresas(perfiles);
+    return;
+  }
   if (assignedPerfilId) {
     const asignado = perfiles.find(p => Number(p.id) === Number(assignedPerfilId));
     if (asignado) {
@@ -3123,13 +3134,15 @@ function seleccionarEmpresa(perfil, cerrarOverlay) {
     return;
   }
   const samePerfil = _perfilSeleccionado && Number(_perfilSeleccionado.id) === Number(perfil.id);
+  const shouldLoadDashboard = empresaChoiceRequired || !samePerfil;
   _savePerfilToSession(perfil);
   actualizarSwitcherEmpresa(perfil);
+  empresaChoiceRequired = false;
   if (cerrarOverlay) {
     const overlay = document.getElementById('empresaOverlay');
     if (overlay) overlay.classList.remove('visible');
   }
-  if (!samePerfil) cargarDatosDashboard();
+  if (shouldLoadDashboard) cargarDatosDashboard();
 }
 
 function actualizarSwitcherEmpresa(perfil) {
