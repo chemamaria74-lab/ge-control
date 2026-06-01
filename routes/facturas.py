@@ -125,6 +125,15 @@ def _validar_cliente_cfdi_payload(rfc: str, nombre: str, cp: str, regimen_fiscal
     return {**receptor, "uso_cfdi": uso_cfdi}
 
 
+def _clean_billing_email(value: str | None) -> str:
+    email = str(value or "").strip().lower()
+    if not email:
+        return ""
+    if "@" not in email or " " in email or "." not in email.rsplit("@", 1)[-1]:
+        raise HTTPException(400, "Correo de facturación inválido.")
+    return email
+
+
 def _scope(authorization: str, x_perfil_id: str = "") -> dict:
     uid = _auth(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
@@ -807,7 +816,7 @@ async def ver_pdf_factura_gas_lp(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'},
+        headers={"Content-Disposition": f'{disposition}; filename="{info.uuid}.pdf"'},
     )
 
 
@@ -1346,7 +1355,7 @@ async def listar_clientes(
 @router.post("/facturas/clientes")
 async def crear_cliente(
     rfc: str, nombre: str, cp: str = "", regimen_fiscal: str = "616",
-    uso_cfdi: str = "S01", modulo: str = "gas_lp",
+    uso_cfdi: str = "S01", modulo: str = "gas_lp", email: str = "",
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1354,6 +1363,7 @@ async def crear_cliente(
     uid = scope["user_id"]
     _require_supabase_scope(scope)
     receptor = _validar_cliente_cfdi_payload(rfc, nombre, cp, regimen_fiscal, uso_cfdi)
+    billing_email = _clean_billing_email(email)
     supabase_row = _sb_insert(_SB_CLIENTES, _scope_row(scope, {
         "modulo_propietario": modulo,
         "rfc": receptor["rfc"],
@@ -1361,6 +1371,8 @@ async def crear_cliente(
         "cp": receptor["cp"],
         "regimen_fiscal": receptor["regimen_fiscal"],
         "uso_cfdi": receptor["uso_cfdi"],
+        "email": billing_email,
+        "email_facturacion": billing_email,
         "activo": True,
     }))
     if supabase_row:
@@ -1371,7 +1383,7 @@ async def crear_cliente(
 @router.put("/facturas/clientes/{cliente_id}")
 async def actualizar_cliente(
     cliente_id: int, rfc: str, nombre: str, cp: str = "",
-    regimen_fiscal: str = "616", uso_cfdi: str = "S01",
+    regimen_fiscal: str = "616", uso_cfdi: str = "S01", email: str = "",
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1379,12 +1391,15 @@ async def actualizar_cliente(
     uid = scope["user_id"]
     _require_supabase_scope(scope)
     receptor = _validar_cliente_cfdi_payload(rfc, nombre, cp, regimen_fiscal, uso_cfdi)
+    billing_email = _clean_billing_email(email)
     if _sb_update(_SB_CLIENTES, cliente_id, scope, {
         "rfc": receptor["rfc"],
         "nombre": receptor["nombre"],
         "cp": receptor["cp"],
         "regimen_fiscal": receptor["regimen_fiscal"],
         "uso_cfdi": receptor["uso_cfdi"],
+        "email": billing_email,
+        "email_facturacion": billing_email,
     }):
         return JSONResponse({"ok": True, "message": "Cliente actualizado", "source": "supabase"})
     raise HTTPException(404, "Cliente no encontrado en la empresa seleccionada.")

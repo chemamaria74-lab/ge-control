@@ -618,7 +618,7 @@ def _load_admin_snapshot() -> dict:
         "auth_users": _auth_users_by_id(),
         "tenants": sb.table("tenants").select("*").execute().data or [],
         "sections": sb.table("user_sections").select("*").execute().data or [],
-        "profiles": sb.table("perfiles_empresa").select("id,user_id,nombre,rfc,tenant_id,activo").execute().data or [],
+        "profiles": sb.table("perfiles_empresa").select("*").execute().data or [],
         "companies": sb.table("companies").select("*").execute().data or [],
         "subscriptions": sb.table("subscriptions").select("*").execute().data or [],
         "internal_users": sb.table("internal_users").select("id,tenant_id,owner_user_id,perfil_id,section,role,status,chofer_id,display_name,last_access_at,created_at").execute().data or [],
@@ -635,6 +635,20 @@ def _tenant_usage(snapshot: dict, tenant_id: str) -> dict:
         and not _is_ge_admin_user(str(s.get("user_id") or ""), None, snapshot["auth_users"])
     ]
     profiles = [p for p in snapshot["profiles"] if str(p.get("tenant_id")) == str(tenant_id) and p.get("activo")]
+    def profile_sections(profile_id) -> set[str]:
+        return {
+            str(s.get("section"))
+            for s in sections
+            if s.get("perfil_id") and str(s.get("perfil_id")) == str(profile_id) and s.get("section")
+        } | {
+            str(u.get("section"))
+            for u in snapshot["internal_users"]
+            if str(u.get("tenant_id")) == str(tenant_id) and u.get("perfil_id") and str(u.get("perfil_id")) == str(profile_id) and u.get("section")
+        }
+    gas_lp_profiles = [
+        p for p in profiles
+        if "gas_lp" in profile_sections(p.get("id")) or not profile_sections(p.get("id"))
+    ]
     profile_ids = {p.get("id") for p in profiles}
     internal_users = [u for u in snapshot["internal_users"] if str(u.get("tenant_id")) == str(tenant_id)]
     choferes = [c for c in snapshot["choferes"] if c.get("perfil_id") in profile_ids and c.get("activo")]
@@ -648,7 +662,8 @@ def _tenant_usage(snapshot: dict, tenant_id: str) -> dict:
         for section in SECTIONS
     }
     return {
-        "companies": len(profiles),
+        "companies": len(gas_lp_profiles),
+        "companies_total": len(profiles),
         "users_active": len({s.get("user_id") for s in sections if (s.get("status") or "active") == "active"}),
         "modules_active": len([s for s in sections if (s.get("status") or "active") == "active"]),
         "module_users": module_users,
@@ -700,6 +715,10 @@ def _tenant_license_rows(snapshot: dict) -> list[dict]:
             sub = next((s for s in snapshot["subscriptions"] if str(s.get("tenant_id")) == tenant_id), None)
         limits = _limits_for_subscription(sub)
         usage = _tenant_usage(snapshot, tenant_id)
+        internal_by_profile = [
+            u for u in snapshot["internal_users"]
+            if str(u.get("tenant_id") or "") in tenant_ids
+        ]
         rows.append({
             "tenant_id": tenant_id,
             "short_tenant_id": _short_id(tenant_id),
@@ -777,8 +796,19 @@ def _user_health_rows(snapshot: dict | None = None) -> list[dict]:
                     "perfil_id": p.get("id"),
                     "nombre": p.get("nombre"),
                     "rfc": p.get("rfc"),
+                    "descripcion": p.get("descripcion") or "",
+                    "domicilio": p.get("domicilio") or p.get("direccion") or p.get("address") or p.get("descripcion") or "",
                     "tenant_id": p.get("tenant_id"),
                     "has_company": p.get("id") in company_by_id,
+                    "module_sections": sorted({
+                        str(s.get("section"))
+                        for s in user_sections
+                        if s.get("perfil_id") and str(s.get("perfil_id")) == str(p.get("id")) and s.get("section")
+                    } | {
+                        str(i.get("section"))
+                        for i in internal_by_profile
+                        if i.get("perfil_id") and str(i.get("perfil_id")) == str(p.get("id")) and i.get("section")
+                    }),
                 }
                 for p in user_profiles
             ],
@@ -999,10 +1029,25 @@ async def delete_test_tenant(tenant_id: str, payload: DeleteTenantPayload, autho
 @router.get("/admin-saas/companies")
 async def list_companies(tenant_id: Optional[str] = None, authorization: str = Header(default="")):
     _require_superadmin(authorization)
-    q = _sb_admin().table("perfiles_empresa").select("*").order("created_at", desc=True)
+    sb = _sb_admin()
+    q = sb.table("perfiles_empresa").select("*").order("created_at", desc=True)
     if tenant_id:
         q = q.eq("tenant_id", tenant_id)
     profiles = q.execute().data or []
+    sections = sb.table("user_sections").select("tenant_id,perfil_id,section").execute().data or []
+    internal = sb.table("internal_users").select("tenant_id,perfil_id,section").execute().data or []
+    for profile in profiles:
+        mods = {
+            str(s.get("section"))
+            for s in sections
+            if s.get("perfil_id") and str(s.get("perfil_id")) == str(profile.get("id")) and s.get("section")
+        } | {
+            str(u.get("section"))
+            for u in internal
+            if u.get("perfil_id") and str(u.get("perfil_id")) == str(profile.get("id")) and u.get("section")
+        }
+        profile["module_sections"] = sorted(mods)
+        profile["domicilio"] = profile.get("domicilio") or profile.get("direccion") or profile.get("address") or profile.get("descripcion") or ""
     return JSONResponse({"ok": True, "companies": profiles})
 
 

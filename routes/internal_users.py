@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from routes.auth import obtener_acceso_modulo, verify_token
 from routes.perfiles import _tenant_id_for_user
 from services.database import get_facilities
+from services.email_delivery import send_gas_lp_invoice_email
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml
 from services.sw_sapien import timbrar_cfdi
 from supabase_config import get_supabase_admin, get_supabase_for_user
@@ -77,6 +78,7 @@ class GasLpInternalClientePayload(BaseModel):
     cp: str = ""
     regimen_fiscal: str = "616"
     uso_cfdi: str = "S01"
+    email: str = ""
 
 
 class GasLpInternalFacturaPayload(BaseModel):
@@ -108,6 +110,7 @@ class GasLpInternalFacturaPayload(BaseModel):
     vehiculo_id: Optional[int] = None
     chofer_id: Optional[int] = None
     ruta_id: Optional[int] = None
+    enviar_correo: bool = True
 
 
 class GasLpComplementoPagoPayload(BaseModel):
@@ -244,6 +247,7 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
     uso_cfdi = str(payload.uso_cfdi or "S01").strip()
     regimen = str(payload.regimen_fiscal or "616").strip()
     cp = _clean_cp(payload.cp)
+    email = _clean_billing_email(payload.email)
     if not rfc or not nombre:
         raise HTTPException(400, "RFC y nombre del cliente son obligatorios.")
     if rfc == "XAXX010101000":
@@ -276,6 +280,8 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
         "cp": receptor["cp"],
         "regimen_fiscal": receptor["regimen_fiscal"],
         "uso_cfdi": uso_cfdi,
+        "email": email,
+        "email_facturacion": email,
         "activo": True,
         "metadata": {"created_by_internal": user.get("id"), "created_by": user.get("display_name")},
         "created_at": _now_iso(),
@@ -357,6 +363,15 @@ def _clean_rfc(value: str) -> str:
 def _clean_cp(value: str) -> str:
     cp = "".join(ch for ch in str(value or "").strip() if ch.isdigit())
     return cp[:5]
+
+
+def _clean_billing_email(value: str | None) -> str:
+    email = str(value or "").strip().lower()
+    if not email:
+        return ""
+    if "@" not in email or " " in email or "." not in email.rsplit("@", 1)[-1]:
+        raise HTTPException(400, "Correo de facturación inválido.")
+    return email
 
 
 def _require_gas_lp_issuer(profile: dict, settings: dict) -> dict:
@@ -1200,7 +1215,7 @@ async def gas_lp_internal_factura_pdf(factura_id: int, token: str):
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{info.filename}"'},
+        headers={"Content-Disposition": f'inline; filename="{info.uuid}.pdf"'},
     )
 
 
@@ -1547,6 +1562,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "internal_user_id": user.get("id"),
             "cliente_id": payload.cliente_id,
             "cliente_nombre": receptor["nombre"],
+            "cliente_email": (cliente_row or {}).get("email_facturacion") or (cliente_row or {}).get("email") or "",
             "concepto": payload.concepto,
             "precio_unitario": payload.precio_unitario,
             "descuento_por_litro": payload.descuento,
@@ -1580,7 +1596,41 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         data = sb.table("gas_lp_facturas").insert(row).execute().data or [row]
     except Exception as exc:
         raise _safe_internal_error("gas_lp_crear_factura", exc)
-    return JSONResponse({"ok": True, "factura": data[0], "totals": totals})
+    factura_row = data[0]
+    email_result = None
+    recipient = (cliente_row or {}).get("email_facturacion") or (cliente_row or {}).get("email") or ""
+    if payload.enviar_correo and recipient:
+        try:
+            xml_timbrado = factura_row.get("xml_content") or resultado.get("xml_timbrado") or xml
+            info = fiscal_pdf_info(xml_timbrado, "factura_gas_lp")
+            pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_timbrado, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+            email_result = send_gas_lp_invoice_email(
+                to_email=recipient,
+                issuer_name=issuer["nombre"],
+                customer_name=receptor["nombre"],
+                uuid_sat=factura_row.get("uuid_sat") or resultado.get("uuid") or "",
+                total=totals["total"],
+                xml_content=xml_timbrado,
+                pdf_bytes=pdf_bytes,
+                pdf_filename=info.filename,
+            )
+            now_email = _now_iso()
+            md = factura_row.get("metadata") if isinstance(factura_row.get("metadata"), dict) else {}
+            md = {**md, "email_delivery": email_result.as_metadata()}
+            update_payload = {
+                "metadata": md,
+                "email_enviado": bool(email_result.ok),
+                "email_enviado_at": now_email if email_result.ok else None,
+                "email_destinatario": recipient,
+                "email_error": email_result.error if not email_result.ok else "",
+                "updated_at": now_email,
+            }
+            updated = sb.table("gas_lp_facturas").update(update_payload).eq("id", factura_row.get("id")).execute().data or []
+            factura_row = updated[0] if updated else {**factura_row, **update_payload}
+        except Exception as exc:
+            logger.exception("gas_lp_invoice_email failed: factura=%s err=%s", factura_row.get("id"), exc)
+            email_result = None
+    return JSONResponse({"ok": True, "factura": factura_row, "totals": totals, "email": email_result.as_metadata() if email_result else None})
 
 
 @router.get("/internal-auth/gas-lp/detected-loads")
