@@ -127,6 +127,10 @@ def generar_pdf_cfdi_desde_xml(
     story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors))
     story.append(_section("Impuestos y totales", Paragraph, styles))
     story.append(_totales_table(root, traslados, retenciones, Table, TableStyle, Paragraph, styles, colors))
+    observaciones = _text_content(_first(root, "Observaciones"))
+    if observaciones:
+        story.append(_section("Observaciones", Paragraph, styles))
+        story.append(Paragraph(_text(observaciones), styles["Small"]))
     story.append(_section("Sellos", Paragraph, styles))
     story.append(_kv_table("Cadena técnica", [
         ("Sello CFDI", _short(_attr(root, "Sello"), 300)),
@@ -233,6 +237,10 @@ def _first(root, name: str):
         if _local_name(node) == name:
             return node
     return None
+
+
+def _text_content(node) -> str:
+    return "".join(node.itertext()).strip() if node is not None else ""
 
 
 def _all(root, name: str) -> list:
