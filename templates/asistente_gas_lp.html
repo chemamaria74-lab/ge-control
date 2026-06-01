@@ -94,17 +94,18 @@
           <div><label>Concepto</label><select id="conceptoCatalogo" onchange="applyConceptCatalog()"><option value="gas_lp_litro">Venta de Gas LP por litro</option></select></div>
           <input id="concepto" type="hidden" value="LITRO DE GAS LP">
           <div><label>Litros</label><input id="litros" type="number" min="0" step="0.00001" value="0" oninput="updateTotals()"></div>
-          <div><label>Precio unitario</label><input id="precioUnitario" class="locked-field" type="number" min="0" step="0.000001" value="0" readonly oninput="updateTotals()"></div>
+          <div><label>Precio unitario</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
           <div><label>Descuento por litro</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
           <div><label>IVA</label><select id="ivaRate" class="locked-field" disabled><option value="0.16">16%</option></select></div>
           <div><label>Método de pago</label><select id="metodoPago" onchange="syncPaymentMethod()"><option value="PUE">PUE - Pago en una sola exhibición</option><option value="PPD">PPD - Pago en parcialidades</option></select></div>
           <div><label>Forma de pago</label><select id="formaPago"><option value="01">01 - Efectivo</option><option value="02">02 - Cheque nominativo</option><option value="03">03 - Transferencia</option><option value="04">04 - Tarjeta de crédito</option><option value="28">28 - Tarjeta de débito</option><option value="99">99 - Por definir</option></select></div>
           <div><label>Serie</label><input id="serie" class="locked-field" value="AA" maxlength="10" readonly></div>
-          <div><label>Folio <span class="muted">(opcional)</span></label><input id="folio" placeholder="Auto si se deja vacío" maxlength="40"></div>
+          <div><label>Folio automático</label><input id="folio" class="locked-field" placeholder="Se genera automáticamente" maxlength="40" readonly></div>
           <div><label>Clave SAT producto</label><input id="claveProdServ" class="locked-field" value="15111510" maxlength="8" readonly></div>
           <div><label>No. identificación</label><input id="noIdentificacion" class="locked-field" value="GLP-LTR" maxlength="100" readonly></div>
           <div><label>Unidad</label><input id="unidadConcepto" class="locked-field" value="Litro" maxlength="20" readonly></div>
           <div><label>Fecha emisión</label><input id="fechaEmision" type="datetime-local"></div>
+          <div class="form-span"><label>Comentarios para el cliente</label><textarea id="comentarios" maxlength="500" placeholder="Observaciones, indicaciones o referencia que el cliente necesita ver"></textarea></div>
         </div>
         <div class="invoice-summary" style="margin-top:12px">
           <div><span>Subtotal</span><b id="sumSubtotal">$0.00</b></div>
@@ -184,6 +185,11 @@
     function money(v){ return '$' + Number(v || 0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2}); }
     function esc(v){ return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
     function setStatus(id,text,ok=true){ const el=document.getElementById(id); if(el){ el.textContent=text; el.className='status '+(ok?'ok':'err'); } }
+    function detailText(value, fallback='No fue posible cargar la información.'){
+      if(Array.isArray(value)) return value.map(d => d?.msg || d?.type || String(d)).join(', ');
+      if(value && typeof value === 'object') return value.message || value.detail || JSON.stringify(value);
+      return value || fallback;
+    }
     function todayKey(){
       const d = new Date();
       return localDateTimeValue(d).slice(0,10);
@@ -201,6 +207,10 @@
     function localDateTimeValue(date=new Date()){
       const pad = n => String(n).padStart(2,'0');
       return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+    function nextFolioValue(date=new Date()){
+      const pad = n => String(n).padStart(2,'0');
+      return `GLP${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
     }
     function issuerCp(){ return String(CURRENT_COMPANY?.cp || '').replace(/\D/g,'').slice(0,5); }
     function setPublicoGeneralDefaults(){
@@ -228,6 +238,9 @@
     function ensureFechaEmision(){
       if(!fechaEmision.value) fechaEmision.value = localDateTimeValue();
     }
+    function ensureFolio(){
+      if(!folio.value) folio.value = nextFolioValue();
+    }
     function applyConfiguredPrice(){
       const price = Number(CURRENT_COMPANY?.precio_venta_litro || 0);
       precioUnitario.value = price > 0 ? price.toFixed(6).replace(/0+$/,'').replace(/\.$/,'') : '0';
@@ -250,7 +263,7 @@
       const res = await fetch(path + sep + 'token=' + encodeURIComponent(token), {...opts, headers});
       const data = await res.json().catch(()=>({}));
       if(!res.ok) {
-        const err = new Error(data.detail || 'No fue posible cargar la información.');
+        const err = new Error(detailText(data.detail || data.message));
         err.status = res.status;
         throw err;
       }
@@ -272,6 +285,7 @@
         applyConfiguredPrice();
         setPublicoGeneralDefaults();
         ensureFechaEmision();
+        ensureFolio();
         const results = await Promise.allSettled([loadClientes(), loadFacilities(), loadCatalogos(), loadFacturas()]);
         const failed = results.find(r => r.status === 'rejected');
         if(failed) setStatus('facturaMsg', failed.reason?.message || 'No fue posible cargar algunos datos.', false);
@@ -292,6 +306,7 @@
       clienteForm.classList.add('hide');
       setPublicoGeneralDefaults();
       ensureFechaEmision();
+      ensureFolio();
       const cpMsg = issuerCp() ? ` CP ${issuerCp()}.` : '.';
       setStatus('facturaMsg',`Público en general seleccionado. Se usará el CP del emisor${cpMsg}`);
     }
@@ -455,6 +470,7 @@
         setStatus('facturaMsg','Timbrando con PAC...');
         const clienteId = clienteSelect.value ? Number(clienteSelect.value) : null;
         ensureFechaEmision();
+        ensureFolio();
         const fechaRaw = fechaEmision.value || '';
         const fechaCfdi = fechaRaw ? (fechaRaw.length === 16 ? `${fechaRaw}:00` : fechaRaw) : '';
         const payload = {
@@ -467,6 +483,7 @@
           iva_rate: Number(ivaRate.value || 0),
           serie: serie.value || 'AA',
           folio: folio.value || '',
+          comentarios: comentarios.value || '',
           fecha: fechaCfdi,
           clave_prod_serv: claveProdServ.value || '15111510',
           no_identificacion: noIdentificacion.value || 'GLP-LTR',
@@ -574,10 +591,11 @@
     }
     async function logout(){
       try{
-        const res = await fetch('/api/internal-auth/logout',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({})});
+        const res = await fetch('/api/internal-auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});
         if(!res.ok){
           const data = await res.json().catch(()=>({}));
-          alert(data.detail || 'No se pudo cerrar la sesión interna. Se limpiará esta sesión local.');
+          const detail = detailText(data.detail || data.message, 'No se pudo cerrar la sesión interna.');
+          alert(`${detail} Se limpiará esta sesión local.`);
         }
       }catch(e){
         alert('No se pudo contactar al servidor para cerrar sesión. Se limpiará esta sesión local.');
