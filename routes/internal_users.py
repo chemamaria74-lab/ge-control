@@ -34,6 +34,21 @@ SESSION_HOURS = 12
 GAS_LP_CLAVE_PROD_SERV = "15111510"
 GAS_LP_HYP_SUBPRODUCTO = "SP46"
 GAS_LP_HIDRO_CLAVES = {GAS_LP_CLAVE_PROD_SERV}
+HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 12)}
+GAS_LP_HYP_TIPO_PERMISO_LEGACY_MAP = {
+    "PER40": "PER03",  # Distribucion mediante planta.
+    "PER41": "PER03",
+    "PER42": "PER03",
+    "PER43": "PER04",  # Expendio al publico Gas LP.
+    "PER44": "PER04",
+    "PER45": "PER04",
+    "PER46": "PER04",
+    "PER47": "PER11",  # Comercializacion.
+    "PER48": "PER11",
+    "PER49": "PER11",
+    "PER50": "PER11",
+    "PER51": "PER11",
+}
 
 
 class InternalUserCreate(BaseModel):
@@ -499,11 +514,42 @@ def _clean_clave_prod_serv(value: str | None) -> str:
     return "".join(ch for ch in str(value or "").strip() if ch.isdigit())[:8] or GAS_LP_CLAVE_PROD_SERV
 
 
+def _gas_lp_hyp_tipo_permiso(facility: dict) -> str:
+    md = facility.get("metadata") if isinstance(facility.get("metadata"), dict) else {}
+    candidates = [
+        md.get("hyp_tipo_permiso"),
+        md.get("TipoPermisoHYP"),
+        facility.get("hyp_tipo_permiso"),
+        facility.get("tipo_permiso_hyp"),
+        facility.get("tipo_permiso"),
+        facility.get("modalidad_permiso"),
+    ]
+    for value in candidates:
+        raw = str(value or "").strip().upper()
+        if not raw:
+            continue
+        if raw in HYP_TIPO_PERMISOS_VALIDOS:
+            return raw
+        if raw in GAS_LP_HYP_TIPO_PERMISO_LEGACY_MAP:
+            return GAS_LP_HYP_TIPO_PERMISO_LEGACY_MAP[raw]
+
+    permiso = str(facility.get("num_permiso") or "").upper()
+    text = " ".join(
+        str(facility.get(k) or "").lower()
+        for k in ("tipo_instalacion", "tipo_permiso", "modalidad_permiso", "descripcion", "nombre", "actividad_sat")
+    )
+    if "/EXP/" in permiso or "expendio" in text or "estacion" in text:
+        return "PER04"
+    if "/COM/" in permiso or "comercial" in text:
+        return "PER11"
+    return "PER03"
+
+
 def _gas_lp_hyp_from_facility(facility: dict, clave_prod_serv: str) -> dict:
     clave = _clean_clave_prod_serv(clave_prod_serv)
     if clave not in GAS_LP_HIDRO_CLAVES:
         return {}
-    tipo_permiso = str(facility.get("tipo_permiso") or facility.get("modalidad_permiso") or "").strip().upper()
+    tipo_permiso = _gas_lp_hyp_tipo_permiso(facility)
     numero_permiso = str(facility.get("num_permiso") or "").strip().upper()
     if not tipo_permiso or not numero_permiso:
         raise HTTPException(
@@ -511,6 +557,8 @@ def _gas_lp_hyp_from_facility(facility: dict, clave_prod_serv: str) -> dict:
             "La clave SAT 15111510 requiere ComplementoConcepto/HidroYPetro. "
             "Configura tipo de permiso y número de permiso en la instalación origen.",
         )
+    if tipo_permiso not in HYP_TIPO_PERMISOS_VALIDOS:
+        raise HTTPException(400, "El TipoPermiso HYP debe usar una clave SAT PER01-PER11.")
     return {
         "tipo_permiso": tipo_permiso,
         "numero_permiso": numero_permiso,
