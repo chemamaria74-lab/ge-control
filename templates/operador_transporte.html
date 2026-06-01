@@ -19,9 +19,8 @@
     .pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;margin-top:10px}.pill.ok{border-color:#ABEFC6}
     .empty{padding:38px 18px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:10px;background:#fff}.empty h2{margin:0 0 6px;color:var(--ink);font-size:18px}.toast{position:fixed;left:16px;right:16px;bottom:16px;background:#111;color:white;padding:13px 15px;border-radius:12px;display:none}
     .task{border-left:4px solid var(--gold)}.task h2{font-size:16px;margin:0 0 8px}.task ul{margin:10px 0 0;padding-left:18px;color:#344054;font-size:13px}.task small{color:var(--muted)}
-    .detected{border:1px solid #D8E7FF;background:#F8FBFF}.detected-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.detected h2{font-size:18px;margin:0}.detected .source{font-size:12px;color:#175CD3;font-weight:900;text-transform:uppercase}.detected-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}.detected-metric{border:1px solid var(--line);background:#fff;border-radius:8px;padding:10px}.detected-metric span{display:block;color:var(--muted);font-size:11px;font-weight:900}.detected-metric b{display:block;margin-top:3px;font-size:15px}.detected-actions{display:grid;grid-template-columns:1.4fr .8fr;gap:10px;margin-top:14px}.chip{border-radius:999px;padding:6px 9px;font-size:11px;font-weight:900;background:#EEF4FF;color:#175CD3;white-space:nowrap}
     .notice{display:grid;gap:10px}.notice-item{border:1px solid var(--line);border-radius:8px;padding:11px;background:#fff}.notice-item b{display:block;margin-bottom:3px}.section-title{font-size:15px;font-weight:900;margin:18px 0 10px;color:#344054}
-    @media(max-width:760px){.top{flex-wrap:wrap}.top-actions{margin-left:0;width:100%}main{padding:12px}.hero{grid-template-columns:1fr}.kpis{grid-template-columns:1fr}.doc-actions,.actions,.detected-actions{grid-template-columns:1fr}.detected-grid{grid-template-columns:1fr}.btn{width:100%;min-height:52px}.card{border-radius:9px;padding:14px}.route{font-size:16px}}
+    @media(max-width:760px){.top{flex-wrap:wrap}.top-actions{margin-left:0;width:100%}.hero{grid-template-columns:1fr}.kpis{grid-template-columns:1fr}.doc-actions,.actions{grid-template-columns:1fr}.btn{width:100%}}
   </style>
 </head>
 <body>
@@ -32,47 +31,19 @@
   <main id="app"><div class="empty">Cargando viajes asignados...</div></main>
   <div id="toast" class="toast"></div>
   <script>
-    const params = new URLSearchParams(location.search);
-    const hashParams = new URLSearchParams((location.hash || '').replace(/^#/, ''));
-    const incomingToken = hashParams.get('token') || params.get('token') || '';
-    let token = incomingToken || localStorage.getItem('ge_transporte_operator_token') || '';
-    if(incomingToken){
-      localStorage.setItem('ge_transporte_operator_token', incomingToken);
-      history.replaceState(null, '', location.pathname);
-    }
+    const token = new URLSearchParams(location.search).get('token') || '';
     const app = document.getElementById('app');
     const toast = (m)=>{const t=document.getElementById('toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2600)};
     const money = n => Number(n||0).toLocaleString('es-MX',{style:'currency',currency:'MXN'});
     async function api(path, opts={}){
-      const r = await fetch(path, {
+      const r = await fetch(path + (path.includes('?')?'&':'?') + 'token=' + encodeURIComponent(token), {
         method: opts.method || 'GET',
-        headers: {'Content-Type':'application/json','Authorization':'Bearer '+token},
+        headers: {'Content-Type':'application/json'},
         body: opts.body ? JSON.stringify(opts.body) : undefined
       });
       const d = await r.json().catch(()=>({}));
       if(!r.ok) throw new Error(d.detail || d.error || 'Error');
       return d;
-    }
-    async function fetchFile(path, filename, openInline=false){
-      const r = await fetch(path, {headers:{'Authorization':'Bearer '+token}});
-      if(!r.ok){
-        const d = await r.json().catch(()=>({}));
-        throw new Error(d.detail || d.error || 'No se pudo descargar el documento');
-      }
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      if(openInline){
-        window.open(url, '_blank', 'noopener');
-        setTimeout(()=>URL.revokeObjectURL(url), 60000);
-        return;
-      }
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename || 'documento';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(()=>URL.revokeObjectURL(url), 1000);
     }
     function renderTasks(tasks){
       if(!tasks.length) return '';
@@ -81,27 +52,6 @@
         <small>${(t.window_start||'').slice(0,16).replace('T',' ')} - ${(t.window_end||'').slice(0,16).replace('T',' ')}</small>
         <ul>${(t.facturas||[]).slice(0,8).map(f => `<li>${f.uuid || 'UUID pendiente'} · ${Number(f.litros||0).toLocaleString('es-MX')} L · ${f.producto || 'Producto'} · ${money(f.importe)}</li>`).join('')}</ul>
       </section>`).join('');
-    }
-    function renderDetectedLoads(loads){
-      if(!loads.length) return '<section class="card"><h2>Facturas recibidas</h2><div class="meta">Cuando Taxo detecte una factura nueva para tu unidad, aparecerá aquí sin que tengas que descargar archivos.</div></section>';
-      return '<div class="section-title">Facturas recibidas listas para revisar</div>' + loads.map(l => {
-        const liters = Number(l.litros_detectados || 0);
-        const confidence = Number(l.confidence_score || 0);
-        return `<section class="card detected">
-          <div class="detected-head"><div><div class="source">CFDI detectado SAT</div><h2>${esc(l.proveedor || 'Proveedor')}</h2><div class="meta">${esc(l.rfc_proveedor || '')} · ${(l.fecha_detectada||'').replace('T',' ').slice(0,16) || 'fecha pendiente'}</div></div><span class="chip">${esc(l.status_label || 'Pendiente')}</span></div>
-          <div class="detected-grid">
-            <div class="detected-metric"><span>Producto</span><b>${esc(l.producto_detectado || 'Por confirmar')}</b></div>
-            <div class="detected-metric"><span>Volumen</span><b>${liters ? liters.toLocaleString('es-MX') : '—'} ${esc(l.unidad_detectada || 'L')}</b></div>
-            <div class="detected-metric"><span>Origen</span><b>${esc(l.origen_detectado || l.proveedor || 'Por confirmar')}</b></div>
-            <div class="detected-metric"><span>Destino</span><b>${esc(l.destino_detectado || 'Por confirmar')}</b></div>
-          </div>
-          <div class="meta">UUID: ${esc(l.uuid || 'pendiente')} · Confianza ${confidence}%</div>
-          <div class="detected-actions">
-            <button class="btn primary" onclick="detectedAction('${esc(l.id)}','confirm')">Preparar Carta Porte</button>
-            <button class="btn dark" onclick="detectedAction('${esc(l.id)}','ignore')">No es mi carga</button>
-          </div>
-        </section>`;
-      }).join('');
     }
     function renderShell(data, tasksHtml, viajesHtml, semanaHtml='', liquidacionHtml=''){
       const meta = data.meta || {};
@@ -128,15 +78,13 @@
       if(!l.id) return '<section class="card"><h2>Liquidación actual</h2><div class="meta">Sin liquidación emitida todavía.</div></section>';
       return `<section class="card"><h2>Liquidación actual</h2><div class="kpis"><div class="kpi"><b>${money(l.total||0)}</b><span>total</span></div><div class="kpi"><b>${money(l.pago_banco||0)}</b><span>banco</span></div><div class="kpi"><b>${money(l.diferencia_efectivo||0)}</b><span>diferencia/efectivo</span></div></div><div class="meta">Periodo ${l.periodo || '—'} · Estado ${l.status || '—'}</div></section>`;
     }
-    function esc(v){ return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-    function render(data, tasks=[], semana={}, liquidacion={}, detectedLoads=[]){
+    function render(data, tasks=[], semana={}, liquidacion={}){
       const viajes = data.viajes || [];
       if(!token){app.innerHTML='<div class="empty">Falta token de acceso.</div>';return}
       const tasksHtml = renderTasks(tasks);
-      const detectedHtml = renderDetectedLoads(detectedLoads);
       const semanaHtml = renderSemana(semana);
       const liquidacionHtml = renderLiquidacion(liquidacion);
-      if(!viajes.length){renderShell(data, detectedHtml + tasksHtml, '<div class="empty"><h2>Sin viajes activos</h2><div>Cuando oficina te asigne un viaje, aparecerá aquí con ruta, documentos y acciones rápidas.</div></div>', semanaHtml, liquidacionHtml);return}
+      if(!viajes.length){renderShell(data, tasksHtml, '<div class="empty"><h2>Sin viajes activos</h2><div>Cuando oficina te asigne un viaje, aparecerá aquí con ruta, documentos y acciones rápidas.</div></div>', semanaHtml, liquidacionHtml);return}
       const viajesHtml = '<div class="section-title">Viajes activos</div>' + viajes.map(v => {
         const prods = (v.productos||[]).map(p => `${p.descripcion || p.clave_producto || 'Producto'} · ${Number(p.volumen_litros||0).toLocaleString('es-MX')} L`).join('<br>');
         return `<section class="card">
@@ -150,8 +98,8 @@
           <div class="products">${prods}</div>
           ${v.cfdi?.uuid_sat ? `<span class="pill ok">Carta Porte timbrada · ${String(v.cfdi.uuid_sat).slice(0,8)}</span>` : '<span class="pill">Carta Porte pendiente</span>'}
           ${v.uuid_cfdi ? `<div class="doc-actions">
-            <button class="btn dark" onclick="openDoc('/api/tr/operador/viajes/${v.id}/pdf','carta-porte-${v.id}.pdf',true)">Ver Carta Porte PDF</button>
-            <button class="btn ok" onclick="openDoc('/api/tr/operador/viajes/${v.id}/pdf?download=true','carta-porte-${v.id}.pdf')">Descargar PDF</button>
+            <a class="btn dark" href="/api/tr/operador/viajes/${v.id}/pdf?token=${encodeURIComponent(token)}" target="_blank" rel="noopener">Ver Carta Porte PDF</a>
+            <a class="btn ok" href="/api/tr/operador/viajes/${v.id}/pdf?token=${encodeURIComponent(token)}&download=true">Descargar PDF</a>
           </div>` : ''}
           <div class="doc-list" id="docs-${v.id}"><h3>Documentos relacionados</h3><div class="meta">Buscando PDF/XML relacionados...</div></div>
           <div class="actions">
@@ -162,7 +110,7 @@
           </div>
         </section>`
       }).join('');
-      renderShell(data, detectedHtml + tasksHtml, viajesHtml, semanaHtml, liquidacionHtml);
+      renderShell(data, tasksHtml, viajesHtml, semanaHtml, liquidacionHtml);
       setTimeout(()=>viajes.forEach(v=>loadDocs(v.id)), 0);
     }
     async function loadDocs(id){
@@ -172,31 +120,18 @@
         const d = await api(`/api/tr/operador/viajes/${id}/documentos-relacionados`);
         const docs = d.documentos || [];
         if(!docs.length){ box.innerHTML = '<h3>Documentos relacionados</h3><div class="meta">Sin PDF/XML relacionados todavía.</div>'; return; }
-        box.innerHTML = `<h3>Documentos relacionados</h3><div class="doc-mini">${docs.map((x,i) => `<button class="btn ${String(x.tipo||'').includes('xml') ? 'ok' : 'dark'}" onclick="openDoc('${escAttr(x.url)}','${escAttr((x.label || 'documento') + (String(x.tipo||'').includes('xml') ? '.xml' : '.pdf'))}',true)">${esc(x.label)}</button>`).join('')}</div>`;
+        box.innerHTML = `<h3>Documentos relacionados</h3><div class="doc-mini">${docs.map(x => `<a class="btn ${String(x.tipo||'').includes('xml') ? 'ok' : 'dark'}" href="${x.url}" target="_blank" rel="noopener">${x.label}</a>`).join('')}</div>`;
       }catch(e){
         box.innerHTML = '<h3>Documentos relacionados</h3><div class="meta">No se pudieron cargar documentos.</div>';
       }
     }
-    async function load(){try{const [d,t,s,l,c]=await Promise.all([api('/api/tr/operador/viajes'),api('/api/tr/operador/carta-aporte/tareas'),api('/api/tr/operador/semana'),api('/api/tr/operador/liquidacion-actual'),api('/api/tr/operador/cargas-detectadas')]);render(d,t.tasks||[],s,l,c.loads||[])}catch(e){app.innerHTML=`<div class="empty">${e.message}</div>`}}
-    async function detectedAction(id, action){
-      const msg = action === 'confirm' ? '¿Confirmas que esta factura corresponde a tu carga para preparar la Carta Porte?' : '¿Marcar esta factura como no correspondiente a tu carga?';
-      if(!confirm(msg)) return;
-      try{const r=await api(`/api/tr/operador/cargas-detectadas/${encodeURIComponent(id)}/accion`,{method:'POST',body:{action}});toast(r.message || 'Actualizado');load()}catch(e){toast(e.message)}
-    }
+    async function load(){try{const [d,t,s,l]=await Promise.all([api('/api/tr/operador/viajes'),api('/api/tr/operador/carta-aporte/tareas'),api('/api/tr/operador/semana'),api('/api/tr/operador/liquidacion-actual')]);render(d,t.tasks||[],s,l)}catch(e){app.innerHTML=`<div class="empty">${e.message}</div>`}}
     async function accion(id, accion){
       let nota = '';
       if (accion === 'problema') nota = prompt('Describe brevemente el problema para oficina:') || '';
       try{await api(`/api/tr/operador/viajes/${id}/accion`,{method:'POST',body:{accion, nota}});toast('Actualizado');load()}catch(e){toast(e.message)}
     }
-    async function openDoc(url, filename, inline=false){
-      try{ await fetchFile(url, filename, inline); }catch(e){ toast(e.message); }
-    }
-    function escAttr(v){ return esc(v).replace(/`/g,'&#96;'); }
-    async function logout(){
-      await fetch('/api/tr/operador/logout',{method:'POST',headers:{'Authorization':'Bearer '+token}}).catch(()=>{});
-      localStorage.removeItem('ge_transporte_operator_token');
-      location.href='/choice';
-    }
+    function logout(){ location.href='/choice'; }
     load();
   </script>
 </body>

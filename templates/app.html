@@ -30,7 +30,7 @@ header i{color:#f8fafc}
 .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.8rem}
 .field label{font-size:.8rem;font-weight:500;color:#555;display:block;margin-bottom:.25rem}
 .field input,.field select,.field textarea{width:100%;padding:.55rem .75rem;border:1px solid #ddd;border-radius:8px;font-size:.88rem;color:#1a1a2e;font-family:inherit;box-sizing:border-box}
-.field input:focus,.field select:focus,.field textarea:focus{outline:2px solid rgba(122,30,44,.18);border-color:#7A1E2C}
+.field input:focus,.field select:focus,.field textarea:focus{outline:2px solid #457b9d;border-color:transparent}
 /* Tabs */
 .tabs{display:flex;border-bottom:2px solid #e8eaf0;margin-bottom:1.4rem;gap:0}
 .tab{padding:.6rem 1.4rem;font-size:.88rem;font-weight:600;cursor:pointer;border:none;background:none;color:#888;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s}
@@ -43,15 +43,6 @@ header i{color:#f8fafc}
 .main-nav-tab.active{color:#1a1a2e;border-bottom-color:#e63946;background:#f8fafc}
 .main-nav-tab:hover:not(.active){color:#374151;background:#f1f5f9}
 .main-panel{display:none}.main-panel.active{display:block}
-.admin-switch,.catalog-switch{display:flex;gap:.45rem;flex-wrap:wrap;margin-bottom:1rem}
-.admin-switch button,.catalog-switch button{border:1px solid #D8D0C4;background:#fff;color:#475569;border-radius:8px;padding:.52rem .9rem;font-family:inherit;font-weight:700;font-size:.8rem;cursor:pointer;min-height:0;box-shadow:0 6px 14px rgba(17,17,17,.04)}
-.admin-switch button.active,.catalog-switch button.active{background:#7A1E2C;color:#fff;border-color:#7A1E2C;box-shadow:0 10px 20px rgba(122,30,44,.14)}
-.admin-pane,.catalog-pane{display:none}
-.admin-pane.active,.catalog-pane.active{display:block}
-.admin-pane.card{border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 30px rgba(15,28,45,.08)}
-.catalog-pane{padding-top:.25rem}
-.compact-actions{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap}
-.compact-actions .btn,.compact-actions button{width:auto;min-height:0}
 .chart-wrap{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1rem 1.2rem;margin-bottom:1.2rem}
 .chart-title{font-size:.82rem;font-weight:700;color:#374151;margin-bottom:.8rem}
 .bar-chart{display:flex;align-items:flex-end;gap:6px;height:180px;padding-bottom:0}
@@ -99,16 +90,6 @@ header i{color:#f8fafc}
   /* Modal de configuración avanzada */
   .modal-body{padding:1rem .8rem}
   .adv-section{padding:.8rem}
-  .empresa-card,.onboarding-card{padding:1.4rem;width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto}
-  .empresa-item{align-items:flex-start;flex-direction:column}
-  .empresa-item-actions{width:100%;justify-content:stretch}
-  .empresa-mini-btn{flex:1}
-  .empresa-table-wrap{overflow-x:auto}
-  .empresa-table{min-width:560px}
-  .hist-selector{align-items:stretch}
-  .hist-selector .field{min-width:0!important}
-  div[style*="display:flex"][style*="max-width:360px"]{max-width:100%!important;flex-direction:column}
-  .field[style*="min-width"],span[style*="min-width"]{min-width:0!important}
 }
 /* ── Multi-empresa: overlay de selección ──────────────────────────────── */
 #empresaOverlay{position:fixed;inset:0;background:linear-gradient(135deg,#5B0F1D 0%,#111111 100%);z-index:9000;display:flex;align-items:center;justify-content:center;visibility:hidden;opacity:0;transition:opacity .3s}
@@ -188,8 +169,8 @@ header i{color:#f8fafc}
 .btn-secondary{background:var(--secondary);color:#fff}.btn-secondary:hover{background:#083849}
 .btn-outline{background:none;border:1px solid var(--primary);color:var(--primary)}
 .btn-outline:hover{background:rgba(56,189,248,.1)}
-.btn-red{background:#7A1E2C;color:#fff}.btn-red:hover{background:#5B0F1D}
-.btn-red:disabled{background:#d8d0c4;cursor:not-allowed}
+.btn-red{background:#0d6ba6;color:#fff}.btn-red:hover{background:#0b5d95}
+.btn-red:disabled{background:#99c5e9;cursor:not-allowed}
 .btn-green{background:#0d8b96;color:#fff}.btn-green:hover{background:#0b777e}
 /* Loading */
 .loading{display:none;padding:.7rem 1rem;background:#f0f4ff;border-left:4px solid #457b9d;border-radius:8px;font-size:.83rem;color:#2c5f8a;margin-top:.7rem}
@@ -793,6 +774,7 @@ tr:hover td{background:#f8fafc}
 <div class="main-nav-tabs">
   <button class="main-nav-tab" data-main="ventas"><i class="fa-solid fa-chart-line"></i> <span data-i18n="nav.ventas">Dashboard</span></button>
   <button class="main-nav-tab active" data-main="procesar"><i class="fa-solid fa-file-upload"></i> <span data-i18n="nav.procesar">Carga de archivos</span></button>
+  <button class="main-nav-tab" data-main="facturar"><i class="fa-solid fa-file-invoice-dollar"></i> Facturación</button>
   <button class="main-nav-tab" data-main="historial"><i class="fa-solid fa-file-lines"></i> <span data-i18n="nav.historial">Reportes SAT</span></button>
   <button class="main-nav-tab" data-main="controles"><i class="fa-solid fa-gauge-high"></i> <span data-i18n="nav.controles">Inventario</span></button>
   <button class="main-nav-tab" data-main="proveedores"><i class="fa-solid fa-truck-fast"></i> <span data-i18n="nav.proveedores">Proveedores</span></button>
@@ -877,21 +859,9 @@ tr:hover td{background:#f8fafc}
     <div class="field">
       <label><span data-en="Initial Inventory (liters — tank reading)">Inventario Inicial (litros — lectura de tanque)</span></label>
       <input id="inv_inicial" type="number" step="0.01" min="0" placeholder="Ej. 3269817.25">
-      <div style="display:flex;gap:.45rem;align-items:center;flex-wrap:wrap;margin-top:.45rem">
-        <select id="invIniStatus" style="width:auto;min-width:130px;padding:.38rem .55rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.72rem;background:#fff">
-          <option value="provisional">Provisional</option>
-          <option value="confirmado">Confirmado</option>
-        </select>
-        <button type="button" class="btn" id="btnUsePrevInv" onclick="usePreviousInventory()" style="padding:.42rem .62rem;font-size:.72rem">
-          <i class="fa-solid fa-arrow-rotate-left" style="margin-right:.25rem"></i>Tomar mes anterior
-        </button>
-        <button type="button" class="btn" id="btnSaveInvIni" onclick="savePeriodInventory()" style="padding:.42rem .62rem;font-size:.72rem">
-          <i class="fa-solid fa-floppy-disk" style="margin-right:.25rem"></i>Guardar
-        </button>
-      </div>
       <div id="invIniAutoNote" style="display:none;font-size:.7rem;color:#1d4ed8;margin-top:.3rem;background:#eff6ff;border-radius:6px;padding:.25rem .5rem;border-left:3px solid #3b82f6"></div>
       <div id="invIniManualNote" style="font-size:.62rem;color:#64748b;margin-top:.2rem">
-        Se guarda por mes e instalación. Puede quedar provisional y confirmarse cuando llegue el cierre del contador.
+        Lectura del tanque al inicio del mes.
       </div>
     </div>
     <div class="field">
@@ -1020,7 +990,7 @@ tr:hover td{background:#f8fafc}
     <div class="grid2" style="margin-bottom:.7rem">
       <div class="field">
         <label>Volumen (Litros) <span style="color:#e63946">*</span></label>
-        <input id="ac_volumen" type="text" inputmode="decimal" placeholder="Ej. 35,606.00">
+        <input id="ac_volumen" type="number" min="0.01" step="0.01" placeholder="Ej. 500.00">
       </div>
       <div class="field">
         <label>Fecha del movimiento <span style="color:#e63946">*</span></label>
@@ -1898,70 +1868,18 @@ tr:hover td{background:#f8fafc}
   <div class="grid3">
     <div class="field"><label><span data-en="Taxpayer RFC">RFC del Contribuyente</span></label>
       <input id="rfc" value="" placeholder="Ej. ABC010101AAA"></div>
-    <div class="field"><label>Nombre fiscal / Razón social</label>
-      <input id="nombre_fiscal" placeholder="Ej. GAS LUX" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
-      <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Este nombre sale como emisor en facturas del asistente.</div>
-    </div>
-    <div class="field"><label>Código postal fiscal</label>
-      <input id="codigo_postal_fiscal" maxlength="5" inputmode="numeric" placeholder="Ej. 64000">
-      <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">También se usa para Público en general.</div>
-    </div>
-  </div>
-  <div class="grid3" style="margin-top:.8rem">
-    <div class="field"><label>Régimen fiscal emisor</label>
-      <select id="regimen_fiscal_emisor">
-        <option value="601">601 - General de Ley Personas Morales</option>
-        <option value="603">603 - Personas Morales con Fines no Lucrativos</option>
-        <option value="605">605 - Sueldos y Salarios</option>
-        <option value="606">606 - Arrendamiento</option>
-        <option value="612">612 - Personas Físicas con Actividades Empresariales</option>
-        <option value="626">626 - RESICO</option>
-      </select>
-    </div>
     <div class="field"><label>RFC Representante Legal <span style="font-size:.68rem;color:#7c3aed;font-weight:600">(→ RfcRepresentanteLegal en JSON)</span></label>
       <input id="sat_rfc_rep" placeholder="Ej. OEMR710420FCA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
       <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Solo personas morales. Si se captura, se incluye en el nodo raíz del reporte mensual SAT con prioridad alta.</div>
     </div>
     <div class="field"><label>RFC Proveedor SAT (constante)</label>
-      <input id="sat_rfc_prov" value="XAX010101000" readonly></div>
+      <input id="sat_rfc_prov" placeholder="Ej. PCO960701A49"></div>
   </div>
   <div class="grid3" style="margin-top:.8rem">
     <div class="field"><label>Factor de Conversión (Kg a Litros)</label>
       <input id="factor_conversion" type="number" step="0.001" min="0.4" max="2.0" placeholder="0.542"></div>
-    <div class="field" style="display:none">
-      <label>Tipo permiso HidroYPetro (auto por instalación)</label>
-      <select id="tipo_permiso_hyp">
-        <option value="">Selecciona PER01-PER11...</option>
-        <option value="PER01">PER01</option><option value="PER02">PER02</option><option value="PER03">PER03</option>
-        <option value="PER04">PER04</option><option value="PER05">PER05</option><option value="PER06">PER06 - Distribución</option>
-        <option value="PER07">PER07 - Expendio</option><option value="PER08">PER08</option><option value="PER09">PER09</option>
-        <option value="PER10">PER10</option><option value="PER11">PER11</option>
-      </select>
-      <div style="font-size:.63rem;color:#6b7280;margin-top:.25rem">Clasificación del complemento. El número exacto se toma de la instalación origen al facturar.</div>
-    </div>
-    <div class="field" style="display:none">
-      <label>Número permiso HidroYPetro global</label>
-      <input id="numero_permiso_hyp" placeholder="Permiso CNE/CRE vigente">
-      <div style="font-size:.63rem;color:#6b7280;margin-top:.25rem">Respaldo global. Para Gas LP por litros manda el Permiso CRE de la instalación seleccionada.</div>
-    </div>
-    <div class="field">
-      <label>Subproducto HidroYPetro</label>
-      <input id="subproducto_hyp" placeholder="SP46" value="SP46" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
-      <div style="font-size:.63rem;color:#6b7280;margin-top:.25rem">SP46 corresponde a Gas LP en la matriz interna PR12; no cambia por estación.</div>
-    </div>
-    <div class="field">
-      <label>Logo para PDF fiscal</label>
-      <input id="pdf_logo_file" type="file" accept="image/png,image/jpeg,image/webp" onchange="cargarLogoPdfGasLp(event)">
-      <input id="pdf_logo_data" type="hidden">
-      <div id="pdf_logo_hint" style="font-size:.63rem;color:#6b7280;margin-top:.25rem">Opcional. Se usará en las facturas PDF de litros de Gas LP.</div>
-    </div>
-    <div class="field">
-      <label>Vista previa</label>
-      <div style="height:54px;border:1px solid #e2e8f0;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#fff">
-        <img id="pdf_logo_preview" alt="" style="max-width:150px;max-height:42px;display:none;object-fit:contain">
-        <span id="pdf_logo_empty" style="font-size:.72rem;color:#94a3b8">Sin logo</span>
-      </div>
-    </div>
+    <div></div>
+    <div></div>
   </div>
   <div style="margin-top:.8rem">
     <button class="btn-save" id="btnSaveSettings"><i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar perfil</button>
@@ -1981,7 +1899,7 @@ tr:hover td{background:#f8fafc}
     </button>
   </div>
   <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem;line-height:1.5">
-    Cada instalación tiene su propio Permiso CRE, clave y domicilio operativo. Para facturación y PDF fiscal, GE Control usa la instalación origen seleccionada y muestra si existen más domicilios/establecimientos.
+    Cada instalación tiene su propio Permiso CRE y Clave de Instalación. Al procesar CFDIs, selecciona la instalación activa en la pestaña <strong>Procesar</strong>.
   </div>
   <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:.8rem">
     <table id="tblFacilities" style="margin-bottom:0">
@@ -1991,13 +1909,12 @@ tr:hover td{background:#f8fafc}
           <th><span data-en="CRE Permit No.">Núm. Permiso CRE</span></th>
           <th><span data-en="Facility Key"><span data-en="Facility Key">Clave Instalación</span></span></th>
           <th>Descripción</th>
-          <th>Domicilio</th>
           <th><span data-en="Tanks">Tanques</span></th>
           <th style="width:80px;text-align:center">Acciones</th>
         </tr>
       </thead>
       <tbody id="tbodyFacilities">
-        <tr><td colspan="7" class="hist-empty">Cargando instalaciones...</td></tr>
+        <tr><td colspan="6" class="hist-empty">Cargando instalaciones...</td></tr>
       </tbody>
     </table>
   </div>
@@ -2060,14 +1977,6 @@ tr:hover td{background:#f8fafc}
       <div class="field" style="margin:0">
         <label style="font-size:.72rem"><span data-en="Facility Description">Descripción Instalación</span></label>
         <input id="fac_desc" placeholder="Ej. Planta de distribucion 14341">
-      </div>
-      <div class="field" style="margin:0">
-        <label style="font-size:.72rem">Domicilio del establecimiento <span style="color:#e63946">*</span></label>
-        <input id="fac_domicilio_operativo" placeholder="Calle, número, colonia, municipio, estado">
-      </div>
-      <div class="field" style="margin:0">
-        <label style="font-size:.72rem">CP establecimiento <span style="color:#e63946">*</span></label>
-        <input id="fac_codigo_postal" inputmode="numeric" maxlength="5" placeholder="99300">
       </div>
       <div class="field" style="margin:0">
         <label style="font-size:.72rem"><span data-en="Default Temperature (°C)">Temperatura Default (°C)</span></label>
@@ -2326,12 +2235,8 @@ tr:hover td{background:#f8fafc}
      PANEL: USUARIOS INTERNOS
      ══════════════════════════════════════════════════════════════════════ -->
 <div class="main-panel" id="mpanel-admin">
-<div class="admin-switch" role="tablist" aria-label="Administración Gas LP">
-  <button class="active" type="button" data-admin-pane="usuarios" onclick="switchGasLpAdminPane('usuarios')"><i class="fa-solid fa-users-gear"></i> Usuarios</button>
-  <button type="button" data-admin-pane="catalogos" onclick="switchGasLpAdminPane('catalogos')"><i class="fa-solid fa-table-list"></i> Catálogos Carta Porte</button>
-</div>
 <!-- Usuarios internos por empresa -->
-<div class="card admin-pane active" id="gasAdminPaneUsuarios">
+<div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
     <div>
       <h2 style="margin:0"><i class="fa-solid fa-users-gear" style="margin-right:.35rem"></i>Usuarios y permisos</h2>
@@ -2349,16 +2254,15 @@ tr:hover td{background:#f8fafc}
       <select id="gasInternalRole">
         <option value="asistente_facturacion">Asistente de facturación</option>
         <option value="asistente_operativo">Asistente operativo</option>
-        <option value="conciliacion">Conciliación</option>
         <option value="planta">Planta</option>
         <option value="solo_lectura">Solo lectura</option>
       </select>
-      <div style="font-size:.68rem;color:#64748b;margin-top:.25rem">Facturación: factura y carga XML. Conciliación: cierre diario/banco. Operativo: apoya operación. Planta: captura de planta. Solo lectura: consulta.</div>
+      <div style="font-size:.68rem;color:#64748b;margin-top:.25rem">Facturación: factura y carga XML. Operativo: apoya operación. Planta: captura de planta. Solo lectura: consulta.</div>
     </div>
     <div class="field"><label>Usuario</label><input id="gasInternalCode" type="text" placeholder="Ej. MARTHA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
     <div class="field"><label>Contraseña</label><input id="gasInternalPin" type="text" placeholder="Ej. MARTHA"></div>
   </div>
-  <div class="compact-actions" style="margin-top:.8rem">
+  <div style="display:flex;align-items:center;gap:.8rem;margin-top:.8rem;flex-wrap:wrap">
     <button onclick="createInternalUserGasLp()" style="
       padding:.55rem 1.4rem;background:#0f766e;color:#fff;border:none;
       border-radius:8px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.88rem">
@@ -2385,7 +2289,7 @@ tr:hover td{background:#f8fafc}
 </div>
 
 <!-- Catálogos operativos Gas LP -->
-<div class="card admin-pane" id="gasAdminPaneCatalogos">
+<div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
     <div>
       <h2 style="margin:0"><i class="fa-solid fa-truck-moving" style="margin-right:.35rem"></i>Catálogos Carta Porte</h2>
@@ -2397,13 +2301,7 @@ tr:hover td{background:#f8fafc}
       padding:.4rem .9rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;
       font-size:.78rem;cursor:pointer;font-family:inherit"><i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i> Actualizar</button>
   </div>
-  <div class="catalog-switch" role="tablist" aria-label="Catálogos Carta Porte Gas LP">
-    <button class="active" type="button" data-catalog-pane="vehiculos" onclick="switchGasLpCatalogPane('vehiculos')"><i class="fa-solid fa-truck"></i> Vehículos</button>
-    <button type="button" data-catalog-pane="choferes" onclick="switchGasLpCatalogPane('choferes')"><i class="fa-solid fa-id-card"></i> Choferes</button>
-    <button type="button" data-catalog-pane="rutas" onclick="switchGasLpCatalogPane('rutas')"><i class="fa-solid fa-route"></i> Rutas</button>
-  </div>
 
-  <div class="catalog-pane active" id="gasCatalogPaneVehiculos">
   <div class="grid3" style="align-items:end">
     <div class="field">
       <label>Placas vehículo</label>
@@ -2434,22 +2332,6 @@ tr:hover td{background:#f8fafc}
       <label>Permiso CRE vehicular</label>
       <input id="gasVehPermiso" placeholder="Opcional">
     </div>
-    <div class="field">
-      <label>PermSCT / SICT</label>
-      <input id="gasVehPermisoSct" placeholder="TPAF01" value="TPAF01" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
-    </div>
-    <div class="field">
-      <label>No. permiso SCT/SICT *</label>
-      <input id="gasVehNumPermisoSct" placeholder="Número de permiso real">
-    </div>
-    <div class="field">
-      <label>Aseg. medio ambiente *</label>
-      <input id="gasVehAsegMedAmb" placeholder="Aseguradora ambiental">
-    </div>
-    <div class="field">
-      <label>Póliza medio ambiente *</label>
-      <input id="gasVehPolizaMedAmb" placeholder="Póliza ambiental">
-    </div>
   </div>
   <div style="display:flex;gap:.6rem;align-items:center;margin:.2rem 0 1rem;flex-wrap:wrap">
     <input type="hidden" id="gasVehEditId" value="">
@@ -2459,13 +2341,11 @@ tr:hover td{background:#f8fafc}
   </div>
   <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:1rem">
     <table style="margin-bottom:0">
-      <thead><tr><th>Placas</th><th>Año</th><th>Config.</th><th>PermSCT</th><th>No. permiso</th><th>Seguro</th><th>Acciones</th></tr></thead>
-      <tbody id="gasVehTbody"><tr><td colspan="7" class="hist-empty">Cargando vehículos...</td></tr></tbody>
+      <thead><tr><th>Placas</th><th>Año</th><th>Config.</th><th>Aseguradora</th><th>Póliza</th><th>Acciones</th></tr></thead>
+      <tbody id="gasVehTbody"><tr><td colspan="6" class="hist-empty">Cargando vehículos...</td></tr></tbody>
     </table>
   </div>
-  </div>
 
-  <div class="catalog-pane" id="gasCatalogPaneChoferes">
   <div class="grid2" style="align-items:end">
     <div class="field">
       <label>Nombre chofer</label>
@@ -2480,23 +2360,6 @@ tr:hover td{background:#f8fafc}
       <input id="gasChoferLicencia" placeholder="Licencia">
     </div>
     <div class="field">
-      <label>Tipo licencia federal *</label>
-      <select id="gasChoferTipoLicencia">
-        <option value="">Selecciona...</option>
-        <option value="B">B - Carga general</option>
-        <option value="C">C - Carga 2/3 ejes</option>
-        <option value="E">E - Material peligroso / doble articulado</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>Vigencia licencia *</label>
-      <input id="gasChoferLicenciaVigencia" type="date">
-    </div>
-    <div class="field">
-      <label>Vigencia examen médico *</label>
-      <input id="gasChoferMedicoVigencia" type="date">
-    </div>
-    <div class="field">
       <label>Teléfono</label>
       <input id="gasChoferTelefono" placeholder="Teléfono">
     </div>
@@ -2509,13 +2372,11 @@ tr:hover td{background:#f8fafc}
   </div>
   <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:1rem">
     <table style="margin-bottom:0">
-      <thead><tr><th>Nombre</th><th>RFC</th><th>Licencia</th><th>Tipo</th><th>Vigencias</th><th>Acciones</th></tr></thead>
-      <tbody id="gasChoferTbody"><tr><td colspan="6" class="hist-empty">Cargando choferes...</td></tr></tbody>
+      <thead><tr><th>Nombre</th><th>RFC</th><th>Licencia</th><th>Teléfono</th><th>Acciones</th></tr></thead>
+      <tbody id="gasChoferTbody"><tr><td colspan="5" class="hist-empty">Cargando choferes...</td></tr></tbody>
     </table>
   </div>
-  </div>
 
-  <div class="catalog-pane" id="gasCatalogPaneRutas">
   <div class="grid3" style="align-items:end">
     <div class="field">
       <label>Nombre ruta</label>
@@ -2554,7 +2415,6 @@ tr:hover td{background:#f8fafc}
       <tbody id="gasRutaTbody"><tr><td colspan="6" class="hist-empty">Cargando rutas...</td></tr></tbody>
     </table>
   </div>
-  </div>
 </div>
 
 </div><!-- /mpanel-admin -->
@@ -2583,28 +2443,24 @@ let perfilesCache = null;
 let perfilesCacheAt = 0;
 let facilitiesCacheByPerfil = new Map();
 let dashboardLoadPromise = null;
-let activeProfileGeneration = 0;
-
-function profileLoadContext() {
-  return { gen: activeProfileGeneration, pid: String(perfilId() || '') };
-}
-
-function isCurrentProfileLoad(ctx) {
-  return !!ctx && ctx.gen === activeProfileGeneration && ctx.pid === String(perfilId() || '');
-}
 
 // ── Estado multi-empresa (perfilSeleccionado) ──────────────────────────────
-// Se conserva solo mientras la app está abierta. Al volver a entrar se pide
-// elegir razón social para evitar asumir la última empresa usada.
+// Se persiste en localStorage para sobrevivir cierre de pestaña y recargas.
+// Se limpia SOLO al hacer logout explícito.
 let _perfilSeleccionado = null;   // { id, nombre, rfc, descripcion }
 
 function _loadPerfilFromSession() {
-  _perfilSeleccionado = null;
-  localStorage.removeItem('zc_perfil');
+  try {
+    const raw = localStorage.getItem('zc_perfil');
+    if (raw) _perfilSeleccionado = JSON.parse(raw);
+  } catch(e) { _perfilSeleccionado = null; }
 }
 
 function _savePerfilToSession(perfil) {
   _perfilSeleccionado = perfil;
+  try {
+    localStorage.setItem('zc_perfil', JSON.stringify(perfil));
+  } catch(e) {}
 }
 
 function _clearPerfilSession() {
@@ -2622,22 +2478,6 @@ function perfilActivoRfc() {
 
 function normalizarRfc(valor) {
   return String(valor || '').trim().toUpperCase();
-}
-
-function switchGasLpAdminPane(pane) {
-  const key = pane === 'catalogos' ? 'catalogos' : 'usuarios';
-  document.querySelectorAll('[data-admin-pane]').forEach(btn => btn.classList.toggle('active', btn.dataset.adminPane === key));
-  document.getElementById('gasAdminPaneUsuarios')?.classList.toggle('active', key === 'usuarios');
-  document.getElementById('gasAdminPaneCatalogos')?.classList.toggle('active', key === 'catalogos');
-  if (key === 'catalogos') loadGasLpCartaPorteCatalogs?.();
-}
-
-function switchGasLpCatalogPane(pane) {
-  const key = ['vehiculos', 'choferes', 'rutas'].includes(pane) ? pane : 'vehiculos';
-  document.querySelectorAll('[data-catalog-pane]').forEach(btn => btn.classList.toggle('active', btn.dataset.catalogPane === key));
-  document.getElementById('gasCatalogPaneVehiculos')?.classList.toggle('active', key === 'vehiculos');
-  document.getElementById('gasCatalogPaneChoferes')?.classList.toggle('active', key === 'choferes');
-  document.getElementById('gasCatalogPaneRutas')?.classList.toggle('active', key === 'rutas');
 }
 
 // Inicializar desde sessionStorage al cargar
@@ -2661,34 +2501,6 @@ function parseNum(val, fallback = 0) {
   const n = parseFloat(cleaned);
   return isNaN(n) ? fallback : n;
 }
-
-function parseLitrosInput(val, fallback = 0) {
-  if (val === null || val === undefined) return fallback;
-  let raw = String(val).trim().replace(/\s/g, '');
-  if (!raw) return fallback;
-  const hasComma = raw.includes(',');
-  const hasDot = raw.includes('.');
-  if (hasComma && hasDot) {
-    const lastComma = raw.lastIndexOf(',');
-    const lastDot = raw.lastIndexOf('.');
-    raw = lastComma > lastDot
-      ? raw.replace(/\./g, '').replace(',', '.')
-      : raw.replace(/,/g, '');
-  } else if (hasComma) {
-    const parts = raw.split(',');
-    const last = parts[parts.length - 1] || '';
-    const first = parts[0] || '';
-    if (last.length === 3 && first !== '0') raw = raw.replace(/,/g, '');
-    else raw = raw.replace(',', '.');
-  } else if (hasDot) {
-    const parts = raw.split('.');
-    const last = parts[parts.length - 1] || '';
-    const first = parts[0] || '';
-    if (parts.length > 2 || (last.length === 3 && first !== '0')) raw = raw.replace(/\./g, '');
-  }
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : fallback;
-}
 // ── appState: caché global de settings por perfil ─────────────────────────────
 // Evita re-fetches innecesarios y pérdida de datos al cambiar de tab.
 // Se invalida SOLO cuando: (a) se cambia de empresa, (b) el usuario guarda cambios.
@@ -2696,8 +2508,6 @@ const _appState = {
   settings: null,        // último GET /api/settings exitoso
   settingsPerfilId: null,// para qué perfil están cargados
   settingsLoading: false, // evitar doble fetch simultáneo
-  settingsLoadingPerfilId: null,
-  settingsPromise: null,
 
   // Cargar settings desde Supabase y cachear
   async loadSettings(force = false) {
@@ -2706,32 +2516,20 @@ const _appState = {
     if (!force && this.settings && this.settingsPerfilId === pid) {
       return this.settings;
     }
-    if (this.settingsLoading && this.settingsLoadingPerfilId === pid && this.settingsPromise) {
-      return this.settingsPromise;
-    }
+    if (this.settingsLoading) return this.settings;
     this.settingsLoading = true;
-    this.settingsLoadingPerfilId = pid;
-    this.settingsPromise = (async () => {
+    try {
       const res = await fetch('/api/settings', { headers: authHeader() });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
-      if (pid === perfilId()) {
-        this.settings = data;
-        this.settingsPerfilId = pid;
-      }
+      this.settings = data;
+      this.settingsPerfilId = pid;
       return data;
-    })();
-    try {
-      return await this.settingsPromise;
     } catch(e) {
       console.warn('appState.loadSettings error:', e);
-      return (this.settingsPerfilId === pid ? this.settings : null) || {};
+      return this.settings || {};
     } finally {
-      if (this.settingsLoadingPerfilId === pid) {
-        this.settingsLoading = false;
-        this.settingsLoadingPerfilId = null;
-        this.settingsPromise = null;
-      }
+      this.settingsLoading = false;
     }
   },
 
@@ -2739,9 +2537,6 @@ const _appState = {
   invalidate() {
     this.settings = null;
     this.settingsPerfilId = null;
-    this.settingsLoading = false;
-    this.settingsLoadingPerfilId = null;
-    this.settingsPromise = null;
   }
 };
 function truncUUID(s) { return (s||'').length > 20 ? (s||'').substring(0,8)+'…'+(s||'').slice(-4) : (s||''); }
@@ -2753,9 +2548,8 @@ function applyRole(role) {
   const tab = document.getElementById('tabAdmin');
   if (tab) tab.style.display = currentUserRole === 'admin' ? '' : 'none';
   const assistantAllowed = {
-    asistente_facturacion: ['procesar','historial'],
+    asistente_facturacion: ['procesar','facturar'],
     asistente_operativo: ['procesar','ventas','proveedores'],
-    conciliacion: ['historial'],
     planta: ['procesar','controles'],
     solo_lectura: ['ventas','historial']
   };
@@ -2918,16 +2712,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('transporteVehiculo')?.addEventListener('change', function() {
     const opt = this.options[this.selectedIndex];
     if (opt.dataset.placa) {
-      const placa = document.getElementById('transportePlaca');
-      const anio = document.getElementById('transporteAnioVehiculo');
-      const config = document.getElementById('transporteConfigVehicular');
-      const aseguradora = document.getElementById('transporteAseguradora');
-      const poliza = document.getElementById('transportePoliza');
-      if (placa) placa.value = opt.dataset.placa;
-      if (anio) anio.value = opt.dataset.anio || 2024;
-      if (config) config.value = opt.dataset.config || 'C2';
-      if (aseguradora) aseguradora.value = opt.dataset.aseguradora || '';
-      if (poliza) poliza.value = opt.dataset.poliza || '';
+      document.getElementById('transportePlaca').value = opt.dataset.placa;
+      document.getElementById('transporteAnioVehiculo').value = opt.dataset.anio || 2024;
+      document.getElementById('transporteConfigVehicular').value = opt.dataset.config || 'C2';
+      document.getElementById('transporteAseguradora').value = opt.dataset.aseguradora || '';
+      document.getElementById('transportePoliza').value = opt.dataset.poliza || '';
     }
   });
   
@@ -2980,8 +2769,23 @@ async function verifySession() {
       assignedPerfilId = Number(data.perfil_id || 0) || null;
       if (assignedPerfilId) localStorage.setItem('sat_assigned_perfil_id', String(assignedPerfilId));
 
-      _clearPerfilSession();
-      await iniciarFlujoEmpresa();
+      if (_perfilSeleccionado) {
+        // Validar que el perfil guardado sigue existiendo en Supabase
+        const perfiles = await cargarPerfiles();
+        const perfilValido = perfiles.find(p => p.id === _perfilSeleccionado.id);
+        if (perfilValido) {
+          // Actualizar datos del perfil por si cambiaron (nombre, rfc)
+          _savePerfilToSession(perfilValido);
+          actualizarSwitcherEmpresa(perfilValido);
+          cargarDatosDashboard();
+        } else {
+          // Perfil ya no existe → pedir selección
+          _clearPerfilSession();
+          await iniciarFlujoEmpresa();
+        }
+      } else {
+        await iniciarFlujoEmpresa();
+      }
     } else {
       clearSession();
       showLogin();
@@ -3043,7 +2847,7 @@ document.getElementById('btnLogin').addEventListener('click', async () => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user, password: pass, modulo }),
+      body: JSON.stringify({ username: user, password: pass }),
     });
     const data = await res.json();
     if (data.success) {
@@ -3075,15 +2879,7 @@ document.getElementById('loginPass').addEventListener('keydown', e => {
 });
 
 document.getElementById('btnLogout').addEventListener('click', async () => {
-  try {
-    const res = await fetch('/api/auth/logout', { method: 'POST', headers: authHeader() });
-    if (!res.ok) {
-      const data = await res.json().catch(()=>({}));
-      alert(data.detail || 'No se pudo cerrar la sesión en servidor. Se limpiará esta sesión local.');
-    }
-  } catch(e) {
-    alert('No se pudo contactar al servidor para cerrar sesión. Se limpiará esta sesión local.');
-  }
+  await fetch('/api/auth/logout', { method: 'POST', headers: authHeader() }).catch(()=>{});
   clearSession();
   window.location.href = '/choice';
 });
@@ -3121,7 +2917,7 @@ async function cargarPerfiles(intentos = 1, force = false) {
   perfilesRequestPromise = (async () => {
   for (let i = 0; i < intentos; i++) {
     try {
-      const res = await fetch('/api/perfiles?module=gas_lp', { headers: authHeader() });
+      const res = await fetch('/api/perfiles', { headers: authHeader() });
       if (res.ok) {
         const data = await res.json();
         subscriptionUsage = data.subscription || subscriptionUsage;
@@ -3221,19 +3017,18 @@ async function iniciarFlujoEmpresa() {
     mostrarOverlayEmpresas([]);
     return;
   }
-  const restrictedRole = ['asistente_facturacion', 'asistente_operativo', 'conciliacion', 'planta', 'solo_lectura'].includes(currentUserRole);
   if (perfiles.length === 1) {
     seleccionarEmpresa(perfiles[0], false);
     return;
   }
-  if (restrictedRole && assignedPerfilId) {
+  if (assignedPerfilId) {
     const asignado = perfiles.find(p => Number(p.id) === Number(assignedPerfilId));
     if (asignado) {
       seleccionarEmpresa(asignado, false);
       return;
     }
   }
-  if (restrictedRole) {
+  if (['asistente_facturacion', 'asistente_operativo', 'planta', 'solo_lectura'].includes(currentUserRole)) {
     seleccionarEmpresa(perfiles[0], false);
     return;
   }
@@ -3348,8 +3143,6 @@ let _resettingState = false;   // flag: bloquea auto-save durante limpieza
 
 function resetAppState() {
   _resettingState = true;
-  activeProfileGeneration += 1;
-  const ctx = profileLoadContext();
   const started = performance.now();
   console.info('[GE] Gas LP cambio de empresa iniciado', { perfil_id: perfilId() });
   _appState.invalidate();  // forzar re-fetch de settings del nuevo perfil
@@ -3428,22 +3221,6 @@ function resetAppState() {
   _facilities       = [];
   _activeFacilityId = null;
   _histFacilityId   = null;
-  ['activeFacilitySelect','ventasFacility','histFacility','facturarFacility','facturarDestinoFacility','gasRutaOrigen','gasRutaDestino','controlesFacility','provFacility'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
-  ['kpiLitros','kpiPesos','kpiLitrosRec','kpiMeses'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = '—';
-  });
-  ['barChartLitros','lineChartPesos','lineChartInv','lineLabels','lineLabelsInv','balanceTbody'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.innerHTML = '';
-  });
-  const ventasStatus = document.getElementById('ventasStatus'); if (ventasStatus) ventasStatus.textContent = '';
-  const ventasNoData = document.getElementById('ventasNoData'); if (ventasNoData) ventasNoData.style.display = 'none';
-  const facBadge = document.getElementById('facilityBadge'); if (facBadge) { facBadge.style.display = 'none'; facBadge.textContent = ''; }
-  setUploaderLock(true);
 
   // ── 6. Re-fetch paralelo con el nuevo perfil ──────────────────────────────
   dashboardLoadPromise = Promise.all([
@@ -3452,11 +3229,9 @@ function resetAppState() {
     loadProviders(),
     loadInternalUsersGasLp(),
   ]).finally(() => {
-    if (isCurrentProfileLoad(ctx)) {
-      console.info('[GE] Gas LP empresa lista', { perfil_id: perfilId(), ms: Math.round(performance.now() - started) });
-      _resettingState = false;  // desbloquear auto-save
-      dashboardLoadPromise = null;
-    }
+    console.info('[GE] Gas LP empresa lista', { perfil_id: perfilId(), ms: Math.round(performance.now() - started) });
+    _resettingState = false;  // desbloquear auto-save
+    dashboardLoadPromise = null;
   });
 
   // Config avanzada lazy
@@ -3495,7 +3270,7 @@ async function guardarNuevoPerfil() {
   if (!nombre) { if (errEl) errEl.textContent = 'El nombre es obligatorio.'; return; }
   if (!rfc)    { if (errEl) errEl.textContent = 'El RFC es obligatorio.'; return; }
   try {
-    const res = await fetch('/api/perfiles?module=gas_lp', {
+    const res = await fetch('/api/perfiles', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ nombre, rfc, descripcion: desc }),
@@ -3569,70 +3344,25 @@ async function eliminarPerfil(perfilId) {
 
 // ── Configuración SAT Persistente ─────────────────────────────────────────
 async function loadSettings() {
-  const ctx = profileLoadContext();
   try {
     const data = await _appState.loadSettings();
-    if (!isCurrentProfileLoad(ctx)) return;
     // Limpiar primero solo si el perfil cambió (appState detectó diferencia)
     // Si es el mismo perfil, actualizar sin limpiar para no borrar input en curso
-    ['rfc','nombre_fiscal','codigo_postal_fiscal','regimen_fiscal_emisor','sat_rfc_rep','sat_rfc_prov','tipo_permiso_hyp','numero_permiso_hyp','subproducto_hyp'].forEach(id => {
+    ['rfc','sat_rfc_rep','sat_rfc_prov'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
     const rfcEl = document.getElementById('rfc');
     if (rfcEl) rfcEl.value = normalizarRfc(data.RfcContribuyente) || perfilActivoRfc();
-    const nombreEl = document.getElementById('nombre_fiscal');
-    if (nombreEl) nombreEl.value = data.NombreFiscal || data.DescripcionInstalacion || _perfilSeleccionado?.nombre || '';
-    const cpEl = document.getElementById('codigo_postal_fiscal');
-    if (cpEl) cpEl.value = data.CodigoPostal || data.codigo_postal || '';
-    const regimenEl = document.getElementById('regimen_fiscal_emisor');
-    if (regimenEl) regimenEl.value = data.RegimenFiscal || data.regimen_fiscal || '601';
     const repEl = document.getElementById('sat_rfc_rep');
     if (repEl) repEl.value = data.RfcRepresentanteLegal || '';
     const provEl = document.getElementById('sat_rfc_prov');
-    if (provEl) {
-      provEl.value = 'XAX010101000';
-      provEl.readOnly = true;
-    }
+    if (provEl) provEl.value = data.RfcProveedor || '';
     const factorEl = document.getElementById('factor_conversion');
     if (factorEl) factorEl.value = data.FactorDeConversionKgALitros ?? 0.542;
-    const tipoHypEl = document.getElementById('tipo_permiso_hyp');
-    if (tipoHypEl) tipoHypEl.value = data.TipoPermisoHYP || '';
-    const numHypEl = document.getElementById('numero_permiso_hyp');
-    if (numHypEl) numHypEl.value = data.NumeroPermisoHYP || data.NumPermiso || '';
-    const subHypEl = document.getElementById('subproducto_hyp');
-    if (subHypEl) subHypEl.value = data.SubProductoHYP || 'SP46';
-    setLogoPdfGasLp(data.PdfLogoDataUrl || '');
     actualizarRfcHint();
     _actualizarRfcAutoconsumo();
   } catch(e) { console.warn('No se pudo cargar configuración SAT:', e); }
-}
-
-function setLogoPdfGasLp(dataUrl) {
-  const input = document.getElementById('pdf_logo_data');
-  const img = document.getElementById('pdf_logo_preview');
-  const empty = document.getElementById('pdf_logo_empty');
-  const hint = document.getElementById('pdf_logo_hint');
-  if (input) input.value = dataUrl || '';
-  if (img) {
-    img.src = dataUrl || '';
-    img.style.display = dataUrl ? 'block' : 'none';
-  }
-  if (empty) empty.style.display = dataUrl ? 'none' : 'inline';
-  if (hint) hint.textContent = dataUrl ? 'Logo cargado para facturas PDF de Gas LP.' : 'Opcional. Se usará en las facturas PDF de litros de Gas LP.';
-}
-
-function cargarLogoPdfGasLp(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  if (file.size > 350 * 1024) {
-    alert('El logo debe pesar menos de 350 KB para guardarlo en la configuración de la empresa.');
-    event.target.value = '';
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = () => setLogoPdfGasLp(reader.result);
-  reader.readAsDataURL(file);
 }
 
 async function saveSettings() {
@@ -3641,29 +3371,13 @@ async function saveSettings() {
   const status = document.getElementById('settingsStatus');
   if (status) status.textContent = '';
   const rfcVal  = normalizarRfc(document.getElementById('rfc')?.value) || perfilActivoRfc();
-  const nombreVal = String(document.getElementById('nombre_fiscal')?.value || '').trim().toUpperCase();
-  const cpVal = String(document.getElementById('codigo_postal_fiscal')?.value || '').replace(/\D/g, '').slice(0, 5);
-  const regimenVal = String(document.getElementById('regimen_fiscal_emisor')?.value || '601').trim();
   const repVal  = normalizarRfc(document.getElementById('sat_rfc_rep')?.value);
-  const provVal = 'XAX010101000';
+  const provVal = normalizarRfc(document.getElementById('sat_rfc_prov')?.value);
   const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
-  const tipoHypVal = '';
-  const numHypVal = '';
-  const subHypVal = String(document.getElementById('subproducto_hyp')?.value || 'SP46').trim().toUpperCase();
-  const logoVal = document.getElementById('pdf_logo_data')?.value || '';
-  const payload = { FactorDeConversionKgALitros: factorVal, PdfLogoDataUrl: logoVal };
+  const payload = { FactorDeConversionKgALitros: factorVal };
   if (rfcVal)  payload.RfcContribuyente      = rfcVal;
-  if (nombreVal) {
-    payload.NombreFiscal = nombreVal;
-    payload.DescripcionInstalacion = nombreVal;
-  }
-  if (cpVal) payload.CodigoPostal = cpVal;
-  if (regimenVal) payload.RegimenFiscal = regimenVal;
-  payload.TipoPermisoHYP = tipoHypVal;
-  payload.NumeroPermisoHYP = numHypVal;
-  payload.SubProductoHYP = subHypVal || 'SP46';
   if (repVal)  payload.RfcRepresentanteLegal  = repVal;
-  payload.RfcProveedor = provVal;
+  if (provVal) payload.RfcProveedor           = provVal;
   if (!repVal) payload.RfcRepresentanteLegal  = '';
   try {
     const res  = await fetch('/api/settings', {
@@ -3701,29 +3415,17 @@ document.getElementById('btnSaveSettings').addEventListener('click', saveSetting
 // ── Gestión de Proveedores ─────────────────────────────────────────────────
 async function loadProviders() {
   if (!authToken) return;
-  const ctx = profileLoadContext();
   const tbody = document.getElementById('tbodyProveedores');
   if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="hist-empty" style="color:#6366f1"><i class="fa-solid fa-spinner fa-spin" style="margin-right:.4rem"></i>Cargando proveedores...</td></tr>';
   try {
     const res  = await fetch('/api/providers', { headers: authHeader() });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    if (!isCurrentProfileLoad(ctx)) return;
     renderProvidersTable(data.providers || []);
   } catch(e) {
-    if (!isCurrentProfileLoad(ctx)) return;
     console.warn('No se pudo cargar proveedores:', e);
     if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="hist-empty" style="color:#dc2626">Error al cargar proveedores. Recarga la página.</td></tr>';
   }
-}
-
-async function providerResponseJson(res, fallbackMessage) {
-  let data = {};
-  try { data = await res.json(); } catch(e) {}
-  if (!res.ok || data.success === false) {
-    throw new Error(data.detail || data.message || fallbackMessage || `HTTP ${res.status}`);
-  }
-  return data;
 }
 
 function renderProvidersTable(providers) {
@@ -3765,23 +3467,17 @@ function editProvider(rfc, nombre, permiso, permisoAlm) {
 
 async function deleteProvider(rfc) {
   if (!confirm(`¿Eliminar proveedor ${rfc}?`)) return;
-  const st = document.getElementById('provStatus');
   try {
     const res  = await fetch(`/api/providers/${encodeURIComponent(rfc)}`, {
       method: 'DELETE', headers: authHeader()
     });
-    const data = await providerResponseJson(res, 'No se pudo eliminar el proveedor.');
-    if (data.providers) renderProvidersTable(data.providers || []);
-    else await loadProviders();
-    if (st) {
-      st.textContent = `${rfc} eliminado`;
-      st.style.color = '#16a34a';
-    }
+    const data = await res.json();
+    renderProvidersTable(data.providers || []);
+    document.getElementById('provStatus').textContent = `${rfc} eliminado`;
+    document.getElementById('provStatus').style.color = '#16a34a';
   } catch(e) {
-    if (st) {
-      st.textContent = e.message || 'Error al eliminar';
-      st.style.color = '#dc2626';
-    }
+    document.getElementById('provStatus').textContent = 'Error al eliminar';
+    document.getElementById('provStatus').style.color = '#dc2626';
   }
 }
 
@@ -3791,7 +3487,6 @@ document.getElementById('btnAddProvider').addEventListener('click', async () => 
   const permiso   = document.getElementById('provPermiso').value.trim();
   const permisoAlm= document.getElementById('provPermisoAlm').value.trim();
   const st        = document.getElementById('provStatus');
-  const btn       = document.getElementById('btnAddProvider');
   st.textContent = '';
   if (!rfc) { st.textContent = 'El RFC es obligatorio.'; st.style.color='#dc2626'; return; }
   if (!permisoAlm) {
@@ -3800,15 +3495,13 @@ document.getElementById('btnAddProvider').addEventListener('click', async () => 
     // No bloqueamos — continúa aunque muestre advertencia
   }
   try {
-    if (btn) btn.disabled = true;
     const res  = await fetch('/api/providers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ rfc, nombre, permiso, permiso_almacenamiento_terminal: permisoAlm }),
     });
-    const data = await providerResponseJson(res, 'No se pudo guardar el proveedor.');
-    if (data.providers) renderProvidersTable(data.providers || []);
-    else await loadProviders();
+    const data = await res.json();
+    renderProvidersTable(data.providers || []);
     document.getElementById('provRfc').value       = '';
     document.getElementById('provNombre').value    = '';
     document.getElementById('provPermiso').value   = '';
@@ -3817,21 +3510,17 @@ document.getElementById('btnAddProvider').addEventListener('click', async () => 
     st.style.color = '#16a34a';
     setTimeout(() => { st.textContent = ''; }, 3000);
   } catch(e) {
-    st.textContent = e.message || 'Error al guardar proveedor';
+    st.textContent = 'Error al guardar proveedor';
     st.style.color = '#dc2626';
-  } finally {
-    if (btn) btn.disabled = false;
   }
 });
 
 // ── Gestión de Instalaciones ───────────────────────────────────────────────
 async function loadFacilities() {
   if (!authToken) return;
-  const ctx = profileLoadContext();
   const pid = perfilId() || 'none';
   const cached = facilitiesCacheByPerfil.get(pid);
   if (cached && (Date.now() - cached.at) < 30000) {
-    if (!isCurrentProfileLoad(ctx)) return;
     _facilities = cached.rows;
     renderFacilitiesTable(_facilities, cached.diagnostics || {});
     populateFacilitySelectors(_facilities);
@@ -3840,15 +3529,11 @@ async function loadFacilities() {
   try {
     const res  = await fetch('/api/facilities', { headers: authHeader() });
     const data = await res.json();
-    if (!isCurrentProfileLoad(ctx)) return;
     _facilities = data.facilities || [];
     facilitiesCacheByPerfil.set(pid, { at: Date.now(), rows: _facilities, diagnostics: data.diagnostics || {} });
     renderFacilitiesTable(_facilities, data.diagnostics || {});
     populateFacilitySelectors(_facilities);
-  } catch(e) {
-    if (!isCurrentProfileLoad(ctx)) return;
-    console.warn('No se pudo cargar instalaciones:', e);
-  }
+  } catch(e) { console.warn('No se pudo cargar instalaciones:', e); }
 }
 
 function invalidateFacilitiesCache(pid = perfilId() || 'none') {
@@ -3871,7 +3556,7 @@ function renderFacilitiesTable(facilities, diagnostics = {}) {
     } else if (total > 0) {
       msg = 'Esta empresa no tiene instalaciones vinculadas aunque existen instalaciones del usuario en otro alcance.';
     }
-    tbody.innerHTML = `<tr><td colspan="7" class="hist-empty">${msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="hist-empty">${msg}</td></tr>`;
     return;
   }
   tbody.innerHTML = facilities.map(f => {
@@ -3883,7 +3568,6 @@ function renderFacilitiesTable(facilities, diagnostics = {}) {
       <td><code style="font-size:.78rem">${f.num_permiso || '<span style="color:#94a3b8">—</span>'}</code></td>
       <td><code style="font-size:.78rem">${f.clave_instalacion || '<span style="color:#94a3b8">—</span>'}</code></td>
       <td style="font-size:.78rem;color:#475569">${f.descripcion || ''}</td>
-      <td style="font-size:.78rem;color:#475569">${(f.domicilio_operativo || f.codigo_postal) ? `${f.domicilio_operativo || ''}${f.codigo_postal ? ` · CP ${f.codigo_postal}` : ''}` : '<span style="color:#dc2626">Falta domicilio/CP</span>'}</td>
       <td style="text-align:center;font-size:.78rem">${f.num_tanques ?? 1}T / ${f.num_dispensarios ?? 0}D</td>
       <td style="text-align:center">
         <button onclick="openEditFacility(${f.id})"
@@ -3958,7 +3642,7 @@ function populateFacilitySelectors(facilities) {
     _activeFacilityId = first.id;
     document.getElementById('activeFacilitySelect').value = first.id;
     updateFacilityBadge(first);
-  loadPeriodInventory();
+    autofillInvInicial();
   }
 
   // Apply uploader lock based on whether a facility is now active
@@ -3989,7 +3673,7 @@ document.getElementById('activeFacilitySelect').addEventListener('change', funct
   setUploaderLock(!id);
   const selWarn = document.getElementById('noFacilitySelectWarn');
   if (selWarn) selWarn.style.display = (!id && _facilities.length > 0) ? '' : 'none';
-  loadPeriodInventory();        // load saved monthly inventory or suggest previous month
+  autofillInvInicial();        // try to fill from previous month when facility changes
 });
 
 // ── Auto-fill Inventario Inicial desde el mes anterior ────────────────────
@@ -4006,123 +3690,33 @@ function _monthName(m) {
           'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m - 1] || '';
 }
 
-function _processPeriod() {
+async function autofillInvInicial() {
   const anio = document.getElementById('procAnio').value;
   const mes  = document.getElementById('procMes').value;
-  if (!anio || !mes) return null;
-  return `${anio}-${String(mes).padStart(2, '0')}`;
-}
-
-function _inventoryFacilityQuery() {
-  return _activeFacilityId ? `?facility_id=${_activeFacilityId}` : '';
-}
-
-function _setInventoryNote(text, tone = 'info') {
   const note = document.getElementById('invIniAutoNote');
   const manual = document.getElementById('invIniManualNote');
-  if (!note || !manual) return;
-  if (!text) {
+
+  // Clear any previous auto note if no facility or period selected
+  if (!_activeFacilityId || !anio || !mes) {
     note.style.display = 'none';
     manual.style.display = '';
     return;
   }
-  note.style.color = tone === 'warn' ? '#991b1b' : tone === 'ok' ? '#166534' : '#1d4ed8';
-  note.textContent = text;
-  note.style.display = '';
-  manual.style.display = 'none';
-}
-
-async function loadPeriodInventory() {
-  const periodo = _processPeriod();
-  if (!periodo) { _setInventoryNote(''); return; }
-  try {
-    const res = await fetch(`/api/history/${periodo}/inventory${_inventoryFacilityQuery()}`, { headers: authHeader() });
-    if (!res.ok) { await autofillInvInicial(); return; }
-    const data = await res.json();
-    const saved = data.saved;
-    if (saved && saved.inventario_inicial != null) {
-      document.getElementById('inv_inicial').value = Number(saved.inventario_inicial).toFixed(2);
-      const statusEl = document.getElementById('invIniStatus');
-      if (statusEl) statusEl.value = saved.status || 'provisional';
-      _invIniAutoSet = false;
-      const facLabel = _activeFacilityId
-        ? (_facilities.find(f => f.id === _activeFacilityId)?.nombre || `instalación #${_activeFacilityId}`)
-        : 'todas las instalaciones';
-      _setInventoryNote(
-        `Inventario inicial ${saved.status || 'provisional'} guardado para ${periodo} — ${facLabel}.`,
-        saved.status === 'confirmado' ? 'ok' : 'info'
-      );
-      return;
-    }
-    await autofillInvInicial(data.previous_report);
-  } catch(e) {
-    await autofillInvInicial();
-  }
-}
-
-async function savePeriodInventory(source = 'manual', silent = false) {
-  const periodo = _processPeriod();
-  const raw = document.getElementById('inv_inicial').value;
-  if (!periodo || raw === '') {
-    if (!silent) alert('Captura inventario inicial y periodo.');
-    return;
-  }
-  const status = document.getElementById('invIniStatus')?.value || 'provisional';
-  const btn = document.getElementById('btnSaveInvIni');
-  if (btn) btn.disabled = true;
-  try {
-    const res = await fetch(`/api/history/${periodo}/inventory`, {
-      method: 'POST',
-      headers: { ...authHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        inventario_inicial: Number(raw),
-        status,
-        source,
-        facility_id: _activeFacilityId || null,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.ok) throw new Error(data.detail || 'No se pudo guardar inventario.');
-    if (!silent) {
-      _setInventoryNote(
-        `Inventario inicial ${status} guardado para ${periodo}. Se usará al generar el JSON mensual.`,
-        status === 'confirmado' ? 'ok' : 'info'
-      );
-    }
-  } catch(e) {
-    if (!silent) alert(e.message);
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-async function usePreviousInventory() {
-  const filled = await autofillInvInicial();
-  if (filled) await savePeriodInventory('mes_anterior');
-}
-
-async function autofillInvInicial(previousReport = null) {
-  const anio = document.getElementById('procAnio').value;
-  const mes  = document.getElementById('procMes').value;
 
   const prev = _prevPeriod(anio, mes);
-  if (!prev) { _setInventoryNote(''); return false; }
+  if (!prev) { note.style.display = 'none'; manual.style.display = ''; return; }
   const prevStr = `${prev.y}-${String(prev.m).padStart(2,'0')}`;
 
   try {
-    let rep = previousReport;
-    if (!rep) {
-      let url = `/api/history/${prevStr}`;
-      if (_activeFacilityId) url += `?facility_id=${_activeFacilityId}`;
-      const res  = await fetch(url, { headers: authHeader() });
-      if (!res.ok) { _setInventoryNote(''); return false; }
-      const data = await res.json();
-      rep = data.report;
-    }
+    const url = `/api/history/${prevStr}?facility_id=${_activeFacilityId}`;
+    const res  = await fetch(url, { headers: authHeader() });
+    if (!res.ok) { note.style.display = 'none'; manual.style.display = ''; return; }
+    const data = await res.json();
+    const rep  = data.report;
 
     if (rep && rep.vol_existencias != null && rep.vol_existencias > 0) {
       const fac      = _facilities.find(f => f.id === _activeFacilityId);
-      const facLabel = fac ? (fac.clave_instalacion || fac.nombre) : 'todas las instalaciones';
+      const facLabel = fac ? (fac.clave_instalacion || fac.nombre) : `instalación #${_activeFacilityId}`;
       const cap      = fac && fac.capacidad_tanque > 0 ? fac.capacidad_tanque : null;
 
       let fillValue = rep.vol_existencias;
@@ -4136,30 +3730,30 @@ async function autofillInvInicial(previousReport = null) {
       _invIniAutoSet = true;
 
       if (capped) {
-        _setInventoryNote(
+        note.style.color = '#991b1b';
+        note.textContent =
           `Advertencia: inventario final de ${_monthName(prev.m)} ${prev.y} fue ${rep.vol_existencias.toLocaleString('es-MX')} L, ` +
           `pero supera la capacidad del tanque (${cap.toLocaleString('es-MX')} L). ` +
-          `Inventario Inicial ajustado al límite de capacidad.`,
-          'warn'
-        );
+          `Inventario Inicial ajustado al límite de capacidad.`;
       } else {
-        _setInventoryNote(
-          `Dato recuperado del inventario final de ${_monthName(prev.m)} ${prev.y} — ${facLabel}. Guárdalo como provisional o confirmado para este mes.`
-        );
+        note.style.color = '';
+        note.textContent =
+          `Dato recuperado automáticamente del inventario final de ${_monthName(prev.m)} ${prev.y} — ${facLabel}.`;
       }
-      return true;
+      note.style.display = '';
+      manual.style.display = 'none';
     } else {
       // No previous report found — clear the field only if it was auto-set, leave manual value
       if (_invIniAutoSet) {
         document.getElementById('inv_inicial').value = '';
         _invIniAutoSet = false;
       }
-      _setInventoryNote('');
-      return false;
+      note.style.display = 'none';
+      manual.style.display = '';
     }
   } catch(e) {
-    _setInventoryNote('');
-    return false;
+    note.style.display = 'none';
+    manual.style.display = '';
   }
 }
 
@@ -4175,14 +3769,14 @@ document.getElementById('inv_inicial').addEventListener('input', function() {
 
 // Re-run auto-fill when period changes in Procesar tab
 ['procAnio','procMes'].forEach(id => {
-  document.getElementById(id).addEventListener('change', loadPeriodInventory);
+  document.getElementById(id).addEventListener('change', autofillInvInicial);
 });
 
 // ── Facility Form (add / edit) ────────────────────────────────────────────
 function openAddFacility() {
   document.getElementById('facilityEditId').value = '';
   document.getElementById('facilityFormTitle').textContent = 'Nueva instalación';
-  ['fac_nombre','fac_clave','fac_num_permiso','fac_permiso_alm','fac_desc','fac_domicilio_operativo','fac_codigo_postal'].forEach(id => {
+  ['fac_nombre','fac_clave','fac_num_permiso','fac_permiso_alm','fac_desc'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   const tpEl = document.getElementById('fac_tipo_permiso');
@@ -4218,8 +3812,6 @@ function openEditFacility(id) {
   document.getElementById('fac_num_permiso').value         = fac.num_permiso || '';
   document.getElementById('fac_permiso_alm').value         = fac.permiso_alm || '';
   document.getElementById('fac_desc').value                = fac.descripcion || '';
-  document.getElementById('fac_domicilio_operativo').value = fac.domicilio_operativo || fac.domicilio || fac.direccion || '';
-  document.getElementById('fac_codigo_postal').value       = fac.codigo_postal || fac.cp || '';
   document.getElementById('fac_tanques').value             = fac.num_tanques ?? 1;
   document.getElementById('fac_dispensarios').value        = fac.num_dispensarios ?? 0;
   document.getElementById('facilityFormStatus').textContent = '';
@@ -4253,10 +3845,6 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
   const editId = document.getElementById('facilityEditId').value;
   const nombre = document.getElementById('fac_nombre').value.trim();
   if (!nombre) { st.textContent = 'El nombre es requerido.'; st.style.color='#dc2626'; return; }
-  const domicilioOperativo = document.getElementById('fac_domicilio_operativo').value.trim();
-  const cpEstablecimiento = document.getElementById('fac_codigo_postal').value.replace(/\D/g, '').slice(0, 5);
-  if (!domicilioOperativo) { st.textContent = 'El domicilio del establecimiento es requerido para facturación/PDF.'; st.style.color='#dc2626'; return; }
-  if (cpEstablecimiento.length !== 5) { st.textContent = 'El CP del establecimiento debe tener 5 dígitos.'; st.style.color='#dc2626'; return; }
   st.textContent = 'Guardando...'; st.style.color = '#64748b';
   const tipoPermiso = document.getElementById('fac_tipo_permiso')?.value || 'PER40';
   const actividadInfo = PERMISO_ACTIVIDAD[tipoPermiso] || {code:'DIS'};
@@ -4273,8 +3861,6 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
     num_permiso:         document.getElementById('fac_num_permiso').value.trim(),
     permiso_alm:         document.getElementById('fac_permiso_alm').value.trim(),
     descripcion:         document.getElementById('fac_desc').value.trim(),
-    domicilio_operativo: domicilioOperativo,
-    codigo_postal:       cpEstablecimiento,
     // capacidad_tanque mirrors cap_total_tanque for balance alerts
     capacidad_tanque:    parseFloat(document.getElementById('fac_cap_total').value) || 0,
     num_tanques:         parseInt(document.getElementById('fac_tanques').value) || 1,
@@ -4331,9 +3917,8 @@ function confirmDeleteFacility(id, nombre) {
 // ── Navegación principal ──────────────────────────────────────────────────
 async function switchTab(name) {
   const assistantAllowed = {
-    asistente_facturacion: ['procesar','historial'],
+    asistente_facturacion: ['procesar','facturar'],
     asistente_operativo: ['procesar','ventas','proveedores'],
-    conciliacion: ['historial'],
     planta: ['procesar','controles'],
     solo_lectura: ['ventas','historial']
   };
@@ -4359,12 +3944,10 @@ async function switchTab(name) {
   if (name === 'config' && authToken) cargarPanelPerfiles();
   // Al volver a Procesar, precargar composición PR12 guardada desde Supabase (no localStorage)
   if (name === 'procesar') {
-    const ctx = profileLoadContext();
     try {
       const res = await fetch('/api/settings', { headers: authHeader() });
       if (res.ok) {
         const advData = await res.json();
-        if (!isCurrentProfileLoad(ctx)) return;
         if (advData.adv_composicion_pr12) {
           const p = document.getElementById('proc_propano');
           const b = document.getElementById('proc_butano');
@@ -4428,7 +4011,6 @@ function fmtLitros(n) {
 
 async function loadVentasAnalytics() {
   if (!authToken) return;
-  const ctx = profileLoadContext();
   const year   = document.getElementById('ventasYear').value;
   const facSel = document.getElementById('ventasFacility');
   const facId  = facSel ? (parseInt(facSel.value) || '') : '';
@@ -4440,11 +4022,9 @@ async function loadVentasAnalytics() {
   try {
     const res  = await fetch(url, { headers: authHeader() });
     const data = await res.json();
-    if (!isCurrentProfileLoad(ctx)) return;
     renderVentasCharts(data.monthly || [], data.capacidad || null);
     st.textContent = '';
   } catch(e) {
-    if (!isCurrentProfileLoad(ctx)) return;
     st.textContent = 'Error al cargar datos.';
   }
 }
@@ -5226,9 +4806,6 @@ async function processCFDI(files) {
     const meta    = data.sat_meta || {};
     const alerts  = data.alertas  || [];
     const logs    = data.logs     || [];
-    if (document.getElementById('inv_inicial').value !== '') {
-      await savePeriodInventory('procesamiento', true);
-    }
 
     // Ocultar placeholder y mostrar result card con transición suave
     document.getElementById('resultsPlaceholder').style.display = 'none';
@@ -5626,11 +5203,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Usar el email guardado al iniciar sesión, no el UUID
     const userEmail = localStorage.getItem('sat_email') || localStorage.getItem('sat_user_id') || '';
     try {
-      const modulo = localStorage.getItem('sat_modulo') || 'gas_lp';
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: userEmail, password: pass, modulo }),
+        body: JSON.stringify({ username: userEmail, password: pass }),
       });
       const data = await res.json();
       if (!data.success) {
@@ -5689,7 +5265,6 @@ document.getElementById('btnDelHist').addEventListener('click', () => {
 });
 
 async function loadHistorial() {
-  const ctx = profileLoadContext();
   const anio = document.getElementById('histAnio').value;
   const mes  = document.getElementById('histMes').value;
   if (!anio || !mes) { alert('Selecciona año y mes.'); return; }
@@ -5708,7 +5283,6 @@ async function loadHistorial() {
   try {
     const res  = await fetch(url, { headers: authHeader() });
     const data = await res.json();
-    if (!isCurrentProfileLoad(ctx)) return;
     document.getElementById('histLoading').style.display = 'none';
 
     if (res.status === 401) { showLogin(); return; }
@@ -5722,18 +5296,9 @@ async function loadHistorial() {
     // Inv. inicial: del reporte si > 0; si no, calcularlo implícito desde el balance
     let invIni = (rep && rep.inventario_inicial > 0) ? rep.inventario_inicial : null;
     let invFin = (rep && rep.vol_existencias   > 0) ? rep.vol_existencias    : null;
-    const autoVolForMath = Math.abs(Number(totals.total_autoconsumo || 0));
-    const reportEnt = Number(rep?.total_entregas || 0);
-    const recordEnt = Number(totals.total_salidas || 0);
-    const displayEnt = (hasReport && autoVolForMath > 0 && recordEnt > reportEnt + 0.01)
-      ? recordEnt
-      : (hasReport ? reportEnt : recordEnt);
     if (invIni == null && hasReport && invFin != null) {
-      const calc = invFin + displayEnt - (rep.total_recepciones || 0);
+      const calc = invFin + (rep.total_entregas || 0) - (rep.total_recepciones || 0);
       if (calc > 0) invIni = calc;
-    }
-    if (hasReport && autoVolForMath > 0 && recordEnt > reportEnt + 0.01 && invIni != null) {
-      invFin = invIni + (rep.total_recepciones || 0) - displayEnt;
     }
     document.getElementById('histReportInfo').style.display = hasReport ? '' : 'none';
     document.getElementById('htFormula').style.display      = hasReport ? '' : 'none';
@@ -5742,12 +5307,12 @@ async function loadHistorial() {
       ? fmt(rep.total_recepciones) + ' L' : fmt(totals.total_entradas) + ' L';
     document.getElementById('htRecCount').textContent = totals.cnt_entradas || 0;
     document.getElementById('htEnt').textContent = hasReport
-      ? fmt(displayEnt) + ' L' : fmt(recordEnt)  + ' L';
-    document.getElementById('htEntCount').textContent = Math.max(Number(totals.cnt_salidas || 0), Number(rep?.total_entregas_count || 0)) || 0;
+      ? fmt(rep.total_entregas)    + ' L' : fmt(totals.total_salidas)  + ' L';
+    document.getElementById('htEntCount').textContent = totals.cnt_salidas || 0;
     document.getElementById('htExist').textContent = invFin != null ? fmt(invFin) + ' L' : '—';
 
     // Autoconsumo
-    const autoVol   = autoVolForMath;
+    const autoVol   = totals.total_autoconsumo   || 0;
     const autoCnt   = totals.cnt_autoconsumo     || 0;
     const elAutoVol = document.getElementById('htAutoVol');
     const elAutoCnt = document.getElementById('htAutoCount');
@@ -5827,7 +5392,6 @@ async function loadHistorial() {
     }
 
   } catch(e) {
-    if (!isCurrentProfileLoad(ctx)) return;
     document.getElementById('histLoading').style.display = 'none';
     alert('Error al cargar historial: ' + e.message);
   }
@@ -5982,13 +5546,13 @@ async function loadGasLpCartaPorteCatalogs() {
 async function loadGasLpVehiculosAdmin() {
   const tbody = document.getElementById('gasVehTbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="7" class="hist-empty">Cargando vehículos...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Cargando vehículos...</td></tr>';
   try {
     const res = await fetch('/api/facturas/vehiculos?modulo=gas_lp', { headers: authHeader() });
     const data = await res.json();
     _gasLpVehiculos = data.vehiculos || [];
     if (!_gasLpVehiculos.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="hist-empty">Sin vehículos registrados para esta empresa.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Sin vehículos registrados para esta empresa.</td></tr>';
       return;
     }
     tbody.innerHTML = _gasLpVehiculos.map(v => `
@@ -5996,9 +5560,8 @@ async function loadGasLpVehiculosAdmin() {
         <td>${escapeHtml(v.placas || v.placa || '')}</td>
         <td>${escapeHtml(v.anio || v.anio_modelo || '')}</td>
         <td>${escapeHtml(v.config_vehicular || '')}</td>
-        <td>${escapeHtml(v.permiso_sct || '')}</td>
-        <td>${escapeHtml(v.num_permiso_sct || '')}</td>
-        <td>${escapeHtml([v.aseguradora, v.poliza_seguro].filter(Boolean).join(' · '))}</td>
+        <td>${escapeHtml(v.aseguradora || '')}</td>
+        <td>${escapeHtml(v.poliza_seguro || '')}</td>
         <td style="white-space:nowrap">
           <button onclick="editGasLpVehiculo(${Number(v.id)})" style="padding:.3rem .55rem;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:6px;cursor:pointer">Editar</button>
           <button onclick="deleteGasLpVehiculo(${Number(v.id)})" style="padding:.3rem .55rem;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;cursor:pointer">Desactivar</button>
@@ -6006,15 +5569,14 @@ async function loadGasLpVehiculosAdmin() {
       </tr>
     `).join('');
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" class="hist-empty">${escapeHtml(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="hist-empty">${escapeHtml(e.message)}</td></tr>`;
   }
 }
 
 function clearGasLpVehiculoForm() {
-  ['gasVehEditId','gasVehPlacas','gasVehAseguradora','gasVehPoliza','gasVehPermiso','gasVehNumPermisoSct','gasVehAsegMedAmb','gasVehPolizaMedAmb'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['gasVehEditId','gasVehPlacas','gasVehAseguradora','gasVehPoliza','gasVehPermiso'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('gasVehAnio').value = '2024';
   document.getElementById('gasVehConfig').value = 'C2';
-  document.getElementById('gasVehPermisoSct').value = 'TPAF01';
   catalogStatus('gasVehStatus', '');
 }
 
@@ -6028,10 +5590,6 @@ function editGasLpVehiculo(id) {
   document.getElementById('gasVehAseguradora').value = v.aseguradora || '';
   document.getElementById('gasVehPoliza').value = v.poliza_seguro || '';
   document.getElementById('gasVehPermiso').value = v.permiso_cre || '';
-  document.getElementById('gasVehPermisoSct').value = v.permiso_sct || 'TPAF01';
-  document.getElementById('gasVehNumPermisoSct').value = v.num_permiso_sct || '';
-  document.getElementById('gasVehAsegMedAmb').value = v.aseguradora_medio_ambiente || '';
-  document.getElementById('gasVehPolizaMedAmb').value = v.poliza_medio_ambiente || '';
 }
 
 async function saveGasLpVehiculo() {
@@ -6047,10 +5605,6 @@ async function saveGasLpVehiculo() {
     nombre_asegurador: document.getElementById('gasVehAseguradora').value.trim(),
     poliza_seguro: document.getElementById('gasVehPoliza').value.trim(),
     permiso_cre: document.getElementById('gasVehPermiso').value.trim(),
-    permiso_sct: document.getElementById('gasVehPermisoSct').value.trim().toUpperCase() || 'TPAF01',
-    num_permiso_sct: document.getElementById('gasVehNumPermisoSct').value.trim(),
-    aseguradora_medio_ambiente: document.getElementById('gasVehAsegMedAmb').value.trim(),
-    poliza_medio_ambiente: document.getElementById('gasVehPolizaMedAmb').value.trim(),
     modulo: 'gas_lp',
   };
   try {
@@ -6072,13 +5626,13 @@ async function deleteGasLpVehiculo(id) {
 async function loadGasLpChoferesAdmin() {
   const tbody = document.getElementById('gasChoferTbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Cargando choferes...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="5" class="hist-empty">Cargando choferes...</td></tr>';
   try {
     const res = await fetch('/api/facturas/choferes?modulo=gas_lp', { headers: authHeader() });
     const data = await res.json();
     _gasLpChoferes = data.choferes || [];
     if (!_gasLpChoferes.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="hist-empty">Sin choferes registrados para esta empresa.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="hist-empty">Sin choferes registrados para esta empresa.</td></tr>';
       return;
     }
     tbody.innerHTML = _gasLpChoferes.map(c => `
@@ -6086,8 +5640,7 @@ async function loadGasLpChoferesAdmin() {
         <td>${escapeHtml(c.nombre || '')}</td>
         <td>${escapeHtml(c.rfc || '')}</td>
         <td>${escapeHtml(c.licencia || '')}</td>
-        <td>${escapeHtml(c.tipo_licencia || '')}</td>
-        <td>${escapeHtml([c.licencia_vigencia && `Lic. ${c.licencia_vigencia}`, c.examen_medico_vigencia && `Med. ${c.examen_medico_vigencia}`].filter(Boolean).join(' · '))}</td>
+        <td>${escapeHtml(c.telefono || '')}</td>
         <td style="white-space:nowrap">
           <button onclick="editGasLpChofer(${Number(c.id)})" style="padding:.3rem .55rem;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:6px;cursor:pointer">Editar</button>
           <button onclick="deleteGasLpChofer(${Number(c.id)})" style="padding:.3rem .55rem;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;cursor:pointer">Desactivar</button>
@@ -6095,12 +5648,12 @@ async function loadGasLpChoferesAdmin() {
       </tr>
     `).join('');
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="hist-empty">${escapeHtml(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="hist-empty">${escapeHtml(e.message)}</td></tr>`;
   }
 }
 
 function clearGasLpChoferForm() {
-  ['gasChoferEditId','gasChoferNombre','gasChoferRfc','gasChoferLicencia','gasChoferTelefono','gasChoferTipoLicencia','gasChoferLicenciaVigencia','gasChoferMedicoVigencia'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['gasChoferEditId','gasChoferNombre','gasChoferRfc','gasChoferLicencia','gasChoferTelefono'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   catalogStatus('gasChoferStatus', '');
 }
 
@@ -6111,9 +5664,6 @@ function editGasLpChofer(id) {
   document.getElementById('gasChoferNombre').value = c.nombre || '';
   document.getElementById('gasChoferRfc').value = c.rfc || '';
   document.getElementById('gasChoferLicencia').value = c.licencia || '';
-  document.getElementById('gasChoferTipoLicencia').value = c.tipo_licencia || '';
-  document.getElementById('gasChoferLicenciaVigencia').value = (c.licencia_vigencia || '').slice(0, 10);
-  document.getElementById('gasChoferMedicoVigencia').value = (c.examen_medico_vigencia || '').slice(0, 10);
   document.getElementById('gasChoferTelefono').value = c.telefono || '';
 }
 
@@ -6125,9 +5675,6 @@ async function saveGasLpChofer() {
     nombre,
     rfc: document.getElementById('gasChoferRfc').value.trim().toUpperCase(),
     licencia: document.getElementById('gasChoferLicencia').value.trim(),
-    tipo_licencia: document.getElementById('gasChoferTipoLicencia').value.trim().toUpperCase(),
-    licencia_vigencia: document.getElementById('gasChoferLicenciaVigencia').value,
-    examen_medico_vigencia: document.getElementById('gasChoferMedicoVigencia').value,
     telefono: document.getElementById('gasChoferTelefono').value.trim(),
     modulo: 'gas_lp',
   };
@@ -6211,27 +5758,10 @@ function editGasLpRuta(id) {
   document.getElementById('gasRutaDistancia').value = r.distancia_km || 1;
 }
 
-function selectedFacilityLabel(selectId) {
-  const value = document.getElementById(selectId)?.value || '';
-  return value ? findFacilityName(value) : '';
-}
-
 async function saveGasLpRuta() {
   const id = document.getElementById('gasRutaEditId').value;
-  let nombre = document.getElementById('gasRutaNombre').value.trim();
-  if (!nombre) {
-    const origen = selectedFacilityLabel('gasRutaOrigen');
-    const destino = selectedFacilityLabel('gasRutaDestino');
-    if (origen && destino) {
-      nombre = `${origen} a ${destino}`;
-      document.getElementById('gasRutaNombre').value = nombre;
-    }
-  }
+  const nombre = document.getElementById('gasRutaNombre').value.trim();
   if (!nombre) { catalogStatus('gasRutaStatus', 'Captura nombre de ruta.', false); return; }
-  if (!document.getElementById('gasRutaOrigen').value || !document.getElementById('gasRutaDestino').value) {
-    catalogStatus('gasRutaStatus', 'Selecciona origen y destino para que el asistente pueda encontrar la ruta.', false);
-    return;
-  }
   const params = {
     nombre,
     origen_facility_id: document.getElementById('gasRutaOrigen').value || null,
@@ -6262,7 +5792,6 @@ function internalRoleLabel(role) {
   const labels = {
     asistente_facturacion: 'Asistente facturación',
     asistente_operativo: 'Asistente operativo',
-    conciliacion: 'Conciliación',
     planta: 'Planta',
     solo_lectura: 'Solo lectura',
     operador: 'Operador',
@@ -6272,7 +5801,6 @@ function internalRoleLabel(role) {
 }
 
 async function loadInternalUsersGasLp() {
-  const ctx = profileLoadContext();
   const tbody = document.getElementById('gasInternalTbody');
   const empty = document.getElementById('gasInternalEmpty');
   if (!tbody) return;
@@ -6289,7 +5817,6 @@ async function loadInternalUsersGasLp() {
     const url = `/api/internal-users?section=gas_lp&perfil_id=${encodeURIComponent(perfilId())}`;
     const res = await fetch(url, { headers: { ...authHeader(), 'Content-Type': 'application/json' } });
     const data = await res.json();
-    if (!isCurrentProfileLoad(ctx)) return;
     if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible cargar usuarios internos.');
     const users = data.users || [];
     if (!users.length) {
@@ -6319,7 +5846,6 @@ async function loadInternalUsersGasLp() {
       </tr>`;
     }).join('');
   } catch(e) {
-    if (!isCurrentProfileLoad(ctx)) return;
     if (empty) {
       empty.style.display = '';
       empty.textContent = 'No se pudieron cargar permisos';
@@ -6377,7 +5903,7 @@ async function setInternalStatusGasLp(id, status) {
 }
 
 async function editInternalRoleGasLp(id, currentRole) {
-  const roles = ['asistente_facturacion','asistente_operativo','conciliacion','planta','solo_lectura'];
+  const roles = ['asistente_facturacion','asistente_operativo','planta','solo_lectura'];
   const next = prompt(`Nuevo rol:\n${roles.join('\\n')}`, currentRole || 'asistente_facturacion');
   if (!next) return;
   if (!roles.includes(next)) { alert('Rol inválido.'); return; }
@@ -6523,7 +6049,6 @@ async function guardarComposicionPR12() {
 async function cargarConfigAvanzada() {
   // Loads only composición PR12 and dictamen — tank/medidor/geo are now per-facility
   const pid = perfilId();
-  const ctx = profileLoadContext();
   const usandoCaché = _appState.settings && _appState.settingsPerfilId === pid;
   // Clear fields
   [
@@ -6539,7 +6064,6 @@ async function cargarConfigAvanzada() {
   });
   try {
     const data = await _appState.loadSettings(!usandoCaché);
-    if (!isCurrentProfileLoad(ctx)) return;
     // Composición PR12
     const c = data.adv_composicion_pr12 || {};
     if (document.getElementById('adv_propano'))
@@ -6689,8 +6213,7 @@ function _actualizarRfcAutoconsumo() {
 }
 
 async function registrarAutoconsumo() {
-  const volumenRaw = document.getElementById('ac_volumen').value;
-  const volumen = parseLitrosInput(volumenRaw);
+  const volumen = parseFloat(document.getElementById('ac_volumen').value);
   const fecha   = document.getElementById('ac_fecha').value;
   const tipo    = document.getElementById('ac_tipo').value;
   const desc    = document.getElementById('ac_descripcion').value.trim();
@@ -6729,7 +6252,6 @@ async function registrarAutoconsumo() {
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({
         volumen_litros:    volumen,
-        volumen_litros_raw: volumenRaw,
         fecha:             fecha,
         periodo:           periodo,
         rfc_contribuyente: rfc,
@@ -6886,7 +6408,6 @@ document.getElementById('provMes')?.addEventListener('change', () => {
 });
 
 async function cargarProveedores() {
-  const ctx = profileLoadContext();
   const year  = document.getElementById('provAnio')?.value || new Date().getFullYear();
   const month = document.getElementById('provMes')?.value || '';
   const facId = document.getElementById('provFacility')?.value || '';
@@ -6896,7 +6417,6 @@ async function cargarProveedores() {
   try {
     const res = await fetch(url, { headers: authHeader() });
     const data = await res.json();
-    if (!isCurrentProfileLoad(ctx)) return;
     _provData  = data;
     renderProvChart(data);
     renderProvTable(data);
@@ -6910,10 +6430,7 @@ async function cargarProveedores() {
       });
     }
     cargarForecast(facId);
-  } catch(e) {
-    if (!isCurrentProfileLoad(ctx)) return;
-    console.warn('cargarProveedores:', e);
-  }
+  } catch(e) { console.warn('cargarProveedores:', e); }
 }
 
 function renderProvKpis(data) {
@@ -7014,13 +6531,11 @@ function renderProvTable(data) {
 }
 
 async function cargarForecast(facId='') {
-  const ctx = profileLoadContext();
   let url = '/api/analytics/forecast';
   if (facId) url += `?facility_id=${facId}`;
   try {
     const res  = await fetch(url, { headers: authHeader() });
     const data = await res.json();
-    if (!isCurrentProfileLoad(ctx)) return;
     const empty= document.getElementById('forecastEmpty');
     const cards= document.getElementById('forecastCards');
     const rec  = document.getElementById('forecastRecomendacion');
@@ -7049,10 +6564,7 @@ async function cargarForecast(facId='') {
           ${stockDias ? `<li><b>${window.t('fore.stock_estimado') || 'Stock estimado:'}</b> ~${stockDias} ${window.t('fore.stock_dias_suffix') || 'días de operación con el consumo actual.'}<br><span style="font-size:.78rem;color:#64748b">${window.t('fore.stock_help') || 'Es una cobertura estimada: volumen disponible o compra esperada dividido entre el consumo diario estimado.'}</span></li>` : ''}
         </ul>`;
     }
-  } catch(e) {
-    if (!isCurrentProfileLoad(ctx)) return;
-    console.warn('cargarForecast:', e);
-  }
+  } catch(e) { console.warn('cargarForecast:', e); }
 }
 
 // proveedores load handled in switchTab()
@@ -7062,7 +6574,8 @@ applyRole(currentUserRole);
 prefillHistSelector();
 loadModuleFromStorage();  // Cargar módulo guardado
 // verifySession maneja el flujo completo:
-// token inválido → showLogin | token válido → iniciarFlujoEmpresa
+// token inválido → showLogin | token válido → empresa en session → cargarDatosDashboard
+//                                           | sin empresa en session → iniciarFlujoEmpresa
 verifySession();
 </script>
 <!-- ── Modal de Confirmación CRÍTICA (Limpiar Datos) ───────────────────── -->
@@ -7190,7 +6703,7 @@ async function guardarEmpresaOnboarding() {
   if (btn) { btn.disabled = true; btn.style.opacity = '.7'; }
 
   try {
-    const res = await fetch('/api/perfiles?module=gas_lp', {
+    const res = await fetch('/api/perfiles', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ nombre, rfc, descripcion: '' }),

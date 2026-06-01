@@ -6,263 +6,51 @@
   <title>GE CONTROL | Conciliación Gas LP</title>
   <link rel="icon" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     :root{--wine:#7A1E2C;--wine2:#5B0F1D;--ink:#111;--muted:#6F6A64;--line:#E7E3DC;--bg:#F5F5F5;--surface:#fff}
-    *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:var(--ge-font);color:var(--ink);min-height:100vh}
-    .top{position:sticky;top:0;background:#5B0F1D;color:white;padding:14px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(200,169,107,.22);z-index:10}.brand{display:flex;align-items:center;gap:10px;font-weight:800}.brand img{width:58px;height:34px;object-fit:contain}.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800}.right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.company-select{min-width:220px;max-width:340px;border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;font-weight:800}.company-select option{color:#111}.btn{border:1px solid var(--wine);background:var(--wine);color:#fff;border-radius:8px;padding:10px 13px;font:inherit;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;gap:7px;align-items:center;justify-content:center}.btn:hover{background:var(--wine2)}.btn.ghost{background:#fff;color:var(--ink);border-color:#D8D0C4}.btn.sm{padding:8px 11px;border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff}
-    main{max-width:1220px;margin:0 auto;padding:22px}.hero{display:flex;justify-content:space-between;gap:14px;align-items:flex-end;margin-bottom:16px}h1{font-size:26px;margin:0 0 5px}h2{font-size:20px;margin:0}.muted{color:var(--muted);line-height:1.5}.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:14px}.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.kpi .label{font-size:12px;color:var(--muted);font-weight:900}.kpi .value{font-size:24px;font-weight:900;margin-top:4px}.split-panels{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}.mini-list{display:grid;gap:8px}.mini-row{border:1px solid var(--line);border-radius:8px;padding:10px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}.mini-row b{display:block}.mini-row .meta{font-size:12px;color:var(--muted);margin-top:3px}label{display:block;font-size:12px;font-weight:900;color:var(--muted);margin-bottom:6px}input,select,textarea{width:100%;border:1px solid #D8D0C4;border-radius:8px;padding:10px 11px;font:inherit;background:#fff}textarea{min-height:74px;resize:vertical}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.status{font-size:13px;font-weight:800;margin-top:8px}.ok{color:#15803d}.err{color:#b91c1c}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;color:#64748b;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.04em;padding:9px;white-space:nowrap}td{border-bottom:1px solid #eef2f7;padding:9px;vertical-align:top}.section-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.pill{display:inline-flex;align-items:center;gap:5px;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:900}.pill.warn{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.pill.gray{border-color:#e2e8f0;background:#f8fafc;color:#475569}.doc-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.doc-tab{border:1px solid #D8D0C4;background:#fff;border-radius:999px;padding:9px 13px;font:inherit;font-weight:900;color:#475569;cursor:pointer}.doc-tab.active{background:var(--wine);border-color:var(--wine);color:#fff}.doc-section{display:none}.doc-section.active{display:block}.download-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}.paid-row{background:#f0fdf4}.paid-row td{border-bottom-color:#bbf7d0}.danger{background:#fff;color:#b91c1c;border-color:#fecaca}.danger:hover{background:#fef2f2;color:#991b1b}.invoice-actions{display:flex;gap:6px;flex-wrap:wrap}.invoice-actions .btn{padding:7px 9px;font-size:12px}
-    @media(max-width:980px){.kpis,.grid,.form-grid,.split-panels{grid-template-columns:1fr}.hero{align-items:start;flex-direction:column}.btn{width:100%}}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:var(--ge-font);color:var(--ink);min-height:100vh}.top{position:sticky;top:0;background:#5B0F1D;color:white;padding:14px 22px;display:flex;align-items:center;gap:12px;z-index:10}.brand{display:flex;align-items:center;gap:10px;font-weight:800}.brand img{width:58px;height:34px;object-fit:contain}.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.14);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800}.right{margin-left:auto}.btn{border:1px solid var(--wine);background:var(--wine);color:#fff;border-radius:8px;padding:10px 13px;font:inherit;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;gap:7px;align-items:center;justify-content:center}.btn:hover{background:var(--wine2)}.btn.ghost{background:#fff;color:var(--ink);border-color:#D8D0C4}.btn.sm{padding:8px 11px;border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff}main{max-width:1220px;margin:0 auto;padding:22px}.hero{display:flex;justify-content:space-between;gap:14px;align-items:flex-end;margin-bottom:16px}h1{font-size:26px;margin:0 0 5px}h2{font-size:20px;margin:0}.muted{color:var(--muted);line-height:1.5}.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 16px 40px rgba(15,28,45,.06)}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.tab{border:1px solid #D8D0C4;background:#fff;border-radius:8px;padding:9px 13px;font:inherit;font-weight:900;color:#475569;cursor:pointer}.tab.active{background:var(--wine);border-color:var(--wine);color:#fff}.section{display:none}.section.active{display:block}.grid,.filters,.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.kpis{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px}.kpi b{display:block;font-size:24px;margin-top:4px}.kpi span,label{font-size:12px;font-weight:900;color:var(--muted)}input,select{width:100%;border:1px solid #D8D0C4;border-radius:8px;padding:10px 11px;font:inherit;background:#fff}input[type=checkbox]{width:18px;height:18px}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;color:#64748b;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.04em;padding:9px;white-space:nowrap}td{border-bottom:1px solid #eef2f7;padding:9px;vertical-align:top}.pill{display:inline-flex;align-items:center;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:900}.pill.warn{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.paid-row{background:#f0fdf4}.danger{background:#fff;color:#b91c1c;border-color:#fecaca}.selection{position:sticky;bottom:0;margin-top:12px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;justify-content:space-between;gap:10px;align-items:center;box-shadow:0 -10px 30px rgba(15,28,45,.08)}.status{font-size:13px;font-weight:800;margin-top:8px}.ok{color:#15803d}.err{color:#b91c1c}
+    @media(max-width:900px){.hero{align-items:start;flex-direction:column}.grid,.filters,.kpis{grid-template-columns:1fr}.btn{width:100%}.selection{position:static;align-items:stretch;flex-direction:column}}
   </style>
 </head>
 <body>
-  <header class="top">
-    <div class="brand"><img src="/static/img/ge-isotype-light.svg" alt="GE"><span>GE CONTROL</span></div>
-    <span class="badge"><i class="fa-solid fa-scale-balanced"></i> Conciliación Gas LP</span>
-    <div class="right"><select class="company-select" id="perfilSelect" onchange="setConciliacionPerfil(this.value)" style="display:none"></select><span class="badge" id="nameBadge">-</span><button class="btn sm" onclick="logout()">Salir</button></div>
-  </header>
+  <header class="top"><div class="brand"><img src="/static/img/ge-isotype-light.svg" alt="GE"><span>GE CONTROL</span></div><span class="badge">Conciliación Gas LP</span><div class="right"><button class="btn sm" onclick="logout()">Salir</button></div></header>
   <main>
-    <div class="hero">
-      <div>
-        <h1>Conciliación de facturas</h1>
-        <p class="muted">Vista mensual de facturas, pagos y cancelación controlada por administrador.</p>
-      </div>
-      <div class="toolbar"><input id="periodoFiltro" type="month" onchange="loadAll()"><button class="btn ghost" onclick="loadAll()">Actualizar</button></div>
-    </div>
-    <section class="card" style="margin-bottom:14px">
-      <div class="section-title"><div><h2 id="companyName">Empresa asignada</h2><span class="muted" id="companyRfc">RFC -</span></div><span class="pill">Portal beta</span></div>
+    <div class="hero"><div><h1>Conciliación de facturas</h1><p class="muted" id="companyLabel">Empresa asignada</p></div><div class="toolbar"><input id="periodoFiltro" type="month" onchange="loadAll()"><button class="btn ghost" onclick="loadAll()">Actualizar</button></div></div>
+    <section class="card">
+      <div class="filters"><div><label>Cliente</label><input id="clienteFiltro" placeholder="RFC o nombre" oninput="renderAll()"></div><div><label>Día</label><input id="diaFiltro" type="date" onchange="renderAll()"></div><div><label>Año</label><input id="anioFiltro" type="number" min="2020" max="2100" onchange="applyYearFilter()"></div><div><label>Estado</label><select id="estadoFiltro" onchange="renderAll()"><option value="">Todos</option><option value="ppd">PPD pendiente</option><option value="pagada">Pagada</option><option value="cancelada">Cancelada</option></select></div></div>
     </section>
-    <nav class="doc-tabs" aria-label="Secciones de conciliación">
-      <button class="doc-tab active" type="button" data-doc-tab="overview" onclick="switchDocTab('overview')">Vista general</button>
-      <button class="doc-tab" type="button" data-doc-tab="cuadre" onclick="switchDocTab('cuadre')">Cuadrar banco</button>
-    </nav>
-    <section class="doc-section active" data-doc-section="overview">
-      <section class="kpis">
-        <div class="card kpi"><div class="label">Facturas mes</div><div class="value" id="kFacturas">0</div></div>
-        <div class="card kpi"><div class="label">Total facturado</div><div class="value" id="kTotal">$0.00</div></div>
-        <div class="card kpi"><div class="label">Público general</div><div class="value" id="kPublico">$0.00</div></div>
-        <div class="card kpi"><div class="label">Crédito estimado</div><div class="value" id="kCredito">$0.00</div></div>
-        <div class="card kpi"><div class="label">Traspasos</div><div class="value" id="kTraspasos">$0.00</div></div>
-      </section>
-      <section class="card" style="margin-bottom:14px">
-        <div class="section-title"><h2>Documentos fiscales</h2><span class="muted">Descarga mensual de XML timbrados.</span></div>
-        <div class="download-grid">
-          <div><label>Mes</label><input id="docPeriodo" type="month" onchange="syncPeriodFromDocs()"></div>
-          <div><label>Tipo</label><select id="docTipo"><option value="todos">Facturas y complementos</option><option value="facturas">Solo facturas</option><option value="complementos">Solo complementos de pago</option></select></div>
-          <button class="btn" type="button" onclick="downloadDocumentosZip()"><i class="fa-solid fa-file-zipper"></i> XML ZIP</button>
-        </div>
-      </section>
-      <section class="split-panels">
-        <div class="card">
-          <div class="section-title"><h2>Créditos PPD</h2><span class="pill warn" id="kCreditosPendientes">0 pendientes</span></div>
-          <div class="mini-list" id="creditosRows"><div class="muted">Cargando...</div></div>
-        </div>
-        <div class="card">
-          <div class="section-title"><h2>Cartas Porte</h2><span class="pill gray" id="kCartasPorte">0 traslados</span></div>
-          <div class="mini-list" id="cartasPorteRows"><div class="muted">Cargando...</div></div>
-        </div>
-      </section>
-      <section class="card">
-        <div class="section-title"><h2>Facturas de la empresa</h2><span class="muted">Quién facturó, cliente, pago, UUID y cancelación con código.</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Operación</th><th>Instalación</th><th>Cliente</th><th>Litros</th><th>Total</th><th>Pago</th><th>Asistente</th><th>Estado</th><th>UUID</th><th>Acción</th></tr></thead><tbody id="facturasRows"></tbody></table></div>
-      </section>
-    </section>
-    <section class="card doc-section" data-doc-section="cuadre">
-      <div class="section-title"><h2>Cuadrar con banco</h2><span class="muted">Marca como pagada la factura que ya aparezca depositada.</span></div>
-      <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Total</th><th>Método</th><th>Asistente</th><th>Estado pago</th><th>Acción</th></tr></thead><tbody id="cuadreRows"></tbody></table></div>
-      <span id="pagoMsg" class="status"></span>
-    </section>
+    <nav class="tabs"><button class="tab active" data-tab="facturacion" onclick="tab('facturacion')">Facturación</button><button class="tab" data-tab="complementos" onclick="tab('complementos')">Complemento de pago</button><button class="tab" data-tab="consulta" onclick="tab('consulta')">Consulta</button><button class="tab" data-tab="cancelacion" onclick="tab('cancelacion')">Cancelación</button></nav>
+    <section class="section active" data-section="facturacion"><div class="kpis"><div class="card kpi"><span>Facturas</span><b id="kFacturas">0</b></div><div class="card kpi"><span>Total</span><b id="kTotal">$0.00</b></div><div class="card kpi"><span>Crédito PPD</span><b id="kCredito">$0.00</b></div><div class="card kpi"><span>Público general</span><b id="kPublico">$0.00</b></div></div></section>
+    <section class="section" data-section="complementos"><div class="card"><div class="toolbar" style="justify-content:space-between;margin-bottom:12px"><h2>Complemento de pago</h2><span class="pill warn" id="selCount">0 seleccionadas</span></div><div class="grid" style="margin-bottom:12px"><div><label>Fecha pago</label><input id="fechaPago" type="datetime-local"></div><div><label>Forma SAT</label><select id="formaPago"><option value="03">03 Transferencia</option><option value="01">01 Efectivo</option><option value="02">02 Cheque</option><option value="04">04 Tarjeta crédito</option><option value="28">28 Tarjeta débito</option></select></div><div><label>Banco</label><input id="bancoPago"></div><div><label>Referencia</label><input id="referenciaPago"></div></div><div class="table-wrap"><table><thead><tr><th></th><th>Fecha</th><th>Cliente</th><th>UUID</th><th>Total</th><th>Saldo</th><th>Importe</th></tr></thead><tbody id="complementosRows"></tbody></table></div><div class="selection"><div><b id="selTotal">$0.00</b><div class="muted" id="selCliente">Sin cliente seleccionado</div></div><div class="toolbar"><button class="btn ghost" onclick="clearSel()">Limpiar</button><button class="btn" onclick="timbrarComplemento()">Timbrar complemento</button></div></div><div id="compMsg" class="status"></div></div></section>
+    <section class="section" data-section="consulta"><div class="card"><h2 style="margin-bottom:12px">Consulta</h2><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Litros</th><th>Total</th><th>Pago</th><th>Estado</th><th>UUID</th><th>Docs</th></tr></thead><tbody id="consultaRows"></tbody></table></div></div></section>
+    <section class="section" data-section="cancelacion"><div class="card"><h2 style="margin-bottom:12px">Cancelación</h2><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Total</th><th>Estado</th><th>UUID</th><th>Acción</th></tr></thead><tbody id="cancelRows"></tbody></table></div></div></section>
   </main>
   <script>
-    const token = localStorage.getItem('ge_gaslp_conciliacion_token') || '';
-    let activePerfilId = Number(localStorage.getItem('ge_gaslp_conciliacion_perfil_id') || '0') || null;
-    let FACTURAS = [];
-    function money(v){return '$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
-    function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-    function today(){return new Date().toISOString().slice(0,10);}
-    function currentMonth(){return periodoFiltro.value || today().slice(0,7);}
-    function setStatus(id,text,ok=true){const el=document.getElementById(id); if(el){el.textContent=text; el.className='status '+(ok?'ok':'err');}}
-    async function api(path, opts={}) {
-      const profileHeader = activePerfilId ? {'X-Perfil-Id': String(activePerfilId)} : {};
-      const headers = {'Authorization':'Bearer '+token, ...profileHeader, ...(opts.body ? {'Content-Type':'application/json'} : {}), ...(opts.headers||{})};
-      const res = await fetch(path, {...opts, headers});
-      const data = await res.json().catch(()=>({}));
-      if(!res.ok) throw new Error(data.detail || 'Sesión inválida.');
-      return data;
-    }
-    async function loadProfiles(){
-      if(!token) return;
-      const res = await fetch('/api/internal-auth/gas-lp/conciliacion/profiles', {headers:{'Authorization':'Bearer '+token}});
-      const data = await res.json().catch(()=>({}));
-      if(!res.ok) throw new Error(data.detail || 'No fue posible cargar empresas.');
-      const profiles = data.profiles || [];
-      if(!activePerfilId) activePerfilId = Number(data.current_perfil_id || profiles[0]?.id || 0) || null;
-      if(activePerfilId) localStorage.setItem('ge_gaslp_conciliacion_perfil_id', String(activePerfilId));
-      perfilSelect.style.display = profiles.length > 1 ? '' : 'none';
-      perfilSelect.innerHTML = profiles.map(p => `<option value="${esc(p.id)}">${esc(p.nombre || 'Empresa')} · ${esc(p.rfc || '')}</option>`).join('');
-      if(activePerfilId) perfilSelect.value = String(activePerfilId);
-    }
-    async function setConciliacionPerfil(value){
-      activePerfilId = Number(value || 0) || null;
-      if(activePerfilId) localStorage.setItem('ge_gaslp_conciliacion_perfil_id', String(activePerfilId));
-      await loadAll();
-    }
-    async function loadAll(){
-      if(!token){ location.href='/gas-lp/conciliacion'; return; }
-      const periodo = currentMonth();
-      periodoFiltro.value = periodo;
-      docPeriodo.value = periodo;
-      try{
-        const data = await api('/api/internal-auth/gas-lp/conciliacion/summary?periodo=' + encodeURIComponent(periodo));
-        companyName.textContent = data.company?.name || 'Empresa asignada';
-        companyRfc.textContent = 'RFC ' + (data.company?.rfc || '-');
-        nameBadge.textContent = 'Conciliación';
-        kFacturas.textContent = data.kpis?.facturas || 0;
-        kTotal.textContent = money(data.kpis?.total_facturado);
-        kPublico.textContent = money(data.kpis?.publico_general);
-        kCredito.textContent = money(data.kpis?.credito_estimado);
-        kTraspasos.textContent = money(data.kpis?.traspasos);
-        FACTURAS = data.facturas || [];
-        renderHighlights(FACTURAS);
-        renderFacturas(FACTURAS);
-        renderCuadre(FACTURAS);
-      }catch(e){
-        if(String(e.message).includes('rol')) setStatus('pagoMsg', e.message, false);
-        else { localStorage.removeItem('ge_gaslp_conciliacion_token'); location.href='/gas-lp/conciliacion'; }
-      }
-    }
-    function switchDocTab(tab){
-      document.querySelectorAll('[data-doc-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.docTab === tab));
-      document.querySelectorAll('[data-doc-section]').forEach(section => section.classList.toggle('active', section.dataset.docSection === tab));
-    }
-    function syncPeriodFromDocs(){
-      periodoFiltro.value = docPeriodo.value || currentMonth();
-      loadAll();
-    }
-    function downloadDocumentosZip(){
-      const periodo = docPeriodo.value || currentMonth();
-      const tipo = docTipo.value || 'todos';
-      const pid = activePerfilId ? `&perfil_id=${encodeURIComponent(activePerfilId)}` : '';
-      const url = `/api/internal-auth/gas-lp/conciliacion/documentos.zip?periodo=${encodeURIComponent(periodo)}&tipo=${encodeURIComponent(tipo)}&token=${encodeURIComponent(token)}${pid}`;
-      window.open(url, '_blank', 'noopener');
-    }
-    function isPaid(f){
-      const md=f.metadata||{};
-      const st=String(f.payment_status||md.payment_status||'').toLowerCase();
-      return ['pagado_pue','pagado_manual','pagado_con_complemento'].includes(st) || md.conciliation_paid === true;
-    }
-    function pagoLabel(f){
-      const md=f.metadata||{};
-      if(md.tipo_operacion==='traspaso') return '<span class="pill gray">Traslado</span>';
-      if(isPaid(f)) return '<span class="pill">Pagada</span>';
-      return '<span class="pill warn">No pagada</span>';
-    }
-    function renderFacturas(rows){
-      facturasRows.innerHTML = rows.length ? rows.map(f=>{
-        const md=f.metadata||{}; const op=md.tipo_operacion==='traspaso'?'Traspaso':'Venta';
-        const actor=f.created_by_internal||{};
-        const assistant=actor.name||md.created_by_internal_name||md.created_by||'—';
-        const metodo=String(md.metodo_pago||'').toUpperCase();
-        const paymentStatus=f.payment_status||md.payment_status||'';
-        const pago=md.tipo_operacion==='traspaso' ? 'Traslado' : (metodo==='PPD' ? 'PPD · complemento pendiente' : 'PUE');
-        const needsPayment = md.tipo_operacion!=='traspaso' && metodo==='PPD' && ['pendiente_complemento','pago_parcial'].includes(String(paymentStatus||'pendiente_complemento'));
-        const saldo = Number(md.saldo_insoluto || md.total || f.importe || 0);
-        const comp = f.latest_complemento_pago || null;
-        const compDocs = comp?.id ? `<div class="toolbar"><a class="btn ghost" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(comp.id)}/pdf?download=true&token=${encodeURIComponent(token)}" target="_blank" rel="noopener">PDF pago</a><a class="btn ghost" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(comp.id)}/xml?token=${encodeURIComponent(token)}" target="_blank" rel="noopener">XML pago</a></div>` : '';
-        const cancel = String(f.status||'').toLowerCase().startsWith('cancel') ? '<span class="muted">Cancelada</span>' : `<button class="btn danger" type="button" onclick="cancelarFactura(${Number(f.id)})"><i class="fa-solid fa-ban"></i> Cancelar</button>`;
-        const action = `<div class="invoice-actions">${needsPayment ? `<button class="btn ghost" type="button" onclick="generarComplementoPago(${Number(f.id)}, ${Number(saldo||0)})">Pago</button>` : ''}${compDocs}${cancel}</div>`;
-        return `<tr class="${isPaid(f)?'paid-row':''}"><td>${esc((f.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(op)}</td><td>${esc(md.origen_nombre||'—')}</td><td>${esc(md.cliente_nombre||f.rfc_receptor||'—')}</td><td>${esc(f.volumen_litros||0)}</td><td>${money(md.total||f.importe)}</td><td>${pagoLabel(f)}<br><span class="muted">${esc(pago||paymentStatus||'—')}</span></td><td>${esc(assistant)}</td><td>${esc(f.status||'—')}</td><td><code>${esc(f.uuid_sat||'—')}</code></td><td>${action}</td></tr>`;
-      }).join('') : '<tr><td colspan="11">Sin facturas para el día.</td></tr>';
-    }
-    function renderHighlights(rows){
-      const creditos = rows.filter(f => {
-        const md=f.metadata||{};
-        const metodo=String(md.metodo_pago||'').toUpperCase();
-        const st=String(f.payment_status||md.payment_status||'pendiente_complemento').toLowerCase();
-        return md.tipo_operacion !== 'traspaso' && metodo === 'PPD' && !isPaid(f) && ['pendiente_complemento','pago_parcial'].includes(st);
-      });
-      const cartas = rows.filter(f => {
-        const md=f.metadata||{};
-        return md.tipo_operacion === 'traspaso' || String(f.tipo_comprobante||'').toUpperCase() === 'T' || md.generar_carta_porte === true;
-      });
-      kCreditosPendientes.textContent = `${creditos.length} pendientes`;
-      kCartasPorte.textContent = `${cartas.length} traslados`;
-      creditosRows.innerHTML = creditos.length ? creditos.slice(0,6).map(f=>{
-        const md=f.metadata||{};
-        const saldo = Number(md.saldo_insoluto || md.total || f.importe || 0);
-        return `<div class="mini-row"><div><b>${esc(md.cliente_nombre||f.rfc_receptor||'Cliente')}</b><div class="meta">${esc((f.created_at||'').slice(0,10))} · ${esc(md.origen_nombre||'—')} · ${money(saldo)}</div></div><button class="btn ghost" type="button" onclick="generarComplementoPago(${Number(f.id)}, ${saldo})">Pago</button></div>`;
-      }).join('') : '<div class="muted">Sin facturas PPD pendientes en este periodo.</div>';
-      cartasPorteRows.innerHTML = cartas.length ? cartas.slice(0,6).map(f=>{
-        const md=f.metadata||{};
-        const id=Number(f.id);
-        const docs = `<a class="btn ghost" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&token=${encodeURIComponent(token)}" target="_blank" rel="noopener">PDF</a>`;
-        return `<div class="mini-row"><div><b>${esc(md.origen_nombre||'Origen')} → ${esc(md.destino_nombre||'Destino')}</b><div class="meta">${esc((f.created_at||'').slice(0,10))} · ${esc(f.volumen_litros||0)} L · ${esc(f.uuid_sat||'sin UUID')}</div></div>${docs}</div>`;
-      }).join('') : '<div class="muted">Sin Cartas Porte en este periodo.</div>';
-    }
-    function renderCuadre(rows){
-      const invoices = rows.filter(f => (f.metadata||{}).tipo_operacion !== 'traspaso');
-      cuadreRows.innerHTML = invoices.length ? invoices.map(f=>{
-        const md=f.metadata||{};
-        const actor=f.created_by_internal||{};
-        const assistant=actor.name||md.created_by_internal_name||md.created_by||'—';
-        const paid=isPaid(f);
-        const disabled=String(f.status||'').toLowerCase().startsWith('cancel');
-        const btn=disabled ? '<span class="muted">Cancelada</span>' : `<button class="btn ${paid?'ghost':''}" type="button" onclick="marcarPago(${Number(f.id)}, ${paid?'false':'true'})">${paid?'Marcar no pagada':'Marcar pagada'}</button>`;
-        return `<tr class="${paid?'paid-row':''}"><td>${esc((f.created_at||'').slice(0,10))}</td><td>${esc(md.cliente_nombre||f.rfc_receptor||'—')}</td><td>${money(md.total||f.importe)}</td><td>${esc((md.metodo_pago||'PUE').toUpperCase())}</td><td>${esc(assistant)}</td><td>${pagoLabel(f)}</td><td>${btn}</td></tr>`;
-      }).join('') : '<tr><td colspan="7">Sin facturas para cuadrar en el periodo.</td></tr>';
-    }
-    async function marcarPago(facturaId, pagado){
-      try{
-        await api(`/api/internal-auth/gas-lp/conciliacion/facturas/${encodeURIComponent(facturaId)}/pago`, {method:'POST', body:JSON.stringify({pagado})});
-        setStatus('pagoMsg', pagado ? 'Factura marcada como pagada.' : 'Factura marcada como no pagada.');
-        await loadAll();
-      }catch(e){ setStatus('pagoMsg', e.message || 'No se pudo actualizar el pago.', false); }
-    }
-    async function cancelarFactura(facturaId){
-      const code = prompt('Código de cancelación de administrador');
-      if(code === null) return;
-      const motivo = prompt('Motivo SAT de cancelación (01, 02, 03 o 04)', '02');
-      if(motivo === null) return;
-      const uuid_sustitucion = motivo === '01' ? prompt('UUID sustitución', '') : '';
-      if(motivo === '01' && uuid_sustitucion === null) return;
-      if(!confirm('Esto solicitará cancelación del CFDI y marcará la factura como cancelada. ¿Continuar?')) return;
-      try{
-        await api(`/api/internal-auth/gas-lp/conciliacion/facturas/${encodeURIComponent(facturaId)}/cancelar`, {method:'POST', body:JSON.stringify({confirmation_code:code, motivo, uuid_sustitucion})});
-        await loadAll();
-      }catch(e){ alert(e.message || 'No se pudo cancelar la factura.'); }
-    }
-    function localDateTimeValue(date=new Date()){
-      const pad=n=>String(n).padStart(2,'0');
-      return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-    }
-    async function generarComplementoPago(facturaId, saldo){
-      const montoRaw = prompt('Monto recibido para complemento de pago', Number(saldo||0).toFixed(2));
-      if(montoRaw === null) return;
-      const monto = Number(String(montoRaw).replace(',','.'));
-      if(!monto || monto <= 0){ alert('Captura un monto mayor a cero.'); return; }
-      const fechaPago = prompt('Fecha y hora de pago (AAAA-MM-DDTHH:mm)', localDateTimeValue());
-      if(fechaPago === null) return;
-      const formaPago = prompt('Forma de pago SAT (01 efectivo, 03 transferencia, 04 tarjeta crédito, 28 débito)', '03');
-      if(formaPago === null) return;
-      if(!confirm('¿Timbrar complemento de pago real para esta factura PPD?')) return;
-      try{
-        await api(`/api/internal-auth/gas-lp/facturas/${encodeURIComponent(facturaId)}/complemento-pago`, {
-          method:'POST',
-          body:JSON.stringify({monto, fecha_pago:fechaPago, forma_pago:formaPago})
-        });
-        alert('Complemento de pago timbrado.');
-        await loadAll();
-      }catch(e){
-        alert(e.message || 'No se pudo timbrar el complemento de pago.');
-      }
-    }
-    async function logout(){
-      await fetch('/api/internal-auth/logout',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({})}).catch(()=>{});
-      localStorage.removeItem('ge_gaslp_conciliacion_token');
-      localStorage.removeItem('ge_gaslp_conciliacion_perfil_id');
-      location.href='/choice';
-    }
-    (async()=>{ await loadProfiles(); await loadAll(); })();
+    const token=localStorage.getItem('ge_gaslp_conciliacion_token')||'';let FACTURAS=[];let SEL={};
+    function money(v){return '$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}
+    function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+    function today(){return new Date().toISOString().slice(0,10)}function month(){return periodoFiltro.value||today().slice(0,7)}
+    function api(path,opts={}){const sep=path.includes('?')?'&':'?';return fetch(path+sep+'token='+encodeURIComponent(token),{...opts,headers:{...(opts.body?{'Content-Type':'application/json'}:{}),...(opts.headers||{})}}).then(async r=>{const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||'No fue posible completar.');return d})}
+    function tab(t){document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.dataset.section===t))}
+    function setMsg(id,msg,ok=true){const el=document.getElementById(id);el.textContent=msg;el.className='status '+(ok?'ok':'err')}
+    async function loadAll(){if(!token){location.href='/gas-lp/conciliacion';return}periodoFiltro.value=month();try{const d=await api('/api/internal-auth/gas-lp/conciliacion/summary?periodo='+encodeURIComponent(month()));companyLabel.textContent=(d.company?.name||'Empresa')+' · RFC '+(d.company?.rfc||'-');kFacturas.textContent=d.kpis?.facturas||0;kTotal.textContent=money(d.kpis?.total_facturado);kCredito.textContent=money(d.kpis?.credito_estimado);kPublico.textContent=money(d.kpis?.publico_general);FACTURAS=d.facturas||[];renderAll()}catch(e){localStorage.removeItem('ge_gaslp_conciliacion_token');location.href='/gas-lp/conciliacion'}}
+    function applyYearFilter(){const y=anioFiltro.value;if(y&&periodoFiltro.value)periodoFiltro.value=y+periodoFiltro.value.slice(4);loadAll()}
+    function saldo(f){return Number(f.payment_info?.saldo_insoluto ?? f.metadata?.saldo_insoluto ?? f.metadata?.total ?? Number(f.importe||0)*1.16)}
+    function total(f){return Number(f.payment_info?.total ?? f.metadata?.total ?? Number(f.importe||0)*1.16)}
+    function metodo(f){return String(f.payment_info?.metodo_pago||f.metadata?.metodo_pago||'PUE').toUpperCase()}
+    function paid(f){return saldo(f)<=0||['pagado_pue','pagado_con_complemento','pagado_manual'].includes(String(f.payment_info?.payment_status||f.metadata?.payment_status||'').toLowerCase())}
+    function rows(){const q=clienteFiltro.value.toLowerCase();const day=diaFiltro.value;const st=estadoFiltro.value;return FACTURAS.filter(f=>{const md=f.metadata||{};const hay=[md.cliente_nombre,f.rfc_receptor,f.uuid_sat].join(' ').toLowerCase();if(q&&!hay.includes(q))return false;if(day&&String(f.created_at||'').slice(0,10)!==day)return false;if(st==='ppd'&&(metodo(f)!=='PPD'||paid(f)))return false;if(st==='pagada'&&!paid(f))return false;if(st==='cancelada'&&!String(f.status||'').toLowerCase().startsWith('cancel'))return false;return true})}
+    function renderAll(){const r=rows();renderComplementos(r);renderConsulta(r);renderCancel(r)}
+    function renderComplementos(r){const ppd=r.filter(f=>metodo(f)==='PPD'&&!paid(f)&&!String(f.status||'').toLowerCase().startsWith('cancel'));complementosRows.innerHTML=ppd.length?ppd.map(f=>`<tr><td><input type="checkbox" ${SEL[f.id]?'checked':''} onchange="toggleSel(${f.id},this.checked)"></td><td>${esc((f.created_at||'').slice(0,10))}</td><td>${esc(f.metadata?.cliente_nombre||f.rfc_receptor||'—')}</td><td><code>${esc(f.uuid_sat||'—')}</code></td><td>${money(total(f))}</td><td>${money(saldo(f))}</td><td><input type="number" step="0.01" value="${Number(SEL[f.id]?.monto??saldo(f)).toFixed(2)}" oninput="setMonto(${f.id},this.value)"></td></tr>`).join(''):'<tr><td colspan="7">Sin facturas PPD pendientes para los filtros.</td></tr>';refreshSel()}
+    function toggleSel(id,on){const f=FACTURAS.find(x=>Number(x.id)===Number(id));if(!f)return;if(on){const selected=Object.values(SEL);if(selected.length&&selected[0].rfc!==f.rfc_receptor){alert('Selecciona facturas del mismo cliente/RFC.');renderAll();return}SEL[id]={id,monto:saldo(f),rfc:f.rfc_receptor,cliente:f.metadata?.cliente_nombre||f.rfc_receptor}}else delete SEL[id];refreshSel()}
+    function setMonto(id,v){if(SEL[id])SEL[id].monto=Number(v||0);refreshSel()}function clearSel(){SEL={};renderAll()}
+    function refreshSel(){const arr=Object.values(SEL);selCount.textContent=arr.length+' seleccionadas';selTotal.textContent=money(arr.reduce((s,x)=>s+Number(x.monto||0),0));selCliente.textContent=arr[0]?.cliente||'Sin cliente seleccionado'}
+    async function timbrarComplemento(){const arr=Object.values(SEL);if(!arr.length)return setMsg('compMsg','Selecciona al menos una factura.',false);if(!confirm('¿Timbrar complemento de pago real?'))return;try{const body={fecha_pago:fechaPago.value,forma_pago:formaPago.value,banco:bancoPago.value,referencia:referenciaPago.value,facturas:arr.map(x=>({factura_id:x.id,monto:x.monto})),monto:arr.reduce((s,x)=>s+Number(x.monto||0),0)};await api('/api/internal-auth/gas-lp/facturas/'+encodeURIComponent(arr[0].id)+'/complemento-pago',{method:'POST',body:JSON.stringify(body)});SEL={};setMsg('compMsg','Complemento timbrado.');await loadAll()}catch(e){setMsg('compMsg',e.message,false)}}
+    function renderConsulta(r){consultaRows.innerHTML=r.length?r.map(f=>`<tr class="${paid(f)?'paid-row':''}"><td>${esc((f.created_at||'').slice(0,10))}</td><td>${esc(f.metadata?.cliente_nombre||f.rfc_receptor||'—')}</td><td>${esc(f.volumen_litros||0)}</td><td>${money(total(f))}</td><td>${metodo(f)} ${paid(f)?'<span class="pill">Pagada</span>':'<span class="pill warn">Pendiente</span>'}</td><td>${esc(f.status||'—')}</td><td><code>${esc(f.uuid_sat||'—')}</code></td><td>${f.latest_complemento_pago?.complemento_id?`<a class="btn ghost" target="_blank" href="/api/internal-auth/gas-lp/complementos-pago/${f.latest_complemento_pago.complemento_id}/xml?token=${encodeURIComponent(token)}">XML pago</a>`:''}</td></tr>`).join(''):'<tr><td colspan="8">Sin facturas.</td></tr>'}
+    function renderCancel(r){cancelRows.innerHTML=r.length?r.map(f=>`<tr><td>${esc((f.created_at||'').slice(0,10))}</td><td>${esc(f.metadata?.cliente_nombre||f.rfc_receptor||'—')}</td><td>${money(total(f))}</td><td>${esc(f.status||'—')}</td><td><code>${esc(f.uuid_sat||'—')}</code></td><td>${String(f.status||'').toLowerCase().startsWith('cancel')?'Cancelada':`<button class="btn danger" onclick="cancelar(${f.id})">Cancelar</button>`}</td></tr>`).join(''):'<tr><td colspan="6">Sin facturas.</td></tr>'}
+    async function cancelar(id){const motivo=prompt('Motivo SAT (01, 02, 03 o 04)','02');if(motivo===null)return;const notas=prompt('Notas de cancelación','')||'';if(!confirm('¿Marcar factura como cancelada?'))return;await api('/api/internal-auth/gas-lp/conciliacion/facturas/'+encodeURIComponent(id)+'/cancelar',{method:'POST',body:JSON.stringify({motivo,notas})});await loadAll()}
+    async function logout(){await fetch('/api/internal-auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}).catch(()=>{});localStorage.removeItem('ge_gaslp_conciliacion_token');location.href='/choice'}
+    fechaPago.value=new Date().toISOString().slice(0,16);loadAll();
   </script>
 </body>
 </html>

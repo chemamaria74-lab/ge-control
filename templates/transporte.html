@@ -185,21 +185,12 @@ select option{background:#fff}
   .tab-menu-panel{position:absolute;right:0;left:auto;min-width:220px}
   .btn-sm{padding:5px 9px}
   .detail-grid{grid-template-columns:1fr}
-  .section-hdr{align-items:stretch}
-  .hdr-actions,.doc-actions,.modal-footer{display:grid;grid-template-columns:1fr;justify-content:stretch}
-  .hdr-actions .btn,.doc-actions .btn,.modal-footer .btn{width:100%;justify-content:center}
-  input[type="month"][style*="width"]{width:100%!important}
-  .toast{min-width:0;width:calc(100vw - 32px)}
-  #toast-area{left:16px;right:16px;bottom:16px}
 }
 @media(max-width:420px){
   .topbar{grid-template-columns:56px 1fr}
   .topbar-right{grid-template-columns:1fr auto auto}
   #lang-toggle{padding:7px 9px}
   .topbar-right .btn-sm{padding:7px 10px}
-  .card{padding:14px}
-  .modal{padding:20px 16px}
-  .tab-menu-panel{max-width:calc(100vw - 24px)}
 }
 </style>
 </head>
@@ -829,7 +820,7 @@ select option{background:#fff}
         </div>
         <div class="form-group">
           <label>RFC Proveedor programa (SAT)</label>
-          <input type="text" id="cfg-rfc-proveedor" value="XAXX010101000" maxlength="13" readonly>
+          <input type="text" id="cfg-rfc-proveedor" value="ATI9404219D5" maxlength="13">
         </div>
       </div>
       <div class="form-row">
@@ -1081,16 +1072,6 @@ select option{background:#fff}
     <div class="form-group">
       <label>Póliza de seguro</label>
       <input type="text" id="ve-poliza" placeholder="POL-123456">
-    </div>
-  </div>
-  <div class="form-row cols-2">
-    <div class="form-group">
-      <label>Aseg. medio ambiente</label>
-      <input type="text" id="ve-aseg-med" placeholder="Aseguradora ambiental">
-    </div>
-    <div class="form-group">
-      <label>Póliza medio ambiente</label>
-      <input type="text" id="ve-poliza-med" placeholder="POL-AMB-123">
     </div>
   </div>
   <div class="form-row cols-2">
@@ -1713,10 +1694,7 @@ async function cargarPerfilesTransporte() {
   const data = await r.json();
   SUBSCRIPTION_TRANSPORTE = data.subscription || SUBSCRIPTION_TRANSPORTE;
   renderPlanTransporte();
-  const perfiles = Array.isArray(data.perfiles) ? data.perfiles : [];
-  PERFILES_TRANSPORTE = perfiles;
-  actualizarHeaderPerfilTransporte();
-  return perfiles;
+  return Array.isArray(data.perfiles) ? data.perfiles : [];
 }
 
 function planLimitTransporte() {
@@ -1756,7 +1734,6 @@ function guardarPerfilTransporte(perfil) {
 function mostrarSelectorEmpresaTransporte(perfiles = PERFILES_TRANSPORTE, mensaje = '') {
   ensureEmpresaOverlayTransporte();
   PERFIL_PROMPT_VISIBLE = true;
-  actualizarHeaderPerfilTransporte();
   const overlay = document.getElementById('empresaOverlayTransporte');
   const msg = document.getElementById('empresaTransporteMsg');
   const list = document.getElementById('empresaTransporteList');
@@ -1822,10 +1799,7 @@ function ocultarSelectorEmpresaTransporte() {
 
 async function seleccionarPerfilTransporte(id) {
   const perfil = PERFILES_TRANSPORTE.find(p => Number(p.id) === Number(id));
-  if (!perfil) {
-    mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE);
-    return;
-  }
+  if (!perfil) return;
   guardarPerfilTransporte(perfil);
   ocultarSelectorEmpresaTransporte();
   await bootstrapTransporte(true);
@@ -2084,7 +2058,7 @@ async function cargarConfig() {
   document.getElementById('cfg-modalidad').value       = c.ModalidadPermiso || 'PER51';
   document.getElementById('cfg-clave-inst').value      = c.ClaveInstalacion || '';
   document.getElementById('cfg-num-autotanques').value = VEHICULOS.length || c.NumeroAutotanques || 0;
-  document.getElementById('cfg-rfc-proveedor').value   = 'XAXX010101000';
+  document.getElementById('cfg-rfc-proveedor').value   = c.RfcProveedor || 'ATI9404219D5';
   document.getElementById('cfg-logo-pdf-data').value    = c.PdfLogoDataUrl || '';
   document.getElementById('cfg-logo-pdf-hint').textContent = c.PdfLogoDataUrl ? 'Logo cargado para PDFs fiscales.' : 'Opcional. Se usará como logo del emisor en la representación impresa fiscal.';
   document.getElementById('topbar-rfc').textContent    = c.RfcContribuyente ? `RFC ${c.RfcContribuyente}` : 'RFC —';
@@ -2099,10 +2073,11 @@ async function cargarConfig() {
 
 async function guardarConfig() {
   const btn = document.getElementById('btn-guardar-cfg');
-  let rfcContrib = '', cpContrib = '', rfcProv = 'XAXX010101000';
+  let rfcContrib = '', cpContrib = '', rfcProv = '';
   try {
     rfcContrib = validarRfcCampo(document.getElementById('cfg-rfc').value, 'RFC del contribuyente');
     cpContrib = validarCpCampo(document.getElementById('cfg-cp').value, 'Código postal fiscal');
+    rfcProv = validarRfcCampo(document.getElementById('cfg-rfc-proveedor').value, 'RFC proveedor');
     validarRegimenParaRfc(rfcContrib, document.getElementById('cfg-regimen').value, 'del contribuyente');
   } catch(e) { toast(e.message, 'error'); return; }
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Guardando...';
@@ -3281,19 +3256,13 @@ async function cancelarFacturaServicio(id) {
   if (r?.ok) { toast('Factura de servicio cancelada', 'success'); cargarFacturas(); }
 }
 
-function filenameFromDisposition(res, fallback) {
-  const cd = res.headers.get('Content-Disposition') || res.headers.get('content-disposition') || '';
-  const m = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
-  return m ? decodeURIComponent(m[1].replace(/^"|"$/g, '')) : fallback;
-}
-
 async function descargarXML(id) {
   if (!perfilId()) { mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE); return; }
   const r = await fetch(API + withPerfil(`/api/tr/facturas/${id}/xml`), { headers: H() });
   if (!r.ok) { toast('No se pudo descargar el XML', 'error'); return; }
   const blob = await r.blob();
   const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a'); a.href = url; a.download = filenameFromDisposition(r, `${id}.xml`);
+  const a    = document.createElement('a'); a.href = url; a.download = `cfdi_tr_${id}.xml`;
   a.click(); URL.revokeObjectURL(url);
 }
 
@@ -3317,14 +3286,14 @@ async function obtenerPDFCartaPorte(id, download=false) {
     const msg = await r.text().catch(() => '');
     throw new Error(msg || 'No se pudo generar el PDF');
   }
-  return { blob: await r.blob(), filename: filenameFromDisposition(r, `${id}.pdf`) };
+  return await r.blob();
 }
 
 async function verPDFCartaPorte(id) {
   try {
     toast('Generando representación impresa de Carta Porte...');
-    const file = await obtenerPDFCartaPorte(id, false);
-    const url  = URL.createObjectURL(new Blob([file.blob], { type:'application/pdf' }));
+    const blob = await obtenerPDFCartaPorte(id, false);
+    const url  = URL.createObjectURL(new Blob([blob], { type:'application/pdf' }));
     window.open(url, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   } catch (e) {
@@ -3334,9 +3303,9 @@ async function verPDFCartaPorte(id) {
 
 async function descargarPDFCartaPorte(id) {
   try {
-    const file = await obtenerPDFCartaPorte(id, true);
-    const url  = URL.createObjectURL(file.blob);
-    const a    = document.createElement('a'); a.href = url; a.download = file.filename;
+    const blob = await obtenerPDFCartaPorte(id, true);
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a'); a.href = url; a.download = `carta_porte_${id}.pdf`;
     a.click(); URL.revokeObjectURL(url);
   } catch (e) {
     toast('No se pudo descargar el PDF: ' + e.message, 'error');
@@ -3354,13 +3323,13 @@ async function fetchFacturaServicioFile(id, kind, download=false) {
     const msg = await r.text().catch(() => '');
     throw new Error(msg || `No se pudo obtener ${kind.toUpperCase()}`);
   }
-  return { blob: await r.blob(), filename: filenameFromDisposition(r, `${id}.${kind}`) };
+  return await r.blob();
 }
 
 async function verPDFFacturaServicio(id) {
   try {
-    const file = await fetchFacturaServicioFile(id, 'pdf', false);
-    const url = URL.createObjectURL(new Blob([file.blob], { type:'application/pdf' }));
+    const blob = await fetchFacturaServicioFile(id, 'pdf', false);
+    const url = URL.createObjectURL(new Blob([blob], { type:'application/pdf' }));
     window.open(url, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   } catch(e) {
@@ -3370,9 +3339,9 @@ async function verPDFFacturaServicio(id) {
 
 async function descargarPDFFacturaServicio(id) {
   try {
-    const file = await fetchFacturaServicioFile(id, 'pdf', true);
-    const url = URL.createObjectURL(file.blob);
-    const a = document.createElement('a'); a.href = url; a.download = file.filename;
+    const blob = await fetchFacturaServicioFile(id, 'pdf', true);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `factura_servicio_${id}.pdf`;
     a.click(); URL.revokeObjectURL(url);
   } catch(e) {
     toast('No se pudo descargar PDF de servicio: ' + e.message, 'error');
@@ -3381,8 +3350,8 @@ async function descargarPDFFacturaServicio(id) {
 
 async function verXMLFacturaServicio(id) {
   try {
-    const file = await fetchFacturaServicioFile(id, 'xml', false);
-    const url = URL.createObjectURL(new Blob([file.blob], { type:'application/xml' }));
+    const blob = await fetchFacturaServicioFile(id, 'xml', false);
+    const url = URL.createObjectURL(new Blob([blob], { type:'application/xml' }));
     window.open(url, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch(e) {
@@ -3392,9 +3361,9 @@ async function verXMLFacturaServicio(id) {
 
 async function descargarXMLFacturaServicio(id) {
   try {
-    const file = await fetchFacturaServicioFile(id, 'xml', true);
-    const url = URL.createObjectURL(file.blob);
-    const a = document.createElement('a'); a.href = url; a.download = file.filename;
+    const blob = await fetchFacturaServicioFile(id, 'xml', true);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `factura_servicio_${id}.xml`;
     a.click(); URL.revokeObjectURL(url);
   } catch(e) {
     toast('No se pudo descargar XML de servicio: ' + e.message, 'error');
@@ -3713,7 +3682,7 @@ async function eliminarChofer(id) {
 function abrirModalVehiculo(data=null) {
   EDIT_ID = data?.id || null;
   document.getElementById('modal-vehiculo-titulo').textContent = data ? 'Editar vehículo' : 'Nuevo vehículo';
-  ['ve-placas','ve-modelo','ve-aseguradora','ve-poliza','ve-aseg-med','ve-poliza-med','ve-num-sct'].forEach(id => { document.getElementById(id).value=''; });
+  ['ve-placas','ve-modelo','ve-aseguradora','ve-poliza','ve-num-sct'].forEach(id => { document.getElementById(id).value=''; });
   document.getElementById('vehiculo-id').value = '';
   document.getElementById('ve-anio').value      = 2020;
   document.getElementById('ve-capacidad').value = '';
@@ -3727,8 +3696,6 @@ function abrirModalVehiculo(data=null) {
     document.getElementById('ve-capacidad').value  = data.capacidad_litros||'';
     document.getElementById('ve-aseguradora').value= data.aseguradora||'';
     document.getElementById('ve-poliza').value     = data.poliza_seguro||'';
-    document.getElementById('ve-aseg-med').value   = data.aseguradora_medio_ambiente||'';
-    document.getElementById('ve-poliza-med').value = data.poliza_medio_ambiente||'';
     document.getElementById('ve-perm-sct').value   = data.permiso_sct||'TPAF01';
     document.getElementById('ve-num-sct').value    = data.num_permiso_sct||'';
     document.getElementById('vehiculo-id').value   = data.id;
@@ -3748,8 +3715,6 @@ async function guardarVehiculo() {
     capacidad_litros: parseFloat(document.getElementById('ve-capacidad').value)||0,
     aseguradora:      document.getElementById('ve-aseguradora').value.trim(),
     poliza_seguro:    document.getElementById('ve-poliza').value.trim(),
-    aseguradora_medio_ambiente: document.getElementById('ve-aseg-med').value.trim(),
-    poliza_medio_ambiente: document.getElementById('ve-poliza-med').value.trim(),
     permiso_sct:      document.getElementById('ve-perm-sct').value,
     num_permiso_sct:  document.getElementById('ve-num-sct').value.trim(),
   };
@@ -3896,18 +3861,8 @@ async function eliminarCliente(id) {
 }
 
 // ─── LOGOUT ─────────────────────────────────────────────
-async function logout() {
-  try{
-    const res = await fetch('/api/auth/logout', {method:'POST', headers:authHeaders()});
-    if(!res.ok){
-      const data = await res.json().catch(()=>({}));
-      alert(data.detail || 'No se pudo cerrar la sesión en servidor. Se limpiará esta sesión local.');
-    }
-  }catch(e){
-    alert('No se pudo contactar al servidor para cerrar sesión. Se limpiará esta sesión local.');
-  }
+function logout() {
   localStorage.removeItem('zc_token');
-  localStorage.removeItem('sat_token');
   location.href = '/login/transporte';
 }
 </script>
