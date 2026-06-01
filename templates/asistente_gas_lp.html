@@ -45,7 +45,7 @@
     </section>
     <div class="notice"><i class="fa-solid fa-circle-info"></i> Las facturas timbradas no se cancelan desde el portal de asistente. Si una factura requiere cancelación, avisa al administrador para revisarla en Conciliación.</div>
     <nav class="tabs" aria-label="Secciones de facturación">
-      <button class="tab-btn" id="tab-dashboard" type="button" onclick="switchPortalTab('dashboard')"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
+      <button class="tab-btn" id="tab-dashboard" type="button" onclick="switchPortalTab('dashboard')"><i class="fa-solid fa-hand-holding-dollar"></i> Crédito</button>
       <button class="tab-btn active" id="tab-facturacion" type="button" onclick="switchPortalTab('facturacion')"><i class="fa-solid fa-file-invoice-dollar"></i> Facturación</button>
       <button class="tab-btn" id="tab-facturas" type="button" onclick="switchPortalTab('facturas')"><i class="fa-solid fa-file-invoice"></i> Facturas</button>
       <button class="tab-btn" id="tab-clientes" type="button" onclick="switchPortalTab('clientes')"><i class="fa-solid fa-users"></i> Clientes</button>
@@ -54,8 +54,8 @@
       <div class="card">
         <div class="section-title">
           <div>
-            <h2>Dashboard</h2>
-            <p class="muted" style="margin:4px 0 0">Resumen de facturación y crédito PPD por cliente.</p>
+            <h2>Crédito PPD</h2>
+            <p class="muted" style="margin:4px 0 0">Facturas a crédito, saldos pendientes y complementos de pago por cliente.</p>
           </div>
           <div class="toolbar">
             <div><label>Mes</label><input id="dashboardMes" type="month" onchange="renderDashboard()"></div>
@@ -64,18 +64,18 @@
           </div>
         </div>
         <div class="dashboard-grid">
-          <div class="metric"><span>Total facturado</span><b id="dashTotal">$0.00</b></div>
-          <div class="metric"><span>Crédito PPD</span><b id="dashCredito">$0.00</b></div>
+          <div class="metric"><span>Crédito emitido</span><b id="dashTotal">$0.00</b></div>
+          <div class="metric"><span>Complementado/pagado</span><b id="dashCredito">$0.00</b></div>
           <div class="metric"><span>Saldo pendiente</span><b id="dashSaldo">$0.00</b></div>
-          <div class="metric"><span>Facturas</span><b id="dashFacturas">0</b></div>
+          <div class="metric"><span>Facturas pendientes</span><b id="dashFacturas">0</b></div>
         </div>
         <div class="dashboard-layout">
           <div>
-            <div class="section-title"><h2>Crédito por cliente</h2><span class="count-pill" id="dashClientesCredito">0 clientes</span></div>
-            <div class="table-wrap"><table><thead><tr><th>Cliente</th><th>RFC</th><th>Facturas PPD</th><th>Crédito</th><th>Saldo</th></tr></thead><tbody id="dashCreditoRows"><tr><td colspan="5">Cargando...</td></tr></tbody></table></div>
+            <div class="section-title"><h2>Clientes con crédito</h2><span class="count-pill" id="dashClientesCredito">0 clientes</span></div>
+            <div class="table-wrap"><table><thead><tr><th>Cliente</th><th>RFC</th><th>Facturas pendientes</th><th>Crédito emitido</th><th>Pagado</th><th>Saldo</th></tr></thead><tbody id="dashCreditoRows"><tr><td colspan="6">Cargando...</td></tr></tbody></table></div>
           </div>
           <div>
-            <div class="section-title"><h2>Composición</h2><span class="count-pill" id="dashPeriodo">—</span></div>
+            <div class="section-title"><h2>Facturas PPD</h2><span class="count-pill" id="dashPeriodo">—</span></div>
             <div class="bar-list" id="dashBars"></div>
           </div>
         </div>
@@ -117,7 +117,7 @@
           <div id="vehiculoField" class="hide"><label>Vehículo</label><select id="vehiculoSelect"><option value="">Selecciona vehículo</option></select></div>
           <div id="choferField" class="hide"><label>Chofer</label><select id="choferSelect"><option value="">Selecciona chofer</option></select></div>
           <div id="rutaField" class="hide"><label>Ruta</label><select id="rutaSelect"><option value="">Selecciona ruta</option></select></div>
-          <div><label>Concepto</label><select id="conceptoCatalogo" onchange="applyConceptCatalog()"><option value="gas_lp_litro">Venta de Gas LP por litro</option></select></div>
+          <div><label>Concepto</label><select id="conceptoCatalogo" class="locked-field" disabled><option value="gas_lp_litro">LITRO DE GAS LP</option></select></div>
           <input id="concepto" type="hidden" value="LITRO DE GAS LP">
           <div><label>Litros</label><input id="litros" type="number" min="0" step="0.00001" value="0" oninput="updateTotals()"></div>
           <div><label for="precioUnitario">Precio unitario</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
@@ -210,7 +210,7 @@
         <button class="btn ghost" type="button" onclick="loadFacturas()">Actualizar</button>
       </div>
       <div class="filters month-filters">
-        <div><label>Cliente, RFC o UUID</label><input id="facturaSearch" placeholder="Buscar factura" oninput="applyFacturasFilters()"></div>
+        <div><label>Cliente</label><select id="facturaClienteFilter" onchange="applyFacturasFilters()"><option value="">Todos los clientes</option></select></div>
         <div><label>Mes</label><input id="facturaMes" type="month" onchange="applyMonthFilter()"></div>
         <div><label>Pago</label><select id="facturaPago" onchange="applyFacturasFilters()"><option value="">Todos</option><option value="PUE">PUE</option><option value="PPD">PPD</option><option value="Traslado">Traslado</option></select></div>
       </div>
@@ -439,6 +439,7 @@
     }
     function applyConceptCatalog(){
       const item = CONCEPTOS_FACTURA[conceptoCatalogo.value] || CONCEPTOS_FACTURA.gas_lp_litro;
+      conceptoCatalogo.value = 'gas_lp_litro';
       concepto.value = item.descripcion;
       claveProdServ.value = item.clave_prod_serv;
       noIdentificacion.value = item.no_identificacion;
@@ -620,7 +621,7 @@
       clientePreview.classList.toggle('hide', traspaso);
       btnPublicoGeneral.disabled = traspaso;
       btnTimbrar.innerHTML = traspaso ? (cp ? '<i class="fa-solid fa-truck-fast"></i> Timbrar Carta Porte' : '<i class="fa-solid fa-right-left"></i> Registrar traspaso') : '<i class="fa-solid fa-stamp"></i> Timbrar factura';
-      concepto.value = traspaso ? 'TRASPASO INTERNO DE GAS LP' : (concepto.value === 'TRASPASO INTERNO DE GAS LP' ? CONCEPTOS_FACTURA.gas_lp_litro.descripcion : concepto.value);
+      concepto.value = CONCEPTOS_FACTURA.gas_lp_litro.descripcion;
       if(traspaso) setStatus('facturaMsg','Traspaso interno: se registrará salida en origen y entrada en estación destino.');
     }
     function selectCliente(){
@@ -747,6 +748,7 @@
       const data = await api('/api/internal-auth/gas-lp/facturas' + qs);
       if(month) mergeFacturas(data.facturas || []);
       else FACTURAS = data.facturas || [];
+      renderFacturaClientOptions();
       renderTodayFacturas();
       renderDashboard();
       renderComplementosPago();
@@ -785,36 +787,38 @@
       const rows = FACTURAS.filter(f => !isCanceled(f) && (!selectedMonth || facturaDateKey(f).startsWith(selectedMonth)));
       const ventas = rows.filter(f => (f.metadata || {}).tipo_operacion !== 'traspaso');
       const ppd = ventas.filter(isPPD);
-      const total = ventas.reduce((sum,f)=>sum+facturaAmount(f),0);
       const credito = ppd.reduce((sum,f)=>sum+facturaAmount(f),0);
       const saldo = ppd.reduce((sum,f)=>sum+facturaSaldo(f),0);
-      const pue = ventas.filter(f => !isPPD(f)).reduce((sum,f)=>sum+facturaAmount(f),0);
-      const publico = ventas.filter(f => String(f.rfc_receptor || '').toUpperCase() === 'XAXX010101000').reduce((sum,f)=>sum+facturaAmount(f),0);
-      dashTotal.textContent = money(total);
-      dashCredito.textContent = money(credito);
+      const pagado = Math.max(0, credito - saldo);
+      const pendientes = ppd.filter(f => facturaSaldo(f) > 0);
+      const complementadas = ppd.filter(f => f.latest_complemento_pago?.complemento_id || f.latest_complemento_pago?.id || (f.metadata || {}).ultimo_complemento_pago_id);
+      dashTotal.textContent = money(credito);
+      dashCredito.textContent = money(pagado);
       dashSaldo.textContent = money(saldo);
-      dashFacturas.textContent = String(ventas.length);
+      dashFacturas.textContent = String(pendientes.length);
       const byClient = new Map();
       ppd.forEach(f => {
         const md = f.metadata || {};
         const key = String(f.rfc_receptor || md.cliente_nombre || 'SIN RFC').toUpperCase();
-        const item = byClient.get(key) || {nombre: md.cliente_nombre || f.rfc_receptor || '—', rfc: f.rfc_receptor || '—', count:0, credito:0, saldo:0};
-        item.count += 1;
+        const item = byClient.get(key) || {nombre: md.cliente_nombre || f.rfc_receptor || '—', rfc: f.rfc_receptor || '—', count:0, credito:0, saldo:0, pagado:0};
+        const itemSaldo = facturaSaldo(f);
+        item.count += itemSaldo > 0 ? 1 : 0;
         item.credito += facturaAmount(f);
-        item.saldo += facturaSaldo(f);
+        item.saldo += itemSaldo;
+        item.pagado += Math.max(0, facturaAmount(f) - itemSaldo);
         byClient.set(key,item);
       });
-      const clientRows = [...byClient.values()].sort((a,b)=>b.saldo-a.saldo);
+      const clientRows = [...byClient.values()].filter(c => c.saldo > 0 || c.credito > 0).sort((a,b)=>b.saldo-a.saldo);
       dashClientesCredito.textContent = `${clientRows.length} cliente${clientRows.length === 1 ? '' : 's'}`;
-      dashCreditoRows.innerHTML = clientRows.length ? clientRows.map(c=>`<tr><td><b>${esc(c.nombre)}</b></td><td>${esc(c.rfc)}</td><td>${c.count}</td><td>${money(c.credito)}</td><td><b class="${c.saldo > 0 ? 'credit-high' : 'credit-ok'}">${money(c.saldo)}</b></td></tr>`).join('') : '<tr><td colspan="5">Sin crédito PPD registrado.</td></tr>';
-      const max = Math.max(total, credito, pue, publico, saldo, 1);
-      const bars = [
-        ['PUE cobrado/contado', pue],
-        ['Crédito PPD emitido', credito],
-        ['Saldo PPD pendiente', saldo],
-        ['Público en general', publico],
-      ];
-      dashBars.innerHTML = bars.map(([label,value])=>`<div class="bar-row"><div class="bar-row-top"><span>${esc(label)}</span><b>${money(value)}</b></div><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,(value/max)*100).toFixed(1)}%"></div></div></div>`).join('');
+      dashCreditoRows.innerHTML = clientRows.length ? clientRows.map(c=>`<tr><td><b>${esc(c.nombre)}</b></td><td>${esc(c.rfc)}</td><td>${c.count}</td><td>${money(c.credito)}</td><td>${money(c.pagado)}</td><td><b class="${c.saldo > 0 ? 'credit-high' : 'credit-ok'}">${money(c.saldo)}</b></td></tr>`).join('') : '<tr><td colspan="6">Sin crédito PPD registrado.</td></tr>';
+      const recent = ppd.slice().sort((a,b)=>String(facturaDateValue(b) || '').localeCompare(String(facturaDateValue(a) || ''))).slice(0,8);
+      dashBars.innerHTML = recent.length ? recent.map(f=>{
+        const md = f.metadata || {};
+        const compId = f.latest_complemento_pago?.complemento_id || f.latest_complemento_pago?.id || md.ultimo_complemento_pago_id || '';
+        const state = facturaSaldo(f) <= 0 ? 'Pagada con complemento' : (compId ? 'Pago parcial con complemento' : 'Falta complemento');
+        const cls = facturaSaldo(f) <= 0 ? 'credit-ok' : 'credit-high';
+        return `<div class="bar-row"><div class="bar-row-top"><span>${esc(md.cliente_nombre || f.rfc_receptor || 'Cliente')} · ${esc(facturaDateKey(f))}</span><b class="${cls}">${money(facturaSaldo(f))}</b></div><div class="muted">${esc(state)}${compId ? ` · Complemento #${esc(compId)}` : ''}</div></div>`;
+      }).join('') : '<div class="empty">Sin facturas PPD en este periodo.</div>';
       const dates = rows.map(f => facturaDateKey(f)).filter(Boolean).sort();
       dashPeriodo.textContent = selectedMonth
         ? new Date(`${selectedMonth}-01T00:00:00`).toLocaleDateString('es-MX',{month:'long',year:'numeric'})
@@ -879,6 +883,28 @@
         return `<tr><td>${v.fecha}</td><td>${esc(v.op)}</td><td>${esc(v.origen)}</td><td>${esc(v.destino)}</td><td>${esc(v.litros)}</td><td>${money(v.total)}</td><td>${esc(v.pago)}</td><td class="assistant-cell">${v.assistantBadge}</td><td>${esc(v.status)}</td><td><code>${esc(v.uuid)}</code></td><td>${v.docs}</td></tr>`;
       }).join('') : `<tr><td colspan="11">${esc(emptyText)}</td></tr>`;
     }
+    function facturaClientKey(f){
+      const md = f.metadata || {};
+      return String(md.cliente_nombre || f.nombre_receptor || f.rfc_receptor || md.destino_nombre || 'SIN CLIENTE').trim().toUpperCase();
+    }
+    function facturaClientLabel(f){
+      const md = f.metadata || {};
+      const name = md.cliente_nombre || f.nombre_receptor || md.destino_nombre || f.rfc_receptor || 'Sin cliente';
+      return `${name}${f.rfc_receptor ? ' · ' + f.rfc_receptor : ''}`;
+    }
+    function renderFacturaClientOptions(){
+      const el = document.getElementById('facturaClienteFilter');
+      if(!el) return;
+      const previous = el.value;
+      const byClient = new Map();
+      FACTURAS.forEach(f => {
+        const key = facturaClientKey(f);
+        if(!byClient.has(key)) byClient.set(key, facturaClientLabel(f));
+      });
+      const clients = [...byClient.entries()].sort((a,b)=>a[1].localeCompare(b[1], 'es'));
+      el.innerHTML = '<option value="">Todos los clientes</option>' + clients.map(([key,label]) => `<option value="${esc(key)}">${esc(label)}</option>`).join('');
+      el.value = clients.some(([key]) => key === previous) ? previous : '';
+    }
     function renderTodayFacturas(){
       const key = todayKey();
       todayLabel.textContent = new Date(`${key}T00:00:00`).toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'});
@@ -889,13 +915,13 @@
       }).join('') : '<tr><td colspan="5">Sin facturas timbradas hoy.</td></tr>';
     }
     function applyFacturasFilters(){
-      const q = String(document.getElementById('facturaSearch')?.value || '').trim().toLowerCase();
+      const client = String(document.getElementById('facturaClienteFilter')?.value || '').trim().toUpperCase();
       const month = document.getElementById('facturaMes')?.value || '';
       const pago = document.getElementById('facturaPago')?.value || '';
       const rows = FACTURAS.filter(f => {
         const key = facturaDateKey(f);
         const v = facturaView(f);
-        if(q && !v.search.includes(q)) return false;
+        if(client && facturaClientKey(f) !== client) return false;
         if(month && !key.startsWith(month)) return false;
         if(pago && !String(v.pago).toUpperCase().includes(pago.toUpperCase())) return false;
         return true;
