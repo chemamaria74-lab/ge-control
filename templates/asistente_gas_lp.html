@@ -180,7 +180,7 @@
           </details>
         </div>
         <div class="filters compact-filters">
-          <div><label>Cliente, RFC o UUID</label><input id="compSearch" placeholder="Buscar PPD pendiente" oninput="renderComplementosPago()"></div>
+          <div><label>Cliente con PPD pendiente</label><select id="compClienteFilter" onchange="onComplementClientChange()"><option value="">Cargando clientes...</option></select></div>
           <div><label>Mes</label><input id="compMes" type="month" onchange="applyComplementMonthFilter()"></div>
           <div class="system-field"><label>Desde</label><input id="compDesde" type="date" onchange="renderComplementosPago()"></div>
           <div class="system-field"><label>Hasta</label><input id="compHasta" type="date" onchange="renderComplementosPago()"></div>
@@ -737,9 +737,16 @@
       }catch(e){ setStatus('facturaMsg',e.message,false); }
       finally{ if(btn) btn.disabled = false; }
     }
-    async function loadFacturas(){
-      const data = await api('/api/internal-auth/gas-lp/facturas');
-      FACTURAS = data.facturas || [];
+    function mergeFacturas(rows){
+      const byId = new Map(FACTURAS.map(f => [String(f.id), f]));
+      (rows || []).forEach(f => byId.set(String(f.id), f));
+      FACTURAS = [...byId.values()].sort((a,b)=>String(facturaDateValue(b) || b.created_at || '').localeCompare(String(facturaDateValue(a) || a.created_at || '')));
+    }
+    async function loadFacturas(month=''){
+      const qs = month ? '?mes=' + encodeURIComponent(month) : '';
+      const data = await api('/api/internal-auth/gas-lp/facturas' + qs);
+      if(month) mergeFacturas(data.facturas || []);
+      else FACTURAS = data.facturas || [];
       renderTodayFacturas();
       renderDashboard();
       renderComplementosPago();
@@ -895,11 +902,42 @@
       });
       renderFacturasTable(rows, facturasRows, 'Sin facturas con esos filtros.');
     }
-    function applyMonthFilter(){
-      applyFacturasFilters();
+    async function applyMonthFilter(){
+      const month = document.getElementById('facturaMes')?.value || '';
+      if(month) await loadFacturas(month);
+      else applyFacturasFilters();
     }
-    function complementoRows(){
-      const q = String(document.getElementById('compSearch')?.value || '').trim().toLowerCase();
+    function complementoClientKey(f){
+      const md = f.metadata || {};
+      return String(f.rfc_receptor || md.cliente_nombre || 'SIN RFC').trim().toUpperCase();
+    }
+    function complementoClientName(f){
+      const md = f.metadata || {};
+      return md.cliente_nombre || f.nombre_receptor || f.rfc_receptor || 'Cliente sin nombre';
+    }
+    function renderComplementClientOptions(rows){
+      const el = document.getElementById('compClienteFilter');
+      if(!el) return;
+      const previous = el.value;
+      const byClient = new Map();
+      rows.forEach(f => {
+        const key = complementoClientKey(f);
+        const item = byClient.get(key) || {key, name:complementoClientName(f), rfc:f.rfc_receptor || '—', count:0, saldo:0};
+        item.count += 1;
+        item.saldo += facturaSaldo(f);
+        byClient.set(key,item);
+      });
+      const clients = [...byClient.values()].sort((a,b)=>a.name.localeCompare(b.name,'es'));
+      el.innerHTML = '<option value="">Todos los clientes pendientes</option>' + clients.map(c => `<option value="${esc(c.key)}">${esc(c.name)} · ${esc(c.rfc)} · ${c.count} factura${c.count === 1 ? '' : 's'} · ${money(c.saldo)}</option>`).join('');
+      el.value = clients.some(c => c.key === previous) ? previous : '';
+    }
+    function onComplementClientChange(){
+      COMP_SEL = {};
+      setStatus('compMsg','');
+      renderComplementosPago();
+    }
+    function complementoRows(options={}){
+      const selectedClient = String(document.getElementById('compClienteFilter')?.value || '').trim().toUpperCase();
       const desde = document.getElementById('compDesde')?.value || '';
       const hasta = document.getElementById('compHasta')?.value || '';
       const estado = document.getElementById('compEstado')?.value || 'pendiente';
@@ -907,8 +945,7 @@
         if(!isPPD(f) || isCanceled(f) || (f.metadata || {}).tipo_operacion === 'traspaso') return false;
         if(estado === 'pendiente' && isPaid(f)) return false;
         const key = facturaDateKey(f);
-        const v = facturaView(f);
-        if(q && !v.search.includes(q)) return false;
+        if(!options.ignoreClient && selectedClient && complementoClientKey(f) !== selectedClient) return false;
         if(desde && key < desde) return false;
         if(hasta && key > hasta) return false;
         return true;
@@ -927,6 +964,7 @@
         const f = FACTURAS.find(x => String(x.id) === String(id));
         if(!f || !isComplementable(f)) delete COMP_SEL[id];
       });
+      renderComplementClientOptions(complementoRows({ignoreClient:true}).filter(isComplementable));
       const rows = complementoRows();
       complementosRows.innerHTML = rows.length ? rows.map(f => {
         const md = f.metadata || {};
@@ -986,7 +1024,7 @@
       setStatus('compMsg','');
       renderComplementosPago();
     }
-    function applyComplementMonthFilter(){
+    async function applyComplementMonthFilter(){
       const month = document.getElementById('compMes')?.value || '';
       if(month){
         compDesde.value = `${month}-01`;
@@ -998,6 +1036,7 @@
         compDesde.value = '';
         compHasta.value = '';
       }
+      if(month) await loadFacturas(month);
       renderComplementosPago();
     }
     async function timbrarComplementoPago(){
@@ -1025,8 +1064,22 @@
           monto: arr.reduce((sum,x)=>sum+Number(x.monto||0),0)
         };
         const data = await api('/api/internal-auth/gas-lp/facturas/' + encodeURIComponent(arr[0].id) + '/complemento-pago', {method:'POST', body:JSON.stringify(body)});
+        const compId = data.complemento?.id || '';
+        const docs = compId ? {
+          pdf:`/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(compId)}/pdf?token=${encodeURIComponent(token)}`,
+          xml:`/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(compId)}/xml?token=${encodeURIComponent(token)}`
+        } : null;
         COMP_SEL = {};
-        setStatus('compMsg',`Complemento timbrado: ${data.complemento?.uuid_sat || 'UUID pendiente'}`);
+        if(docs){
+          setStatus('compMsg','Complemento timbrado. Abriendo PDF y XML...');
+          setTimeout(() => {
+            window.open(docs.pdf, '_blank', 'noopener');
+            window.open(docs.xml, '_blank', 'noopener');
+            compMsg.innerHTML = `Complemento timbrado: ${esc(data.complemento?.uuid_sat || 'UUID pendiente')} · <a href="${docs.pdf}" target="_blank" rel="noopener">PDF</a> · <a href="${docs.xml}" target="_blank" rel="noopener">XML</a>`;
+          }, 100);
+        } else {
+          setStatus('compMsg',`Complemento timbrado: ${data.complemento?.uuid_sat || 'UUID pendiente'}`);
+        }
         await loadFacturas();
       }catch(e){ setStatus('compMsg',e.message,false); }
       finally{ btnTimbrarComplemento.disabled = false; }
