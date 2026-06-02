@@ -40,7 +40,12 @@ GAS_LP_HYP_SUBPRODUCTO = "SP23"
 GAS_LP_HIDRO_CLAVES = {GAS_LP_CLAVE_PROD_SERV, GAS_LP_SW_HYP_EXPERIMENTAL_CLAVE}
 GAS_LP_HYP_DIAGNOSTIC_CLAVES = {GAS_LP_CLAVE_PROD_SERV, GAS_LP_SW_HYP_EXPERIMENTAL_CLAVE}
 HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 12)}
+GAS_LP_HYP_MODES = {"required", "disabled", "diagnostic"}
 GAS_LP_HYP_DEBUG_LOG = os.environ.get("GAS_LP_HYP_DEBUG_LOG", "logs/gas_lp_hyp_pre_timbrado.log")
+GAS_LP_HYP_DISABLED_WARNING = (
+    "CFDI emitido sin complemento Hidrocarburos/Petrolíferos por configuración operativa. "
+    "Validar criterio fiscal con contador/PAC."
+)
 
 
 class InternalUserCreate(BaseModel):
@@ -121,6 +126,10 @@ class GasLpInternalFacturaPayload(BaseModel):
     chofer_id: Optional[int] = None
     ruta_id: Optional[int] = None
     enviar_correo: bool = True
+    factura_global: bool = False
+    informacion_global_periodicidad: str = "04"
+    informacion_global_meses: str = ""
+    informacion_global_anio: Optional[int] = None
     hyp_experimental_diagnostics: bool = False
     hyp_numero_permiso_override: str = ""
     hyp_tipo_permiso_override: str = ""
@@ -717,6 +726,14 @@ def _sw_config_looks_like_sandbox(config: dict) -> bool:
     return any(marker in url_text for marker in ("test.sw.com.mx", "sandbox", "demo"))
 
 
+def _gas_lp_hyp_mode() -> str:
+    mode = os.environ.get("GAS_LP_HYP_MODE", "disabled").strip().lower()
+    if mode not in GAS_LP_HYP_MODES:
+        logger.warning("gas_lp_hyp_mode_invalid value=%s fallback=disabled", mode)
+        return "disabled"
+    return mode
+
+
 def _require_gas_lp_issuer(profile: dict, settings: dict) -> dict:
     rfc = _clean_rfc(settings.get("RfcContribuyente") or profile.get("rfc") or "")
     name = str(settings.get("DescripcionInstalacion") or profile.get("nombre") or "").strip()
@@ -757,6 +774,7 @@ def _build_gas_lp_consumo_xml(
     fecha: str = "",
     clave_prod_serv: str = GAS_LP_CLAVE_PROD_SERV,
     hyp: Optional[dict] = None,
+    informacion_global: Optional[dict] = None,
     no_identificacion: str = "GLP-LTR",
     unidad: str = "Litro",
 ) -> tuple[str, dict]:
@@ -798,6 +816,23 @@ def _build_gas_lp_consumo_xml(
             f'{_gas_lp_hyp_xml_fragment(hyp)}'
             '</cfdi:ComplementoConcepto>'
         )
+    info_global_xml = ""
+    informacion_global = informacion_global or {}
+    if informacion_global:
+        try:
+            fecha_base = datetime.strptime(fecha[:10], "%Y-%m-%d")
+        except Exception:
+            fecha_base = datetime.now()
+        periodicidad = str(informacion_global.get("periodicidad") or "04").strip()[:2] or "04"
+        meses = "".join(ch for ch in str(informacion_global.get("meses") or f"{fecha_base.month:02d}") if ch.isdigit())[:2]
+        anio = "".join(ch for ch in str(informacion_global.get("anio") or fecha_base.year) if ch.isdigit())[:4]
+        meses = meses.zfill(2)
+        if len(anio) != 4:
+            raise HTTPException(400, "El año de InformaciónGlobal debe usar 4 dígitos.")
+        info_global_xml = (
+            f'<cfdi:InformacionGlobal Periodicidad="{xml_escape(periodicidad)}" '
+            f'Meses="{xml_escape(meses)}" Año="{xml_escape(anio)}"/>'
+        )
     no_identificacion = str(no_identificacion or folio).strip()[:100] or folio
     unidad = str(unidad or "Litro").strip()[:20] or "Litro"
     xml = (
@@ -808,6 +843,7 @@ def _build_gas_lp_consumo_xml(
         f'Version="4.0" Serie="{xml_escape(serie)}" Folio="{xml_escape(folio)}" Fecha="{fecha}" FormaPago="{xml_escape(forma_pago or "99")}" '
         f'NoCertificado="" Certificado="" Sello="" SubTotal="{subtotal:.2f}"{descuento_comprobante} Moneda="MXN" Total="{total:.2f}" '
         f'TipoDeComprobante="I" Exportacion="01" MetodoPago="{xml_escape(metodo_pago or "PUE")}" LugarExpedicion="{issuer["cp"]}">'
+        f'{info_global_xml}'
         f'<cfdi:Emisor Rfc="{issuer["rfc"]}" Nombre="{xml_escape(issuer["nombre"])}" RegimenFiscal="{issuer["regimen"]}"/>'
         f'<cfdi:Receptor Rfc="{receptor["rfc"]}" Nombre="{xml_escape(receptor["nombre"])}" '
         f'DomicilioFiscalReceptor="{receptor["cp"]}" RegimenFiscalReceptor="{receptor["regimen_fiscal"]}" UsoCFDI="{receptor["uso_cfdi"]}"/>'
@@ -1746,11 +1782,26 @@ async def gas_lp_internal_summary(token: str):
                 or 0,
         },
         "modules": modules,
+        "hyp": {
+            "mode": _gas_lp_hyp_mode(),
+            "warning": GAS_LP_HYP_DISABLED_WARNING if _gas_lp_hyp_mode() == "disabled" else "",
+        },
         "session": {"expires_at": ctx["session"].get("expires_at"), "hours": SESSION_HOURS},
         "notices": [
             "Este portal no usa cuenta global Supabase Auth.",
             "Los permisos se limitan por empresa, módulo y rol interno.",
         ],
+    })
+
+
+@router.get("/internal-auth/gas-lp/hyp-mode")
+async def gas_lp_internal_hyp_mode(token: str):
+    _gas_lp_internal_context(token)
+    mode = _gas_lp_hyp_mode()
+    return JSONResponse({
+        "ok": True,
+        "mode": mode,
+        "warning": GAS_LP_HYP_DISABLED_WARNING if mode == "disabled" else "",
     })
 
 
@@ -2412,6 +2463,9 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     if not origen:
         raise HTTPException(400, "Selecciona la instalación origen para timbrar Gas LP.")
     destino = facilities_by_id.get(int(payload.destino_facility_id or 0), {})
+    hyp_mode = _gas_lp_hyp_mode()
+    if hyp_mode == "diagnostic" and not payload.hyp_experimental_diagnostics:
+        raise HTTPException(400, "El modo HyP diagnóstico sólo permite pruebas persisted=false.")
     clave_prod_serv_original = _clean_clave_prod_serv(payload.clave_prod_serv)
     clave_prod_serv = GAS_LP_CLAVE_PROD_SERV
     clave_hyp_diagnostic_override = ""
@@ -2420,9 +2474,11 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         if clave_hyp_diagnostic_override not in GAS_LP_HYP_DIAGNOSTIC_CLAVES:
             raise HTTPException(400, "La clave HyP experimental sólo permite 15111510 o 15101515.")
         clave_prod_serv = clave_hyp_diagnostic_override
-    hyp = _gas_lp_hyp_from_facility(origen, GAS_LP_CLAVE_PROD_SERV)
-    if clave_hyp_diagnostic_override:
-        hyp = {**hyp, "clave_hyp": clave_hyp_diagnostic_override}
+    hyp = {}
+    if hyp_mode == "required" or payload.hyp_experimental_diagnostics:
+        hyp = _gas_lp_hyp_from_facility(origen, GAS_LP_CLAVE_PROD_SERV)
+        if clave_hyp_diagnostic_override:
+            hyp = {**hyp, "clave_hyp": clave_hyp_diagnostic_override}
     hyp_original = dict(hyp)
     hyp_override_aplicado = False
     if payload.hyp_experimental_diagnostics:
@@ -2438,13 +2494,21 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "tipo_permiso": override_tipo or hyp.get("tipo_permiso") or "",
         }
         hyp_override_aplicado = True
+    informacion_global = None
+    if receptor["rfc"] == "XAXX010101000" and payload.factura_global:
+        informacion_global = {
+            "periodicidad": payload.informacion_global_periodicidad,
+            "meses": payload.informacion_global_meses,
+            "anio": payload.informacion_global_anio,
+        }
+    concepto_cfdi = "LITRO DE GAS LP" if hyp_mode == "disabled" and not payload.hyp_experimental_diagnostics else payload.concepto
 
     xml, totals = _build_gas_lp_consumo_xml(
         issuer=issuer,
         receptor=receptor,
         litros=payload.litros,
         precio_unitario=payload.precio_unitario,
-        concepto=payload.concepto,
+        concepto=concepto_cfdi,
         forma_pago=payload.forma_pago,
         metodo_pago=payload.metodo_pago,
         descuento=payload.descuento,
@@ -2457,6 +2521,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         no_identificacion=payload.no_identificacion,
         unidad=payload.unidad,
         hyp=hyp,
+        informacion_global=informacion_global,
     )
     hyp_node_xml = _gas_lp_hyp_xml_fragment(hyp)
     sw_config = sw_runtime_config()
@@ -2480,6 +2545,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         "timbrado_real_o_prueba": "prueba" if sw_sandbox else "real",
         "credenciales_sw_configuradas": bool(sw_config.get("has_credentials")),
         "timbrado_real_habilitado": bool(sw_config.get("real_stamping_allowed")),
+        "gas_lp_hyp_mode": hyp_mode,
+        "gas_lp_hyp_disabled_warning": GAS_LP_HYP_DISABLED_WARNING if hyp_mode == "disabled" and not payload.hyp_experimental_diagnostics else "",
         "facility_id": payload.facility_id,
         "instalacion": origen.get("nombre") or origen.get("clave_instalacion") or "",
         "numero_permiso_instalacion": origen.get("num_permiso") or "",
@@ -2502,7 +2569,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     }
     _write_gas_lp_hyp_debug_log(debug_payload)
     logger.info(
-        "gas_lp_hyp_pre_timbrado usuario=%s empresa=%s empresa_rfc=%s sw_env=%s app_env=%s endpoint=%s rfc_emisor=%s sandbox=%s timbrado=%s experimental=%s facility_id=%s instalacion=%s numero_permiso_instalacion=%s numero_permiso_original=%s numero_permiso_final=%s tipo_permiso_original=%s tipo_permiso_final=%s clave_prod_serv_recibida=%s clave_prod_serv_final=%s incluye_hyp=%s clave_hyp=%s subproducto_hyp=%s hyp_xml=%s xml_enviado=%s",
+        "gas_lp_hyp_pre_timbrado usuario=%s empresa=%s empresa_rfc=%s sw_env=%s app_env=%s endpoint=%s rfc_emisor=%s sandbox=%s timbrado=%s hyp_mode=%s experimental=%s facility_id=%s instalacion=%s numero_permiso_instalacion=%s numero_permiso_original=%s numero_permiso_final=%s tipo_permiso_original=%s tipo_permiso_final=%s clave_prod_serv_recibida=%s clave_prod_serv_final=%s incluye_hyp=%s clave_hyp=%s subproducto_hyp=%s hyp_xml=%s xml_enviado=%s",
         user.get("display_name") or user.get("id") or "",
         profile.get("nombre") or "",
         profile.get("rfc") or "",
@@ -2512,6 +2579,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         issuer.get("rfc") or "",
         sw_sandbox,
         "prueba" if sw_sandbox else "real",
+        hyp_mode,
         bool(payload.hyp_experimental_diagnostics),
         payload.facility_id,
         origen.get("nombre") or origen.get("clave_instalacion") or "",
@@ -2555,6 +2623,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "clave_prod_serv_final": clave_prod_serv,
             "clave_hyp_final": hyp.get("clave_hyp") or "",
             "subproducto_hyp": hyp.get("subproducto_hyp") or "",
+            "gas_lp_hyp_mode": hyp_mode,
             "hidroypetro_xml": hyp_node_xml,
             "xml_enviado": xml,
             "pac_sw_response": resultado,
@@ -2607,6 +2676,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "comentarios": payload.comentarios,
             "fecha_emision": totals["fecha"],
             "clave_prod_serv": clave_prod_serv,
+            "gas_lp_hyp_mode": hyp_mode,
+            "gas_lp_hyp_warning": GAS_LP_HYP_DISABLED_WARNING if hyp_mode == "disabled" else "",
             "hidrocarburos_petroliferos": hyp,
             "no_identificacion": payload.no_identificacion,
             "unidad": payload.unidad,
@@ -2666,7 +2737,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         except Exception as exc:
             logger.exception("gas_lp_invoice_email failed: factura=%s err=%s", factura_row.get("id"), exc)
             email_result = None
-    return JSONResponse({"ok": True, "factura": factura_row, "totals": totals, "email": email_result.as_metadata() if email_result else None})
+    warnings = [GAS_LP_HYP_DISABLED_WARNING] if hyp_mode == "disabled" else []
+    return JSONResponse({"ok": True, "factura": factura_row, "totals": totals, "email": email_result.as_metadata() if email_result else None, "warnings": warnings})
 
 
 @router.post("/internal-auth/gas-lp/hyp-l-cne-diagnostics")
