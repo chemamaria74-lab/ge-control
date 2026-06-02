@@ -2115,7 +2115,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
     wb = Workbook()
     ws = wb.active
     ws.title = "Facturas"
-    headers = ["Fecha", "Folio de fact", "Razón social", "Litros", "Monto con IVA", "PUE o PPD"]
+    headers = ["Fecha", "Folio de fact", "Razón social", "Monto con IVA", "Litros", "PUE o PPD"]
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
@@ -2125,16 +2125,16 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
             _gas_lp_factura_date_key(row),
             _gas_lp_factura_folio_label(row),
             _gas_lp_factura_razon_social(row),
-            float(row.get("volumen_litros") or 0),
             float(_gas_lp_factura_total_con_iva(row)),
+            float(row.get("volumen_litros") or 0),
             _gas_lp_factura_metodo_pago(row),
         ])
-    for width, column in zip([14, 18, 42, 14, 18, 14], "ABCDEF"):
+    for width, column in zip([14, 18, 42, 18, 14, 14], "ABCDEF"):
         ws.column_dimensions[column].width = width
     for cell in ws["D"][1:]:
-        cell.number_format = "#,##0.000"
-    for cell in ws["E"][1:]:
         cell.number_format = '$#,##0.00'
+    for cell in ws["E"][1:]:
+        cell.number_format = "#,##0.000"
     stream = BytesIO()
     wb.save(stream)
     stream.seek(0)
@@ -2577,10 +2577,10 @@ async def gas_lp_conciliacion_export_excel(
         "Folio",
         "UUID",
         "Instalación",
+        "Total",
         "Litros",
         "Subtotal",
         "IVA",
-        "Total",
         "Forma pago",
         "Método pago",
         "Estado",
@@ -2604,21 +2604,21 @@ async def gas_lp_conciliacion_export_excel(
             _gas_lp_factura_folio_label(row),
             row.get("uuid_sat") or "",
             md.get("origen_nombre") or "",
+            float(info["total"]),
             float(row.get("volumen_litros") or 0),
             float(info["subtotal"]),
             float(info["iva"]),
-            float(info["total"]),
             md.get("forma_pago") or "",
             _gas_lp_factura_metodo_pago(row),
             row.get("status") or "",
             row.get("realizado_por") or md.get("created_by") or md.get("created_by_internal_name") or "",
             md.get("created_by_area") or md.get("portal") or "",
         ])
-    for width, column in zip([24, 16, 14, 22, 34, 16, 18, 38, 24, 12, 14, 14, 14, 12, 12, 14, 22, 20], "ABCDEFGHIJKLMNOPQR"):
+    for width, column in zip([24, 16, 14, 22, 34, 16, 18, 38, 24, 14, 12, 14, 14, 12, 12, 14, 22, 20], "ABCDEFGHIJKLMNOPQR"):
         ws.column_dimensions[column].width = width
-    for cell in ws["J"][1:]:
+    for cell in ws["K"][1:]:
         cell.number_format = "#,##0.000"
-    for column in ("K", "L", "M"):
+    for column in ("J", "L", "M"):
         for cell in ws[column][1:]:
             cell.number_format = '$#,##0.00'
 
