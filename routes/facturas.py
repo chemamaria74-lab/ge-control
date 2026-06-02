@@ -792,7 +792,12 @@ async def ver_pdf_factura_gas_lp(
         raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")
     info = fiscal_pdf_info(xml_content, "factura_gas_lp")
     settings = _settings_from_scope(scope)
-    pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+    md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    pdf_bytes = generar_pdf_gas_lp_desde_xml(
+        xml_content,
+        logo_data_url=settings.get("PdfLogoDataUrl", ""),
+        observaciones=str(md.get("comentarios") or md.get("observaciones") or "").strip(),
+    )
     storage = save_fiscal_artifacts(
         sb,
         bucket="fiscal-documents",

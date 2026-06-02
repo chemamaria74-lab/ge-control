@@ -1063,6 +1063,11 @@ def _gas_lp_factura_folio_label(factura: dict) -> str:
     return label or str(factura.get("id") or "")
 
 
+def _gas_lp_factura_observaciones(factura: dict) -> str:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    return str(md.get("comentarios") or md.get("observaciones") or "").strip()
+
+
 def _gas_lp_factura_razon_social(factura: dict) -> str:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
     if md.get("cliente_nombre"):
@@ -2210,7 +2215,11 @@ async def gas_lp_internal_factura_pdf(factura_id: int, token: str):
         raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     info = fiscal_pdf_info(xml_content, "factura_gas_lp")
-    pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+    pdf_bytes = generar_pdf_gas_lp_desde_xml(
+        xml_content,
+        logo_data_url=settings.get("PdfLogoDataUrl", ""),
+        observaciones=_gas_lp_factura_observaciones(row),
+    )
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -2238,7 +2247,11 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
         raise HTTPException(400, "Captura un correo destino para enviar XML/PDF.")
     try:
         info = fiscal_pdf_info(xml_content, "factura_gas_lp")
-        pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+        pdf_bytes = generar_pdf_gas_lp_desde_xml(
+            xml_content,
+            logo_data_url=settings.get("PdfLogoDataUrl", ""),
+            observaciones=_gas_lp_factura_observaciones(row),
+        )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_factura_send_email_pdf", exc)
     email_result = send_gas_lp_invoice_email(
@@ -2948,7 +2961,11 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         try:
             xml_timbrado = factura_row.get("xml_content") or resultado.get("xml_timbrado") or xml
             info = fiscal_pdf_info(xml_timbrado, "factura_gas_lp")
-            pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_timbrado, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+            pdf_bytes = generar_pdf_gas_lp_desde_xml(
+                xml_timbrado,
+                logo_data_url=settings.get("PdfLogoDataUrl", ""),
+                observaciones=_gas_lp_factura_observaciones(factura_row),
+            )
             email_result = send_gas_lp_invoice_email(
                 to_email=recipient,
                 issuer_name=issuer["nombre"],
