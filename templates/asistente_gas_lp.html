@@ -260,7 +260,10 @@
           <div><label>RFC</label><input id="cliRfc" value="XAXX010101000" oninput="this.value=this.value.toUpperCase()"></div>
           <div><label>Nombre fiscal</label><input id="cliNombre" value="PUBLICO EN GENERAL"></div>
           <div><label>CP</label><input id="cliCp" inputmode="numeric" maxlength="5"></div>
-          <div><label>Correo facturación</label><input id="cliEmail" type="email" placeholder="cliente@empresa.com"></div>
+          <div><label>Correo oficial/principal</label><input id="cliEmail" type="email" placeholder="cliente@empresa.com"></div>
+          <div><label>Correo adicional 1</label><input id="cliEmailAdicional1" type="email" placeholder="contabilidad@empresa.com"></div>
+          <div><label>Correo adicional 2</label><input id="cliEmailAdicional2" type="email" placeholder="administracion@empresa.com"></div>
+          <div><label>&nbsp;</label><div class="muted" style="font-size:.8rem;padding-top:9px">Máximo 3 correos: 1 principal y 2 adicionales.</div></div>
           <div><label>Régimen</label><select id="cliRegimen"></select></div>
           <div><label>Uso CFDI</label><select id="cliUso"></select></div>
         </div>
@@ -283,8 +286,13 @@
         </div>
         <button class="btn ghost icon-btn" type="button" onclick="closeEmailModal()" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
       </div>
-      <label for="emailModalInput">Correo destino</label>
+      <label for="emailModalInput">Correo oficial/principal</label>
       <input id="emailModalInput" type="email" placeholder="cliente@empresa.com">
+      <label for="emailModalExtra1" style="margin-top:10px">Correo adicional 1</label>
+      <input id="emailModalExtra1" type="email" placeholder="contabilidad@empresa.com">
+      <label for="emailModalExtra2" style="margin-top:10px">Correo adicional 2</label>
+      <input id="emailModalExtra2" type="email" placeholder="administracion@empresa.com">
+      <p class="muted" style="margin:8px 0 0;font-size:.8rem">Máximo 3 correos: 1 principal y 2 adicionales.</p>
       <div class="modal-actions">
         <button class="btn ghost" type="button" onclick="closeEmailModal()">Cancelar</button>
         <button class="btn" id="emailModalSendBtn" type="button" onclick="sendFacturaEmail()"><i class="fa-solid fa-paper-plane"></i> Enviar XML/PDF</button>
@@ -482,6 +490,31 @@
       if(!text) return true;
       return text.split(',').map(x => x.trim()).filter(Boolean).every(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
     }
+    function clienteEmailAdicionales(c){
+      const md = c?.metadata || {};
+      if(Array.isArray(md.invoice_email_additional)) return md.invoice_email_additional.slice(0,2);
+      if(Array.isArray(md.email_adicionales)) return md.email_adicionales.slice(0,2);
+      return [md.email_adicional_1 || c?.email_adicional_1 || '', md.email_adicional_2 || c?.email_adicional_2 || ''].filter(Boolean).slice(0,2);
+    }
+    function emailSlots(primary, extra1='', extra2=''){
+      return [primary, extra1, extra2].map(v => String(v || '').trim().toLowerCase());
+    }
+    function validateEmailSlots(primary, extra1='', extra2='', opts={}){
+      const emails = emailSlots(primary, extra1, extra2).filter(Boolean);
+      if(!emails.length) return opts.requireEmail ? {ok:false, message:'Captura al menos el correo oficial/principal.'} : {ok:true, emails:[]};
+      if(emails.length > 3) return {ok:false, message:'Máximo 3 correos: 1 principal y 2 adicionales.'};
+      if(!emails.every(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) return {ok:false, message:'Captura correos válidos antes de continuar.'};
+      if(new Set(emails).size !== emails.length) return {ok:false, message:'No puedes repetir correos del cliente.'};
+      return {ok:true, emails};
+    }
+    function invoiceEmailRecipients(f){
+      const md = f?.metadata || {};
+      if(Array.isArray(f?.cliente_email_recipients) && f.cliente_email_recipients.length) return f.cliente_email_recipients.slice(0,3);
+      if(Array.isArray(md.email_recipients) && md.email_recipients.length) return md.email_recipients.slice(0,3);
+      const extras = [md.email_adicional_1 || '', md.email_adicional_2 || ''].filter(Boolean);
+      const base = md.cliente_email || f?.email_destinatario || md.email_sent_to || md.email_last_attempt_to || '';
+      return [base, ...extras].filter(Boolean).slice(0,3);
+    }
     function setPublicoGeneralDefaults(){
       updateClientePreview(null);
     }
@@ -493,6 +526,8 @@
       cliNombre.value = 'PUBLICO EN GENERAL';
       cliCp.value = issuerCp();
       cliEmail.value = '';
+      if(window.cliEmailAdicional1) cliEmailAdicional1.value = '';
+      if(window.cliEmailAdicional2) cliEmailAdicional2.value = '';
       cliRegimen.value = '616';
       cliUso.value = 'S01';
       setStatus('clientesMsg','');
@@ -511,7 +546,8 @@
       previewCp.textContent = receptor.cp || '—';
       previewRegimen.textContent = receptor.regimen_fiscal || '616';
       previewUso.textContent = receptor.uso_cfdi || 'S01';
-      previewEmail.textContent = receptor.email_facturacion || receptor.email || 'Sin correo';
+      const adicionales = clienteEmailAdicionales(receptor);
+      previewEmail.textContent = [receptor.email_facturacion || receptor.email || '', ...adicionales].filter(Boolean).join(', ') || 'Sin correo';
     }
     function ensureFechaEmision(){
       if(!fechaEmision.value) fechaEmision.value = localDateTimeValue();
@@ -636,22 +672,24 @@
       const q = String(document.getElementById('clienteSearch')?.value || '').trim().toLowerCase();
       const rows = CLIENTES.filter(c => {
         if(!q) return true;
-        return [c.nombre,c.rfc,c.cp,c.regimen_fiscal,c.uso_cfdi,c.email_facturacion,c.email].some(v => String(v || '').toLowerCase().includes(q));
+        return [c.nombre,c.rfc,c.cp,c.regimen_fiscal,c.uso_cfdi,c.email_facturacion,c.email,...clienteEmailAdicionales(c)].some(v => String(v || '').toLowerCase().includes(q));
       });
       clientesCount.textContent = `${CLIENTES.length} cliente${CLIENTES.length === 1 ? '' : 's'}`;
-      clientesList.innerHTML = rows.length ? rows.map(c=>`
+      clientesList.innerHTML = rows.length ? rows.map(c=>{
+        const emails = [c.email_facturacion || c.email || '', ...clienteEmailAdicionales(c)].filter(Boolean).join(', ') || 'Sin correo';
+        return `
         <div class="client-row">
           <i class="fa-solid fa-user"></i>
           <div>
             <b>${esc(c.nombre)}</b>
-            <span class="muted">${esc(c.rfc)} · CP ${esc(c.cp||'—')} · Régimen ${esc(c.regimen_fiscal||'616')} · ${esc(c.uso_cfdi||'S01')} · ${esc(c.email_facturacion || c.email || 'Sin correo')}</span>
+            <span class="muted">${esc(c.rfc)} · CP ${esc(c.cp||'—')} · Régimen ${esc(c.regimen_fiscal||'616')} · ${esc(c.uso_cfdi||'S01')} · ${esc(emails)}</span>
           </div>
           <div class="client-actions">
             <button class="btn ghost" type="button" onclick="selectClienteFromList(${Number(c.id)})"><i class="fa-solid fa-check"></i> Usar</button>
             <button class="btn ghost icon-btn" title="Editar cliente" type="button" onclick="editCliente(${Number(c.id)})"><i class="fa-solid fa-pen-to-square"></i></button>
             <button class="btn ghost icon-btn danger" title="Eliminar cliente" type="button" onclick="deleteCliente(${Number(c.id)})"><i class="fa-solid fa-trash-can"></i></button>
           </div>
-        </div>`).join('') : '<div class="empty">Sin clientes con ese filtro.</div>';
+        </div>`}).join('') : '<div class="empty">Sin clientes con ese filtro.</div>';
     }
     function selectClienteFromList(id){
       switchPortalTab('facturacion');
@@ -678,6 +716,9 @@
       cliNombre.value = c.nombre || '';
       cliCp.value = c.cp || '';
       cliEmail.value = c.email_facturacion || c.email || '';
+      const adicionales = clienteEmailAdicionales(c);
+      if(window.cliEmailAdicional1) cliEmailAdicional1.value = adicionales[0] || '';
+      if(window.cliEmailAdicional2) cliEmailAdicional2.value = adicionales[1] || '';
       cliRegimen.value = c.regimen_fiscal || '616';
       cliUso.value = c.uso_cfdi || 'S01';
       clienteFormClientes.classList.remove('hide');
@@ -779,7 +820,9 @@
     }
     async function saveClienteFromTab(){
       try{
-        const payload = {rfc:cliRfc.value,nombre:cliNombre.value,cp:cliCp.value,regimen_fiscal:cliRegimen.value,uso_cfdi:cliUso.value,email:cliEmail.value};
+        const validation = validateEmailSlots(cliEmail.value, cliEmailAdicional1?.value, cliEmailAdicional2?.value);
+        if(!validation.ok){ setStatus('clientesMsg', validation.message, false); return; }
+        const payload = {rfc:cliRfc.value,nombre:cliNombre.value,cp:cliCp.value,regimen_fiscal:cliRegimen.value,uso_cfdi:cliUso.value,email:cliEmail.value,email_adicional_1:cliEmailAdicional1?.value || '',email_adicional_2:cliEmailAdicional2?.value || ''};
         const url = EDIT_CLIENT_ID ? `/api/internal-auth/gas-lp/clientes/${encodeURIComponent(EDIT_CLIENT_ID)}` : '/api/internal-auth/gas-lp/clientes';
         const data = await api(url,{method: EDIT_CLIENT_ID ? 'PUT' : 'POST',body:JSON.stringify(payload)});
         setStatus('clientesMsg', EDIT_CLIENT_ID ? 'Cliente actualizado' : 'Cliente guardado');
@@ -1127,14 +1170,17 @@
     function facturaEmailValue(f){
         const md = f.metadata || {};
         if(md.tipo_operacion === 'traspaso') return md.transfer_email || md.transfer_email_sent_to || f.email_destinatario || md.email_last_attempt_to || '';
-        return md.cliente_email || f.email_destinatario || md.email_sent_to || md.email_last_attempt_to || '';
+        return invoiceEmailRecipients(f).join(', ');
     }
     function openEmailModal(facturaId){
       const f = FACTURAS.find(x => String(x.id) === String(facturaId));
       if(!f){ alert('No encontré la factura seleccionada. Actualiza el listado.'); return; }
       EMAIL_FACTURA_ID = f.id;
       const md = f.metadata || {};
-      emailModalInput.value = facturaEmailValue(f);
+      const recipients = md.tipo_operacion === 'traspaso' ? facturaEmailValue(f).split(',').map(x => x.trim()).filter(Boolean).slice(0,3) : invoiceEmailRecipients(f);
+      emailModalInput.value = recipients[0] || '';
+      if(window.emailModalExtra1) emailModalExtra1.value = recipients[1] || '';
+      if(window.emailModalExtra2) emailModalExtra2.value = recipients[2] || '';
       emailModalMeta.textContent = `${md.cliente_nombre || f.rfc_receptor || 'Cliente'} · ${f.uuid_sat || 'UUID pendiente'}`;
       setStatus('emailModalStatus','');
       emailModal.classList.remove('hide');
@@ -1147,16 +1193,20 @@
     }
     async function sendFacturaEmail(){
       if(!EMAIL_FACTURA_ID){ setStatus('emailModalStatus','Selecciona una factura.',false); return; }
-      const email = String(emailModalInput.value || '').trim();
-      if(!email || !validEmailList(email)){ setStatus('emailModalStatus','Captura uno o varios correos válidos separados por coma.',false); emailModalInput.focus(); return; }
+      const validation = validateEmailSlots(emailModalInput.value, emailModalExtra1?.value, emailModalExtra2?.value, {requireEmail:true});
+      if(!validation.ok){ setStatus('emailModalStatus', validation.message, false); emailModalInput.focus(); return; }
       try{
         emailModalSendBtn.disabled = true;
         setStatus('emailModalStatus','Enviando...');
         const data = await api(`/api/internal-auth/gas-lp/facturas/${encodeURIComponent(EMAIL_FACTURA_ID)}/send-email`, {
           method:'POST',
-          body:JSON.stringify({email})
+          body:JSON.stringify({
+            email: emailModalInput.value,
+            email_adicional_1: emailModalExtra1?.value || '',
+            email_adicional_2: emailModalExtra2?.value || ''
+          })
         });
-        setStatus('emailModalStatus','Correo enviado correctamente');
+        setStatus('emailModalStatus',`Correo enviado correctamente a ${validation.emails.join(', ')}`);
         await loadFacturas();
         setTimeout(closeEmailModal, 900);
       }catch(e){
