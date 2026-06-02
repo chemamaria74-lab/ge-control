@@ -507,9 +507,11 @@ def _infer_hyp_tipo_permiso_from_numero(numero_permiso: str) -> str:
     if not permiso:
         return ""
     if permiso.startswith("LP/"):
-        if "/DIST/PLA/" in permiso or "/DIST/REP/" in permiso or "/DIST/AUT/" in permiso:
+        if "/DIST/PLA/" in permiso:
             return "PER06"
-        if "/EXP/ES/" in permiso or "/EXP/AUT/" in permiso:
+        if "/EXP/ES/" in permiso:
+            return "PER01"
+        if "/DIST/REP/" in permiso or "/DIST/AUT/" in permiso or "/EXP/AUT/" in permiso:
             return "PER06"
         if "/COM/" in permiso:
             return "PER06"
@@ -614,6 +616,19 @@ def _gas_lp_hyp_from_facility(facility: dict, clave_prod_serv: str) -> dict:
     }
 
 
+def _gas_lp_hyp_xml_fragment(hyp: dict) -> str:
+    if not hyp:
+        return ""
+    return (
+        '<hidrocarburospetroliferos:HidroYPetro '
+        'Version="1.0" '
+        f'TipoPermiso="{xml_escape(str(hyp.get("tipo_permiso") or ""))}" '
+        f'NumeroPermiso="{xml_escape(str(hyp.get("numero_permiso") or ""))}" '
+        f'ClaveHYP="{xml_escape(str(hyp.get("clave_hyp") or ""))}" '
+        f'SubProductoHYP="{xml_escape(str(hyp.get("subproducto_hyp") or ""))}"/>'
+    )
+
+
 def _require_gas_lp_issuer(profile: dict, settings: dict) -> dict:
     rfc = _clean_rfc(settings.get("RfcContribuyente") or profile.get("rfc") or "")
     name = str(settings.get("DescripcionInstalacion") or profile.get("nombre") or "").strip()
@@ -692,11 +707,7 @@ def _build_gas_lp_consumo_xml(
     if hyp:
         hyp_xml = (
             '<cfdi:ComplementoConcepto>'
-            f'<hidrocarburospetroliferos:HidroYPetro Version="1.0" '
-            f'TipoPermiso="{xml_escape(hyp["tipo_permiso"])}" '
-            f'NumeroPermiso="{xml_escape(hyp["numero_permiso"])}" '
-            f'ClaveHYP="{xml_escape(hyp["clave_hyp"])}" '
-            f'SubProductoHYP="{xml_escape(hyp["subproducto_hyp"])}"/>'
+            f'{_gas_lp_hyp_xml_fragment(hyp)}'
             '</cfdi:ComplementoConcepto>'
         )
     no_identificacion = str(no_identificacion or folio).strip()[:100] or folio
@@ -2192,14 +2203,25 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         unidad=payload.unidad,
         hyp=hyp,
     )
+    logger.info(
+        "gas_lp_hyp_pre_timbrado facility_id=%s instalacion=%s numero_permiso=%s tipo_permiso=%s clave_prod_serv=%s clave_hyp=%s subproducto_hyp=%s hyp_xml=%s",
+        payload.facility_id,
+        origen.get("nombre") or origen.get("clave_instalacion") or "",
+        origen.get("num_permiso") or "",
+        hyp.get("tipo_permiso") or "",
+        clave_prod_serv,
+        hyp.get("clave_hyp") or "",
+        hyp.get("subproducto_hyp") or "",
+        _gas_lp_hyp_xml_fragment(hyp),
+    )
     resultado = timbrar_cfdi(xml)
     if resultado.get("error"):
         pac_error = str(resultado["error"])
         if "CCHYP107" in pac_error or "NumeroPermiso" in pac_error:
             pac_error = (
                 f"{pac_error} "
-                "El PAC no acepta el permiso LP/.../DIST/PLA/... con el tipo de permiso seleccionado. "
-                "Validar con SW/SAT el TipoPermiso exacto para Gas LP planta de distribución y que el permiso esté cargado en L_CNE."
+                "El PAC no acepta el permiso LP/... con el tipo de permiso seleccionado. "
+                "Validar con SW/SAT el TipoPermiso exacto para esa instalación Gas LP y que el permiso esté cargado en L_CNE."
             )
         raise HTTPException(400, f"PAC rechazó la factura: {pac_error}")
     now = _now_iso()
