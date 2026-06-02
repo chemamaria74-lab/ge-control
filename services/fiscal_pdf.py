@@ -106,6 +106,7 @@ def generar_pdf_cfdi_desde_xml(
     logo = _logo_flowable(logo_data_url, Image)
     issuer_name = _attr(emisor, "Nombre", "Emisor")
     issuer_rfc = _attr(emisor, "Rfc", "")
+    permiso_cre = _printed_cre_permit(root)
     fallback_brand = Paragraph(
         f"<b>{_text(issuer_name)}</b><br/><font size='7'>{_text(issuer_rfc)}</font>",
         styles["Brand"],
@@ -151,13 +152,18 @@ def generar_pdf_cfdi_desde_xml(
             ("Uso CFDI", _attr(receptor, "UsoCFDI")),
         ],
         "Datos del comprobante",
-        [
+        _compact_rows([
             ("Tipo", f"{_tipo_cfdi(_attr(root, 'TipoDeComprobante'))} ({_attr(root, 'TipoDeComprobante')})"),
-            ("Método de pago", _attr(root, "MetodoPago")),
+            ("Folio", f"{_attr(root, 'Serie', '')}{_attr(root, 'Folio', '')}".strip()),
+            ("Fecha emisión", _attr(root, "Fecha")),
+            ("Fecha timbrado", _attr(timbre, "FechaTimbrado")),
             ("Forma de pago", _attr(root, "FormaPago")),
+            ("Método de pago", _attr(root, "MetodoPago")),
             ("Moneda", _attr(root, "Moneda")),
             ("Exportación", _attr(root, "Exportacion")),
-        ],
+            ("Lugar de expedición", _attr(root, "LugarExpedicion")),
+            ("Permiso CRE", permiso_cre),
+        ]),
         Table, TableStyle, Paragraph, styles, colors, wine, cream, line,
     ))
 
@@ -326,6 +332,23 @@ def _clean_path(value: str) -> str:
 
 def _tipo_cfdi(tipo: str) -> str:
     return {"I": "Ingreso", "E": "Egreso", "T": "Traslado", "P": "Pago", "N": "Nómina"}.get(tipo or "", tipo or "—")
+
+
+def _compact_rows(rows: list[tuple[str, Any]]) -> list[tuple[str, str]]:
+    compact: list[tuple[str, str]] = []
+    for key, value in rows:
+        text = str(value or "").strip()
+        if text and text != "—":
+            compact.append((key, text))
+    return compact
+
+
+def _printed_cre_permit(root) -> str:
+    for node in _all(root, "HidroYPetro"):
+        permiso = _attr(node, "NumeroPermiso", "").strip()
+        if permiso and permiso != "—":
+            return permiso
+    return ""
 
 
 def _section(text, Paragraph, styles):
