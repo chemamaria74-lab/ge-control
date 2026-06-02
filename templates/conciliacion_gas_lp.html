@@ -11,10 +11,11 @@
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);font-family:var(--ge-font);color:var(--ink);min-height:100vh}
     .top{position:sticky;top:0;z-index:20;background:var(--wine-2);color:#fff;border-bottom:1px solid rgba(255,255,255,.14)}
-    .top-inner{max-width:1440px;margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:14px}
-    .brand{display:flex;align-items:center;gap:10px;font-weight:900;letter-spacing:.01em}.brand img{width:58px;height:34px;object-fit:contain}
+    .top-inner{max-width:1440px;margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:14px;justify-content:flex-start}
+    .brand{display:flex;align-items:center;gap:10px;font-weight:900;letter-spacing:.01em;flex:0 0 auto}.brand img{width:58px;height:34px;object-fit:contain}
     .module-pill{border:1px solid rgba(255,255,255,.24);background:rgba(255,255,255,.12);border-radius:999px;padding:7px 11px;font-size:12px;font-weight:900}
-    .top-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+    .top-actions{margin-left:auto;display:flex;gap:10px;align-items:center;justify-content:flex-end}
+    .top-company{display:flex;gap:8px;align-items:center;min-width:0}.top-company select{width:320px;max-width:34vw;border-color:rgba(255,255,255,.28);background:rgba(255,255,255,.96);color:#1f2937;font-size:13px;font-weight:800}.top-rfc{white-space:nowrap;color:rgba(255,255,255,.82);font-size:12px;font-weight:900}
     main{max-width:1440px;margin:0 auto;padding:18px 22px 28px}
     .header{display:grid;grid-template-columns:minmax(280px,1fr) auto;gap:14px;align-items:end;margin-bottom:14px}
     h1{font-size:24px;margin:0 0 4px;letter-spacing:-.01em}h2{font-size:18px;margin:0}h3{font-size:15px;margin:0}.muted{color:var(--muted);line-height:1.45}.small{font-size:12px}.nowrap{white-space:nowrap}
@@ -26,7 +27,7 @@
     .btn{border:1px solid var(--wine);background:var(--wine);color:#fff;border-radius:7px;padding:9px 12px;font:inherit;font-size:13px;font-weight:900;cursor:pointer;text-decoration:none;display:inline-flex;gap:7px;align-items:center;justify-content:center;line-height:1}
     .btn:hover{background:var(--wine-2)}.btn.ghost{background:#fff;color:#1f2937;border-color:#D6DAE1}.btn.danger{background:#fff;color:var(--err);border-color:#fecaca}.btn.sm{padding:7px 9px;font-size:12px}.btn.top-btn{border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.12);color:#fff}
     .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}.kpi{padding:13px}.kpi span{font-size:11px;color:#667085;font-weight:900;text-transform:uppercase;letter-spacing:.04em}.kpi b{display:block;font-size:24px;line-height:1.2;margin-top:5px}
-    .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.tab{border:1px solid #D6DAE1;background:#fff;color:#475569;border-radius:7px;padding:9px 12px;font:inherit;font-size:13px;font-weight:900;cursor:pointer}.tab.active{background:var(--wine);border-color:var(--wine);color:#fff}
+    .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.tab{border:1px solid #D6DAE1;background:#fff;color:#334155;border-radius:7px;padding:9px 12px;font:inherit;font-size:13px;font-weight:900;cursor:pointer}.tab:hover{background:#F8FAFC;border-color:#CBD5E1;color:#1e293b}.tab.active,.tab.active:hover{background:var(--wine);border-color:var(--wine);color:#fff!important}
     .section{display:none}.section.active{display:block}.section-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}
     .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff}table{width:100%;border-collapse:collapse;font-size:12.5px}th{background:#F8FAFC;color:#667085;text-align:left;text-transform:uppercase;font-size:10.5px;letter-spacing:.04em;padding:9px;white-space:nowrap;border-bottom:1px solid var(--line)}td{border-bottom:1px solid #EEF2F7;padding:8px 9px;vertical-align:middle}tr:last-child td{border-bottom:0}.num{text-align:right;white-space:nowrap}.folio{font-weight:900;color:#334155}.uuid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#475569}
     .pill{display:inline-flex;align-items:center;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:900}.pill.warn{border-color:#fed7aa;background:#fff7ed;color:var(--warn)}.pill.err{border-color:#fecaca;background:#fef2f2;color:var(--err)}
@@ -34,7 +35,7 @@
     .selection{position:sticky;bottom:0;margin-top:12px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;justify-content:space-between;gap:10px;align-items:center;box-shadow:0 -10px 30px rgba(15,23,42,.08)}
     .status{font-size:13px;font-weight:900;margin-top:8px}.ok{color:var(--ok)}.err{color:var(--err)}
     .notice{background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:10px 12px;color:#475569;font-size:12px}
-    @media(max-width:1000px){.header{grid-template-columns:1fr}.filters,.grid,.grid-2,.kpis{grid-template-columns:1fr}.company-select,.month-input{width:100%;min-width:0}.btn{width:100%}.selection{position:static;align-items:stretch;flex-direction:column}.top-inner{padding:10px 14px}main{padding:14px}}
+    @media(max-width:1000px){.header{grid-template-columns:1fr}.filters,.grid,.grid-2,.kpis{grid-template-columns:1fr}.company-select,.month-input{width:100%;min-width:0}.btn{width:100%}.selection{position:static;align-items:stretch;flex-direction:column}.top-inner{padding:10px 14px;flex-wrap:wrap}.top-actions{width:100%;margin-left:0;justify-content:stretch}.top-company{flex:1 1 auto}.top-company select{width:100%;max-width:none}.top-rfc{display:none}.top-btn{width:auto}main{padding:14px}}
   </style>
 </head>
 <body>
@@ -42,7 +43,13 @@
     <div class="top-inner">
       <div class="brand"><img src="/static/img/ge-isotype-light.svg" alt="GE"><span>GE CONTROL</span></div>
       <span class="module-pill">Conciliación Gas LP</span>
-      <div class="top-actions"><button class="btn top-btn sm" onclick="logout()">Salir</button></div>
+      <div class="top-actions">
+        <div class="top-company">
+          <select id="empresaSelect" class="company-select" onchange="changeEmpresa()"><option value="">Cargando empresas...</option></select>
+          <span class="top-rfc" id="topRfcLabel">RFC -</span>
+        </div>
+        <button class="btn top-btn sm" onclick="logout()">Salir</button>
+      </div>
     </div>
   </header>
 
@@ -53,7 +60,6 @@
         <div class="muted" id="companyLabel">Empresa seleccionada</div>
       </div>
       <div class="toolbar">
-        <select id="empresaSelect" class="company-select" onchange="changeEmpresa()"><option value="">Cargando empresas...</option></select>
         <input id="periodoFiltro" class="month-input" type="month" onchange="loadAll()">
         <button class="btn ghost" onclick="loadAll()">Actualizar</button>
       </div>
@@ -172,11 +178,13 @@
     function paid(f){return saldo(f)<=0||['pagado_pue','pagado_con_complemento','pagado_manual'].includes(String(f.payment_info?.payment_status||f.metadata?.payment_status||'').toLowerCase())}
     function isCancel(f){return String(f.status||'').toLowerCase().startsWith('cancel')}
 
-    async function loadPerfiles(){if(!token){location.href='/gas-lp/conciliacion';return}const d=await api('/api/internal-auth/gas-lp/conciliacion/perfiles',{},false);PERFILES=d.perfiles||[];const saved=PERFILES.find(p=>Number(p.id)===Number(activePerfilId));const resolved=saved||PERFILES.find(p=>Number(p.id)===Number(d.perfil_id))||PERFILES[0];activePerfilId=resolved?Number(resolved.id):null;if(activePerfilId)localStorage.setItem(PROFILE_KEY,String(activePerfilId));empresaSelect.innerHTML=PERFILES.length?PERFILES.map(p=>`<option value="${Number(p.id)}">${esc(p.nombre||'Empresa')} · RFC ${esc(p.rfc||'-')}</option>`).join(''):'<option value="">Sin empresas Gas LP</option>';if(activePerfilId)empresaSelect.value=String(activePerfilId)}
+    function activePerfil(){return PERFILES.find(p=>Number(p.id)===Number(activePerfilId))||null}
+    function updateHeaderCompany(){const p=activePerfil();if(topRfcLabel)topRfcLabel.textContent=p?.rfc?'RFC '+p.rfc:'RFC -'}
+    async function loadPerfiles(){if(!token){location.href='/gas-lp/conciliacion';return}const d=await api('/api/internal-auth/gas-lp/conciliacion/perfiles',{},false);PERFILES=d.perfiles||[];const saved=PERFILES.find(p=>Number(p.id)===Number(activePerfilId));const resolved=saved||PERFILES.find(p=>Number(p.id)===Number(d.perfil_id))||PERFILES[0];activePerfilId=resolved?Number(resolved.id):null;if(activePerfilId)localStorage.setItem(PROFILE_KEY,String(activePerfilId));empresaSelect.innerHTML=PERFILES.length?PERFILES.map(p=>`<option value="${Number(p.id)}">${esc(p.nombre||'Empresa')}${p.rfc?' · RFC '+esc(p.rfc):''}</option>`).join(''):'<option value="">Sin empresas Gas LP</option>';if(activePerfilId)empresaSelect.value=String(activePerfilId);updateHeaderCompany()}
     async function loadFacilities(){const d=await api('/api/internal-auth/gas-lp/conciliacion/facilities');FACILITIES=d.facilities||[];pubFacility.innerHTML=FACILITIES.length?'<option value="">Selecciona instalación</option>'+FACILITIES.map(f=>`<option value="${Number(f.id)}">${esc(f.nombre||f.clave_instalacion||'Instalación')}</option>`).join(''):'<option value="">Sin instalaciones</option>'}
     async function init(){try{periodoFiltro.value=today().slice(0,7);expMes.value=periodoFiltro.value;fechaPago.value=localDateTimeValue();pubFecha.value=localDateTimeValue();pubMes.value=periodoFiltro.value;await loadPerfiles();await loadFacilities();await loadAll()}catch(e){console.warn(e);localStorage.removeItem('ge_gaslp_conciliacion_token');location.href='/gas-lp/conciliacion'}}
-    async function changeEmpresa(){activePerfilId=Number(empresaSelect.value||'0')||null;if(activePerfilId)localStorage.setItem(PROFILE_KEY,String(activePerfilId));SEL={};FACTURAS=[];renderAll();await loadFacilities();await loadAll()}
-    async function loadAll(){periodoFiltro.value=month();expMes.value=periodoFiltro.value;const d=await api('/api/internal-auth/gas-lp/conciliacion/summary?periodo='+encodeURIComponent(month()));companyLabel.textContent=(d.company?.name||'Empresa')+' · RFC '+(d.company?.rfc||'-')+' · '+month();kFacturas.textContent=d.kpis?.facturas||0;kTotal.textContent=money(d.kpis?.total_facturado);kCredito.textContent=money(d.kpis?.credito_estimado);kCompPend.textContent=d.kpis?.complementos_pendientes||0;FACTURAS=d.facturas||[];renderAll()}
+    async function changeEmpresa(){activePerfilId=Number(empresaSelect.value||'0')||null;if(activePerfilId)localStorage.setItem(PROFILE_KEY,String(activePerfilId));updateHeaderCompany();SEL={};FACTURAS=[];renderAll();await loadFacilities();await loadAll()}
+    async function loadAll(){periodoFiltro.value=month();expMes.value=periodoFiltro.value;const d=await api('/api/internal-auth/gas-lp/conciliacion/summary?periodo='+encodeURIComponent(month()));companyLabel.textContent=(d.company?.name||'Empresa')+' · RFC '+(d.company?.rfc||'-')+' · '+month();topRfcLabel.textContent='RFC '+(d.company?.rfc||'-');kFacturas.textContent=d.kpis?.facturas||0;kTotal.textContent=money(d.kpis?.total_facturado);kCredito.textContent=money(d.kpis?.credito_estimado);kCompPend.textContent=d.kpis?.complementos_pendientes||0;FACTURAS=d.facturas||[];renderAll()}
     function clearFilters(){clienteFiltro.value='';diaFiltro.value='';estadoFiltro.value='';formaFiltro.value='';metodoFiltro.value='';renderAll()}
     function filteredRows(){const q=clienteFiltro.value.toLowerCase().trim();const day=diaFiltro.value;const st=estadoFiltro.value;const fp=formaFiltro.value;const mp=metodoFiltro.value;return FACTURAS.filter(f=>{const hay=[razon(f),f.rfc_receptor,f.uuid_sat,folio(f),facilityName(f)].join(' ').toLowerCase();if(q&&!hay.includes(q))return false;if(day&&String(f.created_at||f.fecha_timbrado||'').slice(0,10)!==day)return false;if(fp&&forma(f)!==fp)return false;if(mp&&metodo(f)!==mp)return false;if(st==='ppd'&&(metodo(f)!=='PPD'||paid(f)||isCancel(f)))return false;if(st==='pagada'&&!paid(f))return false;if(st==='cancelada'&&!isCancel(f))return false;return true})}
     function renderAll(){const r=filteredRows();renderFacturas(r);renderComplementos(r);renderSat(r)}
