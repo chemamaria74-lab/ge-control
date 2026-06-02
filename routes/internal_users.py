@@ -24,6 +24,7 @@ from routes.perfiles import _tenant_id_for_user, get_perfiles_for_user
 from services.database import get_facilities
 from services.email_delivery import send_gas_lp_invoice_email
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml
+from services.cfdi_cancellation import cancel_cfdi_universal
 from services.sw_sapien import sw_runtime_config, timbrar_cfdi
 from supabase_config import get_supabase_admin, get_supabase_for_user
 
@@ -189,6 +190,7 @@ class GasLpCancelacionPayload(BaseModel):
     motivo: str = "02"
     uuid_sustitucion: str = ""
     notas: str = ""
+    tipo: str = "fiscal"
 
 
 def _now() -> datetime:
@@ -2954,7 +2956,20 @@ async def gas_lp_complemento_pago_pdf(complemento_id: int, token: str, perfil_id
 async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacionPayload, token: str, perfil_id: int | None = None):
     ctx = _gas_lp_conciliacion_context(token, write=True, perfil_id=perfil_id)
     user = ctx["user"]
-    _gas_lp_profile(user, require_module_marker=True)
+    profile = _gas_lp_profile(user, require_module_marker=True)
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    issuer = _require_gas_lp_issuer(profile, settings)
+    motivo = str(payload.motivo or "").strip()
+    uuid_sustitucion = str(payload.uuid_sustitucion or "").strip()
+    if motivo not in {"01", "02", "03", "04"}:
+        raise HTTPException(400, "Motivo SAT inválido. Usa 01, 02, 03 o 04.")
+    if motivo == "01" and not uuid_sustitucion:
+        raise HTTPException(400, "El motivo SAT 01 requiere UUID sustituto.")
+    sw_config = sw_runtime_config()
+    if _sw_config_looks_like_sandbox(sw_config):
+        raise HTTPException(400, "Cancelación fiscal bloqueada: SW no está en producción.")
+    if not sw_config.get("real_cancelacion_flag"):
+        raise HTTPException(400, "Cancelación real bloqueada: falta SW_ALLOW_REAL_CANCELACION=true.")
     now = _now_iso()
     sb = get_supabase_admin()
     rows = (
@@ -2970,10 +2985,85 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
     )
     if not rows:
         raise HTTPException(404, "Factura no encontrada.")
-    md = rows[0].get("metadata") if isinstance(rows[0].get("metadata"), dict) else {}
-    md = {**md, "cancelacion_motivo": payload.motivo, "cancelacion_uuid_sustitucion": payload.uuid_sustitucion, "cancelacion_notas": payload.notas, "cancelada_por": user.get("display_name"), "cancelada_at": now}
-    data = sb.table("gas_lp_facturas").update({"status": "Cancelada", "metadata": md, "updated_at": now}).eq("id", factura_id).execute().data or []
-    return JSONResponse({"ok": True, "factura": data[0] if data else {**rows[0], "status": "Cancelada", "metadata": md}})
+    factura = rows[0]
+    if str(factura.get("status") or "").lower().startswith("cancel"):
+        raise HTTPException(400, "La factura ya tiene estado de cancelación.")
+    uuid_sat = str(factura.get("uuid_sat") or "").strip()
+    if not uuid_sat:
+        raise HTTPException(400, "No se puede cancelar fiscalmente: la factura no tiene UUID SAT.")
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    base_cancel_md = {
+        "cancelacion_tipo": "fiscal",
+        "motivo_cancelacion": motivo,
+        "uuid_sustitucion": uuid_sustitucion,
+        "notas_cancelacion": str(payload.notas or "").strip(),
+        "cancelacion_solicitada_por": user.get("display_name") or user.get("id"),
+        "cancelacion_solicitada_at": now,
+        "cancelacion_uuid_cancelado": uuid_sat,
+        "cancelacion_rfc_emisor": issuer["rfc"],
+    }
+    try:
+        resultado = cancel_cfdi_universal(
+            sb=sb,
+            module="gas_lp",
+            invoice_table="gas_lp_facturas",
+            invoice_id=factura_id,
+            uuid_sat=uuid_sat,
+            rfc_emisor=issuer["rfc"],
+            motivo=motivo,
+            uuid_sustitucion=uuid_sustitucion,
+            user_id=user.get("owner_user_id") or user.get("id") or "",
+            perfil_id=user.get("perfil_id"),
+            tenant_id=user.get("tenant_id"),
+            requested_by=user.get("display_name") or user.get("id") or "",
+        )
+    except HTTPException as exc:
+        err_md = {
+            **md,
+            **base_cancel_md,
+            "estado_fiscal": "cancelacion_error",
+            "cancelacion_error": str(exc.detail),
+            "cancelacion_error_at": _now_iso(),
+        }
+        try:
+            sb.table("gas_lp_facturas").update({"metadata": err_md, "updated_at": _now_iso()}).eq("id", factura_id).execute()
+        except Exception as update_exc:
+            logger.warning("gas_lp_cancelacion_error_metadata_update_failed factura_id=%s err=%s", factura_id, update_exc)
+        raise
+    acuse = str(resultado.get("acuse") or "")
+    estado_fiscal = "cancelada_fiscalmente" if acuse else "cancelacion_solicitada"
+    status_label = "Cancelada fiscalmente" if acuse else "Cancelación solicitada"
+    cancel_md = {
+        **md,
+        **base_cancel_md,
+        "estado_fiscal": estado_fiscal,
+        "cancelacion_estado_fiscal_label": status_label,
+        "cancelacion_pac_request_id": resultado.get("pac_request_id"),
+        "cancelacion_pac_response_id": resultado.get("pac_response_id"),
+        "cancelacion_acuse": acuse,
+        "cancelacion_respuesta_sw": resultado.get("raw") or {},
+        "cancelacion_confirmada_at": _now_iso(),
+    }
+    data = (
+        sb.table("gas_lp_facturas")
+        .update({"status": status_label, "metadata": cancel_md, "updated_at": _now_iso()})
+        .eq("id", factura_id)
+        .execute()
+        .data
+        or []
+    )
+    return JSONResponse({
+        "ok": True,
+        "factura": data[0] if data else {**factura, "status": status_label, "metadata": cancel_md},
+        "cancelacion": {
+            "estado_fiscal": estado_fiscal,
+            "status": status_label,
+            "acuse": acuse,
+            "pac_request_id": resultado.get("pac_request_id"),
+            "pac_response_id": resultado.get("pac_response_id"),
+            "respuesta_sw": resultado.get("raw") or {},
+        },
+    })
 
 
 @router.post("/internal-auth/gas-lp/facturas")
