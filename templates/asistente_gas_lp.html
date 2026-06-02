@@ -930,6 +930,7 @@
       if(isTraspaso && !destinoFacilitySelect.value){ setStatus('facturaMsg','Selecciona la estación destino.',false); return; }
       if(isTraspaso && String(facilitySelect.value) === String(destinoFacilitySelect.value)){ setStatus('facturaMsg','Origen y destino deben ser distintos.',false); return; }
       if(isTraspaso && !validEmailList(transferEmail.value)){ setStatus('facturaMsg','Captura correos de traspaso válidos, separados por coma.',false); transferEmail.focus(); return; }
+      if(isTraspaso && saveTransferEmailDefault?.checked && !transferEmail.value.trim()){ setStatus('facturaMsg','Captura el correo de traspaso antes de guardarlo como predeterminado.',false); transferEmail.focus(); return; }
       const wantsCarta = false;
       if(wantsCarta && (!vehiculoSelect.value || !choferSelect.value || !rutaSelect.value)){ setStatus('facturaMsg','Para preparar Carta Porte selecciona vehículo, chofer y ruta.',false); return; }
       syncPaymentMethod();
@@ -947,6 +948,10 @@
           total: totalVal,
         });
         if(!confirmed) return;
+        if(saveTransferEmailDefault?.checked){
+          const savedDefault = await saveTransferEmailDefaultNow();
+          if(!savedDefault) return;
+        }
       } else if(!confirm('¿Timbrar factura real?')) return;
       isStamping = true;
       try{
@@ -992,6 +997,7 @@
           chofer_id: wantsCarta ? Number(choferSelect.value) : null,
           ruta_id: wantsCarta ? Number(rutaSelect.value) : null,
           transfer_email: isTraspaso ? transferEmail.value.trim() : '',
+          transfer_email_provided: isTraspaso,
           factura_global: clienteRfc === 'XAXX010101000' && facturaGlobal.value === '1',
           informacion_global_periodicidad: '04',
           informacion_global_meses: globalMonth,
