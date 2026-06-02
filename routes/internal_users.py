@@ -125,6 +125,7 @@ class GasLpInternalFacturaPayload(BaseModel):
     ruta_id: Optional[int] = None
     enviar_correo: bool = True
     transfer_email: str = ""
+    transfer_email_provided: bool = False
     factura_global: bool = False
     informacion_global_periodicidad: str = "04"
     informacion_global_meses: str = ""
@@ -136,6 +137,10 @@ class GasLpInternalFacturaPayload(BaseModel):
 
 
 class GasLpSendEmailPayload(BaseModel):
+    email: str = ""
+
+
+class GasLpTransferEmailDefaultPayload(BaseModel):
     email: str = ""
 
 
@@ -647,6 +652,24 @@ def _transfer_email_from_settings(settings: dict) -> str:
         if str(value or "").strip():
             return str(value).strip()
     return ""
+
+
+def _save_transfer_email_default(owner_user_id: str, perfil_id: int, email: str) -> dict:
+    from routes.settings import _load as load_settings, _save as save_settings_data
+
+    clean_emails = _clean_billing_emails(email)
+    if not clean_emails:
+        raise HTTPException(400, "Captura un correo de traspaso válido para guardar como predeterminado.")
+    email_text = ", ".join(clean_emails)
+    current = load_settings(owner_user_id, perfil_id)
+    metadata = current.get("metadata") if isinstance(current.get("metadata"), dict) else {}
+    merged = {
+        **current,
+        "transfer_email": email_text,
+        "metadata": {**metadata, "transfer_email": email_text},
+    }
+    save_settings_data(owner_user_id, merged, perfil_id)
+    return merged
 
 
 def _clean_clave_prod_serv(value: str | None) -> str:
@@ -3081,7 +3104,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     concepto_cfdi = "LITRO DE GAS LP" if (is_transfer or (hyp_mode == "disabled" and not payload.hyp_experimental_diagnostics)) else payload.concepto
     metodo_pago = "PUE" if is_transfer else payload.metodo_pago
     forma_pago = (payload.forma_pago or "01") if is_transfer else payload.forma_pago
-    transfer_recipients = _clean_billing_emails(payload.transfer_email or _transfer_email_from_settings(settings)) if is_transfer else []
+    transfer_email_source = payload.transfer_email if payload.transfer_email_provided else (payload.transfer_email or _transfer_email_from_settings(settings))
+    transfer_recipients = _clean_billing_emails(transfer_email_source) if is_transfer else []
     transfer_recipient_text = ", ".join(transfer_recipients)
 
     xml, totals = _build_gas_lp_consumo_xml(
@@ -3350,6 +3374,23 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     if is_transfer and recipients and (not email_results or any(not item.get("ok") for item in email_results)):
         warnings.append("CFDI timbrado correctamente, pero no se pudo enviar el correo.")
     return JSONResponse({"ok": True, "factura": factura_row, "totals": totals, "email": email_result.as_metadata() if email_result else None, "warnings": warnings})
+
+
+@router.post("/internal-auth/gas-lp/transfer-email-default")
+async def gas_lp_transfer_email_default(payload: GasLpTransferEmailDefaultPayload, token: str):
+    ctx = _gas_lp_internal_context(token, write=True)
+    user = ctx["user"]
+    try:
+        saved = _save_transfer_email_default(
+            str(user.get("owner_user_id") or ""),
+            int(user.get("perfil_id") or 0),
+            payload.email,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_transfer_email_default", exc)
+    return JSONResponse({"ok": True, "transfer_email_default": _transfer_email_from_settings(saved)})
 
 
 @router.post("/internal-auth/gas-lp/hyp-l-cne-diagnostics")
