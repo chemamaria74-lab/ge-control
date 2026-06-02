@@ -863,6 +863,90 @@ def _gas_lp_factura_razon_social(factura: dict) -> str:
     return _xml_attr(receptor, "Nombre") or str(factura.get("rfc_receptor") or "")
 
 
+def _gas_lp_factura_emisor_rfc(factura: dict) -> str:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    rfc = _clean_rfc(md.get("rfc_emisor") or md.get("empresa_rfc") or factura.get("rfc_emisor") or "")
+    if rfc:
+        return rfc
+    root = _gas_lp_factura_xml_root(factura)
+    emisor = _xml_first(root, "Emisor") if root is not None else None
+    return _clean_rfc(_xml_attr(emisor, "Rfc"))
+
+
+def _gas_lp_factura_matches_company(factura: dict, user: dict, profile: dict) -> bool:
+    if str(factura.get("tenant_id") or "") == str(user.get("tenant_id") or "") and str(factura.get("perfil_id") or "") == str(user.get("perfil_id") or ""):
+        return True
+    profile_rfc = _clean_rfc(profile.get("rfc") or "")
+    return bool(profile_rfc and _gas_lp_factura_emisor_rfc(factura) == profile_rfc)
+
+
+def _gas_lp_company_rfc(user: dict, profile: dict) -> str:
+    rfc = _clean_rfc(profile.get("rfc") or "")
+    if rfc:
+        return rfc
+    try:
+        settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+        return _clean_rfc(settings.get("RfcContribuyente") or settings.get("rfc") or "")
+    except Exception:
+        return ""
+
+
+def _dedupe_rows_by_id(rows: list[dict]) -> list[dict]:
+    seen: set[int] = set()
+    deduped: list[dict] = []
+    for row in rows:
+        rid = int(row.get("id") or 0)
+        if rid and rid in seen:
+            continue
+        if rid:
+            seen.add(rid)
+        deduped.append(row)
+    return deduped
+
+
+def _gas_lp_company_facturas_rows(
+    sb,
+    user: dict,
+    profile: dict,
+    *,
+    month: str = "",
+    limit: int = 10000,
+) -> list[dict]:
+    base_query = (
+        sb.table("gas_lp_facturas")
+        .select("*")
+        .eq("tenant_id", user.get("tenant_id"))
+        .eq("perfil_id", user.get("perfil_id"))
+    )
+    if month:
+        start = datetime.strptime(f"{month}-01", "%Y-%m-%d")
+        end = start.replace(year=start.year + 1, month=1) if start.month == 12 else start.replace(month=start.month + 1)
+        base_query = base_query.gte("created_at", start.date().isoformat()).lt("created_at", end.date().isoformat())
+    rows = base_query.order("created_at", desc=True).limit(limit).execute().data or []
+
+    profile_rfc = _gas_lp_company_rfc(user, profile)
+    if profile_rfc:
+        match_profile = {**profile, "rfc": profile_rfc}
+        # Rescata facturas timbradas por otro usuario/perfil de la misma empresa fiscal.
+        company_rows = (
+            sb.table("gas_lp_facturas")
+            .select("*")
+            .eq("tenant_id", user.get("tenant_id"))
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+            .data
+            or []
+        )
+        rows.extend(row for row in company_rows if _gas_lp_factura_matches_company(row, user, match_profile))
+
+    rows = _dedupe_rows_by_id(rows)
+    if month:
+        rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
+    rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
+    return rows[:limit]
+
+
 def _gas_lp_factura_metodo_pago(factura: dict) -> str:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
     info = _factura_payment_info(factura)
@@ -942,19 +1026,20 @@ def _gas_lp_complementos_por_factura(sb, factura_ids: list[int]) -> dict[int, li
 
 
 def _gas_lp_internal_factura(user: dict, factura_id: int) -> dict:
+    profile = _gas_lp_profile(user)
+    match_profile = {**profile, "rfc": _gas_lp_company_rfc(user, profile)}
     rows = (
         get_supabase_admin()
         .table("gas_lp_facturas")
         .select("*")
         .eq("id", factura_id)
         .eq("tenant_id", user.get("tenant_id"))
-        .eq("perfil_id", user.get("perfil_id"))
         .limit(1)
         .execute()
         .data
         or []
     )
-    if not rows:
+    if not rows or not _gas_lp_factura_matches_company(rows[0], user, match_profile):
         raise HTTPException(404, "Factura no encontrada para esta empresa.")
     return rows[0]
 
@@ -1600,6 +1685,7 @@ async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str):
 async def gas_lp_internal_facturas(token: str, mes: str | None = None):
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
+    profile = _gas_lp_profile(user)
     sb = get_supabase_admin()
     month = str(mes or "").strip()[:7]
     if len(month) == 7 and month[4] == "-":
@@ -1610,36 +1696,9 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
     else:
         month = ""
     try:
-        q = (
-            sb.table("gas_lp_facturas")
-            .select("*")
-            .eq("tenant_id", user.get("tenant_id"))
-            .eq("perfil_id", user.get("perfil_id"))
-        )
-        if month:
-            start = datetime.strptime(f"{month}-01", "%Y-%m-%d")
-            if start.month == 12:
-                end = start.replace(year=start.year + 1, month=1)
-            else:
-                end = start.replace(month=start.month + 1)
-            q = q.gte("created_at", start.date().isoformat()).lt("created_at", end.date().isoformat())
-        rows = q.order("created_at", desc=True).limit(10000 if month else 1000).execute().data or []
-        if month and not rows:
-            rows = (
-                sb.table("gas_lp_facturas")
-                .select("*")
-                .eq("tenant_id", user.get("tenant_id"))
-                .eq("perfil_id", user.get("perfil_id"))
-                .order("created_at", desc=True)
-                .limit(10000)
-                .execute()
-                .data
-                or []
-            )
+        rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000 if month else 1000)
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
-    if month:
-        rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
     _gas_lp_attach_internal_creators(sb, rows)
     comp_by_factura = _gas_lp_complementos_por_factura(sb, [int(r["id"]) for r in rows if r.get("id")])
     for row in rows:
@@ -1655,6 +1714,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
 async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
+    profile = _gas_lp_profile(user)
     day = str(fecha or "").strip()[:10]
     try:
         datetime.strptime(day, "%Y-%m-%d")
@@ -1662,18 +1722,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         raise HTTPException(400, "Selecciona una fecha válida para exportar.")
     sb = get_supabase_admin()
     try:
-        rows = (
-            sb
-            .table("gas_lp_facturas")
-            .select("*")
-            .eq("tenant_id", user.get("tenant_id"))
-            .eq("perfil_id", user.get("perfil_id"))
-            .order("created_at", desc=True)
-            .limit(10000)
-            .execute()
-            .data
-            or []
-        )
+        rows = _gas_lp_company_facturas_rows(sb, user, profile, month=day[:7], limit=10000)
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas_export_dia", exc)
     rows = [row for row in rows if _gas_lp_factura_date_key(row) == day]
@@ -1770,27 +1819,9 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
     user = ctx["user"]
     profile = _gas_lp_profile(user, require_module_marker=True)
     month = (periodo or datetime.now().strftime("%Y-%m"))[:7]
-    start_at = f"{month}-01T00:00:00"
-    year, mon = [int(x) for x in month.split("-")]
-    if mon == 12:
-        end_at = f"{year + 1:04d}-01-01T00:00:00"
-    else:
-        end_at = f"{year:04d}-{mon + 1:02d}-01T00:00:00"
     sb = get_supabase_admin()
     try:
-        rows = (
-            sb.table("gas_lp_facturas")
-            .select("*")
-            .eq("tenant_id", user.get("tenant_id"))
-            .eq("perfil_id", user.get("perfil_id"))
-            .gte("created_at", start_at)
-            .lt("created_at", end_at)
-            .order("created_at", desc=True)
-            .limit(500)
-            .execute()
-            .data
-            or []
-        )
+        rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000)
     except Exception as exc:
         raise _safe_internal_error("gas_lp_conciliacion_summary", exc)
     comp_by_factura = _gas_lp_complementos_por_factura(sb, [int(r["id"]) for r in rows if r.get("id")])
@@ -1855,31 +1886,8 @@ async def gas_lp_conciliacion_export_excel(
 
     sb = get_supabase_admin()
     try:
-        rows = (
-            sb.table("gas_lp_facturas")
-            .select("*")
-            .eq("tenant_id", user.get("tenant_id"))
-            .eq("perfil_id", user.get("perfil_id"))
-            .gte("created_at", start.isoformat())
-            .lt("created_at", end.isoformat())
-            .order("created_at", desc=True)
-            .limit(10000)
-            .execute()
-            .data
-            or []
-        )
-        if not rows:
-            rows = (
-                sb.table("gas_lp_facturas")
-                .select("*")
-                .eq("tenant_id", user.get("tenant_id"))
-                .eq("perfil_id", user.get("perfil_id"))
-                .order("created_at", desc=True)
-                .limit(10000)
-                .execute()
-                .data
-                or []
-            )
+        profile = _gas_lp_profile(user, require_module_marker=True)
+        rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000)
     except Exception as exc:
         raise _safe_internal_error("gas_lp_conciliacion_export_excel", exc)
 
@@ -1952,11 +1960,11 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
         .select("*")
         .in_("id", factura_ids)
         .eq("tenant_id", user.get("tenant_id"))
-        .eq("perfil_id", user.get("perfil_id"))
         .execute()
         .data
         or []
     )
+    rows = [row for row in rows if _gas_lp_factura_matches_company(row, user, match_profile)]
     if len(rows) != len(factura_ids):
         raise HTTPException(404, "Una factura seleccionada no existe para esta empresa.")
     facturas_by_id = {int(r["id"]): r for r in rows}
@@ -2204,7 +2212,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     if not origen:
         raise HTTPException(400, "Selecciona la instalación origen para timbrar Gas LP.")
     destino = facilities_by_id.get(int(payload.destino_facility_id or 0), {})
-    clave_prod_serv = _clean_clave_prod_serv(payload.clave_prod_serv)
+    clave_prod_serv_original = _clean_clave_prod_serv(payload.clave_prod_serv)
+    clave_prod_serv = GAS_LP_CLAVE_PROD_SERV
     hyp = _gas_lp_hyp_from_facility(origen, clave_prod_serv)
 
     xml, totals = _build_gas_lp_consumo_xml(
@@ -2235,6 +2244,11 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         "perfil_id": user.get("perfil_id"),
         "tenant_id": user.get("tenant_id"),
         "rfc_emisor": issuer.get("rfc") or "",
+        "usuario_que_timbra_id": user.get("id"),
+        "usuario_que_timbra": user.get("display_name") or "",
+        "empresa_asignada_id": user.get("perfil_id"),
+        "empresa_asignada": profile.get("nombre") or "",
+        "empresa_asignada_rfc": profile.get("rfc") or "",
         "ambiente_sw_actual": sw_config.get("sw_env") or "",
         "app_env": sw_config.get("app_env") or "",
         "endpoint_sw_usado": sw_config.get("xml_issue_url") or "",
@@ -2248,15 +2262,20 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         "numero_permiso_instalacion": origen.get("num_permiso") or "",
         "tipo_permiso_generado": hyp.get("tipo_permiso") or "",
         "numero_permiso_hyp": hyp.get("numero_permiso") or "",
+        "clave_prod_serv_recibida": clave_prod_serv_original,
         "clave_prod_serv": clave_prod_serv,
         "clave_hyp": hyp.get("clave_hyp") or "",
         "subproducto_hyp": hyp.get("subproducto_hyp") or "",
+        "incluye_complemento_hyp": bool(hyp_node_xml and "HidroYPetro" in xml),
         "hidroypetro_xml": hyp_node_xml,
         "cfdi_xml_enviado": xml,
     }
     _write_gas_lp_hyp_debug_log(debug_payload)
     logger.info(
-        "gas_lp_hyp_pre_timbrado sw_env=%s app_env=%s endpoint=%s rfc_emisor=%s sandbox=%s timbrado=%s facility_id=%s instalacion=%s numero_permiso=%s tipo_permiso=%s clave_prod_serv=%s clave_hyp=%s subproducto_hyp=%s hyp_xml=%s",
+        "gas_lp_hyp_pre_timbrado usuario=%s empresa=%s empresa_rfc=%s sw_env=%s app_env=%s endpoint=%s rfc_emisor=%s sandbox=%s timbrado=%s facility_id=%s instalacion=%s numero_permiso=%s tipo_permiso=%s clave_prod_serv_recibida=%s clave_prod_serv_final=%s incluye_hyp=%s clave_hyp=%s subproducto_hyp=%s hyp_xml=%s xml_enviado=%s",
+        user.get("display_name") or user.get("id") or "",
+        profile.get("nombre") or "",
+        profile.get("rfc") or "",
         sw_config.get("sw_env") or "",
         sw_config.get("app_env") or "",
         sw_config.get("xml_issue_url") or "",
@@ -2267,10 +2286,13 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         origen.get("nombre") or origen.get("clave_instalacion") or "",
         origen.get("num_permiso") or "",
         hyp.get("tipo_permiso") or "",
+        clave_prod_serv_original,
         clave_prod_serv,
+        bool(hyp_node_xml and "HidroYPetro" in xml),
         hyp.get("clave_hyp") or "",
         hyp.get("subproducto_hyp") or "",
         hyp_node_xml,
+        xml,
     )
     if sw_sandbox:
         logger.warning(
@@ -2313,6 +2335,10 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "internal_user_id": user.get("id"),
             "created_by_internal_name": user.get("display_name") or "",
             "created_by": user.get("display_name") or "",
+            "empresa_asignada_id": user.get("perfil_id"),
+            "empresa_asignada_nombre": profile.get("nombre") or "",
+            "empresa_rfc": profile.get("rfc") or "",
+            "rfc_emisor": issuer.get("rfc") or "",
             "cliente_id": payload.cliente_id,
             "cliente_nombre": receptor["nombre"],
             "cliente_email": (cliente_row or {}).get("email_facturacion") or (cliente_row or {}).get("email") or "",
