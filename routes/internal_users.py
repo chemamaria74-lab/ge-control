@@ -34,10 +34,11 @@ SECTIONS = {"transporte", "gas_lp", "gasolineras"}
 MAX_FAILED_ATTEMPTS = 5
 LOCK_MINUTES = 15
 SESSION_HOURS = 12
-GAS_LP_CLAVE_PROD_SERV = "15101515"
+GAS_LP_CLAVE_PROD_SERV = "15111510"
+GAS_LP_SW_HYP_EXPERIMENTAL_CLAVE = "15101515"
 GAS_LP_HYP_SUBPRODUCTO = "SP23"
-GAS_LP_HIDRO_CLAVES = {GAS_LP_CLAVE_PROD_SERV}
-GAS_LP_HYP_DIAGNOSTIC_CLAVES = {"15101515", "15101514"}
+GAS_LP_HIDRO_CLAVES = {GAS_LP_CLAVE_PROD_SERV, GAS_LP_SW_HYP_EXPERIMENTAL_CLAVE}
+GAS_LP_HYP_DIAGNOSTIC_CLAVES = {GAS_LP_CLAVE_PROD_SERV, GAS_LP_SW_HYP_EXPERIMENTAL_CLAVE}
 HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 12)}
 GAS_LP_HYP_DEBUG_LOG = os.environ.get("GAS_LP_HYP_DEBUG_LOG", "logs/gas_lp_hyp_pre_timbrado.log")
 
@@ -654,7 +655,7 @@ def _gas_lp_lcne_diagnostic_matrix(facility: dict, include_product_alternatives:
     numero_real = str(facility.get("num_permiso") or "").strip().upper()
     product_keys = [GAS_LP_CLAVE_PROD_SERV]
     if include_product_alternatives:
-        product_keys.append("15101514")
+        product_keys.append(GAS_LP_SW_HYP_EXPERIMENTAL_CLAVE)
 
     attempts: list[dict] = []
     if "/EXP/ES/" in numero_real:
@@ -2417,7 +2418,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     if payload.hyp_experimental_diagnostics and payload.hyp_clave_hyp_override:
         clave_hyp_diagnostic_override = _clean_clave_prod_serv(payload.hyp_clave_hyp_override)
         if clave_hyp_diagnostic_override not in GAS_LP_HYP_DIAGNOSTIC_CLAVES:
-            raise HTTPException(400, "La clave HyP experimental sólo permite 15101515 o 15101514.")
+            raise HTTPException(400, "La clave HyP experimental sólo permite 15111510 o 15101515.")
         clave_prod_serv = clave_hyp_diagnostic_override
     hyp = _gas_lp_hyp_from_facility(origen, GAS_LP_CLAVE_PROD_SERV)
     if clave_hyp_diagnostic_override:
