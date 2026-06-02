@@ -12,6 +12,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from xml.sax.saxutils import escape as xml_escape
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -173,6 +174,69 @@ def _now() -> datetime:
 
 def _now_iso() -> str:
     return _now().isoformat()
+
+
+def _gas_lp_cfdi_timezone(issuer_cp: str | None = None):
+    try:
+        return ZoneInfo("America/Mexico_City")
+    except Exception:
+        return timezone(timedelta(hours=-6))
+
+
+def _parse_gas_lp_cfdi_fecha(value: str, tz) -> Optional[datetime]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    cleaned = raw.replace("\u202f", " ").replace("\xa0", " ").strip()
+    candidates = [cleaned]
+    if "," in cleaned:
+        candidates.append(cleaned.replace(",", ""))
+    for candidate in candidates:
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            return parsed.astimezone(tz) if parsed.tzinfo else parsed.replace(tzinfo=tz)
+        except Exception:
+            pass
+    formats = (
+        "%d/%m/%Y, %H:%M:%S",
+        "%d/%m/%Y, %H:%M",
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%d/%m/%Y",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+    )
+    for fmt in formats:
+        try:
+            return datetime.strptime(cleaned, fmt).replace(tzinfo=tz)
+        except Exception:
+            continue
+    return None
+
+
+def _gas_lp_cfdi_fecha_actualizada(fecha: str, issuer_cp: str | None = None) -> tuple[str, bool, str]:
+    tz = _gas_lp_cfdi_timezone(issuer_cp)
+    now_local = datetime.now(tz)
+    parsed = _parse_gas_lp_cfdi_fecha(fecha, tz)
+    if parsed is None:
+        return now_local.strftime("%Y-%m-%dT%H:%M:%S"), bool(str(fecha or "").strip()), "invalid_or_empty"
+    min_allowed = now_local - timedelta(hours=72)
+    max_allowed = now_local + timedelta(minutes=2)
+    if parsed < min_allowed or parsed > max_allowed:
+        logger.warning(
+            "gas_lp_cfdi_fecha_replaced_out_of_range original=%s parsed=%s now_local=%s min_allowed=%s max_allowed=%s issuer_cp=%s",
+            fecha,
+            parsed.isoformat(),
+            now_local.isoformat(),
+            min_allowed.isoformat(),
+            max_allowed.isoformat(),
+            issuer_cp or "",
+        )
+        return now_local.strftime("%Y-%m-%dT%H:%M:%S"), True, "out_of_range"
+    return parsed.strftime("%Y-%m-%dT%H:%M:%S"), False, "ok"
 
 
 def _hash_secret(value: str, salt: str | None = None) -> str:
@@ -796,9 +860,11 @@ def _build_gas_lp_consumo_xml(
     taxable_base = _money(subtotal - discount_total)
     iva = _money(net_gross - taxable_base)
     total = net_gross
-    folio = (str(folio or "").strip() or datetime.now().strftime("GLP%Y%m%d%H%M%S"))[:40]
+    fecha_cfdi, fecha_reemplazada, fecha_reason = _gas_lp_cfdi_fecha_actualizada(fecha, issuer.get("cp"))
+    folio_dt = _parse_gas_lp_cfdi_fecha(fecha_cfdi, _gas_lp_cfdi_timezone(issuer.get("cp")))
+    folio = (str(folio or "").strip() or (folio_dt or datetime.now(_gas_lp_cfdi_timezone(issuer.get("cp")))).strftime("GLP%Y%m%d%H%M%S"))[:40]
     serie = (str(serie or "AA").strip() or "AA")[:10]
-    fecha = (str(fecha or "").strip() or datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))[:19]
+    fecha = fecha_cfdi[:19]
     desc = concepto.strip() or "Venta de Gas LP"
     comments = str(comentarios or "").strip()[:500]
     descuento_comprobante = f' Descuento="{discount_total:.2f}"' if discount_total > 0 else ""
@@ -866,6 +932,8 @@ def _build_gas_lp_consumo_xml(
     return xml, {
         "folio": folio,
         "fecha": fecha,
+        "fecha_cfdi_reemplazada": fecha_reemplazada,
+        "fecha_cfdi_reason": fecha_reason,
         "subtotal": float(subtotal),
         "descuento": float(discount_total),
         "descuento_con_iva": float(discount_gross),
