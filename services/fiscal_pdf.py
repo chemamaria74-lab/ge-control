@@ -485,8 +485,18 @@ def _hidro_table(hidro_nodes, Table, TableStyle, Paragraph, styles, colors, wine
 
 
 def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, styles, colors, cream, line):
-    tax_text = "; ".join(f"{_attr(t, 'Impuesto')} tasa {_attr(t, 'TasaOCuota')} importe {_attr(t, 'Importe')}" for t in traslados[:8]) or "—"
-    ret_text = "; ".join(f"{_attr(r, 'Impuesto')} importe {_attr(r, 'Importe')}" for r in retenciones[:8]) or "—"
+    global_traslados = _global_tax_nodes(root, "Traslados", "Traslado")
+    global_retenciones = _global_tax_nodes(root, "Retenciones", "Retencion")
+    display_traslados = global_traslados or _concept_tax_nodes(root, "Traslado")
+    display_retenciones = global_retenciones or _concept_tax_nodes(root, "Retencion")
+    iva_total = _global_tax_total(root, "TotalImpuestosTrasladados")
+    if iva_total is None:
+        iva_total = _sum_importes_value(display_traslados)
+    ret_total = _global_tax_total(root, "TotalImpuestosRetenidos")
+    if ret_total is None:
+        ret_total = _sum_importes_value(display_retenciones)
+    tax_text = "; ".join(_tax_line(t, "Traslado") for t in display_traslados[:8]) or "—"
+    ret_text = "; ".join(_tax_line(r, "Retención") for r in display_retenciones[:8]) or "—"
     left = Table([
         [Paragraph("<b>Importe con letra</b>", styles["TinyBold"])],
         [Paragraph(f"Total en XML: {_text(_attr(root, 'Total'))} {_text(_attr(root, 'Moneda'))}", styles["Small"])],
@@ -504,8 +514,8 @@ def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, st
     right = Table([
         [Paragraph("<b>Subtotal</b>", styles["Small"]), Paragraph(_text(_attr(root, "SubTotal")), styles["Money"])],
         [Paragraph("<b>Descuento</b>", styles["Small"]), Paragraph(_text(_attr(root, "Descuento", "0")), styles["Money"])],
-        [Paragraph("<b>IVA trasladado</b>", styles["Small"]), Paragraph(_text(_sum_importes(traslados)), styles["Money"])],
-        [Paragraph("<b>Retenciones</b>", styles["Small"]), Paragraph(_text(_sum_importes(retenciones)), styles["Money"])],
+        [Paragraph("<b>IVA trasladado</b>", styles["Small"]), Paragraph(_text(_format_money(iva_total)), styles["Money"])],
+        [Paragraph("<b>Retenciones</b>", styles["Small"]), Paragraph(_text(_format_money(ret_total)), styles["Money"])],
         [Paragraph("<b>Total</b>", styles["SmallBold"]), Paragraph(_text(_attr(root, "Total")), styles["Money"])],
     ], colWidths=[1.15 * 72, 1.4 * 72])
     right.setStyle(TableStyle([
@@ -587,13 +597,65 @@ def _detail_table_style(colors, wine, line):
 
 
 def _sum_importes(nodes) -> str:
+    return _format_money(_sum_importes_value(nodes))
+
+
+def _sum_importes_value(nodes) -> float:
     total = 0.0
     for node in nodes or []:
         try:
             total += float(str(_attr(node, "Importe", "0")).replace(",", ""))
         except Exception:
             continue
-    return f"{total:,.2f}"
+    return total
+
+
+def _format_money(value: float | int | None) -> str:
+    try:
+        return f"{float(value or 0):,.2f}"
+    except Exception:
+        return "0.00"
+
+
+def _global_tax_nodes(root, container_name: str, node_name: str) -> list:
+    for child in root:
+        if child.tag.split("}")[-1] != "Impuestos":
+            continue
+        for container in child:
+            if container.tag.split("}")[-1] != container_name:
+                continue
+            return [node for node in container if node.tag.split("}")[-1] == node_name]
+    return []
+
+
+def _concept_tax_nodes(root, node_name: str) -> list:
+    nodes = []
+    for concepto in _all(root, "Concepto"):
+        for node in concepto.iter():
+            if node.tag.split("}")[-1] == node_name:
+                nodes.append(node)
+    return nodes
+
+
+def _global_tax_total(root, attr_name: str) -> float | None:
+    for child in root:
+        if child.tag.split("}")[-1] != "Impuestos":
+            continue
+        raw = _attr(child, attr_name, "")
+        if not raw:
+            return None
+        try:
+            return float(str(raw).replace(",", ""))
+        except Exception:
+            return None
+    return None
+
+
+def _tax_line(node, label: str) -> str:
+    importe = _format_money(float(str(_attr(node, "Importe", "0")).replace(",", "") or 0))
+    tasa = _attr(node, "TasaOCuota")
+    tasa_text = f" tasa {tasa}" if tasa else ""
+    return f"{label} {_attr(node, 'Impuesto')}{tasa_text}: ${importe}"
 
 
 def _append_template_intro(story, template, Paragraph, styles, colors, Table, TableStyle, Spacer):
