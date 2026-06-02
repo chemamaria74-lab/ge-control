@@ -1903,9 +1903,11 @@ async def gas_lp_internal_summary(token: str):
         "company": {
             "id": profile.get("id"),
             "name": profile.get("nombre"),
+            "fiscal_name": str(settings.get("DescripcionInstalacion") or profile.get("nombre") or "").strip(),
             "rfc": profile.get("rfc"),
             "tenant_id": profile.get("tenant_id"),
             "cp": _clean_cp(settings.get("CodigoPostal") or settings.get("codigo_postal") or ""),
+            "regimen": str(settings.get("RegimenFiscal") or settings.get("regimen_fiscal") or "601").strip() or "601",
             "precio_venta_litro": settings.get("precio_venta_litro")
                 or settings.get("PrecioVentaLitro")
                 or settings.get("precio_default_litro")
@@ -2856,7 +2858,14 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     profile = _gas_lp_profile(user)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     issuer = _require_gas_lp_issuer(profile, settings)
-    receptor = _public_general_receptor(issuer["cp"]) if payload.publico_general else None
+    is_transfer = str(payload.tipo_operacion or "").strip().lower() == "traspaso"
+    receptor = {
+        "rfc": issuer["rfc"],
+        "nombre": issuer["nombre"],
+        "cp": issuer["cp"],
+        "regimen_fiscal": issuer["regimen"],
+        "uso_cfdi": "S01",
+    } if is_transfer else (_public_general_receptor(issuer["cp"]) if payload.publico_general else None)
     cliente_row = None
     sb = get_supabase_admin()
     if payload.cliente_id and not receptor:
@@ -2922,6 +2931,11 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     if not origen:
         raise HTTPException(400, "Selecciona la instalación origen para timbrar Gas LP.")
     destino = facilities_by_id.get(int(payload.destino_facility_id or 0), {})
+    if is_transfer:
+        if not destino:
+            raise HTTPException(400, "Selecciona la estación destino para el traspaso.")
+        if int(payload.facility_id or 0) == int(payload.destino_facility_id or 0):
+            raise HTTPException(400, "Origen y destino deben ser distintos para el traspaso.")
     hyp_mode = _gas_lp_hyp_mode()
     if hyp_mode == "diagnostic" and not payload.hyp_experimental_diagnostics:
         raise HTTPException(400, "El modo HyP diagnóstico sólo permite pruebas persisted=false.")
@@ -2934,7 +2948,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             raise HTTPException(400, "La clave HyP experimental sólo permite 15111510 o 15101515.")
         clave_prod_serv = clave_hyp_diagnostic_override
     hyp = {}
-    if hyp_mode == "required" or payload.hyp_experimental_diagnostics:
+    if (hyp_mode == "required" or payload.hyp_experimental_diagnostics) and not is_transfer:
         hyp = _gas_lp_hyp_from_facility(origen, GAS_LP_CLAVE_PROD_SERV)
         if clave_hyp_diagnostic_override:
             hyp = {**hyp, "clave_hyp": clave_hyp_diagnostic_override}
@@ -2960,7 +2974,9 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "meses": payload.informacion_global_meses,
             "anio": payload.informacion_global_anio,
         }
-    concepto_cfdi = "LITRO DE GAS LP" if hyp_mode == "disabled" and not payload.hyp_experimental_diagnostics else payload.concepto
+    concepto_cfdi = "LITRO DE GAS LP" if (is_transfer or (hyp_mode == "disabled" and not payload.hyp_experimental_diagnostics)) else payload.concepto
+    metodo_pago = "PUE" if is_transfer else payload.metodo_pago
+    forma_pago = (payload.forma_pago or "01") if is_transfer else payload.forma_pago
 
     xml, totals = _build_gas_lp_consumo_xml(
         issuer=issuer,
@@ -2968,8 +2984,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         litros=payload.litros,
         precio_unitario=payload.precio_unitario,
         concepto=concepto_cfdi,
-        forma_pago=payload.forma_pago,
-        metodo_pago=payload.metodo_pago,
+        forma_pago=forma_pago,
+        metodo_pago=metodo_pago,
         descuento=payload.descuento,
         iva_rate=payload.iva_rate,
         serie=serie_factura,
@@ -3122,7 +3138,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "empresa_asignada_nombre": profile.get("nombre") or "",
             "empresa_rfc": profile.get("rfc") or "",
             "rfc_emisor": issuer.get("rfc") or "",
-            "cliente_id": payload.cliente_id,
+            "cliente_id": None if is_transfer else payload.cliente_id,
             "cliente_nombre": receptor["nombre"],
             "cliente_email": (cliente_row or {}).get("email_facturacion") or (cliente_row or {}).get("email") or "",
             "concepto": payload.concepto,
@@ -3140,19 +3156,25 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "hidrocarburos_petroliferos": hyp,
             "no_identificacion": payload.no_identificacion,
             "unidad": payload.unidad,
-            "metodo_pago": payload.metodo_pago,
-            "forma_pago": payload.forma_pago,
+            "metodo_pago": metodo_pago,
+            "forma_pago": forma_pago,
             "tipo_operacion": payload.tipo_operacion,
+            "operation_type": "transfer" if is_transfer else payload.tipo_operacion,
             "facility_id": payload.facility_id,
+            "origen_facility_id": payload.facility_id,
+            "origen_facility_name": origen.get("nombre") or "",
             "origen_nombre": origen.get("nombre") or "",
             "destino_facility_id": payload.destino_facility_id,
+            "destino_facility_name": destino.get("nombre") or "",
             "destino_nombre": destino.get("nombre") or "",
+            "created_from": "assistant_transfer" if is_transfer else "assistant_sale",
+            "observaciones": payload.comentarios,
             "generar_carta_porte": payload.generar_carta_porte,
             "vehiculo_id": payload.vehiculo_id,
             "chofer_id": payload.chofer_id,
             "ruta_id": payload.ruta_id,
-            "payment_status": "pendiente_complemento" if payload.metodo_pago.upper() == "PPD" else "pagado_pue",
-            "saldo_insoluto": totals["total"] if payload.metodo_pago.upper() == "PPD" else 0,
+            "payment_status": "pendiente_complemento" if metodo_pago.upper() == "PPD" else "pagado_pue",
+            "saldo_insoluto": totals["total"] if metodo_pago.upper() == "PPD" else 0,
             "iva": totals["iva"],
             "total": totals["total"],
         },
