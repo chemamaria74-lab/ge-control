@@ -99,7 +99,6 @@
         <div class="toolbar" style="margin-bottom:12px">
           <button class="btn ghost" id="btnPublicoGeneral" type="button" onclick="usePublicoGeneral()"><i class="fa-solid fa-users"></i> Público en general</button>
         </div>
-        <div id="hypModeWarning" class="status err hide" style="margin-bottom:12px"></div>
         <div class="form-grid">
           <div><label>Operación</label><select id="tipoOperacion" onchange="updateOperacionUI()"><option value="venta">Venta a cliente</option><option value="traspaso">Traspaso interno a estación</option></select></div>
           <div id="facilityField" class="field-attention"><label>Instalación origen *</label><select id="facilitySelect" required onchange="filterRutasForTransfer()"><option value="">Selecciona instalación</option></select></div>
@@ -262,7 +261,6 @@
     let CATALOGOS = {choferes:[], vehiculos:[], rutas:[]};
     let CURRENT_COMPANY = null;
     let CURRENT_ASSISTANT = null;
-    let HYP_MODE = {mode: 'required', warning: ''};
     let COMP_SEL = {};
     let EDIT_CLIENT_ID = null;
     const SAT_REGIMENES = [
@@ -327,13 +325,6 @@
     function money(v){ return '$' + Number(v || 0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2}); }
     function esc(v){ return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
     function setStatus(id,text,ok=true){ const el=document.getElementById(id); if(el){ el.textContent=text; el.className='status '+(ok?'ok':'err'); } }
-    function renderHypModeWarning(){
-      const el = document.getElementById('hypModeWarning');
-      if(!el) return;
-      const warning = String(HYP_MODE?.warning || '');
-      el.textContent = warning;
-      el.className = warning ? 'status err' : 'status err hide';
-    }
     function detailText(value, fallback='No fue posible cargar la información.'){
       if(Array.isArray(value)) return value.map(d => d?.msg || d?.type || String(d)).join(', ');
       if(value && typeof value === 'object') return value.message || value.detail || JSON.stringify(value);
@@ -482,14 +473,12 @@
         const a = data.assistant || {};
         CURRENT_ASSISTANT = a;
         CURRENT_COMPANY = data.company || {};
-        HYP_MODE = data.hyp || {mode:'required', warning:''};
         nameBadge.textContent = a.display_name || 'Asistente';
         roleBadge.textContent = (a.role || '').replaceAll('_',' ');
         companyName.textContent = CURRENT_COMPANY.name || 'Empresa asignada';
         companyNameTop.textContent = CURRENT_COMPANY.name || 'Empresa asignada';
         companyRfc.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
         companyRfcTop.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
-        renderHypModeWarning();
         applyConceptCatalog();
         applyAssistantSeries();
         unlockEditableFields();
@@ -763,8 +752,7 @@
         const data = await api('/api/internal-auth/gas-lp/facturas',{method:'POST',body:JSON.stringify(payload)});
         const successLabel = isTraspaso ? (wantsCarta ? 'Carta Porte traslado timbrada' : 'Traspaso registrado') : 'Factura timbrada';
         const emailMsg = data.email?.ok ? ' · correo enviado' : (data.email?.error ? ` · correo pendiente: ${data.email.error}` : '');
-        const warningMsg = Array.isArray(data.warnings) && data.warnings.length ? ` · ${data.warnings.join(' ')}` : '';
-        setStatus('facturaMsg',`${successLabel}: ${data.factura?.uuid_sat || 'UUID pendiente'}${emailMsg}${warningMsg}`);
+        setStatus('facturaMsg',`${successLabel}: ${data.factura?.uuid_sat || 'UUID pendiente'}${emailMsg}`);
         await loadFacturas();
       }catch(e){ setStatus('facturaMsg',e.message,false); }
       finally{ if(btn) btn.disabled = false; }
