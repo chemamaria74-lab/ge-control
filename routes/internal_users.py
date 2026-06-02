@@ -2285,6 +2285,8 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
         raise _safe_internal_error("gas_lp_factura_send_email_update", exc)
     factura = updated[0] if updated else {**row, **update_payload}
     response = {"ok": bool(email_result.ok), "factura": factura, "email": email_result.as_metadata()}
+    if not email_result.ok:
+        response["message"] = email_result.error or "No se pudo enviar el correo."
     return JSONResponse(response, status_code=200 if email_result.ok else 400)
 
 
@@ -2956,6 +2958,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                 xml_content=xml_timbrado,
                 pdf_bytes=pdf_bytes,
                 pdf_filename=info.filename,
+                serie_folio=_gas_lp_factura_folio_label(factura_row),
             )
             now_email = _now_iso()
             md = factura_row.get("metadata") if isinstance(factura_row.get("metadata"), dict) else {}
