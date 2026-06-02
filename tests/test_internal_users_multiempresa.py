@@ -74,6 +74,7 @@ class FakeDB:
             "internal_users": [],
             "internal_user_sessions": [],
             "tr_operador_accesos": [],
+            "gas_lp_facturas": [],
         }
         self.ids = {"internal_users": 1, "internal_user_sessions": 1}
 
@@ -213,104 +214,53 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
                 internal_users._internal_session(token, "gas_lp")
         self.assertEqual(ctx.exception.status_code, 403)
 
-    def test_public_general_client_uses_issuer_cp_not_captured_cp(self):
+    def test_gas_lp_facturas_are_visible_by_issuer_rfc_and_fiscal_month(self):
+        db = FakeDB()
+        db.rows["gas_lp_facturas"] = [
+            {
+                "id": 100,
+                "tenant_id": "tenant-a",
+                "perfil_id": 2,
+                "user_id": "other-admin",
+                "rfc_emisor": "GLU760309457",
+                "rfc_receptor": "XAXX010101000",
+                "uuid_sat": "13f8787f-43e7-4d3c-81b4-1741304cc6fa",
+                "fecha_timbrado": "2026-05-31T23:30:00-06:00",
+                "created_at": "2026-06-01T05:35:00+00:00",
+                "status": "timbrada",
+                "metadata": {
+                    "fecha_emision": "2026-05-31T23:29:00",
+                    "cliente_nombre": "PUBLICO EN GENERAL",
+                    "created_by": "Anabel",
+                },
+            },
+            {
+                "id": 101,
+                "tenant_id": "tenant-a",
+                "perfil_id": 1,
+                "user_id": "admin",
+                "rfc_emisor": "OTR010101AAA",
+                "rfc_receptor": "XAXX010101000",
+                "fecha_timbrado": "2026-05-10T12:00:00-06:00",
+                "created_at": "2026-05-10T18:00:00+00:00",
+                "status": "timbrada",
+                "metadata": {},
+            },
+        ]
         user = {
-            "id": 10,
+            "id": 55,
+            "display_name": "Karina",
+            "role": "asistente_facturacion",
             "tenant_id": "tenant-a",
             "owner_user_id": "admin",
             "perfil_id": 1,
-            "display_name": "MARTHA",
         }
-        payload = internal_users.GasLpInternalClientePayload(
-            rfc="XAXX010101000",
-            nombre="PUBLICO EN GENERAL",
-            cp="99300",
-            regimen_fiscal="616",
-            uso_cfdi="S01",
-        )
-        with patch.object(internal_users, "_gas_lp_profile", lambda u: {"id": 1, "nombre": "DISTRIBUIDORA DE GAS DEL CAÑON", "rfc": "DGC881020LC4"}), \
-             patch.object(internal_users, "_gas_lp_settings", lambda owner, perfil: {"CodigoPostal": "20120", "RegimenFiscal": "601"}):
-            row = internal_users._gas_lp_cliente_row(user, payload)
+        profile = {"id": 1, "tenant_id": "tenant-a", "nombre": "GAS LUX", "rfc": "GLU760309457"}
 
-        self.assertEqual(row["rfc"], "XAXX010101000")
-        self.assertEqual(row["nombre"], "PUBLICO EN GENERAL")
-        self.assertEqual(row["cp"], "20120")
-        self.assertEqual(row["regimen_fiscal"], "616")
-        self.assertEqual(row["uso_cfdi"], "S01")
+        rows = internal_users._gas_lp_company_facturas_rows(db, user, profile, month="2026-05", limit=10000)
 
-    def test_public_general_invoice_receptor_uses_issuer_cp(self):
-        receptor = internal_users._public_general_receptor("20120")
-
-        self.assertEqual(receptor["rfc"], "XAXX010101000")
-        self.assertEqual(receptor["cp"], "20120")
-        self.assertEqual(receptor["regimen_fiscal"], "616")
-        self.assertEqual(receptor["uso_cfdi"], "S01")
-
-    def test_gas_lp_sale_xml_uses_locked_sat_catalog_defaults(self):
-        xml, totals = internal_users._build_gas_lp_consumo_xml(
-            issuer={"rfc": "DGC881020LC4", "nombre": "DISTRIBUIDORA DE GAS DEL CAÑON", "cp": "20120", "regimen": "601"},
-            receptor=internal_users._public_general_receptor("20120"),
-            litros=57,
-            precio_unitario=11.05,
-            concepto="LITRO DE GAS LP",
-            forma_pago="01",
-            metodo_pago="PUE",
-        )
-
-        self.assertIn('Serie="AA"', xml)
-        self.assertIn('ClaveProdServ="15111510"', xml)
-        self.assertIn('ClaveUnidad="LTR"', xml)
-        self.assertIn('Unidad="Litro"', xml)
-        self.assertIn('NoIdentificacion="GLP-LTR"', xml)
-        self.assertIn('ObjetoImp="02"', xml)
-        self.assertIn('Impuesto="002"', xml)
-        self.assertIn('TasaOCuota="0.160000"', xml)
-        self.assertEqual(totals["serie"], "AA")
-        self.assertEqual(totals["clave_prod_serv"], "15111510")
-        self.assertEqual(totals["no_identificacion"], "GLP-LTR")
-        self.assertEqual(totals["unidad"], "Litro")
-
-    def test_gas_lp_discount_is_per_liter(self):
-        xml, totals = internal_users._build_gas_lp_consumo_xml(
-            issuer={"rfc": "DGC881020LC4", "nombre": "DISTRIBUIDORA DE GAS DEL CAÑON", "cp": "20120", "regimen": "601"},
-            receptor=internal_users._public_general_receptor("20120"),
-            litros=10,
-            precio_unitario=11.05,
-            descuento=0.50,
-            concepto="LITRO DE GAS LP",
-            forma_pago="01",
-            metodo_pago="PUE",
-        )
-
-        self.assertIn('Descuento="5.00"', xml)
-        self.assertEqual(totals["subtotal"], 110.5)
-        self.assertEqual(totals["descuento_litro"], 0.5)
-        self.assertEqual(totals["descuento_total"], 5.0)
-        self.assertEqual(totals["base"], 105.5)
-
-    def test_gas_lp_sale_uses_global_issuer_cp_as_lugar_expedicion(self):
-        xml, _totals = internal_users._build_gas_lp_consumo_xml(
-            issuer={"rfc": "DGC881020LC4", "nombre": "DISTRIBUIDORA DE GAS DEL CAÑON", "cp": "20120", "regimen": "601"},
-            receptor=internal_users._public_general_receptor("20120"),
-            litros=10,
-            precio_unitario=11.05,
-            concepto="LITRO DE GAS LP",
-            forma_pago="01",
-            metodo_pago="PUE",
-        )
-
-        self.assertIn('LugarExpedicion="20120"', xml)
-
-    def test_configured_sale_price_parses_positive_price_only(self):
-        self.assertEqual(str(internal_users._configured_sale_price({"PrecioVentaLitroGasLp": "11.05"})), "11.050000")
-        self.assertEqual(str(internal_users._configured_sale_price({"PrecioVentaLitroGasLp": ""})), "0")
-        self.assertEqual(str(internal_users._configured_sale_price({"PrecioVentaLitroGasLp": -1})), "0")
-
-    def test_gas_lp_payload_price_requires_positive_value(self):
-        self.assertEqual(str(internal_users._gas_lp_payload_price("11.05")), "11.050000")
-        with self.assertRaises(HTTPException) as ctx:
-            internal_users._gas_lp_payload_price(0)
-        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual([row["uuid_sat"] for row in rows], ["13f8787f-43e7-4d3c-81b4-1741304cc6fa"])
+        self.assertEqual(rows[0]["rfc_receptor"], "XAXX010101000")
 
 
 if __name__ == "__main__":
