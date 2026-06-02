@@ -1263,13 +1263,29 @@ def _gas_lp_factura_razon_social(factura: dict) -> str:
 
 
 def _gas_lp_factura_emisor_rfc(factura: dict) -> str:
-    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
-    rfc = _clean_rfc(md.get("rfc_emisor") or md.get("empresa_rfc") or factura.get("rfc_emisor") or "")
-    if rfc:
-        return rfc
     root = _gas_lp_factura_xml_root(factura)
     emisor = _xml_first(root, "Emisor") if root is not None else None
-    return _clean_rfc(_xml_attr(emisor, "Rfc"))
+    rfc_xml = _clean_rfc(_xml_attr(emisor, "Rfc"))
+    if rfc_xml:
+        return rfc_xml
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    rfc = _clean_rfc(md.get("rfc_emisor") or md.get("empresa_rfc") or factura.get("rfc_emisor") or "")
+    return rfc
+
+
+def _gas_lp_factura_emisor_nombre(factura: dict) -> str:
+    root = _gas_lp_factura_xml_root(factura)
+    emisor = _xml_first(root, "Emisor") if root is not None else None
+    nombre_xml = str(_xml_attr(emisor, "Nombre") or "").strip()
+    if nombre_xml:
+        return nombre_xml
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    return str(
+        md.get("nombre_emisor")
+        or md.get("empresa_nombre")
+        or md.get("empresa_asignada_nombre")
+        or ""
+    ).strip()
 
 
 def _gas_lp_factura_matches_company(factura: dict, user: dict, profile: dict) -> bool:
@@ -2578,6 +2594,10 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         info = _factura_payment_info(row)
         row["payment_info"] = _payment_info_json(info)
+        row["issuer_info"] = {
+            "rfc": _gas_lp_factura_emisor_rfc(row),
+            "nombre": _gas_lp_factura_emisor_nombre(row),
+        }
         comps = comp_by_factura.get(_safe_int_id(row.get("id")), [])
         row["complementos_pago"] = comps
         if comps:
@@ -3092,8 +3112,6 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
     ctx = _gas_lp_conciliacion_context(token, write=True, perfil_id=perfil_id)
     user = ctx["user"]
     profile = _gas_lp_profile(user, require_module_marker=True)
-    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
-    issuer = _require_gas_lp_issuer(profile, settings)
     motivo = str(payload.motivo or "").strip()
     uuid_sustitucion = str(payload.uuid_sustitucion or "").strip()
     if motivo not in {"01", "02", "03", "04"}:
@@ -3126,6 +3144,19 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
     uuid_sat = str(factura.get("uuid_sat") or "").strip()
     if not uuid_sat:
         raise HTTPException(400, "No se puede cancelar fiscalmente: la factura no tiene UUID SAT.")
+    factura_rfc_emisor = _gas_lp_factura_emisor_rfc(factura)
+    factura_nombre_emisor = _gas_lp_factura_emisor_nombre(factura)
+    if not factura_rfc_emisor:
+        raise HTTPException(400, "No se puede cancelar fiscalmente: la factura no tiene RFC emisor guardado.")
+    profile_rfc = _clean_rfc(profile.get("rfc") or "")
+    if profile_rfc and profile_rfc != factura_rfc_emisor:
+        logger.warning(
+            "gas_lp_cancelacion_profile_invoice_rfc_mismatch factura_id=%s profile_rfc=%s factura_rfc=%s uuid=%s",
+            factura_id,
+            profile_rfc,
+            factura_rfc_emisor,
+            uuid_sat,
+        )
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
     base_cancel_md = {
         "cancelacion_tipo": "fiscal",
@@ -3135,7 +3166,9 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
         "cancelacion_solicitada_por": user.get("display_name") or user.get("id"),
         "cancelacion_solicitada_at": now,
         "cancelacion_uuid_cancelado": uuid_sat,
-        "cancelacion_rfc_emisor": issuer["rfc"],
+        "cancelacion_rfc_emisor": factura_rfc_emisor,
+        "cancelacion_nombre_emisor": factura_nombre_emisor,
+        "cancelacion_profile_rfc": profile_rfc,
     }
     try:
         resultado = cancel_cfdi_universal(
@@ -3144,7 +3177,7 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
             invoice_table="gas_lp_facturas",
             invoice_id=factura_id,
             uuid_sat=uuid_sat,
-            rfc_emisor=issuer["rfc"],
+            rfc_emisor=factura_rfc_emisor,
             motivo=motivo,
             uuid_sustitucion=uuid_sustitucion,
             user_id=user.get("owner_user_id") or user.get("id") or "",
@@ -3162,6 +3195,7 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
             "estado_fiscal": "cancelacion_error",
             "cancelacion_error": error_message,
             "cancelacion_error_tecnico": error_diagnostic,
+            "cancelacion_endpoint_final": error_diagnostic.get("endpoint_final"),
             "cancelacion_pac_request_id": detail.get("pac_request_id"),
             "cancelacion_pac_response_id": detail.get("pac_response_id"),
             "cancelacion_error_at": _now_iso(),
@@ -3172,6 +3206,7 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
             logger.warning("gas_lp_cancelacion_error_metadata_update_failed factura_id=%s err=%s", factura_id, update_exc)
         raise HTTPException(exc.status_code, error_message)
     acuse = str(resultado.get("acuse") or "")
+    diagnostic = resultado.get("diagnostic") if isinstance(resultado.get("diagnostic"), dict) else {}
     estado_fiscal = "cancelada_fiscalmente" if acuse else "cancelacion_solicitada"
     status_label = "Cancelada fiscalmente" if acuse else "Cancelación solicitada"
     cancel_md = {
@@ -3183,7 +3218,8 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
         "cancelacion_pac_response_id": resultado.get("pac_response_id"),
         "cancelacion_acuse": acuse,
         "cancelacion_respuesta_sw": resultado.get("raw") or {},
-        "cancelacion_diagnostico_http": resultado.get("diagnostic") or {},
+        "cancelacion_diagnostico_http": diagnostic,
+        "cancelacion_endpoint_final": diagnostic.get("endpoint_final"),
         "cancelacion_confirmada_at": _now_iso(),
     }
     data = (
