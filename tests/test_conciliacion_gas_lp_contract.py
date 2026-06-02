@@ -163,3 +163,21 @@ def test_conciliacion_complemento_payload_supports_multiple_ppd_invoices():
     assert data["facturas"][0]["monto"] == 100.0
     assert data["referencia"] == "DEP-123"
     assert data["banco"] == "BBVA"
+
+
+def test_transfer_email_default_contract_keeps_transfer_email_explicit():
+    payload = internal_users.GasLpInternalFacturaPayload(
+        litros=10,
+        precio_unitario=8,
+        tipo_operacion="traspaso",
+        transfer_email="",
+        transfer_email_provided=True,
+    )
+    data = _dump_model(payload)
+    create_source = inspect.getsource(internal_users.gas_lp_internal_crear_factura)
+    html = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+
+    assert data["transfer_email_provided"] is True
+    assert "payload.transfer_email_provided" in create_source
+    assert "transfer-email-default" in html
+    assert "Guardar como correo predeterminado para traspasos" in html
