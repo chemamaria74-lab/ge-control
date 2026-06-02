@@ -37,6 +37,7 @@ SESSION_HOURS = 12
 GAS_LP_CLAVE_PROD_SERV = "15101515"
 GAS_LP_HYP_SUBPRODUCTO = "SP23"
 GAS_LP_HIDRO_CLAVES = {GAS_LP_CLAVE_PROD_SERV}
+GAS_LP_HYP_DIAGNOSTIC_CLAVES = {"15101515", "15101514"}
 HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 12)}
 GAS_LP_HYP_DEBUG_LOG = os.environ.get("GAS_LP_HYP_DEBUG_LOG", "logs/gas_lp_hyp_pre_timbrado.log")
 
@@ -122,6 +123,21 @@ class GasLpInternalFacturaPayload(BaseModel):
     hyp_experimental_diagnostics: bool = False
     hyp_numero_permiso_override: str = ""
     hyp_tipo_permiso_override: str = ""
+    hyp_clave_hyp_override: str = ""
+
+
+class GasLpHypLCNEDiagnosticPayload(BaseModel):
+    facility_id: Optional[int] = None
+    facility_ids: Optional[list[int]] = None
+    cliente_id: Optional[int] = 7
+    litros: float = 475
+    precio_unitario: float = 10.08
+    forma_pago: str = "03"
+    metodo_pago: str = "PUE"
+    descuento: float = 0
+    iva_rate: float = 0.16
+    probar_claves_producto: bool = True
+    stop_on_success: bool = True
 
 
 class GasLpComplementoPagoPayload(BaseModel):
@@ -632,6 +648,51 @@ def _gas_lp_hyp_xml_fragment(hyp: dict) -> str:
         f'ClaveHYP="{xml_escape(str(hyp.get("clave_hyp") or ""))}" '
         f'SubProductoHYP="{xml_escape(str(hyp.get("subproducto_hyp") or ""))}"/>'
     )
+
+
+def _gas_lp_lcne_diagnostic_matrix(facility: dict, include_product_alternatives: bool = True) -> list[dict]:
+    numero_real = str(facility.get("num_permiso") or "").strip().upper()
+    product_keys = [GAS_LP_CLAVE_PROD_SERV]
+    if include_product_alternatives:
+        product_keys.append("15101514")
+
+    attempts: list[dict] = []
+    if "/EXP/ES/" in numero_real:
+        match = numero_real.replace("LP/", "", 1) if numero_real.startswith("LP/") else numero_real
+        variants = [
+            ("real_lp_per01", numero_real, "PER01"),
+            ("real_lp_per05", numero_real, "PER05"),
+            ("pl_exp_es_per01", f"PL/{match}", "PER01"),
+            ("cne_pl_exp_es_per05", f"CNE/PL/{match}", "PER05"),
+        ]
+    elif "/DIST/PLA/" in numero_real:
+        transformed = numero_real
+        if numero_real.startswith("LP/"):
+            transformed = numero_real.replace("LP/", "PL/", 1).replace("/DIST/PLA/", "/DIS/OM/")
+        cne_transformed = transformed
+        if transformed.startswith("PL/"):
+            cne_transformed = f"CNE/{transformed}"
+        variants = [
+            ("real_lp_per06", numero_real, "PER06"),
+            ("real_lp_per03", numero_real, "PER03"),
+            ("pl_dis_om_per03", transformed, "PER03"),
+            ("cne_pl_dis_om_per07", cne_transformed, "PER07"),
+        ]
+    else:
+        inferred = _infer_hyp_tipo_permiso_from_numero(numero_real)
+        variants = [("real_inferred", numero_real, inferred)] if numero_real and inferred else []
+
+    for product_key in product_keys:
+        for label, numero, tipo in variants:
+            attempts.append(
+                {
+                    "label": label,
+                    "numero_permiso": numero,
+                    "tipo_permiso": tipo,
+                    "clave_hyp": product_key,
+                }
+            )
+    return attempts
 
 
 def _write_gas_lp_hyp_debug_log(payload: dict) -> None:
@@ -2352,7 +2413,15 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     destino = facilities_by_id.get(int(payload.destino_facility_id or 0), {})
     clave_prod_serv_original = _clean_clave_prod_serv(payload.clave_prod_serv)
     clave_prod_serv = GAS_LP_CLAVE_PROD_SERV
-    hyp = _gas_lp_hyp_from_facility(origen, clave_prod_serv)
+    clave_hyp_diagnostic_override = ""
+    if payload.hyp_experimental_diagnostics and payload.hyp_clave_hyp_override:
+        clave_hyp_diagnostic_override = _clean_clave_prod_serv(payload.hyp_clave_hyp_override)
+        if clave_hyp_diagnostic_override not in GAS_LP_HYP_DIAGNOSTIC_CLAVES:
+            raise HTTPException(400, "La clave HyP experimental sólo permite 15101515 o 15101514.")
+        clave_prod_serv = clave_hyp_diagnostic_override
+    hyp = _gas_lp_hyp_from_facility(origen, GAS_LP_CLAVE_PROD_SERV)
+    if clave_hyp_diagnostic_override:
+        hyp = {**hyp, "clave_hyp": clave_hyp_diagnostic_override}
     hyp_original = dict(hyp)
     hyp_override_aplicado = False
     if payload.hyp_experimental_diagnostics:
@@ -2423,6 +2492,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         "tipo_permiso_transformado_hyp": hyp.get("tipo_permiso") or "",
         "clave_prod_serv_recibida": clave_prod_serv_original,
         "clave_prod_serv": clave_prod_serv,
+        "clave_hyp_diagnostic_override": clave_hyp_diagnostic_override,
         "clave_hyp": hyp.get("clave_hyp") or "",
         "subproducto_hyp": hyp.get("subproducto_hyp") or "",
         "incluye_complemento_hyp": bool(hyp_node_xml and "HidroYPetro" in xml),
@@ -2481,6 +2551,9 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "numero_permiso_transformado": hyp.get("numero_permiso") or "",
             "tipo_permiso_original": hyp_original.get("tipo_permiso") or "",
             "tipo_permiso_final": hyp.get("tipo_permiso") or "",
+            "clave_prod_serv_final": clave_prod_serv,
+            "clave_hyp_final": hyp.get("clave_hyp") or "",
+            "subproducto_hyp": hyp.get("subproducto_hyp") or "",
             "hidroypetro_xml": hyp_node_xml,
             "xml_enviado": xml,
             "pac_sw_response": resultado,
@@ -2593,6 +2666,128 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             logger.exception("gas_lp_invoice_email failed: factura=%s err=%s", factura_row.get("id"), exc)
             email_result = None
     return JSONResponse({"ok": True, "factura": factura_row, "totals": totals, "email": email_result.as_metadata() if email_result else None})
+
+
+@router.post("/internal-auth/gas-lp/hyp-l-cne-diagnostics")
+async def gas_lp_hyp_l_cne_diagnostics(payload: GasLpHypLCNEDiagnosticPayload, token: str):
+    ctx = _gas_lp_internal_context(token, write=True)
+    user = ctx["user"]
+    facilities_by_id = {
+        int(f["id"]): f
+        for f in get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+        if f.get("id") is not None
+    }
+    requested_ids = [int(fid) for fid in (payload.facility_ids or []) if fid]
+    if payload.facility_id:
+        requested_ids.append(int(payload.facility_id))
+    requested_ids = list(dict.fromkeys(requested_ids))
+    if not requested_ids:
+        raise HTTPException(400, "Selecciona al menos una instalación para diagnosticar L_CNE.")
+
+    results: list[dict] = []
+    stopped_on_success = False
+    for facility_id in requested_ids:
+        facility = facilities_by_id.get(facility_id)
+        if not facility:
+            results.append(
+                {
+                    "facility_id": facility_id,
+                    "ok": False,
+                    "error": "Instalación no encontrada para esta empresa Gas LP.",
+                }
+            )
+            continue
+        attempts = _gas_lp_lcne_diagnostic_matrix(facility, payload.probar_claves_producto)
+        for attempt in attempts:
+            attempt_payload = GasLpInternalFacturaPayload(
+                cliente_id=payload.cliente_id,
+                publico_general=False,
+                litros=payload.litros,
+                precio_unitario=payload.precio_unitario,
+                concepto="Gas licuado de petróleo",
+                forma_pago=payload.forma_pago,
+                metodo_pago=payload.metodo_pago,
+                descuento=payload.descuento,
+                iva_rate=payload.iva_rate,
+                comentarios=f"Diagnóstico L_CNE HyP {facility.get('nombre') or facility_id} {attempt['label']} {attempt['clave_hyp']}",
+                clave_prod_serv=attempt["clave_hyp"],
+                no_identificacion="GLP-LTR",
+                unidad="Litro",
+                facility_id=facility_id,
+                enviar_correo=False,
+                hyp_experimental_diagnostics=True,
+                hyp_numero_permiso_override=attempt["numero_permiso"],
+                hyp_tipo_permiso_override=attempt["tipo_permiso"],
+                hyp_clave_hyp_override=attempt["clave_hyp"],
+            )
+            try:
+                response = await gas_lp_internal_crear_factura(attempt_payload, token)
+                try:
+                    body = json.loads(response.body.decode("utf-8"))
+                except Exception:
+                    body = {"raw_response": response.body.decode("utf-8", errors="replace")}
+                status_code = getattr(response, "status_code", 200)
+            except HTTPException as exc:
+                body = {"ok": False, "detail": exc.detail}
+                status_code = exc.status_code
+            pac_response = body.get("pac_sw_response") if isinstance(body, dict) else None
+            pac_error = ""
+            if isinstance(pac_response, dict):
+                pac_error = str(pac_response.get("error") or pac_response.get("message") or pac_response.get("detail") or "")
+            result = {
+                "facility_id": facility_id,
+                "instalacion": facility.get("nombre") or facility.get("clave_instalacion") or "",
+                "permiso_real_instalacion": facility.get("num_permiso") or "",
+                "attempt_label": attempt["label"],
+                "permiso_xml": attempt["numero_permiso"],
+                "tipo_permiso": attempt["tipo_permiso"],
+                "clave_hyp": attempt["clave_hyp"],
+                "clave_prod_serv": body.get("clave_prod_serv_final") if isinstance(body, dict) else attempt["clave_hyp"],
+                "subproducto_hyp": body.get("subproducto_hyp") if isinstance(body, dict) else GAS_LP_HYP_SUBPRODUCTO,
+                "http_status": status_code,
+                "ok": bool(body.get("ok")) if isinstance(body, dict) else False,
+                "diagnostic": bool(body.get("diagnostic")) if isinstance(body, dict) else False,
+                "persisted": body.get("persisted") if isinstance(body, dict) else None,
+                "hidroypetro_xml": body.get("hidroypetro_xml") if isinstance(body, dict) else "",
+                "xml_enviado": body.get("xml_enviado") if isinstance(body, dict) else "",
+                "pac_sw_response": pac_response or body,
+                "error_resumen": pac_error or (str(body.get("detail") or "") if isinstance(body, dict) else ""),
+            }
+            results.append(result)
+            _write_gas_lp_hyp_debug_log(
+                {
+                    "event": "gas_lp_hyp_l_cne_matrix_attempt",
+                    "created_at": _now_iso(),
+                    **{k: result.get(k) for k in (
+                        "facility_id",
+                        "instalacion",
+                        "permiso_real_instalacion",
+                        "attempt_label",
+                        "permiso_xml",
+                        "tipo_permiso",
+                        "clave_hyp",
+                        "http_status",
+                        "ok",
+                        "persisted",
+                        "error_resumen",
+                    )},
+                }
+            )
+            if result["ok"] and payload.stop_on_success:
+                stopped_on_success = True
+                break
+        if stopped_on_success:
+            break
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "diagnostic": True,
+            "persisted": False,
+            "stopped_on_success": stopped_on_success,
+            "attempts": results,
+        }
+    )
 
 
 @router.get("/internal-auth/gas-lp/detected-loads")
