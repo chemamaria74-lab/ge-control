@@ -118,6 +118,11 @@
             <div class="client-preview-head"><span class="muted">Datos del traspaso</span><strong>CFDI interno sin efectos fiscales</strong></div>
             <div class="client-tax-line" id="transferInternalReceiver">Receptor interno: —</div>
             <div class="client-tax-line" id="transferInternalPrice">Precio interno precargado: —</div>
+            <div style="margin-top:8px">
+              <label>Correo para enviar CFDI de traspaso</label>
+              <input id="transferEmail" type="text" placeholder="correo@empresa.com, operaciones@empresa.com">
+              <div class="muted" style="font-size:12px;margin-top:4px">Se enviará PDF y XML del traspaso a este correo.</div>
+            </div>
             <div class="muted" style="font-size:12px;margin-top:5px">Fiscalmente el receptor es la misma empresa. Operativamente se guardan origen y destino para inventario, JSON y reportes.</div>
           </div>
           <div id="cartaPorteNotice" class="client-preview form-span hide">
@@ -448,6 +453,14 @@
     function internalReceiverText(){
       return `Receptor interno: ${issuerFiscalName()} · ${CURRENT_COMPANY?.rfc || 'RFC pendiente'} · Uso CFDI S01`;
     }
+    function defaultTransferEmail(){
+      return String(CURRENT_COMPANY?.transfer_email_default || '').trim();
+    }
+    function validEmailList(value){
+      const text = String(value || '').trim();
+      if(!text) return true;
+      return text.split(',').map(x => x.trim()).filter(Boolean).every(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+    }
     function setPublicoGeneralDefaults(){
       updateClientePreview(null);
     }
@@ -546,6 +559,7 @@
         companyRfc.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
         companyRfcTop.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
         transferInternalReceiver.textContent = internalReceiverText();
+        transferEmail.value = defaultTransferEmail();
         applyConceptCatalog();
         applyAssistantSeries();
         unlockEditableFields();
@@ -802,6 +816,7 @@
         ['RFC', summary.rfc],
         ['Origen', summary.origen],
         ['Destino', summary.destino],
+        ['Correo CFDI', summary.correo],
         ['Litros', summary.litros],
         ['Precio', money(summary.precio)],
         ['Total', money(summary.total)],
@@ -824,6 +839,7 @@
       choferSelect.value = '';
       rutaSelect.value = '';
       facturaGlobal.value = '0';
+      transferEmail.value = defaultTransferEmail();
       metodoPago.value = 'PUE';
       formaPago.disabled = false;
       formaPago.value = '01';
@@ -890,6 +906,7 @@
       }
       if(isTraspaso && !destinoFacilitySelect.value){ setStatus('facturaMsg','Selecciona la estación destino.',false); return; }
       if(isTraspaso && String(facilitySelect.value) === String(destinoFacilitySelect.value)){ setStatus('facturaMsg','Origen y destino deben ser distintos.',false); return; }
+      if(isTraspaso && !validEmailList(transferEmail.value)){ setStatus('facturaMsg','Captura correos de traspaso válidos, separados por coma.',false); transferEmail.focus(); return; }
       const wantsCarta = false;
       if(wantsCarta && (!vehiculoSelect.value || !choferSelect.value || !rutaSelect.value)){ setStatus('facturaMsg','Para preparar Carta Porte selecciona vehículo, chofer y ruta.',false); return; }
       syncPaymentMethod();
@@ -901,6 +918,7 @@
           rfc: CURRENT_COMPANY?.rfc || 'RFC pendiente',
           origen: origen?.nombre || facilitySelect.value,
           destino: destino?.nombre || destinoFacilitySelect.value,
+          correo: transferEmail.value.trim() || 'Sin envío automático',
           litros: litrosVal,
           precio: precioVal,
           total: totalVal,
@@ -950,6 +968,7 @@
           vehiculo_id: wantsCarta ? Number(vehiculoSelect.value) : null,
           chofer_id: wantsCarta ? Number(choferSelect.value) : null,
           ruta_id: wantsCarta ? Number(rutaSelect.value) : null,
+          transfer_email: isTraspaso ? transferEmail.value.trim() : '',
           factura_global: clienteRfc === 'XAXX010101000' && facturaGlobal.value === '1',
           informacion_global_periodicidad: '04',
           informacion_global_meses: globalMonth,
@@ -957,6 +976,7 @@
         };
         const data = await api('/api/internal-auth/gas-lp/facturas',{method:'POST',body:JSON.stringify(payload)});
         let emailMsg = data.email?.ok ? ' · correo enviado' : (data.email?.error ? ` · correo pendiente: ${data.email.error}` : '');
+        if(Array.isArray(data.warnings) && data.warnings.length) emailMsg += ` · ${data.warnings.join(' ')}`;
         resetFacturaFormAfterSuccess();
         try{
           await loadFacturas();
@@ -1077,6 +1097,7 @@
     }
     function facturaEmailValue(f){
         const md = f.metadata || {};
+        if(md.tipo_operacion === 'traspaso') return md.transfer_email || md.transfer_email_sent_to || f.email_destinatario || md.email_last_attempt_to || '';
         return md.cliente_email || f.email_destinatario || md.email_sent_to || md.email_last_attempt_to || '';
     }
     function openEmailModal(facturaId){
@@ -1098,7 +1119,7 @@
     async function sendFacturaEmail(){
       if(!EMAIL_FACTURA_ID){ setStatus('emailModalStatus','Selecciona una factura.',false); return; }
       const email = String(emailModalInput.value || '').trim();
-      if(!email || !email.includes('@')){ setStatus('emailModalStatus','Captura un correo válido.',false); emailModalInput.focus(); return; }
+      if(!email || !validEmailList(email)){ setStatus('emailModalStatus','Captura uno o varios correos válidos separados por coma.',false); emailModalInput.focus(); return; }
       try{
         emailModalSendBtn.disabled = true;
         setStatus('emailModalStatus','Enviando...');
