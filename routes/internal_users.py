@@ -817,6 +817,14 @@ def _factura_payment_info(factura: dict) -> dict:
     }
 
 
+def _payment_info_json(info: dict) -> dict:
+    return {
+        **info,
+        "total": float(_money(info.get("total"))),
+        "saldo_insoluto": float(_money(info.get("saldo_insoluto"))),
+    }
+
+
 def _gas_lp_factura_date_key(factura: dict) -> str:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
     for value in (md.get("fecha_emision"), md.get("fecha_cfdi"), factura.get("fecha_timbrado"), factura.get("created_at")):
@@ -1829,7 +1837,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
     _gas_lp_attach_internal_creators(sb, rows)
     comp_by_factura = _gas_lp_complementos_por_factura(sb, [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))])
     for row in rows:
-        row["payment_info"] = _factura_payment_info(row)
+        row["payment_info"] = _payment_info_json(_factura_payment_info(row))
         comps = comp_by_factura.get(_safe_int_id(row.get("id")), [])
         row["complementos_pago"] = comps
         if comps:
@@ -1956,7 +1964,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         info = _factura_payment_info(row)
-        row["payment_info"] = info
+        row["payment_info"] = _payment_info_json(info)
         comps = comp_by_factura.get(_safe_int_id(row.get("id")), [])
         row["complementos_pago"] = comps
         if comps:
