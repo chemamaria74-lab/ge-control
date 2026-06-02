@@ -16,6 +16,7 @@
     .dashboard-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}.metric{border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px}.metric span{display:block;color:var(--muted);font-size:11px;font-weight:900;text-transform:uppercase}.metric b{display:block;font-size:22px;margin-top:4px}.dashboard-layout{display:grid;grid-template-columns:1.2fr .8fr;gap:14px;align-items:start}.bar-list{display:grid;gap:10px}.bar-row{display:grid;gap:6px}.bar-row-top{display:flex;justify-content:space-between;gap:10px;font-weight:900}.bar-track{height:8px;background:#f1f5f9;border-radius:999px;overflow:hidden}.bar-fill{height:100%;background:var(--wine);border-radius:999px}.credit-high{color:#8A2432}.credit-ok{color:#166534}.subtabs{display:flex;gap:8px;align-items:center;margin:0 0 14px;flex-wrap:wrap}.subtab-btn{border:1px solid #D8D0C4;background:#fff;color:#475569;border-radius:8px;padding:9px 12px;font:inherit;font-weight:900;cursor:pointer;display:inline-flex;gap:7px;align-items:center}.subtab-btn.active{background:var(--wine);border-color:var(--wine);color:#fff}.billing-subpanel{display:none}.billing-subpanel.active{display:block}.selection{position:sticky;bottom:0;margin-top:12px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;justify-content:space-between;gap:10px;align-items:center;box-shadow:0 -10px 30px rgba(15,28,45,.08)}
     .assistant-chip{display:inline-flex;align-items:center;gap:5px;margin-top:4px;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:900;border:1px solid #dbeafe;background:#eff6ff;color:#1d4ed8}.assistant-chip.me{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.assistant-chip.alt-1{border-color:#fbcfe8;background:#fdf2f8;color:#9d174d}.assistant-chip.alt-2{border-color:#ddd6fe;background:#f5f3ff;color:#6d28d9}.assistant-chip.alt-3{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.assistant-cell{min-width:130px}.client-form-title{margin:0 0 10px}.modal-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.42);z-index:200;display:grid;place-items:center;padding:18px}.modal{width:min(480px,100%);background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 24px 80px rgba(15,28,45,.26);padding:16px}.modal-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:12px}.modal-head h2{font-size:18px}.modal-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:14px}
     .today-table-wrap{max-height:500px;overflow:auto;border-top:1px solid #eef2f7}.today-table{table-layout:fixed;font-size:12px}.today-table th{position:sticky;top:0;z-index:1;padding:7px 8px;background:#f3f1ee}.today-table td{padding:7px 8px;vertical-align:middle;line-height:1.2}.today-table .today-time{width:58px;white-space:nowrap}.today-table .today-client{width:auto;min-width:0}.today-table .today-total{width:82px;white-space:nowrap;text-align:right}.today-table .today-pay{width:58px;white-space:nowrap}.today-table .today-docs{width:110px}.today-client-name{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:900}.today-table .assistant-chip{margin-top:4px;max-width:100%;font-size:10px;padding:2px 6px;gap:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.today-table .assistant-chip i{font-size:10px}.today-table .doc-actions{display:flex;flex-wrap:nowrap;gap:4px;align-items:center}.today-table .doc-actions .btn{width:30px;height:30px;min-width:30px;padding:0;border-radius:7px;font-size:0}.today-table .doc-actions .btn i{font-size:12px;margin:0}.today-table .doc-actions .doc-square,.today-table .doc-actions .doc-email{width:30px}.today-table tr:hover td{background:#fbfaf8}.op-tag{display:inline-flex;align-items:center;border:1px solid #e5e7eb;background:#f8fafc;color:#475569;border-radius:999px;padding:2px 7px;font-size:10.5px;font-weight:900;white-space:nowrap}.op-tag.transfer{border-color:#e9d5ff;background:#faf5ff;color:#6b21a8}.cell-main{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cell-sub{display:block;margin-top:2px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .transfer-default-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}.checkline{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:900;color:var(--muted)}.checkline input{width:auto;margin:0}.transfer-default-row .btn{padding:7px 9px;font-size:12px}
     @media(max-width:900px){.top{padding:12px;flex-wrap:wrap}.right{margin-left:0}.brand span{display:none}main{padding:14px}.hero,.company-band{align-items:start;flex-direction:column}.work-grid,.form-grid,.filters,.filters.compact-filters,.filters.month-filters,.optional-grid,.dashboard-grid,.dashboard-layout{grid-template-columns:1fr}.btn{width:100%}.tab-btn{flex:1;justify-content:center}.client-row{grid-template-columns:34px 1fr}.client-actions{grid-column:1 / -1;justify-content:stretch}.icon-btn{width:100%}.compact-card{position:static}.facturas-table{min-width:980px}.facturas-table .doc-actions{flex-wrap:wrap}.facturas-table .doc-actions .btn{width:34px}.facturas-table .doc-actions .doc-square,.facturas-table .doc-actions .doc-email{width:34px}}
   </style>
 </head>
@@ -121,6 +122,10 @@
             <div style="margin-top:8px">
               <label>Correo para enviar CFDI de traspaso</label>
               <input id="transferEmail" type="text" placeholder="correo@empresa.com, operaciones@empresa.com">
+              <div class="transfer-default-row">
+                <label class="checkline"><input id="saveTransferEmailDefault" type="checkbox"> Guardar como correo predeterminado para traspasos</label>
+                <button class="btn ghost sm" type="button" onclick="saveTransferEmailDefaultNow()">Actualizar predeterminado</button>
+              </div>
               <div class="muted" style="font-size:12px;margin-top:4px">Se enviará PDF y XML del traspaso a este correo.</div>
             </div>
             <div class="muted" style="font-size:12px;margin-top:5px">Fiscalmente el receptor es la misma empresa. Operativamente se guardan origen y destino para inventario, JSON y reportes.</div>
@@ -456,6 +461,22 @@
     function defaultTransferEmail(){
       return String(CURRENT_COMPANY?.transfer_email_default || '').trim();
     }
+    async function saveTransferEmailDefaultNow(){
+      const email = transferEmail.value.trim();
+      if(!email){ setStatus('facturaMsg','Captura el correo de traspaso antes de guardarlo como predeterminado.',false); transferEmail.focus(); return false; }
+      if(!validEmailList(email)){ setStatus('facturaMsg','Captura correos de traspaso válidos, separados por coma.',false); transferEmail.focus(); return false; }
+      try{
+        const data = await api('/api/internal-auth/gas-lp/transfer-email-default',{method:'POST',body:JSON.stringify({email})});
+        CURRENT_COMPANY.transfer_email_default = data.transfer_email_default || email;
+        transferEmail.value = CURRENT_COMPANY.transfer_email_default;
+        if(saveTransferEmailDefault) saveTransferEmailDefault.checked = false;
+        setStatus('facturaMsg','Correo predeterminado de traspasos guardado para esta empresa.');
+        return true;
+      }catch(e){
+        setStatus('facturaMsg',e.message,false);
+        return false;
+      }
+    }
     function validEmailList(value){
       const text = String(value || '').trim();
       if(!text) return true;
@@ -560,6 +581,7 @@
         companyRfcTop.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
         transferInternalReceiver.textContent = internalReceiverText();
         transferEmail.value = defaultTransferEmail();
+        if(saveTransferEmailDefault) saveTransferEmailDefault.checked = false;
         applyConceptCatalog();
         applyAssistantSeries();
         unlockEditableFields();
@@ -840,6 +862,7 @@
       rutaSelect.value = '';
       facturaGlobal.value = '0';
       transferEmail.value = defaultTransferEmail();
+      if(saveTransferEmailDefault) saveTransferEmailDefault.checked = false;
       metodoPago.value = 'PUE';
       formaPago.disabled = false;
       formaPago.value = '01';
