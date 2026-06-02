@@ -151,6 +151,22 @@ class GasLpHypLCNEDiagnosticPayload(BaseModel):
     stop_on_success: bool = True
 
 
+class GasLpConciliacionPublicoGeneralPayload(BaseModel):
+    litros: float
+    precio_unitario: float
+    facility_id: int
+    forma_pago: str = "01"
+    metodo_pago: str = "PUE"
+    fecha: str = ""
+    comentarios: str = ""
+    descuento: float = 0
+    iva_rate: float = 0.16
+    factura_global: bool = False
+    informacion_global_periodicidad: str = "04"
+    informacion_global_meses: str = ""
+    informacion_global_anio: Optional[int] = None
+
+
 class GasLpComplementoPagoPayload(BaseModel):
     fecha_pago: str = ""
     forma_pago: str = "03"
@@ -488,6 +504,16 @@ def _gas_lp_conciliacion_context(token: str, *, write: bool = False, perfil_id: 
     if perfil_id and int(perfil_id) != int(ctx["user"].get("perfil_id") or 0):
         raise HTTPException(403, "Tu sesión interna sólo puede usar la empresa asignada.")
     return ctx
+
+
+def _gas_lp_factura_access_context(token: str, *, write: bool = False, perfil_id: int | None = None) -> dict:
+    if str(token or "").count(".") == 2:
+        return _gas_lp_conciliacion_context(token, write=write, perfil_id=perfil_id)
+    base = _internal_session(token, "gas_lp")
+    role = (base["user"].get("role") or "").lower()
+    if role in {"conciliacion", "admin"}:
+        return _gas_lp_conciliacion_context(token, write=write, perfil_id=perfil_id)
+    return _gas_lp_internal_context(token, write=write)
 
 
 def _gas_lp_profile(user: dict, *, require_module_marker: bool = False) -> dict:
@@ -2121,8 +2147,8 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
 
 
 @router.get("/internal-auth/gas-lp/facturas/{factura_id}/xml")
-async def gas_lp_internal_factura_xml(factura_id: int, token: str):
-    ctx = _gas_lp_internal_context(token)
+async def gas_lp_internal_factura_xml(factura_id: int, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_factura_access_context(token, perfil_id=perfil_id)
     row = _gas_lp_internal_factura(ctx["user"], factura_id)
     xml_content = row.get("xml_content") or ""
     if not xml_content:
@@ -2137,8 +2163,8 @@ async def gas_lp_internal_factura_xml(factura_id: int, token: str):
 
 
 @router.get("/internal-auth/gas-lp/facturas/{factura_id}/pac-audit")
-async def gas_lp_internal_factura_pac_audit(factura_id: int, token: str):
-    ctx = _gas_lp_internal_context(token)
+async def gas_lp_internal_factura_pac_audit(factura_id: int, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_factura_access_context(token, perfil_id=perfil_id)
     row = _gas_lp_internal_factura(ctx["user"], factura_id)
     sb = get_supabase_admin()
     uuid_sat = str(row.get("uuid_sat") or "").strip()
@@ -2203,8 +2229,8 @@ async def gas_lp_internal_factura_pac_audit(factura_id: int, token: str):
 
 
 @router.get("/internal-auth/gas-lp/facturas/{factura_id}/pdf")
-async def gas_lp_internal_factura_pdf(factura_id: int, token: str):
-    ctx = _gas_lp_internal_context(token)
+async def gas_lp_internal_factura_pdf(factura_id: int, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_factura_access_context(token, perfil_id=perfil_id)
     user = ctx["user"]
     row = _gas_lp_internal_factura(user, factura_id)
     pac_pdf_url = str(row.get("pdf_url") or "").strip()
@@ -2228,8 +2254,8 @@ async def gas_lp_internal_factura_pdf(factura_id: int, token: str):
 
 
 @router.post("/internal-auth/gas-lp/facturas/{factura_id}/send-email")
-async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSendEmailPayload, token: str):
-    ctx = _gas_lp_internal_context(token, write=True)
+async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSendEmailPayload, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_factura_access_context(token, write=True, perfil_id=perfil_id)
     user = ctx["user"]
     profile = _gas_lp_profile(user)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
@@ -2315,6 +2341,14 @@ async def gas_lp_conciliacion_perfiles(token: str):
     return JSONResponse({"ok": True, "perfil_id": user.get("perfil_id"), "perfiles": perfiles})
 
 
+@router.get("/internal-auth/gas-lp/conciliacion/facilities")
+async def gas_lp_conciliacion_facilities(token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_conciliacion_context(token, perfil_id=perfil_id)
+    user = ctx["user"]
+    rows = get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+    return JSONResponse({"ok": True, "facilities": rows})
+
+
 @router.get("/internal-auth/gas-lp/conciliacion/summary")
 async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, perfil_id: int | None = None):
     ctx = _gas_lp_conciliacion_context(token, perfil_id=perfil_id)
@@ -2326,8 +2360,9 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
         rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000)
     except Exception as exc:
         raise _safe_internal_error("gas_lp_conciliacion_summary", exc)
+    _gas_lp_attach_internal_creators(sb, rows)
     comp_by_factura = _gas_lp_complementos_por_factura(sb, [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))])
-    total = credito = publico = 0.0
+    total = credito = publico = complementos_pendientes = 0.0
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         info = _factura_payment_info(row)
@@ -2343,14 +2378,141 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
         if str(row.get("rfc_receptor") or "").upper() == "XAXX010101000":
             publico += amount
         if info["metodo_pago"] == "PPD" or str(md.get("metodo_pago") or "").upper() == "PPD":
-            credito += amount
+            saldo = float(info["saldo_insoluto"])
+            if saldo > 0:
+                credito += saldo
+                complementos_pendientes += 1
     return JSONResponse({
         "ok": True,
         "periodo": month,
         "company": {"id": profile.get("id"), "name": profile.get("nombre"), "rfc": profile.get("rfc")},
-        "kpis": {"facturas": len(rows), "total_facturado": round(total, 2), "credito_estimado": round(credito, 2), "publico_general": round(publico, 2)},
+        "kpis": {
+            "facturas": len(rows),
+            "total_facturado": round(total, 2),
+            "credito_estimado": round(credito, 2),
+            "publico_general": round(publico, 2),
+            "complementos_pendientes": int(complementos_pendientes),
+        },
         "facturas": rows,
     })
+
+
+@router.post("/internal-auth/gas-lp/conciliacion/facturar-publico-general")
+async def gas_lp_conciliacion_facturar_publico_general(payload: GasLpConciliacionPublicoGeneralPayload, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_conciliacion_context(token, write=True, perfil_id=perfil_id)
+    user = ctx["user"]
+    profile = _gas_lp_profile(user, require_module_marker=True)
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    issuer = _require_gas_lp_issuer(profile, settings)
+    receptor = _public_general_receptor(issuer["cp"])
+    sb = get_supabase_admin()
+    serie_factura = _gas_lp_internal_series(user, settings)
+    folio_factura = _gas_lp_next_invoice_folio(sb, user, serie_factura)
+    facilities_by_id = {
+        int(f["id"]): f
+        for f in get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+        if f.get("id") is not None
+    }
+    origen = facilities_by_id.get(int(payload.facility_id or 0), {})
+    if not origen:
+        raise HTTPException(400, "Selecciona la instalación origen para timbrar Público en General.")
+    hyp_mode = _gas_lp_hyp_mode()
+    hyp = {}
+    if hyp_mode == "required":
+        hyp = _gas_lp_hyp_from_facility(origen, GAS_LP_CLAVE_PROD_SERV)
+    informacion_global = None
+    if payload.factura_global:
+        informacion_global = {
+            "periodicidad": payload.informacion_global_periodicidad,
+            "meses": payload.informacion_global_meses,
+            "anio": payload.informacion_global_anio,
+        }
+    concepto_cfdi = "LITRO DE GAS LP" if hyp_mode == "disabled" else "Gas licuado de petróleo"
+    xml, totals = _build_gas_lp_consumo_xml(
+        issuer=issuer,
+        receptor=receptor,
+        litros=payload.litros,
+        precio_unitario=payload.precio_unitario,
+        concepto=concepto_cfdi,
+        forma_pago=payload.forma_pago,
+        metodo_pago=payload.metodo_pago,
+        descuento=payload.descuento,
+        iva_rate=payload.iva_rate,
+        serie=serie_factura,
+        folio=folio_factura,
+        comentarios=payload.comentarios,
+        fecha=payload.fecha,
+        clave_prod_serv=GAS_LP_CLAVE_PROD_SERV,
+        no_identificacion="GLP-LTR",
+        unidad="Litro",
+        hyp=hyp,
+        informacion_global=informacion_global,
+    )
+    sw_config = sw_runtime_config()
+    if _sw_config_looks_like_sandbox(sw_config):
+        raise HTTPException(400, "Este emisor está configurado en modo pruebas. Cambia a producción antes de timbrar CFDI real.")
+    resultado = timbrar_cfdi(xml)
+    if resultado.get("error"):
+        raise HTTPException(400, f"PAC rechazó la factura: {resultado['error']}")
+    now = _now_iso()
+    row = {
+        **_gas_lp_invoice_scope(user, profile),
+        "facility_id": payload.facility_id,
+        "record_uuid": totals["folio"],
+        "uuid_sat": resultado.get("uuid") or "",
+        "xml_content": resultado.get("xml_timbrado") or xml,
+        "pdf_url": resultado.get("pdf_url") or "",
+        "status": "Vigente",
+        "fecha_timbrado": now,
+        "rfc_receptor": receptor["rfc"],
+        "volumen_litros": float(payload.litros),
+        "importe": totals["subtotal"],
+        "tipo_comprobante": "I",
+        "distancia_km": 1,
+        "metadata": {
+            "portal": "conciliacion_gas_lp",
+            "created_by_area": "conciliacion",
+            "internal_user_id": user.get("id"),
+            "created_by_internal_name": user.get("display_name") or "",
+            "created_by": user.get("display_name") or "",
+            "empresa_asignada_id": user.get("perfil_id"),
+            "empresa_asignada_nombre": profile.get("nombre") or "",
+            "empresa_rfc": profile.get("rfc") or "",
+            "rfc_emisor": issuer.get("rfc") or "",
+            "cliente_id": None,
+            "cliente_nombre": receptor["nombre"],
+            "cliente_email": "",
+            "concepto": "LITRO DE GAS LP",
+            "precio_unitario": payload.precio_unitario,
+            "descuento_por_litro": payload.descuento,
+            "descuento": totals["descuento"],
+            "iva_rate": payload.iva_rate,
+            "serie": serie_factura,
+            "folio_usuario": folio_factura,
+            "comentarios": payload.comentarios,
+            "fecha_emision": totals["fecha"],
+            "clave_prod_serv": GAS_LP_CLAVE_PROD_SERV,
+            "gas_lp_hyp_mode": hyp_mode,
+            "hidrocarburos_petroliferos": hyp,
+            "no_identificacion": "GLP-LTR",
+            "unidad": "Litro",
+            "metodo_pago": payload.metodo_pago,
+            "forma_pago": payload.forma_pago,
+            "tipo_operacion": "venta_publico_general",
+            "facility_id": payload.facility_id,
+            "origen_nombre": origen.get("nombre") or "",
+            "payment_status": "pendiente_complemento" if payload.metodo_pago.upper() == "PPD" else "pagado_pue",
+            "saldo_insoluto": totals["total"] if payload.metodo_pago.upper() == "PPD" else 0,
+            "iva": totals["iva"],
+            "total": totals["total"],
+        },
+        "created_at": now,
+    }
+    try:
+        factura = (sb.table("gas_lp_facturas").insert(row).execute().data or [row])[0]
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_conciliacion_facturar_publico_general", exc)
+    return JSONResponse({"ok": True, "factura": factura, "totals": totals})
 
 
 @router.get("/internal-auth/gas-lp/conciliacion/export-excel")
@@ -2392,6 +2554,7 @@ async def gas_lp_conciliacion_export_excel(
         rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000)
     except Exception as exc:
         raise _safe_internal_error("gas_lp_conciliacion_export_excel", exc)
+    _gas_lp_attach_internal_creators(sb, rows)
 
     if day:
         rows = [row for row in rows if _gas_lp_factura_date_key(row) == day]
@@ -2404,26 +2567,60 @@ async def gas_lp_conciliacion_export_excel(
     wb = Workbook()
     ws = wb.active
     ws.title = "Facturas"
-    headers = ["Fecha", "Folio de fact", "Razón social", "Litros", "Monto con IVA", "PUE o PPD"]
+    headers = [
+        "Empresa",
+        "RFC emisor",
+        "Fecha emisión",
+        "Fecha timbrado",
+        "Cliente",
+        "RFC receptor",
+        "Folio",
+        "UUID",
+        "Instalación",
+        "Litros",
+        "Subtotal",
+        "IVA",
+        "Total",
+        "Forma pago",
+        "Método pago",
+        "Estado",
+        "Realizado por",
+        "Área origen",
+    ]
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="7A1E2C")
     for row in rows:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        info = _factura_payment_info(row)
         ws.append([
+            profile.get("nombre") or md.get("empresa_asignada_nombre") or "",
+            _gas_lp_factura_emisor_rfc(row) or profile.get("rfc") or "",
             _gas_lp_factura_date_key(row),
-            _gas_lp_factura_folio_label(row),
+            row.get("fecha_timbrado") or "",
             _gas_lp_factura_razon_social(row),
+            row.get("rfc_receptor") or md.get("cliente_rfc") or "",
+            _gas_lp_factura_folio_label(row),
+            row.get("uuid_sat") or "",
+            md.get("origen_nombre") or "",
             float(row.get("volumen_litros") or 0),
-            float(_gas_lp_factura_total_con_iva(row)),
+            float(info["subtotal"]),
+            float(info["iva"]),
+            float(info["total"]),
+            md.get("forma_pago") or "",
             _gas_lp_factura_metodo_pago(row),
+            row.get("status") or "",
+            row.get("realizado_por") or md.get("created_by") or md.get("created_by_internal_name") or "",
+            md.get("created_by_area") or md.get("portal") or "",
         ])
-    for width, column in zip([14, 18, 42, 14, 18, 14], "ABCDEF"):
+    for width, column in zip([24, 16, 14, 22, 34, 16, 18, 38, 24, 12, 14, 14, 14, 12, 12, 14, 22, 20], "ABCDEFGHIJKLMNOPQR"):
         ws.column_dimensions[column].width = width
-    for cell in ws["D"][1:]:
+    for cell in ws["J"][1:]:
         cell.number_format = "#,##0.000"
-    for cell in ws["E"][1:]:
-        cell.number_format = '$#,##0.00'
+    for column in ("K", "L", "M"):
+        for cell in ws[column][1:]:
+            cell.number_format = '$#,##0.00'
 
     stream = BytesIO()
     wb.save(stream)
@@ -2466,6 +2663,7 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
         .data
         or []
     )
+    match_profile = {**profile, "rfc": _gas_lp_company_rfc(user, profile)}
     rows = [row for row in rows if _gas_lp_factura_matches_company(row, user, match_profile)]
     if len(rows) != len(factura_ids):
         raise HTTPException(404, "Una factura seleccionada no existe para esta empresa.")
@@ -2523,7 +2721,17 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
         "forma_pago": totals["forma_pago"],
         "monto": totals["monto"],
         "saldo_insoluto": totals["saldo_insoluto"],
-        "metadata": {"factura_ids": factura_ids, "referencia": payload.referencia, "banco": payload.banco, "notas": payload.notas, "facturas": totals["facturas"]},
+        "metadata": {
+            "factura_ids": factura_ids,
+            "referencia": payload.referencia,
+            "banco": payload.banco,
+            "notas": payload.notas,
+            "facturas": totals["facturas"],
+            "created_by_area": "conciliacion",
+            "created_by_internal": user.get("id"),
+            "created_by": user.get("display_name") or "",
+            "empresa_rfc": issuer.get("rfc") or profile.get("rfc") or "",
+        },
         "created_at": now,
         "updated_at": now,
     }
