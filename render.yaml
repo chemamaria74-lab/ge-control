@@ -26,6 +26,8 @@ services:
         value: "production"
       - key: SW_ALLOW_REAL_TIMBRADO
         value: "true"
+      - key: GAS_LP_HYP_MODE
+        value: "disabled"
       - key: SW_ALLOW_REAL_CANCELACION
         value: "false"
       - key: SW_USER
