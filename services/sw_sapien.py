@@ -419,16 +419,31 @@ def timbrar_cfdi(xml_str: str) -> dict:
             status_code_sw=resp.status_code,
             raw_response_sw=resp.text,
         )
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"status": "error", "message": resp.text}
 
-        if data.get("status") != "success":
-            public_error = _public_pac_error(data.get("message") or data.get("messageDetail"), fallback="Error desconocido SW Sapien")
+        if resp.status_code >= 400 or data.get("status") != "success":
+            public_error = _public_pac_error(
+                data.get("message") or data.get("messageDetail") or resp.text,
+                fallback=f"SW Sapien rechazó el CFDI con HTTP {resp.status_code}.",
+            )
             result = {
                 "uuid": "", "xml_timbrado": "", "pdf_url": "",
                 "error": public_error,
             }
-            record_pac_response(request_id=audit_request_id, response_payload=data, status="error", error_message=public_error)
+            record_pac_response(
+                request_id=audit_request_id,
+                response_payload={
+                    "endpoint_sw": endpoint_sw,
+                    "status_code_sw": resp.status_code,
+                    "raw_response_sw": resp.text,
+                    "parsed_response_sw": data,
+                },
+                status="error",
+                error_message=public_error,
+            )
             return result
 
         result_data = data.get("data", {}) or {}
