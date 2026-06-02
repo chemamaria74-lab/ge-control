@@ -1,5 +1,20 @@
 # Evidencia Gas LP / HidroYPetro - 2026-06-02
 
+## Estado productivo confirmado
+
+Decision vigente para GE Control:
+
+- Gas LP timbra como `ClaveProdServ="15111510"`.
+- `ClaveUnidad="LTR"`.
+- `Unidad="Litro"`.
+- `Descripcion="LITRO DE GAS LP"`.
+- `GAS_LP_HYP_MODE=disabled`.
+- No se agrega `ComplementoConcepto/HidroYPetro` para Gas LP.
+- SW Sapiens debe usarse por XML multipart en `https://services.sw.com.mx/cfdi33/issue/v4`.
+- No regresar a `/cfdi33/issue/json/v4/b64`.
+
+Esta decision se tomo despues de validar timbrado real. Las pruebas HyP abajo quedan como evidencia historica/diagnostica, no como instruccion para produccion.
+
 ## Hallazgo de clave SAT
 
 - Catalogo publico Anexo 20 consultado:
@@ -64,7 +79,7 @@ Respuesta PAC/SW repetida:
 CCHYP107 - El valor registrado en NumeroPermiso no se encuentra en la lista L_CNE o no corresponde con la nomenclatura del numero de permiso asociada a la clave registrada en la columna "Nomenclatura del numero de permiso" conforme al catalogo c_TipoPermiso.
 ```
 
-Conclusion tecnica:
+Conclusion tecnica historica:
 
 - El rechazo actual no se resolvio con `15101515`.
 - El rechazo tampoco se resolvio transformando permisos `LP/...` a `PL/...` o `CNE/PL/...`.
@@ -76,4 +91,5 @@ RFC GLU760309457 + NumeroPermiso + ClaveHYP
 
 - No consolidar `15101515` como clave definitiva del sistema.
 - No modificar permisos reales en BD.
-- No quitar HyP para SW mientras el PAC lo exija.
+- No activar HyP para Gas LP sin nueva validacion oficial/fiscal.
+- Mantener la configuracion productiva vigente: `GAS_LP_HYP_MODE=disabled` y endpoint XML multipart `/cfdi33/issue/v4`.
