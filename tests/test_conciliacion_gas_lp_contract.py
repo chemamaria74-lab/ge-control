@@ -134,19 +134,109 @@ def test_conciliacion_export_excel_handles_decimal_null_metadata_and_transfer(mo
     assert [cell.value for cell in ws[1]] == [
         "Fecha",
         "Folio de fact",
+        "UUID",
         "Razón social",
         "Monto con IVA",
         "Litros",
         "PUE o PPD",
+        "Estado",
     ]
     assert ws.max_row == 4
     assert ws["A2"].value == "2026-06-01"
     assert ws["B2"].value == "100"
-    assert ws["D2"].value == 116.5
-    assert ws["E2"].value == 50.125
-    assert ws["F2"].value == "PPD"
-    assert ws["C3"].value == "XAXX010101000"
-    assert ws["F4"].value == "PUE"
+    assert ws["E2"].value == 116.5
+    assert ws["F2"].value == 50.125
+    assert ws["G2"].value == "PPD"
+    assert ws["H2"].value == "Vigente - PPD / Crédito"
+    assert ws["D3"].value == "XAXX010101000"
+    assert ws["G4"].value == "PUE"
+    assert ws["H4"].value == "Vigente"
+
+
+def test_gas_lp_excel_exports_use_neutral_invoice_statuses(monkeypatch):
+    cancelled_uuid = "6d09da66-366b-41f0-b778-0b89ed625b5f"
+    vigente_uuid = "aa054375-5a74-44c3-ad8c-e2e1070512c4"
+    rows = [
+        {
+            "id": 1,
+            "uuid_sat": cancelled_uuid,
+            "status": "Cancelada fiscalmente",
+            "metadata": {
+                "fecha_emision": "2026-06-01T10:00:00",
+                "folio": "000001",
+                "cliente_nombre": "J JESUS ROBLES NAVA",
+                "total": Decimal("4990.50"),
+                "metodo_pago": "PUE",
+                "estado_fiscal": "cancelada_fiscalmente",
+            },
+            "volumen_litros": Decimal("1"),
+            "importe": Decimal("4302.16"),
+            "created_at": "2026-06-01T10:00:00",
+        },
+        {
+            "id": 2,
+            "uuid_sat": vigente_uuid,
+            "status": "timbrada",
+            "metadata": {
+                "fecha_emision": "2026-06-01T11:00:00",
+                "folio": "000002",
+                "cliente_nombre": "J JESUS ROBLES NAVA",
+                "total": Decimal("4540.50"),
+                "metodo_pago": "PUE",
+            },
+            "volumen_litros": Decimal("1"),
+            "importe": Decimal("3914.22"),
+            "created_at": "2026-06-01T11:00:00",
+        },
+        {
+            "id": 3,
+            "uuid_sat": "ppd-uuid",
+            "status": "timbrada",
+            "metadata": {
+                "fecha_emision": "2026-06-01T12:00:00",
+                "folio": "000003",
+                "cliente_nombre": "CLIENTE CREDITO",
+                "total": Decimal("1000.00"),
+                "metodo_pago": "PPD",
+            },
+            "volumen_litros": Decimal("1"),
+            "importe": Decimal("862.07"),
+            "created_at": "2026-06-01T12:00:00",
+        },
+    ]
+
+    monkeypatch.setattr(internal_users, "_gas_lp_conciliacion_context", lambda token, perfil_id=None: {"user": {"perfil_id": perfil_id or 7, "tenant_id": "t1"}})
+    monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token: {"user": {"perfil_id": 7, "tenant_id": "t1"}})
+    monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=False: {"id": user["perfil_id"], "nombre": "ALFA GAS", "rfc": "AAA010101AAA"})
+    monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: object())
+    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", lambda sb, user, profile, month="", limit=10000: rows)
+    monkeypatch.setattr(internal_users, "_gas_lp_attach_internal_creators", lambda sb, rows: None)
+
+    conc_response = asyncio.run(
+        internal_users.gas_lp_conciliacion_export_excel(
+            token="token",
+            period="2026-06",
+            profile_id=7,
+        )
+    )
+    assistant_response = asyncio.run(
+        internal_users.gas_lp_internal_facturas_export_dia(
+            token="token",
+            fecha="2026-06-01",
+        )
+    )
+
+    for response in (conc_response, assistant_response):
+        wb = load_workbook(BytesIO(response.body))
+        ws = wb.active
+        headers = [cell.value for cell in ws[1]]
+        uuid_col = headers.index("UUID") + 1
+        estado_col = headers.index("Estado") + 1
+        by_uuid = {ws.cell(row=i, column=uuid_col).value: ws.cell(row=i, column=estado_col).value for i in range(2, ws.max_row + 1)}
+        assert by_uuid[cancelled_uuid] == "Cancelada"
+        assert by_uuid[vigente_uuid] == "Vigente"
+        assert by_uuid["ppd-uuid"] == "Vigente - PPD / Crédito"
+        assert "Pagada" not in [ws.cell(row=i, column=estado_col).value for i in range(2, ws.max_row + 1)]
 
 
 def test_conciliacion_complemento_payload_supports_multiple_ppd_invoices():
