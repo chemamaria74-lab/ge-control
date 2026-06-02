@@ -100,7 +100,7 @@
           <button class="btn ghost" id="btnPublicoGeneral" type="button" onclick="usePublicoGeneral()"><i class="fa-solid fa-users"></i> Público en general</button>
         </div>
         <div class="form-grid">
-          <div><label>Operación</label><select id="tipoOperacion" onchange="updateOperacionUI()"><option value="venta">Venta a cliente</option><option value="traspaso">Traspaso interno a estación</option></select></div>
+          <div><label>Operación</label><select id="tipoOperacion" onchange="updateOperacionUI()"><option value="venta">Venta a cliente</option><option value="traspaso">Traspaso a estación</option><option value="carta_porte">Carta Porte</option></select></div>
           <div id="facilityField" class="field-attention"><label>Instalación origen *</label><select id="facilitySelect" required onchange="filterRutasForTransfer()"><option value="">Selecciona instalación</option></select></div>
           <div id="clienteField"><label>Cliente</label><select id="clienteSelect" onchange="selectCliente()"><option value="">Público en general</option></select></div>
           <div id="facturaGlobalField"><label>Factura global público general</label><select id="facturaGlobal"><option value="0">No global</option><option value="1">Factura global mensual</option></select></div>
@@ -112,6 +112,15 @@
             <div class="client-tax-line">
               <span id="previewRfc">XAXX010101000</span> · CP <span id="previewCp">—</span> · Régimen <span id="previewRegimen">616</span> · Uso CFDI <span id="previewUso">S01</span> · <span id="previewEmail">Sin correo</span>
             </div>
+          </div>
+          <div id="transferPanel" class="client-preview form-span hide">
+            <div class="client-preview-head"><span class="muted">Datos del traspaso</span><strong>CFDI interno sin efectos fiscales</strong></div>
+            <div class="client-tax-line" id="transferInternalReceiver">Receptor interno: —</div>
+            <div class="muted" style="font-size:12px;margin-top:5px">Fiscalmente el receptor es la misma empresa. Operativamente se guardan origen y destino para inventario, JSON y reportes.</div>
+          </div>
+          <div id="cartaPorteNotice" class="client-preview form-span hide">
+            <b>Carta Porte en configuración.</b>
+            <div class="muted" style="font-size:12px;margin-top:4px">Para traslados internos usar por ahora Traspaso a estación y registrar origen/destino.</div>
           </div>
           <div id="destinoField" class="hide"><label>Estación destino</label><select id="destinoFacilitySelect" onchange="filterRutasForTransfer()"><option value="">Selecciona estación destino</option></select></div>
           <div id="cartaPorteField" class="hide"><label>Carta Porte</label><select id="generarCartaPorte" onchange="updateOperacionUI()"><option value="0">Sólo registrar traspaso</option><option value="1">Timbrar Carta Porte</option></select></div>
@@ -132,7 +141,7 @@
           <div class="system-field"><label>No. identificación</label><input id="noIdentificacion" class="locked-field" value="GLP-LTR" maxlength="100" readonly></div>
           <div class="system-field"><label>Unidad</label><input id="unidadConcepto" class="locked-field" value="Litro" maxlength="20" readonly></div>
           <div><label>Fecha emisión</label><input id="fechaEmision" type="datetime-local"></div>
-          <div class="form-span"><label>Comentarios para el cliente</label><textarea id="comentarios" maxlength="500" placeholder="Observaciones, indicaciones o referencia que el cliente necesita ver"></textarea></div>
+          <div class="form-span"><label id="comentariosLabel">Comentarios para el cliente</label><textarea id="comentarios" maxlength="500" placeholder="Observaciones, indicaciones o referencia que el cliente necesita ver"></textarea></div>
         </div>
         <div class="invoice-summary" style="margin-top:12px">
           <div><span>Subtotal</span><b id="sumSubtotal">$0.00</b></div>
@@ -271,6 +280,22 @@
       <div id="emailModalStatus" class="status"></div>
     </div>
   </div>
+  <div id="transferConfirmModal" class="modal-backdrop hide" role="dialog" aria-modal="true" aria-labelledby="transferConfirmTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <h2 id="transferConfirmTitle">Confirmar traspaso</h2>
+          <p class="muted" style="margin:4px 0 0">Vas a generar un CFDI interno sin efectos fiscales.</p>
+        </div>
+        <button class="btn ghost icon-btn" type="button" onclick="resolveTransferConfirm(false)" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="transferConfirmBody" class="invoice-summary"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" onclick="resolveTransferConfirm(false)">Cancelar</button>
+        <button class="btn" type="button" onclick="resolveTransferConfirm(true)"><i class="fa-solid fa-stamp"></i> Confirmar y timbrar traspaso</button>
+      </div>
+    </div>
+  </div>
   <script>
     const token = localStorage.getItem('ge_gaslp_internal_token') || '';
     let CLIENTES = [];
@@ -283,6 +308,7 @@
     let EDIT_CLIENT_ID = null;
     let EMAIL_FACTURA_ID = null;
     let isStamping = false;
+    let transferConfirmResolver = null;
     const SAT_REGIMENES = [
       ['601','General de Ley Personas Morales'],
       ['603','Personas Morales con Fines no Lucrativos'],
@@ -415,6 +441,11 @@
       }
     }
     function issuerCp(){ return String(CURRENT_COMPANY?.cp || '').replace(/\D/g,'').slice(0,5); }
+    function issuerRegimen(){ return String(CURRENT_COMPANY?.regimen || CURRENT_COMPANY?.regimen_fiscal || '601'); }
+    function issuerFiscalName(){ return CURRENT_COMPANY?.fiscal_name || CURRENT_COMPANY?.name || 'Empresa asignada'; }
+    function internalReceiverText(){
+      return `Receptor interno: ${issuerFiscalName()} · ${CURRENT_COMPANY?.rfc || 'RFC pendiente'} · Uso CFDI S01`;
+    }
     function setPublicoGeneralDefaults(){
       updateClientePreview(null);
     }
@@ -499,6 +530,7 @@
         companyNameTop.textContent = CURRENT_COMPANY.name || 'Empresa asignada';
         companyRfc.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
         companyRfcTop.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
+        transferInternalReceiver.textContent = internalReceiverText();
         applyConceptCatalog();
         applyAssistantSeries();
         unlockEditableFields();
@@ -640,15 +672,37 @@
     }
     function updateOperacionUI(){
       const traspaso = tipoOperacion.value === 'traspaso';
-      [destinoField,cartaPorteField].forEach(el => el.classList.toggle('hide', !traspaso));
-      const cp = traspaso && generarCartaPorte.value === '1';
-      [vehiculoField,choferField,rutaField].forEach(el => el.classList.toggle('hide', !cp));
-      clienteField.classList.toggle('hide', traspaso);
-      clientePreview.classList.toggle('hide', traspaso);
-      btnPublicoGeneral.disabled = traspaso;
-      btnTimbrar.innerHTML = traspaso ? (cp ? '<i class="fa-solid fa-truck-fast"></i> Timbrar Carta Porte' : '<i class="fa-solid fa-right-left"></i> Registrar traspaso') : '<i class="fa-solid fa-stamp"></i> Timbrar factura';
+      const cartaPorte = tipoOperacion.value === 'carta_porte';
+      destinoField.classList.toggle('hide', !traspaso);
+      cartaPorteField.classList.add('hide');
+      [vehiculoField,choferField,rutaField].forEach(el => el.classList.add('hide'));
+      clienteField.classList.toggle('hide', traspaso || cartaPorte);
+      facturaGlobalField.classList.toggle('hide', traspaso || cartaPorte);
+      clientePreview.classList.toggle('hide', traspaso || cartaPorte);
+      transferPanel.classList.toggle('hide', !traspaso);
+      cartaPorteNotice.classList.toggle('hide', !cartaPorte);
+      btnPublicoGeneral.disabled = traspaso || cartaPorte;
+      btnTimbrar.disabled = cartaPorte;
+      btnTimbrar.innerHTML = traspaso ? '<i class="fa-solid fa-right-left"></i> Timbrar traspaso' : (cartaPorte ? '<i class="fa-solid fa-truck-fast"></i> Carta Porte en configuración' : '<i class="fa-solid fa-stamp"></i> Timbrar factura');
+      comentariosLabel.textContent = traspaso ? 'Comentarios / referencia interna' : 'Comentarios para el cliente';
       concepto.value = CONCEPTOS_FACTURA.gas_lp_litro.descripcion;
-      if(traspaso) setStatus('facturaMsg','Traspaso interno: se registrará salida en origen y entrada en estación destino.');
+      transferInternalReceiver.textContent = internalReceiverText();
+      if(traspaso){
+        clienteSelect.value = '';
+        facturaGlobal.value = '0';
+        metodoPago.value = 'PUE';
+        formaPago.value = '01';
+        metodoPago.disabled = true;
+        formaPago.disabled = false;
+        setStatus('facturaMsg','Traspaso a estación: receptor fiscal interno con Uso CFDI S01; destino operativo se guarda para inventario/reportes.');
+      } else if(cartaPorte){
+        metodoPago.disabled = false;
+        formaPago.disabled = false;
+        setStatus('facturaMsg','Carta Porte en configuración. Para traslados internos usa Traspaso a estación y registra origen/destino.',false);
+      } else {
+        metodoPago.disabled = false;
+        formaPago.disabled = false;
+      }
     }
     function selectCliente(){
       const c = CLIENTES.find(x => String(x.id) === String(clienteSelect.value));
@@ -710,6 +764,25 @@
       }
       updateOperacionUI();
     }
+    function resolveTransferConfirm(confirmed){
+      if(transferConfirmResolver) transferConfirmResolver(!!confirmed);
+      transferConfirmResolver = null;
+      transferConfirmModal.classList.add('hide');
+    }
+    function confirmTransferStamp(summary){
+      transferConfirmBody.innerHTML = [
+        ['Empresa', summary.empresa],
+        ['RFC', summary.rfc],
+        ['Origen', summary.origen],
+        ['Destino', summary.destino],
+        ['Litros', summary.litros],
+        ['Precio', money(summary.precio)],
+        ['Total', money(summary.total)],
+        ['Uso CFDI', 'S01'],
+      ].map(([k,v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+      transferConfirmModal.classList.remove('hide');
+      return new Promise(resolve => { transferConfirmResolver = resolve; });
+    }
     function resetFacturaFormAfterSuccess(){
       clienteSelect.value = '';
       litros.value = '0';
@@ -741,14 +814,17 @@
       const id = factura.id ? encodeURIComponent(factura.id) : '';
       const q = `token=${encodeURIComponent(token)}`;
       const pdfUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/pdf?${q}` : '';
+      const xmlUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/xml?${q}` : '';
       const emailButton = id ? `<button class="btn ghost" type="button" onclick="openEmailModal('${esc(String(factura.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
       const viewButton = pdfUrl ? `<a class="btn ghost" href="${pdfUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> Ver factura</a>` : '';
+      const xmlButton = xmlUrl ? `<a class="btn ghost" href="${xmlUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>` : '';
       facturaMsg.className = 'status ok';
       facturaMsg.innerHTML = `
         <span><b>Factura timbrada correctamente.</b><br>UUID: <code>${esc(uuid)}</code>${emailMsg ? `<br>${esc(emailMsg.replace(/^ · /,''))}` : ''}</span>
         <span class="toolbar" style="margin-top:8px">
           <button class="btn ghost" type="button" onclick="resetFacturaFormAfterSuccess()"><i class="fa-solid fa-plus"></i> Nueva factura</button>
           ${viewButton}
+          ${xmlButton}
           ${emailButton}
         </span>`;
     }
@@ -775,19 +851,36 @@
       if(descuentoVal < 0 || descuentoVal >= precioVal){ setStatus('facturaMsg','El descuento por litro debe ser menor al precio unitario para que la factura tenga total mayor a cero.',false); return; }
       if(totalVal <= 0){ setStatus('facturaMsg','El total de la factura debe ser mayor a cero. Revisa precio y descuento.',false); return; }
       const isTraspaso = tipoOperacion.value === 'traspaso';
+      if(tipoOperacion.value === 'carta_porte'){
+        setStatus('facturaMsg','Carta Porte en configuración. Para traslados internos usa Traspaso a estación y registra origen/destino.',false);
+        return;
+      }
       if(isTraspaso && !destinoFacilitySelect.value){ setStatus('facturaMsg','Selecciona la estación destino.',false); return; }
       if(isTraspaso && String(facilitySelect.value) === String(destinoFacilitySelect.value)){ setStatus('facturaMsg','Origen y destino deben ser distintos.',false); return; }
-      const wantsCarta = isTraspaso && generarCartaPorte.value === '1';
+      const wantsCarta = false;
       if(wantsCarta && (!vehiculoSelect.value || !choferSelect.value || !rutaSelect.value)){ setStatus('facturaMsg','Para preparar Carta Porte selecciona vehículo, chofer y ruta.',false); return; }
       syncPaymentMethod();
-      if(!confirm(wantsCarta ? '¿Timbrar Carta Porte de traslado real?' : '¿Timbrar factura real?')) return;
+      if(isTraspaso){
+        const origen = FACILITIES.find(f => String(f.id) === String(facilitySelect.value));
+        const destino = FACILITIES.find(f => String(f.id) === String(destinoFacilitySelect.value));
+        const confirmed = await confirmTransferStamp({
+          empresa: issuerFiscalName(),
+          rfc: CURRENT_COMPANY?.rfc || 'RFC pendiente',
+          origen: origen?.nombre || facilitySelect.value,
+          destino: destino?.nombre || destinoFacilitySelect.value,
+          litros: litrosVal,
+          precio: precioVal,
+          total: totalVal,
+        });
+        if(!confirmed) return;
+      } else if(!confirm('¿Timbrar factura real?')) return;
       isStamping = true;
       try{
         setStampingButton(true);
         setStatus('facturaMsg','Timbrando con PAC...');
-        const clienteId = clienteSelect.value ? Number(clienteSelect.value) : null;
+        const clienteId = isTraspaso ? null : (clienteSelect.value ? Number(clienteSelect.value) : null);
         const selectedCliente = clienteId ? CLIENTES.find(c => Number(c.id) === clienteId) : null;
-        const clienteRfc = String(selectedCliente?.rfc || 'XAXX010101000').toUpperCase();
+        const clienteRfc = String(isTraspaso ? (CURRENT_COMPANY?.rfc || '') : (selectedCliente?.rfc || 'XAXX010101000')).toUpperCase();
         ensureFechaEmision();
         ensureFolio();
         const fechaRaw = fechaEmision.value || '';
@@ -797,7 +890,12 @@
         const globalYear = globalDate.getFullYear();
         const payload = {
           cliente_id: clienteId,
-          publico_general: !clienteId,
+          publico_general: !isTraspaso && !clienteId,
+          rfc: isTraspaso ? (CURRENT_COMPANY?.rfc || '') : 'XAXX010101000',
+          nombre: isTraspaso ? issuerFiscalName() : 'PUBLICO EN GENERAL',
+          cp: isTraspaso ? issuerCp() : '',
+          regimen_fiscal: isTraspaso ? issuerRegimen() : '616',
+          uso_cfdi: isTraspaso ? 'S01' : 'S01',
           litros: litrosVal,
           precio_unitario: precioVal,
           concepto: concepto.value || 'Gas licuado de petróleo',
