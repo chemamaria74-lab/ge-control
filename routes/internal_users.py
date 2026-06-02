@@ -43,10 +43,6 @@ GAS_LP_HYP_DIAGNOSTIC_CLAVES = {GAS_LP_CLAVE_PROD_SERV, GAS_LP_SW_HYP_EXPERIMENT
 HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 12)}
 GAS_LP_HYP_MODES = {"required", "disabled", "diagnostic"}
 GAS_LP_HYP_DEBUG_LOG = os.environ.get("GAS_LP_HYP_DEBUG_LOG", "logs/gas_lp_hyp_pre_timbrado.log")
-GAS_LP_HYP_DISABLED_WARNING = (
-    "CFDI emitido sin complemento Hidrocarburos/Petrolíferos por configuración operativa. "
-    "Validar criterio fiscal con contador/PAC."
-)
 
 
 class InternalUserCreate(BaseModel):
@@ -1884,7 +1880,7 @@ async def gas_lp_internal_summary(token: str):
         "modules": modules,
         "hyp": {
             "mode": _gas_lp_hyp_mode(),
-            "warning": GAS_LP_HYP_DISABLED_WARNING if _gas_lp_hyp_mode() == "disabled" else "",
+            "warning": "",
         },
         "session": {"expires_at": ctx["session"].get("expires_at"), "hours": SESSION_HOURS},
         "notices": [
@@ -1901,7 +1897,7 @@ async def gas_lp_internal_hyp_mode(token: str):
     return JSONResponse({
         "ok": True,
         "mode": mode,
-        "warning": GAS_LP_HYP_DISABLED_WARNING if mode == "disabled" else "",
+        "warning": "",
     })
 
 
@@ -2712,7 +2708,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         "credenciales_sw_configuradas": bool(sw_config.get("has_credentials")),
         "timbrado_real_habilitado": bool(sw_config.get("real_stamping_allowed")),
         "gas_lp_hyp_mode": hyp_mode,
-        "gas_lp_hyp_disabled_warning": GAS_LP_HYP_DISABLED_WARNING if hyp_mode == "disabled" and not payload.hyp_experimental_diagnostics else "",
+        "gas_lp_hyp_disabled_warning": "",
         "facility_id": payload.facility_id,
         "instalacion": origen.get("nombre") or origen.get("clave_instalacion") or "",
         "numero_permiso_instalacion": origen.get("num_permiso") or "",
@@ -2843,7 +2839,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "fecha_emision": totals["fecha"],
             "clave_prod_serv": clave_prod_serv,
             "gas_lp_hyp_mode": hyp_mode,
-            "gas_lp_hyp_warning": GAS_LP_HYP_DISABLED_WARNING if hyp_mode == "disabled" else "",
+            "gas_lp_hyp_warning": "",
             "hidrocarburos_petroliferos": hyp,
             "no_identificacion": payload.no_identificacion,
             "unidad": payload.unidad,
@@ -2903,7 +2899,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         except Exception as exc:
             logger.exception("gas_lp_invoice_email failed: factura=%s err=%s", factura_row.get("id"), exc)
             email_result = None
-    warnings = [GAS_LP_HYP_DISABLED_WARNING] if hyp_mode == "disabled" else []
+    warnings = []
     return JSONResponse({"ok": True, "factura": factura_row, "totals": totals, "email": email_result.as_metadata() if email_result else None, "warnings": warnings})
 
 
