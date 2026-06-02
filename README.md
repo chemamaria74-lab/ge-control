@@ -1,8 +1,182 @@
-# GE CONTROL
+# GE Control
 
-Plataforma SaaS multiempresa para operación y cumplimiento de hidrocarburos en México: Gas LP, Transporte y Gasolineras.
+Portal interno para operacion, facturacion, conciliacion y control de empresas Gas LP.
 
-Estado de release: **MVP Production-Ready controlado**, siempre que se apliquen las migraciones listadas, se configuren variables reales y Gasolineras cargue padrón CRE/CNE real antes de vender inteligencia de mercado como funcional completa.
+Estado de release: **Gas LP operativo para facturacion real**. Transporte y Gasolineras permanecen como modulos enterprise en evolucion y deben validarse por separado antes de venderse como alcance fiscal completo.
+
+## Estado Actual De Produccion
+
+El sistema ya esta operativo para facturacion real Gas LP.
+
+Funcionalidades validadas:
+
+- Timbrado CFDI 4.0 real.
+- Gas LP con `ClaveProdServ=15111510`.
+- Sin complemento Hidrocarburos/Petroliferos para Gas LP.
+- SW Sapiens usando endpoint XML multipart: `https://services.sw.com.mx/cfdi33/issue/v4`.
+- PDF fiscal generado.
+- XML timbrado generado.
+- Envio de PDF/XML por correo via Resend.
+- Dominio `gecontrol.mx` verificado en Resend.
+- Reenvio manual desde tabla de facturas.
+- Exportacion Excel en Asistente y Conciliacion.
+- Conciliacion multiempresa.
+- Complementos de pago PPD.
+- Logo dinamico por empresa usando `PdfLogoDataUrl`.
+
+## Reglas Criticas De Gas LP
+
+No cambiar sin validacion fiscal y tecnica:
+
+- `ClaveProdServ` Gas LP = `15111510`.
+- `ClaveUnidad` = `LTR`.
+- `Unidad` = `Litro`.
+- `Descripcion` = `LITRO DE GAS LP`.
+- `GAS_LP_HYP_MODE=disabled`.
+- No usar `15101515` para Gas LP.
+- No agregar HidroYPetro para Gas LP.
+- No regresar a `/cfdi33/issue/json/v4/b64`.
+- Mantener `SW_XML_ISSUE_URL=https://services.sw.com.mx/cfdi33/issue/v4`.
+
+## Variables De Entorno Importantes
+
+Produccion Gas LP:
+
+```bash
+APP_ENV=production
+SW_ENV=production
+SW_ALLOW_REAL_TIMBRADO=true
+GAS_LP_HYP_MODE=disabled
+SW_XML_ISSUE_URL=https://services.sw.com.mx/cfdi33/issue/v4
+RESEND_API_KEY=
+GE_INVOICE_EMAIL_FROM="GE Control <facturacion@gecontrol.mx>"
+GE_INVOICE_EMAIL_REPLY_TO=pagos@grupoemurcia.com.mx
+```
+
+## Modulo Asistente Gas LP
+
+Funciones:
+
+- Venta a cliente.
+- Publico en general.
+- Traspaso a estacion.
+- Carta Porte visible como opcion pendiente/configurable.
+- Complemento de pago.
+- Clientes.
+- Facturas del dia.
+- PDF/XML/correo.
+- Prevencion de doble timbrado.
+- Limpieza de formulario despues de timbrar.
+
+Notas:
+
+- Traspaso a estacion usa receptor interno misma empresa.
+- Uso CFDI `S01`.
+- Guarda origen/destino operativo para inventario, JSON y reportes.
+- Puede enviar PDF/XML del traspaso por correo.
+- Correo de traspaso puede guardarse por empresa/perfil.
+
+## Modulo Conciliacion Gas LP
+
+Funciones:
+
+- Vista multiempresa.
+- Facturas por empresa fiscal.
+- Filtros por cliente/dia/estado/forma/metodo.
+- Exportar Excel.
+- Complementos de pago PPD.
+- Facturar Publico General desde conciliacion.
+- Cancelacion / Consulta SAT.
+- KPIs del mes.
+
+Regla: Conciliacion debe consultar por empresa/RFC fiscal, no por usuario creador.
+
+## PDF Fiscal
+
+El PDF:
+
+- Usa logo dinamico de empresa desde `PdfLogoDataUrl`.
+- Si no hay logo, muestra fallback con nombre fiscal/RFC.
+- Debe incluir datos fiscales, UUID, folio, certificados, fechas, conceptos, impuestos, totales, QR, sellos y cadena.
+- Puede mostrar permiso CRE de la instalacion si esta disponible.
+- No debe modificar XML ni calculos.
+
+## Correo CFDI
+
+Resend:
+
+- Dominio verificado: `gecontrol.mx`.
+- From: `GE Control <facturacion@gecontrol.mx>`.
+- Reply-To: `pagos@grupoemurcia.com.mx`.
+- Adjunta PDF y XML.
+- Nombres de archivos recomendados:
+  - `EMPRESA_FOLIO_UUID.pdf`
+  - `EMPRESA_FOLIO_UUID.xml`
+
+## Exportacion Excel
+
+Orden de columnas:
+
+```text
+Fecha | Folio de fact | Razon social | Monto con IVA | Litros | PUE o PPD
+```
+
+Export debe ser defensivo:
+
+- Manejar `Decimal`.
+- Manejar `None`.
+- Manejar metadata faltante.
+- Manejar transferencias.
+- No tumbar toda la descarga por una factura rara.
+
+## Principios De Desarrollo
+
+Muy importante:
+
+1. No tocar produccion fiscal si no es necesario.
+2. No hacer refactors grandes sobre modulos productivos.
+3. Cambios pequenos e incrementales.
+4. Separar UI de logica fiscal.
+5. Antes de modificar timbrado, XML, SW o PDF, pedir autorizacion explicita.
+6. Usar branches, feature flags o staging cuando sea posible.
+7. Mantener Asistente Gas LP estable.
+8. Conciliacion puede evolucionar, pero sin romper facturacion.
+
+## Flujo Recomendado De Cambios
+
+- `main` = produccion estable.
+- `develop` = pruebas.
+- `feature/*` = cambios nuevos.
+- Probar local/staging antes de deploy.
+- Deploy a produccion solo despues de validar:
+  - timbrado
+  - PDF
+  - XML
+  - correo
+  - Excel
+  - listado
+
+## Historial De Decisiones Criticas
+
+1. Se intento usar HidroYPetro para Gas LP.
+2. SW rechazaba por catalogos HyP/L_CNE.
+3. Se confirmo que Gas LP operativo debe timbrar como `15111510` sin HyP.
+4. El problema real era el endpoint JSON/base64.
+5. Al cambiar a `/cfdi33/issue/v4` XML multipart, SW timbro correctamente.
+6. Se valido CFDI real con PAC `LSO1306189R5`.
+7. Se verifico correo real con Resend despues de dominio `gecontrol.mx`.
+
+## No Hacer
+
+- No cambiar `15111510` por `15101515`.
+- No activar HyP para Gas LP sin nueva validacion oficial.
+- No usar `issue/json/v4/b64`.
+- No hardcodear logos por empresa.
+- No asumir una sola empresa.
+- No filtrar facturas solo por usuario creador.
+- No romper el boton de correo/PDF/XML.
+- No tocar Asistente Gas LP para cambios de Conciliacion.
+- No mezclar cambios de UI con cambios fiscales.
 
 ## Módulos
 
@@ -55,6 +229,11 @@ SW_SAPIEN_URL=https://services.sw.com.mx
 SW_ALLOW_REAL_TIMBRADO=false
 SW_ALLOW_REAL_CANCELACION=false
 SW_ALLOW_REAL_IN_STAGING=false
+SW_XML_ISSUE_URL=https://services.sw.com.mx/cfdi33/issue/v4
+GAS_LP_HYP_MODE=disabled
+RESEND_API_KEY=
+GE_INVOICE_EMAIL_FROM="GE Control <facturacion@gecontrol.mx>"
+GE_INVOICE_EMAIL_REPLY_TO=pagos@grupoemurcia.com.mx
 ```
 
 Gasolineras:
@@ -207,8 +386,10 @@ Transparencia:
 
 - XML timbrado es fuente fiscal.
 - PDF es representación impresa y puede generarse internamente.
-- Confirmar con SW Sapien costos/flujo de PDF antes de venderlo.
-- Validar CFDI/Carta Porte con casos reales por cliente antes de prometer cumplimiento fiscal completo.
+- Gas LP productivo usa `SW_XML_ISSUE_URL=https://services.sw.com.mx/cfdi33/issue/v4`.
+- No regresar Gas LP al endpoint JSON/base64.
+- No activar HidroYPetro para Gas LP sin nueva validacion fiscal/PAC.
+- Validar CFDI/Carta Porte Transporte con casos reales por cliente antes de prometer cumplimiento fiscal completo.
 
 ## Arquitectura Enterprise SaaS
 
@@ -368,7 +549,7 @@ Modelo enterprise progresivo:
 
 ## Módulo Gas LP Enterprise
 
-Gas LP cubre distribución, remisiones, XML/Excel, reportes SAT/Anexo 30, facturación futura y administración por empresa.
+Gas LP cubre distribucion, remisiones, XML/Excel, reportes SAT/Anexo 30, facturacion real, conciliacion y administracion por empresa.
 
 ### Alcance funcional objetivo
 
@@ -385,14 +566,15 @@ Gas LP cubre distribución, remisiones, XML/Excel, reportes SAT/Anexo 30, factur
 
 ### Facturación Gas LP
 
-No asumir reglas fiscales dudosas sin XML real y validación SAT/PAC. La arquitectura debe permitir:
+Estado operativo validado:
 
-- Separar precio base antes de impuestos.
-- Calcular IEPS como cuota por litro cuando aplique y esté vigente.
-- Calcular IVA sobre la base fiscal correcta. La hipótesis actual documentada es `subtotal + IEPS`, pero debe validarse con contador/PAC y XMLs reales del cliente.
-- Incluir `InformacionGlobal` cuando se emite a público en general como factura global.
-- Relacionar remisiones/tickets con factura individual o global.
-- Guardar XML original, XML timbrado, UUID y response PAC.
+- CFDI 4.0 real timbrado con SW Sapiens.
+- Producto Gas LP con `ClaveProdServ=15111510`, `ClaveUnidad=LTR`, `Unidad=Litro` y `Descripcion=LITRO DE GAS LP`.
+- Sin complemento HidroYPetro para Gas LP.
+- Endpoint SW XML multipart `/cfdi33/issue/v4`.
+- PDF fiscal, XML timbrado y correo Resend funcionando.
+
+No asumir reglas fiscales dudosas sin XML real y validacion SAT/PAC. Antes de cambiar timbrado, XML, SW, PDF o calculos, pedir autorizacion explicita.
 
 ### Análisis de XMLs CONTPAQi / ATIO
 
@@ -424,9 +606,16 @@ Modelo enterprise progresivo:
 - `gas_lp_price_periods`: precio/IEPS/IVA vigentes por periodo.
 - Fiscal común: `pac_requests`, `pac_responses`, `xml_versions`, `invoice_cancellations`.
 
-Pendiente: crear estas tablas cuando se conecte facturación Gas LP real. Mientras tanto, los XMLs cargados se procesan para reportes SAT/Anexo 30 y análisis.
+Las tablas reales de facturacion y conciliacion deben consultarse por empresa/RFC fiscal, no solo por usuario creador. Los XMLs cargados siguen procesandose para reportes SAT/Anexo 30 y analisis.
 
 ## Integración PAC SW Sapiens / SW smarter
+
+Gas LP productivo ya validado:
+
+- Usar endpoint XML multipart: `https://services.sw.com.mx/cfdi33/issue/v4`.
+- Mantener `GAS_LP_HYP_MODE=disabled`.
+- No usar `/cfdi33/issue/json/v4/b64`.
+- Guardar XML timbrado, UUID, PDF generado y response PAC.
 
 Flujo objetivo:
 
