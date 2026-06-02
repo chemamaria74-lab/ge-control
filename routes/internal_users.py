@@ -2214,7 +2214,7 @@ async def gas_lp_internal_factura_pdf(factura_id: int, token: str):
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{info.uuid}.pdf"'},
+        headers={"Content-Disposition": f'inline; filename="{info.filename}"'},
     )
 
 

@@ -816,7 +816,7 @@ async def ver_pdf_factura_gas_lp(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'{disposition}; filename="{info.uuid}.pdf"'},
+        headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'},
     )
 
 
