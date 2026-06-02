@@ -282,6 +282,7 @@
     let COMP_SEL = {};
     let EDIT_CLIENT_ID = null;
     let EMAIL_FACTURA_ID = null;
+    let isStamping = false;
     const SAT_REGIMENES = [
       ['601','General de Ley Personas Morales'],
       ['603','Personas Morales con Fines no Lucrativos'],
@@ -700,6 +701,57 @@
       sumIva.textContent = money(iva);
       sumTotal.textContent = money(netGross);
     }
+    function setStampingButton(loading=false){
+      if(!btnTimbrar) return;
+      btnTimbrar.disabled = !!loading;
+      if(loading){
+        btnTimbrar.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando...';
+        return;
+      }
+      updateOperacionUI();
+    }
+    function resetFacturaFormAfterSuccess(){
+      clienteSelect.value = '';
+      litros.value = '0';
+      descuento.value = '0';
+      comentarios.value = '';
+      fechaEmision.value = localDateTimeValue();
+      facilitySelect.value = '';
+      tipoOperacion.value = 'venta';
+      destinoFacilitySelect.value = '';
+      generarCartaPorte.value = '0';
+      vehiculoSelect.value = '';
+      choferSelect.value = '';
+      rutaSelect.value = '';
+      facturaGlobal.value = '0';
+      metodoPago.value = 'PUE';
+      formaPago.disabled = false;
+      formaPago.value = '01';
+      applyConceptCatalog();
+      applyConfiguredPrice();
+      setPublicoGeneralDefaults();
+      ensureFolio();
+      updateOperacionUI();
+      filterRutasForTransfer();
+      updateTotals();
+    }
+    function renderFacturaSuccess(data, emailMsg=''){
+      const factura = data?.factura || {};
+      const uuid = factura.uuid_sat || 'UUID pendiente';
+      const id = factura.id ? encodeURIComponent(factura.id) : '';
+      const q = `token=${encodeURIComponent(token)}`;
+      const pdfUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/pdf?${q}` : '';
+      const emailButton = id ? `<button class="btn ghost" type="button" onclick="openEmailModal('${esc(String(factura.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
+      const viewButton = pdfUrl ? `<a class="btn ghost" href="${pdfUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> Ver factura</a>` : '';
+      facturaMsg.className = 'status ok';
+      facturaMsg.innerHTML = `
+        <span><b>Factura timbrada correctamente.</b><br>UUID: <code>${esc(uuid)}</code>${emailMsg ? `<br>${esc(emailMsg.replace(/^ · /,''))}` : ''}</span>
+        <span class="toolbar" style="margin-top:8px">
+          <button class="btn ghost" type="button" onclick="resetFacturaFormAfterSuccess()"><i class="fa-solid fa-plus"></i> Nueva factura</button>
+          ${viewButton}
+          ${emailButton}
+        </span>`;
+    }
     function syncPaymentMethod(){
       if(metodoPago.value === 'PPD'){
         formaPago.value = '99';
@@ -710,6 +762,10 @@
       }
     }
     async function crearFactura(){
+      if(isStamping){
+        setStatus('facturaMsg','Ya se está timbrando esta factura. Espera a que termine el proceso.',false);
+        return;
+      }
       const litrosVal = Number(litros.value || 0);
       const precioVal = Number(precioUnitario.value || 0);
       if(!facilitySelect.value){ setStatus('facturaMsg','Selecciona la instalación origen. Es obligatoria para control operativo GE Control.',false); facilitySelect.focus(); return; }
@@ -725,9 +781,9 @@
       if(wantsCarta && (!vehiculoSelect.value || !choferSelect.value || !rutaSelect.value)){ setStatus('facturaMsg','Para preparar Carta Porte selecciona vehículo, chofer y ruta.',false); return; }
       syncPaymentMethod();
       if(!confirm(wantsCarta ? '¿Timbrar Carta Porte de traslado real?' : '¿Timbrar factura real?')) return;
-      const btn = document.querySelector('button[onclick="crearFactura()"]');
+      isStamping = true;
       try{
-        if(btn) btn.disabled = true;
+        setStampingButton(true);
         setStatus('facturaMsg','Timbrando con PAC...');
         const clienteId = clienteSelect.value ? Number(clienteSelect.value) : null;
         const selectedCliente = clienteId ? CLIENTES.find(c => Number(c.id) === clienteId) : null;
@@ -769,12 +825,19 @@
           informacion_global_anio: globalYear
         };
         const data = await api('/api/internal-auth/gas-lp/facturas',{method:'POST',body:JSON.stringify(payload)});
-        const successLabel = isTraspaso ? (wantsCarta ? 'Carta Porte traslado timbrada' : 'Traspaso registrado') : 'Factura timbrada';
-        const emailMsg = data.email?.ok ? ' · correo enviado' : (data.email?.error ? ` · correo pendiente: ${data.email.error}` : '');
-        setStatus('facturaMsg',`${successLabel}: ${data.factura?.uuid_sat || 'UUID pendiente'}${emailMsg}`);
-        await loadFacturas();
+        let emailMsg = data.email?.ok ? ' · correo enviado' : (data.email?.error ? ` · correo pendiente: ${data.email.error}` : '');
+        resetFacturaFormAfterSuccess();
+        try{
+          await loadFacturas();
+        }catch(refreshError){
+          emailMsg += ' · actualiza la tabla para ver la factura en el listado';
+        }
+        renderFacturaSuccess(data, emailMsg);
       }catch(e){ setStatus('facturaMsg',e.message,false); }
-      finally{ if(btn) btn.disabled = false; }
+      finally{
+        isStamping = false;
+        setStampingButton(false);
+      }
     }
     function mergeFacturas(rows){
       const byId = new Map(FACTURAS.map(f => [String(f.id), f]));
