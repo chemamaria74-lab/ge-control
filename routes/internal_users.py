@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 import secrets
@@ -21,7 +22,7 @@ from routes.perfiles import _tenant_id_for_user, get_perfiles_for_user
 from services.database import get_facilities
 from services.email_delivery import send_gas_lp_invoice_email
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml
-from services.sw_sapien import timbrar_cfdi
+from services.sw_sapien import sw_runtime_config, timbrar_cfdi
 from supabase_config import get_supabase_admin, get_supabase_for_user
 
 
@@ -33,10 +34,11 @@ SECTIONS = {"transporte", "gas_lp", "gasolineras"}
 MAX_FAILED_ATTEMPTS = 5
 LOCK_MINUTES = 15
 SESSION_HOURS = 12
-GAS_LP_CLAVE_PROD_SERV = "15111510"
+GAS_LP_CLAVE_PROD_SERV = "15101515"
 GAS_LP_HYP_SUBPRODUCTO = "SP23"
 GAS_LP_HIDRO_CLAVES = {GAS_LP_CLAVE_PROD_SERV}
 HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 12)}
+GAS_LP_HYP_DEBUG_LOG = os.environ.get("GAS_LP_HYP_DEBUG_LOG", "logs/gas_lp_hyp_pre_timbrado.log")
 
 
 class InternalUserCreate(BaseModel):
@@ -627,6 +629,27 @@ def _gas_lp_hyp_xml_fragment(hyp: dict) -> str:
         f'ClaveHYP="{xml_escape(str(hyp.get("clave_hyp") or ""))}" '
         f'SubProductoHYP="{xml_escape(str(hyp.get("subproducto_hyp") or ""))}"/>'
     )
+
+
+def _write_gas_lp_hyp_debug_log(payload: dict) -> None:
+    try:
+        path = os.path.abspath(GAS_LP_HYP_DEBUG_LOG)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+    except Exception as exc:
+        logger.warning("gas_lp_hyp_debug_log_failed: %s", exc)
+
+
+def _sw_config_looks_like_sandbox(config: dict) -> bool:
+    sw_env = str(config.get("sw_env") or "").strip().lower()
+    if sw_env != "production":
+        return True
+    url_text = " ".join(
+        str(config.get(key) or "").strip().lower()
+        for key in ("base_url", "token_url", "xml_issue_url", "xml_stamp_url", "json_issue_url")
+    )
+    return any(marker in url_text for marker in ("test.sw.com.mx", "sandbox", "demo"))
 
 
 def _require_gas_lp_issuer(profile: dict, settings: dict) -> dict:
@@ -2203,8 +2226,43 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         unidad=payload.unidad,
         hyp=hyp,
     )
+    hyp_node_xml = _gas_lp_hyp_xml_fragment(hyp)
+    sw_config = sw_runtime_config()
+    sw_sandbox = _sw_config_looks_like_sandbox(sw_config)
+    debug_payload = {
+        "event": "gas_lp_hyp_pre_timbrado",
+        "created_at": _now_iso(),
+        "perfil_id": user.get("perfil_id"),
+        "tenant_id": user.get("tenant_id"),
+        "rfc_emisor": issuer.get("rfc") or "",
+        "ambiente_sw_actual": sw_config.get("sw_env") or "",
+        "app_env": sw_config.get("app_env") or "",
+        "endpoint_sw_usado": sw_config.get("xml_issue_url") or "",
+        "base_url_sw": sw_config.get("base_url") or "",
+        "modo_sandbox": sw_sandbox,
+        "timbrado_real_o_prueba": "prueba" if sw_sandbox else "real",
+        "credenciales_sw_configuradas": bool(sw_config.get("has_credentials")),
+        "timbrado_real_habilitado": bool(sw_config.get("real_stamping_allowed")),
+        "facility_id": payload.facility_id,
+        "instalacion": origen.get("nombre") or origen.get("clave_instalacion") or "",
+        "numero_permiso_instalacion": origen.get("num_permiso") or "",
+        "tipo_permiso_generado": hyp.get("tipo_permiso") or "",
+        "numero_permiso_hyp": hyp.get("numero_permiso") or "",
+        "clave_prod_serv": clave_prod_serv,
+        "clave_hyp": hyp.get("clave_hyp") or "",
+        "subproducto_hyp": hyp.get("subproducto_hyp") or "",
+        "hidroypetro_xml": hyp_node_xml,
+        "cfdi_xml_enviado": xml,
+    }
+    _write_gas_lp_hyp_debug_log(debug_payload)
     logger.info(
-        "gas_lp_hyp_pre_timbrado facility_id=%s instalacion=%s numero_permiso=%s tipo_permiso=%s clave_prod_serv=%s clave_hyp=%s subproducto_hyp=%s hyp_xml=%s",
+        "gas_lp_hyp_pre_timbrado sw_env=%s app_env=%s endpoint=%s rfc_emisor=%s sandbox=%s timbrado=%s facility_id=%s instalacion=%s numero_permiso=%s tipo_permiso=%s clave_prod_serv=%s clave_hyp=%s subproducto_hyp=%s hyp_xml=%s",
+        sw_config.get("sw_env") or "",
+        sw_config.get("app_env") or "",
+        sw_config.get("xml_issue_url") or "",
+        issuer.get("rfc") or "",
+        sw_sandbox,
+        "prueba" if sw_sandbox else "real",
         payload.facility_id,
         origen.get("nombre") or origen.get("clave_instalacion") or "",
         origen.get("num_permiso") or "",
@@ -2212,8 +2270,19 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         clave_prod_serv,
         hyp.get("clave_hyp") or "",
         hyp.get("subproducto_hyp") or "",
-        _gas_lp_hyp_xml_fragment(hyp),
+        hyp_node_xml,
     )
+    if sw_sandbox:
+        logger.warning(
+            "gas_lp_timbrado_bloqueado_por_ambiente sw_env=%s endpoint=%s rfc_emisor=%s",
+            sw_config.get("sw_env") or "",
+            sw_config.get("xml_issue_url") or "",
+            issuer.get("rfc") or "",
+        )
+        raise HTTPException(
+            400,
+            "Este emisor está configurado en modo pruebas. Cambia a producción antes de timbrar CFDI real.",
+        )
     resultado = timbrar_cfdi(xml)
     if resultado.get("error"):
         pac_error = str(resultado["error"])
