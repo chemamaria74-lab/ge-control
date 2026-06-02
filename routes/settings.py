@@ -36,6 +36,7 @@ DEFAULT_SETTINGS = {
     "Caracter":              "permisionario",
     "ModalidadPermiso":      "PER40",
     "FactorDeConversionKgALitros": 0.542,
+    "PdfLogoDataUrl":       "",
     # Configuración Avanzada
     "adv_tanques":         None,
     "adv_medicion":        None,
@@ -222,6 +223,7 @@ class SettingsPayload(BaseModel):
     Caracter:              Optional[str]   = "permisionario"
     ModalidadPermiso:      Optional[str]   = "PER40"
     FactorDeConversionKgALitros: Optional[float] = 0.542
+    PdfLogoDataUrl:        Optional[str]   = ""
     # Configuración Avanzada — actualizaciones parciales
     adv_tanques:          Optional[Any] = None
     adv_medicion:         Optional[Any] = None
