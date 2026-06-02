@@ -133,6 +133,10 @@ class GasLpInternalFacturaPayload(BaseModel):
     hyp_clave_hyp_override: str = ""
 
 
+class GasLpSendEmailPayload(BaseModel):
+    email: str = ""
+
+
 class GasLpHypLCNEDiagnosticPayload(BaseModel):
     facility_id: Optional[int] = None
     facility_ids: Optional[list[int]] = None
@@ -2212,6 +2216,76 @@ async def gas_lp_internal_factura_pdf(factura_id: int, token: str):
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{info.uuid}.pdf"'},
     )
+
+
+@router.post("/internal-auth/gas-lp/facturas/{factura_id}/send-email")
+async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSendEmailPayload, token: str):
+    ctx = _gas_lp_internal_context(token, write=True)
+    user = ctx["user"]
+    profile = _gas_lp_profile(user)
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    issuer = _require_gas_lp_issuer(profile, settings)
+    row = _gas_lp_internal_factura(user, factura_id)
+    xml_content = str(row.get("xml_content") or "")
+    if not xml_content:
+        raise HTTPException(400, "La factura no tiene XML timbrado para enviar.")
+    uuid_sat = str(row.get("uuid_sat") or "").strip()
+    if not uuid_sat:
+        raise HTTPException(400, "La factura no tiene UUID timbrado para enviar.")
+    md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    recipient = _clean_billing_email(payload.email) or _clean_billing_email(md.get("cliente_email") or row.get("email_destinatario"))
+    if not recipient:
+        raise HTTPException(400, "Captura un correo destino para enviar XML/PDF.")
+    try:
+        info = fiscal_pdf_info(xml_content, "factura_gas_lp")
+        pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_factura_send_email_pdf", exc)
+    email_result = send_gas_lp_invoice_email(
+        to_email=recipient,
+        issuer_name=issuer["nombre"],
+        customer_name=str(md.get("cliente_nombre") or row.get("rfc_receptor") or "Cliente"),
+        uuid_sat=uuid_sat,
+        total=md.get("total") or _gas_lp_factura_total_con_iva(row),
+        xml_content=xml_content,
+        pdf_bytes=pdf_bytes,
+        pdf_filename=info.filename,
+        serie_folio=_gas_lp_factura_folio_label(row),
+    )
+    now_email = _now_iso()
+    updated_md = {
+        **md,
+        "email_delivery": email_result.as_metadata(),
+        "email_sent_at": now_email if email_result.ok else md.get("email_sent_at"),
+        "email_sent_to": recipient if email_result.ok else md.get("email_sent_to", recipient),
+        "resend_message_id": email_result.message_id if email_result.ok else md.get("resend_message_id", ""),
+        "email_error": "" if email_result.ok else email_result.error,
+        "email_last_attempt_at": now_email,
+        "email_last_attempt_to": recipient,
+    }
+    update_payload = {
+        "metadata": updated_md,
+        "email_enviado": bool(email_result.ok),
+        "email_enviado_at": now_email if email_result.ok else row.get("email_enviado_at"),
+        "email_destinatario": recipient,
+        "email_error": "" if email_result.ok else email_result.error,
+        "updated_at": now_email,
+    }
+    try:
+        updated = (
+            get_supabase_admin()
+            .table("gas_lp_facturas")
+            .update(update_payload)
+            .eq("id", factura_id)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_factura_send_email_update", exc)
+    factura = updated[0] if updated else {**row, **update_payload}
+    response = {"ok": bool(email_result.ok), "factura": factura, "email": email_result.as_metadata()}
+    return JSONResponse(response, status_code=200 if email_result.ok else 400)
 
 
 @router.get("/internal-auth/gas-lp/conciliacion/perfiles")
