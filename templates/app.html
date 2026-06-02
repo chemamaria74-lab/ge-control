@@ -3533,7 +3533,7 @@ function setPdfLogoEmpresaPreview(dataUrl, label) {
     img.style.display = dataUrl ? 'block' : 'none';
   }
   if (empty) empty.style.display = dataUrl ? 'none' : 'block';
-  if (hint) hint.textContent = dataUrl ? (label || 'Logo cargado para PDFs fiscales.') : 'Opcional. Tamaño máximo 350 KB.';
+  if (hint) hint.textContent = label || (dataUrl ? 'Logo cargado para PDFs fiscales.' : 'Opcional. Tamaño máximo 350 KB.');
 }
 
 function cargarLogoPdfEmpresa(event) {
