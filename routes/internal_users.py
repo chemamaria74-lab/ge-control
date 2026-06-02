@@ -951,6 +951,38 @@ def _gas_lp_factura_xml_root(factura: dict) -> Optional[ET.Element]:
         return None
 
 
+def _gas_lp_factura_pac_xml_summary(xml_content: str) -> dict:
+    root = None
+    try:
+        root = ET.fromstring(str(xml_content or "").encode("utf-8"))
+    except Exception:
+        return {"xml_len": len(str(xml_content or "")), "parse_ok": False}
+    concepto = _xml_first(root, "Concepto")
+    timbre = _xml_first(root, "TimbreFiscalDigital")
+    return {
+        "xml_len": len(str(xml_content or "")),
+        "parse_ok": True,
+        "version": _xml_attr(root, "Version"),
+        "serie": _xml_attr(root, "Serie"),
+        "folio": _xml_attr(root, "Folio"),
+        "fecha": _xml_attr(root, "Fecha"),
+        "no_certificado": _xml_attr(root, "NoCertificado"),
+        "has_sello": bool(_xml_attr(root, "Sello")),
+        "sello_len": len(_xml_attr(root, "Sello")),
+        "has_certificado": bool(_xml_attr(root, "Certificado")),
+        "certificado_len": len(_xml_attr(root, "Certificado")),
+        "clave_prod_serv": _xml_attr(concepto, "ClaveProdServ"),
+        "clave_unidad": _xml_attr(concepto, "ClaveUnidad"),
+        "unidad": _xml_attr(concepto, "Unidad"),
+        "descripcion": _xml_attr(concepto, "Descripcion"),
+        "has_hidroypetro": "HidroYPetro" in str(xml_content or ""),
+        "has_informacion_global": _xml_first(root, "InformacionGlobal") is not None,
+        "uuid": _xml_attr(timbre, "UUID"),
+        "rfc_prov_certif": _xml_attr(timbre, "RfcProvCertif"),
+        "fecha_timbrado": _xml_attr(timbre, "FechaTimbrado"),
+    }
+
+
 def _gas_lp_factura_folio_label(factura: dict) -> str:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
     serie = str(md.get("serie") or "").strip()
@@ -2029,6 +2061,72 @@ async def gas_lp_internal_factura_xml(factura_id: int, token: str):
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/internal-auth/gas-lp/facturas/{factura_id}/pac-audit")
+async def gas_lp_internal_factura_pac_audit(factura_id: int, token: str):
+    ctx = _gas_lp_internal_context(token)
+    row = _gas_lp_internal_factura(ctx["user"], factura_id)
+    sb = get_supabase_admin()
+    uuid_sat = str(row.get("uuid_sat") or "").strip()
+    xml_content = str(row.get("xml_content") or "")
+    xml_summary = _gas_lp_factura_pac_xml_summary(xml_content)
+    responses = []
+    try:
+        query = sb.table("pac_responses").select("*").order("id", desc=True).limit(20)
+        if uuid_sat:
+            query = query.eq("uuid_sat", uuid_sat)
+        responses = query.execute().data or []
+    except Exception as exc:
+        logger.warning("gas_lp_pac_audit_responses_lookup_failed factura_id=%s uuid=%s err=%s", factura_id, uuid_sat, exc)
+        responses = []
+    request_ids = sorted({
+        int(resp.get("request_id") or 0)
+        for resp in responses
+        if resp.get("request_id")
+    })
+    requests_by_id = {}
+    if request_ids:
+        try:
+            reqs = sb.table("pac_requests").select("*").in_("id", request_ids).execute().data or []
+            requests_by_id = {int(req.get("id") or 0): req for req in reqs}
+        except Exception as exc:
+            logger.warning("gas_lp_pac_audit_requests_lookup_failed factura_id=%s uuid=%s err=%s", factura_id, uuid_sat, exc)
+    audit = []
+    for resp in responses:
+        req = requests_by_id.get(int(resp.get("request_id") or 0), {})
+        audit.append({
+            "pac_response_id": resp.get("id"),
+            "pac_request_id": resp.get("request_id"),
+            "provider": resp.get("provider") or req.get("provider") or "",
+            "environment": req.get("environment") or "",
+            "operation": req.get("operation") or "",
+            "request_created_at": req.get("created_at") or "",
+            "response_created_at": resp.get("created_at") or "",
+            "request_payload": req.get("request_payload") or {},
+            "response_payload": resp.get("response_payload") or {},
+            "status": resp.get("status") or "",
+            "error_message": resp.get("error_message") or "",
+            "uuid_sat": resp.get("uuid_sat") or "",
+            "pdf_url": resp.get("pdf_url") or "",
+            "xml_original": resp.get("xml_original") or "",
+            "xml_timbrado": resp.get("xml_timbrado") or "",
+        })
+    return JSONResponse({
+        "ok": True,
+        "factura": {
+            "id": row.get("id"),
+            "uuid_sat": uuid_sat,
+            "record_uuid": row.get("record_uuid") or "",
+            "fecha_timbrado": row.get("fecha_timbrado") or "",
+            "created_at": row.get("created_at") or "",
+            "source": row.get("source") or "",
+            "metadata": row.get("metadata") or {},
+        },
+        "xml_summary": xml_summary,
+        "audit_count": len(audit),
+        "audit": audit,
+    })
 
 
 @router.get("/internal-auth/gas-lp/facturas/{factura_id}/pdf")
