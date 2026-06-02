@@ -253,6 +253,24 @@
       <div class="list client-list" id="clientesList"><div class="empty">Cargando clientes...</div></div>
     </section>
   </main>
+  <div id="emailModal" class="modal-backdrop hide" role="dialog" aria-modal="true" aria-labelledby="emailModalTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <h2 id="emailModalTitle">Enviar correo</h2>
+          <p class="muted" id="emailModalMeta" style="margin:4px 0 0">XML/PDF de la factura</p>
+        </div>
+        <button class="btn ghost icon-btn" type="button" onclick="closeEmailModal()" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <label for="emailModalInput">Correo destino</label>
+      <input id="emailModalInput" type="email" placeholder="cliente@empresa.com">
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" onclick="closeEmailModal()">Cancelar</button>
+        <button class="btn" id="emailModalSendBtn" type="button" onclick="sendFacturaEmail()"><i class="fa-solid fa-paper-plane"></i> Enviar XML/PDF</button>
+      </div>
+      <div id="emailModalStatus" class="status"></div>
+    </div>
+  </div>
   <script>
     const token = localStorage.getItem('ge_gaslp_internal_token') || '';
     let CLIENTES = [];
@@ -263,6 +281,7 @@
     let CURRENT_ASSISTANT = null;
     let COMP_SEL = {};
     let EDIT_CLIENT_ID = null;
+    let EMAIL_FACTURA_ID = null;
     const SAT_REGIMENES = [
       ['601','General de Ley Personas Morales'],
       ['603','Personas Morales con Fines no Lucrativos'],
@@ -862,6 +881,46 @@
         else if(a.id) cls += ` alt-${(Math.abs([...a.id].reduce((s,ch)=>s+ch.charCodeAt(0),0)) % 3) + 1}`;
         return `<span class="${cls}"><i class="fa-solid fa-user-check"></i> ${esc(a.name)}</span>`;
     }
+    function facturaEmailValue(f){
+        const md = f.metadata || {};
+        return md.cliente_email || f.email_destinatario || md.email_sent_to || md.email_last_attempt_to || '';
+    }
+    function openEmailModal(facturaId){
+      const f = FACTURAS.find(x => String(x.id) === String(facturaId));
+      if(!f){ alert('No encontré la factura seleccionada. Actualiza el listado.'); return; }
+      EMAIL_FACTURA_ID = f.id;
+      const md = f.metadata || {};
+      emailModalInput.value = facturaEmailValue(f);
+      emailModalMeta.textContent = `${md.cliente_nombre || f.rfc_receptor || 'Cliente'} · ${f.uuid_sat || 'UUID pendiente'}`;
+      setStatus('emailModalStatus','');
+      emailModal.classList.remove('hide');
+      setTimeout(() => emailModalInput.focus(), 50);
+    }
+    function closeEmailModal(){
+      EMAIL_FACTURA_ID = null;
+      emailModal.classList.add('hide');
+      setStatus('emailModalStatus','');
+    }
+    async function sendFacturaEmail(){
+      if(!EMAIL_FACTURA_ID){ setStatus('emailModalStatus','Selecciona una factura.',false); return; }
+      const email = String(emailModalInput.value || '').trim();
+      if(!email || !email.includes('@')){ setStatus('emailModalStatus','Captura un correo válido.',false); emailModalInput.focus(); return; }
+      try{
+        emailModalSendBtn.disabled = true;
+        setStatus('emailModalStatus','Enviando...');
+        const data = await api(`/api/internal-auth/gas-lp/facturas/${encodeURIComponent(EMAIL_FACTURA_ID)}/send-email`, {
+          method:'POST',
+          body:JSON.stringify({email})
+        });
+        setStatus('emailModalStatus','Correo enviado correctamente');
+        await loadFacturas();
+        setTimeout(closeEmailModal, 900);
+      }catch(e){
+        setStatus('emailModalStatus', e.message || 'Error de Resend', false);
+      }finally{
+        emailModalSendBtn.disabled = false;
+      }
+    }
     function facturaView(f){
         const md = f.metadata || {};
         const op = md.tipo_operacion === 'traspaso' ? 'Traspaso' : 'Venta';
@@ -877,7 +936,8 @@
         const q = `token=${encodeURIComponent(token)}`;
         const compId = f.latest_complemento_pago?.complemento_id || f.latest_complemento_pago?.id || md.ultimo_complemento_pago_id || '';
         const compDoc = compId ? `<a class="btn ghost" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(compId)}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-receipt"></i> Pago</a>` : '';
-        const docs = f.id && f.xml_content ? `<div class="doc-actions"><a class="btn ghost" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost" href="/api/internal-auth/gas-lp/facturas/${id}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>${compDoc}</div>` : '<span class="muted">Pendiente</span>';
+        const emailDoc = f.id && f.xml_content ? `<button class="btn ghost" type="button" onclick="openEmailModal('${esc(String(f.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
+        const docs = f.id && f.xml_content ? `<div class="doc-actions"><a class="btn ghost" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost" href="/api/internal-auth/gas-lp/facturas/${id}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>${emailDoc}${compDoc}</div>` : '<span class="muted">Pendiente</span>';
         return {
           fecha: esc(String(facturaDateValue(f) || '').slice(0,16).replace('T',' ')),
           hora: esc(facturaTimeLabel(f)),
