@@ -35,6 +35,12 @@
     .selection{position:sticky;bottom:0;margin-top:12px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;justify-content:space-between;gap:10px;align-items:center;box-shadow:0 -10px 30px rgba(15,23,42,.08)}
     .status{font-size:13px;font-weight:900;margin-top:8px}.ok{color:var(--ok)}.err{color:var(--err)}
     .notice{background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:10px 12px;color:#475569;font-size:12px}
+    .modal-backdrop{position:fixed;inset:0;z-index:80;background:rgba(15,23,42,.56);display:none;align-items:center;justify-content:center;padding:18px}
+    .modal-backdrop.open{display:flex}.modal{width:min(680px,100%);max-height:92vh;overflow:auto;background:#fff;border-radius:8px;border:1px solid var(--line);box-shadow:0 24px 80px rgba(15,23,42,.28)}
+    .modal-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:16px 18px;border-bottom:1px solid var(--line)}.modal-body{padding:16px 18px}.modal-actions{display:flex;justify-content:flex-end;gap:8px;padding:14px 18px;border-top:1px solid var(--line);background:#F8FAFC}
+    .summary{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}.summary-row{display:grid;grid-template-columns:180px 1fr;gap:10px;padding:10px 12px;border-bottom:1px solid #EEF2F7;font-size:13px}.summary-row:last-child{border-bottom:0}.summary-row b{color:#475569}
+    .danger-note{border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:800;line-height:1.45}
+    .hidden{display:none!important}
     @media(max-width:1000px){.header{grid-template-columns:1fr}.filters,.grid,.grid-2,.kpis{grid-template-columns:1fr}.company-select,.month-input{width:100%;min-width:0}.btn{width:100%}.selection{position:static;align-items:stretch;flex-direction:column}.top-inner{padding:10px 14px;flex-wrap:wrap}.top-actions{width:100%;margin-left:0;justify-content:stretch}.top-company{flex:1 1 auto}.top-company select{width:100%;max-width:none}.top-rfc{display:none}.top-btn{width:auto}main{padding:14px}}
   </style>
 </head>
@@ -144,16 +150,60 @@
 
     <section class="section" data-section="sat">
       <div class="panel">
-        <div class="section-head"><div><h2>Cancelación / Consulta SAT</h2><div class="muted small">Consulta auditoría PAC/SW y registra cancelaciones administrativas.</div></div></div>
+        <div class="section-head"><div><h2>Cancelación / Consulta SAT</h2><div class="muted small">Consulta auditoría PAC/SW y envía cancelaciones fiscales reales con evidencia.</div></div></div>
         <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Total</th><th>Estado</th><th>UUID</th><th>Acciones</th></tr></thead><tbody id="satRows"></tbody></table></div>
+        <div id="cancelMsg" class="status"></div>
       </div>
     </section>
   </main>
+
+  <div class="modal-backdrop" id="cancelModal" role="dialog" aria-modal="true" aria-labelledby="cancelTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <div><h2 id="cancelTitle">Cancelación fiscal CFDI</h2><div class="muted small">Este flujo envía la solicitud a SW/SAT/PAC. No modifica XML, PDF ni cálculos.</div></div>
+        <button class="btn ghost sm" type="button" onclick="closeCancelModal()">Cerrar</button>
+      </div>
+      <div class="modal-body">
+        <div id="cancelStepForm">
+          <div class="summary" id="cancelSummary"></div>
+          <div class="grid-2" style="margin-top:12px">
+            <div>
+              <label>Motivo SAT</label>
+              <select id="cancelMotivo" onchange="updateCancelUuidRequirement()">
+                <option value="01">01 - Comprobante emitido con errores con relación</option>
+                <option value="02">02 - Comprobante emitido con errores sin relación</option>
+                <option value="03">03 - No se llevó a cabo la operación</option>
+                <option value="04">04 - Operación nominativa relacionada en factura global</option>
+              </select>
+            </div>
+            <div id="cancelUuidWrap">
+              <label>UUID sustituto</label>
+              <input id="cancelUuidSustitucion" placeholder="UUID de la factura correcta">
+            </div>
+          </div>
+          <div style="margin-top:10px"><label>Notas internas</label><textarea id="cancelNotas" placeholder="Motivo operativo, autorización o referencia contable"></textarea></div>
+          <div id="cancelFormMsg" class="status"></div>
+        </div>
+        <div id="cancelStepConfirm" class="hidden">
+          <div class="danger-note">Revisa estos datos antes de enviar. Si SW rechaza la solicitud, G-Control no marcará la factura como cancelada fiscalmente.</div>
+          <div class="summary" id="cancelFinalSummary" style="margin-top:12px"></div>
+          <div id="cancelSendMsg" class="status"></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" onclick="closeCancelModal()">Cancelar</button>
+        <button class="btn ghost hidden" id="btnCancelBack" type="button" onclick="backCancelForm()">Regresar</button>
+        <button class="btn" id="btnCancelReview" type="button" onclick="reviewCancelFiscal()">Revisar datos</button>
+        <button class="btn danger hidden" id="btnCancelSend" type="button" onclick="sendCancelFiscal()">Enviar a SW/SAT</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     const token=localStorage.getItem('ge_gaslp_conciliacion_token')||'';
     const PROFILE_KEY='ge_gaslp_conciliacion_perfil_id';
     let FACTURAS=[], FACILITIES=[], PERFILES=[], SEL={};
+    let CANCEL_CTX=null;
     let activePerfilId=Number(localStorage.getItem(PROFILE_KEY)||'0')||null;
 
     const money=v=>'$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -194,10 +244,19 @@
     function toggleSel(id,on){const f=FACTURAS.find(x=>Number(x.id)===Number(id));if(!f)return;if(!on){delete SEL[id];refreshSel();return}const selected=Object.values(SEL);const rfc=String(f.rfc_receptor||'').toUpperCase();if(selected.length&&selected[0].rfc&&selected[0].rfc!==rfc){setMsg('compMsg','Selecciona facturas del mismo cliente/RFC para un mismo complemento.',false);renderAll();return}SEL[id]={id,monto:saldo(f),rfc,cliente:razon(f)};setMsg('compMsg','');refreshSel()}
     function setMonto(id,v){if(!SEL[id])toggleSel(id,true);if(SEL[id])SEL[id].monto=Number(v||0);refreshSel()}function clearSel(){SEL={};setMsg('compMsg','');renderAll()}function refreshSel(){const arr=Object.values(SEL);selCount.textContent=arr.length+' seleccionadas';selTotal.textContent=money(arr.reduce((s,x)=>s+Number(x.monto||0),0));selCliente.textContent=arr[0]?.cliente||'Sin cliente seleccionado'}
     async function timbrarComplemento(){const arr=Object.values(SEL);if(!arr.length)return setMsg('compMsg','Selecciona al menos una factura PPD pendiente.',false);for(const item of arr){const f=FACTURAS.find(x=>Number(x.id)===Number(item.id));const s=f?saldo(f):0;if(Number(item.monto||0)<=0||Number(item.monto||0)>s)return setMsg('compMsg','Cada importe debe ser mayor a cero y no exceder el saldo.',false)}if(!fechaPago.value)fechaPago.value=localDateTimeValue();if(!confirm('¿Timbrar complemento de pago real?'))return;try{btnTimbrarComplemento.disabled=true;setMsg('compMsg','Timbrando complemento...');const body={fecha_pago:fechaPago.value,forma_pago:formaPago.value,banco:bancoPago.value,referencia:referenciaPago.value,facturas:arr.map(x=>({factura_id:x.id,monto:x.monto})),monto:arr.reduce((s,x)=>s+Number(x.monto||0),0)};const data=await api('/api/internal-auth/gas-lp/facturas/'+encodeURIComponent(arr[0].id)+'/complemento-pago',{method:'POST',body:JSON.stringify(body)});SEL={};setMsg('compMsg','Complemento timbrado: '+(data.complemento?.uuid_sat||'UUID pendiente'));await loadAll()}catch(e){setMsg('compMsg',e.message,false)}finally{btnTimbrarComplemento.disabled=false}}
-    function renderSat(r){satRows.innerHTML=r.length?r.map(f=>`<tr><td>${esc((f.created_at||'').slice(0,10))}</td><td>${esc(razon(f))}</td><td class="num">${money(total(f))}</td><td>${isCancel(f)?'<span class="pill err">Cancelada</span>':esc(f.status||'—')}</td><td class="uuid">${esc(f.uuid_sat||'—')}</td><td><div class="doc-actions"><button class="btn ghost sm" onclick="audit(${Number(f.id)})">Consultar SAT/PAC</button>${isCancel(f)?'':`<button class="btn danger sm" onclick="cancelar(${Number(f.id)})">Cancelar</button>`}</div></td></tr>`).join(''):'<tr><td colspan="6">Sin facturas.</td></tr>'}
+    function renderSat(r){satRows.innerHTML=r.length?r.map(f=>`<tr><td>${esc((f.created_at||'').slice(0,10))}</td><td>${esc(razon(f))}</td><td class="num">${money(total(f))}</td><td>${isCancel(f)?'<span class="pill err">'+esc(f.status||'Cancelada')+'</span>':esc(f.status||'—')}</td><td class="uuid">${esc(f.uuid_sat||'—')}</td><td><div class="doc-actions"><button class="btn ghost sm" onclick="audit(${Number(f.id)})">Consultar SAT/PAC</button>${isCancel(f)?'':`<button class="btn danger sm" onclick="openCancelFiscal(${Number(f.id)})">Cancelar fiscal</button>`}</div></td></tr>`).join(''):'<tr><td colspan="6">Sin facturas.</td></tr>'}
     async function audit(id){try{const d=await api('/api/internal-auth/gas-lp/facturas/'+encodeURIComponent(id)+'/pac-audit');alert(`UUID: ${d.factura?.uuid_sat||'—'}\\nEventos PAC: ${d.audit_count||0}\\nClave: ${d.xml_summary?.clave_prod_serv||'—'}\\nEndpoint/operación: ${(d.audit?.[0]?.operation)||'—'}`)}catch(e){alert(e.message)}}
     async function sendEmail(id){const email=prompt('Correo destino para XML/PDF','');if(!email)return;try{const d=await api('/api/internal-auth/gas-lp/facturas/'+encodeURIComponent(id)+'/send-email',{method:'POST',body:JSON.stringify({email})});alert(d.email?.ok?'Correo enviado correctamente':'No se pudo enviar correo')}catch(e){alert(e.message)}}
-    async function cancelar(id){const motivo=prompt('Motivo SAT (01, 02, 03 o 04)','02');if(motivo===null)return;const notas=prompt('Notas de cancelación','')||'';if(!confirm('¿Marcar factura como cancelada?'))return;await api('/api/internal-auth/gas-lp/conciliacion/facturas/'+encodeURIComponent(id)+'/cancelar',{method:'POST',body:JSON.stringify({motivo,notas})});await loadAll()}
+    function cancelMotivoLabel(v){return ({'01':'01 - Comprobante emitido con errores con relación','02':'02 - Comprobante emitido con errores sin relación','03':'03 - No se llevó a cabo la operación','04':'04 - Operación nominativa relacionada en factura global'})[v]||v}
+    function summaryRows(rows){return rows.map(([k,v])=>`<div class="summary-row"><b>${esc(k)}</b><span>${esc(v||'—')}</span></div>`).join('')}
+    function cancelSummaryRows(f,motivo='',uuidSust=''){return [['UUID a cancelar',f.uuid_sat],['Cliente',razon(f)],['Total',money(total(f))],['Folio',folio(f)],['Motivo SAT',motivo?cancelMotivoLabel(motivo):'Pendiente'],['UUID sustituto',uuidSust||'Pendiente']]}
+    function openCancelFiscal(id){const f=FACTURAS.find(x=>Number(x.id)===Number(id));if(!f)return setMsg('cancelMsg','Factura no encontrada en la vista actual.',false);if(!f.uuid_sat)return setMsg('cancelMsg','La factura no tiene UUID SAT.',false);CANCEL_CTX={factura:f};cancelSummary.innerHTML=summaryRows(cancelSummaryRows(f));cancelMotivo.value='01';cancelUuidSustitucion.value='';cancelNotas.value='';cancelFormMsg.textContent='';cancelSendMsg.textContent='';cancelStepForm.classList.remove('hidden');cancelStepConfirm.classList.add('hidden');btnCancelReview.classList.remove('hidden');btnCancelSend.classList.add('hidden');btnCancelBack.classList.add('hidden');updateCancelUuidRequirement();cancelModal.classList.add('open');setMsg('cancelMsg','')}
+    function closeCancelModal(){cancelModal.classList.remove('open');CANCEL_CTX=null}
+    function updateCancelUuidRequirement(){const req=cancelMotivo.value==='01';cancelUuidWrap.style.display=req?'block':'none';cancelUuidSustitucion.required=req;if(req){cancelUuidSustitucion.placeholder='Obligatorio para motivo 01'}else{cancelUuidSustitucion.placeholder='Opcional'}}
+    function currentCancelPayload(){return {motivo:String(cancelMotivo.value||'').trim(),uuid_sustitucion:String(cancelUuidSustitucion.value||'').trim(),notas:String(cancelNotas.value||'').trim(),tipo:'fiscal'}}
+    function reviewCancelFiscal(){if(!CANCEL_CTX?.factura)return;const p=currentCancelPayload();if(!['01','02','03','04'].includes(p.motivo))return setMsg('cancelFormMsg','Selecciona un motivo SAT válido.',false);if(p.motivo==='01'&&!p.uuid_sustitucion)return setMsg('cancelFormMsg','El motivo 01 requiere UUID sustituto.',false);const f=CANCEL_CTX.factura;cancelFinalSummary.innerHTML=summaryRows(cancelSummaryRows(f,p.motivo,p.uuid_sustitucion));cancelStepForm.classList.add('hidden');cancelStepConfirm.classList.remove('hidden');btnCancelReview.classList.add('hidden');btnCancelSend.classList.remove('hidden');btnCancelBack.classList.remove('hidden');setMsg('cancelSendMsg','Confirma sólo si el UUID sustituto corresponde a la factura correcta.',true)}
+    function backCancelForm(){cancelStepConfirm.classList.add('hidden');cancelStepForm.classList.remove('hidden');btnCancelSend.classList.add('hidden');btnCancelReview.classList.remove('hidden');btnCancelBack.classList.add('hidden')}
+    async function sendCancelFiscal(){if(!CANCEL_CTX?.factura)return;const f=CANCEL_CTX.factura;const p=currentCancelPayload();if(p.motivo==='01'&&!p.uuid_sustitucion){backCancelForm();return setMsg('cancelFormMsg','El motivo 01 requiere UUID sustituto.',false)}try{btnCancelSend.disabled=true;setMsg('cancelSendMsg','Enviando cancelación fiscal a SW/SAT...');const d=await api('/api/internal-auth/gas-lp/conciliacion/facturas/'+encodeURIComponent(f.id)+'/cancelar',{method:'POST',body:JSON.stringify(p)});const estado=d.cancelacion?.status||d.cancelacion?.estado_fiscal||'Solicitud registrada';setMsg('cancelMsg',`Cancelación fiscal enviada: ${estado}`,true);closeCancelModal();await loadAll()}catch(e){setMsg('cancelSendMsg',e.message||'SW rechazó la cancelación.',false)}finally{btnCancelSend.disabled=false}}
     function toggleGlobalFields(){pubMesWrap.style.display=pubGlobal.value==='1'?'block':'none'}
     async function timbrarPublicoGeneral(){if(!pubFacility.value)return setMsg('pubMsg','Selecciona instalación.',false);if(Number(pubLitros.value)<=0||Number(pubPrecio.value)<=0)return setMsg('pubMsg','Captura litros y precio con IVA.',false);if(!confirm('¿Timbrar factura real a Público en General?'))return;try{btnPubTimbrar.disabled=true;setMsg('pubMsg','Timbrando factura...');const global=pubGlobal.value==='1';const body={facility_id:Number(pubFacility.value),litros:Number(pubLitros.value),precio_unitario:Number(pubPrecio.value),forma_pago:pubForma.value,metodo_pago:pubMetodo.value,fecha:pubFecha.value,comentarios:pubComentarios.value,factura_global:global,informacion_global_periodicidad:'04',informacion_global_meses:global?String(Number((pubMes.value||month()).slice(5,7))).padStart(2,'0'):'',informacion_global_anio:global?Number((pubMes.value||month()).slice(0,4)):null};const d=await api('/api/internal-auth/gas-lp/conciliacion/facturar-publico-general',{method:'POST',body:JSON.stringify(body)});setMsg('pubMsg','Factura timbrada: '+(d.factura?.uuid_sat||'UUID pendiente'));pubLitros.value='';pubComentarios.value='';await loadAll();switchTab('facturas')}catch(e){setMsg('pubMsg',e.message,false)}finally{btnPubTimbrar.disabled=false}}
     function exportUrl(params){if(activePerfilId)params.set('perfil_id',String(activePerfilId));params.set('token',token);return '/api/internal-auth/gas-lp/conciliacion/export-excel?'+params.toString()}
