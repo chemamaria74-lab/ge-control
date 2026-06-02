@@ -93,6 +93,8 @@ class GasLpInternalClientePayload(BaseModel):
     regimen_fiscal: str = "616"
     uso_cfdi: str = "S01"
     email: str = ""
+    email_adicional_1: str = ""
+    email_adicional_2: str = ""
 
 
 class GasLpInternalFacturaPayload(BaseModel):
@@ -139,6 +141,8 @@ class GasLpInternalFacturaPayload(BaseModel):
 
 class GasLpSendEmailPayload(BaseModel):
     email: str = ""
+    email_adicional_1: str = ""
+    email_adicional_2: str = ""
 
 
 class GasLpTransferEmailDefaultPayload(BaseModel):
@@ -373,7 +377,8 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
     uso_cfdi = str(payload.uso_cfdi or "S01").strip()
     regimen = str(payload.regimen_fiscal or "616").strip()
     cp = _clean_cp(payload.cp)
-    email = _clean_billing_email(payload.email)
+    invoice_emails = _invoice_email_recipients(payload.email, payload.email_adicional_1, payload.email_adicional_2)
+    email = invoice_emails[0] if invoice_emails else ""
     if not rfc or not nombre:
         raise HTTPException(400, "RFC y nombre del cliente son obligatorios.")
     if rfc == "XAXX010101000":
@@ -409,7 +414,13 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
         "email": email,
         "email_facturacion": email,
         "activo": True,
-        "metadata": {"created_by_internal": user.get("id"), "created_by": user.get("display_name")},
+        "metadata": {
+            "created_by_internal": user.get("id"),
+            "created_by": user.get("display_name"),
+            "invoice_email_additional": invoice_emails[1:3],
+            "email_adicional_1": invoice_emails[1] if len(invoice_emails) > 1 else "",
+            "email_adicional_2": invoice_emails[2] if len(invoice_emails) > 2 else "",
+        },
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
@@ -623,7 +634,7 @@ def _clean_billing_email(value: str | None) -> str:
     email = str(value or "").strip().lower()
     if not email:
         return ""
-    if "@" not in email or " " in email or "." not in email.rsplit("@", 1)[-1]:
+    if "@" not in email or " " in email or "," in email or ";" in email or "." not in email.rsplit("@", 1)[-1]:
         raise HTTPException(400, "Correo de facturación inválido.")
     return email
 
@@ -638,6 +649,99 @@ def _clean_billing_emails(value: str | None) -> list[str]:
         if email and email not in emails:
             emails.append(email)
     return emails
+
+
+def _invoice_email_recipients(
+    primary: str | None,
+    additional_1: str | None = "",
+    additional_2: str | None = "",
+    *,
+    fallback: str | None = "",
+) -> list[str]:
+    raw_slots = [primary, additional_1, additional_2]
+    if not any(str(slot or "").strip() for slot in raw_slots):
+        raw_slots = [fallback]
+    recipients: list[str] = []
+    for raw in raw_slots:
+        for email in _clean_billing_emails(raw):
+            if email in recipients:
+                raise HTTPException(400, "No puedes repetir correos de destinatario.")
+            recipients.append(email)
+            if len(recipients) > 3:
+                raise HTTPException(400, "Máximo 3 correos por factura: 1 principal y 2 adicionales.")
+    return recipients
+
+
+def _invoice_email_metadata(recipients: list[str]) -> dict:
+    primary = recipients[0] if recipients else ""
+    additional = recipients[1:3]
+    return {
+        "cliente_email": primary,
+        "email_recipients": recipients,
+        "email_principal": primary,
+        "email_adicional_1": additional[0] if len(additional) > 0 else "",
+        "email_adicional_2": additional[1] if len(additional) > 1 else "",
+        "email_adicionales": additional,
+    }
+
+
+def _saved_invoice_additional_emails(cliente_row: dict | None) -> list[str]:
+    metadata = (cliente_row or {}).get("metadata")
+    if not isinstance(metadata, dict):
+        return []
+    saved = metadata.get("invoice_email_additional") or metadata.get("email_adicionales")
+    if isinstance(saved, list):
+        return _invoice_email_recipients("", *(saved[:2] + ["", ""])[:2])
+    return _invoice_email_recipients("", fallback=str(saved or ""))
+
+
+def _customer_invoice_recipients(cliente_row: dict | None) -> list[str]:
+    primary = (cliente_row or {}).get("email_facturacion") or (cliente_row or {}).get("email") or ""
+    additional = _saved_invoice_additional_emails(cliente_row)
+    return _invoice_email_recipients(
+        primary,
+        additional[0] if len(additional) > 0 else "",
+        additional[1] if len(additional) > 1 else "",
+    )
+
+
+def _gas_lp_attach_cliente_email_recipients(sb, user: dict, rows: list[dict]) -> None:
+    cliente_ids = sorted({
+        int((row.get("metadata") or {}).get("cliente_id") or 0)
+        for row in rows
+        if isinstance(row.get("metadata"), dict) and (row.get("metadata") or {}).get("cliente_id")
+    })
+    if not cliente_ids:
+        return
+    try:
+        clientes = (
+            sb.table("gas_lp_clientes_facturacion")
+            .select("*")
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .eq("activo", True)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_attach_cliente_email_recipients_failed tenant=%s perfil=%s err=%s", user.get("tenant_id"), user.get("perfil_id"), exc)
+        return
+    by_id = {int(cliente.get("id") or 0): cliente for cliente in clientes}
+    for row in rows:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        cliente = by_id.get(int(md.get("cliente_id") or 0))
+        if not cliente:
+            continue
+        try:
+            recipients = _customer_invoice_recipients(cliente)
+        except HTTPException:
+            recipients = []
+        row["cliente_email_recipients"] = recipients
+        row["cliente_email_principal"] = recipients[0] if recipients else ""
+        row["cliente_email_adicional_1"] = recipients[1] if len(recipients) > 1 else ""
+        row["cliente_email_adicional_2"] = recipients[2] if len(recipients) > 2 else ""
 
 
 def _transfer_email_from_settings(settings: dict) -> str:
@@ -2140,6 +2244,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
     _gas_lp_attach_internal_creators(sb, rows)
+    _gas_lp_attach_cliente_email_recipients(sb, user, rows)
     comp_by_factura = _gas_lp_complementos_por_factura(sb, [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))])
     for row in rows:
         row["payment_info"] = _payment_info_json(_factura_payment_info(row))
@@ -2326,8 +2431,37 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
     if not uuid_sat:
         raise HTTPException(400, "La factura no tiene UUID timbrado para enviar.")
     md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-    fallback_email = md.get("transfer_email") or md.get("transfer_email_sent_to") if md.get("tipo_operacion") == "traspaso" else md.get("cliente_email") or row.get("email_destinatario")
-    recipients = _clean_billing_emails(payload.email) or _clean_billing_emails(fallback_email)
+    if md.get("tipo_operacion") == "traspaso":
+        fallback_email = md.get("transfer_email") or md.get("transfer_email_sent_to") or row.get("email_destinatario")
+    else:
+        cliente_rows = []
+        cliente_id = int(md.get("cliente_id") or 0)
+        if cliente_id:
+            try:
+                cliente_rows = (
+                    get_supabase_admin()
+                    .table("gas_lp_clientes_facturacion")
+                    .select("*")
+                    .eq("id", cliente_id)
+                    .eq("user_id", user.get("owner_user_id"))
+                    .eq("tenant_id", user.get("tenant_id"))
+                    .eq("perfil_id", user.get("perfil_id"))
+                    .eq("activo", True)
+                    .limit(1)
+                    .execute()
+                    .data
+                    or []
+                )
+            except Exception as exc:
+                logger.warning("gas_lp_factura_send_email_cliente_lookup_failed factura=%s cliente=%s err=%s", factura_id, cliente_id, exc)
+        fallback_recipients = _customer_invoice_recipients(cliente_rows[0]) if cliente_rows else _invoice_email_recipients(
+            md.get("cliente_email") or row.get("email_destinatario"),
+            md.get("email_adicional_1") or "",
+            md.get("email_adicional_2") or "",
+            fallback=md.get("email_sent_to") or md.get("email_last_attempt_to") or "",
+        )
+        fallback_email = ", ".join(fallback_recipients)
+    recipients = _invoice_email_recipients(payload.email, payload.email_adicional_1, payload.email_adicional_2, fallback=fallback_email)
     recipient = ", ".join(recipients)
     if not recipients:
         raise HTTPException(400, "Captura un correo destino para enviar XML/PDF.")
@@ -2362,6 +2496,7 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
     updated_md = {
         **md,
         "email_delivery": email_result.as_metadata() if email_result else {},
+        **_invoice_email_metadata(recipients),
         "email_sent_at": now_email if all_ok else md.get("email_sent_at"),
         "email_sent_to": recipient if all_ok else md.get("email_sent_to", recipient),
         "resend_message_id": message_ids if all_ok else md.get("resend_message_id", ""),
@@ -3018,18 +3153,24 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
             requested_by=user.get("display_name") or user.get("id") or "",
         )
     except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+        error_message = str(detail.get("message") or "SW Sapien rechazó la cancelación.")
+        error_diagnostic = detail.get("diagnostic") if isinstance(detail.get("diagnostic"), dict) else {}
         err_md = {
             **md,
             **base_cancel_md,
             "estado_fiscal": "cancelacion_error",
-            "cancelacion_error": str(exc.detail),
+            "cancelacion_error": error_message,
+            "cancelacion_error_tecnico": error_diagnostic,
+            "cancelacion_pac_request_id": detail.get("pac_request_id"),
+            "cancelacion_pac_response_id": detail.get("pac_response_id"),
             "cancelacion_error_at": _now_iso(),
         }
         try:
             sb.table("gas_lp_facturas").update({"metadata": err_md, "updated_at": _now_iso()}).eq("id", factura_id).execute()
         except Exception as update_exc:
             logger.warning("gas_lp_cancelacion_error_metadata_update_failed factura_id=%s err=%s", factura_id, update_exc)
-        raise
+        raise HTTPException(exc.status_code, error_message)
     acuse = str(resultado.get("acuse") or "")
     estado_fiscal = "cancelada_fiscalmente" if acuse else "cancelacion_solicitada"
     status_label = "Cancelada fiscalmente" if acuse else "Cancelación solicitada"
@@ -3042,6 +3183,7 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
         "cancelacion_pac_response_id": resultado.get("pac_response_id"),
         "cancelacion_acuse": acuse,
         "cancelacion_respuesta_sw": resultado.get("raw") or {},
+        "cancelacion_diagnostico_http": resultado.get("diagnostic") or {},
         "cancelacion_confirmada_at": _now_iso(),
     }
     data = (
@@ -3197,6 +3339,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     transfer_email_source = payload.transfer_email if payload.transfer_email_provided else (payload.transfer_email or _transfer_email_from_settings(settings))
     transfer_recipients = _clean_billing_emails(transfer_email_source) if is_transfer else []
     transfer_recipient_text = ", ".join(transfer_recipients)
+    customer_recipients = [] if is_transfer else _customer_invoice_recipients(cliente_row)
 
     xml, totals = _build_gas_lp_consumo_xml(
         issuer=issuer,
@@ -3360,7 +3503,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "rfc_emisor": issuer.get("rfc") or "",
             "cliente_id": None if is_transfer else payload.cliente_id,
             "cliente_nombre": receptor["nombre"],
-            "cliente_email": (cliente_row or {}).get("email_facturacion") or (cliente_row or {}).get("email") or "",
+            **_invoice_email_metadata(customer_recipients),
             "concepto": payload.concepto,
             "precio_unitario": payload.precio_unitario,
             "descuento_por_litro": payload.descuento,
@@ -3408,8 +3551,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     factura_row = data[0]
     email_result = None
     email_results = []
-    recipient = transfer_recipient_text if is_transfer else ((cliente_row or {}).get("email_facturacion") or (cliente_row or {}).get("email") or "")
-    recipients = transfer_recipients if is_transfer else ([recipient] if recipient else [])
+    recipients = transfer_recipients if is_transfer else customer_recipients
+    recipient = transfer_recipient_text if is_transfer else ", ".join(recipients)
     if payload.enviar_correo and recipients:
         try:
             xml_timbrado = factura_row.get("xml_content") or resultado.get("xml_timbrado") or xml
