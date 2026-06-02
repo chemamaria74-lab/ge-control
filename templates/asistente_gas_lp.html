@@ -99,10 +99,12 @@
         <div class="toolbar" style="margin-bottom:12px">
           <button class="btn ghost" id="btnPublicoGeneral" type="button" onclick="usePublicoGeneral()"><i class="fa-solid fa-users"></i> Público en general</button>
         </div>
+        <div id="hypModeWarning" class="status err hide" style="margin-bottom:12px"></div>
         <div class="form-grid">
           <div><label>Operación</label><select id="tipoOperacion" onchange="updateOperacionUI()"><option value="venta">Venta a cliente</option><option value="traspaso">Traspaso interno a estación</option></select></div>
           <div id="facilityField" class="field-attention"><label>Instalación origen *</label><select id="facilitySelect" required onchange="filterRutasForTransfer()"><option value="">Selecciona instalación</option></select></div>
           <div id="clienteField"><label>Cliente</label><select id="clienteSelect" onchange="selectCliente()"><option value="">Público en general</option></select></div>
+          <div id="facturaGlobalField"><label>Factura global público general</label><select id="facturaGlobal"><option value="0">No global</option><option value="1">Factura global mensual</option></select></div>
           <div id="clientePreview" class="client-preview form-span">
             <div class="client-preview-head">
               <span class="muted">Receptor</span>
@@ -260,6 +262,7 @@
     let CATALOGOS = {choferes:[], vehiculos:[], rutas:[]};
     let CURRENT_COMPANY = null;
     let CURRENT_ASSISTANT = null;
+    let HYP_MODE = {mode: 'required', warning: ''};
     let COMP_SEL = {};
     let EDIT_CLIENT_ID = null;
     const SAT_REGIMENES = [
@@ -324,6 +327,13 @@
     function money(v){ return '$' + Number(v || 0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2}); }
     function esc(v){ return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
     function setStatus(id,text,ok=true){ const el=document.getElementById(id); if(el){ el.textContent=text; el.className='status '+(ok?'ok':'err'); } }
+    function renderHypModeWarning(){
+      const el = document.getElementById('hypModeWarning');
+      if(!el) return;
+      const warning = String(HYP_MODE?.warning || '');
+      el.textContent = warning;
+      el.className = warning ? 'status err' : 'status err hide';
+    }
     function detailText(value, fallback='No fue posible cargar la información.'){
       if(Array.isArray(value)) return value.map(d => d?.msg || d?.type || String(d)).join(', ');
       if(value && typeof value === 'object') return value.message || value.detail || JSON.stringify(value);
@@ -472,12 +482,14 @@
         const a = data.assistant || {};
         CURRENT_ASSISTANT = a;
         CURRENT_COMPANY = data.company || {};
+        HYP_MODE = data.hyp || {mode:'required', warning:''};
         nameBadge.textContent = a.display_name || 'Asistente';
         roleBadge.textContent = (a.role || '').replaceAll('_',' ');
         companyName.textContent = CURRENT_COMPANY.name || 'Empresa asignada';
         companyNameTop.textContent = CURRENT_COMPANY.name || 'Empresa asignada';
         companyRfc.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
         companyRfcTop.textContent = 'RFC ' + (CURRENT_COMPANY.rfc || 'pendiente');
+        renderHypModeWarning();
         applyConceptCatalog();
         applyAssistantSeries();
         unlockEditableFields();
@@ -710,10 +722,15 @@
         if(btn) btn.disabled = true;
         setStatus('facturaMsg','Timbrando con PAC...');
         const clienteId = clienteSelect.value ? Number(clienteSelect.value) : null;
+        const selectedCliente = clienteId ? CLIENTES.find(c => Number(c.id) === clienteId) : null;
+        const clienteRfc = String(selectedCliente?.rfc || 'XAXX010101000').toUpperCase();
         ensureFechaEmision();
         ensureFolio();
         const fechaRaw = fechaEmision.value || '';
         const fechaCfdi = fechaRaw ? (fechaRaw.length === 16 ? `${fechaRaw}:00` : fechaRaw) : '';
+        const globalDate = fechaRaw ? new Date(fechaRaw) : new Date();
+        const globalMonth = String((globalDate.getMonth() || 0) + 1).padStart(2, '0');
+        const globalYear = globalDate.getFullYear();
         const payload = {
           cliente_id: clienteId,
           publico_general: !clienteId,
@@ -737,12 +754,17 @@
           generar_carta_porte: wantsCarta,
           vehiculo_id: wantsCarta ? Number(vehiculoSelect.value) : null,
           chofer_id: wantsCarta ? Number(choferSelect.value) : null,
-          ruta_id: wantsCarta ? Number(rutaSelect.value) : null
+          ruta_id: wantsCarta ? Number(rutaSelect.value) : null,
+          factura_global: clienteRfc === 'XAXX010101000' && facturaGlobal.value === '1',
+          informacion_global_periodicidad: '04',
+          informacion_global_meses: globalMonth,
+          informacion_global_anio: globalYear
         };
         const data = await api('/api/internal-auth/gas-lp/facturas',{method:'POST',body:JSON.stringify(payload)});
         const successLabel = isTraspaso ? (wantsCarta ? 'Carta Porte traslado timbrada' : 'Traspaso registrado') : 'Factura timbrada';
         const emailMsg = data.email?.ok ? ' · correo enviado' : (data.email?.error ? ` · correo pendiente: ${data.email.error}` : '');
-        setStatus('facturaMsg',`${successLabel}: ${data.factura?.uuid_sat || 'UUID pendiente'}${emailMsg}`);
+        const warningMsg = Array.isArray(data.warnings) && data.warnings.length ? ` · ${data.warnings.join(' ')}` : '';
+        setStatus('facturaMsg',`${successLabel}: ${data.factura?.uuid_sat || 'UUID pendiente'}${emailMsg}${warningMsg}`);
         await loadFacturas();
       }catch(e){ setStatus('facturaMsg',e.message,false); }
       finally{ if(btn) btn.disabled = false; }
