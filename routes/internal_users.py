@@ -1499,6 +1499,32 @@ def _gas_lp_factura_metodo_pago(factura: dict) -> str:
     return _xml_attr(root, "MetodoPago").upper() if root is not None else method
 
 
+def _gas_lp_factura_cancelada(factura: dict) -> bool:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    markers = [
+        factura.get("status"),
+        md.get("status"),
+        md.get("estado_fiscal"),
+        md.get("cancelacion_estado_fiscal_label"),
+        md.get("cancelacion_status"),
+    ]
+    for marker in markers:
+        text = str(marker or "").strip().lower()
+        if any(value in text for value in ("cancelada", "cancelado", "cancelled", "canceled")):
+            return True
+    return False
+
+
+def _gas_lp_factura_estado_excel(factura: dict) -> str:
+    if _gas_lp_factura_cancelada(factura):
+        return "Cancelada"
+    try:
+        metodo = _gas_lp_factura_metodo_pago(factura)
+    except Exception:
+        metodo = ""
+    return "Vigente - PPD / Crédito" if str(metodo or "").upper() == "PPD" else "Vigente"
+
+
 def _gas_lp_factura_total_con_iva(factura: dict) -> Decimal:
     root = _gas_lp_factura_xml_root(factura)
     if root is not None:
@@ -2294,7 +2320,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
     wb = Workbook()
     ws = wb.active
     ws.title = "Facturas"
-    headers = ["Fecha", "Folio de fact", "Razón social", "Monto con IVA", "Litros", "PUE o PPD"]
+    headers = ["Fecha", "Folio de fact", "UUID", "Razón social", "Monto con IVA", "Litros", "PUE o PPD", "Estado"]
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
@@ -2303,16 +2329,18 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         ws.append([
             _gas_lp_factura_date_key(row),
             _gas_lp_factura_folio_label(row),
+            row.get("uuid_sat") or "",
             _gas_lp_factura_razon_social(row),
             float(_gas_lp_factura_total_con_iva(row)),
             float(row.get("volumen_litros") or 0),
             _gas_lp_factura_metodo_pago(row),
+            _gas_lp_factura_estado_excel(row),
         ])
-    for width, column in zip([14, 18, 42, 18, 14, 14], "ABCDEF"):
+    for width, column in zip([14, 18, 40, 42, 18, 14, 14, 26], "ABCDEFGH"):
         ws.column_dimensions[column].width = width
-    for cell in ws["D"][1:]:
-        cell.number_format = '$#,##0.00'
     for cell in ws["E"][1:]:
+        cell.number_format = '$#,##0.00'
+    for cell in ws["F"][1:]:
         cell.number_format = "#,##0.000"
     stream = BytesIO()
     wb.save(stream)
@@ -2822,10 +2850,12 @@ async def gas_lp_conciliacion_export_excel(
     headers = [
         "Fecha",
         "Folio de fact",
+        "UUID",
         "Razón social",
         "Monto con IVA",
         "Litros",
         "PUE o PPD",
+        "Estado",
     ]
     ws.append(headers)
     for cell in ws[1]:
@@ -2875,10 +2905,12 @@ async def gas_lp_conciliacion_export_excel(
             ws.append([
                 _excel_text(_gas_lp_factura_date_key(row)),
                 _excel_text(_gas_lp_factura_folio_label(row)),
+                _excel_text(row.get("uuid_sat") or ""),
                 _excel_text(_gas_lp_factura_razon_social(row)),
                 _excel_number(_safe_total(row)),
                 _excel_liters(row.get("volumen_litros")),
                 _excel_text(_safe_metodo_pago(row)),
+                _excel_text(_gas_lp_factura_estado_excel(row)),
             ])
         except Exception as exc:
             logger.error(
@@ -2889,12 +2921,12 @@ async def gas_lp_conciliacion_export_excel(
                 exc,
                 traceback.format_exc(),
             )
-            ws.append(["", _excel_text(factura_id), "", 0.0, 0.0, ""])
-    for width, column in zip([14, 18, 34, 16, 12, 12], "ABCDEF"):
+            ws.append(["", _excel_text(factura_id), "", "", 0.0, 0.0, "", ""])
+    for width, column in zip([14, 18, 40, 34, 16, 12, 12, 26], "ABCDEFGH"):
         ws.column_dimensions[column].width = width
-    for cell in ws["E"][1:]:
+    for cell in ws["F"][1:]:
         cell.number_format = "#,##0.000"
-    for cell in ws["D"][1:]:
+    for cell in ws["E"][1:]:
         cell.number_format = '$#,##0.00'
 
     stream = BytesIO()
