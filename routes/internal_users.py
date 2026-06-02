@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import secrets
+import traceback
 import xml.etree.ElementTree as ET
 from io import BytesIO
 from decimal import Decimal, ROUND_HALF_UP
@@ -123,6 +124,7 @@ class GasLpInternalFacturaPayload(BaseModel):
     chofer_id: Optional[int] = None
     ruta_id: Optional[int] = None
     enviar_correo: bool = True
+    transfer_email: str = ""
     factura_global: bool = False
     informacion_global_periodicidad: str = "04"
     informacion_global_meses: str = ""
@@ -617,6 +619,34 @@ def _clean_billing_email(value: str | None) -> str:
     if "@" not in email or " " in email or "." not in email.rsplit("@", 1)[-1]:
         raise HTTPException(400, "Correo de facturación inválido.")
     return email
+
+
+def _clean_billing_emails(value: str | None) -> list[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return []
+    emails: list[str] = []
+    for part in raw.split(","):
+        email = _clean_billing_email(part)
+        if email and email not in emails:
+            emails.append(email)
+    return emails
+
+
+def _transfer_email_from_settings(settings: dict) -> str:
+    metadata = settings.get("metadata") if isinstance(settings.get("metadata"), dict) else {}
+    for key in (
+        "transfer_email",
+        "traspaso_email",
+        "operational_email",
+        "billing_internal_email",
+        "correo_traspaso",
+        "correo_operativo",
+    ):
+        value = settings.get(key) or metadata.get(key)
+        if str(value or "").strip():
+            return str(value).strip()
+    return ""
 
 
 def _clean_clave_prod_serv(value: str | None) -> str:
@@ -1913,6 +1943,7 @@ async def gas_lp_internal_summary(token: str):
                 or settings.get("precio_default_litro")
                 or settings.get("precio_litro")
                 or 0,
+            "transfer_email_default": _transfer_email_from_settings(settings),
         },
         "modules": modules,
         "hyp": {
@@ -2270,8 +2301,10 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
     if not uuid_sat:
         raise HTTPException(400, "La factura no tiene UUID timbrado para enviar.")
     md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-    recipient = _clean_billing_email(payload.email) or _clean_billing_email(md.get("cliente_email") or row.get("email_destinatario"))
-    if not recipient:
+    fallback_email = md.get("transfer_email") or md.get("transfer_email_sent_to") if md.get("tipo_operacion") == "traspaso" else md.get("cliente_email") or row.get("email_destinatario")
+    recipients = _clean_billing_emails(payload.email) or _clean_billing_emails(fallback_email)
+    recipient = ", ".join(recipients)
+    if not recipients:
         raise HTTPException(400, "Captura un correo destino para enviar XML/PDF.")
     try:
         info = fiscal_pdf_info(xml_content, "factura_gas_lp")
@@ -2282,34 +2315,50 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
         )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_factura_send_email_pdf", exc)
-    email_result = send_gas_lp_invoice_email(
-        to_email=recipient,
-        issuer_name=issuer["nombre"],
-        customer_name=str(md.get("cliente_nombre") or row.get("rfc_receptor") or "Cliente"),
-        uuid_sat=uuid_sat,
-        total=md.get("total") or _gas_lp_factura_total_con_iva(row),
-        xml_content=xml_content,
-        pdf_bytes=pdf_bytes,
-        pdf_filename=info.filename,
-        serie_folio=_gas_lp_factura_folio_label(row),
-    )
+    email_results = []
+    email_result = None
+    for email_to in recipients:
+        email_result = send_gas_lp_invoice_email(
+            to_email=email_to,
+            issuer_name=issuer["nombre"],
+            customer_name=str(md.get("cliente_nombre") or row.get("rfc_receptor") or "Cliente"),
+            uuid_sat=uuid_sat,
+            total=md.get("total") or _gas_lp_factura_total_con_iva(row),
+            xml_content=xml_content,
+            pdf_bytes=pdf_bytes,
+            pdf_filename=info.filename,
+            serie_folio=_gas_lp_factura_folio_label(row),
+        )
+        email_results.append({"to": email_to, **email_result.as_metadata()})
     now_email = _now_iso()
+    all_ok = bool(email_results) and all(item.get("ok") for item in email_results)
+    first_error = next((str(item.get("error") or "") for item in email_results if not item.get("ok")), "")
+    message_ids = ", ".join(str(item.get("message_id") or "") for item in email_results if item.get("message_id"))
     updated_md = {
         **md,
-        "email_delivery": email_result.as_metadata(),
-        "email_sent_at": now_email if email_result.ok else md.get("email_sent_at"),
-        "email_sent_to": recipient if email_result.ok else md.get("email_sent_to", recipient),
-        "resend_message_id": email_result.message_id if email_result.ok else md.get("resend_message_id", ""),
-        "email_error": "" if email_result.ok else email_result.error,
+        "email_delivery": email_result.as_metadata() if email_result else {},
+        "email_sent_at": now_email if all_ok else md.get("email_sent_at"),
+        "email_sent_to": recipient if all_ok else md.get("email_sent_to", recipient),
+        "resend_message_id": message_ids if all_ok else md.get("resend_message_id", ""),
+        "email_error": "" if all_ok else first_error,
         "email_last_attempt_at": now_email,
         "email_last_attempt_to": recipient,
     }
+    if md.get("tipo_operacion") == "traspaso":
+        updated_md = {
+            **updated_md,
+            "transfer_email_delivery": email_results,
+            "transfer_email_sent_at": now_email if all_ok else md.get("transfer_email_sent_at"),
+            "transfer_email_sent_to": recipient if all_ok else md.get("transfer_email_sent_to", recipient),
+            "transfer_email_message_id": message_ids if all_ok else md.get("transfer_email_message_id", ""),
+            "transfer_email_error": "" if all_ok else first_error,
+        }
     update_payload = {
         "metadata": updated_md,
-        "email_enviado": bool(email_result.ok),
-        "email_enviado_at": now_email if email_result.ok else row.get("email_enviado_at"),
+        "email_enviado": all_ok,
+        "email_enviado_at": now_email if all_ok else row.get("email_enviado_at"),
         "email_destinatario": recipient,
-        "email_error": "" if email_result.ok else email_result.error,
+        "email_error": "" if all_ok else first_error,
         "updated_at": now_email,
     }
     try:
@@ -2325,10 +2374,10 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
     except Exception as exc:
         raise _safe_internal_error("gas_lp_factura_send_email_update", exc)
     factura = updated[0] if updated else {**row, **update_payload}
-    response = {"ok": bool(email_result.ok), "factura": factura, "email": email_result.as_metadata()}
-    if not email_result.ok:
-        response["message"] = email_result.error or "No se pudo enviar el correo."
-    return JSONResponse(response, status_code=200 if email_result.ok else 400)
+    response = {"ok": all_ok, "factura": factura, "email": email_result.as_metadata() if email_result else {}, "email_results": email_results}
+    if not all_ok:
+        response["message"] = first_error or "No se pudo enviar el correo."
+    return JSONResponse(response, status_code=200 if all_ok else 400)
 
 
 @router.get("/internal-auth/gas-lp/conciliacion/perfiles")
@@ -2520,14 +2569,17 @@ async def gas_lp_conciliacion_facturar_publico_general(payload: GasLpConciliacio
 @router.get("/internal-auth/gas-lp/conciliacion/export-excel")
 async def gas_lp_conciliacion_export_excel(
     token: str,
+    period: str | None = None,
     periodo: str | None = None,
     fecha: str | None = None,
+    profile_id: int | None = None,
     perfil_id: int | None = None,
 ):
-    ctx = _gas_lp_conciliacion_context(token, perfil_id=perfil_id)
+    selected_perfil_id = perfil_id if perfil_id is not None else profile_id
+    ctx = _gas_lp_conciliacion_context(token, perfil_id=selected_perfil_id)
     user = ctx["user"]
     day = str(fecha or "").strip()[:10]
-    month = str(periodo or "").strip()[:7]
+    month = str(periodo or period or "").strip()[:7]
     if day:
         try:
             datetime.strptime(day, "%Y-%m-%d")
@@ -2555,8 +2607,26 @@ async def gas_lp_conciliacion_export_excel(
         profile = _gas_lp_profile(user, require_module_marker=True)
         rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000)
     except Exception as exc:
+        logger.error(
+            "conciliacion_export_excel_error profile_id=%s period=%s factura_id=%s exception=%s traceback=%s",
+            selected_perfil_id or user.get("perfil_id"),
+            month,
+            None,
+            exc,
+            traceback.format_exc(),
+        )
         raise _safe_internal_error("gas_lp_conciliacion_export_excel", exc)
-    _gas_lp_attach_internal_creators(sb, rows)
+    try:
+        _gas_lp_attach_internal_creators(sb, rows)
+    except Exception as exc:
+        logger.error(
+            "conciliacion_export_excel_error profile_id=%s period=%s factura_id=%s exception=%s traceback=%s",
+            selected_perfil_id or user.get("perfil_id"),
+            month,
+            None,
+            exc,
+            traceback.format_exc(),
+        )
 
     if day:
         rows = [row for row in rows if _gas_lp_factura_date_key(row) == day]
@@ -2570,62 +2640,96 @@ async def gas_lp_conciliacion_export_excel(
     ws = wb.active
     ws.title = "Facturas"
     headers = [
-        "Empresa",
-        "RFC emisor",
-        "Fecha emisión",
-        "Fecha timbrado",
-        "Cliente",
-        "RFC receptor",
-        "Folio",
-        "UUID",
-        "Instalación",
-        "Total",
+        "Fecha",
+        "Folio de fact",
+        "Razón social",
+        "Monto con IVA",
         "Litros",
-        "Subtotal",
-        "IVA",
-        "Forma pago",
-        "Método pago",
-        "Estado",
-        "Realizado por",
-        "Área origen",
+        "PUE o PPD",
     ]
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="7A1E2C")
+
+    def _excel_text(value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, datetime):
+            return value.strftime("%Y-%m-%d %H:%M:%S")
+        return str(value)
+
+    def _excel_number(value) -> float:
+        try:
+            return float(_money(value))
+        except Exception:
+            return 0.0
+
+    def _excel_liters(value) -> float:
+        try:
+            return float(Decimal(str(value or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP))
+        except Exception:
+            return 0.0
+
+    def _safe_total(row: dict):
+        try:
+            return _factura_payment_info(row).get("total")
+        except Exception:
+            try:
+                return _gas_lp_factura_total_con_iva(row)
+            except Exception:
+                return 0
+
+    def _safe_metodo_pago(row: dict) -> str:
+        try:
+            metodo = _gas_lp_factura_metodo_pago(row)
+        except Exception:
+            md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            metodo = md.get("metodo_pago") or ""
+        metodo = str(metodo or "").upper()
+        return metodo if metodo in {"PUE", "PPD"} else "PUE"
+
     for row in rows:
-        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        info = _factura_payment_info(row)
-        ws.append([
-            profile.get("nombre") or md.get("empresa_asignada_nombre") or "",
-            _gas_lp_factura_emisor_rfc(row) or profile.get("rfc") or "",
-            _gas_lp_factura_date_key(row),
-            row.get("fecha_timbrado") or "",
-            _gas_lp_factura_razon_social(row),
-            row.get("rfc_receptor") or md.get("cliente_rfc") or "",
-            _gas_lp_factura_folio_label(row),
-            row.get("uuid_sat") or "",
-            md.get("origen_nombre") or "",
-            float(info["total"]),
-            float(row.get("volumen_litros") or 0),
-            float(info["subtotal"]),
-            float(info["iva"]),
-            md.get("forma_pago") or "",
-            _gas_lp_factura_metodo_pago(row),
-            row.get("status") or "",
-            row.get("realizado_por") or md.get("created_by") or md.get("created_by_internal_name") or "",
-            md.get("created_by_area") or md.get("portal") or "",
-        ])
-    for width, column in zip([24, 16, 14, 22, 34, 16, 18, 38, 24, 14, 12, 14, 14, 12, 12, 14, 22, 20], "ABCDEFGHIJKLMNOPQR"):
+        factura_id = row.get("id")
+        try:
+            ws.append([
+                _excel_text(_gas_lp_factura_date_key(row)),
+                _excel_text(_gas_lp_factura_folio_label(row)),
+                _excel_text(_gas_lp_factura_razon_social(row)),
+                _excel_number(_safe_total(row)),
+                _excel_liters(row.get("volumen_litros")),
+                _excel_text(_safe_metodo_pago(row)),
+            ])
+        except Exception as exc:
+            logger.error(
+                "conciliacion_export_excel_error profile_id=%s period=%s factura_id=%s exception=%s traceback=%s",
+                selected_perfil_id or user.get("perfil_id"),
+                month,
+                factura_id,
+                exc,
+                traceback.format_exc(),
+            )
+            ws.append(["", _excel_text(factura_id), "", 0.0, 0.0, ""])
+    for width, column in zip([14, 18, 34, 16, 12, 12], "ABCDEF"):
         ws.column_dimensions[column].width = width
-    for cell in ws["K"][1:]:
+    for cell in ws["E"][1:]:
         cell.number_format = "#,##0.000"
-    for column in ("J", "L", "M"):
-        for cell in ws[column][1:]:
-            cell.number_format = '$#,##0.00'
+    for cell in ws["D"][1:]:
+        cell.number_format = '$#,##0.00'
 
     stream = BytesIO()
-    wb.save(stream)
+    try:
+        wb.save(stream)
+    except Exception as exc:
+        logger.error(
+            "conciliacion_export_excel_error profile_id=%s period=%s factura_id=%s exception=%s traceback=%s",
+            selected_perfil_id or user.get("perfil_id"),
+            month,
+            None,
+            exc,
+            traceback.format_exc(),
+        )
+        raise _safe_internal_error("gas_lp_conciliacion_export_excel", exc)
     stream.seek(0)
     suffix = day or month
     filename = f"conciliacion_gas_lp_{suffix}.xlsx"
@@ -2977,6 +3081,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     concepto_cfdi = "LITRO DE GAS LP" if (is_transfer or (hyp_mode == "disabled" and not payload.hyp_experimental_diagnostics)) else payload.concepto
     metodo_pago = "PUE" if is_transfer else payload.metodo_pago
     forma_pago = (payload.forma_pago or "01") if is_transfer else payload.forma_pago
+    transfer_recipients = _clean_billing_emails(payload.transfer_email or _transfer_email_from_settings(settings)) if is_transfer else []
+    transfer_recipient_text = ", ".join(transfer_recipients)
 
     xml, totals = _build_gas_lp_consumo_xml(
         issuer=issuer,
@@ -3167,6 +3273,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "destino_facility_id": payload.destino_facility_id,
             "destino_facility_name": destino.get("nombre") or "",
             "destino_nombre": destino.get("nombre") or "",
+            "transfer_email": transfer_recipient_text,
             "created_from": "assistant_transfer" if is_transfer else "assistant_sale",
             "observaciones": payload.comentarios,
             "generar_carta_porte": payload.generar_carta_porte,
@@ -3186,8 +3293,10 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         raise _safe_internal_error("gas_lp_crear_factura", exc)
     factura_row = data[0]
     email_result = None
-    recipient = (cliente_row or {}).get("email_facturacion") or (cliente_row or {}).get("email") or ""
-    if payload.enviar_correo and recipient:
+    email_results = []
+    recipient = transfer_recipient_text if is_transfer else ((cliente_row or {}).get("email_facturacion") or (cliente_row or {}).get("email") or "")
+    recipients = transfer_recipients if is_transfer else ([recipient] if recipient else [])
+    if payload.enviar_correo and recipients:
         try:
             xml_timbrado = factura_row.get("xml_content") or resultado.get("xml_timbrado") or xml
             info = fiscal_pdf_info(xml_timbrado, "factura_gas_lp")
@@ -3196,26 +3305,40 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                 logo_data_url=settings.get("PdfLogoDataUrl", ""),
                 observaciones=_gas_lp_factura_observaciones(factura_row),
             )
-            email_result = send_gas_lp_invoice_email(
-                to_email=recipient,
-                issuer_name=issuer["nombre"],
-                customer_name=receptor["nombre"],
-                uuid_sat=factura_row.get("uuid_sat") or resultado.get("uuid") or "",
-                total=totals["total"],
-                xml_content=xml_timbrado,
-                pdf_bytes=pdf_bytes,
-                pdf_filename=info.filename,
-                serie_folio=_gas_lp_factura_folio_label(factura_row),
-            )
+            for email_to in recipients:
+                email_result = send_gas_lp_invoice_email(
+                    to_email=email_to,
+                    issuer_name=issuer["nombre"],
+                    customer_name=receptor["nombre"],
+                    uuid_sat=factura_row.get("uuid_sat") or resultado.get("uuid") or "",
+                    total=totals["total"],
+                    xml_content=xml_timbrado,
+                    pdf_bytes=pdf_bytes,
+                    pdf_filename=info.filename,
+                    serie_folio=_gas_lp_factura_folio_label(factura_row),
+                )
+                email_results.append({"to": email_to, **email_result.as_metadata()})
             now_email = _now_iso()
             md = factura_row.get("metadata") if isinstance(factura_row.get("metadata"), dict) else {}
-            md = {**md, "email_delivery": email_result.as_metadata()}
+            all_ok = bool(email_results) and all(item.get("ok") for item in email_results)
+            first_error = next((str(item.get("error") or "") for item in email_results if not item.get("ok")), "")
+            message_ids = ", ".join(str(item.get("message_id") or "") for item in email_results if item.get("message_id"))
+            md = {**md, "email_delivery": email_result.as_metadata() if email_result else {}}
+            if is_transfer:
+                md = {
+                    **md,
+                    "transfer_email_delivery": email_results,
+                    "transfer_email_sent_at": now_email if all_ok else md.get("transfer_email_sent_at"),
+                    "transfer_email_sent_to": recipient if all_ok else md.get("transfer_email_sent_to", recipient),
+                    "transfer_email_message_id": message_ids if all_ok else md.get("transfer_email_message_id", ""),
+                    "transfer_email_error": "" if all_ok else first_error,
+                }
             update_payload = {
                 "metadata": md,
-                "email_enviado": bool(email_result.ok),
-                "email_enviado_at": now_email if email_result.ok else None,
+                "email_enviado": all_ok,
+                "email_enviado_at": now_email if all_ok else None,
                 "email_destinatario": recipient,
-                "email_error": email_result.error if not email_result.ok else "",
+                "email_error": "" if all_ok else first_error,
                 "updated_at": now_email,
             }
             updated = sb.table("gas_lp_facturas").update(update_payload).eq("id", factura_row.get("id")).execute().data or []
@@ -3224,6 +3347,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             logger.exception("gas_lp_invoice_email failed: factura=%s err=%s", factura_row.get("id"), exc)
             email_result = None
     warnings = []
+    if is_transfer and recipients and (not email_results or any(not item.get("ok") for item in email_results)):
+        warnings.append("CFDI timbrado correctamente, pero no se pudo enviar el correo.")
     return JSONResponse({"ok": True, "factura": factura_row, "totals": totals, "email": email_result.as_metadata() if email_result else None, "warnings": warnings})
 
 
