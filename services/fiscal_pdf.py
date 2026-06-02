@@ -48,6 +48,7 @@ def generar_pdf_cfdi_desde_xml(
     *,
     title: str = "Factura CFDI",
     logo_data_url: str = "",
+    observaciones: str = "",
     template: str = "ingreso",
 ) -> bytes:
     """Genera representacion impresa fiscal basica desde XML timbrado CFDI 4.0.
@@ -170,11 +171,11 @@ def generar_pdf_cfdi_desde_xml(
     if pagos:
         story.append(_section("Complemento de pago", Paragraph, styles))
         story.append(_pagos_table(pagos, Table, TableStyle, Paragraph, styles, colors, wine, cream, line))
-    story.append(_totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, styles, colors, cream, line))
-    observaciones = _text_content(_first(root, "Observaciones"))
-    if observaciones:
+    observaciones_pdf = str(observaciones or _text_content(_first(root, "Observaciones")) or "").strip()
+    if observaciones_pdf:
         story.append(_section("Observaciones", Paragraph, styles))
-        story.append(Paragraph(_text(observaciones), styles["Small"]))
+        story.append(_observaciones_block(observaciones_pdf, Table, TableStyle, Paragraph, styles, colors, line))
+    story.append(_totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, styles, colors, cream, line))
     story.append(Spacer(1, 4))
     story.append(_seals_block(root, timbre, qr, Table, TableStyle, Paragraph, styles, colors, wine, cream, line))
     story.append(Spacer(1, 5))
@@ -192,8 +193,14 @@ def generar_pdf_ingreso_carta_porte_desde_xml(xml_content: str | bytes, *, logo_
     return generar_pdf_cfdi_desde_xml(xml_content, title="CFDI ingreso con Carta Porte", logo_data_url=logo_data_url, template="ingreso_carta_porte")
 
 
-def generar_pdf_gas_lp_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "") -> bytes:
-    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura Gas LP / Hidrocarburos", logo_data_url=logo_data_url, template="gas_lp")
+def generar_pdf_gas_lp_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "", observaciones: str = "") -> bytes:
+    return generar_pdf_cfdi_desde_xml(
+        xml_content,
+        title="Factura Gas LP / Hidrocarburos",
+        logo_data_url=logo_data_url,
+        observaciones=observaciones,
+        template="gas_lp",
+    )
 
 
 def generar_pdf_resico_saas_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "") -> bytes:
@@ -504,6 +511,20 @@ def _hidro_table(hidro_nodes, Table, TableStyle, Paragraph, styles, colors, wine
         ])
     table = Table(data, colWidths=[1.0 * 72, 3.1 * 72, 1.1 * 72, 1.6 * 72], repeatRows=1)
     table.setStyle(_detail_table_style(colors, wine, line))
+    return table
+
+
+def _observaciones_block(text: str, Table, TableStyle, Paragraph, styles, colors, line):
+    table = Table([[Paragraph(_text(text), styles["Small"])]], colWidths=[6.8 * 72])
+    table.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.35, line),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FAF9F6")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
     return table
 
 
