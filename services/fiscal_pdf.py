@@ -151,6 +151,10 @@ def generar_pdf_cfdi_desde_xml(
 
     story.append(_section("Conceptos", Paragraph, styles))
     story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wine, cream, line))
+    hidro_nodes = _all(root, "HidroYPetro")
+    if hidro_nodes:
+        story.append(_section("Complemento Hidrocarburos y Petrolíferos", Paragraph, styles))
+        story.append(_hidro_table(hidro_nodes, Table, TableStyle, Paragraph, styles, colors, wine, cream, line))
     pagos = _all(root, "Pago")
     if pagos:
         story.append(_section("Complemento de pago", Paragraph, styles))
@@ -450,6 +454,32 @@ def _pagos_table(pagos, Table, TableStyle, Paragraph, styles, colors, wine=None,
                 Paragraph(_text(_attr(docto, "ImpSaldoInsoluto")), styles["Tiny"]),
             ])
     table = Table(data, colWidths=[0.95 * 72, 0.58 * 72, 0.55 * 72, 0.75 * 72, 3.05 * 72, 0.92 * 72], repeatRows=1)
+    table.setStyle(_detail_table_style(colors, wine, line))
+    return table
+
+
+def _hidro_table(hidro_nodes, Table, TableStyle, Paragraph, styles, colors, wine=None, cream=None, line=None):
+    wine = wine or colors.HexColor("#7A1E2C")
+    line = line or colors.HexColor("#BEB7AE")
+    data = [[
+        Paragraph("<b>Tipo permiso</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Número permiso</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Clave HYP</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Subproducto HYP</b>", styles["HeaderTiny"]),
+    ]]
+    for node in hidro_nodes[:12]:
+        data.append([
+            Paragraph(_text(_attr(node, "TipoPermiso")), styles["Tiny"]),
+            Paragraph(_text(_attr(node, "NumeroPermiso")), styles["Tiny"]),
+            Paragraph(_text(_attr(node, "ClaveHYP")), styles["Tiny"]),
+            Paragraph(_text(_attr(node, "SubProductoHYP")), styles["Tiny"]),
+        ])
+    if len(hidro_nodes) > 12:
+        data.append([
+            Paragraph(f"... {len(hidro_nodes)-12} complementos adicionales en XML.", styles["Tiny"]),
+            "", "", "",
+        ])
+    table = Table(data, colWidths=[1.0 * 72, 3.1 * 72, 1.1 * 72, 1.6 * 72], repeatRows=1)
     table.setStyle(_detail_table_style(colors, wine, line))
     return table
 

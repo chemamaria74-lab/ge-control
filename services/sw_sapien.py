@@ -27,17 +27,12 @@ import os
 import re
 import threading
 import time
-import uuid
 import requests
 from datetime import datetime, timezone
-from html import escape as xml_escape
 from typing import Optional
 from xml.etree import ElementTree as ET
-from urllib.parse import urlparse
-from zoneinfo import ZoneInfo
 
 from services.fiscal_audit import record_pac_request, record_pac_response, version_xml
-from services.fiscal_prevalidation import validate_cfdi_json_before_pac, validate_cfdi_xml_before_pac
 
 logger = logging.getLogger(__name__)
 
@@ -81,25 +76,13 @@ else:
 
 SW_TOKEN_URL  = f"{BASE_URL}/v2/security/authenticate"
 # SW documenta rutas /cfdi33 por compatibilidad, aunque aceptan CFDI vigente 4.0.
-# issue = XML/JSON sin Sello, Certificado y NoCertificado; SW sella con el CSD cargado.
+# issue = XML sin Sello, Certificado y NoCertificado; SW sella con el CSD cargado.
 # stamp = XML ya sellado por GE Control; SW solo timbra.
-def _sw_url(env_name: str, default: str) -> str:
-    raw = os.environ.get(env_name, "").strip()
-    if not raw:
-        return default
-    parsed = urlparse(raw)
-    placeholder = raw.strip().lower() in {"[url]", "{url}", "url", "http://[url]", "https://[url]"}
-    if placeholder or parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        logger.warning("%s inválida (%r); usando default %s", env_name, raw, default)
-        return default
-    return raw
-
-
-SW_XML_ISSUE_URL = _sw_url("SW_XML_ISSUE_URL", f"{BASE_URL}/cfdi33/issue/v4")
-SW_XML_STAMP_URL = _sw_url("SW_XML_STAMP_URL", f"{BASE_URL}/cfdi33/stamp/v4")
-SW_JSON_ISSUE_URL = _sw_url("SW_JSON_ISSUE_URL", f"{BASE_URL}/v3/cfdi33/issue/json/v4")
-SW_CANCEL_URL = _sw_url("SW_CANCEL_URL", f"{BASE_URL}/cfdi33/cancel/pfx")
-SW_CANCEL_STATUS_URL = _sw_url("SW_CANCEL_STATUS_URL", f"{BASE_URL}/cfdi33/cancel/pfx/status")
+SW_XML_ISSUE_URL = os.environ.get("SW_XML_ISSUE_URL", f"{BASE_URL}/cfdi33/issue/v4").strip()
+SW_XML_STAMP_URL = os.environ.get("SW_XML_STAMP_URL", f"{BASE_URL}/cfdi33/stamp/v4").strip()
+SW_JSON_ISSUE_URL = os.environ.get("SW_JSON_ISSUE_URL", f"{BASE_URL}/v3/cfdi33/issue/json/v4").strip()
+SW_CANCEL_URL = os.environ.get("SW_CANCEL_URL", f"{BASE_URL}/cfdi33/cancel/pfx").strip()
+SW_CANCEL_STATUS_URL = os.environ.get("SW_CANCEL_STATUS_URL", f"{BASE_URL}/cfdi33/cancel/pfx/status").strip()
 
 # Credenciales vía variables de entorno. Se soportan ambos nombres para evitar
 # fallas de despliegue durante la transición del cierre productivo.
@@ -107,7 +90,6 @@ SW_USER     = _env("SW_USER") or _env("SW_SAPIEN_USER")
 SW_PASSWORD = _env("SW_PASSWORD") or _env("SW_SAPIEN_PASSWORD")
 SW_CANCEL_PFX_B64 = os.environ.get("SW_CANCEL_PFX_B64", "").strip()
 SW_CANCEL_PFX_PASSWORD = os.environ.get("SW_CANCEL_PFX_PASSWORD", "").strip()
-SAT_TIMEZONE = ZoneInfo(os.environ.get("SAT_TIMEZONE", "America/Mexico_City"))
 
 
 def sw_runtime_config() -> dict:
@@ -228,10 +210,8 @@ def build_carta_porte_xml(
     fecha    = (entrega.get("fecha_hora") or datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))[:19]
     vol      = round(float(entrega.get("volumen_litros", 0)), 3)
     imp      = round(float(entrega.get("importe", 0)), 2)
-    is_traslado = str(tipo_comprobante).upper() == "T"
-    cfdi_subtotal = 0.0 if is_traslado else imp
-    iva      = 0.0 if is_traslado else round(imp * 0.16, 2)
-    total    = 0.0 if is_traslado else round(imp + iva, 2)
+    iva      = round(imp * 0.16, 2)
+    total    = round(imp + iva, 2)
 
     folio = str(entrega.get("uuid_mov", ""))[:8] or "0001"
 
@@ -245,32 +225,15 @@ def build_carta_porte_xml(
     regimen_receptor = receptor.get("regimen_fiscal", "616")
     uso_cfdi        = receptor.get("uso_cfdi", "S01")
     cp_receptor     = receptor.get("domicilio_fiscal", "20000")
-    cp_origen = str((ruta or {}).get("cp_origen") or cp_emisor or "20000").strip()[:5]
-    cp_destino = str((ruta or {}).get("cp_destino") or cp_receptor or cp_emisor or "20000").strip()[:5]
-    nombre_origen = str((ruta or {}).get("origen_nombre") or "Origen").strip()
-    nombre_destino = str((ruta or {}).get("destino_nombre") or "Destino").strip()
 
     placa            = vehiculo.get("placa", "SIN-PLACA")
     anio_modelo      = vehiculo.get("anio_modelo", 2020)
     config_vehicular = vehiculo.get("config_vehicular", "C2")
     aseguradora      = vehiculo.get("nombre_asegurador", "")
     poliza           = vehiculo.get("poliza_seguro", "")
-    aseguradora_med  = vehiculo.get("aseguradora_medio_ambiente", "")
-    poliza_med       = vehiculo.get("poliza_medio_ambiente", "")
-    perm_sct         = (vehiculo.get("perm_sct") or vehiculo.get("permiso_sct") or "TPAF01").strip()
-    num_permiso_sct  = (vehiculo.get("num_permiso_sct") or vehiculo.get("permiso_sct_numero") or "").strip()
-    operador_nombre  = (vehiculo.get("operador_nombre") or vehiculo.get("chofer_nombre") or "").strip()
-    operador_rfc     = (vehiculo.get("operador_rfc") or vehiculo.get("chofer_rfc") or "").strip()
-    operador_licencia = (vehiculo.get("operador_licencia") or vehiculo.get("chofer_licencia") or "").strip()
 
-    clave_prod_serv = str(entrega.get("clave_prod_serv") or "15111510").strip()[:8]  # Gas LP por litro
-    descripcion_mercancia = xml_escape(str(entrega.get("descripcion") or "LITRO DE GAS LP").strip() or "LITRO DE GAS LP")
-    material_peligroso = str(entrega.get("material_peligroso") or "Sí").strip()
-    cve_material_peligroso = str(entrega.get("cve_material_peligroso") or "1075").strip()
-    embalaje = str(entrega.get("embalaje") or "Z01").strip()
-    id_ccp = str(entrega.get("id_ccp") or f"CCC{str(uuid.uuid4())[3:]}").strip()
+    clave_prod_serv = "15111501"  # Gas LP
     distancia_km    = round(float((ruta or {}).get("distancia_km", 1) or 1), 1)
-    peso_kg = round(vol * 0.524, 3)
 
     cfdi_rel_xml = ""
     if cfdi_relacionados:
@@ -281,38 +244,18 @@ def build_carta_porte_xml(
             f'<cfdi:CfdiRelacionados TipoRelacion="04">{uuids_xml}</cfdi:CfdiRelacionados>'
         )
 
-    if is_traslado:
-        concepto_xml = (
-            f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" '
-            f'NoIdentificacion="{folio}" Cantidad="{vol}" '
-            f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{descripcion_mercancia}" '
-            f'ValorUnitario="0" Importe="0" ObjetoImp="01"/>'
-        )
-        pago_attrs = ''
-        impuestos_xml = ''
-        moneda = 'XXX'
-    else:
-        concepto_xml = (
-            f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" '
-            f'NoIdentificacion="{folio}" Cantidad="{vol}" '
-            f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{descripcion_mercancia}" '
-            f'ValorUnitario="{round(imp/vol, 6) if vol > 0 else imp}" '
-            f'Importe="{imp}" ObjetoImp="02">'
-            f'<cfdi:Impuestos><cfdi:Traslados>'
-            f'<cfdi:Traslado Base="{imp}" Impuesto="002" TipoFactor="Tasa" '
-            f'TasaOCuota="0.160000" Importe="{iva}"/>'
-            f'</cfdi:Traslados></cfdi:Impuestos>'
-            f'</cfdi:Concepto>'
-        )
-        pago_attrs = 'FormaPago="99" '
-        impuestos_xml = (
-            f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva}">'
-            f'<cfdi:Traslados>'
-            f'<cfdi:Traslado Base="{imp}" Impuesto="002" TipoFactor="Tasa" '
-            f'TasaOCuota="0.160000" Importe="{iva}"/>'
-            f'</cfdi:Traslados></cfdi:Impuestos>'
-        )
-        moneda = 'MXN'
+    concepto_xml = (
+        f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" '
+        f'NoIdentificacion="{folio}" Cantidad="{vol}" '
+        f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="Gas LP" '
+        f'ValorUnitario="{round(imp/vol, 6) if vol > 0 else imp}" '
+        f'Importe="{imp}" ObjetoImp="02">'
+        f'<cfdi:Impuestos><cfdi:Traslados>'
+        f'<cfdi:Traslado Base="{imp}" Impuesto="002" TipoFactor="Tasa" '
+        f'TasaOCuota="0.160000" Importe="{iva}"/>'
+        f'</cfdi:Traslados></cfdi:Impuestos>'
+        f'</cfdi:Concepto>'
+    )
 
     xml = (
         f'<?xml version="1.0" encoding="UTF-8"?>'
@@ -324,9 +267,9 @@ def build_carta_porte_xml(
         f'http://www.sat.gob.mx/CartaPorte31 '
         f'http://www.sat.gob.mx/sitio_internet/cfd/CartaPorte/CartaPorte31.xsd" '
         f'Version="4.0" Folio="{folio}" Fecha="{fecha}" '
-        f'{pago_attrs}NoCertificado="" Certificado="" Sello="" '
-        f'SubTotal="{cfdi_subtotal}" Total="{total}" '
-        f'Moneda="{moneda}" TipoDeComprobante="{tipo_comprobante}" '
+        f'FormaPago="99" NoCertificado="" Certificado="" Sello="" '
+        f'SubTotal="{imp}" Total="{total}" '
+        f'Moneda="MXN" TipoDeComprobante="{tipo_comprobante}" '
         f'Exportacion="01" LugarExpedicion="{cp_emisor}">'
         f'{cfdi_rel_xml}'
         f'<cfdi:Emisor Rfc="{rfc_emisor}" Nombre="{nombre_emisor}" '
@@ -335,37 +278,26 @@ def build_carta_porte_xml(
         f'DomicilioFiscalReceptor="{cp_receptor}" '
         f'RegimenFiscalReceptor="{regimen_receptor}" UsoCFDI="{uso_cfdi}"/>'
         f'<cfdi:Conceptos>{concepto_xml}</cfdi:Conceptos>'
-        f'{impuestos_xml}'
+        f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva}">'
+        f'<cfdi:Traslados>'
+        f'<cfdi:Traslado Base="{imp}" Impuesto="002" TipoFactor="Tasa" '
+        f'TasaOCuota="0.160000" Importe="{iva}"/>'
+        f'</cfdi:Traslados></cfdi:Impuestos>'
         f'<cfdi:Complemento>'
-        f'<cartaporte31:CartaPorte Version="3.1" IdCCP="{id_ccp}" TranspInternac="No" '
+        f'<cartaporte31:CartaPorte Version="3.1" TranspInternac="No" '
         f'TotalDistRec="{distancia_km}">'
-        f'<cartaporte31:Ubicaciones>'
-        f'<cartaporte31:Ubicacion TipoUbicacion="Origen" IDUbicacion="OR000001" '
-        f'RFCRemitenteDestinatario="{rfc_emisor}" NombreRemitenteDestinatario="{xml_escape(nombre_origen)}" '
-        f'FechaHoraSalidaLlegada="{fecha}"><cartaporte31:Domicilio Pais="MEX" CodigoPostal="{cp_origen}"/></cartaporte31:Ubicacion>'
-        f'<cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="DE000001" '
-        f'RFCRemitenteDestinatario="{rfc_receptor}" NombreRemitenteDestinatario="{xml_escape(nombre_destino)}" '
-        f'FechaHoraSalidaLlegada="{fecha}" DistanciaRecorrida="{distancia_km}"><cartaporte31:Domicilio Pais="MEX" CodigoPostal="{cp_destino}"/></cartaporte31:Ubicacion>'
-        f'</cartaporte31:Ubicaciones>'
         f'<cartaporte31:Mercancias NumTotalMercancias="1" '
-        f'PesoBrutoTotal="{peso_kg}" UnidadPeso="KGM">'
+        f'PesoBrutoTotal="{round(vol * 0.524, 3)}" UnidadPeso="KGM">'
         f'<cartaporte31:Mercancia BienesTransp="{clave_prod_serv}" '
-        f'Descripcion="{descripcion_mercancia}" Cantidad="{vol}" ClaveUnidad="LTR" '
-        f'PesoEnKg="{peso_kg}" ValorMercancia="{imp}" Moneda="MXN" '
-        f'MaterialPeligroso="{material_peligroso}" CveMaterialPeligroso="{cve_material_peligroso}" '
-        f'Embalaje="{embalaje}"/>'
+        f'Descripcion="Gas LP" Cantidad="{vol}" ClaveUnidad="LTR" '
+        f'PesoEnKg="{round(vol * 0.524, 3)}"/>'
         f'</cartaporte31:Mercancias>'
-        f'<cartaporte31:Autotransporte PermSCT="{xml_escape(perm_sct)}" NumPermisoSCT="{xml_escape(num_permiso_sct)}">'
+        f'<cartaporte31:Autotransporte PermSCT="TPAF01" NumPermisoSCT="Sin permiso">'
         f'<cartaporte31:IdentificacionVehicular ConfigVehicular="{config_vehicular}" '
         f'PlacaVM="{placa}" AnioModeloVM="{anio_modelo}"/>'
         f'<cartaporte31:Seguros AseguraRespCivil="{aseguradora}" '
-        f'PolizaRespCivil="{poliza}" AseguraMedAmbiente="{xml_escape(aseguradora_med)}" '
-        f'PolizaMedAmbiente="{xml_escape(poliza_med)}"/>'
+        f'PolizaRespCivil="{poliza}"/>'
         f'</cartaporte31:Autotransporte>'
-        f'<cartaporte31:FiguraTransporte>'
-        f'<cartaporte31:TiposFigura TipoFigura="01" RFCFigura="{xml_escape(operador_rfc)}" '
-        f'NombreFigura="{xml_escape(operador_nombre)}" NumLicencia="{xml_escape(operador_licencia)}"/>'
-        f'</cartaporte31:FiguraTransporte>'
         f'</cartaporte31:CartaPorte>'
         f'</cfdi:Complemento>'
         f'</cfdi:Comprobante>'
@@ -375,6 +307,38 @@ def build_carta_porte_xml(
 
 # ── Timbrado ──────────────────────────────────────────────────────────────────
 
+def _log_sw_before_request(*, operation: str, endpoint_sw: str, xml_before_sw: str, payload_sw: dict) -> None:
+    timestamp_before_sw = datetime.now(timezone.utc).isoformat()
+    try:
+        payload_text = json.dumps(payload_sw, ensure_ascii=False, default=str)
+    except Exception:
+        payload_text = str(payload_sw)
+    logger.info(
+        "sw_pac_request_trace operation=%s timestamp_before_sw=%s endpoint_sw=%s xml_before_sw=%s payload_sw=%s",
+        operation,
+        timestamp_before_sw,
+        endpoint_sw,
+        xml_before_sw,
+        payload_text,
+    )
+
+
+def _log_sw_after_response(*, operation: str, endpoint_sw: str, status_code_sw: int, raw_response_sw: str) -> None:
+    timestamp_after_sw = datetime.now(timezone.utc).isoformat()
+    logger.info(
+        "sw_pac_response_trace operation=%s timestamp_after_sw=%s endpoint_sw=%s status_code_sw=%s raw_response_sw=%s",
+        operation,
+        timestamp_after_sw,
+        endpoint_sw,
+        status_code_sw,
+        raw_response_sw,
+    )
+
+
+def _sw_issue_endpoint_uses_json(endpoint_sw: str) -> bool:
+    endpoint = str(endpoint_sw or "").strip().lower()
+    return "/json/" in endpoint or endpoint.endswith("/b64")
+
 def timbrar_cfdi(xml_str: str) -> dict:
     """
     Envía el XML a SW Sapien.
@@ -383,7 +347,7 @@ def timbrar_cfdi(xml_str: str) -> dict:
     documentado por SW. Si ya viene sellado usa Timbrado multipart/form-data.
     Retorna dict con: uuid, xml_timbrado, pdf_url, error.
     """
-    validation_error = _prevalidate_cfdi_xml_before_sw(xml_str)
+    validation_error = _validate_cfdi_xml_before_sw(xml_str)
     if validation_error:
         audit_request_id = record_pac_request(
             module="transporte",
@@ -398,43 +362,68 @@ def timbrar_cfdi(xml_str: str) -> dict:
         )
         return {"uuid": "", "xml_timbrado": "", "pdf_url": "", "error": validation_error}
     issue_mode = _xml_needs_issue(xml_str)
+    endpoint_sw = SW_XML_ISSUE_URL if issue_mode else SW_XML_STAMP_URL
     audit_request_id = record_pac_request(
         module="transporte",
         operation="issue_xml" if issue_mode else "stamp_xml",
-        request_payload={"xml_hash": _hash_text(xml_str), "format": "xml", "mode": "issue" if issue_mode else "stamp"},
+        request_payload={
+            "xml_hash": _hash_text(xml_str),
+            "format": "xml",
+            "mode": "issue" if issue_mode else "stamp",
+            "endpoint_sw": endpoint_sw,
+        },
     )
     try:
         _guard_real_pac_operation("Timbrado")
         token = _get_token()
         if issue_mode:
-            if "/json/" in SW_XML_ISSUE_URL.lower() or SW_XML_ISSUE_URL.lower().endswith("/b64"):
+            if _sw_issue_endpoint_uses_json(SW_XML_ISSUE_URL):
                 xml_b64 = base64.b64encode(xml_str.encode("utf-8")).decode("utf-8")
+                payload_sw = {"data": xml_b64}
                 headers = {
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/json",
                 }
-                resp = requests.post(SW_XML_ISSUE_URL, json={"data": xml_b64}, headers=headers, timeout=45)
+                _log_sw_before_request(
+                    operation="issue_xml_json",
+                    endpoint_sw=SW_XML_ISSUE_URL,
+                    xml_before_sw=xml_str,
+                    payload_sw=payload_sw,
+                )
+                resp = requests.post(SW_XML_ISSUE_URL, json=payload_sw, headers=headers, timeout=45)
             else:
                 headers = {"Authorization": f"Bearer {token}"}
                 files = {"xml": ("cfdi.xml", xml_str.encode("utf-8"), "text/xml")}
+                payload_sw = {"multipart_field": "xml", "filename": "cfdi.xml", "content_type": "text/xml", "xml": xml_str}
+                _log_sw_before_request(
+                    operation="issue_xml_multipart",
+                    endpoint_sw=SW_XML_ISSUE_URL,
+                    xml_before_sw=xml_str,
+                    payload_sw=payload_sw,
+                )
                 resp = requests.post(SW_XML_ISSUE_URL, files=files, headers=headers, timeout=45)
         else:
             headers = {"Authorization": f"Bearer {token}"}
             files = {"xml": ("cfdi.xml", xml_str.encode("utf-8"), "text/xml")}
-            resp = requests.post(SW_XML_STAMP_URL, files=files, headers=headers, timeout=45)
-        try:
-            data = resp.json()
-        except Exception:
-            data = {"status": "error", "message": resp.text}
-
-        if resp.status_code >= 400 or data.get("status") != "success":
-            public_error = _public_pac_error(
-                data.get("message")
-                or data.get("messageDetail")
-                or data.get("messageDetailList")
-                or resp.text,
-                fallback="SW Sapien rechazó el CFDI.",
+            payload_sw = {"multipart_field": "xml", "filename": "cfdi.xml", "content_type": "text/xml", "xml": xml_str}
+            _log_sw_before_request(
+                operation="stamp_xml",
+                endpoint_sw=SW_XML_STAMP_URL,
+                xml_before_sw=xml_str,
+                payload_sw=payload_sw,
             )
+            resp = requests.post(SW_XML_STAMP_URL, files=files, headers=headers, timeout=45)
+        _log_sw_after_response(
+            operation="issue_xml" if issue_mode else "stamp_xml",
+            endpoint_sw=endpoint_sw,
+            status_code_sw=resp.status_code,
+            raw_response_sw=resp.text,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        if data.get("status") != "success":
+            public_error = _public_pac_error(data.get("message") or data.get("messageDetail"), fallback="Error desconocido SW Sapien")
             result = {
                 "uuid": "", "xml_timbrado": "", "pdf_url": "",
                 "error": public_error,
@@ -481,9 +470,7 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
     Envia un CFDI JSON a SW Sapien usando Emision Timbrado JSON.
     SW documenta JSON directo con Content-Type application/jsontoxml.
     """
-    if isinstance(cfdi_dict, dict):
-        cfdi_dict = {**cfdi_dict, "Fecha": _cfdi_issue_timestamp()}
-    validation_error = _prevalidate_cfdi_json_before_sw(cfdi_dict)
+    validation_error = _validate_cfdi_json_before_sw(cfdi_dict)
     if validation_error:
         audit_request_id = record_pac_request(
             module="transporte",
@@ -551,11 +538,6 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
         return {"ok": False, "error": public_error}
 
 
-def _cfdi_issue_timestamp() -> str:
-    """Fecha CFDI SAT sin zona horaria, generada justo antes de enviar al PAC."""
-    return datetime.now(SAT_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S")
-
-
 def _xml_needs_issue(xml_str: str) -> bool:
     """
     SW separa issue/stamp así:
@@ -570,20 +552,6 @@ def _xml_needs_issue(xml_str: str) -> bool:
         return (m is None) or (m.group(1).strip() == "")
 
     return empty_attr("Sello") or empty_attr("Certificado") or empty_attr("NoCertificado")
-
-
-def _prevalidate_cfdi_xml_before_sw(xml_str: str) -> str:
-    result = validate_cfdi_xml_before_pac(xml_str)
-    if not result.ok:
-        return "Prevalidación fiscal: " + result.message()
-    return _validate_cfdi_xml_before_sw(xml_str)
-
-
-def _prevalidate_cfdi_json_before_sw(cfdi_dict: dict) -> str:
-    result = validate_cfdi_json_before_pac(cfdi_dict)
-    if not result.ok:
-        return "Prevalidación fiscal: " + result.message()
-    return _validate_cfdi_json_before_sw(cfdi_dict)
 
 
 def _validate_cfdi_xml_before_sw(xml_str: str) -> str:
@@ -758,6 +726,5 @@ def _public_pac_error(value: object, *, fallback: str = "Error controlado de PAC
     if any(marker in lowered for marker in sensitive_markers):
         return fallback
     compact = re.sub(r"\s+", " ", raw)
-    if "bad request for url" not in compact.lower():
-        compact = re.sub(r"https?://\S+", "[url]", compact)
+    compact = re.sub(r"https?://\S+", "[url]", compact)
     return compact[:280]
