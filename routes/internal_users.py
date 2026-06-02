@@ -119,6 +119,9 @@ class GasLpInternalFacturaPayload(BaseModel):
     chofer_id: Optional[int] = None
     ruta_id: Optional[int] = None
     enviar_correo: bool = True
+    hyp_experimental_diagnostics: bool = False
+    hyp_numero_permiso_override: str = ""
+    hyp_tipo_permiso_override: str = ""
 
 
 class GasLpComplementoPagoPayload(BaseModel):
@@ -2350,6 +2353,21 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     clave_prod_serv_original = _clean_clave_prod_serv(payload.clave_prod_serv)
     clave_prod_serv = GAS_LP_CLAVE_PROD_SERV
     hyp = _gas_lp_hyp_from_facility(origen, clave_prod_serv)
+    hyp_original = dict(hyp)
+    hyp_override_aplicado = False
+    if payload.hyp_experimental_diagnostics:
+        override_numero = str(payload.hyp_numero_permiso_override or "").strip().upper()
+        override_tipo = str(payload.hyp_tipo_permiso_override or "").strip().upper()
+        if not override_numero:
+            raise HTTPException(400, "La prueba experimental HyP requiere hyp_numero_permiso_override.")
+        if override_tipo and override_tipo not in HYP_TIPO_PERMISOS_VALIDOS:
+            raise HTTPException(400, "El TipoPermiso experimental debe usar PER01-PER11.")
+        hyp = {
+            **hyp,
+            "numero_permiso": override_numero,
+            "tipo_permiso": override_tipo or hyp.get("tipo_permiso") or "",
+        }
+        hyp_override_aplicado = True
 
     xml, totals = _build_gas_lp_consumo_xml(
         issuer=issuer,
@@ -2397,6 +2415,12 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         "numero_permiso_instalacion": origen.get("num_permiso") or "",
         "tipo_permiso_generado": hyp.get("tipo_permiso") or "",
         "numero_permiso_hyp": hyp.get("numero_permiso") or "",
+        "hyp_experimental_diagnostics": bool(payload.hyp_experimental_diagnostics),
+        "hyp_override_aplicado": hyp_override_aplicado,
+        "numero_permiso_original_hyp": hyp_original.get("numero_permiso") or "",
+        "tipo_permiso_original_hyp": hyp_original.get("tipo_permiso") or "",
+        "numero_permiso_transformado_hyp": hyp.get("numero_permiso") or "",
+        "tipo_permiso_transformado_hyp": hyp.get("tipo_permiso") or "",
         "clave_prod_serv_recibida": clave_prod_serv_original,
         "clave_prod_serv": clave_prod_serv,
         "clave_hyp": hyp.get("clave_hyp") or "",
@@ -2407,7 +2431,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     }
     _write_gas_lp_hyp_debug_log(debug_payload)
     logger.info(
-        "gas_lp_hyp_pre_timbrado usuario=%s empresa=%s empresa_rfc=%s sw_env=%s app_env=%s endpoint=%s rfc_emisor=%s sandbox=%s timbrado=%s facility_id=%s instalacion=%s numero_permiso=%s tipo_permiso=%s clave_prod_serv_recibida=%s clave_prod_serv_final=%s incluye_hyp=%s clave_hyp=%s subproducto_hyp=%s hyp_xml=%s xml_enviado=%s",
+        "gas_lp_hyp_pre_timbrado usuario=%s empresa=%s empresa_rfc=%s sw_env=%s app_env=%s endpoint=%s rfc_emisor=%s sandbox=%s timbrado=%s experimental=%s facility_id=%s instalacion=%s numero_permiso_instalacion=%s numero_permiso_original=%s numero_permiso_final=%s tipo_permiso_original=%s tipo_permiso_final=%s clave_prod_serv_recibida=%s clave_prod_serv_final=%s incluye_hyp=%s clave_hyp=%s subproducto_hyp=%s hyp_xml=%s xml_enviado=%s",
         user.get("display_name") or user.get("id") or "",
         profile.get("nombre") or "",
         profile.get("rfc") or "",
@@ -2417,9 +2441,13 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         issuer.get("rfc") or "",
         sw_sandbox,
         "prueba" if sw_sandbox else "real",
+        bool(payload.hyp_experimental_diagnostics),
         payload.facility_id,
         origen.get("nombre") or origen.get("clave_instalacion") or "",
         origen.get("num_permiso") or "",
+        hyp_original.get("numero_permiso") or "",
+        hyp.get("numero_permiso") or "",
+        hyp_original.get("tipo_permiso") or "",
         hyp.get("tipo_permiso") or "",
         clave_prod_serv_original,
         clave_prod_serv,
@@ -2441,6 +2469,24 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "Este emisor está configurado en modo pruebas. Cambia a producción antes de timbrar CFDI real.",
         )
     resultado = timbrar_cfdi(xml)
+    if payload.hyp_experimental_diagnostics:
+        diagnostic_response = {
+            "ok": not bool(resultado.get("error")),
+            "diagnostic": True,
+            "persisted": False,
+            "facility_id_recibido": payload.facility_id,
+            "instalacion": origen.get("nombre") or origen.get("clave_instalacion") or "",
+            "rfc_emisor": issuer.get("rfc") or "",
+            "numero_permiso_original": hyp_original.get("numero_permiso") or "",
+            "numero_permiso_transformado": hyp.get("numero_permiso") or "",
+            "tipo_permiso_original": hyp_original.get("tipo_permiso") or "",
+            "tipo_permiso_final": hyp.get("tipo_permiso") or "",
+            "hidroypetro_xml": hyp_node_xml,
+            "xml_enviado": xml,
+            "pac_sw_response": resultado,
+        }
+        status_code = 400 if resultado.get("error") else 200
+        return JSONResponse(diagnostic_response, status_code=status_code)
     if resultado.get("error"):
         pac_error = str(resultado["error"])
         if "CCHYP107" in pac_error or "NumeroPermiso" in pac_error:
