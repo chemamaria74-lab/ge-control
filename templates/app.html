@@ -1897,6 +1897,29 @@ tr:hover td{background:#f8fafc}
     <div></div>
     <div></div>
   </div>
+  <div style="margin-top:1rem;border-top:1px solid #eef2f7;padding-top:1rem">
+    <h3 style="margin:0 0 .35rem;font-size:.98rem;color:#1f2937">Logo de la empresa</h3>
+    <div style="font-size:.72rem;color:#64748b;margin-bottom:.75rem">
+      Se guarda por empresa/perfil y se usa en el PDF fiscal. Formatos permitidos: PNG, JPG o WebP.
+    </div>
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+      <div id="pdf_logo_preview_box" style="width:156px;height:74px;border:1px solid #d9e2ec;border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;padding:8px">
+        <img id="pdf_logo_preview" alt="Logo de la empresa" style="display:none;max-width:100%;max-height:100%;object-fit:contain">
+        <span id="pdf_logo_empty" style="font-size:.72rem;color:#94a3b8;text-align:center">Sin logo</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:.55rem;flex-wrap:wrap">
+        <label class="btn-save" for="pdf_logo_file" style="display:inline-flex;align-items:center;gap:.35rem;margin:0;cursor:pointer">
+          <i class="fa-solid fa-image"></i> Subir logo
+        </label>
+        <input type="file" id="pdf_logo_file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="cargarLogoPdfEmpresa(event)">
+        <button type="button" class="btn-save" onclick="eliminarLogoPdfEmpresa()" style="background:#f8fafc;color:#7f1d1d;border:1px solid #fecaca">
+          <i class="fa-solid fa-trash-can" style="margin-right:.35rem"></i> Eliminar logo
+        </button>
+        <input type="hidden" id="pdf_logo_data">
+        <span id="pdf_logo_hint" style="font-size:.72rem;color:#64748b">Opcional. Tamaño máximo 350 KB.</span>
+      </div>
+    </div>
+  </div>
   <div style="margin-top:.8rem">
     <button class="btn-save" id="btnSaveSettings"><i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar perfil</button>
   </div>
@@ -3444,6 +3467,7 @@ async function loadSettings() {
     if (provEl) provEl.value = data.RfcProveedor || '';
     const factorEl = document.getElementById('factor_conversion');
     if (factorEl) factorEl.value = data.FactorDeConversionKgALitros ?? 0.542;
+    setPdfLogoEmpresaPreview(data.PdfLogoDataUrl || '');
     actualizarRfcHint();
     _actualizarRfcAutoconsumo();
   } catch(e) { console.warn('No se pudo cargar configuración SAT:', e); }
@@ -3461,11 +3485,13 @@ async function saveSettings() {
   const fiscalCpVal = (document.getElementById('fiscal_cp')?.value || '').trim().replace(/\D/g, '').slice(0, 5);
   const fiscalRegimenVal = (document.getElementById('fiscal_regimen')?.value || '601').trim();
   const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
+  const logoVal = document.getElementById('pdf_logo_data')?.value || '';
   const payload = { FactorDeConversionKgALitros: factorVal };
   if (rfcVal)  payload.RfcContribuyente      = rfcVal;
   payload.DescripcionInstalacion = fiscalNameVal;
   payload.CodigoPostal = fiscalCpVal;
   payload.RegimenFiscal = fiscalRegimenVal;
+  payload.PdfLogoDataUrl = logoVal;
   if (repVal)  payload.RfcRepresentanteLegal  = repVal;
   if (provVal) payload.RfcProveedor           = provVal;
   if (!repVal) payload.RfcRepresentanteLegal  = '';
@@ -3494,6 +3520,45 @@ async function saveSettings() {
       status.className   = 'settings-status settings-err';
     }
   }
+}
+
+function setPdfLogoEmpresaPreview(dataUrl, label) {
+  const hidden = document.getElementById('pdf_logo_data');
+  const img = document.getElementById('pdf_logo_preview');
+  const empty = document.getElementById('pdf_logo_empty');
+  const hint = document.getElementById('pdf_logo_hint');
+  if (hidden) hidden.value = dataUrl || '';
+  if (img) {
+    img.src = dataUrl || '';
+    img.style.display = dataUrl ? 'block' : 'none';
+  }
+  if (empty) empty.style.display = dataUrl ? 'none' : 'block';
+  if (hint) hint.textContent = dataUrl ? (label || 'Logo cargado para PDFs fiscales.') : 'Opcional. Tamaño máximo 350 KB.';
+}
+
+function cargarLogoPdfEmpresa(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const allowed = ['image/png','image/jpeg','image/webp'];
+  if (!allowed.includes(file.type)) {
+    alert('El logo debe ser PNG, JPG o WebP.');
+    event.target.value = '';
+    return;
+  }
+  if (file.size > 350000) {
+    alert('El logo debe pesar menos de 350 KB para guardarlo en el perfil.');
+    event.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => setPdfLogoEmpresaPreview(reader.result, `Logo listo: ${file.name}. Presiona Guardar perfil.`);
+  reader.readAsDataURL(file);
+}
+
+function eliminarLogoPdfEmpresa() {
+  const file = document.getElementById('pdf_logo_file');
+  if (file) file.value = '';
+  setPdfLogoEmpresaPreview('', 'Logo eliminado. Presiona Guardar perfil.');
 }
 
 document.getElementById('btnSaveSettings').addEventListener('click', saveSettings);
