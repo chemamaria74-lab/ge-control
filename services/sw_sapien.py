@@ -30,6 +30,7 @@ import time
 import requests
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
 
 from services.fiscal_audit import record_pac_request, record_pac_response, version_xml
@@ -94,6 +95,7 @@ SW_CANCEL_PFX_PASSWORD = os.environ.get("SW_CANCEL_PFX_PASSWORD", "").strip()
 
 def sw_runtime_config() -> dict:
     """Config no sensible para healthchecks y checklist GO/NO GO."""
+    cancel_url_final, cancel_normalized_from_base, cancel_mode = _resolved_cancel_url()
     return {
         "app_env": _APP_ENV,
         "sw_env": _SW_ENV,
@@ -103,6 +105,9 @@ def sw_runtime_config() -> dict:
         "xml_stamp_url": SW_XML_STAMP_URL,
         "json_issue_url": SW_JSON_ISSUE_URL,
         "cancel_url": SW_CANCEL_URL,
+        "cancel_url_final": cancel_url_final,
+        "cancel_url_normalized_from_base": cancel_normalized_from_base,
+        "cancel_mode": cancel_mode,
         "has_credentials": bool(SW_USER and SW_PASSWORD),
         "credential_names_supported": ["SW_USER/SW_PASSWORD", "SW_SAPIEN_USER/SW_SAPIEN_PASSWORD"],
         "real_stamping_allowed": _real_pac_allowed(),
@@ -136,6 +141,41 @@ def _guard_real_pac_operation(operation: str) -> None:
     msg = _real_pac_block_message(operation)
     if msg:
         raise PermissionError(msg)
+
+
+def _resolved_cancel_url(
+    *,
+    rfc_emisor: str = "{rfc}",
+    uuid_sat: str = "{uuid}",
+    motivo: str = "{motivo}",
+    uuid_sustitucion: str = "{folioSustitucion}",
+) -> tuple[str, bool, str]:
+    raw = (SW_CANCEL_URL or "").strip().rstrip("/")
+    if not raw:
+        raw = BASE_URL.rstrip("/")
+    parsed = urlparse(raw)
+    path = (parsed.path or "").strip("/")
+    if not path:
+        base = raw
+        url = f"{base}/cfdi33/cancel/{rfc_emisor}/{uuid_sat}/{motivo}"
+        if uuid_sustitucion:
+            url += f"/{uuid_sustitucion}"
+        return url, True, "uuid"
+    if path == "cfdi33/cancel":
+        url = f"{raw}/{rfc_emisor}/{uuid_sat}/{motivo}"
+        if uuid_sustitucion:
+            url += f"/{uuid_sustitucion}"
+        return url, False, "uuid"
+    if "{rfc}" in raw or "{uuid}" in raw or "{motivo}" in raw or "{folioSustitucion}" in raw:
+        url = (
+            raw.replace("{rfc}", rfc_emisor)
+            .replace("{uuid}", uuid_sat)
+            .replace("{motivo}", motivo)
+            .replace("{folioSustitucion}", uuid_sustitucion)
+        ).rstrip("/")
+        return url, False, "uuid"
+    mode = "pfx" if path.endswith("cfdi33/cancel/pfx") else "csd" if path.endswith("cfdi33/cancel/csd") else "custom"
+    return SW_CANCEL_URL.strip(), False, mode
 
 # ── Token cache thread-safe ───────────────────────────────────────────────────
 _token_lock:  threading.Lock = threading.Lock()
@@ -620,6 +660,86 @@ def _validate_cfdi_json_before_sw(cfdi_dict: dict) -> str:
 
 # ── Cancelación ───────────────────────────────────────────────────────────────
 
+def _safe_cancel_payload(payload: dict) -> dict:
+    safe = dict(payload or {})
+    if safe.get("password"):
+        safe["password"] = "***"
+    if safe.get("b64Pfx"):
+        safe["b64Pfx"] = "***"
+    if safe.get("rfc"):
+        safe["rfc"] = _mask_rfc(str(safe.get("rfc") or ""))
+    if safe.get("rfcEmisor"):
+        safe["rfcEmisor"] = _mask_rfc(str(safe.get("rfcEmisor") or ""))
+    return safe
+
+
+def _safe_cancel_headers(headers: dict) -> dict:
+    safe = dict(headers or {})
+    if safe.get("Authorization"):
+        safe["Authorization"] = "Bearer ***"
+    return safe
+
+
+def _response_preview(text: str, limit: int = 500) -> str:
+    return re.sub(r"\s+", " ", str(text or "").strip())[:limit]
+
+
+def _sw_cancel_http_diagnostic(*, endpoint: str, payload: dict, headers: dict, resp=None, error: str = "", normalized_from_base: bool = False, cancel_mode: str = "") -> dict:
+    response_text = ""
+    content_type = ""
+    status_code = None
+    if resp is not None:
+        status_code = getattr(resp, "status_code", None)
+        content_type = str(getattr(resp, "headers", {}).get("content-type") or getattr(resp, "headers", {}).get("Content-Type") or "")
+        response_text = getattr(resp, "text", "") or ""
+    return {
+        "method": "POST",
+        "endpoint_final": endpoint,
+        "endpoint_normalized_from_base_url": normalized_from_base,
+        "cancel_mode": cancel_mode,
+        "status_code": status_code,
+        "content_type": content_type,
+        "response_preview": _response_preview(response_text),
+        "payload": _safe_cancel_payload(payload),
+        "headers": _safe_cancel_headers(headers),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "error": str(error or ""),
+    }
+
+
+def _parse_sw_cancel_response(resp, *, endpoint: str, payload: dict, headers: dict, normalized_from_base: bool, cancel_mode: str = "") -> tuple[Optional[dict], Optional[str], dict]:
+    diag = _sw_cancel_http_diagnostic(
+        endpoint=endpoint,
+        payload=payload,
+        headers=headers,
+        resp=resp,
+        normalized_from_base=normalized_from_base,
+        cancel_mode=cancel_mode,
+    )
+    logger.info("SW cancel response diagnostic: %s", json.dumps(diag, ensure_ascii=False, default=str))
+    status_code = int(resp.status_code or 0)
+    content_type = str(resp.headers.get("content-type") or "").lower()
+    text = resp.text or ""
+    stripped = text.strip()
+    if status_code in {401, 403}:
+        return None, "SW rechazó la cancelación por credenciales/token (HTTP %s)." % status_code, diag
+    if status_code == 404:
+        return None, "Endpoint de cancelación SW incorrecto o no encontrado (HTTP 404). Revisa SW_CANCEL_URL.", diag
+    if status_code >= 500:
+        return None, "SW/PAC respondió error interno HTTP %s. Revisa auditoría fiscal." % status_code, diag
+    if not stripped:
+        return None, "SW respondió vacío en cancelación (HTTP %s)." % status_code, diag
+    looks_json = "json" in content_type or stripped[:1] in {"{", "["}
+    if not looks_json:
+        if "<html" in stripped.lower() or "<!doctype" in stripped.lower():
+            return None, "SW respondió HTML/no JSON en cancelación (HTTP %s). Revisa endpoint final." % status_code, diag
+        return None, "SW respondió contenido no JSON en cancelación (HTTP %s, %s)." % (status_code, content_type or "sin content-type"), diag
+    try:
+        return resp.json(), None, diag
+    except ValueError as exc:
+        diag["error"] = str(exc)
+        return None, "SW respondió JSON inválido en cancelación (HTTP %s)." % status_code, diag
+
 def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02", uuid_sustitucion: str = "", *, module: str = "transporte", user_id: str = "", perfil_id: Optional[int] = None, tenant_id: Optional[str] = None) -> dict:
     """
     Cancela un CFDI en el SAT vía SW Sapien.
@@ -636,14 +756,26 @@ def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02", uuid_susti
         payload["b64Pfx"] = SW_CANCEL_PFX_B64
     if SW_CANCEL_PFX_PASSWORD:
         payload["password"] = SW_CANCEL_PFX_PASSWORD
+    endpoint_final, normalized_from_base, cancel_mode = _resolved_cancel_url(
+        rfc_emisor=rfc_emisor,
+        uuid_sat=uuid_sat,
+        motivo=motivo,
+        uuid_sustitucion=uuid_sustitucion,
+    )
     audit_request_id = record_pac_request(
         module=module,
         operation="cancel",
-        request_payload={**payload, "rfc": _mask_rfc(rfc_emisor), "password": "***" if payload.get("password") else "", "b64Pfx": "***" if payload.get("b64Pfx") else ""},
+        request_payload={
+            **_safe_cancel_payload(payload),
+            "endpoint_final": endpoint_final,
+            "endpoint_normalized_from_base_url": normalized_from_base,
+            "cancel_mode": cancel_mode,
+        },
         user_id=user_id,
         perfil_id=perfil_id,
         tenant_id=tenant_id,
     )
+    diagnostic = {}
     try:
         _guard_real_pac_operation("Cancelación")
         if not uuid_sat:
@@ -654,31 +786,78 @@ def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02", uuid_susti
             raise ValueError("Motivo SAT inválido. Usa 01, 02, 03 o 04.")
         if motivo == "01" and not uuid_sustitucion:
             raise ValueError("El motivo 01 requiere UUID de sustitución.")
-        if SW_CANCEL_URL.endswith("/pfx") and (not SW_CANCEL_PFX_B64 or not SW_CANCEL_PFX_PASSWORD):
-            raise ValueError("Cancelación SW sandbox no configurada: define SW_CANCEL_PFX_B64 y SW_CANCEL_PFX_PASSWORD en Render ENV.")
+        if cancel_mode == "pfx" and (not SW_CANCEL_PFX_B64 or not SW_CANCEL_PFX_PASSWORD):
+            raise ValueError("Cancelación SW por PFX no configurada: define SW_CANCEL_PFX_B64 y SW_CANCEL_PFX_PASSWORD en Render ENV, o usa un endpoint de cancelación por CSD si tu contrato SW lo permite.")
+        if cancel_mode == "csd":
+            raise ValueError("Cancelación SW por CSD no configurada en GE Control: se requieren b64Cer, b64Key y password. Usa cancelación por UUID con CSD cargado en SW o configura soporte CSD.")
         token = _get_token()
         headers = {
             "Authorization": f"Bearer {token}",
-            "Content-Type":  "application/json",
         }
-        resp = requests.post(SW_CANCEL_URL, json=payload, headers=headers, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
+        request_kwargs = {"headers": headers, "timeout": 30}
+        if cancel_mode != "uuid":
+            headers["Content-Type"] = "application/json"
+            request_kwargs["json"] = payload
+        logger.info(
+            "SW cancel request diagnostic: %s",
+            json.dumps(
+                _sw_cancel_http_diagnostic(
+                    endpoint=endpoint_final,
+                    payload=payload,
+                    headers=headers,
+                    normalized_from_base=normalized_from_base,
+                    cancel_mode=cancel_mode,
+                ),
+                ensure_ascii=False,
+                default=str,
+            ),
+        )
+        resp = requests.post(endpoint_final, **request_kwargs)
+        data, parse_error, diagnostic = _parse_sw_cancel_response(
+            resp,
+            endpoint=endpoint_final,
+            payload=payload,
+            headers=headers,
+            normalized_from_base=normalized_from_base,
+            cancel_mode=cancel_mode,
+        )
+        if parse_error:
+            result = {
+                "ok": False,
+                "status": "Error",
+                "error": parse_error,
+                "acuse": "",
+                "pac_request_id": audit_request_id,
+                "pac_response_id": None,
+                "raw": {},
+                "diagnostic": diagnostic,
+            }
+            pac_response_id = record_pac_response(
+                request_id=audit_request_id,
+                response_payload={"error": parse_error, "diagnostic": diagnostic},
+                uuid_sat=uuid_sat,
+                status="error",
+                error_message=parse_error,
+            )
+            result["pac_response_id"] = pac_response_id
+            return result
 
         ok = data.get("status") == "success"
         acuse = _extract_cancel_ack(data)
+        sw_error = _public_pac_error(data.get("message") or data.get("messageDetail"), fallback="Error desconocido")
         result = {
             "ok":     ok,
             "status": "Cancelada" if ok else "Error",
-            "error":  None if ok else _public_pac_error(data.get("message") or data.get("messageDetail"), fallback="Error desconocido"),
+            "error":  None if ok else sw_error,
             "acuse": acuse,
             "pac_request_id": audit_request_id,
             "pac_response_id": None,
             "raw": data,
+            "diagnostic": diagnostic,
         }
         pac_response_id = record_pac_response(
             request_id=audit_request_id,
-            response_payload=data,
+            response_payload={"sw_response": data, "diagnostic": diagnostic},
             uuid_sat=uuid_sat,
             acuse_cancelacion=acuse if ok else "",
             status="ok" if ok else "error",
@@ -692,8 +871,17 @@ def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02", uuid_susti
         else:
             logger.error("cancelar_cfdi error: %s", e)
         public_error = _public_pac_error(e)
-        pac_response_id = record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=public_error)
-        return {"ok": False, "status": "Error", "error": public_error, "acuse": "", "pac_request_id": audit_request_id, "pac_response_id": pac_response_id}
+        if not diagnostic:
+            diagnostic = _sw_cancel_http_diagnostic(
+                endpoint=endpoint_final,
+                payload=payload,
+                headers={},
+                error=str(e),
+                normalized_from_base=normalized_from_base,
+                cancel_mode=cancel_mode,
+            )
+        pac_response_id = record_pac_response(request_id=audit_request_id, response_payload={"error": str(e), "diagnostic": diagnostic}, status="error", error_message=public_error)
+        return {"ok": False, "status": "Error", "error": public_error, "acuse": "", "pac_request_id": audit_request_id, "pac_response_id": pac_response_id, "diagnostic": diagnostic}
 
 
 def _hash_text(value: str) -> str:
