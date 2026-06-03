@@ -1196,13 +1196,26 @@
       const selectedMonth = String(month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)).slice(0,7);
       if(document.getElementById('facturaMes') && !facturaMes.value) facturaMes.value = selectedMonth;
       const qs = '?mes=' + encodeURIComponent(selectedMonth);
-      const data = await api('/api/internal-auth/gas-lp/facturas' + qs);
-      FACTURAS = data.facturas || [];
-      renderFacturaClientOptions();
-      renderTodayFacturas();
-      renderDashboard();
-      renderComplementosPago();
-      applyFacturasFilters();
+      try{
+        const data = await api('/api/internal-auth/gas-lp/facturas' + qs);
+        FACTURAS = data.facturas || [];
+        console.info('[GasLP asistente facturas]', {
+          endpoint: '/api/internal-auth/gas-lp/facturas',
+          mes: selectedMonth,
+          count: FACTURAS.length,
+          sample_fields: FACTURAS[0] ? Object.keys(FACTURAS[0]).slice(0,20) : []
+        });
+        renderFacturaClientOptions();
+        renderTodayFacturas();
+        renderDashboard();
+        renderComplementosPago();
+        applyFacturasFilters();
+      }catch(e){
+        console.warn('[GasLP asistente facturas] error', {mes:selectedMonth, message:e.message, status:e.status});
+        if(todayFacturasRows) todayFacturasRows.innerHTML = '<tr><td colspan="5">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
+        if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
+        throw e;
+      }
     }
     function facturaAmount(f){
       const md = f.metadata || {};
