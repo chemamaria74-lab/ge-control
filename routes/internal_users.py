@@ -454,6 +454,12 @@ def _append_unique(values: list[str], value: object) -> None:
         values.append(text)
 
 
+def _gas_lp_conciliacion_profile_allowed(row: dict) -> bool:
+    desc = str(row.get("descripcion") or "").lower()
+    markers = [part.split("]", 1)[0].strip() for part in desc.split("[module:")[1:]]
+    return not markers or "gas_lp" in markers
+
+
 def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) -> list[dict]:
     sb = get_supabase_admin()
     tenant_ids: list[str] = []
@@ -482,6 +488,8 @@ def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) ->
 
     def add(rows: list[dict]) -> None:
         for row in rows or []:
+            if not _gas_lp_conciliacion_profile_allowed(row):
+                continue
             rid = _safe_int_id(row.get("id"))
             if not rid:
                 continue
@@ -606,7 +614,7 @@ def _gas_lp_profile(user: dict, *, require_module_marker: bool = False) -> dict:
     if not rows:
         raise HTTPException(403, "La empresa asignada al asistente no está activa o no existe.")
     profile = rows[0]
-    if require_module_marker and "[module:gas_lp]" not in str(profile.get("descripcion") or "").lower():
+    if require_module_marker and not _gas_lp_conciliacion_profile_allowed(profile):
         raise HTTPException(403, "La empresa asignada no pertenece al módulo Gas LP.")
     return profile
 
@@ -1803,6 +1811,26 @@ def _gas_lp_attach_internal_creators(sb, rows: list[dict]) -> None:
             }
 
 
+def _gas_lp_factura_realizado_por(row: dict) -> str:
+    md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    actor = row.get("created_by_internal") if isinstance(row.get("created_by_internal"), dict) else {}
+    name = (
+        row.get("realizado_por")
+        or actor.get("name")
+        or md.get("created_by_internal_name")
+        or md.get("created_by")
+        or md.get("asistente_nombre")
+        or md.get("usuario_nombre")
+    )
+    if str(name or "").strip():
+        return str(name).strip()
+    if str(md.get("created_by_area") or "").lower() == "conciliacion" or str(md.get("portal") or "").lower() == "conciliacion_gas_lp":
+        return "Conciliación"
+    if md.get("internal_user_id"):
+        return "Asistente"
+    return "Conciliación"
+
+
 def _gas_lp_complementos_por_factura(sb, factura_ids: list[int]) -> dict[int, list[dict]]:
     ids = [int(fid) for fid in factura_ids if fid]
     by_factura: dict[int, list[dict]] = {fid: [] for fid in ids}
@@ -2875,6 +2903,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
             "rfc": _gas_lp_factura_emisor_rfc(row),
             "nombre": _gas_lp_factura_emisor_nombre(row),
         }
+        row["realizado_por"] = _gas_lp_factura_realizado_por(row)
         comps = comp_by_factura.get(_safe_int_id(row.get("id")), [])
         row["complementos_pago"] = comps
         if comps:
@@ -3104,6 +3133,7 @@ async def gas_lp_conciliacion_export_excel(
         "Monto con IVA",
         "Litros",
         "PUE o PPD",
+        "Realizado por",
         "Estado",
     ]
     ws.append(headers)
@@ -3159,6 +3189,7 @@ async def gas_lp_conciliacion_export_excel(
                 _excel_number(_safe_total(row)),
                 _excel_liters(row.get("volumen_litros")),
                 _excel_text(_safe_metodo_pago(row)),
+                _excel_text(_gas_lp_factura_realizado_por(row)),
                 _excel_text(_gas_lp_factura_estado_excel(row)),
             ])
         except Exception as exc:
@@ -3170,8 +3201,8 @@ async def gas_lp_conciliacion_export_excel(
                 exc,
                 traceback.format_exc(),
             )
-            ws.append(["", _excel_text(factura_id), "", "", 0.0, 0.0, "", ""])
-    for width, column in zip([14, 18, 40, 34, 16, 12, 12, 26], "ABCDEFGH"):
+            ws.append(["", _excel_text(factura_id), "", "", 0.0, 0.0, "", "", ""])
+    for width, column in zip([14, 18, 40, 34, 16, 12, 12, 18, 26], "ABCDEFGHI"):
         ws.column_dimensions[column].width = width
     for cell in ws["F"][1:]:
         cell.number_format = "#,##0.000"
