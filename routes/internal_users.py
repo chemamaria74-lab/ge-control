@@ -1166,8 +1166,22 @@ def _build_gas_lp_consumo_xml(
             f'{_gas_lp_hyp_xml_fragment(hyp)}'
             '</cfdi:ComplementoConcepto>'
         )
-    info_global_xml = ""
     informacion_global = informacion_global or {}
+    is_publico_general_cfdi = (
+        _clean_rfc(receptor.get("rfc") or "") == "XAXX010101000"
+        and str(receptor.get("nombre") or "").strip().upper() == "PUBLICO EN GENERAL"
+    )
+    if is_publico_general_cfdi and not informacion_global:
+        try:
+            fecha_base_auto = datetime.strptime(fecha[:10], "%Y-%m-%d")
+        except Exception:
+            fecha_base_auto = datetime.now()
+        informacion_global = {
+            "periodicidad": "04",
+            "meses": f"{fecha_base_auto.month:02d}",
+            "anio": fecha_base_auto.year,
+        }
+    info_global_xml = ""
     if informacion_global:
         try:
             fecha_base = datetime.strptime(fecha[:10], "%Y-%m-%d")
