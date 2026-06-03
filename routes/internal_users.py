@@ -1684,7 +1684,7 @@ def _gas_lp_company_facturas_rows(
     if profile_rfc:
         # Rescata facturas timbradas por otro usuario/perfil de la misma empresa fiscal.
         rfc_rows = []
-        for rfc_field in ("rfc_emisor", "metadata->>rfc_emisor", "metadata->>empresa_rfc", "metadata->>empresa_asignada_rfc"):
+        for rfc_field in ("metadata->>rfc_emisor", "metadata->>empresa_rfc", "metadata->>empresa_asignada_rfc"):
             try:
                 found = (
                     sb.table("gas_lp_facturas")
