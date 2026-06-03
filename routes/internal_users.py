@@ -1153,6 +1153,12 @@ def _require_gas_lp_issuer(profile: dict, settings: dict) -> dict:
             400,
             "Configura RFC, nombre fiscal y código postal de la empresa antes de facturar.",
         )
+    if len(rfc) not in {12, 13}:
+        raise HTTPException(400, "El RFC emisor configurado no es válido para timbrar.")
+    if len(cp) != 5:
+        raise HTTPException(400, "Configura un código postal fiscal de 5 dígitos para la empresa antes de facturar.")
+    if not regimen.isdigit() or len(regimen) != 3:
+        raise HTTPException(400, "Configura un régimen fiscal emisor válido antes de facturar.")
     return {"rfc": rfc, "nombre": name, "cp": cp, "regimen": regimen or "601"}
 
 
@@ -1971,6 +1977,41 @@ def _gas_lp_invoice_scope(user: dict, profile: dict) -> dict:
         "perfil_id": user.get("perfil_id"),
         "source": "assistant_portal",
         "updated_at": _now_iso(),
+    }
+
+
+def _gas_lp_invoice_debug_context(
+    *,
+    user: dict,
+    profile: dict,
+    issuer: dict,
+    receptor: dict,
+    payload: GasLpInternalFacturaPayload,
+    origen: dict | None = None,
+    serie: str = "",
+    folio: str = "",
+    stage: str = "",
+) -> dict:
+    return {
+        "stage": stage,
+        "internal_user_id": user.get("id"),
+        "internal_user_name": user.get("display_name") or "",
+        "role": user.get("role") or "",
+        "tenant_id": user.get("tenant_id"),
+        "owner_user_id": user.get("owner_user_id"),
+        "perfil_id": user.get("perfil_id"),
+        "empresa": profile.get("nombre") or "",
+        "empresa_rfc": profile.get("rfc") or "",
+        "rfc_emisor": issuer.get("rfc") or "",
+        "cp_emisor": issuer.get("cp") or "",
+        "regimen_emisor": issuer.get("regimen") or "",
+        "rfc_receptor": receptor.get("rfc") or "",
+        "receptor_publico_general": receptor.get("rfc") == "XAXX010101000",
+        "facility_id": payload.facility_id,
+        "instalacion": (origen or {}).get("nombre") or (origen or {}).get("clave_instalacion") or "",
+        "serie": serie,
+        "folio": folio,
+        "tipo_operacion": payload.tipo_operacion,
     }
 
 
@@ -3003,6 +3044,7 @@ async def gas_lp_conciliacion_facturar_publico_general(payload: GasLpConciliacio
     if resultado.get("error"):
         raise HTTPException(400, f"PAC rechazó la factura: {resultado['error']}")
     now = _now_iso()
+    created_by_name = str(user.get("display_name") or "").strip() or "Conciliación"
     row = {
         **_gas_lp_invoice_scope(user, profile),
         "facility_id": payload.facility_id,
@@ -3021,8 +3063,8 @@ async def gas_lp_conciliacion_facturar_publico_general(payload: GasLpConciliacio
             "portal": "conciliacion_gas_lp",
             "created_by_area": "conciliacion",
             "internal_user_id": user.get("id"),
-            "created_by_internal_name": user.get("display_name") or "",
-            "created_by": user.get("display_name") or "",
+            "created_by_internal_name": created_by_name,
+            "created_by": created_by_name,
             "empresa_asignada_id": user.get("perfil_id"),
             "empresa_asignada_nombre": profile.get("nombre") or "",
             "empresa_rfc": profile.get("rfc") or "",
@@ -3888,6 +3930,17 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     try:
         resultado = timbrar_cfdi(xml)
     except Exception as exc:
+        error_context = _gas_lp_invoice_debug_context(
+            user=user,
+            profile=profile,
+            issuer=issuer,
+            receptor=receptor,
+            payload=payload,
+            origen=origen,
+            serie=serie_factura,
+            folio=folio_factura,
+            stage="sw_exception_before_stamp",
+        )
         if is_transfer:
             folio_reverted = _gas_lp_revert_invoice_folio_if_current(sb, user, transfer_folio_reservation, reason="sw_exception_before_stamp")
             raise HTTPException(502, {
@@ -3909,7 +3962,12 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                     "allow_zero_total": True,
                 },
             })
-        raise
+        logger.exception("gas_lp_invoice_sw_exception context=%s", json.dumps(error_context, ensure_ascii=False, default=str))
+        raise HTTPException(502, {
+            "message": f"Error al enviar la factura a SW/PAC: {exc}",
+            "code": "gas_lp_invoice_sw_exception",
+            "invoice": error_context,
+        })
     if is_transfer:
         logger.info(
             "[GasLP traspaso] sw_response folio=%s uuid=%s error=%s pac_response=%s",
@@ -4104,6 +4162,17 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     try:
         data = sb.table("gas_lp_facturas").insert(row).execute().data or [row]
     except Exception as exc:
+        error_context = _gas_lp_invoice_debug_context(
+            user=user,
+            profile=profile,
+            issuer=issuer,
+            receptor=receptor,
+            payload=payload,
+            origen=origen,
+            serie=serie_factura,
+            folio=folio_factura,
+            stage="insert_failed_after_stamp",
+        )
         if is_transfer:
             logger.exception(
                 "[GasLP traspaso] insert_failed_after_stamp user=%s serie=%s folio=%s uuid=%s origen=%s destino=%s litros=%s precio_original=%s precio_cfdi=%s total=%s",
@@ -4126,7 +4195,20 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                 "folio": {"serie": serie_factura, "folio": folio_factura, "reverted": False},
                 "error": str(exc),
             })
-        raise _safe_internal_error("gas_lp_crear_factura", exc)
+        logger.exception(
+            "gas_lp_invoice_insert_failed_after_stamp context=%s uuid=%s err=%s",
+            json.dumps(error_context, ensure_ascii=False, default=str),
+            resultado.get("uuid") or "",
+            exc,
+        )
+        raise HTTPException(500, {
+            "message": "La factura fue timbrada por SW/PAC, pero no se pudo guardar en el listado. Contacta soporte antes de reintentar para evitar duplicados.",
+            "code": "gas_lp_invoice_insert_failed_after_stamp",
+            "uuid_sat": resultado.get("uuid") or "",
+            "folio": {"serie": serie_factura, "folio": folio_factura, "reverted": False},
+            "invoice": error_context,
+            "error": str(exc),
+        })
     factura_row = data[0]
     if is_transfer:
         logger.info(
