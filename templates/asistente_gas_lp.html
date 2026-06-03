@@ -857,8 +857,9 @@
     function updateOperacionUI(){
       const traspaso = tipoOperacion.value === 'traspaso';
       const cartaPorte = tipoOperacion.value === 'carta_porte';
-      const transferHidden = [clienteField,facturaGlobalField,clientePreview,conceptoField,precioField,descuentoTipoField,descuentoField,ivaField,metodoPagoField,formaPagoField];
+      const transferHidden = [clienteField,facturaGlobalField,clientePreview,conceptoField,precioField,descuentoTipoField,ivaField,metodoPagoField,formaPagoField];
       transferHidden.forEach(el => el.classList.toggle('hide', traspaso || cartaPorte));
+      if(traspaso || cartaPorte) descuentoField.classList.add('hide');
       destinoField.classList.toggle('hide', !traspaso);
       cartaPorteField.classList.add('hide');
       [vehiculoField,choferField,rutaField].forEach(el => el.classList.add('hide'));
@@ -894,6 +895,7 @@
         formaPago.disabled = false;
         precioUnitario.disabled = false;
         btnTimbrar.disabled = false;
+        updateDiscountMode();
       }
     }
     function selectCliente(){
