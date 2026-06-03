@@ -134,7 +134,7 @@
             <b>Carta Porte en configuración.</b>
             <div class="muted" style="font-size:12px;margin-top:4px">Para traslados internos usar por ahora Traspaso a estación y registrar origen/destino.</div>
           </div>
-          <div id="destinoField" class="hide"><label>Estación destino</label><select id="destinoFacilitySelect" onchange="filterRutasForTransfer()"><option value="">Selecciona estación destino</option></select></div>
+          <div id="destinoField" class="hide"><label>Estación destino *</label><select id="destinoFacilitySelect" required onchange="filterRutasForTransfer()"><option value="">Selecciona estación destino</option></select></div>
           <div id="cartaPorteField" class="hide"><label>Carta Porte</label><select id="generarCartaPorte" onchange="updateOperacionUI()"><option value="0">Sólo registrar traspaso</option><option value="1">Timbrar Carta Porte</option></select></div>
           <div id="vehiculoField" class="hide"><label>Vehículo</label><select id="vehiculoSelect"><option value="">Selecciona vehículo</option></select></div>
           <div id="choferField" class="hide"><label>Chofer</label><select id="choferSelect"><option value="">Selecciona chofer</option></select></div>
