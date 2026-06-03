@@ -437,7 +437,7 @@
       const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
       return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
     }
-    function facturaDateKey(f){ return String(facturaDateValue(f) || '').slice(0,10); }
+    function facturaDateKey(f){ return String(f.fecha_factura_key || facturaDateValue(f) || '').slice(0,10); }
     function facturaTimeLabel(f){ return String(facturaDateValue(f) || '').slice(11,16) || String(f.created_at || '').slice(11,16) || '—'; }
     function switchPortalTab(tab){
       ['dashboard','facturacion','facturas','clientes'].forEach(name => {
@@ -1193,7 +1193,7 @@
       FACTURAS = [...byId.values()].sort((a,b)=>String(facturaDateValue(b) || b.created_at || '').localeCompare(String(facturaDateValue(a) || a.created_at || '')));
     }
     async function loadFacturas(month=''){
-      const qs = month ? '?mes=' + encodeURIComponent(month) : '';
+      const qs = '?mes=' + encodeURIComponent(month || todayKey().slice(0,7));
       const data = await api('/api/internal-auth/gas-lp/facturas' + qs);
       FACTURAS = data.facturas || [];
       renderFacturaClientOptions();
