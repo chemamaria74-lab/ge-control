@@ -821,6 +821,35 @@ def _transfer_email_from_settings(settings: dict) -> str:
     return ""
 
 
+def _gas_lp_transfer_symbolic_unit_price(settings: dict) -> Decimal:
+    metadata = settings.get("metadata") if isinstance(settings.get("metadata"), dict) else {}
+    for key in (
+        "transfer_symbolic_unit_price",
+        "traspaso_precio_simbolico_litro",
+        "precio_simbolico_traspaso_litro",
+        "precio_unitario_simbolico_traspaso",
+    ):
+        value = settings.get(key)
+        if value in (None, ""):
+            value = metadata.get(key)
+        if value not in (None, ""):
+            try:
+                amount = Decimal(str(value)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+                if amount > 0:
+                    return amount
+            except Exception:
+                logger.warning("[GasLP traspaso] symbolic_unit_price_invalid key=%s value=%s", key, value)
+    env_value = str(os.environ.get("GAS_LP_TRANSFER_SYMBOLIC_UNIT_PRICE") or "").strip()
+    if env_value:
+        try:
+            amount = Decimal(env_value).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+            if amount > 0:
+                return amount
+        except Exception:
+            logger.warning("[GasLP traspaso] symbolic_unit_price_env_invalid value=%s", env_value)
+    return Decimal("0.000860")
+
+
 def _configured_setting(settings: dict, keys: tuple[str, ...]):
     for key in keys:
         value = settings.get(key)
@@ -1137,8 +1166,22 @@ def _build_gas_lp_consumo_xml(
             f'{_gas_lp_hyp_xml_fragment(hyp)}'
             '</cfdi:ComplementoConcepto>'
         )
-    info_global_xml = ""
     informacion_global = informacion_global or {}
+    is_publico_general_cfdi = (
+        _clean_rfc(receptor.get("rfc") or "") == "XAXX010101000"
+        and str(receptor.get("nombre") or "").strip().upper() == "PUBLICO EN GENERAL"
+    )
+    if is_publico_general_cfdi and not informacion_global:
+        try:
+            fecha_base_auto = datetime.strptime(fecha[:10], "%Y-%m-%d")
+        except Exception:
+            fecha_base_auto = datetime.now()
+        informacion_global = {
+            "periodicidad": "04",
+            "meses": f"{fecha_base_auto.month:02d}",
+            "anio": fecha_base_auto.year,
+        }
+    info_global_xml = ""
     if informacion_global:
         try:
             fecha_base = datetime.strptime(fecha[:10], "%Y-%m-%d")
@@ -1156,6 +1199,18 @@ def _build_gas_lp_consumo_xml(
         )
     no_identificacion = str(no_identificacion or folio).strip()[:100] or folio
     unidad = str(unidad or "Litro").strip()[:20] or "Litro"
+    zero_total_without_tax = bool(allow_zero_total and total == 0)
+    concept_tax_xml = "" if zero_total_without_tax else (
+        '<cfdi:Impuestos><cfdi:Traslados>'
+        f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
+        '</cfdi:Traslados></cfdi:Impuestos>'
+    )
+    comprobante_tax_xml = "" if zero_total_without_tax else (
+        f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva:.2f}"><cfdi:Traslados>'
+        f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
+        '</cfdi:Traslados></cfdi:Impuestos>'
+    )
+    objeto_imp = "01" if zero_total_without_tax else "02"
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         f'<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"{hyp_ns} '
@@ -1171,16 +1226,12 @@ def _build_gas_lp_consumo_xml(
         '<cfdi:Conceptos>'
         f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" NoIdentificacion="{xml_escape(no_identificacion)}" Cantidad="{qty:.3f}" '
         f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{xml_escape(desc)}" ValorUnitario="{unit_net:.6f}" '
-        f'Importe="{subtotal:.2f}"{descuento_concepto} ObjetoImp="02">'
-        '<cfdi:Impuestos><cfdi:Traslados>'
-        f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
-        '</cfdi:Traslados></cfdi:Impuestos>'
+        f'Importe="{subtotal:.2f}"{descuento_concepto} ObjetoImp="{objeto_imp}">'
+        f'{concept_tax_xml}'
         f'{hyp_xml}'
         '</cfdi:Concepto>'
         '</cfdi:Conceptos>'
-        f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva:.2f}"><cfdi:Traslados>'
-        f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
-        '</cfdi:Traslados></cfdi:Impuestos>'
+        f'{comprobante_tax_xml}'
         f'{f"<cfdi:Addenda><Observaciones>{xml_escape(comments)}</Observaciones></cfdi:Addenda>" if comments else ""}'
         '</cfdi:Comprobante>'
     )
@@ -1641,63 +1692,6 @@ def _gas_lp_existing_transfer_invoice(sb, user: dict, payload: GasLpInternalFact
         if row_litros == target_litros:
             return row
     return None
-
-
-def _gas_lp_transfer_zero_totals(payload: GasLpInternalFacturaPayload) -> dict:
-    qty = Decimal(str(payload.litros or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
-    unit = Decimal(str(payload.precio_unitario or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
-    discount_unit = Decimal(str(payload.descuento or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
-    rate = Decimal(str(payload.iva_rate if payload.iva_rate not in {None, ""} else 0.16)).quantize(Decimal("0.000000"), rounding=ROUND_HALF_UP)
-    if qty <= 0:
-        raise HTTPException(400, "Captura litros mayores a cero para registrar el traspaso.")
-    if unit < 0 or discount_unit < 0:
-        raise HTTPException(400, "El precio y descuento del traspaso no pueden ser negativos.")
-    effective_unit = max(unit - discount_unit, Decimal("0.000000"))
-    subtotal = (qty * effective_unit).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    discount_total = (qty * discount_unit).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    iva = (subtotal * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    total = (subtotal + iva).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return {
-        "litros": float(qty),
-        "precio_unitario": float(unit),
-        "descuento": float(discount_total),
-        "subtotal": float(subtotal),
-        "iva": float(iva),
-        "total": float(total),
-        "fecha": _cfdi_fecha(payload.fecha),
-        "folio": "",
-    }
-
-
-def _gas_lp_next_internal_transfer_folio(sb, user: dict, fecha: str) -> str:
-    day = str(fecha or _now_iso()).strip()[:10].replace("-", "")
-    prefix = f"TR-{day}-"
-    current = 0
-    try:
-        rows = (
-            sb.table("gas_lp_facturas")
-            .select("record_uuid,metadata")
-            .eq("tenant_id", user.get("tenant_id"))
-            .eq("perfil_id", user.get("perfil_id"))
-            .order("created_at", desc=True)
-            .limit(500)
-            .execute()
-            .data
-            or []
-        )
-    except Exception as exc:
-        logger.warning("[GasLP traspaso] internal_folio_scan_failed err=%s", exc)
-        rows = []
-    for row in rows:
-        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        if not (md.get("internal_transfer") or md.get("no_fiscal_effect")):
-            continue
-        candidate = str(md.get("internal_transfer_folio") or row.get("record_uuid") or "").strip().upper()
-        if not candidate.startswith(prefix):
-            continue
-        suffix = candidate.rsplit("-", 1)[-1]
-        current = max(current, _folio_number(suffix))
-    return f"{prefix}{current + 1:03d}"
 
 
 def _gas_lp_factura_total_con_iva(factura: dict) -> Decimal:
@@ -2270,6 +2264,7 @@ async def gas_lp_internal_summary(token: str):
         settings,
         ("precio_venta_litro", "PrecioVentaLitro", "precio_default_litro", "precio_litro"),
     )
+    transfer_symbolic_unit_price = _gas_lp_transfer_symbolic_unit_price(settings)
     return JSONResponse({
         "ok": True,
         "assistant": {
@@ -2291,6 +2286,7 @@ async def gas_lp_internal_summary(token: str):
             "precio_venta_litro": precio_venta_litro,
             "precio_venta_litro_configurado": precio_venta_litro_configurado,
             "transfer_email_default": _transfer_email_from_settings(settings),
+            "transfer_symbolic_unit_price": float(transfer_symbolic_unit_price),
         },
         "modules": modules,
         "hyp": {
@@ -2762,13 +2758,21 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
 
 @router.get("/internal-auth/gas-lp/conciliacion/perfiles")
 async def gas_lp_conciliacion_perfiles(token: str):
+    if str(token or "").count(".") == 2:
+        uid = verify_token(token)
+        if not uid:
+            raise HTTPException(401, "Sesión inválida o expirada.")
+        access = _resolve_active_module_access(uid, "gas_lp", access_token=token)
+        role = (access.get("role") or "").lower()
+        if role not in {"admin", "conciliacion", "asistente_facturacion"}:
+            raise HTTPException(403, "Tu usuario no tiene acceso a conciliación Gas LP.")
+        perfiles = get_perfiles_for_user(uid, access_token=token, module="gas_lp")
+        return JSONResponse({"ok": True, "perfil_id": access.get("perfil_id"), "perfiles": perfiles})
+
     ctx = _gas_lp_conciliacion_context(token)
     user = ctx["user"]
-    if str(token or "").count(".") == 2:
-        perfiles = get_perfiles_for_user(user.get("owner_user_id"), access_token=token, module="gas_lp")
-    else:
-        profile = _gas_lp_profile(user, require_module_marker=True)
-        perfiles = [{"id": profile.get("id"), "nombre": profile.get("nombre"), "rfc": profile.get("rfc"), "descripcion": ""}]
+    profile = _gas_lp_profile(user, require_module_marker=True)
+    perfiles = [{"id": profile.get("id"), "nombre": profile.get("nombre"), "rfc": profile.get("rfc"), "descripcion": ""}]
     return JSONResponse({"ok": True, "perfil_id": user.get("perfil_id"), "perfiles": perfiles})
 
 
@@ -3546,7 +3550,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         if existing_transfer:
             md_existing = existing_transfer.get("metadata") if isinstance(existing_transfer.get("metadata"), dict) else {}
             raise HTTPException(409, {
-                "message": "Ya existe un traspaso registrado con esa fecha, origen, destino, litros y asistente. No se guardó otro registro para evitar duplicados.",
+                "message": "Ya existe un traspaso timbrado o registrado con esa fecha, origen, destino, litros y asistente. No se envió otro timbrado al PAC para evitar duplicados.",
                 "code": "gas_lp_transfer_duplicate",
                 "is_transfer": True,
                 "factura_id": existing_transfer.get("id"),
@@ -3559,139 +3563,18 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                     "litros": float(existing_transfer.get("volumen_litros") or 0),
                 },
             })
-        transfer_totals = _gas_lp_transfer_zero_totals(payload)
-        if Decimal(str(transfer_totals.get("total") or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) == Decimal("0.00"):
-            transfer_email_source = payload.transfer_email if payload.transfer_email_provided else (payload.transfer_email or _transfer_email_from_settings(settings))
-            transfer_recipients = _clean_billing_emails(transfer_email_source)
-            transfer_recipient_text = ", ".join(transfer_recipients)
-            internal_folio = _gas_lp_next_internal_transfer_folio(sb, user, transfer_totals["fecha"])
-            now = _now_iso()
-            row = {
-                **_gas_lp_invoice_scope(user, profile),
-                "facility_id": payload.facility_id,
-                "origen_facility_id": payload.facility_id,
-                "destino_facility_id": payload.destino_facility_id,
-                "created_by_internal": user.get("id"),
-                "created_by_internal_name": user.get("display_name") or "",
-                "record_uuid": internal_folio,
-                "uuid_sat": "",
-                "xml_content": "",
-                "pdf_url": "",
-                "status": "Registrado",
-                "fecha_timbrado": None,
-                "rfc_receptor": receptor["rfc"],
-                "volumen_litros": float(payload.litros),
-                "importe": 0,
-                "tipo_comprobante": "I",
-                "distancia_km": 1,
-                "payment_status": "interno",
-                "email_destinatario": transfer_recipient_text,
-                "email_enviado": False,
-                "email_error": "Documento interno sin PDF fiscal/XML; no se envió correo automático.",
-                "metadata": {
-                    "portal": "asistente_gas_lp",
-                    "document_type": "internal_transfer",
-                    "internal_transfer_folio": internal_folio,
-                    "internal_user_id": user.get("id"),
-                    "created_by_internal_name": user.get("display_name") or "",
-                    "created_by": user.get("display_name") or "",
-                    "empresa_asignada_id": user.get("perfil_id"),
-                    "empresa_asignada_nombre": profile.get("nombre") or "",
-                    "empresa_rfc": profile.get("rfc") or "",
-                    "rfc_emisor": issuer.get("rfc") or "",
-                    "cliente_id": None,
-                    "cliente_nombre": receptor["nombre"],
-                    "receptor_rfc": receptor["rfc"],
-                    "receptor_nombre": receptor["nombre"],
-                    "concepto": "Traspaso interno de Gas LP",
-                    "precio_unitario": 0,
-                    "descuento_por_litro": 0,
-                    "descuento": 0,
-                    "iva_rate": payload.iva_rate,
-                    "serie": "TR",
-                    "folio_usuario": internal_folio,
-                    "comentarios": payload.comentarios,
-                    "fecha_emision": transfer_totals["fecha"],
-                    "clave_prod_serv": _clean_clave_prod_serv(payload.clave_prod_serv),
-                    "no_identificacion": payload.no_identificacion,
-                    "unidad": payload.unidad,
-                    "metodo_pago": "N/A",
-                    "forma_pago": "N/A",
-                    "estado": "Registrado",
-                    "tipo_operacion": "traspaso",
-                    "is_transfer": True,
-                    "internal_transfer": True,
-                    "no_fiscal_effect": True,
-                    "pac_sent": False,
-                    "sat_sent": False,
-                    "uuid_sat": None,
-                    "operation_type": "transfer",
-                    "facility_id": payload.facility_id,
-                    "origen_facility_id": payload.facility_id,
-                    "origen_facility_name": origen.get("nombre") or "",
-                    "origen_nombre": origen.get("nombre") or "",
-                    "destino_facility_id": payload.destino_facility_id,
-                    "destino_facility_name": destino.get("nombre") or "",
-                    "destino_nombre": destino.get("nombre") or "",
-                    "transfer_email": transfer_recipient_text,
-                    "created_from": "assistant_internal_transfer",
-                    "observaciones": payload.comentarios,
-                    "payment_status": "interno",
-                    "saldo_insoluto": 0,
-                    "subtotal": 0,
-                    "iva": 0,
-                    "total": 0,
-                    "document_note": "Documento interno sin efectos fiscales. No es CFDI. No timbrado ante SAT/PAC.",
-                },
-                "created_at": now,
-                "updated_at": now,
-            }
-            logger.info(
-                "[GasLP traspaso] internal_register_request folio=%s origen=%s destino=%s litros=%s total=0 pac_sent=false",
-                internal_folio,
-                origen.get("nombre") or payload.facility_id,
-                destino.get("nombre") or payload.destino_facility_id,
-                payload.litros,
-            )
-            try:
-                data = sb.table("gas_lp_facturas").insert(row).execute().data or [row]
-            except Exception as exc:
-                logger.exception(
-                    "[GasLP traspaso] internal_register_failed folio=%s origen=%s destino=%s litros=%s err=%s",
-                    internal_folio,
-                    origen.get("nombre") or payload.facility_id,
-                    destino.get("nombre") or payload.destino_facility_id,
-                    payload.litros,
-                    exc,
-                )
-                raise HTTPException(500, {
-                    "message": "No se pudo guardar el traspaso interno. No se envió a SW/PAC y no se consumió folio fiscal.",
-                    "code": "gas_lp_internal_transfer_insert_failed",
-                    "is_transfer": True,
-                    "internal_transfer": True,
-                    "pac_sent": False,
-                    "error": str(exc),
-                })
-            factura_row = data[0]
-            logger.info(
-                "[GasLP traspaso] internal_registered folio=%s factura_id=%s pac_sent=false",
-                internal_folio,
-                factura_row.get("id"),
-            )
-            warnings = []
-            if transfer_recipients:
-                warnings.append("Traspaso registrado sin envío automático: documento interno sin XML fiscal timbrado.")
-            return JSONResponse({
-                "ok": True,
-                "no_fiscal_effect": True,
-                "internal_transfer": True,
-                "pac_sent": False,
-                "factura": factura_row,
-                "totals": transfer_totals,
-                "email": None,
-                "warnings": warnings,
-            })
-        raise HTTPException(400, "Sólo los traspasos internos con total $0.00 se registran sin timbrado fiscal.")
+        folio_factura, transfer_folio_reservation = _gas_lp_next_invoice_folio(
+            sb,
+            user,
+            serie_factura,
+            return_reservation=True,
+        )
+        logger.info(
+            "[GasLP traspaso] folio_reserved serie=%s folio=%s reservation=%s",
+            serie_factura,
+            folio_factura,
+            json.dumps(transfer_folio_reservation or {}, ensure_ascii=False, default=str),
+        )
     hyp_mode = _gas_lp_hyp_mode()
     if hyp_mode == "diagnostic" and not payload.hyp_experimental_diagnostics:
         if is_transfer:
@@ -3750,17 +3633,32 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         raise
     transfer_recipient_text = ", ".join(transfer_recipients)
     customer_recipients = [] if is_transfer else _customer_invoice_recipients(cliente_row)
+    precio_unitario_cfdi = payload.precio_unitario
+    transfer_symbolic_unit_price = Decimal("0.000000")
+    transfer_symbolic_applied = False
+    if is_transfer:
+        transfer_symbolic_unit_price = _gas_lp_transfer_symbolic_unit_price(settings)
+        precio_decimal = Decimal(str(payload.precio_unitario or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        if precio_decimal <= 0:
+            precio_unitario_cfdi = float(transfer_symbolic_unit_price)
+            transfer_symbolic_applied = True
+            logger.info(
+                "[GasLP traspaso] symbolic_unit_price_applied litros=%s precio_original=%s precio_cfdi=%s",
+                payload.litros,
+                payload.precio_unitario,
+                precio_unitario_cfdi,
+            )
 
     try:
         xml, totals = _build_gas_lp_consumo_xml(
             issuer=issuer,
             receptor=receptor,
             litros=payload.litros,
-            precio_unitario=payload.precio_unitario,
+            precio_unitario=precio_unitario_cfdi,
             concepto=concepto_cfdi,
             forma_pago=forma_pago,
             metodo_pago=metodo_pago,
-            descuento=payload.descuento,
+            descuento=0 if is_transfer else payload.descuento,
             iva_rate=payload.iva_rate,
             serie=serie_factura,
             folio=folio_factura,
@@ -3865,13 +3763,15 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         )
     if is_transfer:
         logger.info(
-            "[GasLP traspaso] sw_request folio=%s origen=%s destino=%s litros=%s precio=%s total=%s allow_zero_total=true endpoint=%s",
+            "[GasLP traspaso] sw_request folio=%s origen=%s destino=%s litros=%s precio_original=%s precio_cfdi=%s total=%s symbolic_applied=%s endpoint=%s",
             folio_factura,
             origen.get("nombre") or payload.facility_id,
             destino.get("nombre") or payload.destino_facility_id,
             payload.litros,
             payload.precio_unitario,
+            precio_unitario_cfdi,
             totals.get("total"),
+            transfer_symbolic_applied,
             sw_config.get("xml_issue_url") or "",
         )
     try:
@@ -3888,7 +3788,10 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                     "origen": origen.get("nombre") or "",
                     "destino": destino.get("nombre") or "",
                     "litros": float(payload.litros or 0),
-                    "precio_unitario": float(payload.precio_unitario or 0),
+                    "precio_unitario": float(precio_unitario_cfdi or 0),
+                    "precio_unitario_original": float(payload.precio_unitario or 0),
+                    "transfer_symbolic_unit_price": float(transfer_symbolic_unit_price or 0),
+                    "transfer_symbolic_unit_price_applied": bool(transfer_symbolic_applied),
                     "subtotal": totals.get("subtotal"),
                     "iva": totals.get("iva"),
                     "total": totals.get("total"),
@@ -3904,6 +3807,45 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             bool(resultado.get("error")),
             json.dumps(resultado.get("pac_response") or {}, ensure_ascii=False, default=str)[:4000],
         )
+        if not resultado.get("uuid") and resultado.get("xml_timbrado"):
+            try:
+                timbrado_root = ET.fromstring(str(resultado.get("xml_timbrado") or "").encode("utf-8"))
+                timbre = _xml_first(timbrado_root, "TimbreFiscalDigital")
+                uuid_from_xml = _xml_attr(timbre, "UUID")
+                if uuid_from_xml:
+                    resultado["uuid"] = uuid_from_xml
+            except Exception as exc:
+                logger.warning("[GasLP traspaso] uuid_parse_from_xml_failed folio=%s err=%s", folio_factura, exc)
+        if not resultado.get("uuid") or not resultado.get("xml_timbrado"):
+            folio_reverted = _gas_lp_revert_invoice_folio_if_current(
+                sb,
+                user,
+                transfer_folio_reservation,
+                reason="sw_success_missing_uuid_or_xml",
+            )
+            raise HTTPException(502, {
+                "message": "SW/PAC no devolvió UUID o XML timbrado para el traspaso. No se guardó como factura timbrada.",
+                "code": "gas_lp_transfer_missing_uuid_or_xml",
+                "is_transfer": True,
+                "folio": {"serie": serie_factura, "folio": folio_factura, "reverted": folio_reverted},
+                "transfer": {
+                    "origen": origen.get("nombre") or "",
+                    "destino": destino.get("nombre") or "",
+                    "litros": float(payload.litros or 0),
+                    "precio_unitario": float(precio_unitario_cfdi or 0),
+                    "precio_unitario_original": float(payload.precio_unitario or 0),
+                    "transfer_symbolic_unit_price": float(transfer_symbolic_unit_price or 0),
+                    "transfer_symbolic_unit_price_applied": bool(transfer_symbolic_applied),
+                    "subtotal": totals.get("subtotal"),
+                    "iva": totals.get("iva"),
+                    "total": totals.get("total"),
+                    "allow_zero_total": True,
+                },
+                "pac_response": resultado.get("pac_response") or {
+                    "message": "Respuesta sin UUID/XML timbrado",
+                    "parsed_response_sw": {k: v for k, v in resultado.items() if k != "xml_timbrado"},
+                },
+            })
     if payload.hyp_experimental_diagnostics:
         diagnostic_response = {
             "ok": not bool(resultado.get("error")),
@@ -3942,7 +3884,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                 reason="pac_rejected",
             )
             logger.warning(
-                "[GasLP traspaso] pac_rejected user=%s folio=%s folio_reverted=%s origen=%s destino=%s litros=%s precio=%s total=%s pac=%s",
+                "[GasLP traspaso] pac_rejected user=%s folio=%s folio_reverted=%s origen=%s destino=%s litros=%s precio_original=%s precio_cfdi=%s total=%s pac=%s",
                 user.get("display_name") or user.get("id") or "",
                 folio_factura,
                 folio_reverted,
@@ -3950,6 +3892,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                 destino.get("nombre") or payload.destino_facility_id,
                 payload.litros,
                 payload.precio_unitario,
+                precio_unitario_cfdi,
                 totals.get("total"),
                 json.dumps(resultado.get("pac_response") or {}, ensure_ascii=False, default=str),
             )
@@ -3962,7 +3905,10 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                     "origen": origen.get("nombre") or "",
                     "destino": destino.get("nombre") or "",
                     "litros": float(payload.litros or 0),
-                    "precio_unitario": float(payload.precio_unitario or 0),
+                    "precio_unitario": float(precio_unitario_cfdi or 0),
+                    "precio_unitario_original": float(payload.precio_unitario or 0),
+                    "transfer_symbolic_unit_price": float(transfer_symbolic_unit_price or 0),
+                    "transfer_symbolic_unit_price_applied": bool(transfer_symbolic_applied),
                     "subtotal": totals.get("subtotal"),
                     "iva": totals.get("iva"),
                     "total": totals.get("total"),
@@ -4001,8 +3947,11 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "receptor_nombre": receptor["nombre"],
             **_invoice_email_metadata(customer_recipients),
             "concepto": payload.concepto,
-            "precio_unitario": payload.precio_unitario,
-            "descuento_por_litro": payload.descuento,
+            "precio_unitario": precio_unitario_cfdi,
+            "precio_unitario_original": payload.precio_unitario,
+            "transfer_symbolic_unit_price": float(transfer_symbolic_unit_price or 0) if is_transfer else None,
+            "transfer_symbolic_unit_price_applied": bool(transfer_symbolic_applied),
+            "descuento_por_litro": 0 if is_transfer else payload.descuento,
             "descuento": totals["descuento"],
             "iva_rate": payload.iva_rate,
             "serie": serie_factura,
@@ -4046,7 +3995,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     except Exception as exc:
         if is_transfer:
             logger.exception(
-                "[GasLP traspaso] insert_failed_after_stamp user=%s serie=%s folio=%s uuid=%s origen=%s destino=%s litros=%s precio=%s total=%s",
+                "[GasLP traspaso] insert_failed_after_stamp user=%s serie=%s folio=%s uuid=%s origen=%s destino=%s litros=%s precio_original=%s precio_cfdi=%s total=%s",
                 user.get("display_name") or user.get("id") or "",
                 serie_factura,
                 folio_factura,
@@ -4055,6 +4004,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                 destino.get("nombre") or payload.destino_facility_id,
                 payload.litros,
                 payload.precio_unitario,
+                precio_unitario_cfdi,
                 totals.get("total"),
             )
             raise HTTPException(500, {
