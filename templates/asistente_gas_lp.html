@@ -488,15 +488,15 @@
     function defaultTransferEmail(){
       return String(CURRENT_COMPANY?.transfer_email_default || '').trim();
     }
-    function transferSymbolicTotal(){
-      const value = Number(CURRENT_COMPANY?.transfer_symbolic_total || 2);
-      return Number.isFinite(value) && value > 0 ? value : 2;
+    function transferSymbolicUnitPrice(){
+      const value = Number(CURRENT_COMPANY?.transfer_symbolic_unit_price || 0.00086);
+      return Number.isFinite(value) && value > 0 ? value : 0.00086;
     }
     function transferUsesSymbolicAmount(precioVal, isTraspaso = tipoOperacion.value === 'traspaso'){
       return isTraspaso && Number(precioVal || 0) <= 0;
     }
     function transferDisplayGross(litrosVal, precioVal, descuentoVal = 0, isTraspaso = tipoOperacion.value === 'traspaso'){
-      if(transferUsesSymbolicAmount(precioVal, isTraspaso) && Number(litrosVal || 0) > 0) return transferSymbolicTotal();
+      if(transferUsesSymbolicAmount(precioVal, isTraspaso) && Number(litrosVal || 0) > 0) return Number(litrosVal || 0) * transferSymbolicUnitPrice();
       return Number(litrosVal || 0) * Math.max(Number(precioVal || 0) - Number(descuentoVal || 0), 0);
     }
     async function saveTransferEmailDefaultNow(){
@@ -925,7 +925,7 @@
       const rate = Number(ivaRate.value || 0);
       const isTraspaso = tipoOperacion.value === 'traspaso';
       const symbolicTransfer = transferUsesSymbolicAmount(precioNum, isTraspaso) && litrosNum > 0;
-      const gross = symbolicTransfer ? transferSymbolicTotal() : litrosNum * precioNum;
+      const gross = symbolicTransfer ? transferDisplayGross(litrosNum, precioNum, 0, true) : litrosNum * precioNum;
       const descuentoLitro = Math.min(Math.max(Number(descuento.value || 0), 0), precioNum);
       const descGross = symbolicTransfer ? 0 : Math.min(descuentoLitro * litrosNum, gross);
       const netGross = Math.max(gross - descGross, 0);
@@ -939,7 +939,7 @@
       sumTotal.textContent = money(netGross);
       if(typeof transferInternalPrice !== 'undefined'){
         transferInternalPrice.textContent = symbolicTransfer
-          ? `Precio interno precargado: ${money(precioNum)} · Importe simbólico CFDI: ${money(transferSymbolicTotal())}`
+          ? `Precio interno precargado: ${money(precioNum)} · Precio simbólico CFDI: ${transferSymbolicUnitPrice().toFixed(6)} por litro`
           : `Precio interno precargado: ${money(precioNum)}`;
       }
       updateTransferReady();
@@ -968,7 +968,7 @@
         ['Fecha emisión', summary.fecha],
         ['Litros', summary.litros],
         ['Precio', money(summary.precio)],
-        ...(Number(summary.importeSimbolico || 0) > 0 ? [['Importe simbólico CFDI', money(summary.importeSimbolico)]] : []),
+        ...(Number(summary.precioSimbolicoLitro || 0) > 0 ? [['Precio simbólico CFDI', `${Number(summary.precioSimbolicoLitro).toFixed(6)} por litro`]] : []),
         ['Total', money(summary.total)],
         ['Uso CFDI', 'S01'],
       ];
@@ -1082,7 +1082,7 @@
           litros: litrosVal,
           precio: precioVal,
           total: totalVal,
-          importeSimbolico: transferUsesSymbolicAmount(precioVal, true) ? transferSymbolicTotal() : 0,
+          precioSimbolicoLitro: transferUsesSymbolicAmount(precioVal, true) ? transferSymbolicUnitPrice() : 0,
         });
         if(!confirmed) return;
         if(saveTransferEmailDefault?.checked){
