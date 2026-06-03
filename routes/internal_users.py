@@ -454,10 +454,38 @@ def _append_unique(values: list[str], value: object) -> None:
         values.append(text)
 
 
-def _gas_lp_conciliacion_profile_allowed(row: dict) -> bool:
+def _gas_lp_conciliacion_profile_allowed(row: dict, operational_profile_ids: set[int] | None = None) -> bool:
+    if _safe_int_id(row.get("id")) in (operational_profile_ids or set()):
+        return True
     desc = str(row.get("descripcion") or "").lower()
     markers = [part.split("]", 1)[0].strip() for part in desc.split("[module:")[1:]]
-    return not markers or "gas_lp" in markers
+    return "gas_lp" in markers
+
+
+def _gas_lp_operational_profile_ids(sb, tenant_ids: list[str]) -> set[int]:
+    profile_ids: set[int] = set()
+
+    def add(value: object) -> None:
+        rid = _safe_int_id(value)
+        if rid:
+            profile_ids.add(rid)
+
+    for table, select_fields, filters in (
+        ("user_facilities", "perfil_id,tenant_id,modulo_propietario", {"modulo_propietario": "gas_lp"}),
+        ("gas_lp_facturas", "perfil_id,tenant_id", {}),
+    ):
+        try:
+            q = sb.table(table).select(select_fields)
+            for key, value in filters.items():
+                q = q.eq(key, value)
+            if tenant_ids:
+                q = q.in_("tenant_id", tenant_ids)
+            rows = q.limit(10000).execute().data or []
+            for row in rows:
+                add(row.get("perfil_id"))
+        except Exception as exc:
+            logger.info("gas_lp_operational_profile_lookup_skipped table=%s err=%s", table, exc)
+    return profile_ids
 
 
 def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) -> list[dict]:
@@ -485,10 +513,11 @@ def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) ->
     assigned_id = _safe_int_id(access.get("perfil_id"))
     fields = "id,user_id,tenant_id,nombre,rfc,descripcion,activo"
     rows_by_id: dict[int, dict] = {}
+    operational_profile_ids = _gas_lp_operational_profile_ids(sb, tenant_ids)
 
     def add(rows: list[dict]) -> None:
         for row in rows or []:
-            if not _gas_lp_conciliacion_profile_allowed(row):
+            if not _gas_lp_conciliacion_profile_allowed(row, operational_profile_ids):
                 continue
             rid = _safe_int_id(row.get("id"))
             if not rid:
@@ -513,6 +542,18 @@ def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) ->
             sb.table("perfiles_empresa")
             .select(fields)
             .in_("tenant_id", tenant_ids)
+            .eq("activo", True)
+            .order("nombre")
+            .execute()
+            .data
+            or []
+        )
+
+    if operational_profile_ids:
+        add(
+            sb.table("perfiles_empresa")
+            .select(fields)
+            .in_("id", sorted(operational_profile_ids))
             .eq("activo", True)
             .order("nombre")
             .execute()
@@ -599,8 +640,9 @@ def _gas_lp_factura_access_context(token: str, *, write: bool = False, perfil_id
 
 
 def _gas_lp_profile(user: dict, *, require_module_marker: bool = False) -> dict:
+    sb = get_supabase_admin()
     rows = (
-        get_supabase_admin()
+        sb
         .table("perfiles_empresa")
         .select("id,user_id,tenant_id,nombre,rfc,descripcion,activo")
         .eq("id", user.get("perfil_id"))
@@ -614,7 +656,8 @@ def _gas_lp_profile(user: dict, *, require_module_marker: bool = False) -> dict:
     if not rows:
         raise HTTPException(403, "La empresa asignada al asistente no está activa o no existe.")
     profile = rows[0]
-    if require_module_marker and not _gas_lp_conciliacion_profile_allowed(profile):
+    operational_profile_ids = _gas_lp_operational_profile_ids(sb, [str(profile.get("tenant_id") or "")]) if require_module_marker else set()
+    if require_module_marker and not _gas_lp_conciliacion_profile_allowed(profile, operational_profile_ids):
         raise HTTPException(403, "La empresa asignada no pertenece al módulo Gas LP.")
     return profile
 
