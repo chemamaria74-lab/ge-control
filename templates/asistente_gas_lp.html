@@ -396,6 +396,23 @@
       if(value && typeof value === 'object') return value.message || value.detail || JSON.stringify(value);
       return value || fallback;
     }
+    function transferDebug(label, data){
+      try{
+        console.log(`[GasLP traspaso] ${label}`, data);
+      }catch(_){}
+    }
+    function transferErrorText(detail, fallback='No se pudo timbrar el traspaso.'){
+      if(!detail || typeof detail !== 'object') return detailText(detail, fallback);
+      const pac = detail.pac_response || {};
+      const parts = [
+        detail.message || fallback,
+        detail.code ? `Código: ${detail.code}` : '',
+        pac.message ? `SW: ${pac.message}` : '',
+        pac.messageDetail ? `Detalle SW: ${pac.messageDetail}` : '',
+        pac.status_code_sw ? `HTTP SW: ${pac.status_code_sw}` : '',
+      ].filter(Boolean);
+      return parts.join(' · ');
+    }
     function todayKey(){
       const d = new Date();
       return localDateTimeValue(d).slice(0,10);
@@ -474,13 +491,16 @@
       if(!email){ setStatus('facturaMsg','Captura el correo de traspaso antes de guardarlo como predeterminado.',false); transferEmail.focus(); return false; }
       if(!validEmailList(email)){ setStatus('facturaMsg','Captura correos de traspaso válidos, separados por coma.',false); transferEmail.focus(); return false; }
       try{
-        const data = await api('/api/internal-auth/gas-lp/transfer-email-default',{method:'POST',body:JSON.stringify({email})});
+        transferDebug('guardar correo predeterminado request', {endpoint:'/api/internal-auth/gas-lp/transfer-email-default', email});
+        const data = await api('/api/internal-auth/gas-lp/transfer-email-default',{method:'POST',body:JSON.stringify({email}),debugTransfer:'guardar correo predeterminado'});
+        transferDebug('guardar correo predeterminado response', data);
         CURRENT_COMPANY.transfer_email_default = data.transfer_email_default || email;
         transferEmail.value = CURRENT_COMPANY.transfer_email_default;
         if(saveTransferEmailDefault) saveTransferEmailDefault.checked = false;
         setStatus('facturaMsg','Correo predeterminado de traspasos guardado para esta empresa.');
         return true;
       }catch(e){
+        transferDebug('guardar correo predeterminado error', {status:e.status, message:e.message, response:e.response, responseText:e.responseText});
         setStatus('facturaMsg',e.message,false);
         return false;
       }
@@ -606,13 +626,21 @@
       updateTotals();
     }
     async function api(path, opts={}) {
+      const debugTransfer = opts.debugTransfer || '';
+      const fetchOpts = {...opts};
+      delete fetchOpts.debugTransfer;
       const sep = path.includes('?') ? '&' : '?';
-      const headers = opts.body ? {'Content-Type':'application/json', ...(opts.headers||{})} : (opts.headers||{});
-      const res = await fetch(path + sep + 'token=' + encodeURIComponent(token), {...opts, headers, cache:'no-store'});
-      const data = await res.json().catch(()=>({}));
+      const headers = fetchOpts.body ? {'Content-Type':'application/json', ...(fetchOpts.headers||{})} : (fetchOpts.headers||{});
+      const res = await fetch(path + sep + 'token=' + encodeURIComponent(token), {...fetchOpts, headers, cache:'no-store'});
+      const rawText = await res.text().catch(()=>'');
+      let data = {};
+      try{ data = rawText ? JSON.parse(rawText) : {}; }catch(_){ data = {message: rawText}; }
+      if(debugTransfer) transferDebug(`${debugTransfer} http response`, {endpoint:path, status:res.status, ok:res.ok, response:data, responseText:rawText});
       if(!res.ok) {
         const err = new Error(detailText(data.detail || data.message));
         err.status = res.status;
+        err.response = data;
+        err.responseText = rawText;
         throw err;
       }
       return data;
@@ -1010,8 +1038,12 @@
         });
         if(!confirmed) return;
         if(saveTransferEmailDefault?.checked){
+          setStatus('facturaMsg','Guardando correo predeterminado de traspasos...');
           const savedDefault = await saveTransferEmailDefaultNow();
-          if(!savedDefault) return;
+          if(!savedDefault){
+            setStatus('facturaMsg','No se pudo guardar el correo predeterminado; no se envió el timbrado. Desmarca la casilla o corrige el correo e intenta de nuevo.',false);
+            return;
+          }
         }
       } else if(!confirm('¿Timbrar factura real?')) return;
       isStamping = true;
@@ -1064,7 +1096,13 @@
           informacion_global_meses: globalMonth,
           informacion_global_anio: globalYear
         };
-        const data = await api('/api/internal-auth/gas-lp/facturas',{method:'POST',body:JSON.stringify(payload)});
+        const endpoint = '/api/internal-auth/gas-lp/facturas';
+        if(isTraspaso) {
+          transferDebug('timbrar request', {endpoint, payload});
+          setStatus('facturaMsg','Enviando traspaso al backend/PAC...');
+        }
+        const data = await api(endpoint,{method:'POST',body:JSON.stringify(payload),debugTransfer:'timbrar'});
+        if(isTraspaso) transferDebug('timbrar response', data);
         let emailMsg = data.email?.ok ? ' · correo enviado' : (data.email?.error ? ` · correo pendiente: ${data.email.error}` : '');
         if(Array.isArray(data.warnings) && data.warnings.length) emailMsg += ` · ${data.warnings.join(' ')}`;
         resetFacturaFormAfterSuccess();
@@ -1074,7 +1112,11 @@
           emailMsg += ' · actualiza la tabla para ver la factura en el listado';
         }
         renderFacturaSuccess(data, emailMsg);
-      }catch(e){ setStatus('facturaMsg',e.message,false); }
+      }catch(e){
+        if(isTraspaso) transferDebug('timbrar error', {status:e.status, message:e.message, response:e.response, responseText:e.responseText});
+        const backendDetail = e.response?.detail || e.response?.message;
+        setStatus('facturaMsg', isTraspaso ? transferErrorText(backendDetail, e.message) : detailText(backendDetail, e.message), false);
+      }
       finally{
         isStamping = false;
         setStampingButton(false);
