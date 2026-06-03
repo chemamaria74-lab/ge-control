@@ -84,7 +84,23 @@ class FakeDB:
                     "descripcion": "[module:gas_lp] Empresa operativa",
                     "activo": True,
                 },
+                {
+                    "id": 600,
+                    "user_id": "other-user",
+                    "tenant_id": "tenant-a",
+                    "nombre": "Gas LP por instalacion",
+                    "rfc": "GLP020202AAA",
+                    "descripcion": "",
+                    "activo": True,
+                },
             ]
+            ,
+            "user_sections": [],
+            "user_facilities": [
+                {"id": 1, "tenant_id": "tenant-a", "perfil_id": 600, "modulo_propietario": "gas_lp"},
+                {"id": 2, "tenant_id": "tenant-a", "perfil_id": 407, "modulo_propietario": "transporte"},
+            ],
+            "gas_lp_facturas": [],
         }
 
     def table(self, name):
@@ -125,7 +141,7 @@ class GasLpProfileSelectorTest(unittest.TestCase):
                  "_resolve_active_module_access",
                  lambda uid, section, access_token="": {"section": "gas_lp", "role": "conciliacion", "perfil_id": None},
              ), \
-             patch.object(internal_users, "get_perfiles_for_user", lambda uid, access_token="", module="": []):
+             patch.object(internal_users, "get_supabase_admin", lambda: type("EmptyDB", (), {"table": lambda self, name: FakeQuery([])})()):
             response = __import__("asyncio").run(
                 internal_users.gas_lp_conciliacion_perfiles("header.payload.signature")
             )
@@ -134,6 +150,19 @@ class GasLpProfileSelectorTest(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertIsNone(payload["perfil_id"])
         self.assertEqual(payload["perfiles"], [])
+
+    def test_conciliacion_profiles_uses_operational_gas_lp_data_without_transport(self):
+        db = FakeDB()
+        with patch.object(internal_users, "get_supabase_admin", lambda: db):
+            rows = internal_users._gas_lp_conciliacion_visible_profiles(
+                "admin",
+                {"section": "gas_lp", "role": "admin", "tenant_id": None, "perfil_id": None},
+                "tok",
+            )
+
+        ids = [row["id"] for row in rows]
+        self.assertIn(600, ids)
+        self.assertNotIn(407, ids)
 
 
 if __name__ == "__main__":
