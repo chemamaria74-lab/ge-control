@@ -580,7 +580,7 @@ def _folio_number(value: object) -> int:
     return int(text) if text.isdigit() else 0
 
 
-def _gas_lp_next_invoice_folio(sb, user: dict, serie: str) -> str:
+def _gas_lp_next_invoice_folio(sb, user: dict, serie: str, *, return_reservation: bool = False):
     params = {
         "p_user_id": user.get("owner_user_id"),
         "p_tenant_id": user.get("tenant_id"),
@@ -593,7 +593,16 @@ def _gas_lp_next_invoice_folio(sb, user: dict, serie: str) -> str:
             value = value[0] if value else 0
         number = int(value or 0)
         if number > 0:
-            return f"{number:06d}"
+            folio = f"{number:06d}"
+            if return_reservation:
+                return folio, {
+                    "reserved": True,
+                    "source": "rpc",
+                    "number": number,
+                    "previous": number - 1,
+                    "serie": serie,
+                }
+            return folio
     except Exception as exc:
         logger.warning("gas_lp_folio_counter_rpc_unavailable: serie=%s err=%s", serie, exc)
 
@@ -618,7 +627,59 @@ def _gas_lp_next_invoice_folio(sb, user: dict, serie: str) -> str:
         if str(md.get("serie") or "").strip().upper() != serie:
             continue
         current = max(current, _folio_number(md.get("folio_usuario")), _folio_number(row.get("record_uuid")))
-    return f"{current + 1:06d}"
+    folio = f"{current + 1:06d}"
+    if return_reservation:
+        return folio, {
+            "reserved": False,
+            "source": "fallback_scan",
+            "number": current + 1,
+            "previous": current,
+            "serie": serie,
+        }
+    return folio
+
+
+def _gas_lp_revert_invoice_folio_if_current(sb, user: dict, reservation: dict | None, *, reason: str = "") -> bool:
+    if not reservation or reservation.get("source") != "rpc":
+        return False
+    number = int(reservation.get("number") or 0)
+    previous = int(reservation.get("previous") or 0)
+    serie = str(reservation.get("serie") or "").strip().upper()
+    if number <= 0 or previous < 0 or not serie:
+        return False
+    try:
+        rows = (
+            sb.table("gas_lp_invoice_folio_counters")
+            .update({"last_folio": previous, "updated_at": _now_iso()})
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_key", str(user.get("tenant_id") or ""))
+            .eq("perfil_key", str(user.get("perfil_id") or ""))
+            .eq("serie", serie)
+            .eq("last_folio", number)
+            .execute()
+            .data
+            or []
+        )
+        reverted = bool(rows)
+        logger.info(
+            "[GasLP traspaso] folio_rollback reason=%s serie=%s reserved=%s previous=%s reverted=%s",
+            reason,
+            serie,
+            number,
+            previous,
+            reverted,
+        )
+        return reverted
+    except Exception as exc:
+        logger.exception(
+            "[GasLP traspaso] folio_rollback_failed reason=%s serie=%s reserved=%s previous=%s err=%s",
+            reason,
+            serie,
+            number,
+            previous,
+            exc,
+        )
+        return False
 
 
 def _clean_rfc(value: str) -> str:
@@ -1541,7 +1602,7 @@ def _gas_lp_existing_transfer_invoice(sb, user: dict, payload: GasLpInternalFact
     try:
         rows = (
             sb.table("gas_lp_facturas")
-            .select("id,uuid_sat,status,fecha_timbrado,volumen_litros,metadata,created_at")
+            .select("id,uuid_sat,status,fecha_timbrado,rfc_receptor,volumen_litros,metadata,created_at")
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
             .order("created_at", desc=True)
@@ -1556,7 +1617,7 @@ def _gas_lp_existing_transfer_invoice(sb, user: dict, payload: GasLpInternalFact
     target_litros = Decimal(str(payload.litros or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        if md.get("operation_type") != "transfer" and md.get("tipo_operacion") != "traspaso":
+        if not (md.get("is_transfer") is True or md.get("operation_type") == "transfer" or md.get("tipo_operacion") == "traspaso"):
             continue
         if str(md.get("fecha_emision") or "").strip()[:10] != day:
             continue
@@ -1565,6 +1626,16 @@ def _gas_lp_existing_transfer_invoice(sb, user: dict, payload: GasLpInternalFact
         if _safe_int_id(md.get("origen_facility_id") or md.get("facility_id")) != _safe_int_id(payload.facility_id):
             continue
         if _safe_int_id(md.get("destino_facility_id")) != _safe_int_id(payload.destino_facility_id):
+            continue
+        target_rfc = _clean_rfc(payload.rfc or "")
+        row_rfc = _clean_rfc(row.get("rfc_receptor") or md.get("receptor_rfc") or md.get("cliente_rfc") or "")
+        if target_rfc and row_rfc and row_rfc != target_rfc:
+            continue
+        try:
+            total_md = Decimal(str(md.get("total") if md.get("total") not in {None, ""} else 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except Exception:
+            total_md = Decimal("0.00")
+        if total_md != Decimal("0.00"):
             continue
         row_litros = Decimal(str(row.get("volumen_litros") or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
         if row_litros == target_litros:
@@ -3396,7 +3467,10 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         receptor["uso_cfdi"],
     )
     serie_factura = _gas_lp_internal_series(user, settings)
-    folio_factura = _gas_lp_next_invoice_folio(sb, user, serie_factura)
+    folio_factura = ""
+    transfer_folio_reservation = None
+    if not is_transfer:
+        folio_factura = _gas_lp_next_invoice_folio(sb, user, serie_factura)
     facilities_by_id = {
         int(f["id"]): f
         for f in get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
@@ -3428,8 +3502,22 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                     "litros": float(existing_transfer.get("volumen_litros") or 0),
                 },
             })
+        folio_factura, transfer_folio_reservation = _gas_lp_next_invoice_folio(
+            sb,
+            user,
+            serie_factura,
+            return_reservation=True,
+        )
+        logger.info(
+            "[GasLP traspaso] folio_reserved serie=%s folio=%s reservation=%s",
+            serie_factura,
+            folio_factura,
+            json.dumps(transfer_folio_reservation or {}, ensure_ascii=False, default=str),
+        )
     hyp_mode = _gas_lp_hyp_mode()
     if hyp_mode == "diagnostic" and not payload.hyp_experimental_diagnostics:
+        if is_transfer:
+            _gas_lp_revert_invoice_folio_if_current(sb, user, transfer_folio_reservation, reason="hyp_diagnostic_blocked")
         raise HTTPException(400, "El modo HyP diagnóstico sólo permite pruebas persisted=false.")
     clave_prod_serv_original = _clean_clave_prod_serv(payload.clave_prod_serv)
     clave_prod_serv = GAS_LP_CLAVE_PROD_SERV
@@ -3437,6 +3525,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     if payload.hyp_experimental_diagnostics and payload.hyp_clave_hyp_override:
         clave_hyp_diagnostic_override = _clean_clave_prod_serv(payload.hyp_clave_hyp_override)
         if clave_hyp_diagnostic_override not in GAS_LP_HYP_DIAGNOSTIC_CLAVES:
+            if is_transfer:
+                _gas_lp_revert_invoice_folio_if_current(sb, user, transfer_folio_reservation, reason="hyp_invalid_key")
             raise HTTPException(400, "La clave HyP experimental sólo permite 15111510 o 15101515.")
         clave_prod_serv = clave_hyp_diagnostic_override
     hyp = {}
@@ -3450,8 +3540,12 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         override_numero = str(payload.hyp_numero_permiso_override or "").strip().upper()
         override_tipo = str(payload.hyp_tipo_permiso_override or "").strip().upper()
         if not override_numero:
+            if is_transfer:
+                _gas_lp_revert_invoice_folio_if_current(sb, user, transfer_folio_reservation, reason="hyp_missing_override")
             raise HTTPException(400, "La prueba experimental HyP requiere hyp_numero_permiso_override.")
         if override_tipo and override_tipo not in HYP_TIPO_PERMISOS_VALIDOS:
+            if is_transfer:
+                _gas_lp_revert_invoice_folio_if_current(sb, user, transfer_folio_reservation, reason="hyp_invalid_tipo_permiso")
             raise HTTPException(400, "El TipoPermiso experimental debe usar PER01-PER11.")
         hyp = {
             **hyp,
@@ -3470,31 +3564,41 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     metodo_pago = "PUE" if is_transfer else payload.metodo_pago
     forma_pago = (payload.forma_pago or "01") if is_transfer else payload.forma_pago
     transfer_email_source = payload.transfer_email if payload.transfer_email_provided else (payload.transfer_email or _transfer_email_from_settings(settings))
-    transfer_recipients = _clean_billing_emails(transfer_email_source) if is_transfer else []
+    try:
+        transfer_recipients = _clean_billing_emails(transfer_email_source) if is_transfer else []
+    except HTTPException:
+        if is_transfer:
+            _gas_lp_revert_invoice_folio_if_current(sb, user, transfer_folio_reservation, reason="invalid_transfer_email")
+        raise
     transfer_recipient_text = ", ".join(transfer_recipients)
     customer_recipients = [] if is_transfer else _customer_invoice_recipients(cliente_row)
 
-    xml, totals = _build_gas_lp_consumo_xml(
-        issuer=issuer,
-        receptor=receptor,
-        litros=payload.litros,
-        precio_unitario=payload.precio_unitario,
-        concepto=concepto_cfdi,
-        forma_pago=forma_pago,
-        metodo_pago=metodo_pago,
-        descuento=payload.descuento,
-        iva_rate=payload.iva_rate,
-        serie=serie_factura,
-        folio=folio_factura,
-        comentarios=payload.comentarios,
-        fecha=payload.fecha,
-        clave_prod_serv=clave_prod_serv,
-        no_identificacion=payload.no_identificacion,
-        unidad=payload.unidad,
-        hyp=hyp,
-        informacion_global=informacion_global,
-        allow_zero_total=is_transfer,
-    )
+    try:
+        xml, totals = _build_gas_lp_consumo_xml(
+            issuer=issuer,
+            receptor=receptor,
+            litros=payload.litros,
+            precio_unitario=payload.precio_unitario,
+            concepto=concepto_cfdi,
+            forma_pago=forma_pago,
+            metodo_pago=metodo_pago,
+            descuento=payload.descuento,
+            iva_rate=payload.iva_rate,
+            serie=serie_factura,
+            folio=folio_factura,
+            comentarios=payload.comentarios,
+            fecha=payload.fecha,
+            clave_prod_serv=clave_prod_serv,
+            no_identificacion=payload.no_identificacion,
+            unidad=payload.unidad,
+            hyp=hyp,
+            informacion_global=informacion_global,
+            allow_zero_total=is_transfer,
+        )
+    except HTTPException:
+        if is_transfer:
+            _gas_lp_revert_invoice_folio_if_current(sb, user, transfer_folio_reservation, reason="xml_build_failed")
+        raise
     hyp_node_xml = _gas_lp_hyp_xml_fragment(hyp)
     sw_config = sw_runtime_config()
     sw_sandbox = _sw_config_looks_like_sandbox(sw_config)
@@ -3575,11 +3679,53 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             sw_config.get("xml_issue_url") or "",
             issuer.get("rfc") or "",
         )
+        if is_transfer:
+            _gas_lp_revert_invoice_folio_if_current(sb, user, transfer_folio_reservation, reason="sw_sandbox_blocked")
         raise HTTPException(
             400,
             "Este emisor está configurado en modo pruebas. Cambia a producción antes de timbrar CFDI real.",
         )
-    resultado = timbrar_cfdi(xml)
+    if is_transfer:
+        logger.info(
+            "[GasLP traspaso] sw_request folio=%s origen=%s destino=%s litros=%s precio=%s total=%s allow_zero_total=true endpoint=%s",
+            folio_factura,
+            origen.get("nombre") or payload.facility_id,
+            destino.get("nombre") or payload.destino_facility_id,
+            payload.litros,
+            payload.precio_unitario,
+            totals.get("total"),
+            sw_config.get("xml_issue_url") or "",
+        )
+    try:
+        resultado = timbrar_cfdi(xml)
+    except Exception as exc:
+        if is_transfer:
+            folio_reverted = _gas_lp_revert_invoice_folio_if_current(sb, user, transfer_folio_reservation, reason="sw_exception_before_stamp")
+            raise HTTPException(502, {
+                "message": f"Error al enviar el traspaso a SW/PAC: {exc}",
+                "code": "gas_lp_transfer_sw_exception",
+                "is_transfer": True,
+                "folio": {"serie": serie_factura, "folio": folio_factura, "reverted": folio_reverted},
+                "transfer": {
+                    "origen": origen.get("nombre") or "",
+                    "destino": destino.get("nombre") or "",
+                    "litros": float(payload.litros or 0),
+                    "precio_unitario": float(payload.precio_unitario or 0),
+                    "subtotal": totals.get("subtotal"),
+                    "iva": totals.get("iva"),
+                    "total": totals.get("total"),
+                    "allow_zero_total": True,
+                },
+            })
+        raise
+    if is_transfer:
+        logger.info(
+            "[GasLP traspaso] sw_response folio=%s uuid=%s error=%s pac_response=%s",
+            folio_factura,
+            resultado.get("uuid") or "",
+            bool(resultado.get("error")),
+            json.dumps(resultado.get("pac_response") or {}, ensure_ascii=False, default=str)[:4000],
+        )
     if payload.hyp_experimental_diagnostics:
         diagnostic_response = {
             "ok": not bool(resultado.get("error")),
@@ -3611,9 +3757,17 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                 "Validar con SW/SAT el TipoPermiso exacto para esa instalación Gas LP y que el permiso esté cargado en L_CNE."
             )
         if is_transfer:
+            folio_reverted = _gas_lp_revert_invoice_folio_if_current(
+                sb,
+                user,
+                transfer_folio_reservation,
+                reason="pac_rejected",
+            )
             logger.warning(
-                "gas_lp_transfer_pac_rejected user=%s origen=%s destino=%s litros=%s precio=%s total=%s pac=%s",
+                "[GasLP traspaso] pac_rejected user=%s folio=%s folio_reverted=%s origen=%s destino=%s litros=%s precio=%s total=%s pac=%s",
                 user.get("display_name") or user.get("id") or "",
+                folio_factura,
+                folio_reverted,
                 origen.get("nombre") or payload.facility_id,
                 destino.get("nombre") or payload.destino_facility_id,
                 payload.litros,
@@ -3625,6 +3779,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                 "message": f"PAC/SW rechazó el traspaso: {pac_error}",
                 "code": "gas_lp_transfer_pac_rejected",
                 "is_transfer": True,
+                "folio": {"serie": serie_factura, "folio": folio_factura, "reverted": folio_reverted},
                 "transfer": {
                     "origen": origen.get("nombre") or "",
                     "destino": destino.get("nombre") or "",
@@ -3664,6 +3819,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "rfc_emisor": issuer.get("rfc") or "",
             "cliente_id": None if is_transfer else payload.cliente_id,
             "cliente_nombre": receptor["nombre"],
+            "receptor_rfc": receptor["rfc"],
+            "receptor_nombre": receptor["nombre"],
             **_invoice_email_metadata(customer_recipients),
             "concepto": payload.concepto,
             "precio_unitario": payload.precio_unitario,
@@ -3683,6 +3840,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "metodo_pago": metodo_pago,
             "forma_pago": forma_pago,
             "tipo_operacion": payload.tipo_operacion,
+            "is_transfer": bool(is_transfer),
             "operation_type": "transfer" if is_transfer else payload.tipo_operacion,
             "facility_id": payload.facility_id,
             "origen_facility_id": payload.facility_id,
@@ -3710,8 +3868,11 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     except Exception as exc:
         if is_transfer:
             logger.exception(
-                "gas_lp_transfer_insert_failed user=%s origen=%s destino=%s litros=%s precio=%s total=%s",
+                "[GasLP traspaso] insert_failed_after_stamp user=%s serie=%s folio=%s uuid=%s origen=%s destino=%s litros=%s precio=%s total=%s",
                 user.get("display_name") or user.get("id") or "",
+                serie_factura,
+                folio_factura,
+                resultado.get("uuid") or "",
                 origen.get("nombre") or payload.facility_id,
                 destino.get("nombre") or payload.destino_facility_id,
                 payload.litros,
@@ -3723,10 +3884,19 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                 "code": "gas_lp_transfer_insert_failed",
                 "is_transfer": True,
                 "uuid_sat": resultado.get("uuid") or "",
+                "folio": {"serie": serie_factura, "folio": folio_factura, "reverted": False},
                 "error": str(exc),
             })
         raise _safe_internal_error("gas_lp_crear_factura", exc)
     factura_row = data[0]
+    if is_transfer:
+        logger.info(
+            "[GasLP traspaso] folio_confirmed serie=%s folio=%s factura_id=%s uuid=%s",
+            serie_factura,
+            folio_factura,
+            factura_row.get("id"),
+            factura_row.get("uuid_sat") or resultado.get("uuid") or "",
+        )
     email_result = None
     email_results = []
     recipients = transfer_recipients if is_transfer else customer_recipients
