@@ -138,6 +138,7 @@ class FacilityPayload(BaseModel):
     colonia:             str   = ""
     municipio:           str   = ""
     estado:              str   = ""
+    pais:                str   = "México"
     modulo_propietario:  str   = "gas_lp"
     # Campos de Config. Avanzada persistidos en la instalación
     latitud:             Optional[float] = None

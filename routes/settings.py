@@ -31,6 +31,11 @@ DEFAULT_SETTINGS = {
     "DescripcionInstalacion":"",
     "CodigoPostal":          "",
     "RegimenFiscal":         "601",
+    "DomicilioFiscalCalle":  "",
+    "DomicilioFiscalReferencia": "",
+    "FiscalMunicipio":       "",
+    "FiscalEstado":          "",
+    "FiscalPais":            "México",
     "NumeroTanques":         1,
     "NumeroDispensarios":    0,
     "Caracter":              "permisionario",
@@ -218,6 +223,11 @@ class SettingsPayload(BaseModel):
     DescripcionInstalacion:Optional[str]   = ""
     CodigoPostal:          Optional[str]   = ""
     RegimenFiscal:         Optional[str]   = "601"
+    DomicilioFiscalCalle:  Optional[str]   = ""
+    DomicilioFiscalReferencia: Optional[str] = ""
+    FiscalMunicipio:       Optional[str]   = ""
+    FiscalEstado:          Optional[str]   = ""
+    FiscalPais:            Optional[str]   = "México"
     NumeroTanques:         Optional[int]   = 1
     NumeroDispensarios:    Optional[int]   = 0
     Caracter:              Optional[str]   = "permisionario"
