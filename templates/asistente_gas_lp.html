@@ -488,6 +488,17 @@
     function defaultTransferEmail(){
       return String(CURRENT_COMPANY?.transfer_email_default || '').trim();
     }
+    function transferSymbolicTotal(){
+      const value = Number(CURRENT_COMPANY?.transfer_symbolic_total || 2);
+      return Number.isFinite(value) && value > 0 ? value : 2;
+    }
+    function transferUsesSymbolicAmount(precioVal, isTraspaso = tipoOperacion.value === 'traspaso'){
+      return isTraspaso && Number(precioVal || 0) <= 0;
+    }
+    function transferDisplayGross(litrosVal, precioVal, descuentoVal = 0, isTraspaso = tipoOperacion.value === 'traspaso'){
+      if(transferUsesSymbolicAmount(precioVal, isTraspaso) && Number(litrosVal || 0) > 0) return transferSymbolicTotal();
+      return Number(litrosVal || 0) * Math.max(Number(precioVal || 0) - Number(descuentoVal || 0), 0);
+    }
     async function saveTransferEmailDefaultNow(){
       const email = transferEmail.value.trim();
       if(!email){ setStatus('facturaMsg','Captura el correo de traspaso antes de guardarlo como predeterminado.',false); transferEmail.focus(); return false; }
@@ -912,9 +923,11 @@
       const litrosNum = Number(litros.value || 0);
       const precioNum = Number(precioUnitario.value || 0);
       const rate = Number(ivaRate.value || 0);
-      const gross = litrosNum * precioNum;
+      const isTraspaso = tipoOperacion.value === 'traspaso';
+      const symbolicTransfer = transferUsesSymbolicAmount(precioNum, isTraspaso) && litrosNum > 0;
+      const gross = symbolicTransfer ? transferSymbolicTotal() : litrosNum * precioNum;
       const descuentoLitro = Math.min(Math.max(Number(descuento.value || 0), 0), precioNum);
-      const descGross = Math.min(descuentoLitro * litrosNum, gross);
+      const descGross = symbolicTransfer ? 0 : Math.min(descuentoLitro * litrosNum, gross);
       const netGross = Math.max(gross - descGross, 0);
       const sub = rate > 0 ? netGross / (1 + rate) : netGross;
       const desc = rate > 0 ? descGross / (1 + rate) : descGross;
@@ -924,7 +937,11 @@
       sumIva.previousElementSibling.textContent = `IVA ${Math.round(rate * 100)}%`;
       sumIva.textContent = money(iva);
       sumTotal.textContent = money(netGross);
-      if(typeof transferInternalPrice !== 'undefined') transferInternalPrice.textContent = `Precio interno precargado: ${money(precioNum)}`;
+      if(typeof transferInternalPrice !== 'undefined'){
+        transferInternalPrice.textContent = symbolicTransfer
+          ? `Precio interno precargado: ${money(precioNum)} · Importe simbólico CFDI: ${money(transferSymbolicTotal())}`
+          : `Precio interno precargado: ${money(precioNum)}`;
+      }
       updateTransferReady();
     }
     function setStampingButton(loading=false){
@@ -942,7 +959,7 @@
       transferConfirmModal.classList.add('hide');
     }
     function confirmTransferStamp(summary){
-      transferConfirmBody.innerHTML = [
+      const rows = [
         ['Empresa', summary.empresa],
         ['RFC', summary.rfc],
         ['Origen', summary.origen],
@@ -951,9 +968,11 @@
         ['Fecha emisión', summary.fecha],
         ['Litros', summary.litros],
         ['Precio', money(summary.precio)],
+        ...(Number(summary.importeSimbolico || 0) > 0 ? [['Importe simbólico CFDI', money(summary.importeSimbolico)]] : []),
         ['Total', money(summary.total)],
         ['Uso CFDI', 'S01'],
-      ].map(([k,v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+      ];
+      transferConfirmBody.innerHTML = rows.map(([k,v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
       transferConfirmModal.classList.remove('hide');
       return new Promise(resolve => { transferConfirmResolver = resolve; });
     }
@@ -1029,8 +1048,8 @@
       const precioVal = Number(precioUnitario.value || 0);
       if(!facilitySelect.value){ setStatus('facturaMsg','Selecciona la instalación origen. Es obligatoria para control operativo GE Control.',false); facilitySelect.focus(); return; }
       const descuentoVal = Number(descuento.value || 0);
-      const totalVal = litrosVal * Math.max(precioVal - descuentoVal, 0);
       const isTraspaso = tipoOperacion.value === 'traspaso';
+      const totalVal = transferDisplayGross(litrosVal, precioVal, isTraspaso ? 0 : descuentoVal, isTraspaso);
       if(litrosVal <= 0){ setStatus('facturaMsg','Captura litros mayores a cero.',false); return; }
       if(precioVal < 0){ setStatus('facturaMsg','El precio no puede ser negativo.',false); return; }
       if(isTraspaso && !transferPriceReady()){ setStatus('facturaMsg','Falta precio interno configurado para timbrar el traspaso.',false); return; }
@@ -1063,6 +1082,7 @@
           litros: litrosVal,
           precio: precioVal,
           total: totalVal,
+          importeSimbolico: transferUsesSymbolicAmount(precioVal, true) ? transferSymbolicTotal() : 0,
         });
         if(!confirmed) return;
         if(saveTransferEmailDefault?.checked){
