@@ -338,3 +338,23 @@ def test_transfer_email_default_contract_keeps_transfer_email_explicit():
     assert "payload.transfer_email_provided" in create_source
     assert "transfer-email-default" in html
     assert "Guardar como correo predeterminado para traspasos" in html
+
+
+def test_assistant_today_invoices_use_backend_date_key_and_current_month():
+    html = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+
+    assert "month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)" in html
+    assert "await loadFacturas(month || todayKey().slice(0,7))" in html
+    assert "f.fecha_factura_key || facturaDateValue(f)" in html
+    assert "todayFacturasRows" in html
+
+
+def test_conciliacion_publico_general_list_uses_backend_date_key():
+    html = (ROOT / "templates" / "conciliacion_gas_lp.html").read_text(encoding="utf-8")
+    summary_source = inspect.getsource(internal_users.gas_lp_conciliacion_summary)
+
+    assert 'row["fecha_factura_key"] = _gas_lp_factura_date_key(row)' in summary_source
+    assert "function facturaDateKey(f)" in html
+    assert "facturaDateKey(f)!==day" in html
+    assert "publicNameKey" in html
+    assert "isPublicoGeneral(f)&&facturaDateKey(f)===key" in html
