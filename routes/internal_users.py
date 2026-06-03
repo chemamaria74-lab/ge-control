@@ -456,26 +456,25 @@ def _append_unique(values: list[str], value: object) -> None:
 
 def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) -> list[dict]:
     sb = get_supabase_admin()
-    role = (access.get("role") or "").lower()
     tenant_ids: list[str] = []
     _append_unique(tenant_ids, access.get("tenant_id"))
     try:
         rows = (
             sb.table("user_sections")
-            .select("tenant_id")
+            .select("tenant_id,status")
             .eq("user_id", uid)
             .eq("section", "gas_lp")
-            .eq("status", "active")
             .execute()
             .data
             or []
         )
         for row in rows:
+            status = str(row.get("status") or "active").strip().lower()
+            if status and status != "active":
+                continue
             _append_unique(tenant_ids, row.get("tenant_id"))
     except Exception as exc:
         logger.info("conciliacion_user_section_tenant_lookup_skipped user=%s err=%s", uid, exc)
-    if not tenant_ids:
-        _append_unique(tenant_ids, _tenant_id_for_user(uid, access_token=token))
     tenant_id = tenant_ids[0] if tenant_ids else ""
     assigned_id = _safe_int_id(access.get("perfil_id"))
     fields = "id,user_id,tenant_id,nombre,rfc,descripcion,activo"
@@ -1449,7 +1448,13 @@ def _gas_lp_factura_emisor_rfc(factura: dict) -> str:
     if rfc_xml:
         return rfc_xml
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
-    rfc = _clean_rfc(md.get("rfc_emisor") or md.get("empresa_rfc") or factura.get("rfc_emisor") or "")
+    rfc = _clean_rfc(
+        md.get("rfc_emisor")
+        or md.get("empresa_rfc")
+        or md.get("empresa_asignada_rfc")
+        or factura.get("rfc_emisor")
+        or ""
+    )
     return rfc
 
 
