@@ -3555,6 +3555,33 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                 "El PAC no acepta el permiso LP/... con el tipo de permiso seleccionado. "
                 "Validar con SW/SAT el TipoPermiso exacto para esa instalación Gas LP y que el permiso esté cargado en L_CNE."
             )
+        if is_transfer:
+            logger.warning(
+                "gas_lp_transfer_pac_rejected user=%s origen=%s destino=%s litros=%s precio=%s total=%s pac=%s",
+                user.get("display_name") or user.get("id") or "",
+                origen.get("nombre") or payload.facility_id,
+                destino.get("nombre") or payload.destino_facility_id,
+                payload.litros,
+                payload.precio_unitario,
+                totals.get("total"),
+                json.dumps(resultado.get("pac_response") or {}, ensure_ascii=False, default=str),
+            )
+            raise HTTPException(400, {
+                "message": f"PAC/SW rechazó el traspaso: {pac_error}",
+                "code": "gas_lp_transfer_pac_rejected",
+                "is_transfer": True,
+                "transfer": {
+                    "origen": origen.get("nombre") or "",
+                    "destino": destino.get("nombre") or "",
+                    "litros": float(payload.litros or 0),
+                    "precio_unitario": float(payload.precio_unitario or 0),
+                    "subtotal": totals.get("subtotal"),
+                    "iva": totals.get("iva"),
+                    "total": totals.get("total"),
+                    "allow_zero_total": True,
+                },
+                "pac_response": resultado.get("pac_response") or {},
+            })
         raise HTTPException(400, f"PAC rechazó la factura: {pac_error}")
     now = _now_iso()
     row = {
@@ -3626,6 +3653,23 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     try:
         data = sb.table("gas_lp_facturas").insert(row).execute().data or [row]
     except Exception as exc:
+        if is_transfer:
+            logger.exception(
+                "gas_lp_transfer_insert_failed user=%s origen=%s destino=%s litros=%s precio=%s total=%s",
+                user.get("display_name") or user.get("id") or "",
+                origen.get("nombre") or payload.facility_id,
+                destino.get("nombre") or payload.destino_facility_id,
+                payload.litros,
+                payload.precio_unitario,
+                totals.get("total"),
+            )
+            raise HTTPException(500, {
+                "message": "El traspaso fue timbrado por PAC/SW, pero no se pudo guardar en la lista de facturas. Contacta soporte antes de reintentar para evitar duplicados.",
+                "code": "gas_lp_transfer_insert_failed",
+                "is_transfer": True,
+                "uuid_sat": resultado.get("uuid") or "",
+                "error": str(exc),
+            })
         raise _safe_internal_error("gas_lp_crear_factura", exc)
     factura_row = data[0]
     email_result = None
