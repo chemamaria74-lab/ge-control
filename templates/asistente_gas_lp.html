@@ -143,7 +143,8 @@
           <input id="concepto" type="hidden" value="Gas licuado de petróleo">
           <div id="litrosField"><label>Litros</label><input id="litros" type="number" min="0" step="0.00001" value="0" oninput="updateTotals()"></div>
           <div id="precioField"><label for="precioUnitario">Precio por litro con IVA</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
-          <div id="descuentoField"><label>Descuento por litro con IVA</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
+          <div id="descuentoTipoField"><label>Tipo de descuento</label><select id="descuentoTipo" onchange="updateDiscountMode()"><option value="sin_descuento">Sin descuento</option><option value="por_litro" selected>Descuento por litro</option><option value="total_pesos">Descuento total en pesos</option></select></div>
+          <div id="descuentoField"><label id="descuentoLabel">Descuento por litro con IVA</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
           <div id="ivaField"><label>IVA</label><select id="ivaRate" class="locked-field" disabled><option value="0.16">16%</option></select></div>
           <div id="metodoPagoField"><label>Método de pago</label><select id="metodoPago" onchange="syncPaymentMethod()"><option value="PUE">PUE - Pago en una sola exhibición</option><option value="PPD">PPD - Pago en parcialidades</option></select></div>
           <div id="formaPagoField"><label>Forma de pago</label><select id="formaPago"><option value="01">01 - Efectivo</option><option value="02">02 - Cheque nominativo</option><option value="03">03 - Transferencia</option><option value="04">04 - Tarjeta de crédito</option><option value="28">28 - Tarjeta de débito</option><option value="99">99 - Por definir</option></select></div>
@@ -559,6 +560,8 @@
       return [base, ...extras].filter(Boolean).slice(0,3);
     }
     function setPublicoGeneralDefaults(){
+      if(descuentoTipo) descuentoTipo.value = 'total_pesos';
+      updateDiscountMode();
       updateClientePreview(null);
     }
     function setClientesTabDefaults(){
@@ -854,7 +857,7 @@
     function updateOperacionUI(){
       const traspaso = tipoOperacion.value === 'traspaso';
       const cartaPorte = tipoOperacion.value === 'carta_porte';
-      const transferHidden = [clienteField,facturaGlobalField,clientePreview,conceptoField,precioField,descuentoField,ivaField,metodoPagoField,formaPagoField];
+      const transferHidden = [clienteField,facturaGlobalField,clientePreview,conceptoField,precioField,descuentoTipoField,descuentoField,ivaField,metodoPagoField,formaPagoField];
       transferHidden.forEach(el => el.classList.toggle('hide', traspaso || cartaPorte));
       destinoField.classList.toggle('hide', !traspaso);
       cartaPorteField.classList.add('hide');
@@ -897,6 +900,8 @@
       const c = CLIENTES.find(x => String(x.id) === String(clienteSelect.value));
       if(c) {
         btnPublicoGeneral.classList.remove('active');
+        if(descuentoTipo) descuentoTipo.value = 'por_litro';
+        updateDiscountMode();
         updateClientePreview(c);
         setStatus('facturaMsg',`Cliente seleccionado: ${c.nombre}`);
       } else {
@@ -904,6 +909,27 @@
         setPublicoGeneralDefaults();
         setStatus('facturaMsg','Público en general seleccionado. Se usará el CP del emisor.');
       }
+    }
+    function updateDiscountMode(){
+      const mode = descuentoTipo?.value || 'por_litro';
+      if(descuentoLabel) descuentoLabel.textContent = mode === 'total_pesos' ? 'Descuento total con IVA' : 'Descuento por litro con IVA';
+      if(descuentoField) descuentoField.classList.toggle('hide', mode === 'sin_descuento');
+      if(mode === 'sin_descuento' && descuento) descuento.value = '0';
+      updateTotals();
+    }
+    function discountGrossValue(litrosNum, precioNum, isTraspaso=false){
+      if(isTraspaso) return 0;
+      const mode = descuentoTipo?.value || 'por_litro';
+      const raw = Math.max(Number(descuento?.value || 0), 0);
+      if(mode === 'sin_descuento') return 0;
+      if(mode === 'total_pesos') return raw;
+      return Math.max(Number(litrosNum || 0), 0) * raw;
+    }
+    function discountPerLiterForPayload(litrosNum, precioNum, isTraspaso=false){
+      if(isTraspaso || Number(litrosNum || 0) <= 0) return 0;
+      const gross = Math.max(Number(litrosNum || 0) * Number(precioNum || 0), 0);
+      const discountGross = Math.min(discountGrossValue(litrosNum, precioNum, false), gross);
+      return discountGross / Number(litrosNum || 1);
     }
     async function saveClienteFromTab(){
       try{
@@ -936,8 +962,7 @@
       const isTraspaso = tipoOperacion.value === 'traspaso';
       const symbolicTransfer = transferUsesSymbolicAmount(precioNum, isTraspaso) && litrosNum > 0;
       const gross = symbolicTransfer ? transferDisplayGross(litrosNum, precioNum, 0, true) : litrosNum * precioNum;
-      const descuentoLitro = Math.min(Math.max(Number(descuento.value || 0), 0), precioNum);
-      const descGross = symbolicTransfer ? 0 : Math.min(descuentoLitro * litrosNum, gross);
+      const descGross = symbolicTransfer ? 0 : Math.min(discountGrossValue(litrosNum, precioNum, isTraspaso), gross);
       const netGross = Math.max(gross - descGross, 0);
       const sub = rate > 0 ? netGross / (1 + rate) : netGross;
       const desc = rate > 0 ? descGross / (1 + rate) : descGross;
@@ -1057,14 +1082,17 @@
       const litrosVal = Number(litros.value || 0);
       const precioVal = Number(precioUnitario.value || 0);
       if(!facilitySelect.value){ setStatus('facturaMsg','Selecciona la instalación origen. Es obligatoria para control operativo GE Control.',false); facilitySelect.focus(); return; }
-      const descuentoVal = Number(descuento.value || 0);
       const isTraspaso = tipoOperacion.value === 'traspaso';
-      const totalVal = transferDisplayGross(litrosVal, precioVal, isTraspaso ? 0 : descuentoVal, isTraspaso);
+      const descuentoGrossVal = discountGrossValue(litrosVal, precioVal, isTraspaso);
+      const descuentoPayloadVal = discountPerLiterForPayload(litrosVal, precioVal, isTraspaso);
+      const totalBrutoVal = litrosVal * precioVal;
+      const totalVal = isTraspaso ? transferDisplayGross(litrosVal, precioVal, 0, true) : Math.max(totalBrutoVal - descuentoGrossVal, 0);
       if(litrosVal <= 0){ setStatus('facturaMsg','Captura litros mayores a cero.',false); return; }
       if(precioVal < 0){ setStatus('facturaMsg','El precio no puede ser negativo.',false); return; }
       if(isTraspaso && !transferPriceReady()){ setStatus('facturaMsg','Falta precio interno configurado para timbrar el traspaso.',false); return; }
       if(!isTraspaso && precioVal <= 0){ setStatus('facturaMsg','Captura litros y configura un precio vigente mayor a cero.',false); return; }
-      if(!isTraspaso && (descuentoVal < 0 || descuentoVal >= precioVal)){ setStatus('facturaMsg','El descuento por litro debe ser menor al precio unitario para que la factura tenga total mayor a cero.',false); return; }
+      if(!isTraspaso && Number(descuento.value || 0) < 0){ setStatus('facturaMsg','El descuento no puede ser negativo.',false); return; }
+      if(!isTraspaso && descuentoGrossVal > totalBrutoVal){ setStatus('facturaMsg','El descuento total no puede ser mayor al total bruto.',false); return; }
       if(!isTraspaso && totalVal <= 0){ setStatus('facturaMsg','El total de la factura debe ser mayor a cero. Revisa precio y descuento.',false); return; }
       if(tipoOperacion.value === 'carta_porte'){
         setStatus('facturaMsg','Carta Porte en configuración. Para traslados internos usa Traspaso a estación y registra origen/destino.',false);
@@ -1130,7 +1158,7 @@
           litros: litrosVal,
           precio_unitario: precioVal,
           concepto: concepto.value || 'Gas licuado de petróleo',
-          descuento: isTraspaso ? 0 : Number(descuento.value || 0),
+          descuento: isTraspaso ? 0 : descuentoPayloadVal,
           iva_rate: Number(ivaRate.value || 0),
           serie: serie.value || 'AA',
           folio: folio.value || '',
@@ -1214,7 +1242,7 @@
         console.warn('[GasLP asistente facturas] error', {mes:selectedMonth, message:e.message, status:e.status});
         if(todayFacturasRows) todayFacturasRows.innerHTML = '<tr><td colspan="5">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
         if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
-        throw e;
+        setStatus('facturaMsg', e.message || 'No fue posible cargar facturas.', false);
       }
     }
     function facturaAmount(f){
@@ -1308,7 +1336,7 @@
         const md = f.metadata || {};
         const actor = f.created_by_internal || {};
         const id = actor.id || md.internal_user_id || md.created_by_internal || '';
-        const name = actor.name || actor.display_name || md.created_by_internal_name || md.created_by || 'Asistente';
+        const name = f.realizado_por || actor.name || actor.display_name || md.created_by_internal_name || md.created_by || (md.created_by_area === 'conciliacion' || md.portal === 'conciliacion_gas_lp' ? 'Conciliación' : 'Asistente');
         return {id:String(id || ''), name:String(name || 'Asistente')};
     }
     function assistantChip(f){
