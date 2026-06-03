@@ -38,6 +38,17 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
     assert "/api/internal-auth/gas-lp/conciliacion/facturar-publico-general" in html
     assert "/api/internal-auth/gas-lp/conciliacion/export-excel" in html
     assert "/api/internal-auth/gas-lp/conciliacion/facilities" in html
+    for token in (
+        "pubDescuento",
+        "pubIvaRate",
+        "pubSumSubtotal",
+        "pubSumDescuento",
+        "pubSumIva",
+        "pubSumTotal",
+        "updatePublicoSummary()",
+        "Realizado por",
+    ):
+        assert token in html
 
 
 def test_conciliacion_publico_general_payload_keeps_operational_defaults():
@@ -131,6 +142,8 @@ def test_conciliacion_backend_records_origin_and_uses_conciliation_export_column
     assert '"created_by_area": "conciliacion"' in public_source
     assert '"created_by_area": "conciliacion"' in complemento_source
     assert '"portal": "conciliacion_gas_lp"' in public_source
+    assert 'or "Conciliación"' in public_source
+    assert '"descuento": totals["descuento"]' in public_source
 
     for column in (
         "Fecha",
@@ -206,6 +219,7 @@ def test_conciliacion_export_excel_handles_decimal_null_metadata_and_transfer(mo
         "Monto con IVA",
         "Litros",
         "PUE o PPD",
+        "Realizado por",
         "Estado",
     ]
     assert ws.max_row == 4
@@ -214,10 +228,10 @@ def test_conciliacion_export_excel_handles_decimal_null_metadata_and_transfer(mo
     assert ws["E2"].value == 116.5
     assert ws["F2"].value == 50.125
     assert ws["G2"].value == "PPD"
-    assert ws["H2"].value == "Vigente - PPD / Crédito"
+    assert ws["I2"].value == "Vigente - PPD / Crédito"
     assert ws["D3"].value == "XAXX010101000"
     assert ws["G4"].value == "PUE"
-    assert ws["H4"].value == "Vigente"
+    assert ws["I4"].value == "Vigente"
 
 
 def test_gas_lp_excel_exports_use_neutral_invoice_statuses(monkeypatch):
