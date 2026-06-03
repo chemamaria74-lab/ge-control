@@ -1,12 +1,14 @@
 import os
 import sys
 import unittest
+import json
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import routes.perfiles as perfiles
 import routes.auth as auth
+import routes.internal_users as internal_users
 
 
 class FakeResult:
@@ -115,6 +117,23 @@ class GasLpProfileSelectorTest(unittest.TestCase):
 
         self.assertEqual(acceso["perfil_id"], 500)
         self.assertTrue(allowed)
+
+    def test_conciliacion_profiles_allows_empty_setup_state(self):
+        with patch.object(internal_users, "verify_token", lambda token: "admin"), \
+             patch.object(
+                 internal_users,
+                 "_resolve_active_module_access",
+                 lambda uid, section, access_token="": {"section": "gas_lp", "role": "conciliacion", "perfil_id": None},
+             ), \
+             patch.object(internal_users, "get_perfiles_for_user", lambda uid, access_token="", module="": []):
+            response = __import__("asyncio").run(
+                internal_users.gas_lp_conciliacion_perfiles("header.payload.signature")
+            )
+
+        payload = json.loads(response.body.decode("utf-8"))
+        self.assertTrue(payload["ok"])
+        self.assertIsNone(payload["perfil_id"])
+        self.assertEqual(payload["perfiles"], [])
 
 
 if __name__ == "__main__":
