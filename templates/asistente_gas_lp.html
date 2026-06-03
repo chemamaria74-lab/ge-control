@@ -432,6 +432,11 @@
       const md = f.metadata || {};
       return md.fecha_emision || md.fecha_cfdi || cfdiFechaFromXml(f.xml_content) || f.fecha_timbrado || f.created_at || '';
     }
+    function dateDMY(value){
+      const s = String(value || '').slice(0,10);
+      const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+    }
     function facturaDateKey(f){ return String(facturaDateValue(f) || '').slice(0,10); }
     function facturaTimeLabel(f){ return String(facturaDateValue(f) || '').slice(11,16) || String(f.created_at || '').slice(11,16) || '—'; }
     function switchPortalTab(tab){
@@ -1367,8 +1372,9 @@
         const compDoc = compId ? `<a class="btn ghost doc-square" title="XML complemento de pago" aria-label="XML complemento de pago" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(compId)}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-receipt"></i> Pago</a>` : '';
         const emailDoc = f.id && f.xml_content ? `<button class="btn ghost doc-email" type="button" title="Enviar correo" aria-label="Enviar correo" onclick="openEmailModal('${esc(String(f.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
         const docs = f.id && f.xml_content ? `<div class="doc-actions"><a class="btn ghost doc-square" title="Descargar PDF" aria-label="Descargar PDF" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost doc-square" title="Descargar XML" aria-label="Descargar XML" href="/api/internal-auth/gas-lp/facturas/${id}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>${emailDoc}${compDoc}</div>` : '<span class="muted">Pendiente</span>';
+        const fechaValue = facturaDateValue(f) || '';
         return {
-          fecha: esc(String(facturaDateValue(f) || '').slice(0,16).replace('T',' ')),
+          fecha: esc(dateDMY(fechaValue)),
           hora: esc(facturaTimeLabel(f)),
           isTraspaso,
           op,
