@@ -46,6 +46,7 @@ GAS_LP_HYP_DIAGNOSTIC_CLAVES = {GAS_LP_CLAVE_PROD_SERV, GAS_LP_SW_HYP_EXPERIMENT
 HYP_TIPO_PERMISOS_VALIDOS = {f"PER{i:02d}" for i in range(1, 12)}
 GAS_LP_HYP_MODES = {"required", "disabled", "diagnostic"}
 GAS_LP_HYP_DEBUG_LOG = os.environ.get("GAS_LP_HYP_DEBUG_LOG", "logs/gas_lp_hyp_pre_timbrado.log")
+GRUPO_EMURCIA_CONCILIACION_ADMIN_EMAIL = "admon@grupoemurcia.com.mx"
 
 
 class InternalUserCreate(BaseModel):
@@ -448,9 +449,85 @@ def _gas_lp_internal_context(token: str, *, write: bool = False) -> dict:
     return ctx
 
 
+def _auth_email_from_token(token: str) -> str:
+    try:
+        result = get_supabase_admin().auth.get_user(token)
+        user = getattr(result, "user", None)
+        return str(getattr(user, "email", "") or "").strip().lower()
+    except Exception as exc:
+        logger.info("conciliacion_auth_email_lookup_skipped: %s", exc)
+        return ""
+
+
+def _is_grupo_emurcia_conciliacion_admin(email: str, role: str) -> bool:
+    return role == "admin" and str(email or "").strip().lower() == GRUPO_EMURCIA_CONCILIACION_ADMIN_EMAIL
+
+
+def _append_unique(values: list[str], value: object) -> None:
+    text = str(value or "").strip()
+    if text and text not in values:
+        values.append(text)
+
+
+def _grupo_emurcia_tenant_ids(sb) -> list[str]:
+    tenant_ids: list[str] = []
+    try:
+        rows = (
+            sb.table("tenants")
+            .select("id,name")
+            .ilike("name", "%grupo%emurcia%")
+            .execute()
+            .data
+            or []
+        )
+        for row in rows:
+            _append_unique(tenant_ids, row.get("id"))
+    except Exception as exc:
+        logger.info("grupo_emurcia_tenant_lookup_skipped: %s", exc)
+    try:
+        rows = (
+            sb.table("perfiles_empresa")
+            .select("tenant_id,nombre,rfc")
+            .eq("activo", True)
+            .ilike("nombre", "%emurcia%")
+            .execute()
+            .data
+            or []
+        )
+        for row in rows:
+            _append_unique(tenant_ids, row.get("tenant_id"))
+    except Exception as exc:
+        logger.info("grupo_emurcia_profile_tenant_lookup_skipped: %s", exc)
+    return tenant_ids
+
+
 def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) -> list[dict]:
     sb = get_supabase_admin()
-    tenant_id = access.get("tenant_id") or _tenant_id_for_user(uid, access_token=token)
+    role = (access.get("role") or "").lower()
+    email = _auth_email_from_token(token)
+    tenant_ids: list[str] = []
+    _append_unique(tenant_ids, access.get("tenant_id"))
+    try:
+        rows = (
+            sb.table("user_sections")
+            .select("tenant_id")
+            .eq("user_id", uid)
+            .eq("section", "gas_lp")
+            .eq("status", "active")
+            .execute()
+            .data
+            or []
+        )
+        for row in rows:
+            _append_unique(tenant_ids, row.get("tenant_id"))
+    except Exception as exc:
+        logger.info("conciliacion_user_section_tenant_lookup_skipped user=%s err=%s", uid, exc)
+    if _is_grupo_emurcia_conciliacion_admin(email, role):
+        for tenant_id in _grupo_emurcia_tenant_ids(sb):
+            _append_unique(tenant_ids, tenant_id)
+    if not tenant_ids:
+        _append_unique(tenant_ids, _tenant_id_for_user(uid, access_token=token))
+    tenant_id = tenant_ids[0] if tenant_ids else ""
     assigned_id = _safe_int_id(access.get("perfil_id"))
     fields = "id,user_id,tenant_id,nombre,rfc,descripcion,activo"
     rows_by_id: dict[int, dict] = {}
@@ -475,11 +552,11 @@ def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) ->
             q = q.eq("tenant_id", tenant_id)
         add(q.limit(1).execute().data or [])
 
-    if tenant_id:
+    if tenant_ids:
         add(
             sb.table("perfiles_empresa")
             .select(fields)
-            .eq("tenant_id", tenant_id)
+            .in_("tenant_id", tenant_ids)
             .eq("activo", True)
             .order("nombre")
             .execute()
@@ -506,12 +583,14 @@ def _gas_lp_conciliacion_profile_for_auth(uid: str, access: dict, token: str, pe
     requested_id = _safe_int_id(perfil_id)
     assigned_id = _safe_int_id(access.get("perfil_id"))
     role = (access.get("role") or "").lower()
-    if requested_id and assigned_id and role != "admin" and requested_id != assigned_id:
+    email = _auth_email_from_token(token)
+    grupo_admin = _is_grupo_emurcia_conciliacion_admin(email, role)
+    if requested_id and assigned_id and role != "admin" and not grupo_admin and requested_id != assigned_id:
         raise HTTPException(403, "No tienes acceso a esa empresa Gas LP.")
     profiles = _gas_lp_conciliacion_visible_profiles(uid, access, token)
     if requested_id:
         return next((p for p in profiles if _safe_int_id(p.get("id")) == requested_id), None)
-    if assigned_id:
+    if assigned_id and not grupo_admin:
         return next((p for p in profiles if _safe_int_id(p.get("id")) == assigned_id), None)
     return profiles[0] if profiles else None
 
@@ -2493,6 +2572,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
     _gas_lp_attach_cliente_email_recipients(sb, user, rows)
     comp_by_factura = _gas_lp_complementos_por_factura(sb, [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))])
     for row in rows:
+        row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
         row["payment_info"] = _payment_info_json(_factura_payment_info(row))
         comps = comp_by_factura.get(_safe_int_id(row.get("id")), [])
         row["complementos_pago"] = comps
@@ -2799,7 +2879,9 @@ async def gas_lp_conciliacion_perfiles(token: str):
         if role not in {"admin", "conciliacion", "asistente_facturacion"}:
             raise HTTPException(403, "Tu usuario no tiene acceso a conciliación Gas LP.")
         perfiles = _gas_lp_conciliacion_visible_profiles(uid, access, token)
-        return JSONResponse({"ok": True, "perfil_id": access.get("perfil_id"), "perfiles": perfiles})
+        email = _auth_email_from_token(token)
+        perfil_id = None if _is_grupo_emurcia_conciliacion_admin(email, role) else access.get("perfil_id")
+        return JSONResponse({"ok": True, "perfil_id": perfil_id, "perfiles": perfiles})
 
     ctx = _gas_lp_conciliacion_context(token)
     user = ctx["user"]
@@ -2833,6 +2915,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         info = _factura_payment_info(row)
+        row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
         row["payment_info"] = _payment_info_json(info)
         row["issuer_info"] = {
             "rfc": _gas_lp_factura_emisor_rfc(row),
