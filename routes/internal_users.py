@@ -3726,6 +3726,42 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             bool(resultado.get("error")),
             json.dumps(resultado.get("pac_response") or {}, ensure_ascii=False, default=str)[:4000],
         )
+        if not resultado.get("uuid") and resultado.get("xml_timbrado"):
+            try:
+                timbrado_root = ET.fromstring(str(resultado.get("xml_timbrado") or "").encode("utf-8"))
+                timbre = _xml_first(timbrado_root, "TimbreFiscalDigital")
+                uuid_from_xml = _xml_attr(timbre, "UUID")
+                if uuid_from_xml:
+                    resultado["uuid"] = uuid_from_xml
+            except Exception as exc:
+                logger.warning("[GasLP traspaso] uuid_parse_from_xml_failed folio=%s err=%s", folio_factura, exc)
+        if not resultado.get("uuid") or not resultado.get("xml_timbrado"):
+            folio_reverted = _gas_lp_revert_invoice_folio_if_current(
+                sb,
+                user,
+                transfer_folio_reservation,
+                reason="sw_success_missing_uuid_or_xml",
+            )
+            raise HTTPException(502, {
+                "message": "SW/PAC no devolvió UUID o XML timbrado para el traspaso. No se guardó como factura timbrada.",
+                "code": "gas_lp_transfer_missing_uuid_or_xml",
+                "is_transfer": True,
+                "folio": {"serie": serie_factura, "folio": folio_factura, "reverted": folio_reverted},
+                "transfer": {
+                    "origen": origen.get("nombre") or "",
+                    "destino": destino.get("nombre") or "",
+                    "litros": float(payload.litros or 0),
+                    "precio_unitario": float(payload.precio_unitario or 0),
+                    "subtotal": totals.get("subtotal"),
+                    "iva": totals.get("iva"),
+                    "total": totals.get("total"),
+                    "allow_zero_total": True,
+                },
+                "pac_response": resultado.get("pac_response") or {
+                    "message": "Respuesta sin UUID/XML timbrado",
+                    "parsed_response_sw": {k: v for k, v in resultado.items() if k != "xml_timbrado"},
+                },
+            })
     if payload.hyp_experimental_diagnostics:
         diagnostic_response = {
             "ok": not bool(resultado.get("error")),
