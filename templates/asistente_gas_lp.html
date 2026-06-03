@@ -1193,7 +1193,9 @@
       FACTURAS = [...byId.values()].sort((a,b)=>String(facturaDateValue(b) || b.created_at || '').localeCompare(String(facturaDateValue(a) || a.created_at || '')));
     }
     async function loadFacturas(month=''){
-      const qs = '?mes=' + encodeURIComponent(month || todayKey().slice(0,7));
+      const selectedMonth = String(month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)).slice(0,7);
+      if(document.getElementById('facturaMes') && !facturaMes.value) facturaMes.value = selectedMonth;
+      const qs = '?mes=' + encodeURIComponent(selectedMonth);
       const data = await api('/api/internal-auth/gas-lp/facturas' + qs);
       FACTURAS = data.facturas || [];
       renderFacturaClientOptions();
@@ -1449,8 +1451,7 @@
     }
     async function applyMonthFilter(){
       const month = document.getElementById('facturaMes')?.value || '';
-      if(month) await loadFacturas(month);
-      else applyFacturasFilters();
+      await loadFacturas(month || todayKey().slice(0,7));
     }
     function exportFacturasDiaExcel(){
       const day = document.getElementById('facturaExportDia')?.value || todayKey();
