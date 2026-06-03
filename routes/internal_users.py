@@ -1156,6 +1156,18 @@ def _build_gas_lp_consumo_xml(
         )
     no_identificacion = str(no_identificacion or folio).strip()[:100] or folio
     unidad = str(unidad or "Litro").strip()[:20] or "Litro"
+    zero_total_without_tax = bool(allow_zero_total and total == 0)
+    concept_tax_xml = "" if zero_total_without_tax else (
+        '<cfdi:Impuestos><cfdi:Traslados>'
+        f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
+        '</cfdi:Traslados></cfdi:Impuestos>'
+    )
+    comprobante_tax_xml = "" if zero_total_without_tax else (
+        f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva:.2f}"><cfdi:Traslados>'
+        f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
+        '</cfdi:Traslados></cfdi:Impuestos>'
+    )
+    objeto_imp = "01" if zero_total_without_tax else "02"
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         f'<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"{hyp_ns} '
@@ -1171,16 +1183,12 @@ def _build_gas_lp_consumo_xml(
         '<cfdi:Conceptos>'
         f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" NoIdentificacion="{xml_escape(no_identificacion)}" Cantidad="{qty:.3f}" '
         f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{xml_escape(desc)}" ValorUnitario="{unit_net:.6f}" '
-        f'Importe="{subtotal:.2f}"{descuento_concepto} ObjetoImp="02">'
-        '<cfdi:Impuestos><cfdi:Traslados>'
-        f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
-        '</cfdi:Traslados></cfdi:Impuestos>'
+        f'Importe="{subtotal:.2f}"{descuento_concepto} ObjetoImp="{objeto_imp}">'
+        f'{concept_tax_xml}'
         f'{hyp_xml}'
         '</cfdi:Concepto>'
         '</cfdi:Conceptos>'
-        f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva:.2f}"><cfdi:Traslados>'
-        f'<cfdi:Traslado Base="{taxable_base:.2f}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="{tax_rate:.6f}" Importe="{iva:.2f}"/>'
-        '</cfdi:Traslados></cfdi:Impuestos>'
+        f'{comprobante_tax_xml}'
         f'{f"<cfdi:Addenda><Observaciones>{xml_escape(comments)}</Observaciones></cfdi:Addenda>" if comments else ""}'
         '</cfdi:Comprobante>'
     )
