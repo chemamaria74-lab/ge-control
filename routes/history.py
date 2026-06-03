@@ -4,6 +4,7 @@
 
 import os
 import logging
+import xml.etree.ElementTree as ET
 from typing import Optional
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, FileResponse
@@ -13,8 +14,9 @@ from services.database import (
     delete_period, delete_all_periods, get_archived_records, get_archived_reports,
 )
 from services.sat_transformer import generate_filename
-from routes.auth import obtener_acceso_modulo, require_profile_access, verify_token
+from routes.auth import obtener_acceso_modulo, require_profile_access, resolve_profile_scope, verify_token
 from routes.settings import _load as load_settings
+from supabase_config import get_supabase_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -55,6 +57,10 @@ def _require_perfil(uid: str, token: str, raw: str) -> int:
 def _totals_from_records(records: dict) -> dict:
     entradas = records.get("entradas") or []
     salidas = records.get("salidas") or []
+    traspasos = [
+        s for s in salidas
+        if s.get("es_trasvase") or str(s.get("file_path") or "").startswith("traspaso:")
+    ]
     autoconsumos = [
         s for s in salidas
         if s.get("es_autoconsumo")
@@ -63,7 +69,9 @@ def _totals_from_records(records: dict) -> dict:
     ]
     ventas_reales = [
         s for s in salidas
-        if s not in autoconsumos and (s.get("volumen_litros") or 0) > 0
+        if s not in autoconsumos
+        and s not in traspasos
+        and (s.get("volumen_litros") or 0) > 0
     ]
     vol_compra = sum(e.get("volumen_litros") or 0 for e in entradas)
     imp_compra = sum(e.get("importe") or 0 for e in entradas)
@@ -74,8 +82,8 @@ def _totals_from_records(records: dict) -> dict:
         "total_salidas": round(sum(s.get("volumen_litros") or 0 for s in salidas), 2),
         "total_autoconsumo": round(sum(s.get("volumen_litros") or 0 for s in autoconsumos), 2),
         "cnt_autoconsumo": len(autoconsumos),
-        "total_traspasos": 0,
-        "cnt_traspasos": 0,
+        "total_traspasos": round(sum(s.get("volumen_litros") or 0 for s in traspasos), 2),
+        "cnt_traspasos": len(traspasos),
         "precio_compra_prom": round(imp_compra / vol_compra, 4) if vol_compra > 0 else 0,
         "precio_venta_prom": round(imp_venta / vol_venta, 4) if vol_venta > 0 else 0,
         "importe_entradas": round(imp_compra, 2),
@@ -83,6 +91,230 @@ def _totals_from_records(records: dict) -> dict:
         "cnt_entradas": len(entradas),
         "cnt_salidas": len(salidas),
     }
+
+
+def _clean_rfc(value: object) -> str:
+    return "".join(ch for ch in str(value or "").upper().strip() if ch.isalnum() or ch == "&")
+
+
+def _metadata(row: dict) -> dict:
+    return row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+
+
+def _xml_attr(node: Optional[ET.Element], name: str) -> str:
+    return str(node.attrib.get(name, "") or "") if node is not None else ""
+
+
+def _xml_first(root: Optional[ET.Element], local_name: str) -> Optional[ET.Element]:
+    if root is None:
+        return None
+    for node in root.iter():
+        if node.tag.split("}", 1)[-1] == local_name:
+            return node
+    return None
+
+
+def _invoice_xml_root(row: dict) -> Optional[ET.Element]:
+    xml_content = str(row.get("xml_content") or "")
+    if not xml_content:
+        return None
+    try:
+        return ET.fromstring(xml_content.encode("utf-8"))
+    except Exception:
+        return None
+
+
+def _invoice_date(row: dict) -> str:
+    md = _metadata(row)
+    for value in (md.get("fecha_emision"), md.get("fecha_cfdi"), row.get("fecha_timbrado"), row.get("created_at")):
+        text = str(value or "")
+        if len(text) >= 10:
+            return text[:10]
+    return _xml_attr(_invoice_xml_root(row), "Fecha")[:10]
+
+
+def _invoice_emisor_rfc(row: dict) -> str:
+    root = _invoice_xml_root(row)
+    xml_rfc = _clean_rfc(_xml_attr(_xml_first(root, "Emisor"), "Rfc"))
+    if xml_rfc:
+        return xml_rfc
+    md = _metadata(row)
+    return _clean_rfc(
+        md.get("rfc_emisor")
+        or md.get("empresa_rfc")
+        or md.get("empresa_asignada_rfc")
+        or row.get("rfc_emisor")
+        or ""
+    )
+
+
+def _invoice_receptor_nombre(row: dict) -> str:
+    md = _metadata(row)
+    if md.get("cliente_nombre") or md.get("receptor_nombre"):
+        return str(md.get("cliente_nombre") or md.get("receptor_nombre") or "")
+    return _xml_attr(_xml_first(_invoice_xml_root(row), "Receptor"), "Nombre")
+
+
+def _invoice_uuid(row: dict) -> str:
+    md = _metadata(row)
+    uuid = str(row.get("uuid_sat") or row.get("record_uuid") or md.get("uuid_sat") or md.get("uuid") or "")
+    if uuid:
+        return uuid
+    return _xml_attr(_xml_first(_invoice_xml_root(row), "TimbreFiscalDigital"), "UUID")
+
+
+def _safe_float(value: object) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _safe_int(value: object) -> Optional[int]:
+    try:
+        parsed = int(value or 0)
+        return parsed or None
+    except (TypeError, ValueError):
+        return None
+
+
+def _invoice_facility_id(row: dict) -> Optional[int]:
+    md = _metadata(row)
+    return _safe_int(row.get("facility_id") or md.get("facility_id") or md.get("origen_facility_id"))
+
+
+def _invoice_destino_id(row: dict) -> Optional[int]:
+    md = _metadata(row)
+    return _safe_int(md.get("destino_facility_id") or md.get("instalacion_destino_id"))
+
+
+def _invoice_is_transfer(row: dict) -> bool:
+    md = _metadata(row)
+    markers = {
+        str(md.get("tipo_operacion") or "").strip().lower(),
+        str(md.get("operation_type") or "").strip().lower(),
+        str(row.get("tipo_operacion") or "").strip().lower(),
+    }
+    return bool(md.get("is_transfer") is True or markers.intersection({"traspaso", "transfer", "traslado"}))
+
+
+def _invoice_cancelada(row: dict) -> bool:
+    md = _metadata(row)
+    for marker in (row.get("status"), md.get("status"), md.get("estado_fiscal"), md.get("cancelacion_status")):
+        text = str(marker or "").strip().lower()
+        if "cancelad" in text or "cancelled" in text or "canceled" in text:
+            return True
+    return False
+
+
+def _record_from_invoice(row: dict, tipo: str, *, file_path: str, rfc: str = "", nombre: str = "") -> dict:
+    md = _metadata(row)
+    return {
+        "id": f"gas_lp_facturas:{row.get('id')}:{tipo}",
+        "tipo": tipo,
+        "fecha": _invoice_date(row),
+        "volumen_litros": round(_safe_float(row.get("volumen_litros")), 4),
+        "uuid": _invoice_uuid(row),
+        "rfc_contraparte": rfc or str(row.get("rfc_receptor") or md.get("receptor_rfc") or ""),
+        "nombre_contraparte": nombre or _invoice_receptor_nombre(row),
+        "importe": round(_safe_float(row.get("importe") or md.get("subtotal") or md.get("total")), 2),
+        "file_path": file_path,
+        "es_autoconsumo": False,
+    }
+
+
+def _merge_derived_records(records: dict, derived: dict) -> dict:
+    merged = {
+        "entradas": list(records.get("entradas") or []),
+        "salidas": list(records.get("salidas") or []),
+    }
+    def marker_for(row: dict, key: str) -> tuple[str, str, str]:
+        tipo = str(row.get("tipo") or key)
+        uuid = str(row.get("uuid") or "").strip()
+        if uuid:
+            return (tipo, "uuid", uuid)
+        return (tipo, str(row.get("file_path") or ""), str(row.get("id") or ""))
+
+    for key in ("entradas", "salidas"):
+        seen = {marker_for(r, key) for r in merged[key]}
+        for row in derived.get(key) or []:
+            marker = marker_for(row, key)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            merged[key].append(row)
+        merged[key].sort(key=lambda r: str(r.get("fecha") or ""))
+    return merged
+
+
+def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int, facility_id: Optional[int]) -> dict:
+    try:
+        scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+        profile = scope.get("profile") or {}
+        tenant_id = scope.get("tenant_id")
+        owner_user_id = scope.get("owner_user_id") or uid
+        profile_rfc = _clean_rfc(profile.get("rfc") or "")
+        if not profile_rfc:
+            try:
+                settings = load_settings(owner_user_id, perfil_id)
+                profile_rfc = _clean_rfc(settings.get("RfcContribuyente") or "")
+            except Exception:
+                profile_rfc = ""
+
+        q = get_supabase_admin().table("gas_lp_facturas").select("*").eq("perfil_id", perfil_id)
+        if tenant_id:
+            q = q.eq("tenant_id", tenant_id)
+        else:
+            q = q.eq("user_id", owner_user_id)
+        rows = q.order("created_at", desc=True).limit(10000).execute().data or []
+
+        entradas: list[dict] = []
+        salidas: list[dict] = []
+        for row in rows:
+            if _invoice_cancelada(row):
+                continue
+            fecha = _invoice_date(row)
+            if not fecha.startswith(periodo):
+                continue
+            factura_rfc = _invoice_emisor_rfc(row)
+            if profile_rfc and factura_rfc and factura_rfc != profile_rfc:
+                continue
+
+            origen_id = _invoice_facility_id(row)
+            destino_id = _invoice_destino_id(row)
+            invoice_id = row.get("id")
+            if _invoice_is_transfer(row):
+                if facility_id is None or facility_id == destino_id:
+                    entradas.append(_record_from_invoice(
+                        row,
+                        "entrada",
+                        file_path=f"traspaso:gas_lp_facturas:{invoice_id}:destino:{destino_id or ''}",
+                        rfc=factura_rfc,
+                        nombre=_metadata(row).get("origen_nombre") or _metadata(row).get("origen_facility_name") or "",
+                    ))
+                if facility_id is None or facility_id == origen_id:
+                    rec = _record_from_invoice(
+                        row,
+                        "salida",
+                        file_path=f"traspaso:gas_lp_facturas:{invoice_id}:origen:{origen_id or ''}",
+                        rfc=str(row.get("rfc_receptor") or _metadata(row).get("receptor_rfc") or ""),
+                        nombre=_metadata(row).get("destino_nombre") or _metadata(row).get("destino_facility_name") or "",
+                    )
+                    rec["es_trasvase"] = True
+                    salidas.append(rec)
+                continue
+
+            if facility_id is not None and facility_id != origen_id:
+                continue
+            salidas.append(_record_from_invoice(
+                row,
+                "salida",
+                file_path=f"gas_lp_facturas:{invoice_id}:venta:{origen_id or ''}",
+            ))
+        return {"entradas": entradas, "salidas": salidas}
+    except Exception as e:
+        logger.warning("history_invoice_records: %s", e)
+        return {"entradas": [], "salidas": []}
 
 
 @router.get("/history/periods")
@@ -112,6 +344,10 @@ async def get_history(
     records   = get_records(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     totals    = get_period_totals(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     reports   = get_reports(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    invoice_records = _history_invoice_records(uid, token, periodo, perfil_id, facility_id)
+    if invoice_records["entradas"] or invoice_records["salidas"]:
+        records = _merge_derived_records(records, invoice_records)
+        totals = _totals_from_records(records)
     source = "active"
     if not reports and not records["entradas"] and not records["salidas"]:
         archived_records = get_archived_records(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
