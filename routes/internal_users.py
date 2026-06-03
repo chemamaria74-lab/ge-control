@@ -760,6 +760,14 @@ def _transfer_email_from_settings(settings: dict) -> str:
     return ""
 
 
+def _configured_setting(settings: dict, keys: tuple[str, ...]):
+    for key in keys:
+        value = settings.get(key)
+        if value not in {None, ""}:
+            return value, True
+    return 0, False
+
+
 def _save_transfer_email_default(owner_user_id: str, perfil_id: int, email: str) -> dict:
     from routes.settings import _load as load_settings, _save as save_settings_data
 
@@ -1026,12 +1034,13 @@ def _build_gas_lp_consumo_xml(
     informacion_global: Optional[dict] = None,
     no_identificacion: str = "GLP-LTR",
     unidad: str = "Litro",
+    allow_zero_total: bool = False,
 ) -> tuple[str, dict]:
     qty = Decimal(str(litros or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
     unit = Decimal(str(precio_unitario or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     discount_unit = Decimal(str(descuento or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     tax_rate = Decimal(str(iva_rate if iva_rate not in {None, ""} else 0.16)).quantize(Decimal("0.000000"), rounding=ROUND_HALF_UP)
-    if qty <= 0 or unit <= 0:
+    if qty <= 0 or (unit < 0 if allow_zero_total else unit <= 0):
         raise HTTPException(400, "Litros y precio unitario deben ser mayores a cero.")
     if discount_unit < 0 or discount_unit > unit:
         raise HTTPException(400, "El descuento por litro debe estar entre $0 y el precio por litro.")
@@ -1054,7 +1063,7 @@ def _build_gas_lp_consumo_xml(
     comments = str(comentarios or "").strip()[:500]
     descuento_comprobante = f' Descuento="{discount_total:.2f}"' if discount_total > 0 else ""
     descuento_concepto = f' Descuento="{discount_total:.2f}"' if discount_total > 0 else ""
-    if total <= 0:
+    if total <= 0 and not allow_zero_total:
         raise HTTPException(400, "El total de la factura debe ser mayor a cero. Revisa precio y descuento.")
     clave_prod_serv = _clean_clave_prod_serv(clave_prod_serv)
     hyp = hyp or {}
@@ -2091,6 +2100,10 @@ async def gas_lp_internal_summary(token: str):
         ],
     }
     modules = role_modules.get(role, role_modules["solo_lectura"])
+    precio_venta_litro, precio_venta_litro_configurado = _configured_setting(
+        settings,
+        ("precio_venta_litro", "PrecioVentaLitro", "precio_default_litro", "precio_litro"),
+    )
     return JSONResponse({
         "ok": True,
         "assistant": {
@@ -2109,11 +2122,8 @@ async def gas_lp_internal_summary(token: str):
             "tenant_id": profile.get("tenant_id"),
             "cp": _clean_cp(settings.get("CodigoPostal") or settings.get("codigo_postal") or ""),
             "regimen": str(settings.get("RegimenFiscal") or settings.get("regimen_fiscal") or "601").strip() or "601",
-            "precio_venta_litro": settings.get("precio_venta_litro")
-                or settings.get("PrecioVentaLitro")
-                or settings.get("precio_default_litro")
-                or settings.get("precio_litro")
-                or 0,
+            "precio_venta_litro": precio_venta_litro,
+            "precio_venta_litro_configurado": precio_venta_litro_configurado,
             "transfer_email_default": _transfer_email_from_settings(settings),
         },
         "modules": modules,
@@ -3428,6 +3438,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         unidad=payload.unidad,
         hyp=hyp,
         informacion_global=informacion_global,
+        allow_zero_total=is_transfer,
     )
     hyp_node_xml = _gas_lp_hyp_xml_fragment(hyp)
     sw_config = sw_runtime_config()
