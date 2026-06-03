@@ -525,12 +525,20 @@ def timbrar_cfdi(xml_str: str) -> dict:
             logger.error("timbrar_cfdi error: %s", e)
         public_error = _public_pac_error(e)
         record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=public_error)
+        timeout_like = isinstance(e, (requests.Timeout, requests.ConnectionError))
         return {
             "uuid": "",
             "xml_timbrado": "",
             "pdf_url": "",
             "error": public_error,
-            "pac_response": {"error": str(e), "error_type": type(e).__name__},
+            "pac_response": {
+                "endpoint_sw": endpoint_sw,
+                "status_code_sw": 0,
+                "message": "Timeout o error de conexión con SW/PAC." if timeout_like else public_error,
+                "messageDetail": str(e),
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
         }
 
 
