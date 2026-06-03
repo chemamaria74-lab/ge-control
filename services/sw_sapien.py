@@ -472,6 +472,14 @@ def timbrar_cfdi(xml_str: str) -> dict:
             result = {
                 "uuid": "", "xml_timbrado": "", "pdf_url": "",
                 "error": public_error,
+                "pac_response": {
+                    "endpoint_sw": endpoint_sw,
+                    "status_code_sw": resp.status_code,
+                    "message": data.get("message") or "",
+                    "messageDetail": data.get("messageDetail") or "",
+                    "raw_response_sw": resp.text,
+                    "parsed_response_sw": data,
+                },
             }
             record_pac_response(
                 request_id=audit_request_id,
@@ -517,7 +525,13 @@ def timbrar_cfdi(xml_str: str) -> dict:
             logger.error("timbrar_cfdi error: %s", e)
         public_error = _public_pac_error(e)
         record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=public_error)
-        return {"uuid": "", "xml_timbrado": "", "pdf_url": "", "error": public_error}
+        return {
+            "uuid": "",
+            "xml_timbrado": "",
+            "pdf_url": "",
+            "error": public_error,
+            "pac_response": {"error": str(e), "error_type": type(e).__name__},
+        }
 
 
 def emitir_timbrar_json(cfdi_dict: dict) -> dict:
