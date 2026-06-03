@@ -574,6 +574,12 @@
       updateTotals();
       if(!configured) setStatus('facturaMsg','Falta configurar el precio vigente por litro en el panel de administración.',false);
     }
+    function transferPriceReady(){
+      const raw = String(precioUnitario.value ?? '').trim();
+      if(raw === '') return false;
+      const value = Number(raw);
+      return Number.isFinite(value) && value >= 0;
+    }
     function updateTransferReady(){
       if(isStamping || tipoOperacion.value !== 'traspaso') return;
       const missing = [];
@@ -581,7 +587,7 @@
       if(!destinoFacilitySelect.value) missing.push('destino');
       if(facilitySelect.value && destinoFacilitySelect.value && String(facilitySelect.value) === String(destinoFacilitySelect.value)) missing.push('origen y destino distintos');
       if(Number(litros.value || 0) <= 0) missing.push('litros');
-      const priceOk = unitPriceConfigured() && Number(precioUnitario.value || 0) >= 0;
+      const priceOk = transferPriceReady();
       btnTimbrar.disabled = missing.length > 0 || !priceOk;
       if(missing.length) setStatus('facturaMsg',`Completa traspaso: ${missing.join(', ')}.`,false);
       else if(!priceOk) setStatus('facturaMsg','Falta precio interno configurado para timbrar el traspaso.',false);
@@ -974,7 +980,7 @@
       const isTraspaso = tipoOperacion.value === 'traspaso';
       if(litrosVal <= 0){ setStatus('facturaMsg','Captura litros mayores a cero.',false); return; }
       if(precioVal < 0){ setStatus('facturaMsg','El precio no puede ser negativo.',false); return; }
-      if(isTraspaso && !unitPriceConfigured()){ setStatus('facturaMsg','Falta precio interno configurado para timbrar el traspaso.',false); return; }
+      if(isTraspaso && !transferPriceReady()){ setStatus('facturaMsg','Falta precio interno configurado para timbrar el traspaso.',false); return; }
       if(!isTraspaso && precioVal <= 0){ setStatus('facturaMsg','Captura litros y configura un precio vigente mayor a cero.',false); return; }
       if(!isTraspaso && (descuentoVal < 0 || descuentoVal >= precioVal)){ setStatus('facturaMsg','El descuento por litro debe ser menor al precio unitario para que la factura tenga total mayor a cero.',false); return; }
       if(!isTraspaso && totalVal <= 0){ setStatus('facturaMsg','El total de la factura debe ser mayor a cero. Revisa precio y descuento.',false); return; }
