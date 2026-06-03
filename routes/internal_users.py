@@ -7,6 +7,7 @@ import logging
 import os
 import secrets
 import traceback
+import unicodedata
 import xml.etree.ElementTree as ET
 from io import BytesIO
 from decimal import Decimal, ROUND_HALF_UP
@@ -20,7 +21,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from routes.auth import _resolve_active_module_access, obtener_acceso_modulo, verify_token
-from routes.perfiles import _tenant_id_for_user, get_perfiles_for_user
+from routes.perfiles import _tenant_id_for_user
 from services.database import get_facilities
 from services.email_delivery import send_gas_lp_invoice_email
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml
@@ -447,6 +448,74 @@ def _gas_lp_internal_context(token: str, *, write: bool = False) -> dict:
     return ctx
 
 
+def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) -> list[dict]:
+    sb = get_supabase_admin()
+    tenant_id = access.get("tenant_id") or _tenant_id_for_user(uid, access_token=token)
+    assigned_id = _safe_int_id(access.get("perfil_id"))
+    fields = "id,user_id,tenant_id,nombre,rfc,descripcion,activo"
+    rows_by_id: dict[int, dict] = {}
+
+    def add(rows: list[dict]) -> None:
+        for row in rows or []:
+            rid = _safe_int_id(row.get("id"))
+            if not rid:
+                continue
+            rows_by_id[rid] = {
+                "id": rid,
+                "owner_user_id": row.get("user_id"),
+                "tenant_id": row.get("tenant_id") or tenant_id,
+                "nombre": row.get("nombre"),
+                "rfc": row.get("rfc"),
+                "descripcion": row.get("descripcion") or "",
+            }
+
+    if assigned_id:
+        q = sb.table("perfiles_empresa").select(fields).eq("id", assigned_id).eq("activo", True)
+        if tenant_id:
+            q = q.eq("tenant_id", tenant_id)
+        add(q.limit(1).execute().data or [])
+
+    if tenant_id:
+        add(
+            sb.table("perfiles_empresa")
+            .select(fields)
+            .eq("tenant_id", tenant_id)
+            .eq("activo", True)
+            .order("nombre")
+            .execute()
+            .data
+            or []
+        )
+
+    if not rows_by_id:
+        add(
+            sb.table("perfiles_empresa")
+            .select(fields)
+            .eq("user_id", uid)
+            .eq("activo", True)
+            .order("nombre")
+            .execute()
+            .data
+            or []
+        )
+
+    return sorted(rows_by_id.values(), key=lambda row: (row.get("nombre") or "").lower())
+
+
+def _gas_lp_conciliacion_profile_for_auth(uid: str, access: dict, token: str, perfil_id: int | None = None) -> dict | None:
+    requested_id = _safe_int_id(perfil_id)
+    assigned_id = _safe_int_id(access.get("perfil_id"))
+    role = (access.get("role") or "").lower()
+    if requested_id and assigned_id and role != "admin" and requested_id != assigned_id:
+        raise HTTPException(403, "No tienes acceso a esa empresa Gas LP.")
+    profiles = _gas_lp_conciliacion_visible_profiles(uid, access, token)
+    if requested_id:
+        return next((p for p in profiles if _safe_int_id(p.get("id")) == requested_id), None)
+    if assigned_id:
+        return next((p for p in profiles if _safe_int_id(p.get("id")) == assigned_id), None)
+    return profiles[0] if profiles else None
+
+
 def _gas_lp_conciliacion_context(token: str, *, write: bool = False, perfil_id: int | None = None) -> dict:
     if str(token or "").count(".") == 2:
         uid = verify_token(token)
@@ -458,63 +527,22 @@ def _gas_lp_conciliacion_context(token: str, *, write: bool = False, perfil_id: 
             raise HTTPException(403, "Tu usuario no tiene acceso a conciliación Gas LP.")
         if write and role not in {"admin", "conciliacion"}:
             raise HTTPException(403, "Tu rol no permite modificar conciliación.")
-        requested_perfil_id = int(perfil_id or 0) or None
-        perfil_id = requested_perfil_id or access.get("perfil_id")
-        tenant_id = access.get("tenant_id") or _tenant_id_for_user(uid, access_token=token)
-        if requested_perfil_id:
-            try:
-                rows = (
-                    get_supabase_for_user(token)
-                    .table("perfiles_empresa")
-                    .select("id,tenant_id,descripcion")
-                    .eq("id", requested_perfil_id)
-                    .eq("user_id", uid)
-                    .eq("activo", True)
-                    .ilike("descripcion", "%[module:gas_lp]%")
-                    .limit(1)
-                    .execute()
-                    .data
-                    or []
-                )
-            except Exception as exc:
-                logger.warning("gas_lp_conciliacion_requested_profile_lookup failed user=%s perfil=%s err=%s", uid, requested_perfil_id, exc)
-                rows = []
-            if not rows:
-                raise HTTPException(403, "No tienes acceso a esa empresa Gas LP.")
-            perfil_id = rows[0].get("id")
-            tenant_id = rows[0].get("tenant_id") or tenant_id
-        if not perfil_id:
-            try:
-                rows = (
-                    get_supabase_for_user(token)
-                    .table("perfiles_empresa")
-                    .select("id,tenant_id,descripcion")
-                    .eq("user_id", uid)
-                    .eq("activo", True)
-                    .ilike("descripcion", "%[module:gas_lp]%")
-                    .limit(1)
-                    .execute()
-                    .data
-                    or []
-                )
-                if rows:
-                    perfil_id = rows[0].get("id")
-                    tenant_id = tenant_id or rows[0].get("tenant_id")
-            except Exception as exc:
-                logger.warning("gas_lp_conciliacion_auth_profile_lookup failed user=%s err=%s", uid, exc)
-        if not perfil_id:
+        profile = _gas_lp_conciliacion_profile_for_auth(uid, access, token, perfil_id)
+        if not profile:
             raise HTTPException(400, "Selecciona o asigna una empresa Gas LP antes de entrar a conciliación.")
+        tenant_id = profile.get("tenant_id") or access.get("tenant_id") or _tenant_id_for_user(uid, access_token=token)
+        profile_id = profile.get("id")
         user = {
             "id": uid,
-            "owner_user_id": uid,
+            "owner_user_id": profile.get("owner_user_id") or uid,
             "tenant_id": tenant_id,
-            "perfil_id": perfil_id,
+            "perfil_id": profile_id,
             "section": "gas_lp",
             "role": role,
             "display_name": access.get("display_name") or "",
             "status": "active",
         }
-        return {"session": {"section": "gas_lp", "role": role, "tenant_id": tenant_id, "perfil_id": perfil_id}, "user": user}
+        return {"session": {"section": "gas_lp", "role": role, "tenant_id": tenant_id, "perfil_id": profile_id}, "user": user}
     ctx = _internal_session(token, "gas_lp")
     role = (ctx["user"].get("role") or "").lower()
     if role not in {"conciliacion", "admin", "asistente_facturacion"}:
@@ -1104,6 +1132,13 @@ def _public_general_receptor(issuer_cp: str) -> dict:
     }
 
 
+def _is_publico_general_receptor(receptor: dict) -> bool:
+    nombre = unicodedata.normalize("NFKD", str(receptor.get("nombre") or ""))
+    nombre = "".join(ch for ch in nombre if not unicodedata.combining(ch))
+    nombre = " ".join(nombre.strip().upper().split())
+    return _clean_rfc(receptor.get("rfc") or "") == "XAXX010101000" and nombre == "PUBLICO EN GENERAL"
+
+
 def _build_gas_lp_consumo_xml(
     *,
     issuer: dict,
@@ -1167,10 +1202,7 @@ def _build_gas_lp_consumo_xml(
             '</cfdi:ComplementoConcepto>'
         )
     informacion_global = informacion_global or {}
-    is_publico_general_cfdi = (
-        _clean_rfc(receptor.get("rfc") or "") == "XAXX010101000"
-        and str(receptor.get("nombre") or "").strip().upper() == "PUBLICO EN GENERAL"
-    )
+    is_publico_general_cfdi = _is_publico_general_receptor(receptor)
     if is_publico_general_cfdi and not informacion_global:
         try:
             fecha_base_auto = datetime.strptime(fecha[:10], "%Y-%m-%d")
@@ -2766,7 +2798,7 @@ async def gas_lp_conciliacion_perfiles(token: str):
         role = (access.get("role") or "").lower()
         if role not in {"admin", "conciliacion", "asistente_facturacion"}:
             raise HTTPException(403, "Tu usuario no tiene acceso a conciliación Gas LP.")
-        perfiles = get_perfiles_for_user(uid, access_token=token, module="gas_lp")
+        perfiles = _gas_lp_conciliacion_visible_profiles(uid, access, token)
         return JSONResponse({"ok": True, "perfil_id": access.get("perfil_id"), "perfiles": perfiles})
 
     ctx = _gas_lp_conciliacion_context(token)
