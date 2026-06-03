@@ -1834,9 +1834,9 @@ def _gas_lp_factura_total_con_iva(factura: dict) -> Decimal:
 
 def _gas_lp_attach_internal_creators(sb, rows: list[dict]) -> None:
     ids = sorted({
-        int((row.get("metadata") or {}).get("internal_user_id") or 0)
+        _safe_int_id((row.get("metadata") or {}).get("internal_user_id"))
         for row in rows
-        if isinstance(row.get("metadata"), dict) and (row.get("metadata") or {}).get("internal_user_id")
+        if isinstance(row.get("metadata"), dict) and _safe_int_id((row.get("metadata") or {}).get("internal_user_id"))
     })
     if not ids:
         return
@@ -1854,7 +1854,7 @@ def _gas_lp_attach_internal_creators(sb, rows: list[dict]) -> None:
     by_id = {int(user.get("id") or 0): user for user in users}
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        internal_id = int(md.get("internal_user_id") or 0)
+        internal_id = _safe_int_id(md.get("internal_user_id"))
         internal_user = by_id.get(internal_id)
         if internal_user:
             row["created_by_internal"] = {
@@ -2638,9 +2638,19 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
         rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000 if month else 1000)
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
-    _gas_lp_attach_internal_creators(sb, rows)
-    _gas_lp_attach_cliente_email_recipients(sb, user, rows)
-    comp_by_factura = _gas_lp_complementos_por_factura(sb, [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))])
+    try:
+        _gas_lp_attach_internal_creators(sb, rows)
+    except Exception as exc:
+        logger.warning("gas_lp_facturas_attach_creators_failed perfil=%s err=%s", user.get("perfil_id"), exc)
+    try:
+        _gas_lp_attach_cliente_email_recipients(sb, user, rows)
+    except Exception as exc:
+        logger.warning("gas_lp_facturas_attach_client_emails_failed perfil=%s err=%s", user.get("perfil_id"), exc)
+    try:
+        comp_by_factura = _gas_lp_complementos_por_factura(sb, [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))])
+    except Exception as exc:
+        logger.warning("gas_lp_facturas_attach_complementos_failed perfil=%s err=%s", user.get("perfil_id"), exc)
+        comp_by_factura = {}
     for row in rows:
         try:
             row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
