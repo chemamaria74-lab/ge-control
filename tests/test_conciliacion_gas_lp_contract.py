@@ -40,15 +40,50 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
     assert "/api/internal-auth/gas-lp/conciliacion/facilities" in html
     for token in (
         "pubDescuento",
+        "pubDescuentoTipo",
         "pubIvaRate",
         "pubSumSubtotal",
         "pubSumDescuento",
         "pubSumIva",
         "pubSumTotal",
         "updatePublicoSummary()",
+        "total_pesos",
+        "publicoDiscountPerLiter",
         "Realizado por",
     ):
         assert token in html
+
+
+def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
+    assistant_html = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+    conciliacion_html = (ROOT / "templates" / "conciliacion_gas_lp.html").read_text(encoding="utf-8")
+
+    for token in (
+        "descuentoTipo",
+        "sin_descuento",
+        "por_litro",
+        "total_pesos",
+        "Descuento total con IVA",
+        "discountGrossValue",
+        "discountPerLiterForPayload",
+        "descuento: isTraspaso ? 0 : descuentoPayloadVal",
+    ):
+        assert token in assistant_html
+
+    assert "descuentoTipo.value = 'total_pesos'" in assistant_html
+    assert "descuentoTipo.value = 'por_litro'" in assistant_html
+
+    for token in (
+        "pubDescuentoTipo",
+        "sin_descuento",
+        "por_litro",
+        "total_pesos",
+        "Descuento total con IVA",
+        "publicoDiscountGross",
+        "publicoDiscountPerLiter",
+        "descuento:publicoDiscountPerLiter",
+    ):
+        assert token in conciliacion_html
 
 
 def test_conciliacion_publico_general_payload_keeps_operational_defaults():
