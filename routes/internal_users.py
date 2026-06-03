@@ -1349,11 +1349,14 @@ def _payment_datetime(value: str) -> str:
 
 def _factura_payment_info(factura: dict) -> dict:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    fallback_total = _money(factura.get("importe")) * Decimal("1.16")
+    total = _money(md.get("total") if md.get("total") not in {None, ""} else fallback_total)
+    saldo = _money(md.get("saldo_insoluto") if md.get("saldo_insoluto") not in {None, ""} else total)
     return {
         "metodo_pago": str(md.get("metodo_pago") or "").upper(),
         "forma_pago": str(md.get("forma_pago") or ""),
-        "total": _money(md.get("total") or (Decimal(str(factura.get("importe") or 0)) * Decimal("1.16"))),
-        "saldo_insoluto": _money(md.get("saldo_insoluto") if md.get("saldo_insoluto") not in {None, ""} else (md.get("total") or (Decimal(str(factura.get("importe") or 0)) * Decimal("1.16")))),
+        "total": total,
+        "saldo_insoluto": saldo,
         "payment_status": str(md.get("payment_status") or ("pendiente_complemento" if str(md.get("metodo_pago") or "").upper() == "PPD" else "pagado_pue")),
     }
 
@@ -1777,7 +1780,7 @@ def _gas_lp_factura_total_con_iva(factura: dict) -> Decimal:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
     if md.get("total") not in {None, ""}:
         return _money(md.get("total"))
-    return _money(Decimal(str(factura.get("importe") or 0)) * Decimal("1.16"))
+    return _money(factura.get("importe")) * Decimal("1.16")
 
 
 def _gas_lp_attach_internal_creators(sb, rows: list[dict]) -> None:
@@ -2555,12 +2558,20 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
     _gas_lp_attach_cliente_email_recipients(sb, user, rows)
     comp_by_factura = _gas_lp_complementos_por_factura(sb, [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))])
     for row in rows:
-        row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
-        row["payment_info"] = _payment_info_json(_factura_payment_info(row))
-        comps = comp_by_factura.get(_safe_int_id(row.get("id")), [])
-        row["complementos_pago"] = comps
-        if comps:
-            row["latest_complemento_pago"] = comps[0]
+        try:
+            row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
+            row["payment_info"] = _payment_info_json(_factura_payment_info(row))
+            row["realizado_por"] = _gas_lp_factura_realizado_por(row)
+            comps = comp_by_factura.get(_safe_int_id(row.get("id")), [])
+            row["complementos_pago"] = comps
+            if comps:
+                row["latest_complemento_pago"] = comps[0]
+        except Exception as exc:
+            logger.warning("gas_lp_factura_row_normalize_failed id=%s perfil=%s err=%s", row.get("id"), user.get("perfil_id"), exc)
+            row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
+            row["payment_info"] = _payment_info_json({"metodo_pago": "", "forma_pago": "", "total": 0, "saldo_insoluto": 0, "payment_status": ""})
+            row["realizado_por"] = _gas_lp_factura_realizado_por(row)
+            row["complementos_pago"] = []
     return JSONResponse({"ok": True, "facturas": rows})
 
 
