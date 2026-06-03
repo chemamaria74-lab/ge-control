@@ -328,6 +328,7 @@
     let EDIT_CLIENT_ID = null;
     let EMAIL_FACTURA_ID = null;
     let isStamping = false;
+    let suppressFacturaStatus = false;
     let transferConfirmResolver = null;
     const SAT_REGIMENES = [
       ['601','General de Ley Personas Morales'],
@@ -390,7 +391,11 @@
     function iconFor(key){ return {facturacion:'file-invoice-dollar',xml_excel:'file-excel',operacion:'clipboard-list',planta:'industry',reportes:'chart-simple',consulta:'magnifying-glass'}[key] || 'shield-halved'; }
     function money(v){ return '$' + Number(v || 0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2}); }
     function esc(v){ return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-    function setStatus(id,text,ok=true){ const el=document.getElementById(id); if(el){ el.textContent=text; el.className='status '+(ok?'ok':'err'); } }
+    function setStatus(id,text,ok=true){
+      if(id === 'facturaMsg' && suppressFacturaStatus) return;
+      const el=document.getElementById(id);
+      if(el){ el.textContent=text; el.className='status '+(ok?'ok':'err'); }
+    }
     function detailText(value, fallback='No fue posible cargar la información.'){
       if(Array.isArray(value)) return value.map(d => d?.msg || d?.type || String(d)).join(', ');
       if(value && typeof value === 'object') return value.message || value.detail || JSON.stringify(value);
@@ -600,12 +605,12 @@
       const raw = CURRENT_COMPANY.precio_venta_litro;
       return raw !== undefined && raw !== null && String(raw).trim() !== '';
     }
-    function applyConfiguredPrice(){
+    function applyConfiguredPrice(opts={}){
       const configured = unitPriceConfigured();
       const price = configured ? Number(CURRENT_COMPANY?.precio_venta_litro || 0) : 0;
       precioUnitario.value = price > 0 ? price.toFixed(6).replace(/0+$/,'').replace(/\.$/,'') : '0';
       updateTotals();
-      if(!configured) setStatus('facturaMsg','Falta configurar el precio vigente por litro en el panel de administración.',false);
+      if(!configured && !opts.silent) setStatus('facturaMsg','Falta configurar el precio vigente por litro en el panel de administración.',false);
     }
     function transferPriceReady(){
       const raw = String(precioUnitario.value ?? '').trim();
@@ -976,7 +981,7 @@
       transferConfirmModal.classList.remove('hide');
       return new Promise(resolve => { transferConfirmResolver = resolve; });
     }
-    function resetFacturaFormAfterSuccess(){
+    function resetFacturaFormAfterSuccess(opts={}){
       clienteSelect.value = '';
       litros.value = '0';
       descuento.value = '0';
@@ -996,7 +1001,7 @@
       formaPago.disabled = false;
       formaPago.value = '01';
       applyConceptCatalog();
-      applyConfiguredPrice();
+      applyConfiguredPrice({silent: !!opts.silent});
       setPublicoGeneralDefaults();
       ensureFolio();
       updateOperacionUI();
@@ -1155,7 +1160,12 @@
         let emailMsg = data.email?.ok ? ' · correo enviado' : (data.email?.error ? ` · correo pendiente: ${data.email.error}` : '');
         if(isTraspaso && transferPreStampWarning) emailMsg += ` · ${transferPreStampWarning}`;
         if(Array.isArray(data.warnings) && data.warnings.length) emailMsg += ` · ${data.warnings.join(' ')}`;
-        resetFacturaFormAfterSuccess();
+        suppressFacturaStatus = true;
+        try{
+          resetFacturaFormAfterSuccess({silent:true});
+        }finally{
+          suppressFacturaStatus = false;
+        }
         try{
           await loadFacturas();
         }catch(refreshError){
