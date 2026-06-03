@@ -1534,6 +1534,44 @@ def _gas_lp_factura_estado_excel(factura: dict) -> str:
     return "Vigente - PPD / Crédito" if str(metodo or "").upper() == "PPD" else "Vigente"
 
 
+def _gas_lp_existing_transfer_invoice(sb, user: dict, payload: GasLpInternalFacturaPayload) -> dict | None:
+    day = str(payload.fecha or "").strip()[:10]
+    if not day:
+        return None
+    try:
+        rows = (
+            sb.table("gas_lp_facturas")
+            .select("id,uuid_sat,status,fecha_timbrado,volumen_litros,metadata,created_at")
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .order("created_at", desc=True)
+            .limit(300)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_transfer_duplicate_lookup_failed user=%s perfil=%s err=%s", user.get("id"), user.get("perfil_id"), exc)
+        return None
+    target_litros = Decimal(str(payload.litros or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    for row in rows:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        if md.get("operation_type") != "transfer" and md.get("tipo_operacion") != "traspaso":
+            continue
+        if str(md.get("fecha_emision") or "").strip()[:10] != day:
+            continue
+        if _safe_int_id(md.get("internal_user_id")) != _safe_int_id(user.get("id")):
+            continue
+        if _safe_int_id(md.get("origen_facility_id") or md.get("facility_id")) != _safe_int_id(payload.facility_id):
+            continue
+        if _safe_int_id(md.get("destino_facility_id")) != _safe_int_id(payload.destino_facility_id):
+            continue
+        row_litros = Decimal(str(row.get("volumen_litros") or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+        if row_litros == target_litros:
+            return row
+    return None
+
+
 def _gas_lp_factura_total_con_iva(factura: dict) -> Decimal:
     root = _gas_lp_factura_xml_root(factura)
     if root is not None:
@@ -3373,6 +3411,23 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             raise HTTPException(400, "Selecciona la estación destino para el traspaso.")
         if int(payload.facility_id or 0) == int(payload.destino_facility_id or 0):
             raise HTTPException(400, "Origen y destino deben ser distintos para el traspaso.")
+        existing_transfer = _gas_lp_existing_transfer_invoice(sb, user, payload)
+        if existing_transfer:
+            md_existing = existing_transfer.get("metadata") if isinstance(existing_transfer.get("metadata"), dict) else {}
+            raise HTTPException(409, {
+                "message": "Ya existe un traspaso timbrado o registrado con esa fecha, origen, destino, litros y asistente. No se envió otro timbrado al PAC para evitar duplicados.",
+                "code": "gas_lp_transfer_duplicate",
+                "is_transfer": True,
+                "factura_id": existing_transfer.get("id"),
+                "uuid_sat": existing_transfer.get("uuid_sat") or "",
+                "status": existing_transfer.get("status") or "",
+                "transfer": {
+                    "fecha": str(md_existing.get("fecha_emision") or "")[:10],
+                    "origen": md_existing.get("origen_nombre") or md_existing.get("origen_facility_name") or "",
+                    "destino": md_existing.get("destino_nombre") or md_existing.get("destino_facility_name") or "",
+                    "litros": float(existing_transfer.get("volumen_litros") or 0),
+                },
+            })
     hyp_mode = _gas_lp_hyp_mode()
     if hyp_mode == "diagnostic" and not payload.hyp_experimental_diagnostics:
         raise HTTPException(400, "El modo HyP diagnóstico sólo permite pruebas persisted=false.")
