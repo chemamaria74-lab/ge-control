@@ -407,6 +407,8 @@
       const parts = [
         detail.message || fallback,
         detail.code ? `Código: ${detail.code}` : '',
+        detail.uuid_sat ? `UUID existente: ${detail.uuid_sat}` : '',
+        detail.factura_id ? `Factura ID: ${detail.factura_id}` : '',
         pac.message ? `SW: ${pac.message}` : '',
         pac.messageDetail ? `Detalle SW: ${pac.messageDetail}` : '',
         pac.status_code_sw ? `HTTP SW: ${pac.status_code_sw}` : '',
@@ -1023,6 +1025,7 @@
       const wantsCarta = false;
       if(wantsCarta && (!vehiculoSelect.value || !choferSelect.value || !rutaSelect.value)){ setStatus('facturaMsg','Para preparar Carta Porte selecciona vehículo, chofer y ruta.',false); return; }
       syncPaymentMethod();
+      let transferPreStampWarning = '';
       if(isTraspaso){
         const origen = FACILITIES.find(f => String(f.id) === String(facilitySelect.value));
         const destino = FACILITIES.find(f => String(f.id) === String(destinoFacilitySelect.value));
@@ -1041,8 +1044,9 @@
           setStatus('facturaMsg','Guardando correo predeterminado de traspasos...');
           const savedDefault = await saveTransferEmailDefaultNow();
           if(!savedDefault){
-            setStatus('facturaMsg','No se pudo guardar el correo predeterminado; no se envió el timbrado. Desmarca la casilla o corrige el correo e intenta de nuevo.',false);
-            return;
+            transferPreStampWarning = 'No se pudo guardar el correo predeterminado; el timbrado continuará usando el correo capturado.';
+            transferDebug('guardar correo predeterminado no bloquea timbrado', {warning: transferPreStampWarning});
+            if(saveTransferEmailDefault) saveTransferEmailDefault.checked = false;
           }
         }
       } else if(!confirm('¿Timbrar factura real?')) return;
@@ -1104,6 +1108,7 @@
         const data = await api(endpoint,{method:'POST',body:JSON.stringify(payload),debugTransfer:'timbrar'});
         if(isTraspaso) transferDebug('timbrar response', data);
         let emailMsg = data.email?.ok ? ' · correo enviado' : (data.email?.error ? ` · correo pendiente: ${data.email.error}` : '');
+        if(isTraspaso && transferPreStampWarning) emailMsg += ` · ${transferPreStampWarning}`;
         if(Array.isArray(data.warnings) && data.warnings.length) emailMsg += ` · ${data.warnings.join(' ')}`;
         resetFacturaFormAfterSuccess();
         try{
