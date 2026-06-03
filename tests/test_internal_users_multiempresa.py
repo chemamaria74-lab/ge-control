@@ -303,6 +303,45 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
 
         self.assertEqual([row["uuid_sat"] for row in rows], ["gas-lux-june"])
 
+    def test_gas_lp_facturas_allow_conciliacion_uuid_internal_user_id(self):
+        db = FakeDB()
+        db.rows["gas_lp_facturas"] = [
+            {
+                "id": 103,
+                "tenant_id": "tenant-a",
+                "perfil_id": 9,
+                "user_id": "admin",
+                "rfc_emisor": "GLU760309457",
+                "rfc_receptor": "XAXX010101000",
+                "uuid_sat": "gas-lux-conciliacion",
+                "fecha_timbrado": "2026-06-03T11:36:00-06:00",
+                "created_at": "2026-06-03T17:36:00+00:00",
+                "status": "Vigente",
+                "metadata": {
+                    "portal": "conciliacion_gas_lp",
+                    "internal_user_id": "5a2d3a0e-3a4c-4ad7-b5d7-9860f7213a67",
+                    "created_by": "Conciliación",
+                    "empresa_asignada_rfc": "GLU760309457",
+                    "cliente_nombre": "PUBLICO EN GENERAL",
+                },
+            }
+        ]
+        user = {
+            "id": 55,
+            "display_name": "Karina",
+            "role": "asistente_facturacion",
+            "tenant_id": "tenant-a",
+            "owner_user_id": "admin",
+            "perfil_id": 1,
+        }
+        profile = {"id": 1, "tenant_id": "tenant-a", "nombre": "GAS LUX", "rfc": "GLU760309457"}
+
+        rows = internal_users._gas_lp_company_facturas_rows(db, user, profile, month="2026-06", limit=10000)
+        internal_users._gas_lp_attach_internal_creators(db, rows)
+
+        self.assertEqual([row["uuid_sat"] for row in rows], ["gas-lux-conciliacion"])
+        self.assertEqual(internal_users._gas_lp_factura_realizado_por(rows[0]), "Conciliación")
+
 
 if __name__ == "__main__":
     unittest.main()
