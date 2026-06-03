@@ -56,6 +56,44 @@ def test_conciliacion_publico_general_payload_keeps_operational_defaults():
     assert "stop_on_success" not in data
 
 
+def test_publico_general_xml_auto_includes_informacion_global():
+    xml, totals = internal_users._build_gas_lp_consumo_xml(
+        issuer={
+            "rfc": "AGA990907II8",
+            "nombre": "AURE GAS",
+            "cp": "99300",
+            "regimen": "601",
+        },
+        receptor={
+            "rfc": "XAXX010101000",
+            "nombre": "PUBLICO EN GENERAL",
+            "cp": "99300",
+            "regimen_fiscal": "616",
+            "uso_cfdi": "S01",
+        },
+        litros=100,
+        precio_unitario=10,
+        concepto="LITRO DE GAS LP",
+        forma_pago="01",
+        metodo_pago="PUE",
+        descuento=0,
+        iva_rate=0.16,
+        serie="P3U30",
+        folio="000003",
+        comentarios="",
+        fecha="2026-06-03T10:00",
+        clave_prod_serv="15111510",
+        no_identificacion="GLP-LTR",
+        unidad="Litro",
+        hyp={},
+        informacion_global=None,
+    )
+
+    assert totals["total"] == 1000.0
+    assert '<cfdi:InformacionGlobal Periodicidad="04" Meses="06" Año="2026"/>' in xml
+    assert 'Rfc="XAXX010101000" Nombre="PUBLICO EN GENERAL"' in xml
+
+
 def test_conciliacion_backend_records_origin_and_uses_conciliation_export_columns():
     public_source = inspect.getsource(internal_users.gas_lp_conciliacion_facturar_publico_general)
     export_source = inspect.getsource(internal_users.gas_lp_conciliacion_export_excel)
