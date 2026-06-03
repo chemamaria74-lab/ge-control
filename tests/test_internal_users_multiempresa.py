@@ -54,7 +54,13 @@ class FakeQuery:
             row.setdefault("id", self.db.next_id(self.table))
             self.db.rows[self.table].append(row)
             return FakeResult([dict(row)])
-        matched = [r for r in self.db.rows[self.table] if all(r.get(k) == v for k, v in self.filters)]
+        def value_for(row, key):
+            if "->>" in key:
+                root, child = key.split("->>", 1)
+                nested = row.get(root)
+                return nested.get(child) if isinstance(nested, dict) else None
+            return row.get(key)
+        matched = [r for r in self.db.rows[self.table] if all(value_for(r, k) == v for k, v in self.filters)]
         if self.update_row is not None:
             for row in matched:
                 row.update(self.update_row)
@@ -261,6 +267,41 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
 
         self.assertEqual([row["uuid_sat"] for row in rows], ["13f8787f-43e7-4d3c-81b4-1741304cc6fa"])
         self.assertEqual(rows[0]["rfc_receptor"], "XAXX010101000")
+
+    def test_gas_lp_facturas_are_visible_by_empresa_asignada_rfc_metadata(self):
+        db = FakeDB()
+        db.rows["gas_lp_facturas"] = [
+            {
+                "id": 102,
+                "tenant_id": "tenant-a",
+                "perfil_id": 9,
+                "user_id": "anabel",
+                "rfc_receptor": "XAXX010101000",
+                "uuid_sat": "gas-lux-june",
+                "fecha_timbrado": "2026-06-03T10:10:00-06:00",
+                "created_at": "2026-06-03T16:10:00+00:00",
+                "status": "timbrada",
+                "metadata": {
+                    "fecha_emision": "2026-06-03T10:10:00",
+                    "empresa_asignada_rfc": "GLU760309457",
+                    "cliente_nombre": "PUBLICO EN GENERAL",
+                    "created_by": "Anabel",
+                },
+            }
+        ]
+        user = {
+            "id": 55,
+            "display_name": "Anabel",
+            "role": "asistente_facturacion",
+            "tenant_id": "tenant-a",
+            "owner_user_id": "admin",
+            "perfil_id": 1,
+        }
+        profile = {"id": 1, "tenant_id": "tenant-a", "nombre": "GAS LUX", "rfc": "GLU760309457"}
+
+        rows = internal_users._gas_lp_company_facturas_rows(db, user, profile, month="2026-06", limit=10000)
+
+        self.assertEqual([row["uuid_sat"] for row in rows], ["gas-lux-june"])
 
 
 if __name__ == "__main__":
