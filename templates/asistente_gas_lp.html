@@ -144,7 +144,7 @@
           <div id="litrosField"><label>Litros</label><input id="litros" type="number" min="0" step="0.00001" value="0" oninput="updateTotals()"></div>
           <div id="precioField"><label for="precioUnitario">Precio por litro con IVA</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
           <div id="descuentoTipoField"><label>Tipo de descuento</label><select id="descuentoTipo" onchange="updateDiscountMode()"><option value="sin_descuento" selected>Sin descuento</option><option value="por_litro">Descuento por litro</option><option value="total_pesos">Descuento total en pesos</option></select></div>
-          <div id="descuentoField"><label id="descuentoLabel">Descuento por litro con IVA</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
+          <div id="descuentoField" class="hide"><label id="descuentoLabel">Descuento por litro a restar</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
           <div id="ivaField"><label>IVA</label><select id="ivaRate" class="locked-field" disabled><option value="0.16">16%</option></select></div>
           <div id="metodoPagoField"><label>Método de pago</label><select id="metodoPago" onchange="syncPaymentMethod()"><option value="PUE">PUE - Pago en una sola exhibición</option><option value="PPD">PPD - Pago en parcialidades</option></select></div>
           <div id="formaPagoField"><label>Forma de pago</label><select id="formaPago"><option value="01">01 - Efectivo</option><option value="02">02 - Cheque nominativo</option><option value="03">03 - Transferencia</option><option value="04">04 - Tarjeta de crédito</option><option value="28">28 - Tarjeta de débito</option><option value="99">99 - Por definir</option></select></div>
@@ -158,7 +158,7 @@
         </div>
         <div class="invoice-summary" style="margin-top:12px">
           <div><span>Subtotal</span><b id="sumSubtotal">$0.00</b></div>
-          <div><span>Descuento total</span><b id="sumDescuento">$0.00</b></div>
+          <div><span>Descuento aplicado</span><b id="sumDescuento">$0.00</b></div>
           <div><span>IVA 16%</span><b id="sumIva">$0.00</b></div>
           <div><span>Total</span><b id="sumTotal">$0.00</b></div>
         </div>
@@ -912,7 +912,7 @@
     }
     function updateDiscountMode(){
       const mode = descuentoTipo?.value || 'sin_descuento';
-      if(descuentoLabel) descuentoLabel.textContent = mode === 'total_pesos' ? 'Descuento total con IVA' : 'Descuento por litro con IVA';
+      if(descuentoLabel) descuentoLabel.textContent = mode === 'total_pesos' ? 'Descuento total a restar' : 'Descuento por litro a restar';
       if(descuentoField) descuentoField.classList.toggle('hide', mode === 'sin_descuento');
       if(mode === 'sin_descuento' && descuento) descuento.value = '0';
       updateTotals();
@@ -968,7 +968,7 @@
       const desc = rate > 0 ? descGross / (1 + rate) : descGross;
       const iva = netGross - sub;
       sumSubtotal.textContent = money(sub);
-      sumDescuento.textContent = money(desc);
+      sumDescuento.textContent = money(descGross);
       sumIva.previousElementSibling.textContent = `IVA ${Math.round(rate * 100)}%`;
       sumIva.textContent = money(iva);
       sumTotal.textContent = money(netGross);
