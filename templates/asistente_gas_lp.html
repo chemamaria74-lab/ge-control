@@ -928,13 +928,26 @@
       if(mode === 'total_pesos') return raw;
       return Math.max(Number(litrosNum || 0), 0) * raw;
     }
-    function discountPerLiterForPayload(litrosNum, precioNum, isTraspaso=false){
-      if(isTraspaso || Number(litrosNum || 0) <= 0) return 0;
+    function discountBaseValue(litrosNum, precioNum, isTraspaso=false){
+      if(isTraspaso) return 0;
+      const mode = descuentoTipo?.value || 'sin_descuento';
+      if(mode === 'sin_descuento') return 0;
       const rate = Number(ivaRate.value || 0);
       const gross = Math.max(Number(litrosNum || 0) * Number(precioNum || 0), 0);
       const subtotalBase = rate > 0 ? gross / (1 + rate) : gross;
-      const discountFiscal = Math.min(discountGrossValue(litrosNum, precioNum, false), subtotalBase);
-      return discountFiscal / Number(litrosNum || 1);
+      const discountGross = Math.min(discountGrossValue(litrosNum, precioNum, false), gross);
+      if(mode === 'por_litro') return rate > 0 ? discountGross / (1 + rate) : discountGross;
+      return Math.min(discountGross, subtotalBase);
+    }
+    function discountPerLiterForPayload(litrosNum, precioNum, isTraspaso=false){
+      if(isTraspaso || Number(litrosNum || 0) <= 0) return 0;
+      const mode = descuentoTipo?.value || 'sin_descuento';
+      const raw = Math.max(Number(descuento?.value || 0), 0);
+      if(mode === 'sin_descuento') return 0;
+      if(mode === 'por_litro') return Math.min(raw, Math.max(Number(precioNum || 0), 0));
+      const gross = Math.max(Number(litrosNum || 0) * Number(precioNum || 0), 0);
+      const discountGross = Math.min(raw, gross);
+      return discountGross / Number(litrosNum || 1);
     }
     async function saveClienteFromTab(){
       try{
@@ -968,12 +981,13 @@
       const symbolicTransfer = transferUsesSymbolicAmount(precioNum, isTraspaso) && litrosNum > 0;
       const gross = symbolicTransfer ? transferDisplayGross(litrosNum, precioNum, 0, true) : litrosNum * precioNum;
       const subtotalBase = rate > 0 ? gross / (1 + rate) : gross;
-      const descFiscal = symbolicTransfer ? 0 : Math.min(discountGrossValue(litrosNum, precioNum, isTraspaso), subtotalBase);
+      const descFiscal = symbolicTransfer ? 0 : discountBaseValue(litrosNum, precioNum, isTraspaso);
+      const descDisplay = symbolicTransfer ? 0 : (descuentoTipo?.value === 'por_litro' ? Math.min(discountGrossValue(litrosNum, precioNum, isTraspaso), gross) : descFiscal);
       const sub = Math.max(subtotalBase - descFiscal, 0);
       const iva = sub * rate;
       const total = sub + iva;
       sumSubtotal.textContent = money(sub);
-      sumDescuento.textContent = money(descFiscal);
+      sumDescuento.textContent = money(descDisplay);
       sumIva.previousElementSibling.textContent = `IVA ${Math.round(rate * 100)}%`;
       sumIva.textContent = money(iva);
       sumTotal.textContent = money(total);
@@ -1093,13 +1107,15 @@
       const rateVal = Number(ivaRate.value || 0);
       const totalBrutoVal = litrosVal * precioVal;
       const subtotalBrutoVal = rateVal > 0 ? totalBrutoVal / (1 + rateVal) : totalBrutoVal;
-      const totalVal = isTraspaso ? transferDisplayGross(litrosVal, precioVal, 0, true) : Math.max((subtotalBrutoVal - descuentoGrossVal) * (1 + rateVal), 0);
+      const descuentoBaseVal = discountBaseValue(litrosVal, precioVal, isTraspaso);
+      const totalVal = isTraspaso ? transferDisplayGross(litrosVal, precioVal, 0, true) : Math.max((subtotalBrutoVal - descuentoBaseVal) * (1 + rateVal), 0);
       if(litrosVal <= 0){ setStatus('facturaMsg','Captura litros mayores a cero.',false); return; }
       if(precioVal < 0){ setStatus('facturaMsg','El precio no puede ser negativo.',false); return; }
       if(isTraspaso && !transferPriceReady()){ setStatus('facturaMsg','Falta precio interno configurado para timbrar el traspaso.',false); return; }
       if(!isTraspaso && precioVal <= 0){ setStatus('facturaMsg','Captura litros y configura un precio vigente mayor a cero.',false); return; }
       if(!isTraspaso && Number(descuento.value || 0) < 0){ setStatus('facturaMsg','El descuento no puede ser negativo.',false); return; }
-      if(!isTraspaso && descuentoGrossVal > subtotalBrutoVal){ setStatus('facturaMsg','El descuento total no puede ser mayor al subtotal antes de IVA.',false); return; }
+      if(!isTraspaso && descuentoTipo?.value === 'por_litro' && descuentoGrossVal > totalBrutoVal){ setStatus('facturaMsg','El descuento por litro no puede ser mayor al precio por litro.',false); return; }
+      if(!isTraspaso && descuentoTipo?.value !== 'por_litro' && descuentoGrossVal > subtotalBrutoVal){ setStatus('facturaMsg','El descuento total no puede ser mayor al subtotal antes de IVA.',false); return; }
       if(!isTraspaso && totalVal <= 0){ setStatus('facturaMsg','El total de la factura debe ser mayor a cero. Revisa precio y descuento.',false); return; }
       if(tipoOperacion.value === 'carta_porte'){
         setStatus('facturaMsg','Carta Porte en configuración. Para traslados internos usa Traspaso a estación y registra origen/destino.',false);
