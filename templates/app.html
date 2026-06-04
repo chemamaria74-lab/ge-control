@@ -1872,7 +1872,7 @@ tr:hover td{background:#f8fafc}
 <div class="card">
   <h2><i class="fa-solid fa-building-columns" style="margin-right:.35rem"></i><span data-en="Company Profile">Perfil de la Empresa</span> <small style="font-size:.72rem;color:#888;font-weight:400">(se guarda automáticamente)</small></h2>
   <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem">
-    Este domicilio corresponde al domicilio fiscal del RFC emisor. Los domicilios operativos se configuran por instalación.
+    El CP fiscal se usa como Lugar de Expedición. Los domicilios operativos se configuran por instalación.
   </div>
   <div class="grid3">
     <div class="field"><label><span data-en="Taxpayer RFC">RFC del Contribuyente</span></label>
@@ -1893,18 +1893,6 @@ tr:hover td{background:#f8fafc}
       </select>
       <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Se usa para timbrado CFDI y Carta Porte. El CP también se usa como LugarExpedición.</div>
     </div>
-    <div class="field"><label>Municipio fiscal</label>
-      <input id="fiscal_municipio" placeholder="Ej. Teocaltiche"></div>
-    <div class="field"><label>Estado fiscal</label>
-      <input id="fiscal_estado" placeholder="Ej. Jalisco"></div>
-    <div class="field"><label>País fiscal</label>
-      <input id="fiscal_pais" placeholder="México"></div>
-  </div>
-  <div class="field" style="margin-top:.8rem"><label>Domicilio / calle fiscal</label>
-    <input id="fiscal_calle" placeholder="Ej. Km 1+500 de la Carretera Teocaltiche-Jaralillo"></div>
-  <div class="field" style="margin-top:.8rem"><label>Domicilio fiscal completo / referencia</label>
-    <input id="fiscal_domicilio" placeholder="Texto original o referencia del domicilio fiscal"></div>
-  <div class="grid3" style="margin-top:.8rem">
     <div class="field"><label>RFC Representante Legal <span style="font-size:.68rem;color:#7c3aed;font-weight:600">(→ RfcRepresentanteLegal en JSON)</span></label>
       <input id="sat_rfc_rep" placeholder="Ej. OEMR710420FCA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
       <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Solo personas morales. Si se captura, se incluye en el nodo raíz del reporte mensual SAT con prioridad alta.</div>
@@ -3274,9 +3262,9 @@ function resetAppState() {
   _appState.invalidate();  // forzar re-fetch de settings del nuevo perfil
 
   // ── 1. Limpiar campos de Configuración básica ──────────────────────────────
-  ['rfc','fiscal_name','fiscal_cp','fiscal_regimen','fiscal_calle','fiscal_domicilio','fiscal_municipio','fiscal_estado','fiscal_pais','sat_rfc_rep','sat_rfc_prov','factor_conversion'].forEach(id => {
+  ['rfc','fiscal_name','fiscal_cp','fiscal_regimen','sat_rfc_rep','sat_rfc_prov','factor_conversion'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.value = id === 'factor_conversion' ? '0.542' : (id === 'fiscal_regimen' ? '601' : (id === 'fiscal_pais' ? 'México' : ''));
+    if (el) el.value = id === 'factor_conversion' ? '0.542' : (id === 'fiscal_regimen' ? '601' : '');
   });
   const stEl = document.getElementById('settingsStatus');
   if (stEl) { stEl.textContent = ''; stEl.className = 'settings-status'; }
@@ -3470,7 +3458,7 @@ async function loadSettings() {
     const data = await _appState.loadSettings();
     // Limpiar primero solo si el perfil cambió (appState detectó diferencia)
     // Si es el mismo perfil, actualizar sin limpiar para no borrar input en curso
-    ['rfc','fiscal_name','fiscal_cp','fiscal_calle','fiscal_domicilio','fiscal_municipio','fiscal_estado','sat_rfc_rep','sat_rfc_prov'].forEach(id => {
+    ['rfc','fiscal_name','fiscal_cp','sat_rfc_rep','sat_rfc_prov'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -3482,16 +3470,6 @@ async function loadSettings() {
     if (fiscalCpEl) fiscalCpEl.value = String(data.CodigoPostal || data.codigo_postal || '').slice(0, 5);
     const fiscalRegimenEl = document.getElementById('fiscal_regimen');
     if (fiscalRegimenEl) fiscalRegimenEl.value = data.RegimenFiscal || data.regimen_fiscal || '601';
-    const fiscalDomicilioEl = document.getElementById('fiscal_domicilio');
-    if (fiscalDomicilioEl) fiscalDomicilioEl.value = data.DomicilioFiscalReferencia || data.DomicilioFiscal || data.domicilio || '';
-    const fiscalCalleEl = document.getElementById('fiscal_calle');
-    if (fiscalCalleEl) fiscalCalleEl.value = data.DomicilioFiscalCalle || data.calle || '';
-    const fiscalMunicipioEl = document.getElementById('fiscal_municipio');
-    if (fiscalMunicipioEl) fiscalMunicipioEl.value = data.FiscalMunicipio || data.municipio || '';
-    const fiscalEstadoEl = document.getElementById('fiscal_estado');
-    if (fiscalEstadoEl) fiscalEstadoEl.value = data.FiscalEstado || data.estado || '';
-    const fiscalPaisEl = document.getElementById('fiscal_pais');
-    if (fiscalPaisEl) fiscalPaisEl.value = data.FiscalPais || data.pais || 'México';
     const repEl = document.getElementById('sat_rfc_rep');
     if (repEl) repEl.value = data.RfcRepresentanteLegal || '';
     const provEl = document.getElementById('sat_rfc_prov');
@@ -3515,11 +3493,6 @@ async function saveSettings() {
   const fiscalNameVal = (document.getElementById('fiscal_name')?.value || '').trim();
   const fiscalCpVal = (document.getElementById('fiscal_cp')?.value || '').trim().replace(/\D/g, '').slice(0, 5);
   const fiscalRegimenVal = (document.getElementById('fiscal_regimen')?.value || '601').trim();
-  const fiscalCalleVal = (document.getElementById('fiscal_calle')?.value || '').trim();
-  const fiscalDomicilioVal = (document.getElementById('fiscal_domicilio')?.value || '').trim();
-  const fiscalMunicipioVal = (document.getElementById('fiscal_municipio')?.value || '').trim();
-  const fiscalEstadoVal = (document.getElementById('fiscal_estado')?.value || '').trim();
-  const fiscalPaisVal = (document.getElementById('fiscal_pais')?.value || 'México').trim() || 'México';
   const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
   const logoVal = document.getElementById('pdf_logo_data')?.value || '';
   const payload = { FactorDeConversionKgALitros: factorVal };
@@ -3527,11 +3500,6 @@ async function saveSettings() {
   payload.DescripcionInstalacion = fiscalNameVal;
   payload.CodigoPostal = fiscalCpVal;
   payload.RegimenFiscal = fiscalRegimenVal;
-  payload.DomicilioFiscalCalle = fiscalCalleVal;
-  payload.DomicilioFiscalReferencia = fiscalDomicilioVal;
-  payload.FiscalMunicipio = fiscalMunicipioVal;
-  payload.FiscalEstado = fiscalEstadoVal;
-  payload.FiscalPais = fiscalPaisVal;
   payload.PdfLogoDataUrl = logoVal;
   if (repVal)  payload.RfcRepresentanteLegal  = repVal;
   if (provVal) payload.RfcProveedor           = provVal;
