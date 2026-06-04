@@ -117,6 +117,11 @@ header i{color:#f8fafc}
 .empresa-name-cell,.empresa-desc-cell{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .empresa-actions-cell{display:flex;gap:.25rem;justify-content:flex-end;align-items:center;flex-wrap:nowrap}
 .empresa-actions-cell button,.empresa-actions-cell span{white-space:nowrap}
+.admin-config-grid{display:grid;grid-template-columns:minmax(280px,.78fr) minmax(460px,1.22fr);gap:1rem;align-items:start}
+.admin-config-grid .card{height:100%}
+.admin-subscription-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem;margin-top:1rem}
+.admin-note{font-size:.76rem;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.7rem .85rem;margin-bottom:.8rem;line-height:1.5}
+@media(max-width:900px){.admin-config-grid,.admin-subscription-grid{grid-template-columns:1fr}.empresa-actions-cell{justify-content:flex-start;flex-wrap:wrap}}
 .empresa-nueva-btn{width:100%;padding:.7rem;border:2px dashed #cbd5e1;border-radius:10px;background:transparent;color:#64748b;font-size:.84rem;cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:.5rem}
 .empresa-nueva-btn:hover{border-color:#0f766e;color:#0f766e;background:#f0fdfa}
 /* ── Multi-empresa: selector en navbar ─────────────────────────────────── */
@@ -1816,13 +1821,14 @@ tr:hover td{background:#f8fafc}
      ══════════════════════════════════════════════════════════════ -->
 <div class="main-panel" id="mpanel-config">
 
+<div class="admin-config-grid">
 <!-- ── Suscripción ─────────────────────────────────────────────────────── -->
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:.8rem;flex-wrap:wrap">
     <h2 style="margin:0"><i class="fa-solid fa-credit-card" style="margin-right:.35rem;color:#7A1E2C"></i>Suscripción</h2>
     <button type="button" onclick="alert('Para actualizar tu plan, contacta al equipo comercial de GE CONTROL.')" style="padding:.44rem 1rem;font-size:.8rem;font-weight:700;border-radius:8px;background:#7A1E2C;color:#fff;border:0;cursor:pointer;font-family:inherit">Actualizar plan</button>
   </div>
-  <div id="subscriptionPanel" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.7rem;margin-top:1rem">
+  <div id="subscriptionPanel" class="admin-subscription-grid">
     <div class="sat-meta-box"><div class="label">Plan actual</div><div class="value" id="subPlanName">—</div></div>
     <div class="sat-meta-box"><div class="label">Empresas utilizadas</div><div class="value" id="subCompaniesUsed">—</div></div>
     <div class="sat-meta-box"><div class="label">Límite</div><div class="value" id="subCompaniesLimit">—</div></div>
@@ -1841,6 +1847,9 @@ tr:hover td{background:#f8fafc}
   <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem;line-height:1.5">
     Cada razón social tiene su propia configuración SAT, instalaciones y proveedores. Cambia entre ellas con el selector en la barra superior.
   </div>
+  <div class="admin-note">
+    La empresa activa se selecciona desde la barra superior. Esta sección solo administra las razones sociales registradas.
+  </div>
   <div class="empresa-table-wrap">
     <table id="tblPerfiles" class="empresa-table">
       <thead>
@@ -1857,12 +1866,13 @@ tr:hover td{background:#f8fafc}
     </table>
   </div>
 </div>
+</div>
 
 <!-- ── Perfil de la empresa (datos globales) ────────────────────────────── -->
 <div class="card">
   <h2><i class="fa-solid fa-building-columns" style="margin-right:.35rem"></i><span data-en="Company Profile">Perfil de la Empresa</span> <small style="font-size:.72rem;color:#888;font-weight:400">(se guarda automáticamente)</small></h2>
   <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem">
-    Datos globales del RFC titular. Los permisos y claves por instalación se configuran en la tabla de Instalaciones.
+    Este domicilio corresponde al domicilio fiscal del RFC emisor. Los domicilios operativos se configuran por instalación.
   </div>
   <div class="grid3">
     <div class="field"><label><span data-en="Taxpayer RFC">RFC del Contribuyente</span></label>
@@ -3418,17 +3428,13 @@ async function cargarPanelPerfiles() {
     return;
   }
   tbody.innerHTML = perfiles.map(p => {
-    const isActivo = _perfilSeleccionado && _perfilSeleccionado.id === p.id;
     return `<tr>
-      <td style="font-weight:${isActivo?'700':'400'};color:${isActivo?'#0f766e':'inherit'}">
-        <span class="empresa-name-cell" title="${(p.nombre||'').replace(/"/g,'&quot;')}">${p.nombre}</span>${isActivo?' <span style="font-size:.68rem;background:#0f766e;color:#fff;border-radius:99px;padding:.1rem .5rem">Activo</span>':''}
+      <td>
+        <span class="empresa-name-cell" title="${(p.nombre||'').replace(/"/g,'&quot;')}">${p.nombre}</span>
       </td>
       <td><code style="font-size:.8rem">${p.rfc||'—'}</code></td>
       <td class="empresa-col-desc" style="color:#64748b;font-size:.8rem"><span class="empresa-desc-cell" title="${(p.descripcion||'').replace(/"/g,'&quot;')}">${p.descripcion||'—'}</span></td>
       <td><div class="empresa-actions-cell">
-        ${!isActivo ? `<button onclick="seleccionarEmpresaById(${p.id})"
-          style="padding:.34rem .7rem;font-size:.75rem;background:#eff6ff;color:#1e40af;border:1px solid #93c5fd;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:700">
-          <i class="fa-solid fa-right-to-bracket" style="margin-right:.25rem"></i>Usar</button>` : '<span class="empresa-item-badge">Activo</span>'}
         <button onclick="editarPerfilActivoById(${p.id})"
           style="padding:.34rem .55rem;font-size:.75rem;background:#fff;color:#334155;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:700">
           <i class="fa-solid fa-pen-to-square" style="margin-right:.25rem"></i>Editar</button>
