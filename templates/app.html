@@ -3753,7 +3753,7 @@ function renderFacilitiesTable(facilities, diagnostics = {}) {
     const hasAdv  = f.latitud || f.clave_tanque || f.incertidumbre_medidor;
     const advBadge = hasAdv ? ' <span title="Config. Avanzada configurada" style="font-size:.65rem;background:#ede9fe;color:#7c3aed;border-radius:4px;padding:.1rem .35rem;font-weight:600">⚙</span>' : '';
     const cp = f.codigo_postal || f.cp || f.domicilio_cp || '';
-    const domicilio = f.domicilio || f.direccion || f.address || [f.calle, f.num_ext, f.colonia, f.municipio, f.estado, f.pais].filter(Boolean).join(', ');
+    const domicilio = facilityAddressText(f) || [f.calle, f.num_ext, f.colonia, f.municipio, f.estado, f.pais].filter(Boolean).join(', ');
     return `
     <tr>
       <td><b>${f.nombre || ''}</b>${advBadge}</td>
@@ -3774,6 +3774,92 @@ function renderFacilitiesTable(facilities, diagnostics = {}) {
       </td>
     </tr>`;
   }).join('');
+}
+
+function firstText() {
+  for (const value of arguments) {
+    const text = String(value || '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function extractCpFromAddress(text) {
+  const match = String(text || '').match(/(?:C\.?\s*P\.?|CP)?\s*(\d{5})(?!\d)/i);
+  return match ? match[1] : '';
+}
+
+function stripCpFromAddress(text, cp) {
+  let cleaned = String(text || '');
+  if (cp) cleaned = cleaned.replace(new RegExp(',?\\s*(?:C\\.?\\s*P\\.?|CP)?\\s*' + cp + '(?!\\d)', 'i'), '');
+  return cleaned.replace(/\s+/g, ' ').replace(/^[,\s.]+|[,\s.]+$/g, '');
+}
+
+function splitStreetAndExterior(text) {
+  const cleaned = String(text || '').trim();
+  const kmMatch = cleaned.match(/^(.*?)(\bKm\s*\d+(?:\s+\d+)?)$/i);
+  if (kmMatch) return { calle: kmMatch[1].trim().replace(/[,\s]+$/g, ''), num_ext: kmMatch[2].trim() };
+  return { calle: cleaned, num_ext: '' };
+}
+
+function facilityAddressText(fac) {
+  const md = fac?.metadata || {};
+  const imp = fac?.import_payload || {};
+  return firstText(
+    fac?.domicilio,
+    fac?.domicilio_operativo,
+    fac?.domicilio_completo,
+    fac?.direccion,
+    fac?.address,
+    md.domicilio,
+    md.domicilio_operativo,
+    md.direccion,
+    imp.domicilio,
+    imp.domicilio_operativo,
+    imp.direccion
+  );
+}
+
+function parseFacilityAddress(fac) {
+  const permiso = String(fac?.num_permiso || '').trim().toUpperCase();
+  const general = facilityAddressText(fac);
+  const cp = firstText(fac?.codigo_postal, fac?.cp, fac?.domicilio_cp, extractCpFromAddress(general));
+  if (permiso === 'LP/14341/DIST/PLA/2016') {
+    return {
+      codigo_postal: cp || '98470',
+      estado: 'Zacatecas',
+      municipio: 'Villa de Cos',
+      calle: 'Carr Federal Num 54 Tramo Morelos a Concepción del Oro Zac',
+      num_ext: 'Km 49 500',
+      colonia: '',
+      pais: firstText(fac?.pais, 'México'),
+      domicilio: 'Carr Federal Num 54 Tramo Morelos a Concepción del Oro Zac Km 49 500, C.P. 98470, Villa de Cos, Zacatecas.'
+    };
+  }
+  const withoutCp = stripCpFromAddress(general, cp);
+  const parts = withoutCp.split(',').map(s => s.trim()).filter(Boolean);
+  const parsed = {
+    codigo_postal: cp,
+    estado: '',
+    municipio: '',
+    calle: '',
+    num_ext: '',
+    colonia: '',
+    pais: firstText(fac?.pais, 'México'),
+    domicilio: general,
+  };
+  if (parts.length >= 3) {
+    parsed.estado = parts[parts.length - 1] || '';
+    parsed.municipio = parts[parts.length - 2] || '';
+    const street = splitStreetAndExterior(parts.slice(0, -2).join(', '));
+    parsed.calle = street.calle;
+    parsed.num_ext = street.num_ext;
+  } else if (parts.length === 1) {
+    const street = splitStreetAndExterior(parts[0]);
+    parsed.calle = street.calle;
+    parsed.num_ext = street.num_ext;
+  }
+  return parsed;
 }
 
 // ── Uploader lock: disable/enable file inputs and buttons ─────────────────
@@ -3998,6 +4084,7 @@ function openAddFacility() {
 function openEditFacility(id) {
   const fac = _facilities.find(f => f.id === id);
   if (!fac) return;
+  const addr = parseFacilityAddress(fac);
   document.getElementById('facilityEditId').value          = id;
   document.getElementById('facilityFormTitle').textContent = `Editar: ${fac.nombre}`;
   document.getElementById('fac_nombre').value              = fac.nombre || '';
@@ -4012,14 +4099,14 @@ function openEditFacility(id) {
   document.getElementById('fac_desc').value                = fac.descripcion || '';
   document.getElementById('fac_tanques').value             = fac.num_tanques ?? 1;
   document.getElementById('fac_dispensarios').value        = fac.num_dispensarios ?? 0;
-  document.getElementById('fac_codigo_postal').value        = fac.codigo_postal || fac.cp || fac.domicilio_cp || '';
-  document.getElementById('fac_domicilio').value            = fac.domicilio || fac.direccion || fac.address || '';
-  document.getElementById('fac_calle').value                = fac.calle || '';
-  document.getElementById('fac_num_ext').value              = fac.num_ext || fac.numero_exterior || '';
+  document.getElementById('fac_codigo_postal').value        = firstText(fac.codigo_postal, fac.cp, fac.domicilio_cp, addr.codigo_postal);
+  document.getElementById('fac_domicilio').value            = firstText(fac.domicilio, addr.domicilio, fac.domicilio_operativo, fac.direccion, fac.address);
+  document.getElementById('fac_calle').value                = firstText(fac.calle, addr.calle);
+  document.getElementById('fac_num_ext').value              = firstText(fac.num_ext, fac.numero_exterior, addr.num_ext);
   document.getElementById('fac_colonia').value              = fac.colonia || '';
-  document.getElementById('fac_municipio').value            = fac.municipio || '';
-  document.getElementById('fac_estado').value               = fac.estado || '';
-  document.getElementById('fac_pais').value                 = fac.pais || 'México';
+  document.getElementById('fac_municipio').value            = firstText(fac.municipio, addr.municipio);
+  document.getElementById('fac_estado').value               = firstText(fac.estado, addr.estado);
+  document.getElementById('fac_pais').value                 = firstText(fac.pais, addr.pais, 'México');
   document.getElementById('facilityFormStatus').textContent = '';
   // Populate adv fields from existing facility data
   document.getElementById('fac_clave_tanque').value              = fac.clave_tanque || '';
