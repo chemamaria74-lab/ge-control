@@ -35,6 +35,11 @@
     .op-tag{display:inline-flex;align-items:center;border:1px solid #E5E7EB;background:#F8FAFC;color:#475569;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:900;line-height:1}.op-tag.transfer{border-color:#eadcff;background:#fbf8ff;color:#7c2d92}.cell-main{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cell-main.transfer-route{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25}.cell-sub{display:block;color:#667085;font-size:11.5px;line-height:1.25;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .doc-actions{display:flex;gap:5px;flex-wrap:wrap}.facturas-table .doc-actions.icon-docs{display:grid;grid-template-columns:repeat(2,26px);gap:4px;align-items:center;justify-content:start;min-width:0}.doc-icon{width:26px!important;height:26px!important;min-width:26px!important;padding:0!important;border-radius:7px;font-size:0!important}.doc-icon i{font-size:11px;margin:0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .selection{position:sticky;bottom:0;margin-top:12px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;justify-content:space-between;gap:10px;align-items:center;box-shadow:0 -10px 30px rgba(15,23,42,.08)}
+    .complementos-pendientes-scroll{max-height:min(360px,calc(100vh - 430px));min-height:220px}
+    .complementos-pendientes-scroll thead th,.complementos-emitidos-scroll thead th{position:sticky;top:0;z-index:2}
+    .complementos-emitidos-panel{margin-top:14px}
+    .complementos-emitidos-scroll{max-height:min(420px,calc(100vh - 390px));min-height:220px}
+    .complementos-emitidos-table{min-width:1180px}
     .status{font-size:13px;font-weight:900;margin-top:8px}.ok{color:var(--ok)}.err{color:var(--err)}.warn{color:var(--warn)}
     .notice{background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:10px 12px;color:#475569;font-size:12px}
     .modal-backdrop{position:fixed;inset:0;z-index:80;background:rgba(15,23,42,.56);display:none;align-items:center;justify-content:center;padding:18px}
@@ -152,10 +157,19 @@
           <div><label>Banco (opcional)</label><input id="bancoPago"></div>
           <div><label>Referencia (opcional)</label><input id="referenciaPago"></div>
         </div>
-        <div style="margin-bottom:12px"><label>Buscar complemento</label><input id="compClienteFiltro" placeholder="Cliente, RFC, UUID o monto" oninput="renderAll()"></div>
-        <div class="table-wrap"><table><thead><tr><th></th><th>Fecha</th><th>Cliente</th><th>UUID</th><th>Total</th><th>Saldo</th><th>Validación</th><th>Realizado por</th></tr></thead><tbody id="complementosRows"></tbody></table></div>
+        <div style="margin-bottom:12px"><label>Buscar pendiente</label><input id="compClienteFiltro" placeholder="Cliente, RFC, UUID o monto" oninput="renderAll()"></div>
+        <div class="table-wrap complementos-pendientes-scroll"><table><thead><tr><th></th><th>Fecha</th><th>Cliente</th><th>UUID</th><th>Total</th><th>Saldo</th><th>Validación</th><th>Realizado por</th></tr></thead><tbody id="complementosRows"></tbody></table></div>
         <div class="selection"><div><b id="selTotal">$0.00</b><div class="muted" id="selCliente">Sin cliente seleccionado</div></div><div class="toolbar"><button class="btn ghost" onclick="clearSel()">Limpiar</button><button class="btn" id="btnTimbrarComplemento" onclick="timbrarComplemento()">Timbrar complemento</button></div></div>
         <div id="compMsg" class="status"></div>
+      </div>
+      <div class="panel complementos-emitidos-panel">
+        <div class="section-head">
+          <div><h2>Complementos emitidos</h2><div class="muted small">Historial reciente de complementos timbrados para la empresa activa.</div></div>
+          <span class="pill neutral" id="compEmitidosCount">0 complementos</span>
+        </div>
+        <div style="margin-bottom:12px"><label>Buscar emitidos</label><input id="compEmitidosFiltro" placeholder="Cliente, RFC, UUID, factura o realizado por" oninput="renderComplementosEmitidos()"></div>
+        <div class="table-wrap complementos-emitidos-scroll"><table class="complementos-emitidos-table"><thead><tr><th>Fecha pago</th><th>Timbrado</th><th>Cliente</th><th>Factura(s)</th><th>Monto</th><th>Realizado por</th><th>Correo</th><th>Docs</th></tr></thead><tbody id="compEmitidosRows"><tr><td colspan="8">Cargando complementos emitidos...</td></tr></tbody></table></div>
+        <div id="compEmitidosMsg" class="status"></div>
       </div>
     </section>
 
@@ -302,13 +316,13 @@
     function updateHeaderCompany(){const p=activePerfil();if(topRfcLabel)topRfcLabel.textContent=p?.rfc?'RFC '+p.rfc:'RFC -'}
     async function loadPerfiles(){if(!token){location.href='/gas-lp/conciliacion';return}const d=await api('/api/internal-auth/gas-lp/conciliacion/perfiles',{},false);PERFILES=d.perfiles||[];const saved=PERFILES.find(p=>Number(p.id)===Number(activePerfilId));const resolved=saved||PERFILES.find(p=>Number(p.id)===Number(d.perfil_id))||PERFILES[0];activePerfilId=resolved?Number(resolved.id):null;if(activePerfilId)localStorage.setItem(PROFILE_KEY,String(activePerfilId));empresaSelect.innerHTML=PERFILES.length?PERFILES.map(p=>`<option value="${Number(p.id)}">${esc(p.nombre||'Empresa')}${p.rfc?' · RFC '+esc(p.rfc):''}</option>`).join(''):'<option value="">Sin empresas Gas LP</option>';if(activePerfilId)empresaSelect.value=String(activePerfilId);updateHeaderCompany()}
     async function loadFacilities(){const d=await api('/api/internal-auth/gas-lp/conciliacion/facilities');FACILITIES=d.facilities||[];pubFacility.innerHTML=FACILITIES.length?'<option value="">Selecciona instalación</option>'+FACILITIES.map(f=>`<option value="${Number(f.id)}">${esc(f.nombre||f.clave_instalacion||'Instalación')}</option>`).join(''):'<option value="">Sin instalaciones</option>';btnPubTimbrar.disabled=!FACILITIES.length;if(!FACILITIES.length)setMsg('pubMsg','La empresa seleccionada no tiene instalaciones.',false);else setMsg('pubMsg','')}
-    function showSetupState(msg){PERFILES=[];FACILITIES=[];FACTURAS=[];COMPLEMENTOS=[];SEL={};activePerfilId=null;localStorage.removeItem(PROFILE_KEY);empresaSelect.innerHTML='<option value="">Sin empresas disponibles</option>';companyLabel.textContent='Sin empresa configurada para Conciliación';topRfcLabel.textContent='RFC -';kFacturas.textContent='0';kTotal.textContent=money(0);kCredito.textContent=money(0);kCompPend.textContent='0';pubFacility.innerHTML='<option value="">Sin instalaciones</option>';btnPubTimbrar.disabled=true;facturasRows.innerHTML=`<tr><td colspan="14">${esc(msg||'Configura una empresa Gas LP en administración para usar Conciliación.')}</td></tr>`;complementosRows.innerHTML='<tr><td colspan="8">Sin empresa configurada.</td></tr>';satRows.innerHTML='<tr><td colspan="6">Sin empresa configurada.</td></tr>';publicoTodayRows.innerHTML='<tr><td colspan="9">Sin empresa configurada.</td></tr>';selCount.textContent='0 seleccionadas';selTotal.textContent=money(0);selCliente.textContent='Sin cliente seleccionado';setMsg('pubMsg','Selecciona o configura una empresa de Conciliación antes de timbrar.',false)}
+    function showSetupState(msg){PERFILES=[];FACILITIES=[];FACTURAS=[];COMPLEMENTOS=[];SEL={};activePerfilId=null;localStorage.removeItem(PROFILE_KEY);empresaSelect.innerHTML='<option value="">Sin empresas disponibles</option>';companyLabel.textContent='Sin empresa configurada para Conciliación';topRfcLabel.textContent='RFC -';kFacturas.textContent='0';kTotal.textContent=money(0);kCredito.textContent=money(0);kCompPend.textContent='0';pubFacility.innerHTML='<option value="">Sin instalaciones</option>';btnPubTimbrar.disabled=true;facturasRows.innerHTML=`<tr><td colspan="14">${esc(msg||'Configura una empresa Gas LP en administración para usar Conciliación.')}</td></tr>`;complementosRows.innerHTML='<tr><td colspan="8">Sin empresa configurada.</td></tr>';if(window.compEmitidosRows)compEmitidosRows.innerHTML='<tr><td colspan="8">Sin empresa configurada.</td></tr>';if(window.compEmitidosCount)compEmitidosCount.textContent='0 complementos';satRows.innerHTML='<tr><td colspan="6">Sin empresa configurada.</td></tr>';publicoTodayRows.innerHTML='<tr><td colspan="9">Sin empresa configurada.</td></tr>';selCount.textContent='0 seleccionadas';selTotal.textContent=money(0);selCliente.textContent='Sin cliente seleccionado';setMsg('pubMsg','Selecciona o configura una empresa de Conciliación antes de timbrar.',false)}
     async function init(){try{periodoFiltro.value=today().slice(0,7);expMes.value=periodoFiltro.value;fechaPago.value=localDateTimeValue();pubFecha.value=localDateTimeValue();pubMes.value=periodoFiltro.value;updatePublicoDiscountMode();await loadPerfiles();if(!activePerfilId){showSetupState('Configura un usuario o empresa Gas LP antes de usar Conciliación.');return}await loadFacilities();await loadAll()}catch(e){console.warn(e);if(e.status===401){localStorage.removeItem('ge_gaslp_conciliacion_token');location.href='/gas-lp/conciliacion';return}showSetupState(e.message)}}
     async function changeEmpresa(){activePerfilId=Number(empresaSelect.value||'0')||null;if(activePerfilId)localStorage.setItem(PROFILE_KEY,String(activePerfilId));updateHeaderCompany();SEL={};FACTURAS=[];COMPLEMENTOS=[];renderAll();await loadFacilities();await loadAll()}
-    async function loadAll(){periodoFiltro.value=month();expMes.value=periodoFiltro.value;const d=await api('/api/internal-auth/gas-lp/conciliacion/summary?periodo='+encodeURIComponent(month()));companyLabel.textContent=(d.company?.name||'Empresa')+' · RFC '+(d.company?.rfc||'-')+' · '+month();topRfcLabel.textContent='RFC '+(d.company?.rfc||'-');kFacturas.textContent=d.kpis?.facturas||0;kTotal.textContent=money(d.kpis?.total_facturado);kCredito.textContent=money(d.kpis?.credito_estimado);kCompPend.textContent=d.kpis?.complementos_pendientes||0;FACTURAS=d.facturas||[];try{const c=await api('/api/internal-auth/gas-lp/complementos-pago?mes='+encodeURIComponent(month()));COMPLEMENTOS=c.complementos||[]}catch(e){console.warn('[Conciliacion complementos] no fue posible cargar historial',e);COMPLEMENTOS=[]}renderAll()}
+    async function loadAll(){periodoFiltro.value=month();expMes.value=periodoFiltro.value;const d=await api('/api/internal-auth/gas-lp/conciliacion/summary?periodo='+encodeURIComponent(month()));companyLabel.textContent=(d.company?.name||'Empresa')+' · RFC '+(d.company?.rfc||'-')+' · '+month();topRfcLabel.textContent='RFC '+(d.company?.rfc||'-');kFacturas.textContent=d.kpis?.facturas||0;kTotal.textContent=money(d.kpis?.total_facturado);kCredito.textContent=money(d.kpis?.credito_estimado);kCompPend.textContent=d.kpis?.complementos_pendientes||0;FACTURAS=d.facturas||[];try{const c=await api('/api/internal-auth/gas-lp/complementos-pago?mes='+encodeURIComponent(month()));COMPLEMENTOS=c.complementos||[];setMsg('compEmitidosMsg','')}catch(e){console.warn('[Conciliacion complementos] no fue posible cargar historial',e);COMPLEMENTOS=[];setMsg('compEmitidosMsg',e.message||'No fue posible cargar complementos emitidos.',false)}renderAll()}
     function clearFilters(){clienteFiltro.value='';diaFiltro.value='';estadoFiltro.value='';formaFiltro.value='';metodoFiltro.value='';renderAll()}
     function filteredRows(){const q=clienteFiltro.value.toLowerCase().trim();const day=diaFiltro.value;const st=estadoFiltro.value;const fp=formaFiltro.value;const mp=metodoFiltro.value;return FACTURAS.filter(f=>{const hay=[razon(f),f.rfc_receptor,f.uuid_sat,folio(f),facilityName(f),transferRoute(f)].join(' ').toLowerCase();if(q&&!hay.includes(q))return false;if(day&&facturaDateKey(f)!==day)return false;if(fp&&forma(f)!==fp)return false;if(mp&&metodo(f)!==mp)return false;if(st==='ppd'&&(metodo(f)!=='PPD'||paid(f)||isCancel(f)))return false;if(st==='pagada'&&(!paid(f)||isTransfer(f)))return false;if(st==='cancelada'&&!isCancel(f))return false;return true})}
-    function renderAll(){const r=filteredRows();renderFacturas(r);renderComplementos(r);renderSat(satFilteredRows());renderPublicoToday()}
+    function renderAll(){const r=filteredRows();renderFacturas(r);renderComplementos(r);renderComplementosEmitidos();renderSat(satFilteredRows());renderPublicoToday()}
     function uuidHtml(value){const uuid=String(value||'—');return `<code class="uuid-chip" title="${esc(uuid)}">${esc(uuid)}</code>`}
     function facturaComplementos(f){
       const id=Number(f?.id||0);
@@ -361,6 +375,35 @@
     function renderFacturas(r){facturasRows.innerHTML=r.length?r.map(f=>`<tr><td class="nowrap date-col">${esc(dateDMY(facturaDateKey(f)))}</td><td class="client-cell">${facturaClienteHtml(f)}</td><td class="folio">${esc(folio(f))}</td><td class="uuid">${uuidHtml(f.uuid_sat)}</td><td class="route-cell">${facturaInstalacionHtml(f)}</td><td class="num liters-col">${litros(f).toLocaleString('es-MX',{maximumFractionDigits:3})}</td><td class="num money-col">${money(subtotal(f))}</td><td class="num iva-col">${money(iva(f))}</td><td class="num money-col"><b>${money(total(f))}</b></td><td class="forma-col">${isTransfer(f)?'Traslado':esc(forma(f)||'—')}</td><td class="metodo-col">${esc(metodo(f))}</td><td class="user-col">${esc(realizadoPor(f))}</td><td class="estado-col">${facturaEstadoHtml(f)}</td><td class="docs-col">${docs(f)}</td></tr>`).join(''):'<tr><td colspan="14">Sin facturas para los filtros seleccionados.</td></tr>'}
     function compHaystack(f){return [razon(f),f.rfc_receptor,f.uuid_sat,folio(f),money(total(f)),money(saldo(f)),realizadoPor(f)].join(' ').toLowerCase()}
     function renderComplementos(r){Object.keys(SEL).forEach(id=>{const f=FACTURAS.find(x=>String(x.id)===String(id));if(!f||metodo(f)!=='PPD'||paid(f)||isCancel(f))delete SEL[id]});const q=String(compClienteFiltro?.value||'').toLowerCase().trim();const ppd=r.filter(f=>metodo(f)==='PPD'&&!paid(f)&&!isCancel(f)&&(!q||compHaystack(f).includes(q)));complementosRows.innerHTML=ppd.length?ppd.map(f=>`<tr><td><input type="checkbox" ${SEL[f.id]?'checked':''} onchange="toggleSel(${Number(f.id)},this.checked)"></td><td>${esc(dateDMY(facturaDateKey(f)))}</td><td>${esc(razon(f))}<br><span class="cell-sub">${esc(f.rfc_receptor||'')}</span></td><td class="uuid">${uuidHtml(f.uuid_sat)}</td><td class="num">${money(total(f))}</td><td class="num"><b class="err">${money(saldo(f))}</b></td><td><span class="cell-sub">${SEL[f.id]?'Capturar en validación':'Selecciona para validar'}</span></td><td>${esc(realizadoPor(f))}</td></tr>`).join(''):'<tr><td colspan="8">Sin facturas PPD pendientes.</td></tr>';refreshSel()}
+    function complementoEmailClass(c){const status=String(c.email_status||'').toLowerCase();if(status.includes('enviado'))return 'sent';if(status.includes('sin correo'))return 'missing';if(status.includes('error'))return 'error';return ''}
+    function complementoFacturasLabel(c){const facturas=Array.isArray(c.facturas)?c.facturas:[];if(!facturas.length)return '—';return facturas.map(f=>{const fol=f.folio||'';const uuid=String(f.uuid||'').slice(0,8);return `${fol||'Factura'}${uuid?' · '+uuid+'...':''}`}).join('<br>')}
+    function complementoEmitidoHaystack(c){return [c.cliente,c.rfc_receptor,c.uuid_sat,complementoFacturasLabel(c),c.realizado_por,c.email_status,c.email_destinatario,c.email_error,money(c.monto)].join(' ').toLowerCase()}
+    function renderComplementosEmitidos(){
+      const tbody=document.getElementById('compEmitidosRows');
+      if(!tbody)return;
+      const q=String(compEmitidosFiltro?.value||'').toLowerCase().trim();
+      const rows=(COMPLEMENTOS||[]).filter(c=>!q||complementoEmitidoHaystack(c).includes(q));
+      if(compEmitidosCount)compEmitidosCount.textContent=`${rows.length} complemento${rows.length===1?'':'s'}`;
+      if(!rows.length){tbody.innerHTML='<tr><td colspan="8">Sin complementos emitidos para este periodo.</td></tr>';return}
+      const perfil=activePerfilId?`&perfil_id=${encodeURIComponent(activePerfilId)}`:'';
+      const qs=`token=${encodeURIComponent(token)}${perfil}`;
+      tbody.innerHTML=rows.map(c=>{
+        const id=encodeURIComponent(c.id||'');
+        const pdf=`/api/internal-auth/gas-lp/complementos-pago/${id}/pdf?${qs}`;
+        const xml=`/api/internal-auth/gas-lp/complementos-pago/${id}/xml?${qs}`;
+        const emailTitle=[c.email_destinatario,c.email_error].filter(Boolean).join(' · ')||c.email_status||'Pendiente';
+        return `<tr>
+          <td>${esc(dateDMY(c.fecha_pago))}</td>
+          <td>${esc(dateDMY(c.fecha_timbrado))}<br>${uuidHtml(c.uuid_sat||'UUID pendiente')}</td>
+          <td><span class="cell-main" title="${esc(c.cliente||'Cliente')}">${esc(c.cliente||'Cliente')}</span><span class="cell-sub">${esc(c.rfc_receptor||'—')}</span></td>
+          <td>${complementoFacturasLabel(c)}</td>
+          <td class="num">${money(c.monto)}</td>
+          <td>${esc(c.realizado_por||'Asistente')}</td>
+          <td><span class="pill email-pill ${complementoEmailClass(c)}" title="${esc(emailTitle)}">${esc(c.email_status||'Pendiente')}</span><span class="cell-sub">${esc(c.email_destinatario||c.email_error||'')}</span></td>
+          <td><div class="doc-actions icon-docs"><a class="btn ghost sm doc-icon" title="PDF complemento" aria-label="PDF complemento" target="_blank" href="${pdf}"><i class="fa-solid fa-file-invoice"></i><span class="sr-only">PDF complemento</span></a><a class="btn ghost sm doc-icon" title="XML complemento" aria-label="XML complemento" target="_blank" href="${xml}"><i class="fa-solid fa-receipt"></i><span class="sr-only">XML complemento</span></a><button class="btn ghost sm doc-icon" title="Reenviar correo" aria-label="Reenviar correo" onclick="reenviarComplementoEmail('${esc(String(c.id||''))}')"><i class="fa-solid fa-envelope"></i><span class="sr-only">Reenviar correo</span></button></div></td>
+        </tr>`;
+      }).join('');
+    }
     function toggleSel(id,on){const f=FACTURAS.find(x=>Number(x.id)===Number(id));if(!f)return;if(!on){delete SEL[id];refreshSel();return}const selected=Object.values(SEL);const rfc=String(f.rfc_receptor||'').toUpperCase();if(selected.length&&selected[0].rfc&&selected[0].rfc!==rfc){setMsg('compMsg','Selecciona facturas del mismo cliente/RFC para un mismo complemento.',false);renderAll();return}SEL[id]={id:Number(id),saldo:saldo(f),rfc,cliente:razon(f)};setMsg('compMsg','');renderAll()}
     function clearSel(){SEL={};COMP_CONFIRM_CTX=null;setMsg('compMsg','');renderAll()}function refreshSel(){const arr=Object.values(SEL);selCount.textContent=arr.length+' seleccionadas';selTotal.textContent=arr.length?`Saldo seleccionado ${money(arr.reduce((s,x)=>s+Number(x.saldo||0),0))}`:money(0);selCliente.textContent=arr[0]?.cliente||'Sin cliente seleccionado'}
     function selectedCompRows(){return Object.values(SEL).map(item=>{const f=FACTURAS.find(x=>Number(x.id)===Number(item.id));if(!f)return null;return {id:Number(f.id),fecha:facturaDateKey(f),cliente:razon(f),rfc:String(f.rfc_receptor||'').toUpperCase(),uuid:f.uuid_sat||'',folio:folio(f),saldo:saldo(f),total:total(f)}}).filter(Boolean)}
@@ -414,12 +457,12 @@
     async function reenviarComplementoEmail(id){
       if(!id)return;
       try{
-        setMsg('compMsg','Reenviando correo del complemento...');
+        setMsg('compEmitidosMsg','Reenviando correo del complemento...');
         const data=await api('/api/internal-auth/gas-lp/complementos-pago/'+encodeURIComponent(id)+'/send-email',{method:'POST',body:JSON.stringify({})});
-        setMsg('compMsg',data.email?.ok?'Correo enviado correctamente.':(data.email?.error||'No se pudo reenviar el correo.'),!!data.email?.ok);
+        setMsg('compEmitidosMsg',data.email?.ok?'Correo enviado correctamente.':(data.email?.error||'No se pudo reenviar el correo.'),!!data.email?.ok);
         await loadAll();
       }catch(e){
-        setMsg('compMsg',e.message||'No se pudo reenviar el correo.',false);
+        setMsg('compEmitidosMsg',e.message||'No se pudo reenviar el correo.',false);
       }
     }
     function clearSatFilters(){satClienteFiltro.value='';satDiaFiltro.value='';satEstadoFiltro.value='';satMetodoFiltro.value='';renderSat(satFilteredRows())}
