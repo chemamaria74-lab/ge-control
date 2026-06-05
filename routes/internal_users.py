@@ -1293,7 +1293,7 @@ def _build_gas_lp_consumo_xml(
     unidad: str = "Litro",
     allow_zero_total: bool = False,
 ) -> tuple[str, dict]:
-    qty = Decimal(str(litros or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    qty = Decimal(str(litros or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
     unit = Decimal(str(precio_unitario or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     discount_unit = Decimal(str(descuento or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     tax_rate = Decimal(str(iva_rate if iva_rate not in {None, ""} else 0.16)).quantize(Decimal("0.000000"), rounding=ROUND_HALF_UP)
@@ -1394,7 +1394,7 @@ def _build_gas_lp_consumo_xml(
         f'<cfdi:Receptor Rfc="{receptor["rfc"]}" Nombre="{xml_escape(receptor["nombre"])}" '
         f'DomicilioFiscalReceptor="{receptor["cp"]}" RegimenFiscalReceptor="{receptor["regimen_fiscal"]}" UsoCFDI="{receptor["uso_cfdi"]}"/>'
         '<cfdi:Conceptos>'
-        f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" NoIdentificacion="{xml_escape(no_identificacion)}" Cantidad="{qty:.3f}" '
+        f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" NoIdentificacion="{xml_escape(no_identificacion)}" Cantidad="{qty:.4f}" '
         f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="{xml_escape(desc)}" ValorUnitario="{unit_net:.6f}" '
         f'Importe="{subtotal:.2f}"{descuento_concepto} ObjetoImp="{objeto_imp}">'
         f'{concept_tax_xml}'
@@ -1420,7 +1420,16 @@ def _build_gas_lp_consumo_xml(
     }
 
 
-def _gas_lp_validate_invoice_preview_totals(payload, totals: dict, *, context: str, cliente_tipo: str = "") -> None:
+def _gas_lp_validate_invoice_preview_totals(
+    payload,
+    totals: dict,
+    *,
+    context: str,
+    cliente_tipo: str = "",
+    cliente: str = "",
+    rfc: str = "",
+    instalacion: str = "",
+) -> None:
     preview_subtotal = getattr(payload, "subtotal_preview", None)
     preview_iva = getattr(payload, "iva_preview", None)
     preview_total = getattr(payload, "total_preview", None)
@@ -1443,17 +1452,20 @@ def _gas_lp_validate_invoice_preview_totals(payload, totals: dict, *, context: s
     if preview_iva is not None and abs(float(preview_iva) - backend_iva) > 0.01:
         mismatches.append(f"IVA validado {float(preview_iva):.2f} vs IVA timbrado {backend_iva:.2f}")
     logger.info(
-        "gas_lp_invoice_preview_validation source=%s cliente_tipo=%s context=%s litros=%s precio_con_iva=%s tipo_descuento=%s descuento_capturado=%s descuento_payload_por_litro=%s subtotal_preview=%s descuento_preview=%s iva_preview=%s total_preview=%s subtotal_xml=%s descuento_xml_base=%s descuento_xml_con_iva=%s iva_xml=%s total_xml=%s ok=%s",
+        "gas_lp_invoice_preview_validation source=%s cliente_tipo=%s context=%s cliente=%s rfc=%s instalacion=%s litros_confirmados=%s precio_confirmado=%s tipo_descuento=%s descuento_capturado=%s descuento_confirmado=%s descuento_payload_por_litro=%s subtotal_confirmado=%s iva_confirmado=%s total_confirmado=%s subtotal_xml=%s descuento_xml_base=%s descuento_xml_con_iva=%s iva_xml=%s total_xml=%s ok=%s",
         source,
         cliente_tipo,
         context,
+        cliente,
+        rfc,
+        instalacion,
         getattr(payload, "litros", None),
         getattr(payload, "precio_unitario", None),
         discount_mode,
         getattr(payload, "descuento_capturado", None),
+        preview_discount,
         getattr(payload, "descuento", None),
         getattr(payload, "subtotal_preview", None),
-        preview_discount,
         getattr(payload, "iva_preview", None),
         preview_total,
         totals.get("subtotal"),
@@ -1536,14 +1548,41 @@ def _gas_lp_pago_cfdi_fecha(issuer: dict) -> tuple[str, str]:
 
 def _factura_payment_info(factura: dict) -> dict:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    root = _gas_lp_factura_xml_root(factura)
+    concepto = _xml_first(root, "Concepto") if root is not None else None
+    traslado = _xml_first(root, "Traslado") if root is not None else None
+    xml_subtotal = _xml_attr(root, "SubTotal") if root is not None else ""
+    xml_descuento = _xml_attr(root, "Descuento") if root is not None else ""
+    xml_total = _xml_attr(root, "Total") if root is not None else ""
+    xml_iva = _xml_attr(traslado, "Importe") if traslado is not None else ""
+    xml_litros = _xml_attr(concepto, "Cantidad") if concepto is not None else ""
+    xml_unit_net = _xml_attr(concepto, "ValorUnitario") if concepto is not None else ""
+    xml_rate = _xml_attr(traslado, "TasaOCuota") if traslado is not None else ""
     fallback_total = _money(factura.get("importe")) * Decimal("1.16")
-    total = _money(md.get("total") if md.get("total") not in {None, ""} else fallback_total)
+    total = _money(xml_total if xml_total not in {None, ""} else (md.get("total") if md.get("total") not in {None, ""} else fallback_total))
     saldo = _money(md.get("saldo_insoluto") if md.get("saldo_insoluto") not in {None, ""} else total)
+    subtotal = _money(xml_subtotal if xml_subtotal not in {None, ""} else (md.get("subtotal") if md.get("subtotal") not in {None, ""} else factura.get("importe")))
+    iva = _money(xml_iva if xml_iva not in {None, ""} else (md.get("iva") if md.get("iva") not in {None, ""} else (total - subtotal)))
+    descuento = _money(xml_descuento if xml_descuento not in {None, ""} else (md.get("descuento") if md.get("descuento") not in {None, ""} else 0))
+    try:
+        litros = Decimal(str(xml_litros if xml_litros not in {None, ""} else (factura.get("volumen_litros") or md.get("litros") or 0))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    except Exception:
+        litros = Decimal("0.0000")
+    try:
+        rate = Decimal(str(xml_rate or 0))
+        precio_unitario = (Decimal(str(xml_unit_net or 0)) * (Decimal("1") + rate)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    except Exception:
+        precio_unitario = Decimal(str(md.get("precio_unitario") or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     return {
         "metodo_pago": str(md.get("metodo_pago") or "").upper(),
         "forma_pago": str(md.get("forma_pago") or ""),
+        "subtotal": subtotal,
+        "descuento": descuento,
+        "iva": iva,
         "total": total,
         "saldo_insoluto": saldo,
+        "litros": litros,
+        "precio_unitario": precio_unitario,
         "payment_status": str(md.get("payment_status") or ("pendiente_complemento" if str(md.get("metodo_pago") or "").upper() == "PPD" else "pagado_pue")),
     }
 
@@ -1551,8 +1590,13 @@ def _factura_payment_info(factura: dict) -> dict:
 def _payment_info_json(info: dict) -> dict:
     return {
         **info,
+        "subtotal": float(_money(info.get("subtotal"))),
+        "descuento": float(_money(info.get("descuento"))),
+        "iva": float(_money(info.get("iva"))),
         "total": float(_money(info.get("total"))),
         "saldo_insoluto": float(_money(info.get("saldo_insoluto"))),
+        "litros": float(Decimal(str(info.get("litros") or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
+        "precio_unitario": float(Decimal(str(info.get("precio_unitario") or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)),
     }
 
 
@@ -1605,6 +1649,13 @@ def _gas_lp_factura_pac_xml_summary(xml_content: str) -> dict:
         "clave_unidad": _xml_attr(concepto, "ClaveUnidad"),
         "unidad": _xml_attr(concepto, "Unidad"),
         "descripcion": _xml_attr(concepto, "Descripcion"),
+        "cantidad": _xml_attr(concepto, "Cantidad"),
+        "valor_unitario": _xml_attr(concepto, "ValorUnitario"),
+        "subtotal": _xml_attr(root, "SubTotal"),
+        "descuento": _xml_attr(root, "Descuento"),
+        "total": _xml_attr(root, "Total"),
+        "forma_pago": _xml_attr(root, "FormaPago"),
+        "metodo_pago": _xml_attr(root, "MetodoPago"),
         "has_hidroypetro": "HidroYPetro" in str(xml_content or ""),
         "has_informacion_global": _xml_first(root, "InformacionGlobal") is not None,
         "uuid": _xml_attr(timbre, "UUID"),
@@ -3315,6 +3366,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         tipo_doc = "Traspaso" if md.get("tipo_operacion") == "traspaso" or md.get("is_transfer") else "Factura"
+        info = _factura_payment_info(row)
         ws.append([
             tipo_doc,
             row.get("uuid_sat") or "",
@@ -3323,8 +3375,8 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
             row.get("rfc_receptor") or "",
             _gas_lp_factura_date_key(row),
             "",
-            float(_gas_lp_factura_total_con_iva(row)),
-            float(row.get("volumen_litros") or 0),
+            float(_money(info.get("total"))),
+            float(Decimal(str(info.get("litros") or row.get("volumen_litros") or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
             _gas_lp_factura_realizado_por(row),
             row.get("email_status") or "",
             f"{_gas_lp_factura_metodo_pago(row)} / {md.get('forma_pago') or ''}".strip(" /"),
@@ -3366,7 +3418,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
     for cell in ws["H"][1:]:
         cell.number_format = '$#,##0.00'
     for cell in ws["I"][1:]:
-        cell.number_format = "#,##0.000"
+        cell.number_format = "#,##0.0000"
     stream = BytesIO()
     wb.save(stream)
     stream.seek(0)
@@ -3754,7 +3806,15 @@ async def gas_lp_conciliacion_facturar_publico_general(payload: GasLpConciliacio
         hyp=hyp,
         informacion_global=informacion_global,
     )
-    _gas_lp_validate_invoice_preview_totals(payload, totals, context="conciliacion_publico_general", cliente_tipo="publico_general")
+    _gas_lp_validate_invoice_preview_totals(
+        payload,
+        totals,
+        context="conciliacion_publico_general",
+        cliente_tipo="publico_general",
+        cliente=receptor.get("nombre") or "",
+        rfc=receptor.get("rfc") or "",
+        instalacion=origen.get("nombre") or origen.get("clave_instalacion") or str(payload.facility_id),
+    )
     sw_config = sw_runtime_config()
     if _sw_config_looks_like_sandbox(sw_config):
         raise HTTPException(400, "Este emisor está configurado en modo pruebas. Cambia a producción antes de timbrar CFDI real.")
@@ -3994,7 +4054,7 @@ async def gas_lp_conciliacion_export_excel(
 
     def _excel_liters(value) -> float:
         try:
-            return float(Decimal(str(value or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP))
+            return float(Decimal(str(value or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP))
         except Exception:
             return 0.0
 
@@ -4028,7 +4088,7 @@ async def gas_lp_conciliacion_export_excel(
                 _excel_text(_gas_lp_factura_date_key(row)),
                 "",
                 _excel_number(_safe_total(row)),
-                _excel_liters(row.get("volumen_litros")),
+                _excel_liters(_factura_payment_info(row).get("litros") or row.get("volumen_litros")),
                 _excel_text(_gas_lp_factura_realizado_por(row)),
                 _excel_text(row.get("email_status") or ""),
                 _excel_text(_safe_metodo_pago(row)),
@@ -4078,7 +4138,7 @@ async def gas_lp_conciliacion_export_excel(
     for width, column in zip([24, 40, 30, 36, 18, 22, 22, 16, 12, 22, 20, 22, 22], "ABCDEFGHIJKLM"):
         ws.column_dimensions[column].width = width
     for cell in ws["I"][1:]:
-        cell.number_format = "#,##0.000"
+        cell.number_format = "#,##0.0000"
     for cell in ws["H"][1:]:
         cell.number_format = '$#,##0.00'
 
@@ -4827,6 +4887,9 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             totals,
             context="asistente_factura",
             cliente_tipo="publico_general" if receptor.get("rfc") == "XAXX010101000" else "cliente_normal",
+            cliente=receptor.get("nombre") or "",
+            rfc=receptor.get("rfc") or "",
+            instalacion=origen.get("nombre") or origen.get("clave_instalacion") or str(payload.facility_id),
         )
     hyp_node_xml = _gas_lp_hyp_xml_fragment(hyp)
     sw_config = sw_runtime_config()
