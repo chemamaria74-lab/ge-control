@@ -1424,12 +1424,30 @@ def _cfdi_root(xml_content: str) -> ET.Element:
 
 
 def _payment_datetime(value: str) -> str:
-    raw = str(value or "").strip().replace("Z", "").replace(" ", "T")
+    raw = str(value or "").strip().replace("Z", "")
     if raw:
-        if len(raw) == 16:
-            raw += ":00"
-        return raw[:19]
-    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        parsed = _parse_gas_lp_cfdi_fecha(raw, _gas_lp_cfdi_timezone())
+        if parsed is not None:
+            return parsed.strftime("%Y-%m-%dT%H:%M:%S")
+        normalized = raw.replace(" ", "T")
+        if len(normalized) == 16:
+            normalized += ":00"
+        return normalized[:19]
+    return datetime.now(_gas_lp_cfdi_timezone()).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _gas_lp_pago_cfdi_fecha(issuer: dict) -> tuple[str, str]:
+    now_local = datetime.now(_gas_lp_cfdi_timezone(issuer.get("cp"))).strftime("%Y-%m-%dT%H:%M:%S")
+    fecha_cfdi, replaced, reason = _gas_lp_cfdi_fecha_actualizada(now_local, issuer.get("cp"))
+    if replaced:
+        logger.warning(
+            "gas_lp_complemento_pago_fecha_cfdi_replaced original=%s normalized=%s reason=%s issuer_cp=%s",
+            now_local,
+            fecha_cfdi,
+            reason,
+            issuer.get("cp") or "",
+        )
+    return fecha_cfdi, reason
 
 
 def _factura_payment_info(factura: dict) -> dict:
@@ -2223,8 +2241,8 @@ def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_
         if total_doc <= 0:
             raise HTTPException(400, "Una factura seleccionada no tiene total válido.")
     receptor = receptor_ref or {}
-    fecha_cfdi = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    folio_pago = datetime.now().strftime("%Y%m%d%H%M%S")
+    fecha_cfdi, fecha_cfdi_reason = _gas_lp_pago_cfdi_fecha(issuer)
+    folio_pago = fecha_cfdi.replace("-", "").replace(":", "").replace("T", "")[:14]
     fecha_pago = _payment_datetime(fecha_pago)
     forma_pago = "".join(ch for ch in str(forma_pago or "03") if ch.isdigit())[:2] or "03"
     doctos_xml = "".join(d["xml"] for d in doctos)
@@ -2244,7 +2262,7 @@ def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_
     )
     for d in doctos:
         d.pop("xml", None)
-    return xml, {"fecha_pago": fecha_pago, "forma_pago": forma_pago, "monto": float(total_pago), "saldo_insoluto": float(sum(Decimal(str(d["saldo_insoluto"])) for d in doctos)), "facturas": doctos}
+    return xml, {"fecha_cfdi": fecha_cfdi, "fecha_cfdi_reason": fecha_cfdi_reason, "fecha_pago": fecha_pago, "forma_pago": forma_pago, "monto": float(total_pago), "saldo_insoluto": float(sum(Decimal(str(d["saldo_insoluto"])) for d in doctos)), "facturas": doctos}
 
 
 def _gas_lp_invoice_scope(user: dict, profile: dict) -> dict:
@@ -2736,7 +2754,7 @@ async def gas_lp_internal_facilities(token: str):
 
 
 @router.get("/internal-auth/gas-lp/catalogos")
-async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp"):
+async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp", include_inactive: bool = False):
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
     sb = get_supabase_admin()
@@ -2748,8 +2766,9 @@ async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp"):
             .eq("user_id", user.get("owner_user_id"))
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
-            .eq("activo", True)
         )
+        if not include_inactive:
+            q = q.eq("activo", True)
         return q
 
     try:
@@ -2920,11 +2939,15 @@ async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Reque
 
 
 @router.delete("/internal-auth/gas-lp/catalogos/{kind}/{row_id}")
-async def gas_lp_internal_catalogo_delete(kind: str, row_id: int, token: str):
+async def gas_lp_internal_catalogo_delete(kind: str, row_id: int, token: str, permanent: bool = False):
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
     table, _order = _internal_cp_table(kind)
-    get_supabase_admin().table(table).update({"activo": False, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id).eq("user_id", user.get("owner_user_id")).eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id")).execute()
+    q = get_supabase_admin().table(table)
+    if permanent:
+        q.delete().eq("id", row_id).eq("user_id", user.get("owner_user_id")).eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id")).execute()
+    else:
+        q.update({"activo": False, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id).eq("user_id", user.get("owner_user_id")).eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id")).execute()
     return JSONResponse({"ok": True})
 
 
@@ -3908,9 +3931,35 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
     if remaining != Decimal("0.00"):
         raise HTTPException(400, "El monto recibido no coincide con los importes asignados.")
     xml_pago, totals = _build_gas_lp_pago20_multi_xml(facturas=facturas, issuer=issuer, fecha_pago=payload.fecha_pago, forma_pago=payload.forma_pago, pagos=pagos)
+    logger.info(
+        "gas_lp_complemento_pago_pre_timbrado factura_ids=%s fecha_cfdi=%s fecha_pago=%s forma_pago=%s monto=%s perfil_id=%s tenant_id=%s",
+        factura_ids,
+        totals.get("fecha_cfdi"),
+        totals.get("fecha_pago"),
+        totals.get("forma_pago"),
+        totals.get("monto"),
+        user.get("perfil_id"),
+        user.get("tenant_id"),
+    )
     resultado = timbrar_cfdi(xml_pago)
     if resultado.get("error"):
-        raise HTTPException(400, f"PAC rechazó el complemento de pago: {resultado['error']}")
+        logger.warning(
+            "gas_lp_complemento_pago_pac_error factura_ids=%s fecha_cfdi=%s fecha_pago=%s forma_pago=%s monto=%s pac_response=%s",
+            factura_ids,
+            totals.get("fecha_cfdi"),
+            totals.get("fecha_pago"),
+            totals.get("forma_pago"),
+            totals.get("monto"),
+            resultado.get("pac_response") or resultado,
+        )
+        raise HTTPException(
+            400,
+            (
+                f"PAC rechazó el complemento de pago: {resultado['error']} "
+                f"(Fecha CFDI enviada: {totals.get('fecha_cfdi')}; "
+                f"FechaPago enviada: {totals.get('fecha_pago')})"
+            ),
+        )
     xml_timbrado = resultado.get("xml_timbrado") or xml_pago
     now = _now_iso()
     comp_row = {

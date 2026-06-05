@@ -342,6 +342,25 @@ def _sb_update(table: str, row_id: int, scope: dict, values: dict) -> bool:
         return False
 
 
+def _sb_delete(table: str, row_id: int, scope: dict) -> bool:
+    if not scope.get("perfil_id"):
+        return False
+    try:
+        (
+            get_supabase_admin()
+            .table(table)
+            .delete()
+            .eq("user_id", scope["user_id"])
+            .eq("perfil_id", scope["perfil_id"])
+            .eq("id", row_id)
+            .execute()
+        )
+        return True
+    except Exception as exc:
+        logger.warning("Supabase delete %s id=%s falló: %s", table, row_id, exc)
+        return False
+
+
 def _rowdict(row) -> dict:
     return dict(row) if row is not None else {}
 
@@ -1102,12 +1121,13 @@ async def generar_factura_flete(
 @router.get("/facturas/choferes")
 async def listar_choferes(
     modulo: Optional[str] = Query(None),
+    include_inactive: bool = Query(False),
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
-    rows_sb = _sb_list(_SB_CHOFERES, scope, active_only=True, order="nombre", desc=False)
+    rows_sb = _sb_list(_SB_CHOFERES, scope, active_only=not include_inactive, order="nombre", desc=False)
     if modulo:
         rows_sb = [r for r in rows_sb if (r.get("modulo_propietario") or "") == modulo]
     if rows_sb or not _legacy_sqlite_enabled():
@@ -1172,12 +1192,17 @@ async def actualizar_chofer(
 @router.delete("/facturas/choferes/{chofer_id}")
 async def eliminar_chofer(
     chofer_id: int,
+    permanent: bool = Query(False),
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
+    if permanent:
+        if _sb_delete(_SB_CHOFERES, chofer_id, scope):
+            return JSONResponse({"ok": True, "message": "Chofer eliminado definitivamente", "source": "supabase"})
+        raise HTTPException(404, "Chofer no encontrado en la empresa seleccionada.")
     if _sb_update(_SB_CHOFERES, chofer_id, scope, {"activo": False}):
         return JSONResponse({"ok": True, "message": "Chofer eliminado", "source": "supabase"})
     raise HTTPException(404, "Chofer no encontrado en la empresa seleccionada.")
@@ -1188,12 +1213,13 @@ async def eliminar_chofer(
 @router.get("/facturas/vehiculos")
 async def listar_vehiculos(
     modulo: Optional[str] = Query(None),
+    include_inactive: bool = Query(False),
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
-    rows_sb = _sb_list(_SB_VEHICULOS, scope, active_only=True, order="placas", desc=False)
+    rows_sb = _sb_list(_SB_VEHICULOS, scope, active_only=not include_inactive, order="placas", desc=False)
     if modulo:
         rows_sb = [r for r in rows_sb if (r.get("modulo_propietario") or "") == modulo]
     if rows_sb or not _legacy_sqlite_enabled():
@@ -1290,12 +1316,17 @@ async def actualizar_vehiculo(
 @router.delete("/facturas/vehiculos/{vehiculo_id}")
 async def eliminar_vehiculo(
     vehiculo_id: int,
+    permanent: bool = Query(False),
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
+    if permanent:
+        if _sb_delete(_SB_VEHICULOS, vehiculo_id, scope):
+            return JSONResponse({"ok": True, "message": "Vehículo eliminado definitivamente", "source": "supabase"})
+        raise HTTPException(404, "Vehículo no encontrado en la empresa seleccionada.")
     if _sb_update(_SB_VEHICULOS, vehiculo_id, scope, {"activo": False}):
         return JSONResponse({"ok": True, "message": "Vehículo eliminado", "source": "supabase"})
     raise HTTPException(404, "Vehículo no encontrado en la empresa seleccionada.")
@@ -1306,12 +1337,13 @@ async def eliminar_vehiculo(
 @router.get("/facturas/rutas")
 async def listar_rutas(
     modulo: Optional[str] = Query(None),
+    include_inactive: bool = Query(False),
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
-    rows_sb = _sb_list(_SB_RUTAS, scope, active_only=True, order="nombre", desc=False)
+    rows_sb = _sb_list(_SB_RUTAS, scope, active_only=not include_inactive, order="nombre", desc=False)
     if modulo:
         rows_sb = [r for r in rows_sb if (r.get("modulo_propietario") or "") == modulo]
     if rows_sb or not _legacy_sqlite_enabled():
@@ -1409,12 +1441,17 @@ async def actualizar_ruta(
 @router.delete("/facturas/rutas/{ruta_id}")
 async def eliminar_ruta(
     ruta_id: int,
+    permanent: bool = Query(False),
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
+    if permanent:
+        if _sb_delete(_SB_RUTAS, ruta_id, scope):
+            return JSONResponse({"ok": True, "message": "Ruta eliminada definitivamente", "source": "supabase"})
+        raise HTTPException(404, "Ruta no encontrada en la empresa seleccionada.")
     if _sb_update(_SB_RUTAS, ruta_id, scope, {"activo": False}):
         return JSONResponse({"ok": True, "message": "Ruta eliminada", "source": "supabase"})
     raise HTTPException(404, "Ruta no encontrada en la empresa seleccionada.")
@@ -1424,11 +1461,12 @@ async def eliminar_ruta(
 
 @router.get("/facturas/ubicaciones-carta-porte")
 async def listar_ubicaciones_carta_porte(
+    include_inactive: bool = Query(False),
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
-    rows = _sb_list(_SB_UBICACIONES_CP, scope, active_only=True, order="alias", desc=False)
+    rows = _sb_list(_SB_UBICACIONES_CP, scope, active_only=not include_inactive, order="alias", desc=False)
     return JSONResponse({"ubicaciones": rows, "source": "supabase"})
 
 
@@ -1517,11 +1555,16 @@ async def actualizar_ubicacion_carta_porte(
 @router.delete("/facturas/ubicaciones-carta-porte/{ubicacion_id}")
 async def eliminar_ubicacion_carta_porte(
     ubicacion_id: int,
+    permanent: bool = Query(False),
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     _require_supabase_scope(scope)
+    if permanent:
+        if _sb_delete(_SB_UBICACIONES_CP, ubicacion_id, scope):
+            return JSONResponse({"ok": True, "message": "Ubicación eliminada definitivamente", "source": "supabase"})
+        raise HTTPException(404, "Ubicación no encontrada en la empresa seleccionada.")
     if _sb_update(_SB_UBICACIONES_CP, ubicacion_id, scope, {"activo": False}):
         return JSONResponse({"ok": True, "message": "Ubicación desactivada", "source": "supabase"})
     raise HTTPException(404, "Ubicación no encontrada en la empresa seleccionada.")
@@ -1531,11 +1574,12 @@ async def eliminar_ubicacion_carta_porte(
 
 @router.get("/facturas/mercancias-carta-porte")
 async def listar_mercancias_carta_porte(
+    include_inactive: bool = Query(False),
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
-    rows = _sb_list(_SB_MERCANCIAS_CP, scope, active_only=True, order="alias", desc=False)
+    rows = _sb_list(_SB_MERCANCIAS_CP, scope, active_only=not include_inactive, order="alias", desc=False)
     return JSONResponse({"mercancias": rows, "source": "supabase"})
 
 
@@ -1612,11 +1656,16 @@ async def actualizar_mercancia_carta_porte(
 @router.delete("/facturas/mercancias-carta-porte/{mercancia_id}")
 async def eliminar_mercancia_carta_porte(
     mercancia_id: int,
+    permanent: bool = Query(False),
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     _require_supabase_scope(scope)
+    if permanent:
+        if _sb_delete(_SB_MERCANCIAS_CP, mercancia_id, scope):
+            return JSONResponse({"ok": True, "message": "Mercancía eliminada definitivamente", "source": "supabase"})
+        raise HTTPException(404, "Mercancía no encontrada en la empresa seleccionada.")
     if _sb_update(_SB_MERCANCIAS_CP, mercancia_id, scope, {"activo": False}):
         return JSONResponse({"ok": True, "message": "Mercancía desactivada", "source": "supabase"})
     raise HTTPException(404, "Mercancía no encontrada en la empresa seleccionada.")
