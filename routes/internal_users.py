@@ -1414,19 +1414,27 @@ def _build_gas_lp_consumo_xml(
 
 
 def _gas_lp_validate_invoice_preview_totals(payload, totals: dict, *, context: str, cliente_tipo: str = "") -> None:
+    preview_subtotal = getattr(payload, "subtotal_preview", None)
+    preview_iva = getattr(payload, "iva_preview", None)
     preview_total = getattr(payload, "total_preview", None)
     preview_discount = getattr(payload, "descuento_preview", None)
-    if preview_total is None and preview_discount is None:
+    if preview_subtotal is None and preview_iva is None and preview_total is None and preview_discount is None:
         return
+    backend_subtotal = float(totals.get("subtotal") or 0)
+    backend_iva = float(totals.get("iva") or 0)
     backend_total = float(totals.get("total") or 0)
     discount_mode = str(getattr(payload, "tipo_descuento", "") or "").strip().lower()
     backend_discount = float((totals.get("descuento") if discount_mode == "total_pesos" else totals.get("descuento_con_iva")) or 0)
     source = "conciliacion" if "conciliacion" in str(context or "") else "asistente"
     mismatches = []
+    if preview_subtotal is not None and abs(float(preview_subtotal) - backend_subtotal) > 0.01:
+        mismatches.append(f"subtotal validado {float(preview_subtotal):.2f} vs subtotal timbrado {backend_subtotal:.2f}")
     if preview_total is not None and abs(float(preview_total) - backend_total) > 0.01:
         mismatches.append(f"total validado {float(preview_total):.2f} vs total timbrado {backend_total:.2f}")
     if preview_discount is not None and abs(float(preview_discount) - backend_discount) > 0.01:
         mismatches.append(f"descuento validado {float(preview_discount):.2f} vs descuento timbrado {backend_discount:.2f}")
+    if preview_iva is not None and abs(float(preview_iva) - backend_iva) > 0.01:
+        mismatches.append(f"IVA validado {float(preview_iva):.2f} vs IVA timbrado {backend_iva:.2f}")
     logger.info(
         "gas_lp_invoice_preview_validation source=%s cliente_tipo=%s context=%s litros=%s precio_con_iva=%s tipo_descuento=%s descuento_capturado=%s descuento_payload_por_litro=%s subtotal_preview=%s descuento_preview=%s iva_preview=%s total_preview=%s subtotal_xml=%s descuento_xml_base=%s descuento_xml_con_iva=%s iva_xml=%s total_xml=%s ok=%s",
         source,
@@ -1454,16 +1462,18 @@ def _gas_lp_validate_invoice_preview_totals(payload, totals: dict, *, context: s
             "code": "gas_lp_invoice_preview_mismatch",
             "detail": mismatches,
             "preview": {
+                "subtotal": preview_subtotal,
                 "total": preview_total,
                 "descuento": preview_discount,
+                "iva": preview_iva,
                 "tipo_descuento": getattr(payload, "tipo_descuento", "") or "",
                 "descuento_capturado": getattr(payload, "descuento_capturado", None),
             },
             "backend": {
+                "subtotal": backend_subtotal,
                 "total": backend_total,
                 "descuento": backend_discount,
-                "subtotal": totals.get("subtotal"),
-                "iva": totals.get("iva"),
+                "iva": backend_iva,
             },
         })
 
@@ -3777,6 +3787,13 @@ async def gas_lp_conciliacion_facturar_publico_general(payload: GasLpConciliacio
             "descuento_por_litro": payload.descuento,
             "tipo_descuento": payload.tipo_descuento,
             "descuento_capturado": payload.descuento_capturado,
+            "subtotal_confirmado": payload.subtotal_preview,
+            "descuento_confirmado": payload.descuento_preview,
+            "iva_confirmado": payload.iva_preview,
+            "total_confirmado": payload.total_preview,
+            "precio_confirmado": payload.precio_unitario,
+            "litros_confirmados": payload.litros,
+            "tipo_descuento_confirmado": payload.tipo_descuento,
             "descuento_preview": payload.descuento_preview,
             "total_preview": payload.total_preview,
             "descuento": totals["descuento"],
@@ -5097,6 +5114,13 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "descuento_por_litro": 0 if is_transfer else payload.descuento,
             "tipo_descuento": "" if is_transfer else payload.tipo_descuento,
             "descuento_capturado": None if is_transfer else payload.descuento_capturado,
+            "subtotal_confirmado": None if is_transfer else payload.subtotal_preview,
+            "descuento_confirmado": None if is_transfer else payload.descuento_preview,
+            "iva_confirmado": None if is_transfer else payload.iva_preview,
+            "total_confirmado": None if is_transfer else payload.total_preview,
+            "precio_confirmado": None if is_transfer else payload.precio_unitario,
+            "litros_confirmados": None if is_transfer else payload.litros,
+            "tipo_descuento_confirmado": "" if is_transfer else payload.tipo_descuento,
             "descuento_preview": None if is_transfer else payload.descuento_preview,
             "total_preview": None if is_transfer else payload.total_preview,
             "descuento": totals["descuento"],
