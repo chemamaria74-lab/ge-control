@@ -397,9 +397,14 @@
         const xml=compId?`/api/internal-auth/gas-lp/complementos-pago/${compId}/xml?${qs}`:'';
         const actions=compId?`<div class="doc-actions" style="margin-top:10px"><a class="btn ghost sm" href="${pdf}" target="_blank" rel="noopener">Ver PDF complemento</a><a class="btn ghost sm" href="${xml}" download>Descargar XML complemento</a><button class="btn ghost sm" type="button" onclick="reenviarComplementoEmail('${esc(String(data.complemento?.id||''))}')">Reenviar correo</button></div>`:'';
         SEL={};
+        compModalConfirmBtn.disabled=false;
         closeCompValidation();
         setMsgHtml('compMsg',`Complemento timbrado correctamente.<br>UUID: ${esc(uuid)}<br>${esc(emailMsg)}${actions}`,!!email.ok||!email.error);
-        await loadAll();
+        try{
+          await loadAll();
+        }catch(refreshError){
+          console.warn('No se pudo refrescar datos después del complemento timbrado', refreshError);
+        }
       }catch(e){
         setMsg('compModalMsg',e.message,false);
       }finally{

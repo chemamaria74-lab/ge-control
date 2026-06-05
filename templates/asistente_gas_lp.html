@@ -2143,9 +2143,14 @@
         const email = data.email || {};
         const emailMsg = email.ok ? 'Correo enviado al cliente.' : (String(email.error || '').toLowerCase().includes('sin correo') ? 'Sin correo registrado para el cliente.' : (email.error ? `Error de envío: ${email.error}` : 'Correo pendiente.'));
         showComplementoTimbradoSuccess(data, docs, emailMsg, !!email.ok || !email.error);
-        await loadFacturas();
-        await loadComplementos();
+        compModalConfirmBtn.disabled = false;
         closeComplementValidation();
+        try{
+          await loadFacturas();
+          await loadComplementos();
+        }catch(refreshError){
+          console.warn('No se pudo refrescar datos después del complemento timbrado', refreshError);
+        }
       }catch(e){ setStatus('compModalMsg',e.message,false); }
       finally{ compModalConfirmBtn.disabled = false; }
     }
