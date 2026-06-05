@@ -606,14 +606,15 @@
     }
     function displayUnitPrice(price){
       const n = numericFrom(price);
-      return n > 0 ? n.toFixed(2) : '0';
+      return n > 0 ? n.toFixed(6).replace(/0+$/,'').replace(/\.$/,'') : '0';
     }
     function setUnitPrice(price, source='manual'){
       const n = numericFrom(price);
-      precioUnitario.dataset.realPrice = n > 0 ? n.toFixed(6) : '';
+      const visible = displayUnitPrice(n);
+      precioUnitario.dataset.realPrice = visible;
       precioUnitario.dataset.priceSource = source;
       precioUnitario.dataset.stateFacilityId = facilitySelect.value || '';
-      precioUnitario.value = displayUnitPrice(n);
+      precioUnitario.value = visible;
       updateTotals();
     }
     function markManualPrice(){
@@ -622,8 +623,7 @@
       precioUnitario.dataset.stateFacilityId = facilitySelect.value || '';
     }
     function effectiveUnitPrice(){
-      const real = numericFrom(precioUnitario.dataset.realPrice);
-      return real > 0 ? real : numericFrom(precioUnitario.value);
+      return numericFrom(precioUnitario.value);
     }
     function currentFormSignature(){
       return `${tipoOperacion.value || ''}|${facilitySelect.value || ''}|${clienteSelect.value || ''}`;
@@ -1501,8 +1501,7 @@
         ['Instalación', summary.instalacion],
         ['Cliente', summary.cliente],
         ['Litros', fmt(summary.preview.litros)],
-        ['Precio por litro visible', money(numericFrom(precioUnitario.value))],
-        ['Precio real usado', Number(summary.preview.precio_unitario).toFixed(6)],
+        ['Precio por litro', Number(summary.preview.precio_unitario).toFixed(6).replace(/0+$/,'').replace(/\.$/,'')],
         ['Tipo de descuento', summary.preview.tipo_descuento === 'por_litro' ? 'Descuento por litro' : (summary.preview.tipo_descuento === 'total_pesos' ? 'Descuento total en pesos' : 'Sin descuento')],
         ['Descuento capturado', money(summary.preview.descuento_capturado)],
         ['Descuento total aplicado', money(summary.preview.descuento_total_aplicado)],
