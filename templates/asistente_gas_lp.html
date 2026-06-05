@@ -359,6 +359,22 @@
       </div>
     </div>
   </div>
+  <div id="invoiceConfirmModal" class="modal-backdrop hide" role="dialog" aria-modal="true" aria-labelledby="invoiceConfirmTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <h2 id="invoiceConfirmTitle">Verificar factura antes de timbrar</h2>
+          <p class="muted" style="margin:4px 0 0">El total mostrado aquí será el total enviado al PAC.</p>
+        </div>
+        <button class="btn ghost icon-btn" type="button" onclick="resolveInvoiceConfirm(false)" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="invoiceConfirmBody" class="invoice-summary"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" onclick="resolveInvoiceConfirm(false)">Cancelar</button>
+        <button class="btn" type="button" onclick="resolveInvoiceConfirm(true)"><i class="fa-solid fa-stamp"></i> Confirmar y timbrar</button>
+      </div>
+    </div>
+  </div>
   <script>
     const token = localStorage.getItem('ge_gaslp_internal_token') || '';
     let CLIENTES = [];
@@ -377,6 +393,7 @@
     let suppressFacturaStatus = false;
     let CP_PREVIEW_READY = false;
     let transferConfirmResolver = null;
+    let invoiceConfirmResolver = null;
     const SAT_REGIMENES = [
       ['601','General de Ley Personas Morales'],
       ['603','Personas Morales con Fines no Lucrativos'],
@@ -1270,6 +1287,37 @@
       const discountGross = Math.min(raw, gross);
       return discountGross / Number(litrosNum || 1);
     }
+    const invoiceRound = (value, decimals=2) => Number((Number(value || 0)).toFixed(decimals));
+    function buildInvoicePreview(isTraspaso=false){
+      const litrosNum = Number(litros.value || 0);
+      const precioNum = Number(precioUnitario.value || 0);
+      const rate = Number(ivaRate.value || 0);
+      const mode = isTraspaso ? 'sin_descuento' : (descuentoTipo?.value || 'sin_descuento');
+      const captured = isTraspaso ? 0 : Math.max(Number(descuento?.value || 0), 0);
+      const gross = Math.max(litrosNum * precioNum, 0);
+      let discountGross = 0;
+      if(mode === 'por_litro') discountGross = Math.min(Math.max(captured, 0), Math.max(precioNum, 0)) * Math.max(litrosNum, 0);
+      else if(mode === 'total_pesos') discountGross = Math.min(captured, gross);
+      const discountPerLiter = litrosNum > 0 ? discountGross / litrosNum : 0;
+      const total = Math.max(gross - discountGross, 0);
+      const divisor = rate > 0 ? 1 + rate : 1;
+      const subtotal = rate > 0 ? gross / divisor : gross;
+      const descuentoBase = rate > 0 ? discountGross / divisor : discountGross;
+      const taxableBase = Math.max(subtotal - descuentoBase, 0);
+      const iva = total - taxableBase;
+      return {
+        litros: invoiceRound(litrosNum, 3),
+        precio_unitario: invoiceRound(precioNum, 6),
+        tipo_descuento: mode,
+        descuento_capturado: invoiceRound(captured, 6),
+        descuento_total_aplicado: invoiceRound(discountGross, 2),
+        descuento_por_litro_backend: invoiceRound(discountPerLiter, 6),
+        subtotal: invoiceRound(subtotal, 2),
+        descuento_base: invoiceRound(descuentoBase, 2),
+        iva: invoiceRound(iva, 2),
+        total_final: invoiceRound(total, 2),
+      };
+    }
     async function saveClienteFromTab(){
       try{
         const validation = validateEmailSlots(cliEmail.value, cliEmailAdicional1?.value, cliEmailAdicional2?.value);
@@ -1295,22 +1343,17 @@
       }catch(e){ setStatus('clientesMsg',e.message,false); }
     }
     function updateTotals(){
+      const isTraspaso = tipoOperacion.value === 'traspaso';
       const litrosNum = Number(litros.value || 0);
       const precioNum = Number(precioUnitario.value || 0);
-      const rate = Number(ivaRate.value || 0);
-      const isTraspaso = tipoOperacion.value === 'traspaso';
       const symbolicTransfer = transferUsesSymbolicAmount(precioNum, isTraspaso) && litrosNum > 0;
-      const gross = symbolicTransfer ? transferDisplayGross(litrosNum, precioNum, 0, true) : litrosNum * precioNum;
-      const subtotalBase = rate > 0 ? gross / (1 + rate) : gross;
-      const descFiscal = symbolicTransfer ? 0 : discountBaseValue(litrosNum, precioNum, isTraspaso);
-      const descDisplay = symbolicTransfer ? 0 : (descuentoTipo?.value === 'por_litro' ? Math.min(discountGrossValue(litrosNum, precioNum, isTraspaso), gross) : descFiscal);
-      const sub = Math.max(subtotalBase - descFiscal, 0);
-      const iva = sub * rate;
-      const total = sub + iva;
-      sumSubtotal.textContent = money(sub);
-      sumDescuento.textContent = money(descDisplay);
+      const preview = buildInvoicePreview(isTraspaso);
+      const total = symbolicTransfer ? transferDisplayGross(litrosNum, precioNum, 0, true) : preview.total_final;
+      const rate = Number(ivaRate.value || 0);
+      sumSubtotal.textContent = money(symbolicTransfer ? total / (1 + rate) : preview.subtotal);
+      sumDescuento.textContent = money(symbolicTransfer ? 0 : preview.descuento_total_aplicado);
       sumIva.previousElementSibling.textContent = `IVA ${Math.round(rate * 100)}%`;
-      sumIva.textContent = money(iva);
+      sumIva.textContent = money(symbolicTransfer ? total - (total / (1 + rate)) : preview.iva);
       sumTotal.textContent = money(total);
       if(typeof transferInternalPrice !== 'undefined'){
         transferInternalPrice.textContent = symbolicTransfer
@@ -1351,10 +1394,33 @@
       transferConfirmModal.classList.remove('hide');
       return new Promise(resolve => { transferConfirmResolver = resolve; });
     }
+    function resolveInvoiceConfirm(confirmed){
+      if(invoiceConfirmResolver) invoiceConfirmResolver(!!confirmed);
+      invoiceConfirmResolver = null;
+      invoiceConfirmModal.classList.add('hide');
+    }
+    function confirmInvoiceStamp(summary){
+      const rows = [
+        ['Instalación', summary.instalacion],
+        ['Cliente', summary.cliente],
+        ['Litros', fmt(summary.preview.litros)],
+        ['Precio por litro', money(summary.preview.precio_unitario)],
+        ['Tipo de descuento', summary.preview.tipo_descuento === 'por_litro' ? 'Descuento por litro' : (summary.preview.tipo_descuento === 'total_pesos' ? 'Descuento total en pesos' : 'Sin descuento')],
+        ['Descuento capturado', money(summary.preview.descuento_capturado)],
+        ['Descuento total aplicado', money(summary.preview.descuento_total_aplicado)],
+        ['Subtotal', money(summary.preview.subtotal)],
+        ['IVA', money(summary.preview.iva)],
+        ['Total final', money(summary.preview.total_final)],
+      ];
+      invoiceConfirmBody.innerHTML = rows.map(([k,v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+      invoiceConfirmModal.classList.remove('hide');
+      return new Promise(resolve => { invoiceConfirmResolver = resolve; });
+    }
     function resetFacturaFormAfterSuccess(opts={}){
       clienteSelect.value = '';
       litros.value = '0';
       descuento.value = '0';
+      if(descuentoTipo) descuentoTipo.value = 'sin_descuento';
       comentarios.value = '';
       fechaEmision.value = localDateTimeValue();
       facilitySelect.value = '';
@@ -1386,14 +1452,16 @@
       const q = `token=${encodeURIComponent(token)}`;
       const pdfUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/pdf?${q}` : '';
       const xmlUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/xml?${q}` : '';
-      const emailButton = id ? `<button class="btn ghost" type="button" onclick="openEmailModal('${esc(String(factura.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
-      const viewButton = pdfUrl ? `<a class="btn ghost" href="${pdfUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> Ver factura</a>` : '';
+      const isCarta = (md.tipo_flujo || '').includes('carta_porte') || factura.tipo_comprobante === 'T';
+      const title = isCarta ? 'Carta Porte timbrada correctamente.' : 'Factura timbrada correctamente.';
+      const emailButton = id && !isCarta ? `<button class="btn ghost" type="button" onclick="openEmailModal('${esc(String(factura.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
+      const viewButton = pdfUrl ? `<a class="btn ghost" href="${pdfUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> ${isCarta ? 'PDF Carta Porte' : 'Ver factura'}</a>` : '';
       const xmlButton = xmlUrl ? `<a class="btn ghost" href="${xmlUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>` : '';
       facturaMsg.className = 'status ok';
       facturaMsg.innerHTML = `
-        <span><b>Factura timbrada correctamente.</b><br>UUID: <code>${esc(uuid)}</code>${emailMsg ? `<br>${esc(emailMsg.replace(/^ · /,''))}` : ''}</span>
+        <span><b>${esc(title)}</b><br>UUID: <code>${esc(uuid)}</code>${emailMsg ? `<br>${esc(emailMsg.replace(/^ · /,''))}` : ''}</span>
         <span class="toolbar" style="margin-top:8px">
-          <button class="btn ghost" type="button" onclick="resetFacturaFormAfterSuccess()"><i class="fa-solid fa-plus"></i> Nueva factura</button>
+          <button class="btn ghost" type="button" onclick="resetFacturaFormAfterSuccess()"><i class="fa-solid fa-plus"></i> ${isCarta ? 'Nueva Carta Porte' : 'Nueva factura'}</button>
           ${viewButton}
           ${xmlButton}
           ${emailButton}
@@ -1423,13 +1491,13 @@
       const precioVal = Number(precioUnitario.value || 0);
       if(!facilitySelect.value){ setStatus('facturaMsg','Selecciona la instalación origen. Es obligatoria para control operativo GE Control.',false); facilitySelect.focus(); return; }
       const isTraspaso = tipoOperacion.value === 'traspaso';
-      const descuentoGrossVal = discountGrossValue(litrosVal, precioVal, isTraspaso);
-      const descuentoPayloadVal = discountPerLiterForPayload(litrosVal, precioVal, isTraspaso);
+      const invoicePreview = buildInvoicePreview(isTraspaso);
+      const descuentoGrossVal = invoicePreview.descuento_total_aplicado;
+      const descuentoPayloadVal = invoicePreview.descuento_por_litro_backend;
       const rateVal = Number(ivaRate.value || 0);
       const totalBrutoVal = litrosVal * precioVal;
       const subtotalBrutoVal = rateVal > 0 ? totalBrutoVal / (1 + rateVal) : totalBrutoVal;
-      const descuentoBaseVal = discountBaseValue(litrosVal, precioVal, isTraspaso);
-      const totalVal = isTraspaso ? transferDisplayGross(litrosVal, precioVal, 0, true) : Math.max((subtotalBrutoVal - descuentoBaseVal) * (1 + rateVal), 0);
+      const totalVal = isTraspaso ? transferDisplayGross(litrosVal, precioVal, 0, true) : invoicePreview.total_final;
       if(litrosVal <= 0){ setStatus('facturaMsg','Captura litros mayores a cero.',false); return; }
       if(precioVal < 0){ setStatus('facturaMsg','El precio no puede ser negativo.',false); return; }
       if(isTraspaso && !transferPriceReady()){ setStatus('facturaMsg','Falta precio interno configurado para timbrar el traspaso.',false); return; }
@@ -1437,7 +1505,7 @@
       if(!isTraspaso && !isCartaPorte && precioVal <= 0){ setStatus('facturaMsg','Captura litros y configura un precio vigente mayor a cero.',false); return; }
       if(!isTraspaso && !isCartaPorte && Number(descuento.value || 0) < 0){ setStatus('facturaMsg','El descuento no puede ser negativo.',false); return; }
       if(!isTraspaso && !isCartaPorte && descuentoTipo?.value === 'por_litro' && descuentoGrossVal > totalBrutoVal){ setStatus('facturaMsg','El descuento por litro no puede ser mayor al precio por litro.',false); return; }
-      if(!isTraspaso && !isCartaPorte && descuentoTipo?.value !== 'por_litro' && descuentoGrossVal > subtotalBrutoVal){ setStatus('facturaMsg','El descuento total no puede ser mayor al subtotal antes de IVA.',false); return; }
+      if(!isTraspaso && !isCartaPorte && descuentoTipo?.value !== 'por_litro' && descuentoGrossVal > totalBrutoVal){ setStatus('facturaMsg','El descuento total no puede ser mayor al total antes de descuento.',false); return; }
       if(!isTraspaso && !isCartaPorte && totalVal <= 0){ setStatus('facturaMsg','El total de la factura debe ser mayor a cero. Revisa precio y descuento.',false); return; }
       if(tipoOperacion.value === 'carta_porte'){
         if(CP_PREVIEW_READY) await timbrarCartaPorteGasLp();
@@ -1478,6 +1546,15 @@
             if(saveTransferEmailDefault) saveTransferEmailDefault.checked = false;
           }
         }
+      } else if(invoicePreview.descuento_total_aplicado > 0){
+        const selectedClientePreview = clienteSelect.value ? CLIENTES.find(c => String(c.id) === String(clienteSelect.value)) : null;
+        const origenPreview = FACILITIES.find(f => String(f.id) === String(facilitySelect.value));
+        const confirmed = await confirmInvoiceStamp({
+          instalacion: origenPreview?.nombre || facilitySelect.value,
+          cliente: selectedClientePreview?.nombre || 'PUBLICO EN GENERAL',
+          preview: invoicePreview,
+        });
+        if(!confirmed) return;
       } else if(!confirm('¿Timbrar factura real?')) return;
       isStamping = true;
       try{
@@ -1510,6 +1587,10 @@
           folio: folio.value || '',
           comentarios: comentarios.value || '',
           fecha: fechaCfdi,
+          tipo_descuento: invoicePreview.tipo_descuento,
+          descuento_capturado: invoicePreview.descuento_capturado,
+          descuento_preview: invoicePreview.descuento_total_aplicado,
+          total_preview: invoicePreview.total_final,
           clave_prod_serv: claveProdServ.value || '15111510',
           no_identificacion: noIdentificacion.value || 'GLP-LTR',
           unidad: unidadConcepto.value || 'Litro',
@@ -1530,6 +1611,19 @@
           informacion_global_anio: globalYear
         };
         const endpoint = '/api/internal-auth/gas-lp/facturas';
+        console.info('[GasLP factura pre-timbrado]', {
+          instalacion: payload.facility_id,
+          cliente: payload.cliente_id || payload.rfc,
+          litros: payload.litros,
+          precio_unitario: payload.precio_unitario,
+          tipo_descuento: payload.tipo_descuento,
+          descuento_capturado: payload.descuento_capturado,
+          descuento_total_aplicado: payload.descuento_preview,
+          subtotal: invoicePreview.subtotal,
+          iva: invoicePreview.iva,
+          total_preview: invoicePreview.total_final,
+          total_payload: payload.total_preview,
+        });
         if(isTraspaso) {
           transferDebug('timbrar request', {endpoint, payload});
           setStatus('facturaMsg','Enviando traspaso al backend/PAC...');
