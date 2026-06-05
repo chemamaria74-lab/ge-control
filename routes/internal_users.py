@@ -3714,6 +3714,7 @@ async def gas_lp_conciliacion_export_excel(
     period: str | None = None,
     periodo: str | None = None,
     fecha: str | None = None,
+    tipo: str | None = None,
     profile_id: int | None = None,
     perfil_id: int | None = None,
 ):
@@ -3774,22 +3775,77 @@ async def gas_lp_conciliacion_export_excel(
         rows = [row for row in rows if _gas_lp_factura_date_key(row) == day]
     else:
         rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
+    tipo_filter = str(tipo or "").strip().lower()
+    if tipo_filter == "factura":
+        rows = [row for row in rows if not ((row.get("metadata") or {}).get("tipo_operacion") == "traspaso" or (row.get("metadata") or {}).get("is_transfer"))]
+    elif tipo_filter == "traspaso":
+        rows = [row for row in rows if (row.get("metadata") or {}).get("tipo_operacion") == "traspaso" or (row.get("metadata") or {}).get("is_transfer")]
+    elif tipo_filter == "complemento":
+        rows = []
+
+    complementos = []
+    if tipo_filter in {"", "complemento"}:
+        try:
+            comp_q = (
+                sb.table("gas_lp_complementos_pago")
+                .select("*")
+                .eq("tenant_id", user.get("tenant_id"))
+                .eq("perfil_id", user.get("perfil_id"))
+                .gte("created_at", start.strftime("%Y-%m-%dT00:00:00"))
+                .lt("created_at", end.strftime("%Y-%m-%dT00:00:00"))
+                .order("created_at", desc=True)
+                .limit(10000)
+            )
+            complementos = comp_q.execute().data or []
+            _gas_lp_attach_complemento_creators(sb, complementos)
+        except Exception as exc:
+            logger.warning("conciliacion_export_complementos_failed profile_id=%s period=%s err=%s", user.get("perfil_id"), month, exc)
+            complementos = []
+    comp_ids = [_safe_int_id(c.get("id")) for c in complementos if _safe_int_id(c.get("id"))]
+    comp_rels = []
+    if comp_ids:
+        try:
+            comp_rels = (
+                sb.table("gas_lp_complementos_pago_facturas")
+                .select("*")
+                .in_("complemento_id", comp_ids)
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            comp_rels = []
+    comp_rels_by_id: dict[int, list[dict]] = {}
+    comp_factura_ids: list[int] = []
+    for rel in comp_rels:
+        comp_id = _safe_int_id(rel.get("complemento_id"))
+        comp_rels_by_id.setdefault(comp_id, []).append(rel)
+        fid = _safe_int_id(rel.get("factura_id"))
+        if fid:
+            comp_factura_ids.append(fid)
+    for comp in complementos:
+        comp_factura_ids.extend(_gas_lp_complemento_factura_ids(comp))
+    comp_facturas_by_id = _gas_lp_facturas_by_ids_for_company(sb, user, profile, list(dict.fromkeys(comp_factura_ids)))
 
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Facturas"
+    ws.title = "Documentos"
     headers = [
-        "Fecha",
-        "Folio de fact",
+        "Tipo de documento",
         "UUID",
-        "Razón social",
-        "Monto con IVA",
+        "Factura relacionada",
+        "Cliente",
+        "RFC",
+        "Fecha emisión/timbrado",
+        "Fecha pago",
+        "Monto",
         "Litros",
-        "PUE o PPD",
         "Realizado por",
+        "Estado correo",
+        "Método/Forma de pago",
         "Estado",
     ]
     ws.append(headers)
@@ -3838,14 +3894,18 @@ async def gas_lp_conciliacion_export_excel(
         factura_id = row.get("id")
         try:
             ws.append([
-                _excel_text(_gas_lp_factura_date_key(row)),
-                _excel_text(_gas_lp_factura_folio_label(row)),
+                "Traspaso" if ((row.get("metadata") or {}).get("tipo_operacion") == "traspaso" or (row.get("metadata") or {}).get("is_transfer")) else "Factura",
                 _excel_text(row.get("uuid_sat") or ""),
+                "",
                 _excel_text(_gas_lp_factura_razon_social(row)),
+                _excel_text(row.get("rfc_receptor") or ""),
+                _excel_text(_gas_lp_factura_date_key(row)),
+                "",
                 _excel_number(_safe_total(row)),
                 _excel_liters(row.get("volumen_litros")),
-                _excel_text(_safe_metodo_pago(row)),
                 _excel_text(_gas_lp_factura_realizado_por(row)),
+                _excel_text(row.get("email_status") or ""),
+                _excel_text(_safe_metodo_pago(row)),
                 _excel_text(_gas_lp_factura_estado_excel(row)),
             ])
         except Exception as exc:
@@ -3857,12 +3917,43 @@ async def gas_lp_conciliacion_export_excel(
                 exc,
                 traceback.format_exc(),
             )
-            ws.append(["", _excel_text(factura_id), "", "", 0.0, 0.0, "", "", ""])
-    for width, column in zip([14, 18, 40, 34, 16, 12, 12, 18, 26], "ABCDEFGHI"):
+            ws.append(["Factura", "", _excel_text(factura_id), "", "", "", "", 0.0, 0.0, "", "", "", ""])
+    for comp in complementos:
+        comp_id = _safe_int_id(comp.get("id"))
+        rels = comp_rels_by_id.get(comp_id, [])
+        ids = [*_gas_lp_complemento_factura_ids(comp), *[_safe_int_id(rel.get("factura_id")) for rel in rels]]
+        ids = list(dict.fromkeys(fid for fid in ids if fid))
+        facturas_comp = [comp_facturas_by_id[fid] for fid in ids if fid in comp_facturas_by_id]
+        receptor = _gas_lp_complemento_receptor_info(comp, facturas_comp)
+        refs = []
+        for rel in rels:
+            fid = _safe_int_id(rel.get("factura_id"))
+            factura = comp_facturas_by_id.get(fid, {})
+            refs.append(_gas_lp_factura_folio_label(factura) or rel.get("uuid_relacionado") or "")
+        if not refs:
+            refs = [_gas_lp_factura_folio_label(comp_facturas_by_id.get(fid, {})) for fid in ids]
+        email_error = str(comp.get("email_error") or "")
+        email_status = "Correo enviado" if comp.get("email_enviado") else ("Sin correo" if "sin correo" in email_error.lower() else ("Error de envío" if email_error else "Pendiente"))
+        ws.append([
+            "Complemento de pago",
+            _excel_text(comp.get("uuid_sat") or ""),
+            _excel_text(", ".join(ref for ref in refs if ref)),
+            _excel_text(receptor.get("nombre") or "Cliente"),
+            _excel_text(receptor.get("rfc") or ""),
+            _excel_text(str(comp.get("created_at") or "")[:19]),
+            _excel_text(comp.get("fecha_pago") or ""),
+            _excel_number(comp.get("monto") or 0),
+            0.0,
+            _excel_text(comp.get("realizado_por") or ""),
+            _excel_text(email_status),
+            _excel_text(f"Complemento / {comp.get('forma_pago') or ''}".strip(" /")),
+            _excel_text(comp.get("status") or "timbrado"),
+        ])
+    for width, column in zip([24, 40, 30, 36, 18, 22, 22, 16, 12, 22, 20, 22, 22], "ABCDEFGHIJKLM"):
         ws.column_dimensions[column].width = width
-    for cell in ws["F"][1:]:
+    for cell in ws["I"][1:]:
         cell.number_format = "#,##0.000"
-    for cell in ws["E"][1:]:
+    for cell in ws["H"][1:]:
         cell.number_format = '$#,##0.00'
 
     stream = BytesIO()
