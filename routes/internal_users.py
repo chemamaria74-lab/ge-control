@@ -3605,7 +3605,17 @@ async def gas_lp_conciliacion_facilities(token: str, perfil_id: int | None = Non
     ctx = _gas_lp_conciliacion_context(token, perfil_id=perfil_id)
     user = ctx["user"]
     rows = get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
-    return JSONResponse({"ok": True, "facilities": rows})
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    precio_venta_litro, precio_venta_litro_configurado = _configured_setting(
+        settings,
+        ("precio_venta_litro", "PrecioVentaLitro", "precio_default_litro", "precio_litro"),
+    )
+    return JSONResponse({
+        "ok": True,
+        "facilities": rows,
+        "precio_venta_litro": precio_venta_litro,
+        "precio_venta_litro_configurado": precio_venta_litro_configurado,
+    })
 
 
 @router.get("/internal-auth/gas-lp/conciliacion/summary")
