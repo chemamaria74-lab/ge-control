@@ -618,6 +618,10 @@
       const n = numericFrom(price);
       return n > 0 ? formatUnitPrice(n) : '';
     }
+    function updateUnitPricePlaceholder(){
+      if(!precioUnitario) return;
+      precioUnitario.placeholder = facilitySelect?.value ? 'Captura precio' : 'Selecciona instalación';
+    }
     function setUnitPrice(price, source='manual'){
       const n = numericFrom(price);
       const visible = displayUnitPrice(n);
@@ -625,6 +629,7 @@
       precioUnitario.dataset.priceSource = source;
       precioUnitario.dataset.stateFacilityId = facilitySelect.value || '';
       precioUnitario.value = visible;
+      updateUnitPricePlaceholder();
       updateTotals();
     }
     function markManualPrice(){
@@ -778,6 +783,7 @@
       const currentOperation = tipoOperacion.value;
       resetInvoiceTransientState({keepCliente: currentOperation !== 'venta'});
       applyConfiguredPrice({silent:true});
+      updateUnitPricePlaceholder();
       filterRutasForTransfer();
       updateTransferReady();
       stampFormSignature();
@@ -2588,6 +2594,16 @@
       localStorage.removeItem('ge_gaslp_internal_token');
       location.href='/choice';
     }
+    function disableNumberWheelChanges(){
+      document.querySelectorAll('input[type="number"]').forEach(input => {
+        input.addEventListener('wheel', event => {
+          if(document.activeElement === input){
+            event.preventDefault();
+          }
+        }, {passive:false});
+      });
+    }
+    disableNumberWheelChanges();
     initSatCatalogs();
     syncPaymentMethod();
     load();

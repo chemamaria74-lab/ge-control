@@ -340,7 +340,7 @@
     function publicMetadata(row){const md=row?.metadata;return md&&typeof md==='object'?md:{}}
     function selectedPublicoFacility(){return FACILITIES.find(f=>String(f.id)===String(pubFacility?.value))||null}
     function publicFacilityUnitPrice(f){const md=publicMetadata(f);const candidates=[f?.precio_venta_litro,f?.precio_litro,f?.precio_default_litro,f?.tarifa_litro,md.precio_venta_litro,md.precio_litro,md.precio_default_litro,md.tarifa_litro,md.precio_unitario,md.precio_unitario_con_iva];for(const value of candidates){const n=numericFrom(value);if(n>0)return n}return 0}
-    function setPublicoUnitPrice(price,source='manual'){const n=numericFrom(price);const visible=n>0?formatUnitPrice(n):'';pubPrecio.dataset.realPrice=visible;pubPrecio.dataset.priceSource=source;pubPrecio.dataset.stateFacilityId=pubFacility?.value||'';pubPrecio.dataset.formSignature=publicoFormSignature();pubPrecio.value=visible;updatePublicoSummary()}
+    function setPublicoUnitPrice(price,source='manual'){const n=numericFrom(price);const visible=n>0?formatUnitPrice(n):'';pubPrecio.dataset.realPrice=visible;pubPrecio.dataset.priceSource=source;pubPrecio.dataset.stateFacilityId=pubFacility?.value||'';pubPrecio.dataset.formSignature=publicoFormSignature();pubPrecio.value=visible;pubPrecio.placeholder=pubFacility?.value?'Captura precio':'Selecciona instalación';updatePublicoSummary()}
     function markPublicoManualPrice(){pubPrecio.dataset.realPrice=String(pubPrecio.value||'');pubPrecio.dataset.priceSource='manual';pubPrecio.dataset.stateFacilityId=pubFacility?.value||'';pubPrecio.dataset.formSignature=publicoFormSignature()}
     function effectivePublicoUnitPrice(){return numericFrom(pubPrecio?.value)}
     function publicoFormSignature(){return `${pubFacility?.value||''}|publico_general`}
@@ -691,6 +691,8 @@
     function exportarMes(){const params=new URLSearchParams({periodo:expMes.value||month()});if(tipoFiltro.value)params.set('tipo',tipoFiltro.value);window.open(exportUrl(params),'_blank','noopener')}
     function exportarDia(){if(!expDia.value)return alert('Selecciona un día.');const params=new URLSearchParams({fecha:expDia.value});if(tipoFiltro.value)params.set('tipo',tipoFiltro.value);window.open(exportUrl(params),'_blank','noopener')}
     async function logout(){await fetch('/api/internal-auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}).catch(()=>{});localStorage.removeItem(CONCILIACION_TOKEN_KEY);location.href='/choice'}
+    function disableNumberWheelChanges(){document.querySelectorAll('input[type="number"]').forEach(input=>{input.addEventListener('wheel',event=>{if(document.activeElement===input)event.preventDefault()},{passive:false})})}
+    disableNumberWheelChanges();
     init();
   </script>
 </body>
