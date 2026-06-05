@@ -47,6 +47,7 @@ from services.fiscal_pdf import (
 from services.fiscal_audit import version_xml
 from services.cfdi_cancellation import cancel_cfdi_universal
 from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
+from services.carta_porte_validation import validar_xml_carta_porte_transporte
 from supabase_config import get_supabase_admin
 
 logger = logging.getLogger(__name__)
@@ -514,6 +515,11 @@ class CartaPorteRequest(BaseModel):
     vehiculo_id:       Optional[int] = None
     chofer_id:         Optional[int] = None
     ruta_id:           Optional[int] = None
+    origen_ubicacion_id: Optional[int] = None
+    destino_ubicacion_id: Optional[int] = None
+    mercancia_id:      Optional[int] = None
+    fecha_salida:      str = ""
+    fecha_llegada:     str = ""
     tipo_comprobante:  str   = "T"
     distancia_km:      float = 1.0
     cfdi_relacionados: Optional[list] = None
@@ -536,57 +542,202 @@ class FacturaFleteRequest(BaseModel):
 
 # ── Carta Porte ───────────────────────────────────────────────────────────────
 
-@router.post("/facturas/carta-porte")
-async def generar_carta_porte(
-    payload:       CartaPorteRequest,
-    authorization: str = Header(default=""),
-    x_perfil_id:   str = Header(default=""),
-):
-    scope = _scope(authorization, x_perfil_id)
+def _cp_to_int(value) -> Optional[int]:
+    try:
+        number = int(value or 0)
+        return number or None
+    except (TypeError, ValueError):
+        return None
+
+
+def _cp_route_default(route_row: Optional[dict], key: str) -> Optional[int]:
+    return _cp_to_int(_metadata_dict(route_row).get(key))
+
+
+def _cp_with_metadata(row: Optional[dict]) -> dict:
+    if not row:
+        return {}
+    merged = dict(row)
+    for key, value in _metadata_dict(row).items():
+        merged.setdefault(key, value)
+    return merged
+
+
+def _cp_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
+
+
+def _cp_required(errors: list[str], label: str, value) -> None:
+    if value is None or str(value).strip() == "":
+        errors.append(label)
+
+
+def _cp_validate_catalog_payload(
+    *,
+    origen: dict,
+    destino: dict,
+    vehiculo: dict,
+    chofer: dict,
+    mercancia: dict,
+    fecha_salida: str,
+    fecha_llegada: str,
+    distancia_km: float,
+    litros: float,
+    peso_kg: float,
+) -> None:
+    errors: list[str] = []
+    for prefix, row in (("origen", origen), ("destino", destino)):
+        _cp_required(errors, f"{prefix}: RFC remitente/destinatario", row.get("rfc"))
+        _cp_required(errors, f"{prefix}: nombre remitente/destinatario", row.get("nombre") or row.get("alias"))
+        _cp_required(errors, f"{prefix}: código postal", row.get("codigo_postal") or row.get("cp"))
+        _cp_required(errors, f"{prefix}: estado", row.get("estado"))
+        _cp_required(errors, f"{prefix}: municipio", row.get("municipio"))
+        _cp_required(errors, f"{prefix}: calle", row.get("calle") or row.get("domicilio"))
+    _cp_required(errors, "fecha/hora salida", fecha_salida)
+    _cp_required(errors, "fecha/hora llegada", fecha_llegada)
+    if distancia_km <= 0:
+        errors.append("distancia recorrida mayor a 0")
+    _cp_required(errors, "mercancía: BienesTransp SAT", mercancia.get("bienes_transp"))
+    _cp_required(errors, "mercancía: descripción", mercancia.get("descripcion") or mercancia.get("alias"))
+    _cp_required(errors, "mercancía: clave unidad", mercancia.get("clave_unidad"))
+    if litros <= 0:
+        errors.append("litros/cantidad mayor a 0")
+    if peso_kg <= 0:
+        errors.append("peso kg mayor a 0")
+    if _cp_bool(mercancia.get("material_peligroso")):
+        _cp_required(errors, "mercancía: clave material peligroso", mercancia.get("clave_material_peligroso"))
+        _cp_required(errors, "mercancía: embalaje SAT", mercancia.get("embalaje"))
+    _cp_required(errors, "vehículo: placas", vehiculo.get("placas") or vehiculo.get("placa"))
+    _cp_required(errors, "vehículo: configuración SAT", vehiculo.get("config_vehicular"))
+    _cp_required(errors, "vehículo: permiso SCT/SICT", vehiculo.get("permiso_cre") or vehiculo.get("permiso_sct"))
+    _cp_required(errors, "vehículo: número de permiso", vehiculo.get("numero_permiso"))
+    _cp_required(errors, "vehículo: aseguradora RC", vehiculo.get("aseguradora"))
+    _cp_required(errors, "vehículo: póliza RC", vehiculo.get("poliza_seguro"))
+    _cp_required(errors, "chofer: nombre", chofer.get("nombre"))
+    _cp_required(errors, "chofer: licencia", chofer.get("licencia"))
+    _cp_required(errors, "chofer: tipo figura", chofer.get("tipo_figura"))
+    if errors:
+        raise HTTPException(400, "Carta Porte incompleta. Falta: " + "; ".join(errors) + ".")
+
+
+def _cp_post_timbrado_validation(xml_timbrado: str, mercancia: dict) -> dict:
+    result = validar_xml_carta_porte_transporte(
+        xml_timbrado or "",
+        productos=[{"clave_producto": mercancia.get("bienes_transp") or ""}],
+        enforce_hidrocarburos=False,
+    )
+    missing_key_nodes: list[str] = []
+    if not result.metadata.get("id_ccp"):
+        missing_key_nodes.append("IdCCP")
+    for error in result.errors:
+        for node in ("TipoDeComprobante", "CartaPorte", "Ubicaciones", "Mercancias", "Autotransporte", "Seguros", "TiposFigura"):
+            if node.lower() in error.lower() and node not in missing_key_nodes:
+                missing_key_nodes.append(node)
+    return {
+        "ok": result.ok,
+        "errors": result.errors,
+        "warnings": result.warnings,
+        "metadata": result.metadata,
+        "missing_key_nodes": missing_key_nodes,
+    }
+
+
+async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict):
     uid = scope["user_id"]
     _require_supabase_scope(scope)
     emisor = _emisor_from_scope(scope)
-    origen = _require_scope_facility(scope, payload.origen_facility_id or payload.facility_id, "instalación origen")
-    destino = _require_scope_facility(scope, payload.destino_facility_id, "estación destino")
-    if int(origen.get("id")) == int(destino.get("id")):
-        raise HTTPException(400, "Origen y destino deben ser instalaciones distintas para Carta Porte interna.")
-    if not _is_destination_station(destino):
-        raise HTTPException(400, "Carta Porte interna solo permite destino estación de carburación/expendio de la empresa activa.")
-    chofer_row = _require_active_catalog_row(_SB_CHOFERES, scope, payload.chofer_id, "chofer")
-    vehiculo_row = _require_active_catalog_row(_SB_VEHICULOS, scope, payload.vehiculo_id, "vehículo")
+
+    origen_facility = None
+    destino_facility = None
+    if payload.origen_facility_id or payload.facility_id:
+        origen_facility = _require_scope_facility(scope, payload.origen_facility_id or payload.facility_id, "instalación origen")
+    if payload.destino_facility_id:
+        destino_facility = _require_scope_facility(scope, payload.destino_facility_id, "estación destino")
+    if origen_facility and destino_facility:
+        if int(origen_facility.get("id")) == int(destino_facility.get("id")):
+            raise HTTPException(400, "Origen y destino deben ser instalaciones distintas para Carta Porte interna.")
+        if not _is_destination_station(destino_facility):
+            raise HTTPException(400, "Carta Porte interna solo permite destino estación de carburación/expendio de la empresa activa.")
+
     ruta_row = _sb_get(_SB_RUTAS, int(payload.ruta_id), scope) if payload.ruta_id else None
+    if ruta_row and ruta_row.get("activo") is False:
+        raise HTTPException(404, "Ruta no existe o está inactiva en la empresa activa.")
+    origen_ubicacion_id = _cp_to_int(payload.origen_ubicacion_id) or _cp_route_default(ruta_row, "origen_ubicacion_id")
+    destino_ubicacion_id = _cp_to_int(payload.destino_ubicacion_id) or _cp_route_default(ruta_row, "destino_ubicacion_id")
+    vehiculo_id = _cp_to_int(payload.vehiculo_id) or _cp_route_default(ruta_row, "vehiculo_default_id")
+    chofer_id = _cp_to_int(payload.chofer_id) or _cp_route_default(ruta_row, "chofer_default_id")
+    mercancia_id = _cp_to_int(payload.mercancia_id) or _cp_route_default(ruta_row, "mercancia_default_id")
+
+    origen = _require_active_catalog_row(_SB_UBICACIONES_CP, scope, origen_ubicacion_id, "ubicación origen")
+    destino = _require_active_catalog_row(_SB_UBICACIONES_CP, scope, destino_ubicacion_id, "ubicación destino")
+    chofer_row = _cp_with_metadata(_require_active_catalog_row(_SB_CHOFERES, scope, chofer_id, "chofer"))
+    vehiculo_row = _cp_with_metadata(_require_active_catalog_row(_SB_VEHICULOS, scope, vehiculo_id, "vehículo"))
+    mercancia_row = _cp_with_metadata(_require_active_catalog_row(_SB_MERCANCIAS_CP, scope, mercancia_id, "mercancía"))
+
     if payload.rfc_cliente and _clean_rfc(payload.rfc_cliente) != emisor["rfc"]:
         raise HTTPException(400, "Carta Porte interna debe usar como receptor el mismo RFC de la empresa activa.")
 
     receptor = {
-        "rfc":             emisor["rfc"],
-        "nombre":          emisor["nombre"],
-        "regimen_fiscal":  emisor["regimen_fiscal"],
-        "uso_cfdi":        "S01",
+        "rfc": emisor["rfc"],
+        "nombre": emisor["nombre"],
+        "regimen_fiscal": emisor["regimen_fiscal"],
+        "uso_cfdi": "S01",
         "domicilio_fiscal": emisor["domicilio_fiscal"],
     }
+    distancia_km = float((ruta_row or {}).get("distancia_km") or payload.distancia_km or 0)
+    fecha_salida = (payload.fecha_salida or payload.fecha_hora or "").strip()
+    fecha_llegada = (payload.fecha_llegada or "").strip()
+    litros = float(payload.volumen_litros or 0)
+    factor = float(mercancia_row.get("factor_kg_litro") or 0)
+    peso_kg = round(litros * factor, 3)
+
+    _cp_validate_catalog_payload(
+        origen=origen,
+        destino=destino,
+        vehiculo=vehiculo_row,
+        chofer=chofer_row,
+        mercancia=mercancia_row,
+        fecha_salida=fecha_salida,
+        fecha_llegada=fecha_llegada,
+        distancia_km=distancia_km,
+        litros=litros,
+        peso_kg=peso_kg,
+    )
+
     vehiculo = {
-        "placa":             vehiculo_row.get("placas") or payload.placa,
-        "anio_modelo":       vehiculo_row.get("anio") or payload.anio_modelo,
-        "config_vehicular":  vehiculo_row.get("config_vehicular") or payload.config_vehicular,
+        **vehiculo_row,
+        "placa": vehiculo_row.get("placas") or payload.placa,
+        "anio_modelo": vehiculo_row.get("anio") or payload.anio_modelo,
         "nombre_asegurador": vehiculo_row.get("aseguradora") or payload.nombre_asegurador,
-        "poliza_seguro":     vehiculo_row.get("poliza_seguro") or payload.poliza_seguro,
+        "num_permiso_sct": vehiculo_row.get("numero_permiso"),
+        "perm_sct": vehiculo_row.get("permiso_sct") or vehiculo_row.get("permiso_cre"),
     }
     entrega = {
-        "uuid_mov":       payload.record_uuid,
-        "volumen_litros": payload.volumen_litros,
-        "importe":        payload.importe,
-        "fecha_hora":     payload.fecha_hora,
+        "uuid_mov": payload.record_uuid,
+        "volumen_litros": litros,
+        "importe": payload.importe,
+        "fecha_hora": fecha_salida,
+        "fecha_salida": fecha_salida,
+        "fecha_llegada": fecha_llegada,
     }
-    distancia_km = float((ruta_row or {}).get("distancia_km") or payload.distancia_km or 1)
-    ruta = {"distancia_km": distancia_km} if payload.tipo_comprobante == "I" else None
+    mercancia = {**mercancia_row, "peso_kg": peso_kg}
+    ruta = {"distancia_km": distancia_km}
 
     try:
         xml = build_carta_porte_xml(
-            entrega, emisor, receptor, vehiculo,
+            entrega,
+            emisor,
+            receptor,
+            vehiculo,
             tipo_comprobante=payload.tipo_comprobante,
             cfdi_relacionados=payload.cfdi_relacionados,
             ruta=ruta,
+            origen=origen,
+            destino=destino,
+            mercancia=mercancia,
+            chofer=chofer_row,
         )
     except Exception as e:
         raise HTTPException(500, f"Error al construir XML Carta Porte: {e}") from e
@@ -595,14 +746,37 @@ async def generar_carta_porte(
     if resultado["error"]:
         raise HTTPException(400, f"Error en timbrado SW Sapien: {resultado['error']}")
 
+    validation = _cp_post_timbrado_validation(resultado.get("xml_timbrado") or "", mercancia)
     now = datetime.now(timezone.utc).isoformat()
-    supabase_row = None
+    metadata = {
+        "origen_facility_id": payload.origen_facility_id or payload.facility_id,
+        "destino_facility_id": payload.destino_facility_id,
+        "origen_ubicacion_id": origen_ubicacion_id,
+        "destino_ubicacion_id": destino_ubicacion_id,
+        "mercancia_id": mercancia_id,
+        "vehiculo_id": vehiculo_id,
+        "chofer_id": chofer_id,
+        "ruta_id": payload.ruta_id,
+        "tipo_flujo": "gas_lp_carta_porte_traspaso_interno",
+        "origen_nombre": origen.get("alias") or origen.get("nombre"),
+        "destino_nombre": destino.get("alias") or destino.get("nombre"),
+        "chofer_nombre": chofer_row.get("nombre"),
+        "vehiculo_placas": vehiculo_row.get("placas"),
+        "mercancia_descripcion": mercancia_row.get("descripcion"),
+        "peso_kg": peso_kg,
+        "fecha_salida": fecha_salida,
+        "fecha_llegada": fecha_llegada,
+        "carta_porte_validation": validation,
+    }
+    if validation.get("missing_key_nodes"):
+        metadata["carta_porte_alerta"] = "XML timbrado con nodos clave faltantes: " + ", ".join(validation["missing_key_nodes"])
+
     supabase_row = _sb_insert(_SB_FACTURAS, _scope_row(scope, {
         "facility_id": payload.origen_facility_id or payload.facility_id,
         "origen_facility_id": payload.origen_facility_id or payload.facility_id,
         "destino_facility_id": payload.destino_facility_id,
-        "vehiculo_id": payload.vehiculo_id,
-        "chofer_id": payload.chofer_id,
+        "vehiculo_id": vehiculo_id,
+        "chofer_id": chofer_id,
         "ruta_id": payload.ruta_id,
         "record_uuid": payload.record_uuid,
         "uuid_sat": resultado["uuid"],
@@ -611,22 +785,11 @@ async def generar_carta_porte(
         "status": "Vigente",
         "fecha_timbrado": now,
         "rfc_receptor": receptor["rfc"],
-        "volumen_litros": payload.volumen_litros,
+        "volumen_litros": litros,
         "importe": payload.importe,
         "tipo_comprobante": payload.tipo_comprobante,
         "distancia_km": distancia_km,
-        "metadata": {
-            "origen_facility_id": payload.origen_facility_id or payload.facility_id,
-            "destino_facility_id": payload.destino_facility_id,
-            "vehiculo_id": payload.vehiculo_id,
-            "chofer_id": payload.chofer_id,
-            "ruta_id": payload.ruta_id,
-            "tipo_flujo": "gas_lp_carta_porte_traspaso_interno",
-            "origen_nombre": origen.get("nombre"),
-            "destino_nombre": destino.get("nombre"),
-            "chofer_nombre": chofer_row.get("nombre"),
-            "vehiculo_placas": vehiculo_row.get("placas"),
-        },
+        "metadata": metadata,
         "created_at": now,
     }))
     if supabase_row:
@@ -642,15 +805,36 @@ async def generar_carta_porte(
             source="sw_sapien",
         )
         logger.info("Carta Porte timbrada: user=%s uuid_sat=%s source=supabase", uid, resultado["uuid"])
+        response_factura = {
+            **supabase_row,
+            "uuid_sat": resultado["uuid"],
+            "xml_content": resultado["xml_timbrado"],
+            "pdf_url": resultado.get("pdf_url") or "",
+            "metadata": metadata,
+        }
         return JSONResponse({
-            "ok": True, "uuid_sat": resultado["uuid"],
-            "pdf_url": resultado["pdf_url"], "status": "Vigente",
+            "ok": True,
+            "factura": response_factura,
+            "uuid_sat": resultado["uuid"],
+            "pdf_url": resultado["pdf_url"],
+            "status": "Vigente",
             "fecha_timbrado": now,
             "id": supabase_row.get("id"),
+            "id_ccp": validation.get("metadata", {}).get("id_ccp") or "",
+            "carta_porte_validation": validation,
             "source": "supabase",
         })
 
     raise HTTPException(500, f"CFDI timbrado con UUID {resultado['uuid']}, pero no se pudo guardar en Supabase. Revisar auditoría inmediatamente.")
+
+@router.post("/facturas/carta-porte")
+async def generar_carta_porte(
+    payload:       CartaPorteRequest,
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    return await _generar_carta_porte_for_scope(payload, scope)
 
 
 @router.post("/facturas/traspasos-internos")

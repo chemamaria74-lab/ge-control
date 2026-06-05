@@ -112,6 +112,10 @@ class GasLpInternalFacturaPayload(BaseModel):
     forma_pago: str = "99"
     metodo_pago: str = "PUE"
     descuento: float = 0
+    tipo_descuento: str = ""
+    descuento_capturado: Optional[float] = None
+    descuento_preview: Optional[float] = None
+    total_preview: Optional[float] = None
     iva_rate: float = 0.16
     serie: str = "AA"
     folio: str = ""
@@ -173,6 +177,10 @@ class GasLpConciliacionPublicoGeneralPayload(BaseModel):
     fecha: str = ""
     comentarios: str = ""
     descuento: float = 0
+    tipo_descuento: str = ""
+    descuento_capturado: Optional[float] = None
+    descuento_preview: Optional[float] = None
+    total_preview: Optional[float] = None
     iva_rate: float = 0.16
     factura_global: bool = False
     informacion_global_periodicidad: str = "04"
@@ -1399,6 +1407,52 @@ def _build_gas_lp_consumo_xml(
         "precio_unitario_con_iva": float(unit),
         "precio_unitario_sin_iva": float(unit_net),
     }
+
+
+def _gas_lp_validate_invoice_preview_totals(payload, totals: dict, *, context: str) -> None:
+    preview_total = getattr(payload, "total_preview", None)
+    preview_discount = getattr(payload, "descuento_preview", None)
+    if preview_total is None and preview_discount is None:
+        return
+    backend_total = float(totals.get("total") or 0)
+    backend_discount = float(totals.get("descuento_con_iva") or 0)
+    mismatches = []
+    if preview_total is not None and abs(float(preview_total) - backend_total) > 0.01:
+        mismatches.append(f"total validado {float(preview_total):.2f} vs total timbrado {backend_total:.2f}")
+    if preview_discount is not None and abs(float(preview_discount) - backend_discount) > 0.01:
+        mismatches.append(f"descuento validado {float(preview_discount):.2f} vs descuento timbrado {backend_discount:.2f}")
+    logger.info(
+        "gas_lp_invoice_preview_validation context=%s litros=%s precio=%s tipo_descuento=%s descuento_capturado=%s descuento_payload=%s descuento_preview=%s descuento_backend=%s total_preview=%s total_backend=%s ok=%s",
+        context,
+        getattr(payload, "litros", None),
+        getattr(payload, "precio_unitario", None),
+        getattr(payload, "tipo_descuento", "") or "",
+        getattr(payload, "descuento_capturado", None),
+        getattr(payload, "descuento", None),
+        preview_discount,
+        backend_discount,
+        preview_total,
+        backend_total,
+        not mismatches,
+    )
+    if mismatches:
+        raise HTTPException(400, {
+            "message": "El total validado no coincide con el total calculado para timbrar.",
+            "code": "gas_lp_invoice_preview_mismatch",
+            "detail": mismatches,
+            "preview": {
+                "total": preview_total,
+                "descuento": preview_discount,
+                "tipo_descuento": getattr(payload, "tipo_descuento", "") or "",
+                "descuento_capturado": getattr(payload, "descuento_capturado", None),
+            },
+            "backend": {
+                "total": backend_total,
+                "descuento": backend_discount,
+                "subtotal": totals.get("subtotal"),
+                "iva": totals.get("iva"),
+            },
+        })
 
 
 def _xml_local(tag: str) -> str:
@@ -2984,6 +3038,25 @@ async def gas_lp_internal_catalogo_delete(kind: str, row_id: int, token: str, pe
     return JSONResponse({"ok": True})
 
 
+@router.post("/internal-auth/gas-lp/carta-porte")
+async def gas_lp_internal_carta_porte(request: Request, token: str):
+    ctx = _gas_lp_internal_context(token, write=True)
+    user = ctx["user"]
+    from routes.facturas import CartaPorteRequest, _generar_carta_porte_for_scope
+
+    payload = CartaPorteRequest(**(await request.json()))
+    scope = {
+        "user_id": user.get("owner_user_id"),
+        "tenant_id": user.get("tenant_id"),
+        "perfil_id": user.get("perfil_id"),
+        "profile": {
+            "id": user.get("perfil_id"),
+            "tenant_id": user.get("tenant_id"),
+        },
+    }
+    return await _generar_carta_porte_for_scope(payload, scope)
+
+
 @router.get("/internal-auth/gas-lp/clientes")
 async def gas_lp_internal_clientes(token: str):
     ctx = _gas_lp_internal_context(token)
@@ -3640,6 +3713,7 @@ async def gas_lp_conciliacion_facturar_publico_general(payload: GasLpConciliacio
         hyp=hyp,
         informacion_global=informacion_global,
     )
+    _gas_lp_validate_invoice_preview_totals(payload, totals, context="conciliacion_publico_general")
     sw_config = sw_runtime_config()
     if _sw_config_looks_like_sandbox(sw_config):
         raise HTTPException(400, "Este emisor está configurado en modo pruebas. Cambia a producción antes de timbrar CFDI real.")
@@ -3678,6 +3752,10 @@ async def gas_lp_conciliacion_facturar_publico_general(payload: GasLpConciliacio
             "concepto": "LITRO DE GAS LP",
             "precio_unitario": payload.precio_unitario,
             "descuento_por_litro": payload.descuento,
+            "tipo_descuento": payload.tipo_descuento,
+            "descuento_capturado": payload.descuento_capturado,
+            "descuento_preview": payload.descuento_preview,
+            "total_preview": payload.total_preview,
             "descuento": totals["descuento"],
             "iva_rate": payload.iva_rate,
             "serie": serie_factura,
@@ -4694,6 +4772,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         if is_transfer:
             _gas_lp_revert_invoice_folio_if_current(sb, user, transfer_folio_reservation, reason="xml_build_failed")
         raise
+    if not is_transfer:
+        _gas_lp_validate_invoice_preview_totals(payload, totals, context="asistente_factura")
     hyp_node_xml = _gas_lp_hyp_xml_fragment(hyp)
     sw_config = sw_runtime_config()
     sw_sandbox = _sw_config_looks_like_sandbox(sw_config)
@@ -4987,6 +5067,10 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "transfer_symbolic_unit_price": float(transfer_symbolic_unit_price or 0) if is_transfer else None,
             "transfer_symbolic_unit_price_applied": bool(transfer_symbolic_applied),
             "descuento_por_litro": 0 if is_transfer else payload.descuento,
+            "tipo_descuento": "" if is_transfer else payload.tipo_descuento,
+            "descuento_capturado": None if is_transfer else payload.descuento_capturado,
+            "descuento_preview": None if is_transfer else payload.descuento_preview,
+            "total_preview": None if is_transfer else payload.total_preview,
             "descuento": totals["descuento"],
             "iva_rate": payload.iva_rate,
             "serie": serie_factura,
