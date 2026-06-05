@@ -39,6 +39,21 @@ def fiscal_pdf_info(xml_content: str | bytes, prefix: str = "cfdi") -> FiscalPdf
             serie_folio=serie_folio,
             filename=f"{issuer}_{_safe_name(serie_folio)}_{_safe_name(uuid)}.pdf",
         )
+    if prefix == "complemento_pago_gas_lp":
+        receptor = _first(root, "Receptor")
+        pago = _first(root, "Pago")
+        issuer = _safe_name(_attr(emisor, "Nombre", "GASLUX")).replace("_", "").upper() or "GASLUX"
+        receptor_rfc = _safe_name(_attr(receptor, "Rfc", "RFC")).upper()
+        fecha_pago = _safe_name(_attr(pago, "FechaPago", "")[:10].replace("-", ""))
+        uuid_short = _safe_name(uuid).upper()[:8] or "SINUUID"
+        parts = [issuer, "COMPLEMENTO", "PAGO", fecha_pago, receptor_rfc, uuid_short]
+        filename = "_".join(part for part in parts if part)
+        return FiscalPdfInfo(
+            uuid=uuid,
+            tipo=tipo,
+            serie_folio=serie_folio or "PAGO",
+            filename=f"{filename}.pdf",
+        )
     safe = _safe_name(uuid or f"{serie}_{folio}" or prefix)
     return FiscalPdfInfo(uuid=uuid, tipo=tipo, serie_folio=f"{serie}/{folio}".strip("/"), filename=f"{prefix}_{safe}.pdf")
 
