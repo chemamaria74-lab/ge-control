@@ -1392,14 +1392,18 @@
       const mode = isTraspaso ? 'sin_descuento' : (descuentoTipo?.value || 'sin_descuento');
       const captured = isTraspaso ? 0 : Math.max(Number(descuento?.value || 0), 0);
       const gross = Math.max(litrosNum * precioNum, 0);
-      let discountGross = 0;
-      if(mode === 'por_litro') discountGross = Math.min(Math.max(captured, 0), Math.max(precioNum, 0)) * Math.max(litrosNum, 0);
-      else if(mode === 'total_pesos') discountGross = Math.min(captured, gross);
-      const discountPerLiter = litrosNum > 0 ? discountGross / litrosNum : 0;
-      const total = Math.max(gross - discountGross, 0);
       const divisor = rate > 0 ? 1 + rate : 1;
       const subtotal = rate > 0 ? gross / divisor : gross;
-      const descuentoBase = rate > 0 ? discountGross / divisor : discountGross;
+      let discountGross = 0;
+      let descuentoBase = 0;
+      if(mode === 'por_litro') discountGross = Math.min(Math.max(captured, 0), Math.max(precioNum, 0)) * Math.max(litrosNum, 0);
+      if(mode === 'por_litro') descuentoBase = rate > 0 ? discountGross / divisor : discountGross;
+      else if(mode === 'total_pesos'){
+        descuentoBase = Math.min(captured, subtotal);
+        discountGross = descuentoBase * divisor;
+      }
+      const discountPerLiter = litrosNum > 0 ? discountGross / litrosNum : 0;
+      const total = Math.max(gross - discountGross, 0);
       const taxableBase = Math.max(subtotal - descuentoBase, 0);
       const iva = total - taxableBase;
       return {
@@ -1407,7 +1411,7 @@
         precio_unitario: invoiceRound(precioNum, 6),
         tipo_descuento: mode,
         descuento_capturado: invoiceRound(captured, 6),
-        descuento_total_aplicado: invoiceRound(discountGross, 2),
+        descuento_total_aplicado: invoiceRound(mode === 'total_pesos' ? descuentoBase : discountGross, 2),
         descuento_por_litro_backend: invoiceRound(discountPerLiter, 6),
         subtotal: invoiceRound(subtotal, 2),
         descuento_base: invoiceRound(descuentoBase, 2),
