@@ -1280,6 +1280,7 @@ def _build_gas_lp_consumo_xml(
     forma_pago: str,
     metodo_pago: str,
     descuento=0,
+    descuento_total_base=None,
     iva_rate=0.16,
     serie: str = "AA",
     folio: str = "",
@@ -1301,12 +1302,18 @@ def _build_gas_lp_consumo_xml(
     if discount_unit < 0 or discount_unit > unit:
         raise HTTPException(400, "El descuento por litro debe estar entre $0 y el precio por litro.")
     gross_total = _money(qty * unit)
-    discount_gross = _money(qty * discount_unit)
-    net_gross = _money(gross_total - discount_gross)
     divisor = Decimal("1.00") + tax_rate
     unit_net = _rate(unit / divisor) if tax_rate > 0 else unit
     subtotal = _money(gross_total / divisor) if tax_rate > 0 else gross_total
-    discount_total = _money(discount_gross / divisor) if tax_rate > 0 else discount_gross
+    if descuento_total_base not in {None, ""}:
+        discount_total = _money(Decimal(str(descuento_total_base or 0)))
+        if discount_total < 0 or discount_total > subtotal:
+            raise HTTPException(400, "El descuento total debe estar entre $0 y el subtotal antes de IVA.")
+        discount_gross = _money(discount_total * divisor) if tax_rate > 0 else discount_total
+    else:
+        discount_gross = _money(qty * discount_unit)
+        discount_total = _money(discount_gross / divisor) if tax_rate > 0 else discount_gross
+    net_gross = _money(gross_total - discount_gross)
     taxable_base = _money(subtotal - discount_total)
     iva = _money(net_gross - taxable_base)
     total = net_gross
@@ -3735,6 +3742,7 @@ async def gas_lp_conciliacion_facturar_publico_general(payload: GasLpConciliacio
         forma_pago=payload.forma_pago,
         metodo_pago=payload.metodo_pago,
         descuento=payload.descuento,
+        descuento_total_base=payload.descuento_capturado if str(payload.tipo_descuento or "").strip().lower() == "total_pesos" else None,
         iva_rate=payload.iva_rate,
         serie=serie_factura,
         folio=folio_factura,
@@ -4796,6 +4804,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             forma_pago=forma_pago,
             metodo_pago=metodo_pago,
             descuento=0 if is_transfer else payload.descuento,
+            descuento_total_base=payload.descuento_capturado if (not is_transfer and str(payload.tipo_descuento or "").strip().lower() == "total_pesos") else None,
             iva_rate=payload.iva_rate,
             serie=serie_factura,
             folio=folio_factura,
