@@ -4075,7 +4075,14 @@ async def gas_lp_complemento_pago_xml(complemento_id: int, token: str, perfil_id
     )
     if not rows or not rows[0].get("xml_content"):
         raise HTTPException(404, "Complemento de pago no encontrado.")
-    return Response(content=rows[0]["xml_content"], media_type="application/xml")
+    xml_content = rows[0]["xml_content"]
+    info = fiscal_pdf_info(xml_content, "complemento_pago_gas_lp")
+    filename = info.filename.replace(".pdf", ".xml")
+    return Response(
+        content=xml_content,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/internal-auth/gas-lp/complementos-pago/{complemento_id}/pdf")
