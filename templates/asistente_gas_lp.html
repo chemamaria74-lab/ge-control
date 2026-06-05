@@ -105,7 +105,7 @@
         </div>
         <div class="form-grid">
           <div><label>Operación</label><select id="tipoOperacion" onchange="updateOperacionUI()"><option value="venta">Venta a cliente</option><option value="traspaso">Traspaso a estación</option><option value="carta_porte">Carta Porte</option></select></div>
-          <div id="facilityField" class="field-attention"><label>Instalación origen *</label><select id="facilitySelect" required onchange="filterRutasForTransfer()"><option value="">Selecciona instalación</option></select></div>
+          <div id="facilityField" class="field-attention"><label>Instalación origen *</label><select id="facilitySelect" required onchange="onFacilityChange()"><option value="">Selecciona instalación</option></select></div>
           <div id="clienteField"><label>Cliente</label><select id="clienteSelect" onchange="selectCliente()"><option value="">Público en general</option></select></div>
           <div id="facturaGlobalField" class="hide"><label>Factura global público general</label><select id="facturaGlobal"><option value="0">No global</option><option value="1">Factura global mensual</option></select></div>
           <div id="clientePreview" class="client-preview form-span">
@@ -145,7 +145,7 @@
           <div id="conceptoField"><label>Concepto</label><select id="conceptoCatalogo" class="locked-field" disabled><option value="gas_lp_litro">Gas licuado de petróleo</option></select></div>
           <input id="concepto" type="hidden" value="Gas licuado de petróleo">
           <div id="litrosField"><label>Litros</label><input id="litros" type="number" min="0" step="0.00001" value="0" oninput="updateTotals()"></div>
-          <div id="precioField"><label for="precioUnitario">Precio por litro con IVA</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
+          <div id="precioField"><label for="precioUnitario">Precio por litro con IVA</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="markManualPrice();updateTotals()"></div>
           <div id="descuentoTipoField"><label>Tipo de descuento</label><select id="descuentoTipo" onchange="updateDiscountMode()"><option value="sin_descuento" selected>Sin descuento</option><option value="por_litro">Descuento por litro</option><option value="total_pesos">Descuento total en pesos</option></select></div>
           <div id="descuentoField" class="hide"><label id="descuentoLabel">Descuento por litro a restar</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
           <div id="ivaField"><label>IVA</label><select id="ivaRate" class="locked-field" disabled><option value="0.16">16%</option></select></div>
@@ -167,6 +167,7 @@
         </div>
         <div class="toolbar" style="margin-top:12px">
           <button class="btn" id="btnTimbrar" type="button" onclick="crearFactura()"><i class="fa-solid fa-stamp"></i> Timbrar factura</button>
+          <button class="btn ghost" type="button" onclick="clearFacturaForm()"><i class="fa-solid fa-eraser"></i> Limpiar</button>
           <span id="facturaMsg" class="status"></span>
         </div>
       </div>
@@ -394,6 +395,7 @@
     let CP_PREVIEW_READY = false;
     let transferConfirmResolver = null;
     let invoiceConfirmResolver = null;
+    let ACTIVE_OPERATION = 'venta';
     const SAT_REGIMENES = [
       ['601','General de Ley Personas Morales'],
       ['603','Personas Morales con Fines no Lucrativos'],
@@ -575,6 +577,64 @@
       if(transferUsesSymbolicAmount(precioVal, isTraspaso) && Number(litrosVal || 0) > 0) return Number(litrosVal || 0) * transferSymbolicUnitPrice();
       return Number(litrosVal || 0) * Math.max(Number(precioVal || 0) - Number(descuentoVal || 0), 0);
     }
+    function numericFrom(value){
+      const n = Number(value);
+      return Number.isFinite(n) ? n : 0;
+    }
+    function selectedFacility(){
+      return FACILITIES.find(f => String(f.id) === String(facilitySelect.value)) || null;
+    }
+    function metadataOf(row){
+      const md = row?.metadata;
+      return md && typeof md === 'object' ? md : {};
+    }
+    function configuredUnitPrice(){
+      return unitPriceConfigured() ? numericFrom(CURRENT_COMPANY?.precio_venta_litro) : 0;
+    }
+    function facilityUnitPrice(f){
+      const md = metadataOf(f);
+      const candidates = [
+        f?.precio_venta_litro, f?.precio_litro, f?.precio_default_litro, f?.tarifa_litro,
+        md.precio_venta_litro, md.precio_litro, md.precio_default_litro, md.tarifa_litro,
+        md.precio_unitario, md.precio_unitario_con_iva
+      ];
+      for(const value of candidates){
+        const n = numericFrom(value);
+        if(n > 0) return n;
+      }
+      return 0;
+    }
+    function displayUnitPrice(price){
+      const n = numericFrom(price);
+      return n > 0 ? n.toFixed(2) : '0';
+    }
+    function setUnitPrice(price, source='manual'){
+      const n = numericFrom(price);
+      precioUnitario.dataset.realPrice = n > 0 ? n.toFixed(6) : '';
+      precioUnitario.dataset.priceSource = source;
+      precioUnitario.dataset.stateFacilityId = facilitySelect.value || '';
+      precioUnitario.value = displayUnitPrice(n);
+      updateTotals();
+    }
+    function markManualPrice(){
+      precioUnitario.dataset.realPrice = String(precioUnitario.value || '');
+      precioUnitario.dataset.priceSource = 'manual';
+      precioUnitario.dataset.stateFacilityId = facilitySelect.value || '';
+    }
+    function effectiveUnitPrice(){
+      const real = numericFrom(precioUnitario.dataset.realPrice);
+      return real > 0 ? real : numericFrom(precioUnitario.value);
+    }
+    function currentFormSignature(){
+      return `${tipoOperacion.value || ''}|${facilitySelect.value || ''}|${clienteSelect.value || ''}`;
+    }
+    function stampFormSignature(){
+      precioUnitario.dataset.formSignature = currentFormSignature();
+    }
+    function formStateMatches(){
+      const sig = precioUnitario.dataset.formSignature || '';
+      return !sig || sig === currentFormSignature();
+    }
     async function saveTransferEmailDefaultNow(){
       const email = transferEmail.value.trim();
       if(!email){ setStatus('facturaMsg','Captura el correo de traspaso antes de guardarlo como predeterminado.',false); transferEmail.focus(); return false; }
@@ -679,11 +739,37 @@
       return raw !== undefined && raw !== null && String(raw).trim() !== '';
     }
     function applyConfiguredPrice(opts={}){
+      if(!facilitySelect.value){
+        setUnitPrice(0, 'none');
+        return;
+      }
       const configured = unitPriceConfigured();
-      const price = configured ? Number(CURRENT_COMPANY?.precio_venta_litro || 0) : 0;
-      precioUnitario.value = price > 0 ? price.toFixed(6).replace(/0+$/,'').replace(/\.$/,'') : '0';
-      updateTotals();
-      if(!configured && !opts.silent) setStatus('facturaMsg','Falta configurar el precio vigente por litro en el panel de administración.',false);
+      const facilityPrice = facilityUnitPrice(selectedFacility());
+      const price = facilityPrice || configuredUnitPrice();
+      setUnitPrice(price, facilityPrice ? 'facility' : (configured ? 'company' : 'none'));
+      if(!facilityPrice && !configured && !opts.silent) setStatus('facturaMsg','Falta configurar el precio vigente por litro en el panel de administración.',false);
+    }
+    function resetInvoiceTransientState(opts={}){
+      if(!opts.keepLitros) litros.value = '0';
+      if(!opts.keepCliente) clienteSelect.value = '';
+      descuento.value = '0';
+      if(descuentoTipo) descuentoTipo.value = 'sin_descuento';
+      comentarios.value = '';
+      ensureFolio();
+      invoiceConfirmModal?.classList.add('hide');
+      invoiceConfirmResolver = null;
+      invalidateCpPreview();
+      updateDiscountMode();
+      if(!opts.keepStatus) setStatus('facturaMsg','');
+      stampFormSignature();
+    }
+    function onFacilityChange(){
+      const currentOperation = tipoOperacion.value;
+      resetInvoiceTransientState({keepCliente: currentOperation !== 'venta'});
+      applyConfiguredPrice({silent:true});
+      filterRutasForTransfer();
+      updateTransferReady();
+      stampFormSignature();
     }
     function transferPriceReady(){
       const raw = String(precioUnitario.value ?? '').trim();
@@ -808,9 +894,12 @@
       if(tipoOperacion.value !== 'venta') return;
       clienteSelect.value = '';
       btnPublicoGeneral.classList.add('active');
+      resetInvoiceTransientState({keepCliente:true, keepStatus:true});
       setPublicoGeneralDefaults();
+      applyConfiguredPrice({silent:true});
       ensureFechaEmision();
       ensureFolio();
+      stampFormSignature();
       const cpMsg = issuerCp() ? ` CP ${issuerCp()}.` : '.';
       setStatus('facturaMsg',`Público en general seleccionado. Se usará el CP del emisor${cpMsg}`);
     }
@@ -1191,6 +1280,13 @@
       renderAssistantCpCatalogs();
     }
     function updateOperacionUI(){
+      const previousOperation = ACTIVE_OPERATION;
+      const operationChanged = previousOperation !== tipoOperacion.value;
+      ACTIVE_OPERATION = tipoOperacion.value;
+      if(operationChanged){
+        resetInvoiceTransientState({keepStatus:true});
+        applyConfiguredPrice({silent:true});
+      }
       const traspaso = tipoOperacion.value === 'traspaso';
       const cartaPorte = tipoOperacion.value === 'carta_porte';
       CP_PREVIEW_READY = false;
@@ -1239,10 +1335,9 @@
     }
     function selectCliente(){
       const c = CLIENTES.find(x => String(x.id) === String(clienteSelect.value));
+      resetInvoiceTransientState({keepCliente:true, keepStatus:true});
       if(c) {
         btnPublicoGeneral.classList.remove('active');
-        if(descuentoTipo) descuentoTipo.value = 'sin_descuento';
-        updateDiscountMode();
         updateClientePreview(c);
         setStatus('facturaMsg',`Cliente seleccionado: ${c.nombre}`);
       } else {
@@ -1250,6 +1345,8 @@
         setPublicoGeneralDefaults();
         setStatus('facturaMsg','Público en general seleccionado. Se usará el CP del emisor.');
       }
+      applyConfiguredPrice({silent:true});
+      stampFormSignature();
     }
     function updateDiscountMode(){
       const mode = descuentoTipo?.value || 'sin_descuento';
@@ -1290,7 +1387,7 @@
     const invoiceRound = (value, decimals=2) => Number((Number(value || 0)).toFixed(decimals));
     function buildInvoicePreview(isTraspaso=false){
       const litrosNum = Number(litros.value || 0);
-      const precioNum = Number(precioUnitario.value || 0);
+      const precioNum = effectiveUnitPrice();
       const rate = Number(ivaRate.value || 0);
       const mode = isTraspaso ? 'sin_descuento' : (descuentoTipo?.value || 'sin_descuento');
       const captured = isTraspaso ? 0 : Math.max(Number(descuento?.value || 0), 0);
@@ -1345,7 +1442,7 @@
     function updateTotals(){
       const isTraspaso = tipoOperacion.value === 'traspaso';
       const litrosNum = Number(litros.value || 0);
-      const precioNum = Number(precioUnitario.value || 0);
+      const precioNum = effectiveUnitPrice();
       const symbolicTransfer = transferUsesSymbolicAmount(precioNum, isTraspaso) && litrosNum > 0;
       const preview = buildInvoicePreview(isTraspaso);
       const total = symbolicTransfer ? transferDisplayGross(litrosNum, precioNum, 0, true) : preview.total_final;
@@ -1404,7 +1501,8 @@
         ['Instalación', summary.instalacion],
         ['Cliente', summary.cliente],
         ['Litros', fmt(summary.preview.litros)],
-        ['Precio por litro', money(summary.preview.precio_unitario)],
+        ['Precio por litro visible', money(numericFrom(precioUnitario.value))],
+        ['Precio real usado', Number(summary.preview.precio_unitario).toFixed(6)],
         ['Tipo de descuento', summary.preview.tipo_descuento === 'por_litro' ? 'Descuento por litro' : (summary.preview.tipo_descuento === 'total_pesos' ? 'Descuento total en pesos' : 'Sin descuento')],
         ['Descuento capturado', money(summary.preview.descuento_capturado)],
         ['Descuento total aplicado', money(summary.preview.descuento_total_aplicado)],
@@ -1425,6 +1523,7 @@
       fechaEmision.value = localDateTimeValue();
       facilitySelect.value = '';
       tipoOperacion.value = 'venta';
+      ACTIVE_OPERATION = 'venta';
       destinoFacilitySelect.value = '';
       generarCartaPorte.value = '0';
       vehiculoSelect.value = '';
@@ -1440,9 +1539,17 @@
       applyConfiguredPrice({silent: !!opts.silent});
       setPublicoGeneralDefaults();
       ensureFolio();
+      invoiceConfirmModal?.classList.add('hide');
+      invoiceConfirmResolver = null;
+      CP_PREVIEW_READY = false;
       updateOperacionUI();
       filterRutasForTransfer();
       updateTotals();
+      stampFormSignature();
+    }
+    function clearFacturaForm(){
+      resetFacturaFormAfterSuccess();
+      setStatus('facturaMsg','Formulario limpio. Captura una nueva factura.');
     }
     function renderFacturaSuccess(data, emailMsg=''){
       const factura = data?.factura || {};
@@ -1488,8 +1595,9 @@
         return;
       }
       const litrosVal = Number(litros.value || 0);
-      const precioVal = Number(precioUnitario.value || 0);
+      const precioVal = effectiveUnitPrice();
       if(!facilitySelect.value){ setStatus('facturaMsg','Selecciona la instalación origen. Es obligatoria para control operativo GE Control.',false); facilitySelect.focus(); return; }
+      if(!formStateMatches()){ setStatus('facturaMsg','Los datos del formulario no coinciden con la instalación u operación actual. Limpia y vuelve a capturar.',false); return; }
       const isTraspaso = tipoOperacion.value === 'traspaso';
       const invoicePreview = buildInvoicePreview(isTraspaso);
       const descuentoGrossVal = invoicePreview.descuento_total_aplicado;
@@ -1580,6 +1688,7 @@
           uso_cfdi: isTraspaso ? 'S01' : 'S01',
           litros: litrosVal,
           precio_unitario: precioVal,
+          precio_unitario_visible: Number(precioUnitario.value || 0),
           concepto: concepto.value || 'Gas licuado de petróleo',
           descuento: isTraspaso ? 0 : descuentoPayloadVal,
           iva_rate: Number(ivaRate.value || 0),
