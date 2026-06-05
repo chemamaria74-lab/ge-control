@@ -16,7 +16,7 @@ from typing import Optional
 from xml.sax.saxutils import escape as xml_escape
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
@@ -637,6 +637,42 @@ def _gas_lp_factura_access_context(token: str, *, write: bool = False, perfil_id
     if role in {"conciliacion", "admin"}:
         return _gas_lp_conciliacion_context(token, write=write, perfil_id=perfil_id)
     return _gas_lp_internal_context(token, write=write)
+
+
+def _gas_lp_complemento_pago_context(token: str, *, perfil_id: int | None = None) -> dict:
+    if str(token or "").count(".") == 2:
+        uid = verify_token(token)
+        if not uid:
+            raise HTTPException(401, "Sesión inválida o expirada.")
+        access = _resolve_active_module_access(uid, "gas_lp", access_token=token)
+        role = (access.get("role") or "").lower()
+        if role not in {"admin", "conciliacion", "asistente_facturacion"}:
+            raise HTTPException(403, "Tu usuario no tiene acceso a complemento de pago Gas LP.")
+        profile = _gas_lp_conciliacion_profile_for_auth(uid, access, token, perfil_id)
+        if not profile:
+            raise HTTPException(400, "Selecciona o asigna una empresa Gas LP antes de timbrar complemento.")
+        tenant_id = profile.get("tenant_id") or access.get("tenant_id") or _tenant_id_for_user(uid, access_token=token)
+        profile_id = profile.get("id")
+        user = {
+            "id": uid,
+            "owner_user_id": profile.get("owner_user_id") or uid,
+            "tenant_id": tenant_id,
+            "perfil_id": profile_id,
+            "section": "gas_lp",
+            "role": role,
+            "display_name": access.get("display_name") or "",
+            "status": "active",
+        }
+        return {"session": {"section": "gas_lp", "role": role, "tenant_id": tenant_id, "perfil_id": profile_id}, "user": user}
+    base = _internal_session(token, "gas_lp")
+    role = (base["user"].get("role") or "").lower()
+    if role in {"admin", "conciliacion"}:
+        return _gas_lp_conciliacion_context(token, write=True, perfil_id=perfil_id)
+    if role != "asistente_facturacion":
+        raise HTTPException(403, "Tu rol no permite timbrar complementos de pago.")
+    if perfil_id and int(perfil_id) != int(base["user"].get("perfil_id") or 0):
+        raise HTTPException(403, "Tu sesión interna sólo puede usar la empresa asignada.")
+    return _gas_lp_internal_context(token, write=True)
 
 
 def _gas_lp_profile(user: dict, *, require_module_marker: bool = False) -> dict:
@@ -2706,27 +2742,190 @@ async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp"):
     sb = get_supabase_admin()
 
     def scoped(table: str):
-        return (
+        q = (
             sb.table(table)
             .select("*")
             .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
             .eq("activo", True)
         )
+        return q
 
     try:
-        choferes = scoped("tr_choferes").order("nombre").execute().data or []
+        choferes = scoped("gas_lp_choferes").eq("modulo_propietario", "gas_lp").order("nombre").execute().data or []
     except Exception:
         choferes = []
     try:
-        vehiculos = scoped("tr_vehiculos").order("placas").execute().data or []
+        vehiculos = scoped("gas_lp_vehiculos").eq("modulo_propietario", "gas_lp").order("placas").execute().data or []
     except Exception:
         vehiculos = []
     try:
-        rutas = scoped("tr_rutas").order("nombre").execute().data or []
+        rutas = scoped("gas_lp_rutas").eq("modulo_propietario", "gas_lp").order("nombre").execute().data or []
     except Exception:
         rutas = []
-    return JSONResponse({"ok": True, "modulo": modulo, "choferes": choferes, "vehiculos": vehiculos, "rutas": rutas})
+    try:
+        ubicaciones = scoped("gas_lp_ubicaciones_carta_porte").order("alias").execute().data or []
+    except Exception:
+        ubicaciones = []
+    try:
+        mercancias = scoped("gas_lp_mercancias_carta_porte").order("alias").execute().data or []
+    except Exception:
+        mercancias = []
+    return JSONResponse({
+        "ok": True,
+        "modulo": modulo,
+        "choferes": choferes,
+        "vehiculos": vehiculos,
+        "rutas": rutas,
+        "ubicaciones": ubicaciones,
+        "mercancias": mercancias,
+    })
+
+
+def _internal_cp_table(kind: str) -> tuple[str, str]:
+    tables = {
+        "vehiculos": ("gas_lp_vehiculos", "placas"),
+        "choferes": ("gas_lp_choferes", "nombre"),
+        "ubicaciones": ("gas_lp_ubicaciones_carta_porte", "alias"),
+        "mercancias": ("gas_lp_mercancias_carta_porte", "alias"),
+        "rutas": ("gas_lp_rutas", "nombre"),
+    }
+    if kind not in tables:
+        raise HTTPException(404, "Catálogo Carta Porte no reconocido.")
+    return tables[kind]
+
+
+def _internal_cp_scope_row(user: dict, values: dict) -> dict:
+    return {
+        **values,
+        "user_id": user.get("owner_user_id"),
+        "tenant_id": user.get("tenant_id"),
+        "perfil_id": user.get("perfil_id"),
+        "source": "supabase",
+        "modulo_propietario": "gas_lp",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _internal_cp_payload(kind: str, params) -> dict:
+    def s(key: str, default: str = "") -> str:
+        return str(params.get(key, default) or "").strip()
+    def n(key: str, default=0):
+        try:
+            return float(params.get(key, default) or default)
+        except Exception:
+            return default
+    def opt_int(key: str):
+        try:
+            value = int(params.get(key) or 0)
+            return value or None
+        except Exception:
+            return None
+    if kind == "vehiculos":
+        return {
+            "placas": s("placa", s("placas")).upper(),
+            "anio": int(n("anio", n("anio_modelo", 2024)) or 2024),
+            "modelo": s("modelo"),
+            "config_vehicular": s("config_vehicular", "C2"),
+            "permiso_cre": s("permiso_cre"),
+            "aseguradora": s("aseguradora", s("nombre_asegurador")),
+            "poliza_seguro": s("poliza_seguro"),
+            "metadata": {
+                "alias": s("alias", s("placa", s("placas")).upper()),
+                "numero_economico": s("numero_economico"),
+                "numero_permiso": s("numero_permiso"),
+                "peso_bruto_vehicular": n("peso_bruto_vehicular", 0),
+                "aseguradora_medio_ambiente": s("aseguradora_medio_ambiente"),
+                "poliza_medio_ambiente": s("poliza_medio_ambiente"),
+                "aseguradora_carga": s("aseguradora_carga"),
+                "poliza_carga": s("poliza_carga"),
+            },
+            "activo": True,
+        }
+    if kind == "choferes":
+        return {
+            "nombre": s("nombre"),
+            "rfc": s("rfc").upper(),
+            "licencia": s("licencia"),
+            "telefono": s("telefono"),
+            "metadata": {"tipo_figura": s("tipo_figura", "01"), "parte_transporte": s("parte_transporte")},
+            "activo": True,
+        }
+    if kind == "ubicaciones":
+        return {
+            "alias": s("alias"),
+            "tipo": s("tipo", "ambos"),
+            "rfc": s("rfc").upper(),
+            "nombre": s("nombre"),
+            "codigo_postal": s("codigo_postal")[:5],
+            "estado": s("estado"),
+            "municipio": s("municipio"),
+            "localidad_colonia": s("localidad_colonia"),
+            "calle": s("calle"),
+            "numero_exterior": s("numero_exterior"),
+            "numero_interior": s("numero_interior"),
+            "pais": s("pais", "MEX").upper(),
+            "id_ubicacion": s("id_ubicacion"),
+            "activo": True,
+        }
+    if kind == "mercancias":
+        return {
+            "alias": s("alias"),
+            "bienes_transp": s("bienes_transp"),
+            "descripcion": s("descripcion", s("alias")),
+            "clave_unidad": s("clave_unidad", "LTR"),
+            "unidad": s("unidad", "L"),
+            "factor_kg_litro": n("factor_kg_litro", 0.54),
+            "material_peligroso": s("material_peligroso", "true").lower() in {"1", "true", "si", "sí", "on"},
+            "clave_material_peligroso": s("clave_material_peligroso"),
+            "embalaje": s("embalaje"),
+            "descripcion_embalaje": s("descripcion_embalaje"),
+            "activo": True,
+        }
+    return {
+        "nombre": s("nombre"),
+        "distancia_km": n("distancia_km", 1),
+        "metadata": {
+            "origen_ubicacion_id": opt_int("origen_ubicacion_id"),
+            "destino_ubicacion_id": opt_int("destino_ubicacion_id"),
+            "tiempo_estimado": s("tiempo_estimado"),
+            "vehiculo_default_id": opt_int("vehiculo_default_id"),
+            "chofer_default_id": opt_int("chofer_default_id"),
+            "mercancia_default_id": opt_int("mercancia_default_id"),
+        },
+        "activo": True,
+    }
+
+
+@router.post("/internal-auth/gas-lp/catalogos/{kind}")
+async def gas_lp_internal_catalogo_create(kind: str, request: Request, token: str):
+    ctx = _gas_lp_internal_context(token)
+    user = ctx["user"]
+    table, _order = _internal_cp_table(kind)
+    payload = _internal_cp_payload(kind, request.query_params)
+    row = _internal_cp_scope_row(user, payload)
+    data = get_supabase_admin().table(table).insert(row).execute().data or []
+    return JSONResponse({"ok": True, "id": (data[0] if data else row).get("id")})
+
+
+@router.put("/internal-auth/gas-lp/catalogos/{kind}/{row_id}")
+async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Request, token: str):
+    ctx = _gas_lp_internal_context(token)
+    user = ctx["user"]
+    table, _order = _internal_cp_table(kind)
+    payload = _internal_cp_payload(kind, request.query_params)
+    get_supabase_admin().table(table).update({**payload, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id).eq("user_id", user.get("owner_user_id")).eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id")).execute()
+    return JSONResponse({"ok": True})
+
+
+@router.delete("/internal-auth/gas-lp/catalogos/{kind}/{row_id}")
+async def gas_lp_internal_catalogo_delete(kind: str, row_id: int, token: str):
+    ctx = _gas_lp_internal_context(token)
+    user = ctx["user"]
+    table, _order = _internal_cp_table(kind)
+    get_supabase_admin().table(table).update({"activo": False, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id).eq("user_id", user.get("owner_user_id")).eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id")).execute()
+    return JSONResponse({"ok": True})
 
 
 @router.get("/internal-auth/gas-lp/clientes")
@@ -3641,7 +3840,7 @@ async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perf
 
 @router.post("/internal-auth/gas-lp/facturas/{factura_id}/complemento-pago")
 async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplementoPagoPayload, token: str, perfil_id: int | None = None):
-    ctx = _gas_lp_conciliacion_context(token, write=True, perfil_id=perfil_id)
+    ctx = _gas_lp_complemento_pago_context(token, perfil_id=perfil_id)
     user = ctx["user"]
     profile = _gas_lp_profile(user, require_module_marker=True)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))

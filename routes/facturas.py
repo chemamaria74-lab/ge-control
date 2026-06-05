@@ -60,6 +60,8 @@ _SB_FACTURAS_SERVICIO = "gas_lp_facturas_servicio"
 _SB_CHOFERES = "gas_lp_choferes"
 _SB_VEHICULOS = "gas_lp_vehiculos"
 _SB_RUTAS = "gas_lp_rutas"
+_SB_UBICACIONES_CP = "gas_lp_ubicaciones_carta_porte"
+_SB_MERCANCIAS_CP = "gas_lp_mercancias_carta_porte"
 _SB_CLIENTES = "gas_lp_clientes_facturacion"
 _TRUE_VALUES = {"1", "true", "yes", "on", "si", "sí"}
 GAS_LP_SQLITE_READONLY = (os.environ.get("GAS_LP_SQLITE_READONLY") or "").strip().lower() in _TRUE_VALUES
@@ -200,6 +202,27 @@ def _clean_rfc(value: str) -> str:
 
 def _clean_cp(value: str) -> str:
     return "".join(ch for ch in str(value or "").strip() if ch.isdigit())[:5]
+
+
+def _metadata_dict(row: Optional[dict]) -> dict:
+    if not row:
+        return {}
+    metadata = row.get("metadata") or {}
+    if isinstance(metadata, str):
+        try:
+            parsed = json.loads(metadata)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _merge_metadata(row: Optional[dict], values: dict) -> dict:
+    metadata = _metadata_dict(row)
+    for key, value in values.items():
+        if value is not None:
+            metadata[key] = value
+    return metadata
 
 
 def _emisor_from_scope(scope: dict) -> dict:
@@ -1105,6 +1128,7 @@ async def listar_choferes(
 @router.post("/facturas/choferes")
 async def crear_chofer(
     nombre: str, rfc: str = "", licencia: str = "", telefono: str = "",
+    tipo_figura: str = "01", parte_transporte: str = "",
     modulo: str = "transporte", authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1117,6 +1141,10 @@ async def crear_chofer(
         "rfc": rfc,
         "licencia": licencia,
         "telefono": telefono,
+        "metadata": {
+            "tipo_figura": tipo_figura or "01",
+            "parte_transporte": parte_transporte or "",
+        },
         "activo": True,
     }))
     if supabase_row:
@@ -1127,13 +1155,16 @@ async def crear_chofer(
 @router.put("/facturas/choferes/{chofer_id}")
 async def actualizar_chofer(
     chofer_id: int, nombre: str, rfc: str = "", licencia: str = "", telefono: str = "",
+    tipo_figura: str = "01", parte_transporte: str = "",
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
-    if _sb_update(_SB_CHOFERES, chofer_id, scope, {"nombre": nombre, "rfc": rfc, "licencia": licencia, "telefono": telefono}):
+    current = _sb_get(_SB_CHOFERES, chofer_id, scope)
+    metadata = _merge_metadata(current, {"tipo_figura": tipo_figura or "01", "parte_transporte": parte_transporte or ""})
+    if _sb_update(_SB_CHOFERES, chofer_id, scope, {"nombre": nombre, "rfc": rfc, "licencia": licencia, "telefono": telefono, "metadata": metadata}):
         return JSONResponse({"ok": True, "message": "Chofer actualizado", "source": "supabase"})
     raise HTTPException(404, "Chofer no encontrado en la empresa seleccionada.")
 
@@ -1184,6 +1215,10 @@ async def listar_vehiculos(
 async def crear_vehiculo(
     placa: str, anio: int = 2020, config_vehicular: str = "C2",
     aseguradora: str = "", poliza_seguro: str = "", permiso_cre: str = "",
+    alias: str = "", numero_economico: str = "", modelo: str = "",
+    numero_permiso: str = "", peso_bruto_vehicular: float = 0,
+    aseguradora_medio_ambiente: str = "", poliza_medio_ambiente: str = "",
+    aseguradora_carga: str = "", poliza_carga: str = "",
     modulo: str = "transporte", authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1193,11 +1228,25 @@ async def crear_vehiculo(
     supabase_row = _sb_insert(_SB_VEHICULOS, _scope_row(scope, {
         "modulo_propietario": modulo,
         "placas": placa.upper(),
+        "modelo": modelo,
         "anio": anio,
         "config_vehicular": config_vehicular,
         "aseguradora": aseguradora,
         "poliza_seguro": poliza_seguro,
         "permiso_cre": permiso_cre,
+        "metadata": {
+            "alias": alias or placa.upper(),
+            "numero_economico": numero_economico,
+            "permiso_sct": permiso_cre,
+            "numero_permiso": numero_permiso,
+            "peso_bruto_vehicular": peso_bruto_vehicular,
+            "aseguradora_responsabilidad_civil": aseguradora,
+            "poliza_responsabilidad_civil": poliza_seguro,
+            "aseguradora_medio_ambiente": aseguradora_medio_ambiente,
+            "poliza_medio_ambiente": poliza_medio_ambiente,
+            "aseguradora_carga": aseguradora_carga,
+            "poliza_carga": poliza_carga,
+        },
         "activo": True,
     }))
     if supabase_row:
@@ -1209,13 +1258,31 @@ async def crear_vehiculo(
 async def actualizar_vehiculo(
     vehiculo_id: int, placa: str, anio_modelo: int = 2020, config_vehicular: str = "C2",
     nombre_asegurador: str = "", poliza_seguro: str = "", permiso_cre: str = "",
+    alias: str = "", numero_economico: str = "", modelo: str = "",
+    numero_permiso: str = "", peso_bruto_vehicular: float = 0,
+    aseguradora_medio_ambiente: str = "", poliza_medio_ambiente: str = "",
+    aseguradora_carga: str = "", poliza_carga: str = "",
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
-    if _sb_update(_SB_VEHICULOS, vehiculo_id, scope, {"placas": placa.upper(), "anio": anio_modelo, "config_vehicular": config_vehicular, "aseguradora": nombre_asegurador, "poliza_seguro": poliza_seguro, "permiso_cre": permiso_cre}):
+    current = _sb_get(_SB_VEHICULOS, vehiculo_id, scope)
+    metadata = _merge_metadata(current, {
+        "alias": alias or placa.upper(),
+        "numero_economico": numero_economico,
+        "permiso_sct": permiso_cre,
+        "numero_permiso": numero_permiso,
+        "peso_bruto_vehicular": peso_bruto_vehicular,
+        "aseguradora_responsabilidad_civil": nombre_asegurador,
+        "poliza_responsabilidad_civil": poliza_seguro,
+        "aseguradora_medio_ambiente": aseguradora_medio_ambiente,
+        "poliza_medio_ambiente": poliza_medio_ambiente,
+        "aseguradora_carga": aseguradora_carga,
+        "poliza_carga": poliza_carga,
+    })
+    if _sb_update(_SB_VEHICULOS, vehiculo_id, scope, {"placas": placa.upper(), "modelo": modelo, "anio": anio_modelo, "config_vehicular": config_vehicular, "aseguradora": nombre_asegurador, "poliza_seguro": poliza_seguro, "permiso_cre": permiso_cre, "metadata": metadata}):
         return JSONResponse({"ok": True, "message": "Vehículo actualizado", "source": "supabase"})
     raise HTTPException(404, "Vehículo no encontrado en la empresa seleccionada.")
 
@@ -1266,6 +1333,9 @@ async def listar_rutas(
 async def crear_ruta(
     nombre: str, cp_origen: str = "", cp_destino: str = "", distancia_km: float = 1.0,
     origen_facility_id: Optional[int] = None, destino_facility_id: Optional[int] = None,
+    origen_ubicacion_id: Optional[int] = None, destino_ubicacion_id: Optional[int] = None,
+    tiempo_estimado: str = "", vehiculo_default_id: Optional[int] = None,
+    chofer_default_id: Optional[int] = None, mercancia_default_id: Optional[int] = None,
     modulo: str = "transporte", authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1280,6 +1350,14 @@ async def crear_ruta(
         "cp_origen": cp_origen,
         "cp_destino": cp_destino,
         "distancia_km": distancia_km,
+        "metadata": {
+            "origen_ubicacion_id": origen_ubicacion_id,
+            "destino_ubicacion_id": destino_ubicacion_id,
+            "tiempo_estimado": tiempo_estimado,
+            "vehiculo_default_id": vehiculo_default_id,
+            "chofer_default_id": chofer_default_id,
+            "mercancia_default_id": mercancia_default_id,
+        },
         "activo": True,
     }))
     if supabase_row:
@@ -1292,6 +1370,9 @@ async def actualizar_ruta(
     ruta_id: int, nombre: str,
     cp_origen: str = "", cp_destino: str = "", distancia_km: float = 1.0,
     origen_facility_id: Optional[int] = None, destino_facility_id: Optional[int] = None,
+    origen_ubicacion_id: Optional[int] = None, destino_ubicacion_id: Optional[int] = None,
+    tiempo_estimado: str = "", vehiculo_default_id: Optional[int] = None,
+    chofer_default_id: Optional[int] = None, mercancia_default_id: Optional[int] = None,
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1303,6 +1384,15 @@ async def actualizar_ruta(
     scope = _scope(authorization, x_perfil_id)
     uid = scope["user_id"]
     _require_supabase_scope(scope)
+    current = _sb_get(_SB_RUTAS, ruta_id, scope)
+    metadata = _merge_metadata(current, {
+        "origen_ubicacion_id": origen_ubicacion_id,
+        "destino_ubicacion_id": destino_ubicacion_id,
+        "tiempo_estimado": tiempo_estimado,
+        "vehiculo_default_id": vehiculo_default_id,
+        "chofer_default_id": chofer_default_id,
+        "mercancia_default_id": mercancia_default_id,
+    })
     if _sb_update(_SB_RUTAS, ruta_id, scope, {
         "nombre": nombre,
         "origen_facility_id": origen_facility_id,
@@ -1310,6 +1400,7 @@ async def actualizar_ruta(
         "cp_origen": cp_origen,
         "cp_destino": cp_destino,
         "distancia_km": distancia_km,
+        "metadata": metadata,
     }):
         return JSONResponse({"ok": True, "message": "Ruta actualizada", "source": "supabase"})
     raise HTTPException(404, "Ruta no encontrada en la empresa seleccionada.")
@@ -1327,6 +1418,208 @@ async def eliminar_ruta(
     if _sb_update(_SB_RUTAS, ruta_id, scope, {"activo": False}):
         return JSONResponse({"ok": True, "message": "Ruta eliminada", "source": "supabase"})
     raise HTTPException(404, "Ruta no encontrada en la empresa seleccionada.")
+
+
+# ── Catálogo: Ubicaciones Carta Porte ────────────────────────────────────────
+
+@router.get("/facturas/ubicaciones-carta-porte")
+async def listar_ubicaciones_carta_porte(
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    rows = _sb_list(_SB_UBICACIONES_CP, scope, active_only=True, order="alias", desc=False)
+    return JSONResponse({"ubicaciones": rows, "source": "supabase"})
+
+
+@router.post("/facturas/ubicaciones-carta-porte")
+async def crear_ubicacion_carta_porte(
+    alias: str,
+    tipo: str = "ambos",
+    rfc: str = "",
+    nombre: str = "",
+    codigo_postal: str = "",
+    estado: str = "",
+    municipio: str = "",
+    localidad_colonia: str = "",
+    calle: str = "",
+    numero_exterior: str = "",
+    numero_interior: str = "",
+    pais: str = "MEX",
+    id_ubicacion: str = "",
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    _require_supabase_scope(scope)
+    row = _sb_insert(_SB_UBICACIONES_CP, _scope_row(scope, {
+        "alias": alias,
+        "tipo": tipo or "ambos",
+        "rfc": _clean_rfc(rfc),
+        "nombre": nombre,
+        "codigo_postal": _clean_cp(codigo_postal),
+        "estado": estado,
+        "municipio": municipio,
+        "localidad_colonia": localidad_colonia,
+        "calle": calle,
+        "numero_exterior": numero_exterior,
+        "numero_interior": numero_interior,
+        "pais": (pais or "MEX").upper(),
+        "id_ubicacion": id_ubicacion,
+        "activo": True,
+    }))
+    if row:
+        return JSONResponse({"ok": True, "message": "Ubicación registrada", "id": row.get("id"), "source": "supabase"})
+    raise HTTPException(500, "No se pudo guardar la ubicación en Supabase.")
+
+
+@router.put("/facturas/ubicaciones-carta-porte/{ubicacion_id}")
+async def actualizar_ubicacion_carta_porte(
+    ubicacion_id: int,
+    alias: str,
+    tipo: str = "ambos",
+    rfc: str = "",
+    nombre: str = "",
+    codigo_postal: str = "",
+    estado: str = "",
+    municipio: str = "",
+    localidad_colonia: str = "",
+    calle: str = "",
+    numero_exterior: str = "",
+    numero_interior: str = "",
+    pais: str = "MEX",
+    id_ubicacion: str = "",
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    _require_supabase_scope(scope)
+    ok = _sb_update(_SB_UBICACIONES_CP, ubicacion_id, scope, {
+        "alias": alias,
+        "tipo": tipo or "ambos",
+        "rfc": _clean_rfc(rfc),
+        "nombre": nombre,
+        "codigo_postal": _clean_cp(codigo_postal),
+        "estado": estado,
+        "municipio": municipio,
+        "localidad_colonia": localidad_colonia,
+        "calle": calle,
+        "numero_exterior": numero_exterior,
+        "numero_interior": numero_interior,
+        "pais": (pais or "MEX").upper(),
+        "id_ubicacion": id_ubicacion,
+    })
+    if ok:
+        return JSONResponse({"ok": True, "message": "Ubicación actualizada", "source": "supabase"})
+    raise HTTPException(404, "Ubicación no encontrada en la empresa seleccionada.")
+
+
+@router.delete("/facturas/ubicaciones-carta-porte/{ubicacion_id}")
+async def eliminar_ubicacion_carta_porte(
+    ubicacion_id: int,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    _require_supabase_scope(scope)
+    if _sb_update(_SB_UBICACIONES_CP, ubicacion_id, scope, {"activo": False}):
+        return JSONResponse({"ok": True, "message": "Ubicación desactivada", "source": "supabase"})
+    raise HTTPException(404, "Ubicación no encontrada en la empresa seleccionada.")
+
+
+# ── Catálogo: Mercancías frecuentes Carta Porte ──────────────────────────────
+
+@router.get("/facturas/mercancias-carta-porte")
+async def listar_mercancias_carta_porte(
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    rows = _sb_list(_SB_MERCANCIAS_CP, scope, active_only=True, order="alias", desc=False)
+    return JSONResponse({"mercancias": rows, "source": "supabase"})
+
+
+@router.post("/facturas/mercancias-carta-porte")
+async def crear_mercancia_carta_porte(
+    alias: str,
+    bienes_transp: str = "",
+    descripcion: str = "",
+    clave_unidad: str = "LTR",
+    unidad: str = "L",
+    factor_kg_litro: float = 0.54,
+    material_peligroso: bool = True,
+    clave_material_peligroso: str = "",
+    embalaje: str = "",
+    descripcion_embalaje: str = "",
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    _require_supabase_scope(scope)
+    row = _sb_insert(_SB_MERCANCIAS_CP, _scope_row(scope, {
+        "alias": alias,
+        "bienes_transp": bienes_transp,
+        "descripcion": descripcion or alias,
+        "clave_unidad": clave_unidad or "LTR",
+        "unidad": unidad or "L",
+        "factor_kg_litro": factor_kg_litro,
+        "material_peligroso": material_peligroso,
+        "clave_material_peligroso": clave_material_peligroso,
+        "embalaje": embalaje,
+        "descripcion_embalaje": descripcion_embalaje,
+        "activo": True,
+    }))
+    if row:
+        return JSONResponse({"ok": True, "message": "Mercancía registrada", "id": row.get("id"), "source": "supabase"})
+    raise HTTPException(500, "No se pudo guardar la mercancía en Supabase.")
+
+
+@router.put("/facturas/mercancias-carta-porte/{mercancia_id}")
+async def actualizar_mercancia_carta_porte(
+    mercancia_id: int,
+    alias: str,
+    bienes_transp: str = "",
+    descripcion: str = "",
+    clave_unidad: str = "LTR",
+    unidad: str = "L",
+    factor_kg_litro: float = 0.54,
+    material_peligroso: bool = True,
+    clave_material_peligroso: str = "",
+    embalaje: str = "",
+    descripcion_embalaje: str = "",
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    _require_supabase_scope(scope)
+    ok = _sb_update(_SB_MERCANCIAS_CP, mercancia_id, scope, {
+        "alias": alias,
+        "bienes_transp": bienes_transp,
+        "descripcion": descripcion or alias,
+        "clave_unidad": clave_unidad or "LTR",
+        "unidad": unidad or "L",
+        "factor_kg_litro": factor_kg_litro,
+        "material_peligroso": material_peligroso,
+        "clave_material_peligroso": clave_material_peligroso,
+        "embalaje": embalaje,
+        "descripcion_embalaje": descripcion_embalaje,
+    })
+    if ok:
+        return JSONResponse({"ok": True, "message": "Mercancía actualizada", "source": "supabase"})
+    raise HTTPException(404, "Mercancía no encontrada en la empresa seleccionada.")
+
+
+@router.delete("/facturas/mercancias-carta-porte/{mercancia_id}")
+async def eliminar_mercancia_carta_porte(
+    mercancia_id: int,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    scope = _scope(authorization, x_perfil_id)
+    _require_supabase_scope(scope)
+    if _sb_update(_SB_MERCANCIAS_CP, mercancia_id, scope, {"activo": False}):
+        return JSONResponse({"ok": True, "message": "Mercancía desactivada", "source": "supabase"})
+    raise HTTPException(404, "Mercancía no encontrada en la empresa seleccionada.")
 
 
 # ── Catálogo: Clientes ────────────────────────────────────────────────────────
