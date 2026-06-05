@@ -564,12 +564,24 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
     line = line or colors.HexColor("#C8C8C8")
     right_tiny = styles["Tiny"].clone("TinyRight")
     right_tiny.alignment = 2
+
+    def price_with_tax(concepto) -> str:
+        unit_net = _money_value(_attr(concepto, "ValorUnitario", "0"))
+        traslado = None
+        for node in concepto.iter():
+            if _local_name(node) == "Traslado":
+                traslado = node
+                break
+        rate = _money_value(_attr(traslado, "TasaOCuota", "0")) if traslado is not None else 0
+        return f"{unit_net * (1 + rate):.4f}"
+
     data = [[
         Paragraph("<b>Cantidad</b>", styles["HeaderTiny"]),
         Paragraph("<b>Unidad</b>", styles["HeaderTiny"]),
         Paragraph("<b>Clave SAT</b>", styles["HeaderTiny"]),
         Paragraph("<b>Descripción</b>", styles["HeaderTiny"]),
-        Paragraph("<b>P. unitario</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Precio c/IVA</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Valor unit.</b>", styles["HeaderTiny"]),
         Paragraph("<b>Importe</b>", styles["HeaderTiny"]),
     ]]
     for c in conceptos[:35]:
@@ -578,16 +590,17 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
             Paragraph(_text(_attr(c, "Unidad", _attr(c, "ClaveUnidad"))), styles["Tiny"]),
             Paragraph(_text(_attr(c, "ClaveProdServ")), styles["Tiny"]),
             Paragraph(_text(_attr(c, "Descripcion")), styles["Tiny"]),
+            Paragraph(_text(price_with_tax(c)), right_tiny),
             Paragraph(_text(_attr(c, "ValorUnitario")), right_tiny),
             Paragraph(_text(_attr(c, "Importe")), right_tiny),
         ])
     if len(conceptos) > 35:
-        data.append(["", "", "", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", ""])
-    table = Table(data, colWidths=[0.78 * 72, 0.74 * 72, 0.92 * 72, 3.42 * 72, 0.88 * 72, 0.86 * 72], repeatRows=1)
+        data.append(["", "", "", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", "", ""])
+    table = Table(data, colWidths=[0.78 * 72, 0.66 * 72, 0.86 * 72, 3.02 * 72, 0.78 * 72, 0.78 * 72, 0.80 * 72], repeatRows=1)
     table.setStyle(_detail_table_style(colors, wine, line))
     table.setStyle(TableStyle([
         ("ALIGN", (0, 1), (0, -1), "RIGHT"),
-        ("ALIGN", (4, 1), (5, -1), "RIGHT"),
+        ("ALIGN", (4, 1), (6, -1), "RIGHT"),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FBFAF8")]),
     ]))
     return table
