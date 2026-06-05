@@ -25,23 +25,13 @@
   </main>
   <script>
     const ALLOWED_ROLES = ['admin','conciliacion','asistente_facturacion'];
+    const CONCILIACION_TOKEN_KEY = 'ge_gaslp_conciliacion_token';
+    localStorage.removeItem(CONCILIACION_TOKEN_KEY);
     function roleAllowed(role) {
       return ALLOWED_ROLES.includes(String(role || '').toLowerCase());
     }
     async function readJson(res) {
       try { return await res.json(); } catch (_) { return {}; }
-    }
-    async function tryExistingSession() {
-      const token = localStorage.getItem('ge_gaslp_conciliacion_token') || localStorage.getItem('sat_token') || localStorage.getItem('zc_token') || '';
-      if (!token) return false;
-      const res = await fetch('/api/auth/me', {headers:{Authorization:'Bearer '+token}});
-      if (!res.ok) return false;
-      const data = await readJson(res);
-      const gasAccess = (data.accesos || []).find(a => String(a.section || '').toLowerCase() === 'gas_lp');
-      if (!gasAccess || !roleAllowed(gasAccess.role || data.role)) return false;
-      localStorage.setItem('ge_gaslp_conciliacion_token', token);
-      location.href = '/conciliacion/gas-lp';
-      return true;
     }
     async function loginSupabase(user, pass) {
       const res = await fetch('/api/auth/login', {
@@ -78,13 +68,10 @@
           try { token = await loginInternal(user, pass); }
           catch (_) { token = await loginSupabase(user, pass); }
         }
-        localStorage.setItem('ge_gaslp_conciliacion_token', token);
-        localStorage.setItem('sat_token', token);
-        localStorage.setItem('zc_token', token);
+        localStorage.setItem(CONCILIACION_TOKEN_KEY, token);
         location.href = '/conciliacion/gas-lp';
       } catch(ex) { err.textContent = ex.message; }
     });
-    tryExistingSession().catch(() => {});
   </script>
 </body>
 </html>
