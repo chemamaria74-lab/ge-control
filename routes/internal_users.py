@@ -114,6 +114,8 @@ class GasLpInternalFacturaPayload(BaseModel):
     descuento: float = 0
     tipo_descuento: str = ""
     descuento_capturado: Optional[float] = None
+    subtotal_preview: Optional[float] = None
+    iva_preview: Optional[float] = None
     descuento_preview: Optional[float] = None
     total_preview: Optional[float] = None
     iva_rate: float = 0.16
@@ -179,6 +181,8 @@ class GasLpConciliacionPublicoGeneralPayload(BaseModel):
     descuento: float = 0
     tipo_descuento: str = ""
     descuento_capturado: Optional[float] = None
+    subtotal_preview: Optional[float] = None
+    iva_preview: Optional[float] = None
     descuento_preview: Optional[float] = None
     total_preview: Optional[float] = None
     iva_rate: float = 0.16
@@ -1409,29 +1413,37 @@ def _build_gas_lp_consumo_xml(
     }
 
 
-def _gas_lp_validate_invoice_preview_totals(payload, totals: dict, *, context: str) -> None:
+def _gas_lp_validate_invoice_preview_totals(payload, totals: dict, *, context: str, cliente_tipo: str = "") -> None:
     preview_total = getattr(payload, "total_preview", None)
     preview_discount = getattr(payload, "descuento_preview", None)
     if preview_total is None and preview_discount is None:
         return
     backend_total = float(totals.get("total") or 0)
     backend_discount = float(totals.get("descuento_con_iva") or 0)
+    source = "conciliacion" if "conciliacion" in str(context or "") else "asistente"
     mismatches = []
     if preview_total is not None and abs(float(preview_total) - backend_total) > 0.01:
         mismatches.append(f"total validado {float(preview_total):.2f} vs total timbrado {backend_total:.2f}")
     if preview_discount is not None and abs(float(preview_discount) - backend_discount) > 0.01:
         mismatches.append(f"descuento validado {float(preview_discount):.2f} vs descuento timbrado {backend_discount:.2f}")
     logger.info(
-        "gas_lp_invoice_preview_validation context=%s litros=%s precio=%s tipo_descuento=%s descuento_capturado=%s descuento_payload=%s descuento_preview=%s descuento_backend=%s total_preview=%s total_backend=%s ok=%s",
+        "gas_lp_invoice_preview_validation source=%s cliente_tipo=%s context=%s litros=%s precio_con_iva=%s tipo_descuento=%s descuento_capturado=%s descuento_payload_por_litro=%s subtotal_preview=%s descuento_preview=%s iva_preview=%s total_preview=%s subtotal_xml=%s descuento_xml_base=%s descuento_xml_con_iva=%s iva_xml=%s total_xml=%s ok=%s",
+        source,
+        cliente_tipo,
         context,
         getattr(payload, "litros", None),
         getattr(payload, "precio_unitario", None),
         getattr(payload, "tipo_descuento", "") or "",
         getattr(payload, "descuento_capturado", None),
         getattr(payload, "descuento", None),
+        getattr(payload, "subtotal_preview", None),
         preview_discount,
-        backend_discount,
+        getattr(payload, "iva_preview", None),
         preview_total,
+        totals.get("subtotal"),
+        totals.get("descuento"),
+        backend_discount,
+        totals.get("iva"),
         backend_total,
         not mismatches,
     )
@@ -3723,7 +3735,7 @@ async def gas_lp_conciliacion_facturar_publico_general(payload: GasLpConciliacio
         hyp=hyp,
         informacion_global=informacion_global,
     )
-    _gas_lp_validate_invoice_preview_totals(payload, totals, context="conciliacion_publico_general")
+    _gas_lp_validate_invoice_preview_totals(payload, totals, context="conciliacion_publico_general", cliente_tipo="publico_general")
     sw_config = sw_runtime_config()
     if _sw_config_looks_like_sandbox(sw_config):
         raise HTTPException(400, "Este emisor está configurado en modo pruebas. Cambia a producción antes de timbrar CFDI real.")
@@ -4783,7 +4795,12 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             _gas_lp_revert_invoice_folio_if_current(sb, user, transfer_folio_reservation, reason="xml_build_failed")
         raise
     if not is_transfer:
-        _gas_lp_validate_invoice_preview_totals(payload, totals, context="asistente_factura")
+        _gas_lp_validate_invoice_preview_totals(
+            payload,
+            totals,
+            context="asistente_factura",
+            cliente_tipo="publico_general" if receptor.get("rfc") == "XAXX010101000" else "cliente_normal",
+        )
     hyp_node_xml = _gas_lp_hyp_xml_fragment(hyp)
     sw_config = sw_runtime_config()
     sw_sandbox = _sw_config_looks_like_sandbox(sw_config)
