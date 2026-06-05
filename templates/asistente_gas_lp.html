@@ -17,7 +17,7 @@
     .assistant-chip{display:inline-flex;align-items:center;gap:5px;margin-top:4px;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:900;border:1px solid #dbeafe;background:#eff6ff;color:#1d4ed8}.assistant-chip.me{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.assistant-chip.alt-1{border-color:#fbcfe8;background:#fdf2f8;color:#9d174d}.assistant-chip.alt-2{border-color:#ddd6fe;background:#f5f3ff;color:#6d28d9}.assistant-chip.alt-3{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.assistant-cell{min-width:130px}.client-form-title{margin:0 0 10px}.modal-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.42);z-index:200;display:grid;place-items:center;padding:18px}.modal{width:min(480px,100%);background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 24px 80px rgba(15,28,45,.26);padding:16px}.modal-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:12px}.modal-head h2{font-size:18px}.modal-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:14px}
     .today-table-wrap{max-height:500px;overflow:auto;border-top:1px solid #eef2f7}.today-table{table-layout:fixed;font-size:12px}.today-table th{position:sticky;top:0;z-index:1;padding:7px 8px;background:#f3f1ee}.today-table td{padding:7px 8px;vertical-align:middle;line-height:1.2}.today-table .today-time{width:58px;white-space:nowrap}.today-table .today-client{width:auto;min-width:0}.today-table .today-total{width:82px;white-space:nowrap;text-align:right}.today-table .today-pay{width:58px;white-space:nowrap}.today-table .today-docs{width:110px}.today-client-name{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:900}.today-table .assistant-chip{margin-top:4px;max-width:100%;font-size:10px;padding:2px 6px;gap:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.today-table .assistant-chip i{font-size:10px}.today-table .doc-actions{display:flex;flex-wrap:nowrap;gap:4px;align-items:center}.today-table .doc-actions .btn{width:30px;height:30px;min-width:30px;padding:0;border-radius:7px;font-size:0}.today-table .doc-actions .btn i{font-size:12px;margin:0}.today-table .doc-actions .doc-square,.today-table .doc-actions .doc-email{width:30px}.today-table tr:hover td{background:#fbfaf8}.op-tag{display:inline-flex;align-items:center;border:1px solid #e5e7eb;background:#f8fafc;color:#475569;border-radius:999px;padding:2px 7px;font-size:10.5px;font-weight:900;white-space:nowrap}.op-tag.transfer{border-color:#e9d5ff;background:#faf5ff;color:#6b21a8}.cell-main{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.transfer-route{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25}.cell-sub{display:block;margin-top:2px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .transfer-default-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}.checkline{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:900;color:var(--muted)}.checkline input{width:auto;margin:0}.transfer-default-row .btn{padding:7px 9px;font-size:12px}
-    .email-status{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:10.5px;font-weight:900;border:1px solid #e5e7eb;background:#f8fafc;color:#475569;white-space:nowrap}.email-status.sent{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.email-status.missing{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.email-status.error{border-color:#fecaca;background:#fef2f2;color:#b91c1c}
+    .email-status,.payment-status-badge{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:10.5px;font-weight:900;border:1px solid #e5e7eb;background:#f8fafc;color:#475569;white-space:nowrap}.email-status.sent,.payment-status-badge.paid{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.email-status.missing,.payment-status-badge.partial,.payment-status-badge.pending{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.email-status.error{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.payment-note{display:block;margin-top:3px;color:var(--muted);font-size:10.5px;line-height:1.25;white-space:normal}.facturas-table .pay-cell{white-space:normal}.facturas-table .status-cell{white-space:normal}
     @media(max-width:900px){.top{padding:12px;flex-wrap:wrap}.right{margin-left:0}.brand span{display:none}main{padding:14px}.hero,.company-band{align-items:start;flex-direction:column}.work-grid,.form-grid,.filters,.filters.compact-filters,.filters.month-filters,.optional-grid,.dashboard-grid,.dashboard-layout{grid-template-columns:1fr}.btn{width:100%}.tab-btn{flex:1;justify-content:center}.client-row{grid-template-columns:34px 1fr}.client-actions{grid-column:1 / -1;justify-content:stretch}.icon-btn{width:100%}.compact-card{position:static}.facturas-table{min-width:980px}.facturas-table .doc-actions{flex-wrap:wrap}.facturas-table .doc-actions .btn{width:34px}.facturas-table .doc-actions .doc-square,.facturas-table .doc-actions .doc-email{width:34px}}
   </style>
 </head>
@@ -1325,7 +1325,27 @@
     }
     function facturaStatusHtml(f){
       if(isCanceledForDisplay(f)) return '<span class="invoice-status-badge cancelled">Cancelada</span>';
+      const payment = facturaPaymentState(f);
+      if(payment.statusLabel) return `<span class="payment-status-badge ${payment.className}" title="${esc(payment.title)}">${esc(payment.statusLabel)}</span>${payment.note ? `<span class="payment-note">${esc(payment.note)}</span>` : ''}`;
       return esc(f.status || '—');
+    }
+    function facturaComplementoId(f){
+      const md = f.metadata || {};
+      return f.latest_complemento_pago?.complemento_id || f.latest_complemento_pago?.id || md.ultimo_complemento_pago_id || '';
+    }
+    function facturaPaymentState(f){
+      const md = f.metadata || {};
+      const info = f.payment_info || {};
+      const metodoPago = String(info.metodo_pago || md.metodo_pago || '').toUpperCase();
+      const compId = facturaComplementoId(f);
+      const saldoFactura = facturaSaldo(f);
+      const traspaso = md.tipo_operacion === 'traspaso' || md.is_transfer;
+      if(traspaso) return {payLabel:'Traslado', statusLabel:'Vigente', className:'neutral', title:'Traspaso interno', note:''};
+      if(metodoPago !== 'PPD') return {payLabel:'PUE', statusLabel:isPaid(f) ? 'Pagada' : '', className:'paid', title:'Factura de ingreso PUE', note:''};
+      if(compId && saldoFactura <= 0) return {payLabel:'Pagada con complemento', statusLabel:'Pagada con complemento', className:'paid', title:'Factura PPD cubierta con Complemento de Pago', note:'Complemento emitido'};
+      if(compId) return {payLabel:'Pago parcial', statusLabel:'Pago parcial', className:'partial', title:'Factura PPD con Complemento de Pago parcial', note:'Complemento emitido'};
+      if(saldoFactura <= 0) return {payLabel:'Pagada', statusLabel:'Pagada', className:'paid', title:'Factura PPD sin saldo pendiente', note:''};
+      return {payLabel:'PPD · requiere complemento', statusLabel:'Pendiente complemento', className:'pending', title:'Se usa cuando una factura PPD ya fue pagada total o parcialmente.', note:'Requiere complemento al recibir pago'};
     }
     function isPaid(f){
       const md = f.metadata || {};
@@ -1377,8 +1397,8 @@
           const md = f.metadata || {};
           const compId = f.latest_complemento_pago?.complemento_id || f.latest_complemento_pago?.id || md.ultimo_complemento_pago_id || '';
           const saldoFactura = facturaSaldo(f);
-          const state = saldoFactura <= 0 ? 'Pagada con complemento' : (compId ? 'Pago parcial' : 'Pendiente');
-          const action = saldoFactura > 0 ? 'Requiere complemento' : 'Sin saldo';
+          const state = saldoFactura <= 0 ? 'Pagada con complemento' : (compId ? 'Pago parcial' : 'PPD · requiere complemento');
+          const action = saldoFactura > 0 ? 'Requiere complemento al recibir pago' : 'Sin saldo';
           return `<tr><td>${esc(dateDMY(facturaDateKey(f)))}</td><td><code class="uuid-text" title="${esc(f.uuid_sat || 'UUID pendiente')}">${esc(f.uuid_sat || 'UUID pendiente')}</code></td><td>${money(facturaAmount(f))}</td><td><b class="${saldoFactura > 0 ? 'credit-high' : 'credit-ok'}">${money(saldoFactura)}</b></td><td>${esc(state)}</td><td><span class="muted">${esc(action)}</span></td></tr>`;
         }).join('')}</tbody></table>` : '<div class="dashboard-detail-note">Este cliente no tiene facturas PPD pendientes con los filtros actuales.</div>';
       } else {
@@ -1470,15 +1490,15 @@
         const info = f.payment_info || {};
         const metodo = String(info.metodo_pago || md.metodo_pago || '').toUpperCase();
         const paymentStatus = f.payment_status || md.payment_status || '';
-        const pago = md.tipo_operacion === 'traspaso'
-          ? 'Traslado'
-          : (metodo === 'PPD' ? (isPaid(f) ? 'PPD · pagada' : 'PPD · complemento pendiente') : 'PUE');
+        const paymentVisual = facturaPaymentState(f);
+        const pago = paymentVisual.payLabel || paymentStatus || '—';
         const id = encodeURIComponent(f.id || '');
         const q = `token=${encodeURIComponent(token)}`;
-        const compId = f.latest_complemento_pago?.complemento_id || f.latest_complemento_pago?.id || md.ultimo_complemento_pago_id || '';
+        const compId = facturaComplementoId(f);
         const compDoc = compId ? `<a class="btn ghost doc-square" title="PDF complemento" aria-label="PDF complemento" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(compId)}/pdf?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF complemento</a><a class="btn ghost doc-square" title="XML complemento" aria-label="XML complemento" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(compId)}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-receipt"></i> XML complemento</a>` : '';
         const emailDoc = f.id && f.xml_content ? `<button class="btn ghost doc-email" type="button" title="Enviar correo" aria-label="Enviar correo" onclick="openEmailModal('${esc(String(f.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
-        const docs = f.id && f.xml_content ? `<div class="doc-actions"><a class="btn ghost doc-square" title="Descargar PDF" aria-label="Descargar PDF" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost doc-square" title="Descargar XML" aria-label="Descargar XML" href="/api/internal-auth/gas-lp/facturas/${id}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>${emailDoc}${compDoc}</div>` : '<span class="muted">Pendiente</span>';
+        const docsHint = compId ? '<span class="payment-note">Complemento de Pago, no factura de ingreso.</span>' : '';
+        const docs = f.id && f.xml_content ? `<div class="doc-actions"><a class="btn ghost doc-square" title="Descargar PDF" aria-label="Descargar PDF" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost doc-square" title="Descargar XML" aria-label="Descargar XML" href="/api/internal-auth/gas-lp/facturas/${id}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>${emailDoc}${compDoc}</div>${docsHint}` : '<span class="muted">Pendiente</span>';
         const fechaValue = facturaDateValue(f) || '';
         return {
           fecha: esc(dateDMY(fechaValue)),
@@ -1491,6 +1511,7 @@
           litros: f.volumen_litros || 0,
           total: md.total || (Number(f.importe||0)*1.16),
           pago: pago || paymentStatus || '—',
+          pagoTitle: paymentVisual.title || '',
           assistant,
           assistantBadge: assistantChip(f),
           status: f.status || '—',
@@ -1606,7 +1627,7 @@
           <td>${complementoFacturasLabel(c)}</td>
           <td>${money(c.monto)}</td>
           <td><span class="email-status ${complementoEmailClass(c)}" title="${esc(emailTitle)}">${esc(c.email_status || 'Pendiente')}</span><br><span class="muted">${esc(c.email_destinatario || c.email_error || '')}</span></td>
-          <td><div class="doc-actions"><a class="btn ghost doc-square" title="PDF complemento" aria-label="PDF complemento" href="${pdf}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF complemento</a><a class="btn ghost doc-square" title="XML complemento" aria-label="XML complemento" href="${xml}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML complemento</a><button class="btn ghost doc-email" type="button" title="Reenviar correo" aria-label="Reenviar correo" onclick="reenviarComplementoEmail('${esc(String(c.id || ''))}')"><i class="fa-solid fa-envelope"></i> Reenviar correo</button></div></td>
+          <td><div class="doc-actions"><a class="btn ghost doc-square" title="PDF complemento" aria-label="PDF complemento" href="${pdf}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF complemento</a><a class="btn ghost doc-square" title="XML complemento" aria-label="XML complemento" href="${xml}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML complemento</a><button class="btn ghost doc-email" type="button" title="Reenviar correo" aria-label="Reenviar correo" onclick="reenviarComplementoEmail('${esc(String(c.id || ''))}')"><i class="fa-solid fa-envelope"></i> Reenviar correo</button></div><span class="payment-note">Este documento es un Complemento de Pago, no una factura de ingreso.</span></td>
         </tr>`;
       }).join('');
     }
