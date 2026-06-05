@@ -368,7 +368,55 @@
     function timbrarComplemento(){const rows=selectedCompRows();if(!rows.length)return setMsg('compMsg','Selecciona al menos una factura PPD pendiente.',false);if(!fechaPago.value)fechaPago.value=localDateTimeValue();COMP_CONFIRM_CTX={rows};compModalFechaPago.value=fechaPago.value;compModalFormaPago.value=formaPago.value||'03';compModalBancoPago.value=bancoPago.value||'';compModalReferenciaPago.value=referenciaPago.value||'';const first=rows[0]||{};compModalClient.innerHTML=`<b>${esc(first.cliente||'Cliente')}</b>${first.rfc?` · RFC ${esc(first.rfc)}`:''}<br><span class="muted">${rows.length} factura${rows.length===1?'':'s'} seleccionada${rows.length===1?'':'s'}</span>`;compModalRows.innerHTML=rows.map(r=>`<tr><td><b>${esc(r.folio||r.fecha||'Factura')}</b><br><span class="muted">${esc(r.fecha||'')}</span></td><td>${uuidHtml(r.uuid)}</td><td class="num">${money(r.saldo)}</td><td><input class="comp-modal-amount" data-factura-id="${Number(r.id)}" type="number" min="0" step="0.01" placeholder="Captura monto" oninput="updateCompValidation()"></td><td class="num"><b id="compModalSaldoFinal_${Number(r.id)}">${money(r.saldo)}</b></td></tr>`).join('');setMsg('compModalMsg','');compConfirmModal.classList.add('open');updateCompValidation();setTimeout(()=>document.querySelector('.comp-modal-amount')?.focus(),50)}
     function closeCompValidation(){compConfirmModal.classList.remove('open');setMsg('compModalMsg','')}
     function updateCompValidation(){const rows=COMP_CONFIRM_CTX?.rows||[];const inputs=Array.from(document.querySelectorAll('.comp-modal-amount'));let totalSaldo=0,totalPago=0,invalid=false,empty=false,exceeded=false;rows.forEach(r=>{totalSaldo+=Number(r.saldo||0);const input=inputs.find(el=>Number(el.dataset.facturaId)===Number(r.id));const raw=String(input?.value||'').trim();const amount=parseCompMoney(raw);if(!raw||amount<=0)empty=true;if(amount>Number(r.saldo||0))exceeded=true;if(!raw||amount<=0||amount>Number(r.saldo||0))invalid=true;totalPago+=amount;const cell=document.getElementById(`compModalSaldoFinal_${Number(r.id)}`);if(cell)cell.textContent=money(Math.max(Number(r.saldo||0)-amount,0))});const saldoFinal=Math.max(totalSaldo-totalPago,0);compModalSaldoAnterior.textContent=money(totalSaldo);compModalImportePagado.textContent=money(totalPago);compModalSaldoFinal.textContent=money(saldoFinal);let msg='',ok=false;if(exceeded)msg='El importe excede el saldo pendiente. No se puede timbrar.';else if(empty)msg='Captura el monto recibido por cada factura.';else if(totalPago===totalSaldo){msg='Pago total. La factura quedará liquidada.';ok=true}else{msg='Pago parcial. Quedará saldo pendiente.';ok=true}compModalBadge.textContent=msg;compModalBadge.className='status '+(ok?(totalPago===totalSaldo?'ok':'warn'):'err');compModalConfirmBtn.disabled=invalid||!rows.length}
-    async function confirmTimbrarComplemento(){const rows=COMP_CONFIRM_CTX?.rows||[];const inputs=Array.from(document.querySelectorAll('.comp-modal-amount'));const facturas=rows.map(r=>{const input=inputs.find(el=>Number(el.dataset.facturaId)===Number(r.id));return {factura_id:r.id,monto:parseCompMoney(input?.value)}});for(const item of facturas){const row=rows.find(r=>Number(r.id)===Number(item.factura_id));if(!row||Number(item.monto||0)<=0||Number(item.monto||0)>Number(row.saldo||0)){updateCompValidation();return setMsg('compModalMsg','Revisa los importes antes de timbrar.',false)}}try{compModalConfirmBtn.disabled=true;setMsg('compModalMsg','Timbrando complemento...');fechaPago.value=compModalFechaPago.value||localDateTimeValue();formaPago.value=compModalFormaPago.value||'03';bancoPago.value=compModalBancoPago.value||'';referenciaPago.value=compModalReferenciaPago.value||'';const body={fecha_pago:fechaPago.value,forma_pago:formaPago.value,banco:bancoPago.value,referencia:referenciaPago.value,facturas,monto:facturas.reduce((s,x)=>s+Number(x.monto||0),0)};const data=await api('/api/internal-auth/gas-lp/facturas/'+encodeURIComponent(facturas[0].factura_id)+'/complemento-pago',{method:'POST',body:JSON.stringify(body)});SEL={};closeCompValidation();setMsg('compMsg','Complemento timbrado: '+(data.complemento?.uuid_sat||'UUID pendiente'));await loadAll()}catch(e){setMsg('compModalMsg',e.message,false)}finally{compModalConfirmBtn.disabled=false}}
+    async function confirmTimbrarComplemento(){
+      const rows=COMP_CONFIRM_CTX?.rows||[];
+      const inputs=Array.from(document.querySelectorAll('.comp-modal-amount'));
+      const facturas=rows.map(r=>{const input=inputs.find(el=>Number(el.dataset.facturaId)===Number(r.id));return {factura_id:r.id,monto:parseCompMoney(input?.value)}});
+      for(const item of facturas){
+        const row=rows.find(r=>Number(r.id)===Number(item.factura_id));
+        if(!row||Number(item.monto||0)<=0||Number(item.monto||0)>Number(row.saldo||0)){
+          updateCompValidation();
+          return setMsg('compModalMsg','Revisa los importes antes de timbrar.',false);
+        }
+      }
+      try{
+        compModalConfirmBtn.disabled=true;
+        setMsg('compModalMsg','Timbrando complemento...');
+        fechaPago.value=compModalFechaPago.value||localDateTimeValue();
+        formaPago.value=compModalFormaPago.value||'03';
+        bancoPago.value=compModalBancoPago.value||'';
+        referenciaPago.value=compModalReferenciaPago.value||'';
+        const body={fecha_pago:fechaPago.value,forma_pago:formaPago.value,banco:bancoPago.value,referencia:referenciaPago.value,facturas,monto:facturas.reduce((s,x)=>s+Number(x.monto||0),0)};
+        const data=await api('/api/internal-auth/gas-lp/facturas/'+encodeURIComponent(facturas[0].factura_id)+'/complemento-pago',{method:'POST',body:JSON.stringify(body)});
+        const compId=encodeURIComponent(data.complemento?.id||'');
+        const uuid=data.complemento?.uuid_sat||'UUID pendiente';
+        const email=data.email||{};
+        const emailMsg=email.ok?'Correo enviado al cliente.':(email.error||'Correo pendiente.');
+        const qs='token='+encodeURIComponent(token)+(activePerfilId?'&perfil_id='+encodeURIComponent(activePerfilId):'');
+        const pdf=compId?`/api/internal-auth/gas-lp/complementos-pago/${compId}/pdf?${qs}`:'';
+        const xml=compId?`/api/internal-auth/gas-lp/complementos-pago/${compId}/xml?${qs}`:'';
+        const actions=compId?`<div class="doc-actions" style="margin-top:10px"><a class="btn ghost sm" href="${pdf}" target="_blank" rel="noopener">Ver PDF complemento</a><a class="btn ghost sm" href="${xml}" download>Descargar XML complemento</a><button class="btn ghost sm" type="button" onclick="reenviarComplementoEmail('${esc(String(data.complemento?.id||''))}')">Reenviar correo</button></div>`:'';
+        SEL={};
+        closeCompValidation();
+        setMsgHtml('compMsg',`Complemento timbrado correctamente.<br>UUID: ${esc(uuid)}<br>${esc(emailMsg)}${actions}`,!!email.ok||!email.error);
+        await loadAll();
+      }catch(e){
+        setMsg('compModalMsg',e.message,false);
+      }finally{
+        compModalConfirmBtn.disabled=false;
+      }
+    }
+    async function reenviarComplementoEmail(id){
+      if(!id)return;
+      try{
+        setMsg('compMsg','Reenviando correo del complemento...');
+        const data=await api('/api/internal-auth/gas-lp/complementos-pago/'+encodeURIComponent(id)+'/send-email',{method:'POST',body:JSON.stringify({})});
+        setMsg('compMsg',data.email?.ok?'Correo enviado correctamente.':(data.email?.error||'No se pudo reenviar el correo.'),!!data.email?.ok);
+        await loadAll();
+      }catch(e){
+        setMsg('compMsg',e.message||'No se pudo reenviar el correo.',false);
+      }
+    }
     function clearSatFilters(){satClienteFiltro.value='';satDiaFiltro.value='';satEstadoFiltro.value='';satMetodoFiltro.value='';renderSat(satFilteredRows())}
     function satFilteredRows(){const q=String(satClienteFiltro?.value||'').toLowerCase().trim();const day=satDiaFiltro?.value||'';const st=satEstadoFiltro?.value||'';const mp=satMetodoFiltro?.value||'';return FACTURAS.filter(f=>{const hay=[razon(f),f.rfc_receptor,f.uuid_sat,folio(f),facilityName(f),transferRoute(f),realizadoPor(f)].join(' ').toLowerCase();if(q&&!hay.includes(q))return false;if(day&&facturaDateKey(f)!==day)return false;if(mp&&metodo(f)!==mp)return false;if(st==='vigente'&&isCancel(f))return false;if(st==='cancelada'&&!isCancel(f))return false;if(st==='sin_uuid'&&f.uuid_sat)return false;return true})}
     function satEstadoHtml(f){if(isCancel(f))return '<span class="pill err">'+esc(f.status||'Cancelada')+'</span>';return '<span class="pill neutral">Vigente</span>'}
