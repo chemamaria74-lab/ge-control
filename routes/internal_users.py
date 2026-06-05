@@ -1419,7 +1419,8 @@ def _gas_lp_validate_invoice_preview_totals(payload, totals: dict, *, context: s
     if preview_total is None and preview_discount is None:
         return
     backend_total = float(totals.get("total") or 0)
-    backend_discount = float(totals.get("descuento_con_iva") or 0)
+    discount_mode = str(getattr(payload, "tipo_descuento", "") or "").strip().lower()
+    backend_discount = float((totals.get("descuento") if discount_mode == "total_pesos" else totals.get("descuento_con_iva")) or 0)
     source = "conciliacion" if "conciliacion" in str(context or "") else "asistente"
     mismatches = []
     if preview_total is not None and abs(float(preview_total) - backend_total) > 0.01:
@@ -1433,7 +1434,7 @@ def _gas_lp_validate_invoice_preview_totals(payload, totals: dict, *, context: s
         context,
         getattr(payload, "litros", None),
         getattr(payload, "precio_unitario", None),
-        getattr(payload, "tipo_descuento", "") or "",
+        discount_mode,
         getattr(payload, "descuento_capturado", None),
         getattr(payload, "descuento", None),
         getattr(payload, "subtotal_preview", None),
@@ -1442,7 +1443,7 @@ def _gas_lp_validate_invoice_preview_totals(payload, totals: dict, *, context: s
         preview_total,
         totals.get("subtotal"),
         totals.get("descuento"),
-        backend_discount,
+        totals.get("descuento_con_iva"),
         totals.get("iva"),
         backend_total,
         not mismatches,
