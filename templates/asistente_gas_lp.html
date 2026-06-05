@@ -1818,9 +1818,9 @@
           subtotal_preview: payload.subtotal_preview,
           descuento_total_aplicado: payload.descuento_preview,
           iva_preview: payload.iva_preview,
-          subtotal: invoicePreview.subtotal,
-          iva: invoicePreview.iva,
-          total_preview: invoicePreview.total_final,
+          subtotal: payload.subtotal_preview,
+          iva: payload.iva_preview,
+          total_preview: payload.total_preview,
           total_payload: payload.total_preview,
         });
         if(isTraspaso) {
