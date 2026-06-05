@@ -1554,6 +1554,8 @@ def _factura_payment_info(factura: dict) -> dict:
     xml_subtotal = _xml_attr(root, "SubTotal") if root is not None else ""
     xml_descuento = _xml_attr(root, "Descuento") if root is not None else ""
     xml_total = _xml_attr(root, "Total") if root is not None else ""
+    xml_metodo_pago = _xml_attr(root, "MetodoPago") if root is not None else ""
+    xml_forma_pago = _xml_attr(root, "FormaPago") if root is not None else ""
     xml_iva = _xml_attr(traslado, "Importe") if traslado is not None else ""
     xml_litros = _xml_attr(concepto, "Cantidad") if concepto is not None else ""
     xml_unit_net = _xml_attr(concepto, "ValorUnitario") if concepto is not None else ""
@@ -1574,8 +1576,8 @@ def _factura_payment_info(factura: dict) -> dict:
     except Exception:
         precio_unitario = Decimal(str(md.get("precio_unitario") or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     return {
-        "metodo_pago": str(md.get("metodo_pago") or "").upper(),
-        "forma_pago": str(md.get("forma_pago") or ""),
+        "metodo_pago": str(xml_metodo_pago or md.get("metodo_pago") or "").upper(),
+        "forma_pago": str(xml_forma_pago or md.get("forma_pago") or ""),
         "subtotal": subtotal,
         "descuento": descuento,
         "iva": iva,
@@ -3353,7 +3355,11 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         "Fecha emisión/timbrado",
         "Fecha pago",
         "Monto",
+        "Subtotal",
+        "Descuento",
+        "IVA",
         "Litros",
+        "Precio unitario",
         "Realizado por",
         "Estado correo",
         "Método/Forma de pago",
@@ -3376,10 +3382,14 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
             _gas_lp_factura_date_key(row),
             "",
             float(_money(info.get("total"))),
+            float(_money(info.get("subtotal"))),
+            float(_money(info.get("descuento"))),
+            float(_money(info.get("iva"))),
             float(Decimal(str(info.get("litros") or row.get("volumen_litros") or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
+            float(Decimal(str(info.get("precio_unitario") or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
             _gas_lp_factura_realizado_por(row),
             row.get("email_status") or "",
-            f"{_gas_lp_factura_metodo_pago(row)} / {md.get('forma_pago') or ''}".strip(" /"),
+            f"{info.get('metodo_pago') or _gas_lp_factura_metodo_pago(row)} / {info.get('forma_pago') or ''}".strip(" /"),
             _gas_lp_factura_estado_excel(row),
         ])
     for comp in complementos:
@@ -3407,17 +3417,24 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
             str(comp.get("created_at") or "")[:19],
             comp.get("fecha_pago") or "",
             float(comp.get("monto") or 0),
+            float(comp.get("monto") or 0),
+            0,
+            0,
+            0,
             0,
             comp.get("realizado_por") or "",
             email_status,
             f"Complemento / {comp.get('forma_pago') or ''}".strip(" /"),
             comp.get("status") or "timbrado",
         ])
-    for width, column in zip([24, 40, 30, 42, 18, 24, 22, 16, 14, 22, 22, 24, 22], "ABCDEFGHIJKLM"):
+    for width, column in zip([24, 40, 30, 42, 18, 24, 22, 16, 16, 14, 14, 12, 14, 22, 22, 24, 22], "ABCDEFGHIJKLMNOPQ"):
         ws.column_dimensions[column].width = width
-    for cell in ws["H"][1:]:
-        cell.number_format = '$#,##0.00'
-    for cell in ws["I"][1:]:
+    for column in ("H", "I", "J", "K"):
+        for cell in ws[column][1:]:
+            cell.number_format = '$#,##0.00'
+    for cell in ws["L"][1:]:
+        cell.number_format = "#,##0.0000"
+    for cell in ws["M"][1:]:
         cell.number_format = "#,##0.0000"
     stream = BytesIO()
     wb.save(stream)
@@ -4028,7 +4045,11 @@ async def gas_lp_conciliacion_export_excel(
         "Fecha emisión/timbrado",
         "Fecha pago",
         "Monto",
+        "Subtotal",
+        "Descuento",
+        "IVA",
         "Litros",
+        "Precio unitario",
         "Realizado por",
         "Estado correo",
         "Método/Forma de pago",
@@ -4067,6 +4088,12 @@ async def gas_lp_conciliacion_export_excel(
             except Exception:
                 return 0
 
+    def _safe_payment_info(row: dict) -> dict:
+        try:
+            return _factura_payment_info(row)
+        except Exception:
+            return {}
+
     def _safe_metodo_pago(row: dict) -> str:
         try:
             metodo = _gas_lp_factura_metodo_pago(row)
@@ -4079,6 +4106,7 @@ async def gas_lp_conciliacion_export_excel(
     for row in rows:
         factura_id = row.get("id")
         try:
+            info = _safe_payment_info(row)
             ws.append([
                 "Traspaso" if ((row.get("metadata") or {}).get("tipo_operacion") == "traspaso" or (row.get("metadata") or {}).get("is_transfer")) else "Factura",
                 _excel_text(row.get("uuid_sat") or ""),
@@ -4088,10 +4116,14 @@ async def gas_lp_conciliacion_export_excel(
                 _excel_text(_gas_lp_factura_date_key(row)),
                 "",
                 _excel_number(_safe_total(row)),
-                _excel_liters(_factura_payment_info(row).get("litros") or row.get("volumen_litros")),
+                _excel_number(info.get("subtotal")),
+                _excel_number(info.get("descuento")),
+                _excel_number(info.get("iva")),
+                _excel_liters(info.get("litros") or row.get("volumen_litros")),
+                float(Decimal(str(info.get("precio_unitario") or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
                 _excel_text(_gas_lp_factura_realizado_por(row)),
                 _excel_text(row.get("email_status") or ""),
-                _excel_text(_safe_metodo_pago(row)),
+                _excel_text(f"{info.get('metodo_pago') or _safe_metodo_pago(row)} / {info.get('forma_pago') or ''}".strip(" /")),
                 _excel_text(_gas_lp_factura_estado_excel(row)),
             ])
         except Exception as exc:
@@ -4103,7 +4135,7 @@ async def gas_lp_conciliacion_export_excel(
                 exc,
                 traceback.format_exc(),
             )
-            ws.append(["Factura", "", _excel_text(factura_id), "", "", "", "", 0.0, 0.0, "", "", "", ""])
+            ws.append(["Factura", "", _excel_text(factura_id), "", "", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, "", "", "", ""])
     for comp in complementos:
         comp_id = _safe_int_id(comp.get("id"))
         rels = comp_rels_by_id.get(comp_id, [])
@@ -4129,18 +4161,25 @@ async def gas_lp_conciliacion_export_excel(
             _excel_text(str(comp.get("created_at") or "")[:19]),
             _excel_text(comp.get("fecha_pago") or ""),
             _excel_number(comp.get("monto") or 0),
+            _excel_number(comp.get("monto") or 0),
+            0.0,
+            0.0,
+            0.0,
             0.0,
             _excel_text(comp.get("realizado_por") or ""),
             _excel_text(email_status),
             _excel_text(f"Complemento / {comp.get('forma_pago') or ''}".strip(" /")),
             _excel_text(comp.get("status") or "timbrado"),
         ])
-    for width, column in zip([24, 40, 30, 36, 18, 22, 22, 16, 12, 22, 20, 22, 22], "ABCDEFGHIJKLM"):
+    for width, column in zip([24, 40, 30, 36, 18, 22, 22, 16, 16, 14, 14, 12, 14, 22, 20, 22, 22], "ABCDEFGHIJKLMNOPQ"):
         ws.column_dimensions[column].width = width
-    for cell in ws["I"][1:]:
+    for column in ("H", "I", "J", "K"):
+        for cell in ws[column][1:]:
+            cell.number_format = '$#,##0.00'
+    for cell in ws["L"][1:]:
         cell.number_format = "#,##0.0000"
-    for cell in ws["H"][1:]:
-        cell.number_format = '$#,##0.00'
+    for cell in ws["M"][1:]:
+        cell.number_format = "#,##0.0000"
 
     stream = BytesIO()
     try:
