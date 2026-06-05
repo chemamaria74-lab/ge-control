@@ -39,7 +39,9 @@
     .complementos-pendientes-scroll thead th,.complementos-emitidos-scroll thead th{position:sticky;top:0;z-index:2}
     .complementos-emitidos-panel{margin-top:14px}
     .complementos-emitidos-scroll{max-height:min(420px,calc(100vh - 390px));min-height:220px}
-    .complementos-emitidos-table{min-width:1180px}
+    .complementos-emitidos-table{min-width:1080px}
+    .complementos-emitidos-table th,.complementos-emitidos-table td{padding:6px 7px;line-height:1.18}
+    .complementos-emitidos-table .doc-actions.icon-docs{display:grid;grid-template-columns:repeat(3,26px);gap:4px;align-items:center}
     .status{font-size:13px;font-weight:900;margin-top:8px}.ok{color:var(--ok)}.err{color:var(--err)}.warn{color:var(--warn)}
     .notice{background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:10px 12px;color:#475569;font-size:12px}
     .modal-backdrop{position:fixed;inset:0;z-index:80;background:rgba(15,23,42,.56);display:none;align-items:center;justify-content:center;padding:18px}
@@ -164,7 +166,7 @@
       </div>
       <div class="panel complementos-emitidos-panel">
         <div class="section-head">
-          <div><h2>Complementos emitidos</h2><div class="muted small">Historial reciente de complementos timbrados para la empresa activa.</div></div>
+          <div><h2>Complementos de hoy</h2><div class="muted small">Complementos de pago emitidos hoy y estado de envío al cliente.</div></div>
           <span class="pill neutral" id="compEmitidosCount">0 complementos</span>
         </div>
         <div style="margin-bottom:12px"><label>Buscar emitidos</label><input id="compEmitidosFiltro" placeholder="Cliente, RFC, UUID, factura o realizado por" oninput="renderComplementosEmitidos()"></div>
@@ -366,7 +368,7 @@
       const c=latestComplemento(f);
       const id=c?.id||c?.complemento_id||'';
       if(!id) return '';
-      return `<a class="btn ghost sm doc-icon" title="PDF complemento" aria-label="PDF complemento" target="_blank" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(id)}/pdf?${q}"><i class="fa-solid fa-file-invoice"></i><span class="sr-only">PDF complemento</span></a><a class="btn ghost sm doc-icon" title="XML complemento" aria-label="XML complemento" target="_blank" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(id)}/xml?${q}"><i class="fa-solid fa-receipt"></i><span class="sr-only">XML complemento</span></a>`;
+      return `<a class="btn ghost sm doc-icon" title="Ver PDF complemento" aria-label="Ver PDF complemento" target="_blank" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(id)}/pdf?${q}"><i class="fa-solid fa-file-invoice"></i><span class="sr-only">PDF</span></a><a class="btn ghost sm doc-icon" title="Descargar XML complemento" aria-label="Descargar XML complemento" target="_blank" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(id)}/xml?${q}"><i class="fa-solid fa-receipt"></i><span class="sr-only">XML</span></a>`;
     }
     function docs(f){const perfil=activePerfilId?`&perfil_id=${encodeURIComponent(activePerfilId)}`:'';const q=`token=${encodeURIComponent(token)}${perfil}`;const compDocs=complementoDocActions(f,q);return `<div class="doc-actions icon-docs"><a class="btn ghost sm doc-icon" title="PDF factura" aria-label="PDF factura" target="_blank" href="/api/internal-auth/gas-lp/facturas/${encodeURIComponent(f.id)}/pdf?${q}"><i class="fa-solid fa-file-pdf"></i><span class="sr-only">PDF factura</span></a><a class="btn ghost sm doc-icon" title="XML factura" aria-label="XML factura" target="_blank" href="/api/internal-auth/gas-lp/facturas/${encodeURIComponent(f.id)}/xml?${q}"><i class="fa-solid fa-file-code"></i><span class="sr-only">XML factura</span></a>${compDocs}<button class="btn ghost sm doc-icon" title="Correo factura" aria-label="Correo factura" onclick="sendEmail(${Number(f.id)})"><i class="fa-solid fa-envelope"></i><span class="sr-only">Correo factura</span></button><button class="btn ghost sm doc-icon" title="Consultar SAT/PAC" aria-label="Consultar SAT/PAC" onclick="audit(${Number(f.id)})"><i class="fa-solid fa-magnifying-glass"></i><span class="sr-only">SAT/PAC</span></button></div>`}
     function facturaClienteHtml(f){if(!isTransfer(f)){const name=razon(f);return `<span class="cell-main" title="${esc(name)}">${esc(name)}</span><span class="cell-sub">${esc(f.rfc_receptor||'')}</span>`}const md=f.metadata||{};const receptor=md.receptor_nombre||md.cliente_nombre||razon(f);return `<span class="cell-main" title="${esc(receptor)}">${esc(receptor)}</span><span class="cell-sub">misma empresa · Uso CFDI S01</span>`}
@@ -382,9 +384,10 @@
       const tbody=document.getElementById('compEmitidosRows');
       if(!tbody)return;
       const q=String(compEmitidosFiltro?.value||'').toLowerCase().trim();
-      const rows=(COMPLEMENTOS||[]).filter(c=>!q||complementoEmitidoHaystack(c).includes(q));
+      const todayKeyValue=today();
+      const rows=(COMPLEMENTOS||[]).filter(c=>String(c.fecha_timbrado||c.fecha_pago||'').slice(0,10)===todayKeyValue).filter(c=>!q||complementoEmitidoHaystack(c).includes(q));
       if(compEmitidosCount)compEmitidosCount.textContent=`${rows.length} complemento${rows.length===1?'':'s'}`;
-      if(!rows.length){tbody.innerHTML='<tr><td colspan="8">Sin complementos emitidos para este periodo.</td></tr>';return}
+      if(!rows.length){tbody.innerHTML='<tr><td colspan="8">Sin complementos emitidos hoy.</td></tr>';return}
       const perfil=activePerfilId?`&perfil_id=${encodeURIComponent(activePerfilId)}`:'';
       const qs=`token=${encodeURIComponent(token)}${perfil}`;
       tbody.innerHTML=rows.map(c=>{
@@ -400,7 +403,7 @@
           <td class="num">${money(c.monto)}</td>
           <td>${esc(c.realizado_por||'Asistente')}</td>
           <td><span class="pill email-pill ${complementoEmailClass(c)}" title="${esc(emailTitle)}">${esc(c.email_status||'Pendiente')}</span><span class="cell-sub">${esc(c.email_destinatario||c.email_error||'')}</span></td>
-          <td><div class="doc-actions icon-docs"><a class="btn ghost sm doc-icon" title="PDF complemento" aria-label="PDF complemento" target="_blank" href="${pdf}"><i class="fa-solid fa-file-invoice"></i><span class="sr-only">PDF complemento</span></a><a class="btn ghost sm doc-icon" title="XML complemento" aria-label="XML complemento" target="_blank" href="${xml}"><i class="fa-solid fa-receipt"></i><span class="sr-only">XML complemento</span></a><button class="btn ghost sm doc-icon" title="Reenviar correo" aria-label="Reenviar correo" onclick="reenviarComplementoEmail('${esc(String(c.id||''))}')"><i class="fa-solid fa-envelope"></i><span class="sr-only">Reenviar correo</span></button></div></td>
+          <td><div class="doc-actions icon-docs"><a class="btn ghost sm doc-icon" title="Ver PDF complemento" aria-label="Ver PDF complemento" target="_blank" href="${pdf}"><i class="fa-solid fa-file-invoice"></i><span class="sr-only">PDF</span></a><a class="btn ghost sm doc-icon" title="Descargar XML complemento" aria-label="Descargar XML complemento" target="_blank" href="${xml}"><i class="fa-solid fa-receipt"></i><span class="sr-only">XML</span></a><button class="btn ghost sm doc-icon" title="Reenviar correo" aria-label="Reenviar correo" onclick="reenviarComplementoEmail('${esc(String(c.id||''))}')"><i class="fa-solid fa-envelope"></i><span class="sr-only">Correo</span></button></div></td>
         </tr>`;
       }).join('');
     }
