@@ -35,6 +35,7 @@ a{color:var(--blue-light);text-decoration:none}
 .avatar{width:32px;height:32px;background:var(--blue2);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;cursor:default}
 .btn-sm{padding:6px 12px;border-radius:var(--radius-sm);font-size:12px;cursor:pointer;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);color:#f8fafc;transition:.15s}
 .btn-sm:hover{background:rgba(255,255,255,.16);color:#fff}
+body.tr-company-pending .tabs-bar,body.tr-company-pending .main{display:none}
 
 /* ── TABS ── */
 .tabs-bar{background:#fff;border-bottom:1px solid var(--border);padding:0 24px;display:flex;gap:2px;align-items:stretch;overflow:visible;box-shadow:0 6px 18px rgba(15,28,45,.04);position:sticky;top:64px;z-index:90}
@@ -194,7 +195,7 @@ select option{background:#fff}
 }
 </style>
 </head>
-<body>
+<body class="tr-company-pending">
 
 <!-- TOPBAR -->
 <div class="topbar">
@@ -205,7 +206,7 @@ select option{background:#fff}
   <span class="badge module"><i class="fa-solid fa-truck-fast"></i> Transporte</span>
   <span class="badge" id="topbar-version">v3.5</span>
   <div class="topbar-right">
-    <span class="badge" id="topbar-rfc">RFC —</span>
+    <span class="badge" id="topbar-rfc">Cargando empresa...</span>
     <span class="badge" id="topbar-email">—</span>
     <div class="avatar" id="topbar-avatar">?</div>
     <button class="btn-sm" onclick="location.href='/choice'">Cambiar módulo</button>
@@ -1367,6 +1368,7 @@ const TRANSPORTE_PERFIL_STORAGE_KEY = 'zc_perfil_transporte';
 let TRANSPORTE_ROLE = localStorage.getItem('zc_role') || 'user';
 let TRANSPORTE_ASSIGNED_PERFIL_ID = Number(localStorage.getItem('zc_assigned_perfil_id_transporte') || '0') || null;
 let SUBSCRIPTION_TRANSPORTE = null;
+let EMPRESA_TRANSPORTE_LOADING = true;
 
 try {
   PERFIL = JSON.parse(localStorage.getItem(TRANSPORTE_PERFIL_STORAGE_KEY) || 'null');
@@ -1376,6 +1378,10 @@ try {
 
 function perfilId() {
   return PERFIL && PERFIL.id ? Number(PERFIL.id) : null;
+}
+
+function setTransporteCompanyPending(pending=true) {
+  document.body.classList.toggle('tr-company-pending', Boolean(pending));
 }
 
 const PRODUCTOS_COMERCIALES = [
@@ -1617,7 +1623,11 @@ function authHeaders() {
 
 function actualizarHeaderPerfilTransporte() {
   const rfcEl = document.getElementById('topbar-rfc');
-  if (rfcEl) rfcEl.textContent = PERFIL?.rfc ? `RFC ${PERFIL.rfc}` : 'RFC —';
+  if (rfcEl) {
+    if (EMPRESA_TRANSPORTE_LOADING) rfcEl.textContent = 'Cargando empresa...';
+    else if (PERFIL?.rfc) rfcEl.textContent = `RFC ${PERFIL.rfc}`;
+    else rfcEl.textContent = perfilId() ? 'RFC pendiente' : 'Selecciona empresa';
+  }
 
   const topRight = document.querySelector('.topbar-right');
   if (!topRight) return;
@@ -1632,7 +1642,7 @@ function actualizarHeaderPerfilTransporte() {
     emp.onclick = () => mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE);
     topRight.prepend(emp);
   }
-  emp.textContent = PERFIL?.nombre || 'Seleccionar empresa';
+  emp.textContent = EMPRESA_TRANSPORTE_LOADING ? 'Cargando empresa...' : (PERFIL?.nombre || 'Seleccionar empresa');
   emp.title = 'Cambiar empresa activa';
 }
 
@@ -1646,18 +1656,23 @@ function ensureEmpresaOverlayTransporte() {
     .empresa-card-transporte{width:min(720px,100%);background:#fff;border:1px solid #e5ded2;border-radius:14px;box-shadow:0 24px 70px rgba(17,17,17,.22);padding:28px;color:#111}
     .empresa-card-transporte h2{font-size:28px;margin:0 0 8px;font-weight:800;letter-spacing:0}
     .empresa-card-transporte p{margin:0 0 20px;color:#6d6861;font-size:16px;line-height:1.45}
-    .empresa-list-transporte{display:grid;gap:12px;margin-top:14px}
+    .empresa-list-transporte{display:grid;gap:12px;margin-top:14px;max-height:min(46vh,420px);overflow:auto;padding-right:4px}
     .empresa-plan-transporte{font-size:13px;color:#4b5563;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:9px 12px;margin-bottom:12px}
-    .empresa-option-transporte{display:flex;justify-content:space-between;gap:16px;align-items:center;width:100%;text-align:left;background:#faf9f7;border:1px solid #e5ded2;border-radius:12px;padding:16px 18px;color:#111;cursor:pointer}
+    .empresa-option-transporte{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;width:100%;text-align:left;background:#faf9f7;border:1px solid #e5ded2;border-radius:12px;padding:14px 16px;color:#111}
     .empresa-option-transporte:hover{border-color:#7A1E2C;background:#fff}
     .empresa-option-transporte strong{display:block;font-size:18px;margin-bottom:4px}
     .empresa-option-transporte span{display:block;color:#6d6861}
+    .empresa-option-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+    .empresa-mini-btn{border:1px solid #d8d0c4;background:#fff;color:#2b2b2b;border-radius:7px;padding:7px 10px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+    .empresa-mini-btn.primary{background:#7A1E2C;border-color:#7A1E2C;color:#fff}
+    .empresa-mini-btn.danger{border-color:#fecaca;color:#b91c1c;background:#fff}
+    .empresa-mini-btn:hover{filter:brightness(.97)}
     .empresa-empty-transporte{border:1px dashed #d7cabb;border-radius:12px;padding:18px;color:#6d6861;background:#fbfaf8}
     .empresa-form-transporte{display:none;border-top:1px solid #e5ded2;margin-top:18px;padding-top:18px}
     .empresa-form-transporte.open{display:block}
     .empresa-form-transporte .field{margin-bottom:10px}
     .empresa-actions-transporte{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;flex-wrap:wrap}
-    @media(max-width:640px){.empresa-card-transporte{padding:22px}.empresa-option-transporte{align-items:flex-start;flex-direction:column}.empresa-actions-transporte .btn{width:100%}}
+    @media(max-width:640px){.empresa-card-transporte{padding:22px}.empresa-option-transporte{grid-template-columns:1fr}.empresa-option-actions{justify-content:stretch}.empresa-mini-btn{flex:1}.empresa-actions-transporte .btn{width:100%}}
   `;
   document.head.appendChild(style);
 
@@ -1670,16 +1685,17 @@ function ensureEmpresaOverlayTransporte() {
       <p id="empresaTransporteMsg">Transporte necesita una empresa activa para separar viajes, CFDI, documentos, tarifas y liquidaciones.</p>
       <div id="empresaPlanTransporte" class="empresa-plan-transporte" style="display:none"></div>
       <div id="empresaTransporteList" class="empresa-list-transporte"></div>
-      <form id="empresaFormTransporte" class="empresa-form-transporte" onsubmit="crearEmpresaTransporte(event)">
+      <form id="empresaFormTransporte" class="empresa-form-transporte" onsubmit="guardarEmpresaTransporte(event)">
+        <input id="empresaTrId" type="hidden">
         <div class="field"><label>Nombre de la empresa *</label><input id="empresaTrNombre" maxlength="120" placeholder="Ej. Transportes del Norte S.A. de C.V."></div>
         <div class="field"><label>RFC *</label><input id="empresaTrRfc" maxlength="13" placeholder="Ej. TNO010101AAA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
         <div class="field"><label>Descripción</label><input id="empresaTrDesc" maxlength="200" placeholder="Opcional"></div>
         <div id="empresaTrErr" class="hint" style="color:#b91c1c;margin-bottom:10px"></div>
-        <button class="btn btn-primary" type="submit">Guardar empresa</button>
+        <button class="btn btn-primary" type="submit" id="empresaTrSubmit">Guardar empresa</button>
       </form>
       <div class="empresa-actions-transporte">
         <button class="btn btn-ghost" type="button" onclick="location.href='/choice'">Cambiar módulo</button>
-        <button class="btn btn-ghost" type="button" onclick="mostrarFormularioEmpresaTransporte()">Crear nueva empresa</button>
+        <button class="btn btn-ghost" id="empresaTrCreateBtn" type="button" onclick="mostrarFormularioEmpresaTransporte()">Crear nueva empresa</button>
         <button class="btn btn-primary" type="button" onclick="resolverPerfilTransporte()">Reintentar</button>
       </div>
     </div>
@@ -1706,8 +1722,14 @@ function planLimitTransporte() {
 function renderPlanTransporte() {
   const el = document.getElementById('empresaPlanTransporte');
   if (!el || !SUBSCRIPTION_TRANSPORTE) return;
-  el.textContent = `Empresas Transporte: ${Number(SUBSCRIPTION_TRANSPORTE.companies_used || 0)} usadas de ${planLimitTransporte()} permitidas.`;
+  el.textContent = `Empresas utilizadas: ${Number(SUBSCRIPTION_TRANSPORTE.companies_used || 0)} de ${planLimitTransporte()} disponibles.`;
   el.style.display = '';
+  const createBtn = document.getElementById('empresaTrCreateBtn');
+  if (createBtn) {
+    const canCreate = SUBSCRIPTION_TRANSPORTE.can_create_company !== false;
+    createBtn.disabled = !canCreate;
+    createBtn.style.display = canCreate ? '' : 'none';
+  }
 }
 
 function puedeCrearEmpresaTransporte() {
@@ -1723,6 +1745,7 @@ function puedeCrearEmpresaTransporte() {
 
 function guardarPerfilTransporte(perfil) {
   PERFIL = perfil || null;
+  EMPRESA_TRANSPORTE_LOADING = false;
   if (PERFIL?.id) {
     localStorage.setItem(TRANSPORTE_PERFIL_STORAGE_KEY, JSON.stringify(PERFIL));
   } else {
@@ -1743,50 +1766,83 @@ function mostrarSelectorEmpresaTransporte(perfiles = PERFILES_TRANSPORTE, mensaj
     list.innerHTML = `<div class="empresa-empty-transporte">Aún no tienes empresas registradas.</div>`;
   } else {
     list.innerHTML = perfiles.map(p => `
-      <button class="empresa-option-transporte" type="button" onclick="seleccionarPerfilTransporte(${Number(p.id)})">
+      <div class="empresa-option-transporte">
         <span>
           <strong>${esc(p.nombre || 'Empresa sin nombre')}</strong>
           <span>${esc(p.rfc || 'RFC pendiente')}</span>
+          <span>Perfil ${esc(p.id)}${p.tenant_id ? ` · Tenant ${esc(String(p.tenant_id).slice(0,8))}` : ''}</span>
         </span>
-        <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
-      </button>
+        <div class="empresa-option-actions">
+          <button class="empresa-mini-btn primary" type="button" onclick="seleccionarPerfilTransporte(${Number(p.id)})">Usar</button>
+          <button class="empresa-mini-btn" type="button" onclick="editarEmpresaTransporte(${Number(p.id)})">Editar</button>
+          <button class="empresa-mini-btn danger" type="button" onclick="desactivarEmpresaTransporte(${Number(p.id)})">Desactivar</button>
+        </div>
+      </div>
     `).join('');
   }
+  setTransporteCompanyPending(true);
   overlay.classList.add('open');
 }
 
 function mostrarFormularioEmpresaTransporte() {
   ensureEmpresaOverlayTransporte();
   if (!puedeCrearEmpresaTransporte()) return;
-  ['empresaTrNombre','empresaTrRfc','empresaTrDesc'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['empresaTrId','empresaTrNombre','empresaTrRfc','empresaTrDesc'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   const err = document.getElementById('empresaTrErr');
   if (err) err.textContent = '';
+  const submit = document.getElementById('empresaTrSubmit');
+  if (submit) submit.textContent = 'Guardar empresa';
   document.getElementById('empresaFormTransporte')?.classList.add('open');
 }
 
-async function crearEmpresaTransporte(event) {
+function editarEmpresaTransporte(id) {
+  ensureEmpresaOverlayTransporte();
+  const perfil = PERFILES_TRANSPORTE.find(p => Number(p.id) === Number(id));
+  if (!perfil) return;
+  document.getElementById('empresaTrId').value = String(perfil.id || '');
+  document.getElementById('empresaTrNombre').value = perfil.nombre || '';
+  document.getElementById('empresaTrRfc').value = perfil.rfc || '';
+  document.getElementById('empresaTrDesc').value = perfil.descripcion || '';
+  const err = document.getElementById('empresaTrErr');
+  if (err) err.textContent = '';
+  const submit = document.getElementById('empresaTrSubmit');
+  if (submit) submit.textContent = 'Guardar cambios';
+  document.getElementById('empresaFormTransporte')?.classList.add('open');
+}
+
+async function guardarEmpresaTransporte(event) {
   event.preventDefault();
   const err = document.getElementById('empresaTrErr');
   if (err) err.textContent = '';
-  if (!puedeCrearEmpresaTransporte()) return;
+  const id = (document.getElementById('empresaTrId')?.value || '').trim();
+  if (!id && !puedeCrearEmpresaTransporte()) return;
   const nombre = (document.getElementById('empresaTrNombre')?.value || '').trim();
   const rfc = (document.getElementById('empresaTrRfc')?.value || '').trim().toUpperCase();
   const descripcion = (document.getElementById('empresaTrDesc')?.value || '').trim();
   if (!nombre) { if (err) err.textContent = 'El nombre de la empresa es obligatorio.'; return; }
   if (!rfc) { if (err) err.textContent = 'El RFC de la empresa es obligatorio.'; return; }
   try {
-    const res = await fetch('/api/perfiles?module=transporte', {
-      method: 'POST',
+    const original = id ? PERFILES_TRANSPORTE.find(p => Number(p.id) === Number(id)) : null;
+    const marker = '[module:transporte]';
+    const descripcionBase = descripcion || String(original?.descripcion || '').replace(marker, '').trim();
+    const descripcionFinal = id ? `${marker} ${descripcionBase}`.trim() : descripcion;
+    const res = await fetch(id ? `/api/perfiles/${encodeURIComponent(id)}` : '/api/perfiles?module=transporte', {
+      method: id ? 'PUT' : 'POST',
       headers: {'Content-Type': 'application/json', ...authHeaders()},
-      body: JSON.stringify({nombre, rfc, descripcion}),
+      body: JSON.stringify({nombre, rfc, descripcion: descripcionFinal}),
     });
     const data = await res.json();
-    if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible crear la empresa.');
+    if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible guardar la empresa.');
     SUBSCRIPTION_TRANSPORTE = data.subscription || SUBSCRIPTION_TRANSPORTE;
     PERFILES_TRANSPORTE = await cargarPerfilesTransporte();
-    guardarPerfilTransporte(data.perfil);
-    ocultarSelectorEmpresaTransporte();
-    await bootstrapTransporte(true);
+    const saved = data.perfil || PERFILES_TRANSPORTE.find(p => Number(p.id) === Number(id));
+    if (saved && (!perfilId() || Number(saved.id) === Number(perfilId()) || !id)) {
+      guardarPerfilTransporte(saved);
+      ocultarSelectorEmpresaTransporte();
+      await bootstrapTransporte(true);
+    } else {
+      mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE, 'Empresa actualizada. Selecciona una razón social para continuar.');
+    }
   } catch (e) {
     if (err) err.textContent = e.message;
   }
@@ -1795,6 +1851,7 @@ async function crearEmpresaTransporte(event) {
 function ocultarSelectorEmpresaTransporte() {
   PERFIL_PROMPT_VISIBLE = false;
   document.getElementById('empresaOverlayTransporte')?.classList.remove('open');
+  setTransporteCompanyPending(!perfilId());
 }
 
 async function seleccionarPerfilTransporte(id) {
@@ -1805,7 +1862,28 @@ async function seleccionarPerfilTransporte(id) {
   await bootstrapTransporte(true);
 }
 
+async function desactivarEmpresaTransporte(id) {
+  const perfil = PERFILES_TRANSPORTE.find(p => Number(p.id) === Number(id));
+  if (!perfil) return;
+  if (!confirm(`¿Desactivar ${perfil.nombre || 'esta empresa'} para Transporte?`)) return;
+  try {
+    const res = await fetch(`/api/perfiles/${encodeURIComponent(id)}`, {method:'DELETE', headers: authHeaders()});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) throw new Error(data.detail || 'No fue posible desactivar la empresa.');
+    if (Number(perfilId()) === Number(id)) guardarPerfilTransporte(null);
+    PERFILES_TRANSPORTE = await cargarPerfilesTransporte();
+    mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE, 'Empresa desactivada. Selecciona otra razón social para continuar.');
+  } catch(e) {
+    const err = document.getElementById('empresaTrErr');
+    if (err) err.textContent = e.message;
+    if (typeof toast === 'function') toast(e.message, 'error');
+  }
+}
+
 async function resolverPerfilTransporte() {
+  EMPRESA_TRANSPORTE_LOADING = true;
+  actualizarHeaderPerfilTransporte();
+  setTransporteCompanyPending(true);
   try {
     PERFILES_TRANSPORTE = await cargarPerfilesTransporte();
     if (TRANSPORTE_ASSIGNED_PERFIL_ID) {
@@ -1816,21 +1894,11 @@ async function resolverPerfilTransporte() {
         return true;
       }
     }
-    if (TRANSPORTE_ROLE !== 'admin' && PERFILES_TRANSPORTE.length) {
-      guardarPerfilTransporte(PERFILES_TRANSPORTE[0]);
-      ocultarSelectorEmpresaTransporte();
-      return true;
-    }
     const activo = perfilId()
       ? PERFILES_TRANSPORTE.find(p => Number(p.id) === Number(perfilId()))
       : null;
     if (activo) {
       guardarPerfilTransporte(activo);
-      ocultarSelectorEmpresaTransporte();
-      return true;
-    }
-    if (PERFILES_TRANSPORTE.length === 1) {
-      guardarPerfilTransporte(PERFILES_TRANSPORTE[0]);
       ocultarSelectorEmpresaTransporte();
       return true;
     }
@@ -2061,7 +2129,10 @@ async function cargarConfig() {
   document.getElementById('cfg-rfc-proveedor').value   = c.RfcProveedor || 'ATI9404219D5';
   document.getElementById('cfg-logo-pdf-data').value    = c.PdfLogoDataUrl || '';
   document.getElementById('cfg-logo-pdf-hint').textContent = c.PdfLogoDataUrl ? 'Logo cargado para PDFs fiscales.' : 'Opcional. Se usará como logo del emisor en la representación impresa fiscal.';
-  document.getElementById('topbar-rfc').textContent    = c.RfcContribuyente ? `RFC ${c.RfcContribuyente}` : 'RFC —';
+  if (!PERFIL?.rfc && c.RfcContribuyente) {
+    PERFIL = {...(PERFIL || {}), rfc: c.RfcContribuyente};
+  }
+  actualizarHeaderPerfilTransporte();
   const combustibles = c.CombustiblesTransporte || ['magna','premium','diesel','gas_lp'];
   document.querySelectorAll('.cfg-fuel').forEach(ch => { ch.checked = combustibles.includes(ch.value); });
   // Pre-llenar permiso en covol
