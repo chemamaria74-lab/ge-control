@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
+from xml.sax.saxutils import escape as xml_escape
 
 from services.fiscal_audit import record_pac_request, record_pac_response, version_xml
 
@@ -231,6 +232,54 @@ def _get_token() -> str:
 
 # ── Builder XML CFDI 4.0 + Carta Porte 3.1 ───────────────────────────────────
 
+def _cp_attr(value: object) -> str:
+    return xml_escape(str(value or "").strip(), {'"': "&quot;", "'": "&apos;"})
+
+
+def _cp_decimal(value: object, decimals: int = 2, default: float = 0) -> str:
+    try:
+        number = round(float(value), decimals)
+    except (TypeError, ValueError):
+        number = round(float(default), decimals)
+    return f"{number:.{decimals}f}"
+
+
+def _cp_optional_attrs(values: dict) -> str:
+    parts = []
+    for key, value in values.items():
+        clean = str(value or "").strip()
+        if clean:
+            parts.append(f' {key}="{_cp_attr(clean)}"')
+    return "".join(parts)
+
+
+def _cp_domicilio_xml(row: dict) -> str:
+    attrs = {
+        "Pais": row.get("pais") or "MEX",
+        "CodigoPostal": row.get("codigo_postal") or row.get("cp"),
+        "Estado": row.get("estado"),
+        "Municipio": row.get("municipio"),
+        "Localidad": row.get("localidad"),
+        "Colonia": row.get("colonia") or row.get("localidad_colonia"),
+        "Calle": row.get("calle") or row.get("domicilio"),
+        "NumeroExterior": row.get("numero_exterior"),
+        "NumeroInterior": row.get("numero_interior"),
+    }
+    return f"<cartaporte31:Domicilio{_cp_optional_attrs(attrs)}/>"
+
+
+def _cp_ubicacion_xml(tipo: str, row: dict, fecha_hora: str, distancia_km: float | None = None) -> str:
+    attrs = {
+        "TipoUbicacion": tipo,
+        "IDUbicacion": row.get("id_ubicacion") or row.get("id") or ("OR000001" if tipo == "Origen" else "DE000001"),
+        "RFCRemitenteDestinatario": row.get("rfc") or row.get("rfc_remitente_destinatario"),
+        "NombreRemitenteDestinatario": row.get("nombre") or row.get("alias"),
+        "FechaHoraSalidaLlegada": fecha_hora,
+    }
+    if tipo == "Destino" and distancia_km is not None:
+        attrs["DistanciaRecorrida"] = _cp_decimal(distancia_km, 2)
+    return f"<cartaporte31:Ubicacion{_cp_optional_attrs(attrs)}>{_cp_domicilio_xml(row)}</cartaporte31:Ubicacion>"
+
 def build_carta_porte_xml(
     entrega:  dict,
     emisor:   dict,
@@ -239,6 +288,10 @@ def build_carta_porte_xml(
     tipo_comprobante: str = "T",
     cfdi_relacionados: list = None,
     ruta: dict = None,
+    origen: dict = None,
+    destino: dict = None,
+    mercancia: dict = None,
+    chofer: dict = None,
 ) -> str:
     """
     Construye el XML CFDI 4.0 con Complemento Carta Porte 3.1.
@@ -248,6 +301,8 @@ def build_carta_porte_xml(
         "I" = Ingreso  (Transporte, con costo de flete)
     """
     fecha    = (entrega.get("fecha_hora") or datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))[:19]
+    fecha_salida = (entrega.get("fecha_salida") or fecha)[:19]
+    fecha_llegada = (entrega.get("fecha_llegada") or fecha_salida)[:19]
     vol      = round(float(entrega.get("volumen_litros", 0)), 3)
     imp      = round(float(entrega.get("importe", 0)), 2)
     iva      = round(imp * 0.16, 2)
@@ -266,13 +321,28 @@ def build_carta_porte_xml(
     uso_cfdi        = receptor.get("uso_cfdi", "S01")
     cp_receptor     = receptor.get("domicilio_fiscal", "20000")
 
-    placa            = vehiculo.get("placa", "SIN-PLACA")
+    placa            = vehiculo.get("placa") or vehiculo.get("placas") or "SIN-PLACA"
     anio_modelo      = vehiculo.get("anio_modelo", 2020)
     config_vehicular = vehiculo.get("config_vehicular", "C2")
-    aseguradora      = vehiculo.get("nombre_asegurador", "")
-    poliza           = vehiculo.get("poliza_seguro", "")
+    aseguradora      = vehiculo.get("nombre_asegurador") or vehiculo.get("aseguradora") or ""
+    poliza           = vehiculo.get("poliza_seguro") or vehiculo.get("poliza") or ""
+    aseguradora_ma   = vehiculo.get("aseguradora_medio_ambiente") or ""
+    poliza_ma        = vehiculo.get("poliza_medio_ambiente") or ""
+    perm_sct         = vehiculo.get("perm_sct") or vehiculo.get("permiso_sct") or vehiculo.get("permiso_sict") or ""
+    num_perm_sct     = vehiculo.get("num_permiso_sct") or vehiculo.get("numero_permiso_sct") or vehiculo.get("numero_permiso") or ""
 
-    clave_prod_serv = "15111501"  # Gas LP
+    mercancia = mercancia or {}
+    chofer = chofer or {}
+    clave_prod_serv = mercancia.get("bienes_transp") or mercancia.get("clave_prod_serv") or "15111501"
+    descripcion_mercancia = mercancia.get("descripcion") or mercancia.get("alias") or "Gas LP"
+    clave_unidad = mercancia.get("clave_unidad") or "LTR"
+    unidad = mercancia.get("unidad") or "L"
+    factor_kg_litro = float(mercancia.get("factor_kg_litro") or 0.524)
+    peso_kg = round(float(mercancia.get("peso_kg") or vol * factor_kg_litro), 3)
+    material_peligroso = "Sí" if mercancia.get("material_peligroso") is True or str(mercancia.get("material_peligroso") or "").lower() in {"si", "sí", "true", "1", "yes"} else "No"
+    cve_material = mercancia.get("clave_material_peligroso") or mercancia.get("cve_material_peligroso") or ""
+    embalaje = mercancia.get("embalaje") or mercancia.get("embalaje_sat") or ""
+    descrip_embalaje = mercancia.get("descripcion_embalaje") or ""
     distancia_km    = round(float((ruta or {}).get("distancia_km", 1) or 1), 1)
 
     cfdi_rel_xml = ""
@@ -284,17 +354,79 @@ def build_carta_porte_xml(
             f'<cfdi:CfdiRelacionados TipoRelacion="04">{uuids_xml}</cfdi:CfdiRelacionados>'
         )
 
-    concepto_xml = (
-        f'<cfdi:Concepto ClaveProdServ="{clave_prod_serv}" '
-        f'NoIdentificacion="{folio}" Cantidad="{vol}" '
-        f'ClaveUnidad="LTR" Unidad="Litro" Descripcion="Gas LP" '
-        f'ValorUnitario="{round(imp/vol, 6) if vol > 0 else imp}" '
-        f'Importe="{imp}" ObjetoImp="02">'
-        f'<cfdi:Impuestos><cfdi:Traslados>'
-        f'<cfdi:Traslado Base="{imp}" Impuesto="002" TipoFactor="Tasa" '
-        f'TasaOCuota="0.160000" Importe="{iva}"/>'
-        f'</cfdi:Traslados></cfdi:Impuestos>'
-        f'</cfdi:Concepto>'
+    if tipo_comprobante == "T":
+        comprobante_totales = 'SubTotal="0.00" Total="0.00" Moneda="XXX"'
+        forma_pago_xml = ""
+        impuestos_xml = ""
+        concepto_xml = (
+            f'<cfdi:Concepto ClaveProdServ="{_cp_attr(clave_prod_serv)}" '
+            f'NoIdentificacion="{_cp_attr(folio)}" Cantidad="{_cp_decimal(vol, 3)}" '
+            f'ClaveUnidad="{_cp_attr(clave_unidad)}" Unidad="{_cp_attr(unidad)}" '
+            f'Descripcion="{_cp_attr(descripcion_mercancia)}" '
+            f'ValorUnitario="0.00" Importe="0.00" ObjetoImp="01"/>'
+        )
+    else:
+        comprobante_totales = f'SubTotal="{_cp_decimal(imp, 2)}" Total="{_cp_decimal(total, 2)}" Moneda="MXN"'
+        forma_pago_xml = 'FormaPago="99" '
+        impuestos_xml = (
+            f'<cfdi:Impuestos TotalImpuestosTrasladados="{_cp_decimal(iva, 2)}">'
+            f'<cfdi:Traslados>'
+            f'<cfdi:Traslado Base="{_cp_decimal(imp, 2)}" Impuesto="002" TipoFactor="Tasa" '
+            f'TasaOCuota="0.160000" Importe="{_cp_decimal(iva, 2)}"/>'
+            f'</cfdi:Traslados></cfdi:Impuestos>'
+        )
+        concepto_xml = (
+            f'<cfdi:Concepto ClaveProdServ="{_cp_attr(clave_prod_serv)}" '
+            f'NoIdentificacion="{_cp_attr(folio)}" Cantidad="{_cp_decimal(vol, 3)}" '
+            f'ClaveUnidad="{_cp_attr(clave_unidad)}" Unidad="{_cp_attr(unidad)}" '
+            f'Descripcion="{_cp_attr(descripcion_mercancia)}" '
+            f'ValorUnitario="{_cp_decimal(round(imp/vol, 6) if vol > 0 else imp, 6)}" '
+            f'Importe="{_cp_decimal(imp, 2)}" ObjetoImp="02">'
+            f'<cfdi:Impuestos><cfdi:Traslados>'
+            f'<cfdi:Traslado Base="{_cp_decimal(imp, 2)}" Impuesto="002" TipoFactor="Tasa" '
+            f'TasaOCuota="0.160000" Importe="{_cp_decimal(iva, 2)}"/>'
+            f'</cfdi:Traslados></cfdi:Impuestos>'
+            f'</cfdi:Concepto>'
+        )
+
+    ubicaciones_xml = ""
+    if origen and destino:
+        ubicaciones_xml = (
+            "<cartaporte31:Ubicaciones>"
+            f"{_cp_ubicacion_xml('Origen', origen, fecha_salida)}"
+            f"{_cp_ubicacion_xml('Destino', destino, fecha_llegada, distancia_km)}"
+            "</cartaporte31:Ubicaciones>"
+        )
+
+    mercancia_attrs = {
+        "BienesTransp": clave_prod_serv,
+        "Descripcion": descripcion_mercancia,
+        "Cantidad": _cp_decimal(vol, 3),
+        "ClaveUnidad": clave_unidad,
+        "Unidad": unidad,
+        "PesoEnKg": _cp_decimal(peso_kg, 3),
+        "MaterialPeligroso": material_peligroso,
+    }
+    if material_peligroso == "Sí":
+        mercancia_attrs["CveMaterialPeligroso"] = cve_material
+        mercancia_attrs["Embalaje"] = embalaje
+        mercancia_attrs["DescripEmbalaje"] = descrip_embalaje
+    mercancias_xml = (
+        f'<cartaporte31:Mercancias NumTotalMercancias="1" '
+        f'PesoBrutoTotal="{_cp_decimal(peso_kg, 3)}" UnidadPeso="KGM">'
+        f'<cartaporte31:Mercancia{_cp_optional_attrs(mercancia_attrs)}/>'
+        f'<cartaporte31:Autotransporte PermSCT="{_cp_attr(perm_sct)}" NumPermisoSCT="{_cp_attr(num_perm_sct)}">'
+        f'<cartaporte31:IdentificacionVehicular ConfigVehicular="{_cp_attr(config_vehicular)}" '
+        f'PlacaVM="{_cp_attr(placa)}" AnioModeloVM="{_cp_attr(anio_modelo)}"/>'
+        f'<cartaporte31:Seguros AseguraRespCivil="{_cp_attr(aseguradora)}" '
+        f'PolizaRespCivil="{_cp_attr(poliza)}"{_cp_optional_attrs({"AseguraMedAmbiente": aseguradora_ma, "PolizaMedAmbiente": poliza_ma})}/>'
+        f'</cartaporte31:Autotransporte>'
+        f'</cartaporte31:Mercancias>'
+    )
+    figuras_xml = (
+        f'<cartaporte31:FiguraTransporte><cartaporte31:TiposFigura'
+        f'{_cp_optional_attrs({"TipoFigura": chofer.get("tipo_figura") or "01", "RFCFigura": chofer.get("rfc"), "NombreFigura": chofer.get("nombre"), "NumLicencia": chofer.get("licencia")})}/>'
+        f'</cartaporte31:FiguraTransporte>'
     )
 
     xml = (
@@ -306,38 +438,24 @@ def build_carta_porte_xml(
         f'http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd '
         f'http://www.sat.gob.mx/CartaPorte31 '
         f'http://www.sat.gob.mx/sitio_internet/cfd/CartaPorte/CartaPorte31.xsd" '
-        f'Version="4.0" Folio="{folio}" Fecha="{fecha}" '
-        f'FormaPago="99" NoCertificado="" Certificado="" Sello="" '
-        f'SubTotal="{imp}" Total="{total}" '
-        f'Moneda="MXN" TipoDeComprobante="{tipo_comprobante}" '
-        f'Exportacion="01" LugarExpedicion="{cp_emisor}">'
+        f'Version="4.0" Folio="{_cp_attr(folio)}" Fecha="{_cp_attr(fecha)}" '
+        f'{forma_pago_xml}NoCertificado="" Certificado="" Sello="" '
+        f'{comprobante_totales} TipoDeComprobante="{_cp_attr(tipo_comprobante)}" '
+        f'Exportacion="01" LugarExpedicion="{_cp_attr(cp_emisor)}">'
         f'{cfdi_rel_xml}'
-        f'<cfdi:Emisor Rfc="{rfc_emisor}" Nombre="{nombre_emisor}" '
-        f'RegimenFiscal="{regimen_emisor}"/>'
-        f'<cfdi:Receptor Rfc="{rfc_receptor}" Nombre="{nombre_receptor}" '
-        f'DomicilioFiscalReceptor="{cp_receptor}" '
-        f'RegimenFiscalReceptor="{regimen_receptor}" UsoCFDI="{uso_cfdi}"/>'
+        f'<cfdi:Emisor Rfc="{_cp_attr(rfc_emisor)}" Nombre="{_cp_attr(nombre_emisor)}" '
+        f'RegimenFiscal="{_cp_attr(regimen_emisor)}"/>'
+        f'<cfdi:Receptor Rfc="{_cp_attr(rfc_receptor)}" Nombre="{_cp_attr(nombre_receptor)}" '
+        f'DomicilioFiscalReceptor="{_cp_attr(cp_receptor)}" '
+        f'RegimenFiscalReceptor="{_cp_attr(regimen_receptor)}" UsoCFDI="{_cp_attr(uso_cfdi)}"/>'
         f'<cfdi:Conceptos>{concepto_xml}</cfdi:Conceptos>'
-        f'<cfdi:Impuestos TotalImpuestosTrasladados="{iva}">'
-        f'<cfdi:Traslados>'
-        f'<cfdi:Traslado Base="{imp}" Impuesto="002" TipoFactor="Tasa" '
-        f'TasaOCuota="0.160000" Importe="{iva}"/>'
-        f'</cfdi:Traslados></cfdi:Impuestos>'
+        f'{impuestos_xml}'
         f'<cfdi:Complemento>'
         f'<cartaporte31:CartaPorte Version="3.1" TranspInternac="No" '
-        f'TotalDistRec="{distancia_km}">'
-        f'<cartaporte31:Mercancias NumTotalMercancias="1" '
-        f'PesoBrutoTotal="{round(vol * 0.524, 3)}" UnidadPeso="KGM">'
-        f'<cartaporte31:Mercancia BienesTransp="{clave_prod_serv}" '
-        f'Descripcion="Gas LP" Cantidad="{vol}" ClaveUnidad="LTR" '
-        f'PesoEnKg="{round(vol * 0.524, 3)}"/>'
-        f'</cartaporte31:Mercancias>'
-        f'<cartaporte31:Autotransporte PermSCT="TPAF01" NumPermisoSCT="Sin permiso">'
-        f'<cartaporte31:IdentificacionVehicular ConfigVehicular="{config_vehicular}" '
-        f'PlacaVM="{placa}" AnioModeloVM="{anio_modelo}"/>'
-        f'<cartaporte31:Seguros AseguraRespCivil="{aseguradora}" '
-        f'PolizaRespCivil="{poliza}"/>'
-        f'</cartaporte31:Autotransporte>'
+        f'TotalDistRec="{_cp_decimal(distancia_km, 2)}">'
+        f'{ubicaciones_xml}'
+        f'{mercancias_xml}'
+        f'{figuras_xml}'
         f'</cartaporte31:CartaPorte>'
         f'</cfdi:Complemento>'
         f'</cfdi:Comprobante>'
