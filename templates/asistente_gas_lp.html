@@ -144,7 +144,7 @@
           <div id="cartaPorteWizard" class="form-span hide"></div>
           <div id="conceptoField"><label>Concepto</label><select id="conceptoCatalogo" class="locked-field" disabled><option value="gas_lp_litro">Gas licuado de petróleo</option></select></div>
           <input id="concepto" type="hidden" value="Gas licuado de petróleo">
-          <div id="litrosField"><label>Litros</label><input id="litros" type="number" min="0" step="0.00001" value="0" oninput="updateTotals()"></div>
+          <div id="litrosField"><label>Litros</label><input id="litros" type="number" min="0" step="0.0001" value="0" oninput="updateTotals()"></div>
           <div id="precioField"><label for="precioUnitario">Precio por litro con IVA</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="markManualPrice();updateTotals()"></div>
           <div id="descuentoTipoField"><label>Tipo de descuento</label><select id="descuentoTipo" onchange="updateDiscountMode()"><option value="sin_descuento" selected>Sin descuento</option><option value="por_litro">Descuento por litro</option><option value="total_pesos">Descuento total en pesos</option></select></div>
           <div id="descuentoField" class="hide"><label id="descuentoLabel">Descuento por litro a restar</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
@@ -457,6 +457,15 @@
     };
     function iconFor(key){ return {facturacion:'file-invoice-dollar',xml_excel:'file-excel',operacion:'clipboard-list',planta:'industry',reportes:'chart-simple',consulta:'magnifying-glass'}[key] || 'shield-halved'; }
     function money(v){ return '$' + Number(v || 0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+    function fmt(v){ return Number(v || 0).toLocaleString('es-MX',{minimumFractionDigits:4,maximumFractionDigits:4}); }
+    function formatUnitPrice(value){
+      const n = Number(value || 0);
+      if(!Number.isFinite(n) || n <= 0) return '0.0000';
+      const six = n.toFixed(6);
+      const [whole, frac=''] = six.split('.');
+      const trimmed = frac.replace(/0+$/,'');
+      return `${whole}.${(trimmed.length >= 4 ? trimmed : frac.slice(0,4)).padEnd(4,'0')}`;
+    }
     function esc(v){ return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
     function setStatus(id,text,ok=true){
       if(id === 'facturaMsg' && suppressFacturaStatus) return;
@@ -607,7 +616,7 @@
     }
     function displayUnitPrice(price){
       const n = numericFrom(price);
-      return n > 0 ? n.toFixed(6).replace(/0+$/,'').replace(/\.$/,'') : '0';
+      return n > 0 ? formatUnitPrice(n) : '0.0000';
     }
     function setUnitPrice(price, source='manual'){
       const n = numericFrom(price);
@@ -1389,7 +1398,7 @@
     const invoiceRound = (value, decimals=2) => Number((Number(value || 0)).toFixed(decimals));
     function buildInvoicePreview(isTraspaso=false){
       const litrosNum = Number(litros.value || 0);
-      const litrosCalc = invoiceRound(litrosNum, 3);
+      const litrosCalc = invoiceRound(litrosNum, 4);
       const precioNum = effectiveUnitPrice();
       const precioCalc = invoiceRound(precioNum, 6);
       const rate = Number(ivaRate.value || 0);
@@ -1517,7 +1526,7 @@
         ['Método de pago', summary.metodo_pago],
         ['Forma de pago', summary.forma_pago],
         ['Litros', fmt(summary.preview.litros)],
-        ['Precio por litro', Number(summary.preview.precio_unitario).toFixed(6).replace(/0+$/,'').replace(/\.$/,'')],
+        ['Precio por litro', formatUnitPrice(summary.preview.precio_unitario)],
         ['Tipo de descuento', summary.preview.tipo_descuento === 'por_litro' ? 'Descuento por litro' : (summary.preview.tipo_descuento === 'total_pesos' ? 'Descuento total en pesos' : 'Sin descuento')],
         ['Descuento capturado', money(summary.preview.descuento_capturado)],
         ['Descuento total aplicado', money(summary.preview.descuento_total_aplicado)],
@@ -1664,8 +1673,8 @@
           cp: '',
           regimen_fiscal: '616',
           uso_cfdi: 'S01',
-          litros: litrosVal,
-          precio_unitario: precioVal,
+          litros: invoicePreview.litros,
+          precio_unitario: invoicePreview.precio_unitario,
           precio_unitario_visible: Number(precioUnitario.value || 0),
           concepto: concepto.value || 'Gas licuado de petróleo',
           descuento: descuentoPayloadVal,
@@ -1726,7 +1735,7 @@
           destino: destino?.nombre || destinoFacilitySelect.value,
           correo: transferEmail.value.trim() || 'Sin envío automático',
           fecha: (fechaEmision.value || '').replace('T',' '),
-          litros: litrosVal,
+          litros: invoicePreview.litros,
           precio: precioVal,
           total: totalVal,
           precioSimbolicoLitro: transferUsesSymbolicAmount(precioVal, true) ? transferSymbolicUnitPrice() : 0,
@@ -1767,8 +1776,8 @@
           cp: isTraspaso ? issuerCp() : '',
           regimen_fiscal: isTraspaso ? issuerRegimen() : '616',
           uso_cfdi: isTraspaso ? 'S01' : 'S01',
-          litros: litrosVal,
-          precio_unitario: precioVal,
+          litros: isTraspaso ? litrosVal : invoicePreview.litros,
+          precio_unitario: isTraspaso ? precioVal : invoicePreview.precio_unitario,
           precio_unitario_visible: Number(precioUnitario.value || 0),
           concepto: concepto.value || 'Gas licuado de petróleo',
           descuento: isTraspaso ? 0 : descuentoPayloadVal,
@@ -2144,8 +2153,8 @@
           origen: isTraspaso ? (transferRoute || md.origen_nombre || '—') : (md.origen_nombre || '—'),
           destino: destino || '—',
           destinoSub: isTraspaso ? 'misma empresa · Uso CFDI S01' : '',
-          litros: f.volumen_litros || 0,
-          total: md.total || (Number(f.importe||0)*1.16),
+          litros: Number(info.litros ?? f.volumen_litros ?? md.litros ?? 0).toLocaleString('es-MX',{minimumFractionDigits:4,maximumFractionDigits:4}),
+          total: info.total ?? md.total ?? (Number(f.importe||0)*1.16),
           pago: pago || paymentStatus || '—',
           pagoTitle: paymentVisual.title || '',
           assistant,
