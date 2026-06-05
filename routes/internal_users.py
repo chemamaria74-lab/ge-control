@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from routes.auth import _resolve_active_module_access, obtener_acceso_modulo, verify_token
 from routes.perfiles import _tenant_id_for_user
 from services.database import get_facilities
-from services.email_delivery import send_gas_lp_invoice_email
+from services.email_delivery import send_gas_lp_invoice_email, send_gas_lp_payment_complement_email
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml
 from services.cfdi_cancellation import cancel_cfdi_universal
 from services.sw_sapien import sw_runtime_config, timbrar_cfdi
@@ -1927,6 +1927,204 @@ def _gas_lp_internal_factura(user: dict, factura_id: int) -> dict:
     return rows[0]
 
 
+def _gas_lp_complemento_pago_row(user: dict, complemento_id: int) -> dict:
+    rows = (
+        get_supabase_admin()
+        .table("gas_lp_complementos_pago")
+        .select("*")
+        .eq("id", complemento_id)
+        .eq("tenant_id", user.get("tenant_id"))
+        .eq("perfil_id", user.get("perfil_id"))
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, "Complemento de pago no encontrado.")
+    return rows[0]
+
+
+def _gas_lp_complemento_factura_ids(comp: dict) -> list[int]:
+    md = comp.get("metadata") if isinstance(comp.get("metadata"), dict) else {}
+    ids = [_safe_int_id(value) for value in (md.get("factura_ids") or [])]
+    ids.append(_safe_int_id(comp.get("factura_id")))
+    return list(dict.fromkeys(fid for fid in ids if fid))
+
+
+def _gas_lp_facturas_by_ids_for_company(sb, user: dict, profile: dict, factura_ids: list[int]) -> dict[int, dict]:
+    ids = [int(fid) for fid in factura_ids if fid]
+    if not ids:
+        return {}
+    rows = (
+        sb.table("gas_lp_facturas")
+        .select("*")
+        .in_("id", ids)
+        .eq("tenant_id", user.get("tenant_id"))
+        .execute()
+        .data
+        or []
+    )
+    match_profile = {**profile, "rfc": _gas_lp_company_rfc(user, profile)}
+    rows = [row for row in rows if _gas_lp_factura_matches_company(row, user, match_profile)]
+    return {_safe_int_id(row.get("id")): row for row in rows if _safe_int_id(row.get("id"))}
+
+
+def _gas_lp_complemento_receptor_info(comp: dict, facturas: list[dict]) -> dict:
+    try:
+        root = _cfdi_root(comp.get("xml_content") or "") if comp.get("xml_content") else None
+    except Exception:
+        root = None
+    receptor_node = _xml_first(root, "Receptor") if root is not None else None
+    md = comp.get("metadata") if isinstance(comp.get("metadata"), dict) else {}
+    first_factura = facturas[0] if facturas else {}
+    fmd = first_factura.get("metadata") if isinstance(first_factura.get("metadata"), dict) else {}
+    return {
+        "rfc": _xml_attr(receptor_node, "Rfc") or first_factura.get("rfc_receptor") or "",
+        "nombre": _xml_attr(receptor_node, "Nombre") or fmd.get("cliente_nombre") or first_factura.get("nombre_receptor") or first_factura.get("rfc_receptor") or "Cliente",
+        "cliente_id": _safe_int_id(fmd.get("cliente_id")),
+        "email_fallback": ", ".join(
+            str(value or "").strip()
+            for value in (
+                fmd.get("cliente_email") or first_factura.get("email_destinatario"),
+                fmd.get("email_adicional_1") or "",
+                fmd.get("email_adicional_2") or "",
+                md.get("email_destinatario") or comp.get("email_destinatario") or "",
+            )
+            if str(value or "").strip()
+        ),
+    }
+
+
+def _gas_lp_complemento_email_recipients(sb, user: dict, receptor: dict, payload: GasLpSendEmailPayload | None = None) -> list[str]:
+    if payload and any(str(value or "").strip() for value in (payload.email, payload.email_adicional_1, payload.email_adicional_2)):
+        return _invoice_email_recipients(payload.email, payload.email_adicional_1, payload.email_adicional_2)
+    cliente_rows = []
+    cliente_id = _safe_int_id(receptor.get("cliente_id"))
+    if cliente_id:
+        try:
+            cliente_rows = (
+                sb.table("gas_lp_clientes_facturacion")
+                .select("*")
+                .eq("id", cliente_id)
+                .eq("user_id", user.get("owner_user_id"))
+                .eq("tenant_id", user.get("tenant_id"))
+                .eq("perfil_id", user.get("perfil_id"))
+                .eq("activo", True)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+        except Exception as exc:
+            logger.warning("gas_lp_complemento_email_cliente_lookup_failed cliente=%s err=%s", cliente_id, exc)
+    if cliente_rows:
+        return _customer_invoice_recipients(cliente_rows[0])
+    return _invoice_email_recipients("", fallback=str(receptor.get("email_fallback") or ""))
+
+
+def _gas_lp_complemento_email_audit_payload(*, recipients: list[str], email_results: list[dict], now_email: str) -> dict:
+    recipient = ", ".join(recipients)
+    all_ok = bool(email_results) and all(item.get("ok") for item in email_results)
+    first_error = next((str(item.get("error") or "") for item in email_results if not item.get("ok")), "")
+    message_ids = ", ".join(str(item.get("message_id") or "") for item in email_results if item.get("message_id"))
+    delivery = {
+        "ok": all_ok,
+        "provider": "resend",
+        "results": email_results,
+        "message_ids": message_ids,
+        "error": "" if all_ok else first_error,
+    }
+    return {
+        "email_enviado": all_ok,
+        "email_enviado_at": now_email if all_ok else None,
+        "email_destinatario": recipient,
+        "email_error": "" if all_ok else first_error,
+        "email_last_attempt_at": now_email,
+        "email_delivery": delivery,
+        "updated_at": now_email,
+    }
+
+
+def _gas_lp_update_complemento_email_audit(sb, comp: dict, update_payload: dict) -> dict:
+    comp_id = _safe_int_id(comp.get("id"))
+    if not comp_id:
+        return {**comp, **update_payload}
+    try:
+        updated = (
+            sb.table("gas_lp_complementos_pago")
+            .update(update_payload)
+            .eq("id", comp_id)
+            .execute()
+            .data
+            or []
+        )
+        return updated[0] if updated else {**comp, **update_payload}
+    except Exception as exc:
+        logger.warning("gas_lp_complemento_email_audit_update_failed comp=%s err=%s", comp_id, exc)
+        return {**comp, **update_payload}
+
+
+def _gas_lp_send_complemento_pago_email(
+    *,
+    sb,
+    user: dict,
+    profile: dict,
+    settings: dict,
+    issuer: dict,
+    comp: dict,
+    facturas: list[dict],
+    payload: GasLpSendEmailPayload | None = None,
+) -> tuple[dict, dict]:
+    now_email = _now_iso()
+    receptor = _gas_lp_complemento_receptor_info(comp, facturas)
+    try:
+        recipients = _gas_lp_complemento_email_recipients(sb, user, receptor, payload)
+    except HTTPException as exc:
+        recipients = []
+        error = str(exc.detail or "Correo de cliente inválido.")
+        update_payload = _gas_lp_complemento_email_audit_payload(
+            recipients=[],
+            email_results=[{"to": "", "ok": False, "skipped": True, "provider": "resend", "message_id": "", "error": error}],
+            now_email=now_email,
+        )
+        return _gas_lp_update_complemento_email_audit(sb, comp, update_payload), update_payload["email_delivery"]
+    if not recipients:
+        update_payload = _gas_lp_complemento_email_audit_payload(
+            recipients=[],
+            email_results=[{"to": "", "ok": False, "skipped": True, "provider": "resend", "message_id": "", "error": "Cliente sin correo fiscal."}],
+            now_email=now_email,
+        )
+        return _gas_lp_update_complemento_email_audit(sb, comp, update_payload), update_payload["email_delivery"]
+    xml_content = str(comp.get("xml_content") or "")
+    try:
+        info = fiscal_pdf_info(xml_content, "complemento_pago_gas_lp")
+        pdf_bytes = generar_pdf_gas_lp_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+    except Exception as exc:
+        update_payload = _gas_lp_complemento_email_audit_payload(
+            recipients=recipients,
+            email_results=[{"to": ", ".join(recipients), "ok": False, "skipped": False, "provider": "resend", "message_id": "", "error": str(exc)[:500]}],
+            now_email=now_email,
+        )
+        return _gas_lp_update_complemento_email_audit(sb, comp, update_payload), update_payload["email_delivery"]
+    email_results = []
+    for email_to in recipients:
+        email_result = send_gas_lp_payment_complement_email(
+            to_email=email_to,
+            issuer_name=issuer["nombre"],
+            customer_name=str(receptor.get("nombre") or "Cliente"),
+            uuid_sat=str(comp.get("uuid_sat") or ""),
+            total=comp.get("monto") or 0,
+            xml_content=xml_content,
+            pdf_bytes=pdf_bytes,
+            pdf_filename=info.filename,
+            serie_folio=info.serie_folio,
+        )
+        email_results.append({"to": email_to, **email_result.as_metadata()})
+    update_payload = _gas_lp_complemento_email_audit_payload(recipients=recipients, email_results=email_results, now_email=now_email)
+    return _gas_lp_update_complemento_email_audit(sb, comp, update_payload), update_payload["email_delivery"]
+
+
 def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_pago: str, forma_pago: str, pagos: dict[int, Decimal]) -> tuple[str, dict]:
     if not facturas:
         raise HTTPException(400, "Selecciona al menos una factura PPD.")
@@ -3338,6 +3536,109 @@ async def gas_lp_conciliacion_export_excel(
     )
 
 
+@router.get("/internal-auth/gas-lp/complementos-pago")
+async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perfil_id: int | None = None):
+    ctx = _gas_lp_conciliacion_context(token, perfil_id=perfil_id)
+    user = ctx["user"]
+    profile = _gas_lp_profile(user, require_module_marker=True)
+    sb = get_supabase_admin()
+    month = str(mes or "").strip()[:7]
+    try:
+        q = (
+            sb.table("gas_lp_complementos_pago")
+            .select("*")
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .order("created_at", desc=True)
+            .limit(1000)
+        )
+        if len(month) == 7 and month[4] == "-":
+            start = f"{month}-01T00:00:00"
+            end_dt = datetime.strptime(f"{month}-01", "%Y-%m-%d")
+            end_dt = (end_dt.replace(day=28) + timedelta(days=4)).replace(day=1)
+            q = q.gte("created_at", start).lt("created_at", end_dt.strftime("%Y-%m-%dT00:00:00"))
+        comps = q.execute().data or []
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_complementos_pago_list", exc)
+    comp_ids = [_safe_int_id(c.get("id")) for c in comps if _safe_int_id(c.get("id"))]
+    rels = []
+    if comp_ids:
+        try:
+            rels = (
+                sb.table("gas_lp_complementos_pago_facturas")
+                .select("*")
+                .in_("complemento_id", comp_ids)
+                .order("created_at", desc=True)
+                .execute()
+                .data
+                or []
+            )
+        except Exception as exc:
+            logger.warning("gas_lp_complementos_pago_list_rels_failed err=%s", exc)
+    rels_by_comp: dict[int, list[dict]] = {}
+    factura_ids = []
+    for rel in rels:
+        comp_id = _safe_int_id(rel.get("complemento_id"))
+        rels_by_comp.setdefault(comp_id, []).append(rel)
+        fid = _safe_int_id(rel.get("factura_id"))
+        if fid:
+            factura_ids.append(fid)
+    for comp in comps:
+        factura_ids.extend(_gas_lp_complemento_factura_ids(comp))
+    facturas_by_id = _gas_lp_facturas_by_ids_for_company(sb, user, profile, list(dict.fromkeys(factura_ids)))
+    items = []
+    for comp in comps:
+        comp_id = _safe_int_id(comp.get("id"))
+        comp_rels = rels_by_comp.get(comp_id, [])
+        ids = [*_gas_lp_complemento_factura_ids(comp), *[_safe_int_id(rel.get("factura_id")) for rel in comp_rels]]
+        ids = list(dict.fromkeys(fid for fid in ids if fid))
+        facturas = [facturas_by_id[fid] for fid in ids if fid in facturas_by_id]
+        receptor = _gas_lp_complemento_receptor_info(comp, facturas)
+        factura_refs = []
+        for rel in comp_rels:
+            fid = _safe_int_id(rel.get("factura_id"))
+            factura = facturas_by_id.get(fid, {})
+            factura_refs.append({
+                "factura_id": fid,
+                "uuid": rel.get("uuid_relacionado") or factura.get("uuid_sat") or "",
+                "folio": _gas_lp_factura_folio_label(factura) if factura else "",
+                "monto": rel.get("monto") or 0,
+                "saldo_anterior": rel.get("saldo_anterior") or 0,
+                "saldo_insoluto": rel.get("saldo_insoluto") or 0,
+            })
+        if not factura_refs:
+            for fid in ids:
+                factura = facturas_by_id.get(fid, {})
+                factura_refs.append({
+                    "factura_id": fid,
+                    "uuid": factura.get("uuid_sat") or "",
+                    "folio": _gas_lp_factura_folio_label(factura) if factura else "",
+                    "monto": 0,
+                    "saldo_anterior": 0,
+                    "saldo_insoluto": 0,
+                })
+        email_error = str(comp.get("email_error") or "")
+        email_enviado = bool(comp.get("email_enviado"))
+        email_status = "Correo enviado" if email_enviado else ("Sin correo" if "sin correo" in email_error.lower() else ("Error de envío" if email_error else "Pendiente"))
+        items.append({
+            "id": comp_id,
+            "uuid_sat": comp.get("uuid_sat") or "",
+            "cliente": receptor.get("nombre") or "Cliente",
+            "rfc_receptor": receptor.get("rfc") or "",
+            "facturas": factura_refs,
+            "monto": comp.get("monto") or 0,
+            "fecha_pago": comp.get("fecha_pago") or "",
+            "fecha_timbrado": comp.get("created_at") or "",
+            "status": comp.get("status") or "",
+            "email_enviado": email_enviado,
+            "email_status": email_status,
+            "email_destinatario": comp.get("email_destinatario") or "",
+            "email_error": email_error,
+            "email_last_attempt_at": comp.get("email_last_attempt_at") or "",
+        })
+    return JSONResponse({"ok": True, "complementos": items})
+
+
 @router.post("/internal-auth/gas-lp/facturas/{factura_id}/complemento-pago")
 async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplementoPagoPayload, token: str, perfil_id: int | None = None):
     ctx = _gas_lp_conciliacion_context(token, write=True, perfil_id=perfil_id)
@@ -3470,7 +3771,41 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
         status = "pagado_con_complemento" if _money(doc["saldo_insoluto"]) <= 0 else "pago_parcial"
         md = {**md, "payment_status": status, "saldo_insoluto": doc["saldo_insoluto"], "ultimo_complemento_pago_id": comp.get("id"), "ultimo_complemento_pago_uuid": comp.get("uuid_sat") or ""}
         sb.table("gas_lp_facturas").update({"metadata": md, "updated_at": now}).eq("id", doc["factura_id"]).execute()
-    return JSONResponse({"ok": True, "complemento": comp, "facturas": totals["facturas"]})
+    comp, email_delivery = _gas_lp_send_complemento_pago_email(
+        sb=sb,
+        user=user,
+        profile=profile,
+        settings=settings,
+        issuer=issuer,
+        comp=comp,
+        facturas=facturas,
+    )
+    return JSONResponse({"ok": True, "complemento": comp, "facturas": totals["facturas"], "email": email_delivery})
+
+
+@router.post("/internal-auth/gas-lp/complementos-pago/{complemento_id}/send-email")
+async def gas_lp_complemento_pago_send_email(complemento_id: int, payload: GasLpSendEmailPayload, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_conciliacion_context(token, write=True, perfil_id=perfil_id)
+    user = ctx["user"]
+    profile = _gas_lp_profile(user, require_module_marker=True)
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    issuer = _require_gas_lp_issuer(profile, settings)
+    sb = get_supabase_admin()
+    comp = _gas_lp_complemento_pago_row(user, complemento_id)
+    if not comp.get("xml_content"):
+        raise HTTPException(400, "El complemento no tiene XML timbrado para enviar.")
+    facturas_by_id = _gas_lp_facturas_by_ids_for_company(sb, user, profile, _gas_lp_complemento_factura_ids(comp))
+    comp, email_delivery = _gas_lp_send_complemento_pago_email(
+        sb=sb,
+        user=user,
+        profile=profile,
+        settings=settings,
+        issuer=issuer,
+        comp=comp,
+        facturas=list(facturas_by_id.values()),
+        payload=payload,
+    )
+    return JSONResponse({"ok": bool(email_delivery.get("ok")), "complemento": comp, "email": email_delivery}, status_code=200 if email_delivery.get("ok") else 400)
 
 
 @router.get("/internal-auth/gas-lp/complementos-pago/{complemento_id}/xml")
