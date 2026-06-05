@@ -317,7 +317,7 @@
     const CONCILIACION_TOKEN_KEY='ge_gaslp_conciliacion_token';
     const token=localStorage.getItem(CONCILIACION_TOKEN_KEY)||'';
     const PROFILE_KEY='ge_gaslp_conciliacion_perfil_id';
-    let FACTURAS=[], FACILITIES=[], PERFILES=[], COMPLEMENTOS=[], SEL={}, COMP_CONFIRM_CTX=null, CRED_CLIENT_KEY='', PUB_CONFIRM_RESOLVER=null, PUBLICO_COMPANY_PRICE=0;
+    let FACTURAS=[], FACILITIES=[], PERFILES=[], COMPLEMENTOS=[], SEL={}, COMP_CONFIRM_CTX=null, CRED_CLIENT_KEY='', PUB_CONFIRM_RESOLVER=null, PUB_FINAL_PAYLOAD=null, PUBLICO_COMPANY_PRICE=0;
     let CANCEL_CTX=null;
     let activePerfilId=Number(localStorage.getItem(PROFILE_KEY)||'0')||null;
 
@@ -344,7 +344,8 @@
     function effectivePublicoUnitPrice(){return numericFrom(pubPrecio?.value)}
     function publicoFormSignature(){return `${pubFacility?.value||''}|publico_general`}
     function publicoFormStateMatches(){const sig=pubPrecio?.dataset?.formSignature||'';return !sig||sig===publicoFormSignature()}
-    function clearPublicoTransient(opts={}){if(!opts.keepFacility)pubFacility.value='';pubLitros.value='';pubDescuento.value='0';pubDescuentoTipo.value='sin_descuento';pubComentarios.value='';pubConfirmModal?.classList.remove('open');PUB_CONFIRM_RESOLVER=null;updatePublicoDiscountMode();setPublicoUnitPrice(opts.keepFacility?publicFacilityUnitPrice(selectedPublicoFacility()):0,opts.keepFacility?'facility':'none');if(!opts.keepStatus)setMsg('pubMsg','')}
+    function clearPublicoTransient(opts={}){PUB_FINAL_PAYLOAD=null;if(!opts.keepFacility)pubFacility.value='';pubLitros.value='';pubDescuento.value='0';pubDescuentoTipo.value='sin_descuento';pubComentarios.value='';pubConfirmModal?.classList.remove('open');PUB_CONFIRM_RESOLVER=null;updatePublicoDiscountMode();setPublicoUnitPrice(opts.keepFacility?publicFacilityUnitPrice(selectedPublicoFacility()):0,opts.keepFacility?'facility':'none');if(!opts.keepStatus)setMsg('pubMsg','')}
+    function clearPublicoForm(){clearPublicoTransient();setMsg('pubMsg','Formulario limpio. Captura una nueva factura.')}
     function onPublicoFacilityChange(){clearPublicoTransient({keepFacility:true,keepStatus:true});const facilityPrice=publicFacilityUnitPrice(selectedPublicoFacility());const price=facilityPrice||PUBLICO_COMPANY_PRICE;setPublicoUnitPrice(price,facilityPrice?'facility':(price>0?'company':'manual'));setMsg('pubMsg',price>0?'Instalación seleccionada. Precio real cargado.':'Instalación seleccionada. Captura precio con IVA.',price>0)}
     function publicoDiscountGross(litrosVal,precioVal){const mode=pubDescuentoTipo?.value||'sin_descuento';const raw=Math.max(Number(pubDescuento?.value||0),0);const rate=Number(pubIvaRate?.value||0);const gross=Math.max(Number(litrosVal||0)*Number(precioVal||0),0);const subtotal=rate>0?gross/(1+rate):gross;if(mode==='sin_descuento')return 0;if(mode==='por_litro')return Math.min(Math.max(Number(precioVal||0),0),raw)*Math.max(Number(litrosVal||0),0);return Math.min(raw,subtotal)*(rate>0?1+rate:1)}
     function publicoDiscountPerLiter(litrosVal,precioVal){if(Number(litrosVal||0)<=0)return 0;const gross=Math.max(Number(litrosVal||0)*Number(precioVal||0),0);return Math.min(publicoDiscountGross(litrosVal,precioVal),gross)/Number(litrosVal||1)}
@@ -607,8 +608,82 @@
     async function sendCancelFiscal(){if(!CANCEL_CTX?.factura)return;const f=CANCEL_CTX.factura;const p=currentCancelPayload();if(p.motivo==='01'&&!p.uuid_sustitucion){backCancelForm();return setMsg('cancelFormMsg','El motivo 01 requiere UUID sustituto.',false)}try{btnCancelSend.disabled=true;setMsg('cancelSendMsg','Enviando cancelación fiscal a SW/SAT...');const d=await api('/api/internal-auth/gas-lp/conciliacion/facturas/'+encodeURIComponent(f.id)+'/cancelar',{method:'POST',body:JSON.stringify(p)});const estado=d.cancelacion?.status||d.cancelacion?.estado_fiscal||'Solicitud registrada';setMsg('cancelMsg',`Cancelación fiscal enviada: ${estado}`,true);closeCancelModal();await loadAll()}catch(e){setMsg('cancelSendMsg',e.message||'SW rechazó la cancelación.',false)}finally{btnCancelSend.disabled=false}}
     function toggleGlobalFields(){pubMesWrap.style.display=pubGlobal.value==='1'?'block':'none'}
     function resolvePublicoConfirm(ok){if(PUB_CONFIRM_RESOLVER)PUB_CONFIRM_RESOLVER(!!ok);PUB_CONFIRM_RESOLVER=null;pubConfirmModal.classList.remove('open')}
-    function confirmPublicoStamp(preview){const facility=FACILITIES.find(f=>String(f.id)===String(pubFacility.value));const rows=[['Instalación',facility?.nombre||pubFacility.value],['Cliente','PUBLICO EN GENERAL · XAXX010101000'],['Litros',preview.litros.toLocaleString('es-MX',{maximumFractionDigits:3})],['Precio por litro',Number(preview.precio_unitario).toFixed(6).replace(/0+$/,'').replace(/\.$/,'')],['Tipo de descuento',preview.tipo_descuento==='por_litro'?'Descuento por litro':(preview.tipo_descuento==='total_pesos'?'Descuento total en pesos':'Sin descuento')],['Descuento capturado',money(preview.descuento_capturado)],['Descuento total aplicado',money(preview.descuento_total_aplicado)],['Subtotal',money(preview.subtotal)],['IVA',money(preview.iva)],['Total final',money(preview.total_final)]];pubConfirmBody.innerHTML=rows.map(([k,v])=>`<div class="summary-row"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('');pubConfirmModal.classList.add('open');return new Promise(resolve=>{PUB_CONFIRM_RESOLVER=resolve})}
-    async function timbrarPublicoGeneral(){const preview=buildPublicoInvoicePreview();const litrosVal=Number(pubLitros.value||0);const precioVal=effectivePublicoUnitPrice();const gross=litrosVal*precioVal;if(!pubFacility.value)return setMsg('pubMsg','Selecciona instalación.',false);if(!publicoFormStateMatches())return setMsg('pubMsg','Los datos del formulario no coinciden con la instalación u operación actual. Limpia y vuelve a capturar.',false);if(litrosVal<=0||precioVal<=0)return setMsg('pubMsg','Captura litros y precio con IVA.',false);if(Number(pubDescuento.value||0)<0)return setMsg('pubMsg','El descuento no puede ser negativo.',false);if(pubDescuentoTipo?.value==='por_litro'&&Number(pubDescuento.value||0)>precioVal)return setMsg('pubMsg','El descuento por litro no puede ser mayor al precio por litro.',false);if(pubDescuentoTipo?.value==='total_pesos'&&Number(pubDescuento.value||0)>gross)return setMsg('pubMsg','El descuento total no puede ser mayor al total bruto.',false);if(preview.descuento_total_aplicado>0){const ok=await confirmPublicoStamp(preview);if(!ok)return}else if(!confirm('¿Timbrar factura real a Público en General?'))return;try{btnPubTimbrar.disabled=true;setMsg('pubMsg','Timbrando factura...');const global=pubGlobal.value==='1';const body={facility_id:Number(pubFacility.value),litros:litrosVal,precio_unitario:precioVal,precio_unitario_visible:Number(pubPrecio.value||0),descuento:preview.descuento_por_litro_backend,subtotal_preview:preview.subtotal,iva_preview:preview.iva,descuento_preview:preview.descuento_total_aplicado,total_preview:preview.total_final,tipo_descuento:preview.tipo_descuento,descuento_capturado:preview.descuento_capturado,iva_rate:Number(pubIvaRate.value||0),forma_pago:pubForma.value,metodo_pago:pubMetodo.value,fecha:pubFecha.value,comentarios:pubComentarios.value,factura_global:global,informacion_global_periodicidad:'04',informacion_global_meses:global?String(Number((pubMes.value||month()).slice(5,7))).padStart(2,'0'):'',informacion_global_anio:global?Number((pubMes.value||month()).slice(0,4)):null};console.info('[Conciliacion publico pre-timbrado]',{instalacion:body.facility_id,cliente:'PUBLICO EN GENERAL',litros:body.litros,precio_unitario:body.precio_unitario,precio_unitario_visible:body.precio_unitario_visible,tipo_descuento:body.tipo_descuento,descuento_capturado:body.descuento_capturado,subtotal_preview:body.subtotal_preview,descuento_total_aplicado:body.descuento_preview,iva_preview:body.iva_preview,total_preview:body.total_preview,total_payload:body.total_preview});const d=await api('/api/internal-auth/gas-lp/conciliacion/facturar-publico-general',{method:'POST',body:JSON.stringify(body)});setMsg('pubMsg','Factura timbrada: '+(d.factura?.uuid_sat||'UUID pendiente'));clearPublicoTransient({keepStatus:true});await loadAll();switchTab('facturas')}catch(e){setMsg('pubMsg',e.message,false)}finally{btnPubTimbrar.disabled=false}}
+    function confirmPublicoStamp(summary){
+      if(!summary?.preview){setMsg('pubMsg','No se pudo construir el resumen final de la factura. Limpia y vuelve a capturar.',false);return Promise.resolve(false)}
+      const preview=summary.preview;
+      const rows=[
+        ['Instalación',summary.instalacion],
+        ['Cliente',summary.cliente],
+        ['RFC',summary.rfc],
+        ['Fecha emisión',summary.fecha],
+        ['Método de pago',summary.metodo_pago],
+        ['Forma de pago',summary.forma_pago],
+        ['Litros',preview.litros.toLocaleString('es-MX',{maximumFractionDigits:4})],
+        ['Precio por litro',Number(preview.precio_unitario).toFixed(6).replace(/0+$/,'').replace(/\.$/,'')],
+        ['Tipo de descuento',preview.tipo_descuento==='por_litro'?'Descuento por litro':(preview.tipo_descuento==='total_pesos'?'Descuento total en pesos':'Sin descuento')],
+        ['Descuento capturado',money(preview.descuento_capturado)],
+        ['Descuento total aplicado',money(preview.descuento_total_aplicado)],
+        ['Subtotal',money(preview.subtotal)],
+        ['IVA',money(preview.iva)],
+        ['Total final',money(preview.total_final)],
+        ['Comentarios',summary.comentarios||'—']
+      ];
+      pubConfirmBody.innerHTML=`<p class="muted" style="margin:0 0 10px">Este resumen será el que se enviará al XML fiscal. Si los datos no coinciden, el sistema bloqueará el timbrado.</p>${rows.map(([k,v])=>`<div class="summary-row"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('')}`;
+      pubConfirmModal.classList.add('open');
+      return new Promise(resolve=>{PUB_CONFIRM_RESOLVER=resolve})
+    }
+    async function timbrarPublicoGeneral(){
+      const preview=buildPublicoInvoicePreview();
+      const litrosVal=Number(pubLitros.value||0);
+      const precioVal=effectivePublicoUnitPrice();
+      const gross=litrosVal*precioVal;
+      if(!pubFacility.value)return setMsg('pubMsg','Selecciona instalación.',false);
+      if(!publicoFormStateMatches())return setMsg('pubMsg','Los datos del formulario no coinciden con la instalación u operación actual. Limpia y vuelve a capturar.',false);
+      if(litrosVal<=0||precioVal<=0)return setMsg('pubMsg','Captura litros y precio con IVA.',false);
+      if(Number(pubDescuento.value||0)<0)return setMsg('pubMsg','El descuento no puede ser negativo.',false);
+      if(pubDescuentoTipo?.value==='por_litro'&&Number(pubDescuento.value||0)>precioVal)return setMsg('pubMsg','El descuento por litro no puede ser mayor al precio por litro.',false);
+      if(pubDescuentoTipo?.value==='total_pesos'&&Number(pubDescuento.value||0)>gross)return setMsg('pubMsg','El descuento total no puede ser mayor al total bruto.',false);
+      const global=pubGlobal.value==='1';
+      const facility=FACILITIES.find(f=>String(f.id)===String(pubFacility.value));
+      const body={
+        facility_id:Number(pubFacility.value),
+        litros:litrosVal,
+        precio_unitario:precioVal,
+        precio_unitario_visible:Number(pubPrecio.value||0),
+        descuento:preview.descuento_por_litro_backend,
+        subtotal_preview:preview.subtotal,
+        iva_preview:preview.iva,
+        descuento_preview:preview.descuento_total_aplicado,
+        total_preview:preview.total_final,
+        tipo_descuento:preview.tipo_descuento,
+        descuento_capturado:preview.descuento_capturado,
+        iva_rate:Number(pubIvaRate.value||0),
+        forma_pago:pubForma.value,
+        metodo_pago:pubMetodo.value,
+        fecha:pubFecha.value,
+        comentarios:pubComentarios.value,
+        factura_global:global,
+        informacion_global_periodicidad:'04',
+        informacion_global_meses:global?String(Number((pubMes.value||month()).slice(5,7))).padStart(2,'0'):'',
+        informacion_global_anio:global?Number((pubMes.value||month()).slice(0,4)):null
+      };
+      PUB_FINAL_PAYLOAD={signature:publicoFormSignature(),payload:body,summary:{cliente:'PUBLICO EN GENERAL',rfc:'XAXX010101000',instalacion:facility?.nombre||pubFacility.value,fecha:body.fecha,metodo_pago:body.metodo_pago,forma_pago:body.forma_pago,comentarios:body.comentarios,preview}};
+      const ok=await confirmPublicoStamp(PUB_FINAL_PAYLOAD.summary);
+      if(!ok)return;
+      if(!PUB_FINAL_PAYLOAD||PUB_FINAL_PAYLOAD.signature!==publicoFormSignature())return setMsg('pubMsg','Los datos del formulario no coinciden con la instalación u operación actual. Limpia y vuelve a capturar.',false);
+      try{
+        btnPubTimbrar.disabled=true;
+        setMsg('pubMsg','Timbrando factura...');
+        const finalBody={...PUB_FINAL_PAYLOAD.payload};
+        console.info('[Conciliacion publico pre-timbrado]',{instalacion:finalBody.facility_id,cliente:'PUBLICO EN GENERAL',litros:finalBody.litros,precio_unitario:finalBody.precio_unitario,precio_unitario_visible:finalBody.precio_unitario_visible,tipo_descuento:finalBody.tipo_descuento,descuento_capturado:finalBody.descuento_capturado,subtotal_preview:finalBody.subtotal_preview,descuento_total_aplicado:finalBody.descuento_preview,iva_preview:finalBody.iva_preview,total_preview:finalBody.total_preview,total_payload:finalBody.total_preview});
+        const d=await api('/api/internal-auth/gas-lp/conciliacion/facturar-publico-general',{method:'POST',body:JSON.stringify(finalBody)});
+        setMsg('pubMsg','Factura timbrada: '+(d.factura?.uuid_sat||'UUID pendiente'));
+        clearPublicoTransient({keepStatus:true});
+        await loadAll();
+        switchTab('facturas')
+      }catch(e){setMsg('pubMsg',e.message,false)}
+      finally{btnPubTimbrar.disabled=false}
+    }
     function exportUrl(params){if(activePerfilId)params.set('perfil_id',String(activePerfilId));params.set('token',token);return '/api/internal-auth/gas-lp/conciliacion/export-excel?'+params.toString()}
     function exportarExcel(){const params=new URLSearchParams({periodo:month()});if(diaFiltro.value)params.set('fecha',diaFiltro.value);if(tipoFiltro.value)params.set('tipo',tipoFiltro.value);window.open(exportUrl(params),'_blank','noopener')}
     function exportarMes(){const params=new URLSearchParams({periodo:expMes.value||month()});if(tipoFiltro.value)params.set('tipo',tipoFiltro.value);window.open(exportUrl(params),'_blank','noopener')}

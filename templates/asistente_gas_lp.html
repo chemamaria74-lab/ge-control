@@ -396,6 +396,7 @@
     let transferConfirmResolver = null;
     let invoiceConfirmResolver = null;
     let ACTIVE_OPERATION = 'venta';
+    let INVOICE_FINAL_PAYLOAD = null;
     const SAT_REGIMENES = [
       ['601','General de Ley Personas Morales'],
       ['603','Personas Morales con Fines no Lucrativos'],
@@ -750,6 +751,7 @@
       if(!facilityPrice && !configured && !opts.silent) setStatus('facturaMsg','Falta configurar el precio vigente por litro en el panel de administración.',false);
     }
     function resetInvoiceTransientState(opts={}){
+      INVOICE_FINAL_PAYLOAD = null;
       if(!opts.keepLitros) litros.value = '0';
       if(!opts.keepCliente) clienteSelect.value = '';
       descuento.value = '0';
@@ -1501,9 +1503,17 @@
       invoiceConfirmModal.classList.add('hide');
     }
     function confirmInvoiceStamp(summary){
+      if(!summary?.preview){
+        setStatus('facturaMsg','No se pudo construir el resumen final de la factura. Limpia y vuelve a capturar.',false);
+        return Promise.resolve(false);
+      }
       const rows = [
         ['Instalación', summary.instalacion],
         ['Cliente', summary.cliente],
+        ['RFC', summary.rfc],
+        ['Fecha emisión', summary.fecha],
+        ['Método de pago', summary.metodo_pago],
+        ['Forma de pago', summary.forma_pago],
         ['Litros', fmt(summary.preview.litros)],
         ['Precio por litro', Number(summary.preview.precio_unitario).toFixed(6).replace(/0+$/,'').replace(/\.$/,'')],
         ['Tipo de descuento', summary.preview.tipo_descuento === 'por_litro' ? 'Descuento por litro' : (summary.preview.tipo_descuento === 'total_pesos' ? 'Descuento total en pesos' : 'Sin descuento')],
@@ -1512,12 +1522,14 @@
         ['Subtotal', money(summary.preview.subtotal)],
         ['IVA', money(summary.preview.iva)],
         ['Total final', money(summary.preview.total_final)],
+        ['Comentarios', summary.comentarios || '—'],
       ];
-      invoiceConfirmBody.innerHTML = rows.map(([k,v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+      invoiceConfirmBody.innerHTML = `<p class="muted" style="margin:0 0 10px">Este resumen será el que se enviará al XML fiscal. Si los datos no coinciden, el sistema bloqueará el timbrado.</p>${rows.map(([k,v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}`;
       invoiceConfirmModal.classList.remove('hide');
       return new Promise(resolve => { invoiceConfirmResolver = resolve; });
     }
     function resetFacturaFormAfterSuccess(opts={}){
+      INVOICE_FINAL_PAYLOAD = null;
       clienteSelect.value = '';
       litros.value = '0';
       descuento.value = '0';
@@ -1630,6 +1642,76 @@
       const wantsCarta = false;
       if(wantsCarta && (!vehiculoSelect.value || !choferSelect.value || !rutaSelect.value)){ setStatus('facturaMsg','Para preparar Carta Porte selecciona vehículo, chofer y ruta.',false); return; }
       syncPaymentMethod();
+      if(!isTraspaso){
+        ensureFechaEmision();
+        ensureFolio();
+        const clienteIdFinal = clienteSelect.value ? Number(clienteSelect.value) : null;
+        const selectedClienteFinal = clienteIdFinal ? CLIENTES.find(c => Number(c.id) === clienteIdFinal) : null;
+        const clienteRfcFinal = String(selectedClienteFinal?.rfc || 'XAXX010101000').toUpperCase();
+        const fechaRawFinal = fechaEmision.value || '';
+        const fechaCfdiFinal = fechaRawFinal ? (fechaRawFinal.length === 16 ? `${fechaRawFinal}:00` : fechaRawFinal) : '';
+        const globalDateFinal = fechaRawFinal ? new Date(fechaRawFinal) : new Date();
+        const globalMonthFinal = String((globalDateFinal.getMonth() || 0) + 1).padStart(2, '0');
+        const globalYearFinal = globalDateFinal.getFullYear();
+        const facilityFinal = FACILITIES.find(f => String(f.id) === String(facilitySelect.value));
+        const payloadFinal = {
+          cliente_id: clienteIdFinal,
+          publico_general: !clienteIdFinal,
+          rfc: 'XAXX010101000',
+          nombre: 'PUBLICO EN GENERAL',
+          cp: '',
+          regimen_fiscal: '616',
+          uso_cfdi: 'S01',
+          litros: litrosVal,
+          precio_unitario: precioVal,
+          precio_unitario_visible: Number(precioUnitario.value || 0),
+          concepto: concepto.value || 'Gas licuado de petróleo',
+          descuento: descuentoPayloadVal,
+          iva_rate: Number(ivaRate.value || 0),
+          serie: serie.value || 'AA',
+          folio: folio.value || '',
+          comentarios: comentarios.value || '',
+          fecha: fechaCfdiFinal,
+          tipo_descuento: invoicePreview.tipo_descuento,
+          descuento_capturado: invoicePreview.descuento_capturado,
+          subtotal_preview: invoicePreview.subtotal,
+          iva_preview: invoicePreview.iva,
+          descuento_preview: invoicePreview.descuento_total_aplicado,
+          total_preview: invoicePreview.total_final,
+          clave_prod_serv: claveProdServ.value || '15111510',
+          no_identificacion: noIdentificacion.value || 'GLP-LTR',
+          unidad: unidadConcepto.value || 'Litro',
+          metodo_pago: metodoPago.value,
+          forma_pago: formaPago.value,
+          facility_id: Number(facilitySelect.value),
+          tipo_operacion: tipoOperacion.value,
+          destino_facility_id: null,
+          generar_carta_porte: false,
+          vehiculo_id: null,
+          chofer_id: null,
+          ruta_id: null,
+          transfer_email: '',
+          transfer_email_provided: false,
+          factura_global: clienteRfcFinal === 'XAXX010101000' && facturaGlobal.value === '1',
+          informacion_global_periodicidad: '04',
+          informacion_global_meses: globalMonthFinal,
+          informacion_global_anio: globalYearFinal
+        };
+        INVOICE_FINAL_PAYLOAD = {
+          signature: currentFormSignature(),
+          payload: payloadFinal,
+          summary: {
+            cliente: selectedClienteFinal?.nombre || 'PUBLICO EN GENERAL',
+            rfc: clienteRfcFinal,
+            instalacion: facilityFinal?.nombre || facilitySelect.value,
+            fecha: fechaCfdiFinal,
+            metodo_pago: payloadFinal.metodo_pago,
+            forma_pago: payloadFinal.forma_pago,
+            comentarios: payloadFinal.comentarios,
+            preview: invoicePreview,
+          }
+        };
+      }
       let transferPreStampWarning = '';
       if(isTraspaso){
         ensureFechaEmision();
@@ -1657,16 +1739,10 @@
             if(saveTransferEmailDefault) saveTransferEmailDefault.checked = false;
           }
         }
-      } else if(invoicePreview.descuento_total_aplicado > 0){
-        const selectedClientePreview = clienteSelect.value ? CLIENTES.find(c => String(c.id) === String(clienteSelect.value)) : null;
-        const origenPreview = FACILITIES.find(f => String(f.id) === String(facilitySelect.value));
-        const confirmed = await confirmInvoiceStamp({
-          instalacion: origenPreview?.nombre || facilitySelect.value,
-          cliente: selectedClientePreview?.nombre || 'PUBLICO EN GENERAL',
-          preview: invoicePreview,
-        });
+      } else {
+        const confirmed = await confirmInvoiceStamp(INVOICE_FINAL_PAYLOAD?.summary);
         if(!confirmed) return;
-      } else if(!confirm('¿Timbrar factura real?')) return;
+      }
       isStamping = true;
       try{
         setStampingButton(true);
@@ -1681,7 +1757,7 @@
         const globalDate = fechaRaw ? new Date(fechaRaw) : new Date();
         const globalMonth = String((globalDate.getMonth() || 0) + 1).padStart(2, '0');
         const globalYear = globalDate.getFullYear();
-        const payload = {
+        let payload = {
           cliente_id: clienteId,
           publico_general: !isTraspaso && !clienteId,
           rfc: isTraspaso ? (CURRENT_COMPANY?.rfc || '') : 'XAXX010101000',
@@ -1724,6 +1800,13 @@
           informacion_global_meses: globalMonth,
           informacion_global_anio: globalYear
         };
+        if(!isTraspaso){
+          if(!INVOICE_FINAL_PAYLOAD || INVOICE_FINAL_PAYLOAD.signature !== currentFormSignature()){
+            setStatus('facturaMsg','Los datos del formulario no coinciden con la instalación u operación actual. Limpia y vuelve a capturar.',false);
+            return;
+          }
+          payload = {...INVOICE_FINAL_PAYLOAD.payload};
+        }
         const endpoint = '/api/internal-auth/gas-lp/facturas';
         console.info('[GasLP factura pre-timbrado]', {
           instalacion: payload.facility_id,
