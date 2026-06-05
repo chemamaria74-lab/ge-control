@@ -198,6 +198,13 @@ def _invoice_is_transfer(row: dict) -> bool:
     return bool(md.get("is_transfer") is True or markers.intersection({"traspaso", "transfer", "traslado"}))
 
 
+def _invoice_is_carta_porte(row: dict) -> bool:
+    md = _metadata(row)
+    tipo = str(row.get("tipo_comprobante") or md.get("tipo_comprobante") or "").strip().upper()
+    flujo = str(md.get("tipo_flujo") or md.get("tipo_operacion") or "").strip().lower()
+    return tipo == "T" or "carta_porte" in flujo or "carta porte" in flujo
+
+
 def _invoice_cancelada(row: dict) -> bool:
     md = _metadata(row)
     for marker in (row.get("status"), md.get("status"), md.get("estado_fiscal"), md.get("cancelacion_status")):
@@ -271,6 +278,8 @@ def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int,
         entradas: list[dict] = []
         salidas: list[dict] = []
         for row in rows:
+            if _invoice_is_carta_porte(row):
+                continue
             if _invoice_cancelada(row):
                 continue
             fecha = _invoice_date(row)

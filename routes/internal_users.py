@@ -1862,6 +1862,7 @@ def _gas_lp_company_facturas_rows(
     *,
     month: str = "",
     limit: int = 10000,
+    include_carta_porte: bool = True,
 ) -> list[dict]:
     filters = []
     candidate_rows: list[dict] = []
@@ -1918,6 +1919,8 @@ def _gas_lp_company_facturas_rows(
 
     rows = _dedupe_rows_by_id(rows)
     rows = [row for row in rows if _gas_lp_factura_matches_company(row, user, match_profile)]
+    if not include_carta_porte:
+        rows = [row for row in rows if not _gas_lp_factura_is_carta_porte(row)]
     candidate_rows = _dedupe_rows_by_id(candidate_rows)
     if month:
         rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
@@ -1951,6 +1954,13 @@ def _gas_lp_factura_cancelada(factura: dict) -> bool:
         if any(value in text for value in ("cancelada", "cancelado", "cancelled", "canceled")):
             return True
     return False
+
+
+def _gas_lp_factura_is_carta_porte(factura: dict) -> bool:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    tipo = str(factura.get("tipo_comprobante") or md.get("tipo_comprobante") or "").strip().upper()
+    flujo = str(md.get("tipo_flujo") or md.get("tipo_operacion") or "").strip().lower()
+    return tipo == "T" or "carta_porte" in flujo or "carta porte" in flujo
 
 
 def _gas_lp_factura_estado_excel(factura: dict) -> str:
@@ -3725,7 +3735,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
     month = (periodo or datetime.now().strftime("%Y-%m"))[:7]
     sb = get_supabase_admin()
     try:
-        rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000)
+        rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000, include_carta_porte=False)
     except Exception as exc:
         raise _safe_internal_error("gas_lp_conciliacion_summary", exc)
     _gas_lp_attach_internal_creators(sb, rows)
@@ -3951,7 +3961,7 @@ async def gas_lp_conciliacion_export_excel(
     sb = get_supabase_admin()
     try:
         profile = _gas_lp_profile(user, require_module_marker=True)
-        rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000)
+        rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000, include_carta_porte=False)
     except Exception as exc:
         logger.error(
             "conciliacion_export_excel_error profile_id=%s period=%s factura_id=%s exception=%s traceback=%s",

@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import sqlite3
+import uuid
 from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Optional
@@ -523,6 +524,7 @@ class CartaPorteRequest(BaseModel):
     tipo_comprobante:  str   = "T"
     distancia_km:      float = 1.0
     cfdi_relacionados: Optional[list] = None
+    id_ccp:            str = ""
 
 
 class CancelRequest(BaseModel):
@@ -644,6 +646,16 @@ def _cp_post_timbrado_validation(xml_timbrado: str, mercancia: dict) -> dict:
     }
 
 
+def _cp_normalize_id_ccp(value: str = "") -> str:
+    text = str(value or "").strip()
+    raw = text[3:] if text.upper().startswith("CCC") else text
+    try:
+        parsed = uuid.UUID(raw)
+        return f"CCC{parsed}"
+    except (TypeError, ValueError, AttributeError):
+        return f"CCC{uuid.uuid4()}"
+
+
 async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict):
     uid = scope["user_id"]
     _require_supabase_scope(scope)
@@ -692,6 +704,7 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
     litros = float(payload.volumen_litros or 0)
     factor = float(mercancia_row.get("factor_kg_litro") or 0)
     peso_kg = round(litros * factor, 3)
+    id_ccp = _cp_normalize_id_ccp(payload.id_ccp)
 
     _cp_validate_catalog_payload(
         origen=origen,
@@ -721,6 +734,7 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         "fecha_hora": fecha_salida,
         "fecha_salida": fecha_salida,
         "fecha_llegada": fecha_llegada,
+        "id_ccp": id_ccp,
     }
     mercancia = {**mercancia_row, "peso_kg": peso_kg}
     ruta = {"distancia_km": distancia_km}
@@ -764,6 +778,7 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         "vehiculo_placas": vehiculo_row.get("placas"),
         "mercancia_descripcion": mercancia_row.get("descripcion"),
         "peso_kg": peso_kg,
+        "id_ccp": id_ccp,
         "fecha_salida": fecha_salida,
         "fecha_llegada": fecha_llegada,
         "carta_porte_validation": validation,
