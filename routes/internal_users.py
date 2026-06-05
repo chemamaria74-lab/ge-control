@@ -1937,6 +1937,39 @@ def _gas_lp_factura_realizado_por(row: dict) -> str:
     return "Conciliación"
 
 
+def _gas_lp_attach_complemento_creators(sb, rows: list[dict]) -> None:
+    ids = sorted({
+        _safe_int_id((row.get("metadata") or {}).get("created_by_internal"))
+        for row in rows
+        if isinstance(row.get("metadata"), dict) and _safe_int_id((row.get("metadata") or {}).get("created_by_internal"))
+    })
+    users_by_id: dict[int, dict] = {}
+    if ids:
+        try:
+            users = (
+                sb.table("internal_users")
+                .select("id,display_name,code")
+                .in_("id", ids)
+                .execute()
+                .data
+                or []
+            )
+            users_by_id = {int(user.get("id") or 0): user for user in users}
+        except Exception:
+            users_by_id = {}
+    for row in rows:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        internal_id = _safe_int_id(md.get("created_by_internal"))
+        internal_user = users_by_id.get(internal_id)
+        row["realizado_por"] = (
+            (internal_user or {}).get("display_name")
+            or (internal_user or {}).get("code")
+            or md.get("created_by")
+            or md.get("created_by_internal_name")
+            or ("Conciliación" if str(md.get("created_by_area") or "").lower() == "conciliacion" else "Asistente")
+        )
+
+
 def _gas_lp_complementos_por_factura(sb, factura_ids: list[int]) -> dict[int, list[dict]]:
     ids = [int(fid) for fid in factura_ids if fid]
     by_factura: dict[int, list[dict]] = {fid: [] for fid in ids}
@@ -3105,34 +3138,131 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas_export_dia", exc)
     rows = [row for row in rows if _gas_lp_factura_date_key(row) == day]
+    try:
+        _gas_lp_attach_internal_creators(sb, rows)
+    except Exception:
+        pass
+    try:
+        comp_q = (
+            sb.table("gas_lp_complementos_pago")
+            .select("*")
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .gte("created_at", f"{day}T00:00:00")
+            .lt("created_at", f"{day}T23:59:59")
+            .order("created_at", desc=True)
+            .limit(10000)
+        )
+        complementos = comp_q.execute().data or []
+        _gas_lp_attach_complemento_creators(sb, complementos)
+    except Exception as exc:
+        logger.warning("gas_lp_facturas_export_dia_complementos_failed perfil=%s day=%s err=%s", user.get("perfil_id"), day, exc)
+        complementos = []
+    comp_ids = [_safe_int_id(c.get("id")) for c in complementos if _safe_int_id(c.get("id"))]
+    comp_rels = []
+    if comp_ids:
+        try:
+            comp_rels = (
+                sb.table("gas_lp_complementos_pago_facturas")
+                .select("*")
+                .in_("complemento_id", comp_ids)
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            comp_rels = []
+    comp_rels_by_id: dict[int, list[dict]] = {}
+    comp_factura_ids: list[int] = []
+    for rel in comp_rels:
+        comp_id = _safe_int_id(rel.get("complemento_id"))
+        comp_rels_by_id.setdefault(comp_id, []).append(rel)
+        fid = _safe_int_id(rel.get("factura_id"))
+        if fid:
+            comp_factura_ids.append(fid)
+    for comp in complementos:
+        comp_factura_ids.extend(_gas_lp_complemento_factura_ids(comp))
+    comp_facturas_by_id = _gas_lp_facturas_by_ids_for_company(sb, user, profile, list(dict.fromkeys(comp_factura_ids)))
 
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Facturas"
-    headers = ["Fecha", "Folio de fact", "UUID", "Razón social", "Monto con IVA", "Litros", "PUE o PPD", "Estado"]
+    ws.title = "Documentos"
+    headers = [
+        "Tipo de documento",
+        "UUID",
+        "Factura relacionada",
+        "Cliente",
+        "RFC",
+        "Fecha emisión/timbrado",
+        "Fecha pago",
+        "Monto",
+        "Litros",
+        "Realizado por",
+        "Estado correo",
+        "Método/Forma de pago",
+        "Estado",
+    ]
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="7A1E2C")
     for row in rows:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        tipo_doc = "Traspaso" if md.get("tipo_operacion") == "traspaso" or md.get("is_transfer") else "Factura"
         ws.append([
-            _gas_lp_factura_date_key(row),
-            _gas_lp_factura_folio_label(row),
+            tipo_doc,
             row.get("uuid_sat") or "",
+            "",
             _gas_lp_factura_razon_social(row),
+            row.get("rfc_receptor") or "",
+            _gas_lp_factura_date_key(row),
+            "",
             float(_gas_lp_factura_total_con_iva(row)),
             float(row.get("volumen_litros") or 0),
-            _gas_lp_factura_metodo_pago(row),
+            _gas_lp_factura_realizado_por(row),
+            row.get("email_status") or "",
+            f"{_gas_lp_factura_metodo_pago(row)} / {md.get('forma_pago') or ''}".strip(" /"),
             _gas_lp_factura_estado_excel(row),
         ])
-    for width, column in zip([14, 18, 40, 42, 18, 14, 14, 26], "ABCDEFGH"):
+    for comp in complementos:
+        comp_id = _safe_int_id(comp.get("id"))
+        rels = comp_rels_by_id.get(comp_id, [])
+        ids = [*_gas_lp_complemento_factura_ids(comp), *[_safe_int_id(rel.get("factura_id")) for rel in rels]]
+        ids = list(dict.fromkeys(fid for fid in ids if fid))
+        facturas_comp = [comp_facturas_by_id[fid] for fid in ids if fid in comp_facturas_by_id]
+        receptor = _gas_lp_complemento_receptor_info(comp, facturas_comp)
+        refs = []
+        for rel in rels:
+            fid = _safe_int_id(rel.get("factura_id"))
+            factura = comp_facturas_by_id.get(fid, {})
+            refs.append(_gas_lp_factura_folio_label(factura) or rel.get("uuid_relacionado") or "")
+        if not refs:
+            refs = [_gas_lp_factura_folio_label(comp_facturas_by_id.get(fid, {})) for fid in ids]
+        email_error = str(comp.get("email_error") or "")
+        email_status = "Correo enviado" if comp.get("email_enviado") else ("Sin correo" if "sin correo" in email_error.lower() else ("Error de envío" if email_error else "Pendiente"))
+        ws.append([
+            "Complemento de pago",
+            comp.get("uuid_sat") or "",
+            ", ".join(ref for ref in refs if ref),
+            receptor.get("nombre") or "Cliente",
+            receptor.get("rfc") or "",
+            str(comp.get("created_at") or "")[:19],
+            comp.get("fecha_pago") or "",
+            float(comp.get("monto") or 0),
+            0,
+            comp.get("realizado_por") or "",
+            email_status,
+            f"Complemento / {comp.get('forma_pago') or ''}".strip(" /"),
+            comp.get("status") or "timbrado",
+        ])
+    for width, column in zip([24, 40, 30, 42, 18, 24, 22, 16, 14, 22, 22, 24, 22], "ABCDEFGHIJKLM"):
         ws.column_dimensions[column].width = width
-    for cell in ws["E"][1:]:
+    for cell in ws["H"][1:]:
         cell.number_format = '$#,##0.00'
-    for cell in ws["F"][1:]:
+    for cell in ws["I"][1:]:
         cell.number_format = "#,##0.000"
     stream = BytesIO()
     wb.save(stream)
@@ -3782,6 +3912,7 @@ async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perf
         comps = q.execute().data or []
     except Exception as exc:
         raise _safe_internal_error("gas_lp_complementos_pago_list", exc)
+    _gas_lp_attach_complemento_creators(sb, comps)
     comp_ids = [_safe_int_id(c.get("id")) for c in comps if _safe_int_id(c.get("id"))]
     rels = []
     if comp_ids:
@@ -3852,6 +3983,7 @@ async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perf
             "fecha_pago": comp.get("fecha_pago") or "",
             "fecha_timbrado": comp.get("created_at") or "",
             "status": comp.get("status") or "",
+            "realizado_por": comp.get("realizado_por") or "",
             "email_enviado": email_enviado,
             "email_status": email_status,
             "email_destinatario": comp.get("email_destinatario") or "",
