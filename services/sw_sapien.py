@@ -27,6 +27,7 @@ import os
 import re
 import threading
 import time
+import uuid
 import requests
 from datetime import datetime, timezone
 from typing import Optional
@@ -253,6 +254,16 @@ def _cp_optional_attrs(values: dict) -> str:
     return "".join(parts)
 
 
+def _cp_normalize_id_ccp(value: object = "") -> str:
+    text = str(value or "").strip()
+    raw = text[3:] if text.upper().startswith("CCC") else text
+    try:
+        parsed = uuid.UUID(raw)
+        return f"CCC{parsed}"
+    except (TypeError, ValueError, AttributeError):
+        return f"CCC{uuid.uuid4()}"
+
+
 def _cp_domicilio_xml(row: dict) -> str:
     attrs = {
         "Pais": row.get("pais") or "MEX",
@@ -344,6 +355,7 @@ def build_carta_porte_xml(
     embalaje = mercancia.get("embalaje") or mercancia.get("embalaje_sat") or ""
     descrip_embalaje = mercancia.get("descripcion_embalaje") or ""
     distancia_km    = round(float((ruta or {}).get("distancia_km", 1) or 1), 1)
+    id_ccp = _cp_normalize_id_ccp(entrega.get("id_ccp"))
 
     cfdi_rel_xml = ""
     if cfdi_relacionados:
@@ -452,7 +464,7 @@ def build_carta_porte_xml(
         f'{impuestos_xml}'
         f'<cfdi:Complemento>'
         f'<cartaporte31:CartaPorte Version="3.1" TranspInternac="No" '
-        f'TotalDistRec="{_cp_decimal(distancia_km, 2)}">'
+        f'IdCCP="{_cp_attr(id_ccp)}" TotalDistRec="{_cp_decimal(distancia_km, 2)}">'
         f'{ubicaciones_xml}'
         f'{mercancias_xml}'
         f'{figuras_xml}'
