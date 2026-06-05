@@ -5784,7 +5784,7 @@ async function catalogRequest(path, method, params) {
   return data;
 }
 
-async function loadGasLpCartaPorteCatalogs() {
+async function loadGasLpCartaPorteLegacyTables() {
   if (!perfilId()) return;
   await Promise.allSettled([loadGasLpVehiculosAdmin(), loadGasLpChoferesAdmin(), loadGasLpRutasAdmin()]);
 }
@@ -6043,6 +6043,7 @@ const CP_TABS = {
 let _gasCpTab = 'vehiculos';
 let _gasCpSearch = '';
 let _gasCpEdit = {kind:'', id:null};
+let _gasCpPanelOpen = false;
 let _gasCpData = {vehiculos:[], choferes:[], ubicaciones:[], mercancias:[], rutas:[]};
 
 function cpMeta(row, key, fallback='') {
@@ -6073,11 +6074,11 @@ async function loadGasLpCartaPorteCatalogs() {
   if (!host || !perfilId()) return;
   renderGasCpCatalogShell(true);
   const requests = Object.entries(CP_TABS).map(async ([kind, cfg]) => {
-    const qs = kind === 'vehiculos' || kind === 'choferes' || kind === 'rutas' ? '?modulo=gas_lp' : '';
+    const qs = kind === 'vehiculos' || kind === 'choferes' || kind === 'rutas' ? '?modulo=gas_lp&include_inactive=1' : '?include_inactive=1';
     const res = await fetch(cfg.endpoint + qs, {headers: authHeader()});
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `No se pudo cargar ${cfg.label}`);
-    _gasCpData[kind] = (data[cfg.list] || []).filter(r => String(cpRowTitle(kind, r)).toUpperCase() !== 'MAJO');
+    _gasCpData[kind] = data[cfg.list] || [];
   });
   try {
     await Promise.all(requests);
@@ -6089,6 +6090,7 @@ async function loadGasLpCartaPorteCatalogs() {
 function setGasCpTab(kind) {
   _gasCpTab = kind;
   _gasCpEdit = {kind:'', id:null};
+  _gasCpPanelOpen = false;
   _gasCpSearch = '';
   renderGasCpCatalogShell(false);
 }
@@ -6101,7 +6103,7 @@ function renderGasCpCatalogShell(loading=false) {
     <style>
       .cp-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px}.cp-head h2{margin:0;color:#172033}.cp-head p{margin:4px 0 0;color:#64748b;font-size:.82rem;line-height:1.45}
       .cp-tabs{display:flex;gap:8px;overflow:auto;border-bottom:1px solid #e2e8f0;margin-bottom:14px}.cp-tab{border:0;background:transparent;border-bottom:3px solid transparent;padding:10px 12px;font-weight:800;color:#64748b;cursor:pointer;white-space:nowrap}.cp-tab.active{color:#7A1E2C;border-color:#7A1E2C;background:#fff7ed}
-      .cp-tools{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.cp-tools input{max-width:320px}.cp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.cp-card{border:1px solid #e2e8f0;border-radius:8px;background:#fff;padding:12px;display:grid;gap:8px}.cp-card h3{margin:0;color:#111827;font-size:1rem}.cp-line{display:flex;gap:8px;flex-wrap:wrap;color:#475569;font-size:.8rem}.cp-badge{display:inline-flex;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:3px 8px;font-size:.72rem;font-weight:800}.cp-badge.off{border-color:#fecaca;background:#fef2f2;color:#991b1b}.cp-actions{display:flex;gap:6px;flex-wrap:wrap}.cp-form{border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:12px}.cp-form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;align-items:end}.cp-empty{text-align:center;border:1px dashed #cbd5e1;border-radius:8px;padding:26px;color:#64748b;background:#f8fafc}
+      .cp-tools{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.cp-tools input{max-width:320px}.cp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.cp-card{border:1px solid #e2e8f0;border-radius:8px;background:#fff;padding:12px;display:grid;gap:8px}.cp-card h3{margin:0;color:#111827;font-size:1rem}.cp-line{display:flex;gap:8px;flex-wrap:wrap;color:#475569;font-size:.8rem;line-height:1.45}.cp-badge{display:inline-flex;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:3px 8px;font-size:.72rem;font-weight:800;width:max-content}.cp-badge.off{border-color:#fecaca;background:#fef2f2;color:#991b1b}.cp-actions{display:flex;gap:6px;flex-wrap:wrap}.cp-form{border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:12px}.cp-form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;align-items:end}.cp-empty{text-align:center;border:1px dashed #cbd5e1;border-radius:8px;padding:26px;color:#64748b;background:#f8fafc}
       @media(max-width:760px){.cp-tools input{max-width:100%}.cp-actions .btn{width:auto}}
     </style>
     <div class="cp-head">
@@ -6126,7 +6128,7 @@ function selectField(id, label, options, value='') {
 function renderGasCpForm(kind) {
   const editing = _gasCpEdit.kind === kind ? (_gasCpData[kind] || []).find(r => Number(r.id) === Number(_gasCpEdit.id)) : null;
   const title = editing ? `Editando ${CP_TABS[kind].label.toLowerCase()}` : `Nuevo ${CP_TABS[kind].label.slice(0,-1).toLowerCase()}`;
-  if (!editing && kind !== _gasCpTab) return '';
+  if (!_gasCpPanelOpen && !editing) return '';
   const md = editing?.metadata || {};
   let body = '';
   if (kind === 'vehiculos') body = [
@@ -6166,7 +6168,7 @@ function renderGasCpForm(kind) {
     field('cpr_tiempo','Tiempo estimado',cpMeta(editing,'tiempo_estimado','')), selectField('cpr_veh','Vehículo default',cpOpt(_gasCpData.vehiculos, v => cpRowTitle('vehiculos', v)),cpMeta(editing,'vehiculo_default_id','')),
     selectField('cpr_chof','Chofer default',cpOpt(_gasCpData.choferes, c => c.nombre || c.id),cpMeta(editing,'chofer_default_id','')), selectField('cpr_merc','Mercancía default',cpOpt(_gasCpData.mercancias, m => m.alias || m.descripcion || m.id),cpMeta(editing,'mercancia_default_id',''))
   ].join('');
-  return `<div class="cp-form"><div class="section-title"><h3 style="margin:0">${title}</h3><span id="gasCpStatus" style="font-size:.78rem"></span></div><div class="cp-form-grid">${body}</div><div class="toolbar" style="margin-top:12px"><button class="btn btn-red" type="button" onclick="saveGasCpItem('${kind}')"><i class="fa-solid fa-floppy-disk"></i> Guardar</button><button class="btn btn-light" type="button" onclick="cancelGasCpEdit()"><i class="fa-solid fa-xmark"></i> Limpiar</button></div></div>`;
+  return `<div class="cp-form"><div class="section-title"><h3 style="margin:0">${title}</h3><button class="btn btn-light" type="button" onclick="cancelGasCpEdit()" style="padding:.35rem .65rem"><i class="fa-solid fa-xmark"></i></button><span id="gasCpStatus" style="font-size:.78rem"></span></div><div class="cp-form-grid">${body}</div><div class="toolbar" style="margin-top:12px"><button class="btn btn-red" type="button" onclick="saveGasCpItem('${kind}')"><i class="fa-solid fa-floppy-disk"></i> Guardar</button><button class="btn btn-light" type="button" onclick="cancelGasCpEdit()">Cancelar</button></div></div>`;
 }
 function renderGasCpCard(kind, row) {
   const active = row.activo !== false;
@@ -6177,12 +6179,12 @@ function renderGasCpCard(kind, row) {
   if (kind === 'ubicaciones') lines = [`${row.tipo || 'ambos'} · ${row.id_ubicacion || 'ID pendiente'}`, `${row.nombre || '—'} · RFC ${row.rfc || '—'}`, `${row.codigo_postal || 'CP —'} · ${row.municipio || ''} ${row.estado || ''}`];
   if (kind === 'mercancias') lines = [`${row.bienes_transp || 'BienesTransp pendiente'} · ${row.clave_unidad || 'LTR'} ${row.unidad || 'L'}`, `${row.factor_kg_litro || 0} kg/L · ${row.material_peligroso ? 'Material peligroso' : 'No peligroso'}`, `${row.clave_material_peligroso || 'Clave peligrosa —'} · ${row.embalaje || 'Embalaje —'}`];
   if (kind === 'rutas') lines = [`${row.distancia_km || 0} km · ${md.tiempo_estimado || 'Tiempo pendiente'}`, `Origen ${cpNameById('ubicaciones', md.origen_ubicacion_id)} → ${cpNameById('ubicaciones', md.destino_ubicacion_id)}`, `Default: ${cpNameById('vehiculos', md.vehiculo_default_id)} · ${cpNameById('choferes', md.chofer_default_id)}`];
-  return `<article class="cp-card"><div><h3>${escapeHtml(cpRowTitle(kind,row))}</h3><span class="cp-badge ${active?'':'off'}">${active?'Activo':'Inactivo'}</span></div>${lines.map(l=>`<div class="cp-line">${escapeHtml(l)}</div>`).join('')}<div class="cp-actions"><button class="btn btn-light" type="button" onclick="editGasCpItem('${kind}',${Number(row.id)})"><i class="fa-solid fa-pen"></i> Editar</button><button class="btn btn-light" type="button" onclick="deleteGasCpItem('${kind}',${Number(row.id)})" style="color:#b91c1c;border-color:#fecaca"><i class="fa-solid fa-ban"></i> Desactivar</button></div></article>`;
+  return `<article class="cp-card"><div><h3>${escapeHtml(cpRowTitle(kind,row))}</h3><span class="cp-badge ${active?'':'off'}">${active?'Activo':'Inactivo'}</span></div>${lines.map(l=>`<div class="cp-line">${escapeHtml(l)}</div>`).join('')}<div class="cp-actions"><button class="btn btn-light" type="button" onclick="editGasCpItem('${kind}',${Number(row.id)})"><i class="fa-solid fa-pen"></i> Editar</button>${active ? `<button class="btn btn-light" type="button" onclick="deactivateGasCpItem('${kind}',${Number(row.id)})" style="color:#b91c1c;border-color:#fecaca"><i class="fa-solid fa-ban"></i> Desactivar</button>` : ''}<button class="btn btn-light" type="button" onclick="permanentDeleteGasCpItem('${kind}',${Number(row.id)})" style="color:#b91c1c;border-color:#fecaca"><i class="fa-solid fa-trash"></i> Eliminar</button></div></article>`;
 }
 function cpNameById(kind, id) { const r = (_gasCpData[kind] || []).find(x => String(x.id) === String(id)); return r ? cpRowTitle(kind, r) : '—'; }
-function newGasCpItem(kind){ _gasCpEdit = {kind:'', id:null}; renderGasCpCatalogShell(false); }
-function editGasCpItem(kind, id){ _gasCpEdit = {kind, id}; renderGasCpCatalogShell(false); }
-function cancelGasCpEdit(){ _gasCpEdit = {kind:'', id:null}; renderGasCpCatalogShell(false); }
+function newGasCpItem(kind){ _gasCpEdit = {kind:'', id:null}; _gasCpPanelOpen = true; renderGasCpCatalogShell(false); }
+function editGasCpItem(kind, id){ _gasCpEdit = {kind, id}; _gasCpPanelOpen = true; renderGasCpCatalogShell(false); }
+function cancelGasCpEdit(){ _gasCpEdit = {kind:'', id:null}; _gasCpPanelOpen = false; renderGasCpCatalogShell(false); }
 async function saveGasCpItem(kind) {
   const cfg = CP_TABS[kind];
   const id = _gasCpEdit.kind === kind ? _gasCpEdit.id : null;
@@ -6196,13 +6198,21 @@ async function saveGasCpItem(kind) {
   try {
     await catalogRequest(id ? `${cfg.endpoint}/${id}` : cfg.endpoint, id ? 'PUT' : 'POST', params);
     _gasCpEdit = {kind:'', id:null};
+    _gasCpPanelOpen = false;
     await loadGasLpCartaPorteCatalogs();
   } catch(e) { catalogStatus('gasCpStatus', e.message, false); }
 }
-async function deleteGasCpItem(kind, id) {
+async function deactivateGasCpItem(kind, id) {
   if (!confirm('¿Desactivar este registro del catálogo Carta Porte?')) return;
   try {
     await catalogRequest(`${CP_TABS[kind].endpoint}/${id}`, 'DELETE');
+    await loadGasLpCartaPorteCatalogs();
+  } catch(e) { alert(e.message); }
+}
+async function permanentDeleteGasCpItem(kind, id) {
+  if (!confirm('¿Eliminar definitivamente este registro del catálogo Carta Porte? Esta acción no se puede deshacer.')) return;
+  try {
+    await catalogRequest(`${CP_TABS[kind].endpoint}/${id}`, 'DELETE', {permanent: true});
     await loadGasLpCartaPorteCatalogs();
   } catch(e) { alert(e.message); }
 }
