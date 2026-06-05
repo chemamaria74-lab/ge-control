@@ -72,6 +72,8 @@ def generar_pdf_cfdi_desde_xml(
     conceptos = _all(root, "Concepto")
     traslados = _all(root, "Traslado")
     retenciones = _all(root, "Retencion")
+    tipo_cfdi = _attr(root, "TipoDeComprobante", "")
+    display_title = "COMPLEMENTO DE PAGO" if tipo_cfdi == "P" else _display_title(title, root)
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -81,7 +83,7 @@ def generar_pdf_cfdi_desde_xml(
         leftMargin=0.28 * inch,
         topMargin=0.24 * inch,
         bottomMargin=0.32 * inch,
-        title=title,
+        title=display_title,
     )
     styles = getSampleStyleSheet()
     wine = colors.HexColor("#6B1F2B")
@@ -90,6 +92,7 @@ def generar_pdf_cfdi_desde_xml(
     line = colors.HexColor("#C8C8C8")
     styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=14.2, textColor=wine_dark, leading=16.0))
     styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=13.0, leading=15.0, textColor=colors.black))
+    styles.add(ParagraphStyle(name="PaymentDocTitle", parent=styles["DocTitle"], fontSize=17.0, leading=19.5, textColor=wine_dark))
     styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=8.3, leading=9.3, textColor=colors.white, spaceBefore=6, spaceAfter=0))
     styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.2, leading=7.2))
     styles.add(ParagraphStyle(name="TinyBold", parent=styles["Tiny"], fontName="Helvetica-Bold"))
@@ -131,7 +134,7 @@ def generar_pdf_cfdi_desde_xml(
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
     ]))
 
-    fiscal_box = _fiscal_header_box(_display_title(title, root), root, timbre, Table, TableStyle, Paragraph, styles, colors)
+    fiscal_box = _fiscal_header_box(display_title, root, timbre, Table, TableStyle, Paragraph, styles, colors)
     header = Table([[issuer_table, fiscal_box]], colWidths=[3.88 * inch, 4.06 * inch])
     header.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -361,7 +364,7 @@ def _section(text, Paragraph, styles):
 def _display_title(title: str, root) -> str:
     tipo = _attr(root, "TipoDeComprobante", "")
     if tipo == "P":
-        return "COMPLEMENTO DE PAGO CFDI 4.0"
+        return "COMPLEMENTO DE PAGO"
     if tipo == "I":
         return "FACTURA CFDI 4.0"
     return f"{title.upper()} CFDI 4.0"
@@ -392,7 +395,8 @@ def _bar_style():
 def _fiscal_header_box(title, root, timbre, Table, TableStyle, Paragraph, styles, colors):
     label_style = styles["TinyBold"]
     value_style = styles["Tiny"]
-    rows = [[Paragraph(f"<b>{_text(title)}</b>", styles["DocTitle"]), ""]]
+    title_style = styles["PaymentDocTitle"] if _attr(root, "TipoDeComprobante", "") == "P" else styles["DocTitle"]
+    rows = [[Paragraph(f"<b>{_text(title)}</b>", title_style), ""]]
     rows += [[Paragraph(_text(k), label_style), Paragraph(_text(v), value_style)] for k, v in [
         ("UUID", _attr(timbre, "UUID")),
         ("Folio", f"{_attr(root, 'Serie', '')}{_attr(root, 'Folio', '')}".strip() or "—"),
@@ -485,15 +489,26 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
 def _pagos_table(pagos, Table, TableStyle, Paragraph, styles, colors, wine=None, cream=None, line=None):
     wine = wine or colors.HexColor("#4E111C")
     line = line or colors.HexColor("#C8C8C8")
-    data = [[Paragraph("<b>Fecha pago</b>", styles["HeaderTiny"]), Paragraph("<b>Forma</b>", styles["HeaderTiny"]), Paragraph("<b>Moneda</b>", styles["HeaderTiny"]), Paragraph("<b>Monto</b>", styles["HeaderTiny"]), Paragraph("<b>Documento relacionado</b>", styles["HeaderTiny"]), Paragraph("<b>Saldo insoluto</b>", styles["HeaderTiny"])]]
+    data = [[
+        Paragraph("<b>Fecha pago</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Forma</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Monto</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Documento relacionado</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Parc.</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Saldo ant.</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Pagado</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Saldo insoluto</b>", styles["HeaderTiny"]),
+    ]]
     for pago in pagos[:18]:
         doctos = [node for node in pago.iter() if _local_name(node) == "DoctoRelacionado"]
         if not doctos:
             data.append([
                 Paragraph(_text(_attr(pago, "FechaPago")), styles["Tiny"]),
                 Paragraph(_text(_attr(pago, "FormaDePagoP")), styles["Tiny"]),
-                Paragraph(_text(_attr(pago, "MonedaP")), styles["Tiny"]),
                 Paragraph(_text(_attr(pago, "Monto")), styles["Tiny"]),
+                Paragraph("—", styles["Tiny"]),
+                Paragraph("—", styles["Tiny"]),
+                Paragraph("—", styles["Tiny"]),
                 Paragraph("—", styles["Tiny"]),
                 Paragraph("—", styles["Tiny"]),
             ])
@@ -501,12 +516,14 @@ def _pagos_table(pagos, Table, TableStyle, Paragraph, styles, colors, wine=None,
             data.append([
                 Paragraph(_text(_attr(pago, "FechaPago")), styles["Tiny"]),
                 Paragraph(_text(_attr(pago, "FormaDePagoP")), styles["Tiny"]),
-                Paragraph(_text(_attr(pago, "MonedaP")), styles["Tiny"]),
                 Paragraph(_text(_attr(pago, "Monto")), styles["Tiny"]),
                 Paragraph(_text(_attr(docto, "IdDocumento")), styles["Tiny"]),
+                Paragraph(_text(_attr(docto, "NumParcialidad")), styles["Tiny"]),
+                Paragraph(_text(_attr(docto, "ImpSaldoAnt")), styles["Tiny"]),
+                Paragraph(_text(_attr(docto, "ImpPagado")), styles["Tiny"]),
                 Paragraph(_text(_attr(docto, "ImpSaldoInsoluto")), styles["Tiny"]),
             ])
-    table = Table(data, colWidths=[1.08 * 72, 0.68 * 72, 0.66 * 72, 0.88 * 72, 3.72 * 72, 0.98 * 72], repeatRows=1)
+    table = Table(data, colWidths=[0.92 * 72, 0.50 * 72, 0.68 * 72, 2.66 * 72, 0.38 * 72, 0.78 * 72, 0.72 * 72, 0.82 * 72], repeatRows=1)
     table.setStyle(_detail_table_style(colors, wine, line))
     return table
 
