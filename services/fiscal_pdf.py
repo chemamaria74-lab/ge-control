@@ -79,83 +79,61 @@ def generar_pdf_cfdi_desde_xml(
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        rightMargin=0.28 * inch,
-        leftMargin=0.28 * inch,
-        topMargin=0.24 * inch,
-        bottomMargin=0.32 * inch,
+        rightMargin=0.34 * inch,
+        leftMargin=0.34 * inch,
+        topMargin=0.30 * inch,
+        bottomMargin=0.34 * inch,
         title=display_title,
     )
     styles = getSampleStyleSheet()
-    wine = colors.HexColor("#6B1F2B")
+    wine = colors.HexColor("#7A1E2C")
     wine_dark = colors.HexColor("#4E111C")
-    cream = colors.HexColor("#F4F4F4")
-    line = colors.HexColor("#C8C8C8")
-    styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=14.2, textColor=wine_dark, leading=16.0))
-    styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=13.0, leading=15.0, textColor=colors.black))
-    styles.add(ParagraphStyle(name="PaymentDocTitle", parent=styles["DocTitle"], fontSize=17.0, leading=19.5, textColor=wine_dark))
-    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=8.3, leading=9.3, textColor=colors.white, spaceBefore=6, spaceAfter=0))
-    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.2, leading=7.2))
+    cream = colors.HexColor("#F8F6F2")
+    line = colors.HexColor("#DED7CE")
+    ink = colors.HexColor("#1F2933")
+    muted = colors.HexColor("#67717D")
+    styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=13.8, textColor=wine_dark, leading=15.5))
+    styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=18.0, leading=20.0, textColor=wine_dark))
+    styles.add(ParagraphStyle(name="PaymentDocTitle", parent=styles["DocTitle"], fontSize=19.0, leading=21.0, textColor=wine_dark))
+    styles.add(ParagraphStyle(name="DocMeta", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=7.2, leading=8.2, textColor=muted))
+    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=8.7, leading=9.8, textColor=wine_dark, spaceBefore=7, spaceAfter=3))
+    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.4, leading=7.5, textColor=ink))
     styles.add(ParagraphStyle(name="TinyBold", parent=styles["Tiny"], fontName="Helvetica-Bold"))
-    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["TinyBold"], textColor=colors.white))
-    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=7.2, leading=8.35))
+    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["TinyBold"], textColor=colors.white, fontSize=6.7, leading=7.8))
+    styles.add(ParagraphStyle(name="Label", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=muted, fontSize=6.2, leading=7.0))
+    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=7.4, leading=8.8, textColor=ink))
     styles.add(ParagraphStyle(name="SmallBold", parent=styles["Small"], fontName="Helvetica-Bold"))
     styles.add(ParagraphStyle(name="Money", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold"))
-    styles.add(ParagraphStyle(name="MoneyBig", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=10.0, leading=11.4, textColor=wine_dark))
-    styles.add(ParagraphStyle(name="AmountWords", parent=styles["Small"], fontName="Helvetica-Bold", fontSize=7.4, leading=8.8, textColor=colors.black))
-    styles.add(ParagraphStyle(name="Seal", parent=styles["Tiny"], fontSize=5.1, leading=5.75))
-    styles.add(ParagraphStyle(name="Footer", parent=styles["Tiny"], alignment=TA_CENTER, textColor=colors.HexColor("#333333")))
+    styles.add(ParagraphStyle(name="MoneyBig", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=13.0, leading=14.5, textColor=wine_dark))
+    styles.add(ParagraphStyle(name="AmountWords", parent=styles["Small"], fontName="Helvetica-Bold", fontSize=7.6, leading=9.0, textColor=ink))
+    styles.add(ParagraphStyle(name="Seal", parent=styles["Tiny"], fontSize=5.15, leading=5.85, textColor=colors.HexColor("#313942")))
+    styles.add(ParagraphStyle(name="Footer", parent=styles["Tiny"], alignment=TA_CENTER, textColor=muted))
 
     qr = _qr_flowable(_url_qr_fiscal(root, emisor, receptor, timbre), Image)
     logo = _logo_flowable(logo_data_url, Image)
-    issuer_name = _attr(emisor, "Nombre", "Emisor")
-    issuer_rfc = _attr(emisor, "Rfc", "")
     permiso_cre = _printed_cre_permit(root)
-    fallback_brand = Paragraph(
-        f"<b>{_text(issuer_name)}</b><br/><font size='7'>{_text(issuer_rfc)}</font>",
-        styles["Brand"],
-    )
     story = []
-    issuer_block = [
-        [logo or fallback_brand],
-        [Paragraph(
-            f"<b>{_text(_attr(emisor, 'Nombre', 'Emisor'))}</b><br/>"
-            f"RFC: {_text(_attr(emisor, 'Rfc'))}<br/>"
-            f"Régimen fiscal: {_text(_attr(emisor, 'RegimenFiscal'))}<br/>"
-            f"Lugar de expedición: {_text(_attr(root, 'LugarExpedicion'))}",
-            styles["Small"],
-        )],
+    story += [
+        _modern_header(display_title, logo, root, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, wine_dark, cream, line),
+        Spacer(1, 8),
     ]
-    issuer_table = Table(issuer_block, colWidths=[3.62 * inch])
-    issuer_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]))
 
-    fiscal_box = _fiscal_header_box(display_title, root, timbre, Table, TableStyle, Paragraph, styles, colors)
-    header = Table([[issuer_table, fiscal_box]], colWidths=[3.88 * inch, 4.06 * inch])
-    header.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
-    story += [header, _bar("", Table, TableStyle, colors, wine_dark), Spacer(1, 8)]
-
-    story.append(_two_column_table(
-        "Cliente / Receptor",
+    story.append(_three_info_cards(
         [
+            ("Datos del emisor", [
+                ("Nombre", _attr(emisor, "Nombre", "Emisor")),
+                ("RFC", _attr(emisor, "Rfc")),
+                ("Régimen fiscal", _attr(emisor, "RegimenFiscal")),
+                ("Lugar de expedición", _attr(root, "LugarExpedicion")),
+            ]),
+            ("Datos del receptor", [
             ("Nombre", _attr(receptor, "Nombre")),
             ("RFC", _attr(receptor, "Rfc")),
             ("CP fiscal", _attr(receptor, "DomicilioFiscalReceptor")),
             ("Régimen fiscal", _attr(receptor, "RegimenFiscalReceptor")),
             ("Uso CFDI", _attr(receptor, "UsoCFDI")),
-        ],
-        "Datos del comprobante",
-        _compact_rows([
+            ]),
+            ("Datos del comprobante", _compact_rows([
             ("Tipo", f"{_tipo_cfdi(_attr(root, 'TipoDeComprobante'))} ({_attr(root, 'TipoDeComprobante')})"),
             ("Folio", f"{_attr(root, 'Serie', '')}{_attr(root, 'Folio', '')}".strip()),
             ("Fecha emisión", _attr(root, "Fecha")),
@@ -166,7 +144,8 @@ def generar_pdf_cfdi_desde_xml(
             ("Exportación", _attr(root, "Exportacion")),
             ("Lugar de expedición", _attr(root, "LugarExpedicion")),
             ("Permiso CRE", permiso_cre),
-        ]),
+            ])),
+        ],
         Table, TableStyle, Paragraph, styles, colors, wine, cream, line,
     ))
 
@@ -355,10 +334,21 @@ def _printed_cre_permit(root) -> str:
 
 
 def _section(text, Paragraph, styles):
-    from reportlab.platypus import Table, TableStyle
     from reportlab.lib import colors
+    from reportlab.platypus import Table, TableStyle
 
-    return _bar(text, Table, TableStyle, colors, colors.HexColor("#4E111C"))
+    label = Paragraph(f"<b>{_text(text)}</b>", styles["Section"])
+    table = Table([[label, ""]], colWidths=[1.95 * 72, 5.35 * 72])
+    table.setStyle(TableStyle([
+        ("LINEBELOW", (0, 0), (-1, -1), 0.65, colors.HexColor("#DED7CE")),
+        ("LINEBELOW", (0, 0), (0, 0), 1.35, colors.HexColor("#7A1E2C")),
+        ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    return table
 
 
 def _display_title(title: str, root) -> str:
@@ -422,6 +412,101 @@ def _fiscal_header_box(title, root, timbre, Table, TableStyle, Paragraph, styles
     return table
 
 
+def _modern_header(title, logo, root, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, wine_dark, cream, line):
+    issuer_name = _attr(emisor, "Nombre", "Emisor")
+    issuer_rfc = _attr(emisor, "Rfc", "")
+    serie_folio = f"{_attr(root, 'Serie', '')}{_attr(root, 'Folio', '')}".strip() or "—"
+    uuid = _attr(timbre, "UUID")
+    cert_sat = _attr(timbre, "NoCertificadoSAT")
+    cert_emisor = _attr(root, "NoCertificado")
+    title_style = styles["PaymentDocTitle"] if _attr(root, "TipoDeComprobante", "") == "P" else styles["DocTitle"]
+
+    brand = logo or Paragraph(
+        f"<b>{_text(issuer_name)}</b><br/><font size='7.5' color='#67717D'>RFC {_text(issuer_rfc)}</font>",
+        styles["Brand"],
+    )
+    left = Table([
+        [brand],
+        [Paragraph("Representación impresa generada por GE Control", styles["Tiny"])],
+    ], colWidths=[2.55 * 72])
+    left.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+
+    right = Table([
+        [Paragraph(f"<b>{_text(title)}</b>", title_style)],
+        [Paragraph(
+            f"Folio: <b>{_text(serie_folio)}</b> &nbsp;&nbsp;|&nbsp;&nbsp; UUID: {_text(uuid)}<br/>"
+            f"Certificado emisor: {_text(cert_emisor)} &nbsp;&nbsp;|&nbsp;&nbsp; Certificado SAT: {_text(cert_sat)}",
+            styles["DocMeta"],
+        )],
+    ], colWidths=[4.75 * 72])
+    right.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+
+    table = Table([[left, right]], colWidths=[2.65 * 72, 4.95 * 72])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+        ("BOX", (0, 0), (-1, -1), 0.55, line),
+        ("LINEBELOW", (0, 0), (-1, -1), 2.0, wine),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return table
+
+
+def _three_info_cards(cards, Table, TableStyle, Paragraph, styles, colors, wine, cream, line):
+    def card(title, rows):
+        clean_rows = _compact_rows(rows)
+        body = [[Paragraph(f"<b>{_text(title)}</b>", styles["SmallBold"])]]
+        for key, value in clean_rows:
+            body.append([
+                Paragraph(_text(key).upper(), styles["Label"]),
+                Paragraph(_text(value), styles["Tiny"]),
+            ])
+        if len(body) == 1:
+            body.append([Paragraph("SIN DATOS", styles["Label"]), Paragraph("—", styles["Tiny"])])
+        inner = Table(body, colWidths=[0.84 * 72, 1.44 * 72])
+        inner.setStyle(TableStyle([
+            ("SPAN", (0, 0), (-1, 0)),
+            ("BACKGROUND", (0, 0), (-1, 0), cream),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.45, line),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 3.4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3.4),
+        ]))
+        return inner
+
+    table = Table(
+        [[card(title, rows) for title, rows in cards]],
+        colWidths=[2.48 * 72, 2.48 * 72, 2.64 * 72],
+    )
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOX", (0, 0), (-1, -1), 0.45, line),
+        ("INNERGRID", (0, 0), (-1, -1), 0.45, line),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return table
+
+
 def _two_column_table(left_title, left_rows, right_title, right_rows, Table, TableStyle, Paragraph, styles, colors, wine, cream, line):
     def cell(title, rows):
         inner = [[Paragraph(f"<b>{_text(title)}</b>", styles["HeaderTiny"])]]
@@ -464,7 +549,14 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
     line = line or colors.HexColor("#C8C8C8")
     right_tiny = styles["Tiny"].clone("TinyRight")
     right_tiny.alignment = 2
-    data = [[Paragraph("<b>Cantidad</b>", styles["HeaderTiny"]), Paragraph("<b>Unidad</b>", styles["HeaderTiny"]), Paragraph("<b>Clave SAT</b>", styles["HeaderTiny"]), Paragraph("<b>Descripción</b>", styles["HeaderTiny"]), Paragraph("<b>P. unitario</b>", styles["HeaderTiny"]), Paragraph("<b>Importe</b>", styles["HeaderTiny"])]]
+    data = [[
+        Paragraph("<b>Cantidad</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Unidad</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Clave SAT</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Descripción</b>", styles["HeaderTiny"]),
+        Paragraph("<b>P. unitario</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Importe</b>", styles["HeaderTiny"]),
+    ]]
     for c in conceptos[:35]:
         data.append([
             Paragraph(_text(_attr(c, "Cantidad")), right_tiny),
@@ -476,12 +568,12 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
         ])
     if len(conceptos) > 35:
         data.append(["", "", "", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", ""])
-    table = Table(data, colWidths=[0.82 * 72, 0.82 * 72, 1.02 * 72, 3.22 * 72, 1.04 * 72, 1.08 * 72], repeatRows=1)
+    table = Table(data, colWidths=[0.78 * 72, 0.74 * 72, 0.92 * 72, 3.42 * 72, 0.88 * 72, 0.86 * 72], repeatRows=1)
     table.setStyle(_detail_table_style(colors, wine, line))
     table.setStyle(TableStyle([
         ("ALIGN", (0, 1), (0, -1), "RIGHT"),
         ("ALIGN", (4, 1), (5, -1), "RIGHT"),
-        ("BACKGROUND", (0, 1), (-1, -1), colors.white),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FBFAF8")]),
     ]))
     return table
 
@@ -523,8 +615,13 @@ def _pagos_table(pagos, Table, TableStyle, Paragraph, styles, colors, wine=None,
                 Paragraph(_text(_attr(docto, "ImpPagado")), styles["Tiny"]),
                 Paragraph(_text(_attr(docto, "ImpSaldoInsoluto")), styles["Tiny"]),
             ])
-    table = Table(data, colWidths=[0.92 * 72, 0.50 * 72, 0.68 * 72, 2.66 * 72, 0.38 * 72, 0.78 * 72, 0.72 * 72, 0.82 * 72], repeatRows=1)
+    table = Table(data, colWidths=[0.86 * 72, 0.52 * 72, 0.72 * 72, 2.48 * 72, 0.42 * 72, 0.82 * 72, 0.78 * 72, 1.00 * 72], repeatRows=1)
     table.setStyle(_detail_table_style(colors, wine, line))
+    table.setStyle(TableStyle([
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FBFAF8")]),
+        ("ALIGN", (2, 1), (2, -1), "RIGHT"),
+        ("ALIGN", (5, 1), (7, -1), "RIGHT"),
+    ]))
     return table
 
 
@@ -589,16 +686,16 @@ def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, st
         [Paragraph("<b>Impuestos</b>", styles["TinyBold"])],
         [Paragraph(_text(tax_text), styles["Tiny"])],
         [Paragraph(_text(ret_text), styles["Tiny"])],
-    ], colWidths=[5.02 * 72])
+    ], colWidths=[4.78 * 72])
     left.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.3, line),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F1F1F1")),
-        ("BACKGROUND", (0, 2), (-1, 2), colors.HexColor("#F1F1F1")),
+        ("BACKGROUND", (0, 0), (-1, 0), cream),
+        ("BACKGROUND", (0, 2), (-1, 2), cream),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     right = Table([
         [Paragraph("Subtotal", styles["Small"]), Paragraph(f"${_text(_format_money(_money_value(_attr(root, 'SubTotal', '0'))))}", styles["Money"])],
@@ -606,19 +703,19 @@ def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, st
         [Paragraph("IVA trasladado", styles["Small"]), Paragraph(f"${_text(_format_money(iva_total))}", styles["Money"])],
         [Paragraph("Retenciones", styles["Small"]), Paragraph(f"${_text(_format_money(ret_total))}", styles["Money"])],
         [Paragraph("<b>Total</b>", styles["SmallBold"]), Paragraph(f"${_text(_format_money(total_value))}", styles["MoneyBig"])],
-    ], colWidths=[1.32 * 72, 1.60 * 72])
+    ], colWidths=[1.18 * 72, 1.64 * 72])
     right.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.35, line),
-        ("LINEBELOW", (0, 0), (-1, -2), 0.2, colors.HexColor("#D8D8D8")),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#F1F1F1")),
-        ("LINEABOVE", (0, -1), (-1, -1), 0.7, colors.HexColor("#4E111C")),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.2, line),
+        ("BACKGROUND", (0, -1), (-1, -1), cream),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.0, colors.HexColor("#7A1E2C")),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    table = Table([[left, right]], colWidths=[5.02 * 72, 2.92 * 72])
+    table = Table([[left, right]], colWidths=[4.78 * 72, 2.82 * 72])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -638,32 +735,34 @@ def _seals_block(root, timbre, qr, Table, TableStyle, Paragraph, styles, colors,
         [Paragraph("<b>Cadena original del complemento de certificación digital del SAT</b>", styles["TinyBold"])],
         [Paragraph(_text(_short(_attr(timbre, "SelloCFD"), 620)), styles["Seal"])],
     ]
-    seal_table = Table(seal_rows, colWidths=[6.04 * 72])
+    seal_table = Table(seal_rows, colWidths=[5.74 * 72])
     seal_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), cream),
         ("BACKGROUND", (0, 2), (-1, 2), cream),
         ("BACKGROUND", (0, 4), (-1, 4), cream),
         ("BOX", (0, 0), (-1, -1), 0.3, line),
-        ("GRID", (0, 0), (-1, -1), 0.16, colors.HexColor("#D6D6D6")),
+        ("GRID", (0, 0), (-1, -1), 0.16, line),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 3),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-        ("TOPPADDING", (0, 0), (-1, -1), 1.8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.2),
     ]))
     qr_block = Table([
         [qr or Paragraph("QR fiscal no disponible", styles["Tiny"])],
-        [Paragraph(f"<b>Verificación SAT</b><br/>RFC PAC:<br/>{_text(_attr(timbre, 'RfcProvCertif'))}", styles["Tiny"])],
-    ], colWidths=[1.70 * 72])
+        [Paragraph(f"<b>Verificación SAT</b><br/>RFC PAC: {_text(_attr(timbre, 'RfcProvCertif'))}<br/>UUID: {_text(_short(_attr(timbre, 'UUID'), 48))}", styles["Tiny"])],
+    ], colWidths=[1.86 * 72])
     qr_block.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.3, line),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("ALIGN", (0, 0), (-1, 0), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 2),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    table = Table([[seal_table, qr_block]], colWidths=[6.12 * 72, 1.82 * 72])
+    table = Table([[seal_table, qr_block]], colWidths=[5.84 * 72, 1.96 * 72])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -678,12 +777,14 @@ def _detail_table_style(colors, wine, line):
     return TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), wine),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("GRID", (0, 0), (-1, -1), 0.18, line),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.55, wine),
+        ("GRID", (0, 1), (-1, -1), 0.16, line),
+        ("BOX", (0, 0), (-1, -1), 0.35, line),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 2.2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.2),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.0),
     ])
 
 
@@ -722,7 +823,7 @@ def _amount_to_spanish_mxn(value: float | int, moneda: str = "MXN") -> str:
         pesos += 1
         centavos = 0
     currency_code = (moneda or "MXN").upper()
-    currency = "M.N." if currency_code == "MXN" else currency_code
+    currency = currency_code
     noun = "PESOS" if pesos != 1 else "PESO"
     return f"{_number_to_spanish(pesos)} {noun} {centavos:02d}/100 {currency}".upper()
 
