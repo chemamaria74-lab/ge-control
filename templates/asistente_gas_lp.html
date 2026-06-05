@@ -145,7 +145,7 @@
           <div id="conceptoField"><label>Concepto</label><select id="conceptoCatalogo" class="locked-field" disabled><option value="gas_lp_litro">Gas licuado de petróleo</option></select></div>
           <input id="concepto" type="hidden" value="Gas licuado de petróleo">
           <div id="litrosField"><label>Litros</label><input id="litros" type="number" min="0" step="0.0001" value="0" oninput="updateTotals()"></div>
-          <div id="precioField"><label for="precioUnitario">Precio por litro con IVA</label><input id="precioUnitario" type="number" min="0" step="0.000001" value="0" oninput="markManualPrice();updateTotals()"></div>
+          <div id="precioField"><label for="precioUnitario">Precio por litro con IVA</label><input id="precioUnitario" type="number" min="0" step="0.000001" placeholder="Selecciona instalación" oninput="markManualPrice();updateTotals()"></div>
           <div id="descuentoTipoField"><label>Tipo de descuento</label><select id="descuentoTipo" onchange="updateDiscountMode()"><option value="sin_descuento" selected>Sin descuento</option><option value="por_litro">Descuento por litro</option><option value="total_pesos">Descuento total en pesos</option></select></div>
           <div id="descuentoField" class="hide"><label id="descuentoLabel">Descuento por litro a restar</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="updateTotals()"></div>
           <div id="ivaField"><label>IVA</label><select id="ivaRate" class="locked-field" disabled><option value="0.16">16%</option></select></div>
@@ -616,7 +616,7 @@
     }
     function displayUnitPrice(price){
       const n = numericFrom(price);
-      return n > 0 ? formatUnitPrice(n) : '0.0000';
+      return n > 0 ? formatUnitPrice(n) : '';
     }
     function setUnitPrice(price, source='manual'){
       const n = numericFrom(price);

@@ -125,7 +125,7 @@
           <div class="publico-form-grid">
             <div class="span-full"><label>Instalación</label><select id="pubFacility" onchange="onPublicoFacilityChange()"><option value="">Cargando...</option></select></div>
             <div><label>Litros</label><input id="pubLitros" type="number" min="0" step="0.0001" oninput="updatePublicoSummary()"></div>
-            <div><label>Precio con IVA</label><input id="pubPrecio" type="number" min="0" step="0.0001" oninput="markPublicoManualPrice();updatePublicoSummary()"></div>
+            <div><label>Precio con IVA</label><input id="pubPrecio" type="number" min="0" step="0.0001" placeholder="Selecciona instalación" oninput="markPublicoManualPrice();updatePublicoSummary()"></div>
             <div><label>Tipo de descuento</label><select id="pubDescuentoTipo" onchange="updatePublicoDiscountMode()"><option value="sin_descuento" selected>Sin descuento</option><option value="por_litro">Descuento por litro</option><option value="total_pesos">Descuento total en pesos</option></select></div>
             <div id="pubDescuentoField" class="hidden"><label id="pubDescuentoLabel">Descuento total a restar</label><input id="pubDescuento" type="number" min="0" step="0.000001" value="0" oninput="updatePublicoSummary()"></div>
             <div><label>IVA</label><select id="pubIvaRate" onchange="updatePublicoSummary()"><option value="0.16">16%</option><option value="0">0%</option></select></div>
