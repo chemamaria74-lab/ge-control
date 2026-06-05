@@ -4870,6 +4870,8 @@ document.getElementById('btnLoadEntregas').addEventListener('click', async () =>
 });
 
 document.getElementById('btnGenerarCartaPorte').addEventListener('click', async () => {
+  alert('Carta Porte debe generarse desde Asistente mientras se completa la nueva versión.');
+  return;
   if (!_selectedEntregaId) {
     alert('Selecciona una entrega primero.');
     return;
