@@ -108,13 +108,7 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
 
         if module:
             tenant_id = _tenant_id_for_user(user_id, access_token=access_token)
-            module_accesses = [a for a in accesos if a.get("section") == module]
-            module_roles = {a.get("role") for a in module_accesses}
             owner_scope = _module_requires_owner_scope(module)
-            has_global_module_admin = any(
-                (a.get("role") == "admin") and not a.get("perfil_id")
-                for a in module_accesses
-            )
             if assigned_ids:
                 assigned_q = (
                     sb.table("perfiles_empresa")
@@ -125,6 +119,8 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
                 if owner_scope:
                     assigned_q = assigned_q.eq("user_id", user_id)
                 add_rows(assigned_q.order("nombre").execute().data or [])
+                if module == "transporte":
+                    return sorted(rows_by_id.values(), key=lambda r: (r.get("nombre") or "").lower())
             marker = _module_marker(module)
             try:
                 marker_q = sb.table("perfiles_empresa").select(fields).eq("activo", True).ilike("descripcion", f"%{marker}%")
@@ -137,19 +133,6 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
                 add_rows(marker_q.order("nombre").execute().data or [])
             except Exception as marker_error:
                 logger.info("Filtro module=%s omitido en perfiles_empresa.descripcion: %s", module, marker_error)
-            # Admin global del módulo: mostrar sus razones sociales legacy aunque
-            # todavía no tengan marcador [module:*]. Se limita a user_id para no
-            # mezclar perfiles QA u otros usuarios del mismo tenant.
-            if not owner_scope and (has_global_module_admin or "admin" in module_roles):
-                add_rows(
-                    sb.table("perfiles_empresa")
-                    .select(fields)
-                    .eq("user_id", user_id)
-                    .eq("activo", True)
-                    .order("nombre")
-                    .execute()
-                    .data or []
-                )
             return sorted(rows_by_id.values(), key=lambda r: (r.get("nombre") or "").lower())
 
         # Legacy: perfiles creados antes de tenant/company.
