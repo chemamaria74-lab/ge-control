@@ -52,7 +52,7 @@
       <button class="tab-btn active" id="tab-facturacion" type="button" onclick="switchPortalTab('facturacion')"><i class="fa-solid fa-file-invoice-dollar"></i> Facturación</button>
       <button class="tab-btn" id="tab-facturas" type="button" onclick="switchPortalTab('facturas')"><i class="fa-solid fa-file-invoice"></i> Facturas</button>
       <button class="tab-btn" id="tab-clientes" type="button" onclick="switchPortalTab('clientes')"><i class="fa-solid fa-users"></i> Clientes</button>
-      <button class="tab-btn" id="tab-carta-catalogos" type="button" onclick="switchPortalTab('carta-catalogos')"><i class="fa-solid fa-truck-moving"></i> Catálogos Carta Porte</button>
+      <button class="tab-btn" id="tab-carta-porte" type="button" onclick="switchPortalTab('carta-porte')"><i class="fa-solid fa-truck-moving"></i> Carta Porte</button>
     </nav>
     <section id="panel-dashboard" class="tab-panel">
       <div class="card">
@@ -104,7 +104,7 @@
           <button class="btn ghost" id="btnPublicoGeneral" type="button" onclick="usePublicoGeneral()"><i class="fa-solid fa-users"></i> Público en general</button>
         </div>
         <div class="form-grid">
-          <div><label>Operación</label><select id="tipoOperacion" onchange="updateOperacionUI()"><option value="venta">Venta a cliente</option><option value="traspaso">Traspaso a estación</option><option value="carta_porte">Carta Porte</option></select></div>
+          <div><label>Operación</label><select id="tipoOperacion" onchange="updateOperacionUI()"><option value="venta">Venta a cliente</option><option value="traspaso">Traspaso a estación</option></select></div>
           <div id="facilityField" class="field-attention"><label>Instalación origen *</label><select id="facilitySelect" required onchange="onFacilityChange()"><option value="">Selecciona instalación</option></select></div>
           <div id="clienteField"><label>Cliente</label><select id="clienteSelect" onchange="selectCliente()"><option value="">Público en general</option></select></div>
           <div id="facturaGlobalField" class="hide"><label>Factura global público general</label><select id="facturaGlobal"><option value="0">No global</option><option value="1">Factura global mensual</option></select></div>
@@ -141,7 +141,6 @@
           <div id="vehiculoField" class="hide"><label>Vehículo</label><select id="vehiculoSelect"><option value="">Selecciona vehículo</option></select></div>
           <div id="choferField" class="hide"><label>Chofer</label><select id="choferSelect"><option value="">Selecciona chofer</option></select></div>
           <div id="rutaField" class="hide"><label>Ruta</label><select id="rutaSelect"><option value="">Selecciona ruta</option></select></div>
-          <div id="cartaPorteWizard" class="form-span hide"></div>
           <div id="conceptoField"><label>Concepto</label><select id="conceptoCatalogo" class="locked-field" disabled><option value="gas_lp_litro">Gas licuado de petróleo</option></select></div>
           <input id="concepto" type="hidden" value="Gas licuado de petróleo">
           <div id="litrosField"><label>Litros</label><input id="litros" type="number" min="0" step="0.0001" value="0" oninput="updateTotals()"></div>
@@ -289,8 +288,33 @@
       <div><label>Buscar cliente</label><input id="clienteSearch" placeholder="Nombre, RFC, CP o uso CFDI" oninput="renderClientesList()"></div>
       <div class="list client-list" id="clientesList"><div class="empty">Cargando clientes...</div></div>
     </section>
-    <section id="panel-carta-catalogos" class="tab-panel card">
-      <div id="assistantCpCatalogApp"></div>
+    <section id="panel-carta-porte" class="tab-panel">
+      <nav class="subtabs" aria-label="Carta Porte">
+        <button class="subtab-btn active" id="cp-tab-timbrar" type="button" onclick="switchCartaPorteTab('timbrar')"><i class="fa-solid fa-stamp"></i> Timbrar Carta Porte</button>
+        <button class="subtab-btn" id="cp-tab-configuracion" type="button" onclick="switchCartaPorteTab('configuracion')"><i class="fa-solid fa-gears"></i> Configuración</button>
+      </nav>
+      <div id="cp-panel-timbrar" class="billing-subpanel active">
+        <div class="card">
+          <div class="section-title">
+            <div>
+              <h2>Timbrar Carta Porte</h2>
+              <p class="muted" style="margin:4px 0 0">CFDI tipo T para traslado Carta Porte.</p>
+            </div>
+            <button class="btn ghost" type="button" onclick="loadCatalogos();resetCartaPorteState({clearForm:true, keepStatus:true})"><i class="fa-solid fa-arrows-rotate"></i> Actualizar</button>
+          </div>
+          <div id="cartaPorteWizard"></div>
+          <div class="toolbar" style="margin-top:12px">
+            <button class="btn" id="cpStampBtn" type="button" onclick="handleCartaPorteAction()"><i class="fa-solid fa-eye"></i> Preparar vista previa</button>
+            <button class="btn ghost" type="button" onclick="resetCartaPorteState({clearForm:true})"><i class="fa-solid fa-eraser"></i> Limpiar</button>
+            <span id="cpMsg" class="status"></span>
+          </div>
+        </div>
+      </div>
+      <div id="cp-panel-configuracion" class="billing-subpanel">
+        <div class="card">
+          <div id="assistantCpCatalogApp"></div>
+        </div>
+      </div>
     </section>
   </main>
   <div id="emailModal" class="modal-backdrop hide" role="dialog" aria-modal="true" aria-labelledby="emailModalTitle">
@@ -393,6 +417,9 @@
     let isStamping = false;
     let suppressFacturaStatus = false;
     let CP_PREVIEW_READY = false;
+    let CP_PREVIEW_VALIDO = false;
+    let CP_FINAL_PAYLOAD = null;
+    let ACTIVE_CP_TAB = 'timbrar';
     let transferConfirmResolver = null;
     let invoiceConfirmResolver = null;
     let ACTIVE_OPERATION = 'venta';
@@ -516,15 +543,29 @@
     function facturaDateKey(f){ return String(f.fecha_factura_key || facturaDateValue(f) || '').slice(0,10); }
     function facturaTimeLabel(f){ return String(facturaDateValue(f) || '').slice(11,16) || String(f.created_at || '').slice(11,16) || '—'; }
     function switchPortalTab(tab){
-      ['dashboard','facturacion','facturas','clientes','carta-catalogos'].forEach(name => {
+      ['dashboard','facturacion','facturas','clientes','carta-porte'].forEach(name => {
         document.getElementById(`tab-${name}`)?.classList.toggle('active', name === tab);
         document.getElementById(`panel-${name}`)?.classList.toggle('active', name === tab);
       });
+      if(tab !== 'carta-porte') resetCartaPorteState({keepStatus:true});
       if(tab === 'dashboard') renderDashboard();
       if(tab === 'facturacion') renderComplementosPago();
       if(tab === 'facturas') applyFacturasFilters();
       if(tab === 'clientes') renderClientesList();
-      if(tab === 'carta-catalogos') renderAssistantCpCatalogs();
+      if(tab === 'carta-porte') {
+        if(ACTIVE_CP_TAB === 'configuracion') renderAssistantCpCatalogs();
+        else renderCartaPorteWizard();
+      }
+    }
+    function switchCartaPorteTab(tab){
+      ACTIVE_CP_TAB = tab === 'configuracion' ? 'configuracion' : 'timbrar';
+      ['timbrar','configuracion'].forEach(name => {
+        document.getElementById(`cp-tab-${name}`)?.classList.toggle('active', name === ACTIVE_CP_TAB);
+        document.getElementById(`cp-panel-${name}`)?.classList.toggle('active', name === ACTIVE_CP_TAB);
+      });
+      resetCartaPorteState({keepStatus:true});
+      if(ACTIVE_CP_TAB === 'configuracion') renderAssistantCpCatalogs();
+      else renderCartaPorteWizard();
     }
     function switchBillingTab(tab){
       ['facturar','complementos'].forEach(name => {
@@ -1004,8 +1045,10 @@
       choferSelect.innerHTML = '<option value="">Selecciona chofer</option>' + CATALOGOS.choferes.map(c=>`<option value="${esc(c.id)}">${esc(c.nombre)}${c.rfc ? ` · ${esc(c.rfc)}` : ''}</option>`).join('');
       vehiculoSelect.innerHTML = '<option value="">Selecciona vehículo</option>' + CATALOGOS.vehiculos.map(v=>`<option value="${esc(v.id)}">${esc(v.placas)}${v.config_vehicular ? ` · ${esc(v.config_vehicular)}` : ''}</option>`).join('');
       filterRutasForTransfer();
-      renderCartaPorteWizard();
-      if(document.getElementById('panel-carta-catalogos')?.classList.contains('active')) renderAssistantCpCatalogs();
+      if(document.getElementById('panel-carta-porte')?.classList.contains('active')){
+        if(ACTIVE_CP_TAB === 'configuracion') renderAssistantCpCatalogs();
+        else renderCartaPorteWizard();
+      }
     }
     function isStation(f){
       const text = ['tipo_instalacion','tipo_permiso','descripcion','nombre','actividad_sat'].map(k => String(f?.[k]||'').toLowerCase()).join(' ');
@@ -1028,7 +1071,7 @@
       });
       rutaSelect.innerHTML = '<option value="">Selecciona ruta</option>' + rutas.map(r=>`<option value="${esc(r.id)}">${esc(r.nombre)}${r.distancia_km ? ` · ${esc(r.distancia_km)} km` : ''}</option>`).join('');
       if(rutas.length === 1) rutaSelect.value = String(rutas[0].id);
-      if(origen && destino && !rutas.length) setStatus('facturaMsg','No hay ruta para ese origen/destino. Crea o edita la ruta en Catálogos Carta Porte.',false);
+      if(origen && destino && !rutas.length) setStatus('facturaMsg','No hay ruta para ese origen/destino. Crea o edita la ruta en Carta Porte > Configuración.',false);
       updateTransferReady();
     }
     function cpMeta(row){ return row?.metadata && typeof row.metadata === 'object' ? row.metadata : {}; }
@@ -1040,10 +1083,40 @@
     function cpOption(rows, labelFn){
       return '<option value="">Selecciona</option>' + (rows || []).map(r=>`<option value="${esc(r.id)}">${esc(labelFn(r))}</option>`).join('');
     }
+    function setCartaPorteButton(loading=false){
+      const btn = document.getElementById('cpStampBtn');
+      if(!btn) return;
+      btn.disabled = !!loading;
+      if(loading) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando...';
+      else btn.innerHTML = CP_PREVIEW_VALIDO ? '<i class="fa-solid fa-stamp"></i> Timbrar Carta Porte' : '<i class="fa-solid fa-eye"></i> Preparar vista previa';
+    }
+    function resetCartaPorteState(opts={}){
+      CP_PREVIEW_VALIDO = false;
+      CP_PREVIEW_READY = false;
+      CP_FINAL_PAYLOAD = null;
+      const preview = document.getElementById('cpPreview');
+      if(preview) preview.innerHTML = '';
+      if(opts.clearForm){
+        ['cpRuta','cpOrigen','cpDestino','cpVehiculo','cpChofer','cpMercancia'].forEach(id => {
+          const el = document.getElementById(id);
+          if(el) el.value = '';
+        });
+        const now = localDateTimeValue();
+        if(window.cpSalida) cpSalida.value = now;
+        if(window.cpLlegada) cpLlegada.value = now;
+        if(window.cpDistancia) cpDistancia.value = '0';
+        if(window.cpLitros) cpLitros.value = '0';
+        updateCpPeso();
+      }
+      setCartaPorteButton(false);
+      if(!opts.keepStatus) setStatus('cpMsg','');
+    }
     function renderCartaPorteWizard(){
       const host = document.getElementById('cartaPorteWizard');
-      if(!host || tipoOperacion.value !== 'carta_porte') return;
+      if(!host) return;
+      CP_PREVIEW_VALIDO = false;
       CP_PREVIEW_READY = false;
+      CP_FINAL_PAYLOAD = null;
       const now = localDateTimeValue();
       const rutasOpts = cpOption(CATALOGOS.rutas, r => `${r.nombre || 'Ruta'}${r.distancia_km ? ` · ${r.distancia_km} km` : ''}`);
       const ubicOrigen = (CATALOGOS.instalaciones || CATALOGOS.ubicaciones || []).filter(u => ['origen','ambos',''].includes(u.tipo || ''));
@@ -1076,7 +1149,7 @@
             <h3>3. Mercancía</h3>
             <div class="form-grid">
               <div><label>Mercancía</label><select id="cpMercancia" onchange="invalidateCpPreview();updateCpPeso()">${cpOption(CATALOGOS.mercancias, m => `${m.alias || m.descripcion || 'Mercancía'}${m.factor_kg_litro ? ` · ${m.factor_kg_litro} kg/L` : ''}`)}</select></div>
-              <div><label>Litros</label><input id="cpLitros" type="number" min="0" step="0.00001" value="${esc(litros.value || 0)}" oninput="litros.value=this.value;invalidateCpPreview();updateCpPeso();updateTotals()"></div>
+              <div><label>Litros</label><input id="cpLitros" type="number" min="0" step="0.00001" value="0" oninput="invalidateCpPreview();updateCpPeso()"></div>
               <div><label>Peso estimado kg</label><input id="cpPeso" class="locked-field" readonly value="0"></div>
             </div>
           </div>
@@ -1086,6 +1159,7 @@
           </div>
         </div>`;
       updateCpPeso();
+      setCartaPorteButton(false);
     }
     function applyCpRutaDefaults(){
       const ruta = (CATALOGOS.rutas || []).find(r => String(r.id) === String(cpRuta?.value));
@@ -1106,16 +1180,18 @@
       const instalaciones = CATALOGOS.instalaciones || CATALOGOS.ubicaciones || [];
       const origen = instalaciones.find(u => String(u.id) === String(cpOrigen?.value));
       const destino = instalaciones.find(u => String(u.id) === String(cpDestino?.value));
-      const litrosNum = Number(cpLitros?.value || litros.value || 0);
+      const litrosNum = Number(cpLitros?.value || 0);
       const factor = Number(merc?.factor_kg_litro || 0);
       const peso = litrosNum * factor;
       return {merc, veh, chofer, origen, destino, litrosNum, peso};
     }
     function invalidateCpPreview(){
+      CP_PREVIEW_VALIDO = false;
       CP_PREVIEW_READY = false;
+      CP_FINAL_PAYLOAD = null;
       const preview = document.getElementById('cpPreview');
       if(preview) preview.innerHTML = '';
-      if(tipoOperacion.value === 'carta_porte') btnTimbrar.innerHTML = '<i class="fa-solid fa-eye"></i> Preparar Carta Porte / Vista previa';
+      setCartaPorteButton(false);
     }
     function updateCpPeso(){
       const s = selectedCp();
@@ -1125,13 +1201,13 @@
       const needed = [
         ['cpOrigen','origen'],['cpDestino','destino'],['cpVehiculo','vehículo'],['cpChofer','chofer'],['cpMercancia','mercancía']
       ];
-      for(const [id,label] of needed){ if(!document.getElementById(id)?.value){ setStatus('facturaMsg',`Selecciona ${label} para preparar Carta Porte.`,false); return false; } }
+      for(const [id,label] of needed){ if(!document.getElementById(id)?.value){ setStatus('cpMsg',`Selecciona ${label} para preparar Carta Porte.`,false); return false; } }
       const s = selectedCp();
       const km = Number(cpDistancia?.value || 0);
-      if(s.litrosNum <= 0){ setStatus('facturaMsg','Captura litros mayores a cero para Carta Porte.',false); return false; }
-      if(!cpSalida?.value || !cpLlegada?.value){ setStatus('facturaMsg','Captura fecha/hora de salida y llegada para Carta Porte.',false); return false; }
-      if(km <= 0){ setStatus('facturaMsg','Captura distancia recorrida mayor a cero.',false); return false; }
-      if(String(cpOrigen.value) === String(cpDestino.value)){ setStatus('facturaMsg','Origen y destino deben ser distintos.',false); return false; }
+      if(s.litrosNum <= 0){ setStatus('cpMsg','Captura litros mayores a cero para Carta Porte.',false); return false; }
+      if(!cpSalida?.value || !cpLlegada?.value){ setStatus('cpMsg','Captura fecha/hora de salida y llegada para Carta Porte.',false); return false; }
+      if(km <= 0){ setStatus('cpMsg','Captura distancia recorrida mayor a cero.',false); return false; }
+      if(String(cpOrigen.value) === String(cpDestino.value)){ setStatus('cpMsg','Origen y destino deben ser distintos.',false); return false; }
       const vehMd = cpMeta(s.veh);
       const choferMd = cpMeta(s.chofer);
       const missing = [];
@@ -1142,7 +1218,7 @@
       if(s.merc?.material_peligroso){ req('clave material peligroso', s.merc?.clave_material_peligroso); req('embalaje SAT', s.merc?.embalaje); }
       req('placas', s.veh?.placas); req('configuración vehicular', s.veh?.config_vehicular); req('permiso SCT/SICT', s.veh?.permiso_cre); req('número permiso', vehMd.numero_permiso); req('aseguradora RC', s.veh?.aseguradora); req('póliza RC', s.veh?.poliza_seguro);
       req('chofer', s.chofer?.nombre); req('licencia', s.chofer?.licencia); req('tipo figura', choferMd.tipo_figura);
-      if(missing.length){ setStatus('facturaMsg',`Carta Porte incompleta. Falta: ${missing.join(', ')}.`,false); return false; }
+      if(missing.length){ setStatus('cpMsg',`Carta Porte incompleta. Falta: ${missing.join(', ')}.`,false); return false; }
       const html = [
         ['Origen', cpName('instalaciones', cpOrigen.value)], ['Destino', cpName('instalaciones', cpDestino.value)], ['Distancia', `${cpDistancia.value || 0} km`],
         ['Vehículo', cpName('vehiculos', cpVehiculo.value)], ['Placas', s.veh?.placas || '—'], ['Chofer', s.chofer?.nombre || '—'],
@@ -1151,9 +1227,11 @@
         ['Salida', (cpSalida.value || '').replace('T',' ')], ['Llegada', (cpLlegada.value || '').replace('T',' ')]
       ].map(([k,v])=>`<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
       cpPreview.innerHTML = html;
+      CP_FINAL_PAYLOAD = cartaPortePayload();
+      CP_PREVIEW_VALIDO = true;
       CP_PREVIEW_READY = true;
-      btnTimbrar.innerHTML = '<i class="fa-solid fa-stamp"></i> Timbrar Carta Porte';
-      setStatus('facturaMsg','Vista previa Carta Porte preparada. Revisa los datos y confirma para timbrar CFDI tipo T.');
+      setCartaPorteButton(false);
+      setStatus('cpMsg','Vista previa Carta Porte preparada. Revisa los datos y confirma para timbrar CFDI tipo T.');
       return true;
     }
     function cartaPortePayload(){
@@ -1169,7 +1247,7 @@
         nombre_cliente: issuerFiscalName(),
         domicilio_cliente: issuerCp() || '00000',
         uso_cfdi: 'S01',
-        facility_id: Number(facilitySelect.value || 0) || null,
+        facility_id: Number(cpOrigen.value || 0) || null,
         origen_facility_id: Number(cpOrigen.value),
         destino_facility_id: Number(cpDestino.value),
         vehiculo_id: Number(cpVehiculo.value),
@@ -1182,27 +1260,39 @@
       };
     }
     async function timbrarCartaPorteGasLp(){
-      if(!CP_PREVIEW_READY && !prepararCartaPortePreview()) return;
+      if(!CP_PREVIEW_VALIDO && !prepararCartaPortePreview()) return;
       const s = selectedCp();
       const confirmed = confirm(`Timbrar Carta Porte tipo T?\n\nOrigen: ${cpName('instalaciones', cpOrigen.value)}\nDestino: ${cpName('instalaciones', cpDestino.value)}\nVehículo: ${s.veh?.placas || ''}\nChofer: ${s.chofer?.nombre || ''}\nLitros: ${fmt(s.litrosNum)}\nPeso: ${s.peso.toFixed(3)} kg`);
       if(!confirmed) return;
       isStamping = true;
-      setStampingButton(true);
-      setStatus('facturaMsg','Enviando Carta Porte a SW Sapiens...');
+      setCartaPorteButton(true);
+      setStatus('cpMsg','Enviando Carta Porte a SW Sapiens...');
       try{
-        const data = await api('/api/internal-auth/gas-lp/carta-porte',{method:'POST',body:JSON.stringify(cartaPortePayload()),timeoutMs:90000});
-        suppressFacturaStatus = true;
-        try{ resetFacturaFormAfterSuccess({silent:true}); }finally{ suppressFacturaStatus = false; }
+        const data = await api('/api/internal-auth/gas-lp/carta-porte',{method:'POST',body:JSON.stringify(CP_FINAL_PAYLOAD || cartaPortePayload()),timeoutMs:90000});
         try{ await loadFacturas(); }catch(_e){}
         const validation = data.carta_porte_validation?.ok ? ' · Carta Porte validada' : (data.carta_porte_validation?.missing_key_nodes?.length ? ` · alerta: faltan ${data.carta_porte_validation.missing_key_nodes.join(', ')}` : '');
-        renderFacturaSuccess(data, validation);
+        const id = encodeURIComponent(data.id || data.factura?.id || '');
+        const q = `token=${encodeURIComponent(token)}`;
+        const pdfUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/pdf?${q}` : '';
+        const xmlUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/xml?${q}` : '';
+        setStatus('cpMsg',`Carta Porte timbrada correctamente.${validation}`);
+        cpMsg.innerHTML = `${esc(cpMsg.textContent)} ${pdfUrl ? `<a class="btn ghost" href="${pdfUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF Carta Porte</a>` : ''} ${xmlUrl ? `<a class="btn ghost" href="${xmlUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML Carta Porte</a>` : ''}`;
+        resetCartaPorteState({clearForm:true, keepStatus:true});
       }catch(e){
         const backendDetail = e.response?.detail || e.response?.message;
-        setStatus('facturaMsg', detailText(backendDetail, e.message), false);
+        setStatus('cpMsg', detailText(backendDetail, e.message), false);
       }finally{
         isStamping = false;
-        setStampingButton(false);
+        setCartaPorteButton(false);
       }
+    }
+    async function handleCartaPorteAction(){
+      if(isStamping){
+        setStatus('cpMsg','Ya se está timbrando una Carta Porte. Espera a que termine el proceso.',false);
+        return;
+      }
+      if(CP_PREVIEW_VALIDO) await timbrarCartaPorteGasLp();
+      else prepararCartaPortePreview();
     }
     let assistantCpKind = 'vehiculos';
     let assistantCpEdit = {kind:'', id:null};
@@ -1241,7 +1331,7 @@
         <style>
           .acp-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px}.acp-tabs{display:flex;gap:8px;overflow:auto;border-bottom:1px solid var(--line);margin-bottom:12px}.acp-tabs button{border:0;background:transparent;border-bottom:3px solid transparent;padding:10px 12px;font-weight:900;color:var(--muted);cursor:pointer;white-space:nowrap}.acp-tabs button.active{color:var(--wine2);border-color:var(--wine);background:#fff7ed}.acp-tools{display:flex;gap:10px;align-items:end;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.acp-tools input{max-width:360px}.acp-form{border:1px solid var(--line);background:#fbfaf8;border-radius:8px;padding:12px;margin-bottom:12px}.acp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.acp-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.acp-card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px;display:grid;gap:7px}.acp-card h3{margin:0 0 2px}.acp-line{color:var(--muted);font-size:12px;line-height:1.4}.acp-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.acp-badge{display:inline-flex;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:900;width:max-content}
         </style>
-        <div class="acp-head"><div><h2>Catálogos Carta Porte</h2><p class="muted" style="margin:4px 0 0">Vehículos, choferes, mercancías, rutas e instalaciones de Administración habilitadas para Carta Porte.</p></div><button class="btn ghost" type="button" onclick="loadCatalogos()"><i class="fa-solid fa-arrows-rotate"></i> Actualizar</button></div>
+        <div class="acp-head"><div><h2>Configuración Carta Porte</h2><p class="muted" style="margin:4px 0 0">Vehículos, choferes, mercancías, rutas e instalaciones de Administración habilitadas para Carta Porte.</p></div><button class="btn ghost" type="button" onclick="loadCatalogos()"><i class="fa-solid fa-arrows-rotate"></i> Actualizar</button></div>
         <div class="acp-tabs">${['vehiculos','choferes','instalaciones','mercancias','rutas'].map(k=>`<button class="${k===assistantCpKind?'active':''}" type="button" onclick="assistantCpKind='${k}';assistantCpEdit={kind:'',id:null};assistantCpPanelOpen=false;assistantCpSearch='';renderAssistantCpCatalogs()">${acpCfg(k).label}</button>`).join('')}</div>
         <div class="acp-tools"><input placeholder="Buscar en ${esc(acpCfg(assistantCpKind).label.toLowerCase())}" value="${esc(assistantCpSearch)}" oninput="assistantCpSearch=this.value;renderAssistantCpCatalogs()">${assistantCpKind==='instalaciones' ? '' : `<button class="btn" type="button" onclick="assistantCpEdit={kind:'',id:null};assistantCpPanelOpen=true;renderAssistantCpCatalogs()"><i class="fa-solid fa-plus"></i> Nuevo</button>`}</div>
         ${renderAssistantCpForm()}
@@ -1315,6 +1405,7 @@
       renderAssistantCpCatalogs();
     }
     function updateOperacionUI(){
+      if(!['venta','traspaso'].includes(tipoOperacion.value || '')) tipoOperacion.value = 'venta';
       const previousOperation = ACTIVE_OPERATION;
       const operationChanged = previousOperation !== tipoOperacion.value;
       ACTIVE_OPERATION = tipoOperacion.value;
@@ -1323,22 +1414,20 @@
         applyConfiguredPrice({silent:true});
       }
       const traspaso = tipoOperacion.value === 'traspaso';
-      const cartaPorte = tipoOperacion.value === 'carta_porte';
-      CP_PREVIEW_READY = false;
+      const cartaPorte = false;
       const transferHidden = [clienteField,facturaGlobalField,clientePreview,conceptoField,precioField,descuentoTipoField,ivaField,metodoPagoField,formaPagoField];
       transferHidden.forEach(el => el.classList.toggle('hide', traspaso || cartaPorte));
       if(traspaso || cartaPorte) descuentoField.classList.add('hide');
       destinoField.classList.toggle('hide', !traspaso);
       cartaPorteField.classList.add('hide');
       [vehiculoField,choferField,rutaField].forEach(el => el.classList.add('hide'));
-      cartaPorteWizard.classList.toggle('hide', !cartaPorte);
       facturaGlobalField.classList.add('hide');
       transferPanel.classList.toggle('hide', !traspaso);
       cartaPorteNotice.classList.toggle('hide', !cartaPorte);
       publicoGeneralToolbar.classList.toggle('hide', traspaso || cartaPorte);
       btnPublicoGeneral.disabled = traspaso || cartaPorte;
       btnTimbrar.disabled = false;
-      btnTimbrar.innerHTML = traspaso ? '<i class="fa-solid fa-right-left"></i> Timbrar traspaso' : (cartaPorte ? '<i class="fa-solid fa-eye"></i> Preparar Carta Porte / Vista previa' : '<i class="fa-solid fa-stamp"></i> Timbrar factura');
+      btnTimbrar.innerHTML = traspaso ? '<i class="fa-solid fa-right-left"></i> Timbrar traspaso' : '<i class="fa-solid fa-stamp"></i> Timbrar factura';
       comentariosLabel.textContent = traspaso ? 'Comentarios / referencia interna' : 'Comentarios para el cliente';
       concepto.value = CONCEPTOS_FACTURA.gas_lp_litro.descripcion;
       transferInternalReceiver.textContent = internalReceiverText();
@@ -1358,8 +1447,6 @@
         metodoPago.disabled = false;
         formaPago.disabled = false;
         precioUnitario.disabled = false;
-        renderCartaPorteWizard();
-        setStatus('facturaMsg','Carta Porte se prepara en vista previa. No se timbra desde este flujo.');
       } else {
         metodoPago.disabled = false;
         formaPago.disabled = false;
@@ -1590,6 +1677,8 @@
       ensureFolio();
       invoiceConfirmModal?.classList.add('hide');
       invoiceConfirmResolver = null;
+      CP_PREVIEW_VALIDO = false;
+      CP_FINAL_PAYLOAD = null;
       CP_PREVIEW_READY = false;
       updateOperacionUI();
       filterRutasForTransfer();
@@ -1641,6 +1730,11 @@
     async function crearFactura(){
       if(isStamping){
         setStatus('facturaMsg','Ya se está timbrando esta factura. Espera a que termine el proceso.',false);
+        return;
+      }
+      if(tipoOperacion.value === 'carta_porte'){
+        switchPortalTab('carta-porte');
+        await handleCartaPorteAction();
         return;
       }
       const litrosVal = Number(litros.value || 0);
