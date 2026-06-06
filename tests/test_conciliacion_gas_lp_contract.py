@@ -16,8 +16,18 @@ import routes.internal_users as internal_users
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _expand_frontend_includes(source):
+    import re
+
+    def repl(match):
+        rel_path = match.group(1)
+        return _expand_frontend_includes((ROOT / "templates" / rel_path).read_text(encoding="utf-8"))
+
+    return re.sub(r"<!--\s*ge-include:\s*([A-Za-z0-9_./-]+\.html)\s*-->", repl, source)
+
+
 def _assistant_frontend_source():
-    template = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+    template = _expand_frontend_includes((ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8"))
     assets = [
         ROOT / "static/css/gas_lp/asistente.css",
         *sorted((ROOT / "static/js/gas_lp/asistente").glob("*.js")),
@@ -26,7 +36,7 @@ def _assistant_frontend_source():
 
 
 def _conciliacion_frontend_source():
-    template = (ROOT / "templates" / "conciliacion_gas_lp.html").read_text(encoding="utf-8")
+    template = _expand_frontend_includes((ROOT / "templates" / "conciliacion_gas_lp.html").read_text(encoding="utf-8"))
     assets = [
         ROOT / "static/css/gas_lp/conciliacion.css",
         *sorted((ROOT / "static/js/gas_lp/conciliacion").glob("*.js")),
