@@ -357,7 +357,9 @@ def build_carta_porte_xml(
         and str(clave_unidad).strip().upper() == "LTR"
         and str(cve_material).strip() == "1075"
     )
-    embalaje = mercancia.get("embalaje") or mercancia.get("embalaje_sat") or ("4H2" if is_gas_lp_cp else "")
+    embalaje = mercancia.get("embalaje") or mercancia.get("embalaje_sat") or ("Z01" if is_gas_lp_cp else "")
+    if is_gas_lp_cp and str(embalaje).strip().upper() == "4H2":
+        embalaje = "Z01"
     descrip_embalaje = mercancia.get("descripcion_embalaje") or ""
     distancia_km    = round(float((ruta or {}).get("distancia_km", 1) or 1), 1)
     id_ccp = _cp_normalize_id_ccp(entrega.get("id_ccp"))
