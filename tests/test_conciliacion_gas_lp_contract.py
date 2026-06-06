@@ -29,10 +29,14 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
         "Facturas",
         "Facturar Público General",
         "Complementos de pago",
-        "Exportaciones",
         "Cancelación / Consulta SAT",
     ):
         assert label in html
+    assert 'data-tab="exportaciones"' not in html
+    assert 'data-section="exportaciones"' not in html
+    assert "facturas-export-actions" in html
+    assert "Descargar mes" in html
+    assert "Descargar día" in html
 
     assert "/api/internal-auth/gas-lp/conciliacion/summary" in html
     assert "/api/internal-auth/gas-lp/conciliacion/facturar-publico-general" in html
@@ -84,6 +88,50 @@ def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
         "descuento:publicoDiscountPerLiter",
     ):
         assert token in conciliacion_html
+
+
+def test_asistente_credito_ppd_dashboard_has_config_shortcut_and_bottom_detail():
+    assistant_html = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+
+    for token in (
+        "configureDashboardClient",
+        "dashboard-policy-btn",
+        "clienteCreditFields",
+        "renderDashboard();",
+        '<div class="dashboard-layout">',
+        "Facturas del cliente",
+    ):
+        assert token in assistant_html
+
+    assert "grid-template-columns:1.35fr .85fr" not in assistant_html
+
+
+def test_gas_lp_cliente_credit_policy_is_mirrored_in_metadata():
+    payload = internal_users.GasLpInternalClientePayload(
+        rfc="CJE861017DB4",
+        nombre="CARNICOS DE JEREZ",
+        cp="99300",
+        regimen_fiscal="601",
+        uso_cfdi="G03",
+        credito_habilitado=True,
+        dias_credito=60,
+        limite_credito=1000,
+        credito_notas="Autorizado",
+    )
+    row = internal_users._gas_lp_cliente_row(
+        {"owner_user_id": "00000000-0000-0000-0000-000000000001", "tenant_id": None, "perfil_id": 1, "id": "assistant-1"},
+        payload,
+    )
+
+    assert row["credito_habilitado"] is True
+    assert row["dias_credito"] == 60
+    assert row["metadata"]["credito_ppd"]["dias_credito"] == 60
+
+    fallback = internal_users._normalize_gas_lp_cliente_credit(
+        {"metadata": {"credito_ppd": row["metadata"]["credito_ppd"]}}
+    )
+    assert fallback["credito_habilitado"] is True
+    assert fallback["dias_credito"] == 60
 
 
 def test_conciliacion_publico_general_payload_keeps_operational_defaults():
