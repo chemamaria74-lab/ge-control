@@ -17,18 +17,12 @@
 
 html {
   font-family: var(--ge-font);
-  width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
 }
 
 body {
   font-family: var(--ge-font) !important;
   background: var(--ge-bg) !important;
   color: var(--ge-black) !important;
-  width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
 }
 
 ::selection {
@@ -313,23 +307,6 @@ th {
   margin-right: auto;
 }
 
-img,
-svg,
-canvas,
-video {
-  max-width: 100%;
-}
-
-.table-wrap,
-.quick-user-table,
-[style*="overflow:auto"],
-[style*="overflow: auto"],
-[style*="overflow-x:auto"],
-[style*="overflow-x: auto"] {
-  max-width: 100%;
-  -webkit-overflow-scrolling: touch;
-}
-
 @media (max-width: 720px) {
   .ge-logo-full {
     display: none !important;
@@ -344,8 +321,6 @@ video {
     min-height: 62px;
     padding: 10px 12px;
     gap: 8px;
-    overflow-x: visible;
-    flex-wrap: wrap;
   }
 
   .topbar .logo span,
@@ -381,72 +356,5 @@ video {
   .tabs-bar::-webkit-scrollbar,
   .main-nav-tabs::-webkit-scrollbar {
     display: none;
-  }
-
-  .main,
-  .container,
-  main {
-    max-width: 100%;
-  }
-
-  .card,
-  .stat,
-  .login-card,
-  .choice-card {
-    max-width: 100%;
-  }
-
-  input,
-  select,
-  textarea,
-  button,
-  .btn {
-    min-height: 44px;
-  }
-
-  input,
-  select,
-  textarea {
-    font-size: 16px !important;
-  }
-
-  .actions,
-  .toolbar,
-  .btn-row,
-  .section-hdr,
-  .hdr {
-    align-items: stretch;
-  }
-
-  .toolbar > *,
-  .actions > *,
-  .btn-row > * {
-    min-width: 0 !important;
-  }
-
-  .table-wrap table,
-  .quick-user-table table,
-  [style*="overflow:auto"] table,
-  [style*="overflow: auto"] table,
-  [style*="overflow-x:auto"] table,
-  [style*="overflow-x: auto"] table {
-    min-width: 640px;
-  }
-}
-
-@media (max-width: 480px) {
-  .topbar-right,
-  header .topbar-right {
-    width: 100%;
-    margin-left: 0;
-    min-width: 0;
-    flex-wrap: wrap;
-  }
-
-  .topbar .badge,
-  header .badge {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 }
