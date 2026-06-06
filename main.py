@@ -12,7 +12,6 @@ from routes.upload      import router as upload_router
 from routes.cfdi        import router as cfdi_router
 from routes.transporte  import router as transporte_router
 from routes.transporte_operator_detected import router as transporte_operator_detected_router
-from routes.gasolineras import router as gasolineras_router
 from routes.settings    import router as settings_router
 from routes.auth        import router as auth_router
 from routes.history     import router as history_router
@@ -163,7 +162,7 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 # ── App FastAPI ───────────────────────────────────────────────────────────────
 app = FastAPI(
     title="GE CONTROL",
-    description="Plataforma inteligente de control operativo para Gas LP, Transporte y Gasolineras.",
+    description="Plataforma inteligente de control operativo para Gas LP y Transporte.",
     version="3.5.0",
 )
 
@@ -237,7 +236,6 @@ app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
 app.include_router(internal_users_router, prefix="/api", tags=["Usuarios internos"])
 app.include_router(transporte_router,  prefix="/api", tags=["Transporte"])
 app.include_router(transporte_operator_detected_router, prefix="/api", tags=["Transporte Operador"])
-app.include_router(gasolineras_router, prefix="/api", tags=["Gasolineras"])
 
 # ── Archivos estáticos ────────────────────────────────────────────────────────
 app.mount(
@@ -319,6 +317,8 @@ async def login_view(modulo: str, request: Request):
     """Pantalla de login parametrizada por módulo."""
     modulo = modulo.replace("-", "_")
     intent = (request.query_params.get("intent") or "").lower()
+    if modulo not in {"gas_lp", "transporte"}:
+        raise HTTPException(404, "Módulo no disponible.")
 
     if modulo == "gas_lp" and "asistente" in intent:
         lang = request.query_params.get("lang")
@@ -332,11 +332,6 @@ async def login_view(modulo: str, request: Request):
         color_secundario  = "#5B0F1D"
         icon_module       = "fa-truck"
         nombre_modulo     = "Transporte"
-    elif modulo == "gasolineras":
-        color_primario    = "#7A1E2C"
-        color_secundario  = "#5B0F1D"
-        icon_module       = "fa-gas-pump"
-        nombre_modulo     = "Gasolineras"
     else:
         color_primario    = "#7A1E2C"
         color_secundario  = "#5B0F1D"
@@ -491,23 +486,6 @@ async def frontend_conciliacion_gas_lp():
 async def frontend_asistente_gas_lp():
     """Dashboard limitado para asistentes internos Gas LP."""
     return _render_html_file("asistente_gas_lp.html")
-
-
-@app.get("/gasolineras", response_class=HTMLResponse, include_in_schema=False)
-async def frontend_gasolineras():
-    """Sirve el frontend del módulo Gasolineras."""
-    with open(os.path.join(BASE_DIR, "templates", "gasolineras.html"), encoding="utf-8") as f:
-        html = f.read().replace(
-            '<link rel="stylesheet" href="/static/css/ge-brand.css">',
-            '<link rel="stylesheet" href="/static/css/ge-brand.css">\n<link rel="stylesheet" href="/static/css/gasolineras_enterprise.css">',
-        ).replace(
-            '<span class="badge"><i class="fa-solid fa-gas-pump"></i> Mercado MX</span>',
-            '<span class="badge module"><i class="fa-solid fa-gas-pump"></i> Mercado MX</span><span class="badge" id="topbarVersion">v3.5</span>',
-        ).replace(
-            "</body>",
-            '<script src="/static/js/gasolineras_enterprise.js"></script>\n</body>',
-        )
-        return HTMLResponse(content=_inject_legal_branding(html))
 
 
 @app.get("/terms", response_class=HTMLResponse, include_in_schema=False)
