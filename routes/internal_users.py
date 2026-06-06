@@ -3584,6 +3584,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         "Tipo de documento",
         "UUID",
         "Factura relacionada",
+        "Folio de fact",
         "Cliente",
         "RFC",
         "Fecha emisión/timbrado",
@@ -3611,6 +3612,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
             tipo_doc,
             row.get("uuid_sat") or "",
             "",
+            _gas_lp_factura_folio_label(row),
             _gas_lp_factura_razon_social(row),
             row.get("rfc_receptor") or "",
             _gas_lp_factura_date_key(row),
@@ -3646,6 +3648,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
             "Complemento de pago",
             comp.get("uuid_sat") or "",
             ", ".join(ref for ref in refs if ref),
+            "",
             receptor.get("nombre") or "Cliente",
             receptor.get("rfc") or "",
             str(comp.get("created_at") or "")[:19],
@@ -4284,6 +4287,7 @@ async def gas_lp_conciliacion_export_excel(
         "Tipo de documento",
         "UUID",
         "Factura relacionada",
+        "Folio de fact",
         "Cliente",
         "RFC",
         "Fecha emisión/timbrado",
@@ -4355,6 +4359,7 @@ async def gas_lp_conciliacion_export_excel(
                 "Traspaso" if ((row.get("metadata") or {}).get("tipo_operacion") == "traspaso" or (row.get("metadata") or {}).get("is_transfer")) else "Factura",
                 _excel_text(row.get("uuid_sat") or ""),
                 "",
+                _excel_text(_gas_lp_factura_folio_label(row)),
                 _excel_text(_gas_lp_factura_razon_social(row)),
                 _excel_text(row.get("rfc_receptor") or ""),
                 _excel_text(_gas_lp_factura_date_key(row)),
@@ -4379,7 +4384,7 @@ async def gas_lp_conciliacion_export_excel(
                 exc,
                 traceback.format_exc(),
             )
-            ws.append(["Factura", "", _excel_text(factura_id), "", "", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, "", "", "", ""])
+            ws.append(["Factura", "", _excel_text(factura_id), "", "", "", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, "", "", "", ""])
     for comp in complementos:
         comp_id = _safe_int_id(comp.get("id"))
         rels = comp_rels_by_id.get(comp_id, [])
@@ -4400,6 +4405,7 @@ async def gas_lp_conciliacion_export_excel(
             "Complemento de pago",
             _excel_text(comp.get("uuid_sat") or ""),
             _excel_text(", ".join(ref for ref in refs if ref)),
+            "",
             _excel_text(receptor.get("nombre") or "Cliente"),
             _excel_text(receptor.get("rfc") or ""),
             _excel_text(str(comp.get("created_at") or "")[:19]),
@@ -4415,14 +4421,14 @@ async def gas_lp_conciliacion_export_excel(
             _excel_text(f"Complemento / {comp.get('forma_pago') or ''}".strip(" /")),
             _excel_text(comp.get("status") or "timbrado"),
         ])
-    for width, column in zip([24, 40, 30, 36, 18, 22, 22, 16, 16, 14, 14, 12, 14, 22, 20, 22, 22], "ABCDEFGHIJKLMNOPQ"):
+    for width, column in zip([24, 40, 30, 18, 36, 18, 22, 22, 16, 16, 14, 14, 12, 14, 22, 20, 22, 22], "ABCDEFGHIJKLMNOPQR"):
         ws.column_dimensions[column].width = width
-    for column in ("H", "I", "J", "K"):
+    for column in ("I", "J", "K", "L"):
         for cell in ws[column][1:]:
             cell.number_format = '$#,##0.00'
-    for cell in ws["L"][1:]:
-        cell.number_format = "#,##0.0000"
     for cell in ws["M"][1:]:
+        cell.number_format = "#,##0.0000"
+    for cell in ws["N"][1:]:
         cell.number_format = "#,##0.0000"
 
     stream = BytesIO()
