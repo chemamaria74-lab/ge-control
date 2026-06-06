@@ -59,6 +59,20 @@ Los shells cargan CSS/JS externos y componen HTML con comentarios `<!-- ge-inclu
 
 Los scripts mantienen orden numérico para cargar estado, utilidades, módulos de negocio e inicialización.
 
+En `static/js/app/` el dashboard principal queda dividido en:
+
+- `00_i18n.js`
+- `10_state_helpers.js`
+- `20_auth_transport.js`
+- `30_company_settings.js`
+- `40_facilities_navigation.js`
+- `50_analytics_upload.js`
+- `60_carta_porte_processing_history.js`
+- `70_admin_catalogs_users.js`
+- `80_advanced_autoconsumo_forecast.js`
+- `90_init.js`
+- `90_onboarding.js`
+
 ## Contrato de descuentos
 
 El precio por litro se captura con IVA. Los descuentos tienen contratos distintos:
