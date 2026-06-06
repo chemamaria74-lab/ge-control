@@ -18,6 +18,8 @@
     .today-table-wrap{max-height:500px;overflow:auto;border-top:1px solid #eef2f7}.today-table{table-layout:fixed;font-size:12px;min-width:620px}.today-table th{position:sticky;top:0;z-index:1;padding:7px 8px;background:#f3f1ee}.today-table td{padding:7px 8px;vertical-align:middle;line-height:1.2}.today-table .today-time{width:58px;white-space:nowrap}.today-table .today-client{width:auto;min-width:0}.today-table .today-total{width:86px;white-space:nowrap;text-align:right}.today-table .today-pay{width:88px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.today-table .today-docs{width:138px}.today-client-name{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:900}.today-table .assistant-chip{margin-top:4px;max-width:100%;font-size:10px;padding:2px 6px;gap:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.today-table .assistant-chip i{font-size:10px}.today-table .doc-actions{display:flex;flex-wrap:nowrap;gap:4px;align-items:center}.today-table .doc-actions .btn{width:30px;height:30px;min-width:30px;padding:0;border-radius:7px;font-size:0}.today-table .doc-actions .btn i{font-size:12px;margin:0}.today-table .doc-actions .doc-square,.today-table .doc-actions .doc-email{width:30px}.today-table tr:hover td{background:#fbfaf8}.op-tag{display:inline-flex;align-items:center;border:1px solid #e5e7eb;background:#f8fafc;color:#475569;border-radius:999px;padding:2px 7px;font-size:10.5px;font-weight:900;white-space:nowrap}.op-tag.transfer{border-color:#e9d5ff;background:#faf5ff;color:#6b21a8}.cell-main{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.transfer-route{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25}.cell-sub{display:block;margin-top:2px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .transfer-default-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}.checkline{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:900;color:var(--muted)}.checkline input{width:auto;margin:0}.transfer-default-row .btn{padding:7px 9px;font-size:12px}
     .email-status,.payment-status-badge{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:10.5px;font-weight:900;border:1px solid #e5e7eb;background:#f8fafc;color:#475569;white-space:nowrap}.email-status.sent,.payment-status-badge.paid{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.email-status.missing,.payment-status-badge.partial,.payment-status-badge.pending{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.email-status.error{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.payment-note{display:block;margin-top:3px;color:var(--muted);font-size:10.5px;line-height:1.25;white-space:normal}.facturas-table .pay-cell{white-space:normal}
+    .work-grid{grid-template-columns:minmax(0,1.28fr) minmax(320px,.72fr)}
+    .today-table{min-width:560px;font-size:11.5px}.today-table th{padding:6px 7px}.today-table td{padding:6px 7px}.today-table .today-total{width:78px}.today-table .today-pay{width:78px}.today-table .today-docs{width:112px}.today-table .doc-actions .btn{width:28px;height:28px;min-width:28px}.today-table .doc-actions .doc-square,.today-table .doc-actions .doc-email{width:28px}
     @media(max-width:900px){.top{padding:12px;flex-wrap:wrap}.right{margin-left:0}.brand span{display:none}main{padding:14px}.hero,.company-band{align-items:start;flex-direction:column}.work-grid,.form-grid,.filters,.filters.compact-filters,.filters.month-filters,.optional-grid,.dashboard-grid,.dashboard-layout{grid-template-columns:1fr}.btn{width:100%}.tab-btn{flex:1;justify-content:center}.client-row{grid-template-columns:34px 1fr}.client-actions{grid-column:1 / -1;justify-content:stretch}.icon-btn{width:100%}.compact-card{position:static}.facturas-table{min-width:980px}.facturas-table .doc-actions{flex-wrap:wrap}.facturas-table .doc-actions .btn{width:34px}.facturas-table .doc-actions .doc-square,.facturas-table .doc-actions .doc-email{width:34px}}
   </style>
 </head>
@@ -273,9 +275,8 @@
           <div><label>Nombre fiscal</label><input id="cliNombre" value="PUBLICO EN GENERAL"></div>
           <div><label>CP</label><input id="cliCp" inputmode="numeric" maxlength="5"></div>
           <div><label>Correo oficial/principal</label><input id="cliEmail" type="email" placeholder="cliente@empresa.com"></div>
-          <div><label>Correo adicional 1</label><input id="cliEmailAdicional1" type="email" placeholder="contabilidad@empresa.com"></div>
-          <div><label>Correo adicional 2</label><input id="cliEmailAdicional2" type="email" placeholder="administracion@empresa.com"></div>
-          <div><label>&nbsp;</label><div class="muted" style="font-size:.8rem;padding-top:9px">Máximo 3 correos: 1 principal y 2 adicionales.</div></div>
+          <div><label>Correo adicional</label><input id="cliEmailAdicional1" type="email" placeholder="contabilidad@empresa.com"></div>
+          <div><label>&nbsp;</label><div class="muted" style="font-size:.8rem;padding-top:9px">Máximo 2 correos: 1 principal y 1 adicional.</div></div>
           <div><label>Régimen</label><select id="cliRegimen"></select></div>
           <div><label>Uso CFDI</label><select id="cliUso"></select></div>
         </div>
@@ -335,11 +336,9 @@
       </div>
       <label for="emailModalInput">Correo oficial/principal</label>
       <input id="emailModalInput" type="email" placeholder="cliente@empresa.com">
-      <label for="emailModalExtra1" style="margin-top:10px">Correo adicional 1</label>
+      <label for="emailModalExtra1" style="margin-top:10px">Correo adicional</label>
       <input id="emailModalExtra1" type="email" placeholder="contabilidad@empresa.com">
-      <label for="emailModalExtra2" style="margin-top:10px">Correo adicional 2</label>
-      <input id="emailModalExtra2" type="email" placeholder="administracion@empresa.com">
-      <p class="muted" style="margin:8px 0 0;font-size:.8rem">Máximo 3 correos: 1 principal y 2 adicionales.</p>
+      <p class="muted" style="margin:8px 0 0;font-size:.8rem">Máximo 2 correos: 1 principal y 1 adicional.</p>
       <div class="modal-actions">
         <button class="btn ghost" type="button" onclick="closeEmailModal()">Cancelar</button>
         <button class="btn" id="emailModalSendBtn" type="button" onclick="sendFacturaEmail()"><i class="fa-solid fa-paper-plane"></i> Enviar XML/PDF</button>
@@ -727,28 +726,28 @@
     }
     function clienteEmailAdicionales(c){
       const md = c?.metadata || {};
-      if(Array.isArray(md.invoice_email_additional)) return md.invoice_email_additional.slice(0,2);
-      if(Array.isArray(md.email_adicionales)) return md.email_adicionales.slice(0,2);
-      return [md.email_adicional_1 || c?.email_adicional_1 || '', md.email_adicional_2 || c?.email_adicional_2 || ''].filter(Boolean).slice(0,2);
+      if(Array.isArray(md.invoice_email_additional)) return md.invoice_email_additional.slice(0,1);
+      if(Array.isArray(md.email_adicionales)) return md.email_adicionales.slice(0,1);
+      return [md.email_adicional_1 || c?.email_adicional_1 || ''].filter(Boolean).slice(0,1);
     }
     function emailSlots(primary, extra1='', extra2=''){
-      return [primary, extra1, extra2].map(v => String(v || '').trim().toLowerCase());
+      return [primary, extra1].map(v => String(v || '').trim().toLowerCase());
     }
     function validateEmailSlots(primary, extra1='', extra2='', opts={}){
       const emails = emailSlots(primary, extra1, extra2).filter(Boolean);
       if(!emails.length) return opts.requireEmail ? {ok:false, message:'Captura al menos el correo oficial/principal.'} : {ok:true, emails:[]};
-      if(emails.length > 3) return {ok:false, message:'Máximo 3 correos: 1 principal y 2 adicionales.'};
+      if(emails.length > 2) return {ok:false, message:'Máximo 2 correos: 1 principal y 1 adicional.'};
       if(!emails.every(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) return {ok:false, message:'Captura correos válidos antes de continuar.'};
       if(new Set(emails).size !== emails.length) return {ok:false, message:'No puedes repetir correos del cliente.'};
       return {ok:true, emails};
     }
     function invoiceEmailRecipients(f){
       const md = f?.metadata || {};
-      if(Array.isArray(f?.cliente_email_recipients) && f.cliente_email_recipients.length) return f.cliente_email_recipients.slice(0,3);
-      if(Array.isArray(md.email_recipients) && md.email_recipients.length) return md.email_recipients.slice(0,3);
-      const extras = [md.email_adicional_1 || '', md.email_adicional_2 || ''].filter(Boolean);
+      if(Array.isArray(f?.cliente_email_recipients) && f.cliente_email_recipients.length) return f.cliente_email_recipients.slice(0,2);
+      if(Array.isArray(md.email_recipients) && md.email_recipients.length) return md.email_recipients.slice(0,2);
+      const extras = [md.email_adicional_1 || ''].filter(Boolean);
       const base = md.cliente_email || f?.email_destinatario || md.email_sent_to || md.email_last_attempt_to || '';
-      return [base, ...extras].filter(Boolean).slice(0,3);
+      return [base, ...extras].filter(Boolean).slice(0,2);
     }
     function setPublicoGeneralDefaults(){
       if(descuentoTipo) descuentoTipo.value = 'sin_descuento';
@@ -764,7 +763,6 @@
       cliCp.value = issuerCp();
       cliEmail.value = '';
       if(window.cliEmailAdicional1) cliEmailAdicional1.value = '';
-      if(window.cliEmailAdicional2) cliEmailAdicional2.value = '';
       if(window.cliCreditoHabilitado) cliCreditoHabilitado.value = '0';
       if(window.cliDiasCredito) cliDiasCredito.value = '0';
       if(window.cliLimiteCredito) cliLimiteCredito.value = '';
@@ -1100,7 +1098,6 @@
       cliEmail.value = c.email_facturacion || c.email || '';
       const adicionales = clienteEmailAdicionales(c);
       if(window.cliEmailAdicional1) cliEmailAdicional1.value = adicionales[0] || '';
-      if(window.cliEmailAdicional2) cliEmailAdicional2.value = adicionales[1] || '';
       const credit = clienteCreditFields(c);
       if(window.cliCreditoHabilitado) cliCreditoHabilitado.value = credit.credito_habilitado ? '1' : '0';
       if(window.cliDiasCredito) cliDiasCredito.value = Number(credit.dias_credito || 0);
@@ -1236,7 +1233,7 @@
       const rutasOpts = cpOption(CATALOGOS.rutas, r => `${r.nombre || 'Ruta'}${r.distancia_km ? ` · ${r.distancia_km} km` : ''}${cpRouteTimeMinutes(r) ? ` · ${cpRouteTimeMinutes(r)} min` : ''}`);
       host.innerHTML = `
         <style>
-          .cp-wizard{display:grid;gap:12px}.cp-step{border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px}.cp-step h3{margin:0 0 9px;font-size:15px}.cp-step p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.45}.cp-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.cp-preview div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-preview span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-preview b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-route-hint{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800}
+          .cp-wizard{display:grid;gap:12px}.cp-step{border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px}.cp-step h3{margin:0 0 9px;font-size:15px}.cp-step p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.45}.cp-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.cp-preview div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-preview span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-preview b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-route-hint{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800}.cp-sat-note{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;line-height:1.35}
         </style>
         <div class="cp-wizard">
           <div class="cp-step">
@@ -1263,9 +1260,13 @@
           </div>
           <div class="cp-step">
             <h3>3. Mercancía</h3>
+            <p>Para Carta Porte se envía cantidad en litros y peso en kilogramos. El operador captura litros; el peso se calcula con el factor kg/L configurado para Gas LP.</p>
             <div class="form-grid">
-              <div><label>Litros</label><input id="cpLitros" type="number" min="0" step="0.00001" value="0" oninput="invalidateCpPreview();updateCpPeso()"></div>
-              <div><label>Peso estimado kg</label><input id="cpPeso" class="locked-field" readonly value="0"></div>
+              <div><label>Cantidad SAT en litros</label><input id="cpLitros" type="number" min="0" step="0.00001" value="0" oninput="invalidateCpPreview();updateCpPeso()"><div class="muted" style="font-size:12px;margin-top:4px">Se envía como Cantidad con ClaveUnidad LTR.</div></div>
+              <div><label>Peso SAT en kg</label><input id="cpPeso" class="locked-field" readonly value="0"><div class="muted" style="font-size:12px;margin-top:4px">Se envía como PesoEnKg; UnidadPeso KGM.</div></div>
+              <div><label>Unidad cantidad</label><input class="locked-field" readonly value="LTR - Litro"></div>
+              <div><label>Unidad peso</label><input class="locked-field" readonly value="KGM - Kilogramo"></div>
+              <div class="form-span cp-sat-note">SAT: la mercancía lleva Cantidad/ClaveUnidad y también PesoEnKg; el total de mercancías se reporta con UnidadPeso KGM.</div>
               <div class="form-span"><div id="cpMercanciaSummary" class="cp-preview"><div><span>Mercancía</span><b>Gas LP configurado desde ruta</b></div></div></div>
             </div>
           </div>
@@ -1791,7 +1792,7 @@
     }
     async function saveClienteFromTab(){
       try{
-        const validation = validateEmailSlots(cliEmail.value, cliEmailAdicional1?.value, cliEmailAdicional2?.value);
+        const validation = validateEmailSlots(cliEmail.value, cliEmailAdicional1?.value);
         if(!validation.ok){ setStatus('clientesMsg', validation.message, false); return; }
         const creditoHabilitado = cliCreditoHabilitado?.value === '1';
         const diasCredito = Number(cliDiasCredito?.value || 0);
@@ -1808,7 +1809,7 @@
           uso_cfdi:cliUso.value,
           email:cliEmail.value,
           email_adicional_1:cliEmailAdicional1?.value || '',
-          email_adicional_2:cliEmailAdicional2?.value || '',
+          email_adicional_2:'',
           credito_habilitado: creditoHabilitado,
           dias_credito: diasCredito,
           limite_credito: cliLimiteCredito?.value ? Number(cliLimiteCredito.value) : null,
@@ -2490,10 +2491,9 @@
       if(!f){ alert('No encontré la factura seleccionada. Actualiza el listado.'); return; }
       EMAIL_FACTURA_ID = f.id;
       const md = f.metadata || {};
-      const recipients = md.tipo_operacion === 'traspaso' ? facturaEmailValue(f).split(',').map(x => x.trim()).filter(Boolean).slice(0,3) : invoiceEmailRecipients(f);
+      const recipients = md.tipo_operacion === 'traspaso' ? facturaEmailValue(f).split(',').map(x => x.trim()).filter(Boolean).slice(0,2) : invoiceEmailRecipients(f);
       emailModalInput.value = recipients[0] || '';
       if(window.emailModalExtra1) emailModalExtra1.value = recipients[1] || '';
-      if(window.emailModalExtra2) emailModalExtra2.value = recipients[2] || '';
       emailModalMeta.textContent = `${md.cliente_nombre || f.rfc_receptor || 'Cliente'} · ${f.uuid_sat || 'UUID pendiente'}`;
       setStatus('emailModalStatus','');
       emailModal.classList.remove('hide');
@@ -2506,7 +2506,7 @@
     }
     async function sendFacturaEmail(){
       if(!EMAIL_FACTURA_ID){ setStatus('emailModalStatus','Selecciona una factura.',false); return; }
-      const validation = validateEmailSlots(emailModalInput.value, emailModalExtra1?.value, emailModalExtra2?.value, {requireEmail:true});
+      const validation = validateEmailSlots(emailModalInput.value, emailModalExtra1?.value, '', {requireEmail:true});
       if(!validation.ok){ setStatus('emailModalStatus', validation.message, false); emailModalInput.focus(); return; }
       try{
         emailModalSendBtn.disabled = true;
@@ -2516,7 +2516,7 @@
           body:JSON.stringify({
             email: emailModalInput.value,
             email_adicional_1: emailModalExtra1?.value || '',
-            email_adicional_2: emailModalExtra2?.value || ''
+            email_adicional_2: ''
           })
         });
         setStatus('emailModalStatus',`Correo enviado correctamente a ${validation.emails.join(', ')}`);
