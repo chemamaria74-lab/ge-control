@@ -121,6 +121,17 @@ def test_gas_lp_discount_per_liter_contract():
     assert _attr(xml, ".//cfdi:Concepto", "Descuento") == "409.48"
 
 
+def test_gas_lp_discount_per_liter_matches_visible_summary_example():
+    xml, totals = _gas_lp_xml(litros=10, precio_unitario=10, descuento=1)
+
+    assert totals["subtotal"] == 86.21
+    assert totals["descuento"] == 8.62
+    assert totals["descuento_con_iva"] == 10.0
+    assert totals["iva"] == 12.41
+    assert totals["total"] == 90.0
+    assert _root(xml).attrib["Descuento"] == "8.62"
+
+
 def test_gas_lp_discount_total_base_before_iva_contract():
     xml, totals = _gas_lp_xml(descuento_total_base=100)
     pure = calculate_gas_lp_totals(litros=475, precio_unitario=10.08, descuento_total_base=100)
@@ -133,6 +144,27 @@ def test_gas_lp_discount_total_base_before_iva_contract():
     assert pure.iva == Decimal("644.41")
     assert pure.total == Decimal("4672.00")
     assert _root(xml).attrib["Descuento"] == "100.00"
+
+
+def test_gas_lp_discount_total_base_matches_small_visible_summary_example():
+    xml, totals = _gas_lp_xml(litros=10, precio_unitario=10, descuento_total_base=10)
+
+    assert totals["subtotal"] == 86.21
+    assert totals["descuento"] == 10.0
+    assert totals["descuento_con_iva"] == 11.6
+    assert totals["iva"] == 12.19
+    assert totals["total"] == 88.4
+    assert _root(xml).attrib["Descuento"] == "10.00"
+
+
+def test_gas_lp_discount_total_base_matches_large_visible_summary_example():
+    xml, totals = _gas_lp_xml(litros=19863.7853, precio_unitario=11.32, descuento_total_base=165)
+
+    assert totals["subtotal"] == 193843.15
+    assert totals["descuento"] == 165.0
+    assert totals["iva"] == 30988.5
+    assert totals["total"] == 224666.65
+    assert _root(xml).attrib["Descuento"] == "165.00"
 
 
 def test_gas_lp_transfer_symbolic_price_contract():
