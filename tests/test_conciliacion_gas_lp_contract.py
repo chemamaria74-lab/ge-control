@@ -16,6 +16,15 @@ import routes.internal_users as internal_users
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _assistant_frontend_source():
+    template = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+    assets = [
+        ROOT / "static/css/gas_lp/asistente.css",
+        *sorted((ROOT / "static/js/gas_lp/asistente").glob("*.js")),
+    ]
+    return template + "\n" + "\n".join(path.read_text(encoding="utf-8") for path in assets)
+
+
 def _dump_model(model):
     if hasattr(model, "model_dump"):
         return model.model_dump()
@@ -59,7 +68,7 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
 
 
 def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
-    assistant_html = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+    assistant_html = _assistant_frontend_source()
     conciliacion_html = (ROOT / "templates" / "conciliacion_gas_lp.html").read_text(encoding="utf-8")
 
     for token in (
@@ -91,7 +100,7 @@ def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
 
 
 def test_asistente_credito_ppd_dashboard_has_config_shortcut_and_bottom_detail():
-    assistant_html = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+    assistant_html = _assistant_frontend_source()
 
     for token in (
         "configureDashboardClient",
@@ -429,7 +438,7 @@ def test_transfer_email_default_contract_keeps_transfer_email_explicit():
     )
     data = _dump_model(payload)
     create_source = inspect.getsource(internal_users.gas_lp_internal_crear_factura)
-    html = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+    html = _assistant_frontend_source()
 
     assert data["transfer_email_provided"] is True
     assert "payload.transfer_email_provided" in create_source
@@ -438,7 +447,7 @@ def test_transfer_email_default_contract_keeps_transfer_email_explicit():
 
 
 def test_assistant_today_invoices_use_backend_date_key_and_current_month():
-    html = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+    html = _assistant_frontend_source()
 
     assert "month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)" in html
     assert "await loadFacturas(month || todayKey().slice(0,7))" in html
