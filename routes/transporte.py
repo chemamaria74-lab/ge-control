@@ -56,7 +56,7 @@ from pydantic import BaseModel
 
 from routes.auth import obtener_acceso_modulo, require_profile_access, verify_token
 from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user
-from services.product_catalog import get_all_productos, validar_producto_completo
+from services.product_catalog import get_all_productos, get_producto, validar_producto_completo
 from services.cne_validator import validar_num_permiso
 from services.transport_builder import build_cfdi_transporte, build_cfdi_cancelacion_transporte
 from services.service_invoice_builder import build_cfdi_servicio_transporte, money
@@ -76,7 +76,7 @@ from services.cfdi_cancellation import cancel_cfdi_universal
 from services.sat_xml_extractor import extraer_factura_timbrada_sat
 from services.sat_sync_worker import SatSyncWindow, ingest_manual_sat_xmls
 from models.transport_schemas import (
-    ViajeCreate, TimbradoViajeRequest, CancelacionViajeRequest,
+    ViajeCreate, ProductoTransporte, TimbradoViajeRequest, CancelacionViajeRequest,
     FacturaServicioCreate,
     GenerarCovolRequest, ChoferTransporteCreate, VehiculoTransporteCreate,
     RutaTransporteCreate, ClienteTransporteCreate,
@@ -476,6 +476,85 @@ def _productos_from_row(viaje: dict) -> list[dict]:
         return productos if isinstance(productos, list) else []
     except Exception:
         return []
+
+
+def _clean_material_code(value: str) -> str:
+    code = str(value or "").strip().upper()
+    return code[2:] if code.startswith("UN") else code
+
+
+def _producto_operacion_to_producto(row: dict, source: ProductoTransporte) -> ProductoTransporte:
+    clave_producto = str(row.get("clave_producto") or source.clave_producto or "").strip().upper()
+    clave_subproducto = str(row.get("clave_subproducto") or source.clave_subproducto or "").strip().upper()
+    ok, msg = validar_producto_completo(clave_producto, clave_subproducto)
+    if not ok:
+        raise HTTPException(400, f"Producto de catálogo inválido ({row.get('nombre') or row.get('id')}): {msg}")
+    sat = get_producto(clave_producto)
+    clave_prodserv = str(row.get("clave_prodserv_cfdi") or (sat.clave_prod_serv_cfdi if sat else "") or "").strip()
+    cve_material = _clean_material_code(row.get("cve_material_peligroso") or (sat.cve_material_peligroso if sat else ""))
+    embalaje = str(row.get("embalaje") or "").strip().upper() or "Z01"
+    if embalaje == "4H2":
+        embalaje = "Z01"
+    descripcion = str(source.descripcion or row.get("nombre") or (sat.nombre if sat else clave_producto)).strip()
+    densidad = _safe_float(row.get("densidad_kg_l"), _safe_float(getattr(source, "densidad_kg_l", 0.75), 0.75))
+    if densidad <= 0:
+        densidad = 0.75
+    return source.model_copy(update={
+        "producto_operacion_id": int(row["id"]),
+        "clave_producto": clave_producto,
+        "clave_subproducto": clave_subproducto,
+        "descripcion": descripcion,
+        "clave_prodserv_cfdi": clave_prodserv,
+        "unidad": str(row.get("unidad") or getattr(source, "unidad", "LTR") or "LTR").strip().upper(),
+        "densidad_kg_l": densidad,
+        "material_peligroso": bool(row.get("material_peligroso", True)),
+        "cve_material_peligroso": cve_material,
+        "embalaje": embalaje,
+        "temperatura_c": _safe_float(getattr(source, "temperatura_c", 20.0), 20.0),
+    })
+
+
+def _normalizar_productos_viaje(uid: str, token: str, perfil_id: int, productos: list[ProductoTransporte]) -> list[ProductoTransporte]:
+    if not productos:
+        raise HTTPException(400, "Debe especificar al menos un producto para el viaje.")
+    ids = sorted({int(p.producto_operacion_id or 0) for p in productos if p.producto_operacion_id})
+    catalogo: dict[int, dict] = {}
+    if ids:
+        rows = (
+            _sb(token)
+            .table(_TBL_PROD_OPS)
+            .select("*")
+            .eq("user_id", uid)
+            .eq("perfil_id", perfil_id)
+            .eq("activo", True)
+            .in_("id", ids)
+            .execute()
+            .data
+            or []
+        )
+        catalogo = {int(r["id"]): r for r in rows if r.get("id")}
+        faltantes = [str(i) for i in ids if i not in catalogo]
+        if faltantes:
+            raise HTTPException(400, f"Producto de catálogo no encontrado o inactivo: {', '.join(faltantes)}.")
+    normalizados: list[ProductoTransporte] = []
+    for prod in productos:
+        if prod.producto_operacion_id:
+            normalizados.append(_producto_operacion_to_producto(catalogo[int(prod.producto_operacion_id)], prod))
+            continue
+        ok, msg = validar_producto_completo(prod.clave_producto, prod.clave_subproducto)
+        if not ok:
+            raise HTTPException(400, f"Producto inválido: {msg}")
+        sat = get_producto(prod.clave_producto)
+        embalaje = str(getattr(prod, "embalaje", "") or "Z01").strip().upper()
+        if embalaje == "4H2":
+            embalaje = "Z01"
+        normalizados.append(prod.model_copy(update={
+            "clave_prodserv_cfdi": getattr(prod, "clave_prodserv_cfdi", "") or (sat.clave_prod_serv_cfdi if sat else ""),
+            "cve_material_peligroso": _clean_material_code(getattr(prod, "cve_material_peligroso", "") or (sat.cve_material_peligroso if sat else "")),
+            "embalaje": embalaje,
+            "descripcion": prod.descripcion or (sat.nombre if sat else prod.clave_producto),
+        }))
+    return normalizados
 
 
 def _registrar_evento(
@@ -887,11 +966,9 @@ async def crear_viaje(payload: ViajeCreate, authorization: str = Header(default=
     if int(chofer.get("perfil_id") or 0) != pid or int(vehiculo.get("perfil_id") or 0) != pid:
         raise HTTPException(403, "Chofer y vehículo deben pertenecer al mismo perfil del viaje.")
 
-    # Validar todos los productos del viaje
-    for prod in payload.productos:
-        ok, msg = validar_producto_completo(prod.clave_producto, prod.clave_subproducto)
-        if not ok:
-            raise HTTPException(400, f"Producto inválido: {msg}")
+    payload.productos = _normalizar_productos_viaje(uid, token, pid, payload.productos)
+    if payload.productos and not payload.producto_operacion_id:
+        payload.producto_operacion_id = payload.productos[0].producto_operacion_id
 
     # Serializar productos a JSON para almacenar
     productos_json = json.dumps(
@@ -976,10 +1053,9 @@ async def actualizar_viaje(viaje_id: int, payload: ViajeCreate, authorization: s
     vehiculo = _get_vehiculo(uid, token, payload.vehiculo_id)
     if int(chofer.get("perfil_id") or 0) != pid or int(vehiculo.get("perfil_id") or 0) != pid:
         raise HTTPException(403, "Chofer y vehículo deben pertenecer al mismo perfil del viaje.")
-    for prod in payload.productos:
-        ok, msg = validar_producto_completo(prod.clave_producto, prod.clave_subproducto)
-        if not ok:
-            raise HTTPException(400, f"Producto inválido: {msg}")
+    payload.productos = _normalizar_productos_viaje(uid, token, pid, payload.productos)
+    if payload.productos and not payload.producto_operacion_id:
+        payload.producto_operacion_id = payload.productos[0].producto_operacion_id
 
     if payload.ruta_id:
         ruta_res = sb.table(_TBL_RUTAS).select("*").eq("id", payload.ruta_id).eq("user_id", uid).limit(1).execute()
@@ -3706,6 +3782,27 @@ def _clean_catalog_row(payload: dict, allowed: set[str]) -> dict:
     return row
 
 
+def _normalizar_catalogo_producto_operacion(row: dict) -> dict:
+    clave_producto = str(row.get("clave_producto") or "").strip().upper()
+    clave_subproducto = str(row.get("clave_subproducto") or "").strip().upper()
+    ok, msg = validar_producto_completo(clave_producto, clave_subproducto)
+    if not ok:
+        raise HTTPException(400, f"Producto SAT inválido: {msg}")
+    sat = get_producto(clave_producto)
+    row["clave_producto"] = clave_producto
+    row["clave_subproducto"] = clave_subproducto
+    row["clave_prodserv_cfdi"] = row.get("clave_prodserv_cfdi") or (sat.clave_prod_serv_cfdi if sat else "")
+    row["unidad"] = (row.get("unidad") or "LTR").upper()
+    row["material_peligroso"] = bool(row.get("material_peligroso", True))
+    row["cve_material_peligroso"] = _clean_material_code(row.get("cve_material_peligroso") or (sat.cve_material_peligroso if sat else ""))
+    row["embalaje"] = (row.get("embalaje") or "Z01").upper()
+    if row["embalaje"] == "4H2":
+        row["embalaje"] = "Z01"
+    if _safe_float(row.get("densidad_kg_l")) <= 0:
+        row["densidad_kg_l"] = 0.75
+    return row
+
+
 @router.get("/tr/catalogos/{catalogo}")
 async def listar_catalogo_operativo(
     catalogo: str,
@@ -3750,6 +3847,8 @@ async def crear_catalogo_operativo(
         raise HTTPException(400, "Número de permiso requerido.")
     if not row.get("nombre") and catalogo in {"proveedores-operacion", "productos-operacion"}:
         raise HTTPException(400, "Nombre requerido.")
+    if catalogo == "productos-operacion":
+        row = _normalizar_catalogo_producto_operacion(row)
     try:
         res = _sb(token).table(cfg["table"]).insert(row).execute()
     except Exception as e:
@@ -3772,6 +3871,14 @@ async def actualizar_catalogo_operativo(
     uid, token = _auth(authorization)
     pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     row = _clean_catalog_row(payload, cfg["fields"])
+    if catalogo == "productos-operacion":
+        existing_q = _sb(token).table(cfg["table"]).select("*").eq("id", item_id).eq("user_id", uid)
+        if pid:
+            existing_q = existing_q.eq("perfil_id", pid)
+        existing = (existing_q.limit(1).execute().data or [])
+        base = existing[0] if existing else {}
+        row = {**base, **row}
+        row = _normalizar_catalogo_producto_operacion(row)
     row["updated_at"] = datetime.now(timezone.utc).isoformat()
     q = _sb(token).table(cfg["table"]).update(row).eq("id", item_id).eq("user_id", uid)
     if pid:
