@@ -2971,13 +2971,16 @@ async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp", include_
         mercancias = scoped("gas_lp_mercancias_carta_porte").order("alias").execute().data or []
     except Exception:
         mercancias = []
+    instalaciones = _internal_cp_facilities(user)
     return JSONResponse({
         "ok": True,
         "modulo": modulo,
         "choferes": choferes,
         "vehiculos": vehiculos,
         "rutas": rutas,
-        "ubicaciones": ubicaciones,
+        "ubicaciones": instalaciones,
+        "ubicaciones_legacy": ubicaciones,
+        "instalaciones": instalaciones,
         "mercancias": mercancias,
     })
 
@@ -2987,6 +2990,7 @@ def _internal_cp_table(kind: str) -> tuple[str, str]:
         "vehiculos": ("gas_lp_vehiculos", "placas"),
         "choferes": ("gas_lp_choferes", "nombre"),
         "ubicaciones": ("gas_lp_ubicaciones_carta_porte", "alias"),
+        "instalaciones": ("gas_lp_facility_carta_porte_config", "facility_id"),
         "mercancias": ("gas_lp_mercancias_carta_porte", "alias"),
         "rutas": ("gas_lp_rutas", "nombre"),
     }
@@ -3003,6 +3007,87 @@ def _internal_cp_scope_row(user: dict, values: dict) -> dict:
         "perfil_id": user.get("perfil_id"),
         "source": "supabase",
         "modulo_propietario": "gas_lp",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _internal_cp_facility_config_rows(user: dict) -> dict[int, dict]:
+    try:
+        rows = (
+            get_supabase_admin()
+            .table("gas_lp_facility_carta_porte_config")
+            .select("*")
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        rows = []
+    return {int(row.get("facility_id") or 0): row for row in rows if row.get("facility_id")}
+
+
+def _internal_cp_facilities(user: dict) -> list[dict]:
+    facilities = get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+    configs = _internal_cp_facility_config_rows(user)
+    profile = _gas_lp_profile(user)
+    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    company_rfc = profile.get("rfc") or ""
+    company_name = str(settings.get("DescripcionInstalacion") or profile.get("nombre") or "").strip()
+    items = []
+    for facility in facilities:
+        fid = int(facility.get("id") or 0)
+        cfg = configs.get(fid) or {}
+        item = {
+            **facility,
+            "facility_id": fid,
+            "alias": facility.get("nombre") or "",
+            "rfc": company_rfc,
+            "nombre": company_name or facility.get("nombre") or "",
+            "codigo_postal": facility.get("codigo_postal") or "",
+            "estado": cfg.get("estado_sat") or facility.get("estado") or "",
+            "municipio": cfg.get("municipio_sat") or facility.get("municipio") or "",
+            "localidad_colonia": cfg.get("localidad_sat") or facility.get("colonia") or "",
+            "calle": facility.get("calle") or facility.get("domicilio") or facility.get("domicilio_operativo") or "",
+            "numero_exterior": facility.get("num_ext") or "",
+            "numero_interior": facility.get("num_int") or "",
+            "pais": "MEX",
+            "tipo": cfg.get("tipo_ubicacion") or "ambos",
+            "id_ubicacion": cfg.get("id_ubicacion_carta_porte") or "",
+            "id_ubicacion_carta_porte": cfg.get("id_ubicacion_carta_porte") or "",
+            "estado_sat": cfg.get("estado_sat") or "",
+            "municipio_sat": cfg.get("municipio_sat") or "",
+            "localidad_sat": cfg.get("localidad_sat") or "",
+            "referencia_carta_porte": cfg.get("referencia_carta_porte") or "",
+            "activo": cfg.get("activo", True),
+            "metadata": {
+                **(cfg.get("metadata_json") or {}),
+                "facility_id": fid,
+                "cp_config_id": cfg.get("id"),
+            },
+        }
+        items.append(item)
+    return items
+
+
+def _internal_cp_facility_config_payload(user: dict, facility_id: int, params) -> dict:
+    def s(key: str, default: str = "") -> str:
+        return str(params.get(key, default) or "").strip()
+    return {
+        "user_id": user.get("owner_user_id"),
+        "tenant_id": user.get("tenant_id"),
+        "perfil_id": user.get("perfil_id"),
+        "facility_id": facility_id,
+        "id_ubicacion_carta_porte": s("id_ubicacion_carta_porte", s("id_ubicacion")),
+        "tipo_ubicacion": s("tipo_ubicacion", s("tipo", "ambos")),
+        "estado_sat": s("estado_sat"),
+        "municipio_sat": s("municipio_sat"),
+        "localidad_sat": s("localidad_sat"),
+        "referencia_carta_porte": s("referencia_carta_porte"),
+        "activo": s("activo", "true").lower() not in {"0", "false", "no"},
+        "metadata_json": {},
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -3085,9 +3170,9 @@ def _internal_cp_payload(kind: str, params) -> dict:
     return {
         "nombre": s("nombre"),
         "distancia_km": n("distancia_km", 1),
+        "origen_facility_id": opt_int("origen_facility_id"),
+        "destino_facility_id": opt_int("destino_facility_id"),
         "metadata": {
-            "origen_ubicacion_id": opt_int("origen_ubicacion_id"),
-            "destino_ubicacion_id": opt_int("destino_ubicacion_id"),
             "tiempo_estimado": s("tiempo_estimado"),
             "vehiculo_default_id": opt_int("vehiculo_default_id"),
             "chofer_default_id": opt_int("chofer_default_id"),
@@ -3101,6 +3186,8 @@ def _internal_cp_payload(kind: str, params) -> dict:
 async def gas_lp_internal_catalogo_create(kind: str, request: Request, token: str):
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
+    if kind == "instalaciones":
+        raise HTTPException(400, "Las instalaciones se crean en Administración; aquí solo se completa su configuración Carta Porte.")
     table, _order = _internal_cp_table(kind)
     payload = _internal_cp_payload(kind, request.query_params)
     row = _internal_cp_scope_row(user, payload)
@@ -3112,6 +3199,18 @@ async def gas_lp_internal_catalogo_create(kind: str, request: Request, token: st
 async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Request, token: str):
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
+    if kind == "instalaciones":
+        facility = next((f for f in get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id")) if int(f.get("id") or 0) == int(row_id)), None)
+        if not facility:
+            raise HTTPException(404, "Instalación no encontrada para esta empresa.")
+        payload = _internal_cp_facility_config_payload(user, row_id, request.query_params)
+        existing = _internal_cp_facility_config_rows(user).get(int(row_id))
+        sb = get_supabase_admin()
+        if existing:
+            data = sb.table("gas_lp_facility_carta_porte_config").update(payload).eq("id", existing.get("id")).execute().data or []
+        else:
+            data = sb.table("gas_lp_facility_carta_porte_config").insert({**payload, "created_at": datetime.now(timezone.utc).isoformat()}).execute().data or []
+        return JSONResponse({"ok": True, "id": (data[0] if data else payload).get("id")})
     table, _order = _internal_cp_table(kind)
     payload = _internal_cp_payload(kind, request.query_params)
     get_supabase_admin().table(table).update({**payload, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id).eq("user_id", user.get("owner_user_id")).eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id")).execute()
@@ -3122,6 +3221,11 @@ async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Reque
 async def gas_lp_internal_catalogo_delete(kind: str, row_id: int, token: str, permanent: bool = False):
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
+    if kind == "instalaciones":
+        cfg = _internal_cp_facility_config_rows(user).get(int(row_id))
+        if cfg:
+            get_supabase_admin().table("gas_lp_facility_carta_porte_config").update({"activo": False, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", cfg.get("id")).execute()
+        return JSONResponse({"ok": True})
     table, _order = _internal_cp_table(kind)
     q = get_supabase_admin().table(table)
     if permanent:
