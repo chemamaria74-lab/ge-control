@@ -1,0 +1,1206 @@
+<body class="tr-company-pending">
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <a href="/" class="logo">
+    <img src="/static/img/ge-isotype-light.svg" alt="GE" class="brand-logo-mark">
+    <span>Transporte</span>
+  </a>
+  <span class="badge module"><i class="fa-solid fa-truck-fast"></i> Transporte</span>
+  <span class="badge" id="topbar-version">v3.5</span>
+  <div class="topbar-right">
+    <span class="badge" id="topbar-rfc">Cargando empresa...</span>
+    <span class="badge" id="topbar-email">—</span>
+    <div class="avatar" id="topbar-avatar">?</div>
+    <button class="btn-sm" onclick="location.href='/choice'">Cambiar módulo</button>
+    <button class="btn-sm" onclick="logout()">Salir</button>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs-bar">
+  <div class="tab active" data-tab="viajes" onclick="switchTab('viajes')">
+    <i class="fa-solid fa-route"></i> Viajes <span class="count" id="cnt-viajes">0</span>
+  </div>
+  <div class="tab" data-tab="dashboard" onclick="switchTab('dashboard')">
+    <i class="fa-solid fa-chart-line"></i> Indicadores
+  </div>
+  <div class="tab" data-tab="facturacion" onclick="switchTab('facturacion')">
+    <i class="fa-solid fa-file-invoice-dollar"></i> Facturación <span class="count" id="cnt-facturas">0</span>
+  </div>
+  <div class="tab" data-tab="covol" onclick="switchTab('covol')">
+    <i class="fa-solid fa-chart-column"></i> Control Volumétrico
+  </div>
+  <div class="tab-menu">
+    <button class="tab tab-menu-btn" type="button">
+      <i class="fa-solid fa-ellipsis"></i> Administración
+    </button>
+    <div class="tab-menu-panel">
+      <button class="tab" type="button" data-tab="operacion" onclick="switchTab('operacion')">
+        <i class="fa-solid fa-clipboard-list"></i> Expediente del viaje
+      </button>
+      <button class="tab" type="button" data-tab="catalogos" onclick="switchTab('catalogos')">
+        <i class="fa-solid fa-table-list"></i> Catálogos
+      </button>
+      <button class="tab" type="button" data-tab="usuarios" onclick="switchTab('usuarios')">
+        <i class="fa-solid fa-users-gear"></i> Usuarios y permisos
+      </button>
+      <button class="tab" type="button" data-tab="analisis" onclick="switchTab('analisis')" style="display:none">
+        <i class="fa-solid fa-chart-simple"></i> Análisis
+      </button>
+      <button class="tab" type="button" data-tab="pronostico" onclick="switchTab('pronostico')" style="display:none">
+        <i class="fa-solid fa-chart-area"></i> Pronóstico
+      </button>
+      <button class="tab" type="button" data-tab="configuracion" onclick="switchTab('configuracion')">
+        <i class="fa-solid fa-gear"></i> Configuración
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<div class="main">
+
+<!-- ════════════════════════════════════════════════════════
+     TAB: VIAJES
+════════════════════════════════════════════════════════ -->
+<div id="tab-dashboard" class="section">
+  <div class="section-hdr"><h2>Dashboard Transporte</h2></div>
+  <div class="grid-4" style="margin-bottom:20px">
+    <div class="stat blue"><div class="stat-label">Viajes</div><div class="stat-value" id="td-viajes">—</div></div>
+    <div class="stat green"><div class="stat-label">Cartas timbradas</div><div class="stat-value" id="td-timbradas">—</div></div>
+    <div class="stat amber"><div class="stat-label">Pendientes</div><div class="stat-value" id="td-pendientes">—</div></div>
+    <div class="stat"><div class="stat-label">Facturación servicio</div><div class="stat-value" id="td-facturacion">—</div></div>
+  </div>
+  <div class="card"><div class="card-title"><i class="fa-solid fa-gauge"></i> Volumen transportado</div><div class="stat-value" id="td-volumen">— L</div></div>
+</div>
+
+<div id="tab-analisis" class="section">
+  <div class="section-hdr"><h2>Análisis Transporte</h2></div>
+  <div class="grid-2">
+    <div class="card"><div class="card-title">Rutas por volumen</div><div id="ta-rutas" class="hint">Cargando...</div></div>
+    <div class="card"><div class="card-title">Productos transportados</div><div id="ta-productos" class="hint">Cargando...</div></div>
+  </div>
+</div>
+
+<div id="tab-pronostico" class="section">
+  <div class="section-hdr"><h2>Pronóstico Transporte</h2></div>
+  <div class="card">
+    <div class="card-title"><i class="fa-solid fa-chart-area"></i> Volumen esperado</div>
+    <div class="stat-value" id="tp-volumen">—</div>
+    <p class="hint" id="tp-modelo">Sin datos suficientes.</p>
+  </div>
+</div>
+
+<div id="tab-viajes" class="section active">
+
+  <div class="section-hdr">
+    <div>
+      <h2>Centro de Control Operativo</h2>
+      <p style="color:var(--text3);font-size:13px;margin-top:2px">Viajes activos, alertas, evidencias, Carta Porte, facturación y liquidación desde un solo tablero.</p>
+    </div>
+    <div class="hdr-actions">
+      <input type="month" id="filtro-periodo-viajes" style="width:160px" onchange="cargarViajes()">
+      <button class="btn btn-primary" onclick="abrirModalViaje()"><i class="fa-solid fa-plus"></i> Nuevo viaje</button>
+    </div>
+  </div>
+
+  <div class="ops-hero">
+    <section class="ops-command">
+      <div class="ops-title">
+        <div>
+          <h1>Viajes al mando</h1>
+          <p>Prioriza lo que necesita acción: operador, unidad, evidencia, gasto, Carta Porte, factura y liquidación.</p>
+        </div>
+        <button class="btn btn-ghost" type="button" onclick="cargarViajes();cargarOperacion();"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+      </div>
+      <div class="ops-quick">
+        <div class="ops-tile"><span>Viajes periodo</span><b id="s-total-viajes">—</b><small id="s-volumen">— L</small></div>
+        <div class="ops-tile warn"><span>Activos</span><b id="s-activos">—</b><small>programados / en ruta</small></div>
+        <div class="ops-tile danger"><span>Con alerta</span><b id="s-alertas">—</b><small>requieren seguimiento</small></div>
+        <div class="ops-tile ok"><span>Listos factura</span><b id="s-listos-factura">—</b><small>Carta Porte vigente</small></div>
+      </div>
+    </section>
+    <section class="ops-alerts">
+      <div class="ops-alerts-head">
+        <h2><i class="fa-solid fa-bell"></i> Alertas operativas</h2>
+        <span class="chip chip-gray" id="ops-alert-count">0</span>
+      </div>
+      <div id="ops-alert-list" class="ops-alert-list">
+        <div class="hint">Cargando alertas...</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="ops-toolbar">
+    <div class="form-group"><label>Estado</label><select id="viaje-filter-status" onchange="renderViajes()"><option value="">Todos</option><option value="programado">Programado</option><option value="en_ruta">En ruta</option><option value="timbrado">Carta Porte timbrada</option><option value="error">Error</option><option value="cancelado">Cancelado</option></select></div>
+    <div class="form-group"><label>Operación</label><select id="viaje-filter-operacion" onchange="renderViajes()"><option value="">Todas</option><option value="programado">Programado</option><option value="asignado">Asignado</option><option value="recibido">Recibido</option><option value="en_ruta">En ruta</option><option value="entregado">Entregado</option><option value="problema">Problema</option><option value="cerrado">Cerrado</option></select></div>
+    <div class="form-group"><label>Carta Porte</label><select id="viaje-filter-cp" onchange="renderViajes()"><option value="">Todas</option><option value="pendiente">Pendiente</option><option value="timbrada">Timbrada</option><option value="error">Error</option><option value="cancelada">Cancelada</option></select></div>
+    <div class="form-group"><label>Factura</label><select id="viaje-filter-factura" onchange="renderViajes()"><option value="">Todas</option><option value="pendiente">Pendiente</option><option value="facturada">Facturada</option></select></div>
+    <div class="form-group ops-search"><label>Buscar</label><input id="viaje-filter-search" placeholder="Cliente, ruta, operador, unidad, UUID, folio..." oninput="renderViajes()"></div>
+    <button class="btn btn-ghost" type="button" onclick="limpiarFiltrosViajes()"><i class="fa-solid fa-filter-circle-xmark"></i> Limpiar</button>
+  </div>
+
+  <div class="ops-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Viaje</th><th>Cliente</th><th>Ruta</th><th>Operador / unidad</th>
+          <th>Carga</th><th>Operación</th><th>Expediente</th><th>Alertas</th><th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-viajes">
+        <tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-truck-fast"></i></div><h3>Cargando centro de control...</h3></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="tab-operacion" class="section">
+  <div class="section-hdr">
+    <div>
+      <h2>Operación Transporte</h2>
+      <p style="color:var(--text3);font-size:13px;margin-top:2px">Expediente del viaje, documentos, tarifas, liquidaciones y bitácora operativa</p>
+    </div>
+    <div class="hdr-actions">
+      <input type="month" id="filtro-periodo-operacion" style="width:160px" onchange="cargarOperacion()">
+      <button class="btn btn-ghost" onclick="abrirImportadorExcel()"><i class="fa-solid fa-file-excel"></i> Importar Excel</button>
+    </div>
+  </div>
+
+  <div class="grid-4" style="margin-bottom:20px">
+    <div class="stat blue"><div class="stat-label">Programados</div><div class="stat-value" id="op-programados">—</div></div>
+    <div class="stat amber"><div class="stat-label">Sin confirmación</div><div class="stat-value" id="op-sin-confirmacion">—</div></div>
+    <div class="stat green"><div class="stat-label">Entregados</div><div class="stat-value" id="op-entregados">—</div></div>
+    <div class="stat"><div class="stat-label">Pendientes liquidación</div><div class="stat-value" id="op-liquidaciones">—</div></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-list-check"></i> Alertas operativas</div>
+      <div id="op-alertas" class="hint">Cargando...</div>
+    </div>
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-link"></i> Portal operador</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Chofer</label><select id="op-chofer-token"></select></div>
+        <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="generarLinkOperador()">Generar link</button></div>
+      </div>
+      <input id="op-link-operador" readonly placeholder="Link del operador..." style="margin-top:8px">
+      <span class="hint">El operador solo ve tarjetas de viaje y 4 botones: recibido, en camino, entregado o problema.</span>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-top:20px">
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-route"></i> Expediente del viaje</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Viaje</label><select id="op-viaje-360"></select></div>
+        <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="cargarViaje360()">Abrir expediente</button></div>
+      </div>
+      <div id="op-viaje360" class="hint">Selecciona un viaje para ver timeline, documentos y datos fiscales/operativos.</div>
+    </div>
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-calendar-week"></i> Programa semanal</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Semana</label><input type="week" id="prog-week" onchange="cargarProgramaSemanal()"></div>
+        <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="cargarProgramaSemanal()">Actualizar</button></div>
+      </div>
+      <div id="op-programa-semanal" class="hint">Los viajes programados aparecerán aquí por día.</div>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-top:20px">
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-money-check-dollar"></i> Liquidaciones</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Chofer</label><select id="liq-chofer"></select></div>
+        <div class="form-group"><label>Periodo</label><input type="month" id="liq-periodo"></div>
+      </div>
+      <div class="form-row cols-3">
+        <div class="form-group">
+          <label>Quincena</label>
+          <select id="liq-periodo-tipo">
+            <option value="q1">1a quincena</option>
+            <option value="q2">2a quincena</option>
+            <option value="mes">Mes completo</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Anticipos</label><input type="number" id="liq-anticipos" step="0.01" value="0"></div>
+        <div class="form-group"><label>Comisión extra</label><input type="number" id="liq-comision" step="0.01" value="0"></div>
+      </div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label>Descuentos</label><input type="number" id="liq-descuentos" step="0.01" value="0"></div>
+        <div class="form-group"><label>Pago nómina</label><input type="number" id="liq-pago-nomina" step="0.01" value="0"></div>
+        <div class="form-group"><label>Pago banco</label><input type="number" id="liq-pago-banco" step="0.01" value="0"></div>
+      </div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label>Diferencia / efectivo</label><input type="number" id="liq-diferencia" step="0.01" value="0"></div>
+        <div class="form-group">
+          <label>Método pago</label>
+          <select id="liq-metodo-pago"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="cheque">Cheque</option><option value="otro">Otro</option></select>
+        </div>
+        <div class="form-group"><label>Referencia</label><input id="liq-referencia" placeholder="Banco, folio o nota"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Notas</label><input id="liq-notas" placeholder="Notas internas de la quincena"></div>
+      </div>
+      <button class="btn btn-primary" onclick="generarLiquidacion()">Generar liquidación</button>
+      <div id="liq-detalle" class="hint" style="margin-top:12px"></div>
+      <div id="op-liquidaciones-list" class="hint" style="margin-top:12px">Sin liquidaciones cargadas.</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:20px">
+    <div class="card-title"><i class="fa-solid fa-tags"></i> Tarifas configurables</div>
+    <div class="form-row cols-4">
+      <div class="form-group"><label>Origen</label><input id="tar-origen" placeholder="Origen"></div>
+      <div class="form-group"><label>Destino</label><input id="tar-destino" placeholder="Destino"></div>
+      <div class="form-group"><label>Producto</label><input id="tar-producto" placeholder="Magna, Diésel, Gas LP..."></div>
+      <div class="form-group"><label>Regla</label><select id="tar-regla"><option value="litros">Litros</option><option value="kilos">Kilos</option><option value="viaje">Viaje</option><option value="distancia">Distancia</option><option value="manual">Manual</option></select></div>
+    </div>
+    <div class="form-row cols-4">
+      <div class="form-group"><label>Tarifa</label><input type="number" id="tar-tarifa" step="0.0001" placeholder="0.00"></div>
+      <div class="form-group"><label>IVA</label><input type="number" id="tar-iva" step="0.01" value="0.16"></div>
+      <div class="form-group"><label>Retención</label><input type="number" id="tar-ret" step="0.01" value="0.04"></div>
+      <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="guardarTarifa()">Guardar tarifa</button></div>
+    </div>
+    <div id="op-tarifas-list" class="hint">Cargando tarifas...</div>
+  </div>
+</div>
+
+<div id="tab-usuarios" class="section">
+  <div class="section-hdr">
+    <div>
+      <h2>Usuarios y permisos</h2>
+      <p style="color:var(--text3);font-size:13px;margin-top:2px">Operadores internos por empresa. No requieren correo ni cuenta Supabase Auth.</p>
+    </div>
+    <button class="btn btn-ghost" onclick="cargarUsuariosInternosTransporte()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+  </div>
+
+  <div class="grid-2" style="gap:20px">
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-user-plus"></i> Crear operador interno</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Nombre <span class="req">*</span></label><input id="iu-nombre" placeholder="Nombre del operador"></div>
+        <div class="form-group"><label>Chofer vinculado <span class="req">*</span></label><select id="iu-chofer"></select></div>
+      </div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label>Código operador</label><input id="iu-code" placeholder="Auto" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="form-group"><label>PIN temporal</label><input id="iu-pin" inputmode="numeric" placeholder="Auto"></div>
+        <div class="form-group"><label>Rol</label><select id="iu-role"><option value="operador">Operador</option><option value="solo_lectura">Solo lectura</option></select></div>
+      </div>
+      <button class="btn btn-primary" onclick="crearUsuarioInternoTransporte()"><i class="fa-solid fa-floppy-disk"></i> Crear usuario</button>
+      <div id="iu-result" class="hint" style="margin-top:10px"></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-shield-halved"></i> Permisos efectivos</div>
+      <div class="hint" style="line-height:1.7">
+        El operador entra por <b>/transporte/operador</b> con código y PIN. Su sesión expira, el PIN se guarda en hash y el acceso se limita a su chofer, viajes, documentos, Carta Porte, quincenas y notificaciones.
+      </div>
+    </div>
+  </div>
+
+  <div class="table-wrap" style="margin-top:20px">
+    <table>
+      <thead><tr><th>Usuario</th><th>Código</th><th>Rol</th><th>Chofer</th><th>Estado</th><th>Último acceso</th><th>Acciones</th></tr></thead>
+      <tbody id="tbody-usuarios-internos">
+        <tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-users"></i></div><h3>Cargando usuarios...</h3></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     TAB: FACTURACIÓN
+════════════════════════════════════════════════════════ -->
+<div id="tab-facturacion" class="section">
+
+  <div class="section-hdr">
+    <div>
+      <h2>Facturación</h2>
+      <p style="color:var(--text3);font-size:13px;margin-top:2px">Carta Porte timbrada y factura del servicio al cliente</p>
+    </div>
+    <div class="hdr-actions">
+      <input type="month" id="filtro-periodo-fact" style="width:160px" onchange="cargarFacturas()">
+      <button class="btn btn-primary" onclick="abrirModalFacturaServicio()"><i class="fa-solid fa-file-invoice-dollar"></i> Facturar servicio</button>
+    </div>
+  </div>
+
+  <div class="alert alert-info" style="margin-bottom:20px">
+    Complemento de Hidrocarburos obligatorio desde el 24 de abril de 2026 (Regla 2.7.1.48 RMF 2026). Cada CFDI incluye automáticamente Carta Porte 3.1 + Complemento Hidrocarburos.
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>UUID SAT</th><th>IdCCP</th><th>Tipo</th><th>RFC Receptor</th>
+          <th>Volumen (L)</th><th>Importe</th><th>Fecha timbrado</th>
+          <th>Status</th><th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-facturas">
+        <tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-file-invoice"></i></div><h3>Cargando facturas...</h3></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-hdr" style="margin-top:24px;margin-bottom:12px">
+    <span style="font-size:15px;font-weight:600">Facturas del servicio de transporte</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Folio</th><th>Cliente</th><th>RFC</th><th>Cartas Porte</th><th>Subtotal</th><th>IVA</th><th>Retención</th><th>Total</th><th>Status</th><th>Fecha</th><th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-facturas-servicio">
+        <tr><td colspan="11"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div><h3>Cargando facturas de servicio...</h3></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     TAB: CONTROL VOLUMÉTRICO
+════════════════════════════════════════════════════════ -->
+<div id="tab-covol" class="section">
+
+  <div class="section-hdr">
+    <h2>Control Volumétrico — JSON/ZIP para el SAT</h2>
+  </div>
+
+  <div class="grid-2" style="gap:24px">
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-chart-column"></i> Generar reporte mensual</div>
+      <div class="alert alert-info" style="margin-bottom:16px;font-size:12px">
+        El reporte consolida todos los viajes <strong>timbrados</strong> del periodo seleccionado. Actividad SAT: <strong>TRA</strong> (Transporte).
+        Si una empresa opera Gas LP y gasolina con permisos distintos, genera un JSON/ZIP separado por cada permiso CNE.
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label>Año <span class="req">*</span></label>
+          <input type="number" id="covol-anio" value="2026" min="2020" max="2030">
+        </div>
+        <div class="form-group">
+          <label>Mes <span class="req">*</span></label>
+          <select id="covol-mes">
+            <option value="1">Enero</option><option value="2">Febrero</option>
+            <option value="3">Marzo</option><option value="4">Abril</option>
+            <option value="5">Mayo</option><option value="6">Junio</option>
+            <option value="7">Julio</option><option value="8">Agosto</option>
+            <option value="9">Septiembre</option><option value="10">Octubre</option>
+            <option value="11">Noviembre</option><option value="12">Diciembre</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Inventario inicial del autotanque (litros)</label>
+          <input type="number" id="covol-inv-ini" placeholder="0.00" value="0" step="0.01" min="0">
+          <span class="hint">En transporte, el autotanque normalmente inicia en 0 si no hay remanente documentado.</span>
+        </div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label>Número de permiso CNE <span class="req">*</span></label>
+          <input type="text" id="covol-permiso" placeholder="H/10376/TRA/2020">
+          <span class="hint">Solo se incluirán viajes timbrados capturados con este mismo permiso.</span>
+        </div>
+        <div class="form-group">
+          <label>Clave de instalación</label>
+          <input type="text" id="covol-clave-inst" placeholder="AUTOT-001">
+        </div>
+      </div>
+      <button class="btn btn-primary" style="width:100%" id="btn-generar-covol" onclick="generarCovol()">
+        <i class="fa-solid fa-file-code"></i> Generar JSON de control volumétrico
+      </button>
+    </div>
+
+    <div class="card" id="card-covol-result" style="display:none">
+      <div class="card-title"><i class="fa-solid fa-check"></i> Reporte generado</div>
+      <div style="color:var(--text2);font-size:13px;line-height:1.7" id="covol-result-info"></div>
+      <div class="divider"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-success" id="btn-dl-json" onclick="descargarCovol('json')"><i class="fa-solid fa-download"></i> Descargar JSON</button>
+        <button class="btn btn-primary" id="btn-dl-zip" onclick="descargarCovol('zip')"><i class="fa-solid fa-file-zipper"></i> Descargar ZIP</button>
+      </div>
+      <p style="font-size:11px;color:var(--text3);margin-top:12px">El ZIP es el archivo que se sube directamente al portal del SAT.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     TAB: CATÁLOGOS
+════════════════════════════════════════════════════════ -->
+<div id="tab-catalogos" class="section">
+
+  <!-- Sub-tabs catálogos -->
+  <div style="display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap">
+    <button class="btn btn-ghost" id="ctab-choferes" onclick="switchCatTab('choferes')" style="border-color:var(--blue);color:var(--blue-light)"><i class="fa-solid fa-id-card"></i> Choferes</button>
+    <button class="btn btn-ghost" id="ctab-vehiculos" onclick="switchCatTab('vehiculos')"><i class="fa-solid fa-truck"></i> Vehículos</button>
+    <button class="btn btn-ghost" id="ctab-rutas" onclick="switchCatTab('rutas')"><i class="fa-solid fa-route"></i> Rutas</button>
+    <button class="btn btn-ghost" id="ctab-tarifas" onclick="switchCatTab('tarifas')"><i class="fa-solid fa-tags"></i> Tarifas</button>
+    <button class="btn btn-ghost" id="ctab-clientes" onclick="switchCatTab('clientes')"><i class="fa-solid fa-building"></i> Clientes</button>
+    <button class="btn btn-ghost" id="ctab-fiscales" onclick="switchCatTab('fiscales')"><i class="fa-solid fa-shield-halved"></i> Fiscales/operativos</button>
+    <button class="btn btn-ghost" id="ctab-productos" onclick="switchCatTab('productos')"><i class="fa-solid fa-gas-pump"></i> Catálogo Productos SAT</button>
+  </div>
+
+  <!-- Choferes -->
+  <div id="cat-choferes" class="cat-section">
+    <div class="section-hdr" style="margin-bottom:16px">
+      <span style="font-size:15px;font-weight:600">Choferes registrados</span>
+      <button class="btn btn-primary" onclick="abrirModalChofer()"><i class="fa-solid fa-plus"></i> Nuevo chofer</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Nombre</th><th>RFC</th><th>Licencia</th><th>Tipo</th><th>Teléfono</th><th>Acciones</th></tr></thead>
+      <tbody id="tbody-choferes"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Vehículos -->
+  <div id="cat-vehiculos" class="cat-section" style="display:none">
+    <div class="section-hdr" style="margin-bottom:16px">
+      <span style="font-size:15px;font-weight:600">Vehículos / Autotanques</span>
+      <button class="btn btn-primary" onclick="abrirModalVehiculo()"><i class="fa-solid fa-plus"></i> Nuevo vehículo</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Placas</th><th>Modelo</th><th>Año</th><th>Config.</th><th>Aseguradora</th><th>Capacidad (L)</th><th>Perm. SCT</th><th>Acciones</th></tr></thead>
+      <tbody id="tbody-vehiculos"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Rutas -->
+  <div id="cat-rutas" class="cat-section" style="display:none">
+    <div class="section-hdr" style="margin-bottom:16px">
+      <span style="font-size:15px;font-weight:600">Rutas predefinidas</span>
+      <button class="btn btn-primary" onclick="abrirModalRuta()"><i class="fa-solid fa-plus"></i> Nueva ruta</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Nombre</th><th>CP Origen</th><th>Localidad Origen</th><th>CP Destino</th><th>Localidad Destino</th><th>Distancia km</th><th>Duración</th><th>Acciones</th></tr></thead>
+      <tbody id="tbody-rutas"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Tarifas -->
+  <div id="cat-tarifas" class="cat-section" style="display:none">
+    <div class="section-hdr" style="margin-bottom:16px">
+      <div>
+        <span style="font-size:15px;font-weight:600">Tarifas de servicio</span>
+        <p class="hint" style="margin-top:4px">Configura tarifa, IVA y retención por cliente, ruta, producto y tipo de cálculo.</p>
+      </div>
+      <button class="btn btn-primary" onclick="abrirModalTarifa()"><i class="fa-solid fa-plus"></i> Nueva tarifa</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Cliente</th><th>Ruta</th><th>Producto</th><th>Tipo</th><th>Tarifa</th><th>IVA</th><th>Retención</th><th>Vigencia</th><th>Acciones</th></tr></thead>
+      <tbody id="tbody-tarifas"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Clientes -->
+  <div id="cat-clientes" class="cat-section" style="display:none">
+    <div class="section-hdr" style="margin-bottom:16px">
+      <span style="font-size:15px;font-weight:600">Clientes / Receptores</span>
+      <button class="btn btn-primary" onclick="abrirModalCliente()"><i class="fa-solid fa-plus"></i> Nuevo cliente</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>RFC</th><th>Nombre</th><th>CP</th><th>Régimen</th><th>Uso CFDI</th><th>Pago default</th><th>Acciones</th></tr></thead>
+      <tbody id="tbody-clientes"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Productos SAT -->
+  <div id="cat-productos" class="cat-section" style="display:none">
+    <div class="section-hdr" style="margin-bottom:16px">
+      <div>
+        <span style="font-size:15px;font-weight:600">Productos transportados</span>
+        <p class="hint" style="margin-top:4px">Configura una vez el producto operativo. En viajes solo se selecciona y se capturan litros, valor mercancía y tarifa.</p>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="form-row cols-4">
+        <div class="form-group"><label>Alias operativo</label><input id="prodcat-nombre" placeholder="Magna, Premium, Diesel, Gas LP"></div>
+        <div class="form-group"><label>ClaveProducto SAT</label><select id="prodcat-pr" onchange="actualizarProductoSatForm()"></select></div>
+        <div class="form-group"><label>ClaveSubProducto</label><select id="prodcat-sp"></select></div>
+        <div class="form-group"><label>Densidad kg/L</label><input id="prodcat-densidad" type="number" step="0.0001" min="0" placeholder="0.75"></div>
+      </div>
+      <div class="form-row cols-4">
+        <div class="form-group"><label>c_ClaveProdServ CFDI</label><input id="prodcat-cfdi" readonly></div>
+        <div class="form-group"><label>Material peligroso</label><input id="prodcat-material" readonly></div>
+        <div class="form-group"><label>Embalaje SAT</label><select id="prodcat-embalaje"><option value="Z01">Z01 - No aplica (autotanque/cisterna)</option><option value="1A1">1A1 - Bidón de acero</option><option value="1A2">1A2 - Bidón de acero tapa desmontable</option></select></div>
+        <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="guardarProductoOperacion()"><i class="fa-solid fa-plus"></i> Guardar producto</button></div>
+      </div>
+      <p class="hint">El servidor valida que ClaveProducto + ClaveSubProducto sean congruentes antes de guardar y antes de registrar el viaje.</p>
+    </div>
+    <div class="section-hdr" style="margin-bottom:10px"><span style="font-size:14px;font-weight:600">Productos configurados</span><span class="hint" id="productos-op-count">0 productos</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Producto</th><th>PR/SP</th><th>CFDI</th><th>Material peligroso</th><th>Densidad</th><th>Embalaje</th><th>Acciones</th></tr></thead>
+      <tbody id="tbody-productos"></tbody>
+    </table></div>
+    <div class="section-hdr" style="margin:18px 0 10px"><span style="font-size:14px;font-weight:600">Catálogo SAT de referencia</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>ClaveProducto</th><th>Nombre</th><th>Subproductos válidos</th><th>Unidad</th></tr></thead>
+      <tbody id="tbody-productos-sat"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Catálogos fiscales-operativos -->
+  <div id="cat-fiscales" class="cat-section" style="display:none">
+    <div class="section-hdr" style="margin-bottom:16px">
+      <div>
+        <span style="font-size:15px;font-weight:600">Catálogos fiscales-operativos</span>
+        <p class="hint" style="margin-top:4px">Base para inferir origen, destino, permisos, remolques y seguros antes de crear Carta Porte.</p>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="form-row cols-4">
+        <div class="form-group">
+          <label>Catálogo</label>
+          <select id="fo-catalogo" onchange="cargarFiscalOperativo()">
+            <option value="proveedores-operacion">Proveedores operación</option>
+            <option value="productos-operacion">Productos operación</option>
+            <option value="origenes">Orígenes</option>
+            <option value="destinos">Destinos</option>
+            <option value="centros-emisores">Centros emisores</option>
+            <option value="remolques">Remolques</option>
+            <option value="permisos-operacion">Permisos operación</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Nombre / Placas / Permiso</label><input id="fo-nombre" placeholder="Terminal, destino, placas o número de permiso"></div>
+        <div class="form-group"><label>RFC / Producto</label><input id="fo-rfc" placeholder="RFC o Gas LP/Gasolina/Diésel"></div>
+        <div class="form-group"><label>CP / Vigencia</label><input id="fo-cp" placeholder="CP o vigencia libre"></div>
+      </div>
+      <button class="btn btn-primary" onclick="guardarFiscalOperativo()"><i class="fa-solid fa-plus"></i> Agregar</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Catálogo</th><th>Nombre</th><th>Dato fiscal</th><th>CP/Detalle</th><th>Acciones</th></tr></thead>
+      <tbody id="tbody-fiscales"></tbody>
+    </table></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     TAB: CONFIGURACIÓN
+════════════════════════════════════════════════════════ -->
+<div id="tab-configuracion" class="section">
+  <div class="section-hdr">
+    <h2>Configuración — Módulo Transporte</h2>
+  </div>
+  <div class="grid-2" style="gap:20px">
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-building"></i> Datos del contribuyente</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>RFC del contribuyente <span class="req">*</span></label>
+          <input type="text" id="cfg-rfc" placeholder="XAXX010101000" maxlength="13">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Nombre / Razón Social <span class="req">*</span></label>
+          <input type="text" id="cfg-nombre" placeholder="TRANSPORTES EJEMPLO SA DE CV">
+        </div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label>Código Postal</label>
+          <input type="text" id="cfg-cp" placeholder="20000" maxlength="5">
+        </div>
+        <div class="form-group">
+          <label>Régimen Fiscal</label>
+          <select id="cfg-regimen">
+            <option value="601">601 - General Ley Personas Morales</option>
+            <option value="603">603 - Personas Morales con Fines no Lucrativos</option>
+            <option value="605">605 - Sueldos y Salarios e Ingresos Asimilados a Salarios</option>
+            <option value="606">606 - Arrendamiento</option>
+            <option value="607">607 - Régimen de Enajenación o Adquisición de Bienes</option>
+            <option value="608">608 - Demás ingresos</option>
+            <option value="610">610 - Residentes en el Extranjero sin Establecimiento Permanente</option>
+            <option value="611">611 - Ingresos por Dividendos</option>
+            <option value="612">612 - Personas Físicas Actividades Empresariales</option>
+            <option value="614">614 - Ingresos por intereses</option>
+            <option value="615">615 - Obtención de premios</option>
+            <option value="616">616 - Sin obligaciones fiscales</option>
+            <option value="620">620 - Sociedades Cooperativas de Producción</option>
+            <option value="621">621 - Incorporación Fiscal</option>
+            <option value="622">622 - Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras</option>
+            <option value="623">623 - Opcional para Grupos de Sociedades</option>
+            <option value="624">624 - Coordinados</option>
+            <option value="625">625 - Plataformas Tecnológicas</option>
+            <option value="626">626 - RESICO</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Logo para Carta Porte / PDF fiscal</label>
+          <input type="file" id="cfg-logo-pdf-file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onchange="cargarLogoPdfPerfil(event)">
+          <input type="hidden" id="cfg-logo-pdf-data">
+          <span class="hint" id="cfg-logo-pdf-hint">Opcional. Se usará como logo del emisor en la representación impresa fiscal.</span>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><i class="fa-solid fa-file-shield"></i> Datos del permiso SAT</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Número de permiso CNE <span class="req">*</span></label>
+          <input type="text" id="cfg-permiso" placeholder="H/10376/TRA/2020">
+          <span class="hint">Permiso CRE/CNE de transporte de hidrocarburos</span>
+        </div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label>Modalidad permiso</label>
+          <select id="cfg-modalidad">
+            <option value="PER51">PER51 - Distribución autotanque</option>
+            <option value="PER40">PER40 - Distribución ducto</option>
+            <option value="PER43">PER43 - Expendio público</option>
+            <option value="TRA">TRA - Transporte</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Clave instalación SAT</label>
+          <input type="text" id="cfg-clave-inst" placeholder="AUTOT-001">
+          <span class="hint">Para transportistas puede depender del escenario operativo; validar contra Anexo 21 / controles volumétricos antes del envío final.</span>
+        </div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label>Número de autotanques</label>
+          <input type="number" id="cfg-num-autotanques" value="0" min="0" max="50" readonly>
+          <span class="hint">Se calcula automáticamente con vehículos registrados.</span>
+        </div>
+        <div class="form-group">
+          <label>RFC Proveedor programa (SAT)</label>
+          <input type="text" id="cfg-rfc-proveedor" value="ATI9404219D5" maxlength="13">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Combustibles habilitados</label>
+          <div class="grid-2" style="gap:8px">
+            <label><input type="checkbox" class="cfg-fuel" value="magna" checked> Magna</label>
+            <label><input type="checkbox" class="cfg-fuel" value="premium" checked> Premium</label>
+            <label><input type="checkbox" class="cfg-fuel" value="diesel" checked> Diésel</label>
+            <label><input type="checkbox" class="cfg-fuel" value="gas_lp" checked> Gas LP</label>
+          </div>
+          <span class="hint">Se guarda por usuario y se reutiliza al crear viajes.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:16px;display:flex;gap:10px">
+    <button class="btn btn-primary" id="btn-guardar-cfg" onclick="guardarConfig()"><i class="fa-solid fa-floppy-disk"></i> Guardar configuración</button>
+    <button class="btn btn-ghost" onclick="cargarConfig()"><i class="fa-solid fa-rotate"></i> Recargar</button>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<!-- ════ MODALES ════ -->
+
+<div class="overlay" id="modal-importar-excel">
+<div class="modal" style="max-width:620px">
+  <div class="modal-title"><i class="fa-solid fa-file-excel"></i> Importar histórico operativo</div>
+  <p class="hint" style="margin-bottom:14px">Este importador no reemplaza viajes ni timbrados. Lee el Excel operativo, detecta pestañas y puede cargar tarifas configurables.</p>
+  <div class="form-group">
+    <label>Excel operativo</label>
+    <input type="file" id="import-excel-file" accept=".xlsx,.xls">
+  </div>
+  <div id="import-excel-result" class="hint"></div>
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="cerrarModal('modal-importar-excel')">Cerrar</button>
+    <button class="btn btn-ghost" onclick="importarExcelRuth(true)">Previsualizar</button>
+    <button class="btn btn-primary" onclick="importarExcelRuth(false)">Importar tarifas</button>
+  </div>
+</div>
+</div>
+
+<!-- Modal: Nuevo/Editar Viaje -->
+<div class="overlay" id="modal-viaje">
+<div class="modal wide">
+  <div class="modal-title"><i class="fa-solid fa-truck-fast"></i> <span id="modal-viaje-titulo">Registrar nuevo viaje</span></div>
+
+  <div class="form-row cols-3">
+    <div class="form-group">
+      <label>Chofer <span class="req">*</span></label>
+      <select id="v-chofer"></select>
+    </div>
+    <div class="form-group">
+      <label>Vehículo <span class="req">*</span></label>
+      <select id="v-vehiculo"></select>
+    </div>
+    <div class="form-group">
+      <label>Ruta predefinida</label>
+      <select id="v-ruta" onchange="autoRuta()"><option value="">— Captura manual —</option></select>
+    </div>
+  </div>
+
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>Fecha y hora de salida <span class="req">*</span></label>
+      <input type="datetime-local" id="v-fecha-salida">
+    </div>
+    <div class="form-group">
+      <label>Fecha y hora de llegada</label>
+      <input type="datetime-local" id="v-fecha-llegada">
+    </div>
+  </div>
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>Tiempo estimado de traslado (min)</label>
+      <input type="number" id="v-duracion" placeholder="Ej. 180" min="0" step="1" oninput="actualizarLlegadaPorDuracion()">
+    </div>
+    <div class="form-group">
+      <label>Lectura operacional</label>
+      <input type="text" id="v-resumen-ruta" value="Selecciona una ruta para calcular llegada" readonly>
+    </div>
+  </div>
+
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>CP Origen <span class="req">*</span></label>
+      <input type="text" id="v-cp-origen" placeholder="20000" maxlength="5">
+    </div>
+    <div class="form-group">
+      <label>Localidad origen</label>
+      <input type="text" id="v-nom-origen" placeholder="Aguascalientes, Ags">
+    </div>
+  </div>
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>CP Destino <span class="req">*</span></label>
+      <input type="text" id="v-cp-destino" placeholder="44100" maxlength="5">
+    </div>
+    <div class="form-group">
+      <label>Localidad destino</label>
+      <input type="text" id="v-nom-destino" placeholder="Guadalajara, Jal">
+    </div>
+  </div>
+
+  <div class="form-row cols-3">
+    <div class="form-group">
+      <label>Distancia (km)</label>
+      <input type="number" id="v-distancia" placeholder="250" min="0.1" step="0.1">
+    </div>
+    <div class="form-group">
+      <label>Tipo CFDI</label>
+      <select id="v-tipo-cfdi">
+        <option value="I">I — Ingreso (servicio de transporte)</option>
+        <option value="T">T — Traslado (solo dueño/poseedor de mercancía)</option>
+      </select>
+      <span class="hint">Para transportistas contratados normalmente corresponde Ingreso con Carta Porte.</span>
+    </div>
+    <div class="form-group">
+      <label>Número permiso CNE <span class="req">*</span></label>
+      <input type="text" id="v-permiso" placeholder="H/10376/TRA/2020">
+    </div>
+  </div>
+
+  <div id="v-receptor-block" style="display:none">
+    <div class="form-row cols-2">
+      <div class="form-group">
+        <label>RFC Receptor <span class="req">*</span></label>
+        <select id="v-rfc-receptor-sel" onchange="autoCliente()"><option value="">— Seleccionar cliente —</option></select>
+      </div>
+      <div class="form-group">
+        <label>Nombre receptor</label>
+        <input type="text" id="v-nombre-receptor" placeholder="EMPRESA RECEPTORA SA DE CV">
+      </div>
+    </div>
+  </div>
+
+  <div style="margin:18px 0 10px;display:flex;align-items:center;justify-content:space-between">
+    <span style="font-size:13px;font-weight:600;color:var(--text)"><i class="fa-solid fa-gas-pump"></i> Productos transportados</span>
+    <button class="btn btn-ghost" onclick="agregarProducto()" style="font-size:12px"><i class="fa-solid fa-plus"></i> Agregar producto</button>
+  </div>
+  <div id="productos-container"></div>
+
+  <div class="form-row" style="margin-top:14px">
+    <div class="form-group">
+      <label>Observaciones</label>
+      <textarea id="v-observaciones" rows="2" placeholder="Notas adicionales del viaje..."></textarea>
+    </div>
+  </div>
+
+  <div class="modal-footer">
+    <button class="btn btn-ghost" onclick="cerrarModal('modal-viaje')">Cancelar</button>
+    <button class="btn btn-primary" id="btn-guardar-viaje" onclick="guardarViaje()"><i class="fa-solid fa-floppy-disk"></i> Registrar viaje</button>
+  </div>
+</div>
+</div>
+
+<!-- Modal: Chofer -->
+<div class="overlay" id="modal-chofer">
+<div class="modal">
+  <div class="modal-title"><i class="fa-solid fa-id-card"></i> <span id="modal-chofer-titulo">Nuevo chofer</span></div>
+  <input type="hidden" id="chofer-id">
+  <div class="form-row">
+    <div class="form-group">
+      <label>Nombre completo <span class="req">*</span></label>
+      <input type="text" id="ch-nombre" placeholder="Juan Pérez García">
+    </div>
+  </div>
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>RFC</label>
+      <input type="text" id="ch-rfc" placeholder="PEGJ850101AB1" maxlength="13">
+    </div>
+    <div class="form-group">
+      <label>CURP</label>
+      <input type="text" id="ch-curp" placeholder="PEGJ850101HAGRRN09" maxlength="18">
+    </div>
+  </div>
+  <div class="form-row cols-3">
+    <div class="form-group">
+      <label>Licencia federal</label>
+      <input type="text" id="ch-licencia" placeholder="M123456">
+      <span class="hint">Número de licencia federal vigente del operador.</span>
+    </div>
+    <div class="form-group">
+      <label>Tipo de licencia federal</label>
+      <select id="ch-tipo-lic">
+        <option value="E">E - Carga especializada / materiales peligrosos</option>
+        <option value="B">B - Carga general federal</option>
+        <option value="C">C - Carga de dos o tres ejes</option>
+        <option value="D">D - Carga articulada</option>
+      </select>
+      <span class="hint">Para hidrocarburos suele requerirse licencia federal tipo E.</span>
+    </div>
+    <div class="form-group">
+      <label>Teléfono</label>
+      <input type="text" id="ch-telefono" placeholder="449 123 4567">
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-ghost" onclick="cerrarModal('modal-chofer')">Cancelar</button>
+    <button class="btn btn-primary" onclick="guardarChofer()"><i class="fa-solid fa-floppy-disk"></i> Guardar</button>
+  </div>
+</div>
+</div>
+
+<!-- Modal: Vehículo -->
+<div class="overlay" id="modal-vehiculo">
+<div class="modal">
+  <div class="modal-title"><i class="fa-solid fa-truck"></i> <span id="modal-vehiculo-titulo">Nuevo vehículo</span></div>
+  <input type="hidden" id="vehiculo-id">
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>Placas <span class="req">*</span></label>
+      <input type="text" id="ve-placas" placeholder="ABC-1234" maxlength="10">
+    </div>
+    <div class="form-group">
+      <label>Modelo</label>
+      <input type="text" id="ve-modelo" placeholder="Kenworth T680">
+    </div>
+  </div>
+  <div class="form-row cols-3">
+    <div class="form-group">
+      <label>Año modelo</label>
+      <input type="number" id="ve-anio" value="2020" min="1990" max="2030">
+    </div>
+    <div class="form-group">
+      <label>Configuración vehicular</label>
+      <select id="ve-config">
+        <option value="C2">C2 - Camión unitario 2 ejes</option>
+        <option value="C3">C3 - Camión unitario 3 ejes</option>
+        <option value="T2S1">T2S1 - Tractocamión 2 ejes + semirremolque 1 eje</option>
+        <option value="T2S2">T2S2 - Tractocamión 2 ejes + semirremolque 2 ejes</option>
+        <option value="T3S2">T3S2 - Tractocamión 3 ejes + semirremolque 2 ejes</option>
+        <option value="T3S3">T3S3 - Tractocamión 3 ejes + semirremolque 3 ejes</option>
+      </select>
+      <span class="hint">Clave SAT/SICT de configuración vehicular para Carta Porte.</span>
+    </div>
+    <div class="form-group">
+      <label>Capacidad tanque (L)</label>
+      <input type="number" id="ve-capacidad" placeholder="20000" min="0">
+    </div>
+  </div>
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>Aseguradora</label>
+      <input type="text" id="ve-aseguradora" placeholder="GNP Seguros">
+    </div>
+    <div class="form-group">
+      <label>Póliza de seguro</label>
+      <input type="text" id="ve-poliza" placeholder="POL-123456">
+    </div>
+  </div>
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>Permiso SCT</label>
+      <select id="ve-perm-sct">
+        <option value="TPAF01">TPAF01 - Autotransporte federal</option>
+        <option value="TPAF02">TPAF02 - Transporte privado</option>
+        <option value="TPAF03">TPAF03 - Otros</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Número permiso SCT</label>
+      <input type="text" id="ve-num-sct" placeholder="Sin permiso">
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-ghost" onclick="cerrarModal('modal-vehiculo')">Cancelar</button>
+    <button class="btn btn-primary" onclick="guardarVehiculo()"><i class="fa-solid fa-floppy-disk"></i> Guardar</button>
+  </div>
+</div>
+</div>
+
+<!-- Modal: Ruta -->
+<div class="overlay" id="modal-ruta">
+<div class="modal">
+  <div class="modal-title"><i class="fa-solid fa-route"></i> <span id="modal-ruta-titulo">Nueva ruta</span></div>
+  <input type="hidden" id="ruta-id">
+  <div class="form-row">
+    <div class="form-group">
+      <label>Nombre de la ruta <span class="req">*</span></label>
+      <input type="text" id="ru-nombre" placeholder="Ags → GDL Principal">
+    </div>
+  </div>
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>CP Origen <span class="req">*</span></label>
+      <input type="text" id="ru-cp-origen" placeholder="20000" maxlength="5">
+    </div>
+    <div class="form-group">
+      <label>Localidad origen</label>
+      <input type="text" id="ru-nom-origen" placeholder="Aguascalientes, Ags">
+    </div>
+  </div>
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>CP Destino <span class="req">*</span></label>
+      <input type="text" id="ru-cp-destino" placeholder="44100" maxlength="5">
+    </div>
+    <div class="form-group">
+      <label>Localidad destino</label>
+      <input type="text" id="ru-nom-destino" placeholder="Guadalajara, Jal">
+    </div>
+  </div>
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>Distancia (km)</label>
+      <input type="number" id="ru-distancia" placeholder="250" min="0.1" step="0.1">
+    </div>
+    <div class="form-group">
+      <label>Duración estimada (min)</label>
+      <input type="number" id="ru-duracion" placeholder="180" min="0" step="1">
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-ghost" onclick="cerrarModal('modal-ruta')">Cancelar</button>
+    <button class="btn btn-primary" onclick="guardarRuta()"><i class="fa-solid fa-floppy-disk"></i> Guardar</button>
+  </div>
+</div>
+</div>
+
+<!-- Modal: Cliente -->
+<div class="overlay" id="modal-cliente">
+<div class="modal">
+  <div class="modal-title"><i class="fa-solid fa-building"></i> <span id="modal-cliente-titulo">Nuevo cliente</span></div>
+  <input type="hidden" id="cliente-id">
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>RFC <span class="req">*</span></label>
+      <input type="text" id="cl-rfc" placeholder="XAXX010101000" maxlength="13">
+    </div>
+    <div class="form-group">
+      <label>Nombre / Razón Social <span class="req">*</span></label>
+      <input type="text" id="cl-nombre" placeholder="EMPRESA SA DE CV">
+    </div>
+  </div>
+  <div class="form-row cols-3">
+    <div class="form-group">
+      <label>Código Postal <span class="req">*</span></label>
+      <input type="text" id="cl-cp" placeholder="44100" maxlength="5">
+      <span class="hint">Debe coincidir con el domicilio fiscal del RFC receptor en SAT.</span>
+    </div>
+    <div class="form-group">
+      <label>Régimen Fiscal <span class="req">*</span></label>
+      <select id="cl-regimen">
+        <option value="601">601 - General PM</option>
+        <option value="612">612 - PF Actividades</option>
+        <option value="616">616 - Sin obligaciones</option>
+        <option value="626">626 - RESICO</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Uso CFDI <span class="req">*</span></label>
+      <select id="cl-uso-cfdi">
+        <option value="S01">S01 - Sin efectos fiscales</option>
+        <option value="G01">G01 - Adquisición mercancias</option>
+        <option value="G03">G03 - Gastos en general</option>
+        <option value="CP01">CP01 - Pagos</option>
+      </select>
+    </div>
+  </div>
+  <div class="form-row cols-4">
+    <div class="form-group">
+      <label>Método de pago default</label>
+      <select id="cl-metodo-pago">
+        <option value="PUE">PUE - Pago en una sola exhibición</option>
+        <option value="PPD">PPD - Pago en parcialidades o diferido</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Forma de pago default</label>
+      <select id="cl-forma-pago">
+        <option value="03">03 - Transferencia electrónica</option>
+        <option value="99">99 - Por definir</option>
+        <option value="01">01 - Efectivo</option>
+        <option value="02">02 - Cheque nominativo</option>
+      </select>
+    </div>
+    <div class="form-group"><label>IVA % default</label><input type="number" id="cl-iva" min="0" step="0.01" value="16"></div>
+    <div class="form-group"><label>Retención % default</label><input type="number" id="cl-ret" min="0" step="0.01" value="0"></div>
+  </div>
+  <div class="form-row cols-2">
+    <label class="check-row"><input type="checkbox" id="cl-aplica-iva" checked> Aplicar IVA por defecto</label>
+    <label class="check-row"><input type="checkbox" id="cl-aplica-ret"> Aplicar retención por defecto</label>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label>Observaciones / reglas fiscales especiales</label><input id="cl-observaciones" placeholder="Ej. cliente paga PUE/03; retención solo con autorización contable"></div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-ghost" onclick="cerrarModal('modal-cliente')">Cancelar</button>
+    <button class="btn btn-primary" onclick="guardarCliente()"><i class="fa-solid fa-floppy-disk"></i> Guardar</button>
+  </div>
+</div>
+</div>
+
+<!-- Modal: Tarifa -->
+<div class="overlay" id="modal-tarifa">
+<div class="modal wide">
+  <div class="modal-title"><i class="fa-solid fa-tags"></i> Nueva tarifa de servicio</div>
+  <div class="alert alert-info">La tarifa se guarda por usuario/perfil. El cálculo fiscal de la factura de servicio tomará estos valores del servidor.</div>
+  <div class="form-row cols-3">
+    <div class="form-group"><label>Cliente</label><select id="tf-cliente"><option value="">Todos</option></select></div>
+    <div class="form-group"><label>Ruta</label><select id="tf-ruta" onchange="autollenarTarifaRuta()"><option value="">Todas</option></select></div>
+    <div class="form-group"><label>Producto</label><input id="tf-producto" placeholder="Magna, Premium, Diésel, Gas LP o Todos"></div>
+  </div>
+  <div class="form-row cols-4">
+    <div class="form-group"><label>Origen</label><input id="tf-origen" placeholder="CP, ciudad o terminal"></div>
+    <div class="form-group"><label>Destino</label><input id="tf-destino" placeholder="CP, ciudad o cliente"></div>
+    <div class="form-group">
+      <label>Tipo tarifa</label>
+      <select id="tf-regla">
+        <option value="litros">Por litro</option>
+        <option value="kilos">Por kilo</option>
+        <option value="distancia">Por km</option>
+        <option value="viaje">Por viaje</option>
+        <option value="manual">Manual</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Tarifa</label><input type="number" id="tf-tarifa" step="0.0001" min="0" placeholder="0.00"></div>
+  </div>
+  <div class="form-row cols-4">
+    <div class="form-group"><label>IVA %</label><input type="number" id="tf-iva" step="0.01" min="0" value="16"></div>
+    <div class="form-group"><label>Retención %</label><input type="number" id="tf-ret" step="0.01" min="0" value="4"></div>
+    <div class="form-group"><label>Desde</label><input type="date" id="tf-desde"></div>
+    <div class="form-group"><label>Hasta</label><input type="date" id="tf-hasta"></div>
+  </div>
+  <div class="form-row cols-2">
+    <label class="check-row"><input type="checkbox" id="tf-aplica-iva" checked> Aplicar IVA</label>
+    <label class="check-row"><input type="checkbox" id="tf-aplica-ret" checked> Aplicar retención</label>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label>Observaciones</label><input id="tf-observaciones" placeholder="Convenio, folio de tarifa o notas internas"></div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-ghost" onclick="cerrarModal('modal-tarifa')">Cancelar</button>
+    <button class="btn btn-primary" onclick="guardarTarifa('modal')"><i class="fa-solid fa-floppy-disk"></i> Guardar tarifa</button>
+  </div>
+</div>
+</div>
+
+<!-- Modal: Factura de servicio -->
+<div class="overlay" id="modal-factura-servicio">
+<div class="modal wide">
+  <div class="modal-title"><i class="fa-solid fa-file-invoice-dollar"></i> Facturar servicio de transporte</div>
+  <div class="alert alert-info">Relaciona una o varias Cartas Porte timbradas para emitir la factura del servicio al cliente.</div>
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>Cliente <span class="req">*</span></label>
+      <select id="fs-cliente" onchange="autoClienteServicio()"><option value="">Selecciona cliente</option></select>
+    </div>
+    <div class="form-group">
+      <label>Cartas Porte timbradas <span class="req">*</span></label>
+      <select id="fs-viajes" multiple size="5" onchange="autoCartaServicio()"></select>
+      <span class="hint">Usa Cmd/Ctrl para seleccionar varias.</span>
+    </div>
+  </div>
+  <div class="form-row cols-3">
+    <div class="form-group"><label>RFC receptor</label><input type="text" id="fs-rfc" maxlength="13"></div>
+    <div class="form-group"><label>Nombre receptor</label><input type="text" id="fs-nombre"></div>
+    <div class="form-group"><label>Código postal</label><input type="text" id="fs-cp" maxlength="5"></div>
+  </div>
+  <div class="form-row cols-3">
+    <div class="form-group"><label>Subtotal</label><input type="number" id="fs-subtotal" min="0" step="0.01" oninput="calcularTotalServicio()"></div>
+    <div class="form-group"><label>IVA configurable</label><input type="number" id="fs-iva" min="0" step="0.01" readonly></div>
+    <div class="form-group"><label>Retención</label><input type="number" id="fs-retencion" min="0" step="0.01" readonly></div>
+  </div>
+  <div class="form-row cols-3">
+    <div class="form-group"><label>Total</label><input type="number" id="fs-total" min="0" step="0.01" readonly></div>
+    <div class="form-group"><label>Tasa IVA</label><input type="text" id="fs-iva-tasa" readonly placeholder="Según tarifa"></div>
+    <div class="form-group"><label>Tasa retención</label><input type="text" id="fs-ret-tasa" readonly placeholder="Según tarifa"></div>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label>Concepto</label><input type="text" id="fs-concepto" value="Servicio de transporte de hidrocarburos"></div>
+  </div>
+  <div class="form-row cols-2">
+    <div class="form-group">
+      <label>Método de pago</label>
+      <select id="fs-metodo-pago">
+        <option value="PUE">PUE - Pago en una sola exhibición</option>
+        <option value="PPD">PPD - Pago en parcialidades o diferido</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Forma de pago</label>
+      <select id="fs-forma-pago">
+        <option value="03">03 - Transferencia electrónica de fondos</option>
+        <option value="99">99 - Por definir</option>
+        <option value="01">01 - Efectivo</option>
+        <option value="02">02 - Cheque nominativo</option>
+      </select>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-ghost" onclick="cerrarModal('modal-factura-servicio')">Cancelar</button>
+    <button class="btn btn-primary" id="btn-guardar-fs" onclick="guardarFacturaServicio()"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar factura de servicio</button>
+  </div>
+</div>
+</div>
+
+<!-- Modal: Detalle CFDI timbrado -->
+<div class="overlay" id="modal-cfdi-detalle">
+<div class="modal wide">
+  <div class="modal-title"><i class="fa-solid fa-file-circle-check"></i> Detalle del CFDI timbrado</div>
+  <div id="cfdi-detalle-body"></div>
+  <div class="modal-footer">
+    <button class="btn btn-ghost" onclick="cerrarModal('modal-cfdi-detalle')">Cerrar</button>
+  </div>
+</div>
+</div>
+
+<div class="drawer-overlay" id="drawer-viaje-360" onclick="if(event.target===this) cerrarViaje360Drawer()">
+  <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawerViaje360Title">
+    <div class="drawer-head">
+      <div>
+        <h2 id="drawerViaje360Title">Expediente 360</h2>
+        <p id="drawerViaje360Sub">Selecciona un viaje para revisar la operación completa.</p>
+      </div>
+      <button class="icon-btn" type="button" title="Cerrar expediente" onclick="cerrarViaje360Drawer()"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="drawer-body" id="drawer-viaje-360-body">
+      <div class="empty"><div class="empty-icon"><i class="fa-solid fa-folder-open"></i></div><h3>Cargando expediente...</h3></div>
+    </div>
+  </aside>
+</div>
+
+<!-- Toast area -->
+<div id="toast-area"></div>
