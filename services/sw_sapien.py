@@ -352,7 +352,12 @@ def build_carta_porte_xml(
     peso_kg = round(float(mercancia.get("peso_kg") or vol * factor_kg_litro), 3)
     material_peligroso = "Sí" if mercancia.get("material_peligroso") is True or str(mercancia.get("material_peligroso") or "").lower() in {"si", "sí", "true", "1", "yes"} else "No"
     cve_material = mercancia.get("clave_material_peligroso") or mercancia.get("cve_material_peligroso") or ""
-    embalaje = mercancia.get("embalaje") or mercancia.get("embalaje_sat") or ""
+    is_gas_lp_cp = (
+        str(clave_prod_serv).strip() == "15111510"
+        and str(clave_unidad).strip().upper() == "LTR"
+        and str(cve_material).strip() == "1075"
+    )
+    embalaje = mercancia.get("embalaje") or mercancia.get("embalaje_sat") or ("4H2" if is_gas_lp_cp else "")
     descrip_embalaje = mercancia.get("descripcion_embalaje") or ""
     distancia_km    = round(float((ruta or {}).get("distancia_km", 1) or 1), 1)
     id_ccp = _cp_normalize_id_ccp(entrega.get("id_ccp"))
@@ -479,29 +484,29 @@ def build_carta_porte_xml(
 
 def _log_sw_before_request(*, operation: str, endpoint_sw: str, xml_before_sw: str, payload_sw: dict) -> None:
     timestamp_before_sw = datetime.now(timezone.utc).isoformat()
-    try:
-        payload_text = json.dumps(payload_sw, ensure_ascii=False, default=str)
-    except Exception:
-        payload_text = str(payload_sw)
+    xml_hash = _hash_text(xml_before_sw)
+    payload_keys = sorted(str(key) for key in (payload_sw or {}).keys())
     logger.info(
-        "sw_pac_request_trace operation=%s timestamp_before_sw=%s endpoint_sw=%s xml_before_sw=%s payload_sw=%s",
+        "sw_pac_request_trace operation=%s timestamp_before_sw=%s endpoint_sw=%s xml_hash=%s xml_len=%s payload_keys=%s",
         operation,
         timestamp_before_sw,
         endpoint_sw,
-        xml_before_sw,
-        payload_text,
+        xml_hash,
+        len(xml_before_sw or ""),
+        payload_keys,
     )
 
 
 def _log_sw_after_response(*, operation: str, endpoint_sw: str, status_code_sw: int, raw_response_sw: str) -> None:
     timestamp_after_sw = datetime.now(timezone.utc).isoformat()
     logger.info(
-        "sw_pac_response_trace operation=%s timestamp_after_sw=%s endpoint_sw=%s status_code_sw=%s raw_response_sw=%s",
+        "sw_pac_response_trace operation=%s timestamp_after_sw=%s endpoint_sw=%s status_code_sw=%s response_hash=%s response_len=%s",
         operation,
         timestamp_after_sw,
         endpoint_sw,
         status_code_sw,
-        raw_response_sw,
+        _hash_text(raw_response_sw),
+        len(raw_response_sw or ""),
     )
 
 

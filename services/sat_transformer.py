@@ -77,16 +77,6 @@ TIPO_EVENTO_DESC = {
     11: "Alarma: corte de energia electrica en instalacion",
 }
 
-MAX_DESCRIPCION_EVENTO = 250
-
-
-def _desc_evento(texto: str) -> str:
-    """SAT limita DescripcionEvento a 250 caracteres."""
-    value = " ".join(str(texto or "").split())
-    if len(value) <= MAX_DESCRIPCION_EVENTO:
-        return value
-    return value[: MAX_DESCRIPCION_EVENTO - 3].rstrip(" .,;:") + "..."
-
 # ── Catálogo actividades SAT por permiso (Apéndice 4) ─────────────────────────
 ACTIVIDAD_POR_PERMISO: dict = {
     "PER40": "DIS",
@@ -224,7 +214,9 @@ def generate_filename(settings: dict, periodo: str, fmt: str,
     guid = guid.upper()
 
     rfc_cv        = clean_rfc(settings.get("RfcContribuyente", "") or "RFC")
-    rfc_prov_prog = "XAX010101000"
+    rfc_prov_prog = clean_rfc(settings.get("RfcProveedor", "") or "")
+    if not rfc_prov_prog:
+        rfc_prov_prog = "XAX010101000"
 
     clave_inst = clean_inst(settings.get("ClaveInstalacion", "INST") or "INST")
     actividad  = _actividad_sat(settings)
@@ -245,12 +237,6 @@ def _group_by_uuid(movimientos: list, tipo: str, factor_kg_a_litros: float) -> d
         uni  = (m.get("unidad_base") or m.get("unidad") or "litros").lower()
         if uni in ("kg", "kilogramo", "kilogramos"):
             vol = vol * factor_kg_a_litros
-        if tipo == "salida" and (
-            uuid_val.startswith("AUTO-")
-            or m.get("es_autoconsumo")
-            or str(m.get("file_path") or "").startswith("manual:")
-        ):
-            vol = abs(vol)
         imp      = float(m.get("importe") or 0)
         rfc_cp   = limpiar_rfc(m.get("rfc_contraparte") or m.get("rfc_cp") or "")
         nombre_cp = (m.get("nombre_contraparte") or m.get("nombre_cp") or "").strip()
@@ -635,7 +621,7 @@ def build_sat_report(
                 "FechaYHoraEvento":   fin_mes_iso,
                 "UsuarioResponsable": _usuario_resp,
                 "TipoEvento":         5,
-                "DescripcionEvento":  _desc_evento(
+                "DescripcionEvento":  (
                     f"AJUSTE POR VARIACION (Balance de Masa): "
                     f"Inventario calculado={inv_calc:,.2f} L, "
                     f"Inventario medido={inventario_final_medido:,.2f} L, "
@@ -662,7 +648,7 @@ def build_sat_report(
         "FechaYHoraEvento":   now_cst,
         "UsuarioResponsable": _usuario_resp,
         "TipoEvento":         6,
-        "DescripcionEvento":  _desc_evento(
+        "DescripcionEvento":  (
             f"Reporte mensual generado por Z-Control v3.5. "
             f"Recepciones: {cnt_rec}, Entregas: {cnt_ent}, "
             f"VolumenExistenciasMes: {vol_existencias:,.2f} L. "
@@ -694,7 +680,9 @@ def build_sat_report(
     num_tanques  = int(settings.get("NumeroTanques", 1))
     _rfc_cv      = validar_rfc_o_advertir(settings.get("RfcContribuyente", "") or "", "RfcContribuyente")
     _rfc_rep     = limpiar_rfc(settings.get("RfcRepresentanteLegal", "") or "")
-    _rfc_prov    = "XAX010101000"
+    _rfc_prov    = validar_rfc_o_advertir(settings.get("RfcProveedor", "") or "", "RfcProveedor")
+    if not _rfc_prov:
+        _rfc_prov = "XAX010101000"
 
     _es_moral    = es_persona_moral(_rfc_cv)
     _include_rep = bool(_rfc_rep and _rfc_rep != _rfc_cv)

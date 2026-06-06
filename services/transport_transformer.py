@@ -32,7 +32,7 @@ from services.product_catalog import get_producto, CLAVE_UNIDAD_LITROS, get_desc
 logger = logging.getLogger(__name__)
 
 # ── Constantes de transporte ──────────────────────────────────────────────────
-RFC_PROVEEDOR_DEFAULT = "XAXX010101000"
+RFC_PROVEEDOR_DEFAULT = "ATI9404219D5"  # RFC del proveedor del programa informático
 
 # Catálogo TipoEvento conforme §17.4 Guía SAT — reutilizable pero independiente
 _TIPO_EVENTO: dict[int, str] = {
