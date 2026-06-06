@@ -1,0 +1,36 @@
+    <section class="section" data-section="publico">
+      <div class="publico-layout">
+        <div class="panel publico-form-panel">
+          <div class="section-head"><div><h2>Facturar Público General</h2><div class="muted small">Usa el timbrado real de Gas LP para la empresa seleccionada.</div></div></div>
+          <div class="notice" style="margin-bottom:12px">Receptor fijo: <b>PUBLICO EN GENERAL</b> · RFC <b>XAXX010101000</b> · Régimen 616 · Uso S01.</div>
+          <div class="publico-form-grid">
+            <div class="span-full"><label>Instalación</label><select id="pubFacility" onchange="onPublicoFacilityChange()"><option value="">Cargando...</option></select></div>
+            <div><label>Litros</label><input id="pubLitros" type="number" min="0" step="0.0001" oninput="updatePublicoSummary()"></div>
+            <div><label>Precio con IVA</label><input id="pubPrecio" type="number" min="0" step="0.0001" placeholder="Selecciona instalación" oninput="markPublicoManualPrice();updatePublicoSummary()"></div>
+            <div><label>Tipo de descuento</label><select id="pubDescuentoTipo" onchange="updatePublicoDiscountMode()"><option value="sin_descuento" selected>Sin descuento</option><option value="por_litro">Descuento por litro</option><option value="total_pesos">Descuento total en pesos</option></select></div>
+            <div id="pubDescuentoField" class="hidden"><label id="pubDescuentoLabel">Descuento total a restar</label><input id="pubDescuento" type="number" min="0" step="0.000001" value="0" oninput="updatePublicoSummary()"></div>
+            <div><label>IVA</label><select id="pubIvaRate" onchange="updatePublicoSummary()"><option value="0.16">16%</option><option value="0">0%</option></select></div>
+            <div><label>Forma pago</label><select id="pubForma"><option value="01">01 Efectivo</option><option value="03">03 Transferencia</option><option value="04">04 Tarjeta crédito</option><option value="28">28 Tarjeta débito</option></select></div>
+            <div><label>Método pago</label><select id="pubMetodo"><option value="PUE">PUE</option><option value="PPD">PPD</option></select></div>
+            <div><label>Fecha emisión</label><input id="pubFecha" type="datetime-local"></div>
+            <div><label>Factura global</label><select id="pubGlobal" onchange="toggleGlobalFields()"><option value="0">No global</option><option value="1">Global mensual</option></select></div>
+            <div id="pubMesWrap" style="display:none"><label>Mes global</label><input id="pubMes" type="month"></div>
+          </div>
+          <div class="summary" style="margin-top:12px">
+            <div class="summary-row"><b>Subtotal</b><span id="pubSumSubtotal">$0.00</span></div>
+            <div class="summary-row"><b>Descuento aplicado</b><span id="pubSumDescuento">$0.00</span></div>
+            <div class="summary-row"><b id="pubSumIvaLabel">IVA 16%</b><span id="pubSumIva">$0.00</span></div>
+            <div class="summary-row"><b>Total</b><span id="pubSumTotal">$0.00</span></div>
+          </div>
+          <div style="margin-top:10px"><label>Comentarios / observaciones</label><textarea id="pubComentarios" placeholder="Referencia interna, indicaciones o notas para el PDF"></textarea></div>
+          <div class="toolbar" style="margin-top:12px"><button class="btn" id="btnPubTimbrar" onclick="timbrarPublicoGeneral()">Timbrar Público General</button><button class="btn ghost" type="button" onclick="clearPublicoForm()">Limpiar</button><span id="pubMsg" class="status"></span></div>
+        </div>
+        <div class="panel publico-today-panel">
+          <div class="section-head">
+            <div><h2>Público General de hoy</h2><div class="muted small">Facturas emitidas hoy para Público en General de la empresa seleccionada.</div></div>
+          </div>
+          <div class="table-wrap publico-today-wrap"><table class="publico-today-table"><thead><tr><th>Fecha/hora</th><th>Empresa</th><th>Instalación</th><th>Litros</th><th>Total</th><th>Estado</th><th>UUID</th><th>Docs</th><th>Realizado por</th></tr></thead><tbody id="publicoTodayRows"></tbody></table></div>
+        </div>
+      </div>
+    </section>
+

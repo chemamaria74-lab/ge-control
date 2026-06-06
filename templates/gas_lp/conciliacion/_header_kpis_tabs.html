@@ -1,0 +1,25 @@
+    <section class="header">
+      <div>
+        <h1>Conciliación Gas LP</h1>
+        <div class="muted" id="companyLabel">Empresa seleccionada</div>
+      </div>
+      <div class="toolbar">
+        <input id="periodoFiltro" class="month-input" type="month" onchange="loadAll()">
+        <button class="btn ghost" onclick="loadAll()">Actualizar</button>
+      </div>
+    </section>
+
+    <section class="kpis">
+      <div class="panel kpi"><span>Facturas del mes</span><b id="kFacturas">0</b></div>
+      <div class="panel kpi"><span>Total facturado</span><b id="kTotal">$0.00</b></div>
+      <div class="panel kpi"><span>Pendiente PPD</span><b id="kCredito">$0.00</b></div>
+      <div class="panel kpi"><span>Complementos pendientes</span><b id="kCompPend">0</b></div>
+    </section>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="facturas" onclick="switchTab('facturas')">Facturas</button>
+      <button class="tab" data-tab="publico" onclick="switchTab('publico')">Facturar Público General</button>
+      <button class="tab" data-tab="complementos" onclick="switchTab('complementos')">Complementos de pago</button>
+      <button class="tab" data-tab="credito" onclick="switchTab('credito')">Crédito</button>
+      <button class="tab" data-tab="sat" onclick="switchTab('sat')">Cancelación / Consulta SAT</button>
+    </nav>

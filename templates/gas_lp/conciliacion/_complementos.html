@@ -1,0 +1,23 @@
+    <section class="section" data-section="complementos">
+      <div class="panel">
+        <div class="section-head"><div><h2>Complementos de pago</h2><div class="muted small">Facturas PPD pendientes de la empresa seleccionada, sin importar quién las creó.</div></div><span class="pill warn" id="selCount">0 seleccionadas</span></div>
+        <div class="grid" style="margin-bottom:12px">
+          <div><label>Fecha pago</label><input id="fechaPago" type="datetime-local"></div>
+          <div><label>Forma de pago</label><select id="formaPago"><option value="03">03 Transferencia</option><option value="01">01 Efectivo</option><option value="02">02 Cheque</option><option value="04">04 Tarjeta crédito</option><option value="28">28 Tarjeta débito</option></select></div>
+        </div>
+        <div style="margin-bottom:12px"><label>Cliente con PPD pendiente</label><select id="compClienteFiltro" onchange="renderAll()"><option value="">Todos los clientes pendientes</option></select></div>
+        <div class="table-wrap complementos-pendientes-scroll"><table><thead><tr><th></th><th>Fecha</th><th>Cliente</th><th>UUID</th><th>Total</th><th>Saldo</th><th>Validación</th><th>Realizado por</th></tr></thead><tbody id="complementosRows"></tbody></table></div>
+        <div class="selection"><div><b id="selTotal">$0.00</b><div class="muted" id="selCliente">Sin cliente seleccionado</div></div><div class="toolbar"><button class="btn ghost" onclick="clearSel()">Limpiar</button><button class="btn" id="btnTimbrarComplemento" onclick="timbrarComplemento()">Timbrar complemento</button></div></div>
+        <div id="compMsg" class="status"></div>
+      </div>
+      <div class="panel complementos-emitidos-panel">
+        <div class="section-head">
+          <div><h2>Complementos de hoy</h2><div class="muted small">Complementos de pago emitidos hoy y estado de envío al cliente.</div></div>
+          <span class="pill neutral" id="compEmitidosCount">0 complementos</span>
+        </div>
+        <div style="margin-bottom:12px"><label>Buscar emitidos</label><input id="compEmitidosFiltro" placeholder="Cliente, RFC, UUID, factura o realizado por" oninput="renderComplementosEmitidos()"></div>
+        <div class="table-wrap complementos-emitidos-scroll"><table class="complementos-emitidos-table"><thead><tr><th>Fecha pago</th><th>Timbrado</th><th>Cliente</th><th>Factura(s)</th><th>Monto</th><th>Realizado por</th><th>Correo</th><th>Docs</th></tr></thead><tbody id="compEmitidosRows"><tr><td colspan="8">Cargando complementos emitidos...</td></tr></tbody></table></div>
+        <div id="compEmitidosMsg" class="status"></div>
+      </div>
+    </section>
+
