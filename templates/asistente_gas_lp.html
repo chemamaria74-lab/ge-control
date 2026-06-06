@@ -1486,11 +1486,16 @@
       const md = cpMeta(row);
       let body = '';
       if(kind==='vehiculos') body = [
-        acpField('acpv_alias','Alias',md.alias||''), acpField('acpv_num','Número económico',md.numero_economico||''), acpField('acpv_placas','Placas',row?.placas||'','text','oninput="this.value=this.value.toUpperCase()"'), acpField('acpv_anio','Año/modelo',row?.anio||2024,'number'),
-        acpField('acpv_config','Config. vehicular SAT',row?.config_vehicular||'C2'), acpField('acpv_permiso','Permiso SCT/SICT',row?.permiso_cre||''), acpField('acpv_numperm','Número permiso',md.numero_permiso||''), acpField('acpv_peso','Peso bruto vehicular',md.peso_bruto_vehicular||'','number','step="0.001"'),
-        acpField('acpv_aseg','Aseguradora RC',row?.aseguradora||''), acpField('acpv_poliza','Póliza RC',row?.poliza_seguro||''), acpField('acpv_asegma','Aseguradora medio ambiente',md.aseguradora_medio_ambiente||''), acpField('acpv_polizama','Póliza medio ambiente',md.poliza_medio_ambiente||''), acpField('acpv_asegc','Aseguradora carga',md.aseguradora_carga||''), acpField('acpv_polizac','Póliza carga',md.poliza_carga||'')
+        acpField('acpv_alias','Alias',md.alias||''), acpField('acpv_num','Número económico',md.numero_economico||''), acpField('acpv_placas','Placas',row?.placas||'','text','oninput="this.value=this.value.toUpperCase()"'), acpField('acpv_config','Config. vehicular SAT',row?.config_vehicular||'C2'),
+        `<details class="form-span"><summary>Mostrar datos SAT</summary><div class="acp-grid" style="margin-top:10px">${[
+          acpField('acpv_anio','Año/modelo',row?.anio||2024,'number'), acpField('acpv_permiso','Permiso SCT/SICT',row?.permiso_cre||''), acpField('acpv_numperm','Número permiso',md.numero_permiso||''), acpField('acpv_peso','Peso bruto vehicular',md.peso_bruto_vehicular||'','number','step="0.001"'),
+          acpField('acpv_aseg','Aseguradora RC',row?.aseguradora||''), acpField('acpv_poliza','Póliza RC',row?.poliza_seguro||''), acpField('acpv_asegma','Aseguradora medio ambiente',md.aseguradora_medio_ambiente||''), acpField('acpv_polizama','Póliza medio ambiente',md.poliza_medio_ambiente||''), acpField('acpv_asegc','Aseguradora carga',md.aseguradora_carga||''), acpField('acpv_polizac','Póliza carga',md.poliza_carga||'')
+        ].join('')}</div></details>`
       ].join('');
-      if(kind==='choferes') body = [acpField('acpc_nombre','Nombre completo',row?.nombre||''),acpField('acpc_rfc','RFC',row?.rfc||'','text','oninput="this.value=this.value.toUpperCase()"'),acpField('acpc_lic','Licencia',row?.licencia||''),acpSelect('acpc_tipo','Tipo figura SAT','<option value="01">01 Operador</option><option value="02">02 Propietario</option><option value="03">03 Arrendador</option>',md.tipo_figura||'01'),acpField('acpc_parte','Parte transporte',md.parte_transporte||''),acpField('acpc_tel','Teléfono',row?.telefono||'')].join('');
+      if(kind==='choferes') body = [
+        acpField('acpc_nombre','Nombre completo',row?.nombre||''),acpField('acpc_rfc','RFC',row?.rfc||'','text','oninput="this.value=this.value.toUpperCase()"'),acpField('acpc_lic','Licencia',row?.licencia||''),acpField('acpc_tel','Teléfono',row?.telefono||''),
+        `<input id="acpc_tipo" type="hidden" value="${esc(md.tipo_figura || '01')}"><input id="acpc_parte" type="hidden" value="${esc(md.parte_transporte || '')}">`
+      ].join('');
       if(kind==='instalaciones') body = [
         `<div><label>Instalación</label><input class="locked-field" readonly value="${esc(row?.alias || row?.nombre || '')}"></div>`,
         `<div><label>CP</label><input class="locked-field" readonly value="${esc(row?.codigo_postal || '')}"></div>`,
@@ -1502,7 +1507,11 @@
         acpField('acpu_loc','Localidad SAT',row?.localidad_sat||''),
         acpField('acpu_ref','Referencia Carta Porte',row?.referencia_carta_porte||'')
       ].join('');
-      if(kind==='mercancias') body = [acpField('acpm_alias','Alias visible',row?.alias||''),acpField('acpm_bienes','BienesTransp SAT',row?.bienes_transp||''),acpField('acpm_desc','Descripción',row?.descripcion||''),acpField('acpm_clave','Clave unidad',row?.clave_unidad||'LTR'),acpField('acpm_unidad','Unidad',row?.unidad||'L'),acpField('acpm_factor','Factor kg/litro',row?.factor_kg_litro||0.54,'number','step="0.000001"'),acpSelect('acpm_peligro','Material peligroso','<option value="1">Sí</option><option value="0">No</option>',row?.material_peligroso===false?'0':'1'),acpField('acpm_clavep','Clave material peligroso',row?.clave_material_peligroso||''),acpField('acpm_emb','Embalaje SAT',row?.embalaje||''),acpField('acpm_descemb','Descripción embalaje',row?.descripcion_embalaje||'')].join('');
+      if(kind==='mercancias') body = [
+        `<div><label>Mercancía</label><input id="acpm_alias" class="locked-field" readonly value="${esc(row?.alias || 'Gas LP')}"></div>`,
+        `<div><label>Configuración</label><input class="locked-field" readonly value="Gas LP fijo para Carta Porte"></div>`,
+        `<input id="acpm_bienes" type="hidden" value="${esc(row?.bienes_transp || '15111510')}"><input id="acpm_desc" type="hidden" value="${esc(row?.descripcion || 'Gas licuado de petróleo')}"><input id="acpm_clave" type="hidden" value="${esc(row?.clave_unidad || 'LTR')}"><input id="acpm_unidad" type="hidden" value="${esc(row?.unidad || 'Litro')}"><input id="acpm_factor" type="hidden" value="${esc(row?.factor_kg_litro || 0.54)}"><input id="acpm_peligro" type="hidden" value="1"><input id="acpm_clavep" type="hidden" value="${esc(row?.clave_material_peligroso || '1075')}"><input id="acpm_emb" type="hidden" value="${esc(row?.embalaje || '4H2')}"><input id="acpm_descemb" type="hidden" value="${esc(row?.descripcion_embalaje || '')}">`
+      ].join('');
       if(kind==='rutas'){
         const gas = gasLpMercancia();
         const gasLabel = gas ? `${gas.alias || gas.descripcion || 'Gas LP'} · ${gas.bienes_transp} · ${gas.clave_material_peligroso} · ${gas.clave_unidad}` : 'Configura mercancía Gas LP en Mercancías';

@@ -221,6 +221,15 @@ select option{background:#fff}
 .doc-card .doc-kind{justify-self:start}
 .evidence-upload{border:1px dashed #D8D0C4;border-radius:8px;background:#fff;padding:12px;margin-top:12px}
 .evidence-upload h4{margin:0 0 10px;font-size:13px}
+.money-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:6px 0 2px}
+.money-box{border:1px solid var(--border);border-radius:8px;background:#FAF9F7;padding:12px;min-height:82px}
+.money-box span{display:block;font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+.money-box b{display:block;font-size:20px;color:#111;line-height:1}
+.money-box small{display:block;margin-top:6px;color:var(--text3);font-size:11px}
+.money-box.ok b{color:#027A48}.money-box.warn b{color:#9A6700}.money-box.danger b{color:#B4232F}
+.cost-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cost-pill{display:flex;justify-content:space-between;gap:12px;border:1px solid var(--border);border-radius:8px;background:#fff;padding:10px}
+.cost-pill span{color:var(--text3);font-size:12px}.cost-pill strong{font-size:13px;color:#111;text-align:right}
 .timeline{display:grid;gap:8px}
 .timeline-item{border-left:3px solid #D8D0C4;padding:7px 0 7px 12px}
 .timeline-item strong{display:block;font-size:13px}.timeline-item span{display:block;font-size:12px;color:var(--text3);margin-top:3px}
@@ -231,6 +240,7 @@ select option{background:#fff}
   .ops-search{grid-column:1 / -1}
   .x360-grid{grid-template-columns:1fr}
   .doc-board{grid-template-columns:1fr}
+  .money-strip,.cost-grid{grid-template-columns:1fr}
 }
 
 /* ── PRODUCT ITEMS ── */
@@ -2760,6 +2770,8 @@ function viajeAlertas(v) {
   if (viajeCartaPorteStatus(v).key === 'error') alerts.push({kind:'danger', label:'Revisar Carta Porte', detail:'Tiene error o validación pendiente.'});
   if (viajeCartaPorteStatus(v).key === 'timbrada' && viajeFacturaStatus(v).key === 'pendiente') alerts.push({kind:'ok', label:'Lista para facturar', detail:'Carta Porte vigente sin factura servicio.'});
   if (viajeOperacionStatus(v).key === 'entregado' && viajeLiquidacionStatus(v).key === 'pendiente') alerts.push({kind:'warn', label:'Liquidación pendiente', detail:'Viaje entregado sin liquidar.'});
+  if (!Number(v.total_operativo || v.tarifa_total || v.subtotal_flete || 0)) alerts.push({kind:'warn', label:'Sin tarifa', detail:'Calcula tarifa para ver rentabilidad.'});
+  if (Number(v.total_operativo || 0) > 0 && Number(v.comision_operador || 0) > Number(v.total_operativo || 0)) alerts.push({kind:'danger', label:'Margen en riesgo', detail:'Comisión mayor al ingreso operativo.'});
   return alerts;
 }
 
@@ -3332,6 +3344,59 @@ function evidenciaUploadOptions() {
   ].map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
 }
 
+function moneyFmt(n) {
+  return Number(n || 0).toLocaleString('es-MX', {style:'currency', currency:'MXN'});
+}
+
+function gastoResumen(gastos=[]) {
+  const total = gastos.reduce((s,g) => s + Number(g.importe || 0), 0);
+  const aprobados = gastos.filter(g => String(g.status || '').toLowerCase() === 'aprobado').reduce((s,g) => s + Number(g.importe || 0), 0);
+  const pendientes = gastos.filter(g => ['pendiente','borrador'].includes(String(g.status || '').toLowerCase())).reduce((s,g) => s + Number(g.importe || 0), 0);
+  const rechazados = gastos.filter(g => String(g.status || '').toLowerCase() === 'rechazado').reduce((s,g) => s + Number(g.importe || 0), 0);
+  return {total, aprobados, pendientes, rechazados};
+}
+
+function facturaServicioTotal(facturas=[]) {
+  return facturasServicioDeViaje(facturas).reduce((s,f) => s + Number(f.total || 0), 0);
+}
+
+function ingresoOperativo(v, facturas=[]) {
+  const facturado = facturaServicioTotal(facturas);
+  if (facturado > 0) return {monto: facturado, source: 'Factura servicio'};
+  const totalOperativo = Number(v.total_operativo || 0);
+  if (totalOperativo > 0) return {monto: totalOperativo, source: 'Tarifa calculada'};
+  const subtotalFlete = Number(v.subtotal_flete || v.tarifa_total || 0);
+  if (subtotalFlete > 0) return {monto: subtotalFlete, source: 'Subtotal flete'};
+  const productos = v.productos || viajeProductos(v);
+  const importeProductos = productos.reduce((s,p) => s + Number(p.importe || 0), 0);
+  if (importeProductos > 0) return {monto: importeProductos, source: 'Importe capturado'};
+  return {monto: 0, source: 'Sin tarifa'};
+}
+
+function economiaViaje(v, gastos=[], facturas=[]) {
+  const ingreso = ingresoOperativo(v, facturas);
+  const gr = gastoResumen(gastos);
+  const comision = Number(v.comision_operador || 0);
+  const costoTotal = gr.total + comision;
+  const margen = ingreso.monto - costoTotal;
+  const margenPct = ingreso.monto > 0 ? (margen / ingreso.monto) * 100 : 0;
+  return {ingreso, gastos: gr, comision, costoTotal, margen, margenPct};
+}
+
+function moneyBox(label, value, note='', kind='') {
+  return `<div class="money-box ${kind}"><span>${esc(label)}</span><b>${esc(value)}</b><small>${esc(note)}</small></div>`;
+}
+
+function economiaAlertas(v, eco, gastos=[]) {
+  const alerts = [];
+  if (eco.ingreso.monto <= 0) alerts.push({kind:'warn', text:'Sin tarifa calculada'});
+  if (eco.gastos.pendientes > 0) alerts.push({kind:'warn', text:'Gastos pendientes de aprobar'});
+  if (viajeOperacionStatus(v).key === 'entregado' && viajeLiquidacionStatus(v).key === 'pendiente') alerts.push({kind:'warn', text:'Entregado pendiente de liquidar'});
+  if (eco.margen < 0) alerts.push({kind:'danger', text:'Margen estimado negativo'});
+  if (!alerts.length) alerts.push({kind:'ok', text:'Control económico sin alertas'});
+  return alerts;
+}
+
 function renderExpediente360Panel(data) {
   const v = data.viaje || {};
   const chofer = data.chofer || viajeChofer(v) || {};
@@ -3347,6 +3412,8 @@ function renderExpediente360Panel(data) {
   const fs = facturas.length ? {key:'facturada', label:'Facturada', className:'chip-green'} : viajeFacturaStatus(v);
   const evidencia = docs.length ? {key:'recibida', label:`${docs.length} doc${docs.length === 1 ? '' : 's'}`, className:'chip-green'} : viajeEvidenciaStatus(v);
   const gastosStatus = gastos.length ? {key:'aprobados', label:`$${gastosTotal.toLocaleString('es-MX',{maximumFractionDigits:0})} gastos`, className:'chip-green'} : viajeGastosStatus(v);
+  const eco = economiaViaje(v, gastos, facturas);
+  const ecoAlerts = economiaAlertas(v, eco, gastos);
   const title = document.getElementById('drawerViaje360Title');
   const sub = document.getElementById('drawerViaje360Sub');
   if (title) title.textContent = `Viaje #${v.id || '—'}`;
@@ -3360,6 +3427,22 @@ function renderExpediente360Panel(data) {
       ${estadoBadge(gastosStatus)}
       ${estadoBadge(viajeLiquidacionStatus(v))}
     </div>
+    <section class="x360-card full">
+      <h3><i class="fa-solid fa-chart-line"></i> Control económico del viaje</h3>
+      <div class="money-strip">
+        ${moneyBox('Ingreso estimado', moneyFmt(eco.ingreso.monto), eco.ingreso.source, eco.ingreso.monto ? 'ok' : 'warn')}
+        ${moneyBox('Gastos', moneyFmt(eco.gastos.total), `${gastos.length} gasto${gastos.length === 1 ? '' : 's'} registrados`, eco.gastos.pendientes ? 'warn' : '')}
+        ${moneyBox('Comisión operador', moneyFmt(eco.comision), 'Monto operativo del viaje', '')}
+        ${moneyBox('Margen estimado', moneyFmt(eco.margen), `${eco.margenPct.toFixed(1)}%`, eco.margen < 0 ? 'danger' : 'ok')}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        ${ecoAlerts.map(a => `<span class="chip ${a.kind === 'danger' ? 'chip-red' : a.kind === 'ok' ? 'chip-green' : 'chip-amber'}">${esc(a.text)}</span>`).join('')}
+      </div>
+      <div class="doc-actions" style="margin-top:12px">
+        <button class="btn btn-ghost" type="button" onclick="calcularTarifaYRefrescar(${Number(v.id)})"><i class="fa-solid fa-calculator"></i> Calcular tarifa</button>
+        <button class="btn btn-ghost" type="button" onclick="prepararLiquidacionDesdeViaje(${Number(v.id)}, ${Number(v.chofer_id || 0)})"><i class="fa-solid fa-money-check-dollar"></i> Preparar liquidación</button>
+      </div>
+    </section>
     <div class="x360-grid">
       <section class="x360-card">
         <h3><i class="fa-solid fa-route"></i> Datos del viaje</h3>
@@ -3428,9 +3511,14 @@ function renderExpediente360Panel(data) {
       </section>
       <section class="x360-card">
         <h3><i class="fa-solid fa-receipt"></i> Gastos</h3>
+        <div class="cost-grid" style="margin-bottom:10px">
+          <div class="cost-pill"><span>Aprobados</span><strong>${moneyFmt(eco.gastos.aprobados)}</strong></div>
+          <div class="cost-pill"><span>Pendientes</span><strong>${moneyFmt(eco.gastos.pendientes)}</strong></div>
+          <div class="cost-pill"><span>Rechazados</span><strong>${moneyFmt(eco.gastos.rechazados)}</strong></div>
+          <div class="cost-pill"><span>Total</span><strong>${moneyFmt(eco.gastos.total)}</strong></div>
+        </div>
         <div class="x360-list">
-          ${x360Line('Total registrado', `$${gastosTotal.toLocaleString('es-MX',{minimumFractionDigits:2})}`)}
-          ${gastos.length ? gastos.slice(0,6).map(g => x360Line(g.tipo || 'Gasto', `$${Number(g.importe || 0).toLocaleString('es-MX',{minimumFractionDigits:2})} · ${esc(g.status || 'pendiente')}`)).join('') : '<div class="hint">Sin gastos registrados.</div>'}
+          ${gastos.length ? gastos.slice(0,8).map(g => x360Line(docTypeLabel(g.tipo || 'Gasto'), `${moneyFmt(g.importe)} · ${esc(g.status || 'pendiente')}`)).join('') : '<div class="hint">Sin gastos registrados.</div>'}
         </div>
         <div class="form-row cols-3" style="margin-top:12px">
           <input id="drawer-gasto-tipo-${v.id}" placeholder="Tipo">
@@ -3445,6 +3533,11 @@ function renderExpediente360Panel(data) {
           ${x360Line('Estado', estadoBadge(viajeLiquidacionStatus(v)))}
           ${x360Line('Chofer', esc(chofer.nombre || '—'))}
           ${x360Line('Periodo', esc(v.programa_semana || '—'))}
+          ${x360Line('Costo liquidable estimado', moneyFmt(eco.comision + eco.gastos.aprobados))}
+          ${x360Line('Margen después de costo', moneyFmt(eco.margen))}
+        </div>
+        <div class="doc-actions" style="margin-top:12px">
+          <button class="btn btn-ghost" type="button" onclick="prepararLiquidacionDesdeViaje(${Number(v.id)}, ${Number(v.chofer_id || 0)})"><i class="fa-solid fa-money-check-dollar"></i> Ir a liquidación</button>
         </div>
       </section>
       <section class="x360-card full">
@@ -3552,6 +3645,32 @@ async function subirEvidenciaViajeDesdeDrawer(id) {
 async function actualizarStatusOperacion(id, status) {
   const r = await api('POST', `/api/tr/viajes/${id}/operacion-status`, { operacion_status: status });
   if (r?.ok) { toast('Estatus operativo actualizado', 'success'); cargarViajes(); cargarOperacion(); cargarViaje360(); }
+}
+
+async function calcularTarifaYRefrescar(id) {
+  const r = await api('POST', `/api/tr/viajes/${id}/calcular-tarifa`, {});
+  if (r?.ok) {
+    const c = r.calculo || {};
+    toast(`Tarifa calculada: ${moneyFmt(c.total || 0)}`, 'success');
+    await cargarViajes();
+    await abrirViaje360Drawer(id);
+  }
+}
+
+function prepararLiquidacionDesdeViaje(id, choferId=0) {
+  cerrarViaje360Drawer();
+  switchTab('operacion');
+  setTimeout(() => {
+    const viajeSel = document.getElementById('op-viaje-360');
+    if (viajeSel) viajeSel.value = id;
+    const choferSel = document.getElementById('liq-chofer');
+    if (choferSel && choferId) choferSel.value = String(choferId);
+    const periodo = document.getElementById('liq-periodo');
+    const viaje = VIAJES.find(v => Number(v.id) === Number(id));
+    if (periodo && viaje?.fecha_hora_salida) periodo.value = String(viaje.fecha_hora_salida).slice(0,7);
+    cargarViaje360().catch(() => {});
+    document.getElementById('liq-detalle')?.scrollIntoView({behavior:'smooth', block:'center'});
+  }, 80);
 }
 
 async function calcularTarifa(id) {
