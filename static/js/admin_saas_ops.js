@@ -2,7 +2,6 @@
   const sections = [
     ["gas_lp", "Gas LP", "fa-fire-flame-simple"],
     ["transporte", "Transporte", "fa-truck-fast"],
-    ["gasolineras", "Gasolineras", "fa-gas-pump"],
   ];
 
   function ready(fn){ document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", fn) : fn(); }
@@ -137,7 +136,7 @@
     const rows = moduleRows(t.id, key);
     const internal = tenantInternal(t.id, key);
     const enabled = (t.modules || []).includes(key) || t.license?.limits?.[key]?.enabled;
-    const usage = key === "gas_lp" ? t.license?.usage_labels?.gas_lp_assistants : key === "transporte" ? t.license?.usage_labels?.transporte_operators : t.license?.usage_labels?.gasolineras_users;
+    const usage = key === "gas_lp" ? t.license?.usage_labels?.gas_lp_assistants : t.license?.usage_labels?.transporte_operators;
     return `<div class="ops-section">
       <h4><span class="ops-status-dot ${enabled ? "" : "off"}"></span><i class="fa-solid ${icon}"></i> ${label}</h4>
       <div class="ops-sub">Licencia: ${esc(usage?.used ?? 0)}/${esc(usage?.display_limit ?? "—")} · Estado ${enabled ? "activo" : "sin asignar"}</div>
@@ -159,7 +158,7 @@
   }
 
   function roleOptions(section){
-    const roles = section === "transporte" ? ["admin","operador","user"] : section === "gas_lp" ? ["admin","asistente_facturacion","asistente_operativo","planta","solo_lectura","user"] : ["admin","user"];
+    const roles = section === "transporte" ? ["admin","operador","user"] : section === "gas_lp" ? ["admin","asistente_facturacion","asistente_operativo","conciliacion","planta","solo_lectura","user"] : ["admin","user"];
     return roles.map(r => `<option>${r}</option>`).join("");
   }
 
@@ -212,7 +211,7 @@
     for(const [section] of sections){
       await saveUserSection({user_id:base.user_id, section, role:"admin", status:"active", tenant_id, perfil_id, display_name:"superadmin"});
     }
-    alert("Superadmin habilitado en Transporte, Gas LP y Gasolineras.");
+    alert("Superadmin habilitado en Transporte y Gas LP.");
   }
 
   ready(() => {
