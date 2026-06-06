@@ -14,12 +14,14 @@ TEMPLATES = [
     ROOT / "templates" / "asistente_gas_lp.html",
     ROOT / "templates" / "conciliacion_gas_lp.html",
     ROOT / "templates" / "admin_saas.html",
+    ROOT / "templates" / "transporte.html",
 ]
 JS_DIRS = [
     ROOT / "static" / "js" / "app",
     ROOT / "static" / "js" / "gas_lp" / "asistente",
     ROOT / "static" / "js" / "gas_lp" / "conciliacion",
     ROOT / "static" / "js" / "admin_saas",
+    ROOT / "static" / "js" / "transporte",
 ]
 INCLUDE_RE = re.compile(r"<!--\s*ge-include:\s*([A-Za-z0-9_./-]+\.html)\s*-->")
 
