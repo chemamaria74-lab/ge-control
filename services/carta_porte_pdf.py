@@ -11,7 +11,6 @@ from lxml import etree
 NS_CFDI = "http://www.sat.gob.mx/cfd/4"
 NS_CP31 = "http://www.sat.gob.mx/CartaPorte31"
 NS_TFD = "http://www.sat.gob.mx/TimbreFiscalDigital"
-_INCH = 72.0
 
 
 @dataclass
@@ -34,7 +33,7 @@ def extraer_info_pdf(xml_content: str | bytes) -> CartaPortePdfInfo:
     uuid = _attr(timbre, "UUID", "sin_uuid")
     id_ccp = _attr(carta, "IdCCP", "")
     safe = (uuid or id_ccp or "carta_porte").replace("/", "_")
-    return CartaPortePdfInfo(uuid=uuid, id_ccp=id_ccp, has_carta_porte=carta is not None, filename=f"{safe}.pdf")
+    return CartaPortePdfInfo(uuid=uuid, id_ccp=id_ccp, has_carta_porte=carta is not None, filename=f"carta_porte_{safe}.pdf")
 
 
 def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: str = "") -> bytes:
@@ -92,7 +91,6 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     styles.add(ParagraphStyle(name="TitleCenter", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=15, leading=18, textColor=colors.HexColor("#111111")))
     styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontSize=10.5, leading=13, textColor=colors.HexColor("#7A1E2C"), spaceBefore=8, spaceAfter=4))
     styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.8, leading=8.5))
-    styles.add(ParagraphStyle(name="TinyCenter", parent=styles["Tiny"], alignment=TA_CENTER))
     styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=7.6, leading=9.5))
     styles.add(ParagraphStyle(name="Warn", parent=styles["Normal"], fontSize=8, leading=10, textColor=colors.HexColor("#7A1E2C")))
 
@@ -198,12 +196,13 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     story.append(_section("Figuras de transporte", Paragraph, styles))
     story.append(_figuras_table(figuras, Table, TableStyle, Paragraph, styles, colors))
 
+    story.append(PageBreak())
     story.append(_section("Sellos y cadena original", Paragraph, styles))
     story.append(_long_block("Sello digital CFDI", _attr(comp, "Sello") or _attr(timbre, "SelloCFD"), Table, TableStyle, Paragraph, styles, colors))
     story.append(_long_block("Sello SAT", _attr(timbre, "SelloSAT"), Table, TableStyle, Paragraph, styles, colors))
     story.append(_long_block("Cadena original del complemento de certificación digital SAT", _cadena_original_tfd(timbre), Table, TableStyle, Paragraph, styles, colors))
-    story.append(Spacer(1, 4))
-    story.append(Paragraph("Este documento es una representación impresa de un CFDI con Complemento Carta Porte.", styles["TinyCenter"]))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("Generado por GE Control © 2026", styles["Tiny"]))
 
     doc.build(story)
     return buffer.getvalue()
@@ -278,7 +277,7 @@ def _kv_table(title, rows, Table, TableStyle, Paragraph, styles, colors):
     data = [[Paragraph(f"<b>{_text(title)}</b>", styles["Small"]), ""]]
     for key, val in rows:
         data.append([Paragraph(f"<b>{_text(key)}</b>", styles["Tiny"]), Paragraph(_text(val), styles["Tiny"])])
-    table = Table(data, colWidths=[1.55 * _INCH, 5.95 * _INCH])
+    table = Table(data, colWidths=[1.55 * inch(), 5.95 * inch()])
     table.setStyle(_table_style())
     return table
 
@@ -355,14 +354,14 @@ def _figuras_table(figuras, Table, TableStyle, Paragraph, styles, colors):
 
 def _simple_table(rows: list[list[object]], widths: list[float], Table, Paragraph, styles):
     data = [[Paragraph(_text(cell), styles["Tiny"]) for cell in row] for row in rows]
-    table = Table(data, colWidths=[w * _INCH for w in widths], repeatRows=1)
+    table = Table(data, colWidths=[w * inch() for w in widths], repeatRows=1)
     table.setStyle(_table_style())
     return table
 
 
 def _long_block(title, value, Table, TableStyle, Paragraph, styles, colors):
     data = [[Paragraph(f"<b>{_text(title)}</b>", styles["Tiny"])], [Paragraph(_text(value or "—"), styles["Tiny"])]]
-    table = Table(data, colWidths=[7.1 * _INCH])
+    table = Table(data, colWidths=[7.1 * inch()])
     table.setStyle(_table_style())
     return table
 

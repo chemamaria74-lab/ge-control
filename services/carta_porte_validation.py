@@ -26,7 +26,6 @@ def validar_xml_carta_porte_transporte(
     xml_content: str | bytes,
     productos: list[dict] | None = None,
     enforce_hidrocarburos: bool = True,
-    require_timbre: bool = True,
 ) -> CartaPorteValidationResult:
     """
     Validación mínima bloqueante para no tratar un CFDI común como Carta Porte.
@@ -69,7 +68,7 @@ def validar_xml_carta_porte_transporte(
 
     if _attr(comp, "Version") != "4.0":
         errors.append("El CFDI no es versión 4.0.")
-    if require_timbre and (timbre is None or not _attr(timbre, "UUID")):
+    if timbre is None or not _attr(timbre, "UUID"):
         errors.append("El XML no contiene TimbreFiscalDigital/UUID.")
     if carta is None:
         errors.append("El XML timbrado no contiene el complemento Carta Porte 3.1.")
@@ -161,7 +160,7 @@ def validar_xml_carta_porte_transporte(
     metadata["requiere_hidrocarburos"] = requiere_hidro
     if requiere_hidro and hidro is None:
         errors.append("El producto transportado requiere validar complemento Hidrocarburos y Petrolíferos; el XML no lo contiene.")
-    elif _attr(comp, "TipoDeComprobante") in {"I", "E"} and _es_producto_hidrocarburo(productos) and hidro is None:
+    elif _es_producto_hidrocarburo(productos) and hidro is None:
         warnings.append("XML sin complemento Hidrocarburos y Petrolíferos; validar regla aplicable antes de producción.")
 
     return CartaPorteValidationResult(
