@@ -56,7 +56,7 @@ async function timbrarPublicoGeneral(){
   if(litrosVal<=0||precioVal<=0)return setMsg('pubMsg','Captura litros y precio con IVA.',false);
   if(Number(pubDescuento.value||0)<0)return setMsg('pubMsg','El descuento no puede ser negativo.',false);
   if(pubDescuentoTipo?.value==='por_litro'&&Number(pubDescuento.value||0)>precioVal)return setMsg('pubMsg','El descuento por litro no puede ser mayor al precio por litro.',false);
-  if(pubDescuentoTipo?.value==='total_pesos'&&Number(pubDescuento.value||0)>subtotalGross)return setMsg('pubMsg','El descuento total base no puede ser mayor al subtotal antes de IVA.',false);
+  if(pubDescuentoTipo?.value==='total_pesos'&&Number(pubDescuento.value||0)>subtotalGross)return setMsg('pubMsg','El descuento total no puede ser mayor al subtotal antes de IVA.',false);
   const global=pubGlobal.value==='1';
   const facility=FACILITIES.find(f=>String(f.id)===String(pubFacility.value));
   const body={
