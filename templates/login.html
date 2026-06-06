@@ -273,9 +273,7 @@
           const _lang = localStorage.getItem('zc_lang') || 'es';
           window.location.href = data.modulo === 'transporte'
             ? '/transporte?lang=' + _lang
-            : data.modulo === 'gasolineras'
-              ? '/gasolineras?lang=' + _lang
-              : '/app?lang=' + _lang;
+            : '/app?lang=' + _lang;
         } else {
           errEl.textContent = data.detail || 'Credenciales incorrectas.';
         }
