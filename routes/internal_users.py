@@ -975,31 +975,6 @@ def _transfer_email_from_settings(settings: dict) -> str:
 
 
 def _gas_lp_transfer_symbolic_unit_price(settings: dict) -> Decimal:
-    metadata = settings.get("metadata") if isinstance(settings.get("metadata"), dict) else {}
-    for key in (
-        "transfer_symbolic_unit_price",
-        "traspaso_precio_simbolico_litro",
-        "precio_simbolico_traspaso_litro",
-        "precio_unitario_simbolico_traspaso",
-    ):
-        value = settings.get(key)
-        if value in (None, ""):
-            value = metadata.get(key)
-        if value not in (None, ""):
-            try:
-                amount = Decimal(str(value)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
-                if amount > 0:
-                    return amount
-            except Exception:
-                logger.warning("[GasLP traspaso] symbolic_unit_price_invalid key=%s value=%s", key, value)
-    env_value = str(os.environ.get("GAS_LP_TRANSFER_SYMBOLIC_UNIT_PRICE") or "").strip()
-    if env_value:
-        try:
-            amount = Decimal(env_value).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
-            if amount > 0:
-                return amount
-        except Exception:
-            logger.warning("[GasLP traspaso] symbolic_unit_price_env_invalid value=%s", env_value)
     return Decimal("0.000860")
 
 
@@ -4994,18 +4969,18 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     precio_unitario_cfdi = payload.precio_unitario
     transfer_symbolic_unit_price = Decimal("0.000000")
     transfer_symbolic_applied = False
+    transfer_price_source = "payload"
     if is_transfer:
         transfer_symbolic_unit_price = _gas_lp_transfer_symbolic_unit_price(settings)
-        precio_decimal = Decimal(str(payload.precio_unitario or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
-        if precio_decimal <= 0:
-            precio_unitario_cfdi = float(transfer_symbolic_unit_price)
-            transfer_symbolic_applied = True
-            logger.info(
-                "[GasLP traspaso] symbolic_unit_price_applied litros=%s precio_original=%s precio_cfdi=%s",
-                payload.litros,
-                payload.precio_unitario,
-                precio_unitario_cfdi,
-            )
+        precio_unitario_cfdi = float(transfer_symbolic_unit_price)
+        transfer_symbolic_applied = True
+        transfer_price_source = "forced_transfer_symbolic_unit_price"
+        logger.info(
+            "[GasLP traspaso] symbolic_unit_price_forced litros=%s precio_original=%s precio_cfdi=%s",
+            payload.litros,
+            payload.precio_unitario,
+            precio_unitario_cfdi,
+        )
 
     try:
         xml, totals = _build_gas_lp_consumo_xml(
@@ -5336,6 +5311,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
             "precio_unitario_original": payload.precio_unitario,
             "transfer_symbolic_unit_price": float(transfer_symbolic_unit_price or 0) if is_transfer else None,
             "transfer_symbolic_unit_price_applied": bool(transfer_symbolic_applied),
+            "transfer_price_source": transfer_price_source if is_transfer else "",
             "descuento_por_litro": 0 if is_transfer else payload.descuento,
             "tipo_descuento": "" if is_transfer else payload.tipo_descuento,
             "descuento_capturado": None if is_transfer else payload.descuento_capturado,
