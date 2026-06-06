@@ -1,0 +1,36 @@
+      <section class="panel active" id="panel-clientes">
+        <div class="hero-strip">
+          <div class="hdr" style="margin:0">
+            <div><h2>Clientes</h2><p>Administra cada tenant desde una tarjeta clara: plan, módulos, licencias, empresas permitidas y accesos operativos.</p></div>
+            <button class="btn" onclick="loadAll()">Actualizar</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Nuevo cliente</h3>
+          <p class="muted" style="margin:6px 0 12px">Alta simple. Las licencias y módulos se ajustan desde la tarjeta del cliente.</p>
+          <div class="form-grid"><div><label>Nombre cliente</label><input id="tenantName"></div><div><label>Estatus</label><select id="tenantStatus"><option>active</option><option>inactive</option></select></div><div><label>&nbsp;</label><button class="btn" onclick="createTenant()">Crear cliente</button><span id="tenantStatusMsg" class="status"></span></div></div>
+        </div>
+        <div class="card client-quick-panel" id="clientQuickPanel"></div>
+        <div class="card" style="margin-top:14px">
+          <div class="hdr" style="margin-bottom:10px">
+            <div><h3>Usuarios visibles para operación</h3><p class="muted">Incluye usuarios de Auth aunque no tengan tenant/sección todavía, para poder repararlos o eliminarlos desde aquí.</p></div>
+            <button class="btn btn-ghost btn-sm" onclick="loadUsersHealth()">Actualizar usuarios</button>
+          </div>
+          <div class="toolbar"><input id="clientUsersSearch" placeholder="Buscar email, usuario, tenant o empresa" oninput="renderClientUsersQuick(); renderAccessMatrix();"></div>
+          <div class="quick-user-table"><table><thead><tr><th>Usuario</th><th>Tenant</th><th>Empresas</th><th>Módulos</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="clientUsersRows"></tbody></table></div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <div class="hdr" style="margin-bottom:10px">
+            <div><h3>Accesos rápidos por módulo</h3><p class="muted">Vista simple para habilitar Gas LP o Transporte a un usuario existente del cliente.</p></div>
+            <span id="accessMatrixMsg" class="status"></span>
+          </div>
+          <div class="quick-user-table"><table><thead><tr><th>Usuario</th><th>Cliente/tenant</th><th>Gas LP</th><th>Transporte</th></tr></thead><tbody id="accessMatrixRows"></tbody></table></div>
+        </div>
+        <div class="toolbar"><input id="tenantSearch" placeholder="Buscar cliente, RFC, tenant, módulo o plan" oninput="renderTenants(); renderClientCards();"></div>
+        <div class="client-grid" id="clientCardsMain"></div>
+        <details class="internal-tools">
+          <summary>Ver tabla técnica de tenants</summary>
+          <div class="card" style="margin-top:12px;overflow:auto"><table><thead><tr><th>Cliente</th><th>Tenant ID</th><th>Status</th><th>Empresas</th><th>Usuarios</th><th>Módulos</th><th>Plan / Licencias</th></tr></thead><tbody id="tenantsRows"></tbody></table></div>
+        </details>
+      </section>
+

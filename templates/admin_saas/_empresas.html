@@ -1,0 +1,7 @@
+      <section class="panel" id="panel-empresas">
+        <div class="hdr"><div><h2>Empresas</h2><p>Razones sociales ligadas a `perfiles_empresa` y espejo `companies`.</p></div><button class="btn" onclick="loadCompanies()">Actualizar</button></div>
+        <div class="card"><div class="form-grid"><div><label>Tenant ID</label><input id="companyTenant"></div><div><label>User ID propietario</label><input id="companyUser"></div><div><label>Nombre</label><input id="companyName"></div><div><label>RFC</label><input id="companyRfc"></div><div><label>Descripción</label><input id="companyDesc"></div><div><label>&nbsp;</label><button class="btn" onclick="createCompany()">Crear empresa</button><span id="companyStatus" class="status"></span></div></div></div>
+        <div class="toolbar"><input id="companySearch" placeholder="Buscar RFC, empresa, tenant o user" oninput="renderCompanies()"></div>
+        <div class="card" style="margin-top:14px;overflow:auto"><table><thead><tr><th>ID/perfil</th><th>Nombre</th><th>RFC</th><th>Domicilio / descripción</th><th>Tenant</th><th>User</th><th>Activa</th></tr></thead><tbody id="companiesRows"></tbody></table></div>
+      </section>
+

@@ -1,0 +1,61 @@
+      <section class="panel" id="panel-administracion">
+        <div class="hdr"><div><h2>Administración</h2><p>Datos fiscales no secretos y administración interna básica. Tokens SW y service role se quedan en Render ENV.</p></div><button class="btn" onclick="loadBillingSettings()">Actualizar</button></div>
+        <div class="card">
+          <h3>Datos fiscales GE Control</h3>
+          <div class="form-grid">
+            <div><label>RFC</label><input id="billRfc" placeholder="RFC emisor GE Control"></div>
+            <div><label>Nombre fiscal</label><input id="billName" placeholder="Nombre o razón social"></div>
+            <div><label>Código postal</label><input id="billCp" placeholder="CP fiscal"></div>
+            <div><label>Régimen fiscal</label><select id="billRegimen"></select></div>
+            <div><label>Concepto default</label><input id="billConcept" placeholder="Servicio de uso/licencia plataforma GE Control"></div>
+            <div><label>Precio default</label><input id="billPrice" type="number" step="0.01" placeholder="0.00"></div>
+          </div>
+          <div class="actions"><button class="btn" onclick="saveBillingSettings()">Guardar datos fiscales</button><span id="billingMsg" class="status"></span></div>
+          <p class="muted" style="margin-top:12px">No guardar aquí SW_TOKEN, SUPABASE_SERVICE_ROLE_KEY, contraseñas ni llaves privadas. Esos secretos viven solo en Render Environment.</p>
+        </div>
+        <div class="grid-2" style="margin-top:14px">
+          <div class="card">
+            <h3>Clientes/receptores frecuentes</h3>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr">
+              <div><label>Alias</label><input id="catCustomerAlias"></div>
+              <div><label>Tenant ligado</label><select id="catCustomerTenant"><option value="">Sin tenant</option></select></div>
+              <div><label>RFC</label><input id="catCustomerRfc"></div>
+              <div><label>Nombre fiscal</label><input id="catCustomerName"></div>
+              <div><label>CP</label><input id="catCustomerCp"></div>
+              <div><label>Régimen receptor</label><select id="catCustomerRegimen"></select></div>
+              <div><label>Uso CFDI default</label><select id="catCustomerUso"></select></div>
+              <div><label>Método / forma</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><select id="catCustomerMetodo"></select><select id="catCustomerForma"></select></div></div>
+            </div>
+            <div class="actions"><button class="btn" onclick="addBillingCustomer()">Agregar cliente frecuente</button></div>
+            <div class="catalog-list" id="billingCustomerList"></div>
+          </div>
+          <div class="card">
+            <h3>Conceptos y configuraciones fiscales</h3>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr">
+              <div><label>Nombre concepto</label><input id="catConceptName"></div>
+              <div><label>Precio default</label><input id="catConceptPrice" type="number" step="0.01"></div>
+              <div style="grid-column:1/-1"><label>Descripción CFDI</label><input id="catConceptDesc" placeholder="Servicio de uso/licencia plataforma GE Control"></div>
+            </div>
+            <div class="actions"><button class="btn btn-ghost" onclick="addBillingConcept()">Agregar concepto</button></div>
+            <div class="soft-divider"></div>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr">
+              <div><label>Nombre configuración</label><input id="catConfigName" value="RESICO SaaS default"></div>
+              <div><label>IVA %</label><input id="catConfigIva" type="number" step="0.0001" value="16"></div>
+              <div><label>Retención ISR %</label><input id="catConfigRetIsr" type="number" step="0.0001" value="0"></div>
+              <div><label>Retención IVA %</label><input id="catConfigRetIva" type="number" step="0.0001" value="0"></div>
+              <div><label>Método / forma</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><select id="catConfigMetodo"></select><select id="catConfigForma"></select></div></div>
+              <div><label>Uso CFDI</label><select id="catConfigUso"></select></div>
+            </div>
+            <div class="actions"><button class="btn btn-ghost" onclick="addBillingFiscalConfig()">Agregar configuración</button></div>
+            <div class="catalog-list" id="billingConceptList"></div>
+            <div class="catalog-list" id="billingConfigList"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:14px;overflow:auto">
+          <h3>Administradores GE Control</h3>
+          <p class="muted" style="margin:6px 0 12px">Solo usuarios internos de GE Control con acceso Superadmin. Los administradores de clientes, como admon@grupoemurcia.com.mx, viven dentro de Clientes y se cobran como parte del tenant.</p>
+          <table><thead><tr><th>Usuario</th><th>Acceso</th><th>Status</th><th>Último acceso</th></tr></thead><tbody id="adminUsersRows"></tbody></table>
+          <div class="actions"><button class="btn btn-ghost" onclick="showPanel('usuarios')">Herramientas avanzadas de usuarios</button></div>
+        </div>
+      </section>
+

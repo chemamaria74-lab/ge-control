@@ -1,0 +1,12 @@
+  <div class="login-wrap" id="adminLogin">
+    <form class="login-card" onsubmit="loginAdminSaas(event)">
+      <img src="/static/img/ge-isotype.svg" alt="GE">
+      <h1>Admin SaaS</h1>
+      <p>Acceso interno para operación de clientes, empresas, módulos y suscripciones.</p>
+      <div class="field"><label>Email</label><input id="adminEmail" type="email" autocomplete="username" required></div>
+      <div class="field"><label>Contraseña</label><input id="adminPassword" type="password" autocomplete="current-password" required></div>
+      <button class="btn" type="submit">Entrar</button>
+      <div class="login-error" id="adminLoginError"></div>
+      <div style="margin-top:14px"><a href="/choice" class="muted">Volver a módulos</a></div>
+    </form>
+  </div>
