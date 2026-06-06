@@ -1,0 +1,28 @@
+    <section id="panel-carta-porte" class="tab-panel">
+      <nav class="subtabs" aria-label="Carta Porte">
+        <button class="subtab-btn active" id="cp-tab-timbrar" type="button" onclick="switchCartaPorteTab('timbrar')"><i class="fa-solid fa-stamp"></i> Timbrar Carta Porte</button>
+        <button class="subtab-btn" id="cp-tab-configuracion" type="button" onclick="switchCartaPorteTab('configuracion')"><i class="fa-solid fa-gears"></i> Configuración</button>
+      </nav>
+      <div id="cp-panel-timbrar" class="billing-subpanel active">
+        <div class="card">
+          <div class="section-title">
+            <div>
+              <h2>Timbrar Carta Porte</h2>
+              <p class="muted" style="margin:4px 0 0">CFDI tipo T para traslado Carta Porte.</p>
+            </div>
+            <button class="btn ghost" type="button" onclick="loadCatalogos();resetCartaPorteState({clearForm:true, keepStatus:true})"><i class="fa-solid fa-arrows-rotate"></i> Actualizar</button>
+          </div>
+          <div id="cartaPorteWizard"></div>
+          <div class="toolbar" style="margin-top:12px">
+            <button class="btn" id="cpStampBtn" type="button" onclick="handleCartaPorteAction()"><i class="fa-solid fa-eye"></i> Preparar vista previa</button>
+            <button class="btn ghost" type="button" onclick="resetCartaPorteState({clearForm:true})"><i class="fa-solid fa-eraser"></i> Limpiar</button>
+            <span id="cpMsg" class="status"></span>
+          </div>
+        </div>
+      </div>
+      <div id="cp-panel-configuracion" class="billing-subpanel">
+        <div class="card">
+          <div id="assistantCpCatalogApp"></div>
+        </div>
+      </div>
+    </section>
