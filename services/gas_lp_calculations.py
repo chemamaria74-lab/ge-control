@@ -104,4 +104,3 @@ def calculate_symbolic_transfer_totals(*, litros, iva_rate=0.16) -> GasLpTotals:
         iva_rate=iva_rate,
         allow_zero_total=True,
     )
-
