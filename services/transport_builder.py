@@ -189,7 +189,7 @@ def _build_carta_porte(
     """
     distancia = max(round(viaje.distancia_km, 1), 0.1)
     volumen_total = round(sum(p.volumen_litros for p in productos), 3)
-    peso_total    = round(volumen_total * 0.75, 3)  # Estimado conservador kg/L
+    peso_total    = round(sum(p.volumen_litros * float(getattr(p, "densidad_kg_l", 0.75) or 0.75) for p in productos), 3)
 
     # ── Autotransporte ────────────────────────────────────────────────────────
     perm_sct    = (vehiculo.get("permiso_sct") or "TPAF01").strip()
@@ -244,11 +244,15 @@ def _build_carta_porte(
     mercancias_list = []
     for i, prod in enumerate(productos):
         prod_cat = get_producto(prod.clave_producto)
-        cve_mat  = (prod_cat.cve_material_peligroso if prod_cat else CVE_MATERIAL_DEFAULT)
-        desc_mat = (prod_cat.descripcion_material   if prod_cat else DESC_MATERIAL_DEFAULT)
-        clave_ps = (prod_cat.clave_prod_serv_cfdi   if prod_cat else "15101514")
+        cve_mat  = (getattr(prod, "cve_material_peligroso", "") or (prod_cat.cve_material_peligroso if prod_cat else CVE_MATERIAL_DEFAULT))
+        desc_mat = (getattr(prod, "descripcion", "") or (prod_cat.descripcion_material if prod_cat else DESC_MATERIAL_DEFAULT))
+        clave_ps = (getattr(prod, "clave_prodserv_cfdi", "") or (prod_cat.clave_prod_serv_cfdi if prod_cat else "15101514"))
         vol_prod = round(prod.volumen_litros, 3)
-        peso_prod = round(vol_prod * 0.75, 3)
+        densidad = float(getattr(prod, "densidad_kg_l", 0.75) or 0.75)
+        peso_prod = round(vol_prod * densidad, 3)
+        embalaje = (getattr(prod, "embalaje", "") or "Z01").strip().upper()
+        if embalaje == "4H2":
+            embalaje = "Z01"
 
         mercancia: dict = {
             "BienesTransp":           clave_ps,
@@ -258,7 +262,7 @@ def _build_carta_porte(
             "PesoEnKg":               _smart_round(peso_prod, 3),
             "MaterialPeligroso":      "Sí",
             "CveMaterialPeligroso":   cve_mat,
-            "Embalaje":               "4H2",  # Código ONU para líquidos peligrosos
+            "Embalaje":               embalaje,
         }
         valor_mercancia = round(float(getattr(prod, "valor_mercancia", 0.0) or 0.0), 2)
         if valor_mercancia > 0:
