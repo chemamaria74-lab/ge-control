@@ -323,7 +323,7 @@ def test_carta_porte_xml_validation_contract_excludes_normal_sales_shape():
         <cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="DE000001" RFCRemitenteDestinatario="GLU760309457" FechaHoraSalidaLlegada="2026-06-06T11:00:00" DistanciaRecorrida="180.5"><cartaporte31:Domicilio CodigoPostal="20000" Pais="MEX"/></cartaporte31:Ubicacion>
       </cartaporte31:Ubicaciones>
       <cartaporte31:Mercancias NumTotalMercancias="1" PesoBrutoTotal="9000" UnidadPeso="KGM">
-        <cartaporte31:Mercancia BienesTransp="15111501" Descripcion="Gas licuado de petroleo" Cantidad="12000" ClaveUnidad="LTR" PesoEnKg="9000" MaterialPeligroso="Sí" CveMaterialPeligroso="UN1075" Embalaje="4H2" ValorMercancia="1">
+        <cartaporte31:Mercancia BienesTransp="15111501" Descripcion="Gas licuado de petroleo" Cantidad="12000" ClaveUnidad="LTR" PesoEnKg="9000" MaterialPeligroso="Sí" CveMaterialPeligroso="UN1075" Embalaje="Z01" ValorMercancia="1">
         </cartaporte31:Mercancia>
         <cartaporte31:Autotransporte PermSCT="TPAF01" NumPermisoSCT="SCT-123456">
           <cartaporte31:IdentificacionVehicular ConfigVehicular="C2" PlacaVM="ABC123A" AnioModeloVM="2024"/>
