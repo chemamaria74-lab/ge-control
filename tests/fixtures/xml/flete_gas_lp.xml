@@ -29,7 +29,7 @@
         <cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="DE000001" RFCRemitenteDestinatario="BBB010101BBB" NombreRemitenteDestinatario="Cliente Destino" FechaHoraSalidaLlegada="2026-01-15T14:00:00" DistanciaRecorrida="128.5"/>
       </cartaporte31:Ubicaciones>
       <cartaporte31:Mercancias>
-        <cartaporte31:Mercancia BienesTransp="15111510" Descripcion="Gas LP" Cantidad="41023.75" ClaveUnidad="LTR" Unidad="Litros" PesoEnKg="21500" MaterialPeligroso="Si" CveMaterialPeligroso="1075"/>
+        <cartaporte31:Mercancia BienesTransp="15111510" Descripcion="Gas LP" Cantidad="41023.75" ClaveUnidad="LTR" Unidad="Litros" PesoEnKg="21500" MaterialPeligroso="Si" CveMaterialPeligroso="1075" Embalaje="Z01"/>
         <cartaporte31:Autotransporte PermSCT="TPAF01" NumPermisoSCT="SCT-123456">
           <cartaporte31:IdentificacionVehicular ConfigVehicular="T3S2" PlacaVM="ABC123D"/>
         </cartaporte31:Autotransporte>
