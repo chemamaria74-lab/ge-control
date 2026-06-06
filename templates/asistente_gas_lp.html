@@ -1133,8 +1133,8 @@
             <div class="form-span"><label>Ruta frecuente opcional</label><select id="cpRuta" onchange="invalidateCpPreview();applyCpRutaDefaults()">${rutasOpts}</select><div class="cp-route-hint" style="margin-top:8px">Puedes preparar Carta Porte sin ruta seleccionando origen, destino, transporte y mercancía manualmente.</div></div>
             <div><label>Origen</label><select id="cpOrigen" onchange="invalidateCpPreview()">${cpOption(ubicOrigen, u => u.alias || u.facility_id || u.nombre)}</select></div>
             <div><label>Destino</label><select id="cpDestino" onchange="invalidateCpPreview()">${cpOption(ubicDestino, u => u.alias || u.facility_id || u.nombre)}</select></div>
-            <div><label>Fecha/hora salida</label><input id="cpSalida" type="datetime-local" value="${esc(fechaEmision.value || now)}" onchange="invalidateCpPreview()"></div>
-            <div><label>Fecha/hora llegada</label><input id="cpLlegada" type="datetime-local" value="${esc(fechaEmision.value || now)}" onchange="invalidateCpPreview()"></div>
+            <div><label>Fecha/hora salida</label><input id="cpSalida" type="datetime-local" value="${esc(now)}" onchange="invalidateCpPreview()"></div>
+            <div><label>Fecha/hora llegada</label><input id="cpLlegada" type="datetime-local" value="${esc(now)}" onchange="invalidateCpPreview()"></div>
             <div><label>Distancia recorrida km</label><input id="cpDistancia" type="number" min="0" step="0.1" value="0" oninput="invalidateCpPreview()"></div>
             </div>
           </div>
