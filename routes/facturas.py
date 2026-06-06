@@ -75,7 +75,7 @@ GAS_LP_CP_DEFAULTS = {
     "factor_kg_litro": 0.54,
     "material_peligroso": True,
     "clave_material_peligroso": "1075",
-    "embalaje": "4H2",
+    "embalaje": "Z01",
     "descripcion_embalaje": "",
 }
 _SB_CLIENTES = "gas_lp_clientes_facturacion"
@@ -598,6 +598,8 @@ def _cp_gas_lp_mercancia_payload(values: dict) -> dict:
     payload["material_peligroso"] = True
     payload["clave_material_peligroso"] = GAS_LP_CP_DEFAULTS["clave_material_peligroso"]
     payload["embalaje"] = payload.get("embalaje") or GAS_LP_CP_DEFAULTS["embalaje"]
+    if str(payload["embalaje"]).strip().upper() == "4H2":
+        payload["embalaje"] = GAS_LP_CP_DEFAULTS["embalaje"]
     payload["descripcion_embalaje"] = payload.get("descripcion_embalaje") or GAS_LP_CP_DEFAULTS["descripcion_embalaje"]
     try:
         factor = float(payload.get("factor_kg_litro") or 0)
