@@ -21,7 +21,6 @@ import os
 import logging
 import threading
 from functools import lru_cache
-from typing import Optional
 
 from supabase import Client, create_client
 
@@ -49,8 +48,8 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 # ── Singleton de sistema (anon key, solo para operaciones sin RLS de usuario) ──
 _lock: threading.Lock = threading.Lock()
-_system_client: Optional[Client] = None
-_admin_client: Optional[Client] = None
+_system_client: Client | None = None
+_admin_client: Client | None = None
 
 
 def get_supabase() -> Client:
