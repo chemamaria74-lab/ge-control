@@ -794,11 +794,35 @@ select option{background:#fff}
   <!-- Productos SAT -->
   <div id="cat-productos" class="cat-section" style="display:none">
     <div class="section-hdr" style="margin-bottom:16px">
-      <span style="font-size:15px;font-weight:600">Catálogo de productos SAT (solo lectura)</span>
+      <div>
+        <span style="font-size:15px;font-weight:600">Productos transportados</span>
+        <p class="hint" style="margin-top:4px">Configura una vez el producto operativo. En viajes solo se selecciona y se capturan litros, valor mercancía y tarifa.</p>
+      </div>
     </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="form-row cols-4">
+        <div class="form-group"><label>Alias operativo</label><input id="prodcat-nombre" placeholder="Magna, Premium, Diesel, Gas LP"></div>
+        <div class="form-group"><label>ClaveProducto SAT</label><select id="prodcat-pr" onchange="actualizarProductoSatForm()"></select></div>
+        <div class="form-group"><label>ClaveSubProducto</label><select id="prodcat-sp"></select></div>
+        <div class="form-group"><label>Densidad kg/L</label><input id="prodcat-densidad" type="number" step="0.0001" min="0" placeholder="0.75"></div>
+      </div>
+      <div class="form-row cols-4">
+        <div class="form-group"><label>c_ClaveProdServ CFDI</label><input id="prodcat-cfdi" readonly></div>
+        <div class="form-group"><label>Material peligroso</label><input id="prodcat-material" readonly></div>
+        <div class="form-group"><label>Embalaje SAT</label><select id="prodcat-embalaje"><option value="Z01">Z01 - No aplica (autotanque/cisterna)</option><option value="1A1">1A1 - Bidón de acero</option><option value="1A2">1A2 - Bidón de acero tapa desmontable</option></select></div>
+        <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="guardarProductoOperacion()"><i class="fa-solid fa-plus"></i> Guardar producto</button></div>
+      </div>
+      <p class="hint">El servidor valida que ClaveProducto + ClaveSubProducto sean congruentes antes de guardar y antes de registrar el viaje.</p>
+    </div>
+    <div class="section-hdr" style="margin-bottom:10px"><span style="font-size:14px;font-weight:600">Productos configurados</span><span class="hint" id="productos-op-count">0 productos</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Producto</th><th>PR/SP</th><th>CFDI</th><th>Material peligroso</th><th>Densidad</th><th>Embalaje</th><th>Acciones</th></tr></thead>
+      <tbody id="tbody-productos"></tbody>
+    </table></div>
+    <div class="section-hdr" style="margin:18px 0 10px"><span style="font-size:14px;font-weight:600">Catálogo SAT de referencia</span></div>
     <div class="table-wrap"><table>
       <thead><tr><th>ClaveProducto</th><th>Nombre</th><th>Subproductos válidos</th><th>Unidad</th></tr></thead>
-      <tbody id="tbody-productos"></tbody>
+      <tbody id="tbody-productos-sat"></tbody>
     </table></div>
   </div>
 
@@ -1473,6 +1497,7 @@ let VEHICULOS = [];
 let RUTAS = [];
 let CLIENTES = [];
 let PRODUCTOS_SAT = [];
+let PRODUCTOS_OPERACION = [];
 let VIAJES = [];
 let FACTURAS = [];
 let FACTURAS_SERVICIO = [];
@@ -1509,15 +1534,34 @@ function setTransporteCompanyPending(pending=true) {
   document.body.classList.toggle('tr-company-pending', Boolean(pending));
 }
 
-const PRODUCTOS_COMERCIALES = [
-  { key:'magna', label:'Magna', clave_producto:'PR06', clave_subproducto:'SP1', descripcion:'Gasolina regular Magna' },
-  { key:'premium', label:'Premium', clave_producto:'PR07', clave_subproducto:'SP2', descripcion:'Gasolina premium' },
-  { key:'diesel', label:'Diésel', clave_producto:'PR05', clave_subproducto:'SP6', descripcion:'Diésel automotriz' },
-  { key:'gas_lp', label:'Gas LP', clave_producto:'PR12', clave_subproducto:'SP46', descripcion:'Gas LP' },
-];
 function productosHabilitados() {
-  const enabled = CONFIG_DATA.CombustiblesTransporte || ['magna','premium','diesel','gas_lp'];
-  return PRODUCTOS_COMERCIALES.filter(p => enabled.includes(p.key));
+  return PRODUCTOS_OPERACION.filter(p => p.activo !== false);
+}
+
+function productoSatByClave(clave) {
+  return PRODUCTOS_SAT.find(p => String(p.clave || '').toUpperCase() === String(clave || '').toUpperCase()) || null;
+}
+
+function productoOperacionById(id) {
+  return PRODUCTOS_OPERACION.find(p => Number(p.id) === Number(id)) || null;
+}
+
+function productoOperacionLabel(p) {
+  if (!p) return 'Producto sin configurar';
+  return p.nombre || p.descripcion || `${p.clave_producto || 'PR'} / ${p.clave_subproducto || 'SP'}`;
+}
+
+function productoOperacionHint(p) {
+  if (!p) return 'Configura productos en Administración > Productos transportados.';
+  const sat = productoSatByClave(p.clave_producto);
+  const parts = [
+    `${p.clave_producto || 'PR'} / ${p.clave_subproducto || 'SP'}`,
+    p.clave_prodserv_cfdi ? `CFDI ${p.clave_prodserv_cfdi}` : '',
+    p.cve_material_peligroso ? `UN ${p.cve_material_peligroso}` : '',
+    p.embalaje ? `Embalaje ${p.embalaje}` : '',
+    sat?.unidad ? `Unidad ${sat.unidad}` : ''
+  ].filter(Boolean);
+  return `SAT: ${parts.join(' · ')}`;
 }
 const RFC_RE = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 const CP_RE = /^\d{5}$/;
@@ -2317,19 +2361,21 @@ function cargarLogoPdfPerfil(event) {
 // CATÁLOGOS
 // ═══════════════════════════════════════════════════════
 async function cargarCatalogos() {
-  const [ch, ve, ru, cl, ta] = await Promise.all([
+  const [ch, ve, ru, cl, ta, po] = await Promise.all([
     api('GET', '/api/tr/choferes'),
     api('GET', '/api/tr/vehiculos'),
     api('GET', '/api/tr/rutas'),
     api('GET', '/api/tr/clientes'),
     api('GET', '/api/tr/tarifas').catch(()=>null),
+    api('GET', '/api/tr/catalogos/productos-operacion').catch(()=>null),
   ]);
   CHOFERES  = ch?.choferes  || [];
   VEHICULOS = ve?.vehiculos || [];
   RUTAS     = ru?.rutas     || [];
   CLIENTES  = cl?.clientes  || [];
   TARIFAS   = ta?.tarifas   || TARIFAS || [];
-  renderChoferes(); renderVehiculos(); renderRutas(); renderClientes(); renderTarifasCatalogo();
+  PRODUCTOS_OPERACION = po?.productos_operacion || PRODUCTOS_OPERACION || [];
+  renderChoferes(); renderVehiculos(); renderRutas(); renderClientes(); renderTarifasCatalogo(); renderProductosOperacion();
   actualizarSelects();
   if (VIAJES.length) renderViajes();
   cargarFiscalOperativo().catch(()=>{});
@@ -2417,14 +2463,90 @@ function renderClientes() {
 }
 
 function renderProductosSAT() {
-  const t = document.getElementById('tbody-productos');
+  const t = document.getElementById('tbody-productos-sat');
   if (!PRODUCTOS_SAT.length) return;
   t.innerHTML = PRODUCTOS_SAT.map(p => `
     <tr>
-      <td class="td-mono">${p.clave}</td>
-      <td>${p.nombre}</td>
-      <td style="font-size:11px;color:var(--text3)">${p.subproductos.map(s=>s.clave).join(', ')}</td>
-      <td><span class="chip chip-gray">${p.unidad}</span></td>
+      <td class="td-mono">${esc(p.clave)}</td>
+      <td>${esc(p.nombre)}</td>
+      <td style="font-size:11px;color:var(--text3)">${(p.subproductos || []).map(s=>esc(s.clave)).join(', ')}</td>
+      <td><span class="chip chip-gray">${esc(p.unidad)}</span></td>
+    </tr>`).join('');
+  actualizarProductoSatForm();
+}
+
+function actualizarProductoSatForm() {
+  const pr = document.getElementById('prodcat-pr');
+  const sp = document.getElementById('prodcat-sp');
+  if (!pr || !sp) return;
+  const previo = pr.value;
+  if (!pr.options.length && PRODUCTOS_SAT.length) {
+    pr.innerHTML = PRODUCTOS_SAT.map(p => `<option value="${esc(p.clave)}">${esc(p.clave)} - ${esc(p.nombre)}</option>`).join('');
+    pr.value = PRODUCTOS_SAT.find(p => p.clave === previo)?.clave || 'PR06';
+  }
+  const sat = productoSatByClave(pr.value) || PRODUCTOS_SAT[0];
+  const cfdi = document.getElementById('prodcat-cfdi');
+  const material = document.getElementById('prodcat-material');
+  const nombre = document.getElementById('prodcat-nombre');
+  const densidad = document.getElementById('prodcat-densidad');
+  if (!sat) return;
+  sp.innerHTML = (sat.subproductos || []).map(s => `<option value="${esc(s.clave)}">${esc(s.clave)} - ${esc(s.nombre || '')}</option>`).join('');
+  if (cfdi) cfdi.value = sat.clave_prod_serv_cfdi || '';
+  if (material) material.value = sat.cve_material_peligroso ? `Sí · UN ${sat.cve_material_peligroso}` : 'No';
+  if (nombre && !nombre.value) nombre.value = sat.nombre || '';
+  if (densidad && !densidad.value) densidad.value = sat.clave === 'PR06' ? '0.75' : '0.54';
+}
+
+async function guardarProductoOperacion() {
+  const pr = document.getElementById('prodcat-pr')?.value || '';
+  const sp = document.getElementById('prodcat-sp')?.value || '';
+  const sat = productoSatByClave(pr);
+  const nombre = (document.getElementById('prodcat-nombre')?.value || '').trim();
+  const densidad = parseFloat(document.getElementById('prodcat-densidad')?.value || '0');
+  const embalaje = (document.getElementById('prodcat-embalaje')?.value || 'Z01').trim().toUpperCase();
+  if (!nombre) { toast('Captura el alias operativo del producto', 'error'); return; }
+  if (!pr || !sp) { toast('Selecciona ClaveProducto y ClaveSubProducto SAT', 'error'); return; }
+  if (!densidad || densidad <= 0) { toast('Captura una densidad kg/L válida', 'error'); return; }
+  const body = {
+    nombre,
+    clave_producto: pr,
+    clave_subproducto: sp,
+    clave_prodserv_cfdi: sat?.clave_prod_serv_cfdi || '',
+    unidad: sat?.unidad || 'LTR',
+    densidad_kg_l: densidad,
+    material_peligroso: Boolean(sat?.cve_material_peligroso),
+    cve_material_peligroso: String(sat?.cve_material_peligroso || '').replace(/^UN/i, ''),
+    embalaje,
+  };
+  const r = await api('POST', '/api/tr/catalogos/productos-operacion', body);
+  if (r?.ok) {
+    toast('Producto transportado guardado', 'success');
+    document.getElementById('prodcat-nombre').value = '';
+    const d = await api('GET', '/api/tr/catalogos/productos-operacion');
+    PRODUCTOS_OPERACION = d?.productos_operacion || [];
+    renderProductosOperacion();
+    actualizarSelects();
+  }
+}
+
+function renderProductosOperacion() {
+  const t = document.getElementById('tbody-productos');
+  const count = document.getElementById('productos-op-count');
+  if (count) count.textContent = `${PRODUCTOS_OPERACION.length} producto${PRODUCTOS_OPERACION.length === 1 ? '' : 's'}`;
+  if (!t) return;
+  if (!PRODUCTOS_OPERACION.length) {
+    t.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-gas-pump"></i></div><h3>Configura tu primer producto transportado</h3><p>Después solo lo seleccionas al registrar viajes.</p></div></td></tr>';
+    return;
+  }
+  t.innerHTML = PRODUCTOS_OPERACION.map(p => `
+    <tr>
+      <td><strong>${esc(productoOperacionLabel(p))}</strong><div class="hint">${esc(productoOperacionHint(p))}</div></td>
+      <td class="td-mono">${esc(p.clave_producto || '—')} / ${esc(p.clave_subproducto || '—')}</td>
+      <td class="td-mono">${esc(p.clave_prodserv_cfdi || '—')}</td>
+      <td>${p.material_peligroso !== false ? `<span class="chip chip-warn">Sí${p.cve_material_peligroso ? ` · UN ${esc(p.cve_material_peligroso)}` : ''}</span>` : '<span class="chip chip-gray">No</span>'}</td>
+      <td>${Number(p.densidad_kg_l || 0).toLocaleString('es-MX', {maximumFractionDigits:4})} kg/L</td>
+      <td class="td-mono">${esc(p.embalaje || 'Z01')}</td>
+      <td>${actionBtn('danger','Desactivar producto',`eliminarFiscalOperativo('productos-operacion',${Number(p.id)})`, icon('trash'))}</td>
     </tr>`).join('');
 }
 
@@ -2473,7 +2595,21 @@ async function guardarFiscalOperativo() {
   if (catalogo === 'remolques') body = { placas: nombre, subtipo_rem: rfc, poliza_medio_ambiente: cp };
   else if (catalogo === 'permisos-operacion') body = { numero_permiso: nombre, producto: rfc, modalidad: cp, tipo_permiso: 'CNE', autoridad: 'CNE' };
   else if (catalogo === 'proveedores-operacion') body = { nombre, rfc };
-  else if (catalogo === 'productos-operacion') body = { nombre, clave_producto: rfc, densidad_kg_l: parseFloat(cp || '0.75'), material_peligroso: true };
+  else if (catalogo === 'productos-operacion') {
+    const parts = rfc.toUpperCase().split(/[\/\s-]+/).filter(Boolean);
+    const sat = productoSatByClave(parts[0]);
+    body = {
+      nombre,
+      clave_producto: parts[0] || '',
+      clave_subproducto: parts[1] || '',
+      clave_prodserv_cfdi: sat?.clave_prod_serv_cfdi || '',
+      unidad: sat?.unidad || 'LTR',
+      densidad_kg_l: parseFloat(cp || '0.75'),
+      material_peligroso: Boolean(sat?.cve_material_peligroso),
+      cve_material_peligroso: String(sat?.cve_material_peligroso || '').replace(/^UN/i, ''),
+      embalaje: 'Z01',
+    };
+  }
   else if (catalogo === 'centros-emisores') body = { nombre, rfc, cp, regimen_fiscal: '601' };
   else body = { nombre, rfc, cp, tipo: catalogo === 'origenes' ? 'terminal' : 'cliente' };
   if (!nombre) { toast('Captura nombre, placas o permiso', 'error'); return; }
@@ -2905,8 +3041,8 @@ function abrirModalViaje() {
 }
 
 function productoLabel(claveProducto) {
-  const item = PRODUCTOS_COMERCIALES.find(p => p.clave_producto === claveProducto || p.key === claveProducto);
-  return item ? item.label : (claveProducto || '—');
+  const item = PRODUCTOS_OPERACION.find(p => Number(p.id) === Number(claveProducto) || p.clave_producto === claveProducto);
+  return item ? productoOperacionLabel(item) : (claveProducto || '—');
 }
 
 async function editarViaje(id) {
@@ -2935,7 +3071,7 @@ async function editarViaje(id) {
   document.getElementById('v-observaciones').value = v.observaciones || '';
   PRODUCTOS_VIAJE = (v.productos || []).map(p => ({
     ...p,
-    producto_key: (PRODUCTOS_COMERCIALES.find(x => x.clave_producto === p.clave_producto && x.clave_subproducto === p.clave_subproducto) || {}).key || ''
+    producto_operacion_id: p.producto_operacion_id || (PRODUCTOS_OPERACION.find(x => x.clave_producto === p.clave_producto && x.clave_subproducto === p.clave_subproducto) || {}).id || ''
   }));
   toggleReceptorBlock();
   renderProductosViaje();
@@ -2980,73 +3116,85 @@ function autoCliente() {
 
 // ─── Productos del viaje ────────────────────────────────
 function agregarProducto() {
-  const idx = PRODUCTOS_VIAJE.length;
-  PRODUCTOS_VIAJE.push({ producto_key:'magna', clave_producto:'PR06', clave_subproducto:'SP1', volumen_litros:0, temperatura_c:20, valor_mercancia:0, importe:0, descripcion:'Magna' });
+  const base = productosHabilitados()[0];
+  if (!base) {
+    toast('Configura al menos un producto transportado en Administración > Productos.', 'error');
+    return;
+  }
+  PRODUCTOS_VIAJE.push({
+    producto_operacion_id: Number(base.id),
+    clave_producto: base.clave_producto,
+    clave_subproducto: base.clave_subproducto,
+    clave_prodserv_cfdi: base.clave_prodserv_cfdi || '',
+    unidad: base.unidad || 'LTR',
+    densidad_kg_l: Number(base.densidad_kg_l || 0.75),
+    material_peligroso: base.material_peligroso !== false,
+    cve_material_peligroso: base.cve_material_peligroso || '',
+    embalaje: base.embalaje || 'Z01',
+    volumen_litros: 0,
+    temperatura_c: 20,
+    valor_mercancia: 0,
+    importe: 0,
+    descripcion: productoOperacionLabel(base),
+  });
   renderProductosViaje();
 }
 
 function renderProductosViaje() {
   const c = document.getElementById('productos-container');
+  if (!productosHabilitados().length) {
+    c.innerHTML = '<div class="product-item"><div class="empty"><h3>Primero configura productos transportados</h3><p>En Administración > Productos agrega Magna, Premium, Diesel o el producto que corresponda con su clave SAT.</p></div></div>';
+    return;
+  }
   if (!PRODUCTOS_VIAJE.length) { c.innerHTML = ''; return; }
   c.innerHTML = PRODUCTOS_VIAJE.map((p,i) => `
     <div class="product-item" id="prod-item-${i}">
       <button class="remove-prod" onclick="quitarProducto(${i})" title="Quitar">×</button>
-      <div class="form-row cols-3" style="margin-bottom:0">
+      <div class="form-row cols-4" style="margin-bottom:0">
         <div class="form-group">
           <label>Producto transportado <span class="req">*</span></label>
           <select id="prod-tipo-${i}" onchange="actualizarProductoComercial(${i})">
-            ${productosHabilitados().map(p2 => `<option value="${p2.key}" ${p2.key===(p.producto_key||'')?'selected':''}>${p2.label}</option>`).join('')}
+            ${productosHabilitados().map(p2 => `<option value="${Number(p2.id)}" ${Number(p2.id)===Number(p.producto_operacion_id||0)?'selected':''}>${esc(productoOperacionLabel(p2))}</option>`).join('')}
           </select>
-          <span class="hint" id="prod-map-${i}">${productoSatHint(p.producto_key || 'magna')}</span>
-        </div>
-        <div class="form-group">
-          <label>Clave interna SAT/Anexo 21</label>
-          <input type="text" id="prod-clave-view-${i}" value="${(p.clave_producto||'PR06')} / ${(p.clave_subproducto||'SP1')}" readonly>
+          <span class="hint" id="prod-map-${i}">${esc(productoOperacionHint(productoOperacionById(p.producto_operacion_id) || p))}</span>
         </div>
         <div class="form-group">
           <label>Volumen (litros) <span class="req">*</span></label>
           <input type="number" id="prod-vol-${i}" value="${p.volumen_litros||''}" placeholder="Ej. 15000" min="0.001" step="0.001">
         </div>
-      </div>
-      <div class="form-row cols-3" style="margin-bottom:0;margin-top:10px">
         <div class="form-group">
-          <label>Temperatura (°C)</label>
-          <input type="number" id="prod-temp-${i}" value="${p.temperatura_c||20}" step="0.1">
-          <span class="hint">Se conserva para Anexo 21 / controles volumétricos cuando aplique por medición/catálogo.</span>
-        </div>
-        <div class="form-group">
-          <label>Valor de la mercancía ($)</label>
+          <label>Valor mercancía ($)</label>
           <input type="number" id="prod-valor-merc-${i}" value="${p.valor_mercancia||0}" step="0.01" min="0">
-          <span class="hint">Valor declarado del combustible para Carta Porte (ValorMercancia); no es la tarifa del flete.</span>
+          <span class="hint">Valor declarado para Carta Porte; no es la tarifa del flete.</span>
         </div>
         <div class="form-group">
-          <label>Descripción libre</label>
-          <input type="text" id="prod-desc-${i}" value="${p.descripcion||''}" placeholder="Opcional">
-        </div>
-      </div>
-      <div class="form-row cols-3" style="margin-bottom:0;margin-top:10px">
-        <div class="form-group">
-          <label>Tarifa/flete del servicio ($)</label>
+          <label>Tarifa/flete ($)</label>
           <input type="number" id="prod-imp-${i}" value="${p.importe||0}" step="0.01" min="0">
-          <span class="hint">Solo para CFDI tipo I; la factura de servicio también puede tomar este importe.</span>
         </div>
       </div>
     </div>`).join('');
 
 }
 
-function productoSatHint(key) {
-  const p = PRODUCTOS_COMERCIALES.find(x => x.key === key) || PRODUCTOS_COMERCIALES[0];
-  return `Mapeo interno: ${p.clave_producto} / ${p.clave_subproducto}`;
-}
-
 function actualizarProductoComercial(idx) {
-  const key = document.getElementById(`prod-tipo-${idx}`).value;
-  const p = PRODUCTOS_COMERCIALES.find(x => x.key === key) || PRODUCTOS_COMERCIALES[0];
-  const view = document.getElementById(`prod-clave-view-${idx}`);
+  const id = document.getElementById(`prod-tipo-${idx}`).value;
+  const p = productoOperacionById(id) || productosHabilitados()[0];
   const hint = document.getElementById(`prod-map-${idx}`);
-  if (view) view.value = `${p.clave_producto} / ${p.clave_subproducto}`;
-  if (hint) hint.textContent = productoSatHint(key);
+  if (!p) return;
+  PRODUCTOS_VIAJE[idx] = {
+    ...PRODUCTOS_VIAJE[idx],
+    producto_operacion_id: Number(p.id),
+    clave_producto: p.clave_producto,
+    clave_subproducto: p.clave_subproducto,
+    clave_prodserv_cfdi: p.clave_prodserv_cfdi || '',
+    unidad: p.unidad || 'LTR',
+    densidad_kg_l: Number(p.densidad_kg_l || 0.75),
+    material_peligroso: p.material_peligroso !== false,
+    cve_material_peligroso: p.cve_material_peligroso || '',
+    embalaje: p.embalaje || 'Z01',
+    descripcion: productoOperacionLabel(p),
+  };
+  if (hint) hint.textContent = productoOperacionHint(p);
 }
 
 function quitarProducto(idx) {
@@ -3056,17 +3204,25 @@ function quitarProducto(idx) {
 
 function leerProductos() {
   return PRODUCTOS_VIAJE.map((_, i) => {
-    const seleccionado = PRODUCTOS_COMERCIALES.find(p => p.key === (document.getElementById(`prod-tipo-${i}`)?.value || 'magna')) || productosHabilitados()[0] || PRODUCTOS_COMERCIALES[0];
+    const seleccionado = productoOperacionById(document.getElementById(`prod-tipo-${i}`)?.value) || productosHabilitados()[0];
+    if (!seleccionado) return null;
     return {
-    clave_producto:    seleccionado.clave_producto,
-    clave_subproducto: seleccionado.clave_subproducto,
-    volumen_litros:    parseFloat(document.getElementById(`prod-vol-${i}`)?.value  || 0),
-    temperatura_c:     parseFloat(document.getElementById(`prod-temp-${i}`)?.value || 20),
-    valor_mercancia:   parseFloat(document.getElementById(`prod-valor-merc-${i}`)?.value || 0),
-    importe:           parseFloat(document.getElementById(`prod-imp-${i}`)?.value  || 0),
-    descripcion:       document.getElementById(`prod-desc-${i}`)?.value || seleccionado.label,
-  };
-  });
+      producto_operacion_id: Number(seleccionado.id),
+      clave_producto: seleccionado.clave_producto,
+      clave_subproducto: seleccionado.clave_subproducto,
+      clave_prodserv_cfdi: seleccionado.clave_prodserv_cfdi || '',
+      unidad: seleccionado.unidad || 'LTR',
+      densidad_kg_l: Number(seleccionado.densidad_kg_l || 0.75),
+      material_peligroso: seleccionado.material_peligroso !== false,
+      cve_material_peligroso: seleccionado.cve_material_peligroso || '',
+      embalaje: seleccionado.embalaje || 'Z01',
+      volumen_litros: parseFloat(document.getElementById(`prod-vol-${i}`)?.value  || 0),
+      temperatura_c: 20,
+      valor_mercancia: parseFloat(document.getElementById(`prod-valor-merc-${i}`)?.value || 0),
+      importe: parseFloat(document.getElementById(`prod-imp-${i}`)?.value  || 0),
+      descripcion: productoOperacionLabel(seleccionado),
+    };
+  }).filter(Boolean);
 }
 
 async function guardarViaje() {
@@ -3077,7 +3233,7 @@ async function guardarViaje() {
   if (!document.getElementById('v-chofer').value) { toast('Selecciona un chofer', 'error'); return; }
   if (!document.getElementById('v-vehiculo').value) { toast('Selecciona un vehículo', 'error'); return; }
   if (!document.getElementById('v-fecha-salida').value) { toast('Fecha de salida requerida', 'error'); return; }
-  if (!productos.length || !productos[0].clave_producto || productos.some(p => !p.volumen_litros || p.volumen_litros <= 0)) { toast('Agrega al menos un producto con volumen válido', 'error'); return; }
+  if (!productos.length || productos.some(p => !p.producto_operacion_id || !p.volumen_litros || p.volumen_litros <= 0)) { toast('Selecciona producto de catálogo y captura volumen válido', 'error'); return; }
   try {
     validarCpCampo(document.getElementById('v-cp-origen').value, 'CP origen');
     validarCpCampo(document.getElementById('v-cp-destino').value, 'CP destino');
@@ -3128,6 +3284,7 @@ async function guardarViaje() {
     regimen_fiscal_receptor,
     uso_cfdi:            'S01',
     num_permiso_cne:     document.getElementById('v-permiso').value.trim(),
+    producto_operacion_id: productos[0]?.producto_operacion_id || null,
     productos,
     observaciones:       document.getElementById('v-observaciones').value.trim(),
   };
