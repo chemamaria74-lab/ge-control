@@ -371,7 +371,7 @@ async function crearFactura(){
   if(!isTraspaso && !isCartaPorte && precioVal <= 0){ setStatus('facturaMsg','Captura litros y configura un precio vigente mayor a cero.',false); return; }
   if(!isTraspaso && !isCartaPorte && Number(descuento.value || 0) < 0){ setStatus('facturaMsg','El descuento no puede ser negativo.',false); return; }
   if(!isTraspaso && !isCartaPorte && descuentoTipo?.value === 'por_litro' && Number(descuento.value || 0) > precioVal){ setStatus('facturaMsg','El descuento por litro no puede ser mayor al precio por litro.',false); return; }
-  if(!isTraspaso && !isCartaPorte && descuentoTipo?.value === 'total_pesos' && Number(descuento.value || 0) > subtotalBrutoVal){ setStatus('facturaMsg','El descuento total base no puede ser mayor al subtotal antes de IVA.',false); return; }
+  if(!isTraspaso && !isCartaPorte && descuentoTipo?.value === 'total_pesos' && Number(descuento.value || 0) > subtotalBrutoVal){ setStatus('facturaMsg','El descuento total no puede ser mayor al subtotal antes de IVA.',false); return; }
   if(!isTraspaso && !isCartaPorte && totalVal <= 0){ setStatus('facturaMsg','El total de la factura debe ser mayor a cero. Revisa precio y descuento.',false); return; }
   if(tipoOperacion.value === 'carta_porte'){
     if(CP_PREVIEW_READY) await timbrarCartaPorteGasLp();
