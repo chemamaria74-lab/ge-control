@@ -1,0 +1,46 @@
+<!-- ── Modal de Confirmación CRÍTICA (Limpiar Datos) ───────────────────── -->
+<div id="criticalModal" style="
+  display:none;position:fixed;inset:0;z-index:9500;
+  background:rgba(15,23,42,.75);backdrop-filter:blur(4px);
+  align-items:center;justify-content:center">
+  <div style="
+    background:#fff;border-radius:16px;padding:2rem 2.2rem;max-width:480px;width:94%;
+    box-shadow:0 24px 80px rgba(0,0,0,.4);font-family:inherit;border-top:4px solid #dc2626">
+    <div style="display:flex;align-items:center;gap:.7rem;margin-bottom:1.2rem">
+      <i class="fa-solid fa-skull-crossbones" style="font-size:1.4rem;color:#dc2626"></i>
+      <h2 style="font-size:1rem;font-weight:700;color:#1e293b;margin:0">Confirmación de Eliminación Permanente</h2>
+    </div>
+    <div style="font-size:.84rem;color:#374151;line-height:1.7;margin-bottom:1.4rem;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:.9rem">
+      Esta acción eliminará <strong>todos</strong> los registros, historial e inventarios de la base de datos.<br>
+      <strong style="color:#dc2626">Esta operación es irreversible.</strong>
+    </div>
+    <div style="margin-bottom:1rem">
+      <label style="display:block;font-size:.78rem;font-weight:700;color:#475569;margin-bottom:.35rem;text-transform:uppercase;letter-spacing:.05em">
+        1. Re-ingresa tu contraseña actual
+      </label>
+      <input id="criticalPassword" type="password" placeholder="Tu contraseña de acceso"
+        style="width:100%;padding:.72rem .9rem;border:1.5px solid #e2e8f0;border-radius:8px;font-size:.92rem;box-sizing:border-box">
+    </div>
+    <div style="margin-bottom:1.4rem">
+      <label style="display:block;font-size:.78rem;font-weight:700;color:#475569;margin-bottom:.35rem;text-transform:uppercase;letter-spacing:.05em">
+        2. Escribe exactamente la siguiente frase:
+        <span style="color:#dc2626;font-family:monospace;font-size:.85rem;display:block;margin-top:.2rem;font-weight:800">CONFIRMO ELIMINACIÓN PERMANENTE</span>
+      </label>
+      <input id="criticalPhrase" type="text" placeholder="Escribe la frase exacta..."
+        style="width:100%;padding:.72rem .9rem;border:1.5px solid #e2e8f0;border-radius:8px;font-size:.9rem;box-sizing:border-box;font-family:monospace">
+    </div>
+    <div id="criticalErr" style="font-size:.8rem;color:#dc2626;min-height:1.2em;margin-bottom:.8rem;font-weight:600"></div>
+    <div style="display:flex;gap:.8rem;justify-content:flex-end">
+      <button id="btnCriticalCancel"
+        style="padding:.65rem 1.4rem;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;color:#475569;font-size:.88rem;cursor:pointer;font-family:inherit">
+        Cancelar
+      </button>
+      <button id="btnCriticalConfirm" disabled
+        style="padding:.65rem 1.5rem;border:none;border-radius:8px;background:#dc2626;color:#fff;font-size:.88rem;font-weight:700;cursor:pointer;font-family:inherit;opacity:.45;transition:opacity .2s"
+        onmouseenter="if(!this.disabled)this.style.background='#b91c1c'"
+        onmouseleave="if(!this.disabled)this.style.background='#dc2626'">
+        <i class="fa-solid fa-trash-can" style="margin-right:.3rem"></i>Eliminar Todo
+      </button>
+    </div>
+  </div>
+</div>

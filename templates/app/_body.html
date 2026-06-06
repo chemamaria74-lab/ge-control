@@ -1,0 +1,1787 @@
+<body class="login-mode">
+
+<!-- ── LOADING SCREEN (mostrada mientras se verifica sesión) ───────────── -->
+<div id="loadingScreen">
+  <img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL" class="loading-logo">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Verificando sesión...</div>
+</div>
+
+<!-- ── LOGIN WALL (full-screen, opaque) ──────────────────────────────── -->
+<div id="loginOverlay">
+  <div class="login-card">
+    <div class="login-brand">
+      <img src="/static/img/ge-control-logo-light.svg" alt="GE CONTROL" style="width: 280px; height: auto; margin-bottom: 3px;">
+      <p>Controles Volumétricos — Gas LP &nbsp;&nbsp;</p>
+    </div>
+    
+    <!-- Selector de Módulo -->
+    <div class="field">
+      <label>Seleccionar módulo</label>
+      <div style="display:flex;gap:.5rem;margin-bottom:1rem">
+        <label style="flex:1;display:flex;align-items:center;gap:.5rem;padding:.6rem;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:10px;cursor:pointer">
+          <input type="radio" name="modulo" value="gas_lp" checked style="accent-color:#10b981">
+          <span style="color:#fff;font-size:.85rem"><i class="fa-solid fa-fire-flame-curved"></i> Gas LP</span>
+        </label>
+        <label style="flex:1;display:flex;align-items:center;gap:.5rem;padding:.6rem;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:10px;cursor:pointer">
+          <input type="radio" name="modulo" value="transporte" style="accent-color:#3b82f6">
+          <span style="color:#fff;font-size:.85rem"><i class="fa-solid fa-truck"></i> Transporte</span>
+        </label>
+      </div>
+    </div>
+    
+    <form onsubmit="return false">
+    <div class="field"><label>Usuario</label>
+      <input id="loginUser" type="text" placeholder="usuario" autocomplete="username"></div>
+    <div class="field"><label>Contraseña</label>
+      <input id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
+    <button class="btn-login" id="btnLogin" type="submit">Iniciar sesión</button>
+    </form>
+    <div class="login-err" id="loginErr"></div>
+    <div class="login-footer">Acceso restringido</div>
+  </div>
+</div>
+
+<!-- ── OVERLAY: SELECCIÓN DE EMPRESA (post-login) ──────────────────────── -->
+<div id="empresaOverlay" onclick="cerrarOverlayEmpresaBackdrop(event)">
+  <div class="empresa-card">
+    <h2><i class="fa-solid fa-building" style="color:#0f766e"></i> Seleccionar Empresa</h2>
+    <p>Tienes acceso a varias razones sociales. Elige con cuál quieres trabajar en esta sesión.</p>
+    <div id="empresaPlanUsage" style="font-size:.78rem;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.55rem .75rem;margin-bottom:.8rem;display:none"></div>
+    <div class="empresa-list" id="empresaList">
+      <!-- Se llena dinámicamente -->
+    </div>
+    <button class="empresa-nueva-btn" onclick="event.stopPropagation(); abrirModalNuevoPerfil()">
+      <i class="fa-solid fa-plus-circle"></i> Crear nueva empresa
+    </button>
+  </div>
+</div>
+
+<!-- ── MODAL: ACTUALIZAR PLAN ─────────────────────────────────────────── -->
+<div id="modalActualizarPlan" class="plan-modal" role="dialog" aria-modal="true" aria-labelledby="planModalTitle">
+  <div class="plan-modal-card">
+    <div class="plan-modal-band"></div>
+    <div class="plan-modal-body">
+      <div class="plan-modal-icon"><i class="fa-solid fa-layer-group"></i></div>
+      <h3 id="planModalTitle">Actualizar plan</h3>
+      <p>Elige un plan o contacta al equipo comercial de GE Control para activar más empresas y funcionalidades.</p>
+      <div class="plan-modal-actions">
+        <button type="button" class="plan-modal-primary" onclick="verPlanesPlaceholder()">Ver planes</button>
+        <a class="plan-modal-whatsapp" href="https://wa.me/?text=Hola%20GE%20Control%2C%20quiero%20actualizar%20mi%20plan%20para%20activar%20m%C3%A1s%20empresas%20y%20funcionalidades." target="_blank" rel="noopener">Contactar por WhatsApp</a>
+        <button type="button" class="plan-modal-close" onclick="cerrarModalActualizarPlan()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── MODAL: NUEVO PERFIL DE EMPRESA ─────────────────────────────────── -->
+<div id="modalNuevoPerfil">
+  <div class="modal-perfil-card">
+    <h3><i class="fa-solid fa-building-circle-arrow-right" style="margin-right:.4rem;color:#0f766e"></i>Nueva Razón Social</h3>
+    <div class="field" style="margin-bottom:.7rem">
+      <label>Nombre de la empresa <span style="color:#e63946">*</span></label>
+      <input id="nuevoPerfil_nombre" type="text" placeholder="Ej. Gas del Norte S.A. de C.V." maxlength="120">
+    </div>
+    <div class="field" style="margin-bottom:.7rem">
+      <label>RFC de la empresa <span style="color:#e63946">*</span></label>
+      <input id="nuevoPerfil_rfc" type="text" placeholder="Ej. GNO010101AAA" maxlength="13"
+        style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+    </div>
+    <div class="field" style="margin-bottom:1.2rem">
+      <label>Descripción <span style="color:#94a3b8;font-weight:400">— opcional</span></label>
+      <input id="nuevoPerfil_desc" type="text" placeholder="Ej. Planta principal Monterrey" maxlength="200">
+    </div>
+    <div id="nuevoPerfil_err" style="font-size:.78rem;color:#dc2626;margin-bottom:.6rem;min-height:1em"></div>
+    <div style="display:flex;gap:.7rem">
+      <button onclick="guardarNuevoPerfil()" style="flex:1;padding:.65rem;background:#0f766e;color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;font-family:inherit;font-size:.9rem">
+        <i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar
+      </button>
+      <button onclick="cerrarModalNuevoPerfil()" style="padding:.65rem 1.2rem;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:10px;cursor:pointer;font-family:inherit;font-size:.9rem">
+        Cancelar
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── MODAL: ONBOARDING — registro obligatorio de empresa ─────────────── -->
+<div id="onboardingOverlay">
+  <div class="onboarding-card">
+    <div class="onboarding-logo">
+      <img src="/static/img/ge-isotype.svg" alt="GE CONTROL">
+    </div>
+    <h2 id="ob_title">Bienvenido a GE CONTROL</h2>
+    <p class="sub" id="ob_sub">Antes de continuar, registra tu empresa. El RFC es obligatorio para generar reportes SAT válidos.</p>
+    <div class="onboarding-step">
+      <div class="onboarding-step-num">1</div>
+      <div class="onboarding-step-text" id="ob_step1">Escribe el nombre oficial de tu empresa o razón social</div>
+    </div>
+    <div class="onboarding-step">
+      <div class="onboarding-step-num">2</div>
+      <div class="onboarding-step-text" id="ob_step2">Ingresa el RFC — aparecerá en todos los reportes SAT</div>
+    </div>
+    <div class="onboarding-step">
+      <div class="onboarding-step-num">3</div>
+      <div class="onboarding-step-text" id="ob_step3">Listo — podrás agregar más razones sociales después</div>
+    </div>
+    <div style="margin-top:1.4rem">
+      <div class="field" style="margin-bottom:.7rem">
+        <label id="ob_label_nombre">Nombre de la empresa <span style="color:#e63946">*</span></label>
+        <input id="ob_nombre" type="text" placeholder="Ej. Gas del Norte S.A. de C.V." maxlength="120"
+          style="width:100%;padding:.75rem;border:1.5px solid #e2e8f0;border-radius:10px;font-size:.9rem">
+      </div>
+      <div class="field" style="margin-bottom:.7rem">
+        <label id="ob_label_rfc">RFC de la empresa <span style="color:#e63946">*</span></label>
+        <input id="ob_rfc" type="text" placeholder="Ej. GNO010101AAA" maxlength="13"
+          style="width:100%;padding:.75rem;border:1.5px solid #e2e8f0;border-radius:10px;font-size:.9rem;text-transform:uppercase;font-family:monospace"
+          oninput="this.value=this.value.toUpperCase()">
+      </div>
+      <div id="ob_err" style="font-size:.78rem;color:#dc2626;margin-bottom:.6rem;min-height:1em"></div>
+      <button id="ob_btn" onclick="guardarEmpresaOnboarding()"
+        style="width:100%;padding:.8rem;background:#0f766e;color:#fff;border:none;border-radius:12px;font-size:.95rem;font-weight:700;cursor:pointer;font-family:inherit">
+        <i class="fa-solid fa-building-circle-check" style="margin-right:.4rem"></i>
+        <span id="ob_btn_text">Registrar mi empresa</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<header>
+  <img src="/static/img/ge-isotype-light.svg" alt="GE" class="brand-logo-mark">
+  <h1>Gas LP</h1>
+  <span class="badge badge-blue" id="moduleBadge">Gas LP</span>
+  <span class="badge badge-green">v3.0</span>
+  <!-- Selector multi-empresa (visible solo cuando hay sesión) -->
+  <div id="empresaSwitcher" class="empresa-switcher" role="button" tabindex="0" aria-label="Cambiar razón social" style="display:none" onclick="mostrarSelectorEmpresas()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();mostrarSelectorEmpresas();}" title="Cambiar razón social">
+    <i class="fa-solid fa-building empresa-switcher-icon"></i>
+    <span class="empresa-switcher-name" id="empresaSwitcherName">—</span>
+    <i class="fa-solid fa-chevron-down empresa-switcher-arrow"></i>
+  </div>
+  <div class="user-chip" id="userChip" style="display:none">
+    <span id="userDisplayName"></span>
+    <button class="btn-logout" id="btnLogout">Salir</button>
+  </div>
+</header>
+
+<div class="container">
+
+<!-- ── Navegación principal ───────────────────────────────────────────── -->
+<div class="main-nav-tabs">
+  <button class="main-nav-tab" data-main="ventas"><i class="fa-solid fa-chart-line"></i> <span data-i18n="nav.ventas">Dashboard</span></button>
+  <button class="main-nav-tab active" data-main="procesar"><i class="fa-solid fa-file-upload"></i> <span data-i18n="nav.procesar">Carga de archivos</span></button>
+  <button class="main-nav-tab" data-main="historial"><i class="fa-solid fa-file-lines"></i> <span data-i18n="nav.historial">Reportes SAT</span></button>
+  <button class="main-nav-tab" data-main="controles"><i class="fa-solid fa-gauge-high"></i> <span data-i18n="nav.controles">Inventario</span></button>
+  <button class="main-nav-tab" data-main="proveedores"><i class="fa-solid fa-truck-fast"></i> <span data-i18n="nav.proveedores">Proveedores</span></button>
+  <button class="main-nav-tab" data-main="config"><i class="fa-solid fa-gear"></i> Administración</button>
+  <button class="main-nav-tab" id="tabAdmin" data-main="admin" style="display:none"><i class="fa-solid fa-users-gear"></i> Asistentes</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     PANEL: PROCESAR
+     ══════════════════════════════════════════════════════════════════════ -->
+<div class="main-panel active" id="mpanel-procesar">
+
+<!-- Selector de instalación activa -->
+<div class="card" id="facilityPickerCard" style="padding:.9rem 1.2rem">
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+    <div style="font-size:.92rem;font-weight:700;color:#1e293b;white-space:nowrap"><i class="fa-solid fa-industry" style="margin-right:.35rem"></i> <span data-en="Active Facility:">Instalación activa:</span></div>
+    <div class="field" style="margin:0;flex:1;min-width:220px">
+      <select id="activeFacilitySelect" style="padding:.46rem .7rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.88rem;width:100%;background:#f8fafc">
+        <option value="">— Sin instalación (usar configuración global) —</option>
+      </select>
+    </div>
+    <div id="facilityBadge" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:.3rem .8rem;font-size:.75rem;color:#1e40af;font-weight:600;white-space:nowrap"></div>
+    <a href="#" id="linkToFacilities" style="font-size:.75rem;color:#6366f1;white-space:nowrap" onclick="switchTab('config');return false"><i class="fa-solid fa-building" style="margin-right:.35rem"></i> Gestionar instalaciones</a>
+  </div>
+  <!-- Shown when user has NO facilities registered at all -->
+  <div id="noFacilityWarn" style="display:none;margin-top:.6rem;padding:.5rem .9rem;background:#fef2f2;border:1px solid #fecaca;border-radius:7px;font-size:.82rem;color:#991b1b;font-weight:600">
+    <i class="fa-solid fa-circle-exclamation" style="margin-right:.35rem"></i> No tienes ninguna instalación registrada. <a href="#" onclick="switchTab('config');return false" style="color:#7f1d1d;text-decoration:underline">Crea una instalación en Configuración</a> para poder procesar datos.
+  </div>
+  <!-- Shown when facilities exist but none is selected -->
+  <div id="noFacilitySelectWarn" style="display:none;margin-top:.6rem;padding:.5rem .9rem;background:#fffbeb;border:1px solid #fde68a;border-radius:7px;font-size:.82rem;color:#92400e;font-weight:600">
+    <i class="fa-solid fa-triangle-exclamation" style="margin-right:.35rem"></i> Selecciona una instalación activa en el selector de arriba para habilitar la carga de datos.
+  </div>
+</div>
+
+<!-- Configuración del cliente (planta + inventario) -->
+<div class="card">
+  <h2><i class="fa-solid fa-sliders"></i> <span data-en="Process Parameters">Parámetros del proceso</span></h2>
+  <div class="grid2">
+    <div class="field">
+      <label><span data-en="Taxpayer RFC">RFC del contribuyente</span></label>
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <span id="rfcDisplay" style="font-size:.88rem;color:#1e293b;font-weight:600;min-width:120px">—</span>
+        <a href="#" onclick="switchTab('config');return false" style="font-size:.72rem;color:#6366f1"><i class="fa-solid fa-pen-to-square" style="margin-right:.25rem"></i><span data-en="Edit in Settings">Editar en Config.</span></a>
+      </div>
+    </div>
+    <div class="field"><label><span data-en="Base Unit of Report">Unidad base de reporte</span></label>
+      <select id="unidad_base">
+        <option value="litros" selected>Litros (UM03)</option>
+        <option value="kg">kg (kilogramos)</option>
+      </select>
+    </div>
+  </div>
+  <!-- Período a procesar -->
+  <div class="grid2" style="margin-top:.8rem">
+    <div class="field">
+      <label><span data-en="Month to Process">Mes a procesar</span></label>
+      <div style="display:flex;gap:.5rem">
+        <input id="procAnio" type="number" min="2020" max="2050" placeholder="2026"
+          style="flex:1;padding:.5rem .7rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.88rem">
+        <select id="procMes" style="flex:1.4;padding:.5rem .7rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.88rem">
+          <option value="01">01 — Enero</option>
+          <option value="02">02 — Febrero</option>
+          <option value="03">03 — Marzo</option>
+          <option value="04">04 — Abril</option>
+          <option value="05">05 — Mayo</option>
+          <option value="06">06 — Junio</option>
+          <option value="07">07 — Julio</option>
+          <option value="08">08 — Agosto</option>
+          <option value="09">09 — Septiembre</option>
+          <option value="10">10 — Octubre</option>
+          <option value="11">11 — Noviembre</option>
+          <option value="12">12 — Diciembre</option>
+        </select>
+      </div>
+      <div style="font-size:.62rem;color:#64748b;margin-top:.2rem">
+        Opcional — ayuda a recuperar el inventario del mes anterior.
+      </div>
+    </div>
+    <div></div>
+  </div>
+  <div class="grid2" style="margin-top:.8rem">
+    <div class="field">
+      <label><span data-en="Initial Inventory (liters — tank reading)">Inventario Inicial (litros — lectura de tanque)</span></label>
+      <input id="inv_inicial" type="number" step="0.01" min="0" placeholder="Ej. 3269817.25">
+      <div id="invIniAutoNote" style="display:none;font-size:.7rem;color:#1d4ed8;margin-top:.3rem;background:#eff6ff;border-radius:6px;padding:.25rem .5rem;border-left:3px solid #3b82f6"></div>
+      <div id="invIniManualNote" style="font-size:.62rem;color:#64748b;margin-top:.2rem">
+        Lectura del tanque al inicio del mes.
+      </div>
+    </div>
+    <div class="field">
+      <label><span data-en="Final Measured Inventory (L)">Inventario Final Medido (L)</span> <small style="color:#64748b;font-weight:400">— Balance de Masa</small></label>
+      <input id="inv_final_medido" type="number" step="0.01" min="0" placeholder="Opcional — lectura sensor fin de mes">
+      <div style="font-size:.62rem;color:#64748b;margin-top:.2rem">Activa el cálculo de Ajuste por Variación para el reporte mensual SAT.</div>
+    </div>
+  </div>
+  <div class="grid2" style="margin-top:.6rem">
+    <div class="field">
+      <label><span data-en="Measurement Temp. (°C)">Temperatura de Medición (°C)</span> <small style="color:#64748b;font-weight:400">— VCM a 20°C</small></label>
+      <input id="proc_temperatura" type="number" step="0.1" min="-50" max="100" value="20.0" placeholder="20.0">
+      <div style="font-size:.62rem;color:#64748b;margin-top:.2rem">Temperatura de la medición para compensar volumen a 20°C.</div>
+    </div>
+    <div class="field">
+      <label><span data-en="PR12 Composition — LP Gas">Composición PR12 — Gas LP</span> <small style="color:#64748b;font-weight:400">(% del mes, precargado de Config. Avanzada)</small></label>
+      <div style="display:flex;gap:.5rem;align-items:flex-start;margin-top:.3rem">
+        <div style="flex:1">
+          <label style="font-size:.72rem;color:#374151">Propano (%)</label>
+          <input id="proc_propano" type="number" step="0.01" min="0" max="100" placeholder="Ej. 60.00"
+            oninput="validarComposicionProcesar()" title="Porcentaje de propano. Suma con butano debe ser ≤ 100">
+        </div>
+        <div style="flex:1">
+          <label style="font-size:.72rem;color:#374151">Butano (%)</label>
+          <input id="proc_butano" type="number" step="0.01" min="0" max="100" placeholder="Ej. 40.00"
+            oninput="validarComposicionProcesar()" title="Porcentaje de butano. Suma con propano debe ser ≤ 100">
+        </div>
+      </div>
+      <div id="procComposWarning" style="display:none;font-size:.71rem;color:#b45309;background:#fefce8;border:1px solid #fcd34d;border-radius:5px;padding:.3rem .6rem;margin-top:.3rem">
+        <i class="fa-solid fa-triangle-exclamation" style="margin-right:.3rem"></i>La suma Propano + Butano debe ser exactamente 100 para el reporte SAT.
+      </div>
+      <div style="font-size:.62rem;color:#94a3b8;margin-top:.25rem">Los valores se convierten a fracción molar automáticamente al generar el JSON.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Carga + Resultados -->
+<div class="main-grid">
+<div>
+<div class="card" id="uploadCard">
+  <h2><i class="fa-solid fa-file-import" style="margin-right:.4rem"></i> <span data-en="Data Upload">Carga de datos</span></h2>
+  <!-- Lock overlay banner — visible when no facility is selected -->
+  <div id="uploaderLockBanner" style="display:none;margin-bottom:1rem;padding:.7rem 1rem;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:.83rem;color:#991b1b;font-weight:600;text-align:center">
+    <i class="fa-solid fa-lock" style="margin-right:.35rem"></i> Selecciona una <strong>Instalación activa</strong> en el selector de arriba para habilitar la carga de datos.
+  </div>
+  <div class="tabs">
+    <button class="tab active" data-tab="excel"><i class="fa-solid fa-file-csv"></i> Excel / CSV</button>
+    <button class="tab" data-tab="cfdi"><i class="fa-solid fa-file-invoice"></i> CFDI (XML / ZIP)</button>
+    <button class="tab" data-tab="autoconsumo"><i class="fa-solid fa-gas-pump"></i> <span data-en="Self-consumption">Autoconsumo</span></button>
+  </div>
+  <div class="panel active" id="panel-excel">
+    <div class="drop" id="dropExcel">
+      <div class="ico"><i class="fa-solid fa-file-lines" style="font-size:1.5rem"></i></div>
+      <p class="lbl">Arrastra tu archivo de movimientos aquí</p>
+      <p class="hint">Formatos: .xlsx, .xls, .csv — columnas: fecha, tipo_movimiento, producto, volumen, unidad</p>
+    </div>
+    <input type="file" id="fileExcel" accept=".xlsx,.xls,.csv" style="display:none">
+    <a class="sample-link" id="dlSampleExcel"><i class="fa-solid fa-download" style="margin-right:.35rem"></i> Descargar plantilla CSV de ejemplo</a>
+    <button class="btn btn-red" id="btnExcel" disabled><span data-en="Process Excel / CSV"><span data-en="Process Excel / CSV">Procesar Excel / CSV</span></span></button>
+    <div class="loading" id="loadExcel"><i class="fa-solid fa-spinner fa-spin"></i> Procesando archivo...</div>
+  </div>
+  <div class="panel" id="panel-cfdi">
+    <div class="info-box">
+      <b>Múltiples archivos — Categorización automática por RFC</b><br>
+      Sube <b>uno o varios ZIPs/XMLs</b> a la vez. El sistema los consolida en un solo reporte.<br>
+      • <b>Emisor = RFC activo</b> → <b>Venta / Entrega</b> (salida del inventario)<br>
+      • <b>Receptor = RFC activo</b> → <b>Compra / Recepción</b> (entrada al inventario)<br>
+      <span id="rfcActivoHint" style="color:#1e40af;font-weight:600"></span>
+    </div>
+    <div class="drop" id="dropCFDI">
+      <div class="ico"><i class="fa-solid fa-file-zipper" style="font-size:1.5rem"></i></div>
+      <p class="lbl" id="dropCFDILbl">Arrastra uno o varios archivos ZIP/XML aquí</p>
+      <p class="hint">Acepta múltiples archivos — compras y ventas juntos</p>
+    </div>
+    <input type="file" id="fileCFDI" accept=".xml,.zip" multiple style="display:none">
+    <div class="file-chips" id="cfdiChips" style="display:none"></div>
+    <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:.7rem">
+      <a class="sample-link" id="dlSampleXML" style="margin-bottom:0"><i class="fa-solid fa-download" style="margin-right:.35rem"></i> Descargar XML de ejemplo</a>
+      <button class="btn-clear" id="btnClearCFDI" style="display:none"><i class="fa-solid fa-xmark" style="margin-right:.35rem"></i> Limpiar archivos</button>
+    </div>
+    <button class="btn btn-red" id="btnCFDI" disabled><span data-en="Process CFDI">Procesar CFDI</span></button>
+    <div class="loading" id="loadCFDI">⏳ Consolidando y generando reporte SAT...</div>
+  </div>
+
+  <!-- ══ Panel: Autoconsumo ════════════════════════════════════════════════ -->
+  <div class="panel" id="panel-autoconsumo">
+    <div class="info-box" style="background:#fef9c3;border-color:#fcd34d;color:#92400e">
+      <b><i class="fa-solid fa-gas-pump" style="margin-right:.4rem"></i><span data-en="Self-Consumption Entry">Registro de Autoconsumo</span></b><br>
+      Registra volúmenes consumidos internamente (flota, operación) <b>sin CFDI</b>.<br>
+      Este volumen se descuenta del inventario y aparece en la Bitácora con
+      <b>TipoEvento 4</b> (entrega) conforme §17.4 de la Guía SAT Mayo 2023.
+    </div>
+
+    <!-- Switch de autoconsumo + RFC auto -->
+    <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:1rem;padding:.75rem 1rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
+      <label class="switch-label" style="display:flex;align-items:center;gap:.6rem;cursor:pointer;flex:1">
+        <div id="switchAutoconsumo" onclick="toggleAutoconsumoSwitch()" style="
+          width:44px;height:24px;background:#cbd5e1;border-radius:12px;position:relative;
+          cursor:pointer;transition:background .2s;flex-shrink:0">
+          <div id="switchThumb" style="
+            position:absolute;top:3px;left:3px;width:18px;height:18px;
+            background:#fff;border-radius:50%;transition:left .2s;
+            box-shadow:0 1px 3px rgba(0,0,0,.2)"></div>
+        </div>
+        <span style="font-size:.88rem;font-weight:600;color:#374151" data-en="Self-consumption active">Autoconsumo activo</span>
+      </label>
+      <div style="font-size:.75rem;color:#64748b" id="autoconsumoStatus">RFC cliente: se llenará automáticamente</div>
+    </div>
+
+    <div class="grid2" style="margin-bottom:.7rem">
+      <div class="field">
+        <label>RFC Cliente <span style="color:#64748b;font-size:.72rem;font-weight:400">— se completa automáticamente</span></label>
+        <input id="ac_rfc_cliente" type="text" placeholder="RFC de la empresa (auto)" readonly
+          style="background:#f1f5f9;color:#475569;cursor:not-allowed;text-transform:uppercase">
+      </div>
+      <div class="field">
+        <label>Tipo de movimiento</label>
+        <select id="ac_tipo">
+          <option value="autoconsumo">Autoconsumo — flota/operación</option>
+          <option value="merma">Merma operativa reconocida</option>
+          <option value="trasvase">Trasvase interno entre tanques</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-bottom:.7rem">
+      <div class="field">
+        <label>Volumen (Litros) <span style="color:#e63946">*</span></label>
+        <input id="ac_volumen" type="number" min="0.01" step="0.01" placeholder="Ej. 500.00">
+      </div>
+      <div class="field">
+        <label>Fecha del movimiento <span style="color:#e63946">*</span></label>
+        <input id="ac_fecha" type="date">
+      </div>
+    </div>
+
+    <div class="field" style="margin-bottom:.7rem">
+      <label>Descripción adicional <span style="color:#64748b;font-size:.72rem;font-weight:400">— opcional</span></label>
+      <input id="ac_descripcion" type="text" placeholder="Ej. Unidades de reparto semana 12, recorrido 3,200 km" maxlength="200">
+    </div>
+
+    <!-- Bitácora SAT preview -->
+    <div style="background:#fef9c3;border:1px solid #fcd34d;border-radius:8px;padding:.7rem .9rem;margin-bottom:.9rem;font-size:.76rem;color:#78350f">
+      <b><i class="fa-solid fa-scroll" style="margin-right:.3rem"></i><span data-en="SAT log that will be generated:">Bitácora SAT que se generará:</span></b><br>
+      <span style="font-family:monospace">TipoEvento: 4  | DescripcionEvento: "Consumo propio (autoconsumo interno). Sin CFDI — TipoEvento 4 entrega."</span>
+    </div>
+
+    <button class="btn btn-red" id="btnAutoconsumo" onclick="registrarAutoconsumo()" disabled>
+      <i class="fa-solid fa-gas-pump" style="margin-right:.4rem"></i><span data-en="Register Self-Consumption">Registrar Autoconsumo</span>
+    </button>
+    <div class="loading" id="loadAutoconsumo"><i class="fa-solid fa-spinner fa-spin"></i> Guardando en Supabase...</div>
+    <div id="autoconsumoResult" style="display:none;margin-top:.8rem;padding:.8rem 1rem;border-radius:8px;font-size:.83rem"></div>
+
+    <!-- Lista de autoconsumos del periodo actual -->
+    <div style="margin-top:1.2rem">
+      <div style="font-size:.8rem;font-weight:600;color:#475569;margin-bottom:.5rem;display:flex;align-items:center;justify-content:space-between">
+        <span><i class="fa-solid fa-list" style="margin-right:.3rem"></i><span data-en="Self-consumption records this period">Autoconsumos registrados este periodo</span></span>
+        <button onclick="cargarAutoconsumos()" style="font-size:.72rem;padding:.25rem .6rem;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;cursor:pointer;color:#475569"><span data-en="Refresh">Actualizar</span></button>
+      </div>
+      <div id="autoconsumoList" style="font-size:.78rem;color:#64748b;background:#f8fafc;border-radius:8px;padding:.6rem .8rem;min-height:48px;overflow-x:auto">
+        <i>Sin autoconsumos registrados este periodo.</i>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+<div class="results-col">
+<div id="resultsPlaceholder" style="border:2px dashed #e2e8f0;border-radius:12px;padding:2.5rem 2rem;text-align:center;color:#b0bec5;font-size:.88rem;line-height:1.8">
+  <div style="font-size:2rem;margin-bottom:.6rem"><i class="fa-solid fa-file-lines"></i></div>
+  <b style="color:#94a3b8">El reporte generado aparecerá aquí</b><br>
+  Sube uno o varios archivos ZIP/XML y haz clic en <b>Procesar CFDI</b>
+</div>
+<div class="error-card" id="errorCard">
+  <h2><i class="fa-solid fa-triangle-exclamation"></i> Errores encontrados</h2>
+  <ul class="err-list" id="errList"></ul>
+  <div class="log-pre" id="errLog" style="display:none"></div>
+</div>
+<div class="result-card" id="resultCard">
+  <h2>
+    <i class="fa-solid fa-check-circle" style="color:#16a34a;margin-right:.4rem"></i>Reporte SAT generado
+    <span class="badge badge-green" id="badgePeriodo"></span>
+    <span class="badge badge-blue" id="badgeSource"></span>
+    <span class="badge" style="background:#d8f3dc;color:#1b4332" id="badgeUnidad"></span>
+  </h2>
+  <div class="alert-capacidad" id="alertCapacidad">
+    <p><i class="fa-solid fa-triangle-exclamation" style="margin-right:.4rem"></i>ADVERTENCIA DE CAPACIDAD FÍSICA</p>
+    <p style="font-weight:400;margin-top:.3rem;font-size:.8rem">
+      El VolumenExistenciasMes supera los 277,000 litros (capacidad máxima declarada).
+      Verifique las lecturas de tanque y el inventario inicial ingresado.
+    </p>
+  </div>
+  <div id="cfdiCounters" style="display:none;margin-bottom:.6rem">
+    <div style="display:flex;gap:.5rem;max-width:360px">
+      <div style="flex:1;background:#eff6ff;border:1px solid #bfdbfe;border-radius:7px;padding:.5rem .7rem;text-align:center">
+        <div style="font-size:.65rem;color:#1e40af;font-weight:600">Recepciones</div>
+        <div style="font-size:1.2rem;font-weight:700;color:#1e40af" id="cntCompras">0</div>
+        <div style="font-size:.6rem;color:#3b82f6">entradas</div>
+      </div>
+      <div style="flex:1;background:#fff7ed;border:1px solid #fed7aa;border-radius:7px;padding:.5rem .7rem;text-align:center">
+        <div style="font-size:.65rem;color:#9a3412;font-weight:600">Entregas</div>
+        <div style="font-size:1.2rem;font-weight:700;color:#9a3412" id="cntVentas">0</div>
+        <div style="font-size:.6rem;color:#ea580c">salidas</div>
+      </div>
+    </div>
+  </div>
+  <div id="satMetaSection" style="display:none;margin-bottom:.6rem">
+    <div class="sat-meta">
+      <div class="sat-meta-box">
+        <div class="label">Inv. Inicial</div><div class="value" id="smInvIni">—</div><div class="unit">Litros</div>
+      </div>
+      <div class="sat-meta-box" style="border-color:#bfdbfe">
+        <div class="label">Recepciones</div><div class="value" id="smRec" style="color:#1e40af">—</div><div class="unit">Litros</div>
+      </div>
+      <div class="sat-meta-box" style="border-color:#fed7aa">
+        <div class="label">Entregas</div><div class="value" id="smEnt" style="color:#9a3412">—</div><div class="unit">Litros</div>
+      </div>
+      <div class="sat-meta-box" style="border-color:#bbf7d0">
+        <div class="label">Vol.Existencias</div><div class="value" id="smExist" style="color:#15803d">—</div><div class="unit">Litros (Final)</div>
+      </div>
+    </div>
+    <div style="font-size:.6rem;color:#94a3b8;margin:.2rem 0 .35rem">Ini + Recepciones − Entregas = VolumenExistenciasMes</div>
+    <div class="sat-meta-imp">
+      <div class="sat-meta-box">
+        <div class="label">Importe Recepciones</div><div class="value" id="smImpRec" style="font-size:.82rem">—</div><div class="unit">MXN</div>
+      </div>
+      <div class="sat-meta-box">
+        <div class="label">Importe Entregas</div><div class="value" id="smImpEnt" style="font-size:.82rem">—</div><div class="unit">MXN</div>
+      </div>
+    </div>
+    <!-- VCM Info Box -->
+    <div id="vcmInfoBox" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:.7rem .9rem;margin-top:.5rem;font-size:.76rem;color:#166534">
+      <strong><i class="fa-solid fa-temperature-half" style="margin-right:.3rem"></i>Compensación VCM:</strong>
+      <span id="vcmDetail"></span>
+    </div>
+    <!-- Balance de Masa Box -->
+    <div id="balanceMasaBox" style="display:none;background:#fefce8;border:1px solid #fcd34d;border-radius:8px;padding:.7rem .9rem;margin-top:.5rem;font-size:.76rem;color:#854d0e">
+      <strong><i class="fa-solid fa-scale-balanced" style="margin-right:.3rem"></i>Ajuste por Variación (Balance de Masa):</strong>
+      <span id="balanceMasaDetail"></span>
+    </div>
+  </div>
+  <div id="alertSection" style="display:none">
+    <div class="alert-box">
+      <h3><i class="fa-solid fa-triangle-exclamation" style="margin-right:.35rem"></i>Alertas (no bloqueantes)</h3>
+      <ul class="alert-list" id="alertList"></ul>
+    </div>
+  </div>
+
+  <!-- Banner de filtrado automático — se muestra cuando hay nóminas, traslados, carta porte o trasvases excluidos -->
+  <div id="filtradoBanner" style="display:none;background:#f0f9ff;border:1.5px solid #7dd3fc;border-radius:10px;padding:1rem 1.2rem;margin-bottom:.8rem">
+    <div style="font-size:.82rem;font-weight:700;color:#0369a1;margin-bottom:.5rem">
+      <i class="fa-solid fa-filter" style="margin-right:.4rem"></i>Filtrado automático aplicado
+    </div>
+    <ul id="filtradoList" style="margin:0;padding-left:1.2rem;font-size:.78rem;color:#0c4a6e;line-height:1.9"></ul>
+    <div style="font-size:.72rem;color:#64748b;margin-top:.5rem;border-top:1px solid #bae6fd;padding-top:.4rem">
+      Estos documentos no afectan el balance ni el reporte SAT — solo se notifican por transparencia.
+    </div>
+  </div>
+  <div class="json-pre" id="jsonPre"></div>
+  <div class="btn-row" id="downloadRow">
+    <button class="btn btn-green" id="btnDownload" style="display:none"><i class="fa-solid fa-file-arrow-down" style="margin-right:.35rem"></i>JSON (Excel/CSV)</button>
+    <button class="btn-xml" id="btnDownloadXML" style="display:none"><i class="fa-solid fa-file-arrow-down" style="margin-right:.35rem"></i>XML SAT</button>
+    <button class="btn-zip" id="btnDownloadZIP" style="display:none"><i class="fa-solid fa-file-zipper" style="margin-right:.35rem"></i>ZIP — JSON</button>
+  </div>
+  <div class="log-pre" id="logPre"></div>
+</div>
+</div>
+</div><!-- /main-grid -->
+</div><!-- /mpanel-procesar -->
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     PANEL: FACTURAR (Carta Porte)
+     ══════════════════════════════════════════════════════════════════════ -->
+<div class="main-panel" id="mpanel-facturar">
+<div class="card">
+  <h2><i class="fa-solid fa-file-invoice-dollar"></i> Carta Porte de traspaso interno</h2>
+  <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap">
+    <div class="field" style="margin:0;min-width:120px">
+      <label>Año</label>
+      <input id="facturarAnio" type="number" min="2020" max="2050" value="2026" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+    </div>
+    <div class="field" style="margin:0;min-width:180px">
+      <label>Mes</label>
+      <select id="facturarMes" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+        <option value="01">01 — Enero</option>
+        <option value="02">02 — Febrero</option>
+        <option value="03">03 — Marzo</option>
+        <option value="04" selected>04 — Abril</option>
+        <option value="05">05 — Mayo</option>
+        <option value="06">06 — Junio</option>
+        <option value="07">07 — Julio</option>
+        <option value="08">08 — Agosto</option>
+        <option value="09">09 — Septiembre</option>
+        <option value="10">10 — Octubre</option>
+        <option value="11">11 — Noviembre</option>
+        <option value="12">12 — Diciembre</option>
+      </select>
+    </div>
+    <div class="field" style="margin:0;min-width:200px">
+      <label>Origen</label>
+      <select id="facturarFacility" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+        <option value="">Todas las instalaciones origen</option>
+      </select>
+    </div>
+    <button class="btn-save" id="btnLoadEntregas" style="margin-top:1.4rem"><i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i> Cargar traspasos</button>
+  </div>
+
+  <div id="entregasList" style="max-height:250px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;padding:.5rem;display:none;margin-bottom:1rem">
+    <!-- Las entregas se renderizan aquí -->
+  </div>
+  <div id="noEntregasMsg" style="display:none;color:#64748b;font-size:.82rem;margin-bottom:1rem">No hay traspasos internos registrados para este periodo.</div>
+
+  <div id="facturarForm" style="display:none;padding:1rem;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">
+    <h4 style="margin:0 0 .8rem;color:#1e293b"><i class="fa-solid fa-warehouse" style="margin-right:.35rem"></i>Destino interno</h4>
+    <div class="field" style="margin-bottom:.5rem">
+      <label>Estación de carburación / expendio destino</label>
+      <select id="facturarDestinoFacility">
+        <option value="">Selecciona estación destino...</option>
+      </select>
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>RFC receptor</label>
+        <input type="text" id="facturarRfcCliente" placeholder="RFC de la empresa" style="text-transform:uppercase" readonly>
+      </div>
+      <div class="field">
+        <label>Nombre receptor</label>
+        <input type="text" id="facturarNombreCliente" placeholder="Nombre de la empresa" readonly>
+      </div>
+    </div>
+    <div class="grid2" style="margin-top:.5rem">
+      <div class="field">
+        <label>CP destino (5 dígitos)</label>
+        <input type="text" id="facturarCpCliente" placeholder="CP de estación destino" maxlength="5">
+      </div>
+      <div class="field">
+        <label>Uso CFDI</label>
+        <select id="facturarUsoCfdi">
+          <option value="S01">S01 — Sin efectos fiscales</option>
+          <option value="G01">G01 — Adquisición de mercancías</option>
+          <option value="G03">G03 — Gastos en general</option>
+        </select>
+      </div>
+    </div>
+
+    <h4 style="margin:1rem 0 .8rem;color:#1e293b"><i class="fa-solid fa-truck" style="margin-right:.35rem"></i>Datos del vehículo</h4>
+    <div class="grid2" style="margin-bottom:.5rem">
+      <div class="field">
+        <label>Vehículo del catálogo</label>
+        <select id="facturarVehiculoCatalogo">
+          <option value="">Capturar vehículo manualmente...</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Chofer del catálogo</label>
+        <select id="facturarChoferCatalogo">
+          <option value="">Sin chofer asignado...</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>Placa</label>
+        <input type="text" id="facturarPlaca" placeholder="ABC-1234" style="text-transform:uppercase">
+      </div>
+      <div class="field">
+        <label>Año Modelo</label>
+        <input type="number" id="facturarAnioVehiculo" min="2000" max="2030" value="2024">
+      </div>
+    </div>
+    <div class="grid2" style="margin-top:.5rem">
+      <div class="field">
+        <label>Config. Vehicular</label>
+        <select id="facturarConfigVehicular">
+          <option value="C2">C2 — Camión 2 ejes</option>
+          <option value="C3">C3 — Camión 3 ejes</option>
+          <option value="T2">T2 — Tractocamión 2 ejes</option>
+          <option value="T3">T3 — Tractocamión 3 ejes</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Aseguradora</label>
+        <input type="text" id="facturarAseguradora" placeholder="Nombre de aseguradora">
+      </div>
+    </div>
+    <div class="field" style="margin-top:.5rem">
+      <label>Póliza de seguro</label>
+      <input type="text" id="facturarPoliza" placeholder="Número de póliza">
+    </div>
+
+    <button class="btn btn-green" id="btnGenerarCartaPorte" style="margin-top:1rem;width:100%"><i class="fa-solid fa-file-invoice-dollar" style="margin-right:.35rem"></i> Generar y timbrar Carta Porte</button>
+    <div class="loading" id="loadFacturar"><i class="fa-solid fa-spinner fa-spin"></i> Timbrando CFDI...</div>
+  </div>
+
+  <div id="facturarResult" style="display:none;margin-top:1rem;padding:1rem;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px">
+    <h4 style="margin:0 0 .5rem;color:#065f46"><i class="fa-solid fa-check-circle" style="margin-right:.35rem"></i>Carta Porte timbrada correctamente</h4>
+    <div style="font-size:.88rem;color:#064e3b">
+      <div><b>UUID SAT:</b> <span id="facturarUuid" style="font-family:monospace;font-size:.9rem"></span></div>
+      <div style="margin-top:.3rem"><b>Fecha timbrado:</b> <span id="facturarFecha"></span></div>
+    </div>
+    <button class="btn-xml" id="btnDownloadFacturaXml" style="margin-top:.8rem"><i class="fa-solid fa-file-arrow-down" style="margin-right:.35rem"></i> Descargar XML</button>
+  </div>
+
+  <div id="facturarError" style="display:none;margin-top:1rem;padding:1rem;background:#fef2f2;border:1px solid #fecaca;border-radius:8px">
+    <h4 style="margin:0 0 .5rem;color:#991b1b"><i class="fa-solid fa-triangle-exclamation" style="margin-right:.35rem"></i>Error al timbrar</h4>
+    <div id="facturarErrorMsg" style="font-size:.82rem;color:#dc2626"></div>
+  </div>
+
+  <!-- ═══ Sección Transporte: Generar Carta Porte Directa ═══ -->
+  <div id="transporteCartaPorte" style="display:none;margin-top:1.5rem;padding:1rem;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+    <h3 style="margin:0 0 1rem;color:#1e40af"><i class="fa-solid fa-file-invoice" style="margin-right:.5rem"></i>Generar Carta Porte 3.1 (Transporte)</h3>
+    <p style="color:#64748b;font-size:.85rem;margin-bottom:1rem">Crea un documento de viaje nuevo. Usa los catálogos para autocompletar los datos.</p>
+    
+    <div style="display:flex;gap:1rem;margin-bottom:1rem;flex-wrap:wrap">
+      <div class="field" style="margin:0;min-width:200px">
+        <label>Ruta</label>
+        <select id="transporteRuta" style="padding:.42rem .7rem;border:1px solid #bfdbfe;border-radius:7px;font-size:.88rem;width:100%">
+          <option value="">Seleccionar ruta...</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0;min-width:150px">
+        <label>Distancia (KM)</label>
+        <input type="number" id="transporteDistancia" min="1" value="1" style="padding:.42rem .7rem;border:1px solid #bfdbfe;border-radius:7px;font-size:.88rem;width:100%">
+      </div>
+    </div>
+    
+    <div class="grid2">
+      <div class="field">
+        <label>Chofer</label>
+        <select id="transporteChofer" style="padding:.42rem .7rem;border:1px solid #bfdbfe;border-radius:7px;font-size:.88rem;width:100%">
+          <option value="">Seleccionar chofer...</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Vehículo</label>
+        <select id="transporteVehiculo" style="padding:.42rem .7rem;border:1px solid #bfdbfe;border-radius:7px;font-size:.88rem;width:100%">
+          <option value="">Seleccionar vehículo...</option>
+        </select>
+      </div>
+    </div>
+    
+    <div class="grid2" style="margin-top:.5rem">
+      <div class="field">
+        <label>Volumen (Litros)</label>
+        <input type="number" id="transporteVolumen" min="1" step="0.01" placeholder="0.00" style="padding:.42rem .7rem;border:1px solid #bfdbfe;border-radius:7px;font-size:.88rem">
+      </div>
+      <div class="field">
+        <label>Importe ($MXN)</label>
+        <input type="number" id="transporteImporte" min="0" step="0.01" placeholder="0.00" style="padding:.42rem .7rem;border:1px solid #bfdbfe;border-radius:7px;font-size:.88rem">
+      </div>
+    </div>
+    
+    <div class="grid2" style="margin-top:.5rem">
+      <div class="field">
+        <label>Tipo Comprobante</label>
+        <select id="transporteTipoComprobante" style="padding:.42rem .7rem;border:1px solid #bfdbfe;border-radius:7px;font-size:.88rem;width:100%">
+          <option value="T">T — Traslado (movimiento interno sin costo)</option>
+          <option value="I">I — Ingreso (servicio de flete con costo)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Fecha/Hora</label>
+        <input type="datetime-local" id="transporteFechaHora" style="padding:.42rem .7rem;border:1px solid #bfdbfe;border-radius:7px;font-size:.88rem">
+      </div>
+    </div>
+    
+    <h4 style="margin:1rem 0 .8rem;color:#1e40af"><i class="fa-solid fa-user" style="margin-right:.35rem"></i>Datos del cliente</h4>
+    <div class="grid2">
+      <div class="field">
+        <label>RFC Cliente</label>
+        <input type="text" id="transporteRfcCliente" placeholder="XAXX010101000" style="text-transform:uppercase">
+      </div>
+      <div class="field">
+        <label>Nombre Cliente</label>
+        <input type="text" id="transporteNombreCliente" placeholder="Nombre del cliente">
+      </div>
+    </div>
+    <div class="grid2" style="margin-top:.5rem">
+      <div class="field">
+        <label>CP Cliente</label>
+        <input type="text" id="transporteCpCliente" placeholder="20000" maxlength="5">
+      </div>
+      <div class="field">
+        <label>Uso CFDI</label>
+        <select id="transporteUsoCfdi" style="padding:.42rem .7rem;border:1px solid #bfdbfe;border-radius:7px;font-size:.88rem;width:100%">
+          <option value="S01">S01 — Sin efectos fiscales</option>
+          <option value="G01">G01 — Adquisición de mercancías</option>
+          <option value="G03">G03 — Gastos en general</option>
+        </select>
+      </div>
+    </div>
+    
+    <button class="btn btn-blue" id="btnGenerarTransporteCartaPorte" style="margin-top:1rem;width:100%"><i class="fa-solid fa-file-invoice-dollar" style="margin-right:.35rem"></i> Generar Carta Porte</button>
+    <div class="loading" id="loadTransporteFacturar"><i class="fa-solid fa-spinner fa-spin"></i> Timbrando CFDI...</div>
+  </div>
+
+  <!-- ═══ Sección Transporte: Facturar Flete (desde Carta Porte) ═══ -->
+  <div id="transporteFacturarFlete" style="display:none;margin-top:1.5rem;padding:1rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px">
+    <h3 style="margin:0 0 1rem;color:#166534"><i class="fa-solid fa-file-invoice-dollar" style="margin-right:.5rem"></i>Facturar Servicio de Flete</h3>
+    <p style="color:#64748b;font-size:.85rem;margin-bottom:1rem">Selecciona una Carta Porte ya emitida para generar la factura de cobro vinculada.</p>
+    
+    <div class="field">
+      <label>Seleccionar Carta Porte</label>
+      <select id="transporteCartaPorteSelect" style="padding:.42rem .7rem;border:1px solid #bbf7d0;border-radius:7px;font-size:.88rem;width:100%">
+        <option value="">Seleccionar Carta Porte...</option>
+      </select>
+    </div>
+    
+    <div id="transporteFleteDetails" style="display:none;margin-top:1rem;padding:1rem;background:#fff;border-radius:8px;border:1px solid #bbf7d0">
+      <div class="grid2">
+        <div><b>UUID:</b> <span id="fleteCartaPorteUuid"></span></div>
+        <div><b>Volumen:</b> <span id="fleteCartaPorteVolumen"></span> L</div>
+      </div>
+      <div class="grid2" style="margin-top:.5rem">
+        <div><b>Cliente:</b> <span id="fleteCartaPorteCliente"></span></div>
+        <div><b>Fecha:</b> <span id="fleteCartaPorteFecha"></span></div>
+      </div>
+    </div>
+    
+    <div class="grid2" style="margin-top:1rem">
+      <div class="field">
+        <label>Importe Flete ($MXN)</label>
+        <input type="number" id="transporteImporteFlete" min="0" step="0.01" placeholder="0.00" style="padding:.42rem .7rem;border:1px solid #bbf7d0;border-radius:7px;font-size:.88rem">
+      </div>
+      <div class="field">
+        <label>RFC Receptor Factura</label>
+        <input type="text" id="transporteFleteRfc" placeholder="XAXX010101000" style="text-transform:uppercase">
+      </div>
+    </div>
+    
+    <button class="btn btn-green" id="btnGenerarFacturaFlete" style="margin-top:1rem;width:100%"><i class="fa-solid fa-file-invoice-dollar" style="margin-right:.35rem"></i> Generar Factura de Flete</button>
+    <div class="loading" id="loadFacturaFlete"><i class="fa-solid fa-spinner fa-spin"></i> Timbrando CFDI...</div>
+  </div>
+</div>
+</div><!-- /mpanel-facturar -->
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     PANEL: CONTROLES VOLUMÉTRICOS (Monitoreo de tanques)
+     ══════════════════════════════════════════════════════════════════════ -->
+<div class="main-panel" id="mpanel-controles">
+<div class="card">
+  <h2><i class="fa-solid fa-gauge-high"></i> Controles Volumétricos de Gas LP</h2>
+  <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap">
+    <div class="field" style="margin:0;min-width:200px">
+      <label>Instalación</label>
+      <select id="controlesFacility" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+        <option value="">Todas las instalaciones</option>
+      </select>
+    </div>
+    <button class="btn-save" id="btnLoadControles" style="margin-top:1.4rem"><i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i> Cargar datos</button>
+  </div>
+
+  <div id="controlesInfo" style="display:none">
+    <div class="grid2" style="margin-bottom:1rem">
+      <div class="hist-total-box" style="border-color:#3b82f6">
+        <div class="label">Inventario actual</div>
+        <div class="value" id="ctrlInventario" style="color:#1e40af">—</div>
+        <div class="unit">Litros</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#f59e0b">
+        <div class="label">Nivel tanque</div>
+        <div class="value" id="ctrlNivel" style="color:#d97706">—</div>
+        <div class="unit">% capacidad</div>
+      </div>
+    </div>
+    <div class="grid2" style="margin-bottom:1rem">
+      <div class="hist-total-box" style="border-color:#10b981">
+        <div class="label">Última lectura</div>
+        <div class="value" id="ctrlUltimaLectura" style="color:#059669">—</div>
+        <div class="unit">timestamp</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#8b5cf6">
+        <div class="label">Estado</div>
+        <div class="value" id="ctrlEstado" style="color:#7c3aed">—</div>
+        <div class="unit">conexión</div>
+      </div>
+    </div>
+    <div style="background:#f8fafc;border-radius:8px;padding:1rem;border:1px solid #e2e8f0">
+      <h4 style="margin:0 0 .6rem;color:#1e293b"><i class="fa-solid fa-chart-line" style="margin-right:.35rem"></i>Historial de lecturas</h4>
+      <div id="controlesChart" style="height:200px;display:flex;align-items:center;justify-content:center;color:#94a3b8">
+        Gráfico de niveles en desarrollo
+      </div>
+    </div>
+  </div>
+
+  <div id="controlesEmpty" style="display:none;color:#64748b;font-size:.88rem;text-align:center;padding:2rem">
+    <i class="fa-solid fa-gauge-high" style="font-size:2rem;margin-bottom:.5rem;color:#cbd5e1"></i>
+    <div>Selecciona una instalación y haz clic en "Cargar datos" para ver los controles volumétricos.</div>
+  </div>
+
+  <div id="controlesError" style="display:none;margin-top:1rem;padding:1rem;background:#fef2f2;border:1px solid #fecaca;border-radius:8px">
+    <h4 style="margin:0 0 .5rem;color:#991b1b"><i class="fa-solid fa-triangle-exclamation" style="margin-right:.35rem"></i>Error</h4>
+    <div id="controlesErrorMsg" style="font-size:.82rem;color:#dc2626"></div>
+  </div>
+</div>
+</div><!-- /mpanel-controles -->
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     PANEL: VENTAS (Sales Analytics)
+     ══════════════════════════════════════════════════════════════════════ -->
+<div class="main-panel" id="mpanel-ventas">
+<div class="card">
+  <h2><i class="fa-solid fa-chart-line"></i> Dashboard Anual</h2>
+  <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.2rem;flex-wrap:wrap">
+    <div class="field" style="margin:0;min-width:120px">
+      <label>Año</label>
+      <select id="ventasYear" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem"></select>
+    </div>
+    <div class="field" style="margin:0;min-width:200px">
+      <label>Instalación</label>
+      <select id="ventasFacility" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+        <option value="">Todas las instalaciones</option>
+      </select>
+    </div>
+    <button class="btn-save" id="btnLoadVentas" style="margin-top:1.4rem"><i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i> Actualizar</button>
+    <div id="ventasStatus" style="font-size:.78rem;color:#64748b;margin-top:1.4rem"></div>
+  </div>
+
+  <!-- KPI row -->
+  <div id="ventasKpis" style="display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem;margin-bottom:1.2rem">
+    <div class="hist-total-box" style="border-color:#fed7aa">
+      <div class="label">Total Litros Vendidos</div>
+      <div class="value" id="kpiLitros" style="color:#9a3412">—</div>
+      <div class="unit">L (año)</div>
+    </div>
+    <div class="hist-total-box" style="border-color:#bfdbfe">
+      <div class="label">Total Litros Recibidos</div>
+      <div class="value" id="kpiLitrosRec" style="color:#1e40af">—</div>
+      <div class="unit">L (año)</div>
+    </div>
+    <div class="hist-total-box" style="border-color:#bbf7d0">
+      <div class="label">Meses con actividad</div>
+      <div class="value" id="kpiMeses" style="color:#15803d">—</div>
+      <div class="unit">meses</div>
+    </div>
+  </div>
+  <!-- kpiPesos mantenido en DOM oculto para compatibilidad JS -->
+  <span id="kpiPesos" style="display:none"></span>
+
+  <!-- Bar chart: Litros vendidos por mes -->
+  <div class="chart-wrap">
+    <div class="chart-title"><i class="fa-solid fa-chart-simple" style="margin-right:.35rem"></i>Litros Vendidos por Mes (Entregas)</div>
+    <div class="bar-chart" id="barChartLitros"></div>
+  </div>
+
+  <!-- Line chart: Ingresos por mes -->
+  <div class="chart-wrap">
+    <div class="chart-title"><i class="fa-solid fa-sack-dollar" style="margin-right:.35rem"></i>Ingresos en Pesos por Mes (Entregas)</div>
+    <div style="position:relative;height:180px">
+      <svg id="lineChartPesos" class="svg-line-wrap" style="width:100%;height:180px" viewBox="0 0 800 180" preserveAspectRatio="none"></svg>
+    </div>
+    <div id="lineLabels" style="display:flex;justify-content:space-between;padding:0 2px;margin-top:2px"></div>
+  </div>
+
+  <!-- Line chart: Inventario final (almacenamiento) -->
+  <div class="chart-wrap">
+    <div class="chart-title"><i class="fa-solid fa-droplet" style="margin-right:.35rem"></i><span data-en="Storage Trend — Final Inventory by Month">Comportamiento del Almacenamiento — Inventario Final por Mes</span></div>
+    <div style="position:relative;height:180px">
+      <svg id="lineChartInv" class="svg-line-wrap" style="width:100%;height:180px" viewBox="0 0 800 180" preserveAspectRatio="none"></svg>
+    </div>
+    <div id="lineLabelsInv" style="display:flex;justify-content:space-between;padding:0 2px;margin-top:2px"></div>
+  </div>
+
+  <!-- Balance anual table -->
+  <div class="chart-wrap" id="balanceWrap">
+    <div class="chart-title"><i class="fa-solid fa-table-list" style="margin-right:.35rem"></i><span data-i18n="bal.titulo">Tabla de Balance Anual — Auditoría de Inventario</span></div>
+    <div style="overflow-x:auto">
+      <table id="balanceTable" style="width:100%;border-collapse:collapse;font-size:.78rem">
+        <thead>
+          <tr style="background:#f8fafc;color:#475569">
+            <th style="padding:.45rem .6rem;text-align:left;border-bottom:1px solid #e2e8f0">Mes</th>
+            <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">Inv. Inicial (L)</th>
+            <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">(+) Recepciones (L)</th>
+            <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">(-) Entregas CFDI (L)</th>
+            <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0;color:#92400e"><span data-en="(-) Self-Consumption (L)">(-) Autoconsumo (L)</span></th>
+            <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">(=) Inv. Final Calculado</th>
+            <th style="padding:.45rem .6rem;text-align:right;border-bottom:1px solid #e2e8f0">Inv. Final Guardado</th>
+            <th style="padding:.45rem .6rem;text-align:center;border-bottom:1px solid #e2e8f0">Status</th>
+          </tr>
+        </thead>
+        <tbody id="balanceTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="ventasNoData" style="display:none;text-align:center;padding:2rem;color:#94a3b8;font-size:.88rem">
+    Sin datos para el año seleccionado. Genera reportes en la pestaña Procesar primero.
+  </div>
+</div>
+
+</div><!-- /mpanel-ventas -->
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     PANEL: PROVEEDORES + PRONÓSTICO
+     ══════════════════════════════════════════════════════════════════════ -->
+<div class="main-panel" id="mpanel-proveedores">
+<div class="card" style="margin-bottom:1rem">
+  <h2><i class="fa-solid fa-truck-fast" style="margin-right:.4rem"></i><span data-en="Supplier Analysis">Análisis de Proveedores</span></h2>
+
+  <!-- Filtros -->
+  <div style="display:flex;gap:.8rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1rem">
+    <div class="field" style="margin:0;min-width:180px">
+      <label>Instalación</label>
+      <select id="provFacility" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+        <option value="">Todas</option>
+      </select>
+    </div>
+    <div class="field" style="margin:0;min-width:100px">
+      <label>Año</label>
+      <select id="provAnio" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem"></select>
+    </div>
+    <div class="field" style="margin:0;min-width:150px">
+      <label>Mes</label>
+      <select id="provMes" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+        <option value="">Todo el año</option>
+        <option value="1">01 — Enero</option>
+        <option value="2">02 — Febrero</option>
+        <option value="3">03 — Marzo</option>
+        <option value="4">04 — Abril</option>
+        <option value="5">05 — Mayo</option>
+        <option value="6">06 — Junio</option>
+        <option value="7">07 — Julio</option>
+        <option value="8">08 — Agosto</option>
+        <option value="9">09 — Septiembre</option>
+        <option value="10">10 — Octubre</option>
+        <option value="11">11 — Noviembre</option>
+        <option value="12">12 — Diciembre</option>
+      </select>
+    </div>
+    <div class="field" style="margin:0">
+      <label>Gráfica</label>
+      <select id="provTipoGrafica" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+        <option value="todos">Todos los proveedores — participación</option>
+        <option value="uno">Un proveedor — evolución mensual</option>
+        <option value="precio">Comparativa precio/litro</option>
+      </select>
+    </div>
+    <div class="field" style="margin:0;min-width:160px" id="provSelectorWrap" style="display:none">
+      <label>Proveedor específico</label>
+      <select id="provEspecifico" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
+        <option value="">— selecciona —</option>
+      </select>
+    </div>
+    <button class="btn-save" onclick="cargarProveedores()" style="margin-top:1.4rem">
+      <i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i>Actualizar
+    </button>
+  </div>
+
+  <!-- KPIs rápidos -->
+  <div id="provKpis" class="grid3" style="margin-bottom:1rem;display:none">
+    <div class="hist-total-box" style="border-color:#3b82f6">
+      <div class="label"><span data-i18n="prov.economico_lbl">Proveedor más económico</span></div>
+      <div class="value" id="provEconomicoNombre" style="color:#1e40af;font-size:1rem">—</div>
+      <div class="unit" id="provEconomicoPrecio">$/L</div>
+    </div>
+    <div class="hist-total-box" style="border-color:#10b981">
+      <div class="label"><span data-i18n="prov.mayor_prov">Mayor volumen suministrado</span></div>
+      <div class="value" id="provMayorNombre" style="color:#059669;font-size:1rem">—</div>
+      <div class="unit" id="provMayorVol">Litros</div>
+    </div>
+    <div class="hist-total-box" style="border-color:#f59e0b">
+      <div class="label"><span data-i18n="prov.total_comprado">Total comprado en el año</span></div>
+      <div class="value" id="provTotalVol" style="color:#d97706">—</div>
+      <div class="unit">Litros</div>
+    </div>
+  </div>
+
+  <!-- Canvas gráfica -->
+  <div style="position:relative;height:280px">
+    <canvas id="provChart"></canvas>
+  </div>
+
+  <!-- Tabla de proveedores -->
+  <div style="overflow-x:auto;margin-top:1rem">
+    <table id="provTable" style="width:100%;border-collapse:collapse;font-size:.78rem;display:none">
+      <thead>
+        <tr style="background:#f1f5f9">
+          <th style="padding:.4rem .6rem;text-align:left;color:#475569"><span data-i18n="prov.th_proveedor">Proveedor</span></th>
+          <th style="padding:.4rem .6rem;text-align:left;color:#475569"><span data-i18n="prov.th_rfc">RFC</span></th>
+          <th style="padding:.4rem .6rem;text-align:right;color:#475569"><span data-en="Volume (L)">Volumen (L)</span></th>
+          <th style="padding:.4rem .6rem;text-align:right;color:#475569"><span data-en="Amount">Importe</span></th>
+          <th style="padding:.4rem .6rem;text-align:right;color:#475569"><span data-en="$/Liter">$/Litro</span></th>
+          <th style="padding:.4rem .6rem;text-align:right;color:#475569"><span data-en="Share">Participación</span></th>
+        </tr>
+      </thead>
+      <tbody id="provTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Tarjeta Pronóstico -->
+<div class="card">
+  <h2><i class="fa-solid fa-chart-line" style="margin-right:.4rem"></i><span data-en="Purchase Forecast">Pronóstico de Compras</span></h2>
+  <p style="font-size:.8rem;color:#64748b;margin-bottom:1rem">
+    Evalúa promedio móvil, suavizamiento exponencial y regresión lineal; usa el modelo con menor error histórico.
+  </p>
+  <div id="forecastCards" class="grid3" style="margin-bottom:1rem;display:none">
+    <div class="hist-total-box" style="border-color:#6366f1">
+      <div class="label"><span data-i18n="fore.compra_prom">Compra promedio/mes</span></div>
+      <div class="value" id="fcPromVol" style="color:#4338ca">—</div>
+      <div class="unit">Litros</div>
+    </div>
+    <div class="hist-total-box" style="border-color:#f43f5e">
+      <div class="label"><span data-i18n="fore.consumo_diario">Consumo diario estimado</span></div>
+      <div class="value" id="fcConsumo" style="color:#be123c">—</div>
+      <div class="unit">L/día</div>
+    </div>
+    <div class="hist-total-box" style="border-color:#C8A96B">
+      <div class="label"><span data-i18n="fore.precio_compra">Precio promedio</span></div>
+      <div class="value" id="fcPrecio" style="color:#0f766e">—</div>
+      <div class="unit">$/Litro</div>
+    </div>
+  </div>
+  <div id="forecastRecomendacion" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:1rem;font-size:.85rem;color:#1e40af;line-height:1.7">
+  </div>
+  <div id="forecastEmpty" style="color:#94a3b8;text-align:center;padding:1.5rem;font-size:.88rem">
+    <i class="fa-solid fa-chart-line" style="font-size:1.8rem;margin-bottom:.4rem;display:block;color:#cbd5e1"></i>
+    Genera al menos 2 reportes para activar el pronóstico.
+  </div>
+</div>
+</div><!-- /mpanel-proveedores -->
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     PANEL: HISTORIAL
+     ══════════════════════════════════════════════════════════════════════ -->
+<div class="main-panel" id="mpanel-historial">
+<div class="card" id="histCard">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.8rem">
+    <h2 style="margin:0"><i class="fa-solid fa-clock-rotate-left" style="margin-right:.4rem"></i> <span data-en="Report History">Historial de Reportes</span></h2>
+  </div>
+  <div class="hist-selector">
+    <div class="field" style="max-width:180px"><label>Instalación</label>
+      <select id="histFacility" style="padding:.42rem .6rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.86rem;width:100%">
+        <option value="">Todas</option>
+      </select>
+    </div>
+    <div class="field" style="max-width:140px"><label>Año</label>
+      <input id="histAnio" type="number" min="2020" max="2050" placeholder="2026"></div>
+    <div class="field" style="max-width:160px"><label>Mes</label>
+      <select id="histMes">
+        <option value="01">01 — Enero</option>
+        <option value="02">02 — Febrero</option>
+        <option value="03">03 — Marzo</option>
+        <option value="04">04 — Abril</option>
+        <option value="05">05 — Mayo</option>
+        <option value="06">06 — Junio</option>
+        <option value="07">07 — Julio</option>
+        <option value="08">08 — Agosto</option>
+        <option value="09">09 — Septiembre</option>
+        <option value="10">10 — Octubre</option>
+        <option value="11">11 — Noviembre</option>
+        <option value="12">12 — Diciembre</option>
+      </select></div>
+    <div style="display:flex;align-items:flex-end;gap:.5rem;flex-wrap:wrap">
+      <button class="btn-save" id="btnLoadHist"><i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i> Cargar historial</button>
+      <button class="btn-xml" style="width:auto;padding:.52rem 1rem;font-size:.84rem" id="btnDlHistZIP"><i class="fa-solid fa-file-zipper" style="margin-right:.35rem"></i> Descargar Reporte ZIP</button>
+      <button id="btnDelHist" style="display:none;width:auto;padding:.52rem 1rem;font-size:.84rem;
+        background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:8px;
+        cursor:pointer;font-family:inherit;font-weight:600">
+        <i class="fa-solid fa-trash" style="margin-right:.35rem"></i>Borrar reporte
+      </button>
+    </div>
+  </div>
+  <div id="histLoading" style="display:none;font-size:.82rem;color:#457b9d">⏳ Cargando historial...</div>
+  <div id="histContent" style="display:none">
+    <div id="histReportInfo" style="font-size:.68rem;color:#64748b;margin-bottom:.4rem;display:none">
+      ℹ Datos del reporte SAT oficial guardado para este periodo.
+    </div>
+    <div class="hist-totals" style="grid-template-columns:repeat(8,1fr)">
+      <div class="hist-total-box" style="border-color:#e2e8f0">
+        <div class="label">Inv. Inicial</div><div class="value" id="htInvIni" style="color:#475569">—</div><div class="unit">Litros</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#bfdbfe">
+        <div class="label">Total Recepciones</div><div class="value" id="htRec" style="color:#1e40af">—</div><div class="unit">Litros</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#bfdbfe">
+        <div class="label">Total Recepciones</div><div class="value" id="htRecCount" style="color:#1e40af">—</div><div class="unit">registros</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#fed7aa">
+        <div class="label">Total Entregas</div><div class="value" id="htEnt" style="color:#9a3412">—</div><div class="unit">Litros</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#fed7aa">
+        <div class="label">Total Entregas</div><div class="value" id="htEntCount" style="color:#9a3412">—</div><div class="unit">registros</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#fde68a">
+        <div class="label"><span data-en="Self-consumption">Autoconsumo</span></div><div class="value" id="htAutoVol" style="color:#92400e">—</div><div class="unit">Litros</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#fde68a">
+        <div class="label"><span data-en="Self-consumption">Autoconsumo</span></div><div class="value" id="htAutoCount" style="color:#92400e">—</div><div class="unit">registros</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#bbf7d0">
+        <div class="label">Inv. Final (Vol.Exist.)</div><div class="value" id="htExist" style="color:#15803d">—</div><div class="unit">Litros</div>
+      </div>
+    </div>
+
+    <!-- Segunda fila: traspasos + precios -->
+    <div class="hist-totals" style="grid-template-columns:repeat(4,1fr);margin-top:.4rem">
+      <div class="hist-total-box" style="border-color:#c7d2fe">
+        <div class="label">Traspasos a Estaciones 🏪</div>
+        <div class="value" id="htTraspVol" style="color:#4338ca">—</div>
+        <div class="unit">Litros (emp→emp ≤5kL)</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#c7d2fe">
+        <div class="label">Traspasos a Estaciones 🏪</div>
+        <div class="value" id="htTraspCount" style="color:#4338ca">—</div>
+        <div class="unit">registros</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#d1fae5">
+        <div class="label">Precio Compra Promedio</div>
+        <div class="value" id="htPrecioCompra" style="color:#065f46;font-size:.88rem">—</div>
+        <div class="unit">$/Litro (recepciones)</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#fce7f3">
+        <div class="label">Precio Venta Promedio</div>
+        <div class="value" id="htPrecioVenta" style="color:#9d174d;font-size:.88rem">—</div>
+        <div class="unit">$/Litro (entregas CFDI)</div>
+      </div>
+    </div>
+    <div id="htFormula" style="font-size:.62rem;color:#94a3b8;margin:-.2rem 0 .4rem;display:none">
+      Ini + Recepciones − Entregas = VolumenExistenciasMes
+    </div>
+    <div id="histImportes" style="display:none;gap:.5rem;margin-bottom:.5rem">
+      <div class="hist-total-box" style="border-color:#bfdbfe">
+        <div class="label">Suma en Pesos — Recepciones</div>
+        <div class="value" id="htImpRec" style="color:#1e40af;font-size:.85rem">—</div>
+        <div class="unit">MXN</div>
+      </div>
+      <div class="hist-total-box" style="border-color:#fed7aa">
+        <div class="label">Suma en Pesos — Entregas</div>
+        <div class="value" id="htImpEnt" style="color:#9a3412;font-size:.85rem">—</div>
+        <div class="unit">MXN</div>
+      </div>
+    </div>
+    <div class="tab-title"><i class="fa-solid fa-arrow-down-to-line" style="margin-right:.35rem"></i>Recepciones (Entradas)</div>
+    <div style="overflow-x:auto;max-height:320px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:7px">
+      <table id="tblEntradas">
+        <thead><tr><th>Fecha</th><th>RFC Proveedor</th><th>UUID</th><th>Volumen (L)</th><th>Importe (MXN)</th></tr></thead>
+        <tbody id="tbodyEntradas"></tbody>
+      </table>
+    </div>
+    <div class="tab-title"><i class="fa-solid fa-arrow-up-from-line" style="margin-right:.35rem"></i>Entregas (Salidas)</div>
+    <div style="overflow-x:auto;max-height:320px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:7px">
+      <table id="tblSalidas">
+        <thead><tr><th>Fecha</th><th>RFC Cliente</th><th>UUID</th><th>Volumen (L)</th><th>Importe (MXN)</th></tr></thead>
+        <tbody id="tbodySalidas"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div><!-- /mpanel-historial -->
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     PANEL: CONFIGURACIÓN
+     ══════════════════════════════════════════════════════════════ -->
+<div class="main-panel" id="mpanel-config">
+
+<div class="admin-config-grid">
+<!-- ── Suscripción ─────────────────────────────────────────────────────── -->
+<div class="card subscription-card">
+  <div class="subscription-head">
+    <div class="subscription-title">
+      <div class="subscription-kicker">Plan y capacidad</div>
+      <h2><i class="fa-solid fa-credit-card" style="margin-right:.35rem;color:#7A1E2C"></i>Suscripción</h2>
+      <div class="subscription-copy">Administra el plan y el límite de razones sociales disponibles para este cliente.</div>
+    </div>
+    <button type="button" class="plan-cta" onclick="abrirModalActualizarPlan()"><i class="fa-solid fa-arrow-up-right-from-square"></i>Actualizar plan</button>
+  </div>
+  <div id="subscriptionPanel" class="admin-subscription-grid">
+    <div class="sat-meta-box"><div class="label">Plan actual</div><div class="value" id="subPlanName">—</div></div>
+    <div class="sat-meta-box"><div class="label">Empresas utilizadas</div><div class="value" id="subCompaniesUsed">—</div></div>
+    <div class="sat-meta-box"><div class="label">Límite</div><div class="value" id="subCompaniesLimit">—</div></div>
+    <div class="sat-meta-box"><div class="label">Renovación</div><div class="value" id="subExpiresAt">—</div></div>
+  </div>
+</div>
+
+<!-- ── Razones Sociales (multi-empresa) ─────────────────────────────────── -->
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.8rem">
+    <h2 style="margin:0"><i class="fa-solid fa-building" style="margin-right:.35rem;color:#0f766e"></i><span data-en="Companies">Razones Sociales</span> <small style="font-size:.72rem;color:#888;font-weight:400">(multi-empresa)</small></h2>
+    <button onclick="abrirModalNuevoPerfil()" style="padding:.44rem 1rem;font-size:.8rem;font-weight:600;border-radius:8px;background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4;cursor:pointer;font-family:inherit">
+      <i class="fa-solid fa-plus" style="margin-right:.35rem"></i>Nueva razón social
+    </button>
+  </div>
+  <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem;line-height:1.5">
+    Cada razón social tiene su propia configuración SAT, instalaciones y proveedores. Cambia entre ellas con el selector en la barra superior.
+  </div>
+  <div class="admin-note">
+    La empresa activa se selecciona desde la barra superior. Esta sección solo administra las razones sociales registradas.
+  </div>
+  <div class="empresa-table-wrap">
+    <table id="tblPerfiles" class="empresa-table">
+      <thead>
+        <tr>
+          <th class="empresa-col-name"><span data-en="Name">Nombre</span></th>
+          <th class="empresa-col-rfc">RFC</th>
+          <th class="empresa-col-desc"><span data-en="Description">Descripción</span></th>
+          <th class="empresa-col-actions"><span data-en="Actions">Acciones</span></th>
+        </tr>
+      </thead>
+      <tbody id="tbodyPerfiles">
+        <tr><td colspan="4" class="hist-empty">Cargando...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+<!-- ── Perfil de la empresa (datos globales) ────────────────────────────── -->
+<div class="card">
+  <h2><i class="fa-solid fa-building-columns" style="margin-right:.35rem"></i><span data-en="Company Profile">Perfil de la Empresa</span> <small style="font-size:.72rem;color:#888;font-weight:400">(se guarda automáticamente)</small></h2>
+  <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem">
+    El CP fiscal se usa como Lugar de Expedición. Los domicilios operativos se configuran por instalación.
+  </div>
+  <div class="grid3">
+    <div class="field"><label><span data-en="Taxpayer RFC">RFC del Contribuyente</span></label>
+      <input id="rfc" value="" placeholder="Ej. ABC010101AAA"></div>
+    <div class="field"><label>Nombre fiscal / Razón social</label>
+      <input id="fiscal_name" placeholder="Nombre exactamente como en SAT"></div>
+    <div class="field"><label>CP fiscal / Lugar de expedición</label>
+      <input id="fiscal_cp" maxlength="5" inputmode="numeric" placeholder="Ej. 98600"></div>
+  </div>
+  <div class="grid3" style="margin-top:.8rem">
+    <div class="field"><label>Régimen fiscal emisor</label>
+      <select id="fiscal_regimen">
+        <option value="601">601 — General de Ley Personas Morales</option>
+        <option value="612">612 — Personas Físicas con Actividades Empresariales</option>
+        <option value="626">626 — Régimen Simplificado de Confianza</option>
+        <option value="603">603 — Personas Morales con Fines no Lucrativos</option>
+        <option value="616">616 — Sin obligaciones fiscales</option>
+      </select>
+      <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Se usa para timbrado CFDI y Carta Porte. El CP también se usa como LugarExpedición.</div>
+    </div>
+    <div class="field"><label>RFC Representante Legal <span style="font-size:.68rem;color:#7c3aed;font-weight:600">(→ RfcRepresentanteLegal en JSON)</span></label>
+      <input id="sat_rfc_rep" placeholder="Ej. OEMR710420FCA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+      <div style="font-size:.63rem;color:#6b7280;margin-top:.2rem">Solo personas morales. Si se captura, se incluye en el nodo raíz del reporte mensual SAT con prioridad alta.</div>
+    </div>
+    <div class="field"><label>RFC Proveedor SAT (constante)</label>
+      <input id="sat_rfc_prov" placeholder="Ej. PCO960701A49"></div>
+  </div>
+  <div class="grid3" style="margin-top:.8rem">
+    <div class="field"><label>Factor de Conversión (Kg a Litros)</label>
+      <input id="factor_conversion" type="number" step="0.001" min="0.4" max="2.0" placeholder="0.542"></div>
+    <div></div>
+    <div></div>
+  </div>
+  <div style="margin-top:1rem;border-top:1px solid #eef2f7;padding-top:1rem">
+    <h3 style="margin:0 0 .35rem;font-size:.98rem;color:#1f2937">Logo de la empresa</h3>
+    <div style="font-size:.72rem;color:#64748b;margin-bottom:.75rem">
+      Se guarda por empresa/perfil y se usa en el PDF fiscal. Formatos permitidos: PNG, JPG o WebP.
+    </div>
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+      <div id="pdf_logo_preview_box" style="width:156px;height:74px;border:1px solid #d9e2ec;border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;padding:8px">
+        <img id="pdf_logo_preview" alt="Logo de la empresa" style="display:none;max-width:100%;max-height:100%;object-fit:contain">
+        <span id="pdf_logo_empty" style="font-size:.72rem;color:#94a3b8;text-align:center">Sin logo</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:.55rem;flex-wrap:wrap">
+        <label class="btn-save" for="pdf_logo_file" style="display:inline-flex;align-items:center;gap:.35rem;margin:0;cursor:pointer">
+          <i class="fa-solid fa-image"></i> Subir logo
+        </label>
+        <input type="file" id="pdf_logo_file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="cargarLogoPdfEmpresa(event)">
+        <button type="button" class="btn-save" onclick="eliminarLogoPdfEmpresa()" style="background:#f8fafc;color:#7f1d1d;border:1px solid #fecaca">
+          <i class="fa-solid fa-trash-can" style="margin-right:.35rem"></i> Eliminar logo
+        </button>
+        <input type="hidden" id="pdf_logo_data">
+        <span id="pdf_logo_hint" style="font-size:.72rem;color:#64748b">Opcional. Tamaño máximo 350 KB.</span>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:.8rem">
+    <button class="btn-save" id="btnSaveSettings"><i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar perfil</button>
+  </div>
+  <div id="settingsStatus"></div>
+</div>
+
+<!-- ── Instalaciones (multi-facilidad) ─────────────────────────────────── -->
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.8rem">
+    <h2 style="margin:0"><i class="fa-solid fa-industry" style="margin-right:.35rem"></i><span data-en="Facilities (Plants / Stations)">Instalaciones (Plantas / Estaciones)</span></h2>
+    <button id="btnShowAddFacility" style="
+      padding:.44rem 1rem;font-size:.8rem;font-weight:600;border-radius:8px;
+      background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;
+      cursor:pointer;font-family:inherit">
+      <i class="fa-solid fa-plus" style="margin-right:.35rem"></i><span data-en="New Facility">Nueva instalación</span>
+    </button>
+  </div>
+  <div style="font-size:.76rem;color:#64748b;margin-bottom:.8rem;line-height:1.5">
+    Cada instalación tiene su propio Permiso CRE y Clave de Instalación. Al procesar CFDIs, selecciona la instalación activa en la pestaña <strong>Procesar</strong>.
+  </div>
+  <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:.8rem">
+    <table id="tblFacilities" style="margin-bottom:0">
+      <thead>
+        <tr>
+          <th><span data-en="Internal Name">Nombre interno</span></th>
+          <th><span data-en="CRE Permit No.">Núm. Permiso CRE</span></th>
+          <th><span data-en="Facility Key"><span data-en="Facility Key">Clave Instalación</span></span></th>
+          <th>Descripción / Domicilio</th>
+          <th><span data-en="Tanks">Tanques</span></th>
+          <th style="width:80px;text-align:center">Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tbodyFacilities">
+        <tr><td colspan="6" class="hist-empty">Cargando instalaciones...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Add / edit form (initially hidden) -->
+  <div id="facilityFormWrap" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.9rem 1rem;margin-bottom:.4rem">
+    <div style="font-size:.82rem;font-weight:700;color:#374151;margin-bottom:.7rem" id="facilityFormTitle"><span data-en="New Facility">Nueva instalación</span></div>
+    <input type="hidden" id="facilityEditId" value="">
+    <!-- Tipo de Permiso SAT — determina actividad DIS/EXO en el archivo -->
+    <div class="grid2" style="margin-bottom:.6rem">
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem"><span data-en="CRE Permit Type">Tipo de Permiso CRE</span> <span style="color:#e63946">*</span></label>
+        <select id="fac_tipo_permiso" style="padding:.5rem .7rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.88rem;width:100%" onchange="actualizarInfoPermiso(this.value)">
+          <option value="PER40">PER40 — Planta de Distribución GLP (LP/.../DIST/PLA/...)</option>
+          <option value="PER41">PER41 — Distribución GLP por Ductos LP (LP/.../DIST/DUC/...)</option>
+          <option value="PER42">PER42 — Distribución GLP por Ductos G/ (G/.../LPD/...)</option>
+          <option value="PER43">PER43 — Expendio / Estación de Carburación GLP (LP/.../EXP/ES/...)</option>
+          <option value="PER44">PER44 — Expendio GLP Autoconsumo (LP/.../EXP/AUT/...)</option>
+          <option value="PER45">PER45 — Comercialización GLP (LP/.../COM/...)</option>
+          <option value="PER50">PER50 — Almacenamiento GLP (LP/.../ALM/...)</option>
+          <option value="PER51">PER51 — Distribución GLP Vehículos Reparto (LP/.../DIST/REP/...)</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Actividad SAT <span style="color:#64748b;font-weight:400">(Apéndice 4 — auto)</span></label>
+        <div id="fac_actividad_badge" style="display:flex;align-items:center;gap:.5rem;padding:.5rem .7rem;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:.88rem;color:#1e40af;font-weight:700">
+          <span id="fac_actividad_code">DIS</span>
+          <span id="fac_actividad_desc" style="font-weight:400;font-size:.78rem;color:#475569">Distribución</span>
+        </div>
+        <div style="font-size:.65rem;color:#64748b;margin-top:.2rem">Se usa en el nombre del archivo ZIP generado</div>
+      </div>
+    </div>
+    <div class="grid2" style="margin-bottom:.6rem">
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem"><span data-en="Internal Name">Nombre interno</span> <span style="color:#e63946">*</span></label>
+        <input id="fac_nombre" placeholder="Ej. Planta Monterrey">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Clave Instalación</label>
+        <input id="fac_clave" placeholder="Ej. PDD-1434">
+      </div>
+    </div>
+    <div class="grid2" style="margin-bottom:.6rem">
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Núm. Permiso CRE (distribución)</label>
+        <input id="fac_num_permiso" placeholder="Ej. LP/14341/DIST/PLA/2016">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem;display:flex;align-items:center;gap:.4rem">
+          <span>Permiso Almacenamiento</span>
+          <span style="font-size:.68rem;color:#94a3b8;font-weight:400;cursor:pointer" onclick="document.getElementById('facAlmHint').style.display=document.getElementById('facAlmHint').style.display==='none'?'':'none'" title="Más info">ⓘ</span>
+        </label>
+        <div id="facAlmHint" style="display:none;font-size:.71rem;color:#64748b;background:#f8fafc;border-radius:6px;padding:.4rem .6rem;margin-bottom:.4rem;line-height:1.5">
+          Solo necesitas esto si <b>tú mismo eres la terminal de almacenamiento</b> (tienes permiso tipo ALM). En caso contrario, deja vacío — el permiso de almacenamiento se toma del catálogo de <b>Proveedores</b> por RFC.
+        </div>
+        <input id="fac_permiso_alm" placeholder="Vacío = se usa el permiso del Proveedor">
+      </div>
+    </div>
+    <div class="grid3" style="margin-bottom:.7rem">
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem"><span data-en="Facility Description">Descripción Instalación</span></label>
+        <input id="fac_desc" placeholder="Ej. Planta de distribucion 14341">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem"><span data-en="Default Temperature (°C)">Temperatura Default (°C)</span></label>
+        <input id="fac_temp_default" type="number" step="0.1" placeholder="Ej. 20.0"
+          title="Se inyecta en el JSON de controles volumétricos cuando no hay lectura de sensor disponible">
+      </div>
+
+    </div>
+    <div class="grid2" style="margin-bottom:.7rem">
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem"><span data-en="No. Tanks / Dispensers">Núm. Tanques / Dispensarios</span></label>
+        <div style="display:flex;gap:.4rem">
+          <input id="fac_tanques" type="number" min="0" step="1" value="1" style="width:60px">
+          <input id="fac_dispensarios" type="number" min="0" step="1" value="0" style="width:60px">
+        </div>
+      </div>
+    </div>
+    <div style="font-size:.72rem;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:.05em;margin:.2rem 0 .5rem">
+      <i class="fa-solid fa-map-location-dot" style="margin-right:.3rem"></i>Domicilio de la instalación
+    </div>
+    <div class="grid3" style="margin-bottom:.7rem">
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Código Postal <span style="color:#e63946">*</span></label>
+        <input id="fac_codigo_postal" maxlength="5" placeholder="Ej. 98600" inputmode="numeric">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Estado</label>
+        <input id="fac_estado" placeholder="Ej. Zacatecas">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Municipio / Alcaldía</label>
+        <input id="fac_municipio" placeholder="Ej. Guadalupe">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Calle</label>
+        <input id="fac_calle" placeholder="Ej. Carretera Panamericana">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Núm. exterior</label>
+        <input id="fac_num_ext" placeholder="Ej. KM 12">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Colonia</label>
+        <input id="fac_colonia" placeholder="Ej. Centro">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">País</label>
+        <input id="fac_pais" placeholder="México">
+      </div>
+    </div>
+    <div class="field" style="margin:0 0 .7rem">
+      <label style="font-size:.72rem">Domicilio completo / referencia</label>
+      <input id="fac_domicilio" placeholder="Calle, número, colonia, municipio, estado">
+    </div>
+    <!-- ── Config. Avanzada (colapsable) ──────────────────────────────── -->
+    <div style="margin-top:.9rem;border-top:1px solid #e2e8f0;padding-top:.7rem">
+      <button type="button" id="btnToggleAdvFacility"
+        onclick="toggleAdvFacility()"
+        style="display:flex;align-items:center;gap:.5rem;padding:.45rem .9rem;border-radius:8px;border:1px solid #e9d5ff;background:#f5f3ff;color:#7c3aed;font-size:.8rem;font-weight:600;cursor:pointer;font-family:inherit;width:100%;text-align:left">
+        <i class="fa-solid fa-chevron-right" id="advFacilityChevron" style="font-size:.65rem;transition:transform .2s;flex-shrink:0"></i>
+        <i class="fa-solid fa-gear"></i>
+        <span>Config. Avanzada</span>
+        <span style="font-weight:400;color:#a78bfa;font-size:.75rem">— Tanque · Medidor · Geolocalización</span>
+      </button>
+      <div id="advFacilityPanel" style="display:none;margin-top:.8rem">
+
+        <!-- Tanque -->
+        <div style="font-size:.72rem;font-weight:700;color:#0f766e;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">
+          <i class="fa-solid fa-database" style="margin-right:.3rem"></i>Catálogo de Tanques
+        </div>
+        <div class="grid3" style="margin-bottom:.8rem">
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem"><span data-en="Tank Key">Clave del Tanque</span></label>
+            <input id="fac_clave_tanque" type="text" placeholder="Ej. T-01" maxlength="30"
+              style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem"><span data-en="Total Capacity (L)">Capacidad Total (L)</span></label>
+            <input id="fac_cap_total" type="number" min="0" step="0.01" placeholder="Ej. 50000.00">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem"><span data-en="Operating Capacity (L)">Capacidad Operativa (L)</span></label>
+            <input id="fac_cap_operativa" type="number" min="0" step="0.01" placeholder="Ej. 45000.00">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Capacidad Útil (L) <span style="color:#94a3b8;font-weight:400">— opcional</span></label>
+            <input id="fac_cap_util" type="number" min="0" step="0.01" placeholder="Auto: Total × 95%">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem"><span data-en="Last Calibration Date">Fecha Última Calibración</span></label>
+            <input id="fac_fecha_calibracion_tanque" type="date">
+          </div>
+        </div>
+
+        <!-- Medidor -->
+        <div style="font-size:.72rem;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">
+          <i class="fa-solid fa-gauge" style="margin-right:.3rem"></i>Sistema de Medición
+        </div>
+        <div class="grid3" style="margin-bottom:.8rem">
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem">Incertidumbre <span style="color:#94a3b8;font-weight:400">(0–1)</span></label>
+            <input id="fac_incertidumbre" type="text" inputmode="decimal" placeholder="Ej. 0.0050">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem"><span data-en="Meter Model">Modelo del Medidor</span></label>
+            <input id="fac_modelo_medidor" type="text" placeholder="Ej. Endress+Hauser Promass 300" maxlength="100">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem"><span data-en="Serial Number">Número de Serie</span></label>
+            <input id="fac_serie_medidor" type="text" placeholder="Ej. SN-4839201" maxlength="60">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem"><span data-en="Meter Calibration Validity">Vigencia Calibración Medidor</span></label>
+            <input id="fac_fecha_calibracion_medidor" type="date">
+          </div>
+        </div>
+
+        <!-- Geolocalización -->
+        <div style="font-size:.72rem;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">
+          <i class="fa-solid fa-location-dot" style="margin-right:.3rem"></i>Geolocalización (WGS84)
+        </div>
+        <div style="font-size:.71rem;color:#b45309;background:#fefce8;border:1px solid #fcd34d;border-radius:6px;padding:.4rem .7rem;margin-bottom:.5rem">
+          <i class="fa-solid fa-triangle-exclamation" style="margin-right:.3rem"></i>
+          Evitar coordenadas de relleno (1.0, 1.0). Obligatorio para certificación SAT.
+        </div>
+        <div class="grid2" style="margin-bottom:.5rem">
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem"><span data-en="Latitude (decimal)">Latitud (decimal)</span></label>
+            <input id="fac_latitud" type="number" step="0.000001" min="-90" max="90" placeholder="Ej. 21.884520"
+              oninput="validarCoordenadasFac()">
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:.72rem"><span data-en="Longitude (decimal)">Longitud (decimal)</span></label>
+            <input id="fac_longitud" type="number" step="0.000001" min="-180" max="180" placeholder="Ej. -102.291950"
+              oninput="validarCoordenadasFac()">
+          </div>
+        </div>
+        <div id="geoFacWarning" style="display:none;font-size:.71rem;color:#b45309;background:#fefce8;border:1px solid #fcd34d;border-radius:6px;padding:.4rem .7rem;margin-bottom:.5rem">
+          <i class="fa-solid fa-circle-exclamation" style="margin-right:.3rem"></i>Coordenadas fuera de México.
+        </div>
+        <button type="button" onclick="detectarUbicacionFac()"
+          style="padding:.38rem .8rem;font-size:.78rem;border:1px solid #e2e8f0;border-radius:7px;background:#f8fafc;color:#475569;cursor:pointer;font-family:inherit">
+          <i class="fa-solid fa-crosshairs" style="margin-right:.3rem"></i>Detectar GPS
+        </button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-top:.9rem">
+      <button class="btn btn-red" id="btnSaveFacility" style="padding:.52rem 1.2rem;font-size:.84rem"><i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar</button>
+      <button id="btnCancelFacility" style="padding:.5rem 1rem;font-size:.84rem;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;font-family:inherit"><span data-en="Cancel">Cancelar</span></button>
+      <div id="facilityFormStatus" style="font-size:.78rem;color:#64748b"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2><i class="fa-solid fa-id-card"></i> Catálogo de Permisos (Clientes y Proveedores)
+    <small style="font-size:.72rem;color:#888;font-weight:400">RFC → PermisoClienteOProveedor</small>
+  </h2>
+  <div style="font-size:.78rem;color:#475569;margin-bottom:.8rem;line-height:1.6">
+    Registra el Permiso CRE de cada proveedor (para Recepciones) o cliente permisionario (para Entregas).<br>
+    <strong>Recepciones:</strong> si el RFC de un proveedor no tiene permiso registrado, se mostrará una advertencia.<br>
+    <strong>Entregas a XAXX010101000</strong> (Público en General): siempre se genera sin permiso — sin advertencias.<br>
+    <strong>Entregas a otros RFC:</strong> se usa el permiso si existe; si no, se deja vacío — sin alertas ni bloqueos.
+  </div>
+  <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:.8rem">
+    <table id="tblProveedores" style="margin-bottom:0">
+      <thead>
+        <tr>
+          <th><span data-en="Supplier/Client RFC">RFC Proveedor/Cliente</span></th>
+          <th>Nombre</th>
+          <th>Permiso CRE <small style="font-weight:400;color:#94a3b8">(PermisoClienteOProveedor)</small></th>
+          <th>Permiso Almacenamiento Terminal <small style="font-weight:400;color:#94a3b8">(PermisoAlmYDist)</small></th>
+          <th style="width:60px;text-align:center"><span data-en="Action">Acción</span></th>
+        </tr>
+      </thead>
+      <tbody id="tbodyProveedores">
+        <tr><td colspan="5" class="hist-empty">Cargando...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.8rem 1rem">
+    <div style="font-size:.78rem;font-weight:600;color:#374151;margin-bottom:.3rem"><i class="fa-solid fa-plus-circle" style="margin-right:.35rem"></i>Agregar / actualizar proveedor</div>
+    <div style="font-size:.73rem;color:#64748b;margin-bottom:.6rem;line-height:1.5">
+      <b>Permiso CRE</b> → va en <code>Nacional.PermisoClienteOProveedor</code> (identificación del proveedor en el reporte).<br>
+      <b>Permiso Almacenamiento Terminal</b> → va en <code>TerminalAlmYDist.PermisoAlmYDist</code> (permiso CRE de la terminal que almacena el gas antes de enviártelo). Obligatorio para Recepciones.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:.6rem;align-items:flex-end">
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">RFC <span style="color:#e63946">*</span></label>
+        <input id="provRfc" placeholder="Ej. MGC010101AAA" style="text-transform:uppercase">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Nombre</label>
+        <input id="provNombre" placeholder="Ej. Gas Natural Norte">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Permiso CRE <span style="color:#64748b;font-weight:400">(PermisoClienteOProveedor)</span></label>
+        <input id="provPermiso" placeholder="Ej. G/8761/COM/2017">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Permiso Almacenamiento Terminal <span style="color:#e63946">*</span> <span style="color:#64748b;font-weight:400">(PermisoAlmYDist)</span></label>
+        <input id="provPermisoAlm" placeholder="Ej. G/276/LPA/2012">
+      </div>
+      <button class="btn btn-red" id="btnAddProvider" style="padding:.52rem .9rem;font-size:.8rem;white-space:nowrap">
+        Guardar
+      </button>
+    </div>
+    <div id="provStatus" style="font-size:.75rem;margin-top:.4rem;min-height:1em"></div>
+  </div>
+</div>
+
+<!-- ── Composición Gas LP (aplica a toda la razón social) ─────────────── -->
+<div class="card">
+  <h2><i class="fa-solid fa-flask-vial" style="margin-right:.4rem;color:#0891b2"></i>Composición Gas LP — Dictamen PR12
+    <small style="font-size:.72rem;color:#888;font-weight:400">(se aplica a toda la razón social)</small>
+  </h2>
+  <div style="font-size:.76rem;color:#64748b;margin-bottom:.9rem;line-height:1.7">
+    Porcentajes de <strong>Propano</strong> y <strong>Butano</strong> del dictamen de laboratorio.
+    En el JSON mensual SAT solo se escriben <code>ComposDePropanoEnGasLP</code> y <code>ComposDeButanoEnGasLP</code>.
+    El número, lote, laboratorio y fechas se guardan como respaldo interno para auditoría/CRE; no se mandan al JSON mensual.
+  </div>
+  <div class="grid2">
+    <div class="field">
+      <label><span data-en="Propane in LP Gas (%)">Propano en Gas LP (%)</span> <span style="color:#e63946">*</span></label>
+      <input id="adv_propano" type="number" min="0" max="100" step="0.01" placeholder="Ej. 60.00"
+        oninput="validarComposicion()">
+    </div>
+    <div class="field">
+      <label><span data-en="Butane in LP Gas (%)">Butano en Gas LP (%)</span> <span style="color:#e63946">*</span></label>
+      <input id="adv_butano" type="number" min="0" max="100" step="0.01" placeholder="Ej. 40.00"
+        oninput="validarComposicion()">
+    </div>
+  </div>
+  <div id="composWarning" style="display:none;font-size:.76rem;color:#b45309;background:#fefce8;border:1px solid #fcd34d;border-radius:6px;padding:.5rem .8rem;margin-top:.4rem">
+    <i class="fa-solid fa-triangle-exclamation" style="margin-right:.3rem"></i>La suma Propano + Butano debe ser exactamente <strong>100%</strong>.
+  </div>
+  <div id="composOk" style="display:none;font-size:.76rem;color:#15803d;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:.5rem .8rem;margin-top:.4rem">
+    <i class="fa-solid fa-circle-check" style="margin-right:.3rem"></i>Composición válida.
+  </div>
+  <div style="margin-top:.8rem;padding-top:.7rem;border-top:1px solid #f1f5f9">
+    <div style="font-size:.75rem;font-weight:600;color:#374151;margin-bottom:.5rem">Dictamen / Calidad de producto <span style="font-weight:400;color:#94a3b8">— opcional</span></div>
+    <div class="grid2">
+      <div class="field">
+        <label style="font-size:.72rem">Número de dictamen</label>
+        <input id="adv_num_dictamen" type="text" placeholder="Ej. DI-AGA9603186X8_MEK170403JK1000012026" maxlength="80">
+      </div>
+      <div class="field">
+        <label style="font-size:.72rem">Fecha de dictamen / estudio</label>
+        <input id="adv_fecha_dictamen" type="date">
+      </div>
+      <div class="field">
+        <label style="font-size:.72rem">Número de lote</label>
+        <input id="adv_numero_lote" type="text" placeholder="Ej. 01T-2026" maxlength="40">
+      </div>
+      <div class="field">
+        <label style="font-size:.72rem">RFC laboratorio</label>
+        <input id="adv_rfc_laboratorio" type="text" placeholder="Ej. MEK170403JK1" maxlength="13" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+      </div>
+      <div class="field">
+        <label style="font-size:.72rem">Fecha toma de muestra</label>
+        <input id="adv_fecha_toma_muestra" type="date">
+      </div>
+      <div class="field">
+        <label style="font-size:.72rem">Fecha realización de pruebas</label>
+        <input id="adv_fecha_realizacion_pruebas" type="date">
+      </div>
+      <div class="field">
+        <label style="font-size:.72rem">Fecha de resultados</label>
+        <input id="adv_fecha_resultados" type="date">
+      </div>
+      <div class="field" style="grid-column:1/-1">
+        <label style="font-size:.72rem">Observaciones / metadata</label>
+        <textarea id="adv_dictamen_observaciones" rows="2" maxlength="300" placeholder="Dictamen emitido 2026-03-31; muestra tomada 2026-03-30; lote 01T-2026."></textarea>
+      </div>
+    </div>
+    <input id="adv_rfc_ui"    type="hidden" value="">
+    <input id="adv_version_sw" type="hidden" value="">
+  </div>
+  <div style="margin-top:.8rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+    <button class="btn-save" id="btnSaveCompos" onclick="guardarComposicionPR12()">
+      <i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i> Guardar Composición
+    </button>
+    <div id="statusCompos" style="font-size:.78rem;min-height:1em"></div>
+    <div id="statusDictamen" style="font-size:.78rem;min-height:1em;display:none"></div>
+  </div>
+</div>
+
+</div><!-- /mpanel-config -->
+
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     PANEL: USUARIOS INTERNOS
+     ══════════════════════════════════════════════════════════════════════ -->
+<div class="main-panel" id="mpanel-admin">
+<div class="card" style="padding:.7rem .9rem;margin-bottom:.8rem">
+  <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+    <button type="button" class="gas-admin-tab active" data-gas-admin-tab="usuarios" onclick="switchGasAdminTab('usuarios')" style="padding:.48rem .9rem;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit">
+      <i class="fa-solid fa-users-gear" style="margin-right:.3rem"></i>Usuarios y permisos
+    </button>
+    <button type="button" class="gas-admin-tab" data-gas-admin-tab="carta" onclick="switchGasAdminTab('carta')" style="padding:.48rem .9rem;border:1px solid #e2e8f0;background:#fff;color:#334155;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit">
+      <i class="fa-solid fa-truck-moving" style="margin-right:.3rem"></i>Catálogos Carta Porte
+    </button>
+  </div>
+</div>
+<!-- Usuarios internos por empresa -->
+<div class="card gas-admin-section" data-gas-admin-section="usuarios">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0"><i class="fa-solid fa-users-gear" style="margin-right:.35rem"></i>Usuarios y permisos</h2>
+      <div id="gasInternalScopeHint" style="font-size:.78rem;color:#64748b;margin-top:.3rem;line-height:1.45">
+        Crea asistentes internos solo para la empresa activa. No son usuarios globales del SaaS.
+      </div>
+    </div>
+    <button onclick="loadInternalUsersGasLp()" style="
+      padding:.4rem .9rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;
+      font-size:.78rem;cursor:pointer;font-family:inherit"><i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i> Actualizar</button>
+  </div>
+  <div class="grid2" style="margin-top:.6rem">
+    <div class="field"><label>Nombre</label><input id="gasInternalName" type="text" placeholder="Nombre del asistente"></div>
+    <div class="field"><label>Rol</label>
+      <select id="gasInternalRole">
+        <option value="asistente_facturacion">Asistente de facturación</option>
+        <option value="asistente_operativo">Asistente operativo</option>
+        <option value="planta">Planta</option>
+        <option value="solo_lectura">Solo lectura</option>
+      </select>
+      <div style="font-size:.68rem;color:#64748b;margin-top:.25rem">Facturación: factura y carga XML. Operativo: apoya operación. Planta: captura de planta. Solo lectura: consulta.</div>
+    </div>
+    <div class="field"><label>Usuario</label><input id="gasInternalCode" type="text" placeholder="Ej. MARTHA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
+    <div class="field"><label>Contraseña</label><input id="gasInternalPin" type="text" placeholder="Ej. MARTHA"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:.8rem;margin-top:.8rem;flex-wrap:wrap">
+    <button onclick="createInternalUserGasLp()" style="
+      padding:.55rem 1.4rem;background:#0f766e;color:#fff;border:none;
+      border-radius:8px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.88rem">
+      Crear usuario interno
+    </button>
+    <span id="gasInternalStatus" style="font-size:.83rem"></span>
+  </div>
+  <div style="overflow-x:auto;margin-top:1rem">
+    <table style="width:100%;border-collapse:collapse;font-size:.84rem">
+      <thead><tr style="border-bottom:2px solid #e2e8f0;text-align:left">
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Usuario</th>
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Código</th>
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Rol</th>
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Estado</th>
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Último acceso</th>
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Acciones</th>
+      </tr></thead>
+      <tbody id="gasInternalTbody"></tbody>
+    </table>
+    <div id="gasInternalEmpty" style="display:none;text-align:center;padding:1.5rem;color:#94a3b8;font-size:.85rem">
+      No hay usuarios internos para esta empresa.
+    </div>
+  </div>
+</div>
+
+<!-- Catálogos operativos Gas LP -->
+<div class="card gas-admin-section" data-gas-admin-section="carta" style="display:none">
+  <div id="gasCpCatalogApp"></div>
+</div>
+
+</div><!-- /mpanel-admin -->
+
+</div><!-- /container -->
