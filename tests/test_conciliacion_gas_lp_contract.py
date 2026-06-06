@@ -25,6 +25,15 @@ def _assistant_frontend_source():
     return template + "\n" + "\n".join(path.read_text(encoding="utf-8") for path in assets)
 
 
+def _conciliacion_frontend_source():
+    template = (ROOT / "templates" / "conciliacion_gas_lp.html").read_text(encoding="utf-8")
+    assets = [
+        ROOT / "static/css/gas_lp/conciliacion.css",
+        *sorted((ROOT / "static/js/gas_lp/conciliacion").glob("*.js")),
+    ]
+    return template + "\n" + "\n".join(path.read_text(encoding="utf-8") for path in assets)
+
+
 def _dump_model(model):
     if hasattr(model, "model_dump"):
         return model.model_dump()
@@ -32,7 +41,7 @@ def _dump_model(model):
 
 
 def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
-    html = (ROOT / "templates" / "conciliacion_gas_lp.html").read_text(encoding="utf-8")
+    html = _conciliacion_frontend_source()
 
     for label in (
         "Facturas",
@@ -69,7 +78,7 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
 
 def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
     assistant_html = _assistant_frontend_source()
-    conciliacion_html = (ROOT / "templates" / "conciliacion_gas_lp.html").read_text(encoding="utf-8")
+    conciliacion_html = _conciliacion_frontend_source()
 
     for token in (
         "descuentoTipo",
@@ -456,7 +465,7 @@ def test_assistant_today_invoices_use_backend_date_key_and_current_month():
 
 
 def test_conciliacion_publico_general_list_uses_backend_date_key():
-    html = (ROOT / "templates" / "conciliacion_gas_lp.html").read_text(encoding="utf-8")
+    html = _conciliacion_frontend_source()
     summary_source = inspect.getsource(internal_users.gas_lp_conciliacion_summary)
 
     assert 'row["fecha_factura_key"] = _gas_lp_factura_date_key(row)' in summary_source
