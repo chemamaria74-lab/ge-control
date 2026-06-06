@@ -488,9 +488,9 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
         "metadata": {
             "created_by_internal": user.get("id"),
             "created_by": user.get("display_name"),
-            "invoice_email_additional": invoice_emails[1:3],
+            "invoice_email_additional": invoice_emails[1:2],
             "email_adicional_1": invoice_emails[1] if len(invoice_emails) > 1 else "",
-            "email_adicional_2": invoice_emails[2] if len(invoice_emails) > 2 else "",
+            "email_adicional_2": "",
             "credito_ppd": credito_policy,
         },
         "created_at": _now_iso(),
@@ -970,7 +970,7 @@ def _invoice_email_recipients(
     *,
     fallback: str | None = "",
 ) -> list[str]:
-    raw_slots = [primary, additional_1, additional_2]
+    raw_slots = [primary, additional_1]
     if not any(str(slot or "").strip() for slot in raw_slots):
         raw_slots = [fallback]
     recipients: list[str] = []
@@ -979,20 +979,20 @@ def _invoice_email_recipients(
             if email in recipients:
                 raise HTTPException(400, "No puedes repetir correos de destinatario.")
             recipients.append(email)
-            if len(recipients) > 3:
-                raise HTTPException(400, "Máximo 3 correos por factura: 1 principal y 2 adicionales.")
+            if len(recipients) > 2:
+                raise HTTPException(400, "Máximo 2 correos por factura: 1 principal y 1 adicional.")
     return recipients
 
 
 def _invoice_email_metadata(recipients: list[str]) -> dict:
     primary = recipients[0] if recipients else ""
-    additional = recipients[1:3]
+    additional = recipients[1:2]
     return {
         "cliente_email": primary,
         "email_recipients": recipients,
         "email_principal": primary,
         "email_adicional_1": additional[0] if len(additional) > 0 else "",
-        "email_adicional_2": additional[1] if len(additional) > 1 else "",
+        "email_adicional_2": "",
         "email_adicionales": additional,
     }
 
@@ -1003,7 +1003,7 @@ def _saved_invoice_additional_emails(cliente_row: dict | None) -> list[str]:
         return []
     saved = metadata.get("invoice_email_additional") or metadata.get("email_adicionales")
     if isinstance(saved, list):
-        return _invoice_email_recipients("", *(saved[:2] + ["", ""])[:2])
+        return _invoice_email_recipients("", *(saved[:1] + [""])[:1])
     return _invoice_email_recipients("", fallback=str(saved or ""))
 
 
@@ -1053,7 +1053,7 @@ def _gas_lp_attach_cliente_email_recipients(sb, user: dict, rows: list[dict]) ->
         row["cliente_email_recipients"] = recipients
         row["cliente_email_principal"] = recipients[0] if recipients else ""
         row["cliente_email_adicional_1"] = recipients[1] if len(recipients) > 1 else ""
-        row["cliente_email_adicional_2"] = recipients[2] if len(recipients) > 2 else ""
+        row["cliente_email_adicional_2"] = ""
 
 
 def _transfer_email_from_settings(settings: dict) -> str:
