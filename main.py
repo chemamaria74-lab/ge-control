@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -119,9 +120,32 @@ def _inject_legal_branding(html: str) -> str:
     return html
 
 
+_GE_INCLUDE_RE = re.compile(r"<!--\s*ge-include:\s*([A-Za-z0-9_./-]+\.html)\s*-->")
+
+
+def _expand_template_includes(html: str, depth: int = 0) -> str:
+    """Expande parciales HTML controlados bajo templates/ sin activar Jinja."""
+    if depth > 10:
+        raise RuntimeError("Demasiada profundidad de parciales HTML.")
+
+    templates_dir = os.path.join(BASE_DIR, "templates")
+
+    def repl(match: re.Match) -> str:
+        rel_path = match.group(1)
+        if rel_path.startswith("/") or ".." in rel_path.split("/"):
+            raise RuntimeError(f"Parcial HTML inválido: {rel_path}")
+        full_path = os.path.abspath(os.path.join(templates_dir, rel_path))
+        if not full_path.startswith(os.path.abspath(templates_dir) + os.sep):
+            raise RuntimeError(f"Parcial HTML fuera de templates: {rel_path}")
+        with open(full_path, encoding="utf-8") as partial:
+            return _expand_template_includes(partial.read(), depth + 1)
+
+    return _GE_INCLUDE_RE.sub(repl, html)
+
+
 def _render_html_file(filename: str) -> HTMLResponse:
     with open(os.path.join(BASE_DIR, "templates", filename), encoding="utf-8") as f:
-        return HTMLResponse(content=_inject_legal_branding(f.read()))
+        return HTMLResponse(content=_inject_legal_branding(_expand_template_includes(f.read())))
 
 
 def _public_error_detail(detail):
@@ -303,7 +327,7 @@ async def choice_view():
 async def admin_saas_view():
     """Panel interno de operación SaaS. La protección real vive en /api/admin-saas/*."""
     with open(os.path.join(BASE_DIR, "templates", "admin_saas.html"), encoding="utf-8") as f:
-        html = f.read()
+        html = _expand_template_includes(f.read())
     html = html.replace(
         '<link rel="stylesheet" href="/static/css/ge-brand.css">',
         '<link rel="stylesheet" href="/static/css/ge-brand.css">\n  <link rel="stylesheet" href="/static/css/admin_saas_ops.css">',
