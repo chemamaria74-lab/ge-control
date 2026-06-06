@@ -576,15 +576,15 @@
     function defaultTransferEmail(){
       return String(CURRENT_COMPANY?.transfer_email_default || '').trim();
     }
+    const TRANSFER_SYMBOLIC_UNIT_PRICE = 0.000860;
     function transferSymbolicUnitPrice(){
-      const value = Number(CURRENT_COMPANY?.transfer_symbolic_unit_price || 0.00086);
-      return Number.isFinite(value) && value > 0 ? value : 0.00086;
+      return TRANSFER_SYMBOLIC_UNIT_PRICE;
     }
     function transferUsesSymbolicAmount(precioVal, isTraspaso = tipoOperacion.value === 'traspaso'){
-      return isTraspaso && Number(precioVal || 0) <= 0;
+      return !!isTraspaso;
     }
     function transferDisplayGross(litrosVal, precioVal, descuentoVal = 0, isTraspaso = tipoOperacion.value === 'traspaso'){
-      if(transferUsesSymbolicAmount(precioVal, isTraspaso) && Number(litrosVal || 0) > 0) return Number(litrosVal || 0) * transferSymbolicUnitPrice();
+      if(isTraspaso) return Number(litrosVal || 0) * transferSymbolicUnitPrice();
       return Number(litrosVal || 0) * Math.max(Number(precioVal || 0) - Number(descuentoVal || 0), 0);
     }
     function numericFrom(value){
@@ -639,6 +639,9 @@
     }
     function effectiveUnitPrice(){
       return numericFrom(precioUnitario.value);
+    }
+    function effectiveOperationUnitPrice(isTraspaso = tipoOperacion.value === 'traspaso'){
+      return isTraspaso ? transferSymbolicUnitPrice() : effectiveUnitPrice();
     }
     function currentFormSignature(){
       return `${tipoOperacion.value || ''}|${facilitySelect.value || ''}|${clienteSelect.value || ''}`;
@@ -789,6 +792,7 @@
       stampFormSignature();
     }
     function transferPriceReady(){
+      if(tipoOperacion.value === 'traspaso') return transferSymbolicUnitPrice() > 0;
       const raw = String(precioUnitario.value ?? '').trim();
       if(raw === '') return false;
       const value = Number(raw);
@@ -1419,7 +1423,7 @@
     function buildInvoicePreview(isTraspaso=false){
       const litrosNum = Number(litros.value || 0);
       const litrosCalc = invoiceRound(litrosNum, 4);
-      const precioNum = effectiveUnitPrice();
+      const precioNum = effectiveOperationUnitPrice(isTraspaso);
       const precioCalc = invoiceRound(precioNum, 6);
       const rate = Number(ivaRate.value || 0);
       const mode = isTraspaso ? 'sin_descuento' : (descuentoTipo?.value || 'sin_descuento');
@@ -1479,19 +1483,18 @@
     function updateTotals(){
       const isTraspaso = tipoOperacion.value === 'traspaso';
       const litrosNum = Number(litros.value || 0);
-      const precioNum = effectiveUnitPrice();
-      const symbolicTransfer = transferUsesSymbolicAmount(precioNum, isTraspaso) && litrosNum > 0;
+      const precioNum = effectiveOperationUnitPrice(isTraspaso);
       const preview = buildInvoicePreview(isTraspaso);
-      const total = symbolicTransfer ? transferDisplayGross(litrosNum, precioNum, 0, true) : preview.total_final;
+      const total = preview.total_final;
       const rate = Number(ivaRate.value || 0);
-      sumSubtotal.textContent = money(symbolicTransfer ? total / (1 + rate) : preview.subtotal);
-      sumDescuento.textContent = money(symbolicTransfer ? 0 : preview.descuento_total_aplicado);
+      sumSubtotal.textContent = money(preview.subtotal);
+      sumDescuento.textContent = money(preview.descuento_total_aplicado);
       sumIva.previousElementSibling.textContent = `IVA ${Math.round(rate * 100)}%`;
-      sumIva.textContent = money(symbolicTransfer ? total - (total / (1 + rate)) : preview.iva);
+      sumIva.textContent = money(preview.iva);
       sumTotal.textContent = money(total);
       if(typeof transferInternalPrice !== 'undefined'){
-        transferInternalPrice.textContent = symbolicTransfer
-          ? `Precio interno precargado: ${money(precioNum)} · Precio simbólico CFDI: ${transferSymbolicUnitPrice().toFixed(6)} por litro`
+        transferInternalPrice.textContent = isTraspaso
+          ? `Precio simbólico CFDI: ${transferSymbolicUnitPrice().toFixed(6)} por litro`
           : `Precio interno precargado: ${money(precioNum)}`;
       }
       updateTransferReady();
@@ -1641,17 +1644,17 @@
         return;
       }
       const litrosVal = Number(litros.value || 0);
-      const precioVal = effectiveUnitPrice();
       if(!facilitySelect.value){ setStatus('facturaMsg','Selecciona la instalación origen. Es obligatoria para control operativo GE Control.',false); facilitySelect.focus(); return; }
       if(!formStateMatches()){ setStatus('facturaMsg','Los datos del formulario no coinciden con la instalación u operación actual. Limpia y vuelve a capturar.',false); return; }
       const isTraspaso = tipoOperacion.value === 'traspaso';
+      const precioVal = effectiveOperationUnitPrice(isTraspaso);
       const invoicePreview = buildInvoicePreview(isTraspaso);
       const descuentoGrossVal = invoicePreview.descuento_total_aplicado;
       const descuentoPayloadVal = invoicePreview.descuento_por_litro_backend;
       const rateVal = Number(ivaRate.value || 0);
       const totalBrutoVal = litrosVal * precioVal;
       const subtotalBrutoVal = rateVal > 0 ? totalBrutoVal / (1 + rateVal) : totalBrutoVal;
-      const totalVal = isTraspaso ? transferDisplayGross(litrosVal, precioVal, 0, true) : invoicePreview.total_final;
+      const totalVal = invoicePreview.total_final;
       if(litrosVal <= 0){ setStatus('facturaMsg','Captura litros mayores a cero.',false); return; }
       if(precioVal < 0){ setStatus('facturaMsg','El precio no puede ser negativo.',false); return; }
       if(isTraspaso && !transferPriceReady()){ setStatus('facturaMsg','Falta precio interno configurado para timbrar el traspaso.',false); return; }
@@ -1758,7 +1761,7 @@
           litros: invoicePreview.litros,
           precio: precioVal,
           total: totalVal,
-          precioSimbolicoLitro: transferUsesSymbolicAmount(precioVal, true) ? transferSymbolicUnitPrice() : 0,
+          precioSimbolicoLitro: transferSymbolicUnitPrice(),
         });
         if(!confirmed) return;
         if(saveTransferEmailDefault?.checked){
@@ -1796,9 +1799,9 @@
           cp: isTraspaso ? issuerCp() : '',
           regimen_fiscal: isTraspaso ? issuerRegimen() : '616',
           uso_cfdi: isTraspaso ? 'S01' : 'S01',
-          litros: isTraspaso ? litrosVal : invoicePreview.litros,
-          precio_unitario: isTraspaso ? precioVal : invoicePreview.precio_unitario,
-          precio_unitario_visible: Number(precioUnitario.value || 0),
+          litros: invoicePreview.litros,
+          precio_unitario: invoicePreview.precio_unitario,
+          precio_unitario_visible: isTraspaso ? transferSymbolicUnitPrice() : Number(precioUnitario.value || 0),
           concepto: concepto.value || 'Gas licuado de petróleo',
           descuento: isTraspaso ? 0 : descuentoPayloadVal,
           iva_rate: Number(ivaRate.value || 0),
