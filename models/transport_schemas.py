@@ -193,6 +193,7 @@ class ProductoTransporte(BaseModel):
     Representa un producto específico en un viaje de transporte.
     Un viaje puede tener múltiples productos (autotanque compartimentado).
     """
+    producto_operacion_id: Optional[int] = None  # FK opcional a tr_productos_operacion
     clave_producto:    str           # PR05, PR06, PR07, PR12, PR17, etc.
     clave_subproducto: str           # SP1–SP49 (validado contra catálogo)
     volumen_litros:    float         # Volumen transportado en litros
@@ -201,6 +202,12 @@ class ProductoTransporte(BaseModel):
     valor_mercancia:   float = 0.0   # Valor declarado de los bienes en Carta Porte
     importe:           float = 0.0   # Tarifa/flete del servicio para CFDI tipo I
     descripcion:       str   = ""    # Descripción libre para el concepto CFDI
+    clave_prodserv_cfdi: str = ""    # c_ClaveProdServ para Carta Porte/CFDI
+    unidad:             str = "LTR"
+    densidad_kg_l:      float = 0.75
+    material_peligroso: bool = True
+    cve_material_peligroso: str = ""
+    embalaje:           str = "Z01"
 
     @field_validator("clave_producto")
     @classmethod
