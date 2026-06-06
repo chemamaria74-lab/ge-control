@@ -15,7 +15,7 @@ from supabase_config import get_supabase_admin, get_supabase_for_user
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-SECTIONS = {"transporte", "gas_lp", "gasolineras"}
+SECTIONS = {"transporte", "gas_lp"}
 ROLES = {"admin", "user", "operador", "asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"}
 
 
@@ -78,8 +78,6 @@ def _validate_scope(sb, row: dict) -> None:
         role = row.get("role")
         if section == "transporte" and role == "admin":
             bucket = "transporte_admins"
-        elif section == "gasolineras":
-            bucket = "gasolineras_users"
         existing = (
             sb.table("user_sections")
             .select("user_id")

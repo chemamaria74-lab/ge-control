@@ -22,6 +22,13 @@ PROVIDERS_DIR = os.path.join(os.path.dirname(__file__), "..", "config")
 LOCAL_PROVIDER_FALLBACK = (os.environ.get("GAS_LP_LOCAL_PROVIDER_FALLBACK") or "").strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
 
 
+def _mask_rfc_for_log(value: str) -> str:
+    raw = "".join(ch for ch in str(value or "").upper().strip() if ch.isalnum() or ch == "&")
+    if len(raw) <= 6:
+        return "***" if raw else ""
+    return f"{raw[:3]}***{raw[-3:]}"
+
+
 # ── Supabase helpers ──────────────────────────────────────────────────────────
 
 def _sb_list(user_id: str, perfil_id: int = None) -> Optional[list]:
@@ -117,14 +124,14 @@ def _sb_upsert(user_id: str, rfc: str, nombre: str, permiso: str,
             # UPDATE — fila ya existe para este (user_id, rfc, perfil_id)
             row_id = existing[0]["id"]
             sb.table("providers").update(update_data).eq("id", row_id).execute()
-            logger.info("Provider updated id=%s rfc=%s perfil=%s", row_id, rfc_upper, perfil_id)
+            logger.info("Provider updated id=%s rfc=%s perfil=%s", row_id, _mask_rfc_for_log(rfc_upper), perfil_id)
         else:
             # INSERT — nueva fila para este perfil
             insert_data = {"user_id": user_id, "rfc": rfc_upper, **update_data}
             if perfil_id:
                 insert_data["perfil_id"] = perfil_id
             sb.table("providers").insert(insert_data).execute()
-            logger.info("Provider inserted rfc=%s perfil=%s", rfc_upper, perfil_id)
+            logger.info("Provider inserted rfc=%s perfil=%s", _mask_rfc_for_log(rfc_upper), perfil_id)
 
         return True
     except Exception as e:
@@ -328,7 +335,7 @@ async def upsert_provider_endpoint(
         (payload.permiso_almacenamiento_terminal or "").strip(),
         perfil_id,
     )
-    logger.info("Proveedor guardado: %s user=%s perfil=%s", rfc_upper, user_id, perfil_id)
+    logger.info("Proveedor guardado: %s user=%s perfil=%s", _mask_rfc_for_log(rfc_upper), user_id, perfil_id)
     return JSONResponse(content={"success": True, "providers": _load_providers(user_id, perfil_id)})
 
 
@@ -341,5 +348,5 @@ async def delete_provider_endpoint(
     user_id   = _auth(authorization)
     perfil_id = _require_perfil_id(x_perfil_id)
     _delete_provider(user_id, rfc, perfil_id)
-    logger.info("Proveedor eliminado: %s user=%s perfil=%s", rfc, user_id, perfil_id)
+    logger.info("Proveedor eliminado: %s user=%s perfil=%s", _mask_rfc_for_log(rfc), user_id, perfil_id)
     return JSONResponse(content={"success": True, "providers": _load_providers(user_id, perfil_id)})

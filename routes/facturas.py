@@ -65,6 +65,19 @@ _SB_RUTAS = "gas_lp_rutas"
 _SB_UBICACIONES_CP = "gas_lp_ubicaciones_carta_porte"
 _SB_MERCANCIAS_CP = "gas_lp_mercancias_carta_porte"
 _SB_FACILITY_CP_CONFIG = "gas_lp_facility_carta_porte_config"
+
+GAS_LP_CP_DEFAULTS = {
+    "alias": "Gas LP",
+    "bienes_transp": "15111510",
+    "descripcion": "Gas licuado de petróleo",
+    "clave_unidad": "LTR",
+    "unidad": "Litro",
+    "factor_kg_litro": 0.54,
+    "material_peligroso": True,
+    "clave_material_peligroso": "1075",
+    "embalaje": "4H2",
+    "descripcion_embalaje": "",
+}
 _SB_CLIENTES = "gas_lp_clientes_facturacion"
 _TRUE_VALUES = {"1", "true", "yes", "on", "si", "sí"}
 GAS_LP_SQLITE_READONLY = (os.environ.get("GAS_LP_SQLITE_READONLY") or "").strip().lower() in _TRUE_VALUES
@@ -572,6 +585,28 @@ def _cp_bool(value) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
 
 
+def _cp_gas_lp_mercancia_payload(values: dict) -> dict:
+    payload = dict(GAS_LP_CP_DEFAULTS)
+    for key, value in values.items():
+        if value is not None and str(value).strip() != "":
+            payload[key] = value
+    payload["alias"] = payload.get("alias") or GAS_LP_CP_DEFAULTS["alias"]
+    payload["descripcion"] = payload.get("descripcion") or GAS_LP_CP_DEFAULTS["descripcion"]
+    payload["bienes_transp"] = GAS_LP_CP_DEFAULTS["bienes_transp"]
+    payload["clave_unidad"] = GAS_LP_CP_DEFAULTS["clave_unidad"]
+    payload["unidad"] = payload.get("unidad") or GAS_LP_CP_DEFAULTS["unidad"]
+    payload["material_peligroso"] = True
+    payload["clave_material_peligroso"] = GAS_LP_CP_DEFAULTS["clave_material_peligroso"]
+    payload["embalaje"] = payload.get("embalaje") or GAS_LP_CP_DEFAULTS["embalaje"]
+    payload["descripcion_embalaje"] = payload.get("descripcion_embalaje") or GAS_LP_CP_DEFAULTS["descripcion_embalaje"]
+    try:
+        factor = float(payload.get("factor_kg_litro") or 0)
+    except (TypeError, ValueError):
+        factor = 0
+    payload["factor_kg_litro"] = factor if factor > 0 else GAS_LP_CP_DEFAULTS["factor_kg_litro"]
+    return payload
+
+
 def _cp_facility_config(scope: dict, facility_id: Optional[int]) -> dict:
     if not facility_id:
         return {}
@@ -688,8 +723,11 @@ def _cp_validate_catalog_payload(
     _cp_required(errors, "vehículo: configuración SAT", vehiculo.get("config_vehicular"))
     _cp_required(errors, "vehículo: permiso SCT/SICT", vehiculo.get("permiso_cre") or vehiculo.get("permiso_sct"))
     _cp_required(errors, "vehículo: número de permiso", vehiculo.get("numero_permiso"))
+    _cp_required(errors, "vehículo: peso bruto vehicular", vehiculo.get("peso_bruto_vehicular"))
     _cp_required(errors, "vehículo: aseguradora RC", vehiculo.get("aseguradora"))
     _cp_required(errors, "vehículo: póliza RC", vehiculo.get("poliza_seguro"))
+    _cp_required(errors, "vehículo: aseguradora medio ambiente", vehiculo.get("aseguradora_medio_ambiente"))
+    _cp_required(errors, "vehículo: póliza medio ambiente", vehiculo.get("poliza_medio_ambiente"))
     _cp_required(errors, "chofer: nombre", chofer.get("nombre"))
     _cp_required(errors, "chofer: licencia", chofer.get("licencia"))
     _cp_required(errors, "chofer: tipo figura", chofer.get("tipo_figura"))
@@ -734,7 +772,11 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
     _require_supabase_scope(scope)
     emisor = _emisor_from_scope(scope)
 
+    if not payload.ruta_id:
+        raise HTTPException(400, "Selecciona una ruta frecuente para timbrar Carta Porte.")
     ruta_row = _sb_get(_SB_RUTAS, int(payload.ruta_id), scope) if payload.ruta_id else None
+    if not ruta_row:
+        raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte.")
     if ruta_row and ruta_row.get("activo") is False:
         raise HTTPException(404, "Ruta no existe o está inactiva en la empresa activa.")
     origen_facility_id = _cp_to_int(payload.origen_facility_id or payload.facility_id) or _cp_to_int((ruta_row or {}).get("origen_facility_id"))
@@ -742,6 +784,9 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
     vehiculo_id = _cp_to_int(payload.vehiculo_id) or _cp_route_default(ruta_row, "vehiculo_default_id")
     chofer_id = _cp_to_int(payload.chofer_id) or _cp_route_default(ruta_row, "chofer_default_id")
     mercancia_id = _cp_to_int(payload.mercancia_id) or _cp_route_default(ruta_row, "mercancia_default_id")
+    ruta_tiempo_minutos = _cp_to_int((ruta_row or {}).get("tiempo_estimado_minutos")) or _cp_route_default(ruta_row, "tiempo_estimado_minutos")
+    if not origen_facility_id or not destino_facility_id or float((ruta_row or {}).get("distancia_km") or 0) <= 0 or not ruta_tiempo_minutos or not mercancia_id:
+        raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte.")
 
     origen_facility = _require_scope_facility(scope, origen_facility_id, "instalación origen")
     destino_facility = _require_scope_facility(scope, destino_facility_id, "instalación destino")
@@ -751,7 +796,14 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
     destino = _cp_facility_to_ubicacion(scope, destino_facility, "destino")
     chofer_row = _cp_with_metadata(_require_active_catalog_row(_SB_CHOFERES, scope, chofer_id, "chofer"))
     vehiculo_row = _cp_with_metadata(_require_active_catalog_row(_SB_VEHICULOS, scope, vehiculo_id, "vehículo"))
-    mercancia_row = _cp_with_metadata(_require_active_catalog_row(_SB_MERCANCIAS_CP, scope, mercancia_id, "mercancía"))
+    mercancia_row = _cp_gas_lp_mercancia_payload(_cp_with_metadata(_require_active_catalog_row(_SB_MERCANCIAS_CP, scope, mercancia_id, "mercancía")))
+    if (
+        str(mercancia_row.get("bienes_transp") or "").strip() != "15111510"
+        or str(mercancia_row.get("clave_unidad") or "").strip().upper() != "LTR"
+        or str(mercancia_row.get("clave_material_peligroso") or "").strip() != "1075"
+        or float(mercancia_row.get("factor_kg_litro") or 0) <= 0
+    ):
+        raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte. La mercancía default debe ser Gas LP válida.")
 
     if payload.rfc_cliente and _clean_rfc(payload.rfc_cliente) != emisor["rfc"]:
         raise HTTPException(400, "Carta Porte interna debe usar como receptor el mismo RFC de la empresa activa.")
@@ -1412,7 +1464,7 @@ async def listar_choferes(
 @router.post("/facturas/choferes")
 async def crear_chofer(
     nombre: str, rfc: str = "", licencia: str = "", telefono: str = "",
-    tipo_figura: str = "01", parte_transporte: str = "",
+    curp: str = "", tipo_licencia: str = "E", tipo_figura: str = "01", parte_transporte: str = "",
     modulo: str = "transporte", authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1426,6 +1478,8 @@ async def crear_chofer(
         "licencia": licencia,
         "telefono": telefono,
         "metadata": {
+            "curp": curp.strip().upper(),
+            "tipo_licencia": tipo_licencia or "E",
             "tipo_figura": tipo_figura or "01",
             "parte_transporte": parte_transporte or "",
         },
@@ -1439,7 +1493,7 @@ async def crear_chofer(
 @router.put("/facturas/choferes/{chofer_id}")
 async def actualizar_chofer(
     chofer_id: int, nombre: str, rfc: str = "", licencia: str = "", telefono: str = "",
-    tipo_figura: str = "01", parte_transporte: str = "",
+    curp: str = "", tipo_licencia: str = "E", tipo_figura: str = "01", parte_transporte: str = "",
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -1447,7 +1501,12 @@ async def actualizar_chofer(
     uid = scope["user_id"]
     _require_supabase_scope(scope)
     current = _sb_get(_SB_CHOFERES, chofer_id, scope)
-    metadata = _merge_metadata(current, {"tipo_figura": tipo_figura or "01", "parte_transporte": parte_transporte or ""})
+    metadata = _merge_metadata(current, {
+        "curp": curp.strip().upper(),
+        "tipo_licencia": tipo_licencia or "E",
+        "tipo_figura": tipo_figura or "01",
+        "parte_transporte": parte_transporte or "",
+    })
     if _sb_update(_SB_CHOFERES, chofer_id, scope, {"nombre": nombre, "rfc": rfc, "licencia": licencia, "telefono": telefono, "metadata": metadata}):
         return JSONResponse({"ok": True, "message": "Chofer actualizado", "source": "supabase"})
     raise HTTPException(404, "Chofer no encontrado en la empresa seleccionada.")
@@ -1547,7 +1606,8 @@ async def crear_vehiculo(
 @router.put("/facturas/vehiculos/{vehiculo_id}")
 async def actualizar_vehiculo(
     vehiculo_id: int, placa: str, anio_modelo: int = 2020, config_vehicular: str = "C2",
-    nombre_asegurador: str = "", poliza_seguro: str = "", permiso_cre: str = "",
+    anio: Optional[int] = None, nombre_asegurador: str = "", aseguradora: str = "",
+    poliza_seguro: str = "", permiso_cre: str = "",
     alias: str = "", numero_economico: str = "", modelo: str = "",
     numero_permiso: str = "", peso_bruto_vehicular: float = 0,
     aseguradora_medio_ambiente: str = "", poliza_medio_ambiente: str = "",
@@ -1559,20 +1619,22 @@ async def actualizar_vehiculo(
     uid = scope["user_id"]
     _require_supabase_scope(scope)
     current = _sb_get(_SB_VEHICULOS, vehiculo_id, scope)
+    final_anio = anio if anio is not None else anio_modelo
+    final_aseguradora = nombre_asegurador or aseguradora
     metadata = _merge_metadata(current, {
         "alias": alias or placa.upper(),
         "numero_economico": numero_economico,
         "permiso_sct": permiso_cre,
         "numero_permiso": numero_permiso,
         "peso_bruto_vehicular": peso_bruto_vehicular,
-        "aseguradora_responsabilidad_civil": nombre_asegurador,
+        "aseguradora_responsabilidad_civil": final_aseguradora,
         "poliza_responsabilidad_civil": poliza_seguro,
         "aseguradora_medio_ambiente": aseguradora_medio_ambiente,
         "poliza_medio_ambiente": poliza_medio_ambiente,
         "aseguradora_carga": aseguradora_carga,
         "poliza_carga": poliza_carga,
     })
-    if _sb_update(_SB_VEHICULOS, vehiculo_id, scope, {"placas": placa.upper(), "modelo": modelo, "anio": anio_modelo, "config_vehicular": config_vehicular, "aseguradora": nombre_asegurador, "poliza_seguro": poliza_seguro, "permiso_cre": permiso_cre, "metadata": metadata}):
+    if _sb_update(_SB_VEHICULOS, vehiculo_id, scope, {"placas": placa.upper(), "modelo": modelo, "anio": final_anio, "config_vehicular": config_vehicular, "aseguradora": final_aseguradora, "poliza_seguro": poliza_seguro, "permiso_cre": permiso_cre, "metadata": metadata}):
         return JSONResponse({"ok": True, "message": "Vehículo actualizado", "source": "supabase"})
     raise HTTPException(404, "Vehículo no encontrado en la empresa seleccionada.")
 
@@ -1628,6 +1690,8 @@ async def listar_rutas(
 @router.post("/facturas/rutas")
 async def crear_ruta(
     nombre: str, cp_origen: str = "", cp_destino: str = "", distancia_km: float = 1.0,
+    nombre_origen: str = "", nombre_destino: str = "",
+    tiempo_estimado_minutos: int = 0,
     origen_facility_id: Optional[int] = None, destino_facility_id: Optional[int] = None,
     origen_ubicacion_id: Optional[int] = None, destino_ubicacion_id: Optional[int] = None,
     tiempo_estimado: str = "", vehiculo_default_id: Optional[int] = None,
@@ -1646,10 +1710,14 @@ async def crear_ruta(
         "cp_origen": cp_origen,
         "cp_destino": cp_destino,
         "distancia_km": distancia_km,
+        "tiempo_estimado_minutos": tiempo_estimado_minutos,
         "metadata": {
+            "nombre_origen": nombre_origen,
+            "nombre_destino": nombre_destino,
             "origen_ubicacion_id": origen_ubicacion_id,
             "destino_ubicacion_id": destino_ubicacion_id,
             "tiempo_estimado": tiempo_estimado,
+            "tiempo_estimado_minutos": tiempo_estimado_minutos,
             "vehiculo_default_id": vehiculo_default_id,
             "chofer_default_id": chofer_default_id,
             "mercancia_default_id": mercancia_default_id,
@@ -1665,6 +1733,8 @@ async def crear_ruta(
 async def actualizar_ruta(
     ruta_id: int, nombre: str,
     cp_origen: str = "", cp_destino: str = "", distancia_km: float = 1.0,
+    nombre_origen: str = "", nombre_destino: str = "",
+    tiempo_estimado_minutos: int = 0,
     origen_facility_id: Optional[int] = None, destino_facility_id: Optional[int] = None,
     origen_ubicacion_id: Optional[int] = None, destino_ubicacion_id: Optional[int] = None,
     tiempo_estimado: str = "", vehiculo_default_id: Optional[int] = None,
@@ -1682,9 +1752,12 @@ async def actualizar_ruta(
     _require_supabase_scope(scope)
     current = _sb_get(_SB_RUTAS, ruta_id, scope)
     metadata = _merge_metadata(current, {
+        "nombre_origen": nombre_origen,
+        "nombre_destino": nombre_destino,
         "origen_ubicacion_id": origen_ubicacion_id,
         "destino_ubicacion_id": destino_ubicacion_id,
         "tiempo_estimado": tiempo_estimado,
+        "tiempo_estimado_minutos": tiempo_estimado_minutos,
         "vehiculo_default_id": vehiculo_default_id,
         "chofer_default_id": chofer_default_id,
         "mercancia_default_id": mercancia_default_id,
@@ -1696,6 +1769,7 @@ async def actualizar_ruta(
         "cp_origen": cp_origen,
         "cp_destino": cp_destino,
         "distancia_km": distancia_km,
+        "tiempo_estimado_minutos": tiempo_estimado_minutos,
         "metadata": metadata,
     }):
         return JSONResponse({"ok": True, "message": "Ruta actualizada", "source": "supabase"})
@@ -1864,7 +1938,7 @@ async def crear_mercancia_carta_porte(
 ):
     scope = _scope(authorization, x_perfil_id)
     _require_supabase_scope(scope)
-    row = _sb_insert(_SB_MERCANCIAS_CP, _scope_row(scope, {
+    payload = _cp_gas_lp_mercancia_payload({
         "alias": alias,
         "bienes_transp": bienes_transp,
         "descripcion": descripcion or alias,
@@ -1875,6 +1949,9 @@ async def crear_mercancia_carta_porte(
         "clave_material_peligroso": clave_material_peligroso,
         "embalaje": embalaje,
         "descripcion_embalaje": descripcion_embalaje,
+    })
+    row = _sb_insert(_SB_MERCANCIAS_CP, _scope_row(scope, {
+        **payload,
         "activo": True,
     }))
     if row:
@@ -1900,7 +1977,7 @@ async def actualizar_mercancia_carta_porte(
 ):
     scope = _scope(authorization, x_perfil_id)
     _require_supabase_scope(scope)
-    ok = _sb_update(_SB_MERCANCIAS_CP, mercancia_id, scope, {
+    payload = _cp_gas_lp_mercancia_payload({
         "alias": alias,
         "bienes_transp": bienes_transp,
         "descripcion": descripcion or alias,
@@ -1912,6 +1989,7 @@ async def actualizar_mercancia_carta_porte(
         "embalaje": embalaje,
         "descripcion_embalaje": descripcion_embalaje,
     })
+    ok = _sb_update(_SB_MERCANCIAS_CP, mercancia_id, scope, payload)
     if ok:
         return JSONResponse({"ok": True, "message": "Mercancía actualizada", "source": "supabase"})
     raise HTTPException(404, "Mercancía no encontrada en la empresa seleccionada.")

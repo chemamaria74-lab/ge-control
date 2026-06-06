@@ -34,7 +34,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 ROLES = {"admin", "operador", "asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"}
-SECTIONS = {"transporte", "gas_lp", "gasolineras"}
+SECTIONS = {"transporte", "gas_lp"}
 MAX_FAILED_ATTEMPTS = 5
 LOCK_MINUTES = 15
 SESSION_HOURS = 12
@@ -96,6 +96,10 @@ class GasLpInternalClientePayload(BaseModel):
     email: str = ""
     email_adicional_1: str = ""
     email_adicional_2: str = ""
+    credito_habilitado: bool = False
+    dias_credito: int = 0
+    limite_credito: Optional[float] = None
+    credito_notas: str = ""
 
 
 class GasLpInternalFacturaPayload(BaseModel):
@@ -302,6 +306,40 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _hash_text(value: str) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def _truthy_env(name: str) -> bool:
+    return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "si", "sí", "on"}
+
+
+def _mask_rfc(value: object) -> str:
+    raw = _clean_rfc(value)
+    if len(raw) <= 6:
+        return "***" if raw else ""
+    return f"{raw[:3]}***{raw[-3:]}"
+
+
+def _safe_xml_summary(xml: str) -> dict:
+    text = str(xml or "")
+    return {"xml_hash": _hash_text(text), "xml_len": len(text)}
+
+
+def _redact_hyp_debug_payload(payload: dict) -> dict:
+    if _truthy_env("GE_DEBUG_FISCAL_XML"):
+        return payload
+    redacted = dict(payload or {})
+    for key in ("cfdi_xml_enviado", "xml_enviado", "hidroypetro_xml"):
+        if redacted.get(key):
+            redacted[f"{key}_summary"] = _safe_xml_summary(str(redacted.get(key) or ""))
+            redacted[key] = "<redacted; set GE_DEBUG_FISCAL_XML=1 only in controlled local/sandbox debug>"
+    for key in ("rfc_emisor", "empresa_asignada_rfc", "empresa_rfc"):
+        if redacted.get(key):
+            redacted[key] = _mask_rfc(redacted.get(key))
+    return redacted
+
+
 def _clean_code(value: str) -> str:
     code = "".join(ch for ch in str(value or "").upper().strip() if ch.isalnum() or ch in {"-", "_"})
     return code[:24]
@@ -392,6 +430,20 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
     cp = _clean_cp(payload.cp)
     invoice_emails = _invoice_email_recipients(payload.email, payload.email_adicional_1, payload.email_adicional_2)
     email = invoice_emails[0] if invoice_emails else ""
+    credito_habilitado = bool(payload.credito_habilitado)
+    dias_credito = max(0, min(int(payload.dias_credito or 0), 365))
+    limite_credito = payload.limite_credito
+    if limite_credito is not None:
+        limite_credito = max(0, float(limite_credito or 0))
+    credito_notas = str(payload.credito_notas or "").strip()[:1000]
+    credito_policy = {
+        "credito_habilitado": credito_habilitado,
+        "dias_credito": dias_credito if credito_habilitado else 0,
+        "limite_credito": limite_credito,
+        "credito_notas": credito_notas,
+        "actualizado_at": _now_iso(),
+        "actualizado_por": str(user.get("id") or user.get("display_name") or ""),
+    }
     if not rfc or not nombre:
         raise HTTPException(400, "RFC y nombre del cliente son obligatorios.")
     if rfc == "XAXX010101000":
@@ -426,6 +478,12 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
         "uso_cfdi": uso_cfdi,
         "email": email,
         "email_facturacion": email,
+        "credito_habilitado": credito_habilitado,
+        "dias_credito": dias_credito if credito_habilitado else 0,
+        "limite_credito": limite_credito,
+        "credito_notas": credito_notas,
+        "credito_actualizado_at": credito_policy["actualizado_at"],
+        "credito_actualizado_por": credito_policy["actualizado_por"],
         "activo": True,
         "metadata": {
             "created_by_internal": user.get("id"),
@@ -433,10 +491,50 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
             "invoice_email_additional": invoice_emails[1:3],
             "email_adicional_1": invoice_emails[1] if len(invoice_emails) > 1 else "",
             "email_adicional_2": invoice_emails[2] if len(invoice_emails) > 2 else "",
+            "credito_ppd": credito_policy,
         },
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
+
+
+def _gas_lp_cliente_without_credit_columns(row: dict) -> dict:
+    clean = dict(row)
+    for key in (
+        "credito_habilitado",
+        "dias_credito",
+        "limite_credito",
+        "credito_notas",
+        "credito_actualizado_at",
+        "credito_actualizado_por",
+    ):
+        clean.pop(key, None)
+    return clean
+
+
+def _gas_lp_cliente_credit_column_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(
+        key in message
+        for key in (
+            "credito_habilitado",
+            "dias_credito",
+            "limite_credito",
+            "credito_notas",
+            "credito_actualizado",
+        )
+    )
+
+
+def _normalize_gas_lp_cliente_credit(row: dict) -> dict:
+    item = dict(row or {})
+    md = item.get("metadata") or {}
+    credit = md.get("credito_ppd") or md.get("credito") or {}
+    item["credito_habilitado"] = bool(item.get("credito_habilitado", credit.get("credito_habilitado", credit.get("habilitado", False))))
+    item["dias_credito"] = int(item.get("dias_credito", credit.get("dias_credito", credit.get("dias", 0))) or 0)
+    item["limite_credito"] = item.get("limite_credito", credit.get("limite_credito", credit.get("limite")))
+    item["credito_notas"] = item.get("credito_notas", credit.get("credito_notas", credit.get("notas", ""))) or ""
+    return item
 
 
 def _safe_internal_error(action: str, exc: Exception) -> HTTPException:
@@ -1185,7 +1283,7 @@ def _write_gas_lp_hyp_debug_log(payload: dict) -> None:
         path = os.path.abspath(GAS_LP_HYP_DEBUG_LOG)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+            fh.write(json.dumps(_redact_hyp_debug_payload(payload), ensure_ascii=False, sort_keys=True) + "\n")
     except Exception as exc:
         logger.warning("gas_lp_hyp_debug_log_failed: %s", exc)
 
@@ -1592,6 +1690,27 @@ def _gas_lp_factura_date_key(factura: dict) -> str:
     return ""
 
 
+def _gas_lp_month_created_range(month: str) -> tuple[str, str] | None:
+    text = str(month or "").strip()[:7]
+    if len(text) != 7:
+        return None
+    try:
+        start = datetime.strptime(f"{text}-01", "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    if start.month == 12:
+        end = start.replace(year=start.year + 1, month=1)
+    else:
+        end = start.replace(month=start.month + 1)
+    return start.isoformat().replace("+00:00", "Z"), end.isoformat().replace("+00:00", "Z")
+
+
+def _gas_lp_apply_created_range(query, created_range: tuple[str, str] | None):
+    if not created_range or not hasattr(query, "gte") or not hasattr(query, "lt"):
+        return query, False
+    return query.gte("created_at", created_range[0]).lt("created_at", created_range[1]), True
+
+
 def _gas_lp_factura_xml_root(factura: dict) -> Optional[ET.Element]:
     xml_content = str(factura.get("xml_content") or "")
     if not xml_content:
@@ -1838,34 +1957,36 @@ def _gas_lp_company_facturas_rows(
     month: str = "",
     limit: int = 10000,
     include_carta_porte: bool = True,
+    select: str = "*",
+    company_fallback: bool = True,
+    visibility_log: bool = True,
 ) -> list[dict]:
     filters = []
     candidate_rows: list[dict] = []
-    base_query = sb.table("gas_lp_facturas").select("*").eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
-    filters.append({"source": "tenant_perfil", "tenant_id": user.get("tenant_id"), "perfil_id": user.get("perfil_id"), "date_filter": "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
+    created_range = _gas_lp_month_created_range(month)
+    base_query = sb.table("gas_lp_facturas").select(select).eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
+    base_query, range_applied = _gas_lp_apply_created_range(base_query, created_range)
+    filters.append({"source": "tenant_perfil", "tenant_id": user.get("tenant_id"), "perfil_id": user.get("perfil_id"), "date_filter": "created_at_range" if range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
     rows = base_query.order("created_at", desc=True).limit(limit).execute().data or []
     candidate_rows.extend(rows)
 
     profile_rfc = _gas_lp_company_rfc(user, profile)
     match_profile = {**profile, "rfc": profile_rfc or profile.get("rfc")}
-    if profile_rfc:
+    if profile_rfc and company_fallback:
         # Rescata facturas timbradas por otro usuario/perfil de la misma empresa fiscal.
         rfc_rows = []
         for rfc_field in ("metadata->>rfc_emisor", "metadata->>empresa_rfc", "metadata->>empresa_asignada_rfc"):
             try:
-                found = (
+                query = (
                     sb.table("gas_lp_facturas")
-                    .select("*")
+                    .select(select)
                     .eq("tenant_id", user.get("tenant_id"))
                     .eq(rfc_field, profile_rfc)
-                    .order("created_at", desc=True)
-                    .limit(limit)
-                    .execute()
-                    .data
-                    or []
                 )
+                query, rfc_range_applied = _gas_lp_apply_created_range(query, created_range)
+                found = query.order("created_at", desc=True).limit(limit).execute().data or []
                 rfc_rows.extend(found)
-                filters.append({"source": f"tenant_{rfc_field}", "tenant_id": user.get("tenant_id"), rfc_field: profile_rfc, "date_filter": "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
+                filters.append({"source": f"tenant_{rfc_field}", "tenant_id": user.get("tenant_id"), rfc_field: profile_rfc, "date_filter": "created_at_range" if rfc_range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
             except Exception as exc:
                 logger.warning("gas_lp_facturas_rfc_lookup_failed field=%s rfc=%s err=%s", rfc_field, profile_rfc, exc)
                 filters.append({"source": f"tenant_{rfc_field}", "tenant_id": user.get("tenant_id"), rfc_field: profile_rfc, "error": str(exc)})
@@ -1873,17 +1994,14 @@ def _gas_lp_company_facturas_rows(
 
         tenant_scan_limit = max(limit, int(os.environ.get("GAS_LP_FACTURAS_TENANT_SCAN_LIMIT", "10000") or "10000"))
         try:
-            company_rows = (
+            query = (
                 sb.table("gas_lp_facturas")
-                .select("*")
+                .select(select)
                 .eq("tenant_id", user.get("tenant_id"))
-                .order("created_at", desc=True)
-                .limit(tenant_scan_limit)
-                .execute()
-                .data
-                or []
             )
-            filters.append({"source": "tenant_scan_rfc_fallback", "tenant_id": user.get("tenant_id"), "limit": tenant_scan_limit, "match": "same tenant/perfil OR same issuer RFC from row/metadata/xml", "date_filter": "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
+            query, scan_range_applied = _gas_lp_apply_created_range(query, created_range)
+            company_rows = query.order("created_at", desc=True).limit(tenant_scan_limit).execute().data or []
+            filters.append({"source": "tenant_scan_rfc_fallback", "tenant_id": user.get("tenant_id"), "limit": tenant_scan_limit, "match": "same tenant/perfil OR same issuer RFC from row/metadata/xml", "date_filter": "created_at_range" if scan_range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
         except Exception as exc:
             company_rows = []
             logger.warning("gas_lp_facturas_tenant_scan_failed tenant=%s err=%s", user.get("tenant_id"), exc)
@@ -1901,7 +2019,8 @@ def _gas_lp_company_facturas_rows(
         rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
     rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
     rows = rows[:limit]
-    _gas_lp_log_facturas_visibility(user=user, profile={**profile, "rfc": profile_rfc or profile.get("rfc")}, month=month, filters=filters, candidates=candidate_rows, included=rows)
+    if visibility_log:
+        _gas_lp_log_facturas_visibility(user=user, profile={**profile, "rfc": profile_rfc or profile.get("rfc")}, month=month, filters=filters, candidates=candidate_rows, included=rows)
     return rows
 
 
@@ -2475,7 +2594,6 @@ def _auth_admin(authorization: str) -> tuple[str, str]:
     accesos = [
         obtener_acceso_modulo(uid, "transporte", access_token=token),
         obtener_acceso_modulo(uid, "gas_lp", access_token=token),
-        obtener_acceso_modulo(uid, "gasolineras", access_token=token),
     ]
     if not any((a.get("role") or "").lower() == "admin" for a in accesos):
         raise HTTPException(403, "Solo administradores pueden gestionar usuarios internos.")
@@ -3145,10 +3263,12 @@ def _internal_cp_payload(kind: str, params) -> dict:
     return {
         "nombre": s("nombre"),
         "distancia_km": n("distancia_km", 1),
+        "tiempo_estimado_minutos": int(n("tiempo_estimado_minutos", 0)),
         "origen_facility_id": opt_int("origen_facility_id"),
         "destino_facility_id": opt_int("destino_facility_id"),
         "metadata": {
             "tiempo_estimado": s("tiempo_estimado"),
+            "tiempo_estimado_minutos": int(n("tiempo_estimado_minutos", 0)),
             "vehiculo_default_id": opt_int("vehiculo_default_id"),
             "chofer_default_id": opt_int("chofer_default_id"),
             "mercancia_default_id": opt_int("mercancia_default_id"),
@@ -3249,6 +3369,7 @@ async def gas_lp_internal_clientes(token: str):
         )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_clientes", exc)
+    rows = [_normalize_gas_lp_cliente_credit(row) for row in rows]
     return JSONResponse({"ok": True, "clientes": rows})
 
 
@@ -3260,8 +3381,14 @@ async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, to
     try:
         data = get_supabase_admin().table("gas_lp_clientes_facturacion").insert(row).execute().data or [row]
     except Exception as exc:
-        raise _safe_internal_error("gas_lp_crear_cliente", exc)
-    return JSONResponse({"ok": True, "cliente": data[0]})
+        if not _gas_lp_cliente_credit_column_error(exc):
+            raise _safe_internal_error("gas_lp_crear_cliente", exc)
+        fallback = _gas_lp_cliente_without_credit_columns(row)
+        try:
+            data = get_supabase_admin().table("gas_lp_clientes_facturacion").insert(fallback).execute().data or [fallback]
+        except Exception as retry_exc:
+            raise _safe_internal_error("gas_lp_crear_cliente", retry_exc)
+    return JSONResponse({"ok": True, "cliente": _normalize_gas_lp_cliente_credit(data[0])})
 
 
 @router.put("/internal-auth/gas-lp/clientes/{cliente_id}")
@@ -3290,10 +3417,28 @@ async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInte
             or []
         )
     except Exception as exc:
-        raise _safe_internal_error("gas_lp_actualizar_cliente", exc)
+        if not _gas_lp_cliente_credit_column_error(exc):
+            raise _safe_internal_error("gas_lp_actualizar_cliente", exc)
+        fallback = _gas_lp_cliente_without_credit_columns(row)
+        try:
+            data = (
+                get_supabase_admin()
+                .table("gas_lp_clientes_facturacion")
+                .update(fallback)
+                .eq("id", cliente_id)
+                .eq("user_id", user.get("owner_user_id"))
+                .eq("tenant_id", user.get("tenant_id"))
+                .eq("perfil_id", user.get("perfil_id"))
+                .eq("activo", True)
+                .execute()
+                .data
+                or []
+            )
+        except Exception as retry_exc:
+            raise _safe_internal_error("gas_lp_actualizar_cliente", retry_exc)
     if not data:
         raise HTTPException(404, "Cliente no encontrado para esta empresa.")
-    return JSONResponse({"ok": True, "cliente": data[0]})
+    return JSONResponse({"ok": True, "cliente": _normalize_gas_lp_cliente_credit(data[0])})
 
 
 @router.delete("/internal-auth/gas-lp/clientes/{cliente_id}")
@@ -3814,7 +3959,17 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
     month = (periodo or datetime.now().strftime("%Y-%m"))[:7]
     sb = get_supabase_admin()
     try:
-        rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000, include_carta_porte=False)
+        rows = _gas_lp_company_facturas_rows(
+            sb,
+            user,
+            profile,
+            month=month,
+            limit=1200,
+            include_carta_porte=False,
+            select="id,user_id,tenant_id,perfil_id,facility_id,record_uuid,uuid_sat,status,fecha_timbrado,rfc_receptor,volumen_litros,importe,tipo_comprobante,metadata,created_at,updated_at,email_enviado,email_destinatario,email_error",
+            company_fallback=False,
+            visibility_log=False,
+        )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_conciliacion_summary", exc)
     _gas_lp_attach_internal_creators(sb, rows)
@@ -4481,13 +4636,14 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
     resultado = timbrar_cfdi(xml_pago)
     if resultado.get("error"):
         logger.warning(
-            "gas_lp_complemento_pago_pac_error factura_ids=%s fecha_cfdi=%s fecha_pago=%s forma_pago=%s monto=%s pac_response=%s",
+            "gas_lp_complemento_pago_pac_error factura_ids=%s fecha_cfdi=%s fecha_pago=%s forma_pago=%s monto=%s pac_response_hash=%s pac_response_len=%s",
             factura_ids,
             totals.get("fecha_cfdi"),
             totals.get("fecha_pago"),
             totals.get("forma_pago"),
             totals.get("monto"),
-            resultado.get("pac_response") or resultado,
+            _hash_text(json.dumps(resultado.get("pac_response") or resultado, ensure_ascii=False, default=str)),
+            len(json.dumps(resultado.get("pac_response") or resultado, ensure_ascii=False, default=str)),
         )
         raise HTTPException(
             400,
@@ -5065,14 +5221,14 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     }
     _write_gas_lp_hyp_debug_log(debug_payload)
     logger.info(
-        "gas_lp_hyp_pre_timbrado usuario=%s empresa=%s empresa_rfc=%s sw_env=%s app_env=%s endpoint=%s rfc_emisor=%s sandbox=%s timbrado=%s hyp_mode=%s experimental=%s facility_id=%s instalacion=%s numero_permiso_instalacion=%s numero_permiso_original=%s numero_permiso_final=%s tipo_permiso_original=%s tipo_permiso_final=%s clave_prod_serv_recibida=%s clave_prod_serv_final=%s incluye_hyp=%s clave_hyp=%s subproducto_hyp=%s hyp_xml=%s xml_enviado=%s",
+        "gas_lp_hyp_pre_timbrado usuario=%s empresa=%s empresa_rfc=%s sw_env=%s app_env=%s endpoint=%s rfc_emisor=%s sandbox=%s timbrado=%s hyp_mode=%s experimental=%s facility_id=%s instalacion=%s numero_permiso_instalacion=%s numero_permiso_original=%s numero_permiso_final=%s tipo_permiso_original=%s tipo_permiso_final=%s clave_prod_serv_recibida=%s clave_prod_serv_final=%s incluye_hyp=%s clave_hyp=%s subproducto_hyp=%s hyp_xml_hash=%s hyp_xml_len=%s cfdi_xml_hash=%s cfdi_xml_len=%s",
         user.get("display_name") or user.get("id") or "",
         profile.get("nombre") or "",
-        profile.get("rfc") or "",
+        _mask_rfc(profile.get("rfc") or ""),
         sw_config.get("sw_env") or "",
         sw_config.get("app_env") or "",
         sw_config.get("xml_issue_url") or "",
-        issuer.get("rfc") or "",
+        _mask_rfc(issuer.get("rfc") or ""),
         sw_sandbox,
         "prueba" if sw_sandbox else "real",
         hyp_mode,
@@ -5089,15 +5245,17 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         bool(hyp_node_xml and "HidroYPetro" in xml),
         hyp.get("clave_hyp") or "",
         hyp.get("subproducto_hyp") or "",
-        hyp_node_xml,
-        xml,
+        _hash_text(hyp_node_xml),
+        len(hyp_node_xml or ""),
+        _hash_text(xml),
+        len(xml or ""),
     )
     if sw_sandbox:
         logger.warning(
             "gas_lp_timbrado_bloqueado_por_ambiente sw_env=%s endpoint=%s rfc_emisor=%s",
             sw_config.get("sw_env") or "",
             sw_config.get("xml_issue_url") or "",
-            issuer.get("rfc") or "",
+            _mask_rfc(issuer.get("rfc") or ""),
         )
         if is_transfer:
             _gas_lp_revert_invoice_folio_if_current(sb, user, transfer_folio_reservation, reason="sw_sandbox_blocked")
@@ -5161,11 +5319,12 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         })
     if is_transfer:
         logger.info(
-            "[GasLP traspaso] sw_response folio=%s uuid=%s error=%s pac_response=%s",
+            "[GasLP traspaso] sw_response folio=%s uuid=%s error=%s pac_response_hash=%s pac_response_len=%s",
             folio_factura,
             resultado.get("uuid") or "",
             bool(resultado.get("error")),
-            json.dumps(resultado.get("pac_response") or {}, ensure_ascii=False, default=str)[:4000],
+            _hash_text(json.dumps(resultado.get("pac_response") or {}, ensure_ascii=False, default=str)),
+            len(json.dumps(resultado.get("pac_response") or {}, ensure_ascii=False, default=str)),
         )
         if not resultado.get("uuid") and resultado.get("xml_timbrado"):
             try:
@@ -5244,7 +5403,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                 reason="pac_rejected",
             )
             logger.warning(
-                "[GasLP traspaso] pac_rejected user=%s folio=%s folio_reverted=%s origen=%s destino=%s litros=%s precio_original=%s precio_cfdi=%s total=%s pac=%s",
+                "[GasLP traspaso] pac_rejected user=%s folio=%s folio_reverted=%s origen=%s destino=%s litros=%s precio_original=%s precio_cfdi=%s total=%s pac_response_hash=%s pac_response_len=%s",
                 user.get("display_name") or user.get("id") or "",
                 folio_factura,
                 folio_reverted,
@@ -5254,7 +5413,8 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
                 payload.precio_unitario,
                 precio_unitario_cfdi,
                 totals.get("total"),
-                json.dumps(resultado.get("pac_response") or {}, ensure_ascii=False, default=str),
+                _hash_text(json.dumps(resultado.get("pac_response") or {}, ensure_ascii=False, default=str)),
+                len(json.dumps(resultado.get("pac_response") or {}, ensure_ascii=False, default=str)),
             )
             raise HTTPException(400, {
                 "message": f"PAC/SW rechazó el traspaso: {pac_error}",

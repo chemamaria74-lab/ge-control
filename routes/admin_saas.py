@@ -20,7 +20,7 @@ from supabase_config import get_supabase_admin, get_supabase_for_user
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-SECTIONS = {"transporte", "gas_lp", "gasolineras"}
+SECTIONS = {"transporte", "gas_lp"}
 ROLES = {"admin", "user", "operador", "asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"}
 SUB_STATUSES = {"active", "trialing", "past_due", "canceled", "expired"}
 RAW_ERROR_PATTERNS = (
@@ -125,15 +125,6 @@ DEFAULT_LIMITS_JSON = {
         "can_stamp_carta_porte": True,
         "can_invoice_service": True,
         "can_use_liquidaciones": True,
-    },
-    "gasolineras": {
-        "enabled": False,
-        "stations": 0,
-        "users": 0,
-        "can_view_map": True,
-        "can_view_radar": False,
-        "can_use_operations": False,
-        "can_view_reports": False,
     },
 }
 
@@ -432,9 +423,6 @@ def _inspect_user(identifier: str) -> dict:
         "providers": _count_rows(sb, "providers", "user_id", target_user_id),
         "zc_settings": _count_rows(sb, "zc_settings", "user_id", target_user_id),
         "settings_audit": _count_rows(sb, "settings_audit", "user_id", target_user_id),
-        "gaso_estaciones": _count_rows(sb, "gaso_estaciones", "user_id", target_user_id),
-        "gaso_cfdi_compras": _count_rows(sb, "gaso_cfdi_compras", "user_id", target_user_id),
-        "gaso_ventas": _count_rows(sb, "gaso_ventas", "user_id", target_user_id),
         "tr_viajes": _count_rows(sb, "tr_viajes", "user_id", target_user_id),
         "tr_cfdi": _count_rows(sb, "tr_cfdi", "user_id", target_user_id),
         "tr_choferes": _count_rows(sb, "tr_choferes", "user_id", target_user_id),
@@ -554,11 +542,6 @@ def _delete_test_user_local(target_user_id: str, actor_id: str) -> dict:
         "records",
         "reports",
         "movimientos",
-        "gaso_precio_historico",
-        "gaso_cfdi_compras",
-        "gaso_ventas",
-        "gaso_alertas",
-        "gaso_estaciones",
         "tr_viaje_documentos",
         "tr_viaje_eventos",
         "tr_gastos_viaje",
@@ -584,7 +567,6 @@ def _delete_test_user_local(target_user_id: str, actor_id: str) -> dict:
         "user_licenses",
         "zc_settings",
         "settings_audit",
-        "gaso_settings",
         "tr_settings",
         "perfiles_empresa",
     ]
@@ -624,7 +606,6 @@ def _load_admin_snapshot() -> dict:
         "internal_users": sb.table("internal_users").select("id,tenant_id,owner_user_id,perfil_id,section,role,status,chofer_id,display_name,last_access_at,created_at").execute().data or [],
         "choferes": sb.table("tr_choferes").select("id,user_id,perfil_id,activo").execute().data or [],
         "vehiculos": sb.table("tr_vehiculos").select("id,user_id,perfil_id,activo").execute().data or [],
-        "gaso_estaciones": sb.table("gaso_estaciones").select("id,user_id,perfil_id,propia,activa").execute().data or [],
     }
 
 
@@ -653,7 +634,6 @@ def _tenant_usage(snapshot: dict, tenant_id: str) -> dict:
     internal_users = [u for u in snapshot["internal_users"] if str(u.get("tenant_id")) == str(tenant_id)]
     choferes = [c for c in snapshot["choferes"] if c.get("perfil_id") in profile_ids and c.get("activo")]
     vehiculos = [v for v in snapshot["vehiculos"] if v.get("perfil_id") in profile_ids and v.get("activo")]
-    stations = [e for e in snapshot["gaso_estaciones"] if e.get("perfil_id") in profile_ids and e.get("propia") and e.get("activa")]
     assistants = [u for u in internal_users if u.get("section") == "gas_lp" and u.get("role") in {"asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"} and (u.get("status") or "active") == "active"]
     operators = [u for u in internal_users if u.get("section") == "transporte" and u.get("role") == "operador" and (u.get("status") or "active") == "active"]
     admin_users = [s for s in sections if (s.get("role") or "") == "admin" and (s.get("status") or "active") == "active"]
@@ -672,7 +652,6 @@ def _tenant_usage(snapshot: dict, tenant_id: str) -> dict:
         "admins_transporte": len([s for s in admin_users if s.get("section") == "transporte"]),
         "choferes": len(choferes),
         "vehiculos": len(vehiculos),
-        "stations_gasolineras": len(stations),
     }
 
 
@@ -700,8 +679,6 @@ def _assert_tenant_can_add(tenant_id: str, section: str | None = None, bucket: s
         raise HTTPException(403, "El cliente alcanzó el límite de operadores Transporte.")
     if bucket == "transporte_admins" and _limit_blocks_create(usage["admins_transporte"], (limits.get("transporte") or {}).get("admins")):
         raise HTTPException(403, "El cliente alcanzó el límite de administradores Transporte.")
-    if bucket == "gasolineras_users" and _limit_blocks_create((usage["module_users"] or {}).get("gasolineras", 0), (limits.get("gasolineras") or {}).get("users")):
-        raise HTTPException(403, "El cliente alcanzó el límite de usuarios Gasolineras.")
 
 
 def _tenant_license_rows(snapshot: dict) -> list[dict]:
@@ -732,8 +709,6 @@ def _tenant_license_rows(snapshot: dict) -> list[dict]:
                 "gas_lp_assistants": _limit_usage(usage["assistants_gas_lp"], (limits.get("gas_lp") or {}).get("assistants")),
                 "transporte_operators": _limit_usage(usage["operators_transporte"], (limits.get("transporte") or {}).get("operators")),
                 "transporte_admins": _limit_usage(usage["admins_transporte"], (limits.get("transporte") or {}).get("admins")),
-                "gasolineras_stations": _limit_usage(usage["stations_gasolineras"], (limits.get("gasolineras") or {}).get("stations")),
-                "gasolineras_users": _limit_usage((usage["module_users"] or {}).get("gasolineras", 0), (limits.get("gasolineras") or {}).get("users")),
             },
         })
     return rows
@@ -925,11 +900,9 @@ async def admin_saas_dashboard(authorization: str = Header(default="")):
             "usuarios_activos": len({s.get("user_id") for s in sections if (s.get("status") or "active") == "active"}),
             "usuarios_gas_lp": len({s.get("user_id") for s in sections if s.get("section") == "gas_lp" and (s.get("status") or "active") == "active"}),
             "usuarios_transporte": len({s.get("user_id") for s in sections if s.get("section") == "transporte" and (s.get("status") or "active") == "active"}),
-            "usuarios_gasolineras": len({s.get("user_id") for s in sections if s.get("section") == "gasolineras" and (s.get("status") or "active") == "active"}),
             "modulos_activos": modules_active,
             "operadores_transporte": len([u for u in internal_users if u.get("section") == "transporte" and u.get("role") == "operador" and (u.get("status") or "active") == "active"]),
             "asistentes_gas_lp": len([u for u in internal_users if u.get("section") == "gas_lp" and u.get("role") in {"asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"} and (u.get("status") or "active") == "active"]),
-            "estaciones_propias": len([e for e in snapshot["gaso_estaciones"] if e.get("propia") and e.get("activa")]),
             "empresas_sin_tenant": issues["perfiles_sin_tenant"],
             "suscripciones_vencidas": len([s for s in subs if s.get("status") in {"expired", "canceled", "past_due"}]),
             "clientes_con_problemas": sum(1 for v in issues.values() if v),
@@ -1199,8 +1172,6 @@ async def create_saas_user(payload: CreateUserPayload, authorization: str = Head
         bucket = None
         if payload.section == "transporte" and payload.role == "admin":
             bucket = "transporte_admins"
-        elif payload.section == "gasolineras":
-            bucket = "gasolineras_users"
         existing_section = _sb_admin().table("user_sections").select("user_id").eq("user_id", target_uid).eq("section", payload.section).eq("status", "active").limit(1).execute().data or []
         _assert_tenant_can_add(str(payload.tenant_id), section=payload.section, bucket=None if existing_section else bucket)
     section = {
@@ -1226,8 +1197,6 @@ async def upsert_user_section(payload: UserSectionPayload, authorization: str = 
         bucket = None
         if payload.section == "transporte" and payload.role == "admin":
             bucket = "transporte_admins"
-        elif payload.section == "gasolineras":
-            bucket = "gasolineras_users"
         existing_section = _sb_admin().table("user_sections").select("user_id").eq("user_id", payload.user_id).eq("section", payload.section).eq("status", "active").limit(1).execute().data or []
         _assert_tenant_can_add(str(payload.tenant_id), section=payload.section, bucket=None if existing_section else bucket)
     row = payload.model_dump()

@@ -35,7 +35,7 @@ from supabase_config import get_supabase, get_supabase_for_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-MODULES_VALIDOS = {"gas_lp", "transporte", "gasolineras"}
+MODULES_VALIDOS = {"gas_lp", "transporte"}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -406,7 +406,6 @@ def _assert_can_create_company(user_id: str, access_token: str, module: str | No
         label = {
             "gas_lp": "Gas LP",
             "transporte": "Transporte",
-            "gasolineras": "Gasolineras",
         }.get(usage.get("module") or "", "")
         raise HTTPException(
             403,

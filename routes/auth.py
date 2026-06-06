@@ -23,8 +23,9 @@ from supabase_config import get_supabase, get_supabase_for_user, SUPABASE_URL, S
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-Section = Literal["gas_lp", "transporte", "gasolineras"]
-SECCIONES_VALIDAS = {"gas_lp", "transporte", "gasolineras"}
+Section = Literal["gas_lp", "transporte"]
+SECCIONES_VALIDAS = {"gas_lp", "transporte"}
+SECCIONES_OPERATIVAS = {"gas_lp", "transporte"}
 ROLES_VALIDOS = {
     "admin",
     "user",
@@ -41,7 +42,7 @@ ROLES_VALIDOS = {
 
 def obtener_secciones_usuario(user_id: str, access_token: Optional[str] = None) -> list[str]:
     """
-    Devuelve todas las secciones ('gas_lp' | 'transporte' | 'gasolineras') asignadas al usuario.
+    Devuelve todas las secciones ('gas_lp' | 'transporte') asignadas al usuario.
     Usa un cliente fresco autenticado con el JWT para respetar RLS.
     NO muta el cliente global.
     """
@@ -245,8 +246,6 @@ def usuario_tiene_acceso_perfil(
         assigned = acceso.get("perfil_id")
         if assigned is not None and str(assigned) == str(perfil_id):
             return _active_profile_allowed_for_module(user_id, section, perfil_id, access_token=access_token) is not None
-        if role == "admin" and _active_profile_allowed_for_module(user_id, section, perfil_id, access_token=access_token):
-            return True
         if assigned is None and role == "admin":
             try:
                 sb = get_supabase_for_user(access_token) if access_token else get_supabase()
@@ -444,6 +443,8 @@ async def login(payload: LoginPayload):
     requested = (payload.modulo or "gas_lp").strip().lower()
     if requested not in SECCIONES_VALIDAS:
         raise HTTPException(status_code=400, detail=f"Módulo inválido: {payload.modulo}")
+    if requested not in SECCIONES_OPERATIVAS:
+        raise HTTPException(status_code=403, detail="Este módulo ya no está disponible en la experiencia de usuario.")
 
     sb = get_supabase()
     try:
