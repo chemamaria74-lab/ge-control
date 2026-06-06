@@ -10,11 +10,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = [
+    ROOT / "templates" / "app.html",
     ROOT / "templates" / "asistente_gas_lp.html",
     ROOT / "templates" / "conciliacion_gas_lp.html",
     ROOT / "templates" / "admin_saas.html",
 ]
 JS_DIRS = [
+    ROOT / "static" / "js" / "app",
     ROOT / "static" / "js" / "gas_lp" / "asistente",
     ROOT / "static" / "js" / "gas_lp" / "conciliacion",
     ROOT / "static" / "js" / "admin_saas",
