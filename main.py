@@ -399,7 +399,7 @@ async def module_role_view(modulo: str, lang: str = "es"):
 async def frontend(lang: str = "es"):
     """Sirve app.html e inyecta el idioma en la etiqueta html."""
     with open(os.path.join(BASE_DIR, "templates", "app.html"), encoding="utf-8") as f:
-        html = f.read()
+        html = _expand_template_includes(f.read())
     html = html.replace(
         '<link rel="stylesheet" href="/static/css/ge-brand.css">',
         '<link rel="stylesheet" href="/static/css/ge-brand.css">\n<link rel="stylesheet" href="/static/css/gas_lp_shell_unified.css">',
