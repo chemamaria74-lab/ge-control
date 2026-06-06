@@ -442,7 +442,6 @@ def _modern_header(title, logo, root, emisor, timbre, Table, TableStyle, Paragra
     )
     left = Table([
         [brand],
-        [Paragraph("Representación impresa generada por GE Control", styles["Tiny"])],
     ], colWidths=[2.55 * 72])
     left.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
