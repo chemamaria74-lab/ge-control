@@ -5,6 +5,7 @@ Este documento resume la estructura creada para evitar templates monolíticos y 
 ## Templates principales
 
 - `templates/app.html`: shell principal del dashboard Gas LP.
+- `templates/transporte.html`: shell principal del dashboard Transporte.
 - `templates/asistente_gas_lp.html`: shell del asistente Gas LP.
 - `templates/conciliacion_gas_lp.html`: shell de conciliación Gas LP.
 - `templates/admin_saas.html`: shell de administración SaaS.
@@ -17,6 +18,8 @@ Los shells cargan CSS/JS externos y componen HTML con comentarios `<!-- ge-inclu
   - `_body.html`
   - `_critical_modal.html`
   - `_confirm_modal.html`
+- `templates/transporte/`
+  - `_body.html`
 - `templates/gas_lp/asistente/`
   - `_dashboard.html`
   - `_facturacion.html`
@@ -50,9 +53,11 @@ Los shells cargan CSS/JS externos y componen HTML con comentarios `<!-- ge-inclu
 
 - `static/css/gas_lp/asistente.css`
 - `static/css/app.css`
+- `static/css/transporte.css`
 - `static/css/gas_lp/conciliacion.css`
 - `static/css/admin_saas.css`
 - `static/js/app/*.js`
+- `static/js/transporte/*.js`
 - `static/js/gas_lp/asistente/*.js`
 - `static/js/gas_lp/conciliacion/*.js`
 - `static/js/admin_saas/*.js`
