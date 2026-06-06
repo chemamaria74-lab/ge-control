@@ -44,13 +44,11 @@ def main() -> int:
         "/choice",
         "/login/{modulo}",
         "/transporte",
-        "/gasolineras",
         "/api/auth/login",
         "/api/upload",
         "/api/upload/cfdi",
         "/api/tr/viajes",
         "/api/tr/facturas",
-        "/api/gaso/summary",
     }
     missing = sorted(required_routes - route_paths)
     if missing:
@@ -63,7 +61,6 @@ def main() -> int:
         ("/choice", 200),
         ("/login/transporte", 200),
         ("/transporte", 200),
-        ("/gasolineras", 200),
     ]
     for path, expected in smoke_gets:
         response = client.get(path)
@@ -77,7 +74,6 @@ def main() -> int:
     protected_checks = [
         "/api/tr/viajes",
         "/api/tr/facturas",
-        "/api/gaso/summary",
     ]
     for path in protected_checks:
         response = client.get(path)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke test de staging para GE Control Fase 3.
+"""Smoke test de staging para GE Control Fase 3A.
 
 Uso:
   GE_STAGING_BASE_URL=https://z-control-program.onrender.com \
@@ -46,13 +46,13 @@ def main() -> int:
         print("Missing GE_STAGING_EMAIL/GE_STAGING_PASSWORD")
         return 2
     public = {}
-    for path in ["/health", "/choice", "/admin-saas", "/gasolineras", "/login/gasolineras", "/transporte", "/app"]:
+    for path in ["/health", "/choice", "/admin-saas", "/login/transporte", "/transporte", "/app"]:
         try:
             with urllib.request.urlopen(f"{BASE}{path}", timeout=20) as res:
                 public[path] = res.status
         except urllib.error.HTTPError as exc:
             public[path] = exc.code
-    login = request("/api/auth/login", "POST", body={"username": EMAIL, "password": PASSWORD, "modulo": "gasolineras"})
+    login = request("/api/auth/login", "POST", body={"username": EMAIL, "password": PASSWORD, "modulo": "transporte"})
     token = login.get("token", "")
     if not token:
         print(json.dumps({"public": public, "login": False, "detail": login.get("detail")}, indent=2))
@@ -60,26 +60,21 @@ def main() -> int:
     me = request("/api/auth/me", token=token)
     perfil_id = ""
     for acceso in me.get("accesos", []):
-        if acceso.get("section") == "gasolineras" and acceso.get("perfil_id"):
+        if acceso.get("section") in {"transporte", "gas_lp"} and acceso.get("perfil_id"):
             perfil_id = str(acceso["perfil_id"])
             break
     if not perfil_id:
         perfiles = request("/api/perfiles", token=token).get("perfiles", [])
         perfil_id = str(perfiles[0]["id"]) if perfiles else ""
     checks = {
-        "summary": request("/api/gaso/summary", token=token, perfil_id=perfil_id),
-        "market_status": request("/api/gaso/market/status", token=token),
-        "market": request("/api/gaso/market?limit=50", token=token),
-        "sources": request("/api/gaso/data-sources", token=token),
-        "stations": request("/api/gaso/stations", token=token, perfil_id=perfil_id),
-        "report": request("/api/gaso/executive-report", token=token, perfil_id=perfil_id),
+        "tr_viajes": request("/api/tr/viajes", token=token, perfil_id=perfil_id),
+        "tr_facturas": request("/api/tr/facturas", token=token, perfil_id=perfil_id),
+        "me": {"ok": bool(me.get("user_id") or me.get("id") or "accesos" in me)},
     }
     result = {
         "public": public,
         "auth": {"ok": True, "modules": login.get("modulos", []), "perfil_id_present": bool(perfil_id)},
         "checks": {k: bool(v.get("ok")) for k, v in checks.items()},
-        "dataset": checks["market_status"].get("quality", {}),
-        "csv_url_configured": checks["market_status"].get("csv_url_configured", False),
     }
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0 if all(result["checks"].values()) else 1
