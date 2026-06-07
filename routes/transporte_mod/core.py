@@ -1,934 +1,964 @@
-# routes/transporte.py
-# ─────────────────────────────────────────────────────────────────────────────
-# Endpoints del módulo TRANSPORTE DE HIDROCARBUROS
-# Completamente aislado de Gas LP — no importa ni modifica nada de Gas LP.
+# routes/facturas.py — v2.2
 #
-# Todas las tablas usan el prefijo tr_ para no colisionar con Gas LP.
-# La sección 'transporte' se valida via user_sections (Supabase).
+# CORRECCIONES vs versión anterior:
 #
-# Endpoints:
-#   GET  /api/tr/catalogo/productos      — ClaveProducto + SubProducto
-#   POST /api/tr/viajes                  — Registrar viaje
-#   GET  /api/tr/viajes                  — Listar viajes del usuario
-#   GET  /api/tr/viajes/{id}             — Detalle de un viaje
-#   PUT  /api/tr/viajes/{id}             — Editar viaje no timbrado
-#   DELETE /api/tr/viajes/{id}           — Eliminar viaje no timbrado
-#   POST /api/tr/viajes/{id}/timbrar     — Timbrar CFDI del viaje
-#   POST /api/tr/viajes/{id}/cancelar    — Cancelar CFDI
-#   GET  /api/tr/facturas                — Listar CFDIs timbrados
-#   GET  /api/tr/facturas/{id}/xml       — Descargar XML
-#   POST /api/tr/covol/generar           — Generar JSON covol mensual
-#   GET  /api/tr/choferes                — CRUD choferes
-#   POST /api/tr/choferes
-#   PUT  /api/tr/choferes/{id}
-#   DELETE /api/tr/choferes/{id}
-#   GET  /api/tr/vehiculos               — CRUD vehículos
-#   POST /api/tr/vehiculos
-#   PUT  /api/tr/vehiculos/{id}
-#   DELETE /api/tr/vehiculos/{id}
-#   GET  /api/tr/rutas                   — CRUD rutas
-#   POST /api/tr/rutas
-#   PUT  /api/tr/rutas/{id}
-#   DELETE /api/tr/rutas/{id}
-#   GET  /api/tr/clientes                — CRUD clientes transporte
-#   POST /api/tr/clientes
-#   PUT  /api/tr/clientes/{id}
-#   DELETE /api/tr/clientes/{id}
-#   GET  /api/tr/settings                — Config del módulo transporte
-#   PUT  /api/tr/settings
-# ─────────────────────────────────────────────────────────────────────────────
+# 1. ACTUALIZAR_RUTA — BUG DE COLUMNAS INCORRECTO:
+#    - Antes: "UPDATE rutas SET nombre=?, origen=?, destino=?, ..."
+#      Las columnas de la tabla se llaman cp_origen y cp_destino (creadas en
+#      _ensure_rutas_table). Usar "origen" y "destino" causa OperationalError
+#      silencioso (SQLite no actualiza nada pero tampoco lanza excepción en
+#      algunas versiones). En SQLite estricto lanza "no such column: origen".
+#    - Ahora: "UPDATE rutas SET nombre=?, cp_origen=?, cp_destino=?, ..."
+#
+# 2. DDL REPETIDO — REFACTORIZACIÓN:
+#    - Antes: CREATE TABLE IF NOT EXISTS repetido en cada endpoint (GET + POST)
+#      de choferes, vehiculos, rutas y clientes. Esto es ineficiente y propenso
+#      a divergencias. Ahora el DDL está centralizado en _ensure_tables().
+#
+# 3. SQLITE LEGACY READONLY:
+#    - storage/data.db queda como histórico temporal apagado por defecto.
+#      Para consultar documentos legacy durante backfill usar:
+#      GAS_LP_SQLITE_READONLY=true.
+#
+# 4. SQL INJECTION PREVENTION — VERIFICADO:
+#    - Todos los queries usan parámetros posicionales (?, ?,  ...) — no hay
+#      interpolación de strings de usuario en SQL. Mantenido y confirmado.
 
-from __future__ import annotations
 import json
 import logging
 import os
-import re
-import hashlib
-import secrets
-from io import BytesIO
-from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+import sqlite3
+import uuid
+from decimal import Decimal
+from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
-from routes.auth import obtener_acceso_modulo, require_profile_access, verify_token
-from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user
-from services.product_catalog import get_all_productos, get_producto, validar_producto_completo
-from services.cne_validator import validar_num_permiso
-from services.transport_builder import build_cfdi_transporte, build_cfdi_cancelacion_transporte
-from services.service_invoice_builder import build_cfdi_servicio_transporte, money
-from services.transport_transformer import (
-    build_transport_covol, save_transport_covol, transport_covol_to_json
-)
-from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml
+from routes.auth import obtener_acceso_modulo, verify_token
 from services.fiscal_pdf import (
     audit_fiscal_pdf_event,
     fiscal_pdf_info,
+    generar_pdf_gas_lp_desde_xml,
     generar_pdf_ingreso_desde_xml,
     save_fiscal_artifacts,
 )
 from services.fiscal_audit import version_xml
-from services.carta_porte_validation import requiere_complemento_hidrocarburos, validar_xml_carta_porte_transporte
 from services.cfdi_cancellation import cancel_cfdi_universal
-from services.sat_xml_extractor import extraer_factura_timbrada_sat
-from services.sat_sync_worker import SatSyncWindow, ingest_manual_sat_xmls
-from models.transport_schemas import (
-    ViajeCreate, ProductoTransporte, TimbradoViajeRequest, CancelacionViajeRequest,
-    FacturaServicioCreate,
-    GenerarCovolRequest, ChoferTransporteCreate, VehiculoTransporteCreate,
-    RutaTransporteCreate, ClienteTransporteCreate,
-)
-from services.sw_sapien import timbrar_cfdi, emitir_timbrar_json
+from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
+from services.carta_porte_validation import validar_xml_carta_porte_transporte
+from supabase_config import get_supabase_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# ── Prefijo de todas las tablas de transporte ─────────────────────────────────
-# NUNCA modificar tablas sin prefijo tr_ (esas son de Gas LP)
-_TBL_VIAJES    = "tr_viajes"
-_TBL_CFDI      = "tr_cfdi"
-_TBL_FACT_SERV = "tr_facturas_servicio"
-_TBL_FACT_SERV_CARTAS = "tr_facturas_servicio_cartas"
-_TBL_CHOFERES  = "tr_choferes"
-_TBL_VEHICULOS = "tr_vehiculos"
-_TBL_RUTAS     = "tr_rutas"
-_TBL_CLIENTES  = "tr_clientes"
-_TBL_SETTINGS  = "tr_settings"
-_TBL_COVOL     = "tr_covol_reports"
-_TBL_EVENTOS   = "tr_viaje_eventos"
-_TBL_DOCS      = "tr_viaje_documentos"
-_TBL_TARIFAS   = "tr_tarifas"
-_TBL_GASTOS    = "tr_gastos_viaje"
-_TBL_LIQS      = "tr_liquidaciones"
-_TBL_LIQ_ITEMS = "tr_liquidacion_items"
-_TBL_NOTIFS    = "tr_notificaciones"
-_TBL_OPER_ACC  = "tr_operador_accesos"
-_TBL_IMPORTS   = "tr_importaciones"
-_TBL_ORIGENES  = "tr_origenes"
-_TBL_DESTINOS  = "tr_destinos"
-_TBL_CENTROS   = "tr_centros_emisores"
-_TBL_REMOLQUES = "tr_remolques"
-_TBL_VEH_REM   = "tr_vehiculo_remolques"
-_TBL_SEGUROS   = "tr_vehiculo_seguros"
-_TBL_PERMISOS  = "tr_permisos_operacion"
-_TBL_VEH_PERM  = "tr_vehiculo_permisos"
-_TBL_PROV_OPS  = "tr_proveedores_operacion"
-_TBL_PROD_OPS  = "tr_productos_operacion"
+DB_PATH  = os.path.join(os.path.dirname(__file__), "..", "storage", "data.db")
+CFG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "settings.json")
 
-MODULO = "transporte"
-_RFC_RE = re.compile(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$", re.IGNORECASE)
-_CP_RE = re.compile(r"^\d{5}$")
-_REGIMENES_PERSONA_MORAL = {"601", "603", "610", "620", "622", "623", "624", "626"}
-_REGIMENES_PERSONA_FISICA = {"605", "606", "607", "608", "611", "612", "614", "615", "616", "621", "625", "626"}
-_RFC_PRUEBAS_SAT = {
-    # CSD/RFC de pruebas publicado por SAT/SW. El nombre debe ir exactamente así para CFDI 4.0.
-    "EKU9003173C9": {
-        "nombre": "ESCUELA KEMPER URGATE",
-        "cp": "42501",
-        "regimen_fiscal": "601",
-    },
+_SB_FACTURAS = "gas_lp_facturas"
+_SB_FACTURAS_SERVICIO = "gas_lp_facturas_servicio"
+_SB_CHOFERES = "gas_lp_choferes"
+_SB_VEHICULOS = "gas_lp_vehiculos"
+_SB_RUTAS = "gas_lp_rutas"
+_SB_UBICACIONES_CP = "gas_lp_ubicaciones_carta_porte"
+_SB_MERCANCIAS_CP = "gas_lp_mercancias_carta_porte"
+_SB_FACILITY_CP_CONFIG = "gas_lp_facility_carta_porte_config"
+
+GAS_LP_CP_DEFAULTS = {
+    "alias": "Gas LP",
+    "bienes_transp": "15111510",
+    "descripcion": "Gas licuado de petróleo",
+    "clave_unidad": "LTR",
+    "unidad": "Litro",
+    "factor_kg_litro": 0.54,
+    "material_peligroso": True,
+    "clave_material_peligroso": "1075",
+    "embalaje": "Z01",
+    "descripcion_embalaje": "",
 }
+_SB_CLIENTES = "gas_lp_clientes_facturacion"
+_TRUE_VALUES = {"1", "true", "yes", "on", "si", "sí"}
+GAS_LP_SQLITE_READONLY = (os.environ.get("GAS_LP_SQLITE_READONLY") or "").strip().lower() in _TRUE_VALUES
+
+if GAS_LP_SQLITE_READONLY:
+    logger.warning(
+        "Gas LP SQLite legacy READONLY está habilitado. Usar solo para backfill/consulta "
+        "temporal; producción debe operar contra Supabase gas_lp_*."
+    )
 
 
-class CancelacionFacturaServicioRequest(BaseModel):
-    motivo: str = "02"
-    uuid_sustitucion: str = ""
+# ── Auth helper ───────────────────────────────────────────────────────────────
 
-
-# ── Helpers de autenticación ──────────────────────────────────────────────────
-
-def _auth(authorization: str) -> tuple[str, str]:
-    """
-    Valida Bearer token y devuelve (user_id, access_token).
-    Verifica que el usuario tenga sección 'transporte' en user_sections.
-    """
+def _auth_token(authorization: str) -> tuple[str, str]:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
     token = authorization[7:]
     uid = verify_token(token)
     if not uid:
         raise HTTPException(401, "Token inválido o expirado.")
-    # Verificar sección transporte
-    try:
-        sb = get_supabase_for_user(token)
-        res = sb.table("user_sections").select("section").eq("user_id", uid).execute()
-        secciones = {(r.get("section") or "").strip().lower() for r in (res.data or [])}
-        if MODULO not in secciones:
-            raise HTTPException(403, "Este usuario no tiene acceso al módulo de transporte.")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning("No se pudo verificar sección para %s: %s", uid, e)
-        raise HTTPException(403, "No se pudo verificar acceso al módulo de transporte.")
     return uid, token
 
 
-def _sb(token: str):
-    return get_supabase_for_user(token)
+def _auth(authorization: str) -> str:
+    uid, _token = _auth_token(authorization)
+    return uid
 
 
-def _parse_perfil_id(raw: str | None) -> Optional[int]:
+def _require_admin_gas_lp(authorization: str) -> str:
+    uid, token = _auth_token(authorization)
+    role = (obtener_acceso_modulo(uid, "gas_lp", access_token=token).get("role") or "user").lower()
+    if role != "admin":
+        raise HTTPException(403, "Solo administradores de Gas LP pueden cancelar CFDI.")
+    return uid
+
+
+def _parse_perfil_id(raw: str) -> Optional[int]:
     try:
-        v = int(str(raw or "").strip())
-        return v if v > 0 else None
+        value = int((raw or "").strip())
+        return value if value > 0 else None
     except (TypeError, ValueError):
         return None
 
 
-def _perfil(perfil_id: Optional[int] = None, x_perfil_id: str = "") -> Optional[int]:
-    pid = perfil_id or _parse_perfil_id(x_perfil_id)
-    if not pid:
-        raise HTTPException(400, "Selecciona un perfil/empresa activo para operar Transporte.")
-    return pid
+def _validar_cliente_cfdi_payload(rfc: str, nombre: str, cp: str, regimen_fiscal: str, uso_cfdi: str) -> dict:
+    from routes.transporte import _normalizar_receptor_cfdi, _validar_datos_cfdi_receptor
+
+    receptor = _normalizar_receptor_cfdi(rfc, nombre, cp, regimen_fiscal)
+    if receptor["rfc"] == "XAXX010101000":
+        receptor = {
+            "rfc": "XAXX010101000",
+            "nombre": "PUBLICO EN GENERAL",
+            "cp": receptor.get("cp") or "00000",
+            "regimen_fiscal": "616",
+        }
+        uso_cfdi = "S01"
+    _validar_datos_cfdi_receptor(
+        receptor["rfc"],
+        receptor["regimen_fiscal"],
+        receptor["cp"],
+        uso_cfdi,
+    )
+    return {**receptor, "uso_cfdi": uso_cfdi}
 
 
-def _perfil_autorizado(uid: str, token: str, perfil_id: Optional[int] = None, x_perfil_id: str = "") -> int:
-    pid = _perfil(perfil_id, x_perfil_id)
-    require_profile_access(uid, MODULO, pid, access_token=token)
-    return pid
+def _clean_billing_email(value: str | None) -> str:
+    email = str(value or "").strip().lower()
+    if not email:
+        return ""
+    if "@" not in email or " " in email or "." not in email.rsplit("@", 1)[-1]:
+        raise HTTPException(400, "Correo de facturación inválido.")
+    return email
 
 
-def _perfil_sat_scope(uid: str, token: str, perfil_id: Optional[int] = None, x_perfil_id: str = "") -> dict:
-    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
+def _scope(authorization: str, x_perfil_id: str = "") -> dict:
+    uid = _auth(authorization)
+    perfil_id = _parse_perfil_id(x_perfil_id)
+    tenant_id = None
+    profile = None
+    if perfil_id:
+        try:
+            rows = (
+                get_supabase_admin()
+                .table("perfiles_empresa")
+                .select("id,tenant_id,user_id,nombre,rfc,activo")
+                .eq("id", perfil_id)
+                .eq("user_id", uid)
+                .eq("activo", True)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if not rows:
+                raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
+            profile = rows[0]
+            tenant_id = rows[0].get("tenant_id")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning("facturas scope perfil lookup falló: user=%s perfil=%s err=%s", uid, perfil_id, exc)
+    return {"user_id": uid, "perfil_id": perfil_id, "tenant_id": tenant_id, "profile": profile}
+
+
+def _require_supabase_scope(scope: dict) -> None:
+    if not scope.get("perfil_id"):
+        raise HTTPException(400, "Selecciona una empresa/perfil activo antes de guardar datos de Gas LP.")
+
+
+def _legacy_sqlite_enabled() -> bool:
+    return GAS_LP_SQLITE_READONLY
+
+
+def _legacy_not_found(entity: str) -> HTTPException:
+    return HTTPException(
+        404,
+        f"{entity} no existe en Supabase para la empresa seleccionada. "
+        "Si es histórico legacy, corre el backfill o habilita GAS_LP_SQLITE_READONLY temporalmente.",
+    )
+
+
+def _scope_row(scope: dict, extra: Optional[dict] = None) -> dict:
+    row = {
+        "user_id": scope["user_id"],
+        "tenant_id": scope.get("tenant_id"),
+        "perfil_id": scope.get("perfil_id"),
+        "source": "supabase",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if extra:
+        row.update(extra)
+    return row
+
+
+def _clean_rfc(value: str) -> str:
+    return "".join(ch for ch in str(value or "").upper().strip() if ch.isalnum() or ch == "&")[:13]
+
+
+def _clean_cp(value: str) -> str:
+    return "".join(ch for ch in str(value or "").strip() if ch.isdigit())[:5]
+
+
+def _metadata_dict(row: Optional[dict]) -> dict:
+    if not row:
+        return {}
+    metadata = row.get("metadata") or {}
+    if isinstance(metadata, str):
+        try:
+            parsed = json.loads(metadata)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _merge_metadata(row: Optional[dict], values: dict) -> dict:
+    metadata = _metadata_dict(row)
+    for key, value in values.items():
+        if value is not None:
+            metadata[key] = value
+    return metadata
+
+
+def _emisor_from_scope(scope: dict) -> dict:
+    from routes.settings import _load as load_settings
+
+    settings = load_settings(scope["user_id"], int(scope["perfil_id"]))
+    profile = scope.get("profile") or {}
+    rfc = _clean_rfc(settings.get("RfcContribuyente") or profile.get("rfc") or "")
+    nombre = str(settings.get("DescripcionInstalacion") or profile.get("nombre") or "Empresa").strip()
+    cp = _clean_cp(settings.get("CodigoPostal") or settings.get("codigo_postal") or "")
+    regimen = str(settings.get("RegimenFiscal") or settings.get("regimen_fiscal") or "601").strip()
+    if not rfc or not nombre or not cp:
+        raise HTTPException(400, "Configura RFC, nombre fiscal y código postal de la empresa activa antes de timbrar.")
+    return {"rfc": rfc, "nombre": nombre, "regimen_fiscal": regimen or "601", "domicilio_fiscal": cp}
+
+
+def _settings_from_scope(scope: dict) -> dict:
+    if not scope.get("perfil_id"):
+        return {}
+    from routes.settings import _load as load_settings
+
+    return load_settings(scope["user_id"], int(scope["perfil_id"]))
+
+
+def _require_scope_facility(scope: dict, facility_id: Optional[int], label: str) -> dict:
+    if not facility_id:
+        raise HTTPException(400, f"Selecciona {label}.")
     rows = (
         get_supabase_admin()
-        .table("perfiles_empresa")
-        .select("id,tenant_id,nombre,rfc,activo")
-        .eq("id", pid)
+        .table("user_facilities")
+        .select("*")
+        .eq("id", facility_id)
+        .eq("user_id", scope["user_id"])
+        .eq("perfil_id", scope["perfil_id"])
         .limit(1)
         .execute()
         .data
         or []
     )
     if not rows:
-        raise HTTPException(404, "Perfil/empresa no encontrado.")
-    profile = rows[0]
-    if profile.get("activo") is False:
-        raise HTTPException(400, "Perfil/empresa inactivo.")
-    tenant_id = profile.get("tenant_id")
-    if not tenant_id:
-        raise HTTPException(409, "El perfil no tiene tenant_id; corre el backfill SaaS antes de SAT Sync.")
-    return {
-        "perfil_id": pid,
-        "tenant_id": tenant_id,
-        # sat_sync_base.company_id es UUID; mientras companies se normaliza, usamos tenant_id y perfil_id como scope real.
-        "company_id": tenant_id,
-        "profile": profile,
-    }
-
-
-def _require_row_profile(uid: str, token: str, row: dict) -> None:
-    pid = row.get("perfil_id")
-    if not pid:
-        raise HTTPException(403, "Registro legacy sin perfil_id: requiere migración antes de operar.")
-    require_profile_access(uid, MODULO, int(pid), access_token=token)
-
-
-def _settings_transporte(uid: str, token: str, perfil_id: Optional[int] = None) -> dict:
-    """Obtiene la configuración del módulo transporte para el usuario/perfil."""
-    try:
-        sb  = _sb(token)
-        q   = sb.table(_TBL_SETTINGS).select("data").eq("user_id", uid)
-        if perfil_id:
-            q = q.eq("perfil_id", perfil_id)
-        else:
-            q = q.is_("perfil_id", "null")
-        res = q.limit(1).execute()
-        rows = res.data or []
-        return rows[0].get("data", {}) if rows else {}
-    except Exception as e:
-        logger.warning("No se pudo obtener settings transporte para %s: %s", uid, e)
-        return {}
-
-
-def _role_transporte(uid: str, token: str) -> str:
-    acceso = obtener_acceso_modulo(uid, MODULO, access_token=token)
-    return (acceso.get("role") or "user").lower()
-
-
-def _require_admin_transporte(uid: str, token: str) -> None:
-    if _role_transporte(uid, token) != "admin":
-        raise HTTPException(403, "Acceso restringido a administradores de Transporte.")
-
-
-def _get_chofer(uid: str, token: str, chofer_id: int) -> dict:
-    sb  = _sb(token)
-    res = sb.table(_TBL_CHOFERES).select("*").eq("id", chofer_id).eq("user_id", uid).limit(1).execute()
-    rows = res.data or []
-    if not rows:
-        raise HTTPException(404, f"Chofer {chofer_id} no encontrado.")
-    _require_row_profile(uid, token, rows[0])
+        raise HTTPException(404, f"{label.capitalize()} no existe en la empresa activa.")
     return rows[0]
 
 
-def _get_vehiculo(uid: str, token: str, vehiculo_id: int) -> dict:
-    sb  = _sb(token)
-    res = sb.table(_TBL_VEHICULOS).select("*").eq("id", vehiculo_id).eq("user_id", uid).limit(1).execute()
-    rows = res.data or []
-    if not rows:
-        raise HTTPException(404, f"Vehículo {vehiculo_id} no encontrado.")
-    _require_row_profile(uid, token, rows[0])
-    return rows[0]
+def _is_destination_station(facility: dict) -> bool:
+    text = " ".join(str(facility.get(k) or "").lower() for k in ("tipo_instalacion", "tipo_permiso", "descripcion", "nombre", "actividad_sat"))
+    return any(term in text for term in ("estacion", "expendio", "carburacion", "carburación", "per43", "per44", "exo"))
 
 
-def _enriquecer_vehiculo_operativo(uid: str, token: str, vehiculo: dict, perfil_id=None, producto: str = "") -> dict:
-    """Agrega remolques, seguros y permisos configurados al vehículo sin tocar XML fiscal si faltan datos."""
-    sb = _sb(token)
-    vid = vehiculo.get("id")
-    if not vid:
-        return vehiculo
-    try:
-        rem_links = sb.table(_TBL_VEH_REM).select("*").eq("user_id", uid).eq("vehiculo_id", vid).eq("activo", True).order("orden").execute().data or []
-        rem_ids = [int(x.get("remolque_id")) for x in rem_links if x.get("remolque_id")]
-        remolques = []
-        if rem_ids:
-            q = sb.table(_TBL_REMOLQUES).select("*").eq("user_id", uid).in_("id", rem_ids).eq("activo", True)
-            if perfil_id:
-                q = q.eq("perfil_id", perfil_id)
-            rem_rows = q.execute().data or []
-            by_id = {int(r.get("id")): r for r in rem_rows if r.get("id")}
-            for link in rem_links:
-                r = by_id.get(int(link.get("remolque_id") or 0))
-                if r:
-                    r = {**r, "orden": link.get("orden"), "frecuente": link.get("frecuente")}
-                    remolques.append(r)
-        seg_q = sb.table(_TBL_SEGUROS).select("*").eq("user_id", uid).eq("vehiculo_id", vid).eq("activo", True)
-        if perfil_id:
-            seg_q = seg_q.eq("perfil_id", perfil_id)
-        seguros = seg_q.execute().data or []
-        perm_links = sb.table(_TBL_VEH_PERM).select("*").eq("user_id", uid).eq("vehiculo_id", vid).eq("activo", True).execute().data or []
-        perm_ids = [int(x.get("permiso_id")) for x in perm_links if x.get("permiso_id")]
-        permisos = []
-        if perm_ids:
-            p_q = sb.table(_TBL_PERMISOS).select("*").eq("user_id", uid).in_("id", perm_ids).eq("activo", True)
-            if perfil_id:
-                p_q = p_q.eq("perfil_id", perfil_id)
-            perm_rows = p_q.execute().data or []
-            by_id = {int(p.get("id")): p for p in perm_rows if p.get("id")}
-            producto_norm = _normalizar(producto)
-            for link in perm_links:
-                p = by_id.get(int(link.get("permiso_id") or 0))
-                if not p:
-                    continue
-                link_prod = _normalizar(link.get("producto"))
-                if link_prod and producto_norm and link_prod not in producto_norm:
-                    continue
-                permisos.append({**p, "producto_link": link.get("producto") or ""})
-        vehiculo = {**vehiculo, "remolques": remolques, "seguros_operacion": seguros, "permisos_operacion": permisos}
-    except Exception as e:
-        logger.info("No se pudieron cargar datos operativos del vehículo %s: %s", vid, e)
-    return vehiculo
+def _require_active_catalog_row(table: str, scope: dict, row_id: Optional[int], label: str) -> dict:
+    if not row_id:
+        raise HTTPException(400, f"Selecciona {label}.")
+    row = _sb_get(table, int(row_id), scope)
+    if not row or row.get("activo") is False:
+        raise HTTPException(404, f"{label.capitalize()} no existe o está inactivo en la empresa activa.")
+    return row
 
 
-def _editable_viaje(status: str) -> bool:
-    """Permite cambios solo antes de timbrar Carta Porte."""
-    return (status or "").lower() in {"borrador", "programado", "error"}
-
-
-def _validar_rfc_cp_config(data: dict) -> None:
-    for campo in ("RfcContribuyente", "RfcProveedor"):
-        valor = re.sub(r"[^A-Z0-9Ñ&]", "", str(data.get(campo, "") or "").upper())
-        if valor:
-            data[campo] = valor
-        if valor and not _RFC_RE.match(valor):
-            raise HTTPException(400, f"{campo} tiene formato inválido para SAT: {valor}.")
-    cp = str(data.get("CodigoPostal", "") or "").strip()
-    if cp and not _CP_RE.match(cp):
-        raise HTTPException(400, "CodigoPostal debe tener 5 dígitos.")
-    if data.get("RfcContribuyente") and data.get("RegimenFiscal"):
-        _validar_regimen_para_rfc(data.get("RfcContribuyente", ""), data.get("RegimenFiscal", ""), "emisor")
-
-
-def _tipo_persona_rfc(rfc: str) -> str:
-    limpio = re.sub(r"[^A-Z0-9Ñ&]", "", str(rfc or "").upper())
-    if len(limpio) == 12:
-        return "moral"
-    if len(limpio) == 13:
-        return "fisica"
-    raise HTTPException(400, f"RFC emisor inválido para SAT: {limpio or '(vacío)'}.")
-
-
-def _validar_regimen_para_rfc(rfc: str, regimen: str, contexto: str = "emisor") -> None:
-    regimen = str(regimen or "").strip()
-    tipo = _tipo_persona_rfc(rfc)
-    permitidos = _REGIMENES_PERSONA_MORAL if tipo == "moral" else _REGIMENES_PERSONA_FISICA
-    if regimen not in permitidos:
-        etiqueta = "persona moral" if tipo == "moral" else "persona física"
-        raise HTTPException(
-            400,
-            f"Régimen fiscal {contexto} {regimen or '(vacío)'} no corresponde al RFC {rfc} ({etiqueta}). "
-            f"Corrige Configuración antes de timbrar."
-        )
-
-
-def _normalizar_nombre_fiscal(nombre: str) -> str:
-    return re.sub(r"\s+", " ", str(nombre or "").strip().upper())
-
-
-def _normalizar_receptor_cfdi(rfc: str, nombre: str, cp: str = "", regimen: str = "") -> dict:
-    rfc_limpio = re.sub(r"[^A-Z0-9Ñ&]", "", str(rfc or "").upper())
-    normalizado = {
-        "rfc": rfc_limpio,
-        "nombre": _normalizar_nombre_fiscal(nombre),
-        "cp": str(cp or "").strip(),
-        "regimen_fiscal": str(regimen or "").strip(),
-    }
-    prueba = _RFC_PRUEBAS_SAT.get(rfc_limpio)
-    if prueba:
-        normalizado.update(prueba)
-    return normalizado
-
-
-def _validar_datos_cfdi_receptor(rfc: str, regimen: str, cp: str, uso_cfdi: str) -> None:
-    if not _RFC_RE.match((rfc or "").strip().upper()):
-        raise HTTPException(400, "RFC receptor inválido para CFDI 4.0.")
-    if not _CP_RE.match((cp or "").strip()):
-        raise HTTPException(400, "Código postal receptor inválido para CFDI 4.0.")
-    if not str(regimen or "").strip():
-        raise HTTPException(400, "Régimen fiscal receptor requerido para CFDI 4.0.")
-    _validar_regimen_para_rfc(rfc, regimen, "receptor")
-    if not str(uso_cfdi or "").strip():
-        raise HTTPException(400, "Uso CFDI requerido para CFDI 4.0.")
-
-
-def _validar_totales_servicio(
-    payload: FacturaServicioCreate,
-    esperado: dict,
-) -> None:
-    """Evita facturar con impuestos manipulados en frontend; el servidor recalcula desde tarifas."""
-    checks = {
-        "subtotal": (payload.subtotal, esperado.get("subtotal")),
-        "iva": (payload.iva, esperado.get("iva")),
-        "retención": (payload.retencion, esperado.get("retencion")),
-        "total": (payload.total, esperado.get("total")),
-    }
-    for label, (recibido, calc) in checks.items():
-        if abs(float(recibido or 0) - float(calc or 0)) > 0.01:
-            raise HTTPException(
-                400,
-                f"{label.title()} inválido. El sistema calculó {float(calc or 0):.2f} con las tarifas/impuestos configurados.",
-            )
-
-
-def _periodo_bounds(periodo: str) -> tuple[str, str]:
-    """Convierte YYYY-MM a rango ISO para columnas timestamptz."""
-    anio = int(periodo[:4])
-    mes = int(periodo[5:7])
-    inicio = datetime(anio, mes, 1, tzinfo=timezone.utc)
-    if mes == 12:
-        fin = datetime(anio + 1, 1, 1, tzinfo=timezone.utc)
+def _sb_query(table: str, scope: dict, select: str = "*"):
+    q = get_supabase_admin().table(table).select(select).eq("user_id", scope["user_id"])
+    if scope.get("perfil_id"):
+        q = q.eq("perfil_id", scope["perfil_id"])
     else:
-        fin = datetime(anio, mes + 1, 1, tzinfo=timezone.utc)
-    return inicio.isoformat(), fin.isoformat()
+        q = q.is_("perfil_id", "null")
+    return q
 
 
-def _periodo_liquidacion_bounds(periodo: str, periodo_tipo: str = "") -> tuple[str, str]:
-    """Soporta periodos mensuales YYYY-MM y quincenales YYYY-MM-Q1/Q2."""
-    raw = str(periodo or datetime.now(timezone.utc).strftime("%Y-%m")).strip()
-    tipo = str(periodo_tipo or "").strip().lower()
-    if raw.endswith("-Q1") or raw.endswith("-Q2"):
-        tipo = raw[-2:].lower()
-        raw = raw[:7]
-    anio = int(raw[:4])
-    mes = int(raw[5:7])
-    if tipo in {"q1", "quincena1", "primera"}:
-        inicio = datetime(anio, mes, 1, tzinfo=timezone.utc)
-        fin = datetime(anio, mes, 16, tzinfo=timezone.utc)
-    elif tipo in {"q2", "quincena2", "segunda"}:
-        inicio = datetime(anio, mes, 16, tzinfo=timezone.utc)
-        if mes == 12:
-            fin = datetime(anio + 1, 1, 1, tzinfo=timezone.utc)
-        else:
-            fin = datetime(anio, mes + 1, 1, tzinfo=timezone.utc)
-    else:
-        inicio_s, fin_s = _periodo_bounds(raw)
-        return inicio_s, fin_s
-    return inicio.isoformat(), fin.isoformat()
-
-
-def _periodo_liquidacion_label(periodo: str, periodo_tipo: str = "") -> str:
-    raw = str(periodo or datetime.now(timezone.utc).strftime("%Y-%m")).strip()
-    tipo = str(periodo_tipo or "").strip().lower()
-    if raw.endswith("-Q1") or raw.endswith("-Q2"):
-        return raw
-    if tipo in {"q1", "quincena1", "primera"}:
-        return f"{raw}-Q1"
-    if tipo in {"q2", "quincena2", "segunda"}:
-        return f"{raw}-Q2"
-    return raw
-
-
-def _safe_float(v, default: float = 0.0) -> float:
+def _sb_get(table: str, row_id: int, scope: dict) -> Optional[dict]:
+    if not scope.get("perfil_id"):
+        return None
     try:
-        if v is None or v == "":
-            return default
-        return float(v)
-    except (TypeError, ValueError):
-        return default
+        rows = _sb_query(table, scope).eq("id", row_id).limit(1).execute().data or []
+        return rows[0] if rows else None
+    except Exception as exc:
+        logger.warning("Supabase get %s id=%s falló: %s", table, row_id, exc)
+        return None
 
 
-def _productos_from_row(viaje: dict) -> list[dict]:
+def _sb_list(table: str, scope: dict, *, active_only: bool = False, order: str = "created_at", desc: bool = True) -> list[dict]:
+    if not scope.get("perfil_id"):
+        return []
     try:
-        productos = json.loads(viaje.get("productos_json") or "[]")
-        return productos if isinstance(productos, list) else []
-    except Exception:
+        q = _sb_query(table, scope)
+        if active_only:
+            q = q.eq("activo", True)
+        return q.order(order, desc=desc).execute().data or []
+    except Exception as exc:
+        logger.warning("Supabase list %s falló: %s", table, exc)
         return []
 
 
-def _clean_material_code(value: str) -> str:
-    code = str(value or "").strip().upper()
-    return code[2:] if code.startswith("UN") else code
+def _sb_insert(table: str, row: dict) -> Optional[dict]:
+    try:
+        data = get_supabase_admin().table(table).insert(row).execute().data or []
+        return data[0] if data else row
+    except Exception as exc:
+        logger.warning("Supabase insert %s falló: %s", table, exc)
+        return None
 
 
-def _producto_operacion_to_producto(row: dict, source: ProductoTransporte) -> ProductoTransporte:
-    clave_producto = str(row.get("clave_producto") or source.clave_producto or "").strip().upper()
-    clave_subproducto = str(row.get("clave_subproducto") or source.clave_subproducto or "").strip().upper()
-    ok, msg = validar_producto_completo(clave_producto, clave_subproducto)
-    if not ok:
-        raise HTTPException(400, f"Producto de catálogo inválido ({row.get('nombre') or row.get('id')}): {msg}")
-    sat = get_producto(clave_producto)
-    clave_prodserv = str(row.get("clave_prodserv_cfdi") or (sat.clave_prod_serv_cfdi if sat else "") or "").strip()
-    cve_material = _clean_material_code(row.get("cve_material_peligroso") or (sat.cve_material_peligroso if sat else ""))
-    embalaje = str(row.get("embalaje") or "").strip().upper() or "Z01"
-    if embalaje == "4H2":
-        embalaje = "Z01"
-    descripcion = str(source.descripcion or row.get("nombre") or (sat.nombre if sat else clave_producto)).strip()
-    densidad = _safe_float(row.get("densidad_kg_l"), _safe_float(getattr(source, "densidad_kg_l", 0.75), 0.75))
-    if densidad <= 0:
-        densidad = 0.75
-    return source.model_copy(update={
-        "producto_operacion_id": int(row["id"]),
-        "clave_producto": clave_producto,
-        "clave_subproducto": clave_subproducto,
-        "descripcion": descripcion,
-        "clave_prodserv_cfdi": clave_prodserv,
-        "unidad": str(row.get("unidad") or getattr(source, "unidad", "LTR") or "LTR").strip().upper(),
-        "densidad_kg_l": densidad,
-        "material_peligroso": bool(row.get("material_peligroso", True)),
-        "cve_material_peligroso": cve_material,
-        "embalaje": embalaje,
-        "temperatura_c": _safe_float(getattr(source, "temperatura_c", 20.0), 20.0),
-    })
+def _sb_update(table: str, row_id: int, scope: dict, values: dict) -> bool:
+    if not scope.get("perfil_id"):
+        return False
+    try:
+        q = (
+            get_supabase_admin()
+            .table(table)
+            .update({**values, "updated_at": datetime.now(timezone.utc).isoformat()})
+            .eq("user_id", scope["user_id"])
+            .eq("perfil_id", scope["perfil_id"])
+            .eq("id", row_id)
+        )
+        q.execute()
+        return True
+    except Exception as exc:
+        logger.warning("Supabase update %s id=%s falló: %s", table, row_id, exc)
+        return False
 
 
-def _normalizar_productos_viaje(uid: str, token: str, perfil_id: int, productos: list[ProductoTransporte]) -> list[ProductoTransporte]:
-    if not productos:
-        raise HTTPException(400, "Debe especificar al menos un producto para el viaje.")
-    ids = sorted({int(p.producto_operacion_id or 0) for p in productos if p.producto_operacion_id})
-    catalogo: dict[int, dict] = {}
-    if ids:
-        rows = (
-            _sb(token)
-            .table(_TBL_PROD_OPS)
+def _sb_delete(table: str, row_id: int, scope: dict) -> bool:
+    if not scope.get("perfil_id"):
+        return False
+    try:
+        (
+            get_supabase_admin()
+            .table(table)
+            .delete()
+            .eq("user_id", scope["user_id"])
+            .eq("perfil_id", scope["perfil_id"])
+            .eq("id", row_id)
+            .execute()
+        )
+        return True
+    except Exception as exc:
+        logger.warning("Supabase delete %s id=%s falló: %s", table, row_id, exc)
+        return False
+
+
+def _rowdict(row) -> dict:
+    return dict(row) if row is not None else {}
+
+
+def _json_scalar(value):
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
+
+
+def _iso_or_none(value) -> Optional[str]:
+    if not value:
+        return None
+    text = str(value)
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    return text
+
+
+def _cfg() -> dict:
+    try:
+        with open(CFG_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.warning("_cfg: no se pudo leer settings.json: %s", e)
+        return {}
+
+
+def _connect() -> sqlite3.Connection:
+    con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+# ── DDL centralizado ──────────────────────────────────────────────────────────
+
+def _ensure_tables(con: sqlite3.Connection) -> None:
+    """Crea todas las tablas si no existen. Idempotente."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS facturas (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id          TEXT    NOT NULL DEFAULT 'default',
+            facility_id      INTEGER DEFAULT NULL,
+            record_uuid      TEXT    NOT NULL DEFAULT '',
+            uuid_sat         TEXT    DEFAULT '',
+            xml_content      TEXT    DEFAULT '',
+            pdf_url          TEXT    DEFAULT '',
+            status           TEXT    NOT NULL DEFAULT 'Vigente',
+            fecha_timbrado   TEXT    DEFAULT '',
+            rfc_receptor     TEXT    DEFAULT '',
+            volumen_litros   REAL    DEFAULT 0.0,
+            importe          REAL    DEFAULT 0.0,
+            tipo_comprobante TEXT    DEFAULT 'T',
+            distancia_km     REAL    DEFAULT 1.0,
+            chofer_id        INTEGER DEFAULT NULL,
+            vehiculo_id      INTEGER DEFAULT NULL,
+            ruta_id          INTEGER DEFAULT NULL,
+            created_at       TEXT    DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS facturas_servicio (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id        TEXT    NOT NULL DEFAULT 'default',
+            carta_porte_id INTEGER NOT NULL,
+            uuid_sat       TEXT    DEFAULT '',
+            xml_content    TEXT    DEFAULT '',
+            pdf_url        TEXT    DEFAULT '',
+            status         TEXT    NOT NULL DEFAULT 'Vigente',
+            fecha_timbrado TEXT    DEFAULT '',
+            rfc_receptor   TEXT    DEFAULT '',
+            importe_flete  REAL    DEFAULT 0.0,
+            created_at     TEXT    DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (carta_porte_id) REFERENCES facturas(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS choferes (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id             TEXT    NOT NULL DEFAULT 'default',
+            modulo_propietario  TEXT    NOT NULL DEFAULT 'transporte',
+            nombre              TEXT    NOT NULL,
+            rfc                 TEXT    DEFAULT '',
+            licencia            TEXT,
+            telefono            TEXT,
+            activo              INTEGER DEFAULT 1,
+            created_at          TEXT    DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS vehiculos (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id             TEXT    NOT NULL DEFAULT 'default',
+            modulo_propietario  TEXT    NOT NULL DEFAULT 'transporte',
+            facility_id         INTEGER DEFAULT NULL,
+            placas              TEXT    NOT NULL,
+            modelo              TEXT    DEFAULT '',
+            anio                INTEGER DEFAULT 2020,
+            permiso_cre         TEXT    DEFAULT '',
+            poliza_seguro       TEXT    DEFAULT '',
+            aseguradora         TEXT    DEFAULT '',
+            config_vehicular    TEXT    DEFAULT 'C2',
+            activo              INTEGER DEFAULT 1,
+            created_at          TEXT    DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS rutas (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id             TEXT    NOT NULL DEFAULT 'default',
+            modulo_propietario  TEXT    NOT NULL DEFAULT 'transporte',
+            nombre              TEXT    NOT NULL,
+            cp_origen           TEXT    NOT NULL DEFAULT '',
+            cp_destino          TEXT    NOT NULL DEFAULT '',
+            distancia_km        REAL    DEFAULT 1.0,
+            activo              INTEGER DEFAULT 1,
+            created_at          TEXT    DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS clientes (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id             TEXT    NOT NULL DEFAULT 'default',
+            modulo_propietario  TEXT    NOT NULL DEFAULT 'gas_lp',
+            rfc                 TEXT    NOT NULL,
+            nombre              TEXT    NOT NULL,
+            cp                  TEXT    DEFAULT '',
+            regimen_fiscal      TEXT    DEFAULT '616',
+            uso_cfdi            TEXT    DEFAULT 'S01',
+            activo              INTEGER DEFAULT 1,
+            created_at          TEXT    DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    con.commit()
+
+
+# ── Modelos Pydantic ──────────────────────────────────────────────────────────
+
+class CartaPorteRequest(BaseModel):
+    record_uuid:       str
+    volumen_litros:    float
+    importe:           float
+    fecha_hora:        str
+    rfc_cliente:       str
+    nombre_cliente:    str
+    domicilio_cliente: str   = "20000"
+    uso_cfdi:          str   = "S01"
+    placa:             str   = ""
+    anio_modelo:       int   = 2020
+    config_vehicular:  str   = "C2"
+    nombre_asegurador: str   = ""
+    poliza_seguro:     str   = ""
+    facility_id:       Optional[int] = None
+    origen_facility_id: Optional[int] = None
+    destino_facility_id: Optional[int] = None
+    vehiculo_id:       Optional[int] = None
+    chofer_id:         Optional[int] = None
+    ruta_id:           Optional[int] = None
+    origen_ubicacion_id: Optional[int] = None
+    destino_ubicacion_id: Optional[int] = None
+    mercancia_id:      Optional[int] = None
+    fecha_salida:      str = ""
+    fecha_llegada:     str = ""
+    tipo_comprobante:  str   = "T"
+    distancia_km:      float = 1.0
+    cfdi_relacionados: Optional[list] = None
+    id_ccp:            str = ""
+
+
+class CancelRequest(BaseModel):
+    uuid_sat: str
+    motivo:   str = "02"
+    uuid_sustitucion: str = ""
+
+
+class FacturaFleteRequest(BaseModel):
+    carta_porte_id:     int
+    importe_flete:      float
+    rfc_receptor:       str
+    nombre_receptor:    str = "PÚBLICO EN GENERAL"
+    domicilio_receptor: str = "20000"
+    uso_cfdi:           str = "G03"
+
+
+# ── Carta Porte ───────────────────────────────────────────────────────────────
+
+def _cp_to_int(value) -> Optional[int]:
+    try:
+        number = int(value or 0)
+        return number or None
+    except (TypeError, ValueError):
+        return None
+
+
+def _cp_route_default(route_row: Optional[dict], key: str) -> Optional[int]:
+    return _cp_to_int(_metadata_dict(route_row).get(key))
+
+
+def _cp_with_metadata(row: Optional[dict]) -> dict:
+    if not row:
+        return {}
+    merged = dict(row)
+    for key, value in _metadata_dict(row).items():
+        merged.setdefault(key, value)
+    return merged
+
+
+def _cp_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
+
+
+def _cp_gas_lp_mercancia_payload(values: dict) -> dict:
+    payload = dict(GAS_LP_CP_DEFAULTS)
+    for key, value in values.items():
+        if value is not None and str(value).strip() != "":
+            payload[key] = value
+    payload["alias"] = payload.get("alias") or GAS_LP_CP_DEFAULTS["alias"]
+    payload["descripcion"] = payload.get("descripcion") or GAS_LP_CP_DEFAULTS["descripcion"]
+    payload["bienes_transp"] = GAS_LP_CP_DEFAULTS["bienes_transp"]
+    payload["clave_unidad"] = GAS_LP_CP_DEFAULTS["clave_unidad"]
+    payload["unidad"] = payload.get("unidad") or GAS_LP_CP_DEFAULTS["unidad"]
+    payload["material_peligroso"] = True
+    payload["clave_material_peligroso"] = GAS_LP_CP_DEFAULTS["clave_material_peligroso"]
+    payload["embalaje"] = payload.get("embalaje") or GAS_LP_CP_DEFAULTS["embalaje"]
+    if str(payload["embalaje"]).strip().upper() == "4H2":
+        payload["embalaje"] = GAS_LP_CP_DEFAULTS["embalaje"]
+    payload["descripcion_embalaje"] = payload.get("descripcion_embalaje") or GAS_LP_CP_DEFAULTS["descripcion_embalaje"]
+    try:
+        factor = float(payload.get("factor_kg_litro") or 0)
+    except (TypeError, ValueError):
+        factor = 0
+    payload["factor_kg_litro"] = factor if factor > 0 else GAS_LP_CP_DEFAULTS["factor_kg_litro"]
+    return payload
+
+
+def _cp_facility_config(scope: dict, facility_id: Optional[int]) -> dict:
+    if not facility_id:
+        return {}
+    try:
+        query = (
+            get_supabase_admin()
+            .table(_SB_FACILITY_CP_CONFIG)
             .select("*")
-            .eq("user_id", uid)
-            .eq("perfil_id", perfil_id)
+            .eq("user_id", scope["user_id"])
+            .eq("perfil_id", scope.get("perfil_id"))
+            .eq("facility_id", facility_id)
             .eq("activo", True)
-            .in_("id", ids)
-            .execute()
-            .data
-            or []
         )
-        catalogo = {int(r["id"]): r for r in rows if r.get("id")}
-        faltantes = [str(i) for i in ids if i not in catalogo]
-        if faltantes:
-            raise HTTPException(400, f"Producto de catálogo no encontrado o inactivo: {', '.join(faltantes)}.")
-    normalizados: list[ProductoTransporte] = []
-    for prod in productos:
-        if prod.producto_operacion_id:
-            normalizados.append(_producto_operacion_to_producto(catalogo[int(prod.producto_operacion_id)], prod))
-            continue
-        ok, msg = validar_producto_completo(prod.clave_producto, prod.clave_subproducto)
-        if not ok:
-            raise HTTPException(400, f"Producto inválido: {msg}")
-        sat = get_producto(prod.clave_producto)
-        embalaje = str(getattr(prod, "embalaje", "") or "Z01").strip().upper()
-        if embalaje == "4H2":
-            embalaje = "Z01"
-        normalizados.append(prod.model_copy(update={
-            "clave_prodserv_cfdi": getattr(prod, "clave_prodserv_cfdi", "") or (sat.clave_prod_serv_cfdi if sat else ""),
-            "cve_material_peligroso": _clean_material_code(getattr(prod, "cve_material_peligroso", "") or (sat.cve_material_peligroso if sat else "")),
-            "embalaje": embalaje,
-            "descripcion": prod.descripcion or (sat.nombre if sat else prod.clave_producto),
-        }))
-    return normalizados
-
-
-def _registrar_evento(
-    sb,
-    uid: str,
-    perfil_id: Optional[int],
-    viaje_id: int,
-    event_type: str,
-    title: str,
-    description: str = "",
-    actor_type: str = "system",
-    actor_id: str = "",
-    metadata: Optional[dict] = None,
-) -> None:
-    """Bitacora operativa no critica: nunca debe romper timbrado/facturacion."""
-    try:
-        sb.table(_TBL_EVENTOS).insert({
-            "user_id": uid,
-            "perfil_id": perfil_id,
-            "viaje_id": viaje_id,
-            "event_type": event_type,
-            "title": title,
-            "description": description,
-            "actor_type": actor_type,
-            "actor_id": actor_id,
-            "metadata": metadata or {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }).execute()
-    except Exception as e:
-        logger.info("Evento operativo omitido (%s/%s): %s", viaje_id, event_type, e)
-
-
-def _build_document_path(uid: str, perfil_id: Optional[int], viaje_id: int, tipo: str, filename: str) -> str:
-    clean_name = re.sub(r"[^A-Za-z0-9._-]+", "_", filename or "documento")
-    perfil = str(perfil_id or "default")
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-    return f"{uid}/{perfil}/viajes/{viaje_id}/{tipo}/{stamp}_{clean_name}"
-
-
-def _build_cfdi_document_path(uid: str, perfil_id: Optional[int], viaje_id: int, tipo: str, filename: str) -> str:
-    clean_name = re.sub(r"[^A-Za-z0-9._-]+", "_", filename or "documento")
-    perfil = str(perfil_id or "default")
-    return f"{uid}/{perfil}/viajes/{viaje_id}/{tipo}/{clean_name}"
-
-
-def _guardar_cfdi_pdf_en_expediente(sb, uid: str, cfdi_row: dict, pdf_bytes: bytes, filename: str, metadata: dict) -> None:
-    """Guarda el PDF generado en Storage/documentos sin bloquear la descarga si Storage falla."""
-    viaje_id = cfdi_row.get("viaje_id")
-    if not viaje_id:
-        return
-    perfil_id = cfdi_row.get("perfil_id")
-    bucket = "transport-documents"
-    path = _build_cfdi_document_path(uid, perfil_id, int(viaje_id), "carta_porte_pdf", filename)
-    try:
-        sb.storage.from_(bucket).upload(path, pdf_bytes, {"content-type": "application/pdf", "upsert": "true"})
-    except Exception as e:
-        logger.info("PDF Carta Porte generado pero no guardado en Storage (%s): %s", viaje_id, e)
-        return
-    try:
-        existentes = (
-            sb.table(_TBL_DOCS)
-            .select("id")
-            .eq("user_id", uid)
-            .eq("viaje_id", viaje_id)
-            .eq("storage_path", path)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-        if not existentes:
-            sb.table(_TBL_DOCS).insert({
-                "user_id": uid,
-                "perfil_id": perfil_id,
-                "viaje_id": viaje_id,
-                "tipo": "carta_porte_pdf",
-                "nombre": filename,
-                "storage_bucket": bucket,
-                "storage_path": path,
-                "mime_type": "application/pdf",
-                "size_bytes": len(pdf_bytes),
-                "uuid_sat": str(cfdi_row.get("uuid_sat") or ""),
-                "metadata": metadata,
-                "created_by": uid,
-            }).execute()
-            _registrar_evento(
-                sb, uid, perfil_id, int(viaje_id), "documento_generado",
-                "PDF Carta Porte generado", filename, "system", "ge_control",
-                {"tipo": "carta_porte_pdf", "storage_path": path, **metadata},
-            )
-    except Exception as e:
-        logger.info("PDF Carta Porte guardado en Storage pero no registrado en documentos (%s): %s", viaje_id, e)
-
-
-def _guardar_cfdi_xml_en_expediente(sb, uid: str, cfdi_row: dict, xml_content: str, filename: str, metadata: dict) -> None:
-    """Guarda XML timbrado en Storage/documentos por UUID sin bloquear el timbrado si Storage falla."""
-    viaje_id = cfdi_row.get("viaje_id")
-    if not viaje_id or not xml_content:
-        return
-    perfil_id = cfdi_row.get("perfil_id")
-    bucket = "transport-documents"
-    path = _build_cfdi_document_path(uid, perfil_id, int(viaje_id), "carta_porte_xml", filename)
-    content = xml_content.encode("utf-8")
-    try:
-        sb.storage.from_(bucket).upload(path, content, {"content-type": "application/xml", "upsert": "true"})
-    except Exception as e:
-        logger.info("XML Carta Porte no guardado en Storage (%s): %s", viaje_id, e)
-        return
-    try:
-        existentes = (
-            sb.table(_TBL_DOCS)
-            .select("id")
-            .eq("user_id", uid)
-            .eq("viaje_id", viaje_id)
-            .eq("storage_path", path)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-        if not existentes:
-            sb.table(_TBL_DOCS).insert({
-                "user_id": uid,
-                "perfil_id": perfil_id,
-                "viaje_id": viaje_id,
-                "tipo": "carta_porte_xml",
-                "nombre": filename,
-                "storage_bucket": bucket,
-                "storage_path": path,
-                "mime_type": "application/xml",
-                "size_bytes": len(content),
-                "uuid_sat": str(cfdi_row.get("uuid_sat") or ""),
-                "metadata": metadata,
-                "created_by": uid,
-            }).execute()
-    except Exception as e:
-        logger.info("XML Carta Porte guardado en Storage pero no registrado en documentos (%s): %s", viaje_id, e)
-
-
-def _hash_operator_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def _crear_notificacion_manual(sb, uid: str, pid, viaje_id: int | None, mensaje: str, destinatario: str = "", metadata: Optional[dict] = None):
-    """Registra una notificación pendiente; WhatsApp/email quedan como canal futuro, no base de datos."""
-    try:
-        sb.table(_TBL_NOTIFS).insert({
-            "user_id": uid,
-            "perfil_id": pid,
-            "viaje_id": viaje_id,
-            "canal": "manual",
-            "destinatario": destinatario,
-            "mensaje": mensaje,
-            "status": "pendiente",
-            "metadata": metadata or {},
-        }).execute()
-    except Exception as e:
-        logger.info("No se pudo registrar notificación manual: %s", e)
-
-
-def _normalizar(texto: str) -> str:
-    return re.sub(r"\s+", " ", (texto or "").strip().lower())
-
-
-def _calcular_tarifa_operativa(viaje: dict, tarifas: list[dict]) -> dict:
-    """Selecciona la mejor tarifa configurable por prioridad y calcula totales."""
-    productos = _productos_from_row(viaje)
-    primer_producto = productos[0] if productos else {}
-    litros = sum(_safe_float(p.get("volumen_litros")) for p in productos)
-    kilos = sum(_safe_float(p.get("kilos") or p.get("peso_kg")) for p in productos)
-    if kilos <= 0:
-        kilos = litros * 0.75
-    ruta_id = viaje.get("ruta_id")
-    cliente_id = viaje.get("cliente_id")
-    cliente_rfc = _normalizar(viaje.get("rfc_receptor"))
-    origen = _normalizar(viaje.get("nombre_origen") or viaje.get("cp_origen"))
-    destino = _normalizar(viaje.get("nombre_destino") or viaje.get("cp_destino"))
-    producto = _normalizar(primer_producto.get("descripcion") or primer_producto.get("clave_producto") or "")
-
-    def score(t: dict) -> int:
-        s = 0
-        if t.get("ruta_id") and ruta_id and int(t.get("ruta_id")) == int(ruta_id):
-            s += 80
-        if t.get("cliente_id"):
-            if cliente_id and int(t.get("cliente_id")) == int(cliente_id):
-                s += 35
-            else:
-                s -= 60
-        if _normalizar(t.get("origen")) and _normalizar(t.get("origen")) in origen:
-            s += 20
-        if _normalizar(t.get("destino")) and _normalizar(t.get("destino")) in destino:
-            s += 20
-        tp = _normalizar(t.get("producto"))
-        if tp and (tp in producto or tp in {"magna/diesel/premium", "todos", "*"}):
-            s += 15
-        return s - int(t.get("prioridad") or 100)
-
-    activas = [t for t in tarifas if t.get("activo", True)]
-    tarifa = sorted(activas, key=score, reverse=True)[0] if activas else {}
-    regla = tarifa.get("regla_calculo") or "manual"
-    rate = _safe_float(tarifa.get("tarifa"))
-    if regla == "litros":
-        subtotal = litros * rate
-    elif regla == "kilos":
-        subtotal = kilos * rate
-    elif regla == "distancia":
-        subtotal = _safe_float(viaje.get("distancia_km")) * rate
-    elif regla == "viaje":
-        subtotal = rate
-    else:
-        subtotal = sum(_safe_float(p.get("importe")) for p in productos)
-    subtotal = round(subtotal, 2)
-    aplica_iva = bool(tarifa.get("aplica_iva", True)) if tarifa else True
-    aplica_retencion = bool(tarifa.get("aplica_retencion", True)) if tarifa else False
-    iva_tasa = _safe_float(tarifa.get("iva_tasa"), 0.16) if tarifa else 0.16
-    retencion_tasa = _safe_float(tarifa.get("retencion_tasa"), 0.04) if tarifa else 0.0
-    iva = round(subtotal * iva_tasa, 2) if aplica_iva else 0.0
-    ret = round(subtotal * retencion_tasa, 2) if aplica_retencion else 0.0
-    total = round(subtotal + iva - ret, 2)
-    return {
-        "tarifa_id": tarifa.get("id"),
-        "regla_calculo": regla,
-        "tarifa": rate,
-        "litros": round(litros, 3),
-        "kilos": round(kilos, 3),
-        "subtotal": subtotal,
-        "iva": iva,
-        "retencion": ret,
-        "total": total,
-        "iva_tasa": iva_tasa,
-        "retencion_tasa": retencion_tasa,
-        "aplica_iva": aplica_iva,
-        "aplica_retencion": aplica_retencion,
-        "match_score": score(tarifa) if tarifa else 0,
-    }
-
-
-def _sumar_calculos_servicio(viajes: list[dict], tarifas: list[dict]) -> dict:
-    """Suma subtotal, IVA, retención y total de una factura de servicio desde tarifas configurables."""
-    items = []
-    subtotal = iva = retencion = total = 0.0
-    tasas_iva: set[float] = set()
-    tasas_ret: set[float] = set()
-    aplica_iva = False
-    aplica_retencion = False
-    for viaje in viajes:
-        calc = _calcular_tarifa_operativa(viaje, tarifas)
-        items.append({"viaje_id": viaje.get("id"), **calc})
-        subtotal += calc["subtotal"]
-        iva += calc["iva"]
-        retencion += calc["retencion"]
-        total += calc["total"]
-        if calc.get("aplica_iva"):
-            aplica_iva = True
-            tasas_iva.add(float(calc.get("iva_tasa") or 0))
-        if calc.get("aplica_retencion"):
-            aplica_retencion = True
-            tasas_ret.add(float(calc.get("retencion_tasa") or 0))
-    return {
-        "subtotal": round(subtotal, 2),
-        "iva": round(iva, 2),
-        "retencion": round(retencion, 2),
-        "total": round(total, 2),
-        "iva_tasa": sorted(tasas_iva)[0] if len(tasas_iva) == 1 else (0.16 if aplica_iva else 0.0),
-        "retencion_tasa": sorted(tasas_ret)[0] if len(tasas_ret) == 1 else (0.04 if aplica_retencion else 0.0),
-        "aplica_iva": aplica_iva,
-        "aplica_retencion": aplica_retencion,
-        "items": items,
-        "tasas_mixtas": len(tasas_iva) > 1 or len(tasas_ret) > 1,
-    }
-
-
-def _cliente_defaults_fiscales(cliente: dict | None = None, settings: dict | None = None) -> dict:
-    """Defaults fiscales configurables: cliente > settings módulo > fallback operativo."""
-    cliente = cliente or {}
-    settings = settings or {}
-    return {
-        "metodo_pago": str(
-            cliente.get("metodo_pago_default")
-            or settings.get("MetodoPagoDefault")
-            or "PUE"
-        ).strip(),
-        "forma_pago": str(
-            cliente.get("forma_pago_default")
-            or settings.get("FormaPagoDefault")
-            or "03"
-        ).strip(),
-        "iva_tasa": _safe_float(cliente.get("iva_tasa_default"), _safe_float(settings.get("IvaTasaDefault"), 0.16)),
-        "retencion_tasa": _safe_float(cliente.get("retencion_tasa_default"), _safe_float(settings.get("RetencionTasaDefault"), 0.0)),
-        "aplica_iva": bool(cliente.get("aplica_iva_default", settings.get("AplicaIvaDefault", True))),
-        "aplica_retencion": bool(cliente.get("aplica_retencion_default", settings.get("AplicaRetencionDefault", False))),
-        "uso_cfdi": str(cliente.get("uso_cfdi") or settings.get("UsoCfdiDefault") or "G03").strip(),
-    }
-
-
-def _cliente_por_receptor(sb, uid: str, perfil_id, rfc: str) -> dict:
-    if not rfc:
-        return {}
-    try:
-        q = sb.table(_TBL_CLIENTES).select("*").eq("user_id", uid).eq("rfc", rfc).eq("activo", True)
-        if perfil_id:
-            q = q.eq("perfil_id", perfil_id)
-        rows = q.limit(1).execute().data or []
+        if scope.get("tenant_id"):
+            query = query.eq("tenant_id", scope.get("tenant_id"))
+        rows = query.limit(1).execute().data or []
         return rows[0] if rows else {}
-    except Exception:
+    except Exception as exc:
+        logger.warning("Carta Porte facility config lookup failed facility=%s err=%s", facility_id, exc)
         return {}
 
 
-def _ruta_payload(payload: RutaTransporteCreate) -> dict:
-    return {
-        "nombre":        payload.nombre.strip(),
-        "origen_id":     getattr(payload, "origen_id", None),
-        "destino_id":    getattr(payload, "destino_id", None),
-        "cp_origen":     payload.cp_origen,
-        "nombre_origen": payload.nombre_origen.strip(),
-        "cp_destino":    payload.cp_destino,
-        "nombre_destino": payload.nombre_destino.strip(),
-        "distancia_km":  payload.distancia_km,
-        "duracion_estimada_min": max(int(payload.duracion_estimada_min or 0), 0),
-        "tipo_camino":   str(getattr(payload, "tipo_camino", "") or "").strip(),
-        "tarifa_base":   _safe_float(getattr(payload, "tarifa_base", 0)),
-    }
-
-
-def _viaje_row(uid: str, payload: ViajeCreate, productos_json: str, volumen_total: float, status: str = "programado") -> dict:
-    receptor = _normalizar_receptor_cfdi(
-        payload.rfc_receptor,
-        payload.nombre_receptor,
-        payload.cp_receptor,
-        getattr(payload, "regimen_fiscal_receptor", "601"),
+def _cp_facility_to_ubicacion(scope: dict, facility: dict, tipo: str) -> dict:
+    config = _cp_facility_config(scope, _cp_to_int(facility.get("id")))
+    profile = scope.get("profile") or {}
+    empresa_rfc = _clean_rfc(profile.get("rfc") or "")
+    try:
+        emisor = _emisor_from_scope(scope)
+        empresa_rfc = empresa_rfc or emisor.get("rfc")
+        empresa_nombre = emisor.get("nombre")
+    except Exception:
+        empresa_nombre = profile.get("nombre") or ""
+    domicilio = (
+        facility.get("calle")
+        or facility.get("domicilio")
+        or facility.get("domicilio_operativo")
+        or facility.get("descripcion")
+        or ""
     )
     return {
-        "user_id":              uid,
-        "perfil_id":            payload.perfil_id,
-        "facility_id":          payload.facility_id,
-        "chofer_id":            payload.chofer_id,
-        "vehiculo_id":          payload.vehiculo_id,
-        "ruta_id":              payload.ruta_id,
-        "proveedor_id":         payload.proveedor_id,
-        "origen_id":            payload.origen_id,
-        "destino_id":           payload.destino_id,
-        "producto_operacion_id": payload.producto_operacion_id,
-        "programa_fecha":       payload.programa_fecha,
-        "programa_semana":      payload.programa_semana,
-        "tarifa_id":            payload.tarifa_id,
-        "subtotal_flete":       _safe_float(payload.subtotal_flete),
-        "comision_operador":    _safe_float(payload.comision_operador),
-        "override_tarifa":      bool(payload.override_tarifa),
-        "override_reason":      payload.override_reason,
-        "defaults_json":        payload.defaults_json if isinstance(payload.defaults_json, dict) else {},
-        "cp_origen":            payload.cp_origen,
-        "nombre_origen":        payload.nombre_origen,
-        "cp_destino":           payload.cp_destino,
-        "nombre_destino":       payload.nombre_destino,
-        "fecha_hora_salida":    payload.fecha_hora_salida,
-        "fecha_hora_llegada":   payload.fecha_hora_llegada,
-        "productos_json":       productos_json,
-        "tipo_cfdi":            payload.tipo_cfdi,
-        "rfc_receptor":         receptor["rfc"],
-        "nombre_receptor":      receptor["nombre"],
-        "cp_receptor":          receptor["cp"],
-        "regimen_fiscal_receptor": receptor["regimen_fiscal"] or getattr(payload, "regimen_fiscal_receptor", "601"),
-        "uso_cfdi":             payload.uso_cfdi,
-        "num_permiso_cne":      payload.num_permiso_cne,
-        "distancia_km":         payload.distancia_km,
-        "duracion_estimada_min": max(int(payload.duracion_estimada_min or 0), 0),
-        "volumen_total_litros": volumen_total,
-        "status":               status,
-        "observaciones":        payload.observaciones,
+        "id": facility.get("id"),
+        "id_ubicacion": config.get("id_ubicacion_carta_porte") or "",
+        "tipo": config.get("tipo_ubicacion") or "ambos",
+        "rfc": empresa_rfc,
+        "nombre": empresa_nombre or profile.get("nombre") or facility.get("nombre") or "",
+        "alias": facility.get("nombre") or "",
+        "codigo_postal": _clean_cp(facility.get("codigo_postal") or ""),
+        "estado": config.get("estado_sat") or facility.get("estado") or "",
+        "municipio": config.get("municipio_sat") or facility.get("municipio") or "",
+        "localidad": config.get("localidad_sat") or "",
+        "localidad_colonia": facility.get("colonia") or "",
+        "calle": domicilio,
+        "numero_exterior": facility.get("num_ext") or "",
+        "numero_interior": facility.get("num_int") or "",
+        "pais": "MEX",
+        "referencia_carta_porte": config.get("referencia_carta_porte") or "",
+        "facility_id": facility.get("id"),
+        "facility_nombre": facility.get("nombre"),
+        "config": config,
+        "tipo_ubicacion_esperado": tipo,
     }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 1. CATÁLOGO DE PRODUCTOS
-# ══════════════════════════════════════════════════════════════════════════════
+def _cp_required(errors: list[str], label: str, value) -> None:
+    if value is None or str(value).strip() == "":
+        errors.append(label)
+
+
+def _cp_validate_catalog_payload(
+    *,
+    origen: dict,
+    destino: dict,
+    vehiculo: dict,
+    chofer: dict,
+    mercancia: dict,
+    fecha_salida: str,
+    fecha_llegada: str,
+    distancia_km: float,
+    litros: float,
+    peso_kg: float,
+) -> None:
+    errors: list[str] = []
+    for prefix, row in (("origen", origen), ("destino", destino)):
+        expected_tipo = "origen" if prefix == "origen" else "destino"
+        allowed_tipo = str(row.get("tipo") or "").strip().lower()
+        facility_label = row.get("facility_nombre") or row.get("alias") or row.get("nombre") or prefix
+        if allowed_tipo not in {expected_tipo, "ambos"}:
+            errors.append(f"{prefix}: completa la configuración Carta Porte de la instalación {facility_label}: tipo debe ser {expected_tipo} o ambos")
+        _cp_required(errors, f"{prefix}: ID ubicación Carta Porte", row.get("id_ubicacion"))
+        _cp_required(errors, f"{prefix}: RFC remitente/destinatario", row.get("rfc"))
+        _cp_required(errors, f"{prefix}: nombre remitente/destinatario", row.get("nombre") or row.get("alias"))
+        _cp_required(errors, f"{prefix}: código postal", row.get("codigo_postal") or row.get("cp"))
+        _cp_required(errors, f"{prefix}: estado", row.get("estado"))
+        _cp_required(errors, f"{prefix}: municipio", row.get("municipio"))
+        _cp_required(errors, f"{prefix}: calle", row.get("calle") or row.get("domicilio"))
+        missing_facility_config = not row.get("id_ubicacion") or not row.get("estado") or not row.get("municipio")
+        if missing_facility_config:
+            errors.append(f"{prefix}: completa la configuración Carta Porte de la instalación {facility_label}.")
+    _cp_required(errors, "fecha/hora salida", fecha_salida)
+    _cp_required(errors, "fecha/hora llegada", fecha_llegada)
+    if distancia_km <= 0:
+        errors.append("distancia recorrida mayor a 0")
+    _cp_required(errors, "mercancía: BienesTransp SAT", mercancia.get("bienes_transp"))
+    _cp_required(errors, "mercancía: descripción", mercancia.get("descripcion") or mercancia.get("alias"))
+    _cp_required(errors, "mercancía: clave unidad", mercancia.get("clave_unidad"))
+    if litros <= 0:
+        errors.append("litros/cantidad mayor a 0")
+    if peso_kg <= 0:
+        errors.append("peso kg mayor a 0")
+    if _cp_bool(mercancia.get("material_peligroso")):
+        _cp_required(errors, "mercancía: clave material peligroso", mercancia.get("clave_material_peligroso"))
+        _cp_required(errors, "mercancía: embalaje SAT", mercancia.get("embalaje"))
+    _cp_required(errors, "vehículo: placas", vehiculo.get("placas") or vehiculo.get("placa"))
+    _cp_required(errors, "vehículo: configuración SAT", vehiculo.get("config_vehicular"))
+    _cp_required(errors, "vehículo: permiso SCT/SICT", vehiculo.get("permiso_cre") or vehiculo.get("permiso_sct"))
+    _cp_required(errors, "vehículo: número de permiso", vehiculo.get("numero_permiso"))
+    _cp_required(errors, "vehículo: peso bruto vehicular", vehiculo.get("peso_bruto_vehicular"))
+    _cp_required(errors, "vehículo: aseguradora RC", vehiculo.get("aseguradora"))
+    _cp_required(errors, "vehículo: póliza RC", vehiculo.get("poliza_seguro"))
+    _cp_required(errors, "vehículo: aseguradora medio ambiente", vehiculo.get("aseguradora_medio_ambiente"))
+    _cp_required(errors, "vehículo: póliza medio ambiente", vehiculo.get("poliza_medio_ambiente"))
+    _cp_required(errors, "chofer: nombre", chofer.get("nombre"))
+    _cp_required(errors, "chofer: licencia", chofer.get("licencia"))
+    _cp_required(errors, "chofer: tipo figura", chofer.get("tipo_figura"))
+    if errors:
+        raise HTTPException(400, "Carta Porte incompleta. Falta: " + "; ".join(errors) + ".")
+
+
+def _cp_post_timbrado_validation(xml_timbrado: str, mercancia: dict) -> dict:
+    result = validar_xml_carta_porte_transporte(
+        xml_timbrado or "",
+        productos=[{"clave_producto": mercancia.get("bienes_transp") or ""}],
+        enforce_hidrocarburos=False,
+    )
+    missing_key_nodes: list[str] = []
+    if not result.metadata.get("id_ccp"):
+        missing_key_nodes.append("IdCCP")
+    for error in result.errors:
+        for node in ("TipoDeComprobante", "CartaPorte", "Ubicaciones", "Mercancias", "Autotransporte", "Seguros", "TiposFigura"):
+            if node.lower() in error.lower() and node not in missing_key_nodes:
+                missing_key_nodes.append(node)
+    return {
+        "ok": result.ok,
+        "errors": result.errors,
+        "warnings": result.warnings,
+        "metadata": result.metadata,
+        "missing_key_nodes": missing_key_nodes,
+    }
+
+
+def _cp_normalize_id_ccp(value: str = "") -> str:
+    text = str(value or "").strip()
+    raw = text[3:] if text.upper().startswith("CCC") else text
+    try:
+        parsed = uuid.UUID(raw)
+        return f"CCC{parsed}"
+    except (TypeError, ValueError, AttributeError):
+        return f"CCC{uuid.uuid4()}"
+
+
+async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict):
+    uid = scope["user_id"]
+    _require_supabase_scope(scope)
+    emisor = _emisor_from_scope(scope)
+
+    if not payload.ruta_id:
+        raise HTTPException(400, "Selecciona una ruta frecuente para timbrar Carta Porte.")
+    ruta_row = _sb_get(_SB_RUTAS, int(payload.ruta_id), scope) if payload.ruta_id else None
+    if not ruta_row:
+        raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte.")
+    if ruta_row and ruta_row.get("activo") is False:
+        raise HTTPException(404, "Ruta no existe o está inactiva en la empresa activa.")
+    origen_facility_id = _cp_to_int(payload.origen_facility_id or payload.facility_id) or _cp_to_int((ruta_row or {}).get("origen_facility_id"))
+    destino_facility_id = _cp_to_int(payload.destino_facility_id) or _cp_to_int((ruta_row or {}).get("destino_facility_id"))
+    vehiculo_id = _cp_to_int(payload.vehiculo_id) or _cp_route_default(ruta_row, "vehiculo_default_id")
+    chofer_id = _cp_to_int(payload.chofer_id) or _cp_route_default(ruta_row, "chofer_default_id")
+    mercancia_id = _cp_to_int(payload.mercancia_id) or _cp_route_default(ruta_row, "mercancia_default_id")
+    ruta_tiempo_minutos = _cp_to_int((ruta_row or {}).get("tiempo_estimado_minutos")) or _cp_route_default(ruta_row, "tiempo_estimado_minutos")
+    if not origen_facility_id or not destino_facility_id or float((ruta_row or {}).get("distancia_km") or 0) <= 0 or not ruta_tiempo_minutos or not mercancia_id:
+        raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte.")
+
+    origen_facility = _require_scope_facility(scope, origen_facility_id, "instalación origen")
+    destino_facility = _require_scope_facility(scope, destino_facility_id, "instalación destino")
+    if int(origen_facility.get("id")) == int(destino_facility.get("id")):
+        raise HTTPException(400, "Origen y destino deben ser instalaciones distintas para Carta Porte.")
+    origen = _cp_facility_to_ubicacion(scope, origen_facility, "origen")
+    destino = _cp_facility_to_ubicacion(scope, destino_facility, "destino")
+    chofer_row = _cp_with_metadata(_require_active_catalog_row(_SB_CHOFERES, scope, chofer_id, "chofer"))
+    vehiculo_row = _cp_with_metadata(_require_active_catalog_row(_SB_VEHICULOS, scope, vehiculo_id, "vehículo"))
+    mercancia_row = _cp_gas_lp_mercancia_payload(_cp_with_metadata(_require_active_catalog_row(_SB_MERCANCIAS_CP, scope, mercancia_id, "mercancía")))
+    if (
+        str(mercancia_row.get("bienes_transp") or "").strip() != "15111510"
+        or str(mercancia_row.get("clave_unidad") or "").strip().upper() != "LTR"
+        or str(mercancia_row.get("clave_material_peligroso") or "").strip() != "1075"
+        or float(mercancia_row.get("factor_kg_litro") or 0) <= 0
+    ):
+        raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte. La mercancía default debe ser Gas LP válida.")
+
+    if payload.rfc_cliente and _clean_rfc(payload.rfc_cliente) != emisor["rfc"]:
+        raise HTTPException(400, "Carta Porte interna debe usar como receptor el mismo RFC de la empresa activa.")
+
+    receptor = {
+        "rfc": emisor["rfc"],
+        "nombre": emisor["nombre"],
+        "regimen_fiscal": emisor["regimen_fiscal"],
+        "uso_cfdi": "S01",
+        "domicilio_fiscal": emisor["domicilio_fiscal"],
+    }
+    distancia_km = float((ruta_row or {}).get("distancia_km") or payload.distancia_km or 0)
+    fecha_salida = (payload.fecha_salida or payload.fecha_hora or "").strip()
+    fecha_llegada = (payload.fecha_llegada or "").strip()
+    litros = float(payload.volumen_litros or 0)
+    factor = float(mercancia_row.get("factor_kg_litro") or 0)
+    peso_kg = round(litros * factor, 3)
+    id_ccp = _cp_normalize_id_ccp(payload.id_ccp)
+
+    _cp_validate_catalog_payload(
+        origen=origen,
+        destino=destino,
+        vehiculo=vehiculo_row,
+        chofer=chofer_row,
+        mercancia=mercancia_row,
+        fecha_salida=fecha_salida,
+        fecha_llegada=fecha_llegada,
+        distancia_km=distancia_km,
+        litros=litros,
+        peso_kg=peso_kg,
+    )
+
+    vehiculo = {
+        **vehiculo_row,
+        "placa": vehiculo_row.get("placas") or payload.placa,
+        "anio_modelo": vehiculo_row.get("anio") or payload.anio_modelo,
+        "nombre_asegurador": vehiculo_row.get("aseguradora") or payload.nombre_asegurador,
+        "num_permiso_sct": vehiculo_row.get("numero_permiso"),
+        "perm_sct": vehiculo_row.get("permiso_sct") or vehiculo_row.get("permiso_cre"),
+    }
+    entrega = {
+        "uuid_mov": payload.record_uuid,
+        "volumen_litros": litros,
+        "importe": payload.importe,
+        "fecha_hora": fecha_salida,
+        "fecha_salida": fecha_salida,
+        "fecha_llegada": fecha_llegada,
+        "id_ccp": id_ccp,
+    }
+    mercancia = {**mercancia_row, "peso_kg": peso_kg}
+    ruta = {"distancia_km": distancia_km}
+
+    try:
+        xml = build_carta_porte_xml(
+            entrega,
+            emisor,
+            receptor,
+            vehiculo,
+            tipo_comprobante=payload.tipo_comprobante,
+            cfdi_relacionados=payload.cfdi_relacionados,
+            ruta=ruta,
+            origen=origen,
+            destino=destino,
+            mercancia=mercancia,
+            chofer=chofer_row,
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Error al construir XML Carta Porte: {e}") from e
+
+    resultado = timbrar_cfdi(xml)
+    if resultado["error"]:
+        raise HTTPException(400, f"Error en timbrado SW Sapien: {resultado['error']}")
+
+    validation = _cp_post_timbrado_validation(resultado.get("xml_timbrado") or "", mercancia)
+    now = datetime.now(timezone.utc).isoformat()
+    metadata = {
+        "origen_facility_id": origen_facility_id,
+        "destino_facility_id": destino_facility_id,
+        "origen_ubicacion_id": origen.get("id_ubicacion"),
+        "destino_ubicacion_id": destino.get("id_ubicacion"),
+        "mercancia_id": mercancia_id,
+        "vehiculo_id": vehiculo_id,
+        "chofer_id": chofer_id,
+        "ruta_id": payload.ruta_id,
+        "tipo_flujo": "gas_lp_carta_porte_traspaso_interno",
+        "origen_nombre": origen_facility.get("nombre"),
+        "destino_nombre": destino_facility.get("nombre"),
+        "chofer_nombre": chofer_row.get("nombre"),
+        "vehiculo_placas": vehiculo_row.get("placas"),
+        "mercancia_descripcion": mercancia_row.get("descripcion"),
+        "peso_kg": peso_kg,
+        "id_ccp": id_ccp,
+        "fecha_salida": fecha_salida,
+        "fecha_llegada": fecha_llegada,
+        "carta_porte_validation": validation,
+    }
+    if validation.get("missing_key_nodes"):
+        metadata["carta_porte_alerta"] = "XML timbrado con nodos clave faltantes: " + ", ".join(validation["missing_key_nodes"])
+
+    supabase_row = _sb_insert(_SB_FACTURAS, _scope_row(scope, {
+        "facility_id": origen_facility_id,
+        "origen_facility_id": origen_facility_id,
+        "destino_facility_id": destino_facility_id,
+        "vehiculo_id": vehiculo_id,
+        "chofer_id": chofer_id,
+        "ruta_id": payload.ruta_id,
+        "record_uuid": payload.record_uuid,
+        "uuid_sat": resultado["uuid"],
+        "xml_content": resultado["xml_timbrado"],
+        "pdf_url": resultado.get("pdf_url") or "",
+        "status": "Vigente",
+        "fecha_timbrado": now,
+        "rfc_receptor": receptor["rfc"],
+        "volumen_litros": litros,
+        "importe": payload.importe,
+        "tipo_comprobante": payload.tipo_comprobante,
+        "distancia_km": distancia_km,
+        "metadata": metadata,
+        "created_at": now,
+    }))
+    if supabase_row:
+        version_xml(
+            module="gas_lp",
+            entity_type="factura_gas_lp",
+            entity_id=supabase_row.get("id"),
+            uuid_sat=resultado["uuid"],
+            xml_content=resultado["xml_timbrado"],
+            user_id=uid,
+            perfil_id=scope.get("perfil_id"),
+            tenant_id=scope.get("tenant_id"),
+            source="sw_sapien",
+        )
+        logger.info("Carta Porte timbrada: user=%s uuid_sat=%s source=supabase", uid, resultado["uuid"])
+        response_factura = {
+            **supabase_row,
+            "uuid_sat": resultado["uuid"],
+            "xml_content": resultado["xml_timbrado"],
+            "pdf_url": resultado.get("pdf_url") or "",
+            "metadata": metadata,
+        }
+        return JSONResponse({
+            "ok": True,
+            "factura": response_factura,
+            "uuid_sat": resultado["uuid"],
+            "pdf_url": resultado["pdf_url"],
+            "status": "Vigente",
+            "fecha_timbrado": now,
+            "id": supabase_row.get("id"),
+            "id_ccp": validation.get("metadata", {}).get("id_ccp") or "",
+            "carta_porte_validation": validation,
+            "source": "supabase",
+        })
+
+    raise HTTPException(500, f"CFDI timbrado con UUID {resultado['uuid']}, pero no se pudo guardar en Supabase. Revisar auditoría inmediatamente.")
 
 __all__ = [name for name in globals() if not name.startswith('__')]

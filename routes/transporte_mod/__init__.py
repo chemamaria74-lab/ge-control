@@ -1,12 +1,20 @@
-from .core import router
+from . import core
+from . import facturas_fiscales
+from . import catalogos_basicos
+from . import carta_porte_catalogos
+from . import clientes
 
-# Import modules for route registration side effects.
-from . import viajes  # noqa: F401
-from . import facturas_servicio_dashboard  # noqa: F401
-from . import operacion_docs_tarifas  # noqa: F401
-from . import operador  # noqa: F401
-from . import facturacion_sat_liqs  # noqa: F401
-from . import crud_basicos  # noqa: F401
-from . import catalogos_settings  # noqa: F401
+_MODULES = (
+    core,
+    facturas_fiscales,
+    catalogos_basicos,
+    carta_porte_catalogos,
+    clientes,
+)
 
-__all__ = ["router"]
+for _module in _MODULES:
+    for _name, _value in _module.__dict__.items():
+        if not _name.startswith("__"):
+            globals()[_name] = _value
+
+__all__ = [name for name in globals() if not name.startswith("__")]
