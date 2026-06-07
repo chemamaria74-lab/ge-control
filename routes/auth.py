@@ -246,6 +246,8 @@ def usuario_tiene_acceso_perfil(
         assigned = acceso.get("perfil_id")
         if assigned is not None and str(assigned) == str(perfil_id):
             return _active_profile_allowed_for_module(user_id, section, perfil_id, access_token=access_token) is not None
+        if role == "admin" and _active_profile_allowed_for_module(user_id, section, perfil_id, access_token=access_token):
+            return True
         if assigned is None and role == "admin":
             try:
                 sb = get_supabase_for_user(access_token) if access_token else get_supabase()
