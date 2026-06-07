@@ -2,6 +2,7 @@ import logging
 import os
 import re
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -183,22 +184,29 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ── Templates Jinja2 ──────────────────────────────────────────────────────────
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
-# ── App FastAPI ───────────────────────────────────────────────────────────────
-app = FastAPI(
-    title="GE CONTROL",
-    description="Plataforma inteligente de control operativo para Gas LP y Transporte.",
-    version="3.5.0",
-)
 
-
-@app.on_event("startup")
-async def log_memory_budget():
+def _log_memory_budget() -> None:
     try:
         import resource
         rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         logger.info("Render memory budget mode: pid=%s rss_kb=%s workers=%s", os.getpid(), rss_kb, os.environ.get("WEB_CONCURRENCY", "1"))
     except Exception:
         logger.info("Render memory budget mode: pid=%s workers=%s", os.getpid(), os.environ.get("WEB_CONCURRENCY", "1"))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _log_memory_budget()
+    yield
+
+
+# ── App FastAPI ───────────────────────────────────────────────────────────────
+app = FastAPI(
+    title="GE CONTROL",
+    description="Plataforma inteligente de control operativo para Gas LP y Transporte.",
+    version="3.5.0",
+    lifespan=lifespan,
+)
 
 
 @app.exception_handler(HTTPException)
