@@ -22,7 +22,8 @@ import logging
 import threading
 from functools import lru_cache
 
-from supabase import Client, create_client
+import httpx
+from supabase import Client, ClientOptions, create_client
 
 try:
     from dotenv import load_dotenv
@@ -52,6 +53,15 @@ _system_client: Client | None = None
 _admin_client: Client | None = None
 
 
+def _create_supabase_client(key: str) -> Client:
+    """Create Supabase client without deprecated PostgREST timeout/verify args."""
+    return create_client(
+        SUPABASE_URL,
+        key,
+        options=ClientOptions(httpx_client=httpx.Client(timeout=120)),
+    )
+
+
 def get_supabase() -> Client:
     """
     Cliente Supabase compartido con la anon key.
@@ -62,7 +72,7 @@ def get_supabase() -> Client:
     if _system_client is None:
         with _lock:
             if _system_client is None:  # double-checked locking
-                _system_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+                _system_client = _create_supabase_client(SUPABASE_KEY)
                 logger.info("Cliente Supabase (sistema) inicializado: %s", SUPABASE_URL)
     return _system_client
 
@@ -78,7 +88,7 @@ def get_supabase_admin() -> Client:
     if _admin_client is None:
         with _lock:
             if _admin_client is None:
-                _admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+                _admin_client = _create_supabase_client(SUPABASE_SERVICE_ROLE_KEY)
                 logger.info("Cliente Supabase admin inicializado: %s", SUPABASE_URL)
     return _admin_client
 
@@ -97,6 +107,6 @@ def get_supabase_for_user(access_token: str) -> Client:
         sb = get_supabase_for_user(access_token)
         rows = sb.table("records").select("*").eq("user_id", uid).execute()
     """
-    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    client = _create_supabase_client(SUPABASE_KEY)
     client.postgrest.auth(access_token)
     return client
