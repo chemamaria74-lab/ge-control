@@ -138,7 +138,7 @@ function editCliente(id){
   cliUso.value = c.uso_cfdi || 'S01';
   clienteFormClientes.classList.remove('hide');
   cliNombre.focus();
-  setStatus('clientesMsg',`Editando cliente: ${c.nombre || c.rfc || id}`);
+  setClientesFeedback(`Editando cliente: ${c.nombre || c.rfc || id}`);
 }
 async function loadFacilities(){
   try{

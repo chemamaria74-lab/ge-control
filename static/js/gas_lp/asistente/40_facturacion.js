@@ -141,11 +141,11 @@ function buildInvoicePreview(isTraspaso=false){
 async function saveClienteFromTab(){
   try{
     const validation = validateEmailSlots(cliEmail.value, cliEmailAdicional1?.value);
-    if(!validation.ok){ setStatus('clientesMsg', validation.message, false); return; }
+    if(!validation.ok){ setClientesFeedback(validation.message, false); return; }
     const creditoHabilitado = cliCreditoHabilitado?.value === '1';
     const diasCredito = Number(cliDiasCredito?.value || 0);
     if(creditoHabilitado && diasCredito <= 0){
-      setStatus('clientesMsg','Captura los días de crédito antes de guardar.',false);
+      setClientesFeedback('Captura los días de crédito antes de guardar.',false);
       cliDiasCredito?.focus();
       return;
     }
@@ -176,17 +176,17 @@ async function saveClienteFromTab(){
     const saved = CLIENTES.find(c => String(c.id) === String(savedId)) || data.cliente || payload;
     const savedName = saved?.nombre || payload.nombre || 'cliente';
     const savedRfc = saved?.rfc || payload.rfc || '';
-    setStatus('clientesMsg',`${wasEdit ? 'Cliente actualizado' : 'Cliente guardado'}: ${savedName}${savedRfc ? ` · ${savedRfc}` : ''}.`);
+    setClientesFeedback(`${wasEdit ? 'Cliente actualizado' : 'Cliente guardado'} y seleccionado para facturar: ${savedName}${savedRfc ? ` · ${savedRfc}` : ''}.`);
     setStatus('facturaMsg',`Cliente listo para facturar: ${savedName}.`);
-  }catch(e){ setStatus('clientesMsg',e.message,false); }
+  }catch(e){ setClientesFeedback(e.message,false); }
 }
 async function deleteCliente(id){
   if(!confirm('Eliminar este cliente de consumo de esta empresa?')) return;
   try{
     await api('/api/internal-auth/gas-lp/clientes/' + encodeURIComponent(id),{method:'DELETE'});
-    setStatus('clientesMsg','Cliente eliminado');
+    setClientesFeedback('Cliente eliminado');
     await loadClientes();
-  }catch(e){ setStatus('clientesMsg',e.message,false); }
+  }catch(e){ setClientesFeedback(e.message,false); }
 }
 function updateTotals(){
   const isTraspaso = tipoOperacion.value === 'traspaso';

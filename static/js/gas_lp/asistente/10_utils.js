@@ -15,6 +15,10 @@ function setStatus(id,text,ok=true){
   const el=document.getElementById(id);
   if(el){ el.textContent=text; el.className='status '+(ok?'ok':'err'); }
 }
+function setClientesFeedback(text, ok=true){
+  setStatus('clientesMsg', text, ok);
+  setStatus('clientesNotice', text, ok);
+}
 function markInvoiceInteraction(){
   invoiceUserInteractedAt = Date.now();
 }
@@ -296,7 +300,7 @@ function setClientesTabDefaults(){
   if(window.cliCreditoNotas) cliCreditoNotas.value = '';
   cliRegimen.value = '616';
   cliUso.value = 'S01';
-  setStatus('clientesMsg','');
+  setClientesFeedback('');
 }
 function clienteCreditoLabel(c){
   const credit = clienteCreditFields(c);
