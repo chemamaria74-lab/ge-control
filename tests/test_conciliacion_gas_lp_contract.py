@@ -790,3 +790,46 @@ def test_assistant_carta_porte_driver_form_is_simplified_with_license_dates():
     assert "acpc_curp" not in html
     assert "Expedición licencia" in html
     assert "Vencimiento licencia" in html
+
+
+def test_assistant_carta_porte_vehicle_form_uses_numero_economico_as_alias():
+    html = _assistant_frontend_source()
+    payload = internal_users._internal_cp_payload(
+        "vehiculos",
+        {
+            "numero_economico": "AT-96",
+            "placa": "ABC1234",
+            "anio": "2024",
+            "config_vehicular": "C2",
+            "permiso_cre": "TPAF03",
+            "numero_permiso": "SCT-123456",
+            "peso_bruto_vehicular": "18000",
+            "aseguradora": "GNP",
+            "poliza_seguro": "RC-123",
+            "aseguradora_medio_ambiente": "Ambiental MX",
+            "poliza_medio_ambiente": "MA-123",
+        },
+    )
+    record = internal_users._internal_cp_response_record(
+        "vehiculos",
+        {"id": 96, **payload},
+        {"owner_user_id": "user-1", "tenant_id": None, "perfil_id": 123},
+    )
+
+    assert payload["metadata"]["alias"] == "AT-96"
+    assert payload["metadata"]["numero_economico"] == "AT-96"
+    assert payload["metadata"]["aseguradora_carga"] == ""
+    assert payload["metadata"]["poliza_carga"] == ""
+    assert record["id"] == 96
+    assert record["perfil_id"] == 123
+    assert "acpv_alias" not in html
+    assert "Aseguradora carga" not in html
+    assert "Póliza carga" not in html
+    assert "Aseguradora de responsabilidad civil" in html
+    assert "Póliza de responsabilidad civil" in html
+    assert "Aseguradora de daños al medio ambiente" in html
+    assert "Póliza de daños al medio ambiente" in html
+    assert "Seguro obligatorio del vehículo." in html
+    assert "Requerido para transporte de material peligroso como Gas LP." in html
+    assert "numero_economico:acpv_num.value" in html
+    assert "payload.numero_economico" in html
