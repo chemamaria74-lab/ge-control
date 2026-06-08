@@ -11,6 +11,17 @@ def _gas_lp_cliente_editable_update(row: dict) -> dict:
     return {key: value for key, value in row.items() if key in allowed}
 
 
+def _gas_lp_cliente_update_row(user: dict, payload: GasLpInternalClientePayload) -> dict:
+    row = _gas_lp_cliente_editable_update(_gas_lp_cliente_row(user, payload))
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    row["metadata"] = {
+        **metadata,
+        "updated_by_internal": user.get("id"),
+        "updated_by": user.get("display_name"),
+    }
+    return row
+
+
 def _internal_cp_table(kind: str) -> tuple[str, str]:
     tables = {
         "vehiculos": ("gas_lp_vehiculos", "placas"),
@@ -330,14 +341,7 @@ async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, to
 async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInternalClientePayload, token: str):
     ctx = _gas_lp_internal_context(token, write=True)
     user = ctx["user"]
-    row = _gas_lp_cliente_row(user, payload)
-    row.pop("created_at", None)
-    row = _gas_lp_cliente_editable_update(row)
-    row["metadata"] = {
-        **(row.get("metadata") or {}),
-        "updated_by_internal": user.get("id"),
-        "updated_by": user.get("display_name"),
-    }
+    row = _gas_lp_cliente_update_row(user, payload)
     try:
         data = (
             _gas_lp_clientes_scope_query(

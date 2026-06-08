@@ -2254,6 +2254,57 @@ def _gas_lp_existing_transfer_invoice(sb, user: dict, payload: GasLpInternalFact
     return None
 
 
+def _gas_lp_existing_sale_invoice(sb, user: dict, payload: GasLpInternalFacturaPayload, totals: dict, receptor: dict) -> dict | None:
+    day = str(totals.get("fecha") or payload.fecha or "").strip()[:10]
+    if not day:
+        return None
+    try:
+        rows = (
+            sb.table("gas_lp_facturas")
+            .select("id,uuid_sat,status,fecha_timbrado,rfc_receptor,volumen_litros,metadata,created_at,facility_id")
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .order("created_at", desc=True)
+            .limit(500)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_invoice_duplicate_lookup_failed user=%s perfil=%s err=%s", user.get("id"), user.get("perfil_id"), exc)
+        return None
+
+    target_litros = Decimal(str(payload.litros or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    target_total = _money(totals.get("total"))
+    target_rfc = _clean_rfc(receptor.get("rfc") or payload.rfc or "")
+    target_user_id = _safe_int_id(user.get("id"))
+    target_facility_id = _safe_int_id(payload.facility_id)
+    for row in rows:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        if md.get("is_transfer") is True or md.get("operation_type") == "transfer" or md.get("tipo_operacion") == "traspaso":
+            continue
+        if str(md.get("fecha_emision") or row.get("fecha_timbrado") or row.get("created_at") or "").strip()[:10] != day:
+            continue
+        if _safe_int_id(md.get("internal_user_id")) != target_user_id:
+            continue
+        if _safe_int_id(md.get("origen_facility_id") or md.get("facility_id") or row.get("facility_id")) != target_facility_id:
+            continue
+        row_rfc = _clean_rfc(row.get("rfc_receptor") or md.get("receptor_rfc") or md.get("cliente_rfc") or "")
+        if target_rfc and row_rfc and row_rfc != target_rfc:
+            continue
+        row_litros = Decimal(str(row.get("volumen_litros") or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+        if row_litros != target_litros:
+            continue
+        try:
+            row_total = _money(md.get("total") if md.get("total") not in {None, ""} else 0)
+        except Exception:
+            row_total = Decimal("0.00")
+        if row_total != target_total:
+            continue
+        return row
+    return None
+
+
 def _gas_lp_factura_total_con_iva(factura: dict) -> Decimal:
     root = _gas_lp_factura_xml_root(factura)
     if root is not None:
