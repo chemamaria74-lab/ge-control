@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import json
 import os
 import sys
 from decimal import Decimal
@@ -13,6 +14,7 @@ from fastapi import HTTPException
 
 import routes.internal_users as internal_users
 import routes.internal_users_mod.catalogos_clientes as cp_catalogos
+import routes.internal_users_mod.users_auth as users_auth
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -171,6 +173,11 @@ def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
         "tab-descuentos",
         "panel-descuentos",
         "clienteDiscountFields",
+        "facturaDiscountInfo",
+        "inferInvoiceDiscountType",
+        "discountPromedioLitro",
+        "Promedio descuento por litro",
+        "Desc. por litro",
         "descuento_facturacion",
         "sin_descuento",
         "por_litro",
@@ -185,6 +192,9 @@ def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
 
     assert 'value="total_pesos"' in assistant_html
     assert 'value="por_litro"' in assistant_html
+    assert "Promedio por factura" not in assistant_html
+    assert "<th>Promedio</th>" not in assistant_html
+    assert "discountPromedioFactura" not in assistant_html
 
     for token in (
         "pubDescuentoTipo",
@@ -902,3 +912,98 @@ def test_carta_porte_catalog_legacy_rows_still_match_same_profile(monkeypatch):
 
     assert cp_catalogos._internal_cp_row_company_match({"perfil_id": 101, "metadata": {}}, scope) is True
     assert cp_catalogos._internal_cp_row_company_match({"perfil_id": 202, "metadata": {}}, scope) is False
+
+
+def test_carta_porte_catalog_existing_supabase_rows_are_listed_by_company_rfc(monkeypatch):
+    class FakeResult:
+        def __init__(self, data):
+            self.data = data
+
+    class FakeQuery:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def eq(self, *_args, **_kwargs):
+            return self
+
+        def is_(self, *_args, **_kwargs):
+            return self
+
+        def or_(self, *_args, **_kwargs):
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def execute(self):
+            return FakeResult(self.rows)
+
+    class FakeSupabase:
+        def __init__(self, tables):
+            self.tables = tables
+
+        def table(self, name):
+            return FakeQuery(self.tables.get(name, []))
+
+    tables = {
+        "gas_lp_choferes": [
+            {
+                "id": 10,
+                "user_id": "otro-creador",
+                "tenant_id": None,
+                "perfil_id": 999,
+                "activo": True,
+                "nombre": "MARIA JOSE",
+                "licencia": "E123",
+                "metadata": {"empresa_rfc": " glu760309457 "},
+            },
+            {
+                "id": 11,
+                "user_id": "otro-creador",
+                "tenant_id": None,
+                "perfil_id": 888,
+                "activo": True,
+                "nombre": "OTRA EMPRESA",
+                "metadata": {"empresa_rfc": "OTR010101AAA"},
+            },
+        ],
+        "gas_lp_mercancias_carta_porte": [
+            {
+                "id": 20,
+                "tenant_id": None,
+                "perfil_id": 777,
+                "activo": True,
+                "alias": "Gas LP",
+                "metadata": {"rfc_emisor": "GLU760309457"},
+            }
+        ],
+        "gas_lp_vehiculos": [],
+        "gas_lp_rutas": [],
+        "gas_lp_ubicaciones_carta_porte": [],
+    }
+    user = {"id": 1, "owner_user_id": "admin-actual", "tenant_id": "tenant-gas", "perfil_id": 101}
+
+    monkeypatch.setattr(users_auth, "_gas_lp_internal_context", lambda _token: {"user": user})
+    monkeypatch.setattr(users_auth, "_gas_lp_profile", lambda _user: {"id": 101, "tenant_id": "tenant-gas", "rfc": "GLU760309457", "nombre": "GAS LUX"})
+    monkeypatch.setattr(users_auth, "get_supabase_admin", lambda: FakeSupabase(tables))
+    monkeypatch.setattr(users_auth, "_internal_cp_facilities", lambda _user: [])
+
+    response = asyncio.run(users_auth.gas_lp_internal_catalogos("tok"))
+    payload = json.loads(response.body)
+
+    assert [row["nombre"] for row in payload["choferes"]] == ["MARIA JOSE"]
+    assert payload["choferes"][0]["user_id"] == "otro-creador"
+    assert [row["alias"] for row in payload["mercancias"]] == ["Gas LP"]
+
+
+def test_carta_porte_catalog_rfc_matching_normalizes_spaces_and_case(monkeypatch):
+    monkeypatch.setattr(cp_catalogos, "_gas_lp_profile", lambda user: {"id": user["perfil_id"], "tenant_id": "tenant-gas", "rfc": "GLU760309457"})
+    user = {"id": 1, "owner_user_id": "admin-a", "tenant_id": "tenant-gas", "perfil_id": 101}
+    scope = cp_catalogos._internal_cp_company_scope(user)
+
+    assert cp_catalogos._internal_cp_row_company_match({"metadata": {"empresa_rfc": " glu760309457 "}}, scope) is True
+    assert cp_catalogos._internal_cp_row_company_match({"metadata": {"rfc_emisor": "RFC GLU760309457"}}, scope) is True
+    assert cp_catalogos._internal_cp_row_company_match({"metadata": {"empresa_rfc": "OTR010101AAA"}}, scope) is False
