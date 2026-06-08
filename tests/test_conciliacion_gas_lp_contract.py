@@ -206,6 +206,33 @@ def test_gas_lp_cliente_credit_policy_is_mirrored_in_metadata():
     assert fallback["metadata"]["invoice_email_additional"] == ["contabilidad@cliente.mx"]
 
 
+def test_gas_lp_cliente_credit_policy_is_preserved_on_update_payload():
+    payload = internal_users.GasLpInternalClientePayload(
+        rfc="SCP101217PB4",
+        nombre="SEMINARIO CONCILIAR DE LA PURISIMA",
+        cp="98600",
+        regimen_fiscal="603",
+        uso_cfdi="G03",
+        email="auregaslux@grupoemurcia.com.mx",
+        email_adicional_1="seminariodezacatecas@gmail.com",
+        credito_habilitado=True,
+        dias_credito=15,
+        limite_credito=None,
+        credito_notas="Cobranza semanal",
+    )
+    row = internal_users._gas_lp_cliente_update_row(
+        {"owner_user_id": "admin", "tenant_id": "tenant-a", "perfil_id": 7, "id": "assistant-1", "display_name": "ANABEL"},
+        payload,
+    )
+
+    assert "created_at" not in row
+    assert row["metadata"]["credito_ppd"]["credito_habilitado"] is True
+    assert row["metadata"]["credito_ppd"]["dias_credito"] == 15
+    assert row["metadata"]["email_facturacion"] == "auregaslux@grupoemurcia.com.mx"
+    assert row["metadata"]["invoice_email_additional"] == ["seminariodezacatecas@gmail.com"]
+    assert row["metadata"]["updated_by"] == "ANABEL"
+
+
 def test_gas_lp_cliente_scope_uses_is_null_for_legacy_tenant():
     class Query:
         def __init__(self):
@@ -608,6 +635,8 @@ def test_assistant_client_save_feedback_stays_visible_after_form_hides():
     assert 'id="clientesNotice"' in html
     assert "function setClientesFeedback" in html
     assert "setStatus('clientesNotice'" in html
+    assert "Guardando cambios del cliente..." in html
+    assert "btnGuardarCliente.disabled = true" in html
     assert "clienteFormClientes.classList.add('hide');" in html
     assert "Cliente guardado'} y seleccionado para facturar" in html
 
