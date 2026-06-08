@@ -447,40 +447,41 @@ async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp", include_
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
     sb = get_supabase_admin()
+    profile = _gas_lp_profile(user)
+    company_scope = {
+        "tenant_id": user.get("tenant_id") or profile.get("tenant_id"),
+        "perfil_id": user.get("perfil_id") or profile.get("id"),
+        "empresa_rfc": _clean_rfc(profile.get("rfc") or ""),
+    }
 
-    def scoped(table: str):
-        q = (
-            sb.table(table)
-            .select("*")
-            .eq("user_id", user.get("owner_user_id"))
-            .eq("perfil_id", user.get("perfil_id"))
-        )
-        tenant_id = user.get("tenant_id")
+    def company_rows(table: str, order: str) -> list[dict]:
+        q = sb.table(table).select("*")
+        tenant_id = company_scope.get("tenant_id")
         q = q.eq("tenant_id", tenant_id) if tenant_id else q.is_("tenant_id", "null")
         if not include_inactive:
             q = q.eq("activo", True)
-        return q
+        try:
+            rows = q.order(order).execute().data or []
+        except Exception as exc:
+            logger.warning("gas_lp_catalogos_list_failed table=%s perfil=%s tenant=%s err=%s", table, company_scope.get("perfil_id"), tenant_id, exc)
+            return []
+        filtered = []
+        for row in rows:
+            md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            row_rfc = _clean_rfc(md.get("empresa_rfc") or row.get("empresa_rfc") or row.get("rfc_emisor") or "")
+            if row_rfc:
+                if row_rfc == company_scope.get("empresa_rfc"):
+                    filtered.append(row)
+            elif str(row.get("perfil_id") or "") == str(company_scope.get("perfil_id") or ""):
+                filtered.append(row)
+        logger.debug("gas_lp_catalogos_list table=%s tenant=%s perfil=%s empresa_rfc=%s count=%s", table, tenant_id, company_scope.get("perfil_id"), company_scope.get("empresa_rfc"), len(filtered))
+        return filtered
 
-    try:
-        choferes = scoped("gas_lp_choferes").eq("modulo_propietario", "gas_lp").order("nombre").execute().data or []
-    except Exception:
-        choferes = []
-    try:
-        vehiculos = scoped("gas_lp_vehiculos").eq("modulo_propietario", "gas_lp").order("placas").execute().data or []
-    except Exception:
-        vehiculos = []
-    try:
-        rutas = scoped("gas_lp_rutas").eq("modulo_propietario", "gas_lp").order("nombre").execute().data or []
-    except Exception:
-        rutas = []
-    try:
-        ubicaciones = scoped("gas_lp_ubicaciones_carta_porte").order("alias").execute().data or []
-    except Exception:
-        ubicaciones = []
-    try:
-        mercancias = scoped("gas_lp_mercancias_carta_porte").order("alias").execute().data or []
-    except Exception:
-        mercancias = []
+    choferes = [row for row in company_rows("gas_lp_choferes", "nombre") if (row.get("modulo_propietario") or "") == "gas_lp"]
+    vehiculos = [row for row in company_rows("gas_lp_vehiculos", "placas") if (row.get("modulo_propietario") or "") == "gas_lp"]
+    rutas = [row for row in company_rows("gas_lp_rutas", "nombre") if (row.get("modulo_propietario") or "") == "gas_lp"]
+    ubicaciones = company_rows("gas_lp_ubicaciones_carta_porte", "alias")
+    mercancias = company_rows("gas_lp_mercancias_carta_porte", "alias")
     instalaciones = _internal_cp_facilities(user)
     return JSONResponse({
         "ok": True,

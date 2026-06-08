@@ -50,6 +50,9 @@ def _internal_cp_table(kind: str) -> tuple[str, str]:
 
 
 def _internal_cp_scope_row(user: dict, values: dict) -> dict:
+    profile = _gas_lp_profile(user)
+    company_rfc = _clean_rfc(profile.get("rfc") or "")
+    metadata = values.get("metadata") if isinstance(values.get("metadata"), dict) else {}
     return {
         **values,
         "user_id": user.get("owner_user_id"),
@@ -57,11 +60,63 @@ def _internal_cp_scope_row(user: dict, values: dict) -> dict:
         "perfil_id": user.get("perfil_id"),
         "source": "supabase",
         "modulo_propietario": "gas_lp",
+        "metadata": {
+            **metadata,
+            "empresa_rfc": company_rfc,
+            "empresa_perfil_id": user.get("perfil_id"),
+            "created_by_internal_user_id": user.get("id"),
+            "created_by_owner_user_id": user.get("owner_user_id"),
+        },
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
-def _internal_cp_scope_query(query, user: dict):
+def _internal_cp_company_scope(user: dict) -> dict:
+    profile = _gas_lp_profile(user)
+    return {
+        "tenant_id": user.get("tenant_id") or profile.get("tenant_id"),
+        "perfil_id": user.get("perfil_id") or profile.get("id"),
+        "empresa_rfc": _clean_rfc(profile.get("rfc") or ""),
+        "owner_user_id": user.get("owner_user_id"),
+        "internal_user_id": user.get("id"),
+    }
+
+
+def _internal_cp_company_query(query, user: dict, *, active_only: bool = True):
+    scope = _internal_cp_company_scope(user)
+    query = query.select("*")
+    tenant_id = scope.get("tenant_id")
+    if tenant_id:
+        query = query.eq("tenant_id", tenant_id)
+    else:
+        query = query.is_("tenant_id", "null")
+    if active_only:
+        query = query.eq("activo", True)
+    return query
+
+
+def _internal_cp_row_company_match(row: dict, scope: dict) -> bool:
+    md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    row_rfc = _clean_rfc(md.get("empresa_rfc") or row.get("empresa_rfc") or row.get("rfc_emisor") or "")
+    if row_rfc:
+        return row_rfc == scope.get("empresa_rfc")
+    return str(row.get("perfil_id") or "") == str(scope.get("perfil_id") or "")
+
+
+def _internal_cp_company_rows(table: str, user: dict, *, active_only: bool = True, order: str = "created_at", desc: bool = True) -> list[dict]:
+    scope = _internal_cp_company_scope(user)
+    try:
+        query = _internal_cp_company_query(get_supabase_admin().table(table), user, active_only=active_only).order(order, desc=desc)
+        rows = query.execute().data or []
+    except Exception as exc:
+        logger.warning("gas_lp_catalogos_list_failed table=%s perfil=%s tenant=%s err=%s", table, scope.get("perfil_id"), scope.get("tenant_id"), exc)
+        return []
+    filtered = [row for row in rows if _internal_cp_row_company_match(row, scope)]
+    logger.debug("gas_lp_catalogos_list table=%s tenant=%s perfil=%s empresa_rfc=%s count=%s", table, scope.get("tenant_id"), scope.get("perfil_id"), scope.get("empresa_rfc"), len(filtered))
+    return filtered
+
+
+def _internal_cp_legacy_scope_query(query, user: dict):
     query = query.eq("user_id", user.get("owner_user_id")).eq("perfil_id", user.get("perfil_id"))
     tenant_id = user.get("tenant_id")
     return query.eq("tenant_id", tenant_id) if tenant_id else query.is_("tenant_id", "null")
@@ -81,17 +136,8 @@ def _internal_cp_response_record(kind: str, row: dict, user: dict, row_id: int |
 
 def _internal_cp_existing_row(table: str, row_id: int, user: dict) -> dict:
     try:
-        rows = (
-            _internal_cp_scope_query(
-                get_supabase_admin().table(table).select("*").eq("id", row_id),
-                user,
-            )
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-        return rows[0] if rows else {}
+        rows = _internal_cp_company_rows(table, user, active_only=False)
+        return next((row for row in rows if str(row.get("id")) == str(row_id)), {})
     except Exception:
         return {}
 
@@ -106,6 +152,25 @@ def _internal_cp_merge_metadata(payload: dict, current: dict) -> dict:
         if value is not None and str(value).strip() != ""
     }
     return {**payload, "metadata": {**current_metadata, **payload_metadata}}
+
+
+def _internal_cp_company_payload(payload: dict, user: dict, current: dict | None = None) -> dict:
+    scope = _internal_cp_company_scope(user)
+    current_metadata = (current or {}).get("metadata") if isinstance((current or {}).get("metadata"), dict) else {}
+    payload_metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    return {
+        **payload,
+        "tenant_id": scope.get("tenant_id"),
+        "perfil_id": scope.get("perfil_id"),
+        "metadata": {
+            **current_metadata,
+            **payload_metadata,
+            "empresa_rfc": scope.get("empresa_rfc"),
+            "empresa_perfil_id": scope.get("perfil_id"),
+            "updated_by_internal_user_id": scope.get("internal_user_id"),
+            "updated_by_owner_user_id": scope.get("owner_user_id"),
+        },
+    }
 
 
 def _internal_cp_facility_config_rows(user: dict) -> dict[int, dict]:
@@ -310,6 +375,7 @@ async def gas_lp_internal_catalogo_create(kind: str, request: Request, token: st
     table, _order = _internal_cp_table(kind)
     payload = _internal_cp_payload(kind, request.query_params)
     row = _internal_cp_scope_row(user, payload)
+    logger.debug("gas_lp_catalogo_create table=%s kind=%s tenant=%s perfil=%s empresa_rfc=%s", table, kind, row.get("tenant_id"), row.get("perfil_id"), (row.get("metadata") or {}).get("empresa_rfc"))
     try:
         data = get_supabase_admin().table(table).insert(row).execute().data or []
     except Exception as exc:
@@ -340,16 +406,17 @@ async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Reque
     table, _order = _internal_cp_table(kind)
     payload = _internal_cp_payload(kind, request.query_params)
     current = _internal_cp_existing_row(table, row_id, user)
+    if not current:
+        raise HTTPException(404, "Registro no encontrado para esta empresa.")
     payload = _internal_cp_merge_metadata(payload, current)
+    payload = _internal_cp_company_payload(payload, user, current)
+    logger.debug("gas_lp_catalogo_update table=%s kind=%s id=%s tenant=%s perfil=%s empresa_rfc=%s", table, kind, row_id, payload.get("tenant_id"), payload.get("perfil_id"), (payload.get("metadata") or {}).get("empresa_rfc"))
     try:
         data = (
-            _internal_cp_scope_query(
             get_supabase_admin()
             .table(table)
             .update({**payload, "updated_at": datetime.now(timezone.utc).isoformat()})
-            .eq("id", row_id),
-            user,
-            )
+            .eq("id", row_id)
             .execute()
             .data
             or []
@@ -371,14 +438,14 @@ async def gas_lp_internal_catalogo_delete(kind: str, row_id: int, token: str, pe
         return JSONResponse({"ok": True})
     table, _order = _internal_cp_table(kind)
     q = get_supabase_admin().table(table)
+    current = _internal_cp_existing_row(table, row_id, user)
+    if not current:
+        raise HTTPException(404, "Registro no encontrado para esta empresa.")
     try:
         if permanent:
-            _internal_cp_scope_query(q.delete().eq("id", row_id), user).execute()
+            q.delete().eq("id", row_id).execute()
         else:
-            _internal_cp_scope_query(
-                q.update({"activo": False, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id),
-                user,
-            ).execute()
+            q.update({"activo": False, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id).execute()
     except Exception as exc:
         raise _safe_internal_error(f"gas_lp_catalogo_delete_{kind}", exc)
     return JSONResponse({"ok": True})

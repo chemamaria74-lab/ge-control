@@ -223,6 +223,13 @@ class GasLpInternalClientePayload(BaseModel):
     dias_credito: int = 0
     limite_credito: Optional[float] = None
     credito_notas: str = ""
+    descuento_activo: bool = False
+    tipo_descuento_cliente: str = "sin_descuento"
+    descuento_valor: Optional[float] = None
+    precio_especial_litro: Optional[float] = None
+    descuento_vigencia_inicio: str = ""
+    descuento_vigencia_fin: str = ""
+    descuento_notas: str = ""
 
 
 class GasLpInternalFacturaPayload(BaseModel):
@@ -565,6 +572,7 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
         "actualizado_at": _now_iso(),
         "actualizado_por": str(user.get("id") or user.get("display_name") or ""),
     }
+    discount_policy = _gas_lp_cliente_discount_policy(user, payload)
     if not rfc or not nombre:
         raise HTTPException(400, "RFC y nombre del cliente son obligatorios.")
     if rfc == "XAXX010101000":
@@ -613,9 +621,52 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
             "email_adicional_1": invoice_emails[1] if len(invoice_emails) > 1 else "",
             "email_adicional_2": "",
             "credito_ppd": credito_policy,
+            "descuento_facturacion": discount_policy,
         },
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
+    }
+
+
+def _gas_lp_cliente_discount_policy(user: dict, payload: GasLpInternalClientePayload) -> dict:
+    mode = str(payload.tipo_descuento_cliente or "sin_descuento").strip().lower()
+    aliases = {
+        "": "sin_descuento",
+        "none": "sin_descuento",
+        "sin": "sin_descuento",
+        "sin_descuento": "sin_descuento",
+        "por_litro": "por_litro",
+        "descuento_por_litro": "por_litro",
+        "total_pesos": "total_pesos",
+        "precio_especial": "precio_especial",
+        "precio_litro": "precio_especial",
+        "porcentaje": "porcentaje",
+        "porcentaje_descuento": "porcentaje",
+    }
+    mode = aliases.get(mode, mode)
+    if mode not in {"sin_descuento", "por_litro", "total_pesos", "precio_especial", "porcentaje"}:
+        raise HTTPException(400, "Tipo de descuento de cliente no reconocido.")
+    active = bool(payload.descuento_activo) and mode != "sin_descuento"
+    discount_value = float(payload.descuento_valor or 0)
+    special_price = float(payload.precio_especial_litro or 0)
+    if active and mode in {"por_litro", "total_pesos"} and discount_value < 0:
+        raise HTTPException(400, "El descuento no puede ser negativo.")
+    if active and mode == "porcentaje" and (discount_value < 0 or discount_value > 100):
+        raise HTTPException(400, "El porcentaje de descuento debe estar entre 0% y 100%.")
+    if active and mode == "precio_especial" and special_price <= 0:
+        raise HTTPException(400, "El precio especial por litro debe ser mayor a cero.")
+    if active and mode in {"por_litro", "total_pesos", "porcentaje"} and discount_value <= 0:
+        raise HTTPException(400, "Captura un valor de descuento mayor a cero.")
+    return {
+        "activo": active,
+        "tipo": mode if active else "sin_descuento",
+        "valor": max(0, discount_value),
+        "precio_especial_litro": max(0, special_price),
+        "vigencia_inicio": str(payload.descuento_vigencia_inicio or "").strip()[:10],
+        "vigencia_fin": str(payload.descuento_vigencia_fin or "").strip()[:10],
+        "notas": str(payload.descuento_notas or "").strip()[:500],
+        "actualizado_at": _now_iso(),
+        "actualizado_por": str(user.get("id") or user.get("display_name") or ""),
     }
 
 
@@ -643,6 +694,18 @@ def _normalize_gas_lp_cliente_credit(row: dict) -> dict:
     item["dias_credito"] = int(credit_days if credit_enabled is not None else (item_days or 0)) or 0
     item["limite_credito"] = credit.get("limite_credito", credit.get("limite", item.get("limite_credito")))
     item["credito_notas"] = credit.get("credito_notas", credit.get("notas", item.get("credito_notas", ""))) or ""
+    discount = md.get("descuento_facturacion") or md.get("descuento_cliente") or md.get("descuento") or {}
+    if isinstance(discount, dict):
+        item["descuento_facturacion"] = {
+            "activo": bool(discount.get("activo", discount.get("habilitado", False))),
+            "tipo": str(discount.get("tipo", discount.get("tipo_descuento", "sin_descuento")) or "sin_descuento"),
+            "valor": discount.get("valor", discount.get("descuento_valor", discount.get("monto", 0))) or 0,
+            "precio_especial_litro": discount.get("precio_especial_litro", discount.get("precio_especial", discount.get("precio_litro", 0))) or 0,
+            "vigencia_inicio": discount.get("vigencia_inicio", discount.get("desde", "")) or "",
+            "vigencia_fin": discount.get("vigencia_fin", discount.get("hasta", "")) or "",
+            "notas": discount.get("notas", "") or "",
+            "actualizado_at": discount.get("actualizado_at", item.get("updated_at") or ""),
+        }
     return item
 
 
