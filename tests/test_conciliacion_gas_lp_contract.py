@@ -12,6 +12,7 @@ from openpyxl import load_workbook
 from fastapi import HTTPException
 
 import routes.internal_users as internal_users
+import routes.internal_users_mod.catalogos_clientes as cp_catalogos
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -167,9 +168,14 @@ def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
 
     for token in (
         "descuentoTipo",
+        "tab-descuentos",
+        "panel-descuentos",
+        "clienteDiscountFields",
+        "descuento_facturacion",
         "sin_descuento",
         "por_litro",
         "total_pesos",
+        "precio_especial",
         "Descuento total en pesos",
         "discountGrossValue",
         "discountPerLiterForPayload",
@@ -191,6 +197,30 @@ def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
         "descuento:preview.descuento_por_litro_backend",
     ):
         assert token in conciliacion_html
+
+
+def test_gas_lp_cliente_discount_policy_is_stored_in_metadata_without_migration():
+    payload = internal_users.GasLpInternalClientePayload(
+        rfc="TSJ010101ABC",
+        nombre="TORTILLERIA SAN JOSE",
+        cp="20000",
+        regimen_fiscal="601",
+        uso_cfdi="G03",
+        descuento_activo=True,
+        tipo_descuento_cliente="por_litro",
+        descuento_valor=0.5,
+    )
+    row = internal_users._gas_lp_cliente_row(
+        {"owner_user_id": "user-1", "tenant_id": None, "perfil_id": 1, "id": "assistant-1", "display_name": "Asistente"},
+        payload,
+    )
+    normalized = internal_users._normalize_gas_lp_cliente_credit(row)
+
+    assert "descuento_facturacion" in row["metadata"]
+    assert row["metadata"]["descuento_facturacion"]["tipo"] == "por_litro"
+    assert row["metadata"]["descuento_facturacion"]["valor"] == 0.5
+    assert normalized["descuento_facturacion"]["activo"] is True
+    assert normalized["descuento_facturacion"]["tipo"] == "por_litro"
 
 
 def test_asistente_credito_ppd_dashboard_has_config_shortcut_and_bottom_detail():
@@ -790,10 +820,16 @@ def test_assistant_carta_porte_driver_form_is_simplified_with_license_dates():
     assert "acpc_curp" not in html
     assert "Expedición licencia" in html
     assert "Vencimiento licencia" in html
+    assert "function calcularEstatusLicencia" in html
+    assert "renderAssistantCpDriversSummary" in html
+    assert "Licencia vencida" in html
+    assert "Por vencer" in html
+    assert "Sin vencimiento registrado" in html
 
 
-def test_assistant_carta_porte_vehicle_form_uses_numero_economico_as_alias():
+def test_assistant_carta_porte_vehicle_form_uses_numero_economico_as_alias(monkeypatch):
     html = _assistant_frontend_source()
+    monkeypatch.setattr(cp_catalogos, "_gas_lp_profile", lambda user: {"id": 123, "tenant_id": None, "rfc": "GLU760309457"})
     payload = internal_users._internal_cp_payload(
         "vehiculos",
         {
@@ -833,3 +869,36 @@ def test_assistant_carta_porte_vehicle_form_uses_numero_economico_as_alias():
     assert "Requerido para transporte de material peligroso como Gas LP." in html
     assert "numero_economico:acpv_num.value" in html
     assert "payload.numero_economico" in html
+
+
+def test_carta_porte_catalog_scope_is_company_not_creator(monkeypatch):
+    profiles = {
+        101: {"id": 101, "tenant_id": "tenant-gas", "rfc": "GLU760309457", "nombre": "GAS LUX"},
+        202: {"id": 202, "tenant_id": "tenant-gas", "rfc": "GLU760309457", "nombre": "GAS LUX"},
+        303: {"id": 303, "tenant_id": "tenant-gas", "rfc": "OTR010101AAA", "nombre": "OTRA EMPRESA"},
+    }
+
+    monkeypatch.setattr(cp_catalogos, "_gas_lp_profile", lambda user: profiles[user["perfil_id"]])
+    anabel = {"id": 1, "owner_user_id": "admin-a", "tenant_id": "tenant-gas", "perfil_id": 101}
+    karina = {"id": 2, "owner_user_id": "admin-b", "tenant_id": "tenant-gas", "perfil_id": 202}
+    otra = {"id": 3, "owner_user_id": "admin-c", "tenant_id": "tenant-gas", "perfil_id": 303}
+
+    row = cp_catalogos._internal_cp_scope_row(anabel, cp_catalogos._internal_cp_payload("choferes", {"nombre": "Operador GAS LUX"}))
+    row["id"] = 55
+    scope_karina = cp_catalogos._internal_cp_company_scope(karina)
+    scope_otra = cp_catalogos._internal_cp_company_scope(otra)
+
+    assert row["user_id"] == "admin-a"
+    assert row["metadata"]["created_by_internal_user_id"] == 1
+    assert row["metadata"]["empresa_rfc"] == "GLU760309457"
+    assert cp_catalogos._internal_cp_row_company_match(row, scope_karina) is True
+    assert cp_catalogos._internal_cp_row_company_match(row, scope_otra) is False
+
+
+def test_carta_porte_catalog_legacy_rows_still_match_same_profile(monkeypatch):
+    monkeypatch.setattr(cp_catalogos, "_gas_lp_profile", lambda user: {"id": user["perfil_id"], "tenant_id": "tenant-gas", "rfc": "GLU760309457"})
+    user = {"id": 1, "owner_user_id": "admin-a", "tenant_id": "tenant-gas", "perfil_id": 101}
+    scope = cp_catalogos._internal_cp_company_scope(user)
+
+    assert cp_catalogos._internal_cp_row_company_match({"perfil_id": 101, "metadata": {}}, scope) is True
+    assert cp_catalogos._internal_cp_row_company_match({"perfil_id": 202, "metadata": {}}, scope) is False
