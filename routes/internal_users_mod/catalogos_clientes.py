@@ -67,6 +67,47 @@ def _internal_cp_scope_query(query, user: dict):
     return query.eq("tenant_id", tenant_id) if tenant_id else query.is_("tenant_id", "null")
 
 
+def _internal_cp_response_record(kind: str, row: dict, user: dict, row_id: int | None = None) -> dict:
+    record = dict(row or {})
+    if row_id and not record.get("id"):
+        record["id"] = row_id
+    record.setdefault("user_id", user.get("owner_user_id"))
+    record.setdefault("tenant_id", user.get("tenant_id"))
+    record.setdefault("perfil_id", user.get("perfil_id"))
+    record.setdefault("modulo_propietario", "gas_lp")
+    record.setdefault("activo", True)
+    return record
+
+
+def _internal_cp_existing_row(table: str, row_id: int, user: dict) -> dict:
+    try:
+        rows = (
+            _internal_cp_scope_query(
+                get_supabase_admin().table(table).select("*").eq("id", row_id),
+                user,
+            )
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return rows[0] if rows else {}
+    except Exception:
+        return {}
+
+
+def _internal_cp_merge_metadata(payload: dict, current: dict) -> dict:
+    if not isinstance(payload.get("metadata"), dict):
+        return payload
+    current_metadata = current.get("metadata") if isinstance(current.get("metadata"), dict) else {}
+    payload_metadata = {
+        key: value
+        for key, value in payload["metadata"].items()
+        if value is not None and str(value).strip() != ""
+    }
+    return {**payload, "metadata": {**current_metadata, **payload_metadata}}
+
+
 def _internal_cp_facility_config_rows(user: dict) -> dict[int, dict]:
     try:
         query = (
@@ -157,36 +198,40 @@ def _internal_cp_facility_config_payload(user: dict, facility_id: int, params) -
 
 
 def _internal_cp_payload(kind: str, params) -> dict:
-    def s(key: str, default: str = "") -> str:
-        return str(params.get(key, default) or "").strip()
-    def n(key: str, default=0):
+    def s(*keys: str, default: str = "") -> str:
+        for key in keys:
+            value = params.get(key)
+            if value is not None and str(value).strip() != "":
+                return str(value).strip()
+        return str(default or "").strip()
+    def n(*keys: str, default=0):
         try:
-            raw = str(params.get(key, default) or default).strip().replace(",", ".")
+            raw = s(*keys, default=str(default)).replace(",", ".")
             return float(raw)
         except Exception:
             return default
-    def opt_int(key: str):
+    def opt_int(*keys: str):
         try:
-            value = int(params.get(key) or 0)
+            value = int(s(*keys, default="0") or 0)
             return value or None
         except Exception:
             return None
     if kind == "vehiculos":
         return {
-            "placas": s("placa", s("placas")).upper(),
-            "anio": int(n("anio", n("anio_modelo", 2024)) or 2024),
+            "placas": s("placa", "placas").upper(),
+            "anio": int(n("anio", "anio_modelo", default=2024) or 2024),
             "modelo": s("modelo"),
-            "config_vehicular": s("config_vehicular", "C2"),
-            "permiso_cre": s("permiso_cre"),
-            "aseguradora": s("aseguradora", s("nombre_asegurador")),
-            "poliza_seguro": s("poliza_seguro"),
+            "config_vehicular": s("config_vehicular", "config_vehicular_sat", "configuracion_vehicular", default="C2"),
+            "permiso_cre": s("permiso_cre", "permiso_sct", "perm_sct", default="TPAF03"),
+            "aseguradora": s("aseguradora", "aseguradora_rc", "nombre_asegurador"),
+            "poliza_seguro": s("poliza_seguro", "poliza_rc"),
             "metadata": {
-                "alias": s("alias", s("placa", s("placas")).upper()),
+                "alias": s("alias", default=s("numero_economico", default=s("placa", "placas").upper())),
                 "numero_economico": s("numero_economico"),
-                "numero_permiso": s("numero_permiso"),
-                "peso_bruto_vehicular": n("peso_bruto_vehicular", 0),
-                "aseguradora_medio_ambiente": s("aseguradora_medio_ambiente"),
-                "poliza_medio_ambiente": s("poliza_medio_ambiente"),
+                "numero_permiso": s("numero_permiso", "numero_permiso_sct", "num_permiso_sct"),
+                "peso_bruto_vehicular": n("peso_bruto_vehicular", default=0),
+                "aseguradora_medio_ambiente": s("aseguradora_medio_ambiente", "aseguradora_ambiental"),
+                "poliza_medio_ambiente": s("poliza_medio_ambiente", "poliza_ambiental"),
                 "aseguradora_carga": s("aseguradora_carga"),
                 "poliza_carga": s("poliza_carga"),
             },
@@ -194,17 +239,24 @@ def _internal_cp_payload(kind: str, params) -> dict:
         }
     if kind == "choferes":
         return {
-            "nombre": s("nombre"),
+            "nombre": s("nombre", "nombre_completo"),
             "rfc": s("rfc").upper(),
-            "licencia": s("licencia"),
+            "licencia": s("licencia", "licencia_federal"),
             "telefono": s("telefono"),
-            "metadata": {"tipo_figura": s("tipo_figura", "01"), "parte_transporte": s("parte_transporte")},
+            "metadata": {
+                "curp": s("curp"),
+                "tipo_licencia": s("tipo_licencia", "tipo_licencia_federal", default="E"),
+                "tipo_figura": s("tipo_figura", "tipo_figura_sat", default="01"),
+                "fecha_expedicion_licencia": s("fecha_expedicion_licencia", "expedicion_licencia"),
+                "fecha_vencimiento_licencia": s("fecha_vencimiento_licencia", "vencimiento_licencia"),
+                "parte_transporte": s("parte_transporte", default=""),
+            },
             "activo": True,
         }
     if kind == "ubicaciones":
         return {
             "alias": s("alias"),
-            "tipo": s("tipo", "ambos"),
+            "tipo": s("tipo", default="ambos"),
             "rfc": s("rfc").upper(),
             "nombre": s("nombre"),
             "codigo_postal": s("codigo_postal")[:5],
@@ -214,33 +266,33 @@ def _internal_cp_payload(kind: str, params) -> dict:
             "calle": s("calle"),
             "numero_exterior": s("numero_exterior"),
             "numero_interior": s("numero_interior"),
-            "pais": s("pais", "MEX").upper(),
+            "pais": s("pais", default="MEX").upper(),
             "id_ubicacion": s("id_ubicacion"),
             "activo": True,
         }
     if kind == "mercancias":
         return {
-            "alias": s("alias"),
-            "bienes_transp": s("bienes_transp"),
-            "descripcion": s("descripcion", s("alias")),
-            "clave_unidad": s("clave_unidad", "LTR"),
-            "unidad": s("unidad", "L"),
-            "factor_kg_litro": n("factor_kg_litro", 0.54),
-            "material_peligroso": s("material_peligroso", "true").lower() in {"1", "true", "si", "sí", "on"},
-            "clave_material_peligroso": s("clave_material_peligroso"),
-            "embalaje": s("embalaje"),
+            "alias": s("alias", "alias_visible"),
+            "bienes_transp": s("bienes_transp", "bienes_transp_sat", "bienesTransp", "BienesTransp"),
+            "descripcion": s("descripcion", "descripción", default=s("alias", "alias_visible")),
+            "clave_unidad": s("clave_unidad", "claveUnidad", default="LTR"),
+            "unidad": s("unidad", default="L"),
+            "factor_kg_litro": n("factor_kg_litro", default=0.54),
+            "material_peligroso": s("material_peligroso", "materialPeligroso", default="true").lower() in {"1", "true", "si", "sí", "on"},
+            "clave_material_peligroso": s("clave_material_peligroso", "cve_material_peligroso"),
+            "embalaje": s("embalaje", "embalaje_sat"),
             "descripcion_embalaje": s("descripcion_embalaje"),
             "activo": True,
         }
     return {
         "nombre": s("nombre"),
-        "distancia_km": n("distancia_km", 1),
-        "tiempo_estimado_minutos": int(n("tiempo_estimado_minutos", 0)),
+        "distancia_km": n("distancia_km", default=1),
+        "tiempo_estimado_minutos": int(n("tiempo_estimado_minutos", default=0)),
         "origen_facility_id": opt_int("origen_facility_id"),
         "destino_facility_id": opt_int("destino_facility_id"),
         "metadata": {
             "tiempo_estimado": s("tiempo_estimado"),
-            "tiempo_estimado_minutos": int(n("tiempo_estimado_minutos", 0)),
+            "tiempo_estimado_minutos": int(n("tiempo_estimado_minutos", default=0)),
             "vehiculo_default_id": opt_int("vehiculo_default_id"),
             "chofer_default_id": opt_int("chofer_default_id"),
             "mercancia_default_id": opt_int("mercancia_default_id"),
@@ -262,7 +314,8 @@ async def gas_lp_internal_catalogo_create(kind: str, request: Request, token: st
         data = get_supabase_admin().table(table).insert(row).execute().data or []
     except Exception as exc:
         raise _safe_internal_error(f"gas_lp_catalogo_create_{kind}", exc)
-    return JSONResponse({"ok": True, "id": (data[0] if data else row).get("id")})
+    record = _internal_cp_response_record(kind, data[0] if data else row, user)
+    return JSONResponse({"ok": True, "id": record.get("id"), "record": record})
 
 
 @router.put("/internal-auth/gas-lp/catalogos/{kind}/{row_id}")
@@ -280,20 +333,31 @@ async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Reque
             data = sb.table("gas_lp_facility_carta_porte_config").update(payload).eq("id", existing.get("id")).execute().data or []
         else:
             data = sb.table("gas_lp_facility_carta_porte_config").insert({**payload, "created_at": datetime.now(timezone.utc).isoformat()}).execute().data or []
-        return JSONResponse({"ok": True, "id": (data[0] if data else payload).get("id")})
+        record = next((row for row in _internal_cp_facilities(user) if int(row.get("facility_id") or row.get("id") or 0) == int(row_id)), None)
+        if not record:
+            record = {**payload, "id": row_id, "facility_id": row_id}
+        return JSONResponse({"ok": True, "id": row_id, "record": record})
     table, _order = _internal_cp_table(kind)
     payload = _internal_cp_payload(kind, request.query_params)
+    current = _internal_cp_existing_row(table, row_id, user)
+    payload = _internal_cp_merge_metadata(payload, current)
     try:
-        _internal_cp_scope_query(
+        data = (
+            _internal_cp_scope_query(
             get_supabase_admin()
             .table(table)
             .update({**payload, "updated_at": datetime.now(timezone.utc).isoformat()})
             .eq("id", row_id),
             user,
-        ).execute()
+            )
+            .execute()
+            .data
+            or []
+        )
     except Exception as exc:
         raise _safe_internal_error(f"gas_lp_catalogo_update_{kind}", exc)
-    return JSONResponse({"ok": True})
+    record = _internal_cp_response_record(kind, data[0] if data else {**current, **payload}, user, row_id=row_id)
+    return JSONResponse({"ok": True, "id": row_id, "record": record})
 
 
 @router.delete("/internal-auth/gas-lp/catalogos/{kind}/{row_id}")
