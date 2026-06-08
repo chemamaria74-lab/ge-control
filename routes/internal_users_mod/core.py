@@ -597,6 +597,11 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
         "cp": receptor["cp"],
         "regimen_fiscal": receptor["regimen_fiscal"],
         "uso_cfdi": uso_cfdi,
+        "email_facturacion": email,
+        "credito_habilitado": credito_policy["credito_habilitado"],
+        "dias_credito": credito_policy["dias_credito"],
+        "limite_credito": credito_policy["limite_credito"],
+        "credito_notas": credito_policy["credito_notas"],
         "activo": True,
         "metadata": {
             "created_by_internal": user.get("id"),
@@ -630,10 +635,14 @@ def _normalize_gas_lp_cliente_credit(row: dict) -> dict:
         }
         item["metadata"] = md
     credit = md.get("credito_ppd") or md.get("credito") or {}
-    item["credito_habilitado"] = bool(item.get("credito_habilitado", credit.get("credito_habilitado", credit.get("habilitado", False))))
-    item["dias_credito"] = int(item.get("dias_credito", credit.get("dias_credito", credit.get("dias", 0))) or 0)
-    item["limite_credito"] = item.get("limite_credito", credit.get("limite_credito", credit.get("limite")))
-    item["credito_notas"] = item.get("credito_notas", credit.get("credito_notas", credit.get("notas", ""))) or ""
+    credit_enabled = credit.get("credito_habilitado", credit.get("habilitado"))
+    item_enabled = item.get("credito_habilitado")
+    item_days = item.get("dias_credito")
+    credit_days = credit.get("dias_credito", credit.get("dias", 0))
+    item["credito_habilitado"] = bool(credit_enabled) if credit_enabled is not None else bool(item_enabled)
+    item["dias_credito"] = int(credit_days if credit_enabled is not None else (item_days or 0)) or 0
+    item["limite_credito"] = credit.get("limite_credito", credit.get("limite", item.get("limite_credito")))
+    item["credito_notas"] = credit.get("credito_notas", credit.get("notas", item.get("credito_notas", ""))) or ""
     return item
 
 

@@ -7,7 +7,20 @@ def _gas_lp_clientes_scope_query(query, user: dict):
 
 
 def _gas_lp_cliente_editable_update(row: dict) -> dict:
-    allowed = {"rfc", "nombre", "cp", "regimen_fiscal", "uso_cfdi", "metadata", "updated_at"}
+    allowed = {
+        "rfc",
+        "nombre",
+        "cp",
+        "regimen_fiscal",
+        "uso_cfdi",
+        "email_facturacion",
+        "credito_habilitado",
+        "dias_credito",
+        "limite_credito",
+        "credito_notas",
+        "metadata",
+        "updated_at",
+    }
     return {key: value for key, value in row.items() if key in allowed}
 
 
