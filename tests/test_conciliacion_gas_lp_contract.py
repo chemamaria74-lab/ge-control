@@ -548,6 +548,29 @@ def test_assistant_invoice_timbrado_does_not_import_transporte_runtime_helpers()
     assert "_gas_lp_validar_datos_cfdi_receptor" in create_source
 
 
+def test_assistant_invoice_duplicate_guard_runs_before_stamp():
+    create_source = inspect.getsource(internal_users._gas_lp_internal_crear_factura_impl)
+    duplicate_source = inspect.getsource(internal_users._gas_lp_existing_sale_invoice)
+
+    assert "_gas_lp_existing_sale_invoice(sb, user, payload, totals, receptor)" in create_source
+    assert "gas_lp_invoice_duplicate" in create_source
+    assert "timbrar_cfdi(xml)" in create_source
+    assert create_source.index("_gas_lp_existing_sale_invoice(sb, user, payload, totals, receptor)") < create_source.index("timbrar_cfdi(xml)")
+    assert "volumen_litros" in duplicate_source
+    assert "internal_user_id" in duplicate_source
+    assert "target_total" in duplicate_source
+
+
+def test_assistant_load_facturas_does_not_pollute_main_invoice_status_by_default():
+    html = _assistant_frontend_source()
+    load_start = html.index("async function loadFacturas")
+    load_end = html.index("async function loadComplementos", load_start)
+    load_source = html[load_start:load_end]
+
+    assert "opts.surfaceError" in load_source
+    assert "setStatus('facturaMsg'" in load_source
+
+
 def test_assistant_today_invoices_use_backend_date_key_and_current_month():
     html = _assistant_frontend_source()
 
