@@ -161,7 +161,8 @@ def _internal_cp_payload(kind: str, params) -> dict:
         return str(params.get(key, default) or "").strip()
     def n(key: str, default=0):
         try:
-            return float(params.get(key, default) or default)
+            raw = str(params.get(key, default) or default).strip().replace(",", ".")
+            return float(raw)
         except Exception:
             return default
     def opt_int(key: str):
@@ -250,7 +251,7 @@ def _internal_cp_payload(kind: str, params) -> dict:
 
 @router.post("/internal-auth/gas-lp/catalogos/{kind}")
 async def gas_lp_internal_catalogo_create(kind: str, request: Request, token: str):
-    ctx = _gas_lp_internal_context(token)
+    ctx = _gas_lp_internal_context(token, write=True)
     user = ctx["user"]
     if kind == "instalaciones":
         raise HTTPException(400, "Las instalaciones se crean en Administración; aquí solo se completa su configuración Carta Porte.")
@@ -266,7 +267,7 @@ async def gas_lp_internal_catalogo_create(kind: str, request: Request, token: st
 
 @router.put("/internal-auth/gas-lp/catalogos/{kind}/{row_id}")
 async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Request, token: str):
-    ctx = _gas_lp_internal_context(token)
+    ctx = _gas_lp_internal_context(token, write=True)
     user = ctx["user"]
     if kind == "instalaciones":
         facility = next((f for f in _gas_lp_admin_facilities(user) if int(f.get("id") or 0) == int(row_id)), None)
@@ -297,7 +298,7 @@ async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Reque
 
 @router.delete("/internal-auth/gas-lp/catalogos/{kind}/{row_id}")
 async def gas_lp_internal_catalogo_delete(kind: str, row_id: int, token: str, permanent: bool = False):
-    ctx = _gas_lp_internal_context(token)
+    ctx = _gas_lp_internal_context(token, write=True)
     user = ctx["user"]
     if kind == "instalaciones":
         cfg = _internal_cp_facility_config_rows(user).get(int(row_id))
