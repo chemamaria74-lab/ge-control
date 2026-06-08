@@ -73,12 +73,14 @@ def _internal_cp_facilities(user: dict) -> list[dict]:
     for facility in facilities:
         fid = int(facility.get("id") or 0)
         cfg = configs.get(fid) or {}
+        facility_name = facility.get("nombre") or ""
         item = {
             **facility,
             "facility_id": fid,
-            "alias": facility.get("nombre") or "",
+            "alias": facility_name,
             "rfc": company_rfc,
-            "nombre": company_name or facility.get("nombre") or "",
+            "nombre": facility_name or company_name,
+            "nombre_fiscal": company_name,
             "codigo_postal": facility.get("codigo_postal") or "",
             "estado": cfg.get("estado_sat") or facility.get("estado") or "",
             "municipio": cfg.get("municipio_sat") or facility.get("municipio") or "",

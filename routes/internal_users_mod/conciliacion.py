@@ -62,6 +62,28 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
         raise _safe_internal_error("gas_lp_conciliacion_summary", exc)
     _gas_lp_attach_internal_creators(sb, rows)
     comp_by_factura = _gas_lp_complementos_por_factura(sb, [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))])
+    try:
+        clientes_query = (
+            sb.table("gas_lp_clientes_facturacion")
+            .select("*")
+            .eq("user_id", user.get("owner_user_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .eq("activo", True)
+        )
+        if user.get("tenant_id"):
+            clientes_query = clientes_query.eq("tenant_id", user.get("tenant_id"))
+        else:
+            clientes_query = clientes_query.is_("tenant_id", "null")
+        clientes = clientes_query.order("nombre", desc=False).execute().data or []
+        clientes = [_normalize_gas_lp_cliente_credit(row) for row in clientes]
+    except Exception as exc:
+        logger.warning(
+            "gas_lp_conciliacion_clientes_credito_skipped tenant=%s perfil=%s err=%s",
+            user.get("tenant_id"),
+            user.get("perfil_id"),
+            exc,
+        )
+        clientes = []
     total = credito = publico = complementos_pendientes = 0.0
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
@@ -100,6 +122,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
             "complementos_pendientes": int(complementos_pendientes),
         },
         "facturas": rows,
+        "clientes": clientes,
     })
 
 
