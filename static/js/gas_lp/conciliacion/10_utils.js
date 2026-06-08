@@ -46,3 +46,38 @@ function transferRoute(f){const md=f.metadata||{};return [md.origen_nombre||md.o
 function realizadoPor(f){const md=f.metadata||{};return f.realizado_por||f.created_by_internal?.name||md.created_by_internal_name||md.created_by||md.asistente_nombre||md.usuario_nombre||(md.created_by_area==='conciliacion'||md.portal==='conciliacion_gas_lp'?'Conciliación':md.internal_user_id?'Asistente':'Conciliación')}
 function paid(f){return saldo(f)<=0||['pagado_pue','pagado_con_complemento','pagado_manual'].includes(String(f.payment_info?.payment_status||f.metadata?.payment_status||'').toLowerCase())}
 function isCancel(f){return String(f.status||'').toLowerCase().startsWith('cancel')}
+function clienteCreditFields(c){
+  const md=c?.metadata||{};
+  const credit=md.credito_ppd||md.credito||{};
+  const enabled=c?.credito_habilitado??credit.credito_habilitado??credit.habilitado??false;
+  const dias=c?.dias_credito??credit.dias_credito??credit.dias??0;
+  const limite=c?.limite_credito??credit.limite_credito??credit.limite??null;
+  const notas=c?.credito_notas??credit.credito_notas??credit.notas??'';
+  return {credito_habilitado:enabled===true||enabled===1||enabled==='1',dias_credito:Number(dias||0),limite_credito:limite,credito_notas:notas||''};
+}
+function clienteByFactura(f){
+  const md=f?.metadata||{};
+  const byId=CLIENTES.find(c=>Number(c.id)===Number(md.cliente_id||0));
+  if(byId)return byId;
+  const rfc=String(f?.rfc_receptor||'').toUpperCase();
+  const byRfc=CLIENTES.find(c=>String(c.rfc||'').toUpperCase()===rfc);
+  if(byRfc)return byRfc;
+  return {rfc:f?.rfc_receptor||'',nombre:razon(f),metadata:{credito_ppd:md.credito_ppd||md.credito||{}}};
+}
+function dateOnly(value){const key=String(value||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(key))return null;const [y,m,d]=key.split('-').map(Number);return new Date(y,m-1,d)}
+function dateKeyFromDate(date){if(!(date instanceof Date)||Number.isNaN(date.getTime()))return'';return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`}
+function addDaysKey(key,days){const d=dateOnly(key);if(!d)return'';d.setDate(d.getDate()+Number(days||0));return dateKeyFromDate(d)}
+function dayDiff(aKey,bKey){const a=dateOnly(aKey),b=dateOnly(bKey);if(!a||!b)return 0;return Math.round((a.getTime()-b.getTime())/86400000)}
+function creditStatusForFactura(f){
+  const cliente=clienteByFactura(f);
+  const credit=clienteCreditFields(cliente);
+  const dias=Number(credit.dias_credito||0);
+  if(!credit.credito_habilitado||dias<=0)return {cliente,dias:0,vencimiento:'',status:'Sin política',badge:'none',label:'Sin política de crédito configurada',dias_restantes:0,dias_vencidos:0};
+  const emision=facturaDateKey(f);
+  const vencimiento=addDaysKey(emision,dias);
+  const diff=dayDiff(vencimiento,today());
+  if(diff>0)return {cliente,dias,vencimiento,status:'Vigente',badge:'ok',label:`${diff} día${diff===1?'':'s'} restantes`,dias_restantes:diff,dias_vencidos:0};
+  if(diff===0)return {cliente,dias,vencimiento,status:'Vence hoy',badge:'today',label:'Vence hoy',dias_restantes:0,dias_vencidos:0};
+  return {cliente,dias,vencimiento,status:'Vencida',badge:'late',label:`${Math.abs(diff)} día${Math.abs(diff)===1?'':'s'} vencido${Math.abs(diff)===1?'':'s'}`,dias_restantes:0,dias_vencidos:Math.abs(diff)};
+}
+function creditBadgeHtml(info){return `<span class="credit-badge ${esc(info.badge||'none')}">${esc(info.status||'Sin política')}</span>`}

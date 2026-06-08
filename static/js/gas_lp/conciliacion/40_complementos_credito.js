@@ -33,17 +33,26 @@ function creditoRows(){
   const byClient=new Map();
   ppd.forEach(f=>{
     const key=String(f.rfc_receptor||razon(f)||'SIN RFC').toUpperCase();
-    const item=byClient.get(key)||{key,nombre:razon(f),rfc:f.rfc_receptor||'—',count:0,credito:0,pagado:0,saldo:0,facturas:[]};
+    const cliente=clienteByFactura(f);
+    const policy=clienteCreditFields(cliente);
+    const policyLabel=policy.credito_habilitado&&Number(policy.dias_credito||0)>0?`${Number(policy.dias_credito||0)} días`:'Sin política';
+    const item=byClient.get(key)||{key,nombre:razon(f),rfc:f.rfc_receptor||'—',policy:policyLabel,policy_dias:Number(policy.dias_credito||0),count:0,credito:0,pagado:0,saldo:0,vencidas:0,saldo_vencido:0,peor_atraso:0,facturas:[]};
     const totalFactura=total(f);
     const saldoFactura=saldo(f);
+    const creditInfo=creditStatusForFactura(f);
     item.credito+=totalFactura;
     item.saldo+=saldoFactura;
     item.pagado+=Math.max(0,totalFactura-saldoFactura);
     if(saldoFactura>0)item.count+=1;
+    if(saldoFactura>0&&creditInfo.status==='Vencida'){
+      item.vencidas+=1;
+      item.saldo_vencido+=saldoFactura;
+      item.peor_atraso=Math.max(item.peor_atraso,creditInfo.dias_vencidos||0);
+    }
     item.facturas.push(f);
     byClient.set(key,item);
   });
-  return [...byClient.values()].filter(c=>c.credito>0||c.saldo>0).sort((a,b)=>b.saldo-a.saldo);
+  return [...byClient.values()].filter(c=>c.credito>0||c.saldo>0).sort((a,b)=>(b.saldo_vencido-a.saldo_vencido)||(b.peor_atraso-a.peor_atraso)||(b.saldo-a.saldo));
 }
 function renderCredito(){
   if(!window.credRows)return;
@@ -58,12 +67,15 @@ function renderCredito(){
   credPendientes.textContent=String(pendientes);
   credClientesCount.textContent=`${rows.length} cliente${rows.length===1?'':'s'}`;
   if(CRED_CLIENT_KEY&&!rows.some(x=>x.key===CRED_CLIENT_KEY))CRED_CLIENT_KEY='';
-  credRows.innerHTML=rows.length?rows.map(c=>`<tr class="${CRED_CLIENT_KEY===c.key?'active':''}" data-key="${esc(c.key)}"><td><b>${esc(c.nombre)}</b></td><td>${esc(c.rfc)}</td><td>${c.count}</td><td>${money(c.credito)}</td><td>${money(c.pagado)}</td><td><b class="${c.saldo>0?'err':'ok'}">${money(c.saldo)}</b></td><td><button class="btn ghost sm" type="button" onclick="selectCreditoCliente('${esc(c.key)}')">Ver</button></td></tr>`).join(''):'<tr><td colspan="7">Sin crédito PPD registrado.</td></tr>';
+  credRows.innerHTML=rows.length?rows.map(c=>{
+    const policyClass=c.policy_dias>0?'ok':'none';
+    return `<tr class="${CRED_CLIENT_KEY===c.key?'active':''}" data-key="${esc(c.key)}" onclick="selectCreditoCliente(this.dataset.key)"><td><b>${esc(c.nombre)}</b></td><td>${esc(c.rfc)}</td><td><span class="credit-badge ${policyClass}">${esc(c.policy)}</span></td><td>${c.count}</td><td><b class="${c.vencidas>0?'err':'ok'}">${c.vencidas}</b></td><td>${money(c.saldo_vencido)}</td><td>${c.peor_atraso?`${c.peor_atraso} d`:'—'}</td><td>${money(c.credito)}</td><td>${money(c.pagado)}</td><td><b class="${c.saldo>0?'err':'ok'}">${money(c.saldo)}</b></td></tr>`;
+  }).join(''):'<tr><td colspan="10">Sin crédito PPD registrado.</td></tr>';
   const selected=rows.find(x=>x.key===CRED_CLIENT_KEY);
   if(!selected){credDetalleCount.textContent='Sin selección';credDetalle.innerHTML='<div class="notice">Selecciona un cliente para ver sus facturas PPD pendientes.</div>';return}
-  const detail=selected.facturas.filter(f=>saldo(f)>0).sort((a,b)=>String(facturaDateValue(b)||'').localeCompare(String(facturaDateValue(a)||'')));
+  const detail=selected.facturas.filter(f=>saldo(f)>0).sort((a,b)=>creditStatusForFactura(b).dias_vencidos-creditStatusForFactura(a).dias_vencidos||String(facturaDateValue(a)||'').localeCompare(String(facturaDateValue(b)||'')));
   credDetalleCount.textContent=`${detail.length} pendiente${detail.length===1?'':'s'}`;
-  credDetalle.innerHTML=detail.length?`<table><thead><tr><th>Fecha</th><th>UUID</th><th>Total</th><th>Saldo</th><th>Estado</th></tr></thead><tbody>${detail.map(f=>`<tr><td>${esc(dateDMY(facturaDateKey(f)))}</td><td>${uuidHtml(f.uuid_sat)}</td><td>${money(total(f))}</td><td><b class="${saldo(f)>0?'err':'ok'}">${money(saldo(f))}</b></td><td>${facturaEstadoHtml(f)}</td></tr>`).join('')}</tbody></table>`:'<div class="notice">Este cliente no tiene facturas PPD pendientes.</div>';
+  credDetalle.innerHTML=detail.length?`<table class="credito-detail-table"><thead><tr><th>Fecha</th><th>Vence</th><th>Días</th><th>UUID</th><th>Total</th><th>Saldo</th><th>Seguimiento</th></tr></thead><tbody>${detail.map(f=>{const info=creditStatusForFactura(f);const vencimiento=info.vencimiento?dateDMY(info.vencimiento):'—';const diasLabel=info.dias?`${info.dias} d`:'—';return `<tr><td>${esc(dateDMY(facturaDateKey(f)))}</td><td>${esc(vencimiento)}</td><td>${esc(diasLabel)}</td><td>${uuidHtml(f.uuid_sat)}</td><td>${money(total(f))}</td><td><b class="${saldo(f)>0?'err':'ok'}">${money(saldo(f))}</b></td><td>${creditBadgeHtml(info)}<span class="cell-sub">${esc(info.label||'')}</span></td></tr>`}).join('')}</tbody></table>`:'<div class="notice">Este cliente no tiene facturas PPD pendientes.</div>';
 }
 function selectCreditoCliente(key){CRED_CLIENT_KEY=String(key||'');renderCredito()}
 function toggleSel(id,on){const f=FACTURAS.find(x=>Number(x.id)===Number(id));if(!f)return;if(!on){delete SEL[id];refreshSel();return}const selected=Object.values(SEL);const rfc=String(f.rfc_receptor||'').toUpperCase();if(selected.length&&selected[0].rfc&&selected[0].rfc!==rfc){setMsg('compMsg','Selecciona facturas del mismo cliente/RFC para un mismo complemento.',false);renderAll();return}SEL[id]={id:Number(id),saldo:saldo(f),rfc,cliente:razon(f)};setMsg('compMsg','');renderAll()}
