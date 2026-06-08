@@ -188,15 +188,16 @@ function validateClientDiscountPayload(){
 
 function facturaDiscountInfo(f){
   const md = f?.metadata || {};
-  const tipo = String(md.tipo_descuento_confirmado || md.tipo_descuento || '').trim() || 'sin_descuento';
+  const rawType = normalizeInvoiceDiscountType(md.tipo_descuento_confirmado || md.tipo_descuento || md.descuento_tipo || '');
   const configured = clienteDiscountFields(clienteByFactura(f));
   const captured = decimalInputValue(md.descuento_capturado ?? 0);
   const confirmed = decimalInputValue(md.descuento_confirmado ?? md.descuento_preview ?? 0);
-  const backend = decimalInputValue(md.descuento ?? 0);
+  const backend = decimalInputValue(md.descuento_total ?? md.descuento_monto ?? md.descuento ?? 0);
   const liters = decimalInputValue(f?.volumen_litros || md.litros_confirmados || 0);
   const perLiter = decimalInputValue(md.descuento_por_litro || 0);
   const estimatedGross = perLiter > 0 && liters > 0 ? perLiter * liters : 0;
   const amount = Math.max(confirmed, estimatedGross, backend, 0);
+  const tipo = inferInvoiceDiscountType(md, rawType, amount, liters, perLiter, configured);
   const hasInvoiceDiscount = amount > 0 || captured > 0 || tipo !== 'sin_descuento';
   return {
     tipo: hasInvoiceDiscount ? tipo : (clienteHasActiveDiscount(clienteByFactura(f)) ? configured.tipo : 'sin_descuento'),
@@ -207,19 +208,55 @@ function facturaDiscountInfo(f){
   };
 }
 
+function normalizeInvoiceDiscountType(type){
+  const value = String(type || '').trim().toLowerCase();
+  const aliases = {
+    '':'sin_descuento',
+    none:'sin_descuento',
+    sin:'sin_descuento',
+    sin_descuento:'sin_descuento',
+    por_litro:'por_litro',
+    descuento_por_litro:'por_litro',
+    total:'total_pesos',
+    total_pesos:'total_pesos',
+    descuento_total:'total_pesos',
+    precio_especial:'precio_especial',
+    precio_litro:'precio_especial',
+    porcentaje:'por_litro'
+  };
+  return aliases[value] || value || 'sin_descuento';
+}
+
+function invoiceHasSpecialPrice(md, configured){
+  if(configured?.tipo === 'precio_especial') return true;
+  if(decimalInputValue(md.precio_especial || md.precio_especial_litro || md.precio_final || 0) > 0) return true;
+  const base = decimalInputValue(md.precio_base || md.precio_unitario_base || md.precio_unitario_lista || 0);
+  const final = decimalInputValue(md.precio_final || md.precio_confirmado || md.precio_unitario || md.precio_unitario_original || 0);
+  return base > 0 && final > 0 && final < base;
+}
+
+function inferInvoiceDiscountType(md, rawType, amount, liters, perLiter, configured){
+  if(rawType && rawType !== 'sin_descuento') return rawType;
+  if(amount <= 0) return 'sin_descuento';
+  if(invoiceHasSpecialPrice(md, configured)) return 'precio_especial';
+  if(decimalInputValue(md.descuento_total || md.descuento_monto || 0) > 0) return 'total_pesos';
+  if(perLiter > 0 || (liters > 0 && amount / liters > 0)) return 'por_litro';
+  return 'descuento_aplicado';
+}
+
 function discountInvoiceRows(){
   const selectedMonth = document.getElementById('descuentosMes')?.value || '';
   return FACTURAS.filter(f => {
     const md = f.metadata || {};
     if(isCanceled(f) || md.tipo_operacion === 'traspaso' || md.is_transfer) return false;
     if(selectedMonth && !facturaDateKey(f).startsWith(selectedMonth)) return false;
-    return facturaDiscountInfo(f).amount > 0;
+    return facturaDiscountInfo(f).amount > 0 && facturaAmount(f) > 0;
   });
 }
 
 function discountTypeSummary(types){
   const counts = {};
-  types.forEach(type => { counts[type] = (counts[type] || 0) + 1; });
+  types.filter(type => type && type !== 'sin_descuento').forEach(type => { counts[type] = (counts[type] || 0) + 1; });
   const best = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
   return best ? descuentoTipoLabel(best[0]) : 'Descuento';
 }
@@ -237,7 +274,7 @@ function discountDashboardRows(){
     item.litros += decimalInputValue(f.volumen_litros || md.litros_confirmados || 0);
     item.venta += facturaAmount(f);
     item.descuento += info.amount;
-    item.types.push(info.tipo);
+    if(info.tipo !== 'sin_descuento') item.types.push(info.tipo);
     item.facturas.push(f);
     byClient.set(key, item);
   });
@@ -255,12 +292,11 @@ function renderDescuentosList(){
   const totalLitros = rows.reduce((sum,row)=>sum+row.litros,0);
   discountTotalVentas.textContent = money(totalVenta);
   discountTotalMonto.textContent = money(totalDescuento);
-  discountPromedioFactura.textContent = money(invoices.length ? totalDescuento / invoices.length : 0);
+  discountPromedioLitro.textContent = totalLitros > 0 ? `${money(totalDescuento / totalLitros)} / L` : '—';
   discountFacturasCount.textContent = String(invoices.length);
   descuentosCount.textContent = `${rows.length} cliente${rows.length === 1 ? '' : 's'}`;
   if(DISCOUNT_CLIENT_KEY && !rows.some(row => row.key === DISCOUNT_CLIENT_KEY)) DISCOUNT_CLIENT_KEY = '';
   descuentosRows.innerHTML = rows.length ? rows.map(c => {
-    const avg = c.count ? c.descuento / c.count : 0;
     const perLiter = c.litros ? c.descuento / c.litros : 0;
     return `<tr class="dashboard-client-row ${DISCOUNT_CLIENT_KEY === c.key ? 'active' : ''}" data-client-key="${esc(c.key)}" onclick="selectDiscountClient(this.dataset.clientKey)">
       <td><b>${esc(c.nombre)}</b></td>
@@ -270,10 +306,9 @@ function renderDescuentosList(){
       <td>${fmt(c.litros)}</td>
       <td>${money(c.venta)}</td>
       <td><b class="credit-high">${money(c.descuento)}</b></td>
-      <td>${money(avg)}</td>
-      <td>${money(perLiter)}</td>
+      <td>${c.litros > 0 ? money(perLiter) : '—'}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="9">Sin facturas con descuento en el periodo.</td></tr>';
+  }).join('') : '<tr><td colspan="8">Sin facturas con descuento en el periodo.</td></tr>';
   renderDiscountClientDetail(rows);
 }
 
@@ -297,7 +332,7 @@ function renderDiscountClientDetail(rows=discountDashboardRows()){
       <td>${fmt(f.volumen_litros || (f.metadata || {}).litros_confirmados || 0)}</td>
       <td>${money(facturaAmount(f))}</td>
       <td><b class="credit-high">${money(info.amount)}</b></td>
-      <td>${money(info.per_liter)}</td>
+      <td>${decimalInputValue(f.volumen_litros || (f.metadata || {}).litros_confirmados || 0) > 0 ? money(info.per_liter) : '—'}</td>
     </tr>`;
   }).join('')}</tbody></table>` : '<div class="dashboard-detail-note">Este cliente no tiene facturas con descuento en el periodo.</div>';
 }

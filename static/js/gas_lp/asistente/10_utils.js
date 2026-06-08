@@ -222,7 +222,8 @@ function descuentoTipoLabel(tipo){
     por_litro:'Descuento por litro',
     total_pesos:'Descuento total en pesos',
     precio_especial:'Precio especial',
-    porcentaje:'Porcentaje'
+    porcentaje:'Porcentaje',
+    descuento_aplicado:'Descuento aplicado'
   }[tipo] || 'Descuento';
 }
 function discountValueLabel(d){
