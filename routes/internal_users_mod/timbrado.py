@@ -11,8 +11,6 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
 
 
 async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPayload, token: str):
-    from routes.transporte import _normalizar_receptor_cfdi, _validar_datos_cfdi_receptor
-
     ctx = _gas_lp_internal_context(token, write=True)
     user = ctx["user"]
     profile = _gas_lp_profile(user)
@@ -67,14 +65,14 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
     if receptor["rfc"] != "XAXX010101000":
         receptor = {
             **receptor,
-            **_normalizar_receptor_cfdi(
+            **_gas_lp_normalizar_receptor_cfdi(
                 receptor["rfc"],
                 receptor["nombre"],
                 receptor["cp"],
                 receptor["regimen_fiscal"],
             ),
         }
-    _validar_datos_cfdi_receptor(
+    _gas_lp_validar_datos_cfdi_receptor(
         receptor["rfc"],
         receptor["regimen_fiscal"],
         receptor["cp"],
