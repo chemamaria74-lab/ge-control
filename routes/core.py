@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
 import sys
 import traceback
@@ -40,6 +41,70 @@ from supabase_config import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+_GAS_LP_RFC_RE = re.compile(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$", re.IGNORECASE)
+_GAS_LP_CP_RE = re.compile(r"^\d{5}$")
+_GAS_LP_REGIMENES_PERSONA_MORAL = {"601", "603", "610", "620", "622", "623", "624", "626"}
+_GAS_LP_REGIMENES_PERSONA_FISICA = {"605", "606", "607", "608", "611", "612", "614", "615", "616", "621", "625", "626"}
+_GAS_LP_RFC_PRUEBAS_SAT = {
+    "EKU9003173C9": {
+        "nombre": "ESCUELA KEMPER URGATE",
+        "cp": "42501",
+        "regimen_fiscal": "601",
+    },
+}
+
+
+def _gas_lp_tipo_persona_rfc(rfc: str) -> str:
+    limpio = re.sub(r"[^A-Z0-9Ñ&]", "", str(rfc or "").upper())
+    if len(limpio) == 12:
+        return "moral"
+    if len(limpio) == 13:
+        return "fisica"
+    raise HTTPException(400, f"RFC receptor inválido para SAT: {limpio or '(vacío)'}.")
+
+
+def _gas_lp_validar_regimen_para_rfc(rfc: str, regimen: str, contexto: str = "receptor") -> None:
+    regimen = str(regimen or "").strip()
+    tipo = _gas_lp_tipo_persona_rfc(rfc)
+    permitidos = _GAS_LP_REGIMENES_PERSONA_MORAL if tipo == "moral" else _GAS_LP_REGIMENES_PERSONA_FISICA
+    if regimen not in permitidos:
+        etiqueta = "persona moral" if tipo == "moral" else "persona física"
+        raise HTTPException(
+            400,
+            f"Régimen fiscal {contexto} {regimen or '(vacío)'} no corresponde al RFC {rfc} ({etiqueta}). "
+            "Corrige los datos fiscales antes de timbrar."
+        )
+
+
+def _gas_lp_normalizar_nombre_fiscal(nombre: str) -> str:
+    return re.sub(r"\s+", " ", str(nombre or "").strip().upper())
+
+
+def _gas_lp_normalizar_receptor_cfdi(rfc: str, nombre: str, cp: str = "", regimen: str = "") -> dict:
+    rfc_limpio = re.sub(r"[^A-Z0-9Ñ&]", "", str(rfc or "").upper())
+    normalizado = {
+        "rfc": rfc_limpio,
+        "nombre": _gas_lp_normalizar_nombre_fiscal(nombre),
+        "cp": str(cp or "").strip(),
+        "regimen_fiscal": str(regimen or "").strip(),
+    }
+    prueba = _GAS_LP_RFC_PRUEBAS_SAT.get(rfc_limpio)
+    if prueba:
+        normalizado.update(prueba)
+    return normalizado
+
+
+def _gas_lp_validar_datos_cfdi_receptor(rfc: str, regimen: str, cp: str, uso_cfdi: str) -> None:
+    if not _GAS_LP_RFC_RE.match((rfc or "").strip().upper()):
+        raise HTTPException(400, "RFC receptor inválido para CFDI 4.0.")
+    if not _GAS_LP_CP_RE.match((cp or "").strip()):
+        raise HTTPException(400, "Código postal receptor inválido para CFDI 4.0.")
+    if not str(regimen or "").strip():
+        raise HTTPException(400, "Régimen fiscal receptor requerido para CFDI 4.0.")
+    _gas_lp_validar_regimen_para_rfc(rfc, regimen, "receptor")
+    if not str(uso_cfdi or "").strip():
+        raise HTTPException(400, "Uso CFDI requerido para CFDI 4.0.")
 
 def _compat_override(name: str, current):
     compat = sys.modules.get("routes.internal_users")
@@ -479,8 +544,6 @@ def _status_label(status: str) -> str:
 
 
 def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dict:
-    from routes.transporte import _normalizar_receptor_cfdi, _validar_datos_cfdi_receptor
-
     rfc = _clean_rfc(payload.rfc)
     nombre = str(payload.nombre or "").strip()
     uso_cfdi = str(payload.uso_cfdi or "S01").strip()
@@ -516,8 +579,8 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
         }
         uso_cfdi = "S01"
     else:
-        receptor = _normalizar_receptor_cfdi(rfc, nombre, cp, regimen)
-        _validar_datos_cfdi_receptor(
+        receptor = _gas_lp_normalizar_receptor_cfdi(rfc, nombre, cp, regimen)
+        _gas_lp_validar_datos_cfdi_receptor(
             receptor["rfc"],
             receptor["regimen_fiscal"],
             receptor["cp"],
@@ -2188,6 +2251,57 @@ def _gas_lp_existing_transfer_invoice(sb, user: dict, payload: GasLpInternalFact
         row_litros = Decimal(str(row.get("volumen_litros") or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
         if row_litros == target_litros:
             return row
+    return None
+
+
+def _gas_lp_existing_sale_invoice(sb, user: dict, payload: GasLpInternalFacturaPayload, totals: dict, receptor: dict) -> dict | None:
+    day = str(totals.get("fecha") or payload.fecha or "").strip()[:10]
+    if not day:
+        return None
+    try:
+        rows = (
+            sb.table("gas_lp_facturas")
+            .select("id,uuid_sat,status,fecha_timbrado,rfc_receptor,volumen_litros,metadata,created_at,facility_id")
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .order("created_at", desc=True)
+            .limit(500)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_invoice_duplicate_lookup_failed user=%s perfil=%s err=%s", user.get("id"), user.get("perfil_id"), exc)
+        return None
+
+    target_litros = Decimal(str(payload.litros or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    target_total = _money(totals.get("total"))
+    target_rfc = _clean_rfc(receptor.get("rfc") or payload.rfc or "")
+    target_user_id = _safe_int_id(user.get("id"))
+    target_facility_id = _safe_int_id(payload.facility_id)
+    for row in rows:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        if md.get("is_transfer") is True or md.get("operation_type") == "transfer" or md.get("tipo_operacion") == "traspaso":
+            continue
+        if str(md.get("fecha_emision") or row.get("fecha_timbrado") or row.get("created_at") or "").strip()[:10] != day:
+            continue
+        if _safe_int_id(md.get("internal_user_id")) != target_user_id:
+            continue
+        if _safe_int_id(md.get("origen_facility_id") or md.get("facility_id") or row.get("facility_id")) != target_facility_id:
+            continue
+        row_rfc = _clean_rfc(row.get("rfc_receptor") or md.get("receptor_rfc") or md.get("cliente_rfc") or "")
+        if target_rfc and row_rfc and row_rfc != target_rfc:
+            continue
+        row_litros = Decimal(str(row.get("volumen_litros") or 0)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+        if row_litros != target_litros:
+            continue
+        try:
+            row_total = _money(md.get("total") if md.get("total") not in {None, ""} else 0)
+        except Exception:
+            row_total = Decimal("0.00")
+        if row_total != target_total:
+            continue
+        return row
     return None
 
 

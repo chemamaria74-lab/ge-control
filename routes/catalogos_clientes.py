@@ -1,5 +1,16 @@
 from .core import *
 
+def _gas_lp_clientes_scope_query(query, user: dict):
+    query = query.eq("user_id", user.get("owner_user_id")).eq("perfil_id", user.get("perfil_id"))
+    tenant_id = user.get("tenant_id")
+    return query.eq("tenant_id", tenant_id) if tenant_id else query.is_("tenant_id", "null")
+
+
+def _gas_lp_cliente_editable_update(row: dict) -> dict:
+    allowed = {"rfc", "nombre", "cp", "regimen_fiscal", "uso_cfdi", "metadata", "updated_at"}
+    return {key: value for key, value in row.items() if key in allowed}
+
+
 def _internal_cp_table(kind: str) -> tuple[str, str]:
     tables = {
         "vehiculos": ("gas_lp_vehiculos", "placas"),
@@ -285,11 +296,10 @@ async def gas_lp_internal_clientes(token: str):
     sb = get_supabase_admin()
     try:
         rows = (
-            sb.table("gas_lp_clientes_facturacion")
-            .select("*")
-            .eq("user_id", user.get("owner_user_id"))
-            .eq("tenant_id", user.get("tenant_id"))
-            .eq("perfil_id", user.get("perfil_id"))
+            _gas_lp_clientes_scope_query(
+                sb.table("gas_lp_clientes_facturacion").select("*"),
+                user,
+            )
             .eq("activo", True)
             .order("nombre", desc=False)
             .execute()
@@ -320,6 +330,7 @@ async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInte
     user = ctx["user"]
     row = _gas_lp_cliente_row(user, payload)
     row.pop("created_at", None)
+    row = _gas_lp_cliente_editable_update(row)
     row["metadata"] = {
         **(row.get("metadata") or {}),
         "updated_by_internal": user.get("id"),
@@ -327,13 +338,13 @@ async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInte
     }
     try:
         data = (
-            get_supabase_admin()
-            .table("gas_lp_clientes_facturacion")
-            .update(row)
-            .eq("id", cliente_id)
-            .eq("user_id", user.get("owner_user_id"))
-            .eq("tenant_id", user.get("tenant_id"))
-            .eq("perfil_id", user.get("perfil_id"))
+            _gas_lp_clientes_scope_query(
+                get_supabase_admin()
+                .table("gas_lp_clientes_facturacion")
+                .update(row)
+                .eq("id", cliente_id),
+                user,
+            )
             .eq("activo", True)
             .execute()
             .data
@@ -356,10 +367,8 @@ async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str):
             .table("gas_lp_clientes_facturacion")
             .update({"activo": False, "updated_at": _now_iso()})
             .eq("id", cliente_id)
-            .eq("user_id", user.get("owner_user_id"))
-            .eq("tenant_id", user.get("tenant_id"))
-            .eq("perfil_id", user.get("perfil_id"))
         )
+        q = _gas_lp_clientes_scope_query(q, user)
         data = q.execute().data or []
     except Exception as exc:
         raise _safe_internal_error("gas_lp_eliminar_cliente", exc)
