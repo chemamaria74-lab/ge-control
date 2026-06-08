@@ -46,11 +46,17 @@ function gasLpMercancia(){
     && String(m.clave_material_peligroso || '').trim() === '1075'
   ) || null;
 }
+function cpTruthy(value){
+  if(value === true || value === 1) return true;
+  const text = String(value ?? '').trim().toLowerCase();
+  return ['1','true','si','sí','yes'].includes(text);
+}
 function isGasLpMercancia(row){
   return !!row
     && String(row.bienes_transp || '').trim() === '15111510'
     && String(row.clave_unidad || '').trim().toUpperCase() === 'LTR'
     && String(row.clave_material_peligroso || '').trim() === '1075'
+    && cpTruthy(cpMercanciaValue(row, 'material_peligroso'))
     && Number(row.factor_kg_litro || 0) > 0;
 }
 function cpSelectedRoute(){
@@ -72,12 +78,63 @@ function setCartaPorteButton(loading=false){
   if(loading) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando...';
   else btn.innerHTML = CP_PREVIEW_VALIDO ? '<i class="fa-solid fa-stamp"></i> Timbrar Carta Porte' : '<i class="fa-solid fa-eye"></i> Preparar vista previa';
 }
+function cpValue(...values){
+  for(const value of values){
+    if(value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  return '';
+}
+function cpVehicleValue(veh, key){
+  const md = cpMeta(veh);
+  const aliases = {
+    placas: ['placas','placa'],
+    permiso: ['permiso_cre','permiso_sct','perm_sct','permiso_sict'],
+    numero_permiso: ['numero_permiso','num_permiso_sct','num_permiso_sict'],
+    aseguradora_rc: ['aseguradora','aseguradora_rc'],
+    poliza_rc: ['poliza_seguro','poliza_rc'],
+    aseguradora_medio_ambiente: ['aseguradora_medio_ambiente','aseguradora_ambiental'],
+    poliza_medio_ambiente: ['poliza_medio_ambiente','poliza_ambiental'],
+    peso_bruto_vehicular: ['peso_bruto_vehicular','peso_bruto'],
+    anio: ['anio','anio_modelo','modelo'],
+    config_vehicular: ['config_vehicular','configuracion_vehicular']
+  }[key] || [key];
+  return cpValue(...aliases.flatMap(k => [veh?.[k], md?.[k]]));
+}
+function cpDriverValue(chofer, key){
+  const md = cpMeta(chofer);
+  const aliases = {
+    nombre: ['nombre','nombre_completo'],
+    rfc: ['rfc'],
+    licencia: ['licencia','licencia_federal'],
+    tipo_figura: ['tipo_figura','tipo_figura_sat'],
+    tipo_licencia: ['tipo_licencia','licencia_tipo']
+  }[key] || [key];
+  return cpValue(...aliases.flatMap(k => [chofer?.[k], md?.[k]]));
+}
+function cpFacilityValue(facility, key){
+  const md = cpMeta(facility);
+  const aliases = {
+    cp: ['codigo_postal','cp','cp_sat'],
+    estado: ['estado_sat','estado'],
+    municipio: ['municipio_sat','municipio'],
+    pais: ['pais','pais_sat'],
+    calle: ['calle','domicilio_operativo','direccion'],
+    nombre: ['alias','nombre']
+  }[key] || [key];
+  return cpValue(...aliases.flatMap(k => [facility?.[k], md?.[k]]));
+}
+function cpMercanciaValue(merc, key){
+  const md = cpMeta(merc);
+  return cpValue(merc?.[key], md?.[key]);
+}
 function resetCartaPorteState(opts={}){
   CP_PREVIEW_VALIDO = false;
   CP_PREVIEW_READY = false;
   CP_FINAL_PAYLOAD = null;
   const preview = document.getElementById('cpPreview');
   if(preview) preview.innerHTML = '';
+  const checklist = document.getElementById('cpChecklist');
+  if(checklist) checklist.innerHTML = '';
   if(opts.clearForm){
     ['cpRuta','cpOrigen','cpDestino','cpVehiculo','cpChofer','cpMercancia','cpDistancia','cpTiempoMin'].forEach(id => {
       const el = document.getElementById(id);
@@ -103,7 +160,7 @@ function renderCartaPorteWizard(){
   const rutasOpts = cpOption(CATALOGOS.rutas, r => `${r.nombre || 'Ruta'}${r.distancia_km ? ` · ${r.distancia_km} km` : ''}${cpRouteTimeMinutes(r) ? ` · ${cpRouteTimeMinutes(r)} min` : ''}`);
   host.innerHTML = `
     <style>
-      .cp-wizard{display:grid;gap:12px}.cp-step{border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px}.cp-step h3{margin:0 0 9px;font-size:15px}.cp-step p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.45}.cp-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.cp-preview div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-preview span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-preview b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-route-hint{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800}.cp-sat-note{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;line-height:1.35}
+      .cp-wizard{display:grid;gap:12px}.cp-step{border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px}.cp-step h3{margin:0 0 9px;font-size:15px}.cp-step p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.45}.cp-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.cp-preview div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-preview span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-preview b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-route-hint{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800}.cp-sat-note{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;line-height:1.35}.cp-checklist{display:grid;gap:7px;margin-bottom:10px}.cp-check-row{display:flex;gap:8px;align-items:flex-start;border:1px solid #eadfd2;border-radius:8px;padding:8px 10px;background:#fff}.cp-check-row i{margin-top:2px}.cp-check-row.ok{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.cp-check-row.warn{border-color:#fde68a;background:#fffbeb;color:#92400e}.cp-check-row.error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.cp-check-row b{display:block}.cp-check-row span{display:block;font-size:12px;line-height:1.35;color:inherit;opacity:.9}
     </style>
     <div class="cp-wizard">
       <div class="cp-step">
@@ -142,6 +199,7 @@ function renderCartaPorteWizard(){
       </div>
       <div class="cp-step">
         <h3>4. Vista previa</h3>
+        <div id="cpChecklist" class="cp-checklist"></div>
         <div id="cpPreview" class="cp-preview"></div>
       </div>
     </div>`;
@@ -218,38 +276,107 @@ function updateCpPeso(){
   if(cpPeso) cpPeso.value = s.peso ? s.peso.toFixed(3) : '0';
   renderCpRouteSummary();
 }
-function prepararCartaPortePreview(){
+function cpChecklistResult(){
   const ruta = cpSelectedRoute();
   const rutaMd = cpMeta(ruta);
-  if(!ruta){ setStatus('cpMsg','Selecciona una ruta frecuente para preparar Carta Porte.',false); return false; }
-  const mercanciaDefault = (CATALOGOS.mercancias || []).find(m => String(m.id) === String(rutaMd.mercancia_default_id));
-  const rutaCompleta = ruta.origen_facility_id && ruta.destino_facility_id && Number(ruta.distancia_km || 0) > 0 && cpRouteTimeMinutes(ruta) > 0 && isGasLpMercancia(mercanciaDefault);
-  if(!rutaCompleta){ setStatus('cpMsg','Completa la configuración de la ruta antes de timbrar Carta Porte.',false); return false; }
-  if(!rutaMd.vehiculo_default_id && !cpVehiculo?.value){ setStatus('cpMsg','Selecciona vehículo para preparar Carta Porte.',false); return false; }
-  if(!rutaMd.chofer_default_id && !cpChofer?.value){ setStatus('cpMsg','Selecciona chofer para preparar Carta Porte.',false); return false; }
   const s = selectedCp();
-  const km = Number(cpDistancia?.value || 0);
-  if(s.litrosNum <= 0){ setStatus('cpMsg','Captura litros mayores a cero para Carta Porte.',false); return false; }
-  if(!cpSalida?.value || !cpLlegada?.value){ setStatus('cpMsg','Captura fecha/hora de salida y llegada para Carta Porte.',false); return false; }
-  if(km <= 0){ setStatus('cpMsg','Captura distancia recorrida mayor a cero.',false); return false; }
-  if(String(cpOrigen.value) === String(cpDestino.value)){ setStatus('cpMsg','Origen y destino deben ser distintos.',false); return false; }
-  const vehMd = cpMeta(s.veh);
-  const choferMd = cpMeta(s.chofer);
-  const missing = [];
-  const req = (label,val) => { if(val === undefined || val === null || String(val).trim() === '') missing.push(label); };
-  req('origen RFC', s.origen?.rfc); req('origen CP', s.origen?.codigo_postal); req('origen estado', s.origen?.estado); req('origen municipio', s.origen?.municipio); req('origen calle', s.origen?.calle);
-  req('destino RFC', s.destino?.rfc); req('destino CP', s.destino?.codigo_postal); req('destino estado', s.destino?.estado); req('destino municipio', s.destino?.municipio); req('destino calle', s.destino?.calle);
-  req('BienesTransp', s.merc?.bienes_transp); req('descripción mercancía', s.merc?.descripcion); req('clave unidad', s.merc?.clave_unidad);
-  if(!isGasLpMercancia(s.merc)) missing.push('mercancía default Gas LP válida');
-  if(s.merc?.material_peligroso){ req('clave material peligroso', s.merc?.clave_material_peligroso); req('embalaje SAT', s.merc?.embalaje); }
-  req('placas', s.veh?.placas); req('configuración vehicular', s.veh?.config_vehicular); req('permiso SCT/SICT', s.veh?.permiso_cre); req('número permiso', vehMd.numero_permiso); req('peso bruto vehicular', vehMd.peso_bruto_vehicular); req('aseguradora RC', s.veh?.aseguradora); req('póliza RC', s.veh?.poliza_seguro); req('aseguradora medio ambiente', vehMd.aseguradora_medio_ambiente); req('póliza medio ambiente', vehMd.poliza_medio_ambiente);
-  req('chofer', s.chofer?.nombre); req('licencia', s.chofer?.licencia); req('tipo figura', choferMd.tipo_figura);
-  if(missing.length){ setStatus('cpMsg',`Carta Porte incompleta. Falta: ${missing.join(', ')}.`,false); return false; }
+  const vehPermiso = String(cpVehicleValue(s.veh, 'permiso')).trim().toUpperCase();
+  const salida = cpSalida?.value ? new Date(cpSalida.value) : null;
+  const llegada = cpLlegada?.value ? new Date(cpLlegada.value) : null;
+  const km = Number(cpDistancia?.value || ruta?.distancia_km || 0);
+  const minutes = Number(cpTiempoMin?.value || cpRouteTimeMinutes(ruta) || 0);
+  const errors = [];
+  const warnings = [];
+  const ok = [];
+  const req = (group, label, value) => {
+    if(value === undefined || value === null || String(value).trim() === '') errors.push(`${group}: falta ${label}.`);
+  };
+
+  if(!ruta) errors.push('Ruta: selecciona una ruta frecuente.');
+  else {
+    req('Ruta', 'origen', ruta.origen_facility_id || cpOrigen?.value);
+    req('Ruta', 'destino', ruta.destino_facility_id || cpDestino?.value);
+    if(String(ruta.origen_facility_id || cpOrigen?.value) === String(ruta.destino_facility_id || cpDestino?.value)) errors.push('Ruta: origen y destino deben ser distintos.');
+    if(km <= 1) errors.push('Ruta: distancia recorrida debe ser real y mayor a 1 km.');
+    else ok.push('Ruta con distancia operativa.');
+    if(minutes <= 0) errors.push('Ruta: falta duración estimada para calcular llegada.');
+    if(!rutaMd.mercancia_default_id && !s.merc) errors.push('Ruta: falta mercancía Gas LP default.');
+  }
+
+  req('Origen', 'CP', cpFacilityValue(s.origen, 'cp'));
+  req('Origen', 'estado', cpFacilityValue(s.origen, 'estado'));
+  req('Origen', 'municipio', cpFacilityValue(s.origen, 'municipio'));
+  req('Origen', 'país', cpFacilityValue(s.origen, 'pais') || 'MEX');
+  req('Destino', 'CP', cpFacilityValue(s.destino, 'cp'));
+  req('Destino', 'estado', cpFacilityValue(s.destino, 'estado'));
+  req('Destino', 'municipio', cpFacilityValue(s.destino, 'municipio'));
+  req('Destino', 'país', cpFacilityValue(s.destino, 'pais') || 'MEX');
+
+  if(!s.veh) errors.push('Vehículo: selecciona una unidad.');
+  req('Vehículo', 'ConfigVehicular SAT', cpVehicleValue(s.veh, 'config_vehicular'));
+  req('Vehículo', 'Permiso SCT/SICT', vehPermiso);
+  req('Vehículo', 'número permiso SCT/SICT', cpVehicleValue(s.veh, 'numero_permiso'));
+  req('Vehículo', 'placas', cpVehicleValue(s.veh, 'placas'));
+  req('Vehículo', 'año/modelo', cpVehicleValue(s.veh, 'anio'));
+  req('Vehículo', 'peso bruto vehicular', cpVehicleValue(s.veh, 'peso_bruto_vehicular'));
+  req('Vehículo', 'aseguradora RC', cpVehicleValue(s.veh, 'aseguradora_rc'));
+  req('Vehículo', 'póliza RC', cpVehicleValue(s.veh, 'poliza_rc'));
+  req('Vehículo', 'aseguradora medio ambiente', cpVehicleValue(s.veh, 'aseguradora_medio_ambiente'));
+  req('Vehículo', 'póliza medio ambiente', cpVehicleValue(s.veh, 'poliza_medio_ambiente'));
+  if(vehPermiso && vehPermiso !== 'TPAF03') warnings.push('Vehículo: para Gas LP/material peligroso revisa que el permiso real SICT corresponda; recomendado TPAF03 si aplica.');
+
+  if(!s.chofer) errors.push('Chofer: selecciona operador.');
+  req('Chofer', 'nombre completo', cpDriverValue(s.chofer, 'nombre'));
+  req('Chofer', 'RFC', cpDriverValue(s.chofer, 'rfc'));
+  req('Chofer', 'licencia federal', cpDriverValue(s.chofer, 'licencia'));
+  req('Chofer', 'tipo figura SAT', cpDriverValue(s.chofer, 'tipo_figura'));
+  if(cpDriverValue(s.chofer, 'tipo_figura') && String(cpDriverValue(s.chofer, 'tipo_figura')) !== '01') warnings.push('Chofer: el tipo figura recomendado para operador es 01 Operador.');
+
+  if(!s.merc) errors.push('Mercancía: configura Gas LP en catálogos.');
+  req('Mercancía', 'BienesTransp 15111510', cpMercanciaValue(s.merc, 'bienes_transp'));
+  req('Mercancía', 'descripción', cpMercanciaValue(s.merc, 'descripcion'));
+  req('Mercancía', 'unidad LTR', cpMercanciaValue(s.merc, 'clave_unidad'));
+  if(!cpTruthy(cpMercanciaValue(s.merc, 'material_peligroso'))) errors.push('Mercancía: Gas LP debe estar marcado como material peligroso.');
+  req('Mercancía', 'clave material peligroso 1075', cpMercanciaValue(s.merc, 'clave_material_peligroso'));
+  req('Mercancía', 'embalaje SAT', cpMercanciaValue(s.merc, 'embalaje'));
+  if(!isGasLpMercancia(s.merc)) errors.push('Mercancía: debe ser Gas LP con BienesTransp 15111510, unidad LTR, material peligroso 1075 y factor kg/L.');
+  if(s.litrosNum <= 0) errors.push('Viaje: captura litros mayores a cero.');
+  if(s.peso <= 0) errors.push('Viaje: el peso kg debe calcularse mayor a cero.');
+  if(!cpSalida?.value) errors.push('Viaje: falta fecha/hora salida.');
+  if(!cpLlegada?.value) errors.push('Viaje: falta fecha/hora llegada.');
+  if(salida && llegada && llegada <= salida) errors.push('Viaje: la llegada debe ser posterior a la salida.');
+
+  if(!errors.some(e => e.startsWith('Ruta'))) ok.push('Ruta completa.');
+  if(!errors.some(e => e.startsWith('Vehículo'))) ok.push('Vehículo SAT completo.');
+  if(!errors.some(e => e.startsWith('Chofer'))) ok.push('Chofer SAT completo.');
+  if(!errors.some(e => e.startsWith('Mercancía'))) ok.push('Mercancía Gas LP completa: Cantidad LTR y Peso KGM separados.');
+  if(!errors.some(e => e.startsWith('Viaje'))) ok.push('Viaje listo: fechas, litros y peso calculado.');
+  return {ok, warnings, errors};
+}
+function renderCpChecklist(result){
+  const host = document.getElementById('cpChecklist');
+  if(!host) return;
+  const rows = [];
+  result.errors.forEach(text => rows.push(['error','fa-circle-xmark','Error',text]));
+  result.warnings.forEach(text => rows.push(['warn','fa-triangle-exclamation','Revisar',text]));
+  if(!result.errors.length) result.ok.slice(0, 6).forEach(text => rows.push(['ok','fa-circle-check','Correcto',text]));
+  host.innerHTML = rows.length
+    ? rows.map(([cls,icon,title,text]) => `<div class="cp-check-row ${cls}"><i class="fa-solid ${icon}"></i><div><b>${esc(title)}</b><span>${esc(text)}</span></div></div>`).join('')
+    : '';
+}
+function prepararCartaPortePreview(){
+  const s = selectedCp();
+  const checklist = cpChecklistResult();
+  renderCpChecklist(checklist);
+  if(checklist.errors.length){
+    setStatus('cpMsg',`Carta Porte incompleta. Corrige ${checklist.errors.length} punto(s) del checklist antes de timbrar.`,false);
+    return false;
+  }
   const html = [
     ['Origen', cpName('instalaciones', cpOrigen.value)], ['Destino', cpName('instalaciones', cpDestino.value)], ['Distancia', `${cpDistancia.value || 0} km`],
-    ['Vehículo', cpName('vehiculos', cpVehiculo.value)], ['Placas', s.veh?.placas || '—'], ['Chofer', s.chofer?.nombre || '—'],
-    ['Licencia', s.chofer?.licencia || '—'], ['Mercancía', s.merc?.alias || s.merc?.descripcion || '—'], ['Litros', fmt(s.litrosNum)],
-    ['Peso estimado', `${s.peso.toFixed(3)} kg`], ['Material peligroso', s.merc?.material_peligroso ? 'Sí' : 'No'], ['Seguros', `RC ${s.veh?.aseguradora || '—'} / ${s.veh?.poliza_seguro || '—'} · MA ${vehMd.aseguradora_medio_ambiente || '—'} / ${vehMd.poliza_medio_ambiente || '—'}`],
+    ['Vehículo', cpName('vehiculos', cpVehiculo.value)], ['Placas', cpVehicleValue(s.veh, 'placas') || '—'], ['Chofer', cpDriverValue(s.chofer, 'nombre') || '—'],
+    ['Licencia', cpDriverValue(s.chofer, 'licencia') || '—'], ['Tipo figura', cpDriverValue(s.chofer, 'tipo_figura') || '—'], ['Mercancía', s.merc?.alias || s.merc?.descripcion || '—'], ['Litros', fmt(s.litrosNum)],
+    ['Peso estimado', `${s.peso.toFixed(3)} kg`], ['Material peligroso', cpTruthy(cpMercanciaValue(s.merc, 'material_peligroso')) ? 'Sí' : 'No'], ['Seguros', `RC ${cpVehicleValue(s.veh, 'aseguradora_rc') || '—'} / ${cpVehicleValue(s.veh, 'poliza_rc') || '—'} · MA ${cpVehicleValue(s.veh, 'aseguradora_medio_ambiente') || '—'} / ${cpVehicleValue(s.veh, 'poliza_medio_ambiente') || '—'}`],
     ['Salida', (cpSalida.value || '').replace('T',' ')], ['Llegada', (cpLlegada.value || '').replace('T',' ')]
   ].map(([k,v])=>`<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
   cpPreview.innerHTML = html;
@@ -352,7 +479,7 @@ const ACP_CONFIG_VEHICULAR = [
   ['T2S1','T2S1 - Tractocamión 2 ejes + semirremolque 1 eje'], ['T2S2','T2S2 - Tractocamión 2 ejes + semirremolque 2 ejes'],
   ['T3S2','T3S2 - Tractocamión 3 ejes + semirremolque 2 ejes'], ['T3S3','T3S3 - Tractocamión 3 ejes + semirremolque 3 ejes']
 ];
-const ACP_PERMISOS_SCT = [['TPAF01','TPAF01 - Autotransporte federal'], ['TPAF02','TPAF02 - Transporte privado'], ['TPAF03','TPAF03 - Otros']];
+const ACP_PERMISOS_SCT = [['TPAF01','TPAF01 - Autotransporte federal'], ['TPAF02','TPAF02 - Transporte privado'], ['TPAF03','TPAF03 - Autotransporte federal de carga especializada de materiales y residuos peligrosos']];
 const ACP_TIPO_LICENCIA = [['E','E - Carga especializada / materiales peligrosos'], ['B','B - Carga general federal'], ['C','C - Carga de dos o tres ejes'], ['D','D - Carga articulada']];
 const ACP_TIPO_FIGURA = [['01','01 Operador'], ['02','02 Propietario'], ['03','03 Arrendador']];
 function acpOptions(list, value=''){ return list.map(([v,l])=>`<option value="${esc(v)}"${String(v)===String(value)?' selected':''}>${esc(l)}</option>`).join(''); }
@@ -455,7 +582,7 @@ function renderAssistantCpForm(){
       acpField('acpr_no','Localidad origen',md.nombre_origen||row?.nombre_origen||'','text','placeholder="Aguascalientes, Ags"'),
       acpField('acpr_cpd','CP destino',row?.cp_destino||'','text','placeholder="44100" maxlength="5"'),
       acpField('acpr_nd','Localidad destino',md.nombre_destino||row?.nombre_destino||'','text','placeholder="Guadalajara, Jal"'),
-      acpField('acpr_km','Distancia recorrida km',row?.distancia_km||1,'number','step="0.1" min="0.1" placeholder="250"'),
+      acpField('acpr_km','Distancia recorrida km',row?.distancia_km||'','number','step="0.1" min="0.1" placeholder="250"'),
       acpField('acpr_tiempo_min','Duración estimada minutos',row?.tiempo_estimado_minutos||md.tiempo_estimado_minutos||cpRouteTimeMinutes(row)||'','number','min="1" step="1" placeholder="180"'),
       acpSelect('acpr_veh','Vehículo default opcional',cpOption(CATALOGOS.vehiculos,v=>acpTitle('vehiculos',v)),md.vehiculo_default_id||''),
       acpSelect('acpr_chof','Chofer default opcional',cpOption(CATALOGOS.choferes,c=>c.nombre||c.id),md.chofer_default_id||''),
