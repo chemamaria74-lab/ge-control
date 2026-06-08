@@ -556,9 +556,11 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
     }
 
 
-def _gas_lp_cliente_without_credit_columns(row: dict) -> dict:
+def _gas_lp_cliente_without_optional_columns(row: dict) -> dict:
     clean = dict(row)
     for key in (
+        "email",
+        "email_facturacion",
         "credito_habilitado",
         "dias_credito",
         "limite_credito",
@@ -570,11 +572,13 @@ def _gas_lp_cliente_without_credit_columns(row: dict) -> dict:
     return clean
 
 
-def _gas_lp_cliente_credit_column_error(exc: Exception) -> bool:
+def _gas_lp_cliente_optional_column_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return any(
         key in message
         for key in (
+            "email",
+            "email_facturacion",
             "credito_habilitado",
             "dias_credito",
             "limite_credito",
@@ -587,6 +591,18 @@ def _gas_lp_cliente_credit_column_error(exc: Exception) -> bool:
 def _normalize_gas_lp_cliente_credit(row: dict) -> dict:
     item = dict(row or {})
     md = item.get("metadata") or {}
+    primary_email = md.get("email_facturacion") or md.get("email") or md.get("correo") or ""
+    invoice_extra = md.get("invoice_email_additional") or []
+    if isinstance(invoice_extra, str):
+        invoice_extra = [invoice_extra] if invoice_extra else []
+    item["email"] = item.get("email") or primary_email
+    item["email_facturacion"] = item.get("email_facturacion") or item.get("email") or primary_email
+    if not md.get("invoice_email_additional") and (md.get("email_adicional_1") or md.get("email_adicional_2")):
+        md = {
+            **md,
+            "invoice_email_additional": [v for v in (md.get("email_adicional_1"), md.get("email_adicional_2")) if v],
+        }
+        item["metadata"] = md
     credit = md.get("credito_ppd") or md.get("credito") or {}
     item["credito_habilitado"] = bool(item.get("credito_habilitado", credit.get("credito_habilitado", credit.get("habilitado", False))))
     item["dias_credito"] = int(item.get("dias_credito", credit.get("dias_credito", credit.get("dias", 0))) or 0)

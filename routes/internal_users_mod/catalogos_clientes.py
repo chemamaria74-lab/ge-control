@@ -310,9 +310,9 @@ async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, to
     try:
         data = get_supabase_admin().table("gas_lp_clientes_facturacion").insert(row).execute().data or [row]
     except Exception as exc:
-        if not _gas_lp_cliente_credit_column_error(exc):
+        if not _gas_lp_cliente_optional_column_error(exc):
             raise _safe_internal_error("gas_lp_crear_cliente", exc)
-        fallback = _gas_lp_cliente_without_credit_columns(row)
+        fallback = _gas_lp_cliente_without_optional_columns(row)
         try:
             data = get_supabase_admin().table("gas_lp_clientes_facturacion").insert(fallback).execute().data or [fallback]
         except Exception as retry_exc:
@@ -346,9 +346,9 @@ async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInte
             or []
         )
     except Exception as exc:
-        if not _gas_lp_cliente_credit_column_error(exc):
+        if not _gas_lp_cliente_optional_column_error(exc):
             raise _safe_internal_error("gas_lp_actualizar_cliente", exc)
-        fallback = _gas_lp_cliente_without_credit_columns(row)
+        fallback = _gas_lp_cliente_without_optional_columns(row)
         try:
             data = (
                 get_supabase_admin()
