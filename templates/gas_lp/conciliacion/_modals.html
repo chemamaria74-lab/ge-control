@@ -112,14 +112,15 @@
             <input id="bankPaymentDate" type="datetime-local">
           </div>
           <div>
-            <label>Monto conciliado</label>
+            <label>Monto aplicado a esta factura</label>
             <input id="bankAmount" type="number" min="0" step="0.01" oninput="updateBankSuggestion()">
           </div>
           <div>
             <label>Referencia bancaria</label>
-            <input id="bankReference" placeholder="SPEI, efectivo, TPV, folio o referencia">
+            <input id="bankReference" placeholder="SPEI, deposito agrupado, TPV, folio o referencia">
           </div>
         </div>
+        <div class="notice small" style="margin-top:10px">Para efectivo depositado en caja o deposito agrupado, captura el monto de esta factura y usa la misma referencia del deposito bancario en todas las facturas incluidas.</div>
         <div style="margin-top:10px">
           <label>Comentario opcional</label>
           <textarea id="bankComment" placeholder="Notas internas para conciliación"></textarea>

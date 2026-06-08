@@ -13,7 +13,7 @@
         <div class="filters" style="margin-bottom:12px">
           <div><label>Cliente</label><input id="clienteFiltro" placeholder="RFC, nombre o UUID" oninput="renderAll()"></div>
           <div><label>Día</label><input id="diaFiltro" type="date" onchange="renderAll()"></div>
-          <div><label>Estado</label><select id="estadoFiltro" onchange="renderAll()"><option value="">Todos</option><option value="ppd">PPD pendiente</option><option value="pagada">Pagada</option><option value="cancelada">Cancelada</option></select></div>
+          <div><label>Estado fiscal</label><select id="estadoFiltro" onchange="renderAll()"><option value="">Todos</option><option value="ppd">PPD pendiente</option><option value="pagada">Vigente / liquidada fiscal</option><option value="cancelada">Cancelada</option></select></div>
           <div><label>Forma pago</label><select id="formaFiltro" onchange="renderAll()"><option value="">Todas</option><option value="01">01 Efectivo</option><option value="03">03 Transferencia</option><option value="04">04 Tarjeta crédito</option><option value="28">28 Tarjeta débito</option><option value="99">99 Por definir</option></select></div>
           <div><label>Método</label><select id="metodoFiltro" onchange="renderAll()"><option value="">Todos</option><option value="PUE">PUE</option><option value="PPD">PPD</option></select></div>
           <div><label>Tipo</label><select id="tipoFiltro" onchange="renderAll()"><option value="">Todos</option><option value="factura">Factura</option><option value="complemento">Complemento</option><option value="traspaso">Traspaso</option></select></div>
