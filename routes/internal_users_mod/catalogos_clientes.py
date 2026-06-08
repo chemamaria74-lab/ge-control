@@ -310,13 +310,7 @@ async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, to
     try:
         data = get_supabase_admin().table("gas_lp_clientes_facturacion").insert(row).execute().data or [row]
     except Exception as exc:
-        if not _gas_lp_cliente_optional_column_error(exc):
-            raise _safe_internal_error("gas_lp_crear_cliente", exc)
-        fallback = _gas_lp_cliente_without_optional_columns(row)
-        try:
-            data = get_supabase_admin().table("gas_lp_clientes_facturacion").insert(fallback).execute().data or [fallback]
-        except Exception as retry_exc:
-            raise _safe_internal_error("gas_lp_crear_cliente", retry_exc)
+        raise _safe_internal_error("gas_lp_crear_cliente", exc)
     return JSONResponse({"ok": True, "cliente": _normalize_gas_lp_cliente_credit(data[0])})
 
 
@@ -346,25 +340,7 @@ async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInte
             or []
         )
     except Exception as exc:
-        if not _gas_lp_cliente_optional_column_error(exc):
-            raise _safe_internal_error("gas_lp_actualizar_cliente", exc)
-        fallback = _gas_lp_cliente_without_optional_columns(row)
-        try:
-            data = (
-                get_supabase_admin()
-                .table("gas_lp_clientes_facturacion")
-                .update(fallback)
-                .eq("id", cliente_id)
-                .eq("user_id", user.get("owner_user_id"))
-                .eq("tenant_id", user.get("tenant_id"))
-                .eq("perfil_id", user.get("perfil_id"))
-                .eq("activo", True)
-                .execute()
-                .data
-                or []
-            )
-        except Exception as retry_exc:
-            raise _safe_internal_error("gas_lp_actualizar_cliente", retry_exc)
+        raise _safe_internal_error("gas_lp_actualizar_cliente", exc)
     if not data:
         raise HTTPException(404, "Cliente no encontrado para esta empresa.")
     return JSONResponse({"ok": True, "cliente": _normalize_gas_lp_cliente_credit(data[0])})

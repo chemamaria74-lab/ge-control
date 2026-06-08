@@ -534,18 +534,13 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
         "cp": receptor["cp"],
         "regimen_fiscal": receptor["regimen_fiscal"],
         "uso_cfdi": uso_cfdi,
-        "email": email,
-        "email_facturacion": email,
-        "credito_habilitado": credito_habilitado,
-        "dias_credito": dias_credito if credito_habilitado else 0,
-        "limite_credito": limite_credito,
-        "credito_notas": credito_notas,
-        "credito_actualizado_at": credito_policy["actualizado_at"],
-        "credito_actualizado_por": credito_policy["actualizado_por"],
         "activo": True,
         "metadata": {
             "created_by_internal": user.get("id"),
             "created_by": user.get("display_name"),
+            "email": email,
+            "email_facturacion": email,
+            "correo": email,
             "invoice_email_additional": invoice_emails[1:2],
             "email_adicional_1": invoice_emails[1] if len(invoice_emails) > 1 else "",
             "email_adicional_2": "",
@@ -554,38 +549,6 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
-
-
-def _gas_lp_cliente_without_optional_columns(row: dict) -> dict:
-    clean = dict(row)
-    for key in (
-        "email",
-        "email_facturacion",
-        "credito_habilitado",
-        "dias_credito",
-        "limite_credito",
-        "credito_notas",
-        "credito_actualizado_at",
-        "credito_actualizado_por",
-    ):
-        clean.pop(key, None)
-    return clean
-
-
-def _gas_lp_cliente_optional_column_error(exc: Exception) -> bool:
-    message = str(exc).lower()
-    return any(
-        key in message
-        for key in (
-            "email",
-            "email_facturacion",
-            "credito_habilitado",
-            "dias_credito",
-            "limite_credito",
-            "credito_notas",
-            "credito_actualizado",
-        )
-    )
 
 
 def _normalize_gas_lp_cliente_credit(row: dict) -> dict:
@@ -1111,7 +1074,17 @@ def _saved_invoice_additional_emails(cliente_row: dict | None) -> list[str]:
 
 
 def _customer_invoice_recipients(cliente_row: dict | None) -> list[str]:
-    primary = (cliente_row or {}).get("email_facturacion") or (cliente_row or {}).get("email") or ""
+    metadata = (cliente_row or {}).get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    primary = (
+        (cliente_row or {}).get("email_facturacion")
+        or (cliente_row or {}).get("email")
+        or metadata.get("email_facturacion")
+        or metadata.get("email")
+        or metadata.get("correo")
+        or ""
+    )
     additional = _saved_invoice_additional_emails(cliente_row)
     return _invoice_email_recipients(
         primary,
