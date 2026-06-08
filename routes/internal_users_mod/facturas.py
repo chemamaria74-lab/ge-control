@@ -118,24 +118,13 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
     ws = wb.active
     ws.title = "Documentos"
     headers = [
-        "Tipo de documento",
-        "UUID",
-        "Factura relacionada",
+        "Fecha",
         "Folio de fact",
+        "UUID",
         "Cliente",
-        "RFC",
-        "Fecha emisión/timbrado",
-        "Fecha pago",
         "Monto",
-        "Subtotal",
-        "Descuento",
-        "IVA",
         "Litros",
-        "Precio unitario",
-        "Realizado por",
-        "Estado correo",
-        "Método/Forma de pago",
-        "Estado",
+        "Método",
     ]
     ws.append(headers)
     for cell in ws[1]:
@@ -143,27 +132,15 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         cell.fill = PatternFill("solid", fgColor="7A1E2C")
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        tipo_doc = "Traspaso" if md.get("tipo_operacion") == "traspaso" or md.get("is_transfer") else "Factura"
         info = _factura_payment_info(row)
         ws.append([
-            tipo_doc,
-            row.get("uuid_sat") or "",
-            "",
-            _gas_lp_factura_folio_label(row),
-            _gas_lp_factura_razon_social(row),
-            row.get("rfc_receptor") or "",
             _gas_lp_factura_date_key(row),
-            "",
+            _gas_lp_factura_folio_label(row),
+            row.get("uuid_sat") or "",
+            _gas_lp_factura_razon_social(row),
             float(_money(info.get("total"))),
-            float(_money(info.get("subtotal"))),
-            float(_money(info.get("descuento"))),
-            float(_money(info.get("iva"))),
             float(Decimal(str(info.get("litros") or row.get("volumen_litros") or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
-            float(Decimal(str(info.get("precio_unitario") or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
-            _gas_lp_factura_realizado_por(row),
-            row.get("email_status") or "",
-            f"{info.get('metodo_pago') or _gas_lp_factura_metodo_pago(row)} / {info.get('forma_pago') or ''}".strip(" /"),
-            _gas_lp_factura_estado_excel(row),
+            info.get("metodo_pago") or _gas_lp_factura_metodo_pago(row),
         ])
     for comp in complementos:
         comp_id = _safe_int_id(comp.get("id"))
@@ -180,35 +157,21 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         if not refs:
             refs = [_gas_lp_factura_folio_label(comp_facturas_by_id.get(fid, {})) for fid in ids]
         email_error = str(comp.get("email_error") or "")
-        email_status = "Correo enviado" if comp.get("email_enviado") else ("Sin correo" if "sin correo" in email_error.lower() else ("Error de envío" if email_error else "Pendiente"))
         ws.append([
-            "Complemento de pago",
-            comp.get("uuid_sat") or "",
-            ", ".join(ref for ref in refs if ref),
+            str(comp.get("created_at") or "")[:10],
             "",
+            comp.get("uuid_sat") or "",
             receptor.get("nombre") or "Cliente",
-            receptor.get("rfc") or "",
-            str(comp.get("created_at") or "")[:19],
-            comp.get("fecha_pago") or "",
-            float(comp.get("monto") or 0),
             float(comp.get("monto") or 0),
             0,
-            0,
-            0,
-            0,
-            comp.get("realizado_por") or "",
-            email_status,
-            f"Complemento / {comp.get('forma_pago') or ''}".strip(" /"),
-            comp.get("status") or "timbrado",
+            "Complemento",
         ])
-    for width, column in zip([24, 40, 30, 42, 18, 24, 22, 16, 16, 14, 14, 12, 14, 22, 22, 24, 22], "ABCDEFGHIJKLMNOPQ"):
+    for width, column in zip([14, 20, 40, 34, 16, 14, 12], "ABCDEFG"):
         ws.column_dimensions[column].width = width
-    for column in ("H", "I", "J", "K"):
+    for column in ("E",):
         for cell in ws[column][1:]:
             cell.number_format = '$#,##0.00'
-    for cell in ws["L"][1:]:
-        cell.number_format = "#,##0.0000"
-    for cell in ws["M"][1:]:
+    for cell in ws["F"][1:]:
         cell.number_format = "#,##0.0000"
     stream = BytesIO()
     wb.save(stream)
@@ -450,5 +413,4 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
     if not all_ok:
         response["message"] = first_error or "No se pudo enviar el correo."
     return JSONResponse(response, status_code=200 if all_ok else 400)
-
 

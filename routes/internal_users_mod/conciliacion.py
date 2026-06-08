@@ -369,24 +369,13 @@ async def gas_lp_conciliacion_export_excel(
     ws = wb.active
     ws.title = "Documentos"
     headers = [
-        "Tipo de documento",
-        "UUID",
-        "Factura relacionada",
+        "Fecha",
         "Folio de fact",
+        "UUID",
         "Cliente",
-        "RFC",
-        "Fecha emisión/timbrado",
-        "Fecha pago",
         "Monto",
-        "Subtotal",
-        "Descuento",
-        "IVA",
         "Litros",
-        "Precio unitario",
-        "Realizado por",
-        "Estado correo",
-        "Método/Forma de pago",
-        "Estado",
+        "Método",
     ]
     ws.append(headers)
     for cell in ws[1]:
@@ -441,24 +430,13 @@ async def gas_lp_conciliacion_export_excel(
         try:
             info = _safe_payment_info(row)
             ws.append([
-                "Traspaso" if ((row.get("metadata") or {}).get("tipo_operacion") == "traspaso" or (row.get("metadata") or {}).get("is_transfer")) else "Factura",
-                _excel_text(row.get("uuid_sat") or ""),
-                "",
-                _excel_text(_gas_lp_factura_folio_label(row)),
-                _excel_text(_gas_lp_factura_razon_social(row)),
-                _excel_text(row.get("rfc_receptor") or ""),
                 _excel_text(_gas_lp_factura_date_key(row)),
-                "",
+                _excel_text(_gas_lp_factura_folio_label(row)),
+                _excel_text(row.get("uuid_sat") or ""),
+                _excel_text(_gas_lp_factura_razon_social(row)),
                 _excel_number(_safe_total(row)),
-                _excel_number(info.get("subtotal")),
-                _excel_number(info.get("descuento")),
-                _excel_number(info.get("iva")),
                 _excel_liters(info.get("litros") or row.get("volumen_litros")),
-                float(Decimal(str(info.get("precio_unitario") or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
-                _excel_text(_gas_lp_factura_realizado_por(row)),
-                _excel_text(row.get("email_status") or ""),
-                _excel_text(f"{info.get('metodo_pago') or _safe_metodo_pago(row)} / {info.get('forma_pago') or ''}".strip(" /")),
-                _excel_text(_gas_lp_factura_estado_excel(row)),
+                _excel_text(info.get("metodo_pago") or _safe_metodo_pago(row)),
             ])
         except Exception as exc:
             logger.error(
@@ -469,7 +447,7 @@ async def gas_lp_conciliacion_export_excel(
                 exc,
                 traceback.format_exc(),
             )
-            ws.append(["Factura", "", _excel_text(factura_id), "", "", "", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, "", "", "", ""])
+            ws.append(["", _excel_text(factura_id), "", "", 0.0, 0.0, ""])
     for comp in complementos:
         comp_id = _safe_int_id(comp.get("id"))
         rels = comp_rels_by_id.get(comp_id, [])
@@ -485,35 +463,21 @@ async def gas_lp_conciliacion_export_excel(
         if not refs:
             refs = [_gas_lp_factura_folio_label(comp_facturas_by_id.get(fid, {})) for fid in ids]
         email_error = str(comp.get("email_error") or "")
-        email_status = "Correo enviado" if comp.get("email_enviado") else ("Sin correo" if "sin correo" in email_error.lower() else ("Error de envío" if email_error else "Pendiente"))
         ws.append([
-            "Complemento de pago",
-            _excel_text(comp.get("uuid_sat") or ""),
-            _excel_text(", ".join(ref for ref in refs if ref)),
+            _excel_text(str(comp.get("created_at") or "")[:10]),
             "",
+            _excel_text(comp.get("uuid_sat") or ""),
             _excel_text(receptor.get("nombre") or "Cliente"),
-            _excel_text(receptor.get("rfc") or ""),
-            _excel_text(str(comp.get("created_at") or "")[:19]),
-            _excel_text(comp.get("fecha_pago") or ""),
-            _excel_number(comp.get("monto") or 0),
             _excel_number(comp.get("monto") or 0),
             0.0,
-            0.0,
-            0.0,
-            0.0,
-            _excel_text(comp.get("realizado_por") or ""),
-            _excel_text(email_status),
-            _excel_text(f"Complemento / {comp.get('forma_pago') or ''}".strip(" /")),
-            _excel_text(comp.get("status") or "timbrado"),
+            "Complemento",
         ])
-    for width, column in zip([24, 40, 30, 18, 36, 18, 22, 22, 16, 16, 14, 14, 12, 14, 22, 20, 22, 22], "ABCDEFGHIJKLMNOPQR"):
+    for width, column in zip([14, 20, 40, 34, 16, 14, 12], "ABCDEFG"):
         ws.column_dimensions[column].width = width
-    for column in ("I", "J", "K", "L"):
+    for column in ("E",):
         for cell in ws[column][1:]:
             cell.number_format = '$#,##0.00'
-    for cell in ws["M"][1:]:
-        cell.number_format = "#,##0.0000"
-    for cell in ws["N"][1:]:
+    for cell in ws["F"][1:]:
         cell.number_format = "#,##0.0000"
 
     stream = BytesIO()
@@ -537,4 +501,3 @@ async def gas_lp_conciliacion_export_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-
