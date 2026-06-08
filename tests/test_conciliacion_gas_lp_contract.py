@@ -103,6 +103,64 @@ def test_conciliacion_credito_ppd_exposes_due_tracking():
         assert token in html
 
 
+def test_conciliacion_exposes_manual_bank_reconciliation_layer():
+    html = _conciliacion_frontend_source()
+    source = inspect.getsource(internal_users.gas_lp_conciliacion_bank_reconciliation_save)
+    normalize_source = inspect.getsource(internal_users._normalize_bank_reconciliation_status)
+    summary_source = inspect.getsource(internal_users.gas_lp_conciliacion_summary)
+
+    for token in (
+        "Estado banco",
+        "Conciliación bancaria manual",
+        "bank_reconciliation",
+        "bankStatusHtml(f)",
+        "openBankReconciliation",
+        "/bank-reconciliation",
+    ):
+        assert token in html
+
+    assert "payment_status" not in source
+    assert "saldo_insoluto" not in source
+    assert "gas_lp_invoice_bank_reconciliations" in source
+    assert "gas_lp_bank_reconciliation_audit_logs" in source
+    assert "BANK_RECONCILIATION_TOLERANCE" in normalize_source
+    assert "bank_reconciliation" in summary_source
+
+
+def test_manual_bank_reconciliation_status_suggestion_stays_separate_from_fiscal_status():
+    status, difference = internal_users._normalize_bank_reconciliation_status(
+        "conciliada",
+        Decimal("90.00"),
+        Decimal("100.00"),
+    )
+    assert status == "parcial"
+    assert difference == Decimal("-10.00")
+
+    status, difference = internal_users._normalize_bank_reconciliation_status(
+        "conciliada",
+        Decimal("101.50"),
+        Decimal("100.00"),
+    )
+    assert status == "diferencia"
+    assert difference == Decimal("1.50")
+
+    status, difference = internal_users._normalize_bank_reconciliation_status(
+        "conciliada",
+        Decimal("100.50"),
+        Decimal("100.00"),
+    )
+    assert status == "conciliada"
+    assert difference == Decimal("0.50")
+
+    status, difference = internal_users._normalize_bank_reconciliation_status(
+        "pendiente",
+        Decimal("0.00"),
+        Decimal("100.00"),
+    )
+    assert status == "pendiente"
+    assert difference == Decimal("0.00")
+
+
 def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
     assistant_html = _assistant_frontend_source()
     conciliacion_html = _conciliacion_frontend_source()
