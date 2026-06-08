@@ -77,15 +77,25 @@ function dateDMY(value){
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
 }
+function calcularEstatusLicencia(fechaVencimiento){
+  const key = String(fechaVencimiento || '').slice(0,10);
+  const vencimiento = dateOnly(key);
+  if(!vencimiento) return {status:'missing', label:'Sin vencimiento registrado', days_remaining:null, date_label:''};
+  const days = dayDiff(key, todayKey());
+  if(days < 0) return {status:'expired', label:'Licencia vencida', days_remaining:days, date_label:dateDMY(key)};
+  if(days <= 30) return {status:'soon', label:'Por vencer', days_remaining:days, date_label:dateDMY(key)};
+  return {status:'valid', label:'Licencia vigente', days_remaining:days, date_label:dateDMY(key)};
+}
 function facturaDateKey(f){ return String(f.fecha_factura_key || facturaDateValue(f) || '').slice(0,10); }
 function facturaTimeLabel(f){ return String(facturaDateValue(f) || '').slice(11,16) || String(f.created_at || '').slice(11,16) || '—'; }
 function switchPortalTab(tab){
-  ['dashboard','facturacion','facturas','clientes','carta-porte'].forEach(name => {
+  ['dashboard','descuentos','facturacion','facturas','clientes','carta-porte'].forEach(name => {
     document.getElementById(`tab-${name}`)?.classList.toggle('active', name === tab);
     document.getElementById(`panel-${name}`)?.classList.toggle('active', name === tab);
   });
   if(tab !== 'carta-porte') resetCartaPorteState({keepStatus:true});
   if(tab === 'dashboard') renderDashboard();
+  if(tab === 'descuentos') renderDescuentosList();
   if(tab === 'facturacion') renderComplementosPago();
   if(tab === 'facturas') applyFacturasFilters();
   if(tab === 'clientes') renderClientesList();
@@ -175,6 +185,81 @@ function selectedFacility(){
 function metadataOf(row){
   const md = row?.metadata;
   return md && typeof md === 'object' ? md : {};
+}
+function decimalInputValue(value){
+  const text = String(value ?? '').trim().replace(',', '.');
+  if(!text) return 0;
+  const n = Number(text);
+  return Number.isFinite(n) ? n : 0;
+}
+function clienteDiscountFields(c){
+  const md = metadataOf(c);
+  const d = c?.descuento_facturacion || md.descuento_facturacion || md.descuento_cliente || md.descuento || {};
+  if(!d || typeof d !== 'object') return {activo:false,tipo:'sin_descuento',valor:0,precio_especial_litro:0,vigencia_inicio:'',vigencia_fin:'',notas:'',actualizado_at:''};
+  const typeRaw = String(d.tipo || d.tipo_descuento || d.mode || 'sin_descuento').trim().toLowerCase();
+  const aliases = {descuento_por_litro:'por_litro',precio_litro:'precio_especial',precio_especial_litro:'precio_especial',porcentaje_descuento:'porcentaje'};
+  const tipo = aliases[typeRaw] || typeRaw || 'sin_descuento';
+  return {
+    activo: d.activo === true || d.habilitado === true || d.activo === 1 || d.activo === '1',
+    tipo,
+    valor: decimalInputValue(d.valor ?? d.descuento_valor ?? d.monto ?? d.porcentaje ?? 0),
+    precio_especial_litro: decimalInputValue(d.precio_especial_litro ?? d.precio_especial ?? d.precio_litro ?? 0),
+    vigencia_inicio: String(d.vigencia_inicio || d.desde || '').slice(0,10),
+    vigencia_fin: String(d.vigencia_fin || d.hasta || '').slice(0,10),
+    notas: d.notas || '',
+    actualizado_at: d.actualizado_at || c?.updated_at || ''
+  };
+}
+function clienteHasActiveDiscount(c){
+  const d = clienteDiscountFields(c);
+  if(!d.activo || d.tipo === 'sin_descuento') return false;
+  if(d.tipo === 'precio_especial') return d.precio_especial_litro > 0;
+  return d.valor > 0;
+}
+function descuentoTipoLabel(tipo){
+  return {
+    sin_descuento:'Sin descuento',
+    por_litro:'Descuento por litro',
+    total_pesos:'Descuento total en pesos',
+    precio_especial:'Precio especial',
+    porcentaje:'Porcentaje'
+  }[tipo] || 'Descuento';
+}
+function discountValueLabel(d){
+  if(!d || !d.activo) return 'Sin descuento';
+  if(d.tipo === 'precio_especial') return `Precio por litro con IVA: ${money(d.precio_especial_litro)}`;
+  if(d.tipo === 'por_litro') return `${money(d.valor)} por litro`;
+  if(d.tipo === 'total_pesos') return `${money(d.valor)} por factura`;
+  if(d.tipo === 'porcentaje') return `${Number(d.valor || 0).toLocaleString('es-MX',{maximumFractionDigits:2})}%`;
+  return 'Sin descuento';
+}
+function discountValidityLabel(d){
+  const parts = [];
+  if(d?.vigencia_inicio) parts.push(`Desde ${dateDMY(d.vigencia_inicio)}`);
+  if(d?.vigencia_fin) parts.push(`Hasta ${dateDMY(d.vigencia_fin)}`);
+  return parts.join(' · ') || 'Sin vigencia';
+}
+function applyClienteDiscount(c){
+  const d = clienteDiscountFields(c);
+  if(!clienteHasActiveDiscount(c)){
+    if(descuentoTipo) descuentoTipo.value = 'sin_descuento';
+    if(descuento) descuento.value = '0';
+    updateDiscountMode();
+    return;
+  }
+  if(d.tipo === 'precio_especial'){
+    setUnitPrice(d.precio_especial_litro, 'client_discount');
+    if(descuentoTipo) descuentoTipo.value = 'sin_descuento';
+    if(descuento) descuento.value = '0';
+    updateDiscountMode();
+    return;
+  }
+  if(descuentoTipo) descuentoTipo.value = d.tipo === 'total_pesos' ? 'total_pesos' : 'por_litro';
+  if(descuento){
+    const perLiter = d.tipo === 'porcentaje' ? effectiveUnitPrice() * (Number(d.valor || 0) / 100) : d.valor;
+    descuento.value = String(perLiter || 0);
+  }
+  updateDiscountMode();
 }
 function configuredUnitPrice(){
   return unitPriceConfigured() ? numericFrom(CURRENT_COMPANY?.precio_venta_litro) : 0;
@@ -298,6 +383,14 @@ function setClientesTabDefaults(){
   if(window.cliDiasCredito) cliDiasCredito.value = '0';
   if(window.cliLimiteCredito) cliLimiteCredito.value = '';
   if(window.cliCreditoNotas) cliCreditoNotas.value = '';
+  if(window.cliDescuentoActivo) cliDescuentoActivo.value = '0';
+  if(window.cliTipoDescuento) cliTipoDescuento.value = 'sin_descuento';
+  if(window.cliDescuentoValor) cliDescuentoValor.value = '';
+  if(window.cliPrecioEspecial) cliPrecioEspecial.value = '';
+  if(window.cliDescuentoInicio) cliDescuentoInicio.value = '';
+  if(window.cliDescuentoFin) cliDescuentoFin.value = '';
+  if(window.cliDescuentoNotas) cliDescuentoNotas.value = '';
+  if(typeof updateClientDiscountForm === 'function') updateClientDiscountForm();
   cliRegimen.value = '616';
   cliUso.value = 'S01';
   setClientesFeedback('');
@@ -411,6 +504,8 @@ function applyConfiguredPrice(opts={}){
   const facilityPrice = facilityUnitPrice(selectedFacility());
   const price = facilityPrice || configuredUnitPrice();
   setUnitPrice(price, facilityPrice ? 'facility' : (configured ? 'company' : 'none'));
+  const selectedClient = CLIENTES.find(x => String(x.id) === String(clienteSelect?.value || ''));
+  if(selectedClient) applyClienteDiscount(selectedClient);
   if(!facilityPrice && !configured && !opts.silent) setStatus('facturaMsg','Falta configurar el precio vigente por litro en el panel de administración.',false);
 }
 function resetInvoiceTransientState(opts={}){

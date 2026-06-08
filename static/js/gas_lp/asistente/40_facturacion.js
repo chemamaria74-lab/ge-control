@@ -56,7 +56,9 @@ function selectCliente(){
   if(c) {
     btnPublicoGeneral.classList.remove('active');
     updateClientePreview(c);
-    setStatus('facturaMsg',`Cliente seleccionado: ${c.nombre}`);
+    const discount = clienteDiscountFields(c);
+    const discountMsg = clienteHasActiveDiscount(c) ? ` · ${descuentoTipoLabel(discount.tipo)} aplicado` : '';
+    setStatus('facturaMsg',`Cliente seleccionado: ${c.nombre}${discountMsg}`);
   } else {
     btnPublicoGeneral.classList.add('active');
     setPublicoGeneralDefaults();
@@ -150,6 +152,11 @@ async function saveClienteFromTab(){
       cliDiasCredito?.focus();
       return;
     }
+    const discountValidation = validateClientDiscountPayload();
+    if(!discountValidation.ok){
+      setClientesFeedback(discountValidation.message, false);
+      return;
+    }
     const payload = {
       rfc:cliRfc.value,
       nombre:cliNombre.value,
@@ -162,7 +169,8 @@ async function saveClienteFromTab(){
       credito_habilitado: creditoHabilitado,
       dias_credito: diasCredito,
       limite_credito: cliLimiteCredito?.value ? Number(cliLimiteCredito.value) : null,
-      credito_notas: cliCreditoNotas?.value || ''
+      credito_notas: cliCreditoNotas?.value || '',
+      ...discountValidation.payload
     };
     const url = EDIT_CLIENT_ID ? `/api/internal-auth/gas-lp/clientes/${encodeURIComponent(EDIT_CLIENT_ID)}` : '/api/internal-auth/gas-lp/clientes';
     const wasEdit = !!EDIT_CLIENT_ID;
@@ -176,6 +184,7 @@ async function saveClienteFromTab(){
     EDIT_CLIENT_ID = null;
     await loadClientes();
     renderDashboard();
+    renderDescuentosList();
     clienteSelect.value = String(savedId);
     selectCliente();
     const saved = CLIENTES.find(c => String(c.id) === String(savedId)) || data.cliente || payload;

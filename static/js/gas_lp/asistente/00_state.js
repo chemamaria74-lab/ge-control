@@ -9,6 +9,7 @@ let CURRENT_ASSISTANT = null;
 let COMP_SEL = {};
 let COMP_CONFIRM_CONTEXT = null;
 let EDIT_CLIENT_ID = null;
+let DESCUENTOS_SEARCH = '';
 let EMAIL_FACTURA_ID = null;
 let DASH_CLIENT_KEY = '';
 let isStamping = false;

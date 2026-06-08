@@ -119,7 +119,9 @@ function cpDriverValue(chofer, key){
     rfc: ['rfc'],
     licencia: ['licencia','licencia_federal'],
     tipo_figura: ['tipo_figura','tipo_figura_sat'],
-    tipo_licencia: ['tipo_licencia','licencia_tipo']
+    tipo_licencia: ['tipo_licencia','licencia_tipo'],
+    fecha_expedicion_licencia: ['fecha_expedicion_licencia','expedicion_licencia','licencia_expedicion'],
+    fecha_vencimiento_licencia: ['fecha_vencimiento_licencia','vencimiento_licencia','licencia_vencimiento']
   }[key] || [key];
   return cpValue(...aliases.flatMap(k => [chofer?.[k], md?.[k]]));
 }
@@ -513,6 +515,23 @@ function acpTitle(kind,row){
   if(kind==='mercancias') return row.alias || row.descripcion || 'Mercancía';
   return row.nombre || 'Ruta';
 }
+function renderAssistantCpDriversSummary(){
+  const rows = assistantCpRows('choferes').filter(row => row.activo !== false);
+  const counts = {expired:0, soon:0, valid:0, missing:0};
+  rows.forEach(row => {
+    const status = calcularEstatusLicencia(cpDriverValue(row, 'fecha_vencimiento_licencia')).status;
+    counts[status] = (counts[status] || 0) + 1;
+  });
+  const alert = counts.expired || counts.soon
+    ? '<div class="acp-license-alert"><i class="fa-solid fa-triangle-exclamation"></i> Hay choferes con licencia vencida o próxima a vencer. Revísalos antes de timbrar Carta Porte.</div>'
+    : '';
+  return `${alert}<div class="acp-driver-summary">
+    <div><span>Choferes activos</span><b>${rows.length}</b></div>
+    <div><span>Vencidas</span><b>${counts.expired}</b></div>
+    <div><span>Por vencer</span><b>${counts.soon}</b></div>
+    <div><span>Vigentes</span><b>${counts.valid}</b></div>
+  </div>`;
+}
 function acpEndpoint(kind,id=''){ return `/api/internal-auth/gas-lp/catalogos/${kind}${id?`/${id}`:''}`; }
 function acpParams(params){
   const qs = new URLSearchParams();
@@ -573,11 +592,12 @@ function renderAssistantCpCatalogs(){
   const rows = assistantCpRows(assistantCpKind).filter(r => !assistantCpSearch || cpSearchText(assistantCpKind, r).includes(assistantCpSearch.toLowerCase()));
   host.innerHTML = `
     <style>
-      .acp-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px}.acp-tabs{display:flex;gap:8px;overflow:auto;border-bottom:1px solid var(--line);margin-bottom:12px}.acp-tabs button{border:0;background:transparent;border-bottom:3px solid transparent;padding:10px 12px;font-weight:900;color:var(--muted);cursor:pointer;white-space:nowrap}.acp-tabs button.active{color:var(--wine2);border-color:var(--wine);background:#fff7ed}.acp-tools{display:flex;gap:10px;align-items:end;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.acp-tools input{max-width:360px}.acp-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.acp-grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.acp-span{grid-column:1/-1}.acp-field label{display:block;font-weight:900;color:#6f6a64;margin-bottom:6px}.acp-field input,.acp-field select{width:100%}.acp-modal-layer{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:1000;display:flex;align-items:center;justify-content:center;padding:18px}.acp-modal{background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;width:min(900px,96vw);max-height:90vh;overflow:auto;box-shadow:0 32px 64px rgba(0,0,0,.22)}.acp-modal-title{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:950;margin-bottom:18px}.acp-modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}.acp-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.acp-card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px;display:grid;gap:7px}.acp-card h3{margin:0 0 2px}.acp-line{color:var(--muted);font-size:12px;line-height:1.4}.acp-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.acp-badge{display:inline-flex;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:900;width:max-content}.acp-required::after{content:" *";color:#991b1b}@media(max-width:760px){.acp-grid,.acp-grid.cols-3{grid-template-columns:1fr}.acp-modal{padding:18px}}
+      .acp-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px}.acp-tabs{display:flex;gap:8px;overflow:auto;border-bottom:1px solid var(--line);margin-bottom:12px}.acp-tabs button{border:0;background:transparent;border-bottom:3px solid transparent;padding:10px 12px;font-weight:900;color:var(--muted);cursor:pointer;white-space:nowrap}.acp-tabs button.active{color:var(--wine2);border-color:var(--wine);background:#fff7ed}.acp-tools{display:flex;gap:10px;align-items:end;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.acp-tools input{max-width:360px}.acp-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.acp-grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.acp-span{grid-column:1/-1}.acp-field label{display:block;font-weight:900;color:#6f6a64;margin-bottom:6px}.acp-field input,.acp-field select{width:100%}.acp-modal-layer{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:1000;display:flex;align-items:center;justify-content:center;padding:18px}.acp-modal{background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;width:min(900px,96vw);max-height:90vh;overflow:auto;box-shadow:0 32px 64px rgba(0,0,0,.22)}.acp-modal-title{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:950;margin-bottom:18px}.acp-modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}.acp-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.acp-card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px;display:grid;gap:7px}.acp-card h3{margin:0 0 2px}.acp-line{color:var(--muted);font-size:12px;line-height:1.4}.acp-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.acp-badge{display:inline-flex;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:900;width:max-content}.acp-badge.missing{border-color:#e5e7eb;background:#f8fafc;color:#64748b}.acp-badge.expired{border-color:#fecaca;background:#fef2f2;color:#991b1b}.acp-badge.soon{border-color:#fde68a;background:#fffbeb;color:#92400e}.acp-badge.valid{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.acp-driver-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 12px}.acp-driver-summary div{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff}.acp-driver-summary span{display:block;color:var(--muted);font-size:11px;font-weight:900;text-transform:uppercase}.acp-driver-summary b{font-size:20px}.acp-license-alert{border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:900}.acp-required::after{content:" *";color:#991b1b}@media(max-width:760px){.acp-grid,.acp-grid.cols-3,.acp-driver-summary{grid-template-columns:1fr}.acp-modal{padding:18px}}
     </style>
     <div class="acp-head"><div><h2>Configuración Carta Porte</h2><p class="muted" style="margin:4px 0 0">Vehículos, choferes, mercancías, rutas e instalaciones de Administración habilitadas para Carta Porte.</p></div><button class="btn ghost" type="button" onclick="loadCatalogos()"><i class="fa-solid fa-arrows-rotate"></i> Actualizar</button></div>
     <div class="acp-tabs">${['vehiculos','choferes','instalaciones','mercancias','rutas'].map(k=>`<button class="${k===assistantCpKind?'active':''}" type="button" onclick="assistantCpKind='${k}';assistantCpEdit={kind:'',id:null};assistantCpPanelOpen=false;assistantCpSearch='';renderAssistantCpCatalogs()">${acpCfg(k).label}</button>`).join('')}</div>
     <div class="acp-tools"><input placeholder="Buscar en ${esc(acpCfg(assistantCpKind).label.toLowerCase())}" value="${esc(assistantCpSearch)}" oninput="assistantCpSearch=this.value;renderAssistantCpCatalogs()">${assistantCpKind==='instalaciones' ? '' : `<button class="btn" type="button" onclick="openAssistantCpEditor('${assistantCpKind}')"><i class="fa-solid fa-plus"></i> Nuevo</button>`}</div>
+    ${assistantCpKind==='choferes' ? renderAssistantCpDriversSummary() : ''}
     ${renderAssistantCpForm()}
     ${rows.length ? `<div class="acp-cards">${rows.map(r=>renderAssistantCpCard(assistantCpKind,r)).join('')}</div>` : `<div class="empty">${acpCfg(assistantCpKind).empty}</div>`}
   `;
@@ -670,10 +690,16 @@ function renderAssistantCpForm(){
 function renderAssistantCpCard(kind,row){
   const md = cpMeta(row);
   const line = kind==='vehiculos' ? `${row.placas||'Placas —'} · ${row.config_vehicular||'Config. —'} · Activo` : kind==='choferes' ? `${row.rfc||'RFC —'} · ${row.licencia||'Lic. —'}` : kind==='instalaciones' ? `${row.tipo||'ambos'} · ${row.codigo_postal||'CP —'} · ${row.id_ubicacion_carta_porte||row.id_ubicacion||'ID pendiente'}` : kind==='mercancias' ? `${row.factor_kg_litro||0} kg/L · ${row.material_peligroso?'Peligroso':'No peligroso'}` : `${row.distancia_km||0} km · ${cpRouteTimeMinutes(row)||0} min`;
+  const licenseStatus = kind === 'choferes' ? calcularEstatusLicencia(cpDriverValue(row, 'fecha_vencimiento_licencia')) : null;
+  const licenseText = licenseStatus
+    ? (licenseStatus.status === 'missing'
+      ? 'Sin fecha de vencimiento registrada'
+      : `${licenseStatus.label} · ${licenseStatus.status === 'expired' ? 'Venció' : 'Vence'}: ${licenseStatus.date_label}`)
+    : '';
   const actions = kind==='instalaciones'
     ? `<button class="btn ghost" type="button" onclick="openAssistantCpEditor('${kind}',${Number(row.id)})"><i class="fa-solid fa-pen"></i> Configurar</button>`
     : `<button class="btn ghost" type="button" onclick="openAssistantCpEditor('${kind}',${Number(row.id)})"><i class="fa-solid fa-pen"></i> Editar</button><button class="btn ghost danger" type="button" onclick="deactivateAssistantCp('${kind}',${Number(row.id)})"><i class="fa-solid fa-ban"></i> Desactivar</button><button class="btn ghost danger" type="button" onclick="permanentDeleteAssistantCp('${kind}',${Number(row.id)})"><i class="fa-solid fa-trash"></i> Eliminar</button>`;
-  return `<div class="acp-card"><div><h3>${esc(acpTitle(kind,row))}</h3><span class="acp-badge">Activo</span></div><div class="acp-line">${esc(line)}</div><div class="acp-actions">${actions}</div></div>`;
+  return `<div class="acp-card"><div><h3>${esc(acpTitle(kind,row))}</h3><span class="acp-badge">Activo</span></div><div class="acp-line">${esc(line)}</div>${licenseStatus ? `<span class="acp-badge ${esc(licenseStatus.status)}">${esc(licenseStatus.label)}</span><div class="acp-line">${esc(licenseText)}</div>` : ''}<div class="acp-actions">${actions}</div></div>`;
 }
 function validateAssistantCp(kind){
   const missing = [];

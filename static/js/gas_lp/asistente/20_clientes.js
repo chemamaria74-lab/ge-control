@@ -78,6 +78,7 @@ async function loadClientes(){
   if(selectedId) clienteSelect.value = selectedId;
   selectCliente();
   renderClientesList();
+  renderDescuentosList();
 }
 function renderClientesList(){
   const q = String(document.getElementById('clienteSearch')?.value || '').trim().toLowerCase();
@@ -134,11 +135,90 @@ function editCliente(id){
   if(window.cliDiasCredito) cliDiasCredito.value = Number(credit.dias_credito || 0);
   if(window.cliLimiteCredito) cliLimiteCredito.value = credit.limite_credito ?? '';
   if(window.cliCreditoNotas) cliCreditoNotas.value = credit.credito_notas || '';
+  const discount = clienteDiscountFields(c);
+  if(window.cliDescuentoActivo) cliDescuentoActivo.value = clienteHasActiveDiscount(c) ? '1' : '0';
+  if(window.cliTipoDescuento) cliTipoDescuento.value = discount.tipo || 'sin_descuento';
+  if(window.cliDescuentoValor) cliDescuentoValor.value = discount.valor || '';
+  if(window.cliPrecioEspecial) cliPrecioEspecial.value = discount.precio_especial_litro || '';
+  if(window.cliDescuentoInicio) cliDescuentoInicio.value = discount.vigencia_inicio || '';
+  if(window.cliDescuentoFin) cliDescuentoFin.value = discount.vigencia_fin || '';
+  if(window.cliDescuentoNotas) cliDescuentoNotas.value = discount.notas || '';
+  updateClientDiscountForm();
   cliRegimen.value = c.regimen_fiscal || '616';
   cliUso.value = c.uso_cfdi || 'S01';
   clienteFormClientes.classList.remove('hide');
   cliNombre.focus();
   setClientesFeedback(`Editando cliente: ${c.nombre || c.rfc || id}`);
+}
+
+function updateClientDiscountForm(){
+  const active = cliDescuentoActivo?.value === '1';
+  const type = active ? (cliTipoDescuento?.value || 'sin_descuento') : 'sin_descuento';
+  const special = type === 'precio_especial';
+  if(cliDescuentoValorField) cliDescuentoValorField.classList.toggle('hide', !active || special || type === 'sin_descuento');
+  if(cliPrecioEspecialField) cliPrecioEspecialField.classList.toggle('hide', !active || !special);
+  if(cliDescuentoValorLabel){
+    cliDescuentoValorLabel.textContent = type === 'porcentaje' ? 'Porcentaje de descuento' : (type === 'total_pesos' ? 'Descuento total a restar' : 'Descuento por litro a restar');
+  }
+}
+
+function validateClientDiscountPayload(){
+  const active = cliDescuentoActivo?.value === '1';
+  const type = active ? (cliTipoDescuento?.value || 'sin_descuento') : 'sin_descuento';
+  const value = decimalInputValue(cliDescuentoValor?.value || 0);
+  const special = decimalInputValue(cliPrecioEspecial?.value || 0);
+  if(!active || type === 'sin_descuento') return {ok:true, payload:{descuento_activo:false,tipo_descuento_cliente:'sin_descuento',descuento_valor:0,precio_especial_litro:0}};
+  if(type === 'porcentaje' && (value <= 0 || value > 100)) return {ok:false, message:'El porcentaje de descuento debe ser mayor a 0 y no mayor a 100%.'};
+  if(['por_litro','total_pesos'].includes(type) && value <= 0) return {ok:false, message:'El descuento debe ser un número mayor a cero.'};
+  if(type === 'precio_especial' && special <= 0) return {ok:false, message:'El precio especial por litro debe ser mayor a cero.'};
+  return {
+    ok:true,
+    payload:{
+      descuento_activo:true,
+      tipo_descuento_cliente:type,
+      descuento_valor:value,
+      precio_especial_litro:special,
+      descuento_vigencia_inicio:cliDescuentoInicio?.value || '',
+      descuento_vigencia_fin:cliDescuentoFin?.value || '',
+      descuento_notas:cliDescuentoNotas?.value || ''
+    }
+  };
+}
+
+function renderDescuentosList(){
+  const list = document.getElementById('descuentosList');
+  if(!list) return;
+  const q = String(DESCUENTOS_SEARCH || document.getElementById('descuentosSearch')?.value || '').trim().toLowerCase();
+  const rows = CLIENTES.filter(clienteHasActiveDiscount).filter(c => !q || [c.nombre,c.rfc,descuentoTipoLabel(clienteDiscountFields(c).tipo),discountValueLabel(clienteDiscountFields(c))].some(v => String(v || '').toLowerCase().includes(q)));
+  const count = document.getElementById('descuentosCount');
+  if(count) count.textContent = `${rows.length} cliente${rows.length === 1 ? '' : 's'}`;
+  list.innerHTML = rows.length ? rows.map(c => {
+    const d = clienteDiscountFields(c);
+    return `<div class="client-row discount-row">
+      <i class="fa-solid fa-tags"></i>
+      <div>
+        <b>${esc(c.nombre || 'Cliente')}</b>
+        <span class="muted">RFC ${esc(c.rfc || '—')} · ${esc(descuentoTipoLabel(d.tipo))} · ${esc(discountValueLabel(d))}</span>
+        <span class="muted">${esc(discountValidityLabel(d))} · ${d.actualizado_at ? `Actualizado ${esc(dateDMY(d.actualizado_at))}` : 'Sin actualización registrada'}</span>
+      </div>
+      <div class="client-actions">
+        <span class="credit-badge ok">Activo</span>
+        <button class="btn ghost" type="button" onclick="editDiscountClient(${Number(c.id)})"><i class="fa-solid fa-pen-to-square"></i> Editar</button>
+        <button class="btn ghost" type="button" onclick="selectClienteFromList(${Number(c.id)})"><i class="fa-solid fa-file-invoice-dollar"></i> Facturar</button>
+      </div>
+    </div>`;
+  }).join('') : '<div class="empty">No hay clientes con descuento configurado.</div>';
+}
+
+function onDescuentosSearch(value){
+  DESCUENTOS_SEARCH = value || '';
+  renderDescuentosList();
+}
+
+function editDiscountClient(id){
+  switchPortalTab('clientes');
+  editCliente(id);
+  document.getElementById('cliDescuentoActivo')?.focus();
 }
 async function loadFacilities(){
   try{
