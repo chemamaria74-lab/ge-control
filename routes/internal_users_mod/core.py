@@ -929,10 +929,10 @@ def _gas_lp_admin_facilities(user: dict) -> list[dict]:
     facilities = get_facilities(owner_user_id, "gas_lp", perfil_id=perfil_id)
     if facilities or not owner_user_id or not perfil_id:
         return facilities
+    sb = get_supabase_admin()
     try:
-        return (
-            get_supabase_admin()
-            .table("user_facilities")
+        rows = (
+            sb.table("user_facilities")
             .select("*")
             .eq("user_id", str(owner_user_id))
             .eq("modulo_propietario", "gas_lp")
@@ -942,6 +942,8 @@ def _gas_lp_admin_facilities(user: dict) -> list[dict]:
             .data
             or []
         )
+        if rows:
+            return rows
     except Exception as exc:
         logger.warning(
             "gas_lp_admin_facilities fallback failed owner=%s perfil=%s err=%s",
@@ -949,6 +951,19 @@ def _gas_lp_admin_facilities(user: dict) -> list[dict]:
             perfil_id,
             exc,
         )
+    try:
+        return (
+            sb.table("user_facilities")
+            .select("*")
+            .eq("modulo_propietario", "gas_lp")
+            .eq("perfil_id", int(perfil_id))
+            .order("id")
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_admin_facilities profile fallback failed perfil=%s err=%s", perfil_id, exc)
         return []
 
 

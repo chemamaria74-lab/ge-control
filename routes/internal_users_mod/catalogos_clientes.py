@@ -61,6 +61,12 @@ def _internal_cp_scope_row(user: dict, values: dict) -> dict:
     }
 
 
+def _internal_cp_scope_query(query, user: dict):
+    query = query.eq("user_id", user.get("owner_user_id")).eq("perfil_id", user.get("perfil_id"))
+    tenant_id = user.get("tenant_id")
+    return query.eq("tenant_id", tenant_id) if tenant_id else query.is_("tenant_id", "null")
+
+
 def _internal_cp_facility_config_rows(user: dict) -> dict[int, dict]:
     try:
         rows = (
@@ -252,7 +258,10 @@ async def gas_lp_internal_catalogo_create(kind: str, request: Request, token: st
     table, _order = _internal_cp_table(kind)
     payload = _internal_cp_payload(kind, request.query_params)
     row = _internal_cp_scope_row(user, payload)
-    data = get_supabase_admin().table(table).insert(row).execute().data or []
+    try:
+        data = get_supabase_admin().table(table).insert(row).execute().data or []
+    except Exception as exc:
+        raise _safe_internal_error(f"gas_lp_catalogo_create_{kind}", exc)
     return JSONResponse({"ok": True, "id": (data[0] if data else row).get("id")})
 
 
@@ -274,7 +283,16 @@ async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Reque
         return JSONResponse({"ok": True, "id": (data[0] if data else payload).get("id")})
     table, _order = _internal_cp_table(kind)
     payload = _internal_cp_payload(kind, request.query_params)
-    get_supabase_admin().table(table).update({**payload, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id).eq("user_id", user.get("owner_user_id")).eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id")).execute()
+    try:
+        _internal_cp_scope_query(
+            get_supabase_admin()
+            .table(table)
+            .update({**payload, "updated_at": datetime.now(timezone.utc).isoformat()})
+            .eq("id", row_id),
+            user,
+        ).execute()
+    except Exception as exc:
+        raise _safe_internal_error(f"gas_lp_catalogo_update_{kind}", exc)
     return JSONResponse({"ok": True})
 
 
@@ -289,10 +307,16 @@ async def gas_lp_internal_catalogo_delete(kind: str, row_id: int, token: str, pe
         return JSONResponse({"ok": True})
     table, _order = _internal_cp_table(kind)
     q = get_supabase_admin().table(table)
-    if permanent:
-        q.delete().eq("id", row_id).eq("user_id", user.get("owner_user_id")).eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id")).execute()
-    else:
-        q.update({"activo": False, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id).eq("user_id", user.get("owner_user_id")).eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id")).execute()
+    try:
+        if permanent:
+            _internal_cp_scope_query(q.delete().eq("id", row_id), user).execute()
+        else:
+            _internal_cp_scope_query(
+                q.update({"activo": False, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id),
+                user,
+            ).execute()
+    except Exception as exc:
+        raise _safe_internal_error(f"gas_lp_catalogo_delete_{kind}", exc)
     return JSONResponse({"ok": True})
 
 
