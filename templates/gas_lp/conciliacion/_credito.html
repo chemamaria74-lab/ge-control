@@ -1,7 +1,7 @@
     <section class="section" data-section="credito">
       <div class="panel">
         <div class="section-head">
-          <div><h2>Crédito PPD</h2><div class="muted small">Clientes agrupados por RFC con facturas PPD y saldo pendiente.</div></div>
+          <div><h2>Crédito PPD</h2><div class="muted small">Clientes agrupados por RFC con facturas PPD, vencimientos y saldo pendiente.</div></div>
           <button class="btn ghost" onclick="loadAll()">Actualizar</button>
         </div>
         <div class="kpis" style="margin-top:0">
@@ -12,8 +12,8 @@
         </div>
         <div class="credito-layout">
           <div>
-            <div class="section-head"><div><h2>Clientes con crédito</h2></div><span class="pill neutral" id="credClientesCount">0 clientes</span></div>
-            <div class="table-wrap credito-scroll"><table><thead><tr><th>Cliente</th><th>RFC</th><th>Pendientes</th><th>Crédito</th><th>Pagado</th><th>Saldo</th><th></th></tr></thead><tbody id="credRows"><tr><td colspan="7">Cargando...</td></tr></tbody></table></div>
+            <div class="section-head"><div><h2>Clientes con crédito PPD</h2></div><span class="pill neutral" id="credClientesCount">0 clientes</span></div>
+            <div class="table-wrap credito-scroll"><table class="credito-table"><thead><tr><th>Cliente</th><th>RFC</th><th>Política</th><th>Pendientes</th><th>Vencidas</th><th>Saldo vencido</th><th>Peor atraso</th><th>Crédito</th><th>Complementado</th><th>Saldo</th></tr></thead><tbody id="credRows"><tr><td colspan="10">Cargando...</td></tr></tbody></table></div>
           </div>
           <div>
             <div class="section-head"><div><h2>Facturas del cliente</h2></div><span class="pill neutral" id="credDetalleCount">Sin selección</span></div>
@@ -22,4 +22,3 @@
         </div>
       </div>
     </section>
-
