@@ -741,3 +741,23 @@ def test_conciliacion_publico_general_list_uses_backend_date_key():
     assert "facturaDateKey(f)!==day" in html
     assert "publicNameKey" in html
     assert "isPublicoGeneral(f)&&facturaDateKey(f)===key" in html
+
+
+def test_assistant_carta_porte_catalog_save_accepts_decimal_comma_and_confirms_visibility():
+    html = _assistant_frontend_source()
+    payload = internal_users._internal_cp_payload(
+        "mercancias",
+        {
+            "alias": "Gas LP",
+            "bienes_transp": "15111510",
+            "factor_kg_litro": "0,524",
+            "material_peligroso": "1",
+            "clave_material_peligroso": "1075",
+            "embalaje": "Z01",
+        },
+    )
+
+    assert payload["factor_kg_litro"] == 0.524
+    assert "function cpDecimalValue" in html
+    assert "assistantCpSavedRow(kind, savedId, p)" in html
+    assert "inputmode=\"decimal\" placeholder=\"0.524\"" in html
