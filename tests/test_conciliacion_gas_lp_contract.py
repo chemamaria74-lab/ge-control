@@ -759,5 +759,34 @@ def test_assistant_carta_porte_catalog_save_accepts_decimal_comma_and_confirms_v
 
     assert payload["factor_kg_litro"] == 0.524
     assert "function cpDecimalValue" in html
-    assert "assistantCpSavedRow(kind, savedId, p)" in html
+    assert "function assistantCpUpsertLocal" in html
+    assert "assistantCpRecordFromResponse(kind, saved, p, id)" in html
+    assert "El servidor respondió, pero el registro aún no aparece" not in html
     assert "inputmode=\"decimal\" placeholder=\"0.524\"" in html
+
+
+def test_assistant_carta_porte_driver_form_is_simplified_with_license_dates():
+    html = _assistant_frontend_source()
+    payload = internal_users._internal_cp_payload(
+        "choferes",
+        {
+            "nombre_completo": "Operador Prueba",
+            "licencia_federal": "LIC123",
+            "tipo_licencia_federal": "E",
+            "tipo_figura_sat": "01",
+            "fecha_expedicion_licencia": "2026-01-01",
+            "fecha_vencimiento_licencia": "2028-01-01",
+        },
+    )
+
+    assert payload["nombre"] == "Operador Prueba"
+    assert payload["licencia"] == "LIC123"
+    assert payload["metadata"]["tipo_licencia"] == "E"
+    assert payload["metadata"]["tipo_figura"] == "01"
+    assert payload["metadata"]["fecha_expedicion_licencia"] == "2026-01-01"
+    assert payload["metadata"]["fecha_vencimiento_licencia"] == "2028-01-01"
+    assert "Parte transporte" not in html
+    assert "acpc_parte" not in html
+    assert "acpc_curp" not in html
+    assert "Expedición licencia" in html
+    assert "Vencimiento licencia" in html
