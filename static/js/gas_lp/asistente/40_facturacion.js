@@ -50,6 +50,7 @@ function updateOperacionUI(){
   }
 }
 function selectCliente(){
+  markInvoiceInteraction();
   const c = CLIENTES.find(x => String(x.id) === String(clienteSelect.value));
   resetInvoiceTransientState({keepCliente:true, keepStatus:true});
   if(c) {

@@ -15,6 +15,12 @@ function setStatus(id,text,ok=true){
   const el=document.getElementById(id);
   if(el){ el.textContent=text; el.className='status '+(ok?'ok':'err'); }
 }
+function markInvoiceInteraction(){
+  invoiceUserInteractedAt = Date.now();
+}
+function canShowStartupInvoiceError(loadStartedAt){
+  return !invoiceUserInteractedAt || invoiceUserInteractedAt < Number(loadStartedAt || 0);
+}
 function detailText(value, fallback='No fue posible cargar la información.'){
   if(Array.isArray(value)) return value.map(d => d?.msg || d?.type || String(d)).join(', ');
   if(value && typeof value === 'object') return value.message || value.detail || JSON.stringify(value);
@@ -419,8 +425,10 @@ function resetInvoiceTransientState(opts={}){
   stampFormSignature();
 }
 function onFacilityChange(){
+  markInvoiceInteraction();
   const currentOperation = tipoOperacion.value;
   resetInvoiceTransientState({keepCliente: currentOperation !== 'venta'});
+  setStatus('facturaMsg','');
   applyConfiguredPrice({silent:true});
   updateUnitPricePlaceholder();
   filterRutasForTransfer();

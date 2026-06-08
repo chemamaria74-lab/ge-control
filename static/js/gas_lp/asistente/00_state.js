@@ -13,6 +13,7 @@ let EMAIL_FACTURA_ID = null;
 let DASH_CLIENT_KEY = '';
 let isStamping = false;
 let suppressFacturaStatus = false;
+let invoiceUserInteractedAt = 0;
 let CP_PREVIEW_READY = false;
 let CP_PREVIEW_VALIDO = false;
 let CP_FINAL_PAYLOAD = null;

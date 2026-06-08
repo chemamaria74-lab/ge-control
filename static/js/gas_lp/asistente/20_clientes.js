@@ -1,5 +1,6 @@
 async function load(){
   if(!token){ location.href='/gas-lp/asistente'; return; }
+  const loadStartedAt = Date.now();
   try{
     const data = await api('/api/internal-auth/gas-lp/summary');
     const a = data.assistant || {};
@@ -40,7 +41,7 @@ async function load(){
       .map((result, index) => ({name: tasks[index][0], result}))
       .filter(item => item.result.status === 'rejected');
     const critical = failed.find(item => ['clientes','instalaciones'].includes(item.name));
-    if(critical) setStatus('facturaMsg', critical.result.reason?.message || 'No fue posible cargar datos críticos de facturación.', false);
+    if(critical && canShowStartupInvoiceError(loadStartedAt)) setStatus('facturaMsg', critical.result.reason?.message || 'No fue posible cargar datos críticos de facturación.', false);
     updateOperacionUI();
   }catch(e){
     if(e.status === 401){
@@ -56,6 +57,7 @@ function openClientesTab(){
   document.getElementById('clienteSearch')?.focus();
 }
 function usePublicoGeneral(){
+  markInvoiceInteraction();
   if(tipoOperacion.value !== 'venta') return;
   clienteSelect.value = '';
   btnPublicoGeneral.classList.add('active');
