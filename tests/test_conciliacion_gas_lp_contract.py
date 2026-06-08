@@ -184,9 +184,9 @@ def test_gas_lp_cliente_credit_policy_is_mirrored_in_metadata():
         payload,
     )
 
-    assert "credito_habilitado" not in row
-    assert "dias_credito" not in row
-    assert "email_facturacion" not in row
+    assert row["credito_habilitado"] is True
+    assert row["dias_credito"] == 60
+    assert row["email_facturacion"] == "factura@cliente.mx"
     assert row["metadata"]["email_facturacion"] == "factura@cliente.mx"
     assert row["metadata"]["invoice_email_additional"] == ["contabilidad@cliente.mx"]
     assert row["metadata"]["credito_ppd"]["dias_credito"] == 60
@@ -226,11 +226,35 @@ def test_gas_lp_cliente_credit_policy_is_preserved_on_update_payload():
     )
 
     assert "created_at" not in row
+    assert row["credito_habilitado"] is True
+    assert row["dias_credito"] == 15
+    assert row["email_facturacion"] == "auregaslux@grupoemurcia.com.mx"
     assert row["metadata"]["credito_ppd"]["credito_habilitado"] is True
     assert row["metadata"]["credito_ppd"]["dias_credito"] == 15
     assert row["metadata"]["email_facturacion"] == "auregaslux@grupoemurcia.com.mx"
     assert row["metadata"]["invoice_email_additional"] == ["seminariodezacatecas@gmail.com"]
     assert row["metadata"]["updated_by"] == "ANABEL"
+
+
+def test_gas_lp_cliente_credit_normalization_prefers_metadata_policy_when_columns_are_stale():
+    normalized = internal_users._normalize_gas_lp_cliente_credit(
+        {
+            "credito_habilitado": False,
+            "dias_credito": 0,
+            "metadata": {
+                "credito_ppd": {
+                    "credito_habilitado": True,
+                    "dias_credito": 15,
+                    "limite_credito": None,
+                    "credito_notas": "Autorizado",
+                }
+            },
+        }
+    )
+
+    assert normalized["credito_habilitado"] is True
+    assert normalized["dias_credito"] == 15
+    assert normalized["credito_notas"] == "Autorizado"
 
 
 def test_gas_lp_cliente_scope_uses_is_null_for_legacy_tenant():
