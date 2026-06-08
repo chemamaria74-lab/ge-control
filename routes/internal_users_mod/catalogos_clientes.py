@@ -50,22 +50,21 @@ def _internal_cp_table(kind: str) -> tuple[str, str]:
 
 
 def _internal_cp_scope_row(user: dict, values: dict) -> dict:
-    profile = _gas_lp_profile(user)
-    company_rfc = _clean_rfc(profile.get("rfc") or "")
+    scope = _internal_cp_company_scope(user)
     metadata = values.get("metadata") if isinstance(values.get("metadata"), dict) else {}
     return {
         **values,
         "user_id": user.get("owner_user_id"),
-        "tenant_id": user.get("tenant_id"),
-        "perfil_id": user.get("perfil_id"),
+        "tenant_id": scope.get("tenant_id"),
+        "perfil_id": scope.get("perfil_id"),
         "source": "supabase",
         "modulo_propietario": "gas_lp",
         "metadata": {
             **metadata,
-            "empresa_rfc": company_rfc,
-            "empresa_perfil_id": user.get("perfil_id"),
-            "created_by_internal_user_id": user.get("id"),
-            "created_by_owner_user_id": user.get("owner_user_id"),
+            "empresa_rfc": scope.get("empresa_rfc"),
+            "empresa_perfil_id": scope.get("perfil_id"),
+            "created_by_internal_user_id": scope.get("internal_user_id"),
+            "created_by_owner_user_id": scope.get("owner_user_id"),
         },
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -123,14 +122,21 @@ def _internal_cp_legacy_scope_query(query, user: dict):
 
 
 def _internal_cp_response_record(kind: str, row: dict, user: dict, row_id: int | None = None) -> dict:
+    scope = _internal_cp_company_scope(user)
     record = dict(row or {})
     if row_id and not record.get("id"):
         record["id"] = row_id
     record.setdefault("user_id", user.get("owner_user_id"))
-    record.setdefault("tenant_id", user.get("tenant_id"))
-    record.setdefault("perfil_id", user.get("perfil_id"))
+    record.setdefault("tenant_id", scope.get("tenant_id"))
+    record.setdefault("perfil_id", scope.get("perfil_id"))
     record.setdefault("modulo_propietario", "gas_lp")
     record.setdefault("activo", True)
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    record["metadata"] = {
+        **metadata,
+        "empresa_rfc": metadata.get("empresa_rfc") or scope.get("empresa_rfc"),
+        "empresa_perfil_id": metadata.get("empresa_perfil_id") or scope.get("perfil_id"),
+    }
     return record
 
 
