@@ -178,6 +178,10 @@ def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
         "discountPromedioLitro",
         "Promedio descuento por litro",
         "Desc. por litro",
+        "Descuento autorizado del cliente aplicado automáticamente",
+        "Descuento modificado manualmente para esta factura",
+        "updateClientCreditForm",
+        "Selecciona el tipo de descuento autorizado",
         "descuento_facturacion",
         "sin_descuento",
         "por_litro",
@@ -195,6 +199,11 @@ def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
     assert "Promedio por factura" not in assistant_html
     assert "<th>Promedio</th>" not in assistant_html
     assert "discountPromedioFactura" not in assistant_html
+    assert "Notas de crédito" not in assistant_html
+    assert "Vigencia inicio" not in assistant_html
+    assert "Vigencia fin" not in assistant_html
+    assert "Notas de descuento" not in assistant_html
+    assert 'value="porcentaje"' not in assistant_html
 
     for token in (
         "pubDescuentoTipo",
@@ -232,6 +241,27 @@ def test_gas_lp_cliente_discount_policy_is_stored_in_metadata_without_migration(
     assert normalized["descuento_facturacion"]["activo"] is True
     assert normalized["descuento_facturacion"]["tipo"] == "por_litro"
 
+    no_discount = internal_users._gas_lp_cliente_row(
+        {"owner_user_id": "user-1", "tenant_id": None, "perfil_id": 1, "id": "assistant-1", "display_name": "Asistente"},
+        internal_users.GasLpInternalClientePayload(rfc="HCE010101ABC", nombre="HOTEL CENTRAL", cp="20000", regimen_fiscal="601", uso_cfdi="G03"),
+    )
+    assert no_discount["metadata"]["descuento_facturacion"]["activo"] is False
+    assert no_discount["metadata"]["descuento_facturacion"]["tipo"] == "sin_descuento"
+
+    total_discount = internal_users._gas_lp_cliente_row(
+        {"owner_user_id": "user-1", "tenant_id": None, "perfil_id": 1, "id": "assistant-1", "display_name": "Asistente"},
+        internal_users.GasLpInternalClientePayload(rfc="HCE010101ABC", nombre="HOTEL CENTRAL", cp="20000", regimen_fiscal="601", uso_cfdi="G03", descuento_activo=True, tipo_descuento_cliente="total_pesos", descuento_valor=100),
+    )
+    assert total_discount["metadata"]["descuento_facturacion"]["tipo"] == "total_pesos"
+    assert total_discount["metadata"]["descuento_facturacion"]["valor"] == 100
+
+    special_price = internal_users._gas_lp_cliente_row(
+        {"owner_user_id": "user-1", "tenant_id": None, "perfil_id": 1, "id": "assistant-1", "display_name": "Asistente"},
+        internal_users.GasLpInternalClientePayload(rfc="HCE010101ABC", nombre="HOTEL CENTRAL", cp="20000", regimen_fiscal="601", uso_cfdi="G03", descuento_activo=True, tipo_descuento_cliente="precio_especial", precio_especial_litro=10.5),
+    )
+    assert special_price["metadata"]["descuento_facturacion"]["tipo"] == "precio_especial"
+    assert special_price["metadata"]["descuento_facturacion"]["precio_especial_litro"] == 10.5
+
 
 def test_asistente_credito_ppd_dashboard_has_config_shortcut_and_bottom_detail():
     assistant_html = _assistant_frontend_source()
@@ -261,6 +291,74 @@ def test_asistente_carta_porte_instalaciones_fallback_to_admin_facilities():
         "assistantCpRows('instalaciones').filter",
     ):
         assert token in assistant_html
+
+
+def test_assistant_carta_porte_route_form_is_operational_and_derives_facility_data():
+    html = _assistant_frontend_source()
+    payload = internal_users._internal_cp_payload(
+        "rutas",
+        {
+            "nombre": "Ags a GDL Principal",
+            "origen_facility_id": "10",
+            "destino_facility_id": "20",
+            "distancia_km": "250,5",
+            "tiempo_estimado_minutos": "180",
+            "cp_origen": "20000",
+            "nombre_origen": "Planta Aguascalientes",
+            "localidad_origen": "Aguascalientes",
+            "municipio_origen": "Aguascalientes",
+            "estado_origen": "Aguascalientes",
+            "id_ubicacion_origen": "OR0001",
+            "cp_destino": "44100",
+            "nombre_destino": "Estacion Guadalajara",
+            "localidad_destino": "Guadalajara",
+            "municipio_destino": "Guadalajara",
+            "estado_destino": "Jalisco",
+            "id_ubicacion_destino": "DE0001",
+        },
+    )
+
+    assert payload["nombre"] == "Ags a GDL Principal"
+    assert payload["origen_facility_id"] == 10
+    assert payload["destino_facility_id"] == 20
+    assert payload["distancia_km"] == 250.5
+    assert payload["tiempo_estimado_minutos"] == 180
+    assert payload["metadata"]["cp_origen"] == "20000"
+    assert payload["metadata"]["localidad_origen"] == "Aguascalientes"
+    assert payload["metadata"]["id_ubicacion_destino"] == "DE0001"
+    assert payload["metadata"]["vehiculo_default_id"] is None
+    assert payload["metadata"]["chofer_default_id"] is None
+    assert payload["metadata"]["mercancia_default_id"] is None
+
+    for removed in (
+        "CP origen",
+        "CP destino",
+        "Localidad origen",
+        "Localidad destino",
+        "Vehículo default opcional",
+        "Chofer default opcional",
+        "Mercancía default fija",
+        "acpr_cpo",
+        "acpr_cpd",
+        "acpr_veh",
+        "acpr_chof",
+        "acpr_merc",
+        "Configura primero la mercancía Gas LP válida para poder guardar rutas",
+    ):
+        assert removed not in html
+
+    for required in (
+        "cpRouteFacilityPayload('origen', acpr_origen.value)",
+        "cpRouteFacilityPayload('destino', acpr_destino.value)",
+        "cpFacilityById",
+        "Distancia recorrida km",
+        "Duración estimada minutos",
+        "origen y destino deben ser distintos",
+        "cpName('instalaciones', row.origen_facility_id)",
+        "cpVehiculo) cpVehiculo.value = '';",
+        "cpChofer) cpChofer.value = '';",
+    ):
+        assert required in html
 
 
 def test_gas_lp_cliente_credit_policy_is_mirrored_in_metadata():
