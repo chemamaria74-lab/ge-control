@@ -87,6 +87,22 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
         assert token in html
 
 
+def test_conciliacion_credito_ppd_exposes_due_tracking():
+    html = _conciliacion_frontend_source()
+
+    for token in (
+        "Política",
+        "Vencidas",
+        "Saldo vencido",
+        "Peor atraso",
+        "function creditStatusForFactura",
+        "CLIENTES=d.clientes||[]",
+        "creditBadgeHtml(info)",
+        "dias_vencidos",
+    ):
+        assert token in html
+
+
 def test_gas_lp_discount_type_controls_exist_without_backend_contract_change():
     assistant_html = _assistant_frontend_source()
     conciliacion_html = _conciliacion_frontend_source()
@@ -133,6 +149,20 @@ def test_asistente_credito_ppd_dashboard_has_config_shortcut_and_bottom_detail()
         assert token in assistant_html
 
     assert "grid-template-columns:1.35fr .85fr" not in assistant_html
+
+
+def test_asistente_carta_porte_instalaciones_fallback_to_admin_facilities():
+    assistant_html = _assistant_frontend_source()
+
+    for token in (
+        "function assistantCpInstallationRows()",
+        "(FACILITIES || []).forEach",
+        "(CATALOGOS.instalaciones || []).forEach",
+        "function assistantCpRows(kind)",
+        "kind === 'instalaciones' ? assistantCpInstallationRows()",
+        "assistantCpRows('instalaciones').filter",
+    ):
+        assert token in assistant_html
 
 
 def test_gas_lp_cliente_credit_policy_is_mirrored_in_metadata():
