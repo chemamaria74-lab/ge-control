@@ -10,6 +10,11 @@ function filterRutasForTransfer(){
   const origen = Number(facilitySelect.value || 0);
   const destino = Number(destinoFacilitySelect.value || 0);
   document.getElementById('facilityField')?.classList.toggle('field-attention', !origen);
+  const isTransfer = tipoOperacion?.value === 'traspaso';
+  if(origen && !isTransfer) {
+    setStatus('facturaMsg','Instalación origen seleccionada.');
+    return;
+  }
   if(origen) setStatus('facturaMsg','Instalación origen seleccionada.');
   const rutas = (CATALOGOS.rutas || []).filter(r => {
     const ro = Number(r.origen_facility_id || 0);

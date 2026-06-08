@@ -163,8 +163,8 @@ async function saveClienteFromTab(){
       credito_notas: cliCreditoNotas?.value || ''
     };
     const url = EDIT_CLIENT_ID ? `/api/internal-auth/gas-lp/clientes/${encodeURIComponent(EDIT_CLIENT_ID)}` : '/api/internal-auth/gas-lp/clientes';
+    const wasEdit = !!EDIT_CLIENT_ID;
     const data = await api(url,{method: EDIT_CLIENT_ID ? 'PUT' : 'POST',body:JSON.stringify(payload)});
-    setStatus('clientesMsg', EDIT_CLIENT_ID ? 'Cliente actualizado' : 'Cliente guardado');
     clienteFormClientes.classList.add('hide');
     const savedId = data.cliente?.id || EDIT_CLIENT_ID || '';
     EDIT_CLIENT_ID = null;
@@ -172,6 +172,11 @@ async function saveClienteFromTab(){
     renderDashboard();
     clienteSelect.value = String(savedId);
     selectCliente();
+    const saved = CLIENTES.find(c => String(c.id) === String(savedId)) || data.cliente || payload;
+    const savedName = saved?.nombre || payload.nombre || 'cliente';
+    const savedRfc = saved?.rfc || payload.rfc || '';
+    setStatus('clientesMsg',`${wasEdit ? 'Cliente actualizado' : 'Cliente guardado'}: ${savedName}${savedRfc ? ` · ${savedRfc}` : ''}.`);
+    setStatus('facturaMsg',`Cliente listo para facturar: ${savedName}.`);
   }catch(e){ setStatus('clientesMsg',e.message,false); }
 }
 async function deleteCliente(id){
@@ -590,6 +595,13 @@ async function crearFactura(){
   }catch(e){
     if(isTraspaso) transferDebug('timbrar error', {status:e.status, message:e.message, response:e.response, responseText:e.responseText});
     const backendDetail = e.response?.detail || e.response?.message;
+    if(e.status === 409 && backendDetail?.code === 'gas_lp_invoice_duplicate'){
+      const uuid = backendDetail.uuid_sat || '';
+      const id = backendDetail.factura_id || '';
+      setStatus('facturaMsg',`${backendDetail.message || 'Esta factura ya existe.'}${uuid ? ` UUID: ${uuid}` : ''}${id ? ` Factura ID: ${id}` : ''}`, false);
+      try{ await loadFacturas('', {surfaceError:false}); }catch(_refreshError){}
+      return;
+    }
     setStatus('facturaMsg', isTraspaso ? transferErrorText(backendDetail, e.message) : detailText(backendDetail, e.message), false);
   }
   finally{

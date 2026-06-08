@@ -3,7 +3,7 @@ function mergeFacturas(rows){
   (rows || []).forEach(f => byId.set(String(f.id), f));
   FACTURAS = [...byId.values()].sort((a,b)=>String(facturaDateValue(b) || b.created_at || '').localeCompare(String(facturaDateValue(a) || a.created_at || '')));
 }
-async function loadFacturas(month=''){
+async function loadFacturas(month='', opts={}){
   const selectedMonth = String(month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)).slice(0,7);
   if(document.getElementById('facturaMes') && !facturaMes.value) facturaMes.value = selectedMonth;
   const qs = '?mes=' + encodeURIComponent(selectedMonth);
@@ -25,8 +25,10 @@ async function loadFacturas(month=''){
     console.warn('[GasLP asistente facturas] error', {mes:selectedMonth, message:e.message, status:e.status});
     if(todayFacturasRows) todayFacturasRows.innerHTML = '<tr><td colspan="5">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
     if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="10">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
-    setStatus('facturaMsg', e.message || 'No fue posible cargar facturas.', false);
+    if(opts.surfaceError) setStatus('facturaMsg', e.message || 'No fue posible cargar facturas.', false);
+    return false;
   }
+  return true;
 }
 async function loadComplementos(month=''){
   const selectedMonth = String(month || document.getElementById('compMes')?.value || todayKey().slice(0,7)).slice(0,7);
