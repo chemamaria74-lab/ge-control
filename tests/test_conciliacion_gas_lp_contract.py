@@ -176,6 +176,35 @@ def test_gas_lp_cliente_credit_policy_is_mirrored_in_metadata():
     assert fallback["metadata"]["invoice_email_additional"] == ["contabilidad@cliente.mx"]
 
 
+def test_gas_lp_cliente_scope_uses_is_null_for_legacy_tenant():
+    class Query:
+        def __init__(self):
+            self.calls = []
+
+        def eq(self, key, value):
+            self.calls.append(("eq", key, value))
+            return self
+
+        def is_(self, key, value):
+            self.calls.append(("is", key, value))
+            return self
+
+    q = Query()
+    internal_users._gas_lp_clientes_scope_query(
+        q,
+        {
+            "owner_user_id": "00000000-0000-0000-0000-000000000001",
+            "tenant_id": None,
+            "perfil_id": 1,
+        },
+    )
+
+    assert ("eq", "user_id", "00000000-0000-0000-0000-000000000001") in q.calls
+    assert ("eq", "perfil_id", 1) in q.calls
+    assert ("is", "tenant_id", "null") in q.calls
+    assert not any(call[0] == "eq" and call[1] == "tenant_id" for call in q.calls)
+
+
 def test_conciliacion_publico_general_payload_keeps_operational_defaults():
     payload = internal_users.GasLpConciliacionPublicoGeneralPayload(
         litros=80,
@@ -507,6 +536,16 @@ def test_assistant_invoice_endpoint_returns_controlled_error_on_unexpected_failu
         assert exc.detail == "No se pudo completar la operación. Intenta de nuevo o contacta a soporte."
     else:
         raise AssertionError("expected controlled HTTPException")
+
+
+def test_assistant_invoice_timbrado_does_not_import_transporte_runtime_helpers():
+    create_source = inspect.getsource(internal_users._gas_lp_internal_crear_factura_impl)
+    cliente_source = inspect.getsource(internal_users._gas_lp_cliente_row)
+
+    assert "from routes.transporte import" not in create_source
+    assert "from routes.transporte import" not in cliente_source
+    assert "_gas_lp_normalizar_receptor_cfdi" in create_source
+    assert "_gas_lp_validar_datos_cfdi_receptor" in create_source
 
 
 def test_assistant_today_invoices_use_backend_date_key_and_current_month():
