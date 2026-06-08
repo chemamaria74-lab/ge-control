@@ -90,6 +90,7 @@ class FakeDB:
         return value
 
     def table(self, name):
+        self.rows.setdefault(name, [])
         return FakeQuery(self, name)
 
 
@@ -98,6 +99,68 @@ def response_json(response):
 
 
 class InternalUsersMultiempresaTest(unittest.TestCase):
+    def test_gas_lp_carta_porte_facilities_fall_back_to_admin_facilities(self):
+        db = FakeDB()
+        db.rows["user_facilities"] = [
+            {
+                "id": 4,
+                "user_id": "admin",
+                "tenant_id": "tenant-a",
+                "perfil_id": 7,
+                "modulo_propietario": "gas_lp",
+                "nombre": "Planta Jerez",
+                "clave_instalacion": "PDD-1011",
+                "codigo_postal": "99300",
+            },
+            {
+                "id": 10,
+                "user_id": "admin",
+                "tenant_id": "tenant-a",
+                "perfil_id": 7,
+                "modulo_propietario": "gas_lp",
+                "nombre": "Estación San Isidro",
+                "clave_instalacion": "EXP-23570",
+                "codigo_postal": "99323",
+            },
+        ]
+        db.rows["gas_lp_facility_carta_porte_config"] = [
+            {
+                "id": 1,
+                "user_id": "admin",
+                "tenant_id": "tenant-a",
+                "perfil_id": 7,
+                "facility_id": 4,
+                "activo": True,
+                "tipo_ubicacion": "origen",
+                "id_ubicacion_carta_porte": "OR000004",
+            },
+        ]
+        user = {"id": 22, "owner_user_id": "admin", "tenant_id": "tenant-a", "perfil_id": 7}
+        cp_globals = internal_users._internal_cp_facilities.__globals__
+        admin_facilities_globals = cp_globals["_gas_lp_admin_facilities"].__globals__
+        patches = [
+            patch.dict(cp_globals, {
+                "get_supabase_admin": lambda: db,
+                "_gas_lp_profile": lambda user: {"nombre": "GAS LUX", "rfc": "GLU760309457"},
+                "_gas_lp_settings": lambda *args, **kwargs: {},
+            }),
+            patch.dict(admin_facilities_globals, {
+                "get_supabase_admin": lambda: db,
+                "get_facilities": lambda *args, **kwargs: [],
+            }),
+        ]
+        for p in patches:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in patches])
+
+        rows = internal_users._internal_cp_facilities(user)
+
+        self.assertEqual([r["facility_id"] for r in rows], [4, 10])
+        self.assertEqual(rows[0]["alias"], "Planta Jerez")
+        self.assertEqual(rows[0]["tipo"], "origen")
+        self.assertEqual(rows[0]["id_ubicacion_carta_porte"], "OR000004")
+        self.assertEqual(rows[1]["alias"], "Estación San Isidro")
+
     def test_gas_lp_internal_users_are_profile_scoped(self):
         db = FakeDB()
         patches = [
