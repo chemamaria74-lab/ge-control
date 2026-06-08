@@ -29,7 +29,8 @@ function filterRutasForTransfer(){
 }
 function cpMeta(row){ return row?.metadata && typeof row.metadata === 'object' ? row.metadata : {}; }
 function cpName(list, id, fallback='—'){
-  const r = (CATALOGOS[list] || []).find(x => String(x.id) === String(id));
+  const rows = list === 'instalaciones' && typeof assistantCpRows === 'function' ? assistantCpRows('instalaciones') : (CATALOGOS[list] || []);
+  const r = rows.find(x => String(x.id) === String(id) || String(x.facility_id || '') === String(id));
   if(!r) return fallback;
   return r.alias || r.nombre || r.placas || r.descripcion || fallback;
 }
@@ -465,6 +466,39 @@ function acpCfg(kind){
     rutas:{label:'Rutas',empty:'Agrega tu primera ruta'},
   }[kind];
 }
+function normalizeAssistantCpInstallation(row){
+  const baseId = row?.facility_id || row?.id || '';
+  const name = row?.alias || row?.nombre || row?.nombre_interno || '';
+  return {
+    ...row,
+    id: row?.id || baseId,
+    facility_id: baseId,
+    alias: name,
+    nombre: row?.nombre || name,
+    codigo_postal: row?.codigo_postal || row?.cp || '',
+    tipo: row?.tipo || row?.tipo_ubicacion || 'ambos',
+    id_ubicacion_carta_porte: row?.id_ubicacion_carta_porte || row?.id_ubicacion || row?.clave_instalacion || '',
+    calle: row?.calle || row?.domicilio_operativo || row?.domicilio || row?.direccion || ''
+  };
+}
+function assistantCpInstallationRows(){
+  const merged = new Map();
+  (FACILITIES || []).forEach(f => {
+    const normalized = normalizeAssistantCpInstallation(f);
+    const key = String(normalized.facility_id || normalized.id || '');
+    if(key) merged.set(key, normalized);
+  });
+  (CATALOGOS.instalaciones || []).forEach(row => {
+    const normalized = normalizeAssistantCpInstallation(row);
+    const key = String(normalized.facility_id || normalized.id || '');
+    if(!key) return;
+    merged.set(key, {...(merged.get(key) || {}), ...normalized});
+  });
+  return Array.from(merged.values());
+}
+function assistantCpRows(kind){
+  return kind === 'instalaciones' ? assistantCpInstallationRows() : (CATALOGOS[kind] || []);
+}
 function acpTitle(kind,row){
   const md = cpMeta(row);
   if(kind==='vehiculos') return md.alias || row.placas || 'Vehículo';
@@ -497,7 +531,7 @@ function acpSelect(id,label,html,value='',hint=''){
 function renderAssistantCpCatalogs(){
   const host = document.getElementById('assistantCpCatalogApp');
   if(!host) return;
-  const rows = (CATALOGOS[assistantCpKind] || []).filter(r => !assistantCpSearch || cpSearchText(assistantCpKind, r).includes(assistantCpSearch.toLowerCase()));
+  const rows = assistantCpRows(assistantCpKind).filter(r => !assistantCpSearch || cpSearchText(assistantCpKind, r).includes(assistantCpSearch.toLowerCase()));
   host.innerHTML = `
     <style>
       .acp-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px}.acp-tabs{display:flex;gap:8px;overflow:auto;border-bottom:1px solid var(--line);margin-bottom:12px}.acp-tabs button{border:0;background:transparent;border-bottom:3px solid transparent;padding:10px 12px;font-weight:900;color:var(--muted);cursor:pointer;white-space:nowrap}.acp-tabs button.active{color:var(--wine2);border-color:var(--wine);background:#fff7ed}.acp-tools{display:flex;gap:10px;align-items:end;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.acp-tools input{max-width:360px}.acp-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.acp-grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.acp-span{grid-column:1/-1}.acp-field label{display:block;font-weight:900;color:#6f6a64;margin-bottom:6px}.acp-field input,.acp-field select{width:100%}.acp-modal-layer{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:1000;display:flex;align-items:center;justify-content:center;padding:18px}.acp-modal{background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;width:min(900px,96vw);max-height:90vh;overflow:auto;box-shadow:0 32px 64px rgba(0,0,0,.22)}.acp-modal-title{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:950;margin-bottom:18px}.acp-modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}.acp-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.acp-card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px;display:grid;gap:7px}.acp-card h3{margin:0 0 2px}.acp-line{color:var(--muted);font-size:12px;line-height:1.4}.acp-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.acp-badge{display:inline-flex;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:900;width:max-content}.acp-required::after{content:" *";color:#991b1b}@media(max-width:760px){.acp-grid,.acp-grid.cols-3{grid-template-columns:1fr}.acp-modal{padding:18px}}
@@ -523,7 +557,7 @@ function closeAssistantCpEditor(){
 }
 function renderAssistantCpForm(){
   const kind = assistantCpKind;
-  const row = assistantCpEdit.kind === kind ? (CATALOGOS[kind] || []).find(x => String(x.id) === String(assistantCpEdit.id)) : null;
+  const row = assistantCpEdit.kind === kind ? assistantCpRows(kind).find(x => String(x.id) === String(assistantCpEdit.id)) : null;
   if(!assistantCpPanelOpen && !row) return '';
   const md = cpMeta(row);
   let body = '';
@@ -581,8 +615,8 @@ function renderAssistantCpForm(){
     const gasLabel = gas ? `${gas.alias || gas.descripcion || 'Gas LP'} · ${gas.bienes_transp} · ${gas.clave_material_peligroso} · ${gas.clave_unidad}` : 'Configura mercancía Gas LP en Mercancías';
     body = [
       acpField('acpr_nombre','<span class="acp-required">Nombre de la ruta</span>',row?.nombre||'','text','placeholder="Ags → GDL Principal"'),
-      acpSelect('acpr_origen','Instalación origen',cpOption((CATALOGOS.instalaciones||[]).filter(u=>['origen','ambos',''].includes(u.tipo||'')),u=>u.alias||u.nombre||u.id),row?.origen_facility_id||''),
-      acpSelect('acpr_destino','Instalación destino',cpOption((CATALOGOS.instalaciones||[]).filter(u=>['destino','ambos',''].includes(u.tipo||'')),u=>u.alias||u.nombre||u.id),row?.destino_facility_id||''),
+      acpSelect('acpr_origen','Instalación origen',cpOption(assistantCpRows('instalaciones').filter(u=>['origen','ambos',''].includes(u.tipo||'')),u=>u.alias||u.nombre||u.id),row?.origen_facility_id||''),
+      acpSelect('acpr_destino','Instalación destino',cpOption(assistantCpRows('instalaciones').filter(u=>['destino','ambos',''].includes(u.tipo||'')),u=>u.alias||u.nombre||u.id),row?.destino_facility_id||''),
       acpField('acpr_cpo','CP origen',row?.cp_origen||'','text','placeholder="20000" maxlength="5"'),
       acpField('acpr_no','Localidad origen',md.nombre_origen||row?.nombre_origen||'','text','placeholder="Aguascalientes, Ags"'),
       acpField('acpr_cpd','CP destino',row?.cp_destino||'','text','placeholder="44100" maxlength="5"'),
