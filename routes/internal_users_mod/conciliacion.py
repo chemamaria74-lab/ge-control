@@ -104,6 +104,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
         info = _factura_payment_info(row)
         row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
         row["payment_info"] = _payment_info_json(info)
+        row["fiscal_status"] = _gas_lp_factura_fiscal_status_info(row)
         bank_row = bank_by_factura.get(_safe_int_id(row.get("id"))) or {}
         row["bank_reconciliation"] = {
             "id": bank_row.get("id"),

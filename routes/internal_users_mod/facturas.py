@@ -35,6 +35,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
         try:
             row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
             row["payment_info"] = _payment_info_json(_factura_payment_info(row))
+            row["fiscal_status"] = _gas_lp_factura_fiscal_status_info(row)
             row["realizado_por"] = _gas_lp_factura_realizado_por(row)
             comps = comp_by_factura.get(_safe_int_id(row.get("id")), [])
             row["complementos_pago"] = comps
@@ -44,6 +45,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
             logger.warning("gas_lp_factura_row_normalize_failed id=%s perfil=%s err=%s", row.get("id"), user.get("perfil_id"), exc)
             row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
             row["payment_info"] = _payment_info_json({"metodo_pago": "", "forma_pago": "", "total": 0, "saldo_insoluto": 0, "payment_status": ""})
+            row["fiscal_status"] = _gas_lp_factura_fiscal_status_info(row)
             row["realizado_por"] = _gas_lp_factura_realizado_por(row)
             row["complementos_pago"] = []
     return JSONResponse({"ok": True, "facturas": rows})
@@ -125,6 +127,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         "Monto",
         "Litros",
         "Método",
+        "Estado fiscal",
     ]
     ws.append(headers)
     for cell in ws[1]:
@@ -141,6 +144,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
             float(_money(info.get("total"))),
             float(Decimal(str(info.get("litros") or row.get("volumen_litros") or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
             info.get("metodo_pago") or _gas_lp_factura_metodo_pago(row),
+            _gas_lp_factura_fiscal_status_info(row).get("label") or "",
         ])
     for comp in complementos:
         comp_id = _safe_int_id(comp.get("id"))
@@ -165,8 +169,9 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
             float(comp.get("monto") or 0),
             0,
             "Complemento",
+            "Vigente",
         ])
-    for width, column in zip([14, 20, 40, 34, 16, 14, 12], "ABCDEFG"):
+    for width, column in zip([14, 20, 40, 34, 16, 14, 12, 16], "ABCDEFGH"):
         ws.column_dimensions[column].width = width
     for column in ("E",):
         for cell in ws[column][1:]:
@@ -413,4 +418,3 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
     if not all_ok:
         response["message"] = first_error or "No se pudo enviar el correo."
     return JSONResponse(response, status_code=200 if all_ok else 400)
-

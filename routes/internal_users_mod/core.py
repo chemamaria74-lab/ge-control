@@ -1901,6 +1901,51 @@ def _payment_info_json(info: dict) -> dict:
     }
 
 
+def _gas_lp_factura_fiscal_status_info(factura: dict) -> dict:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    values = [
+        factura.get("estado_fiscal"),
+        factura.get("cfdi_status"),
+        factura.get("sat_estado"),
+        factura.get("cancelacion_status"),
+        factura.get("status"),
+        md.get("estado_fiscal"),
+        md.get("estado_sat"),
+        md.get("sat_status"),
+        md.get("cfdi_status"),
+        md.get("cancelacion_status"),
+        md.get("cancelacion_estado_fiscal_label"),
+        md.get("status"),
+    ]
+    text = " ".join(str(value or "").strip().lower() for value in values if value is not None)
+    confirmed_cancel = any(
+        bool(value)
+        for value in (
+            factura.get("cancelada"),
+            factura.get("fecha_cancelacion"),
+            factura.get("acuse_cancelacion"),
+            md.get("cancelacion_acuse"),
+            md.get("acuse_cancelacion"),
+            md.get("cancelacion_confirmada_at"),
+        )
+    )
+    if (
+        confirmed_cancel
+        or "cancelada_fiscalmente" in text
+        or "cancelada fiscalmente" in text
+        or "cancelado" in text
+        or "cancelada" in text
+    ):
+        return {"code": "cancelada", "label": "Cancelada", "class": "cancelled"}
+    if "cancelacion_error" in text or "error cancel" in text or "error cancelación" in text:
+        return {"code": "cancelacion_error", "label": "Error cancelacion", "class": "warn"}
+    if "cancelacion_solicitada" in text or "cancelacion solicitada" in text or "cancelación solicitada" in text:
+        return {"code": "cancelacion_solicitada", "label": "Cancelacion solicitada", "class": "warn"}
+    if factura.get("uuid_sat") or factura.get("xml_content"):
+        return {"code": "vigente", "label": "Vigente", "class": "paid"}
+    return {"code": "pendiente", "label": "Pendiente", "class": "pending"}
+
+
 def _gas_lp_factura_date_key(factura: dict) -> str:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
     for value in (md.get("fecha_emision"), md.get("fecha_cfdi"), factura.get("fecha_timbrado"), factura.get("created_at")):
