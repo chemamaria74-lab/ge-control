@@ -25,7 +25,7 @@ async function loadFacturas(month='', opts={}){
   }catch(e){
     console.warn('[GasLP asistente facturas] error', {mes:selectedMonth, message:e.message, status:e.status});
     if(todayFacturasRows) todayFacturasRows.innerHTML = '<tr><td colspan="5">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
-    if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="10">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
+    if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
     if(opts.surfaceError) setStatus('facturaMsg', e.message || 'No fue posible cargar facturas.', false);
     return false;
   }
@@ -63,20 +63,23 @@ function isPPD(f){
   const info = f.payment_info || {};
   return String(info.metodo_pago || md.metodo_pago || '').toUpperCase() === 'PPD';
 }
-function isCanceled(f){ return String(f.status || '').toLowerCase().includes('cancel'); }
+function isCanceled(f){ return isCanceledForDisplay(f); }
 function isCanceledForDisplay(f){
   const md = f.metadata || {};
-  const markers = [f.status, md.status, md.estado_fiscal, md.cancelacion_estado_fiscal_label, md.cancelacion_status];
+  const fiscal = f.fiscal_status || {};
+  if(String(fiscal.code || '').toLowerCase() === 'cancelada') return true;
+  const markers = [f.status, f.estado_fiscal, f.cfdi_status, f.sat_estado, f.cancelacion_status, md.status, md.estado_fiscal, md.estado_sat, md.sat_status, md.cfdi_status, md.cancelacion_estado_fiscal_label, md.cancelacion_status];
   return markers.some(value => {
     const text = String(value || '').trim().toLowerCase();
-    return text.startsWith('cancel') || text.includes('cancelada') || text.includes('cancelado');
+    return text.includes('cancelada') || text.includes('cancelado');
   });
 }
 function facturaStatusHtml(f){
   if(isCanceledForDisplay(f)) return '<span class="invoice-status-badge cancelled">Cancelada</span>';
-  const payment = facturaPaymentState(f);
-  if(payment.statusLabel) return `<span class="payment-status-badge ${payment.className}" title="${esc(payment.title)}">${esc(payment.statusLabel)}</span>${payment.note ? `<span class="payment-note">${esc(payment.note)}</span>` : ''}`;
-  return esc(f.status || '—');
+  const fiscal = f.fiscal_status || {};
+  const label = fiscal.label || (f.uuid_sat || f.xml_content ? 'Vigente' : 'Pendiente');
+  const className = fiscal.class || (label === 'Pendiente' ? 'pending' : 'paid');
+  return `<span class="invoice-status-badge ${esc(className)}">${esc(label)}</span>`;
 }
 function facturaComplementoId(f){
   const md = f.metadata || {};
@@ -327,8 +330,8 @@ function renderFacturasTable(rows, tbody, emptyText){
     const opHtml = v.kind === 'complemento' ? `<span class="op-tag payment">Complemento</span><span class="cell-sub">${esc(v.origen)}</span>` : (v.isTraspaso ? '<span class="op-tag transfer">Traspaso</span>' : '<span class="op-tag">Venta</span>');
     const clientHtml = `<span class="cell-main" title="${esc(v.destino)}">${esc(v.destino)}</span>${v.destinoSub ? `<span class="cell-sub">${esc(v.destinoSub)}</span>` : ''}`;
     const routeClass = v.isTraspaso ? 'cell-main transfer-route' : 'cell-main';
-    return `<tr><td class="date-cell">${v.fecha}</td><td class="op-cell">${opHtml}</td><td class="facility-cell"><span class="${routeClass}" title="${esc(v.origen)}">${esc(v.origen)}</span></td><td class="client-cell">${clientHtml}</td><td class="liters-cell">${esc(v.litros)}</td><td class="money-cell">${money(v.total)}</td><td class="pay-cell">${esc(v.pago)}</td><td class="assistant-cell">${v.assistantBadge}</td><td class="uuid-cell"><code class="uuid-text" title="${esc(v.uuid)}">${esc(v.uuid)}</code></td><td class="docs-cell">${v.docs}</td></tr>`;
-  }).join('') : `<tr><td colspan="10">${esc(emptyText)}</td></tr>`;
+    return `<tr><td class="date-cell">${v.fecha}</td><td class="op-cell">${opHtml}</td><td class="facility-cell"><span class="${routeClass}" title="${esc(v.origen)}">${esc(v.origen)}</span></td><td class="client-cell">${clientHtml}</td><td class="liters-cell">${esc(v.litros)}</td><td class="money-cell">${money(v.total)}</td><td class="pay-cell">${esc(v.pago)}</td><td class="assistant-cell">${v.assistantBadge}</td><td class="status-cell">${v.statusHtml}</td><td class="uuid-cell"><code class="uuid-text" title="${esc(v.uuid)}">${esc(v.uuid)}</code></td><td class="docs-cell">${v.docs}</td></tr>`;
+  }).join('') : `<tr><td colspan="11">${esc(emptyText)}</td></tr>`;
 }
 function fiscalDocumentRows(){
   const facturas = FACTURAS.map(f => ({...f, __kind:'factura'}));
