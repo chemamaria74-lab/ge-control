@@ -438,7 +438,7 @@ async def gas_lp_internal_hyp_mode(token: str):
 async def gas_lp_internal_facilities(token: str):
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
-    rows = get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+    rows = _gas_lp_admin_facilities(user)
     return JSONResponse({"ok": True, "facilities": rows})
 
 
@@ -492,5 +492,4 @@ async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp", include_
         "instalaciones": instalaciones,
         "mercancias": mercancias,
     })
-
 

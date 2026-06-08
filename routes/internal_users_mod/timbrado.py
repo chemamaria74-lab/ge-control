@@ -78,7 +78,7 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
         folio_factura = _gas_lp_next_invoice_folio(sb, user, serie_factura)
     facilities_by_id = {
         int(f["id"]): f
-        for f in get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+        for f in _gas_lp_admin_facilities(user)
         if f.get("id") is not None
     }
     origen = facilities_by_id.get(int(payload.facility_id or 0), {})
@@ -694,5 +694,4 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     if is_transfer and recipients and (not email_results or any(not item.get("ok") for item in email_results)):
         warnings.append("CFDI timbrado correctamente, pero no se pudo enviar el correo.")
     return JSONResponse({"ok": True, "factura": factura_row, "totals": totals, "email": email_result.as_metadata() if email_result else None, "warnings": warnings})
-
 

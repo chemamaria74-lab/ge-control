@@ -25,7 +25,7 @@ async def gas_lp_conciliacion_perfiles(token: str):
 async def gas_lp_conciliacion_facilities(token: str, perfil_id: int | None = None):
     ctx = _gas_lp_conciliacion_context(token, perfil_id=perfil_id)
     user = ctx["user"]
-    rows = get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+    rows = _gas_lp_admin_facilities(user)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     precio_venta_litro, precio_venta_litro_configurado = _configured_setting(
         settings,
@@ -116,7 +116,7 @@ async def gas_lp_conciliacion_facturar_publico_general(payload: GasLpConciliacio
     folio_factura = _gas_lp_next_invoice_folio(sb, user, serie_factura)
     facilities_by_id = {
         int(f["id"]): f
-        for f in get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+        for f in _gas_lp_admin_facilities(user)
         if f.get("id") is not None
     }
     origen = facilities_by_id.get(int(payload.facility_id or 0), {})
@@ -537,5 +537,4 @@ async def gas_lp_conciliacion_export_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-
 

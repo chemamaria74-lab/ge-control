@@ -45,10 +45,17 @@ def _internal_cp_facility_config_rows(user: dict) -> dict[int, dict]:
 
 
 def _internal_cp_facilities(user: dict) -> list[dict]:
-    facilities = get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+    perfil_id = user.get("perfil_id")
+    facilities = _gas_lp_admin_facilities(user)
     configs = _internal_cp_facility_config_rows(user)
-    profile = _gas_lp_profile(user)
-    settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
+    try:
+        profile = _gas_lp_profile(user)
+    except Exception:
+        profile = {}
+    try:
+        settings = _gas_lp_settings(user.get("owner_user_id"), int(perfil_id))
+    except Exception:
+        settings = {}
     company_rfc = profile.get("rfc") or ""
     company_name = str(settings.get("DescripcionInstalacion") or profile.get("nombre") or "").strip()
     items = []
@@ -217,7 +224,7 @@ async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Reque
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
     if kind == "instalaciones":
-        facility = next((f for f in get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id")) if int(f.get("id") or 0) == int(row_id)), None)
+        facility = next((f for f in _gas_lp_admin_facilities(user) if int(f.get("id") or 0) == int(row_id)), None)
         if not facility:
             raise HTTPException(404, "Instalación no encontrada para esta empresa.")
         payload = _internal_cp_facility_config_payload(user, row_id, request.query_params)
@@ -383,5 +390,3 @@ async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str):
     if not data:
         raise HTTPException(404, "Cliente no encontrado para esta empresa.")
     return JSONResponse({"ok": True, "message": "Cliente eliminado"})
-
-

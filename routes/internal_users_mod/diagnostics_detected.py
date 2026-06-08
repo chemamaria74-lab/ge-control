@@ -23,7 +23,7 @@ async def gas_lp_hyp_l_cne_diagnostics(payload: GasLpHypLCNEDiagnosticPayload, t
     user = ctx["user"]
     facilities_by_id = {
         int(f["id"]): f
-        for f in get_facilities(user.get("owner_user_id"), "gas_lp", perfil_id=user.get("perfil_id"))
+        for f in _gas_lp_admin_facilities(user)
         if f.get("id") is not None
     }
     requested_ids = [int(fid) for fid in (payload.facility_ids or []) if fid]
