@@ -23,6 +23,7 @@ async function load(){
     setPublicoGeneralDefaults();
     setClientesTabDefaults();
     dashboardMes.value = todayKey().slice(0,7);
+    if(window.descuentosMes) descuentosMes.value = todayKey().slice(0,7);
     facturaMes.value = todayKey().slice(0,7);
     facturaExportDia.value = todayKey();
     compMes.value = todayKey().slice(0,7);
@@ -185,29 +186,144 @@ function validateClientDiscountPayload(){
   };
 }
 
-function renderDescuentosList(){
-  const list = document.getElementById('descuentosList');
-  if(!list) return;
+function facturaDiscountInfo(f){
+  const md = f?.metadata || {};
+  const tipo = String(md.tipo_descuento_confirmado || md.tipo_descuento || '').trim() || 'sin_descuento';
+  const configured = clienteDiscountFields(clienteByFactura(f));
+  const captured = decimalInputValue(md.descuento_capturado ?? 0);
+  const confirmed = decimalInputValue(md.descuento_confirmado ?? md.descuento_preview ?? 0);
+  const backend = decimalInputValue(md.descuento ?? 0);
+  const liters = decimalInputValue(f?.volumen_litros || md.litros_confirmados || 0);
+  const perLiter = decimalInputValue(md.descuento_por_litro || 0);
+  const estimatedGross = perLiter > 0 && liters > 0 ? perLiter * liters : 0;
+  const amount = Math.max(confirmed, estimatedGross, backend, 0);
+  const hasInvoiceDiscount = amount > 0 || captured > 0 || tipo !== 'sin_descuento';
+  return {
+    tipo: hasInvoiceDiscount ? tipo : (clienteHasActiveDiscount(clienteByFactura(f)) ? configured.tipo : 'sin_descuento'),
+    amount,
+    captured,
+    per_liter: liters > 0 ? amount / liters : 0,
+    source: amount > 0 ? 'factura' : (clienteHasActiveDiscount(clienteByFactura(f)) ? 'cliente' : 'none')
+  };
+}
+
+function discountInvoiceRows(){
+  const selectedMonth = document.getElementById('descuentosMes')?.value || '';
+  return FACTURAS.filter(f => {
+    const md = f.metadata || {};
+    if(isCanceled(f) || md.tipo_operacion === 'traspaso' || md.is_transfer) return false;
+    if(selectedMonth && !facturaDateKey(f).startsWith(selectedMonth)) return false;
+    return facturaDiscountInfo(f).amount > 0;
+  });
+}
+
+function discountTypeSummary(types){
+  const counts = {};
+  types.forEach(type => { counts[type] = (counts[type] || 0) + 1; });
+  const best = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
+  return best ? descuentoTipoLabel(best[0]) : 'Descuento';
+}
+
+function discountDashboardRows(){
   const q = String(DESCUENTOS_SEARCH || document.getElementById('descuentosSearch')?.value || '').trim().toLowerCase();
-  const rows = CLIENTES.filter(clienteHasActiveDiscount).filter(c => !q || [c.nombre,c.rfc,descuentoTipoLabel(clienteDiscountFields(c).tipo),discountValueLabel(clienteDiscountFields(c))].some(v => String(v || '').toLowerCase().includes(q)));
-  const count = document.getElementById('descuentosCount');
-  if(count) count.textContent = `${rows.length} cliente${rows.length === 1 ? '' : 's'}`;
-  list.innerHTML = rows.length ? rows.map(c => {
-    const d = clienteDiscountFields(c);
-    return `<div class="client-row discount-row">
-      <i class="fa-solid fa-tags"></i>
-      <div>
-        <b>${esc(c.nombre || 'Cliente')}</b>
-        <span class="muted">RFC ${esc(c.rfc || '—')} · ${esc(descuentoTipoLabel(d.tipo))} · ${esc(discountValueLabel(d))}</span>
-        <span class="muted">${esc(discountValidityLabel(d))} · ${d.actualizado_at ? `Actualizado ${esc(dateDMY(d.actualizado_at))}` : 'Sin actualización registrada'}</span>
-      </div>
-      <div class="client-actions">
-        <span class="credit-badge ok">Activo</span>
-        <button class="btn ghost" type="button" onclick="editDiscountClient(${Number(c.id)})"><i class="fa-solid fa-pen-to-square"></i> Editar</button>
-        <button class="btn ghost" type="button" onclick="selectClienteFromList(${Number(c.id)})"><i class="fa-solid fa-file-invoice-dollar"></i> Facturar</button>
-      </div>
-    </div>`;
-  }).join('') : '<div class="empty">No hay clientes con descuento configurado.</div>';
+  const byClient = new Map();
+  discountInvoiceRows().forEach(f => {
+    const md = f.metadata || {};
+    const cliente = clienteByFactura(f);
+    const key = String(f.rfc_receptor || cliente?.rfc || md.cliente_nombre || 'SIN RFC').toUpperCase();
+    const item = byClient.get(key) || {key, cliente_id: cliente?.id || md.cliente_id || '', nombre: md.cliente_nombre || cliente?.nombre || f.rfc_receptor || 'Cliente', rfc: f.rfc_receptor || cliente?.rfc || '—', facturas:[], count:0, litros:0, venta:0, descuento:0, types:[]};
+    const info = facturaDiscountInfo(f);
+    item.count += 1;
+    item.litros += decimalInputValue(f.volumen_litros || md.litros_confirmados || 0);
+    item.venta += facturaAmount(f);
+    item.descuento += info.amount;
+    item.types.push(info.tipo);
+    item.facturas.push(f);
+    byClient.set(key, item);
+  });
+  let rows = [...byClient.values()].sort((a,b)=>b.descuento-a.descuento);
+  if(q) rows = rows.filter(c => [c.nombre,c.rfc,discountTypeSummary(c.types)].some(v => String(v || '').toLowerCase().includes(q)));
+  return rows;
+}
+
+function renderDescuentosList(){
+  if(!document.getElementById('descuentosRows')) return;
+  const rows = discountDashboardRows();
+  const invoices = rows.flatMap(row => row.facturas);
+  const totalVenta = rows.reduce((sum,row)=>sum+row.venta,0);
+  const totalDescuento = rows.reduce((sum,row)=>sum+row.descuento,0);
+  const totalLitros = rows.reduce((sum,row)=>sum+row.litros,0);
+  discountTotalVentas.textContent = money(totalVenta);
+  discountTotalMonto.textContent = money(totalDescuento);
+  discountPromedioFactura.textContent = money(invoices.length ? totalDescuento / invoices.length : 0);
+  discountFacturasCount.textContent = String(invoices.length);
+  descuentosCount.textContent = `${rows.length} cliente${rows.length === 1 ? '' : 's'}`;
+  if(DISCOUNT_CLIENT_KEY && !rows.some(row => row.key === DISCOUNT_CLIENT_KEY)) DISCOUNT_CLIENT_KEY = '';
+  descuentosRows.innerHTML = rows.length ? rows.map(c => {
+    const avg = c.count ? c.descuento / c.count : 0;
+    const perLiter = c.litros ? c.descuento / c.litros : 0;
+    return `<tr class="dashboard-client-row ${DISCOUNT_CLIENT_KEY === c.key ? 'active' : ''}" data-client-key="${esc(c.key)}" onclick="selectDiscountClient(this.dataset.clientKey)">
+      <td><b>${esc(c.nombre)}</b></td>
+      <td>${esc(c.rfc)}</td>
+      <td><span class="credit-badge ok">${esc(discountTypeSummary(c.types))}</span></td>
+      <td>${c.count}</td>
+      <td>${fmt(c.litros)}</td>
+      <td>${money(c.venta)}</td>
+      <td><b class="credit-high">${money(c.descuento)}</b></td>
+      <td>${money(avg)}</td>
+      <td>${money(perLiter)}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="9">Sin facturas con descuento en el periodo.</td></tr>';
+  renderDiscountClientDetail(rows);
+}
+
+function renderDiscountClientDetail(rows=discountDashboardRows()){
+  const host = document.getElementById('descuentosDetalle');
+  if(!host) return;
+  const selected = rows.find(row => row.key === DISCOUNT_CLIENT_KEY);
+  if(!selected){
+    descuentosDetallePeriodo.textContent = 'Sin selección';
+    host.innerHTML = '<div class="dashboard-detail-note">Selecciona un cliente para ver las facturas donde se aplicó descuento.</div>';
+    return;
+  }
+  const detailRows = selected.facturas.slice().sort((a,b)=>String(facturaDateValue(b) || '').localeCompare(String(facturaDateValue(a) || '')));
+  descuentosDetallePeriodo.textContent = `${detailRows.length} factura${detailRows.length === 1 ? '' : 's'}`;
+  host.innerHTML = detailRows.length ? `<table class="dashboard-detail-table"><thead><tr><th>Fecha</th><th>UUID</th><th>Tipo</th><th>Litros</th><th>Total</th><th>Descuento</th><th>Desc/L</th></tr></thead><tbody>${detailRows.map(f => {
+    const info = facturaDiscountInfo(f);
+    return `<tr>
+      <td>${esc(dateDMY(facturaDateKey(f)))}</td>
+      <td><code class="uuid-text" title="${esc(f.uuid_sat || 'UUID pendiente')}">${esc(f.uuid_sat || 'UUID pendiente')}</code></td>
+      <td>${esc(descuentoTipoLabel(info.tipo))}</td>
+      <td>${fmt(f.volumen_litros || (f.metadata || {}).litros_confirmados || 0)}</td>
+      <td>${money(facturaAmount(f))}</td>
+      <td><b class="credit-high">${money(info.amount)}</b></td>
+      <td>${money(info.per_liter)}</td>
+    </tr>`;
+  }).join('')}</tbody></table>` : '<div class="dashboard-detail-note">Este cliente no tiene facturas con descuento en el periodo.</div>';
+}
+
+function selectDiscountClient(key){
+  DISCOUNT_CLIENT_KEY = String(key || '');
+  renderDescuentosList();
+}
+
+async function applyDescuentosMonthFilter(){
+  const month = document.getElementById('descuentosMes')?.value || '';
+  DISCOUNT_CLIENT_KEY = '';
+  if(month) await loadFacturas(month);
+  renderDescuentosList();
+}
+
+function clearDescuentosMonth(){
+  const el = document.getElementById('descuentosMes');
+  if(el) el.value = '';
+  DISCOUNT_CLIENT_KEY = '';
+  renderDescuentosList();
+}
+
+async function refreshDescuentosData(){
+  await Promise.allSettled([loadClientes(), loadFacturas(document.getElementById('descuentosMes')?.value || '')]);
+  renderDescuentosList();
 }
 
 function onDescuentosSearch(value){

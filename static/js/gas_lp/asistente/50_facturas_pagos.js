@@ -19,6 +19,7 @@ async function loadFacturas(month='', opts={}){
     renderFacturaClientOptions();
     renderTodayFacturas();
     renderDashboard();
+    renderDescuentosList();
     renderComplementosPago();
     applyFacturasFilters();
   }catch(e){
