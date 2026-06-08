@@ -1,4 +1,5 @@
 from .core import *
+from .catalogos_clientes import _internal_cp_facilities
 
 def _auth_admin(authorization: str) -> tuple[str, str]:
     if not authorization.startswith("Bearer "):
@@ -454,32 +455,67 @@ async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp", include_
         "empresa_rfc": _clean_rfc(profile.get("rfc") or ""),
     }
 
+    def row_active(row: dict) -> bool:
+        if "activo" in row:
+            return row.get("activo") is not False
+        if "is_active" in row:
+            return row.get("is_active") is not False
+        status = str(row.get("status") or "").strip().lower()
+        return status not in {"inactivo", "inactive", "disabled", "deleted", "eliminado"}
+
+    def clean_company_rfc(value: str) -> str:
+        match = re.search(r"[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}", str(value or "").upper())
+        return match.group(0) if match else _clean_rfc(value)
+
+    def row_company_rfc(row: dict) -> str:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        return clean_company_rfc(
+            md.get("empresa_rfc")
+            or md.get("rfc_emisor")
+            or md.get("empresa_rfc_emisor")
+            or row.get("empresa_rfc")
+            or row.get("rfc_emisor")
+            or ""
+        )
+
+    def row_company_match(row: dict) -> bool:
+        row_rfc = row_company_rfc(row)
+        if row_rfc:
+            return row_rfc == company_scope.get("empresa_rfc")
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        company_profile_id = md.get("empresa_perfil_id") or row.get("empresa_perfil_id") or row.get("perfil_empresa_id")
+        if company_profile_id:
+            return str(company_profile_id) == str(company_scope.get("perfil_id") or "")
+        return str(row.get("perfil_id") or "") == str(company_scope.get("perfil_id") or "")
+
     def company_rows(table: str, order: str) -> list[dict]:
         q = sb.table(table).select("*")
         tenant_id = company_scope.get("tenant_id")
-        q = q.eq("tenant_id", tenant_id) if tenant_id else q.is_("tenant_id", "null")
-        if not include_inactive:
-            q = q.eq("activo", True)
+        q = q.or_(f"tenant_id.eq.{tenant_id},tenant_id.is.null") if tenant_id else q.is_("tenant_id", "null")
         try:
             rows = q.order(order).execute().data or []
         except Exception as exc:
             logger.warning("gas_lp_catalogos_list_failed table=%s perfil=%s tenant=%s err=%s", table, company_scope.get("perfil_id"), tenant_id, exc)
             return []
-        filtered = []
-        for row in rows:
-            md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-            row_rfc = _clean_rfc(md.get("empresa_rfc") or row.get("empresa_rfc") or row.get("rfc_emisor") or "")
-            if row_rfc:
-                if row_rfc == company_scope.get("empresa_rfc"):
-                    filtered.append(row)
-            elif str(row.get("perfil_id") or "") == str(company_scope.get("perfil_id") or ""):
-                filtered.append(row)
-        logger.debug("gas_lp_catalogos_list table=%s tenant=%s perfil=%s empresa_rfc=%s count=%s", table, tenant_id, company_scope.get("perfil_id"), company_scope.get("empresa_rfc"), len(filtered))
+        filtered = [row for row in rows if (include_inactive or row_active(row)) and row_company_match(row)]
+        logger.debug(
+            "gas_lp_catalogos_list table=%s tenant=%s perfil=%s empresa_rfc=%s raw_count=%s count=%s ids=%s",
+            table,
+            tenant_id,
+            company_scope.get("perfil_id"),
+            company_scope.get("empresa_rfc"),
+            len(rows),
+            len(filtered),
+            [row.get("id") for row in filtered[:20]],
+        )
         return filtered
 
-    choferes = [row for row in company_rows("gas_lp_choferes", "nombre") if (row.get("modulo_propietario") or "") == "gas_lp"]
-    vehiculos = [row for row in company_rows("gas_lp_vehiculos", "placas") if (row.get("modulo_propietario") or "") == "gas_lp"]
-    rutas = [row for row in company_rows("gas_lp_rutas", "nombre") if (row.get("modulo_propietario") or "") == "gas_lp"]
+    def gas_lp_rows(rows: list[dict]) -> list[dict]:
+        return [row for row in rows if (row.get("modulo_propietario") or "gas_lp") == "gas_lp"]
+
+    choferes = gas_lp_rows(company_rows("gas_lp_choferes", "nombre"))
+    vehiculos = gas_lp_rows(company_rows("gas_lp_vehiculos", "placas"))
+    rutas = gas_lp_rows(company_rows("gas_lp_rutas", "nombre"))
     ubicaciones = company_rows("gas_lp_ubicaciones_carta_porte", "alias")
     mercancias = company_rows("gas_lp_mercancias_carta_porte", "alias")
     instalaciones = _internal_cp_facilities(user)

@@ -86,19 +86,46 @@ def _internal_cp_company_query(query, user: dict, *, active_only: bool = True):
     query = query.select("*")
     tenant_id = scope.get("tenant_id")
     if tenant_id:
-        query = query.eq("tenant_id", tenant_id)
+        query = query.or_(f"tenant_id.eq.{tenant_id},tenant_id.is.null")
     else:
         query = query.is_("tenant_id", "null")
-    if active_only:
-        query = query.eq("activo", True)
     return query
 
 
-def _internal_cp_row_company_match(row: dict, scope: dict) -> bool:
+def _internal_cp_row_active(row: dict) -> bool:
+    if "activo" in row:
+        return row.get("activo") is not False
+    if "is_active" in row:
+        return row.get("is_active") is not False
+    status = str(row.get("status") or "").strip().lower()
+    return status not in {"inactivo", "inactive", "disabled", "deleted", "eliminado"}
+
+
+def _internal_cp_clean_company_rfc(value: str) -> str:
+    match = re.search(r"[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}", str(value or "").upper())
+    return match.group(0) if match else _clean_rfc(value)
+
+
+def _internal_cp_row_rfc(row: dict) -> str:
     md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-    row_rfc = _clean_rfc(md.get("empresa_rfc") or row.get("empresa_rfc") or row.get("rfc_emisor") or "")
+    return _internal_cp_clean_company_rfc(
+        md.get("empresa_rfc")
+        or md.get("rfc_emisor")
+        or md.get("empresa_rfc_emisor")
+        or row.get("empresa_rfc")
+        or row.get("rfc_emisor")
+        or ""
+    )
+
+
+def _internal_cp_row_company_match(row: dict, scope: dict) -> bool:
+    row_rfc = _internal_cp_row_rfc(row)
     if row_rfc:
         return row_rfc == scope.get("empresa_rfc")
+    md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    company_profile_id = md.get("empresa_perfil_id") or row.get("empresa_perfil_id") or row.get("perfil_empresa_id")
+    if company_profile_id:
+        return str(company_profile_id) == str(scope.get("perfil_id") or "")
     return str(row.get("perfil_id") or "") == str(scope.get("perfil_id") or "")
 
 
@@ -110,8 +137,17 @@ def _internal_cp_company_rows(table: str, user: dict, *, active_only: bool = Tru
     except Exception as exc:
         logger.warning("gas_lp_catalogos_list_failed table=%s perfil=%s tenant=%s err=%s", table, scope.get("perfil_id"), scope.get("tenant_id"), exc)
         return []
-    filtered = [row for row in rows if _internal_cp_row_company_match(row, scope)]
-    logger.debug("gas_lp_catalogos_list table=%s tenant=%s perfil=%s empresa_rfc=%s count=%s", table, scope.get("tenant_id"), scope.get("perfil_id"), scope.get("empresa_rfc"), len(filtered))
+    filtered = [row for row in rows if (not active_only or _internal_cp_row_active(row)) and _internal_cp_row_company_match(row, scope)]
+    logger.debug(
+        "gas_lp_catalogos_list table=%s tenant=%s perfil=%s empresa_rfc=%s raw_count=%s count=%s ids=%s",
+        table,
+        scope.get("tenant_id"),
+        scope.get("perfil_id"),
+        scope.get("empresa_rfc"),
+        len(rows),
+        len(filtered),
+        [row.get("id") for row in filtered[:20]],
+    )
     return filtered
 
 
