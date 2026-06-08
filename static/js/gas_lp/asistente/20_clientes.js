@@ -28,9 +28,19 @@ async function load(){
     compFechaPago.value = localDateTimeValue();
     ensureFechaEmision();
     ensureFolio();
-    const results = await Promise.allSettled([loadClientes(), loadFacilities(), loadCatalogos(), loadFacturas(), loadComplementos()]);
-    const failed = results.find(r => r.status === 'rejected');
-    if(failed) setStatus('facturaMsg', failed.reason?.message || 'No fue posible cargar algunos datos.', false);
+    const tasks = [
+      ['clientes', loadClientes],
+      ['instalaciones', loadFacilities],
+      ['catalogos', loadCatalogos],
+      ['facturas', loadFacturas],
+      ['complementos', loadComplementos],
+    ];
+    const results = await Promise.allSettled(tasks.map(([, fn]) => fn()));
+    const failed = results
+      .map((result, index) => ({name: tasks[index][0], result}))
+      .filter(item => item.result.status === 'rejected');
+    const critical = failed.find(item => ['clientes','instalaciones'].includes(item.name));
+    if(critical) setStatus('facturaMsg', critical.result.reason?.message || 'No fue posible cargar datos críticos de facturación.', false);
     updateOperacionUI();
   }catch(e){
     if(e.status === 401){
@@ -129,16 +139,46 @@ function editCliente(id){
   setStatus('clientesMsg',`Editando cliente: ${c.nombre || c.rfc || id}`);
 }
 async function loadFacilities(){
-  const data = await api('/api/internal-auth/gas-lp/facilities');
-  FACILITIES = data.facilities || [];
-  const opts = FACILITIES.map(f=>`<option value="${esc(f.id)}">${esc(f.nombre)}${f.clave_instalacion ? ` [${esc(f.clave_instalacion)}]` : ''}</option>`).join('');
-  facilitySelect.innerHTML = '<option value="">Selecciona instalación</option>' + opts;
-  if(!FACILITIES.length) setStatus('facturaMsg','Primero crea una instalación en GE Control. Es obligatoria para control y operación.',false);
-  renderDestinoFacilities();
+  try{
+    const data = await api('/api/internal-auth/gas-lp/facilities');
+    FACILITIES = data.facilities || [];
+    const opts = FACILITIES.map(f=>`<option value="${esc(f.id)}">${esc(f.nombre)}${f.clave_instalacion ? ` [${esc(f.clave_instalacion)}]` : ''}</option>`).join('');
+    facilitySelect.innerHTML = '<option value="">Selecciona instalación</option>' + opts;
+    if(!(CATALOGOS.instalaciones || []).length) CATALOGOS.instalaciones = FACILITIES;
+    if(!FACILITIES.length) setStatus('facturaMsg','Primero crea una instalación en GE Control. Es obligatoria para control y operación.',false);
+    renderDestinoFacilities();
+    if(document.getElementById('panel-carta-porte')?.classList.contains('active')){
+      if(ACTIVE_CP_TAB === 'configuracion') renderAssistantCpCatalogs();
+      else renderCartaPorteWizard();
+    }
+  }catch(e){
+    FACILITIES = [];
+    facilitySelect.innerHTML = '<option value="">No se pudieron cargar instalaciones</option>';
+    renderDestinoFacilities();
+    throw e;
+  }
 }
 async function loadCatalogos(){
-  const data = await api('/api/internal-auth/gas-lp/catalogos?modulo=gas_lp');
-  CATALOGOS = {choferes:data.choferes||[], vehiculos:data.vehiculos||[], rutas:data.rutas||[], ubicaciones:data.ubicaciones||[], instalaciones:data.instalaciones||data.ubicaciones||[], mercancias:data.mercancias||[]};
+  let data = {};
+  try{
+    data = await api('/api/internal-auth/gas-lp/catalogos?modulo=gas_lp');
+  }catch(e){
+    data = {};
+    if(document.getElementById('panel-carta-porte')?.classList.contains('active')){
+      setStatus('cpMsg', e.message || 'No fue posible cargar catálogos de Carta Porte.', false);
+    }
+  }
+  const catalogInstallations = (data.instalaciones || []).length
+    ? data.instalaciones
+    : ((data.ubicaciones || []).length ? data.ubicaciones : FACILITIES);
+  CATALOGOS = {
+    choferes:data.choferes||[],
+    vehiculos:data.vehiculos||[],
+    rutas:data.rutas||[],
+    ubicaciones:data.ubicaciones||[],
+    instalaciones:catalogInstallations||[],
+    mercancias:data.mercancias||[]
+  };
   choferSelect.innerHTML = '<option value="">Selecciona chofer</option>' + CATALOGOS.choferes.map(c=>`<option value="${esc(c.id)}">${esc(c.nombre)}${c.rfc ? ` · ${esc(c.rfc)}` : ''}</option>`).join('');
   vehiculoSelect.innerHTML = '<option value="">Selecciona vehículo</option>' + CATALOGOS.vehiculos.map(v=>`<option value="${esc(v.id)}">${esc(v.placas)}${v.config_vehicular ? ` · ${esc(v.config_vehicular)}` : ''}</option>`).join('');
   filterRutasForTransfer();

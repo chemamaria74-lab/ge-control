@@ -20,6 +20,17 @@ function detailText(value, fallback='No fue posible cargar la información.'){
   if(value && typeof value === 'object') return value.message || value.detail || JSON.stringify(value);
   return value || fallback;
 }
+function friendlyApiErrorText(path, data={}, rawText=''){
+  const detail = detailText(data.detail || data.message || rawText, '');
+  const genericServerError = !detail || /^internal server error$/i.test(String(detail).trim());
+  if(!genericServerError) return detail;
+  if(path.includes('/facilities')) return 'No fue posible cargar instalaciones de la empresa. Actualiza la pantalla o avisa al administrador.';
+  if(path.includes('/catalogos')) return 'No fue posible cargar catálogos de Carta Porte. Facturación puede continuar si la instalación aparece.';
+  if(path.includes('/clientes')) return 'No fue posible cargar clientes de la empresa.';
+  if(path.includes('/facturas')) return 'No fue posible cargar facturas recientes.';
+  if(path.includes('/complementos')) return 'No fue posible cargar complementos de pago.';
+  return 'No fue posible cargar la información. Actualiza la pantalla o avisa al administrador.';
+}
 function transferDebug(label, data){
   try{
     console.log(`[GasLP traspaso] ${label}`, data);
@@ -481,10 +492,11 @@ async function api(path, opts={}) {
   try{ data = rawText ? JSON.parse(rawText) : {}; }catch(_){ data = {message: rawText}; }
   if(debugTransfer) transferDebug(`${debugTransfer} http response`, {endpoint:path, status:res.status, ok:res.ok, response:data, responseText:rawText});
   if(!res.ok) {
-    const err = new Error(detailText(data.detail || data.message));
+    const err = new Error(friendlyApiErrorText(path, data, rawText));
     err.status = res.status;
     err.response = data;
     err.responseText = rawText;
+    err.path = path;
     throw err;
   }
   return data;
