@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from openpyxl import load_workbook
+from fastapi import HTTPException
 
 import routes.internal_users as internal_users
 
@@ -479,13 +480,33 @@ def test_transfer_email_default_contract_keeps_transfer_email_explicit():
         transfer_email_provided=True,
     )
     data = _dump_model(payload)
-    create_source = inspect.getsource(internal_users.gas_lp_internal_crear_factura)
+    create_source = inspect.getsource(internal_users._gas_lp_internal_crear_factura_impl)
     html = _assistant_frontend_source()
 
     assert data["transfer_email_provided"] is True
     assert "payload.transfer_email_provided" in create_source
     assert "transfer-email-default" in html
     assert "Guardar como correo predeterminado para traspasos" in html
+
+
+def test_assistant_invoice_endpoint_returns_controlled_error_on_unexpected_failure(monkeypatch):
+    async def boom(_payload, _token):
+        raise RuntimeError("unexpected backend failure")
+
+    monkeypatch.setitem(
+        internal_users.gas_lp_internal_crear_factura.__globals__,
+        "_gas_lp_internal_crear_factura_impl",
+        boom,
+    )
+    payload = internal_users.GasLpInternalFacturaPayload(litros=10, precio_unitario=10, facility_id=4)
+
+    try:
+        asyncio.run(internal_users.gas_lp_internal_crear_factura(payload, "tok"))
+    except HTTPException as exc:
+        assert exc.status_code == 500
+        assert exc.detail == "No se pudo completar la operación. Intenta de nuevo o contacta a soporte."
+    else:
+        raise AssertionError("expected controlled HTTPException")
 
 
 def test_assistant_today_invoices_use_backend_date_key_and_current_month():
