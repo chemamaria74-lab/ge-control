@@ -30,6 +30,16 @@
           <div><label>Límite de crédito opcional</label><input id="cliLimiteCredito" type="number" min="0" step="0.01" placeholder="Sin límite"></div>
           <div class="form-span"><label>Notas de crédito</label><textarea id="cliCreditoNotas" maxlength="1000" placeholder="Condiciones, autorización interna o comentarios administrativos"></textarea></div>
         </div>
+        <div class="section-title" style="margin-top:14px"><h3 style="margin:0">Descuento</h3><span class="muted">Se aplica automáticamente al seleccionar el cliente en Facturación.</span></div>
+        <div class="form-grid">
+          <div><label>Descuento activo</label><select id="cliDescuentoActivo" onchange="updateClientDiscountForm()"><option value="0">No</option><option value="1">Sí</option></select></div>
+          <div><label>Tipo de descuento</label><select id="cliTipoDescuento" onchange="updateClientDiscountForm()"><option value="sin_descuento">Sin descuento</option><option value="por_litro">Descuento por litro</option><option value="total_pesos">Descuento total en pesos</option><option value="precio_especial">Precio especial por litro</option><option value="porcentaje">Porcentaje</option></select></div>
+          <div id="cliDescuentoValorField"><label id="cliDescuentoValorLabel">Valor del descuento</label><input id="cliDescuentoValor" inputmode="decimal" placeholder="0.00"></div>
+          <div id="cliPrecioEspecialField" class="hide"><label>Precio por litro con IVA</label><input id="cliPrecioEspecial" inputmode="decimal" placeholder="0.00"></div>
+          <div><label>Vigencia inicio</label><input id="cliDescuentoInicio" type="date"></div>
+          <div><label>Vigencia fin</label><input id="cliDescuentoFin" type="date"></div>
+          <div class="form-span"><label>Notas de descuento</label><textarea id="cliDescuentoNotas" maxlength="500" placeholder="Autorización, condiciones o comentario interno"></textarea></div>
+        </div>
         <div class="toolbar" style="margin-top:10px">
           <button class="btn" id="btnGuardarCliente" type="button" onclick="saveClienteFromTab()">Guardar cliente</button>
           <button class="btn ghost" type="button" onclick="cancelClienteForm()">Cancelar</button>

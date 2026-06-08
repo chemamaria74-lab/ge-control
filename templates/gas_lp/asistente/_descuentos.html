@@ -1,0 +1,14 @@
+    <section id="panel-descuentos" class="tab-panel card">
+      <div class="section-title">
+        <div>
+          <h2>Descuentos</h2>
+          <p class="muted" style="margin:4px 0 0">Clientes con precio especial o descuento configurado para facturación Gas LP.</p>
+        </div>
+        <div class="toolbar">
+          <span class="count-pill" id="descuentosCount">0 clientes</span>
+          <button class="btn ghost" type="button" onclick="loadClientes()">Actualizar</button>
+        </div>
+      </div>
+      <div><label>Buscar cliente o RFC</label><input id="descuentosSearch" placeholder="Nombre, RFC o tipo de descuento" oninput="onDescuentosSearch(this.value)"></div>
+      <div class="list client-list" id="descuentosList"><div class="empty">Cargando descuentos...</div></div>
+    </section>
