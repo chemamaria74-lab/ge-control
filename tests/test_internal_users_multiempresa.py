@@ -33,6 +33,10 @@ class FakeQuery:
         self.filters.append((key, value))
         return self
 
+    def is_(self, key, value):
+        self.filters.append((key, None if value == "null" else value))
+        return self
+
     def limit(self, n):
         self.limit_n = n
         return self
@@ -157,9 +161,77 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
 
         self.assertEqual([r["facility_id"] for r in rows], [4, 10])
         self.assertEqual(rows[0]["alias"], "Planta Jerez")
+        self.assertEqual(rows[0]["nombre"], "Planta Jerez")
+        self.assertEqual(rows[0]["nombre_fiscal"], "GAS LUX")
         self.assertEqual(rows[0]["tipo"], "origen")
         self.assertEqual(rows[0]["id_ubicacion_carta_porte"], "OR000004")
         self.assertEqual(rows[1]["alias"], "Estación San Isidro")
+        self.assertEqual(rows[1]["nombre"], "Estación San Isidro")
+
+    def test_gas_lp_admin_facilities_can_fall_back_to_profile_scope(self):
+        db = FakeDB()
+        db.rows["user_facilities"] = [
+            {
+                "id": 40,
+                "user_id": "profile-owner",
+                "tenant_id": "tenant-a",
+                "perfil_id": 7,
+                "modulo_propietario": "gas_lp",
+                "nombre": "Planta Jerez",
+                "clave_instalacion": "PDD-1011",
+                "codigo_postal": "99300",
+            }
+        ]
+        globals_ref = internal_users._gas_lp_admin_facilities.__globals__
+        with patch.dict(globals_ref, {"get_supabase_admin": lambda: db, "get_facilities": lambda *args, **kwargs: []}):
+            rows = internal_users._gas_lp_admin_facilities(
+                {"owner_user_id": "different-owner", "tenant_id": "tenant-a", "perfil_id": 7}
+            )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["nombre"], "Planta Jerez")
+
+    def test_gas_lp_carta_porte_mercancia_catalog_create_persists_scope(self):
+        db = FakeDB()
+        user = {
+            "id": 22,
+            "owner_user_id": "2883a5c0-1e8c-416f-a13a-6dc525825374",
+            "tenant_id": "2883a5c0-1e8c-416f-a13a-6dc525825374",
+            "perfil_id": 3,
+            "display_name": "ANABEL",
+        }
+
+        class Request:
+            query_params = {
+                "alias": "Gas LP",
+                "bienes_transp": "15111510",
+                "descripcion": "Gas licuado de petróleo",
+                "clave_unidad": "LTR",
+                "unidad": "Litro",
+                "factor_kg_litro": "0.524",
+                "material_peligroso": "1",
+                "clave_material_peligroso": "1075",
+                "embalaje": "Z01",
+            }
+
+        patches = [
+            patch.object(internal_users, "get_supabase_admin", lambda: db),
+            patch.object(internal_users, "_gas_lp_internal_context", lambda token, **kwargs: {"user": user}),
+        ]
+        for p in patches:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in patches])
+
+        response = response_json(asyncio.run(internal_users.gas_lp_internal_catalogo_create("mercancias", Request(), "tok")))
+        rows = db.rows["gas_lp_mercancias_carta_porte"]
+
+        self.assertTrue(response["ok"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["alias"], "Gas LP")
+        self.assertEqual(rows[0]["user_id"], user["owner_user_id"])
+        self.assertEqual(rows[0]["tenant_id"], user["tenant_id"])
+        self.assertEqual(rows[0]["perfil_id"], 3)
+        self.assertTrue(rows[0]["material_peligroso"])
 
     def test_gas_lp_internal_users_are_profile_scoped(self):
         db = FakeDB()
