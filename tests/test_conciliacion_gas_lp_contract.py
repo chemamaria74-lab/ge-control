@@ -300,12 +300,13 @@ def test_conciliacion_backend_records_origin_and_uses_conciliation_export_column
     assert '"descuento": totals["descuento"]' in public_source
 
     for column in (
-        "Tipo de documento",
+        "Fecha",
         "Folio de fact",
+        "UUID",
         "Cliente",
         "Monto",
         "Litros",
-        "Método/Forma de pago",
+        "Método",
     ):
         assert column in export_source
 
@@ -366,39 +367,26 @@ def test_conciliacion_export_excel_handles_decimal_null_metadata_and_transfer(mo
     wb = load_workbook(BytesIO(response.body))
     ws = wb.active
     assert [cell.value for cell in ws[1]] == [
-        "Tipo de documento",
-        "UUID",
-        "Factura relacionada",
+        "Fecha",
         "Folio de fact",
+        "UUID",
         "Cliente",
-        "RFC",
-        "Fecha emisión/timbrado",
-        "Fecha pago",
         "Monto",
-        "Subtotal",
-        "Descuento",
-        "IVA",
         "Litros",
-        "Precio unitario",
-        "Realizado por",
-        "Estado correo",
-        "Método/Forma de pago",
-        "Estado",
+        "Método",
     ]
     assert ws.max_row == 4
-    assert ws["A2"].value == "Factura"
-    assert ws["D2"].value == "100"
-    assert ws["G2"].value == "2026-06-01"
-    assert ws["I2"].value == 116.5
-    assert ws["M2"].value == 50.125
-    assert ws["Q2"].value == "PPD"
-    assert ws["R2"].value == "Vigente - PPD / Crédito"
-    assert ws["E3"].value == "XAXX010101000"
-    assert ws["Q4"].value == "PUE"
-    assert ws["R4"].value == "Vigente"
+    assert ws["A2"].value == "2026-06-01"
+    assert ws["B2"].value == "100"
+    assert ws["D2"].value == "ALFA GAS CLIENTE"
+    assert ws["E2"].value == 116.5
+    assert ws["F2"].value == 50.125
+    assert ws["G2"].value == "PPD"
+    assert ws["D3"].value == "XAXX010101000"
+    assert ws["G4"].value == "PUE"
 
 
-def test_gas_lp_excel_exports_use_neutral_invoice_statuses(monkeypatch):
+def test_gas_lp_excel_exports_use_previous_compact_column_order(monkeypatch):
     cancelled_uuid = "6d09da66-366b-41f0-b778-0b89ed625b5f"
     vigente_uuid = "aa054375-5a74-44c3-ad8c-e2e1070512c4"
     rows = [
@@ -475,13 +463,14 @@ def test_gas_lp_excel_exports_use_neutral_invoice_statuses(monkeypatch):
         wb = load_workbook(BytesIO(response.body))
         ws = wb.active
         headers = [cell.value for cell in ws[1]]
+        assert headers == ["Fecha", "Folio de fact", "UUID", "Cliente", "Monto", "Litros", "Método"]
         uuid_col = headers.index("UUID") + 1
-        estado_col = headers.index("Estado") + 1
-        by_uuid = {ws.cell(row=i, column=uuid_col).value: ws.cell(row=i, column=estado_col).value for i in range(2, ws.max_row + 1)}
-        assert by_uuid[cancelled_uuid] == "Cancelada"
-        assert by_uuid[vigente_uuid] == "Vigente"
-        assert by_uuid["ppd-uuid"] == "Vigente - PPD / Crédito"
-        assert "Pagada" not in [ws.cell(row=i, column=estado_col).value for i in range(2, ws.max_row + 1)]
+        method_col = headers.index("Método") + 1
+        by_uuid = {ws.cell(row=i, column=uuid_col).value: ws.cell(row=i, column=method_col).value for i in range(2, ws.max_row + 1)}
+        assert by_uuid[cancelled_uuid] == "PUE"
+        assert by_uuid[vigente_uuid] == "PUE"
+        assert by_uuid["ppd-uuid"] == "PPD"
+        assert "Estado" not in headers
 
 
 def test_conciliacion_complemento_payload_supports_multiple_ppd_invoices():
