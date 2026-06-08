@@ -193,7 +193,7 @@ function renderCartaPorteWizard(){
       <div class="cp-step">
         <h3>2. Transporte</h3>
         <div class="form-grid">
-          <div><label>Vehículo</label><select id="cpVehiculo" onchange="invalidateCpPreview()">${cpOption(CATALOGOS.vehiculos, v => `${cpMeta(v).alias || v.placas || 'Vehículo'}${v.placas ? ` · ${v.placas}` : ''}`)}</select></div>
+          <div><label>Vehículo</label><select id="cpVehiculo" onchange="invalidateCpPreview()">${cpOption(CATALOGOS.vehiculos, v => `${acpTitle('vehiculos', v)}${v.placas ? ` · ${v.placas}` : ''}`)}</select></div>
           <div><label>Chofer / operador</label><select id="cpChofer" onchange="invalidateCpPreview()">${cpOption(CATALOGOS.choferes, c => `${c.nombre || 'Chofer'}${c.licencia ? ` · ${c.licencia}` : ''}`)}</select></div>
         </div>
       </div>
@@ -507,7 +507,7 @@ function assistantCpRows(kind){
 }
 function acpTitle(kind,row){
   const md = cpMeta(row);
-  if(kind==='vehiculos') return md.alias || row.placas || 'Vehículo';
+  if(kind==='vehiculos') return md.numero_economico || row.numero_economico || md.alias || row.placas || 'Vehículo';
   if(kind==='choferes') return row.nombre || 'Chofer';
   if(kind==='instalaciones') return row.alias || row.nombre || row.id_ubicacion || 'Instalación';
   if(kind==='mercancias') return row.alias || row.descripcion || 'Mercancía';
@@ -523,9 +523,6 @@ function acpParams(params){
   });
   return qs.toString();
 }
-function assistantCpDebug(stage, detail={}){
-  try{ console.debug('[GasLP Carta Porte catálogo]', stage, detail); }catch(_){}
-}
 function assistantCpLocalKey(kind){
   return kind === 'instalaciones' ? 'instalaciones' : kind;
 }
@@ -536,7 +533,7 @@ function assistantCpRecordFromResponse(kind, response={}, payload={}, id=''){
   if(finalId) merged.id = finalId;
   if(kind === 'vehiculos'){
     merged.placas = merged.placas || merged.placa || payload.placa || '';
-    merged.metadata = {...(merged.metadata || {}), alias: payload.alias || (merged.metadata || {}).alias, numero_permiso: payload.numero_permiso || (merged.metadata || {}).numero_permiso, peso_bruto_vehicular: payload.peso_bruto_vehicular || (merged.metadata || {}).peso_bruto_vehicular, aseguradora_medio_ambiente: payload.aseguradora_medio_ambiente || (merged.metadata || {}).aseguradora_medio_ambiente, poliza_medio_ambiente: payload.poliza_medio_ambiente || (merged.metadata || {}).poliza_medio_ambiente};
+    merged.metadata = {...(merged.metadata || {}), alias: payload.numero_economico || (merged.metadata || {}).alias, numero_economico: payload.numero_economico || (merged.metadata || {}).numero_economico, numero_permiso: payload.numero_permiso || (merged.metadata || {}).numero_permiso, peso_bruto_vehicular: payload.peso_bruto_vehicular || (merged.metadata || {}).peso_bruto_vehicular, aseguradora_medio_ambiente: payload.aseguradora_medio_ambiente || (merged.metadata || {}).aseguradora_medio_ambiente, poliza_medio_ambiente: payload.poliza_medio_ambiente || (merged.metadata || {}).poliza_medio_ambiente};
   }
   if(kind === 'choferes'){
     merged.metadata = {...(merged.metadata || {}), tipo_licencia: payload.tipo_licencia || (merged.metadata || {}).tipo_licencia || 'E', tipo_figura: payload.tipo_figura || (merged.metadata || {}).tipo_figura || '01', fecha_expedicion_licencia: payload.fecha_expedicion_licencia || (merged.metadata || {}).fecha_expedicion_licencia, fecha_vencimiento_licencia: payload.fecha_vencimiento_licencia || (merged.metadata || {}).fecha_vencimiento_licencia};
@@ -554,7 +551,6 @@ function assistantCpUpsertLocal(kind, record){
   if(index >= 0) rows[index] = {...rows[index], ...record, metadata:{...(rows[index].metadata || {}), ...(record.metadata || {})}};
   else rows.unshift(record);
   CATALOGOS[key] = rows;
-  assistantCpDebug('upsert-local', {kind, id:record.id, countBefore:rows.length - (index >= 0 ? 0 : 1), countAfter:rows.length});
 }
 const ACP_CONFIG_VEHICULAR = [
   ['C2','C2 - Camión unitario 2 ejes'], ['C3','C3 - Camión unitario 3 ejes'],
@@ -605,20 +601,17 @@ function renderAssistantCpForm(){
   const md = cpMeta(row);
   let body = '';
   if(kind==='vehiculos') body = [
-    acpField('acpv_alias','Alias',md.alias||'','text','placeholder="AT-96"','Nombre corto para operación diaria.'),
-    acpField('acpv_num','Número económico',md.numero_economico||'','text','placeholder="AT-96"'),
+    acpField('acpv_num','<span class="acp-required">Número económico</span>',md.numero_economico||md.alias||'','text','placeholder="AT-96"','Identificador visible para operación diaria.'),
     acpField('acpv_placas','<span class="acp-required">Placas</span>',row?.placas||'','text','placeholder="ABC-1234" maxlength="10" oninput="this.value=this.value.toUpperCase()"'),
     acpField('acpv_anio','Año/modelo',row?.anio||2024,'number','min="1990" max="2035" placeholder="2024"'),
     acpSelect('acpv_config','<span class="acp-required">Configuración vehicular SAT</span>',acpOptions(ACP_CONFIG_VEHICULAR,row?.config_vehicular||'C2'),row?.config_vehicular||'C2','Clave SAT/SICT de configuración vehicular para Carta Porte.'),
-    acpSelect('acpv_permiso','<span class="acp-required">Permiso SCT/SICT</span>',acpOptions(ACP_PERMISOS_SCT,row?.permiso_cre||md.permiso_sct||'TPAF01'),row?.permiso_cre||md.permiso_sct||'TPAF01','Permiso de autotransporte que se envía en Carta Porte.'),
+    acpSelect('acpv_permiso','<span class="acp-required">Permiso SCT/SICT</span>',acpOptions(ACP_PERMISOS_SCT,row?.permiso_cre||md.permiso_sct||'TPAF03'),row?.permiso_cre||md.permiso_sct||'TPAF03','Permiso oficial de autotransporte que se envía en Carta Porte.'),
     acpField('acpv_numperm','<span class="acp-required">Número permiso SCT/SICT</span>',md.numero_permiso||'','text','placeholder="SCT-123456"'),
     acpField('acpv_peso','<span class="acp-required">Peso bruto vehicular</span>',md.peso_bruto_vehicular||'','text','inputmode="decimal" placeholder="18000"','Peso bruto vehicular en kg.'),
-    acpField('acpv_aseg','<span class="acp-required">Aseguradora RC</span>',row?.aseguradora||'','text','placeholder="GNP Seguros"'),
-    acpField('acpv_poliza','<span class="acp-required">Póliza RC</span>',row?.poliza_seguro||'','text','placeholder="POL-123456"'),
-    acpField('acpv_asegma','<span class="acp-required">Aseguradora medio ambiente</span>',md.aseguradora_medio_ambiente||'','text','placeholder="Aseguradora ambiental"','Para Gas LP/material peligroso debe estar configurado antes de timbrar.'),
-    acpField('acpv_polizama','<span class="acp-required">Póliza medio ambiente</span>',md.poliza_medio_ambiente||'','text','placeholder="MA-123456"'),
-    acpField('acpv_asegc','Aseguradora carga',md.aseguradora_carga||'','text','placeholder="Aseguradora carga"'),
-    acpField('acpv_polizac','Póliza carga',md.poliza_carga||'','text','placeholder="CARGA-123456"')
+    acpField('acpv_aseg','<span class="acp-required">Aseguradora de responsabilidad civil</span>',row?.aseguradora||'','text','placeholder="GNP Seguros"','Seguro obligatorio del vehículo.'),
+    acpField('acpv_poliza','<span class="acp-required">Póliza de responsabilidad civil</span>',row?.poliza_seguro||'','text','placeholder="POL-123456"','Seguro obligatorio del vehículo.'),
+    acpField('acpv_asegma','<span class="acp-required">Aseguradora de daños al medio ambiente</span>',md.aseguradora_medio_ambiente||'','text','placeholder="Aseguradora ambiental"','Requerido para transporte de material peligroso como Gas LP.'),
+    acpField('acpv_polizama','<span class="acp-required">Póliza de daños al medio ambiente</span>',md.poliza_medio_ambiente||'','text','placeholder="MA-123456"','Requerido para transporte de material peligroso como Gas LP.')
   ].join('');
   if(kind==='choferes') body = [
     acpField('acpc_nombre','<span class="acp-required">Nombre completo</span>',row?.nombre||'','text','placeholder="Juan Pérez García"'),
@@ -676,7 +669,7 @@ function renderAssistantCpForm(){
 }
 function renderAssistantCpCard(kind,row){
   const md = cpMeta(row);
-  const line = kind==='vehiculos' ? `${row.placas||'—'} · ${row.config_vehicular||'—'}` : kind==='choferes' ? `${row.rfc||'RFC —'} · ${row.licencia||'Lic. —'}` : kind==='instalaciones' ? `${row.tipo||'ambos'} · ${row.codigo_postal||'CP —'} · ${row.id_ubicacion_carta_porte||row.id_ubicacion||'ID pendiente'}` : kind==='mercancias' ? `${row.factor_kg_litro||0} kg/L · ${row.material_peligroso?'Peligroso':'No peligroso'}` : `${row.distancia_km||0} km · ${cpRouteTimeMinutes(row)||0} min`;
+  const line = kind==='vehiculos' ? `${row.placas||'Placas —'} · ${row.config_vehicular||'Config. —'} · Activo` : kind==='choferes' ? `${row.rfc||'RFC —'} · ${row.licencia||'Lic. —'}` : kind==='instalaciones' ? `${row.tipo||'ambos'} · ${row.codigo_postal||'CP —'} · ${row.id_ubicacion_carta_porte||row.id_ubicacion||'ID pendiente'}` : kind==='mercancias' ? `${row.factor_kg_litro||0} kg/L · ${row.material_peligroso?'Peligroso':'No peligroso'}` : `${row.distancia_km||0} km · ${cpRouteTimeMinutes(row)||0} min`;
   const actions = kind==='instalaciones'
     ? `<button class="btn ghost" type="button" onclick="openAssistantCpEditor('${kind}',${Number(row.id)})"><i class="fa-solid fa-pen"></i> Configurar</button>`
     : `<button class="btn ghost" type="button" onclick="openAssistantCpEditor('${kind}',${Number(row.id)})"><i class="fa-solid fa-pen"></i> Editar</button><button class="btn ghost danger" type="button" onclick="deactivateAssistantCp('${kind}',${Number(row.id)})"><i class="fa-solid fa-ban"></i> Desactivar</button><button class="btn ghost danger" type="button" onclick="permanentDeleteAssistantCp('${kind}',${Number(row.id)})"><i class="fa-solid fa-trash"></i> Eliminar</button>`;
@@ -690,8 +683,8 @@ function validateAssistantCp(kind){
     if(!Number.isFinite(number) || number <= 0) missing.push(label);
   };
   if(kind==='vehiculos'){
-    req('placas', acpv_placas.value); req('configuración vehicular SAT', acpv_config.value); req('permiso SCT/SICT', acpv_permiso.value); req('número permiso SCT/SICT', acpv_numperm.value);
-    reqDecimal('peso bruto vehicular válido', acpv_peso.value); req('aseguradora RC', acpv_aseg.value); req('póliza RC', acpv_poliza.value); req('aseguradora medio ambiente', acpv_asegma.value); req('póliza medio ambiente', acpv_polizama.value);
+    req('número económico', acpv_num.value); req('placas', acpv_placas.value); req('configuración vehicular SAT', acpv_config.value); req('permiso SCT/SICT', acpv_permiso.value); req('número permiso SCT/SICT', acpv_numperm.value);
+    reqDecimal('peso bruto vehicular válido', acpv_peso.value); req('aseguradora de responsabilidad civil', acpv_aseg.value); req('póliza de responsabilidad civil', acpv_poliza.value); req('aseguradora de daños al medio ambiente', acpv_asegma.value); req('póliza de daños al medio ambiente', acpv_polizama.value);
   }
   if(kind==='choferes'){ req('nombre completo', acpc_nombre.value); req('licencia federal', acpc_lic.value); req('tipo figura SAT', acpc_tipo.value); }
   if(kind==='mercancias'){ reqDecimal('factor kg/litro válido', acpm_factor.value); }
@@ -705,7 +698,7 @@ async function saveAssistantCp(){
   const kind = assistantCpKind;
   let p = {};
   if(!validateAssistantCp(kind)) return;
-  if(kind==='vehiculos') p = {alias:acpv_alias.value,numero_economico:acpv_num.value,placa:acpv_placas.value,anio:acpv_anio.value,config_vehicular:acpv_config.value,permiso_cre:acpv_permiso.value,numero_permiso:acpv_numperm.value,peso_bruto_vehicular:cpDecimalValue(acpv_peso.value),aseguradora:acpv_aseg.value,poliza_seguro:acpv_poliza.value,aseguradora_medio_ambiente:acpv_asegma.value,poliza_medio_ambiente:acpv_polizama.value,aseguradora_carga:acpv_asegc.value,poliza_carga:acpv_polizac.value};
+  if(kind==='vehiculos') p = {numero_economico:acpv_num.value,placa:acpv_placas.value,anio:acpv_anio.value,config_vehicular:acpv_config.value,permiso_cre:acpv_permiso.value,numero_permiso:acpv_numperm.value,peso_bruto_vehicular:cpDecimalValue(acpv_peso.value),aseguradora:acpv_aseg.value,poliza_seguro:acpv_poliza.value,aseguradora_medio_ambiente:acpv_asegma.value,poliza_medio_ambiente:acpv_polizama.value};
   if(kind==='choferes') p = {nombre:acpc_nombre.value,rfc:acpc_rfc.value,tipo_licencia:acpc_tipolic.value,licencia:acpc_lic.value,tipo_figura:acpc_tipo.value,fecha_expedicion_licencia:acpc_exp.value,fecha_vencimiento_licencia:acpc_venc.value,telefono:acpc_tel.value};
   if(kind==='instalaciones') p = {tipo_ubicacion:acpu_tipo.value,id_ubicacion_carta_porte:acpu_id.value,estado_sat:acpu_estado.value,municipio_sat:acpu_mun.value,localidad_sat:acpu_loc.value,referencia_carta_porte:acpu_ref.value};
   if(kind==='mercancias') p = {alias:acpm_alias.value,bienes_transp:acpm_bienes.value,descripcion:acpm_desc.value,clave_unidad:acpm_clave.value,unidad:acpm_unidad.value,factor_kg_litro:cpDecimalValue(acpm_factor.value),material_peligroso:acpm_peligro.value,clave_material_peligroso:acpm_clavep.value,embalaje:acpm_emb.value,descripcion_embalaje:acpm_descemb.value};
@@ -716,14 +709,11 @@ async function saveAssistantCp(){
   const id = assistantCpEdit.kind === kind ? assistantCpEdit.id : '';
   const path = `${acpEndpoint(kind,id)}?${acpParams(p)}`;
   try{
-    assistantCpDebug('save-start', {kind, id, payload:p, endpoint:path, beforeCount:(CATALOGOS[assistantCpLocalKey(kind)] || []).length});
     const saved = await api(path,{method:id?'PUT':'POST'});
-    assistantCpDebug('save-response', {kind, response:saved});
     const savedRecord = assistantCpRecordFromResponse(kind, saved, p, id);
     assistantCpUpsertLocal(kind, savedRecord);
     await loadCatalogos();
     assistantCpUpsertLocal(kind, savedRecord);
-    assistantCpDebug('save-after-refresh', {kind, id:savedRecord.id, afterCount:(CATALOGOS[assistantCpLocalKey(kind)] || []).length});
     assistantCpEdit = {kind:'',id:null};
     assistantCpPanelOpen = false;
     renderAssistantCpCatalogs();
