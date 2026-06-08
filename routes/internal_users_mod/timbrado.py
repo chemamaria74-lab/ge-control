@@ -2,6 +2,15 @@ from .core import *
 
 @router.post("/internal-auth/gas-lp/facturas")
 async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, token: str):
+    try:
+        return await _gas_lp_internal_crear_factura_impl(payload, token)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_internal_crear_factura", exc)
+
+
+async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPayload, token: str):
     from routes.transporte import _normalizar_receptor_cfdi, _validar_datos_cfdi_receptor
 
     ctx = _gas_lp_internal_context(token, write=True)
@@ -694,4 +703,3 @@ async def gas_lp_internal_crear_factura(payload: GasLpInternalFacturaPayload, to
     if is_transfer and recipients and (not email_results or any(not item.get("ok") for item in email_results)):
         warnings.append("CFDI timbrado correctamente, pero no se pudo enviar el correo.")
     return JSONResponse({"ok": True, "factura": factura_row, "totals": totals, "email": email_result.as_metadata() if email_result else None, "warnings": warnings})
-
