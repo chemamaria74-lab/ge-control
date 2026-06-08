@@ -2,7 +2,7 @@
       <div class="section-title">
         <div>
           <h2>Descuentos</h2>
-          <p class="muted" style="margin:4px 0 0">Clientes agrupados por RFC con facturas donde se aplicó descuento o precio especial.</p>
+          <p class="muted" style="margin:4px 0 0">Clientes con facturas donde se aplicó descuento por litro, descuento total o precio especial.</p>
         </div>
         <div class="toolbar">
           <div><label>Mes</label><input id="descuentosMes" type="month" onchange="applyDescuentosMonthFilter()"></div>
@@ -13,7 +13,7 @@
       <div class="dashboard-grid">
         <div class="metric"><span>Venta con descuento</span><b id="discountTotalVentas">$0.00</b></div>
         <div class="metric"><span>Descuento otorgado</span><b id="discountTotalMonto">$0.00</b></div>
-        <div class="metric"><span>Promedio por factura</span><b id="discountPromedioFactura">$0.00</b></div>
+        <div class="metric"><span>Promedio descuento por litro</span><b id="discountPromedioLitro">$0.00 / L</b></div>
         <div class="metric"><span>Facturas con descuento</span><b id="discountFacturasCount">0</b></div>
       </div>
       <div class="filters compact-filters">
@@ -22,7 +22,7 @@
       <div class="dashboard-layout">
         <div>
           <div class="section-title"><h2>Clientes con descuento</h2><span class="count-pill" id="descuentosCount">0 clientes</span></div>
-          <div class="table-wrap dashboard-scroll"><table><thead><tr><th>Cliente</th><th>RFC</th><th>Tipo más usado</th><th>Facturas</th><th>Litros</th><th>Venta</th><th>Descuento</th><th>Promedio</th><th>Desc/L</th></tr></thead><tbody id="descuentosRows"><tr><td colspan="9">Cargando...</td></tr></tbody></table></div>
+          <div class="table-wrap dashboard-scroll"><table><thead><tr><th>Cliente</th><th>RFC</th><th>Tipo más usado</th><th>Facturas</th><th>Litros</th><th>Venta</th><th>Descuento</th><th>Desc. por litro</th></tr></thead><tbody id="descuentosRows"><tr><td colspan="8">Cargando...</td></tr></tbody></table></div>
         </div>
         <div>
           <div class="section-title"><h2>Facturas del cliente</h2><span class="count-pill" id="descuentosDetallePeriodo">Sin selección</span></div>
