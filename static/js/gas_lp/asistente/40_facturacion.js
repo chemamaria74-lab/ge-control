@@ -139,6 +139,7 @@ function buildInvoicePreview(isTraspaso=false){
   };
 }
 async function saveClienteFromTab(){
+  const originalBtnHtml = btnGuardarCliente?.innerHTML || '';
   try{
     const validation = validateEmailSlots(cliEmail.value, cliEmailAdicional1?.value);
     if(!validation.ok){ setClientesFeedback(validation.message, false); return; }
@@ -165,8 +166,12 @@ async function saveClienteFromTab(){
     };
     const url = EDIT_CLIENT_ID ? `/api/internal-auth/gas-lp/clientes/${encodeURIComponent(EDIT_CLIENT_ID)}` : '/api/internal-auth/gas-lp/clientes';
     const wasEdit = !!EDIT_CLIENT_ID;
+    if(btnGuardarCliente){
+      btnGuardarCliente.disabled = true;
+      btnGuardarCliente.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Guardando...';
+    }
+    setClientesFeedback(wasEdit ? 'Guardando cambios del cliente...' : 'Guardando cliente...');
     const data = await api(url,{method: EDIT_CLIENT_ID ? 'PUT' : 'POST',body:JSON.stringify(payload)});
-    clienteFormClientes.classList.add('hide');
     const savedId = data.cliente?.id || EDIT_CLIENT_ID || '';
     EDIT_CLIENT_ID = null;
     await loadClientes();
@@ -176,9 +181,16 @@ async function saveClienteFromTab(){
     const saved = CLIENTES.find(c => String(c.id) === String(savedId)) || data.cliente || payload;
     const savedName = saved?.nombre || payload.nombre || 'cliente';
     const savedRfc = saved?.rfc || payload.rfc || '';
+    clienteFormClientes.classList.add('hide');
     setClientesFeedback(`${wasEdit ? 'Cliente actualizado' : 'Cliente guardado'} y seleccionado para facturar: ${savedName}${savedRfc ? ` · ${savedRfc}` : ''}.`);
     setStatus('facturaMsg',`Cliente listo para facturar: ${savedName}.`);
   }catch(e){ setClientesFeedback(e.message,false); }
+  finally{
+    if(btnGuardarCliente){
+      btnGuardarCliente.disabled = false;
+      btnGuardarCliente.innerHTML = originalBtnHtml || '<i class="fa-solid fa-floppy-disk"></i> Guardar cliente';
+    }
+  }
 }
 async function deleteCliente(id){
   if(!confirm('Eliminar este cliente de consumo de esta empresa?')) return;
