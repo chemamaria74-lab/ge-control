@@ -736,18 +736,82 @@ def test_gas_lp_excel_exports_use_previous_compact_column_order(monkeypatch):
         )
     )
 
-    for response in (conc_response, assistant_response):
-        wb = load_workbook(BytesIO(response.body))
-        ws = wb.active
-        headers = [cell.value for cell in ws[1]]
-        assert headers == ["Fecha", "Folio de fact", "UUID", "Cliente", "Monto", "Litros", "Método"]
-        uuid_col = headers.index("UUID") + 1
-        method_col = headers.index("Método") + 1
-        by_uuid = {ws.cell(row=i, column=uuid_col).value: ws.cell(row=i, column=method_col).value for i in range(2, ws.max_row + 1)}
-        assert by_uuid[cancelled_uuid] == "PUE"
-        assert by_uuid[vigente_uuid] == "PUE"
-        assert by_uuid["ppd-uuid"] == "PPD"
-        assert "Estado" not in headers
+    conc_wb = load_workbook(BytesIO(conc_response.body))
+    conc_ws = conc_wb.active
+    assert [cell.value for cell in conc_ws[1]] == ["Fecha", "Folio de fact", "UUID", "Cliente", "Monto", "Litros", "Método"]
+
+    assistant_wb = load_workbook(BytesIO(assistant_response.body))
+    assistant_ws = assistant_wb.active
+    headers = [cell.value for cell in assistant_ws[1]]
+    assert headers == ["Fecha", "Folio de fact", "UUID", "Cliente", "Monto", "Litros", "Método", "Estado fiscal"]
+    uuid_col = headers.index("UUID") + 1
+    method_col = headers.index("Método") + 1
+    status_col = headers.index("Estado fiscal") + 1
+    by_uuid = {
+        assistant_ws.cell(row=i, column=uuid_col).value: (
+            assistant_ws.cell(row=i, column=method_col).value,
+            assistant_ws.cell(row=i, column=status_col).value,
+        )
+        for i in range(2, assistant_ws.max_row + 1)
+    }
+    assert by_uuid[cancelled_uuid] == ("PUE", "Cancelada")
+    assert by_uuid[vigente_uuid] == ("PUE", "Vigente")
+    assert by_uuid["ppd-uuid"] == ("PPD", "Vigente")
+
+
+def test_assistant_facturas_endpoint_exposes_shared_fiscal_status(monkeypatch):
+    cancelled_uuid = "70d87aa2-b633-43c2-8195-0c887a1e0fa6"
+    rows = [
+        {
+            "id": 1,
+            "uuid_sat": cancelled_uuid,
+            "status": "Cancelada fiscalmente",
+            "metadata": {
+                "fecha_emision": "2026-06-08T09:47:00",
+                "folio": "000001",
+                "cliente_nombre": "PUBLICO EN GENERAL",
+                "total": 20785.43,
+                "metodo_pago": "PUE",
+                "estado_fiscal": "cancelada_fiscalmente",
+                "cancelacion_acuse": {"ok": True},
+            },
+            "volumen_litros": 1874.2497,
+            "importe": 17918.47,
+            "created_at": "2026-06-08T09:47:00",
+        },
+        {
+            "id": 2,
+            "uuid_sat": "vigente-uuid",
+            "status": "timbrada",
+            "metadata": {
+                "fecha_emision": "2026-06-08T10:00:00",
+                "folio": "000002",
+                "cliente_nombre": "PUBLICO EN GENERAL",
+                "total": 100.0,
+                "metodo_pago": "PUE",
+            },
+            "volumen_litros": 1,
+            "importe": 86.21,
+            "created_at": "2026-06-08T10:00:00",
+        },
+    ]
+
+    monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token: {"user": {"perfil_id": 7, "tenant_id": "t1"}})
+    monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=False: {"id": user["perfil_id"], "nombre": "AURE GAS", "rfc": "AGA990907II8"})
+    monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: object())
+    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", lambda sb, user, profile, month="", limit=10000: rows)
+    monkeypatch.setattr(internal_users, "_gas_lp_attach_internal_creators", lambda sb, rows: None)
+    monkeypatch.setattr(internal_users, "_gas_lp_attach_cliente_email_recipients", lambda sb, user, rows: None)
+    monkeypatch.setattr(internal_users, "_gas_lp_complementos_por_factura", lambda sb, ids: {})
+
+    response = asyncio.run(internal_users.gas_lp_internal_facturas(token="token", mes="2026-06"))
+    payload = json.loads(response.body)
+    by_uuid = {row["uuid_sat"]: row["fiscal_status"] for row in payload["facturas"]}
+
+    assert by_uuid[cancelled_uuid]["code"] == "cancelada"
+    assert by_uuid[cancelled_uuid]["label"] == "Cancelada"
+    assert by_uuid["vigente-uuid"]["code"] == "vigente"
+    assert by_uuid["vigente-uuid"]["label"] == "Vigente"
 
 
 def test_conciliacion_complemento_payload_supports_multiple_ppd_invoices():
@@ -782,6 +846,17 @@ def test_transfer_email_default_contract_keeps_transfer_email_explicit():
     assert "payload.transfer_email_provided" in create_source
     assert "transfer-email-default" in html
     assert "Guardar como correo predeterminado para traspasos" in html
+
+
+def test_assistant_facturas_table_shows_fiscal_status_column():
+    html = _assistant_frontend_source()
+
+    assert "Estado fiscal" in html
+    assert "fiscal_status" in html
+    assert "facturaStatusHtml(f)" in html
+    assert '<td class="status-cell">${v.statusHtml}</td>' in html
+    assert '<td colspan="11">No fue posible cargar facturas. Presiona Actualizar.</td>' in html
+    assert '<tr><td colspan="11">${esc(emptyText)}</td></tr>' in html
 
 
 def test_assistant_invoice_endpoint_returns_controlled_error_on_unexpected_failure(monkeypatch):
