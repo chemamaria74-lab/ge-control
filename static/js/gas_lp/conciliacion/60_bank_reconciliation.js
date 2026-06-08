@@ -14,7 +14,7 @@ function bankStatusHtml(f){
   const rec=bankReconciliation(f);
   const status=String(rec.status||'pendiente');
   const detail=[
-    Number(rec.amount||0)>0?`Monto: ${money(rec.amount)}`:'',
+    Number(rec.amount||0)>0?`Aplicado: ${money(rec.amount)}`:'',
     rec.payment_detected_at?`Banco: ${dateDMY(rec.payment_detected_at)}`:'',
     rec.reference_note?`Ref: ${rec.reference_note}`:''
   ].filter(Boolean).join(' · ');
@@ -59,7 +59,7 @@ function updateBankSuggestion(){
   const diff=amount-total(f);
   const text=[
     `Total fiscal: ${money(total(f))}`,
-    `Monto banco: ${money(amount)}`,
+    `Monto aplicado: ${money(amount)}`,
     `Diferencia: ${money(diff)}`,
     suggested!==requested?`Sugerido: ${BANK_RECONCILIATION_LABELS[suggested]}`:`Estado: ${BANK_RECONCILIATION_LABELS[suggested]||suggested}`
   ].join(' · ');

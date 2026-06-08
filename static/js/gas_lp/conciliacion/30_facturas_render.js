@@ -24,9 +24,9 @@ function facturaPagoState(f){
   const s=saldo(f);
   if(isCancel(f)) return {badges:['<span class="pill err">Cancelada</span>'],detail:''};
   if(isTransfer(f)) return {badges:['<span class="pill neutral">Vigente</span>'],detail:''};
-  if(metodo(f)!=='PPD') return {badges:[paid(f)?'<span class="pill">Pagada</span>':'<span class="pill warn">Pendiente</span>'],detail:''};
+  if(metodo(f)!=='PPD') return {badges:[paid(f)?'<span class="pill">Vigente</span>':'<span class="pill warn">Pendiente</span>'],detail:'PUE / estado fiscal del CFDI.'};
   if(!hasComp&&s>0) return {badges:['<span class="pill warn">Pendiente complemento</span>'],detail:'Requiere complemento al recibir pago.'};
-  if(!hasComp) return {badges:['<span class="pill">Pagada</span>'],detail:''};
+  if(!hasComp) return {badges:['<span class="pill">Vigente</span>'],detail:'CFDI vigente; banco se confirma aparte.'};
   const rel=(c.facturas||[]).find(x=>Number(x.factura_id||x.id)===Number(f.id))||{};
   const base=[
     c.uuid_sat?`UUID complemento: ${c.uuid_sat}`:'',
@@ -34,7 +34,7 @@ function facturaPagoState(f){
     Number(c.monto||rel.monto||0)>0?`Monto: ${money(c.monto||rel.monto)}`:'',
     Number(rel.saldo_insoluto??s)>=0?`Saldo: ${money(rel.saldo_insoluto??s)}`:''
   ].filter(Boolean).join(' · ');
-  const badges=[s>0?'<span class="pill warn">Pago parcial</span>':'<span class="pill">Pagada</span>','<span class="pill neutral">Con complemento</span>',complementoEmailBadge(c)].filter(Boolean);
+  const badges=[s>0?'<span class="pill warn">Pago parcial</span>':'<span class="pill">Complementada</span>','<span class="pill neutral">Con complemento</span>',complementoEmailBadge(c)].filter(Boolean);
   return {badges,detail:base};
 }
 function complementoDocActions(f,q){
