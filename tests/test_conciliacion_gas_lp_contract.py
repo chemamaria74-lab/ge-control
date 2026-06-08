@@ -571,6 +571,28 @@ def test_assistant_load_facturas_does_not_pollute_main_invoice_status_by_default
     assert "setStatus('facturaMsg'" in load_source
 
 
+def test_assistant_startup_errors_do_not_override_user_facility_selection():
+    html = _assistant_frontend_source()
+
+    assert "let invoiceUserInteractedAt = 0" in html
+    assert "function markInvoiceInteraction()" in html
+    assert "function canShowStartupInvoiceError(loadStartedAt)" in html
+    assert "const loadStartedAt = Date.now();" in html
+    assert "critical && canShowStartupInvoiceError(loadStartedAt)" in html
+    assert "function onFacilityChange()" in html
+    assert "markInvoiceInteraction();" in html
+
+
+def test_assistant_client_save_feedback_stays_visible_after_form_hides():
+    html = _assistant_frontend_source()
+
+    assert 'id="clientesNotice"' in html
+    assert "function setClientesFeedback" in html
+    assert "setStatus('clientesNotice'" in html
+    assert "clienteFormClientes.classList.add('hide');" in html
+    assert "Cliente guardado'} y seleccionado para facturar" in html
+
+
 def test_assistant_today_invoices_use_backend_date_key_and_current_month():
     html = _assistant_frontend_source()
 
