@@ -40,6 +40,10 @@ function cpName(list, id, fallback='—'){
   if(!r) return fallback;
   return r.alias || r.nombre || r.placas || r.descripcion || fallback;
 }
+function cpFacilityById(id){
+  const key = String(id || '');
+  return assistantCpRows('instalaciones').find(x => String(x.id) === key || String(x.facility_id || '') === key) || null;
+}
 function cpRouteMeta(row){ return cpMeta(row); }
 function cpRouteTimeMinutes(row){
   const direct = Number(row?.tiempo_estimado_minutos || 0);
@@ -131,11 +135,24 @@ function cpFacilityValue(facility, key){
     cp: ['codigo_postal','cp','cp_sat'],
     estado: ['estado_sat','estado'],
     municipio: ['municipio_sat','municipio'],
+    localidad: ['localidad_sat','localidad','localidad_colonia','colonia'],
+    id_ubicacion: ['id_ubicacion_carta_porte','id_ubicacion','clave_ubicacion_sat'],
     pais: ['pais','pais_sat'],
     calle: ['calle','domicilio_operativo','direccion'],
     nombre: ['alias','nombre']
   }[key] || [key];
   return cpValue(...aliases.flatMap(k => [facility?.[k], md?.[k]]));
+}
+function cpRouteFacilityPayload(prefix, id){
+  const facility = cpFacilityById(id);
+  return {
+    [`cp_${prefix}`]: cpFacilityValue(facility, 'cp'),
+    [`nombre_${prefix}`]: cpFacilityValue(facility, 'nombre'),
+    [`localidad_${prefix}`]: cpFacilityValue(facility, 'localidad'),
+    [`municipio_${prefix}`]: cpFacilityValue(facility, 'municipio'),
+    [`estado_${prefix}`]: cpFacilityValue(facility, 'estado'),
+    [`id_ubicacion_${prefix}`]: cpFacilityValue(facility, 'id_ubicacion')
+  };
 }
 function cpMercanciaValue(merc, key){
   const md = cpMeta(merc);
@@ -226,21 +243,16 @@ function applyCpRutaDefaults(){
   const gas = gasLpMercancia();
   if(!ruta){
     if(cpRouteSummary) cpRouteSummary.innerHTML = '<div><span>Ruta</span><b>Selecciona una ruta frecuente</b></div>';
-    if(cpMercanciaSummary) cpMercanciaSummary.innerHTML = '<div><span>Mercancía</span><b>Gas LP configurado desde ruta</b></div>';
+    if(cpMercanciaSummary) cpMercanciaSummary.innerHTML = '<div><span>Mercancía</span><b>Gas LP del catálogo</b></div>';
     return;
   }
-  const md = cpMeta(ruta);
   if(cpOrigen && ruta.origen_facility_id) cpOrigen.value = String(ruta.origen_facility_id);
   if(cpDestino && ruta.destino_facility_id) cpDestino.value = String(ruta.destino_facility_id);
   if(cpDistancia) cpDistancia.value = ruta.distancia_km || 0;
   if(cpTiempoMin) cpTiempoMin.value = String(cpRouteTimeMinutes(ruta) || 0);
-  if(cpMercancia) cpMercancia.value = String(md.mercancia_default_id || gas?.id || '');
-  if(cpVehiculo && md.vehiculo_default_id) cpVehiculo.value = String(md.vehiculo_default_id);
-  else if(cpVehiculo) cpVehiculo.value = '';
-  if(cpChofer && md.chofer_default_id) cpChofer.value = String(md.chofer_default_id);
-  else if(cpChofer) cpChofer.value = '';
-  cpVehiculo?.closest('div')?.classList.toggle('hide', !!md.vehiculo_default_id);
-  cpChofer?.closest('div')?.classList.toggle('hide', !!md.chofer_default_id);
+  if(cpMercancia) cpMercancia.value = String(gas?.id || '');
+  if(cpVehiculo) cpVehiculo.value = '';
+  if(cpChofer) cpChofer.value = '';
   updateCpLlegada();
   updateCpPeso();
   renderCpRouteSummary();
@@ -251,8 +263,7 @@ function updateCpLlegada(){
 }
 function renderCpRouteSummary(){
   const ruta = cpSelectedRoute();
-  const md = cpMeta(ruta);
-  const gas = (CATALOGOS.mercancias || []).find(m => String(m.id) === String(md.mercancia_default_id)) || gasLpMercancia();
+  const gas = gasLpMercancia();
   const rows = [
     ['Origen', cpName('instalaciones', cpOrigen?.value)],
     ['Destino', cpName('instalaciones', cpDestino?.value)],
@@ -264,9 +275,7 @@ function renderCpRouteSummary(){
   if(cpMercanciaSummary) cpMercanciaSummary.innerHTML = `<div><span>Mercancía</span><b>${esc(gas?.alias || gas?.descripcion || 'Gas LP no configurado')}</b></div><div><span>BienesTransp</span><b>${esc(gas?.bienes_transp || '—')}</b></div><div><span>Material peligroso</span><b>${esc(gas?.clave_material_peligroso || '—')}</b></div><div><span>Unidad</span><b>${esc(gas?.clave_unidad || '—')}</b></div>`;
 }
 function selectedCp(){
-  const ruta = cpSelectedRoute();
-  const md = cpMeta(ruta);
-  const merc = (CATALOGOS.mercancias || []).find(m => String(m.id) === String(md.mercancia_default_id || cpMercancia?.value)) || gasLpMercancia();
+  const merc = (CATALOGOS.mercancias || []).find(m => String(m.id) === String(cpMercancia?.value)) || gasLpMercancia();
   const veh = (CATALOGOS.vehiculos || []).find(v => String(v.id) === String(cpVehiculo?.value));
   const chofer = (CATALOGOS.choferes || []).find(c => String(c.id) === String(cpChofer?.value));
   const instalaciones = CATALOGOS.instalaciones || CATALOGOS.ubicaciones || [];
@@ -292,7 +301,6 @@ function updateCpPeso(){
 }
 function cpChecklistResult(){
   const ruta = cpSelectedRoute();
-  const rutaMd = cpMeta(ruta);
   const s = selectedCp();
   const vehPermiso = String(cpVehicleValue(s.veh, 'permiso')).trim().toUpperCase();
   const salida = cpSalida?.value ? new Date(cpSalida.value) : null;
@@ -314,7 +322,7 @@ function cpChecklistResult(){
     if(km <= 1) errors.push('Ruta: distancia recorrida debe ser real y mayor a 1 km.');
     else ok.push('Ruta con distancia operativa.');
     if(minutes <= 0) errors.push('Ruta: falta duración estimada para calcular llegada.');
-    if(!rutaMd.mercancia_default_id && !s.merc) errors.push('Ruta: falta mercancía Gas LP default.');
+    if(!s.merc) errors.push('Mercancía: falta configurar Gas LP en el catálogo de mercancías.');
   }
 
   req('Origen', 'CP', cpFacilityValue(s.origen, 'cp'));
@@ -667,21 +675,12 @@ function renderAssistantCpForm(){
     acpField('acpm_descemb','Descripción embalaje',row?.descripcion_embalaje||'','text','placeholder="Descripción si aplica"')
   ].join('');
   if(kind==='rutas'){
-    const gas = gasLpMercancia();
-    const gasLabel = gas ? `${gas.alias || gas.descripcion || 'Gas LP'} · ${gas.bienes_transp} · ${gas.clave_material_peligroso} · ${gas.clave_unidad}` : 'Configura mercancía Gas LP en Mercancías';
     body = [
-      acpField('acpr_nombre','<span class="acp-required">Nombre de la ruta</span>',row?.nombre||'','text','placeholder="Ags → GDL Principal"'),
-      acpSelect('acpr_origen','Instalación origen',cpOption(assistantCpRows('instalaciones').filter(u=>['origen','ambos',''].includes(u.tipo||'')),u=>u.alias||u.nombre||u.id),row?.origen_facility_id||''),
-      acpSelect('acpr_destino','Instalación destino',cpOption(assistantCpRows('instalaciones').filter(u=>['destino','ambos',''].includes(u.tipo||'')),u=>u.alias||u.nombre||u.id),row?.destino_facility_id||''),
-      acpField('acpr_cpo','CP origen',row?.cp_origen||'','text','placeholder="20000" maxlength="5"'),
-      acpField('acpr_no','Localidad origen',md.nombre_origen||row?.nombre_origen||'','text','placeholder="Aguascalientes, Ags"'),
-      acpField('acpr_cpd','CP destino',row?.cp_destino||'','text','placeholder="44100" maxlength="5"'),
-      acpField('acpr_nd','Localidad destino',md.nombre_destino||row?.nombre_destino||'','text','placeholder="Guadalajara, Jal"'),
+      acpField('acpr_nombre','<span class="acp-required">Nombre de la ruta</span>',row?.nombre||'','text','placeholder="Ags a GDL Principal"'),
+      acpSelect('acpr_origen','<span class="acp-required">Instalación origen</span>',cpOption(assistantCpRows('instalaciones').filter(u=>['origen','ambos',''].includes(u.tipo||'')),u=>u.alias||u.nombre||u.id),row?.origen_facility_id||''),
+      acpSelect('acpr_destino','<span class="acp-required">Instalación destino</span>',cpOption(assistantCpRows('instalaciones').filter(u=>['destino','ambos',''].includes(u.tipo||'')),u=>u.alias||u.nombre||u.id),row?.destino_facility_id||''),
       acpField('acpr_km','Distancia recorrida km',row?.distancia_km||'','text','inputmode="decimal" placeholder="250"'),
-      acpField('acpr_tiempo_min','Duración estimada minutos',row?.tiempo_estimado_minutos||md.tiempo_estimado_minutos||cpRouteTimeMinutes(row)||'','number','min="1" step="1" placeholder="180"'),
-      acpSelect('acpr_veh','Vehículo default opcional',cpOption(CATALOGOS.vehiculos,v=>acpTitle('vehiculos',v)),md.vehiculo_default_id||''),
-      acpSelect('acpr_chof','Chofer default opcional',cpOption(CATALOGOS.choferes,c=>c.nombre||c.id),md.chofer_default_id||''),
-      `<div class="form-span"><label>Mercancía default fija</label><input class="locked-field" readonly value="${esc(gasLabel)}"><input id="acpr_merc" type="hidden" value="${esc(gas?.id || '')}"></div>`
+      acpField('acpr_tiempo_min','Duración estimada minutos',row?.tiempo_estimado_minutos||md.tiempo_estimado_minutos||cpRouteTimeMinutes(row)||'','number','min="1" step="1" placeholder="180"')
     ].join('');
   }
   const icon = kind==='vehiculos' ? 'fa-truck' : kind==='choferes' ? 'fa-id-card' : kind==='rutas' ? 'fa-route' : kind==='mercancias' ? 'fa-boxes-stacked' : 'fa-location-dot';
@@ -689,7 +688,8 @@ function renderAssistantCpForm(){
 }
 function renderAssistantCpCard(kind,row){
   const md = cpMeta(row);
-  const line = kind==='vehiculos' ? `${row.placas||'Placas —'} · ${row.config_vehicular||'Config. —'} · Activo` : kind==='choferes' ? `${row.rfc||'RFC —'} · ${row.licencia||'Lic. —'}` : kind==='instalaciones' ? `${row.tipo||'ambos'} · ${row.codigo_postal||'CP —'} · ${row.id_ubicacion_carta_porte||row.id_ubicacion||'ID pendiente'}` : kind==='mercancias' ? `${row.factor_kg_litro||0} kg/L · ${row.material_peligroso?'Peligroso':'No peligroso'}` : `${row.distancia_km||0} km · ${cpRouteTimeMinutes(row)||0} min`;
+  const routePair = kind === 'rutas' ? `${cpName('instalaciones', row.origen_facility_id)} → ${cpName('instalaciones', row.destino_facility_id)}` : '';
+  const line = kind==='vehiculos' ? `${row.placas||'Placas —'} · ${row.config_vehicular||'Config. —'} · Activo` : kind==='choferes' ? `${row.rfc||'RFC —'} · ${row.licencia||'Lic. —'}` : kind==='instalaciones' ? `${row.tipo||'ambos'} · ${row.codigo_postal||'CP —'} · ${row.id_ubicacion_carta_porte||row.id_ubicacion||'ID pendiente'}` : kind==='mercancias' ? `${row.factor_kg_litro||0} kg/L · ${row.material_peligroso?'Peligroso':'No peligroso'}` : `${routePair} · ${row.distancia_km||0} km · ${cpRouteTimeMinutes(row)||0} min`;
   const licenseStatus = kind === 'choferes' ? calcularEstatusLicencia(cpDriverValue(row, 'fecha_vencimiento_licencia')) : null;
   const licenseText = licenseStatus
     ? (licenseStatus.status === 'missing'
@@ -729,8 +729,16 @@ async function saveAssistantCp(){
   if(kind==='instalaciones') p = {tipo_ubicacion:acpu_tipo.value,id_ubicacion_carta_porte:acpu_id.value,estado_sat:acpu_estado.value,municipio_sat:acpu_mun.value,localidad_sat:acpu_loc.value,referencia_carta_porte:acpu_ref.value};
   if(kind==='mercancias') p = {alias:acpm_alias.value,bienes_transp:acpm_bienes.value,descripcion:acpm_desc.value,clave_unidad:acpm_clave.value,unidad:acpm_unidad.value,factor_kg_litro:cpDecimalValue(acpm_factor.value),material_peligroso:acpm_peligro.value,clave_material_peligroso:acpm_clavep.value,embalaje:acpm_emb.value,descripcion_embalaje:acpm_descemb.value};
   if(kind==='rutas') {
-    if(!acpr_merc.value){ setStatus('assistantCpMsg','Configura primero la mercancía Gas LP válida para poder guardar rutas.',false); return; }
-    p = {nombre:acpr_nombre.value,origen_facility_id:acpr_origen.value,destino_facility_id:acpr_destino.value,cp_origen:acpr_cpo.value,nombre_origen:acpr_no.value,cp_destino:acpr_cpd.value,nombre_destino:acpr_nd.value,distancia_km:cpDecimalValue(acpr_km.value),tiempo_estimado_minutos:acpr_tiempo_min.value,tiempo_estimado:`${acpr_tiempo_min.value} min`,vehiculo_default_id:acpr_veh.value,chofer_default_id:acpr_chof.value,mercancia_default_id:acpr_merc.value};
+    p = {
+      nombre: acpr_nombre.value,
+      origen_facility_id: acpr_origen.value,
+      destino_facility_id: acpr_destino.value,
+      distancia_km: cpDecimalValue(acpr_km.value),
+      tiempo_estimado_minutos: acpr_tiempo_min.value,
+      tiempo_estimado: `${acpr_tiempo_min.value} min`,
+      ...cpRouteFacilityPayload('origen', acpr_origen.value),
+      ...cpRouteFacilityPayload('destino', acpr_destino.value)
+    };
   }
   const id = assistantCpEdit.kind === kind ? assistantCpEdit.id : '';
   const path = `${acpEndpoint(kind,id)}?${acpParams(p)}`;

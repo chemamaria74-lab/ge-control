@@ -157,6 +157,9 @@ async function saveClienteFromTab(){
       setClientesFeedback(discountValidation.message, false);
       return;
     }
+    const currentClient = EDIT_CLIENT_ID ? CLIENTES.find(c => Number(c.id) === Number(EDIT_CLIENT_ID)) : null;
+    const currentCredit = clienteCreditFields(currentClient);
+    const currentDiscount = clienteDiscountFields(currentClient);
     const payload = {
       rfc:cliRfc.value,
       nombre:cliNombre.value,
@@ -169,8 +172,11 @@ async function saveClienteFromTab(){
       credito_habilitado: creditoHabilitado,
       dias_credito: diasCredito,
       limite_credito: cliLimiteCredito?.value ? Number(cliLimiteCredito.value) : null,
-      credito_notas: cliCreditoNotas?.value || '',
-      ...discountValidation.payload
+      credito_notas: currentCredit.credito_notas || '',
+      ...discountValidation.payload,
+      descuento_vigencia_inicio: currentDiscount.vigencia_inicio || '',
+      descuento_vigencia_fin: currentDiscount.vigencia_fin || '',
+      descuento_notas: currentDiscount.notas || ''
     };
     const url = EDIT_CLIENT_ID ? `/api/internal-auth/gas-lp/clientes/${encodeURIComponent(EDIT_CLIENT_ID)}` : '/api/internal-auth/gas-lp/clientes';
     const wasEdit = !!EDIT_CLIENT_ID;
@@ -297,6 +303,7 @@ function resetFacturaFormAfterSuccess(opts={}){
   litros.value = '0';
   descuento.value = '0';
   if(descuentoTipo) descuentoTipo.value = 'sin_descuento';
+  if(window.descuentoHelp) descuentoHelp.textContent = '';
   comentarios.value = '';
   fechaEmision.value = localDateTimeValue();
   facilitySelect.value = '';

@@ -245,22 +245,31 @@ function applyClienteDiscount(c){
   if(!clienteHasActiveDiscount(c)){
     if(descuentoTipo) descuentoTipo.value = 'sin_descuento';
     if(descuento) descuento.value = '0';
+    if(window.descuentoHelp) descuentoHelp.textContent = '';
     updateDiscountMode();
     return;
   }
+  if(descuentoTipo) descuentoTipo.dataset.autoApplied = '1';
+  if(descuento) descuento.dataset.autoApplied = '1';
   if(d.tipo === 'precio_especial'){
     setUnitPrice(d.precio_especial_litro, 'client_discount');
     if(descuentoTipo) descuentoTipo.value = 'sin_descuento';
     if(descuento) descuento.value = '0';
+    if(window.descuentoHelp) descuentoHelp.textContent = 'Precio especial autorizado del cliente aplicado automáticamente. Puedes modificar el precio para esta factura.';
     updateDiscountMode();
     return;
   }
   if(descuentoTipo) descuentoTipo.value = d.tipo === 'total_pesos' ? 'total_pesos' : 'por_litro';
   if(descuento){
-    const perLiter = d.tipo === 'porcentaje' ? effectiveUnitPrice() * (Number(d.valor || 0) / 100) : d.valor;
-    descuento.value = String(perLiter || 0);
+    descuento.value = String(d.valor || 0);
   }
+  if(window.descuentoHelp) descuentoHelp.textContent = 'Descuento autorizado del cliente aplicado automáticamente. Puedes modificarlo para esta factura.';
   updateDiscountMode();
+}
+function markManualDiscount(){
+  if(descuentoTipo) descuentoTipo.dataset.autoApplied = '';
+  if(descuento) descuento.dataset.autoApplied = '';
+  if(window.descuentoHelp) descuentoHelp.textContent = 'Descuento modificado manualmente para esta factura.';
 }
 function configuredUnitPrice(){
   return unitPriceConfigured() ? numericFrom(CURRENT_COMPANY?.precio_venta_litro) : 0;
@@ -383,14 +392,10 @@ function setClientesTabDefaults(){
   if(window.cliCreditoHabilitado) cliCreditoHabilitado.value = '0';
   if(window.cliDiasCredito) cliDiasCredito.value = '0';
   if(window.cliLimiteCredito) cliLimiteCredito.value = '';
-  if(window.cliCreditoNotas) cliCreditoNotas.value = '';
   if(window.cliDescuentoActivo) cliDescuentoActivo.value = '0';
   if(window.cliTipoDescuento) cliTipoDescuento.value = 'sin_descuento';
   if(window.cliDescuentoValor) cliDescuentoValor.value = '';
-  if(window.cliPrecioEspecial) cliPrecioEspecial.value = '';
-  if(window.cliDescuentoInicio) cliDescuentoInicio.value = '';
-  if(window.cliDescuentoFin) cliDescuentoFin.value = '';
-  if(window.cliDescuentoNotas) cliDescuentoNotas.value = '';
+  if(typeof updateClientCreditForm === 'function') updateClientCreditForm();
   if(typeof updateClientDiscountForm === 'function') updateClientDiscountForm();
   cliRegimen.value = '616';
   cliUso.value = 'S01';
@@ -515,6 +520,7 @@ function resetInvoiceTransientState(opts={}){
   if(!opts.keepCliente) clienteSelect.value = '';
   descuento.value = '0';
   if(descuentoTipo) descuentoTipo.value = 'sin_descuento';
+  if(window.descuentoHelp) descuentoHelp.textContent = '';
   comentarios.value = '';
   ensureFolio();
   invoiceConfirmModal?.classList.add('hide');

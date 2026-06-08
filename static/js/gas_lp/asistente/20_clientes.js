@@ -135,15 +135,11 @@ function editCliente(id){
   if(window.cliCreditoHabilitado) cliCreditoHabilitado.value = credit.credito_habilitado ? '1' : '0';
   if(window.cliDiasCredito) cliDiasCredito.value = Number(credit.dias_credito || 0);
   if(window.cliLimiteCredito) cliLimiteCredito.value = credit.limite_credito ?? '';
-  if(window.cliCreditoNotas) cliCreditoNotas.value = credit.credito_notas || '';
   const discount = clienteDiscountFields(c);
   if(window.cliDescuentoActivo) cliDescuentoActivo.value = clienteHasActiveDiscount(c) ? '1' : '0';
   if(window.cliTipoDescuento) cliTipoDescuento.value = discount.tipo || 'sin_descuento';
-  if(window.cliDescuentoValor) cliDescuentoValor.value = discount.valor || '';
-  if(window.cliPrecioEspecial) cliPrecioEspecial.value = discount.precio_especial_litro || '';
-  if(window.cliDescuentoInicio) cliDescuentoInicio.value = discount.vigencia_inicio || '';
-  if(window.cliDescuentoFin) cliDescuentoFin.value = discount.vigencia_fin || '';
-  if(window.cliDescuentoNotas) cliDescuentoNotas.value = discount.notas || '';
+  if(window.cliDescuentoValor) cliDescuentoValor.value = discount.tipo === 'precio_especial' ? (discount.precio_especial_litro || '') : (discount.valor || '');
+  updateClientCreditForm();
   updateClientDiscountForm();
   cliRegimen.value = c.regimen_fiscal || '616';
   cliUso.value = c.uso_cfdi || 'S01';
@@ -152,14 +148,33 @@ function editCliente(id){
   setClientesFeedback(`Editando cliente: ${c.nombre || c.rfc || id}`);
 }
 
+function updateClientCreditForm(){
+  const enabled = cliCreditoHabilitado?.value === '1';
+  if(cliDiasCredito){
+    cliDiasCredito.disabled = !enabled;
+    if(!enabled) cliDiasCredito.value = '0';
+  }
+  if(cliLimiteCredito) cliLimiteCredito.disabled = !enabled;
+}
+
 function updateClientDiscountForm(){
   const active = cliDescuentoActivo?.value === '1';
   const type = active ? (cliTipoDescuento?.value || 'sin_descuento') : 'sin_descuento';
-  const special = type === 'precio_especial';
-  if(cliDescuentoValorField) cliDescuentoValorField.classList.toggle('hide', !active || special || type === 'sin_descuento');
-  if(cliPrecioEspecialField) cliPrecioEspecialField.classList.toggle('hide', !active || !special);
+  if(!active && cliTipoDescuento) cliTipoDescuento.value = 'sin_descuento';
+  const visible = active && type !== 'sin_descuento';
+  if(cliDescuentoValorField) cliDescuentoValorField.classList.toggle('hide', !visible);
   if(cliDescuentoValorLabel){
-    cliDescuentoValorLabel.textContent = type === 'porcentaje' ? 'Porcentaje de descuento' : (type === 'total_pesos' ? 'Descuento total a restar' : 'Descuento por litro a restar');
+    cliDescuentoValorLabel.textContent = type === 'precio_especial' ? 'Precio especial por litro con IVA' : (type === 'total_pesos' ? 'Descuento total' : 'Descuento por litro');
+  }
+  if(cliDescuentoValor){
+    cliDescuentoValor.disabled = !visible;
+    cliDescuentoValor.placeholder = type === 'precio_especial' ? 'Ej. 10.50' : (type === 'total_pesos' ? 'Ej. 100.00' : 'Ej. 1.00');
+    if(!visible) cliDescuentoValor.value = '';
+  }
+  if(window.cliDescuentoValorHint){
+    cliDescuentoValorHint.textContent = type === 'precio_especial'
+      ? 'Este precio reemplaza el precio normal del litro.'
+      : (type === 'total_pesos' ? 'Se descontará este monto al total de la factura.' : 'Se descontará este monto por cada litro.');
   }
 }
 
@@ -167,21 +182,20 @@ function validateClientDiscountPayload(){
   const active = cliDescuentoActivo?.value === '1';
   const type = active ? (cliTipoDescuento?.value || 'sin_descuento') : 'sin_descuento';
   const value = decimalInputValue(cliDescuentoValor?.value || 0);
-  const special = decimalInputValue(cliPrecioEspecial?.value || 0);
-  if(!active || type === 'sin_descuento') return {ok:true, payload:{descuento_activo:false,tipo_descuento_cliente:'sin_descuento',descuento_valor:0,precio_especial_litro:0}};
-  if(type === 'porcentaje' && (value <= 0 || value > 100)) return {ok:false, message:'El porcentaje de descuento debe ser mayor a 0 y no mayor a 100%.'};
+  if(!active) return {ok:true, payload:{descuento_activo:false,tipo_descuento_cliente:'sin_descuento',descuento_valor:0,precio_especial_litro:0}};
+  if(type === 'sin_descuento') return {ok:false, message:'Selecciona el tipo de descuento autorizado.'};
   if(['por_litro','total_pesos'].includes(type) && value <= 0) return {ok:false, message:'El descuento debe ser un número mayor a cero.'};
-  if(type === 'precio_especial' && special <= 0) return {ok:false, message:'El precio especial por litro debe ser mayor a cero.'};
+  if(type === 'precio_especial' && value <= 0) return {ok:false, message:'El precio especial por litro debe ser mayor a cero.'};
   return {
     ok:true,
     payload:{
       descuento_activo:true,
       tipo_descuento_cliente:type,
-      descuento_valor:value,
-      precio_especial_litro:special,
-      descuento_vigencia_inicio:cliDescuentoInicio?.value || '',
-      descuento_vigencia_fin:cliDescuentoFin?.value || '',
-      descuento_notas:cliDescuentoNotas?.value || ''
+      descuento_valor:type === 'precio_especial' ? 0 : value,
+      precio_especial_litro:type === 'precio_especial' ? value : 0,
+      descuento_vigencia_inicio:'',
+      descuento_vigencia_fin:'',
+      descuento_notas:''
     }
   };
 }
