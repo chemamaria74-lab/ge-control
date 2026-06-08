@@ -523,17 +523,38 @@ function acpParams(params){
   });
   return qs.toString();
 }
-function assistantCpSavedRow(kind,id,payload){
-  const rows = assistantCpRows(kind);
-  if(id) return rows.find(row => String(row.id) === String(id));
-  if(kind === 'mercancias') return rows.find(row =>
-    String(row.alias || '').trim().toLowerCase() === String(payload.alias || '').trim().toLowerCase()
-    && String(row.bienes_transp || '').trim() === String(payload.bienes_transp || '').trim()
-  );
-  if(kind === 'vehiculos') return rows.find(row => String(row.placas || '').trim().toUpperCase() === String(payload.placa || payload.placas || '').trim().toUpperCase());
-  if(kind === 'choferes') return rows.find(row => String(row.nombre || '').trim().toLowerCase() === String(payload.nombre || '').trim().toLowerCase());
-  if(kind === 'rutas') return rows.find(row => String(row.nombre || '').trim().toLowerCase() === String(payload.nombre || '').trim().toLowerCase());
-  return null;
+function assistantCpDebug(stage, detail={}){
+  try{ console.debug('[GasLP Carta Porte catálogo]', stage, detail); }catch(_){}
+}
+function assistantCpLocalKey(kind){
+  return kind === 'instalaciones' ? 'instalaciones' : kind;
+}
+function assistantCpRecordFromResponse(kind, response={}, payload={}, id=''){
+  const record = response.record && typeof response.record === 'object' ? {...response.record} : {};
+  const merged = {...payload, ...record};
+  const finalId = response.id || record.id || id;
+  if(finalId) merged.id = finalId;
+  if(kind === 'vehiculos'){
+    merged.placas = merged.placas || merged.placa || payload.placa || '';
+    merged.metadata = {...(merged.metadata || {}), alias: payload.alias || (merged.metadata || {}).alias, numero_permiso: payload.numero_permiso || (merged.metadata || {}).numero_permiso, peso_bruto_vehicular: payload.peso_bruto_vehicular || (merged.metadata || {}).peso_bruto_vehicular, aseguradora_medio_ambiente: payload.aseguradora_medio_ambiente || (merged.metadata || {}).aseguradora_medio_ambiente, poliza_medio_ambiente: payload.poliza_medio_ambiente || (merged.metadata || {}).poliza_medio_ambiente};
+  }
+  if(kind === 'choferes'){
+    merged.metadata = {...(merged.metadata || {}), tipo_licencia: payload.tipo_licencia || (merged.metadata || {}).tipo_licencia || 'E', tipo_figura: payload.tipo_figura || (merged.metadata || {}).tipo_figura || '01', fecha_expedicion_licencia: payload.fecha_expedicion_licencia || (merged.metadata || {}).fecha_expedicion_licencia, fecha_vencimiento_licencia: payload.fecha_vencimiento_licencia || (merged.metadata || {}).fecha_vencimiento_licencia};
+  }
+  if(kind === 'rutas'){
+    merged.metadata = {...(merged.metadata || {}), tiempo_estimado: payload.tiempo_estimado || (merged.metadata || {}).tiempo_estimado, tiempo_estimado_minutos: payload.tiempo_estimado_minutos || (merged.metadata || {}).tiempo_estimado_minutos, vehiculo_default_id: payload.vehiculo_default_id || (merged.metadata || {}).vehiculo_default_id, chofer_default_id: payload.chofer_default_id || (merged.metadata || {}).chofer_default_id, mercancia_default_id: payload.mercancia_default_id || (merged.metadata || {}).mercancia_default_id};
+  }
+  return merged;
+}
+function assistantCpUpsertLocal(kind, record){
+  if(!record || !record.id) return;
+  const key = assistantCpLocalKey(kind);
+  const rows = [...(CATALOGOS[key] || [])];
+  const index = rows.findIndex(row => String(row.id) === String(record.id));
+  if(index >= 0) rows[index] = {...rows[index], ...record, metadata:{...(rows[index].metadata || {}), ...(record.metadata || {})}};
+  else rows.unshift(record);
+  CATALOGOS[key] = rows;
+  assistantCpDebug('upsert-local', {kind, id:record.id, countBefore:rows.length - (index >= 0 ? 0 : 1), countAfter:rows.length});
 }
 const ACP_CONFIG_VEHICULAR = [
   ['C2','C2 - Camión unitario 2 ejes'], ['C3','C3 - Camión unitario 3 ejes'],
@@ -602,11 +623,11 @@ function renderAssistantCpForm(){
   if(kind==='choferes') body = [
     acpField('acpc_nombre','<span class="acp-required">Nombre completo</span>',row?.nombre||'','text','placeholder="Juan Pérez García"'),
     acpField('acpc_rfc','RFC',row?.rfc||'','text','placeholder="PEGJ850101AB1" maxlength="13" oninput="this.value=this.value.toUpperCase()"'),
-    acpField('acpc_curp','CURP',md.curp||row?.curp||'','text','placeholder="PEGJ850101HAGRRN09" maxlength="18" oninput="this.value=this.value.toUpperCase()"'),
     acpField('acpc_lic','<span class="acp-required">Licencia federal</span>',row?.licencia||'','text','placeholder="M123456"','Número de licencia federal vigente del operador.'),
     acpSelect('acpc_tipolic','Tipo de licencia federal',acpOptions(ACP_TIPO_LICENCIA,md.tipo_licencia||'E'),md.tipo_licencia||'E','Para hidrocarburos suele requerirse licencia federal tipo E.'),
     acpSelect('acpc_tipo','Tipo figura SAT',acpOptions(ACP_TIPO_FIGURA,md.tipo_figura||'01'),md.tipo_figura||'01','Por defecto debe ser 01 Operador.'),
-    acpField('acpc_parte','Parte transporte',md.parte_transporte||'','text','placeholder="Opcional"'),
+    acpField('acpc_exp','Expedición licencia',md.fecha_expedicion_licencia||'','date'),
+    acpField('acpc_venc','Vencimiento licencia',md.fecha_vencimiento_licencia||'','date'),
     acpField('acpc_tel','Teléfono',row?.telefono||'','text','placeholder="449 123 4567"')
   ].join('');
   if(kind==='instalaciones') body = [
@@ -651,7 +672,7 @@ function renderAssistantCpForm(){
     ].join('');
   }
   const icon = kind==='vehiculos' ? 'fa-truck' : kind==='choferes' ? 'fa-id-card' : kind==='rutas' ? 'fa-route' : kind==='mercancias' ? 'fa-boxes-stacked' : 'fa-location-dot';
-  return `<div class="acp-modal-layer"><div class="acp-modal"><div class="acp-modal-title"><i class="fa-solid ${icon}"></i><span>${row?'Editar':'Nuevo'} ${acpCfg(kind).label.toLowerCase()}</span></div><div class="acp-grid ${kind==='choferes'?'cols-3':''}">${body}</div><div class="acp-modal-footer"><button class="btn ghost" type="button" onclick="closeAssistantCpEditor()">Cancelar</button><button class="btn" type="button" onclick="saveAssistantCp()"><i class="fa-solid fa-floppy-disk"></i> Guardar</button><span id="assistantCpMsg" class="status"></span></div></div></div>`;
+  return `<div class="acp-modal-layer"><div class="acp-modal"><div class="acp-modal-title"><i class="fa-solid ${icon}"></i><span>${row?'Editar':'Nuevo'} ${acpCfg(kind).label.toLowerCase()}</span></div><div class="acp-grid">${body}</div><div class="acp-modal-footer"><button class="btn ghost" type="button" onclick="closeAssistantCpEditor()">Cancelar</button><button class="btn" type="button" onclick="saveAssistantCp()"><i class="fa-solid fa-floppy-disk"></i> Guardar</button><span id="assistantCpMsg" class="status"></span></div></div></div>`;
 }
 function renderAssistantCpCard(kind,row){
   const md = cpMeta(row);
@@ -685,7 +706,7 @@ async function saveAssistantCp(){
   let p = {};
   if(!validateAssistantCp(kind)) return;
   if(kind==='vehiculos') p = {alias:acpv_alias.value,numero_economico:acpv_num.value,placa:acpv_placas.value,anio:acpv_anio.value,config_vehicular:acpv_config.value,permiso_cre:acpv_permiso.value,numero_permiso:acpv_numperm.value,peso_bruto_vehicular:cpDecimalValue(acpv_peso.value),aseguradora:acpv_aseg.value,poliza_seguro:acpv_poliza.value,aseguradora_medio_ambiente:acpv_asegma.value,poliza_medio_ambiente:acpv_polizama.value,aseguradora_carga:acpv_asegc.value,poliza_carga:acpv_polizac.value};
-  if(kind==='choferes') p = {nombre:acpc_nombre.value,rfc:acpc_rfc.value,curp:acpc_curp.value,tipo_licencia:acpc_tipolic.value,licencia:acpc_lic.value,tipo_figura:acpc_tipo.value,parte_transporte:acpc_parte.value,telefono:acpc_tel.value};
+  if(kind==='choferes') p = {nombre:acpc_nombre.value,rfc:acpc_rfc.value,tipo_licencia:acpc_tipolic.value,licencia:acpc_lic.value,tipo_figura:acpc_tipo.value,fecha_expedicion_licencia:acpc_exp.value,fecha_vencimiento_licencia:acpc_venc.value,telefono:acpc_tel.value};
   if(kind==='instalaciones') p = {tipo_ubicacion:acpu_tipo.value,id_ubicacion_carta_porte:acpu_id.value,estado_sat:acpu_estado.value,municipio_sat:acpu_mun.value,localidad_sat:acpu_loc.value,referencia_carta_porte:acpu_ref.value};
   if(kind==='mercancias') p = {alias:acpm_alias.value,bienes_transp:acpm_bienes.value,descripcion:acpm_desc.value,clave_unidad:acpm_clave.value,unidad:acpm_unidad.value,factor_kg_litro:cpDecimalValue(acpm_factor.value),material_peligroso:acpm_peligro.value,clave_material_peligroso:acpm_clavep.value,embalaje:acpm_emb.value,descripcion_embalaje:acpm_descemb.value};
   if(kind==='rutas') {
@@ -695,15 +716,14 @@ async function saveAssistantCp(){
   const id = assistantCpEdit.kind === kind ? assistantCpEdit.id : '';
   const path = `${acpEndpoint(kind,id)}?${acpParams(p)}`;
   try{
+    assistantCpDebug('save-start', {kind, id, payload:p, endpoint:path, beforeCount:(CATALOGOS[assistantCpLocalKey(kind)] || []).length});
     const saved = await api(path,{method:id?'PUT':'POST'});
+    assistantCpDebug('save-response', {kind, response:saved});
+    const savedRecord = assistantCpRecordFromResponse(kind, saved, p, id);
+    assistantCpUpsertLocal(kind, savedRecord);
     await loadCatalogos();
-    const savedId = saved.id || id;
-    if(!assistantCpSavedRow(kind, savedId, p)){
-      assistantCpPanelOpen = true;
-      renderAssistantCpCatalogs();
-      setStatus('assistantCpMsg','El servidor respondió, pero el registro aún no aparece en catálogos. Actualiza y revisa la empresa seleccionada.',false);
-      return;
-    }
+    assistantCpUpsertLocal(kind, savedRecord);
+    assistantCpDebug('save-after-refresh', {kind, id:savedRecord.id, afterCount:(CATALOGOS[assistantCpLocalKey(kind)] || []).length});
     assistantCpEdit = {kind:'',id:null};
     assistantCpPanelOpen = false;
     renderAssistantCpCatalogs();
@@ -712,12 +732,14 @@ async function saveAssistantCp(){
 async function deactivateAssistantCp(kind,id){
   if(!confirm('¿Desactivar este registro de Carta Porte?')) return;
   await api(acpEndpoint(kind,id),{method:'DELETE'});
+  CATALOGOS[assistantCpLocalKey(kind)] = (CATALOGOS[assistantCpLocalKey(kind)] || []).filter(row => String(row.id) !== String(id));
   await loadCatalogos();
   renderAssistantCpCatalogs();
 }
 async function permanentDeleteAssistantCp(kind,id){
   if(!confirm('Eliminar definitivamente este registro de Carta Porte? Esta acción no limpia facturas históricas ni se puede deshacer.')) return;
   await api(`${acpEndpoint(kind,id)}?permanent=true`,{method:'DELETE'});
+  CATALOGOS[assistantCpLocalKey(kind)] = (CATALOGOS[assistantCpLocalKey(kind)] || []).filter(row => String(row.id) !== String(id));
   await loadCatalogos();
   renderAssistantCpCatalogs();
 }
