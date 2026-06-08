@@ -153,21 +153,18 @@ def test_gas_lp_cliente_credit_policy_is_mirrored_in_metadata():
         payload,
     )
 
-    assert row["credito_habilitado"] is True
-    assert row["dias_credito"] == 60
-    assert row["email_facturacion"] == "factura@cliente.mx"
+    assert "credito_habilitado" not in row
+    assert "dias_credito" not in row
+    assert "email_facturacion" not in row
+    assert row["metadata"]["email_facturacion"] == "factura@cliente.mx"
     assert row["metadata"]["invoice_email_additional"] == ["contabilidad@cliente.mx"]
     assert row["metadata"]["credito_ppd"]["dias_credito"] == 60
-
-    legacy_row = internal_users._gas_lp_cliente_without_optional_columns(row)
-    assert "email_facturacion" not in legacy_row
-    assert legacy_row["metadata"]["email_adicional_1"] == "contabilidad@cliente.mx"
 
     fallback = internal_users._normalize_gas_lp_cliente_credit(
         {
             "metadata": {
                 "credito_ppd": row["metadata"]["credito_ppd"],
-                "email_facturacion": row["email_facturacion"],
+                "email_facturacion": row["metadata"]["email_facturacion"],
                 "invoice_email_additional": row["metadata"]["invoice_email_additional"],
             }
         }
