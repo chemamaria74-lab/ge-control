@@ -12,6 +12,7 @@ let EDIT_CLIENT_ID = null;
 let DESCUENTOS_SEARCH = '';
 let EMAIL_FACTURA_ID = null;
 let DASH_CLIENT_KEY = '';
+let DISCOUNT_CLIENT_KEY = '';
 let isStamping = false;
 let suppressFacturaStatus = false;
 let invoiceUserInteractedAt = 0;
