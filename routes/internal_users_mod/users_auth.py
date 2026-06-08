@@ -453,9 +453,10 @@ async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp", include_
             sb.table(table)
             .select("*")
             .eq("user_id", user.get("owner_user_id"))
-            .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
         )
+        tenant_id = user.get("tenant_id")
+        q = q.eq("tenant_id", tenant_id) if tenant_id else q.is_("tenant_id", "null")
         if not include_inactive:
             q = q.eq("activo", True)
         return q
@@ -492,4 +493,3 @@ async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp", include_
         "instalaciones": instalaciones,
         "mercancias": mercancias,
     })
-

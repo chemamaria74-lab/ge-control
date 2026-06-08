@@ -69,17 +69,16 @@ def _internal_cp_scope_query(query, user: dict):
 
 def _internal_cp_facility_config_rows(user: dict) -> dict[int, dict]:
     try:
-        rows = (
+        query = (
             get_supabase_admin()
             .table("gas_lp_facility_carta_porte_config")
             .select("*")
             .eq("user_id", user.get("owner_user_id"))
-            .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
-            .execute()
-            .data
-            or []
         )
+        tenant_id = user.get("tenant_id")
+        query = query.eq("tenant_id", tenant_id) if tenant_id else query.is_("tenant_id", "null")
+        rows = query.execute().data or []
     except Exception:
         rows = []
     return {int(row.get("facility_id") or 0): row for row in rows if row.get("facility_id")}

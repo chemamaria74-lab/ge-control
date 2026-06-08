@@ -3,6 +3,7 @@ from . import users_auth
 from . import catalogos_clientes
 from . import facturas
 from . import conciliacion
+from . import conciliacion_bancos
 from . import complementos_cancelacion
 from . import timbrado
 from . import diagnostics_detected
@@ -13,6 +14,7 @@ _MODULES = (
     catalogos_clientes,
     facturas,
     conciliacion,
+    conciliacion_bancos,
     complementos_cancelacion,
     timbrado,
     diagnostics_detected,

@@ -84,12 +84,41 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
             exc,
         )
         clientes = []
+    factura_ids = [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))]
+    try:
+        bank_rows = (
+            sb.table("gas_lp_invoice_bank_reconciliations")
+            .select("*")
+            .in_("factura_id", factura_ids)
+            .execute()
+            .data
+            or []
+        ) if factura_ids else []
+    except Exception as exc:
+        logger.warning("gas_lp_conciliacion_bank_reconciliations_skipped perfil=%s err=%s", user.get("perfil_id"), exc)
+        bank_rows = []
+    bank_by_factura = {_safe_int_id(row.get("factura_id")): row for row in bank_rows}
     total = credito = publico = complementos_pendientes = 0.0
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         info = _factura_payment_info(row)
         row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
         row["payment_info"] = _payment_info_json(info)
+        bank_row = bank_by_factura.get(_safe_int_id(row.get("id"))) or {}
+        row["bank_reconciliation"] = {
+            "id": bank_row.get("id"),
+            "factura_id": bank_row.get("factura_id") or row.get("id"),
+            "amount": float(_money(bank_row.get("amount") or 0)),
+            "difference": float(_money(bank_row.get("difference") or 0)),
+            "status": str(bank_row.get("status") or "pendiente"),
+            "payment_detected_at": bank_row.get("payment_detected_at") or "",
+            "confirmed_by": bank_row.get("confirmed_by") or "",
+            "confirmed_by_name": bank_row.get("confirmed_by_name") or "",
+            "confirmed_at": bank_row.get("confirmed_at") or "",
+            "reference_note": bank_row.get("reference_note") or "",
+            "comment": bank_row.get("comment") or "",
+            "updated_at": bank_row.get("updated_at") or "",
+        }
         row["issuer_info"] = {
             "rfc": _gas_lp_factura_emisor_rfc(row),
             "nombre": _gas_lp_factura_emisor_nombre(row),

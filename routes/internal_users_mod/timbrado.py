@@ -237,6 +237,23 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
             rfc=receptor.get("rfc") or "",
             instalacion=origen.get("nombre") or origen.get("clave_instalacion") or str(payload.facility_id),
         )
+        existing_sale = _gas_lp_existing_sale_invoice(sb, user, payload, totals, receptor)
+        if existing_sale:
+            md_existing = existing_sale.get("metadata") if isinstance(existing_sale.get("metadata"), dict) else {}
+            raise HTTPException(409, {
+                "message": "Ya existe una factura timbrada con la misma fecha, instalación, litros, total, receptor y asistente. No se envió otro timbrado al PAC para evitar duplicados.",
+                "code": "gas_lp_invoice_duplicate",
+                "factura_id": existing_sale.get("id"),
+                "uuid_sat": existing_sale.get("uuid_sat") or "",
+                "status": existing_sale.get("status") or "",
+                "invoice": {
+                    "fecha": str(md_existing.get("fecha_emision") or "")[:10],
+                    "instalacion": md_existing.get("origen_nombre") or md_existing.get("origen_facility_name") or "",
+                    "litros": float(existing_sale.get("volumen_litros") or 0),
+                    "total": md_existing.get("total") or totals.get("total"),
+                    "cliente": md_existing.get("receptor_nombre") or md_existing.get("cliente_nombre") or receptor.get("nombre") or "",
+                },
+            })
     hyp_node_xml = _gas_lp_hyp_xml_fragment(hyp)
     sw_config = sw_runtime_config()
     sw_sandbox = _sw_config_looks_like_sandbox(sw_config)
