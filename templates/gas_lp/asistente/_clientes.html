@@ -1,4 +1,10 @@
-    <section id="panel-clientes" class="tab-panel card">
+    <section id="panel-clientes" class="tab-panel">
+      <nav class="subtabs" aria-label="Clientes">
+        <button class="subtab-btn active" id="clients-tab-clientes" type="button" onclick="switchClientsTab('clientes')"><i class="fa-solid fa-users"></i> Clientes</button>
+        <button class="subtab-btn" id="clients-tab-credito" type="button" onclick="switchClientsTab('credito')"><i class="fa-solid fa-hand-holding-dollar"></i> Crédito</button>
+        <button class="subtab-btn" id="clients-tab-descuentos" type="button" onclick="switchClientsTab('descuentos')"><i class="fa-solid fa-tags"></i> Descuentos</button>
+      </nav>
+      <div id="clients-panel-clientes" class="clients-subpanel card active">
       <div class="section-title">
         <div>
           <h2>Clientes</h2>
@@ -43,4 +49,7 @@
       </div>
       <div><label>Buscar cliente</label><input id="clienteSearch" placeholder="Nombre, RFC, CP o uso CFDI" oninput="renderClientesList()"></div>
       <div class="list client-list" id="clientesList"><div class="empty">Cargando clientes...</div></div>
+      </div>
+      <!-- ge-include: gas_lp/asistente/_dashboard.html -->
+      <!-- ge-include: gas_lp/asistente/_descuentos.html -->
     </section>

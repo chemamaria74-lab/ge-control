@@ -1,7 +1,8 @@
     <section id="panel-facturacion" class="tab-panel active">
       <nav class="subtabs" aria-label="Flujo de facturación">
         <button class="subtab-btn active" id="billing-tab-facturar" type="button" onclick="switchBillingTab('facturar')"><i class="fa-solid fa-stamp"></i> Facturar</button>
-        <button class="subtab-btn" id="billing-tab-complementos" type="button" onclick="switchBillingTab('complementos')"><i class="fa-solid fa-receipt"></i> Complemento de pago</button>
+        <button class="subtab-btn" id="billing-tab-facturas" type="button" onclick="switchBillingTab('facturas')"><i class="fa-solid fa-file-invoice"></i> Facturas</button>
+        <button class="subtab-btn" id="billing-tab-complementos" type="button" onclick="switchBillingTab('complementos')"><i class="fa-solid fa-receipt"></i> Complementos de pago</button>
       </nav>
     <div id="billing-panel-facturar" class="billing-subpanel active">
     <div id="facturacion" class="work-grid">
@@ -95,6 +96,7 @@
       </div>
     </div>
     </div>
+    <!-- ge-include: gas_lp/asistente/_facturas.html -->
     <div id="billing-panel-complementos" class="billing-subpanel">
       <div class="card">
         <div class="section-title">
