@@ -54,7 +54,7 @@ async function load(){
   }
 }
 function openClientesTab(){
-  switchPortalTab('clientes');
+  switchPortalTab('clientes','clientes');
   document.getElementById('clienteSearch')?.focus();
 }
 function usePublicoGeneral(){
@@ -105,7 +105,7 @@ function renderClientesList(){
     </div>`}).join('') : '<div class="empty">Sin clientes con ese filtro.</div>';
 }
 function selectClienteFromList(id){
-  switchPortalTab('facturacion');
+  switchPortalTab('facturacion','facturar');
   clienteSelect.value = String(id);
   selectCliente();
   clienteSelect.focus();
@@ -381,7 +381,7 @@ function onDescuentosSearch(value){
 }
 
 function editDiscountClient(id){
-  switchPortalTab('clientes');
+  switchPortalTab('clientes','clientes');
   editCliente(id);
   document.getElementById('cliDescuentoActivo')?.focus();
 }

@@ -27,7 +27,17 @@ function filterRutasForTransfer(){
   if(origen && destino && !rutas.length) setStatus('facturaMsg','No hay ruta para ese origen/destino. Crea o edita la ruta en Carta Porte > Configuración.',false);
   updateTransferReady();
 }
-function cpMeta(row){ return row?.metadata && typeof row.metadata === 'object' ? row.metadata : {}; }
+function cpMeta(row){
+  if(row?.metadata && typeof row.metadata === 'object') return row.metadata;
+  if(row?.metadata_json && typeof row.metadata_json === 'object') return row.metadata_json;
+  if(typeof row?.metadata === 'string'){
+    try{ const parsed = JSON.parse(row.metadata); return parsed && typeof parsed === 'object' ? parsed : {}; }catch(_e){}
+  }
+  if(typeof row?.metadata_json === 'string'){
+    try{ const parsed = JSON.parse(row.metadata_json); return parsed && typeof parsed === 'object' ? parsed : {}; }catch(_e){}
+  }
+  return {};
+}
 function cpDecimalValue(value, fallback=''){
   const text = String(value ?? '').trim().replace(',', '.');
   if(!text) return fallback;
@@ -92,7 +102,7 @@ function setCartaPorteButton(loading=false){
   if(!btn) return;
   btn.disabled = !!loading;
   if(loading) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando...';
-  else btn.innerHTML = CP_PREVIEW_VALIDO ? '<i class="fa-solid fa-stamp"></i> Timbrar Carta Porte' : '<i class="fa-solid fa-circle-check"></i> Validar Carta Porte';
+  else btn.innerHTML = '<i class="fa-solid fa-stamp"></i> Timbrar Carta Porte';
 }
 function cpValue(...values){
   for(const value of values){
@@ -229,12 +239,9 @@ function renderCartaPorteWizard(){
           <div class="form-span"><div id="cpMercanciaSummary" class="cp-preview"><div><span>Mercancía</span><b>Gas LP configurado desde ruta</b></div></div></div>
         </div>
       </div>
-      <div class="cp-step">
-        <h3>4. Validación de Carta Porte</h3>
-        <div id="cpChecklist" class="cp-checklist"></div>
-        <div id="cpPreview" class="cp-validation-summary"></div>
-      </div>
-    </div>`;
+    </div>
+    <div id="cpChecklist" class="cp-checklist" style="display:none"></div>
+    <div id="cpPreview" class="cp-validation-summary" style="display:none"></div>`;
   updateCpPeso();
   applyCpRutaDefaults();
   setCartaPorteButton(false);
@@ -393,7 +400,7 @@ function prepararCartaPortePreview(){
   const checklist = cpChecklistResult();
   renderCpChecklist(checklist);
   if(checklist.errors.length){
-    setStatus('cpMsg',`Carta Porte incompleta. Corrige ${checklist.errors.length} punto(s) del checklist antes de timbrar.`,false);
+    setStatus('cpMsg',`Carta Porte incompleta: ${checklist.errors.slice(0, 4).join(' · ')}${checklist.errors.length > 4 ? ' · Revisa los datos capturados.' : ''}`,false);
     return false;
   }
   const html = [
@@ -409,12 +416,11 @@ function prepararCartaPortePreview(){
     ['Llegada', (cpLlegada.value || '').replace('T',' ')],
     ['Alertas críticas', checklist.errors.length ? `${checklist.errors.length} error(es)` : 'Sin alertas críticas']
   ].map(([k,v])=>`<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
-  cpPreview.innerHTML = html;
+  if(cpPreview) cpPreview.innerHTML = html;
   CP_FINAL_PAYLOAD = cartaPortePayload();
   CP_PREVIEW_VALIDO = true;
   CP_PREVIEW_READY = true;
   setCartaPorteButton(false);
-  setStatus('cpMsg','Carta Porte validada. Revisa el resumen y confirma para timbrar CFDI tipo T.');
   return true;
 }
 function cartaPortePayload(){
@@ -515,8 +521,7 @@ async function handleCartaPorteAction(){
     setStatus('cpMsg','Ya se está timbrando una Carta Porte. Espera a que termine el proceso.',false);
     return;
   }
-  if(CP_PREVIEW_VALIDO) await timbrarCartaPorteGasLp();
-  else prepararCartaPortePreview();
+  await timbrarCartaPorteGasLp();
 }
 let assistantCpKind = 'vehiculos';
 let assistantCpEdit = {kind:'', id:null};

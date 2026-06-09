@@ -178,7 +178,7 @@ function selectDashboardClient(key){
 function configureDashboardClient(id){
   const c = CLIENTES.find(x => Number(x.id) === Number(id));
   if(!c) return;
-  switchPortalTab('clientes');
+  switchPortalTab('clientes','clientes');
   editCliente(id);
   clienteFormClientes?.scrollIntoView({behavior:'smooth', block:'start'});
 }

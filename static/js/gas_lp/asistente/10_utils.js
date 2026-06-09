@@ -88,18 +88,26 @@ function calcularEstatusLicencia(fechaVencimiento){
 }
 function facturaDateKey(f){ return String(f.fecha_factura_key || facturaDateValue(f) || '').slice(0,10); }
 function facturaTimeLabel(f){ return String(facturaDateValue(f) || '').slice(11,16) || String(f.created_at || '').slice(11,16) || '—'; }
-function switchPortalTab(tab){
-  ['dashboard','descuentos','facturacion','facturas','clientes','carta-porte'].forEach(name => {
-    document.getElementById(`tab-${name}`)?.classList.toggle('active', name === tab);
-    document.getElementById(`panel-${name}`)?.classList.toggle('active', name === tab);
+function switchPortalTab(tab, subtab=''){
+  const legacy = {
+    dashboard: ['clientes','credito'],
+    credito: ['clientes','credito'],
+    descuentos: ['clientes','descuentos'],
+    facturas: ['facturacion','facturas'],
+    facturacion: ['facturacion', subtab || 'facturar'],
+    clientes: ['clientes', subtab || 'clientes'],
+    'carta_porte': ['carta-porte',''],
+    'carta-porte': ['carta-porte','']
+  };
+  const [mainTab, nextSubtab] = legacy[tab] || [tab, subtab];
+  ['facturacion','clientes','carta-porte'].forEach(name => {
+    document.getElementById(`tab-${name}`)?.classList.toggle('active', name === mainTab);
+    document.getElementById(`panel-${name}`)?.classList.toggle('active', name === mainTab);
   });
-  if(tab !== 'carta-porte') resetCartaPorteState({keepStatus:true});
-  if(tab === 'dashboard') renderDashboard();
-  if(tab === 'descuentos') renderDescuentosList();
-  if(tab === 'facturacion') renderComplementosPago();
-  if(tab === 'facturas') applyFacturasFilters();
-  if(tab === 'clientes') renderClientesList();
-  if(tab === 'carta-porte') {
+  if(mainTab !== 'carta-porte') resetCartaPorteState({keepStatus:true});
+  if(mainTab === 'facturacion') switchBillingTab(nextSubtab || 'facturar');
+  if(mainTab === 'clientes') switchClientsTab(nextSubtab || 'clientes');
+  if(mainTab === 'carta-porte') {
     if(ACTIVE_CP_TAB === 'configuracion') renderAssistantCpCatalogs();
     else renderCartaPorteWizard();
   }
@@ -115,15 +123,27 @@ function switchCartaPorteTab(tab){
   else renderCartaPorteWizard();
 }
 function switchBillingTab(tab){
-  ['facturar','complementos'].forEach(name => {
-    document.getElementById(`billing-tab-${name}`)?.classList.toggle('active', name === tab);
-    document.getElementById(`billing-panel-${name}`)?.classList.toggle('active', name === tab);
+  const active = ['facturar','facturas','complementos'].includes(tab) ? tab : 'facturar';
+  ['facturar','facturas','complementos'].forEach(name => {
+    document.getElementById(`billing-tab-${name}`)?.classList.toggle('active', name === active);
+    document.getElementById(`billing-panel-${name}`)?.classList.toggle('active', name === active);
   });
-  if(tab === 'complementos') {
+  if(active === 'facturas') applyFacturasFilters();
+  if(active === 'complementos') {
     if(!compFechaPago.value) compFechaPago.value = localDateTimeValue();
     loadComplementos();
     renderComplementosPago();
   }
+}
+function switchClientsTab(tab){
+  const active = ['clientes','credito','descuentos'].includes(tab) ? tab : 'clientes';
+  ['clientes','credito','descuentos'].forEach(name => {
+    document.getElementById(`clients-tab-${name}`)?.classList.toggle('active', name === active);
+    document.getElementById(`clients-panel-${name}`)?.classList.toggle('active', name === active);
+  });
+  if(active === 'clientes') renderClientesList();
+  if(active === 'credito') renderDashboard();
+  if(active === 'descuentos') renderDescuentosList();
 }
 function localDateTimeValue(date=new Date()){
   const pad = n => String(n).padStart(2,'0');
