@@ -92,7 +92,7 @@ function setCartaPorteButton(loading=false){
   if(!btn) return;
   btn.disabled = !!loading;
   if(loading) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando...';
-  else btn.innerHTML = CP_PREVIEW_VALIDO ? '<i class="fa-solid fa-stamp"></i> Timbrar Carta Porte' : '<i class="fa-solid fa-eye"></i> Preparar vista previa';
+  else btn.innerHTML = CP_PREVIEW_VALIDO ? '<i class="fa-solid fa-stamp"></i> Timbrar Carta Porte' : '<i class="fa-solid fa-circle-check"></i> Validar Carta Porte';
 }
 function cpValue(...values){
   for(const value of values){
@@ -108,8 +108,8 @@ function cpVehicleValue(veh, key){
     numero_permiso: ['numero_permiso','num_permiso_sct','num_permiso_sict'],
     aseguradora_rc: ['aseguradora','aseguradora_rc'],
     poliza_rc: ['poliza_seguro','poliza_rc'],
-    aseguradora_medio_ambiente: ['aseguradora_medio_ambiente','aseguradora_ambiental'],
-    poliza_medio_ambiente: ['poliza_medio_ambiente','poliza_ambiental'],
+    aseguradora_medio_ambiente: ['aseguradora_medio_ambiente','aseguradora_ambiental','aseguradora_danos_medio_ambiente','aseguradora_daños_medio_ambiente','aseguraMedAmbiente','AseguraMedAmbiente'],
+    poliza_medio_ambiente: ['poliza_medio_ambiente','poliza_ambiental','poliza_danos_medio_ambiente','poliza_daños_medio_ambiente','polizaMedAmbiente','PolizaMedAmbiente'],
     peso_bruto_vehicular: ['peso_bruto_vehicular','peso_bruto'],
     anio: ['anio','anio_modelo','modelo'],
     config_vehicular: ['config_vehicular','configuracion_vehicular']
@@ -121,6 +121,7 @@ function cpDriverValue(chofer, key){
   const aliases = {
     nombre: ['nombre','nombre_completo'],
     rfc: ['rfc'],
+    curp: ['curp','CURP'],
     licencia: ['licencia','licencia_federal'],
     tipo_figura: ['tipo_figura','tipo_figura_sat'],
     tipo_licencia: ['tipo_licencia','licencia_tipo'],
@@ -191,7 +192,7 @@ function renderCartaPorteWizard(){
   const rutasOpts = cpOption(CATALOGOS.rutas, r => `${r.nombre || 'Ruta'}${r.distancia_km ? ` · ${r.distancia_km} km` : ''}${cpRouteTimeMinutes(r) ? ` · ${cpRouteTimeMinutes(r)} min` : ''}`);
   host.innerHTML = `
     <style>
-      .cp-wizard{display:grid;gap:12px}.cp-step{border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px}.cp-step h3{margin:0 0 9px;font-size:15px}.cp-step p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.45}.cp-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.cp-preview div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-preview span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-preview b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-route-hint{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800}.cp-sat-note{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;line-height:1.35}.cp-checklist{display:grid;gap:7px;margin-bottom:10px}.cp-check-row{display:flex;gap:8px;align-items:flex-start;border:1px solid #eadfd2;border-radius:8px;padding:8px 10px;background:#fff}.cp-check-row i{margin-top:2px}.cp-check-row.ok{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.cp-check-row.warn{border-color:#fde68a;background:#fffbeb;color:#92400e}.cp-check-row.error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.cp-check-row b{display:block}.cp-check-row span{display:block;font-size:12px;line-height:1.35;color:inherit;opacity:.9}
+      .cp-wizard{display:grid;gap:12px}.cp-step{border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px}.cp-step h3{margin:0 0 9px;font-size:15px}.cp-step p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.45}.cp-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.cp-preview div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-preview span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-preview b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-validation-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}.cp-validation-summary div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-validation-summary span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-validation-summary b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-route-hint{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800}.cp-sat-note{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;line-height:1.35}.cp-checklist{display:grid;gap:7px;margin-bottom:10px}.cp-check-row{display:flex;gap:8px;align-items:flex-start;border:1px solid #eadfd2;border-radius:8px;padding:8px 10px;background:#fff}.cp-check-row i{margin-top:2px}.cp-check-row.ok{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.cp-check-row.warn{border-color:#fde68a;background:#fffbeb;color:#92400e}.cp-check-row.error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.cp-check-row b{display:block}.cp-check-row span{display:block;font-size:12px;line-height:1.35;color:inherit;opacity:.9}.cp-confirm-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.cp-confirm-list div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:8px}.cp-confirm-list span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-confirm-list b{display:block;margin-top:2px;overflow-wrap:anywhere}
     </style>
     <div class="cp-wizard">
       <div class="cp-step">
@@ -229,9 +230,9 @@ function renderCartaPorteWizard(){
         </div>
       </div>
       <div class="cp-step">
-        <h3>4. Vista previa</h3>
+        <h3>4. Validación de Carta Porte</h3>
         <div id="cpChecklist" class="cp-checklist"></div>
-        <div id="cpPreview" class="cp-preview"></div>
+        <div id="cpPreview" class="cp-validation-summary"></div>
       </div>
     </div>`;
   updateCpPeso();
@@ -349,9 +350,10 @@ function cpChecklistResult(){
 
   if(!s.chofer) errors.push('Chofer: selecciona operador.');
   req('Chofer', 'nombre completo', cpDriverValue(s.chofer, 'nombre'));
-  req('Chofer', 'RFC', cpDriverValue(s.chofer, 'rfc'));
+  if(!cpDriverValue(s.chofer, 'rfc')) errors.push('Chofer sin RFC Figura SAT. Edita el chofer y captura su RFC antes de timbrar.');
   req('Chofer', 'licencia federal', cpDriverValue(s.chofer, 'licencia'));
   req('Chofer', 'tipo figura SAT', cpDriverValue(s.chofer, 'tipo_figura'));
+  if(!cpDriverValue(s.chofer, 'rfc') && cpDriverValue(s.chofer, 'curp')) warnings.push('Chofer: CURP guardada como referencia interna; el XML actual requiere RFCFigura para timbrar.');
   if(cpDriverValue(s.chofer, 'tipo_figura') && String(cpDriverValue(s.chofer, 'tipo_figura')) !== '01') warnings.push('Chofer: el tipo figura recomendado para operador es 01 Operador.');
 
   if(!s.merc) errors.push('Mercancía: configura Gas LP en catálogos.');
@@ -395,18 +397,24 @@ function prepararCartaPortePreview(){
     return false;
   }
   const html = [
-    ['Origen', cpName('instalaciones', cpOrigen.value)], ['Destino', cpName('instalaciones', cpDestino.value)], ['Distancia', `${cpDistancia.value || 0} km`],
-    ['Vehículo', cpName('vehiculos', cpVehiculo.value)], ['Placas', cpVehicleValue(s.veh, 'placas') || '—'], ['Chofer', cpDriverValue(s.chofer, 'nombre') || '—'],
-    ['Licencia', cpDriverValue(s.chofer, 'licencia') || '—'], ['Tipo figura', cpDriverValue(s.chofer, 'tipo_figura') || '—'], ['Mercancía', s.merc?.alias || s.merc?.descripcion || '—'], ['Litros', fmt(s.litrosNum)],
-    ['Peso estimado', `${s.peso.toFixed(3)} kg`], ['Material peligroso', cpTruthy(cpMercanciaValue(s.merc, 'material_peligroso')) ? 'Sí' : 'No'], ['Seguros', `RC ${cpVehicleValue(s.veh, 'aseguradora_rc') || '—'} / ${cpVehicleValue(s.veh, 'poliza_rc') || '—'} · MA ${cpVehicleValue(s.veh, 'aseguradora_medio_ambiente') || '—'} / ${cpVehicleValue(s.veh, 'poliza_medio_ambiente') || '—'}`],
-    ['Salida', (cpSalida.value || '').replace('T',' ')], ['Llegada', (cpLlegada.value || '').replace('T',' ')]
+    ['Origen', cpName('instalaciones', cpOrigen.value)],
+    ['Destino', cpName('instalaciones', cpDestino.value)],
+    ['Distancia', `${cpDistancia.value || 0} km`],
+    ['Vehículo / placas', `${cpName('vehiculos', cpVehiculo.value)} · ${cpVehicleValue(s.veh, 'placas') || '—'}`],
+    ['Chofer / licencia', `${cpDriverValue(s.chofer, 'nombre') || '—'} · ${cpDriverValue(s.chofer, 'licencia') || '—'}`],
+    ['Mercancía', s.merc?.alias || s.merc?.descripcion || '—'],
+    ['Litros', fmt(s.litrosNum)],
+    ['Peso', `${s.peso.toFixed(3)} kg`],
+    ['Salida', (cpSalida.value || '').replace('T',' ')],
+    ['Llegada', (cpLlegada.value || '').replace('T',' ')],
+    ['Alertas críticas', checklist.errors.length ? `${checklist.errors.length} error(es)` : 'Sin alertas críticas']
   ].map(([k,v])=>`<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
   cpPreview.innerHTML = html;
   CP_FINAL_PAYLOAD = cartaPortePayload();
   CP_PREVIEW_VALIDO = true;
   CP_PREVIEW_READY = true;
   setCartaPorteButton(false);
-  setStatus('cpMsg','Vista previa Carta Porte preparada. Revisa los datos y confirma para timbrar CFDI tipo T.');
+  setStatus('cpMsg','Carta Porte validada. Revisa el resumen y confirma para timbrar CFDI tipo T.');
   return true;
 }
 function cartaPortePayload(){
@@ -436,13 +444,51 @@ function cartaPortePayload(){
 }
 async function timbrarCartaPorteGasLp(){
   if(!CP_PREVIEW_VALIDO && !prepararCartaPortePreview()) return;
+  openCartaPorteConfirmModal();
+}
+function openCartaPorteConfirmModal(){
   const s = selectedCp();
-  const confirmed = confirm(`Timbrar Carta Porte tipo T?\n\nOrigen: ${cpName('instalaciones', cpOrigen.value)}\nDestino: ${cpName('instalaciones', cpDestino.value)}\nVehículo: ${s.veh?.placas || ''}\nChofer: ${s.chofer?.nombre || ''}\nLitros: ${fmt(s.litrosNum)}\nPeso: ${s.peso.toFixed(3)} kg`);
-  if(!confirmed) return;
+  const html = `
+    <div class="acp-modal-layer" id="cpConfirmModal">
+      <div class="acp-modal">
+        <div class="acp-modal-title"><i class="fa-solid fa-stamp"></i><span>Confirmar timbrado Carta Porte tipo T</span></div>
+        <div class="cp-confirm-list">
+          <div><span>Origen</span><b>${esc(cpName('instalaciones', cpOrigen.value))}</b></div>
+          <div><span>Destino</span><b>${esc(cpName('instalaciones', cpDestino.value))}</b></div>
+          <div><span>Vehículo</span><b>${esc(cpName('vehiculos', cpVehiculo.value))} · ${esc(cpVehicleValue(s.veh, 'placas') || '')}</b></div>
+          <div><span>Chofer</span><b>${esc(cpDriverValue(s.chofer, 'nombre') || '')}</b></div>
+          <div><span>Litros</span><b>${esc(fmt(s.litrosNum))}</b></div>
+          <div><span>Peso</span><b>${esc(s.peso.toFixed(3))} kg</b></div>
+        </div>
+        <div class="acp-modal-footer">
+          <button class="btn ghost" type="button" onclick="closeCartaPorteConfirmModal()">Cancelar</button>
+          <button class="btn" type="button" onclick="confirmarTimbradoCartaPorteGasLp()"><i class="fa-solid fa-file-signature"></i> Timbrar CFDI tipo T</button>
+          <span id="cpConfirmMsg" class="status"></span>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('cpConfirmModal')?.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+function closeCartaPorteConfirmModal(){
+  document.getElementById('cpConfirmModal')?.remove();
+}
+function cartaPorteErrorText(error){
+  const detail = error?.response?.detail || error?.response?.message;
+  if(error?.status === 0 || !error?.response){
+    console.error('[GasLP Carta Porte] fetch/network error', {endpoint:'/api/internal-auth/gas-lp/carta-porte', error});
+    return 'No se pudo conectar con el servidor de timbrado. Revisa conexión y vuelve a intentar; detalle técnico: ' + (error?.message || 'sin respuesta del servidor');
+  }
+  console.error('[GasLP Carta Porte] backend/PAC error', {endpoint:'/api/internal-auth/gas-lp/carta-porte', status:error.status, response:error.response, responseText:error.responseText});
+  return detailText(detail, error.message || 'No fue posible timbrar Carta Porte.');
+}
+async function confirmarTimbradoCartaPorteGasLp(){
   isStamping = true;
   setCartaPorteButton(true);
+  setStatus('cpConfirmMsg','Timbrando CFDI tipo T...');
   setStatus('cpMsg','Enviando Carta Porte a SW Sapiens...');
   try{
+    console.info('[GasLP Carta Porte] POST', {endpoint:'/api/internal-auth/gas-lp/carta-porte', payload:CP_FINAL_PAYLOAD || cartaPortePayload()});
     const data = await api('/api/internal-auth/gas-lp/carta-porte',{method:'POST',body:JSON.stringify(CP_FINAL_PAYLOAD || cartaPortePayload()),timeoutMs:90000});
     try{ await loadFacturas(); }catch(_e){}
     const validation = data.carta_porte_validation?.ok ? ' · Carta Porte validada' : (data.carta_porte_validation?.missing_key_nodes?.length ? ` · alerta: faltan ${data.carta_porte_validation.missing_key_nodes.join(', ')}` : '');
@@ -452,10 +498,13 @@ async function timbrarCartaPorteGasLp(){
     const xmlUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/xml?${q}` : '';
     setStatus('cpMsg',`Carta Porte timbrada correctamente.${validation}`);
     cpMsg.innerHTML = `${esc(cpMsg.textContent)} ${pdfUrl ? `<a class="btn ghost" href="${pdfUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF Carta Porte</a>` : ''} ${xmlUrl ? `<a class="btn ghost" href="${xmlUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML Carta Porte</a>` : ''}`;
+    closeCartaPorteConfirmModal();
     resetCartaPorteState({clearForm:true, keepStatus:true});
   }catch(e){
     const backendDetail = e.response?.detail || e.response?.message;
-    setStatus('cpMsg', detailText(backendDetail, e.message), false);
+    const message = cartaPorteErrorText(e);
+    setStatus('cpConfirmMsg', message, false);
+    setStatus('cpMsg', message, false);
   }finally{
     isStamping = false;
     setCartaPorteButton(false);
@@ -643,7 +692,8 @@ function renderAssistantCpForm(){
   ].join('');
   if(kind==='choferes') body = [
     acpField('acpc_nombre','<span class="acp-required">Nombre completo</span>',row?.nombre||'','text','placeholder="Juan Pérez García"'),
-    acpField('acpc_rfc','RFC',row?.rfc||'','text','placeholder="PEGJ850101AB1" maxlength="13" oninput="this.value=this.value.toUpperCase()"'),
+    acpField('acpc_rfc','<span class="acp-required">RFC Figura SAT</span>',row?.rfc||'','text','placeholder="PEGJ850101AB1" maxlength="13" oninput="this.value=this.value.toUpperCase()"','Obligatorio para timbrar: el XML actual envía RFCFigura.'),
+    acpField('acpc_curp','CURP interna / referencia',cpDriverValue(row, 'curp')||'','text','placeholder="CURP del operador" maxlength="18" oninput="this.value=this.value.toUpperCase()"','Se guarda como referencia interna; no sustituye RFCFigura en el XML actual.'),
     acpField('acpc_lic','<span class="acp-required">Licencia federal</span>',row?.licencia||'','text','placeholder="M123456"','Número de licencia federal vigente del operador.'),
     acpSelect('acpc_tipolic','Tipo de licencia federal',acpOptions(ACP_TIPO_LICENCIA,md.tipo_licencia||'E'),md.tipo_licencia||'E','Para hidrocarburos suele requerirse licencia federal tipo E.'),
     acpSelect('acpc_tipo','Tipo figura SAT',acpOptions(ACP_TIPO_FIGURA,md.tipo_figura||'01'),md.tipo_figura||'01','Por defecto debe ser 01 Operador.'),
@@ -712,7 +762,21 @@ function validateAssistantCp(kind){
     req('número económico', acpv_num.value); req('placas', acpv_placas.value); req('configuración vehicular SAT', acpv_config.value); req('permiso SCT/SICT', acpv_permiso.value); req('número permiso SCT/SICT', acpv_numperm.value);
     reqDecimal('peso bruto vehicular válido', acpv_peso.value); req('aseguradora de responsabilidad civil', acpv_aseg.value); req('póliza de responsabilidad civil', acpv_poliza.value); req('aseguradora de daños al medio ambiente', acpv_asegma.value); req('póliza de daños al medio ambiente', acpv_polizama.value);
   }
-  if(kind==='choferes'){ req('nombre completo', acpc_nombre.value); req('licencia federal', acpc_lic.value); req('tipo figura SAT', acpc_tipo.value); }
+  if(kind==='choferes'){
+    const rfc = String(acpc_rfc.value || '').trim().toUpperCase().replace(/\s+/g, '');
+    acpc_rfc.value = rfc;
+    req('nombre completo', acpc_nombre.value);
+    req('licencia federal', acpc_lic.value);
+    req('tipo figura SAT', acpc_tipo.value);
+    if(!rfc){
+      setStatus('assistantCpMsg','El RFC del operador es obligatorio para timbrar Carta Porte. CURP no sustituye RFCFigura.',false);
+      return false;
+    }
+    if(!/^[A-Z&Ñ]{3,4}[0-9]{6}[A-Z0-9]{3}$/.test(rfc) || ![12,13].includes(rfc.length)){
+      setStatus('assistantCpMsg','RFC Figura SAT inválido. Captura 12 o 13 caracteres alfanuméricos, sin espacios.',false);
+      return false;
+    }
+  }
   if(kind==='mercancias'){ reqDecimal('factor kg/litro válido', acpm_factor.value); }
   if(kind==='mercancias' && acpm_peligro.value === '1'){ req('clave material peligroso', acpm_clavep.value); req('embalaje SAT', acpm_emb.value); }
   if(kind==='rutas'){ req('nombre de la ruta', acpr_nombre.value); req('instalación origen', acpr_origen.value); req('instalación destino', acpr_destino.value); reqDecimal('distancia km válida', acpr_km.value); req('duración estimada', acpr_tiempo_min.value); }
@@ -725,7 +789,7 @@ async function saveAssistantCp(){
   let p = {};
   if(!validateAssistantCp(kind)) return;
   if(kind==='vehiculos') p = {numero_economico:acpv_num.value,placa:acpv_placas.value,anio:acpv_anio.value,config_vehicular:acpv_config.value,permiso_cre:acpv_permiso.value,numero_permiso:acpv_numperm.value,peso_bruto_vehicular:cpDecimalValue(acpv_peso.value),aseguradora:acpv_aseg.value,poliza_seguro:acpv_poliza.value,aseguradora_medio_ambiente:acpv_asegma.value,poliza_medio_ambiente:acpv_polizama.value};
-  if(kind==='choferes') p = {nombre:acpc_nombre.value,rfc:acpc_rfc.value,tipo_licencia:acpc_tipolic.value,licencia:acpc_lic.value,tipo_figura:acpc_tipo.value,fecha_expedicion_licencia:acpc_exp.value,fecha_vencimiento_licencia:acpc_venc.value,telefono:acpc_tel.value};
+  if(kind==='choferes') p = {nombre:acpc_nombre.value,rfc:acpc_rfc.value,curp:acpc_curp.value,tipo_licencia:acpc_tipolic.value,licencia:acpc_lic.value,tipo_figura:acpc_tipo.value,fecha_expedicion_licencia:acpc_exp.value,fecha_vencimiento_licencia:acpc_venc.value,telefono:acpc_tel.value};
   if(kind==='instalaciones') p = {tipo_ubicacion:acpu_tipo.value,id_ubicacion_carta_porte:acpu_id.value,estado_sat:acpu_estado.value,municipio_sat:acpu_mun.value,localidad_sat:acpu_loc.value,referencia_carta_porte:acpu_ref.value};
   if(kind==='mercancias') p = {alias:acpm_alias.value,bienes_transp:acpm_bienes.value,descripcion:acpm_desc.value,clave_unidad:acpm_clave.value,unidad:acpm_unidad.value,factor_kg_litro:cpDecimalValue(acpm_factor.value),material_peligroso:acpm_peligro.value,clave_material_peligroso:acpm_clavep.value,embalaje:acpm_emb.value,descripcion_embalaje:acpm_descemb.value};
   if(kind==='rutas') {
