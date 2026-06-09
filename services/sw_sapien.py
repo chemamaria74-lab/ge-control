@@ -245,6 +245,17 @@ def _cp_decimal(value: object, decimals: int = 2, default: float = 0) -> str:
     return f"{number:.{decimals}f}"
 
 
+def _cp_datetime(value: object = None) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    text = text.replace(" ", "T")
+    match = re.match(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2}))?", text)
+    if not match:
+        return text[:19]
+    return f"{match.group(1)}:{match.group(2) or '00'}"
+
+
 def _cp_optional_attrs(values: dict) -> str:
     parts = []
     for key, value in values.items():
@@ -311,9 +322,9 @@ def build_carta_porte_xml(
         "T" = Traslado (Gas LP interno, sin costo de flete)
         "I" = Ingreso  (Transporte, con costo de flete)
     """
-    fecha    = (entrega.get("fecha_hora") or datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))[:19]
-    fecha_salida = (entrega.get("fecha_salida") or fecha)[:19]
-    fecha_llegada = (entrega.get("fecha_llegada") or fecha_salida)[:19]
+    fecha = _cp_datetime(entrega.get("fecha_hora"))
+    fecha_salida = _cp_datetime(entrega.get("fecha_salida") or fecha)
+    fecha_llegada = _cp_datetime(entrega.get("fecha_llegada") or fecha_salida)
     vol      = round(float(entrega.get("volumen_litros", 0)), 3)
     imp      = round(float(entrega.get("importe", 0)), 2)
     iva      = round(imp * 0.16, 2)
