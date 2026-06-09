@@ -256,6 +256,10 @@ def _cp_datetime(value: object = None) -> str:
     return f"{match.group(1)}:{match.group(2) or '00'}"
 
 
+def _cp_plate(value: object) -> str:
+    return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
+
+
 def _cp_optional_attrs(values: dict) -> str:
     parts = []
     for key, value in values.items():
@@ -343,7 +347,7 @@ def build_carta_porte_xml(
     uso_cfdi        = receptor.get("uso_cfdi", "S01")
     cp_receptor     = receptor.get("domicilio_fiscal", "20000")
 
-    placa            = vehiculo.get("placa") or vehiculo.get("placas") or "SIN-PLACA"
+    placa            = _cp_plate(vehiculo.get("placa") or vehiculo.get("placas") or "SINPLACA")
     anio_modelo      = vehiculo.get("anio_modelo", 2020)
     config_vehicular = vehiculo.get("config_vehicular", "C2")
     aseguradora      = vehiculo.get("nombre_asegurador") or vehiculo.get("aseguradora") or ""
