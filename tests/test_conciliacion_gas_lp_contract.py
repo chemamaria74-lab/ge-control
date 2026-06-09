@@ -3,6 +3,7 @@ import inspect
 import json
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -900,6 +901,66 @@ def test_assistant_invoice_duplicate_guard_runs_before_stamp():
     assert "volumen_litros" in duplicate_source
     assert "internal_user_id" in duplicate_source
     assert "target_total" in duplicate_source
+    assert "duplicate_window_seconds" in duplicate_source
+
+
+def test_assistant_invoice_duplicate_guard_only_blocks_immediate_retry(monkeypatch):
+    class FakeResult:
+        def __init__(self, data):
+            self.data = data
+
+    class FakeQuery:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def eq(self, *_args, **_kwargs):
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def limit(self, *_args, **_kwargs):
+            return self
+
+        def execute(self):
+            return FakeResult(self.rows)
+
+    class FakeSupabase:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def table(self, _name):
+            return FakeQuery(self.rows)
+
+    fixed_now = datetime(2026, 6, 9, 17, 23, 0, tzinfo=timezone.utc)
+    monkeypatch.setitem(internal_users._gas_lp_existing_sale_invoice.__globals__, "_now", lambda: fixed_now)
+    payload = internal_users.GasLpInternalFacturaPayload(litros=180, precio_unitario=11.09, facility_id=5)
+    totals = {"fecha": "2026-06-09T11:23:00", "total": Decimal("1996.20")}
+    receptor = {"rfc": "XAXX010101000", "nombre": "PUBLICO EN GENERAL"}
+    user = {"id": 77, "tenant_id": "t1", "perfil_id": 7}
+    base_row = {
+        "id": 1,
+        "uuid_sat": "same-amount-uuid",
+        "status": "timbrada",
+        "rfc_receptor": "XAXX010101000",
+        "volumen_litros": 180,
+        "facility_id": 5,
+        "metadata": {
+            "fecha_emision": "2026-06-09T11:22:00",
+            "internal_user_id": 77,
+            "origen_facility_id": 5,
+            "total": 1996.20,
+        },
+    }
+
+    old_row = {**base_row, "created_at": (fixed_now - timedelta(seconds=90)).isoformat()}
+    immediate_row = {**base_row, "created_at": (fixed_now - timedelta(seconds=5)).isoformat()}
+
+    assert internal_users._gas_lp_existing_sale_invoice(FakeSupabase([old_row]), user, payload, totals, receptor) is None
+    assert internal_users._gas_lp_existing_sale_invoice(FakeSupabase([immediate_row]), user, payload, totals, receptor)["id"] == 1
 
 
 def test_assistant_load_facturas_does_not_pollute_main_invoice_status_by_default():
