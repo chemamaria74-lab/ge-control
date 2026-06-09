@@ -389,15 +389,15 @@ def build_carta_porte_xml(
         )
 
     if tipo_comprobante == "T":
-        comprobante_totales = 'SubTotal="0.00" Total="0.00" Moneda="XXX"'
+        comprobante_totales = 'SubTotal="0" Total="0" Moneda="XXX"'
         forma_pago_xml = ""
         impuestos_xml = ""
         concepto_xml = (
-            f'<cfdi:Concepto ClaveProdServ="{_cp_attr(clave_prod_serv)}" '
-            f'NoIdentificacion="{_cp_attr(folio)}" Cantidad="{_cp_decimal(vol, 3)}" '
-            f'ClaveUnidad="{_cp_attr(clave_unidad)}" Unidad="{_cp_attr(unidad)}" '
-            f'Descripcion="{_cp_attr(descripcion_mercancia)}" '
-            f'ValorUnitario="0.00" Importe="0.00" ObjetoImp="01"/>'
+            f'<cfdi:Concepto ClaveProdServ="78101800" '
+            f'NoIdentificacion="{_cp_attr(folio)}" Cantidad="1" '
+            f'ClaveUnidad="H87" Unidad="Pieza" '
+            f'Descripcion="Servicios de transporte de carga por carretera" '
+            f'ValorUnitario="0" Importe="0" ObjetoImp="01"/>'
         )
     else:
         comprobante_totales = f'SubTotal="{_cp_decimal(imp, 2)}" Total="{_cp_decimal(total, 2)}" Moneda="MXN"'
