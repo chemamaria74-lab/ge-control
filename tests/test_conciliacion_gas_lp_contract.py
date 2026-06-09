@@ -1248,7 +1248,7 @@ def test_carta_porte_catalog_scope_is_company_not_creator(monkeypatch):
     karina = {"id": 2, "owner_user_id": "admin-b", "tenant_id": "tenant-gas", "perfil_id": 202}
     otra = {"id": 3, "owner_user_id": "admin-c", "tenant_id": "tenant-gas", "perfil_id": 303}
 
-    row = cp_catalogos._internal_cp_scope_row(anabel, cp_catalogos._internal_cp_payload("choferes", {"nombre": "Operador GAS LUX"}))
+    row = cp_catalogos._internal_cp_scope_row(anabel, cp_catalogos._internal_cp_payload("choferes", {"nombre": "Operador GAS LUX", "rfc": "OPEP850101AB1"}))
     row["id"] = 55
     scope_karina = cp_catalogos._internal_cp_company_scope(karina)
     scope_otra = cp_catalogos._internal_cp_company_scope(otra)
