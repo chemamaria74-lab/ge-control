@@ -1147,6 +1147,35 @@ def test_carta_porte_vehicle_environmental_insurance_aliases_validate():
         litros=50,
         peso_kg=26.2,
     )
+    vehiculo_metadata_json = facturas_routes._cp_normalize_vehicle_payload({
+        "placas": "AC-6116-E",
+        "anio": 2021,
+        "config_vehicular": "C2",
+        "permiso_cre": "TPAF01",
+        "metadata_json": {
+            "numero_economico": "AT-69",
+            "numero_permiso": "0170SEFICANLE13",
+            "peso_bruto_vehicular": 9249,
+            "aseguradora": "INBURSA",
+            "poliza_seguro": "16211 20025429",
+            "aseguraMedAmbiente": "INBURSA",
+            "polizaMedAmbiente": "16211 20025429",
+        },
+    })
+    assert vehiculo_metadata_json["aseguradora_medio_ambiente"] == "INBURSA"
+    assert vehiculo_metadata_json["poliza_medio_ambiente"] == "16211 20025429"
+    facturas_routes._cp_validate_catalog_payload(
+        origen=origen,
+        destino=destino,
+        vehiculo=vehiculo_metadata_json,
+        chofer=chofer,
+        mercancia=mercancia,
+        fecha_salida="2026-06-09T12:00:00",
+        fecha_llegada="2026-06-09T13:00:00",
+        distancia_km=70,
+        litros=50,
+        peso_kg=26.2,
+    )
 
 
 def test_carta_porte_driver_curp_does_not_replace_required_rfcfigura():
@@ -1179,8 +1208,9 @@ def test_assistant_carta_porte_validation_flow_has_modal_and_real_error_text():
     html = _assistant_frontend_source()
     backend_source = inspect.getsource(facturas_routes._generar_carta_porte_for_scope)
 
-    assert "Validar Carta Porte" in html
-    assert "Validación de Carta Porte" in html
+    assert "Validar Carta Porte" not in html
+    assert "4. Validación de Carta Porte" not in html
+    assert "Timbrar Carta Porte" in html
     assert "Confirmar timbrado Carta Porte tipo T" in html
     assert "Timbrar CFDI tipo T" in html
     assert "No se pudo conectar con el servidor de timbrado" in html

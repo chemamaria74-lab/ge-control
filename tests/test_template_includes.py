@@ -21,7 +21,7 @@ def test_template_includes_expand_known_partials():
     expanded = main._expand_template_includes(html)
 
     assert "ge-include:" not in expanded
-    assert 'id="panel-dashboard"' in expanded
+    assert 'id="clients-panel-credito"' in expanded
 
 
 def test_template_includes_reject_parent_directory():
