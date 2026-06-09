@@ -12,10 +12,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from openpyxl import load_workbook
 from fastapi import HTTPException
+import pytest
 
 import routes.internal_users as internal_users
 import routes.internal_users_mod.catalogos_clientes as cp_catalogos
 import routes.internal_users_mod.users_auth as users_auth
+import routes.facturas as facturas_routes
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1039,12 +1041,14 @@ def test_assistant_carta_porte_catalog_save_accepts_decimal_comma_and_confirms_v
     assert "inputmode=\"decimal\" placeholder=\"0.524\"" in html
 
 
-def test_assistant_carta_porte_driver_form_is_simplified_with_license_dates():
+def test_assistant_carta_porte_driver_form_requires_rfc_and_keeps_curp_internal():
     html = _assistant_frontend_source()
     payload = internal_users._internal_cp_payload(
         "choferes",
         {
             "nombre_completo": "Operador Prueba",
+            "rfc": "OPEP850101AB1",
+            "curp": "OPEP850101HZSPRR01",
             "licencia_federal": "LIC123",
             "tipo_licencia_federal": "E",
             "tipo_figura_sat": "01",
@@ -1054,6 +1058,8 @@ def test_assistant_carta_porte_driver_form_is_simplified_with_license_dates():
     )
 
     assert payload["nombre"] == "Operador Prueba"
+    assert payload["rfc"] == "OPEP850101AB1"
+    assert payload["metadata"]["curp"] == "OPEP850101HZSPRR01"
     assert payload["licencia"] == "LIC123"
     assert payload["metadata"]["tipo_licencia"] == "E"
     assert payload["metadata"]["tipo_figura"] == "01"
@@ -1061,7 +1067,10 @@ def test_assistant_carta_porte_driver_form_is_simplified_with_license_dates():
     assert payload["metadata"]["fecha_vencimiento_licencia"] == "2028-01-01"
     assert "Parte transporte" not in html
     assert "acpc_parte" not in html
-    assert "acpc_curp" not in html
+    assert "acpc_curp" in html
+    assert "RFC Figura SAT" in html
+    assert "CURP interna / referencia" in html
+    assert "no sustituye RFCFigura" in html
     assert "Expedición licencia" in html
     assert "Vencimiento licencia" in html
     assert "function calcularEstatusLicencia" in html
@@ -1069,6 +1078,118 @@ def test_assistant_carta_porte_driver_form_is_simplified_with_license_dates():
     assert "Licencia vencida" in html
     assert "Por vencer" in html
     assert "Sin vencimiento registrado" in html
+
+
+def test_carta_porte_vehicle_environmental_insurance_aliases_validate():
+    origen = {
+        "tipo": "origen",
+        "id_ubicacion": "OR123456",
+        "rfc": "AGA990907II8",
+        "nombre": "AURE GAS",
+        "codigo_postal": "98470",
+        "estado": "ZAC",
+        "municipio": "056",
+        "calle": "Planta Villa de Cos Aure",
+        "facility_nombre": "Planta Villa de Cos Aure",
+    }
+    destino = {
+        "tipo": "destino",
+        "id_ubicacion": "DE123456",
+        "rfc": "AGA990907II8",
+        "nombre": "AURE GAS",
+        "codigo_postal": "98659",
+        "estado": "ZAC",
+        "municipio": "017",
+        "calle": "Estacion Zacatecas",
+        "facility_nombre": "Estacion Zacatecas",
+    }
+    vehiculo = facturas_routes._cp_normalize_vehicle_payload({
+        "placas": "AC-6116-E",
+        "anio": 2021,
+        "config_vehicular": "C2",
+        "permiso_cre": "TPAF01",
+        "metadata": {
+            "numero_economico": "AT-69",
+            "numero_permiso": "0170SEFICANLE13",
+            "peso_bruto_vehicular": 9249,
+            "aseguradora": "INBURSA",
+            "poliza_seguro": "16211 20025429",
+            "aseguraMedAmbiente": "INBURSA",
+            "polizaMedAmbiente": "16211 20025429",
+        },
+    })
+    chofer = facturas_routes._cp_normalize_driver_payload({
+        "nombre": "ADAN CASTRO HERNANDEZ",
+        "rfc": "CAHA800101AB1",
+        "licencia": "LFD01127323",
+        "metadata": {"tipo_figura": "01"},
+    })
+    mercancia = {
+        "bienes_transp": "15111510",
+        "descripcion": "Gas licuado de petroleo",
+        "clave_unidad": "LTR",
+        "material_peligroso": True,
+        "clave_material_peligroso": "1075",
+        "embalaje": "Z01",
+    }
+
+    assert vehiculo["aseguradora_medio_ambiente"] == "INBURSA"
+    assert vehiculo["poliza_medio_ambiente"] == "16211 20025429"
+    facturas_routes._cp_validate_catalog_payload(
+        origen=origen,
+        destino=destino,
+        vehiculo=vehiculo,
+        chofer=chofer,
+        mercancia=mercancia,
+        fecha_salida="2026-06-09T12:00:00",
+        fecha_llegada="2026-06-09T13:00:00",
+        distancia_km=70,
+        litros=50,
+        peso_kg=26.2,
+    )
+
+
+def test_carta_porte_driver_curp_does_not_replace_required_rfcfigura():
+    chofer = facturas_routes._cp_normalize_driver_payload({
+        "nombre": "ADAN CASTRO HERNANDEZ",
+        "licencia": "LFD01127323",
+        "metadata": {"curp": "CAHA800101HZSSRD01", "tipo_figura": "01"},
+    })
+
+    assert chofer["curp"] == "CAHA800101HZSSRD01"
+    assert chofer["rfc"] == ""
+    with pytest.raises(HTTPException) as exc:
+        facturas_routes._cp_validate_catalog_payload(
+            origen={"tipo": "origen", "id_ubicacion": "OR", "rfc": "AGA990907II8", "nombre": "AURE GAS", "codigo_postal": "98470", "estado": "ZAC", "municipio": "056", "calle": "Origen"},
+            destino={"tipo": "destino", "id_ubicacion": "DE", "rfc": "AGA990907II8", "nombre": "AURE GAS", "codigo_postal": "98659", "estado": "ZAC", "municipio": "017", "calle": "Destino"},
+            vehiculo={"placas": "AC-6116-E", "config_vehicular": "C2", "permiso_cre": "TPAF01", "numero_permiso": "0170SEFICANLE13", "peso_bruto_vehicular": 9249, "aseguradora": "INBURSA", "poliza_seguro": "16211 20025429", "aseguradora_medio_ambiente": "INBURSA", "poliza_medio_ambiente": "16211 20025429"},
+            chofer=chofer,
+            mercancia={"bienes_transp": "15111510", "descripcion": "Gas LP", "clave_unidad": "LTR", "material_peligroso": True, "clave_material_peligroso": "1075", "embalaje": "Z01"},
+            fecha_salida="2026-06-09T12:00:00",
+            fecha_llegada="2026-06-09T13:00:00",
+            distancia_km=70,
+            litros=50,
+            peso_kg=26.2,
+        )
+
+    assert "chofer: RFC Figura SAT" in str(exc.value.detail)
+
+
+def test_assistant_carta_porte_validation_flow_has_modal_and_real_error_text():
+    html = _assistant_frontend_source()
+    backend_source = inspect.getsource(facturas_routes._generar_carta_porte_for_scope)
+
+    assert "Validar Carta Porte" in html
+    assert "Validación de Carta Porte" in html
+    assert "Confirmar timbrado Carta Porte tipo T" in html
+    assert "Timbrar CFDI tipo T" in html
+    assert "No se pudo conectar con el servidor de timbrado" in html
+    assert "Failed to fetch" not in html
+    timbrar_start = html.index("async function timbrarCartaPorteGasLp")
+    timbrar_end = html.index("async function handleCartaPorteAction", timbrar_start)
+    assert "confirm(" not in html[timbrar_start:timbrar_end]
+    assert "gas_lp_carta_porte_pac_error" in backend_source
+    assert "gas_lp_carta_porte_timbrado_start" in backend_source
 
 
 def test_assistant_carta_porte_vehicle_form_uses_numero_economico_as_alias(monkeypatch):
