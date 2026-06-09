@@ -18,6 +18,7 @@ import routes.internal_users as internal_users
 import routes.internal_users_mod.catalogos_clientes as cp_catalogos
 import routes.internal_users_mod.users_auth as users_auth
 import routes.facturas as facturas_routes
+from services.sw_sapien import build_carta_porte_xml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1220,6 +1221,43 @@ def test_assistant_carta_porte_validation_flow_has_modal_and_real_error_text():
     assert "confirm(" not in html[timbrar_start:timbrar_end]
     assert "gas_lp_carta_porte_pac_error" in backend_source
     assert "gas_lp_carta_porte_timbrado_start" in backend_source
+
+
+def test_carta_porte_xml_adds_seconds_to_browser_datetime_values():
+    xml = build_carta_porte_xml(
+        {
+            "record_uuid": "CP-FECHA",
+            "fecha_hora": "2026-06-09T14:32",
+            "fecha_salida": "2026-06-09T14:32",
+            "fecha_llegada": "2026-06-09T15:32",
+            "volumen_litros": 50,
+            "importe": 0,
+        },
+        {"rfc": "AGA990907II8", "nombre": "AURE GAS", "cp": "98470", "regimen": "601"},
+        {"rfc": "AGA990907II8", "nombre": "AURE GAS", "cp": "98470", "regimen": "601", "uso_cfdi": "S01"},
+        {
+            "placas": "AC-6116-E",
+            "anio": 2021,
+            "config_vehicular": "C2",
+            "permiso_cre": "TPAF02",
+            "numero_permiso": "A0122865",
+            "aseguradora": "INBURSA",
+            "poliza_seguro": "16211 20025429",
+            "aseguradora_medio_ambiente": "INBURSA",
+            "poliza_medio_ambiente": "16211 20025429",
+        },
+        tipo_comprobante="T",
+        ruta={"distancia_km": 70},
+        origen={"id_ubicacion": "OR123456", "rfc": "AGA990907II8", "nombre": "Planta Villa de Cos Aure", "codigo_postal": "98470", "estado": "ZAC", "municipio": "056", "pais": "MEX"},
+        destino={"id_ubicacion": "DE123456", "rfc": "AGA990907II8", "nombre": "Estacion Zacatecas", "codigo_postal": "98659", "estado": "ZAC", "municipio": "017", "pais": "MEX"},
+        mercancia={"bienes_transp": "15111510", "descripcion": "Gas LP", "clave_unidad": "LTR", "unidad": "Litro", "material_peligroso": True, "clave_material_peligroso": "1075", "embalaje": "Z01", "factor_kg_litro": 0.524},
+        chofer={"nombre": "ADAN CASTRO HERNANDEZ", "rfc": "CAHA800101AB1", "licencia": "LFD01127323", "tipo_figura": "01"},
+    )
+
+    assert 'TipoDeComprobante="T"' in xml
+    assert 'Fecha="2026-06-09T14:32:00"' in xml
+    assert 'FechaHoraSalidaLlegada="2026-06-09T14:32:00"' in xml
+    assert 'FechaHoraSalidaLlegada="2026-06-09T15:32:00"' in xml
 
 
 def test_assistant_carta_porte_vehicle_form_uses_numero_economico_as_alias(monkeypatch):
