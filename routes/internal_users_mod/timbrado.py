@@ -241,7 +241,7 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
         if existing_sale:
             md_existing = existing_sale.get("metadata") if isinstance(existing_sale.get("metadata"), dict) else {}
             raise HTTPException(409, {
-                "message": "Ya existe una factura timbrada con la misma fecha, instalación, litros, total, receptor y asistente. No se envió otro timbrado al PAC para evitar duplicados.",
+                "message": "Ya existe una factura idéntica creada hace unos segundos. No se envió otro timbrado al PAC para evitar un reintento accidental.",
                 "code": "gas_lp_invoice_duplicate",
                 "factura_id": existing_sale.get("id"),
                 "uuid_sat": existing_sale.get("uuid_sat") or "",

@@ -2390,6 +2390,8 @@ def _gas_lp_existing_sale_invoice(sb, user: dict, payload: GasLpInternalFacturaP
     day = str(totals.get("fecha") or payload.fecha or "").strip()[:10]
     if not day:
         return None
+    duplicate_window_seconds = 20
+    now_utc = _now()
     try:
         rows = (
             sb.table("gas_lp_facturas")
@@ -2413,6 +2415,14 @@ def _gas_lp_existing_sale_invoice(sb, user: dict, payload: GasLpInternalFacturaP
     target_facility_id = _safe_int_id(payload.facility_id)
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        if (_gas_lp_factura_fiscal_status_info(row).get("code") or "") == "cancelada":
+            continue
+        created_dt = _parse_gas_lp_cfdi_fecha(str(row.get("created_at") or ""), timezone.utc)
+        if not created_dt:
+            continue
+        age_seconds = (now_utc - created_dt.astimezone(timezone.utc)).total_seconds()
+        if age_seconds < 0 or age_seconds > duplicate_window_seconds:
+            continue
         if md.get("is_transfer") is True or md.get("operation_type") == "transfer" or md.get("tipo_operacion") == "traspaso":
             continue
         if str(md.get("fecha_emision") or row.get("fecha_timbrado") or row.get("created_at") or "").strip()[:10] != day:
