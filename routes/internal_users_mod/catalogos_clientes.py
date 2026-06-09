@@ -337,23 +337,35 @@ def _internal_cp_payload(kind: str, params) -> dict:
                 "numero_economico": s("numero_economico"),
                 "numero_permiso": s("numero_permiso", "numero_permiso_sct", "num_permiso_sct"),
                 "peso_bruto_vehicular": n("peso_bruto_vehicular", default=0),
-                "aseguradora_medio_ambiente": s("aseguradora_medio_ambiente", "aseguradora_ambiental"),
-                "poliza_medio_ambiente": s("poliza_medio_ambiente", "poliza_ambiental"),
+                "aseguradora_medio_ambiente": s("aseguradora_medio_ambiente", "aseguradora_ambiental", "aseguradora_danos_medio_ambiente", "aseguradora_daños_medio_ambiente", "aseguraMedAmbiente", "AseguraMedAmbiente"),
+                "poliza_medio_ambiente": s("poliza_medio_ambiente", "poliza_ambiental", "poliza_danos_medio_ambiente", "poliza_daños_medio_ambiente", "polizaMedAmbiente", "PolizaMedAmbiente"),
                 "aseguradora_carga": s("aseguradora_carga"),
                 "poliza_carga": s("poliza_carga"),
             },
             "activo": True,
         }
     if kind == "choferes":
+        rfc = s("rfc").upper().replace(" ", "")
+        tipo_figura = s("tipo_figura", "tipo_figura_sat", default="01")
+        if tipo_figura == "01" and not rfc:
+            raise HTTPException(400, {
+                "message": "El RFC del operador es obligatorio para timbrar Carta Porte. CURP no sustituye RFCFigura.",
+                "code": "gas_lp_carta_porte_chofer_rfc_required",
+            })
+        if rfc and (len(rfc) not in {12, 13} or not re.match(r"^[A-Z&Ñ]{3,4}[0-9]{6}[A-Z0-9]{3}$", rfc)):
+            raise HTTPException(400, {
+                "message": "RFC Figura SAT inválido. Captura 12 o 13 caracteres alfanuméricos, sin espacios.",
+                "code": "gas_lp_carta_porte_chofer_rfc_invalid",
+            })
         return {
             "nombre": s("nombre", "nombre_completo"),
-            "rfc": s("rfc").upper(),
+            "rfc": rfc,
             "licencia": s("licencia", "licencia_federal"),
             "telefono": s("telefono"),
             "metadata": {
                 "curp": s("curp"),
                 "tipo_licencia": s("tipo_licencia", "tipo_licencia_federal", default="E"),
-                "tipo_figura": s("tipo_figura", "tipo_figura_sat", default="01"),
+                "tipo_figura": tipo_figura,
                 "fecha_expedicion_licencia": s("fecha_expedicion_licencia", "expedicion_licencia"),
                 "fecha_vencimiento_licencia": s("fecha_vencimiento_licencia", "vencimiento_licencia"),
                 "parte_transporte": s("parte_transporte", default=""),
