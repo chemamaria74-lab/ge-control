@@ -579,6 +579,59 @@ def _cp_with_metadata(row: Optional[dict]) -> dict:
     return merged
 
 
+def _cp_first_value(row: dict, *keys: str):
+    md = _metadata_dict(row)
+    for key in keys:
+        for source in (row, md):
+            value = source.get(key)
+            if value is not None and str(value).strip() != "":
+                return value
+    return ""
+
+
+def _cp_normalize_vehicle_payload(row: dict) -> dict:
+    item = _cp_with_metadata(row)
+    item["placas"] = _cp_first_value(item, "placas", "placa", "PlacaVM")
+    item["anio"] = _cp_first_value(item, "anio", "anio_modelo", "modelo", "AnioModeloVM") or item.get("anio")
+    item["config_vehicular"] = _cp_first_value(item, "config_vehicular", "configuracion_vehicular", "config_vehicular_sat", "ConfigVehicular")
+    item["permiso_cre"] = _cp_first_value(item, "permiso_cre", "permiso_sct", "perm_sct", "permiso_sict", "PermSCT")
+    item["permiso_sct"] = item["permiso_cre"]
+    item["numero_permiso"] = _cp_first_value(item, "numero_permiso", "num_permiso_sct", "numero_permiso_sct", "num_permiso_sict", "NumPermisoSCT")
+    item["num_permiso_sct"] = item["numero_permiso"]
+    item["peso_bruto_vehicular"] = _cp_first_value(item, "peso_bruto_vehicular", "peso_bruto", "peso_bruto_kg")
+    item["aseguradora"] = _cp_first_value(item, "aseguradora", "aseguradora_rc", "nombre_asegurador", "aseguradora_responsabilidad_civil", "AseguraRespCivil")
+    item["poliza_seguro"] = _cp_first_value(item, "poliza_seguro", "poliza_rc", "poliza", "poliza_responsabilidad_civil", "PolizaRespCivil")
+    item["aseguradora_medio_ambiente"] = _cp_first_value(
+        item,
+        "aseguradora_medio_ambiente",
+        "aseguradora_ambiental",
+        "aseguradora_danos_medio_ambiente",
+        "aseguradora_daños_medio_ambiente",
+        "aseguraMedAmbiente",
+        "AseguraMedAmbiente",
+    )
+    item["poliza_medio_ambiente"] = _cp_first_value(
+        item,
+        "poliza_medio_ambiente",
+        "poliza_ambiental",
+        "poliza_danos_medio_ambiente",
+        "poliza_daños_medio_ambiente",
+        "polizaMedAmbiente",
+        "PolizaMedAmbiente",
+    )
+    return item
+
+
+def _cp_normalize_driver_payload(row: dict) -> dict:
+    item = _cp_with_metadata(row)
+    item["nombre"] = _cp_first_value(item, "nombre", "nombre_completo", "NombreFigura")
+    item["rfc"] = str(_cp_first_value(item, "rfc", "rfc_figura", "RFCFigura")).strip().upper()
+    item["curp"] = str(_cp_first_value(item, "curp", "CURP")).strip().upper()
+    item["licencia"] = _cp_first_value(item, "licencia", "licencia_federal", "NumLicencia")
+    item["tipo_figura"] = _cp_first_value(item, "tipo_figura", "tipo_figura_sat", "TipoFigura") or "01"
+    return item
+
+
 def _cp_bool(value) -> bool:
     if isinstance(value, bool):
         return value
@@ -709,8 +762,8 @@ def _cp_validate_catalog_payload(
             errors.append(f"{prefix}: completa la configuración Carta Porte de la instalación {facility_label}.")
     _cp_required(errors, "fecha/hora salida", fecha_salida)
     _cp_required(errors, "fecha/hora llegada", fecha_llegada)
-    if distancia_km <= 0:
-        errors.append("distancia recorrida mayor a 0")
+    if distancia_km <= 1:
+        errors.append("distancia recorrida real mayor a 1 km")
     _cp_required(errors, "mercancía: BienesTransp SAT", mercancia.get("bienes_transp"))
     _cp_required(errors, "mercancía: descripción", mercancia.get("descripcion") or mercancia.get("alias"))
     _cp_required(errors, "mercancía: clave unidad", mercancia.get("clave_unidad"))
@@ -731,6 +784,7 @@ def _cp_validate_catalog_payload(
     _cp_required(errors, "vehículo: aseguradora medio ambiente", vehiculo.get("aseguradora_medio_ambiente"))
     _cp_required(errors, "vehículo: póliza medio ambiente", vehiculo.get("poliza_medio_ambiente"))
     _cp_required(errors, "chofer: nombre", chofer.get("nombre"))
+    _cp_required(errors, "chofer: RFC Figura SAT", chofer.get("rfc"))
     _cp_required(errors, "chofer: licencia", chofer.get("licencia"))
     _cp_required(errors, "chofer: tipo figura", chofer.get("tipo_figura"))
     if errors:
@@ -796,13 +850,17 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         raise HTTPException(400, "Origen y destino deben ser instalaciones distintas para Carta Porte.")
     origen = _cp_facility_to_ubicacion(scope, origen_facility, "origen")
     destino = _cp_facility_to_ubicacion(scope, destino_facility, "destino")
-    chofer_row = _cp_with_metadata(_require_active_catalog_row(_SB_CHOFERES, scope, chofer_id, "chofer"))
-    vehiculo_row = _cp_with_metadata(_require_active_catalog_row(_SB_VEHICULOS, scope, vehiculo_id, "vehículo"))
-    mercancia_row = _cp_gas_lp_mercancia_payload(_cp_with_metadata(_require_active_catalog_row(_SB_MERCANCIAS_CP, scope, mercancia_id, "mercancía")))
+    chofer_row = _cp_normalize_driver_payload(_require_active_catalog_row(_SB_CHOFERES, scope, chofer_id, "chofer"))
+    vehiculo_row = _cp_normalize_vehicle_payload(_require_active_catalog_row(_SB_VEHICULOS, scope, vehiculo_id, "vehículo"))
+    mercancia_catalog_row = _cp_with_metadata(_require_active_catalog_row(_SB_MERCANCIAS_CP, scope, mercancia_id, "mercancía"))
+    if not _cp_bool(mercancia_catalog_row.get("material_peligroso")):
+        raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte. La mercancía Gas LP debe estar marcada como material peligroso.")
+    mercancia_row = _cp_gas_lp_mercancia_payload(mercancia_catalog_row)
     if (
         str(mercancia_row.get("bienes_transp") or "").strip() != "15111510"
         or str(mercancia_row.get("clave_unidad") or "").strip().upper() != "LTR"
         or str(mercancia_row.get("clave_material_peligroso") or "").strip() != "1075"
+        or not _cp_bool(mercancia_row.get("material_peligroso"))
         or float(mercancia_row.get("factor_kg_litro") or 0) <= 0
     ):
         raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte. La mercancía default debe ser Gas LP válida.")
@@ -824,6 +882,16 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
     factor = float(mercancia_row.get("factor_kg_litro") or 0)
     peso_kg = round(litros * factor, 3)
     id_ccp = _cp_normalize_id_ccp(payload.id_ccp)
+    logger.info(
+        "gas_lp_carta_porte_timbrado_start empresa_rfc=%s ruta_id=%s vehiculo_id=%s chofer_id=%s mercancia_id=%s litros=%s peso_kg=%s",
+        emisor.get("rfc"),
+        ruta_row.get("id") if ruta_row else payload.ruta_id,
+        vehiculo_id,
+        chofer_id,
+        mercancia_id,
+        litros,
+        peso_kg,
+    )
 
     _cp_validate_catalog_payload(
         origen=origen,
@@ -873,11 +941,48 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             chofer=chofer_row,
         )
     except Exception as e:
+        logger.exception(
+            "gas_lp_carta_porte_xml_build_failed empresa_rfc=%s ruta_id=%s vehiculo_id=%s chofer_id=%s mercancia_id=%s",
+            emisor.get("rfc"),
+            ruta_row.get("id") if ruta_row else payload.ruta_id,
+            vehiculo_id,
+            chofer_id,
+            mercancia_id,
+        )
         raise HTTPException(500, f"Error al construir XML Carta Porte: {e}") from e
 
-    resultado = timbrar_cfdi(xml)
+    try:
+        logger.info(
+            "gas_lp_carta_porte_pac_request empresa_rfc=%s ruta_id=%s vehiculo_id=%s chofer_id=%s xml_len=%s",
+            emisor.get("rfc"),
+            ruta_row.get("id") if ruta_row else payload.ruta_id,
+            vehiculo_id,
+            chofer_id,
+            len(xml or ""),
+        )
+        resultado = timbrar_cfdi(xml)
+        logger.info(
+            "gas_lp_carta_porte_pac_response empresa_rfc=%s ruta_id=%s vehiculo_id=%s chofer_id=%s ok=%s uuid=%s error=%s",
+            emisor.get("rfc"),
+            ruta_row.get("id") if ruta_row else payload.ruta_id,
+            vehiculo_id,
+            chofer_id,
+            not bool(resultado.get("error")),
+            resultado.get("uuid") or "",
+            resultado.get("error") or "",
+        )
+    except Exception as e:
+        logger.exception(
+            "gas_lp_carta_porte_pac_exception empresa_rfc=%s ruta_id=%s vehiculo_id=%s chofer_id=%s mercancia_id=%s",
+            emisor.get("rfc"),
+            ruta_row.get("id") if ruta_row else payload.ruta_id,
+            vehiculo_id,
+            chofer_id,
+            mercancia_id,
+        )
+        raise HTTPException(500, f"Error al enviar Carta Porte a SW Sapien: {e}") from e
     if resultado["error"]:
-        raise HTTPException(400, f"Error en timbrado SW Sapien: {resultado['error']}")
+        raise HTTPException(400, {"message": f"Error en timbrado SW Sapien: {resultado['error']}", "code": "gas_lp_carta_porte_pac_error", "pac_error": resultado["error"]})
 
     validation = _cp_post_timbrado_validation(resultado.get("xml_timbrado") or "", mercancia)
     now = datetime.now(timezone.utc).isoformat()
