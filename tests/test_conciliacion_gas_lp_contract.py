@@ -1256,6 +1256,8 @@ def test_carta_porte_xml_adds_seconds_to_browser_datetime_values():
 
     assert 'TipoDeComprobante="T"' in xml
     assert 'Fecha="2026-06-09T14:32:00"' in xml
+    assert 'PlacaVM="AC6116E"' in xml
+    assert 'PlacaVM="AC-6116-E"' not in xml
     assert 'FechaHoraSalidaLlegada="2026-06-09T14:32:00"' in xml
     assert 'FechaHoraSalidaLlegada="2026-06-09T15:32:00"' in xml
 
