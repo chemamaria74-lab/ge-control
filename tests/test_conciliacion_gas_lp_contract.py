@@ -1267,6 +1267,9 @@ def test_carta_porte_xml_adds_seconds_to_browser_datetime_values():
     assert 'Fecha="2026-06-09T14:32:00"' in xml
     assert 'PlacaVM="AC6116E"' in xml
     assert 'PesoBrutoVehicular="12.00"' in xml
+    assert 'CodigoPostal="98470" Estado="ZAC" Municipio=' not in xml
+    assert 'CodigoPostal="98470" Estado="ZAC"' in xml
+    assert 'CodigoPostal="98659" Estado="ZAC" Municipio="017"' in xml
     assert 'PlacaVM="AC-6116-E"' not in xml
     assert 'NumRegIdTrib=' not in xml
     assert 'ResidenciaFiscal=' not in xml
