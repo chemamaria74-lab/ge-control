@@ -93,6 +93,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         topMargin=0.32 * inch,
         bottomMargin=0.35 * inch,
         title="Carta Porte",
+        pageCompression=0,
     )
 
     styles = getSampleStyleSheet()
@@ -187,7 +188,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     story.append(_kv_table(
         "Resumen Carta Porte",
         [
-            ("Versión", _attr(carta, "Version", "—")),
+            ("CartaPorte Version", _attr(carta, "Version", "—")),
             ("IdCCP", _attr(carta, "IdCCP", "—")),
             ("Transporte internacional", _attr(carta, "TranspInternac", "—")),
             ("Distancia total recorrida", _attr(carta, "TotalDistRec", "—")),
