@@ -834,9 +834,6 @@ def _cp_validate_catalog_payload(
         _cp_required(errors, f"{display_prefix}: falta estado SAT", row.get("estado"))
         _cp_required(errors, f"{display_prefix}: falta municipio SAT", row.get("municipio"))
         _cp_required(errors, f"{prefix}: calle", row.get("calle") or row.get("domicilio"))
-        missing_facility_config = not row.get("id_ubicacion") or not row.get("estado")
-        if missing_facility_config:
-            errors.append(f"{prefix}: completa la configuración Carta Porte de la instalación {facility_label}.")
     _cp_required(errors, "fecha/hora salida", fecha_salida)
     _cp_required(errors, "fecha/hora llegada", fecha_llegada)
     if distancia_km <= 1:
