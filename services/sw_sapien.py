@@ -362,15 +362,7 @@ def _cp_domicilio_xml(row: dict) -> str:
 
 def _cp_ubicacion_id(tipo: str, row: dict) -> str:
     raw = str(row.get("id_ubicacion") or row.get("id_ubicacion_carta_porte") or "").strip().upper()
-    if re.match(r"^(OR|DE)\d{6}$", raw):
-        return raw
-    prefix = "OR" if tipo == "Origen" else "DE"
-    digits = "".join(ch for ch in raw if ch.isdigit())
-    if not digits:
-        digits = "".join(ch for ch in str(row.get("manual_ubicacion_id") or row.get("facility_id") or row.get("id") or "") if ch.isdigit())
-    if digits:
-        return f"{prefix}{digits[-6:].zfill(6)}"
-    return "OR000001" if tipo == "Origen" else "DE000001"
+    return raw
 
 
 def _cp_ubicacion_xml(tipo: str, row: dict, fecha_hora: str, distancia_km: float | None = None) -> str:
