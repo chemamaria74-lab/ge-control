@@ -734,6 +734,8 @@ def _cp_route_location_ref(route_row: Optional[dict], prefix: str):
         or md.get(f"{prefix}_facility_id")
         or md.get(f"{prefix}_ubicacion_ref")
         or md.get(f"{prefix}_ubicacion_id")
+        or md.get(f"id_ubicacion_{prefix}")
+        or (route_row or {}).get(f"id_ubicacion_{prefix}")
         or ""
     )
 
