@@ -713,7 +713,7 @@ function assistantCpNaturalKey(kind, row){
   if(kind === 'vehiculos') return ['vehiculo', row?.id, row?.vehiculo_id, row?.placas, md.numero_economico || md.alias].filter(Boolean).join(':');
   if(kind === 'choferes') return ['chofer', row?.id, row?.chofer_id, row?.rfc, row?.licencia, row?.nombre].filter(Boolean).join(':');
   if(kind === 'mercancias') return ['mercancia', row?.id, row?.bienes_transp, row?.clave_unidad, row?.alias || row?.descripcion].filter(Boolean).join(':');
-  if(kind === 'rutas') return ['ruta', row?.id, row?.nombre, row?.origen_facility_id || md.origen_ubicacion_ref, row?.destino_facility_id || md.destino_ubicacion_ref].filter(Boolean).join(':');
+  if(kind === 'rutas') return ['ruta', row?.id, row?.nombre, cpRouteLocationRef(row, 'origen'), cpRouteLocationRef(row, 'destino')].filter(Boolean).join(':');
   return ['cp', kind, row?.id].filter(Boolean).join(':');
 }
 function normalizeAssistantCpCatalogRow(kind, row){
@@ -1064,8 +1064,8 @@ function renderAssistantCpForm(){
   if(kind==='rutas'){
     body = [
       acpField('acpr_nombre','<span class="acp-required">Nombre de la ruta</span>',row?.nombre||'','text','placeholder="Ags a GDL Principal"'),
-      acpSelect('acpr_origen','<span class="acp-required">Instalación origen</span>',cpOption(assistantCpRows('instalaciones').filter(u=>['origen','ambos',''].includes(u.tipo||'')),u=>`${u.alias||u.nombre||u.id}${u._cp_manual ? ' · Manual' : ''}`),row?.origen_facility_id||md.origen_ubicacion_ref||''),
-      acpSelect('acpr_destino','<span class="acp-required">Instalación destino</span>',cpOption(assistantCpRows('instalaciones').filter(u=>['destino','ambos',''].includes(u.tipo||'')),u=>`${u.alias||u.nombre||u.id}${u._cp_manual ? ' · Manual' : ''}`),row?.destino_facility_id||md.destino_ubicacion_ref||''),
+      acpSelect('acpr_origen','<span class="acp-required">Instalación origen</span>',cpOption(assistantCpRows('instalaciones').filter(u=>['origen','ambos',''].includes(u.tipo||'')),u=>`${u.alias||u.nombre||u.id}${u._cp_manual ? ' · Manual' : ''}`),cpRouteLocationRef(row, 'origen')),
+      acpSelect('acpr_destino','<span class="acp-required">Instalación destino</span>',cpOption(assistantCpRows('instalaciones').filter(u=>['destino','ambos',''].includes(u.tipo||'')),u=>`${u.alias||u.nombre||u.id}${u._cp_manual ? ' · Manual' : ''}`),cpRouteLocationRef(row, 'destino')),
       acpField('acpr_km','Distancia recorrida km',row?.distancia_km||'','text','inputmode="decimal" placeholder="250"'),
       acpField('acpr_tiempo_min','Duración estimada minutos',row?.tiempo_estimado_minutos||md.tiempo_estimado_minutos||cpRouteTimeMinutes(row)||'','number','min="1" step="1" placeholder="180"')
     ].join('');
@@ -1078,12 +1078,8 @@ function assistantCpActionButton(action, kind, id, label, icon, extraClass=''){
 }
 function renderAssistantCpCard(kind,row){
   const md = cpMeta(row);
-  const routeOriginName = kind === 'rutas'
-    ? (cpName('instalaciones', row.origen_facility_id) === '—' ? cpName('instalaciones', md.origen_ubicacion_ref) : cpName('instalaciones', row.origen_facility_id))
-    : '';
-  const routeDestinationName = kind === 'rutas'
-    ? (cpName('instalaciones', row.destino_facility_id) === '—' ? cpName('instalaciones', md.destino_ubicacion_ref) : cpName('instalaciones', row.destino_facility_id))
-    : '';
+  const routeOriginName = kind === 'rutas' ? cpName('instalaciones', cpRouteLocationRef(row, 'origen')) : '';
+  const routeDestinationName = kind === 'rutas' ? cpName('instalaciones', cpRouteLocationRef(row, 'destino')) : '';
   const routePair = kind === 'rutas' ? `${routeOriginName} → ${routeDestinationName}` : '';
   const line = kind==='vehiculos' ? `${row.placas||'Placas —'} · ${row.config_vehicular||'Config. —'} · Activo` : kind==='choferes' ? `${row.rfc||'RFC —'} · ${row.licencia||'Lic. —'}` : kind==='instalaciones' ? `${row._cp_manual ? 'Manual' : 'Administración'} · ${row.tipo||'ambos'} · ${row.codigo_postal||'CP —'} · ${row.id_ubicacion_carta_porte||row.id_ubicacion||'ID pendiente'}` : kind==='mercancias' ? `${row.factor_kg_litro||0} kg/L · ${row.material_peligroso?'Peligroso':'No peligroso'}` : `${routePair} · ${row.distancia_km||0} km · ${cpRouteTimeMinutes(row)||0} min`;
   const licenseStatus = kind === 'choferes' ? calcularEstatusLicencia(cpDriverValue(row, 'fecha_vencimiento_licencia')) : null;
