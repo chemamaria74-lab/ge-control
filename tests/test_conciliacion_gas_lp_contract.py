@@ -1270,6 +1270,16 @@ def test_carta_porte_xml_adds_seconds_to_browser_datetime_values():
     assert 'FechaHoraSalidaLlegada="2026-06-09T15:32:00"' in xml
 
 
+def test_carta_porte_id_ccp_uses_sat_pattern():
+    import re
+
+    generated = facturas_routes._cp_normalize_id_ccp("")
+    assert re.fullmatch(r"CCC[0-9a-f]{5}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", generated)
+
+    normalized = facturas_routes._cp_normalize_id_ccp("12345678-1234-1234-1234-1234567890ab")
+    assert normalized == "CCC45678-1234-1234-1234-1234567890ab"
+
+
 def test_assistant_carta_porte_vehicle_form_uses_numero_economico_as_alias(monkeypatch):
     html = _assistant_frontend_source()
     monkeypatch.setattr(cp_catalogos, "_gas_lp_profile", lambda user: {"id": 123, "tenant_id": None, "rfc": "GLU760309457"})
