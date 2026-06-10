@@ -120,7 +120,7 @@ function cpVehicleValue(veh, key){
     poliza_rc: ['poliza_seguro','poliza_rc'],
     aseguradora_medio_ambiente: ['aseguradora_medio_ambiente','aseguradora_ambiental','aseguradora_danos_medio_ambiente','aseguradora_daños_medio_ambiente','aseguraMedAmbiente','AseguraMedAmbiente'],
     poliza_medio_ambiente: ['poliza_medio_ambiente','poliza_ambiental','poliza_danos_medio_ambiente','poliza_daños_medio_ambiente','polizaMedAmbiente','PolizaMedAmbiente'],
-    peso_bruto_vehicular: ['peso_bruto_vehicular','peso_bruto'],
+    peso_bruto_vehicular: ['peso_bruto_vehicular','peso_bruto','peso_bruto_kg'],
     anio: ['anio','anio_modelo','modelo'],
     config_vehicular: ['config_vehicular','configuracion_vehicular']
   }[key] || [key];
@@ -346,9 +346,9 @@ function cpChecklistResult(){
   req('Vehículo', 'ConfigVehicular SAT', cpVehicleValue(s.veh, 'config_vehicular'));
   req('Vehículo', 'Permiso SCT/SICT', vehPermiso);
   req('Vehículo', 'número permiso SCT/SICT', cpVehicleValue(s.veh, 'numero_permiso'));
+  req('Vehículo', 'peso bruto vehicular SAT', cpVehicleValue(s.veh, 'peso_bruto_vehicular'));
   req('Vehículo', 'placas', cpVehicleValue(s.veh, 'placas'));
   req('Vehículo', 'año/modelo', cpVehicleValue(s.veh, 'anio'));
-  req('Vehículo', 'peso bruto vehicular', cpVehicleValue(s.veh, 'peso_bruto_vehicular'));
   req('Vehículo', 'aseguradora RC', cpVehicleValue(s.veh, 'aseguradora_rc'));
   req('Vehículo', 'póliza RC', cpVehicleValue(s.veh, 'poliza_rc'));
   req('Vehículo', 'aseguradora medio ambiente', cpVehicleValue(s.veh, 'aseguradora_medio_ambiente'));
@@ -486,6 +486,18 @@ function cartaPorteErrorText(error){
     return 'No se pudo conectar con el servidor de timbrado. Revisa conexión y vuelve a intentar; detalle técnico: ' + (error?.message || 'sin respuesta del servidor');
   }
   console.error('[GasLP Carta Porte] backend/PAC error', {endpoint:'/api/internal-auth/gas-lp/carta-porte', status:error.status, response:error.response, responseText:error.responseText});
+  if(detail && typeof detail === 'object'){
+    const pac = detail.pac_response || {};
+    const compact = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 700);
+    const parts = [
+      detail.message || error.message,
+      pac.messageDetail ? `Detalle SW: ${pac.messageDetail}` : '',
+      pac.message && pac.message !== detail.pac_error ? `SW: ${pac.message}` : '',
+      pac.raw_response_sw ? `Respuesta SW: ${compact(pac.raw_response_sw)}` : '',
+      pac.status_code_sw ? `HTTP SW: ${pac.status_code_sw}` : ''
+    ].filter(Boolean);
+    if(parts.length) return parts.join(' · ');
+  }
   return detailText(detail, error.message || 'No fue posible timbrar Carta Porte.');
 }
 async function confirmarTimbradoCartaPorteGasLp(){
@@ -528,8 +540,7 @@ async function handleCartaPorteAction(){
 function isCartaPorteFactura(f){
   const md = f?.metadata || {};
   const flow = String(md.tipo_flujo || md.tipo_operacion || md.cfdi_tipo || '').toLowerCase();
-  const tipo = String(f?.tipo_comprobante || md.tipo_comprobante || '').toUpperCase();
-  return flow.includes('carta_porte') || flow.includes('traspaso') || md.is_transfer === true || tipo === 'T';
+  return flow.includes('carta_porte') || Boolean(md.id_ccp) || Boolean(md.carta_porte_validation);
 }
 function cartaPorteRows(scope='all'){
   const day = todayKey();
@@ -661,7 +672,7 @@ function renderAssistantCpDriversSummary(){
 function acpEndpoint(kind,id=''){ return `/api/internal-auth/gas-lp/catalogos/${kind}${id?`/${id}`:''}`; }
 function acpParams(params){
   const qs = new URLSearchParams();
-  const numericKeys = new Set(['anio','peso_bruto_vehicular','factor_kg_litro','distancia_km','tiempo_estimado_minutos']);
+  const numericKeys = new Set(['anio','factor_kg_litro','distancia_km','tiempo_estimado_minutos','peso_bruto_vehicular']);
   Object.entries(params).forEach(([k,v]) => {
     if(v === undefined || v === null) return;
     qs.set(k, numericKeys.has(k) ? cpDecimalValue(v, '') : v);
@@ -753,7 +764,7 @@ function renderAssistantCpForm(){
     acpSelect('acpv_config','<span class="acp-required">Configuración vehicular SAT</span>',acpOptions(ACP_CONFIG_VEHICULAR,row?.config_vehicular||'C2'),row?.config_vehicular||'C2','Clave SAT/SICT de configuración vehicular para Carta Porte.'),
     acpSelect('acpv_permiso','<span class="acp-required">Permiso SCT/SICT</span>',acpOptions(ACP_PERMISOS_SCT,row?.permiso_cre||md.permiso_sct||'TPAF03'),row?.permiso_cre||md.permiso_sct||'TPAF03','Permiso oficial de autotransporte que se envía en Carta Porte.'),
     acpField('acpv_numperm','<span class="acp-required">Número permiso SCT/SICT</span>',md.numero_permiso||'','text','placeholder="SCT-123456"'),
-    acpField('acpv_peso','<span class="acp-required">Peso bruto vehicular</span>',md.peso_bruto_vehicular||'','text','inputmode="decimal" placeholder="18000"','Peso bruto vehicular en kg.'),
+    acpField('acpv_pbv','<span class="acp-required">Peso bruto vehicular SAT</span>',md.peso_bruto_vehicular||'','text','inputmode="decimal" placeholder="12.00"','Requerido por SAT para el XML. Acepta toneladas o kg; si capturas 12000 se enviará como 12.00 t.'),
     acpField('acpv_aseg','<span class="acp-required">Aseguradora de responsabilidad civil</span>',row?.aseguradora||'','text','placeholder="GNP Seguros"','Seguro obligatorio del vehículo.'),
     acpField('acpv_poliza','<span class="acp-required">Póliza de responsabilidad civil</span>',row?.poliza_seguro||'','text','placeholder="POL-123456"','Seguro obligatorio del vehículo.'),
     acpField('acpv_asegma','<span class="acp-required">Aseguradora de daños al medio ambiente</span>',md.aseguradora_medio_ambiente||'','text','placeholder="Aseguradora ambiental"','Requerido para transporte de material peligroso como Gas LP.'),
@@ -829,7 +840,8 @@ function validateAssistantCp(kind){
   };
   if(kind==='vehiculos'){
     req('número económico', acpv_num.value); req('placas', acpv_placas.value); req('configuración vehicular SAT', acpv_config.value); req('permiso SCT/SICT', acpv_permiso.value); req('número permiso SCT/SICT', acpv_numperm.value);
-    reqDecimal('peso bruto vehicular válido', acpv_peso.value); req('aseguradora de responsabilidad civil', acpv_aseg.value); req('póliza de responsabilidad civil', acpv_poliza.value); req('aseguradora de daños al medio ambiente', acpv_asegma.value); req('póliza de daños al medio ambiente', acpv_polizama.value);
+    reqDecimal('peso bruto vehicular SAT', acpv_pbv.value);
+    req('aseguradora de responsabilidad civil', acpv_aseg.value); req('póliza de responsabilidad civil', acpv_poliza.value); req('aseguradora de daños al medio ambiente', acpv_asegma.value); req('póliza de daños al medio ambiente', acpv_polizama.value);
   }
   if(kind==='choferes'){
     const rfc = String(acpc_rfc.value || '').trim().toUpperCase().replace(/\s+/g, '');
@@ -857,7 +869,7 @@ async function saveAssistantCp(){
   const kind = assistantCpKind;
   let p = {};
   if(!validateAssistantCp(kind)) return;
-  if(kind==='vehiculos') p = {numero_economico:acpv_num.value,placa:acpv_placas.value,anio:acpv_anio.value,config_vehicular:acpv_config.value,permiso_cre:acpv_permiso.value,numero_permiso:acpv_numperm.value,peso_bruto_vehicular:cpDecimalValue(acpv_peso.value),aseguradora:acpv_aseg.value,poliza_seguro:acpv_poliza.value,aseguradora_medio_ambiente:acpv_asegma.value,poliza_medio_ambiente:acpv_polizama.value};
+  if(kind==='vehiculos') p = {numero_economico:acpv_num.value,placa:acpv_placas.value,anio:acpv_anio.value,config_vehicular:acpv_config.value,permiso_cre:acpv_permiso.value,numero_permiso:acpv_numperm.value,peso_bruto_vehicular:acpv_pbv.value,aseguradora:acpv_aseg.value,poliza_seguro:acpv_poliza.value,aseguradora_medio_ambiente:acpv_asegma.value,poliza_medio_ambiente:acpv_polizama.value};
   if(kind==='choferes') p = {nombre:acpc_nombre.value,rfc:acpc_rfc.value,curp:acpc_curp.value,tipo_licencia:acpc_tipolic.value,licencia:acpc_lic.value,tipo_figura:acpc_tipo.value,fecha_expedicion_licencia:acpc_exp.value,fecha_vencimiento_licencia:acpc_venc.value,telefono:acpc_tel.value};
   if(kind==='instalaciones') p = {tipo_ubicacion:acpu_tipo.value,id_ubicacion_carta_porte:acpu_id.value,estado_sat:acpu_estado.value,municipio_sat:acpu_mun.value,localidad_sat:acpu_loc.value,referencia_carta_porte:acpu_ref.value};
   if(kind==='mercancias') p = {alias:acpm_alias.value,bienes_transp:acpm_bienes.value,descripcion:acpm_desc.value,clave_unidad:acpm_clave.value,unidad:acpm_unidad.value,factor_kg_litro:cpDecimalValue(acpm_factor.value),material_peligroso:acpm_peligro.value,clave_material_peligroso:acpm_clavep.value,embalaje:acpm_emb.value,descripcion_embalaje:acpm_descemb.value};
