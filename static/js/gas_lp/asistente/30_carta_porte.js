@@ -1108,9 +1108,7 @@ function renderAssistantCpCard(kind,row){
   }else{
     actions = assistantCpActionButton('edit', kind, editId, 'Editar', 'fa-pen');
     actions += assistantCpActionButton('deactivate', kind, editId, 'Desactivar', 'fa-ban', 'danger');
-    if(kind !== 'rutas'){
-      actions += assistantCpActionButton('delete', kind, editId, 'Eliminar', 'fa-trash', 'danger');
-    }
+    actions += assistantCpActionButton('delete', kind, editId, 'Eliminar', 'fa-trash', 'danger');
   }
   return `<div class="acp-card"><div><h3>${esc(acpTitle(kind,row))}</h3><span class="acp-badge">Activo</span></div><div class="acp-line">${esc(line)}</div>${licenseStatus ? `<span class="acp-badge ${esc(licenseStatus.status)}">${esc(licenseStatus.label)}</span><div class="acp-line">${esc(licenseText)}</div>` : ''}<div class="acp-actions">${actions}</div></div>`;
 }
