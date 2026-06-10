@@ -1224,6 +1224,8 @@ def test_assistant_carta_porte_validation_flow_has_modal_and_real_error_text():
 
 
 def test_carta_porte_xml_adds_seconds_to_browser_datetime_values():
+    import re
+
     xml = build_carta_porte_xml(
         {
             "record_uuid": "CP-FECHA",
@@ -1256,6 +1258,7 @@ def test_carta_porte_xml_adds_seconds_to_browser_datetime_values():
     )
 
     assert 'TipoDeComprobante="T"' in xml
+    assert re.search(r'IdCCP="CCC[0-9a-f]{5}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"', xml)
     assert 'SubTotal="0" Total="0" Moneda="XXX"' in xml
     assert '<cfdi:Concepto ClaveProdServ="78101800"' in xml
     assert 'BienesTransp="15111510"' in xml
