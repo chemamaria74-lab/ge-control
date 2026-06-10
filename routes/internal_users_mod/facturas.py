@@ -1,4 +1,9 @@
 from .core import *
+from services.carta_porte_pdf import (
+    es_carta_porte_traslado,
+    extraer_info_pdf as carta_porte_pdf_info,
+    generar_pdf_carta_porte_desde_xml,
+)
 
 @router.get("/internal-auth/gas-lp/facturas")
 async def gas_lp_internal_facturas(token: str, mes: str | None = None):
@@ -276,19 +281,23 @@ async def gas_lp_internal_factura_pdf(factura_id: int, token: str, perfil_id: in
     ctx = _gas_lp_factura_access_context(token, perfil_id=perfil_id)
     user = ctx["user"]
     row = _gas_lp_internal_factura(user, factura_id)
-    pac_pdf_url = str(row.get("pdf_url") or "").strip()
-    if pac_pdf_url:
-        return RedirectResponse(pac_pdf_url, status_code=302)
     xml_content = row.get("xml_content") or ""
     if not xml_content:
         raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
-    info = fiscal_pdf_info(xml_content, "factura_gas_lp")
-    pdf_bytes = generar_pdf_gas_lp_desde_xml(
-        xml_content,
-        logo_data_url=settings.get("PdfLogoDataUrl", ""),
-        observaciones=_gas_lp_factura_observaciones(row),
-    )
+    if es_carta_porte_traslado(xml_content):
+        info = carta_porte_pdf_info(xml_content)
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+    else:
+        pac_pdf_url = str(row.get("pdf_url") or "").strip()
+        if pac_pdf_url:
+            return RedirectResponse(pac_pdf_url, status_code=302)
+        info = fiscal_pdf_info(xml_content, "factura_gas_lp")
+        pdf_bytes = generar_pdf_gas_lp_desde_xml(
+            xml_content,
+            logo_data_url=settings.get("PdfLogoDataUrl", ""),
+            observaciones=_gas_lp_factura_observaciones(row),
+        )
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -346,6 +355,10 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
     if not recipients:
         raise HTTPException(400, "Captura un correo destino para enviar XML/PDF.")
     try:
+    if es_carta_porte_traslado(xml_content):
+        info = carta_porte_pdf_info(xml_content)
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+    else:
         info = fiscal_pdf_info(xml_content, "factura_gas_lp")
         pdf_bytes = generar_pdf_gas_lp_desde_xml(
             xml_content,
