@@ -44,6 +44,13 @@ function cpDecimalValue(value, fallback=''){
   const number = Number(text);
   return Number.isFinite(number) ? String(number) : fallback;
 }
+function normalizeCpDecimalInput(input, decimals=4){
+  if(!input) return;
+  const value = Number(cpDecimalValue(input.value, '0'));
+  if(!Number.isFinite(value)) return;
+  const rounded = Math.round(value * (10 ** decimals)) / (10 ** decimals);
+  input.value = String(rounded);
+}
 function cpName(list, id, fallback='—'){
   const rows = list === 'instalaciones' && typeof assistantCpRows === 'function' ? assistantCpRows('instalaciones') : (CATALOGOS[list] || []);
   const r = rows.find(x => String(x.id) === String(id) || String(x.facility_id || '') === String(id));
@@ -231,7 +238,7 @@ function renderCartaPorteWizard(){
         <h3>3. Mercancía</h3>
         <p>Para Carta Porte se envía cantidad en litros y peso en kilogramos. El operador captura litros; el peso se calcula con el factor kg/L configurado para Gas LP.</p>
         <div class="form-grid">
-          <div><label>Cantidad SAT en litros</label><input id="cpLitros" type="number" min="0" step="0.00001" value="0" oninput="invalidateCpPreview();updateCpPeso()"><div class="muted" style="font-size:12px;margin-top:4px">Se envía como Cantidad con ClaveUnidad LTR.</div></div>
+          <div><label>Cantidad SAT en litros</label><input id="cpLitros" type="text" inputmode="decimal" value="0" oninput="invalidateCpPreview();updateCpPeso()" onblur="normalizeCpDecimalInput(this,4);updateCpPeso()"><div class="muted" style="font-size:12px;margin-top:4px">Se envía como Cantidad con ClaveUnidad LTR.</div></div>
           <div><label>Peso SAT en kg</label><input id="cpPeso" class="locked-field" readonly value="0"><div class="muted" style="font-size:12px;margin-top:4px">Se envía como PesoEnKg; UnidadPeso KGM.</div></div>
           <div><label>Unidad cantidad</label><input class="locked-field" readonly value="LTR - Litro"></div>
           <div><label>Unidad peso</label><input class="locked-field" readonly value="KGM - Kilogramo"></div>
@@ -289,7 +296,7 @@ function selectedCp(){
   const instalaciones = CATALOGOS.instalaciones || CATALOGOS.ubicaciones || [];
   const origen = instalaciones.find(u => String(u.id) === String(cpOrigen?.value));
   const destino = instalaciones.find(u => String(u.id) === String(cpDestino?.value));
-  const litrosNum = Number(cpLitros?.value || 0);
+  const litrosNum = Number(cpDecimalValue(cpLitros?.value, '0'));
   const factor = Number(merc?.factor_kg_litro || 0);
   const peso = litrosNum * factor;
   return {merc, veh, chofer, origen, destino, litrosNum, peso};
