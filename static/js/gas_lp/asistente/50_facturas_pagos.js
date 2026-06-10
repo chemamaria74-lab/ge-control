@@ -283,37 +283,65 @@ async function sendFacturaEmail(){
     emailModalSendBtn.disabled = false;
   }
 }
+function facturaCartaPorteSummary(f){
+    const md = f?.metadata || {};
+    return f?.carta_porte_summary || md.carta_porte_summary || {};
+}
+function isCartaPorteDocument(f){
+    const md = f?.metadata || {};
+    const cp = facturaCartaPorteSummary(f);
+    const flow = String(md.tipo_flujo || md.tipo_operacion || md.cfdi_tipo || '').toLowerCase();
+    const tipoComprobante = String(f?.tipo_comprobante || md.tipo_comprobante || cp.tipo_comprobante || '').toUpperCase();
+    return tipoComprobante === 'T' || flow.includes('carta_porte') || Boolean(md.id_ccp) || Boolean(cp.id_ccp) || Boolean(md.carta_porte_validation);
+}
+function cartaPorteNumber(value){
+    const number = Number(String(value ?? '').replace(/,/g, '').trim());
+    return Number.isFinite(number) ? number : 0;
+}
+function cartaPorteLitrosValue(f){
+    const md = f?.metadata || {};
+    const cp = facturaCartaPorteSummary(f);
+    const unidad = String(cp.clave_unidad || '').toUpperCase();
+    if(unidad === 'LTR') return cartaPorteNumber(cp.litros ?? cp.cantidad);
+    return cartaPorteNumber(cp.litros ?? md.volumen_litros ?? md.litros ?? f?.volumen_litros);
+}
 function facturaView(f){
     const md = f.metadata || {};
-    const isTraspaso = md.tipo_operacion === 'traspaso' || md.is_transfer;
-    const op = isTraspaso ? 'Traspaso' : 'Venta';
+    const cp = facturaCartaPorteSummary(f);
+    const isCartaPorte = isCartaPorteDocument(f);
+    const isTraspaso = !isCartaPorte && (md.tipo_operacion === 'traspaso' || md.is_transfer);
+    const op = isCartaPorte ? 'Carta Porte' : (isTraspaso ? 'Traspaso' : 'Venta');
     const transferReceiver = md.receptor_nombre || md.empresa_nombre || md.cliente_nombre || f.nombre_receptor || issuerFiscalName();
     const transferRoute = [md.origen_nombre, md.destino_nombre].filter(Boolean).join(' → ');
-    const destino = isTraspaso ? (transferReceiver || 'Misma empresa') : (md.cliente_nombre || f.rfc_receptor || '—');
+    const cartaPorteRoute = [cp.origen_nombre || md.origen_nombre, cp.destino_nombre || md.destino_nombre].filter(Boolean).join(' → ');
+    const destino = isCartaPorte ? (cp.destino_nombre || md.destino_nombre || 'Carta Porte') : (isTraspaso ? (transferReceiver || 'Misma empresa') : (md.cliente_nombre || f.rfc_receptor || '—'));
     const assistant = assistantInfo(f).name;
     const info = f.payment_info || {};
     const metodo = String(info.metodo_pago || md.metodo_pago || '').toUpperCase();
     const paymentStatus = f.payment_status || md.payment_status || '';
     const paymentVisual = facturaPaymentState(f);
-    const pago = paymentVisual.payLabel || paymentStatus || '—';
+    const pago = isCartaPorte ? 'Tipo T' : (paymentVisual.payLabel || paymentStatus || '—');
     const id = encodeURIComponent(f.id || '');
     const q = `token=${encodeURIComponent(token)}`;
     const compId = facturaComplementoId(f);
     const compDoc = compId ? `<a class="btn ghost doc-square" title="Ver PDF complemento" aria-label="Ver PDF complemento" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(compId)}/pdf?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost doc-square" title="Descargar XML complemento" aria-label="Descargar XML complemento" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(compId)}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-receipt"></i> XML</a>` : '';
-    const emailDoc = f.id && f.xml_content ? `<button class="btn ghost doc-email" type="button" title="Enviar correo" aria-label="Enviar correo" onclick="openEmailModal('${esc(String(f.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
+    const emailDoc = !isCartaPorte && f.id && f.xml_content ? `<button class="btn ghost doc-email" type="button" title="Enviar correo" aria-label="Enviar correo" onclick="openEmailModal('${esc(String(f.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
     const docsHint = '';
     const docs = f.id && f.xml_content ? `<div class="doc-actions"><a class="btn ghost doc-square" title="Descargar PDF" aria-label="Descargar PDF" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost doc-square" title="Descargar XML" aria-label="Descargar XML" href="/api/internal-auth/gas-lp/facturas/${id}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>${emailDoc}${compDoc}</div>${docsHint}` : '<span class="muted">Pendiente</span>';
     const fechaValue = facturaDateValue(f) || '';
+    const litrosValue = isCartaPorte ? cartaPorteLitrosValue(f) : Number(info.litros ?? f.volumen_litros ?? md.litros ?? 0);
+    const totalValue = isCartaPorte ? 0 : (info.total ?? md.total ?? (Number(f.importe||0)*1.16));
     return {
       fecha: esc(dateDMY(fechaValue)),
       hora: esc(facturaTimeLabel(f)),
+      isCartaPorte,
       isTraspaso,
       op,
-      origen: isTraspaso ? (transferRoute || md.origen_nombre || '—') : (md.origen_nombre || '—'),
+      origen: isCartaPorte ? (cp.origen_nombre || md.origen_nombre || cartaPorteRoute || '—') : (isTraspaso ? (transferRoute || md.origen_nombre || '—') : (md.origen_nombre || '—')),
       destino: destino || '—',
-      destinoSub: isTraspaso ? 'misma empresa · Uso CFDI S01' : '',
-      litros: Number(info.litros ?? f.volumen_litros ?? md.litros ?? 0).toLocaleString('es-MX',{minimumFractionDigits:4,maximumFractionDigits:4}),
-      total: info.total ?? md.total ?? (Number(f.importe||0)*1.16),
+      destinoSub: isCartaPorte ? 'Carta Porte tipo T' : (isTraspaso ? 'misma empresa · Uso CFDI S01' : ''),
+      litros: litrosValue.toLocaleString('es-MX',{minimumFractionDigits:4,maximumFractionDigits:4}),
+      total: totalValue,
       pago: pago || paymentStatus || '—',
       pagoTitle: paymentVisual.title || '',
       assistant,
@@ -322,15 +350,15 @@ function facturaView(f){
       statusHtml: facturaStatusHtml(f),
       uuid: f.uuid_sat || '—',
       docs,
-      search: [f.uuid_sat,f.rfc_receptor,md.cliente_nombre,md.destino_nombre,md.origen_nombre,assistant,pago,paymentStatus].join(' ').toLowerCase()
+      search: [f.uuid_sat,f.rfc_receptor,md.cliente_nombre,md.destino_nombre,md.origen_nombre,cp.origen_nombre,cp.destino_nombre,assistant,pago,paymentStatus,op].join(' ').toLowerCase()
     };
 }
 function renderFacturasTable(rows, tbody, emptyText){
   tbody.innerHTML = rows.length ? rows.map(item=>{
     const v = item.__kind === 'complemento' ? complementoView(item) : facturaView(item);
-    const opHtml = v.kind === 'complemento' ? `<span class="op-tag payment">Complemento</span><span class="cell-sub">${esc(v.origen)}</span>` : (v.isTraspaso ? '<span class="op-tag transfer">Traspaso</span>' : '<span class="op-tag">Venta</span>');
+    const opHtml = v.kind === 'complemento' ? `<span class="op-tag payment">Complemento</span><span class="cell-sub">${esc(v.origen)}</span>` : (v.isCartaPorte ? '<span class="op-tag transfer">Carta Porte</span>' : (v.isTraspaso ? '<span class="op-tag transfer">Traspaso</span>' : '<span class="op-tag">Venta</span>'));
     const clientHtml = `<span class="cell-main" title="${esc(v.destino)}">${esc(v.destino)}</span>${v.destinoSub ? `<span class="cell-sub">${esc(v.destinoSub)}</span>` : ''}`;
-    const routeClass = v.isTraspaso ? 'cell-main transfer-route' : 'cell-main';
+    const routeClass = v.isTraspaso || v.isCartaPorte ? 'cell-main transfer-route' : 'cell-main';
     return `<tr><td class="date-cell">${v.fecha}</td><td class="op-cell">${opHtml}</td><td class="facility-cell"><span class="${routeClass}" title="${esc(v.origen)}">${esc(v.origen)}</span></td><td class="client-cell">${clientHtml}</td><td class="liters-cell">${esc(v.litros)}</td><td class="money-cell">${money(v.total)}</td><td class="pay-cell">${esc(v.pago)}</td><td class="assistant-cell">${v.assistantBadge}</td><td class="status-cell">${v.statusHtml}</td><td class="uuid-cell"><code class="uuid-text" title="${esc(v.uuid)}">${esc(v.uuid)}</code></td><td class="docs-cell">${v.docs}</td></tr>`;
   }).join('') : `<tr><td colspan="11">${esc(emptyText)}</td></tr>`;
 }
@@ -345,10 +373,19 @@ function fiscalDocumentRows(){
 }
 function facturaClientKey(f){
   const md = f.metadata || {};
+  if(isCartaPorteDocument(f)){
+    const cp = facturaCartaPorteSummary(f);
+    return String(cp.destino_nombre || md.destino_nombre || cp.origen_nombre || md.origen_nombre || 'CARTA PORTE').trim().toUpperCase();
+  }
   return String(md.cliente_nombre || f.nombre_receptor || f.rfc_receptor || md.destino_nombre || 'SIN CLIENTE').trim().toUpperCase();
 }
 function facturaClientLabel(f){
   const md = f.metadata || {};
+  if(isCartaPorteDocument(f)){
+    const cp = facturaCartaPorteSummary(f);
+    const route = [cp.origen_nombre || md.origen_nombre, cp.destino_nombre || md.destino_nombre].filter(Boolean).join(' → ');
+    return route ? `Carta Porte · ${route}` : 'Carta Porte';
+  }
   const name = md.cliente_nombre || f.nombre_receptor || md.destino_nombre || f.rfc_receptor || 'Sin cliente';
   return `${name}${f.rfc_receptor ? ' · ' + f.rfc_receptor : ''}`;
 }
@@ -372,7 +409,8 @@ function renderTodayFacturas(){
   const rows = fiscalDocumentRows().filter(f => (f.__kind === 'complemento' ? String(f.fecha_timbrado || f.fecha_pago || '').slice(0,10) : facturaDateKey(f)) === key);
   todayFacturasRows.innerHTML = rows.length ? rows.map(f=>{
     const v = f.__kind === 'complemento' ? complementoView(f) : facturaView(f);
-    return `<tr><td class="today-time">${v.hora}</td><td class="today-client"><span class="today-client-name" title="${esc(v.destino)}">${esc(v.destino)}</span>${v.assistantBadge}</td><td class="today-total">${money(v.total)}</td><td class="today-pay">${esc(v.pago)}</td><td class="today-docs">${v.docs}</td></tr>`;
+    const docLabel = v.isCartaPorte ? '<span class="cell-sub">Carta Porte tipo T</span>' : (v.destinoSub ? `<span class="cell-sub">${esc(v.destinoSub)}</span>` : '');
+    return `<tr><td class="today-time">${v.hora}</td><td class="today-client"><span class="today-client-name" title="${esc(v.destino)}">${esc(v.destino)}</span>${docLabel}${v.assistantBadge}</td><td class="today-total">${money(v.total)}</td><td class="today-pay">${esc(v.pago)}</td><td class="today-docs">${v.docs}</td></tr>`;
   }).join('') : '<tr><td colspan="5">Sin documentos fiscales timbrados hoy.</td></tr>';
 }
 function applyFacturasFilters(){
@@ -389,8 +427,9 @@ function applyFacturasFilters(){
     if(month && !key.startsWith(month)) return false;
     if(pago && !String(v.pago).toUpperCase().includes(pago.toUpperCase())) return false;
     if(tipo === 'complemento' && !isComp) return false;
-    if(tipo === 'traspaso' && (isComp || !v.isTraspaso)) return false;
-    if(tipo === 'factura' && (isComp || v.isTraspaso)) return false;
+    if(tipo === 'carta_porte' && (isComp || !v.isCartaPorte)) return false;
+    if(tipo === 'traspaso' && (isComp || v.isCartaPorte || !v.isTraspaso)) return false;
+    if(tipo === 'factura' && (isComp || v.isTraspaso || v.isCartaPorte)) return false;
     return true;
   });
   renderFacturasTable(rows, facturasRows, 'Sin documentos con esos filtros.');

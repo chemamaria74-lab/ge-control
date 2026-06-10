@@ -64,7 +64,22 @@ function cpName(list, id, fallback='—'){
 }
 function cpFacilityById(id){
   const key = String(id || '');
-  return assistantCpRows('instalaciones').find(x => String(x._select_id || x.id) === key || String(x.facility_id || '') === key) || null;
+  return assistantCpRows('instalaciones').find(x =>
+    String(x._select_id || '') === key
+    || String(x._acp_uid || '') === key
+    || String(x.id) === key
+    || String(x.facility_id || '') === key
+    || String(x.id_ubicacion_carta_porte || x.id_ubicacion || '') === key
+  ) || null;
+}
+function cpRouteLocationRef(row, prefix){
+  const md = cpRouteMeta(row);
+  return cpValue(
+    row?.[`${prefix}_facility_id`],
+    md?.[`${prefix}_facility_id`],
+    md?.[`${prefix}_ubicacion_ref`],
+    md?.[`${prefix}_ubicacion_id`]
+  );
 }
 function cpRouteMeta(row){ return cpMeta(row); }
 function cpRouteTimeMinutes(row){
@@ -266,8 +281,10 @@ function applyCpRutaDefaults(){
     if(cpMercanciaSummary) cpMercanciaSummary.innerHTML = '<div><span>Mercancía</span><b>Gas LP del catálogo</b></div>';
     return;
   }
-  if(cpOrigen && ruta.origen_facility_id) cpOrigen.value = String(ruta.origen_facility_id);
-  if(cpDestino && ruta.destino_facility_id) cpDestino.value = String(ruta.destino_facility_id);
+  const origenRef = cpRouteLocationRef(ruta, 'origen');
+  const destinoRef = cpRouteLocationRef(ruta, 'destino');
+  if(cpOrigen) cpOrigen.value = String(origenRef || '');
+  if(cpDestino) cpDestino.value = String(destinoRef || '');
   if(cpDistancia) cpDistancia.value = ruta.distancia_km || 0;
   if(cpTiempoMin) cpTiempoMin.value = String(cpRouteTimeMinutes(ruta) || 0);
   if(cpMercancia) cpMercancia.value = String(gas?.id || '');
@@ -299,8 +316,8 @@ function selectedCp(){
   const veh = (CATALOGOS.vehiculos || []).find(v => String(v.id) === String(cpVehiculo?.value));
   const chofer = (CATALOGOS.choferes || []).find(c => String(c.id) === String(cpChofer?.value));
   const instalaciones = assistantCpRows('instalaciones');
-  const origen = instalaciones.find(u => String(u._select_id || u.id) === String(cpOrigen?.value) || String(u.facility_id || '') === String(cpOrigen?.value));
-  const destino = instalaciones.find(u => String(u._select_id || u.id) === String(cpDestino?.value) || String(u.facility_id || '') === String(cpDestino?.value));
+  const origen = cpFacilityById(cpOrigen?.value);
+  const destino = cpFacilityById(cpDestino?.value);
   const litrosNum = Number(cpDecimalValue(cpLitros?.value, '0'));
   const factor = Number(merc?.factor_kg_litro || 0);
   const peso = litrosNum * factor;
@@ -336,20 +353,28 @@ function cpChecklistResult(){
 
   if(!ruta) errors.push('Ruta: selecciona una ruta frecuente.');
   else {
-    req('Ruta', 'origen', ruta.origen_facility_id || cpOrigen?.value);
-    req('Ruta', 'destino', ruta.destino_facility_id || cpDestino?.value);
-    if(String(ruta.origen_facility_id || cpOrigen?.value) === String(ruta.destino_facility_id || cpDestino?.value)) errors.push('Ruta: origen y destino deben ser distintos.');
+    const origenRef = cpRouteLocationRef(ruta, 'origen') || cpOrigen?.value;
+    const destinoRef = cpRouteLocationRef(ruta, 'destino') || cpDestino?.value;
+    req('Ruta', 'origen', origenRef);
+    req('Ruta', 'destino', destinoRef);
+    if(origenRef && destinoRef && String(origenRef) === String(destinoRef)) errors.push('Ruta: origen y destino deben ser distintos.');
     if(km <= 1) errors.push('Ruta: distancia recorrida debe ser real y mayor a 1 km.');
     else ok.push('Ruta con distancia operativa.');
     if(minutes <= 0) errors.push('Ruta: falta duración estimada para calcular llegada.');
     if(!s.merc) errors.push('Mercancía: falta configurar Gas LP en el catálogo de mercancías.');
   }
 
+  if(!s.origen) errors.push('Ruta: origen no existe en instalaciones Carta Porte.');
+  if(!s.destino) errors.push('Ruta: destino no existe en instalaciones Carta Porte.');
   req('Origen', 'CP', cpFacilityValue(s.origen, 'cp'));
-  req('Origen', 'estado', cpFacilityValue(s.origen, 'estado'));
+  req('Origen', 'ID ubicación Carta Porte', cpFacilityValue(s.origen, 'id_ubicacion'));
+  req('Origen', 'estado SAT', cpFacilityValue(s.origen, 'estado'));
+  req('Origen', 'municipio SAT', cpFacilityValue(s.origen, 'municipio'));
   req('Origen', 'país', cpFacilityValue(s.origen, 'pais') || 'MEX');
   req('Destino', 'CP', cpFacilityValue(s.destino, 'cp'));
-  req('Destino', 'estado', cpFacilityValue(s.destino, 'estado'));
+  req('Destino', 'ID ubicación Carta Porte', cpFacilityValue(s.destino, 'id_ubicacion'));
+  req('Destino', 'estado SAT', cpFacilityValue(s.destino, 'estado'));
+  req('Destino', 'municipio SAT', cpFacilityValue(s.destino, 'municipio'));
   req('Destino', 'país', cpFacilityValue(s.destino, 'pais') || 'MEX');
 
   if(!s.veh) errors.push('Vehículo: selecciona una unidad.');
@@ -435,6 +460,7 @@ function prepararCartaPortePreview(){
 }
 function cartaPortePayload(){
   const s = selectedCp();
+  const officialId = value => /^\d+$/.test(String(value || '')) ? Number(value) : null;
   return {
     record_uuid: (window.crypto?.randomUUID ? window.crypto.randomUUID() : `cp-${Date.now()}`),
     volumen_litros: s.litrosNum,
@@ -446,9 +472,13 @@ function cartaPortePayload(){
     nombre_cliente: issuerFiscalName(),
     domicilio_cliente: issuerCp() || '00000',
     uso_cfdi: 'S01',
-    facility_id: Number(cpOrigen.value || 0) || null,
-    origen_facility_id: Number(cpOrigen.value),
-    destino_facility_id: Number(cpDestino.value),
+    facility_id: officialId(cpOrigen.value),
+    origen_facility_id: officialId(cpOrigen.value),
+    destino_facility_id: officialId(cpDestino.value),
+    origen_ubicacion_ref: String(cpOrigen.value || ''),
+    destino_ubicacion_ref: String(cpDestino.value || ''),
+    origen_ubicacion_id: cpFacilityValue(s.origen, 'id_ubicacion'),
+    destino_ubicacion_id: cpFacilityValue(s.destino, 'id_ubicacion'),
     vehiculo_id: Number(cpVehiculo.value),
     chofer_id: Number(cpChofer.value),
     ruta_id: Number(cpRuta?.value || 0) || null,
@@ -687,9 +717,7 @@ function normalizeAssistantCpCatalogRow(kind, row){
   };
 }
 function assistantCpRows(kind){
-  return kind === 'instalaciones'
-    ? assistantCpInstallationRows()
-    : (CATALOGOS[kind] || []).map(row => normalizeAssistantCpCatalogRow(kind, row));
+  return kind === 'instalaciones' ? assistantCpInstallationRows() : (CATALOGOS[kind] || []).map(row => normalizeAssistantCpCatalogRow(kind, row));
 }
 function acpTitle(kind,row){
   const md = cpMeta(row);
