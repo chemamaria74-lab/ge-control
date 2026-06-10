@@ -26,6 +26,15 @@ def xml_tiene_carta_porte(xml_content: str | bytes) -> bool:
     return _first(root, "CartaPorte") is not None
 
 
+def es_carta_porte_traslado(xml_content: str | bytes) -> bool:
+    """True cuando el XML es CFDI 4.0 tipo T con complemento Carta Porte."""
+    try:
+        root = _parse_xml(xml_content)
+    except Exception:
+        return False
+    return _attr(root, "TipoDeComprobante") == "T" and _first(root, "CartaPorte") is not None
+
+
 def extraer_info_pdf(xml_content: str | bytes) -> CartaPortePdfInfo:
     root = _parse_xml(xml_content)
     timbre = _first(root, "TimbreFiscalDigital")
@@ -33,7 +42,7 @@ def extraer_info_pdf(xml_content: str | bytes) -> CartaPortePdfInfo:
     uuid = _attr(timbre, "UUID", "sin_uuid")
     id_ccp = _attr(carta, "IdCCP", "")
     safe = (uuid or id_ccp or "carta_porte").replace("/", "_")
-    return CartaPortePdfInfo(uuid=uuid, id_ccp=id_ccp, has_carta_porte=carta is not None, filename=f"carta_porte_{safe}.pdf")
+    return CartaPortePdfInfo(uuid=uuid, id_ccp=id_ccp, has_carta_porte=carta is not None, filename=f"CARTA_PORTE_TRASLADO_{safe}.pdf")
 
 
 def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: str = "") -> bytes:
@@ -106,7 +115,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         [
             [
                 issuer_logo or Paragraph(f"<b>{issuer_title}</b>", styles["Brand"]),
-                Paragraph("<b>Representación impresa de CFDI 4.0 con Complemento Carta Porte 3.1</b><br/>Documento fiscal para acreditar el transporte de mercancías", styles["TitleCenter"]),
+                Paragraph("<b>CARTA PORTE - TRASLADO</b><br/><font size='8'>Representación impresa de CFDI 4.0 con Complemento Carta Porte 3.1</font>", styles["TitleCenter"]),
                 qr or Paragraph("QR fiscal<br/>no disponible", styles["Tiny"]),
             ]
         ],
@@ -134,10 +143,13 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
             ("UUID SAT", uuid),
             ("IdCCP", _attr(carta, "IdCCP", "—")),
             ("Serie / Folio", f"{_attr(comp, 'Serie', '—')} / {_attr(comp, 'Folio', '—')}"),
-            ("Tipo CFDI", f"{_tipo_cfdi(_attr(comp, 'TipoDeComprobante'))} ({_attr(comp, 'TipoDeComprobante')})"),
+            ("Tipo comprobante", f"{_attr(comp, 'TipoDeComprobante')} {_tipo_cfdi(_attr(comp, 'TipoDeComprobante'))}"),
             ("Fecha emisión", _attr(comp, "Fecha")),
             ("Fecha timbrado", _attr(timbre, "FechaTimbrado")),
             ("Lugar expedición", _attr(comp, "LugarExpedicion")),
+            ("Uso CFDI", _attr(receptor, "UsoCFDI")),
+            ("Moneda", _attr(comp, "Moneda")),
+            ("Total", _attr(comp, "Total")),
             ("No. certificado emisor", _attr(comp, "NoCertificado")),
             ("No. certificado SAT", _attr(timbre, "NoCertificadoSAT")),
             ("PAC", _attr(timbre, "RfcProvCertif")),
@@ -176,6 +188,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         "Resumen Carta Porte",
         [
             ("Versión", _attr(carta, "Version", "—")),
+            ("IdCCP", _attr(carta, "IdCCP", "—")),
             ("Transporte internacional", _attr(carta, "TranspInternac", "—")),
             ("Distancia total recorrida", _attr(carta, "TotalDistRec", "—")),
             ("Registro ISTMO", _attr(carta, "RegistroISTMO", "—")),
@@ -338,6 +351,7 @@ def _autotransporte_table(autotransporte, ident, seguros, remolques, Table, Tabl
         ["Permiso SCT", f"{_attr(autotransporte, 'PermSCT')} / {_attr(autotransporte, 'NumPermisoSCT')}"],
         ["Vehículo", f"Config {_attr(ident, 'ConfigVehicular')} · Placas {_attr(ident, 'PlacaVM')} · Modelo {_attr(ident, 'AnioModeloVM')} · PBV {_attr(ident, 'PesoBrutoVehicular')}"],
         ["Seguro RC", f"{_attr(seguros, 'AseguraRespCivil')} · Póliza {_attr(seguros, 'PolizaRespCivil')}"],
+        ["Seguro medio ambiente", f"{_attr(seguros, 'AseguraMedAmbiente')} · Póliza {_attr(seguros, 'PolizaMedAmbiente')}"],
         ["Remolques", ", ".join(f"{_attr(r, 'SubTipoRem')} {_attr(r, 'Placa')}" for r in remolques) or "—"],
     ]
     return _simple_table(rows, [1.4, 5.6], Table, Paragraph, styles)
@@ -405,6 +419,16 @@ def _url_qr_fiscal(comp, emisor, receptor, timbre) -> str:
 def _qr_flowable(url: str, Image):
     if not url or "id=&" in url:
         return None
+    try:
+        import qrcode
+
+        img = qrcode.make(url)
+        out = BytesIO()
+        img.save(out, format="PNG")
+        out.seek(0)
+        return Image(out, width=0.95 * inch(), height=0.95 * inch())
+    except Exception:
+        return None
 
 
 def _logo_flowable(data_url: str, Image):
@@ -414,16 +438,6 @@ def _logo_flowable(data_url: str, Image):
         raw_b64 = data_url.split(",", 1)[1]
         raw = base64.b64decode(raw_b64)
         return Image(BytesIO(raw), width=1.45 * inch(), height=0.65 * inch(), kind="proportional")
-    except Exception:
-        return None
-    try:
-        import qrcode
-
-        img = qrcode.make(url)
-        out = BytesIO()
-        img.save(out, format="PNG")
-        out.seek(0)
-        return Image(out, width=0.95 * inch(), height=0.95 * inch())
     except Exception:
         return None
 
