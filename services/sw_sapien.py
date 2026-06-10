@@ -274,9 +274,9 @@ def _cp_normalize_id_ccp(value: object = "") -> str:
     raw = text[3:] if text.upper().startswith("CCC") else text
     try:
         parsed = uuid.UUID(raw)
-        return f"CCC{parsed}"
+        return "CCC" + str(parsed).lower()[3:]
     except (TypeError, ValueError, AttributeError):
-        return f"CCC{uuid.uuid4()}"
+        return "CCC" + str(uuid.uuid4()).lower()[3:]
 
 
 def _cp_domicilio_xml(row: dict) -> str:
