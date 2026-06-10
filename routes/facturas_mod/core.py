@@ -530,8 +530,10 @@ class CartaPorteRequest(BaseModel):
     vehiculo_id:       Optional[int] = None
     chofer_id:         Optional[int] = None
     ruta_id:           Optional[int] = None
-    origen_ubicacion_id: Optional[int] = None
-    destino_ubicacion_id: Optional[int] = None
+    origen_ubicacion_id: Optional[str] = None
+    destino_ubicacion_id: Optional[str] = None
+    origen_ubicacion_ref: str = ""
+    destino_ubicacion_ref: str = ""
     mercancia_id:      Optional[int] = None
     fecha_salida:      str = ""
     fecha_llegada:     str = ""
@@ -725,6 +727,80 @@ def _cp_facility_to_ubicacion(scope: dict, facility: dict, tipo: str) -> dict:
     }
 
 
+def _cp_route_location_ref(route_row: Optional[dict], prefix: str):
+    md = _metadata_dict(route_row)
+    return (
+        (route_row or {}).get(f"{prefix}_facility_id")
+        or md.get(f"{prefix}_facility_id")
+        or md.get(f"{prefix}_ubicacion_ref")
+        or md.get(f"{prefix}_ubicacion_id")
+        or ""
+    )
+
+
+def _cp_manual_location_by_ref(scope: dict, ref) -> dict:
+    text = str(ref or "").strip()
+    if not text:
+        return {}
+    manual_id = text.split(":", 1)[1] if text.lower().startswith("manual:") else ""
+    if manual_id and manual_id.isdigit():
+        row = _sb_get(_SB_UBICACIONES_CP, int(manual_id), scope)
+        if row and row.get("activo") is not False:
+            return row
+    rows = _sb_list(_SB_UBICACIONES_CP, scope, active_only=True, order="alias", desc=False)
+    wanted = text.upper()
+    for row in rows:
+        candidates = {
+            str(row.get("id") or "").upper(),
+            f"MANUAL:{row.get('id') or ''}".upper(),
+            str(row.get("id_ubicacion") or "").upper(),
+            str(row.get("id_ubicacion_carta_porte") or "").upper(),
+            str(row.get("alias") or "").upper(),
+        }
+        if wanted in candidates:
+            return row
+    return {}
+
+
+def _cp_manual_ubicacion_to_payload(scope: dict, row: dict, tipo: str, emisor: dict) -> dict:
+    return {
+        "id": row.get("id"),
+        "id_ubicacion": row.get("id_ubicacion") or row.get("id_ubicacion_carta_porte") or "",
+        "tipo": row.get("tipo") or row.get("tipo_ubicacion") or "ambos",
+        "rfc": _clean_rfc(row.get("rfc") or emisor.get("rfc") or ""),
+        "nombre": row.get("nombre") or row.get("alias") or emisor.get("nombre") or "",
+        "alias": row.get("alias") or row.get("nombre") or "",
+        "codigo_postal": _clean_cp(row.get("codigo_postal") or row.get("cp") or ""),
+        "estado": row.get("estado") or row.get("estado_sat") or "",
+        "municipio": row.get("municipio") or row.get("municipio_sat") or "",
+        "localidad": row.get("localidad") or row.get("localidad_sat") or row.get("localidad_colonia") or "",
+        "localidad_colonia": row.get("localidad_colonia") or "",
+        "calle": row.get("calle") or row.get("domicilio") or "",
+        "numero_exterior": row.get("numero_exterior") or "",
+        "numero_interior": row.get("numero_interior") or "",
+        "pais": row.get("pais") or "MEX",
+        "referencia_carta_porte": row.get("referencia_carta_porte") or "",
+        "facility_id": None,
+        "facility_nombre": row.get("alias") or row.get("nombre") or "",
+        "manual_ubicacion_id": row.get("id"),
+        "tipo_ubicacion_esperado": tipo,
+    }
+
+
+def _cp_resolve_route_location(scope: dict, route_row: dict, payload: CartaPorteRequest, prefix: str, emisor: dict) -> tuple[dict, Optional[int], dict]:
+    payload_ref = getattr(payload, f"{prefix}_ubicacion_ref", "") or getattr(payload, f"{prefix}_ubicacion_id", "")
+    official_id = _cp_to_int(getattr(payload, f"{prefix}_facility_id", None) or (payload.facility_id if prefix == "origen" else None))
+    official_id = official_id or _cp_to_int((route_row or {}).get(f"{prefix}_facility_id"))
+    ref = payload_ref or _cp_route_location_ref(route_row, prefix)
+    if official_id:
+        facility = _require_scope_facility(scope, official_id, f"instalación {prefix}")
+        return _cp_facility_to_ubicacion(scope, facility, prefix), official_id, facility
+    manual_row = _cp_manual_location_by_ref(scope, ref)
+    if manual_row:
+        return _cp_manual_ubicacion_to_payload(scope, manual_row, prefix, emisor), None, manual_row
+    raise HTTPException(400, f"Ruta: falta {prefix}.")
+
+
 def _cp_required(errors: list[str], label: str, value) -> None:
     if value is None or str(value).strip() == "":
         errors.append(label)
@@ -750,11 +826,13 @@ def _cp_validate_catalog_payload(
         facility_label = row.get("facility_nombre") or row.get("alias") or row.get("nombre") or prefix
         if allowed_tipo not in {expected_tipo, "ambos"}:
             errors.append(f"{prefix}: completa la configuración Carta Porte de la instalación {facility_label}: tipo debe ser {expected_tipo} o ambos")
-        _cp_required(errors, f"{prefix}: ID ubicación Carta Porte", row.get("id_ubicacion"))
+        display_prefix = "Origen" if prefix == "origen" else "Destino"
+        _cp_required(errors, f"{display_prefix}: falta ID ubicación Carta Porte", row.get("id_ubicacion"))
         _cp_required(errors, f"{prefix}: RFC remitente/destinatario", row.get("rfc"))
         _cp_required(errors, f"{prefix}: nombre remitente/destinatario", row.get("nombre") or row.get("alias"))
-        _cp_required(errors, f"{prefix}: código postal", row.get("codigo_postal") or row.get("cp"))
-        _cp_required(errors, f"{prefix}: estado", row.get("estado"))
+        _cp_required(errors, f"{display_prefix}: falta CP", row.get("codigo_postal") or row.get("cp"))
+        _cp_required(errors, f"{display_prefix}: falta estado SAT", row.get("estado"))
+        _cp_required(errors, f"{display_prefix}: falta municipio SAT", row.get("municipio"))
         _cp_required(errors, f"{prefix}: calle", row.get("calle") or row.get("domicilio"))
         missing_facility_config = not row.get("id_ubicacion") or not row.get("estado")
         if missing_facility_config:
@@ -834,21 +912,19 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte.")
     if ruta_row and ruta_row.get("activo") is False:
         raise HTTPException(404, "Ruta no existe o está inactiva en la empresa activa.")
-    origen_facility_id = _cp_to_int(payload.origen_facility_id or payload.facility_id) or _cp_to_int((ruta_row or {}).get("origen_facility_id"))
-    destino_facility_id = _cp_to_int(payload.destino_facility_id) or _cp_to_int((ruta_row or {}).get("destino_facility_id"))
     vehiculo_id = _cp_to_int(payload.vehiculo_id) or _cp_route_default(ruta_row, "vehiculo_default_id")
     chofer_id = _cp_to_int(payload.chofer_id) or _cp_route_default(ruta_row, "chofer_default_id")
     mercancia_id = _cp_to_int(payload.mercancia_id) or _cp_route_default(ruta_row, "mercancia_default_id")
     ruta_tiempo_minutos = _cp_to_int((ruta_row or {}).get("tiempo_estimado_minutos")) or _cp_route_default(ruta_row, "tiempo_estimado_minutos")
-    if not origen_facility_id or not destino_facility_id or float((ruta_row or {}).get("distancia_km") or 0) <= 0 or not ruta_tiempo_minutos or not mercancia_id:
+    if float((ruta_row or {}).get("distancia_km") or 0) <= 0 or not ruta_tiempo_minutos or not mercancia_id:
         raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte.")
 
-    origen_facility = _require_scope_facility(scope, origen_facility_id, "instalación origen")
-    destino_facility = _require_scope_facility(scope, destino_facility_id, "instalación destino")
-    if int(origen_facility.get("id")) == int(destino_facility.get("id")):
+    origen, origen_facility_id, origen_facility = _cp_resolve_route_location(scope, ruta_row, payload, "origen", emisor)
+    destino, destino_facility_id, destino_facility = _cp_resolve_route_location(scope, ruta_row, payload, "destino", emisor)
+    origen_key = f"facility:{origen_facility_id}" if origen_facility_id else f"manual:{origen.get('manual_ubicacion_id') or origen.get('id_ubicacion')}"
+    destino_key = f"facility:{destino_facility_id}" if destino_facility_id else f"manual:{destino.get('manual_ubicacion_id') or destino.get('id_ubicacion')}"
+    if origen_key == destino_key:
         raise HTTPException(400, "Origen y destino deben ser instalaciones distintas para Carta Porte.")
-    origen = _cp_facility_to_ubicacion(scope, origen_facility, "origen")
-    destino = _cp_facility_to_ubicacion(scope, destino_facility, "destino")
     chofer_row = _cp_normalize_driver_payload(_require_active_catalog_row(_SB_CHOFERES, scope, chofer_id, "chofer"))
     vehiculo_row = _cp_normalize_vehicle_payload(_require_active_catalog_row(_SB_VEHICULOS, scope, vehiculo_id, "vehículo"))
     mercancia_catalog_row = _cp_with_metadata(_require_active_catalog_row(_SB_MERCANCIAS_CP, scope, mercancia_id, "mercancía"))
