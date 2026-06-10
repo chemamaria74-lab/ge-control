@@ -525,10 +525,19 @@ def build_carta_porte_xml(
         mercancia_attrs["CveMaterialPeligroso"] = cve_material
         mercancia_attrs["Embalaje"] = embalaje
         mercancia_attrs["DescripEmbalaje"] = descrip_embalaje
+    cantidad_transporta_xml = ""
+    if origen and destino:
+        cantidad_transporta_xml = (
+            f'<cartaporte31:CantidadTransporta Cantidad="{_cp_decimal(vol, 3)}" '
+            f'IDOrigen="{_cp_attr(_cp_ubicacion_id("Origen", origen))}" '
+            f'IDDestino="{_cp_attr(_cp_ubicacion_id("Destino", destino))}"/>'
+        )
     mercancias_xml = (
         f'<cartaporte31:Mercancias NumTotalMercancias="1" '
         f'PesoBrutoTotal="{_cp_decimal(peso_kg, 3)}" UnidadPeso="KGM">'
-        f'<cartaporte31:Mercancia{_cp_optional_attrs(mercancia_attrs)}/>'
+        f'<cartaporte31:Mercancia{_cp_optional_attrs(mercancia_attrs)}>'
+        f'{cantidad_transporta_xml}'
+        f'</cartaporte31:Mercancia>'
         f'<cartaporte31:Autotransporte PermSCT="{_cp_attr(perm_sct)}" NumPermisoSCT="{_cp_attr(num_perm_sct)}">'
         f'<cartaporte31:IdentificacionVehicular ConfigVehicular="{_cp_attr(config_vehicular)}" '
         f'PesoBrutoVehicular="{_cp_attr(peso_bruto_vm)}" PlacaVM="{_cp_attr(placa)}" AnioModeloVM="{_cp_attr(anio_modelo)}"/>'
