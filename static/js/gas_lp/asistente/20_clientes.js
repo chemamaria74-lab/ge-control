@@ -423,6 +423,7 @@ async function loadCatalogos(){
     vehiculos:data.vehiculos||[],
     rutas:data.rutas||[],
     ubicaciones:data.ubicaciones||[],
+    ubicaciones_legacy:data.ubicaciones_legacy||[],
     instalaciones:catalogInstallations||[],
     mercancias:data.mercancias||[]
   };
