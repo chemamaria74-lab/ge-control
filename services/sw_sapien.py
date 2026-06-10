@@ -350,7 +350,6 @@ def build_carta_porte_xml(
     placa            = _cp_plate(vehiculo.get("placa") or vehiculo.get("placas") or "SINPLACA")
     anio_modelo      = vehiculo.get("anio_modelo", 2020)
     config_vehicular = vehiculo.get("config_vehicular", "C2")
-    peso_bruto_vehicular = vehiculo.get("peso_bruto_vehicular") or vehiculo.get("peso_bruto") or ""
     aseguradora      = vehiculo.get("nombre_asegurador") or vehiculo.get("aseguradora") or ""
     poliza           = vehiculo.get("poliza_seguro") or vehiculo.get("poliza") or ""
     aseguradora_ma   = vehiculo.get("aseguradora_medio_ambiente") or ""
@@ -452,7 +451,6 @@ def build_carta_porte_xml(
         f'<cartaporte31:Mercancia{_cp_optional_attrs(mercancia_attrs)}/>'
         f'<cartaporte31:Autotransporte PermSCT="{_cp_attr(perm_sct)}" NumPermisoSCT="{_cp_attr(num_perm_sct)}">'
         f'<cartaporte31:IdentificacionVehicular ConfigVehicular="{_cp_attr(config_vehicular)}" '
-        f'PesoBrutoVehicular="{_cp_decimal(peso_bruto_vehicular, 2)}" '
         f'PlacaVM="{_cp_attr(placa)}" AnioModeloVM="{_cp_attr(anio_modelo)}"/>'
         f'<cartaporte31:Seguros AseguraRespCivil="{_cp_attr(aseguradora)}" '
         f'PolizaRespCivil="{_cp_attr(poliza)}"{_cp_optional_attrs({"AseguraMedAmbiente": aseguradora_ma, "PolizaMedAmbiente": poliza_ma})}/>'
