@@ -335,11 +335,9 @@ function cpChecklistResult(){
 
   req('Origen', 'CP', cpFacilityValue(s.origen, 'cp'));
   req('Origen', 'estado', cpFacilityValue(s.origen, 'estado'));
-  req('Origen', 'municipio', cpFacilityValue(s.origen, 'municipio'));
   req('Origen', 'país', cpFacilityValue(s.origen, 'pais') || 'MEX');
   req('Destino', 'CP', cpFacilityValue(s.destino, 'cp'));
   req('Destino', 'estado', cpFacilityValue(s.destino, 'estado'));
-  req('Destino', 'municipio', cpFacilityValue(s.destino, 'municipio'));
   req('Destino', 'país', cpFacilityValue(s.destino, 'pais') || 'MEX');
 
   if(!s.veh) errors.push('Vehículo: selecciona una unidad.');
