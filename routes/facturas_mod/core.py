@@ -808,6 +808,17 @@ def _cp_required(errors: list[str], label: str, value) -> None:
         errors.append(label)
 
 
+def _cp_location_id_error(prefix: str, value) -> str:
+    text = str(value or "").strip().upper()
+    display_prefix = "Origen" if prefix == "origen" else "Destino"
+    expected = "OR" if prefix == "origen" else "DE"
+    if not text:
+        return f"{display_prefix}: falta ID ubicación Carta Porte"
+    if not re.match(rf"^{expected}\d{{6}}$", text):
+        return f"{display_prefix}: ID ubicación Carta Porte debe tener formato {expected}000001, no {text}"
+    return ""
+
+
 def _cp_validate_catalog_payload(
     *,
     origen: dict,
@@ -829,7 +840,9 @@ def _cp_validate_catalog_payload(
         if allowed_tipo not in {expected_tipo, "ambos"}:
             errors.append(f"{prefix}: completa la configuración Carta Porte de la instalación {facility_label}: tipo debe ser {expected_tipo} o ambos")
         display_prefix = "Origen" if prefix == "origen" else "Destino"
-        _cp_required(errors, f"{display_prefix}: falta ID ubicación Carta Porte", row.get("id_ubicacion"))
+        location_id_error = _cp_location_id_error(prefix, row.get("id_ubicacion"))
+        if location_id_error:
+            errors.append(location_id_error)
         _cp_required(errors, f"{prefix}: RFC remitente/destinatario", row.get("rfc"))
         _cp_required(errors, f"{prefix}: nombre remitente/destinatario", row.get("nombre") or row.get("alias"))
         _cp_required(errors, f"{display_prefix}: falta CP", row.get("codigo_postal") or row.get("cp"))
