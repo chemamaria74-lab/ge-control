@@ -9,6 +9,11 @@ from services.fiscal_pdf import (
     fiscal_pdf_info,
     generar_pdf_gas_lp_desde_xml,
 )
+from services.carta_porte_pdf import (
+    es_carta_porte_traslado,
+    extraer_info_pdf as carta_porte_pdf_info,
+    generar_pdf_carta_porte_desde_xml,
+)
 
 
 def test_pdf_tax_summary_uses_global_transferred_tax_once():
@@ -78,3 +83,45 @@ def test_gas_lp_pdf_accepts_customer_observations_without_changing_concept():
 
     assert b"%PDF" in pdf[:16]
     assert 'Descripcion="LITRO DE GAS LP"' in xml
+
+
+def test_carta_porte_traslado_uses_specialized_pdf_layout():
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+    <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" xmlns:cartaporte31="http://www.sat.gob.mx/CartaPorte31" Version="4.0" Fecha="2026-06-09T19:54:00" SubTotal="0" Moneda="XXX" Total="0" TipoDeComprobante="T" LugarExpedicion="98470">
+      <cfdi:Emisor Rfc="AGA990907II8" Nombre="AURE GAS" RegimenFiscal="601"/>
+      <cfdi:Receptor Rfc="AGA990907II8" Nombre="AURE GAS" DomicilioFiscalReceptor="98470" RegimenFiscalReceptor="601" UsoCFDI="S01"/>
+      <cfdi:Conceptos><cfdi:Concepto ClaveProdServ="78101800" Cantidad="1" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Servicios de transporte de carga por carretera" ValorUnitario="0" Importe="0" ObjetoImp="01"/></cfdi:Conceptos>
+      <cfdi:Complemento>
+        <cartaporte31:CartaPorte Version="3.1" IdCCP="CCC11111-2222-3333-4444-555555555555" TranspInternac="No" TotalDistRec="70">
+          <cartaporte31:Ubicaciones>
+            <cartaporte31:Ubicacion TipoUbicacion="Origen" IDUbicacion="OR000002" RFCRemitenteDestinatario="AGA990907II8" NombreRemitenteDestinatario="Planta Villa de Cos Aure" FechaHoraSalidaLlegada="2026-06-09T19:54:00"><cartaporte31:Domicilio Pais="MEX" CodigoPostal="98470" Estado="ZAC"/></cartaporte31:Ubicacion>
+            <cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="DE000002" RFCRemitenteDestinatario="AGA990907II8" NombreRemitenteDestinatario="Estación Zacatecas" FechaHoraSalidaLlegada="2026-06-09T20:54:00" DistanciaRecorrida="70"><cartaporte31:Domicilio Pais="MEX" CodigoPostal="98057" Estado="ZAC" Municipio="056" Localidad="03"/></cartaporte31:Ubicacion>
+          </cartaporte31:Ubicaciones>
+          <cartaporte31:Mercancias NumTotalMercancias="1" PesoBrutoTotal="41.920" UnidadPeso="KGM">
+            <cartaporte31:Mercancia BienesTransp="15111510" Descripcion="Gas licuado de petróleo" Cantidad="80.000" ClaveUnidad="LTR" Unidad="Litro" PesoEnKg="41.920" MaterialPeligroso="Sí" CveMaterialPeligroso="1075" Embalaje="Z01"/>
+            <cartaporte31:Autotransporte PermSCT="TPAF02" NumPermisoSCT="A0122865">
+              <cartaporte31:IdentificacionVehicular ConfigVehicular="C2" PesoBrutoVehicular="12.00" PlacaVM="AC6116E" AnioModeloVM="2021"/>
+              <cartaporte31:Seguros AseguraRespCivil="INBURSA" PolizaRespCivil="16211 20025429" AseguraMedAmbiente="INBURSA" PolizaMedAmbiente="16211 20025429"/>
+            </cartaporte31:Autotransporte>
+          </cartaporte31:Mercancias>
+          <cartaporte31:FiguraTransporte><cartaporte31:TiposFigura TipoFigura="01" RFCFigura="CAHA9403247E1" NombreFigura="ADAN CASTRO HERNANDEZ" NumLicencia="LFD01127323"/></cartaporte31:FiguraTransporte>
+        </cartaporte31:CartaPorte>
+        <tfd:TimbreFiscalDigital UUID="063d5c96-1fa0-4129-9f5a-0bea8a18680e" FechaTimbrado="2026-06-09T20:00:00" RfcProvCertif="LSO1306189R5" NoCertificadoSAT="00001000000719545303" SelloCFD="abc" SelloSAT="sat"/>
+      </cfdi:Complemento>
+    </cfdi:Comprobante>
+    """
+
+    assert es_carta_porte_traslado(xml)
+    info = carta_porte_pdf_info(xml)
+    pdf = generar_pdf_carta_porte_desde_xml(xml)
+
+    assert info.filename.startswith("CARTA_PORTE_TRASLADO_063d5c96")
+    assert b"%PDF" in pdf[:16]
+    assert b"CARTA PORTE - TRASLADO" in pdf
+    assert b"063d5c96-1fa0-4129-9f5a-0bea8a18680e" in pdf
+    assert b"T Traslado" in pdf
+    assert b"Gas licuado" in pdf
+    assert b"Autotransporte" in pdf
+    assert b"AC6116E" in pdf
+    assert b"CAHA9403247E1" in pdf
+    assert b"Version" in pdf and b"3.1" in pdf
