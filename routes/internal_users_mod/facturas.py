@@ -42,6 +42,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
             row["payment_info"] = _payment_info_json(_factura_payment_info(row))
             row["fiscal_status"] = _gas_lp_factura_fiscal_status_info(row)
             row["realizado_por"] = _gas_lp_factura_realizado_por(row)
+            row["carta_porte_summary"] = _gas_lp_factura_carta_porte_summary(row.get("xml_content") or "")
             comps = comp_by_factura.get(_safe_int_id(row.get("id")), [])
             row["complementos_pago"] = comps
             if comps:
@@ -52,6 +53,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
             row["payment_info"] = _payment_info_json({"metodo_pago": "", "forma_pago": "", "total": 0, "saldo_insoluto": 0, "payment_status": ""})
             row["fiscal_status"] = _gas_lp_factura_fiscal_status_info(row)
             row["realizado_por"] = _gas_lp_factura_realizado_por(row)
+            row["carta_porte_summary"] = _gas_lp_factura_carta_porte_summary(row.get("xml_content") or "")
             row["complementos_pago"] = []
     return JSONResponse({"ok": True, "facturas": rows})
 

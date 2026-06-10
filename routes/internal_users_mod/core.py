@@ -2031,6 +2031,59 @@ def _gas_lp_factura_pac_xml_summary(xml_content: str) -> dict:
     }
 
 
+def _gas_lp_factura_carta_porte_summary(xml_content: str) -> dict:
+    root = None
+    try:
+        root = ET.fromstring(str(xml_content or "").encode("utf-8"))
+    except Exception:
+        return {}
+    carta = _xml_first(root, "CartaPorte")
+    if _xml_attr(root, "TipoDeComprobante") != "T" or carta is None:
+        return {}
+
+    def all_nodes(local_name: str) -> list[ET.Element]:
+        return [elem for elem in root.iter() if _xml_local(elem.tag) == local_name]
+
+    ubicaciones = all_nodes("Ubicacion")
+    mercancias = all_nodes("Mercancia")
+    mercancia_ltr = next((m for m in mercancias if _xml_attr(m, "ClaveUnidad").upper() == "LTR"), None)
+    mercancia = mercancia_ltr or (mercancias[0] if mercancias else None)
+    origen = next((u for u in ubicaciones if _xml_attr(u, "TipoUbicacion").upper() == "ORIGEN"), None)
+    destino = next((u for u in ubicaciones if _xml_attr(u, "TipoUbicacion").upper() == "DESTINO"), None)
+    ident = _xml_first(root, "IdentificacionVehicular")
+    figura = _xml_first(root, "TiposFigura")
+    timbre = _xml_first(root, "TimbreFiscalDigital")
+
+    return {
+        "tipo_comprobante": _xml_attr(root, "TipoDeComprobante"),
+        "version": _xml_attr(carta, "Version"),
+        "id_ccp": _xml_attr(carta, "IdCCP"),
+        "uuid": _xml_attr(timbre, "UUID"),
+        "fecha": _xml_attr(root, "Fecha"),
+        "fecha_timbrado": _xml_attr(timbre, "FechaTimbrado"),
+        "origen_nombre": _xml_attr(origen, "NombreRemitenteDestinatario"),
+        "destino_nombre": _xml_attr(destino, "NombreRemitenteDestinatario"),
+        "fecha_salida": _xml_attr(origen, "FechaHoraSalidaLlegada"),
+        "fecha_llegada": _xml_attr(destino, "FechaHoraSalidaLlegada"),
+        "distancia": _xml_attr(destino, "DistanciaRecorrida") or _xml_attr(carta, "TotalDistRec"),
+        "bienes_transp": _xml_attr(mercancia, "BienesTransp"),
+        "descripcion": _xml_attr(mercancia, "Descripcion"),
+        "cantidad": _xml_attr(mercancia, "Cantidad"),
+        "clave_unidad": _xml_attr(mercancia, "ClaveUnidad"),
+        "unidad": _xml_attr(mercancia, "Unidad"),
+        "litros": _xml_attr(mercancia_ltr, "Cantidad") if mercancia_ltr is not None else "",
+        "peso_kg": _xml_attr(mercancia, "PesoEnKg"),
+        "material_peligroso": _xml_attr(mercancia, "MaterialPeligroso"),
+        "clave_material_peligroso": _xml_attr(mercancia, "CveMaterialPeligroso"),
+        "placas": _xml_attr(ident, "PlacaVM"),
+        "vehiculo": _xml_attr(ident, "PlacaVM"),
+        "config_vehicular": _xml_attr(ident, "ConfigVehicular"),
+        "chofer": _xml_attr(figura, "NombreFigura"),
+        "rfc_chofer": _xml_attr(figura, "RFCFigura"),
+        "licencia": _xml_attr(figura, "NumLicencia"),
+    }
+
+
 def _gas_lp_factura_folio_label(factura: dict) -> str:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
     serie = str(md.get("serie") or "").strip()
