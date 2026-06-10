@@ -174,6 +174,8 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     story.append(_section("Conceptos CFDI", Paragraph, styles))
     story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
     story.append(_totals_block(comp, impuestos, Table, TableStyle, Paragraph, styles, colors, cream, line))
+    story.append(_section("Sellos / QR", Paragraph, styles))
+    story.append(_seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line))
 
     story.append(_section("Resumen Carta Porte", Paragraph, styles))
     story.append(_kv_table(
@@ -199,9 +201,6 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     story.append(_section("Figura transporte", Paragraph, styles))
     story.append(_figuras_table(figuras, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
 
-    story.append(PageBreak())
-    story.append(_section("Sellos / QR", Paragraph, styles))
-    story.append(_seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line))
     story.append(Spacer(1, 5))
     story.append(Paragraph("Este documento es una representación impresa de un CFDI con Complemento Carta Porte generado por GE Control.", styles["Footer"]))
 
