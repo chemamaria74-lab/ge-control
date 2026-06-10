@@ -755,9 +755,8 @@ def _cp_validate_catalog_payload(
         _cp_required(errors, f"{prefix}: nombre remitente/destinatario", row.get("nombre") or row.get("alias"))
         _cp_required(errors, f"{prefix}: código postal", row.get("codigo_postal") or row.get("cp"))
         _cp_required(errors, f"{prefix}: estado", row.get("estado"))
-        _cp_required(errors, f"{prefix}: municipio", row.get("municipio"))
         _cp_required(errors, f"{prefix}: calle", row.get("calle") or row.get("domicilio"))
-        missing_facility_config = not row.get("id_ubicacion") or not row.get("estado") or not row.get("municipio")
+        missing_facility_config = not row.get("id_ubicacion") or not row.get("estado")
         if missing_facility_config:
             errors.append(f"{prefix}: completa la configuración Carta Porte de la instalación {facility_label}.")
     _cp_required(errors, "fecha/hora salida", fecha_salida)
