@@ -194,6 +194,13 @@ function cpRouteFacilityPayload(prefix, id){
     [`id_ubicacion_${prefix}`]: cpFacilityValue(facility, 'id_ubicacion')
   };
 }
+function cpLocationIdError(group, value){
+  const text = String(value || '').trim().toUpperCase();
+  const expected = group === 'Origen' ? 'OR' : 'DE';
+  if(!text) return `${group}: falta ID ubicación Carta Porte.`;
+  if(!new RegExp(`^${expected}\\d{6}$`).test(text)) return `${group}: ID ubicación Carta Porte debe tener formato ${expected}000001, no ${text}.`;
+  return '';
+}
 function cpMercanciaValue(merc, key){
   const md = cpMeta(merc);
   return cpValue(merc?.[key], md?.[key]);
@@ -369,12 +376,14 @@ function cpChecklistResult(){
   if(!s.origen) errors.push('Ruta: origen no existe en instalaciones Carta Porte.');
   if(!s.destino) errors.push('Ruta: destino no existe en instalaciones Carta Porte.');
   req('Origen', 'CP', cpFacilityValue(s.origen, 'cp'));
-  req('Origen', 'ID ubicación Carta Porte', cpFacilityValue(s.origen, 'id_ubicacion'));
+  const origenLocationIdError = cpLocationIdError('Origen', cpFacilityValue(s.origen, 'id_ubicacion'));
+  if(origenLocationIdError) errors.push(origenLocationIdError);
   req('Origen', 'estado SAT', cpFacilityValue(s.origen, 'estado'));
   req('Origen', 'municipio SAT', cpFacilityValue(s.origen, 'municipio'));
   req('Origen', 'país', cpFacilityValue(s.origen, 'pais') || 'MEX');
   req('Destino', 'CP', cpFacilityValue(s.destino, 'cp'));
-  req('Destino', 'ID ubicación Carta Porte', cpFacilityValue(s.destino, 'id_ubicacion'));
+  const destinoLocationIdError = cpLocationIdError('Destino', cpFacilityValue(s.destino, 'id_ubicacion'));
+  if(destinoLocationIdError) errors.push(destinoLocationIdError);
   req('Destino', 'estado SAT', cpFacilityValue(s.destino, 'estado'));
   req('Destino', 'municipio SAT', cpFacilityValue(s.destino, 'municipio'));
   req('Destino', 'país', cpFacilityValue(s.destino, 'pais') || 'MEX');
@@ -767,9 +776,9 @@ function assistantCpLocalKey(kind){
 async function loadAssistantCpPostalLookup(){
   if(assistantCpPostalLookupCache) return assistantCpPostalLookupCache;
   if(!assistantCpPostalLookupPromise){
-    assistantCpPostalLookupPromise = fetch('/static/data/sat_codigo_postal_zac.json', {cache:'force-cache'})
+    assistantCpPostalLookupPromise = fetch('/static/data/sat_codigo_postal_agu_jal_zac.json', {cache:'force-cache'})
       .then(res => {
-        if(!res.ok) throw new Error('No fue posible cargar el catálogo SAT de códigos postales.');
+        if(!res.ok) throw new Error('No fue posible cargar el catálogo SAT de códigos postales AGU/JAL/ZAC.');
         return res.json();
       })
       .then(data => {
