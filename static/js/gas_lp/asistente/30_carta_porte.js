@@ -78,7 +78,9 @@ function cpRouteLocationRef(row, prefix){
     row?.[`${prefix}_facility_id`],
     md?.[`${prefix}_facility_id`],
     md?.[`${prefix}_ubicacion_ref`],
-    md?.[`${prefix}_ubicacion_id`]
+    md?.[`${prefix}_ubicacion_id`],
+    md?.[`id_ubicacion_${prefix}`],
+    row?.[`id_ubicacion_${prefix}`]
   );
 }
 function cpRouteMeta(row){ return cpMeta(row); }
@@ -656,6 +658,11 @@ let assistantCpSaving = false;
 const assistantCpDeleting = new Set();
 let assistantCpPostalLookupCache = null;
 let assistantCpPostalLookupPromise = null;
+function assistantCpActionLog(action, details={}){
+  const payload = {area:'carta_porte_configuracion', action, ...details};
+  if(details.error) console.warn('[Carta Porte Configuración]', payload);
+  else console.info('[Carta Porte Configuración]', payload);
+}
 function acpCfg(kind){
   return {
     vehiculos:{label:'Vehículos',empty:'Agrega tu primer vehículo'},
@@ -832,6 +839,10 @@ function assistantCpFindRow(kind, id){
     return keys.includes(String(id));
   });
 }
+function assistantCpMissingIdMessage(kind){
+  const label = (acpCfg(kind)?.label || kind || 'registro').toLowerCase();
+  return `No se pudo editar ${label}: falta id del registro. Actualiza catálogos e intenta de nuevo.`;
+}
 function assistantCpBackendId(kind, row, fallback=''){
   if(kind === 'instalaciones' && row?._cp_manual) return row._manual_id || '';
   const id = row?.id || row?.vehiculo_id || row?.chofer_id || row?.mercancia_id || row?.ruta_id || '';
@@ -920,17 +931,29 @@ function renderAssistantCpCatalogs(){
       .acp-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px}.acp-tabs{display:flex;gap:8px;overflow:auto;border-bottom:1px solid var(--line);margin-bottom:12px}.acp-tabs button{border:0;background:transparent;border-bottom:3px solid transparent;padding:10px 12px;font-weight:900;color:var(--muted);cursor:pointer;white-space:nowrap}.acp-tabs button.active{color:var(--wine2);border-color:var(--wine);background:#fff7ed}.acp-tools{display:flex;gap:10px;align-items:end;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.acp-tools input{max-width:360px}.acp-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.acp-grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.acp-span{grid-column:1/-1}.acp-field label{display:block;font-weight:900;color:#6f6a64;margin-bottom:6px}.acp-field input,.acp-field select{width:100%}.acp-cp-lookup{border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:8px;padding:9px 12px;font-weight:800}.acp-cp-lookup:empty{display:none}.acp-cp-lookup.warn{border-color:#fde68a;background:#fffbeb;color:#92400e}.acp-cp-lookup select{margin-left:8px;max-width:360px}.acp-modal-layer{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px}.acp-modal{background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;width:min(900px,96vw);max-height:90vh;overflow:auto;box-shadow:0 32px 64px rgba(0,0,0,.22)}.acp-modal-title{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:950;margin-bottom:18px}.acp-modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}.acp-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.acp-card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px;display:grid;gap:7px}.acp-card h3{margin:0 0 2px}.acp-line{color:var(--muted);font-size:12px;line-height:1.4}.acp-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.acp-badge{display:inline-flex;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:900;width:max-content}.acp-badge.missing{border-color:#e5e7eb;background:#f8fafc;color:#64748b}.acp-badge.expired{border-color:#fecaca;background:#fef2f2;color:#991b1b}.acp-badge.soon{border-color:#fde68a;background:#fffbeb;color:#92400e}.acp-badge.valid{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.acp-driver-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 12px}.acp-driver-summary div{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff}.acp-driver-summary span{display:block;color:var(--muted);font-size:11px;font-weight:900;text-transform:uppercase}.acp-driver-summary b{font-size:20px}.acp-license-alert{border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:900}.acp-required::after{content:" *";color:#991b1b}@media(max-width:760px){.acp-grid,.acp-grid.cols-3,.acp-driver-summary{grid-template-columns:1fr}.acp-modal{padding:18px}}
     </style>
     <div class="acp-head"><div><h2>Configuración Carta Porte</h2><p class="muted" style="margin:4px 0 0">Vehículos, choferes, mercancías, rutas e instalaciones de Administración habilitadas para Carta Porte.</p></div><button class="btn ghost" type="button" onclick="loadCatalogos()"><i class="fa-solid fa-arrows-rotate"></i> Actualizar</button></div>
-    <div class="acp-tabs">${['vehiculos','choferes','instalaciones','mercancias','rutas'].map(k=>`<button class="${k===assistantCpKind?'active':''}" type="button" onclick="assistantCpKind='${k}';assistantCpEdit={kind:'',id:null};assistantCpPanelOpen=false;assistantCpSearch='';renderAssistantCpCatalogs()">${acpCfg(k).label}</button>`).join('')}</div>
-    <div class="acp-tools"><input placeholder="Buscar en ${esc(acpCfg(assistantCpKind).label.toLowerCase())}" value="${esc(assistantCpSearch)}" oninput="assistantCpSearch=this.value;renderAssistantCpCatalogs()"><button class="btn" type="button" onclick="openAssistantCpEditor('${assistantCpKind}')"><i class="fa-solid fa-plus"></i> Nuevo</button></div>
+    <div class="acp-tabs">${['vehiculos','choferes','instalaciones','mercancias','rutas'].map(k=>`<button class="${k===assistantCpKind?'active':''}" type="button" data-acp-action="switch-tab" data-acp-catalog="${esc(k)}">${acpCfg(k).label}</button>`).join('')}</div>
+    <div class="acp-tools"><input placeholder="Buscar en ${esc(acpCfg(assistantCpKind).label.toLowerCase())}" value="${esc(assistantCpSearch)}" oninput="assistantCpSearch=this.value;renderAssistantCpCatalogs()"><button class="btn" type="button" data-acp-action="new" data-acp-catalog="${esc(assistantCpKind)}"><i class="fa-solid fa-plus"></i> Nuevo</button></div>
     ${assistantCpKind==='choferes' ? renderAssistantCpDriversSummary() : ''}
     ${renderAssistantCpForm()}
     ${rows.length ? `<div class="acp-cards">${rows.map(r=>renderAssistantCpCard(assistantCpKind,r)).join('')}</div>` : `<div class="empty">${acpCfg(assistantCpKind).empty}</div>`}
   `;
+  bindAssistantCpCatalogActions(host);
 }
 function cpSearchText(kind, row){ return JSON.stringify({kind,row,metadata:cpMeta(row),title:acpTitle(kind,row)}).toLowerCase(); }
 function openAssistantCpEditor(kind,id=null){
   assistantCpKind = kind;
-  assistantCpEdit = id ? {kind,id} : {kind:'',id:null};
+  if(id){
+    const row = assistantCpFindRow(kind, id);
+    if(!row){
+      assistantCpActionLog('edit_missing_row', {catalog:kind, id, error:true});
+      alert(`No se encontró ${acpCfg(kind)?.label?.toLowerCase() || 'registro'} en memoria. Actualiza catálogos e intenta de nuevo.`);
+      renderAssistantCpCatalogs();
+      return;
+    }
+    assistantCpEdit = {kind,id};
+  }else{
+    assistantCpEdit = {kind:'',id:null};
+  }
   assistantCpPanelOpen = true;
   renderAssistantCpCatalogs();
 }
@@ -938,6 +961,50 @@ function closeAssistantCpEditor(){
   assistantCpEdit = {kind:'',id:null};
   assistantCpPanelOpen = false;
   renderAssistantCpCatalogs();
+}
+function bindAssistantCpCatalogActions(host){
+  if(!host || host.dataset.acpActionsBound === '1') return;
+  host.dataset.acpActionsBound = '1';
+  host.addEventListener('click', event => {
+    const button = event.target.closest('[data-acp-action]');
+    if(!button || !host.contains(button)) return;
+    const action = button.dataset.acpAction || '';
+    const catalog = button.dataset.acpCatalog || assistantCpKind;
+    const id = button.dataset.acpId || '';
+    event.preventDefault();
+    assistantCpActionLog('click', {catalog, action, id});
+    if(action === 'switch-tab'){
+      assistantCpKind = catalog;
+      assistantCpEdit = {kind:'',id:null};
+      assistantCpPanelOpen = false;
+      assistantCpSearch = '';
+      renderAssistantCpCatalogs();
+      return;
+    }
+    if(action === 'new'){
+      openAssistantCpEditor(catalog);
+      return;
+    }
+    if(action === 'edit'){
+      openAssistantCpEditor(catalog, id);
+      return;
+    }
+    if(action === 'close'){
+      closeAssistantCpEditor();
+      return;
+    }
+    if(action === 'save'){
+      saveAssistantCp();
+      return;
+    }
+    if(action === 'deactivate'){
+      deactivateAssistantCp(catalog, id);
+      return;
+    }
+    if(action === 'delete'){
+      permanentDeleteAssistantCp(catalog, id);
+    }
+  });
 }
 function renderAssistantCpForm(){
   const kind = assistantCpKind;
@@ -1004,7 +1071,10 @@ function renderAssistantCpForm(){
     ].join('');
   }
   const icon = kind==='vehiculos' ? 'fa-truck' : kind==='choferes' ? 'fa-id-card' : kind==='rutas' ? 'fa-route' : kind==='mercancias' ? 'fa-boxes-stacked' : 'fa-location-dot';
-  return `<div class="acp-modal-layer"><div class="acp-modal"><div class="acp-modal-title"><i class="fa-solid ${icon}"></i><span>${row?'Editar':'Nuevo'} ${acpCfg(kind).label.toLowerCase()}</span></div><div class="acp-grid">${body}</div><div class="acp-modal-footer"><button class="btn ghost" type="button" onclick="closeAssistantCpEditor()" ${assistantCpSaving ? 'disabled' : ''}>Cancelar</button><button id="assistantCpSaveBtn" class="btn" type="button" onclick="saveAssistantCp()" ${assistantCpSaving ? 'disabled' : ''}><i class="fa-solid fa-floppy-disk"></i> Guardar</button><span id="assistantCpMsg" class="status"></span></div></div></div>`;
+  return `<div class="acp-modal-layer"><div class="acp-modal"><div class="acp-modal-title"><i class="fa-solid ${icon}"></i><span>${row?'Editar':'Nuevo'} ${acpCfg(kind).label.toLowerCase()}</span></div><div class="acp-grid">${body}</div><div class="acp-modal-footer"><button class="btn ghost" type="button" data-acp-action="close" data-acp-catalog="${esc(kind)}" ${assistantCpSaving ? 'disabled' : ''}>Cancelar</button><button id="assistantCpSaveBtn" class="btn" type="button" data-acp-action="save" data-acp-catalog="${esc(kind)}" ${assistantCpSaving ? 'disabled' : ''}><i class="fa-solid fa-floppy-disk"></i> Guardar</button><span id="assistantCpMsg" class="status"></span></div></div></div>`;
+}
+function assistantCpActionButton(action, kind, id, label, icon, extraClass=''){
+  return `<button class="btn ghost ${extraClass}" type="button" data-acp-action="${esc(action)}" data-acp-catalog="${esc(kind)}" data-acp-id="${esc(id)}"><i class="fa-solid ${icon}"></i> ${esc(label)}</button>`;
 }
 function renderAssistantCpCard(kind,row){
   const md = cpMeta(row);
@@ -1022,10 +1092,21 @@ function renderAssistantCpCard(kind,row){
       ? 'Sin fecha de vencimiento registrada'
       : `${licenseStatus.label} · ${licenseStatus.status === 'expired' ? 'Venció' : 'Vence'}: ${licenseStatus.date_label}`)
     : '';
-  const editId = JSON.stringify(String(row._acp_uid || row.id || ''));
-  const actions = kind==='instalaciones'
-    ? `<button class="btn ghost" type="button" onclick="openAssistantCpEditor('${kind}',${editId})"><i class="fa-solid fa-pen"></i> ${row._cp_manual ? 'Editar' : 'Configurar'}</button>${row._cp_manual ? `<button class="btn ghost danger" type="button" onclick="deactivateAssistantCp('${kind}',${editId})"><i class="fa-solid fa-ban"></i> Desactivar</button><button class="btn ghost danger" type="button" onclick="permanentDeleteAssistantCp('${kind}',${editId})"><i class="fa-solid fa-trash"></i> Eliminar</button>` : ''}`
-    : `<button class="btn ghost" type="button" onclick="openAssistantCpEditor('${kind}',${editId})"><i class="fa-solid fa-pen"></i> Editar</button><button class="btn ghost danger" type="button" onclick="deactivateAssistantCp('${kind}',${editId})"><i class="fa-solid fa-ban"></i> Desactivar</button><button class="btn ghost danger" type="button" onclick="permanentDeleteAssistantCp('${kind}',${editId})"><i class="fa-solid fa-trash"></i> Eliminar</button>`;
+  const editId = String(row._acp_uid || row.id || '');
+  let actions = '';
+  if(kind==='instalaciones'){
+    actions = assistantCpActionButton('edit', kind, editId, row._cp_manual ? 'Editar' : 'Configurar', 'fa-pen');
+    if(row._cp_manual){
+      actions += assistantCpActionButton('deactivate', kind, editId, 'Desactivar', 'fa-ban', 'danger');
+      actions += assistantCpActionButton('delete', kind, editId, 'Eliminar', 'fa-trash', 'danger');
+    }
+  }else{
+    actions = assistantCpActionButton('edit', kind, editId, 'Editar', 'fa-pen');
+    actions += assistantCpActionButton('deactivate', kind, editId, 'Desactivar', 'fa-ban', 'danger');
+    if(kind !== 'rutas'){
+      actions += assistantCpActionButton('delete', kind, editId, 'Eliminar', 'fa-trash', 'danger');
+    }
+  }
   return `<div class="acp-card"><div><h3>${esc(acpTitle(kind,row))}</h3><span class="acp-badge">Activo</span></div><div class="acp-line">${esc(line)}</div>${licenseStatus ? `<span class="acp-badge ${esc(licenseStatus.status)}">${esc(licenseStatus.label)}</span><div class="acp-line">${esc(licenseText)}</div>` : ''}<div class="acp-actions">${actions}</div></div>`;
 }
 function validateAssistantCp(kind){
@@ -1111,12 +1192,21 @@ async function saveAssistantCp(){
     : '';
   if(assistantCpEdit.kind === kind && !editingRow){
     setStatus('assistantCpMsg','No pude ubicar este registro para editarlo. Actualiza catálogos e intenta de nuevo.',false);
+    assistantCpActionLog('save_missing_row', {catalog:kind, id:assistantCpEdit.id, error:true});
+    setAssistantCpSaveLoading(false);
+    return;
+  }
+  if(assistantCpEdit.kind === kind && !id){
+    setStatus('assistantCpMsg',assistantCpMissingIdMessage(kind),false);
+    assistantCpActionLog('save_missing_backend_id', {catalog:kind, id:assistantCpEdit.id, row:editingRow, error:true});
     setAssistantCpSaveLoading(false);
     return;
   }
   const path = `${acpEndpoint(endpointKind,id)}?${acpParams(p)}`;
+  assistantCpActionLog('save_request', {catalog:kind, endpointKind, id, method:id?'PUT':'POST', endpoint:path});
   try{
     const saved = await api(path,{method:id?'PUT':'POST'});
+    assistantCpActionLog('save_response', {catalog:kind, endpointKind, id, status:'ok', response:saved});
     const savedRecord = assistantCpRecordFromResponse(kind, saved, p, id);
     if(kind === 'instalaciones' && endpointKind === 'ubicaciones') assistantCpUpsertManualInstallation(savedRecord);
     else assistantCpUpsertLocal(kind, savedRecord);
@@ -1127,6 +1217,7 @@ async function saveAssistantCp(){
     assistantCpPanelOpen = false;
     renderAssistantCpCatalogs();
   }catch(e){
+    assistantCpActionLog('save_error', {catalog:kind, endpointKind, id, status:e.status, response:e.response || e.responseText, error:true});
     setStatus('assistantCpMsg',e.message,false);
   }finally{
     setAssistantCpSaveLoading(false);
@@ -1139,16 +1230,21 @@ async function deactivateAssistantCp(kind,id){
   assistantCpDeleting.add(deleteKey);
   const {row, endpointKind, endpointId} = assistantCpEndpointTarget(kind, id);
   if(!endpointId){
-    alert('No pude ubicar el id de este registro. Actualiza catálogos e intenta de nuevo.');
+    assistantCpActionLog('deactivate_missing_backend_id', {catalog:kind, id, row, error:true});
+    alert(`No se pudo desactivar ${acpCfg(kind)?.label?.toLowerCase() || 'registro'}: falta id del registro. Actualiza catálogos e intenta de nuevo.`);
     assistantCpDeleting.delete(deleteKey);
     return;
   }
+  const endpoint = acpEndpoint(endpointKind,endpointId);
+  assistantCpActionLog('deactivate_request', {catalog:kind, endpointKind, id:endpointId, method:'DELETE', endpoint});
   try{
-    await api(acpEndpoint(endpointKind,endpointId),{method:'DELETE'});
+    const response = await api(endpoint,{method:'DELETE'});
+    assistantCpActionLog('deactivate_response', {catalog:kind, endpointKind, id:endpointId, status:'ok', response});
     assistantCpRemoveLocal(kind, id, row);
     await loadCatalogos();
     renderAssistantCpCatalogs();
   }catch(e){
+    assistantCpActionLog('deactivate_error', {catalog:kind, endpointKind, id:endpointId, status:e.status, response:e.response || e.responseText, error:true});
     alert(e.message || 'No se pudo desactivar el registro.');
   }finally{
     assistantCpDeleting.delete(deleteKey);
@@ -1161,16 +1257,21 @@ async function permanentDeleteAssistantCp(kind,id){
   assistantCpDeleting.add(deleteKey);
   const {row, endpointKind, endpointId} = assistantCpEndpointTarget(kind, id);
   if(!endpointId){
-    alert('No pude ubicar el id de este registro. Actualiza catálogos e intenta de nuevo.');
+    assistantCpActionLog('delete_missing_backend_id', {catalog:kind, id, row, error:true});
+    alert(`No se pudo eliminar ${acpCfg(kind)?.label?.toLowerCase() || 'registro'}: falta id del registro. Actualiza catálogos e intenta de nuevo.`);
     assistantCpDeleting.delete(deleteKey);
     return;
   }
+  const endpoint = `${acpEndpoint(endpointKind,endpointId)}?permanent=true`;
+  assistantCpActionLog('delete_request', {catalog:kind, endpointKind, id:endpointId, method:'DELETE', endpoint});
   try{
-    await api(`${acpEndpoint(endpointKind,endpointId)}?permanent=true`,{method:'DELETE'});
+    const response = await api(endpoint,{method:'DELETE'});
+    assistantCpActionLog('delete_response', {catalog:kind, endpointKind, id:endpointId, status:'ok', response});
     assistantCpRemoveLocal(kind, id, row);
     await loadCatalogos();
     renderAssistantCpCatalogs();
   }catch(e){
+    assistantCpActionLog('delete_error', {catalog:kind, endpointKind, id:endpointId, status:e.status, response:e.response || e.responseText, error:true});
     alert(e.message || 'No se pudo eliminar el registro.');
   }finally{
     assistantCpDeleting.delete(deleteKey);
