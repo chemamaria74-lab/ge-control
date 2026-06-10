@@ -113,14 +113,18 @@ function switchPortalTab(tab, subtab=''){
   }
 }
 function switchCartaPorteTab(tab){
-  ACTIVE_CP_TAB = tab === 'configuracion' ? 'configuracion' : 'timbrar';
-  ['timbrar','configuracion'].forEach(name => {
+  ACTIVE_CP_TAB = ['timbrar','hoy','todas','configuracion'].includes(tab) ? tab : 'timbrar';
+  ['timbrar','hoy','todas','configuracion'].forEach(name => {
     document.getElementById(`cp-tab-${name}`)?.classList.toggle('active', name === ACTIVE_CP_TAB);
     document.getElementById(`cp-panel-${name}`)?.classList.toggle('active', name === ACTIVE_CP_TAB);
   });
   resetCartaPorteState({keepStatus:true});
   if(ACTIVE_CP_TAB === 'configuracion') renderAssistantCpCatalogs();
-  else renderCartaPorteWizard();
+  else if(ACTIVE_CP_TAB === 'timbrar') renderCartaPorteWizard();
+  else {
+    if(window.cpHistoryMes && !cpHistoryMes.value) cpHistoryMes.value = todayKey().slice(0,7);
+    if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels();
+  }
 }
 function switchBillingTab(tab){
   const active = ['facturar','facturas','complementos'].includes(tab) ? tab : 'facturar';

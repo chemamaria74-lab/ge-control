@@ -21,6 +21,7 @@ async function loadFacturas(month='', opts={}){
     renderDashboard();
     renderDescuentosList();
     renderComplementosPago();
+    if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels();
     applyFacturasFilters();
   }catch(e){
     console.warn('[GasLP asistente facturas] error', {mes:selectedMonth, message:e.message, status:e.status});

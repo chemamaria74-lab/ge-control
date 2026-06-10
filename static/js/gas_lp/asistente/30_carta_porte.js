@@ -504,6 +504,8 @@ async function confirmarTimbradoCartaPorteGasLp(){
     const xmlUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/xml?${q}` : '';
     setStatus('cpMsg',`Carta Porte timbrada correctamente.${validation}`);
     cpMsg.innerHTML = `${esc(cpMsg.textContent)} ${pdfUrl ? `<a class="btn ghost" href="${pdfUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF Carta Porte</a>` : ''} ${xmlUrl ? `<a class="btn ghost" href="${xmlUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML Carta Porte</a>` : ''}`;
+    await loadFacturas('', {surfaceError:false});
+    renderCartaPorteHistoryPanels();
     closeCartaPorteConfirmModal();
     resetCartaPorteState({clearForm:true, keepStatus:true});
   }catch(e){
@@ -522,6 +524,68 @@ async function handleCartaPorteAction(){
     return;
   }
   await timbrarCartaPorteGasLp();
+}
+function isCartaPorteFactura(f){
+  const md = f?.metadata || {};
+  const flow = String(md.tipo_flujo || md.tipo_operacion || md.cfdi_tipo || '').toLowerCase();
+  const tipo = String(f?.tipo_comprobante || md.tipo_comprobante || '').toUpperCase();
+  return flow.includes('carta_porte') || flow.includes('traspaso') || md.is_transfer === true || tipo === 'T';
+}
+function cartaPorteRows(scope='all'){
+  const day = todayKey();
+  return (FACTURAS || [])
+    .filter(isCartaPorteFactura)
+    .filter(f => scope === 'today' ? facturaDateKey(f) === day : true)
+    .sort((a,b)=>String(facturaDateValue(b) || b.created_at || '').localeCompare(String(facturaDateValue(a) || a.created_at || '')));
+}
+function cartaPorteDocActions(f){
+  const id = encodeURIComponent(f.id || '');
+  if(!id) return '<span class="muted">Pendiente</span>';
+  const q = `token=${encodeURIComponent(token)}`;
+  return `<div class="doc-actions">
+    <a class="btn ghost doc-square" title="PDF Carta Porte" aria-label="PDF Carta Porte" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a>
+    <a class="btn ghost doc-square" title="XML Carta Porte" aria-label="XML Carta Porte" href="/api/internal-auth/gas-lp/facturas/${id}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>
+    <button class="btn ghost doc-email" type="button" title="Reenviar correo" aria-label="Reenviar correo" onclick="reenviarFacturaEmail('${esc(String(f.id || ''))}')"><i class="fa-solid fa-envelope"></i> Correo</button>
+  </div>`;
+}
+function cartaPorteHistoryTable(rows, emptyText){
+  const css = `<style>
+    .cp-history-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
+    .cp-history-table{min-width:1120px;width:100%;border-collapse:collapse}
+    .cp-history-table th,.cp-history-table td{padding:10px 12px;border-bottom:1px solid #edf0f4;text-align:left;white-space:nowrap}
+    .cp-history-table th{background:#f4f1ec;color:#667085;font-size:12px;letter-spacing:.04em;text-transform:uppercase}
+    .cp-history-table td:nth-child(4),.cp-history-table td:nth-child(5){font-weight:900}
+    .cp-history-table code{display:inline-block;max-width:190px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+  </style>`;
+  if(!rows.length) return `${css}<div class="empty">${esc(emptyText)}</div>`;
+  return `${css}<div class="cp-history-scroll"><table class="cp-history-table"><thead><tr><th>Hora</th><th>Origen</th><th>Destino</th><th>Litros</th><th>Peso</th><th>Vehículo</th><th>Chofer</th><th>Estado</th><th>UUID</th><th>Docs</th></tr></thead><tbody>${rows.map(f=>{
+    const md = f.metadata || {};
+    const origen = md.origen_nombre || md.origen || md.ruta_origen || md.facility_origen || '—';
+    const destino = md.destino_nombre || md.destino || md.ruta_destino || md.facility_destino || '—';
+    const litros = Number(md.volumen_litros || md.litros || 0);
+    const peso = Number(md.peso_kg || md.peso || 0);
+    const vehiculo = md.vehiculo_label || md.vehiculo || md.placas || md.placa || '—';
+    const chofer = md.chofer_nombre || md.chofer || md.operador || '—';
+    return `<tr>
+      <td>${esc(facturaTimeLabel(f))}</td>
+      <td>${esc(origen)}</td>
+      <td>${esc(destino)}</td>
+      <td>${fmt(litros)}</td>
+      <td>${fmt(peso)} kg</td>
+      <td>${esc(vehiculo)}</td>
+      <td>${esc(chofer)}</td>
+      <td>${facturaStatusHtml(f)}</td>
+      <td><code title="${esc(f.uuid_sat || '')}">${esc(f.uuid_sat || 'UUID pendiente')}</code></td>
+      <td>${cartaPorteDocActions(f)}</td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+function renderCartaPorteHistoryPanels(){
+  if(window.cpHistoryMes && !cpHistoryMes.value) cpHistoryMes.value = todayKey().slice(0,7);
+  const todayHost = document.getElementById('cpTodayHistory');
+  const allHost = document.getElementById('cpAllHistory');
+  if(todayHost) todayHost.innerHTML = cartaPorteHistoryTable(cartaPorteRows('today'), 'Sin Cartas Porte timbradas hoy.');
+  if(allHost) allHost.innerHTML = cartaPorteHistoryTable(cartaPorteRows('all'), 'Sin Cartas Porte en el mes seleccionado.');
 }
 let assistantCpKind = 'vehiculos';
 let assistantCpEdit = {kind:'', id:null};
