@@ -1,4 +1,9 @@
 from .core import *
+from services.carta_porte_pdf import (
+    es_carta_porte_traslado,
+    extraer_info_pdf as carta_porte_pdf_info,
+    generar_pdf_carta_porte_desde_xml,
+)
 
 @router.post("/facturas/carta-porte")
 async def generar_carta_porte(
@@ -182,21 +187,25 @@ async def ver_pdf_factura_gas_lp(
     if not row:
         raise _legacy_not_found("Factura")
     row = _rowdict(row)
-    pac_pdf_url = str(row.get("pdf_url") or "").strip()
-    if pac_pdf_url:
-        return RedirectResponse(pac_pdf_url, status_code=302)
     sb = get_supabase_admin()
     xml_content = row.get("xml_content") or ""
     if not xml_content:
         raise HTTPException(404, "Factura sin XML timbrado para generar PDF.")
-    info = fiscal_pdf_info(xml_content, "factura_gas_lp")
     settings = _settings_from_scope(scope)
     md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-    pdf_bytes = generar_pdf_gas_lp_desde_xml(
-        xml_content,
-        logo_data_url=settings.get("PdfLogoDataUrl", ""),
-        observaciones=str(md.get("comentarios") or md.get("observaciones") or "").strip(),
-    )
+    if es_carta_porte_traslado(xml_content):
+        info = carta_porte_pdf_info(xml_content)
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+    else:
+        pac_pdf_url = str(row.get("pdf_url") or "").strip()
+        if pac_pdf_url:
+            return RedirectResponse(pac_pdf_url, status_code=302)
+        info = fiscal_pdf_info(xml_content, "factura_gas_lp")
+        pdf_bytes = generar_pdf_gas_lp_desde_xml(
+            xml_content,
+            logo_data_url=settings.get("PdfLogoDataUrl", ""),
+            observaciones=str(md.get("comentarios") or md.get("observaciones") or "").strip(),
+        )
     storage = save_fiscal_artifacts(
         sb,
         bucket="fiscal-documents",
@@ -474,4 +483,3 @@ async def generar_factura_flete(
 
 
 # ── Catálogo: Choferes ────────────────────────────────────────────────────────
-
