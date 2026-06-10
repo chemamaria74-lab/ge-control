@@ -671,8 +671,25 @@ function assistantCpInstallationRows(){
   const manualRows = (CATALOGOS.ubicaciones_legacy || []).map(row => normalizeAssistantCpInstallation({...row, _cp_manual:true, source:'supabase_manual'}));
   return [...Array.from(merged.values()), ...manualRows];
 }
+function assistantCpNaturalKey(kind, row){
+  const md = cpMeta(row);
+  if(kind === 'vehiculos') return ['vehiculo', row?.id, row?.vehiculo_id, row?.placas, md.numero_economico || md.alias].filter(Boolean).join(':');
+  if(kind === 'choferes') return ['chofer', row?.id, row?.chofer_id, row?.rfc, row?.licencia, row?.nombre].filter(Boolean).join(':');
+  if(kind === 'mercancias') return ['mercancia', row?.id, row?.bienes_transp, row?.clave_unidad, row?.alias || row?.descripcion].filter(Boolean).join(':');
+  if(kind === 'rutas') return ['ruta', row?.id, row?.nombre, row?.origen_facility_id || md.origen_ubicacion_ref, row?.destino_facility_id || md.destino_ubicacion_ref].filter(Boolean).join(':');
+  return ['cp', kind, row?.id].filter(Boolean).join(':');
+}
+function normalizeAssistantCpCatalogRow(kind, row){
+  const realId = row?.id || row?.vehiculo_id || row?.chofer_id || row?.mercancia_id || row?.ruta_id || '';
+  return {
+    ...row,
+    _acp_uid: row?._acp_uid || (realId ? `${kind}:${realId}` : assistantCpNaturalKey(kind, row))
+  };
+}
 function assistantCpRows(kind){
-  return kind === 'instalaciones' ? assistantCpInstallationRows() : (CATALOGOS[kind] || []);
+  return kind === 'instalaciones'
+    ? assistantCpInstallationRows()
+    : (CATALOGOS[kind] || []).map(row => normalizeAssistantCpCatalogRow(kind, row));
 }
 function acpTitle(kind,row){
   const md = cpMeta(row);
@@ -780,14 +797,23 @@ if(typeof window !== 'undefined'){
   window.assistantCpSelectPostalMatch = assistantCpSelectPostalMatch;
 }
 function assistantCpFindRow(kind, id){
-  return kind === 'instalaciones'
-    ? assistantCpRows(kind).find(x => String(x._acp_uid || x.id) === String(id))
-    : assistantCpRows(kind).find(x => String(x.id) === String(id));
+  return assistantCpRows(kind).find(x => {
+    const keys = [x._acp_uid, x.id, x.vehiculo_id, x.chofer_id, x.mercancia_id, x.ruta_id]
+      .filter(value => value !== undefined && value !== null && String(value) !== '')
+      .map(value => String(value));
+    return keys.includes(String(id));
+  });
+}
+function assistantCpBackendId(kind, row, fallback=''){
+  if(kind === 'instalaciones' && row?._cp_manual) return row._manual_id || '';
+  const id = row?.id || row?.vehiculo_id || row?.chofer_id || row?.mercancia_id || row?.ruta_id || '';
+  if(id) return id;
+  return /^\d+$/.test(String(fallback || '')) ? fallback : '';
 }
 function assistantCpEndpointTarget(kind, id){
   const row = assistantCpFindRow(kind, id);
   const endpointKind = kind === 'instalaciones' && row?._cp_manual ? 'ubicaciones' : kind;
-  const endpointId = row?._cp_manual ? row._manual_id : id;
+  const endpointId = assistantCpBackendId(kind, row, id);
   return {row, endpointKind, endpointId};
 }
 function assistantCpRemoveLocal(kind, id, row=null){
@@ -887,7 +913,7 @@ function closeAssistantCpEditor(){
 }
 function renderAssistantCpForm(){
   const kind = assistantCpKind;
-  const row = assistantCpEdit.kind === kind ? assistantCpRows(kind).find(x => String(x._acp_uid || x.id) === String(assistantCpEdit.id)) : null;
+  const row = assistantCpEdit.kind === kind ? assistantCpFindRow(kind, assistantCpEdit.id) : null;
   if(!assistantCpPanelOpen && !row) return '';
   const md = cpMeta(row);
   const manualInstallation = kind === 'instalaciones' && (!row || row._cp_manual);
@@ -1029,7 +1055,7 @@ async function saveAssistantCp(){
   if(!validateAssistantCp(kind)) return;
   setAssistantCpSaveLoading(true);
   setStatus('assistantCpMsg','Guardando...',true);
-  const editingRow = assistantCpEdit.kind === kind ? assistantCpRows(kind).find(x => String(x._acp_uid || x.id) === String(assistantCpEdit.id)) : null;
+  const editingRow = assistantCpEdit.kind === kind ? assistantCpFindRow(kind, assistantCpEdit.id) : null;
   if(kind==='vehiculos') p = {numero_economico:acpv_num.value,placa:acpv_placas.value,anio:acpv_anio.value,config_vehicular:acpv_config.value,permiso_cre:acpv_permiso.value,numero_permiso:acpv_numperm.value,peso_bruto_vehicular:acpv_pbv.value,aseguradora:acpv_aseg.value,poliza_seguro:acpv_poliza.value,aseguradora_medio_ambiente:acpv_asegma.value,poliza_medio_ambiente:acpv_polizama.value};
   if(kind==='choferes') p = {nombre:acpc_nombre.value,rfc:acpc_rfc.value,curp:acpc_curp.value,tipo_licencia:acpc_tipolic.value,licencia:acpc_lic.value,tipo_figura:acpc_tipo.value,fecha_expedicion_licencia:acpc_exp.value,fecha_vencimiento_licencia:acpc_venc.value,telefono:acpc_tel.value};
   if(kind==='instalaciones' && editingRow && !editingRow._cp_manual) p = {tipo_ubicacion:acpu_tipo.value,id_ubicacion_carta_porte:acpu_id.value,estado_sat:acpu_estado.value,municipio_sat:acpu_mun.value,localidad_sat:acpu_loc.value,referencia_carta_porte:acpu_ref.value};
@@ -1051,8 +1077,15 @@ async function saveAssistantCp(){
   }
   const endpointKind = kind === 'instalaciones' && (!editingRow || editingRow._cp_manual) ? 'ubicaciones' : kind;
   const id = assistantCpEdit.kind === kind
-    ? (editingRow?._cp_manual ? editingRow._manual_id : (editingRow?.facility_id || editingRow?.id || assistantCpEdit.id))
+    ? (kind === 'instalaciones' && !editingRow?._cp_manual
+      ? (editingRow?.facility_id || editingRow?.id || '')
+      : assistantCpBackendId(kind, editingRow, assistantCpEdit.id))
     : '';
+  if(assistantCpEdit.kind === kind && !editingRow){
+    setStatus('assistantCpMsg','No pude ubicar este registro para editarlo. Actualiza catálogos e intenta de nuevo.',false);
+    setAssistantCpSaveLoading(false);
+    return;
+  }
   const path = `${acpEndpoint(endpointKind,id)}?${acpParams(p)}`;
   try{
     const saved = await api(path,{method:id?'PUT':'POST'});
@@ -1077,6 +1110,11 @@ async function deactivateAssistantCp(kind,id){
   if(assistantCpDeleting.has(deleteKey)) return;
   assistantCpDeleting.add(deleteKey);
   const {row, endpointKind, endpointId} = assistantCpEndpointTarget(kind, id);
+  if(!endpointId){
+    alert('No pude ubicar el id de este registro. Actualiza catálogos e intenta de nuevo.');
+    assistantCpDeleting.delete(deleteKey);
+    return;
+  }
   try{
     await api(acpEndpoint(endpointKind,endpointId),{method:'DELETE'});
     assistantCpRemoveLocal(kind, id, row);
@@ -1094,6 +1132,11 @@ async function permanentDeleteAssistantCp(kind,id){
   if(assistantCpDeleting.has(deleteKey)) return;
   assistantCpDeleting.add(deleteKey);
   const {row, endpointKind, endpointId} = assistantCpEndpointTarget(kind, id);
+  if(!endpointId){
+    alert('No pude ubicar el id de este registro. Actualiza catálogos e intenta de nuevo.');
+    assistantCpDeleting.delete(deleteKey);
+    return;
+  }
   try{
     await api(`${acpEndpoint(endpointKind,endpointId)}?permanent=true`,{method:'DELETE'});
     assistantCpRemoveLocal(kind, id, row);
