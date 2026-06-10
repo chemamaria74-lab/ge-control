@@ -157,7 +157,6 @@ def generar_pdf_cfdi_desde_xml(
             ("Método de pago", _attr(root, "MetodoPago")),
             ("Moneda", _attr(root, "Moneda")),
             ("Exportación", _attr(root, "Exportacion")),
-            ("Lugar de expedición", _attr(root, "LugarExpedicion")),
             ("Permiso CRE", permiso_cre),
             ])),
         ],
@@ -353,7 +352,7 @@ def _section(text, Paragraph, styles):
     from reportlab.platypus import Table, TableStyle
 
     label = Paragraph(f"<b>{_text(text)}</b>", styles["Section"])
-    table = Table([[label, ""]], colWidths=[1.95 * 72, 5.35 * 72])
+    table = Table([[label, ""]], colWidths=[1.95 * 72, 5.65 * 72])
     table.setStyle(TableStyle([
         ("LINEBELOW", (0, 0), (-1, -1), 0.65, colors.HexColor("#DED7CE")),
         ("LINEBELOW", (0, 0), (0, 0), 1.35, colors.HexColor("#7A1E2C")),
@@ -492,7 +491,7 @@ def _three_info_cards(cards, Table, TableStyle, Paragraph, styles, colors, wine,
             ])
         if len(body) == 1:
             body.append([Paragraph("SIN DATOS", styles["Label"]), Paragraph("—", styles["Tiny"])])
-        inner = Table(body, colWidths=[0.84 * 72, 1.44 * 72])
+        inner = Table(body, colWidths=[0.82 * 72, 1.46 * 72])
         inner.setStyle(TableStyle([
             ("SPAN", (0, 0), (-1, 0)),
             ("BACKGROUND", (0, 0), (-1, 0), cream),
@@ -595,7 +594,7 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
         ])
     if len(conceptos) > 35:
         data.append(["", "", "", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", "", ""])
-    table = Table(data, colWidths=[0.78 * 72, 0.66 * 72, 0.86 * 72, 3.02 * 72, 0.78 * 72, 0.78 * 72, 0.80 * 72], repeatRows=1)
+    table = Table(data, colWidths=[0.75 * 72, 0.66 * 72, 0.84 * 72, 2.98 * 72, 0.77 * 72, 0.77 * 72, 0.83 * 72], repeatRows=1)
     table.setStyle(_detail_table_style(colors, wine, line))
     table.setStyle(TableStyle([
         ("ALIGN", (0, 1), (0, -1), "RIGHT"),
@@ -679,15 +678,15 @@ def _hidro_table(hidro_nodes, Table, TableStyle, Paragraph, styles, colors, wine
 
 
 def _observaciones_block(text: str, Table, TableStyle, Paragraph, styles, colors, line):
-    table = Table([[Paragraph(_text(text), styles["Small"])]], colWidths=[7.94 * 72])
+    table = Table([[Paragraph(_text(text), styles["Small"])]], colWidths=[7.60 * 72])
     table.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.3, line),
         ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
     return table
 
@@ -762,7 +761,7 @@ def _seals_block(root, timbre, qr, Table, TableStyle, Paragraph, styles, colors,
         [Paragraph("<b>Cadena original del complemento de certificación digital del SAT</b>", styles["TinyBold"])],
         [Paragraph(_text(_short(_attr(timbre, "SelloCFD"), 620)), styles["Seal"])],
     ]
-    seal_table = Table(seal_rows, colWidths=[5.74 * 72])
+    seal_table = Table(seal_rows, colWidths=[5.58 * 72])
     seal_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), cream),
         ("BACKGROUND", (0, 2), (-1, 2), cream),
@@ -770,26 +769,26 @@ def _seals_block(root, timbre, qr, Table, TableStyle, Paragraph, styles, colors,
         ("BOX", (0, 0), (-1, -1), 0.3, line),
         ("GRID", (0, 0), (-1, -1), 0.16, line),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 2.2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.2),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.0),
     ]))
     qr_block = Table([
         [qr or Paragraph("QR fiscal no disponible", styles["Tiny"])],
         [Paragraph(f"<b>Verificación SAT</b><br/>RFC PAC: {_text(_attr(timbre, 'RfcProvCertif'))}<br/>UUID: {_text(_short(_attr(timbre, 'UUID'), 48))}", styles["Tiny"])],
-    ], colWidths=[1.86 * 72])
+    ], colWidths=[1.92 * 72])
     qr_block.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.3, line),
         ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("ALIGN", (0, 0), (-1, 0), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    table = Table([[seal_table, qr_block]], colWidths=[5.84 * 72, 1.96 * 72])
+    table = Table([[seal_table, qr_block]], colWidths=[5.64 * 72, 1.96 * 72])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
