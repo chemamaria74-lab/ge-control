@@ -355,16 +355,16 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
     if not recipients:
         raise HTTPException(400, "Captura un correo destino para enviar XML/PDF.")
     try:
-    if es_carta_porte_traslado(xml_content):
-        info = carta_porte_pdf_info(xml_content)
-        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
-    else:
-        info = fiscal_pdf_info(xml_content, "factura_gas_lp")
-        pdf_bytes = generar_pdf_gas_lp_desde_xml(
-            xml_content,
-            logo_data_url=settings.get("PdfLogoDataUrl", ""),
-            observaciones=_gas_lp_factura_observaciones(row),
-        )
+        if es_carta_porte_traslado(xml_content):
+            info = carta_porte_pdf_info(xml_content)
+            pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+        else:
+            info = fiscal_pdf_info(xml_content, "factura_gas_lp")
+            pdf_bytes = generar_pdf_gas_lp_desde_xml(
+                xml_content,
+                logo_data_url=settings.get("PdfLogoDataUrl", ""),
+                observaciones=_gas_lp_factura_observaciones(row),
+            )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_factura_send_email_pdf", exc)
     email_results = []
