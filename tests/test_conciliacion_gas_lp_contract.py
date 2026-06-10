@@ -1214,6 +1214,8 @@ def test_assistant_carta_porte_validation_flow_has_modal_and_real_error_text():
     assert "Timbrar Carta Porte" in html
     assert "Confirmar timbrado Carta Porte tipo T" in html
     assert "Timbrar CFDI tipo T" in html
+    assert "flow.includes('traspaso')" not in html
+    assert "tipo === 'T'" not in html
     assert "No se pudo conectar con el servidor de timbrado" in html
     assert "Failed to fetch" not in html
     timbrar_start = html.index("async function timbrarCartaPorteGasLp")
@@ -1264,8 +1266,12 @@ def test_carta_porte_xml_adds_seconds_to_browser_datetime_values():
     assert 'BienesTransp="15111510"' in xml
     assert 'Fecha="2026-06-09T14:32:00"' in xml
     assert 'PlacaVM="AC6116E"' in xml
-    assert 'PesoBrutoVehicular=' not in xml
+    assert 'PesoBrutoVehicular="12.00"' in xml
     assert 'PlacaVM="AC-6116-E"' not in xml
+    assert 'NumRegIdTrib=' not in xml
+    assert 'ResidenciaFiscal=' not in xml
+    assert '<cartaporte31:Remolques' not in xml
+    assert 'SectorPVE' not in xml
     assert 'FechaHoraSalidaLlegada="2026-06-09T14:32:00"' in xml
     assert 'FechaHoraSalidaLlegada="2026-06-09T15:32:00"' in xml
 
@@ -1292,7 +1298,7 @@ def test_assistant_carta_porte_vehicle_form_uses_numero_economico_as_alias(monke
             "config_vehicular": "C2",
             "permiso_cre": "TPAF03",
             "numero_permiso": "SCT-123456",
-            "peso_bruto_vehicular": "18000",
+            "peso_bruto_vehicular": "12000",
             "aseguradora": "GNP",
             "poliza_seguro": "RC-123",
             "aseguradora_medio_ambiente": "Ambiental MX",
@@ -1307,6 +1313,7 @@ def test_assistant_carta_porte_vehicle_form_uses_numero_economico_as_alias(monke
 
     assert payload["metadata"]["alias"] == "AT-96"
     assert payload["metadata"]["numero_economico"] == "AT-96"
+    assert payload["metadata"]["peso_bruto_vehicular"] == 12000
     assert payload["metadata"]["aseguradora_carga"] == ""
     assert payload["metadata"]["poliza_carga"] == ""
     assert record["id"] == 96
@@ -1314,6 +1321,8 @@ def test_assistant_carta_porte_vehicle_form_uses_numero_economico_as_alias(monke
     assert "acpv_alias" not in html
     assert "Aseguradora carga" not in html
     assert "Póliza carga" not in html
+    assert "Peso bruto vehicular SAT" in html
+    assert "peso_bruto_vehicular:acpv_pbv.value" in html
     assert "Aseguradora de responsabilidad civil" in html
     assert "Póliza de responsabilidad civil" in html
     assert "Aseguradora de daños al medio ambiente" in html
