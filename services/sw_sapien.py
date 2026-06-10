@@ -279,6 +279,61 @@ def _cp_optional_attrs(values: dict) -> str:
     return "".join(parts)
 
 
+_CP_STATE_CODES = {
+    "AGUASCALIENTES": "AGU", "BAJA CALIFORNIA": "BCN", "BAJA CALIFORNIA SUR": "BCS",
+    "CAMPECHE": "CAM", "COAHUILA": "COA", "COAHUILA DE ZARAGOZA": "COA",
+    "COLIMA": "COL", "CHIAPAS": "CHP", "CHIHUAHUA": "CHH", "CIUDAD DE MEXICO": "CMX",
+    "CIUDAD DE MÉXICO": "CMX", "DISTRITO FEDERAL": "CMX", "DURANGO": "DUR",
+    "GUANAJUATO": "GUA", "GUERRERO": "GRO", "HIDALGO": "HID", "JALISCO": "JAL",
+    "MEXICO": "MEX", "MÉXICO": "MEX", "ESTADO DE MEXICO": "MEX", "ESTADO DE MÉXICO": "MEX",
+    "MICHOACAN": "MIC", "MICHOACÁN": "MIC", "MICHOACAN DE OCAMPO": "MIC", "MICHOACÁN DE OCAMPO": "MIC",
+    "MORELOS": "MOR", "NAYARIT": "NAY", "NUEVO LEON": "NLE", "NUEVO LEÓN": "NLE",
+    "OAXACA": "OAX", "PUEBLA": "PUE", "QUERETARO": "QUE", "QUERÉTARO": "QUE",
+    "QUINTANA ROO": "ROO", "SAN LUIS POTOSI": "SLP", "SAN LUIS POTOSÍ": "SLP",
+    "SINALOA": "SIN", "SONORA": "SON", "TABASCO": "TAB", "TAMAULIPAS": "TAM",
+    "TLAXCALA": "TLA", "VERACRUZ": "VER", "VERACRUZ DE IGNACIO DE LA LLAVE": "VER",
+    "YUCATAN": "YUC", "YUCATÁN": "YUC", "ZACATECAS": "ZAC",
+}
+
+_CP_POSTAL_OVERRIDES = {
+    # SAT c_CodigoPostal: CP 98470 has state ZAC with municipio/localidad empty.
+    # Sending a manually captured Municipio like 051 triggers CP147.
+    "98470": {"estado": "ZAC", "municipio": "", "localidad": ""},
+    "98057": {"estado": "ZAC", "municipio": "056", "localidad": "03"},
+    "98659": {"estado": "ZAC", "municipio": "017", "localidad": ""},
+}
+
+
+def _cp_clean_digits(value: object, length: int) -> str:
+    text = "".join(ch for ch in str(value or "").strip() if ch.isdigit())
+    return text.zfill(length) if text else ""
+
+
+def _cp_sat_state(value: object) -> str:
+    text = str(value or "").strip().upper()
+    if len(text) == 3:
+        return text
+    return _CP_STATE_CODES.get(text, text)
+
+
+def _cp_sat_postal_address(row: dict) -> dict:
+    cp = str(row.get("codigo_postal") or row.get("cp") or "").strip().zfill(5)
+    override = _CP_POSTAL_OVERRIDES.get(cp)
+    if override:
+        return {
+            "CodigoPostal": cp,
+            "Estado": override["estado"],
+            "Municipio": override["municipio"],
+            "Localidad": override["localidad"],
+        }
+    return {
+        "CodigoPostal": cp,
+        "Estado": _cp_sat_state(row.get("estado")),
+        "Municipio": _cp_clean_digits(row.get("municipio"), 3),
+        "Localidad": _cp_clean_digits(row.get("localidad"), 2),
+    }
+
+
 def _cp_normalize_id_ccp(value: object = "") -> str:
     text = str(value or "").strip()
     raw = text[3:] if text.upper().startswith("CCC") else text
@@ -290,12 +345,13 @@ def _cp_normalize_id_ccp(value: object = "") -> str:
 
 
 def _cp_domicilio_xml(row: dict) -> str:
+    sat_address = _cp_sat_postal_address(row)
     attrs = {
         "Pais": row.get("pais") or "MEX",
-        "CodigoPostal": row.get("codigo_postal") or row.get("cp"),
-        "Estado": row.get("estado"),
-        "Municipio": row.get("municipio"),
-        "Localidad": row.get("localidad"),
+        "CodigoPostal": sat_address.get("CodigoPostal"),
+        "Estado": sat_address.get("Estado"),
+        "Municipio": sat_address.get("Municipio"),
+        "Localidad": sat_address.get("Localidad"),
         "Colonia": row.get("colonia") or row.get("localidad_colonia"),
         "Calle": row.get("calle") or row.get("domicilio"),
         "NumeroExterior": row.get("numero_exterior"),
