@@ -336,7 +336,7 @@ def _internal_cp_payload(kind: str, params) -> dict:
                 "alias": s("alias", default=s("numero_economico", default=s("placa", "placas").upper())),
                 "numero_economico": s("numero_economico"),
                 "numero_permiso": s("numero_permiso", "numero_permiso_sct", "num_permiso_sct"),
-                "peso_bruto_vehicular": n("peso_bruto_vehicular", default=0),
+                "peso_bruto_vehicular": n("peso_bruto_vehicular", "peso_bruto", "peso_bruto_kg", default=0),
                 "aseguradora_medio_ambiente": s("aseguradora_medio_ambiente", "aseguradora_ambiental", "aseguradora_danos_medio_ambiente", "aseguradora_daños_medio_ambiente", "aseguraMedAmbiente", "AseguraMedAmbiente"),
                 "poliza_medio_ambiente": s("poliza_medio_ambiente", "poliza_ambiental", "poliza_danos_medio_ambiente", "poliza_daños_medio_ambiente", "polizaMedAmbiente", "PolizaMedAmbiente"),
                 "aseguradora_carga": s("aseguradora_carga"),
