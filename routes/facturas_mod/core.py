@@ -776,9 +776,9 @@ def _cp_validate_catalog_payload(
         _cp_required(errors, "mercancía: embalaje SAT", mercancia.get("embalaje"))
     _cp_required(errors, "vehículo: placas", vehiculo.get("placas") or vehiculo.get("placa"))
     _cp_required(errors, "vehículo: configuración SAT", vehiculo.get("config_vehicular"))
+    _cp_required(errors, "vehículo: peso bruto vehicular SAT", vehiculo.get("peso_bruto_vehicular") or vehiculo.get("peso_bruto") or vehiculo.get("peso_bruto_kg"))
     _cp_required(errors, "vehículo: permiso SCT/SICT", vehiculo.get("permiso_cre") or vehiculo.get("permiso_sct"))
     _cp_required(errors, "vehículo: número de permiso", vehiculo.get("numero_permiso"))
-    _cp_required(errors, "vehículo: peso bruto vehicular", vehiculo.get("peso_bruto_vehicular"))
     _cp_required(errors, "vehículo: aseguradora RC", vehiculo.get("aseguradora"))
     _cp_required(errors, "vehículo: póliza RC", vehiculo.get("poliza_seguro"))
     _cp_required(errors, "vehículo: aseguradora medio ambiente", vehiculo.get("aseguradora_medio_ambiente"))
@@ -982,7 +982,20 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         )
         raise HTTPException(500, f"Error al enviar Carta Porte a SW Sapien: {e}") from e
     if resultado["error"]:
-        raise HTTPException(400, {"message": f"Error en timbrado SW Sapien: {resultado['error']}", "code": "gas_lp_carta_porte_pac_error", "pac_error": resultado["error"]})
+        pac_response = resultado.get("pac_response") if isinstance(resultado.get("pac_response"), dict) else {}
+        raise HTTPException(400, {
+            "message": f"Error en timbrado SW Sapien: {resultado['error']}",
+            "code": "gas_lp_carta_porte_pac_error",
+            "pac_error": resultado["error"],
+            "pac_response": {
+                "endpoint_sw": pac_response.get("endpoint_sw"),
+                "status_code_sw": pac_response.get("status_code_sw"),
+                "message": pac_response.get("message"),
+                "messageDetail": pac_response.get("messageDetail"),
+                "raw_response_sw": pac_response.get("raw_response_sw"),
+                "parsed_response_sw": pac_response.get("parsed_response_sw"),
+            },
+        })
 
     validation = _cp_post_timbrado_validation(resultado.get("xml_timbrado") or "", mercancia)
     now = datetime.now(timezone.utc).isoformat()
