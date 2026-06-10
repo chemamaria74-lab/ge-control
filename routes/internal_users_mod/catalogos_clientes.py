@@ -184,6 +184,57 @@ def _internal_cp_existing_row(table: str, row_id: int, user: dict) -> dict:
         return {}
 
 
+def _internal_cp_key_text(value) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().upper())
+
+
+def _internal_cp_duplicate_key(kind: str, row: dict) -> tuple:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    if kind == "vehiculos":
+        return (_internal_cp_key_text(row.get("placas") or row.get("placa")),)
+    if kind == "choferes":
+        rfc = _internal_cp_key_text(row.get("rfc"))
+        if rfc:
+            return ("rfc", rfc)
+        return (
+            "nombre_licencia",
+            _internal_cp_key_text(row.get("nombre")),
+            _internal_cp_key_text(row.get("licencia")),
+        )
+    if kind == "ubicaciones":
+        location_id = _internal_cp_key_text(row.get("id_ubicacion") or row.get("id_ubicacion_carta_porte"))
+        if location_id:
+            return ("id_ubicacion", location_id)
+        return (
+            "alias_cp",
+            _internal_cp_key_text(row.get("alias") or row.get("nombre")),
+            _internal_cp_key_text(row.get("codigo_postal")),
+        )
+    if kind == "mercancias":
+        return (
+            _internal_cp_key_text(row.get("bienes_transp")),
+            _internal_cp_key_text(row.get("clave_unidad")),
+            _internal_cp_key_text(row.get("alias") or row.get("descripcion")),
+        )
+    if kind == "rutas":
+        return (
+            _internal_cp_key_text(row.get("nombre")),
+            str(row.get("origen_facility_id") or metadata.get("origen_facility_id") or metadata.get("origen_ubicacion_ref") or ""),
+            str(row.get("destino_facility_id") or metadata.get("destino_facility_id") or metadata.get("destino_ubicacion_ref") or ""),
+        )
+    return ()
+
+
+def _internal_cp_duplicate_row(table: str, kind: str, payload: dict, user: dict) -> dict:
+    key = _internal_cp_duplicate_key(kind, payload)
+    if not key or all(not part for part in key):
+        return {}
+    for row in _internal_cp_company_rows(table, user, active_only=False):
+        if _internal_cp_duplicate_key(kind, row) == key:
+            return row
+    return {}
+
+
 def _internal_cp_merge_metadata(payload: dict, current: dict) -> dict:
     if not isinstance(payload.get("metadata"), dict):
         return payload
@@ -412,12 +463,14 @@ def _internal_cp_payload(kind: str, params) -> dict:
         "metadata": {
             "tiempo_estimado": s("tiempo_estimado"),
             "tiempo_estimado_minutos": int(n("tiempo_estimado_minutos", default=0)),
+            "origen_ubicacion_ref": s("origen_ubicacion_ref"),
             "cp_origen": s("cp_origen"),
             "nombre_origen": s("nombre_origen"),
             "localidad_origen": s("localidad_origen"),
             "municipio_origen": s("municipio_origen"),
             "estado_origen": s("estado_origen"),
             "id_ubicacion_origen": s("id_ubicacion_origen"),
+            "destino_ubicacion_ref": s("destino_ubicacion_ref"),
             "cp_destino": s("cp_destino"),
             "nombre_destino": s("nombre_destino"),
             "localidad_destino": s("localidad_destino"),
@@ -440,6 +493,26 @@ async def gas_lp_internal_catalogo_create(kind: str, request: Request, token: st
         raise HTTPException(400, "Las instalaciones se crean en Administración; aquí solo se completa su configuración Carta Porte.")
     table, _order = _internal_cp_table(kind)
     payload = _internal_cp_payload(kind, request.query_params)
+    existing = _internal_cp_duplicate_row(table, kind, payload, user)
+    if existing:
+        payload = _internal_cp_merge_metadata(payload, existing)
+        payload = _internal_cp_company_payload(payload, user, existing)
+        update_row = {**payload, "activo": True, "updated_at": datetime.now(timezone.utc).isoformat()}
+        logger.info("gas_lp_catalogo_create_dedup table=%s kind=%s id=%s", table, kind, existing.get("id"))
+        try:
+            data = (
+                get_supabase_admin()
+                .table(table)
+                .update(update_row)
+                .eq("id", existing.get("id"))
+                .execute()
+                .data
+                or []
+            )
+        except Exception as exc:
+            raise _safe_internal_error(f"gas_lp_catalogo_create_dedup_{kind}", exc)
+        record = _internal_cp_response_record(kind, data[0] if data else {**existing, **update_row}, user, row_id=existing.get("id"))
+        return JSONResponse({"ok": True, "id": record.get("id"), "record": record, "deduped": True})
     row = _internal_cp_scope_row(user, payload)
     logger.debug("gas_lp_catalogo_create table=%s kind=%s tenant=%s perfil=%s empresa_rfc=%s", table, kind, row.get("tenant_id"), row.get("perfil_id"), (row.get("metadata") or {}).get("empresa_rfc"))
     try:
