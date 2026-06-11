@@ -30,6 +30,41 @@ function detailText(value, fallback='No fue posible cargar la información.'){
   if(value && typeof value === 'object') return value.message || value.detail || JSON.stringify(value);
   return value || fallback;
 }
+const GAS_LP_TIME_ZONE = 'America/Mexico_City';
+function hasExplicitTimeZone(value){
+  return /(?:z|[+-]\d{2}:?\d{2})$/i.test(String(value || '').trim());
+}
+function mexicoDateParts(value){
+  const text = String(value || '').trim();
+  if(!text) return {date:'', time:''};
+  const dateMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const timeMatch = text.match(/[T ](\d{2}):(\d{2})/);
+  if(!hasExplicitTimeZone(text)){
+    return {
+      date: dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : '',
+      time: timeMatch ? `${timeMatch[1]}:${timeMatch[2]}` : ''
+    };
+  }
+  const date = new Date(text);
+  if(Number.isNaN(date.getTime())){
+    return {
+      date: dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : '',
+      time: timeMatch ? `${timeMatch[1]}:${timeMatch[2]}` : ''
+    };
+  }
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: GAS_LP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(date).map(part => [part.type, part.value]));
+  return {date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}`};
+}
+function mexicoDateKey(value){ return mexicoDateParts(value).date; }
+function mexicoTimeLabel(value){ return mexicoDateParts(value).time; }
 function friendlyApiErrorText(path, data={}, rawText=''){
   const detail = detailText(data.detail || data.message || rawText, '');
   const genericServerError = !detail || /^internal server error$/i.test(String(detail).trim());
@@ -61,8 +96,7 @@ function transferErrorText(detail, fallback='No se pudo timbrar el traspaso.'){
   return parts.join(' · ');
 }
 function todayKey(){
-  const d = new Date();
-  return localDateTimeValue(d).slice(0,10);
+  return mexicoDateKey(new Date().toISOString());
 }
 function cfdiFechaFromXml(xml){
   const m = String(xml || '').match(/<[^>]*Comprobante[^>]*\sFecha=["']([^"']+)["']/i);
@@ -73,7 +107,7 @@ function facturaDateValue(f){
   return md.fecha_emision || md.fecha_cfdi || cfdiFechaFromXml(f.xml_content) || f.fecha_timbrado || f.created_at || '';
 }
 function dateDMY(value){
-  const s = String(value || '').slice(0,10);
+  const s = mexicoDateKey(value) || String(value || '').slice(0,10);
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
 }
@@ -86,8 +120,8 @@ function calcularEstatusLicencia(fechaVencimiento){
   if(days <= 30) return {status:'soon', label:'Por vencer', days_remaining:days, date_label:dateDMY(key)};
   return {status:'valid', label:'Licencia vigente', days_remaining:days, date_label:dateDMY(key)};
 }
-function facturaDateKey(f){ return String(f.fecha_factura_key || facturaDateValue(f) || '').slice(0,10); }
-function facturaTimeLabel(f){ return String(facturaDateValue(f) || '').slice(11,16) || String(f.created_at || '').slice(11,16) || '—'; }
+function facturaDateKey(f){ return mexicoDateKey(f.fecha_factura_key || facturaDateValue(f) || '') || String(f.fecha_factura_key || facturaDateValue(f) || '').slice(0,10); }
+function facturaTimeLabel(f){ return mexicoTimeLabel(facturaDateValue(f) || f.created_at || '') || '—'; }
 function switchPortalTab(tab, subtab=''){
   const legacy = {
     dashboard: ['clientes','credito'],
