@@ -340,6 +340,94 @@ def _sb_insert(table: str, row: dict) -> Optional[dict]:
         return None
 
 
+def _cp_existing_timbrada_response(row: dict) -> JSONResponse:
+    uuid_sat = str(row.get("uuid_sat") or "").strip()
+    return JSONResponse({
+        "ok": True,
+        "duplicate": True,
+        "message": "Esta Carta Porte ya fue timbrada.",
+        "factura": row,
+        "uuid_sat": uuid_sat,
+        "pdf_url": row.get("pdf_url") or "",
+        "status": row.get("status") or "Vigente",
+        "fecha_timbrado": row.get("fecha_timbrado") or row.get("created_at") or "",
+        "id": row.get("id"),
+        "id_ccp": (row.get("metadata") or {}).get("id_ccp") if isinstance(row.get("metadata"), dict) else "",
+        "source": "supabase",
+    })
+
+
+def _cp_find_existing_timbrada(
+    scope: dict,
+    payload: "CartaPorteRequest",
+    *,
+    origen_facility_id: Optional[int],
+    destino_facility_id: Optional[int],
+    vehiculo_id: Optional[int],
+    chofer_id: Optional[int],
+    mercancia_id: Optional[int],
+    litros: float,
+    fecha_salida: str,
+) -> Optional[dict]:
+    if not scope.get("perfil_id"):
+        return None
+    try:
+        if payload.record_uuid:
+            rows = (
+                _sb_query(_SB_FACTURAS, scope)
+                .eq("record_uuid", payload.record_uuid)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            for row in rows:
+                if str(row.get("uuid_sat") or "").strip():
+                    return row
+    except Exception as exc:
+        logger.warning("gas_lp_carta_porte_duplicate_record_uuid_lookup_failed err=%s", exc)
+
+    fecha_key = str(fecha_salida or payload.fecha_hora or "")[:10]
+    try:
+        rows = (
+            _sb_query(_SB_FACTURAS, scope)
+            .eq("tipo_comprobante", "T")
+            .order("created_at", desc=True)
+            .limit(80)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_carta_porte_duplicate_recent_lookup_failed err=%s", exc)
+        return None
+
+    for row in rows:
+        if not str(row.get("uuid_sat") or "").strip():
+            continue
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        row_fecha = str(md.get("fecha_salida") or row.get("fecha_timbrado") or row.get("created_at") or "")[:10]
+        if fecha_key and row_fecha and row_fecha != fecha_key:
+            continue
+        try:
+            same_litros = abs(float(row.get("volumen_litros") or 0) - float(litros or 0)) < 0.0001
+        except (TypeError, ValueError):
+            same_litros = False
+        if not same_litros:
+            continue
+        matches = [
+            int(row.get("ruta_id") or md.get("ruta_id") or 0) == int(payload.ruta_id or 0),
+            int(row.get("origen_facility_id") or md.get("origen_facility_id") or 0) == int(origen_facility_id or 0),
+            int(row.get("destino_facility_id") or md.get("destino_facility_id") or 0) == int(destino_facility_id or 0),
+            int(row.get("vehiculo_id") or md.get("vehiculo_id") or 0) == int(vehiculo_id or 0),
+            int(row.get("chofer_id") or md.get("chofer_id") or 0) == int(chofer_id or 0),
+            int(md.get("mercancia_id") or 0) == int(mercancia_id or 0),
+        ]
+        if all(matches):
+            return row
+    return None
+
+
 def _sb_update(table: str, row_id: int, scope: dict, values: dict) -> bool:
     if not scope.get("perfil_id"):
         return False
@@ -970,6 +1058,25 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
     factor = float(mercancia_row.get("factor_kg_litro") or 0)
     peso_kg = round(litros * factor, 3)
     id_ccp = _cp_normalize_id_ccp(payload.id_ccp)
+    existing_cp = _cp_find_existing_timbrada(
+        scope,
+        payload,
+        origen_facility_id=origen_facility_id,
+        destino_facility_id=destino_facility_id,
+        vehiculo_id=vehiculo_id,
+        chofer_id=chofer_id,
+        mercancia_id=mercancia_id,
+        litros=litros,
+        fecha_salida=fecha_salida,
+    )
+    if existing_cp:
+        logger.info(
+            "gas_lp_carta_porte_duplicate_blocked existing_id=%s uuid_sat=%s ruta_id=%s",
+            existing_cp.get("id"),
+            existing_cp.get("uuid_sat") or "",
+            payload.ruta_id,
+        )
+        return _cp_existing_timbrada_response(existing_cp)
     logger.info(
         "gas_lp_carta_porte_timbrado_start empresa_rfc=%s ruta_id=%s vehiculo_id=%s chofer_id=%s mercancia_id=%s litros=%s peso_kg=%s",
         emisor.get("rfc"),
