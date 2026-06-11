@@ -907,6 +907,29 @@ def test_assistant_invoice_duplicate_guard_runs_before_stamp():
     assert "duplicate_window_seconds" in duplicate_source
 
 
+def test_assistant_invoice_preview_rounds_half_up_like_backend():
+    html = _assistant_frontend_source()
+
+    assert "const INVOICE_ROUND_EPSILON = 1e-9" in html
+    assert "Math.round((n + INVOICE_ROUND_EPSILON) * factor)" in html
+    assert "40_facturacion.js?v=invoice-round-half-up-20260611" in html
+
+    _, totals = internal_users._build_gas_lp_consumo_xml(
+        issuer={"rfc": "AAA010101AAA", "nombre": "EMISOR PRUEBA", "cp": "98600", "regimen": "601"},
+        receptor={"rfc": "XAXX010101000", "nombre": "PUBLICO EN GENERAL", "cp": "98600", "regimen_fiscal": "616", "uso_cfdi": "S01"},
+        litros=38.5,
+        precio_unitario=11.09,
+        concepto="Gas licuado de petróleo",
+        forma_pago="28",
+        metodo_pago="PUE",
+        fecha="2026-06-11T11:14:00",
+    )
+
+    assert Decimal(str(totals["subtotal"])) == Decimal("368.08")
+    assert Decimal(str(totals["iva"])) == Decimal("58.89")
+    assert Decimal(str(totals["total"])) == Decimal("426.97")
+
+
 def test_assistant_invoice_duplicate_guard_only_blocks_immediate_retry(monkeypatch):
     class FakeResult:
         def __init__(self, data):
