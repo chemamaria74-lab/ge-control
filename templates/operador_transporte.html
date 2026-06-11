@@ -48,7 +48,7 @@
     function renderTasks(tasks){
       if(!tasks.length) return '';
       return tasks.map(t => `<section class="card task">
-        <h2>${t.titulo || 'Tarea de Carta Aporte'}</h2>
+        <h2>${t.titulo || 'Tarea de Carta Porte'}</h2>
         <small>${(t.window_start||'').slice(0,16).replace('T',' ')} - ${(t.window_end||'').slice(0,16).replace('T',' ')}</small>
         <ul>${(t.facturas||[]).slice(0,8).map(f => `<li>${f.uuid || 'UUID pendiente'} · ${Number(f.litros||0).toLocaleString('es-MX')} L · ${f.producto || 'Producto'} · ${money(f.importe)}</li>`).join('')}</ul>
       </section>`).join('');
@@ -125,7 +125,7 @@
         box.innerHTML = '<h3>Documentos relacionados</h3><div class="meta">No se pudieron cargar documentos.</div>';
       }
     }
-    async function load(){try{const [d,t,s,l]=await Promise.all([api('/api/tr/operador/viajes'),api('/api/tr/operador/carta-aporte/tareas'),api('/api/tr/operador/semana'),api('/api/tr/operador/liquidacion-actual')]);render(d,t.tasks||[],s,l)}catch(e){app.innerHTML=`<div class="empty">${e.message}</div>`}}
+    async function load(){try{const [d,t,s,l]=await Promise.all([api('/api/tr/operador/viajes'),api('/api/tr/operador/carta-porte/tareas'),api('/api/tr/operador/semana'),api('/api/tr/operador/liquidacion-actual')]);render(d,t.tasks||[],s,l)}catch(e){app.innerHTML=`<div class="empty">${e.message}</div>`}}
     async function accion(id, accion){
       let nota = '';
       if (accion === 'problema') nota = prompt('Describe brevemente el problema para oficina:') || '';
