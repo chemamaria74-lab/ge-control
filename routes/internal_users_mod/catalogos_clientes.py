@@ -2,9 +2,39 @@ from .core import *
 from pydantic import ValidationError
 
 def _gas_lp_clientes_scope_query(query, user: dict):
-    query = query.eq("user_id", user.get("owner_user_id")).eq("perfil_id", user.get("perfil_id"))
     tenant_id = user.get("tenant_id")
-    return query.eq("tenant_id", tenant_id) if tenant_id else query.is_("tenant_id", "null")
+    query = query.eq("perfil_id", user.get("perfil_id"))
+    if tenant_id:
+        return query.eq("tenant_id", tenant_id)
+    return query.eq("user_id", user.get("owner_user_id")).is_("tenant_id", "null")
+
+
+def _gas_lp_cliente_existing_by_rfc(sb, user: dict, rfc: str, *, exclude_id: int | None = None) -> dict | None:
+    clean = _clean_rfc(rfc)
+    if not clean:
+        return None
+    try:
+        rows = (
+            _gas_lp_clientes_scope_query(
+                sb.table("gas_lp_clientes_facturacion").select(GAS_LP_CLIENTES_LIST_SELECT),
+                user,
+            )
+            .eq("rfc", clean)
+            .order("activo", desc=True)
+            .order("updated_at", desc=True)
+            .limit(5)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_cliente_rfc_lookup_failed perfil=%s tenant=%s rfc=%s err=%s", user.get("perfil_id"), user.get("tenant_id"), clean, exc)
+        return None
+    for row in rows:
+        if exclude_id and str(row.get("id")) == str(exclude_id):
+            continue
+        return row
+    return None
 
 
 def _gas_lp_cliente_editable_update(row: dict) -> dict:
@@ -664,7 +694,7 @@ async def gas_lp_internal_clientes(token: str):
     try:
         rows = (
             _gas_lp_clientes_scope_query(
-                sb.table("gas_lp_clientes_facturacion").select("*"),
+                sb.table("gas_lp_clientes_facturacion").select(GAS_LP_CLIENTES_LIST_SELECT),
                 user,
             )
             .eq("activo", True)
@@ -684,8 +714,27 @@ async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, to
     ctx = _gas_lp_internal_context(token, write=True)
     user = ctx["user"]
     row = _gas_lp_cliente_row(user, payload)
+    sb = get_supabase_admin()
+    existing = _gas_lp_cliente_existing_by_rfc(sb, user, row.get("rfc") or "")
+    if existing:
+        normalized = _normalize_gas_lp_cliente_credit(existing)
+        if existing.get("activo") is False:
+            raise HTTPException(409, {
+                "message": "Ya existe un cliente con este RFC en la empresa, pero está inactivo. Reactívalo desde catálogo antes de crear otro.",
+                "code": "gas_lp_cliente_rfc_inactivo",
+                "cliente_id": existing.get("id"),
+                "rfc": normalized.get("rfc"),
+            })
+        logger.info("gas_lp_cliente_create_reused perfil=%s tenant=%s rfc=%s cliente_id=%s", user.get("perfil_id"), user.get("tenant_id"), normalized.get("rfc"), normalized.get("id"))
+        return JSONResponse({
+            "ok": True,
+            "cliente": normalized,
+            "deduped": True,
+            "reused": True,
+            "message": "El RFC ya existía para esta empresa; se reutilizó el cliente existente.",
+        })
     try:
-        data = get_supabase_admin().table("gas_lp_clientes_facturacion").insert(row).execute().data or [row]
+        data = sb.table("gas_lp_clientes_facturacion").insert(row).execute().data or [row]
     except Exception as exc:
         raise _safe_internal_error("gas_lp_crear_cliente", exc)
     return JSONResponse({"ok": True, "cliente": _normalize_gas_lp_cliente_credit(data[0])})
@@ -696,10 +745,19 @@ async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInte
     ctx = _gas_lp_internal_context(token, write=True)
     user = ctx["user"]
     row = _gas_lp_cliente_update_row(user, payload)
+    sb = get_supabase_admin()
+    existing = _gas_lp_cliente_existing_by_rfc(sb, user, row.get("rfc") or "", exclude_id=cliente_id)
+    if existing:
+        raise HTTPException(409, {
+            "message": "Ya existe otro cliente con este RFC en la misma empresa. Selecciona ese cliente o cambia el RFC.",
+            "code": "gas_lp_cliente_rfc_duplicado",
+            "cliente_id": existing.get("id"),
+            "rfc": existing.get("rfc"),
+        })
     try:
         data = (
             _gas_lp_clientes_scope_query(
-                get_supabase_admin()
+                sb
                 .table("gas_lp_clientes_facturacion")
                 .update(row)
                 .eq("id", cliente_id),

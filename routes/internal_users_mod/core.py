@@ -53,6 +53,63 @@ _GAS_LP_RFC_PRUEBAS_SAT = {
         "regimen_fiscal": "601",
     },
 }
+GAS_LP_FACTURAS_LIST_SELECT = ",".join([
+    "id",
+    "record_uuid",
+    "tenant_id",
+    "perfil_id",
+    "user_id",
+    "facility_id",
+    "rfc_emisor",
+    "rfc_receptor",
+    "nombre_receptor",
+    "uuid_sat",
+    "fecha_timbrado",
+    "status",
+    "estado_fiscal",
+    "cfdi_status",
+    "sat_estado",
+    "cancelacion_status",
+    "tipo_comprobante",
+    "volumen_litros",
+    "importe",
+    "pdf_url",
+    "metadata",
+    "created_at",
+    "updated_at",
+])
+GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT = ",".join([
+    "id",
+    "complemento_id",
+    "factura_id",
+    "uuid_relacionado",
+    "monto",
+    "saldo_anterior",
+    "saldo_insoluto",
+    "status",
+    "created_at",
+])
+GAS_LP_CLIENTES_LIST_SELECT = ",".join([
+    "id",
+    "user_id",
+    "tenant_id",
+    "perfil_id",
+    "rfc",
+    "nombre",
+    "cp",
+    "regimen_fiscal",
+    "uso_cfdi",
+    "email_facturacion",
+    "email",
+    "credito_habilitado",
+    "dias_credito",
+    "limite_credito",
+    "credito_notas",
+    "activo",
+    "metadata",
+    "created_at",
+    "updated_at",
+])
 
 
 def _gas_lp_tipo_persona_rfc(rfc: str) -> str:
@@ -1251,18 +1308,22 @@ def _gas_lp_attach_cliente_email_recipients(sb, user: dict, rows: list[dict]) ->
     })
     if not cliente_ids:
         return
+    chunk_size = 100
+    clientes: list[dict] = []
     try:
-        clientes = (
-            sb.table("gas_lp_clientes_facturacion")
-            .select("*")
-            .eq("user_id", user.get("owner_user_id"))
-            .eq("tenant_id", user.get("tenant_id"))
-            .eq("perfil_id", user.get("perfil_id"))
-            .eq("activo", True)
-            .execute()
-            .data
-            or []
-        )
+        for offset in range(0, len(cliente_ids), chunk_size):
+            chunk = cliente_ids[offset : offset + chunk_size]
+            clientes.extend(
+                sb.table("gas_lp_clientes_facturacion")
+                .select(GAS_LP_CLIENTES_LIST_SELECT)
+                .in_("id", chunk)
+                .eq("tenant_id", user.get("tenant_id"))
+                .eq("perfil_id", user.get("perfil_id"))
+                .eq("activo", True)
+                .execute()
+                .data
+                or []
+            )
     except Exception as exc:
         logger.warning("gas_lp_attach_cliente_email_recipients_failed tenant=%s perfil=%s err=%s", user.get("tenant_id"), user.get("perfil_id"), exc)
         return
@@ -2597,24 +2658,40 @@ def _gas_lp_attach_complemento_creators(sb, rows: list[dict]) -> None:
         )
 
 
-def _gas_lp_complementos_por_factura(sb, factura_ids: list[int]) -> dict[int, list[dict]]:
+def _gas_lp_complementos_por_factura(
+    sb,
+    factura_ids: list[int],
+    *,
+    chunk_size: int = 100,
+    stats: dict | None = None,
+) -> dict[int, list[dict]]:
     ids = [int(fid) for fid in factura_ids if fid]
     by_factura: dict[int, list[dict]] = {fid: [] for fid in ids}
     if not ids:
+        if stats is not None:
+            stats.update({"factura_ids": 0, "chunks": 0, "rows": 0})
         return by_factura
+    unique_ids = list(dict.fromkeys(ids))
+    safe_chunk_size = max(1, min(int(chunk_size or 100), 200))
+    chunks = [unique_ids[offset : offset + safe_chunk_size] for offset in range(0, len(unique_ids), safe_chunk_size)]
+    rows: list[dict] = []
     try:
-        rows = (
-            sb.table("gas_lp_complementos_pago_facturas")
-            .select("*")
-            .in_("factura_id", ids)
-            .eq("status", "timbrado")
-            .order("created_at", desc=True)
-            .execute()
-            .data
-            or []
-        )
-    except Exception:
+        for chunk in chunks:
+            rows.extend(
+                sb.table("gas_lp_complementos_pago_facturas")
+                .select(GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT)
+                .in_("factura_id", chunk)
+                .eq("status", "timbrado")
+                .order("created_at", desc=True)
+                .execute()
+                .data
+                or []
+            )
+    except Exception as exc:
+        logger.warning("gas_lp_complementos_por_factura_failed factura_ids=%s chunks=%s err=%s", len(unique_ids), len(chunks), exc)
         rows = []
+    if stats is not None:
+        stats.update({"factura_ids": len(unique_ids), "chunks": len(chunks), "rows": len(rows), "chunk_size": safe_chunk_size})
     for row in rows:
         fid = int(row.get("factura_id") or 0)
         if fid in by_factura:

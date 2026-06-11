@@ -220,6 +220,7 @@ async def gas_lp_credito_recordatorios_candidatos(
 
 @router.get("/internal-auth/gas-lp/facturas")
 async def gas_lp_internal_facturas(token: str, mes: str | None = None):
+    started_at = datetime.now(timezone.utc)
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
     profile = _gas_lp_profile(user)
@@ -233,7 +234,14 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
     else:
         month = ""
     try:
-        rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000 if month else 1000)
+        rows = _gas_lp_company_facturas_rows(
+            sb,
+            user,
+            profile,
+            month=month,
+            limit=10000 if month else 1000,
+            select=GAS_LP_FACTURAS_LIST_SELECT,
+        )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
     try:
@@ -245,29 +253,57 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
     except Exception as exc:
         logger.warning("gas_lp_facturas_attach_client_emails_failed perfil=%s err=%s", user.get("perfil_id"), exc)
     try:
-        comp_by_factura = _gas_lp_complementos_por_factura(sb, [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))])
+        comp_stats = {}
+        comp_by_factura = _gas_lp_complementos_por_factura(
+            sb,
+            [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))],
+            chunk_size=100,
+            stats=comp_stats,
+        )
     except Exception as exc:
         logger.warning("gas_lp_facturas_attach_complementos_failed perfil=%s err=%s", user.get("perfil_id"), exc)
         comp_by_factura = {}
+        comp_stats = {"factura_ids": 0, "chunks": 0, "rows": 0, "chunk_size": 100}
     for row in rows:
         try:
             row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
             row["payment_info"] = _payment_info_json(_factura_payment_info(row))
             row["fiscal_status"] = _gas_lp_factura_fiscal_status_info(row)
             row["realizado_por"] = _gas_lp_factura_realizado_por(row)
-            row["carta_porte_summary"] = _gas_lp_factura_carta_porte_summary(row.get("xml_content") or "")
+            row["has_xml"] = bool(row.get("uuid_sat") or row.get("xml_content"))
+            row["carta_porte_summary"] = _gas_lp_factura_carta_porte_summary(row.get("xml_content") or "") if row.get("xml_content") else {}
             comps = comp_by_factura.get(_safe_int_id(row.get("id")), [])
             row["complementos_pago"] = comps
             if comps:
                 row["latest_complemento_pago"] = comps[0]
+                info = row.get("payment_info") if isinstance(row.get("payment_info"), dict) else {}
+                latest_saldo = comps[0].get("saldo_insoluto")
+                if latest_saldo not in {None, ""}:
+                    info["saldo_insoluto"] = float(_money(latest_saldo))
+                    info["payment_status"] = "pagado_con_complemento" if _money(latest_saldo) <= 0 else "parcial_con_complemento"
+                    row["payment_info"] = info
         except Exception as exc:
             logger.warning("gas_lp_factura_row_normalize_failed id=%s perfil=%s err=%s", row.get("id"), user.get("perfil_id"), exc)
             row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
             row["payment_info"] = _payment_info_json({"metodo_pago": "", "forma_pago": "", "total": 0, "saldo_insoluto": 0, "payment_status": ""})
             row["fiscal_status"] = _gas_lp_factura_fiscal_status_info(row)
             row["realizado_por"] = _gas_lp_factura_realizado_por(row)
-            row["carta_porte_summary"] = _gas_lp_factura_carta_porte_summary(row.get("xml_content") or "")
+            row["has_xml"] = bool(row.get("uuid_sat") or row.get("xml_content"))
+            row["carta_porte_summary"] = _gas_lp_factura_carta_porte_summary(row.get("xml_content") or "") if row.get("xml_content") else {}
             row["complementos_pago"] = []
+    elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+    logger.info(
+        "gas_lp_facturas_list perfil=%s tenant=%s month=%s facturas=%s complemento_ids=%s complemento_rows=%s complemento_chunks=%s complemento_chunk_size=%s elapsed_ms=%s select=light",
+        user.get("perfil_id"),
+        user.get("tenant_id"),
+        month or "",
+        len(rows),
+        comp_stats.get("factura_ids", 0),
+        comp_stats.get("rows", 0),
+        comp_stats.get("chunks", 0),
+        comp_stats.get("chunk_size", 100),
+        elapsed_ms,
+    )
     return JSONResponse({"ok": True, "facturas": rows})
 
 
