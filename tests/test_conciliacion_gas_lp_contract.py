@@ -486,6 +486,165 @@ def test_gas_lp_cliente_scope_uses_is_null_for_legacy_tenant():
     assert not any(call[0] == "eq" and call[1] == "tenant_id" for call in q.calls)
 
 
+def test_gas_lp_cliente_scope_uses_tenant_perfil_for_internal_company():
+    class Query:
+        def __init__(self):
+            self.calls = []
+
+        def eq(self, key, value):
+            self.calls.append(("eq", key, value))
+            return self
+
+        def is_(self, key, value):
+            self.calls.append(("is", key, value))
+            return self
+
+    q = Query()
+    internal_users._gas_lp_clientes_scope_query(
+        q,
+        {
+            "owner_user_id": "owner-a",
+            "tenant_id": "tenant-a",
+            "perfil_id": 7,
+        },
+    )
+
+    assert ("eq", "tenant_id", "tenant-a") in q.calls
+    assert ("eq", "perfil_id", 7) in q.calls
+    assert ("eq", "user_id", "owner-a") not in q.calls
+
+
+def test_gas_lp_complementos_por_factura_chunks_and_uses_light_select():
+    class Result:
+        def __init__(self, data):
+            self.data = data
+
+    class Query:
+        def __init__(self, db):
+            self.db = db
+            self.selected = ""
+            self.ids = []
+
+        def select(self, value):
+            self.selected = value
+            return self
+
+        def in_(self, key, values):
+            assert key == "factura_id"
+            self.ids = list(values)
+            return self
+
+        def eq(self, *_args):
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def execute(self):
+            self.db.calls.append({"select": self.selected, "ids": self.ids})
+            return Result([{"id": fid, "factura_id": fid, "monto": 1, "saldo_insoluto": 0, "created_at": "2026-06-01"} for fid in self.ids])
+
+    class DB:
+        def __init__(self):
+            self.calls = []
+
+        def table(self, name):
+            assert name == "gas_lp_complementos_pago_facturas"
+            return Query(self)
+
+    stats = {}
+    db = DB()
+    rows = internal_users._gas_lp_complementos_por_factura(db, list(range(1, 206)), chunk_size=100, stats=stats)
+
+    assert len(db.calls) == 3
+    assert [len(call["ids"]) for call in db.calls] == [100, 100, 5]
+    assert all("xml_content" not in call["select"] and "*" not in call["select"] for call in db.calls)
+    assert stats["chunks"] == 3
+    assert stats["rows"] == 205
+    assert rows[1][0]["saldo_insoluto"] == 0
+
+
+def test_gas_lp_facturas_list_select_excludes_heavy_columns():
+    source = inspect.getsource(internal_users.gas_lp_internal_facturas)
+
+    assert "select=GAS_LP_FACTURAS_LIST_SELECT" in source
+    assert "xml_content" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
+    assert "acuse_cancelacion" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
+    assert "pac_response" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
+
+
+def test_gas_lp_crear_cliente_reuses_existing_rfc_in_same_profile(monkeypatch):
+    class Result:
+        def __init__(self, data):
+            self.data = data
+
+    class Query:
+        def __init__(self, db):
+            self.db = db
+            self.filters = []
+            self.inserted = None
+
+        def select(self, *_args):
+            return self
+
+        def eq(self, key, value):
+            self.filters.append((key, value))
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def limit(self, *_args):
+            return self
+
+        def insert(self, row):
+            self.inserted = row
+            return self
+
+        def execute(self):
+            if self.inserted is not None:
+                self.db.inserts.append(self.inserted)
+                return Result([{**self.inserted, "id": 99}])
+            rows = self.db.rows
+            for key, value in self.filters:
+                rows = [row for row in rows if row.get(key) == value]
+            return Result(rows)
+
+    class DB:
+        def __init__(self):
+            self.inserts = []
+            self.rows = [{
+                "id": 12,
+                "tenant_id": "tenant-a",
+                "perfil_id": 7,
+                "user_id": "other-owner",
+                "rfc": "ABC010101AB1",
+                "nombre": "CLIENTE EXISTENTE",
+                "cp": "64000",
+                "regimen_fiscal": "601",
+                "uso_cfdi": "G03",
+                "email_facturacion": "cliente@example.com",
+                "activo": True,
+                "metadata": {},
+            }]
+
+        def table(self, name):
+            assert name == "gas_lp_clientes_facturacion"
+            return Query(self)
+
+    db = DB()
+    monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token, write=False: {"user": {"id": 5, "display_name": "Ana", "owner_user_id": "owner-a", "tenant_id": "tenant-a", "perfil_id": 7}})
+    monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: db)
+    payload = internal_users.GasLpInternalClientePayload(rfc="ABC010101AB1", nombre="Cliente duplicado", cp="64000", regimen_fiscal="601", uso_cfdi="G03")
+
+    response = asyncio.run(internal_users.gas_lp_internal_crear_cliente(payload, token="tok"))
+    body = json.loads(response.body)
+
+    assert body["reused"] is True
+    assert body["cliente"]["id"] == 12
+    assert db.inserts == []
+
+
 def test_conciliacion_publico_general_payload_keeps_operational_defaults():
     payload = internal_users.GasLpConciliacionPublicoGeneralPayload(
         litros=80,
@@ -633,7 +792,7 @@ def test_conciliacion_export_excel_handles_decimal_null_metadata_and_transfer(mo
     monkeypatch.setattr(internal_users, "_gas_lp_conciliacion_context", lambda token, perfil_id=None: {"user": {"perfil_id": perfil_id or 7}})
     monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=True: {"id": user["perfil_id"], "nombre": "ALFA GAS", "rfc": "AAA010101AAA"})
     monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: object())
-    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", lambda sb, user, profile, month="", limit=10000, include_carta_porte=True: rows)
+    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", lambda sb, user, profile, month="", limit=10000, include_carta_porte=True, **kwargs: rows)
     monkeypatch.setattr(internal_users, "_gas_lp_attach_internal_creators", lambda sb, rows: None)
 
     response = asyncio.run(
@@ -723,7 +882,7 @@ def test_gas_lp_excel_exports_use_previous_compact_column_order(monkeypatch):
     monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token: {"user": {"perfil_id": 7, "tenant_id": "t1"}})
     monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=False: {"id": user["perfil_id"], "nombre": "ALFA GAS", "rfc": "AAA010101AAA"})
     monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: object())
-    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", lambda sb, user, profile, month="", limit=10000, include_carta_porte=True: rows)
+    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", lambda sb, user, profile, month="", limit=10000, include_carta_porte=True, **kwargs: rows)
     monkeypatch.setattr(internal_users, "_gas_lp_attach_internal_creators", lambda sb, rows: None)
 
     conc_response = asyncio.run(
@@ -803,7 +962,7 @@ def test_assistant_facturas_endpoint_exposes_shared_fiscal_status(monkeypatch):
     monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token: {"user": {"perfil_id": 7, "tenant_id": "t1"}})
     monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=False: {"id": user["perfil_id"], "nombre": "AURE GAS", "rfc": "AGA990907II8"})
     monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: object())
-    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", lambda sb, user, profile, month="", limit=10000: rows)
+    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", lambda sb, user, profile, month="", limit=10000, **kwargs: rows)
     monkeypatch.setattr(internal_users, "_gas_lp_attach_internal_creators", lambda sb, rows: None)
     monkeypatch.setattr(internal_users, "_gas_lp_attach_cliente_email_recipients", lambda sb, user, rows: None)
     monkeypatch.setattr(internal_users, "_gas_lp_complementos_por_factura", lambda sb, ids: {})
@@ -1020,7 +1179,8 @@ def test_assistant_client_save_feedback_stays_visible_after_form_hides():
     assert "Guardando cambios del cliente..." in html
     assert "btnGuardarCliente.disabled = true" in html
     assert "clienteFormClientes.classList.add('hide');" in html
-    assert "Cliente guardado'} y seleccionado para facturar" in html
+    assert "Cliente existente reutilizado" in html
+    assert "Cliente guardado" in html
 
 
 def test_assistant_today_invoices_use_backend_date_key_and_current_month():
