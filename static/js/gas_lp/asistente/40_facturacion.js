@@ -103,7 +103,13 @@ function discountPerLiterForPayload(litrosNum, precioNum, isTraspaso=false){
   const discountGross = Math.min(raw, gross);
   return discountGross / Number(litrosNum || 1);
 }
-const invoiceRound = (value, decimals=2) => Number((Number(value || 0)).toFixed(decimals));
+const INVOICE_ROUND_EPSILON = 1e-9;
+const invoiceRound = (value, decimals=2) => {
+  const n = Number(value || 0);
+  if(!Number.isFinite(n)) return 0;
+  const factor = 10 ** decimals;
+  return Number((Math.round((n + INVOICE_ROUND_EPSILON) * factor) / factor).toFixed(decimals));
+};
 function buildInvoicePreview(isTraspaso=false){
   const litrosNum = Number(litros.value || 0);
   const litrosCalc = invoiceRound(litrosNum, 4);

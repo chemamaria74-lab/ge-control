@@ -193,8 +193,13 @@ function assistantInfo(f){
     const md = f.metadata || {};
     const actor = f.created_by_internal || {};
     const id = actor.id || md.internal_user_id || md.created_by_internal || '';
-    const name = f.realizado_por || actor.name || actor.display_name || md.created_by_internal_name || md.created_by || (md.created_by_area === 'conciliacion' || md.portal === 'conciliacion_gas_lp' ? 'Conciliación' : 'Asistente');
-    return {id:String(id || ''), name:String(name || 'Asistente')};
+    const area = String(md.created_by_area || '').toLowerCase();
+    const portal = String(md.portal || '').toLowerCase();
+    const name = f.realizado_por || actor.name || actor.display_name || md.created_by_internal_name || md.created_by || md.asistente_nombre || md.usuario_nombre || '';
+    if(String(name || '').trim()) return {id:String(id || ''), name:String(name).trim()};
+    if(area === 'conciliacion' || portal === 'conciliacion_gas_lp') return {id:String(id || ''), name:'Conciliación'};
+    if(id) return {id:String(id), name:`Usuario ${id}`};
+    return {id:'', name:'Sistema'};
 }
 function assistantChip(f){
     const a = assistantInfo(f);
@@ -216,7 +221,7 @@ function complementoView(c){
   const emailTitle = [c.email_destinatario, c.email_error].filter(Boolean).join(' · ') || c.email_status || 'Pendiente';
   return {
     kind:'complemento',
-    fechaKey:String(c.fecha_timbrado || c.fecha_pago || '').slice(0,10),
+    fechaKey:mexicoDateKey(c.fecha_timbrado || c.fecha_pago),
     fecha: esc(dateDMY(c.fecha_timbrado || c.fecha_pago)),
     hora: esc(facturaTimeLabel({metadata:{}, created_at:c.fecha_timbrado || c.fecha_pago})),
     isTraspaso:false,
@@ -227,8 +232,8 @@ function complementoView(c){
     litros: '—',
     total: Number(c.monto || 0),
     pago:'Complemento',
-    assistant:c.realizado_por || 'Asistente',
-    assistantBadge:`<span class="assistant-chip"><i class="fa-solid fa-user-check"></i> ${esc(c.realizado_por || 'Asistente')}</span>`,
+    assistant:c.realizado_por || 'Sistema',
+    assistantBadge:`<span class="assistant-chip"><i class="fa-solid fa-user-check"></i> ${esc(c.realizado_por || 'Sistema')}</span>`,
     statusHtml:`<span class="payment-status-badge paid">Complemento</span><span class="payment-note">${esc(c.email_status || 'Correo pendiente')}</span>`,
     uuid:c.uuid_sat || 'UUID pendiente',
     docs,
@@ -406,7 +411,7 @@ function renderFacturaClientOptions(){
 function renderTodayFacturas(){
   const key = todayKey();
   todayLabel.textContent = new Date(`${key}T00:00:00`).toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'});
-  const rows = fiscalDocumentRows().filter(f => (f.__kind === 'complemento' ? String(f.fecha_timbrado || f.fecha_pago || '').slice(0,10) : facturaDateKey(f)) === key);
+  const rows = fiscalDocumentRows().filter(f => (f.__kind === 'complemento' ? mexicoDateKey(f.fecha_timbrado || f.fecha_pago) : facturaDateKey(f)) === key);
   todayFacturasRows.innerHTML = rows.length ? rows.map(f=>{
     const v = f.__kind === 'complemento' ? complementoView(f) : facturaView(f);
     const docLabel = v.isCartaPorte ? '<span class="cell-sub">Carta Porte tipo T</span>' : (v.destinoSub ? `<span class="cell-sub">${esc(v.destinoSub)}</span>` : '');
@@ -420,7 +425,7 @@ function applyFacturasFilters(){
   const tipo = document.getElementById('facturaTipo')?.value || '';
   const rows = fiscalDocumentRows().filter(f => {
     const isComp = f.__kind === 'complemento';
-    const key = isComp ? String(f.fecha_timbrado || f.fecha_pago || '').slice(0,10) : facturaDateKey(f);
+    const key = isComp ? mexicoDateKey(f.fecha_timbrado || f.fecha_pago) : facturaDateKey(f);
     const v = isComp ? complementoView(f) : facturaView(f);
     const clientKey = isComp ? String(f.cliente || f.rfc_receptor || 'SIN CLIENTE').trim().toUpperCase() : facturaClientKey(f);
     if(client && clientKey !== client) return false;
@@ -469,7 +474,7 @@ function renderComplementosEmitidos(){
   const countEl = document.getElementById('compEmitidosCount');
   if(!tbody) return;
   const today = todayKey();
-  const rows = (COMPLEMENTOS || []).filter(c => String(c.fecha_timbrado || c.fecha_pago || '').slice(0,10) === today);
+  const rows = (COMPLEMENTOS || []).filter(c => mexicoDateKey(c.fecha_timbrado || c.fecha_pago) === today);
   if(countEl) countEl.textContent = `${rows.length} complemento${rows.length === 1 ? '' : 's'}`;
   if(!rows.length){
     tbody.innerHTML = '<tr><td colspan="8">Sin complementos emitidos hoy.</td></tr>';
@@ -487,7 +492,7 @@ function renderComplementosEmitidos(){
       <td><b>${esc(c.cliente || 'Cliente')}</b><br><span class="muted">${esc(c.rfc_receptor || '—')}</span></td>
       <td>${complementoFacturasLabel(c)}</td>
       <td>${money(c.monto)}</td>
-      <td>${esc(c.realizado_por || 'Asistente')}</td>
+      <td>${esc(c.realizado_por || 'Sistema')}</td>
       <td><span class="email-status ${complementoEmailClass(c)}" title="${esc(emailTitle)}">${esc(c.email_status || 'Pendiente')}</span><br><span class="muted">${esc(c.email_destinatario || c.email_error || '')}</span></td>
       <td><div class="doc-actions"><a class="btn ghost doc-square" title="Ver PDF complemento" aria-label="Ver PDF complemento" href="${pdf}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost doc-square" title="Descargar XML complemento" aria-label="Descargar XML complemento" href="${xml}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a><button class="btn ghost doc-email" type="button" title="Reenviar correo" aria-label="Reenviar correo" onclick="reenviarComplementoEmail('${esc(String(c.id || ''))}')"><i class="fa-solid fa-envelope"></i> Correo</button></div></td>
     </tr>`;
