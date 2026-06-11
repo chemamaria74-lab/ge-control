@@ -1214,6 +1214,10 @@ def test_assistant_carta_porte_validation_flow_has_modal_and_real_error_text():
     assert "Timbrar Carta Porte" in html
     assert "Confirmar timbrado Carta Porte tipo T" in html
     assert "Timbrar CFDI tipo T" in html
+    assert "let isTimbrandoCartaPorte = false" in html
+    assert "Timbrando Carta Porte..." in html
+    assert "No cierres esta ventana ni vuelvas a presionar el botón." in html
+    assert "cpConfirmStampBtn" in html
     assert "flow.includes('traspaso')" not in html
     assert "tipo === 'T'" not in html
     assert "No se pudo conectar con el servidor de timbrado" in html
@@ -1223,6 +1227,8 @@ def test_assistant_carta_porte_validation_flow_has_modal_and_real_error_text():
     assert "confirm(" not in html[timbrar_start:timbrar_end]
     assert "gas_lp_carta_porte_pac_error" in backend_source
     assert "gas_lp_carta_porte_timbrado_start" in backend_source
+    assert "_cp_find_existing_timbrada(" in backend_source
+    assert "gas_lp_carta_porte_duplicate_blocked" in backend_source
 
 
 def test_carta_porte_xml_adds_seconds_to_browser_datetime_values():
