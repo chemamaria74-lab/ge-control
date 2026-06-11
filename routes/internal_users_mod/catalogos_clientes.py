@@ -1,4 +1,5 @@
 from .core import *
+from pydantic import ValidationError
 
 def _gas_lp_clientes_scope_query(query, user: dict):
     query = query.eq("user_id", user.get("owner_user_id")).eq("perfil_id", user.get("perfil_id"))
@@ -596,7 +597,35 @@ async def gas_lp_internal_carta_porte(request: Request, token: str):
     user = ctx["user"]
     from routes.facturas import CartaPorteRequest, _generar_carta_porte_for_scope
 
-    payload = CartaPorteRequest(**(await request.json()))
+    endpoint = "/api/internal-auth/gas-lp/carta-porte"
+    try:
+        raw_payload = await request.json()
+    except Exception as exc:
+        logger.exception("gas_lp_carta_porte_request_json_failed endpoint=%s", endpoint)
+        raise HTTPException(400, {
+            "message": f"Error al timbrar Carta Porte: payload JSON inválido ({exc}).",
+            "code": "gas_lp_carta_porte_invalid_json",
+            "phase": "validacion_request",
+            "endpoint": endpoint,
+        }) from exc
+    logger.info(
+        "gas_lp_carta_porte_internal_request endpoint=%s perfil_id=%s tenant_id=%s payload=%s",
+        endpoint,
+        user.get("perfil_id"),
+        user.get("tenant_id"),
+        raw_payload,
+    )
+    try:
+        payload = CartaPorteRequest(**raw_payload)
+    except ValidationError as exc:
+        logger.exception("gas_lp_carta_porte_request_validation_failed endpoint=%s payload=%s", endpoint, raw_payload)
+        raise HTTPException(400, {
+            "message": "Error al timbrar Carta Porte: payload incompleto o inválido.",
+            "code": "gas_lp_carta_porte_invalid_payload",
+            "phase": "validacion_request",
+            "endpoint": endpoint,
+            "errors": exc.errors(),
+        }) from exc
     scope = {
         "user_id": user.get("owner_user_id"),
         "tenant_id": user.get("tenant_id"),
@@ -606,7 +635,25 @@ async def gas_lp_internal_carta_porte(request: Request, token: str):
             "tenant_id": user.get("tenant_id"),
         },
     }
-    return await _generar_carta_porte_for_scope(payload, scope)
+    try:
+        return await _generar_carta_porte_for_scope(payload, scope)
+    except HTTPException as exc:
+        logger.warning(
+            "gas_lp_carta_porte_internal_http_error endpoint=%s status=%s detail=%s payload=%s",
+            endpoint,
+            exc.status_code,
+            exc.detail,
+            raw_payload,
+        )
+        raise
+    except Exception as exc:
+        logger.exception("gas_lp_carta_porte_internal_unhandled endpoint=%s payload=%s", endpoint, raw_payload)
+        raise HTTPException(500, {
+            "message": f"Error al timbrar Carta Porte: excepción no controlada en backend ({type(exc).__name__}: {exc}).",
+            "code": "gas_lp_carta_porte_backend_unhandled",
+            "phase": "backend",
+            "endpoint": endpoint,
+        }) from exc
 
 
 @router.get("/internal-auth/gas-lp/clientes")
