@@ -129,9 +129,25 @@ function cpOption(rows, labelFn){
 function setCartaPorteButton(loading=false){
   const btn = document.getElementById('cpStampBtn');
   if(!btn) return;
-  btn.disabled = !!loading;
+  btn.disabled = !!loading || !!isTimbrandoCartaPorte;
   if(loading) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando...';
+  else if(isTimbrandoCartaPorte) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando...';
   else btn.innerHTML = '<i class="fa-solid fa-stamp"></i> Timbrar Carta Porte';
+}
+function setCartaPorteConfirmBusy(loading=false, message=''){
+  const modal = document.getElementById('cpConfirmModal');
+  const btn = document.getElementById('cpConfirmStampBtn');
+  const cancel = document.getElementById('cpConfirmCancelBtn');
+  const msg = document.getElementById('cpConfirmMsg');
+  modal?.classList.toggle('is-timbrando', !!loading);
+  if(btn){
+    btn.disabled = !!loading;
+    btn.innerHTML = loading
+      ? '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando...'
+      : '<i class="fa-solid fa-file-signature"></i> Timbrar CFDI tipo T';
+  }
+  if(cancel) cancel.disabled = !!loading;
+  if(msg && message) setStatus('cpConfirmMsg', message, true);
 }
 function cpValue(...values){
   for(const value of values){
@@ -225,7 +241,7 @@ function resetCartaPorteState(opts={}){
     if(window.cpLitros) cpLitros.value = '0';
     updateCpPeso();
   }
-  setCartaPorteButton(false);
+  if(!isTimbrandoCartaPorte) setCartaPorteButton(false);
   if(!opts.keepStatus) setStatus('cpMsg','');
 }
 function renderCartaPorteWizard(){
@@ -238,7 +254,7 @@ function renderCartaPorteWizard(){
   const rutasOpts = cpOption(CATALOGOS.rutas, r => `${r.nombre || 'Ruta'}${r.distancia_km ? ` · ${r.distancia_km} km` : ''}${cpRouteTimeMinutes(r) ? ` · ${cpRouteTimeMinutes(r)} min` : ''}`);
   host.innerHTML = `
     <style>
-      .cp-wizard{display:grid;gap:12px}.cp-step{border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px}.cp-step h3{margin:0 0 9px;font-size:15px}.cp-step p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.45}.cp-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.cp-preview div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-preview span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-preview b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-validation-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}.cp-validation-summary div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-validation-summary span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-validation-summary b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-route-hint{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800}.cp-sat-note{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;line-height:1.35}.cp-checklist{display:grid;gap:7px;margin-bottom:10px}.cp-check-row{display:flex;gap:8px;align-items:flex-start;border:1px solid #eadfd2;border-radius:8px;padding:8px 10px;background:#fff}.cp-check-row i{margin-top:2px}.cp-check-row.ok{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.cp-check-row.warn{border-color:#fde68a;background:#fffbeb;color:#92400e}.cp-check-row.error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.cp-check-row b{display:block}.cp-check-row span{display:block;font-size:12px;line-height:1.35;color:inherit;opacity:.9}.cp-confirm-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.cp-confirm-list div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:8px}.cp-confirm-list span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-confirm-list b{display:block;margin-top:2px;overflow-wrap:anywhere}.acp-modal-layer{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px}.acp-modal{background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;width:min(900px,96vw);max-height:90vh;overflow:auto;box-shadow:0 32px 64px rgba(0,0,0,.22)}.acp-modal-title{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:950;margin-bottom:18px}.acp-modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}@media(max-width:760px){.cp-confirm-list{grid-template-columns:1fr}.acp-modal{padding:18px}}
+      .cp-wizard{display:grid;gap:12px}.cp-step{border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px}.cp-step h3{margin:0 0 9px;font-size:15px}.cp-step p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.45}.cp-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.cp-preview div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-preview span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-preview b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-validation-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}.cp-validation-summary div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-validation-summary span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-validation-summary b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-route-hint{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800}.cp-sat-note{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;line-height:1.35}.cp-checklist{display:grid;gap:7px;margin-bottom:10px}.cp-check-row{display:flex;gap:8px;align-items:flex-start;border:1px solid #eadfd2;border-radius:8px;padding:8px 10px;background:#fff}.cp-check-row i{margin-top:2px}.cp-check-row.ok{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.cp-check-row.warn{border-color:#fde68a;background:#fffbeb;color:#92400e}.cp-check-row.error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.cp-check-row b{display:block}.cp-check-row span{display:block;font-size:12px;line-height:1.35;color:inherit;opacity:.9}.cp-confirm-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.cp-confirm-list div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:8px}.cp-confirm-list span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-confirm-list b{display:block;margin-top:2px;overflow-wrap:anywhere}.cp-stamp-wait{align-items:center;gap:10px;margin-top:16px;border:1px solid #bfdbfe;background:#eff6ff;color:#1e3a8a;border-radius:8px;padding:10px 12px}.cp-stamp-wait b,.cp-stamp-wait span{display:block}.cp-stamp-wait span{font-size:12px;margin-top:2px}.acp-modal-layer{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px}.acp-modal{background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;width:min(900px,96vw);max-height:90vh;overflow:auto;box-shadow:0 32px 64px rgba(0,0,0,.22)}.acp-modal-title{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:950;margin-bottom:18px}.acp-modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}@media(max-width:760px){.cp-confirm-list{grid-template-columns:1fr}.acp-modal{padding:18px}}
     </style>
     <div class="cp-wizard">
       <div class="cp-step">
@@ -399,7 +415,7 @@ function cpChecklistResult(){
   req('Vehículo', 'póliza RC', cpVehicleValue(s.veh, 'poliza_rc'));
   req('Vehículo', 'aseguradora medio ambiente', cpVehicleValue(s.veh, 'aseguradora_medio_ambiente'));
   req('Vehículo', 'póliza medio ambiente', cpVehicleValue(s.veh, 'poliza_medio_ambiente'));
-  if(vehPermiso && vehPermiso !== 'TPAF03') warnings.push('Vehículo: para Gas LP/material peligroso revisa que el permiso real SICT corresponda; recomendado TPAF03 si aplica.');
+  if(vehPermiso && !['TPAF03','TPAF07'].includes(vehPermiso)) warnings.push('Vehículo: para Gas LP/material peligroso revisa que el permiso real SICT corresponda; recomendado TPAF03 o TPAF07 si aplica.');
 
   if(!s.chofer) errors.push('Chofer: selecciona operador.');
   req('Chofer', 'nombre completo', cpDriverValue(s.chofer, 'nombre'));
@@ -500,6 +516,10 @@ function cartaPortePayload(){
   };
 }
 async function timbrarCartaPorteGasLp(){
+  if(isTimbrandoCartaPorte){
+    setStatus('cpMsg','Ya se está timbrando una Carta Porte. Espera a que termine el proceso.',false);
+    return;
+  }
   if(!CP_PREVIEW_VALIDO && !prepararCartaPortePreview()) return;
   openCartaPorteConfirmModal();
 }
@@ -517,9 +537,10 @@ function openCartaPorteConfirmModal(){
           <div><span>Litros</span><b>${esc(fmt(s.litrosNum))}</b></div>
           <div><span>Peso</span><b>${esc(s.peso.toFixed(3))} kg</b></div>
         </div>
+        <div id="cpStampWaitNotice" class="cp-stamp-wait" style="display:none"><i class="fa-solid fa-spinner fa-spin"></i><div><b>Timbrando Carta Porte...</b><span>No cierres esta ventana ni vuelvas a presionar el botón.</span></div></div>
         <div class="acp-modal-footer">
-          <button class="btn ghost" type="button" onclick="closeCartaPorteConfirmModal()">Cancelar</button>
-          <button class="btn" type="button" onclick="confirmarTimbradoCartaPorteGasLp()"><i class="fa-solid fa-file-signature"></i> Timbrar CFDI tipo T</button>
+          <button id="cpConfirmCancelBtn" class="btn ghost" type="button" onclick="closeCartaPorteConfirmModal()">Cancelar</button>
+          <button id="cpConfirmStampBtn" class="btn" type="button" onclick="confirmarTimbradoCartaPorteGasLp()"><i class="fa-solid fa-file-signature"></i> Timbrar CFDI tipo T</button>
           <span id="cpConfirmMsg" class="status"></span>
         </div>
       </div>
@@ -528,6 +549,7 @@ function openCartaPorteConfirmModal(){
   document.body.insertAdjacentHTML('beforeend', html);
 }
 function closeCartaPorteConfirmModal(){
+  if(isTimbrandoCartaPorte) return;
   document.getElementById('cpConfirmModal')?.remove();
 }
 function cartaPorteErrorText(error){
@@ -552,37 +574,54 @@ function cartaPorteErrorText(error){
   return detailText(detail, error.message || 'No fue posible timbrar Carta Porte.');
 }
 async function confirmarTimbradoCartaPorteGasLp(){
+  if(isTimbrandoCartaPorte){
+    setStatus('cpConfirmMsg','Ya se está timbrando una Carta Porte. Espera a que termine el proceso.',false);
+    return;
+  }
   isStamping = true;
+  isTimbrandoCartaPorte = true;
   setCartaPorteButton(true);
-  setStatus('cpConfirmMsg','Timbrando CFDI tipo T...');
-  setStatus('cpMsg','Enviando Carta Porte a SW Sapiens...');
+  setCartaPorteConfirmBusy(true, 'Timbrando Carta Porte...');
+  const waitNotice = document.getElementById('cpStampWaitNotice');
+  if(waitNotice) waitNotice.style.display = 'flex';
+  setStatus('cpMsg','Timbrando Carta Porte... No cierres esta ventana ni vuelvas a presionar el botón.');
+  const payload = CP_FINAL_PAYLOAD || cartaPortePayload();
   try{
-    console.info('[GasLP Carta Porte] POST', {endpoint:'/api/internal-auth/gas-lp/carta-porte', payload:CP_FINAL_PAYLOAD || cartaPortePayload()});
-    const data = await api('/api/internal-auth/gas-lp/carta-porte',{method:'POST',body:JSON.stringify(CP_FINAL_PAYLOAD || cartaPortePayload()),timeoutMs:90000});
+    console.info('[GasLP Carta Porte] POST', {endpoint:'/api/internal-auth/gas-lp/carta-porte', payload});
+    const data = await api('/api/internal-auth/gas-lp/carta-porte',{method:'POST',body:JSON.stringify(payload),timeoutMs:90000});
     try{ await loadFacturas(); }catch(_e){}
     const validation = data.carta_porte_validation?.ok ? ' · Carta Porte validada' : (data.carta_porte_validation?.missing_key_nodes?.length ? ` · alerta: faltan ${data.carta_porte_validation.missing_key_nodes.join(', ')}` : '');
     const id = encodeURIComponent(data.id || data.factura?.id || '');
     const q = `token=${encodeURIComponent(token)}`;
     const pdfUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/pdf?${q}` : '';
     const xmlUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/xml?${q}` : '';
-    setStatus('cpMsg',`Carta Porte timbrada correctamente.${validation}`);
+    const uuid = data.uuid_sat || data.factura?.uuid_sat || '';
+    const successMsg = data.duplicate ? 'Esta Carta Porte ya fue timbrada.' : 'Carta Porte timbrada correctamente';
+    setStatus('cpMsg',`${successMsg}${uuid ? ` UUID: ${uuid}` : ''}.${data.duplicate ? '' : validation}`);
     cpMsg.innerHTML = `${esc(cpMsg.textContent)} ${pdfUrl ? `<a class="btn ghost" href="${pdfUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF Carta Porte</a>` : ''} ${xmlUrl ? `<a class="btn ghost" href="${xmlUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML Carta Porte</a>` : ''}`;
     await loadFacturas('', {surfaceError:false});
     renderCartaPorteHistoryPanels();
-    closeCartaPorteConfirmModal();
+    document.getElementById('cpConfirmModal')?.remove();
+    isTimbrandoCartaPorte = false;
     resetCartaPorteState({clearForm:true, keepStatus:true});
+    const btn = document.getElementById('cpStampBtn');
+    if(btn){
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Timbrada';
+    }
   }catch(e){
-    const backendDetail = e.response?.detail || e.response?.message;
     const message = cartaPorteErrorText(e);
     setStatus('cpConfirmMsg', message, false);
     setStatus('cpMsg', message, false);
+    isTimbrandoCartaPorte = false;
+    setCartaPorteConfirmBusy(false);
+    setCartaPorteButton(false);
   }finally{
     isStamping = false;
-    setCartaPorteButton(false);
   }
 }
 async function handleCartaPorteAction(){
-  if(isStamping){
+  if(isStamping || isTimbrandoCartaPorte){
     setStatus('cpMsg','Ya se está timbrando una Carta Porte. Espera a que termine el proceso.',false);
     return;
   }
@@ -921,7 +960,12 @@ const ACP_CONFIG_VEHICULAR = [
   ['T2S1','T2S1 - Tractocamión 2 ejes + semirremolque 1 eje'], ['T2S2','T2S2 - Tractocamión 2 ejes + semirremolque 2 ejes'],
   ['T3S2','T3S2 - Tractocamión 3 ejes + semirremolque 2 ejes'], ['T3S3','T3S3 - Tractocamión 3 ejes + semirremolque 3 ejes']
 ];
-const ACP_PERMISOS_SCT = [['TPAF01','TPAF01 - Autotransporte federal'], ['TPAF02','TPAF02 - Transporte privado'], ['TPAF03','TPAF03 - Autotransporte federal de carga especializada de materiales y residuos peligrosos']];
+const ACP_PERMISOS_SCT = [
+  ['TPAF01','TPAF01 - Autotransporte federal'],
+  ['TPAF02','TPAF02 - Transporte privado'],
+  ['TPAF03','TPAF03 - Autotransporte federal de carga especializada de materiales y residuos peligrosos'],
+  ['TPAF07','TPAF07 - Transporte privado de materiales y residuos peligrosos']
+];
 const ACP_TIPO_LICENCIA = [['E','E - Carga especializada / materiales peligrosos'], ['B','B - Carga general federal'], ['C','C - Carga de dos o tres ejes'], ['D','D - Carga articulada']];
 const ACP_TIPO_FIGURA = [['01','01 Operador'], ['02','02 Propietario'], ['03','03 Arrendador']];
 function acpOptions(list, value=''){ return list.map(([v,l])=>`<option value="${esc(v)}"${String(v)===String(value)?' selected':''}>${esc(l)}</option>`).join(''); }

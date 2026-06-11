@@ -14,6 +14,7 @@ let EMAIL_FACTURA_ID = null;
 let DASH_CLIENT_KEY = '';
 let DISCOUNT_CLIENT_KEY = '';
 let isStamping = false;
+let isTimbrandoCartaPorte = false;
 let suppressFacturaStatus = false;
 let invoiceUserInteractedAt = 0;
 let CP_PREVIEW_READY = false;
