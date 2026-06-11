@@ -1,9 +1,9 @@
-async function cargarFacturas() {
+async function cargarFacturas(options={}) {
   const periodo = document.getElementById('filtro-periodo-fact').value;
   const q = periodo ? `?periodo=${periodo}` : '';
   const [d, fs] = await Promise.all([
-    api('GET', '/api/tr/facturas'+q),
-    api('GET', '/api/tr/facturas-servicio'+q),
+    api('GET', '/api/tr/facturas'+q, undefined, {silent: Boolean(options.silent)}),
+    api('GET', '/api/tr/facturas-servicio'+q, undefined, {silent: Boolean(options.silent)}),
   ]);
   FACTURAS = d?.facturas || [];
   FACTURAS_SERVICIO = fs?.facturas_servicio || [];
@@ -458,11 +458,13 @@ function descargarCovol(tipo) {
 // ═══════════════════════════════════════════════════════
 function abrirModalChofer(data=null) {
   EDIT_ID = data?.id || null;
+  const md = trMetadata(data);
   document.getElementById('modal-chofer-titulo').textContent = data ? 'Editar chofer' : 'Nuevo chofer';
   ['ch-nombre','ch-rfc','ch-curp','ch-licencia','ch-telefono'].forEach(id => {
     document.getElementById(id).value = '';
   });
   document.getElementById('ch-tipo-lic').value = 'E';
+  document.getElementById('ch-tipo-figura').value = '01';
   document.getElementById('chofer-id').value = '';
   if (data) {
     document.getElementById('ch-nombre').value   = data.nombre || '';
@@ -470,6 +472,7 @@ function abrirModalChofer(data=null) {
     document.getElementById('ch-curp').value      = data.curp || '';
     document.getElementById('ch-licencia').value  = data.licencia || '';
     document.getElementById('ch-tipo-lic').value  = data.tipo_licencia || 'E';
+    document.getElementById('ch-tipo-figura').value = md.tipo_figura_sat || data.tipo_figura || '01';
     document.getElementById('ch-telefono').value  = data.telefono || '';
     document.getElementById('chofer-id').value    = data.id;
   }
@@ -488,6 +491,7 @@ async function guardarChofer() {
     curp:         document.getElementById('ch-curp').value.trim().toUpperCase(),
     licencia:     document.getElementById('ch-licencia').value.trim(),
     tipo_licencia: document.getElementById('ch-tipo-lic').value,
+    tipo_figura:  document.getElementById('ch-tipo-figura').value || '01',
     telefono:     document.getElementById('ch-telefono').value.trim(),
   };
   if (!body.nombre) { toast('Nombre del chofer requerido', 'error'); return; }
@@ -508,21 +512,30 @@ async function eliminarChofer(id) {
 // ═══════════════════════════════════════════════════════
 function abrirModalVehiculo(data=null) {
   EDIT_ID = data?.id || null;
+  const md = trMetadata(data);
   document.getElementById('modal-vehiculo-titulo').textContent = data ? 'Editar vehículo' : 'Nuevo vehículo';
-  ['ve-placas','ve-modelo','ve-aseguradora','ve-poliza','ve-num-sct'].forEach(id => { document.getElementById(id).value=''; });
+  ['ve-alias','ve-num-economico','ve-placas','ve-modelo','ve-aseguradora','ve-poliza','ve-aseg-amb','ve-pol-amb','ve-aseg-carga','ve-pol-carga','ve-num-sct'].forEach(id => { document.getElementById(id).value=''; });
   document.getElementById('vehiculo-id').value = '';
   document.getElementById('ve-anio').value      = 2020;
   document.getElementById('ve-capacidad').value = '';
+  document.getElementById('ve-peso-bruto').value = '';
   document.getElementById('ve-config').value    = 'C2';
   document.getElementById('ve-perm-sct').value  = 'TPAF01';
   if (data) {
+    document.getElementById('ve-alias').value      = md.alias||'';
+    document.getElementById('ve-num-economico').value = md.numero_economico||'';
     document.getElementById('ve-placas').value     = data.placas||'';
     document.getElementById('ve-modelo').value     = data.modelo||'';
     document.getElementById('ve-anio').value       = data.anio||2020;
     document.getElementById('ve-config').value     = data.config_vehicular||'C2';
     document.getElementById('ve-capacidad').value  = data.capacidad_litros||'';
+    document.getElementById('ve-peso-bruto').value = md.peso_bruto_vehicular||'';
     document.getElementById('ve-aseguradora').value= data.aseguradora||'';
     document.getElementById('ve-poliza').value     = data.poliza_seguro||'';
+    document.getElementById('ve-aseg-amb').value   = md.aseguradora_medio_ambiente||'';
+    document.getElementById('ve-pol-amb').value    = md.poliza_medio_ambiente||'';
+    document.getElementById('ve-aseg-carga').value = md.aseguradora_carga||'';
+    document.getElementById('ve-pol-carga').value  = md.poliza_carga||'';
     document.getElementById('ve-perm-sct').value   = data.permiso_sct||'TPAF01';
     document.getElementById('ve-num-sct').value    = data.num_permiso_sct||'';
     document.getElementById('vehiculo-id').value   = data.id;
@@ -535,13 +548,20 @@ function editarVehiculo(id) { abrirModalVehiculo(VEHICULOS.find(v=>v.id===id)); 
 async function guardarVehiculo() {
   const id = document.getElementById('vehiculo-id').value;
   const body = {
+    alias:            document.getElementById('ve-alias').value.trim(),
+    numero_economico: document.getElementById('ve-num-economico').value.trim(),
     placas:           document.getElementById('ve-placas').value.trim().toUpperCase(),
     modelo:           document.getElementById('ve-modelo').value.trim(),
     anio:             parseInt(document.getElementById('ve-anio').value)||2020,
     config_vehicular: document.getElementById('ve-config').value,
     capacidad_litros: parseFloat(document.getElementById('ve-capacidad').value)||0,
+    peso_bruto_vehicular: parseFloat(document.getElementById('ve-peso-bruto').value)||0,
     aseguradora:      document.getElementById('ve-aseguradora').value.trim(),
     poliza_seguro:    document.getElementById('ve-poliza').value.trim(),
+    aseguradora_medio_ambiente: document.getElementById('ve-aseg-amb').value.trim(),
+    poliza_medio_ambiente: document.getElementById('ve-pol-amb').value.trim(),
+    aseguradora_carga: document.getElementById('ve-aseg-carga').value.trim(),
+    poliza_carga: document.getElementById('ve-pol-carga').value.trim(),
     permiso_sct:      document.getElementById('ve-perm-sct').value,
     num_permiso_sct:  document.getElementById('ve-num-sct').value.trim(),
   };
@@ -560,20 +580,37 @@ async function eliminarVehiculo(id) {
 // ═══════════════════════════════════════════════════════
 // CRUD — RUTAS
 // ═══════════════════════════════════════════════════════
+function syncRutaUbicacion(tipo) {
+  const isOrigen = tipo === 'origen';
+  const sel = document.getElementById(isOrigen ? 'ru-origen-id' : 'ru-destino-id');
+  const opt = sel?.options?.[sel.selectedIndex];
+  if (!opt || !opt.value) return;
+  document.getElementById(isOrigen ? 'ru-cp-origen' : 'ru-cp-destino').value = opt.dataset.cp || '';
+  document.getElementById(isOrigen ? 'ru-nom-origen' : 'ru-nom-destino').value = opt.dataset.nombre || '';
+}
+
 function abrirModalRuta(data=null) {
   document.getElementById('modal-ruta-titulo').textContent = data ? 'Editar ruta' : 'Nueva ruta';
+  actualizarSelects();
+  const md = trMetadata(data);
   ['ru-nombre','ru-cp-origen','ru-nom-origen','ru-cp-destino','ru-nom-destino'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('ruta-id').value = '';
+  ['ru-origen-id','ru-destino-id','ru-producto-default','ru-vehiculo-default','ru-chofer-default'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('ru-distancia').value = '';
   document.getElementById('ru-duracion').value = '';
   if (data) {
     document.getElementById('ru-nombre').value     = data.nombre||'';
+    document.getElementById('ru-origen-id').value  = data.origen_id||'';
+    document.getElementById('ru-destino-id').value = data.destino_id||'';
     document.getElementById('ru-cp-origen').value  = data.cp_origen||'';
     document.getElementById('ru-nom-origen').value = data.nombre_origen||'';
     document.getElementById('ru-cp-destino').value = data.cp_destino||'';
     document.getElementById('ru-nom-destino').value= data.nombre_destino||'';
     document.getElementById('ru-distancia').value  = data.distancia_km||'';
     document.getElementById('ru-duracion').value   = data.duracion_estimada_min||'';
+    document.getElementById('ru-producto-default').value = md.producto_default_id || '';
+    document.getElementById('ru-vehiculo-default').value = md.vehiculo_default_id || '';
+    document.getElementById('ru-chofer-default').value = md.chofer_default_id || '';
     document.getElementById('ruta-id').value       = data.id;
   }
   abrirModal('modal-ruta');
@@ -583,16 +620,25 @@ function editarRuta(id) { abrirModalRuta(RUTAS.find(r=>r.id===id)); }
 
 async function guardarRuta() {
   const id = document.getElementById('ruta-id').value;
+  const origenId = document.getElementById('ru-origen-id')?.value || '';
+  const destinoId = document.getElementById('ru-destino-id')?.value || '';
   const body = {
     nombre:        document.getElementById('ru-nombre').value.trim(),
+    origen_id:     origenId ? Number(origenId) : null,
+    destino_id:    destinoId ? Number(destinoId) : null,
     cp_origen:     document.getElementById('ru-cp-origen').value.trim(),
     nombre_origen: document.getElementById('ru-nom-origen').value.trim(),
     cp_destino:    document.getElementById('ru-cp-destino').value.trim(),
     nombre_destino:document.getElementById('ru-nom-destino').value.trim(),
     distancia_km:  parseFloat(document.getElementById('ru-distancia').value)||1,
     duracion_estimada_min: parseInt(document.getElementById('ru-duracion').value)||0,
+    producto_default_id: Number(document.getElementById('ru-producto-default')?.value || 0) || null,
+    vehiculo_default_id: Number(document.getElementById('ru-vehiculo-default')?.value || 0) || null,
+    chofer_default_id: Number(document.getElementById('ru-chofer-default')?.value || 0) || null,
   };
   if (!body.nombre) { toast('Nombre requerido', 'error'); return; }
+  if (body.origen_id && body.destino_id && body.origen_id === body.destino_id) { toast('Origen y destino no pueden ser el mismo registro', 'error'); return; }
+  if (!body.distancia_km || body.distancia_km <= 0) { toast('Distancia mayor a 0 requerida', 'error'); return; }
   const url = id ? `/api/tr/rutas/${id}` : '/api/tr/rutas';
   const r   = await api(id?'PUT':'POST', url, body);
   if (r?.ok) { cerrarModal('modal-ruta'); toast('Ruta guardada', 'success'); cargarCatalogos(); }

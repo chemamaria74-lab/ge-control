@@ -8,6 +8,8 @@ let CHOFERES = [];
 let VEHICULOS = [];
 let RUTAS = [];
 let CLIENTES = [];
+let ORIGENES = [];
+let DESTINOS = [];
 let PRODUCTOS_SAT = [];
 let PRODUCTOS_OPERACION = [];
 let VIAJES = [];
@@ -58,20 +60,28 @@ function productoOperacionById(id) {
   return PRODUCTOS_OPERACION.find(p => Number(p.id) === Number(id)) || null;
 }
 
+function trMetadata(row) {
+  return row && typeof row.metadata === 'object' && row.metadata ? row.metadata : {};
+}
+
 function productoOperacionLabel(p) {
   if (!p) return 'Producto sin configurar';
-  return p.nombre || p.descripcion || `${p.clave_producto || 'PR'} / ${p.clave_subproducto || 'SP'}`;
+  const md = trMetadata(p);
+  return md.alias_visible || p.nombre || md.descripcion || p.descripcion || `${p.clave_producto || 'PR'} / ${p.clave_subproducto || 'SP'}`;
 }
 
 function productoOperacionHint(p) {
   if (!p) return 'Configura productos en Administración > Productos transportados.';
   const sat = productoSatByClave(p.clave_producto);
+  const md = trMetadata(p);
   const parts = [
-    `${p.clave_producto || 'PR'} / ${p.clave_subproducto || 'SP'}`,
-    p.clave_prodserv_cfdi ? `CFDI ${p.clave_prodserv_cfdi}` : '',
+    p.clave_producto || p.clave_subproducto ? `${p.clave_producto || 'PR'} / ${p.clave_subproducto || 'SP'}` : '',
+    (md.bienes_transp_sat || p.clave_prodserv_cfdi) ? `BienesTransp ${md.bienes_transp_sat || p.clave_prodserv_cfdi}` : '',
+    (md.clave_unidad || p.unidad) ? `Unidad ${md.clave_unidad || p.unidad}` : '',
+    md.requiere_peso ? `Peso ${md.permite_peso_manual ? 'manual/auto' : 'auto'}` : 'Peso no obligatorio',
     p.cve_material_peligroso ? `UN ${p.cve_material_peligroso}` : '',
     p.embalaje ? `Embalaje ${p.embalaje}` : '',
-    sat?.unidad ? `Unidad ${sat.unidad}` : ''
+    sat?.unidad ? `SAT ref ${sat.unidad}` : ''
   ].filter(Boolean);
   return `SAT: ${parts.join(' · ')}`;
 }
@@ -88,4 +98,3 @@ const LANG_STORED = localStorage.getItem('zc_lang');
 const LANG = (LANG_URL === 'en' || LANG_URL === 'es') ? LANG_URL : (LANG_STORED === 'en' || LANG_STORED === 'es') ? LANG_STORED : 'es';
 localStorage.setItem('zc_lang', LANG);
 document.documentElement.lang = LANG;
-

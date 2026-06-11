@@ -313,9 +313,8 @@ async function bootstrapTransporte(force=false) {
   TARIFAS = [];
   LIQUIDACIONES = [];
   TRANSPORTE_BOOTSTRAPPED = true;
-  await Promise.all([cargarConfig(), cargarCatalogos(), cargarViajes(), cargarProductosSAT(), cargarDashboardTransporte()]);
-  cargarOperacion();
-  cargarFacturas();
+  await Promise.all([cargarConfig(), cargarCatalogos(), cargarViajes(), cargarProductosSAT({silent:true}), cargarDashboardTransporte()]);
+  cargarOperacion({silent:true});
+  cargarFacturas({silent:true});
   instalarI18nTransporte();
 }
-

@@ -78,7 +78,8 @@ document.querySelectorAll('.overlay').forEach(o => {
 });
 
 // ─── API HELPER ─────────────────────────────────────────
-async function api(method, path, body) {
+async function api(method, path, body, options={}) {
+  const originalPath = path;
   try {
     if (path.startsWith('/api/tr/') && !perfilId()) {
       if (!PERFIL_PROMPT_VISIBLE) mostrarSelectorEmpresaTransporte(PERFILES_TRANSPORTE);
@@ -90,13 +91,33 @@ async function api(method, path, body) {
       body = {...body, perfil_id: pid};
     }
     if (body) opts.body = JSON.stringify(body);
-    const r = await fetch(API + withPerfil(path), opts);
+    const finalPath = withPerfil(path);
+    const r = await fetch(API + finalPath, opts);
     if (r.status === 401) { location.href = '/login/transporte'; return null; }
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
+    const text = await r.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; }
+    catch(_e) { data = {detail: text || r.statusText}; }
+    if (!r.ok) {
+      const detail = data.detail || data.error || r.statusText || 'Error HTTP';
+      const err = new Error(`${method} ${originalPath} → HTTP ${r.status}: ${detail}`);
+      err.status = r.status;
+      err.path = originalPath;
+      err.finalPath = finalPath;
+      err.response = data;
+      throw err;
+    }
     return data;
   } catch(e) {
-    toast('Error: ' + e.message, 'error');
+    console.error('[Transporte API]', {
+      method,
+      path: originalPath,
+      status: e.status || null,
+      finalPath: e.finalPath || null,
+      response: e.response || null,
+      message: e.message,
+    });
+    if (!options.silent) toast('Error Transporte: ' + e.message, 'error');
     return null;
   }
 }

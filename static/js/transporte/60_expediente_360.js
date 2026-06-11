@@ -1,10 +1,10 @@
-async function cargarOperacion() {
+async function cargarOperacion(options={}) {
   const periodo = document.getElementById('filtro-periodo-operacion')?.value || document.getElementById('filtro-periodo-viajes')?.value || '';
   const q = periodo ? `?periodo=${periodo}` : '';
   const [dash, tarifas, liqs] = await Promise.all([
-    api('GET', '/api/tr/dashboard-operativo'+q).catch(()=>null),
-    api('GET', '/api/tr/tarifas').catch(()=>null),
-    api('GET', '/api/tr/liquidaciones'+q).catch(()=>null),
+    api('GET', '/api/tr/dashboard-operativo'+q, undefined, {silent: Boolean(options.silent)}).catch(()=>null),
+    api('GET', '/api/tr/tarifas', undefined, {silent: Boolean(options.silent)}).catch(()=>null),
+    api('GET', '/api/tr/liquidaciones'+q, undefined, {silent: Boolean(options.silent)}).catch(()=>null),
   ]);
   const r = dash?.resumen || {};
   document.getElementById('op-programados').textContent = r.programados ?? '—';
@@ -17,15 +17,15 @@ async function cargarOperacion() {
   renderTarifasOperacion();
   renderLiquidacionesOperacion();
   actualizarSelectViaje360();
-  cargarProgramaSemanal().catch(()=>{});
+  cargarProgramaSemanal(options).catch(()=>{});
 }
 
-async function cargarProgramaSemanal() {
+async function cargarProgramaSemanal(options={}) {
   const el = document.getElementById('op-programa-semanal');
   if (!el) return;
   const week = document.getElementById('prog-week')?.value || '';
   const q = week ? `?week=${encodeURIComponent(week)}` : '';
-  const d = await api('GET', '/api/tr/programa-semanal'+q).catch(e => ({viajes:[], error:e.message}));
+  const d = await api('GET', '/api/tr/programa-semanal'+q, undefined, {silent: Boolean(options.silent)}).catch(e => ({viajes:[], error:e.message}));
   PROGRAMA_SEMANAL = d.viajes || [];
   if (!PROGRAMA_SEMANAL.length) {
     el.innerHTML = '<div class="empty"><div class="empty-icon"><i class="fa-solid fa-calendar-week"></i></div><h3>Sin viajes programados</h3><p>Crea viajes con estado programado para verlos en agenda.</p></div>';
@@ -491,4 +491,3 @@ function prepararLiquidacionDesdeViaje(id, choferId=0) {
     document.getElementById('liq-detalle')?.scrollIntoView({behavior:'smooth', block:'center'});
   }, 80);
 }
-
