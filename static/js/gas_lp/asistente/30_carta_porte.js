@@ -562,8 +562,18 @@ function cartaPorteErrorText(error){
   if(detail && typeof detail === 'object'){
     const pac = detail.pac_response || {};
     const compact = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 700);
+    const fieldErrors = Array.isArray(detail.errors)
+      ? detail.errors.map(item => {
+          const loc = Array.isArray(item?.loc) ? item.loc.join('.') : '';
+          return [loc, item?.msg].filter(Boolean).join(': ');
+        }).filter(Boolean).slice(0, 4).join(' · ')
+      : '';
     const parts = [
       detail.message || error.message,
+      detail.phase ? `Fase: ${detail.phase}` : '',
+      detail.code ? `Código: ${detail.code}` : '',
+      detail.uuid_sat ? `UUID: ${detail.uuid_sat}` : '',
+      fieldErrors ? `Datos: ${fieldErrors}` : '',
       pac.messageDetail ? `Detalle SW: ${pac.messageDetail}` : '',
       pac.message && pac.message !== detail.pac_error ? `SW: ${pac.message}` : '',
       pac.raw_response_sw ? `Respuesta SW: ${compact(pac.raw_response_sw)}` : '',
@@ -611,6 +621,8 @@ async function confirmarTimbradoCartaPorteGasLp(){
     }
   }catch(e){
     const message = cartaPorteErrorText(e);
+    const waitNotice = document.getElementById('cpStampWaitNotice');
+    if(waitNotice) waitNotice.style.display = 'none';
     setStatus('cpConfirmMsg', message, false);
     setStatus('cpMsg', message, false);
     isTimbrandoCartaPorte = false;
