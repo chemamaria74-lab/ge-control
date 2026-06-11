@@ -1,13 +1,18 @@
 const money=v=>'$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
 function formatUnitPrice(value){const n=Number(value||0);if(!Number.isFinite(n)||n<=0)return'0.0000';const six=n.toFixed(6);const [whole,frac='']=six.split('.');const trimmed=frac.replace(/0+$/,'');return `${whole}.${(trimmed.length>=4?trimmed:frac.slice(0,4)).padEnd(4,'0')}`}
 const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-const today=()=>new Date().toISOString().slice(0,10);
+const GAS_LP_TIME_ZONE='America/Mexico_City';
+function hasExplicitTimeZone(value){return /(?:z|[+-]\d{2}:?\d{2})$/i.test(String(value||'').trim())}
+function mexicoDateParts(value){const text=String(value||'').trim();if(!text)return{date:'',time:''};const dm=text.match(/^(\d{4})-(\d{2})-(\d{2})/);const tm=text.match(/[T ](\d{2}):(\d{2})/);if(!hasExplicitTimeZone(text))return{date:dm?`${dm[1]}-${dm[2]}-${dm[3]}`:'',time:tm?`${tm[1]}:${tm[2]}`:''};const d=new Date(text);if(Number.isNaN(d.getTime()))return{date:dm?`${dm[1]}-${dm[2]}-${dm[3]}`:'',time:tm?`${tm[1]}:${tm[2]}`:''};const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:GAS_LP_TIME_ZONE,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(d).map(p=>[p.type,p.value]));return{date:`${parts.year}-${parts.month}-${parts.day}`,time:`${parts.hour}:${parts.minute}`}}
+const mexicoDateKey=value=>mexicoDateParts(value).date;
+const mexicoTimeLabel=value=>mexicoDateParts(value).time;
+const today=()=>mexicoDateKey(new Date().toISOString());
 const month=()=>periodoFiltro.value||today().slice(0,7);
 const localDateTimeValue=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-function dateDMY(value){const s=String(value||'').slice(0,10);const m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);return m?`${m[3]}/${m[2]}/${m[1]}`:s}
+function dateDMY(value){const s=mexicoDateKey(value)||String(value||'').slice(0,10);const m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);return m?`${m[3]}/${m[2]}/${m[1]}`:s}
 function facturaDateValue(f){const md=f?.metadata||{};return md.fecha_emision||md.fecha_cfdi||f?.fecha_timbrado||f?.created_at||''}
-function facturaDateKey(f){return String(f?.fecha_factura_key||facturaDateValue(f)||'').slice(0,10)}
-function facturaTimeLabel(f){const v=String(facturaDateValue(f)||'');const date=dateDMY(v);const time=(v.match(/T(\d{2}:\d{2})/)||v.match(/ (\d{2}:\d{2})/)||[])[1]||'';return time?`${date} ${time}`:date}
+function facturaDateKey(f){const value=f?.fecha_factura_key||facturaDateValue(f)||'';return mexicoDateKey(value)||String(value).slice(0,10)}
+function facturaTimeLabel(f){const v=facturaDateValue(f)||'';const date=dateDMY(v);const time=mexicoTimeLabel(v);return time?`${date} ${time}`:date}
 function api(path,opts={},withPerfil=true){let url=path+(path.includes('?')?'&':'?')+'token='+encodeURIComponent(token);if(withPerfil&&activePerfilId)url+='&perfil_id='+encodeURIComponent(activePerfilId);return fetch(url,{...opts,cache:'no-store',headers:{...(opts.body?{'Content-Type':'application/json'}:{}),...(opts.headers||{})}}).then(async r=>{const d=await r.json().catch(()=>({}));if(!r.ok){const err=new Error(d.detail||d.message||'No fue posible completar.');err.status=r.status;throw err}return d})}
 function switchTab(t){document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.dataset.section===t))}
 function setMsg(id,msg,ok=true){const el=document.getElementById(id);if(!el)return;el.textContent=msg;el.className='status '+(ok?'ok':'err')}
@@ -43,7 +48,7 @@ function litros(f){return Number(f.payment_info?.litros??f.volumen_litros??f.met
 function isTransfer(f){return f.metadata?.tipo_operacion==='traspaso'||f.metadata?.is_transfer===true||f.metadata?.operation_type==='transfer'}
 function facilityName(f){return f.metadata?.origen_nombre||FACILITIES.find(x=>Number(x.id)===Number(f.facility_id))?.nombre||'—'}
 function transferRoute(f){const md=f.metadata||{};return [md.origen_nombre||md.origen_facility_name||facilityName(f),md.destino_nombre||md.destino_facility_name].filter(Boolean).join(' → ')}
-function realizadoPor(f){const md=f.metadata||{};return f.realizado_por||f.created_by_internal?.name||md.created_by_internal_name||md.created_by||md.asistente_nombre||md.usuario_nombre||(md.created_by_area==='conciliacion'||md.portal==='conciliacion_gas_lp'?'Conciliación':md.internal_user_id?'Asistente':'Conciliación')}
+function realizadoPor(f){const md=f.metadata||{};const id=f.created_by_internal?.id||md.internal_user_id||md.created_by_internal||'';const name=f.realizado_por||f.created_by_internal?.name||md.created_by_internal_name||md.created_by||md.asistente_nombre||md.usuario_nombre||'';if(String(name||'').trim())return String(name).trim();if(md.created_by_area==='conciliacion'||md.portal==='conciliacion_gas_lp')return'Conciliación';if(id)return`Usuario ${id}`;return'Sistema'}
 function paid(f){return saldo(f)<=0||['pagado_pue','pagado_con_complemento','pagado_manual'].includes(String(f.payment_info?.payment_status||f.metadata?.payment_status||'').toLowerCase())}
 function isCancel(f){return String(f.status||'').toLowerCase().startsWith('cancel')}
 function clienteCreditFields(c){

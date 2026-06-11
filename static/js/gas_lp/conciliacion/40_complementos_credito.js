@@ -6,7 +6,7 @@ function renderComplementosEmitidos(){
   if(!tbody)return;
   const q=String(compEmitidosFiltro?.value||'').toLowerCase().trim();
   const todayKeyValue=today();
-  const rows=(COMPLEMENTOS||[]).filter(c=>String(c.fecha_timbrado||c.fecha_pago||'').slice(0,10)===todayKeyValue).filter(c=>!q||complementoEmitidoHaystack(c).includes(q));
+  const rows=(COMPLEMENTOS||[]).filter(c=>mexicoDateKey(c.fecha_timbrado||c.fecha_pago)===todayKeyValue).filter(c=>!q||complementoEmitidoHaystack(c).includes(q));
   if(compEmitidosCount)compEmitidosCount.textContent=`${rows.length} complemento${rows.length===1?'':'s'}`;
   if(!rows.length){tbody.innerHTML='<tr><td colspan="8">Sin complementos emitidos hoy.</td></tr>';return}
   const perfil=activePerfilId?`&perfil_id=${encodeURIComponent(activePerfilId)}`:'';
@@ -22,7 +22,7 @@ function renderComplementosEmitidos(){
       <td><span class="cell-main" title="${esc(c.cliente||'Cliente')}">${esc(c.cliente||'Cliente')}</span><span class="cell-sub">${esc(c.rfc_receptor||'—')}</span></td>
       <td>${complementoFacturasLabel(c)}</td>
       <td class="num">${money(c.monto)}</td>
-      <td>${esc(c.realizado_por||'Asistente')}</td>
+      <td>${esc(c.realizado_por||'Sistema')}</td>
       <td><span class="pill email-pill ${complementoEmailClass(c)}" title="${esc(emailTitle)}">${esc(c.email_status||'Pendiente')}</span><span class="cell-sub">${esc(c.email_destinatario||c.email_error||'')}</span></td>
       <td><div class="doc-actions icon-docs"><a class="btn ghost sm doc-icon" title="Ver PDF complemento" aria-label="Ver PDF complemento" target="_blank" href="${pdf}"><i class="fa-solid fa-file-invoice"></i><span class="sr-only">PDF</span></a><a class="btn ghost sm doc-icon" title="Descargar XML complemento" aria-label="Descargar XML complemento" target="_blank" href="${xml}"><i class="fa-solid fa-receipt"></i><span class="sr-only">XML</span></a><button class="btn ghost sm doc-icon" title="Reenviar correo" aria-label="Reenviar correo" onclick="reenviarComplementoEmail('${esc(String(c.id||''))}')"><i class="fa-solid fa-envelope"></i><span class="sr-only">Correo</span></button></div></td>
     </tr>`;
