@@ -640,7 +640,8 @@ async function api(path, opts={}) {
   const sep = path.includes('?') ? '&' : '?';
   const headers = fetchOpts.body ? {'Content-Type':'application/json', ...(fetchOpts.headers||{})} : (fetchOpts.headers||{});
   let timeoutId = null;
-  if(timeoutMs > 0){
+  const timeoutController = timeoutMs > 0;
+  if(timeoutController){
     const controller = new AbortController();
     fetchOpts.signal = controller.signal;
     timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -649,7 +650,7 @@ async function api(path, opts={}) {
   try{
     res = await fetch(path + sep + 'token=' + encodeURIComponent(token), {...fetchOpts, headers, cache:'no-store'});
   }catch(e){
-    if(e?.name === 'AbortError'){
+    if(e?.name === 'AbortError' && timeoutController){
       const err = new Error('El timbrado tardó demasiado y no regresó respuesta visible. No reintentes de inmediato; revisa la lista de facturas o el log PAC para evitar duplicados.');
       err.status = 0;
       err.response = {detail:{message:err.message, code:'gas_lp_transfer_request_timeout'}};

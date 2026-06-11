@@ -6,31 +6,55 @@ function mergeFacturas(rows){
 async function loadFacturas(month='', opts={}){
   const selectedMonth = String(month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)).slice(0,7);
   if(document.getElementById('facturaMes') && !facturaMes.value) facturaMes.value = selectedMonth;
+  const loadKey = selectedMonth || 'current';
+  if(FACTURAS_LOAD_PROMISE && FACTURAS_LOAD_KEY === loadKey) return FACTURAS_LOAD_PROMISE;
+  if(FACTURAS_LOAD_CONTROLLER) FACTURAS_LOAD_CONTROLLER.abort();
+  FACTURAS_LOAD_KEY = loadKey;
+  FACTURAS_LOAD_CONTROLLER = new AbortController();
+  const refreshButtons = [...document.querySelectorAll('button[onclick^="loadFacturas"]')];
+  refreshButtons.forEach(btn => { btn.disabled = true; btn.dataset.loadingFacturas = '1'; });
+  if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">Cargando...</td></tr>';
   const qs = '?mes=' + encodeURIComponent(selectedMonth);
-  try{
-    const data = await api('/api/internal-auth/gas-lp/facturas' + qs);
-    FACTURAS = data.facturas || [];
-    console.info('[GasLP asistente facturas]', {
-      endpoint: '/api/internal-auth/gas-lp/facturas',
-      mes: selectedMonth,
-      count: FACTURAS.length,
-      sample_fields: FACTURAS[0] ? Object.keys(FACTURAS[0]).slice(0,20) : []
-    });
-    renderFacturaClientOptions();
-    renderTodayFacturas();
-    renderDashboard();
-    renderDescuentosList();
-    renderComplementosPago();
-    if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels();
-    applyFacturasFilters();
-  }catch(e){
-    console.warn('[GasLP asistente facturas] error', {mes:selectedMonth, message:e.message, status:e.status});
-    if(todayFacturasRows) todayFacturasRows.innerHTML = '<tr><td colspan="5">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
-    if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
-    if(opts.surfaceError) setStatus('facturaMsg', e.message || 'No fue posible cargar facturas.', false);
-    return false;
-  }
-  return true;
+  FACTURAS_LOAD_PROMISE = (async () => {
+    try{
+      const data = await api('/api/internal-auth/gas-lp/facturas' + qs, {signal: FACTURAS_LOAD_CONTROLLER.signal});
+      FACTURAS = data.facturas || [];
+      console.info('[GasLP asistente facturas]', {
+        endpoint: '/api/internal-auth/gas-lp/facturas',
+        mes: selectedMonth,
+        count: FACTURAS.length,
+        sample_fields: FACTURAS[0] ? Object.keys(FACTURAS[0]).slice(0,20) : []
+      });
+      renderFacturaClientOptions();
+      renderTodayFacturas();
+      renderDashboard();
+      renderDescuentosList();
+      renderComplementosPago();
+      if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels();
+      applyFacturasFilters();
+    }catch(e){
+      if(e?.name === 'AbortError') return false;
+      console.warn('[GasLP asistente facturas] error', {mes:selectedMonth, message:e.message, status:e.status});
+      if(todayFacturasRows) todayFacturasRows.innerHTML = '<tr><td colspan="5">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
+      if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">No fue posible cargar facturas. Presiona Actualizar.</td></tr>';
+      if(opts.surfaceError) setStatus('facturaMsg', e.message || 'No fue posible cargar facturas.', false);
+      return false;
+    }finally{
+      refreshButtons.forEach(btn => {
+        if(btn.dataset.loadingFacturas === '1'){
+          btn.disabled = false;
+          delete btn.dataset.loadingFacturas;
+        }
+      });
+      if(FACTURAS_LOAD_KEY === loadKey){
+        FACTURAS_LOAD_PROMISE = null;
+        FACTURAS_LOAD_KEY = '';
+        FACTURAS_LOAD_CONTROLLER = null;
+      }
+    }
+    return true;
+  })();
+  return FACTURAS_LOAD_PROMISE;
 }
 async function loadComplementos(month=''){
   const selectedMonth = String(month || document.getElementById('compMes')?.value || todayKey().slice(0,7)).slice(0,7);
@@ -330,9 +354,10 @@ function facturaView(f){
     const q = `token=${encodeURIComponent(token)}`;
     const compId = facturaComplementoId(f);
     const compDoc = compId ? `<a class="btn ghost doc-square" title="Ver PDF complemento" aria-label="Ver PDF complemento" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(compId)}/pdf?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost doc-square" title="Descargar XML complemento" aria-label="Descargar XML complemento" href="/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(compId)}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-receipt"></i> XML</a>` : '';
-    const emailDoc = !isCartaPorte && f.id && f.xml_content ? `<button class="btn ghost doc-email" type="button" title="Enviar correo" aria-label="Enviar correo" onclick="openEmailModal('${esc(String(f.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
+    const hasDocs = Boolean(f.has_xml || f.uuid_sat || f.xml_content);
+    const emailDoc = !isCartaPorte && f.id && hasDocs ? `<button class="btn ghost doc-email" type="button" title="Enviar correo" aria-label="Enviar correo" onclick="openEmailModal('${esc(String(f.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
     const docsHint = '';
-    const docs = f.id && f.xml_content ? `<div class="doc-actions"><a class="btn ghost doc-square" title="Descargar PDF" aria-label="Descargar PDF" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost doc-square" title="Descargar XML" aria-label="Descargar XML" href="/api/internal-auth/gas-lp/facturas/${id}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>${emailDoc}${compDoc}</div>${docsHint}` : '<span class="muted">Pendiente</span>';
+    const docs = f.id && hasDocs ? `<div class="doc-actions"><a class="btn ghost doc-square" title="Descargar PDF" aria-label="Descargar PDF" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost doc-square" title="Descargar XML" aria-label="Descargar XML" href="/api/internal-auth/gas-lp/facturas/${id}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>${emailDoc}${compDoc}</div>${docsHint}` : '<span class="muted">Pendiente</span>';
     const fechaValue = facturaDateValue(f) || '';
     const litrosValue = isCartaPorte ? cartaPorteLitrosValue(f) : Number(info.litros ?? f.volumen_litros ?? md.litros ?? 0);
     const totalValue = isCartaPorte ? 0 : (info.total ?? md.total ?? (Number(f.importe||0)*1.16));

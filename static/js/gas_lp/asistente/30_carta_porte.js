@@ -599,7 +599,6 @@ async function confirmarTimbradoCartaPorteGasLp(){
   try{
     console.info('[GasLP Carta Porte] POST', {endpoint:'/api/internal-auth/gas-lp/carta-porte', payload});
     const data = await api('/api/internal-auth/gas-lp/carta-porte',{method:'POST',body:JSON.stringify(payload),timeoutMs:90000});
-    try{ await loadFacturas(); }catch(_e){}
     const validation = data.carta_porte_validation?.ok ? ' · Carta Porte validada' : (data.carta_porte_validation?.missing_key_nodes?.length ? ` · alerta: faltan ${data.carta_porte_validation.missing_key_nodes.join(', ')}` : '');
     const id = encodeURIComponent(data.id || data.factura?.id || '');
     const q = `token=${encodeURIComponent(token)}`;
@@ -607,17 +606,24 @@ async function confirmarTimbradoCartaPorteGasLp(){
     const xmlUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/xml?${q}` : '';
     const uuid = data.uuid_sat || data.factura?.uuid_sat || '';
     const successMsg = data.duplicate ? 'Esta Carta Porte ya fue timbrada.' : 'Carta Porte timbrada correctamente';
-    setStatus('cpMsg',`${successMsg}${uuid ? ` UUID: ${uuid}` : ''}.${data.duplicate ? '' : validation}`);
-    cpMsg.innerHTML = `${esc(cpMsg.textContent)} ${pdfUrl ? `<a class="btn ghost" href="${pdfUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF Carta Porte</a>` : ''} ${xmlUrl ? `<a class="btn ghost" href="${xmlUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML Carta Porte</a>` : ''}`;
-    await loadFacturas('', {surfaceError:false});
-    renderCartaPorteHistoryPanels();
+    const waitNotice = document.getElementById('cpStampWaitNotice');
+    if(waitNotice) waitNotice.style.display = 'none';
     document.getElementById('cpConfirmModal')?.remove();
     isTimbrandoCartaPorte = false;
+    isStamping = false;
+    setStatus('cpMsg',`${successMsg}${uuid ? ` UUID: ${uuid}` : ''}.${data.duplicate ? '' : validation}`);
+    cpMsg.innerHTML = `${esc(cpMsg.textContent)} ${pdfUrl ? `<a class="btn ghost" href="${pdfUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF Carta Porte</a>` : ''} ${xmlUrl ? `<a class="btn ghost" href="${xmlUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML Carta Porte</a>` : ''}`;
     resetCartaPorteState({clearForm:true, keepStatus:true});
     const btn = document.getElementById('cpStampBtn');
     if(btn){
       btn.disabled = true;
       btn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Timbrada';
+    }
+    try{
+      await loadFacturas('', {surfaceError:false});
+      renderCartaPorteHistoryPanels();
+    }catch(refreshError){
+      console.warn('[GasLP Carta Porte] refresh after success failed', refreshError);
     }
   }catch(e){
     const message = cartaPorteErrorText(e);
