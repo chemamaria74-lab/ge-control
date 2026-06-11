@@ -2546,6 +2546,7 @@ def _gas_lp_attach_internal_creators_impl(sb, rows: list[dict]) -> None:
 def _gas_lp_factura_realizado_por(row: dict) -> str:
     md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     actor = row.get("created_by_internal") if isinstance(row.get("created_by_internal"), dict) else {}
+    internal_id = _safe_int_id(actor.get("id") or md.get("internal_user_id") or md.get("created_by_internal"))
     name = (
         row.get("realizado_por")
         or actor.get("name")
@@ -2558,9 +2559,9 @@ def _gas_lp_factura_realizado_por(row: dict) -> str:
         return str(name).strip()
     if str(md.get("created_by_area") or "").lower() == "conciliacion" or str(md.get("portal") or "").lower() == "conciliacion_gas_lp":
         return "Conciliación"
-    if md.get("internal_user_id"):
-        return "Asistente"
-    return "Conciliación"
+    if internal_id:
+        return f"Usuario {internal_id}"
+    return "Sistema"
 
 
 def _gas_lp_attach_complemento_creators(sb, rows: list[dict]) -> None:
@@ -2592,7 +2593,7 @@ def _gas_lp_attach_complemento_creators(sb, rows: list[dict]) -> None:
             or (internal_user or {}).get("code")
             or md.get("created_by")
             or md.get("created_by_internal_name")
-            or ("Conciliación" if str(md.get("created_by_area") or "").lower() == "conciliacion" else "Asistente")
+            or ("Conciliación" if str(md.get("created_by_area") or "").lower() == "conciliacion" else (f"Usuario {internal_id}" if internal_id else "Sistema"))
         )
 
 

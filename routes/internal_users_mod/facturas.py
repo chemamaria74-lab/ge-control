@@ -1,9 +1,222 @@
 from .core import *
+from .catalogos_clientes import _gas_lp_clientes_scope_query
 from services.carta_porte_pdf import (
     es_carta_porte_traslado,
     extraer_info_pdf as carta_porte_pdf_info,
     generar_pdf_carta_porte_desde_xml,
 )
+
+
+def _gas_lp_credit_reminder_parse_days(value: str | int | None) -> list[int]:
+    raw = str(value if value not in {None, ""} else "2,1")
+    days: list[int] = []
+    for part in raw.split(","):
+        text = part.strip()
+        if not text:
+            continue
+        try:
+            day = int(text)
+        except ValueError:
+            raise HTTPException(400, "El parámetro dias debe contener enteros separados por coma.")
+        if day < 0 or day > 365:
+            raise HTTPException(400, "Los días de recordatorio deben estar entre 0 y 365.")
+        if day not in days:
+            days.append(day)
+    return days or [2, 1]
+
+
+def _gas_lp_credit_reminder_today_key(today_key: str | None = None) -> str:
+    if today_key:
+        try:
+            datetime.strptime(str(today_key)[:10], "%Y-%m-%d")
+            return str(today_key)[:10]
+        except ValueError:
+            raise HTTPException(400, "Fecha de referencia inválida.")
+    return datetime.now(_gas_lp_cfdi_timezone()).strftime("%Y-%m-%d")
+
+
+def _gas_lp_credit_reminder_add_days(key: str, days: int) -> str:
+    try:
+        base = datetime.strptime(str(key or "")[:10], "%Y-%m-%d")
+    except ValueError:
+        return ""
+    return (base + timedelta(days=int(days or 0))).strftime("%Y-%m-%d")
+
+
+def _gas_lp_credit_reminder_day_diff(target_key: str, today_key: str) -> int | None:
+    try:
+        target = datetime.strptime(str(target_key or "")[:10], "%Y-%m-%d")
+        today = datetime.strptime(str(today_key or "")[:10], "%Y-%m-%d")
+    except ValueError:
+        return None
+    return (target.date() - today.date()).days
+
+
+def _gas_lp_credit_reminder_client_maps(clientes: list[dict]) -> tuple[dict[int, dict], dict[str, dict]]:
+    by_id: dict[int, dict] = {}
+    by_rfc: dict[str, dict] = {}
+    for raw in clientes or []:
+        cliente = _normalize_gas_lp_cliente_credit(raw)
+        cid = _safe_int_id(cliente.get("id"))
+        if cid:
+            by_id[cid] = cliente
+        rfc = str(cliente.get("rfc") or "").strip().upper()
+        if rfc and rfc not in by_rfc:
+            by_rfc[rfc] = cliente
+    return by_id, by_rfc
+
+
+def _gas_lp_credit_reminder_cliente_for_factura(factura: dict, clientes_by_id: dict[int, dict], clientes_by_rfc: dict[str, dict]) -> dict | None:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    cliente_id = _safe_int_id(md.get("cliente_id"))
+    if cliente_id and cliente_id in clientes_by_id:
+        return clientes_by_id[cliente_id]
+    rfc = str(factura.get("rfc_receptor") or "").strip().upper()
+    return clientes_by_rfc.get(rfc)
+
+
+def _gas_lp_credit_reminder_exclusion(factura: dict, reason: str, details: str = "") -> dict:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    return {
+        "factura_id": _safe_int_id(factura.get("id")),
+        "uuid": factura.get("uuid_sat") or "",
+        "folio": _gas_lp_factura_folio_label(factura),
+        "cliente_id": _safe_int_id(md.get("cliente_id")),
+        "cliente_nombre": md.get("cliente_nombre") or factura.get("rfc_receptor") or "",
+        "rfc_receptor": factura.get("rfc_receptor") or "",
+        "razon_exclusion": reason,
+        "detalle": details,
+    }
+
+
+def _gas_lp_credit_reminder_evaluate_factura(factura: dict, cliente: dict | None, target_days: list[int], today_key: str) -> tuple[dict | None, dict | None]:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    if _gas_lp_factura_cancelada(factura):
+        return None, _gas_lp_credit_reminder_exclusion(factura, "cancelada")
+    if md.get("tipo_operacion") == "traspaso" or md.get("is_transfer") is True or md.get("operation_type") == "transfer":
+        return None, _gas_lp_credit_reminder_exclusion(factura, "traspaso")
+
+    info = _factura_payment_info(factura)
+    metodo_pago = str(info.get("metodo_pago") or md.get("metodo_pago") or "").upper()
+    if metodo_pago != "PPD":
+        return None, _gas_lp_credit_reminder_exclusion(factura, "no_ppd")
+
+    payment_status = str(info.get("payment_status") or md.get("payment_status") or "").lower()
+    if payment_status in {"pagado_con_complemento", "pagado_manual", "pagado_pue"}:
+        return None, _gas_lp_credit_reminder_exclusion(factura, "pagada")
+
+    saldo = _money(info.get("saldo_insoluto"))
+    if saldo <= 0:
+        return None, _gas_lp_credit_reminder_exclusion(factura, "saldo_cero")
+
+    if not cliente:
+        return None, _gas_lp_credit_reminder_exclusion(factura, "cliente_sin_credito", "No se encontró cliente por cliente_id ni RFC.")
+
+    credit = _normalize_gas_lp_cliente_credit(cliente)
+    if not bool(credit.get("credito_habilitado")):
+        return None, _gas_lp_credit_reminder_exclusion(factura, "cliente_sin_credito")
+    dias_credito = int(credit.get("dias_credito") or 0)
+    if dias_credito <= 0:
+        return None, _gas_lp_credit_reminder_exclusion(factura, "sin_dias_credito")
+
+    try:
+        emails = _customer_invoice_recipients(credit)
+    except HTTPException as exc:
+        return None, _gas_lp_credit_reminder_exclusion(factura, "sin_email", str(exc.detail or "Correo inválido."))
+    if not emails:
+        return None, _gas_lp_credit_reminder_exclusion(factura, "sin_email")
+
+    fecha_emision = _gas_lp_factura_date_key(factura)
+    if not fecha_emision:
+        return None, _gas_lp_credit_reminder_exclusion(factura, "fecha_invalida")
+    fecha_vencimiento = _gas_lp_credit_reminder_add_days(fecha_emision, dias_credito)
+    dias_restantes = _gas_lp_credit_reminder_day_diff(fecha_vencimiento, today_key)
+    if dias_restantes is None:
+        return None, _gas_lp_credit_reminder_exclusion(factura, "fecha_invalida")
+    if dias_restantes not in target_days:
+        return None, _gas_lp_credit_reminder_exclusion(factura, "fuera_de_ventana", f"Faltan {dias_restantes} días.")
+
+    total = _money(info.get("total"))
+    reminder_type = f"before_{dias_restantes}" if dias_restantes > 0 else "due_today"
+    candidate = {
+        "factura_id": _safe_int_id(factura.get("id")),
+        "uuid": factura.get("uuid_sat") or "",
+        "folio": _gas_lp_factura_folio_label(factura),
+        "cliente_id": _safe_int_id(credit.get("id") or md.get("cliente_id")),
+        "cliente_nombre": credit.get("nombre") or md.get("cliente_nombre") or factura.get("rfc_receptor") or "",
+        "rfc_receptor": factura.get("rfc_receptor") or credit.get("rfc") or "",
+        "emails": emails,
+        "fecha_emision": fecha_emision,
+        "dias_credito": dias_credito,
+        "fecha_vencimiento": fecha_vencimiento,
+        "dias_restantes": dias_restantes,
+        "total": float(total),
+        "saldo_pendiente": float(saldo),
+        "payment_status": info.get("payment_status") or md.get("payment_status") or "",
+        "metodo_pago": metodo_pago,
+        "tipo_recordatorio": reminder_type,
+        "razon_elegibilidad": f"Factura PPD pendiente con vencimiento en {dias_restantes} día{'s' if dias_restantes != 1 else ''}.",
+    }
+    return candidate, None
+
+
+@router.get("/internal-auth/gas-lp/credito/recordatorios/candidatos")
+async def gas_lp_credito_recordatorios_candidatos(
+    token: str,
+    dias: str = "2,1",
+    dry_run: bool = True,
+    include_exclusions: bool = False,
+):
+    ctx = _gas_lp_factura_access_context(token, write=False)
+    user = ctx["user"]
+    profile = _gas_lp_profile(user)
+    target_days = _gas_lp_credit_reminder_parse_days(dias)
+    today_key = _gas_lp_credit_reminder_today_key()
+    sb = get_supabase_admin()
+    try:
+        facturas = _gas_lp_company_facturas_rows(sb, user, profile, month="", limit=10000, include_carta_porte=False)
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_credito_recordatorios_facturas", exc)
+    try:
+        clientes = (
+            _gas_lp_clientes_scope_query(sb.table("gas_lp_clientes_facturacion").select("*"), user)
+            .eq("activo", True)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_credito_recordatorios_clientes", exc)
+
+    clientes_by_id, clientes_by_rfc = _gas_lp_credit_reminder_client_maps(clientes)
+    candidatos: list[dict] = []
+    exclusiones: list[dict] = []
+    for factura in facturas:
+        cliente = _gas_lp_credit_reminder_cliente_for_factura(factura, clientes_by_id, clientes_by_rfc)
+        candidato, exclusion = _gas_lp_credit_reminder_evaluate_factura(factura, cliente, target_days, today_key)
+        if candidato:
+            candidatos.append(candidato)
+        elif exclusion and include_exclusions:
+            exclusiones.append(exclusion)
+
+    response = {
+        "ok": True,
+        "dry_run": True,
+        "requested_dry_run": bool(dry_run),
+        "send_enabled": False,
+        "today": today_key,
+        "dias": target_days,
+        "candidatos": candidatos,
+        "summary": {
+            "facturas_revisadas": len(facturas),
+            "candidatos": len(candidatos),
+            "exclusiones": len(exclusiones) if include_exclusions else 0,
+        },
+    }
+    if include_exclusions:
+        response["exclusiones"] = exclusiones
+    return JSONResponse(response)
+
 
 @router.get("/internal-auth/gas-lp/facturas")
 async def gas_lp_internal_facturas(token: str, mes: str | None = None):
