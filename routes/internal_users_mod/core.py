@@ -60,16 +60,10 @@ GAS_LP_FACTURAS_LIST_SELECT = ",".join([
     "perfil_id",
     "user_id",
     "facility_id",
-    "rfc_emisor",
     "rfc_receptor",
-    "nombre_receptor",
     "uuid_sat",
     "fecha_timbrado",
     "status",
-    "estado_fiscal",
-    "cfdi_status",
-    "sat_estado",
-    "cancelacion_status",
     "tipo_comprobante",
     "volumen_litros",
     "importe",
@@ -77,6 +71,12 @@ GAS_LP_FACTURAS_LIST_SELECT = ",".join([
     "metadata",
     "created_at",
     "updated_at",
+    "origen_facility_id",
+    "destino_facility_id",
+    "created_by_internal",
+    "created_by_internal_name",
+    "payment_status",
+    "email_destinatario",
 ])
 GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT = ",".join([
     "id",
@@ -2575,9 +2575,9 @@ def _gas_lp_factura_total_con_iva(factura: dict) -> Decimal:
 
 def _gas_lp_attach_internal_creators_impl(sb, rows: list[dict]) -> None:
     ids = sorted({
-        _safe_int_id((row.get("metadata") or {}).get("internal_user_id"))
+        _safe_int_id(row.get("created_by_internal") or (row.get("metadata") or {}).get("internal_user_id"))
         for row in rows
-        if isinstance(row.get("metadata"), dict) and _safe_int_id((row.get("metadata") or {}).get("internal_user_id"))
+        if _safe_int_id(row.get("created_by_internal") or ((row.get("metadata") or {}) if isinstance(row.get("metadata"), dict) else {}).get("internal_user_id"))
     })
     if not ids:
         return
@@ -2595,7 +2595,7 @@ def _gas_lp_attach_internal_creators_impl(sb, rows: list[dict]) -> None:
     by_id = {int(user.get("id") or 0): user for user in users}
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        internal_id = _safe_int_id(md.get("internal_user_id"))
+        internal_id = _safe_int_id(row.get("created_by_internal") or md.get("internal_user_id"))
         internal_user = by_id.get(internal_id)
         if internal_user:
             row["created_by_internal"] = {
@@ -2607,10 +2607,11 @@ def _gas_lp_attach_internal_creators_impl(sb, rows: list[dict]) -> None:
 def _gas_lp_factura_realizado_por(row: dict) -> str:
     md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     actor = row.get("created_by_internal") if isinstance(row.get("created_by_internal"), dict) else {}
-    internal_id = _safe_int_id(actor.get("id") or md.get("internal_user_id") or md.get("created_by_internal"))
+    internal_id = _safe_int_id(actor.get("id") or row.get("created_by_internal") or md.get("internal_user_id") or md.get("created_by_internal"))
     name = (
         row.get("realizado_por")
         or actor.get("name")
+        or row.get("created_by_internal_name")
         or md.get("created_by_internal_name")
         or md.get("created_by")
         or md.get("asistente_nombre")
