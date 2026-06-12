@@ -661,6 +661,54 @@ def test_gas_lp_crear_cliente_reuses_existing_rfc_in_same_profile(monkeypatch):
     assert db.inserts == []
 
 
+def test_gas_lp_clientes_selector_dedupes_active_rfc_by_invoice_history():
+    class Result:
+        def __init__(self, data):
+            self.data = data
+
+    class Query:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def select(self, *_args):
+            return self
+
+        def eq(self, key, value):
+            self.rows = [row for row in self.rows if row.get(key) == value]
+            return self
+
+        def limit(self, *_args):
+            return self
+
+        def execute(self):
+            return Result(self.rows)
+
+    class DB:
+        def __init__(self):
+            self.facturas = [
+                {"tenant_id": "tenant-a", "perfil_id": 5, "rfc_receptor": "AACL850628NC5", "metadata": {"cliente_id": 96}},
+                {"tenant_id": "tenant-a", "perfil_id": 5, "rfc_receptor": "AACL850628NC5", "metadata": {"cliente_id": 96}},
+                {"tenant_id": "tenant-a", "perfil_id": 5, "rfc_receptor": "AACL850628NC5", "metadata": {"cliente_id": 384}},
+            ]
+
+        def table(self, name):
+            assert name == "gas_lp_facturas"
+            return Query(list(self.facturas))
+
+    clientes = [
+        {"id": 384, "tenant_id": "tenant-a", "perfil_id": 5, "rfc": "AACL850628NC5", "nombre": "LUIS FERNANDO ALVARADO CORONA", "email_facturacion": "alfa@example.com", "activo": True, "created_at": "2026-06-11"},
+        {"id": 96, "tenant_id": "tenant-a", "perfil_id": 5, "rfc": "AACL850628NC5", "nombre": "LUIS FERNANDO ALVARADO CORONA", "activo": True, "created_at": "2026-06-02"},
+    ]
+
+    rows = internal_users._gas_lp_dedupe_active_clientes_for_selector(
+        DB(),
+        {"tenant_id": "tenant-a", "perfil_id": 5},
+        clientes,
+    )
+
+    assert [row["id"] for row in rows] == [96]
+
+
 def test_conciliacion_publico_general_payload_keeps_operational_defaults():
     payload = internal_users.GasLpConciliacionPublicoGeneralPayload(
         litros=80,
