@@ -605,7 +605,7 @@ async function confirmarTimbradoCartaPorteGasLp(){
     const pdfUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/pdf?${q}` : '';
     const xmlUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/xml?${q}` : '';
     const uuid = data.uuid_sat || data.factura?.uuid_sat || '';
-    const successMsg = data.recovered_from_pac_audit ? 'Carta Porte ya timbrada.' : (data.duplicate ? 'Esta Carta Porte ya fue timbrada.' : 'Carta Porte timbrada correctamente');
+    const successMsg = data.duplicate ? 'Esta Carta Porte ya fue timbrada.' : 'Carta Porte timbrada correctamente';
     const waitNotice = document.getElementById('cpStampWaitNotice');
     if(waitNotice) waitNotice.style.display = 'none';
     document.getElementById('cpConfirmModal')?.remove();
