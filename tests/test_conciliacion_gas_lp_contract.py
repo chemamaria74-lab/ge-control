@@ -571,6 +571,12 @@ def test_gas_lp_facturas_list_select_excludes_heavy_columns():
     assert "xml_content" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
     assert "acuse_cancelacion" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
     assert "pac_response" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
+    assert "rfc_emisor" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
+    assert "nombre_receptor" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
+    assert "estado_fiscal" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
+    assert "cfdi_status" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
+    assert "sat_estado" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
+    assert "cancelacion_status" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
 
 
 def test_gas_lp_crear_cliente_reuses_existing_rfc_in_same_profile(monkeypatch):
