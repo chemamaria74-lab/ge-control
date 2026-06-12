@@ -605,7 +605,7 @@ async function confirmarTimbradoCartaPorteGasLp(){
     const pdfUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/pdf?${q}` : '';
     const xmlUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/xml?${q}` : '';
     const uuid = data.uuid_sat || data.factura?.uuid_sat || '';
-    const successMsg = data.duplicate ? 'Esta Carta Porte ya fue timbrada.' : 'Carta Porte timbrada correctamente';
+    const successMsg = data.recovered_from_pac_audit ? 'Carta Porte ya timbrada.' : (data.duplicate ? 'Esta Carta Porte ya fue timbrada.' : 'Carta Porte timbrada correctamente');
     const waitNotice = document.getElementById('cpStampWaitNotice');
     if(waitNotice) waitNotice.style.display = 'none';
     document.getElementById('cpConfirmModal')?.remove();
@@ -674,7 +674,52 @@ function cartaPorteNumber(value, fallback=0){
   const number = Number(cpDecimalValue(value, String(fallback)));
   return Number.isFinite(number) ? number : fallback;
 }
-function cartaPorteHistoryTable(rows, emptyText){
+function cartaPortePositiveNumber(...values){
+  for(const value of values){
+    if(value === undefined || value === null || value === '') continue;
+    let text = String(value).trim();
+    if(!text) continue;
+    if(text.includes(',') && text.includes('.')) text = text.replace(/,/g, '');
+    else text = text.replace(',', '.');
+    const number = Number(text);
+    if(Number.isFinite(number) && number > 0) return number;
+  }
+  return 0;
+}
+function cartaPorteNestedSummary(md){
+  const cp = md?.carta_porte || md?.cartaPorte || md?.carta_porte_summary || {};
+  return cp && typeof cp === 'object' ? cp : {};
+}
+function cartaPorteLtrMercanciaValue(summary){
+  const mercancias = Array.isArray(summary?.mercancias) ? summary.mercancias : [];
+  const ltr = mercancias.find(m => String(m?.clave_unidad || m?.ClaveUnidad || m?.unidad || '').toUpperCase() === 'LTR');
+  return ltr ? cartaPortePositiveNumber(ltr.litros, ltr.cantidad, ltr.Cantidad) : 0;
+}
+function cartaPorteHistoryLitros(f){
+  const md = cpMeta(f);
+  const cp = cartaPorteXmlSummary(f);
+  const nested = cartaPorteNestedSummary(md);
+  const cpUnidad = String(cp.clave_unidad || cp.ClaveUnidad || '').toUpperCase();
+  const nestedUnidad = String(nested.clave_unidad || nested.ClaveUnidad || '').toUpperCase();
+  return cartaPortePositiveNumber(
+    f?.litros,
+    f?.volumen_litros,
+    md.volumen_litros,
+    md.litros,
+    nested.litros,
+    nested.cantidad,
+    cpUnidad === 'LTR' ? cp.litros : 0,
+    cpUnidad === 'LTR' ? cp.cantidad : 0,
+    nestedUnidad === 'LTR' ? nested.litros : 0,
+    nestedUnidad === 'LTR' ? nested.cantidad : 0,
+    cartaPorteLtrMercanciaValue(cp),
+    cartaPorteLtrMercanciaValue(nested)
+  );
+}
+function cartaPorteHistoryDateLabel(f, mode){
+  return mode === 'all' ? dateDMY(facturaDateKey(f)) : facturaTimeLabel(f);
+}
+function cartaPorteHistoryTable(rows, emptyText, mode='today'){
   const css = `<style>
     .cp-history-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
     .cp-history-table{min-width:1120px;width:100%;border-collapse:collapse}
@@ -684,19 +729,18 @@ function cartaPorteHistoryTable(rows, emptyText){
     .cp-history-table code{display:inline-block;max-width:190px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
   </style>`;
   if(!rows.length) return `${css}<div class="empty">${esc(emptyText)}</div>`;
-  return `${css}<div class="cp-history-scroll"><table class="cp-history-table"><thead><tr><th>Hora</th><th>Origen</th><th>Destino</th><th>Litros</th><th>Peso</th><th>Vehículo</th><th>Chofer</th><th>Estado</th><th>UUID</th><th>Docs</th></tr></thead><tbody>${rows.map(f=>{
+  const firstColumn = mode === 'all' ? 'Fecha' : 'Hora';
+  return `${css}<div class="cp-history-scroll"><table class="cp-history-table"><thead><tr><th>${firstColumn}</th><th>Origen</th><th>Destino</th><th>Litros</th><th>Peso</th><th>Vehículo</th><th>Chofer</th><th>Estado</th><th>UUID</th><th>Docs</th></tr></thead><tbody>${rows.map(f=>{
     const md = f.metadata || {};
     const cp = cartaPorteXmlSummary(f);
     const origen = cp.origen_nombre || md.origen_nombre || md.origen || md.ruta_origen || md.facility_origen || '—';
     const destino = cp.destino_nombre || md.destino_nombre || md.destino || md.ruta_destino || md.facility_destino || '—';
-    const litros = String(cp.clave_unidad || '').toUpperCase() === 'LTR'
-      ? cartaPorteNumber(cp.litros || cp.cantidad, 0)
-      : cartaPorteNumber(md.volumen_litros || md.litros, 0);
+    const litros = cartaPorteHistoryLitros(f);
     const peso = cartaPorteNumber(cp.peso_kg || md.peso_kg || md.peso, 0);
     const vehiculo = cp.vehiculo || cp.placas || md.vehiculo_label || md.vehiculo || md.placas || md.placa || '—';
     const chofer = cp.chofer || md.chofer_nombre || md.chofer || md.operador || '—';
     return `<tr>
-      <td>${esc(facturaTimeLabel(f))}</td>
+      <td>${esc(cartaPorteHistoryDateLabel(f, mode))}</td>
       <td>${esc(origen)}</td>
       <td>${esc(destino)}</td>
       <td>${fmt(litros)}</td>
@@ -713,8 +757,8 @@ function renderCartaPorteHistoryPanels(){
   if(window.cpHistoryMes && !cpHistoryMes.value) cpHistoryMes.value = todayKey().slice(0,7);
   const todayHost = document.getElementById('cpTodayHistory');
   const allHost = document.getElementById('cpAllHistory');
-  if(todayHost) todayHost.innerHTML = cartaPorteHistoryTable(cartaPorteRows('today'), 'Sin Cartas Porte timbradas hoy.');
-  if(allHost) allHost.innerHTML = cartaPorteHistoryTable(cartaPorteRows('all'), 'Sin Cartas Porte en el mes seleccionado.');
+  if(todayHost) todayHost.innerHTML = cartaPorteHistoryTable(cartaPorteRows('today'), 'Sin Cartas Porte timbradas hoy.', 'today');
+  if(allHost) allHost.innerHTML = cartaPorteHistoryTable(cartaPorteRows('all'), 'Sin Cartas Porte en el mes seleccionado.', 'all');
 }
 let assistantCpKind = 'vehiculos';
 let assistantCpEdit = {kind:'', id:null};
