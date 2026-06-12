@@ -37,6 +37,76 @@ def _gas_lp_cliente_existing_by_rfc(sb, user: dict, rfc: str, *, exclude_id: int
     return None
 
 
+def _gas_lp_cliente_invoice_counts(sb, user: dict, clientes: list[dict]) -> dict[int, int]:
+    cliente_ids = sorted({_safe_int_id(row.get("id")) for row in clientes if _safe_int_id(row.get("id"))})
+    if not cliente_ids:
+        return {}
+    counts = {cid: 0 for cid in cliente_ids}
+    try:
+        rows = (
+            sb.table("gas_lp_facturas")
+            .select("id,rfc_receptor,metadata")
+            .eq("tenant_id", user.get("tenant_id"))
+            .eq("perfil_id", user.get("perfil_id"))
+            .limit(10000)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_cliente_invoice_counts_failed perfil=%s tenant=%s err=%s", user.get("perfil_id"), user.get("tenant_id"), exc)
+        return counts
+    for factura in rows:
+        md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+        cid = _safe_int_id(md.get("cliente_id"))
+        if cid in counts:
+            counts[cid] += 1
+    return counts
+
+
+def _gas_lp_cliente_completeness_score(row: dict) -> int:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    fields = (
+        row.get("nombre"),
+        row.get("rfc"),
+        row.get("cp"),
+        row.get("regimen_fiscal"),
+        row.get("uso_cfdi"),
+        row.get("email_facturacion") or row.get("email") or metadata.get("email_facturacion") or metadata.get("email"),
+    )
+    return sum(1 for value in fields if str(value or "").strip())
+
+
+def _gas_lp_cliente_dedupe_key(row: dict) -> str:
+    rfc = _clean_rfc(row.get("rfc") or "")
+    if rfc:
+        return f"rfc:{rfc}"
+    return f"id:{row.get('id') or ''}"
+
+
+def _gas_lp_dedupe_active_clientes_for_selector(sb, user: dict, rows: list[dict]) -> list[dict]:
+    if not rows:
+        return rows
+    invoice_counts = _gas_lp_cliente_invoice_counts(sb, user, rows)
+    selected: dict[str, dict] = {}
+
+    def rank(row: dict) -> tuple:
+        cid = _safe_int_id(row.get("id"))
+        return (
+            invoice_counts.get(cid, 0),
+            _gas_lp_cliente_completeness_score(row),
+            str(row.get("updated_at") or row.get("created_at") or ""),
+            cid,
+        )
+
+    for row in rows:
+        key = _gas_lp_cliente_dedupe_key(row)
+        current = selected.get(key)
+        if current is None or rank(row) > rank(current):
+            selected[key] = row
+    return sorted(selected.values(), key=lambda row: str(row.get("nombre") or "").upper())
+
+
 def _gas_lp_cliente_editable_update(row: dict) -> dict:
     allowed = {
         "rfc",
@@ -706,6 +776,7 @@ async def gas_lp_internal_clientes(token: str):
     except Exception as exc:
         raise _safe_internal_error("gas_lp_clientes", exc)
     rows = [_normalize_gas_lp_cliente_credit(row) for row in rows]
+    rows = _gas_lp_dedupe_active_clientes_for_selector(sb, user, rows)
     return JSONResponse({"ok": True, "clientes": rows})
 
 
