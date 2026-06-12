@@ -579,6 +579,16 @@ def test_gas_lp_facturas_list_select_excludes_heavy_columns():
     assert "cancelacion_status" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
 
 
+def test_gas_lp_factura_realizado_por_uses_flat_internal_creator_name():
+    row = {
+        "created_by_internal": 30,
+        "created_by_internal_name": "ERICKA",
+        "metadata": {"tipo_comprobante": "T"},
+    }
+
+    assert internal_users._gas_lp_factura_realizado_por(row) == "ERICKA"
+
+
 def test_gas_lp_crear_cliente_reuses_existing_rfc_in_same_profile(monkeypatch):
     class Result:
         def __init__(self, data):
