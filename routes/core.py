@@ -53,6 +53,63 @@ _GAS_LP_RFC_PRUEBAS_SAT = {
         "regimen_fiscal": "601",
     },
 }
+GAS_LP_FACTURAS_LIST_SELECT = ",".join([
+    "id",
+    "record_uuid",
+    "tenant_id",
+    "perfil_id",
+    "user_id",
+    "facility_id",
+    "rfc_receptor",
+    "uuid_sat",
+    "fecha_timbrado",
+    "status",
+    "tipo_comprobante",
+    "volumen_litros",
+    "importe",
+    "pdf_url",
+    "metadata",
+    "created_at",
+    "updated_at",
+    "origen_facility_id",
+    "destino_facility_id",
+    "created_by_internal",
+    "created_by_internal_name",
+    "payment_status",
+    "email_destinatario",
+])
+GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT = ",".join([
+    "id",
+    "complemento_id",
+    "factura_id",
+    "uuid_relacionado",
+    "monto",
+    "saldo_anterior",
+    "saldo_insoluto",
+    "status",
+    "created_at",
+])
+GAS_LP_CLIENTES_LIST_SELECT = ",".join([
+    "id",
+    "user_id",
+    "tenant_id",
+    "perfil_id",
+    "rfc",
+    "nombre",
+    "cp",
+    "regimen_fiscal",
+    "uso_cfdi",
+    "email_facturacion",
+    "email",
+    "credito_habilitado",
+    "dias_credito",
+    "limite_credito",
+    "credito_notas",
+    "activo",
+    "metadata",
+    "created_at",
+    "updated_at",
+])
 
 
 def _gas_lp_tipo_persona_rfc(rfc: str) -> str:
@@ -223,6 +280,13 @@ class GasLpInternalClientePayload(BaseModel):
     dias_credito: int = 0
     limite_credito: Optional[float] = None
     credito_notas: str = ""
+    descuento_activo: bool = False
+    tipo_descuento_cliente: str = "sin_descuento"
+    descuento_valor: Optional[float] = None
+    precio_especial_litro: Optional[float] = None
+    descuento_vigencia_inicio: str = ""
+    descuento_vigencia_fin: str = ""
+    descuento_notas: str = ""
 
 
 class GasLpInternalFacturaPayload(BaseModel):
@@ -565,6 +629,7 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
         "actualizado_at": _now_iso(),
         "actualizado_por": str(user.get("id") or user.get("display_name") or ""),
     }
+    discount_policy = _gas_lp_cliente_discount_policy(user, payload)
     if not rfc or not nombre:
         raise HTTPException(400, "RFC y nombre del cliente son obligatorios.")
     if rfc == "XAXX010101000":
@@ -597,6 +662,11 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
         "cp": receptor["cp"],
         "regimen_fiscal": receptor["regimen_fiscal"],
         "uso_cfdi": uso_cfdi,
+        "email_facturacion": email,
+        "credito_habilitado": credito_policy["credito_habilitado"],
+        "dias_credito": credito_policy["dias_credito"],
+        "limite_credito": credito_policy["limite_credito"],
+        "credito_notas": credito_policy["credito_notas"],
         "activo": True,
         "metadata": {
             "created_by_internal": user.get("id"),
@@ -608,9 +678,52 @@ def _gas_lp_cliente_row(user: dict, payload: GasLpInternalClientePayload) -> dic
             "email_adicional_1": invoice_emails[1] if len(invoice_emails) > 1 else "",
             "email_adicional_2": "",
             "credito_ppd": credito_policy,
+            "descuento_facturacion": discount_policy,
         },
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
+    }
+
+
+def _gas_lp_cliente_discount_policy(user: dict, payload: GasLpInternalClientePayload) -> dict:
+    mode = str(payload.tipo_descuento_cliente or "sin_descuento").strip().lower()
+    aliases = {
+        "": "sin_descuento",
+        "none": "sin_descuento",
+        "sin": "sin_descuento",
+        "sin_descuento": "sin_descuento",
+        "por_litro": "por_litro",
+        "descuento_por_litro": "por_litro",
+        "total_pesos": "total_pesos",
+        "precio_especial": "precio_especial",
+        "precio_litro": "precio_especial",
+        "porcentaje": "porcentaje",
+        "porcentaje_descuento": "porcentaje",
+    }
+    mode = aliases.get(mode, mode)
+    if mode not in {"sin_descuento", "por_litro", "total_pesos", "precio_especial", "porcentaje"}:
+        raise HTTPException(400, "Tipo de descuento de cliente no reconocido.")
+    active = bool(payload.descuento_activo) and mode != "sin_descuento"
+    discount_value = float(payload.descuento_valor or 0)
+    special_price = float(payload.precio_especial_litro or 0)
+    if active and mode in {"por_litro", "total_pesos"} and discount_value < 0:
+        raise HTTPException(400, "El descuento no puede ser negativo.")
+    if active and mode == "porcentaje" and (discount_value < 0 or discount_value > 100):
+        raise HTTPException(400, "El porcentaje de descuento debe estar entre 0% y 100%.")
+    if active and mode == "precio_especial" and special_price <= 0:
+        raise HTTPException(400, "El precio especial por litro debe ser mayor a cero.")
+    if active and mode in {"por_litro", "total_pesos", "porcentaje"} and discount_value <= 0:
+        raise HTTPException(400, "Captura un valor de descuento mayor a cero.")
+    return {
+        "activo": active,
+        "tipo": mode if active else "sin_descuento",
+        "valor": max(0, discount_value),
+        "precio_especial_litro": max(0, special_price),
+        "vigencia_inicio": str(payload.descuento_vigencia_inicio or "").strip()[:10],
+        "vigencia_fin": str(payload.descuento_vigencia_fin or "").strip()[:10],
+        "notas": str(payload.descuento_notas or "").strip()[:500],
+        "actualizado_at": _now_iso(),
+        "actualizado_por": str(user.get("id") or user.get("display_name") or ""),
     }
 
 
@@ -630,10 +743,26 @@ def _normalize_gas_lp_cliente_credit(row: dict) -> dict:
         }
         item["metadata"] = md
     credit = md.get("credito_ppd") or md.get("credito") or {}
-    item["credito_habilitado"] = bool(item.get("credito_habilitado", credit.get("credito_habilitado", credit.get("habilitado", False))))
-    item["dias_credito"] = int(item.get("dias_credito", credit.get("dias_credito", credit.get("dias", 0))) or 0)
-    item["limite_credito"] = item.get("limite_credito", credit.get("limite_credito", credit.get("limite")))
-    item["credito_notas"] = item.get("credito_notas", credit.get("credito_notas", credit.get("notas", ""))) or ""
+    credit_enabled = credit.get("credito_habilitado", credit.get("habilitado"))
+    item_enabled = item.get("credito_habilitado")
+    item_days = item.get("dias_credito")
+    credit_days = credit.get("dias_credito", credit.get("dias", 0))
+    item["credito_habilitado"] = bool(credit_enabled) if credit_enabled is not None else bool(item_enabled)
+    item["dias_credito"] = int(credit_days if credit_enabled is not None else (item_days or 0)) or 0
+    item["limite_credito"] = credit.get("limite_credito", credit.get("limite", item.get("limite_credito")))
+    item["credito_notas"] = credit.get("credito_notas", credit.get("notas", item.get("credito_notas", ""))) or ""
+    discount = md.get("descuento_facturacion") or md.get("descuento_cliente") or md.get("descuento") or {}
+    if isinstance(discount, dict):
+        item["descuento_facturacion"] = {
+            "activo": bool(discount.get("activo", discount.get("habilitado", False))),
+            "tipo": str(discount.get("tipo", discount.get("tipo_descuento", "sin_descuento")) or "sin_descuento"),
+            "valor": discount.get("valor", discount.get("descuento_valor", discount.get("monto", 0))) or 0,
+            "precio_especial_litro": discount.get("precio_especial_litro", discount.get("precio_especial", discount.get("precio_litro", 0))) or 0,
+            "vigencia_inicio": discount.get("vigencia_inicio", discount.get("desde", "")) or "",
+            "vigencia_fin": discount.get("vigencia_fin", discount.get("hasta", "")) or "",
+            "notas": discount.get("notas", "") or "",
+            "actualizado_at": discount.get("actualizado_at", item.get("updated_at") or ""),
+        }
     return item
 
 
@@ -920,10 +1049,10 @@ def _gas_lp_admin_facilities(user: dict) -> list[dict]:
     facilities = get_facilities(owner_user_id, "gas_lp", perfil_id=perfil_id)
     if facilities or not owner_user_id or not perfil_id:
         return facilities
+    sb = get_supabase_admin()
     try:
-        return (
-            get_supabase_admin()
-            .table("user_facilities")
+        rows = (
+            sb.table("user_facilities")
             .select("*")
             .eq("user_id", str(owner_user_id))
             .eq("modulo_propietario", "gas_lp")
@@ -933,6 +1062,8 @@ def _gas_lp_admin_facilities(user: dict) -> list[dict]:
             .data
             or []
         )
+        if rows:
+            return rows
     except Exception as exc:
         logger.warning(
             "gas_lp_admin_facilities fallback failed owner=%s perfil=%s err=%s",
@@ -940,6 +1071,19 @@ def _gas_lp_admin_facilities(user: dict) -> list[dict]:
             perfil_id,
             exc,
         )
+    try:
+        return (
+            sb.table("user_facilities")
+            .select("*")
+            .eq("modulo_propietario", "gas_lp")
+            .eq("perfil_id", int(perfil_id))
+            .order("id")
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_admin_facilities profile fallback failed perfil=%s err=%s", perfil_id, exc)
         return []
 
 
@@ -1164,18 +1308,22 @@ def _gas_lp_attach_cliente_email_recipients(sb, user: dict, rows: list[dict]) ->
     })
     if not cliente_ids:
         return
+    chunk_size = 100
+    clientes: list[dict] = []
     try:
-        clientes = (
-            sb.table("gas_lp_clientes_facturacion")
-            .select("*")
-            .eq("user_id", user.get("owner_user_id"))
-            .eq("tenant_id", user.get("tenant_id"))
-            .eq("perfil_id", user.get("perfil_id"))
-            .eq("activo", True)
-            .execute()
-            .data
-            or []
-        )
+        for offset in range(0, len(cliente_ids), chunk_size):
+            chunk = cliente_ids[offset : offset + chunk_size]
+            clientes.extend(
+                sb.table("gas_lp_clientes_facturacion")
+                .select(GAS_LP_CLIENTES_LIST_SELECT)
+                .in_("id", chunk)
+                .eq("tenant_id", user.get("tenant_id"))
+                .eq("perfil_id", user.get("perfil_id"))
+                .eq("activo", True)
+                .execute()
+                .data
+                or []
+            )
     except Exception as exc:
         logger.warning("gas_lp_attach_cliente_email_recipients_failed tenant=%s perfil=%s err=%s", user.get("tenant_id"), user.get("perfil_id"), exc)
         return
@@ -1814,6 +1962,51 @@ def _payment_info_json(info: dict) -> dict:
     }
 
 
+def _gas_lp_factura_fiscal_status_info(factura: dict) -> dict:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    values = [
+        factura.get("estado_fiscal"),
+        factura.get("cfdi_status"),
+        factura.get("sat_estado"),
+        factura.get("cancelacion_status"),
+        factura.get("status"),
+        md.get("estado_fiscal"),
+        md.get("estado_sat"),
+        md.get("sat_status"),
+        md.get("cfdi_status"),
+        md.get("cancelacion_status"),
+        md.get("cancelacion_estado_fiscal_label"),
+        md.get("status"),
+    ]
+    text = " ".join(str(value or "").strip().lower() for value in values if value is not None)
+    confirmed_cancel = any(
+        bool(value)
+        for value in (
+            factura.get("cancelada"),
+            factura.get("fecha_cancelacion"),
+            factura.get("acuse_cancelacion"),
+            md.get("cancelacion_acuse"),
+            md.get("acuse_cancelacion"),
+            md.get("cancelacion_confirmada_at"),
+        )
+    )
+    if (
+        confirmed_cancel
+        or "cancelada_fiscalmente" in text
+        or "cancelada fiscalmente" in text
+        or "cancelado" in text
+        or "cancelada" in text
+    ):
+        return {"code": "cancelada", "label": "Cancelada", "class": "cancelled"}
+    if "cancelacion_error" in text or "error cancel" in text or "error cancelación" in text:
+        return {"code": "cancelacion_error", "label": "Error cancelacion", "class": "warn"}
+    if "cancelacion_solicitada" in text or "cancelacion solicitada" in text or "cancelación solicitada" in text:
+        return {"code": "cancelacion_solicitada", "label": "Cancelacion solicitada", "class": "warn"}
+    if factura.get("uuid_sat") or factura.get("xml_content"):
+        return {"code": "vigente", "label": "Vigente", "class": "paid"}
+    return {"code": "pendiente", "label": "Pendiente", "class": "pending"}
+
+
 def _gas_lp_factura_date_key(factura: dict) -> str:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
     for value in (md.get("fecha_emision"), md.get("fecha_cfdi"), factura.get("fecha_timbrado"), factura.get("created_at")):
@@ -1896,6 +2089,59 @@ def _gas_lp_factura_pac_xml_summary(xml_content: str) -> dict:
         "uuid": _xml_attr(timbre, "UUID"),
         "rfc_prov_certif": _xml_attr(timbre, "RfcProvCertif"),
         "fecha_timbrado": _xml_attr(timbre, "FechaTimbrado"),
+    }
+
+
+def _gas_lp_factura_carta_porte_summary(xml_content: str) -> dict:
+    root = None
+    try:
+        root = ET.fromstring(str(xml_content or "").encode("utf-8"))
+    except Exception:
+        return {}
+    carta = _xml_first(root, "CartaPorte")
+    if _xml_attr(root, "TipoDeComprobante") != "T" or carta is None:
+        return {}
+
+    def all_nodes(local_name: str) -> list[ET.Element]:
+        return [elem for elem in root.iter() if _xml_local(elem.tag) == local_name]
+
+    ubicaciones = all_nodes("Ubicacion")
+    mercancias = all_nodes("Mercancia")
+    mercancia_ltr = next((m for m in mercancias if _xml_attr(m, "ClaveUnidad").upper() == "LTR"), None)
+    mercancia = mercancia_ltr or (mercancias[0] if mercancias else None)
+    origen = next((u for u in ubicaciones if _xml_attr(u, "TipoUbicacion").upper() == "ORIGEN"), None)
+    destino = next((u for u in ubicaciones if _xml_attr(u, "TipoUbicacion").upper() == "DESTINO"), None)
+    ident = _xml_first(root, "IdentificacionVehicular")
+    figura = _xml_first(root, "TiposFigura")
+    timbre = _xml_first(root, "TimbreFiscalDigital")
+
+    return {
+        "tipo_comprobante": _xml_attr(root, "TipoDeComprobante"),
+        "version": _xml_attr(carta, "Version"),
+        "id_ccp": _xml_attr(carta, "IdCCP"),
+        "uuid": _xml_attr(timbre, "UUID"),
+        "fecha": _xml_attr(root, "Fecha"),
+        "fecha_timbrado": _xml_attr(timbre, "FechaTimbrado"),
+        "origen_nombre": _xml_attr(origen, "NombreRemitenteDestinatario"),
+        "destino_nombre": _xml_attr(destino, "NombreRemitenteDestinatario"),
+        "fecha_salida": _xml_attr(origen, "FechaHoraSalidaLlegada"),
+        "fecha_llegada": _xml_attr(destino, "FechaHoraSalidaLlegada"),
+        "distancia": _xml_attr(destino, "DistanciaRecorrida") or _xml_attr(carta, "TotalDistRec"),
+        "bienes_transp": _xml_attr(mercancia, "BienesTransp"),
+        "descripcion": _xml_attr(mercancia, "Descripcion"),
+        "cantidad": _xml_attr(mercancia, "Cantidad"),
+        "clave_unidad": _xml_attr(mercancia, "ClaveUnidad"),
+        "unidad": _xml_attr(mercancia, "Unidad"),
+        "litros": _xml_attr(mercancia_ltr, "Cantidad") if mercancia_ltr is not None else "",
+        "peso_kg": _xml_attr(mercancia, "PesoEnKg"),
+        "material_peligroso": _xml_attr(mercancia, "MaterialPeligroso"),
+        "clave_material_peligroso": _xml_attr(mercancia, "CveMaterialPeligroso"),
+        "placas": _xml_attr(ident, "PlacaVM"),
+        "vehiculo": _xml_attr(ident, "PlacaVM"),
+        "config_vehicular": _xml_attr(ident, "ConfigVehicular"),
+        "chofer": _xml_attr(figura, "NombreFigura"),
+        "rfc_chofer": _xml_attr(figura, "RFCFigura"),
+        "licencia": _xml_attr(figura, "NumLicencia"),
     }
 
 
@@ -2258,6 +2504,8 @@ def _gas_lp_existing_sale_invoice(sb, user: dict, payload: GasLpInternalFacturaP
     day = str(totals.get("fecha") or payload.fecha or "").strip()[:10]
     if not day:
         return None
+    duplicate_window_seconds = 20
+    now_utc = _now()
     try:
         rows = (
             sb.table("gas_lp_facturas")
@@ -2281,6 +2529,14 @@ def _gas_lp_existing_sale_invoice(sb, user: dict, payload: GasLpInternalFacturaP
     target_facility_id = _safe_int_id(payload.facility_id)
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        if (_gas_lp_factura_fiscal_status_info(row).get("code") or "") == "cancelada":
+            continue
+        created_dt = _parse_gas_lp_cfdi_fecha(str(row.get("created_at") or ""), timezone.utc)
+        if not created_dt:
+            continue
+        age_seconds = (now_utc - created_dt.astimezone(timezone.utc)).total_seconds()
+        if age_seconds < 0 or age_seconds > duplicate_window_seconds:
+            continue
         if md.get("is_transfer") is True or md.get("operation_type") == "transfer" or md.get("tipo_operacion") == "traspaso":
             continue
         if str(md.get("fecha_emision") or row.get("fecha_timbrado") or row.get("created_at") or "").strip()[:10] != day:
@@ -2351,6 +2607,7 @@ def _gas_lp_attach_internal_creators_impl(sb, rows: list[dict]) -> None:
 def _gas_lp_factura_realizado_por(row: dict) -> str:
     md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     actor = row.get("created_by_internal") if isinstance(row.get("created_by_internal"), dict) else {}
+    internal_id = _safe_int_id(actor.get("id") or md.get("internal_user_id") or md.get("created_by_internal"))
     name = (
         row.get("realizado_por")
         or actor.get("name")
@@ -2363,9 +2620,9 @@ def _gas_lp_factura_realizado_por(row: dict) -> str:
         return str(name).strip()
     if str(md.get("created_by_area") or "").lower() == "conciliacion" or str(md.get("portal") or "").lower() == "conciliacion_gas_lp":
         return "Conciliación"
-    if md.get("internal_user_id"):
-        return "Asistente"
-    return "Conciliación"
+    if internal_id:
+        return f"Usuario {internal_id}"
+    return "Sistema"
 
 
 def _gas_lp_attach_complemento_creators(sb, rows: list[dict]) -> None:
@@ -2397,28 +2654,44 @@ def _gas_lp_attach_complemento_creators(sb, rows: list[dict]) -> None:
             or (internal_user or {}).get("code")
             or md.get("created_by")
             or md.get("created_by_internal_name")
-            or ("Conciliación" if str(md.get("created_by_area") or "").lower() == "conciliacion" else "Asistente")
+            or ("Conciliación" if str(md.get("created_by_area") or "").lower() == "conciliacion" else (f"Usuario {internal_id}" if internal_id else "Sistema"))
         )
 
 
-def _gas_lp_complementos_por_factura(sb, factura_ids: list[int]) -> dict[int, list[dict]]:
+def _gas_lp_complementos_por_factura(
+    sb,
+    factura_ids: list[int],
+    *,
+    chunk_size: int = 100,
+    stats: dict | None = None,
+) -> dict[int, list[dict]]:
     ids = [int(fid) for fid in factura_ids if fid]
     by_factura: dict[int, list[dict]] = {fid: [] for fid in ids}
     if not ids:
+        if stats is not None:
+            stats.update({"factura_ids": 0, "chunks": 0, "rows": 0})
         return by_factura
+    unique_ids = list(dict.fromkeys(ids))
+    safe_chunk_size = max(1, min(int(chunk_size or 100), 200))
+    chunks = [unique_ids[offset : offset + safe_chunk_size] for offset in range(0, len(unique_ids), safe_chunk_size)]
+    rows: list[dict] = []
     try:
-        rows = (
-            sb.table("gas_lp_complementos_pago_facturas")
-            .select("*")
-            .in_("factura_id", ids)
-            .eq("status", "timbrado")
-            .order("created_at", desc=True)
-            .execute()
-            .data
-            or []
-        )
-    except Exception:
+        for chunk in chunks:
+            rows.extend(
+                sb.table("gas_lp_complementos_pago_facturas")
+                .select(GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT)
+                .in_("factura_id", chunk)
+                .eq("status", "timbrado")
+                .order("created_at", desc=True)
+                .execute()
+                .data
+                or []
+            )
+    except Exception as exc:
+        logger.warning("gas_lp_complementos_por_factura_failed factura_ids=%s chunks=%s err=%s", len(unique_ids), len(chunks), exc)
         rows = []
+    if stats is not None:
+        stats.update({"factura_ids": len(unique_ids), "chunks": len(chunks), "rows": len(rows), "chunk_size": safe_chunk_size})
     for row in rows:
         fid = int(row.get("factura_id") or 0)
         if fid in by_factura:

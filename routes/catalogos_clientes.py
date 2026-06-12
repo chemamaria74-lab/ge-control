@@ -1,9 +1,40 @@
 from .core import *
+from pydantic import ValidationError
 
 def _gas_lp_clientes_scope_query(query, user: dict):
-    query = query.eq("user_id", user.get("owner_user_id")).eq("perfil_id", user.get("perfil_id"))
     tenant_id = user.get("tenant_id")
-    return query.eq("tenant_id", tenant_id) if tenant_id else query.is_("tenant_id", "null")
+    query = query.eq("perfil_id", user.get("perfil_id"))
+    if tenant_id:
+        return query.eq("tenant_id", tenant_id)
+    return query.eq("user_id", user.get("owner_user_id")).is_("tenant_id", "null")
+
+
+def _gas_lp_cliente_existing_by_rfc(sb, user: dict, rfc: str, *, exclude_id: int | None = None) -> dict | None:
+    clean = _clean_rfc(rfc)
+    if not clean:
+        return None
+    try:
+        rows = (
+            _gas_lp_clientes_scope_query(
+                sb.table("gas_lp_clientes_facturacion").select(GAS_LP_CLIENTES_LIST_SELECT),
+                user,
+            )
+            .eq("rfc", clean)
+            .order("activo", desc=True)
+            .order("updated_at", desc=True)
+            .limit(5)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_cliente_rfc_lookup_failed perfil=%s tenant=%s rfc=%s err=%s", user.get("perfil_id"), user.get("tenant_id"), clean, exc)
+        return None
+    for row in rows:
+        if exclude_id and str(row.get("id")) == str(exclude_id):
+            continue
+        return row
+    return None
 
 
 def _gas_lp_cliente_editable_update(row: dict) -> dict:
@@ -50,50 +81,189 @@ def _internal_cp_table(kind: str) -> tuple[str, str]:
 
 
 def _internal_cp_scope_row(user: dict, values: dict) -> dict:
+    scope = _internal_cp_company_scope(user)
+    metadata = values.get("metadata") if isinstance(values.get("metadata"), dict) else {}
     return {
         **values,
         "user_id": user.get("owner_user_id"),
-        "tenant_id": user.get("tenant_id"),
-        "perfil_id": user.get("perfil_id"),
+        "tenant_id": scope.get("tenant_id"),
+        "perfil_id": scope.get("perfil_id"),
         "source": "supabase",
         "modulo_propietario": "gas_lp",
+        "metadata": {
+            **metadata,
+            "empresa_rfc": scope.get("empresa_rfc"),
+            "empresa_perfil_id": scope.get("perfil_id"),
+            "created_by_internal_user_id": scope.get("internal_user_id"),
+            "created_by_owner_user_id": scope.get("owner_user_id"),
+        },
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
-def _internal_cp_scope_query(query, user: dict):
+def _internal_cp_company_scope(user: dict) -> dict:
+    profile = _gas_lp_profile(user)
+    return {
+        "tenant_id": user.get("tenant_id") or profile.get("tenant_id"),
+        "perfil_id": user.get("perfil_id") or profile.get("id"),
+        "empresa_rfc": _clean_rfc(profile.get("rfc") or ""),
+        "owner_user_id": user.get("owner_user_id"),
+        "internal_user_id": user.get("id"),
+    }
+
+
+def _internal_cp_company_query(query, user: dict, *, active_only: bool = True):
+    scope = _internal_cp_company_scope(user)
+    query = query.select("*")
+    tenant_id = scope.get("tenant_id")
+    if tenant_id:
+        query = query.or_(f"tenant_id.eq.{tenant_id},tenant_id.is.null")
+    else:
+        query = query.is_("tenant_id", "null")
+    return query
+
+
+def _internal_cp_row_active(row: dict) -> bool:
+    if "activo" in row:
+        return row.get("activo") is not False
+    if "is_active" in row:
+        return row.get("is_active") is not False
+    status = str(row.get("status") or "").strip().lower()
+    return status not in {"inactivo", "inactive", "disabled", "deleted", "eliminado"}
+
+
+def _internal_cp_clean_company_rfc(value: str) -> str:
+    match = re.search(r"[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}", str(value or "").upper())
+    return match.group(0) if match else _clean_rfc(value)
+
+
+def _internal_cp_row_rfc(row: dict) -> str:
+    md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    return _internal_cp_clean_company_rfc(
+        md.get("empresa_rfc")
+        or md.get("rfc_emisor")
+        or md.get("empresa_rfc_emisor")
+        or row.get("empresa_rfc")
+        or row.get("rfc_emisor")
+        or ""
+    )
+
+
+def _internal_cp_row_company_match(row: dict, scope: dict) -> bool:
+    row_rfc = _internal_cp_row_rfc(row)
+    if row_rfc:
+        return row_rfc == scope.get("empresa_rfc")
+    md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    company_profile_id = md.get("empresa_perfil_id") or row.get("empresa_perfil_id") or row.get("perfil_empresa_id")
+    if company_profile_id:
+        return str(company_profile_id) == str(scope.get("perfil_id") or "")
+    return str(row.get("perfil_id") or "") == str(scope.get("perfil_id") or "")
+
+
+def _internal_cp_company_rows(table: str, user: dict, *, active_only: bool = True, order: str = "created_at", desc: bool = True) -> list[dict]:
+    scope = _internal_cp_company_scope(user)
+    try:
+        query = _internal_cp_company_query(get_supabase_admin().table(table), user, active_only=active_only).order(order, desc=desc)
+        rows = query.execute().data or []
+    except Exception as exc:
+        logger.warning("gas_lp_catalogos_list_failed table=%s perfil=%s tenant=%s err=%s", table, scope.get("perfil_id"), scope.get("tenant_id"), exc)
+        return []
+    filtered = [row for row in rows if (not active_only or _internal_cp_row_active(row)) and _internal_cp_row_company_match(row, scope)]
+    logger.debug(
+        "gas_lp_catalogos_list table=%s tenant=%s perfil=%s empresa_rfc=%s raw_count=%s count=%s ids=%s",
+        table,
+        scope.get("tenant_id"),
+        scope.get("perfil_id"),
+        scope.get("empresa_rfc"),
+        len(rows),
+        len(filtered),
+        [row.get("id") for row in filtered[:20]],
+    )
+    return filtered
+
+
+def _internal_cp_legacy_scope_query(query, user: dict):
     query = query.eq("user_id", user.get("owner_user_id")).eq("perfil_id", user.get("perfil_id"))
     tenant_id = user.get("tenant_id")
     return query.eq("tenant_id", tenant_id) if tenant_id else query.is_("tenant_id", "null")
 
 
 def _internal_cp_response_record(kind: str, row: dict, user: dict, row_id: int | None = None) -> dict:
+    scope = _internal_cp_company_scope(user)
     record = dict(row or {})
     if row_id and not record.get("id"):
         record["id"] = row_id
     record.setdefault("user_id", user.get("owner_user_id"))
-    record.setdefault("tenant_id", user.get("tenant_id"))
-    record.setdefault("perfil_id", user.get("perfil_id"))
+    record.setdefault("tenant_id", scope.get("tenant_id"))
+    record.setdefault("perfil_id", scope.get("perfil_id"))
     record.setdefault("modulo_propietario", "gas_lp")
     record.setdefault("activo", True)
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    record["metadata"] = {
+        **metadata,
+        "empresa_rfc": metadata.get("empresa_rfc") or scope.get("empresa_rfc"),
+        "empresa_perfil_id": metadata.get("empresa_perfil_id") or scope.get("perfil_id"),
+    }
     return record
 
 
 def _internal_cp_existing_row(table: str, row_id: int, user: dict) -> dict:
     try:
-        rows = (
-            _internal_cp_scope_query(
-                get_supabase_admin().table(table).select("*").eq("id", row_id),
-                user,
-            )
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-        return rows[0] if rows else {}
+        rows = _internal_cp_company_rows(table, user, active_only=False)
+        return next((row for row in rows if str(row.get("id")) == str(row_id)), {})
     except Exception:
         return {}
+
+
+def _internal_cp_key_text(value) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().upper())
+
+
+def _internal_cp_duplicate_key(kind: str, row: dict) -> tuple:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    if kind == "vehiculos":
+        return (_internal_cp_key_text(row.get("placas") or row.get("placa")),)
+    if kind == "choferes":
+        rfc = _internal_cp_key_text(row.get("rfc"))
+        if rfc:
+            return ("rfc", rfc)
+        return (
+            "nombre_licencia",
+            _internal_cp_key_text(row.get("nombre")),
+            _internal_cp_key_text(row.get("licencia")),
+        )
+    if kind == "ubicaciones":
+        location_id = _internal_cp_key_text(row.get("id_ubicacion") or row.get("id_ubicacion_carta_porte"))
+        if location_id:
+            return ("id_ubicacion", location_id)
+        return (
+            "alias_cp",
+            _internal_cp_key_text(row.get("alias") or row.get("nombre")),
+            _internal_cp_key_text(row.get("codigo_postal")),
+        )
+    if kind == "mercancias":
+        return (
+            _internal_cp_key_text(row.get("bienes_transp")),
+            _internal_cp_key_text(row.get("clave_unidad")),
+            _internal_cp_key_text(row.get("alias") or row.get("descripcion")),
+        )
+    if kind == "rutas":
+        return (
+            _internal_cp_key_text(row.get("nombre")),
+            str(row.get("origen_facility_id") or metadata.get("origen_facility_id") or metadata.get("origen_ubicacion_ref") or ""),
+            str(row.get("destino_facility_id") or metadata.get("destino_facility_id") or metadata.get("destino_ubicacion_ref") or ""),
+        )
+    return ()
+
+
+def _internal_cp_duplicate_row(table: str, kind: str, payload: dict, user: dict) -> dict:
+    key = _internal_cp_duplicate_key(kind, payload)
+    if not key or all(not part for part in key):
+        return {}
+    for row in _internal_cp_company_rows(table, user, active_only=False):
+        if _internal_cp_duplicate_key(kind, row) == key:
+            return row
+    return {}
 
 
 def _internal_cp_merge_metadata(payload: dict, current: dict) -> dict:
@@ -106,6 +276,25 @@ def _internal_cp_merge_metadata(payload: dict, current: dict) -> dict:
         if value is not None and str(value).strip() != ""
     }
     return {**payload, "metadata": {**current_metadata, **payload_metadata}}
+
+
+def _internal_cp_company_payload(payload: dict, user: dict, current: dict | None = None) -> dict:
+    scope = _internal_cp_company_scope(user)
+    current_metadata = (current or {}).get("metadata") if isinstance((current or {}).get("metadata"), dict) else {}
+    payload_metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    return {
+        **payload,
+        "tenant_id": scope.get("tenant_id"),
+        "perfil_id": scope.get("perfil_id"),
+        "metadata": {
+            **current_metadata,
+            **payload_metadata,
+            "empresa_rfc": scope.get("empresa_rfc"),
+            "empresa_perfil_id": scope.get("perfil_id"),
+            "updated_by_internal_user_id": scope.get("internal_user_id"),
+            "updated_by_owner_user_id": scope.get("owner_user_id"),
+        },
+    }
 
 
 def _internal_cp_facility_config_rows(user: dict) -> dict[int, dict]:
@@ -226,27 +415,39 @@ def _internal_cp_payload(kind: str, params) -> dict:
             "aseguradora": s("aseguradora", "aseguradora_rc", "nombre_asegurador"),
             "poliza_seguro": s("poliza_seguro", "poliza_rc"),
             "metadata": {
-                "alias": s("alias", default=s("placa", "placas").upper()),
+                "alias": s("alias", default=s("numero_economico", default=s("placa", "placas").upper())),
                 "numero_economico": s("numero_economico"),
                 "numero_permiso": s("numero_permiso", "numero_permiso_sct", "num_permiso_sct"),
-                "peso_bruto_vehicular": n("peso_bruto_vehicular", default=0),
-                "aseguradora_medio_ambiente": s("aseguradora_medio_ambiente", "aseguradora_ambiental"),
-                "poliza_medio_ambiente": s("poliza_medio_ambiente", "poliza_ambiental"),
+                "peso_bruto_vehicular": n("peso_bruto_vehicular", "peso_bruto", "peso_bruto_kg", default=0),
+                "aseguradora_medio_ambiente": s("aseguradora_medio_ambiente", "aseguradora_ambiental", "aseguradora_danos_medio_ambiente", "aseguradora_daños_medio_ambiente", "aseguraMedAmbiente", "AseguraMedAmbiente"),
+                "poliza_medio_ambiente": s("poliza_medio_ambiente", "poliza_ambiental", "poliza_danos_medio_ambiente", "poliza_daños_medio_ambiente", "polizaMedAmbiente", "PolizaMedAmbiente"),
                 "aseguradora_carga": s("aseguradora_carga"),
                 "poliza_carga": s("poliza_carga"),
             },
             "activo": True,
         }
     if kind == "choferes":
+        rfc = s("rfc").upper().replace(" ", "")
+        tipo_figura = s("tipo_figura", "tipo_figura_sat", default="01")
+        if tipo_figura == "01" and not rfc:
+            raise HTTPException(400, {
+                "message": "El RFC del operador es obligatorio para timbrar Carta Porte. CURP no sustituye RFCFigura.",
+                "code": "gas_lp_carta_porte_chofer_rfc_required",
+            })
+        if rfc and (len(rfc) not in {12, 13} or not re.match(r"^[A-Z&Ñ]{3,4}[0-9]{6}[A-Z0-9]{3}$", rfc)):
+            raise HTTPException(400, {
+                "message": "RFC Figura SAT inválido. Captura 12 o 13 caracteres alfanuméricos, sin espacios.",
+                "code": "gas_lp_carta_porte_chofer_rfc_invalid",
+            })
         return {
             "nombre": s("nombre", "nombre_completo"),
-            "rfc": s("rfc").upper(),
+            "rfc": rfc,
             "licencia": s("licencia", "licencia_federal"),
             "telefono": s("telefono"),
             "metadata": {
                 "curp": s("curp"),
                 "tipo_licencia": s("tipo_licencia", "tipo_licencia_federal", default="E"),
-                "tipo_figura": s("tipo_figura", "tipo_figura_sat", default="01"),
+                "tipo_figura": tipo_figura,
                 "fecha_expedicion_licencia": s("fecha_expedicion_licencia", "expedicion_licencia"),
                 "fecha_vencimiento_licencia": s("fecha_vencimiento_licencia", "vencimiento_licencia"),
                 "parte_transporte": s("parte_transporte", default=""),
@@ -293,6 +494,20 @@ def _internal_cp_payload(kind: str, params) -> dict:
         "metadata": {
             "tiempo_estimado": s("tiempo_estimado"),
             "tiempo_estimado_minutos": int(n("tiempo_estimado_minutos", default=0)),
+            "origen_ubicacion_ref": s("origen_ubicacion_ref"),
+            "cp_origen": s("cp_origen"),
+            "nombre_origen": s("nombre_origen"),
+            "localidad_origen": s("localidad_origen"),
+            "municipio_origen": s("municipio_origen"),
+            "estado_origen": s("estado_origen"),
+            "id_ubicacion_origen": s("id_ubicacion_origen"),
+            "destino_ubicacion_ref": s("destino_ubicacion_ref"),
+            "cp_destino": s("cp_destino"),
+            "nombre_destino": s("nombre_destino"),
+            "localidad_destino": s("localidad_destino"),
+            "municipio_destino": s("municipio_destino"),
+            "estado_destino": s("estado_destino"),
+            "id_ubicacion_destino": s("id_ubicacion_destino"),
             "vehiculo_default_id": opt_int("vehiculo_default_id"),
             "chofer_default_id": opt_int("chofer_default_id"),
             "mercancia_default_id": opt_int("mercancia_default_id"),
@@ -309,8 +524,28 @@ async def gas_lp_internal_catalogo_create(kind: str, request: Request, token: st
         raise HTTPException(400, "Las instalaciones se crean en Administración; aquí solo se completa su configuración Carta Porte.")
     table, _order = _internal_cp_table(kind)
     payload = _internal_cp_payload(kind, request.query_params)
+    existing = _internal_cp_duplicate_row(table, kind, payload, user)
+    if existing:
+        payload = _internal_cp_merge_metadata(payload, existing)
+        payload = _internal_cp_company_payload(payload, user, existing)
+        update_row = {**payload, "activo": True, "updated_at": datetime.now(timezone.utc).isoformat()}
+        logger.info("gas_lp_catalogo_create_dedup table=%s kind=%s id=%s", table, kind, existing.get("id"))
+        try:
+            data = (
+                get_supabase_admin()
+                .table(table)
+                .update(update_row)
+                .eq("id", existing.get("id"))
+                .execute()
+                .data
+                or []
+            )
+        except Exception as exc:
+            raise _safe_internal_error(f"gas_lp_catalogo_create_dedup_{kind}", exc)
+        record = _internal_cp_response_record(kind, data[0] if data else {**existing, **update_row}, user, row_id=existing.get("id"))
+        return JSONResponse({"ok": True, "id": record.get("id"), "record": record, "deduped": True})
     row = _internal_cp_scope_row(user, payload)
-    logger.info("gas_lp_catalogo_create kind=%s perfil_id=%s tenant_id=%s payload=%s", kind, user.get("perfil_id"), user.get("tenant_id"), payload)
+    logger.debug("gas_lp_catalogo_create table=%s kind=%s tenant=%s perfil=%s empresa_rfc=%s", table, kind, row.get("tenant_id"), row.get("perfil_id"), (row.get("metadata") or {}).get("empresa_rfc"))
     try:
         data = get_supabase_admin().table(table).insert(row).execute().data or []
     except Exception as exc:
@@ -341,17 +576,17 @@ async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Reque
     table, _order = _internal_cp_table(kind)
     payload = _internal_cp_payload(kind, request.query_params)
     current = _internal_cp_existing_row(table, row_id, user)
+    if not current:
+        raise HTTPException(404, "Registro no encontrado para esta empresa.")
     payload = _internal_cp_merge_metadata(payload, current)
-    logger.info("gas_lp_catalogo_update kind=%s id=%s perfil_id=%s tenant_id=%s payload=%s", kind, row_id, user.get("perfil_id"), user.get("tenant_id"), payload)
+    payload = _internal_cp_company_payload(payload, user, current)
+    logger.debug("gas_lp_catalogo_update table=%s kind=%s id=%s tenant=%s perfil=%s empresa_rfc=%s", table, kind, row_id, payload.get("tenant_id"), payload.get("perfil_id"), (payload.get("metadata") or {}).get("empresa_rfc"))
     try:
         data = (
-            _internal_cp_scope_query(
             get_supabase_admin()
             .table(table)
             .update({**payload, "updated_at": datetime.now(timezone.utc).isoformat()})
-            .eq("id", row_id),
-            user,
-            )
+            .eq("id", row_id)
             .execute()
             .data
             or []
@@ -373,14 +608,14 @@ async def gas_lp_internal_catalogo_delete(kind: str, row_id: int, token: str, pe
         return JSONResponse({"ok": True})
     table, _order = _internal_cp_table(kind)
     q = get_supabase_admin().table(table)
+    current = _internal_cp_existing_row(table, row_id, user)
+    if not current:
+        raise HTTPException(404, "Registro no encontrado para esta empresa.")
     try:
         if permanent:
-            _internal_cp_scope_query(q.delete().eq("id", row_id), user).execute()
+            q.delete().eq("id", row_id).execute()
         else:
-            _internal_cp_scope_query(
-                q.update({"activo": False, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id),
-                user,
-            ).execute()
+            q.update({"activo": False, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id).execute()
     except Exception as exc:
         raise _safe_internal_error(f"gas_lp_catalogo_delete_{kind}", exc)
     return JSONResponse({"ok": True})
@@ -392,7 +627,35 @@ async def gas_lp_internal_carta_porte(request: Request, token: str):
     user = ctx["user"]
     from routes.facturas import CartaPorteRequest, _generar_carta_porte_for_scope
 
-    payload = CartaPorteRequest(**(await request.json()))
+    endpoint = "/api/internal-auth/gas-lp/carta-porte"
+    try:
+        raw_payload = await request.json()
+    except Exception as exc:
+        logger.exception("gas_lp_carta_porte_request_json_failed endpoint=%s", endpoint)
+        raise HTTPException(400, {
+            "message": f"Error al timbrar Carta Porte: payload JSON inválido ({exc}).",
+            "code": "gas_lp_carta_porte_invalid_json",
+            "phase": "validacion_request",
+            "endpoint": endpoint,
+        }) from exc
+    logger.info(
+        "gas_lp_carta_porte_internal_request endpoint=%s perfil_id=%s tenant_id=%s payload=%s",
+        endpoint,
+        user.get("perfil_id"),
+        user.get("tenant_id"),
+        raw_payload,
+    )
+    try:
+        payload = CartaPorteRequest(**raw_payload)
+    except ValidationError as exc:
+        logger.exception("gas_lp_carta_porte_request_validation_failed endpoint=%s payload=%s", endpoint, raw_payload)
+        raise HTTPException(400, {
+            "message": "Error al timbrar Carta Porte: payload incompleto o inválido.",
+            "code": "gas_lp_carta_porte_invalid_payload",
+            "phase": "validacion_request",
+            "endpoint": endpoint,
+            "errors": exc.errors(),
+        }) from exc
     scope = {
         "user_id": user.get("owner_user_id"),
         "tenant_id": user.get("tenant_id"),
@@ -402,7 +665,25 @@ async def gas_lp_internal_carta_porte(request: Request, token: str):
             "tenant_id": user.get("tenant_id"),
         },
     }
-    return await _generar_carta_porte_for_scope(payload, scope)
+    try:
+        return await _generar_carta_porte_for_scope(payload, scope)
+    except HTTPException as exc:
+        logger.warning(
+            "gas_lp_carta_porte_internal_http_error endpoint=%s status=%s detail=%s payload=%s",
+            endpoint,
+            exc.status_code,
+            exc.detail,
+            raw_payload,
+        )
+        raise
+    except Exception as exc:
+        logger.exception("gas_lp_carta_porte_internal_unhandled endpoint=%s payload=%s", endpoint, raw_payload)
+        raise HTTPException(500, {
+            "message": f"Error al timbrar Carta Porte: excepción no controlada en backend ({type(exc).__name__}: {exc}).",
+            "code": "gas_lp_carta_porte_backend_unhandled",
+            "phase": "backend",
+            "endpoint": endpoint,
+        }) from exc
 
 
 @router.get("/internal-auth/gas-lp/clientes")
@@ -413,7 +694,7 @@ async def gas_lp_internal_clientes(token: str):
     try:
         rows = (
             _gas_lp_clientes_scope_query(
-                sb.table("gas_lp_clientes_facturacion").select("*"),
+                sb.table("gas_lp_clientes_facturacion").select(GAS_LP_CLIENTES_LIST_SELECT),
                 user,
             )
             .eq("activo", True)
@@ -433,8 +714,27 @@ async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, to
     ctx = _gas_lp_internal_context(token, write=True)
     user = ctx["user"]
     row = _gas_lp_cliente_row(user, payload)
+    sb = get_supabase_admin()
+    existing = _gas_lp_cliente_existing_by_rfc(sb, user, row.get("rfc") or "")
+    if existing:
+        normalized = _normalize_gas_lp_cliente_credit(existing)
+        if existing.get("activo") is False:
+            raise HTTPException(409, {
+                "message": "Ya existe un cliente con este RFC en la empresa, pero está inactivo. Reactívalo desde catálogo antes de crear otro.",
+                "code": "gas_lp_cliente_rfc_inactivo",
+                "cliente_id": existing.get("id"),
+                "rfc": normalized.get("rfc"),
+            })
+        logger.info("gas_lp_cliente_create_reused perfil=%s tenant=%s rfc=%s cliente_id=%s", user.get("perfil_id"), user.get("tenant_id"), normalized.get("rfc"), normalized.get("id"))
+        return JSONResponse({
+            "ok": True,
+            "cliente": normalized,
+            "deduped": True,
+            "reused": True,
+            "message": "El RFC ya existía para esta empresa; se reutilizó el cliente existente.",
+        })
     try:
-        data = get_supabase_admin().table("gas_lp_clientes_facturacion").insert(row).execute().data or [row]
+        data = sb.table("gas_lp_clientes_facturacion").insert(row).execute().data or [row]
     except Exception as exc:
         raise _safe_internal_error("gas_lp_crear_cliente", exc)
     return JSONResponse({"ok": True, "cliente": _normalize_gas_lp_cliente_credit(data[0])})
@@ -445,10 +745,19 @@ async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInte
     ctx = _gas_lp_internal_context(token, write=True)
     user = ctx["user"]
     row = _gas_lp_cliente_update_row(user, payload)
+    sb = get_supabase_admin()
+    existing = _gas_lp_cliente_existing_by_rfc(sb, user, row.get("rfc") or "", exclude_id=cliente_id)
+    if existing:
+        raise HTTPException(409, {
+            "message": "Ya existe otro cliente con este RFC en la misma empresa. Selecciona ese cliente o cambia el RFC.",
+            "code": "gas_lp_cliente_rfc_duplicado",
+            "cliente_id": existing.get("id"),
+            "rfc": existing.get("rfc"),
+        })
     try:
         data = (
             _gas_lp_clientes_scope_query(
-                get_supabase_admin()
+                sb
                 .table("gas_lp_clientes_facturacion")
                 .update(row)
                 .eq("id", cliente_id),
