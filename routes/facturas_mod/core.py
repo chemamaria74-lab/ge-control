@@ -340,6 +340,46 @@ def _sb_insert(table: str, row: dict) -> Optional[dict]:
         return None
 
 
+def _cp_base_factura_row(row: dict, *, save_error: Exception) -> dict:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    metadata = {
+        **metadata,
+        "origen_facility_id": row.get("origen_facility_id"),
+        "destino_facility_id": row.get("destino_facility_id"),
+        "vehiculo_id": row.get("vehiculo_id"),
+        "chofer_id": row.get("chofer_id"),
+        "ruta_id": row.get("ruta_id"),
+        "distancia_km": row.get("distancia_km"),
+        "tipo_comprobante": row.get("tipo_comprobante"),
+        "gas_lp_carta_porte_save_fallback": True,
+        "gas_lp_carta_porte_primary_save_error": str(save_error),
+    }
+    allowed = {
+        "user_id",
+        "tenant_id",
+        "perfil_id",
+        "source",
+        "facility_id",
+        "record_uuid",
+        "uuid_sat",
+        "xml_content",
+        "pdf_url",
+        "status",
+        "fecha_timbrado",
+        "rfc_receptor",
+        "volumen_litros",
+        "importe",
+        "tipo_comprobante",
+        "distancia_km",
+        "metadata",
+        "created_at",
+        "updated_at",
+    }
+    base = {key: value for key, value in row.items() if key in allowed}
+    base["metadata"] = metadata
+    return base
+
+
 def _cp_insert_factura_timbrada(row: dict, *, context: dict) -> dict:
     try:
         data = get_supabase_admin().table(_SB_FACTURAS).insert(row).execute().data or []
@@ -347,26 +387,210 @@ def _cp_insert_factura_timbrada(row: dict, *, context: dict) -> dict:
             raise RuntimeError("Supabase no devolvió la fila insertada.")
         return data[0]
     except Exception as exc:
-        logger.exception(
-            "gas_lp_carta_porte_save_failed phase=guardar_cfdi uuid=%s ruta_id=%s vehiculo_id=%s chofer_id=%s mercancia_id=%s row_keys=%s",
-            context.get("uuid_sat") or "",
-            context.get("ruta_id") or "",
-            context.get("vehiculo_id") or "",
-            context.get("chofer_id") or "",
-            context.get("mercancia_id") or "",
-            sorted(row.keys()),
+        fallback_row = _cp_base_factura_row(row, save_error=exc)
+        try:
+            logger.warning(
+                "gas_lp_carta_porte_primary_save_failed_retry_base phase=guardar_cfdi uuid=%s err=%s",
+                context.get("uuid_sat") or "",
+                exc,
+            )
+            data = get_supabase_admin().table(_SB_FACTURAS).insert(fallback_row).execute().data or []
+            if not data:
+                raise RuntimeError("Supabase no devolvió la fila insertada en fallback.")
+            saved = data[0]
+            saved["metadata"] = saved.get("metadata") or fallback_row["metadata"]
+            return saved
+        except Exception as fallback_exc:
+            logger.exception(
+                "gas_lp_carta_porte_save_failed phase=guardar_cfdi uuid=%s ruta_id=%s vehiculo_id=%s chofer_id=%s mercancia_id=%s primary_err=%s fallback_err=%s row_keys=%s fallback_keys=%s",
+                context.get("uuid_sat") or "",
+                context.get("ruta_id") or "",
+                context.get("vehiculo_id") or "",
+                context.get("chofer_id") or "",
+                context.get("mercancia_id") or "",
+                exc,
+                fallback_exc,
+                sorted(row.keys()),
+                sorted(fallback_row.keys()),
+            )
+            raise HTTPException(409, {
+                "message": f"Carta Porte ya timbrada por PAC pero falló guardado principal. UUID: {context.get('uuid_sat') or 'pendiente'}. Error Supabase: {fallback_exc}",
+                "code": "gas_lp_carta_porte_save_failed_after_pac",
+                "phase": "guardar_cfdi",
+                "uuid_sat": context.get("uuid_sat") or "",
+                "ruta_id": context.get("ruta_id"),
+                "vehiculo_id": context.get("vehiculo_id"),
+                "chofer_id": context.get("chofer_id"),
+                "mercancia_id": context.get("mercancia_id"),
+                "after_pac": True,
+                "primary_save_error": str(exc),
+                "fallback_save_error": str(fallback_exc),
+            }) from fallback_exc
+
+
+def _cp_find_pac_response_for_xml(xml: str, scope: dict) -> Optional[dict]:
+    if not xml:
+        return None
+    normalized_xml = _cp_recovery_xml_signature(xml)
+    try:
+        rows = (
+            get_supabase_admin()
+            .table("pac_responses")
+            .select("id,request_id,uuid_sat,xml_timbrado,pdf_url,status,error_message,created_at")
+            .eq("xml_original", xml)
+            .order("id", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
         )
-        raise HTTPException(500, {
-            "message": f"Error al guardar CFDI Carta Porte: {exc}",
-            "code": "gas_lp_carta_porte_save_failed",
-            "phase": "guardar_cfdi",
-            "uuid_sat": context.get("uuid_sat") or "",
-            "ruta_id": context.get("ruta_id"),
-            "vehiculo_id": context.get("vehiculo_id"),
-            "chofer_id": context.get("chofer_id"),
-            "mercancia_id": context.get("mercancia_id"),
-            "after_pac": True,
-        }) from exc
+    except Exception as exc:
+        logger.warning("gas_lp_carta_porte_pac_recovery_lookup_failed err=%s", exc)
+        return None
+    for row in rows:
+        if str(row.get("uuid_sat") or "").strip() and str(row.get("xml_timbrado") or "").strip() and _cp_pac_response_matches_scope(row, scope):
+            return row
+    try:
+        recent_rows = (
+            get_supabase_admin()
+            .table("pac_responses")
+            .select("id,request_id,uuid_sat,xml_original,xml_timbrado,pdf_url,status,error_message,created_at")
+            .order("id", desc=True)
+            .limit(50)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_carta_porte_pac_recovery_recent_lookup_failed err=%s", exc)
+        return None
+    for row in recent_rows:
+        if not str(row.get("uuid_sat") or "").strip() or not str(row.get("xml_timbrado") or "").strip():
+            continue
+        if _cp_recovery_xml_signature(str(row.get("xml_original") or "")) == normalized_xml and _cp_pac_response_matches_scope(row, scope):
+            return row
+    return None
+
+
+def _cp_pac_response_matches_scope(row: dict, scope: dict) -> bool:
+    request_id = row.get("request_id")
+    if not request_id:
+        return False
+    try:
+        reqs = (
+            get_supabase_admin()
+            .table("pac_requests")
+            .select("id,user_id,tenant_id,perfil_id,module")
+            .eq("id", request_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_carta_porte_pac_recovery_scope_lookup_failed request_id=%s err=%s", request_id, exc)
+        return False
+    if not reqs:
+        return False
+    req = reqs[0]
+    if str(req.get("module") or "") not in {"transporte", "gas_lp"}:
+        return False
+    if str(req.get("user_id") or "") != str(scope.get("user_id") or ""):
+        return False
+    if str(req.get("perfil_id") or "") != str(scope.get("perfil_id") or ""):
+        return False
+    if scope.get("tenant_id") and str(req.get("tenant_id") or "") != str(scope.get("tenant_id") or ""):
+        return False
+    return True
+
+
+def _cp_recovery_xml_signature(xml: str) -> str:
+    text = re.sub(r'\sIdCCP="[^"]*"', ' IdCCP="__IDCCP__"', str(xml or ""))
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _cp_result_from_pac_response(row: dict) -> dict:
+    return {
+        "uuid": str(row.get("uuid_sat") or "").strip(),
+        "xml_timbrado": str(row.get("xml_timbrado") or ""),
+        "pdf_url": str(row.get("pdf_url") or ""),
+        "error": None,
+        "recovered_from_pac_audit": True,
+        "pac_response_id": row.get("id"),
+        "pac_request_id": row.get("request_id"),
+    }
+
+
+def _cp_factura_success_response(
+    *,
+    supabase_row: dict,
+    resultado: dict,
+    metadata: dict,
+    validation: dict,
+    now: str,
+    uid: str,
+    scope: dict,
+    source: str = "supabase",
+) -> JSONResponse:
+    version_xml(
+        module="gas_lp",
+        entity_type="factura_gas_lp",
+        entity_id=supabase_row.get("id"),
+        uuid_sat=resultado.get("uuid") or "",
+        xml_content=resultado.get("xml_timbrado") or "",
+        user_id=uid,
+        perfil_id=scope.get("perfil_id"),
+        tenant_id=scope.get("tenant_id"),
+        source="sw_sapien",
+    )
+    logger.info("Carta Porte timbrada: user=%s uuid_sat=%s source=%s", uid, resultado.get("uuid") or "", source)
+    response_factura = {
+        **supabase_row,
+        "uuid_sat": resultado.get("uuid") or "",
+        "xml_content": resultado.get("xml_timbrado") or "",
+        "pdf_url": resultado.get("pdf_url") or "",
+        "metadata": metadata,
+    }
+    return JSONResponse({
+        "ok": True,
+        "factura": response_factura,
+        "uuid_sat": resultado.get("uuid") or "",
+        "pdf_url": resultado.get("pdf_url") or "",
+        "status": "Vigente",
+        "fecha_timbrado": now,
+        "id": supabase_row.get("id"),
+        "id_ccp": validation.get("metadata", {}).get("id_ccp") or "",
+        "carta_porte_validation": validation,
+        "source": source,
+        "recovered_from_pac_audit": bool(resultado.get("recovered_from_pac_audit")),
+        "pac_response_id": resultado.get("pac_response_id"),
+        "message": "Carta Porte ya timbrada. UUID: " + (resultado.get("uuid") or "") if resultado.get("recovered_from_pac_audit") else "Carta Porte timbrada correctamente.",
+    })
+
+
+def _cp_save_timbrada_response(
+    *,
+    factura_row: dict,
+    resultado: dict,
+    metadata: dict,
+    validation: dict,
+    now: str,
+    uid: str,
+    scope: dict,
+    context: dict,
+    source: str,
+) -> JSONResponse:
+    supabase_row = _cp_insert_factura_timbrada(factura_row, context=context)
+    return _cp_factura_success_response(
+        supabase_row=supabase_row,
+        resultado=resultado,
+        metadata=metadata,
+        validation=validation,
+        now=now,
+        uid=uid,
+        scope=scope,
+        source=source,
+    )
 
 
 def _cp_existing_timbrada_response(row: dict) -> JSONResponse:
@@ -1184,6 +1408,84 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             "mercancia_id": mercancia_id,
         }) from e
 
+    existing_pac_response = _cp_find_pac_response_for_xml(xml, scope)
+    if existing_pac_response:
+        resultado = _cp_result_from_pac_response(existing_pac_response)
+        logger.warning(
+            "gas_lp_carta_porte_recovered_before_pac_call pac_response_id=%s uuid=%s ruta_id=%s vehiculo_id=%s chofer_id=%s",
+            resultado.get("pac_response_id"),
+            resultado.get("uuid") or "",
+            ruta_row.get("id") if ruta_row else payload.ruta_id,
+            vehiculo_id,
+            chofer_id,
+        )
+        validation = _cp_post_timbrado_validation(resultado.get("xml_timbrado") or "", mercancia)
+        now = datetime.now(timezone.utc).isoformat()
+        metadata = {
+            "origen_facility_id": origen_facility_id,
+            "destino_facility_id": destino_facility_id,
+            "origen_ubicacion_id": origen.get("id_ubicacion"),
+            "destino_ubicacion_id": destino.get("id_ubicacion"),
+            "mercancia_id": mercancia_id,
+            "vehiculo_id": vehiculo_id,
+            "chofer_id": chofer_id,
+            "ruta_id": payload.ruta_id,
+            "tipo_flujo": "gas_lp_carta_porte_traspaso_interno",
+            "origen_nombre": origen_facility.get("nombre"),
+            "destino_nombre": destino_facility.get("nombre"),
+            "chofer_nombre": chofer_row.get("nombre"),
+            "vehiculo_placas": vehiculo_row.get("placas"),
+            "mercancia_descripcion": mercancia_row.get("descripcion"),
+            "peso_kg": peso_kg,
+            "id_ccp": id_ccp,
+            "fecha_salida": fecha_salida,
+            "fecha_llegada": fecha_llegada,
+            "carta_porte_validation": validation,
+            "recovered_from_pac_audit": True,
+            "pac_response_id": resultado.get("pac_response_id"),
+            "pac_request_id": resultado.get("pac_request_id"),
+        }
+        if validation.get("missing_key_nodes"):
+            metadata["carta_porte_alerta"] = "XML timbrado con nodos clave faltantes: " + ", ".join(validation["missing_key_nodes"])
+        factura_row = _scope_row(scope, {
+            "facility_id": origen_facility_id,
+            "origen_facility_id": origen_facility_id,
+            "destino_facility_id": destino_facility_id,
+            "vehiculo_id": vehiculo_id,
+            "chofer_id": chofer_id,
+            "ruta_id": payload.ruta_id,
+            "record_uuid": payload.record_uuid,
+            "uuid_sat": resultado.get("uuid") or "",
+            "xml_content": resultado.get("xml_timbrado") or "",
+            "pdf_url": resultado.get("pdf_url") or "",
+            "status": "Vigente",
+            "fecha_timbrado": now,
+            "rfc_receptor": receptor["rfc"],
+            "volumen_litros": litros,
+            "importe": payload.importe,
+            "tipo_comprobante": payload.tipo_comprobante,
+            "distancia_km": distancia_km,
+            "metadata": metadata,
+            "created_at": now,
+        })
+        return _cp_save_timbrada_response(
+            factura_row=factura_row,
+            resultado=resultado,
+            metadata=metadata,
+            validation=validation,
+            now=now,
+            uid=uid,
+            scope=scope,
+            context={
+                "uuid_sat": resultado.get("uuid") or "",
+                "ruta_id": payload.ruta_id,
+                "vehiculo_id": vehiculo_id,
+                "chofer_id": chofer_id,
+                "mercancia_id": mercancia_id,
+            },
+            source="pac_audit_recovered",
+        )
+
     try:
         logger.info(
             "gas_lp_carta_porte_pac_request empresa_rfc=%s ruta_id=%s vehiculo_id=%s chofer_id=%s xml_len=%s",
@@ -1312,45 +1614,15 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             "mercancia_id": mercancia_id,
         },
     )
-    if supabase_row:
-        version_xml(
-            module="gas_lp",
-            entity_type="factura_gas_lp",
-            entity_id=supabase_row.get("id"),
-            uuid_sat=resultado.get("uuid") or "",
-            xml_content=resultado.get("xml_timbrado") or "",
-            user_id=uid,
-            perfil_id=scope.get("perfil_id"),
-            tenant_id=scope.get("tenant_id"),
-            source="sw_sapien",
-        )
-        logger.info("Carta Porte timbrada: user=%s uuid_sat=%s source=supabase", uid, resultado.get("uuid") or "")
-        response_factura = {
-            **supabase_row,
-            "uuid_sat": resultado.get("uuid") or "",
-            "xml_content": resultado.get("xml_timbrado") or "",
-            "pdf_url": resultado.get("pdf_url") or "",
-            "metadata": metadata,
-        }
-        return JSONResponse({
-            "ok": True,
-            "factura": response_factura,
-            "uuid_sat": resultado.get("uuid") or "",
-            "pdf_url": resultado.get("pdf_url") or "",
-            "status": "Vigente",
-            "fecha_timbrado": now,
-            "id": supabase_row.get("id"),
-            "id_ccp": validation.get("metadata", {}).get("id_ccp") or "",
-            "carta_porte_validation": validation,
-            "source": "supabase",
-        })
-
-    raise HTTPException(500, {
-        "message": f"Error al guardar CFDI Carta Porte: CFDI timbrado con UUID {resultado.get('uuid') or '(sin UUID)'}, pero no se pudo guardar en Supabase. Revisar auditoría inmediatamente.",
-        "code": "gas_lp_carta_porte_save_empty",
-        "phase": "guardar_cfdi",
-        "uuid_sat": resultado.get("uuid") or "",
-        "after_pac": True,
-    })
+    return _cp_factura_success_response(
+        supabase_row=supabase_row,
+        resultado=resultado,
+        metadata=metadata,
+        validation=validation,
+        now=now,
+        uid=uid,
+        scope=scope,
+        source="supabase",
+    )
 
 __all__ = [name for name in globals() if not name.startswith('__')]
