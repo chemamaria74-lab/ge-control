@@ -475,6 +475,8 @@ def _cp_insert_factura_timbrada(row: dict, *, context: dict) -> dict:
                 "message": f"Carta Porte ya timbrada por PAC pero falló guardado principal. UUID: {context.get('uuid_sat') or 'pendiente'}. Error Supabase: {fallback_exc}",
                 "code": "gas_lp_carta_porte_save_failed_after_pac",
                 "phase": "guardar_cfdi",
+                "fase": "guardar_cfdi",
+                "request_id": context.get("request_id") or "",
                 "uuid_sat": context.get("uuid_sat") or "",
                 "ruta_id": context.get("ruta_id"),
                 "vehiculo_id": context.get("vehiculo_id"),
@@ -606,6 +608,68 @@ def _cp_result_from_pac_response(row: dict) -> dict:
         "pac_response_id": row.get("id"),
         "pac_request_id": row.get("request_id"),
     }
+
+
+def _cp_phase_context(payload: "CartaPorteRequest", scope: dict, **extra) -> dict:
+    return {
+        "request_id": scope.get("request_id") or "",
+        "ruta_id": payload.ruta_id,
+        "origen_facility_id": payload.origen_facility_id,
+        "destino_facility_id": payload.destino_facility_id,
+        "vehiculo_id": payload.vehiculo_id,
+        "chofer_id": payload.chofer_id,
+        "mercancia_id": payload.mercancia_id,
+        "tipo_comprobante": payload.tipo_comprobante,
+        "volumen_litros": payload.volumen_litros,
+        "fecha_salida": payload.fecha_salida or payload.fecha_hora,
+        "fecha_llegada": payload.fecha_llegada,
+        **extra,
+    }
+
+
+def _cp_phase_detail(exc: Exception, phase: str, payload: "CartaPorteRequest", scope: dict, **extra) -> dict:
+    context = _cp_phase_context(payload, scope, **extra)
+    message = str(exc.detail if isinstance(exc, HTTPException) else exc)
+    if isinstance(exc, HTTPException) and isinstance(exc.detail, dict):
+        detail = dict(exc.detail)
+        message = detail.get("message") or detail.get("error") or message
+    else:
+        detail = {}
+    detail.update({
+        "ok": False,
+        "error": detail.get("error") or message,
+        "message": detail.get("message") or f"Error al timbrar Carta Porte en fase {phase}: {message}",
+        "detail": detail.get("detail") or f"{type(exc).__name__}: {message}",
+        "phase": detail.get("phase") or phase,
+        "fase": detail.get("fase") or detail.get("phase") or phase,
+        "code": detail.get("code") or f"gas_lp_carta_porte_{phase}_failed",
+        **context,
+    })
+    return detail
+
+
+def _cp_phase_call(phase: str, payload: "CartaPorteRequest", scope: dict, fn, **extra):
+    try:
+        return fn()
+    except HTTPException as exc:
+        detail = _cp_phase_detail(exc, phase, payload, scope, **extra)
+        logger.warning(
+            "gas_lp_carta_porte_phase_http_error phase=%s request_id=%s status=%s detail=%s",
+            phase,
+            detail.get("request_id") or "",
+            exc.status_code,
+            detail,
+        )
+        raise HTTPException(exc.status_code, detail) from exc
+    except Exception as exc:
+        detail = _cp_phase_detail(exc, phase, payload, scope, **extra)
+        logger.exception(
+            "gas_lp_carta_porte_phase_unhandled phase=%s request_id=%s detail=%s",
+            phase,
+            detail.get("request_id") or "",
+            detail,
+        )
+        raise HTTPException(500, detail) from exc
 
 
 def _cp_factura_success_response(
@@ -1342,44 +1406,95 @@ def _cp_normalize_id_ccp(value: str = "") -> str:
 
 
 async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict):
-    uid = scope["user_id"]
-    _require_supabase_scope(scope)
-    emisor = _emisor_from_scope(scope)
+    uid = _cp_phase_call("scope_auth", payload, scope, lambda: scope["user_id"])
+    _cp_phase_call("scope_auth", payload, scope, lambda: _require_supabase_scope(scope))
+    emisor = _cp_phase_call("scope_auth", payload, scope, lambda: _emisor_from_scope(scope))
 
-    if not payload.ruta_id:
-        raise HTTPException(400, "Selecciona una ruta frecuente para timbrar Carta Porte.")
-    ruta_row = _sb_get(_SB_RUTAS, int(payload.ruta_id), scope) if payload.ruta_id else None
-    if not ruta_row:
-        raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte.")
-    if ruta_row and ruta_row.get("activo") is False:
-        raise HTTPException(404, "Ruta no existe o está inactiva en la empresa activa.")
-    vehiculo_id = _cp_to_int(payload.vehiculo_id) or _cp_route_default(ruta_row, "vehiculo_default_id")
-    chofer_id = _cp_to_int(payload.chofer_id) or _cp_route_default(ruta_row, "chofer_default_id")
-    mercancia_id = _cp_to_int(payload.mercancia_id) or _cp_route_default(ruta_row, "mercancia_default_id")
-    ruta_tiempo_minutos = _cp_to_int((ruta_row or {}).get("tiempo_estimado_minutos")) or _cp_route_default(ruta_row, "tiempo_estimado_minutos")
-    if float((ruta_row or {}).get("distancia_km") or 0) <= 0 or not ruta_tiempo_minutos or not mercancia_id:
-        raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte.")
+    def _load_route_and_defaults():
+        if not payload.ruta_id:
+            raise HTTPException(400, "Selecciona una ruta frecuente para timbrar Carta Porte.")
+        row = _sb_get(_SB_RUTAS, int(payload.ruta_id), scope) if payload.ruta_id else None
+        if not row:
+            raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte.")
+        if row.get("activo") is False:
+            raise HTTPException(404, "Ruta no existe o está inactiva en la empresa activa.")
+        default_vehiculo_id = _cp_to_int(payload.vehiculo_id) or _cp_route_default(row, "vehiculo_default_id")
+        default_chofer_id = _cp_to_int(payload.chofer_id) or _cp_route_default(row, "chofer_default_id")
+        default_mercancia_id = _cp_to_int(payload.mercancia_id) or _cp_route_default(row, "mercancia_default_id")
+        tiempo_minutos = _cp_to_int((row or {}).get("tiempo_estimado_minutos")) or _cp_route_default(row, "tiempo_estimado_minutos")
+        if float((row or {}).get("distancia_km") or 0) <= 0 or not tiempo_minutos or not default_mercancia_id:
+            raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte.")
+        return row, default_vehiculo_id, default_chofer_id, default_mercancia_id, tiempo_minutos
 
-    origen, origen_facility_id, origen_facility = _cp_resolve_route_location(scope, ruta_row, payload, "origen", emisor)
-    destino, destino_facility_id, destino_facility = _cp_resolve_route_location(scope, ruta_row, payload, "destino", emisor)
-    origen_key = f"facility:{origen_facility_id}" if origen_facility_id else f"manual:{origen.get('manual_ubicacion_id') or origen.get('id_ubicacion')}"
-    destino_key = f"facility:{destino_facility_id}" if destino_facility_id else f"manual:{destino.get('manual_ubicacion_id') or destino.get('id_ubicacion')}"
-    if origen_key == destino_key:
-        raise HTTPException(400, "Origen y destino deben ser instalaciones distintas para Carta Porte.")
-    chofer_row = _cp_normalize_driver_payload(_require_active_catalog_row(_SB_CHOFERES, scope, chofer_id, "chofer"))
-    vehiculo_row = _cp_normalize_vehicle_payload(_require_active_catalog_row(_SB_VEHICULOS, scope, vehiculo_id, "vehículo"))
-    mercancia_catalog_row = _cp_with_metadata(_require_active_catalog_row(_SB_MERCANCIAS_CP, scope, mercancia_id, "mercancía"))
-    if not _cp_bool(mercancia_catalog_row.get("material_peligroso")):
-        raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte. La mercancía Gas LP debe estar marcada como material peligroso.")
-    mercancia_row = _cp_gas_lp_mercancia_payload(mercancia_catalog_row)
-    if (
-        str(mercancia_row.get("bienes_transp") or "").strip() != "15111510"
-        or str(mercancia_row.get("clave_unidad") or "").strip().upper() != "LTR"
-        or str(mercancia_row.get("clave_material_peligroso") or "").strip() != "1075"
-        or not _cp_bool(mercancia_row.get("material_peligroso"))
-        or float(mercancia_row.get("factor_kg_litro") or 0) <= 0
-    ):
-        raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte. La mercancía default debe ser Gas LP válida.")
+    ruta_row, vehiculo_id, chofer_id, mercancia_id, ruta_tiempo_minutos = _cp_phase_call(
+        "load_route",
+        payload,
+        scope,
+        _load_route_and_defaults,
+    )
+
+    def _load_origen_destino():
+        resolved_origen, resolved_origen_facility_id, resolved_origen_facility = _cp_resolve_route_location(scope, ruta_row, payload, "origen", emisor)
+        resolved_destino, resolved_destino_facility_id, resolved_destino_facility = _cp_resolve_route_location(scope, ruta_row, payload, "destino", emisor)
+        origen_key = f"facility:{resolved_origen_facility_id}" if resolved_origen_facility_id else f"manual:{resolved_origen.get('manual_ubicacion_id') or resolved_origen.get('id_ubicacion')}"
+        destino_key = f"facility:{resolved_destino_facility_id}" if resolved_destino_facility_id else f"manual:{resolved_destino.get('manual_ubicacion_id') or resolved_destino.get('id_ubicacion')}"
+        if origen_key == destino_key:
+            raise HTTPException(400, "Origen y destino deben ser instalaciones distintas para Carta Porte.")
+        return (
+            resolved_origen,
+            resolved_origen_facility_id,
+            resolved_origen_facility,
+            resolved_destino,
+            resolved_destino_facility_id,
+            resolved_destino_facility,
+        )
+
+    (
+        origen,
+        origen_facility_id,
+        origen_facility,
+        destino,
+        destino_facility_id,
+        destino_facility,
+    ) = _cp_phase_call("load_origen_destino", payload, scope, _load_origen_destino, ruta_id=ruta_row.get("id"))
+
+    chofer_row = _cp_phase_call(
+        "load_chofer",
+        payload,
+        scope,
+        lambda: _cp_normalize_driver_payload(_require_active_catalog_row(_SB_CHOFERES, scope, chofer_id, "chofer")),
+        chofer_id=chofer_id,
+    )
+    vehiculo_row = _cp_phase_call(
+        "load_vehiculo",
+        payload,
+        scope,
+        lambda: _cp_normalize_vehicle_payload(_require_active_catalog_row(_SB_VEHICULOS, scope, vehiculo_id, "vehículo")),
+        vehiculo_id=vehiculo_id,
+    )
+
+    def _load_mercancia():
+        catalog_row = _cp_with_metadata(_require_active_catalog_row(_SB_MERCANCIAS_CP, scope, mercancia_id, "mercancía"))
+        if not _cp_bool(catalog_row.get("material_peligroso")):
+            raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte. La mercancía Gas LP debe estar marcada como material peligroso.")
+        normalized = _cp_gas_lp_mercancia_payload(catalog_row)
+        if (
+            str(normalized.get("bienes_transp") or "").strip() != "15111510"
+            or str(normalized.get("clave_unidad") or "").strip().upper() != "LTR"
+            or str(normalized.get("clave_material_peligroso") or "").strip() != "1075"
+            or not _cp_bool(normalized.get("material_peligroso"))
+            or float(normalized.get("factor_kg_litro") or 0) <= 0
+        ):
+            raise HTTPException(400, "Completa la configuración de la ruta antes de timbrar Carta Porte. La mercancía default debe ser Gas LP válida.")
+        return catalog_row, normalized
+
+    mercancia_catalog_row, mercancia_row = _cp_phase_call(
+        "load_mercancia",
+        payload,
+        scope,
+        _load_mercancia,
+        mercancia_id=mercancia_id,
+    )
 
     if payload.rfc_cliente and _clean_rfc(payload.rfc_cliente) != emisor["rfc"]:
         raise HTTPException(400, "Carta Porte interna debe usar como receptor el mismo RFC de la empresa activa.")
@@ -1428,17 +1543,30 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         peso_kg,
     )
 
-    _cp_validate_catalog_payload(
-        origen=origen,
-        destino=destino,
-        vehiculo=vehiculo_row,
-        chofer=chofer_row,
-        mercancia=mercancia_row,
-        fecha_salida=fecha_salida,
-        fecha_llegada=fecha_llegada,
-        distancia_km=distancia_km,
-        litros=litros,
-        peso_kg=peso_kg,
+    _cp_phase_call(
+        "pre_pac_validation",
+        payload,
+        scope,
+        lambda: _cp_validate_catalog_payload(
+            origen=origen,
+            destino=destino,
+            vehiculo=vehiculo_row,
+            chofer=chofer_row,
+            mercancia=mercancia_row,
+            fecha_salida=fecha_salida,
+            fecha_llegada=fecha_llegada,
+            distancia_km=distancia_km,
+            litros=litros,
+            peso_kg=peso_kg,
+        ),
+        ruta_id=ruta_row.get("id") if ruta_row else payload.ruta_id,
+        origen_nombre=origen_facility.get("nombre"),
+        destino_nombre=destino_facility.get("nombre"),
+        origen_ubicacion_id=origen.get("id_ubicacion"),
+        destino_ubicacion_id=destino.get("id_ubicacion"),
+        vehiculo_id=vehiculo_id,
+        chofer_id=chofer_id,
+        mercancia_id=mercancia_id,
     )
 
     vehiculo = {
@@ -1485,9 +1613,14 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             mercancia_id,
         )
         raise HTTPException(500, {
+            "ok": False,
             "message": f"Error al construir XML Carta Porte: {e}",
+            "error": f"Error al construir XML Carta Porte: {e}",
+            "detail": f"{type(e).__name__}: {e}",
             "code": "gas_lp_carta_porte_xml_build_failed",
-            "phase": "builder_xml",
+            "phase": "build_cfdi",
+            "fase": "build_cfdi",
+            "request_id": scope.get("request_id") or "",
             "before_pac": True,
             "ruta_id": ruta_row.get("id") if ruta_row else payload.ruta_id,
             "vehiculo_id": vehiculo_id,
@@ -1495,7 +1628,16 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             "mercancia_id": mercancia_id,
         }) from e
 
-    existing_pac_response = _cp_find_pac_response_for_xml(xml, scope)
+    existing_pac_response = _cp_phase_call(
+        "recuperar_pac_audit",
+        payload,
+        scope,
+        lambda: _cp_find_pac_response_for_xml(xml, scope),
+        ruta_id=ruta_row.get("id") if ruta_row else payload.ruta_id,
+        vehiculo_id=vehiculo_id,
+        chofer_id=chofer_id,
+        mercancia_id=mercancia_id,
+    )
     if existing_pac_response:
         resultado = _cp_result_from_pac_response(existing_pac_response)
         logger.warning(
@@ -1564,6 +1706,7 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             uid=uid,
             scope=scope,
             context={
+                "request_id": scope.get("request_id") or "",
                 "uuid_sat": resultado.get("uuid") or "",
                 "ruta_id": payload.ruta_id,
                 "vehiculo_id": vehiculo_id,
@@ -1603,9 +1746,14 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             mercancia_id,
         )
         raise HTTPException(500, {
+            "ok": False,
             "message": f"Error al enviar Carta Porte a SW Sapien: {e}",
+            "error": f"Error al enviar Carta Porte a SW Sapien: {e}",
+            "detail": f"{type(e).__name__}: {e}",
             "code": "gas_lp_carta_porte_pac_exception",
-            "phase": "pac",
+            "phase": "pac_stamp",
+            "fase": "pac_stamp",
+            "request_id": scope.get("request_id") or "",
             "ruta_id": ruta_row.get("id") if ruta_row else payload.ruta_id,
             "vehiculo_id": vehiculo_id,
             "chofer_id": chofer_id,
@@ -1614,9 +1762,13 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
     if resultado.get("error"):
         pac_response = resultado.get("pac_response") if isinstance(resultado.get("pac_response"), dict) else {}
         raise HTTPException(400, {
+            "ok": False,
             "message": f"Error PAC: {resultado.get('error')}",
+            "error": f"Error PAC: {resultado.get('error')}",
             "code": "gas_lp_carta_porte_pac_error",
-            "phase": "pac",
+            "phase": "pac_stamp",
+            "fase": "pac_stamp",
+            "request_id": scope.get("request_id") or "",
             "pac_error": resultado.get("error"),
             "pac_response": {
                 "endpoint_sw": pac_response.get("endpoint_sw"),
@@ -1637,9 +1789,13 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             sorted(resultado.keys()),
         )
         raise HTTPException(500, {
+            "ok": False,
             "message": "Error PAC: SW Sapien no devolvió UUID o XML timbrado para Carta Porte. No se guardó como factura timbrada.",
+            "error": "Error PAC: SW Sapien no devolvió UUID o XML timbrado para Carta Porte. No se guardó como factura timbrada.",
             "code": "gas_lp_carta_porte_pac_incomplete_response",
-            "phase": "pac",
+            "phase": "pac_stamp",
+            "fase": "pac_stamp",
+            "request_id": scope.get("request_id") or "",
             "after_pac": True,
             "uuid_sat": resultado.get("uuid") or "",
         })
@@ -1694,6 +1850,7 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
     supabase_row = _cp_insert_factura_timbrada(
         factura_row,
         context={
+            "request_id": scope.get("request_id") or "",
             "uuid_sat": resultado.get("uuid") or "",
             "ruta_id": payload.ruta_id,
             "vehiculo_id": vehiculo_id,
