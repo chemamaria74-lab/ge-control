@@ -685,12 +685,24 @@ function isCartaPorteFactura(f){
   const flow = String(md.tipo_flujo || md.tipo_operacion || md.cfdi_tipo || '').toLowerCase();
   return flow.includes('carta_porte') || Boolean(md.id_ccp) || Boolean(md.carta_porte_validation);
 }
+function cartaPorteDateValue(f){
+  const md = cpMeta(f);
+  const cp = cartaPorteXmlSummary(f);
+  return md.fecha_emision || md.cfdi_fecha || md.fecha_cfdi || cp.fecha || md.fecha_salida || cp.fecha_salida || md.fecha_timbrado_pac || cp.fecha_timbrado || facturaDateValue(f) || '';
+}
+function cartaPorteDateKey(f){
+  const value = cartaPorteDateValue(f);
+  return mexicoDateKey(value) || String(value || '').slice(0,10);
+}
+function cartaPorteTimeLabel(f){
+  return mexicoTimeLabel(cartaPorteDateValue(f)) || facturaTimeLabel(f);
+}
 function cartaPorteRows(scope='all'){
   const day = todayKey();
   return (FACTURAS || [])
     .filter(isCartaPorteFactura)
-    .filter(f => scope === 'today' ? facturaDateKey(f) === day : true)
-    .sort((a,b)=>String(facturaDateValue(b) || b.created_at || '').localeCompare(String(facturaDateValue(a) || a.created_at || '')));
+    .filter(f => scope === 'today' ? cartaPorteDateKey(f) === day : true)
+    .sort((a,b)=>String(cartaPorteDateValue(b) || b.created_at || '').localeCompare(String(cartaPorteDateValue(a) || a.created_at || '')));
 }
 function cartaPorteDocActions(f){
   const id = encodeURIComponent(f.id || '');
@@ -752,7 +764,7 @@ function cartaPorteHistoryLitros(f){
   );
 }
 function cartaPorteHistoryDateLabel(f, mode){
-  return mode === 'all' ? dateDMY(facturaDateKey(f)) : facturaTimeLabel(f);
+  return mode === 'all' ? dateDMY(cartaPorteDateKey(f)) : cartaPorteTimeLabel(f);
 }
 function cartaPorteHistoryTable(rows, emptyText, mode='today'){
   const css = `<style>
@@ -772,7 +784,7 @@ function cartaPorteHistoryTable(rows, emptyText, mode='today'){
     const destino = cp.destino_nombre || md.destino_nombre || md.destino || md.ruta_destino || md.facility_destino || '—';
     const litros = cartaPorteHistoryLitros(f);
     const peso = cartaPorteNumber(cp.peso_kg || md.peso_kg || md.peso, 0);
-    const vehiculo = cp.vehiculo || cp.placas || md.vehiculo_label || md.vehiculo || md.placas || md.placa || '—';
+    const vehiculo = cp.vehiculo || cp.placas || md.vehiculo_placas || md.vehiculo_label || md.vehiculo || md.placas || md.placa || '—';
     const chofer = cp.chofer || md.chofer_nombre || md.chofer || md.operador || '—';
     return `<tr>
       <td>${esc(cartaPorteHistoryDateLabel(f, mode))}</td>
