@@ -1395,6 +1395,20 @@ def _cp_post_timbrado_validation(xml_timbrado: str, mercancia: dict) -> dict:
     }
 
 
+def _cp_xml_attr_text(xml_text: str, local_name: str, attr_name: str) -> str:
+    pattern = rf"<(?:[A-Za-z0-9_]+:)?{re.escape(local_name)}\b[^>]*\s{re.escape(attr_name)}=[\"']([^\"']+)[\"']"
+    match = re.search(pattern, str(xml_text or ""), flags=re.IGNORECASE)
+    return match.group(1).strip() if match else ""
+
+
+def _cp_timbrado_listing_metadata(xml_timbrado: str) -> dict:
+    return {
+        "cfdi_fecha": _cp_xml_attr_text(xml_timbrado, "Comprobante", "Fecha"),
+        "fecha_timbrado_pac": _cp_xml_attr_text(xml_timbrado, "TimbreFiscalDigital", "FechaTimbrado"),
+        "placa_vm": _cp_xml_attr_text(xml_timbrado, "IdentificacionVehicular", "PlacaVM"),
+    }
+
+
 def _cp_normalize_id_ccp(value: str = "") -> str:
     text = str(value or "").strip()
     raw = text[3:] if text.upper().startswith("CCC") else text
@@ -1649,6 +1663,10 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             chofer_id,
         )
         validation = _cp_post_timbrado_validation(resultado.get("xml_timbrado") or "", mercancia)
+        listing_metadata = _cp_timbrado_listing_metadata(resultado.get("xml_timbrado") or "")
+        cfdi_fecha = listing_metadata.get("cfdi_fecha") or fecha_salida
+        pac_fecha_timbrado = listing_metadata.get("fecha_timbrado_pac") or ""
+        vehiculo_placas = listing_metadata.get("placa_vm") or vehiculo_row.get("placas") or ""
         now = datetime.now(timezone.utc).isoformat()
         metadata = {
             "origen_facility_id": origen_facility_id,
@@ -1663,10 +1681,16 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             "origen_nombre": origen_facility.get("nombre"),
             "destino_nombre": destino_facility.get("nombre"),
             "chofer_nombre": chofer_row.get("nombre"),
-            "vehiculo_placas": vehiculo_row.get("placas"),
+            "vehiculo_placas": vehiculo_placas,
+            "placas": vehiculo_placas,
+            "vehiculo": vehiculo_placas,
             "mercancia_descripcion": mercancia_row.get("descripcion"),
             "peso_kg": peso_kg,
             "id_ccp": id_ccp,
+            "fecha_emision": cfdi_fecha,
+            "fecha_cfdi": cfdi_fecha,
+            "cfdi_fecha": cfdi_fecha,
+            "fecha_timbrado_pac": pac_fecha_timbrado,
             "fecha_salida": fecha_salida,
             "fecha_llegada": fecha_llegada,
             "carta_porte_validation": validation,
@@ -1688,7 +1712,7 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             "xml_content": resultado.get("xml_timbrado") or "",
             "pdf_url": resultado.get("pdf_url") or "",
             "status": "Vigente",
-            "fecha_timbrado": now,
+            "fecha_timbrado": pac_fecha_timbrado or now,
             "rfc_receptor": receptor["rfc"],
             "volumen_litros": litros,
             "importe": payload.importe,
@@ -1801,6 +1825,10 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         })
 
     validation = _cp_post_timbrado_validation(resultado.get("xml_timbrado") or "", mercancia)
+    listing_metadata = _cp_timbrado_listing_metadata(resultado.get("xml_timbrado") or "")
+    cfdi_fecha = listing_metadata.get("cfdi_fecha") or fecha_salida
+    pac_fecha_timbrado = listing_metadata.get("fecha_timbrado_pac") or ""
+    vehiculo_placas = listing_metadata.get("placa_vm") or vehiculo_row.get("placas") or ""
     now = datetime.now(timezone.utc).isoformat()
     metadata = {
         "origen_facility_id": origen_facility_id,
@@ -1815,10 +1843,16 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         "origen_nombre": origen_facility.get("nombre"),
         "destino_nombre": destino_facility.get("nombre"),
         "chofer_nombre": chofer_row.get("nombre"),
-        "vehiculo_placas": vehiculo_row.get("placas"),
+        "vehiculo_placas": vehiculo_placas,
+        "placas": vehiculo_placas,
+        "vehiculo": vehiculo_placas,
         "mercancia_descripcion": mercancia_row.get("descripcion"),
         "peso_kg": peso_kg,
         "id_ccp": id_ccp,
+        "fecha_emision": cfdi_fecha,
+        "fecha_cfdi": cfdi_fecha,
+        "cfdi_fecha": cfdi_fecha,
+        "fecha_timbrado_pac": pac_fecha_timbrado,
         "fecha_salida": fecha_salida,
         "fecha_llegada": fecha_llegada,
         "carta_porte_validation": validation,
@@ -1838,7 +1872,7 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         "xml_content": resultado["xml_timbrado"],
         "pdf_url": resultado.get("pdf_url") or "",
         "status": "Vigente",
-        "fecha_timbrado": now,
+        "fecha_timbrado": pac_fecha_timbrado or now,
         "rfc_receptor": receptor["rfc"],
         "volumen_litros": litros,
         "importe": payload.importe,
