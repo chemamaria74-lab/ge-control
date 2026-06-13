@@ -78,9 +78,16 @@ function cpRouteLocationRef(row, prefix){
     row?.[`${prefix}_facility_id`],
     md?.[`${prefix}_facility_id`],
     md?.[`${prefix}_ubicacion_ref`],
-    md?.[`${prefix}_ubicacion_id`],
+    row?.[`${prefix}_ubicacion_ref`]
+  );
+}
+function cpRouteLocationId(row, prefix){
+  const md = cpRouteMeta(row);
+  return cpValue(
     md?.[`id_ubicacion_${prefix}`],
-    row?.[`id_ubicacion_${prefix}`]
+    row?.[`id_ubicacion_${prefix}`],
+    md?.[`${prefix}_ubicacion_id`],
+    row?.[`${prefix}_ubicacion_id`]
   );
 }
 function cpRouteMeta(row){ return cpMeta(row); }
@@ -115,11 +122,32 @@ function isGasLpMercancia(row){
     && Number(row.factor_kg_litro || 0) > 0;
 }
 function cpSelectedRoute(){
-  return (CATALOGOS.rutas || []).find(r => String(r.id) === String(cpRuta?.value)) || null;
+  const key = String(cpRuta?.value || '');
+  return (CATALOGOS.rutas || []).find(r =>
+    String(r._select_id || '') === key
+    || String(r._acp_uid || '') === key
+    || String(r.id || '') === key
+    || String(r.ruta_id || '') === key
+  ) || null;
+}
+function cpLocalDateTime(value){
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if(!match){
+    const parsed = text ? new Date(text) : new Date();
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5]),
+    Number(match[6] || 0)
+  );
 }
 function addMinutesToLocalDateTime(value, minutes){
-  const base = value ? new Date(value) : new Date();
-  if(Number.isNaN(base.getTime())) return localDateTimeValue();
+  const base = cpLocalDateTime(value) || new Date();
   base.setMinutes(base.getMinutes() + Number(minutes || 0));
   return localDateTimeValue(base);
 }
@@ -216,6 +244,12 @@ function cpLocationIdError(group, value){
   if(!text) return `${group}: falta ID ubicación Carta Porte.`;
   if(!new RegExp(`^${expected}\\d{6}$`).test(text)) return `${group}: ID ubicación Carta Porte debe tener formato ${expected}000001, no ${text}.`;
   return '';
+}
+function cpRouteEndpointError(route, group, facility){
+  const prefix = group === 'Origen' ? 'origen' : 'destino';
+  const configured = cpRouteLocationId(route, prefix);
+  const actual = cpFacilityValue(facility, 'id_ubicacion');
+  return cpLocationIdError(group, actual || configured);
 }
 function cpMercanciaValue(merc, key){
   const md = cpMeta(merc);
@@ -365,8 +399,8 @@ function cpChecklistResult(){
   const ruta = cpSelectedRoute();
   const s = selectedCp();
   const vehPermiso = String(cpVehicleValue(s.veh, 'permiso')).trim().toUpperCase();
-  const salida = cpSalida?.value ? new Date(cpSalida.value) : null;
-  const llegada = cpLlegada?.value ? new Date(cpLlegada.value) : null;
+  const salida = cpSalida?.value ? cpLocalDateTime(cpSalida.value) : null;
+  const llegada = cpLlegada?.value ? cpLocalDateTime(cpLlegada.value) : null;
   const km = Number(cpDistancia?.value || ruta?.distancia_km || 0);
   const minutes = Number(cpTiempoMin?.value || cpRouteTimeMinutes(ruta) || 0);
   const errors = [];
@@ -392,13 +426,13 @@ function cpChecklistResult(){
   if(!s.origen) errors.push('Ruta: origen no existe en instalaciones Carta Porte.');
   if(!s.destino) errors.push('Ruta: destino no existe en instalaciones Carta Porte.');
   req('Origen', 'CP', cpFacilityValue(s.origen, 'cp'));
-  const origenLocationIdError = cpLocationIdError('Origen', cpFacilityValue(s.origen, 'id_ubicacion'));
+  const origenLocationIdError = cpRouteEndpointError(ruta, 'Origen', s.origen);
   if(origenLocationIdError) errors.push(origenLocationIdError);
   req('Origen', 'estado SAT', cpFacilityValue(s.origen, 'estado'));
   req('Origen', 'municipio SAT', cpFacilityValue(s.origen, 'municipio'));
   req('Origen', 'país', cpFacilityValue(s.origen, 'pais') || 'MEX');
   req('Destino', 'CP', cpFacilityValue(s.destino, 'cp'));
-  const destinoLocationIdError = cpLocationIdError('Destino', cpFacilityValue(s.destino, 'id_ubicacion'));
+  const destinoLocationIdError = cpRouteEndpointError(ruta, 'Destino', s.destino);
   if(destinoLocationIdError) errors.push(destinoLocationIdError);
   req('Destino', 'estado SAT', cpFacilityValue(s.destino, 'estado'));
   req('Destino', 'municipio SAT', cpFacilityValue(s.destino, 'municipio'));
@@ -487,6 +521,7 @@ function prepararCartaPortePreview(){
 }
 function cartaPortePayload(){
   const s = selectedCp();
+  const ruta = cpSelectedRoute();
   const officialId = value => /^\d+$/.test(String(value || '')) ? Number(value) : null;
   return {
     record_uuid: (window.crypto?.randomUUID ? window.crypto.randomUUID() : `cp-${Date.now()}`),
@@ -508,7 +543,7 @@ function cartaPortePayload(){
     destino_ubicacion_id: cpFacilityValue(s.destino, 'id_ubicacion'),
     vehiculo_id: Number(cpVehiculo.value),
     chofer_id: Number(cpChofer.value),
-    ruta_id: Number(cpRuta?.value || 0) || null,
+    ruta_id: Number(ruta?.id || ruta?.ruta_id || cpRuta?.value || 0) || null,
     mercancia_id: Number(cpMercancia.value),
     tipo_comprobante: 'T',
     distancia_km: Number(cpDistancia.value || 0),
@@ -605,7 +640,7 @@ async function confirmarTimbradoCartaPorteGasLp(){
     const pdfUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/pdf?${q}` : '';
     const xmlUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/xml?${q}` : '';
     const uuid = data.uuid_sat || data.factura?.uuid_sat || '';
-    const successMsg = data.recovered_from_pac_audit ? 'Carta Porte ya timbrada.' : (data.duplicate ? 'Esta Carta Porte ya fue timbrada.' : 'Carta Porte timbrada correctamente');
+    const successMsg = data.duplicate ? 'Esta Carta Porte ya fue timbrada.' : 'Carta Porte timbrada correctamente';
     const waitNotice = document.getElementById('cpStampWaitNotice');
     if(waitNotice) waitNotice.style.display = 'none';
     document.getElementById('cpConfirmModal')?.remove();
