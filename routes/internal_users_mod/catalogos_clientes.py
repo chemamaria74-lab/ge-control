@@ -694,7 +694,7 @@ async def gas_lp_internal_catalogo_delete(kind: str, row_id: int, token: str, pe
 
 @router.post("/internal-auth/gas-lp/carta-porte")
 async def gas_lp_internal_carta_porte(request: Request, token: str):
-    from routes.facturas import CartaPorteRequest, _generar_carta_porte_for_scope
+    from routes.facturas_mod.core import CartaPorteRequest, _generar_carta_porte_for_scope
 
     endpoint = "/api/internal-auth/gas-lp/carta-porte"
     request_id = uuid.uuid4().hex
