@@ -29,6 +29,7 @@ body{margin:0;background:var(--trv2-bg);color:var(--trv2-ink)}
 .trv2-topbar .trv2-btn-ghost{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.18);color:#fff}
 .trv2-mini-btn{border:1px solid var(--trv2-line);border-radius:7px;background:#fff;color:var(--trv2-ink);font:inherit;font-size:12px;font-weight:900;padding:7px 9px;cursor:pointer;white-space:nowrap}
 .trv2-mini-btn:hover{border-color:var(--trv2-maroon-2);color:var(--trv2-maroon-2)}
+.trv2-mini-btn-danger:hover{border-color:#b91c1c;color:#b91c1c}
 .trv2-tabs{display:flex;align-items:center;gap:0;background:#fff;border-bottom:1px solid var(--trv2-line);padding:0 18px;min-height:48px;overflow:auto}
 .trv2-tab{border:0;border-bottom:3px solid transparent;background:transparent;color:var(--trv2-muted);font:inherit;font-size:14px;font-weight:800;padding:14px 15px;cursor:pointer;display:flex;align-items:center;gap:8px;white-space:nowrap}
 .trv2-tab.active{color:var(--trv2-ink);border-bottom-color:var(--trv2-maroon-2);background:#faf8f5}
@@ -51,6 +52,7 @@ p{margin:0;color:var(--trv2-muted);line-height:1.5}
 .trv2-muted{color:var(--trv2-muted);font-size:14px}
 .trv2-alert{border-radius:8px;padding:13px 15px;margin-bottom:16px;font-weight:800}
 .trv2-alert-warn{background:#fff8e6;border:1px solid #f1d18a;color:#684800}
+.trv2-alert-ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#064e3b}
 .trv2-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .trv2-form-compact{grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:0}
 .trv2-form label{display:grid;gap:6px;color:#4e4943;font-size:13px;font-weight:900}
@@ -58,6 +60,7 @@ p{margin:0;color:var(--trv2-muted);line-height:1.5}
 .trv2-form textarea{resize:vertical}
 .trv2-form-wide{grid-column:1/-1}
 .trv2-form-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:10px}
+.trv2-form-actions-inline{margin-top:12px}
 .trv2-check{display:flex!important;align-items:center;gap:8px}
 .trv2-check input{width:auto!important;min-height:auto!important}
 .trv2-subtabs{display:flex;align-items:center;gap:8px;overflow:auto;padding:4px 0 14px;margin-bottom:8px}
@@ -75,6 +78,7 @@ p{margin:0;color:var(--trv2-muted);line-height:1.5}
 .trv2-card-head small{color:var(--trv2-muted);font-weight:800}
 .trv2-card-icon{width:38px;height:38px;border-radius:8px;display:grid;place-items:center;background:#f7efe4;color:var(--trv2-maroon-2)}
 .trv2-card-body{display:grid;gap:8px}
+.trv2-card-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #f0ebe4;padding-top:10px}
 .trv2-card-row{display:grid;grid-template-columns:minmax(90px,.8fr) minmax(0,1.2fr);gap:10px;border-top:1px solid #f0ebe4;padding-top:8px;font-size:13px}
 .trv2-card-row span{color:var(--trv2-muted);font-weight:800}
 .trv2-card-row strong{font-weight:900;overflow-wrap:anywhere}
@@ -132,6 +136,13 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-soon i{font-size:42px;color:var(--trv2-gold);margin-bottom:12px}
 .trv2-form-cv{grid-template-columns:repeat(7,minmax(120px,1fr))}
 .trv2-form-admin{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:14px}
+.trv2-admin-panel{display:none}
+.trv2-admin-panel.active{display:block}
+.trv2-admin-cp-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
+.trv2-admin-cp-grid article{border:1px solid var(--trv2-line);border-radius:8px;background:#fff;padding:14px;display:grid;gap:7px}
+.trv2-admin-cp-grid i{width:36px;height:36px;border-radius:8px;background:#f7efe4;color:var(--trv2-maroon-2);display:grid;place-items:center}
+.trv2-admin-cp-grid strong{font-weight:900}
+.trv2-admin-cp-grid span{color:var(--trv2-muted);font-size:13px;font-weight:700;line-height:1.4}
 .trv2-access-result{border:1px solid #a7f3d0;background:#ecfdf5;color:#064e3b;border-radius:8px;padding:13px;margin:14px 0;display:grid;gap:8px}
 .trv2-access-result[hidden]{display:none}
 .trv2-access-result code{display:block;background:#fff;border:1px solid #a7f3d0;border-radius:7px;padding:10px;overflow:auto;color:#111;font-weight:900}
@@ -166,6 +177,7 @@ tbody tr:last-child td{border-bottom:0}
   .trv2-form-cv,.trv2-form-admin{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-step-grid{grid-template-columns:1fr}
   .trv2-access-card{grid-template-columns:1fr}
+  .trv2-admin-cp-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-catalog-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-catalog-toolbar{align-items:stretch;display:grid}
   .trv2-cp-summary,.trv2-preview-grid{grid-template-columns:1fr}
@@ -173,6 +185,7 @@ tbody tr:last-child td{border-bottom:0}
 @media(max-width:560px){
   .trv2-kpis,.trv2-kpis-compact,.trv2-kpis-cv{grid-template-columns:1fr}
   .trv2-form-cv,.trv2-form-admin,.trv2-catalog-card-grid{grid-template-columns:1fr}
+  .trv2-admin-cp-grid{grid-template-columns:1fr}
   .trv2-card-head{grid-template-columns:auto minmax(0,1fr)}
   .trv2-card-head .trv2-status{grid-column:1/-1;justify-self:start}
   .trv2-card-row{grid-template-columns:1fr}
