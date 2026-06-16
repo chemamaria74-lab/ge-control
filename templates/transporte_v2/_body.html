@@ -304,21 +304,20 @@
     <div class="trv2-section-head">
       <div>
         <h1>Reportes SAT</h1>
-        <p>Reporte SAT Transporte en preparación. Se alimentará de facturas de servicio, Carta Porte y movimientos por viaje.</p>
+        <p>Reporte mensual por número de permiso. Se alimentará de viajes, Carta Porte y facturas de servicio.</p>
       </div>
       <div class="trv2-actions">
         <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico()"><i class="fa-solid fa-clock-rotate-left"></i> Cargar historial</button>
         <button class="trv2-btn trv2-btn-primary" type="button" disabled><i class="fa-solid fa-download"></i> Descargar reporte ZIP</button>
+        <button class="trv2-btn trv2-btn-ghost" type="button" disabled><i class="fa-solid fa-trash-can"></i> Borrar reporte</button>
       </div>
     </div>
     <section class="trv2-panel">
       <div class="trv2-form trv2-form-cv">
-        <label>Año <input id="trv2-cv-anio" type="number" min="2024" max="2100"></label>
-        <label>Mes <select id="trv2-cv-mes"></select></label>
-        <label>Tipo reporte <select id="trv2-cv-tipo"><option value="diario">Diario</option><option value="mensual">Mensual</option></select></label>
+        <label>Permiso * <select id="trv2-cv-permiso"></select></label>
+        <label>Año * <input id="trv2-cv-anio" type="number" min="2024" max="2100"></label>
+        <label>Mes * <select id="trv2-cv-mes"></select></label>
         <label>Producto <select id="trv2-cv-producto"></select></label>
-        <label>Vehículo <select id="trv2-cv-vehiculo"></select></label>
-        <label>Cliente <select id="trv2-cv-cliente"></select></label>
         <label>Estado <select id="trv2-cv-estado"><option value="">Todos</option><option value="borrador">Borrador</option><option value="validado">Validado</option><option value="exportado">Exportado</option></select></label>
       </div>
     </section>
@@ -334,7 +333,7 @@
           <button class="trv2-btn trv2-btn-primary" type="button" disabled><i class="fa-solid fa-file-export"></i> Exportar JSON SAT</button>
         </div>
       </div>
-      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">JSON SAT Transporte pendiente. La lógica fiscal se validará por viaje/autotanque antes de exportar.</div>
+      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">JSON SAT Transporte pendiente. Esta vista solo prepara el corte mensual por permiso.</div>
       <div class="trv2-table-wrap">
         <table>
           <thead><tr><th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Producto</th><th>Volumen L</th><th>Vehículo</th><th>Origen</th><th>Destino</th><th>UUID Carta Porte</th><th>Estatus JSON</th></tr></thead>
@@ -354,7 +353,8 @@
     <nav class="trv2-subtabs" aria-label="Administración Transporte v2">
       <button class="trv2-subtab active" type="button" data-admin-tab="usuarios-operador" onclick="trv2SetAdminSubtab('usuarios-operador')"><i class="fa-solid fa-user-lock"></i> Usuarios operador</button>
       <button class="trv2-subtab" type="button" data-admin-tab="configuracion" onclick="trv2SetAdminSubtab('configuracion')"><i class="fa-solid fa-sliders"></i> Configuración</button>
-      <button class="trv2-subtab" type="button" data-admin-tab="catalogos-cp" onclick="trv2SetAdminSubtab('catalogos-cp')"><i class="fa-solid fa-table-list"></i> Catálogos Carta Porte</button>
+      <button class="trv2-subtab" type="button" data-admin-tab="permisos-rfc" onclick="trv2SetAdminSubtab('permisos-rfc')"><i class="fa-solid fa-id-badge"></i> Permisos / RFC</button>
+      <button class="trv2-subtab" type="button" data-admin-tab="parametros-sat" onclick="trv2SetAdminSubtab('parametros-sat')"><i class="fa-solid fa-file-code"></i> Parámetros SAT</button>
     </nav>
     <div class="trv2-admin-panel active" data-admin-panel="usuarios-operador">
       <section class="trv2-panel">
@@ -385,36 +385,66 @@
     <div class="trv2-admin-panel" data-admin-panel="configuracion">
       <section class="trv2-panel">
         <h2><i class="fa-solid fa-sliders"></i> Configuración</h2>
-        <p class="trv2-muted">Parámetros fiscales y operativos del módulo. No se guardan hasta validar tabla/configuración segura.</p>
-        <div class="trv2-alert trv2-alert-warn">Configuración visual. Guardado pendiente de tabla/configuración validada.</div>
-        <form class="trv2-form">
-          <label>RFC emisor Transporte <input placeholder="OEMR710420FCA" disabled></label>
-          <label>Razón social <input placeholder="RUTH ORNELAS MUÑOZ" disabled></label>
-          <label>Régimen fiscal <input placeholder="Pendiente" disabled></label>
-          <label>Lugar expedición <input placeholder="CP emisor" disabled></label>
-          <label>Serie Carta Porte <input placeholder="TCP" disabled></label>
-          <label>Serie factura servicio <input placeholder="FS" disabled></label>
-          <label>Operador puede solicitar Carta Porte <select disabled><option>Sí, con revisión admin</option><option>No</option></select></label>
-          <label>Operador puede generar Carta Porte <select disabled><option>No, pendiente validación fiscal</option><option>Sí</option></select></label>
-          <label class="trv2-form-wide">Parámetros Reportes SAT <textarea rows="4" placeholder="Reglas de periodo, producto, UUID y movimientos por viaje." disabled></textarea></label>
+        <p class="trv2-muted">Perfil fiscal y parámetros operativos guardados en configuración Transporte.</p>
+        <form class="trv2-form" id="trv2-admin-settings-form" onsubmit="trv2SaveSettings(event)">
+          <label>RFC del contribuyente * <input id="trv2-set-rfc" data-rfc-field placeholder="OEMR710420FCA" required></label>
+          <label>Nombre fiscal / razón social * <input id="trv2-set-nombre" placeholder="RUTH ORNELAS MUÑOZ" required></label>
+          <label>CP fiscal / lugar expedición * <input id="trv2-set-cp" placeholder="00000" required></label>
+          <label>Régimen fiscal emisor * <input id="trv2-set-regimen" placeholder="612" required></label>
+          <label>RFC representante legal <input id="trv2-set-rfc-rep" data-rfc-field placeholder="Opcional"></label>
+          <label>Factor kg/L default <input id="trv2-set-factor" type="number" step="0.000001" placeholder="0.517200"></label>
+          <label class="trv2-form-wide">Logo empresa <input id="trv2-set-logo" placeholder="Placeholder: URL/logo futuro"></label>
+          <div class="trv2-form-wide trv2-check-grid">
+            <label class="trv2-check"><input id="trv2-set-prod-gaslp" type="checkbox"> Gas LP</label>
+            <label class="trv2-check"><input id="trv2-set-prod-magna" type="checkbox"> Gasolina Magna</label>
+            <label class="trv2-check"><input id="trv2-set-prod-premium" type="checkbox"> Gasolina Premium</label>
+            <label class="trv2-check"><input id="trv2-set-prod-diesel" type="checkbox"> Diésel</label>
+          </div>
           <div class="trv2-form-actions">
-            <button class="trv2-btn trv2-btn-primary" type="button" disabled>Guardar configuración</button>
+            <button class="trv2-btn trv2-btn-primary" type="submit">Guardar configuración</button>
           </div>
         </form>
+        <div id="trv2-settings-status" class="trv2-muted"></div>
       </section>
     </div>
-    <div class="trv2-admin-panel" data-admin-panel="catalogos-cp">
+    <div class="trv2-admin-panel" data-admin-panel="permisos-rfc">
       <section class="trv2-panel">
-        <h2><i class="fa-solid fa-table-list"></i> Catálogos Carta Porte</h2>
-        <p class="trv2-muted">Vista de referencia para vehículos, operadores, rutas, productos y permisos usados en Carta Porte. Lectura desde `tr_*`.</p>
-        <div class="trv2-admin-cp-grid">
-          <article><i class="fa-solid fa-truck-moving"></i><strong>Vehículos</strong><span>Placas, configuración, permisos y seguros.</span></article>
-          <article><i class="fa-solid fa-id-card"></i><strong>Operadores</strong><span>RFC Figura, licencia y datos de contacto.</span></article>
-          <article><i class="fa-solid fa-route"></i><strong>Rutas</strong><span>Origen, destino, CP y distancia.</span></article>
-          <article><i class="fa-solid fa-gas-pump"></i><strong>Productos</strong><span>Clave SAT, unidad, material peligroso y embalaje.</span></article>
-          <article><i class="fa-solid fa-trailer"></i><strong>Remolques / permisos</strong><span>Se habilitará al validar estructura legacy.</span></article>
+        <div class="trv2-table-head">
+          <div>
+            <h2><i class="fa-solid fa-id-badge"></i> Permisos / RFC</h2>
+            <p class="trv2-muted">Catálogo Transporte para cruzar RFC, producto y permiso detectado en facturas.</p>
+          </div>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadPermisosRfc()">Actualizar</button>
         </div>
-        <div class="trv2-alert trv2-alert-warn">Edición de Catálogos Carta Porte se habilitará después de validar escritura segura en `tr_*`.</div>
+        <form class="trv2-form trv2-form-admin" id="trv2-permiso-form" onsubmit="trv2SavePermisoRfc(event)">
+          <input type="hidden" id="trv2-permiso-id">
+          <label>Tipo * <select id="trv2-permiso-tipo" required><option>Proveedor</option><option>Cliente</option><option>Terminal</option><option>Permisionario</option></select></label>
+          <label>RFC * <input id="trv2-permiso-rfc" data-rfc-field required></label>
+          <label>Nombre * <input id="trv2-permiso-nombre" required></label>
+          <label>Producto * <select id="trv2-permiso-producto" required><option value="">Seleccionar</option><option>Gas LP</option><option>Magna</option><option>Premium</option><option>Diésel</option></select></label>
+          <label>Permiso CRE * <input id="trv2-permiso-cre" required></label>
+          <label>Permiso almacenamiento terminal <input id="trv2-permiso-alm"></label>
+          <label>Origen default <select id="trv2-permiso-origen"></select></label>
+          <label>Producto default <select id="trv2-permiso-producto-default"></select></label>
+          <label>Activo <select id="trv2-permiso-activo"><option value="true">Activo</option><option value="false">Inactivo</option></select></label>
+          <div class="trv2-form-actions">
+            <button class="trv2-btn trv2-btn-primary" type="submit">Guardar permiso</button>
+            <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ClearPermisoForm()">Limpiar</button>
+          </div>
+        </form>
+        <div id="trv2-permisos-list" class="trv2-access-list"></div>
+      </section>
+    </div>
+    <div class="trv2-admin-panel" data-admin-panel="parametros-sat">
+      <section class="trv2-panel">
+        <h2><i class="fa-solid fa-file-code"></i> Parámetros SAT</h2>
+        <p class="trv2-muted">Reglas preventivas para JSON mensual por permiso. No genera JSON real todavía.</p>
+        <div class="trv2-admin-cp-grid">
+          <article><i class="fa-solid fa-key"></i><strong>JSON por permiso</strong><span>Cada permiso genera su corte mensual separado.</span></article>
+          <article><i class="fa-solid fa-gas-pump"></i><strong>Producto compatible</strong><span>No mezclar Gas LP, Magna, Premium o Diésel con permisos incorrectos.</span></article>
+          <article><i class="fa-solid fa-file-invoice"></i><strong>UUID requerido</strong><span>Carta Porte y factura servicio alimentarán el reporte futuro.</span></article>
+          <article><i class="fa-solid fa-ban"></i><strong>Exportación deshabilitada</strong><span>El ZIP/JSON SAT queda pendiente de validación fiscal.</span></article>
+        </div>
       </section>
     </div>
   </section>
