@@ -661,6 +661,109 @@ def test_gas_lp_crear_cliente_reuses_existing_rfc_in_same_profile(monkeypatch):
     assert db.inserts == []
 
 
+def test_gas_lp_crear_cliente_reactivates_inactive_real_alfa_gas_rfc(monkeypatch):
+    class Result:
+        def __init__(self, data):
+            self.data = data
+
+    class Query:
+        def __init__(self, db):
+            self.db = db
+            self.filters = []
+            self.inserted = None
+            self.updated = None
+
+        def select(self, *_args):
+            return self
+
+        def eq(self, key, value):
+            self.filters.append((key, value))
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def limit(self, *_args):
+            return self
+
+        def insert(self, row):
+            self.inserted = row
+            return self
+
+        def update(self, row):
+            self.updated = row
+            return self
+
+        def execute(self):
+            if self.inserted is not None:
+                self.db.inserts.append(self.inserted)
+                return Result([{**self.inserted, "id": 99}])
+            rows = self.db.rows
+            for key, value in self.filters:
+                rows = [row for row in rows if row.get(key) == value]
+            if self.updated is not None:
+                self.db.updates.append(self.updated)
+                for row in rows:
+                    row.update(self.updated)
+                return Result(rows)
+            return Result(rows)
+
+    class DB:
+        def __init__(self):
+            self.inserts = []
+            self.updates = []
+            self.rows = [{
+                "id": 21,
+                "tenant_id": "tenant-a",
+                "perfil_id": 5,
+                "user_id": "owner-a",
+                "rfc": "EAVL960621VY7",
+                "nombre": "LUIS FERNANDO ESPARZA VILLA INACTIVO",
+                "cp": "00000",
+                "regimen_fiscal": "616",
+                "uso_cfdi": "S01",
+                "email_facturacion": "",
+                "activo": False,
+                "metadata": {"nota": "se conserva"},
+            }]
+
+        def table(self, name):
+            assert name == "gas_lp_clientes_facturacion"
+            return Query(self)
+
+    db = DB()
+    monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token, write=False: {"user": {"id": 9, "display_name": "ALFA ASISTENTE", "owner_user_id": "owner-a", "tenant_id": "tenant-a", "perfil_id": 5}})
+    monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: db)
+    payload = internal_users.GasLpInternalClientePayload(
+        rfc="EAVL960621VY7",
+        nombre="LUIS FERNANDO ESPARZA VILLA",
+        cp="47253",
+        regimen_fiscal="612",
+        uso_cfdi="G03",
+        email="alfa.vtas@grupoemurcia.com.mx",
+        email_adicional_1="contabilidad@empresa.com",
+    )
+
+    response = asyncio.run(internal_users.gas_lp_internal_crear_cliente(payload, token="tok"))
+    body = json.loads(response.body)
+
+    assert body["ok"] is True
+    assert body["reactivated"] is True
+    assert body["message"] == "Cliente existente reactivado y actualizado."
+    assert body["cliente"]["id"] == 21
+    assert body["cliente"]["activo"] is True
+    assert body["cliente"]["nombre"] == "LUIS FERNANDO ESPARZA VILLA"
+    assert body["cliente"]["cp"] == "47253"
+    assert body["cliente"]["regimen_fiscal"] == "612"
+    assert body["cliente"]["uso_cfdi"] == "G03"
+    assert body["cliente"]["email_facturacion"] == "alfa.vtas@grupoemurcia.com.mx"
+    assert body["cliente"]["metadata"]["email_adicional_1"] == "contabilidad@empresa.com"
+    assert body["cliente"]["metadata"]["nota"] == "se conserva"
+    assert db.inserts == []
+    assert len(db.updates) == 1
+    assert db.rows[0]["activo"] is True
+
+
 def test_gas_lp_clientes_selector_dedupes_active_rfc_by_invoice_history():
     class Result:
         def __init__(self, data):
