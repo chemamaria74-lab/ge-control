@@ -75,6 +75,9 @@ p{margin:0;color:var(--trv2-muted);line-height:1.5}
 .trv2-check{display:flex!important;align-items:center;gap:8px}
 .trv2-check input{width:auto!important;min-height:auto!important}
 .trv2-check-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;border:1px solid var(--trv2-line);border-radius:8px;background:#faf8f5;padding:12px}
+.trv2-logo-box{display:grid;grid-template-columns:minmax(0,1fr) 180px auto;gap:12px;align-items:end;border:1px solid var(--trv2-line);border-radius:8px;background:#faf8f5;padding:12px}
+.trv2-logo-preview{min-height:76px;border:1px dashed #d8d0c5;border-radius:8px;background:#fff;display:grid;place-items:center;color:var(--trv2-muted);font-weight:800;text-align:center;padding:8px}
+.trv2-logo-preview img{max-width:150px;max-height:64px;object-fit:contain}
 .trv2-subtabs{display:flex;align-items:center;gap:8px;overflow:auto;padding:4px 0 14px;margin-bottom:8px}
 .trv2-subtab{border:1px solid var(--trv2-line);background:#fff;color:var(--trv2-muted);border-radius:8px;padding:10px 12px;font:inherit;font-weight:900;display:flex;align-items:center;gap:8px;white-space:nowrap;cursor:pointer}
 .trv2-subtab span{background:#f3eee7;color:#5f554b;border-radius:999px;padding:2px 7px;font-size:12px}
