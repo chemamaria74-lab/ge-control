@@ -4,10 +4,8 @@
 <header class="trv2-topbar" id="trv2-admin-topbar" hidden>
   <a href="/choice" class="trv2-brand" aria-label="GE Control">
     <img src="/static/img/ge-isotype-light.svg" alt="GE">
-    <span>Transporte v2</span>
+    <span>Transporte</span>
   </a>
-  <span class="trv2-badge"><i class="fa-solid fa-truck-fast"></i> Isla nueva</span>
-  <span class="trv2-badge trv2-badge-soft">Fase 2.7 / 2.8</span>
   <div class="trv2-topbar-spacer"></div>
   <button class="trv2-badge trv2-company-chip" id="trv2-company" type="button" onclick="trv2OpenCompanySelector()">Empresa pendiente</button>
   <span class="trv2-badge" id="trv2-user">Sesión validada</span>
@@ -16,14 +14,22 @@
 </header>
 
 <nav class="trv2-tabs" id="trv2-admin-tabs" aria-label="Navegación Transporte v2" hidden>
-  <button class="trv2-tab active" type="button" data-tab="dashboard" onclick="trv2SwitchTab('dashboard')"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
-  <button class="trv2-tab" type="button" data-tab="viajes" onclick="trv2SwitchTab('viajes')"><i class="fa-solid fa-route"></i> Viajes</button>
-  <button class="trv2-tab" type="button" data-tab="documentos" onclick="trv2SwitchTab('documentos')"><i class="fa-solid fa-file-arrow-up"></i> Documentos</button>
+  <button class="trv2-tab active" type="button" data-tab="carga-archivos" onclick="trv2SwitchTab('carga-archivos')"><i class="fa-solid fa-file-arrow-up"></i> Carga de archivos</button>
   <button class="trv2-tab" type="button" data-tab="carta-porte" onclick="trv2SwitchTab('carta-porte')"><i class="fa-solid fa-file-invoice"></i> Carta Porte</button>
+  <button class="trv2-tab" type="button" data-tab="facturas-servicio" onclick="trv2SwitchTab('facturas-servicio')"><i class="fa-solid fa-receipt"></i> Facturas de servicio</button>
+  <button class="trv2-tab" type="button" data-tab="conciliacion" onclick="trv2SwitchTab('conciliacion')"><i class="fa-solid fa-scale-balanced"></i> Conciliación</button>
+  <button class="trv2-tab" type="button" data-tab="reportes-sat" onclick="trv2SwitchTab('reportes-sat')"><i class="fa-solid fa-file-code"></i> Reportes SAT</button>
   <button class="trv2-tab" type="button" data-tab="catalogos" onclick="trv2SwitchTab('catalogos')"><i class="fa-solid fa-table-list"></i> Catálogos</button>
-  <button class="trv2-tab" type="button" data-tab="reportes" onclick="trv2SwitchTab('reportes')"><i class="fa-solid fa-chart-column"></i> Reportes</button>
-  <button class="trv2-tab" type="button" data-tab="control-volumetrico" onclick="trv2SwitchTab('control-volumetrico')"><i class="fa-solid fa-file-code"></i> Control Volumétrico</button>
+  <button class="trv2-tab" type="button" data-tab="administracion" onclick="trv2SwitchTab('administracion')"><i class="fa-solid fa-user-gear"></i> Administración</button>
 </nav>
+
+<section class="trv2-validating" id="trv2-validating">
+  <div>
+    <i class="fa-solid fa-circle-notch fa-spin"></i>
+    <h1>Validando sesión...</h1>
+    <p>Estamos confirmando tu usuario, acceso a Transporte y empresa activa.</p>
+  </div>
+</section>
 
 <section class="trv2-auth-required" id="trv2-auth-required" hidden>
   <div>
@@ -38,7 +44,7 @@
 </section>
 
 <main class="trv2-shell" id="trv2-admin-shell" hidden>
-  <section id="trv2-tab-dashboard" class="trv2-section active">
+  <section id="trv2-tab-dashboard" class="trv2-section">
     <div class="trv2-section-head">
       <div>
         <h1>Centro de Transporte v2</h1>
@@ -125,9 +131,14 @@
     <div class="trv2-section-head">
       <div>
         <h1>Carta Porte</h1>
-        <p>Preview y validación seca desde el viaje. Sin PAC, sin timbrado y sin XML final.</p>
+        <p>Flujo guiado para extraer datos, completar faltantes y generar preview. Sin PAC, sin timbrado y sin XML final.</p>
       </div>
       <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2PreviewSelectedTrip()"><i class="fa-solid fa-eye"></i> Preview seleccionado</button>
+    </div>
+    <div class="trv2-step-grid">
+      <article class="trv2-step"><span>1</span><strong>Subir documento/factura</strong><p>Extrae RFC, UUID, folio, producto, litros, kilos, permiso, boleta y origen/destino sugeridos.</p></article>
+      <article class="trv2-step"><span>2</span><strong>Completar datos faltantes</strong><p>Ruta, vehículo, operador, producto y fechas desde catálogos reales de Transporte.</p></article>
+      <article class="trv2-step"><span>3</span><strong>Preview Carta Porte</strong><p>Valida el resumen antes de cualquier timbrado futuro.</p></article>
     </div>
     <section class="trv2-panel">
       <div class="trv2-form trv2-form-compact">
@@ -140,26 +151,42 @@
     </section>
   </section>
 
-  <section id="trv2-tab-documentos" class="trv2-section">
+  <section id="trv2-tab-carga-archivos" class="trv2-section active">
     <div class="trv2-section-head">
       <div>
-        <h1>Documentos</h1>
-        <p>Factura/documento del cliente, evidencias y archivos del expediente.</p>
+        <h1>Carga de archivos</h1>
+        <p>Carga ZIP/XML/PDF de facturas de servicio e ingreso para alimentar reportes SAT y expediente operativo.</p>
       </div>
     </div>
     <section class="trv2-panel">
-      <h2>Carga documental</h2>
+      <h2>Periodo y archivos</h2>
       <div class="trv2-alert trv2-alert-warn">Carga documental pendiente de configurar bucket transporte-v2-documents.</div>
       <form class="trv2-form" id="trv2-doc-form" onsubmit="trv2AnalyzeDocument(event)">
+        <label>Año <input id="trv2-upload-year" type="number" min="2024" max="2100" value="2026"></label>
+        <label>Mes <select id="trv2-upload-month"><option value="01">Enero</option><option value="02">Febrero</option><option value="03">Marzo</option><option value="04">Abril</option><option value="05">Mayo</option><option value="06" selected>Junio</option><option value="07">Julio</option><option value="08">Agosto</option><option value="09">Septiembre</option><option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option></select></label>
         <label>Viaje ID <input id="trv2-doc-viaje-id" type="number" min="1" placeholder="Opcional"></label>
         <label>Tipo documento <select id="trv2-doc-tipo"><option value="factura_cliente">Factura cliente</option><option value="xml_cliente">XML cliente</option><option value="evidencia">Evidencia</option><option value="otro">Otro</option></select></label>
-        <label class="trv2-form-wide">Archivo <input id="trv2-doc-file" type="file" accept=".pdf,.xml,image/*"></label>
+        <label class="trv2-form-wide">Archivo ZIP/XML/PDF <input id="trv2-doc-file" type="file" accept=".zip,.pdf,.xml,image/*"></label>
         <div class="trv2-form-actions">
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2UploadDocument(event)">Guardar metadata</button>
-          <button class="trv2-btn trv2-btn-primary" type="submit"><i class="fa-solid fa-wand-magic-sparkles"></i> Analizar documento</button>
+          <button class="trv2-btn trv2-btn-primary" type="submit"><i class="fa-solid fa-gears"></i> Procesar archivos</button>
         </div>
       </form>
       <p id="trv2-doc-message" class="trv2-muted"></p>
+    </section>
+    <section class="trv2-panel">
+      <div class="trv2-table-head">
+        <div>
+          <h2>Archivos cargados</h2>
+          <p class="trv2-muted">Estatus operativo: pendiente / procesado / error.</p>
+        </div>
+      </div>
+      <div class="trv2-table-wrap">
+        <table>
+          <thead><tr><th>Archivo</th><th>Tipo</th><th>Periodo</th><th>Estatus</th><th>Resultado</th></tr></thead>
+          <tbody><tr><td colspan="5" class="trv2-empty">Aún no hay archivos procesados en esta vista.</td></tr></tbody>
+        </table>
+      </div>
     </section>
     <section class="trv2-panel" id="trv2-doc-detected-panel" hidden>
       <div class="trv2-table-head">
@@ -194,29 +221,62 @@
     <section class="trv2-panel trv2-catalog-panel" id="trv2-catalogs-grid"></section>
   </section>
 
-  <section id="trv2-tab-reportes" class="trv2-section">
-    <div class="trv2-grid-2">
-      <div class="trv2-soon">
-        <i class="fa-solid fa-chart-column"></i>
-        <h1>Reportes</h1>
-        <p>Próximamente en una fase posterior.</p>
-      </div>
-      <section class="trv2-panel">
-        <h2><i class="fa-solid fa-user-lock"></i> Accesos operador</h2>
-        <p class="trv2-muted">Aquí se crearán usuarios operador ligados a choferes y viajes asignados.</p>
-      </section>
-    </div>
-  </section>
-
-  <section id="trv2-tab-control-volumetrico" class="trv2-section">
+  <section id="trv2-tab-facturas-servicio" class="trv2-section">
     <div class="trv2-section-head">
       <div>
-        <h1>Control Volumétrico SAT</h1>
-        <p>Reporte diario/mensual para transporte de hidrocarburos y petrolíferos.</p>
+        <h1>Facturas de servicio</h1>
+        <p>Control visual de servicios pendientes de facturar, facturados y pendientes de pago.</p>
+      </div>
+    </div>
+    <div class="trv2-kpis">
+      <article><span>Pendientes de facturar</span><strong>0</strong></article>
+      <article><span>Facturadas</span><strong>0</strong></article>
+      <article><span>Pendientes de pago</span><strong>0</strong></article>
+      <article><span>Listas para revisión</span><strong>0</strong></article>
+    </div>
+    <section class="trv2-panel">
+      <div class="trv2-table-head">
+        <div><h2>Servicios por viaje</h2><p class="trv2-muted">Fuente futura: viajes, Carta Porte lista, cliente detectado e importe/tarifa.</p></div>
+        <button class="trv2-btn trv2-btn-primary" type="button" disabled>Generar factura</button>
+      </div>
+      <div class="trv2-empty">Facturación de servicio pendiente para fase posterior. No timbra CFDI.</div>
+    </section>
+  </section>
+
+  <section id="trv2-tab-conciliacion" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Conciliación</h1>
+        <p>Vista separada para pagos de facturas de servicio Transporte. No toca Conciliación Gas LP.</p>
+      </div>
+    </div>
+    <section class="trv2-panel">
+      <div class="trv2-form trv2-form-compact">
+        <label>Mes <select><option>Junio 2026</option></select></label>
+        <label>Cliente <select><option>Todos</option></select></label>
+      </div>
+    </section>
+    <div class="trv2-kpis">
+      <article><span>Pendientes de pago</span><strong>0</strong></article>
+      <article><span>Pagadas</span><strong>0</strong></article>
+      <article><span>Conciliadas</span><strong>0</strong></article>
+      <article><span>Con diferencia</span><strong>0</strong></article>
+    </div>
+    <section class="trv2-panel">
+      <h2>Facturas de servicio</h2>
+      <div class="trv2-empty">Conciliación Transporte en preparación.</div>
+    </section>
+  </section>
+
+  <section id="trv2-tab-reportes-sat" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Reportes SAT</h1>
+        <p>Reporte SAT Transporte en preparación. Se alimentará de facturas de servicio, Carta Porte y movimientos por viaje.</p>
       </div>
       <div class="trv2-actions">
-        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico()"><i class="fa-solid fa-rotate"></i> Cargar periodo</button>
-        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2ValidateCvDraft()"><i class="fa-solid fa-list-check"></i> Validar movimientos</button>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico()"><i class="fa-solid fa-clock-rotate-left"></i> Cargar historial</button>
+        <button class="trv2-btn trv2-btn-primary" type="button" disabled><i class="fa-solid fa-download"></i> Descargar reporte ZIP</button>
       </div>
     </div>
     <section class="trv2-panel">
@@ -242,7 +302,7 @@
           <button class="trv2-btn trv2-btn-primary" type="button" disabled><i class="fa-solid fa-file-export"></i> Exportar JSON SAT</button>
         </div>
       </div>
-      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">Exportación JSON SAT pendiente para fase posterior.</div>
+      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">JSON SAT Transporte pendiente para fase posterior. La lógica fiscal se validará por viaje/autotanque antes de exportar.</div>
       <div class="trv2-table-wrap">
         <table>
           <thead><tr><th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Producto</th><th>Volumen L</th><th>Vehículo</th><th>Origen</th><th>Destino</th><th>UUID Carta Porte</th><th>Estatus JSON</th></tr></thead>
@@ -250,6 +310,40 @@
         </table>
       </div>
     </section>
+  </section>
+
+  <section id="trv2-tab-administracion" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Administración</h1>
+        <p>Usuarios operador y parámetros del módulo Transporte.</p>
+      </div>
+    </div>
+    <div class="trv2-grid-2">
+      <section class="trv2-panel">
+        <h2><i class="fa-solid fa-user-lock"></i> Usuarios operador</h2>
+        <p class="trv2-muted">Crea accesos de operador ligados a choferes para consultar viajes asignados, evidencias, documentos y Carta Porte.</p>
+        <form class="trv2-form trv2-form-admin">
+          <label>Operador/chofer <select><option>Seleccionar operador</option></select></label>
+          <label>Usuario <input placeholder="usuario.operador"></label>
+          <label>PIN/contraseña temporal <input placeholder="Pendiente"></label>
+          <label>Estado <select><option>Activo</option><option>Inactivo</option></select></label>
+          <div class="trv2-form-actions">
+            <button class="trv2-btn trv2-btn-primary" type="button" disabled>Crear acceso</button>
+          </div>
+        </form>
+        <div class="trv2-alert trv2-alert-warn">Alta de operadores se habilitará en la siguiente fase.</div>
+      </section>
+      <section class="trv2-panel">
+        <h2><i class="fa-solid fa-sliders"></i> Configuración</h2>
+        <p class="trv2-muted">Parámetros fiscales y operativos del módulo. Sin cambios activos todavía.</p>
+        <div class="trv2-checklist">
+          <span><i class="fa-solid fa-clock"></i> Perfil fiscal Transporte</span>
+          <span><i class="fa-solid fa-clock"></i> Políticas de Carta Porte</span>
+          <span><i class="fa-solid fa-clock"></i> Parámetros Reportes SAT</span>
+        </div>
+      </section>
+    </div>
   </section>
 </main>
 
