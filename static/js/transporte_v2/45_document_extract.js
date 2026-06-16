@@ -168,30 +168,30 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
     </div>
     <h3 class="trv2-form-wide trv2-subsection-title">Completar viaje</h3>
     <label>Cliente
-      <select id="${scope === 'cp' ? 'trv2-cp-doc-cliente-id' : 'trv2-doc-cliente-id'}">${trv2CatalogOptions('clientes', 'Cliente pendiente')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-cliente-id' : 'trv2-doc-cliente-id'}" onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">${trv2CatalogOptions('clientes', 'Cliente pendiente')}</select>
     </label>
     <label>Ruta
       <select id="${scope === 'cp' ? 'trv2-cp-doc-ruta-id' : 'trv2-doc-ruta-id'}" required onchange="trv2UpdateTripDatesFromRoute('${trv2Esc(scope)}')">${trv2CatalogOptions('rutas', 'Selecciona ruta')}</select>
       <small class="trv2-route-hint" id="${scope === 'cp' ? 'trv2-cp-doc-route-hint' : 'trv2-doc-route-hint'}"></small>
     </label>
     <label>Operador
-      <select id="${scope === 'cp' ? 'trv2-cp-doc-operador-id' : 'trv2-doc-operador-id'}" required>${trv2CatalogOptions('operadores', 'Selecciona operador')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-operador-id' : 'trv2-doc-operador-id'}" required onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">${trv2CatalogOptions('operadores', 'Selecciona operador')}</select>
     </label>
     <label>Vehículo
-      <select id="${scope === 'cp' ? 'trv2-cp-doc-vehiculo-id' : 'trv2-doc-vehiculo-id'}" required>${trv2CatalogOptions('vehiculos', 'Selecciona vehículo')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-vehiculo-id' : 'trv2-doc-vehiculo-id'}" required onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">${trv2CatalogOptions('vehiculos', 'Selecciona vehículo')}</select>
     </label>
     <label>Producto
-      <select id="${scope === 'cp' ? 'trv2-cp-doc-producto-id' : 'trv2-doc-producto-id'}" required>${trv2CatalogOptions('productos', 'Selecciona producto')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-producto-id' : 'trv2-doc-producto-id'}" required onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">${trv2CatalogOptions('productos', 'Selecciona producto')}</select>
     </label>
     <label>Fecha salida
       <input id="${scope === 'cp' ? 'trv2-cp-doc-fecha-salida' : 'trv2-doc-fecha-salida'}" type="datetime-local" required onchange="trv2UpdateTripDatesFromRoute('${trv2Esc(scope)}')">
     </label>
     <label>Fecha llegada estimada
-      <input id="${scope === 'cp' ? 'trv2-cp-doc-fecha-llegada' : 'trv2-doc-fecha-llegada'}" type="datetime-local">
+      <input id="${scope === 'cp' ? 'trv2-cp-doc-fecha-llegada' : 'trv2-doc-fecha-llegada'}" type="datetime-local" onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">
     </label>
-    <label class="trv2-form-wide">Campos pendientes
-      <textarea rows="3" readonly>${trv2Esc((data.manual_fields_required || []).join(', ') || 'Sin pendientes detectados')}</textarea>
-    </label>
+    <div class="trv2-form-wide trv2-alert trv2-alert-warn" id="${scope === 'cp' ? 'trv2-cp-doc-pending' : 'trv2-doc-pending'}">
+      Falta seleccionar ruta, vehículo y operador.
+    </div>
   `;
   trv2SelectDetectedCatalogValues(scope, detected);
   trv2SetDefaultTripDates(scope);
@@ -248,6 +248,34 @@ function trv2UpdateTripDatesFromRoute(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
     const arrival = llegadaInput?.value ? llegadaInput.value.replace('T', ' ') : 'Pendiente';
     hint.textContent = route ? `Distancia: ${distance || 0} km · Duración: ${duration || 0} min · Llegada estimada: ${arrival}` : '';
   }
+  trv2UpdateDocumentPending(scope);
+}
+
+function trv2DocumentPendingFields(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
+  const required = [
+    ['ruta-id', 'ruta'],
+    ['vehiculo-id', 'vehículo'],
+    ['operador-id', 'operador'],
+    ['producto-id', 'producto'],
+    ['fecha-salida', 'fecha salida'],
+    ['fecha-llegada', 'fecha llegada'],
+  ];
+  return required
+    .filter(([suffix]) => !String(document.getElementById(trv2DocFieldId(scope, suffix))?.value || '').trim())
+    .map(([, label]) => label);
+}
+
+function trv2UpdateDocumentPending(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
+  const box = document.getElementById(scope === 'cp' ? 'trv2-cp-doc-pending' : 'trv2-doc-pending');
+  if (!box) return;
+  const missing = trv2DocumentPendingFields(scope);
+  if (!missing.length) {
+    box.className = 'trv2-form-wide trv2-alert trv2-alert-ok';
+    box.textContent = 'Listo para crear viaje borrador.';
+    return;
+  }
+  box.className = 'trv2-form-wide trv2-alert trv2-alert-warn';
+  box.textContent = `Falta completar: ${missing.join(', ')}.`;
 }
 
 function trv2DetectedValue(value, type = '') {
@@ -324,6 +352,7 @@ function trv2SelectDetectedCatalogValues(scope, detected) {
   const productoSelect = document.getElementById(trv2DocFieldId(scope, 'producto-id'));
   if (clienteSelect && cliente?.id) clienteSelect.value = String(cliente.id);
   if (productoSelect && producto?.id) productoSelect.value = String(producto.id);
+  trv2UpdateDocumentPending(scope);
 }
 
 async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
@@ -356,9 +385,11 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
     perfil_id: TRV2_PERFIL?.id || null,
     cliente_id: cliente?.id || null,
     operador_id: operador?.id || null,
+    chofer_id: operador?.id || null,
     vehiculo_id: vehiculo?.id || null,
     ruta_id: ruta?.id || null,
     producto_id: producto?.id || null,
+    producto_operacion_id: producto?.id || null,
     cliente_nombre: detected.cliente_nombre || detected.receptor_nombre || '',
     origen: ruta?.origen || detected.origen_sugerido || detected.proveedor_nombre || detected.emisor_nombre || '',
     destino: ruta?.destino || detected.destino_sugerido || detected.cliente_nombre || detected.receptor_nombre || '',
