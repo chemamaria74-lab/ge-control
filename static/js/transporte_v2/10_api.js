@@ -38,12 +38,14 @@ function trv2UpdateActiveCompany() {
 
 function trv2BlockAdmin(message) {
   TRV2_ADMIN_READY = false;
+  const validating = document.getElementById('trv2-validating');
   const topbar = document.getElementById('trv2-admin-topbar');
   const shell = document.getElementById('trv2-admin-shell');
   const tabs = document.getElementById('trv2-admin-tabs');
   const required = document.getElementById('trv2-auth-required');
   const requiredTitle = document.getElementById('trv2-auth-required-title');
   const requiredMsg = document.getElementById('trv2-auth-required-message');
+  if (validating) validating.hidden = true;
   if (topbar) topbar.hidden = true;
   if (shell) shell.hidden = true;
   if (tabs) tabs.hidden = true;
@@ -60,10 +62,12 @@ function trv2BlockAdmin(message) {
 
 function trv2UnblockAdmin() {
   TRV2_ADMIN_READY = true;
+  const validating = document.getElementById('trv2-validating');
   const topbar = document.getElementById('trv2-admin-topbar');
   const shell = document.getElementById('trv2-admin-shell');
   const tabs = document.getElementById('trv2-admin-tabs');
   const required = document.getElementById('trv2-auth-required');
+  if (validating) validating.hidden = true;
   if (required) required.hidden = true;
   if (topbar) topbar.hidden = false;
   if (tabs) tabs.hidden = false;
@@ -156,11 +160,10 @@ function trv2SwitchTab(tab) {
   document.querySelectorAll('.trv2-tab').forEach(el => el.classList.remove('active'));
   document.getElementById(`trv2-tab-${tab}`)?.classList.add('active');
   document.querySelector(`.trv2-tab[data-tab="${tab}"]`)?.classList.add('active');
-  if (tab === 'dashboard') trv2LoadDashboard();
-  if (tab === 'viajes') trv2LoadTrips();
+  if (tab === 'carga-archivos') trv2LoadTrips();
   if (tab === 'carta-porte') trv2PrepareCartaPorteTab();
   if (tab === 'catalogos') trv2LoadCatalogs();
-  if (tab === 'control-volumetrico') trv2LoadControlVolumetrico();
+  if (tab === 'reportes-sat') trv2LoadControlVolumetrico();
 }
 
 function trv2RenderCompanySelector(profiles, force = false) {
