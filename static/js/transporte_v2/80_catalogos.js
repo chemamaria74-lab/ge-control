@@ -93,6 +93,7 @@ async function trv2LoadCatalogs(options = {}) {
   trv2RenderCatalogTabs();
   trv2RenderActiveCatalog();
   trv2PopulateTripSelects();
+  if (typeof trv2PopulateOperatorAdminSelects === 'function') trv2PopulateOperatorAdminSelects();
   if (typeof trv2PopulateControlVolumetricoFilters === 'function') trv2PopulateControlVolumetricoFilters();
   if (!options.silent && results.some(r => r.data?.needs_schema)) {
     trv2Toast('Catálogos Transporte v2 pendientes de esquema SQL.', 'error');

@@ -164,6 +164,10 @@ function trv2SwitchTab(tab) {
   if (tab === 'carta-porte') trv2PrepareCartaPorteTab();
   if (tab === 'catalogos') trv2LoadCatalogs();
   if (tab === 'reportes-sat') trv2LoadControlVolumetrico();
+  if (tab === 'administracion') {
+    if (typeof trv2PopulateOperatorAdminSelects === 'function') trv2PopulateOperatorAdminSelects();
+    if (typeof trv2LoadOperatorAccesses === 'function') trv2LoadOperatorAccesses();
+  }
 }
 
 function trv2RenderCompanySelector(profiles, force = false) {
