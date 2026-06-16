@@ -1,5 +1,5 @@
 async function trv2UploadDocument(event) {
-  event.preventDefault();
+  if (event?.preventDefault) event.preventDefault();
   const file = document.getElementById('trv2-doc-file').files[0];
   const message = document.getElementById('trv2-doc-message');
   if (!file) {
