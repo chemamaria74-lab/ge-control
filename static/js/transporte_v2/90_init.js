@@ -5,7 +5,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     localStorage.setItem('zc_token', TRV2_TOKEN);
   }
   if (!TRV2_TOKEN) {
-    location.href = '/login/transporte';
+    location.href = '/choice?next=/transporte-v2';
     return;
   }
   try {

@@ -38,7 +38,7 @@ async function trv2Api(method, path, body, options = {}) {
     if (body !== undefined) init.body = JSON.stringify(body);
     const response = await fetch(TRV2_API_BASE + trv2WithPerfil(path), init);
     if (response.status === 401) {
-      location.href = '/login/transporte';
+      location.href = '/choice?next=/transporte-v2';
       return null;
     }
     const text = await response.text();
@@ -77,7 +77,8 @@ function trv2ShowSchemaWarning(message) {
 function trv2Logout() {
   localStorage.removeItem('zc_token');
   localStorage.removeItem('sat_token');
-  location.href = '/login/transporte';
+  localStorage.removeItem('trv2_perfil');
+  location.href = '/choice';
 }
 
 async function trv2RefreshAll() {
