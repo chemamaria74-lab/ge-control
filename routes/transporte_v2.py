@@ -1,8 +1,7 @@
 """Transporte v2 API.
 
-Fase 2: isla operativa con preview Carta Porte sin timbrado, sin PAC y sin JSON SAT.
-Los endpoints usan exclusivamente el namespace /api/tr-v2/* y tablas
-transporte_v2_* para no interferir con Gas LP ni con /api/tr/* legacy.
+Isla de UI/API: expone /api/tr-v2/*, no llama PAC y no usa /api/tr/* legacy.
+La fase hibrida lee catálogos reales desde tablas tr_* sin escribir en ellas.
 """
 
 from __future__ import annotations
@@ -29,11 +28,11 @@ DOCUMENT_BUCKET = "transporte-v2-documents"
 
 TBL_VIAJES = "transporte_v2_viajes"
 TBL_DOCUMENTOS = "transporte_v2_documentos_cliente"
-TBL_CLIENTES = "transporte_v2_clientes"
-TBL_OPERADORES = "transporte_v2_operadores"
-TBL_VEHICULOS = "transporte_v2_vehiculos"
-TBL_PRODUCTOS = "transporte_v2_productos"
-TBL_RUTAS = "transporte_v2_rutas"
+TBL_CLIENTES = "tr_clientes"
+TBL_OPERADORES = "tr_choferes"
+TBL_VEHICULOS = "tr_vehiculos"
+TBL_PRODUCTOS = "tr_productos_operacion"
+TBL_RUTAS = "tr_rutas"
 TBL_AUDITORIA = "transporte_v2_auditoria"
 
 CATALOG_CONFIG: dict[str, dict[str, Any]] = {
@@ -75,6 +74,8 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         "defaults": {"activo": True, "distancia_km": 0},
     },
 }
+
+CATALOG_READ_ONLY = True
 
 VIAJE_ALLOWED_FIELDS = {
     "cliente_id", "operador_id", "vehiculo_id", "producto_id", "ruta_id",
@@ -415,7 +416,49 @@ def _audit(uid: str, token: str, perfil_id: Optional[int], entidad: str, entidad
         logger.info("Auditoria Transporte v2 omitida entidad=%s accion=%s: %s", entidad, accion, exc)
 
 
-def _select_catalog(token: str, uid: str, table_name: str, perfil_id: Optional[int]) -> dict[str, Any]:
+def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]:
+    item = dict(row or {})
+    if catalogo == "clientes":
+        item["nombre"] = _first_text(item.get("nombre"), item.get("razon_social"), item.get("rfc"))
+        item["rfc"] = _first_text(item.get("rfc"))
+        item["cp"] = _first_text(item.get("cp"), item.get("codigo_postal"), item.get("domicilio_fiscal_cp"))
+        item["regimen_fiscal"] = _first_text(item.get("regimen_fiscal"), item.get("regimen"))
+        item["uso_cfdi"] = _first_text(item.get("uso_cfdi"), item.get("uso_cfdi_default"))
+    elif catalogo == "operadores":
+        item["nombre"] = _first_text(item.get("nombre"))
+        item["rfc_figura"] = _first_text(item.get("rfc_figura"), item.get("rfc"))
+        item["licencia"] = _first_text(item.get("licencia"))
+    elif catalogo == "vehiculos":
+        item["alias"] = _first_text(item.get("alias"), item.get("numero_economico"), item.get("placas"))
+        item["placas"] = _first_text(item.get("placas"), item.get("placa"))
+        item["config_vehicular"] = _first_text(item.get("config_vehicular"), item.get("configuracion_vehicular"), "C2")
+        item["anio"] = item.get("anio") or item.get("anio_modelo")
+        item["aseguradora_rc"] = _first_text(item.get("aseguradora_rc"), item.get("aseguradora"), item.get("nombre_asegurador"))
+        item["poliza_rc"] = _first_text(item.get("poliza_rc"), item.get("poliza_seguro"))
+    elif catalogo == "productos":
+        item["descripcion"] = _first_text(item.get("descripcion"), item.get("nombre"), item.get("clave_producto"))
+        item["clave_producto"] = _first_text(item.get("clave_producto"), item.get("clave_prodserv_cfdi"))
+        item["clave_subproducto"] = _first_text(item.get("clave_subproducto"))
+        item["unidad"] = _first_text(item.get("unidad"), "LTR")
+        item["material_peligroso"] = bool(item.get("material_peligroso", True))
+        item["clave_material_peligroso"] = _first_text(item.get("clave_material_peligroso"), item.get("cve_material_peligroso"))
+        item["embalaje"] = _first_text(item.get("embalaje"), "Z01")
+    elif catalogo == "rutas":
+        item["nombre"] = _first_text(item.get("nombre"), f"{item.get('origen') or 'Origen'} -> {item.get('destino') or 'Destino'}")
+        item["origen"] = _first_text(item.get("origen"))
+        item["destino"] = _first_text(item.get("destino"))
+        item["cp_origen"] = _first_text(item.get("cp_origen"))
+        item["cp_destino"] = _first_text(item.get("cp_destino"))
+        item["distancia_km"] = _num(item.get("distancia_km"))
+    item["source_table"] = CATALOG_CONFIG.get(catalogo, {}).get("table")
+    return item
+
+
+def _select_catalog(token: str, uid: str, catalogo: str, perfil_id: Optional[int]) -> dict[str, Any]:
+    config = CATALOG_CONFIG.get(catalogo)
+    if not config:
+        raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
+    table_name = config["table"]
     try:
         query = (
             _sb(token)
@@ -429,7 +472,14 @@ def _select_catalog(token: str, uid: str, table_name: str, perfil_id: Optional[i
         if perfil_id:
             query = query.eq("perfil_id", perfil_id)
         rows = query.execute().data or []
-        return {"ok": True, "items": rows, "needs_schema": False}
+        return {
+            "ok": True,
+            "items": [_normalize_catalog_row(catalogo, row) for row in rows],
+            "needs_schema": False,
+            "source": "tr_legacy",
+            "table": table_name,
+            "read_only": CATALOG_READ_ONLY,
+        }
     except Exception as exc:
         if _is_missing_table_error(exc):
             return _missing_schema_payload(table_name)
@@ -444,6 +494,8 @@ def _create_catalog_item(
     catalogo: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if CATALOG_READ_ONLY:
+        raise HTTPException(405, "Catálogos Transporte v2 están en modo lectura desde tr_*; alta/edición se habilitará en una fase posterior.")
     config = CATALOG_CONFIG.get(catalogo)
     if not config:
         raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
@@ -504,7 +556,16 @@ def _catalog_row(token: str, uid: str, table_name: str, row_id: Optional[int], p
         if perfil_id:
             query = query.eq("perfil_id", perfil_id)
         rows = query.execute().data or []
-        return rows[0] if rows else {}
+        row = rows[0] if rows else {}
+        table_to_catalog = {
+            TBL_CLIENTES: "clientes",
+            TBL_OPERADORES: "operadores",
+            TBL_VEHICULOS: "vehiculos",
+            TBL_PRODUCTOS: "productos",
+            TBL_RUTAS: "rutas",
+        }
+        catalogo = table_to_catalog.get(table_name)
+        return _normalize_catalog_row(catalogo, row) if catalogo and row else row
     except Exception as exc:
         if _is_missing_table_error(exc):
             return {}
@@ -1111,7 +1172,7 @@ async def transporte_v2_catalogo_clientes(
     uid, token = _auth(authorization)
     pid = _profile_id(perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    return _select_catalog(token, uid, TBL_CLIENTES, pid)
+    return _select_catalog(token, uid, "clientes", pid)
 
 
 @router.post("/tr-v2/catalogos/clientes")
@@ -1135,7 +1196,7 @@ async def transporte_v2_catalogo_operadores(
     uid, token = _auth(authorization)
     pid = _profile_id(perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    return _select_catalog(token, uid, TBL_OPERADORES, pid)
+    return _select_catalog(token, uid, "operadores", pid)
 
 
 @router.post("/tr-v2/catalogos/operadores")
@@ -1159,7 +1220,7 @@ async def transporte_v2_catalogo_vehiculos(
     uid, token = _auth(authorization)
     pid = _profile_id(perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    return _select_catalog(token, uid, TBL_VEHICULOS, pid)
+    return _select_catalog(token, uid, "vehiculos", pid)
 
 
 @router.post("/tr-v2/catalogos/vehiculos")
@@ -1183,7 +1244,7 @@ async def transporte_v2_catalogo_productos(
     uid, token = _auth(authorization)
     pid = _profile_id(perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    return _select_catalog(token, uid, TBL_PRODUCTOS, pid)
+    return _select_catalog(token, uid, "productos", pid)
 
 
 @router.post("/tr-v2/catalogos/productos")
@@ -1207,7 +1268,7 @@ async def transporte_v2_catalogo_rutas(
     uid, token = _auth(authorization)
     pid = _profile_id(perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    return _select_catalog(token, uid, TBL_RUTAS, pid)
+    return _select_catalog(token, uid, "rutas", pid)
 
 
 @router.post("/tr-v2/catalogos/rutas")
