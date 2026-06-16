@@ -131,27 +131,22 @@
     <div class="trv2-section-head">
       <div>
         <h1>Carta Porte</h1>
-        <p>Flujo guiado para extraer datos, completar faltantes y generar preview. Sin PAC, sin timbrado y sin XML final.</p>
+        <p>Sube la factura del cliente, completa faltantes y genera el preview.</p>
       </div>
       <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2PreviewSelectedTrip()"><i class="fa-solid fa-eye"></i> Preview seleccionado</button>
-    </div>
-    <div class="trv2-step-grid">
-      <article class="trv2-step"><span>1</span><strong>Subir documento/factura</strong><p>Extrae RFC, UUID, folio, producto, litros, kilos, permiso, boleta y origen/destino sugeridos.</p></article>
-      <article class="trv2-step"><span>2</span><strong>Completar datos faltantes</strong><p>Ruta, vehículo, operador, producto y fechas desde catálogos reales de Transporte.</p></article>
-      <article class="trv2-step"><span>3</span><strong>Preview Carta Porte</strong><p>Valida el resumen antes de cualquier timbrado futuro.</p></article>
     </div>
     <section class="trv2-panel">
       <div class="trv2-table-head">
         <div>
-          <h2>Paso 1 · Subir documento/factura</h2>
-          <p class="trv2-muted">Analiza PDF/XML del cliente para detectar RFC, UUID, folio, producto, litros, kilos, permiso, boleta y origen/destino sugeridos.</p>
+          <h2>Factura del cliente</h2>
+          <p class="trv2-muted">Carga PDF/XML para detectar los datos base del viaje.</p>
         </div>
       </div>
       <form class="trv2-form" id="trv2-cp-doc-form" onsubmit="trv2AnalyzeDocument(event, 'cp')">
         <label>Tipo documento <select id="trv2-cp-doc-tipo"><option value="factura_cliente">Factura cliente</option><option value="documento_carga">Documento carga</option><option value="xml_cliente">XML cliente</option><option value="otro">Otro</option></select></label>
         <label class="trv2-form-wide">Archivo PDF/XML <input id="trv2-cp-doc-file" type="file" accept=".pdf,.xml,image/*"></label>
         <div class="trv2-form-actions">
-          <button class="trv2-btn trv2-btn-primary" type="submit"><i class="fa-solid fa-gears"></i> Analizar documento</button>
+          <button class="trv2-btn trv2-btn-primary" type="submit"><i class="fa-solid fa-gears"></i> Analizar</button>
         </div>
       </form>
       <p id="trv2-cp-doc-message" class="trv2-muted"></p>
@@ -159,8 +154,8 @@
     <section class="trv2-panel" id="trv2-cp-doc-detected-panel" hidden>
       <div class="trv2-table-head">
         <div>
-          <h2>Paso 2 · Completar faltantes</h2>
-          <p class="trv2-muted">Confirma datos detectados y completa ruta, unidad, operador, producto, fechas, litros y kilos.</p>
+          <h2>Datos detectados y viaje</h2>
+          <p class="trv2-muted">Revisa el resumen y completa solo lo operativo para crear el borrador.</p>
         </div>
         <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2CreateTripFromDocument('cp')"><i class="fa-solid fa-route"></i> Crear viaje borrador</button>
       </div>
@@ -170,7 +165,7 @@
     <section class="trv2-panel">
       <div class="trv2-table-head">
         <div>
-          <h2>Paso 3 · Seleccionar viaje y generar preview</h2>
+          <h2>Preview</h2>
           <p class="trv2-muted" id="trv2-cp-trip-message">Actualiza viajes para seleccionar un borrador o usa el viaje creado desde documento.</p>
         </div>
         <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadTrips()"><i class="fa-solid fa-rotate"></i> Actualizar viajes</button>
