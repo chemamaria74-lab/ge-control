@@ -5,6 +5,30 @@ function trv2Headers(extra = {}) {
   return headers;
 }
 
+function trv2AuthMessage(status = 0) {
+  return status
+    ? `Transporte v2 cargado sin sesión autorizada (${status}). Algunas acciones requieren sesión.`
+    : 'Transporte v2 cargado sin token específico. Algunas acciones requieren sesión.';
+}
+
+function trv2AuthFallback(path, status = 0) {
+  const message = trv2AuthMessage(status);
+  if (path.includes('/dashboard')) {
+    return {ok: false, auth_required: true, message, summary: {viajes: 0, borradores: 0, programados: 0, documentos: 0, volumen_litros: 0}};
+  }
+  if (path.includes('/viajes') || path.includes('/catalogos/')) {
+    return {ok: false, auth_required: true, message, items: []};
+  }
+  return {ok: false, auth_required: true, message};
+}
+
+function trv2ShowAuthBanner(message) {
+  const text = message || trv2AuthMessage();
+  trv2ShowSchemaWarning(text);
+  const user = document.getElementById('trv2-user');
+  if (user) user.textContent = 'Modo visual';
+}
+
 function trv2Toast(message, type = 'info') {
   const area = document.getElementById('toast-area');
   if (!area) return;
@@ -34,17 +58,23 @@ function trv2WithPerfil(path) {
 
 async function trv2Api(method, path, body, options = {}) {
   try {
+    if (!TRV2_TOKEN && path.startsWith('/api/tr-v2/') && !path.includes('/health')) {
+      if (!options.silent) trv2Toast(trv2AuthMessage(), 'info');
+      return trv2AuthFallback(path);
+    }
     const init = {method, headers: trv2Headers()};
     if (body !== undefined) init.body = JSON.stringify(body);
     const response = await fetch(TRV2_API_BASE + trv2WithPerfil(path), init);
-    if (response.status === 401) {
-      location.href = '/choice?next=/transporte-v2';
-      return null;
-    }
     const text = await response.text();
     let data = {};
     try { data = text ? JSON.parse(text) : {}; }
     catch (_err) { data = {detail: text || response.statusText}; }
+    if (response.status === 401 || response.status === 403) {
+      const fallback = trv2AuthFallback(path, response.status);
+      fallback.response = data;
+      if (!options.silent) trv2Toast(fallback.message, 'error');
+      return fallback;
+    }
     if (!response.ok && !options.allowError) {
       throw new Error(data.detail || data.message || `HTTP ${response.status}`);
     }
@@ -78,7 +108,11 @@ function trv2Logout() {
   localStorage.removeItem('zc_token');
   localStorage.removeItem('sat_token');
   localStorage.removeItem('trv2_perfil');
-  location.href = '/choice';
+  TRV2_TOKEN = '';
+  TRV2_PERFIL = null;
+  TRV2_AUTH_MODE = 'admin_or_visual';
+  trv2ShowAuthBanner();
+  trv2RefreshAll();
 }
 
 async function trv2RefreshAll() {

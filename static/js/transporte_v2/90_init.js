@@ -2,10 +2,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   const params = new URLSearchParams(location.search);
   if (params.get('token')) {
     TRV2_TOKEN = params.get('token');
+    TRV2_AUTH_MODE = 'authenticated';
     localStorage.setItem('zc_token', TRV2_TOKEN);
   }
   if (!TRV2_TOKEN) {
-    location.href = '/choice?next=/transporte-v2';
+    TRV2_AUTH_MODE = 'admin_or_visual';
+    trv2ShowAuthBanner('Transporte v2 cargado sin token específico. Algunas acciones requieren sesión.');
+    await trv2RefreshAll();
     return;
   }
   try {
