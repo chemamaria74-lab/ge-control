@@ -89,6 +89,7 @@ async function trv2LoadCatalogs(options = {}) {
     TRV2_CATALOGS[name] = data?.items || [];
     return {name, data};
   }));
+  TRV2_CATALOGS_READ_ONLY = results.some(r => r.data?.read_only);
   trv2RenderCatalogTabs();
   trv2RenderActiveCatalog();
   trv2PopulateTripSelects();
@@ -170,7 +171,7 @@ function trv2RenderActiveCatalog() {
         <i class="fa-solid ${trv2Esc(ui.icon || 'fa-table-list')}"></i>
         <h2>${trv2Esc(ui.title || TRV2_CATALOG_LABELS[name])}</h2>
         <p>${query ? 'No hay resultados para la búsqueda.' : 'Sin registros todavía.'}</p>
-        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenCatalogModal('${trv2Esc(name)}')"><i class="fa-solid fa-plus"></i> Nuevo</button>
+        <button class="trv2-btn trv2-btn-primary" type="button" ${TRV2_CATALOGS_READ_ONLY ? 'disabled' : ''} onclick="trv2OpenCatalogModal('${trv2Esc(name)}')"><i class="fa-solid fa-plus"></i> Nuevo</button>
       </div>
     `;
     return;
@@ -222,6 +223,10 @@ function trv2RenderCatalogFields(name) {
 }
 
 function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG) {
+  if (TRV2_CATALOGS_READ_ONLY) {
+    trv2Toast('Catálogos conectados a tr_* en modo lectura. Alta/edición se habilitará después de confirmar payloads.', 'info');
+    return;
+  }
   TRV2_ACTIVE_CATALOG = name || 'clientes';
   trv2RenderCatalogTabs();
   const modal = document.getElementById('trv2-catalog-modal');

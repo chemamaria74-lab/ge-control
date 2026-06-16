@@ -174,7 +174,10 @@ async function trv2LoadCompanyProfiles() {
     const selected = saved || assigned || (TRV2_PERFILES.length === 1 ? TRV2_PERFILES[0] : null);
     if (selected) trv2SaveProfile(selected);
     trv2RenderCompanySelector(TRV2_PERFILES, TRV2_PERFILES.length > 1 && !saved && !assigned);
-    if (!TRV2_PERFILES.length) trv2ShowSchemaWarning('No hay empresa activa asignada para Transporte v2.');
+    if (!TRV2_PERFILES.length) {
+      TRV2_AUTH_MODE = 'admin_or_visual';
+      trv2ShowSchemaWarning('No hay empresa activa asignada para Transporte v2.');
+    }
     return TRV2_PERFILES;
   } catch (err) {
     console.warn('[Transporte v2] No se pudieron cargar empresas', err);
