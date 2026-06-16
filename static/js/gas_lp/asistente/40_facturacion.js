@@ -203,7 +203,7 @@ async function saveClienteFromTab(){
     const savedName = saved?.nombre || payload.nombre || 'cliente';
     const savedRfc = saved?.rfc || payload.rfc || '';
     clienteFormClientes.classList.add('hide');
-    const actionLabel = data.reused ? 'Cliente existente reutilizado' : (wasEdit ? 'Cliente actualizado' : 'Cliente guardado');
+    const actionLabel = data.message || (data.reused ? 'Cliente existente reutilizado' : (wasEdit ? 'Cliente actualizado' : 'Cliente guardado'));
     setClientesFeedback(`${actionLabel} y seleccionado para facturar: ${savedName}${savedRfc ? ` · ${savedRfc}` : ''}.`);
     setStatus('facturaMsg',`Cliente listo para facturar: ${savedName}.`);
   }catch(e){ setClientesFeedback(e.message,false); }
