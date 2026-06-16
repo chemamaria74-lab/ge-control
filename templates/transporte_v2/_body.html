@@ -25,10 +25,10 @@
   <button class="trv2-tab" type="button" data-tab="control-volumetrico" onclick="trv2SwitchTab('control-volumetrico')"><i class="fa-solid fa-file-code"></i> Control Volumétrico</button>
 </nav>
 
-<section class="trv2-auth-required" id="trv2-auth-required">
+<section class="trv2-auth-required" id="trv2-auth-required" hidden>
   <div>
     <i class="fa-solid fa-lock"></i>
-    <h1>Sesión requerida para Transporte v2</h1>
+    <h1 id="trv2-auth-required-title">Sesión requerida para Transporte v2</h1>
     <p id="trv2-auth-required-message">Valida tu sesión y empresa activa para entrar al administrador de Transporte v2.</p>
     <div class="trv2-auth-actions">
       <a class="trv2-btn trv2-btn-primary" href="/choice">Volver a selección de módulo</a>
