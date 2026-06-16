@@ -166,11 +166,14 @@ function trv2RenderActiveCatalog() {
   if (caption) caption.textContent = ui.subtitle || '';
   trv2RenderCatalogMetrics(name, filtered);
   if (!filtered.length) {
+    const emptyMessage = name === 'rutas' && !query
+      ? 'No hay rutas configuradas para esta empresa. Crea una ruta para continuar.'
+      : (query ? 'No hay resultados para la búsqueda.' : 'Sin registros todavía.');
     panel.innerHTML = `
       <div class="trv2-catalog-empty">
         <i class="fa-solid ${trv2Esc(ui.icon || 'fa-table-list')}"></i>
         <h2>${trv2Esc(ui.title || TRV2_CATALOG_LABELS[name])}</h2>
-        <p>${query ? 'No hay resultados para la búsqueda.' : 'Sin registros todavía.'}</p>
+        <p>${trv2Esc(emptyMessage)}</p>
         <button class="trv2-btn trv2-btn-primary" type="button" ${TRV2_CATALOGS_READ_ONLY ? 'disabled' : ''} onclick="trv2OpenCatalogModal('${trv2Esc(name)}')"><i class="fa-solid fa-plus"></i> Nuevo</button>
       </div>
     `;

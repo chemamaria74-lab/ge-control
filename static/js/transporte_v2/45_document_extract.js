@@ -86,10 +86,32 @@ function trv2RenderDocumentDetected(data) {
       <input data-doc-field="${trv2Esc(field)}" type="${type === 'number' ? 'number' : 'text'}" step="0.001" value="${trv2Esc(detected[field] ?? '')}">
     </label>
   `).join('') + `
+    <label>Ruta
+      <select id="trv2-doc-ruta-id" required>${trv2CatalogOptions('rutas', 'Selecciona ruta')}</select>
+    </label>
+    <label>Operador
+      <select id="trv2-doc-operador-id" required>${trv2CatalogOptions('operadores', 'Selecciona operador')}</select>
+    </label>
+    <label>Vehículo
+      <select id="trv2-doc-vehiculo-id" required>${trv2CatalogOptions('vehiculos', 'Selecciona vehículo')}</select>
+    </label>
+    <label>Fecha salida
+      <input id="trv2-doc-fecha-salida" type="datetime-local" required>
+    </label>
+    <label>Fecha llegada estimada
+      <input id="trv2-doc-fecha-llegada" type="datetime-local">
+    </label>
     <label class="trv2-form-wide">Campos pendientes
       <textarea rows="3" readonly>${trv2Esc((data.manual_fields_required || []).join(', ') || 'Sin pendientes detectados')}</textarea>
     </label>
   `;
+}
+
+function trv2CatalogOptions(catalogName, placeholder) {
+  const items = TRV2_CATALOGS[catalogName] || [];
+  return `<option value="">${trv2Esc(placeholder)}</option>` + items.map(item => (
+    `<option value="${Number(item.id)}">${trv2Esc(trv2CatalogLabel(catalogName, item))}</option>`
+  )).join('');
 }
 
 function trv2ReadDetectedForm() {
@@ -109,18 +131,31 @@ async function trv2CreateTripFromDocument() {
   const detected = trv2ReadDetectedForm();
   const cliente = trv2FindOrLabel('clientes', detected.receptor_rfc, detected.receptor_nombre);
   const producto = trv2FindOrLabel('productos', detected.clave_sat, detected.producto);
+  const ruta = trv2FindCatalog('rutas', document.getElementById('trv2-doc-ruta-id')?.value);
+  const operador = trv2FindCatalog('operadores', document.getElementById('trv2-doc-operador-id')?.value);
+  const vehiculo = trv2FindCatalog('vehiculos', document.getElementById('trv2-doc-vehiculo-id')?.value);
+  const fechaSalida = document.getElementById('trv2-doc-fecha-salida')?.value || '';
+  if (!ruta || !operador || !vehiculo || !fechaSalida) {
+    trv2Toast('Completa ruta, operador, vehículo y fecha salida antes de crear el viaje.', 'error');
+    return;
+  }
   const body = {
     perfil_id: TRV2_PERFIL?.id || null,
     cliente_id: cliente?.id || null,
+    operador_id: operador?.id || null,
+    vehiculo_id: vehiculo?.id || null,
+    ruta_id: ruta?.id || null,
     producto_id: producto?.id || null,
     cliente_nombre: detected.receptor_nombre || '',
-    origen: detected.origen_sugerido || detected.emisor_nombre || '',
-    destino: detected.destino_sugerido || detected.receptor_nombre || '',
+    origen: ruta?.origen || detected.origen_sugerido || detected.emisor_nombre || '',
+    destino: ruta?.destino || detected.destino_sugerido || detected.receptor_nombre || '',
+    operador_nombre: operador ? trv2CatalogLabel('operadores', operador) : '',
+    vehiculo_alias: vehiculo ? trv2CatalogLabel('vehiculos', vehiculo) : '',
     producto_descripcion: detected.producto || '',
     volumen_litros: Number(detected.cantidad_litros || 0),
     peso_kg: Number(detected.peso_kg || 0),
-    fecha_salida: '',
-    fecha_llegada_estimada: '',
+    fecha_salida: fechaSalida,
+    fecha_llegada_estimada: document.getElementById('trv2-doc-fecha-llegada')?.value || '',
     estatus: 'borrador',
     observaciones: `Documento cliente ${detected.folio || detected.uuid || ''}`.trim(),
   };
@@ -141,6 +176,9 @@ async function trv2CreateTripFromDocument() {
       fase: 'transporte_v2_fase_2_8',
       bucket_pendiente: true,
       detected,
+      ruta_id: ruta?.id || null,
+      operador_id: operador?.id || null,
+      vehiculo_id: vehiculo?.id || null,
       source: TRV2_DOCUMENT_DETECTED.source,
       confidence: TRV2_DOCUMENT_DETECTED.confidence,
     },
