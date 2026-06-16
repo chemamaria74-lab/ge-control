@@ -88,10 +88,10 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        rightMargin=0.35 * inch,
-        leftMargin=0.35 * inch,
-        topMargin=0.32 * inch,
-        bottomMargin=0.35 * inch,
+        rightMargin=0.30 * inch,
+        leftMargin=0.30 * inch,
+        topMargin=0.27 * inch,
+        bottomMargin=0.30 * inch,
         title="Carta Porte",
         pageCompression=0,
     )
@@ -103,22 +103,22 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     line = colors.HexColor("#DED7CE")
     ink = colors.HexColor("#1F2933")
     muted = colors.HexColor("#67717D")
-    styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=13.8, textColor=wine_dark, leading=15.5))
-    styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=18.0, leading=20.0, textColor=wine_dark))
-    styles.add(ParagraphStyle(name="DocMeta", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=7.2, leading=8.2, textColor=muted))
-    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.2, leading=10.4, textColor=wine_dark, spaceBefore=7, spaceAfter=4))
-    styles.add(ParagraphStyle(name="SummaryTitle", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=10.4, leading=12.2, textColor=wine_dark, alignment=TA_LEFT))
-    styles.add(ParagraphStyle(name="MetricValue", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=11.2, leading=12.4, textColor=ink))
-    styles.add(ParagraphStyle(name="MetricLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=5.8, leading=6.7, textColor=muted))
-    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.75, leading=8.15, textColor=ink))
+    styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=12.8, textColor=wine_dark, leading=14.2))
+    styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=16.8, leading=18.6, textColor=wine_dark))
+    styles.add(ParagraphStyle(name="DocMeta", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=6.75, leading=7.55, textColor=muted))
+    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=8.7, leading=9.5, textColor=wine_dark, spaceBefore=5, spaceAfter=2))
+    styles.add(ParagraphStyle(name="SummaryTitle", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.8, leading=11.0, textColor=wine_dark, alignment=TA_LEFT))
+    styles.add(ParagraphStyle(name="MetricValue", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=9.6, leading=10.6, textColor=ink))
+    styles.add(ParagraphStyle(name="MetricLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=5.45, leading=6.1, textColor=muted))
+    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.25, leading=7.05, textColor=ink))
     styles.add(ParagraphStyle(name="TinyBold", parent=styles["Tiny"], fontName="Helvetica-Bold"))
-    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["TinyBold"], textColor=colors.white, fontSize=6.65, leading=7.8))
-    styles.add(ParagraphStyle(name="Label", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=muted, fontSize=6.15, leading=7.0))
-    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=7.35, leading=8.75, textColor=ink))
+    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["TinyBold"], textColor=colors.white, fontSize=6.2, leading=6.9))
+    styles.add(ParagraphStyle(name="Label", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=muted, fontSize=5.75, leading=6.35))
+    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=6.85, leading=7.65, textColor=ink))
     styles.add(ParagraphStyle(name="SmallBold", parent=styles["Small"], fontName="Helvetica-Bold"))
     styles.add(ParagraphStyle(name="Money", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold"))
-    styles.add(ParagraphStyle(name="MoneyBig", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=13.0, leading=14.5, textColor=wine_dark))
-    styles.add(ParagraphStyle(name="Seal", parent=styles["Tiny"], fontSize=5.15, leading=5.85, textColor=colors.HexColor("#313942")))
+    styles.add(ParagraphStyle(name="MoneyBig", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=11.5, leading=12.4, textColor=wine_dark))
+    styles.add(ParagraphStyle(name="Seal", parent=styles["Tiny"], fontSize=4.45, leading=4.95, textColor=colors.HexColor("#313942")))
     styles.add(ParagraphStyle(name="Footer", parent=styles["Tiny"], alignment=TA_CENTER, textColor=muted))
     styles.add(ParagraphStyle(name="Warn", parent=styles["Small"], fontName="Helvetica-Bold", textColor=wine_dark))
 
@@ -128,7 +128,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     issuer_logo = _logo_flowable(logo_data_url, Image)
     story += [
         _modern_header("CARTA PORTE - TRASLADO", issuer_logo, comp, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, line),
-        Spacer(1, 8),
+        Spacer(1, 5),
     ]
 
     if carta is None:
@@ -162,7 +162,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         ],
         Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark,
     ))
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 4))
     story.append(_executive_summary_card(
         carta,
         ubicaciones,
@@ -207,9 +207,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         ],
         Table, TableStyle, Paragraph, styles, colors, cream, line,
     ))
-    story.append(_section("D. Resumen Carta Porte", Paragraph, styles))
-    story.append(_kv_table(
-        "",
+    story.append(_compact_cp_summary(
         [
             ("Version", _attr(carta, "Version", "—")),
             ("IdCCP", _attr(carta, "IdCCP", "—")),
@@ -218,7 +216,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
             ("Registro ISTMO", _attr(carta, "RegistroISTMO", "—")),
             ("Polo origen/destino", f"{_attr(carta, 'UbicacionPoloOrigen', '—')} / {_attr(carta, 'UbicacionPoloDestino', '—')}"),
         ],
-        Table, TableStyle, Paragraph, styles, colors, cream, line,
+        Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark,
     ))
     story.append(KeepTogether([
         _section("E. Origen y destino", Paragraph, styles),
@@ -227,30 +225,17 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     story.append(PageBreak())
     story += [
         _modern_header("CARTA PORTE - TRASLADO", issuer_logo, comp, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, line),
-        Spacer(1, 8),
+        Spacer(1, 5),
     ]
     story.append(KeepTogether([
         _section("F. Mercancías transportadas", Paragraph, styles),
         _mercancias_table(mercancias, Table, TableStyle, Paragraph, styles, colors, wine_dark, line),
     ]))
     story.append(KeepTogether([
-        _section("G. Autotransporte", Paragraph, styles),
-        _autotransporte_table(autotransporte, ident_veh, remolques, Table, TableStyle, Paragraph, styles, colors, cream, line),
-    ]))
-    story.append(KeepTogether([
-        _section("H. Seguros", Paragraph, styles),
-        _seguros_table(seguros, Table, TableStyle, Paragraph, styles, colors, cream, line),
-    ]))
-    story.append(KeepTogether([
-        _section("I. Figura de transporte", Paragraph, styles),
-        _operator_card(figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark),
+        _section("G-I. Autotransporte, seguros y figura de transporte", Paragraph, styles),
+        _operations_grid(autotransporte, ident_veh, remolques, seguros, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark),
     ]))
 
-    story.append(PageBreak())
-    story += [
-        _modern_header("CARTA PORTE - TRASLADO", issuer_logo, comp, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, line),
-        Spacer(1, 8),
-    ]
     story.append(_section("Conceptos CFDI", Paragraph, styles))
     story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
     story.append(_totals_block(comp, impuestos, Table, TableStyle, Paragraph, styles, colors, cream, line))
@@ -260,17 +245,8 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     story.append(_section("Detalle SAT de figuras", Paragraph, styles))
     story.append(_figuras_table(figuras, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
 
-    if _needs_seal_page(comp, timbre):
-        story.append(PageBreak())
-        story += [
-            _modern_header("CARTA PORTE - TRASLADO", issuer_logo, comp, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, line),
-            Spacer(1, 8),
-        ]
-        story.append(_section("J. Validación SAT", Paragraph, styles))
-        story.append(_seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line))
-    else:
-        story.append(_section("J. Validación SAT", Paragraph, styles))
-        story.append(_seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line))
+    story.append(_section("J. Validación SAT", Paragraph, styles))
+    story.append(_seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line))
 
     story.append(Spacer(1, 8))
     story.append(Paragraph("Este documento es una representación impresa de un CFDI con Complemento Carta Porte generado por GE Control.", styles["Footer"]))
@@ -461,6 +437,39 @@ def _three_info_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return table
+
+
+def _compact_cp_summary(rows, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
+    cells = []
+    for key, value in _compact_rows(rows):
+        cells.append(Table([
+            [Paragraph(_text(key), styles["MetricLabel"])],
+            [Paragraph(_text(value), styles["TinyBold"])],
+        ], colWidths=[1.22 * inch()]))
+    if not cells:
+        cells = [[Paragraph("Sin resumen Carta Porte", styles["Tiny"])]]
+    col_count = min(max(len(cells), 1), 5)
+    cells = cells[:col_count]
+    table = Table(
+        [
+            [Paragraph("<b>D. Resumen Carta Porte</b>", styles["SmallBold"])] + [""] * (col_count - 1),
+            cells,
+        ],
+        colWidths=[(7.66 / col_count) * inch()] * col_count,
+    )
+    table.setStyle(TableStyle([
+        ("SPAN", (0, 0), (-1, 0)),
+        ("BACKGROUND", (0, 0), (-1, 0), cream),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.75, wine),
+        ("BOX", (0, 0), (-1, -1), 0.35, line),
+        ("INNERGRID", (0, 1), (-1, -1), 0.16, line),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.8),
     ]))
     return table
 
@@ -753,6 +762,58 @@ def _autotransporte_table(autotransporte, ident, remolques, Table, TableStyle, P
     return _kv_table("", rows, Table, TableStyle, Paragraph, styles, colors, cream, line)
 
 
+def _compact_card(title, rows, width, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
+    data = [[Paragraph(f"<b>{_text(title)}</b>", styles["SmallBold"]), ""]]
+    data += [[Paragraph(_text(k), styles["Label"]), Paragraph(_text(v), styles["Tiny"])] for k, v in _compact_rows(rows)]
+    if len(data) == 1:
+        data.append([Paragraph("SIN DATOS", styles["Label"]), Paragraph("—", styles["Tiny"])])
+    table = Table(data, colWidths=[0.92 * inch(), (width - 0.92) * inch()])
+    table.setStyle(TableStyle([
+        ("SPAN", (0, 0), (-1, 0)),
+        ("BACKGROUND", (0, 0), (-1, 0), cream),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.75, wine),
+        ("BOX", (0, 0), (-1, -1), 0.35, line),
+        ("GRID", (0, 1), (-1, -1), 0.16, line),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4.2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4.2),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.4),
+    ]))
+    return table
+
+
+def _operations_grid(autotransporte, ident, remolques, seguros, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
+    figura = figuras[0] if figuras else None
+    remolques_txt = ", ".join(f"{_attr(r, 'SubTipoRem')} {_attr(r, 'Placa')}" for r in remolques) or "—"
+    vehicle = _compact_card("AUTOTRANSPORTE", [
+        ("Permiso", _join_nonempty([_attr(autotransporte, "PermSCT"), _attr(autotransporte, "NumPermisoSCT")], " / ")),
+        ("Configuración", _attr(ident, "ConfigVehicular")),
+        ("Placas/modelo", _join_nonempty([_attr(ident, "PlacaVM"), _attr(ident, "AnioModeloVM")], " / ")),
+        ("PBV", _attr(ident, "PesoBrutoVehicular")),
+        ("Remolques", remolques_txt),
+    ], 2.68, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
+    insurance = _compact_card("SEGUROS", [
+        ("RC", _join_nonempty([_attr(seguros, "AseguraRespCivil"), _attr(seguros, "PolizaRespCivil")], " / ")),
+        ("Medio ambiente", _join_nonempty([_attr(seguros, "AseguraMedAmbiente"), _attr(seguros, "PolizaMedAmbiente")], " / ")),
+    ], 2.38, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
+    operator = _compact_card("OPERADOR", [
+        ("Nombre", _attr(figura, "NombreFigura", "—")),
+        ("RFC", _attr(figura, "RFCFigura", "—")),
+        ("Licencia", _attr(figura, "NumLicencia", "—")),
+        ("Tipo figura", _attr(figura, "TipoFigura", "—")),
+    ], 2.46, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
+    table = Table([[vehicle, insurance, operator]], colWidths=[2.70 * inch(), 2.40 * inch(), 2.46 * inch()])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return table
+
+
 def _seguros_table(seguros, Table, TableStyle, Paragraph, styles, colors, cream, line):
     return _kv_table("", [
         ("Aseguradora RC", _attr(seguros, "AseguraRespCivil")),
@@ -810,13 +871,13 @@ def _simple_table(rows: list[list[object]], widths: list[float], Table, TableSty
 def _seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line):
     seal_rows = [
         [Paragraph("<b>Sello digital CFDI</b>", styles["TinyBold"])],
-        [Paragraph(_text(_short(_attr(comp, "Sello") or _attr(timbre, "SelloCFD"), 900)), styles["Seal"])],
+        [Paragraph(_text(_short(_attr(comp, "Sello") or _attr(timbre, "SelloCFD"), 620)), styles["Seal"])],
         [Paragraph("<b>Sello SAT</b>", styles["TinyBold"])],
-        [Paragraph(_text(_short(_attr(timbre, "SelloSAT"), 900)), styles["Seal"])],
+        [Paragraph(_text(_short(_attr(timbre, "SelloSAT"), 620)), styles["Seal"])],
         [Paragraph("<b>Cadena original</b>", styles["TinyBold"])],
-        [Paragraph(_text(_short(_cadena_original_tfd(timbre), 900)), styles["Seal"])],
+        [Paragraph(_text(_short(_cadena_original_tfd(timbre), 620)), styles["Seal"])],
     ]
-    seal_table = Table(seal_rows, colWidths=[5.74 * inch()])
+    seal_table = Table(seal_rows, colWidths=[5.36 * inch()])
     seal_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), cream),
         ("BACKGROUND", (0, 2), (-1, 2), cream),
@@ -824,26 +885,33 @@ def _seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors,
         ("BOX", (0, 0), (-1, -1), 0.3, line),
         ("GRID", (0, 0), (-1, -1), 0.16, line),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 2.2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.2),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 1.7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.7),
     ]))
     qr_block = Table([
         [qr or Paragraph("QR fiscal no disponible", styles["Tiny"])],
-        [Paragraph(f"<b>Verificación SAT</b><br/>RFC PAC: {_text(_attr(timbre, 'RfcProvCertif'))}<br/>UUID: {_text(_short(_attr(timbre, 'UUID'), 48))}", styles["Tiny"])],
-    ], colWidths=[1.86 * inch()])
+        [Paragraph(
+            f"<b>Verificación SAT</b><br/>"
+            f"UUID: {_text(_short(_attr(timbre, 'UUID'), 48))}<br/>"
+            f"RFC PAC: {_text(_attr(timbre, 'RfcProvCertif'))}<br/>"
+            f"Cert. SAT: {_text(_attr(timbre, 'NoCertificadoSAT'))}<br/>"
+            f"Cert. emisor: {_text(_attr(comp, 'NoCertificado'))}",
+            styles["Tiny"],
+        )],
+    ], colWidths=[2.16 * inch()])
     qr_block.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.3, line),
         ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("ALIGN", (0, 0), (-1, 0), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    table = Table([[seal_table, qr_block]], colWidths=[5.84 * inch(), 1.96 * inch()])
+    table = Table([[seal_table, qr_block]], colWidths=[5.42 * inch(), 2.22 * inch()])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -980,7 +1048,7 @@ def _qr_flowable(url: str, Image):
         out = BytesIO()
         img.save(out, format="PNG")
         out.seek(0)
-        return Image(out, width=0.95 * inch(), height=0.95 * inch())
+        return Image(out, width=0.82 * inch(), height=0.82 * inch())
     except Exception:
         return None
 
