@@ -14,8 +14,8 @@
 </header>
 
 <nav class="trv2-tabs" id="trv2-admin-tabs" aria-label="Navegación Transporte v2" hidden>
-  <button class="trv2-tab active" type="button" data-tab="carga-archivos" onclick="trv2SwitchTab('carga-archivos')"><i class="fa-solid fa-file-arrow-up"></i> Carga de archivos</button>
-  <button class="trv2-tab" type="button" data-tab="carta-porte" onclick="trv2SwitchTab('carta-porte')"><i class="fa-solid fa-file-invoice"></i> Carta Porte</button>
+  <button class="trv2-tab" type="button" data-tab="carga-archivos" onclick="trv2SwitchTab('carga-archivos')"><i class="fa-solid fa-file-arrow-up"></i> Carga de archivos</button>
+  <button class="trv2-tab active" type="button" data-tab="carta-porte" onclick="trv2SwitchTab('carta-porte')"><i class="fa-solid fa-file-invoice"></i> Carta Porte</button>
   <button class="trv2-tab" type="button" data-tab="facturas-servicio" onclick="trv2SwitchTab('facturas-servicio')"><i class="fa-solid fa-receipt"></i> Facturas de servicio</button>
   <button class="trv2-tab" type="button" data-tab="conciliacion" onclick="trv2SwitchTab('conciliacion')"><i class="fa-solid fa-scale-balanced"></i> Conciliación</button>
   <button class="trv2-tab" type="button" data-tab="reportes-sat" onclick="trv2SwitchTab('reportes-sat')"><i class="fa-solid fa-file-code"></i> Reportes SAT</button>
@@ -127,7 +127,7 @@
     </section>
   </section>
 
-  <section id="trv2-tab-carta-porte" class="trv2-section">
+  <section id="trv2-tab-carta-porte" class="trv2-section active">
     <div class="trv2-section-head">
       <div>
         <h1>Carta Porte</h1>
@@ -183,7 +183,7 @@
     </section>
   </section>
 
-  <section id="trv2-tab-carga-archivos" class="trv2-section active">
+  <section id="trv2-tab-carga-archivos" class="trv2-section">
     <div class="trv2-section-head">
       <div>
         <h1>Carga de archivos</h1>
@@ -363,8 +363,8 @@
         <div class="trv2-alert trv2-alert-warn">Acceso actual por token temporal. Usuario/PIN formal requiere migración no destructiva posterior.</div>
         <form class="trv2-form trv2-form-admin" onsubmit="trv2CreateOperatorAccess(event)">
           <label>Operador / chofer <select id="trv2-admin-operator-chofer" required><option value="">Seleccionar operador</option></select></label>
-          <label>Usuario <input id="trv2-admin-operator-user" placeholder="Se habilitará con migración usuario/PIN" disabled></label>
-          <label>PIN o contraseña temporal <input id="trv2-admin-operator-pin" placeholder="Se habilitará con migración usuario/PIN" disabled></label>
+          <label>Usuario operador <input id="trv2-admin-operator-user" placeholder="Ej. javier.t167"></label>
+          <label>Token/PIN temporal <input id="trv2-admin-operator-pin" placeholder="Define un token o PIN temporal"></label>
           <label>Vehículo habitual <select id="trv2-admin-operator-vehicle"><option value="">Opcional</option></select></label>
           <label>Estado <select id="trv2-admin-operator-active"><option value="true">Activo</option><option value="false">Inactivo</option></select></label>
           <div class="trv2-form-actions">
@@ -390,10 +390,28 @@
           <label>RFC del contribuyente * <input id="trv2-set-rfc" data-rfc-field placeholder="OEMR710420FCA" required></label>
           <label>Nombre fiscal / razón social * <input id="trv2-set-nombre" placeholder="RUTH ORNELAS MUÑOZ" required></label>
           <label>CP fiscal / lugar expedición * <input id="trv2-set-cp" placeholder="00000" required></label>
-          <label>Régimen fiscal emisor * <input id="trv2-set-regimen" placeholder="612" required></label>
+          <label>Régimen fiscal emisor *
+            <select id="trv2-set-regimen" required>
+              <option value="">Seleccionar régimen</option>
+              <option value="601">601 — General de Ley Personas Morales</option>
+              <option value="603">603 — Personas Morales con Fines no Lucrativos</option>
+              <option value="605">605 — Sueldos y Salarios e Ingresos Asimilados a Salarios</option>
+              <option value="606">606 — Arrendamiento</option>
+              <option value="612">612 — Personas Físicas con Actividades Empresariales y Profesionales</option>
+              <option value="616">616 — Sin obligaciones fiscales</option>
+              <option value="626">626 — Régimen Simplificado de Confianza</option>
+            </select>
+          </label>
           <label>RFC representante legal <input id="trv2-set-rfc-rep" data-rfc-field placeholder="Opcional"></label>
           <label>Factor kg/L default <input id="trv2-set-factor" type="number" step="0.000001" placeholder="0.517200"></label>
-          <label class="trv2-form-wide">Logo empresa <input id="trv2-set-logo" placeholder="Placeholder: URL/logo futuro"></label>
+          <div class="trv2-form-wide trv2-logo-box">
+            <label>Logo empresa <input id="trv2-set-logo-file" type="file" accept="image/png,image/jpeg,image/webp" onchange="trv2PreviewLogoFile(event)"></label>
+            <div class="trv2-logo-preview"><img id="trv2-logo-preview" alt="Logo Transporte" hidden><span id="trv2-logo-empty">Sin logo cargado</span></div>
+            <input id="trv2-set-logo" type="hidden">
+            <div class="trv2-actions">
+              <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2RemoveLogo()">Eliminar logo</button>
+            </div>
+          </div>
           <div class="trv2-form-wide trv2-check-grid">
             <label class="trv2-check"><input id="trv2-set-prod-gaslp" type="checkbox"> Gas LP</label>
             <label class="trv2-check"><input id="trv2-set-prod-magna" type="checkbox"> Gasolina Magna</label>
