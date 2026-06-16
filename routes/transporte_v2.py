@@ -10,8 +10,10 @@ import logging
 import io
 import json
 import re
+import secrets
+import hashlib
 from xml.etree import ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query, UploadFile, File, Form
@@ -19,7 +21,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from routes.auth import require_profile_access, verify_token
-from supabase_config import get_supabase_for_user
+from supabase_config import get_supabase_admin, get_supabase_for_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -34,6 +36,7 @@ TBL_OPERADORES = "tr_choferes"
 TBL_VEHICULOS = "tr_vehiculos"
 TBL_PRODUCTOS = "tr_productos_operacion"
 TBL_RUTAS = "tr_rutas"
+TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
 TBL_AUDITORIA = "transporte_v2_auditoria"
 
 CATALOG_CONFIG: dict[str, dict[str, Any]] = {
@@ -133,6 +136,19 @@ class TransporteV2CartaPortePreviewRequest(BaseModel):
     viaje_id: Optional[int] = None
     viaje: Optional[dict[str, Any]] = None
     tipo_cfdi: str = ""
+
+
+class TransporteV2OperatorAccessCreate(BaseModel):
+    perfil_id: Optional[int] = None
+    chofer_id: int
+    vehiculo_id: Optional[int] = None
+    activo: bool = True
+
+
+class TransporteV2OperatorLoginRequest(BaseModel):
+    usuario: str = ""
+    pin: str = ""
+    token: str = ""
 
 
 def _now_iso() -> str:
@@ -354,6 +370,70 @@ def _profile_id(perfil_id: Optional[int], x_perfil_id: str = "") -> Optional[int
 
 def _sb(token: str):
     return get_supabase_for_user(token)
+
+
+def _hash_operator_token(token_plain: str) -> str:
+    return hashlib.sha256(str(token_plain or "").encode("utf-8")).hexdigest()
+
+
+def _operator_token_from_header(authorization: str = "") -> str:
+    if authorization.startswith("Bearer "):
+        return authorization[7:].strip()
+    return ""
+
+
+def _operator_context(token_plain: str) -> tuple[Any, dict[str, Any]]:
+    if not token_plain:
+        raise HTTPException(401, "Token de operador requerido.")
+    sb = get_supabase_admin()
+    rows = (
+        sb.table(TBL_OPERADOR_ACCESOS)
+        .select("*")
+        .eq("token_hash", _hash_operator_token(token_plain))
+        .eq("status", "activo")
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(401, "Acceso de operador inválido.")
+    acc = rows[0]
+    if not acc.get("perfil_id") or not acc.get("chofer_id") or not acc.get("user_id"):
+        raise HTTPException(403, "Acceso de operador incompleto.")
+    expires_at = acc.get("expires_at")
+    if expires_at:
+        try:
+            exp = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if exp <= datetime.now(timezone.utc):
+                try:
+                    sb.table(TBL_OPERADOR_ACCESOS).update({"status": "expirado"}).eq("id", acc["id"]).execute()
+                except Exception:
+                    pass
+                raise HTTPException(401, "Acceso de operador expirado.")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(401, "Acceso de operador inválido.")
+    chofer_rows = (
+        sb.table(TBL_OPERADORES)
+        .select("*")
+        .eq("id", acc.get("chofer_id"))
+        .eq("user_id", acc.get("user_id"))
+        .eq("perfil_id", acc.get("perfil_id"))
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not chofer_rows or chofer_rows[0].get("activo") is False:
+        raise HTTPException(403, "El operador no pertenece al perfil activo o está inactivo.")
+    acc["chofer"] = chofer_rows[0]
+    try:
+        sb.table(TBL_OPERADOR_ACCESOS).update({"last_used_at": _now_iso()}).eq("id", acc["id"]).execute()
+    except Exception:
+        pass
+    return sb, acc
 
 
 def _is_missing_table_error(exc: Exception) -> bool:
@@ -942,6 +1022,208 @@ async def transporte_v2_health():
         "timbrado_enabled": False,
         "json_sat_enabled": False,
     }
+
+
+@router.get("/tr-v2/operator/accesses")
+async def transporte_v2_operator_accesses(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    try:
+        q = _sb(token).table(TBL_OPERADOR_ACCESOS).select("*").eq("user_id", uid).order("created_at", desc=True)
+        if pid:
+            q = q.eq("perfil_id", pid)
+        rows = q.limit(100).execute().data or []
+        chofer_ids = sorted({int(row.get("chofer_id")) for row in rows if row.get("chofer_id")})
+        choferes: dict[int, dict[str, Any]] = {}
+        if chofer_ids:
+            cq = _sb(token).table(TBL_OPERADORES).select("id,nombre,licencia,telefono,activo").eq("user_id", uid).in_("id", chofer_ids)
+            if pid:
+                cq = cq.eq("perfil_id", pid)
+            chofer_rows = cq.execute().data or []
+            choferes = {int(row.get("id")): row for row in chofer_rows if row.get("id")}
+        items = []
+        for row in rows:
+            chofer = choferes.get(int(row.get("chofer_id") or 0), {})
+            items.append({
+                "id": row.get("id"),
+                "perfil_id": row.get("perfil_id"),
+                "chofer_id": row.get("chofer_id"),
+                "chofer_nombre": chofer.get("nombre") or f"Operador #{row.get('chofer_id')}",
+                "status": row.get("status") or "",
+                "expires_at": row.get("expires_at"),
+                "last_used_at": row.get("last_used_at"),
+                "created_at": row.get("created_at"),
+            })
+        return {"ok": True, "items": items, "mode": "token_temporal"}
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return JSONResponse(_missing_schema_payload(TBL_OPERADOR_ACCESOS), status_code=409)
+        raise HTTPException(500, f"No se pudieron cargar accesos operador: {exc}")
+
+
+@router.post("/tr-v2/operator/accesses")
+async def transporte_v2_operator_access_create(
+    payload: TransporteV2OperatorAccessCreate,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    if not pid:
+        raise HTTPException(400, "perfil_id requerido.")
+    _require_profile_if_present(uid, token, pid)
+    if not payload.chofer_id:
+        raise HTTPException(400, "chofer_id requerido.")
+    chofer_rows = (
+        _sb(token)
+        .table(TBL_OPERADORES)
+        .select("id,nombre,perfil_id,activo")
+        .eq("id", payload.chofer_id)
+        .eq("user_id", uid)
+        .eq("perfil_id", pid)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not chofer_rows:
+        raise HTTPException(404, "Operador/chofer no encontrado para esta empresa.")
+    if chofer_rows[0].get("activo") is False:
+        raise HTTPException(400, "No puedes crear acceso para un operador inactivo.")
+    token_plain = secrets.token_urlsafe(24)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+    try:
+        _sb(token).table(TBL_OPERADOR_ACCESOS).update({"status": "reemplazado"}).eq("user_id", uid).eq("perfil_id", pid).eq("chofer_id", payload.chofer_id).eq("status", "activo").execute()
+    except Exception as exc:
+        logger.info("No se pudieron reemplazar accesos previos operador %s/%s: %s", pid, payload.chofer_id, exc)
+    try:
+        inserted = (
+            _sb(token)
+            .table(TBL_OPERADOR_ACCESOS)
+            .insert({
+                "user_id": uid,
+                "perfil_id": pid,
+                "chofer_id": payload.chofer_id,
+                "token_hash": _hash_operator_token(token_plain),
+                "status": "activo" if payload.activo else "inactivo",
+                "expires_at": expires_at.isoformat(),
+            })
+            .execute()
+            .data
+            or []
+        )
+        item = inserted[0] if inserted else {}
+        return {
+            "ok": True,
+            "item": {
+                "id": item.get("id"),
+                "perfil_id": pid,
+                "chofer_id": payload.chofer_id,
+                "chofer_nombre": chofer_rows[0].get("nombre"),
+                "status": item.get("status") or ("activo" if payload.activo else "inactivo"),
+                "expires_at": item.get("expires_at") or expires_at.isoformat(),
+            },
+            "token": token_plain,
+            "operator_url": f"/transporte-v2/login-operador?token={token_plain}&next=/transporte-v2/operador",
+            "mode": "token_temporal",
+        }
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return JSONResponse(_missing_schema_payload(TBL_OPERADOR_ACCESOS), status_code=409)
+        raise HTTPException(500, f"No se pudo crear acceso operador: {exc}")
+
+
+@router.post("/tr-v2/operator/accesses/{access_id}/deactivate")
+async def transporte_v2_operator_access_deactivate(
+    access_id: int,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(None, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    q = _sb(token).table(TBL_OPERADOR_ACCESOS).update({"status": "inactivo"}).eq("id", access_id).eq("user_id", uid)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    q.execute()
+    return {"ok": True}
+
+
+@router.post("/tr-v2/operator/login")
+async def transporte_v2_operator_login(payload: TransporteV2OperatorLoginRequest):
+    token_plain = (payload.token or payload.usuario or payload.pin or "").strip()
+    sb, acc = _operator_context(token_plain)
+    empresa = {}
+    try:
+        rows = sb.table("perfiles_empresa").select("id,nombre,rfc").eq("id", acc.get("perfil_id")).limit(1).execute().data or []
+        empresa = rows[0] if rows else {}
+    except Exception:
+        empresa = {}
+    return {
+        "ok": True,
+        "token": token_plain,
+        "operator": {
+            "access_id": acc.get("id"),
+            "perfil_id": acc.get("perfil_id"),
+            "chofer_id": acc.get("chofer_id"),
+            "nombre": (acc.get("chofer") or {}).get("nombre") or "Operador",
+            "licencia": (acc.get("chofer") or {}).get("licencia") or "",
+            "empresa": empresa,
+            "expires_at": acc.get("expires_at"),
+        },
+    }
+
+
+@router.get("/tr-v2/operator/me")
+async def transporte_v2_operator_me(authorization: str = Header(default="")):
+    token_plain = _operator_token_from_header(authorization)
+    sb, acc = _operator_context(token_plain)
+    empresa = {}
+    try:
+        rows = sb.table("perfiles_empresa").select("id,nombre,rfc").eq("id", acc.get("perfil_id")).limit(1).execute().data or []
+        empresa = rows[0] if rows else {}
+    except Exception:
+        empresa = {}
+    return {
+        "ok": True,
+        "operator": {
+            "access_id": acc.get("id"),
+            "perfil_id": acc.get("perfil_id"),
+            "chofer_id": acc.get("chofer_id"),
+            "nombre": (acc.get("chofer") or {}).get("nombre") or "Operador",
+            "licencia": (acc.get("chofer") or {}).get("licencia") or "",
+            "empresa": empresa,
+            "expires_at": acc.get("expires_at"),
+        },
+    }
+
+
+@router.get("/tr-v2/operator/mi-viaje")
+async def transporte_v2_operator_mi_viaje(authorization: str = Header(default="")):
+    token_plain = _operator_token_from_header(authorization)
+    sb, acc = _operator_context(token_plain)
+    try:
+        rows = (
+            sb.table(TBL_VIAJES)
+            .select("*")
+            .eq("user_id", acc.get("user_id"))
+            .eq("perfil_id", acc.get("perfil_id"))
+            .eq("chofer_id", acc.get("chofer_id"))
+            .order("fecha_hora_salida")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        rows = []
+    viaje = rows[0] if rows else None
+    return {"ok": True, "viaje": viaje, "has_trip": bool(viaje)}
 
 
 @router.get("/tr-v2/dashboard")
