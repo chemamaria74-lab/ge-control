@@ -61,6 +61,16 @@ p{margin:0;color:var(--trv2-muted);line-height:1.5}
 .trv2-form-wide{grid-column:1/-1}
 .trv2-form-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:10px}
 .trv2-form-actions-inline{margin-top:12px}
+.trv2-form-inner{grid-template-columns:repeat(3,minmax(0,1fr))}
+.trv2-subsection-title{margin:4px 0 0;font-size:15px}
+.trv2-detected-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.trv2-detected-card{border:1px solid var(--trv2-line);border-radius:8px;background:#faf8f5;padding:11px;min-width:0}
+.trv2-detected-card span{display:block;color:var(--trv2-muted);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px}
+.trv2-detected-card strong{display:block;font-size:14px;font-weight:900;overflow-wrap:anywhere}
+.trv2-detected-card.missing{background:#fff8e6;border-color:#f1d18a}
+.trv2-detected-actions{display:flex;justify-content:flex-end}
+.trv2-detected-edit{border:1px solid var(--trv2-line);border-radius:8px;background:#faf8f5;padding:12px}
+.trv2-detected-edit[hidden]{display:none}
 .trv2-check{display:flex!important;align-items:center;gap:8px}
 .trv2-check input{width:auto!important;min-height:auto!important}
 .trv2-subtabs{display:flex;align-items:center;gap:8px;overflow:auto;padding:4px 0 14px;margin-bottom:8px}
@@ -174,7 +184,8 @@ tbody tr:last-child td{border-bottom:0}
   .trv2-actions{justify-content:flex-start}
   .trv2-kpis,.trv2-kpis-compact,.trv2-kpis-cv{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-form{grid-template-columns:1fr}
-  .trv2-form-cv,.trv2-form-admin{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .trv2-form-cv,.trv2-form-admin,.trv2-form-inner{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .trv2-detected-overview{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-step-grid{grid-template-columns:1fr}
   .trv2-access-card{grid-template-columns:1fr}
   .trv2-admin-cp-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -184,7 +195,7 @@ tbody tr:last-child td{border-bottom:0}
 }
 @media(max-width:560px){
   .trv2-kpis,.trv2-kpis-compact,.trv2-kpis-cv{grid-template-columns:1fr}
-  .trv2-form-cv,.trv2-form-admin,.trv2-catalog-card-grid{grid-template-columns:1fr}
+  .trv2-form-cv,.trv2-form-admin,.trv2-form-inner,.trv2-catalog-card-grid,.trv2-detected-overview{grid-template-columns:1fr}
   .trv2-admin-cp-grid{grid-template-columns:1fr}
   .trv2-card-head{grid-template-columns:auto minmax(0,1fr)}
   .trv2-card-head .trv2-status{grid-column:1/-1;justify-self:start}
