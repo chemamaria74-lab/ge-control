@@ -1,8 +1,14 @@
 const TRV2_DOC_FIELDS = [
   ['emisor_nombre', 'Emisor / proveedor'],
   ['emisor_rfc', 'RFC emisor'],
+  ['regimen_emisor', 'Régimen emisor'],
   ['receptor_nombre', 'Receptor / cliente'],
   ['receptor_rfc', 'RFC receptor'],
+  ['domicilio_receptor', 'Domicilio receptor'],
+  ['cp_receptor', 'CP receptor'],
+  ['regimen_receptor', 'Régimen receptor'],
+  ['serie', 'Serie'],
+  ['folio_numero', 'Folio'],
   ['folio', 'Factura / folio'],
   ['uuid', 'UUID factura cliente'],
   ['producto', 'Producto'],
@@ -10,12 +16,39 @@ const TRV2_DOC_FIELDS = [
   ['cantidad_litros', 'Litros', 'number'],
   ['peso_kg', 'Kilos', 'number'],
   ['permiso', 'Permiso'],
+  ['unidad', 'Unidad'],
+  ['precio_unitario', 'Precio unitario', 'number'],
+  ['subtotal', 'Subtotal', 'number'],
+  ['iva', 'IVA', 'number'],
+  ['total', 'Total', 'number'],
   ['origen_sugerido', 'Origen sugerido'],
   ['destino_sugerido', 'Destino sugerido'],
   ['fecha_boleta', 'Fecha boleta/documento'],
   ['boleta', 'Boleta'],
+  ['pg', 'PG'],
+  ['lugar_expedicion', 'Lugar expedición'],
+  ['fecha_factura', 'Fecha factura'],
+  ['fecha_certificacion', 'Fecha certificación'],
+  ['metodo_pago', 'Método pago'],
+  ['forma_pago', 'Forma pago'],
+  ['uso_cfdi', 'Uso CFDI'],
   ['distancia_km', 'Distancia km', 'number'],
   ['tipo_cfdi_sugerido', 'Tipo CFDI sugerido'],
+];
+
+const TRV2_DOC_SUMMARY_FIELDS = [
+  ['Proveedor', 'emisor_nombre'],
+  ['RFC proveedor', 'emisor_rfc'],
+  ['Cliente', 'receptor_nombre'],
+  ['RFC cliente', 'receptor_rfc'],
+  ['UUID', 'uuid'],
+  ['Factura', 'folio'],
+  ['Producto', 'producto'],
+  ['Litros', 'cantidad_litros', 'number'],
+  ['Kilos', 'peso_kg', 'number'],
+  ['Permiso', 'permiso'],
+  ['Boleta', 'boleta'],
+  ['Origen', 'origen_sugerido'],
 ];
 
 function trv2DocUi(scope = 'carga') {
@@ -95,16 +128,24 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
   const detected = data.detected || {};
   if (!panel || !form) return;
   panel.hidden = false;
-  if (summary) {
-    const warnings = (data.warnings || []).length ? ` · ${data.warnings.length} advertencia(s)` : '';
-    const missing = data.manual_fields_required?.length ? ' No se detectaron todos los datos. Completa la información manualmente.' : '';
-    summary.textContent = `Fuente: ${data.source || 'manual'} · Confianza: ${data.confidence || 'baja'}${warnings}. No se guardó archivo en bucket y no se generó CFDI.${missing}`;
-  }
-  form.innerHTML = TRV2_DOC_FIELDS.map(([field, label, type]) => `
-    <label>${trv2Esc(label)}
-      <input data-doc-field="${trv2Esc(field)}" type="${type === 'number' ? 'number' : 'text'}" step="0.001" value="${trv2Esc(detected[field] ?? '')}">
-    </label>
-  `).join('') + `
+  if (summary) summary.textContent = trv2DetectedMessage(detected);
+  form.innerHTML = `
+    <div class="trv2-detected-overview trv2-form-wide">
+      ${trv2RenderDetectedCards(detected)}
+    </div>
+    <div class="trv2-form-wide trv2-detected-actions">
+      <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ToggleDetectedEdit('${trv2Esc(scope)}')"><i class="fa-solid fa-pen"></i> Editar datos</button>
+    </div>
+    <div class="trv2-detected-edit trv2-form-wide" id="${scope === 'cp' ? 'trv2-cp-doc-edit' : 'trv2-doc-edit'}" hidden>
+      <div class="trv2-form trv2-form-inner">
+        ${TRV2_DOC_FIELDS.map(([field, label, type]) => `
+          <label>${trv2Esc(label)}
+            <input data-doc-field="${trv2Esc(field)}" type="${type === 'number' ? 'number' : 'text'}" step="0.001" value="${trv2Esc(detected[field] ?? '')}">
+          </label>
+        `).join('')}
+      </div>
+    </div>
+    <h3 class="trv2-form-wide trv2-subsection-title">Completar viaje</h3>
     <label>Cliente
       <select id="${scope === 'cp' ? 'trv2-cp-doc-cliente-id' : 'trv2-doc-cliente-id'}">${trv2CatalogOptions('clientes', 'Cliente pendiente')}</select>
     </label>
@@ -131,6 +172,51 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
     </label>
   `;
   trv2SelectDetectedCatalogValues(scope, detected);
+}
+
+function trv2DetectedValue(value, type = '') {
+  if (type === 'number') return Number(value || 0) ? Number(value || 0).toLocaleString('es-MX') : '';
+  return String(value ?? '').trim();
+}
+
+function trv2RenderDetectedCards(detected) {
+  return TRV2_DOC_SUMMARY_FIELDS.map(([label, key, type]) => {
+    const value = trv2DetectedValue(detected[key], type);
+    const empty = value ? '' : 'missing';
+    return `
+      <article class="trv2-detected-card ${empty}">
+        <span>${trv2Esc(label)}</span>
+        <strong>${trv2Esc(value || 'Pendiente')}</strong>
+      </article>
+    `;
+  }).join('');
+}
+
+function trv2DetectedMessage(detected) {
+  const foundMap = [
+    ['UUID', detected.uuid],
+    ['litros', detected.cantidad_litros],
+    ['kilos', detected.peso_kg],
+    ['permiso', detected.permiso],
+    ['origen', detected.origen_sugerido],
+    ['producto', detected.producto],
+  ];
+  const found = foundMap.filter(([, value]) => String(value || '').trim()).map(([label]) => label);
+  const missing = [];
+  if (!detected.emisor_nombre || !detected.emisor_rfc) missing.push('proveedor');
+  if (!detected.receptor_nombre || !detected.receptor_rfc) missing.push('cliente');
+  if (!detected.uuid) missing.push('UUID');
+  if (!detected.cantidad_litros) missing.push('litros');
+  if (!detected.peso_kg) missing.push('kilos');
+  const foundText = found.length ? `Detectamos ${found.join(', ')}.` : 'No se detectaron datos suficientes.';
+  const missingText = missing.length ? ` Falta revisar ${missing.join(', ')}.` : ' Revisa y completa los datos operativos.';
+  return `${foundText}${missingText} Falta seleccionar ruta, vehículo y operador.`;
+}
+
+function trv2ToggleDetectedEdit(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
+  const panel = document.getElementById(scope === 'cp' ? 'trv2-cp-doc-edit' : 'trv2-doc-edit');
+  if (!panel) return;
+  panel.hidden = !panel.hidden;
 }
 
 function trv2CatalogOptions(catalogName, placeholder) {
@@ -202,6 +288,9 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
     observaciones: `Documento cliente ${detected.folio || detected.uuid || ''}`.trim(),
     metadata: {
       documento_detectado: detected,
+      proveedor_nombre: detected.emisor_nombre || detected.proveedor_nombre || '',
+      proveedor_rfc: detected.emisor_rfc || detected.proveedor_rfc || '',
+      proveedor_permiso: detected.permiso || detected.proveedor_permiso || '',
       source: TRV2_DOCUMENT_DETECTED.source,
       confidence: TRV2_DOCUMENT_DETECTED.confidence,
     },
@@ -223,6 +312,9 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
       fase: 'transporte_v2_fase_2_8',
       bucket_pendiente: true,
       detected,
+      proveedor_nombre: detected.emisor_nombre || detected.proveedor_nombre || '',
+      proveedor_rfc: detected.emisor_rfc || detected.proveedor_rfc || '',
+      proveedor_permiso: detected.permiso || detected.proveedor_permiso || '',
       ruta_id: ruta?.id || null,
       operador_id: operador?.id || null,
       vehiculo_id: vehiculo?.id || null,
