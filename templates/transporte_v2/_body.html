@@ -15,7 +15,7 @@
   <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2Logout()">Salir</button>
 </header>
 
-<nav class="trv2-tabs" aria-label="Navegación Transporte v2">
+<nav class="trv2-tabs" id="trv2-admin-tabs" aria-label="Navegación Transporte v2" hidden>
   <button class="trv2-tab active" type="button" data-tab="dashboard" onclick="trv2SwitchTab('dashboard')"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
   <button class="trv2-tab" type="button" data-tab="viajes" onclick="trv2SwitchTab('viajes')"><i class="fa-solid fa-route"></i> Viajes</button>
   <button class="trv2-tab" type="button" data-tab="documentos" onclick="trv2SwitchTab('documentos')"><i class="fa-solid fa-file-arrow-up"></i> Documentos</button>
@@ -25,7 +25,19 @@
   <button class="trv2-tab" type="button" data-tab="control-volumetrico" onclick="trv2SwitchTab('control-volumetrico')"><i class="fa-solid fa-file-code"></i> Control Volumétrico</button>
 </nav>
 
-<main class="trv2-shell">
+<section class="trv2-auth-required" id="trv2-auth-required">
+  <div>
+    <i class="fa-solid fa-lock"></i>
+    <h1>Sesión requerida para Transporte v2</h1>
+    <p id="trv2-auth-required-message">Valida tu sesión y empresa activa para entrar al administrador de Transporte v2.</p>
+    <div class="trv2-auth-actions">
+      <a class="trv2-btn trv2-btn-primary" href="/choice">Volver a selección de módulo</a>
+      <a class="trv2-btn trv2-btn-ghost" href="/transporte-v2/roles">Volver a roles Transporte</a>
+    </div>
+  </div>
+</section>
+
+<main class="trv2-shell" id="trv2-admin-shell" hidden>
   <section id="trv2-tab-dashboard" class="trv2-section active">
     <div class="trv2-section-head">
       <div>
@@ -183,10 +195,16 @@
   </section>
 
   <section id="trv2-tab-reportes" class="trv2-section">
-    <div class="trv2-soon">
-      <i class="fa-solid fa-chart-column"></i>
-      <h1>Reportes</h1>
-      <p>Próximamente en una fase posterior.</p>
+    <div class="trv2-grid-2">
+      <div class="trv2-soon">
+        <i class="fa-solid fa-chart-column"></i>
+        <h1>Reportes</h1>
+        <p>Próximamente en una fase posterior.</p>
+      </div>
+      <section class="trv2-panel">
+        <h2><i class="fa-solid fa-user-lock"></i> Accesos operador</h2>
+        <p class="trv2-muted">Aquí se crearán usuarios operador ligados a choferes y viajes asignados.</p>
+      </section>
     </div>
   </section>
 
