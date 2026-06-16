@@ -322,14 +322,15 @@
     <div class="trv2-grid-2">
       <section class="trv2-panel">
         <h2><i class="fa-solid fa-user-lock"></i> Usuarios operador</h2>
-        <p class="trv2-muted">Crea accesos de operador ligados a choferes para consultar viajes asignados, evidencias, documentos y Carta Porte.</p>
+        <p class="trv2-muted">Crea accesos para choferes y operadores. Ellos podrán consultar viajes asignados, subir facturas, ver Carta Porte y registrar bitácora.</p>
         <form class="trv2-form trv2-form-admin">
-          <label>Operador/chofer <select><option>Seleccionar operador</option></select></label>
+          <label>Operador / chofer <select><option>Seleccionar operador</option></select></label>
           <label>Usuario <input placeholder="usuario.operador"></label>
-          <label>PIN/contraseña temporal <input placeholder="Pendiente"></label>
+          <label>PIN o contraseña temporal <input placeholder="Pendiente"></label>
+          <label>Vehículo habitual <select><option>Seleccionar vehículo</option></select></label>
           <label>Estado <select><option>Activo</option><option>Inactivo</option></select></label>
           <div class="trv2-form-actions">
-            <button class="trv2-btn trv2-btn-primary" type="button" disabled>Crear acceso</button>
+            <button class="trv2-btn trv2-btn-primary" type="button" disabled>Crear acceso operador</button>
           </div>
         </form>
         <div class="trv2-alert trv2-alert-warn">Alta de operadores se habilitará en la siguiente fase.</div>
