@@ -323,17 +323,26 @@
       <section class="trv2-panel">
         <h2><i class="fa-solid fa-user-lock"></i> Usuarios operador</h2>
         <p class="trv2-muted">Crea accesos para choferes y operadores. Ellos podrán consultar viajes asignados, subir facturas, ver Carta Porte y registrar bitácora.</p>
-        <form class="trv2-form trv2-form-admin">
-          <label>Operador / chofer <select><option>Seleccionar operador</option></select></label>
-          <label>Usuario <input placeholder="usuario.operador"></label>
-          <label>PIN o contraseña temporal <input placeholder="Pendiente"></label>
-          <label>Vehículo habitual <select><option>Seleccionar vehículo</option></select></label>
-          <label>Estado <select><option>Activo</option><option>Inactivo</option></select></label>
+        <form class="trv2-form trv2-form-admin" onsubmit="trv2CreateOperatorAccess(event)">
+          <label>Operador / chofer <select id="trv2-admin-operator-chofer" required><option value="">Seleccionar operador</option></select></label>
+          <label>Usuario <input id="trv2-admin-operator-user" placeholder="Se habilitará con migración usuario/PIN" disabled></label>
+          <label>PIN o contraseña temporal <input id="trv2-admin-operator-pin" placeholder="Se habilitará con migración usuario/PIN" disabled></label>
+          <label>Vehículo habitual <select id="trv2-admin-operator-vehicle"><option value="">Opcional</option></select></label>
+          <label>Estado <select id="trv2-admin-operator-active"><option value="true">Activo</option><option value="false">Inactivo</option></select></label>
           <div class="trv2-form-actions">
-            <button class="trv2-btn trv2-btn-primary" type="button" disabled>Crear acceso operador</button>
+            <button class="trv2-btn trv2-btn-primary" type="submit">Crear acceso operador</button>
           </div>
         </form>
-        <div class="trv2-alert trv2-alert-warn">Alta de operadores se habilitará en la siguiente fase.</div>
+        <div class="trv2-alert trv2-alert-warn">Fase actual: acceso por token temporal. Usuario/PIN requiere migración no destructiva posterior.</div>
+        <div id="trv2-operator-access-result" class="trv2-access-result" hidden></div>
+        <div class="trv2-table-head">
+          <div>
+            <h2>Accesos existentes</h2>
+            <p class="trv2-muted">Solo muestra accesos del perfil activo.</p>
+          </div>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorAccesses()">Actualizar</button>
+        </div>
+        <div id="trv2-operator-access-list" class="trv2-access-list"></div>
       </section>
       <section class="trv2-panel">
         <h2><i class="fa-solid fa-sliders"></i> Configuración</h2>
