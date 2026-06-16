@@ -5,13 +5,21 @@ function trv2PrepareCartaPorteTab() {
 
 function trv2PopulateCartaPorteTrips() {
   const select = document.getElementById('trv2-cp-trip-select');
+  const message = document.getElementById('trv2-cp-trip-message');
   if (!select) return;
   if (!TRV2_TRIPS.length) {
-    select.innerHTML = '<option value="">Sin viajes cargados</option>';
+    select.innerHTML = '<option value="">No hay viajes borrador</option>';
+    if (message) message.textContent = 'No hay viajes borrador. Sube un documento o crea un viaje para continuar.';
     return;
   }
+  if (message) message.textContent = 'Selecciona un viaje borrador para generar preview seco de Carta Porte.';
   select.innerHTML = TRV2_TRIPS.map(row => {
-    const label = `#${row.id} · ${trv2TripMeta(row, 'cliente_nombre') || 'Cliente pendiente'} · ${row.origen || 'Origen'} → ${row.destino || 'Destino'}`;
+    const operador = trv2TripRelatedLabel(row, 'operadores', 'operador_nombre') || 'Operador pendiente';
+    const vehiculo = trv2TripRelatedLabel(row, 'vehiculos', 'vehiculo_alias') || 'Unidad pendiente';
+    const ruta = `${row.origen || 'Origen'} → ${row.destino || 'Destino'}`;
+    const fecha = row.fecha_salida || row.fecha_hora_salida || 'Sin fecha';
+    const litros = Number(row.volumen_litros || row.volumen_total_litros || 0).toLocaleString('es-MX');
+    const label = `#${row.id} · ${ruta} · ${operador} · ${vehiculo} · ${fecha} · ${litros} L`;
     return `<option value="${Number(row.id)}">${trv2Esc(label)}</option>`;
   }).join('');
 }
@@ -50,7 +58,7 @@ function trv2RenderCartaPortePreview(data) {
         <span><strong>${trv2Esc(item.campo)}</strong>${trv2Esc(item.mensaje)}</span>
       </div>
     `).join('')
-    : '<div class="trv2-validation ok"><i class="fa-solid fa-circle-check"></i><span><strong>listo</strong>Datos mínimos completos para Fase 3.</span></div>';
+    : '<div class="trv2-validation ok"><i class="fa-solid fa-circle-check"></i><span><strong>listo</strong>Datos mínimos completos para la siguiente etapa.</span></div>';
 
   panel.innerHTML = `
     <div class="trv2-cp-summary">
@@ -72,6 +80,7 @@ function trv2RenderCartaPortePreview(data) {
       </div>
     </div>
     <div class="trv2-alert trv2-alert-warn">Preview seco: no timbra, no genera XML final y no llama PAC.</div>
+    <div class="trv2-alert trv2-alert-ok">Preview generado. Este paso no timbra ni llama PAC.</div>
     <div class="trv2-preview-grid">
       ${trv2RenderPreviewBlock('Emisor / transportista', preview.emisor)}
       ${trv2RenderPreviewBlock('Cliente / receptor', preview.receptor)}

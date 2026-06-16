@@ -9,6 +9,7 @@ let TRV2_ADMIN_READY = false;
 let TRV2_TRIPS = [];
 let TRV2_CP_PREVIEW = null;
 let TRV2_DOCUMENT_DETECTED = null;
+let TRV2_DOCUMENT_SCOPE = 'carga';
 let TRV2_ACTIVE_CATALOG = 'clientes';
 let TRV2_CV_MOVEMENTS = [];
 let TRV2_CATALOGS_READ_ONLY = true;

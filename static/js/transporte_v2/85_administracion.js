@@ -17,6 +17,15 @@ function trv2PopulateOperatorAdminSelects() {
   }
 }
 
+function trv2SetAdminSubtab(name = 'usuarios-operador') {
+  document.querySelectorAll('[data-admin-tab]').forEach(button => {
+    button.classList.toggle('active', button.dataset.adminTab === name);
+  });
+  document.querySelectorAll('[data-admin-panel]').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.adminPanel === name);
+  });
+}
+
 function trv2RenderOperatorAccesses(items = []) {
   const list = document.getElementById('trv2-operator-access-list');
   if (!list) return;

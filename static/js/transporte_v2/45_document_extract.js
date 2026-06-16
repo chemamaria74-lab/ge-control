@@ -18,10 +18,26 @@ const TRV2_DOC_FIELDS = [
   ['tipo_cfdi_sugerido', 'Tipo CFDI sugerido'],
 ];
 
-async function trv2AnalyzeDocument(event) {
+function trv2DocUi(scope = 'carga') {
+  const prefix = scope === 'cp' ? 'trv2-cp-doc' : 'trv2-doc';
+  return {
+    scope,
+    file: document.getElementById(`${prefix}-file`),
+    message: document.getElementById(`${prefix}-message`),
+    tipo: document.getElementById(`${prefix}-tipo`),
+    viajeId: scope === 'cp' ? null : document.getElementById('trv2-doc-viaje-id'),
+    panel: document.getElementById(`${prefix}-detected-panel`),
+    form: document.getElementById(`${prefix}-detected-form`),
+    summary: document.getElementById(`${prefix}-detected-summary`),
+  };
+}
+
+async function trv2AnalyzeDocument(event, scope = '') {
   event.preventDefault();
-  const file = document.getElementById('trv2-doc-file')?.files?.[0];
-  const message = document.getElementById('trv2-doc-message');
+  const formScope = scope || (event.target?.id === 'trv2-cp-doc-form' ? 'cp' : 'carga');
+  const ui = trv2DocUi(formScope);
+  const file = ui.file?.files?.[0];
+  const message = ui.message;
   if (!file) {
     if (message) message.textContent = 'Selecciona un PDF o XML para analizar.';
     return;
@@ -29,8 +45,8 @@ async function trv2AnalyzeDocument(event) {
   const form = new FormData();
   form.append('file', file);
   form.append('perfil_id', TRV2_PERFIL?.id || '');
-  form.append('viaje_id', document.getElementById('trv2-doc-viaje-id')?.value || '');
-  form.append('tipo_documento', document.getElementById('trv2-doc-tipo')?.value || 'factura_cliente');
+  form.append('viaje_id', ui.viajeId?.value || '');
+  form.append('tipo_documento', ui.tipo?.value || 'factura_cliente');
   const data = await trv2UploadForm('/api/tr-v2/documentos/analizar', form);
   if (!data?.ok) {
     const text = data?.detail || data?.message || 'No se pudo analizar el documento.';
@@ -39,7 +55,8 @@ async function trv2AnalyzeDocument(event) {
     return;
   }
   TRV2_DOCUMENT_DETECTED = data;
-  trv2RenderDocumentDetected(data);
+  TRV2_DOCUMENT_SCOPE = formScope;
+  trv2RenderDocumentDetected(data, formScope);
   if (message) message.textContent = 'Documento analizado. Revisa y confirma los datos detectados.';
   trv2Toast('Documento analizado sin timbrar ni generar XML fiscal.', 'success');
 }
@@ -70,41 +87,50 @@ async function trv2UploadForm(path, formData) {
   }
 }
 
-function trv2RenderDocumentDetected(data) {
-  const panel = document.getElementById('trv2-doc-detected-panel');
-  const form = document.getElementById('trv2-doc-detected-form');
-  const summary = document.getElementById('trv2-doc-detected-summary');
+function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga') {
+  const ui = trv2DocUi(scope);
+  const panel = ui.panel;
+  const form = ui.form;
+  const summary = ui.summary;
   const detected = data.detected || {};
   if (!panel || !form) return;
   panel.hidden = false;
   if (summary) {
     const warnings = (data.warnings || []).length ? ` · ${data.warnings.length} advertencia(s)` : '';
-    summary.textContent = `Fuente: ${data.source || 'manual'} · Confianza: ${data.confidence || 'baja'}${warnings}. No se guardó archivo en bucket y no se generó CFDI.`;
+    const missing = data.manual_fields_required?.length ? ' No se detectaron todos los datos. Completa la información manualmente.' : '';
+    summary.textContent = `Fuente: ${data.source || 'manual'} · Confianza: ${data.confidence || 'baja'}${warnings}. No se guardó archivo en bucket y no se generó CFDI.${missing}`;
   }
   form.innerHTML = TRV2_DOC_FIELDS.map(([field, label, type]) => `
     <label>${trv2Esc(label)}
       <input data-doc-field="${trv2Esc(field)}" type="${type === 'number' ? 'number' : 'text'}" step="0.001" value="${trv2Esc(detected[field] ?? '')}">
     </label>
   `).join('') + `
+    <label>Cliente
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-cliente-id' : 'trv2-doc-cliente-id'}">${trv2CatalogOptions('clientes', 'Cliente pendiente')}</select>
+    </label>
     <label>Ruta
-      <select id="trv2-doc-ruta-id" required>${trv2CatalogOptions('rutas', 'Selecciona ruta')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-ruta-id' : 'trv2-doc-ruta-id'}" required>${trv2CatalogOptions('rutas', 'Selecciona ruta')}</select>
     </label>
     <label>Operador
-      <select id="trv2-doc-operador-id" required>${trv2CatalogOptions('operadores', 'Selecciona operador')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-operador-id' : 'trv2-doc-operador-id'}" required>${trv2CatalogOptions('operadores', 'Selecciona operador')}</select>
     </label>
     <label>Vehículo
-      <select id="trv2-doc-vehiculo-id" required>${trv2CatalogOptions('vehiculos', 'Selecciona vehículo')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-vehiculo-id' : 'trv2-doc-vehiculo-id'}" required>${trv2CatalogOptions('vehiculos', 'Selecciona vehículo')}</select>
+    </label>
+    <label>Producto
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-producto-id' : 'trv2-doc-producto-id'}" required>${trv2CatalogOptions('productos', 'Selecciona producto')}</select>
     </label>
     <label>Fecha salida
-      <input id="trv2-doc-fecha-salida" type="datetime-local" required>
+      <input id="${scope === 'cp' ? 'trv2-cp-doc-fecha-salida' : 'trv2-doc-fecha-salida'}" type="datetime-local" required>
     </label>
     <label>Fecha llegada estimada
-      <input id="trv2-doc-fecha-llegada" type="datetime-local">
+      <input id="${scope === 'cp' ? 'trv2-cp-doc-fecha-llegada' : 'trv2-doc-fecha-llegada'}" type="datetime-local">
     </label>
     <label class="trv2-form-wide">Campos pendientes
       <textarea rows="3" readonly>${trv2Esc((data.manual_fields_required || []).join(', ') || 'Sin pendientes detectados')}</textarea>
     </label>
   `;
+  trv2SelectDetectedCatalogValues(scope, detected);
 }
 
 function trv2CatalogOptions(catalogName, placeholder) {
@@ -114,29 +140,45 @@ function trv2CatalogOptions(catalogName, placeholder) {
   )).join('');
 }
 
-function trv2ReadDetectedForm() {
+function trv2ReadDetectedForm(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
   const data = {};
-  document.querySelectorAll('[data-doc-field]').forEach(input => {
+  const form = trv2DocUi(scope).form || document;
+  form.querySelectorAll('[data-doc-field]').forEach(input => {
     const key = input.dataset.docField;
     data[key] = input.type === 'number' ? Number(input.value || 0) : input.value.trim();
   });
   return data;
 }
 
-async function trv2CreateTripFromDocument() {
+function trv2DocFieldId(scope, suffix) {
+  return scope === 'cp' ? `trv2-cp-doc-${suffix}` : `trv2-doc-${suffix}`;
+}
+
+function trv2SelectDetectedCatalogValues(scope, detected) {
+  const cliente = trv2FindOrLabel('clientes', detected.receptor_rfc, detected.receptor_nombre);
+  const producto = trv2FindOrLabel('productos', detected.clave_sat, detected.producto);
+  const clienteSelect = document.getElementById(trv2DocFieldId(scope, 'cliente-id'));
+  const productoSelect = document.getElementById(trv2DocFieldId(scope, 'producto-id'));
+  if (clienteSelect && cliente?.id) clienteSelect.value = String(cliente.id);
+  if (productoSelect && producto?.id) productoSelect.value = String(producto.id);
+}
+
+async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
   if (!TRV2_DOCUMENT_DETECTED) {
     trv2Toast('Primero analiza un documento.', 'error');
     return;
   }
-  const detected = trv2ReadDetectedForm();
-  const cliente = trv2FindOrLabel('clientes', detected.receptor_rfc, detected.receptor_nombre);
-  const producto = trv2FindOrLabel('productos', detected.clave_sat, detected.producto);
-  const ruta = trv2FindCatalog('rutas', document.getElementById('trv2-doc-ruta-id')?.value);
-  const operador = trv2FindCatalog('operadores', document.getElementById('trv2-doc-operador-id')?.value);
-  const vehiculo = trv2FindCatalog('vehiculos', document.getElementById('trv2-doc-vehiculo-id')?.value);
-  const fechaSalida = document.getElementById('trv2-doc-fecha-salida')?.value || '';
-  if (!ruta || !operador || !vehiculo || !fechaSalida) {
-    trv2Toast('Completa ruta, operador, vehículo y fecha salida antes de crear el viaje.', 'error');
+  const detected = trv2ReadDetectedForm(scope);
+  const cliente = trv2FindCatalog('clientes', document.getElementById(trv2DocFieldId(scope, 'cliente-id'))?.value)
+    || trv2FindOrLabel('clientes', detected.receptor_rfc, detected.receptor_nombre);
+  const producto = trv2FindCatalog('productos', document.getElementById(trv2DocFieldId(scope, 'producto-id'))?.value)
+    || trv2FindOrLabel('productos', detected.clave_sat, detected.producto);
+  const ruta = trv2FindCatalog('rutas', document.getElementById(trv2DocFieldId(scope, 'ruta-id'))?.value);
+  const operador = trv2FindCatalog('operadores', document.getElementById(trv2DocFieldId(scope, 'operador-id'))?.value);
+  const vehiculo = trv2FindCatalog('vehiculos', document.getElementById(trv2DocFieldId(scope, 'vehiculo-id'))?.value);
+  const fechaSalida = document.getElementById(trv2DocFieldId(scope, 'fecha-salida'))?.value || '';
+  if (!ruta || !operador || !vehiculo || !producto || !fechaSalida) {
+    trv2Toast('Completa ruta, operador, vehículo, producto y fecha salida antes de crear el viaje.', 'error');
     return;
   }
   const body = {
@@ -155,9 +197,14 @@ async function trv2CreateTripFromDocument() {
     volumen_litros: Number(detected.cantidad_litros || 0),
     peso_kg: Number(detected.peso_kg || 0),
     fecha_salida: fechaSalida,
-    fecha_llegada_estimada: document.getElementById('trv2-doc-fecha-llegada')?.value || '',
+    fecha_llegada_estimada: document.getElementById(trv2DocFieldId(scope, 'fecha-llegada'))?.value || '',
     estatus: 'borrador',
     observaciones: `Documento cliente ${detected.folio || detected.uuid || ''}`.trim(),
+    metadata: {
+      documento_detectado: detected,
+      source: TRV2_DOCUMENT_DETECTED.source,
+      confidence: TRV2_DOCUMENT_DETECTED.confidence,
+    },
   };
   const trip = await trv2Api('POST', '/api/tr-v2/viajes', body, {allowError: true});
   if (!trip?.ok) {
@@ -168,7 +215,7 @@ async function trv2CreateTripFromDocument() {
   await trv2Api('POST', '/api/tr-v2/documentos', {
     perfil_id: TRV2_PERFIL?.id || null,
     viaje_id: viajeId,
-    tipo_documento: document.getElementById('trv2-doc-tipo')?.value || 'factura_cliente',
+    tipo_documento: trv2DocUi(scope).tipo?.value || 'factura_cliente',
     nombre_archivo: TRV2_DOCUMENT_DETECTED.filename || 'Documento cliente',
     content_type: TRV2_DOCUMENT_DETECTED.content_type || '',
     size_bytes: TRV2_DOCUMENT_DETECTED.size_bytes || 0,
@@ -186,7 +233,11 @@ async function trv2CreateTripFromDocument() {
   trv2Toast(`Viaje borrador creado${viajeId ? ` #${viajeId}` : ''}.`, 'success');
   await trv2LoadTrips();
   await trv2LoadDashboard();
-  if (viajeId) trv2PreviewCartaPorte(viajeId);
+  if (viajeId) {
+    const cpSelect = document.getElementById('trv2-cp-trip-select');
+    if (cpSelect) cpSelect.value = String(viajeId);
+    await trv2PreviewCartaPorte(viajeId);
+  }
 }
 
 function trv2FindOrLabel(catalogName, keyValue, labelValue) {

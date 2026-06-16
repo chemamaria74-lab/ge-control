@@ -175,7 +175,7 @@ function trv2RenderActiveCatalog() {
         <i class="fa-solid ${trv2Esc(ui.icon || 'fa-table-list')}"></i>
         <h2>${trv2Esc(ui.title || TRV2_CATALOG_LABELS[name])}</h2>
         <p>${trv2Esc(emptyMessage)}</p>
-        <button class="trv2-btn trv2-btn-primary" type="button" ${TRV2_CATALOGS_READ_ONLY ? 'disabled' : ''} onclick="trv2OpenCatalogModal('${trv2Esc(name)}')"><i class="fa-solid fa-plus"></i> Nuevo</button>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenCatalogModal('${trv2Esc(name)}')"><i class="fa-solid fa-plus"></i> Nuevo</button>
       </div>
     `;
     return;
@@ -212,8 +212,24 @@ function trv2RenderCatalogCard(name, item) {
         <span class="trv2-status ${statusClass}">${status}</span>
       </div>
       <div class="trv2-card-body">${rows}</div>
+      <div class="trv2-card-actions">
+        <button class="trv2-mini-btn" type="button" onclick="trv2CatalogReadOnlyAction('editar')">Editar</button>
+        <button class="trv2-mini-btn" type="button" onclick="trv2CatalogReadOnlyAction('desactivar')">Desactivar</button>
+        <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2CatalogReadOnlyAction('eliminar')">Eliminar seguro</button>
+        <button class="trv2-mini-btn" type="button" onclick="trv2CatalogReadOnlyAction('configurar')">Configurar</button>
+      </div>
     </article>
   `;
+}
+
+function trv2CatalogReadOnlyAction(action = 'editar') {
+  const labels = {
+    editar: 'Edición',
+    desactivar: 'Desactivación',
+    eliminar: 'Eliminación segura',
+    configurar: 'Configuración',
+  };
+  trv2Toast(`${labels[action] || 'Acción'} de catálogos se habilitará después de validar escritura segura en tr_*.`, 'info');
 }
 
 function trv2RenderCatalogFields(name) {
@@ -228,7 +244,7 @@ function trv2RenderCatalogFields(name) {
 
 function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG) {
   if (TRV2_CATALOGS_READ_ONLY) {
-    trv2Toast('Catálogos conectados a tr_* en modo lectura. Alta/edición se habilitará después de confirmar payloads.', 'info');
+    trv2Toast('Alta de catálogos en modo lectura por seguridad.', 'info');
     return;
   }
   TRV2_ACTIVE_CATALOG = name || 'clientes';

@@ -130,7 +130,7 @@ function trv2RenderCvTable(movements) {
         <td>${trv2Esc(item.vehicleName)}</td>
         <td>${trv2Esc(row.origen || 'Origen pendiente')}</td>
         <td>${trv2Esc(row.destino || 'Destino pendiente')}</td>
-        <td>${trv2Esc(item.uuid || 'Pendiente Fase 3')}</td>
+        <td>${trv2Esc(item.uuid || 'Pendiente')}</td>
         <td><span class="trv2-status ${statusClass}">${trv2Esc(statusLabel)}</span></td>
       </tr>
     `;
@@ -157,7 +157,7 @@ function trv2ValidateCvDraft() {
   const message = [
     missingUuid ? `${missingUuid} movimiento(s) sin UUID Carta Porte.` : 'UUID Carta Porte completo en movimientos filtrados.',
     nonHydrocarbon ? `${nonHydrocarbon} movimiento(s) requieren confirmar si aplican a hidrocarburos/petrolíferos.` : 'Productos del periodo parecen compatibles con Control Volumétrico.',
-    'Exportar JSON SAT sigue deshabilitado en esta fase.',
+    'Exportar JSON SAT sigue deshabilitado hasta validar la estructura fiscal.',
   ].join(' ');
   if (alert) alert.textContent = message;
   trv2Toast('Borrador de Control Volumétrico validado visualmente. No se generó JSON.', missingUuid ? 'error' : 'success');
