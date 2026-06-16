@@ -1053,18 +1053,30 @@ def _normalize_permiso_value(value: Any) -> str:
     return re.sub(r"\s+", "", str(value or "").strip().upper())
 
 
+def _normalize_rfc_value(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value or "").strip().upper())
+
+
 def _normalize_producto_value(value: Any) -> str:
-    text = re.sub(r"[\s.]+", "", str(value or "").strip().upper())
-    aliases = {
-        "GASLP": "GASLP",
-        "GASL": "GASLP",
-        "GASLICUADODEPETROLEO": "GASLP",
-        "DIESEL": "DIESEL",
-        "DIÉSEL": "DIESEL",
-        "MAGNA": "MAGNA",
-        "PREMIUM": "PREMIUM",
-    }
-    return aliases.get(text, text)
+    text = str(value or "").strip().upper()
+    text = (
+        text.replace("Á", "A")
+        .replace("É", "E")
+        .replace("Í", "I")
+        .replace("Ó", "O")
+        .replace("Ú", "U")
+        .replace(".", "")
+    )
+    compact = re.sub(r"\s+", "", text)
+    if ("GAS" in compact and "LP" in compact) or "GASLICUADODEPETROLEO" in compact:
+        return "GASLP"
+    if "DIESEL" in compact:
+        return "DIESEL"
+    if "MAGNA" in compact:
+        return "MAGNA"
+    if "PREMIUM" in compact:
+        return "PREMIUM"
+    return compact
 
 
 def _permiso_payload(data: dict[str, Any]) -> dict[str, Any]:
@@ -1103,22 +1115,26 @@ def _migration_pending_response(message: str = "Migración pendiente: ejecuta tr
 
 
 def _lookup_permiso_rfc(token: str, uid: str, pid: Optional[int], detected: dict[str, Any]) -> dict[str, Any]:
-    rfc = _first_text(detected.get("proveedor_rfc"), detected.get("emisor_rfc")).upper()
+    rfc = _normalize_rfc_value(_first_text(detected.get("proveedor_rfc"), detected.get("emisor_rfc")))
     permiso_detectado = _first_text(detected.get("permiso"), detected.get("proveedor_permiso"))
     producto_detectado = _first_text(detected.get("producto"))
     if not rfc:
         return {"status": "sin_rfc", "message": "No se detectó RFC proveedor para validar permiso."}
     try:
-        q = _sb(token).table(TBL_PROVEEDORES).select("*").eq("user_id", uid).eq("rfc", rfc).eq("activo", True)
+        q = _sb(token).table(TBL_PROVEEDORES).select("*").eq("user_id", uid).eq("activo", True)
         if pid:
             q = q.eq("perfil_id", pid)
-        rows = q.limit(20).execute().data or []
+        rows = q.limit(200).execute().data or []
     except Exception as exc:
         if _is_missing_table_error(exc):
             return {"status": "schema_missing", "message": _missing_schema_payload(TBL_PROVEEDORES)["message"]}
         logger.info("Permiso/RFC lookup omitido rfc=%s: %s", rfc, exc)
         return {"status": "error", "message": "No se pudo validar permiso/RFC en este momento."}
-    normalized = [_normalize_permiso_row(row) for row in rows]
+    normalized = [
+        _normalize_permiso_row(row)
+        for row in rows
+        if _normalize_rfc_value(row.get("rfc")) == rfc
+    ]
     if not normalized:
         return {
             "status": "no_registrado",
@@ -1140,9 +1156,17 @@ def _lookup_permiso_rfc(token: str, uid: str, pid: Optional[int], detected: dict
                 "producto_detectado": producto_detectado,
             }
         return {"status": "registrado", "message": "Permiso registrado.", "item": exact}
+    if any(not _normalize_permiso_value(row.get("permiso_cre")) for row in normalized):
+        return {
+            "status": "permiso_faltante",
+            "message": "RFC registrado, falta permiso CRE.",
+            "items": normalized,
+            "permiso_detectado": permiso_detectado,
+            "producto_detectado": producto_detectado,
+        }
     return {
         "status": "permiso_difiere",
-        "message": "RFC registrado, revisar permiso.",
+        "message": "RFC registrado, permiso distinto.",
         "items": normalized,
         "permiso_detectado": permiso_detectado,
         "producto_detectado": producto_detectado,
@@ -2072,7 +2096,7 @@ async def transporte_v2_documentos_analizar(
     detected_for_lookup = result.get("detected") if isinstance(result.get("detected"), dict) else {}
     permiso_rfc = _lookup_permiso_rfc(token, uid, pid, detected_for_lookup)
     result["permiso_rfc"] = permiso_rfc
-    if permiso_rfc.get("status") in {"no_registrado", "producto_difiere", "permiso_difiere", "advertencia"}:
+    if permiso_rfc.get("status") in {"no_registrado", "producto_difiere", "permiso_difiere", "permiso_faltante", "advertencia"}:
         result.setdefault("warnings", []).append(permiso_rfc.get("message") or "Revisa permiso/RFC en Administración.")
     metadata = {
         "fase": "transporte_v2_fase_2_8",
