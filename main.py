@@ -581,7 +581,7 @@ async def frontend_transporte_v2_roles(lang: str = "es"):
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <style>
     *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f5f5;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif);padding:24px}}
-    main{{width:min(760px,100%)}}img{{width:300px;max-width:82vw;display:block;margin:0 auto 18px}}.title{{margin:0 0 28px;text-align:center;color:#5B0F1D;font-size:clamp(2rem,5vw,3rem);font-weight:900}}
+    main{{width:min(760px,100%)}}img{{width:300px;max-width:82vw;display:block;margin:0 auto 18px}}.title{{margin:0 0 8px;text-align:center;color:#5B0F1D;font-size:30px;font-weight:900}}.subtitle{{margin:0 0 26px;text-align:center;color:#6f6a64;font-size:17px}}
     .grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}}.card{{background:#fff;border:1px solid #e7e3dc;border-radius:8px;padding:24px;text-decoration:none;color:#111;box-shadow:0 14px 36px rgba(17,17,17,.08);min-height:170px}}
     .card:hover{{border-color:#c8a96b}}.card h1{{font-size:22px;margin:0 0 8px}}.card p{{margin:0;color:#6f6a64;line-height:1.45}}
     .back{{display:inline-block;margin-top:18px;color:#5b0f1d;text-decoration:none;font-weight:700}}@media(max-width:680px){{.grid{{grid-template-columns:1fr}}}}
@@ -591,14 +591,15 @@ async def frontend_transporte_v2_roles(lang: str = "es"):
   <main>
     <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
     <h1 class="title">Transporte</h1>
+    <p class="subtitle">Selecciona el tipo de acceso.</p>
     <div class="grid">
-      <a class="card" href="/transporte-v2/admin">
+      <a class="card" href="/transporte-v2/login-admin?next=/transporte-v2/admin">
         <h1>Administrador</h1>
         <p>Gestiona viajes, catálogos, documentos, Carta Porte, facturación y Control Volumétrico.</p>
       </a>
-      <a class="card" href="/transporte-v2/operador">
+      <a class="card" href="/transporte-v2/login-operador?next=/transporte-v2/operador">
         <h1>Operador</h1>
-        <p>Consulta viajes asignados, evidencia, documentos y Carta Porte.</p>
+        <p>Consulta viajes asignados, evidencias, documentos y Carta Porte.</p>
       </a>
     </div>
     <a class="back" href="/choice">Cambiar módulo</a>
@@ -606,6 +607,159 @@ async def frontend_transporte_v2_roles(lang: str = "es"):
 </body>
 </html>"""
     return HTMLResponse(content=_inject_legal_branding(html))
+
+
+def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param: str) -> HTMLResponse:
+    if not next_param.startswith("/") or next_param.startswith("//"):
+        next_param = "/transporte-v2/admin" if kind == "admin" else "/transporte-v2/operador"
+    next_js = next_param.replace("\\", "\\\\").replace("'", "\\'")
+    operator_mode = "true" if kind == "operador" else "false"
+    html = """<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GE CONTROL - __TITLE__</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f5f5;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif);padding:24px}
+    main{width:min(420px,100%)}img{width:280px;max-width:82vw;display:block;margin:0 auto 26px}.card{background:#fff;border:1px solid #e7e3dc;border-radius:8px;padding:28px;box-shadow:0 14px 36px rgba(17,17,17,.08)}
+    h1{font-size:24px;margin:0 0 6px;text-align:center}.muted{margin:0 0 20px;color:#6f6a64;line-height:1.45;text-align:center}label{display:block;font-weight:800;margin:14px 0 6px}
+    input{width:100%;border:1px solid #ddd4c8;border-radius:7px;padding:12px 13px;font:inherit}button{width:100%;margin-top:18px;border:0;border-radius:7px;padding:13px 16px;background:#7A1E2C;color:#fff;font-weight:900;font:inherit;cursor:pointer}
+    .back{display:block;margin-top:16px;color:#5b0f1d;text-decoration:none;font-weight:800;text-align:center}.message{min-height:20px;margin-top:12px;color:#a63131;font-weight:800;text-align:center}.message.ok{color:#287a46}
+    .profiles{display:grid;gap:10px;margin-top:16px}.profile{width:100%;text-align:left;background:#fff;color:#111;border:1px solid #e7e3dc;box-shadow:none}.profile strong,.profile span{display:block}.profile span{margin-top:4px;color:#6f6a64}
+  </style>
+</head>
+<body>
+  <main>
+    <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
+    <section class="card">
+      <h1>__TITLE__</h1>
+      <p class="muted">__SUBTITLE__</p>
+      <form id="loginForm">
+        <label for="username">Usuario</label>
+        <input id="username" name="username" autocomplete="username" required>
+        <label for="password">Contraseña</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button type="submit">Entrar</button>
+      </form>
+      <div class="message" id="loginMessage"></div>
+      <div class="profiles" id="profileList" hidden></div>
+      <a class="back" href="/transporte-v2/roles">Cambiar acceso</a>
+    </section>
+  </main>
+  <script>
+    const LOGIN_NEXT = '__NEXT__';
+    const IS_OPERATOR = __OPERATOR__;
+    const PROFILE_KEY = 'zc_perfil_transporte_v2';
+    const message = document.getElementById('loginMessage');
+    const profileList = document.getElementById('profileList');
+    function esc(value) {
+      return String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    }
+    function saveToken(data) {
+      const token = data.token || data.access_token;
+      if (!token) throw new Error('La respuesta no incluyó token de sesión.');
+      localStorage.setItem('sat_token', token);
+      localStorage.setItem('zc_token', token);
+      if (data.user_id) localStorage.setItem('sat_user_id', data.user_id);
+      if (data.email) localStorage.setItem('sat_email', data.email);
+      localStorage.setItem('sat_modulo', 'transporte');
+      return token;
+    }
+    async function fetchJson(url, token) {
+      const response = await fetch(url, {headers: {Authorization: `Bearer ${token}`}});
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || data.message || `HTTP ${response.status}`);
+      return data;
+    }
+    function chooseProfile(profile) {
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+      localStorage.setItem('trv2_perfil', JSON.stringify(profile));
+      window.location.href = LOGIN_NEXT;
+    }
+    function renderProfiles(profiles) {
+      message.textContent = 'Selecciona empresa';
+      message.className = 'message ok';
+      profileList.hidden = false;
+      profileList.innerHTML = profiles.map(profile => `
+        <button class="profile" type="button" data-profile-id="${Number(profile.id)}">
+          <strong>${esc(profile.nombre || 'Empresa transporte')}</strong>
+          <span>${esc(profile.rfc || 'RFC pendiente')}</span>
+        </button>
+      `).join('');
+      profileList.querySelectorAll('button').forEach(button => {
+        button.addEventListener('click', () => {
+          const profile = profiles.find(item => Number(item.id) === Number(button.dataset.profileId));
+          if (profile) chooseProfile(profile);
+        });
+      });
+    }
+    document.getElementById('loginForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      profileList.hidden = true;
+      message.textContent = '';
+      message.className = 'message';
+      if (IS_OPERATOR) {
+        message.textContent = 'Modo operador en preparación. Los accesos se administrarán desde Transporte v2 Admin.';
+        return;
+      }
+      try {
+        const payload = {
+          username: document.getElementById('username').value.trim(),
+          password: document.getElementById('password').value,
+          modulo: 'transporte',
+        };
+        const loginResponse = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+        const loginData = await loginResponse.json().catch(() => ({}));
+        if (!loginResponse.ok || loginData.success === false) throw new Error(loginData.detail || loginData.message || 'No se pudo iniciar sesión.');
+        const token = saveToken(loginData);
+        const me = await fetchJson('/api/auth/me', token);
+        const hasTransport = (me.accesos || []).some(access => access.section === 'transporte');
+        if (!hasTransport) throw new Error('No tienes acceso al módulo Transporte.');
+        const profilesData = await fetchJson('/api/perfiles?module=transporte&auto_create=false', token);
+        const profiles = profilesData.perfiles || [];
+        if (!profiles.length) throw new Error('No hay empresas activas para Transporte.');
+        const savedRaw = localStorage.getItem(PROFILE_KEY) || localStorage.getItem('trv2_perfil');
+        let saved = null;
+        try { saved = savedRaw ? JSON.parse(savedRaw) : null; } catch (_err) { saved = null; }
+        const accessPerfil = (me.accesos || []).find(access => access.section === 'transporte')?.perfil_id;
+        const selected = profiles.find(item => Number(item.id) === Number(saved?.id))
+          || profiles.find(item => Number(item.id) === Number(accessPerfil))
+          || (profiles.length === 1 ? profiles[0] : null);
+        if (selected) chooseProfile(selected);
+        else renderProfiles(profiles);
+      } catch (err) {
+        message.textContent = err.message || 'No se pudo iniciar sesión.';
+      }
+    });
+  </script>
+</body>
+</html>"""
+    html = (
+        html.replace("__TITLE__", title)
+        .replace("__SUBTITLE__", subtitle)
+        .replace("__NEXT__", next_js)
+        .replace("__OPERATOR__", operator_mode)
+    )
+    return HTMLResponse(content=_inject_legal_branding(html))
+
+
+@app.get("/transporte-v2/login-admin", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_transporte_v2_login_admin(request: Request):
+    next_param = request.query_params.get("next") or "/transporte-v2/admin"
+    return _render_transporte_v2_login("admin", "Administrador Transporte", "Acceso con usuario y contraseña", next_param)
+
+
+@app.get("/transporte-v2/login-operador", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_transporte_v2_login_operador(request: Request):
+    next_param = request.query_params.get("next") or "/transporte-v2/operador"
+    return _render_transporte_v2_login("operador", "Operador Transporte", "Acceso de operador", next_param)
 
 
 @app.get("/transporte-v2/admin", response_class=HTMLResponse, include_in_schema=False)
@@ -632,6 +786,11 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
   </style>
 </head>
 <body>
+  <script>
+    if (!localStorage.getItem('trv2_operador_token')) {{
+      location.replace('/transporte-v2/login-operador?next=/transporte-v2/operador');
+    }}
+  </script>
   <main>
     <header><img src="/static/img/ge-control-logo.svg" alt="GE CONTROL"><div><h1>Modo operador en preparación</h1><p>Los accesos de operador se administrarán desde Transporte v2 Admin.</p></div></header>
     <section class="panel">
