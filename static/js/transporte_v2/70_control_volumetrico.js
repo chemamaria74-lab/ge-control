@@ -6,7 +6,7 @@ const TRV2_MONTHS = [
 
 function trv2IsHydrocarbonProduct(text) {
   const value = String(text || '').toLowerCase();
-  return ['magna', 'premium', 'diesel', 'diésel', 'gasolina', 'petrol', 'hidrocarb', 'combustible'].some(word => value.includes(word));
+  return ['gas lp', 'gas l.p', 'magna', 'premium', 'diesel', 'diésel', 'gasolina', 'petrol', 'hidrocarb', 'combustible'].some(word => value.includes(word));
 }
 
 function trv2PopulateCvSelect(id, catalogName, placeholder) {
@@ -31,9 +31,21 @@ function trv2PopulateControlVolumetricoFilters() {
     )).join('');
     mes.value = String(now.getMonth() + 1);
   }
+  trv2PopulateCvPermisos();
   trv2PopulateCvSelect('trv2-cv-producto', 'productos', 'Todos');
-  trv2PopulateCvSelect('trv2-cv-vehiculo', 'vehiculos', 'Todos');
-  trv2PopulateCvSelect('trv2-cv-cliente', 'clientes', 'Todos');
+}
+
+function trv2PopulateCvPermisos() {
+  const select = document.getElementById('trv2-cv-permiso');
+  if (!select) return;
+  const current = select.value;
+  const items = window.TRV2_PERMISOS_RFC || [];
+  select.innerHTML = '<option value="">Seleccionar permiso</option>' + items.map(item => {
+    const permiso = item.permiso_cre || item.permiso || '';
+    const label = [permiso, item.producto, item.nombre].filter(Boolean).join(' · ');
+    return `<option value="${trv2Esc(permiso)}">${trv2Esc(label || permiso)}</option>`;
+  }).join('');
+  if ([...select.options].some(option => option.value === current)) select.value = current;
 }
 
 function trv2CvTripDate(row) {
@@ -52,8 +64,7 @@ function trv2CvStatus(row, productName) {
 
 function trv2BuildCvMovements() {
   const productFilter = Number(document.getElementById('trv2-cv-producto')?.value || 0);
-  const vehicleFilter = Number(document.getElementById('trv2-cv-vehiculo')?.value || 0);
-  const clientFilter = Number(document.getElementById('trv2-cv-cliente')?.value || 0);
+  const permisoFilter = document.getElementById('trv2-cv-permiso')?.value || '';
   const statusFilter = document.getElementById('trv2-cv-estado')?.value || '';
   const yearFilter = Number(document.getElementById('trv2-cv-anio')?.value || 0);
   const monthFilter = Number(document.getElementById('trv2-cv-mes')?.value || 0);
@@ -64,6 +75,7 @@ function trv2BuildCvMovements() {
     const clientName = trv2TripRelatedLabel(row, 'clientes', 'cliente_nombre') || row.cliente_nombre || 'Cliente pendiente';
     const date = trv2CvTripDate(row);
     const status = trv2CvStatus(row, productName);
+    const permiso = row.metadata?.documento_detectado?.permiso || row.metadata?.proveedor_permiso || row.metadata?.permiso || '';
     return {
       row,
       date,
@@ -71,13 +83,13 @@ function trv2BuildCvMovements() {
       productName,
       vehicleName,
       clientName,
+      permiso,
       uuid: row.metadata?.uuid_carta_porte || '',
       hydrocarbon: trv2IsHydrocarbonProduct(productName),
     };
   }).filter(item => {
     if (productFilter && Number(item.row.producto_id) !== productFilter) return false;
-    if (vehicleFilter && Number(item.row.vehiculo_id) !== vehicleFilter) return false;
-    if (clientFilter && Number(item.row.cliente_id) !== clientFilter) return false;
+    if (permisoFilter && item.permiso !== permisoFilter) return false;
     if (statusFilter && item.status !== statusFilter) return false;
     if (item.date && yearFilter && item.date.getFullYear() !== yearFilter) return false;
     if (item.date && monthFilter && item.date.getMonth() + 1 !== monthFilter) return false;
@@ -91,14 +103,17 @@ function trv2RenderCvKpis(movements) {
   const volume = movements.reduce((sum, item) => sum + Number(item.row.volumen_litros || 0), 0);
   const withUuidVolume = movements.filter(item => item.uuid).reduce((sum, item) => sum + Number(item.row.volumen_litros || 0), 0);
   const alerts = movements.filter(item => item.status === 'alerta' || !item.uuid).length;
+  const permiso = document.getElementById('trv2-cv-permiso')?.value || 'Pendiente';
+  const permisoItem = (window.TRV2_PERMISOS_RFC || []).find(item => (item.permiso_cre || item.permiso || '') === permiso) || {};
   const cards = [
-    ['Viajes del periodo', movements.length],
     ['Volumen transportado', `${volume.toLocaleString('es-MX')} L`],
-    ['Volumen con Carta Porte', `${withUuidVolume.toLocaleString('es-MX')} L`],
-    ['Volumen pendiente Carta Porte', `${Math.max(volume - withUuidVolume, 0).toLocaleString('es-MX')} L`],
-    ['Movimientos listos para JSON', movements.filter(item => item.uuid && item.hydrocarbon).length],
-    ['Movimientos con alerta', alerts],
-    ['Último JSON generado', 'Próximamente'],
+    ['Viajes', movements.length],
+    ['Cartas Porte', movements.filter(item => item.uuid).length],
+    ['Facturas de servicio', 'Próximamente'],
+    ['UUIDs detectados', movements.filter(item => item.uuid).length],
+    ['Pendientes de validar', alerts],
+    ['Producto', permisoItem.producto || 'Pendiente'],
+    ['Permiso', permiso],
   ];
   kpis.innerHTML = cards.map(([label, value]) => `
     <article>
@@ -138,6 +153,9 @@ function trv2RenderCvTable(movements) {
 }
 
 async function trv2LoadControlVolumetrico() {
+  if (typeof trv2LoadPermisosRfc === 'function' && !(window.TRV2_PERMISOS_RFC || []).length) {
+    await trv2LoadPermisosRfc();
+  }
   trv2PopulateControlVolumetricoFilters();
   if (!TRV2_TRIPS.length) await trv2LoadTrips();
   TRV2_CV_MOVEMENTS = trv2BuildCvMovements();
@@ -155,6 +173,7 @@ function trv2ValidateCvDraft() {
   const nonHydrocarbon = TRV2_CV_MOVEMENTS.filter(item => !item.hydrocarbon).length;
   const alert = document.getElementById('trv2-cv-alert');
   const message = [
+    document.getElementById('trv2-cv-permiso')?.value ? 'Permiso mensual seleccionado.' : 'Selecciona un permiso para preparar el corte mensual.',
     missingUuid ? `${missingUuid} movimiento(s) sin UUID Carta Porte.` : 'UUID Carta Porte completo en movimientos filtrados.',
     nonHydrocarbon ? `${nonHydrocarbon} movimiento(s) requieren confirmar si aplican a hidrocarburos/petrolíferos.` : 'Productos del periodo parecen compatibles con Control Volumétrico.',
     'Exportar JSON SAT sigue deshabilitado hasta validar la estructura fiscal.',

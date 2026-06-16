@@ -1,7 +1,22 @@
+TRV2_CATALOGS.origenes = TRV2_CATALOGS.origenes || [];
+TRV2_CATALOGS.destinos = TRV2_CATALOGS.destinos || [];
+TRV2_CATALOG_LABELS.origenes = 'Orígenes';
+TRV2_CATALOG_LABELS.destinos = 'Destinos';
+
+const TRV2_REQUIRED_FIELDS = {
+  clientes: ['nombre', 'rfc', 'cp'],
+  operadores: ['nombre', 'rfc_figura', 'licencia'],
+  vehiculos: ['alias', 'placas', 'config_vehicular', 'permiso_sct', 'num_permiso_sct', 'aseguradora_rc', 'poliza_rc'],
+  productos: ['descripcion', 'clave_producto', 'unidad'],
+  origenes: ['nombre', 'cp'],
+  destinos: ['nombre', 'cp'],
+  rutas: ['nombre', 'origen_id', 'destino_id', 'cp_origen', 'cp_destino', 'distancia_km', 'duracion_estimada_min'],
+};
+
 const TRV2_CATALOG_FORMS = {
   clientes: [
     ['nombre', 'Nombre'],
-    ['rfc', 'RFC'],
+    ['rfc', 'RFC', 'rfc'],
     ['cp', 'CP fiscal'],
     ['regimen_fiscal', 'Régimen fiscal'],
     ['uso_cfdi', 'Uso CFDI'],
@@ -9,7 +24,7 @@ const TRV2_CATALOG_FORMS = {
   ],
   operadores: [
     ['nombre', 'Nombre'],
-    ['rfc_figura', 'RFC Figura'],
+    ['rfc_figura', 'RFC Figura', 'rfc'],
     ['licencia', 'Licencia federal'],
     ['tipo_licencia', 'Tipo licencia'],
     ['vencimiento_licencia', 'Vencimiento licencia', 'date'],
@@ -40,18 +55,33 @@ const TRV2_CATALOG_FORMS = {
     ['clave_material_peligroso', 'Clave mat. peligroso'],
     ['embalaje', 'Embalaje'],
     ['factor_kg_l', 'Factor kg/L', 'number'],
+    ['tipo_producto', 'Tipo producto', 'product-type'],
+    ['activo', 'Activo', 'checkbox'],
+  ],
+  origenes: [
+    ['nombre', 'Nombre'],
+    ['rfc', 'RFC', 'rfc'],
+    ['cp', 'CP'],
+    ['direccion', 'Dirección'],
+    ['tipo', 'Tipo'],
+    ['activo', 'Activo', 'checkbox'],
+  ],
+  destinos: [
+    ['nombre', 'Nombre'],
+    ['rfc', 'RFC', 'rfc'],
+    ['cp', 'CP'],
+    ['direccion', 'Dirección'],
+    ['tipo', 'Tipo'],
     ['activo', 'Activo', 'checkbox'],
   ],
   rutas: [
     ['nombre', 'Nombre'],
-    ['origen', 'Origen'],
+    ['origen_id', 'Origen', 'origen-select'],
     ['cp_origen', 'CP origen'],
-    ['destino', 'Destino'],
+    ['destino_id', 'Destino', 'destino-select'],
     ['cp_destino', 'CP destino'],
     ['distancia_km', 'Distancia km', 'number'],
     ['duracion_estimada_min', 'Duración estimada min', 'number'],
-    ['origen_id', 'Origen ID', 'number'],
-    ['destino_id', 'Destino ID', 'number'],
     ['activo', 'Activo', 'checkbox'],
   ],
 };
@@ -92,6 +122,20 @@ const TRV2_CATALOG_UI = {
     metrics: [['Registros', 'count'], ['Con distancia', 'distancia_km'], ['Con CP origen', 'cp_origen']],
     fields: [['Origen', 'origen'], ['Destino', 'destino'], ['Distancia km', 'distancia_km'], ['CP destino', 'cp_destino']],
   },
+  origenes: {
+    icon: 'fa-location-dot',
+    title: 'Orígenes',
+    subtitle: 'Terminales, remitentes o puntos de carga.',
+    metrics: [['Registros', 'count'], ['Con RFC', 'rfc'], ['Con CP', 'cp']],
+    fields: [['RFC', 'rfc'], ['CP', 'cp'], ['Tipo', 'tipo'], ['Dirección', 'direccion']],
+  },
+  destinos: {
+    icon: 'fa-map-location-dot',
+    title: 'Destinos',
+    subtitle: 'Clientes, terminales o puntos de descarga.',
+    metrics: [['Registros', 'count'], ['Con RFC', 'rfc'], ['Con CP', 'cp']],
+    fields: [['RFC', 'rfc'], ['CP', 'cp'], ['Tipo', 'tipo'], ['Dirección', 'direccion']],
+  },
 };
 
 async function trv2LoadCatalogs(options = {}) {
@@ -117,6 +161,7 @@ function trv2CatalogLabel(name, item) {
   if (name === 'vehiculos') return item.alias || item.placas || `#${item.id}`;
   if (name === 'productos') return item.descripcion || item.clave_producto || `#${item.id}`;
   if (name === 'rutas') return item.nombre || `${item.origen || 'Origen'} → ${item.destino || 'Destino'}`;
+  if (name === 'origenes' || name === 'destinos') return item.nombre || item.rfc || `#${item.id}`;
   return item.nombre || `#${item.id}`;
 }
 
@@ -240,13 +285,41 @@ function trv2CatalogConfigPlaceholder() {
 
 function trv2RenderCatalogFields(name) {
   return (TRV2_CATALOG_FORMS[name] || []).map(([field, label, type]) => {
+    const required = (TRV2_REQUIRED_FIELDS[name] || []).includes(field);
+    const labelText = `${label}${required ? ' *' : ''}`;
     if (type === 'checkbox') {
       const checked = field === 'activo' ? 'checked' : '';
-      return `<label class="trv2-check"><input data-field="${field}" type="checkbox" ${checked}> ${trv2Esc(label)}</label>`;
+      return `<label class="trv2-check"><input data-field="${field}" type="checkbox" ${checked}> ${trv2Esc(labelText)}</label>`;
+    }
+    if (type === 'origen-select' || type === 'destino-select') {
+      const catalog = type === 'origen-select' ? 'origenes' : 'destinos';
+      const onchange = type === 'origen-select' ? 'trv2ApplyRouteEndpointToCatalogForm("origen")' : 'trv2ApplyRouteEndpointToCatalogForm("destino")';
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="${onchange}">${trv2CatalogOptions(catalog, `Selecciona ${label.toLowerCase()}`)}</select></label>`;
+    }
+    if (type === 'product-type') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar</option><option>Gas LP</option><option>Magna</option><option>Premium</option><option>Diésel</option>
+      </select></label>`;
     }
     const inputType = type === 'number' ? 'number' : (type === 'date' ? 'date' : 'text');
-    return `<label>${trv2Esc(label)}<input data-field="${field}" type="${inputType}" step="0.001"></label>`;
+    const rfcAttr = type === 'rfc' ? 'data-rfc-field' : '';
+    return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${rfcAttr} ${required ? 'required' : ''} type="${inputType}" step="0.001"></label>`;
   }).join('');
+}
+
+function trv2ValidRfc(value) {
+  const rfc = String(value || '').trim().toUpperCase();
+  return /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(rfc) && (rfc.length === 12 || rfc.length === 13);
+}
+
+function trv2ApplyRouteEndpointToCatalogForm(kind) {
+  const form = document.getElementById('trv2-catalog-modal-form');
+  if (!form || form.dataset.catalog !== 'rutas') return;
+  const field = kind === 'origen' ? 'origen_id' : 'destino_id';
+  const item = trv2FindCatalog(kind === 'origen' ? 'origenes' : 'destinos', form.querySelector(`[data-field="${field}"]`)?.value);
+  if (!item) return;
+  const cpField = form.querySelector(`[data-field="${kind === 'origen' ? 'cp_origen' : 'cp_destino'}"]`);
+  if (cpField) cpField.value = item.cp || '';
 }
 
 function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG, itemId = 0) {
@@ -281,6 +354,26 @@ function trv2FillCatalogModalForm(form, item) {
     if (input.type === 'checkbox') input.checked = Boolean(value);
     else input.value = value ?? '';
   });
+  if (form.dataset.catalog === 'rutas') {
+    const origen = trv2FindCatalog('origenes', data.origen_id);
+    const destino = trv2FindCatalog('destinos', data.destino_id);
+    if (origen) {
+      data.nombre_origen = origen.nombre || '';
+      data.origen = origen.nombre || '';
+      data.cp_origen = data.cp_origen || origen.cp || '';
+    }
+    if (destino) {
+      data.nombre_destino = destino.nombre || '';
+      data.destino = destino.nombre || '';
+      data.cp_destino = data.cp_destino || destino.cp || '';
+    }
+  }
+  const invalidRfc = [...form.querySelectorAll('[data-rfc-field]')].find(input => input.value.trim() && !trv2ValidRfc(input.value));
+  if (invalidRfc) {
+    invalidRfc.focus();
+    trv2Toast('RFC inválido. Usa 12 caracteres para persona moral o 13 para persona física.', 'error');
+    return;
+  }
 }
 
 function trv2CloseCatalogModal() {

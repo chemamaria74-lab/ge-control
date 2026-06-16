@@ -153,6 +153,7 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
     <div class="trv2-detected-overview trv2-form-wide">
       ${trv2RenderDetectedCards(detected)}
     </div>
+    ${trv2RenderPermisoStatus(data.permiso_rfc)}
     <div class="trv2-form-wide trv2-detected-actions">
       <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ToggleDetectedEdit('${trv2Esc(scope)}')"><i class="fa-solid fa-pen"></i> Editar datos</button>
     </div>
@@ -194,6 +195,20 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
   `;
   trv2SelectDetectedCatalogValues(scope, detected);
   trv2SetDefaultTripDates(scope);
+}
+
+function trv2RenderPermisoStatus(info = {}) {
+  if (!info || !info.status || info.status === 'sin_rfc') return '';
+  const ok = info.status === 'registrado';
+  const cls = ok ? 'trv2-alert-ok' : 'trv2-alert-warn';
+  const icon = ok ? 'fa-circle-check' : 'fa-triangle-exclamation';
+  const message = info.message || (ok ? 'Permiso registrado.' : 'Revisa permisos/RFC.');
+  return `
+    <div class="trv2-alert ${cls} trv2-form-wide">
+      <i class="fa-solid ${icon}"></i>
+      ${trv2Esc(message)}
+    </div>
+  `;
 }
 
 function trv2DateTimeLocal(date = new Date()) {
