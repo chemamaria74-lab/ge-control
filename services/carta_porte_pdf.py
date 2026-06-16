@@ -49,7 +49,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     """Genera la representación impresa fiscal de un CFDI 4.0 con Carta Porte 3.1."""
     try:
         from reportlab.lib import colors
-        from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
         from reportlab.lib.pagesizes import letter
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import inch
@@ -106,7 +106,10 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=13.8, textColor=wine_dark, leading=15.5))
     styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=18.0, leading=20.0, textColor=wine_dark))
     styles.add(ParagraphStyle(name="DocMeta", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=7.2, leading=8.2, textColor=muted))
-    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.2, leading=10.4, textColor=wine_dark, spaceBefore=8, spaceAfter=4))
+    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.2, leading=10.4, textColor=wine_dark, spaceBefore=7, spaceAfter=4))
+    styles.add(ParagraphStyle(name="SummaryTitle", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=10.4, leading=12.2, textColor=wine_dark, alignment=TA_LEFT))
+    styles.add(ParagraphStyle(name="MetricValue", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=11.2, leading=12.4, textColor=ink))
+    styles.add(ParagraphStyle(name="MetricLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=5.8, leading=6.7, textColor=muted))
     styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.75, leading=8.15, textColor=ink))
     styles.add(ParagraphStyle(name="TinyBold", parent=styles["Tiny"], fontName="Helvetica-Bold"))
     styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["TinyBold"], textColor=colors.white, fontSize=6.65, leading=7.8))
@@ -141,22 +144,44 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         ))
         story.append(Spacer(1, 6))
 
-    story.append(_three_info_cards(
+    story.append(_party_rfc_cards(
         [
-            ("Datos del emisor", [
+            ("A. Datos del emisor", [
                 ("Nombre", _attr(emisor, "Nombre", "Emisor")),
                 ("RFC", _attr(emisor, "Rfc")),
                 ("Régimen fiscal", _attr(emisor, "RegimenFiscal")),
                 ("Lugar de expedición", _attr(comp, "LugarExpedicion")),
             ]),
-            ("Datos del receptor", [
+            ("B. Datos del receptor", [
                 ("Nombre", _attr(receptor, "Nombre")),
                 ("RFC", _attr(receptor, "Rfc")),
                 ("CP fiscal", _attr(receptor, "DomicilioFiscalReceptor")),
                 ("Régimen fiscal", _attr(receptor, "RegimenFiscalReceptor")),
                 ("Uso CFDI", _attr(receptor, "UsoCFDI")),
             ]),
-            ("Datos del comprobante", _compact_rows([
+        ],
+        Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark,
+    ))
+    story.append(Spacer(1, 6))
+    story.append(_executive_summary_card(
+        carta,
+        ubicaciones,
+        mercancias,
+        ident_veh,
+        figuras,
+        Table,
+        TableStyle,
+        Paragraph,
+        styles,
+        colors,
+        cream,
+        line,
+        wine_dark,
+    ))
+    story.append(_section("C. Datos del comprobante", Paragraph, styles))
+    story.append(_three_info_cards(
+        [
+            ("Comprobante CFDI 4.0", _compact_rows([
                 ("Tipo", f"{_tipo_cfdi(_attr(comp, 'TipoDeComprobante'))} ({_attr(comp, 'TipoDeComprobante')})"),
                 ("Tipo SAT", f"{_attr(comp, 'TipoDeComprobante')} {_tipo_cfdi(_attr(comp, 'TipoDeComprobante'))}"),
                 ("Folio", _serie_folio(comp)),
@@ -167,43 +192,72 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
                 ("Lugar expedición", _attr(comp, "LugarExpedicion")),
                 ("Total", f"${_format_money(_money_value(_attr(comp, 'Total', '0')))}"),
             ])),
+            ("Complemento Carta Porte 3.1", [
+                ("Version", _attr(carta, "Version", "—")),
+                ("IdCCP", _attr(carta, "IdCCP", "—")),
+                ("Transporte internacional", _attr(carta, "TranspInternac", "—")),
+                ("TotalDistRec", _attr(carta, "TotalDistRec", "—")),
+            ]),
+            ("Certificación", [
+                ("UUID", _attr(timbre, "UUID")),
+                ("RFC PAC", _attr(timbre, "RfcProvCertif")),
+                ("Certificado SAT", _attr(timbre, "NoCertificadoSAT")),
+                ("Certificado emisor", _attr(comp, "NoCertificado")),
+            ]),
         ],
         Table, TableStyle, Paragraph, styles, colors, cream, line,
     ))
-
-    story.append(_section("Conceptos CFDI", Paragraph, styles))
-    story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
-    story.append(_totals_block(comp, impuestos, Table, TableStyle, Paragraph, styles, colors, cream, line))
-    story.append(_section("Timbre fiscal / verificación SAT", Paragraph, styles))
-    story.append(_qr_summary_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line))
-
-    story.append(PageBreak())
-    story += [
-        _modern_header("CARTA PORTE - TRASLADO", issuer_logo, comp, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, line),
-        Spacer(1, 8),
-    ]
-    story.append(_section("Complemento Carta Porte - Resumen", Paragraph, styles))
+    story.append(_section("D. Resumen Carta Porte", Paragraph, styles))
     story.append(_kv_table(
         "",
         [
             ("Version", _attr(carta, "Version", "—")),
             ("IdCCP", _attr(carta, "IdCCP", "—")),
             ("Transporte internacional", _attr(carta, "TranspInternac", "—")),
-            ("TotalDistRec", _attr(carta, "TotalDistRec", "—")),
+            ("Total distancia recorrida", _attr(carta, "TotalDistRec", "—")),
             ("Registro ISTMO", _attr(carta, "RegistroISTMO", "—")),
             ("Polo origen/destino", f"{_attr(carta, 'UbicacionPoloOrigen', '—')} / {_attr(carta, 'UbicacionPoloDestino', '—')}"),
         ],
         Table, TableStyle, Paragraph, styles, colors, cream, line,
     ))
-    story.append(_section("Origen y destino", Paragraph, styles))
+    story.append(KeepTogether([
+        _section("E. Origen y destino", Paragraph, styles),
+        _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark),
+    ]))
+    story.append(PageBreak())
+    story += [
+        _modern_header("CARTA PORTE - TRASLADO", issuer_logo, comp, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, line),
+        Spacer(1, 8),
+    ]
+    story.append(KeepTogether([
+        _section("F. Mercancías transportadas", Paragraph, styles),
+        _mercancias_table(mercancias, Table, TableStyle, Paragraph, styles, colors, wine_dark, line),
+    ]))
+    story.append(KeepTogether([
+        _section("G. Autotransporte", Paragraph, styles),
+        _autotransporte_table(autotransporte, ident_veh, remolques, Table, TableStyle, Paragraph, styles, colors, cream, line),
+    ]))
+    story.append(KeepTogether([
+        _section("H. Seguros", Paragraph, styles),
+        _seguros_table(seguros, Table, TableStyle, Paragraph, styles, colors, cream, line),
+    ]))
+    story.append(KeepTogether([
+        _section("I. Figura de transporte", Paragraph, styles),
+        _operator_card(figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark),
+    ]))
+
+    story.append(PageBreak())
+    story += [
+        _modern_header("CARTA PORTE - TRASLADO", issuer_logo, comp, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, line),
+        Spacer(1, 8),
+    ]
+    story.append(_section("Conceptos CFDI", Paragraph, styles))
+    story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
+    story.append(_totals_block(comp, impuestos, Table, TableStyle, Paragraph, styles, colors, cream, line))
+
+    story.append(_section("Detalle SAT de ubicaciones", Paragraph, styles))
     story.append(_ubicaciones_table(ubicaciones, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
-    story.append(_section("Mercancías transportadas", Paragraph, styles))
-    story.append(_mercancias_table(mercancias, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
-    story.append(_section("Autotransporte", Paragraph, styles))
-    story.append(_autotransporte_table(autotransporte, ident_veh, remolques, Table, TableStyle, Paragraph, styles, colors, cream, line))
-    story.append(_section("Seguros", Paragraph, styles))
-    story.append(_seguros_table(seguros, Table, TableStyle, Paragraph, styles, colors, cream, line))
-    story.append(_section("Figura transporte", Paragraph, styles))
+    story.append(_section("Detalle SAT de figuras", Paragraph, styles))
     story.append(_figuras_table(figuras, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
 
     if _needs_seal_page(comp, timbre):
@@ -212,10 +266,10 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
             _modern_header("CARTA PORTE - TRASLADO", issuer_logo, comp, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, line),
             Spacer(1, 8),
         ]
-        story.append(_section("Sellos digitales y cadena original", Paragraph, styles))
+        story.append(_section("J. Validación SAT", Paragraph, styles))
         story.append(_seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line))
     else:
-        story.append(_section("Sellos digitales y cadena original", Paragraph, styles))
+        story.append(_section("J. Validación SAT", Paragraph, styles))
         story.append(_seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line))
 
     story.append(Spacer(1, 8))
@@ -296,6 +350,39 @@ def _compact_rows(rows: list[tuple[str, object]]) -> list[tuple[str, str]]:
     return compact
 
 
+def _join_nonempty(parts, separator: str = " ") -> str:
+    clean = [str(part).strip() for part in parts if str(part or "").strip() and str(part or "").strip() != "—"]
+    return separator.join(clean) if clean else "—"
+
+
+def _origen_destino(ubicaciones):
+    origen = next((u for u in ubicaciones if _attr(u, "TipoUbicacion").lower() == "origen"), None)
+    destino = next((u for u in ubicaciones if _attr(u, "TipoUbicacion").lower() == "destino"), None)
+    return (
+        origen if origen is not None else (ubicaciones[0] if ubicaciones else None),
+        destino if destino is not None else (ubicaciones[-1] if ubicaciones else None),
+    )
+
+
+def _domicilio_ubicacion(ubicacion) -> str:
+    children = list(ubicacion) if ubicacion is not None else []
+    dom = next((child for child in children if etree.QName(child).localname == "Domicilio"), None)
+    domicilio = " ".join(part for part in [
+        _attr(dom, "Calle", ""),
+        _attr(dom, "NumeroExterior", ""),
+        _attr(dom, "NumeroInterior", ""),
+        _attr(dom, "Colonia", ""),
+    ] if part and part != "—")
+    geo = " / ".join(part for part in [
+        f"CP {_attr(dom, 'CodigoPostal')}" if _attr(dom, "CodigoPostal") else "",
+        _attr(dom, "Estado", ""),
+        f"Mun. {_attr(dom, 'Municipio')}" if _attr(dom, "Municipio") else "",
+        f"Loc. {_attr(dom, 'Localidad')}" if _attr(dom, "Localidad") else "",
+        _attr(dom, "Pais", ""),
+    ] if part and part != "—")
+    return _join_nonempty([geo, domicilio], " | ")
+
+
 def _serie_folio(comp) -> str:
     return f"{_attr(comp, 'Serie', '')}{_attr(comp, 'Folio', '')}".strip() or "—"
 
@@ -374,6 +461,102 @@ def _three_info_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return table
+
+
+def _party_rfc_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
+    def card(title, rows):
+        row_map = {str(k): str(v or "") for k, v in rows}
+        title_row = Paragraph(f"<b>{_text(title)}</b>", styles["SmallBold"])
+        rfc = Paragraph(f"<font size='13'><b>{_text(row_map.get('RFC', '—'))}</b></font>", styles["MetricValue"])
+        name = Paragraph(_text(row_map.get("Nombre", "—")), styles["Small"])
+        details = []
+        for key, value in rows:
+            if key in {"Nombre", "RFC"}:
+                continue
+            if str(value or "").strip():
+                details.append([Paragraph(_text(key).upper(), styles["MetricLabel"]), Paragraph(_text(value), styles["Tiny"])])
+        if not details:
+            details = [[Paragraph("DETALLE", styles["MetricLabel"]), Paragraph("—", styles["Tiny"])]]
+        detail_table = Table(details, colWidths=[0.98 * inch(), 2.36 * inch()])
+        detail_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 1.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
+        ]))
+        inner = Table([[title_row], [rfc], [name], [detail_table]], colWidths=[3.54 * inch()])
+        inner.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), cream),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.7, wine),
+            ("BOX", (0, 0), (-1, -1), 0.35, line),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        return inner
+
+    table = Table([[card(title, rows) for title, rows in cards]], colWidths=[3.76 * inch(), 3.76 * inch()])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return table
+
+
+def _executive_summary_card(carta, ubicaciones, mercancias, ident, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
+    origen, destino = _origen_destino(ubicaciones)
+    mercancia = mercancias[0] if mercancias else None
+    figura = figuras[0] if figuras else None
+    rows = [
+        ("Producto", _attr(mercancia, "Descripcion", "—")),
+        ("Cantidad", _join_nonempty([_attr(mercancia, "Cantidad"), _attr(mercancia, "Unidad") or _attr(mercancia, "ClaveUnidad")], " ")),
+        ("Peso total", _join_nonempty([_attr(mercancia, "PesoEnKg"), "kg"], " ")),
+        ("Distancia", _join_nonempty([_attr(carta, "TotalDistRec") or _attr(destino, "DistanciaRecorrida"), "km"], " ")),
+        ("Origen", _attr(origen, "NombreRemitenteDestinatario", "—")),
+        ("Destino", _attr(destino, "NombreRemitenteDestinatario", "—")),
+        ("Vehículo", _join_nonempty([_attr(ident, "ConfigVehicular"), _attr(ident, "PlacaVM")], " / ")),
+        ("Operador", _attr(figura, "NombreFigura", "—")),
+    ]
+    metric_cells = []
+    for label, value in rows:
+        metric_cells.append(Table([
+            [Paragraph(_text(label).upper(), styles["MetricLabel"])],
+            [Paragraph(_text(value or "—"), styles["MetricValue"])],
+        ], colWidths=[1.78 * inch()]))
+    grid = Table([metric_cells[:4], metric_cells[4:]], colWidths=[1.90 * inch()] * 4)
+    grid.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOX", (0, 0), (-1, -1), 0.35, line),
+        ("INNERGRID", (0, 0), (-1, -1), 0.18, line),
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, colors.HexColor("#FBFAF8")]),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    title = Paragraph("<b>Resumen ejecutivo del traslado</b>", styles["SummaryTitle"])
+    subtitle = Paragraph(
+        f"IdCCP {_text(_attr(carta, 'IdCCP', '—'))} &nbsp;&nbsp;|&nbsp;&nbsp; Tipo SAT: T Traslado",
+        styles["Tiny"],
+    )
+    table = Table([[title], [subtitle], [grid]], colWidths=[7.60 * inch()])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 1), cream),
+        ("LINEBELOW", (0, 1), (-1, 1), 1.0, wine),
+        ("BOX", (0, 0), (-1, -1), 0.45, line),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
     return table
 
@@ -500,23 +683,61 @@ def _ubicaciones_table(ubicaciones, Table, TableStyle, Paragraph, styles, colors
     return _simple_table(rows, [0.60, 0.88, 1.02, 1.44, 1.08, 0.46, 2.12], Table, TableStyle, Paragraph, styles, colors, wine, line)
 
 
+def _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
+    origen, destino = _origen_destino(ubicaciones)
+
+    def location_card(label, node):
+        data = [
+            [Paragraph(f"<b>{label}</b>", styles["SmallBold"]), Paragraph(_text(_attr(node, "IDUbicacion", "—")), styles["Tiny"])],
+            [Paragraph("NOMBRE", styles["MetricLabel"]), Paragraph(_text(_attr(node, "NombreRemitenteDestinatario", "—")), styles["SmallBold"])],
+            [Paragraph("RFC", styles["MetricLabel"]), Paragraph(_text(_attr(node, "RFCRemitenteDestinatario", "—")), styles["Tiny"])],
+            [Paragraph("FECHA/HORA", styles["MetricLabel"]), Paragraph(_text(_attr(node, "FechaHoraSalidaLlegada", "—")), styles["Tiny"])],
+            [Paragraph("DIRECCIÓN", styles["MetricLabel"]), Paragraph(_text(_domicilio_ubicacion(node)), styles["Tiny"])],
+        ]
+        table = Table(data, colWidths=[0.82 * inch(), 2.62 * inch()])
+        table.setStyle(TableStyle([
+            ("SPAN", (0, 0), (-1, 0)),
+            ("BACKGROUND", (0, 0), (-1, 0), cream),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.8, wine),
+            ("BOX", (0, 0), (-1, -1), 0.35, line),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        return table
+
+    arrow = Table([[Paragraph("<font size='18'><b>&gt;</b></font>", styles["DocTitle"])]], colWidths=[0.36 * inch()])
+    arrow.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TEXTCOLOR", (0, 0), (-1, -1), wine),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    table = Table([[location_card("ORIGEN", origen), arrow, location_card("DESTINO", destino)]], colWidths=[3.55 * inch(), 0.50 * inch(), 3.55 * inch()])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return table
+
+
 def _mercancias_table(mercancias, Table, TableStyle, Paragraph, styles, colors, wine, line):
-    rows = [["BienesTransp", "Descripción", "Cantidad", "Clave", "Unidad", "PesoEnKg", "Mat. peligroso", "Cve material", "Embalaje"]]
+    rows = [["Producto", "Cantidad", "Unidad", "Peso", "Material Peligroso"]]
     for m in mercancias:
         rows.append([
-            _attr(m, "BienesTransp"),
-            _attr(m, "Descripcion"),
+            _join_nonempty([_attr(m, "Descripcion"), _attr(m, "BienesTransp")], " - "),
             _attr(m, "Cantidad"),
-            _attr(m, "ClaveUnidad"),
-            _attr(m, "Unidad"),
-            _attr(m, "PesoEnKg"),
-            _attr(m, "MaterialPeligroso"),
-            _attr(m, "CveMaterialPeligroso"),
-            _attr(m, "Embalaje"),
+            _attr(m, "Unidad") or _attr(m, "ClaveUnidad"),
+            _join_nonempty([_attr(m, "PesoEnKg"), "kg"], " "),
+            _join_nonempty([_attr(m, "MaterialPeligroso"), _attr(m, "CveMaterialPeligroso"), _attr(m, "Embalaje")], " / "),
         ])
     if len(rows) == 1:
-        rows.append(["—", "Sin mercancías Carta Porte en XML", "", "", "", "", "", "", ""])
-    return _simple_table(rows, [0.78, 1.72, 0.82, 0.66, 0.62, 0.72, 0.72, 0.86, 0.70], Table, TableStyle, Paragraph, styles, colors, wine, line, no_wrap_cols={2, 5})
+        rows.append(["Sin mercancías Carta Porte en XML", "", "", "", ""])
+    return _simple_table(rows, [3.16, 0.92, 0.92, 0.92, 1.68], Table, TableStyle, Paragraph, styles, colors, wine, line, no_wrap_cols={1, 2, 3})
 
 
 def _autotransporte_table(autotransporte, ident, remolques, Table, TableStyle, Paragraph, styles, colors, cream, line):
@@ -548,6 +769,21 @@ def _figuras_table(figuras, Table, TableStyle, Paragraph, styles, colors, wine, 
     if len(rows) == 1:
         rows.append(["—", "Sin figuras de transporte en XML", "", ""])
     return _simple_table(rows, [0.86, 1.28, 3.72, 1.34], Table, TableStyle, Paragraph, styles, colors, wine, line, no_wrap_cols={0, 1, 3})
+
+
+def _operator_card(figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
+    figura = figuras[0] if figuras else None
+    rows = [
+        ("Nombre", _attr(figura, "NombreFigura", "—")),
+        ("RFC", _attr(figura, "RFCFigura", "—")),
+        ("Licencia", _attr(figura, "NumLicencia", "—")),
+        ("Tipo figura", _attr(figura, "TipoFigura", "—")),
+    ]
+    table = _kv_table("OPERADOR", rows, Table, TableStyle, Paragraph, styles, colors, cream, line)
+    table.setStyle(TableStyle([
+        ("LINEBELOW", (0, 0), (-1, 0), 0.8, wine),
+    ]))
+    return table
 
 
 def _simple_table(rows: list[list[object]], widths: list[float], Table, TableStyle, Paragraph, styles, colors, wine, line, no_wrap_cols: set[int] | None = None):
