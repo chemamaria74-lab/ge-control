@@ -17,7 +17,7 @@
       display: flex;
       flex-direction: column;
       align-items: stretch;
-      justify-content: flex-start;
+      justify-content: center;
       background:
         radial-gradient(circle at 18% 12%, rgba(200,169,107,.14), transparent 28%),
         radial-gradient(circle at 86% 16%, rgba(122,30,44,.08), transparent 26%),
@@ -57,11 +57,10 @@
       text-align: center;
       width: 100%;
       max-width: 100%;
-      flex: 1 0 auto;
-      min-height: 0;
+      min-height: calc(100vh - 86px);
       display: grid;
       place-items: center;
-      padding: 4.2rem 0 2rem;
+      padding: 3.4rem 0 2.4rem;
     }
     .landing-shell {
       width: min(100%, 980px);
@@ -118,35 +117,6 @@
       line-height: 1.55;
       max-width: 620px;
     }
-    .ge-legal-footer {
-      width: min(100%, 760px);
-      flex: 0 0 auto;
-      margin: 0 auto 16px;
-      padding: 10px 18px 0;
-      color: #6F6A64;
-      font-size: 11px;
-      line-height: 1.45;
-      text-align: center;
-    }
-    .ge-legal-footer strong { color: #3F3A36; font-weight: 700; }
-    .ge-legal-links {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 14px;
-      margin-top: 5px;
-      flex-wrap: wrap;
-    }
-    .ge-legal-links a {
-      color: #7A1E2C;
-      text-decoration: none;
-      font-weight: 700;
-    }
-    .ge-legal-links a:hover {
-      color: #5B0F1D;
-      text-decoration: underline;
-      text-underline-offset: 3px;
-    }
     .superadmin-link{
       position:fixed;left:1rem;bottom:1rem;width:36px;height:36px;
       display:inline-grid;place-items:center;border:1px solid rgba(122,30,44,.22);
@@ -156,7 +126,7 @@
     }
     .superadmin-link:hover{opacity:1;transform:translateY(-1px);box-shadow:0 12px 28px rgba(122,30,44,.24)}
     @media (max-width: 900px) {
-      .wrapper { padding: 4.8rem 0 2rem; }
+      .wrapper { min-height: calc(100vh - 96px); padding: 4.8rem 0 2rem; }
       .landing-shell { gap: 1.7rem; }
       .choice-container { grid-template-columns: 1fr; max-width: 520px; }
       .choice-card { min-height: auto; }
@@ -172,14 +142,6 @@
       .choice-card { padding: 1.55rem 1.25rem; min-height: 205px; }
       .choice-title { font-size: 1.34rem; }
       .choice-desc { min-height: auto; }
-      .ge-legal-footer {
-        width: min(100%, 362px);
-        margin-bottom: 12px;
-        padding: 8px 14px 0;
-        font-size: 10.5px;
-      }
-      .ge-legal-links { gap: 10px; }
-      .superadmin-link { width: 34px; height: 34px; left: .8rem; bottom: .8rem; }
     }
     @media (min-width: 1200px) and (min-height: 760px) {
       .wrapper { padding-top: 2.4rem; }
@@ -197,15 +159,15 @@
     </button>
   </div>
 
-  <a id="superAdminLink" class="superadmin-link" href="/admin-saas" title="Admin SaaS" aria-label="Admin SaaS">
-    <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+  <a id="superAdminLink" class="superadmin-link" href="/admin-saas" title="Admin SaaS">
+    <i class="fa-solid fa-shield-halved"></i>
   </a>
 
   <div class="wrapper">
     <div class="landing-shell">
       <div class="brand-logo">
         <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
-        <p class="landing-subtitle" id="landingSubtitle">Selecciona el módulo operativo para continuar.</p>
+        <p class="landing-subtitle" id="landingSubtitle">Selecciona el módulo operativo.</p>
       </div>
       <div class="choice-container">
         <a id="cardTransporte" class="choice-card transporte">
@@ -217,7 +179,7 @@
         <a id="cardGasLp" class="choice-card gas-lp">
           <i class="fa-solid fa-industry choice-icon"></i>
           <div class="choice-title" id="titleGasLp">Gas LP</div>
-          <div class="choice-desc" id="descGasLp">Controles Volumétricos<br>RMF 2026 SAT</div>
+          <div class="choice-desc" id="descGasLp">Controles Volumétricos<br>Cumplimiento Anexo 30</div>
           <span class="choice-badge"><i class="fa-solid fa-fire-flame-curved"></i> <span id="badgeGasLp">Módulo Gas LP</span></span>
         </a>
       </div>
@@ -228,26 +190,26 @@
     const TEXTS = {
       es: {
         title:           'GE CONTROL - Seleccionar Módulo',
-        subtitle:        'Selecciona el módulo operativo para continuar.',
+        subtitle:        'Selecciona el módulo operativo.',
         titleTransporte: 'Transporte',
         descTransporte:  'Logística de Hidrocarburos<br>Servicios de flete y distribución',
         badgeTransporte: 'Módulo Transporte',
         titleGasLp:      'Gas LP',
-        descGasLp:       'Controles Volumétricos<br>RMF 2026 SAT',
+        descGasLp:       'Controles Volumétricos<br>Cumplimiento Anexo 30',
         badgeGasLp:      'Módulo Gas LP',
-        hrefTransporte:  '/modulo/transporte/roles',
+        hrefTransporte:  '/transporte-v2',
         hrefGasLp:       '/modulo/gas-lp/roles',
       },
       en: {
         title:           'GE CONTROL - Select Module',
-        subtitle:        'Select an operating module to continue.',
+        subtitle:        'Select an operating module.',
         titleTransporte: 'Transport',
         descTransporte:  'Hydrocarbon Logistics<br>Freight & distribution services',
         badgeTransporte: 'Transport Module',
         titleGasLp:      'LPG',
         descGasLp:       'Volumetric Controls<br>Regulatory Compliance',
         badgeGasLp:      'LPG Module',
-        hrefTransporte:  '/modulo/transporte/roles?lang=en',
+        hrefTransporte:  '/transporte-v2?lang=en',
         hrefGasLp:       '/modulo/gas-lp/roles?lang=en',
       },
     };
@@ -269,7 +231,6 @@
       document.getElementById('cardGasLp').href               = t.hrefGasLp;
       document.getElementById('btnEs').classList.toggle('active', lang === 'es');
       document.getElementById('btnEn').classList.toggle('active', lang === 'en');
-      if (window.geApplyLegalFooterLang) window.geApplyLegalFooterLang();
     }
 
     function setLang(lang) {
@@ -279,10 +240,6 @@
     }
 
     applyLang(_lang);
-    document.addEventListener('DOMContentLoaded', () => {
-      applyLang(_lang);
-      setTimeout(() => window.geApplyLegalFooterLang && window.geApplyLegalFooterLang(), 0);
-    });
 
   </script>
 </body>
