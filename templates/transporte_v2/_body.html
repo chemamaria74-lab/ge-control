@@ -1,7 +1,7 @@
 <body>
 <div id="toast-area" class="toast-area"></div>
 
-<header class="trv2-topbar">
+<header class="trv2-topbar" id="trv2-admin-topbar" hidden>
   <a href="/choice" class="trv2-brand" aria-label="GE Control">
     <img src="/static/img/ge-isotype-light.svg" alt="GE">
     <span>Transporte v2</span>
@@ -9,8 +9,8 @@
   <span class="trv2-badge"><i class="fa-solid fa-truck-fast"></i> Isla nueva</span>
   <span class="trv2-badge trv2-badge-soft">Fase 2.7 / 2.8</span>
   <div class="trv2-topbar-spacer"></div>
-  <button class="trv2-badge trv2-company-chip" id="trv2-company" type="button" onclick="trv2OpenCompanySelector()">Sin empresa activa</button>
-  <span class="trv2-badge" id="trv2-user">Sesión local</span>
+  <button class="trv2-badge trv2-company-chip" id="trv2-company" type="button" onclick="trv2OpenCompanySelector()">Empresa pendiente</button>
+  <span class="trv2-badge" id="trv2-user">Sesión validada</span>
   <button class="trv2-btn trv2-btn-ghost" type="button" onclick="location.href='/choice'">Cambiar módulo</button>
   <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2Logout()">Salir</button>
 </header>
@@ -270,8 +270,8 @@
   <section class="trv2-modal trv2-company-modal" role="dialog" aria-modal="true" aria-labelledby="trv2-company-modal-title">
     <div class="trv2-modal-head">
       <div>
-        <h2 id="trv2-company-modal-title">Selecciona empresa Transporte</h2>
-        <p>Transporte v2 usa perfil activo propio y endpoints `/api/tr-v2/*`.</p>
+        <h2 id="trv2-company-modal-title">Seleccionar empresa</h2>
+        <p>Elige la empresa activa para entrar al administrador de Transporte v2.</p>
       </div>
       <button class="trv2-mini-btn" type="button" onclick="trv2CloseCompanySelector()"><i class="fa-solid fa-xmark"></i></button>
     </div>
