@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from routes.upload      import router as upload_router
 from routes.cfdi        import router as cfdi_router
 from routes.transporte  import router as transporte_router
+from routes.transporte_v2 import router as transporte_v2_router
 from routes.transporte_operator_detected import router as transporte_operator_detected_router
 from routes.settings    import router as settings_router
 from routes.auth        import router as auth_router
@@ -267,6 +268,7 @@ app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
 app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
 app.include_router(internal_users_router, prefix="/api", tags=["Usuarios internos"])
 app.include_router(transporte_router,  prefix="/api", tags=["Transporte"])
+app.include_router(transporte_v2_router, prefix="/api", tags=["Transporte v2"])
 app.include_router(transporte_operator_detected_router, prefix="/api", tags=["Transporte Operador"])
 
 # ── Archivos estáticos ────────────────────────────────────────────────────────
@@ -482,6 +484,12 @@ async def frontend(lang: str = "es"):
 async def frontend_transporte():
     """Sirve el frontend del módulo de Transporte de Hidrocarburos."""
     return _render_html_file("transporte.html")
+
+
+@app.get("/transporte-v2", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_transporte_v2():
+    """Sirve el frontend aislado de Transporte v2."""
+    return _render_html_file("transporte_v2.html")
 
 
 @app.get("/operador/transporte", response_class=HTMLResponse, include_in_schema=False)
