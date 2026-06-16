@@ -8,6 +8,9 @@ transporte_v2_* para no interferir con Gas LP ni con /api/tr/* legacy.
 from __future__ import annotations
 
 import logging
+import io
+import re
+from xml.etree import ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -132,6 +135,200 @@ class TransporteV2CartaPortePreviewRequest(BaseModel):
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _local_name(tag: str) -> str:
+    return tag.split("}", 1)[-1] if "}" in tag else tag
+
+
+def _xml_first(root: Any, name: str):
+    for node in root.iter():
+        if _local_name(str(node.tag)) == name:
+            return node
+    return None
+
+
+def _xml_all(root: Any, name: str) -> list[Any]:
+    return [node for node in root.iter() if _local_name(str(node.tag)) == name]
+
+
+def _to_float(value: Any) -> float:
+    raw = str(value or "").strip().replace(" ", "")
+    if not raw:
+        return 0.0
+    if "," in raw and "." in raw:
+        raw = raw.replace(",", "")
+    elif "," in raw:
+        raw = raw.replace(",", ".")
+    raw = re.sub(r"[^0-9.\-]", "", raw)
+    try:
+        return float(raw or 0)
+    except ValueError:
+        return 0.0
+
+
+def _parse_short_date(value: str) -> str:
+    text = str(value or "").strip()
+    match = re.search(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})", text)
+    if not match:
+        return text
+    day, month, year = match.groups()
+    year_int = int(year)
+    if year_int < 100:
+        year_int += 2000
+    try:
+        return datetime(year_int, int(month), int(day)).date().isoformat()
+    except ValueError:
+        return text
+
+
+def _manual_document_fields() -> list[str]:
+    return ["vehiculo_id", "operador_id", "ruta_id", "fecha_salida", "fecha_llegada"]
+
+
+def _detect_xml_document(content: bytes) -> dict[str, Any]:
+    root = ET.fromstring(content)
+    emisor = _xml_first(root, "Emisor")
+    receptor = _xml_first(root, "Receptor")
+    timbre = _xml_first(root, "TimbreFiscalDigital")
+    conceptos = _xml_all(root, "Concepto")
+    first_concept = conceptos[0] if conceptos else None
+    cantidad = _to_float(first_concept.get("Cantidad") if first_concept is not None else 0)
+    clave_sat = first_concept.get("ClaveProdServ") if first_concept is not None else ""
+    unidad = (first_concept.get("ClaveUnidad") or first_concept.get("Unidad") or "") if first_concept is not None else ""
+    producto = first_concept.get("Descripcion") if first_concept is not None else ""
+    detected = {
+        "emisor_nombre": emisor.get("Nombre", "") if emisor is not None else "",
+        "emisor_rfc": emisor.get("Rfc", "") if emisor is not None else "",
+        "receptor_nombre": receptor.get("Nombre", "") if receptor is not None else "",
+        "receptor_rfc": receptor.get("Rfc", "") if receptor is not None else "",
+        "folio": " ".join(x for x in [root.get("Serie", ""), root.get("Folio", "")] if x).strip(),
+        "uuid": timbre.get("UUID", "") if timbre is not None else "",
+        "producto": producto or "",
+        "clave_sat": clave_sat or "",
+        "cantidad_litros": cantidad if str(unidad).upper() in {"LTR", "LITRO", "LITROS"} else cantidad,
+        "peso_kg": 0,
+        "permiso": "",
+        "origen_sugerido": "",
+        "destino_sugerido": receptor.get("Nombre", "") if receptor is not None else "",
+        "boleta": "",
+        "fecha_boleta": (root.get("Fecha") or "")[:10],
+        "tipo_cfdi_sugerido": root.get("TipoDeComprobante", ""),
+    }
+    warnings = []
+    if not detected["uuid"]:
+        warnings.append("El XML no incluye TimbreFiscalDigital/UUID.")
+    if not detected["producto"]:
+        warnings.append("No se detectó concepto de mercancía.")
+    return {"source": "xml_cfdi", "confidence": "alta", "detected": detected, "warnings": warnings}
+
+
+def _extract_pdf_text(content: bytes) -> tuple[str, list[str]]:
+    warnings: list[str] = []
+    try:
+        import pdfplumber  # type: ignore
+        with pdfplumber.open(io.BytesIO(content)) as pdf:
+            text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+        if text.strip():
+            return text, warnings
+    except Exception as exc:
+        warnings.append(f"pdfplumber no disponible o sin texto: {exc}")
+    try:
+        from pypdf import PdfReader  # type: ignore
+        reader = PdfReader(io.BytesIO(content))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        if text.strip():
+            return text, warnings
+    except Exception as exc:
+        warnings.append(f"pypdf no disponible o sin texto: {exc}")
+    try:
+        from PyPDF2 import PdfReader  # type: ignore
+        reader = PdfReader(io.BytesIO(content))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        if text.strip():
+            return text, warnings
+    except Exception as exc:
+        warnings.append(f"PyPDF2 no disponible o sin texto: {exc}")
+    fallback = content.decode("latin-1", errors="ignore")
+    readable = re.sub(r"[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9@&./:\-_,\s]", " ", fallback)
+    readable = re.sub(r"\s+", " ", readable)
+    if len(readable.strip()) > 80:
+        warnings.append("Extracción PDF básica desde bytes; confirma manualmente los datos.")
+        return readable, warnings
+    warnings.append("El PDF no tiene texto seleccionable disponible para extracción sin OCR.")
+    return "", warnings
+
+
+def _regex_first(pattern: str, text: str, flags: int = re.I) -> str:
+    match = re.search(pattern, text, flags)
+    return match.group(1).strip() if match else ""
+
+
+def _detect_pdf_document(content: bytes) -> dict[str, Any]:
+    text, warnings = _extract_pdf_text(content)
+    upper = text.upper()
+    rfcs = re.findall(r"\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b", upper)
+    uuids = re.findall(r"\b[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\b", upper)
+    liters = _regex_first(r"([\d,]+(?:\.\d+)?)\s*(?:LITROS|LTR)\b", upper)
+    kilos = _regex_first(r"([\d,]+(?:\.\d+)?)\s*(?:KILOS|KGS?|KGM)\b", upper)
+    if not kilos:
+        kilos = _regex_first(r"(?:KILOS|PESO|KGM)\D{0,20}([\d,]+(?:\.\d+)?)", upper)
+    folio = _regex_first(r"\b(FE\s*\d{3,})\b", upper)
+    permiso = _regex_first(r"\b(LP/\d+/[A-Z]+/\d{4})\b", upper)
+    boleta = _regex_first(r"(?:BOLETA)\D{0,20}(\d{6,})", upper)
+    fecha_boleta = _parse_short_date(_regex_first(r"(?:FECHA\s+BOLETA|FECHA)\D{0,20}(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", upper))
+    producto = ""
+    if "GAS LICUADO" in upper:
+        producto = "GAS LICUADO DE PETROLEO"
+    elif "GAS L.P" in upper or "GAS LP" in upper:
+        producto = "GAS L.P"
+    elif "DIESEL" in upper or "DIÉSEL" in upper:
+        producto = "DIESEL"
+    origen = "ZAPOTLANEJO" if "ZAPOTLANEJO" in upper else ""
+    emisor_nombre = "PROPANE SERVICES" if "PROPANE SERVICES" in upper else _regex_first(r"EMISOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper)
+    receptor_nombre = "DISTRIBUIDORA DE GAS DEL CAÑON" if "DISTRIBUIDORA DE GAS DEL CA" in upper else _regex_first(r"RECEPTOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper)
+    detected = {
+        "emisor_nombre": emisor_nombre,
+        "emisor_rfc": rfcs[0] if rfcs else "",
+        "receptor_nombre": receptor_nombre,
+        "receptor_rfc": rfcs[1] if len(rfcs) > 1 else "",
+        "folio": folio,
+        "uuid": uuids[0] if uuids else "",
+        "producto": producto,
+        "clave_sat": "15111510" if "15111510" in upper else _regex_first(r"\b(\d{8})\b", upper),
+        "cantidad_litros": _to_float(liters),
+        "peso_kg": _to_float(kilos),
+        "permiso": permiso,
+        "origen_sugerido": origen,
+        "destino_sugerido": receptor_nombre,
+        "boleta": boleta,
+        "fecha_boleta": fecha_boleta,
+        "tipo_cfdi_sugerido": "I",
+    }
+    missing_core = [key for key in ("uuid", "producto", "cantidad_litros") if not detected.get(key)]
+    if missing_core:
+        warnings.append("PDF requiere captura manual asistida para: " + ", ".join(missing_core))
+    return {
+        "source": "pdf_text" if text else "manual",
+        "confidence": "media" if text and not missing_core else "baja",
+        "detected": detected,
+        "warnings": warnings,
+    }
+
+
+def _detect_document_metadata(content: bytes, filename: str, content_type: str) -> dict[str, Any]:
+    lower = (filename or "").lower()
+    ctype = (content_type or "").lower()
+    if lower.endswith(".xml") or "xml" in ctype:
+        return _detect_xml_document(content)
+    if lower.endswith(".pdf") or "pdf" in ctype:
+        return _detect_pdf_document(content)
+    return {
+        "source": "manual",
+        "confidence": "baja",
+        "detected": {},
+        "warnings": ["Tipo de archivo no soportado para extracción automática. Usa captura manual asistida."],
+    }
 
 
 def _auth(authorization: str) -> tuple[str, str]:
@@ -788,6 +985,82 @@ async def transporte_v2_documentos_upload(
         },
         status_code=501,
     )
+
+
+@router.post("/tr-v2/documentos/analizar")
+async def transporte_v2_documentos_analizar(
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+    viaje_id: Optional[int] = Form(default=None),
+    perfil_id: Optional[int] = Form(default=None),
+    tipo_documento: str = Form(default="factura_cliente"),
+    file: UploadFile = File(...),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "El archivo está vacío.")
+    if len(content) > 8 * 1024 * 1024:
+        raise HTTPException(413, "El archivo excede el límite de 8 MB para análisis preliminar.")
+    try:
+        result = _detect_document_metadata(content, file.filename or "documento", file.content_type or "")
+    except ET.ParseError as exc:
+        result = {
+            "source": "manual",
+            "confidence": "baja",
+            "detected": {},
+            "warnings": [f"XML inválido o no legible: {exc}. Usa captura manual asistida."],
+        }
+    except Exception as exc:
+        logger.exception("Transporte v2 analizar documento error")
+        result = {
+            "source": "manual",
+            "confidence": "baja",
+            "detected": {},
+            "warnings": [f"No se pudo extraer metadata automáticamente: {exc}. Usa captura manual asistida."],
+        }
+    metadata = {
+        "fase": "transporte_v2_fase_2_8",
+        "bucket_pendiente": True,
+        "analisis": result,
+        "filename": file.filename or "documento",
+        "content_type": file.content_type or "",
+        "size_bytes": len(content),
+    }
+    document_item: dict[str, Any] | None = None
+    try:
+        inserted = _sb(token).table(TBL_DOCUMENTOS).insert({
+            "user_id": uid,
+            "perfil_id": pid,
+            "viaje_id": viaje_id,
+            "tipo_documento": tipo_documento.strip() or "factura_cliente",
+            "nombre_archivo": file.filename or "documento",
+            "storage_bucket": "",
+            "storage_path": "",
+            "content_type": file.content_type or "",
+            "size_bytes": len(content),
+            "metadata": metadata,
+            "uploaded_by": uid,
+            "created_at": _now_iso(),
+        }).execute().data or []
+        document_item = inserted[0] if inserted else None
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            result.setdefault("warnings", []).append(_missing_schema_payload(TBL_DOCUMENTOS)["message"])
+        else:
+            logger.info("Transporte v2 analisis sin guardar documento: %s", exc)
+            result.setdefault("warnings", []).append("No se pudo guardar metadata documental; el análisis se devolvió en memoria.")
+    return {
+        "ok": True,
+        **result,
+        "filename": file.filename or "documento",
+        "content_type": file.content_type or "",
+        "size_bytes": len(content),
+        "documento": document_item,
+        "manual_fields_required": _manual_document_fields(),
+    }
 
 
 @router.post("/tr-v2/documentos")
