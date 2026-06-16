@@ -64,19 +64,19 @@
 
     <div class="trv2-grid-2">
       <section class="trv2-panel">
-        <h2><i class="fa-solid fa-list-check"></i> Flujo Fase 1</h2>
+        <h2><i class="fa-solid fa-list-check"></i> Flujo operativo</h2>
         <div class="trv2-checklist">
           <span><i class="fa-solid fa-circle-check"></i> Crear expediente manual</span>
           <span><i class="fa-solid fa-circle-check"></i> Listar viajes</span>
           <span><i class="fa-solid fa-circle-check"></i> Preparar carga documental</span>
           <span><i class="fa-solid fa-circle-check"></i> Preview Carta Porte sin PAC</span>
-          <span><i class="fa-solid fa-clock"></i> Timbrado y PAC en Fase 3</span>
-          <span><i class="fa-solid fa-clock"></i> JSON SAT en Fase 5</span>
+          <span><i class="fa-solid fa-clock"></i> Timbrado y PAC pendiente</span>
+          <span><i class="fa-solid fa-clock"></i> JSON SAT pendiente</span>
         </div>
       </section>
       <section class="trv2-panel">
-        <h2><i class="fa-solid fa-shield-halved"></i> Aislamiento</h2>
-        <p class="trv2-muted">Esta página usa solamente `/api/tr-v2/*`. Los catálogos leen `tr_*` en modo lectura y `transporte_v2_*` queda como staging. No llama PAC, no timbra, no genera XML timbrado y no usa JSON Gas LP.</p>
+        <h2><i class="fa-solid fa-shield-halved"></i> Seguridad operativa</h2>
+        <p class="trv2-muted">El módulo trabaja con permisos propios de Transporte. En esta etapa no llama PAC, no timbra y no genera XML fiscal final.</p>
       </section>
     </div>
   </section>
@@ -141,9 +141,46 @@
       <article class="trv2-step"><span>3</span><strong>Preview Carta Porte</strong><p>Valida el resumen antes de cualquier timbrado futuro.</p></article>
     </div>
     <section class="trv2-panel">
+      <div class="trv2-table-head">
+        <div>
+          <h2>Paso 1 · Subir documento/factura</h2>
+          <p class="trv2-muted">Analiza PDF/XML del cliente para detectar RFC, UUID, folio, producto, litros, kilos, permiso, boleta y origen/destino sugeridos.</p>
+        </div>
+      </div>
+      <form class="trv2-form" id="trv2-cp-doc-form" onsubmit="trv2AnalyzeDocument(event, 'cp')">
+        <label>Tipo documento <select id="trv2-cp-doc-tipo"><option value="factura_cliente">Factura cliente</option><option value="documento_carga">Documento carga</option><option value="xml_cliente">XML cliente</option><option value="otro">Otro</option></select></label>
+        <label class="trv2-form-wide">Archivo PDF/XML <input id="trv2-cp-doc-file" type="file" accept=".pdf,.xml,image/*"></label>
+        <div class="trv2-form-actions">
+          <button class="trv2-btn trv2-btn-primary" type="submit"><i class="fa-solid fa-gears"></i> Analizar documento</button>
+        </div>
+      </form>
+      <p id="trv2-cp-doc-message" class="trv2-muted"></p>
+    </section>
+    <section class="trv2-panel" id="trv2-cp-doc-detected-panel" hidden>
+      <div class="trv2-table-head">
+        <div>
+          <h2>Paso 2 · Completar faltantes</h2>
+          <p class="trv2-muted">Confirma datos detectados y completa ruta, unidad, operador, producto, fechas, litros y kilos.</p>
+        </div>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2CreateTripFromDocument('cp')"><i class="fa-solid fa-route"></i> Crear viaje borrador</button>
+      </div>
+      <div id="trv2-cp-doc-detected-summary" class="trv2-alert trv2-alert-warn"></div>
+      <form class="trv2-form" id="trv2-cp-doc-detected-form"></form>
+    </section>
+    <section class="trv2-panel">
+      <div class="trv2-table-head">
+        <div>
+          <h2>Paso 3 · Seleccionar viaje y generar preview</h2>
+          <p class="trv2-muted" id="trv2-cp-trip-message">Actualiza viajes para seleccionar un borrador o usa el viaje creado desde documento.</p>
+        </div>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadTrips()"><i class="fa-solid fa-rotate"></i> Actualizar viajes</button>
+      </div>
       <div class="trv2-form trv2-form-compact">
         <label>Viaje <select id="trv2-cp-trip-select"></select></label>
         <label>Tipo CFDI <select id="trv2-cp-tipo"><option value="">Sugerir automáticamente</option><option value="I">Ingreso - servicio de transporte</option><option value="T">Traslado - acreditar traslado</option></select></label>
+      </div>
+      <div class="trv2-form-actions trv2-form-actions-inline">
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2PreviewSelectedTrip()"><i class="fa-solid fa-eye"></i> Preview Carta Porte</button>
       </div>
     </section>
     <section class="trv2-panel" id="trv2-cp-preview-panel">
@@ -239,7 +276,7 @@
         <div><h2>Servicios por viaje</h2><p class="trv2-muted">Fuente futura: viajes, Carta Porte lista, cliente detectado e importe/tarifa.</p></div>
         <button class="trv2-btn trv2-btn-primary" type="button" disabled>Generar factura</button>
       </div>
-      <div class="trv2-empty">Facturación de servicio pendiente para fase posterior. No timbra CFDI.</div>
+      <div class="trv2-empty">Facturación de servicio pendiente para una etapa posterior. No timbra CFDI.</div>
     </section>
   </section>
 
@@ -302,7 +339,7 @@
           <button class="trv2-btn trv2-btn-primary" type="button" disabled><i class="fa-solid fa-file-export"></i> Exportar JSON SAT</button>
         </div>
       </div>
-      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">JSON SAT Transporte pendiente para fase posterior. La lógica fiscal se validará por viaje/autotanque antes de exportar.</div>
+      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">JSON SAT Transporte pendiente. La lógica fiscal se validará por viaje/autotanque antes de exportar.</div>
       <div class="trv2-table-wrap">
         <table>
           <thead><tr><th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Producto</th><th>Volumen L</th><th>Vehículo</th><th>Origen</th><th>Destino</th><th>UUID Carta Porte</th><th>Estatus JSON</th></tr></thead>
@@ -319,10 +356,16 @@
         <p>Usuarios operador y parámetros del módulo Transporte.</p>
       </div>
     </div>
-    <div class="trv2-grid-2">
+    <nav class="trv2-subtabs" aria-label="Administración Transporte v2">
+      <button class="trv2-subtab active" type="button" data-admin-tab="usuarios-operador" onclick="trv2SetAdminSubtab('usuarios-operador')"><i class="fa-solid fa-user-lock"></i> Usuarios operador</button>
+      <button class="trv2-subtab" type="button" data-admin-tab="configuracion" onclick="trv2SetAdminSubtab('configuracion')"><i class="fa-solid fa-sliders"></i> Configuración</button>
+      <button class="trv2-subtab" type="button" data-admin-tab="catalogos-cp" onclick="trv2SetAdminSubtab('catalogos-cp')"><i class="fa-solid fa-table-list"></i> Catálogos Carta Porte</button>
+    </nav>
+    <div class="trv2-admin-panel active" data-admin-panel="usuarios-operador">
       <section class="trv2-panel">
         <h2><i class="fa-solid fa-user-lock"></i> Usuarios operador</h2>
         <p class="trv2-muted">Crea accesos para choferes y operadores. Ellos podrán consultar viajes asignados, subir facturas, ver Carta Porte y registrar bitácora.</p>
+        <div class="trv2-alert trv2-alert-warn">Acceso actual por token temporal. Usuario/PIN formal requiere migración no destructiva posterior.</div>
         <form class="trv2-form trv2-form-admin" onsubmit="trv2CreateOperatorAccess(event)">
           <label>Operador / chofer <select id="trv2-admin-operator-chofer" required><option value="">Seleccionar operador</option></select></label>
           <label>Usuario <input id="trv2-admin-operator-user" placeholder="Se habilitará con migración usuario/PIN" disabled></label>
@@ -333,7 +376,6 @@
             <button class="trv2-btn trv2-btn-primary" type="submit">Crear acceso operador</button>
           </div>
         </form>
-        <div class="trv2-alert trv2-alert-warn">Fase actual: acceso por token temporal. Usuario/PIN requiere migración no destructiva posterior.</div>
         <div id="trv2-operator-access-result" class="trv2-access-result" hidden></div>
         <div class="trv2-table-head">
           <div>
@@ -344,14 +386,40 @@
         </div>
         <div id="trv2-operator-access-list" class="trv2-access-list"></div>
       </section>
+    </div>
+    <div class="trv2-admin-panel" data-admin-panel="configuracion">
       <section class="trv2-panel">
         <h2><i class="fa-solid fa-sliders"></i> Configuración</h2>
-        <p class="trv2-muted">Parámetros fiscales y operativos del módulo. Sin cambios activos todavía.</p>
-        <div class="trv2-checklist">
-          <span><i class="fa-solid fa-clock"></i> Perfil fiscal Transporte</span>
-          <span><i class="fa-solid fa-clock"></i> Políticas de Carta Porte</span>
-          <span><i class="fa-solid fa-clock"></i> Parámetros Reportes SAT</span>
+        <p class="trv2-muted">Parámetros fiscales y operativos del módulo. No se guardan hasta validar tabla/configuración segura.</p>
+        <div class="trv2-alert trv2-alert-warn">Configuración visual. Guardado pendiente de tabla/configuración validada.</div>
+        <form class="trv2-form">
+          <label>RFC emisor Transporte <input placeholder="OEMR710420FCA" disabled></label>
+          <label>Razón social <input placeholder="RUTH ORNELAS MUÑOZ" disabled></label>
+          <label>Régimen fiscal <input placeholder="Pendiente" disabled></label>
+          <label>Lugar expedición <input placeholder="CP emisor" disabled></label>
+          <label>Serie Carta Porte <input placeholder="TCP" disabled></label>
+          <label>Serie factura servicio <input placeholder="FS" disabled></label>
+          <label>Operador puede solicitar Carta Porte <select disabled><option>Sí, con revisión admin</option><option>No</option></select></label>
+          <label>Operador puede generar Carta Porte <select disabled><option>No, pendiente validación fiscal</option><option>Sí</option></select></label>
+          <label class="trv2-form-wide">Parámetros Reportes SAT <textarea rows="4" placeholder="Reglas de periodo, producto, UUID y movimientos por viaje." disabled></textarea></label>
+          <div class="trv2-form-actions">
+            <button class="trv2-btn trv2-btn-primary" type="button" disabled>Guardar configuración</button>
+          </div>
+        </form>
+      </section>
+    </div>
+    <div class="trv2-admin-panel" data-admin-panel="catalogos-cp">
+      <section class="trv2-panel">
+        <h2><i class="fa-solid fa-table-list"></i> Catálogos Carta Porte</h2>
+        <p class="trv2-muted">Vista de referencia para vehículos, operadores, rutas, productos y permisos usados en Carta Porte. Lectura desde `tr_*`.</p>
+        <div class="trv2-admin-cp-grid">
+          <article><i class="fa-solid fa-truck-moving"></i><strong>Vehículos</strong><span>Placas, configuración, permisos y seguros.</span></article>
+          <article><i class="fa-solid fa-id-card"></i><strong>Operadores</strong><span>RFC Figura, licencia y datos de contacto.</span></article>
+          <article><i class="fa-solid fa-route"></i><strong>Rutas</strong><span>Origen, destino, CP y distancia.</span></article>
+          <article><i class="fa-solid fa-gas-pump"></i><strong>Productos</strong><span>Clave SAT, unidad, material peligroso y embalaje.</span></article>
+          <article><i class="fa-solid fa-trailer"></i><strong>Remolques / permisos</strong><span>Se habilitará al validar estructura legacy.</span></article>
         </div>
+        <div class="trv2-alert trv2-alert-warn">Edición de Catálogos Carta Porte se habilitará después de validar escritura segura en `tr_*`.</div>
       </section>
     </div>
   </section>
