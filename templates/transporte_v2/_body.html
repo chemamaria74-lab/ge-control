@@ -76,15 +76,15 @@
       <h2>Nuevo viaje</h2>
       <form class="trv2-form" onsubmit="trv2CreateTrip(event)">
         <label>Cliente <select id="trv2-trip-cliente-id"></select></label>
-        <label>Ruta <select id="trv2-trip-ruta-id" onchange="trv2ApplyRouteToTrip()"></select></label>
+        <label>Ruta <select id="trv2-trip-ruta-id" onchange="trv2ApplyRouteToTrip()" required></select></label>
         <label>Origen <input id="trv2-trip-origen" required placeholder="Origen"></label>
         <label>Destino <input id="trv2-trip-destino" required placeholder="Destino"></label>
-        <label>Operador <select id="trv2-trip-operador-id"></select></label>
-        <label>Vehículo/autotanque <select id="trv2-trip-vehiculo-id"></select></label>
-        <label>Producto <select id="trv2-trip-producto-id"></select></label>
+        <label>Operador <select id="trv2-trip-operador-id" required></select></label>
+        <label>Vehículo/autotanque <select id="trv2-trip-vehiculo-id" required></select></label>
+        <label>Producto <select id="trv2-trip-producto-id" required></select></label>
         <label>Litros <input id="trv2-trip-litros" type="number" min="0" step="0.001" value="0"></label>
         <label>Peso kg <input id="trv2-trip-peso" type="number" min="0" step="0.001" value="0"></label>
-        <label>Fecha salida <input id="trv2-trip-salida" type="datetime-local"></label>
+        <label>Fecha salida <input id="trv2-trip-salida" type="datetime-local" required></label>
         <label>Fecha llegada estimada <input id="trv2-trip-llegada" type="datetime-local"></label>
         <label class="trv2-form-wide">Observaciones <textarea id="trv2-trip-observaciones" rows="3" placeholder="Notas operativas"></textarea></label>
         <div class="trv2-form-actions">
