@@ -1,0 +1,178 @@
+<body>
+<div id="toast-area" class="toast-area"></div>
+
+<header class="trv2-topbar">
+  <a href="/choice" class="trv2-brand" aria-label="GE Control">
+    <img src="/static/img/ge-isotype-light.svg" alt="GE">
+    <span>Transporte v2</span>
+  </a>
+  <span class="trv2-badge"><i class="fa-solid fa-truck-fast"></i> Isla nueva</span>
+  <span class="trv2-badge trv2-badge-soft">Fase 2</span>
+  <div class="trv2-topbar-spacer"></div>
+  <span class="trv2-badge" id="trv2-user">Sesión local</span>
+  <button class="trv2-btn trv2-btn-ghost" type="button" onclick="location.href='/choice'">Cambiar módulo</button>
+  <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2Logout()">Salir</button>
+</header>
+
+<nav class="trv2-tabs" aria-label="Navegación Transporte v2">
+  <button class="trv2-tab active" type="button" data-tab="dashboard" onclick="trv2SwitchTab('dashboard')"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
+  <button class="trv2-tab" type="button" data-tab="viajes" onclick="trv2SwitchTab('viajes')"><i class="fa-solid fa-route"></i> Viajes</button>
+  <button class="trv2-tab" type="button" data-tab="documentos" onclick="trv2SwitchTab('documentos')"><i class="fa-solid fa-file-arrow-up"></i> Documentos</button>
+  <button class="trv2-tab" type="button" data-tab="carta-porte" onclick="trv2SwitchTab('carta-porte')"><i class="fa-solid fa-file-invoice"></i> Carta Porte</button>
+  <button class="trv2-tab" type="button" data-tab="catalogos" onclick="trv2SwitchTab('catalogos')"><i class="fa-solid fa-table-list"></i> Catálogos</button>
+  <button class="trv2-tab" type="button" data-tab="reportes" onclick="trv2SwitchTab('reportes')"><i class="fa-solid fa-chart-column"></i> Reportes</button>
+  <button class="trv2-tab" type="button" data-tab="control-volumetrico" onclick="trv2SwitchTab('control-volumetrico')"><i class="fa-solid fa-file-code"></i> Control Volumétrico</button>
+</nav>
+
+<main class="trv2-shell">
+  <section id="trv2-tab-dashboard" class="trv2-section active">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Centro de Transporte v2</h1>
+        <p>Base limpia para viajes, documentos, Carta Porte, facturación de servicio y Control Volumétrico.</p>
+      </div>
+      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2RefreshAll()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+    </div>
+
+    <div id="trv2-schema-warning" class="trv2-alert trv2-alert-warn" hidden></div>
+
+    <div class="trv2-kpis">
+      <article><span>Viajes</span><strong id="trv2-kpi-viajes">0</strong></article>
+      <article><span>Borradores</span><strong id="trv2-kpi-borradores">0</strong></article>
+      <article><span>Programados</span><strong id="trv2-kpi-programados">0</strong></article>
+      <article><span>Volumen</span><strong id="trv2-kpi-volumen">0 L</strong></article>
+    </div>
+
+    <div class="trv2-grid-2">
+      <section class="trv2-panel">
+        <h2><i class="fa-solid fa-list-check"></i> Flujo Fase 1</h2>
+        <div class="trv2-checklist">
+          <span><i class="fa-solid fa-circle-check"></i> Crear expediente manual</span>
+          <span><i class="fa-solid fa-circle-check"></i> Listar viajes</span>
+          <span><i class="fa-solid fa-circle-check"></i> Preparar carga documental</span>
+          <span><i class="fa-solid fa-circle-check"></i> Preview Carta Porte sin PAC</span>
+          <span><i class="fa-solid fa-clock"></i> Timbrado y PAC en Fase 3</span>
+          <span><i class="fa-solid fa-clock"></i> JSON SAT en Fase 5</span>
+        </div>
+      </section>
+      <section class="trv2-panel">
+        <h2><i class="fa-solid fa-shield-halved"></i> Aislamiento</h2>
+        <p class="trv2-muted">Esta página usa solamente `/api/tr-v2/*` y tablas `transporte_v2_*`. No llama PAC, no timbra, no genera XML timbrado y no usa JSON Gas LP.</p>
+      </section>
+    </div>
+  </section>
+
+  <section id="trv2-tab-viajes" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Viajes</h1>
+        <p>Expedientes manuales básicos para arrancar Transporte v2.</p>
+      </div>
+      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenTripForm()"><i class="fa-solid fa-plus"></i> Nuevo viaje</button>
+    </div>
+
+    <div class="trv2-panel" id="trv2-trip-form" hidden>
+      <h2>Nuevo viaje</h2>
+      <form class="trv2-form" onsubmit="trv2CreateTrip(event)">
+        <label>Cliente <select id="trv2-trip-cliente-id"></select></label>
+        <label>Ruta <select id="trv2-trip-ruta-id" onchange="trv2ApplyRouteToTrip()"></select></label>
+        <label>Origen <input id="trv2-trip-origen" required placeholder="Origen"></label>
+        <label>Destino <input id="trv2-trip-destino" required placeholder="Destino"></label>
+        <label>Operador <select id="trv2-trip-operador-id"></select></label>
+        <label>Vehículo/autotanque <select id="trv2-trip-vehiculo-id"></select></label>
+        <label>Producto <select id="trv2-trip-producto-id"></select></label>
+        <label>Litros <input id="trv2-trip-litros" type="number" min="0" step="0.001" value="0"></label>
+        <label>Peso kg <input id="trv2-trip-peso" type="number" min="0" step="0.001" value="0"></label>
+        <label>Fecha salida <input id="trv2-trip-salida" type="datetime-local"></label>
+        <label>Fecha llegada estimada <input id="trv2-trip-llegada" type="datetime-local"></label>
+        <label class="trv2-form-wide">Observaciones <textarea id="trv2-trip-observaciones" rows="3" placeholder="Notas operativas"></textarea></label>
+        <div class="trv2-form-actions">
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseTripForm()">Cancelar</button>
+          <button class="trv2-btn trv2-btn-primary" type="submit">Guardar expediente</button>
+        </div>
+      </form>
+    </div>
+
+    <section class="trv2-panel">
+      <div class="trv2-table-head">
+        <h2>Listado</h2>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadTrips()"><i class="fa-solid fa-rotate"></i> Recargar</button>
+      </div>
+      <div id="trv2-trips-message" class="trv2-muted"></div>
+      <div class="trv2-table-wrap">
+        <table>
+          <thead><tr><th>Viaje</th><th>Cliente</th><th>Ruta</th><th>Unidad</th><th>Producto</th><th>Volumen</th><th>Estatus</th><th>Acciones</th></tr></thead>
+          <tbody id="trv2-trips-table"></tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <section id="trv2-tab-carta-porte" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Carta Porte</h1>
+        <p>Preview y validación seca desde el viaje. Sin PAC, sin timbrado y sin XML final.</p>
+      </div>
+      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2PreviewSelectedTrip()"><i class="fa-solid fa-eye"></i> Preview seleccionado</button>
+    </div>
+    <section class="trv2-panel">
+      <div class="trv2-form trv2-form-compact">
+        <label>Viaje <select id="trv2-cp-trip-select"></select></label>
+        <label>Tipo CFDI <select id="trv2-cp-tipo"><option value="">Sugerir automáticamente</option><option value="I">Ingreso - servicio de transporte</option><option value="T">Traslado - acreditar traslado</option></select></label>
+      </div>
+    </section>
+    <section class="trv2-panel" id="trv2-cp-preview-panel">
+      <div class="trv2-empty">Selecciona un viaje para generar preview Carta Porte.</div>
+    </section>
+  </section>
+
+  <section id="trv2-tab-documentos" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Documentos</h1>
+        <p>Factura/documento del cliente, evidencias y archivos del expediente.</p>
+      </div>
+    </div>
+    <section class="trv2-panel">
+      <h2>Carga documental</h2>
+      <div class="trv2-alert trv2-alert-warn">Carga documental pendiente de configurar bucket transporte-v2-documents.</div>
+      <form class="trv2-form" onsubmit="trv2UploadDocument(event)">
+        <label>Viaje ID <input id="trv2-doc-viaje-id" type="number" min="1" placeholder="Opcional"></label>
+        <label>Tipo documento <select id="trv2-doc-tipo"><option value="factura_cliente">Factura cliente</option><option value="xml_cliente">XML cliente</option><option value="evidencia">Evidencia</option><option value="otro">Otro</option></select></label>
+        <label class="trv2-form-wide">Archivo <input id="trv2-doc-file" type="file" accept=".pdf,.xml,image/*"></label>
+        <div class="trv2-form-actions">
+          <button class="trv2-btn trv2-btn-primary" type="submit">Probar carga</button>
+        </div>
+      </form>
+      <p id="trv2-doc-message" class="trv2-muted"></p>
+    </section>
+  </section>
+
+  <section id="trv2-tab-catalogos" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Catálogos</h1>
+        <p>Clientes, operadores, vehículos, productos y rutas de Transporte v2.</p>
+      </div>
+      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2LoadCatalogs()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+    </div>
+    <div class="trv2-grid-2" id="trv2-catalogs-grid"></div>
+  </section>
+
+  <section id="trv2-tab-reportes" class="trv2-section">
+    <div class="trv2-soon">
+      <i class="fa-solid fa-chart-column"></i>
+      <h1>Reportes</h1>
+      <p>Próximamente en una fase posterior.</p>
+    </div>
+  </section>
+
+  <section id="trv2-tab-control-volumetrico" class="trv2-section">
+    <div class="trv2-soon">
+      <i class="fa-solid fa-file-code"></i>
+      <h1>Control Volumétrico SAT / JSON</h1>
+      <p>Próximamente. Será un bloque propio de Transporte v2, separado del JSON Gas LP.</p>
+    </div>
+  </section>
+</main>
