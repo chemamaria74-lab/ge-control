@@ -283,48 +283,146 @@ def _regex_first(pattern: str, text: str, flags: int = re.I) -> str:
     return match.group(1).strip() if match else ""
 
 
+def _clean_pdf_text(text: str) -> str:
+    text = (text or "").replace("\xa0", " ")
+    text = re.sub(r"[ \t]+", " ", text)
+    return text
+
+
+def _clean_uuid(value: str) -> str:
+    raw = re.sub(r"\s+", "", str(value or "").upper())
+    return raw if re.fullmatch(r"[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}", raw) else ""
+
+
+def _pdf_uuid(text: str) -> str:
+    patterns = [
+        r"FOLIO\s+FISCAL:.*?([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})",
+        r"FOLIO\s+FISCAL[:\s]+([0-9A-F][0-9A-F\-\s]{34,70}[0-9A-F])",
+        r"\|\|1\.1\|([0-9A-F][0-9A-F\-\s]{34,70}[0-9A-F])\|",
+        r"\b([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})\b",
+    ]
+    for pattern in patterns:
+        value = _regex_first(pattern, text, re.I | re.S)
+        uuid = _clean_uuid(value)
+        if uuid:
+            return uuid
+    return ""
+
+
+def _money_after(label: str, text: str) -> float:
+    matches = re.findall(rf"{label}\s+([\d,]+\.\d{{2}})", text, re.I)
+    return _to_float(matches[-1]) if matches else 0.0
+
+
 def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     text, warnings = _extract_pdf_text(content)
+    text = _clean_pdf_text(text)
     upper = text.upper()
+    emisor_rfc = _regex_first(r"REG\.?\s*FED\.?\s*DE\s*CONT\.?\s*([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})", upper)
+    receptor_rfc = _regex_first(r"R\.?\s*F\.?\s*C\.?\s*\.?\s*([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})", upper)
     rfcs = re.findall(r"\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b", upper)
-    uuids = re.findall(r"\b[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\b", upper)
-    liters = _regex_first(r"([\d,]+(?:\.\d+)?)\s*(?:LITROS|LTR)\b", upper)
-    kilos = _regex_first(r"([\d,]+(?:\.\d+)?)\s*(?:KILOS|KGS?|KGM)\b", upper)
+    if not emisor_rfc and rfcs:
+        emisor_rfc = rfcs[0]
+    if not receptor_rfc and len(rfcs) > 1:
+        receptor_rfc = next((rfc for rfc in rfcs if rfc != emisor_rfc), "")
+
+    folio_match = re.search(r"\b(FE)\s+(\d{3,})\b", upper, re.I)
+    if not folio_match:
+        folio_match = re.search(r"FACTURA\s+FOLIO.*?\b([A-Z]{1,6})\s+(\d{3,})\b", upper, re.I | re.S)
+    serie = folio_match.group(1).strip() if folio_match else _regex_first(r"\b([A-Z]{1,6})\s+\d{3,}\b", upper)
+    folio_numero = folio_match.group(2).strip() if folio_match else _regex_first(r"\b[A-Z]{1,6}\s+(\d{3,})\b", upper)
+    folio = f"{serie} {folio_numero}".strip()
+
+    concept_match = re.search(
+        r"([\d,]+\.\d{2})\s+(\d{8})\s+(.+?)\s+(LP/\d+/[A-Z]+/\d{4})\s+(LTR)\s+\w\s+([\d.]+)\s+\d{2}\s+([\d,]+\.\d{2})",
+        upper,
+        re.I | re.S,
+    )
+    liters = concept_match.group(1) if concept_match else _regex_first(r"([\d,]+(?:\.\d+)?)\s*(?:LITROS|LTR)\b", upper)
+    clave_sat = concept_match.group(2) if concept_match else ("15111510" if "15111510" in upper else _regex_first(r"\b(1511\d{4})\b", upper))
+    producto_detectado = concept_match.group(3).strip() if concept_match else ""
+    permiso = concept_match.group(4) if concept_match else _regex_first(r"\b(LP/\d+/[A-Z]+/\d{4})\b", upper)
+    unidad = concept_match.group(5) if concept_match else ("LTR" if re.search(r"\bLTR\b", upper) else "")
+    precio_unitario = _to_float(concept_match.group(6)) if concept_match else 0.0
+    subtotal = _to_float(concept_match.group(7)) if concept_match else _money_after("SUB-TOTAL", upper)
+    iva = _to_float(_regex_first(r"TASA\s+002\s+0\.160000\s+[\d,]+\.\d{2}\s+([\d,]+\.\d{2})", upper)) or _money_after("IVA", upper)
+    total = _money_after("TOTAL", upper)
+
+    kilos = _regex_first(r"(?:KILOS)\s*:\s*([\d,]+(?:\.\d+)?)", upper)
     if not kilos:
         kilos = _regex_first(r"(?:KILOS|PESO|KGM)\D{0,20}([\d,]+(?:\.\d+)?)", upper)
-    folio = _regex_first(r"\b(FE\s*\d{3,})\b", upper)
     permiso = _regex_first(r"\b(LP/\d+/[A-Z]+/\d{4})\b", upper)
-    boleta = _regex_first(r"(?:BOLETA)\D{0,20}(\d{6,})", upper)
-    fecha_boleta = _parse_short_date(_regex_first(r"(?:FECHA\s+BOLETA|FECHA)\D{0,20}(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", upper))
+    boleta = _regex_first(r"BOLETA\s*:\s*(\d{6,})", upper)
+    fecha_boleta = _parse_short_date(_regex_first(r"FECHA\s+BOLETA\s*:\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", upper))
+    pg = _regex_first(r"\bPG\s*:\s*(\d+)", upper)
     producto = ""
-    if "GAS LICUADO" in upper:
+    if producto_detectado:
+        producto = re.sub(r"\s+", " ", producto_detectado).strip()
+    elif "GAS LICUADO" in upper:
         producto = "GAS LICUADO DE PETROLEO"
     elif "GAS L.P" in upper or "GAS LP" in upper:
         producto = "GAS L.P"
     elif "DIESEL" in upper or "DIÉSEL" in upper:
         producto = "DIESEL"
-    origen = "ZAPOTLANEJO" if "ZAPOTLANEJO" in upper else ""
+    origen = _regex_first(r"ORIGEN\s*:\s*([A-ZÁÉÍÓÚÜÑ0-9 ._-]+)", upper).splitlines()[0].strip()
+    if not origen and "ZAPOTLANEJO" in upper:
+        origen = "ZAPOTLANEJO"
     emisor_nombre = "PROPANE SERVICES" if "PROPANE SERVICES" in upper else _regex_first(r"EMISOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper)
     receptor_nombre = "DISTRIBUIDORA DE GAS DEL CAÑON" if "DISTRIBUIDORA DE GAS DEL CA" in upper else _regex_first(r"RECEPTOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper)
+    domicilio_receptor = _regex_first(r"DOM\.\s+(.+?C\.P\.?\s*\d{5})", text, re.I | re.S)
+    domicilio_receptor = re.sub(r"\s+", " ", domicilio_receptor).strip()
+    cp_receptor = _regex_first(r"DOMICILIO\s+FISCAL:\s*(\d{5})", upper) or _regex_first(r"C\.P\.?\s*(\d{5})", domicilio_receptor.upper())
+    regimen_emisor = _regex_first(r"REGIMEN\s+FISCAL:\s*(\d{3})", upper)
+    regimen_receptor = _regex_first(r"DOMICILIO\s+FISCAL:\s*\d{5}\s+REGIMEN\s+FISCAL:\s*(\d{3})", upper)
+    lugar_expedicion = _regex_first(r"LUGAR\s+Y\s+FECHA\s+DE\s+EXP\.?\s*(\d{5})", upper) or _regex_first(r"REGIMEN\s+FISCAL:\s*\d{3}\s+(\d{5})", upper)
+    fecha_factura = _regex_first(r"(\d{1,2}/[A-ZÁÉÍÓÚÜÑ]+/\d{4}\s+\d{2}:\d{2}:\d{2})", text, re.I)
+    fecha_certificacion = _regex_first(r"FECHA\s+Y\s+HORA\s+DE\s+CERTIFICACI[ÓO]N:\s*([0-9T:\-]+)", upper)
+    forma_pago = _regex_first(r"FORMA\s+DE\s+PAGO:\s*(\d{2})", upper)
+    metodo_pago = _regex_first(r"METODO\s+DE\s+PAGO:\s*([A-Z]{3})", upper)
+    uso_cfdi = _regex_first(r"USO\s+DEL\s+CFDI:\s*([A-Z0-9]{3})", upper)
+    tipo_comprobante = _regex_first(r"TIPO\s+DE\s+COMPROBANTE:\s*([A-Z])", upper)
     detected = {
         "emisor_nombre": emisor_nombre,
-        "emisor_rfc": rfcs[0] if rfcs else "",
+        "emisor_rfc": emisor_rfc,
+        "regimen_emisor": regimen_emisor,
+        "proveedor_nombre": emisor_nombre,
+        "proveedor_rfc": emisor_rfc,
+        "proveedor_permiso": permiso,
         "receptor_nombre": receptor_nombre,
-        "receptor_rfc": rfcs[1] if len(rfcs) > 1 else "",
+        "receptor_rfc": receptor_rfc,
+        "domicilio_receptor": domicilio_receptor,
+        "cp_receptor": cp_receptor,
+        "regimen_receptor": regimen_receptor,
+        "serie": serie,
+        "folio_numero": folio_numero,
         "folio": folio,
-        "uuid": uuids[0] if uuids else "",
+        "folio_display": folio,
+        "lugar_expedicion": lugar_expedicion,
+        "fecha_factura": fecha_factura,
+        "fecha_certificacion": fecha_certificacion,
+        "uuid": _pdf_uuid(upper),
         "producto": producto,
-        "clave_sat": "15111510" if "15111510" in upper else _regex_first(r"\b(\d{8})\b", upper),
+        "clave_sat": clave_sat,
         "cantidad_litros": _to_float(liters),
         "peso_kg": _to_float(kilos),
         "permiso": permiso,
+        "unidad": unidad,
+        "precio_unitario": precio_unitario,
+        "subtotal": subtotal,
+        "iva": iva,
+        "total": total,
         "origen_sugerido": origen,
         "destino_sugerido": receptor_nombre,
         "boleta": boleta,
         "fecha_boleta": fecha_boleta,
-        "tipo_cfdi_sugerido": "I",
+        "pg": pg,
+        "tipo_cfdi_sugerido": tipo_comprobante or "I",
+        "tipo_comprobante": tipo_comprobante or "I",
+        "metodo_pago": metodo_pago,
+        "forma_pago": forma_pago,
+        "uso_cfdi": uso_cfdi,
     }
-    missing_core = [key for key in ("uuid", "producto", "cantidad_litros") if not detected.get(key)]
+    missing_core = [key for key in ("uuid", "emisor_rfc", "receptor_rfc", "producto", "cantidad_litros", "peso_kg") if not detected.get(key)]
     if missing_core:
         warnings.append("PDF requiere captura manual asistida para: " + ", ".join(missing_core))
     return {
