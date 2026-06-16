@@ -37,25 +37,29 @@ TBL_OPERADORES = "tr_choferes"
 TBL_VEHICULOS = "tr_vehiculos"
 TBL_PRODUCTOS = "tr_productos_operacion"
 TBL_RUTAS = "tr_rutas"
+TBL_ORIGENES = "tr_origenes"
+TBL_DESTINOS = "tr_destinos"
+TBL_PROVEEDORES = "tr_proveedores_operacion"
+TBL_SETTINGS = "tr_settings"
 TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
 TBL_AUDITORIA = "transporte_v2_auditoria"
 
 CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "clientes": {
         "table": TBL_CLIENTES,
-        "required": ["nombre"],
+        "required": ["nombre", "rfc", "cp"],
         "allowed": ["nombre", "rfc", "cp", "regimen_fiscal", "uso_cfdi", "activo"],
         "defaults": {"activo": True},
     },
     "operadores": {
         "table": TBL_OPERADORES,
-        "required": ["nombre"],
+        "required": ["nombre", "rfc_figura", "licencia"],
         "allowed": ["nombre", "rfc_figura", "licencia", "tipo_licencia", "vencimiento_licencia", "telefono", "activo"],
         "defaults": {"activo": True},
     },
     "vehiculos": {
         "table": TBL_VEHICULOS,
-        "required": ["placas"],
+        "required": ["alias", "placas", "config_vehicular", "permiso_sct", "num_permiso_sct", "aseguradora_rc", "poliza_rc"],
         "allowed": [
             "alias", "placas", "config_vehicular", "modelo", "anio",
             "permiso_sct", "num_permiso_sct", "aseguradora_rc", "poliza_rc",
@@ -65,16 +69,29 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     },
     "productos": {
         "table": TBL_PRODUCTOS,
-        "required": ["descripcion"],
+        "required": ["descripcion", "clave_producto", "unidad"],
         "allowed": [
-            "descripcion", "clave_producto", "clave_subproducto", "unidad",
-            "material_peligroso", "clave_material_peligroso", "embalaje", "factor_kg_l", "activo",
+            "descripcion", "nombre", "clave_producto", "clave_subproducto", "unidad",
+            "material_peligroso", "clave_material_peligroso", "embalaje", "factor_kg_l",
+            "tipo_producto", "activo",
         ],
         "defaults": {"activo": True, "unidad": "LTR", "material_peligroso": False},
     },
+    "origenes": {
+        "table": TBL_ORIGENES,
+        "required": ["nombre", "cp"],
+        "allowed": ["nombre", "rfc", "cp", "direccion", "tipo", "activo"],
+        "defaults": {"activo": True, "tipo": "terminal"},
+    },
+    "destinos": {
+        "table": TBL_DESTINOS,
+        "required": ["nombre", "cp"],
+        "allowed": ["nombre", "rfc", "cp", "direccion", "tipo", "cliente_id", "activo"],
+        "defaults": {"activo": True, "tipo": "cliente"},
+    },
     "rutas": {
         "table": TBL_RUTAS,
-        "required": ["nombre"],
+        "required": ["nombre", "origen_id", "destino_id", "cp_origen", "cp_destino", "distancia_km", "duracion_estimada_min"],
         "allowed": [
             "nombre", "origen", "nombre_origen", "cp_origen", "destino", "nombre_destino",
             "cp_destino", "distancia_km", "duracion_estimada_min", "origen_id", "destino_id", "activo",
@@ -154,6 +171,16 @@ class TransporteV2OperatorLoginRequest(BaseModel):
     usuario: str = ""
     pin: str = ""
     token: str = ""
+
+
+class TransporteV2SettingsPayload(BaseModel):
+    perfil_id: Optional[int] = None
+    data: dict[str, Any] = {}
+
+
+class TransporteV2PermisoPayload(BaseModel):
+    perfil_id: Optional[int] = None
+    data: dict[str, Any] = {}
 
 
 def _now_iso() -> str:
@@ -648,6 +675,11 @@ def _clean_payload(data: dict[str, Any], allowed: list[str], defaults: Optional[
     return cleaned
 
 
+def _valid_rfc(value: str) -> bool:
+    rfc = str(value or "").strip().upper()
+    return bool(re.fullmatch(r"[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}", rfc)) and len(rfc) in {12, 13}
+
+
 def _missing_column_from_error(exc: Exception) -> str:
     text = str(exc)
     patterns = [
@@ -735,12 +767,27 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["poliza_rc"] = _first_text(item.get("poliza_rc"), item.get("poliza_seguro"))
     elif catalogo == "productos":
         item["descripcion"] = _first_text(item.get("descripcion"), item.get("nombre"), item.get("clave_producto"))
+        item["nombre"] = _first_text(item.get("nombre"), item["descripcion"])
         item["clave_producto"] = _first_text(item.get("clave_producto"), item.get("clave_prodserv_cfdi"))
         item["clave_subproducto"] = _first_text(item.get("clave_subproducto"))
         item["unidad"] = _first_text(item.get("unidad"), "LTR")
         item["material_peligroso"] = bool(item.get("material_peligroso", True))
         item["clave_material_peligroso"] = _first_text(item.get("clave_material_peligroso"), item.get("cve_material_peligroso"))
         item["embalaje"] = _first_text(item.get("embalaje"), "Z01")
+        item["factor_kg_l"] = _num(item.get("factor_kg_l") or item.get("densidad_kg_l"))
+        item["tipo_producto"] = _first_text(item.get("tipo_producto"), _parse_json_value(item.get("metadata"), {}).get("tipo_producto"))
+    elif catalogo == "origenes":
+        item["nombre"] = _first_text(item.get("nombre"))
+        item["rfc"] = _first_text(item.get("rfc"))
+        item["cp"] = _first_text(item.get("cp"), item.get("codigo_postal"))
+        item["direccion"] = _first_text(item.get("direccion"))
+        item["tipo"] = _first_text(item.get("tipo"), "terminal")
+    elif catalogo == "destinos":
+        item["nombre"] = _first_text(item.get("nombre"))
+        item["rfc"] = _first_text(item.get("rfc"))
+        item["cp"] = _first_text(item.get("cp"), item.get("codigo_postal"))
+        item["direccion"] = _first_text(item.get("direccion"))
+        item["tipo"] = _first_text(item.get("tipo"), "cliente")
     elif catalogo == "rutas":
         item["nombre"] = _first_text(item.get("nombre"), f"{item.get('nombre_origen') or 'Origen'} -> {item.get('nombre_destino') or 'Destino'}")
         item["origen"] = _first_text(item.get("origen"), item.get("nombre_origen"))
@@ -803,7 +850,13 @@ def _create_catalog_item(
     if not perfil_id:
         raise HTTPException(400, "perfil_id requerido para actualizar catálogos Transporte.")
     row = _clean_payload(payload, config["allowed"], config.get("defaults") or {})
+    if catalogo == "productos" and row.get("descripcion") and not row.get("nombre"):
+        row["nombre"] = row["descripcion"]
     _ensure_required(row, config["required"], catalogo)
+    if catalogo in {"clientes", "operadores", "origenes", "destinos"}:
+        rfc_key = "rfc_figura" if catalogo == "operadores" else "rfc"
+        if row.get(rfc_key) and not _valid_rfc(str(row.get(rfc_key))):
+            raise HTTPException(400, f"RFC inválido en {catalogo}. Debe tener 12 o 13 caracteres fiscales.")
     row.update({"user_id": uid, "perfil_id": perfil_id, "created_at": _now_iso()})
     try:
         inserted = _insert_catalog_row(token, config["table"], row)
@@ -829,8 +882,14 @@ def _update_catalog_item(
     if not config:
         raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
     row = _clean_payload(payload, config["allowed"], {})
+    if catalogo == "productos" and row.get("descripcion") and not row.get("nombre"):
+        row["nombre"] = row["descripcion"]
     if not row:
         raise HTTPException(400, "No hay campos para actualizar.")
+    if catalogo in {"clientes", "operadores", "origenes", "destinos"}:
+        rfc_key = "rfc_figura" if catalogo == "operadores" else "rfc"
+        if row.get(rfc_key) and not _valid_rfc(str(row.get(rfc_key))):
+            raise HTTPException(400, f"RFC inválido en {catalogo}. Debe tener 12 o 13 caracteres fiscales.")
     row["updated_at"] = _now_iso()
     try:
         updated = _update_catalog_row(token, config["table"], row, item_id, uid, perfil_id)
@@ -856,6 +915,182 @@ def _deactivate_catalog_item(
     item_id: int,
 ) -> dict[str, Any]:
     return _update_catalog_item(token, uid, perfil_id, catalogo, item_id, {"activo": False})
+
+
+def _settings_defaults() -> dict[str, Any]:
+    return {
+        "perfil_fiscal": {
+            "rfc_contribuyente": "",
+            "nombre_fiscal": "",
+            "cp_fiscal": "",
+            "regimen_fiscal": "",
+            "rfc_representante_legal": "",
+            "factor_kg_l_default": "",
+            "logo_url": "",
+        },
+        "productos_habilitados": {
+            "gas_lp": True,
+            "magna": False,
+            "premium": False,
+            "diesel": False,
+        },
+        "parametros_sat": {
+            "json_por_permiso": True,
+            "validar_permiso_producto": True,
+            "permitir_operador_solicitar_carta_porte": True,
+            "permitir_operador_generar_carta_porte": False,
+        },
+    }
+
+
+def _deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base or {})
+    for key, value in (updates or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _load_settings(token: str, uid: str, pid: Optional[int]) -> dict[str, Any]:
+    defaults = _settings_defaults()
+    if not pid:
+        return defaults
+    try:
+        rows = (
+            _sb(token)
+            .table(TBL_SETTINGS)
+            .select("*")
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not rows:
+            return defaults
+        data = _parse_json_value(rows[0].get("data"), {})
+        return _deep_merge(defaults, data if isinstance(data, dict) else {})
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            raise HTTPException(409, _missing_schema_payload(TBL_SETTINGS)["message"])
+        raise HTTPException(500, f"No se pudo cargar configuración Transporte: {exc}")
+
+
+def _save_settings(token: str, uid: str, pid: Optional[int], data: dict[str, Any]) -> dict[str, Any]:
+    if not pid:
+        raise HTTPException(400, "perfil_id requerido para guardar configuración.")
+    settings = _deep_merge(_load_settings(token, uid, pid), data or {})
+    row = {"user_id": uid, "perfil_id": pid, "data": settings, "updated_at": _now_iso()}
+    try:
+        existing = (
+            _sb(token)
+            .table(TBL_SETTINGS)
+            .select("id")
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if existing:
+            _update_catalog_row(token, TBL_SETTINGS, row, existing[0]["id"], uid, pid)
+        else:
+            row["created_at"] = _now_iso()
+            _insert_catalog_row(token, TBL_SETTINGS, row)
+        return settings
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            raise HTTPException(409, _missing_schema_payload(TBL_SETTINGS)["message"])
+        raise HTTPException(500, f"No se pudo guardar configuración Transporte: {exc}")
+
+
+def _normalize_permiso_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = dict(row or {})
+    metadata = _parse_json_value(item.get("metadata"), {})
+    item["tipo"] = _first_text(item.get("tipo"), metadata.get("tipo"), "Proveedor")
+    item["producto"] = _first_text(item.get("producto"), metadata.get("producto"))
+    item["permiso_cre"] = _first_text(item.get("permiso_cre"), metadata.get("permiso_cre"), metadata.get("permiso"), item.get("permiso"))
+    item["permiso_almacenamiento_terminal"] = _first_text(
+        item.get("permiso_almacenamiento_terminal"),
+        metadata.get("permiso_almacenamiento_terminal"),
+    )
+    item["rfc"] = _first_text(item.get("rfc")).upper()
+    item["nombre"] = _first_text(item.get("nombre"))
+    item["activo"] = item.get("activo") is not False
+    item["metadata"] = metadata
+    return item
+
+
+def _permiso_payload(data: dict[str, Any]) -> dict[str, Any]:
+    rfc = str(data.get("rfc") or "").strip().upper()
+    if not _valid_rfc(rfc):
+        raise HTTPException(400, "RFC inválido. Usa RFC de persona moral de 12 caracteres o persona física de 13.")
+    nombre = str(data.get("nombre") or "").strip()
+    tipo = str(data.get("tipo") or "").strip()
+    producto = str(data.get("producto") or "").strip()
+    permiso_cre = str(data.get("permiso_cre") or data.get("permiso") or "").strip()
+    if not nombre or not tipo or not producto or not permiso_cre:
+        raise HTTPException(400, "Faltan campos requeridos: tipo, RFC, nombre, producto y permiso CRE.")
+    metadata = _parse_json_value(data.get("metadata"), {})
+    metadata.update({
+        "tipo": tipo,
+        "producto": producto,
+        "permiso_cre": permiso_cre,
+        "permiso_almacenamiento_terminal": str(data.get("permiso_almacenamiento_terminal") or "").strip(),
+    })
+    return {
+        "rfc": rfc,
+        "nombre": nombre,
+        "tipo": tipo,
+        "producto": producto,
+        "permiso_cre": permiso_cre,
+        "permiso_almacenamiento_terminal": str(data.get("permiso_almacenamiento_terminal") or "").strip(),
+        "producto_default_id": data.get("producto_default_id") or None,
+        "origen_default_id": data.get("origen_default_id") or None,
+        "activo": data.get("activo") is not False,
+        "metadata": metadata,
+    }
+
+
+def _lookup_permiso_rfc(token: str, uid: str, pid: Optional[int], detected: dict[str, Any]) -> dict[str, Any]:
+    rfc = _first_text(detected.get("proveedor_rfc"), detected.get("emisor_rfc")).upper()
+    permiso_detectado = _first_text(detected.get("permiso"), detected.get("proveedor_permiso"))
+    producto_detectado = _first_text(detected.get("producto"))
+    if not rfc:
+        return {"status": "sin_rfc", "message": "No se detectó RFC proveedor para validar permiso."}
+    try:
+        q = _sb(token).table(TBL_PROVEEDORES).select("*").eq("user_id", uid).eq("rfc", rfc).eq("activo", True)
+        if pid:
+            q = q.eq("perfil_id", pid)
+        rows = q.limit(20).execute().data or []
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return {"status": "schema_missing", "message": _missing_schema_payload(TBL_PROVEEDORES)["message"]}
+        logger.info("Permiso/RFC lookup omitido rfc=%s: %s", rfc, exc)
+        return {"status": "error", "message": "No se pudo validar permiso/RFC en este momento."}
+    normalized = [_normalize_permiso_row(row) for row in rows]
+    if not normalized:
+        return {
+            "status": "no_registrado",
+            "message": "Permiso no registrado. Agrega este RFC/permiso en Administración > Permisos / RFC antes de generar reportes SAT.",
+            "rfc": rfc,
+            "permiso_detectado": permiso_detectado,
+            "producto_detectado": producto_detectado,
+        }
+    exact = next((row for row in normalized if permiso_detectado and row.get("permiso_cre") == permiso_detectado), None)
+    if exact:
+        return {"status": "registrado", "message": "Permiso registrado.", "item": exact}
+    return {
+        "status": "advertencia",
+        "message": "El RFC está registrado, pero el permiso detectado no coincide con el permiso guardado.",
+        "items": normalized,
+        "permiso_detectado": permiso_detectado,
+        "producto_detectado": producto_detectado,
+    }
 
 
 def _meta(row: dict[str, Any]) -> dict[str, Any]:
@@ -1766,10 +2001,16 @@ async def transporte_v2_documentos_analizar(
             "detected": {},
             "warnings": [f"No se pudo extraer metadata automáticamente: {exc}. Usa captura manual asistida."],
         }
+    detected_for_lookup = result.get("detected") if isinstance(result.get("detected"), dict) else {}
+    permiso_rfc = _lookup_permiso_rfc(token, uid, pid, detected_for_lookup)
+    result["permiso_rfc"] = permiso_rfc
+    if permiso_rfc.get("status") in {"no_registrado", "advertencia"}:
+        result.setdefault("warnings", []).append(permiso_rfc.get("message") or "Revisa permiso/RFC en Administración.")
     metadata = {
         "fase": "transporte_v2_fase_2_8",
         "bucket_pendiente": True,
         "analisis": result,
+        "permiso_rfc": permiso_rfc,
         "filename": file.filename or "documento",
         "content_type": file.content_type or "",
         "size_bytes": len(content),
@@ -1974,6 +2215,167 @@ async def transporte_v2_crear_ruta(
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     return _create_catalog_item(token, uid, pid, "rutas", payload.data)
+
+
+@router.get("/tr-v2/catalogos/origenes")
+async def transporte_v2_catalogo_origenes(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return _select_catalog(token, uid, "origenes", pid)
+
+
+@router.post("/tr-v2/catalogos/origenes")
+async def transporte_v2_crear_origen(
+    payload: TransporteV2CatalogoCreate,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return _create_catalog_item(token, uid, pid, "origenes", payload.data)
+
+
+@router.get("/tr-v2/catalogos/destinos")
+async def transporte_v2_catalogo_destinos(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return _select_catalog(token, uid, "destinos", pid)
+
+
+@router.post("/tr-v2/catalogos/destinos")
+async def transporte_v2_crear_destino(
+    payload: TransporteV2CatalogoCreate,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return _create_catalog_item(token, uid, pid, "destinos", payload.data)
+
+
+@router.get("/tr-v2/admin/settings")
+async def transporte_v2_settings_get(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return {"ok": True, "data": _load_settings(token, uid, pid)}
+
+
+@router.post("/tr-v2/admin/settings")
+async def transporte_v2_settings_save(
+    payload: TransporteV2SettingsPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return {"ok": True, "data": _save_settings(token, uid, pid, payload.data)}
+
+
+@router.get("/tr-v2/admin/permisos-rfc")
+async def transporte_v2_permisos_rfc_list(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    try:
+        q = _sb(token).table(TBL_PROVEEDORES).select("*").eq("user_id", uid).order("created_at", desc=True)
+        if pid:
+            q = q.eq("perfil_id", pid)
+        rows = q.limit(200).execute().data or []
+        return {"ok": True, "items": [_normalize_permiso_row(row) for row in rows], "table": TBL_PROVEEDORES}
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return JSONResponse(_missing_schema_payload(TBL_PROVEEDORES), status_code=409)
+        raise HTTPException(500, f"No se pudieron cargar permisos/RFC Transporte: {exc}")
+
+
+@router.post("/tr-v2/admin/permisos-rfc")
+async def transporte_v2_permisos_rfc_create(
+    payload: TransporteV2PermisoPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "perfil_id requerido para guardar permisos/RFC.")
+    row = _permiso_payload(payload.data)
+    row.update({"user_id": uid, "perfil_id": pid, "created_at": _now_iso(), "updated_at": _now_iso()})
+    try:
+        inserted = _insert_catalog_row(token, TBL_PROVEEDORES, row)
+        item = inserted[0] if inserted else row
+        _audit(uid, token, pid, TBL_PROVEEDORES, item.get("id"), "crear_permiso_rfc", {"rfc": row.get("rfc")})
+        return {"ok": True, "item": _normalize_permiso_row(item)}
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return JSONResponse(_missing_schema_payload(TBL_PROVEEDORES), status_code=409)
+        raise HTTPException(500, f"No se pudo guardar permiso/RFC Transporte: {exc}")
+
+
+@router.patch("/tr-v2/admin/permisos-rfc/{item_id}")
+async def transporte_v2_permisos_rfc_update(
+    item_id: int,
+    payload: TransporteV2PermisoPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "perfil_id requerido para actualizar permisos/RFC.")
+    row = _permiso_payload(payload.data)
+    row["updated_at"] = _now_iso()
+    try:
+        updated = _update_catalog_row(token, TBL_PROVEEDORES, row, item_id, uid, pid)
+        if not updated:
+            raise HTTPException(404, "Permiso/RFC no encontrado para este perfil.")
+        _audit(uid, token, pid, TBL_PROVEEDORES, item_id, "actualizar_permiso_rfc", {"rfc": row.get("rfc")})
+        return {"ok": True, "item": _normalize_permiso_row(updated[0])}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return JSONResponse(_missing_schema_payload(TBL_PROVEEDORES), status_code=409)
+        raise HTTPException(500, f"No se pudo actualizar permiso/RFC Transporte: {exc}")
+
+
+@router.post("/tr-v2/admin/permisos-rfc/{item_id}/desactivar")
+async def transporte_v2_permisos_rfc_deactivate(
+    item_id: int,
+    payload: TransporteV2PermisoPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    updated = _update_catalog_row(token, TBL_PROVEEDORES, {"activo": False, "updated_at": _now_iso()}, item_id, uid, pid)
+    if not updated:
+        raise HTTPException(404, "Permiso/RFC no encontrado para este perfil.")
+    return {"ok": True, "item": _normalize_permiso_row(updated[0])}
 
 
 @router.patch("/tr-v2/catalogos/{catalogo}/{item_id}")
