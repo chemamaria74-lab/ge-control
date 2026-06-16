@@ -488,8 +488,101 @@ async def frontend_transporte():
 
 @app.get("/transporte-v2", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_transporte_v2():
-    """Sirve el frontend aislado de Transporte v2."""
+    """Entrada formal de Transporte v2: primero selección de rol."""
+    return RedirectResponse(url="/transporte-v2/roles", status_code=302)
+
+
+@app.get("/transporte-v2/roles", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_transporte_v2_roles(lang: str = "es"):
+    """Selector de submódulo para Transporte v2."""
+    html = f"""<!doctype html>
+<html lang="{lang if lang in {'es', 'en'} else 'es'}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GE CONTROL - Transporte v2</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:#f7f5f1;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif);display:grid;place-items:center;padding:24px}}
+    main{{width:min(920px,100%);}}.brand{{display:flex;align-items:center;gap:16px;margin:0 0 28px}}.brand img{{height:44px}}.brand h1{{margin:0;color:#5B0F1D;font-size:clamp(2rem,5vw,3rem)}}.brand p{{margin:4px 0 0;color:#6f6a64}}
+    .grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}}.card{{background:#fff;border:1px solid #e5ded1;border-radius:8px;padding:26px;box-shadow:0 18px 48px rgba(17,17,17,.08);display:flex;flex-direction:column;min-height:250px}}
+    .icon{{width:48px;height:48px;border-radius:8px;display:grid;place-items:center;background:#f5efe4;color:#7A1E2C;font-size:22px;margin-bottom:18px}}h2{{margin:0 0 10px;font-size:24px;color:#111}}.card p{{margin:0;color:#6f6a64;line-height:1.55;flex:1}}
+    .btn{{display:inline-flex;align-items:center;justify-content:center;gap:10px;margin-top:22px;padding:12px 16px;border-radius:7px;text-decoration:none;font-weight:800;background:#7A1E2C;color:#fff}}.btn.secondary{{background:#111;color:#fff}}.back{{display:inline-block;margin-top:22px;color:#5B0F1D;text-decoration:none;font-weight:800}}
+    @media(max-width:720px){{.grid{{grid-template-columns:1fr}}.card{{min-height:auto}}}}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">
+      <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
+      <div><h1>Transporte v2</h1><p>Selecciona el tipo de acceso.</p></div>
+    </div>
+    <div class="grid">
+      <section class="card">
+        <span class="icon"><i class="fa-solid fa-user-gear"></i></span>
+        <h2>Administrador</h2>
+        <p>Gestiona viajes, catálogos, documentos, Carta Porte, facturación y Control Volumétrico.</p>
+        <a class="btn" href="/transporte-v2/admin">Entrar como administrador</a>
+      </section>
+      <section class="card">
+        <span class="icon"><i class="fa-solid fa-id-card-clip"></i></span>
+        <h2>Operador</h2>
+        <p>Consulta viajes asignados, evidencia, documentos y Carta Porte.</p>
+        <a class="btn secondary" href="/transporte-v2/operador">Entrar como operador</a>
+      </section>
+    </div>
+    <a class="back" href="/choice">Cambiar módulo</a>
+  </main>
+</body>
+</html>"""
+    return HTMLResponse(content=_inject_legal_branding(html))
+
+
+@app.get("/transporte-v2/admin", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_transporte_v2_admin():
+    """Dashboard admin aislado de Transporte v2."""
     return _render_html_file("transporte_v2.html")
+
+
+@app.get("/transporte-v2/operador", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_transporte_v2_operador(lang: str = "es"):
+    """Base futura para operador Transporte v2."""
+    html = f"""<!doctype html>
+<html lang="{lang if lang in {'es', 'en'} else 'es'}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GE CONTROL - Operador Transporte v2</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:#f7f5f1;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif);padding:24px}}main{{width:min(960px,100%);margin:0 auto}}
+    header{{display:flex;align-items:center;gap:16px;margin-bottom:28px}}header img{{height:42px}}h1{{margin:0;color:#5B0F1D;font-size:clamp(2rem,5vw,3rem)}}p{{color:#6f6a64;line-height:1.55}}.panel{{background:#fff;border:1px solid #e5ded1;border-radius:8px;padding:28px;box-shadow:0 18px 48px rgba(17,17,17,.08)}}.grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:22px}}.tile{{border:1px solid #eee3d3;border-radius:8px;padding:18px;background:#fbfaf7;color:#5B0F1D;font-weight:800}}.tile i{{display:block;font-size:22px;margin-bottom:10px}}.actions{{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}}a.btn{{display:inline-flex;align-items:center;gap:8px;padding:11px 14px;border-radius:7px;text-decoration:none;font-weight:800;background:#7A1E2C;color:#fff}}a.btn.ghost{{background:#fff;color:#5B0F1D;border:1px solid #e5ded1}}@media(max-width:760px){{.grid{{grid-template-columns:1fr 1fr}}}}
+  </style>
+</head>
+<body>
+  <main>
+    <header><img src="/static/img/ge-control-logo.svg" alt="GE CONTROL"><div><h1>Modo operador en preparación</h1><p>Los accesos de operador se administrarán desde Transporte v2 Admin.</p></div></header>
+    <section class="panel">
+      <p>Esta vista queda separada del dashboard administrador. Próximamente usará accesos ligados a choferes, viajes asignados y evidencias sin exponer catálogos ni edición global.</p>
+      <div class="grid">
+        <div class="tile"><i class="fa-solid fa-route"></i>Viajes asignados</div>
+        <div class="tile"><i class="fa-solid fa-camera"></i>Evidencias</div>
+        <div class="tile"><i class="fa-solid fa-folder-open"></i>Documentos</div>
+        <div class="tile"><i class="fa-solid fa-file-invoice"></i>Carta Porte</div>
+      </div>
+      <div class="actions">
+        <a class="btn" href="/transporte-v2/roles">Volver a roles Transporte</a>
+        <a class="btn ghost" href="/choice">Volver a selección de módulo</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>"""
+    return HTMLResponse(content=_inject_legal_branding(html))
 
 
 @app.get("/operador/transporte", response_class=HTMLResponse, include_in_schema=False)
