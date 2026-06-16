@@ -164,6 +164,8 @@ class TransporteV2OperatorAccessCreate(BaseModel):
     perfil_id: Optional[int] = None
     chofer_id: int
     vehiculo_id: Optional[int] = None
+    usuario: str = ""
+    token: str = ""
     activo: bool = True
 
 
@@ -563,20 +565,40 @@ def _operator_token_from_header(authorization: str = "") -> str:
     return ""
 
 
-def _operator_context(token_plain: str) -> tuple[Any, dict[str, Any]]:
+def _operator_context(token_plain: str, usuario: str = "") -> tuple[Any, dict[str, Any]]:
     if not token_plain:
         raise HTTPException(401, "Token de operador requerido.")
     sb = get_supabase_admin()
-    rows = (
-        sb.table(TBL_OPERADOR_ACCESOS)
-        .select("*")
-        .eq("token_hash", _hash_operator_token(token_plain))
-        .eq("status", "activo")
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
+    token_hash = _hash_operator_token(token_plain)
+    rows = []
+    if usuario:
+        try:
+            rows = (
+                sb.table(TBL_OPERADOR_ACCESOS)
+                .select("*")
+                .eq("usuario", usuario.strip())
+                .eq("pin_hash", token_hash)
+                .eq("status", "activo")
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+        except Exception as exc:
+            if _missing_column_from_error(exc) in {"usuario", "pin_hash"}:
+                raise HTTPException(409, "Migración pendiente: ejecuta transporte_v2_admin_operador_settings_20260616.sql.")
+            raise
+    if not rows:
+        rows = (
+            sb.table(TBL_OPERADOR_ACCESOS)
+            .select("*")
+            .eq("token_hash", token_hash)
+            .eq("status", "activo")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
     if not rows:
         raise HTTPException(401, "Acceso de operador inválido.")
     acc = rows[0]
@@ -927,6 +949,7 @@ def _settings_defaults() -> dict[str, Any]:
             "rfc_representante_legal": "",
             "factor_kg_l_default": "",
             "logo_url": "",
+            "logo_data_url": "",
         },
         "productos_habilitados": {
             "gas_lp": True,
@@ -983,7 +1006,7 @@ def _save_settings(token: str, uid: str, pid: Optional[int], data: dict[str, Any
     if not pid:
         raise HTTPException(400, "perfil_id requerido para guardar configuración.")
     settings = _deep_merge(_load_settings(token, uid, pid), data or {})
-    row = {"user_id": uid, "perfil_id": pid, "data": settings, "updated_at": _now_iso()}
+    row = {"user_id": uid, "perfil_id": pid, "data": settings}
     try:
         existing = (
             _sb(token)
@@ -997,12 +1020,13 @@ def _save_settings(token: str, uid: str, pid: Optional[int], data: dict[str, Any
             or []
         )
         if existing:
-            _update_catalog_row(token, TBL_SETTINGS, row, existing[0]["id"], uid, pid)
+            _sb(token).table(TBL_SETTINGS).update(row).eq("id", existing[0]["id"]).eq("user_id", uid).eq("perfil_id", pid).execute()
         else:
-            row["created_at"] = _now_iso()
-            _insert_catalog_row(token, TBL_SETTINGS, row)
+            _sb(token).table(TBL_SETTINGS).insert(row).execute()
         return settings
     except Exception as exc:
+        if _missing_column_from_error(exc) in {"data", "perfil_id"}:
+            raise HTTPException(409, "Migración pendiente: ejecuta transporte_v2_admin_operador_settings_20260616.sql.")
         if _is_missing_table_error(exc):
             raise HTTPException(409, _missing_schema_payload(TBL_SETTINGS)["message"])
         raise HTTPException(500, f"No se pudo guardar configuración Transporte: {exc}")
@@ -1023,6 +1047,24 @@ def _normalize_permiso_row(row: dict[str, Any]) -> dict[str, Any]:
     item["activo"] = item.get("activo") is not False
     item["metadata"] = metadata
     return item
+
+
+def _normalize_permiso_value(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value or "").strip().upper())
+
+
+def _normalize_producto_value(value: Any) -> str:
+    text = re.sub(r"[\s.]+", "", str(value or "").strip().upper())
+    aliases = {
+        "GASLP": "GASLP",
+        "GASL": "GASLP",
+        "GASLICUADODEPETROLEO": "GASLP",
+        "DIESEL": "DIESEL",
+        "DIÉSEL": "DIESEL",
+        "MAGNA": "MAGNA",
+        "PREMIUM": "PREMIUM",
+    }
+    return aliases.get(text, text)
 
 
 def _permiso_payload(data: dict[str, Any]) -> dict[str, Any]:
@@ -1056,6 +1098,10 @@ def _permiso_payload(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _migration_pending_response(message: str = "Migración pendiente: ejecuta transporte_v2_admin_operador_settings_20260616.sql.") -> JSONResponse:
+    return JSONResponse({"ok": False, "needs_schema": True, "message": message}, status_code=409)
+
+
 def _lookup_permiso_rfc(token: str, uid: str, pid: Optional[int], detected: dict[str, Any]) -> dict[str, Any]:
     rfc = _first_text(detected.get("proveedor_rfc"), detected.get("emisor_rfc")).upper()
     permiso_detectado = _first_text(detected.get("permiso"), detected.get("proveedor_permiso"))
@@ -1076,17 +1122,27 @@ def _lookup_permiso_rfc(token: str, uid: str, pid: Optional[int], detected: dict
     if not normalized:
         return {
             "status": "no_registrado",
-            "message": "Permiso no registrado. Agrega este RFC/permiso en Administración > Permisos / RFC antes de generar reportes SAT.",
+            "message": "Proveedor sin permiso registrado. Agrega este RFC/permiso en Administración > Permisos / RFC antes de generar reportes SAT.",
             "rfc": rfc,
             "permiso_detectado": permiso_detectado,
             "producto_detectado": producto_detectado,
         }
-    exact = next((row for row in normalized if permiso_detectado and row.get("permiso_cre") == permiso_detectado), None)
+    permiso_norm = _normalize_permiso_value(permiso_detectado)
+    producto_norm = _normalize_producto_value(producto_detectado)
+    exact = next((row for row in normalized if permiso_norm and _normalize_permiso_value(row.get("permiso_cre")) == permiso_norm), None)
     if exact:
+        if producto_norm and _normalize_producto_value(exact.get("producto")) and _normalize_producto_value(exact.get("producto")) != producto_norm:
+            return {
+                "status": "producto_difiere",
+                "message": "RFC registrado, revisar producto.",
+                "item": exact,
+                "permiso_detectado": permiso_detectado,
+                "producto_detectado": producto_detectado,
+            }
         return {"status": "registrado", "message": "Permiso registrado.", "item": exact}
     return {
-        "status": "advertencia",
-        "message": "El RFC está registrado, pero el permiso detectado no coincide con el permiso guardado.",
+        "status": "permiso_difiere",
+        "message": "RFC registrado, revisar permiso.",
         "items": normalized,
         "permiso_detectado": permiso_detectado,
         "producto_detectado": producto_detectado,
@@ -1538,6 +1594,8 @@ async def transporte_v2_operator_accesses(
                 "perfil_id": row.get("perfil_id"),
                 "chofer_id": row.get("chofer_id"),
                 "chofer_nombre": chofer.get("nombre") or f"Operador #{row.get('chofer_id')}",
+                "usuario": row.get("usuario") or "",
+                "vehiculo_id": row.get("vehiculo_id"),
                 "status": row.get("status") or "",
                 "expires_at": row.get("expires_at"),
                 "last_used_at": row.get("last_used_at"),
@@ -1579,7 +1637,8 @@ async def transporte_v2_operator_access_create(
         raise HTTPException(404, "Operador/chofer no encontrado para esta empresa.")
     if chofer_rows[0].get("activo") is False:
         raise HTTPException(400, "No puedes crear acceso para un operador inactivo.")
-    token_plain = secrets.token_urlsafe(24)
+    token_plain = (payload.token or "").strip() or secrets.token_urlsafe(24)
+    usuario = (payload.usuario or "").strip()
     expires_at = datetime.now(timezone.utc) + timedelta(days=30)
     try:
         _sb(token).table(TBL_OPERADOR_ACCESOS).update({"status": "reemplazado"}).eq("user_id", uid).eq("perfil_id", pid).eq("chofer_id", payload.chofer_id).eq("status", "activo").execute()
@@ -1590,12 +1649,16 @@ async def transporte_v2_operator_access_create(
             _sb(token)
             .table(TBL_OPERADOR_ACCESOS)
             .insert({
-                "user_id": uid,
-                "perfil_id": pid,
-                "chofer_id": payload.chofer_id,
-                "token_hash": _hash_operator_token(token_plain),
-                "status": "activo" if payload.activo else "inactivo",
-                "expires_at": expires_at.isoformat(),
+            "user_id": uid,
+            "perfil_id": pid,
+            "chofer_id": payload.chofer_id,
+            "vehiculo_id": payload.vehiculo_id,
+            "usuario": usuario,
+            "token_hash": _hash_operator_token(token_plain),
+            "pin_hash": _hash_operator_token(token_plain),
+            "status": "activo" if payload.activo else "inactivo",
+            "expires_at": expires_at.isoformat(),
+            "updated_at": _now_iso(),
             })
             .execute()
             .data
@@ -1609,6 +1672,8 @@ async def transporte_v2_operator_access_create(
                 "perfil_id": pid,
                 "chofer_id": payload.chofer_id,
                 "chofer_nombre": chofer_rows[0].get("nombre"),
+                "usuario": item.get("usuario") or usuario,
+                "vehiculo_id": item.get("vehiculo_id") or payload.vehiculo_id,
                 "status": item.get("status") or ("activo" if payload.activo else "inactivo"),
                 "expires_at": item.get("expires_at") or expires_at.isoformat(),
             },
@@ -1617,6 +1682,8 @@ async def transporte_v2_operator_access_create(
             "mode": "token_temporal",
         }
     except Exception as exc:
+        if _missing_column_from_error(exc) in {"usuario", "pin_hash", "vehiculo_id", "updated_at"}:
+            return _migration_pending_response()
         if _is_missing_table_error(exc):
             return JSONResponse(_missing_schema_payload(TBL_OPERADOR_ACCESOS), status_code=409)
         raise HTTPException(500, f"No se pudo crear acceso operador: {exc}")
@@ -1640,8 +1707,9 @@ async def transporte_v2_operator_access_deactivate(
 
 @router.post("/tr-v2/operator/login")
 async def transporte_v2_operator_login(payload: TransporteV2OperatorLoginRequest):
-    token_plain = (payload.token or payload.usuario or payload.pin or "").strip()
-    sb, acc = _operator_context(token_plain)
+    token_plain = (payload.token or payload.pin or "").strip()
+    usuario = (payload.usuario or "").strip()
+    sb, acc = _operator_context(token_plain, usuario)
     empresa = {}
     try:
         rows = sb.table("perfiles_empresa").select("id,nombre,rfc").eq("id", acc.get("perfil_id")).limit(1).execute().data or []
@@ -2004,7 +2072,7 @@ async def transporte_v2_documentos_analizar(
     detected_for_lookup = result.get("detected") if isinstance(result.get("detected"), dict) else {}
     permiso_rfc = _lookup_permiso_rfc(token, uid, pid, detected_for_lookup)
     result["permiso_rfc"] = permiso_rfc
-    if permiso_rfc.get("status") in {"no_registrado", "advertencia"}:
+    if permiso_rfc.get("status") in {"no_registrado", "producto_difiere", "permiso_difiere", "advertencia"}:
         result.setdefault("warnings", []).append(permiso_rfc.get("message") or "Revisa permiso/RFC en Administración.")
     metadata = {
         "fase": "transporte_v2_fase_2_8",
@@ -2324,11 +2392,13 @@ async def transporte_v2_permisos_rfc_create(
     row = _permiso_payload(payload.data)
     row.update({"user_id": uid, "perfil_id": pid, "created_at": _now_iso(), "updated_at": _now_iso()})
     try:
-        inserted = _insert_catalog_row(token, TBL_PROVEEDORES, row)
+        inserted = _sb(token).table(TBL_PROVEEDORES).insert(row).execute().data or []
         item = inserted[0] if inserted else row
         _audit(uid, token, pid, TBL_PROVEEDORES, item.get("id"), "crear_permiso_rfc", {"rfc": row.get("rfc")})
         return {"ok": True, "item": _normalize_permiso_row(item)}
     except Exception as exc:
+        if _missing_column_from_error(exc) in {"tipo", "producto", "permiso_cre", "permiso_almacenamiento_terminal"}:
+            return _migration_pending_response()
         if _is_missing_table_error(exc):
             return JSONResponse(_missing_schema_payload(TBL_PROVEEDORES), status_code=409)
         raise HTTPException(500, f"No se pudo guardar permiso/RFC Transporte: {exc}")
@@ -2349,7 +2419,17 @@ async def transporte_v2_permisos_rfc_update(
     row = _permiso_payload(payload.data)
     row["updated_at"] = _now_iso()
     try:
-        updated = _update_catalog_row(token, TBL_PROVEEDORES, row, item_id, uid, pid)
+        updated = (
+            _sb(token)
+            .table(TBL_PROVEEDORES)
+            .update(row)
+            .eq("id", item_id)
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .execute()
+            .data
+            or []
+        )
         if not updated:
             raise HTTPException(404, "Permiso/RFC no encontrado para este perfil.")
         _audit(uid, token, pid, TBL_PROVEEDORES, item_id, "actualizar_permiso_rfc", {"rfc": row.get("rfc")})
@@ -2357,6 +2437,8 @@ async def transporte_v2_permisos_rfc_update(
     except HTTPException:
         raise
     except Exception as exc:
+        if _missing_column_from_error(exc) in {"tipo", "producto", "permiso_cre", "permiso_almacenamiento_terminal"}:
+            return _migration_pending_response()
         if _is_missing_table_error(exc):
             return JSONResponse(_missing_schema_payload(TBL_PROVEEDORES), status_code=409)
         raise HTTPException(500, f"No se pudo actualizar permiso/RFC Transporte: {exc}")
