@@ -107,6 +107,7 @@ class TransporteV2ViajeCreate(BaseModel):
     fecha_llegada_estimada: str = ""
     estatus: str = "borrador"
     observaciones: str = ""
+    metadata: dict[str, Any] = {}
 
 
 class TransporteV2CatalogoCreate(BaseModel):
@@ -592,7 +593,7 @@ def _create_catalog_item(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     if CATALOG_READ_ONLY:
-        raise HTTPException(405, "Catálogos Transporte v2 están en modo lectura desde tr_*; alta/edición se habilitará en una fase posterior.")
+        raise HTTPException(405, "Catálogos Transporte v2 están en modo lectura desde tr_*; alta/edición se habilitará después de validar escritura segura.")
     config = CATALOG_CONFIG.get(catalogo)
     if not config:
         raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
@@ -751,6 +752,7 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "clave_material_peligroso": _first_text(producto.get("clave_material_peligroso")),
         "embalaje": _first_text(producto.get("embalaje")),
     }]
+    payload_metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
     metadata = {
         "fase": "transporte_v2_fase_3",
         "source": "transporte_v2",
@@ -764,6 +766,7 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "origen_sugerido": origen,
         "destino_sugerido": destino,
         "observaciones_v2": payload.observaciones.strip(),
+        **payload_metadata,
     }
 
     return {
@@ -932,7 +935,7 @@ def _build_carta_porte_preview(
             "destino": _first_text(ruta.get("destino"), viaje.get("destino")),
             "vehiculo": _first_text(vehiculo.get("alias"), meta.get("vehiculo_alias")),
             "fecha_hora": _first_text(viaje.get("fecha_salida")),
-            "uuid_cfdi": "Disponible hasta Fase 3, después del timbrado.",
+            "uuid_cfdi": "Disponible después del timbrado.",
             "contraparte": _first_text(cliente.get("nombre"), meta.get("cliente_nombre")),
         },
     }
