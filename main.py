@@ -346,6 +346,82 @@ async def admin_saas_view():
     return HTMLResponse(content=_inject_legal_branding(html))
 
 
+@app.get("/login", response_class=HTMLResponse, include_in_schema=False)
+async def login_global_view(request: Request):
+    """Login global para flujos nuevos que regresan a una ruta específica."""
+    next_param = request.query_params.get("next") or "/choice"
+    if not next_param.startswith("/") or next_param.startswith("//"):
+        next_param = "/choice"
+    next_js = next_param.replace("\\", "\\\\").replace("'", "\\'")
+    html = """<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GE CONTROL - Acceso</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f5f5;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif);padding:24px}
+    main{width:min(420px,100%)}img{width:280px;max-width:82vw;display:block;margin:0 auto 26px}.card{background:#fff;border:1px solid #e7e3dc;border-radius:8px;padding:28px;box-shadow:0 14px 36px rgba(17,17,17,.08)}
+    h1{font-size:24px;margin:0 0 8px}.muted{margin:0 0 20px;color:#6f6a64;line-height:1.45}label{display:block;font-weight:800;margin:14px 0 6px}input{width:100%;border:1px solid #ddd4c8;border-radius:7px;padding:12px 13px;font:inherit}
+    button{width:100%;margin-top:18px;border:0;border-radius:7px;padding:13px 16px;background:#7A1E2C;color:#fff;font-weight:900;font:inherit;cursor:pointer}.back{display:inline-block;margin-top:16px;color:#5b0f1d;text-decoration:none;font-weight:800}.error{min-height:20px;margin-top:12px;color:#a63131;font-weight:800}
+  </style>
+</head>
+<body>
+  <main>
+    <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
+    <section class="card">
+      <h1>Acceso GE Control</h1>
+      <p class="muted">Inicia sesión para continuar al módulo seleccionado.</p>
+      <form id="loginForm">
+        <label for="username">Usuario</label>
+        <input id="username" name="username" autocomplete="username" required>
+        <label for="password">Contraseña</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button type="submit">Entrar</button>
+        <div class="error" id="loginError"></div>
+      </form>
+      <a class="back" href="/choice">Cambiar módulo</a>
+    </section>
+  </main>
+  <script>
+    const LOGIN_NEXT = '__NEXT__';
+    document.getElementById('loginForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const error = document.getElementById('loginError');
+      error.textContent = '';
+      const payload = {
+        username: document.getElementById('username').value.trim(),
+        password: document.getElementById('password').value,
+        modulo: 'transporte',
+      };
+      try {
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success === false) throw new Error(data.detail || data.message || 'No se pudo iniciar sesión.');
+        const token = data.token || data.access_token;
+        if (!token) throw new Error('La respuesta no incluyó token de sesión.');
+        localStorage.setItem('sat_token', token);
+        localStorage.setItem('zc_token', token);
+        if (data.user_id) localStorage.setItem('sat_user_id', data.user_id);
+        if (data.email) localStorage.setItem('sat_email', data.email);
+        localStorage.setItem('sat_modulo', 'transporte');
+        window.location.href = LOGIN_NEXT;
+      } catch (err) {
+        error.textContent = err.message || 'No se pudo iniciar sesión.';
+      }
+    });
+  </script>
+</body>
+</html>""".replace("__NEXT__", next_js)
+    return HTMLResponse(content=_inject_legal_branding(html))
+
+
 @app.get("/login/{modulo}", response_class=HTMLResponse, include_in_schema=False)
 async def login_view(modulo: str, request: Request):
     """Pantalla de login parametrizada por módulo."""
@@ -503,35 +579,27 @@ async def frontend_transporte_v2_roles(lang: str = "es"):
   <title>GE CONTROL - Transporte v2</title>
   <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
-    *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:#f7f5f1;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif);display:grid;place-items:center;padding:24px}}
-    main{{width:min(920px,100%);}}.brand{{display:flex;align-items:center;gap:16px;margin:0 0 28px}}.brand img{{height:44px}}.brand h1{{margin:0;color:#5B0F1D;font-size:clamp(2rem,5vw,3rem)}}.brand p{{margin:4px 0 0;color:#6f6a64}}
-    .grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}}.card{{background:#fff;border:1px solid #e5ded1;border-radius:8px;padding:26px;box-shadow:0 18px 48px rgba(17,17,17,.08);display:flex;flex-direction:column;min-height:250px}}
-    .icon{{width:48px;height:48px;border-radius:8px;display:grid;place-items:center;background:#f5efe4;color:#7A1E2C;font-size:22px;margin-bottom:18px}}h2{{margin:0 0 10px;font-size:24px;color:#111}}.card p{{margin:0;color:#6f6a64;line-height:1.55;flex:1}}
-    .btn{{display:inline-flex;align-items:center;justify-content:center;gap:10px;margin-top:22px;padding:12px 16px;border-radius:7px;text-decoration:none;font-weight:800;background:#7A1E2C;color:#fff}}.btn.secondary{{background:#111;color:#fff}}.back{{display:inline-block;margin-top:22px;color:#5B0F1D;text-decoration:none;font-weight:800}}
-    @media(max-width:720px){{.grid{{grid-template-columns:1fr}}.card{{min-height:auto}}}}
+    *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f5f5;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif);padding:24px}}
+    main{{width:min(760px,100%)}}img{{width:300px;max-width:82vw;display:block;margin:0 auto 18px}}.title{{margin:0 0 28px;text-align:center;color:#5B0F1D;font-size:clamp(2rem,5vw,3rem);font-weight:900}}
+    .grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}}.card{{background:#fff;border:1px solid #e7e3dc;border-radius:8px;padding:24px;text-decoration:none;color:#111;box-shadow:0 14px 36px rgba(17,17,17,.08);min-height:170px}}
+    .card:hover{{border-color:#c8a96b}}.card h1{{font-size:22px;margin:0 0 8px}}.card p{{margin:0;color:#6f6a64;line-height:1.45}}
+    .back{{display:inline-block;margin-top:18px;color:#5b0f1d;text-decoration:none;font-weight:700}}@media(max-width:680px){{.grid{{grid-template-columns:1fr}}}}
   </style>
 </head>
 <body>
   <main>
-    <div class="brand">
-      <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
-      <div><h1>Transporte v2</h1><p>Selecciona el tipo de acceso.</p></div>
-    </div>
+    <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
+    <h1 class="title">Transporte</h1>
     <div class="grid">
-      <section class="card">
-        <span class="icon"><i class="fa-solid fa-user-gear"></i></span>
-        <h2>Administrador</h2>
+      <a class="card" href="/transporte-v2/admin">
+        <h1>Administrador</h1>
         <p>Gestiona viajes, catálogos, documentos, Carta Porte, facturación y Control Volumétrico.</p>
-        <a class="btn" href="/transporte-v2/admin">Entrar como administrador</a>
-      </section>
-      <section class="card">
-        <span class="icon"><i class="fa-solid fa-id-card-clip"></i></span>
-        <h2>Operador</h2>
+      </a>
+      <a class="card" href="/transporte-v2/operador">
+        <h1>Operador</h1>
         <p>Consulta viajes asignados, evidencia, documentos y Carta Porte.</p>
-        <a class="btn secondary" href="/transporte-v2/operador">Entrar como operador</a>
-      </section>
+      </a>
     </div>
     <a class="back" href="/choice">Cambiar módulo</a>
   </main>
