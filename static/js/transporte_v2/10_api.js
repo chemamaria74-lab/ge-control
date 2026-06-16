@@ -7,8 +7,8 @@ function trv2Headers(extra = {}) {
 
 function trv2AuthMessage(status = 0) {
   return status
-    ? `Transporte v2 cargado sin sesión autorizada (${status}). Algunas acciones requieren sesión.`
-    : 'Transporte v2 cargado sin token específico. Algunas acciones requieren sesión.';
+    ? `Sesión requerida para Transporte v2 (${status}).`
+    : 'Sesión requerida para Transporte v2.';
 }
 
 function trv2SaveProfile(profile) {
@@ -32,8 +32,33 @@ function trv2UpdateActiveCompany() {
       : 'Sin empresa activa';
   }
   if (user) {
-    user.textContent = TRV2_USER?.email || TRV2_USER?.display_name || (TRV2_TOKEN ? 'Sesión activa' : 'Modo visual');
+    user.textContent = TRV2_USER?.email || TRV2_USER?.display_name || (TRV2_TOKEN ? 'Sesión activa' : 'Sesión requerida');
   }
+}
+
+function trv2BlockAdmin(message) {
+  TRV2_ADMIN_READY = false;
+  const shell = document.getElementById('trv2-admin-shell');
+  const tabs = document.getElementById('trv2-admin-tabs');
+  const required = document.getElementById('trv2-auth-required');
+  const requiredMsg = document.getElementById('trv2-auth-required-message');
+  if (shell) shell.hidden = true;
+  if (tabs) tabs.hidden = true;
+  if (required) required.hidden = false;
+  if (requiredMsg) requiredMsg.textContent = message || 'Valida tu sesión y empresa activa para entrar al administrador de Transporte v2.';
+  trv2ShowSchemaWarning('');
+  trv2UpdateActiveCompany();
+}
+
+function trv2UnblockAdmin() {
+  TRV2_ADMIN_READY = true;
+  const shell = document.getElementById('trv2-admin-shell');
+  const tabs = document.getElementById('trv2-admin-tabs');
+  const required = document.getElementById('trv2-auth-required');
+  if (required) required.hidden = true;
+  if (tabs) tabs.hidden = false;
+  if (shell) shell.hidden = false;
+  trv2UpdateActiveCompany();
 }
 
 function trv2AuthFallback(path, status = 0) {
@@ -82,8 +107,8 @@ function trv2WithPerfil(path) {
 
 async function trv2Api(method, path, body, options = {}) {
   try {
-    if (!TRV2_TOKEN && path.startsWith('/api/tr-v2/') && !path.includes('/health')) {
-      if (!options.silent) trv2Toast(trv2AuthMessage(), 'info');
+    if ((!TRV2_TOKEN || !TRV2_ADMIN_READY) && path.startsWith('/api/tr-v2/') && !path.includes('/health')) {
+      if (!options.silent) trv2Toast(trv2AuthMessage(), 'error');
       return trv2AuthFallback(path);
     }
     const init = {method, headers: trv2Headers()};
@@ -157,6 +182,8 @@ async function trv2SelectCompany(profileId) {
   if (!profile) return;
   trv2SaveProfile(profile);
   trv2CloseCompanySelector();
+  TRV2_AUTH_MODE = 'authenticated';
+  trv2UnblockAdmin();
   trv2Toast(`Empresa activa: ${profile.nombre || 'Transporte'}.`, 'success');
   await trv2RefreshAll();
 }
@@ -175,21 +202,24 @@ async function trv2LoadCompanyProfiles() {
     if (selected) trv2SaveProfile(selected);
     trv2RenderCompanySelector(TRV2_PERFILES, TRV2_PERFILES.length > 1 && !saved && !assigned);
     if (!TRV2_PERFILES.length) {
-      TRV2_AUTH_MODE = 'admin_or_visual';
-      trv2ShowSchemaWarning('No hay empresa activa asignada para Transporte v2.');
+      TRV2_AUTH_MODE = 'required';
+      trv2BlockAdmin('No hay empresa activa asignada para Transporte v2.');
+    } else if (!selected) {
+      TRV2_AUTH_MODE = 'required';
+      trv2BlockAdmin('Selecciona una empresa Transporte para continuar.');
     }
     return TRV2_PERFILES;
   } catch (err) {
     console.warn('[Transporte v2] No se pudieron cargar empresas', err);
-    trv2ShowSchemaWarning(`No se pudieron cargar empresas de Transporte: ${err.message}`);
+    trv2BlockAdmin(`No se pudieron cargar empresas de Transporte: ${err.message}`);
     return [];
   }
 }
 
 async function trv2BootstrapAuth() {
   if (!TRV2_TOKEN) {
-    TRV2_AUTH_MODE = 'admin_or_visual';
-    trv2ShowAuthBanner('Transporte v2 cargado sin token global. Entra desde /choice para operar con empresa activa.');
+    TRV2_AUTH_MODE = 'required';
+    trv2BlockAdmin('Sesión requerida para Transporte v2. Entra desde /choice para operar con empresa activa.');
     return false;
   }
   try {
@@ -200,17 +230,24 @@ async function trv2BootstrapAuth() {
     TRV2_AUTH_MODE = 'authenticated';
     const access = (data.accesos || []).find(item => item.section === 'transporte');
     if (!access) {
-      trv2ShowSchemaWarning('Tu sesión no tiene acceso activo al módulo Transporte.');
-      trv2UpdateActiveCompany();
+      TRV2_AUTH_MODE = 'required';
+      trv2BlockAdmin('Tu sesión no tiene acceso activo al módulo Transporte.');
       return false;
     }
     await trv2LoadCompanyProfiles();
+    if (!TRV2_PERFIL?.id) {
+      TRV2_AUTH_MODE = 'required';
+      trv2BlockAdmin('Selecciona una empresa Transporte para continuar.');
+      return false;
+    }
+    TRV2_AUTH_MODE = 'authenticated';
+    trv2UnblockAdmin();
     trv2UpdateActiveCompany();
     return true;
   } catch (err) {
     console.warn('[Transporte v2] Sesión no válida', err);
-    TRV2_AUTH_MODE = 'admin_or_visual';
-    trv2ShowAuthBanner('No se pudo validar la sesión global. Vuelve a entrar desde /choice.');
+    TRV2_AUTH_MODE = 'required';
+    trv2BlockAdmin('No se pudo validar la sesión global. Vuelve a entrar desde /choice.');
     return false;
   }
 }
@@ -236,7 +273,8 @@ async function trv2Logout() {
   TRV2_TOKEN = '';
   TRV2_USER = null;
   TRV2_PERFIL = null;
-  TRV2_AUTH_MODE = 'admin_or_visual';
+  TRV2_AUTH_MODE = 'required';
+  TRV2_ADMIN_READY = false;
   location.href = '/choice';
 }
 

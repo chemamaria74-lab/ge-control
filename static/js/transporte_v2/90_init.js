@@ -5,6 +5,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     TRV2_AUTH_MODE = 'authenticated';
     localStorage.setItem('sat_token', TRV2_TOKEN);
   }
-  await trv2BootstrapAuth();
-  await trv2RefreshAll();
+  const ok = await trv2BootstrapAuth();
+  if (ok) await trv2RefreshAll();
 });
