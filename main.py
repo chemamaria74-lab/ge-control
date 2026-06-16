@@ -655,6 +655,15 @@ def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param
     const PROFILE_KEY = 'zc_perfil_transporte_v2';
     const message = document.getElementById('loginMessage');
     const profileList = document.getElementById('profileList');
+    const queryToken = new URLSearchParams(location.search).get('token') || '';
+    if (IS_OPERATOR) {
+      document.querySelector('label[for="username"]').textContent = 'Token de acceso';
+      document.getElementById('username').placeholder = 'Pega tu token de operador';
+      document.getElementById('username').value = queryToken;
+      document.querySelector('label[for="password"]').textContent = 'PIN / contraseña';
+      document.getElementById('password').placeholder = 'Pendiente para fase usuario/PIN';
+      document.getElementById('password').required = false;
+    }
     function esc(value) {
       return String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
     }
@@ -702,7 +711,24 @@ def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param
       message.textContent = '';
       message.className = 'message';
       if (IS_OPERATOR) {
-        message.textContent = 'Modo operador en preparación. Los accesos se administrarán desde Transporte v2 Admin.';
+        try {
+          const payload = {
+            usuario: document.getElementById('username').value.trim(),
+            pin: document.getElementById('password').value,
+          };
+          const response = await fetch('/api/tr-v2/operator/login', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || data.ok === false) throw new Error(data.detail || data.message || 'Acceso operador inválido.');
+          localStorage.setItem('trv2_operator_token', data.token || payload.usuario);
+          localStorage.setItem('trv2_operator_profile', JSON.stringify(data.operator || {}));
+          window.location.href = LOGIN_NEXT;
+        } catch (err) {
+          message.textContent = err.message || 'No se pudo validar el acceso operador.';
+        }
         return;
       }
       try {
@@ -787,6 +813,7 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
     .cards{{display:grid;grid-template-columns:1fr;gap:14px}}.card{{background:#fff;border:1px solid #e7dfd4;border-radius:8px;padding:18px;box-shadow:0 12px 30px rgba(38,25,8,.05)}}.card-head{{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:start;margin-bottom:12px}}.icon{{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;background:#f7efe4;color:#7A1E2C;font-size:23px}}h2{{font-size:21px;line-height:1.15;margin:0 0 4px}}.status{{border-radius:999px;padding:6px 9px;background:#f3eee7;color:#5f554b;font-size:12px;font-weight:900;white-space:nowrap}}.note{{font-size:13px;color:#7a6f61;margin-top:10px}}
     .actions{{display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px}}button,.btn{{border:1px solid #e0d7cc;border-radius:8px;padding:14px 16px;min-height:50px;background:#fff;color:#111;font:inherit;font-weight:900;display:flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;cursor:pointer}}button.primary,.btn.primary{{background:#7A1E2C;border-color:#7A1E2C;color:#fff}}button.warning{{background:#fff8e6;border-color:#f1d18a;color:#684800}}button.ok{{background:#ecfdf5;border-color:#a7f3d0;color:#047857}}button:disabled{{opacity:.55;cursor:not-allowed}}
     .bitacora-grid{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}}.phase-note{{margin-top:14px;background:#fff8e6;border:1px solid #f1d18a;color:#684800;border-radius:8px;padding:12px;font-weight:800;font-size:13px}}.toast{{position:fixed;left:16px;right:16px;bottom:18px;background:#111;color:#fff;border-radius:8px;padding:13px 15px;font-weight:900;text-align:center;box-shadow:0 18px 42px rgba(0,0,0,.22);opacity:0;transform:translateY(12px);transition:.18s ease;pointer-events:none}}.toast.show{{opacity:1;transform:translateY(0)}}
+    .no-trip{{background:#fff;border:1px solid #e7dfd4;border-radius:8px;padding:16px;box-shadow:0 12px 30px rgba(38,25,8,.05);margin-bottom:14px;display:none}}.no-trip.show{{display:block}}.no-trip strong{{display:block;font-size:18px;margin-bottom:4px;color:#5B0F1D}}
     @media(min-width:760px){{body{{padding:24px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr))}}.card.bitacora{{grid-column:1/-1}}.actions{{grid-template-columns:repeat(2,minmax(0,1fr))}}.bitacora-grid{{grid-template-columns:repeat(3,minmax(0,1fr))}}}}
   </style>
 </head>
@@ -799,10 +826,16 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
     <section class="hero">
       <h1>Mi viaje</h1>
       <p>Consulta tu viaje, sube documentos y registra tu bitácora.</p>
+      <p id="trv2-operator-name" class="note">Validando operador...</p>
       <div class="trip-status">
-        <span class="pill"><i class="fa-solid fa-circle"></i> Pendiente</span>
+        <span class="pill" id="trv2-operator-trip-status"><i class="fa-solid fa-circle"></i> Pendiente</span>
         <span class="pill ok"><i class="fa-solid fa-mobile-screen"></i> Portal móvil</span>
       </div>
+    </section>
+
+    <section class="no-trip" id="trv2-operator-no-trip">
+      <strong>No tienes viaje asignado por ahora.</strong>
+      <p>Cuando el administrador te asigne un viaje, aparecerá aquí.</p>
     </section>
 
     <div class="cards">
@@ -852,6 +885,38 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
   </main>
   <div class="toast" id="trv2-operador-toast">Bitácora en preparación.</div>
   <script>
+    async function trv2OperadorFetch(path) {{
+      const token = localStorage.getItem('trv2_operator_token') || '';
+      if (!token) {{
+        location.replace('/transporte-v2/login-operador?next=/transporte-v2/operador');
+        return null;
+      }}
+      const response = await fetch(path, {{headers: {{Authorization: `Bearer ${{token}}`}}}});
+      const data = await response.json().catch(() => ({{}}));
+      if (!response.ok || data.ok === false) {{
+        localStorage.removeItem('trv2_operator_token');
+        localStorage.removeItem('trv2_operator_profile');
+        location.replace('/transporte-v2/login-operador?next=/transporte-v2/operador');
+        return null;
+      }}
+      return data;
+    }}
+    async function trv2OperadorInit() {{
+      const me = await trv2OperadorFetch('/api/tr-v2/operator/me');
+      if (!me) return;
+      localStorage.setItem('trv2_operator_profile', JSON.stringify(me.operator || {{}}));
+      const name = document.getElementById('trv2-operator-name');
+      if (name) name.textContent = `${{me.operator?.nombre || 'Operador'}}${{me.operator?.empresa?.nombre ? ' · ' + me.operator.empresa.nombre : ''}}`;
+      const trip = await trv2OperadorFetch('/api/tr-v2/operator/mi-viaje');
+      const noTrip = document.getElementById('trv2-operator-no-trip');
+      const status = document.getElementById('trv2-operator-trip-status');
+      if (!trip?.has_trip) {{
+        noTrip?.classList.add('show');
+        if (status) status.innerHTML = '<i class="fa-solid fa-circle"></i> Sin viaje';
+      }} else if (status) {{
+        status.innerHTML = '<i class="fa-solid fa-route"></i> Viaje asignado';
+      }}
+    }}
     function trv2OperadorToast(message) {{
       const toast = document.getElementById('trv2-operador-toast');
       toast.textContent = message || 'Bitácora en preparación.';
@@ -859,6 +924,7 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       clearTimeout(window.__trv2OperadorToastTimer);
       window.__trv2OperadorToastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
     }}
+    trv2OperadorInit();
   </script>
 </body>
 </html>"""
