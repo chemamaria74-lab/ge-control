@@ -39,6 +39,8 @@ function trv2RenderOperatorAccesses(items = []) {
     <article class="trv2-access-card">
       <div>
         <strong>${trv2Esc(item.chofer_nombre || `Operador #${item.chofer_id || ''}`)}</strong>
+        <span>Usuario: ${trv2Esc(item.usuario || 'Token temporal')}</span>
+        <span>Vehículo habitual: ${trv2Esc(trv2CatalogLabel('vehiculos', trv2FindCatalog('vehiculos', item.vehiculo_id)) || 'Opcional')}</span>
         <span>Expira: ${trv2Esc(item.expires_at || 'Sin fecha')}</span>
         <span>Último uso: ${trv2Esc(item.last_used_at || 'Sin uso')}</span>
       </div>
@@ -59,15 +61,23 @@ async function trv2CreateOperatorAccess(event) {
   const result = document.getElementById('trv2-operator-access-result');
   const choferId = Number(document.getElementById('trv2-admin-operator-chofer')?.value || 0);
   const vehiculoId = Number(document.getElementById('trv2-admin-operator-vehicle')?.value || 0);
+  const usuario = document.getElementById('trv2-admin-operator-user')?.value.trim() || '';
+  const token = document.getElementById('trv2-admin-operator-pin')?.value.trim() || '';
   const active = document.getElementById('trv2-admin-operator-active')?.value !== 'false';
   if (!choferId) {
     trv2Toast('Selecciona un operador/chofer.', 'error');
+    return;
+  }
+  if (!token) {
+    trv2Toast('Define un token/PIN temporal para el operador.', 'error');
     return;
   }
   const data = await trv2Api('POST', '/api/tr-v2/operator/accesses', {
     perfil_id: TRV2_PERFIL?.id || null,
     chofer_id: choferId,
     vehiculo_id: vehiculoId || null,
+    usuario,
+    token,
     activo: active,
   });
   if (!data?.ok) return;
@@ -75,7 +85,8 @@ async function trv2CreateOperatorAccess(event) {
     result.hidden = false;
     result.innerHTML = `
       <strong>Acceso creado</strong>
-      <span>Entrega este token al operador para entrar en su portal móvil.</span>
+      <span>Entrega este usuario/token al operador para entrar en su portal móvil.</span>
+      ${usuario ? `<code>Usuario: ${trv2Esc(usuario)}</code>` : ''}
       <code>${trv2Esc(data.token || '')}</code>
       <a class="trv2-btn trv2-btn-ghost" href="${trv2Esc(data.operator_url || '/transporte-v2/login-operador')}" target="_blank" rel="noopener">Abrir login operador</a>
     `;
@@ -103,6 +114,7 @@ function trv2SettingsPayloadFromForm() {
       rfc_representante_legal: document.getElementById('trv2-set-rfc-rep')?.value.trim().toUpperCase() || '',
       factor_kg_l_default: document.getElementById('trv2-set-factor')?.value || '',
       logo_url: document.getElementById('trv2-set-logo')?.value.trim() || '',
+      logo_data_url: document.getElementById('trv2-set-logo')?.value.trim() || '',
     },
     productos_habilitados: {
       gas_lp: Boolean(document.getElementById('trv2-set-prod-gaslp')?.checked),
@@ -123,7 +135,7 @@ function trv2FillSettingsForm(data = {}) {
     ['trv2-set-regimen', perfil.regimen_fiscal],
     ['trv2-set-rfc-rep', perfil.rfc_representante_legal],
     ['trv2-set-factor', perfil.factor_kg_l_default],
-    ['trv2-set-logo', perfil.logo_url],
+    ['trv2-set-logo', perfil.logo_data_url || perfil.logo_url],
   ];
   pairs.forEach(([id, value]) => {
     const el = document.getElementById(id);
@@ -139,6 +151,53 @@ function trv2FillSettingsForm(data = {}) {
     const el = document.getElementById(id);
     if (el) el.checked = Boolean(value);
   });
+  trv2RenderLogoPreview(perfil.logo_data_url || perfil.logo_url || '');
+}
+
+function trv2RenderLogoPreview(value) {
+  const img = document.getElementById('trv2-logo-preview');
+  const empty = document.getElementById('trv2-logo-empty');
+  if (!img || !empty) return;
+  if (value) {
+    img.src = value;
+    img.hidden = false;
+    empty.hidden = true;
+  } else {
+    img.removeAttribute('src');
+    img.hidden = true;
+    empty.hidden = false;
+  }
+}
+
+function trv2PreviewLogoFile(event) {
+  const file = event.target?.files?.[0];
+  if (!file) return;
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    trv2Toast('El logo debe ser PNG, JPG o WebP.', 'error');
+    event.target.value = '';
+    return;
+  }
+  if (file.size > 500 * 1024) {
+    trv2Toast('El logo debe pesar menos de 500 KB.', 'error');
+    event.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const value = String(reader.result || '');
+    const hidden = document.getElementById('trv2-set-logo');
+    if (hidden) hidden.value = value;
+    trv2RenderLogoPreview(value);
+  };
+  reader.readAsDataURL(file);
+}
+
+function trv2RemoveLogo() {
+  const hidden = document.getElementById('trv2-set-logo');
+  const file = document.getElementById('trv2-set-logo-file');
+  if (hidden) hidden.value = '';
+  if (file) file.value = '';
+  trv2RenderLogoPreview('');
 }
 
 async function trv2LoadSettings() {
