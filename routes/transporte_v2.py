@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import io
+import json
 import re
 from xml.etree import ElementTree as ET
 from datetime import datetime, timezone
@@ -26,8 +27,8 @@ router = APIRouter()
 MODULO = "transporte"
 DOCUMENT_BUCKET = "transporte-v2-documents"
 
-TBL_VIAJES = "transporte_v2_viajes"
-TBL_DOCUMENTOS = "transporte_v2_documentos_cliente"
+TBL_VIAJES = "tr_viajes"
+TBL_DOCUMENTOS = "tr_viaje_documentos"
 TBL_CLIENTES = "tr_clientes"
 TBL_OPERADORES = "tr_choferes"
 TBL_VEHICULOS = "tr_vehiculos"
@@ -378,6 +379,22 @@ def _missing_schema_payload(table_name: str) -> dict[str, Any]:
     }
 
 
+def _parse_json_value(value: Any, fallback: Any = None) -> Any:
+    if value is None:
+        return fallback if fallback is not None else {}
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return fallback if fallback is not None else {}
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return fallback if fallback is not None else {}
+    return fallback if fallback is not None else {}
+
+
 def _require_profile_if_present(uid: str, token: str, perfil_id: Optional[int]) -> None:
     if perfil_id:
         require_profile_access(uid, MODULO, perfil_id, access_token=token)
@@ -444,9 +461,9 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["clave_material_peligroso"] = _first_text(item.get("clave_material_peligroso"), item.get("cve_material_peligroso"))
         item["embalaje"] = _first_text(item.get("embalaje"), "Z01")
     elif catalogo == "rutas":
-        item["nombre"] = _first_text(item.get("nombre"), f"{item.get('origen') or 'Origen'} -> {item.get('destino') or 'Destino'}")
-        item["origen"] = _first_text(item.get("origen"))
-        item["destino"] = _first_text(item.get("destino"))
+        item["nombre"] = _first_text(item.get("nombre"), f"{item.get('nombre_origen') or 'Origen'} -> {item.get('nombre_destino') or 'Destino'}")
+        item["origen"] = _first_text(item.get("origen"), item.get("nombre_origen"))
+        item["destino"] = _first_text(item.get("destino"), item.get("nombre_destino"))
         item["cp_origen"] = _first_text(item.get("cp_origen"))
         item["cp_destino"] = _first_text(item.get("cp_destino"))
         item["distancia_km"] = _num(item.get("distancia_km"))
@@ -515,8 +532,39 @@ def _create_catalog_item(
 
 
 def _meta(row: dict[str, Any]) -> dict[str, Any]:
-    raw = row.get("metadata") or {}
-    return raw if isinstance(raw, dict) else {}
+    raw = row.get("metadata")
+    if raw is None and "defaults_json" in row:
+        raw = row.get("defaults_json")
+    parsed = _parse_json_value(raw, {})
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _first_product(row: dict[str, Any]) -> dict[str, Any]:
+    productos = _parse_json_value(row.get("productos_json"), [])
+    if isinstance(productos, list) and productos:
+        first = productos[0]
+        return first if isinstance(first, dict) else {}
+    return {}
+
+
+def _normalize_viaje_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = dict(row or {})
+    meta = _meta(item)
+    product = _first_product(item)
+    item["metadata"] = meta
+    item["cliente_id"] = item.get("cliente_id") or meta.get("cliente_id")
+    item["operador_id"] = item.get("operador_id") or item.get("chofer_id")
+    item["producto_id"] = item.get("producto_id") or item.get("producto_operacion_id") or product.get("producto_id")
+    item["origen"] = _first_text(item.get("origen"), item.get("nombre_origen"), meta.get("origen_sugerido"))
+    item["destino"] = _first_text(item.get("destino"), item.get("nombre_destino"), meta.get("destino_sugerido"))
+    item["volumen_litros"] = _num(item.get("volumen_litros") or item.get("volumen_total_litros") or product.get("cantidad_litros"))
+    item["peso_kg"] = _num(item.get("peso_kg") or product.get("peso_kg") or meta.get("peso_kg"))
+    item["fecha_salida"] = _first_text(item.get("fecha_salida"), item.get("fecha_hora_salida"))
+    item["fecha_llegada_estimada"] = _first_text(item.get("fecha_llegada_estimada"), item.get("fecha_hora_llegada"))
+    item["estatus"] = _first_text(item.get("estatus"), item.get("status"), item.get("operacion_status"), "borrador")
+    item["cliente_nombre"] = _first_text(item.get("nombre_receptor"), meta.get("cliente_nombre"), meta.get("receptor_nombre"))
+    item["producto_descripcion"] = _first_text(product.get("descripcion"), meta.get("producto_descripcion"), meta.get("producto"))
+    return item
 
 
 def _first_text(*values: Any) -> str:
@@ -571,6 +619,132 @@ def _catalog_row(token: str, uid: str, table_name: str, row_id: Optional[int], p
             return {}
         logger.info("Transporte v2 lookup opcional omitido table=%s id=%s: %s", table_name, row_id, exc)
         return {}
+
+
+def _legacy_trip_required_id(value: Optional[int], field: str, label: str) -> int:
+    try:
+        number = int(value or 0)
+    except (TypeError, ValueError):
+        number = 0
+    if number <= 0:
+        raise HTTPException(400, f"Para guardar en tr_viajes falta {label} ({field}).")
+    return number
+
+
+def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: TransporteV2ViajeCreate) -> dict[str, Any]:
+    chofer_id = _legacy_trip_required_id(payload.operador_id, "operador_id", "operador/chofer")
+    vehiculo_id = _legacy_trip_required_id(payload.vehiculo_id, "vehiculo_id", "vehículo")
+    fecha_salida = _first_text(payload.fecha_salida)
+    if not fecha_salida:
+        raise HTTPException(400, "Para guardar en tr_viajes falta fecha_salida.")
+
+    cliente = _catalog_row(token, uid, TBL_CLIENTES, payload.cliente_id, pid)
+    operador = _catalog_row(token, uid, TBL_OPERADORES, chofer_id, pid)
+    vehiculo = _catalog_row(token, uid, TBL_VEHICULOS, vehiculo_id, pid)
+    producto = _catalog_row(token, uid, TBL_PRODUCTOS, payload.producto_id, pid)
+    ruta = _catalog_row(token, uid, TBL_RUTAS, payload.ruta_id, pid)
+
+    if not operador:
+        raise HTTPException(400, "Operador/chofer no encontrado para el perfil activo.")
+    if not vehiculo:
+        raise HTTPException(400, "Vehículo no encontrado para el perfil activo.")
+
+    origen = _first_text(payload.origen, ruta.get("origen"), ruta.get("nombre_origen"))
+    destino = _first_text(payload.destino, ruta.get("destino"), ruta.get("nombre_destino"))
+    cp_origen = _first_text(ruta.get("cp_origen"))
+    cp_destino = _first_text(ruta.get("cp_destino"), cliente.get("cp"))
+    producto_nombre = _first_text(producto.get("descripcion"), payload.producto_descripcion)
+    clave_producto = _first_text(producto.get("clave_producto"), producto.get("clave_prodserv_cfdi"))
+    peso_kg = _num(payload.peso_kg)
+    volumen = _num(payload.volumen_litros)
+    tipo_cfdi = _first_text("I")
+
+    productos_json = [{
+        "producto_id": payload.producto_id,
+        "descripcion": producto_nombre,
+        "clave_producto": clave_producto,
+        "clave_subproducto": _first_text(producto.get("clave_subproducto")),
+        "unidad": _first_text(producto.get("unidad"), "LTR"),
+        "cantidad_litros": volumen,
+        "peso_kg": peso_kg,
+        "material_peligroso": bool(producto.get("material_peligroso", False)),
+        "clave_material_peligroso": _first_text(producto.get("clave_material_peligroso")),
+        "embalaje": _first_text(producto.get("embalaje")),
+    }]
+    metadata = {
+        "fase": "transporte_v2_fase_3",
+        "source": "transporte_v2",
+        "cliente_id": payload.cliente_id,
+        "cliente_nombre": _first_text(cliente.get("nombre"), payload.cliente_nombre),
+        "operador_nombre": _first_text(operador.get("nombre"), payload.operador_nombre),
+        "vehiculo_alias": _first_text(vehiculo.get("alias"), payload.vehiculo_alias),
+        "producto_descripcion": producto_nombre,
+        "producto": producto_nombre,
+        "peso_kg": peso_kg,
+        "origen_sugerido": origen,
+        "destino_sugerido": destino,
+        "observaciones_v2": payload.observaciones.strip(),
+    }
+
+    return {
+        "user_id": uid,
+        "perfil_id": pid,
+        "chofer_id": chofer_id,
+        "vehiculo_id": vehiculo_id,
+        "ruta_id": payload.ruta_id,
+        "origen_id": ruta.get("origen_id") if ruta else None,
+        "destino_id": ruta.get("destino_id") if ruta else None,
+        "producto_operacion_id": payload.producto_id,
+        "cp_origen": cp_origen,
+        "nombre_origen": origen,
+        "cp_destino": cp_destino,
+        "nombre_destino": destino,
+        "fecha_hora_salida": fecha_salida,
+        "fecha_hora_llegada": payload.fecha_llegada_estimada or None,
+        "productos_json": json.dumps(productos_json, ensure_ascii=False),
+        "volumen_total_litros": volumen,
+        "tipo_cfdi": tipo_cfdi,
+        "rfc_receptor": _first_text(cliente.get("rfc")),
+        "nombre_receptor": _first_text(cliente.get("nombre"), payload.cliente_nombre),
+        "cp_receptor": _first_text(cliente.get("cp"), "20000"),
+        "uso_cfdi": _first_text(cliente.get("uso_cfdi"), "G03"),
+        "regimen_fiscal_receptor": _first_text(cliente.get("regimen_fiscal"), "601"),
+        "distancia_km": _num(ruta.get("distancia_km")) or 1,
+        "duracion_estimada_min": int(_num(ruta.get("duracion_estimada_min")) or 0),
+        "status": "borrador",
+        "operacion_status": "programado",
+        "carta_porte_status": "pendiente",
+        "factura_status": "pendiente",
+        "liquidacion_status": "pendiente",
+        "documentos_status": "pendiente",
+        "observaciones": payload.observaciones.strip(),
+        "defaults_json": metadata,
+        "updated_at": _now_iso(),
+    }
+
+
+def _legacy_trip_patch_row(data: dict[str, Any]) -> dict[str, Any]:
+    row: dict[str, Any] = {}
+    mapping = {
+        "operador_id": "chofer_id",
+        "vehiculo_id": "vehiculo_id",
+        "ruta_id": "ruta_id",
+        "producto_id": "producto_operacion_id",
+        "origen": "nombre_origen",
+        "destino": "nombre_destino",
+        "volumen_litros": "volumen_total_litros",
+        "fecha_salida": "fecha_hora_salida",
+        "fecha_llegada_estimada": "fecha_hora_llegada",
+        "estatus": "status",
+        "observaciones": "observaciones",
+    }
+    for key, column in mapping.items():
+        if key in data:
+            value = data[key]
+            if isinstance(value, str):
+                value = value.strip()
+            row[column] = value
+    return row
 
 
 def _tipo_cfdi_sugerido(viaje: dict[str, Any], cliente: dict[str, Any], requested: str = "") -> str:
@@ -780,7 +954,7 @@ async def transporte_v2_dashboard(
     pid = _profile_id(perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     try:
-        query = _sb(token).table(TBL_VIAJES).select("id,estatus,volumen_litros").eq("user_id", uid)
+        query = _sb(token).table(TBL_VIAJES).select("id,status,volumen_total_litros").eq("user_id", uid)
         if pid:
             query = query.eq("perfil_id", pid)
         rows = query.limit(500).execute().data or []
@@ -801,7 +975,7 @@ async def transporte_v2_dashboard(
         logger.exception("Transporte v2 dashboard error")
         raise HTTPException(500, f"No se pudo cargar dashboard Transporte v2: {exc}")
 
-    estatus = [(row.get("estatus") or "borrador").lower() for row in rows]
+    estatus = [(row.get("status") or "borrador").lower() for row in rows]
     return {
         "ok": True,
         "needs_schema": False,
@@ -810,7 +984,7 @@ async def transporte_v2_dashboard(
             "borradores": estatus.count("borrador"),
             "programados": estatus.count("programado"),
             "documentos": 0,
-            "volumen_litros": round(sum(float(row.get("volumen_litros") or 0) for row in rows), 3),
+            "volumen_litros": round(sum(float(row.get("volumen_total_litros") or 0) for row in rows), 3),
         },
     }
 
@@ -836,7 +1010,7 @@ async def transporte_v2_listar_viajes(
         if pid:
             query = query.eq("perfil_id", pid)
         rows = query.execute().data or []
-        return {"ok": True, "items": rows, "needs_schema": False}
+        return {"ok": True, "items": [_normalize_viaje_row(row) for row in rows], "needs_schema": False}
     except Exception as exc:
         if _is_missing_table_error(exc):
             return _missing_schema_payload(TBL_VIAJES)
@@ -853,35 +1027,12 @@ async def transporte_v2_crear_viaje(
     uid, token = _auth(authorization)
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    row = {
-        "user_id": uid,
-        "perfil_id": pid,
-        "cliente_id": payload.cliente_id,
-        "operador_id": payload.operador_id,
-        "vehiculo_id": payload.vehiculo_id,
-        "producto_id": payload.producto_id,
-        "ruta_id": payload.ruta_id,
-        "origen": payload.origen.strip(),
-        "destino": payload.destino.strip(),
-        "volumen_litros": payload.volumen_litros,
-        "peso_kg": payload.peso_kg,
-        "fecha_salida": payload.fecha_salida or None,
-        "fecha_llegada_estimada": payload.fecha_llegada_estimada or None,
-        "estatus": payload.estatus or "borrador",
-        "observaciones": payload.observaciones.strip(),
-        "metadata": {
-            "cliente_nombre": payload.cliente_nombre.strip(),
-            "operador_nombre": payload.operador_nombre.strip(),
-            "vehiculo_alias": payload.vehiculo_alias.strip(),
-            "producto_descripcion": payload.producto_descripcion.strip(),
-            "fase": "transporte_v2_fase_1",
-        },
-        "created_at": _now_iso(),
-        "updated_at": _now_iso(),
-    }
+    row = _resolve_legacy_trip_row(uid, token, pid, payload)
     try:
         inserted = _sb(token).table(TBL_VIAJES).insert(row).execute().data or []
-        return {"ok": True, "item": inserted[0] if inserted else row}
+        item = _normalize_viaje_row(inserted[0] if inserted else row)
+        _audit(uid, token, pid, TBL_VIAJES, item.get("id"), "crear_borrador", {"source": "transporte_v2"})
+        return {"ok": True, "item": item}
     except Exception as exc:
         if _is_missing_table_error(exc):
             return JSONResponse(_missing_schema_payload(TBL_VIAJES), status_code=409)
@@ -911,7 +1062,7 @@ async def transporte_v2_detalle_viaje(
         raise HTTPException(500, f"No se pudo cargar el viaje Transporte v2: {exc}")
     if not rows:
         raise HTTPException(404, "Viaje Transporte v2 no encontrado.")
-    return {"ok": True, "item": rows[0]}
+    return {"ok": True, "item": _normalize_viaje_row(rows[0])}
 
 
 @router.patch("/tr-v2/viajes/{viaje_id}")
@@ -924,7 +1075,8 @@ async def transporte_v2_actualizar_viaje(
     uid, token = _auth(authorization)
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    row = {key: value for key, value in (payload.data or {}).items() if key in VIAJE_ALLOWED_FIELDS}
+    clean = {key: value for key, value in (payload.data or {}).items() if key in VIAJE_ALLOWED_FIELDS}
+    row = _legacy_trip_patch_row(clean)
     if not row:
         raise HTTPException(400, "No hay campos válidos para actualizar el viaje.")
     row["updated_at"] = _now_iso()
@@ -979,9 +1131,10 @@ def _load_preview_context(
             raise
         if not rows:
             raise HTTPException(404, "Viaje Transporte v2 no encontrado para preview Carta Porte.")
-        viaje = rows[0]
+        viaje = _normalize_viaje_row(rows[0])
     if not viaje:
         raise HTTPException(400, "Envía viaje_id o payload de viaje para generar preview Carta Porte.")
+    viaje = _normalize_viaje_row(viaje)
 
     pid = _profile_id(viaje.get("perfil_id") or pid, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
@@ -1091,28 +1244,32 @@ async def transporte_v2_documentos_analizar(
         "size_bytes": len(content),
     }
     document_item: dict[str, Any] | None = None
-    try:
-        inserted = _sb(token).table(TBL_DOCUMENTOS).insert({
-            "user_id": uid,
-            "perfil_id": pid,
-            "viaje_id": viaje_id,
-            "tipo_documento": tipo_documento.strip() or "factura_cliente",
-            "nombre_archivo": file.filename or "documento",
-            "storage_bucket": "",
-            "storage_path": "",
-            "content_type": file.content_type or "",
-            "size_bytes": len(content),
-            "metadata": metadata,
-            "uploaded_by": uid,
-            "created_at": _now_iso(),
-        }).execute().data or []
-        document_item = inserted[0] if inserted else None
-    except Exception as exc:
-        if _is_missing_table_error(exc):
-            result.setdefault("warnings", []).append(_missing_schema_payload(TBL_DOCUMENTOS)["message"])
-        else:
-            logger.info("Transporte v2 analisis sin guardar documento: %s", exc)
-            result.setdefault("warnings", []).append("No se pudo guardar metadata documental; el análisis se devolvió en memoria.")
+    if viaje_id:
+        try:
+            inserted = _sb(token).table(TBL_DOCUMENTOS).insert({
+                "user_id": uid,
+                "perfil_id": pid,
+                "viaje_id": viaje_id,
+                "tipo": tipo_documento.strip() or "factura_cliente",
+                "nombre": file.filename or "documento",
+                "storage_bucket": "",
+                "storage_path": "",
+                "mime_type": file.content_type or "",
+                "size_bytes": len(content),
+                "uuid_sat": _first_text((result.get("detected") or {}).get("uuid")),
+                "status": "vigente",
+                "metadata": metadata,
+                "created_by": uid,
+            }).execute().data or []
+            document_item = inserted[0] if inserted else None
+        except Exception as exc:
+            if _is_missing_table_error(exc):
+                result.setdefault("warnings", []).append(_missing_schema_payload(TBL_DOCUMENTOS)["message"])
+            else:
+                logger.info("Transporte v2 analisis sin guardar documento: %s", exc)
+                result.setdefault("warnings", []).append("No se pudo guardar metadata documental; el análisis se devolvió en memoria.")
+    else:
+        result.setdefault("warnings", []).append("Documento analizado en memoria; se registrará en tr_viaje_documentos al crear un viaje.")
     return {
         "ok": True,
         **result,
@@ -1133,23 +1290,28 @@ async def transporte_v2_documento_metadata(
     uid, token = _auth(authorization)
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
+    if not payload.viaje_id:
+        raise HTTPException(400, "tr_viaje_documentos requiere viaje_id para relacionar metadata documental.")
+    payload_meta = payload.metadata or {}
+    detected_meta = payload_meta.get("detected") if isinstance(payload_meta.get("detected"), dict) else {}
     row = {
         "user_id": uid,
         "perfil_id": pid,
         "viaje_id": payload.viaje_id,
-        "tipo_documento": payload.tipo_documento.strip() or "factura_cliente",
-        "nombre_archivo": payload.nombre_archivo.strip() or "Documento pendiente",
+        "tipo": payload.tipo_documento.strip() or "factura_cliente",
+        "nombre": payload.nombre_archivo.strip() or "Documento pendiente",
         "storage_bucket": payload.storage_bucket.strip(),
         "storage_path": payload.storage_path.strip(),
-        "content_type": payload.content_type.strip(),
+        "mime_type": payload.content_type.strip(),
         "size_bytes": payload.size_bytes,
+        "uuid_sat": _first_text(detected_meta.get("uuid"), payload_meta.get("uuid")),
+        "status": "vigente",
         "metadata": {
-            **(payload.metadata or {}),
+            **payload_meta,
             "bucket_pendiente": not bool(payload.storage_bucket and payload.storage_path),
             "mensaje": "Carga documental pendiente de configurar bucket transporte-v2-documents.",
         },
-        "uploaded_by": uid,
-        "created_at": _now_iso(),
+        "created_by": uid,
     }
     try:
         inserted = _sb(token).table(TBL_DOCUMENTOS).insert(row).execute().data or []
