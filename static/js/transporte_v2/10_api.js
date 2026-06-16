@@ -42,11 +42,17 @@ function trv2BlockAdmin(message) {
   const shell = document.getElementById('trv2-admin-shell');
   const tabs = document.getElementById('trv2-admin-tabs');
   const required = document.getElementById('trv2-auth-required');
+  const requiredTitle = document.getElementById('trv2-auth-required-title');
   const requiredMsg = document.getElementById('trv2-auth-required-message');
   if (topbar) topbar.hidden = true;
   if (shell) shell.hidden = true;
   if (tabs) tabs.hidden = true;
   if (required) required.hidden = false;
+  if (requiredTitle) {
+    requiredTitle.textContent = String(message || '').toLowerCase().includes('no tiene acceso')
+      ? 'No tienes acceso al módulo Transporte.'
+      : 'Transporte v2 requiere empresa activa.';
+  }
   if (requiredMsg) requiredMsg.textContent = message || 'Valida tu sesión y empresa activa para entrar al administrador de Transporte v2.';
   trv2ShowSchemaWarning('');
   trv2UpdateActiveCompany();
@@ -67,8 +73,8 @@ function trv2UnblockAdmin() {
 
 function trv2RedirectToLogin() {
   const next = '/transporte-v2/admin';
-  const target = `/login?next=${encodeURIComponent(next)}`;
-  if (location.pathname !== '/login') location.replace(target);
+  const target = `/transporte-v2/login-admin?next=${encodeURIComponent(next)}`;
+  if (location.pathname !== '/transporte-v2/login-admin') location.replace(target);
 }
 
 function trv2AuthFallback(path, status = 0) {
@@ -229,7 +235,6 @@ async function trv2LoadCompanyProfiles() {
 async function trv2BootstrapAuth() {
   if (!TRV2_TOKEN) {
     TRV2_AUTH_MODE = 'required';
-    trv2BlockAdmin('Sesión requerida para Transporte v2.');
     trv2RedirectToLogin();
     return false;
   }
