@@ -723,7 +723,7 @@ def test_gas_lp_crear_cliente_reactivates_inactive_real_alfa_gas_rfc(monkeypatch
                 "regimen_fiscal": "616",
                 "uso_cfdi": "S01",
                 "email_facturacion": "",
-                "activo": False,
+                "activo": "false",
                 "metadata": {"nota": "se conserva"},
             }]
 
