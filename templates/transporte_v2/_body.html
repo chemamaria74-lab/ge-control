@@ -7,7 +7,7 @@
     <span>Transporte v2</span>
   </a>
   <span class="trv2-badge"><i class="fa-solid fa-truck-fast"></i> Isla nueva</span>
-  <span class="trv2-badge trv2-badge-soft">Fase 2</span>
+  <span class="trv2-badge trv2-badge-soft">Fase 2.6</span>
   <div class="trv2-topbar-spacer"></div>
   <span class="trv2-badge" id="trv2-user">Sesión local</span>
   <button class="trv2-btn trv2-btn-ghost" type="button" onclick="location.href='/choice'">Cambiar módulo</button>
@@ -153,11 +153,20 @@
     <div class="trv2-section-head">
       <div>
         <h1>Catálogos</h1>
-        <p>Clientes, operadores, vehículos, productos y rutas de Transporte v2.</p>
+        <p>Configuración operativa para viajes, Carta Porte y servicio de transporte.</p>
       </div>
-      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2LoadCatalogs()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+      <div class="trv2-actions">
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadCatalogs()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenCatalogModal()"><i class="fa-solid fa-plus"></i> Nuevo</button>
+      </div>
     </div>
-    <div class="trv2-grid-2" id="trv2-catalogs-grid"></div>
+    <nav class="trv2-subtabs" id="trv2-catalog-tabs" aria-label="Catálogos Transporte v2"></nav>
+    <div class="trv2-catalog-toolbar">
+      <label class="trv2-search"><i class="fa-solid fa-magnifying-glass"></i><input id="trv2-catalog-search" type="search" placeholder="Buscar en catálogo" oninput="trv2RenderActiveCatalog()"></label>
+      <span class="trv2-muted" id="trv2-catalog-caption"></span>
+    </div>
+    <div class="trv2-kpis trv2-kpis-compact" id="trv2-catalog-metrics"></div>
+    <section class="trv2-panel trv2-catalog-panel" id="trv2-catalogs-grid"></section>
   </section>
 
   <section id="trv2-tab-reportes" class="trv2-section">
@@ -169,10 +178,59 @@
   </section>
 
   <section id="trv2-tab-control-volumetrico" class="trv2-section">
-    <div class="trv2-soon">
-      <i class="fa-solid fa-file-code"></i>
-      <h1>Control Volumétrico SAT / JSON</h1>
-      <p>Próximamente. Será un bloque propio de Transporte v2, separado del JSON Gas LP.</p>
+    <div class="trv2-section-head">
+      <div>
+        <h1>Control Volumétrico SAT</h1>
+        <p>Reporte diario/mensual para transporte de hidrocarburos y petrolíferos.</p>
+      </div>
+      <div class="trv2-actions">
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico()"><i class="fa-solid fa-rotate"></i> Cargar periodo</button>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2ValidateCvDraft()"><i class="fa-solid fa-list-check"></i> Validar movimientos</button>
+      </div>
     </div>
+    <section class="trv2-panel">
+      <div class="trv2-form trv2-form-cv">
+        <label>Año <input id="trv2-cv-anio" type="number" min="2024" max="2100"></label>
+        <label>Mes <select id="trv2-cv-mes"></select></label>
+        <label>Tipo reporte <select id="trv2-cv-tipo"><option value="diario">Diario</option><option value="mensual">Mensual</option></select></label>
+        <label>Producto <select id="trv2-cv-producto"></select></label>
+        <label>Vehículo <select id="trv2-cv-vehiculo"></select></label>
+        <label>Cliente <select id="trv2-cv-cliente"></select></label>
+        <label>Estado <select id="trv2-cv-estado"><option value="">Todos</option><option value="borrador">Borrador</option><option value="validado">Validado</option><option value="exportado">Exportado</option></select></label>
+      </div>
+    </section>
+    <div class="trv2-kpis trv2-kpis-cv" id="trv2-cv-kpis"></div>
+    <section class="trv2-panel">
+      <div class="trv2-table-head">
+        <div>
+          <h2>Movimientos del periodo</h2>
+          <p class="trv2-muted">Borrador visual alimentado por viajes Transporte v2. No genera JSON SAT real.</p>
+        </div>
+        <div class="trv2-actions">
+          <button class="trv2-btn trv2-btn-ghost" type="button" disabled><i class="fa-solid fa-download"></i> Descargar borrador</button>
+          <button class="trv2-btn trv2-btn-primary" type="button" disabled><i class="fa-solid fa-file-export"></i> Exportar JSON SAT</button>
+        </div>
+      </div>
+      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">Exportación JSON SAT pendiente para fase posterior.</div>
+      <div class="trv2-table-wrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Producto</th><th>Volumen L</th><th>Vehículo</th><th>Origen</th><th>Destino</th><th>UUID Carta Porte</th><th>Estatus JSON</th></tr></thead>
+          <tbody id="trv2-cv-table"></tbody>
+        </table>
+      </div>
+    </section>
   </section>
 </main>
+
+<div class="trv2-modal-layer" id="trv2-catalog-modal" hidden>
+  <section class="trv2-modal" role="dialog" aria-modal="true" aria-labelledby="trv2-catalog-modal-title">
+    <div class="trv2-modal-head">
+      <div>
+        <h2 id="trv2-catalog-modal-title">Nuevo registro</h2>
+        <p id="trv2-catalog-modal-subtitle">Alta rápida de Transporte v2.</p>
+      </div>
+      <button class="trv2-mini-btn" type="button" onclick="trv2CloseCatalogModal()"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="trv2-catalog-modal-form" class="trv2-form" onsubmit="trv2CreateCatalogItem(event)"></form>
+  </section>
+</div>
