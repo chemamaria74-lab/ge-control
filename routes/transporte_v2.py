@@ -12,6 +12,7 @@ import json
 import re
 import secrets
 import hashlib
+import zlib
 from xml.etree import ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
@@ -49,7 +50,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "operadores": {
         "table": TBL_OPERADORES,
         "required": ["nombre"],
-        "allowed": ["nombre", "rfc_figura", "licencia", "telefono", "activo"],
+        "allowed": ["nombre", "rfc_figura", "licencia", "tipo_licencia", "vencimiento_licencia", "telefono", "activo"],
         "defaults": {"activo": True},
     },
     "vehiculos": {
@@ -58,7 +59,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         "allowed": [
             "alias", "placas", "config_vehicular", "modelo", "anio",
             "permiso_sct", "num_permiso_sct", "aseguradora_rc", "poliza_rc",
-            "aseguradora_medio_ambiente", "poliza_medio_ambiente", "activo",
+            "aseguradora_medio_ambiente", "poliza_medio_ambiente", "peso_bruto_vehicular", "activo",
         ],
         "defaults": {"activo": True},
     },
@@ -67,19 +68,22 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         "required": ["descripcion"],
         "allowed": [
             "descripcion", "clave_producto", "clave_subproducto", "unidad",
-            "material_peligroso", "clave_material_peligroso", "embalaje", "activo",
+            "material_peligroso", "clave_material_peligroso", "embalaje", "factor_kg_l", "activo",
         ],
         "defaults": {"activo": True, "unidad": "LTR", "material_peligroso": False},
     },
     "rutas": {
         "table": TBL_RUTAS,
         "required": ["nombre"],
-        "allowed": ["nombre", "origen", "destino", "cp_origen", "cp_destino", "distancia_km", "activo"],
+        "allowed": [
+            "nombre", "origen", "nombre_origen", "cp_origen", "destino", "nombre_destino",
+            "cp_destino", "distancia_km", "duracion_estimada_min", "origen_id", "destino_id", "activo",
+        ],
         "defaults": {"activo": True, "distancia_km": 0},
     },
 }
 
-CATALOG_READ_ONLY = True
+CATALOG_READ_ONLY = False
 
 VIAJE_ALLOWED_FIELDS = {
     "cliente_id", "operador_id", "vehiculo_id", "producto_id", "ruta_id",
@@ -219,14 +223,20 @@ def _detect_xml_document(content: bytes) -> dict[str, Any]:
     detected = {
         "emisor_nombre": emisor.get("Nombre", "") if emisor is not None else "",
         "emisor_rfc": emisor.get("Rfc", "") if emisor is not None else "",
+        "proveedor_nombre": emisor.get("Nombre", "") if emisor is not None else "",
+        "proveedor_rfc": emisor.get("Rfc", "") if emisor is not None else "",
         "receptor_nombre": receptor.get("Nombre", "") if receptor is not None else "",
         "receptor_rfc": receptor.get("Rfc", "") if receptor is not None else "",
+        "cliente_nombre": receptor.get("Nombre", "") if receptor is not None else "",
+        "cliente_rfc": receptor.get("Rfc", "") if receptor is not None else "",
         "folio": " ".join(x for x in [root.get("Serie", ""), root.get("Folio", "")] if x).strip(),
         "uuid": timbre.get("UUID", "") if timbre is not None else "",
         "producto": producto or "",
         "clave_sat": clave_sat or "",
         "cantidad_litros": cantidad if str(unidad).upper() in {"LTR", "LITRO", "LITROS"} else cantidad,
+        "litros": cantidad if str(unidad).upper() in {"LTR", "LITRO", "LITROS"} else cantidad,
         "peso_kg": 0,
+        "kilos": 0,
         "permiso": "",
         "origen_sugerido": "",
         "destino_sugerido": receptor.get("Nombre", "") if receptor is not None else "",
@@ -268,6 +278,10 @@ def _extract_pdf_text(content: bytes) -> tuple[str, list[str]]:
             return text, warnings
     except Exception as exc:
         warnings.append(f"PyPDF2 no disponible o sin texto: {exc}")
+    stream_text = _extract_pdf_text_from_flate_streams(content)
+    if stream_text.strip():
+        warnings.append("Extracción PDF por streams internos; confirma visualmente datos sensibles.")
+        return stream_text, warnings
     fallback = content.decode("latin-1", errors="ignore")
     readable = re.sub(r"[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9@&./:\-_,\s]", " ", fallback)
     readable = re.sub(r"\s+", " ", readable)
@@ -276,6 +290,39 @@ def _extract_pdf_text(content: bytes) -> tuple[str, list[str]]:
         return readable, warnings
     warnings.append("El PDF no tiene texto seleccionable disponible para extracción sin OCR.")
     return "", warnings
+
+
+def _pdf_unescape(value: bytes) -> str:
+    value = (
+        value
+        .replace(rb"\\(", b"(")
+        .replace(rb"\\)", b")")
+        .replace(rb"\\\\", b"\\")
+        .replace(rb"\n", b"\n")
+        .replace(rb"\r", b"\n")
+        .replace(rb"\t", b"\t")
+    )
+    return value.decode("latin-1", errors="ignore")
+
+
+def _extract_pdf_text_from_flate_streams(content: bytes) -> str:
+    chunks: list[str] = []
+    for match in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", content, re.S):
+        raw = match.group(1)
+        try:
+            data = zlib.decompress(raw)
+        except Exception:
+            continue
+        for arr in re.findall(rb"\[(.*?)\]\s*TJ", data, re.S):
+            pieces = re.findall(rb"\((?:\\.|[^\\)])*\)", arr, re.S)
+            text = "".join(_pdf_unescape(piece[1:-1]) for piece in pieces)
+            if text.strip():
+                chunks.append(text)
+        for piece in re.findall(rb"\((?:\\.|[^\\)])*\)\s*Tj", data, re.S):
+            text = _pdf_unescape(piece[1:-3] if piece.endswith(b") Tj") else piece[1:-1])
+            if text.strip():
+                chunks.append(text)
+    return "\n".join(chunks)
 
 
 def _regex_first(pattern: str, text: str, flags: int = re.I) -> str:
@@ -334,7 +381,7 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     folio = f"{serie} {folio_numero}".strip()
 
     concept_match = re.search(
-        r"([\d,]+\.\d{2})\s+(\d{8})\s+(.+?)\s+(LP/\d+/[A-Z]+/\d{4})\s+(LTR)\s+\w\s+([\d.]+)\s+\d{2}\s+([\d,]+\.\d{2})",
+        r"([\d,]+\.\d{2})\s*(\d{8})\s*(.+?)\s*(LP/\d+/[A-Z]+/\d{4})\s*(LTR)\s*\w\s*([\d.]+)\s*\d{2}\s*([\d,]+\.\d{2})",
         upper,
         re.I | re.S,
     )
@@ -380,7 +427,7 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     forma_pago = _regex_first(r"FORMA\s+DE\s+PAGO:\s*(\d{2})", upper)
     metodo_pago = _regex_first(r"METODO\s+DE\s+PAGO:\s*([A-Z]{3})", upper)
     uso_cfdi = _regex_first(r"USO\s+DEL\s+CFDI:\s*([A-Z0-9]{3})", upper)
-    tipo_comprobante = _regex_first(r"TIPO\s+DE\s+COMPROBANTE:\s*([A-Z])", upper)
+    tipo_comprobante = _regex_first(r"TIPO\s+DE\s+COMPROBANT\s*E:\s*([A-Z])", upper)
     detected = {
         "emisor_nombre": emisor_nombre,
         "emisor_rfc": emisor_rfc,
@@ -388,6 +435,8 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         "proveedor_nombre": emisor_nombre,
         "proveedor_rfc": emisor_rfc,
         "proveedor_permiso": permiso,
+        "cliente_nombre": receptor_nombre,
+        "cliente_rfc": receptor_rfc,
         "receptor_nombre": receptor_nombre,
         "receptor_rfc": receptor_rfc,
         "domicilio_receptor": domicilio_receptor,
@@ -404,7 +453,9 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         "producto": producto,
         "clave_sat": clave_sat,
         "cantidad_litros": _to_float(liters),
+        "litros": _to_float(liters),
         "peso_kg": _to_float(kilos),
+        "kilos": _to_float(kilos),
         "permiso": permiso,
         "unidad": unidad,
         "precio_unitario": precio_unitario,
@@ -430,6 +481,10 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         "confidence": "media" if text and not missing_core else "baja",
         "detected": detected,
         "warnings": warnings,
+        "diagnostics": {
+            "pdf_text_chars": len(text or ""),
+            "pdf_text_preview": text[:500],
+        },
     }
 
 
@@ -587,8 +642,55 @@ def _clean_payload(data: dict[str, Any], allowed: list[str], defaults: Optional[
         value = data[key]
         if isinstance(value, str):
             value = value.strip()
+            if value == "":
+                continue
         cleaned[key] = value
     return cleaned
+
+
+def _missing_column_from_error(exc: Exception) -> str:
+    text = str(exc)
+    patterns = [
+        r"Could not find the '([^']+)' column",
+        r"column ['\"]?([A-Za-z0-9_]+)['\"]? does not exist",
+        r"record has no field ['\"]?([A-Za-z0-9_]+)['\"]?",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def _insert_catalog_row(token: str, table: str, row: dict[str, Any]) -> list[dict[str, Any]]:
+    pending = dict(row)
+    removed: set[str] = set()
+    while True:
+        try:
+            return _sb(token).table(table).insert(pending).execute().data or []
+        except Exception as exc:
+            column = _missing_column_from_error(exc)
+            if not column or column in {"user_id", "perfil_id"} or column in removed or column not in pending:
+                raise
+            removed.add(column)
+            pending.pop(column, None)
+
+
+def _update_catalog_row(token: str, table: str, row: dict[str, Any], item_id: int, uid: str, pid: Optional[int]) -> list[dict[str, Any]]:
+    pending = dict(row)
+    removed: set[str] = set()
+    while True:
+        try:
+            query = _sb(token).table(table).update(pending).eq("id", item_id).eq("user_id", uid)
+            if pid:
+                query = query.eq("perfil_id", pid)
+            return query.execute().data or []
+        except Exception as exc:
+            column = _missing_column_from_error(exc)
+            if not column or column in removed or column not in pending:
+                raise
+            removed.add(column)
+            pending.pop(column, None)
 
 
 def _ensure_required(row: dict[str, Any], required: list[str], label: str) -> None:
@@ -646,6 +748,7 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["cp_origen"] = _first_text(item.get("cp_origen"))
         item["cp_destino"] = _first_text(item.get("cp_destino"))
         item["distancia_km"] = _num(item.get("distancia_km"))
+        item["duracion_estimada_min"] = int(_num(item.get("duracion_estimada_min")) or 0)
     item["source_table"] = CATALOG_CONFIG.get(catalogo, {}).get("table")
     return item
 
@@ -654,6 +757,8 @@ def _select_catalog(token: str, uid: str, catalogo: str, perfil_id: Optional[int
     config = CATALOG_CONFIG.get(catalogo)
     if not config:
         raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
+    if not perfil_id:
+        raise HTTPException(400, "perfil_id requerido para escribir catálogos Transporte.")
     table_name = config["table"]
     try:
         query = (
@@ -695,19 +800,62 @@ def _create_catalog_item(
     config = CATALOG_CONFIG.get(catalogo)
     if not config:
         raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
+    if not perfil_id:
+        raise HTTPException(400, "perfil_id requerido para actualizar catálogos Transporte.")
     row = _clean_payload(payload, config["allowed"], config.get("defaults") or {})
     _ensure_required(row, config["required"], catalogo)
     row.update({"user_id": uid, "perfil_id": perfil_id, "created_at": _now_iso()})
     try:
-        inserted = _sb(token).table(config["table"]).insert(row).execute().data or []
+        inserted = _insert_catalog_row(token, config["table"], row)
         item = inserted[0] if inserted else row
         _audit(uid, token, perfil_id, config["table"], item.get("id"), "crear", {"catalogo": catalogo})
-        return {"ok": True, "item": item}
+        return {"ok": True, "item": _normalize_catalog_row(catalogo, item)}
     except Exception as exc:
         if _is_missing_table_error(exc):
             return JSONResponse(_missing_schema_payload(config["table"]), status_code=409)
         logger.exception("Transporte v2 crear catalogo error catalogo=%s", catalogo)
         raise HTTPException(500, f"No se pudo guardar {catalogo}: {exc}")
+
+
+def _update_catalog_item(
+    token: str,
+    uid: str,
+    perfil_id: Optional[int],
+    catalogo: str,
+    item_id: int,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    config = CATALOG_CONFIG.get(catalogo)
+    if not config:
+        raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
+    row = _clean_payload(payload, config["allowed"], {})
+    if not row:
+        raise HTTPException(400, "No hay campos para actualizar.")
+    row["updated_at"] = _now_iso()
+    try:
+        updated = _update_catalog_row(token, config["table"], row, item_id, uid, perfil_id)
+        if not updated:
+            raise HTTPException(404, "Registro no encontrado para este perfil.")
+        item = updated[0]
+        _audit(uid, token, perfil_id, config["table"], item_id, "actualizar", {"catalogo": catalogo, "fields": sorted(row.keys())})
+        return {"ok": True, "item": _normalize_catalog_row(catalogo, item)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return JSONResponse(_missing_schema_payload(config["table"]), status_code=409)
+        logger.exception("Transporte v2 actualizar catalogo error catalogo=%s id=%s", catalogo, item_id)
+        raise HTTPException(500, f"No se pudo actualizar {catalogo}: {exc}")
+
+
+def _deactivate_catalog_item(
+    token: str,
+    uid: str,
+    perfil_id: Optional[int],
+    catalogo: str,
+    item_id: int,
+) -> dict[str, Any]:
+    return _update_catalog_item(token, uid, perfil_id, catalogo, item_id, {"activo": False})
 
 
 def _meta(row: dict[str, Any]) -> dict[str, Any]:
@@ -1826,3 +1974,31 @@ async def transporte_v2_crear_ruta(
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     return _create_catalog_item(token, uid, pid, "rutas", payload.data)
+
+
+@router.patch("/tr-v2/catalogos/{catalogo}/{item_id}")
+async def transporte_v2_actualizar_catalogo(
+    catalogo: str,
+    item_id: int,
+    payload: TransporteV2CatalogoCreate,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return _update_catalog_item(token, uid, pid, catalogo, item_id, payload.data)
+
+
+@router.post("/tr-v2/catalogos/{catalogo}/{item_id}/desactivar")
+async def transporte_v2_desactivar_catalogo(
+    catalogo: str,
+    item_id: int,
+    payload: TransporteV2CatalogoCreate,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return _deactivate_catalog_item(token, uid, pid, catalogo, item_id)
