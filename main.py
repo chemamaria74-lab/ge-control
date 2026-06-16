@@ -781,32 +781,85 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
-    *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:#f7f5f1;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif);padding:24px}}main{{width:min(960px,100%);margin:0 auto}}
-    header{{display:flex;align-items:center;gap:16px;margin-bottom:28px}}header img{{height:42px}}h1{{margin:0;color:#5B0F1D;font-size:clamp(2rem,5vw,3rem)}}p{{color:#6f6a64;line-height:1.55}}.panel{{background:#fff;border:1px solid #e5ded1;border-radius:8px;padding:28px;box-shadow:0 18px 48px rgba(17,17,17,.08)}}.grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:22px}}.tile{{border:1px solid #eee3d3;border-radius:8px;padding:18px;background:#fbfaf7;color:#5B0F1D;font-weight:800}}.tile i{{display:block;font-size:22px;margin-bottom:10px}}.actions{{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}}a.btn{{display:inline-flex;align-items:center;gap:8px;padding:11px 14px;border-radius:7px;text-decoration:none;font-weight:800;background:#7A1E2C;color:#fff}}a.btn.ghost{{background:#fff;color:#5B0F1D;border:1px solid #e5ded1}}@media(max-width:760px){{.grid{{grid-template-columns:1fr 1fr}}}}
+    *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:#f6f4f0;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif);padding:16px}}
+    main{{width:min(760px,100%);margin:0 auto;padding-bottom:24px}}.brand{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}}.brand img{{width:96px;height:auto}}.brand a{{color:#5B0F1D;font-weight:900;text-decoration:none;font-size:14px}}
+    .hero{{background:#fff;border:1px solid #e7dfd4;border-radius:8px;padding:18px;box-shadow:0 12px 30px rgba(38,25,8,.06);margin-bottom:14px}}h1{{font-size:28px;line-height:1.1;margin:0 0 6px;color:#5B0F1D}}p{{margin:0;color:#6f6a64;line-height:1.45}}.trip-status{{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}}.pill{{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:7px 10px;background:#fff8e6;border:1px solid #f1d18a;color:#684800;font-size:13px;font-weight:900}}.pill.ok{{background:#ecfdf5;border-color:#a7f3d0;color:#047857}}
+    .cards{{display:grid;grid-template-columns:1fr;gap:14px}}.card{{background:#fff;border:1px solid #e7dfd4;border-radius:8px;padding:18px;box-shadow:0 12px 30px rgba(38,25,8,.05)}}.card-head{{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:start;margin-bottom:12px}}.icon{{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;background:#f7efe4;color:#7A1E2C;font-size:23px}}h2{{font-size:21px;line-height:1.15;margin:0 0 4px}}.status{{border-radius:999px;padding:6px 9px;background:#f3eee7;color:#5f554b;font-size:12px;font-weight:900;white-space:nowrap}}.note{{font-size:13px;color:#7a6f61;margin-top:10px}}
+    .actions{{display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px}}button,.btn{{border:1px solid #e0d7cc;border-radius:8px;padding:14px 16px;min-height:50px;background:#fff;color:#111;font:inherit;font-weight:900;display:flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;cursor:pointer}}button.primary,.btn.primary{{background:#7A1E2C;border-color:#7A1E2C;color:#fff}}button.warning{{background:#fff8e6;border-color:#f1d18a;color:#684800}}button.ok{{background:#ecfdf5;border-color:#a7f3d0;color:#047857}}button:disabled{{opacity:.55;cursor:not-allowed}}
+    .bitacora-grid{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}}.phase-note{{margin-top:14px;background:#fff8e6;border:1px solid #f1d18a;color:#684800;border-radius:8px;padding:12px;font-weight:800;font-size:13px}}.toast{{position:fixed;left:16px;right:16px;bottom:18px;background:#111;color:#fff;border-radius:8px;padding:13px 15px;font-weight:900;text-align:center;box-shadow:0 18px 42px rgba(0,0,0,.22);opacity:0;transform:translateY(12px);transition:.18s ease;pointer-events:none}}.toast.show{{opacity:1;transform:translateY(0)}}
+    @media(min-width:760px){{body{{padding:24px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr))}}.card.bitacora{{grid-column:1/-1}}.actions{{grid-template-columns:repeat(2,minmax(0,1fr))}}.bitacora-grid{{grid-template-columns:repeat(3,minmax(0,1fr))}}}}
   </style>
 </head>
 <body>
-  <script>
-    if (!localStorage.getItem('trv2_operador_token')) {{
-      location.replace('/transporte-v2/login-operador?next=/transporte-v2/operador');
-    }}
-  </script>
   <main>
-    <header><img src="/static/img/ge-control-logo.svg" alt="GE CONTROL"><div><h1>Modo operador en preparación</h1><p>Los accesos de operador se administrarán desde Transporte v2 Admin.</p></div></header>
-    <section class="panel">
-      <p>Esta vista queda separada del dashboard administrador. Próximamente usará accesos ligados a choferes, viajes asignados y evidencias sin exponer catálogos ni edición global.</p>
-      <div class="grid">
-        <div class="tile"><i class="fa-solid fa-route"></i>Viajes asignados</div>
-        <div class="tile"><i class="fa-solid fa-camera"></i>Evidencias</div>
-        <div class="tile"><i class="fa-solid fa-folder-open"></i>Documentos</div>
-        <div class="tile"><i class="fa-solid fa-file-invoice"></i>Carta Porte</div>
-      </div>
-      <div class="actions">
-        <a class="btn" href="/transporte-v2/roles">Volver a roles Transporte</a>
-        <a class="btn ghost" href="/choice">Volver a selección de módulo</a>
+    <div class="brand">
+      <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
+      <a href="/transporte-v2/roles">Cambiar acceso</a>
+    </div>
+    <section class="hero">
+      <h1>Mi viaje</h1>
+      <p>Consulta tu viaje, sube documentos y registra tu bitácora.</p>
+      <div class="trip-status">
+        <span class="pill"><i class="fa-solid fa-circle"></i> Pendiente</span>
+        <span class="pill ok"><i class="fa-solid fa-mobile-screen"></i> Portal móvil</span>
       </div>
     </section>
+
+    <div class="cards">
+      <section class="card">
+        <div class="card-head">
+          <span class="icon"><i class="fa-solid fa-file-arrow-up"></i></span>
+          <div><h2>Factura</h2><p>Sube la factura o documento de la carga.</p></div>
+          <span class="status">Pendiente</span>
+        </div>
+        <div class="actions">
+          <button class="primary" type="button" onclick="trv2OperadorToast('Carga de factura en preparación.')"><i class="fa-solid fa-upload"></i> Subir factura</button>
+          <button type="button" onclick="trv2OperadorToast('Documento en preparación.')"><i class="fa-solid fa-eye"></i> Ver documento</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <span class="icon"><i class="fa-solid fa-file-invoice"></i></span>
+          <div><h2>Carta Porte</h2><p>Consulta o descarga la Carta Porte del viaje.</p></div>
+          <span class="status">Pendiente</span>
+        </div>
+        <div class="actions">
+          <button type="button" onclick="trv2OperadorToast('Carta Porte en preparación.')"><i class="fa-solid fa-file-pdf"></i> Ver Carta Porte</button>
+          <button class="primary" type="button" onclick="trv2OperadorToast('Solicitud de Carta Porte en preparación.')"><i class="fa-solid fa-paper-plane"></i> Solicitar Carta Porte</button>
+        </div>
+        <p class="note">La generación se habilitará si el administrador lo permite.</p>
+      </section>
+
+      <section class="card bitacora">
+        <div class="card-head">
+          <span class="icon"><i class="fa-solid fa-clipboard-list"></i></span>
+          <div><h2>Bitácora</h2><p>Registra inicio, descansos, incidencias y fin del viaje.</p></div>
+          <span class="status">Pendiente</span>
+        </div>
+        <div class="bitacora-grid">
+          <button class="primary" type="button" onclick="trv2OperadorToast('Bitácora en preparación.')"><i class="fa-solid fa-play"></i> Iniciar viaje</button>
+          <button class="warning" type="button" onclick="trv2OperadorToast('Bitácora en preparación.')"><i class="fa-solid fa-mug-hot"></i> Descanso</button>
+          <button class="ok" type="button" onclick="trv2OperadorToast('Bitácora en preparación.')"><i class="fa-solid fa-road"></i> Reanudar</button>
+          <button type="button" onclick="trv2OperadorToast('Bitácora en preparación.')"><i class="fa-solid fa-triangle-exclamation"></i> Incidencia</button>
+          <button type="button" onclick="trv2OperadorToast('Bitácora en preparación.')"><i class="fa-solid fa-flag-checkered"></i> Finalizar viaje</button>
+          <button type="button" onclick="trv2OperadorToast('PDF de bitácora en preparación.')"><i class="fa-solid fa-download"></i> Descargar PDF</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="phase-note">Portal operador en preparación. Esta vista no timbra ni genera documentos fiscales todavía.</div>
   </main>
+  <div class="toast" id="trv2-operador-toast">Bitácora en preparación.</div>
+  <script>
+    function trv2OperadorToast(message) {{
+      const toast = document.getElementById('trv2-operador-toast');
+      toast.textContent = message || 'Bitácora en preparación.';
+      toast.classList.add('show');
+      clearTimeout(window.__trv2OperadorToastTimer);
+      window.__trv2OperadorToastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
+    }}
+  </script>
 </body>
 </html>"""
     return HTMLResponse(content=_inject_legal_branding(html))
