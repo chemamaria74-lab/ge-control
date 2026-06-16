@@ -5,12 +5,16 @@ const TRV2_CATALOG_FORMS = {
     ['cp', 'CP fiscal'],
     ['regimen_fiscal', 'Régimen fiscal'],
     ['uso_cfdi', 'Uso CFDI'],
+    ['activo', 'Activo', 'checkbox'],
   ],
   operadores: [
     ['nombre', 'Nombre'],
     ['rfc_figura', 'RFC Figura'],
     ['licencia', 'Licencia federal'],
+    ['tipo_licencia', 'Tipo licencia'],
+    ['vencimiento_licencia', 'Vencimiento licencia', 'date'],
     ['telefono', 'Teléfono'],
+    ['activo', 'Activo', 'checkbox'],
   ],
   vehiculos: [
     ['alias', 'Número económico / unidad'],
@@ -24,6 +28,8 @@ const TRV2_CATALOG_FORMS = {
     ['poliza_rc', 'Póliza RC'],
     ['aseguradora_medio_ambiente', 'Aseg. medio ambiente'],
     ['poliza_medio_ambiente', 'Póliza medio ambiente'],
+    ['peso_bruto_vehicular', 'Peso bruto vehicular', 'number'],
+    ['activo', 'Activo', 'checkbox'],
   ],
   productos: [
     ['descripcion', 'Descripción'],
@@ -33,14 +39,20 @@ const TRV2_CATALOG_FORMS = {
     ['material_peligroso', 'Material peligroso', 'checkbox'],
     ['clave_material_peligroso', 'Clave mat. peligroso'],
     ['embalaje', 'Embalaje'],
+    ['factor_kg_l', 'Factor kg/L', 'number'],
+    ['activo', 'Activo', 'checkbox'],
   ],
   rutas: [
     ['nombre', 'Nombre'],
     ['origen', 'Origen'],
-    ['destino', 'Destino'],
     ['cp_origen', 'CP origen'],
+    ['destino', 'Destino'],
     ['cp_destino', 'CP destino'],
     ['distancia_km', 'Distancia km', 'number'],
+    ['duracion_estimada_min', 'Duración estimada min', 'number'],
+    ['origen_id', 'Origen ID', 'number'],
+    ['destino_id', 'Destino ID', 'number'],
+    ['activo', 'Activo', 'checkbox'],
   ],
 };
 
@@ -213,40 +225,31 @@ function trv2RenderCatalogCard(name, item) {
       </div>
       <div class="trv2-card-body">${rows}</div>
       <div class="trv2-card-actions">
-        <button class="trv2-mini-btn" type="button" onclick="trv2CatalogReadOnlyAction('editar')">Editar</button>
-        <button class="trv2-mini-btn" type="button" onclick="trv2CatalogReadOnlyAction('desactivar')">Desactivar</button>
-        <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2CatalogReadOnlyAction('eliminar')">Eliminar seguro</button>
-        <button class="trv2-mini-btn" type="button" onclick="trv2CatalogReadOnlyAction('configurar')">Configurar</button>
+        <button class="trv2-mini-btn" type="button" onclick="trv2OpenCatalogModal('${trv2Esc(name)}', ${Number(item.id || 0)})">Editar</button>
+        <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateCatalogItem('${trv2Esc(name)}', ${Number(item.id || 0)})">Desactivar</button>
+        <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" disabled title="Eliminación física deshabilitada. Usa desactivar.">Eliminar seguro</button>
+        <button class="trv2-mini-btn" type="button" onclick="trv2CatalogConfigPlaceholder()">Configurar</button>
       </div>
     </article>
   `;
 }
 
-function trv2CatalogReadOnlyAction(action = 'editar') {
-  const labels = {
-    editar: 'Edición',
-    desactivar: 'Desactivación',
-    eliminar: 'Eliminación segura',
-    configurar: 'Configuración',
-  };
-  trv2Toast(`${labels[action] || 'Acción'} de catálogos se habilitará después de validar escritura segura en tr_*.`, 'info');
+function trv2CatalogConfigPlaceholder() {
+  trv2Toast('Configuración avanzada de catálogo pendiente. Puedes crear, editar o desactivar registros.', 'info');
 }
 
 function trv2RenderCatalogFields(name) {
   return (TRV2_CATALOG_FORMS[name] || []).map(([field, label, type]) => {
     if (type === 'checkbox') {
-      return `<label class="trv2-check"><input data-field="${field}" type="checkbox"> ${trv2Esc(label)}</label>`;
+      const checked = field === 'activo' ? 'checked' : '';
+      return `<label class="trv2-check"><input data-field="${field}" type="checkbox" ${checked}> ${trv2Esc(label)}</label>`;
     }
-    const inputType = type === 'number' ? 'number' : 'text';
+    const inputType = type === 'number' ? 'number' : (type === 'date' ? 'date' : 'text');
     return `<label>${trv2Esc(label)}<input data-field="${field}" type="${inputType}" step="0.001"></label>`;
   }).join('');
 }
 
-function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG) {
-  if (TRV2_CATALOGS_READ_ONLY) {
-    trv2Toast('Alta de catálogos en modo lectura por seguridad.', 'info');
-    return;
-  }
+function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG, itemId = 0) {
   TRV2_ACTIVE_CATALOG = name || 'clientes';
   trv2RenderCatalogTabs();
   const modal = document.getElementById('trv2-catalog-modal');
@@ -254,10 +257,12 @@ function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG) {
   const title = document.getElementById('trv2-catalog-modal-title');
   const subtitle = document.getElementById('trv2-catalog-modal-subtitle');
   const ui = TRV2_CATALOG_UI[TRV2_ACTIVE_CATALOG] || {};
+  const item = itemId ? trv2FindCatalog(TRV2_ACTIVE_CATALOG, itemId) : null;
   if (!modal || !form) return;
-  if (title) title.textContent = `Nuevo ${ui.title || TRV2_CATALOG_LABELS[TRV2_ACTIVE_CATALOG]}`;
-  if (subtitle) subtitle.textContent = ui.subtitle || 'Alta rápida de Transporte v2.';
+  if (title) title.textContent = `${item ? 'Editar' : 'Nuevo'} ${ui.title || TRV2_CATALOG_LABELS[TRV2_ACTIVE_CATALOG]}`;
+  if (subtitle) subtitle.textContent = item ? 'Actualización limitada al perfil activo.' : (ui.subtitle || 'Alta rápida de Transporte v2.');
   form.dataset.catalog = TRV2_ACTIVE_CATALOG;
+  form.dataset.itemId = item?.id || '';
   form.innerHTML = `
     ${trv2RenderCatalogFields(TRV2_ACTIVE_CATALOG)}
     <div class="trv2-form-actions">
@@ -265,7 +270,17 @@ function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG) {
       <button class="trv2-btn trv2-btn-primary" type="submit">Guardar</button>
     </div>
   `;
+  if (item) trv2FillCatalogModalForm(form, item);
   modal.hidden = false;
+}
+
+function trv2FillCatalogModalForm(form, item) {
+  form.querySelectorAll('[data-field]').forEach(input => {
+    const key = input.dataset.field;
+    const value = item[key];
+    if (input.type === 'checkbox') input.checked = Boolean(value);
+    else input.value = value ?? '';
+  });
 }
 
 function trv2CloseCatalogModal() {
@@ -279,22 +294,40 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
   event.preventDefault();
   const form = event.target;
   const name = explicitName || form.dataset.catalog || TRV2_ACTIVE_CATALOG;
+  const itemId = Number(form.dataset.itemId || 0);
   const data = {};
   form.querySelectorAll('[data-field]').forEach(input => {
     const key = input.dataset.field;
     data[key] = input.type === 'checkbox' ? input.checked : input.value.trim();
     if (input.type === 'number') data[key] = Number(input.value || 0);
   });
-  const response = await trv2Api('POST', `/api/tr-v2/catalogos/${name}`, {
+  const path = itemId ? `/api/tr-v2/catalogos/${name}/${itemId}` : `/api/tr-v2/catalogos/${name}`;
+  const method = itemId ? 'PATCH' : 'POST';
+  const response = await trv2Api(method, path, {
     perfil_id: TRV2_PERFIL?.id || null,
     data,
   }, {allowError: true});
   if (response?.ok) {
-    trv2Toast(`${TRV2_CATALOG_LABELS[name]} guardado.`, 'success');
+    trv2Toast(`${TRV2_CATALOG_LABELS[name]} ${itemId ? 'actualizado' : 'guardado'}.`, 'success');
     trv2CloseCatalogModal();
     await trv2LoadCatalogs({silent: true});
   } else {
     trv2Toast(response?.detail || response?.message || `No se pudo guardar ${TRV2_CATALOG_LABELS[name]}.`, 'error');
+  }
+}
+
+async function trv2DeactivateCatalogItem(name, itemId) {
+  if (!itemId) return;
+  if (!confirm('Se desactivará el registro para esta empresa. No se borrará físicamente.')) return;
+  const response = await trv2Api('POST', `/api/tr-v2/catalogos/${name}/${Number(itemId)}/desactivar`, {
+    perfil_id: TRV2_PERFIL?.id || null,
+    data: {},
+  }, {allowError: true});
+  if (response?.ok) {
+    trv2Toast(`${TRV2_CATALOG_LABELS[name]} desactivado.`, 'success');
+    await trv2LoadCatalogs({silent: true});
+  } else {
+    trv2Toast(response?.detail || response?.message || 'No se pudo desactivar el registro.', 'error');
   }
 }
 

@@ -37,15 +37,15 @@ const TRV2_DOC_FIELDS = [
 ];
 
 const TRV2_DOC_SUMMARY_FIELDS = [
-  ['Proveedor', 'emisor_nombre'],
-  ['RFC proveedor', 'emisor_rfc'],
-  ['Cliente', 'receptor_nombre'],
-  ['RFC cliente', 'receptor_rfc'],
+  ['Proveedor', 'proveedor_nombre'],
+  ['RFC proveedor', 'proveedor_rfc'],
+  ['Cliente', 'cliente_nombre'],
+  ['RFC cliente', 'cliente_rfc'],
   ['UUID', 'uuid'],
-  ['Factura', 'folio'],
+  ['Factura', 'folio_display'],
   ['Producto', 'producto'],
-  ['Litros', 'cantidad_litros', 'number'],
-  ['Kilos', 'peso_kg', 'number'],
+  ['Litros', 'litros', 'number'],
+  ['Kilos', 'kilos', 'number'],
   ['Permiso', 'permiso'],
   ['Boleta', 'boleta'],
   ['Origen', 'origen_sugerido'],
@@ -89,9 +89,28 @@ async function trv2AnalyzeDocument(event, scope = '') {
   }
   TRV2_DOCUMENT_DETECTED = data;
   TRV2_DOCUMENT_SCOPE = formScope;
+  data.detected = trv2NormalizeDetected(data.detected || {});
   trv2RenderDocumentDetected(data, formScope);
   if (message) message.textContent = 'Documento analizado. Revisa y confirma los datos detectados.';
   trv2Toast('Documento analizado sin timbrar ni generar XML fiscal.', 'success');
+}
+
+function trv2NormalizeDetected(raw = {}) {
+  const detected = {...raw};
+  detected.proveedor_nombre = detected.proveedor_nombre || detected.emisor_nombre || '';
+  detected.proveedor_rfc = detected.proveedor_rfc || detected.emisor_rfc || '';
+  detected.cliente_nombre = detected.cliente_nombre || detected.receptor_nombre || '';
+  detected.cliente_rfc = detected.cliente_rfc || detected.receptor_rfc || '';
+  detected.emisor_nombre = detected.emisor_nombre || detected.proveedor_nombre || '';
+  detected.emisor_rfc = detected.emisor_rfc || detected.proveedor_rfc || '';
+  detected.receptor_nombre = detected.receptor_nombre || detected.cliente_nombre || '';
+  detected.receptor_rfc = detected.receptor_rfc || detected.cliente_rfc || '';
+  detected.litros = Number(detected.litros || detected.cantidad_litros || 0);
+  detected.cantidad_litros = Number(detected.cantidad_litros || detected.litros || 0);
+  detected.kilos = Number(detected.kilos || detected.peso_kg || 0);
+  detected.peso_kg = Number(detected.peso_kg || detected.kilos || 0);
+  detected.folio_display = detected.folio_display || detected.folio || [detected.serie, detected.folio_numero].filter(Boolean).join(' ');
+  return detected;
 }
 
 async function trv2UploadForm(path, formData) {
@@ -125,7 +144,8 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
   const panel = ui.panel;
   const form = ui.form;
   const summary = ui.summary;
-  const detected = data.detected || {};
+  const detected = trv2NormalizeDetected(data.detected || {});
+  data.detected = detected;
   if (!panel || !form) return;
   panel.hidden = false;
   if (summary) summary.textContent = trv2DetectedMessage(detected);
@@ -150,7 +170,8 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
       <select id="${scope === 'cp' ? 'trv2-cp-doc-cliente-id' : 'trv2-doc-cliente-id'}">${trv2CatalogOptions('clientes', 'Cliente pendiente')}</select>
     </label>
     <label>Ruta
-      <select id="${scope === 'cp' ? 'trv2-cp-doc-ruta-id' : 'trv2-doc-ruta-id'}" required>${trv2CatalogOptions('rutas', 'Selecciona ruta')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-ruta-id' : 'trv2-doc-ruta-id'}" required onchange="trv2UpdateTripDatesFromRoute('${trv2Esc(scope)}')">${trv2CatalogOptions('rutas', 'Selecciona ruta')}</select>
+      <small class="trv2-route-hint" id="${scope === 'cp' ? 'trv2-cp-doc-route-hint' : 'trv2-doc-route-hint'}"></small>
     </label>
     <label>Operador
       <select id="${scope === 'cp' ? 'trv2-cp-doc-operador-id' : 'trv2-doc-operador-id'}" required>${trv2CatalogOptions('operadores', 'Selecciona operador')}</select>
@@ -162,7 +183,7 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
       <select id="${scope === 'cp' ? 'trv2-cp-doc-producto-id' : 'trv2-doc-producto-id'}" required>${trv2CatalogOptions('productos', 'Selecciona producto')}</select>
     </label>
     <label>Fecha salida
-      <input id="${scope === 'cp' ? 'trv2-cp-doc-fecha-salida' : 'trv2-doc-fecha-salida'}" type="datetime-local" required>
+      <input id="${scope === 'cp' ? 'trv2-cp-doc-fecha-salida' : 'trv2-doc-fecha-salida'}" type="datetime-local" required onchange="trv2UpdateTripDatesFromRoute('${trv2Esc(scope)}')">
     </label>
     <label>Fecha llegada estimada
       <input id="${scope === 'cp' ? 'trv2-cp-doc-fecha-llegada' : 'trv2-doc-fecha-llegada'}" type="datetime-local">
@@ -172,6 +193,46 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
     </label>
   `;
   trv2SelectDetectedCatalogValues(scope, detected);
+  trv2SetDefaultTripDates(scope);
+}
+
+function trv2DateTimeLocal(date = new Date()) {
+  const pad = value => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function trv2RouteDurationMinutes(route) {
+  const duration = Number(route?.duracion_estimada_min || 0);
+  if (duration > 0) return duration;
+  const distance = Number(route?.distancia_km || 0);
+  if (distance > 0) return Math.round((distance / 60) * 60);
+  return 0;
+}
+
+function trv2SetDefaultTripDates(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
+  const salida = document.getElementById(trv2DocFieldId(scope, 'fecha-salida'));
+  if (salida && !salida.value) salida.value = trv2DateTimeLocal();
+  trv2UpdateTripDatesFromRoute(scope);
+}
+
+function trv2UpdateTripDatesFromRoute(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
+  const route = trv2FindCatalog('rutas', document.getElementById(trv2DocFieldId(scope, 'ruta-id'))?.value);
+  const salidaInput = document.getElementById(trv2DocFieldId(scope, 'fecha-salida'));
+  const llegadaInput = document.getElementById(trv2DocFieldId(scope, 'fecha-llegada'));
+  const hint = document.getElementById(scope === 'cp' ? 'trv2-cp-doc-route-hint' : 'trv2-doc-route-hint');
+  if (!salidaInput?.value) salidaInput.value = trv2DateTimeLocal();
+  const duration = trv2RouteDurationMinutes(route);
+  if (duration && llegadaInput && salidaInput?.value) {
+    const base = new Date(salidaInput.value);
+    if (!Number.isNaN(base.getTime())) {
+      llegadaInput.value = trv2DateTimeLocal(new Date(base.getTime() + duration * 60000));
+    }
+  }
+  if (hint) {
+    const distance = Number(route?.distancia_km || 0);
+    const arrival = llegadaInput?.value ? llegadaInput.value.replace('T', ' ') : 'Pendiente';
+    hint.textContent = route ? `Distancia: ${distance || 0} km · Duración: ${duration || 0} min · Llegada estimada: ${arrival}` : '';
+  }
 }
 
 function trv2DetectedValue(value, type = '') {
@@ -193,21 +254,22 @@ function trv2RenderDetectedCards(detected) {
 }
 
 function trv2DetectedMessage(detected) {
+  detected = trv2NormalizeDetected(detected || {});
   const foundMap = [
     ['UUID', detected.uuid],
-    ['litros', detected.cantidad_litros],
-    ['kilos', detected.peso_kg],
+    ['litros', detected.litros],
+    ['kilos', detected.kilos],
     ['permiso', detected.permiso],
     ['origen', detected.origen_sugerido],
     ['producto', detected.producto],
   ];
   const found = foundMap.filter(([, value]) => String(value || '').trim()).map(([label]) => label);
   const missing = [];
-  if (!detected.emisor_nombre || !detected.emisor_rfc) missing.push('proveedor');
-  if (!detected.receptor_nombre || !detected.receptor_rfc) missing.push('cliente');
+  if (!detected.proveedor_nombre || !detected.proveedor_rfc) missing.push('proveedor');
+  if (!detected.cliente_nombre || !detected.cliente_rfc) missing.push('cliente');
   if (!detected.uuid) missing.push('UUID');
-  if (!detected.cantidad_litros) missing.push('litros');
-  if (!detected.peso_kg) missing.push('kilos');
+  if (!detected.litros) missing.push('litros');
+  if (!detected.kilos) missing.push('kilos');
   const foundText = found.length ? `Detectamos ${found.join(', ')}.` : 'No se detectaron datos suficientes.';
   const missingText = missing.length ? ` Falta revisar ${missing.join(', ')}.` : ' Revisa y completa los datos operativos.';
   return `${foundText}${missingText} Falta seleccionar ruta, vehículo y operador.`;
@@ -263,8 +325,16 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
   const operador = trv2FindCatalog('operadores', document.getElementById(trv2DocFieldId(scope, 'operador-id'))?.value);
   const vehiculo = trv2FindCatalog('vehiculos', document.getElementById(trv2DocFieldId(scope, 'vehiculo-id'))?.value);
   const fechaSalida = document.getElementById(trv2DocFieldId(scope, 'fecha-salida'))?.value || '';
-  if (!ruta || !operador || !vehiculo || !producto || !fechaSalida) {
-    trv2Toast('Completa ruta, operador, vehículo, producto y fecha salida antes de crear el viaje.', 'error');
+  const fechaLlegada = document.getElementById(trv2DocFieldId(scope, 'fecha-llegada'))?.value || '';
+  const missing = [];
+  if (!ruta) missing.push('ruta');
+  if (!operador) missing.push('operador');
+  if (!vehiculo) missing.push('vehículo');
+  if (!producto) missing.push('producto');
+  if (!fechaSalida) missing.push('fecha salida');
+  if (!fechaLlegada) missing.push('fecha llegada');
+  if (missing.length) {
+    trv2Toast(`Completa ${missing.join(', ')} antes de crear el viaje.`, 'error');
     return;
   }
   const body = {
@@ -274,16 +344,16 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
     vehiculo_id: vehiculo?.id || null,
     ruta_id: ruta?.id || null,
     producto_id: producto?.id || null,
-    cliente_nombre: detected.receptor_nombre || '',
-    origen: ruta?.origen || detected.origen_sugerido || detected.emisor_nombre || '',
-    destino: ruta?.destino || detected.destino_sugerido || detected.receptor_nombre || '',
+    cliente_nombre: detected.cliente_nombre || detected.receptor_nombre || '',
+    origen: ruta?.origen || detected.origen_sugerido || detected.proveedor_nombre || detected.emisor_nombre || '',
+    destino: ruta?.destino || detected.destino_sugerido || detected.cliente_nombre || detected.receptor_nombre || '',
     operador_nombre: operador ? trv2CatalogLabel('operadores', operador) : '',
     vehiculo_alias: vehiculo ? trv2CatalogLabel('vehiculos', vehiculo) : '',
     producto_descripcion: detected.producto || '',
-    volumen_litros: Number(detected.cantidad_litros || 0),
-    peso_kg: Number(detected.peso_kg || 0),
+    volumen_litros: Number(detected.litros || detected.cantidad_litros || 0),
+    peso_kg: Number(detected.kilos || detected.peso_kg || 0),
     fecha_salida: fechaSalida,
-    fecha_llegada_estimada: document.getElementById(trv2DocFieldId(scope, 'fecha-llegada'))?.value || '',
+    fecha_llegada_estimada: fechaLlegada,
     estatus: 'borrador',
     observaciones: `Documento cliente ${detected.folio || detected.uuid || ''}`.trim(),
     metadata: {
