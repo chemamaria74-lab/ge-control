@@ -92,6 +92,13 @@ th,td{padding:13px 14px;border-bottom:1px solid var(--trv2-line);text-align:left
 th{background:#f3eee7;color:#6c665d;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
 tbody tr:last-child td{border-bottom:0}
 .trv2-empty{padding:36px;text-align:center;color:var(--trv2-muted);font-weight:800}
+.trv2-auth-required{padding:42px 18px 78px;display:grid;place-items:center;min-height:calc(100vh - 150px)}
+.trv2-auth-required[hidden]{display:none}
+.trv2-auth-required>div{width:min(680px,100%);background:#fff;border:1px solid var(--trv2-line);border-radius:8px;box-shadow:0 20px 52px rgba(17,17,17,.1);padding:34px;text-align:center}
+.trv2-auth-required i{font-size:42px;color:var(--trv2-gold);margin-bottom:14px}
+.trv2-auth-required h1{margin:0 0 10px;font-size:clamp(28px,4vw,40px);color:var(--trv2-maroon)}
+.trv2-auth-required p{margin:0 auto;color:var(--trv2-muted);line-height:1.55;max-width:520px}
+.trv2-auth-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:24px}
 .trv2-chip{display:inline-flex;align-items:center;border-radius:999px;border:1px solid var(--trv2-line);padding:4px 9px;font-size:12px;font-weight:900;background:#faf8f5}
 .trv2-cp-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
 .trv2-cp-summary div{border:1px solid var(--trv2-line);border-radius:8px;background:#faf8f5;padding:13px}
