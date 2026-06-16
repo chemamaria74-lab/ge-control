@@ -37,6 +37,16 @@ def _gas_lp_cliente_existing_by_rfc(sb, user: dict, rfc: str, *, exclude_id: int
     return None
 
 
+def _gas_lp_cliente_is_active(row: dict) -> bool:
+    value = (row or {}).get("activo")
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    text = str(value).strip().lower()
+    return text not in {"", "0", "false", "f", "no", "n", "inactivo", "inactive", "disabled", "deleted", "eliminado"}
+
+
 def _gas_lp_cliente_invoice_counts(sb, user: dict, clientes: list[dict]) -> dict[int, int]:
     cliente_ids = sorted({_safe_int_id(row.get("id")) for row in clientes if _safe_int_id(row.get("id"))})
     if not cliente_ids:
@@ -788,7 +798,7 @@ async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, to
     sb = get_supabase_admin()
     existing = _gas_lp_cliente_existing_by_rfc(sb, user, row.get("rfc") or "")
     if existing:
-        if existing.get("activo") is False:
+        if not _gas_lp_cliente_is_active(existing):
             update_row = _gas_lp_cliente_editable_update(row)
             current_metadata = existing.get("metadata") if isinstance(existing.get("metadata"), dict) else {}
             new_metadata = update_row.get("metadata") if isinstance(update_row.get("metadata"), dict) else {}
