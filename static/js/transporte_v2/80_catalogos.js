@@ -13,7 +13,7 @@ const TRV2_CATALOG_FORMS = {
     ['telefono', 'Teléfono'],
   ],
   vehiculos: [
-    ['alias', 'Alias / unidad'],
+    ['alias', 'Número económico / unidad'],
     ['placas', 'Placas'],
     ['config_vehicular', 'Config. vehicular'],
     ['modelo', 'Modelo'],
@@ -44,6 +44,44 @@ const TRV2_CATALOG_FORMS = {
   ],
 };
 
+const TRV2_CATALOG_UI = {
+  clientes: {
+    icon: 'fa-building-user',
+    title: 'Clientes',
+    subtitle: 'Receptores y contrapartes del servicio de transporte.',
+    metrics: [['Registros', 'count'], ['Con RFC', 'rfc'], ['Con CP', 'cp']],
+    fields: [['RFC', 'rfc'], ['CP', 'cp'], ['Régimen', 'regimen_fiscal'], ['Uso CFDI', 'uso_cfdi']],
+  },
+  operadores: {
+    icon: 'fa-id-card',
+    title: 'Operadores / Choferes',
+    subtitle: 'Figuras Transporte tipo 01 para Carta Porte.',
+    metrics: [['Registros', 'count'], ['Con RFC figura', 'rfc_figura'], ['Con licencia', 'licencia']],
+    fields: [['RFC Figura', 'rfc_figura'], ['Licencia', 'licencia'], ['Teléfono', 'telefono']],
+  },
+  vehiculos: {
+    icon: 'fa-truck-moving',
+    title: 'Vehículos',
+    subtitle: 'Unidades, autotanques, permisos y seguros.',
+    metrics: [['Registros', 'count'], ['Con placas', 'placas'], ['Con seguro RC', 'poliza_rc']],
+    fields: [['Placas', 'placas'], ['Config.', 'config_vehicular'], ['Permiso', 'permiso_sct'], ['Seguro', 'poliza_rc']],
+  },
+  productos: {
+    icon: 'fa-gas-pump',
+    title: 'Productos / Mercancías',
+    subtitle: 'Claves SAT, unidades y material peligroso.',
+    metrics: [['Registros', 'count'], ['Mat. peligroso', 'material_peligroso'], ['Con clave SAT', 'clave_producto']],
+    fields: [['Clave SAT', 'clave_producto'], ['Unidad', 'unidad'], ['Material peligroso', 'material_peligroso'], ['Embalaje', 'embalaje']],
+  },
+  rutas: {
+    icon: 'fa-route',
+    title: 'Rutas / Origen-Destino',
+    subtitle: 'Instalaciones, origen, destino y distancia.',
+    metrics: [['Registros', 'count'], ['Con distancia', 'distancia_km'], ['Con CP origen', 'cp_origen']],
+    fields: [['Origen', 'origen'], ['Destino', 'destino'], ['Distancia km', 'distancia_km'], ['CP destino', 'cp_destino']],
+  },
+};
+
 async function trv2LoadCatalogs(options = {}) {
   const names = Object.keys(TRV2_CATALOG_LABELS);
   const results = await Promise.all(names.map(async name => {
@@ -51,8 +89,10 @@ async function trv2LoadCatalogs(options = {}) {
     TRV2_CATALOGS[name] = data?.items || [];
     return {name, data};
   }));
-  trv2RenderCatalogs(results);
+  trv2RenderCatalogTabs();
+  trv2RenderActiveCatalog();
   trv2PopulateTripSelects();
+  if (typeof trv2PopulateControlVolumetricoFilters === 'function') trv2PopulateControlVolumetricoFilters();
   if (!options.silent && results.some(r => r.data?.needs_schema)) {
     trv2Toast('Catálogos Transporte v2 pendientes de esquema SQL.', 'error');
   }
@@ -66,27 +106,109 @@ function trv2CatalogLabel(name, item) {
   return item.nombre || `#${item.id}`;
 }
 
-function trv2RenderCatalogs(results) {
-  const grid = document.getElementById('trv2-catalogs-grid');
-  if (!grid) return;
-  grid.innerHTML = results.map(({name, data}) => {
-    const items = data?.items || [];
-    const body = data?.needs_schema
-      ? `<p class="trv2-muted">${trv2Esc(data.message)}</p>`
-      : items.length
-        ? items.slice(0, 8).map(item => `<div class="trv2-chip">${trv2Esc(trv2CatalogLabel(name, item))}</div>`).join(' ')
-        : '<p class="trv2-muted">Sin registros todavía.</p>';
+function trv2RenderCatalogTabs() {
+  const tabs = document.getElementById('trv2-catalog-tabs');
+  if (!tabs) return;
+  tabs.innerHTML = Object.keys(TRV2_CATALOG_LABELS).map(name => {
+    const ui = TRV2_CATALOG_UI[name] || {};
+    const active = name === TRV2_ACTIVE_CATALOG ? 'active' : '';
     return `
-      <section class="trv2-panel">
-        <h2>${trv2Esc(TRV2_CATALOG_LABELS[name])}</h2>
-        <form class="trv2-catalog-form" onsubmit="trv2CreateCatalogItem(event, '${trv2Esc(name)}')">
-          ${trv2RenderCatalogFields(name)}
-          <button class="trv2-btn trv2-btn-primary" type="submit">Guardar</button>
-        </form>
-        <div class="trv2-catalog-list">${body}</div>
-      </section>
+      <button class="trv2-subtab ${active}" type="button" onclick="trv2SetActiveCatalog('${trv2Esc(name)}')">
+        <i class="fa-solid ${trv2Esc(ui.icon || 'fa-table-list')}"></i>
+        ${trv2Esc(ui.title || TRV2_CATALOG_LABELS[name])}
+        <span>${Number((TRV2_CATALOGS[name] || []).length)}</span>
+      </button>
     `;
   }).join('');
+}
+
+function trv2SetActiveCatalog(name) {
+  TRV2_ACTIVE_CATALOG = name;
+  const search = document.getElementById('trv2-catalog-search');
+  if (search) search.value = '';
+  trv2RenderCatalogTabs();
+  trv2RenderActiveCatalog();
+}
+
+function trv2CatalogMetricValue(items, key) {
+  if (key === 'count') return items.length;
+  return items.filter(item => {
+    const value = item[key];
+    if (typeof value === 'boolean') return value;
+    return String(value ?? '').trim();
+  }).length;
+}
+
+function trv2RenderCatalogMetrics(name, items) {
+  const metrics = document.getElementById('trv2-catalog-metrics');
+  if (!metrics) return;
+  const ui = TRV2_CATALOG_UI[name] || {};
+  metrics.innerHTML = (ui.metrics || []).map(([label, key]) => `
+    <article>
+      <span>${trv2Esc(label)}</span>
+      <strong>${Number(trv2CatalogMetricValue(items, key)).toLocaleString('es-MX')}</strong>
+    </article>
+  `).join('');
+}
+
+function trv2RenderActiveCatalog() {
+  const panel = document.getElementById('trv2-catalogs-grid');
+  const caption = document.getElementById('trv2-catalog-caption');
+  if (!panel) return;
+  const name = TRV2_ACTIVE_CATALOG || 'clientes';
+  const ui = TRV2_CATALOG_UI[name] || {};
+  const items = TRV2_CATALOGS[name] || [];
+  const query = (document.getElementById('trv2-catalog-search')?.value || '').toLowerCase().trim();
+  const filtered = query
+    ? items.filter(item => JSON.stringify(item).toLowerCase().includes(query))
+    : items;
+  if (caption) caption.textContent = ui.subtitle || '';
+  trv2RenderCatalogMetrics(name, filtered);
+  if (!filtered.length) {
+    panel.innerHTML = `
+      <div class="trv2-catalog-empty">
+        <i class="fa-solid ${trv2Esc(ui.icon || 'fa-table-list')}"></i>
+        <h2>${trv2Esc(ui.title || TRV2_CATALOG_LABELS[name])}</h2>
+        <p>${query ? 'No hay resultados para la búsqueda.' : 'Sin registros todavía.'}</p>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenCatalogModal('${trv2Esc(name)}')"><i class="fa-solid fa-plus"></i> Nuevo</button>
+      </div>
+    `;
+    return;
+  }
+  panel.innerHTML = `
+    <div class="trv2-catalog-card-grid">
+      ${filtered.map(item => trv2RenderCatalogCard(name, item)).join('')}
+    </div>
+  `;
+}
+
+function trv2RenderCatalogCard(name, item) {
+  const ui = TRV2_CATALOG_UI[name] || {};
+  const status = item.activo === false ? 'Inactivo' : 'Activo';
+  const statusClass = item.activo === false ? 'inactive' : 'active';
+  const rows = (ui.fields || []).map(([label, key]) => {
+    const raw = item[key];
+    const value = typeof raw === 'boolean' ? (raw ? 'Sí' : 'No') : raw;
+    return `
+      <div class="trv2-card-row">
+        <span>${trv2Esc(label)}</span>
+        <strong>${trv2Esc(value || 'Pendiente')}</strong>
+      </div>
+    `;
+  }).join('');
+  return `
+    <article class="trv2-catalog-card">
+      <div class="trv2-card-head">
+        <span class="trv2-card-icon"><i class="fa-solid ${trv2Esc(ui.icon || 'fa-table-list')}"></i></span>
+        <div>
+          <h3>${trv2Esc(trv2CatalogLabel(name, item))}</h3>
+          <small>#${trv2Esc(item.id || 'nuevo')}</small>
+        </div>
+        <span class="trv2-status ${statusClass}">${status}</span>
+      </div>
+      <div class="trv2-card-body">${rows}</div>
+    </article>
+  `;
 }
 
 function trv2RenderCatalogFields(name) {
@@ -99,9 +221,39 @@ function trv2RenderCatalogFields(name) {
   }).join('');
 }
 
-async function trv2CreateCatalogItem(event, name) {
+function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG) {
+  TRV2_ACTIVE_CATALOG = name || 'clientes';
+  trv2RenderCatalogTabs();
+  const modal = document.getElementById('trv2-catalog-modal');
+  const form = document.getElementById('trv2-catalog-modal-form');
+  const title = document.getElementById('trv2-catalog-modal-title');
+  const subtitle = document.getElementById('trv2-catalog-modal-subtitle');
+  const ui = TRV2_CATALOG_UI[TRV2_ACTIVE_CATALOG] || {};
+  if (!modal || !form) return;
+  if (title) title.textContent = `Nuevo ${ui.title || TRV2_CATALOG_LABELS[TRV2_ACTIVE_CATALOG]}`;
+  if (subtitle) subtitle.textContent = ui.subtitle || 'Alta rápida de Transporte v2.';
+  form.dataset.catalog = TRV2_ACTIVE_CATALOG;
+  form.innerHTML = `
+    ${trv2RenderCatalogFields(TRV2_ACTIVE_CATALOG)}
+    <div class="trv2-form-actions">
+      <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseCatalogModal()">Cancelar</button>
+      <button class="trv2-btn trv2-btn-primary" type="submit">Guardar</button>
+    </div>
+  `;
+  modal.hidden = false;
+}
+
+function trv2CloseCatalogModal() {
+  const modal = document.getElementById('trv2-catalog-modal');
+  const form = document.getElementById('trv2-catalog-modal-form');
+  if (form) form.reset();
+  if (modal) modal.hidden = true;
+}
+
+async function trv2CreateCatalogItem(event, explicitName = '') {
   event.preventDefault();
   const form = event.target;
+  const name = explicitName || form.dataset.catalog || TRV2_ACTIVE_CATALOG;
   const data = {};
   form.querySelectorAll('[data-field]').forEach(input => {
     const key = input.dataset.field;
@@ -114,7 +266,7 @@ async function trv2CreateCatalogItem(event, name) {
   }, {allowError: true});
   if (response?.ok) {
     trv2Toast(`${TRV2_CATALOG_LABELS[name]} guardado.`, 'success');
-    form.reset();
+    trv2CloseCatalogModal();
     await trv2LoadCatalogs({silent: true});
   } else {
     trv2Toast(response?.detail || response?.message || `No se pudo guardar ${TRV2_CATALOG_LABELS[name]}.`, 'error');

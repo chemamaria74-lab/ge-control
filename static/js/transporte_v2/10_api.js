@@ -95,6 +95,7 @@ function trv2SwitchTab(tab) {
   if (tab === 'viajes') trv2LoadTrips();
   if (tab === 'carta-porte') trv2PrepareCartaPorteTab();
   if (tab === 'catalogos') trv2LoadCatalogs();
+  if (tab === 'control-volumetrico') trv2LoadControlVolumetrico();
 }
 
 function trv2ShowSchemaWarning(message) {
@@ -105,14 +106,11 @@ function trv2ShowSchemaWarning(message) {
 }
 
 function trv2Logout() {
-  localStorage.removeItem('zc_token');
-  localStorage.removeItem('sat_token');
   localStorage.removeItem('trv2_perfil');
   TRV2_TOKEN = '';
   TRV2_PERFIL = null;
   TRV2_AUTH_MODE = 'admin_or_visual';
-  trv2ShowAuthBanner();
-  trv2RefreshAll();
+  location.href = '/choice';
 }
 
 async function trv2RefreshAll() {
