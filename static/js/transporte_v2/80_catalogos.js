@@ -31,7 +31,17 @@ const TRV2_SCT_PERMISOS = [
   ['TPAF24', 'Transporte de sustancias químicas'],
   ['TPAF25', 'Otro permiso SCT/SICT aplicable'],
 ];
-const TRV2_CONFIG_VEHICULAR = ['C2', 'C3', 'T2S1', 'T2S2', 'T3S1', 'T3S2', 'T3S3', 'T3S2R3', 'T3S2R4'];
+const TRV2_CONFIG_VEHICULAR = [
+  ['C2', 'Camión unitario de 2 ejes'],
+  ['C3', 'Camión unitario de 3 ejes'],
+  ['T2S1', 'Tractocamión 2 ejes + semirremolque 1 eje'],
+  ['T2S2', 'Tractocamión 2 ejes + semirremolque 2 ejes'],
+  ['T3S1', 'Tractocamión 3 ejes + semirremolque 1 eje'],
+  ['T3S2', 'Tractocamión 3 ejes + semirremolque 2 ejes'],
+  ['T3S3', 'Tractocamión 3 ejes + semirremolque 3 ejes'],
+  ['T3S2R3', 'Tractocamión 3 ejes + semirremolque 2 ejes + remolque 3 ejes'],
+  ['T3S2R4', 'Tractocamión 3 ejes + semirremolque 2 ejes + remolque 4 ejes'],
+];
 const TRV2_REGIMENES_FISCALES = [
   ['601', 'General de Ley Personas Morales'],
   ['603', 'Personas Morales con Fines no Lucrativos'],
@@ -56,8 +66,12 @@ const TRV2_ESTADOS_SAT = [
   ['MEX', 'Estado de México'],
 ];
 const TRV2_MUNICIPIOS_SAT = {
-  JAL: [['123', 'Zapotlanejo'], ['091', 'Teocaltiche'], ['039', 'Guadalajara']],
-  ZAC: [['048', 'Tlaltenango de Sánchez Román'], ['056', 'Zacatecas']],
+  JAL: [['039', 'Guadalajara'], ['078', 'San Miguel el Alto'], ['116', 'Villa Hidalgo'], ['123', 'Zapotlanejo'], ['091', 'Teocaltiche']],
+  ZAC: [['051', 'Villa de Cos'], ['048', 'Tlaltenango de Sánchez Román'], ['020', 'Jerez'], ['056', 'Zacatecas']],
+};
+const TRV2_LOCALIDADES_SAT = {
+  JAL: [['01', 'Localidad principal / cabecera municipal']],
+  ZAC: [['01', 'Localidad principal / cabecera municipal']],
 };
 const TRV2_PRODUCTOS_SAT = [
   ['15111510', 'Gas licuado de petróleo'],
@@ -65,6 +79,13 @@ const TRV2_PRODUCTOS_SAT = [
   ['15101515', 'Gasolina premium mayor o igual a 91 octanos'],
   ['15101505', 'Combustible diesel'],
 ];
+const TRV2_SUBPRODUCTOS_SAT = {
+  'Gas LP': [['SP18', 'Gas LP / Petrolífero configurable pendiente de validar SAT']],
+  Magna: [['SP16', 'Gasolina menor a 91 octanos / Magna']],
+  Premium: [['SP17', 'Gasolina mayor o igual a 91 octanos / Premium']],
+  'Diésel': [['SP15', 'Diésel automotriz']],
+  default: [['', 'Sin subproducto / pendiente de validar SAT']],
+};
 const TRV2_UNIDADES_SAT = [['LTR', 'Litro'], ['KGM', 'Kilogramo'], ['E48', 'Unidad de servicio']];
 const TRV2_MATERIALES_PELIGROSOS = [['1075', 'Gas licuado de petróleo'], ['1203', 'Gasolina'], ['1202', 'Diésel']];
 const TRV2_EMBALAJES = [['4H2', 'Cajas de plástico sólido'], ['Z01', 'No aplica / a granel']];
@@ -115,7 +136,7 @@ const TRV2_CATALOG_FORMS = {
   productos: [
     ['descripcion', 'Descripción'],
     ['clave_producto', 'Clave producto SAT', 'producto-sat'],
-    ['clave_subproducto', 'Clave subproducto'],
+    ['clave_subproducto', 'Clave subproducto', 'subproducto-sat'],
     ['unidad', 'Unidad', 'unidad-sat'],
     ['material_peligroso', 'Material peligroso', 'checkbox'],
     ['clave_material_peligroso', 'Clave mat. peligroso', 'material-peligroso'],
@@ -143,12 +164,14 @@ const TRV2_CATALOG_FORMS = {
   instalaciones: [
     ['nombre', 'Nombre visible'],
     ['tipo_carta_porte', 'Tipo Carta Porte', 'cp-location-type'],
+    ['permiso_cre', 'Permiso CRE'],
+    ['clave_instalacion', 'Clave instalación'],
     ['cp', 'CP'],
     ['direccion', 'Domicilio'],
     ['id_ubicacion_carta_porte', 'ID ubicación Carta Porte'],
     ['estado_sat', 'Estado SAT', 'estado-sat'],
     ['municipio_sat', 'Municipio SAT', 'municipio-sat'],
-    ['localidad_sat', 'Localidad SAT'],
+    ['localidad_sat', 'Localidad SAT', 'localidad-sat'],
     ['referencia', 'Referencia'],
     ['activo', 'Activo', 'checkbox'],
   ],
@@ -407,7 +430,7 @@ function trv2RenderCatalogFields(name) {
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="${onchange}">${trv2CatalogOptions(catalog, `Selecciona ${label.toLowerCase()}`)}</select></label>`;
     }
     if (type === 'product-type') {
-      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="trv2RefreshProductSatDefaults()">
         <option value="">Seleccionar</option><option>Gas LP</option><option>Magna</option><option>Premium</option><option>Diésel</option>
       </select></label>`;
     }
@@ -420,7 +443,7 @@ function trv2RenderCatalogFields(name) {
     if (type === 'vehicle-config') {
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
         <option value="">Seleccionar configuración</option>
-        ${TRV2_CONFIG_VEHICULAR.map(code => `<option value="${trv2Esc(code)}">${trv2Esc(code)}</option>`).join('')}
+        ${TRV2_CONFIG_VEHICULAR.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
       </select></label>`;
     }
     if (type === 'cp-location-type') {
@@ -442,15 +465,18 @@ function trv2RenderCatalogFields(name) {
     }
     if (type === 'estado-sat') {
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="trv2RefreshMunicipioSatOptions()">
-        <option value="">Seleccionar estado</option>
+        <option value="">Seleccionar estado SAT</option>
         ${TRV2_ESTADOS_SAT.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
       </select></label>`;
     }
     if (type === 'municipio-sat') {
-      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}><option value="">Selecciona estado primero</option></select></label>`;
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="trv2RefreshLocalidadSatOptions()"><option value="">Selecciona estado primero</option></select></label>`;
+    }
+    if (type === 'localidad-sat') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}><option value="">Selecciona municipio primero</option></select></label>`;
     }
     if (type === 'producto-sat') {
-      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="trv2ApplyProductoSatDefaults()">
         <option value="">Seleccionar producto SAT</option>
         ${TRV2_PRODUCTOS_SAT.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
       </select></label>`;
@@ -459,6 +485,11 @@ function trv2RenderCatalogFields(name) {
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
         <option value="">Seleccionar unidad</option>
         ${TRV2_UNIDADES_SAT.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
+    if (type === 'subproducto-sat') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        ${trv2SubproductoOptions()}
       </select></label>`;
     }
     if (type === 'material-peligroso') {
@@ -473,10 +504,59 @@ function trv2RenderCatalogFields(name) {
         ${TRV2_EMBALAJES.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
       </select></label>`;
     }
+    if (field === 'factor_kg_l') {
+      return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${required ? 'required' : ''} type="number" step="0.000001" placeholder="0.5258"><small class="trv2-field-help">Factor kg/L = densidad usada para convertir litros a kilos cuando la factura no trae ambos datos. Para Gas LP se sugiere 0.5258, editable.</small></label>`;
+    }
     const inputType = type === 'number' ? 'number' : (type === 'date' ? 'date' : 'text');
     const rfcAttr = type === 'rfc' ? 'data-rfc-field' : '';
     return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${rfcAttr} ${required ? 'required' : ''} type="${inputType}" step="0.001"></label>`;
   }).join('');
+}
+
+function trv2SubproductoOptions(productType = '') {
+  const type = productType || document.querySelector('#trv2-catalog-modal-form [data-field="tipo_producto"]')?.value || 'default';
+  const items = TRV2_SUBPRODUCTOS_SAT[type] || TRV2_SUBPRODUCTOS_SAT.default;
+  return '<option value="">Seleccionar subproducto</option>' + items.map(([code, desc]) => (
+    `<option value="${trv2Esc(code)}">${trv2Esc(code ? `${code} — ${desc}` : desc)}</option>`
+  )).join('');
+}
+
+function trv2RefreshProductSatDefaults() {
+  const form = document.getElementById('trv2-catalog-modal-form');
+  if (!form) return;
+  const type = form.querySelector('[data-field="tipo_producto"]')?.value || '';
+  const subproducto = form.querySelector('[data-field="clave_subproducto"]');
+  const factor = form.querySelector('[data-field="factor_kg_l"]');
+  if (subproducto) {
+    const current = subproducto.value;
+    subproducto.innerHTML = trv2SubproductoOptions(type);
+    if ([...subproducto.options].some(option => option.value === current)) subproducto.value = current;
+  }
+  if (type === 'Gas LP' && factor && !factor.value) factor.value = '0.5258';
+}
+
+function trv2ApplyProductoSatDefaults() {
+  const form = document.getElementById('trv2-catalog-modal-form');
+  if (!form) return;
+  const clave = form.querySelector('[data-field="clave_producto"]')?.value || '';
+  const setIfEmpty = (field, value) => {
+    const input = form.querySelector(`[data-field="${field}"]`);
+    if (input && !input.value) input.value = value;
+  };
+  const setChecked = (field, value) => {
+    const input = form.querySelector(`[data-field="${field}"]`);
+    if (input && input.type === 'checkbox') input.checked = value;
+  };
+  if (clave === '15111510') {
+    setIfEmpty('descripcion', 'GAS L.P.');
+    setIfEmpty('unidad', 'LTR');
+    setChecked('material_peligroso', true);
+    setIfEmpty('clave_material_peligroso', '1075');
+    setIfEmpty('embalaje', '4H2');
+    setIfEmpty('tipo_producto', 'Gas LP');
+    setIfEmpty('factor_kg_l', '0.5258');
+    trv2RefreshProductSatDefaults();
+  }
 }
 
 function trv2RefreshMunicipioSatOptions() {
@@ -492,6 +572,22 @@ function trv2RefreshMunicipioSatOptions() {
   )).join('');
   if ([...municipio.options].some(option => option.value === current)) municipio.value = current;
   municipio.dataset.pendingValue = '';
+  trv2RefreshLocalidadSatOptions();
+}
+
+function trv2RefreshLocalidadSatOptions() {
+  const form = document.getElementById('trv2-catalog-modal-form');
+  if (!form) return;
+  const estado = form.querySelector('[data-field="estado_sat"]')?.value || '';
+  const localidad = form.querySelector('[data-field="localidad_sat"]');
+  if (!localidad) return;
+  const current = localidad.dataset.pendingValue || localidad.value;
+  const items = TRV2_LOCALIDADES_SAT[estado] || [];
+  localidad.innerHTML = '<option value="">Seleccionar localidad</option>' + items.map(([code, desc]) => (
+    `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`
+  )).join('');
+  if ([...localidad.options].some(option => option.value === current)) localidad.value = current;
+  localidad.dataset.pendingValue = '';
 }
 
 function trv2ValidRfc(value) {
@@ -548,8 +644,10 @@ function trv2FillCatalogModalForm(form, item) {
     else {
       input.value = value ?? '';
       if (key === 'municipio_sat') input.dataset.pendingValue = value ?? '';
+      if (key === 'localidad_sat') input.dataset.pendingValue = value ?? '';
     }
   });
+  trv2RefreshProductSatDefaults();
 }
 
 function trv2CloseCatalogModal() {
@@ -609,7 +707,11 @@ function trv2ValidateCatalogPayload(name, data) {
     if (!data.uso_cfdi) return `Cliente ${data.nombre || ''} no tiene Uso CFDI SAT.`;
   }
   if (name === 'instalaciones') {
+    if (!data.nombre) return 'Instalación Carta Porte sin nombre.';
+    if (!data.tipo_carta_porte) return `Instalación ${data.nombre || ''} no tiene tipo Origen/Destino/Ambos.`;
     if (!trv2ValidCp(data.cp)) return `Instalación ${data.nombre || ''} no tiene CP válido de 5 dígitos.`;
+    if (!data.estado_sat) return `Instalación ${data.nombre || ''} no tiene Estado SAT.`;
+    if (!data.municipio_sat) return `Instalación ${data.nombre || ''} no tiene Municipio SAT.`;
   }
   if (name === 'productos') {
     if (!data.clave_producto) return `Mercancía ${data.descripcion || ''} no tiene clave producto SAT.`;
@@ -617,6 +719,7 @@ function trv2ValidateCatalogPayload(name, data) {
     if (data.material_peligroso && !data.clave_material_peligroso) return `Mercancía ${data.descripcion || ''} no tiene clave material peligroso.`;
     if (data.material_peligroso && !data.embalaje) return `Mercancía ${data.descripcion || ''} no tiene embalaje.`;
     if (data.factor_kg_l && Number(data.factor_kg_l) <= 0) return `Mercancía ${data.descripcion || ''} tiene factor kg/L inválido.`;
+    if (data.tipo_producto === 'Gas LP' && !data.clave_subproducto) return 'Mercancía Gas LP requiere clave subproducto para preparar Carta Porte/JSON SAT.';
   }
   return '';
 }
@@ -630,6 +733,14 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
     cp: data.cp,
     direccion: data.direccion,
     tipo,
+    tipo_carta_porte: tipo,
+    permiso_cre: data.permiso_cre,
+    clave_instalacion: data.clave_instalacion,
+    id_ubicacion_carta_porte: data.id_ubicacion_carta_porte,
+    estado_sat: data.estado_sat,
+    municipio_sat: data.municipio_sat,
+    localidad_sat: data.localidad_sat,
+    referencia: data.referencia,
     activo: data.activo,
   };
   for (const target of targets) {
