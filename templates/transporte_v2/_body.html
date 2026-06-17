@@ -294,14 +294,20 @@
             <h2>Tarifas Flete</h2>
             <p class="trv2-muted">Matriz por proveedor origen, cliente destino y producto. Tarifa por kilo.</p>
           </div>
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2AddServiceTariff()">+ Agregar tarifa</button>
         </div>
-        <form class="trv2-form trv2-form-compact" id="trv2-service-tariff-form" onsubmit="trv2SaveServiceTariff(event)">
+        <form class="trv2-form trv2-form-compact trv2-tariff-editor" id="trv2-service-tariff-form" onsubmit="trv2SaveServiceTariff(event)" hidden>
+          <div class="trv2-form-title">
+            <strong>Nueva tarifa</strong>
+            <span>Captura proveedor origen, cliente destino, producto y tarifa por kilo.</span>
+          </div>
           <label>Proveedor origen <select id="trv2-tarifa-proveedor" required></select></label>
           <label>Cliente destino <select id="trv2-tarifa-cliente" required></select></label>
           <label>Producto <select id="trv2-tarifa-producto" required></select></label>
           <label>Tarifa <input id="trv2-tarifa-valor" type="number" step="0.0001" min="0" required></label>
           <div class="trv2-form-actions">
             <button class="trv2-btn trv2-btn-primary" type="submit">Guardar tarifa</button>
+            <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ClearServiceTariffForm()">Cancelar</button>
           </div>
         </form>
         <div id="trv2-service-tariffs" class="trv2-table-wrap"></div>
@@ -457,7 +463,7 @@
         <div class="trv2-divider"></div>
         <div class="trv2-table-head">
           <div>
-            <h2><i class="fa-solid fa-id-badge"></i> Permisos CRE del transportista</h2>
+            <h2>Permisos CRE del transportista</h2>
             <p class="trv2-muted">Estos permisos alimentan Reportes SAT / JSON mensual. Los proveedores se administran en Catálogos.</p>
           </div>
           <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2NewPermisoRfc()">+ Nuevo permiso</button>
