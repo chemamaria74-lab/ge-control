@@ -250,21 +250,62 @@
     <div class="trv2-section-head">
       <div>
         <h1>Facturas de servicio</h1>
-        <p>Control visual de servicios pendientes de facturar, facturados y pendientes de pago.</p>
+        <p>Genera el registro local de facturas de flete a partir de viajes con Carta Porte timbrada.</p>
       </div>
     </div>
-    <div class="trv2-kpis">
+    <div class="trv2-kpis trv2-kpis-compact" id="trv2-service-invoice-kpis">
       <article><span>Pendientes de facturar</span><strong>0</strong></article>
       <article><span>Facturadas</span><strong>0</strong></article>
       <article><span>Pendientes de pago</span><strong>0</strong></article>
-      <article><span>Listas para revisión</span><strong>0</strong></article>
+      <article><span>Falta tarifa</span><strong>0</strong></article>
     </div>
     <section class="trv2-panel">
       <div class="trv2-table-head">
-        <div><h2>Servicios por viaje</h2><p class="trv2-muted">Fuente futura: viajes, Carta Porte lista, cliente detectado e importe/tarifa.</p></div>
-        <button class="trv2-btn trv2-btn-primary" type="button" disabled>Generar factura</button>
+        <div>
+          <h2>Tarifas Flete</h2>
+          <p class="trv2-muted">Coincidencia exacta por origen, destino y producto. Tarifa por kilo.</p>
+        </div>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2AddServiceTariff()">Agregar tarifa</button>
       </div>
-      <div class="trv2-empty">Facturación de servicio pendiente para una etapa posterior. No timbra CFDI.</div>
+      <form class="trv2-form trv2-form-compact" id="trv2-service-tariff-form" onsubmit="trv2SaveServiceTariff(event)">
+        <label>Origen <input id="trv2-tarifa-origen" required></label>
+        <label>Destino <input id="trv2-tarifa-destino" required></label>
+        <label>Producto <input id="trv2-tarifa-producto" required></label>
+        <label>Tarifa <input id="trv2-tarifa-valor" type="number" step="0.0001" min="0" required></label>
+        <div class="trv2-form-actions">
+          <button class="trv2-btn trv2-btn-primary" type="submit">Guardar tarifa</button>
+        </div>
+      </form>
+      <div id="trv2-service-tariffs" class="trv2-catalog-cards"></div>
+    </section>
+    <section class="trv2-panel">
+      <nav class="trv2-subtabs" aria-label="Facturas de servicio">
+        <button class="trv2-subtab active" type="button" data-service-tab="pendientes" onclick="trv2SetServiceInvoiceTab('pendientes')">Servicios pendientes de facturar</button>
+        <button class="trv2-subtab" type="button" data-service-tab="facturadas" onclick="trv2SetServiceInvoiceTab('facturadas')">Facturadas</button>
+        <button class="trv2-subtab" type="button" data-service-tab="pago" onclick="trv2SetServiceInvoiceTab('pago')">Pendientes de pago</button>
+      </nav>
+      <div class="trv2-table-wrap" data-service-panel="pendientes">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Origen</th><th>Destino</th><th>Producto</th><th>Litros</th><th>Kilos</th><th>Chofer</th><th>Vehículo</th><th>UUID Carta Porte</th><th>Tarifa</th><th>Subtotal</th><th>IVA</th><th>Retención</th><th>Total</th><th>Estatus</th><th>Acción</th>
+            </tr>
+          </thead>
+          <tbody id="trv2-service-pending-table"></tbody>
+        </table>
+      </div>
+      <div class="trv2-table-wrap" data-service-panel="facturadas" hidden>
+        <table>
+          <thead><tr><th>Fecha</th><th>Cliente</th><th>UUID CFDI</th><th>Total</th><th>PDF</th><th>XML</th></tr></thead>
+          <tbody id="trv2-service-invoiced-table"></tbody>
+        </table>
+      </div>
+      <div class="trv2-table-wrap" data-service-panel="pago" hidden>
+        <table>
+          <thead><tr><th>Cliente</th><th>Fecha</th><th>Total</th><th>Saldo</th><th>Estatus</th></tr></thead>
+          <tbody id="trv2-service-payment-table"></tbody>
+        </table>
+      </div>
     </section>
   </section>
 
