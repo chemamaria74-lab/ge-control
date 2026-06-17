@@ -1518,12 +1518,9 @@ def _legacy_trip_patch_row(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _tipo_cfdi_sugerido(viaje: dict[str, Any], cliente: dict[str, Any], requested: str = "") -> str:
-    explicit = _first_text(requested, viaje.get("tipo_cfdi"), _meta(viaje).get("tipo_cfdi")).upper()
-    if explicit in {"I", "T"}:
-        return explicit
-    if viaje.get("cliente_id") or _first_text(_meta(viaje).get("cliente_nombre"), cliente.get("nombre")):
-        return "I"
-    return "T"
+    # Transporte v2 timbra Carta Porte como CFDI de Ingreso por servicio de transporte.
+    # No se expone selector de tipo CFDI para evitar timbrados ambiguos o duplicados.
+    return "I"
 
 
 def _is_hidrocarburo(text: str) -> bool:
@@ -2170,13 +2167,26 @@ async def transporte_v2_eliminar_viaje(
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     try:
-        query = _sb(token).table(TBL_VIAJES).select("id,status,estatus,uuid_cfdi,metadata").eq("id", viaje_id).eq("user_id", uid).limit(1)
+        query = _sb(token).table(TBL_VIAJES).select("id,user_id,perfil_id,status,estatus,uuid_cfdi,metadata").eq("id", viaje_id).eq("user_id", uid).limit(1)
         if pid:
             query = query.eq("perfil_id", pid)
         rows = query.execute().data or []
+        if not rows and pid:
+            rows = (
+                _sb(token)
+                .table(TBL_VIAJES)
+                .select("id,user_id,perfil_id,status,estatus,uuid_cfdi,metadata")
+                .eq("id", viaje_id)
+                .eq("user_id", uid)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
         if not rows:
             raise HTTPException(404, "Movimiento Transporte v2 no encontrado.")
         row = rows[0]
+        row_pid = row.get("perfil_id")
         metadata = _meta(row)
         status = _first_text(row.get("status"), row.get("estatus"), metadata.get("status")).lower()
         uuid = _first_text(row.get("uuid_cfdi"), metadata.get("uuid_carta_porte"), metadata.get("cfdi_uuid"))
@@ -2194,8 +2204,8 @@ async def transporte_v2_eliminar_viaje(
         ):
             try:
                 q_update = _sb(token).table(TBL_VIAJES).update(candidate).eq("id", viaje_id).eq("user_id", uid)
-                if pid:
-                    q_update = q_update.eq("perfil_id", pid)
+                if row_pid:
+                    q_update = q_update.eq("perfil_id", row_pid)
                 updated = q_update.execute().data or []
                 update = candidate
                 last_exc = None
