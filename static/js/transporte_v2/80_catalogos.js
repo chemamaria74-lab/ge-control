@@ -31,6 +31,15 @@ const TRV2_SCT_PERMISOS = [
   ['TPAF24', 'Transporte de sustancias químicas'],
   ['TPAF25', 'Otro permiso SCT/SICT aplicable'],
 ];
+const TRV2_TIPOS_LICENCIA = [
+  ['A', 'Transporte de pasajeros'],
+  ['B', 'Transporte de carga general'],
+  ['C', 'Transporte de carga de dos o tres ejes'],
+  ['D', 'Autotransporte de turismo'],
+  ['E', 'Materiales/residuos peligrosos'],
+  ['F', 'Transporte privado'],
+  ['BE', 'Carga general + remolque / configuración aplicable'],
+];
 const TRV2_CONFIG_VEHICULAR = [
   ['C2', 'Camión unitario de 2 ejes'],
   ['C3', 'Camión unitario de 3 ejes'],
@@ -113,7 +122,7 @@ const TRV2_CATALOG_FORMS = {
     ['nombre', 'Nombre'],
     ['rfc_figura', 'RFC Figura', 'rfc'],
     ['licencia', 'Licencia federal'],
-    ['tipo_licencia', 'Tipo licencia'],
+    ['tipo_licencia', 'Tipo licencia', 'license-type'],
     ['vencimiento_licencia', 'Vencimiento licencia', 'date'],
     ['telefono', 'Teléfono'],
     ['activo', 'Activo', 'checkbox'],
@@ -123,6 +132,8 @@ const TRV2_CATALOG_FORMS = {
     ['placas', 'Placas'],
     ['config_vehicular', 'Config. vehicular', 'vehicle-config'],
     ['modelo', 'Modelo'],
+    ['vin', 'VIN / NIV'],
+    ['numero_motor', 'Número de motor'],
     ['anio', 'Año'],
     ['permiso_sct', 'Permiso SCT/SICT', 'sct-permit'],
     ['num_permiso_sct', 'Núm. permiso'],
@@ -172,7 +183,6 @@ const TRV2_CATALOG_FORMS = {
     ['estado_sat', 'Estado SAT', 'estado-sat'],
     ['municipio_sat', 'Municipio SAT', 'municipio-sat'],
     ['localidad_sat', 'Localidad SAT', 'localidad-sat'],
-    ['referencia', 'Referencia'],
     ['activo', 'Activo', 'checkbox'],
   ],
   rutas: [
@@ -207,7 +217,7 @@ const TRV2_CATALOG_UI = {
     title: 'Vehículos',
     subtitle: 'Unidades, autotanques, permisos y seguros.',
     metrics: [['Registros', 'count'], ['Con placas', 'placas'], ['Con seguro RC', 'poliza_rc']],
-    fields: [['Placas', 'placas'], ['Config.', 'config_vehicular'], ['Permiso', 'permiso_sct'], ['Seguro', 'poliza_rc']],
+    fields: [['Placas', 'placas'], ['Config.', 'config_vehicular'], ['VIN / NIV', 'vin'], ['Motor', 'numero_motor'], ['Permiso', 'permiso_sct'], ['Seguro', 'poliza_rc']],
   },
   productos: {
     icon: 'fa-gas-pump',
@@ -434,6 +444,12 @@ function trv2RenderCatalogFields(name) {
         <option value="">Seleccionar</option><option>Gas LP</option><option>Magna</option><option>Premium</option><option>Diésel</option>
       </select></label>`;
     }
+    if (type === 'license-type') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar tipo licencia</option>
+        ${TRV2_TIPOS_LICENCIA.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
     if (type === 'sct-permit') {
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
         <option value="">Seleccionar permiso SCT/SICT</option>
@@ -555,6 +571,16 @@ function trv2ApplyProductoSatDefaults() {
     setIfEmpty('embalaje', '4H2');
     setIfEmpty('tipo_producto', 'Gas LP');
     setIfEmpty('factor_kg_l', '0.5258');
+    trv2RefreshProductSatDefaults();
+  }
+  if (clave === '15101515') {
+    setIfEmpty('descripcion', 'PREMIUM');
+    setIfEmpty('unidad', 'LTR');
+    setChecked('material_peligroso', true);
+    setIfEmpty('clave_material_peligroso', '1203');
+    setIfEmpty('embalaje', 'Z01');
+    setIfEmpty('tipo_producto', 'Premium');
+    setIfEmpty('factor_kg_l', '0.524');
     trv2RefreshProductSatDefaults();
   }
 }
@@ -724,6 +750,15 @@ function trv2ValidateCatalogPayload(name, data) {
   return '';
 }
 
+function trv2BuildCartaPorteLocationId(data = {}, target = 'origenes') {
+  const existing = String(data.id_ubicacion_carta_porte || '').trim();
+  if (existing) return existing;
+  const prefix = target === 'destinos' || data.tipo_carta_porte === 'Destino' ? 'DE' : 'OR';
+  const base = String(data.nombre || data.cp || Date.now()).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const digits = String(Math.abs([...base].reduce((sum, ch) => sum + ch.charCodeAt(0), 0))).slice(-6).padStart(6, '0');
+  return `${prefix}${digits}`;
+}
+
 async function trv2SaveInstalacionCatalogItem(itemId, data) {
   const current = itemId ? trv2FindCatalog('instalaciones', itemId) : null;
   const tipo = data.tipo_carta_porte || current?.tipo_carta_porte || 'Origen';
@@ -740,10 +775,10 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
     estado_sat: data.estado_sat,
     municipio_sat: data.municipio_sat,
     localidad_sat: data.localidad_sat,
-    referencia: data.referencia,
     activo: data.activo,
   };
   for (const target of targets) {
+    payload.id_ubicacion_carta_porte = trv2BuildCartaPorteLocationId(data, target);
     const sourceId = current?._source_catalog === target ? Number(current._source_id || 0) : 0;
     const path = sourceId ? `/api/tr-v2/catalogos/${target}/${sourceId}` : `/api/tr-v2/catalogos/${target}`;
     const method = sourceId ? 'PATCH' : 'POST';
