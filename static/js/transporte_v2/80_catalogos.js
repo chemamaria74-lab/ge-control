@@ -506,7 +506,7 @@ function trv2RenderActiveCatalog() {
 }
 
 function trv2CatalogUsesHorizontalList(name) {
-  return ['operadores', 'vehiculos', 'remolques', 'productos', 'rutas', 'instalaciones'].includes(name);
+  return ['clientes', 'operadores', 'vehiculos', 'remolques', 'productos', 'rutas', 'instalaciones'].includes(name);
 }
 
 function trv2RenderVehicleCatalogSubtabs(name) {
