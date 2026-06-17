@@ -62,6 +62,29 @@ function trv2CvStatus(row, productName) {
   return 'borrador';
 }
 
+function trv2CvValidUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+}
+
+function trv2CvCartaPorteUuid(row) {
+  const meta = row.metadata || {};
+  return meta.uuid_carta_porte || meta.carta_porte_uuid || meta.cfdi_uuid || meta.uuid_cfdi || '';
+}
+
+function trv2CvIsStamped(row, uuid) {
+  const meta = row.metadata || {};
+  const status = String(row.estatus || row.status || meta.estatus || meta.status || '').toLowerCase();
+  return Boolean(
+    trv2CvValidUuid(uuid)
+    && (
+      meta.timbrado === true
+      || meta.carta_porte_timbrada === true
+      || meta.cfdi_timbrado === true
+      || status.includes('timbr')
+    )
+  );
+}
+
 function trv2BuildCvMovements() {
   const productFilter = Number(document.getElementById('trv2-cv-producto')?.value || 0);
   const permisoFilter = document.getElementById('trv2-cv-permiso')?.value || '';
@@ -76,6 +99,8 @@ function trv2BuildCvMovements() {
     const date = trv2CvTripDate(row);
     const status = trv2CvStatus(row, productName);
     const permiso = row.metadata?.documento_detectado?.permiso || row.metadata?.proveedor_permiso || row.metadata?.permiso || '';
+    const uuid = trv2CvCartaPorteUuid(row);
+    const exportable = trv2CvIsStamped(row, uuid);
     return {
       row,
       date,
@@ -84,7 +109,8 @@ function trv2BuildCvMovements() {
       vehicleName,
       clientName,
       permiso,
-      uuid: row.metadata?.uuid_carta_porte || '',
+      uuid,
+      exportable,
       hydrocarbon: trv2IsHydrocarbonProduct(productName),
     };
   }).filter(item => {
@@ -101,16 +127,18 @@ function trv2RenderCvKpis(movements) {
   const kpis = document.getElementById('trv2-cv-kpis');
   if (!kpis) return;
   const volume = movements.reduce((sum, item) => sum + Number(item.row.volumen_litros || 0), 0);
-  const withUuidVolume = movements.filter(item => item.uuid).reduce((sum, item) => sum + Number(item.row.volumen_litros || 0), 0);
-  const alerts = movements.filter(item => item.status === 'alerta' || !item.uuid).length;
+  const exportableMovements = movements.filter(item => item.exportable);
+  const exportableVolume = exportableMovements.reduce((sum, item) => sum + Number(item.row.volumen_litros || 0), 0);
+  const alerts = movements.filter(item => item.status === 'alerta' || !item.exportable).length;
   const permiso = document.getElementById('trv2-cv-permiso')?.value || 'Pendiente';
   const permisoItem = (window.TRV2_PERMISOS_RFC || []).find(item => (item.permiso_cre || item.permiso || '') === permiso) || {};
   const cards = [
     ['Volumen transportado', `${volume.toLocaleString('es-MX')} L`],
     ['Viajes', movements.length],
-    ['Cartas Porte', movements.filter(item => item.uuid).length],
+    ['Volumen exportable JSON', `${exportableVolume.toLocaleString('es-MX')} L`],
+    ['Cartas Porte timbradas', exportableMovements.length],
     ['Facturas de servicio', 'Próximamente'],
-    ['UUIDs detectados', movements.filter(item => item.uuid).length],
+    ['UUIDs válidos exportables', exportableMovements.length],
     ['Pendientes de validar', alerts],
     ['Producto', permisoItem.producto || 'Pendiente'],
     ['Permiso', permiso],
@@ -133,8 +161,8 @@ function trv2RenderCvTable(movements) {
   tbody.innerHTML = movements.map(item => {
     const row = item.row;
     const dateText = item.date ? item.date.toLocaleDateString('es-MX') : 'Pendiente';
-    const statusLabel = item.uuid ? 'Borrador con UUID' : 'Pendiente Carta Porte';
-    const statusClass = item.uuid ? 'active' : 'warning';
+    const statusLabel = item.exportable ? 'Timbrado exportable' : (item.uuid ? 'UUID sin timbrado' : 'Pendiente Carta Porte');
+    const statusClass = item.exportable ? 'active' : 'warning';
     return `
       <tr>
         <td>${trv2Esc(dateText)}</td>
@@ -169,15 +197,17 @@ async function trv2LoadControlVolumetrico() {
 
 function trv2ValidateCvDraft() {
   if (!TRV2_CV_MOVEMENTS.length) TRV2_CV_MOVEMENTS = trv2BuildCvMovements();
-  const missingUuid = TRV2_CV_MOVEMENTS.filter(item => !item.uuid).length;
+  const notExportable = TRV2_CV_MOVEMENTS.filter(item => !item.exportable).length;
+  const missingUuid = TRV2_CV_MOVEMENTS.filter(item => !trv2CvValidUuid(item.uuid)).length;
   const nonHydrocarbon = TRV2_CV_MOVEMENTS.filter(item => !item.hydrocarbon).length;
   const alert = document.getElementById('trv2-cv-alert');
   const message = [
     document.getElementById('trv2-cv-permiso')?.value ? 'Permiso mensual seleccionado.' : 'Selecciona un permiso para preparar el corte mensual.',
-    missingUuid ? `${missingUuid} movimiento(s) sin UUID Carta Porte.` : 'UUID Carta Porte completo en movimientos filtrados.',
+    notExportable ? `${notExportable} movimiento(s) visibles no son exportables porque no están timbrados con UUID válido.` : 'Todos los movimientos filtrados están timbrados y con UUID válido.',
+    missingUuid ? `${missingUuid} movimiento(s) sin UUID Carta Porte válido.` : 'UUID Carta Porte válido en movimientos exportables.',
     nonHydrocarbon ? `${nonHydrocarbon} movimiento(s) requieren confirmar si aplican a hidrocarburos/petrolíferos.` : 'Productos del periodo parecen compatibles con Control Volumétrico.',
-    'Exportar JSON SAT sigue deshabilitado hasta validar la estructura fiscal.',
+    'Exportar JSON SAT sigue deshabilitado; cuando se habilite solo tomará viajes timbrados.',
   ].join(' ');
   if (alert) alert.textContent = message;
-  trv2Toast('Borrador de Control Volumétrico validado visualmente. No se generó JSON.', missingUuid ? 'error' : 'success');
+  trv2Toast('Borrador de Control Volumétrico validado visualmente. No se generó JSON.', notExportable ? 'error' : 'success');
 }

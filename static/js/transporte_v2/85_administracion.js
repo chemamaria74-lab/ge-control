@@ -18,6 +18,7 @@ function trv2PopulateOperatorAdminSelects() {
 }
 
 function trv2SetAdminSubtab(name = 'usuarios-operador') {
+  if (!document.querySelector(`[data-admin-tab="${name}"]`)) name = 'usuarios-operador';
   document.querySelectorAll('[data-admin-tab]').forEach(button => {
     button.classList.toggle('active', button.dataset.adminTab === name);
   });

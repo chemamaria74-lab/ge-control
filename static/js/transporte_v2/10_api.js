@@ -156,6 +156,9 @@ async function trv2Api(method, path, body, options = {}) {
 }
 
 function trv2SwitchTab(tab) {
+  if (!trv2ValidTab(tab)) tab = 'carta-porte';
+  localStorage.setItem('trv2_active_tab', tab);
+  if (location.hash !== `#${tab}`) history.replaceState(null, '', `#${tab}`);
   document.querySelectorAll('.trv2-section').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.trv2-tab').forEach(el => el.classList.remove('active'));
   document.getElementById(`trv2-tab-${tab}`)?.classList.add('active');
@@ -168,6 +171,18 @@ function trv2SwitchTab(tab) {
     if (typeof trv2PopulateOperatorAdminSelects === 'function') trv2PopulateOperatorAdminSelects();
     if (typeof trv2LoadOperatorAccesses === 'function') trv2LoadOperatorAccesses();
   }
+}
+
+function trv2ValidTab(tab) {
+  return ['carga-archivos', 'carta-porte', 'facturas-servicio', 'conciliacion', 'reportes-sat', 'catalogos', 'administracion'].includes(tab);
+}
+
+function trv2InitialTab() {
+  const hash = String(location.hash || '').replace('#', '');
+  if (trv2ValidTab(hash)) return hash;
+  const saved = localStorage.getItem('trv2_active_tab') || '';
+  if (trv2ValidTab(saved)) return saved;
+  return 'carta-porte';
 }
 
 function trv2RenderCompanySelector(profiles, force = false) {
@@ -208,7 +223,7 @@ async function trv2SelectCompany(profileId) {
   TRV2_AUTH_MODE = 'authenticated';
   trv2UnblockAdmin();
   trv2Toast(`Empresa activa: ${profile.nombre || 'Transporte'}.`, 'success');
-  await trv2RefreshAll();
+  await trv2LoadActiveTab();
 }
 
 async function trv2LoadCompanyProfiles() {
@@ -302,9 +317,10 @@ async function trv2Logout() {
 }
 
 async function trv2RefreshAll() {
-  await trv2LoadCatalogs({silent: true});
-  await Promise.all([
-    trv2LoadDashboard(),
-    trv2LoadTrips(),
-  ]);
+  await trv2LoadActiveTab();
+}
+
+async function trv2LoadActiveTab() {
+  const tab = trv2InitialTab();
+  trv2SwitchTab(tab);
 }

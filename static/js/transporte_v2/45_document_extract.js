@@ -192,6 +192,11 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
     <div class="trv2-form-wide trv2-alert trv2-alert-warn" id="${scope === 'cp' ? 'trv2-cp-doc-pending' : 'trv2-doc-pending'}">
       Falta seleccionar ruta, vehículo y operador.
     </div>
+    <div class="trv2-form-actions trv2-form-actions-sticky">
+      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2CreateTripFromDocument('${trv2Esc(scope)}')">
+        <i class="fa-solid fa-circle-check"></i> Aceptar / Crear viaje borrador
+      </button>
+    </div>
   `;
   trv2SelectDetectedCatalogValues(scope, detected);
   trv2SetDefaultTripDates(scope);
