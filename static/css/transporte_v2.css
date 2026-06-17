@@ -13,10 +13,10 @@
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--trv2-bg);color:var(--trv2-ink)}
-.trv2-topbar{height:64px;background:var(--trv2-maroon);color:#fff;display:flex;align-items:center;gap:12px;padding:0 18px;box-shadow:0 1px 0 rgba(0,0,0,.16)}
-.trv2-brand{display:flex;align-items:center;gap:12px;color:#fff;text-decoration:none;font-size:21px;font-weight:800;letter-spacing:0}
-.trv2-brand img{width:62px;height:auto}
-.trv2-badge{display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);border-radius:8px;padding:7px 10px;font-size:12px;font-weight:800;white-space:nowrap}
+.trv2-topbar{height:58px;background:var(--trv2-maroon);color:#fff;display:flex;align-items:center;gap:12px;padding:0 16px;box-shadow:0 1px 0 rgba(0,0,0,.16)}
+.trv2-brand{display:flex;align-items:center;gap:11px;color:#fff;text-decoration:none;font-size:20px;font-weight:900;letter-spacing:0}
+.trv2-brand img{width:58px;height:auto}
+.trv2-badge{display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.07);border-radius:8px;padding:7px 10px;font-size:12px;font-weight:800;white-space:nowrap}
 .trv2-company-chip{color:#fff;font:inherit;cursor:pointer;max-width:340px;overflow:hidden;text-overflow:ellipsis}
 .trv2-badge-soft{color:#ffe8a8}
 .trv2-topbar-spacer{flex:1}
@@ -30,8 +30,8 @@ body{margin:0;background:var(--trv2-bg);color:var(--trv2-ink)}
 .trv2-mini-btn{border:1px solid var(--trv2-line);border-radius:7px;background:#fff;color:var(--trv2-ink);font:inherit;font-size:12px;font-weight:900;padding:7px 9px;cursor:pointer;white-space:nowrap}
 .trv2-mini-btn:hover{border-color:var(--trv2-maroon-2);color:var(--trv2-maroon-2)}
 .trv2-mini-btn-danger:hover{border-color:#b91c1c;color:#b91c1c}
-.trv2-tabs{display:flex;align-items:center;gap:0;background:#fff;border-bottom:1px solid var(--trv2-line);padding:0 18px;min-height:48px;overflow:auto}
-.trv2-tab{border:0;border-bottom:3px solid transparent;background:transparent;color:var(--trv2-muted);font:inherit;font-size:14px;font-weight:800;padding:14px 15px;cursor:pointer;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.trv2-tabs{display:flex;align-items:center;gap:0;background:#fff;border-bottom:1px solid var(--trv2-line);padding:0 18px;min-height:46px;overflow:auto}
+.trv2-tab{border:0;border-bottom:3px solid transparent;background:transparent;color:var(--trv2-muted);font:inherit;font-size:14px;font-weight:900;padding:13px 15px;cursor:pointer;display:flex;align-items:center;gap:8px;white-space:nowrap}
 .trv2-tab.active{color:var(--trv2-ink);border-bottom-color:var(--trv2-maroon-2);background:#faf8f5}
 .trv2-shell{max-width:1360px;margin:0 auto;padding:22px 24px 64px}
 .trv2-section{display:none}
