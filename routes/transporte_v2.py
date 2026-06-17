@@ -980,7 +980,8 @@ def _catalog_usage_error(token: str, uid: str, perfil_id: Optional[int], catalog
     }.get(catalogo, [])
     for table, field, label in checks:
         try:
-            query = _sb(token).table(table).select("id,status,uuid_cfdi,metadata").eq("user_id", uid).eq(field, item_id).limit(5)
+            select_cols = "id,status,estatus,uuid_cfdi,metadata" if table == TBL_VIAJES else "id"
+            query = _sb(token).table(table).select(select_cols).eq("user_id", uid).eq(field, item_id).limit(5)
             if perfil_id:
                 query = query.eq("perfil_id", perfil_id)
             rows = query.execute().data or []
@@ -1810,6 +1811,57 @@ async def transporte_v2_operator_access_deactivate(
     return {"ok": True}
 
 
+@router.post("/tr-v2/operator/accesses/{access_id}/eliminar")
+async def transporte_v2_operator_access_delete(
+    access_id: int,
+    payload: TransporteV2SettingsPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    query = _sb(token).table(TBL_OPERADOR_ACCESOS).select("id,chofer_id,status").eq("id", access_id).eq("user_id", uid).limit(1)
+    if pid:
+        query = query.eq("perfil_id", pid)
+    rows = query.execute().data or []
+    if not rows:
+        raise HTTPException(404, "Acceso operador no encontrado para este perfil.")
+    row = rows[0]
+    chofer_id = row.get("chofer_id")
+    if chofer_id:
+        linked: list[dict[str, Any]] = []
+        for field in ("chofer_id", "operador_id"):
+            try:
+                trips = (
+                    _sb(token)
+                    .table(TBL_VIAJES)
+                    .select("id,status,estatus,uuid_cfdi,metadata")
+                    .eq("user_id", uid)
+                    .eq(field, chofer_id)
+                    .limit(5)
+                )
+                if pid:
+                    trips = trips.eq("perfil_id", pid)
+                linked.extend(trips.execute().data or [])
+            except Exception:
+                continue
+        active_linked = [
+            item for item in linked
+            if not (_meta(item).get("eliminado_transporte_v2") or _first_text(item.get("status"), item.get("estatus")).lower() == "eliminado")
+        ]
+        if active_linked:
+            raise HTTPException(409, "Este acceso está ligado a viajes del operador. Desactívalo o elimina primero los movimientos de prueba.")
+    deleted = _sb(token).table(TBL_OPERADOR_ACCESOS).delete().eq("id", access_id).eq("user_id", uid)
+    if pid:
+        deleted = deleted.eq("perfil_id", pid)
+    result = deleted.execute().data or []
+    if not result:
+        raise HTTPException(404, "Acceso operador no encontrado para eliminar.")
+    _audit(uid, token, pid, TBL_OPERADOR_ACCESOS, access_id, "eliminar_acceso_operador", {"chofer_id": chofer_id})
+    return {"ok": True, "item": result[0]}
+
+
 @router.post("/tr-v2/operator/login")
 async def transporte_v2_operator_login(payload: TransporteV2OperatorLoginRequest):
     token_plain = (payload.token or payload.pin or "").strip()
@@ -2613,6 +2665,27 @@ async def transporte_v2_permisos_rfc_deactivate(
     if not updated:
         raise HTTPException(404, "Permiso/RFC no encontrado para este perfil.")
     return {"ok": True, "item": _normalize_permiso_row(updated[0])}
+
+
+@router.post("/tr-v2/admin/permisos-rfc/{item_id}/eliminar")
+async def transporte_v2_permisos_rfc_delete(
+    item_id: int,
+    payload: TransporteV2PermisoPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    query = _sb(token).table(TBL_PROVEEDORES).delete().eq("id", item_id).eq("user_id", uid)
+    if pid:
+        query = query.eq("perfil_id", pid)
+    deleted = query.execute().data or []
+    if not deleted:
+        raise HTTPException(404, "Permiso/RFC no encontrado para este perfil.")
+    item = _normalize_permiso_row(deleted[0])
+    _audit(uid, token, pid, TBL_PROVEEDORES, item_id, "eliminar_permiso_rfc", {"rfc": item.get("rfc"), "tipo": item.get("tipo")})
+    return {"ok": True, "item": item}
 
 
 @router.patch("/tr-v2/catalogos/{catalogo}/{item_id}")
