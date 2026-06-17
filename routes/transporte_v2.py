@@ -72,7 +72,8 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
             "alias", "numero_economico", "unidad", "placas", "config_vehicular", "configuracion_vehicular", "modelo", "anio",
             "vin", "vin_niv", "niv", "numero_motor", "motor",
             "permiso_sct", "num_permiso_sct", "aseguradora_rc", "poliza_rc",
-            "aseguradora_medio_ambiente", "poliza_medio_ambiente", "peso_bruto_vehicular", "activo",
+            "aseguradora_medio_ambiente", "poliza_medio_ambiente", "peso_bruto_vehicular",
+            "remolque_id", "remolque2_id", "activo",
             "remolque_subtipo", "remolque_placas", "remolque_numero_economico",
             "remolque_aseguradora", "remolque_poliza", "remolque_peso_bruto",
             "remolque2_subtipo", "remolque2_placas", "remolque2_numero_economico", "metadata",
@@ -847,7 +848,7 @@ def _expand_vehicle_aliases(row: dict[str, Any]) -> dict[str, Any]:
         "config_vehicular", "configuracion_vehicular", "permiso_sct",
         "num_permiso_sct", "aseguradora_rc", "poliza_rc",
         "aseguradora_medio_ambiente", "poliza_medio_ambiente",
-        "peso_bruto_vehicular",
+        "peso_bruto_vehicular", "remolque_id", "remolque2_id",
     ):
         if _first_text(expanded.get(key)):
             metadata[key] = expanded.get(key)
@@ -1026,6 +1027,8 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["aseguradora_rc"] = _first_text(item.get("aseguradora_rc"), item.get("aseguradora"), item.get("nombre_asegurador"), vehicle_meta.get("aseguradora_rc"))
         item["poliza_rc"] = _first_text(item.get("poliza_rc"), item.get("poliza_seguro"), vehicle_meta.get("poliza_rc"))
         item["peso_bruto_vehicular"] = _num(item.get("peso_bruto_vehicular") or vehicle_meta.get("peso_bruto_vehicular"))
+        item["remolque_id"] = item.get("remolque_id") or vehicle_meta.get("remolque_id")
+        item["remolque2_id"] = item.get("remolque2_id") or vehicle_meta.get("remolque2_id")
         for trailer_key in (
             "remolque_subtipo", "remolque_placas", "remolque_numero_economico",
             "remolque_aseguradora", "remolque_poliza", "remolque_peso_bruto",
