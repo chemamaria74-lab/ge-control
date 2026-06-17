@@ -1555,10 +1555,11 @@ def _build_carta_porte_preview(
         _req(validaciones, "vehiculo.poliza_medio_ambiente", preview["autotransporte"]["poliza_medio_ambiente"], "Material peligroso requiere póliza medio ambiente.")
 
     errors = [item for item in validaciones if item["nivel"] == "error"]
+    ready_to_stamp = not errors
     return {
         "ok": True,
-        "ready_to_stamp": False,
-        "datos_completos_para_fase_3": not errors,
+        "ready_to_stamp": ready_to_stamp,
+        "datos_completos_para_fase_3": ready_to_stamp,
         "timbrado_habilitado": False,
         "tipo_cfdi_sugerido": tipo,
         "preview": preview,
@@ -2097,6 +2098,12 @@ async def transporte_v2_documentos_analizar(
         }
     detected_for_lookup = result.get("detected") if isinstance(result.get("detected"), dict) else {}
     permiso_rfc = _lookup_permiso_rfc(token, uid, pid, detected_for_lookup)
+    if permiso_rfc.get("status") == "registrado" and isinstance(result.get("detected"), dict):
+        item = permiso_rfc.get("item") or {}
+        permiso_catalogo = _first_text(item.get("permiso_cre"), item.get("permiso"), permiso_rfc.get("permiso_detectado"))
+        if permiso_catalogo:
+            result["detected"]["permiso"] = _first_text(result["detected"].get("permiso"), permiso_catalogo)
+            result["detected"]["proveedor_permiso"] = _first_text(result["detected"].get("proveedor_permiso"), permiso_catalogo)
     result["permiso_rfc"] = permiso_rfc
     if permiso_rfc.get("status") in {"no_registrado", "producto_difiere", "permiso_difiere", "permiso_faltante", "advertencia"}:
         result.setdefault("warnings", []).append(permiso_rfc.get("message") or "Revisa permiso/RFC en Administración.")
