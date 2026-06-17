@@ -95,6 +95,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         "required": ["nombre", "cp"],
         "allowed": [
             "nombre", "rfc", "cp", "direccion", "tipo", "tipo_carta_porte",
+            "proveedor_id", "proveedor_nombre", "cliente_id", "cliente_nombre",
             "permiso_cre", "clave_instalacion", "id_ubicacion_carta_porte",
             "estado_sat", "municipio_sat", "localidad_sat", "referencia", "activo", "metadata",
         ],
@@ -105,6 +106,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         "required": ["nombre", "cp"],
         "allowed": [
             "nombre", "rfc", "cp", "direccion", "tipo", "tipo_carta_porte", "cliente_id",
+            "cliente_nombre", "proveedor_id", "proveedor_nombre",
             "permiso_cre", "clave_instalacion", "id_ubicacion_carta_porte",
             "estado_sat", "municipio_sat", "localidad_sat", "referencia", "activo", "metadata",
         ],
@@ -890,6 +892,7 @@ def _expand_installation_metadata(row: dict[str, Any]) -> dict[str, Any]:
         "nombre", "rfc", "cp", "direccion", "tipo", "tipo_carta_porte",
         "permiso_cre", "clave_instalacion", "id_ubicacion_carta_porte",
         "estado_sat", "municipio_sat", "localidad_sat", "referencia",
+        "proveedor_id", "proveedor_nombre", "cliente_id", "cliente_nombre",
     ):
         if _first_text(expanded.get(key)):
             metadata[key] = expanded.get(key)
@@ -1055,6 +1058,10 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["tipo"] = _first_text(item.get("tipo"), install_meta.get("tipo"), "terminal")
         item["tipo_carta_porte"] = _first_text(item.get("tipo_carta_porte"), install_meta.get("tipo_carta_porte"), "Origen")
         item["permiso_cre"] = _first_text(item.get("permiso_cre"), install_meta.get("permiso_cre"))
+        item["proveedor_id"] = item.get("proveedor_id") or install_meta.get("proveedor_id")
+        item["proveedor_nombre"] = _first_text(item.get("proveedor_nombre"), install_meta.get("proveedor_nombre"))
+        item["cliente_id"] = item.get("cliente_id") or install_meta.get("cliente_id")
+        item["cliente_nombre"] = _first_text(item.get("cliente_nombre"), install_meta.get("cliente_nombre"))
         item["clave_instalacion"] = _first_text(item.get("clave_instalacion"), install_meta.get("clave_instalacion"))
         item["id_ubicacion_carta_porte"] = _first_text(item.get("id_ubicacion_carta_porte"), item.get("id_ubicacion"), install_meta.get("id_ubicacion_carta_porte"))
         item["estado_sat"] = _first_text(item.get("estado_sat"), install_meta.get("estado_sat"))
@@ -1070,6 +1077,10 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["tipo"] = _first_text(item.get("tipo"), install_meta.get("tipo"), "cliente")
         item["tipo_carta_porte"] = _first_text(item.get("tipo_carta_porte"), install_meta.get("tipo_carta_porte"), "Destino")
         item["permiso_cre"] = _first_text(item.get("permiso_cre"), install_meta.get("permiso_cre"))
+        item["proveedor_id"] = item.get("proveedor_id") or install_meta.get("proveedor_id")
+        item["proveedor_nombre"] = _first_text(item.get("proveedor_nombre"), install_meta.get("proveedor_nombre"))
+        item["cliente_id"] = item.get("cliente_id") or install_meta.get("cliente_id")
+        item["cliente_nombre"] = _first_text(item.get("cliente_nombre"), install_meta.get("cliente_nombre"))
         item["clave_instalacion"] = _first_text(item.get("clave_instalacion"), install_meta.get("clave_instalacion"))
         item["id_ubicacion_carta_porte"] = _first_text(item.get("id_ubicacion_carta_porte"), item.get("id_ubicacion"), install_meta.get("id_ubicacion_carta_porte"))
         item["estado_sat"] = _first_text(item.get("estado_sat"), install_meta.get("estado_sat"))
