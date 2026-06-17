@@ -155,9 +155,8 @@
       <div class="trv2-table-head">
         <div>
           <h2>Datos detectados y viaje</h2>
-          <p class="trv2-muted">Revisa el resumen y completa solo lo operativo para crear el borrador.</p>
+          <p class="trv2-muted">Revisa el resumen, completa los datos operativos y acepta para crear el viaje borrador.</p>
         </div>
-        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2CreateTripFromDocument('cp')"><i class="fa-solid fa-route"></i> Crear viaje borrador</button>
       </div>
       <div id="trv2-cp-doc-detected-summary" class="trv2-alert trv2-alert-warn"></div>
       <form class="trv2-form" id="trv2-cp-doc-detected-form"></form>
@@ -354,7 +353,6 @@
       <button class="trv2-subtab active" type="button" data-admin-tab="usuarios-operador" onclick="trv2SetAdminSubtab('usuarios-operador')"><i class="fa-solid fa-user-lock"></i> Usuarios operador</button>
       <button class="trv2-subtab" type="button" data-admin-tab="configuracion" onclick="trv2SetAdminSubtab('configuracion')"><i class="fa-solid fa-sliders"></i> Configuración</button>
       <button class="trv2-subtab" type="button" data-admin-tab="permisos-rfc" onclick="trv2SetAdminSubtab('permisos-rfc')"><i class="fa-solid fa-id-badge"></i> Permisos / RFC</button>
-      <button class="trv2-subtab" type="button" data-admin-tab="parametros-sat" onclick="trv2SetAdminSubtab('parametros-sat')"><i class="fa-solid fa-file-code"></i> Parámetros SAT</button>
     </nav>
     <div class="trv2-admin-panel active" data-admin-panel="usuarios-operador">
       <section class="trv2-panel">
@@ -451,18 +449,6 @@
           </div>
         </form>
         <div id="trv2-permisos-list" class="trv2-access-list"></div>
-      </section>
-    </div>
-    <div class="trv2-admin-panel" data-admin-panel="parametros-sat">
-      <section class="trv2-panel">
-        <h2><i class="fa-solid fa-file-code"></i> Parámetros SAT</h2>
-        <p class="trv2-muted">Reglas preventivas para JSON mensual por permiso. No genera JSON real todavía.</p>
-        <div class="trv2-admin-cp-grid">
-          <article><i class="fa-solid fa-key"></i><strong>JSON por permiso</strong><span>Cada permiso genera su corte mensual separado.</span></article>
-          <article><i class="fa-solid fa-gas-pump"></i><strong>Producto compatible</strong><span>No mezclar Gas LP, Magna, Premium o Diésel con permisos incorrectos.</span></article>
-          <article><i class="fa-solid fa-file-invoice"></i><strong>UUID requerido</strong><span>Carta Porte y factura servicio alimentarán el reporte futuro.</span></article>
-          <article><i class="fa-solid fa-ban"></i><strong>Exportación deshabilitada</strong><span>El ZIP/JSON SAT queda pendiente de validación fiscal.</span></article>
-        </div>
       </section>
     </div>
   </section>
