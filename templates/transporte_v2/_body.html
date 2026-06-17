@@ -69,7 +69,7 @@
           <span><i class="fa-solid fa-circle-check"></i> Crear expediente manual</span>
           <span><i class="fa-solid fa-circle-check"></i> Listar viajes</span>
           <span><i class="fa-solid fa-circle-check"></i> Preparar carga documental</span>
-          <span><i class="fa-solid fa-circle-check"></i> Preview Carta Porte sin PAC</span>
+          <span><i class="fa-solid fa-circle-check"></i> Validación Carta Porte antes de timbrar</span>
           <span><i class="fa-solid fa-clock"></i> Timbrado y PAC pendiente</span>
           <span><i class="fa-solid fa-clock"></i> JSON SAT pendiente</span>
         </div>
@@ -163,22 +163,18 @@
     <section class="trv2-panel">
       <div class="trv2-table-head">
         <div>
-          <h2>Preview</h2>
-          <p class="trv2-muted" id="trv2-cp-trip-message">Actualiza viajes para seleccionar un borrador o usa el viaje creado desde documento.</p>
+          <h2>Pendientes por timbrar</h2>
+          <p class="trv2-muted" id="trv2-cp-trip-message">Movimientos guardados que aún no tienen Carta Porte timbrada.</p>
         </div>
-        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadTrips()"><i class="fa-solid fa-rotate"></i> Actualizar viajes</button>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadTrips()"><i class="fa-solid fa-rotate"></i> Actualizar pendientes</button>
       </div>
-      <div class="trv2-form trv2-form-compact">
-        <label>Viaje <select id="trv2-cp-trip-select"></select></label>
+      <div class="trv2-form trv2-form-compact trv2-cp-type-row">
         <label>Tipo CFDI <select id="trv2-cp-tipo"><option value="">Sugerir automáticamente</option><option value="I">Ingreso - servicio de transporte</option><option value="T">Traslado - acreditar traslado</option></select></label>
       </div>
-      <div class="trv2-form-actions trv2-form-actions-inline">
-        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2StartCartaPorteStamp()"><i class="fa-solid fa-stamp"></i> Timbrar Carta Porte</button>
-        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2DeleteDraftTrip()"><i class="fa-solid fa-trash"></i> Eliminar pendiente</button>
-      </div>
+      <div id="trv2-cp-pending-list" class="trv2-cp-pending-list"></div>
     </section>
     <section class="trv2-panel" id="trv2-cp-preview-panel">
-      <div class="trv2-empty">Selecciona un viaje para generar preview Carta Porte.</div>
+      <div class="trv2-empty">Elige “Timbrar” en un movimiento pendiente para validar y revisar el resumen antes de confirmar.</div>
     </section>
   </section>
 
