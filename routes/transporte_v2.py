@@ -62,6 +62,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         "required": ["alias", "placas", "config_vehicular", "permiso_sct", "num_permiso_sct", "aseguradora_rc", "poliza_rc"],
         "allowed": [
             "alias", "placas", "config_vehicular", "modelo", "anio",
+            "vin", "numero_motor",
             "permiso_sct", "num_permiso_sct", "aseguradora_rc", "poliza_rc",
             "aseguradora_medio_ambiente", "poliza_medio_ambiente", "peso_bruto_vehicular", "activo",
         ],
@@ -815,9 +816,13 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["nombre"] = _first_text(item.get("nombre"))
         item["rfc_figura"] = _first_text(item.get("rfc_figura"), item.get("rfc"))
         item["licencia"] = _first_text(item.get("licencia"))
+        item["tipo_licencia"] = _first_text(item.get("tipo_licencia"))
     elif catalogo == "vehiculos":
         item["alias"] = _first_text(item.get("alias"), item.get("numero_economico"), item.get("placas"))
         item["placas"] = _first_text(item.get("placas"), item.get("placa"))
+        item["modelo"] = _first_text(item.get("modelo"), item.get("marca_modelo"))
+        item["vin"] = _first_text(item.get("vin"), item.get("niv"))
+        item["numero_motor"] = _first_text(item.get("numero_motor"), item.get("motor"))
         item["config_vehicular"] = _first_text(item.get("config_vehicular"), item.get("configuracion_vehicular"), "C2")
         item["anio"] = item.get("anio") or item.get("anio_modelo")
         item["aseguradora_rc"] = _first_text(item.get("aseguradora_rc"), item.get("aseguradora"), item.get("nombre_asegurador"))
@@ -943,7 +948,7 @@ def _create_catalog_item(
             return JSONResponse({
                 "ok": False,
                 "needs_schema": True,
-                "message": f"Columna pendiente en {config['table']}: {missing_col}. Guarda la instalación sin ese campo o aplica migración no destructiva.",
+                "message": f"Columna pendiente en {config['table']}: {missing_col}. Guarda el registro sin ese campo o aplica migración no destructiva.",
                 "missing_column": missing_col,
             }, status_code=409)
         if _is_missing_table_error(exc):
@@ -989,7 +994,7 @@ def _update_catalog_item(
             return JSONResponse({
                 "ok": False,
                 "needs_schema": True,
-                "message": f"Columna pendiente en {config['table']}: {missing_col}. Guarda la instalación sin ese campo o aplica migración no destructiva.",
+                "message": f"Columna pendiente en {config['table']}: {missing_col}. Guarda el registro sin ese campo o aplica migración no destructiva.",
                 "missing_column": missing_col,
             }, status_code=409)
         if _is_missing_table_error(exc):
@@ -2160,10 +2165,28 @@ async def transporte_v2_eliminar_viaje(
             raise HTTPException(409, "No se puede eliminar una Carta Porte timbrada desde esta acción. Cancela o revisa el CFDI fiscal.")
         metadata.update({"eliminado_transporte_v2": True, "deleted_at": _now_iso(), "deleted_reason": "prueba_borrador"})
         update = {"status": "eliminado", "metadata": metadata, "updated_at": _now_iso()}
-        q_update = _sb(token).table(TBL_VIAJES).update(update).eq("id", viaje_id).eq("user_id", uid)
-        if pid:
-            q_update = q_update.eq("perfil_id", pid)
-        updated = q_update.execute().data or []
+        updated: list[dict[str, Any]] = []
+        last_exc: Optional[Exception] = None
+        for candidate in (
+            update,
+            {"estatus": "eliminado", "metadata": metadata, "updated_at": _now_iso()},
+            {"status": "eliminado", "metadata": metadata},
+            {"estatus": "eliminado", "metadata": metadata},
+        ):
+            try:
+                q_update = _sb(token).table(TBL_VIAJES).update(candidate).eq("id", viaje_id).eq("user_id", uid)
+                if pid:
+                    q_update = q_update.eq("perfil_id", pid)
+                updated = q_update.execute().data or []
+                update = candidate
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                if not _missing_column_from_error(exc):
+                    break
+        if last_exc:
+            raise last_exc
         _audit(uid, token, pid, TBL_VIAJES, viaje_id, "eliminar_borrador", {"soft_delete": True})
         return {"ok": True, "item": _normalize_viaje_row(updated[0] if updated else {**row, **update})}
     except HTTPException:
