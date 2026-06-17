@@ -707,6 +707,12 @@ def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param
     }
     document.getElementById('loginForm').addEventListener('submit', async (event) => {
       event.preventDefault();
+      const submitButton = event.target.querySelector('button[type="submit"]');
+      const originalText = submitButton ? submitButton.textContent : '';
+      if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = 'Validando acceso...';
+      }
       profileList.hidden = true;
       message.textContent = '';
       message.className = 'message';
@@ -728,6 +734,11 @@ def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param
           window.location.href = LOGIN_NEXT;
         } catch (err) {
           message.textContent = err.message || 'No se pudo validar el acceso operador.';
+        } finally {
+          if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = originalText || 'Entrar';
+          }
         }
         return;
       }
@@ -746,6 +757,7 @@ def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param
         if (!loginResponse.ok || loginData.success === false) throw new Error(loginData.detail || loginData.message || 'No se pudo iniciar sesión.');
         const token = saveToken(loginData);
         const me = await fetchJson('/api/auth/me', token);
+        localStorage.setItem('trv2_user', JSON.stringify(me));
         const hasTransport = (me.accesos || []).some(access => access.section === 'transporte');
         if (!hasTransport) throw new Error('No tienes acceso al módulo Transporte.');
         const profilesData = await fetchJson('/api/perfiles?module=transporte&auto_create=false', token);
@@ -762,6 +774,11 @@ def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param
         else renderProfiles(profiles);
       } catch (err) {
         message.textContent = err.message || 'No se pudo iniciar sesión.';
+      } finally {
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.textContent = originalText || 'Entrar';
+        }
       }
     });
   </script>
