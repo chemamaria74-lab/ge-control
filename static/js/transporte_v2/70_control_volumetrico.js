@@ -9,6 +9,17 @@ function trv2IsHydrocarbonProduct(text) {
   return ['gas lp', 'gas l.p', 'magna', 'premium', 'diesel', 'diésel', 'gasolina', 'petrol', 'hidrocarb', 'combustible'].some(word => value.includes(word));
 }
 
+function trv2CvNormalize(text) {
+  return String(text || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .trim().toLowerCase();
+}
+
+function trv2IsTransportistaPermit(item = {}) {
+  const tipo = trv2CvNormalize(item.tipo);
+  return ['cliente', 'transportista', 'permisionario', 'razon social', 'razon_social'].includes(tipo);
+}
+
 function trv2PopulateCvSelect(id, catalogName, placeholder) {
   const select = document.getElementById(id);
   if (!select) return;
@@ -40,9 +51,10 @@ function trv2PopulateCvPermisos() {
   if (!select) return;
   const current = select.value;
   const items = window.TRV2_PERMISOS_RFC || [];
-  select.innerHTML = '<option value="">Seleccionar permiso</option>' + items.map(item => {
+  const transportPermits = items.filter(trv2IsTransportistaPermit);
+  select.innerHTML = '<option value="">Seleccionar permiso transportista</option>' + transportPermits.map(item => {
     const permiso = item.permiso_cre || item.permiso || '';
-    const label = [permiso, item.producto, item.nombre].filter(Boolean).join(' · ');
+    const label = [permiso, item.producto, item.nombre, 'Permiso CRE transportista'].filter(Boolean).join(' · ');
     return `<option value="${trv2Esc(permiso)}">${trv2Esc(label || permiso)}</option>`;
   }).join('');
   if ([...select.options].some(option => option.value === current)) select.value = current;
@@ -98,7 +110,7 @@ function trv2BuildCvMovements() {
     const clientName = trv2TripRelatedLabel(row, 'clientes', 'cliente_nombre') || row.cliente_nombre || 'Cliente pendiente';
     const date = trv2CvTripDate(row);
     const status = trv2CvStatus(row, productName);
-    const permiso = row.metadata?.documento_detectado?.permiso || row.metadata?.proveedor_permiso || row.metadata?.permiso || '';
+    const permiso = row.metadata?.permiso_transportista || row.metadata?.transportista_permiso || row.metadata?.permiso_cre_transportista || '';
     const uuid = trv2CvCartaPorteUuid(row);
     const exportable = trv2CvIsStamped(row, uuid);
     return {
@@ -115,7 +127,7 @@ function trv2BuildCvMovements() {
     };
   }).filter(item => {
     if (productFilter && Number(item.row.producto_id) !== productFilter) return false;
-    if (permisoFilter && item.permiso !== permisoFilter) return false;
+    if (permisoFilter && item.permiso && item.permiso !== permisoFilter) return false;
     if (statusFilter && item.status !== statusFilter) return false;
     if (item.date && yearFilter && item.date.getFullYear() !== yearFilter) return false;
     if (item.date && monthFilter && item.date.getMonth() + 1 !== monthFilter) return false;
@@ -131,7 +143,7 @@ function trv2RenderCvKpis(movements) {
   const exportableVolume = exportableMovements.reduce((sum, item) => sum + Number(item.row.volumen_litros || 0), 0);
   const alerts = movements.filter(item => item.status === 'alerta' || !item.exportable).length;
   const permiso = document.getElementById('trv2-cv-permiso')?.value || 'Pendiente';
-  const permisoItem = (window.TRV2_PERMISOS_RFC || []).find(item => (item.permiso_cre || item.permiso || '') === permiso) || {};
+  const permisoItem = (window.TRV2_PERMISOS_RFC || []).filter(trv2IsTransportistaPermit).find(item => (item.permiso_cre || item.permiso || '') === permiso) || {};
   const cards = [
     ['Volumen transportado', `${volume.toLocaleString('es-MX')} L`],
     ['Viajes', movements.length],
@@ -141,7 +153,7 @@ function trv2RenderCvKpis(movements) {
     ['UUIDs válidos exportables', exportableMovements.length],
     ['Pendientes de validar', alerts],
     ['Producto', permisoItem.producto || 'Pendiente'],
-    ['Permiso', permiso],
+    ['Permiso transportista', permiso],
   ];
   kpis.innerHTML = cards.map(([label, value]) => `
     <article>
@@ -155,7 +167,7 @@ function trv2RenderCvTable(movements) {
   const tbody = document.getElementById('trv2-cv-table');
   if (!tbody) return;
   if (!movements.length) {
-    tbody.innerHTML = '<tr><td colspan="10"><div class="trv2-empty">Sin movimientos para el periodo seleccionado.</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11"><div class="trv2-empty">Sin movimientos para el periodo seleccionado.</div></td></tr>';
     return;
   }
   tbody.innerHTML = movements.map(item => {
@@ -175,6 +187,9 @@ function trv2RenderCvTable(movements) {
         <td>${trv2Esc(row.destino || 'Destino pendiente')}</td>
         <td>${trv2Esc(item.uuid || 'Pendiente')}</td>
         <td><span class="trv2-status ${statusClass}">${trv2Esc(statusLabel)}</span></td>
+        <td>
+          ${item.exportable ? '<span class="trv2-muted">Timbrado</span>' : `<button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteDraftTrip(${Number(row.id || 0)})">Eliminar</button>`}
+        </td>
       </tr>
     `;
   }).join('');

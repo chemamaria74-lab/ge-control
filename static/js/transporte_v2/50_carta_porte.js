@@ -1,8 +1,10 @@
 async function trv2PrepareCartaPorteTab() {
   const catalogsEmpty = !TRV2_CATALOGS.rutas?.length || !TRV2_CATALOGS.operadores?.length || !TRV2_CATALOGS.vehiculos?.length || !TRV2_CATALOGS.productos?.length;
-  if (catalogsEmpty && typeof trv2LoadCatalogs === 'function') await trv2LoadCatalogs({silent: true});
+  const loads = [];
+  if (catalogsEmpty && typeof trv2LoadCatalogs === 'function') loads.push(trv2LoadCatalogs({silent: true}));
+  if (!TRV2_TRIPS.length) loads.push(trv2LoadTrips());
+  if (loads.length) await Promise.all(loads);
   trv2PopulateCartaPorteTrips();
-  if (!TRV2_TRIPS.length) await trv2LoadTrips();
 }
 
 function trv2PopulateCartaPorteTrips() {
@@ -14,7 +16,7 @@ function trv2PopulateCartaPorteTrips() {
     if (message) message.textContent = 'No hay viajes borrador. Sube un documento o crea un viaje para continuar.';
     return;
   }
-  if (message) message.textContent = 'Selecciona un viaje borrador para generar preview seco de Carta Porte.';
+  if (message) message.textContent = 'Selecciona un movimiento para validar datos, revisar el resumen y timbrar Carta Porte.';
   select.innerHTML = TRV2_TRIPS.map(row => {
     const operador = trv2TripRelatedLabel(row, 'operadores', 'operador_nombre') || 'Operador pendiente';
     const vehiculo = trv2TripRelatedLabel(row, 'vehiculos', 'vehiculo_alias') || 'Unidad pendiente';
@@ -141,7 +143,7 @@ function trv2RenderCartaPortePreview(data) {
     <div class="trv2-alert trv2-alert-warn">Preview seco: no timbra, no genera XML final y no llama PAC.</div>
     <div class="trv2-alert trv2-alert-ok">Preview generado. Este paso no timbra ni llama PAC.</div>
     <div class="trv2-form-actions trv2-form-actions-inline">
-      <button class="trv2-btn trv2-btn-primary" type="button" ${canStamp ? '' : 'disabled'} onclick="trv2StampCartaPorte()">
+      <button class="trv2-btn trv2-btn-primary" type="button" ${canStamp ? '' : 'disabled'} onclick="trv2ConfirmStampCartaPorte()">
         <i class="fa-solid fa-stamp"></i> Timbrar Carta Porte
       </button>
       <span class="trv2-muted">${trv2Esc(data.ready_to_stamp ? 'Datos mínimos completos. Timbrado PAC pendiente de habilitar en Transporte v2.' : 'Corrige los errores antes de timbrar.')}</span>
@@ -166,7 +168,7 @@ function trv2RenderCartaPortePreview(data) {
   `;
 }
 
-function trv2StampCartaPorte() {
+function trv2ConfirmStampCartaPorte() {
   if (!TRV2_CP_PREVIEW?.ready_to_stamp) {
     trv2Toast('Corrige los errores del preview antes de timbrar.', 'error');
     return;
@@ -180,7 +182,7 @@ function trv2StampCartaPorte() {
 async function trv2PreviewCartaPorte(viajeId) {
   const id = Number(viajeId || document.getElementById('trv2-cp-trip-select')?.value || 0);
   if (!id) {
-    trv2Toast('Selecciona un viaje para preview Carta Porte.', 'error');
+    trv2Toast('Selecciona un movimiento para timbrar Carta Porte.', 'error');
     return;
   }
   const tipo = document.getElementById('trv2-cp-tipo')?.value || '';
@@ -200,6 +202,13 @@ async function trv2PreviewCartaPorte(viajeId) {
   trv2RenderCartaPortePreview(data);
 }
 
+async function trv2StartCartaPorteStamp(viajeId = 0) {
+  await trv2PreviewCartaPorte(viajeId || document.getElementById('trv2-cp-trip-select')?.value || 0);
+  if (TRV2_CP_PREVIEW?.ready_to_stamp) {
+    trv2Toast('Datos validados. Revisa el resumen visual antes de confirmar timbrado.', 'success');
+  }
+}
+
 function trv2PreviewSelectedTrip() {
-  trv2PreviewCartaPorte(document.getElementById('trv2-cp-trip-select')?.value || 0);
+  trv2StartCartaPorteStamp(document.getElementById('trv2-cp-trip-select')?.value || 0);
 }

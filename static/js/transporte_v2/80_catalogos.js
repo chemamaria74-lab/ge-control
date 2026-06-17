@@ -563,7 +563,8 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
   event.preventDefault();
   const form = event.target;
   const name = explicitName || form.dataset.catalog || TRV2_ACTIVE_CATALOG;
-  const itemId = Number(form.dataset.itemId || 0);
+  const rawItemId = form.dataset.itemId || '';
+  const itemId = Number(rawItemId || 0);
   const data = {};
   form.querySelectorAll('[data-field]').forEach(input => {
     const key = input.dataset.field;
@@ -582,7 +583,7 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
     return;
   }
   if (name === 'instalaciones') {
-    await trv2SaveInstalacionCatalogItem(itemId, data);
+    await trv2SaveInstalacionCatalogItem(rawItemId, data);
     return;
   }
   const path = itemId ? `/api/tr-v2/catalogos/${name}/${itemId}` : `/api/tr-v2/catalogos/${name}`;

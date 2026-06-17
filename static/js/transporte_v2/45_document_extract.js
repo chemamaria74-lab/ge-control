@@ -206,7 +206,7 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
     </div>
     <div class="trv2-form-actions trv2-form-actions-sticky">
       <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2CreateTripFromDocument('${trv2Esc(scope)}')">
-        <i class="fa-solid fa-circle-check"></i> Aceptar / Crear viaje borrador
+        <i class="fa-solid fa-circle-check"></i> Guardar para timbrar
       </button>
     </div>
   `;
@@ -428,6 +428,11 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
       confidence: TRV2_DOCUMENT_DETECTED.confidence,
     },
   };
+  trv2ApplyDensityFallback(body, detected, producto);
+  if (!Number(body.volumen_litros || 0) || !Number(body.peso_kg || 0)) {
+    trv2Toast('Captura litros y kilos, o configura factor kg/L para calcular el dato faltante.', 'error');
+    return;
+  }
   const trip = await trv2Api('POST', '/api/tr-v2/viajes', body, {allowError: true});
   if (!trip?.ok) {
     trv2Toast(trip?.detail || trip?.message || 'No se pudo crear viaje borrador.', 'error');
@@ -455,14 +460,26 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
       confidence: TRV2_DOCUMENT_DETECTED.confidence,
     },
   }, {allowError: true, silent: true});
-  trv2Toast(`Viaje borrador creado${viajeId ? ` #${viajeId}` : ''}.`, 'success');
+  trv2Toast(`Movimiento guardado para timbrar${viajeId ? ` #${viajeId}` : ''}.`, 'success');
   await trv2LoadTrips();
   await trv2LoadDashboard();
   if (viajeId) {
     const cpSelect = document.getElementById('trv2-cp-trip-select');
     if (cpSelect) cpSelect.value = String(viajeId);
-    await trv2PreviewCartaPorte(viajeId);
+    await trv2StartCartaPorteStamp(viajeId);
   }
+}
+
+function trv2ApplyDensityFallback(body, detected = {}, producto = {}) {
+  // Prioridad fiscal: 1) si factura trae litros y kilos se usan tal cual;
+  // 2) si falta uno, se calcula con factor kg/L configurado o del producto;
+  // 3) si faltan ambos, se deja en cero para que validación bloquee timbrado.
+  const factor = Number(producto?.factor_kg_l || detected.factor_kg_l || 0.5172);
+  const litros = Number(body.volumen_litros || 0);
+  const kilos = Number(body.peso_kg || 0);
+  if (litros > 0 && kilos > 0) return;
+  if (litros > 0 && !kilos && factor > 0) body.peso_kg = Number((litros * factor).toFixed(3));
+  if (kilos > 0 && !litros && factor > 0) body.volumen_litros = Number((kilos / factor).toFixed(3));
 }
 
 function trv2FindOrLabel(catalogName, keyValue, labelValue) {

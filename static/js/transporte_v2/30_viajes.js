@@ -33,9 +33,35 @@ function trv2RenderTrips(items) {
       <td>${trv2Esc(trv2TripRelatedLabel(row, 'productos', 'producto_descripcion') || 'Pendiente')}</td>
       <td>${Number(row.volumen_litros || 0).toLocaleString('es-MX')} L</td>
       <td><span class="trv2-chip">${trv2Esc(row.estatus || 'borrador')}</span></td>
-      <td><button class="trv2-mini-btn" type="button" onclick="trv2PreviewCartaPorte(${Number(row.id || 0)})">Preview Carta Porte</button></td>
+      <td>
+        <button class="trv2-mini-btn" type="button" onclick="trv2StartCartaPorteStamp(${Number(row.id || 0)})">Timbrar Carta Porte</button>
+        <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteDraftTrip(${Number(row.id || 0)})">Eliminar</button>
+      </td>
     </tr>
   `).join('');
+}
+
+async function trv2DeleteDraftTrip(viajeId) {
+  const id = Number(viajeId || document.getElementById('trv2-cp-trip-select')?.value || 0);
+  if (!id) {
+    trv2Toast('Selecciona un movimiento para eliminar.', 'error');
+    return;
+  }
+  const typed = prompt(`Vas a eliminar el movimiento pendiente #${id}. Escribe ELIMINAR para confirmar.`);
+  if (typed !== 'ELIMINAR') return;
+  const data = await trv2Api('POST', `/api/tr-v2/viajes/${id}/eliminar`, {
+    perfil_id: TRV2_PERFIL?.id || null,
+    data: {},
+  }, {allowError: true});
+  if (!data?.ok) {
+    trv2Toast(data?.detail || data?.message || 'No se pudo eliminar el movimiento.', 'error');
+    return;
+  }
+  TRV2_TRIPS = TRV2_TRIPS.filter(row => Number(row.id) !== id);
+  trv2Toast('Movimiento eliminado de borradores y reportes.', 'success');
+  trv2RenderTrips(TRV2_TRIPS);
+  if (typeof trv2PopulateCartaPorteTrips === 'function') trv2PopulateCartaPorteTrips();
+  if (typeof trv2LoadControlVolumetrico === 'function') trv2LoadControlVolumetrico();
 }
 
 async function trv2LoadTrips() {

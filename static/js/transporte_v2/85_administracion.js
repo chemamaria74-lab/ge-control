@@ -47,6 +47,7 @@ function trv2RenderOperatorAccesses(items = []) {
       </div>
       <em class="${String(item.status || '').toLowerCase() === 'activo' ? 'active' : ''}">${trv2Esc(item.status || 'Sin estado')}</em>
       <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateOperatorAccess(${Number(item.id)})">Desactivar</button>
+      <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteOperatorAccess(${Number(item.id)})">Eliminar seguro</button>
     </article>
   `).join('');
 }
@@ -102,6 +103,23 @@ async function trv2DeactivateOperatorAccess(accessId) {
   if (data?.ok) {
     trv2Toast('Acceso operador desactivado.', 'success');
     await trv2LoadOperatorAccesses();
+  }
+}
+
+async function trv2DeleteOperatorAccess(accessId) {
+  if (!accessId) return;
+  const typed = prompt('Vas a eliminar este acceso operador. Escribe ELIMINAR para confirmar.');
+  if (typed !== 'ELIMINAR') return;
+  const data = await trv2Api('POST', `/api/tr-v2/operator/accesses/${Number(accessId)}/eliminar`, {
+    perfil_id: TRV2_PERFIL?.id || null,
+    chofer_id: null,
+    token: '',
+  }, {allowError: true});
+  if (data?.ok) {
+    trv2Toast('Acceso operador eliminado.', 'success');
+    await trv2LoadOperatorAccesses();
+  } else {
+    trv2Toast(data?.detail || data?.message || 'No se pudo eliminar acceso operador.', 'error');
   }
 }
 
@@ -278,6 +296,54 @@ function trv2FillPermisoForm(item = {}) {
   document.getElementById('trv2-permiso-rfc')?.focus();
 }
 
+function trv2AdminNormalizeText(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .trim().toLowerCase();
+}
+
+function trv2IsTransportistaPermiso(item = {}) {
+  const tipo = trv2AdminNormalizeText(item.tipo);
+  return ['cliente', 'transportista', 'permisionario', 'razon social', 'razon_social'].includes(tipo);
+}
+
+function trv2PermisoUniqueItems(items = []) {
+  const seen = new Set();
+  return items.filter(item => {
+    const key = [
+      trv2AdminNormalizeText(item.tipo),
+      String(item.rfc || '').replace(/\s+/g, '').toUpperCase(),
+      String(item.permiso_cre || item.permiso || '').replace(/\s+/g, '').toUpperCase(),
+      trv2AdminNormalizeText(item.producto),
+    ].join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function trv2RenderPermisoCards(items = [], emptyText = '') {
+  if (!items.length) return `<div class="trv2-empty">${trv2Esc(emptyText)}</div>`;
+  return items.map(item => {
+    const isTransportista = trv2IsTransportistaPermiso(item);
+    const permisoLabel = isTransportista ? 'Permiso CRE transportista' : 'Permiso proveedor';
+    return `
+      <article class="trv2-access-card">
+        <div>
+          <strong>${trv2Esc(item.nombre || 'Sin nombre')}</strong>
+          <span>${trv2Esc(item.rfc || 'RFC pendiente')} · ${trv2Esc(item.tipo || 'Proveedor')}</span>
+          <span>${trv2Esc(item.producto || 'Producto pendiente')} · ${permisoLabel}: ${trv2Esc(item.permiso_cre || item.permiso || 'Pendiente')}</span>
+          ${item.permiso_almacenamiento_terminal ? `<span>Terminal/almacenamiento: ${trv2Esc(item.permiso_almacenamiento_terminal)}</span>` : ''}
+        </div>
+        <em class="${item.activo === false ? '' : 'active'}">${item.activo === false ? 'Inactivo' : 'Activo'}</em>
+        <button class="trv2-mini-btn" type="button" onclick="trv2EditPermisoRfc(${Number(item.id || 0)})">Editar</button>
+        <button class="trv2-mini-btn" type="button" onclick="trv2DeactivatePermisoRfc(${Number(item.id || 0)})">Desactivar</button>
+        <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeletePermisoRfc(${Number(item.id || 0)})">Eliminar seguro</button>
+      </article>
+    `;
+  }).join('');
+}
+
 function trv2RenderPermisosRfc(items = []) {
   const list = document.getElementById('trv2-permisos-list');
   if (!list) return;
@@ -285,18 +351,21 @@ function trv2RenderPermisosRfc(items = []) {
     list.innerHTML = '<div class="trv2-empty">Sin permisos/RFC registrados para esta empresa.</div>';
     return;
   }
-  list.innerHTML = items.map(item => `
-    <article class="trv2-access-card">
-      <div>
-        <strong>${trv2Esc(item.nombre || 'Sin nombre')}</strong>
-        <span>${trv2Esc(item.rfc || 'RFC pendiente')} · ${trv2Esc(item.tipo || 'Proveedor')}</span>
-        <span>${trv2Esc(item.producto || 'Producto pendiente')} · ${trv2Esc(item.permiso_cre || item.permiso || 'Permiso pendiente')}</span>
-      </div>
-      <em class="${item.activo === false ? '' : 'active'}">${item.activo === false ? 'Inactivo' : 'Activo'}</em>
-      <button class="trv2-mini-btn" type="button" onclick="trv2EditPermisoRfc(${Number(item.id || 0)})">Editar</button>
-      <button class="trv2-mini-btn" type="button" onclick="trv2DeactivatePermisoRfc(${Number(item.id || 0)})">Desactivar</button>
-    </article>
-  `).join('');
+  const unique = trv2PermisoUniqueItems(items);
+  const transportistas = unique.filter(trv2IsTransportistaPermiso);
+  const proveedores = unique.filter(item => !trv2IsTransportistaPermiso(item));
+  list.innerHTML = `
+    <div class="trv2-permission-group">
+      <h3>Permisos CRE del transportista</h3>
+      <p class="trv2-muted">Estos permisos alimentan el filtro mensual de Reportes SAT / JSON.</p>
+      ${trv2RenderPermisoCards(transportistas, 'Sin permisos CRE transportista registrados.')}
+    </div>
+    <div class="trv2-permission-group">
+      <h3>Proveedores / RFC de factura</h3>
+      <p class="trv2-muted">Estos permisos validan facturas de proveedor; no son el permiso principal del reporte mensual.</p>
+      ${trv2RenderPermisoCards(proveedores, 'Sin proveedores registrados.')}
+    </div>
+  `;
 }
 
 async function trv2LoadPermisosRfc() {
@@ -346,5 +415,26 @@ async function trv2DeactivatePermisoRfc(itemId) {
     await trv2LoadPermisosRfc();
   } else {
     trv2Toast(data?.detail || data?.message || 'No se pudo desactivar permiso/RFC.', 'error');
+  }
+}
+
+async function trv2DeletePermisoRfc(itemId) {
+  const item = (window.TRV2_PERMISOS_RFC || []).find(row => Number(row.id) === Number(itemId));
+  if (!item) {
+    trv2Toast('No se encontró el permiso/RFC seleccionado.', 'error');
+    return;
+  }
+  const label = item.nombre || item.rfc || `#${itemId}`;
+  const typed = prompt(`Vas a eliminar el permiso/RFC "${label}". Escribe ELIMINAR para confirmar.`);
+  if (typed !== 'ELIMINAR') return;
+  const data = await trv2Api('POST', `/api/tr-v2/admin/permisos-rfc/${Number(itemId)}/eliminar`, {
+    perfil_id: TRV2_PERFIL?.id || null,
+    data: {},
+  }, {allowError: true});
+  if (data?.ok) {
+    trv2Toast(`Permiso/RFC eliminado: ${label}.`, 'success');
+    await trv2LoadPermisosRfc();
+  } else {
+    trv2Toast(data?.detail || data?.message || 'No se pudo eliminar permiso/RFC.', 'error');
   }
 }

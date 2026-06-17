@@ -180,8 +180,6 @@ function trv2ValidTab(tab) {
 function trv2InitialTab() {
   const hash = String(location.hash || '').replace('#', '');
   if (trv2ValidTab(hash)) return hash;
-  const saved = localStorage.getItem('trv2_active_tab') || '';
-  if (trv2ValidTab(saved)) return saved;
   return 'carta-porte';
 }
 
