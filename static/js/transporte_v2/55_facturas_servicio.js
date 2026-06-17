@@ -1,12 +1,14 @@
 const TRV2_SERVICE_TARIFF_KEY = 'trv2_service_tariffs';
 const TRV2_SERVICE_INVOICE_KEY = 'trv2_service_invoices';
 let TRV2_SERVICE_TAB = 'pendientes';
+let TRV2_SERVICE_TARIFFS = [];
 
 function trv2ServiceStorageKey(base) {
   return `${base}_${TRV2_PERFIL?.id || 'sin_perfil'}`;
 }
 
 function trv2ReadServiceTariffs() {
+  if (Array.isArray(TRV2_SERVICE_TARIFFS) && TRV2_SERVICE_TARIFFS.length) return TRV2_SERVICE_TARIFFS;
   try {
     return JSON.parse(localStorage.getItem(trv2ServiceStorageKey(TRV2_SERVICE_TARIFF_KEY)) || '[]');
   } catch (_err) {
@@ -15,6 +17,7 @@ function trv2ReadServiceTariffs() {
 }
 
 function trv2WriteServiceTariffs(items) {
+  TRV2_SERVICE_TARIFFS = items || [];
   localStorage.setItem(trv2ServiceStorageKey(TRV2_SERVICE_TARIFF_KEY), JSON.stringify(items || []));
 }
 
@@ -79,6 +82,7 @@ function trv2ServiceTripData(row = {}) {
   const productoNombre = producto.descripcion || row.producto_descripcion || trv2ServiceTripMeta(row, 'producto_descripcion') || '';
   return {
     id: Number(row.id || 0),
+    ruta_id: Number(row.ruta_id || meta.ruta_id || 0) || null,
     proveedor_id: proveedorId,
     proveedor: proveedor.nombre || meta.proveedor_nombre || meta.emisor_nombre || '',
     cliente_id: clienteId,
@@ -99,6 +103,12 @@ function trv2ServiceTripData(row = {}) {
 
 function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
   return tariffs.find(item => (
+    Number(item.ruta_id || 0) === Number(service.ruta_id || 0)
+    && (
+      (Number(item.producto_id || 0) && Number(item.producto_id) === Number(service.producto_id || 0))
+      || trv2ServiceNorm(item.producto || item.producto_nombre) === trv2ServiceNorm(service.producto)
+    )
+  )) || tariffs.find(item => (
     (
       (Number(item.proveedor_id || 0) && Number(item.proveedor_id) === Number(service.proveedor_id || 0))
       || trv2ServiceNorm(item.proveedor || item.origen) === trv2ServiceNorm(service.proveedor || service.origen)
@@ -114,12 +124,26 @@ function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
   )) || null;
 }
 
-function trv2ServiceCalc(tarifa, kilos) {
-  const subtotal = Number(tarifa || 0) * Number(kilos || 0);
+function trv2ServiceBillingBase(productName = '', tariff = null) {
+  const explicit = String(tariff?.base_calculo || tariff?.regla_calculo || '').toUpperCase();
+  if (explicit === 'LITRO' || explicit === 'LITROS') return 'LITRO';
+  if (explicit === 'KG' || explicit === 'KILO' || explicit === 'KILOS') return 'KG';
+  const text = trv2ServiceNorm(productName);
+  if (text.includes('MAGNA') || text.includes('PREMIUM') || text.includes('DIESEL') || text.includes('GASOLINA')) return 'LITRO';
+  return 'KG';
+}
+
+function trv2ServiceCalc(tarifa, serviceOrKilos, maybeTariff = null) {
+  const service = typeof serviceOrKilos === 'object'
+    ? serviceOrKilos
+    : {kilos: Number(serviceOrKilos || 0), litros: 0, producto: ''};
+  const base = trv2ServiceBillingBase(service.producto, maybeTariff);
+  const cantidad = base === 'LITRO' ? Number(service.litros || 0) : Number(service.kilos || 0);
+  const subtotal = Number(tarifa || 0) * cantidad;
   const iva = subtotal * 0.16;
   const retencion = subtotal * 0.04;
   const total = subtotal + iva - retencion;
-  return {subtotal, iva, retencion, total};
+  return {subtotal, iva, retencion, total, base_calculo: base, cantidad_base: cantidad};
 }
 
 function trv2ServicePendingRows() {
@@ -140,7 +164,8 @@ function trv2AddServiceTariff() {
   form.hidden = false;
   form.classList.add('is-open');
   form.scrollIntoView({behavior: 'smooth', block: 'start'});
-  document.getElementById('trv2-tarifa-proveedor')?.focus();
+  trv2UpdateServiceTariffHint();
+  document.getElementById('trv2-tarifa-ruta')?.focus();
 }
 
 function trv2ClearServiceTariffForm() {
@@ -152,54 +177,63 @@ function trv2ClearServiceTariffForm() {
 }
 
 function trv2PopulateServiceTariffSelects() {
-  const proveedor = document.getElementById('trv2-tarifa-proveedor');
-  const cliente = document.getElementById('trv2-tarifa-cliente');
+  const ruta = document.getElementById('trv2-tarifa-ruta');
   const producto = document.getElementById('trv2-tarifa-producto');
-  if (proveedor && typeof trv2CatalogOptions === 'function') proveedor.innerHTML = trv2CatalogOptions('proveedores', 'Seleccionar proveedor origen');
-  if (cliente && typeof trv2CatalogOptions === 'function') cliente.innerHTML = trv2CatalogOptions('clientes', 'Seleccionar cliente destino');
+  if (ruta) {
+    const rutas = (TRV2_CATALOGS?.rutas || []).filter(item => item.activo !== false);
+    ruta.innerHTML = '<option value="">Seleccionar ruta</option>' + rutas.map(item => {
+      const origen = item.origen || item.nombre_origen || 'Origen';
+      const destino = item.destino || item.nombre_destino || 'Destino';
+      return `<option value="${Number(item.id)}">${trv2Esc(`${item.nombre || `${origen} → ${destino}`} · ${origen} → ${destino}`)}</option>`;
+    }).join('');
+  }
   if (producto && typeof trv2CatalogOptions === 'function') producto.innerHTML = trv2CatalogOptions('productos', 'Seleccionar producto');
 }
 
-function trv2SaveServiceTariff(event) {
-  event.preventDefault();
-  const proveedorId = Number(document.getElementById('trv2-tarifa-proveedor')?.value || 0);
-  const clienteId = Number(document.getElementById('trv2-tarifa-cliente')?.value || 0);
-  const productoId = Number(document.getElementById('trv2-tarifa-producto')?.value || 0);
-  const proveedor = trv2FindCatalog?.('proveedores', proveedorId) || {};
-  const cliente = trv2FindCatalog?.('clientes', clienteId) || {};
-  const producto = trv2FindCatalog?.('productos', productoId) || {};
-  const item = {
-    id: Date.now(),
-    proveedor_id: proveedorId,
-    proveedor: proveedor.nombre || '',
-    cliente_id: clienteId,
-    cliente: cliente.nombre || '',
-    producto_id: productoId,
-    producto: producto.descripcion || producto.nombre || '',
-    tarifa: Number(document.getElementById('trv2-tarifa-valor')?.value || 0),
-  };
-  item.origen = item.proveedor;
-  item.destino = item.cliente;
-  if (!item.proveedor_id || !item.cliente_id || !item.producto_id || item.tarifa <= 0) {
-    trv2Toast('Completa proveedor origen, cliente destino, producto y tarifa mayor a cero.', 'error');
+function trv2UpdateServiceTariffHint() {
+  const hint = document.getElementById('trv2-tarifa-hint');
+  const rutaId = Number(document.getElementById('trv2-tarifa-ruta')?.value || 0);
+  const ruta = trv2FindCatalog?.('rutas', rutaId) || {};
+  if (!hint) return;
+  if (!ruta?.id) {
+    hint.textContent = 'Selecciona una ruta para ver origen/proveedor y destino/cliente.';
     return;
   }
-  const items = trv2ReadServiceTariffs().filter(row => !(
-    Number(row.proveedor_id || 0) === item.proveedor_id
-    && Number(row.cliente_id || 0) === item.cliente_id
-    && Number(row.producto_id || 0) === item.producto_id
-  ));
-  items.push(item);
-  trv2WriteServiceTariffs(items);
-  trv2ClearServiceTariffForm();
-  trv2Toast('Tarifa de flete guardada.', 'success');
-  trv2RenderServiceInvoices();
+  hint.textContent = `${ruta.origen || ruta.nombre_origen || 'Origen'} → ${ruta.destino || ruta.nombre_destino || 'Destino'} · ${Number(ruta.distancia_km || 0)} km`;
 }
 
-function trv2DeleteServiceTariff(id) {
-  const items = trv2ReadServiceTariffs().filter(item => Number(item.id) !== Number(id));
-  trv2WriteServiceTariffs(items);
-  trv2RenderServiceInvoices();
+async function trv2SaveServiceTariff(event) {
+  event.preventDefault();
+  const rutaId = Number(document.getElementById('trv2-tarifa-ruta')?.value || 0);
+  const productoId = Number(document.getElementById('trv2-tarifa-producto')?.value || 0);
+  const tarifa = Number(document.getElementById('trv2-tarifa-valor')?.value || 0);
+  if (!rutaId || !productoId || tarifa <= 0) {
+    trv2Toast('Completa ruta, producto y tarifa mayor a cero.', 'error');
+    return;
+  }
+  const response = await trv2Api('POST', '/api/tr-v2/facturas-servicio/tarifas', {
+    perfil_id: TRV2_PERFIL?.id || null,
+    data: {ruta_id: rutaId, producto_id: productoId, tarifa},
+  }, {allowError: true});
+  if (response?.ok) {
+    await trv2LoadServiceTariffs();
+    trv2ClearServiceTariffForm();
+    trv2Toast('Tarifa de flete guardada.', 'success');
+    trv2RenderServiceInvoices();
+  } else {
+    trv2Toast(response?.detail || response?.message || 'No se pudo guardar la tarifa.', 'error');
+  }
+}
+
+async function trv2DeleteServiceTariff(id) {
+  const response = await trv2Api('DELETE', `/api/tr-v2/facturas-servicio/tarifas/${Number(id)}`, undefined, {allowError: true});
+  if (response?.ok) {
+    await trv2LoadServiceTariffs();
+    trv2Toast('Tarifa eliminada.', 'success');
+    trv2RenderServiceInvoices();
+  } else {
+    trv2Toast(response?.detail || response?.message || 'No se pudo eliminar la tarifa.', 'error');
+  }
 }
 
 function trv2RenderServiceTariffs() {
@@ -212,7 +246,7 @@ function trv2RenderServiceTariffs() {
   }
   const proveedores = [...new Map(items.map(item => [Number(item.proveedor_id || 0) || trv2ServiceNorm(item.proveedor || item.origen), item])).values()];
   const clientes = [...new Map(items.map(item => [Number(item.cliente_id || 0) || trv2ServiceNorm(item.cliente || item.destino), item])).values()];
-  const productos = [...new Set(items.map(item => item.producto || 'Producto'))];
+  const productos = [...new Set(items.map(item => item.producto_nombre || item.producto || 'Producto'))];
   target.innerHTML = productos.map(producto => `
     <h3>${trv2Esc(producto)}</h3>
     <table class="trv2-table trv2-catalog-table">
@@ -228,17 +262,26 @@ function trv2RenderServiceTariffs() {
             <td><strong>${trv2Esc(cliente.cliente || cliente.destino || 'Cliente')}</strong></td>
             ${proveedores.map(proveedor => {
               const tariff = items.find(item => (
-                trv2ServiceNorm(item.producto) === trv2ServiceNorm(producto)
+                trv2ServiceNorm(item.producto_nombre || item.producto) === trv2ServiceNorm(producto)
                 && (Number(item.proveedor_id || 0) === Number(proveedor.proveedor_id || 0) || trv2ServiceNorm(item.proveedor || item.origen) === trv2ServiceNorm(proveedor.proveedor || proveedor.origen))
                 && (Number(item.cliente_id || 0) === Number(cliente.cliente_id || 0) || trv2ServiceNorm(item.cliente || item.destino) === trv2ServiceNorm(cliente.cliente || cliente.destino))
               ));
-              return `<td>${tariff ? `${trv2ServiceMoney(tariff.tarifa)} <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteServiceTariff(${Number(tariff.id)})">Eliminar</button>` : '<span class="trv2-muted">Sin tarifa</span>'}</td>`;
+              return `<td>${tariff ? `${trv2ServiceMoney(tariff.tarifa)} / ${String(tariff.base_calculo || tariff.regla_calculo || 'KG') === 'LITRO' ? 'L' : 'kg'} <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteServiceTariff(${Number(tariff.id)})">Eliminar</button>` : '<span class="trv2-muted">Sin tarifa</span>'}</td>`;
             }).join('')}
           </tr>
         `).join('')}
       </tbody>
     </table>
   `).join('');
+}
+
+async function trv2LoadServiceTariffs() {
+  const response = await trv2Api('GET', '/api/tr-v2/facturas-servicio/tarifas', undefined, {silent: true, allowError: true});
+  if (response?.ok && Array.isArray(response.items)) {
+    trv2WriteServiceTariffs(response.items);
+    return response.items;
+  }
+  return trv2ReadServiceTariffs();
 }
 
 function trv2SetServiceInvoiceTab(tab) {
@@ -256,7 +299,7 @@ function trv2OpenServiceDetail(tripId) {
   if (!row) return;
   const service = trv2ServiceTripData(row);
   const tariff = trv2FindServiceTariff(service);
-  const calc = trv2ServiceCalc(tariff?.tarifa || 0, service.kilos);
+  const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
   alert([
     `Cliente: ${service.cliente}`,
     `RFC: ${service.rfc}`,
@@ -269,6 +312,7 @@ function trv2OpenServiceDetail(tripId) {
     `Vehículo: ${service.vehiculo}`,
     `UUID Carta Porte: ${service.uuid_carta_porte}`,
     `Tarifa: ${tariff ? trv2ServiceMoney(tariff.tarifa) : 'Falta configurar tarifa'}`,
+    `Base cálculo: ${calc.base_calculo === 'LITRO' ? 'Litros' : 'Kilos'}`,
     `Subtotal: ${trv2ServiceMoney(calc.subtotal)}`,
     `IVA: ${trv2ServiceMoney(calc.iva)}`,
     `Retención: ${trv2ServiceMoney(calc.retencion)}`,
@@ -285,7 +329,7 @@ function trv2GenerateServiceInvoice(tripId) {
     trv2Toast('Falta configurar tarifa. No se puede generar factura.', 'error');
     return;
   }
-  const calc = trv2ServiceCalc(tariff.tarifa, service.kilos);
+  const calc = trv2ServiceCalc(tariff.tarifa, service, tariff);
   const invoices = trv2ReadServiceInvoices();
   if (invoices.some(item => Number(item.viaje_id) === Number(tripId))) {
     trv2Toast('Este viaje ya tiene registro local de factura.', 'error');
@@ -322,7 +366,7 @@ function trv2RenderServicePendingTable() {
   tbody.innerHTML = rows.map(row => {
     const service = trv2ServiceTripData(row);
     const tariff = trv2FindServiceTariff(service, tariffs);
-    const calc = trv2ServiceCalc(tariff?.tarifa || 0, service.kilos);
+    const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
     const status = tariff ? 'Listo' : 'Falta configurar tarifa';
     return `
       <tr>
@@ -337,7 +381,7 @@ function trv2RenderServicePendingTable() {
         <td>${trv2Esc(service.chofer)}</td>
         <td>${trv2Esc(service.vehiculo)}</td>
         <td>${trv2Esc(service.uuid_carta_porte)}</td>
-        <td>${tariff ? trv2ServiceMoney(tariff.tarifa) : 'Falta configurar tarifa'}</td>
+        <td>${tariff ? `${trv2ServiceMoney(tariff.tarifa)} / ${calc.base_calculo === 'LITRO' ? 'L' : 'kg'}` : 'Falta configurar tarifa'}</td>
         <td>${trv2ServiceMoney(calc.subtotal)}</td>
         <td>${trv2ServiceMoney(calc.iva)}</td>
         <td>${trv2ServiceMoney(calc.retencion)}</td>
@@ -400,6 +444,7 @@ async function trv2LoadServiceInvoices() {
   if (!TRV2_TRIPS.length && typeof trv2LoadTrips === 'function') loads.push(trv2LoadTrips());
   if (typeof trv2LoadCatalogs === 'function') loads.push(trv2LoadCatalogs({silent: true}));
   if (loads.length) await Promise.all(loads);
+  await trv2LoadServiceTariffs();
   trv2RenderServiceInvoices();
 }
 
