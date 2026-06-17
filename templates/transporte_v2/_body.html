@@ -462,8 +462,12 @@
           </div>
           <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2NewPermisoRfc()">+ Nuevo permiso</button>
         </div>
-        <form class="trv2-form trv2-form-admin" id="trv2-permiso-form" onsubmit="trv2SavePermisoRfc(event)" hidden>
+        <form class="trv2-form trv2-form-admin trv2-permiso-editor" id="trv2-permiso-form" onsubmit="trv2SavePermisoRfc(event)" hidden>
           <input type="hidden" id="trv2-permiso-id">
+          <div class="trv2-form-title">
+            <strong>Nuevo permiso CRE transportista</strong>
+            <span>Captura sólo cuando vayas a registrar o editar un permiso.</span>
+          </div>
           <label>Tipo * <select id="trv2-permiso-tipo" required><option>Transportista</option></select></label>
           <label>RFC * <input id="trv2-permiso-rfc" data-rfc-field required></label>
           <label>Nombre * <input id="trv2-permiso-nombre" required></label>
@@ -475,7 +479,7 @@
           <label>Activo <select id="trv2-permiso-activo"><option value="true">Activo</option><option value="false">Inactivo</option></select></label>
           <div class="trv2-form-actions">
             <button class="trv2-btn trv2-btn-primary" type="submit">Guardar permiso</button>
-            <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ClearPermisoForm()">Limpiar</button>
+            <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ClearPermisoForm()">Cancelar</button>
           </div>
         </form>
         <div id="trv2-permisos-list" class="trv2-access-list"></div>
