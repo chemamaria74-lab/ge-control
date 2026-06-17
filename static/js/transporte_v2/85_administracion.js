@@ -250,7 +250,10 @@ function trv2PopulatePermisoSelects() {
 
 function trv2ClearPermisoForm(options = {}) {
   const form = document.getElementById('trv2-permiso-form');
-  if (form) form.reset();
+  if (form) {
+    form.reset();
+    form.classList.remove('is-open');
+  }
   const id = document.getElementById('trv2-permiso-id');
   if (id) id.value = '';
   const tipo = document.getElementById('trv2-permiso-tipo');
@@ -263,6 +266,7 @@ function trv2NewPermisoRfc() {
   const form = document.getElementById('trv2-permiso-form');
   if (form) {
     form.hidden = false;
+    form.classList.add('is-open');
     form.scrollIntoView({behavior: 'smooth', block: 'start'});
   }
   document.getElementById('trv2-permiso-producto')?.focus();
@@ -284,7 +288,10 @@ function trv2PermisoPayloadFromForm() {
 
 function trv2FillPermisoForm(item = {}) {
   const form = document.getElementById('trv2-permiso-form');
-  if (form) form.hidden = false;
+  if (form) {
+    form.hidden = false;
+    form.classList.add('is-open');
+  }
   const set = (id, value) => {
     const el = document.getElementById(id);
     if (el) el.value = value ?? '';
@@ -375,6 +382,7 @@ function trv2RenderPermisosRfc(items = []) {
 
 async function trv2LoadPermisosRfc(options = {}) {
   trv2PopulatePermisoSelects();
+  if (!options.keepFormOpen) trv2ClearPermisoForm();
   const data = await trv2Api('GET', '/api/tr-v2/admin/permisos-rfc', undefined, {allowError: true, silent: true});
   window.TRV2_PERMISOS_RFC = data?.items || [];
   if (options.renderAdmin !== false) trv2RenderPermisosRfc(window.TRV2_PERMISOS_RFC);
