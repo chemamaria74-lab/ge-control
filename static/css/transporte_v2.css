@@ -168,6 +168,11 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-soon i{font-size:42px;color:var(--trv2-gold);margin-bottom:12px}
 .trv2-form-cv{grid-template-columns:repeat(7,minmax(120px,1fr))}
 .trv2-form-admin{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:14px}
+.trv2-permiso-editor{border:1px solid var(--trv2-line);border-radius:8px;background:#fff;padding:16px;margin:14px 0 18px;box-shadow:0 10px 24px rgba(38,25,8,.05)}
+.trv2-permiso-editor[hidden]{display:none}
+.trv2-form-title{grid-column:1/-1;display:grid;gap:3px;margin-bottom:2px}
+.trv2-form-title strong{font-size:16px;font-weight:900;color:var(--trv2-ink)}
+.trv2-form-title span{font-size:13px;color:var(--trv2-muted);font-weight:700}
 .trv2-admin-panel{display:none}
 .trv2-admin-panel.active{display:block}
 .trv2-admin-cp-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
