@@ -146,6 +146,7 @@
         <label class="trv2-form-wide">Archivo PDF/XML <input id="trv2-cp-doc-file" type="file" accept=".pdf,.xml,image/*"></label>
         <div class="trv2-form-actions">
           <button class="trv2-btn trv2-btn-primary" type="submit"><i class="fa-solid fa-gears"></i> Analizar</button>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ClearCartaPorteLoad()"><i class="fa-solid fa-eraser"></i> Borrar carga</button>
         </div>
       </form>
       <p id="trv2-cp-doc-message" class="trv2-muted"></p>
@@ -160,16 +161,13 @@
       <div id="trv2-cp-doc-detected-summary" class="trv2-alert trv2-alert-warn"></div>
       <form class="trv2-form" id="trv2-cp-doc-detected-form"></form>
     </section>
-    <section class="trv2-panel">
+    <section class="trv2-panel" id="trv2-cp-pending-panel" hidden>
       <div class="trv2-table-head">
         <div>
-          <h2>Pendientes por timbrar</h2>
+          <h2>Movimientos guardados</h2>
           <p class="trv2-muted" id="trv2-cp-trip-message">Movimientos guardados que aún no tienen Carta Porte timbrada.</p>
         </div>
         <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadTrips()"><i class="fa-solid fa-rotate"></i> Actualizar pendientes</button>
-      </div>
-      <div class="trv2-form trv2-form-compact trv2-cp-type-row">
-        <label>Tipo CFDI <select id="trv2-cp-tipo"><option value="">Sugerir automáticamente</option><option value="I">Ingreso - servicio de transporte</option><option value="T">Traslado - acreditar traslado</option></select></label>
       </div>
       <div id="trv2-cp-pending-list" class="trv2-cp-pending-list"></div>
     </section>
@@ -426,11 +424,14 @@
             <h2><i class="fa-solid fa-id-badge"></i> Permisos CRE del transportista</h2>
             <p class="trv2-muted">Solo estos permisos alimentan Reportes SAT / JSON mensual. Los proveedores se administran en Catálogos.</p>
           </div>
-          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadPermisosRfc()">Actualizar</button>
+          <div class="trv2-form-actions-inline">
+            <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2NewPermisoRfc()">Nuevo permiso</button>
+            <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadPermisosRfc()">Actualizar</button>
+          </div>
         </div>
-        <form class="trv2-form trv2-form-admin" id="trv2-permiso-form" onsubmit="trv2SavePermisoRfc(event)">
+        <form class="trv2-form trv2-form-admin" id="trv2-permiso-form" onsubmit="trv2SavePermisoRfc(event)" hidden>
           <input type="hidden" id="trv2-permiso-id">
-          <label>Tipo * <select id="trv2-permiso-tipo" required><option>Transportista</option><option>Cliente</option><option>Permisionario</option><option>Razón social</option></select></label>
+          <label>Tipo * <select id="trv2-permiso-tipo" required><option>Transportista</option></select></label>
           <label>RFC * <input id="trv2-permiso-rfc" data-rfc-field required></label>
           <label>Nombre * <input id="trv2-permiso-nombre" required></label>
           <label>Producto * <select id="trv2-permiso-producto" required><option value="">Seleccionar</option><option>Gas LP</option><option>Magna</option><option>Premium</option><option>Diésel</option></select></label>
