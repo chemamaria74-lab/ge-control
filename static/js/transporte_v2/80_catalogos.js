@@ -332,8 +332,26 @@ function trv2IsProveedorPermiso(item = {}) {
   return !['cliente', 'transportista', 'permisionario', 'razon social', 'razon_social'].includes(tipo);
 }
 
+function trv2NormalizeRfcValue(value) {
+  return String(value || '').toUpperCase().replace(/\s+/g, '').trim();
+}
+
 function trv2BuildProveedoresCatalog() {
-  TRV2_CATALOGS.proveedores = (window.TRV2_PERMISOS_RFC || []).filter(trv2IsProveedorPermiso);
+  const byKey = new Map();
+  (window.TRV2_PERMISOS_RFC || []).filter(trv2IsProveedorPermiso).forEach(item => {
+    const rfc = trv2NormalizeRfcValue(item.rfc);
+    const permiso = String(item.permiso_cre || item.permiso || '').trim();
+    const nombre = String(item.nombre || '').trim();
+    if (!rfc && !permiso && !nombre) return;
+    const key = rfc || [nombre.toUpperCase(), permiso.toUpperCase()].join('|');
+    const current = byKey.get(key);
+    const score = (item.activo === false ? 0 : 10) + (permiso ? 5 : 0) + (nombre ? 2 : 0);
+    const currentScore = current
+      ? (current.activo === false ? 0 : 10) + (current.permiso_cre || current.permiso ? 5 : 0) + (current.nombre ? 2 : 0)
+      : -1;
+    if (!current || score >= currentScore) byKey.set(key, item);
+  });
+  TRV2_CATALOGS.proveedores = [...byKey.values()];
 }
 
 function trv2RenderCatalogTabs() {

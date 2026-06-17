@@ -257,13 +257,24 @@ function trv2PopulatePermisoSelects() {
   if (producto) producto.innerHTML = trv2CatalogOptions('productos', 'Opcional');
 }
 
-function trv2ClearPermisoForm() {
+function trv2ClearPermisoForm(options = {}) {
   const form = document.getElementById('trv2-permiso-form');
   if (form) form.reset();
   const id = document.getElementById('trv2-permiso-id');
   if (id) id.value = '';
   const tipo = document.getElementById('trv2-permiso-tipo');
   if (tipo) tipo.value = 'Transportista';
+  if (form && options.hide !== false) form.hidden = true;
+}
+
+function trv2NewPermisoRfc() {
+  trv2ClearPermisoForm({hide: false});
+  const form = document.getElementById('trv2-permiso-form');
+  if (form) {
+    form.hidden = false;
+    form.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+  document.getElementById('trv2-permiso-producto')?.focus();
 }
 
 function trv2PermisoPayloadFromForm() {
@@ -281,6 +292,8 @@ function trv2PermisoPayloadFromForm() {
 }
 
 function trv2FillPermisoForm(item = {}) {
+  const form = document.getElementById('trv2-permiso-form');
+  if (form) form.hidden = false;
   const set = (id, value) => {
     const el = document.getElementById(id);
     if (el) el.value = value ?? '';
@@ -325,7 +338,16 @@ function trv2PermisoUniqueItems(items = []) {
 }
 
 function trv2RenderPermisoCards(items = [], emptyText = '') {
-  if (!items.length) return `<div class="trv2-empty">${trv2Esc(emptyText)}</div>`;
+  if (!items.length) {
+    return `
+      <div class="trv2-empty">
+        ${trv2Esc(emptyText)}
+        <div class="trv2-form-actions trv2-form-actions-inline">
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2NewPermisoRfc()">Nuevo permiso</button>
+        </div>
+      </div>
+    `;
+  }
   return items.map(item => {
     const isTransportista = trv2IsTransportistaPermiso(item);
     const permisoLabel = isTransportista ? 'Permiso CRE transportista' : 'Permiso proveedor';
@@ -349,10 +371,6 @@ function trv2RenderPermisoCards(items = [], emptyText = '') {
 function trv2RenderPermisosRfc(items = []) {
   const list = document.getElementById('trv2-permisos-list');
   if (!list) return;
-  if (!items.length) {
-    list.innerHTML = '<div class="trv2-empty">Sin permisos/RFC registrados para esta empresa.</div>';
-    return;
-  }
   const unique = trv2PermisoUniqueItems(items);
   const transportistas = unique.filter(trv2IsTransportistaPermiso);
   list.innerHTML = `

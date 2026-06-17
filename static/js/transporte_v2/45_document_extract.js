@@ -33,7 +33,7 @@ const TRV2_DOC_FIELDS = [
   ['forma_pago', 'Forma pago'],
   ['uso_cfdi', 'Uso CFDI'],
   ['distancia_km', 'Distancia km', 'number'],
-  ['tipo_cfdi_sugerido', 'Tipo CFDI sugerido'],
+  ['tipo_cfdi_sugerido', 'Tipo CFDI'],
 ];
 
 const TRV2_DOC_SUMMARY_FIELDS = [
@@ -468,19 +468,37 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
     if (panel) {
       panel.innerHTML = `
         <div class="trv2-alert trv2-alert-ok">
-          Movimiento #${trv2Esc(viajeId)} guardado. Puedes timbrar ahora o dejarlo en Pendientes por timbrar.
+          Movimiento #${trv2Esc(viajeId)} guardado. Puedes timbrar ahora o dejarlo guardado para corregirlo después.
         </div>
         <div class="trv2-form-actions trv2-form-actions-inline">
           <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2StartCartaPorteStamp(${Number(viajeId)})">
             <i class="fa-solid fa-stamp"></i> Timbrar ahora
           </button>
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadTrips()">
-            Ver pendientes
+            Ver movimientos guardados
           </button>
         </div>
       `;
     }
   }
+}
+
+function trv2ClearCartaPorteLoad() {
+  TRV2_DOCUMENT_DETECTED = null;
+  const file = document.getElementById('trv2-cp-doc-file');
+  const message = document.getElementById('trv2-cp-doc-message');
+  const panel = document.getElementById('trv2-cp-doc-detected-panel');
+  const summary = document.getElementById('trv2-cp-doc-detected-summary');
+  const form = document.getElementById('trv2-cp-doc-detected-form');
+  const preview = document.getElementById('trv2-cp-preview-panel');
+  if (file) file.value = '';
+  if (message) message.textContent = 'Carga limpia. Selecciona otro PDF/XML para analizar.';
+  if (panel) panel.hidden = true;
+  if (summary) summary.innerHTML = '';
+  if (form) form.innerHTML = '';
+  if (preview) preview.innerHTML = '<div class="trv2-empty">Sube una factura, completa los datos y usa Timbrar para validar antes de confirmar.</div>';
+  TRV2_CP_PREVIEW = null;
+  trv2Toast('Carga borrada. No se eliminó ningún movimiento guardado.', 'success');
 }
 
 function trv2ApplyDensityFallback(body, detected = {}, producto = {}) {

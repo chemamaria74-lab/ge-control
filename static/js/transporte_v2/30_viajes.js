@@ -42,7 +42,7 @@ function trv2RenderTrips(items) {
 }
 
 async function trv2DeleteDraftTrip(viajeId) {
-  const id = Number(viajeId || document.getElementById('trv2-cp-trip-select')?.value || 0);
+  const id = Number(viajeId || 0);
   if (!id) {
     trv2Toast('Selecciona un movimiento para eliminar.', 'error');
     return;
@@ -59,8 +59,8 @@ async function trv2DeleteDraftTrip(viajeId) {
   }
   TRV2_TRIPS = TRV2_TRIPS.filter(row => Number(row.id) !== id);
   trv2Toast('Movimiento eliminado de borradores y reportes.', 'success');
-  trv2RenderTrips(TRV2_TRIPS);
-  if (typeof trv2PopulateCartaPorteTrips === 'function') trv2PopulateCartaPorteTrips();
+  await trv2LoadTrips();
+  if (typeof trv2LoadDashboard === 'function') trv2LoadDashboard();
   if (typeof trv2LoadControlVolumetrico === 'function') trv2LoadControlVolumetrico();
 }
 

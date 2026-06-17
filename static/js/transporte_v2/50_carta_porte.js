@@ -8,6 +8,7 @@ async function trv2PrepareCartaPorteTab() {
 }
 
 function trv2PopulateCartaPorteTrips() {
+  const panel = document.getElementById('trv2-cp-pending-panel');
   const list = document.getElementById('trv2-cp-pending-list');
   const message = document.getElementById('trv2-cp-trip-message');
   if (!list) return;
@@ -18,10 +19,12 @@ function trv2PopulateCartaPorteTrips() {
     return !uuid && !status.includes('timbr') && status !== 'eliminado' && !meta.eliminado_transporte_v2;
   });
   if (!pending.length) {
-    list.innerHTML = '<div class="trv2-empty">No hay movimientos pendientes por timbrar.</div>';
-    if (message) message.textContent = 'No hay viajes borrador. Sube un documento o crea un viaje para continuar.';
+    if (panel) panel.hidden = true;
+    list.innerHTML = '';
+    if (message) message.textContent = '';
     return;
   }
+  if (panel) panel.hidden = false;
   if (message) message.textContent = 'Cada movimiento pendiente tiene sus propias acciones para evitar selecciones accidentales.';
   list.innerHTML = pending.map(row => {
     const operador = trv2TripRelatedLabel(row, 'operadores', 'operador_nombre') || 'Operador pendiente';
@@ -139,8 +142,8 @@ function trv2RenderCartaPortePreview(data) {
   panel.innerHTML = `
     <div class="trv2-cp-summary">
       <div>
-        <span>Tipo CFDI sugerido</span>
-        <strong>${trv2Esc(data.tipo_cfdi_sugerido || 'I')}</strong>
+        <span>Tipo CFDI</span>
+        <strong>Ingreso</strong>
       </div>
       <div>
         <span>Errores</span>
@@ -200,11 +203,10 @@ async function trv2PreviewCartaPorte(viajeId) {
     trv2Toast('Elige un movimiento pendiente para timbrar Carta Porte.', 'error');
     return;
   }
-  const tipo = document.getElementById('trv2-cp-tipo')?.value || '';
   const data = await trv2Api('POST', '/api/tr-v2/carta-porte/preview', {
     perfil_id: TRV2_PERFIL?.id || null,
     viaje_id: id,
-    tipo_cfdi: tipo,
+    tipo_cfdi: 'I',
   }, {allowError: true});
   if (!data?.ok) {
     trv2Toast(data?.detail || data?.message || 'No se pudo generar resumen Carta Porte.', 'error');

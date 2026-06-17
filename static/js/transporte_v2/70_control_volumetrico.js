@@ -52,6 +52,14 @@ function trv2PopulateCvPermisos() {
   const current = select.value;
   const items = window.TRV2_PERMISOS_RFC || [];
   const transportPermits = items.filter(trv2IsTransportistaPermit);
+  if (!transportPermits.length) {
+    select.innerHTML = '<option value="">Registra permisos CRE del transportista en Administración</option>';
+    const alert = document.getElementById('trv2-cv-alert');
+    if (alert) alert.textContent = 'Registra permisos CRE del transportista en Administración para generar reportes SAT.';
+    return;
+  }
+  const alert = document.getElementById('trv2-cv-alert');
+  if (alert && alert.textContent.includes('Registra permisos CRE')) alert.textContent = '';
   select.innerHTML = '<option value="">Seleccionar permiso transportista</option>' + transportPermits.map(item => {
     const permiso = item.permiso_cre || item.permiso || '';
     const label = [permiso, item.producto, item.nombre, 'Permiso CRE transportista'].filter(Boolean).join(' · ');
