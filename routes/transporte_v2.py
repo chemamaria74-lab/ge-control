@@ -27,7 +27,7 @@ from supabase_config import get_supabase_admin, get_supabase_for_user
 from models.transport_schemas import ProductoTransporte, ViajeCreate
 from services.carta_porte_validation import validar_xml_carta_porte_transporte
 from services.fiscal_audit import version_xml
-from services.sw_sapien import emitir_timbrar_json
+from services.sw_sapien import emitir_timbrar_json, sw_runtime_config
 from services.transport_builder import build_cfdi_transporte
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "operadores": {
         "table": TBL_OPERADORES,
         "required": ["nombre", "rfc_figura", "licencia"],
-        "allowed": ["nombre", "rfc_figura", "licencia", "tipo_licencia", "vencimiento_licencia", "telefono", "activo"],
+        "allowed": ["nombre", "rfc_figura", "rfc", "licencia", "tipo_licencia", "vencimiento_licencia", "telefono", "vehiculo_frecuente_id", "vehiculo_asignado_id", "activo", "metadata"],
         "defaults": {"activo": True},
     },
     "vehiculos": {
@@ -72,6 +72,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
             "alias", "numero_economico", "unidad", "placas", "config_vehicular", "configuracion_vehicular", "modelo", "anio",
             "vin", "vin_niv", "niv", "numero_motor", "motor",
             "permiso_sct", "num_permiso_sct", "aseguradora_rc", "poliza_rc",
+            "aseguradora", "poliza_seguro",
             "aseguradora_medio_ambiente", "poliza_medio_ambiente", "peso_bruto_vehicular",
             "remolque_id", "remolque2_id", "activo",
             "remolque_subtipo", "remolque_placas", "remolque_numero_economico",
@@ -117,7 +118,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         "required": ["nombre", "origen_id", "destino_id", "cp_origen", "cp_destino", "distancia_km", "duracion_estimada_min"],
         "allowed": [
             "nombre", "origen", "nombre_origen", "cp_origen", "destino", "nombre_destino",
-            "cp_destino", "distancia_km", "duracion_estimada_min", "origen_id", "destino_id", "activo",
+            "cp_destino", "distancia_km", "duracion_estimada_min", "origen_id", "destino_id", "activo", "metadata",
         ],
         "defaults": {"activo": True, "distancia_km": 0},
     },
@@ -125,8 +126,10 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         "table": TBL_REMOLQUES,
         "required": ["placas", "subtipo_remolque"],
         "allowed": [
-            "alias", "numero_economico", "placas", "subtipo_remolque", "permiso",
-            "aseguradora", "poliza", "peso_bruto", "activo", "metadata",
+            "alias", "numero_economico", "placas", "subtipo_remolque",
+            "subtipo_remolque_sat", "subtipo", "subtipo_rem", "permiso", "aseguradora",
+            "aseguradora_rc", "poliza", "poliza_rc", "poliza_seguro", "peso_bruto",
+            "peso_bruto_toneladas", "activo", "metadata",
         ],
         "defaults": {"activo": True},
     },
@@ -201,7 +204,6 @@ class TransporteV2CartaPorteTimbrarRequest(BaseModel):
 class TransporteV2OperatorAccessCreate(BaseModel):
     perfil_id: Optional[int] = None
     chofer_id: int
-    vehiculo_id: Optional[int] = None
     usuario: str = ""
     token: str = ""
     activo: bool = True
@@ -692,7 +694,16 @@ def _operator_assigned_trip(sb: Any, acc: dict[str, Any]) -> dict[str, Any]:
     )
     if not rows:
         raise HTTPException(404, "Sin viaje asignado.")
-    return rows[0]
+    trip = dict(rows[0])
+    if not trip.get("vehiculo_id"):
+        chofer = acc.get("chofer") or {}
+        assigned_vehicle = chofer.get("vehiculo_frecuente_id") or _meta(chofer).get("vehiculo_frecuente_id") or _meta(chofer).get("vehiculo_asignado_id")
+        if assigned_vehicle:
+            trip["vehiculo_id"] = assigned_vehicle
+            trip_meta = _meta(trip)
+            trip_meta["vehiculo_default_operador_id"] = assigned_vehicle
+            trip["metadata"] = trip_meta
+    return trip
 
 
 def _update_operator_trip_metadata(sb: Any, trip: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
@@ -844,11 +855,19 @@ def _expand_vehicle_aliases(row: dict[str, Any]) -> dict[str, Any]:
     if config:
         expanded["config_vehicular"] = config
         expanded.setdefault("configuracion_vehicular", config)
+    aseguradora = _first_text(expanded.get("aseguradora_rc"), expanded.get("aseguradora"))
+    if aseguradora:
+        expanded["aseguradora_rc"] = aseguradora
+        expanded.setdefault("aseguradora", aseguradora)
+    poliza = _first_text(expanded.get("poliza_rc"), expanded.get("poliza_seguro"))
+    if poliza:
+        expanded["poliza_rc"] = poliza
+        expanded.setdefault("poliza_seguro", poliza)
     for key in (
         "alias", "numero_economico", "unidad", "placas", "modelo", "anio",
         "vin", "vin_niv", "niv", "numero_motor", "motor",
         "config_vehicular", "configuracion_vehicular", "permiso_sct",
-        "num_permiso_sct", "aseguradora_rc", "poliza_rc",
+        "num_permiso_sct", "aseguradora_rc", "aseguradora", "poliza_rc", "poliza_seguro",
         "aseguradora_medio_ambiente", "poliza_medio_ambiente",
         "peso_bruto_vehicular", "remolque_id", "remolque2_id",
     ):
@@ -898,6 +917,111 @@ def _expand_installation_metadata(row: dict[str, Any]) -> dict[str, Any]:
             metadata[key] = expanded.get(key)
     if metadata:
         expanded["metadata"] = metadata
+    return expanded
+
+
+def _expand_trailer_metadata(row: dict[str, Any]) -> dict[str, Any]:
+    expanded = dict(row)
+    metadata = _parse_json_value(expanded.get("metadata"), {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    alias = _first_text(expanded.get("alias"), expanded.get("numero_economico"), expanded.get("placas"))
+    if alias:
+        expanded["alias"] = alias
+        expanded.setdefault("numero_economico", alias)
+    subtipo = _first_text(expanded.get("subtipo_remolque"), expanded.get("subtipo_remolque_sat"), expanded.get("subtipo_rem"), expanded.get("subtipo"))
+    if subtipo:
+        expanded["subtipo_remolque"] = subtipo
+        expanded.setdefault("subtipo_remolque_sat", subtipo)
+        expanded.setdefault("subtipo_rem", subtipo)
+        expanded.setdefault("subtipo", subtipo)
+    poliza = _first_text(expanded.get("poliza"), expanded.get("poliza_rc"), expanded.get("poliza_seguro"))
+    if poliza:
+        expanded["poliza"] = poliza
+        expanded.setdefault("poliza_rc", poliza)
+        expanded.setdefault("poliza_seguro", poliza)
+    for key in (
+        "alias", "numero_economico", "placas", "subtipo_remolque",
+        "subtipo_remolque_sat", "subtipo_rem", "subtipo", "permiso", "aseguradora",
+        "aseguradora_rc", "poliza", "poliza_rc", "poliza_seguro", "peso_bruto",
+        "peso_bruto_toneladas",
+    ):
+        if _first_text(expanded.get(key)):
+            metadata[key] = expanded.get(key)
+    if metadata:
+        expanded["metadata"] = metadata
+    return expanded
+
+
+def _expand_operator_vehicle_assignment(row: dict[str, Any]) -> dict[str, Any]:
+    expanded = dict(row)
+    if "vehiculo_asignado_id" in expanded and "vehiculo_frecuente_id" not in expanded:
+        expanded["vehiculo_frecuente_id"] = expanded.get("vehiculo_asignado_id")
+    metadata = _parse_json_value(expanded.get("metadata"), {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    if "vehiculo_frecuente_id" in expanded:
+        metadata["vehiculo_frecuente_id"] = expanded.get("vehiculo_frecuente_id")
+        metadata["vehiculo_asignado_id"] = expanded.get("vehiculo_frecuente_id")
+    if metadata:
+        expanded["metadata"] = metadata
+    return expanded
+
+
+def _fetch_catalog_row_for_route(token: str, uid: str, perfil_id: Optional[int], table: str, row_id: Any, label: str) -> dict[str, Any]:
+    try:
+        rid = int(str(row_id or "").strip())
+    except (TypeError, ValueError):
+        raise HTTPException(400, f"Selecciona instalación {label}.")
+    query = _sb(token).table(table).select("*").eq("id", rid).eq("user_id", uid).limit(1)
+    if perfil_id:
+        query = query.eq("perfil_id", perfil_id)
+    rows = query.execute().data or []
+    if not rows:
+        raise HTTPException(404, f"Instalación {label} no encontrada para este perfil.")
+    return rows[0]
+
+
+def _expand_route_from_installations(token: str, uid: str, perfil_id: Optional[int], row: dict[str, Any]) -> dict[str, Any]:
+    expanded = dict(row)
+    if not expanded.get("origen_id") or not expanded.get("destino_id"):
+        return expanded
+    origen = _normalize_catalog_row("origenes", _fetch_catalog_row_for_route(token, uid, perfil_id, TBL_ORIGENES, expanded.get("origen_id"), "origen"))
+    destino = _normalize_catalog_row("destinos", _fetch_catalog_row_for_route(token, uid, perfil_id, TBL_DESTINOS, expanded.get("destino_id"), "destino"))
+    if not _first_text(origen.get("cp")):
+        raise HTTPException(400, "La instalación origen no tiene CP configurado.")
+    if not _first_text(destino.get("cp")):
+        raise HTTPException(400, "La instalación destino no tiene CP configurado.")
+    expanded["nombre_origen"] = _first_text(origen.get("nombre"), origen.get("origen"))
+    expanded["origen"] = expanded["nombre_origen"]
+    expanded["cp_origen"] = _first_text(origen.get("cp"))
+    expanded["nombre_destino"] = _first_text(destino.get("nombre"), destino.get("destino"))
+    expanded["destino"] = expanded["nombre_destino"]
+    expanded["cp_destino"] = _first_text(destino.get("cp"))
+    metadata = _parse_json_value(expanded.get("metadata"), {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    metadata["origen_instalacion"] = {
+        "id": origen.get("id"),
+        "nombre": expanded["nombre_origen"],
+        "cp": expanded["cp_origen"],
+        "estado_sat": origen.get("estado_sat"),
+        "municipio_sat": origen.get("municipio_sat"),
+        "localidad_sat": origen.get("localidad_sat"),
+        "direccion": origen.get("direccion"),
+        "id_ubicacion_carta_porte": origen.get("id_ubicacion_carta_porte"),
+    }
+    metadata["destino_instalacion"] = {
+        "id": destino.get("id"),
+        "nombre": expanded["nombre_destino"],
+        "cp": expanded["cp_destino"],
+        "estado_sat": destino.get("estado_sat"),
+        "municipio_sat": destino.get("municipio_sat"),
+        "localidad_sat": destino.get("localidad_sat"),
+        "direccion": destino.get("direccion"),
+        "id_ubicacion_carta_porte": destino.get("id_ubicacion_carta_porte"),
+    }
+    expanded["metadata"] = metadata
     return expanded
 
 
@@ -1008,10 +1132,13 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["regimen_fiscal"] = _first_text(item.get("regimen_fiscal"), item.get("regimen"))
         item["uso_cfdi"] = _first_text(item.get("uso_cfdi"), item.get("uso_cfdi_default"))
     elif catalogo == "operadores":
+        operator_meta = _meta(item)
         item["nombre"] = _first_text(item.get("nombre"))
         item["rfc_figura"] = _first_text(item.get("rfc_figura"), item.get("rfc"))
         item["licencia"] = _first_text(item.get("licencia"))
         item["tipo_licencia"] = _first_text(item.get("tipo_licencia"))
+        item["vehiculo_frecuente_id"] = item.get("vehiculo_frecuente_id") or item.get("vehiculo_asignado_id") or operator_meta.get("vehiculo_frecuente_id") or operator_meta.get("vehiculo_asignado_id")
+        item["vehiculo_asignado_id"] = item.get("vehiculo_asignado_id") or item["vehiculo_frecuente_id"]
     elif catalogo == "vehiculos":
         vehicle_meta = _meta(item)
         item["alias"] = _first_text(item.get("alias"), item.get("numero_economico"), item.get("unidad"), vehicle_meta.get("alias"), vehicle_meta.get("numero_economico"), vehicle_meta.get("unidad"), item.get("placas"))
@@ -1096,13 +1223,21 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["distancia_km"] = _num(item.get("distancia_km"))
         item["duracion_estimada_min"] = int(_num(item.get("duracion_estimada_min")) or 0)
     elif catalogo == "remolques":
-        item["alias"] = _first_text(item.get("alias"), item.get("numero_economico"), item.get("placas"))
-        item["placas"] = _first_text(item.get("placas"), item.get("placa"))
-        item["subtipo_remolque"] = _first_text(item.get("subtipo_remolque"), item.get("subtipo"))
-        item["permiso"] = _first_text(item.get("permiso"))
-        item["aseguradora"] = _first_text(item.get("aseguradora"), item.get("aseguradora_rc"))
-        item["poliza"] = _first_text(item.get("poliza"), item.get("poliza_rc"))
-        item["peso_bruto"] = _num(item.get("peso_bruto"))
+        trailer_meta = _meta(item)
+        item["alias"] = _first_text(item.get("alias"), item.get("numero_economico"), trailer_meta.get("alias"), trailer_meta.get("numero_economico"), item.get("placas"))
+        item["numero_economico"] = _first_text(item.get("numero_economico"), trailer_meta.get("numero_economico"), item["alias"])
+        item["placas"] = _first_text(item.get("placas"), item.get("placa"), trailer_meta.get("placas"))
+        item["subtipo_remolque"] = _first_text(item.get("subtipo_remolque"), item.get("subtipo_remolque_sat"), item.get("subtipo_rem"), item.get("subtipo"), trailer_meta.get("subtipo_remolque"), trailer_meta.get("subtipo_remolque_sat"), trailer_meta.get("subtipo_rem"), trailer_meta.get("subtipo"))
+        item["subtipo_remolque_sat"] = _first_text(item.get("subtipo_remolque_sat"), item["subtipo_remolque"])
+        item["subtipo_rem"] = _first_text(item.get("subtipo_rem"), item["subtipo_remolque"])
+        item["permiso"] = _first_text(item.get("permiso"), trailer_meta.get("permiso"))
+        item["aseguradora"] = _first_text(item.get("aseguradora"), item.get("aseguradora_rc"), trailer_meta.get("aseguradora"), trailer_meta.get("aseguradora_rc"))
+        item["aseguradora_rc"] = _first_text(item.get("aseguradora_rc"), item["aseguradora"])
+        item["poliza"] = _first_text(item.get("poliza"), item.get("poliza_rc"), item.get("poliza_seguro"), trailer_meta.get("poliza"), trailer_meta.get("poliza_rc"), trailer_meta.get("poliza_seguro"))
+        item["poliza_rc"] = _first_text(item.get("poliza_rc"), item["poliza"])
+        item["poliza_seguro"] = _first_text(item.get("poliza_seguro"), item["poliza"])
+        item["peso_bruto"] = _num(item.get("peso_bruto") or item.get("peso_bruto_toneladas") or trailer_meta.get("peso_bruto") or trailer_meta.get("peso_bruto_toneladas"))
+        item["peso_bruto_toneladas"] = _num(item.get("peso_bruto_toneladas") or item["peso_bruto"])
     item["source_table"] = CATALOG_CONFIG.get(catalogo, {}).get("table")
     return item
 
@@ -1157,10 +1292,16 @@ def _create_catalog_item(
     if not perfil_id:
         raise HTTPException(400, "perfil_id requerido para actualizar catálogos Transporte.")
     row = _clean_payload(payload, config["allowed"], config.get("defaults") or {})
+    if catalogo == "operadores":
+        row = _expand_operator_vehicle_assignment(row)
     if catalogo == "vehiculos":
         row = _expand_vehicle_aliases(row)
+    if catalogo == "remolques":
+        row = _expand_trailer_metadata(row)
     if catalogo in {"origenes", "destinos"}:
         row = _expand_installation_metadata(row)
+    if catalogo == "rutas":
+        row = _expand_route_from_installations(token, uid, perfil_id, row)
     if catalogo == "productos" and row.get("descripcion") and not row.get("nombre"):
         row["nombre"] = row["descripcion"]
     _ensure_required(row, config["required"], catalogo)
@@ -1202,10 +1343,16 @@ def _update_catalog_item(
     if not config:
         raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
     row = _clean_payload(payload, config["allowed"], {})
+    if catalogo == "operadores":
+        row = _expand_operator_vehicle_assignment(row)
     if catalogo == "vehiculos":
         row = _expand_vehicle_aliases(row)
+    if catalogo == "remolques":
+        row = _expand_trailer_metadata(row)
     if catalogo in {"origenes", "destinos"}:
         row = _expand_installation_metadata(row)
+    if catalogo == "rutas":
+        row = _expand_route_from_installations(token, uid, perfil_id, row)
     if catalogo == "productos" and row.get("descripcion") and not row.get("nombre"):
         row["nombre"] = row["descripcion"]
     if not row:
@@ -1790,20 +1937,21 @@ def _build_carta_porte_preview(
     producto: dict[str, Any],
     ruta: dict[str, Any],
     tipo_cfdi: str = "",
+    settings: Optional[dict[str, Any]] = None,
+    permiso_transportista: Optional[dict[str, Any]] = None,
+    pac_ready: bool = False,
+    pac_message: str = "",
 ) -> dict[str, Any]:
     meta = _meta(viaje)
     vehiculo_meta = _meta(vehiculo)
     producto_nombre = _first_text(producto.get("descripcion"), meta.get("producto_descripcion"))
     material_peligroso = bool(producto.get("material_peligroso")) or _is_hidrocarburo(producto_nombre)
     tipo = _tipo_cfdi_sugerido(viaje, cliente, tipo_cfdi)
+    emisor = _emisor_from_settings(settings or _settings_defaults())
+    emisor["num_permiso_cne"] = _first_text(viaje.get("num_permiso_cne"), (permiso_transportista or {}).get("permiso_cre"))
 
     preview = {
-        "emisor": {
-            "nombre": "Transportista / emisor pendiente de configuración",
-            "rfc": "",
-            "regimen_fiscal": "",
-            "cp": "",
-        },
+        "emisor": emisor,
         "receptor": {
             "nombre": _first_text(cliente.get("nombre"), meta.get("cliente_nombre")),
             "rfc": _first_text(cliente.get("rfc")),
@@ -1942,12 +2090,20 @@ def _build_carta_porte_preview(
         )
 
     errors = [item for item in validaciones if item["nivel"] == "error"]
+    _append_emisor_errors(errors, preview["emisor"])
+    if not preview["emisor"].get("num_permiso_cne"):
+        errors.append({"nivel": "error", "campo": "emisor.permiso_transportista", "mensaje": "Falta permiso CRE transportista para el producto en Administración."})
+    if not pac_ready:
+        errors.append({"nivel": "error", "campo": "pac.sw_sapiens", "mensaje": pac_message or "SW Sapiens no está listo para timbrado."})
+    validaciones = validaciones + [item for item in errors if item not in validaciones]
     ready_to_stamp = not errors
     return {
         "ok": True,
         "ready_to_stamp": ready_to_stamp,
         "datos_completos_para_fase_3": ready_to_stamp,
         "timbrado_habilitado": ready_to_stamp,
+        "pac_configurado": pac_ready,
+        "pac_mensaje": pac_message,
         "tipo_cfdi_sugerido": tipo,
         "preview": preview,
         "validaciones": validaciones,
@@ -1998,6 +2154,42 @@ def _stamp_transportista_permiso(sb: Any, uid: str, pid: Optional[int], producto
     ]
     exact = next((row for row in candidates if product_norm and _normalize_producto_value(row.get("producto")) == product_norm), None)
     return exact or (candidates[0] if candidates else {})
+
+
+def _emisor_from_settings(settings: dict[str, Any]) -> dict[str, str]:
+    fiscal = settings.get("perfil_fiscal") or {}
+    return {
+        "rfc": _first_text(fiscal.get("rfc_contribuyente")),
+        "nombre": _first_text(fiscal.get("nombre_fiscal")),
+        "regimen_fiscal": _first_text(fiscal.get("regimen_fiscal")),
+        "cp": _first_text(fiscal.get("cp_fiscal")),
+        "domicilio_fiscal": _first_text(fiscal.get("cp_fiscal")),
+        "rfc_representante_legal": _first_text(fiscal.get("rfc_representante_legal")),
+        "num_permiso_cne": "",
+    }
+
+
+def _sw_ready_state() -> tuple[bool, str, dict[str, Any]]:
+    try:
+        cfg = sw_runtime_config()
+    except Exception as exc:
+        return False, f"No se pudo leer configuración SW Sapiens: {exc}", {}
+    if not cfg.get("has_credentials"):
+        return False, "SW Sapiens sin credenciales configuradas."
+    if not cfg.get("real_stamping_allowed"):
+        return False, "SW Sapiens configurado, pero timbrado real bloqueado por variables de entorno."
+    return True, "SW Sapiens listo para timbrado.", cfg
+
+
+def _append_emisor_errors(errors: list[dict[str, str]], emisor: dict[str, Any]) -> None:
+    for field, label in [
+        ("rfc", "RFC emisor Transporte"),
+        ("nombre", "Nombre fiscal emisor Transporte"),
+        ("regimen_fiscal", "Régimen fiscal emisor"),
+        ("domicilio_fiscal", "CP/lugar de expedición emisor"),
+    ]:
+        if not emisor.get(field):
+            errors.append({"nivel": "error", "campo": f"emisor.{field}", "mensaje": f"Falta {label} en Administración > Configuración."})
 
 
 def _stamp_internal_product_keys(producto: dict[str, Any], raw: dict[str, Any]) -> tuple[str, str, str]:
@@ -2163,30 +2355,25 @@ def _stamp_build_context(
         raise HTTPException(409, f"No se pudo cargar configuración fiscal Transporte: {exc}") from exc
 
     normalized_viaje = _normalize_viaje_row(viaje_row)
-    preview = _build_carta_porte_preview(normalized_viaje, cliente, operador, vehiculo, producto, ruta, "I")
-    errors = [item for item in preview.get("validaciones", []) if item.get("nivel") == "error"]
-    fiscal = settings.get("perfil_fiscal") or {}
-    emisor = {
-        "rfc": _first_text(fiscal.get("rfc_contribuyente")),
-        "nombre": _first_text(fiscal.get("nombre_fiscal")),
-        "regimen_fiscal": _first_text(fiscal.get("regimen_fiscal")),
-        "domicilio_fiscal": _first_text(fiscal.get("cp_fiscal")),
-        "num_permiso_cne": "",
-    }
-    for field, label in [
-        ("rfc", "RFC emisor Transporte"),
-        ("nombre", "Nombre fiscal emisor Transporte"),
-        ("regimen_fiscal", "Régimen fiscal emisor"),
-        ("domicilio_fiscal", "CP/lugar de expedición emisor"),
-    ]:
-        if not emisor[field]:
-            errors.append({"nivel": "error", "campo": f"emisor.{field}", "mensaje": f"Falta {label} en Administración > Configuración."})
-
     product_text = _first_text(producto.get("tipo_producto"), producto.get("descripcion"), _meta(viaje_row).get("producto"))
     permiso_transportista = _stamp_transportista_permiso(sb, uid, pid, product_text)
+    pac_ready, pac_message, _pac_cfg = _sw_ready_state()
+    preview = _build_carta_porte_preview(
+        normalized_viaje,
+        cliente,
+        operador,
+        vehiculo,
+        producto,
+        ruta,
+        "I",
+        settings=settings,
+        permiso_transportista=permiso_transportista,
+        pac_ready=pac_ready,
+        pac_message=pac_message,
+    )
+    errors = [item for item in preview.get("validaciones", []) if item.get("nivel") == "error"]
+    emisor = _emisor_from_settings(settings)
     emisor["num_permiso_cne"] = _first_text(viaje_row.get("num_permiso_cne"), permiso_transportista.get("permiso_cre"))
-    if not emisor["num_permiso_cne"]:
-        errors.append({"nivel": "error", "campo": "emisor.permiso_transportista", "mensaje": "Falta permiso CRE transportista para el producto en Administración."})
 
     producto_obj: Optional[ProductoTransporte] = None
     try:
@@ -2469,7 +2656,6 @@ async def transporte_v2_operator_accesses(
                 "chofer_id": row.get("chofer_id"),
                 "chofer_nombre": chofer.get("nombre") or f"Operador #{row.get('chofer_id')}",
                 "usuario": row.get("usuario") or "",
-                "vehiculo_id": row.get("vehiculo_id"),
                 "status": row.get("status") or "",
                 "expires_at": row.get("expires_at"),
                 "last_used_at": row.get("last_used_at"),
@@ -2526,7 +2712,6 @@ async def transporte_v2_operator_access_create(
             "user_id": uid,
             "perfil_id": pid,
             "chofer_id": payload.chofer_id,
-            "vehiculo_id": payload.vehiculo_id,
             "usuario": usuario,
             "token_hash": _hash_operator_token(token_plain),
             "pin_hash": _hash_operator_token(token_plain),
@@ -2547,7 +2732,6 @@ async def transporte_v2_operator_access_create(
                 "chofer_id": payload.chofer_id,
                 "chofer_nombre": chofer_rows[0].get("nombre"),
                 "usuario": item.get("usuario") or usuario,
-                "vehiculo_id": item.get("vehiculo_id") or payload.vehiculo_id,
                 "status": item.get("status") or ("activo" if payload.activo else "inactivo"),
                 "expires_at": item.get("expires_at") or expires_at.isoformat(),
             },
@@ -2556,7 +2740,7 @@ async def transporte_v2_operator_access_create(
             "mode": "token_temporal",
         }
     except Exception as exc:
-        if _missing_column_from_error(exc) in {"usuario", "pin_hash", "vehiculo_id", "updated_at"}:
+        if _missing_column_from_error(exc) in {"usuario", "pin_hash", "updated_at"}:
             return _migration_pending_response()
         if _is_missing_table_error(exc):
             return JSONResponse(_missing_schema_payload(TBL_OPERADOR_ACCESOS), status_code=409)
@@ -2968,7 +3152,7 @@ async def transporte_v2_eliminar_viaje(
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     try:
-        query = _sb(token).table(TBL_VIAJES).select("id,user_id,perfil_id,status,estatus,uuid_cfdi,metadata").eq("id", viaje_id).eq("user_id", uid).limit(1)
+        query = _sb(token).table(TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).limit(1)
         if pid:
             query = query.eq("perfil_id", pid)
         rows = query.execute().data or []
@@ -2976,7 +3160,7 @@ async def transporte_v2_eliminar_viaje(
             rows = (
                 _sb(token)
                 .table(TBL_VIAJES)
-                .select("id,user_id,perfil_id,status,estatus,uuid_cfdi,metadata")
+                .select("*")
                 .eq("id", viaje_id)
                 .eq("user_id", uid)
                 .limit(1)
@@ -2994,14 +3178,16 @@ async def transporte_v2_eliminar_viaje(
         if uuid or "timbr" in status:
             raise HTTPException(409, "No se puede eliminar una Carta Porte timbrada desde esta acción. Cancela o revisa el CFDI fiscal.")
         metadata.update({"eliminado_transporte_v2": True, "deleted_at": _now_iso(), "deleted_reason": "prueba_borrador"})
-        update = {"status": "eliminado", "metadata": metadata, "updated_at": _now_iso()}
+        update = {"defaults_json": metadata, "updated_at": _now_iso()}
         updated: list[dict[str, Any]] = []
         last_exc: Optional[Exception] = None
         for candidate in (
             update,
+            {"defaults_json": metadata},
+            {"metadata": metadata, "updated_at": _now_iso()},
+            {"metadata": metadata},
+            {"status": "eliminado", "metadata": metadata, "updated_at": _now_iso()},
             {"estatus": "eliminado", "metadata": metadata, "updated_at": _now_iso()},
-            {"status": "eliminado", "metadata": metadata},
-            {"estatus": "eliminado", "metadata": metadata},
         ):
             try:
                 q_update = _sb(token).table(TBL_VIAJES).update(candidate).eq("id", viaje_id).eq("user_id", uid)
@@ -3020,9 +3206,11 @@ async def transporte_v2_eliminar_viaje(
         if not updated:
             for candidate in (
                 update,
+                {"defaults_json": metadata},
+                {"metadata": metadata, "updated_at": _now_iso()},
+                {"metadata": metadata},
+                {"status": "eliminado", "metadata": metadata, "updated_at": _now_iso()},
                 {"estatus": "eliminado", "metadata": metadata, "updated_at": _now_iso()},
-                {"status": "eliminado", "metadata": metadata},
-                {"estatus": "eliminado", "metadata": metadata},
             ):
                 pending = dict(candidate)
                 removed: set[str] = set()
@@ -3111,7 +3299,23 @@ async def transporte_v2_carta_porte_preview(
     uid, token = _auth(authorization)
     try:
         viaje, cliente, operador, vehiculo, producto, ruta, _pid = _load_preview_context(uid, token, payload, x_perfil_id)
-        return _build_carta_porte_preview(viaje, cliente, operador, vehiculo, producto, ruta, payload.tipo_cfdi)
+        settings = _load_settings(token, uid, _pid)
+        product_text = _first_text(producto.get("tipo_producto"), producto.get("descripcion"), _meta(viaje).get("producto"))
+        permiso_transportista = _stamp_transportista_permiso(_sb(token), uid, _pid, product_text)
+        pac_ready, pac_message, _pac_cfg = _sw_ready_state()
+        return _build_carta_porte_preview(
+            viaje,
+            cliente,
+            operador,
+            vehiculo,
+            producto,
+            ruta,
+            payload.tipo_cfdi,
+            settings=settings,
+            permiso_transportista=permiso_transportista,
+            pac_ready=pac_ready,
+            pac_message=pac_message,
+        )
     except HTTPException:
         raise
     except Exception as exc:
