@@ -80,13 +80,21 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "origenes": {
         "table": TBL_ORIGENES,
         "required": ["nombre", "cp"],
-        "allowed": ["nombre", "rfc", "cp", "direccion", "tipo", "activo"],
+        "allowed": [
+            "nombre", "rfc", "cp", "direccion", "tipo", "tipo_carta_porte",
+            "permiso_cre", "clave_instalacion", "id_ubicacion_carta_porte",
+            "estado_sat", "municipio_sat", "localidad_sat", "referencia", "activo",
+        ],
         "defaults": {"activo": True, "tipo": "terminal"},
     },
     "destinos": {
         "table": TBL_DESTINOS,
         "required": ["nombre", "cp"],
-        "allowed": ["nombre", "rfc", "cp", "direccion", "tipo", "cliente_id", "activo"],
+        "allowed": [
+            "nombre", "rfc", "cp", "direccion", "tipo", "tipo_carta_porte", "cliente_id",
+            "permiso_cre", "clave_instalacion", "id_ubicacion_carta_porte",
+            "estado_sat", "municipio_sat", "localidad_sat", "referencia", "activo",
+        ],
         "defaults": {"activo": True, "tipo": "cliente"},
     },
     "rutas": {
@@ -831,12 +839,28 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["cp"] = _first_text(item.get("cp"), item.get("codigo_postal"))
         item["direccion"] = _first_text(item.get("direccion"))
         item["tipo"] = _first_text(item.get("tipo"), "terminal")
+        item["tipo_carta_porte"] = _first_text(item.get("tipo_carta_porte"), "Origen")
+        item["permiso_cre"] = _first_text(item.get("permiso_cre"))
+        item["clave_instalacion"] = _first_text(item.get("clave_instalacion"))
+        item["id_ubicacion_carta_porte"] = _first_text(item.get("id_ubicacion_carta_porte"), item.get("id_ubicacion"))
+        item["estado_sat"] = _first_text(item.get("estado_sat"))
+        item["municipio_sat"] = _first_text(item.get("municipio_sat"))
+        item["localidad_sat"] = _first_text(item.get("localidad_sat"))
+        item["referencia"] = _first_text(item.get("referencia"))
     elif catalogo == "destinos":
         item["nombre"] = _first_text(item.get("nombre"))
         item["rfc"] = _first_text(item.get("rfc"))
         item["cp"] = _first_text(item.get("cp"), item.get("codigo_postal"))
         item["direccion"] = _first_text(item.get("direccion"))
         item["tipo"] = _first_text(item.get("tipo"), "cliente")
+        item["tipo_carta_porte"] = _first_text(item.get("tipo_carta_porte"), "Destino")
+        item["permiso_cre"] = _first_text(item.get("permiso_cre"))
+        item["clave_instalacion"] = _first_text(item.get("clave_instalacion"))
+        item["id_ubicacion_carta_porte"] = _first_text(item.get("id_ubicacion_carta_porte"), item.get("id_ubicacion"))
+        item["estado_sat"] = _first_text(item.get("estado_sat"))
+        item["municipio_sat"] = _first_text(item.get("municipio_sat"))
+        item["localidad_sat"] = _first_text(item.get("localidad_sat"))
+        item["referencia"] = _first_text(item.get("referencia"))
     elif catalogo == "rutas":
         item["nombre"] = _first_text(item.get("nombre"), f"{item.get('nombre_origen') or 'Origen'} -> {item.get('nombre_destino') or 'Destino'}")
         item["origen"] = _first_text(item.get("origen"), item.get("nombre_origen"))
@@ -914,6 +938,14 @@ def _create_catalog_item(
         _audit(uid, token, perfil_id, config["table"], item.get("id"), "crear", {"catalogo": catalogo})
         return {"ok": True, "item": _normalize_catalog_row(catalogo, item)}
     except Exception as exc:
+        missing_col = _missing_column_from_error(exc)
+        if missing_col:
+            return JSONResponse({
+                "ok": False,
+                "needs_schema": True,
+                "message": f"Columna pendiente en {config['table']}: {missing_col}. Guarda la instalación sin ese campo o aplica migración no destructiva.",
+                "missing_column": missing_col,
+            }, status_code=409)
         if _is_missing_table_error(exc):
             return JSONResponse(_missing_schema_payload(config["table"]), status_code=409)
         logger.exception("Transporte v2 crear catalogo error catalogo=%s", catalogo)
@@ -952,6 +984,14 @@ def _update_catalog_item(
     except HTTPException:
         raise
     except Exception as exc:
+        missing_col = _missing_column_from_error(exc)
+        if missing_col:
+            return JSONResponse({
+                "ok": False,
+                "needs_schema": True,
+                "message": f"Columna pendiente en {config['table']}: {missing_col}. Guarda la instalación sin ese campo o aplica migración no destructiva.",
+                "missing_column": missing_col,
+            }, status_code=409)
         if _is_missing_table_error(exc):
             return JSONResponse(_missing_schema_payload(config["table"]), status_code=409)
         logger.exception("Transporte v2 actualizar catalogo error catalogo=%s id=%s", catalogo, item_id)
