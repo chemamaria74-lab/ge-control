@@ -968,7 +968,11 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       const summary = document.getElementById('trv2-operator-cp-summary');
       const stamp = document.getElementById('trv2-operator-stamp-btn');
       if (status) status.textContent = uuid ? 'Timbrada' : 'Pendiente';
-      if (summary) summary.textContent = uuid ? `UUID: ${{uuid}}` : 'Factura y datos operativos requeridos para timbrar.';
+      if (summary) {{
+        const pdf = TRV2_OPERATOR_META.pdf_url ? `<a class="btn" href="${{trv2OpEsc(TRV2_OPERATOR_META.pdf_url)}}" target="_blank" rel="noopener">PDF</a>` : '';
+        const xml = TRV2_OPERATOR_META.xml_url ? `<span>XML disponible en administración</span>` : '';
+        summary.innerHTML = uuid ? `UUID: ${{trv2OpEsc(uuid)}}<div class="actions">${{pdf}}${{xml}}</div>` : 'Factura y datos operativos requeridos para timbrar.';
+      }}
       if (stamp) stamp.disabled = Boolean(uuid);
     }}
     function trv2OperadorBitacoraEstado() {{ return TRV2_OPERATOR_META.bitacora_operador?.estado || 'SIN_INICIAR'; }}
@@ -1025,12 +1029,32 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
     }}
     function trv2OperadorViewCartaPorte() {{
       const uuid = TRV2_OPERATOR_TRIP?.uuid_cfdi || TRV2_OPERATOR_META.uuid_carta_porte || '';
+      if (TRV2_OPERATOR_META.pdf_url) {{
+        window.open(TRV2_OPERATOR_META.pdf_url, '_blank', 'noopener');
+        return;
+      }}
       trv2OperadorToast(uuid ? `Carta Porte ${{uuid}}` : 'Carta Porte no timbrada.');
     }}
-    function trv2OperadorTimbrar() {{
+    async function trv2OperadorTimbrar() {{
       if (TRV2_OPERATOR_TRIP?.uuid_cfdi || TRV2_OPERATOR_META.uuid_carta_porte) return trv2OperadorToast('Carta Porte ya timbrada.');
       if (!TRV2_OPERATOR_META.factura_operador) return trv2OperadorToast('Sube la factura antes de timbrar.');
-      trv2OperadorToast('Solicitud lista. El administrador debe confirmar timbrado.');
+      if (!confirm('¿Timbrar Carta Porte real de este viaje?')) return;
+      trv2OperadorToast('Timbrando Carta Porte...');
+      const response = await fetch('/api/tr-v2/operator/carta-porte/timbrar', {{method:'POST', headers: trv2OperadorHeaders()}});
+      const data = await response.json().catch(() => ({{}}));
+      if (!response.ok || data.ok === false) {{
+        const detail = data.detail || data.message || data.error || 'No se pudo timbrar Carta Porte.';
+        const errors = Array.isArray(detail?.errors) ? detail.errors.map(item => item.mensaje || item.message || item.campo).join(' · ') : '';
+        return trv2OperadorToast(errors || detail.message || detail);
+      }}
+      const uuid = data.uuid_sat || data.uuid_cfdi || '';
+      TRV2_OPERATOR_TRIP.uuid_cfdi = uuid;
+      TRV2_OPERATOR_META.uuid_carta_porte = uuid;
+      TRV2_OPERATOR_META.id_ccp = data.id_ccp || '';
+      TRV2_OPERATOR_META.pdf_url = data.pdf_url || '';
+      TRV2_OPERATOR_META.xml_url = data.xml_url || '';
+      trv2OperadorRenderCartaPorte();
+      trv2OperadorToast(`Carta Porte timbrada${{uuid ? ': ' + uuid : ''}}`);
     }}
     async function trv2OperadorBitacora(action) {{
       if (action === 'PDF') {{
