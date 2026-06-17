@@ -53,6 +53,14 @@ const TRV2_CONFIG_VEHICULAR = [
   ['T3S2R3', 'Tractocamión 3 ejes + semirremolque 2 ejes + remolque 3 ejes'],
   ['T3S2R4', 'Tractocamión 3 ejes + semirremolque 2 ejes + remolque 4 ejes'],
 ];
+const TRV2_SUBTIPOS_REMOLQUE = [
+  ['CTR001', 'Camión tanque / remolque tanque'],
+  ['CTR002', 'Caja seca'],
+  ['CTR003', 'Tolva'],
+  ['CTR004', 'Plataforma'],
+  ['CTR005', 'Jaula'],
+  ['CTR006', 'Caja refrigerada'],
+];
 const TRV2_REGIMENES_FISCALES = [
   ['601', 'General de Ley Personas Morales'],
   ['603', 'Personas Morales con Fines no Lucrativos'],
@@ -145,6 +153,15 @@ const TRV2_CATALOG_FORMS = {
     ['aseguradora_medio_ambiente', 'Aseg. medio ambiente'],
     ['poliza_medio_ambiente', 'Póliza medio ambiente'],
     ['peso_bruto_vehicular', 'Peso bruto vehicular', 'number'],
+    ['remolque_subtipo', 'Subtipo remolque SAT', 'trailer-subtype'],
+    ['remolque_placas', 'Placas remolque'],
+    ['remolque_numero_economico', 'Número económico remolque'],
+    ['remolque_aseguradora', 'Aseguradora remolque'],
+    ['remolque_poliza', 'Póliza remolque'],
+    ['remolque_peso_bruto', 'Peso bruto remolque', 'number'],
+    ['remolque2_subtipo', 'Subtipo segundo remolque SAT', 'trailer-subtype'],
+    ['remolque2_placas', 'Placas segundo remolque'],
+    ['remolque2_numero_economico', 'Número económico segundo remolque'],
     ['activo', 'Activo', 'checkbox'],
   ],
   productos: [
@@ -228,7 +245,7 @@ const TRV2_CATALOG_UI = {
     title: 'Vehículos',
     subtitle: 'Unidades, autotanques, permisos y seguros.',
     metrics: [['Registros', 'count'], ['Con placas', 'placas'], ['Con seguro RC', 'poliza_rc']],
-    fields: [['Placas', 'placas'], ['Config.', 'config_vehicular'], ['VIN / NIV', 'vin'], ['Motor', 'numero_motor'], ['Permiso', 'permiso_sct'], ['Seguro', 'poliza_rc']],
+    fields: [['Placas', 'placas'], ['Modelo', 'modelo'], ['VIN / NIV', 'vin'], ['Motor', 'numero_motor'], ['Config.', 'config_vehicular'], ['Permiso', 'permiso_sct'], ['Seguro', 'poliza_rc']],
   },
   productos: {
     icon: 'fa-gas-pump',
@@ -299,7 +316,12 @@ async function trv2LoadCatalogs(options = {}) {
 
 function trv2CatalogLabel(name, item) {
   if (!item) return '';
-  if (name === 'vehiculos') return item.alias || item.placas || `#${item.id}`;
+  if (name === 'vehiculos') {
+    const alias = item.alias || item.numero_economico || '';
+    const placas = item.placas || '';
+    if (alias && placas) return `${alias} · Placas ${placas}`;
+    return alias || placas || `#${item.id}`;
+  }
   if (name === 'productos') return item.descripcion || item.clave_producto || `#${item.id}`;
   if (name === 'rutas') return item.nombre || `${item.origen || 'Origen'} → ${item.destino || 'Destino'}`;
   if (name === 'instalaciones') return item.nombre || item.cp || `#${item.id}`;
@@ -513,9 +535,15 @@ function trv2RenderCatalogFields(name) {
       </select></label>`;
     }
     if (type === 'vehicle-config') {
-      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="trv2ToggleVehicleTrailerFields()">
         <option value="">Seleccionar configuración</option>
         ${TRV2_CONFIG_VEHICULAR.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
+    if (type === 'trailer-subtype') {
+      return `<label data-remolque-field>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar subtipo</option>
+        ${TRV2_SUBTIPOS_REMOLQUE.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
       </select></label>`;
     }
     if (type === 'cp-location-type') {
@@ -581,8 +609,30 @@ function trv2RenderCatalogFields(name) {
     }
     const inputType = type === 'number' ? 'number' : (type === 'date' ? 'date' : 'text');
     const rfcAttr = type === 'rfc' ? 'data-rfc-field' : '';
-    return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${rfcAttr} ${required ? 'required' : ''} type="${inputType}" step="0.001"></label>`;
+    const trailerAttr = field.includes('remolque') ? 'data-remolque-field' : '';
+    return `<label ${trailerAttr}>${trv2Esc(labelText)}<input data-field="${field}" ${rfcAttr} ${required ? 'required' : ''} type="${inputType}" step="0.001"></label>`;
   }).join('');
+}
+
+function trv2VehicleConfigRequiresTrailer(config) {
+  return /[SR]/i.test(String(config || ''));
+}
+
+function trv2VehicleConfigRequiresSecondTrailer(config) {
+  return /R/i.test(String(config || ''));
+}
+
+function trv2ToggleVehicleTrailerFields() {
+  const form = document.getElementById('trv2-catalog-modal-form');
+  if (!form || form.dataset.catalog !== 'vehiculos') return;
+  const config = form.querySelector('[data-field="config_vehicular"]')?.value || '';
+  const needsTrailer = trv2VehicleConfigRequiresTrailer(config);
+  const needsSecond = trv2VehicleConfigRequiresSecondTrailer(config);
+  form.querySelectorAll('[data-remolque-field]').forEach(label => {
+    const field = label.querySelector('[data-field]')?.dataset.field || '';
+    const isSecond = field.startsWith('remolque2_');
+    label.hidden = !needsTrailer || (isSecond && !needsSecond);
+  });
 }
 
 function trv2SubproductoOptions(productType = '') {
@@ -739,6 +789,7 @@ function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG, itemId = 0) {
   `;
   if (item) trv2FillCatalogModalForm(form, item);
   trv2RefreshMunicipioSatOptions();
+  trv2ToggleVehicleTrailerFields();
   modal.hidden = false;
 }
 
@@ -754,6 +805,7 @@ function trv2FillCatalogModalForm(form, item) {
     }
   });
   trv2RefreshProductSatDefaults();
+  trv2ToggleVehicleTrailerFields();
 }
 
 function trv2CloseCatalogModal() {
@@ -830,6 +882,10 @@ function trv2ValidateCatalogPayload(name, data) {
     if (data.material_peligroso && !data.embalaje) return `Mercancía ${data.descripcion || ''} no tiene embalaje.`;
     if (data.factor_kg_l && Number(data.factor_kg_l) <= 0) return `Mercancía ${data.descripcion || ''} tiene factor kg/L inválido.`;
     if (['Magna', 'Premium', 'Diésel'].includes(data.tipo_producto) && !data.clave_subproducto) return `Mercancía ${data.tipo_producto} requiere subproducto HidroYPetro para preparar CFDI/JSON cuando aplique.`;
+  }
+  if (name === 'vehiculos' && trv2VehicleConfigRequiresTrailer(data.config_vehicular)) {
+    if (!data.remolque_subtipo) return `El vehículo ${data.alias || data.placas || ''} requiere subtipo de remolque/semirremolque.`;
+    if (!data.remolque_placas) return `El vehículo ${data.alias || data.placas || ''} requiere placas del remolque/semirremolque.`;
   }
   if (name === 'proveedores') {
     if (!trv2ValidRfc(data.rfc)) return `Proveedor ${data.nombre || ''} tiene RFC inválido.`;
