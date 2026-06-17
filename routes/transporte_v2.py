@@ -61,10 +61,13 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         "table": TBL_VEHICULOS,
         "required": ["alias", "placas", "config_vehicular", "permiso_sct", "num_permiso_sct", "aseguradora_rc", "poliza_rc"],
         "allowed": [
-            "alias", "placas", "config_vehicular", "modelo", "anio",
-            "vin", "numero_motor",
+            "alias", "numero_economico", "unidad", "placas", "config_vehicular", "configuracion_vehicular", "modelo", "anio",
+            "vin", "vin_niv", "niv", "numero_motor", "motor",
             "permiso_sct", "num_permiso_sct", "aseguradora_rc", "poliza_rc",
             "aseguradora_medio_ambiente", "poliza_medio_ambiente", "peso_bruto_vehicular", "activo",
+            "remolque_subtipo", "remolque_placas", "remolque_numero_economico",
+            "remolque_aseguradora", "remolque_poliza", "remolque_peso_bruto",
+            "remolque2_subtipo", "remolque2_placas", "remolque2_numero_economico", "metadata",
         ],
         "defaults": {"activo": True},
     },
@@ -706,6 +709,55 @@ def _clean_payload(data: dict[str, Any], allowed: list[str], defaults: Optional[
     return cleaned
 
 
+def _expand_vehicle_aliases(row: dict[str, Any]) -> dict[str, Any]:
+    expanded = dict(row)
+    metadata = _parse_json_value(expanded.get("metadata"), {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    alias = _first_text(expanded.get("alias"), expanded.get("numero_economico"), expanded.get("unidad"))
+    if alias:
+        expanded["alias"] = alias
+        expanded.setdefault("numero_economico", alias)
+    vin = _first_text(expanded.get("vin"), expanded.get("vin_niv"), expanded.get("niv"))
+    if vin:
+        expanded["vin"] = vin
+        expanded.setdefault("vin_niv", vin)
+        expanded.setdefault("niv", vin)
+    motor = _first_text(expanded.get("numero_motor"), expanded.get("motor"))
+    if motor:
+        expanded["numero_motor"] = motor
+        expanded.setdefault("motor", motor)
+    config = _first_text(expanded.get("config_vehicular"), expanded.get("configuracion_vehicular"))
+    if config:
+        expanded["config_vehicular"] = config
+        expanded.setdefault("configuracion_vehicular", config)
+    trailer_keys = [
+        "remolque_subtipo", "remolque_placas", "remolque_numero_economico",
+        "remolque_aseguradora", "remolque_poliza", "remolque_peso_bruto",
+        "remolque2_subtipo", "remolque2_placas", "remolque2_numero_economico",
+    ]
+    trailer_data = {key: expanded.get(key) for key in trailer_keys if _first_text(expanded.get(key))}
+    if trailer_data:
+        metadata.update(trailer_data)
+        metadata["remolques"] = [
+            {
+                "subtipo": trailer_data.get("remolque_subtipo", ""),
+                "placas": trailer_data.get("remolque_placas", ""),
+                "numero_economico": trailer_data.get("remolque_numero_economico", ""),
+                "aseguradora": trailer_data.get("remolque_aseguradora", ""),
+                "poliza": trailer_data.get("remolque_poliza", ""),
+                "peso_bruto": trailer_data.get("remolque_peso_bruto", ""),
+            },
+            {
+                "subtipo": trailer_data.get("remolque2_subtipo", ""),
+                "placas": trailer_data.get("remolque2_placas", ""),
+                "numero_economico": trailer_data.get("remolque2_numero_economico", ""),
+            },
+        ]
+        expanded["metadata"] = metadata
+    return expanded
+
+
 def _valid_rfc(value: str) -> bool:
     rfc = str(value or "").strip().upper()
     if rfc == "XAXX010101000":
@@ -818,15 +870,22 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["licencia"] = _first_text(item.get("licencia"))
         item["tipo_licencia"] = _first_text(item.get("tipo_licencia"))
     elif catalogo == "vehiculos":
+        vehicle_meta = _meta(item)
         item["alias"] = _first_text(item.get("alias"), item.get("numero_economico"), item.get("placas"))
         item["placas"] = _first_text(item.get("placas"), item.get("placa"))
         item["modelo"] = _first_text(item.get("modelo"), item.get("marca_modelo"))
-        item["vin"] = _first_text(item.get("vin"), item.get("niv"))
-        item["numero_motor"] = _first_text(item.get("numero_motor"), item.get("motor"))
+        item["vin"] = _first_text(item.get("vin"), item.get("vin_niv"), item.get("niv"))
+        item["numero_motor"] = _first_text(item.get("numero_motor"), item.get("motor"), vehicle_meta.get("numero_motor"))
         item["config_vehicular"] = _first_text(item.get("config_vehicular"), item.get("configuracion_vehicular"), "C2")
         item["anio"] = item.get("anio") or item.get("anio_modelo")
         item["aseguradora_rc"] = _first_text(item.get("aseguradora_rc"), item.get("aseguradora"), item.get("nombre_asegurador"))
         item["poliza_rc"] = _first_text(item.get("poliza_rc"), item.get("poliza_seguro"))
+        for trailer_key in (
+            "remolque_subtipo", "remolque_placas", "remolque_numero_economico",
+            "remolque_aseguradora", "remolque_poliza", "remolque_peso_bruto",
+            "remolque2_subtipo", "remolque2_placas", "remolque2_numero_economico",
+        ):
+            item[trailer_key] = _first_text(item.get(trailer_key), vehicle_meta.get(trailer_key))
     elif catalogo == "productos":
         item["descripcion"] = _first_text(item.get("descripcion"), item.get("nombre"), item.get("clave_producto"))
         item["nombre"] = _first_text(item.get("nombre"), item["descripcion"])
@@ -928,6 +987,8 @@ def _create_catalog_item(
     if not perfil_id:
         raise HTTPException(400, "perfil_id requerido para actualizar catálogos Transporte.")
     row = _clean_payload(payload, config["allowed"], config.get("defaults") or {})
+    if catalogo == "vehiculos":
+        row = _expand_vehicle_aliases(row)
     if catalogo == "productos" and row.get("descripcion") and not row.get("nombre"):
         row["nombre"] = row["descripcion"]
     _ensure_required(row, config["required"], catalogo)
@@ -969,6 +1030,8 @@ def _update_catalog_item(
     if not config:
         raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
     row = _clean_payload(payload, config["allowed"], {})
+    if catalogo == "vehiculos":
+        row = _expand_vehicle_aliases(row)
     if catalogo == "productos" and row.get("descripcion") and not row.get("nombre"):
         row["nombre"] = row["descripcion"]
     if not row:
@@ -1541,6 +1604,10 @@ def _requires_hidroypetro_subproducto(text: str) -> bool:
     return any(word in lower for word in ("magna", "premium", "diesel", "diésel", "gasolina"))
 
 
+def _vehicle_config_requires_trailer(config: str) -> bool:
+    return bool(re.search(r"[SR]", str(config or ""), re.I))
+
+
 def _build_carta_porte_preview(
     viaje: dict[str, Any],
     cliente: dict[str, Any],
@@ -1551,6 +1618,7 @@ def _build_carta_porte_preview(
     tipo_cfdi: str = "",
 ) -> dict[str, Any]:
     meta = _meta(viaje)
+    vehiculo_meta = _meta(vehiculo)
     producto_nombre = _first_text(producto.get("descripcion"), meta.get("producto_descripcion"))
     material_peligroso = bool(producto.get("material_peligroso")) or _is_hidrocarburo(producto_nombre)
     tipo = _tipo_cfdi_sugerido(viaje, cliente, tipo_cfdi)
@@ -1609,6 +1677,8 @@ def _build_carta_porte_preview(
             "poliza_rc": _first_text(vehiculo.get("poliza_rc"), vehiculo.get("poliza_seguro"), meta.get("poliza_rc")),
             "aseguradora_medio_ambiente": _first_text(vehiculo.get("aseguradora_medio_ambiente"), meta.get("aseguradora_medio_ambiente")),
             "poliza_medio_ambiente": _first_text(vehiculo.get("poliza_medio_ambiente"), meta.get("poliza_medio_ambiente")),
+            "remolque_subtipo": _first_text(vehiculo.get("remolque_subtipo"), vehiculo_meta.get("remolque_subtipo"), meta.get("remolque_subtipo")),
+            "remolque_placas": _first_text(vehiculo.get("remolque_placas"), vehiculo_meta.get("remolque_placas"), meta.get("remolque_placas")),
         },
         "figura_transporte": {
             "tipo_figura": "01",
@@ -1675,6 +1745,9 @@ def _build_carta_porte_preview(
     _req(validaciones, "vehiculo.num_permiso_sct", preview["autotransporte"]["num_permiso_sct"], "Falta número de permiso SCT/SICT.")
     _req(validaciones, "vehiculo.seguro_rc", preview["autotransporte"]["aseguradora_rc"], "Falta aseguradora de responsabilidad civil.")
     _req(validaciones, "vehiculo.poliza_rc", preview["autotransporte"]["poliza_rc"], "Falta póliza de responsabilidad civil.")
+    if _vehicle_config_requires_trailer(preview["autotransporte"]["config_vehicular"]):
+        _req(validaciones, "vehiculo.remolque_subtipo", preview["autotransporte"].get("remolque_subtipo"), f"El vehículo {preview['autotransporte']['config_vehicular']} requiere subtipo de remolque/semirremolque.")
+        _req(validaciones, "vehiculo.remolque_placas", preview["autotransporte"].get("remolque_placas"), f"El vehículo {preview['autotransporte']['config_vehicular']} requiere placas de remolque/semirremolque.")
 
     _req(validaciones, "operador.nombre", preview["figura_transporte"]["nombre"], "Falta nombre del operador.")
     _req(validaciones, "operador.rfc", preview["figura_transporte"]["rfc"], "Falta RFC Figura del operador.")
@@ -2216,6 +2289,34 @@ async def transporte_v2_eliminar_viaje(
                     break
         if last_exc:
             raise last_exc
+        if not updated:
+            for candidate in (
+                update,
+                {"estatus": "eliminado", "metadata": metadata, "updated_at": _now_iso()},
+                {"status": "eliminado", "metadata": metadata},
+                {"estatus": "eliminado", "metadata": metadata},
+            ):
+                pending = dict(candidate)
+                removed: set[str] = set()
+                while pending:
+                    try:
+                        admin_query = get_supabase_admin().table(TBL_VIAJES).update(pending).eq("id", viaje_id).eq("user_id", uid)
+                        updated = admin_query.execute().data or []
+                        if updated:
+                            update = pending
+                            break
+                        break
+                    except Exception as exc:
+                        column = _missing_column_from_error(exc)
+                        if not column or column in removed or column not in pending:
+                            last_exc = exc
+                            break
+                        removed.add(column)
+                        pending.pop(column, None)
+                if updated:
+                    break
+            if last_exc and not updated:
+                raise last_exc
         _audit(uid, token, pid, TBL_VIAJES, viaje_id, "eliminar_borrador", {"soft_delete": True})
         return {"ok": True, "item": _normalize_viaje_row(updated[0] if updated else {**row, **update})}
     except HTTPException:
