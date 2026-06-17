@@ -20,6 +20,7 @@ def _gas_lp_cliente_existing_by_rfc(sb, user: dict, rfc: str, *, exclude_id: int
                 user,
             )
             .eq("rfc", clean)
+            .eq("activo", True)
             .order("activo", desc=True)
             .order("updated_at", desc=True)
             .limit(5)
@@ -45,6 +46,10 @@ def _gas_lp_cliente_is_active(row: dict) -> bool:
         return False
     text = str(value).strip().lower()
     return text not in {"", "0", "false", "f", "no", "n", "inactivo", "inactive", "disabled", "deleted", "eliminado"}
+
+
+def _gas_lp_cliente_same_fiscal_name(left: str, right: str) -> bool:
+    return _gas_lp_normalizar_nombre_fiscal(left) == _gas_lp_normalizar_nombre_fiscal(right)
 
 
 def _gas_lp_cliente_invoice_counts(sb, user: dict, clientes: list[dict]) -> dict[int, int]:
@@ -798,43 +803,17 @@ async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, to
     sb = get_supabase_admin()
     existing = _gas_lp_cliente_existing_by_rfc(sb, user, row.get("rfc") or "")
     if existing:
-        if not _gas_lp_cliente_is_active(existing):
-            update_row = _gas_lp_cliente_editable_update(row)
-            current_metadata = existing.get("metadata") if isinstance(existing.get("metadata"), dict) else {}
-            new_metadata = update_row.get("metadata") if isinstance(update_row.get("metadata"), dict) else {}
-            update_row["activo"] = True
-            update_row["metadata"] = {
-                **current_metadata,
-                **new_metadata,
-                "reactivated_by_internal": user.get("id"),
-                "reactivated_by": user.get("display_name"),
-                "reactivated_at": _now_iso(),
-            }
-            try:
-                data = (
-                    _gas_lp_clientes_scope_query(
-                        sb
-                        .table("gas_lp_clientes_facturacion")
-                        .update(update_row)
-                        .eq("id", existing.get("id")),
-                        user,
-                    )
-                    .execute()
-                    .data
-                    or []
-                )
-            except Exception as exc:
-                raise _safe_internal_error("gas_lp_reactivar_cliente", exc)
-            if not data:
-                raise HTTPException(404, "Cliente inactivo no encontrado para esta empresa.")
-            normalized = _normalize_gas_lp_cliente_credit(data[0])
-            logger.info("gas_lp_cliente_reactivated perfil=%s tenant=%s rfc=%s cliente_id=%s", user.get("perfil_id"), user.get("tenant_id"), normalized.get("rfc"), normalized.get("id"))
-            return JSONResponse({
-                "ok": True,
-                "cliente": normalized,
-                "deduped": True,
-                "reactivated": True,
-                "message": "Cliente existente reactivado y actualizado.",
+        if not _gas_lp_cliente_same_fiscal_name(row.get("nombre") or "", existing.get("nombre") or ""):
+            raise HTTPException(409, {
+                "message": (
+                    f"Ya existe un cliente activo con el RFC {existing.get('rfc')} pero con otro nombre fiscal: "
+                    f"{existing.get('nombre') or 'sin nombre'}. Edita ese cliente o elimina el registro activo antes de agregarlo de nuevo."
+                ),
+                "code": "gas_lp_cliente_rfc_nombre_no_coincide",
+                "cliente_id": existing.get("id"),
+                "rfc": existing.get("rfc"),
+                "nombre_existente": existing.get("nombre") or "",
+                "nombre_capturado": row.get("nombre") or "",
             })
         normalized = _normalize_gas_lp_cliente_credit(existing)
         logger.info("gas_lp_cliente_create_reused perfil=%s tenant=%s rfc=%s cliente_id=%s", user.get("perfil_id"), user.get("tenant_id"), normalized.get("rfc"), normalized.get("id"))
@@ -860,12 +839,21 @@ async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInte
     sb = get_supabase_admin()
     existing = _gas_lp_cliente_existing_by_rfc(sb, user, row.get("rfc") or "", exclude_id=cliente_id)
     if existing:
-        raise HTTPException(409, {
-            "message": "Ya existe otro cliente con este RFC en la misma empresa. Selecciona ese cliente o cambia el RFC.",
+        detail = {
+            "message": "Ya existe otro cliente activo con este RFC en la misma empresa. Selecciona ese cliente, edítalo o elimina el registro activo antes de volver a agregarlo.",
             "code": "gas_lp_cliente_rfc_duplicado",
             "cliente_id": existing.get("id"),
             "rfc": existing.get("rfc"),
-        })
+            "nombre_existente": existing.get("nombre") or "",
+            "nombre_capturado": row.get("nombre") or "",
+        }
+        if not _gas_lp_cliente_same_fiscal_name(row.get("nombre") or "", existing.get("nombre") or ""):
+            detail["code"] = "gas_lp_cliente_rfc_nombre_no_coincide"
+            detail["message"] = (
+                f"Ya existe otro cliente activo con el RFC {existing.get('rfc')} pero con otro nombre fiscal: "
+                f"{existing.get('nombre') or 'sin nombre'}. Corrige el nombre o edita ese cliente."
+            )
+        raise HTTPException(409, detail)
     try:
         data = (
             _gas_lp_clientes_scope_query(
@@ -895,7 +883,7 @@ async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str):
         q = (
             get_supabase_admin()
             .table("gas_lp_clientes_facturacion")
-            .update({"activo": False, "updated_at": _now_iso()})
+            .delete()
             .eq("id", cliente_id)
         )
         q = _gas_lp_clientes_scope_query(q, user)
