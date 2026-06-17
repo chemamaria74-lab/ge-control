@@ -170,6 +170,8 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-form-admin{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:14px}
 .trv2-permiso-editor{border:1px solid var(--trv2-line);border-radius:8px;background:#fff;padding:16px;margin:14px 0 18px;box-shadow:0 10px 24px rgba(38,25,8,.05)}
 .trv2-permiso-editor[hidden]{display:none}
+.trv2-tariff-editor{border:1px solid var(--trv2-line);border-radius:8px;background:#fff;padding:16px;margin:14px 0 18px;box-shadow:0 10px 24px rgba(38,25,8,.05)}
+.trv2-tariff-editor[hidden]{display:none}
 .trv2-form-title{grid-column:1/-1;display:grid;gap:3px;margin-bottom:2px}
 .trv2-form-title strong{font-size:16px;font-weight:900;color:var(--trv2-ink)}
 .trv2-form-title span{font-size:13px;color:var(--trv2-muted);font-weight:700}
