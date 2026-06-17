@@ -1147,15 +1147,17 @@ def _lookup_permiso_rfc(token: str, uid: str, pid: Optional[int], detected: dict
     producto_norm = _normalize_producto_value(producto_detectado)
     exact = next((row for row in normalized if permiso_norm and _normalize_permiso_value(row.get("permiso_cre")) == permiso_norm), None)
     if exact:
-        if producto_norm and _normalize_producto_value(exact.get("producto")) and _normalize_producto_value(exact.get("producto")) != producto_norm:
+        return {"status": "registrado", "message": "Permiso registrado.", "item": exact}
+    if not permiso_norm:
+        with_permiso = next((row for row in normalized if _normalize_permiso_value(row.get("permiso_cre"))), None)
+        if with_permiso:
             return {
-                "status": "producto_difiere",
-                "message": "RFC registrado, revisar producto.",
-                "item": exact,
-                "permiso_detectado": permiso_detectado,
+                "status": "registrado",
+                "message": "Permiso registrado.",
+                "item": with_permiso,
+                "permiso_detectado": with_permiso.get("permiso_cre"),
                 "producto_detectado": producto_detectado,
             }
-        return {"status": "registrado", "message": "Permiso registrado.", "item": exact}
     if any(not _normalize_permiso_value(row.get("permiso_cre")) for row in normalized):
         return {
             "status": "permiso_faltante",
