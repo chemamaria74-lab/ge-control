@@ -47,6 +47,7 @@ TBL_ORIGENES = "tr_origenes"
 TBL_DESTINOS = "tr_destinos"
 TBL_REMOLQUES = "tr_remolques"
 TBL_PROVEEDORES = "tr_proveedores_operacion"
+TBL_TARIFAS = "tr_tarifas"
 TBL_SETTINGS = "tr_settings"
 TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
 TBL_AUDITORIA = "transporte_v2_auditoria"
@@ -76,6 +77,36 @@ VEHICLE_DB_FIELDS = {
     "metadata",
 }
 
+OPERATOR_DB_FIELDS = {
+    "nombre",
+    "rfc",
+    "licencia",
+    "tipo_licencia",
+    "telefono",
+    "curp",
+    "activo",
+    "vehiculo_frecuente_id",
+    "comision_default",
+    "foto_url",
+    "licencia_pdf_url",
+    "metadata",
+}
+
+PRODUCT_DB_FIELDS = {
+    "nombre",
+    "clave_producto",
+    "clave_subproducto",
+    "clave_prodserv_cfdi",
+    "unidad",
+    "densidad_kg_l",
+    "material_peligroso",
+    "cve_material_peligroso",
+    "embalaje",
+    "permiso_requerido",
+    "activo",
+    "metadata",
+}
+
 CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "clientes": {
         "table": TBL_CLIENTES,
@@ -85,7 +116,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     },
     "operadores": {
         "table": TBL_OPERADORES,
-        "required": ["nombre", "rfc_figura", "licencia"],
+        "required": ["nombre", "rfc", "licencia"],
         "allowed": ["nombre", "rfc_figura", "rfc", "licencia", "tipo_licencia", "vencimiento_licencia", "telefono", "vehiculo_frecuente_id", "vehiculo_asignado_id", "activo", "metadata"],
         "defaults": {"activo": True},
     },
@@ -107,7 +138,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     },
     "productos": {
         "table": TBL_PRODUCTOS,
-        "required": ["descripcion", "clave_producto", "unidad"],
+        "required": ["nombre", "clave_producto", "unidad"],
         "allowed": [
             "descripcion", "nombre", "clave_producto", "clave_subproducto", "unidad",
             "material_peligroso", "clave_material_peligroso", "embalaje", "factor_kg_l",
@@ -975,17 +1006,166 @@ def _expand_trailer_metadata(row: dict[str, Any]) -> dict[str, Any]:
 
 def _expand_operator_vehicle_assignment(row: dict[str, Any]) -> dict[str, Any]:
     expanded = dict(row)
+    rfc = _first_text(expanded.get("rfc"), expanded.get("rfc_figura"))
+    if rfc:
+        expanded["rfc"] = rfc.upper().replace(" ", "")
     if "vehiculo_asignado_id" in expanded and "vehiculo_frecuente_id" not in expanded:
         expanded["vehiculo_frecuente_id"] = expanded.get("vehiculo_asignado_id")
     metadata = _parse_json_value(expanded.get("metadata"), {})
     if not isinstance(metadata, dict):
         metadata = {}
+    for key in ("rfc", "rfc_figura", "tipo_licencia", "vencimiento_licencia", "vehiculo_frecuente_id", "vehiculo_asignado_id"):
+        if _first_text(expanded.get(key)):
+            metadata[key] = expanded.get(key)
     if "vehiculo_frecuente_id" in expanded:
         metadata["vehiculo_frecuente_id"] = expanded.get("vehiculo_frecuente_id")
         metadata["vehiculo_asignado_id"] = expanded.get("vehiculo_frecuente_id")
     if metadata:
         expanded["metadata"] = metadata
-    return expanded
+    return {key: value for key, value in expanded.items() if key in OPERATOR_DB_FIELDS}
+
+
+def _expand_product_aliases(row: dict[str, Any]) -> dict[str, Any]:
+    expanded = dict(row)
+    metadata = _parse_json_value(expanded.get("metadata"), {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    nombre = _first_text(expanded.get("nombre"), expanded.get("descripcion"))
+    if nombre:
+        expanded["nombre"] = nombre
+    clave_producto = _first_text(expanded.get("clave_producto"), expanded.get("clave_prodserv_cfdi"))
+    if clave_producto:
+        expanded["clave_producto"] = clave_producto
+        expanded["clave_prodserv_cfdi"] = _first_text(expanded.get("clave_prodserv_cfdi"), clave_producto)
+    material = _first_text(expanded.get("cve_material_peligroso"), expanded.get("clave_material_peligroso"))
+    if material:
+        expanded["cve_material_peligroso"] = material
+    factor = expanded.get("densidad_kg_l")
+    if factor in (None, ""):
+        factor = expanded.get("factor_kg_l")
+    if factor not in (None, ""):
+        expanded["densidad_kg_l"] = _num(factor)
+    for key in (
+        "descripcion", "nombre", "clave_producto", "clave_subproducto",
+        "clave_prodserv_cfdi", "unidad", "material_peligroso",
+        "clave_material_peligroso", "cve_material_peligroso", "embalaje",
+        "factor_kg_l", "densidad_kg_l", "tipo_producto",
+    ):
+        if expanded.get(key) not in (None, ""):
+            metadata[key] = expanded.get(key)
+    if metadata:
+        expanded["metadata"] = metadata
+    return {key: value for key, value in expanded.items() if key in PRODUCT_DB_FIELDS}
+
+
+def _product_billing_base(product: dict[str, Any]) -> str:
+    meta = _meta(product)
+    text = " ".join(str(value or "") for value in [
+        product.get("tipo_producto"),
+        product.get("nombre"),
+        product.get("descripcion"),
+        product.get("producto"),
+        meta.get("tipo_producto"),
+    ]).upper()
+    if "GAS LP" in text or "GAS L.P" in text or "GAS L P" in text:
+        return "KG"
+    if "MAGNA" in text or "PREMIUM" in text or "DIESEL" in text or "DIÉSEL" in text or "GASOLINA" in text:
+        return "LITRO"
+    return "KG"
+
+
+def _normalize_tariff_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = dict(row or {})
+    meta = _meta(item)
+    item["ruta_id"] = item.get("ruta_id") or meta.get("ruta_id")
+    item["producto_id"] = meta.get("producto_id") or item.get("producto_id")
+    item["proveedor_id"] = meta.get("proveedor_id") or meta.get("proveedor_origen_id")
+    item["proveedor"] = _first_text(meta.get("proveedor_nombre"), meta.get("proveedor"), item.get("origen"))
+    item["cliente_id"] = item.get("cliente_id") or meta.get("cliente_id")
+    item["cliente"] = _first_text(meta.get("cliente_nombre"), meta.get("cliente"), item.get("destino"))
+    item["producto_nombre"] = _first_text(meta.get("producto_nombre"), meta.get("producto"), item.get("producto"))
+    item["origen"] = _first_text(item.get("origen"), meta.get("origen"))
+    item["destino"] = _first_text(item.get("destino"), meta.get("destino"))
+    item["base_calculo"] = _first_text(meta.get("base_calculo"), item.get("regla_calculo"), "KG")
+    item["tarifa"] = _num(item.get("tarifa"))
+    return item
+
+
+def _route_product_tariff_payload(token: str, uid: str, perfil_id: int, data: dict[str, Any]) -> dict[str, Any]:
+    try:
+        ruta_id = int(str(data.get("ruta_id") or "").strip())
+        producto_id = int(str(data.get("producto_id") or "").strip())
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Selecciona ruta y producto para guardar tarifa.")
+    tarifa = _num(data.get("tarifa"))
+    if tarifa <= 0:
+        raise HTTPException(400, "La tarifa debe ser mayor a cero.")
+    sb = _sb(token)
+    route_rows = (
+        sb.table(TBL_RUTAS)
+        .select("*")
+        .eq("id", ruta_id)
+        .eq("user_id", uid)
+        .eq("perfil_id", perfil_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not route_rows:
+        raise HTTPException(404, "Ruta no encontrada para este perfil.")
+    product_rows = (
+        sb.table(TBL_PRODUCTOS)
+        .select("*")
+        .eq("id", producto_id)
+        .eq("user_id", uid)
+        .eq("perfil_id", perfil_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not product_rows:
+        raise HTTPException(404, "Producto no encontrado para este perfil.")
+    ruta = _normalize_catalog_row("rutas", route_rows[0])
+    producto = _normalize_catalog_row("productos", product_rows[0])
+    origen = _normalize_catalog_row("origenes", _fetch_catalog_row_for_route(token, uid, perfil_id, TBL_ORIGENES, ruta.get("origen_id"), "origen")) if ruta.get("origen_id") else {}
+    destino = _normalize_catalog_row("destinos", _fetch_catalog_row_for_route(token, uid, perfil_id, TBL_DESTINOS, ruta.get("destino_id"), "destino")) if ruta.get("destino_id") else {}
+    cliente_id = destino.get("cliente_id") or data.get("cliente_id")
+    base_calculo = _product_billing_base(producto)
+    metadata = {
+        "ruta_id": ruta_id,
+        "producto_id": producto_id,
+        "producto_nombre": producto.get("descripcion") or producto.get("nombre") or "",
+        "base_calculo": base_calculo,
+        "proveedor_id": origen.get("proveedor_id"),
+        "proveedor_nombre": origen.get("proveedor_nombre"),
+        "cliente_id": cliente_id,
+        "cliente_nombre": destino.get("cliente_nombre"),
+        "origen_instalacion_id": ruta.get("origen_id"),
+        "destino_instalacion_id": ruta.get("destino_id"),
+        "origen": ruta.get("origen") or ruta.get("nombre_origen"),
+        "destino": ruta.get("destino") or ruta.get("nombre_destino"),
+    }
+    return {
+        "user_id": uid,
+        "perfil_id": perfil_id,
+        "cliente_id": cliente_id,
+        "ruta_id": ruta_id,
+        "origen": metadata["origen"],
+        "destino": metadata["destino"],
+        "producto": metadata["producto_nombre"],
+        "regla_calculo": base_calculo,
+        "tarifa": tarifa,
+        "iva_tasa": _num(data.get("iva_tasa")) or 0.16,
+        "retencion_tasa": _num(data.get("retencion_tasa")) or 0.04,
+        "aplica_iva": True,
+        "aplica_retencion": True,
+        "moneda": "MXN",
+        "activo": True,
+        "metadata": metadata,
+        "updated_at": _now_iso(),
+    }
 
 
 def _fetch_catalog_row_for_route(token: str, uid: str, perfil_id: Optional[int], table: str, row_id: Any, label: str) -> dict[str, Any]:
@@ -1069,11 +1249,13 @@ def _validate_catalog_payload(catalogo: str, row: dict[str, Any]) -> None:
             raise HTTPException(400, f"Mercancía {row.get('descripcion') or ''} no tiene clave producto SAT.")
         if "unidad" in row and not row.get("unidad"):
             raise HTTPException(400, f"Mercancía {row.get('descripcion') or ''} no tiene unidad SAT.")
-        if row.get("material_peligroso") and not row.get("clave_material_peligroso"):
+        material_key = _first_text(row.get("clave_material_peligroso"), row.get("cve_material_peligroso"))
+        if row.get("material_peligroso") and not material_key:
             raise HTTPException(400, f"Mercancía {row.get('descripcion') or ''} no tiene clave material peligroso.")
         if row.get("material_peligroso") and not row.get("embalaje"):
             raise HTTPException(400, f"Mercancía {row.get('descripcion') or ''} no tiene embalaje.")
-        if row.get("factor_kg_l") not in (None, "") and _num(row.get("factor_kg_l")) <= 0:
+        factor_value = row.get("factor_kg_l") if row.get("factor_kg_l") not in (None, "") else row.get("densidad_kg_l")
+        if factor_value not in (None, "") and _num(factor_value) <= 0:
             raise HTTPException(400, f"Mercancía {row.get('descripcion') or ''} tiene factor kg/L inválido.")
 
 
@@ -1318,17 +1500,17 @@ def _create_catalog_item(
         row = _expand_vehicle_aliases(row)
     if catalogo == "remolques":
         row = _expand_trailer_metadata(row)
+    if catalogo == "productos":
+        row = _expand_product_aliases(row)
     if catalogo in {"origenes", "destinos"}:
         row = _expand_installation_metadata(row)
     if catalogo == "rutas":
         row = _expand_route_from_installations(token, uid, perfil_id, row)
-    if catalogo == "productos" and row.get("descripcion") and not row.get("nombre"):
-        row["nombre"] = row["descripcion"]
     _ensure_required(row, config["required"], catalogo)
     _validate_catalog_payload(catalogo, row)
     if catalogo in {"clientes", "operadores", "origenes", "destinos"}:
-        rfc_key = "rfc_figura" if catalogo == "operadores" else "rfc"
-        if row.get(rfc_key) and not _valid_rfc(str(row.get(rfc_key))):
+        rfc_value = _first_text(row.get("rfc"), row.get("rfc_figura"))
+        if rfc_value and not _valid_rfc(rfc_value):
             raise HTTPException(400, f"RFC inválido en {catalogo}. Debe tener 12 o 13 caracteres fiscales.")
     row.update({"user_id": uid, "perfil_id": perfil_id, "created_at": _now_iso()})
     try:
@@ -1369,18 +1551,18 @@ def _update_catalog_item(
         row = _expand_vehicle_aliases(row)
     if catalogo == "remolques":
         row = _expand_trailer_metadata(row)
+    if catalogo == "productos":
+        row = _expand_product_aliases(row)
     if catalogo in {"origenes", "destinos"}:
         row = _expand_installation_metadata(row)
     if catalogo == "rutas":
         row = _expand_route_from_installations(token, uid, perfil_id, row)
-    if catalogo == "productos" and row.get("descripcion") and not row.get("nombre"):
-        row["nombre"] = row["descripcion"]
     if not row:
         raise HTTPException(400, "No hay campos para actualizar.")
     _validate_catalog_payload(catalogo, row)
     if catalogo in {"clientes", "operadores", "origenes", "destinos"}:
-        rfc_key = "rfc_figura" if catalogo == "operadores" else "rfc"
-        if row.get(rfc_key) and not _valid_rfc(str(row.get(rfc_key))):
+        rfc_value = _first_text(row.get("rfc"), row.get("rfc_figura"))
+        if rfc_value and not _valid_rfc(rfc_value):
             raise HTTPException(400, f"RFC inválido en {catalogo}. Debe tener 12 o 13 caracteres fiscales.")
     row["updated_at"] = _now_iso()
     try:
@@ -3566,6 +3748,110 @@ async def transporte_v2_documento_metadata(
             return JSONResponse(_missing_schema_payload(TBL_DOCUMENTOS), status_code=409)
         logger.exception("Transporte v2 documento metadata error")
         raise HTTPException(500, f"No se pudo guardar metadata documental Transporte v2: {exc}")
+
+
+@router.get("/tr-v2/facturas-servicio/tarifas")
+async def transporte_v2_tarifas_servicio(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "perfil_id requerido para tarifas Transporte.")
+    rows = (
+        _sb(token)
+        .table(TBL_TARIFAS)
+        .select("*")
+        .eq("user_id", uid)
+        .eq("perfil_id", pid)
+        .eq("activo", True)
+        .order("created_at", desc=True)
+        .limit(300)
+        .execute()
+        .data
+        or []
+    )
+    return {"ok": True, "items": [_normalize_tariff_row(row) for row in rows]}
+
+
+@router.post("/tr-v2/facturas-servicio/tarifas")
+async def transporte_v2_guardar_tarifa_servicio(
+    payload: TransporteV2CatalogoCreate,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "perfil_id requerido para tarifas Transporte.")
+    row = _route_product_tariff_payload(token, uid, pid, payload.data or {})
+    sb = _sb(token)
+    existing = (
+        sb.table(TBL_TARIFAS)
+        .select("*")
+        .eq("user_id", uid)
+        .eq("perfil_id", pid)
+        .eq("ruta_id", row["ruta_id"])
+        .eq("producto", row["producto"])
+        .eq("activo", True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if existing:
+        updated = (
+            sb.table(TBL_TARIFAS)
+            .update(row)
+            .eq("id", existing[0]["id"])
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .execute()
+            .data
+            or []
+        )
+        item = updated[0] if updated else {**existing[0], **row}
+        accion = "actualizar_tarifa"
+    else:
+        insert_row = {**row, "created_at": _now_iso()}
+        inserted = sb.table(TBL_TARIFAS).insert(insert_row).execute().data or []
+        item = inserted[0] if inserted else insert_row
+        accion = "crear_tarifa"
+    _audit(uid, token, pid, TBL_TARIFAS, item.get("id"), accion, {"ruta_id": row["ruta_id"], "producto": row["producto"]})
+    return {"ok": True, "item": _normalize_tariff_row(item)}
+
+
+@router.delete("/tr-v2/facturas-servicio/tarifas/{tarifa_id}")
+async def transporte_v2_eliminar_tarifa_servicio(
+    tarifa_id: int,
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "perfil_id requerido para tarifas Transporte.")
+    rows = (
+        _sb(token)
+        .table(TBL_TARIFAS)
+        .update({"activo": False, "updated_at": _now_iso()})
+        .eq("id", tarifa_id)
+        .eq("user_id", uid)
+        .eq("perfil_id", pid)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, "Tarifa no encontrada para este perfil.")
+    _audit(uid, token, pid, TBL_TARIFAS, tarifa_id, "desactivar_tarifa", {})
+    return {"ok": True, "item": _normalize_tariff_row(rows[0])}
 
 
 @router.get("/tr-v2/catalogos/clientes")
