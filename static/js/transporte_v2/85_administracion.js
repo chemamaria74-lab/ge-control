@@ -338,12 +338,7 @@ function trv2PermisoUniqueItems(items = []) {
 function trv2RenderPermisoCards(items = [], emptyText = '') {
   if (!items.length) {
     return `
-      <div class="trv2-empty">
-        ${trv2Esc(emptyText)}
-        <div class="trv2-form-actions trv2-form-actions-inline">
-          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2NewPermisoRfc()">Nuevo permiso</button>
-        </div>
-      </div>
+      <div class="trv2-empty">${trv2Esc(emptyText)}</div>
     `;
   }
   return items.map(item => {
@@ -373,8 +368,6 @@ function trv2RenderPermisosRfc(items = []) {
   const transportistas = unique.filter(trv2IsTransportistaPermiso);
   list.innerHTML = `
     <div class="trv2-permission-group">
-      <h3>Permisos CRE del transportista</h3>
-      <p class="trv2-muted">Estos permisos alimentan el filtro mensual de Reportes SAT / JSON.</p>
       ${trv2RenderPermisoCards(transportistas, 'Sin permisos CRE transportista registrados.')}
     </div>
   `;

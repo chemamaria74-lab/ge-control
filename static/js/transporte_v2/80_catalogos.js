@@ -3,7 +3,7 @@ TRV2_CATALOGS.destinos = TRV2_CATALOGS.destinos || [];
 TRV2_CATALOGS.instalaciones = TRV2_CATALOGS.instalaciones || [];
 TRV2_CATALOGS.proveedores = TRV2_CATALOGS.proveedores || [];
 TRV2_CATALOGS.remolques = TRV2_CATALOGS.remolques || [];
-TRV2_CATALOG_LABELS.instalaciones = 'Instalaciones Carta Porte';
+TRV2_CATALOG_LABELS.instalaciones = 'Instalaciones';
 TRV2_CATALOG_LABELS.proveedores = 'Proveedores';
 TRV2_CATALOG_LABELS.remolques = 'Remolques';
 let TRV2_VEHICLE_SUBCATALOG = 'vehiculos';
@@ -245,7 +245,7 @@ const TRV2_CATALOG_UI = {
   },
   operadores: {
     icon: 'fa-id-card',
-    title: 'Operadores / Choferes',
+    title: 'Operadores',
     subtitle: 'Figuras Transporte tipo 01 para Carta Porte.',
     metrics: [['Registros', 'count'], ['Con RFC figura', 'rfc_figura'], ['Con licencia', 'licencia']],
     fields: [['RFC Figura', 'rfc_figura'], ['Licencia', 'licencia'], ['Vehículo asignado', 'vehiculo_frecuente_id'], ['Teléfono', 'telefono']],
@@ -266,7 +266,7 @@ const TRV2_CATALOG_UI = {
   },
   productos: {
     icon: 'fa-gas-pump',
-    title: 'Productos / Mercancías',
+    title: 'Productos',
     subtitle: 'Claves SAT, unidades y material peligroso.',
     metrics: [['Registros', 'count'], ['Mat. peligroso', 'material_peligroso'], ['Con clave SAT', 'clave_producto']],
     fields: [['Clave SAT', 'clave_producto'], ['Unidad', 'unidad'], ['Material peligroso', 'material_peligroso'], ['Embalaje', 'embalaje']],
@@ -280,14 +280,14 @@ const TRV2_CATALOG_UI = {
   },
   instalaciones: {
     icon: 'fa-warehouse',
-    title: 'Instalaciones Carta Porte',
+    title: 'Instalaciones',
     subtitle: 'Ubicaciones de origen, destino o ambos para Carta Porte.',
     metrics: [['Registros', 'count'], ['Con CP', 'cp'], ['Activas', 'activo']],
     fields: [['Tipo', 'tipo_carta_porte'], ['Cliente', 'cliente_nombre'], ['Proveedor', 'proveedor_nombre'], ['Estado', 'estado_sat'], ['Municipio', 'municipio_sat'], ['Activo', 'activo']],
   },
   rutas: {
     icon: 'fa-route',
-    title: 'Rutas / Origen-Destino',
+    title: 'Rutas',
     subtitle: 'Instalaciones, origen, destino y distancia.',
     metrics: [['Registros', 'count'], ['Con distancia', 'distancia_km'], ['Con CP origen', 'cp_origen']],
     fields: [['Origen', 'origen'], ['Destino', 'destino'], ['Distancia km', 'distancia_km'], ['CP destino', 'cp_destino']],
@@ -418,7 +418,6 @@ function trv2RenderCatalogTabs() {
     const active = name === TRV2_ACTIVE_CATALOG || (name === 'vehiculos' && TRV2_ACTIVE_CATALOG === 'remolques') ? 'active' : '';
     return `
       <button class="trv2-subtab ${active}" type="button" onclick="trv2SetActiveCatalog('${trv2Esc(name)}')">
-        <i class="fa-solid ${trv2Esc(ui.icon || 'fa-table-list')}"></i>
         ${trv2Esc(ui.title || TRV2_CATALOG_LABELS[name])}
         <span>${Number((TRV2_CATALOGS[name] || []).length)}</span>
       </button>

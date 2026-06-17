@@ -137,7 +137,18 @@ function trv2AddServiceTariff() {
   if (!form) return;
   form.reset();
   trv2PopulateServiceTariffSelects();
+  form.hidden = false;
+  form.classList.add('is-open');
+  form.scrollIntoView({behavior: 'smooth', block: 'start'});
   document.getElementById('trv2-tarifa-proveedor')?.focus();
+}
+
+function trv2ClearServiceTariffForm() {
+  const form = document.getElementById('trv2-service-tariff-form');
+  if (!form) return;
+  form.reset();
+  form.classList.remove('is-open');
+  form.hidden = true;
 }
 
 function trv2PopulateServiceTariffSelects() {
@@ -180,7 +191,7 @@ function trv2SaveServiceTariff(event) {
   ));
   items.push(item);
   trv2WriteServiceTariffs(items);
-  event.target.reset();
+  trv2ClearServiceTariffForm();
   trv2Toast('Tarifa de flete guardada.', 'success');
   trv2RenderServiceInvoices();
 }
@@ -234,6 +245,10 @@ function trv2SetServiceInvoiceTab(tab) {
   TRV2_SERVICE_TAB = tab;
   document.querySelectorAll('[data-service-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.serviceTab === tab));
   document.querySelectorAll('[data-service-panel]').forEach(panel => { panel.hidden = panel.dataset.servicePanel !== tab; });
+  if (tab === 'configuracion') {
+    trv2PopulateServiceTariffSelects();
+    trv2ClearServiceTariffForm();
+  }
 }
 
 function trv2OpenServiceDetail(tripId) {
