@@ -25,8 +25,10 @@ function trv2SetAdminSubtab(name = 'usuarios-operador') {
   document.querySelectorAll('[data-admin-panel]').forEach(panel => {
     panel.classList.toggle('active', panel.dataset.adminPanel === name);
   });
-  if (name === 'configuracion') trv2LoadSettings();
-  if (name === 'permisos-rfc') trv2LoadPermisosRfc();
+  if (name === 'configuracion') {
+    trv2LoadSettings();
+    trv2LoadPermisosRfc();
+  }
 }
 
 function trv2RenderOperatorAccesses(items = []) {

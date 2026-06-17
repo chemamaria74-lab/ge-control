@@ -210,6 +210,8 @@ const TRV2_CATALOG_FORMS = {
   instalaciones: [
     ['nombre', 'Nombre visible'],
     ['tipo_carta_porte', 'Tipo Carta Porte', 'cp-location-type'],
+    ['proveedor_id', 'Proveedor', 'proveedor-select'],
+    ['cliente_id', 'Cliente', 'cliente-select'],
     ['permiso_cre', 'Permiso CRE'],
     ['clave_instalacion', 'Clave instalación'],
     ['cp', 'CP'],
@@ -280,7 +282,7 @@ const TRV2_CATALOG_UI = {
     title: 'Instalaciones Carta Porte',
     subtitle: 'Ubicaciones de origen, destino o ambos para Carta Porte.',
     metrics: [['Registros', 'count'], ['Con CP', 'cp'], ['Activas', 'activo']],
-    fields: [['Tipo', 'tipo_carta_porte'], ['CP', 'cp'], ['ID ubicación', 'id_ubicacion_carta_porte'], ['Domicilio', 'direccion']],
+    fields: [['Tipo', 'tipo_carta_porte'], ['Cliente', 'cliente_nombre'], ['Proveedor', 'proveedor_nombre'], ['Estado', 'estado_sat'], ['Municipio', 'municipio_sat'], ['Activo', 'activo']],
   },
   rutas: {
     icon: 'fa-route',
@@ -363,6 +365,8 @@ function trv2BuildInstalacionesCatalog() {
     _source_catalog: 'origenes',
     _source_id: item.id,
     tipo_carta_porte: item.tipo_carta_porte || 'Origen',
+    proveedor_nombre: item.proveedor_nombre || trv2CatalogLabel('proveedores', trv2FindCatalog('proveedores', item.proveedor_id)) || 'Sin asignar',
+    cliente_nombre: item.cliente_nombre || trv2CatalogLabel('clientes', trv2FindCatalog('clientes', item.cliente_id)) || '',
   }));
   const destinos = (TRV2_CATALOGS.destinos || []).map(item => ({
     ...item,
@@ -370,6 +374,8 @@ function trv2BuildInstalacionesCatalog() {
     _source_catalog: 'destinos',
     _source_id: item.id,
     tipo_carta_porte: item.tipo_carta_porte || 'Destino',
+    proveedor_nombre: item.proveedor_nombre || trv2CatalogLabel('proveedores', trv2FindCatalog('proveedores', item.proveedor_id)) || '',
+    cliente_nombre: item.cliente_nombre || trv2CatalogLabel('clientes', trv2FindCatalog('clientes', item.cliente_id)) || 'Sin asignar',
   }));
   TRV2_CATALOGS.instalaciones = [...origenes, ...destinos];
 }
@@ -657,8 +663,18 @@ function trv2RenderCatalogFields(name) {
       </select></label>`;
     }
     if (type === 'cp-location-type') {
-      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="trv2ToggleInstallationRelationFields()">
         <option value="Origen">Origen</option><option value="Destino">Destino</option><option value="Ambos">Ambos</option>
+      </select></label>`;
+    }
+    if (type === 'proveedor-select') {
+      return `<label data-installation-provider>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        ${trv2CatalogOptions('proveedores', 'Seleccionar proveedor')}
+      </select></label>`;
+    }
+    if (type === 'cliente-select') {
+      return `<label data-installation-client>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        ${trv2CatalogOptions('clientes', 'Seleccionar cliente')}
       </select></label>`;
     }
     if (type === 'regimen-fiscal') {
@@ -743,6 +759,16 @@ function trv2ToggleVehicleTrailerFields() {
     const isSecond = field.startsWith('remolque2_');
     label.hidden = !needsTrailer || (isSecond && !needsSecond);
   });
+}
+
+function trv2ToggleInstallationRelationFields() {
+  const form = document.getElementById('trv2-catalog-modal-form');
+  if (!form || form.dataset.catalog !== 'instalaciones') return;
+  const tipo = form.querySelector('[data-field="tipo_carta_porte"]')?.value || 'Origen';
+  const showProveedor = tipo === 'Origen' || tipo === 'Ambos';
+  const showCliente = tipo === 'Destino' || tipo === 'Ambos';
+  form.querySelectorAll('[data-installation-provider]').forEach(label => { label.hidden = !showProveedor; });
+  form.querySelectorAll('[data-installation-client]').forEach(label => { label.hidden = !showCliente; });
 }
 
 function trv2SubproductoOptions(productType = '') {
@@ -912,6 +938,7 @@ function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG, itemId = 0) {
   if (item) trv2FillCatalogModalForm(form, item);
   trv2RefreshMunicipioSatOptions();
   trv2ToggleVehicleTrailerFields();
+  trv2ToggleInstallationRelationFields();
   modal.hidden = false;
 }
 
@@ -928,6 +955,7 @@ function trv2FillCatalogModalForm(form, item) {
   });
   trv2RefreshProductSatDefaults();
   trv2ToggleVehicleTrailerFields();
+  trv2ToggleInstallationRelationFields();
 }
 
 function trv2CloseCatalogModal() {
@@ -1015,6 +1043,8 @@ function trv2ValidateCatalogPayload(name, data) {
   if (name === 'instalaciones') {
     if (!data.nombre) return 'Instalación Carta Porte sin nombre.';
     if (!data.tipo_carta_porte) return `Instalación ${data.nombre || ''} no tiene tipo Origen/Destino/Ambos.`;
+    if (['Origen', 'Ambos'].includes(data.tipo_carta_porte) && !Number(data.proveedor_id || 0)) return `Instalación ${data.nombre || ''} requiere proveedor asignado.`;
+    if (['Destino', 'Ambos'].includes(data.tipo_carta_porte) && !Number(data.cliente_id || 0)) return `Instalación ${data.nombre || ''} requiere cliente asignado.`;
     if (!trv2ValidCp(data.cp)) return `Instalación ${data.nombre || ''} no tiene CP válido de 5 dígitos.`;
     if (!data.estado_sat) return `Instalación ${data.nombre || ''} no tiene Estado SAT.`;
     if (!data.municipio_sat) return `Instalación ${data.nombre || ''} no tiene Municipio SAT.`;
@@ -1058,6 +1088,10 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
     direccion: data.direccion,
     tipo,
     tipo_carta_porte: tipo,
+    proveedor_id: Number(data.proveedor_id || 0) || null,
+    proveedor_nombre: trv2CatalogLabel('proveedores', trv2FindCatalog('proveedores', data.proveedor_id)) || '',
+    cliente_id: Number(data.cliente_id || 0) || null,
+    cliente_nombre: trv2CatalogLabel('clientes', trv2FindCatalog('clientes', data.cliente_id)) || '',
     permiso_cre: data.permiso_cre,
     clave_instalacion: data.clave_instalacion,
     id_ubicacion_carta_porte: data.id_ubicacion_carta_porte,
