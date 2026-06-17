@@ -699,7 +699,34 @@ def _clean_payload(data: dict[str, Any], allowed: list[str], defaults: Optional[
 
 def _valid_rfc(value: str) -> bool:
     rfc = str(value or "").strip().upper()
+    if rfc == "XAXX010101000":
+        return True
     return bool(re.fullmatch(r"[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}", rfc)) and len(rfc) in {12, 13}
+
+
+def _valid_cp(value: Any) -> bool:
+    return bool(re.fullmatch(r"\d{5}", str(value or "").strip()))
+
+
+def _validate_catalog_payload(catalogo: str, row: dict[str, Any]) -> None:
+    if catalogo == "clientes":
+        if "rfc" in row and not _valid_rfc(str(row.get("rfc") or "")):
+            raise HTTPException(400, f"Cliente {row.get('nombre') or ''} tiene RFC inválido.")
+        if "cp" in row and not _valid_cp(row.get("cp")):
+            raise HTTPException(400, f"Cliente {row.get('nombre') or ''} no tiene CP fiscal válido de 5 dígitos.")
+    if catalogo in {"origenes", "destinos"} and row.get("cp") and not _valid_cp(row.get("cp")):
+        raise HTTPException(400, f"Instalación {row.get('nombre') or ''} no tiene CP válido de 5 dígitos.")
+    if catalogo == "productos":
+        if "clave_producto" in row and not row.get("clave_producto"):
+            raise HTTPException(400, f"Mercancía {row.get('descripcion') or ''} no tiene clave producto SAT.")
+        if "unidad" in row and not row.get("unidad"):
+            raise HTTPException(400, f"Mercancía {row.get('descripcion') or ''} no tiene unidad SAT.")
+        if row.get("material_peligroso") and not row.get("clave_material_peligroso"):
+            raise HTTPException(400, f"Mercancía {row.get('descripcion') or ''} no tiene clave material peligroso.")
+        if row.get("material_peligroso") and not row.get("embalaje"):
+            raise HTTPException(400, f"Mercancía {row.get('descripcion') or ''} no tiene embalaje.")
+        if row.get("factor_kg_l") not in (None, "") and _num(row.get("factor_kg_l")) <= 0:
+            raise HTTPException(400, f"Mercancía {row.get('descripcion') or ''} tiene factor kg/L inválido.")
 
 
 def _missing_column_from_error(exc: Exception) -> str:
@@ -875,6 +902,7 @@ def _create_catalog_item(
     if catalogo == "productos" and row.get("descripcion") and not row.get("nombre"):
         row["nombre"] = row["descripcion"]
     _ensure_required(row, config["required"], catalogo)
+    _validate_catalog_payload(catalogo, row)
     if catalogo in {"clientes", "operadores", "origenes", "destinos"}:
         rfc_key = "rfc_figura" if catalogo == "operadores" else "rfc"
         if row.get(rfc_key) and not _valid_rfc(str(row.get(rfc_key))):
@@ -908,6 +936,7 @@ def _update_catalog_item(
         row["nombre"] = row["descripcion"]
     if not row:
         raise HTTPException(400, "No hay campos para actualizar.")
+    _validate_catalog_payload(catalogo, row)
     if catalogo in {"clientes", "operadores", "origenes", "destinos"}:
         rfc_key = "rfc_figura" if catalogo == "operadores" else "rfc"
         if row.get(rfc_key) and not _valid_rfc(str(row.get(rfc_key))):
@@ -937,6 +966,55 @@ def _deactivate_catalog_item(
     item_id: int,
 ) -> dict[str, Any]:
     return _update_catalog_item(token, uid, perfil_id, catalogo, item_id, {"activo": False})
+
+
+def _catalog_usage_error(token: str, uid: str, perfil_id: Optional[int], catalogo: str, item_id: int) -> str:
+    checks = {
+        "clientes": [(TBL_VIAJES, "cliente_id", "viajes")],
+        "operadores": [(TBL_VIAJES, "chofer_id", "viajes"), (TBL_VIAJES, "operador_id", "viajes")],
+        "vehiculos": [(TBL_VIAJES, "vehiculo_id", "viajes")],
+        "productos": [(TBL_VIAJES, "producto_operacion_id", "viajes"), (TBL_VIAJES, "producto_id", "viajes")],
+        "rutas": [(TBL_VIAJES, "ruta_id", "viajes")],
+        "origenes": [(TBL_RUTAS, "origen_id", "rutas")],
+        "destinos": [(TBL_RUTAS, "destino_id", "rutas")],
+    }.get(catalogo, [])
+    for table, field, label in checks:
+        try:
+            query = _sb(token).table(table).select("id,status,uuid_cfdi,metadata").eq("user_id", uid).eq(field, item_id).limit(5)
+            if perfil_id:
+                query = query.eq("perfil_id", perfil_id)
+            rows = query.execute().data or []
+        except Exception:
+            continue
+        if not rows:
+            continue
+        if table == TBL_VIAJES and any(_first_text(row.get("uuid_cfdi"), _meta(row).get("uuid_carta_porte")) for row in rows):
+            return f"No se puede eliminar: está usado por Carta Porte timbrada en {label}."
+        return f"No se puede eliminar: está usado por {label}. Desactívalo o cambia la referencia primero."
+    return ""
+
+
+def _delete_catalog_item(token: str, uid: str, perfil_id: Optional[int], catalogo: str, item_id: int) -> dict[str, Any]:
+    config = CATALOG_CONFIG.get(catalogo)
+    if not config:
+        raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
+    usage = _catalog_usage_error(token, uid, perfil_id, catalogo, item_id)
+    if usage:
+        raise HTTPException(409, usage)
+    try:
+        query = _sb(token).table(config["table"]).delete().eq("id", item_id).eq("user_id", uid)
+        if perfil_id:
+            query = query.eq("perfil_id", perfil_id)
+        deleted = query.execute().data or []
+        if not deleted:
+            raise HTTPException(404, "Registro no encontrado para este perfil.")
+        _audit(uid, token, perfil_id, config["table"], item_id, "eliminar_seguro", {"catalogo": catalogo})
+        return {"ok": True, "item": _normalize_catalog_row(catalogo, deleted[0])}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Transporte v2 eliminar catalogo error catalogo=%s id=%s", catalogo, item_id)
+        raise HTTPException(500, f"No se pudo eliminar {catalogo}: {exc}")
 
 
 def _settings_defaults() -> dict[str, Any]:
@@ -1871,7 +1949,13 @@ async def transporte_v2_listar_viajes(
         if pid:
             query = query.eq("perfil_id", pid)
         rows = query.execute().data or []
-        return {"ok": True, "items": [_normalize_viaje_row(row) for row in rows], "needs_schema": False}
+        items = [
+            _normalize_viaje_row(row)
+            for row in rows
+            if _first_text(row.get("status"), row.get("estatus"), _meta(row).get("status")).lower() != "eliminado"
+            and not _meta(row).get("eliminado_transporte_v2")
+        ]
+        return {"ok": True, "items": items, "needs_schema": False}
     except Exception as exc:
         if _is_missing_table_error(exc):
             return _missing_schema_payload(TBL_VIAJES)
@@ -1957,6 +2041,44 @@ async def transporte_v2_actualizar_viaje(
             return JSONResponse(_missing_schema_payload(TBL_VIAJES), status_code=409)
         logger.exception("Transporte v2 actualizar viaje error")
         raise HTTPException(500, f"No se pudo actualizar el viaje Transporte v2: {exc}")
+
+
+@router.post("/tr-v2/viajes/{viaje_id}/eliminar")
+async def transporte_v2_eliminar_viaje(
+    viaje_id: int,
+    payload: TransporteV2ViajePatch,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    try:
+        query = _sb(token).table(TBL_VIAJES).select("id,status,estatus,uuid_cfdi,metadata").eq("id", viaje_id).eq("user_id", uid).limit(1)
+        if pid:
+            query = query.eq("perfil_id", pid)
+        rows = query.execute().data or []
+        if not rows:
+            raise HTTPException(404, "Movimiento Transporte v2 no encontrado.")
+        row = rows[0]
+        metadata = _meta(row)
+        status = _first_text(row.get("status"), row.get("estatus"), metadata.get("status")).lower()
+        uuid = _first_text(row.get("uuid_cfdi"), metadata.get("uuid_carta_porte"), metadata.get("cfdi_uuid"))
+        if uuid or "timbr" in status:
+            raise HTTPException(409, "No se puede eliminar una Carta Porte timbrada desde esta acción. Cancela o revisa el CFDI fiscal.")
+        metadata.update({"eliminado_transporte_v2": True, "deleted_at": _now_iso(), "deleted_reason": "prueba_borrador"})
+        update = {"status": "eliminado", "metadata": metadata, "updated_at": _now_iso()}
+        q_update = _sb(token).table(TBL_VIAJES).update(update).eq("id", viaje_id).eq("user_id", uid)
+        if pid:
+            q_update = q_update.eq("perfil_id", pid)
+        updated = q_update.execute().data or []
+        _audit(uid, token, pid, TBL_VIAJES, viaje_id, "eliminar_borrador", {"soft_delete": True})
+        return {"ok": True, "item": _normalize_viaje_row(updated[0] if updated else {**row, **update})}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Transporte v2 eliminar viaje error")
+        raise HTTPException(500, f"No se pudo eliminar el movimiento Transporte v2: {exc}")
 
 
 @router.get("/tr-v2/carta-porte/health")
@@ -2519,3 +2641,17 @@ async def transporte_v2_desactivar_catalogo(
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     return _deactivate_catalog_item(token, uid, pid, catalogo, item_id)
+
+
+@router.post("/tr-v2/catalogos/{catalogo}/{item_id}/eliminar")
+async def transporte_v2_eliminar_catalogo(
+    catalogo: str,
+    item_id: int,
+    payload: TransporteV2CatalogoCreate,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return _delete_catalog_item(token, uid, pid, catalogo, item_id)
