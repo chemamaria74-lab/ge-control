@@ -808,12 +808,13 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:#f6f4f0;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif);padding:16px}}
-    main{{width:min(760px,100%);margin:0 auto;padding-bottom:24px}}.brand{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}}.brand img{{width:96px;height:auto}}.brand a{{color:#5B0F1D;font-weight:900;text-decoration:none;font-size:14px}}
+    main{{width:min(760px,100%);margin:0 auto;padding-bottom:24px}}.brand{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}}.brand img{{width:96px;height:auto}}.brand-actions{{display:flex;gap:8px;align-items:center}}.brand a,.brand button{{color:#5B0F1D;font-weight:900;text-decoration:none;font-size:14px;background:#fff;border:1px solid #e7dfd4;border-radius:8px;padding:10px 12px;min-height:auto}}
     .hero{{background:#fff;border:1px solid #e7dfd4;border-radius:8px;padding:18px;box-shadow:0 12px 30px rgba(38,25,8,.06);margin-bottom:14px}}h1{{font-size:28px;line-height:1.1;margin:0 0 6px;color:#5B0F1D}}p{{margin:0;color:#6f6a64;line-height:1.45}}.trip-status{{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}}.pill{{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:7px 10px;background:#fff8e6;border:1px solid #f1d18a;color:#684800;font-size:13px;font-weight:900}}.pill.ok{{background:#ecfdf5;border-color:#a7f3d0;color:#047857}}
     .cards{{display:grid;grid-template-columns:1fr;gap:14px}}.card{{background:#fff;border:1px solid #e7dfd4;border-radius:8px;padding:18px;box-shadow:0 12px 30px rgba(38,25,8,.05)}}.card-head{{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:start;margin-bottom:12px}}.icon{{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;background:#f7efe4;color:#7A1E2C;font-size:23px}}h2{{font-size:21px;line-height:1.15;margin:0 0 4px}}.status{{border-radius:999px;padding:6px 9px;background:#f3eee7;color:#5f554b;font-size:12px;font-weight:900;white-space:nowrap}}.note{{font-size:13px;color:#7a6f61;margin-top:10px}}
     .actions{{display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px}}button,.btn{{border:1px solid #e0d7cc;border-radius:8px;padding:14px 16px;min-height:50px;background:#fff;color:#111;font:inherit;font-weight:900;display:flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;cursor:pointer}}button.primary,.btn.primary{{background:#7A1E2C;border-color:#7A1E2C;color:#fff}}button.warning{{background:#fff8e6;border-color:#f1d18a;color:#684800}}button.ok{{background:#ecfdf5;border-color:#a7f3d0;color:#047857}}button:disabled{{opacity:.55;cursor:not-allowed}}
-    .bitacora-grid{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}}.phase-note{{margin-top:14px;background:#fff8e6;border:1px solid #f1d18a;color:#684800;border-radius:8px;padding:12px;font-weight:800;font-size:13px}}.toast{{position:fixed;left:16px;right:16px;bottom:18px;background:#111;color:#fff;border-radius:8px;padding:13px 15px;font-weight:900;text-align:center;box-shadow:0 18px 42px rgba(0,0,0,.22);opacity:0;transform:translateY(12px);transition:.18s ease;pointer-events:none}}.toast.show{{opacity:1;transform:translateY(0)}}
+    .bitacora-grid{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}}.toast{{position:fixed;left:16px;right:16px;bottom:18px;background:#111;color:#fff;border-radius:8px;padding:13px 15px;font-weight:900;text-align:center;box-shadow:0 18px 42px rgba(0,0,0,.22);opacity:0;transform:translateY(12px);transition:.18s ease;pointer-events:none}}.toast.show{{opacity:1;transform:translateY(0)}}
     .no-trip{{background:#fff;border:1px solid #e7dfd4;border-radius:8px;padding:16px;box-shadow:0 12px 30px rgba(38,25,8,.05);margin-bottom:14px;display:none}}.no-trip.show{{display:block}}.no-trip strong{{display:block;font-size:18px;margin-bottom:4px;color:#5B0F1D}}
+    .operator-content.hidden{{display:none}}.trip-details{{display:grid;grid-template-columns:1fr;gap:8px;margin-top:14px}}.trip-details div{{background:#faf8f5;border:1px solid #eee6dc;border-radius:8px;padding:10px}}.trip-details span{{display:block;color:#6f6a64;font-size:12px;font-weight:900;text-transform:uppercase}}.trip-details strong{{display:block;margin-top:3px}}.file-row{{display:flex;flex-direction:column;gap:8px;margin-top:10px}}input[type=file]{{width:100%;border:1px solid #e0d7cc;border-radius:8px;padding:10px;background:#fff}}.history{{margin-top:12px;padding-left:18px;color:#5f554b}}
     @media(min-width:760px){{body{{padding:24px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr))}}.card.bitacora{{grid-column:1/-1}}.actions{{grid-template-columns:repeat(2,minmax(0,1fr))}}.bitacora-grid{{grid-template-columns:repeat(3,minmax(0,1fr))}}}}
   </style>
 </head>
@@ -821,7 +822,10 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
   <main>
     <div class="brand">
       <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
-      <a href="/transporte-v2/roles">Cambiar acceso</a>
+      <div class="brand-actions">
+        <a href="/transporte-v2/roles">Cambiar acceso</a>
+        <button type="button" onclick="trv2OperadorLogout()">Salir</button>
+      </div>
     </div>
     <section class="hero">
       <h1>Mi viaje</h1>
@@ -834,20 +838,34 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
     </section>
 
     <section class="no-trip" id="trv2-operator-no-trip">
-      <strong>No tienes viaje asignado por ahora.</strong>
-      <p>Cuando el administrador te asigne un viaje, aparecerá aquí.</p>
+      <strong>Sin viaje asignado</strong>
+      <p>Contacta a tu administrador.</p>
     </section>
 
-    <div class="cards">
+    <section class="card operator-content hidden" id="trv2-operator-trip-card">
+      <div class="card-head">
+        <span class="icon"><i class="fa-solid fa-route"></i></span>
+        <div><h2>Datos del viaje</h2><p>Información asignada por administración.</p></div>
+        <span class="status" id="trv2-operator-trip-chip">Asignado</span>
+      </div>
+      <div class="trip-details" id="trv2-operator-trip-details"></div>
+    </section>
+
+    <div class="cards operator-content hidden" id="trv2-operator-actions">
       <section class="card">
         <div class="card-head">
           <span class="icon"><i class="fa-solid fa-file-arrow-up"></i></span>
           <div><h2>Factura</h2><p>Sube la factura o documento de la carga.</p></div>
-          <span class="status">Pendiente</span>
+          <span class="status" id="trv2-operator-invoice-status">Pendiente</span>
+        </div>
+        <div id="trv2-operator-invoice-info" class="note">Sin factura cargada.</div>
+        <div class="file-row">
+          <input id="trv2-operator-invoice-file" type="file" accept=".pdf,.xml">
         </div>
         <div class="actions">
-          <button class="primary" type="button" onclick="trv2OperadorToast('Carga de factura en preparación.')"><i class="fa-solid fa-upload"></i> Subir factura</button>
-          <button type="button" onclick="trv2OperadorToast('Documento en preparación.')"><i class="fa-solid fa-eye"></i> Ver documento</button>
+          <button class="primary" type="button" onclick="trv2OperadorUploadInvoice()"><i class="fa-solid fa-upload"></i> Subir / reemplazar factura</button>
+          <button type="button" onclick="trv2OperadorViewInvoice()"><i class="fa-solid fa-eye"></i> Ver factura</button>
+          <button type="button" onclick="trv2OperadorDeleteInvoice()"><i class="fa-solid fa-trash"></i> Eliminar factura</button>
         </div>
       </section>
 
@@ -855,43 +873,38 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
         <div class="card-head">
           <span class="icon"><i class="fa-solid fa-file-invoice"></i></span>
           <div><h2>Carta Porte</h2><p>Consulta o descarga la Carta Porte del viaje.</p></div>
-          <span class="status">Pendiente</span>
+          <span class="status" id="trv2-operator-cp-status">Pendiente</span>
         </div>
+        <div id="trv2-operator-cp-summary" class="note"></div>
         <div class="actions">
-          <button type="button" onclick="trv2OperadorToast('Carta Porte en preparación.')"><i class="fa-solid fa-file-pdf"></i> Ver Carta Porte</button>
-          <button class="primary" type="button" onclick="trv2OperadorToast('Solicitud de Carta Porte en preparación.')"><i class="fa-solid fa-paper-plane"></i> Solicitar Carta Porte</button>
+          <button type="button" onclick="trv2OperadorViewCartaPorte()"><i class="fa-solid fa-file-pdf"></i> Ver Carta Porte</button>
+          <button class="primary" type="button" id="trv2-operator-stamp-btn" onclick="trv2OperadorTimbrar()"><i class="fa-solid fa-stamp"></i> Timbrar</button>
         </div>
-        <p class="note">La generación se habilitará si el administrador lo permite.</p>
       </section>
 
       <section class="card bitacora">
         <div class="card-head">
           <span class="icon"><i class="fa-solid fa-clipboard-list"></i></span>
           <div><h2>Bitácora</h2><p>Registra inicio, descansos, incidencias y fin del viaje.</p></div>
-          <span class="status">Pendiente</span>
+          <span class="status" id="trv2-operator-log-status">SIN_INICIAR</span>
         </div>
-        <div class="bitacora-grid">
-          <button class="primary" type="button" onclick="trv2OperadorToast('Bitácora en preparación.')"><i class="fa-solid fa-play"></i> Iniciar viaje</button>
-          <button class="warning" type="button" onclick="trv2OperadorToast('Bitácora en preparación.')"><i class="fa-solid fa-mug-hot"></i> Descanso</button>
-          <button class="ok" type="button" onclick="trv2OperadorToast('Bitácora en preparación.')"><i class="fa-solid fa-road"></i> Reanudar</button>
-          <button type="button" onclick="trv2OperadorToast('Bitácora en preparación.')"><i class="fa-solid fa-triangle-exclamation"></i> Incidencia</button>
-          <button type="button" onclick="trv2OperadorToast('Bitácora en preparación.')"><i class="fa-solid fa-flag-checkered"></i> Finalizar viaje</button>
-          <button type="button" onclick="trv2OperadorToast('PDF de bitácora en preparación.')"><i class="fa-solid fa-download"></i> Descargar PDF</button>
-        </div>
+        <div class="bitacora-grid" id="trv2-operator-log-actions"></div>
+        <ol class="history" id="trv2-operator-log-history"></ol>
       </section>
     </div>
-
-    <div class="phase-note">Portal operador en preparación. Esta vista no timbra ni genera documentos fiscales todavía.</div>
   </main>
-  <div class="toast" id="trv2-operador-toast">Bitácora en preparación.</div>
+  <div class="toast" id="trv2-operador-toast"></div>
   <script>
+    let TRV2_OPERATOR_TRIP = null;
+    let TRV2_OPERATOR_META = {{}};
+    function trv2OperadorToken() {{ return localStorage.getItem('trv2_operator_token') || ''; }}
+    function trv2OperadorHeaders() {{ return {{Authorization: `Bearer ${{trv2OperadorToken()}}`}}; }}
     async function trv2OperadorFetch(path) {{
-      const token = localStorage.getItem('trv2_operator_token') || '';
-      if (!token) {{
+      if (!trv2OperadorToken()) {{
         location.replace('/transporte-v2/login-operador?next=/transporte-v2/operador');
         return null;
       }}
-      const response = await fetch(path, {{headers: {{Authorization: `Bearer ${{token}}`}}}});
+      const response = await fetch(path, {{headers: trv2OperadorHeaders()}});
       const data = await response.json().catch(() => ({{}}));
       if (!response.ok || data.ok === false) {{
         localStorage.removeItem('trv2_operator_token');
@@ -901,6 +914,80 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       }}
       return data;
     }}
+    function trv2OperadorLogout() {{
+      localStorage.removeItem('trv2_operator_token');
+      localStorage.removeItem('trv2_operator_profile');
+      location.href = '/transporte-v2/roles';
+    }}
+    function trv2OpEsc(value) {{
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[ch]));
+    }}
+    function trv2OperadorTripValue(obj, key, fallback = '') {{ return obj?.[key] || obj?.metadata?.[key] || fallback; }}
+    function trv2OperadorRenderTrip(data) {{
+      TRV2_OPERATOR_TRIP = data.viaje || null;
+      TRV2_OPERATOR_META = data.metadata || TRV2_OPERATOR_TRIP?.metadata || {{}};
+      const noTrip = document.getElementById('trv2-operator-no-trip');
+      const status = document.getElementById('trv2-operator-trip-status');
+      const content = document.querySelectorAll('.operator-content');
+      if (!data?.has_trip || !TRV2_OPERATOR_TRIP) {{
+        noTrip?.classList.add('show');
+        content.forEach(el => el.classList.add('hidden'));
+        if (status) status.innerHTML = '<i class="fa-solid fa-circle"></i> Sin viaje';
+        return;
+      }}
+      noTrip?.classList.remove('show');
+      content.forEach(el => el.classList.remove('hidden'));
+      if (status) status.innerHTML = '<i class="fa-solid fa-route"></i> Viaje asignado';
+      const details = document.getElementById('trv2-operator-trip-details');
+      const fields = [
+        ['Cliente', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'cliente_nombre')],
+        ['Producto', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'producto_descripcion')],
+        ['Origen', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'origen')],
+        ['Destino', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'destino')],
+        ['Vehículo', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'vehiculo_alias')],
+        ['Placas', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'placas')],
+        ['Operador', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'operador_nombre')],
+        ['Fecha', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'fecha_salida')],
+        ['Estado', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'estatus', 'Asignado')],
+      ];
+      if (details) details.innerHTML = fields.map(([label, value]) => `<div><span>${{trv2OpEsc(label)}}</span><strong>${{trv2OpEsc(value || 'No capturado')}}</strong></div>`).join('');
+      trv2OperadorRenderInvoice();
+      trv2OperadorRenderCartaPorte();
+      trv2OperadorRenderBitacora();
+    }}
+    function trv2OperadorRenderInvoice() {{
+      const factura = TRV2_OPERATOR_META.factura_operador || null;
+      const status = document.getElementById('trv2-operator-invoice-status');
+      const info = document.getElementById('trv2-operator-invoice-info');
+      if (status) status.textContent = factura ? 'Cargada' : 'Pendiente';
+      if (info) info.textContent = factura ? `${{factura.nombre || 'Factura'}} · ${{String(factura.uploaded_at || '').slice(0, 19)}}` : 'Sin factura cargada.';
+    }}
+    function trv2OperadorRenderCartaPorte() {{
+      const uuid = TRV2_OPERATOR_TRIP?.uuid_cfdi || TRV2_OPERATOR_META.uuid_carta_porte || TRV2_OPERATOR_META.cfdi_uuid || '';
+      const status = document.getElementById('trv2-operator-cp-status');
+      const summary = document.getElementById('trv2-operator-cp-summary');
+      const stamp = document.getElementById('trv2-operator-stamp-btn');
+      if (status) status.textContent = uuid ? 'Timbrada' : 'Pendiente';
+      if (summary) summary.textContent = uuid ? `UUID: ${{uuid}}` : 'Factura y datos operativos requeridos para timbrar.';
+      if (stamp) stamp.disabled = Boolean(uuid);
+    }}
+    function trv2OperadorBitacoraEstado() {{ return TRV2_OPERATOR_META.bitacora_operador?.estado || 'SIN_INICIAR'; }}
+    function trv2OperadorRenderBitacora() {{
+      const estado = trv2OperadorBitacoraEstado();
+      const status = document.getElementById('trv2-operator-log-status');
+      const actions = document.getElementById('trv2-operator-log-actions');
+      const history = document.getElementById('trv2-operator-log-history');
+      if (status) status.textContent = estado;
+      const buttons = {{
+        SIN_INICIAR: [['INICIAR','Iniciar viaje','primary'], ['INCIDENCIA','Incidencia',''], ['PDF','Descargar PDF','']],
+        EN_CURSO: [['DESCANSO','Descanso','warning'], ['INCIDENCIA','Incidencia',''], ['FINALIZAR','Finalizar viaje',''], ['PDF','Descargar PDF','']],
+        DESCANSO: [['REANUDAR','Reanudar','ok'], ['INCIDENCIA','Incidencia',''], ['PDF','Descargar PDF','']],
+        FINALIZADO: [['PDF','Descargar PDF',''], ['HISTORIAL','Historial','']],
+      }}[estado] || [];
+      if (actions) actions.innerHTML = buttons.map(([action, label, klass]) => `<button class="${{klass}}" type="button" onclick="trv2OperadorBitacora('${{action}}')">${{trv2OpEsc(label)}}</button>`).join('');
+      const eventos = TRV2_OPERATOR_META.bitacora_operador?.eventos || [];
+      if (history) history.innerHTML = eventos.slice(-6).map(ev => `<li>${{trv2OpEsc(ev.created_at || '')}} · ${{trv2OpEsc(ev.accion || '')}} ${{trv2OpEsc(ev.nota || '')}}</li>`).join('');
+    }}
     async function trv2OperadorInit() {{
       const me = await trv2OperadorFetch('/api/tr-v2/operator/me');
       if (!me) return;
@@ -908,18 +995,77 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       const name = document.getElementById('trv2-operator-name');
       if (name) name.textContent = `${{me.operator?.nombre || 'Operador'}}${{me.operator?.empresa?.nombre ? ' · ' + me.operator.empresa.nombre : ''}}`;
       const trip = await trv2OperadorFetch('/api/tr-v2/operator/mi-viaje');
-      const noTrip = document.getElementById('trv2-operator-no-trip');
-      const status = document.getElementById('trv2-operator-trip-status');
-      if (!trip?.has_trip) {{
-        noTrip?.classList.add('show');
-        if (status) status.innerHTML = '<i class="fa-solid fa-circle"></i> Sin viaje';
-      }} else if (status) {{
-        status.innerHTML = '<i class="fa-solid fa-route"></i> Viaje asignado';
+      trv2OperadorRenderTrip(trip);
+    }}
+    async function trv2OperadorUploadInvoice() {{
+      const file = document.getElementById('trv2-operator-invoice-file')?.files?.[0];
+      if (!file) return trv2OperadorToast('Selecciona un archivo PDF o XML.');
+      const form = new FormData();
+      form.append('file', file);
+      const response = await fetch('/api/tr-v2/operator/factura', {{method:'POST', headers: trv2OperadorHeaders(), body: form}});
+      const data = await response.json().catch(() => ({{}}));
+      if (!response.ok || data.ok === false) return trv2OperadorToast(data.detail || data.message || 'No se pudo subir factura.');
+      TRV2_OPERATOR_META.factura_operador = data.factura;
+      trv2OperadorRenderInvoice();
+      trv2OperadorToast('Factura guardada.');
+    }}
+    function trv2OperadorViewInvoice() {{
+      const factura = TRV2_OPERATOR_META.factura_operador;
+      if (!factura?.data_url) return trv2OperadorToast('No hay factura cargada.');
+      window.open(factura.data_url, '_blank', 'noopener');
+    }}
+    async function trv2OperadorDeleteInvoice() {{
+      if (!TRV2_OPERATOR_META.factura_operador) return trv2OperadorToast('No hay factura cargada.');
+      const response = await fetch('/api/tr-v2/operator/factura/eliminar', {{method:'POST', headers: trv2OperadorHeaders()}});
+      const data = await response.json().catch(() => ({{}}));
+      if (!response.ok || data.ok === false) return trv2OperadorToast(data.detail || data.message || 'No se pudo eliminar factura.');
+      delete TRV2_OPERATOR_META.factura_operador;
+      trv2OperadorRenderInvoice();
+      trv2OperadorToast('Factura eliminada.');
+    }}
+    function trv2OperadorViewCartaPorte() {{
+      const uuid = TRV2_OPERATOR_TRIP?.uuid_cfdi || TRV2_OPERATOR_META.uuid_carta_porte || '';
+      trv2OperadorToast(uuid ? `Carta Porte ${{uuid}}` : 'Carta Porte no timbrada.');
+    }}
+    function trv2OperadorTimbrar() {{
+      if (TRV2_OPERATOR_TRIP?.uuid_cfdi || TRV2_OPERATOR_META.uuid_carta_porte) return trv2OperadorToast('Carta Porte ya timbrada.');
+      if (!TRV2_OPERATOR_META.factura_operador) return trv2OperadorToast('Sube la factura antes de timbrar.');
+      trv2OperadorToast('Solicitud lista. El administrador debe confirmar timbrado.');
+    }}
+    async function trv2OperadorBitacora(action) {{
+      if (action === 'PDF') {{
+        const response = await fetch('/api/tr-v2/operator/bitacora.pdf', {{headers: trv2OperadorHeaders()}});
+        if (!response.ok) {{
+          const data = await response.json().catch(() => ({{}}));
+          return trv2OperadorToast(data.detail || data.message || 'No se pudo descargar bitácora.');
+        }}
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `bitacora-viaje-${{TRV2_OPERATOR_TRIP?.id || 'operador'}}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+        return;
       }}
+      if (action === 'HISTORIAL') return trv2OperadorRenderBitacora();
+      const nota = action === 'INCIDENCIA' ? prompt('Describe la incidencia') || '' : '';
+      const response = await fetch('/api/tr-v2/operator/bitacora', {{
+        method:'POST',
+        headers: {{...trv2OperadorHeaders(), 'Content-Type':'application/json'}},
+        body: JSON.stringify({{action, nota}}),
+      }});
+      const data = await response.json().catch(() => ({{}}));
+      if (!response.ok || data.ok === false) return trv2OperadorToast(data.detail || data.message || 'No se pudo registrar bitácora.');
+      TRV2_OPERATOR_META.bitacora_operador = data.bitacora;
+      trv2OperadorRenderBitacora();
+      trv2OperadorToast('Bitácora actualizada.');
     }}
     function trv2OperadorToast(message) {{
       const toast = document.getElementById('trv2-operador-toast');
-      toast.textContent = message || 'Bitácora en preparación.';
+      toast.textContent = message || '';
       toast.classList.add('show');
       clearTimeout(window.__trv2OperadorToastTimer);
       window.__trv2OperadorToastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
