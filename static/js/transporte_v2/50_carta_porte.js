@@ -164,7 +164,7 @@ function trv2RenderCartaPortePreview(data) {
       <button class="trv2-btn trv2-btn-primary" type="button" ${canStamp ? '' : 'disabled'} onclick="trv2ConfirmStampCartaPorte()">
         <i class="fa-solid fa-stamp"></i> Timbrar Carta Porte
       </button>
-      <span class="trv2-muted">${trv2Esc(data.ready_to_stamp ? 'Datos mínimos completos. Timbrado PAC pendiente de habilitar en Transporte v2.' : 'Corrige los errores antes de timbrar.')}</span>
+      <span class="trv2-muted">${trv2Esc(data.ready_to_stamp ? 'Datos mínimos completos. Al confirmar se enviará a SW Sapiens.' : 'Corrige los errores antes de timbrar.')}</span>
     </div>
     ${trv2RenderCartaPorteDocument(preview, data)}
     <div class="trv2-preview-grid">
@@ -186,15 +186,47 @@ function trv2RenderCartaPortePreview(data) {
   `;
 }
 
-function trv2ConfirmStampCartaPorte() {
+async function trv2ConfirmStampCartaPorte() {
   if (!TRV2_CP_PREVIEW?.ready_to_stamp) {
     trv2Toast('Corrige los errores del preview antes de timbrar.', 'error');
     return;
   }
   if (!TRV2_CP_PREVIEW?.timbrado_habilitado) {
-    trv2Toast('Timbrado PAC pendiente de conectar en Transporte v2. El preview seco no llama PAC.', 'error');
+    trv2Toast('Timbrado no habilitado por validaciones pendientes.', 'error');
     return;
   }
+  const viajeId = Number(TRV2_CP_PREVIEW?.viaje_id || TRV2_CP_PREVIEW?.resumen?.viaje_id || TRV2_SELECTED_CP_TRIP_ID || 0);
+  if (!viajeId) {
+    trv2Toast('Selecciona el movimiento a timbrar.', 'error');
+    return;
+  }
+  if (!confirm(`¿Timbrar Carta Porte real del movimiento #${viajeId}? Esta acción envía el CFDI a SW Sapiens.`)) return;
+  trv2Toast('Timbrando Carta Porte con SW Sapiens...');
+  const data = await trv2Api('POST', '/api/tr-v2/carta-porte/timbrar', {
+    perfil_id: TRV2_PERFIL?.id || null,
+    viaje_id: viajeId,
+    confirmar: true,
+  }, {allowError: true, timeoutMs: 90000});
+  if (!data?.ok) {
+    const detail = data?.detail || data?.message || data?.error || 'No se pudo timbrar Carta Porte.';
+    const errors = Array.isArray(data?.errors) ? data.errors.map(item => item.mensaje || item.message || item.campo).filter(Boolean).join(' · ') : '';
+    trv2Toast(errors || detail, 'error');
+    return;
+  }
+  trv2Toast(`Carta Porte timbrada. UUID: ${data.uuid_sat || data.uuid_cfdi || 'recibido'}`, 'success');
+  const panel = document.getElementById('trv2-cp-preview-panel');
+  if (panel) {
+    const pdf = data.pdf_url ? `<a class="trv2-btn trv2-btn-secondary" href="${trv2Esc(data.pdf_url)}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a>` : '';
+    const xml = data.xml_url ? `<a class="trv2-btn trv2-btn-secondary" href="${trv2Esc(data.xml_url)}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>` : '';
+    panel.insertAdjacentHTML('afterbegin', `
+      <div class="trv2-alert trv2-alert-ok">
+        Carta Porte timbrada correctamente. UUID: <b>${trv2Esc(data.uuid_sat || data.uuid_cfdi || '')}</b>
+      </div>
+      <div class="trv2-form-actions trv2-form-actions-inline">${pdf}${xml}</div>
+    `);
+  }
+  await trv2LoadTrips();
+  trv2PopulateCartaPorteTrips();
 }
 
 async function trv2PreviewCartaPorte(viajeId) {
@@ -213,6 +245,8 @@ async function trv2PreviewCartaPorte(viajeId) {
     return;
   }
   TRV2_CP_PREVIEW = data;
+  TRV2_CP_PREVIEW.viaje_id = id;
+  TRV2_SELECTED_CP_TRIP_ID = id;
   trv2SwitchTab('carta-porte');
   trv2RenderCartaPortePreview(data);
 }

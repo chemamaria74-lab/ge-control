@@ -2,10 +2,13 @@ TRV2_CATALOGS.origenes = TRV2_CATALOGS.origenes || [];
 TRV2_CATALOGS.destinos = TRV2_CATALOGS.destinos || [];
 TRV2_CATALOGS.instalaciones = TRV2_CATALOGS.instalaciones || [];
 TRV2_CATALOGS.proveedores = TRV2_CATALOGS.proveedores || [];
+TRV2_CATALOGS.remolques = TRV2_CATALOGS.remolques || [];
 TRV2_CATALOG_LABELS.instalaciones = 'Instalaciones Carta Porte';
 TRV2_CATALOG_LABELS.proveedores = 'Proveedores';
+TRV2_CATALOG_LABELS.remolques = 'Remolques';
+let TRV2_VEHICLE_SUBCATALOG = 'vehiculos';
 
-const TRV2_CATALOG_LOAD_NAMES = ['clientes', 'operadores', 'vehiculos', 'productos', 'origenes', 'destinos', 'rutas'];
+const TRV2_CATALOG_LOAD_NAMES = ['clientes', 'operadores', 'vehiculos', 'remolques', 'productos', 'origenes', 'destinos', 'rutas'];
 const TRV2_SCT_PERMISOS = [
   ['TPAF01', 'Autotransporte Federal de carga general'],
   ['TPAF02', 'Transporte privado de carga'],
@@ -113,6 +116,7 @@ const TRV2_REQUIRED_FIELDS = {
   clientes: ['nombre', 'rfc', 'cp'],
   operadores: ['nombre', 'rfc_figura', 'licencia'],
   vehiculos: ['alias', 'placas', 'config_vehicular', 'permiso_sct', 'num_permiso_sct', 'aseguradora_rc', 'poliza_rc'],
+  remolques: ['alias', 'placas', 'subtipo_remolque'],
   productos: ['descripcion', 'clave_producto', 'unidad'],
   proveedores: ['rfc', 'nombre', 'producto', 'permiso_cre'],
   origenes: ['nombre', 'cp'],
@@ -153,15 +157,18 @@ const TRV2_CATALOG_FORMS = {
     ['aseguradora_medio_ambiente', 'Aseg. medio ambiente'],
     ['poliza_medio_ambiente', 'Póliza medio ambiente'],
     ['peso_bruto_vehicular', 'Peso bruto vehicular', 'number'],
-    ['remolque_subtipo', 'Subtipo remolque SAT', 'trailer-subtype'],
-    ['remolque_placas', 'Placas remolque'],
-    ['remolque_numero_economico', 'Número económico remolque'],
-    ['remolque_aseguradora', 'Aseguradora remolque'],
-    ['remolque_poliza', 'Póliza remolque'],
-    ['remolque_peso_bruto', 'Peso bruto remolque', 'number'],
-    ['remolque2_subtipo', 'Subtipo segundo remolque SAT', 'trailer-subtype'],
-    ['remolque2_placas', 'Placas segundo remolque'],
-    ['remolque2_numero_economico', 'Número económico segundo remolque'],
+    ['remolque_id', 'Remolque habitual', 'remolque-select'],
+    ['remolque2_id', 'Segundo remolque', 'remolque-select'],
+    ['activo', 'Activo', 'checkbox'],
+  ],
+  remolques: [
+    ['alias', 'Número económico remolque'],
+    ['placas', 'Placas remolque'],
+    ['subtipo_remolque', 'Subtipo remolque SAT', 'trailer-subtype'],
+    ['permiso', 'Permiso'],
+    ['aseguradora', 'Aseguradora'],
+    ['poliza', 'Póliza'],
+    ['peso_bruto', 'Peso bruto en toneladas', 'number'],
     ['activo', 'Activo', 'checkbox'],
   ],
   productos: [
@@ -247,6 +254,13 @@ const TRV2_CATALOG_UI = {
     metrics: [['Registros', 'count'], ['Con placas', 'placas'], ['Con seguro RC', 'poliza_rc']],
     fields: [['Placas', 'placas'], ['Modelo', 'modelo'], ['VIN / NIV', 'vin'], ['Motor', 'numero_motor'], ['Config.', 'config_vehicular'], ['Permiso', 'permiso_sct'], ['Seguro', 'poliza_rc']],
   },
+  remolques: {
+    icon: 'fa-trailer',
+    title: 'Remolques',
+    subtitle: 'Semirremolques y remolques para configuraciones T2S/T3S.',
+    metrics: [['Registros', 'count'], ['Con placas', 'placas'], ['Con subtipo', 'subtipo_remolque']],
+    fields: [['Placas', 'placas'], ['Subtipo', 'subtipo_remolque'], ['Permiso', 'permiso'], ['Seguro', 'poliza']],
+  },
   productos: {
     icon: 'fa-gas-pump',
     title: 'Productos / Mercancías',
@@ -322,11 +336,24 @@ function trv2CatalogLabel(name, item) {
     if (alias && placas) return `${alias} · Placas ${placas}`;
     return alias || placas || `#${item.id}`;
   }
+  if (name === 'remolques') {
+    const alias = item.alias || item.numero_economico || '';
+    const placas = item.placas || '';
+    if (alias && placas) return `${alias} · Placas ${placas}`;
+    return alias || placas || `#${item.id}`;
+  }
   if (name === 'productos') return item.descripcion || item.clave_producto || `#${item.id}`;
   if (name === 'rutas') return item.nombre || `${item.origen || 'Origen'} → ${item.destino || 'Destino'}`;
   if (name === 'instalaciones') return item.nombre || item.cp || `#${item.id}`;
   if (name === 'origenes' || name === 'destinos') return item.nombre || item.cp || `#${item.id}`;
   return item.nombre || `#${item.id}`;
+}
+
+function trv2CatalogOptions(name, placeholder = 'Seleccionar') {
+  const items = TRV2_CATALOGS[name] || [];
+  return `<option value="">${trv2Esc(placeholder)}</option>` + items.map(item => (
+    `<option value="${trv2Esc(item.id)}">${trv2Esc(trv2CatalogLabel(name, item))}</option>`
+  )).join('');
 }
 
 function trv2BuildInstalacionesCatalog() {
@@ -379,9 +406,9 @@ function trv2BuildProveedoresCatalog() {
 function trv2RenderCatalogTabs() {
   const tabs = document.getElementById('trv2-catalog-tabs');
   if (!tabs) return;
-  tabs.innerHTML = Object.keys(TRV2_CATALOG_LABELS).map(name => {
+  tabs.innerHTML = Object.keys(TRV2_CATALOG_LABELS).filter(name => name !== 'remolques').map(name => {
     const ui = TRV2_CATALOG_UI[name] || {};
-    const active = name === TRV2_ACTIVE_CATALOG ? 'active' : '';
+    const active = name === TRV2_ACTIVE_CATALOG || (name === 'vehiculos' && TRV2_ACTIVE_CATALOG === 'remolques') ? 'active' : '';
     return `
       <button class="trv2-subtab ${active}" type="button" onclick="trv2SetActiveCatalog('${trv2Esc(name)}')">
         <i class="fa-solid ${trv2Esc(ui.icon || 'fa-table-list')}"></i>
@@ -394,8 +421,16 @@ function trv2RenderCatalogTabs() {
 
 function trv2SetActiveCatalog(name) {
   TRV2_ACTIVE_CATALOG = name;
+  if (name === 'vehiculos' || name === 'remolques') TRV2_VEHICLE_SUBCATALOG = name;
   const search = document.getElementById('trv2-catalog-search');
   if (search) search.value = '';
+  trv2RenderCatalogTabs();
+  trv2RenderActiveCatalog();
+}
+
+function trv2SetVehicleSubCatalog(name) {
+  TRV2_ACTIVE_CATALOG = name === 'remolques' ? 'remolques' : 'vehiculos';
+  TRV2_VEHICLE_SUBCATALOG = TRV2_ACTIVE_CATALOG;
   trv2RenderCatalogTabs();
   trv2RenderActiveCatalog();
 }
@@ -438,7 +473,9 @@ function trv2RenderActiveCatalog() {
     const emptyMessage = name === 'rutas' && !query
       ? 'No hay rutas configuradas para esta empresa. Crea una ruta para continuar.'
       : (query ? 'No hay resultados para la búsqueda.' : 'Sin registros todavía.');
+    const vehicleSubtabs = (name === 'vehiculos' || name === 'remolques') ? trv2RenderVehicleCatalogSubtabs(name) : '';
     panel.innerHTML = `
+      ${vehicleSubtabs}
       <div class="trv2-catalog-empty">
         <i class="fa-solid ${trv2Esc(ui.icon || 'fa-table-list')}"></i>
         <h2>${trv2Esc(ui.title || TRV2_CATALOG_LABELS[name])}</h2>
@@ -448,10 +485,78 @@ function trv2RenderActiveCatalog() {
     `;
     return;
   }
+  const vehicleSubtabs = (name === 'vehiculos' || name === 'remolques') ? trv2RenderVehicleCatalogSubtabs(name) : '';
+  if (trv2CatalogUsesHorizontalList(name)) {
+    panel.innerHTML = `${vehicleSubtabs}${trv2RenderCatalogTable(name, filtered)}`;
+    return;
+  }
   panel.innerHTML = `
+    ${vehicleSubtabs}
     <div class="trv2-catalog-card-grid">
       ${filtered.map(item => trv2RenderCatalogCard(name, item)).join('')}
     </div>
+  `;
+}
+
+function trv2CatalogUsesHorizontalList(name) {
+  return ['operadores', 'vehiculos', 'remolques', 'productos', 'rutas', 'instalaciones'].includes(name);
+}
+
+function trv2RenderVehicleCatalogSubtabs(name) {
+  return `
+    <div class="trv2-inline-tabs" role="tablist" aria-label="Vehículos y remolques">
+      <button class="trv2-subtab ${name === 'vehiculos' ? 'active' : ''}" type="button" onclick="trv2SetVehicleSubCatalog('vehiculos')">Vehículos</button>
+      <button class="trv2-subtab ${name === 'remolques' ? 'active' : ''}" type="button" onclick="trv2SetVehicleSubCatalog('remolques')">Remolques</button>
+    </div>
+  `;
+}
+
+function trv2RenderCatalogTable(name, items) {
+  const ui = TRV2_CATALOG_UI[name] || {};
+  const fields = ui.fields || [];
+  return `
+    <div class="trv2-table-wrap">
+      <table class="trv2-table trv2-catalog-table">
+        <thead>
+          <tr>
+            <th>${trv2Esc(ui.title || TRV2_CATALOG_LABELS[name] || 'Registro')}</th>
+            ${fields.map(([label]) => `<th>${trv2Esc(label)}</th>`).join('')}
+            <th>Estado</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map(item => trv2RenderCatalogTableRow(name, item, fields)).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function trv2RenderCatalogTableRow(name, item, fields) {
+  const status = item.activo === false ? 'Inactivo' : 'Activo';
+  const statusClass = item.activo === false ? 'inactive' : 'active';
+  const actionId = trv2CatalogActionId(item);
+  return `
+    <tr>
+      <td>
+        <strong>${trv2Esc(trv2CatalogLabel(name, item))}</strong>
+        <small class="trv2-muted">#${trv2Esc(item.id || 'nuevo')}</small>
+      </td>
+      ${fields.map(([, key]) => {
+        const raw = item[key];
+        const value = typeof raw === 'boolean' ? (raw ? 'Sí' : 'No') : raw;
+        return `<td>${trv2Esc(value || 'Pendiente')}</td>`;
+      }).join('')}
+      <td><span class="trv2-status ${statusClass}">${status}</span></td>
+      <td>
+        <div class="trv2-row-actions">
+          <button class="trv2-mini-btn" type="button" onclick="trv2OpenCatalogModal('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Editar</button>
+          <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Desactivar</button>
+          <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Eliminar</button>
+        </div>
+      </td>
+    </tr>
   `;
 }
 
@@ -544,6 +649,11 @@ function trv2RenderCatalogFields(name) {
       return `<label data-remolque-field>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
         <option value="">Seleccionar subtipo</option>
         ${TRV2_SUBTIPOS_REMOLQUE.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
+    if (type === 'remolque-select') {
+      return `<label data-remolque-field>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        ${trv2CatalogOptions('remolques', field === 'remolque2_id' ? 'Seleccionar segundo remolque' : 'Seleccionar remolque')}
       </select></label>`;
     }
     if (type === 'cp-location-type') {
@@ -756,6 +866,18 @@ function trv2ValidCp(value) {
   return /^\d{5}$/.test(String(value || '').trim());
 }
 
+function trv2ReadableCatalogError(response, fallback = 'No se pudo completar la operación.') {
+  const detail = response?.detail || response?.message || response?.error;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map(item => item?.msg || item?.message || JSON.stringify(item)).join(' · ');
+  }
+  if (detail && typeof detail === 'object') {
+    return detail.message || detail.error || JSON.stringify(detail);
+  }
+  return fallback;
+}
+
 function trv2ApplyRouteEndpointToCatalogForm(kind) {
   const form = document.getElementById('trv2-catalog-modal-form');
   if (!form || form.dataset.catalog !== 'rutas') return;
@@ -827,6 +949,28 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
     data[key] = input.type === 'checkbox' ? input.checked : input.value.trim();
     if (input.type === 'number') data[key] = Number(input.value || 0);
   });
+  if (name === 'vehiculos') {
+    const economico = data.alias || data.numero_economico || data.unidad || '';
+    if (economico) {
+      data.alias = economico;
+      data.numero_economico = economico;
+      data.unidad = economico;
+    }
+    const vin = data.vin || data.vin_niv || data.niv || '';
+    if (vin) {
+      data.vin = vin;
+      data.vin_niv = vin;
+      data.niv = vin;
+    }
+    const motor = data.numero_motor || data.motor || '';
+    if (motor) {
+      data.numero_motor = motor;
+      data.motor = motor;
+    }
+    if (data.config_vehicular) data.configuracion_vehicular = data.config_vehicular;
+    data.remolque_id = Number(data.remolque_id || 0) || '';
+    data.remolque2_id = Number(data.remolque2_id || 0) || '';
+  }
   const invalidRfc = [...form.querySelectorAll('[data-rfc-field]')].find(input => input.value.trim() && !trv2ValidRfc(input.value));
   if (invalidRfc) {
     invalidRfc.focus();
@@ -857,7 +1001,7 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
     trv2CloseCatalogModal();
     await trv2LoadCatalogs({silent: true});
   } else {
-    trv2Toast(response?.detail || response?.message || `No se pudo guardar ${TRV2_CATALOG_LABELS[name]}.`, 'error');
+    trv2Toast(trv2ReadableCatalogError(response, `No se pudo guardar ${TRV2_CATALOG_LABELS[name]}.`), 'error');
   }
 }
 
@@ -884,8 +1028,8 @@ function trv2ValidateCatalogPayload(name, data) {
     if (['Magna', 'Premium', 'Diésel'].includes(data.tipo_producto) && !data.clave_subproducto) return `Mercancía ${data.tipo_producto} requiere subproducto HidroYPetro para preparar CFDI/JSON cuando aplique.`;
   }
   if (name === 'vehiculos' && trv2VehicleConfigRequiresTrailer(data.config_vehicular)) {
-    if (!data.remolque_subtipo) return `El vehículo ${data.alias || data.placas || ''} requiere subtipo de remolque/semirremolque.`;
-    if (!data.remolque_placas) return `El vehículo ${data.alias || data.placas || ''} requiere placas del remolque/semirremolque.`;
+    if (!data.remolque_id) return `El vehículo ${data.alias || data.placas || ''} requiere seleccionar remolque/semirremolque del catálogo.`;
+    if (trv2VehicleConfigRequiresSecondTrailer(data.config_vehicular) && !data.remolque2_id) return `El vehículo ${data.alias || data.placas || ''} requiere seleccionar segundo remolque.`;
   }
   if (name === 'proveedores') {
     if (!trv2ValidRfc(data.rfc)) return `Proveedor ${data.nombre || ''} tiene RFC inválido.`;
@@ -932,7 +1076,7 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
       data: payload,
     }, {allowError: true});
     if (!response?.ok) {
-      trv2Toast(response?.detail || response?.message || 'No se pudo guardar instalación Carta Porte.', 'error');
+      trv2Toast(trv2ReadableCatalogError(response, 'No se pudo guardar instalación Carta Porte.'), 'error');
       return;
     }
   }
@@ -959,7 +1103,7 @@ async function trv2DeactivateCatalogItem(name, itemId) {
     trv2Toast(`${TRV2_CATALOG_LABELS[name]} desactivado.`, 'success');
     await trv2LoadCatalogs({silent: true});
   } else {
-    trv2Toast(response?.detail || response?.message || 'No se pudo desactivar el registro.', 'error');
+    trv2Toast(trv2ReadableCatalogError(response, 'No se pudo desactivar el registro.'), 'error');
   }
 }
 
@@ -987,7 +1131,7 @@ async function trv2DeleteCatalogItem(name, itemId) {
     trv2Toast(`Registro eliminado: ${label}.`, 'success');
     await trv2LoadCatalogs({silent: true});
   } else {
-    trv2Toast(response?.detail || response?.message || 'No se pudo eliminar el registro.', 'error');
+    trv2Toast(trv2ReadableCatalogError(response, 'No se pudo eliminar el registro.'), 'error');
   }
 }
 

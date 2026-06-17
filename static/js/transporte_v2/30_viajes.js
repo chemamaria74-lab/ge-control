@@ -17,6 +17,18 @@ function trv2TripRelatedLabel(row, catalogName, metaKey) {
   return item ? trv2CatalogLabel(catalogName, item) : trv2TripMeta(row, metaKey);
 }
 
+function trv2ReadableApiError(data, fallback = 'No se pudo completar la operación.') {
+  const detail = data?.detail || data?.message || data?.error;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map(item => item?.msg || item?.message || JSON.stringify(item)).join(' · ');
+  }
+  if (detail && typeof detail === 'object') {
+    return detail.message || detail.error || JSON.stringify(detail);
+  }
+  return fallback;
+}
+
 function trv2RenderTrips(items) {
   const tbody = document.getElementById('trv2-trips-table');
   if (!tbody) return;
@@ -54,14 +66,14 @@ async function trv2DeleteDraftTrip(viajeId) {
     data: {},
   }, {allowError: true});
   if (!data?.ok) {
-    trv2Toast(data?.detail || data?.message || 'No se pudo eliminar el movimiento.', 'error');
+    trv2Toast(trv2ReadableApiError(data, 'No se pudo eliminar el movimiento.'), 'error');
     return;
   }
   TRV2_TRIPS = TRV2_TRIPS.filter(row => Number(row.id) !== id);
   trv2Toast('Movimiento eliminado de borradores y reportes.', 'success');
   await trv2LoadTrips();
   if (typeof trv2LoadDashboard === 'function') trv2LoadDashboard();
-  if (typeof trv2LoadControlVolumetrico === 'function') trv2LoadControlVolumetrico();
+  if (typeof trv2LoadControlVolumetrico === 'function') await trv2LoadControlVolumetrico();
 }
 
 async function trv2LoadTrips() {
