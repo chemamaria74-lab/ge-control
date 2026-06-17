@@ -24,6 +24,11 @@ from pydantic import BaseModel
 
 from routes.auth import require_profile_access, verify_token
 from supabase_config import get_supabase_admin, get_supabase_for_user
+from models.transport_schemas import ProductoTransporte, ViajeCreate
+from services.carta_porte_validation import validar_xml_carta_porte_transporte
+from services.fiscal_audit import version_xml
+from services.sw_sapien import emitir_timbrar_json
+from services.transport_builder import build_cfdi_transporte
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -45,6 +50,7 @@ TBL_PROVEEDORES = "tr_proveedores_operacion"
 TBL_SETTINGS = "tr_settings"
 TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
 TBL_AUDITORIA = "transporte_v2_auditoria"
+TBL_CFDI = "tr_cfdi"
 
 CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "clientes": {
@@ -89,7 +95,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         "allowed": [
             "nombre", "rfc", "cp", "direccion", "tipo", "tipo_carta_porte",
             "permiso_cre", "clave_instalacion", "id_ubicacion_carta_porte",
-            "estado_sat", "municipio_sat", "localidad_sat", "referencia", "activo",
+            "estado_sat", "municipio_sat", "localidad_sat", "referencia", "activo", "metadata",
         ],
         "defaults": {"activo": True, "tipo": "terminal"},
     },
@@ -99,7 +105,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         "allowed": [
             "nombre", "rfc", "cp", "direccion", "tipo", "tipo_carta_porte", "cliente_id",
             "permiso_cre", "clave_instalacion", "id_ubicacion_carta_porte",
-            "estado_sat", "municipio_sat", "localidad_sat", "referencia", "activo",
+            "estado_sat", "municipio_sat", "localidad_sat", "referencia", "activo", "metadata",
         ],
         "defaults": {"activo": True, "tipo": "cliente"},
     },
@@ -181,6 +187,12 @@ class TransporteV2CartaPortePreviewRequest(BaseModel):
     viaje_id: Optional[int] = None
     viaje: Optional[dict[str, Any]] = None
     tipo_cfdi: str = ""
+
+
+class TransporteV2CartaPorteTimbrarRequest(BaseModel):
+    perfil_id: Optional[int] = None
+    viaje_id: int
+    confirmar: bool = False
 
 
 class TransporteV2OperatorAccessCreate(BaseModel):
@@ -829,6 +841,16 @@ def _expand_vehicle_aliases(row: dict[str, Any]) -> dict[str, Any]:
     if config:
         expanded["config_vehicular"] = config
         expanded.setdefault("configuracion_vehicular", config)
+    for key in (
+        "alias", "numero_economico", "unidad", "placas", "modelo", "anio",
+        "vin", "vin_niv", "niv", "numero_motor", "motor",
+        "config_vehicular", "configuracion_vehicular", "permiso_sct",
+        "num_permiso_sct", "aseguradora_rc", "poliza_rc",
+        "aseguradora_medio_ambiente", "poliza_medio_ambiente",
+        "peso_bruto_vehicular",
+    ):
+        if _first_text(expanded.get(key)):
+            metadata[key] = expanded.get(key)
     trailer_keys = [
         "remolque_subtipo", "remolque_placas", "remolque_numero_economico",
         "remolque_aseguradora", "remolque_poliza", "remolque_peso_bruto",
@@ -852,6 +874,25 @@ def _expand_vehicle_aliases(row: dict[str, Any]) -> dict[str, Any]:
                 "numero_economico": trailer_data.get("remolque2_numero_economico", ""),
             },
         ]
+        expanded["metadata"] = metadata
+    elif metadata:
+        expanded["metadata"] = metadata
+    return expanded
+
+
+def _expand_installation_metadata(row: dict[str, Any]) -> dict[str, Any]:
+    expanded = dict(row)
+    metadata = _parse_json_value(expanded.get("metadata"), {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    for key in (
+        "nombre", "rfc", "cp", "direccion", "tipo", "tipo_carta_porte",
+        "permiso_cre", "clave_instalacion", "id_ubicacion_carta_porte",
+        "estado_sat", "municipio_sat", "localidad_sat", "referencia",
+    ):
+        if _first_text(expanded.get(key)):
+            metadata[key] = expanded.get(key)
+    if metadata:
         expanded["metadata"] = metadata
     return expanded
 
@@ -969,15 +1010,22 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["tipo_licencia"] = _first_text(item.get("tipo_licencia"))
     elif catalogo == "vehiculos":
         vehicle_meta = _meta(item)
-        item["alias"] = _first_text(item.get("alias"), item.get("numero_economico"), item.get("placas"))
+        item["alias"] = _first_text(item.get("alias"), item.get("numero_economico"), item.get("unidad"), vehicle_meta.get("alias"), vehicle_meta.get("numero_economico"), vehicle_meta.get("unidad"), item.get("placas"))
+        item["numero_economico"] = _first_text(item.get("numero_economico"), item.get("unidad"), vehicle_meta.get("numero_economico"), vehicle_meta.get("unidad"), item["alias"])
         item["placas"] = _first_text(item.get("placas"), item.get("placa"))
-        item["modelo"] = _first_text(item.get("modelo"), item.get("marca_modelo"))
-        item["vin"] = _first_text(item.get("vin"), item.get("vin_niv"), item.get("niv"))
-        item["numero_motor"] = _first_text(item.get("numero_motor"), item.get("motor"), vehicle_meta.get("numero_motor"))
-        item["config_vehicular"] = _first_text(item.get("config_vehicular"), item.get("configuracion_vehicular"), "C2")
-        item["anio"] = item.get("anio") or item.get("anio_modelo")
-        item["aseguradora_rc"] = _first_text(item.get("aseguradora_rc"), item.get("aseguradora"), item.get("nombre_asegurador"))
-        item["poliza_rc"] = _first_text(item.get("poliza_rc"), item.get("poliza_seguro"))
+        item["modelo"] = _first_text(item.get("modelo"), item.get("marca_modelo"), vehicle_meta.get("modelo"))
+        item["vin"] = _first_text(item.get("vin"), item.get("vin_niv"), item.get("niv"), vehicle_meta.get("vin"), vehicle_meta.get("vin_niv"), vehicle_meta.get("niv"))
+        item["vin_niv"] = _first_text(item.get("vin_niv"), item.get("vin"), item.get("niv"), vehicle_meta.get("vin_niv"), vehicle_meta.get("vin"), vehicle_meta.get("niv"))
+        item["numero_motor"] = _first_text(item.get("numero_motor"), item.get("motor"), vehicle_meta.get("numero_motor"), vehicle_meta.get("motor"))
+        item["motor"] = _first_text(item.get("motor"), item.get("numero_motor"), vehicle_meta.get("motor"), vehicle_meta.get("numero_motor"))
+        item["config_vehicular"] = _first_text(item.get("config_vehicular"), item.get("configuracion_vehicular"), vehicle_meta.get("config_vehicular"), vehicle_meta.get("configuracion_vehicular"), "C2")
+        item["configuracion_vehicular"] = _first_text(item.get("configuracion_vehicular"), item["config_vehicular"])
+        item["anio"] = item.get("anio") or item.get("anio_modelo") or vehicle_meta.get("anio")
+        item["permiso_sct"] = _first_text(item.get("permiso_sct"), vehicle_meta.get("permiso_sct"))
+        item["num_permiso_sct"] = _first_text(item.get("num_permiso_sct"), vehicle_meta.get("num_permiso_sct"))
+        item["aseguradora_rc"] = _first_text(item.get("aseguradora_rc"), item.get("aseguradora"), item.get("nombre_asegurador"), vehicle_meta.get("aseguradora_rc"))
+        item["poliza_rc"] = _first_text(item.get("poliza_rc"), item.get("poliza_seguro"), vehicle_meta.get("poliza_rc"))
+        item["peso_bruto_vehicular"] = _num(item.get("peso_bruto_vehicular") or vehicle_meta.get("peso_bruto_vehicular"))
         for trailer_key in (
             "remolque_subtipo", "remolque_placas", "remolque_numero_economico",
             "remolque_aseguradora", "remolque_poliza", "remolque_peso_bruto",
@@ -996,33 +1044,35 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["factor_kg_l"] = _num(item.get("factor_kg_l") or item.get("densidad_kg_l"))
         item["tipo_producto"] = _first_text(item.get("tipo_producto"), _parse_json_value(item.get("metadata"), {}).get("tipo_producto"))
     elif catalogo == "origenes":
+        install_meta = _meta(item)
         item["nombre"] = _first_text(item.get("nombre"))
         item["rfc"] = _first_text(item.get("rfc"))
-        item["cp"] = _first_text(item.get("cp"), item.get("codigo_postal"))
-        item["direccion"] = _first_text(item.get("direccion"))
-        item["tipo"] = _first_text(item.get("tipo"), "terminal")
-        item["tipo_carta_porte"] = _first_text(item.get("tipo_carta_porte"), "Origen")
-        item["permiso_cre"] = _first_text(item.get("permiso_cre"))
-        item["clave_instalacion"] = _first_text(item.get("clave_instalacion"))
-        item["id_ubicacion_carta_porte"] = _first_text(item.get("id_ubicacion_carta_porte"), item.get("id_ubicacion"))
-        item["estado_sat"] = _first_text(item.get("estado_sat"))
-        item["municipio_sat"] = _first_text(item.get("municipio_sat"))
-        item["localidad_sat"] = _first_text(item.get("localidad_sat"))
-        item["referencia"] = _first_text(item.get("referencia"))
+        item["cp"] = _first_text(item.get("cp"), item.get("codigo_postal"), install_meta.get("cp"))
+        item["direccion"] = _first_text(item.get("direccion"), install_meta.get("direccion"))
+        item["tipo"] = _first_text(item.get("tipo"), install_meta.get("tipo"), "terminal")
+        item["tipo_carta_porte"] = _first_text(item.get("tipo_carta_porte"), install_meta.get("tipo_carta_porte"), "Origen")
+        item["permiso_cre"] = _first_text(item.get("permiso_cre"), install_meta.get("permiso_cre"))
+        item["clave_instalacion"] = _first_text(item.get("clave_instalacion"), install_meta.get("clave_instalacion"))
+        item["id_ubicacion_carta_porte"] = _first_text(item.get("id_ubicacion_carta_porte"), item.get("id_ubicacion"), install_meta.get("id_ubicacion_carta_porte"))
+        item["estado_sat"] = _first_text(item.get("estado_sat"), install_meta.get("estado_sat"))
+        item["municipio_sat"] = _first_text(item.get("municipio_sat"), install_meta.get("municipio_sat"))
+        item["localidad_sat"] = _first_text(item.get("localidad_sat"), install_meta.get("localidad_sat"))
+        item["referencia"] = _first_text(item.get("referencia"), install_meta.get("referencia"))
     elif catalogo == "destinos":
+        install_meta = _meta(item)
         item["nombre"] = _first_text(item.get("nombre"))
         item["rfc"] = _first_text(item.get("rfc"))
-        item["cp"] = _first_text(item.get("cp"), item.get("codigo_postal"))
-        item["direccion"] = _first_text(item.get("direccion"))
-        item["tipo"] = _first_text(item.get("tipo"), "cliente")
-        item["tipo_carta_porte"] = _first_text(item.get("tipo_carta_porte"), "Destino")
-        item["permiso_cre"] = _first_text(item.get("permiso_cre"))
-        item["clave_instalacion"] = _first_text(item.get("clave_instalacion"))
-        item["id_ubicacion_carta_porte"] = _first_text(item.get("id_ubicacion_carta_porte"), item.get("id_ubicacion"))
-        item["estado_sat"] = _first_text(item.get("estado_sat"))
-        item["municipio_sat"] = _first_text(item.get("municipio_sat"))
-        item["localidad_sat"] = _first_text(item.get("localidad_sat"))
-        item["referencia"] = _first_text(item.get("referencia"))
+        item["cp"] = _first_text(item.get("cp"), item.get("codigo_postal"), install_meta.get("cp"))
+        item["direccion"] = _first_text(item.get("direccion"), install_meta.get("direccion"))
+        item["tipo"] = _first_text(item.get("tipo"), install_meta.get("tipo"), "cliente")
+        item["tipo_carta_porte"] = _first_text(item.get("tipo_carta_porte"), install_meta.get("tipo_carta_porte"), "Destino")
+        item["permiso_cre"] = _first_text(item.get("permiso_cre"), install_meta.get("permiso_cre"))
+        item["clave_instalacion"] = _first_text(item.get("clave_instalacion"), install_meta.get("clave_instalacion"))
+        item["id_ubicacion_carta_porte"] = _first_text(item.get("id_ubicacion_carta_porte"), item.get("id_ubicacion"), install_meta.get("id_ubicacion_carta_porte"))
+        item["estado_sat"] = _first_text(item.get("estado_sat"), install_meta.get("estado_sat"))
+        item["municipio_sat"] = _first_text(item.get("municipio_sat"), install_meta.get("municipio_sat"))
+        item["localidad_sat"] = _first_text(item.get("localidad_sat"), install_meta.get("localidad_sat"))
+        item["referencia"] = _first_text(item.get("referencia"), install_meta.get("referencia"))
     elif catalogo == "rutas":
         item["nombre"] = _first_text(item.get("nombre"), f"{item.get('nombre_origen') or 'Origen'} -> {item.get('nombre_destino') or 'Destino'}")
         item["origen"] = _first_text(item.get("origen"), item.get("nombre_origen"))
@@ -1095,6 +1145,8 @@ def _create_catalog_item(
     row = _clean_payload(payload, config["allowed"], config.get("defaults") or {})
     if catalogo == "vehiculos":
         row = _expand_vehicle_aliases(row)
+    if catalogo in {"origenes", "destinos"}:
+        row = _expand_installation_metadata(row)
     if catalogo == "productos" and row.get("descripcion") and not row.get("nombre"):
         row["nombre"] = row["descripcion"]
     _ensure_required(row, config["required"], catalogo)
@@ -1138,6 +1190,8 @@ def _update_catalog_item(
     row = _clean_payload(payload, config["allowed"], {})
     if catalogo == "vehiculos":
         row = _expand_vehicle_aliases(row)
+    if catalogo in {"origenes", "destinos"}:
+        row = _expand_installation_metadata(row)
     if catalogo == "productos" and row.get("descripcion") and not row.get("nombre"):
         row["nombre"] = row["descripcion"]
     if not row:
@@ -1879,7 +1933,7 @@ def _build_carta_porte_preview(
         "ok": True,
         "ready_to_stamp": ready_to_stamp,
         "datos_completos_para_fase_3": ready_to_stamp,
-        "timbrado_habilitado": False,
+        "timbrado_habilitado": ready_to_stamp,
         "tipo_cfdi_sugerido": tipo,
         "preview": preview,
         "validaciones": validaciones,
@@ -1898,14 +1952,474 @@ def _build_carta_porte_preview(
     }
 
 
+def _stamp_sb() -> Any:
+    return get_supabase_admin()
+
+
+def _stamp_row(sb: Any, table: str, row_id: Any, uid: str, pid: Optional[int]) -> dict[str, Any]:
+    if not row_id:
+        return {}
+    q = sb.table(table).select("*").eq("id", row_id).eq("user_id", uid).limit(1)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    rows = q.execute().data or []
+    return rows[0] if rows else {}
+
+
+def _stamp_transportista_permiso(sb: Any, uid: str, pid: Optional[int], producto_text: str) -> dict[str, Any]:
+    try:
+        q = sb.table(TBL_PROVEEDORES).select("*").eq("user_id", uid).eq("activo", True)
+        if pid:
+            q = q.eq("perfil_id", pid)
+        rows = [_normalize_permiso_row(row) for row in (q.limit(200).execute().data or [])]
+    except Exception as exc:
+        logger.info("Permisos transportista no disponibles para timbrado Transporte v2: %s", exc)
+        return {}
+    product_norm = _normalize_producto_value(producto_text)
+    transportista_tipos = {"TRANSPORTISTA", "CLIENTE", "PERMISIONARIO", "RAZONSOCIAL", "RAZON_SOCIAL"}
+    candidates = [
+        row for row in rows
+        if _normalize_producto_value(row.get("tipo")) in transportista_tipos
+        and _normalize_permiso_value(row.get("permiso_cre"))
+    ]
+    exact = next((row for row in candidates if product_norm and _normalize_producto_value(row.get("producto")) == product_norm), None)
+    return exact or (candidates[0] if candidates else {})
+
+
+def _stamp_internal_product_keys(producto: dict[str, Any], raw: dict[str, Any]) -> tuple[str, str, str]:
+    text = " ".join(str(value or "") for value in [
+        producto.get("tipo_producto"), producto.get("descripcion"), producto.get("nombre"),
+        producto.get("clave_producto"), raw.get("clave_producto"), raw.get("descripcion"),
+    ]).upper()
+    sat_key = _first_text(producto.get("clave_producto"), raw.get("clave_prodserv_cfdi"), raw.get("clave_producto"))
+    sub = _first_text(producto.get("clave_subproducto"), raw.get("clave_subproducto"))
+    if str(sat_key).upper().startswith("PR"):
+        internal = str(sat_key).upper()
+    elif "151115" in text or "GAS L" in text or "GASLP" in text or "GAS LP" in text:
+        internal = "PR12"
+        sub = sub or "SP46"
+        sat_key = sat_key if str(sat_key).isdigit() else "15111510"
+    elif "15101515" in text or "PREMIUM" in text:
+        internal = "PR07"
+        sub = sub or "SP16"
+        sat_key = sat_key if str(sat_key).isdigit() else "15101515"
+    elif "15101514" in text or "MAGNA" in text or "REGULAR" in text:
+        internal = "PR06"
+        sub = sub or "SP1"
+        sat_key = sat_key if str(sat_key).isdigit() else "15101514"
+    elif "15101507" in text or "DIESEL" in text or "DIÉSEL" in text:
+        internal = "PR05"
+        sub = sub or "SP6"
+        sat_key = sat_key if str(sat_key).isdigit() else "15101507"
+    else:
+        internal = "PR12"
+        sub = sub or "SP46"
+        sat_key = sat_key if str(sat_key).isdigit() else "15111510"
+    return internal, sub, sat_key
+
+
+def _stamp_make_producto(viaje: dict[str, Any], producto: dict[str, Any], settings: dict[str, Any]) -> ProductoTransporte:
+    raw = _first_product(viaje)
+    volumen = _num(viaje.get("volumen_total_litros") or viaje.get("volumen_litros") or raw.get("cantidad_litros"))
+    peso = _num(viaje.get("peso_kg") or raw.get("peso_kg") or _meta(viaje).get("peso_kg"))
+    default_factor = _num((settings.get("perfil_fiscal") or {}).get("factor_kg_l_default")) or 0.75
+    densidad = round(peso / volumen, 6) if volumen > 0 and peso > 0 else default_factor
+    internal_key, sub_key, sat_key = _stamp_internal_product_keys(producto, raw)
+    importe = _num(
+        viaje.get("subtotal_flete")
+        or _meta(viaje).get("subtotal_flete")
+        or _meta(viaje).get("importe_flete")
+        or _meta(viaje).get("importe")
+    )
+    return ProductoTransporte(
+        producto_operacion_id=viaje.get("producto_operacion_id") or viaje.get("producto_id") or producto.get("id"),
+        clave_producto=internal_key,
+        clave_subproducto=sub_key,
+        volumen_litros=volumen,
+        valor_mercancia=_num(raw.get("valor_mercancia") or _meta(viaje).get("total") or 0),
+        importe=importe,
+        descripcion=_first_text(producto.get("descripcion"), raw.get("descripcion"), _meta(viaje).get("producto")),
+        clave_prodserv_cfdi=sat_key,
+        unidad=_first_text(producto.get("unidad"), raw.get("unidad"), "LTR"),
+        densidad_kg_l=densidad,
+        material_peligroso=producto.get("material_peligroso") is not False,
+        cve_material_peligroso=_first_text(producto.get("clave_material_peligroso"), raw.get("clave_material_peligroso")),
+        embalaje=_first_text(producto.get("embalaje"), raw.get("embalaje"), "Z01"),
+    )
+
+
+def _stamp_vehicle_payload(vehiculo: dict[str, Any]) -> dict[str, Any]:
+    meta = _meta(vehiculo)
+    remolques = []
+    subtipo = _first_text(vehiculo.get("remolque_subtipo"), meta.get("remolque_subtipo"))
+    placas = _first_text(vehiculo.get("remolque_placas"), meta.get("remolque_placas"))
+    if subtipo and placas:
+        remolques.append({"subtipo_rem": subtipo, "placas": placas})
+    subtipo2 = _first_text(vehiculo.get("remolque2_subtipo"), meta.get("remolque2_subtipo"))
+    placas2 = _first_text(vehiculo.get("remolque2_placas"), meta.get("remolque2_placas"))
+    if subtipo2 and placas2:
+        remolques.append({"subtipo_rem": subtipo2, "placas": placas2})
+    seguros = []
+    if _first_text(vehiculo.get("aseguradora_rc"), vehiculo.get("aseguradora")) and _first_text(vehiculo.get("poliza_rc"), vehiculo.get("poliza_seguro")):
+        seguros.append({
+            "tipo": "responsabilidad civil",
+            "aseguradora": _first_text(vehiculo.get("aseguradora_rc"), vehiculo.get("aseguradora")),
+            "poliza": _first_text(vehiculo.get("poliza_rc"), vehiculo.get("poliza_seguro")),
+        })
+    if _first_text(vehiculo.get("aseguradora_medio_ambiente")) and _first_text(vehiculo.get("poliza_medio_ambiente")):
+        seguros.append({
+            "tipo": "medio ambiente",
+            "aseguradora": vehiculo.get("aseguradora_medio_ambiente"),
+            "poliza": vehiculo.get("poliza_medio_ambiente"),
+        })
+    return {
+        **vehiculo,
+        "config_vehicular": _first_text(vehiculo.get("config_vehicular"), vehiculo.get("configuracion_vehicular"), "C2"),
+        "aseguradora": _first_text(vehiculo.get("aseguradora_rc"), vehiculo.get("aseguradora")),
+        "poliza_seguro": _first_text(vehiculo.get("poliza_rc"), vehiculo.get("poliza_seguro")),
+        "num_permiso_sct": _first_text(vehiculo.get("num_permiso_sct"), vehiculo.get("numero_permiso_sct"), vehiculo.get("num_permiso")),
+        "remolques": remolques,
+        "seguros_operacion": seguros,
+    }
+
+
+def _stamp_build_context(
+    *,
+    uid: str,
+    pid: Optional[int],
+    viaje_id: int,
+    actor: str,
+    operador_id: Optional[int] = None,
+) -> dict[str, Any]:
+    sb = _stamp_sb()
+    rows = (
+        sb.table(TBL_VIAJES)
+        .select("*")
+        .eq("id", viaje_id)
+        .eq("user_id", uid)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, "Movimiento no encontrado para timbrar Carta Porte.")
+    viaje_row = rows[0]
+    if pid and int(viaje_row.get("perfil_id") or 0) != int(pid):
+        raise HTTPException(403, "El movimiento no pertenece a la empresa activa.")
+    pid = _profile_id(viaje_row.get("perfil_id") or pid)
+    if operador_id and int(viaje_row.get("chofer_id") or 0) != int(operador_id):
+        raise HTTPException(403, "El operador solo puede timbrar su viaje asignado.")
+    if _first_text(viaje_row.get("uuid_cfdi"), _meta(viaje_row).get("uuid_carta_porte")) or str(viaje_row.get("status") or "").lower() == "timbrado":
+        raise HTTPException(409, "Carta Porte ya timbrada")
+    existing = (
+        sb.table(TBL_CFDI)
+        .select("id,uuid_sat,status")
+        .eq("user_id", uid)
+        .eq("viaje_id", viaje_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if any(_first_text(row.get("uuid_sat")) and str(row.get("status") or "").lower() != "cancelada" for row in existing):
+        raise HTTPException(409, "Carta Porte ya timbrada")
+
+    cliente = _normalize_catalog_row("clientes", _stamp_row(sb, TBL_CLIENTES, _meta(viaje_row).get("cliente_id"), uid, pid))
+    operador = _normalize_catalog_row("operadores", _stamp_row(sb, TBL_OPERADORES, viaje_row.get("chofer_id"), uid, pid))
+    vehiculo = _normalize_catalog_row("vehiculos", _stamp_row(sb, TBL_VEHICULOS, viaje_row.get("vehiculo_id"), uid, pid))
+    producto = _normalize_catalog_row("productos", _stamp_row(sb, TBL_PRODUCTOS, viaje_row.get("producto_operacion_id"), uid, pid))
+    ruta = _normalize_catalog_row("rutas", _stamp_row(sb, TBL_RUTAS, viaje_row.get("ruta_id"), uid, pid))
+    settings = _load_settings("", uid, pid) if False else _deep_merge(_settings_defaults(), {})
+    try:
+        rows_settings = (
+            sb.table(TBL_SETTINGS)
+            .select("*")
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if rows_settings:
+            data = _parse_json_value(rows_settings[0].get("data"), {})
+            settings = _deep_merge(_settings_defaults(), data if isinstance(data, dict) else {})
+    except Exception as exc:
+        raise HTTPException(409, f"No se pudo cargar configuración fiscal Transporte: {exc}") from exc
+
+    normalized_viaje = _normalize_viaje_row(viaje_row)
+    preview = _build_carta_porte_preview(normalized_viaje, cliente, operador, vehiculo, producto, ruta, "I")
+    errors = [item for item in preview.get("validaciones", []) if item.get("nivel") == "error"]
+    fiscal = settings.get("perfil_fiscal") or {}
+    emisor = {
+        "rfc": _first_text(fiscal.get("rfc_contribuyente")),
+        "nombre": _first_text(fiscal.get("nombre_fiscal")),
+        "regimen_fiscal": _first_text(fiscal.get("regimen_fiscal")),
+        "domicilio_fiscal": _first_text(fiscal.get("cp_fiscal")),
+        "num_permiso_cne": "",
+    }
+    for field, label in [
+        ("rfc", "RFC emisor Transporte"),
+        ("nombre", "Nombre fiscal emisor Transporte"),
+        ("regimen_fiscal", "Régimen fiscal emisor"),
+        ("domicilio_fiscal", "CP/lugar de expedición emisor"),
+    ]:
+        if not emisor[field]:
+            errors.append({"nivel": "error", "campo": f"emisor.{field}", "mensaje": f"Falta {label} en Administración > Configuración."})
+
+    product_text = _first_text(producto.get("tipo_producto"), producto.get("descripcion"), _meta(viaje_row).get("producto"))
+    permiso_transportista = _stamp_transportista_permiso(sb, uid, pid, product_text)
+    emisor["num_permiso_cne"] = _first_text(viaje_row.get("num_permiso_cne"), permiso_transportista.get("permiso_cre"))
+    if not emisor["num_permiso_cne"]:
+        errors.append({"nivel": "error", "campo": "emisor.permiso_transportista", "mensaje": "Falta permiso CRE transportista para el producto en Administración."})
+
+    producto_obj: Optional[ProductoTransporte] = None
+    try:
+        producto_obj = _stamp_make_producto(viaje_row, producto, settings)
+        if producto_obj.importe <= 0:
+            errors.append({"nivel": "error", "campo": "flete.importe", "mensaje": "Falta importe/subtotal de flete mayor a cero para CFDI de Ingreso."})
+    except Exception as exc:
+        errors.append({"nivel": "error", "campo": "mercancia", "mensaje": f"Mercancía inválida para timbrar: {exc}"})
+
+    if errors:
+        raise HTTPException(400, {
+            "ok": False,
+            "message": "Faltan datos obligatorios para timbrar Carta Porte.",
+            "errors": errors,
+            "validaciones": preview.get("validaciones", []),
+        })
+    assert producto_obj is not None
+    receptor_rfc = _first_text(viaje_row.get("rfc_receptor"), cliente.get("rfc"))
+    receptor_nombre = _first_text(viaje_row.get("nombre_receptor"), cliente.get("nombre"))
+    receptor_cp = _first_text(viaje_row.get("cp_receptor"), cliente.get("cp"))
+    receptor_regimen = _first_text(viaje_row.get("regimen_fiscal_receptor"), cliente.get("regimen_fiscal"))
+    viaje_obj = ViajeCreate(
+        perfil_id=pid,
+        chofer_id=int(viaje_row.get("chofer_id")),
+        vehiculo_id=int(viaje_row.get("vehiculo_id")),
+        ruta_id=viaje_row.get("ruta_id"),
+        origen_id=viaje_row.get("origen_id"),
+        destino_id=viaje_row.get("destino_id"),
+        producto_operacion_id=viaje_row.get("producto_operacion_id"),
+        cp_origen=_first_text(viaje_row.get("cp_origen"), ruta.get("cp_origen")),
+        nombre_origen=_first_text(viaje_row.get("nombre_origen"), ruta.get("nombre_origen"), ruta.get("origen")),
+        cp_destino=_first_text(viaje_row.get("cp_destino"), ruta.get("cp_destino")),
+        nombre_destino=_first_text(viaje_row.get("nombre_destino"), ruta.get("nombre_destino"), ruta.get("destino")),
+        fecha_hora_salida=_first_text(viaje_row.get("fecha_hora_salida"), normalized_viaje.get("fecha_salida")),
+        fecha_hora_llegada=_first_text(viaje_row.get("fecha_hora_llegada"), normalized_viaje.get("fecha_llegada_estimada")),
+        productos=[producto_obj],
+        tipo_cfdi="I",
+        rfc_receptor=receptor_rfc,
+        nombre_receptor=receptor_nombre,
+        cp_receptor=receptor_cp,
+        regimen_fiscal_receptor=receptor_regimen,
+        uso_cfdi=_first_text(viaje_row.get("uso_cfdi"), cliente.get("uso_cfdi"), "G03"),
+        num_permiso_cne=emisor["num_permiso_cne"],
+        distancia_km=_num(viaje_row.get("distancia_km") or ruta.get("distancia_km")) or 1.0,
+        duracion_estimada_min=int(_num(viaje_row.get("duracion_estimada_min") or ruta.get("duracion_estimada_min"))),
+    )
+    return {
+        "sb": sb,
+        "uid": uid,
+        "pid": pid,
+        "viaje_row": viaje_row,
+        "viaje_obj": viaje_obj,
+        "emisor": emisor,
+        "operador": {
+            "nombre": operador.get("nombre"),
+            "rfc": _first_text(operador.get("rfc_figura"), operador.get("rfc")),
+            "licencia": operador.get("licencia"),
+        },
+        "vehiculo": _stamp_vehicle_payload(vehiculo),
+        "productos": [producto_obj],
+        "producto_dicts": [producto_obj.model_dump()],
+        "actor": actor,
+        "operador_actor_id": operador_id,
+    }
+
+
+def _stamp_update_viaje(sb: Any, uid: str, pid: Optional[int], viaje_id: int, payload: dict[str, Any]) -> None:
+    attempts = [dict(payload), {k: v for k, v in payload.items() if k != "updated_at"}]
+    last_error: Exception | None = None
+    for attempt in attempts:
+        try:
+            q = sb.table(TBL_VIAJES).update(attempt).eq("id", viaje_id).eq("user_id", uid)
+            if pid:
+                q = q.eq("perfil_id", pid)
+            q.execute()
+            return
+        except Exception as exc:
+            last_error = exc
+            if "updated_at" not in str(exc).lower():
+                raise
+    if last_error:
+        raise last_error
+
+
+def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
+    sb = context["sb"]
+    uid = context["uid"]
+    pid = context["pid"]
+    viaje_row = context["viaje_row"]
+    viaje_id = int(viaje_row.get("id"))
+    try:
+        cfdi_dict, id_ccp = build_cfdi_transporte(
+            context["viaje_obj"],
+            context["emisor"],
+            context["operador"],
+            context["vehiculo"],
+        )
+        cfdi_dict["MetodoPago"] = "PUE"
+        cfdi_dict["FormaPago"] = "99"
+    except Exception as exc:
+        raise HTTPException(400, f"Error al construir CFDI Carta Porte: {exc}") from exc
+
+    try:
+        resultado_sw = emitir_timbrar_json(cfdi_dict)
+    except Exception as exc:
+        error_payload = {"message": str(exc), "type": type(exc).__name__, "fecha": _now_iso()}
+        _audit(uid, "", pid, TBL_VIAJES, viaje_id, "timbrado_sw_exception", error_payload)
+        raise HTTPException(502, f"SW Sapiens no respondió correctamente: {exc}") from exc
+
+    if not resultado_sw.get("ok"):
+        error_payload = {
+            "message": resultado_sw.get("error") or "SW Sapiens rechazó la Carta Porte.",
+            "raw": resultado_sw,
+            "fecha": _now_iso(),
+        }
+        try:
+            metadata = _meta(viaje_row)
+            metadata["ultimo_error_timbrado"] = error_payload
+            _stamp_update_viaje(sb, uid, pid, viaje_id, {"defaults_json": metadata, "carta_porte_status": "error", "updated_at": _now_iso()})
+        except Exception as exc:
+            logger.warning("No se pudo guardar error de timbrado Transporte v2 viaje=%s: %s", viaje_id, exc)
+        _audit(uid, "", pid, TBL_VIAJES, viaje_id, "timbrado_sw_error", error_payload)
+        raise HTTPException(400, {
+            "ok": False,
+            "message": "SW Sapiens rechazó la Carta Porte.",
+            "error": error_payload["message"],
+            "raw": resultado_sw,
+        })
+
+    data = resultado_sw.get("data") or {}
+    uuid_sat = _first_text(data.get("uuid"))
+    xml_timbrado = _first_text(data.get("cfdi"))
+    pdf_url = _first_text(data.get("pdfUrl"), data.get("pdf_url"))
+    now_iso = _now_iso()
+    validacion = validar_xml_carta_porte_transporte(xml_timbrado, context["producto_dicts"]) if xml_timbrado else None
+    carta_ok = bool(validacion and validacion.ok)
+    cfdi_row = {
+        "user_id": uid,
+        "perfil_id": pid,
+        "viaje_id": viaje_id,
+        "tipo_cfdi": "I",
+        "uuid_sat": uuid_sat,
+        "id_ccp": id_ccp,
+        "xml_content": xml_timbrado,
+        "pdf_url": pdf_url,
+        "status": "Vigente" if carta_ok else "ErrorValidacion",
+        "fecha_timbrado": now_iso,
+        "rfc_receptor": context["viaje_obj"].rfc_receptor,
+        "volumen_total": float(viaje_row.get("volumen_total_litros") or context["viaje_obj"].volumen_total_litros or 0),
+        "importe_total": round(sum(p.importe for p in context["productos"]), 2),
+        "num_permiso_cne": context["viaje_obj"].num_permiso_cne,
+        "created_at": now_iso,
+    }
+    cfdi_saved = {}
+    try:
+        inserted = sb.table(TBL_CFDI).insert(cfdi_row).execute()
+        cfdi_saved = (inserted.data or [{}])[0]
+    except Exception as exc:
+        logger.exception("Carta Porte Transporte v2 timbrada pero no se pudo guardar tr_cfdi viaje=%s", viaje_id)
+        return {
+            "ok": True,
+            "warning": f"CFDI timbrado pero no se pudo guardar en tr_cfdi: {exc}",
+            "viaje_id": viaje_id,
+            "uuid_sat": uuid_sat,
+            "id_ccp": id_ccp,
+            "pdf_url": pdf_url,
+            "xml_url": f"/api/tr-v2/carta-porte/{viaje_id}/xml",
+            "fecha_timbrado": now_iso,
+        }
+    try:
+        if xml_timbrado:
+            version_xml(
+                module="transporte_v2",
+                entity_type="carta_porte",
+                entity_id=cfdi_saved.get("id"),
+                uuid_sat=uuid_sat,
+                xml_content=xml_timbrado,
+                user_id=uid,
+                perfil_id=pid,
+                source="sw_sapien",
+            )
+    except Exception as exc:
+        logger.info("Versionado XML Transporte v2 omitido cfdi=%s: %s", cfdi_saved.get("id"), exc)
+
+    metadata = _meta(viaje_row)
+    metadata.update({
+        "uuid_carta_porte": uuid_sat,
+        "id_ccp": id_ccp,
+        "fecha_timbrado": now_iso,
+        "cfdi_id": cfdi_saved.get("id"),
+        "actor_timbrado": context.get("actor"),
+        "operador_actor_id": context.get("operador_actor_id"),
+        "validacion_carta_porte": {
+            "ok": carta_ok,
+            "errors": validacion.errors if validacion else ["XML vacío o inválido"],
+            "warnings": validacion.warnings if validacion else [],
+            "metadata": validacion.metadata if validacion else {},
+        },
+    })
+    update = {
+        "uuid_cfdi": uuid_sat,
+        "id_ccp": id_ccp,
+        "status": "timbrado" if carta_ok else "error",
+        "carta_porte_status": "timbrado" if carta_ok else "error",
+        "defaults_json": metadata,
+        "updated_at": now_iso,
+    }
+    _stamp_update_viaje(sb, uid, pid, viaje_id, update)
+    _audit(uid, "", pid, TBL_VIAJES, viaje_id, "carta_porte_timbrada", {
+        "viaje_id": viaje_id,
+        "uuid_cfdi": uuid_sat,
+        "id_ccp": id_ccp,
+        "fecha_timbrado": now_iso,
+        "usuario": uid,
+        "operador": context.get("operador_actor_id"),
+        "cfdi_id": cfdi_saved.get("id"),
+        "xml_valido_carta_porte": carta_ok,
+    })
+    return {
+        "ok": True,
+        "viaje_id": viaje_id,
+        "cfdi_id": cfdi_saved.get("id"),
+        "uuid_sat": uuid_sat,
+        "uuid_cfdi": uuid_sat,
+        "id_ccp": id_ccp,
+        "pdf_url": pdf_url,
+        "xml_url": f"/api/tr-v2/carta-porte/{viaje_id}/xml",
+        "status": "Vigente" if carta_ok else "ErrorValidacion",
+        "fecha_timbrado": now_iso,
+        "validacion_carta_porte": {
+            "ok": carta_ok,
+            "errors": validacion.errors if validacion else ["XML vacío o inválido"],
+            "warnings": validacion.warnings if validacion else [],
+            "metadata": validacion.metadata if validacion else {},
+        },
+        "warning": None if carta_ok else "CFDI timbrado, pero XML no validó como Carta Porte de carretera.",
+    }
+
+
 @router.get("/tr-v2/health")
 async def transporte_v2_health():
     return {
         "ok": True,
         "module": "transporte_v2",
         "phase": "fase_2_preview_carta_porte",
-        "pac_enabled": False,
-        "timbrado_enabled": False,
+        "pac_enabled": True,
+        "timbrado_enabled": True,
         "json_sat_enabled": False,
     }
 
@@ -2531,11 +3045,11 @@ async def transporte_v2_carta_porte_health():
     return {
         "ok": True,
         "module": "transporte_v2_carta_porte",
-        "phase": "fase_2_preview",
+        "phase": "timbrado_sw_sapiens",
         "preview_enabled": True,
-        "pac_enabled": False,
-        "timbrado_enabled": False,
-        "xml_timbrado_enabled": False,
+        "pac_enabled": True,
+        "timbrado_enabled": True,
+        "xml_timbrado_enabled": True,
     }
 
 
@@ -2606,6 +3120,57 @@ async def transporte_v2_carta_porte_validar(
         "validaciones": result["validaciones"],
         "resumen": result["resumen"],
     }
+
+
+@router.post("/tr-v2/carta-porte/timbrar")
+async def transporte_v2_carta_porte_timbrar(
+    payload: TransporteV2CartaPorteTimbrarRequest,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    context = _stamp_build_context(uid=uid, pid=pid, viaje_id=payload.viaje_id, actor="admin")
+    return _stamp_carta_porte_context(context)
+
+
+@router.get("/tr-v2/carta-porte/{viaje_id}/xml")
+async def transporte_v2_carta_porte_xml(
+    viaje_id: int,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(None, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    rows = q.order("fecha_timbrado", desc=True).limit(1).execute().data or []
+    if not rows or not rows[0].get("xml_content"):
+        raise HTTPException(404, "XML Carta Porte no encontrado.")
+    filename = f"carta_porte_{rows[0].get('uuid_sat') or viaje_id}.xml"
+    return Response(
+        content=rows[0]["xml_content"],
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/tr-v2/operator/carta-porte/timbrar")
+async def transporte_v2_operator_carta_porte_timbrar(authorization: str = Header(default="")):
+    token_plain = _operator_token_from_header(authorization)
+    sb, acc = _operator_context(token_plain)
+    trip = _operator_assigned_trip(sb, acc)
+    context = _stamp_build_context(
+        uid=acc.get("user_id"),
+        pid=_profile_id(acc.get("perfil_id")),
+        viaje_id=int(trip.get("id")),
+        actor="operador",
+        operador_id=int(acc.get("chofer_id") or 0),
+    )
+    return _stamp_carta_porte_context(context)
 
 
 @router.post("/tr-v2/documentos/upload")
