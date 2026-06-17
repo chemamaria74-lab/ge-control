@@ -131,9 +131,8 @@
     <div class="trv2-section-head">
       <div>
         <h1>Carta Porte</h1>
-        <p>Sube la factura del cliente, completa faltantes y genera el preview.</p>
+        <p>Sube la factura del cliente, completa datos operativos y timbra la Carta Porte.</p>
       </div>
-      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2PreviewSelectedTrip()"><i class="fa-solid fa-eye"></i> Preview seleccionado</button>
     </div>
     <section class="trv2-panel">
       <div class="trv2-table-head">
@@ -174,7 +173,8 @@
         <label>Tipo CFDI <select id="trv2-cp-tipo"><option value="">Sugerir automáticamente</option><option value="I">Ingreso - servicio de transporte</option><option value="T">Traslado - acreditar traslado</option></select></label>
       </div>
       <div class="trv2-form-actions trv2-form-actions-inline">
-        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2PreviewSelectedTrip()"><i class="fa-solid fa-eye"></i> Preview Carta Porte</button>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2StartCartaPorteStamp()"><i class="fa-solid fa-stamp"></i> Timbrar Carta Porte</button>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2DeleteDraftTrip()"><i class="fa-solid fa-trash"></i> Eliminar pendiente</button>
       </div>
     </section>
     <section class="trv2-panel" id="trv2-cp-preview-panel">
@@ -335,7 +335,7 @@
       <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">JSON SAT Transporte pendiente. Esta vista solo prepara el corte mensual por permiso.</div>
       <div class="trv2-table-wrap">
         <table>
-          <thead><tr><th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Producto</th><th>Volumen L</th><th>Vehículo</th><th>Origen</th><th>Destino</th><th>UUID Carta Porte</th><th>Estatus JSON</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Producto</th><th>Volumen L</th><th>Vehículo</th><th>Origen</th><th>Destino</th><th>UUID Carta Porte</th><th>Estatus JSON</th><th>Acciones</th></tr></thead>
           <tbody id="trv2-cv-table"></tbody>
         </table>
       </div>
@@ -428,17 +428,17 @@
         <div class="trv2-table-head">
           <div>
             <h2><i class="fa-solid fa-id-badge"></i> Permisos / RFC</h2>
-            <p class="trv2-muted">Catálogo Transporte para cruzar RFC, producto y permiso detectado en facturas.</p>
+            <p class="trv2-muted">Separa permisos transportista/cliente de permisos proveedor detectados en facturas.</p>
           </div>
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadPermisosRfc()">Actualizar</button>
         </div>
         <form class="trv2-form trv2-form-admin" id="trv2-permiso-form" onsubmit="trv2SavePermisoRfc(event)">
           <input type="hidden" id="trv2-permiso-id">
-          <label>Tipo * <select id="trv2-permiso-tipo" required><option>Proveedor</option><option>Cliente</option><option>Terminal</option><option>Permisionario</option></select></label>
+          <label>Tipo * <select id="trv2-permiso-tipo" required><option>Proveedor</option><option>Cliente</option><option>Transportista</option><option>Terminal</option><option>Permisionario</option></select></label>
           <label>RFC * <input id="trv2-permiso-rfc" data-rfc-field required></label>
           <label>Nombre * <input id="trv2-permiso-nombre" required></label>
           <label>Producto * <select id="trv2-permiso-producto" required><option value="">Seleccionar</option><option>Gas LP</option><option>Magna</option><option>Premium</option><option>Diésel</option></select></label>
-          <label>Permiso CRE * <input id="trv2-permiso-cre" required></label>
+          <label>Permiso CRE / permiso transportista o proveedor * <input id="trv2-permiso-cre" required></label>
           <label>Permiso almacenamiento terminal <input id="trv2-permiso-alm"></label>
           <label>Origen default <select id="trv2-permiso-origen"></select></label>
           <label>Producto default <select id="trv2-permiso-producto-default"></select></label>
