@@ -13,12 +13,13 @@ import re
 import secrets
 import hashlib
 import zlib
+import base64
 from xml.etree import ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query, UploadFile, File, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from routes.auth import require_profile_access, verify_token
@@ -39,6 +40,7 @@ TBL_PRODUCTOS = "tr_productos_operacion"
 TBL_RUTAS = "tr_rutas"
 TBL_ORIGENES = "tr_origenes"
 TBL_DESTINOS = "tr_destinos"
+TBL_REMOLQUES = "tr_remolques"
 TBL_PROVEEDORES = "tr_proveedores_operacion"
 TBL_SETTINGS = "tr_settings"
 TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
@@ -109,6 +111,15 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
             "cp_destino", "distancia_km", "duracion_estimada_min", "origen_id", "destino_id", "activo",
         ],
         "defaults": {"activo": True, "distancia_km": 0},
+    },
+    "remolques": {
+        "table": TBL_REMOLQUES,
+        "required": ["placas", "subtipo_remolque"],
+        "allowed": [
+            "alias", "numero_economico", "placas", "subtipo_remolque", "permiso",
+            "aseguradora", "poliza", "peso_bruto", "activo", "metadata",
+        ],
+        "defaults": {"activo": True},
     },
 }
 
@@ -651,6 +662,93 @@ def _operator_context(token_plain: str, usuario: str = "") -> tuple[Any, dict[st
     return sb, acc
 
 
+def _operator_assigned_trip(sb: Any, acc: dict[str, Any]) -> dict[str, Any]:
+    rows = (
+        sb.table(TBL_VIAJES)
+        .select("*")
+        .eq("user_id", acc.get("user_id"))
+        .eq("perfil_id", acc.get("perfil_id"))
+        .eq("chofer_id", acc.get("chofer_id"))
+        .order("fecha_hora_salida")
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, "Sin viaje asignado.")
+    return rows[0]
+
+
+def _update_operator_trip_metadata(sb: Any, trip: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
+    payloads = [
+        {"metadata": metadata, "updated_at": _now_iso()},
+        {"metadata": metadata},
+    ]
+    updated: list[dict[str, Any]] = []
+    last_error: Exception | None = None
+    for payload in payloads:
+        try:
+            updated = (
+                sb.table(TBL_VIAJES)
+                .update(payload)
+                .eq("id", trip.get("id"))
+                .eq("user_id", trip.get("user_id"))
+                .execute()
+                .data
+                or []
+            )
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            if "updated_at" not in str(exc).lower():
+                raise
+    if last_error:
+        raise last_error
+    return updated[0] if updated else {**trip, "metadata": metadata}
+
+
+def _pdf_escape(value: Any) -> str:
+    text = str(value or "")
+    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _simple_pdf_bytes(title: str, lines: list[str]) -> bytes:
+    y = 760
+    stream_lines = ["BT", "/F1 14 Tf", f"50 {y} Td", f"({_pdf_escape(title)}) Tj"]
+    y_step = 16
+    stream_lines.append("/F1 10 Tf")
+    for line in lines[:42]:
+        stream_lines.append(f"0 -{y_step} Td")
+        stream_lines.append(f"({_pdf_escape(line)}) Tj")
+    stream_lines.append("ET")
+    stream = "\n".join(stream_lines).encode("latin-1", "replace")
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream",
+    ]
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(len(pdf))
+        pdf.extend(f"{index} 0 obj\n".encode("ascii"))
+        pdf.extend(obj)
+        pdf.extend(b"\nendobj\n")
+    xref_at = len(pdf)
+    pdf.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(pdf)
+
+
 def _is_missing_table_error(exc: Exception) -> bool:
     text = str(exc).lower()
     return (
@@ -933,6 +1031,14 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["cp_destino"] = _first_text(item.get("cp_destino"))
         item["distancia_km"] = _num(item.get("distancia_km"))
         item["duracion_estimada_min"] = int(_num(item.get("duracion_estimada_min")) or 0)
+    elif catalogo == "remolques":
+        item["alias"] = _first_text(item.get("alias"), item.get("numero_economico"), item.get("placas"))
+        item["placas"] = _first_text(item.get("placas"), item.get("placa"))
+        item["subtipo_remolque"] = _first_text(item.get("subtipo_remolque"), item.get("subtipo"))
+        item["permiso"] = _first_text(item.get("permiso"))
+        item["aseguradora"] = _first_text(item.get("aseguradora"), item.get("aseguradora_rc"))
+        item["poliza"] = _first_text(item.get("poliza"), item.get("poliza_rc"))
+        item["peso_bruto"] = _num(item.get("peso_bruto"))
     item["source_table"] = CATALOG_CONFIG.get(catalogo, {}).get("table")
     return item
 
@@ -2051,22 +2157,116 @@ async def transporte_v2_operator_mi_viaje(authorization: str = Header(default=""
     token_plain = _operator_token_from_header(authorization)
     sb, acc = _operator_context(token_plain)
     try:
-        rows = (
-            sb.table(TBL_VIAJES)
-            .select("*")
-            .eq("user_id", acc.get("user_id"))
-            .eq("perfil_id", acc.get("perfil_id"))
-            .eq("chofer_id", acc.get("chofer_id"))
-            .order("fecha_hora_salida")
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-    except Exception:
-        rows = []
-    viaje = rows[0] if rows else None
-    return {"ok": True, "viaje": viaje, "has_trip": bool(viaje)}
+        viaje = _operator_assigned_trip(sb, acc)
+    except HTTPException:
+        return {"ok": True, "viaje": None, "has_trip": False}
+    meta = _meta(viaje)
+    return {"ok": True, "viaje": _normalize_viaje_row(viaje), "metadata": meta, "has_trip": True}
+
+
+@router.post("/tr-v2/operator/factura")
+async def transporte_v2_operator_factura(
+    file: UploadFile = File(...),
+    authorization: str = Header(default=""),
+):
+    token_plain = _operator_token_from_header(authorization)
+    sb, acc = _operator_context(token_plain)
+    trip = _operator_assigned_trip(sb, acc)
+    filename = file.filename or "factura"
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if extension not in {"pdf", "xml"}:
+        raise HTTPException(400, "Solo se aceptan archivos PDF o XML.")
+    content = await file.read()
+    if len(content) > 2_500_000:
+        raise HTTPException(400, "La factura excede el tamaño permitido de 2.5 MB.")
+    metadata = _meta(trip)
+    metadata["factura_operador"] = {
+        "nombre": filename,
+        "content_type": file.content_type or ("application/xml" if extension == "xml" else "application/pdf"),
+        "size_bytes": len(content),
+        "uploaded_at": _now_iso(),
+        "uploaded_by": acc.get("chofer_id"),
+        "data_url": f"data:{file.content_type or 'application/octet-stream'};base64,{base64.b64encode(content).decode('ascii')}",
+    }
+    updated = _update_operator_trip_metadata(sb, trip, metadata)
+    return {"ok": True, "factura": metadata["factura_operador"], "viaje": _normalize_viaje_row(updated)}
+
+
+@router.post("/tr-v2/operator/factura/eliminar")
+async def transporte_v2_operator_factura_eliminar(authorization: str = Header(default="")):
+    token_plain = _operator_token_from_header(authorization)
+    sb, acc = _operator_context(token_plain)
+    trip = _operator_assigned_trip(sb, acc)
+    metadata = _meta(trip)
+    metadata.pop("factura_operador", None)
+    updated = _update_operator_trip_metadata(sb, trip, metadata)
+    return {"ok": True, "viaje": _normalize_viaje_row(updated)}
+
+
+@router.post("/tr-v2/operator/bitacora")
+async def transporte_v2_operator_bitacora(payload: dict[str, Any], authorization: str = Header(default="")):
+    token_plain = _operator_token_from_header(authorization)
+    sb, acc = _operator_context(token_plain)
+    trip = _operator_assigned_trip(sb, acc)
+    action = _first_text(payload.get("action")).upper()
+    allowed = {"INICIAR", "DESCANSO", "REANUDAR", "INCIDENCIA", "FINALIZAR"}
+    if action not in allowed:
+        raise HTTPException(400, "Acción de bitácora inválida.")
+    metadata = _meta(trip)
+    bitacora = metadata.get("bitacora_operador") if isinstance(metadata.get("bitacora_operador"), dict) else {}
+    current = _first_text(bitacora.get("estado"), "SIN_INICIAR")
+    transitions = {
+        "INICIAR": ("SIN_INICIAR", "EN_CURSO"),
+        "DESCANSO": ("EN_CURSO", "DESCANSO"),
+        "REANUDAR": ("DESCANSO", "EN_CURSO"),
+        "FINALIZAR": ("EN_CURSO", "FINALIZADO"),
+    }
+    if action in transitions:
+        required, new_state = transitions[action]
+        if current != required:
+            raise HTTPException(409, f"No se puede ejecutar {action} desde estado {current}.")
+        bitacora["estado"] = new_state
+    elif action == "INCIDENCIA":
+        bitacora["estado"] = current
+    events = bitacora.get("eventos") if isinstance(bitacora.get("eventos"), list) else []
+    events.append({
+        "accion": action,
+        "estado": bitacora.get("estado", current),
+        "nota": _first_text(payload.get("nota")),
+        "created_at": _now_iso(),
+        "operador_id": acc.get("chofer_id"),
+    })
+    bitacora["eventos"] = events
+    metadata["bitacora_operador"] = bitacora
+    updated = _update_operator_trip_metadata(sb, trip, metadata)
+    return {"ok": True, "bitacora": bitacora, "viaje": _normalize_viaje_row(updated)}
+
+
+@router.get("/tr-v2/operator/bitacora.pdf")
+async def transporte_v2_operator_bitacora_pdf(authorization: str = Header(default="")):
+    token_plain = _operator_token_from_header(authorization)
+    sb, acc = _operator_context(token_plain)
+    trip = _operator_assigned_trip(sb, acc)
+    meta = _meta(trip)
+    bitacora = meta.get("bitacora_operador") if isinstance(meta.get("bitacora_operador"), dict) else {}
+    lines = [
+        "GE Control - Bitacora Transporte",
+        f"Viaje: #{trip.get('id')}",
+        f"Operador: {(acc.get('chofer') or {}).get('nombre') or ''}",
+        f"Origen: {_first_text(trip.get('origen'), trip.get('nombre_origen'), meta.get('origen_sugerido'))}",
+        f"Destino: {_first_text(trip.get('destino'), trip.get('nombre_destino'), meta.get('destino_sugerido'))}",
+        f"Estado bitacora: {_first_text(bitacora.get('estado'), 'SIN_INICIAR')}",
+        "",
+        "Historial:",
+    ]
+    for event in bitacora.get("eventos", []):
+        lines.append(f"- {event.get('created_at')} {event.get('accion')} {event.get('nota') or ''}".strip())
+    content = _simple_pdf_bytes("Bitacora Transporte", lines)
+    return Response(
+        content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=bitacora-viaje-{trip.get('id')}.pdf"},
+    )
 
 
 @router.get("/tr-v2/dashboard")
@@ -2635,6 +2835,30 @@ async def transporte_v2_crear_vehiculo(
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     return _create_catalog_item(token, uid, pid, "vehiculos", payload.data)
+
+
+@router.get("/tr-v2/catalogos/remolques")
+async def transporte_v2_catalogo_remolques(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return _select_catalog(token, uid, "remolques", pid)
+
+
+@router.post("/tr-v2/catalogos/remolques")
+async def transporte_v2_crear_remolque(
+    payload: TransporteV2CatalogoCreate,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return _create_catalog_item(token, uid, pid, "remolques", payload.data)
 
 
 @router.get("/tr-v2/catalogos/productos")
