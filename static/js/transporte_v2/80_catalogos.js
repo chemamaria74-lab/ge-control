@@ -1,7 +1,9 @@
 TRV2_CATALOGS.origenes = TRV2_CATALOGS.origenes || [];
 TRV2_CATALOGS.destinos = TRV2_CATALOGS.destinos || [];
 TRV2_CATALOGS.instalaciones = TRV2_CATALOGS.instalaciones || [];
+TRV2_CATALOGS.proveedores = TRV2_CATALOGS.proveedores || [];
 TRV2_CATALOG_LABELS.instalaciones = 'Instalaciones Carta Porte';
+TRV2_CATALOG_LABELS.proveedores = 'Proveedores';
 
 const TRV2_CATALOG_LOAD_NAMES = ['clientes', 'operadores', 'vehiculos', 'productos', 'origenes', 'destinos', 'rutas'];
 const TRV2_SCT_PERMISOS = [
@@ -89,10 +91,10 @@ const TRV2_PRODUCTOS_SAT = [
   ['15101505', 'Combustible diesel'],
 ];
 const TRV2_SUBPRODUCTOS_SAT = {
-  'Gas LP': [['SP18', 'Gas LP / Petrolífero configurable pendiente de validar SAT']],
+  'Gas LP': [['', 'No aplica para HidroYPetro / validar solo si el CFDI lo requiere']],
   Magna: [['SP16', 'Gasolina menor a 91 octanos / Magna']],
   Premium: [['SP17', 'Gasolina mayor o igual a 91 octanos / Premium']],
-  'Diésel': [['SP15', 'Diésel automotriz']],
+  'Diésel': [['SP18', 'Diésel automotriz']],
   default: [['', 'Sin subproducto / pendiente de validar SAT']],
 };
 const TRV2_UNIDADES_SAT = [['LTR', 'Litro'], ['KGM', 'Kilogramo'], ['E48', 'Unidad de servicio']];
@@ -104,6 +106,7 @@ const TRV2_REQUIRED_FIELDS = {
   operadores: ['nombre', 'rfc_figura', 'licencia'],
   vehiculos: ['alias', 'placas', 'config_vehicular', 'permiso_sct', 'num_permiso_sct', 'aseguradora_rc', 'poliza_rc'],
   productos: ['descripcion', 'clave_producto', 'unidad'],
+  proveedores: ['rfc', 'nombre', 'producto', 'permiso_cre'],
   origenes: ['nombre', 'cp'],
   destinos: ['nombre', 'cp'],
   rutas: ['nombre', 'origen_id', 'destino_id', 'cp_origen', 'cp_destino', 'distancia_km', 'duracion_estimada_min'],
@@ -154,6 +157,14 @@ const TRV2_CATALOG_FORMS = {
     ['embalaje', 'Embalaje', 'embalaje-sat'],
     ['factor_kg_l', 'Factor kg/L', 'number'],
     ['tipo_producto', 'Tipo producto', 'product-type'],
+    ['activo', 'Activo', 'checkbox'],
+  ],
+  proveedores: [
+    ['rfc', 'RFC proveedor', 'rfc'],
+    ['nombre', 'Nombre'],
+    ['producto', 'Producto', 'provider-product'],
+    ['permiso_cre', 'Permiso proveedor'],
+    ['permiso_almacenamiento_terminal', 'Permiso almacenamiento/terminal'],
     ['activo', 'Activo', 'checkbox'],
   ],
   origenes: [
@@ -226,6 +237,13 @@ const TRV2_CATALOG_UI = {
     metrics: [['Registros', 'count'], ['Mat. peligroso', 'material_peligroso'], ['Con clave SAT', 'clave_producto']],
     fields: [['Clave SAT', 'clave_producto'], ['Unidad', 'unidad'], ['Material peligroso', 'material_peligroso'], ['Embalaje', 'embalaje']],
   },
+  proveedores: {
+    icon: 'fa-address-card',
+    title: 'Proveedores',
+    subtitle: 'RFC y permisos de proveedores detectados en facturas. No alimentan Reportes SAT mensuales.',
+    metrics: [['Registros', 'count'], ['Con RFC', 'rfc'], ['Con permiso', 'permiso_cre']],
+    fields: [['RFC proveedor', 'rfc'], ['Producto', 'producto'], ['Permiso proveedor', 'permiso_cre'], ['Terminal', 'permiso_almacenamiento_terminal']],
+  },
   instalaciones: {
     icon: 'fa-warehouse',
     title: 'Instalaciones Carta Porte',
@@ -264,6 +282,10 @@ async function trv2LoadCatalogs(options = {}) {
     return {name, data};
   }));
   trv2BuildInstalacionesCatalog();
+  if (typeof trv2LoadPermisosRfc === 'function') {
+    await trv2LoadPermisosRfc({renderAdmin: false});
+  }
+  trv2BuildProveedoresCatalog();
   TRV2_CATALOGS_READ_ONLY = results.some(r => r.data?.read_only);
   trv2RenderCatalogTabs();
   trv2RenderActiveCatalog();
@@ -301,6 +323,17 @@ function trv2BuildInstalacionesCatalog() {
     tipo_carta_porte: item.tipo_carta_porte || 'Destino',
   }));
   TRV2_CATALOGS.instalaciones = [...origenes, ...destinos];
+}
+
+function trv2IsProveedorPermiso(item = {}) {
+  const tipo = String(item.tipo || 'Proveedor')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .trim().toLowerCase();
+  return !['cliente', 'transportista', 'permisionario', 'razon social', 'razon_social'].includes(tipo);
+}
+
+function trv2BuildProveedoresCatalog() {
+  TRV2_CATALOGS.proveedores = (window.TRV2_PERMISOS_RFC || []).filter(trv2IsProveedorPermiso);
 }
 
 function trv2RenderCatalogTabs() {
@@ -444,6 +477,11 @@ function trv2RenderCatalogFields(name) {
         <option value="">Seleccionar</option><option>Gas LP</option><option>Magna</option><option>Premium</option><option>Diésel</option>
       </select></label>`;
     }
+    if (type === 'provider-product') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar producto</option><option>Gas LP</option><option>Magna</option><option>Premium</option><option>Diésel</option>
+      </select></label>`;
+    }
     if (type === 'license-type') {
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
         <option value="">Seleccionar tipo licencia</option>
@@ -549,6 +587,9 @@ function trv2RefreshProductSatDefaults() {
     if ([...subproducto.options].some(option => option.value === current)) subproducto.value = current;
   }
   if (type === 'Gas LP' && factor && !factor.value) factor.value = '0.5258';
+  if (type === 'Magna' && subproducto && !subproducto.value) subproducto.value = 'SP16';
+  if (type === 'Premium' && subproducto && !subproducto.value) subproducto.value = 'SP17';
+  if (type === 'Diésel' && subproducto && !subproducto.value) subproducto.value = 'SP18';
 }
 
 function trv2ApplyProductoSatDefaults() {
@@ -573,6 +614,16 @@ function trv2ApplyProductoSatDefaults() {
     setIfEmpty('factor_kg_l', '0.5258');
     trv2RefreshProductSatDefaults();
   }
+  if (clave === '15101514') {
+    setIfEmpty('descripcion', 'MAGNA');
+    setIfEmpty('unidad', 'LTR');
+    setChecked('material_peligroso', true);
+    setIfEmpty('clave_material_peligroso', '1203');
+    setIfEmpty('embalaje', 'Z01');
+    setIfEmpty('tipo_producto', 'Magna');
+    setIfEmpty('clave_subproducto', 'SP16');
+    trv2RefreshProductSatDefaults();
+  }
   if (clave === '15101515') {
     setIfEmpty('descripcion', 'PREMIUM');
     setIfEmpty('unidad', 'LTR');
@@ -580,7 +631,18 @@ function trv2ApplyProductoSatDefaults() {
     setIfEmpty('clave_material_peligroso', '1203');
     setIfEmpty('embalaje', 'Z01');
     setIfEmpty('tipo_producto', 'Premium');
+    setIfEmpty('clave_subproducto', 'SP17');
     setIfEmpty('factor_kg_l', '0.524');
+    trv2RefreshProductSatDefaults();
+  }
+  if (clave === '15101505') {
+    setIfEmpty('descripcion', 'DIÉSEL');
+    setIfEmpty('unidad', 'LTR');
+    setChecked('material_peligroso', true);
+    setIfEmpty('clave_material_peligroso', '1202');
+    setIfEmpty('embalaje', 'Z01');
+    setIfEmpty('tipo_producto', 'Diésel');
+    setIfEmpty('clave_subproducto', 'SP18');
     trv2RefreshProductSatDefaults();
   }
 }
@@ -710,6 +772,10 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
     await trv2SaveInstalacionCatalogItem(rawItemId, data);
     return;
   }
+  if (name === 'proveedores') {
+    await trv2SaveProveedorCatalogItem(itemId, data);
+    return;
+  }
   const path = itemId ? `/api/tr-v2/catalogos/${name}/${itemId}` : `/api/tr-v2/catalogos/${name}`;
   const method = itemId ? 'PATCH' : 'POST';
   const response = await trv2Api(method, path, {
@@ -745,7 +811,12 @@ function trv2ValidateCatalogPayload(name, data) {
     if (data.material_peligroso && !data.clave_material_peligroso) return `Mercancía ${data.descripcion || ''} no tiene clave material peligroso.`;
     if (data.material_peligroso && !data.embalaje) return `Mercancía ${data.descripcion || ''} no tiene embalaje.`;
     if (data.factor_kg_l && Number(data.factor_kg_l) <= 0) return `Mercancía ${data.descripcion || ''} tiene factor kg/L inválido.`;
-    if (data.tipo_producto === 'Gas LP' && !data.clave_subproducto) return 'Mercancía Gas LP requiere clave subproducto para preparar Carta Porte/JSON SAT.';
+    if (['Magna', 'Premium', 'Diésel'].includes(data.tipo_producto) && !data.clave_subproducto) return `Mercancía ${data.tipo_producto} requiere subproducto HidroYPetro para preparar CFDI/JSON cuando aplique.`;
+  }
+  if (name === 'proveedores') {
+    if (!trv2ValidRfc(data.rfc)) return `Proveedor ${data.nombre || ''} tiene RFC inválido.`;
+    if (!data.producto) return `Proveedor ${data.nombre || ''} no tiene producto configurado.`;
+    if (!data.permiso_cre) return `Proveedor ${data.nombre || ''} no tiene permiso proveedor.`;
   }
   return '';
 }
@@ -799,6 +870,12 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
 async function trv2DeactivateCatalogItem(name, itemId) {
   if (!itemId) return;
   if (!confirm('Se desactivará el registro para esta empresa. No se borrará físicamente.')) return;
+  if (name === 'proveedores') {
+    await trv2DeactivatePermisoRfc(Number(itemId));
+    trv2BuildProveedoresCatalog();
+    trv2RenderActiveCatalog();
+    return;
+  }
   const target = trv2CatalogEndpointTarget(name, itemId);
   const response = await trv2Api('POST', `/api/tr-v2/catalogos/${target.catalog}/${Number(target.id)}/desactivar`, {
     perfil_id: TRV2_PERFIL?.id || null,
@@ -821,6 +898,12 @@ async function trv2DeleteCatalogItem(name, itemId) {
   const label = trv2CatalogLabel(name, item);
   const typed = prompt(`Vas a eliminar ${TRV2_CATALOG_LABELS[name] || name} "${label}". Escribe ELIMINAR para confirmar.`);
   if (typed !== 'ELIMINAR') return;
+  if (name === 'proveedores') {
+    await trv2DeletePermisoRfc(Number(itemId));
+    trv2BuildProveedoresCatalog();
+    trv2RenderActiveCatalog();
+    return;
+  }
   const target = trv2CatalogEndpointTarget(name, itemId);
   const response = await trv2Api('POST', `/api/tr-v2/catalogos/${target.catalog}/${Number(target.id)}/eliminar`, {
     perfil_id: TRV2_PERFIL?.id || null,
@@ -831,6 +914,29 @@ async function trv2DeleteCatalogItem(name, itemId) {
     await trv2LoadCatalogs({silent: true});
   } else {
     trv2Toast(response?.detail || response?.message || 'No se pudo eliminar el registro.', 'error');
+  }
+}
+
+async function trv2SaveProveedorCatalogItem(itemId, data) {
+  const payload = {
+    ...data,
+    tipo: 'Proveedor',
+    rfc: String(data.rfc || '').trim().toUpperCase(),
+  };
+  const path = itemId ? `/api/tr-v2/admin/permisos-rfc/${Number(itemId)}` : '/api/tr-v2/admin/permisos-rfc';
+  const method = itemId ? 'PATCH' : 'POST';
+  const response = await trv2Api(method, path, {
+    perfil_id: TRV2_PERFIL?.id || null,
+    data: payload,
+  }, {allowError: true});
+  if (response?.ok) {
+    trv2Toast(`Proveedor ${itemId ? 'actualizado' : 'guardado'}.`, 'success');
+    trv2CloseCatalogModal();
+    if (typeof trv2LoadPermisosRfc === 'function') await trv2LoadPermisosRfc({renderAdmin: false});
+    trv2BuildProveedoresCatalog();
+    trv2RenderActiveCatalog();
+  } else {
+    trv2Toast(response?.detail || response?.message || 'No se pudo guardar proveedor.', 'error');
   }
 }
 

@@ -262,11 +262,13 @@ function trv2ClearPermisoForm() {
   if (form) form.reset();
   const id = document.getElementById('trv2-permiso-id');
   if (id) id.value = '';
+  const tipo = document.getElementById('trv2-permiso-tipo');
+  if (tipo) tipo.value = 'Transportista';
 }
 
 function trv2PermisoPayloadFromForm() {
   return {
-    tipo: document.getElementById('trv2-permiso-tipo')?.value || '',
+    tipo: document.getElementById('trv2-permiso-tipo')?.value || 'Transportista',
     rfc: document.getElementById('trv2-permiso-rfc')?.value.trim().toUpperCase() || '',
     nombre: document.getElementById('trv2-permiso-nombre')?.value.trim() || '',
     producto: document.getElementById('trv2-permiso-producto')?.value || '',
@@ -284,7 +286,7 @@ function trv2FillPermisoForm(item = {}) {
     if (el) el.value = value ?? '';
   };
   set('trv2-permiso-id', item.id || '');
-  set('trv2-permiso-tipo', item.tipo || 'Proveedor');
+  set('trv2-permiso-tipo', item.tipo || 'Transportista');
   set('trv2-permiso-rfc', item.rfc || '');
   set('trv2-permiso-nombre', item.nombre || '');
   set('trv2-permiso-producto', item.producto || '');
@@ -353,26 +355,21 @@ function trv2RenderPermisosRfc(items = []) {
   }
   const unique = trv2PermisoUniqueItems(items);
   const transportistas = unique.filter(trv2IsTransportistaPermiso);
-  const proveedores = unique.filter(item => !trv2IsTransportistaPermiso(item));
   list.innerHTML = `
     <div class="trv2-permission-group">
       <h3>Permisos CRE del transportista</h3>
       <p class="trv2-muted">Estos permisos alimentan el filtro mensual de Reportes SAT / JSON.</p>
       ${trv2RenderPermisoCards(transportistas, 'Sin permisos CRE transportista registrados.')}
     </div>
-    <div class="trv2-permission-group">
-      <h3>Proveedores / RFC de factura</h3>
-      <p class="trv2-muted">Estos permisos validan facturas de proveedor; no son el permiso principal del reporte mensual.</p>
-      ${trv2RenderPermisoCards(proveedores, 'Sin proveedores registrados.')}
-    </div>
   `;
 }
 
-async function trv2LoadPermisosRfc() {
+async function trv2LoadPermisosRfc(options = {}) {
   trv2PopulatePermisoSelects();
   const data = await trv2Api('GET', '/api/tr-v2/admin/permisos-rfc', undefined, {allowError: true, silent: true});
   window.TRV2_PERMISOS_RFC = data?.items || [];
-  trv2RenderPermisosRfc(window.TRV2_PERMISOS_RFC);
+  if (options.renderAdmin !== false) trv2RenderPermisosRfc(window.TRV2_PERMISOS_RFC);
+  if (typeof trv2BuildProveedoresCatalog === 'function') trv2BuildProveedoresCatalog();
   if (typeof trv2PopulateCvPermisos === 'function') trv2PopulateCvPermisos();
 }
 
@@ -413,6 +410,7 @@ async function trv2DeactivatePermisoRfc(itemId) {
   if (data?.ok) {
     trv2Toast('Permiso/RFC desactivado.', 'success');
     await trv2LoadPermisosRfc();
+    if (typeof trv2RenderActiveCatalog === 'function') trv2RenderActiveCatalog();
   } else {
     trv2Toast(data?.detail || data?.message || 'No se pudo desactivar permiso/RFC.', 'error');
   }
@@ -434,6 +432,7 @@ async function trv2DeletePermisoRfc(itemId) {
   if (data?.ok) {
     trv2Toast(`Permiso/RFC eliminado: ${label}.`, 'success');
     await trv2LoadPermisosRfc();
+    if (typeof trv2RenderActiveCatalog === 'function') trv2RenderActiveCatalog();
   } else {
     trv2Toast(data?.detail || data?.message || 'No se pudo eliminar permiso/RFC.', 'error');
   }
