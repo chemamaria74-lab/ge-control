@@ -305,6 +305,7 @@ async function trv2Logout() {
   localStorage.removeItem('sat_assigned_perfil_id');
   localStorage.removeItem('sat_modulo');
   localStorage.removeItem('zc_token');
+  localStorage.removeItem('trv2_user');
   localStorage.removeItem(TRV2_PROFILE_KEY);
   localStorage.removeItem('trv2_perfil');
   TRV2_TOKEN = '';
