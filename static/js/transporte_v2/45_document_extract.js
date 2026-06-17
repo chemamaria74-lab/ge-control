@@ -113,6 +113,17 @@ function trv2NormalizeDetected(raw = {}) {
   return detected;
 }
 
+function trv2ApplyPermisoCatalogMatch(detected = {}, permisoInfo = {}) {
+  const item = permisoInfo?.item || {};
+  const permiso = item.permiso_cre || item.permiso || permisoInfo.permiso_detectado || '';
+  if (permisoInfo?.status === 'registrado' && permiso && !detected.permiso) {
+    detected.permiso = permiso;
+    detected.proveedor_permiso = permiso;
+  }
+  if (item.producto && !detected.producto) detected.producto = item.producto;
+  return detected;
+}
+
 async function trv2UploadForm(path, formData) {
   try {
     if (!TRV2_TOKEN) {
@@ -144,8 +155,9 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
   const panel = ui.panel;
   const form = ui.form;
   const summary = ui.summary;
-  const detected = trv2NormalizeDetected(data.detected || {});
+  const detected = trv2ApplyPermisoCatalogMatch(trv2NormalizeDetected(data.detected || {}), data.permiso_rfc || {});
   data.detected = detected;
+  if (TRV2_DOCUMENT_DETECTED) TRV2_DOCUMENT_DETECTED.detected = detected;
   if (!panel || !form) return;
   panel.hidden = false;
   if (summary) summary.textContent = trv2DetectedMessage(detected);

@@ -109,6 +109,7 @@ function trv2RenderCartaPortePreview(data) {
   const validations = data.validaciones || [];
   const errors = validations.filter(item => item.nivel === 'error').length;
   const warnings = validations.filter(item => item.nivel === 'warning').length;
+  const canStamp = Boolean(data.ready_to_stamp && data.timbrado_habilitado);
   const validationHtml = validations.length
     ? validations.map(item => `
       <div class="trv2-validation ${trv2Esc(item.nivel)}">
@@ -139,6 +140,12 @@ function trv2RenderCartaPortePreview(data) {
     </div>
     <div class="trv2-alert trv2-alert-warn">Preview seco: no timbra, no genera XML final y no llama PAC.</div>
     <div class="trv2-alert trv2-alert-ok">Preview generado. Este paso no timbra ni llama PAC.</div>
+    <div class="trv2-form-actions trv2-form-actions-inline">
+      <button class="trv2-btn trv2-btn-primary" type="button" ${canStamp ? '' : 'disabled'} onclick="trv2StampCartaPorte()">
+        <i class="fa-solid fa-stamp"></i> Timbrar Carta Porte
+      </button>
+      <span class="trv2-muted">${trv2Esc(data.ready_to_stamp ? 'Datos mínimos completos. Timbrado PAC pendiente de habilitar en Transporte v2.' : 'Corrige los errores antes de timbrar.')}</span>
+    </div>
     ${trv2RenderCartaPorteDocument(preview, data)}
     <div class="trv2-preview-grid">
       ${trv2RenderPreviewBlock('Emisor / transportista', preview.emisor)}
@@ -157,6 +164,17 @@ function trv2RenderCartaPortePreview(data) {
       ${validationHtml}
     </section>
   `;
+}
+
+function trv2StampCartaPorte() {
+  if (!TRV2_CP_PREVIEW?.ready_to_stamp) {
+    trv2Toast('Corrige los errores del preview antes de timbrar.', 'error');
+    return;
+  }
+  if (!TRV2_CP_PREVIEW?.timbrado_habilitado) {
+    trv2Toast('Timbrado PAC pendiente de conectar en Transporte v2. El preview seco no llama PAC.', 'error');
+    return;
+  }
 }
 
 async function trv2PreviewCartaPorte(viajeId) {

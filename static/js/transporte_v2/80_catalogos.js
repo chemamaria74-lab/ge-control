@@ -1,7 +1,37 @@
 TRV2_CATALOGS.origenes = TRV2_CATALOGS.origenes || [];
 TRV2_CATALOGS.destinos = TRV2_CATALOGS.destinos || [];
-TRV2_CATALOG_LABELS.origenes = 'Orígenes';
-TRV2_CATALOG_LABELS.destinos = 'Destinos';
+TRV2_CATALOGS.instalaciones = TRV2_CATALOGS.instalaciones || [];
+TRV2_CATALOG_LABELS.instalaciones = 'Instalaciones Carta Porte';
+
+const TRV2_CATALOG_LOAD_NAMES = ['clientes', 'operadores', 'vehiculos', 'productos', 'origenes', 'destinos', 'rutas'];
+const TRV2_SCT_PERMISOS = [
+  ['TPAF01', 'Autotransporte Federal de carga general'],
+  ['TPAF02', 'Transporte privado de carga'],
+  ['TPAF03', 'Autotransporte Federal de carga especializada de materiales y residuos peligrosos'],
+  ['TPAF04', 'Servicio auxiliar de arrastre'],
+  ['TPAF05', 'Servicio auxiliar de arrastre y salvamento'],
+  ['TPAF06', 'Servicio auxiliar de depósito de vehículos'],
+  ['TPAF07', 'Paquetería y mensajería'],
+  ['TPAF08', 'Servicio expreso'],
+  ['TPAF09', 'Transporte de fondos y valores'],
+  ['TPAF10', 'Grúas industriales'],
+  ['TPAF11', 'Carga consolidada'],
+  ['TPAF12', 'Transporte internacional de carga'],
+  ['TPAF13', 'Transporte de carga especializada'],
+  ['TPAF14', 'Transporte privado especializado'],
+  ['TPAF15', 'Transporte de hidrocarburos y petrolíferos'],
+  ['TPAF16', 'Transporte de carga sobredimensionada'],
+  ['TPAF17', 'Transporte de residuos peligrosos'],
+  ['TPAF18', 'Servicio de traslado de vehículos'],
+  ['TPAF19', 'Transporte por contrato'],
+  ['TPAF20', 'Transporte de carga refrigerada'],
+  ['TPAF21', 'Transporte de carga a granel'],
+  ['TPAF22', 'Transporte de gas LP y combustibles'],
+  ['TPAF23', 'Transporte de materiales peligrosos'],
+  ['TPAF24', 'Transporte de sustancias químicas'],
+  ['TPAF25', 'Otro permiso SCT/SICT aplicable'],
+];
+const TRV2_CONFIG_VEHICULAR = ['C2', 'C3', 'T2S1', 'T2S2', 'T3S1', 'T3S2', 'T3S3', 'T3S2R3', 'T3S2R4'];
 
 const TRV2_REQUIRED_FIELDS = {
   clientes: ['nombre', 'rfc', 'cp'],
@@ -34,10 +64,10 @@ const TRV2_CATALOG_FORMS = {
   vehiculos: [
     ['alias', 'Número económico / unidad'],
     ['placas', 'Placas'],
-    ['config_vehicular', 'Config. vehicular'],
+    ['config_vehicular', 'Config. vehicular', 'vehicle-config'],
     ['modelo', 'Modelo'],
     ['anio', 'Año'],
-    ['permiso_sct', 'Permiso SCT/SICT'],
+    ['permiso_sct', 'Permiso SCT/SICT', 'sct-permit'],
     ['num_permiso_sct', 'Núm. permiso'],
     ['aseguradora_rc', 'Aseguradora RC'],
     ['poliza_rc', 'Póliza RC'],
@@ -72,6 +102,18 @@ const TRV2_CATALOG_FORMS = {
     ['cp', 'CP'],
     ['direccion', 'Dirección'],
     ['tipo', 'Tipo'],
+    ['activo', 'Activo', 'checkbox'],
+  ],
+  instalaciones: [
+    ['nombre', 'Nombre visible'],
+    ['tipo_carta_porte', 'Tipo Carta Porte', 'cp-location-type'],
+    ['cp', 'CP'],
+    ['direccion', 'Domicilio'],
+    ['id_ubicacion_carta_porte', 'ID ubicación Carta Porte'],
+    ['estado_sat', 'Estado SAT'],
+    ['municipio_sat', 'Municipio SAT'],
+    ['localidad_sat', 'Localidad SAT'],
+    ['referencia', 'Referencia'],
     ['activo', 'Activo', 'checkbox'],
   ],
   rutas: [
@@ -115,6 +157,13 @@ const TRV2_CATALOG_UI = {
     metrics: [['Registros', 'count'], ['Mat. peligroso', 'material_peligroso'], ['Con clave SAT', 'clave_producto']],
     fields: [['Clave SAT', 'clave_producto'], ['Unidad', 'unidad'], ['Material peligroso', 'material_peligroso'], ['Embalaje', 'embalaje']],
   },
+  instalaciones: {
+    icon: 'fa-warehouse',
+    title: 'Instalaciones Carta Porte',
+    subtitle: 'Ubicaciones de origen, destino o ambos para Carta Porte.',
+    metrics: [['Registros', 'count'], ['Con CP', 'cp'], ['Activas', 'activo']],
+    fields: [['Tipo', 'tipo_carta_porte'], ['CP', 'cp'], ['ID ubicación', 'id_ubicacion_carta_porte'], ['Domicilio', 'direccion']],
+  },
   rutas: {
     icon: 'fa-route',
     title: 'Rutas / Origen-Destino',
@@ -139,12 +188,13 @@ const TRV2_CATALOG_UI = {
 };
 
 async function trv2LoadCatalogs(options = {}) {
-  const names = Object.keys(TRV2_CATALOG_LABELS);
+  const names = TRV2_CATALOG_LOAD_NAMES;
   const results = await Promise.all(names.map(async name => {
     const data = await trv2Api('GET', `/api/tr-v2/catalogos/${name}`, undefined, {silent: true});
     TRV2_CATALOGS[name] = data?.items || [];
     return {name, data};
   }));
+  trv2BuildInstalacionesCatalog();
   TRV2_CATALOGS_READ_ONLY = results.some(r => r.data?.read_only);
   trv2RenderCatalogTabs();
   trv2RenderActiveCatalog();
@@ -161,8 +211,25 @@ function trv2CatalogLabel(name, item) {
   if (name === 'vehiculos') return item.alias || item.placas || `#${item.id}`;
   if (name === 'productos') return item.descripcion || item.clave_producto || `#${item.id}`;
   if (name === 'rutas') return item.nombre || `${item.origen || 'Origen'} → ${item.destino || 'Destino'}`;
-  if (name === 'origenes' || name === 'destinos') return item.nombre || item.rfc || `#${item.id}`;
+  if (name === 'instalaciones') return item.nombre || item.cp || `#${item.id}`;
+  if (name === 'origenes' || name === 'destinos') return item.nombre || item.cp || `#${item.id}`;
   return item.nombre || `#${item.id}`;
+}
+
+function trv2BuildInstalacionesCatalog() {
+  const origenes = (TRV2_CATALOGS.origenes || []).map(item => ({
+    ...item,
+    _source_catalog: 'origenes',
+    _source_id: item.id,
+    tipo_carta_porte: item.tipo_carta_porte || 'Origen',
+  }));
+  const destinos = (TRV2_CATALOGS.destinos || []).map(item => ({
+    ...item,
+    _source_catalog: 'destinos',
+    _source_id: item.id,
+    tipo_carta_porte: item.tipo_carta_porte || 'Destino',
+  }));
+  TRV2_CATALOGS.instalaciones = [...origenes, ...destinos];
 }
 
 function trv2RenderCatalogTabs() {
@@ -301,6 +368,23 @@ function trv2RenderCatalogFields(name) {
         <option value="">Seleccionar</option><option>Gas LP</option><option>Magna</option><option>Premium</option><option>Diésel</option>
       </select></label>`;
     }
+    if (type === 'sct-permit') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar permiso SCT/SICT</option>
+        ${TRV2_SCT_PERMISOS.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
+    if (type === 'vehicle-config') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar configuración</option>
+        ${TRV2_CONFIG_VEHICULAR.map(code => `<option value="${trv2Esc(code)}">${trv2Esc(code)}</option>`).join('')}
+      </select></label>`;
+    }
+    if (type === 'cp-location-type') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="Origen">Origen</option><option value="Destino">Destino</option><option value="Ambos">Ambos</option>
+      </select></label>`;
+    }
     const inputType = type === 'number' ? 'number' : (type === 'date' ? 'date' : 'text');
     const rfcAttr = type === 'rfc' ? 'data-rfc-field' : '';
     return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${rfcAttr} ${required ? 'required' : ''} type="${inputType}" step="0.001"></label>`;
@@ -354,26 +438,6 @@ function trv2FillCatalogModalForm(form, item) {
     if (input.type === 'checkbox') input.checked = Boolean(value);
     else input.value = value ?? '';
   });
-  if (form.dataset.catalog === 'rutas') {
-    const origen = trv2FindCatalog('origenes', data.origen_id);
-    const destino = trv2FindCatalog('destinos', data.destino_id);
-    if (origen) {
-      data.nombre_origen = origen.nombre || '';
-      data.origen = origen.nombre || '';
-      data.cp_origen = data.cp_origen || origen.cp || '';
-    }
-    if (destino) {
-      data.nombre_destino = destino.nombre || '';
-      data.destino = destino.nombre || '';
-      data.cp_destino = data.cp_destino || destino.cp || '';
-    }
-  }
-  const invalidRfc = [...form.querySelectorAll('[data-rfc-field]')].find(input => input.value.trim() && !trv2ValidRfc(input.value));
-  if (invalidRfc) {
-    invalidRfc.focus();
-    trv2Toast('RFC inválido. Usa 12 caracteres para persona moral o 13 para persona física.', 'error');
-    return;
-  }
 }
 
 function trv2CloseCatalogModal() {
@@ -394,6 +458,16 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
     data[key] = input.type === 'checkbox' ? input.checked : input.value.trim();
     if (input.type === 'number') data[key] = Number(input.value || 0);
   });
+  const invalidRfc = [...form.querySelectorAll('[data-rfc-field]')].find(input => input.value.trim() && !trv2ValidRfc(input.value));
+  if (invalidRfc) {
+    invalidRfc.focus();
+    trv2Toast('RFC inválido. Usa 12 caracteres para persona moral o 13 para persona física.', 'error');
+    return;
+  }
+  if (name === 'instalaciones') {
+    await trv2SaveInstalacionCatalogItem(itemId, data);
+    return;
+  }
   const path = itemId ? `/api/tr-v2/catalogos/${name}/${itemId}` : `/api/tr-v2/catalogos/${name}`;
   const method = itemId ? 'PATCH' : 'POST';
   const response = await trv2Api(method, path, {
@@ -407,6 +481,35 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
   } else {
     trv2Toast(response?.detail || response?.message || `No se pudo guardar ${TRV2_CATALOG_LABELS[name]}.`, 'error');
   }
+}
+
+async function trv2SaveInstalacionCatalogItem(itemId, data) {
+  const current = itemId ? trv2FindCatalog('instalaciones', itemId) : null;
+  const tipo = data.tipo_carta_porte || current?.tipo_carta_porte || 'Origen';
+  const targets = tipo === 'Ambos' ? ['origenes', 'destinos'] : [tipo === 'Destino' ? 'destinos' : 'origenes'];
+  const payload = {
+    nombre: data.nombre,
+    cp: data.cp,
+    direccion: data.direccion,
+    tipo,
+    activo: data.activo,
+  };
+  for (const target of targets) {
+    const sourceId = current?._source_catalog === target ? Number(current._source_id || current.id || 0) : 0;
+    const path = sourceId ? `/api/tr-v2/catalogos/${target}/${sourceId}` : `/api/tr-v2/catalogos/${target}`;
+    const method = sourceId ? 'PATCH' : 'POST';
+    const response = await trv2Api(method, path, {
+      perfil_id: TRV2_PERFIL?.id || null,
+      data: payload,
+    }, {allowError: true});
+    if (!response?.ok) {
+      trv2Toast(response?.detail || response?.message || 'No se pudo guardar instalación Carta Porte.', 'error');
+      return;
+    }
+  }
+  trv2Toast('Instalación Carta Porte guardada.', 'success');
+  trv2CloseCatalogModal();
+  await trv2LoadCatalogs({silent: true});
 }
 
 async function trv2DeactivateCatalogItem(name, itemId) {
