@@ -32,6 +32,42 @@ const TRV2_SCT_PERMISOS = [
   ['TPAF25', 'Otro permiso SCT/SICT aplicable'],
 ];
 const TRV2_CONFIG_VEHICULAR = ['C2', 'C3', 'T2S1', 'T2S2', 'T3S1', 'T3S2', 'T3S3', 'T3S2R3', 'T3S2R4'];
+const TRV2_REGIMENES_FISCALES = [
+  ['601', 'General de Ley Personas Morales'],
+  ['603', 'Personas Morales con Fines no Lucrativos'],
+  ['605', 'Sueldos y Salarios e Ingresos Asimilados a Salarios'],
+  ['606', 'Arrendamiento'],
+  ['612', 'Personas Físicas con Actividades Empresariales y Profesionales'],
+  ['616', 'Sin obligaciones fiscales'],
+  ['626', 'Régimen Simplificado de Confianza'],
+];
+const TRV2_USOS_CFDI = [
+  ['G01', 'Adquisición de mercancías'],
+  ['G03', 'Gastos en general'],
+  ['I03', 'Equipo de transporte'],
+  ['S01', 'Sin efectos fiscales'],
+];
+const TRV2_ESTADOS_SAT = [
+  ['JAL', 'Jalisco'],
+  ['ZAC', 'Zacatecas'],
+  ['AGU', 'Aguascalientes'],
+  ['NLE', 'Nuevo León'],
+  ['CMX', 'Ciudad de México'],
+  ['MEX', 'Estado de México'],
+];
+const TRV2_MUNICIPIOS_SAT = {
+  JAL: [['123', 'Zapotlanejo'], ['091', 'Teocaltiche'], ['039', 'Guadalajara']],
+  ZAC: [['048', 'Tlaltenango de Sánchez Román'], ['056', 'Zacatecas']],
+};
+const TRV2_PRODUCTOS_SAT = [
+  ['15111510', 'Gas licuado de petróleo'],
+  ['15101514', 'Gasolina regular menor a 91 octanos'],
+  ['15101515', 'Gasolina premium mayor o igual a 91 octanos'],
+  ['15101505', 'Combustible diesel'],
+];
+const TRV2_UNIDADES_SAT = [['LTR', 'Litro'], ['KGM', 'Kilogramo'], ['E48', 'Unidad de servicio']];
+const TRV2_MATERIALES_PELIGROSOS = [['1075', 'Gas licuado de petróleo'], ['1203', 'Gasolina'], ['1202', 'Diésel']];
+const TRV2_EMBALAJES = [['4H2', 'Cajas de plástico sólido'], ['Z01', 'No aplica / a granel']];
 
 const TRV2_REQUIRED_FIELDS = {
   clientes: ['nombre', 'rfc', 'cp'],
@@ -48,8 +84,8 @@ const TRV2_CATALOG_FORMS = {
     ['nombre', 'Nombre'],
     ['rfc', 'RFC', 'rfc'],
     ['cp', 'CP fiscal'],
-    ['regimen_fiscal', 'Régimen fiscal'],
-    ['uso_cfdi', 'Uso CFDI'],
+    ['regimen_fiscal', 'Régimen fiscal', 'regimen-fiscal'],
+    ['uso_cfdi', 'Uso CFDI', 'uso-cfdi'],
     ['activo', 'Activo', 'checkbox'],
   ],
   operadores: [
@@ -78,12 +114,12 @@ const TRV2_CATALOG_FORMS = {
   ],
   productos: [
     ['descripcion', 'Descripción'],
-    ['clave_producto', 'Clave producto SAT'],
+    ['clave_producto', 'Clave producto SAT', 'producto-sat'],
     ['clave_subproducto', 'Clave subproducto'],
-    ['unidad', 'Unidad'],
+    ['unidad', 'Unidad', 'unidad-sat'],
     ['material_peligroso', 'Material peligroso', 'checkbox'],
-    ['clave_material_peligroso', 'Clave mat. peligroso'],
-    ['embalaje', 'Embalaje'],
+    ['clave_material_peligroso', 'Clave mat. peligroso', 'material-peligroso'],
+    ['embalaje', 'Embalaje', 'embalaje-sat'],
     ['factor_kg_l', 'Factor kg/L', 'number'],
     ['tipo_producto', 'Tipo producto', 'product-type'],
     ['activo', 'Activo', 'checkbox'],
@@ -110,8 +146,8 @@ const TRV2_CATALOG_FORMS = {
     ['cp', 'CP'],
     ['direccion', 'Domicilio'],
     ['id_ubicacion_carta_porte', 'ID ubicación Carta Porte'],
-    ['estado_sat', 'Estado SAT'],
-    ['municipio_sat', 'Municipio SAT'],
+    ['estado_sat', 'Estado SAT', 'estado-sat'],
+    ['municipio_sat', 'Municipio SAT', 'municipio-sat'],
     ['localidad_sat', 'Localidad SAT'],
     ['referencia', 'Referencia'],
     ['activo', 'Activo', 'checkbox'],
@@ -219,12 +255,14 @@ function trv2CatalogLabel(name, item) {
 function trv2BuildInstalacionesCatalog() {
   const origenes = (TRV2_CATALOGS.origenes || []).map(item => ({
     ...item,
+    id: `origenes:${item.id}`,
     _source_catalog: 'origenes',
     _source_id: item.id,
     tipo_carta_porte: item.tipo_carta_porte || 'Origen',
   }));
   const destinos = (TRV2_CATALOGS.destinos || []).map(item => ({
     ...item,
+    id: `destinos:${item.id}`,
     _source_catalog: 'destinos',
     _source_id: item.id,
     tipo_carta_porte: item.tipo_carta_porte || 'Destino',
@@ -315,6 +353,7 @@ function trv2RenderCatalogCard(name, item) {
   const ui = TRV2_CATALOG_UI[name] || {};
   const status = item.activo === false ? 'Inactivo' : 'Activo';
   const statusClass = item.activo === false ? 'inactive' : 'active';
+  const actionId = trv2CatalogActionId(item);
   const rows = (ui.fields || []).map(([label, key]) => {
     const raw = item[key];
     const value = typeof raw === 'boolean' ? (raw ? 'Sí' : 'No') : raw;
@@ -337,13 +376,17 @@ function trv2RenderCatalogCard(name, item) {
       </div>
       <div class="trv2-card-body">${rows}</div>
       <div class="trv2-card-actions">
-        <button class="trv2-mini-btn" type="button" onclick="trv2OpenCatalogModal('${trv2Esc(name)}', ${Number(item.id || 0)})">Editar</button>
-        <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateCatalogItem('${trv2Esc(name)}', ${Number(item.id || 0)})">Desactivar</button>
-        <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" disabled title="Eliminación física deshabilitada. Usa desactivar.">Eliminar seguro</button>
+        <button class="trv2-mini-btn" type="button" onclick="trv2OpenCatalogModal('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Editar</button>
+        <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Desactivar</button>
+        <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Eliminar seguro</button>
         <button class="trv2-mini-btn" type="button" onclick="trv2CatalogConfigPlaceholder()">Configurar</button>
       </div>
     </article>
   `;
+}
+
+function trv2CatalogActionId(item) {
+  return String(item?._source_catalog && item?._source_id ? `${item._source_catalog}:${item._source_id}` : item?.id || '');
 }
 
 function trv2CatalogConfigPlaceholder() {
@@ -385,15 +428,80 @@ function trv2RenderCatalogFields(name) {
         <option value="Origen">Origen</option><option value="Destino">Destino</option><option value="Ambos">Ambos</option>
       </select></label>`;
     }
+    if (type === 'regimen-fiscal') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar régimen</option>
+        ${TRV2_REGIMENES_FISCALES.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
+    if (type === 'uso-cfdi') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar Uso CFDI</option>
+        ${TRV2_USOS_CFDI.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
+    if (type === 'estado-sat') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="trv2RefreshMunicipioSatOptions()">
+        <option value="">Seleccionar estado</option>
+        ${TRV2_ESTADOS_SAT.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
+    if (type === 'municipio-sat') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}><option value="">Selecciona estado primero</option></select></label>`;
+    }
+    if (type === 'producto-sat') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar producto SAT</option>
+        ${TRV2_PRODUCTOS_SAT.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
+    if (type === 'unidad-sat') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar unidad</option>
+        ${TRV2_UNIDADES_SAT.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
+    if (type === 'material-peligroso') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar clave</option>
+        ${TRV2_MATERIALES_PELIGROSOS.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
+    if (type === 'embalaje-sat') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar embalaje</option>
+        ${TRV2_EMBALAJES.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
     const inputType = type === 'number' ? 'number' : (type === 'date' ? 'date' : 'text');
     const rfcAttr = type === 'rfc' ? 'data-rfc-field' : '';
     return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${rfcAttr} ${required ? 'required' : ''} type="${inputType}" step="0.001"></label>`;
   }).join('');
 }
 
+function trv2RefreshMunicipioSatOptions() {
+  const form = document.getElementById('trv2-catalog-modal-form');
+  if (!form) return;
+  const estado = form.querySelector('[data-field="estado_sat"]')?.value || '';
+  const municipio = form.querySelector('[data-field="municipio_sat"]');
+  if (!municipio) return;
+  const current = municipio.dataset.pendingValue || municipio.value;
+  const items = TRV2_MUNICIPIOS_SAT[estado] || [];
+  municipio.innerHTML = '<option value="">Seleccionar municipio</option>' + items.map(([code, desc]) => (
+    `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`
+  )).join('');
+  if ([...municipio.options].some(option => option.value === current)) municipio.value = current;
+  municipio.dataset.pendingValue = '';
+}
+
 function trv2ValidRfc(value) {
   const rfc = String(value || '').trim().toUpperCase();
+  if (rfc === 'XAXX010101000') return true;
   return /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(rfc) && (rfc.length === 12 || rfc.length === 13);
+}
+
+function trv2ValidCp(value) {
+  return /^\d{5}$/.test(String(value || '').trim());
 }
 
 function trv2ApplyRouteEndpointToCatalogForm(kind) {
@@ -428,6 +536,7 @@ function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG, itemId = 0) {
     </div>
   `;
   if (item) trv2FillCatalogModalForm(form, item);
+  trv2RefreshMunicipioSatOptions();
   modal.hidden = false;
 }
 
@@ -436,7 +545,10 @@ function trv2FillCatalogModalForm(form, item) {
     const key = input.dataset.field;
     const value = item[key];
     if (input.type === 'checkbox') input.checked = Boolean(value);
-    else input.value = value ?? '';
+    else {
+      input.value = value ?? '';
+      if (key === 'municipio_sat') input.dataset.pendingValue = value ?? '';
+    }
   });
 }
 
@@ -461,7 +573,12 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
   const invalidRfc = [...form.querySelectorAll('[data-rfc-field]')].find(input => input.value.trim() && !trv2ValidRfc(input.value));
   if (invalidRfc) {
     invalidRfc.focus();
-    trv2Toast('RFC inválido. Usa 12 caracteres para persona moral o 13 para persona física.', 'error');
+    trv2Toast('RFC inválido. Usa formato SAT de 12/13 caracteres o XAXX010101000.', 'error');
+    return;
+  }
+  const validation = trv2ValidateCatalogPayload(name, data);
+  if (validation) {
+    trv2Toast(validation, 'error');
     return;
   }
   if (name === 'instalaciones') {
@@ -483,6 +600,26 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
   }
 }
 
+function trv2ValidateCatalogPayload(name, data) {
+  if (name === 'clientes') {
+    if (!trv2ValidRfc(data.rfc)) return `Cliente ${data.nombre || ''} tiene RFC inválido.`;
+    if (!trv2ValidCp(data.cp)) return `Cliente ${data.nombre || ''} no tiene CP fiscal válido de 5 dígitos.`;
+    if (!data.regimen_fiscal) return `Cliente ${data.nombre || ''} no tiene régimen fiscal SAT.`;
+    if (!data.uso_cfdi) return `Cliente ${data.nombre || ''} no tiene Uso CFDI SAT.`;
+  }
+  if (name === 'instalaciones') {
+    if (!trv2ValidCp(data.cp)) return `Instalación ${data.nombre || ''} no tiene CP válido de 5 dígitos.`;
+  }
+  if (name === 'productos') {
+    if (!data.clave_producto) return `Mercancía ${data.descripcion || ''} no tiene clave producto SAT.`;
+    if (!data.unidad) return `Mercancía ${data.descripcion || ''} no tiene unidad SAT.`;
+    if (data.material_peligroso && !data.clave_material_peligroso) return `Mercancía ${data.descripcion || ''} no tiene clave material peligroso.`;
+    if (data.material_peligroso && !data.embalaje) return `Mercancía ${data.descripcion || ''} no tiene embalaje.`;
+    if (data.factor_kg_l && Number(data.factor_kg_l) <= 0) return `Mercancía ${data.descripcion || ''} tiene factor kg/L inválido.`;
+  }
+  return '';
+}
+
 async function trv2SaveInstalacionCatalogItem(itemId, data) {
   const current = itemId ? trv2FindCatalog('instalaciones', itemId) : null;
   const tipo = data.tipo_carta_porte || current?.tipo_carta_porte || 'Origen';
@@ -495,7 +632,7 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
     activo: data.activo,
   };
   for (const target of targets) {
-    const sourceId = current?._source_catalog === target ? Number(current._source_id || current.id || 0) : 0;
+    const sourceId = current?._source_catalog === target ? Number(current._source_id || 0) : 0;
     const path = sourceId ? `/api/tr-v2/catalogos/${target}/${sourceId}` : `/api/tr-v2/catalogos/${target}`;
     const method = sourceId ? 'PATCH' : 'POST';
     const response = await trv2Api(method, path, {
@@ -515,7 +652,8 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
 async function trv2DeactivateCatalogItem(name, itemId) {
   if (!itemId) return;
   if (!confirm('Se desactivará el registro para esta empresa. No se borrará físicamente.')) return;
-  const response = await trv2Api('POST', `/api/tr-v2/catalogos/${name}/${Number(itemId)}/desactivar`, {
+  const target = trv2CatalogEndpointTarget(name, itemId);
+  const response = await trv2Api('POST', `/api/tr-v2/catalogos/${target.catalog}/${Number(target.id)}/desactivar`, {
     perfil_id: TRV2_PERFIL?.id || null,
     data: {},
   }, {allowError: true});
@@ -525,6 +663,36 @@ async function trv2DeactivateCatalogItem(name, itemId) {
   } else {
     trv2Toast(response?.detail || response?.message || 'No se pudo desactivar el registro.', 'error');
   }
+}
+
+async function trv2DeleteCatalogItem(name, itemId) {
+  const item = trv2FindCatalog(name, itemId);
+  if (!item) {
+    trv2Toast('No se encontró el registro seleccionado para eliminar.', 'error');
+    return;
+  }
+  const label = trv2CatalogLabel(name, item);
+  const typed = prompt(`Vas a eliminar ${TRV2_CATALOG_LABELS[name] || name} "${label}". Escribe ELIMINAR para confirmar.`);
+  if (typed !== 'ELIMINAR') return;
+  const target = trv2CatalogEndpointTarget(name, itemId);
+  const response = await trv2Api('POST', `/api/tr-v2/catalogos/${target.catalog}/${Number(target.id)}/eliminar`, {
+    perfil_id: TRV2_PERFIL?.id || null,
+    data: {},
+  }, {allowError: true});
+  if (response?.ok) {
+    trv2Toast(`Registro eliminado: ${label}.`, 'success');
+    await trv2LoadCatalogs({silent: true});
+  } else {
+    trv2Toast(response?.detail || response?.message || 'No se pudo eliminar el registro.', 'error');
+  }
+}
+
+function trv2CatalogEndpointTarget(name, itemId) {
+  if (name === 'instalaciones') {
+    const [catalog, id] = String(itemId || '').split(':');
+    return {catalog: catalog || 'origenes', id: Number(id || 0)};
+  }
+  return {catalog: name, id: Number(itemId || 0)};
 }
 
 function trv2FillSelect(id, name, placeholder) {
@@ -545,7 +713,8 @@ function trv2PopulateTripSelects() {
 }
 
 function trv2FindCatalog(name, id) {
-  return (TRV2_CATALOGS[name] || []).find(item => Number(item.id) === Number(id)) || null;
+  const key = String(id ?? '');
+  return (TRV2_CATALOGS[name] || []).find(item => String(item.id) === key || Number(item.id) === Number(id)) || null;
 }
 
 function trv2ApplyRouteToTrip() {
