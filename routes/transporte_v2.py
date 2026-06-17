@@ -1532,6 +1532,18 @@ def _is_hidrocarburo(text: str) -> bool:
     return any(n in lower for n in needles)
 
 
+def _requires_hidroypetro_subproducto(text: str) -> bool:
+    """HidroYPetro se prepara para gasolina Magna/Premium/Diésel.
+
+    SW Sapiens documenta el complemento concepto HidroYPetro v1.0 con
+    Version, TipoPermiso, NumeroPermiso, ClaveHYP y SubProductoHYP.
+    Gas LP no se fuerza aquí por default porque el flujo Gas LP actual no lo
+    usa y debe confirmarse por caso fiscal antes de timbrar.
+    """
+    lower = (text or "").lower()
+    return any(word in lower for word in ("magna", "premium", "diesel", "diésel", "gasolina"))
+
+
 def _build_carta_porte_preview(
     viaje: dict[str, Any],
     cliente: dict[str, Any],
@@ -1677,6 +1689,13 @@ def _build_carta_porte_preview(
         _req(validaciones, "mercancia.embalaje", preview["mercancia"]["embalaje"], "Falta embalaje de material peligroso.")
         _req(validaciones, "vehiculo.seguro_medio_ambiente", preview["autotransporte"]["aseguradora_medio_ambiente"], "Material peligroso requiere aseguradora medio ambiente.")
         _req(validaciones, "vehiculo.poliza_medio_ambiente", preview["autotransporte"]["poliza_medio_ambiente"], "Material peligroso requiere póliza medio ambiente.")
+    if _requires_hidroypetro_subproducto(producto_nombre) and not preview["mercancia"]["clave_subproducto"]:
+        _validation(
+            validaciones,
+            "warning",
+            "mercancia.clave_subproducto",
+            "Magna/Premium/Diésel requieren revisar SubProductoHYP para Complemento Hidrocarburos/Petrolíferos antes de timbrar CFDI Ingreso.",
+        )
 
     errors = [item for item in validaciones if item["nivel"] == "error"]
     ready_to_stamp = not errors
