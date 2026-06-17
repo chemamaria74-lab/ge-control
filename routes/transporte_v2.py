@@ -52,6 +52,30 @@ TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
 TBL_AUDITORIA = "transporte_v2_auditoria"
 TBL_CFDI = "tr_cfdi"
 
+VEHICLE_DB_FIELDS = {
+    "alias",
+    "numero_economico",
+    "placas",
+    "modelo",
+    "anio",
+    "config_vehicular",
+    "aseguradora",
+    "poliza_seguro",
+    "permiso_sct",
+    "num_permiso_sct",
+    "capacidad_litros",
+    "num_ejes",
+    "activo",
+    "aseguradora_medio_ambiente",
+    "poliza_medio_ambiente",
+    "vin",
+    "vin_niv",
+    "numero_motor",
+    "motor",
+    "peso_bruto_vehicular",
+    "metadata",
+}
+
 CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "clientes": {
         "table": TBL_CLIENTES,
@@ -67,7 +91,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     },
     "vehiculos": {
         "table": TBL_VEHICULOS,
-        "required": ["alias", "placas", "config_vehicular", "permiso_sct", "num_permiso_sct", "aseguradora_rc", "poliza_rc"],
+        "required": ["alias", "placas", "config_vehicular", "permiso_sct", "num_permiso_sct", "aseguradora", "poliza_seguro"],
         "allowed": [
             "alias", "numero_economico", "unidad", "placas", "config_vehicular", "configuracion_vehicular", "modelo", "anio",
             "vin", "vin_niv", "niv", "numero_motor", "motor",
@@ -841,28 +865,24 @@ def _expand_vehicle_aliases(row: dict[str, Any]) -> dict[str, Any]:
     alias = _first_text(expanded.get("alias"), expanded.get("numero_economico"), expanded.get("unidad"))
     if alias:
         expanded["alias"] = alias
-        expanded.setdefault("numero_economico", alias)
+        expanded["numero_economico"] = _first_text(expanded.get("numero_economico"), alias)
     vin = _first_text(expanded.get("vin"), expanded.get("vin_niv"), expanded.get("niv"))
     if vin:
         expanded["vin"] = vin
-        expanded.setdefault("vin_niv", vin)
-        expanded.setdefault("niv", vin)
+        expanded["vin_niv"] = _first_text(expanded.get("vin_niv"), vin)
     motor = _first_text(expanded.get("numero_motor"), expanded.get("motor"))
     if motor:
         expanded["numero_motor"] = motor
-        expanded.setdefault("motor", motor)
+        expanded["motor"] = _first_text(expanded.get("motor"), motor)
     config = _first_text(expanded.get("config_vehicular"), expanded.get("configuracion_vehicular"))
     if config:
         expanded["config_vehicular"] = config
-        expanded.setdefault("configuracion_vehicular", config)
     aseguradora = _first_text(expanded.get("aseguradora_rc"), expanded.get("aseguradora"))
     if aseguradora:
-        expanded["aseguradora_rc"] = aseguradora
-        expanded.setdefault("aseguradora", aseguradora)
+        expanded["aseguradora"] = aseguradora
     poliza = _first_text(expanded.get("poliza_rc"), expanded.get("poliza_seguro"))
     if poliza:
-        expanded["poliza_rc"] = poliza
-        expanded.setdefault("poliza_seguro", poliza)
+        expanded["poliza_seguro"] = poliza
     for key in (
         "alias", "numero_economico", "unidad", "placas", "modelo", "anio",
         "vin", "vin_niv", "niv", "numero_motor", "motor",
@@ -899,7 +919,7 @@ def _expand_vehicle_aliases(row: dict[str, Any]) -> dict[str, Any]:
         expanded["metadata"] = metadata
     elif metadata:
         expanded["metadata"] = metadata
-    return expanded
+    return {key: value for key, value in expanded.items() if key in VEHICLE_DB_FIELDS}
 
 
 def _expand_installation_metadata(row: dict[str, Any]) -> dict[str, Any]:
