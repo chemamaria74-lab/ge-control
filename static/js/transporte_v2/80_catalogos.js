@@ -140,6 +140,7 @@ const TRV2_CATALOG_FORMS = {
     ['tipo_licencia', 'Tipo licencia', 'license-type'],
     ['vencimiento_licencia', 'Vencimiento licencia', 'date'],
     ['telefono', 'Teléfono'],
+    ['vehiculo_frecuente_id', 'Vehículo asignado actual', 'vehicle-select'],
     ['activo', 'Activo', 'checkbox'],
   ],
   vehiculos: [
@@ -225,9 +226,9 @@ const TRV2_CATALOG_FORMS = {
   rutas: [
     ['nombre', 'Nombre'],
     ['origen_id', 'Origen', 'origen-select'],
-    ['cp_origen', 'CP origen'],
+    ['cp_origen', 'CP origen', 'route-cp'],
     ['destino_id', 'Destino', 'destino-select'],
-    ['cp_destino', 'CP destino'],
+    ['cp_destino', 'CP destino', 'route-cp'],
     ['distancia_km', 'Distancia km', 'number'],
     ['duracion_estimada_min', 'Duración estimada min', 'number'],
     ['activo', 'Activo', 'checkbox'],
@@ -247,7 +248,7 @@ const TRV2_CATALOG_UI = {
     title: 'Operadores / Choferes',
     subtitle: 'Figuras Transporte tipo 01 para Carta Porte.',
     metrics: [['Registros', 'count'], ['Con RFC figura', 'rfc_figura'], ['Con licencia', 'licencia']],
-    fields: [['RFC Figura', 'rfc_figura'], ['Licencia', 'licencia'], ['Teléfono', 'telefono']],
+    fields: [['RFC Figura', 'rfc_figura'], ['Licencia', 'licencia'], ['Vehículo asignado', 'vehiculo_frecuente_id'], ['Teléfono', 'telefono']],
   },
   vehiculos: {
     icon: 'fa-truck-moving',
@@ -551,7 +552,7 @@ function trv2RenderCatalogTableRow(name, item, fields) {
       </td>
       ${fields.map(([, key]) => {
         const raw = item[key];
-        const value = typeof raw === 'boolean' ? (raw ? 'Sí' : 'No') : raw;
+        const value = trv2CatalogDisplayValue(name, key, raw);
         return `<td>${trv2Esc(value || 'Pendiente')}</td>`;
       }).join('')}
       <td><span class="trv2-status ${statusClass}">${status}</span></td>
@@ -566,6 +567,14 @@ function trv2RenderCatalogTableRow(name, item, fields) {
   `;
 }
 
+function trv2CatalogDisplayValue(name, key, raw) {
+  if (typeof raw === 'boolean') return raw ? 'Sí' : 'No';
+  if (name === 'operadores' && key === 'vehiculo_frecuente_id') {
+    return trv2CatalogLabel('vehiculos', trv2FindCatalog('vehiculos', raw)) || 'Sin vehículo asignado';
+  }
+  return raw;
+}
+
 function trv2RenderCatalogCard(name, item) {
   const ui = TRV2_CATALOG_UI[name] || {};
   const status = item.activo === false ? 'Inactivo' : 'Activo';
@@ -573,7 +582,7 @@ function trv2RenderCatalogCard(name, item) {
   const actionId = trv2CatalogActionId(item);
   const rows = (ui.fields || []).map(([label, key]) => {
     const raw = item[key];
-    const value = typeof raw === 'boolean' ? (raw ? 'Sí' : 'No') : raw;
+    const value = trv2CatalogDisplayValue(name, key, raw);
     return `
       <div class="trv2-card-row">
         <span>${trv2Esc(label)}</span>
@@ -622,6 +631,14 @@ function trv2RenderCatalogFields(name) {
       const catalog = type === 'origen-select' ? 'origenes' : 'destinos';
       const onchange = type === 'origen-select' ? 'trv2ApplyRouteEndpointToCatalogForm("origen")' : 'trv2ApplyRouteEndpointToCatalogForm("destino")';
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="${onchange}">${trv2CatalogOptions(catalog, `Selecciona ${label.toLowerCase()}`)}</select></label>`;
+    }
+    if (type === 'vehicle-select') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        ${trv2CatalogOptions('vehiculos', 'Sin vehículo asignado')}
+      </select></label>`;
+    }
+    if (type === 'route-cp') {
+      return `<label>${trv2Esc(labelText)}<input data-field="${field}" type="text" readonly class="trv2-readonly-input" placeholder="Se llena desde la instalación"></label>`;
     }
     if (type === 'product-type') {
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="trv2RefreshProductSatDefaults()">
@@ -909,9 +926,34 @@ function trv2ApplyRouteEndpointToCatalogForm(kind) {
   if (!form || form.dataset.catalog !== 'rutas') return;
   const field = kind === 'origen' ? 'origen_id' : 'destino_id';
   const item = trv2FindCatalog(kind === 'origen' ? 'origenes' : 'destinos', form.querySelector(`[data-field="${field}"]`)?.value);
-  if (!item) return;
   const cpField = form.querySelector(`[data-field="${kind === 'origen' ? 'cp_origen' : 'cp_destino'}"]`);
-  if (cpField) cpField.value = item.cp || '';
+  if (cpField) cpField.value = item?.cp || '';
+  trv2RenderRouteEndpointHint(form, kind, item);
+}
+
+function trv2RenderRouteEndpointHint(form, kind, item) {
+  const id = `trv2-route-${kind}-hint`;
+  let hint = form.querySelector(`#${id}`);
+  const field = form.querySelector(`[data-field="${kind === 'origen' ? 'cp_origen' : 'cp_destino'}"]`);
+  if (!field) return;
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.id = id;
+    hint.className = 'trv2-route-endpoint-hint';
+    field.closest('label')?.appendChild(hint);
+  }
+  if (!item) {
+    hint.textContent = 'Selecciona una instalación para llenar CP y domicilio.';
+    return;
+  }
+  const parts = [
+    item.cp ? `CP ${item.cp}` : 'Sin CP',
+    item.estado_sat ? `Estado ${item.estado_sat}` : '',
+    item.municipio_sat ? `Municipio ${item.municipio_sat}` : '',
+    item.id_ubicacion_carta_porte ? `ID ${item.id_ubicacion_carta_porte}` : '',
+    item.direccion || '',
+  ].filter(Boolean);
+  hint.textContent = parts.join(' · ');
 }
 
 function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG, itemId = 0) {
@@ -956,6 +998,10 @@ function trv2FillCatalogModalForm(form, item) {
   trv2RefreshProductSatDefaults();
   trv2ToggleVehicleTrailerFields();
   trv2ToggleInstallationRelationFields();
+  if (form.dataset.catalog === 'rutas') {
+    trv2ApplyRouteEndpointToCatalogForm('origen');
+    trv2ApplyRouteEndpointToCatalogForm('destino');
+  }
 }
 
 function trv2CloseCatalogModal() {
@@ -996,8 +1042,50 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
       data.motor = motor;
     }
     if (data.config_vehicular) data.configuracion_vehicular = data.config_vehicular;
+    if (data.aseguradora_rc) data.aseguradora = data.aseguradora_rc;
+    if (data.poliza_rc) data.poliza_seguro = data.poliza_rc;
     data.remolque_id = Number(data.remolque_id || 0) || '';
     data.remolque2_id = Number(data.remolque2_id || 0) || '';
+  }
+  if (name === 'operadores') {
+    data.vehiculo_frecuente_id = Number(data.vehiculo_frecuente_id || 0) || null;
+    data.vehiculo_asignado_id = data.vehiculo_frecuente_id;
+  }
+  if (name === 'remolques') {
+    const economico = data.alias || data.numero_economico || '';
+    if (economico) {
+      data.alias = economico;
+      data.numero_economico = economico;
+    }
+    const subtipo = data.subtipo_remolque || data.subtipo_remolque_sat || data.subtipo || '';
+    if (subtipo) {
+      data.subtipo_remolque = subtipo;
+      data.subtipo_remolque_sat = subtipo;
+      data.subtipo = subtipo;
+      data.subtipo_rem = subtipo;
+    }
+    if (data.aseguradora) data.aseguradora_rc = data.aseguradora;
+    if (data.poliza) {
+      data.poliza_rc = data.poliza;
+      data.poliza_seguro = data.poliza;
+    }
+    if (data.peso_bruto) data.peso_bruto_toneladas = data.peso_bruto;
+  }
+  if (name === 'rutas') {
+    const origen = trv2FindCatalog('origenes', data.origen_id);
+    const destino = trv2FindCatalog('destinos', data.destino_id);
+    if (!origen?.cp) {
+      trv2Toast('La instalación origen no tiene CP configurado.', 'error');
+      return;
+    }
+    if (!destino?.cp) {
+      trv2Toast('La instalación destino no tiene CP configurado.', 'error');
+      return;
+    }
+    data.cp_origen = origen.cp;
+    data.cp_destino = destino.cp;
+    data.nombre_origen = origen.nombre || origen.origen || '';
+    data.nombre_destino = destino.nombre || destino.destino || '';
   }
   const invalidRfc = [...form.querySelectorAll('[data-rfc-field]')].find(input => input.value.trim() && !trv2ValidRfc(input.value));
   if (invalidRfc) {

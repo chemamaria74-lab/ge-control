@@ -130,6 +130,8 @@ function trv2RenderCartaPortePreview(data) {
   const errors = validations.filter(item => item.nivel === 'error').length;
   const warnings = validations.filter(item => item.nivel === 'warning').length;
   const canStamp = Boolean(data.ready_to_stamp && data.timbrado_habilitado);
+  const pacLabel = data.pac_configurado ? 'Habilitado' : 'Deshabilitado';
+  const pacClass = data.pac_configurado ? 'trv2-alert-ok' : 'trv2-alert-warn';
   const validationHtml = validations.length
     ? validations.map(item => `
       <div class="trv2-validation ${trv2Esc(item.nivel)}">
@@ -155,10 +157,10 @@ function trv2RenderCartaPortePreview(data) {
       </div>
       <div>
         <span>PAC</span>
-        <strong>Deshabilitado</strong>
+        <strong>${trv2Esc(pacLabel)}</strong>
       </div>
     </div>
-    <div class="trv2-alert trv2-alert-warn">Validación previa: no timbra, no genera XML final y no llama PAC hasta confirmar.</div>
+    <div class="trv2-alert ${pacClass}">${trv2Esc(data.pac_mensaje || 'Validación previa: no timbra, no genera XML final y no llama PAC hasta confirmar.')}</div>
     <div class="trv2-alert trv2-alert-ok">Resumen generado. Revisa datos y errores antes de confirmar timbrado.</div>
     <div class="trv2-form-actions trv2-form-actions-inline">
       <button class="trv2-btn trv2-btn-primary" type="button" ${canStamp ? '' : 'disabled'} onclick="trv2ConfirmStampCartaPorte()">
@@ -209,8 +211,13 @@ async function trv2ConfirmStampCartaPorte() {
   }, {allowError: true, timeoutMs: 90000});
   if (!data?.ok) {
     const detail = data?.detail || data?.message || data?.error || 'No se pudo timbrar Carta Porte.';
-    const errors = Array.isArray(data?.errors) ? data.errors.map(item => item.mensaje || item.message || item.campo).filter(Boolean).join(' · ') : '';
-    trv2Toast(errors || detail, 'error');
+    const detailErrors = Array.isArray(detail?.errors) ? detail.errors : [];
+    const errors = (Array.isArray(data?.errors) ? data.errors : detailErrors)
+      .map(item => item.mensaje || item.message || item.campo)
+      .filter(Boolean)
+      .join(' · ');
+    const message = typeof detail === 'string' ? detail : (detail?.message || data?.message || 'No se pudo timbrar Carta Porte.');
+    trv2Toast(errors || message, 'error');
     return;
   }
   trv2Toast(`Carta Porte timbrada. UUID: ${data.uuid_sat || data.uuid_cfdi || 'recibido'}`, 'success');

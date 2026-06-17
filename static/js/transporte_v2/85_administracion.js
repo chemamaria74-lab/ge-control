@@ -1,19 +1,11 @@
 function trv2PopulateOperatorAdminSelects() {
   const choferSelect = document.getElementById('trv2-admin-operator-chofer');
-  const vehicleSelect = document.getElementById('trv2-admin-operator-vehicle');
   if (choferSelect) {
     const current = choferSelect.value;
     choferSelect.innerHTML = '<option value="">Seleccionar operador</option>' + (TRV2_CATALOGS.operadores || []).map(item => (
       `<option value="${Number(item.id)}">${trv2Esc(item.nombre || `Operador #${item.id}`)}</option>`
     )).join('');
     if (current) choferSelect.value = current;
-  }
-  if (vehicleSelect) {
-    const current = vehicleSelect.value;
-    vehicleSelect.innerHTML = '<option value="">Opcional</option>' + (TRV2_CATALOGS.vehiculos || []).map(item => (
-      `<option value="${Number(item.id)}">${trv2Esc(item.alias || item.placas || `Vehículo #${item.id}`)}</option>`
-    )).join('');
-    if (current) vehicleSelect.value = current;
   }
 }
 
@@ -43,7 +35,6 @@ function trv2RenderOperatorAccesses(items = []) {
       <div>
         <strong>${trv2Esc(item.chofer_nombre || `Operador #${item.chofer_id || ''}`)}</strong>
         <span>Usuario: ${trv2Esc(item.usuario || 'Token temporal')}</span>
-        <span>Vehículo habitual: ${trv2Esc(trv2CatalogLabel('vehiculos', trv2FindCatalog('vehiculos', item.vehiculo_id)) || 'Opcional')}</span>
         <span>Expira: ${trv2Esc(item.expires_at || 'Sin fecha')}</span>
         <span>Último uso: ${trv2Esc(item.last_used_at || 'Sin uso')}</span>
       </div>
@@ -64,7 +55,6 @@ async function trv2CreateOperatorAccess(event) {
   event.preventDefault();
   const result = document.getElementById('trv2-operator-access-result');
   const choferId = Number(document.getElementById('trv2-admin-operator-chofer')?.value || 0);
-  const vehiculoId = Number(document.getElementById('trv2-admin-operator-vehicle')?.value || 0);
   const usuario = document.getElementById('trv2-admin-operator-user')?.value.trim() || '';
   const token = document.getElementById('trv2-admin-operator-pin')?.value.trim() || '';
   const active = document.getElementById('trv2-admin-operator-active')?.value !== 'false';
@@ -79,7 +69,6 @@ async function trv2CreateOperatorAccess(event) {
   const data = await trv2Api('POST', '/api/tr-v2/operator/accesses', {
     perfil_id: TRV2_PERFIL?.id || null,
     chofer_id: choferId,
-    vehiculo_id: vehiculoId || null,
     usuario,
     token,
     activo: active,

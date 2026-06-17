@@ -187,7 +187,7 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
       <small class="trv2-route-hint" id="${scope === 'cp' ? 'trv2-cp-doc-route-hint' : 'trv2-doc-route-hint'}"></small>
     </label>
     <label>Operador
-      <select id="${scope === 'cp' ? 'trv2-cp-doc-operador-id' : 'trv2-doc-operador-id'}" required onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">${trv2CatalogOptions('operadores', 'Selecciona operador')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-operador-id' : 'trv2-doc-operador-id'}" required onchange="trv2ApplyOperatorVehicleDefault('${trv2Esc(scope)}')">${trv2CatalogOptions('operadores', 'Selecciona operador')}</select>
     </label>
     <label>Vehículo
       <select id="${scope === 'cp' ? 'trv2-cp-doc-vehiculo-id' : 'trv2-doc-vehiculo-id'}" required onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">${trv2CatalogOptions('vehiculos', 'Selecciona vehículo')}</select>
@@ -212,6 +212,17 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
   `;
   trv2SelectDetectedCatalogValues(scope, detected);
   trv2SetDefaultTripDates(scope);
+}
+
+function trv2ApplyOperatorVehicleDefault(scope = 'doc') {
+  const operador = trv2FindCatalog('operadores', document.getElementById(trv2DocFieldId(scope, 'operador-id'))?.value);
+  const vehiculoSelect = document.getElementById(trv2DocFieldId(scope, 'vehiculo-id'));
+  const assignedVehicleId = operador?.vehiculo_frecuente_id || operador?.vehiculo_asignado_id || '';
+  if (vehiculoSelect && assignedVehicleId && !vehiculoSelect.value) {
+    vehiculoSelect.value = String(assignedVehicleId);
+    trv2Toast('Vehículo asignado del operador aplicado al viaje. Puedes cambiarlo manualmente si es necesario.', 'info');
+  }
+  trv2UpdateDocumentPending(scope);
 }
 
 function trv2RenderPermisoStatus(info = {}) {
