@@ -117,8 +117,8 @@ const TRV2_EMBALAJES = [['4H2', 'Cajas de plástico sólido'], ['Z01', 'No aplic
 
 const TRV2_REQUIRED_FIELDS = {
   clientes: ['nombre', 'rfc', 'cp'],
-  operadores: ['nombre', 'rfc_figura', 'licencia', 'id_cre'],
-  vehiculos: ['alias', 'placas', 'config_vehicular', 'permiso_sct', 'num_permiso_sct', 'aseguradora_rc', 'poliza_rc'],
+  operadores: ['nombre', 'rfc_figura', 'licencia'],
+  vehiculos: ['alias', 'placas', 'config_vehicular', 'permiso_sct', 'num_permiso_sct', 'id_cre', 'aseguradora_rc', 'poliza_rc'],
   remolques: ['alias', 'placas', 'subtipo_remolque'],
   productos: ['descripcion', 'clave_producto', 'unidad'],
   proveedores: ['rfc', 'nombre', 'producto', 'permiso_cre'],
@@ -140,7 +140,6 @@ const TRV2_CATALOG_FORMS = {
     ['nombre', 'Nombre'],
     ['rfc_figura', 'RFC Figura', 'rfc'],
     ['licencia', 'Licencia federal'],
-    ['id_cre', 'ID CRE'],
     ['tipo_licencia', 'Tipo licencia', 'license-type'],
     ['vencimiento_licencia', 'Vencimiento licencia', 'date'],
     ['telefono', 'Teléfono'],
@@ -157,6 +156,7 @@ const TRV2_CATALOG_FORMS = {
     ['anio', 'Año'],
     ['permiso_sct', 'Permiso SCT/SICT', 'sct-permit'],
     ['num_permiso_sct', 'Núm. permiso'],
+    ['id_cre', 'ID CRE'],
     ['aseguradora_rc', 'Aseguradora RC'],
     ['poliza_rc', 'Póliza RC'],
     ['aseguradora_medio_ambiente', 'Aseg. medio ambiente'],
@@ -250,14 +250,14 @@ const TRV2_CATALOG_UI = {
     title: 'Operadores',
     subtitle: 'Figuras Transporte tipo 01 para Carta Porte.',
     metrics: [['Registros', 'count'], ['Con RFC figura', 'rfc_figura'], ['Con licencia', 'licencia']],
-    fields: [['RFC Figura', 'rfc_figura'], ['Licencia', 'licencia'], ['ID CRE', 'id_cre'], ['Vehículo asignado', 'vehiculo_frecuente_id'], ['Teléfono', 'telefono']],
+    fields: [['RFC Figura', 'rfc_figura'], ['Licencia', 'licencia'], ['Vehículo asignado', 'vehiculo_frecuente_id'], ['Teléfono', 'telefono']],
   },
   vehiculos: {
     icon: 'fa-truck-moving',
     title: 'Vehículos',
     subtitle: 'Unidades, autotanques, permisos y seguros.',
     metrics: [['Registros', 'count'], ['Con placas', 'placas'], ['Con seguro RC', 'poliza_rc']],
-    fields: [['Placas', 'placas'], ['Modelo', 'modelo'], ['VIN / NIV', 'vin'], ['Motor', 'numero_motor'], ['Config.', 'config_vehicular'], ['Permiso', 'permiso_sct'], ['Seguro', 'poliza_rc']],
+    fields: [['Placas', 'placas'], ['Modelo', 'modelo'], ['VIN / NIV', 'vin'], ['Motor', 'numero_motor'], ['Config.', 'config_vehicular'], ['Permiso', 'permiso_sct'], ['ID CRE', 'id_cre'], ['Seguro', 'poliza_rc']],
   },
   remolques: {
     icon: 'fa-trailer',
