@@ -4563,6 +4563,109 @@ async def transporte_v2_carta_porte_timbrar(
     return _stamp_carta_porte_context(context)
 
 
+@router.get("/tr-v2/carta-porte/timbradas")
+async def transporte_v2_carta_porte_timbradas(
+    filtro: str = Query(default="hoy"),
+    limit: int = Query(default=80, ge=1, le=300),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(None, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    sb = _stamp_sb()
+    q = (
+        sb.table(TBL_CFDI)
+        .select("id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,pdf_url,status,fecha_timbrado,rfc_receptor,volumen_total,importe_total")
+        .eq("user_id", uid)
+        .order("fecha_timbrado", desc=True)
+        .limit(limit)
+    )
+    if pid:
+        q = q.eq("perfil_id", pid)
+    if filtro == "hoy":
+        mx_tz = timezone(timedelta(hours=-6))
+        today = datetime.now(mx_tz).date()
+        start = datetime(today.year, today.month, today.day, tzinfo=mx_tz).isoformat()
+        end = datetime(today.year, today.month, today.day, tzinfo=mx_tz) + timedelta(days=1)
+        q = q.gte("fecha_timbrado", start).lt("fecha_timbrado", end.isoformat())
+    rows = q.execute().data or []
+    trip_ids = [int(row.get("viaje_id") or 0) for row in rows if row.get("viaje_id")]
+    trips_by_id: dict[int, dict[str, Any]] = {}
+    if trip_ids:
+        tq = (
+            sb.table(TBL_VIAJES)
+            .select("id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,operador_nombre,vehiculo_alias,metadata,defaults_json")
+            .eq("user_id", uid)
+            .in_("id", trip_ids)
+        )
+        if pid:
+            tq = tq.eq("perfil_id", pid)
+        for trip in tq.execute().data or []:
+            trips_by_id[int(trip.get("id") or 0)] = trip
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        viaje_id = int(row.get("viaje_id") or 0)
+        trip = trips_by_id.get(viaje_id, {})
+        meta = _meta(trip)
+        items.append({
+            "id": row.get("id"),
+            "viaje_id": viaje_id,
+            "tipo_cfdi": _first_text(row.get("tipo_cfdi"), "I"),
+            "uuid_sat": _first_text(row.get("uuid_sat")),
+            "id_ccp": _first_text(row.get("id_ccp"), meta.get("id_ccp")),
+            "status": _first_text(row.get("status"), "Vigente"),
+            "fecha_timbrado": _first_text(row.get("fecha_timbrado")),
+            "cliente_nombre": _first_text(trip.get("cliente_nombre"), meta.get("cliente_nombre"), row.get("rfc_receptor")),
+            "ruta": f"{_first_text(trip.get('origen'), meta.get('origen'), 'Origen')} -> {_first_text(trip.get('destino'), meta.get('destino'), 'Destino')}",
+            "fecha_salida": _first_text(trip.get("fecha_salida"), trip.get("fecha_hora_salida")),
+            "operador_nombre": _first_text(trip.get("operador_nombre"), meta.get("operador_nombre")),
+            "vehiculo_alias": _first_text(trip.get("vehiculo_alias"), meta.get("vehiculo_alias")),
+            "volumen_litros": _num(row.get("volumen_total") or trip.get("volumen_litros") or trip.get("volumen_total_litros")),
+            "importe_total": _num(row.get("importe_total")),
+            "pdf_url": f"/api/tr-v2/carta-porte/{viaje_id}/pdf?download=1",
+            "xml_url": f"/api/tr-v2/carta-porte/{viaje_id}/xml",
+            "pac_pdf_url": _first_text(row.get("pdf_url")),
+        })
+    return {"ok": True, "items": items, "filtro": filtro}
+
+
+@router.get("/tr-v2/carta-porte/{viaje_id}/pdf")
+async def transporte_v2_carta_porte_pdf(
+    viaje_id: int,
+    download: bool = Query(default=True),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(None, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    rows = q.order("fecha_timbrado", desc=True).limit(1).execute().data or []
+    if not rows or not rows[0].get("xml_content"):
+        raise HTTPException(404, "XML Carta Porte no encontrado para generar PDF.")
+    xml_content = rows[0]["xml_content"]
+    try:
+        settings = _load_settings(token, uid, pid)
+    except Exception:
+        settings = _settings_defaults()
+    fiscal = settings.get("perfil_fiscal") or {}
+    logo = _first_text(settings.get("PdfLogoDataUrl"), fiscal.get("logo_data_url"), fiscal.get("logo_url"))
+    try:
+        info = extraer_info_pdf(xml_content)
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo)
+    except Exception as exc:
+        raise HTTPException(500, f"No se pudo generar el PDF de Carta Porte: {exc}") from exc
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'},
+    )
+
+
 @router.get("/tr-v2/carta-porte/{viaje_id}/xml")
 async def transporte_v2_carta_porte_xml(
     viaje_id: int,
