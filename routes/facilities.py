@@ -12,6 +12,7 @@
 #   PER50 → Almacenamiento GLP                 → actividad SAT: ALM
 
 import logging
+import re
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -91,6 +92,116 @@ def _require_active_profile(uid: str, perfil_id: Optional[int]) -> int:
     return perfil_id
 
 
+def _profile_tenant_id(uid: str, perfil_id: int) -> Optional[str]:
+    try:
+        from supabase_config import get_supabase_admin
+        rows = (
+            get_supabase_admin()
+            .table("perfiles_empresa")
+            .select("tenant_id")
+            .eq("id", perfil_id)
+            .eq("user_id", uid)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return rows[0].get("tenant_id") if rows else None
+    except Exception as exc:
+        logger.warning("facility tenant lookup failed: user=%s perfil=%s err=%s", uid, perfil_id, exc)
+        return None
+
+
+def _cp_location_id_error(tipo: str, value: str) -> str:
+    text = str(value or "").strip().upper()
+    if not text:
+        return ""
+    tipo_clean = str(tipo or "").strip().lower()
+    allowed = {"OR"} if tipo_clean == "origen" else {"DE"} if tipo_clean == "destino" else {"OR", "DE"}
+    if not re.match(r"^(OR|DE)\d{6}$", text):
+        return f"ID ubicación Carta Porte debe tener formato OR000001 o DE000001, no {text}."
+    if text[:2] not in allowed:
+        expected = "OR" if tipo_clean == "origen" else "DE"
+        return f"ID ubicación Carta Porte debe iniciar con {expected} para tipo {tipo_clean}."
+    return ""
+
+
+def _facility_cp_config_rows(uid: str, perfil_id: Optional[int]) -> dict[int, dict]:
+    if not perfil_id:
+        return {}
+    try:
+        from supabase_config import get_supabase_admin
+        rows = (
+            get_supabase_admin()
+            .table("gas_lp_facility_carta_porte_config")
+            .select("*")
+            .eq("user_id", uid)
+            .eq("perfil_id", perfil_id)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("facility cp config list failed: user=%s perfil=%s err=%s", uid, perfil_id, exc)
+        return {}
+    return {int(row.get("facility_id") or 0): row for row in rows if row.get("facility_id")}
+
+
+def _merge_facility_cp_config(facilities: list[dict], uid: str, perfil_id: Optional[int]) -> None:
+    configs = _facility_cp_config_rows(uid, perfil_id)
+    for facility in facilities:
+        cfg = configs.get(int(facility.get("id") or 0)) or {}
+        facility["tipo_ubicacion"] = cfg.get("tipo_ubicacion") or ""
+        facility["tipo_carta_porte"] = cfg.get("tipo_ubicacion") or ""
+        facility["id_ubicacion_carta_porte"] = cfg.get("id_ubicacion_carta_porte") or ""
+        facility["estado_sat"] = cfg.get("estado_sat") or ""
+        facility["municipio_sat"] = cfg.get("municipio_sat") or ""
+        facility["localidad_sat"] = cfg.get("localidad_sat") or ""
+        facility["referencia_carta_porte"] = cfg.get("referencia_carta_porte") or ""
+
+
+def _upsert_facility_cp_config(uid: str, perfil_id: int, facility_id: int, data: dict) -> None:
+    keys = {
+        "id_ubicacion_carta_porte",
+        "tipo_ubicacion",
+        "tipo_carta_porte",
+        "estado_sat",
+        "municipio_sat",
+        "localidad_sat",
+        "referencia_carta_porte",
+    }
+    if not any(str(data.get(key) or "").strip() for key in keys):
+        return
+    tipo = str(data.get("tipo_ubicacion") or data.get("tipo_carta_porte") or "ambos").strip().lower()
+    if tipo not in {"origen", "destino", "ambos"}:
+        tipo = "ambos"
+    id_ubicacion = str(data.get("id_ubicacion_carta_porte") or "").strip().upper()
+    id_error = _cp_location_id_error(tipo, id_ubicacion)
+    if id_error:
+        raise HTTPException(400, id_error)
+    from supabase_config import get_supabase_admin
+    tenant_id = _profile_tenant_id(uid, perfil_id)
+    payload = {
+        "user_id": uid,
+        "tenant_id": tenant_id,
+        "perfil_id": perfil_id,
+        "facility_id": facility_id,
+        "id_ubicacion_carta_porte": id_ubicacion,
+        "tipo_ubicacion": tipo,
+        "estado_sat": str(data.get("estado_sat") or "").strip().upper(),
+        "municipio_sat": str(data.get("municipio_sat") or "").strip(),
+        "localidad_sat": str(data.get("localidad_sat") or "").strip(),
+        "referencia_carta_porte": str(data.get("referencia_carta_porte") or "").strip(),
+        "activo": True,
+    }
+    existing = _facility_cp_config_rows(uid, perfil_id).get(int(facility_id))
+    sb = get_supabase_admin()
+    if existing:
+        sb.table("gas_lp_facility_carta_porte_config").update(payload).eq("id", existing["id"]).execute()
+    else:
+        sb.table("gas_lp_facility_carta_porte_config").insert(payload).execute()
+
+
 def _empty_scope_diagnostics(uid: str, modulo: Optional[str], perfil_id: Optional[int]) -> dict:
     if not perfil_id:
         return {}
@@ -152,6 +263,13 @@ class FacilityPayload(BaseModel):
     modelo_medidor:      str   = ""
     serie_medidor:       str   = ""
     fecha_calibracion_medidor: str = ""
+    id_ubicacion_carta_porte: str = ""
+    tipo_ubicacion:      str   = ""
+    tipo_carta_porte:    str   = ""
+    estado_sat:          str   = ""
+    municipio_sat:       str   = ""
+    localidad_sat:       str   = ""
+    referencia_carta_porte: str = ""
 
 
 class MedidorPayload(BaseModel):
@@ -176,6 +294,8 @@ async def list_facilities(
         _require_active_profile(uid, perfil_id)
     init_db()
     facs = get_facilities(uid, modulo, perfil_id=perfil_id)
+    if modulo == "gas_lp":
+        _merge_facility_cp_config(facs, uid, perfil_id)
     for f in facs:
         tp = f.get("tipo_permiso", "PER40") or "PER40"
         f["actividad_sat"]      = _get_actividad(tp)
@@ -212,6 +332,9 @@ async def add_facility(
     data["caracter"]          = "permisionario"
     data["perfil_id"] = perfil_id
     fac = create_facility_v2(uid, data)
+    if fac and fac.get("id"):
+        _upsert_facility_cp_config(uid, perfil_id, int(fac["id"]), data)
+        _merge_facility_cp_config([fac], uid, perfil_id)
     return JSONResponse(content={"ok": True, "facility": fac})
 
 
@@ -234,6 +357,9 @@ async def edit_facility(
     data["actividad_sat"]     = _get_actividad(tp)
     data["caracter"]          = "permisionario"
     fac = update_facility_v2(fid, uid, data)
+    _upsert_facility_cp_config(uid, perfil_id, fid, data)
+    if fac:
+        _merge_facility_cp_config([fac], uid, perfil_id)
     return JSONResponse(content={"ok": True, "facility": fac})
 
 
