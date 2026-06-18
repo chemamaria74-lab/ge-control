@@ -330,8 +330,8 @@ async def eliminar_config_cliente(estacion_id: str):
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def root():
-    """Redirige a la vista de selección de módulo."""
-    return RedirectResponse(url="/choice", status_code=302)
+    """Landing pública de GE Control."""
+    return _render_html_file("landing.html")
 
 
 @app.get("/choice", response_class=HTMLResponse, include_in_schema=False)
