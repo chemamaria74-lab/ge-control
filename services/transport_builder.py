@@ -10,12 +10,12 @@
 #   · CFDI 4.0 — Anexo 20 RMF
 #   · Carta Porte 3.1 — Apéndice 3 SAT (XSD CartaPorte31.xsd)
 #   · Complemento Hidrocarburos — Anexo 29 RMF 2026, Regla 2.7.1.48
-#   · SW Sapien — envío como JSON al endpoint /cfdi40/stamp/json/v4
+#   · SW Sapien — timbrado de CFDI/Carta Porte para obtener XML fiscal
 #
 # NOTA IMPORTANTE:
-#   Este módulo construye el dict Python que se serializa a JSON y se envía
-#   a SW Sapien en modalidad "Emisión Timbrado JSON". SW Sapien realiza:
-#     1. Transformación JSON → XML
+#   Este módulo construye el payload Python que SW Sapien transforma y timbra
+#   como XML fiscal. SW Sapien realiza:
+#     1. Transformación del payload → XML
 #     2. Generación de cadena original + sello digital (con CSD subido al portal ADT)
 #     3. Timbrado ante el SAT
 #   Por eso los campos Sello, Certificado, NoCertificado se envían vacíos.
@@ -100,6 +100,22 @@ def _normalizar_id_ccp(value: Optional[str]) -> str:
 def _smart_round(v: float, decimales: int = 2) -> str:
     """Serializa float sin notación científica, con los decimales exactos."""
     return f"{v:.{decimales}f}"
+
+
+def _domicilio_ubicacion(cp: str, estado: str = "", municipio: str = "", localidad: str = "", calle: str = "") -> dict:
+    domicilio = {
+        "CodigoPostal": (cp or "").strip(),
+        "Pais": "MEX",
+    }
+    if estado:
+        domicilio["Estado"] = estado.strip()
+    if municipio:
+        domicilio["Municipio"] = municipio.strip()
+    if localidad:
+        domicilio["Localidad"] = localidad.strip()
+    if calle:
+        domicilio["Calle"] = calle.strip()
+    return domicilio
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -289,30 +305,28 @@ def _build_carta_porte(
     # ── Ubicaciones (origen y destino) ─────────────────────────────────────────
     cp_origen  = viaje.cp_origen.strip()  or "20000"
     cp_destino = viaje.cp_destino.strip() or "20000"
+    id_origen = viaje.id_ubicacion_origen.strip() or "OR000001"
+    id_destino = viaje.id_ubicacion_destino.strip() or "DE000001"
+    rfc_origen = viaje.rfc_origen.strip().upper() or emisor_rfc
+    rfc_destino = viaje.rfc_destino.strip().upper() or viaje.rfc_receptor or ""
     fecha_salida  = _fmt_fecha(viaje.fecha_hora_salida)
     fecha_llegada = _fmt_fecha(viaje.fecha_hora_llegada or viaje.fecha_hora_salida)
 
     ubicaciones: list[dict] = [
         {
             "TipoUbicacion":    "Origen",
-            "IDUbicacion":      "OR000001",
-            "RFCRemitenteDestinatario": emisor_rfc,
+            "IDUbicacion":      id_origen,
+            "RFCRemitenteDestinatario": rfc_origen,
             "FechaHoraSalidaLlegada":  fecha_salida,
-            "Domicilio": {
-                "CodigoPostal": cp_origen,
-                "Pais":         "MEX",
-            },
+            "Domicilio": _domicilio_ubicacion(cp_origen, viaje.estado_origen, viaje.municipio_origen, viaje.localidad_origen, viaje.calle_origen),
         },
         {
             "TipoUbicacion":    "Destino",
-            "IDUbicacion":      "DE000001",
+            "IDUbicacion":      id_destino,
             "DistanciaRecorrida": _smart_round(distancia, 1),
-            "RFCRemitenteDestinatario": viaje.rfc_receptor or "",
+            "RFCRemitenteDestinatario": rfc_destino,
             "FechaHoraSalidaLlegada":  fecha_llegada,
-            "Domicilio": {
-                "CodigoPostal": cp_destino,
-                "Pais":         "MEX",
-            },
+            "Domicilio": _domicilio_ubicacion(cp_destino, viaje.estado_destino, viaje.municipio_destino, viaje.localidad_destino, viaje.calle_destino),
         },
     ]
 
@@ -343,8 +357,8 @@ def build_cfdi_transporte(
     id_ccp:     Optional[str] = None,
 ) -> tuple[dict, str]:
     """
-    Construye el dict JSON completo del CFDI para un viaje de transporte.
-    El dict se envía directamente a SW Sapien como "Emisión Timbrado JSON".
+    Construye el payload completo del CFDI para un viaje de transporte.
+    SW Sapien lo timbra y devuelve el XML fiscal de Carta Porte.
 
     Args:
         viaje:    Datos del viaje (ViajeCreate).
