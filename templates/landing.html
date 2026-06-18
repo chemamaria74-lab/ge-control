@@ -3,225 +3,832 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GE Control | Control fiscal y operativo</title>
+  <meta name="description" content="GE Control centraliza operación, documentos y cumplimiento fiscal para empresas de Gas LP y Transporte.">
+  <title>GE Control | Control operativo y fiscal</title>
   <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <style>
+    :root {
+      --lp-ink: #171214;
+      --lp-muted: #6e6661;
+      --lp-soft: #f7f3ed;
+      --lp-paper: #fffdf9;
+      --lp-line: rgba(51, 36, 31, .13);
+      --lp-wine: #74182a;
+      --lp-wine-dark: #3b0a14;
+      --lp-rose: #f3e8e8;
+      --lp-gold: #c7a866;
+      --lp-green: #486c5a;
+    }
     * { box-sizing: border-box; }
-    body {
+    html { scroll-behavior: smooth; }
+    body.lp-page {
       margin: 0;
       min-height: 100vh;
-      color: #111;
-      font-family: var(--ge-font, Inter, system-ui, sans-serif);
-      background:
-        radial-gradient(circle at 16% 12%, rgba(200,169,107,.18), transparent 29%),
-        radial-gradient(circle at 88% 12%, rgba(122,30,44,.10), transparent 27%),
-        linear-gradient(180deg, #fff 0%, #f7f6f3 100%);
+      overflow-x: hidden;
+      background: var(--lp-paper) !important;
+      color: var(--lp-ink) !important;
+      font-family: var(--ge-font, Inter, system-ui, sans-serif) !important;
     }
-    .shell {
-      width: min(1120px, calc(100% - 32px));
+    .lp-page a { color: inherit; }
+    .lp-shell {
+      width: min(1180px, calc(100% - 44px));
       margin: 0 auto;
-      padding: 28px 0 52px;
     }
-    .topbar {
+    .lp-nav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: block !important;
+      min-height: 0 !important;
+      padding: 0 !important;
+      overflow: visible !important;
+      background: rgba(255,253,249,.88) !important;
+      color: var(--lp-ink) !important;
+      border-bottom: 1px solid var(--lp-line) !important;
+      box-shadow: none !important;
+      backdrop-filter: blur(18px);
+    }
+    .lp-nav-inner {
+      min-height: 76px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 18px;
-      padding: 12px 0;
+      gap: 24px;
     }
-    .brand img { width: 210px; max-width: 58vw; display: block; }
-    .nav {
+    .lp-brand {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+    }
+    .lp-brand img {
+      display: block;
+      width: 184px;
+      height: auto;
+    }
+    .lp-links {
       display: flex;
       align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
+      gap: 12px;
     }
-    .btn {
+    .lp-link {
+      padding: 10px 9px;
+      color: #504844 !important;
+      font-size: .86rem;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .lp-link:hover { color: var(--lp-wine) !important; }
+    .lp-login,
+    .lp-button {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 42px;
-      padding: 0 18px;
-      border-radius: 999px;
-      border: 1px solid #d8d0c4;
+      min-height: 44px;
+      border-radius: 8px;
       text-decoration: none;
-      color: #5b0f1d;
+      font-size: .9rem;
+      font-weight: 900;
+      transition: transform .18s ease, background .18s ease, border-color .18s ease, color .18s ease;
+    }
+    .lp-login {
+      padding: 0 17px;
+      color: var(--lp-wine) !important;
+      border: 1px solid rgba(116,24,42,.2);
       background: #fff;
-      font-weight: 800;
-      font-size: .92rem;
-      box-shadow: 0 12px 30px rgba(17,17,17,.055);
     }
-    .btn.primary {
-      color: #fff;
-      border-color: #7a1e2c;
-      background: #7a1e2c;
+    .lp-login:hover {
+      transform: translateY(-1px);
+      border-color: rgba(116,24,42,.38);
+      background: #fff7f7;
     }
-    .hero {
+    .lp-button {
+      padding: 0 20px;
+      color: #fff !important;
+      border: 1px solid var(--lp-wine);
+      background: var(--lp-wine);
+      box-shadow: 0 14px 28px rgba(116,24,42,.18);
+    }
+    .lp-button:hover {
+      transform: translateY(-2px);
+      background: var(--lp-wine-dark);
+      border-color: var(--lp-wine-dark);
+    }
+    .lp-button.lp-light {
+      color: var(--lp-ink) !important;
+      border-color: var(--lp-line);
+      background: rgba(255,255,255,.7);
+      box-shadow: none;
+    }
+    .lp-button.lp-light:hover {
+      color: var(--lp-wine) !important;
+      background: #fff;
+      border-color: rgba(116,24,42,.24);
+    }
+    .lp-hero {
+      position: relative;
+      min-height: calc(100vh - 76px);
       display: grid;
-      grid-template-columns: minmax(0, 1.06fr) minmax(320px, .94fr);
-      gap: 34px;
       align-items: center;
-      padding: 64px 0 36px;
+      padding: 48px 0 40px;
+      background:
+        linear-gradient(90deg, rgba(255,253,249,.96) 0%, rgba(255,253,249,.9) 58%, rgba(245,239,232,.78) 100%),
+        linear-gradient(135deg, #fffdf9, #f3eee6);
     }
-    .eyebrow {
+    .lp-hero::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 1px;
+      background: var(--lp-line);
+    }
+    .lp-hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, .95fr) minmax(420px, 1.05fr);
+      gap: 64px;
+      align-items: center;
+    }
+    .lp-eyebrow {
       display: inline-flex;
-      width: fit-content;
-      padding: 8px 12px;
-      border-radius: 999px;
-      border: 1px solid #e3d4b4;
-      color: #5b0f1d;
-      background: #f8f2e4;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 22px;
+      color: var(--lp-wine);
+      font-size: .76rem;
+      font-weight: 950;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .lp-eyebrow::before {
+      content: "";
+      width: 26px;
+      height: 2px;
+      background: var(--lp-gold);
+    }
+    .lp-title {
+      max-width: 760px;
+      margin: 0;
+      color: var(--lp-ink);
+      font-size: clamp(3.35rem, 6.7vw, 6rem);
+      font-weight: 880;
+      letter-spacing: 0;
+      line-height: .94;
+    }
+    .lp-title span {
+      display: block;
+      color: var(--lp-wine);
+    }
+    .lp-lead {
+      max-width: 620px;
+      margin: 28px 0 0;
+      color: var(--lp-muted);
+      font-size: clamp(1.04rem, 1.6vw, 1.22rem);
+      line-height: 1.68;
+    }
+    .lp-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 32px;
+    }
+    .lp-proof {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      margin-top: 30px;
+      color: #5f5652;
+      font-size: .84rem;
+      font-weight: 800;
+    }
+    .lp-proof span {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .lp-proof span::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--lp-gold);
+    }
+    .lp-product {
+      position: relative;
+      border: 1px solid rgba(59,10,20,.14);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 30px 80px rgba(37,22,19,.13);
+      overflow: hidden;
+    }
+    .lp-product-top {
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      color: #fff;
+      background: var(--lp-wine-dark);
+    }
+    .lp-product-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
       font-size: .78rem;
+      font-weight: 900;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .lp-product-brand img {
+      width: 28px;
+      height: 28px;
+      object-fit: contain;
+    }
+    .lp-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #d9eadf;
+      font-size: .72rem;
+      font-weight: 850;
+    }
+    .lp-status::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #7db08d;
+    }
+    .lp-product-body {
+      display: grid;
+      grid-template-columns: 168px 1fr;
+      min-height: 420px;
+    }
+    .lp-side {
+      padding: 22px 14px;
+      border-right: 1px solid var(--lp-line);
+      background: #f6f1e9;
+    }
+    .lp-side-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 38px;
+      padding: 0 11px;
+      border-radius: 7px;
+      color: #675d58;
+      font-size: .78rem;
+      font-weight: 850;
+    }
+    .lp-side-item + .lp-side-item { margin-top: 6px; }
+    .lp-side-item.active {
+      color: var(--lp-wine);
+      background: #fff;
+      box-shadow: 0 8px 18px rgba(39,25,20,.06);
+    }
+    .lp-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--lp-gold);
+    }
+    .lp-workspace {
+      padding: 24px;
+      background: #fffdf9;
+    }
+    .lp-work-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--lp-line);
+    }
+    .lp-work-head p {
+      margin: 0 0 7px;
+      color: #81766f;
+      font-size: .74rem;
+      font-weight: 850;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .lp-work-head strong {
+      display: block;
+      color: #221719;
+      font-size: 1.2rem;
+    }
+    .lp-chip {
+      flex: 0 0 auto;
+      padding: 8px 10px;
+      border: 1px solid rgba(72,108,90,.22);
+      border-radius: 999px;
+      color: var(--lp-green);
+      background: #f3f8f4;
+      font-size: .72rem;
+      font-weight: 900;
+    }
+    .lp-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 16px 0;
+    }
+    .lp-metric {
+      min-height: 104px;
+      padding: 14px;
+      border: 1px solid var(--lp-line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .lp-metric span {
+      display: block;
+      color: #857a73;
+      font-size: .68rem;
       font-weight: 900;
       letter-spacing: .08em;
       text-transform: uppercase;
     }
-    h1 {
-      margin: 18px 0 16px;
-      font-size: clamp(2.6rem, 6vw, 5.4rem);
-      line-height: .96;
-      letter-spacing: -.06em;
-      color: #111;
-    }
-    .lead {
-      margin: 0;
-      color: #625c55;
-      font-size: clamp(1.05rem, 2vw, 1.28rem);
-      line-height: 1.68;
-      max-width: 650px;
-    }
-    .actions {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-top: 28px;
-    }
-    .panel {
-      position: relative;
-      overflow: hidden;
-      border: 1px solid #e7e3dc;
-      border-radius: 22px;
-      background: rgba(255,255,255,.88);
-      box-shadow: 0 26px 70px rgba(17,17,17,.10);
-      padding: 28px;
-    }
-    .panel::after {
-      content: "";
-      position: absolute;
-      right: -74px;
-      top: -76px;
-      width: 190px;
-      height: 190px;
-      border-radius: 999px;
-      background: rgba(122,30,44,.07);
-    }
-    .metric {
-      position: relative;
-      z-index: 1;
-      padding: 18px 0;
-      border-bottom: 1px solid #eee8dc;
-    }
-    .metric:last-child { border-bottom: 0; }
-    .metric strong {
+    .lp-metric strong {
       display: block;
-      color: #7a1e2c;
+      margin-top: 18px;
+      color: #24191b;
       font-size: 1.35rem;
-      margin-bottom: 5px;
     }
-    .metric span {
-      color: #6f6a64;
-      line-height: 1.5;
+    .lp-metric small {
+      display: block;
+      margin-top: 4px;
+      color: var(--lp-green);
+      font-size: .72rem;
+      font-weight: 800;
     }
-    .cards {
+    .lp-flow-card {
+      border: 1px solid var(--lp-line);
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .lp-row {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 16px;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+      min-height: 70px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--lp-line);
+    }
+    .lp-row:last-child { border-bottom: 0; }
+    .lp-row strong {
+      display: block;
+      color: #24191b;
+      font-size: .92rem;
+    }
+    .lp-row span {
+      display: block;
+      margin-top: 4px;
+      color: #7b716b;
+      font-size: .78rem;
+    }
+    .lp-row-badge {
+      color: #fff;
+      background: var(--lp-wine);
+      border-radius: 999px;
+      padding: 7px 10px;
+      font-size: .68rem;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .lp-section {
+      padding: 86px 0;
+      background: #fffdf9;
+    }
+    .lp-section.alt { background: var(--lp-soft); }
+    .lp-section-head {
+      display: grid;
+      grid-template-columns: .9fr 1.1fr;
+      gap: 58px;
+      align-items: end;
+      margin-bottom: 34px;
+    }
+    .lp-overline {
+      margin: 0 0 12px;
+      color: var(--lp-wine);
+      font-size: .72rem;
+      font-weight: 950;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .lp-heading {
+      margin: 0;
+      max-width: 650px;
+      color: #211719;
+      font-size: clamp(2rem, 4vw, 3.7rem);
+      font-weight: 860;
+      letter-spacing: 0;
+      line-height: 1.02;
+    }
+    .lp-copy {
+      max-width: 610px;
+      margin: 0;
+      color: var(--lp-muted);
+      font-size: 1.02rem;
+      line-height: 1.72;
+    }
+    .lp-modules {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+    .lp-module {
+      min-height: 330px;
+      padding: 30px;
+      border: 1px solid var(--lp-line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 18px 42px rgba(37,22,19,.06);
+    }
+    .lp-module.dark {
+      color: #fff;
+      border-color: rgba(255,255,255,.1);
+      background: linear-gradient(145deg, #3b0a14, #74182a);
+    }
+    .lp-module-num {
+      color: #9a8f88;
+      font-size: .76rem;
+      font-weight: 950;
+      letter-spacing: .12em;
+    }
+    .lp-module.dark .lp-module-num { color: #e4cf9e; }
+    .lp-module h3 {
+      margin: 52px 0 12px;
+      font-size: clamp(2rem, 4vw, 3.2rem);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+    .lp-module p {
+      max-width: 470px;
+      margin: 0;
+      color: #716862;
+      line-height: 1.64;
+    }
+    .lp-module.dark p { color: rgba(255,255,255,.72); }
+    .lp-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
       margin-top: 28px;
     }
-    .card {
-      border: 1px solid #e7e3dc;
-      border-radius: 18px;
-      background: #fff;
-      padding: 22px;
-      box-shadow: 0 16px 42px rgba(17,17,17,.055);
+    .lp-tag {
+      padding: 8px 10px;
+      border: 1px solid var(--lp-line);
+      border-radius: 999px;
+      color: #635954;
+      background: #fffaf4;
+      font-size: .7rem;
+      font-weight: 900;
     }
-    .card h2 {
-      margin: 0 0 8px;
-      color: #111;
-      font-size: 1.05rem;
+    .lp-module.dark .lp-tag {
+      color: rgba(255,255,255,.78);
+      border-color: rgba(255,255,255,.16);
+      background: rgba(255,255,255,.08);
     }
-    .card p {
+    .lp-benefits {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-top: 1px solid var(--lp-line);
+      border-bottom: 1px solid var(--lp-line);
+    }
+    .lp-benefit {
+      min-height: 170px;
+      padding: 28px 24px;
+      border-right: 1px solid var(--lp-line);
+    }
+    .lp-benefit:last-child { border-right: 0; }
+    .lp-benefit span {
+      color: var(--lp-wine);
+      font-size: .7rem;
+      font-weight: 950;
+      letter-spacing: .1em;
+    }
+    .lp-benefit strong {
+      display: block;
+      margin-top: 20px;
+      color: #211719;
+      font-size: 1.02rem;
+    }
+    .lp-benefit p {
+      margin: 8px 0 0;
+      color: var(--lp-muted);
+      font-size: .9rem;
+      line-height: 1.55;
+    }
+    .lp-final {
+      padding: 74px 0;
+      color: #fff;
+      background: #221719;
+    }
+    .lp-final-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 34px;
+    }
+    .lp-final h2 {
+      max-width: 650px;
       margin: 0;
-      color: #6f6a64;
-      line-height: 1.58;
-      font-size: .96rem;
+      font-size: clamp(2rem, 4vw, 3.8rem);
+      line-height: 1;
+      letter-spacing: 0;
     }
-    @media (max-width: 860px) {
-      .hero { grid-template-columns: 1fr; padding-top: 38px; }
-      .cards { grid-template-columns: 1fr; }
-      .topbar { align-items: flex-start; flex-direction: column; }
-      .nav { justify-content: flex-start; }
+    .lp-final p {
+      max-width: 520px;
+      margin: 16px 0 0;
+      color: rgba(255,255,255,.66);
+      line-height: 1.65;
+    }
+    .lp-final .lp-button {
+      flex: 0 0 auto;
+      background: #d6bd82;
+      border-color: #d6bd82;
+      color: #251214 !important;
+      box-shadow: none;
+    }
+    .lp-footer {
+      background: #221719;
+      color: rgba(255,255,255,.54);
+      border-top: 1px solid rgba(255,255,255,.1);
+    }
+    .lp-footer-inner {
+      min-height: 74px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      font-size: .82rem;
+    }
+    .lp-footer a {
+      color: rgba(255,255,255,.72) !important;
+      text-decoration: none;
+      font-weight: 800;
+    }
+    .lp-footer a:hover { color: #fff !important; }
+    @media (max-width: 980px) {
+      .lp-hero { min-height: auto; }
+      .lp-hero-grid,
+      .lp-section-head { grid-template-columns: 1fr; }
+      .lp-hero-grid { gap: 42px; }
+      .lp-product { max-width: 720px; }
+      .lp-benefits { grid-template-columns: repeat(2, 1fr); }
+      .lp-benefit:nth-child(2) { border-right: 0; }
+      .lp-benefit:nth-child(-n+2) { border-bottom: 1px solid var(--lp-line); }
+      .lp-final-inner { align-items: flex-start; flex-direction: column; }
+    }
+    @media (max-width: 720px) {
+      .lp-shell { width: min(100% - 28px, 1180px); }
+      .lp-nav-inner { min-height: 68px; }
+      .lp-brand img { width: 148px; }
+      .lp-link { display: none; }
+      .lp-login { min-height: 40px; padding: 0 13px; font-size: .78rem; }
+      .lp-hero { padding: 48px 0 42px; }
+      .lp-title { font-size: clamp(3.1rem, 15vw, 4.7rem); }
+      .lp-actions .lp-button { width: 100%; }
+      .lp-product-body { grid-template-columns: 1fr; min-height: auto; }
+      .lp-side {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 6px;
+        border-right: 0;
+        border-bottom: 1px solid var(--lp-line);
+      }
+      .lp-side-item + .lp-side-item { margin-top: 0; }
+      .lp-workspace { padding: 18px; }
+      .lp-work-head { flex-direction: column; }
+      .lp-metrics { grid-template-columns: 1fr; }
+      .lp-modules,
+      .lp-benefits { grid-template-columns: 1fr; }
+      .lp-module { min-height: auto; }
+      .lp-module h3 { margin-top: 38px; }
+      .lp-benefit,
+      .lp-benefit:nth-child(2) {
+        min-height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--lp-line);
+      }
+      .lp-benefit:last-child { border-bottom: 0; }
+      .lp-section { padding: 64px 0; }
+      .lp-footer-inner {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 22px 0;
+      }
+    }
+    @media (max-width: 420px) {
+      .lp-product-top { padding: 0 14px; }
+      .lp-status { display: none; }
+      .lp-side { grid-template-columns: 1fr; }
+      .lp-row {
+        grid-template-columns: 1fr;
+        gap: 10px;
+        padding: 14px;
+      }
+      .lp-row-badge { width: fit-content; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      * { transition: none !important; }
     }
   </style>
 </head>
-<body>
-  <main class="shell">
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="GE Control">
+<body class="lp-page">
+  <header class="lp-nav">
+    <div class="lp-shell lp-nav-inner">
+      <a class="lp-brand" href="/" aria-label="GE Control">
         <img src="/static/img/ge-control-logo.svg" alt="GE Control">
       </a>
-      <nav class="nav" aria-label="Accesos">
-        <a class="btn" href="/choice">Entrar a plataforma</a>
-        <a class="btn primary" href="/login/gas_lp">Iniciar sesion</a>
+      <nav class="lp-links" aria-label="Navegación principal">
+        <a class="lp-link" href="#modulos">Módulos</a>
+        <a class="lp-link" href="#control">Control</a>
+        <a class="lp-login" href="/choice">Iniciar sesión</a>
       </nav>
-    </header>
+    </div>
+  </header>
 
-    <section class="hero">
-      <div>
-        <span class="eyebrow">SaaS operativo y fiscal</span>
-        <h1>Control claro para Gas LP y Transporte.</h1>
-        <p class="lead">
-          GE Control concentra documentos, operaciones, catalogos y cumplimiento fiscal
-          en una plataforma privada para equipos que necesitan trabajar sin depender de hojas sueltas.
-        </p>
-        <div class="actions">
-          <a class="btn primary" href="/choice">Ver modulos</a>
-          <a class="btn" href="/transporte-v2/roles">Portal Transporte</a>
+  <main>
+    <section class="lp-hero">
+      <div class="lp-shell lp-hero-grid">
+        <div>
+          <p class="lp-eyebrow">SaaS operativo y fiscal</p>
+          <h1 class="lp-title">Control claro <span>para operar mejor.</span></h1>
+          <p class="lp-lead">
+            GE Control organiza Gas LP y Transporte en una plataforma privada:
+            documentos, viajes, inventarios, CFDI, evidencias y roles sin hojas sueltas.
+          </p>
+          <div class="lp-actions">
+            <a class="lp-button" href="/choice">Entrar a plataforma</a>
+            <a class="lp-button lp-light" href="#modulos">Ver módulos</a>
+          </div>
+          <div class="lp-proof" aria-label="Características principales">
+            <span>Multiempresa</span>
+            <span>Accesos por rol</span>
+            <span>Operación y fiscal en un lugar</span>
+          </div>
+        </div>
+
+        <div class="lp-product" aria-label="Vista previa de GE Control">
+          <div class="lp-product-top">
+            <div class="lp-product-brand">
+              <img src="/static/img/ge-isotype-light.svg" alt="">
+              <span>Centro de control</span>
+            </div>
+            <div class="lp-status">Operación activa</div>
+          </div>
+          <div class="lp-product-body">
+            <aside class="lp-side" aria-label="Módulos">
+              <div class="lp-side-item active"><span class="lp-dot"></span> Transporte</div>
+              <div class="lp-side-item"><span class="lp-dot"></span> Gas LP</div>
+              <div class="lp-side-item"><span class="lp-dot"></span> CFDI</div>
+              <div class="lp-side-item"><span class="lp-dot"></span> Reportes</div>
+            </aside>
+            <div class="lp-workspace">
+              <div class="lp-work-head">
+                <div>
+                  <p>Resumen de hoy</p>
+                  <strong>Operación trazable por empresa</strong>
+                </div>
+                <span class="lp-chip">Listo para revisar</span>
+              </div>
+              <div class="lp-metrics">
+                <div class="lp-metric">
+                  <span>Documentos</span>
+                  <strong>36</strong>
+                  <small>XML y PDF ligados</small>
+                </div>
+                <div class="lp-metric">
+                  <span>Viajes</span>
+                  <strong>12</strong>
+                  <small>Carta Porte en flujo</small>
+                </div>
+                <div class="lp-metric">
+                  <span>Gas LP</span>
+                  <strong>98%</strong>
+                  <small>Datos conciliados</small>
+                </div>
+              </div>
+              <div class="lp-flow-card">
+                <div class="lp-row">
+                  <div>
+                    <strong>Origen, destino y operador confirmados</strong>
+                    <span>Ruta con expediente operativo completo.</span>
+                  </div>
+                  <div class="lp-row-badge">Transporte</div>
+                </div>
+                <div class="lp-row">
+                  <div>
+                    <strong>Inventario y movimientos conectados</strong>
+                    <span>Información lista para reportes y anexos.</span>
+                  </div>
+                  <div class="lp-row-badge">Gas LP</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <aside class="panel" aria-label="Capacidades principales">
-        <div class="metric">
-          <strong>Gas LP</strong>
-          <span>Controles volumetricos, inventarios, CFDI y reportes operativos.</span>
-        </div>
-        <div class="metric">
-          <strong>Transporte</strong>
-          <span>Viajes, Carta Porte, operadores, rutas, bitacora y documentos.</span>
-        </div>
-        <div class="metric">
-          <strong>Cumplimiento</strong>
-          <span>Datos estructurados para anexos, XML fiscal y trazabilidad por cliente.</span>
-        </div>
-      </aside>
     </section>
 
-    <section class="cards" aria-label="Resumen de modulos">
-      <article class="card">
-        <h2>Operacion diaria</h2>
-        <p>Registros, instalaciones, movimientos y documentos en un solo flujo.</p>
-      </article>
-      <article class="card">
-        <h2>Carta Porte</h2>
-        <p>Catalogos y datos fiscales conectados al XML que se envia a timbrado.</p>
-      </article>
-      <article class="card">
-        <h2>Facturacion</h2>
-        <p>Base operativa para fletes, CFDI y conciliacion con clientes.</p>
-      </article>
+    <section class="lp-section" id="modulos">
+      <div class="lp-shell">
+        <div class="lp-section-head">
+          <div>
+            <p class="lp-overline">Módulos especializados</p>
+            <h2 class="lp-heading">Simple para el usuario. Robusto para la operación.</h2>
+          </div>
+          <p class="lp-copy">
+            Cada modulo respeta su proceso, pero todos comparten clientes, empresas,
+            usuarios, documentos y trazabilidad para que el equipo trabaje con contexto.
+          </p>
+        </div>
+        <div class="lp-modules">
+          <article class="lp-module dark">
+            <span class="lp-module-num">01</span>
+            <h3>Transporte</h3>
+            <p>Viajes, rutas, operadores, unidades, Carta Porte, bitácoras y factura de servicio en un flujo conectado.</p>
+            <div class="lp-tags">
+              <span class="lp-tag">Carta Porte</span>
+              <span class="lp-tag">Operadores</span>
+              <span class="lp-tag">Rutas</span>
+              <span class="lp-tag">CFDI</span>
+            </div>
+          </article>
+          <article class="lp-module">
+            <span class="lp-module-num">02</span>
+            <h3>Gas LP</h3>
+            <p>Control volumétrico, instalaciones, inventarios, facturación, conciliación y reportes fiscales por empresa.</p>
+            <div class="lp-tags">
+              <span class="lp-tag">Volumetricos</span>
+              <span class="lp-tag">Inventarios</span>
+              <span class="lp-tag">Conciliacion</span>
+              <span class="lp-tag">Anexos SAT</span>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-section alt" id="control">
+      <div class="lp-shell">
+        <div class="lp-section-head">
+          <div>
+            <p class="lp-overline">Lo que ve el cliente</p>
+            <h2 class="lp-heading">Nada de ruido. Solo lo que necesita para avanzar.</h2>
+          </div>
+          <p class="lp-copy">
+            La experiencia prioriza claridad: entrar, elegir modulo, operar y consultar
+            evidencia sin perderse entre pantallas administrativas.
+          </p>
+        </div>
+        <div class="lp-benefits">
+          <div class="lp-benefit">
+            <span>01</span>
+            <strong>Acceso limpio</strong>
+            <p>Botones claros para iniciar sesión y continuar al módulo habilitado.</p>
+          </div>
+          <div class="lp-benefit">
+            <span>02</span>
+            <strong>Datos ordenados</strong>
+            <p>Clientes, empresas, instalaciones y documentos siempre con contexto.</p>
+          </div>
+          <div class="lp-benefit">
+            <span>03</span>
+            <strong>Cumplimiento visible</strong>
+            <p>CFDI, XML, Carta Porte, anexos y evidencia desde una sola fuente.</p>
+          </div>
+          <div class="lp-benefit">
+            <span>04</span>
+            <strong>Roles privados</strong>
+            <p>Cada usuario ve solo lo que corresponde a su empresa y responsabilidad.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-final">
+      <div class="lp-shell lp-final-inner">
+        <div>
+          <h2>Tu operación, con estructura desde el primer clic.</h2>
+          <p>Accede a GE Control y continúa trabajando en los módulos habilitados para tu empresa.</p>
+        </div>
+        <a class="lp-button" href="/choice">Acceder ahora</a>
+      </div>
     </section>
   </main>
+
+  <footer class="lp-footer">
+    <div class="lp-shell lp-footer-inner">
+      <span>GE Control | Operación y cumplimiento para Gas LP y Transporte</span>
+      <span><a href="/terms?lang=es">Términos</a> · <a href="/privacy?lang=es">Privacidad</a></span>
+    </div>
+  </footer>
 </body>
 </html>
