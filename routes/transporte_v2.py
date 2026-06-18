@@ -122,7 +122,11 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "operadores": {
         "table": TBL_OPERADORES,
         "required": ["nombre", "rfc", "licencia"],
-        "allowed": ["nombre", "rfc_figura", "rfc", "licencia", "tipo_licencia", "vencimiento_licencia", "telefono", "vehiculo_frecuente_id", "vehiculo_asignado_id", "activo", "metadata"],
+        "allowed": [
+            "nombre", "rfc_figura", "rfc", "licencia", "tipo_licencia", "vencimiento_licencia",
+            "telefono", "cp", "domicilio", "estado_sat", "municipio_sat", "localidad_sat",
+            "vehiculo_frecuente_id", "vehiculo_asignado_id", "activo", "metadata",
+        ],
         "defaults": {"activo": True},
     },
     "vehiculos": {
@@ -1244,7 +1248,11 @@ def _expand_operator_vehicle_assignment(row: dict[str, Any]) -> dict[str, Any]:
     metadata = _parse_json_value(expanded.get("metadata"), {})
     if not isinstance(metadata, dict):
         metadata = {}
-    for key in ("rfc", "rfc_figura", "tipo_licencia", "vencimiento_licencia", "vehiculo_frecuente_id", "vehiculo_asignado_id"):
+    for key in (
+        "rfc", "rfc_figura", "tipo_licencia", "vencimiento_licencia",
+        "cp", "domicilio", "estado_sat", "municipio_sat", "localidad_sat",
+        "vehiculo_frecuente_id", "vehiculo_asignado_id",
+    ):
         if _first_text(expanded.get(key)):
             metadata[key] = expanded.get(key)
     if "vehiculo_frecuente_id" in expanded:
@@ -1741,6 +1749,11 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["rfc_figura"] = _first_text(item.get("rfc_figura"), item.get("rfc"))
         item["licencia"] = _first_text(item.get("licencia"))
         item["tipo_licencia"] = _first_text(item.get("tipo_licencia"))
+        item["cp"] = _first_text(item.get("cp"), operator_meta.get("cp"))
+        item["domicilio"] = _first_text(item.get("domicilio"), item.get("direccion"), operator_meta.get("domicilio"), operator_meta.get("direccion"))
+        item["estado_sat"] = _first_text(item.get("estado_sat"), operator_meta.get("estado_sat"))
+        item["municipio_sat"] = _first_text(item.get("municipio_sat"), operator_meta.get("municipio_sat"))
+        item["localidad_sat"] = _first_text(item.get("localidad_sat"), operator_meta.get("localidad_sat"))
         item["vehiculo_frecuente_id"] = item.get("vehiculo_frecuente_id") or item.get("vehiculo_asignado_id") or operator_meta.get("vehiculo_frecuente_id") or operator_meta.get("vehiculo_asignado_id")
         item["vehiculo_asignado_id"] = item.get("vehiculo_asignado_id") or item["vehiculo_frecuente_id"]
     elif catalogo == "vehiculos":
@@ -2803,6 +2816,11 @@ def _build_carta_porte_preview(
             "nombre": _first_text(operador.get("nombre"), meta.get("operador_nombre")),
             "rfc": _first_text(operador.get("rfc_figura"), operador.get("rfc"), meta.get("operador_rfc")),
             "licencia": _first_text(operador.get("licencia"), meta.get("operador_licencia")),
+            "cp": _first_text(operador.get("cp")),
+            "estado": _first_text(operador.get("estado_sat")),
+            "municipio": _first_text(operador.get("municipio_sat")),
+            "localidad": _first_text(operador.get("localidad_sat")),
+            "calle": _first_text(operador.get("domicilio")),
         },
         "fechas": {
             "salida": _first_text(viaje.get("fecha_salida")),
@@ -3368,6 +3386,11 @@ def _stamp_build_context(
             "nombre": operador.get("nombre"),
             "rfc": _first_text(operador.get("rfc_figura"), operador.get("rfc")),
             "licencia": operador.get("licencia"),
+            "cp": operador.get("cp"),
+            "estado": operador.get("estado_sat"),
+            "municipio": operador.get("municipio_sat"),
+            "localidad": operador.get("localidad_sat"),
+            "calle": operador.get("domicilio"),
         },
         "vehiculo": _stamp_vehicle_payload(vehiculo),
         "productos": [producto_obj],
@@ -3435,8 +3458,19 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(502, f"SW Sapiens no respondió correctamente: {exc}") from exc
 
     if not resultado_sw.get("ok"):
+        pac_response = resultado_sw.get("pac_response") or {}
+        raw_response = resultado_sw.get("raw") or {}
+        pac_detail = _first_text(
+            pac_response.get("messageDetail"),
+            pac_response.get("message"),
+            raw_response.get("messageDetail") if isinstance(raw_response, dict) else "",
+            raw_response.get("message") if isinstance(raw_response, dict) else "",
+            resultado_sw.get("error"),
+        )
         error_payload = {
-            "message": resultado_sw.get("error") or "SW Sapiens rechazó la Carta Porte.",
+            "message": resultado_sw.get("error") or pac_detail or "SW Sapiens rechazó la Carta Porte.",
+            "pac_detail": pac_detail,
+            "pac_response": pac_response,
             "raw": resultado_sw,
             "fecha": _now_iso(),
         }
@@ -3449,8 +3483,10 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
         _audit(uid, "", pid, TBL_VIAJES, viaje_id, "timbrado_sw_error", error_payload)
         raise HTTPException(400, {
             "ok": False,
-            "message": "SW Sapiens rechazó la Carta Porte.",
+            "message": error_payload["message"],
             "error": error_payload["message"],
+            "pac_detail": pac_detail,
+            "pac_response": pac_response,
             "raw": resultado_sw,
         })
 
