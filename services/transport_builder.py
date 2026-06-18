@@ -24,8 +24,9 @@
 from __future__ import annotations
 import logging
 import uuid as _uuid_mod
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from services.product_catalog import get_producto, ClaveProdServCFDI
 from services.cne_validator import validar_num_permiso
@@ -48,6 +49,14 @@ SCHEMA_CFDI40 = "http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd"
 # Material peligroso por default para autotransporte de hidrocarburos
 CVE_MATERIAL_DEFAULT = "UN1267"  # Petróleo crudo genérico
 DESC_MATERIAL_DEFAULT = "Hidrocarburo / Petrolífero"
+CFDI_EMISION_SKEW_MINUTES = 5
+
+
+def _now_mexico() -> datetime:
+    try:
+        return datetime.now(ZoneInfo("America/Mexico_City"))
+    except Exception:
+        return datetime.now(timezone.utc)
 
 
 def _fmt_fecha(iso: str) -> str:
@@ -60,6 +69,18 @@ def _fmt_fecha(iso: str) -> str:
         return parte
     except Exception:
         return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _fmt_fecha_emision_cfdi() -> str:
+    """
+    Fecha fiscal del comprobante.
+
+    Carta Porte puede tener horarios operativos de salida/llegada, pero el PAC
+    valida que la fecha de generación del CFDI esté cerca del momento real de
+    timbrado. Usamos hora de México y restamos un margen pequeño para evitar
+    rechazos por desfase entre reloj del servidor, SW/PAC y SAT.
+    """
+    return (_now_mexico() - timedelta(minutes=CFDI_EMISION_SKEW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def _nuevo_id_ccp() -> str:
@@ -400,7 +421,7 @@ def build_cfdi_transporte(
 
     productos   = viaje.productos
     tipo_cfdi   = viaje.tipo_cfdi
-    fecha_cfdi  = _fmt_fecha(viaje.fecha_hora_salida)
+    fecha_cfdi  = _fmt_fecha_emision_cfdi()
     lu_expedicion = (emisor.get("domicilio_fiscal") or "20000").strip()
 
     # ── Calcular totales ──────────────────────────────────────────────────────
