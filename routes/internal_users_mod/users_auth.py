@@ -32,7 +32,7 @@ def _clean_payload(payload: InternalUserCreate) -> tuple[str, str, str]:
     if section == "transporte" and role == "operador" and not payload.chofer_id:
         raise HTTPException(400, "El operador de Transporte debe vincularse con un chofer.")
     if section == "gas_lp":
-        if not _clean_code(payload.code or ""):
+        if not _normalize_gas_lp_username(payload.code or ""):
             raise HTTPException(400, "El usuario de asistente Gas LP es obligatorio.")
         if not (payload.pin or "").strip():
             raise HTTPException(400, "La contraseña de asistente Gas LP es obligatoria.")
@@ -42,6 +42,32 @@ def _clean_payload(payload: InternalUserCreate) -> tuple[str, str, str]:
 def _candidate_code(section: str, tenant_id: str) -> str:
     tenant_hint = str(tenant_id or "").replace("-", "")[:4].upper() or "GE"
     return f"{section[:2].upper()}-{tenant_hint}-{secrets.token_hex(2).upper()}"
+
+
+def _ensure_gas_lp_username_available(username: str) -> None:
+    page_size = 1000
+    offset = 0
+    try:
+        sb = get_supabase_admin()
+        while True:
+            rows = (
+                sb.table("internal_users")
+                .select("id,code")
+                .eq("section", "gas_lp")
+                .range(offset, offset + page_size - 1)
+                .execute()
+                .data
+                or []
+            )
+            if any(_normalize_gas_lp_username(row.get("code")) == username for row in rows):
+                raise HTTPException(409, f"El usuario {username} ya existe en otra empresa. Usa otro usuario.")
+            if len(rows) < page_size:
+                break
+            offset += page_size
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _safe_internal_error("validate_gas_lp_username", exc)
 
 
 def _create_unique_internal_user(sb, row: dict, requested_code: str = "") -> tuple[dict, str]:
@@ -131,7 +157,13 @@ async def create_internal_user(payload: InternalUserCreate, authorization: str =
     name, section, role = _clean_payload(payload)
     perfil = _profile_for_admin(admin_uid, payload.perfil_id, token)
     tenant_id = perfil["tenant_id"]
-    requested_code = _clean_code(payload.code or "")
+    requested_code = (
+        _normalize_gas_lp_username(payload.code or "")
+        if section == "gas_lp"
+        else _clean_code(payload.code or "")
+    )
+    if section == "gas_lp":
+        _ensure_gas_lp_username_available(requested_code)
     code = requested_code or _candidate_code(section, tenant_id)
     temp_pin = (payload.pin or "").strip() or f"{secrets.randbelow(900000) + 100000}"
     row = {

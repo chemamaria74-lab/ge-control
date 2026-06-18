@@ -532,8 +532,12 @@ def _clean_code(value: str) -> str:
     return code[:24]
 
 
+def _normalize_gas_lp_username(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().upper())[:24]
+
+
 def _clean_login(value: str) -> str:
-    return str(value or "").strip().upper()
+    return re.sub(r"\s+", " ", str(value or "").strip().upper())
 
 
 def _matches_login(row: dict, login: str, allow_display_name: bool = False) -> bool:
