@@ -25,6 +25,7 @@ class FakeQuery:
         self.insert_row = None
         self.update_row = None
         self.limit_n = None
+        self.range_bounds = None
 
     def select(self, *args, **kwargs):
         return self
@@ -39,6 +40,10 @@ class FakeQuery:
 
     def limit(self, n):
         self.limit_n = n
+        return self
+
+    def range(self, start, end):
+        self.range_bounds = (start, end)
         return self
 
     def order(self, *args, **kwargs):
@@ -71,6 +76,9 @@ class FakeQuery:
             return FakeResult(matched)
         if self.limit_n is not None:
             matched = matched[: self.limit_n]
+        if self.range_bounds is not None:
+            start, end = self.range_bounds
+            matched = matched[start : end + 1]
         return FakeResult([dict(row) for row in matched])
 
 
@@ -272,6 +280,57 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             asyncio.run(internal_users.internal_login(internal_users.InternalLogin(section="gas_lp", code="MARTHA", pin="NOPE")))
         self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_gas_lp_username_is_globally_unique_and_normalized(self):
+        db = FakeDB()
+        patches = [
+            patch.object(internal_users, "get_supabase_admin", lambda: db),
+            patch.object(internal_users, "get_supabase_for_user", lambda token: db),
+            patch.object(internal_users, "verify_token", lambda token: "admin"),
+            patch.object(internal_users, "_tenant_id_for_user", lambda uid, access_token="": "tenant-a"),
+            patch.object(internal_users, "obtener_acceso_modulo", lambda uid, section, access_token="": {"role": "admin"}),
+        ]
+        for item in patches:
+            item.start()
+        self.addCleanup(lambda: [item.stop() for item in patches])
+
+        first = internal_users.InternalUserCreate(
+            display_name="Jesús López",
+            section="gas_lp",
+            role="asistente_facturacion",
+            perfil_id=1,
+            code="  jesus   ventas  ",
+            pin="PIN-COMPARTIDO",
+        )
+        created = response_json(asyncio.run(internal_users.create_internal_user(first, authorization="Bearer admin-token")))
+        self.assertEqual(created["user"]["code"], "JESUS VENTAS")
+
+        duplicate = internal_users.InternalUserCreate(
+            display_name="Otro nombre",
+            section="gas_lp",
+            role="asistente_operativo",
+            perfil_id=2,
+            code="JESUS VENTAS",
+            pin="OTRO-PIN",
+        )
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(internal_users.create_internal_user(duplicate, authorization="Bearer admin-token"))
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(
+            ctx.exception.detail,
+            "El usuario JESUS VENTAS ya existe en otra empresa. Usa otro usuario.",
+        )
+
+        same_name_and_pin = internal_users.InternalUserCreate(
+            display_name="Jesús López",
+            section="gas_lp",
+            role="asistente_facturacion",
+            perfil_id=2,
+            code="JESUS COBRANZA",
+            pin="PIN-COMPARTIDO",
+        )
+        second = response_json(asyncio.run(internal_users.create_internal_user(same_name_and_pin, authorization="Bearer admin-token")))
+        self.assertEqual(second["user"]["code"], "JESUS COBRANZA")
 
     def test_internal_session_rejects_cross_module_and_orphan_users(self):
         db = FakeDB()
