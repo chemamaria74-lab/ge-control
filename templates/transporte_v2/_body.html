@@ -323,7 +323,7 @@
       </div>
       <div class="trv2-actions">
         <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico()"><i class="fa-solid fa-clock-rotate-left"></i> Cargar historial</button>
-        <button class="trv2-btn trv2-btn-primary" type="button" disabled><i class="fa-solid fa-download"></i> Descargar reporte ZIP</button>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2GenerateCvReport('zip')"><i class="fa-solid fa-download"></i> Descargar reporte ZIP</button>
         <button class="trv2-btn trv2-btn-ghost" type="button" disabled><i class="fa-solid fa-trash-can"></i> Borrar reporte</button>
       </div>
     </div>
@@ -341,14 +341,14 @@
       <div class="trv2-table-head">
         <div>
           <h2>Movimientos del periodo</h2>
-          <p class="trv2-muted">Borrador visual alimentado por viajes Transporte v2. No genera JSON SAT real.</p>
+          <p class="trv2-muted">Corte mensual alimentado por viajes Transporte v2 timbrados.</p>
         </div>
         <div class="trv2-actions">
-          <button class="trv2-btn trv2-btn-ghost" type="button" disabled><i class="fa-solid fa-download"></i> Descargar borrador</button>
-          <button class="trv2-btn trv2-btn-primary" type="button" disabled><i class="fa-solid fa-file-export"></i> Exportar JSON SAT</button>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2GenerateCvReport('json')"><i class="fa-solid fa-download"></i> Descargar JSON</button>
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2GenerateCvReport('zip')"><i class="fa-solid fa-file-export"></i> Exportar JSON SAT</button>
         </div>
       </div>
-      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">JSON SAT Transporte pendiente. Esta vista solo prepara el corte mensual por permiso.</div>
+      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">Selecciona permiso y periodo para generar JSON SAT Transporte.</div>
       <div class="trv2-table-wrap">
         <table>
           <thead><tr><th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Producto</th><th>Volumen L</th><th>Vehículo</th><th>Origen</th><th>Destino</th><th>UUID Carta Porte</th><th>Estatus JSON</th><th>Acciones</th></tr></thead>
