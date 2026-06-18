@@ -226,9 +226,7 @@ const TRV2_CATALOG_FORMS = {
   rutas: [
     ['nombre', 'Nombre'],
     ['origen_id', 'Origen', 'origen-select'],
-    ['cp_origen', 'CP origen', 'route-cp'],
     ['destino_id', 'Destino', 'destino-select'],
-    ['cp_destino', 'CP destino', 'route-cp'],
     ['distancia_km', 'Distancia km', 'number'],
     ['duracion_estimada_min', 'Duración estimada min', 'number'],
     ['activo', 'Activo', 'checkbox'],
@@ -288,9 +286,9 @@ const TRV2_CATALOG_UI = {
   rutas: {
     icon: 'fa-route',
     title: 'Rutas',
-    subtitle: 'Instalaciones, origen, destino y distancia.',
-    metrics: [['Registros', 'count'], ['Con distancia', 'distancia_km'], ['Con CP origen', 'cp_origen']],
-    fields: [['Origen', 'origen'], ['Destino', 'destino'], ['Distancia km', 'distancia_km'], ['CP destino', 'cp_destino']],
+    subtitle: 'Instalaciones, origen, destino, distancia y duración.',
+    metrics: [['Registros', 'count'], ['Con distancia', 'distancia_km'], ['Con duración', 'duracion_estimada_min']],
+    fields: [['Origen', 'origen'], ['Destino', 'destino'], ['Distancia km', 'distancia_km'], ['Duración min', 'duracion_estimada_min']],
   },
   origenes: {
     icon: 'fa-location-dot',
@@ -628,16 +626,12 @@ function trv2RenderCatalogFields(name) {
     }
     if (type === 'origen-select' || type === 'destino-select') {
       const catalog = type === 'origen-select' ? 'origenes' : 'destinos';
-      const onchange = type === 'origen-select' ? 'trv2ApplyRouteEndpointToCatalogForm("origen")' : 'trv2ApplyRouteEndpointToCatalogForm("destino")';
-      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="${onchange}">${trv2CatalogOptions(catalog, `Selecciona ${label.toLowerCase()}`)}</select></label>`;
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>${trv2CatalogOptions(catalog, `Selecciona ${label.toLowerCase()}`)}</select></label>`;
     }
     if (type === 'vehicle-select') {
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
         ${trv2CatalogOptions('vehiculos', 'Sin vehículo asignado')}
       </select></label>`;
-    }
-    if (type === 'route-cp') {
-      return `<label>${trv2Esc(labelText)}<input data-field="${field}" type="text" readonly class="trv2-readonly-input" placeholder="Se llena desde la instalación"></label>`;
     }
     if (type === 'product-type') {
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="trv2RefreshProductSatDefaults()">
@@ -920,41 +914,6 @@ function trv2ReadableCatalogError(response, fallback = 'No se pudo completar la 
   return fallback;
 }
 
-function trv2ApplyRouteEndpointToCatalogForm(kind) {
-  const form = document.getElementById('trv2-catalog-modal-form');
-  if (!form || form.dataset.catalog !== 'rutas') return;
-  const field = kind === 'origen' ? 'origen_id' : 'destino_id';
-  const item = trv2FindCatalog(kind === 'origen' ? 'origenes' : 'destinos', form.querySelector(`[data-field="${field}"]`)?.value);
-  const cpField = form.querySelector(`[data-field="${kind === 'origen' ? 'cp_origen' : 'cp_destino'}"]`);
-  if (cpField) cpField.value = item?.cp || '';
-  trv2RenderRouteEndpointHint(form, kind, item);
-}
-
-function trv2RenderRouteEndpointHint(form, kind, item) {
-  const id = `trv2-route-${kind}-hint`;
-  let hint = form.querySelector(`#${id}`);
-  const field = form.querySelector(`[data-field="${kind === 'origen' ? 'cp_origen' : 'cp_destino'}"]`);
-  if (!field) return;
-  if (!hint) {
-    hint = document.createElement('div');
-    hint.id = id;
-    hint.className = 'trv2-route-endpoint-hint';
-    field.closest('label')?.appendChild(hint);
-  }
-  if (!item) {
-    hint.textContent = 'Selecciona una instalación para llenar CP y domicilio.';
-    return;
-  }
-  const parts = [
-    item.cp ? `CP ${item.cp}` : 'Sin CP',
-    item.estado_sat ? `Estado ${item.estado_sat}` : '',
-    item.municipio_sat ? `Municipio ${item.municipio_sat}` : '',
-    item.id_ubicacion_carta_porte ? `ID ${item.id_ubicacion_carta_porte}` : '',
-    item.direccion || '',
-  ].filter(Boolean);
-  hint.textContent = parts.join(' · ');
-}
-
 function trv2OpenCatalogModal(name = TRV2_ACTIVE_CATALOG, itemId = 0) {
   TRV2_ACTIVE_CATALOG = name || 'clientes';
   trv2RenderCatalogTabs();
@@ -997,10 +956,6 @@ function trv2FillCatalogModalForm(form, item) {
   trv2RefreshProductSatDefaults();
   trv2ToggleVehicleTrailerFields();
   trv2ToggleInstallationRelationFields();
-  if (form.dataset.catalog === 'rutas') {
-    trv2ApplyRouteEndpointToCatalogForm('origen');
-    trv2ApplyRouteEndpointToCatalogForm('destino');
-  }
 }
 
 function trv2CloseCatalogModal() {
