@@ -277,8 +277,20 @@ class ViajeCreate(BaseModel):
     # Origen y destino (si no hay ruta_id)
     cp_origen:      str             = ""
     nombre_origen:  str             = ""
+    rfc_origen:     str             = ""
+    id_ubicacion_origen: str         = ""
+    estado_origen:  str             = ""
+    municipio_origen: str           = ""
+    localidad_origen: str           = ""
+    calle_origen:   str             = ""
     cp_destino:     str             = ""
     nombre_destino: str             = ""
+    rfc_destino:    str             = ""
+    id_ubicacion_destino: str        = ""
+    estado_destino: str             = ""
+    municipio_destino: str          = ""
+    localidad_destino: str          = ""
+    calle_destino:  str             = ""
 
     # Fechas
     fecha_hora_salida:  str                  # ISO 8601: "2026-05-01T08:00:00"
