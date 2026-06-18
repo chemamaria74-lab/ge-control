@@ -65,6 +65,7 @@ VEHICLE_DB_FIELDS = {
     "poliza_seguro",
     "permiso_sct",
     "num_permiso_sct",
+    "id_cre",
     "capacidad_litros",
     "num_ejes",
     "activo",
@@ -118,7 +119,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "operadores": {
         "table": TBL_OPERADORES,
         "required": ["nombre", "rfc", "licencia"],
-        "allowed": ["nombre", "rfc_figura", "rfc", "licencia", "tipo_licencia", "vencimiento_licencia", "telefono", "id_cre", "vehiculo_frecuente_id", "vehiculo_asignado_id", "activo", "metadata"],
+        "allowed": ["nombre", "rfc_figura", "rfc", "licencia", "tipo_licencia", "vencimiento_licencia", "telefono", "vehiculo_frecuente_id", "vehiculo_asignado_id", "activo", "metadata"],
         "defaults": {"activo": True},
     },
     "vehiculos": {
@@ -127,7 +128,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         "allowed": [
             "alias", "numero_economico", "unidad", "placas", "config_vehicular", "configuracion_vehicular", "modelo", "anio",
             "vin", "vin_niv", "niv", "numero_motor", "motor",
-            "permiso_sct", "num_permiso_sct", "aseguradora_rc", "poliza_rc",
+            "permiso_sct", "num_permiso_sct", "id_cre", "aseguradora_rc", "poliza_rc",
             "aseguradora", "poliza_seguro",
             "aseguradora_medio_ambiente", "poliza_medio_ambiente", "peso_bruto_vehicular",
             "remolque_id", "remolque2_id", "activo",
@@ -1112,7 +1113,7 @@ def _expand_vehicle_aliases(row: dict[str, Any]) -> dict[str, Any]:
     for key in (
         "alias", "numero_economico", "unidad", "placas", "modelo", "anio",
         "vin", "vin_niv", "niv", "numero_motor", "motor",
-        "config_vehicular", "configuracion_vehicular", "permiso_sct",
+        "config_vehicular", "configuracion_vehicular", "permiso_sct", "id_cre",
         "num_permiso_sct", "aseguradora_rc", "aseguradora", "poliza_rc", "poliza_seguro",
         "aseguradora_medio_ambiente", "poliza_medio_ambiente",
         "peso_bruto_vehicular", "remolque_id", "remolque2_id",
@@ -1209,7 +1210,7 @@ def _expand_operator_vehicle_assignment(row: dict[str, Any]) -> dict[str, Any]:
     metadata = _parse_json_value(expanded.get("metadata"), {})
     if not isinstance(metadata, dict):
         metadata = {}
-    for key in ("rfc", "rfc_figura", "tipo_licencia", "vencimiento_licencia", "id_cre", "vehiculo_frecuente_id", "vehiculo_asignado_id"):
+    for key in ("rfc", "rfc_figura", "tipo_licencia", "vencimiento_licencia", "vehiculo_frecuente_id", "vehiculo_asignado_id"):
         if _first_text(expanded.get(key)):
             metadata[key] = expanded.get(key)
     if "vehiculo_frecuente_id" in expanded:
@@ -1439,8 +1440,8 @@ def _validate_catalog_payload(catalogo: str, row: dict[str, Any]) -> None:
             raise HTTPException(400, f"Cliente {row.get('nombre') or ''} no tiene CP fiscal válido de 5 dígitos.")
     if catalogo in {"origenes", "destinos"} and row.get("cp") and not _valid_cp(row.get("cp")):
         raise HTTPException(400, f"Instalación {row.get('nombre') or ''} no tiene CP válido de 5 dígitos.")
-    if catalogo == "operadores" and not _first_text(row.get("id_cre"), _meta(row).get("id_cre"), _meta(row).get("id_cre_operador")):
-        raise HTTPException(400, f"Operador {row.get('nombre') or ''} no tiene ID CRE.")
+    if catalogo == "vehiculos" and not _first_text(row.get("id_cre"), _meta(row).get("id_cre"), _meta(row).get("id_cre_vehiculo")):
+        raise HTTPException(400, f"Vehículo {row.get('alias') or row.get('placas') or ''} no tiene ID CRE.")
     if catalogo == "productos":
         if "clave_producto" in row and not row.get("clave_producto"):
             raise HTTPException(400, f"Mercancía {row.get('descripcion') or ''} no tiene clave producto SAT.")
@@ -1536,7 +1537,6 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["rfc_figura"] = _first_text(item.get("rfc_figura"), item.get("rfc"))
         item["licencia"] = _first_text(item.get("licencia"))
         item["tipo_licencia"] = _first_text(item.get("tipo_licencia"))
-        item["id_cre"] = _first_text(item.get("id_cre"), operator_meta.get("id_cre"), operator_meta.get("id_cre_operador"))
         item["vehiculo_frecuente_id"] = item.get("vehiculo_frecuente_id") or item.get("vehiculo_asignado_id") or operator_meta.get("vehiculo_frecuente_id") or operator_meta.get("vehiculo_asignado_id")
         item["vehiculo_asignado_id"] = item.get("vehiculo_asignado_id") or item["vehiculo_frecuente_id"]
     elif catalogo == "vehiculos":
@@ -1554,6 +1554,7 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["anio"] = item.get("anio") or item.get("anio_modelo") or vehicle_meta.get("anio")
         item["permiso_sct"] = _first_text(item.get("permiso_sct"), vehicle_meta.get("permiso_sct"))
         item["num_permiso_sct"] = _first_text(item.get("num_permiso_sct"), vehicle_meta.get("num_permiso_sct"))
+        item["id_cre"] = _first_text(item.get("id_cre"), vehicle_meta.get("id_cre"), vehicle_meta.get("id_cre_vehiculo"))
         item["aseguradora_rc"] = _first_text(item.get("aseguradora_rc"), item.get("aseguradora"), item.get("nombre_asegurador"), vehicle_meta.get("aseguradora_rc"))
         item["poliza_rc"] = _first_text(item.get("poliza_rc"), item.get("poliza_seguro"), vehicle_meta.get("poliza_rc"))
         item["peso_bruto_vehicular"] = _num(item.get("peso_bruto_vehicular") or vehicle_meta.get("peso_bruto_vehicular"))
