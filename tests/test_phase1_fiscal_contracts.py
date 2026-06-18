@@ -1,6 +1,7 @@
 import os
 import re
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from decimal import Decimal
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
@@ -299,6 +300,7 @@ def test_carta_porte_rows_are_excluded_from_sales_visibility_when_requested():
 
 def test_carta_porte_tipo_t_contract_from_builder(monkeypatch):
     monkeypatch.setattr("services.transport_builder.validar_num_permiso", lambda *_args, **_kwargs: (True, "ok"))
+    monkeypatch.setattr("services.transport_builder._now_mexico", lambda: datetime(2026, 6, 6, 12, 0, 0))
     viaje = ViajeCreate(
         chofer_id=1,
         vehiculo_id=2,
@@ -333,12 +335,14 @@ def test_carta_porte_tipo_t_contract_from_builder(monkeypatch):
     )
 
     assert cfdi["TipoDeComprobante"] == "T"
+    assert cfdi["Fecha"] == "2026-06-06T11:55:00"
     assert cfdi["Moneda"] == "XXX"
     assert cfdi["Total"] == "0.00"
     carta = cfdi["Complemento"]["cartaporte31:CartaPorte"]
     assert carta["@Version"] == "3.1"
     assert carta["@IdCCP"] == id_ccp
     assert len(carta["Ubicaciones"]["Ubicacion"]) == 2
+    assert carta["Ubicaciones"]["Ubicacion"][0]["FechaHoraSalidaLlegada"] == "2026-06-06T08:00:00"
     assert carta["Mercancias"]["Autotransporte"]["IdentificacionVehicular"]["PlacaVM"] == "ABC123A"
     assert carta["FiguraTransporte"]["TiposFigura"][0]["NumLicencia"] == "LIC123456"
 
