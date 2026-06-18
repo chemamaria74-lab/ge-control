@@ -300,13 +300,17 @@ class ViajeCreate(BaseModel):
     productos:      list[ProductoTransporte]
 
     # Datos fiscales
-    tipo_cfdi:      TIPOS_CFDI_TRANSPORTE = "T"  # T=Traslado propio, I=Ingreso flete
+    tipo_cfdi:      TIPOS_CFDI_TRANSPORTE = "I"  # I=Ingreso flete (default Transporte v2), T=Traslado excepcional
     rfc_receptor:   str             = ""
     nombre_receptor: str            = ""
     cp_receptor:    str             = "20000"
     regimen_fiscal_receptor: str    = "601"
     uso_cfdi:       str             = "S01"
     num_permiso_cne: str            = ""     # NumPermiso del emisor ante CNE
+    iva_tasa:       float           = 0.16
+    retencion_tasa: float           = 0.04
+    aplica_iva:     bool            = True
+    aplica_retencion: bool          = True
     distancia_km:   float           = 1.0
     duracion_estimada_min: int       = 0
 
