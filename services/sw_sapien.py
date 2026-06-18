@@ -29,15 +29,29 @@ import threading
 import time
 import uuid
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape as xml_escape
+from zoneinfo import ZoneInfo
 
 from services.fiscal_audit import record_pac_request, record_pac_response, version_xml
 
 logger = logging.getLogger(__name__)
+
+CFDI_EMISION_SKEW_MINUTES = 5
+
+
+def _cp_now_mexico() -> datetime:
+    try:
+        return datetime.now(ZoneInfo("America/Mexico_City"))
+    except Exception:
+        return datetime.now(timezone.utc)
+
+
+def _cp_cfdi_issue_datetime() -> str:
+    return (_cp_now_mexico() - timedelta(minutes=CFDI_EMISION_SKEW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%S")
 
 # ── Entorno: test o producción ────────────────────────────────────────────────
 def _env(name: str, default: str = "") -> str:
@@ -397,9 +411,10 @@ def build_carta_porte_xml(
         "T" = Traslado (Gas LP interno, sin costo de flete)
         "I" = Ingreso  (Transporte, con costo de flete)
     """
-    fecha = _cp_datetime(entrega.get("fecha_hora"))
-    fecha_salida = _cp_datetime(entrega.get("fecha_salida") or fecha)
+    fecha_operativa = _cp_datetime(entrega.get("fecha_hora"))
+    fecha_salida = _cp_datetime(entrega.get("fecha_salida") or fecha_operativa)
     fecha_llegada = _cp_datetime(entrega.get("fecha_llegada") or fecha_salida)
+    fecha = _cp_cfdi_issue_datetime()
     vol      = round(float(entrega.get("volumen_litros", 0)), 3)
     imp      = round(float(entrega.get("importe", 0)), 2)
     iva      = round(imp * 0.16, 2)
