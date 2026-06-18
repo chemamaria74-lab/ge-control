@@ -5,6 +5,103 @@ async function trv2PrepareCartaPorteTab() {
   if (!TRV2_TRIPS.length) loads.push(trv2LoadTrips());
   if (loads.length) await Promise.all(loads);
   trv2PopulateCartaPorteTrips();
+  trv2LoadStampedCartaPorte({silent: true});
+}
+
+function trv2SetCartaPorteStampedFilter(filter = 'hoy') {
+  TRV2_CP_STAMPED_FILTER = filter === 'todas' ? 'todas' : 'hoy';
+  trv2LoadStampedCartaPorte();
+}
+
+function trv2StampedCartaPorteDate(value = '') {
+  if (!value) return 'Sin fecha';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).replace('T', ' ').slice(0, 16);
+  return date.toLocaleString('es-MX', {dateStyle: 'medium', timeStyle: 'short'});
+}
+
+function trv2SetStampedCounts(filter, count) {
+  const hoy = document.getElementById('trv2-cp-stamped-count-hoy');
+  const todas = document.getElementById('trv2-cp-stamped-count-todas');
+  if (filter === 'hoy' && hoy) hoy.textContent = String(count || 0);
+  if (filter === 'todas' && todas) todas.textContent = String(count || 0);
+}
+
+async function trv2LoadStampedCartaPorte(options = {}) {
+  const filter = TRV2_CP_STAMPED_FILTER || 'hoy';
+  document.getElementById('trv2-cp-stamped-tab-hoy')?.classList.toggle('active', filter === 'hoy');
+  document.getElementById('trv2-cp-stamped-tab-todas')?.classList.toggle('active', filter === 'todas');
+  const list = document.getElementById('trv2-cp-stamped-list');
+  if (!list) return;
+  list.innerHTML = '<div class="trv2-empty">Cargando Cartas Porte timbradas...</div>';
+  const data = await trv2Api('GET', `/api/tr-v2/carta-porte/timbradas?filtro=${encodeURIComponent(filter)}`, undefined, {silent: Boolean(options.silent), allowError: true});
+  if (!data?.ok) {
+    list.innerHTML = `<div class="trv2-empty">${trv2Esc(data?.detail || data?.message || 'No se pudieron cargar Cartas Porte timbradas.')}</div>`;
+    return;
+  }
+  const items = data.items || [];
+  trv2SetStampedCounts(filter, items.length);
+  if (!items.length) {
+    list.innerHTML = `<div class="trv2-empty">${filter === 'hoy' ? 'Hoy todavía no hay Cartas Porte timbradas.' : 'Aún no hay Cartas Porte timbradas.'}</div>`;
+    return;
+  }
+  list.innerHTML = items.map(item => {
+    const uuid = item.uuid_sat || 'UUID pendiente';
+    const route = item.ruta || 'Origen -> Destino';
+    const cliente = item.cliente_nombre || item.rfc_receptor || 'Cliente pendiente';
+    const fecha = trv2StampedCartaPorteDate(item.fecha_timbrado);
+    const litros = Number(item.volumen_litros || 0).toLocaleString('es-MX');
+    const statusClass = String(item.status || '').toLowerCase().includes('error') ? 'trv2-mini-btn-danger' : '';
+    return `
+      <article class="trv2-cp-pending-card trv2-cp-stamped-card">
+        <div>
+          <strong>Carta Porte · ${trv2Esc(cliente)}</strong>
+          <span>${trv2Esc(route)} · ${trv2Esc(fecha)} · ${trv2Esc(litros)} L</span>
+          <span>UUID ${trv2Esc(uuid)}${item.id_ccp ? ` · IdCCP ${trv2Esc(item.id_ccp)}` : ''}</span>
+        </div>
+        <button class="trv2-mini-btn ${statusClass}" type="button" disabled>${trv2Esc(item.status || 'Vigente')}</button>
+        <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2DownloadCartaPorteFile(${Number(item.viaje_id || 0)}, 'pdf')"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+        <button class="trv2-mini-btn" type="button" onclick="trv2DownloadCartaPorteFile(${Number(item.viaje_id || 0)}, 'xml')"><i class="fa-solid fa-file-code"></i> XML</button>
+      </article>
+    `;
+  }).join('');
+}
+
+async function trv2DownloadCartaPorteFile(viajeId, type = 'pdf') {
+  const id = Number(viajeId || 0);
+  if (!id) {
+    trv2Toast('No se encontró el viaje de la Carta Porte.', 'error');
+    return;
+  }
+  const isPdf = type === 'pdf';
+  const path = `/api/tr-v2/carta-porte/${id}/${isPdf ? 'pdf?download=1' : 'xml'}`;
+  try {
+    const response = await fetch(TRV2_API_BASE + trv2WithPerfil(path), {headers: trv2Headers()});
+    if (!response.ok) {
+      const text = await response.text();
+      let message = text || response.statusText;
+      try {
+        const data = JSON.parse(text);
+        message = data.detail || data.message || message;
+      } catch (_err) {}
+      throw new Error(message);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = match?.[1] || `carta_porte_${id}.${isPdf ? 'pdf' : 'xml'}`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    trv2Toast(`${isPdf ? 'PDF' : 'XML'} Carta Porte descargado.`, 'success');
+  } catch (err) {
+    trv2Toast(err.message || 'No se pudo descargar Carta Porte.', 'error');
+  }
 }
 
 function trv2PopulateCartaPorteTrips() {
@@ -266,8 +363,9 @@ async function trv2ConfirmStampCartaPorte() {
   trv2Toast(`Carta Porte timbrada. UUID: ${data.uuid_sat || data.uuid_cfdi || 'recibido'}`, 'success');
   const panel = document.getElementById('trv2-cp-preview-panel');
   if (panel) {
-    const pdf = data.pdf_url ? `<a class="trv2-btn trv2-btn-secondary" href="${trv2Esc(data.pdf_url)}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a>` : '';
-    const xml = data.xml_url ? `<a class="trv2-btn trv2-btn-secondary" href="${trv2Esc(data.xml_url)}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>` : '';
+    const stampedViajeId = Number(data.viaje_id || viajeId || 0);
+    const pdf = stampedViajeId ? `<button class="trv2-btn trv2-btn-secondary" type="button" onclick="trv2DownloadCartaPorteFile(${stampedViajeId}, 'pdf')"><i class="fa-solid fa-file-pdf"></i> PDF</button>` : '';
+    const xml = stampedViajeId ? `<button class="trv2-btn trv2-btn-secondary" type="button" onclick="trv2DownloadCartaPorteFile(${stampedViajeId}, 'xml')"><i class="fa-solid fa-file-code"></i> XML</button>` : '';
     panel.insertAdjacentHTML('afterbegin', `
       <div class="trv2-alert trv2-alert-ok">
         Carta Porte timbrada correctamente. UUID: <b>${trv2Esc(data.uuid_sat || data.uuid_cfdi || '')}</b>
@@ -277,6 +375,7 @@ async function trv2ConfirmStampCartaPorte() {
   }
   await trv2LoadTrips();
   trv2PopulateCartaPorteTrips();
+  await trv2LoadStampedCartaPorte({silent: true});
   return 'stamped';
 }
 

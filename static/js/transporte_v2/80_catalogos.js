@@ -1608,3 +1608,19 @@ function trv2ApplyRouteToTrip() {
   if (ruta.origen) document.getElementById('trv2-trip-origen').value = ruta.origen;
   if (ruta.destino) document.getElementById('trv2-trip-destino').value = ruta.destino;
 }
+
+function trv2ApplyClientRouteToTrip() {
+  const cliente = trv2FindCatalog('clientes', document.getElementById('trv2-trip-cliente-id')?.value);
+  const routeSelect = document.getElementById('trv2-trip-ruta-id');
+  if (!cliente || !routeSelect || typeof trv2DefaultRouteForClient !== 'function') return;
+  const currentRoute = trv2FindCatalog('rutas', routeSelect.value);
+  if (currentRoute && typeof trv2RouteMatchesClient === 'function' && trv2RouteMatchesClient(currentRoute, cliente)) {
+    trv2ApplyRouteToTrip();
+    return;
+  }
+  const route = trv2DefaultRouteForClient(cliente);
+  if (!route?.id) return;
+  routeSelect.value = String(route.id);
+  trv2ApplyRouteToTrip();
+  trv2Toast('Ruta del cliente aplicada automáticamente.', 'info');
+}

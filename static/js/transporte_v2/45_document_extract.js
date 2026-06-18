@@ -204,7 +204,7 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
     </div>
     <h3 class="trv2-form-wide trv2-subsection-title">Completar viaje</h3>
     <label>Cliente
-      <select id="${scope === 'cp' ? 'trv2-cp-doc-cliente-id' : 'trv2-doc-cliente-id'}" onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">${trv2CatalogOptions('clientes', 'Cliente pendiente')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-cliente-id' : 'trv2-doc-cliente-id'}" onchange="trv2ApplyClientRouteDefault('${trv2Esc(scope)}', true)">${trv2CatalogOptions('clientes', 'Cliente pendiente')}</select>
     </label>
     <label>Ruta
       <select id="${scope === 'cp' ? 'trv2-cp-doc-ruta-id' : 'trv2-doc-ruta-id'}" required onchange="trv2UpdateTripDatesFromRoute('${trv2Esc(scope)}')">${trv2CatalogOptions('rutas', 'Selecciona ruta')}</select>
@@ -236,6 +236,48 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
   `;
   trv2SelectDetectedCatalogValues(scope, detected);
   trv2SetDefaultTripDates(scope);
+}
+
+function trv2RouteMatchesClient(route = {}, cliente = {}) {
+  const clienteId = Number(cliente?.id || 0);
+  if (!clienteId || !route) return false;
+  if (Number(route.cliente_id || 0) === clienteId) return true;
+  const destino = trv2FindCatalog('destinos', route.destino_id);
+  if (Number(destino?.cliente_id || 0) === clienteId) return true;
+  const clienteCp = String(cliente.cp || '').trim();
+  if (clienteCp && String(route.cp_destino || '').trim() === clienteCp) return true;
+  const routeText = trv2DocNormalizeText(`${route.destino || ''} ${route.nombre_destino || ''}`);
+  const clientText = trv2DocNormalizeText(cliente.nombre || cliente.razon_social || '');
+  return Boolean(clientText && routeText && (routeText.includes(clientText) || clientText.includes(routeText)));
+}
+
+function trv2DefaultRouteForClient(cliente = {}) {
+  const matches = (TRV2_CATALOGS.rutas || []).filter(route => (
+    route.activo !== false && trv2RouteMatchesClient(route, cliente)
+  ));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function trv2ApplyClientRouteDefault(scope = TRV2_DOCUMENT_SCOPE || 'carga', manual = false) {
+  const cliente = trv2FindCatalog('clientes', document.getElementById(trv2DocFieldId(scope, 'cliente-id'))?.value);
+  const routeSelect = document.getElementById(trv2DocFieldId(scope, 'ruta-id'));
+  if (!routeSelect || !cliente) {
+    trv2UpdateDocumentPending(scope);
+    return;
+  }
+  const currentRoute = trv2FindCatalog('rutas', routeSelect.value);
+  if (currentRoute && trv2RouteMatchesClient(currentRoute, cliente)) {
+    trv2UpdateTripDatesFromRoute(scope);
+    return;
+  }
+  const route = trv2DefaultRouteForClient(cliente);
+  if (route?.id) {
+    routeSelect.value = String(route.id);
+    trv2UpdateTripDatesFromRoute(scope);
+    if (manual) trv2Toast('Ruta del cliente aplicada automáticamente.', 'info');
+    return;
+  }
+  trv2UpdateDocumentPending(scope);
 }
 
 function trv2ApplyOperatorVehicleDefault(scope = 'doc') {
@@ -408,6 +450,7 @@ function trv2SelectDetectedCatalogValues(scope, detected) {
   const productoSelect = document.getElementById(trv2DocFieldId(scope, 'producto-id'));
   if (clienteSelect && cliente?.id) clienteSelect.value = String(cliente.id);
   if (productoSelect && producto?.id) productoSelect.value = String(producto.id);
+  trv2ApplyClientRouteDefault(scope, false);
   trv2UpdateDocumentPending(scope);
 }
 
