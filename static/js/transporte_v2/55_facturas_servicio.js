@@ -87,6 +87,7 @@ function trv2ServiceTripData(row = {}) {
     rfc: cliente.rfc || trv2ServiceTripMeta(row, 'cliente_rfc') || '',
     origen,
     destino,
+    distancia_km: Number(row.distancia_km || ruta.distancia_km || meta.distancia_km || 0),
     producto: productoNombre,
     litros: Number(row.volumen_litros || row.volumen_total_litros || 0),
     kilos: Number(row.peso_kg || 0),
@@ -120,12 +121,13 @@ function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
 }
 
 function trv2ServiceBillingBase(productName = '', tariff = null) {
-  const explicit = String(tariff?.base_calculo || tariff?.regla_calculo || '').toUpperCase();
-  if (explicit === 'LITRO' || explicit === 'LITROS') return 'LITRO';
-  if (explicit === 'KG' || explicit === 'KILO' || explicit === 'KILOS') return 'KG';
+  const explicit = String(tariff?.base_calculo || tariff?.regla_calculo || '').toLowerCase();
+  if (explicit === 'litro' || explicit === 'litros') return 'litros';
+  if (explicit === 'kg' || explicit === 'kilo' || explicit === 'kilos') return 'kilos';
+  if (['viaje', 'distancia', 'manual'].includes(explicit)) return explicit;
   const text = trv2ServiceNorm(productName);
-  if (text.includes('MAGNA') || text.includes('PREMIUM') || text.includes('DIESEL') || text.includes('GASOLINA')) return 'LITRO';
-  return 'KG';
+  if (text.includes('MAGNA') || text.includes('PREMIUM') || text.includes('DIESEL') || text.includes('GASOLINA')) return 'litros';
+  return 'kilos';
 }
 
 function trv2ServiceCalc(tarifa, serviceOrKilos, maybeTariff = null) {
@@ -133,12 +135,16 @@ function trv2ServiceCalc(tarifa, serviceOrKilos, maybeTariff = null) {
     ? serviceOrKilos
     : {kilos: Number(serviceOrKilos || 0), litros: 0, producto: ''};
   const base = trv2ServiceBillingBase(service.producto, maybeTariff);
-  const cantidad = base === 'LITRO' ? Number(service.litros || 0) : Number(service.kilos || 0);
+  let cantidad = base === 'litros' ? Number(service.litros || 0) : Number(service.kilos || 0);
+  if (base === 'viaje' || base === 'manual') cantidad = 1;
+  if (base === 'distancia') cantidad = Number(service.distancia_km || service.distancia || 0);
   const subtotal = Number(tarifa || 0) * cantidad;
-  const iva = subtotal * 0.16;
-  const retencion = subtotal * 0.04;
+  const ivaTasa = maybeTariff?.aplica_iva === false ? 0 : Number(maybeTariff?.iva_tasa ?? 0.16);
+  const retencionTasa = maybeTariff?.aplica_retencion === false ? 0 : Number(maybeTariff?.retencion_tasa ?? 0.04);
+  const iva = subtotal * ivaTasa;
+  const retencion = subtotal * retencionTasa;
   const total = subtotal + iva - retencion;
-  return {subtotal, iva, retencion, total, base_calculo: base, cantidad_base: cantidad};
+  return {subtotal, iva, retencion, total, base_calculo: base, cantidad_base: cantidad, iva_tasa: ivaTasa, retencion_tasa: retencionTasa};
 }
 
 function trv2ServicePendingRows() {
@@ -271,7 +277,7 @@ function trv2RenderServiceTariffs() {
                 && (Number(item.proveedor_id || 0) === Number(proveedor.proveedor_id || 0) || trv2ServiceNorm(item.proveedor || item.origen) === trv2ServiceNorm(proveedor.proveedor || proveedor.origen))
                 && (Number(item.cliente_id || 0) === Number(cliente.cliente_id || 0) || trv2ServiceNorm(item.cliente || item.destino) === trv2ServiceNorm(cliente.cliente || cliente.destino))
               ));
-              return `<td>${tariff ? `${trv2ServiceMoney(tariff.tarifa)} / ${String(tariff.base_calculo || tariff.regla_calculo || 'KG') === 'LITRO' ? 'L' : 'kg'} <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteServiceTariff(${Number(tariff.id)})">Eliminar</button>` : '<span class="trv2-muted">Sin tarifa</span>'}</td>`;
+              return `<td>${tariff ? `${trv2ServiceMoney(tariff.tarifa)} / ${trv2ServiceBillingBase(producto, tariff)} <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteServiceTariff(${Number(tariff.id)})">Eliminar</button>` : '<span class="trv2-muted">Sin tarifa</span>'}</td>`;
             }).join('')}
           </tr>
         `).join('')}
@@ -321,7 +327,7 @@ function trv2OpenServiceDetail(tripId) {
     `Vehículo: ${service.vehiculo}`,
     `UUID Carta Porte: ${service.uuid_carta_porte}`,
     `Tarifa: ${tariff ? trv2ServiceMoney(tariff.tarifa) : 'Falta configurar tarifa'}`,
-    `Base cálculo: ${calc.base_calculo === 'LITRO' ? 'Litros' : 'Kilos'}`,
+    `Base cálculo: ${calc.base_calculo}`,
     `Subtotal: ${trv2ServiceMoney(calc.subtotal)}`,
     `IVA: ${trv2ServiceMoney(calc.iva)}`,
     `Retención: ${trv2ServiceMoney(calc.retencion)}`,
@@ -390,7 +396,7 @@ function trv2RenderServicePendingTable() {
         <td>${trv2Esc(service.chofer)}</td>
         <td>${trv2Esc(service.vehiculo)}</td>
         <td>${trv2Esc(service.uuid_carta_porte)}</td>
-        <td>${tariff ? `${trv2ServiceMoney(tariff.tarifa)} / ${calc.base_calculo === 'LITRO' ? 'L' : 'kg'}` : 'Falta configurar tarifa'}</td>
+        <td>${tariff ? `${trv2ServiceMoney(tariff.tarifa)} / ${calc.base_calculo}` : 'Falta configurar tarifa'}</td>
         <td>${trv2ServiceMoney(calc.subtotal)}</td>
         <td>${trv2ServiceMoney(calc.iva)}</td>
         <td>${trv2ServiceMoney(calc.retencion)}</td>

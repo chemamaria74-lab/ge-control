@@ -214,8 +214,68 @@ async function trv2LoadControlVolumetrico() {
   trv2RenderCvTable(TRV2_CV_MOVEMENTS);
   const alert = document.getElementById('trv2-cv-alert');
   if (alert) {
-    alert.textContent = 'Vista previa visual: no genera JSON SAT real, no exporta archivos y no timbra Carta Porte.';
+    alert.textContent = 'Listo para generar JSON SAT con viajes timbrados del periodo.';
   }
+}
+
+function trv2DownloadTextFile(filename, content, mime = 'application/json') {
+  const blob = new Blob([content || ''], {type: `${mime};charset=utf-8`});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'reporte.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function trv2DownloadBase64File(filename, b64, mime = 'application/zip') {
+  const binary = atob(String(b64 || ''));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], {type: mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'reporte.zip';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function trv2GenerateCvReport(format = 'zip') {
+  const permiso = document.getElementById('trv2-cv-permiso')?.value || '';
+  const anio = Number(document.getElementById('trv2-cv-anio')?.value || 0);
+  const mes = Number(document.getElementById('trv2-cv-mes')?.value || 0);
+  const alert = document.getElementById('trv2-cv-alert');
+  if (!permiso || !anio || !mes) {
+    trv2Toast('Selecciona permiso, año y mes para generar JSON SAT.', 'error');
+    return;
+  }
+  if (alert) alert.textContent = 'Generando JSON SAT Transporte...';
+  const response = await trv2Api('POST', '/api/tr-v2/control-volumetrico/generar', {
+    perfil_id: TRV2_PERFIL?.id || null,
+    anio,
+    mes,
+    inventario_inicial_litros: 0,
+    num_permiso_cne: permiso,
+    clave_instalacion: '',
+    descripcion_instalacion: '',
+  }, {allowError: true});
+  if (!response?.ok) {
+    const detail = response?.detail || response?.message || 'No se pudo generar JSON SAT Transporte.';
+    const message = typeof detail === 'string' ? detail : JSON.stringify(detail);
+    if (alert) alert.textContent = message;
+    trv2Toast(message, 'error');
+    return;
+  }
+  window.TRV2_LAST_CV_REPORT = response;
+  if (format === 'json') trv2DownloadTextFile(response.json_name, response.json_content, 'application/json');
+  else trv2DownloadBase64File(response.zip_name, response.zip_b64, 'application/zip');
+  if (alert) alert.textContent = `Reporte ${response.periodo} generado para permiso ${response.num_permiso_cne}.`;
+  trv2Toast('JSON SAT Transporte generado.', 'success');
 }
 
 function trv2ValidateCvDraft() {
@@ -229,8 +289,8 @@ function trv2ValidateCvDraft() {
     notExportable ? `${notExportable} movimiento(s) visibles no son exportables porque no están timbrados con UUID válido.` : 'Todos los movimientos filtrados están timbrados y con UUID válido.',
     missingUuid ? `${missingUuid} movimiento(s) sin UUID Carta Porte válido.` : 'UUID Carta Porte válido en movimientos exportables.',
     nonHydrocarbon ? `${nonHydrocarbon} movimiento(s) requieren confirmar si aplican a hidrocarburos/petrolíferos.` : 'Productos del periodo parecen compatibles con Control Volumétrico.',
-    'Exportar JSON SAT sigue deshabilitado; cuando se habilite solo tomará viajes timbrados.',
+    'Exportar JSON SAT tomará únicamente viajes timbrados del periodo.',
   ].join(' ');
   if (alert) alert.textContent = message;
-  trv2Toast('Borrador de Control Volumétrico validado visualmente. No se generó JSON.', notExportable ? 'error' : 'success');
+  trv2Toast('Borrador de Control Volumétrico validado.', notExportable ? 'error' : 'success');
 }

@@ -7,7 +7,6 @@ TRV2_CATALOGS.tarifas = TRV2_CATALOGS.tarifas || [];
 TRV2_CATALOG_LABELS.instalaciones = 'Instalaciones';
 TRV2_CATALOG_LABELS.proveedores = 'Proveedores';
 TRV2_CATALOG_LABELS.remolques = 'Remolques';
-TRV2_CATALOG_LABELS.tarifas = 'Tarifas';
 let TRV2_VEHICLE_SUBCATALOG = 'vehiculos';
 let TRV2_INSTALLATION_RETURN_CATALOG = '';
 
@@ -124,7 +123,7 @@ const TRV2_REQUIRED_FIELDS = {
   proveedores: ['rfc', 'nombre', 'producto', 'permiso_cre'],
   origenes: ['nombre', 'cp'],
   destinos: ['nombre', 'cp'],
-  rutas: ['nombre', 'origen_id', 'destino_id', 'cp_origen', 'cp_destino', 'distancia_km', 'duracion_estimada_min'],
+  rutas: ['nombre', 'origen_id', 'destino_id', 'cp_origen', 'cp_destino', 'distancia_km', 'duracion_estimada_min', 'tarifa_producto_id', 'tarifa', 'regla_calculo'],
 };
 
 const TRV2_CATALOG_FORMS = {
@@ -233,6 +232,14 @@ const TRV2_CATALOG_FORMS = {
     ['destino_id', 'Destino', 'destino-select'],
     ['distancia_km', 'Distancia km', 'number'],
     ['duracion_estimada_min', 'Duración estimada min', 'number'],
+    ['tarifa_producto_id', 'Producto tarifa', 'product-select'],
+    ['tarifa', 'Tarifa', 'number'],
+    ['regla_calculo', 'Regla/base cálculo', 'tariff-rule'],
+    ['iva_tasa', 'IVA tasa', 'number'],
+    ['aplica_iva', 'Aplica IVA', 'checkbox'],
+    ['retencion_tasa', 'Retención tasa', 'number'],
+    ['aplica_retencion', 'Aplica retención', 'checkbox'],
+    ['tarifa_activo', 'Tarifa activa', 'checkbox'],
     ['activo', 'Activo', 'checkbox'],
   ],
 };
@@ -290,16 +297,9 @@ const TRV2_CATALOG_UI = {
   rutas: {
     icon: 'fa-route',
     title: 'Rutas',
-    subtitle: 'Instalaciones, origen, destino, distancia y duración.',
-    metrics: [['Registros', 'count'], ['Con distancia', 'distancia_km'], ['Con duración', 'duracion_estimada_min']],
-    fields: [['Origen', 'origen'], ['Destino', 'destino'], ['Distancia km', 'distancia_km'], ['Duración min', 'duracion_estimada_min']],
-  },
-  tarifas: {
-    icon: 'fa-money-check-dollar',
-    title: 'Tarifas',
-    subtitle: 'Tarifa por ruta y producto. Gas LP calcula por kilos; gasolina y diésel por litros.',
-    metrics: [['Registros', 'count'], ['Gas LP por kg', 'base_kg'], ['Combustibles por litro', 'base_litro']],
-    fields: [],
+    subtitle: 'Instalaciones, origen, destino, distancia, duración y tarifa de flete por producto.',
+    metrics: [['Registros', 'count'], ['Con distancia', 'distancia_km'], ['Con tarifa', 'route_tariff']],
+    fields: [['Origen', 'origen'], ['Destino', 'destino'], ['Producto tarifa', 'tarifa_producto'], ['Tarifa', 'tarifa_valor'], ['Base', 'tarifa_base']],
   },
   origenes: {
     icon: 'fa-location-dot',
@@ -372,6 +372,21 @@ function trv2CatalogOptions(name, placeholder = 'Seleccionar') {
   )).join('');
 }
 
+function trv2RoutePrimaryTariff(routeId) {
+  const items = typeof trv2ReadServiceTariffs === 'function' ? trv2ReadServiceTariffs() : (TRV2_CATALOGS.tarifas || []);
+  return (items || []).find(item => Number(item.ruta_id || 0) === Number(routeId || 0) && item.activo !== false) || null;
+}
+
+function trv2TariffBaseLabel(value) {
+  const raw = String(value || '').toLowerCase();
+  if (raw === 'litros' || raw === 'litro') return 'litros';
+  if (raw === 'kilos' || raw === 'kg' || raw === 'kilo') return 'kilos';
+  if (raw === 'viaje') return 'viaje';
+  if (raw === 'distancia') return 'distancia';
+  if (raw === 'manual') return 'manual';
+  return raw || 'pendiente';
+}
+
 function trv2BuildInstalacionesCatalog() {
   const origenes = (TRV2_CATALOGS.origenes || []).map(item => ({
     ...item,
@@ -426,7 +441,8 @@ function trv2BuildProveedoresCatalog() {
 function trv2RenderCatalogTabs() {
   const tabs = document.getElementById('trv2-catalog-tabs');
   if (!tabs) return;
-  tabs.innerHTML = Object.keys(TRV2_CATALOG_LABELS).filter(name => !['remolques', 'instalaciones'].includes(name)).map(name => {
+  if (TRV2_ACTIVE_CATALOG === 'tarifas') TRV2_ACTIVE_CATALOG = 'rutas';
+  tabs.innerHTML = Object.keys(TRV2_CATALOG_LABELS).filter(name => !['remolques', 'instalaciones', 'tarifas'].includes(name)).map(name => {
     const ui = TRV2_CATALOG_UI[name] || {};
     const active = name === TRV2_ACTIVE_CATALOG || (name === 'vehiculos' && TRV2_ACTIVE_CATALOG === 'remolques') ? 'active' : '';
     return `
@@ -462,6 +478,9 @@ function trv2CatalogMetricValue(items, key) {
   if (key === 'base_litro') {
     return items.filter(item => String(item.base_calculo || item.regla_calculo || '').toUpperCase() === 'LITRO').length;
   }
+  if (key === 'route_tariff') {
+    return items.filter(item => trv2RoutePrimaryTariff(item.id)).length;
+  }
   return items.filter(item => {
     const value = item[key];
     if (typeof value === 'boolean') return value;
@@ -487,13 +506,6 @@ function trv2RenderActiveCatalog() {
   if (!panel) return;
   const name = TRV2_ACTIVE_CATALOG || 'clientes';
   const ui = TRV2_CATALOG_UI[name] || {};
-  if (name === 'tarifas') {
-    TRV2_CATALOGS.tarifas = typeof trv2ReadServiceTariffs === 'function' ? trv2ReadServiceTariffs() : [];
-    if (caption) caption.textContent = ui.subtitle || '';
-    trv2RenderCatalogMetrics(name, TRV2_CATALOGS.tarifas);
-    trv2RenderTariffCatalog(panel);
-    return;
-  }
   const items = TRV2_CATALOGS[name] || [];
   const query = (document.getElementById('trv2-catalog-search')?.value || '').toLowerCase().trim();
   const filtered = query
@@ -531,10 +543,6 @@ function trv2RenderActiveCatalog() {
 }
 
 function trv2OpenActiveCatalogEditor() {
-  if (TRV2_ACTIVE_CATALOG === 'tarifas') {
-    trv2AddServiceTariff();
-    return;
-  }
   trv2OpenCatalogModal();
 }
 
@@ -614,7 +622,7 @@ function trv2RenderCatalogTableRow(name, item, fields) {
       </td>
       ${fields.map(([, key]) => {
         const raw = item[key];
-        const value = trv2CatalogDisplayValue(name, key, raw);
+        const value = trv2CatalogDisplayValue(name, key, raw, item);
         return `<td>${trv2Esc(value || 'Pendiente')}</td>`;
       }).join('')}
       <td><span class="trv2-status ${statusClass}">${status}</span></td>
@@ -630,10 +638,16 @@ function trv2RenderCatalogTableRow(name, item, fields) {
   `;
 }
 
-function trv2CatalogDisplayValue(name, key, raw) {
+function trv2CatalogDisplayValue(name, key, raw, item = null) {
   if (typeof raw === 'boolean') return raw ? 'Sí' : 'No';
   if (name === 'operadores' && key === 'vehiculo_frecuente_id') {
     return trv2CatalogLabel('vehiculos', trv2FindCatalog('vehiculos', raw)) || 'Sin vehículo asignado';
+  }
+  if (name === 'rutas') {
+    const tariff = item ? trv2RoutePrimaryTariff(item.id) : null;
+    if (key === 'tarifa_producto') return tariff?.producto_nombre || tariff?.producto || '';
+    if (key === 'tarifa_valor') return tariff ? (typeof trv2ServiceMoney === 'function' ? trv2ServiceMoney(tariff.tarifa) : tariff.tarifa) : '';
+    if (key === 'tarifa_base') return tariff ? trv2TariffBaseLabel(tariff.regla_calculo || tariff.base_calculo) : '';
   }
   return raw;
 }
@@ -760,12 +774,27 @@ function trv2RenderCatalogFields(name) {
     const required = (TRV2_REQUIRED_FIELDS[name] || []).includes(field);
     const labelText = `${label}${required ? ' *' : ''}`;
     if (type === 'checkbox') {
-      const checked = field === 'activo' ? 'checked' : '';
+      const checked = ['activo', 'aplica_iva', 'aplica_retencion', 'tarifa_activo'].includes(field) ? 'checked' : '';
       return `<label class="trv2-check"><input data-field="${field}" type="checkbox" ${checked}> ${trv2Esc(labelText)}</label>`;
     }
     if (type === 'origen-select' || type === 'destino-select') {
       const catalog = type === 'origen-select' ? 'origenes' : 'destinos';
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>${trv2CatalogOptions(catalog, `Selecciona ${label.toLowerCase()}`)}</select></label>`;
+    }
+    if (type === 'product-select') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        ${trv2CatalogOptions('productos', 'Seleccionar producto')}
+      </select></label>`;
+    }
+    if (type === 'tariff-rule') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar base</option>
+        <option value="litros">Litros</option>
+        <option value="kilos">Kilos</option>
+        <option value="viaje">Viaje</option>
+        <option value="distancia">Distancia</option>
+        <option value="manual">Manual</option>
+      </select></label>`;
     }
     if (type === 'vehicle-select') {
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
@@ -1148,6 +1177,57 @@ function trv2FillCatalogModalForm(form, item) {
   trv2RefreshProductSatDefaults();
   trv2ToggleVehicleTrailerFields();
   trv2ToggleInstallationRelationFields();
+  trv2FillRouteTariffFields(form, item);
+}
+
+function trv2FillRouteTariffFields(form, item) {
+  if (!form || form.dataset.catalog !== 'rutas' || !item?.id) return;
+  const tariff = trv2RoutePrimaryTariff(item.id);
+  const defaults = {
+    tarifa_producto_id: tariff?.producto_id || '',
+    tarifa: tariff?.tarifa || '',
+    regla_calculo: tariff?.regla_calculo || tariff?.base_calculo || '',
+    iva_tasa: tariff?.iva_tasa ?? 0.16,
+    retencion_tasa: tariff?.retencion_tasa ?? 0.04,
+    aplica_iva: tariff ? tariff.aplica_iva !== false : true,
+    aplica_retencion: tariff ? tariff.aplica_retencion !== false : true,
+    tarifa_activo: tariff ? tariff.activo !== false : true,
+  };
+  Object.entries(defaults).forEach(([field, value]) => {
+    const input = form.querySelector(`[data-field="${field}"]`);
+    if (!input) return;
+    if (input.type === 'checkbox') input.checked = Boolean(value);
+    else input.value = value ?? '';
+  });
+}
+
+async function trv2SaveRouteTariff(routeId, data) {
+  const productoId = Number(data.tarifa_producto_id || data.producto_id || 0);
+  const tarifa = Number(data.tarifa || 0);
+  if (!routeId || !productoId || tarifa <= 0) {
+    trv2Toast('Ruta guardada, pero falta producto/tarifa para guardar la tarifa de flete.', 'error');
+    return false;
+  }
+  const response = await trv2Api('POST', '/api/tr-v2/facturas-servicio/tarifas', {
+    perfil_id: TRV2_PERFIL?.id || null,
+    data: {
+      ruta_id: Number(routeId),
+      producto_id: productoId,
+      tarifa,
+      regla_calculo: data.regla_calculo || '',
+      iva_tasa: Number(data.iva_tasa || 0.16),
+      retencion_tasa: Number(data.retencion_tasa || 0.04),
+      aplica_iva: data.aplica_iva !== false,
+      aplica_retencion: data.aplica_retencion !== false,
+      activo: data.tarifa_activo !== false,
+    },
+  }, {allowError: true});
+  if (!response?.ok) {
+    trv2Toast(trv2ReadableCatalogError(response, 'La ruta se guardó, pero no se pudo guardar su tarifa.'), 'error');
+    return false;
+  }
+  if (typeof trv2LoadServiceTariffs === 'function') await trv2LoadServiceTariffs();
+  return true;
 }
 
 function trv2CloseCatalogModal() {
@@ -1237,6 +1317,7 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
     data.cp_destino = destino.cp;
     data.nombre_origen = origen.nombre || origen.origen || '';
     data.nombre_destino = destino.nombre || destino.destino || '';
+    data.producto_id = Number(data.tarifa_producto_id || 0) || '';
   }
   const invalidRfc = [...form.querySelectorAll('[data-rfc-field]')].find(input => input.value.trim() && !trv2ValidRfc(input.value));
   if (invalidRfc) {
@@ -1264,6 +1345,11 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
     data,
   }, {allowError: true});
   if (response?.ok) {
+    if (name === 'rutas') {
+      const routeId = Number(response.item?.id || itemId || 0);
+      const tariffOk = await trv2SaveRouteTariff(routeId, data);
+      if (!tariffOk) return;
+    }
     trv2Toast(`${TRV2_CATALOG_LABELS[name]} ${itemId ? 'actualizado' : 'guardado'}.`, 'success');
     trv2CloseCatalogModal();
     await trv2LoadCatalogs({silent: true});
@@ -1304,6 +1390,13 @@ function trv2ValidateCatalogPayload(name, data) {
     if (!trv2ValidRfc(data.rfc)) return `Proveedor ${data.nombre || ''} tiene RFC inválido.`;
     if (!data.producto) return `Proveedor ${data.nombre || ''} no tiene producto configurado.`;
     if (!data.permiso_cre) return `Proveedor ${data.nombre || ''} no tiene permiso proveedor.`;
+  }
+  if (name === 'rutas') {
+    if (!Number(data.tarifa_producto_id || 0)) return `Ruta ${data.nombre || ''} requiere producto para tarifa de flete.`;
+    if (Number(data.tarifa || 0) <= 0) return `Ruta ${data.nombre || ''} requiere tarifa de flete mayor a cero.`;
+    if (!['litros', 'kilos', 'viaje', 'distancia', 'manual'].includes(String(data.regla_calculo || '').toLowerCase())) {
+      return `Ruta ${data.nombre || ''} requiere base de cálculo válida: litros, kilos, viaje, distancia o manual.`;
+    }
   }
   return '';
 }
