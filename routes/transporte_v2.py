@@ -2355,16 +2355,17 @@ def _resolve_product_match(product_rows: list[dict[str, Any]], detected: dict[st
     return {}, diagnostics
 
 
-def _permiso_payload(data: dict[str, Any]) -> dict[str, Any]:
-    rfc = str(data.get("rfc") or "").strip().upper()
+def _permiso_payload(data: dict[str, Any], settings: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    fiscal = ((settings or {}).get("perfil_fiscal") or {}) if isinstance(settings, dict) else {}
+    rfc = str(data.get("rfc") or fiscal.get("rfc_contribuyente") or "").strip().upper()
     if not _valid_rfc(rfc):
-        raise HTTPException(400, "RFC inválido. Usa RFC de persona moral de 12 caracteres o persona física de 13.")
-    nombre = str(data.get("nombre") or "").strip()
-    tipo = str(data.get("tipo") or "").strip()
+        raise HTTPException(400, "RFC inválido o faltante en Configuración. Guarda el RFC del contribuyente antes de registrar el permiso.")
+    nombre = str(data.get("nombre") or fiscal.get("nombre_fiscal") or "").strip()
+    tipo = str(data.get("tipo") or "Transportista").strip()
     producto = str(data.get("producto") or "").strip()
     permiso_cre = str(data.get("permiso_cre") or data.get("permiso") or "").strip()
     if not nombre or not tipo or not producto or not permiso_cre:
-        raise HTTPException(400, "Faltan campos requeridos: tipo, RFC, nombre, producto y permiso CRE.")
+        raise HTTPException(400, "Faltan campos requeridos: producto, permiso CRE o nombre fiscal en Configuración.")
     metadata = _parse_json_value(data.get("metadata"), {})
     metadata.update({
         "tipo": tipo,
@@ -2970,6 +2971,51 @@ def _stamp_expand_route_locations(sb: Any, uid: str, pid: Optional[int], route: 
     return expanded
 
 
+def _stamp_expand_vehicle_trailers(sb: Any, uid: str, pid: Optional[int], vehiculo: dict[str, Any]) -> dict[str, Any]:
+    expanded = dict(vehiculo or {})
+    if not expanded:
+        return expanded
+    meta = _meta(expanded)
+    trailer_specs = [
+        ("remolque_id", "remolque"),
+        ("remolque2_id", "remolque2"),
+    ]
+    for id_key, prefix in trailer_specs:
+        trailer_id = expanded.get(id_key) or meta.get(id_key)
+        if not trailer_id:
+            continue
+        trailer = _normalize_catalog_row("remolques", _stamp_row(sb, TBL_REMOLQUES, trailer_id, uid, pid))
+        if not trailer:
+            continue
+        subtipo = _first_text(
+            trailer.get("subtipo_remolque"),
+            trailer.get("subtipo_remolque_sat"),
+            trailer.get("subtipo_rem"),
+            trailer.get("subtipo"),
+        )
+        placas = _first_text(trailer.get("placas"), trailer.get("placa"))
+        economico = _first_text(trailer.get("alias"), trailer.get("numero_economico"))
+        aseguradora = _first_text(trailer.get("aseguradora"), trailer.get("aseguradora_rc"))
+        poliza = _first_text(trailer.get("poliza"), trailer.get("poliza_rc"), trailer.get("poliza_seguro"))
+        if subtipo:
+            expanded[f"{prefix}_subtipo"] = _first_text(expanded.get(f"{prefix}_subtipo"), meta.get(f"{prefix}_subtipo"), subtipo)
+            meta[f"{prefix}_subtipo"] = expanded[f"{prefix}_subtipo"]
+        if placas:
+            expanded[f"{prefix}_placas"] = _first_text(expanded.get(f"{prefix}_placas"), meta.get(f"{prefix}_placas"), placas)
+            meta[f"{prefix}_placas"] = expanded[f"{prefix}_placas"]
+        if economico:
+            expanded[f"{prefix}_numero_economico"] = _first_text(expanded.get(f"{prefix}_numero_economico"), meta.get(f"{prefix}_numero_economico"), economico)
+            meta[f"{prefix}_numero_economico"] = expanded[f"{prefix}_numero_economico"]
+        if aseguradora:
+            meta[f"{prefix}_aseguradora"] = _first_text(meta.get(f"{prefix}_aseguradora"), aseguradora)
+        if poliza:
+            meta[f"{prefix}_poliza"] = _first_text(meta.get(f"{prefix}_poliza"), poliza)
+        meta[id_key] = trailer_id
+    if meta:
+        expanded["metadata"] = meta
+    return expanded
+
+
 def _stamp_transportista_permiso(sb: Any, uid: str, pid: Optional[int], producto_text: str) -> dict[str, Any]:
     try:
         q = sb.table(TBL_PROVEEDORES).select("*").eq("user_id", uid).eq("activo", True)
@@ -3171,7 +3217,12 @@ def _stamp_build_context(
 
     cliente = _normalize_catalog_row("clientes", _stamp_row(sb, TBL_CLIENTES, _meta(viaje_row).get("cliente_id"), uid, pid))
     operador = _normalize_catalog_row("operadores", _stamp_row(sb, TBL_OPERADORES, viaje_row.get("chofer_id"), uid, pid))
-    vehiculo = _normalize_catalog_row("vehiculos", _stamp_row(sb, TBL_VEHICULOS, viaje_row.get("vehiculo_id"), uid, pid))
+    vehiculo = _stamp_expand_vehicle_trailers(
+        sb,
+        uid,
+        pid,
+        _normalize_catalog_row("vehiculos", _stamp_row(sb, TBL_VEHICULOS, viaje_row.get("vehiculo_id"), uid, pid)),
+    )
     producto = _normalize_catalog_row("productos", _stamp_row(sb, TBL_PRODUCTOS, viaje_row.get("producto_operacion_id"), uid, pid))
     ruta = _stamp_expand_route_locations(
         sb,
@@ -4402,7 +4453,12 @@ def _load_preview_context(
     _require_profile_if_present(uid, token, pid)
     cliente = _catalog_row(token, uid, TBL_CLIENTES, viaje.get("cliente_id"), pid)
     operador = _catalog_row(token, uid, TBL_OPERADORES, viaje.get("operador_id"), pid)
-    vehiculo = _catalog_row(token, uid, TBL_VEHICULOS, viaje.get("vehiculo_id"), pid)
+    vehiculo = _stamp_expand_vehicle_trailers(
+        _sb(token),
+        uid,
+        pid,
+        _catalog_row(token, uid, TBL_VEHICULOS, viaje.get("vehiculo_id"), pid),
+    )
     producto = _catalog_row(token, uid, TBL_PRODUCTOS, viaje.get("producto_id"), pid)
     ruta = _catalog_row(token, uid, TBL_RUTAS, viaje.get("ruta_id"), pid)
     return viaje, cliente, operador, vehiculo, producto, ruta, pid
@@ -5099,7 +5155,8 @@ async def transporte_v2_permisos_rfc_create(
     _require_profile_if_present(uid, token, pid)
     if not pid:
         raise HTTPException(400, "perfil_id requerido para guardar permisos/RFC.")
-    row = _permiso_payload(payload.data)
+    settings = _load_settings(token, uid, pid)
+    row = _permiso_payload(payload.data, settings)
     row.update({"user_id": uid, "perfil_id": pid, "created_at": _now_iso(), "updated_at": _now_iso()})
     try:
         inserted = _sb(token).table(TBL_PROVEEDORES).insert(row).execute().data or []
@@ -5126,7 +5183,8 @@ async def transporte_v2_permisos_rfc_update(
     _require_profile_if_present(uid, token, pid)
     if not pid:
         raise HTTPException(400, "perfil_id requerido para actualizar permisos/RFC.")
-    row = _permiso_payload(payload.data)
+    settings = _load_settings(token, uid, pid)
+    row = _permiso_payload(payload.data, settings)
     row["updated_at"] = _now_iso()
     try:
         updated = (
