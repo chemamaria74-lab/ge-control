@@ -1473,6 +1473,39 @@
       <label style="font-size:.72rem">Domicilio completo / referencia</label>
       <input id="fac_domicilio" placeholder="Calle, número, colonia, municipio, estado">
     </div>
+    <div style="font-size:.72rem;font-weight:700;color:#7A1E2C;text-transform:uppercase;letter-spacing:.05em;margin:.2rem 0 .5rem">
+      <i class="fa-solid fa-route" style="margin-right:.3rem"></i>Carta Porte
+    </div>
+    <div class="grid3" style="margin-bottom:.7rem">
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Tipo Carta Porte</label>
+        <select id="fac_tipo_ubicacion" style="padding:.5rem .7rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.88rem;width:100%">
+          <option value="origen">Origen</option>
+          <option value="destino">Destino</option>
+          <option value="ambos">Ambos</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">ID ubicación Carta Porte</label>
+        <input id="fac_id_ubicacion_cp" placeholder="OR000004 / DE000027" maxlength="8" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Estado SAT</label>
+        <input id="fac_estado_sat" placeholder="ZAC" maxlength="3" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Municipio SAT</label>
+        <input id="fac_municipio_sat" placeholder="020" maxlength="3" inputmode="numeric">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Localidad SAT <span style="color:#94a3b8;font-weight:400">— opcional</span></label>
+        <input id="fac_localidad_sat" placeholder="02" maxlength="2">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:.72rem">Referencia Carta Porte</label>
+        <input id="fac_referencia_cp" placeholder="Referencia operativa opcional">
+      </div>
+    </div>
     <!-- ── Config. Avanzada (colapsable) ──────────────────────────────── -->
     <div style="margin-top:.9rem;border-top:1px solid #e2e8f0;padding-top:.7rem">
       <button type="button" id="btnToggleAdvFacility"
