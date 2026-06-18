@@ -18,6 +18,7 @@ import routes.internal_users as internal_users
 import routes.internal_users_mod.catalogos_clientes as cp_catalogos
 import routes.internal_users_mod.users_auth as users_auth
 import routes.facturas as facturas_routes
+import services.sw_sapien as sw_sapien
 from services.sw_sapien import build_carta_porte_xml
 
 
@@ -1697,9 +1698,10 @@ def test_assistant_carta_porte_validation_flow_has_modal_and_real_error_text():
     assert "gas_lp_carta_porte_duplicate_blocked" in backend_source
 
 
-def test_carta_porte_xml_adds_seconds_to_browser_datetime_values():
+def test_carta_porte_xml_adds_seconds_to_browser_datetime_values(monkeypatch):
     import re
 
+    monkeypatch.setattr(sw_sapien, "_cp_now_mexico", lambda: datetime(2026, 6, 9, 13, 0, 0))
     xml = build_carta_porte_xml(
         {
             "record_uuid": "CP-FECHA",
@@ -1736,7 +1738,7 @@ def test_carta_porte_xml_adds_seconds_to_browser_datetime_values():
     assert 'SubTotal="0" Total="0" Moneda="XXX"' in xml
     assert '<cfdi:Concepto ClaveProdServ="78101800"' in xml
     assert 'BienesTransp="15111510"' in xml
-    assert 'Fecha="2026-06-09T14:32:00"' in xml
+    assert 'Fecha="2026-06-09T12:55:00"' in xml
     assert 'PlacaVM="AC6116E"' in xml
     assert 'PesoBrutoVehicular="12.00"' in xml
     assert 'CodigoPostal="98470" Estado="ZAC" Municipio=' not in xml
