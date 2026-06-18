@@ -3506,7 +3506,7 @@ async def transporte_v2_operator_bitacora_pdf(authorization: str = Header(defaul
     bitacora = meta.get("bitacora_operador") if isinstance(meta.get("bitacora_operador"), dict) else {}
     lines = [
         "GE Control - Bitacora Transporte",
-        f"Viaje: #{trip.get('id')}",
+        "Viaje: Operador",
         f"Operador: {(acc.get('chofer') or {}).get('nombre') or ''}",
         f"Origen: {_first_text(trip.get('origen'), trip.get('nombre_origen'), meta.get('origen_sugerido'))}",
         f"Destino: {_first_text(trip.get('destino'), trip.get('nombre_destino'), meta.get('destino_sugerido'))}",
