@@ -449,14 +449,14 @@
             <strong>Nuevo permiso CRE transportista</strong>
             <span>Captura sólo cuando vayas a registrar o editar un permiso.</span>
           </div>
-          <label>Tipo * <select id="trv2-permiso-tipo" required><option>Transportista</option></select></label>
-          <label>RFC * <input id="trv2-permiso-rfc" data-rfc-field required></label>
-          <label>Nombre * <input id="trv2-permiso-nombre" required></label>
+          <input type="hidden" id="trv2-permiso-tipo" value="Transportista">
+          <input type="hidden" id="trv2-permiso-rfc">
+          <input type="hidden" id="trv2-permiso-nombre">
           <label>Producto * <select id="trv2-permiso-producto" required><option value="">Seleccionar</option><option>Gas LP</option><option>Magna</option><option>Premium</option><option>Diésel</option></select></label>
           <label>Permiso CRE transportista * <input id="trv2-permiso-cre" required></label>
-          <label>Permiso almacenamiento terminal <input id="trv2-permiso-alm"></label>
-          <label>Origen default <select id="trv2-permiso-origen"></select></label>
-          <label>Producto default <select id="trv2-permiso-producto-default"></select></label>
+          <input type="hidden" id="trv2-permiso-alm">
+          <input type="hidden" id="trv2-permiso-origen">
+          <input type="hidden" id="trv2-permiso-producto-default">
           <label>Activo <select id="trv2-permiso-activo"><option value="true">Activo</option><option value="false">Inactivo</option></select></label>
           <div class="trv2-form-actions">
             <button class="trv2-btn trv2-btn-primary" type="submit">Guardar permiso</button>
