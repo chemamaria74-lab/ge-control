@@ -88,6 +88,7 @@ class FakeDB:
             "perfiles_empresa": [
                 {"id": 1, "user_id": "admin", "tenant_id": "tenant-a", "nombre": "DISTRIBUIDORA DE GAS DEL CAÑON", "rfc": "DGC010101AAA", "activo": True},
                 {"id": 2, "user_id": "admin", "tenant_id": "tenant-a", "nombre": "ALFA GAS", "rfc": "ALF010101AAA", "activo": True},
+                {"id": 3, "user_id": "2883a5c0-1e8c-416f-a13a-6dc525825374", "tenant_id": "2883a5c0-1e8c-416f-a13a-6dc525825374", "nombre": "EMPRESA GAS LP DE PRUEBA", "rfc": "EGP010101AAA", "activo": True},
             ],
             "internal_users": [],
             "internal_user_sessions": [],
