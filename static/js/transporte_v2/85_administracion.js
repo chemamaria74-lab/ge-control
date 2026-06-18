@@ -136,6 +136,7 @@ function trv2SettingsPayloadFromForm() {
 }
 
 function trv2FillSettingsForm(data = {}) {
+  window.TRV2_TRANSPORTE_SETTINGS = data || {};
   const perfil = data.perfil_fiscal || {};
   const productos = data.productos_habilitados || {};
   const pairs = [
@@ -162,6 +163,22 @@ function trv2FillSettingsForm(data = {}) {
     if (el) el.checked = Boolean(value);
   });
   trv2RenderLogoPreview(perfil.logo_data_url || perfil.logo_url || '');
+}
+
+function trv2CurrentFiscalSettings() {
+  const saved = window.TRV2_TRANSPORTE_SETTINGS?.perfil_fiscal || {};
+  return {
+    rfc: document.getElementById('trv2-set-rfc')?.value.trim().toUpperCase() || saved.rfc_contribuyente || '',
+    nombre: document.getElementById('trv2-set-nombre')?.value.trim() || saved.nombre_fiscal || '',
+  };
+}
+
+function trv2ApplyFiscalIdentityToPermisoForm() {
+  const fiscal = trv2CurrentFiscalSettings();
+  const rfc = document.getElementById('trv2-permiso-rfc');
+  const nombre = document.getElementById('trv2-permiso-nombre');
+  if (rfc && !rfc.value) rfc.value = fiscal.rfc || '';
+  if (nombre && !nombre.value) nombre.value = fiscal.nombre || '';
 }
 
 function trv2RenderLogoPreview(value) {
@@ -263,6 +280,7 @@ function trv2ClearPermisoForm(options = {}) {
 
 function trv2NewPermisoRfc() {
   trv2ClearPermisoForm({hide: false});
+  trv2ApplyFiscalIdentityToPermisoForm();
   const form = document.getElementById('trv2-permiso-form');
   if (form) {
     form.hidden = false;
@@ -273,6 +291,7 @@ function trv2NewPermisoRfc() {
 }
 
 function trv2PermisoPayloadFromForm() {
+  trv2ApplyFiscalIdentityToPermisoForm();
   return {
     tipo: document.getElementById('trv2-permiso-tipo')?.value || 'Transportista',
     rfc: document.getElementById('trv2-permiso-rfc')?.value.trim().toUpperCase() || '',
@@ -306,7 +325,7 @@ function trv2FillPermisoForm(item = {}) {
   set('trv2-permiso-origen', item.origen_default_id || '');
   set('trv2-permiso-producto-default', item.producto_default_id || '');
   set('trv2-permiso-activo', item.activo === false ? 'false' : 'true');
-  document.getElementById('trv2-permiso-rfc')?.focus();
+  document.getElementById('trv2-permiso-producto')?.focus();
 }
 
 function trv2AdminNormalizeText(value) {
@@ -386,8 +405,12 @@ async function trv2LoadPermisosRfc(options = {}) {
 async function trv2SavePermisoRfc(event) {
   event.preventDefault();
   const payload = trv2PermisoPayloadFromForm();
-  if (!trv2ValidRfc(payload.rfc)) {
-    trv2Toast('RFC inválido. Usa 12 caracteres para moral o 13 para física.', 'error');
+  if (!payload.producto) {
+    trv2Toast('Selecciona el producto del permiso transportista.', 'error');
+    return;
+  }
+  if (!payload.permiso_cre) {
+    trv2Toast('Captura el permiso CRE transportista.', 'error');
     return;
   }
   const itemId = Number(document.getElementById('trv2-permiso-id')?.value || 0);
