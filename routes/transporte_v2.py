@@ -325,6 +325,9 @@ def _to_float(value: Any) -> float:
 
 def _parse_short_date(value: str) -> str:
     text = str(value or "").strip()
+    iso_match = re.match(r"^(\d{4}-\d{2}-\d{2})", text)
+    if iso_match:
+        return iso_match.group(1)
     match = re.search(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})", text)
     if not match:
         return text
@@ -1652,6 +1655,11 @@ def _validate_catalog_payload(catalogo: str, row: dict[str, Any]) -> None:
             raise HTTPException(400, f"Cliente {row.get('nombre') or ''} no tiene CP fiscal válido de 5 dígitos.")
     if catalogo in {"origenes", "destinos"} and row.get("cp") and not _valid_cp(row.get("cp")):
         raise HTTPException(400, f"Instalación {row.get('nombre') or ''} no tiene CP válido de 5 dígitos.")
+    if catalogo == "operadores":
+        meta = _meta(row)
+        operador_cp = _first_text(row.get("cp"), meta.get("cp"))
+        if operador_cp and not _valid_cp(operador_cp):
+            raise HTTPException(400, f"Operador {row.get('nombre') or ''} no tiene CP de domicilio válido de 5 dígitos.")
     if catalogo == "vehiculos" and not _first_text(row.get("id_cre"), _meta(row).get("id_cre"), _meta(row).get("id_cre_vehiculo")):
         raise HTTPException(400, f"Vehículo {row.get('alias') or row.get('placas') or ''} no tiene ID CRE.")
     if catalogo == "productos":
@@ -1748,7 +1756,8 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["nombre"] = _first_text(item.get("nombre"))
         item["rfc_figura"] = _first_text(item.get("rfc_figura"), item.get("rfc"))
         item["licencia"] = _first_text(item.get("licencia"))
-        item["tipo_licencia"] = _first_text(item.get("tipo_licencia"))
+        item["tipo_licencia"] = _first_text(item.get("tipo_licencia"), operator_meta.get("tipo_licencia"))
+        item["vencimiento_licencia"] = _parse_short_date(_first_text(item.get("vencimiento_licencia"), operator_meta.get("vencimiento_licencia"), operator_meta.get("licencia_vencimiento")))
         item["cp"] = _first_text(item.get("cp"), operator_meta.get("cp"))
         item["domicilio"] = _first_text(item.get("domicilio"), item.get("direccion"), operator_meta.get("domicilio"), operator_meta.get("direccion"))
         item["estado_sat"] = _first_text(item.get("estado_sat"), operator_meta.get("estado_sat"))
