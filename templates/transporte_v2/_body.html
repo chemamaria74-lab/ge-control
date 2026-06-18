@@ -234,7 +234,7 @@
       </div>
       <div class="trv2-actions">
         <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadCatalogs()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
-        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenCatalogModal()"><i class="fa-solid fa-plus"></i> Nuevo</button>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenActiveCatalogEditor()"><i class="fa-solid fa-plus"></i> Nuevo</button>
       </div>
     </div>
     <nav class="trv2-subtabs" id="trv2-catalog-tabs" aria-label="Catálogos Transporte v2"></nav>
@@ -264,7 +264,6 @@
         <button class="trv2-subtab active" type="button" data-service-tab="pendientes" onclick="trv2SetServiceInvoiceTab('pendientes')">Servicios pendientes de facturar</button>
         <button class="trv2-subtab" type="button" data-service-tab="facturadas" onclick="trv2SetServiceInvoiceTab('facturadas')">Facturadas</button>
         <button class="trv2-subtab" type="button" data-service-tab="pago" onclick="trv2SetServiceInvoiceTab('pago')">Pendientes de pago</button>
-        <button class="trv2-subtab" type="button" data-service-tab="configuracion" onclick="trv2SetServiceInvoiceTab('configuracion')">Configuración y tarifas</button>
       </nav>
       <div class="trv2-table-wrap" data-service-panel="pendientes">
         <table>
@@ -287,30 +286,6 @@
           <thead><tr><th>Cliente</th><th>Fecha</th><th>Total</th><th>Saldo</th><th>Estatus</th></tr></thead>
           <tbody id="trv2-service-payment-table"></tbody>
         </table>
-      </div>
-      <div data-service-panel="configuracion" hidden>
-        <div class="trv2-table-head">
-          <div>
-            <h2>Tarifas Flete</h2>
-            <p class="trv2-muted">Matriz por ruta y producto. Gas LP calcula por kilos; gasolina y diésel por litros.</p>
-          </div>
-          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2AddServiceTariff()">+ Agregar tarifa</button>
-        </div>
-        <form class="trv2-form trv2-form-compact trv2-tariff-editor" id="trv2-service-tariff-form" onsubmit="trv2SaveServiceTariff(event)" hidden>
-          <div class="trv2-form-title">
-            <strong>Nueva tarifa</strong>
-            <span>Selecciona ruta y producto. La ruta trae origen/proveedor y destino/cliente.</span>
-          </div>
-          <label>Ruta <select id="trv2-tarifa-ruta" required onchange="trv2UpdateServiceTariffHint()"></select></label>
-          <label>Producto <select id="trv2-tarifa-producto" required></select></label>
-          <label>Tarifa <input id="trv2-tarifa-valor" type="number" step="0.0001" min="0" required></label>
-          <div class="trv2-form-wide trv2-route-endpoint-hint" id="trv2-tarifa-hint">Selecciona una ruta para ver origen y destino.</div>
-          <div class="trv2-form-actions">
-            <button class="trv2-btn trv2-btn-primary" type="submit">Guardar tarifa</button>
-            <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ClearServiceTariffForm()">Cancelar</button>
-          </div>
-        </form>
-        <div id="trv2-service-tariffs" class="trv2-table-wrap"></div>
       </div>
     </section>
   </section>
