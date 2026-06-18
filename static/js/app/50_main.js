@@ -1550,6 +1550,11 @@ function openAddFacility() {
   ['fac_codigo_postal','fac_domicilio','fac_calle','fac_num_ext','fac_colonia','fac_municipio','fac_estado','fac_pais'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = id === 'fac_pais' ? 'México' : '';
   });
+  const tipoUbicacion = document.getElementById('fac_tipo_ubicacion');
+  if (tipoUbicacion) tipoUbicacion.value = 'origen';
+  ['fac_id_ubicacion_cp','fac_estado_sat','fac_municipio_sat','fac_localidad_sat','fac_referencia_cp'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
   document.getElementById('facilityFormStatus').textContent = '';
   // Clear adv fields
   ['fac_clave_tanque','fac_cap_total','fac_cap_operativa','fac_cap_util',
@@ -1589,6 +1594,13 @@ function openEditFacility(id) {
   document.getElementById('fac_municipio').value            = firstText(fac.municipio, addr.municipio);
   document.getElementById('fac_estado').value               = firstText(fac.estado, addr.estado);
   document.getElementById('fac_pais').value                 = firstText(fac.pais, addr.pais, 'México');
+  const tipoUbicacion = document.getElementById('fac_tipo_ubicacion');
+  if (tipoUbicacion) tipoUbicacion.value = firstText(fac.tipo_ubicacion, fac.tipo_carta_porte, 'origen').toLowerCase();
+  document.getElementById('fac_id_ubicacion_cp').value       = firstText(fac.id_ubicacion_carta_porte, fac.id_ubicacion);
+  document.getElementById('fac_estado_sat').value            = fac.estado_sat || '';
+  document.getElementById('fac_municipio_sat').value         = fac.municipio_sat || '';
+  document.getElementById('fac_localidad_sat').value         = fac.localidad_sat || '';
+  document.getElementById('fac_referencia_cp').value         = fac.referencia_carta_porte || '';
   document.getElementById('facilityFormStatus').textContent = '';
   // Populate adv fields from existing facility data
   document.getElementById('fac_clave_tanque').value              = fac.clave_tanque || '';
@@ -1624,6 +1636,19 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
   const tipoPermiso = document.getElementById('fac_tipo_permiso')?.value || 'PER40';
   const actividadInfo = PERMISO_ACTIVIDAD[tipoPermiso] || {code:'DIS'};
   const tempDefault = document.getElementById('fac_temp_default').value;
+  const tipoUbicacion = document.getElementById('fac_tipo_ubicacion')?.value || 'origen';
+  const idUbicacionCp = document.getElementById('fac_id_ubicacion_cp')?.value.trim().toUpperCase() || '';
+  if (idUbicacionCp) {
+    const expected = tipoUbicacion === 'destino' ? 'DE' : tipoUbicacion === 'origen' ? 'OR' : '(OR|DE)';
+    const pattern = tipoUbicacion === 'ambos' ? /^(OR|DE)\d{6}$/ : new RegExp('^' + expected + '\\d{6}$');
+    if (!pattern.test(idUbicacionCp)) {
+      st.textContent = tipoUbicacion === 'ambos'
+        ? 'ID ubicación Carta Porte debe tener formato OR000001 o DE000001.'
+        : 'ID ubicación Carta Porte debe tener formato ' + expected + '000001.';
+      st.style.color = '#dc2626';
+      return;
+    }
+  }
   const body = {
     nombre,
     tipo_instalacion:    tipoPermiso.startsWith('PER4') && tipoPermiso >= 'PER43' ? 'estacion' : 'planta',
@@ -1648,6 +1673,13 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
     municipio:           document.getElementById('fac_municipio').value.trim(),
     estado:              document.getElementById('fac_estado').value.trim(),
     pais:                document.getElementById('fac_pais').value.trim() || 'México',
+    tipo_ubicacion:      tipoUbicacion,
+    tipo_carta_porte:    tipoUbicacion,
+    id_ubicacion_carta_porte: idUbicacionCp,
+    estado_sat:          document.getElementById('fac_estado_sat').value.trim().toUpperCase(),
+    municipio_sat:       document.getElementById('fac_municipio_sat').value.trim(),
+    localidad_sat:       document.getElementById('fac_localidad_sat').value.trim(),
+    referencia_carta_porte: document.getElementById('fac_referencia_cp').value.trim(),
     // Adv fields — str fields always send "" (never null), Optional float fields send null when empty
     clave_tanque:               document.getElementById('fac_clave_tanque').value.trim().toUpperCase(),
     cap_total_tanque:           document.getElementById('fac_cap_total').value ? parseFloat(document.getElementById('fac_cap_total').value) : null,
