@@ -186,7 +186,7 @@ function trv2RenderCvTable(movements) {
     return `
       <tr>
         <td>${trv2Esc(dateText)}</td>
-        <td>#${trv2Esc(row.id || 'nuevo')}</td>
+        <td>Viaje ${trv2Esc(typeof trv2TripDisplayNumber === 'function' ? (trv2TripDisplayNumber(row) || 'nuevo') : (row.id || 'nuevo'))}</td>
         <td>${trv2Esc(item.clientName)}</td>
         <td>${trv2Esc(item.productName)}</td>
         <td>${Number(row.volumen_litros || 0).toLocaleString('es-MX')}</td>

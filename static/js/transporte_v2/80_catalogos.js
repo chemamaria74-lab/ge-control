@@ -9,6 +9,7 @@ TRV2_CATALOG_LABELS.proveedores = 'Proveedores';
 TRV2_CATALOG_LABELS.remolques = 'Remolques';
 TRV2_CATALOG_LABELS.tarifas = 'Tarifas';
 let TRV2_VEHICLE_SUBCATALOG = 'vehiculos';
+let TRV2_INSTALLATION_RETURN_CATALOG = '';
 
 const TRV2_CATALOG_LOAD_NAMES = ['clientes', 'operadores', 'vehiculos', 'remolques', 'productos', 'origenes', 'destinos', 'rutas'];
 const TRV2_SCT_PERMISOS = [
@@ -425,7 +426,7 @@ function trv2BuildProveedoresCatalog() {
 function trv2RenderCatalogTabs() {
   const tabs = document.getElementById('trv2-catalog-tabs');
   if (!tabs) return;
-  tabs.innerHTML = Object.keys(TRV2_CATALOG_LABELS).filter(name => name !== 'remolques').map(name => {
+  tabs.innerHTML = Object.keys(TRV2_CATALOG_LABELS).filter(name => !['remolques', 'instalaciones'].includes(name)).map(name => {
     const ui = TRV2_CATALOG_UI[name] || {};
     const active = name === TRV2_ACTIVE_CATALOG || (name === 'vehiculos' && TRV2_ACTIVE_CATALOG === 'remolques') ? 'active' : '';
     return `
@@ -620,6 +621,7 @@ function trv2RenderCatalogTableRow(name, item, fields) {
       <td>
         <div class="trv2-row-actions">
           <button class="trv2-mini-btn" type="button" onclick="trv2OpenCatalogModal('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Editar</button>
+          ${['clientes', 'proveedores'].includes(name) ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenRelatedInstallations('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Instalaciones (${trv2RelatedInstallations(name, item).length})</button>` : ''}
           <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Desactivar</button>
           <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Eliminar</button>
         </div>
@@ -664,6 +666,7 @@ function trv2RenderCatalogCard(name, item) {
       <div class="trv2-card-body">${rows}</div>
       <div class="trv2-card-actions">
         <button class="trv2-mini-btn" type="button" onclick="trv2OpenCatalogModal('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Editar</button>
+        ${['clientes', 'proveedores'].includes(name) ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenRelatedInstallations('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Instalaciones (${trv2RelatedInstallations(name, item).length})</button>` : ''}
         <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Desactivar</button>
         <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Eliminar seguro</button>
         <button class="trv2-mini-btn" type="button" onclick="trv2CatalogConfigPlaceholder()">Configurar</button>
@@ -674,6 +677,74 @@ function trv2RenderCatalogCard(name, item) {
 
 function trv2CatalogActionId(item) {
   return String(item?._source_catalog && item?._source_id ? `${item._source_catalog}:${item._source_id}` : item?.id || '');
+}
+
+function trv2RelatedInstallations(parentCatalog, parentItem) {
+  const parentId = Number(parentItem?.id || parentItem || 0);
+  const relation = parentCatalog === 'proveedores' ? 'proveedor_id' : 'cliente_id';
+  return (TRV2_CATALOGS.instalaciones || []).filter(item => Number(item[relation] || 0) === parentId);
+}
+
+function trv2OpenRelatedInstallations(parentCatalog, parentItemId) {
+  const parent = trv2FindCatalog(parentCatalog, parentItemId);
+  if (!parent) return trv2Toast('No se encontró el cliente o proveedor seleccionado.', 'error');
+  const modal = document.getElementById('trv2-catalog-modal');
+  const form = document.getElementById('trv2-catalog-modal-form');
+  const title = document.getElementById('trv2-catalog-modal-title');
+  const subtitle = document.getElementById('trv2-catalog-modal-subtitle');
+  if (!modal || !form) return;
+  const items = trv2RelatedInstallations(parentCatalog, parent);
+  const label = trv2CatalogLabel(parentCatalog, parent);
+  if (title) title.textContent = `Instalaciones de ${label}`;
+  if (subtitle) subtitle.textContent = 'Estas ubicaciones alimentan las opciones de origen o destino al crear rutas.';
+  form.dataset.catalog = '';
+  form.dataset.itemId = '';
+  form.innerHTML = `
+    <div class="trv2-form-wide trv2-access-list">
+      ${items.length ? items.map(item => {
+        const actionId = trv2CatalogActionId(item);
+        return `<article><div><strong>${trv2Esc(trv2CatalogLabel('instalaciones', item))}</strong><span>${trv2Esc(item.tipo_carta_porte || '')} · CP ${trv2Esc(item.cp || 'pendiente')}</span></div><div class="trv2-row-actions"><button class="trv2-mini-btn" type="button" onclick="trv2OpenRelatedInstallationEditor('${trv2Esc(parentCatalog)}', '${trv2Esc(parentItemId)}', '${trv2Esc(actionId)}')">Editar</button><button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteRelatedInstallation('${trv2Esc(parentCatalog)}', '${trv2Esc(parentItemId)}', '${trv2Esc(actionId)}')">Eliminar</button></div></article>`;
+      }).join('') : '<div class="trv2-empty">Aún no hay instalaciones registradas.</div>'}
+    </div>
+    <div class="trv2-form-actions">
+      <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseCatalogModal()">Cerrar</button>
+      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenRelatedInstallationEditor('${trv2Esc(parentCatalog)}', '${trv2Esc(parentItemId)}')">Agregar instalación</button>
+    </div>`;
+  modal.hidden = false;
+}
+
+function trv2OpenRelatedInstallationEditor(parentCatalog, parentItemId, installationId = '') {
+  TRV2_INSTALLATION_RETURN_CATALOG = parentCatalog;
+  trv2OpenCatalogModal('instalaciones', installationId);
+  TRV2_ACTIVE_CATALOG = parentCatalog;
+  trv2RenderCatalogTabs();
+  const form = document.getElementById('trv2-catalog-modal-form');
+  if (!form) return;
+  const isProvider = parentCatalog === 'proveedores';
+  const type = form.querySelector('[data-field="tipo_carta_porte"]');
+  const relation = form.querySelector(`[data-field="${isProvider ? 'proveedor_id' : 'cliente_id'}"]`);
+  if (type && !installationId) type.value = isProvider ? 'Origen' : 'Destino';
+  if (relation) relation.value = String(parentItemId);
+  trv2ToggleInstallationRelationFields();
+}
+
+async function trv2DeleteRelatedInstallation(parentCatalog, parentItemId, installationId) {
+  const item = trv2FindCatalog('instalaciones', installationId);
+  if (!item) return trv2Toast('No se encontró la instalación seleccionada.', 'error');
+  const label = trv2CatalogLabel('instalaciones', item);
+  const typed = prompt(`Vas a eliminar la instalación "${label}". Escribe ELIMINAR para confirmar.`);
+  if (typed !== 'ELIMINAR') return;
+  const target = trv2CatalogEndpointTarget('instalaciones', installationId);
+  const response = await trv2Api('POST', `/api/tr-v2/catalogos/${target.catalog}/${Number(target.id)}/eliminar`, {
+    perfil_id: TRV2_PERFIL?.id || null,
+    data: {},
+  }, {allowError: true});
+  if (!response?.ok) {
+    return trv2Toast(trv2ReadableCatalogError(response, 'No se pudo eliminar la instalación.'), 'error');
+  }
+  trv2Toast(`Instalación eliminada: ${label}.`, 'success');
+  await trv2LoadCatalogs({silent: true});
+  trv2OpenRelatedInstallations(parentCatalog, parentItemId);
 }
 
 function trv2CatalogConfigPlaceholder() {
@@ -1221,6 +1292,10 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
     }
   }
   trv2Toast('Instalación Carta Porte guardada.', 'success');
+  if (TRV2_INSTALLATION_RETURN_CATALOG) {
+    TRV2_ACTIVE_CATALOG = TRV2_INSTALLATION_RETURN_CATALOG;
+    TRV2_INSTALLATION_RETURN_CATALOG = '';
+  }
   trv2CloseCatalogModal();
   await trv2LoadCatalogs({silent: true});
 }

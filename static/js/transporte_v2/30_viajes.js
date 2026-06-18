@@ -17,6 +17,16 @@ function trv2TripRelatedLabel(row, catalogName, metaKey) {
   return item ? trv2CatalogLabel(catalogName, item) : trv2TripMeta(row, metaKey);
 }
 
+function trv2TripDisplayNumber(row, items = TRV2_TRIPS) {
+  const visible = (items || []).filter(item => {
+    const meta = item.metadata || {};
+    const status = String(item.estatus || item.status || meta.status || '').toLowerCase();
+    return status !== 'eliminado' && !meta.eliminado_transporte_v2;
+  }).sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
+  const index = visible.findIndex(item => Number(item.id || 0) === Number(row?.id || 0));
+  return index >= 0 ? index + 1 : '';
+}
+
 function trv2ReadableApiError(data, fallback = 'No se pudo completar la operación.') {
   const detail = data?.detail || data?.message || data?.error;
   if (typeof detail === 'string') return detail;
@@ -38,7 +48,7 @@ function trv2RenderTrips(items) {
   }
   tbody.innerHTML = items.map(row => `
     <tr>
-      <td>#${trv2Esc(row.id || 'nuevo')}</td>
+      <td>Viaje ${trv2Esc(trv2TripDisplayNumber(row, items) || 'nuevo')}</td>
       <td>${trv2Esc(trv2TripRelatedLabel(row, 'clientes', 'cliente_nombre') || row.cliente_nombre || 'Pendiente')}</td>
       <td>${trv2Esc(row.origen || 'Origen')} → ${trv2Esc(row.destino || 'Destino')}</td>
       <td>${trv2Esc(trv2TripRelatedLabel(row, 'vehiculos', 'vehiculo_alias') || 'Pendiente')}</td>
@@ -59,7 +69,7 @@ async function trv2DeleteDraftTrip(viajeId) {
     trv2Toast('Selecciona un movimiento para eliminar.', 'error');
     return;
   }
-  const typed = prompt(`Vas a eliminar el movimiento pendiente #${id}. Escribe ELIMINAR para confirmar.`);
+  const typed = prompt('Vas a eliminar definitivamente este movimiento pendiente. Escribe ELIMINAR para confirmar.');
   if (typed !== 'ELIMINAR') return;
   const data = await trv2Api('POST', `/api/tr-v2/viajes/${id}/eliminar`, {
     perfil_id: TRV2_PERFIL?.id || null,

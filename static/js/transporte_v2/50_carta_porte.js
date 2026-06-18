@@ -26,7 +26,7 @@ function trv2PopulateCartaPorteTrips() {
   }
   if (panel) panel.hidden = false;
   if (message) message.textContent = 'Cada movimiento pendiente tiene sus propias acciones para evitar selecciones accidentales.';
-  list.innerHTML = pending.map(row => {
+  list.innerHTML = pending.map((row, index) => {
     const operador = trv2TripRelatedLabel(row, 'operadores', 'operador_nombre') || 'Operador pendiente';
     const vehiculo = trv2TripRelatedLabel(row, 'vehiculos', 'vehiculo_alias') || 'Unidad pendiente';
     const ruta = `${row.origen || 'Origen'} → ${row.destino || 'Destino'}`;
@@ -35,7 +35,7 @@ function trv2PopulateCartaPorteTrips() {
     return `
       <article class="trv2-cp-pending-card">
         <div>
-          <strong>#${trv2Esc(row.id)} · ${trv2Esc(ruta)}</strong>
+          <strong>Viaje ${trv2Esc(index + 1)} · ${trv2Esc(ruta)}</strong>
           <span>${trv2Esc(operador)} · ${trv2Esc(vehiculo)} · ${trv2Esc(fecha)} · ${trv2Esc(litros)} L</span>
         </div>
         <button class="trv2-mini-btn" type="button" onclick="trv2StartCartaPorteStamp(${Number(row.id || 0)})">Ver / corregir</button>
@@ -202,7 +202,7 @@ async function trv2ConfirmStampCartaPorte() {
     trv2Toast('Selecciona el movimiento a timbrar.', 'error');
     return;
   }
-  if (!confirm(`¿Timbrar Carta Porte real del movimiento #${viajeId}? Esta acción envía el CFDI a SW Sapiens.`)) return;
+  if (!confirm('¿Timbrar Carta Porte real de este movimiento? Esta acción envía el CFDI a SW Sapiens.')) return;
   trv2Toast('Timbrando Carta Porte con SW Sapiens...');
   const data = await trv2Api('POST', '/api/tr-v2/carta-porte/timbrar', {
     perfil_id: TRV2_PERFIL?.id || null,

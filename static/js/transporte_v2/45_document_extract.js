@@ -471,7 +471,7 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
       confidence: TRV2_DOCUMENT_DETECTED.confidence,
     },
   }, {allowError: true, silent: true});
-  trv2Toast(`Movimiento guardado para timbrar${viajeId ? ` #${viajeId}` : ''}.`, 'success');
+  trv2Toast('Movimiento guardado para timbrar.', 'success');
   await trv2LoadTrips();
   await trv2LoadDashboard();
   if (viajeId) {
@@ -479,7 +479,7 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
     if (panel) {
       panel.innerHTML = `
         <div class="trv2-alert trv2-alert-ok">
-          Movimiento #${trv2Esc(viajeId)} guardado. Puedes timbrar ahora o dejarlo guardado para corregirlo después.
+          Movimiento guardado. Puedes timbrar ahora o dejarlo guardado para corregirlo después.
         </div>
         <div class="trv2-form-actions trv2-form-actions-inline">
           <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2StartCartaPorteStamp(${Number(viajeId)})">
