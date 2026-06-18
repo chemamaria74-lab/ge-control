@@ -151,6 +151,10 @@ function addMinutesToLocalDateTime(value, minutes){
   base.setMinutes(base.getMinutes() + Number(minutes || 0));
   return localDateTimeValue(base);
 }
+function cpHoursFromNow(date){
+  if(!date || Number.isNaN(date.getTime())) return 0;
+  return (date.getTime() - Date.now()) / 36e5;
+}
 function cpOption(rows, labelFn){
   return '<option value="">Selecciona</option>' + (rows || []).map(r=>`<option value="${esc(r._select_id || r.id)}">${esc(labelFn(r))}</option>`).join('');
 }
@@ -472,6 +476,12 @@ function cpChecklistResult(){
   if(!cpSalida?.value) errors.push('Viaje: falta fecha/hora salida.');
   if(!cpLlegada?.value) errors.push('Viaje: falta fecha/hora llegada.');
   if(salida && llegada && llegada <= salida) errors.push('Viaje: la llegada debe ser posterior a la salida.');
+  if(salida){
+    const salidaHours = cpHoursFromNow(salida);
+    if(Math.abs(salidaHours) > 72){
+      warnings.push('Viaje: la salida queda fuera de 72 horas respecto al timbrado. El CFDI se emitirá con fecha fiscal actual; salida y llegada se conservarán como datos operativos de Carta Porte.');
+    }
+  }
 
   if(!errors.some(e => e.startsWith('Ruta'))) ok.push('Ruta completa.');
   if(!errors.some(e => e.startsWith('Vehículo'))) ok.push('Vehículo SAT completo.');
