@@ -1818,6 +1818,28 @@ def _catalog_usage_error(token: str, uid: str, perfil_id: Optional[int], catalog
             continue
         if not rows:
             continue
+        if catalogo in {"origenes", "destinos"} and table == TBL_RUTAS:
+            route_ids = [int(row["id"]) for row in rows if row.get("id")]
+            if not route_ids:
+                continue
+            try:
+                trip_query = (
+                    _sb(token).table(TBL_VIAJES)
+                    .select("id,uuid_cfdi,defaults_json")
+                    .eq("user_id", uid)
+                    .in_("ruta_id", route_ids)
+                    .limit(25)
+                )
+                if perfil_id:
+                    trip_query = trip_query.eq("perfil_id", perfil_id)
+                trips = trip_query.execute().data or []
+            except Exception:
+                trips = []
+            if any(_first_text(row.get("uuid_cfdi"), _meta(row).get("uuid_carta_porte")) for row in trips):
+                return "No se puede eliminar: la instalación está usada por una Carta Porte timbrada."
+            # tr_rutas.origen_id/destino_id usan ON DELETE SET NULL. La ruta conserva
+            # sus snapshots de nombre y CP, pero deja de apuntar a la instalación borrada.
+            continue
         if table == TBL_VIAJES and any(_first_text(row.get("uuid_cfdi"), _meta(row).get("uuid_carta_porte")) for row in rows):
             return f"No se puede eliminar: está usado por Carta Porte timbrada en {label}."
         return f"No se puede eliminar: está usado por {label}. Desactívalo o cambia la referencia primero."
@@ -1831,14 +1853,42 @@ def _delete_catalog_item(token: str, uid: str, perfil_id: Optional[int], catalog
     usage = _catalog_usage_error(token, uid, perfil_id, catalogo, item_id)
     if usage:
         raise HTTPException(409, usage)
+    detached_routes = 0
     try:
+        if catalogo in {"origenes", "destinos"}:
+            relation_field = "origen_id" if catalogo == "origenes" else "destino_id"
+            detach_query = (
+                _sb(token).table(TBL_RUTAS)
+                .update({relation_field: None, "updated_at": _now_iso()})
+                .eq("user_id", uid)
+                .eq(relation_field, item_id)
+            )
+            if perfil_id:
+                detach_query = detach_query.eq("perfil_id", perfil_id)
+            try:
+                detached_routes = len(detach_query.execute().data or [])
+            except Exception as exc:
+                if "updated_at" not in str(exc).lower():
+                    raise
+                fallback_query = (
+                    _sb(token).table(TBL_RUTAS)
+                    .update({relation_field: None})
+                    .eq("user_id", uid)
+                    .eq(relation_field, item_id)
+                )
+                if perfil_id:
+                    fallback_query = fallback_query.eq("perfil_id", perfil_id)
+                detached_routes = len(fallback_query.execute().data or [])
         query = _sb(token).table(config["table"]).delete().eq("id", item_id).eq("user_id", uid)
         if perfil_id:
             query = query.eq("perfil_id", perfil_id)
         deleted = query.execute().data or []
         if not deleted:
             raise HTTPException(404, "Registro no encontrado para este perfil.")
-        _audit(uid, token, perfil_id, config["table"], item_id, "eliminar_seguro", {"catalogo": catalogo})
+        _audit(uid, token, perfil_id, config["table"], item_id, "eliminar_seguro", {
+            "catalogo": catalogo,
+            "rutas_desvinculadas": detached_routes,
+        })
         return {"ok": True, "item": _normalize_catalog_row(catalogo, deleted[0])}
     except HTTPException:
         raise
@@ -2858,6 +2908,20 @@ def _stamp_update_viaje(sb: Any, uid: str, pid: Optional[int], viaje_id: int, pa
         raise last_error
 
 
+def _try_delete_transport_rows(sb: Any, table: str, uid: str, pid: Optional[int], viaje_id: int, *, only_unstamped_cfdi: bool = False) -> int:
+    try:
+        query = sb.table(table).delete().eq("user_id", uid).eq("viaje_id", viaje_id)
+        if pid:
+            query = query.eq("perfil_id", pid)
+        if only_unstamped_cfdi:
+            query = query.or_("uuid_sat.is.null,uuid_sat.eq.")
+        return len(query.execute().data or [])
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return 0
+        raise
+
+
 def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     sb = context["sb"]
     uid = context["uid"]
@@ -3702,64 +3766,42 @@ async def transporte_v2_eliminar_viaje(
         uuid = _first_text(row.get("uuid_cfdi"), metadata.get("uuid_carta_porte"), metadata.get("cfdi_uuid"))
         if uuid or "timbr" in status:
             raise HTTPException(409, "No se puede eliminar una Carta Porte timbrada desde esta acción. Cancela o revisa el CFDI fiscal.")
-        metadata.update({"eliminado_transporte_v2": True, "deleted_at": _now_iso(), "deleted_reason": "prueba_borrador"})
-        update = {"defaults_json": metadata, "updated_at": _now_iso()}
-        updated: list[dict[str, Any]] = []
-        last_exc: Optional[Exception] = None
-        for candidate in (
-            update,
-            {"defaults_json": metadata},
-            {"metadata": metadata, "updated_at": _now_iso()},
-            {"metadata": metadata},
-            {"status": "eliminado", "metadata": metadata, "updated_at": _now_iso()},
-            {"estatus": "eliminado", "metadata": metadata, "updated_at": _now_iso()},
-        ):
-            try:
-                q_update = _sb(token).table(TBL_VIAJES).update(candidate).eq("id", viaje_id).eq("user_id", uid)
-                if row_pid:
-                    q_update = q_update.eq("perfil_id", row_pid)
-                updated = q_update.execute().data or []
-                update = candidate
-                last_exc = None
-                break
-            except Exception as exc:
-                last_exc = exc
-                if not _missing_column_from_error(exc):
-                    break
-        if last_exc:
-            raise last_exc
-        if not updated:
-            for candidate in (
-                update,
-                {"defaults_json": metadata},
-                {"metadata": metadata, "updated_at": _now_iso()},
-                {"metadata": metadata},
-                {"status": "eliminado", "metadata": metadata, "updated_at": _now_iso()},
-                {"estatus": "eliminado", "metadata": metadata, "updated_at": _now_iso()},
-            ):
-                pending = dict(candidate)
-                removed: set[str] = set()
-                while pending:
-                    try:
-                        admin_query = get_supabase_admin().table(TBL_VIAJES).update(pending).eq("id", viaje_id).eq("user_id", uid)
-                        updated = admin_query.execute().data or []
-                        if updated:
-                            update = pending
-                            break
-                        break
-                    except Exception as exc:
-                        column = _missing_column_from_error(exc)
-                        if not column or column in removed or column not in pending:
-                            last_exc = exc
-                            break
-                        removed.add(column)
-                        pending.pop(column, None)
-                if updated:
-                    break
-            if last_exc and not updated:
-                raise last_exc
-        _audit(uid, token, pid, TBL_VIAJES, viaje_id, "eliminar_borrador", {"soft_delete": True})
-        return {"ok": True, "item": _normalize_viaje_row(updated[0] if updated else {**row, **update})}
+        sb = _sb(token)
+        cfdi_rows = (
+            sb.table(TBL_CFDI)
+            .select("id,uuid_sat,status")
+            .eq("user_id", uid)
+            .eq("viaje_id", viaje_id)
+            .limit(25)
+            .execute()
+            .data
+            or []
+        )
+        if any(_first_text(item.get("uuid_sat")) and _first_text(item.get("status")).lower() != "cancelada" for item in cfdi_rows):
+            raise HTTPException(409, "No se puede eliminar un movimiento con CFDI/UUID guardado. Cancela o revisa el documento fiscal.")
+        try:
+            docs_deleted = _try_delete_transport_rows(sb, TBL_DOCUMENTOS, uid, row_pid, viaje_id)
+            cfdi_deleted = _try_delete_transport_rows(sb, TBL_CFDI, uid, row_pid, viaje_id, only_unstamped_cfdi=True)
+            delete_query = sb.table(TBL_VIAJES).delete().eq("id", viaje_id).eq("user_id", uid)
+            if row_pid:
+                delete_query = delete_query.eq("perfil_id", row_pid)
+            deleted = delete_query.execute().data or []
+        except Exception:
+            admin = get_supabase_admin()
+            docs_deleted = _try_delete_transport_rows(admin, TBL_DOCUMENTOS, uid, row_pid, viaje_id)
+            cfdi_deleted = _try_delete_transport_rows(admin, TBL_CFDI, uid, row_pid, viaje_id, only_unstamped_cfdi=True)
+            delete_query = admin.table(TBL_VIAJES).delete().eq("id", viaje_id).eq("user_id", uid)
+            if row_pid:
+                delete_query = delete_query.eq("perfil_id", row_pid)
+            deleted = delete_query.execute().data or []
+        if not deleted:
+            raise HTTPException(404, "Movimiento Transporte v2 no encontrado para eliminación física.")
+        _audit(uid, token, pid, TBL_VIAJES, viaje_id, "eliminar_borrador", {
+            "hard_delete": True,
+            "documentos_eliminados": docs_deleted,
+            "cfdi_borrador_eliminados": cfdi_deleted,
+        })
+        return {"ok": True, "deleted": True, "item": _normalize_viaje_row(row)}
     except HTTPException:
         raise
     except Exception as exc:
