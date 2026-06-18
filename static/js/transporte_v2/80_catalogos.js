@@ -148,6 +148,11 @@ const TRV2_CATALOG_FORMS = {
     ['tipo_licencia', 'Tipo licencia', 'license-type'],
     ['vencimiento_licencia', 'Vencimiento licencia', 'date'],
     ['telefono', 'Teléfono'],
+    ['cp', 'CP domicilio operador'],
+    ['estado_sat', 'Estado SAT domicilio', 'estado-sat'],
+    ['municipio_sat', 'Municipio SAT domicilio', 'municipio-sat'],
+    ['localidad_sat', 'Localidad SAT domicilio', 'localidad-sat'],
+    ['domicilio', 'Calle / domicilio operador'],
     ['vehiculo_frecuente_id', 'Vehículo asignado actual', 'vehicle-select'],
     ['activo', 'Activo', 'checkbox'],
   ],
@@ -263,7 +268,7 @@ const TRV2_CATALOG_UI = {
     title: 'Operadores',
     subtitle: 'Figuras Transporte tipo 01 para Carta Porte.',
     metrics: [['Registros', 'count'], ['Con RFC figura', 'rfc_figura'], ['Con licencia', 'licencia']],
-    fields: [['RFC Figura', 'rfc_figura'], ['Licencia', 'licencia'], ['Vehículo asignado', 'vehiculo_frecuente_id'], ['Teléfono', 'telefono']],
+    fields: [['RFC Figura', 'rfc_figura'], ['Licencia', 'licencia'], ['CP operador', 'cp'], ['Vehículo asignado', 'vehiculo_frecuente_id']],
   },
   vehiculos: {
     icon: 'fa-truck-moving',
@@ -1124,7 +1129,7 @@ function trv2RefreshLocalidadSatOptions() {
 
 function trv2ApplyCpSatDefaults() {
   const form = document.getElementById('trv2-catalog-modal-form');
-  if (!form || form.dataset.catalog !== 'instalaciones') return;
+  if (!form || !['instalaciones', 'operadores'].includes(form.dataset.catalog || '')) return;
   const cp = String(form.querySelector('[data-field="cp"]')?.value || '').trim();
   const defaults = TRV2_CP_SAT_DEFAULTS[cp];
   if (!defaults) return;
