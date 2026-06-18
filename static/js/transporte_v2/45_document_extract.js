@@ -554,21 +554,10 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
   await trv2LoadTrips();
   await trv2LoadDashboard();
   if (viajeId) {
+    if (typeof trv2SetCartaPorteWorkflow === 'function') trv2SetCartaPorteWorkflow('pendientes');
     const panel = document.getElementById('trv2-cp-preview-panel');
     if (panel) {
-      panel.innerHTML = `
-        <div class="trv2-alert trv2-alert-ok">
-          Movimiento guardado. Puedes timbrar ahora o dejarlo guardado para corregirlo después.
-        </div>
-        <div class="trv2-form-actions trv2-form-actions-inline">
-          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2StartCartaPorteStamp(${Number(viajeId)})">
-            <i class="fa-solid fa-stamp"></i> Timbrar ahora
-          </button>
-          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadTrips()">
-            Ver movimientos guardados
-          </button>
-        </div>
-      `;
+      panel.innerHTML = '<div class="trv2-empty">Movimiento guardado. Ve a Pendientes para timbrarlo cuando estés lista.</div>';
     }
   }
 }

@@ -122,7 +122,7 @@ const TRV2_EMBALAJES = [['4H2', 'Cajas de plástico sólido'], ['Z01', 'No aplic
 
 const TRV2_REQUIRED_FIELDS = {
   clientes: ['nombre', 'rfc', 'cp'],
-  operadores: ['nombre', 'rfc_figura', 'licencia'],
+  operadores: ['nombre', 'rfc_figura', 'licencia', 'cp', 'estado_sat', 'municipio_sat', 'domicilio'],
   vehiculos: ['alias', 'placas', 'config_vehicular', 'permiso_sct', 'num_permiso_sct', 'id_cre', 'aseguradora_rc', 'poliza_rc'],
   remolques: ['alias', 'placas', 'subtipo_remolque'],
   productos: ['descripcion', 'clave_producto', 'unidad'],
@@ -1199,7 +1199,7 @@ function trv2FillCatalogModalForm(form, item) {
     const value = item[key];
     if (input.type === 'checkbox') input.checked = Boolean(value);
     else {
-      input.value = value ?? '';
+      input.value = input.type === 'date' ? trv2DateInputValue(value) : (value ?? '');
       if (key === 'municipio_sat') input.dataset.pendingValue = value ?? '';
       if (key === 'localidad_sat') input.dataset.pendingValue = value ?? '';
     }
@@ -1208,6 +1208,19 @@ function trv2FillCatalogModalForm(form, item) {
   trv2ToggleVehicleTrailerFields();
   trv2ToggleInstallationRelationFields();
   trv2FillRouteTariffFields(form, item);
+}
+
+function trv2DateInputValue(value) {
+  const text = String(value || '').trim();
+  const iso = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const slash = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (!slash) return text;
+  const day = slash[1].padStart(2, '0');
+  const month = slash[2].padStart(2, '0');
+  let year = slash[3];
+  if (year.length === 2) year = `20${year}`;
+  return `${year}-${month}-${day}`;
 }
 
 function trv2FillRouteTariffFields(form, item) {
@@ -1309,8 +1322,24 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
     data.remolque2_id = Number(data.remolque2_id || 0) || '';
   }
   if (name === 'operadores') {
+    const current = itemId ? trv2FindCatalog('operadores', itemId) : null;
+    const existingMeta = current?.metadata && typeof current.metadata === 'object' ? current.metadata : {};
+    data.metadata = {
+      ...existingMeta,
+      rfc: data.rfc_figura || data.rfc || existingMeta.rfc || '',
+      rfc_figura: data.rfc_figura || existingMeta.rfc_figura || '',
+      tipo_licencia: data.tipo_licencia || existingMeta.tipo_licencia || '',
+      vencimiento_licencia: data.vencimiento_licencia || existingMeta.vencimiento_licencia || '',
+      cp: data.cp || existingMeta.cp || '',
+      domicilio: data.domicilio || existingMeta.domicilio || '',
+      estado_sat: data.estado_sat || existingMeta.estado_sat || '',
+      municipio_sat: data.municipio_sat || existingMeta.municipio_sat || '',
+      localidad_sat: data.localidad_sat || existingMeta.localidad_sat || '',
+    };
     data.vehiculo_frecuente_id = Number(data.vehiculo_frecuente_id || 0) || null;
     data.vehiculo_asignado_id = data.vehiculo_frecuente_id;
+    data.metadata.vehiculo_frecuente_id = data.vehiculo_frecuente_id;
+    data.metadata.vehiculo_asignado_id = data.vehiculo_frecuente_id;
   }
   if (name === 'remolques') {
     const economico = data.alias || data.numero_economico || '';

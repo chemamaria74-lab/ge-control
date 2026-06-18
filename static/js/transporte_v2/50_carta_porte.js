@@ -6,10 +6,39 @@ async function trv2PrepareCartaPorteTab() {
   if (loads.length) await Promise.all(loads);
   trv2PopulateCartaPorteTrips();
   trv2LoadStampedCartaPorte({silent: true});
+  trv2RenderCartaPorteWorkflow();
+}
+
+function trv2SetCartaPorteWorkflow(workflow = 'timbrar') {
+  const allowed = ['timbrar', 'pendientes', 'hoy', 'todas', 'preview'];
+  TRV2_CP_WORKFLOW = allowed.includes(workflow) ? workflow : 'timbrar';
+  if (TRV2_CP_WORKFLOW === 'hoy' || TRV2_CP_WORKFLOW === 'todas') {
+    TRV2_CP_STAMPED_FILTER = TRV2_CP_WORKFLOW;
+    trv2LoadStampedCartaPorte({silent: true});
+  }
+  trv2RenderCartaPorteWorkflow();
+}
+
+function trv2RenderCartaPorteWorkflow() {
+  const workflow = TRV2_CP_WORKFLOW || 'timbrar';
+  document.querySelectorAll('[id^="trv2-cp-workflow-tab-"]').forEach(tab => tab.classList.remove('active'));
+  const activeTab = ['preview'].includes(workflow) ? 'pendientes' : workflow;
+  document.getElementById(`trv2-cp-workflow-tab-${activeTab}`)?.classList.add('active');
+  document.querySelectorAll('[data-cp-workflow-panel]').forEach(panel => {
+    const target = panel.dataset.cpWorkflowPanel;
+    let shouldShow = target === workflow
+      || (target === 'timbrar' && workflow === 'timbrar')
+      || (target === 'stamped' && (workflow === 'hoy' || workflow === 'todas'));
+    if (panel.id === 'trv2-cp-doc-detected-panel') {
+      const hasDetectedForm = Boolean(document.getElementById('trv2-cp-doc-detected-form')?.innerHTML.trim());
+      shouldShow = shouldShow && hasDetectedForm;
+    }
+    panel.hidden = !shouldShow;
+  });
 }
 
 function trv2SetCartaPorteStampedFilter(filter = 'hoy') {
-  TRV2_CP_STAMPED_FILTER = filter === 'todas' ? 'todas' : 'hoy';
+  trv2SetCartaPorteWorkflow(filter === 'todas' ? 'todas' : 'hoy');
   trv2LoadStampedCartaPorte();
 }
 
@@ -29,8 +58,8 @@ function trv2SetStampedCounts(filter, count) {
 
 async function trv2LoadStampedCartaPorte(options = {}) {
   const filter = TRV2_CP_STAMPED_FILTER || 'hoy';
-  document.getElementById('trv2-cp-stamped-tab-hoy')?.classList.toggle('active', filter === 'hoy');
-  document.getElementById('trv2-cp-stamped-tab-todas')?.classList.toggle('active', filter === 'todas');
+  document.getElementById('trv2-cp-workflow-tab-hoy')?.classList.toggle('active', TRV2_CP_WORKFLOW === 'hoy');
+  document.getElementById('trv2-cp-workflow-tab-todas')?.classList.toggle('active', TRV2_CP_WORKFLOW === 'todas');
   const list = document.getElementById('trv2-cp-stamped-list');
   if (!list) return;
   list.innerHTML = '<div class="trv2-empty">Cargando Cartas Porte timbradas...</div>';
@@ -116,12 +145,12 @@ function trv2PopulateCartaPorteTrips() {
     return !uuid && !status.includes('timbr') && status !== 'eliminado' && !meta.eliminado_transporte_v2;
   });
   if (!pending.length) {
-    if (panel) panel.hidden = true;
-    list.innerHTML = '';
-    if (message) message.textContent = '';
+    document.getElementById('trv2-cp-pending-count')?.replaceChildren(document.createTextNode('0'));
+    list.innerHTML = '<div class="trv2-empty">No hay movimientos pendientes por timbrar.</div>';
+    if (message) message.textContent = 'No hay movimientos pendientes por timbrar.';
     return;
   }
-  if (panel) panel.hidden = false;
+  document.getElementById('trv2-cp-pending-count')?.replaceChildren(document.createTextNode(String(pending.length)));
   if (message) message.textContent = 'Cada movimiento pendiente tiene sus propias acciones para evitar selecciones accidentales.';
   list.innerHTML = pending.map((row, index) => {
     const operador = trv2TripRelatedLabel(row, 'operadores', 'operador_nombre') || 'Operador pendiente';
@@ -287,15 +316,20 @@ function trv2RenderCartaPortePreview(data) {
 
 function trv2PacErrorText(data = {}) {
   const detail = data.detail && typeof data.detail === 'object' ? data.detail : {};
+  const detailText = typeof data.detail === 'string' ? data.detail : '';
   const response = data.pac_response || detail.pac_response || data.raw?.pac_response || detail.raw?.pac_response || {};
   const raw = data.raw?.raw || detail.raw?.raw || data.raw || detail.raw || {};
   return [
+    detailText,
     detail.pac_detail,
     data.pac_detail,
     response.messageDetail,
     response.message,
+    response.error,
     raw.messageDetail,
     raw.message,
+    raw.error,
+    detail.raw?.error,
     detail.error,
     detail.message,
     data.error,
@@ -310,8 +344,9 @@ function trv2RenderCartaPortePacError(data = {}) {
   const response = data.pac_response || detail.pac_response || data.raw?.pac_response || detail.raw?.pac_response || {};
   const status = response.status_code_sw ? `HTTP ${response.status_code_sw}` : 'Respuesta PAC';
   const endpoint = response.endpoint_sw || '';
+  panel.querySelectorAll('.trv2-pac-error-card').forEach(node => node.remove());
   panel.insertAdjacentHTML('afterbegin', `
-    <section class="trv2-panel trv2-pac-error-card">
+    <section class="trv2-pac-error-card">
       <div class="trv2-alert trv2-alert-warn">
         <strong>SW Sapiens rechazó la Carta Porte</strong><br>
         ${trv2Esc(trv2PacErrorText(data))}
@@ -358,6 +393,7 @@ async function trv2ConfirmStampCartaPorte() {
     const message = typeof detail === 'string' ? detail : (detail?.message || data?.message || 'No se pudo timbrar Carta Porte.');
     trv2Toast(errors || message, 'error');
     trv2RenderCartaPortePacError(data);
+    trv2SetCartaPorteWorkflow('preview');
     return 'failed';
   }
   trv2Toast(`Carta Porte timbrada. UUID: ${data.uuid_sat || data.uuid_cfdi || 'recibido'}`, 'success');
@@ -376,6 +412,7 @@ async function trv2ConfirmStampCartaPorte() {
   await trv2LoadTrips();
   trv2PopulateCartaPorteTrips();
   await trv2LoadStampedCartaPorte({silent: true});
+  trv2SetCartaPorteWorkflow('hoy');
   return 'stamped';
 }
 
@@ -400,6 +437,7 @@ async function trv2PreviewCartaPorte(viajeId) {
   TRV2_SELECTED_CP_TRIP_ID = id;
   trv2SwitchTab('carta-porte');
   trv2RenderCartaPortePreview(data);
+  trv2SetCartaPorteWorkflow('preview');
   return true;
 }
 

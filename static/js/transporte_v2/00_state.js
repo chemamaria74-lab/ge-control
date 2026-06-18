@@ -8,6 +8,7 @@ let TRV2_AUTH_MODE = TRV2_TOKEN ? 'checking' : 'required';
 let TRV2_ADMIN_READY = false;
 let TRV2_TRIPS = [];
 let TRV2_CP_PREVIEW = null;
+let TRV2_CP_WORKFLOW = 'timbrar';
 let TRV2_CP_STAMPED_FILTER = 'hoy';
 let TRV2_DOCUMENT_DETECTED = null;
 let TRV2_DOCUMENT_SCOPE = 'carga';
