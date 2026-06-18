@@ -134,7 +134,13 @@
         <p>Sube la factura del cliente, completa datos operativos y timbra la Carta Porte.</p>
       </div>
     </div>
-    <section class="trv2-panel">
+    <div class="trv2-subtabs trv2-inline-tabs trv2-cp-workflow-tabs" aria-label="Flujo Carta Porte">
+      <button class="trv2-subtab active" id="trv2-cp-workflow-tab-timbrar" type="button" onclick="trv2SetCartaPorteWorkflow('timbrar')"><i class="fa-solid fa-stamp"></i> Timbrar</button>
+      <button class="trv2-subtab" id="trv2-cp-workflow-tab-pendientes" type="button" onclick="trv2SetCartaPorteWorkflow('pendientes')"><i class="fa-solid fa-list-check"></i> Pendientes <span id="trv2-cp-pending-count">0</span></button>
+      <button class="trv2-subtab" id="trv2-cp-workflow-tab-hoy" type="button" onclick="trv2SetCartaPorteWorkflow('hoy')"><i class="fa-solid fa-calendar-day"></i> Hoy <span id="trv2-cp-stamped-count-hoy">0</span></button>
+      <button class="trv2-subtab" id="trv2-cp-workflow-tab-todas" type="button" onclick="trv2SetCartaPorteWorkflow('todas')"><i class="fa-solid fa-box-archive"></i> Todas <span id="trv2-cp-stamped-count-todas">0</span></button>
+    </div>
+    <section class="trv2-panel trv2-cp-workflow-panel" data-cp-workflow-panel="timbrar">
       <div class="trv2-table-head">
         <div>
           <h2>Factura del cliente</h2>
@@ -151,7 +157,7 @@
       </form>
       <p id="trv2-cp-doc-message" class="trv2-muted"></p>
     </section>
-    <section class="trv2-panel" id="trv2-cp-doc-detected-panel" hidden>
+    <section class="trv2-panel trv2-cp-workflow-panel" id="trv2-cp-doc-detected-panel" data-cp-workflow-panel="timbrar" hidden>
       <div class="trv2-table-head">
         <div>
           <h2>Datos detectados y viaje</h2>
@@ -161,7 +167,7 @@
       <div id="trv2-cp-doc-detected-summary" class="trv2-alert trv2-alert-warn"></div>
       <form class="trv2-form" id="trv2-cp-doc-detected-form"></form>
     </section>
-    <section class="trv2-panel" id="trv2-cp-pending-panel" hidden>
+    <section class="trv2-panel trv2-cp-workflow-panel" id="trv2-cp-pending-panel" data-cp-workflow-panel="pendientes" hidden>
       <div class="trv2-table-head">
         <div>
           <h2>Movimientos guardados</h2>
@@ -171,7 +177,7 @@
       </div>
       <div id="trv2-cp-pending-list" class="trv2-cp-pending-list"></div>
     </section>
-    <section class="trv2-panel" id="trv2-cp-stamped-panel">
+    <section class="trv2-panel trv2-cp-workflow-panel" id="trv2-cp-stamped-panel" data-cp-workflow-panel="stamped">
       <div class="trv2-table-head">
         <div>
           <h2>Cartas Porte emitidas</h2>
@@ -179,15 +185,11 @@
         </div>
         <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadStampedCartaPorte()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
       </div>
-      <div class="trv2-subtabs trv2-inline-tabs" aria-label="Filtro Cartas Porte emitidas">
-        <button class="trv2-subtab active" id="trv2-cp-stamped-tab-hoy" type="button" onclick="trv2SetCartaPorteStampedFilter('hoy')"><i class="fa-solid fa-calendar-day"></i> Hoy <span id="trv2-cp-stamped-count-hoy">0</span></button>
-        <button class="trv2-subtab" id="trv2-cp-stamped-tab-todas" type="button" onclick="trv2SetCartaPorteStampedFilter('todas')"><i class="fa-solid fa-box-archive"></i> Todas <span id="trv2-cp-stamped-count-todas">0</span></button>
-      </div>
       <div id="trv2-cp-stamped-list" class="trv2-cp-pending-list">
         <div class="trv2-empty">Aún no hay Cartas Porte timbradas en esta vista.</div>
       </div>
     </section>
-    <section class="trv2-panel" id="trv2-cp-preview-panel">
+    <section class="trv2-panel trv2-cp-workflow-panel" id="trv2-cp-preview-panel" data-cp-workflow-panel="preview">
       <div class="trv2-empty">Elige “Timbrar” en un movimiento pendiente para validar y revisar el resumen antes de confirmar.</div>
     </section>
   </section>
