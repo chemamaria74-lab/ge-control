@@ -8,18 +8,12 @@ function trv2ServiceStorageKey(base) {
 }
 
 function trv2ReadServiceTariffs() {
-  if (Array.isArray(TRV2_SERVICE_TARIFFS) && TRV2_SERVICE_TARIFFS.length) return TRV2_SERVICE_TARIFFS;
-  try {
-    return JSON.parse(localStorage.getItem(trv2ServiceStorageKey(TRV2_SERVICE_TARIFF_KEY)) || '[]');
-  } catch (_err) {
-    return [];
-  }
+  return Array.isArray(TRV2_SERVICE_TARIFFS) ? TRV2_SERVICE_TARIFFS : [];
 }
 
 function trv2WriteServiceTariffs(items) {
   TRV2_SERVICE_TARIFFS = items || [];
   if (typeof TRV2_CATALOGS !== 'undefined') TRV2_CATALOGS.tarifas = items || [];
-  localStorage.setItem(trv2ServiceStorageKey(TRV2_SERVICE_TARIFF_KEY), JSON.stringify(items || []));
 }
 
 function trv2ReadServiceInvoices() {
@@ -217,6 +211,12 @@ async function trv2SaveServiceTariff(event) {
     data: {ruta_id: rutaId, producto_id: productoId, tarifa},
   }, {allowError: true});
   if (response?.ok) {
+    const savedProfileId = Number(response.item?.perfil_id || response.perfil_id || 0);
+    const activeProfileId = Number(TRV2_PERFIL?.id || 0);
+    if (!savedProfileId || savedProfileId !== activeProfileId) {
+      trv2Toast('Supabase no confirmó la tarifa para la empresa activa. No se marcó como guardada.', 'error');
+      return;
+    }
     await trv2LoadServiceTariffs();
     trv2ClearServiceTariffForm();
     trv2Toast('Tarifa de flete guardada.', 'success');
@@ -283,10 +283,18 @@ function trv2RenderServiceTariffs() {
 async function trv2LoadServiceTariffs() {
   const response = await trv2Api('GET', '/api/tr-v2/facturas-servicio/tarifas', undefined, {silent: true, allowError: true});
   if (response?.ok && Array.isArray(response.items)) {
+    const activeProfileId = Number(TRV2_PERFIL?.id || 0);
+    const invalid = response.items.find(item => Number(item.perfil_id || 0) !== activeProfileId);
+    if (invalid) {
+      TRV2_SERVICE_TARIFFS = [];
+      console.error('[Transporte v2] Supabase devolvió tarifa de otro perfil', invalid);
+      return [];
+    }
     trv2WriteServiceTariffs(response.items);
     return response.items;
   }
-  return trv2ReadServiceTariffs();
+  TRV2_SERVICE_TARIFFS = [];
+  return [];
 }
 
 function trv2SetServiceInvoiceTab(tab) {

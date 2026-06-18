@@ -116,7 +116,7 @@ const TRV2_EMBALAJES = [['4H2', 'Cajas de plástico sólido'], ['Z01', 'No aplic
 
 const TRV2_REQUIRED_FIELDS = {
   clientes: ['nombre', 'rfc', 'cp'],
-  operadores: ['nombre', 'rfc_figura', 'licencia'],
+  operadores: ['nombre', 'rfc_figura', 'licencia', 'id_cre'],
   vehiculos: ['alias', 'placas', 'config_vehicular', 'permiso_sct', 'num_permiso_sct', 'aseguradora_rc', 'poliza_rc'],
   remolques: ['alias', 'placas', 'subtipo_remolque'],
   productos: ['descripcion', 'clave_producto', 'unidad'],
@@ -139,6 +139,7 @@ const TRV2_CATALOG_FORMS = {
     ['nombre', 'Nombre'],
     ['rfc_figura', 'RFC Figura', 'rfc'],
     ['licencia', 'Licencia federal'],
+    ['id_cre', 'ID CRE'],
     ['tipo_licencia', 'Tipo licencia', 'license-type'],
     ['vencimiento_licencia', 'Vencimiento licencia', 'date'],
     ['telefono', 'Teléfono'],
@@ -248,7 +249,7 @@ const TRV2_CATALOG_UI = {
     title: 'Operadores',
     subtitle: 'Figuras Transporte tipo 01 para Carta Porte.',
     metrics: [['Registros', 'count'], ['Con RFC figura', 'rfc_figura'], ['Con licencia', 'licencia']],
-    fields: [['RFC Figura', 'rfc_figura'], ['Licencia', 'licencia'], ['Vehículo asignado', 'vehiculo_frecuente_id'], ['Teléfono', 'telefono']],
+    fields: [['RFC Figura', 'rfc_figura'], ['Licencia', 'licencia'], ['ID CRE', 'id_cre'], ['Vehículo asignado', 'vehiculo_frecuente_id'], ['Teléfono', 'telefono']],
   },
   vehiculos: {
     icon: 'fa-truck-moving',
