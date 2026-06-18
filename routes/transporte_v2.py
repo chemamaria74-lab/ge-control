@@ -468,6 +468,8 @@ def _regex_first(pattern: str, text: str, flags: int = re.I) -> str:
 
 def _clean_pdf_text(text: str) -> str:
     text = (text or "").replace("\xa0", " ")
+    text = text.replace(r"\(", "(").replace(r"\)", ")")
+    text = re.sub(r"(C\.?P\.?\s*\d{3})\s+(\d{2})\b", r"\1\2", text, flags=re.I)
     text = re.sub(r"[ \t]+", " ", text)
     return text
 
@@ -497,6 +499,17 @@ def _money_after(label: str, text: str) -> float:
     return _to_float(matches[-1]) if matches else 0.0
 
 
+def _invoice_totals_block(text: str) -> tuple[float, float, float]:
+    match = re.search(
+        r"SUB-?TOTAL\s+IVA\s+TOTAL\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})",
+        text,
+        re.I,
+    )
+    if not match:
+        return 0.0, 0.0, 0.0
+    return _to_float(match.group(1)), _to_float(match.group(2)), _to_float(match.group(3))
+
+
 def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     text, warnings = _extract_pdf_text(content)
     text = _clean_pdf_text(text)
@@ -519,7 +532,7 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     folio = f"{serie} {folio_numero}".strip()
 
     concept_match = re.search(
-        r"([\d,]+\.\d{2})\s*(\d{8})\s*(.+?)\s*(LP/\d+/[A-Z]+/\d{4})\s*(LTR)\s*\w\s*([\d.]+)\s*\d{2}\s*([\d,]+\.\d{2})",
+        r"([\d,]+\.\d{2})\s*(1511\d{4})\s*([A-ZÁÉÍÓÚÜÑ0-9 .]+?)\s*(LP/\d+/[A-Z]+/\d{4})\s*(LTR)\s*[A-Z]?\s*([\d.]+)\s*02\s*([\d,]+\.\d{2})",
         upper,
         re.I | re.S,
     )
@@ -530,15 +543,22 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     unidad = concept_match.group(5) if concept_match else ("LTR" if re.search(r"\bLTR\b", upper) else "")
     precio_unitario = _to_float(concept_match.group(6)) if concept_match else 0.0
     subtotal = _to_float(concept_match.group(7)) if concept_match else _money_after("SUB-TOTAL", upper)
-    iva = _to_float(_regex_first(r"TASA\s+002\s+0\.160000\s+[\d,]+\.\d{2}\s+([\d,]+\.\d{2})", upper)) or _money_after("IVA", upper)
+    iva = _to_float(_regex_first(r"TASA\s*002\s*0\.160000\s*[\d,]+\.\d{2}\s*([\d,]+\.\d{2})", upper)) or _money_after("IVA", upper)
     total = _money_after("TOTAL", upper)
+    block_subtotal, block_iva, block_total = _invoice_totals_block(upper)
+    subtotal = subtotal or block_subtotal
+    iva = iva or block_iva
+    total = block_total or total
 
-    kilos = _regex_first(r"(?:KILOS)\s*:\s*([\d,]+(?:\.\d+)?)", upper)
+    kilos = _regex_first(r"(?:KILOS)\s*:?\s*([\d,]+(?:\.\d+)?)", upper)
     if not kilos:
         kilos = _regex_first(r"(?:KILOS|PESO|KGM)\D{0,20}([\d,]+(?:\.\d+)?)", upper)
-    permiso = _regex_first(r"\b(LP/\d+/[A-Z]+/\d{4})\b", upper)
-    boleta = _regex_first(r"BOLETA\s*:\s*(\d{6,})", upper)
-    fecha_boleta = _parse_short_date(_regex_first(r"FECHA\s+BOLETA\s*:\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", upper))
+    permiso = permiso or _regex_first(r"(LP/\d+/[A-Z]+/\d{4})", upper)
+    boleta = _regex_first(r"(?:BOLETA|BOL\.?)\s*:?\s*(\d{6,})", upper)
+    fecha_boleta = _parse_short_date(
+        _regex_first(r"FECHA\s+BOLETA\s*:\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", upper)
+        or _regex_first(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(?:BOLETA|BOL\.?)", upper)
+    )
     pg = _regex_first(r"\bPG\s*:\s*(\d+)", upper)
     producto = ""
     if producto_detectado:
@@ -549,14 +569,25 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         producto = "GAS L.P"
     elif "DIESEL" in upper or "DIÉSEL" in upper:
         producto = "DIESEL"
-    origen = _regex_first(r"ORIGEN\s*:\s*([A-ZÁÉÍÓÚÜÑ0-9 ._-]+)", upper).splitlines()[0].strip()
+    origen_raw = _regex_first(r"ORIGEN\s*:\s*([A-ZÁÉÍÓÚÜÑ0-9 ._-]+)", upper)
+    origen = origen_raw.splitlines()[0].strip() if origen_raw else ""
+    if not origen:
+        origen_raw = _regex_first(r"\bTDGL\s+([A-ZÁÉÍÓÚÜÑ0-9 ._-]+)", upper)
+        origen = origen_raw.splitlines()[0].strip() if origen_raw else ""
     if not origen and "ZAPOTLANEJO" in upper:
         origen = "ZAPOTLANEJO"
     emisor_nombre = "PROPANE SERVICES" if "PROPANE SERVICES" in upper else _regex_first(r"EMISOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper)
-    receptor_nombre = "DISTRIBUIDORA DE GAS DEL CAÑON" if "DISTRIBUIDORA DE GAS DEL CA" in upper else _regex_first(r"RECEPTOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper)
+    receptor_nombre = "DISTRIBUIDORA DE GAS DEL CAÑON" if "DISTRIBUIDORA DE GAS DEL CA" in upper else _regex_first(r"SR\.?\s*\(?ES\)?\s*([A-ZÁÉÍÓÚÜÑ& .]{3,80})", upper)
+    if not receptor_nombre:
+        receptor_nombre = _regex_first(r"RECEPTOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper)
     domicilio_receptor = _regex_first(r"DOM\.\s+(.+?C\.P\.?\s*\d{5})", text, re.I | re.S)
     domicilio_receptor = re.sub(r"\s+", " ", domicilio_receptor).strip()
     cp_receptor = _regex_first(r"DOMICILIO\s+FISCAL:\s*(\d{5})", upper) or _regex_first(r"C\.P\.?\s*(\d{5})", domicilio_receptor.upper())
+    if not cp_receptor:
+        cp_receptor = _regex_first(r"DOMICILIO\s+FISCAL:\s*(\d{3})\s*(\d{2})", upper)
+        if cp_receptor and len(cp_receptor) == 3:
+            cp_tail = _regex_first(r"DOMICILIO\s+FISCAL:\s*\d{3}\s*(\d{2})", upper)
+            cp_receptor = f"{cp_receptor}{cp_tail}" if cp_tail else cp_receptor
     regimen_emisor = _regex_first(r"REGIMEN\s+FISCAL:\s*(\d{3})", upper)
     regimen_receptor = _regex_first(r"DOMICILIO\s+FISCAL:\s*\d{5}\s+REGIMEN\s+FISCAL:\s*(\d{3})", upper)
     lugar_expedicion = _regex_first(r"LUGAR\s+Y\s+FECHA\s+DE\s+EXP\.?\s*(\d{5})", upper) or _regex_first(r"REGIMEN\s+FISCAL:\s*\d{3}\s+(\d{5})", upper)
