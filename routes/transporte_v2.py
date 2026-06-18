@@ -25,12 +25,13 @@ from pydantic import BaseModel
 
 from routes.auth import require_profile_access, verify_token
 from supabase_config import get_supabase_admin, get_supabase_for_user
-from models.transport_schemas import ProductoTransporte, ViajeCreate
+from models.transport_schemas import GenerarCovolRequest, ProductoTransporte, ViajeCreate
 from services.carta_porte_validation import validar_xml_carta_porte_transporte
 from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml
 from services.fiscal_audit import version_xml
 from services.sw_sapien import emitir_timbrar_json, sw_runtime_config
 from services.transport_builder import build_cfdi_transporte
+from services.transport_transformer import build_transport_covol, save_transport_covol
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,6 +55,7 @@ TBL_SETTINGS = "tr_settings"
 TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
 TBL_AUDITORIA = "transporte_v2_auditoria"
 TBL_CFDI = "tr_cfdi"
+TBL_COVOL = "tr_covol_reports"
 
 VEHICLE_DB_FIELDS = {
     "alias",
@@ -1298,8 +1300,40 @@ def _product_billing_base(product: dict[str, Any]) -> str:
     if "GAS LP" in text or "GAS L.P" in text or "GAS L P" in text:
         return "KG"
     if "MAGNA" in text or "PREMIUM" in text or "DIESEL" in text or "DIÉSEL" in text or "GASOLINA" in text:
-        return "LITRO"
-    return "KG"
+        return "litros"
+    return "kilos"
+
+
+def _normalize_tariff_rule(value: Any, product: Optional[dict[str, Any]] = None) -> str:
+    raw = str(value or "").strip().lower()
+    aliases = {
+        "litro": "litros",
+        "litros": "litros",
+        "l": "litros",
+        "kg": "kilos",
+        "kilo": "kilos",
+        "kilos": "kilos",
+        "viaje": "viaje",
+        "distancia": "distancia",
+        "km": "distancia",
+        "manual": "manual",
+    }
+    if raw in aliases:
+        return aliases[raw]
+    return _product_billing_base(product or {})
+
+
+def _tariff_quantity_for_rule(rule: str, viaje: dict[str, Any], ruta: dict[str, Any]) -> float:
+    normalized = _normalize_tariff_rule(rule)
+    if normalized == "litros":
+        return _num(viaje.get("volumen_total_litros") or viaje.get("volumen_litros"))
+    if normalized == "kilos":
+        return _num(viaje.get("peso_kg") or _meta(viaje).get("peso_kg"))
+    if normalized == "distancia":
+        return _num(viaje.get("distancia_km") or ruta.get("distancia_km"))
+    if normalized == "viaje":
+        return 1.0
+    return 1.0
 
 
 def _normalize_tariff_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -1314,7 +1348,8 @@ def _normalize_tariff_row(row: dict[str, Any]) -> dict[str, Any]:
     item["producto_nombre"] = _first_text(meta.get("producto_nombre"), meta.get("producto"), item.get("producto"))
     item["origen"] = _first_text(item.get("origen"), meta.get("origen"))
     item["destino"] = _first_text(item.get("destino"), meta.get("destino"))
-    item["base_calculo"] = _first_text(meta.get("base_calculo"), item.get("regla_calculo"), "KG")
+    item["base_calculo"] = _normalize_tariff_rule(_first_text(meta.get("base_calculo"), item.get("regla_calculo")), {})
+    item["regla_calculo"] = item["base_calculo"]
     item["tarifa"] = _num(item.get("tarifa"))
     return item
 
@@ -1360,7 +1395,7 @@ def _route_product_tariff_payload(token: str, uid: str, perfil_id: int, data: di
     origen = _normalize_catalog_row("origenes", _fetch_catalog_row_for_route(token, uid, perfil_id, TBL_ORIGENES, ruta.get("origen_id"), "origen")) if ruta.get("origen_id") else {}
     destino = _normalize_catalog_row("destinos", _fetch_catalog_row_for_route(token, uid, perfil_id, TBL_DESTINOS, ruta.get("destino_id"), "destino")) if ruta.get("destino_id") else {}
     cliente_id = destino.get("cliente_id") or data.get("cliente_id")
-    base_calculo = _product_billing_base(producto)
+    base_calculo = _normalize_tariff_rule(data.get("regla_calculo") or data.get("base_calculo"), producto)
     metadata = {
         "ruta_id": ruta_id,
         "producto_id": producto_id,
@@ -1370,6 +1405,10 @@ def _route_product_tariff_payload(token: str, uid: str, perfil_id: int, data: di
         "proveedor_nombre": origen.get("proveedor_nombre"),
         "cliente_id": cliente_id,
         "cliente_nombre": destino.get("cliente_nombre"),
+        "iva_tasa": _num(data.get("iva_tasa")) if data.get("iva_tasa") not in (None, "") else 0.16,
+        "retencion_tasa": _num(data.get("retencion_tasa")) if data.get("retencion_tasa") not in (None, "") else 0.04,
+        "aplica_iva": bool(data.get("aplica_iva", True)),
+        "aplica_retencion": bool(data.get("aplica_retencion", True)),
         "origen_instalacion_id": ruta.get("origen_id"),
         "destino_instalacion_id": ruta.get("destino_id"),
         "origen": ruta.get("origen") or ruta.get("nombre_origen"),
@@ -1380,19 +1419,130 @@ def _route_product_tariff_payload(token: str, uid: str, perfil_id: int, data: di
         "perfil_id": perfil_id,
         "cliente_id": cliente_id,
         "ruta_id": ruta_id,
+        "producto_id": producto_id,
         "origen": metadata["origen"],
         "destino": metadata["destino"],
         "producto": metadata["producto_nombre"],
         "regla_calculo": base_calculo,
         "tarifa": tarifa,
-        "iva_tasa": _num(data.get("iva_tasa")) or 0.16,
-        "retencion_tasa": _num(data.get("retencion_tasa")) or 0.04,
-        "aplica_iva": True,
-        "aplica_retencion": True,
+        "iva_tasa": metadata["iva_tasa"],
+        "retencion_tasa": metadata["retencion_tasa"],
+        "aplica_iva": metadata["aplica_iva"],
+        "aplica_retencion": metadata["aplica_retencion"],
         "moneda": "MXN",
-        "activo": True,
+        "activo": data.get("activo", data.get("tarifa_activo", True)) is not False,
         "metadata": metadata,
         "updated_at": _now_iso(),
+    }
+
+
+def _upsert_route_tariff_from_payload(token: str, uid: str, perfil_id: int, route_id: int, data: dict[str, Any]) -> dict[str, Any]:
+    producto_id = data.get("tarifa_producto_id") or data.get("producto_id")
+    tarifa = _num(data.get("tarifa"))
+    if not producto_id or tarifa <= 0:
+        return {}
+    payload = {
+        **data,
+        "ruta_id": route_id,
+        "producto_id": producto_id,
+        "activo": data.get("tarifa_activo", data.get("activo", True)),
+    }
+    row = _route_product_tariff_payload(token, uid, perfil_id, payload)
+    sb = _sb(token)
+    existing = (
+        sb.table(TBL_TARIFAS)
+        .select("*")
+        .eq("user_id", uid)
+        .eq("perfil_id", perfil_id)
+        .eq("ruta_id", route_id)
+        .eq("producto_id", int(producto_id))
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if existing:
+        updated = (
+            sb.table(TBL_TARIFAS)
+            .update(row)
+            .eq("id", existing[0]["id"])
+            .eq("user_id", uid)
+            .eq("perfil_id", perfil_id)
+            .execute()
+            .data
+            or []
+        )
+        item = updated[0] if updated else {**existing[0], **row}
+        action = "actualizar_tarifa_ruta"
+    else:
+        insert_row = {**row, "created_at": _now_iso()}
+        inserted = sb.table(TBL_TARIFAS).insert(insert_row).execute().data or []
+        item = inserted[0] if inserted else insert_row
+        action = "crear_tarifa_ruta"
+    _audit(uid, token, perfil_id, TBL_TARIFAS, item.get("id"), action, {"ruta_id": route_id, "producto_id": int(producto_id)})
+    return _normalize_tariff_row(item)
+
+
+def _resolve_tariff_calculation(
+    token: str,
+    uid: str,
+    perfil_id: Optional[int],
+    *,
+    cliente_id: Optional[int],
+    ruta: dict[str, Any],
+    producto: dict[str, Any],
+    volumen_litros: float,
+    peso_kg: float,
+    sb_client: Any = None,
+) -> dict[str, Any]:
+    ruta_id = ruta.get("id")
+    producto_id = producto.get("id")
+    if not perfil_id or not ruta_id or not producto_id:
+        return {}
+    try:
+        rows = (
+            (sb_client or _sb(token))
+            .table(TBL_TARIFAS)
+            .select("*")
+            .eq("user_id", uid)
+            .eq("perfil_id", perfil_id)
+            .eq("ruta_id", int(ruta_id))
+            .eq("producto_id", int(producto_id))
+            .eq("activo", True)
+            .limit(20)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.info("No se pudo resolver tarifa de flete Transporte v2: %s", exc)
+        return {}
+    normalized = [_normalize_tariff_row(row) for row in rows]
+    exact = next((row for row in normalized if cliente_id and int(row.get("cliente_id") or 0) == int(cliente_id)), None)
+    generic = next((row for row in normalized if not row.get("cliente_id")), None)
+    tariff = exact or generic or (normalized[0] if normalized else None)
+    if not tariff:
+        return {}
+    rule = _normalize_tariff_rule(tariff.get("regla_calculo") or tariff.get("base_calculo"), producto)
+    trip_data = {"volumen_total_litros": volumen_litros, "peso_kg": peso_kg}
+    quantity = _tariff_quantity_for_rule(rule, trip_data, ruta)
+    subtotal = round(_num(tariff.get("tarifa")) * quantity, 2)
+    iva = round(subtotal * (_num(tariff.get("iva_tasa")) if tariff.get("aplica_iva") is not False else 0), 2)
+    retencion = round(subtotal * (_num(tariff.get("retencion_tasa")) if tariff.get("aplica_retencion") is not False else 0), 2)
+    total = round(subtotal + iva - retencion, 2)
+    return {
+        "tarifa_id": tariff.get("id"),
+        "tarifa": _num(tariff.get("tarifa")),
+        "regla_calculo": rule,
+        "cantidad_base": quantity,
+        "subtotal_flete": subtotal,
+        "iva": iva,
+        "retencion": retencion,
+        "total": total,
+        "iva_tasa": _num(tariff.get("iva_tasa")) or 0.16,
+        "retencion_tasa": _num(tariff.get("retencion_tasa")) or 0.04,
+        "aplica_iva": tariff.get("aplica_iva") is not False,
+        "aplica_retencion": tariff.get("aplica_retencion") is not False,
     }
 
 
@@ -1770,6 +1920,10 @@ def _create_catalog_item(
     try:
         inserted = _insert_catalog_row(token, config["table"], row)
         item = inserted[0] if inserted else row
+        if catalogo == "rutas":
+            tariff = _upsert_route_tariff_from_payload(token, uid, int(perfil_id), int(item.get("id")), payload)
+            if tariff:
+                item["tarifa"] = tariff
         _audit(uid, token, perfil_id, config["table"], item.get("id"), "crear", {"catalogo": catalogo})
         return {"ok": True, "item": _normalize_catalog_row(catalogo, item)}
     except Exception as exc:
@@ -1825,6 +1979,10 @@ def _update_catalog_item(
         if not updated:
             raise HTTPException(404, "Registro no encontrado para este perfil.")
         item = updated[0]
+        if catalogo == "rutas":
+            tariff = _upsert_route_tariff_from_payload(token, uid, int(perfil_id or 0), item_id, payload)
+            if tariff:
+                item["tarifa"] = tariff
         _audit(uid, token, perfil_id, config["table"], item_id, "actualizar", {"catalogo": catalogo, "fields": sorted(row.keys())})
         return {"ok": True, "item": _normalize_catalog_row(catalogo, item)}
     except HTTPException:
@@ -2424,6 +2582,16 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
     peso_kg = _num(payload.peso_kg)
     volumen = _num(payload.volumen_litros)
     tipo_cfdi = _first_text("I")
+    tarifa_calc = _resolve_tariff_calculation(
+        token,
+        uid,
+        pid,
+        cliente_id=payload.cliente_id,
+        ruta=ruta,
+        producto=producto,
+        volumen_litros=volumen,
+        peso_kg=peso_kg,
+    )
 
     productos_json = [{
         "producto_id": payload.producto_id,
@@ -2450,6 +2618,11 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "peso_kg": peso_kg,
         "origen_sugerido": origen,
         "destino_sugerido": destino,
+        "tarifa_calculo": tarifa_calc,
+        "subtotal_flete": tarifa_calc.get("subtotal_flete", 0),
+        "iva_flete": tarifa_calc.get("iva", 0),
+        "retencion_flete": tarifa_calc.get("retencion", 0),
+        "total_flete": tarifa_calc.get("total", 0),
         "observaciones_v2": payload.observaciones.strip(),
         **payload_metadata,
     }
@@ -2472,6 +2645,9 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "productos_json": json.dumps(productos_json, ensure_ascii=False),
         "volumen_total_litros": volumen,
         "tipo_cfdi": tipo_cfdi,
+        "tarifa_id": tarifa_calc.get("tarifa_id"),
+        "subtotal_flete": tarifa_calc.get("subtotal_flete", 0),
+        "retencion": tarifa_calc.get("retencion", 0),
         "rfc_receptor": _first_text(cliente.get("rfc")),
         "nombre_receptor": _first_text(cliente.get("nombre"), payload.cliente_nombre),
         "cp_receptor": _first_text(cliente.get("cp"), "20000"),
@@ -3022,6 +3198,31 @@ def _stamp_build_context(
         raise HTTPException(409, f"No se pudo cargar configuración fiscal Transporte: {exc}") from exc
 
     normalized_viaje = _normalize_viaje_row(viaje_row)
+    if _num(viaje_row.get("subtotal_flete") or _meta(viaje_row).get("subtotal_flete")) <= 0:
+        tarifa_calc = _resolve_tariff_calculation(
+            "",
+            uid,
+            pid,
+            cliente_id=_meta(viaje_row).get("cliente_id"),
+            ruta=ruta,
+            producto=producto,
+            volumen_litros=_num(viaje_row.get("volumen_total_litros") or viaje_row.get("volumen_litros")),
+            peso_kg=_num(viaje_row.get("peso_kg") or _meta(viaje_row).get("peso_kg")),
+            sb_client=sb,
+        )
+        if tarifa_calc:
+            viaje_row = dict(viaje_row)
+            viaje_row["tarifa_id"] = tarifa_calc.get("tarifa_id")
+            viaje_row["subtotal_flete"] = tarifa_calc.get("subtotal_flete", 0)
+            viaje_row["retencion"] = tarifa_calc.get("retencion", 0)
+            meta_tarifa = _meta(viaje_row)
+            meta_tarifa["tarifa_calculo"] = tarifa_calc
+            meta_tarifa["subtotal_flete"] = tarifa_calc.get("subtotal_flete", 0)
+            meta_tarifa["iva_flete"] = tarifa_calc.get("iva", 0)
+            meta_tarifa["retencion_flete"] = tarifa_calc.get("retencion", 0)
+            meta_tarifa["total_flete"] = tarifa_calc.get("total", 0)
+            viaje_row["defaults_json"] = meta_tarifa
+            normalized_viaje = _normalize_viaje_row(viaje_row)
     product_text = _first_text(producto.get("tipo_producto"), producto.get("descripcion"), _meta(viaje_row).get("producto"))
     permiso_transportista = _stamp_transportista_permiso(sb, uid, pid, product_text)
     pac_ready, pac_message, _pac_cfg = _sw_ready_state()
@@ -3063,6 +3264,7 @@ def _stamp_build_context(
     receptor_cp = _first_text(viaje_row.get("cp_receptor"), cliente.get("cp"))
     receptor_regimen = _first_text(viaje_row.get("regimen_fiscal_receptor"), cliente.get("regimen_fiscal"))
     route_meta = _meta(ruta)
+    tarifa_meta = _meta(viaje_row).get("tarifa_calculo") if isinstance(_meta(viaje_row).get("tarifa_calculo"), dict) else {}
     viaje_obj = ViajeCreate(
         perfil_id=pid,
         chofer_id=int(viaje_row.get("chofer_id")),
@@ -3097,6 +3299,10 @@ def _stamp_build_context(
         regimen_fiscal_receptor=receptor_regimen,
         uso_cfdi=_first_text(viaje_row.get("uso_cfdi"), cliente.get("uso_cfdi"), "G03"),
         num_permiso_cne=emisor["num_permiso_cne"],
+        iva_tasa=_num(tarifa_meta.get("iva_tasa") or 0.16),
+        retencion_tasa=_num(tarifa_meta.get("retencion_tasa") or 0.04),
+        aplica_iva=tarifa_meta.get("aplica_iva") is not False,
+        aplica_retencion=tarifa_meta.get("aplica_retencion") is not False,
         distancia_km=_num(viaje_row.get("distancia_km") or ruta.get("distancia_km")) or 1.0,
         duracion_estimada_min=int(_num(viaje_row.get("duracion_estimada_min") or ruta.get("duracion_estimada_min"))),
     )
@@ -3309,6 +3515,121 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@router.post("/tr-v2/control-volumetrico/generar")
+async def transporte_v2_generar_control_volumetrico(
+    payload: GenerarCovolRequest,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    header_pid = _profile_id(None, x_perfil_id)
+    payload_pid = _profile_id(payload.perfil_id)
+    if header_pid and payload_pid and header_pid != payload_pid:
+        raise HTTPException(409, "La empresa activa no coincide entre el formulario y X-Perfil-Id.")
+    pid = header_pid or payload_pid
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "perfil_id requerido para Control Volumétrico Transporte.")
+    periodo = f"{payload.anio:04d}-{payload.mes:02d}"
+    selected_permiso = _first_text(payload.num_permiso_cne)
+    if not selected_permiso:
+        raise HTTPException(400, "Selecciona permiso CRE/CNE transportista.")
+    settings = _load_settings(token, uid, pid)
+    fiscal = settings.get("perfil_fiscal") or {}
+    rfc_contribuyente = _first_text(fiscal.get("rfc_contribuyente"))
+    if not rfc_contribuyente:
+        raise HTTPException(400, "Configura RFC fiscal de Transporte en Administración.")
+
+    sb = _sb(token)
+    rows = (
+        sb.table(TBL_VIAJES)
+        .select("*")
+        .eq("user_id", uid)
+        .eq("perfil_id", pid)
+        .eq("status", "timbrado")
+        .like("fecha_hora_salida", f"{periodo}%")
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, f"No hay viajes timbrados en {periodo}.")
+
+    viajes_para_covol: list[dict[str, Any]] = []
+    permisos_detectados: set[str] = set()
+    for row in rows:
+        meta = _meta(row)
+        permiso_viaje = _first_text(row.get("num_permiso_cne"), meta.get("num_permiso_cne"), meta.get("permiso_transportista"), selected_permiso)
+        if permiso_viaje:
+            permisos_detectados.add(permiso_viaje)
+        if permiso_viaje != selected_permiso:
+            continue
+        productos_json = _parse_json_value(row.get("productos_json"), [])
+        viajes_para_covol.append({
+            "uuid_cfdi": _first_text(row.get("uuid_cfdi"), meta.get("uuid_carta_porte")),
+            "id_ccp": _first_text(row.get("id_ccp"), meta.get("id_ccp")),
+            "num_permiso_cne": permiso_viaje,
+            "tipo_movimiento": "descarga",
+            "fecha_hora_salida": row.get("fecha_hora_salida") or "",
+            "rfc_receptor": row.get("rfc_receptor") or "",
+            "nombre_receptor": row.get("nombre_receptor") or "",
+            "productos": productos_json if isinstance(productos_json, list) else [],
+        })
+    if not viajes_para_covol:
+        detalle = f" Permisos detectados: {', '.join(sorted(permisos_detectados))}." if permisos_detectados else ""
+        raise HTTPException(404, f"No hay viajes timbrados para el permiso {selected_permiso} en {periodo}.{detalle}")
+
+    covol_settings = {
+        "RfcContribuyente": rfc_contribuyente,
+        "NombreContribuyente": _first_text(fiscal.get("nombre_fiscal")),
+        "NumPermiso": selected_permiso,
+        "ClaveInstalacion": payload.clave_instalacion or fiscal.get("clave_instalacion") or "",
+        "DescripcionInstalacion": payload.descripcion_instalacion or fiscal.get("descripcion_instalacion") or "",
+        "ModalidadPermiso": "PER51",
+        "display_name": _first_text(fiscal.get("nombre_fiscal"), "GE Control Transporte"),
+    }
+    try:
+        sat_dict, meta = build_transport_covol(
+            viajes=viajes_para_covol,
+            settings=covol_settings,
+            anio=payload.anio,
+            mes=payload.mes,
+            inventario_inicial_litros=payload.inventario_inicial_litros,
+        )
+        archivos = save_transport_covol(sat_dict, meta, covol_settings)
+    except Exception as exc:
+        raise HTTPException(500, f"Error al generar JSON SAT Transporte: {exc}") from exc
+
+    try:
+        sb.table(TBL_COVOL).insert({
+            "user_id": uid,
+            "perfil_id": pid,
+            "periodo": periodo,
+            "filename_base": meta.get("first_uuid", "")[:8],
+            "json_name": archivos["json_name"],
+            "zip_name": archivos["zip_name"],
+            "json_content": archivos["json_content"],
+            "zip_b64": archivos["zip_b64"],
+            "total_cargas": meta.get("total_cargas", 0),
+            "total_descargas": meta.get("total_descargas", 0),
+            "num_productos": meta.get("num_productos", 0),
+            "created_at": _now_iso(),
+        }).execute()
+    except Exception as exc:
+        logger.warning("No se pudo registrar COVOL Transporte v2: %s", exc)
+    return {
+        "ok": True,
+        "periodo": periodo,
+        "json_name": archivos["json_name"],
+        "zip_name": archivos["zip_name"],
+        "json_content": archivos["json_content"],
+        "zip_b64": archivos["zip_b64"],
+        "num_permiso_cne": selected_permiso,
+        "permisos_detectados": sorted(permisos_detectados),
+        "meta": {**meta, "num_permiso_cne": selected_permiso, "permisos_detectados": sorted(permisos_detectados)},
+    }
+
+
 @router.get("/tr-v2/health")
 async def transporte_v2_health():
     return {
@@ -3317,7 +3638,7 @@ async def transporte_v2_health():
         "phase": "fase_2_preview_carta_porte",
         "pac_enabled": True,
         "timbrado_enabled": True,
-        "json_sat_enabled": False,
+        "json_sat_enabled": True,
     }
 
 
@@ -4469,7 +4790,7 @@ async def transporte_v2_guardar_tarifa_servicio(
         .eq("user_id", uid)
         .eq("perfil_id", pid)
         .eq("ruta_id", row["ruta_id"])
-        .eq("producto", row["producto"])
+        .eq("producto_id", row["producto_id"])
         .eq("activo", True)
         .limit(1)
         .execute()
