@@ -14,6 +14,7 @@ import secrets
 import hashlib
 import zlib
 import base64
+import unicodedata
 from xml.etree import ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
@@ -498,6 +499,8 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         emisor_rfc = rfcs[0]
     if not receptor_rfc and len(rfcs) > 1:
         receptor_rfc = next((rfc for rfc in rfcs if rfc != emisor_rfc), "")
+    if receptor_rfc and emisor_rfc and receptor_rfc == emisor_rfc and len(rfcs) > 1:
+        receptor_rfc = next((rfc for rfc in rfcs if rfc != emisor_rfc), receptor_rfc)
 
     folio_match = re.search(r"\b(FE)\s+(\d{3,})\b", upper, re.I)
     if not folio_match:
@@ -815,7 +818,10 @@ def _operator_prepare_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any
         .eq("activo", True)
         .execute().data or []
     )
-    client = next((row for row in client_rows if _normalize_rfc_value(row.get("rfc")) == client_rfc), {})
+    client, client_match = _resolve_client_match(client_rows, {
+        **detected,
+        "cliente_rfc": client_rfc,
+    })
 
     product_rows = (
         sb.table(TBL_PRODUCTOS).select("*")
@@ -824,11 +830,10 @@ def _operator_prepare_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any
         .eq("activo", True)
         .execute().data or []
     )
-    product = next((row for row in product_rows if product_key and product_key in {
-        _first_text(row.get("clave_producto")), _first_text(row.get("clave_prodserv_cfdi"))
-    }), {})
-    if not product and len(product_rows) == 1:
-        product = product_rows[0]
+    product, product_match = _resolve_product_match(product_rows, {
+        **detected,
+        "clave_sat": product_key,
+    })
 
     destination_rows = (
         sb.table(TBL_DESTINOS).select("*")
@@ -874,6 +879,8 @@ def _operator_prepare_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any
         "vehicle": vehicle,
         "routes": routes,
         "provider_rfc": provider_rfc,
+        "client_match": client_match,
+        "product_match": product_match,
         "errors": errors,
         "ready": not errors,
     }
@@ -1167,6 +1174,31 @@ def _expand_installation_metadata(row: dict[str, Any]) -> dict[str, Any]:
     return expanded
 
 
+def _coerce_installation_scope(catalogo: str, row: dict[str, Any]) -> dict[str, Any]:
+    scoped = dict(row)
+    metadata = _parse_json_value(scoped.get("metadata"), {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    if catalogo == "origenes":
+        scoped["tipo"] = _first_text(scoped.get("tipo"), "terminal")
+        scoped["tipo_carta_porte"] = "Origen"
+        scoped["cliente_id"] = None
+        scoped["cliente_nombre"] = ""
+        for key in ("tipo", "tipo_carta_porte", "cliente_id", "cliente_nombre"):
+            metadata[key] = scoped.get(key)
+    elif catalogo == "destinos":
+        scoped["tipo"] = _first_text(scoped.get("tipo"), "cliente")
+        scoped["tipo_carta_porte"] = "Destino"
+        scoped["proveedor_id"] = None
+        scoped["proveedor_nombre"] = ""
+        scoped["permiso_cre"] = ""
+        for key in ("tipo", "tipo_carta_porte", "proveedor_id", "proveedor_nombre", "permiso_cre"):
+            metadata[key] = scoped.get(key)
+    if metadata:
+        scoped["metadata"] = metadata
+    return scoped
+
+
 def _expand_trailer_metadata(row: dict[str, Any]) -> dict[str, Any]:
     expanded = dict(row)
     metadata = _parse_json_value(expanded.get("metadata"), {})
@@ -1400,23 +1432,45 @@ def _expand_route_from_installations(token: str, uid: str, perfil_id: Optional[i
     metadata["origen_instalacion"] = {
         "id": origen.get("id"),
         "nombre": expanded["nombre_origen"],
+        "rfc": origen.get("rfc"),
         "cp": expanded["cp_origen"],
         "estado_sat": origen.get("estado_sat"),
         "municipio_sat": origen.get("municipio_sat"),
         "localidad_sat": origen.get("localidad_sat"),
         "direccion": origen.get("direccion"),
         "id_ubicacion_carta_porte": origen.get("id_ubicacion_carta_porte"),
+        "proveedor_id": origen.get("proveedor_id"),
+        "proveedor_nombre": origen.get("proveedor_nombre"),
     }
     metadata["destino_instalacion"] = {
         "id": destino.get("id"),
         "nombre": expanded["nombre_destino"],
+        "rfc": destino.get("rfc"),
         "cp": expanded["cp_destino"],
         "estado_sat": destino.get("estado_sat"),
         "municipio_sat": destino.get("municipio_sat"),
         "localidad_sat": destino.get("localidad_sat"),
         "direccion": destino.get("direccion"),
         "id_ubicacion_carta_porte": destino.get("id_ubicacion_carta_porte"),
+        "cliente_id": destino.get("cliente_id"),
+        "cliente_nombre": destino.get("cliente_nombre"),
     }
+    metadata.update({
+        "id_ubicacion_origen": _first_text(origen.get("id_ubicacion_carta_porte")),
+        "rfc_origen": _first_text(origen.get("rfc")),
+        "nombre_origen": expanded["nombre_origen"],
+        "estado_origen": _first_text(origen.get("estado_sat")),
+        "municipio_origen": _first_text(origen.get("municipio_sat")),
+        "localidad_origen": _first_text(origen.get("localidad_sat")),
+        "calle_origen": _first_text(origen.get("direccion")),
+        "id_ubicacion_destino": _first_text(destino.get("id_ubicacion_carta_porte")),
+        "rfc_destino": _first_text(destino.get("rfc")),
+        "nombre_destino": expanded["nombre_destino"],
+        "estado_destino": _first_text(destino.get("estado_sat")),
+        "municipio_destino": _first_text(destino.get("municipio_sat")),
+        "localidad_destino": _first_text(destino.get("localidad_sat")),
+        "calle_destino": _first_text(destino.get("direccion")),
+    })
     expanded["metadata"] = metadata
     return expanded
 
@@ -1703,6 +1757,7 @@ def _create_catalog_item(
         row = _expand_product_aliases(row)
     if catalogo in {"origenes", "destinos"}:
         row = _expand_installation_metadata(row)
+        row = _coerce_installation_scope(catalogo, row)
     if catalogo == "rutas":
         row = _expand_route_from_installations(token, uid, perfil_id, row)
     _ensure_required(row, config["required"], catalogo)
@@ -1754,6 +1809,7 @@ def _update_catalog_item(
         row = _expand_product_aliases(row)
     if catalogo in {"origenes", "destinos"}:
         row = _expand_installation_metadata(row)
+        row = _coerce_installation_scope(catalogo, row)
     if catalogo == "rutas":
         row = _expand_route_from_installations(token, uid, perfil_id, row)
     if not row:
@@ -2013,7 +2069,16 @@ def _normalize_permiso_value(value: Any) -> str:
 
 
 def _normalize_rfc_value(value: Any) -> str:
-    return re.sub(r"\s+", "", str(value or "").strip().upper())
+    return re.sub(r"[^A-ZÑ&0-9]", "", str(value or "").strip().upper())
+
+
+def _normalize_match_text(value: Any) -> str:
+    text = unicodedata.normalize("NFD", str(value or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.upper().replace("&", " Y ")
+    text = re.sub(r"\b(S\.?\s*A\.?|DE|C\.?\s*V\.?|SAPI|S\.?\s*DE\s*R\.?\s*L\.?|RL|MI|SOCIEDAD|ANONIMA|CAPITAL|VARIABLE)\b", " ", text)
+    text = re.sub(r"[^A-Z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _normalize_producto_value(value: Any) -> str:
@@ -2036,6 +2101,100 @@ def _normalize_producto_value(value: Any) -> str:
     if "PREMIUM" in compact:
         return "PREMIUM"
     return compact
+
+
+def _resolve_client_match(client_rows: list[dict[str, Any]], detected: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    detected_rfc = _normalize_rfc_value(_first_text(
+        detected.get("cliente_rfc"),
+        detected.get("receptor_rfc"),
+        detected.get("rfc_receptor"),
+    ))
+    detected_name = _normalize_match_text(_first_text(
+        detected.get("cliente_nombre"),
+        detected.get("receptor_nombre"),
+        detected.get("nombre_receptor"),
+    ))
+    detected_cp = re.sub(r"\D+", "", _first_text(detected.get("cp_receptor"), detected.get("domicilio_fiscal_receptor")))
+    active_rows = [row for row in client_rows if row.get("activo") is not False]
+    diagnostics: dict[str, Any] = {
+        "detected_rfc": detected_rfc,
+        "detected_name": detected_name,
+        "detected_cp": detected_cp,
+        "method": "",
+    }
+    if detected_rfc:
+        exact = next((row for row in active_rows if _normalize_rfc_value(row.get("rfc")) == detected_rfc), None)
+        if exact:
+            diagnostics["method"] = "rfc_exact"
+            return exact, diagnostics
+    if detected_cp and detected_name:
+        cp_name = next((
+            row for row in active_rows
+            if re.sub(r"\D+", "", _first_text(row.get("cp"))) == detected_cp
+            and (
+                _normalize_match_text(row.get("nombre")) == detected_name
+                or detected_name in _normalize_match_text(row.get("nombre"))
+                or _normalize_match_text(row.get("nombre")) in detected_name
+            )
+        ), None)
+        if cp_name:
+            diagnostics["method"] = "cp_name"
+            return cp_name, diagnostics
+    if detected_name:
+        name_match = next((
+            row for row in active_rows
+            if _normalize_match_text(row.get("nombre")) == detected_name
+            or detected_name in _normalize_match_text(row.get("nombre"))
+            or _normalize_match_text(row.get("nombre")) in detected_name
+        ), None)
+        if name_match:
+            diagnostics["method"] = "name"
+            return name_match, diagnostics
+    diagnostics["method"] = "not_found"
+    diagnostics["catalog_count"] = len(active_rows)
+    return {}, diagnostics
+
+
+def _resolve_product_match(product_rows: list[dict[str, Any]], detected: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    clave = _first_text(detected.get("clave_sat"), detected.get("clave_producto"), detected.get("clave_prodserv_cfdi"))
+    producto_text = _first_text(detected.get("producto"), detected.get("descripcion"))
+    producto_norm = _normalize_producto_value(producto_text)
+    active_rows = [row for row in product_rows if row.get("activo") is not False]
+    diagnostics: dict[str, Any] = {
+        "detected_clave": clave,
+        "detected_producto": producto_text,
+        "detected_producto_norm": producto_norm,
+        "method": "",
+    }
+    if clave:
+        exact = next((
+            row for row in active_rows
+            if clave in {
+                _first_text(row.get("clave_producto")),
+                _first_text(row.get("clave_prodserv_cfdi")),
+            }
+        ), None)
+        if exact:
+            diagnostics["method"] = "clave_sat"
+            return exact, diagnostics
+    if producto_norm:
+        exact_name = next((
+            row for row in active_rows
+            if producto_norm in {
+                _normalize_producto_value(row.get("nombre")),
+                _normalize_producto_value(row.get("descripcion")),
+                _normalize_producto_value(_parse_json_value(row.get("metadata"), {}).get("tipo_producto")),
+            }
+        ), None)
+        if exact_name:
+            diagnostics["method"] = "producto_norm"
+            return exact_name, diagnostics
+    if len(active_rows) == 1:
+        diagnostics["method"] = "single_product_fallback"
+        return active_rows[0], diagnostics
+    diagnostics["method"] = "not_found"
+    diagnostics["catalog_count"] = len(active_rows)
+    return {}, diagnostics
 
 
 def _permiso_payload(data: dict[str, Any]) -> dict[str, Any]:
@@ -2247,10 +2406,14 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
     producto = _catalog_row(token, uid, TBL_PRODUCTOS, payload.producto_id, pid)
     ruta = _catalog_row(token, uid, TBL_RUTAS, payload.ruta_id, pid)
 
+    if not cliente:
+        raise HTTPException(400, "Cliente no encontrado para el perfil activo. Revisa RFC/nombre detectado antes de guardar.")
     if not operador:
         raise HTTPException(400, "Operador/chofer no encontrado para el perfil activo.")
     if not vehiculo:
         raise HTTPException(400, "Vehículo no encontrado para el perfil activo.")
+    if not producto:
+        raise HTTPException(400, "Producto no encontrado para el perfil activo. Revisa clave SAT/producto detectado antes de guardar.")
 
     origen = _first_text(payload.origen, ruta.get("origen"), ruta.get("nombre_origen"))
     destino = _first_text(payload.destino, ruta.get("destino"), ruta.get("nombre_destino"))
@@ -2394,6 +2557,7 @@ def _build_carta_porte_preview(
     pac_message: str = "",
 ) -> dict[str, Any]:
     meta = _meta(viaje)
+    route_meta = _meta(ruta)
     vehiculo_meta = _meta(vehiculo)
     producto_nombre = _first_text(producto.get("descripcion"), meta.get("producto_descripcion"))
     material_peligroso = bool(producto.get("material_peligroso")) or _is_hidrocarburo(producto_nombre)
@@ -2412,21 +2576,25 @@ def _build_carta_porte_preview(
         },
         "origen": {
             "nombre": _first_text(ruta.get("origen"), viaje.get("origen")),
+            "rfc": _first_text(route_meta.get("rfc_origen"), meta.get("rfc_origen"), meta.get("origen_rfc")),
             "cp": _first_text(ruta.get("cp_origen"), meta.get("cp_origen")),
-            "estado": _first_text(meta.get("estado_origen")),
-            "municipio": _first_text(meta.get("municipio_origen")),
+            "estado": _first_text(route_meta.get("estado_origen"), meta.get("estado_origen")),
+            "municipio": _first_text(route_meta.get("municipio_origen"), meta.get("municipio_origen")),
+            "localidad": _first_text(route_meta.get("localidad_origen"), meta.get("localidad_origen")),
             "pais": _first_text(meta.get("pais_origen"), "MEX"),
-            "calle": _first_text(meta.get("calle_origen")),
-            "id_ubicacion": _first_text(meta.get("id_ubicacion_origen")),
+            "calle": _first_text(route_meta.get("calle_origen"), meta.get("calle_origen")),
+            "id_ubicacion": _first_text(route_meta.get("id_ubicacion_origen"), meta.get("id_ubicacion_origen")),
         },
         "destino": {
             "nombre": _first_text(ruta.get("destino"), viaje.get("destino")),
+            "rfc": _first_text(route_meta.get("rfc_destino"), meta.get("rfc_destino"), meta.get("destino_rfc"), cliente.get("rfc")),
             "cp": _first_text(ruta.get("cp_destino"), meta.get("cp_destino")),
-            "estado": _first_text(meta.get("estado_destino")),
-            "municipio": _first_text(meta.get("municipio_destino")),
+            "estado": _first_text(route_meta.get("estado_destino"), meta.get("estado_destino")),
+            "municipio": _first_text(route_meta.get("municipio_destino"), meta.get("municipio_destino")),
+            "localidad": _first_text(route_meta.get("localidad_destino"), meta.get("localidad_destino")),
             "pais": _first_text(meta.get("pais_destino"), "MEX"),
-            "calle": _first_text(meta.get("calle_destino")),
-            "id_ubicacion": _first_text(meta.get("id_ubicacion_destino")),
+            "calle": _first_text(route_meta.get("calle_destino"), meta.get("calle_destino")),
+            "id_ubicacion": _first_text(route_meta.get("id_ubicacion_destino"), meta.get("id_ubicacion_destino")),
         },
         "mercancia": {
             "descripcion": producto_nombre,
@@ -2503,10 +2671,14 @@ def _build_carta_porte_preview(
         _warn(validaciones, "receptor.rfc", preview["receptor"]["rfc"], "Para CFDI Traslado confirma receptor o destinatario fiscal.")
 
     _req(validaciones, "origen.cp", preview["origen"]["cp"], "Falta CP del origen.")
+    _req(validaciones, "origen.id_ubicacion", preview["origen"]["id_ubicacion"], "Falta ID ubicación Carta Porte del origen.")
+    _req(validaciones, "origen.rfc", preview["origen"]["rfc"], "Falta RFC remitente/destinatario del origen.")
     _warn(validaciones, "origen.estado", preview["origen"]["estado"], "Falta estado del origen.")
     _warn(validaciones, "origen.municipio", preview["origen"]["municipio"], "Falta municipio del origen.")
     _warn(validaciones, "origen.calle", preview["origen"]["calle"], "Falta calle del origen.")
     _req(validaciones, "destino.cp", preview["destino"]["cp"], "Falta CP del destino.")
+    _req(validaciones, "destino.id_ubicacion", preview["destino"]["id_ubicacion"], "Falta ID ubicación Carta Porte del destino.")
+    _req(validaciones, "destino.rfc", preview["destino"]["rfc"], "Falta RFC remitente/destinatario del destino.")
     _warn(validaciones, "destino.estado", preview["destino"]["estado"], "Falta estado del destino.")
     _warn(validaciones, "destino.municipio", preview["destino"]["municipio"], "Falta municipio del destino.")
     _warn(validaciones, "destino.calle", preview["destino"]["calle"], "Falta calle del destino.")
@@ -2587,6 +2759,41 @@ def _stamp_row(sb: Any, table: str, row_id: Any, uid: str, pid: Optional[int]) -
     return rows[0] if rows else {}
 
 
+def _stamp_expand_route_locations(sb: Any, uid: str, pid: Optional[int], route: dict[str, Any]) -> dict[str, Any]:
+    expanded = dict(route or {})
+    if not expanded.get("origen_id") or not expanded.get("destino_id"):
+        return expanded
+    meta = _meta(expanded)
+    if meta.get("id_ubicacion_origen") and meta.get("id_ubicacion_destino"):
+        return expanded
+    origen = _normalize_catalog_row("origenes", _stamp_row(sb, TBL_ORIGENES, expanded.get("origen_id"), uid, pid))
+    destino = _normalize_catalog_row("destinos", _stamp_row(sb, TBL_DESTINOS, expanded.get("destino_id"), uid, pid))
+    if not origen or not destino:
+        return expanded
+    expanded["origen"] = _first_text(expanded.get("origen"), expanded.get("nombre_origen"), origen.get("nombre"))
+    expanded["nombre_origen"] = _first_text(expanded.get("nombre_origen"), expanded.get("origen"), origen.get("nombre"))
+    expanded["cp_origen"] = _first_text(expanded.get("cp_origen"), origen.get("cp"))
+    expanded["destino"] = _first_text(expanded.get("destino"), expanded.get("nombre_destino"), destino.get("nombre"))
+    expanded["nombre_destino"] = _first_text(expanded.get("nombre_destino"), expanded.get("destino"), destino.get("nombre"))
+    expanded["cp_destino"] = _first_text(expanded.get("cp_destino"), destino.get("cp"))
+    meta.update({
+        "id_ubicacion_origen": _first_text(origen.get("id_ubicacion_carta_porte")),
+        "rfc_origen": _first_text(origen.get("rfc")),
+        "estado_origen": _first_text(origen.get("estado_sat")),
+        "municipio_origen": _first_text(origen.get("municipio_sat")),
+        "localidad_origen": _first_text(origen.get("localidad_sat")),
+        "calle_origen": _first_text(origen.get("direccion")),
+        "id_ubicacion_destino": _first_text(destino.get("id_ubicacion_carta_porte")),
+        "rfc_destino": _first_text(destino.get("rfc")),
+        "estado_destino": _first_text(destino.get("estado_sat")),
+        "municipio_destino": _first_text(destino.get("municipio_sat")),
+        "localidad_destino": _first_text(destino.get("localidad_sat")),
+        "calle_destino": _first_text(destino.get("direccion")),
+    })
+    expanded["metadata"] = meta
+    return expanded
+
+
 def _stamp_transportista_permiso(sb: Any, uid: str, pid: Optional[int], producto_text: str) -> dict[str, Any]:
     try:
         q = sb.table(TBL_PROVEEDORES).select("*").eq("user_id", uid).eq("activo", True)
@@ -2604,7 +2811,11 @@ def _stamp_transportista_permiso(sb: Any, uid: str, pid: Optional[int], producto
         and _normalize_permiso_value(row.get("permiso_cre"))
     ]
     exact = next((row for row in candidates if product_norm and _normalize_producto_value(row.get("producto")) == product_norm), None)
-    return exact or (candidates[0] if candidates else {})
+    if exact:
+        return exact
+    if not product_norm and len(candidates) == 1:
+        return candidates[0]
+    return {}
 
 
 def _emisor_from_settings(settings: dict[str, Any]) -> dict[str, str]:
@@ -2786,7 +2997,12 @@ def _stamp_build_context(
     operador = _normalize_catalog_row("operadores", _stamp_row(sb, TBL_OPERADORES, viaje_row.get("chofer_id"), uid, pid))
     vehiculo = _normalize_catalog_row("vehiculos", _stamp_row(sb, TBL_VEHICULOS, viaje_row.get("vehiculo_id"), uid, pid))
     producto = _normalize_catalog_row("productos", _stamp_row(sb, TBL_PRODUCTOS, viaje_row.get("producto_operacion_id"), uid, pid))
-    ruta = _normalize_catalog_row("rutas", _stamp_row(sb, TBL_RUTAS, viaje_row.get("ruta_id"), uid, pid))
+    ruta = _stamp_expand_route_locations(
+        sb,
+        uid,
+        pid,
+        _normalize_catalog_row("rutas", _stamp_row(sb, TBL_RUTAS, viaje_row.get("ruta_id"), uid, pid)),
+    )
     settings = _load_settings("", uid, pid) if False else _deep_merge(_settings_defaults(), {})
     try:
         rows_settings = (
@@ -2846,6 +3062,7 @@ def _stamp_build_context(
     receptor_nombre = _first_text(viaje_row.get("nombre_receptor"), cliente.get("nombre"))
     receptor_cp = _first_text(viaje_row.get("cp_receptor"), cliente.get("cp"))
     receptor_regimen = _first_text(viaje_row.get("regimen_fiscal_receptor"), cliente.get("regimen_fiscal"))
+    route_meta = _meta(ruta)
     viaje_obj = ViajeCreate(
         perfil_id=pid,
         chofer_id=int(viaje_row.get("chofer_id")),
@@ -2856,8 +3073,20 @@ def _stamp_build_context(
         producto_operacion_id=viaje_row.get("producto_operacion_id"),
         cp_origen=_first_text(viaje_row.get("cp_origen"), ruta.get("cp_origen")),
         nombre_origen=_first_text(viaje_row.get("nombre_origen"), ruta.get("nombre_origen"), ruta.get("origen")),
+        rfc_origen=_first_text(route_meta.get("rfc_origen"), _meta(viaje_row).get("rfc_origen")),
+        id_ubicacion_origen=_first_text(route_meta.get("id_ubicacion_origen"), _meta(viaje_row).get("id_ubicacion_origen")),
+        estado_origen=_first_text(route_meta.get("estado_origen"), _meta(viaje_row).get("estado_origen")),
+        municipio_origen=_first_text(route_meta.get("municipio_origen"), _meta(viaje_row).get("municipio_origen")),
+        localidad_origen=_first_text(route_meta.get("localidad_origen"), _meta(viaje_row).get("localidad_origen")),
+        calle_origen=_first_text(route_meta.get("calle_origen"), _meta(viaje_row).get("calle_origen")),
         cp_destino=_first_text(viaje_row.get("cp_destino"), ruta.get("cp_destino")),
         nombre_destino=_first_text(viaje_row.get("nombre_destino"), ruta.get("nombre_destino"), ruta.get("destino")),
+        rfc_destino=_first_text(route_meta.get("rfc_destino"), _meta(viaje_row).get("rfc_destino"), receptor_rfc),
+        id_ubicacion_destino=_first_text(route_meta.get("id_ubicacion_destino"), _meta(viaje_row).get("id_ubicacion_destino")),
+        estado_destino=_first_text(route_meta.get("estado_destino"), _meta(viaje_row).get("estado_destino")),
+        municipio_destino=_first_text(route_meta.get("municipio_destino"), _meta(viaje_row).get("municipio_destino")),
+        localidad_destino=_first_text(route_meta.get("localidad_destino"), _meta(viaje_row).get("localidad_destino")),
+        calle_destino=_first_text(route_meta.get("calle_destino"), _meta(viaje_row).get("calle_destino")),
         fecha_hora_salida=_first_text(viaje_row.get("fecha_hora_salida"), normalized_viaje.get("fecha_salida")),
         fecha_hora_llegada=_first_text(viaje_row.get("fecha_hora_llegada"), normalized_viaje.get("fecha_llegada_estimada")),
         productos=[producto_obj],
@@ -4038,6 +4267,45 @@ async def transporte_v2_documentos_analizar(
             "warnings": [f"No se pudo extraer metadata automáticamente: {exc}. Usa captura manual asistida."],
         }
     detected_for_lookup = result.get("detected") if isinstance(result.get("detected"), dict) else {}
+    try:
+        catalog_sb = _sb(token)
+        client_query = catalog_sb.table(TBL_CLIENTES).select("*").eq("user_id", uid).eq("activo", True)
+        product_query = catalog_sb.table(TBL_PRODUCTOS).select("*").eq("user_id", uid).eq("activo", True)
+        if pid:
+            client_query = client_query.eq("perfil_id", pid)
+            product_query = product_query.eq("perfil_id", pid)
+        client_rows = client_query.limit(300).execute().data or []
+        product_rows = product_query.limit(300).execute().data or []
+        client_match, client_diagnostics = _resolve_client_match(client_rows, detected_for_lookup)
+        product_match, product_diagnostics = _resolve_product_match(product_rows, detected_for_lookup)
+        if isinstance(result.get("detected"), dict):
+            if client_match:
+                result["detected"]["cliente_id"] = client_match.get("id")
+                result["detected"]["cliente_nombre"] = _first_text(result["detected"].get("cliente_nombre"), client_match.get("nombre"))
+                result["detected"]["receptor_nombre"] = _first_text(result["detected"].get("receptor_nombre"), client_match.get("nombre"))
+                result["detected"]["cliente_rfc"] = _first_text(result["detected"].get("cliente_rfc"), client_match.get("rfc"))
+                result["detected"]["receptor_rfc"] = _first_text(result["detected"].get("receptor_rfc"), client_match.get("rfc"))
+                result["detected"]["cp_receptor"] = _first_text(result["detected"].get("cp_receptor"), client_match.get("cp"))
+                result["detected"]["regimen_receptor"] = _first_text(result["detected"].get("regimen_receptor"), client_match.get("regimen_fiscal"))
+            if product_match:
+                result["detected"]["producto_id"] = product_match.get("id")
+                result["detected"]["producto"] = _first_text(result["detected"].get("producto"), product_match.get("nombre"), product_match.get("descripcion"))
+                result["detected"]["clave_sat"] = _first_text(result["detected"].get("clave_sat"), product_match.get("clave_producto"), product_match.get("clave_prodserv_cfdi"))
+                result["detected"]["factor_kg_l"] = result["detected"].get("factor_kg_l") or product_match.get("factor_kg_l") or product_match.get("densidad_kg_l")
+        result["cliente_match"] = {
+            "status": "registrado" if client_match else "no_encontrado",
+            "item": _normalize_catalog_row("clientes", client_match) if client_match else None,
+            "diagnostics": client_diagnostics,
+        }
+        result["producto_match"] = {
+            "status": "registrado" if product_match else "no_encontrado",
+            "item": _normalize_catalog_row("productos", product_match) if product_match else None,
+            "diagnostics": product_diagnostics,
+        }
+    except Exception as exc:
+        logger.info("Transporte v2 catalog match omitido en análisis documento: %s", exc)
+        result["cliente_match"] = {"status": "error", "message": "No se pudo validar cliente contra catálogo."}
+        result["producto_match"] = {"status": "error", "message": "No se pudo validar producto contra catálogo."}
     permiso_rfc = _lookup_permiso_rfc(token, uid, pid, detected_for_lookup)
     if permiso_rfc.get("status") == "registrado" and isinstance(result.get("detected"), dict):
         item = permiso_rfc.get("item") or {}
@@ -4046,8 +4314,20 @@ async def transporte_v2_documentos_analizar(
             result["detected"]["permiso"] = _first_text(result["detected"].get("permiso"), permiso_catalogo)
             result["detected"]["proveedor_permiso"] = _first_text(result["detected"].get("proveedor_permiso"), permiso_catalogo)
     result["permiso_rfc"] = permiso_rfc
+    producto_para_permiso = _first_text(
+        (result.get("producto_match") or {}).get("item", {}).get("tipo_producto") if isinstance((result.get("producto_match") or {}).get("item"), dict) else "",
+        (result.get("producto_match") or {}).get("item", {}).get("nombre") if isinstance((result.get("producto_match") or {}).get("item"), dict) else "",
+        detected_for_lookup.get("producto"),
+    )
+    result["permiso_transportista"] = _stamp_transportista_permiso(_sb(token), uid, pid, producto_para_permiso)
     if permiso_rfc.get("status") in {"no_registrado", "producto_difiere", "permiso_difiere", "permiso_faltante", "advertencia"}:
         result.setdefault("warnings", []).append(permiso_rfc.get("message") or "Revisa permiso/RFC en Administración.")
+    if not (result.get("cliente_match") or {}).get("item"):
+        result.setdefault("warnings", []).append("No se encontró cliente activo en catálogo para RFC/nombre detectado.")
+    if not (result.get("producto_match") or {}).get("item"):
+        result.setdefault("warnings", []).append("No se encontró producto activo en catálogo para clave/producto detectado.")
+    if not result.get("permiso_transportista"):
+        result.setdefault("warnings", []).append("No se encontró permiso CRE transportista activo para el producto detectado.")
     metadata = {
         "fase": "transporte_v2_fase_2_8",
         "bucket_pendiente": True,
