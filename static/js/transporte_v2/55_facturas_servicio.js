@@ -18,6 +18,7 @@ function trv2ReadServiceTariffs() {
 
 function trv2WriteServiceTariffs(items) {
   TRV2_SERVICE_TARIFFS = items || [];
+  if (typeof TRV2_CATALOGS !== 'undefined') TRV2_CATALOGS.tarifas = items || [];
   localStorage.setItem(trv2ServiceStorageKey(TRV2_SERVICE_TARIFF_KEY), JSON.stringify(items || []));
 }
 
@@ -220,6 +221,8 @@ async function trv2SaveServiceTariff(event) {
     trv2ClearServiceTariffForm();
     trv2Toast('Tarifa de flete guardada.', 'success');
     trv2RenderServiceInvoices();
+    if (typeof trv2RenderCatalogTabs === 'function') trv2RenderCatalogTabs();
+    if (TRV2_ACTIVE_CATALOG === 'tarifas' && typeof trv2RenderActiveCatalog === 'function') trv2RenderActiveCatalog();
   } else {
     trv2Toast(response?.detail || response?.message || 'No se pudo guardar la tarifa.', 'error');
   }
@@ -231,6 +234,8 @@ async function trv2DeleteServiceTariff(id) {
     await trv2LoadServiceTariffs();
     trv2Toast('Tarifa eliminada.', 'success');
     trv2RenderServiceInvoices();
+    if (typeof trv2RenderCatalogTabs === 'function') trv2RenderCatalogTabs();
+    if (TRV2_ACTIVE_CATALOG === 'tarifas' && typeof trv2RenderActiveCatalog === 'function') trv2RenderActiveCatalog();
   } else {
     trv2Toast(response?.detail || response?.message || 'No se pudo eliminar la tarifa.', 'error');
   }
@@ -288,10 +293,6 @@ function trv2SetServiceInvoiceTab(tab) {
   TRV2_SERVICE_TAB = tab;
   document.querySelectorAll('[data-service-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.serviceTab === tab));
   document.querySelectorAll('[data-service-panel]').forEach(panel => { panel.hidden = panel.dataset.servicePanel !== tab; });
-  if (tab === 'configuracion') {
-    trv2PopulateServiceTariffSelects();
-    trv2ClearServiceTariffForm();
-  }
 }
 
 function trv2OpenServiceDetail(tripId) {

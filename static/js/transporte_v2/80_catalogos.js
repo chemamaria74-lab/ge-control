@@ -3,9 +3,11 @@ TRV2_CATALOGS.destinos = TRV2_CATALOGS.destinos || [];
 TRV2_CATALOGS.instalaciones = TRV2_CATALOGS.instalaciones || [];
 TRV2_CATALOGS.proveedores = TRV2_CATALOGS.proveedores || [];
 TRV2_CATALOGS.remolques = TRV2_CATALOGS.remolques || [];
+TRV2_CATALOGS.tarifas = TRV2_CATALOGS.tarifas || [];
 TRV2_CATALOG_LABELS.instalaciones = 'Instalaciones';
 TRV2_CATALOG_LABELS.proveedores = 'Proveedores';
 TRV2_CATALOG_LABELS.remolques = 'Remolques';
+TRV2_CATALOG_LABELS.tarifas = 'Tarifas';
 let TRV2_VEHICLE_SUBCATALOG = 'vehiculos';
 
 const TRV2_CATALOG_LOAD_NAMES = ['clientes', 'operadores', 'vehiculos', 'remolques', 'productos', 'origenes', 'destinos', 'rutas'];
@@ -290,6 +292,13 @@ const TRV2_CATALOG_UI = {
     metrics: [['Registros', 'count'], ['Con distancia', 'distancia_km'], ['Con duración', 'duracion_estimada_min']],
     fields: [['Origen', 'origen'], ['Destino', 'destino'], ['Distancia km', 'distancia_km'], ['Duración min', 'duracion_estimada_min']],
   },
+  tarifas: {
+    icon: 'fa-money-check-dollar',
+    title: 'Tarifas',
+    subtitle: 'Tarifa por ruta y producto. Gas LP calcula por kilos; gasolina y diésel por litros.',
+    metrics: [['Registros', 'count'], ['Gas LP por kg', 'base_kg'], ['Combustibles por litro', 'base_litro']],
+    fields: [],
+  },
   origenes: {
     icon: 'fa-location-dot',
     title: 'Orígenes',
@@ -318,6 +327,10 @@ async function trv2LoadCatalogs(options = {}) {
     await trv2LoadPermisosRfc({renderAdmin: false});
   }
   trv2BuildProveedoresCatalog();
+  if (typeof trv2LoadServiceTariffs === 'function') {
+    await trv2LoadServiceTariffs();
+    TRV2_CATALOGS.tarifas = trv2ReadServiceTariffs();
+  }
   TRV2_CATALOGS_READ_ONLY = results.some(r => r.data?.read_only);
   trv2RenderCatalogTabs();
   trv2RenderActiveCatalog();
@@ -441,6 +454,12 @@ function trv2SetVehicleSubCatalog(name) {
 
 function trv2CatalogMetricValue(items, key) {
   if (key === 'count') return items.length;
+  if (key === 'base_kg') {
+    return items.filter(item => String(item.base_calculo || item.regla_calculo || '').toUpperCase() === 'KG').length;
+  }
+  if (key === 'base_litro') {
+    return items.filter(item => String(item.base_calculo || item.regla_calculo || '').toUpperCase() === 'LITRO').length;
+  }
   return items.filter(item => {
     const value = item[key];
     if (typeof value === 'boolean') return value;
@@ -466,6 +485,13 @@ function trv2RenderActiveCatalog() {
   if (!panel) return;
   const name = TRV2_ACTIVE_CATALOG || 'clientes';
   const ui = TRV2_CATALOG_UI[name] || {};
+  if (name === 'tarifas') {
+    TRV2_CATALOGS.tarifas = typeof trv2ReadServiceTariffs === 'function' ? trv2ReadServiceTariffs() : [];
+    if (caption) caption.textContent = ui.subtitle || '';
+    trv2RenderCatalogMetrics(name, TRV2_CATALOGS.tarifas);
+    trv2RenderTariffCatalog(panel);
+    return;
+  }
   const items = TRV2_CATALOGS[name] || [];
   const query = (document.getElementById('trv2-catalog-search')?.value || '').toLowerCase().trim();
   const filtered = query
@@ -500,6 +526,43 @@ function trv2RenderActiveCatalog() {
       ${filtered.map(item => trv2RenderCatalogCard(name, item)).join('')}
     </div>
   `;
+}
+
+function trv2OpenActiveCatalogEditor() {
+  if (TRV2_ACTIVE_CATALOG === 'tarifas') {
+    trv2AddServiceTariff();
+    return;
+  }
+  trv2OpenCatalogModal();
+}
+
+function trv2RenderTariffCatalog(panel) {
+  panel.innerHTML = `
+    <div class="trv2-table-head">
+      <div>
+        <h2>Tarifas de flete</h2>
+        <p class="trv2-muted">Selecciona ruta y producto. La ruta define origen/proveedor y destino/cliente.</p>
+      </div>
+      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2AddServiceTariff()">Agregar tarifa</button>
+    </div>
+    <form class="trv2-form trv2-form-compact trv2-tariff-editor" id="trv2-service-tariff-form" onsubmit="trv2SaveServiceTariff(event)" hidden>
+      <div class="trv2-form-title">
+        <strong>Nueva tarifa</strong>
+        <span>Gas LP usa tarifa por kilo. Magna, Premium y Diésel usan tarifa por litro.</span>
+      </div>
+      <label>Ruta *<select id="trv2-tarifa-ruta" required onchange="trv2UpdateServiceTariffHint()"></select></label>
+      <label>Producto *<select id="trv2-tarifa-producto" required></select></label>
+      <label>Tarifa *<input id="trv2-tarifa-valor" type="number" step="0.0001" min="0" required></label>
+      <div class="trv2-form-wide trv2-route-endpoint-hint" id="trv2-tarifa-hint">Selecciona una ruta para ver origen y destino.</div>
+      <div class="trv2-form-actions">
+        <button class="trv2-btn trv2-btn-primary" type="submit">Guardar tarifa</button>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ClearServiceTariffForm()">Cancelar</button>
+      </div>
+    </form>
+    <div id="trv2-service-tariffs" class="trv2-table-wrap"></div>
+  `;
+  trv2PopulateServiceTariffSelects();
+  trv2RenderServiceTariffs();
 }
 
 function trv2CatalogUsesHorizontalList(name) {
