@@ -553,11 +553,26 @@ def build_carta_porte_xml(
         f'</cartaporte31:Autotransporte>'
         f'</cartaporte31:Mercancias>'
     )
-    figuras_xml = (
-        f'<cartaporte31:FiguraTransporte><cartaporte31:TiposFigura'
-        f'{_cp_optional_attrs({"TipoFigura": chofer.get("tipo_figura") or "01", "RFCFigura": chofer.get("rfc"), "NombreFigura": chofer.get("nombre"), "NumLicencia": chofer.get("licencia")})}/>'
-        f'</cartaporte31:FiguraTransporte>'
-    )
+    figura_attrs = {"TipoFigura": chofer.get("tipo_figura") or "01", "RFCFigura": chofer.get("rfc"), "NombreFigura": chofer.get("nombre"), "NumLicencia": chofer.get("licencia")}
+    domicilio_operador = _cp_domicilio_xml({
+        "cp": chofer.get("cp") or chofer.get("codigo_postal"),
+        "estado": chofer.get("estado"),
+        "municipio": chofer.get("municipio"),
+        "localidad": chofer.get("localidad"),
+        "calle": chofer.get("calle") or chofer.get("domicilio"),
+    })
+    if domicilio_operador:
+        figuras_xml = (
+            f'<cartaporte31:FiguraTransporte><cartaporte31:TiposFigura{_cp_optional_attrs(figura_attrs)}>'
+            f'{domicilio_operador}'
+            f'</cartaporte31:TiposFigura></cartaporte31:FiguraTransporte>'
+        )
+    else:
+        figuras_xml = (
+            f'<cartaporte31:FiguraTransporte><cartaporte31:TiposFigura'
+            f'{_cp_optional_attrs(figura_attrs)}/>'
+            f'</cartaporte31:FiguraTransporte>'
+        )
 
     xml = (
         f'<?xml version="1.0" encoding="UTF-8"?>'
@@ -832,6 +847,14 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
                 "ok": False,
                 "error": public_error,
                 "raw": data,
+                "pac_response": {
+                    "endpoint_sw": SW_JSON_ISSUE_URL,
+                    "status_code_sw": resp.status_code,
+                    "message": data.get("message") or "",
+                    "messageDetail": data.get("messageDetail") or "",
+                    "raw_response_sw": resp.text,
+                    "parsed_response_sw": data,
+                },
             }
             record_pac_response(request_id=audit_request_id, response_payload=data, status="error", error_message=public_error)
             return result

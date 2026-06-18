@@ -331,12 +331,23 @@ def _build_carta_porte(
     }
 
     # ── Figura (chofer) ───────────────────────────────────────────────────────
-    figuras: list[dict] = [{
+    figura_operador: dict = {
         "TipoFigura":   "01",   # 01 = Operador
         "RFCFigura":    chofer.get("rfc", "").upper().strip(),
         "NombreFigura": chofer.get("nombre", "").strip(),
         "NumLicencia":  chofer.get("licencia", "").strip(),
-    }]
+    }
+    cp_operador = str(chofer.get("cp") or "").strip()
+    if cp_operador:
+        domicilio_operador = _domicilio_ubicacion(
+            cp_operador,
+            str(chofer.get("estado") or "").strip(),
+            str(chofer.get("municipio") or "").strip(),
+            str(chofer.get("localidad") or "").strip(),
+            str(chofer.get("calle") or "").strip(),
+        )
+        figura_operador["Domicilio"] = domicilio_operador
+    figuras: list[dict] = [figura_operador]
 
     # ── Ubicaciones (origen y destino) ─────────────────────────────────────────
     cp_origen  = viaje.cp_origen.strip()  or "20000"
