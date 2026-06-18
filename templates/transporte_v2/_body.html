@@ -93,7 +93,7 @@
     <div class="trv2-panel" id="trv2-trip-form" hidden>
       <h2>Nuevo viaje</h2>
       <form class="trv2-form" onsubmit="trv2CreateTrip(event)">
-        <label>Cliente <select id="trv2-trip-cliente-id"></select></label>
+        <label>Cliente <select id="trv2-trip-cliente-id" onchange="trv2ApplyClientRouteToTrip()"></select></label>
         <label>Ruta <select id="trv2-trip-ruta-id" onchange="trv2ApplyRouteToTrip()" required></select></label>
         <label>Origen <input id="trv2-trip-origen" required placeholder="Origen"></label>
         <label>Destino <input id="trv2-trip-destino" required placeholder="Destino"></label>
@@ -170,6 +170,22 @@
         <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadTrips()"><i class="fa-solid fa-rotate"></i> Actualizar pendientes</button>
       </div>
       <div id="trv2-cp-pending-list" class="trv2-cp-pending-list"></div>
+    </section>
+    <section class="trv2-panel" id="trv2-cp-stamped-panel">
+      <div class="trv2-table-head">
+        <div>
+          <h2>Cartas Porte emitidas</h2>
+          <p class="trv2-muted">CFDI de ingreso con Complemento Carta Porte timbrados para descargar PDF o XML.</p>
+        </div>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadStampedCartaPorte()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+      </div>
+      <div class="trv2-subtabs trv2-inline-tabs" aria-label="Filtro Cartas Porte emitidas">
+        <button class="trv2-subtab active" id="trv2-cp-stamped-tab-hoy" type="button" onclick="trv2SetCartaPorteStampedFilter('hoy')"><i class="fa-solid fa-calendar-day"></i> Hoy <span id="trv2-cp-stamped-count-hoy">0</span></button>
+        <button class="trv2-subtab" id="trv2-cp-stamped-tab-todas" type="button" onclick="trv2SetCartaPorteStampedFilter('todas')"><i class="fa-solid fa-box-archive"></i> Todas <span id="trv2-cp-stamped-count-todas">0</span></button>
+      </div>
+      <div id="trv2-cp-stamped-list" class="trv2-cp-pending-list">
+        <div class="trv2-empty">Aún no hay Cartas Porte timbradas en esta vista.</div>
+      </div>
     </section>
     <section class="trv2-panel" id="trv2-cp-preview-panel">
       <div class="trv2-empty">Elige “Timbrar” en un movimiento pendiente para validar y revisar el resumen antes de confirmar.</div>
