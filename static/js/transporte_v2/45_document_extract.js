@@ -113,6 +113,30 @@ function trv2NormalizeDetected(raw = {}) {
   return detected;
 }
 
+function trv2DocNormalizeRfc(value) {
+  return String(value || '').trim().toUpperCase().replace(/[^A-ZÑ&0-9]/g, '');
+}
+
+function trv2DocNormalizeText(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/&/g, ' Y ')
+    .replace(/\b(S\.?\s*A\.?|DE|C\.?\s*V\.?|SAPI|S\.?\s*DE\s*R\.?\s*L\.?|RL|MI|SOCIEDAD|ANONIMA|CAPITAL|VARIABLE)\b/g, ' ')
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function trv2DocNormalizeProduct(value) {
+  const text = trv2DocNormalizeText(value).replace(/\s+/g, '');
+  if ((text.includes('GAS') && text.includes('LP')) || text.includes('GASLICUADODEPETROLEO')) return 'GASLP';
+  if (text.includes('DIESEL')) return 'DIESEL';
+  if (text.includes('MAGNA')) return 'MAGNA';
+  if (text.includes('PREMIUM')) return 'PREMIUM';
+  return text;
+}
+
 function trv2ApplyPermisoCatalogMatch(detected = {}, permisoInfo = {}) {
   const item = permisoInfo?.item || {};
   const permiso = item.permiso_cre || item.permiso || permisoInfo.permiso_detectado || '';
@@ -374,8 +398,12 @@ function trv2DocFieldId(scope, suffix) {
 }
 
 function trv2SelectDetectedCatalogValues(scope, detected) {
-  const cliente = trv2FindOrLabel('clientes', detected.receptor_rfc, detected.receptor_nombre);
-  const producto = trv2FindOrLabel('productos', detected.clave_sat, detected.producto);
+  const backendCliente = TRV2_DOCUMENT_DETECTED?.cliente_match?.item || null;
+  const backendProducto = TRV2_DOCUMENT_DETECTED?.producto_match?.item || null;
+  const cliente = trv2FindCatalog('clientes', detected.cliente_id || backendCliente?.id)
+    || trv2FindOrLabel('clientes', detected.receptor_rfc || detected.cliente_rfc, detected.receptor_nombre || detected.cliente_nombre);
+  const producto = trv2FindCatalog('productos', detected.producto_id || backendProducto?.id)
+    || trv2FindOrLabel('productos', detected.clave_sat, detected.producto);
   const clienteSelect = document.getElementById(trv2DocFieldId(scope, 'cliente-id'));
   const productoSelect = document.getElementById(trv2DocFieldId(scope, 'producto-id'));
   if (clienteSelect && cliente?.id) clienteSelect.value = String(cliente.id);
@@ -389,9 +417,13 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
     return;
   }
   const detected = trv2ReadDetectedForm(scope);
+  const backendCliente = TRV2_DOCUMENT_DETECTED?.cliente_match?.item || null;
+  const backendProducto = TRV2_DOCUMENT_DETECTED?.producto_match?.item || null;
   const cliente = trv2FindCatalog('clientes', document.getElementById(trv2DocFieldId(scope, 'cliente-id'))?.value)
-    || trv2FindOrLabel('clientes', detected.receptor_rfc, detected.receptor_nombre);
+    || trv2FindCatalog('clientes', detected.cliente_id || backendCliente?.id)
+    || trv2FindOrLabel('clientes', detected.receptor_rfc || detected.cliente_rfc, detected.receptor_nombre || detected.cliente_nombre);
   const producto = trv2FindCatalog('productos', document.getElementById(trv2DocFieldId(scope, 'producto-id'))?.value)
+    || trv2FindCatalog('productos', detected.producto_id || backendProducto?.id)
     || trv2FindOrLabel('productos', detected.clave_sat, detected.producto);
   const ruta = trv2FindCatalog('rutas', document.getElementById(trv2DocFieldId(scope, 'ruta-id'))?.value);
   const operador = trv2FindCatalog('operadores', document.getElementById(trv2DocFieldId(scope, 'operador-id'))?.value);
@@ -399,6 +431,7 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
   const fechaSalida = document.getElementById(trv2DocFieldId(scope, 'fecha-salida'))?.value || '';
   const fechaLlegada = document.getElementById(trv2DocFieldId(scope, 'fecha-llegada'))?.value || '';
   const missing = [];
+  if (!cliente) missing.push('cliente');
   if (!ruta) missing.push('ruta');
   if (!operador) missing.push('operador');
   if (!vehiculo) missing.push('vehículo');
@@ -432,6 +465,9 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
     observaciones: `Documento cliente ${detected.folio || detected.uuid || ''}`.trim(),
     metadata: {
       documento_detectado: detected,
+      cliente_match: TRV2_DOCUMENT_DETECTED?.cliente_match || null,
+      producto_match: TRV2_DOCUMENT_DETECTED?.producto_match || null,
+      permiso_transportista: TRV2_DOCUMENT_DETECTED?.permiso_transportista || null,
       proveedor_nombre: detected.emisor_nombre || detected.proveedor_nombre || '',
       proveedor_rfc: detected.emisor_rfc || detected.proveedor_rfc || '',
       proveedor_permiso: detected.permiso || detected.proveedor_permiso || '',
@@ -525,12 +561,15 @@ function trv2ApplyDensityFallback(body, detected = {}, producto = {}) {
 }
 
 function trv2FindOrLabel(catalogName, keyValue, labelValue) {
-  const key = String(keyValue || '').toUpperCase();
-  const label = String(labelValue || '').toUpperCase();
+  const key = catalogName === 'clientes' ? trv2DocNormalizeRfc(keyValue) : String(keyValue || '').trim().toUpperCase();
+  const label = catalogName === 'productos' ? trv2DocNormalizeProduct(labelValue) : trv2DocNormalizeText(labelValue);
   return (TRV2_CATALOGS[catalogName] || []).find(item => (
-    Object.values(item).some(value => {
-      const text = String(value || '').toUpperCase();
-      return (key && text === key) || (label && text.includes(label));
+    Object.entries(item).some(([field, value]) => {
+      const raw = String(value || '');
+      if (catalogName === 'clientes' && field === 'rfc') return key && trv2DocNormalizeRfc(raw) === key;
+      if (catalogName === 'productos' && ['nombre', 'descripcion', 'tipo_producto'].includes(field)) return label && trv2DocNormalizeProduct(raw) === label;
+      const text = trv2DocNormalizeText(raw);
+      return (key && text === key) || (label && (text === label || text.includes(label) || label.includes(text)));
     })
   )) || null;
 }

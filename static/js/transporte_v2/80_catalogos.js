@@ -218,7 +218,7 @@ const TRV2_CATALOG_FORMS = {
     ['proveedor_id', 'Proveedor', 'proveedor-select'],
     ['cliente_id', 'Cliente', 'cliente-select'],
     ['permiso_cre', 'Permiso CRE'],
-    ['clave_instalacion', 'Clave instalación'],
+    ['clave_instalacion', 'Clave instalación interna'],
     ['cp', 'CP'],
     ['direccion', 'Domicilio'],
     ['id_ubicacion_carta_porte', 'ID ubicación Carta Porte'],
@@ -568,7 +568,7 @@ function trv2RenderTariffCatalog(panel) {
 }
 
 function trv2CatalogUsesHorizontalList(name) {
-  return ['clientes', 'operadores', 'vehiculos', 'remolques', 'productos', 'rutas', 'instalaciones'].includes(name);
+  return ['clientes', 'operadores', 'vehiculos', 'remolques', 'productos', 'rutas', 'instalaciones', 'proveedores'].includes(name);
 }
 
 function trv2RenderVehicleCatalogSubtabs(name) {
@@ -699,6 +699,8 @@ function trv2OpenRelatedInstallations(parentCatalog, parentItemId) {
   if (subtitle) subtitle.textContent = 'Estas ubicaciones alimentan las opciones de origen o destino al crear rutas.';
   form.dataset.catalog = '';
   form.dataset.itemId = '';
+  delete form.dataset.installationParentCatalog;
+  delete form.dataset.installationParentId;
   form.innerHTML = `
     <div class="trv2-form-wide trv2-access-list">
       ${items.length ? items.map(item => {
@@ -721,9 +723,11 @@ function trv2OpenRelatedInstallationEditor(parentCatalog, parentItemId, installa
   const form = document.getElementById('trv2-catalog-modal-form');
   if (!form) return;
   const isProvider = parentCatalog === 'proveedores';
+  form.dataset.installationParentCatalog = parentCatalog;
+  form.dataset.installationParentId = String(parentItemId || '');
   const type = form.querySelector('[data-field="tipo_carta_porte"]');
   const relation = form.querySelector(`[data-field="${isProvider ? 'proveedor_id' : 'cliente_id'}"]`);
-  if (type && !installationId) type.value = isProvider ? 'Origen' : 'Destino';
+  if (type) type.value = isProvider ? 'Origen' : 'Destino';
   if (relation) relation.value = String(parentItemId);
   trv2ToggleInstallationRelationFields();
 }
@@ -808,7 +812,7 @@ function trv2RenderCatalogFields(name) {
       </select></label>`;
     }
     if (type === 'cp-location-type') {
-      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="trv2ToggleInstallationRelationFields()">
+      return `<label data-installation-type>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''} onchange="trv2ToggleInstallationRelationFields()">
         <option value="Origen">Origen</option><option value="Destino">Destino</option><option value="Ambos">Ambos</option>
       </select></label>`;
     }
@@ -878,6 +882,12 @@ function trv2RenderCatalogFields(name) {
     if (field === 'factor_kg_l') {
       return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${required ? 'required' : ''} type="number" step="0.000001" placeholder="0.5258"><small class="trv2-field-help">Factor kg/L = densidad usada para convertir litros a kilos cuando la factura no trae ambos datos. Para Gas LP se sugiere 0.5258, editable.</small></label>`;
     }
+    if (field === 'id_ubicacion_carta_porte') {
+      return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${required ? 'required' : ''} type="text" step="0.001" placeholder="OR000042 / DE000027"><small class="trv2-field-help">IDUbicacion fiscal que se envía en el XML final de Carta Porte.</small></label>`;
+    }
+    if (field === 'clave_instalacion') {
+      return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${required ? 'required' : ''} type="text" step="0.001"><small class="trv2-field-help">Clave opcional para control interno; no sustituye el ID ubicación Carta Porte.</small></label>`;
+    }
     const inputType = type === 'number' ? 'number' : (type === 'date' ? 'date' : 'text');
     const rfcAttr = type === 'rfc' ? 'data-rfc-field' : '';
     const trailerAttr = field.includes('remolque') ? 'data-remolque-field' : '';
@@ -909,11 +919,58 @@ function trv2ToggleVehicleTrailerFields() {
 function trv2ToggleInstallationRelationFields() {
   const form = document.getElementById('trv2-catalog-modal-form');
   if (!form || form.dataset.catalog !== 'instalaciones') return;
-  const tipo = form.querySelector('[data-field="tipo_carta_porte"]')?.value || 'Origen';
+  const context = form.dataset.installationParentCatalog || '';
+  const typeInput = form.querySelector('[data-field="tipo_carta_porte"]');
+  if (context === 'proveedores' && typeInput) typeInput.value = 'Origen';
+  if (context === 'clientes' && typeInput) typeInput.value = 'Destino';
+  const tipo = typeInput?.value || 'Origen';
   const showProveedor = tipo === 'Origen' || tipo === 'Ambos';
   const showCliente = tipo === 'Destino' || tipo === 'Ambos';
+  form.querySelectorAll('[data-installation-type]').forEach(label => { label.hidden = context === 'proveedores' || context === 'clientes'; });
   form.querySelectorAll('[data-installation-provider]').forEach(label => { label.hidden = !showProveedor; });
   form.querySelectorAll('[data-installation-client]').forEach(label => { label.hidden = !showCliente; });
+  if (context === 'proveedores') {
+    form.querySelectorAll('[data-installation-provider]').forEach(label => { label.hidden = false; });
+    form.querySelectorAll('[data-installation-client]').forEach(label => { label.hidden = true; });
+    const client = form.querySelector('[data-field="cliente_id"]');
+    if (client) client.value = '';
+  }
+  if (context === 'clientes') {
+    form.querySelectorAll('[data-installation-provider]').forEach(label => { label.hidden = true; });
+    form.querySelectorAll('[data-installation-client]').forEach(label => { label.hidden = false; });
+    const provider = form.querySelector('[data-field="proveedor_id"]');
+    if (provider) provider.value = '';
+  }
+}
+
+function trv2CoerceInstallationContext(form, data) {
+  if (!form || form.dataset.catalog !== 'instalaciones') return data;
+  const context = form.dataset.installationParentCatalog || '';
+  const parentId = form.dataset.installationParentId || '';
+  if (context === 'proveedores') {
+    data.tipo_carta_porte = 'Origen';
+    data.proveedor_id = parentId || data.proveedor_id;
+    data.cliente_id = '';
+    const proveedor = trv2FindCatalog('proveedores', data.proveedor_id);
+    if (proveedor) {
+      data.proveedor_nombre = trv2CatalogLabel('proveedores', proveedor);
+      data.rfc = data.rfc || proveedor.rfc || '';
+      data.permiso_cre = data.permiso_cre || proveedor.permiso_cre || '';
+      data.nombre = data.nombre || data.proveedor_nombre || '';
+    }
+  }
+  if (context === 'clientes') {
+    data.tipo_carta_porte = 'Destino';
+    data.cliente_id = parentId || data.cliente_id;
+    data.proveedor_id = '';
+    const cliente = trv2FindCatalog('clientes', data.cliente_id);
+    if (cliente) {
+      data.cliente_nombre = trv2CatalogLabel('clientes', cliente);
+      data.rfc = data.rfc || cliente.rfc || '';
+      data.nombre = data.nombre || data.cliente_nombre || '';
+    }
+  }
+  return data;
 }
 
 function trv2SubproductoOptions(productType = '') {
@@ -1096,7 +1153,11 @@ function trv2FillCatalogModalForm(form, item) {
 function trv2CloseCatalogModal() {
   const modal = document.getElementById('trv2-catalog-modal');
   const form = document.getElementById('trv2-catalog-modal-form');
-  if (form) form.reset();
+  if (form) {
+    form.reset();
+    delete form.dataset.installationParentCatalog;
+    delete form.dataset.installationParentId;
+  }
   if (modal) modal.hidden = true;
 }
 
@@ -1112,6 +1173,7 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
     data[key] = input.type === 'checkbox' ? input.checked : input.value.trim();
     if (input.type === 'number') data[key] = Number(input.value || 0);
   });
+  if (name === 'instalaciones') trv2CoerceInstallationContext(form, data);
   if (name === 'vehiculos') {
     const economico = data.alias || data.numero_economico || data.unidad || '';
     if (economico) {
@@ -1232,7 +1294,7 @@ function trv2ValidateCatalogPayload(name, data) {
     if (data.material_peligroso && !data.clave_material_peligroso) return `Mercancía ${data.descripcion || ''} no tiene clave material peligroso.`;
     if (data.material_peligroso && !data.embalaje) return `Mercancía ${data.descripcion || ''} no tiene embalaje.`;
     if (data.factor_kg_l && Number(data.factor_kg_l) <= 0) return `Mercancía ${data.descripcion || ''} tiene factor kg/L inválido.`;
-    if (['Magna', 'Premium', 'Diésel'].includes(data.tipo_producto) && !data.clave_subproducto) return `Mercancía ${data.tipo_producto} requiere subproducto HidroYPetro para preparar CFDI/JSON cuando aplique.`;
+    if (['Magna', 'Premium', 'Diésel'].includes(data.tipo_producto) && !data.clave_subproducto) return `Mercancía ${data.tipo_producto} requiere subproducto HidroYPetro para preparar XML final de Carta Porte cuando aplique.`;
   }
   if (name === 'vehiculos' && trv2VehicleConfigRequiresTrailer(data.config_vehicular)) {
     if (!data.remolque_id) return `El vehículo ${data.alias || data.placas || ''} requiere seleccionar remolque/semirremolque del catálogo.`;
@@ -1256,19 +1318,24 @@ function trv2BuildCartaPorteLocationId(data = {}, target = 'origenes') {
 }
 
 async function trv2SaveInstalacionCatalogItem(itemId, data) {
+  const form = document.getElementById('trv2-catalog-modal-form');
+  trv2CoerceInstallationContext(form, data);
   const current = itemId ? trv2FindCatalog('instalaciones', itemId) : null;
   const tipo = data.tipo_carta_porte || current?.tipo_carta_porte || 'Origen';
   const targets = tipo === 'Ambos' ? ['origenes', 'destinos'] : [tipo === 'Destino' ? 'destinos' : 'origenes'];
+  const proveedor = trv2FindCatalog('proveedores', data.proveedor_id);
+  const cliente = trv2FindCatalog('clientes', data.cliente_id);
   const payload = {
     nombre: data.nombre,
+    rfc: data.rfc,
     cp: data.cp,
     direccion: data.direccion,
     tipo,
     tipo_carta_porte: tipo,
     proveedor_id: Number(data.proveedor_id || 0) || null,
-    proveedor_nombre: trv2CatalogLabel('proveedores', trv2FindCatalog('proveedores', data.proveedor_id)) || '',
+    proveedor_nombre: trv2CatalogLabel('proveedores', proveedor) || '',
     cliente_id: Number(data.cliente_id || 0) || null,
-    cliente_nombre: trv2CatalogLabel('clientes', trv2FindCatalog('clientes', data.cliente_id)) || '',
+    cliente_nombre: trv2CatalogLabel('clientes', cliente) || '',
     permiso_cre: data.permiso_cre,
     clave_instalacion: data.clave_instalacion,
     id_ubicacion_carta_porte: data.id_ubicacion_carta_porte,
@@ -1278,6 +1345,15 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
     activo: data.activo,
   };
   for (const target of targets) {
+    const isOrigin = target === 'origenes';
+    payload.tipo = isOrigin ? 'terminal' : 'cliente';
+    payload.tipo_carta_porte = isOrigin ? 'Origen' : 'Destino';
+    payload.proveedor_id = isOrigin ? (Number(data.proveedor_id || 0) || null) : null;
+    payload.proveedor_nombre = isOrigin ? (trv2CatalogLabel('proveedores', proveedor) || '') : '';
+    payload.cliente_id = isOrigin ? null : (Number(data.cliente_id || 0) || null);
+    payload.cliente_nombre = isOrigin ? '' : (trv2CatalogLabel('clientes', cliente) || '');
+    payload.rfc = data.rfc || (isOrigin ? proveedor?.rfc : cliente?.rfc) || '';
+    payload.permiso_cre = isOrigin ? (data.permiso_cre || proveedor?.permiso_cre || '') : '';
     payload.id_ubicacion_carta_porte = trv2BuildCartaPorteLocationId(data, target);
     const sourceId = current?._source_catalog === target ? Number(current._source_id || 0) : 0;
     const path = sourceId ? `/api/tr-v2/catalogos/${target}/${sourceId}` : `/api/tr-v2/catalogos/${target}`;
