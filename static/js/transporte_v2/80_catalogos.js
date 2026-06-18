@@ -82,6 +82,7 @@ const TRV2_USOS_CFDI = [
   ['S01', 'Sin efectos fiscales'],
 ];
 const TRV2_ESTADOS_SAT = [
+  ['COA', 'Coahuila de Zaragoza'],
   ['JAL', 'Jalisco'],
   ['ZAC', 'Zacatecas'],
   ['AGU', 'Aguascalientes'],
@@ -90,12 +91,17 @@ const TRV2_ESTADOS_SAT = [
   ['MEX', 'Estado de México'],
 ];
 const TRV2_MUNICIPIOS_SAT = {
+  COA: [['035', 'Torreón']],
   JAL: [['039', 'Guadalajara'], ['078', 'San Miguel el Alto'], ['116', 'Villa Hidalgo'], ['123', 'Zapotlanejo'], ['091', 'Teocaltiche']],
   ZAC: [['051', 'Villa de Cos'], ['048', 'Tlaltenango de Sánchez Román'], ['020', 'Jerez'], ['056', 'Zacatecas']],
 };
 const TRV2_LOCALIDADES_SAT = {
+  COA: [['01', 'Localidad principal / cabecera municipal']],
   JAL: [['01', 'Localidad principal / cabecera municipal']],
   ZAC: [['01', 'Localidad principal / cabecera municipal']],
+};
+const TRV2_CP_SAT_DEFAULTS = {
+  '27297': { estado_sat: 'COA', municipio_sat: '035', localidad_sat: '01' },
 };
 const TRV2_PRODUCTOS_SAT = [
   ['15111510', 'Gas licuado de petróleo'],
@@ -911,6 +917,9 @@ function trv2RenderCatalogFields(name) {
     if (field === 'factor_kg_l') {
       return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${required ? 'required' : ''} type="number" step="0.000001" placeholder="0.5258"><small class="trv2-field-help">Factor kg/L = densidad usada para convertir litros a kilos cuando la factura no trae ambos datos. Para Gas LP se sugiere 0.5258, editable.</small></label>`;
     }
+    if (field === 'cp') {
+      return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${required ? 'required' : ''} type="text" inputmode="numeric" maxlength="5" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,5); trv2ApplyCpSatDefaults();"></label>`;
+    }
     if (field === 'id_ubicacion_carta_porte') {
       return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${required ? 'required' : ''} type="text" step="0.001" placeholder="OR000042 / DE000027"><small class="trv2-field-help">IDUbicacion fiscal que se envía en el XML final de Carta Porte.</small></label>`;
     }
@@ -1111,6 +1120,22 @@ function trv2RefreshLocalidadSatOptions() {
   )).join('');
   if ([...localidad.options].some(option => option.value === current)) localidad.value = current;
   localidad.dataset.pendingValue = '';
+}
+
+function trv2ApplyCpSatDefaults() {
+  const form = document.getElementById('trv2-catalog-modal-form');
+  if (!form || form.dataset.catalog !== 'instalaciones') return;
+  const cp = String(form.querySelector('[data-field="cp"]')?.value || '').trim();
+  const defaults = TRV2_CP_SAT_DEFAULTS[cp];
+  if (!defaults) return;
+  const estado = form.querySelector('[data-field="estado_sat"]');
+  const municipio = form.querySelector('[data-field="municipio_sat"]');
+  const localidad = form.querySelector('[data-field="localidad_sat"]');
+  if (estado) estado.value = defaults.estado_sat || '';
+  if (municipio) municipio.dataset.pendingValue = defaults.municipio_sat || '';
+  trv2RefreshMunicipioSatOptions();
+  if (localidad) localidad.dataset.pendingValue = defaults.localidad_sat || '';
+  trv2RefreshLocalidadSatOptions();
 }
 
 function trv2ValidRfc(value) {
