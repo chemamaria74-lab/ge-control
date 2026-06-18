@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 # ── Constantes ────────────────────────────────────────────────────────────────
 IVA_TASA      = 0.16
+RETENCION_IVA_TASA = 0.04
 CLAVE_UNIDAD_SERVICIO = "H87"
 CLAVE_UNIDAD_LITRO_CFDI = "LTR"
 NS_HIDRO      = "http://www.sat.gob.mx/hidrocarburospetroliferos"
@@ -126,6 +127,9 @@ def _build_concepto_hidrocarburo(
     producto:         ProductoTransporte,
     num_permiso_cne:  str,
     tipo_cfdi:        str,
+    iva_tasa:         float = IVA_TASA,
+    retencion_tasa:   float = RETENCION_IVA_TASA,
+    aplica_retencion: bool = True,
     indice:           int = 0,
 ) -> dict:
     """
@@ -160,7 +164,8 @@ def _build_concepto_hidrocarburo(
         }
     else:
         # Ingreso: servicio de flete
-        iva         = round(importe * IVA_TASA, 2)
+        iva         = round(importe * iva_tasa, 2)
+        retencion   = round(importe * retencion_tasa, 2) if aplica_retencion else 0.0
         objeto_imp  = "02"  # Sí objeto de impuesto
 
         concepto = {
@@ -173,16 +178,26 @@ def _build_concepto_hidrocarburo(
             "ValorUnitario":   _smart_round(importe, 2),
             "Importe":         _smart_round(importe, 2),
             "ObjetoImp":       objeto_imp,
-            "Impuestos": {
-                "Traslados": [{
-                    "Base":       _smart_round(importe, 2),
-                    "Impuesto":   "002",
-                    "TipoFactor": "Tasa",
-                    "TasaOCuota": "0.160000",
-                    "Importe":    _smart_round(iva, 2),
-                }]
-            },
         }
+        impuestos: dict = {}
+        if iva > 0:
+            impuestos["Traslados"] = [{
+                "Base":       _smart_round(importe, 2),
+                "Impuesto":   "002",
+                "TipoFactor": "Tasa",
+                "TasaOCuota": _smart_round(iva_tasa, 6),
+                "Importe":    _smart_round(iva, 2),
+            }]
+        if retencion > 0:
+            impuestos["Retenciones"] = [{
+                "Base":       _smart_round(importe, 2),
+                "Impuesto":   "002",
+                "TipoFactor": "Tasa",
+                "TasaOCuota": _smart_round(retencion_tasa, 6),
+                "Importe":    _smart_round(retencion, 2),
+            }]
+        if impuestos:
+            concepto["Impuestos"] = impuestos
     return concepto
 
 
@@ -391,33 +406,46 @@ def build_cfdi_transporte(
     # ── Calcular totales ──────────────────────────────────────────────────────
     subtotal = 0.0
     total_iva = 0.0
+    total_retencion = 0.0
+    iva_tasa = float(getattr(viaje, "iva_tasa", IVA_TASA) or 0)
+    retencion_tasa = float(getattr(viaje, "retencion_tasa", RETENCION_IVA_TASA) or 0)
+    aplica_iva = bool(getattr(viaje, "aplica_iva", True))
+    aplica_retencion = bool(getattr(viaje, "aplica_retencion", True))
 
     if tipo_cfdi == "I":
         subtotal  = round(sum(p.importe for p in productos), 2)
-        total_iva = round(subtotal * IVA_TASA, 2)
+        total_iva = round(subtotal * iva_tasa, 2) if aplica_iva else 0.0
+        total_retencion = round(subtotal * retencion_tasa, 2) if aplica_retencion else 0.0
     # Para tipo T: subtotal=0, total=0
 
-    total = round(subtotal + total_iva, 2)
+    total = round(subtotal + total_iva - total_retencion, 2)
 
     # ── Conceptos CFDI de servicio de autotransporte ──────────────────────────
     conceptos_list = [
-        _build_concepto_hidrocarburo(prod, num_permiso, tipo_cfdi, i)
+        _build_concepto_hidrocarburo(prod, num_permiso, tipo_cfdi, iva_tasa if aplica_iva else 0, retencion_tasa, aplica_retencion, i)
         for i, prod in enumerate(productos)
     ]
 
     # ── Nodo Impuestos raíz (solo para tipo I) ─────────────────────────────────
     impuestos_raiz: Optional[dict] = None
-    if tipo_cfdi == "I" and total_iva > 0:
+    if tipo_cfdi == "I" and (total_iva > 0 or total_retencion > 0):
         impuestos_raiz = {
-            "TotalImpuestosTrasladados": _smart_round(total_iva, 2),
-            "Traslados": [{
+        }
+        if total_iva > 0:
+            impuestos_raiz["TotalImpuestosTrasladados"] = _smart_round(total_iva, 2)
+            impuestos_raiz["Traslados"] = [{
                 "Base":       _smart_round(subtotal, 2),
                 "Impuesto":   "002",
                 "TipoFactor": "Tasa",
-                "TasaOCuota": "0.160000",
+                "TasaOCuota": _smart_round(iva_tasa, 6),
                 "Importe":    _smart_round(total_iva, 2),
-            }],
-        }
+            }]
+        if total_retencion > 0:
+            impuestos_raiz["TotalImpuestosRetenidos"] = _smart_round(total_retencion, 2)
+            impuestos_raiz["Retenciones"] = [{
+                "Impuesto": "002",
+                "Importe":  _smart_round(total_retencion, 2),
+            }]
 
     # ── Complemento Carta Porte ───────────────────────────────────────────────
     carta_porte_dict = _build_carta_porte(
