@@ -59,6 +59,9 @@ def validar_xml_carta_porte_transporte(
     metadata.update({
         "uuid_sat": _attr(timbre, "UUID"),
         "tipo_cfdi": _attr(comp, "TipoDeComprobante"),
+        "moneda": _attr(comp, "Moneda"),
+        "subtotal": _attr(comp, "SubTotal"),
+        "total": _attr(comp, "Total"),
         "id_ccp": _attr(carta, "IdCCP"),
         "has_carta_porte": carta is not None,
         "has_hidrocarburos": hidro is not None,
@@ -68,6 +71,17 @@ def validar_xml_carta_porte_transporte(
 
     if _attr(comp, "Version") != "4.0":
         errors.append("El CFDI no es versión 4.0.")
+    if _attr(comp, "TipoDeComprobante") != "T":
+        errors.append("SW devolvió un CFDI de ingreso/factura de flete, no una Carta Porte Traslado. No se guardó como Carta Porte.")
+    if _attr(comp, "Moneda") != "XXX":
+        errors.append("Carta Porte Traslado debe llevar Moneda XXX.")
+    if _money(_attr(comp, "SubTotal")) != 0:
+        errors.append("Carta Porte Traslado debe llevar SubTotal 0.")
+    if _money(_attr(comp, "Total")) != 0:
+        errors.append("Carta Porte Traslado debe llevar Total 0.")
+    receptor = _first(root, "Receptor")
+    if _attr(receptor, "UsoCFDI") != "S01":
+        errors.append("Carta Porte Traslado debe llevar UsoCFDI S01.")
     if timbre is None or not _attr(timbre, "UUID"):
         errors.append("El XML no contiene TimbreFiscalDigital/UUID.")
     if carta is None:
@@ -222,6 +236,13 @@ def _attr(node, key: str, default: str = "") -> str:
     if node is None:
         return default
     return str(node.get(key) or default)
+
+
+def _money(value: str) -> float:
+    try:
+        return round(float(str(value or "0").replace(",", "")), 2)
+    except (TypeError, ValueError):
+        return -1
 
 
 def _id_ccp_valido(value: str) -> bool:
