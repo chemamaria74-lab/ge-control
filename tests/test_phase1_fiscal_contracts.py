@@ -338,9 +338,11 @@ def test_carta_porte_tipo_t_contract_from_builder(monkeypatch):
     assert cfdi["Fecha"] == "2026-06-06T11:55:00"
     assert cfdi["Moneda"] == "XXX"
     assert cfdi["Total"] == "0.00"
+    assert cfdi["xmlns:cartaporte31"] == "http://www.sat.gob.mx/CartaPorte31"
+    assert "CartaPorte31.xsd" in cfdi["xsi:schemaLocation"]
     carta = cfdi["Complemento"]["cartaporte31:CartaPorte"]
-    assert carta["@Version"] == "3.1"
-    assert carta["@IdCCP"] == id_ccp
+    assert carta["Version"] == "3.1"
+    assert carta["IdCCP"] == id_ccp
     assert len(carta["Ubicaciones"]["Ubicacion"]) == 2
     assert carta["Ubicaciones"]["Ubicacion"][0]["FechaHoraSalidaLlegada"] == "2026-06-06T08:00:00"
     assert carta["Mercancias"]["Autotransporte"]["IdentificacionVehicular"]["PlacaVM"] == "ABC123A"
