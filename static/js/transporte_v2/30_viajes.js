@@ -17,6 +17,39 @@ function trv2TripRelatedLabel(row, catalogName, metaKey) {
   return item ? trv2CatalogLabel(catalogName, item) : trv2TripMeta(row, metaKey);
 }
 
+function trv2TripVehicleLabel(row) {
+  const tractor = trv2TripRelatedLabel(row, 'vehiculos', 'vehiculo_alias') || row.vehiculo_alias || 'Pendiente';
+  const plates = row.placas ? ` · Placas ${row.placas}` : '';
+  const trailer = row.remolque_placas ? ` · Remolque ${row.remolque_placas}` : '';
+  return `${tractor}${plates}${trailer}`;
+}
+
+async function trv2OpenLoadInvoice(viajeId, download = false) {
+  const id = Number(viajeId || 0);
+  if (!id) return;
+  const path = trv2WithPerfil(`/api/tr-v2/viajes/${id}/factura-carga?download=${download ? 'true' : 'false'}`);
+  const response = await fetch(TRV2_API_BASE + path, {headers: trv2Headers()});
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    trv2Toast(trv2ReadableApiError(data, 'No se pudo abrir la factura de carga.'), 'error');
+    return;
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  if (download) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `factura-carga-viaje-${id}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } else {
+    const popup = window.open(url, '_blank', 'noopener');
+    if (!popup) trv2Toast('Permite ventanas emergentes para ver la factura.', 'error');
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 function trv2TripDisplayNumber(row, items = TRV2_TRIPS) {
   const visible = (items || []).filter(item => {
     const meta = item.metadata || {};
@@ -51,12 +84,13 @@ function trv2RenderTrips(items) {
       <td>Viaje ${trv2Esc(trv2TripDisplayNumber(row, items) || 'nuevo')}</td>
       <td>${trv2Esc(trv2TripRelatedLabel(row, 'clientes', 'cliente_nombre') || row.cliente_nombre || 'Pendiente')}</td>
       <td>${trv2Esc(row.origen || 'Origen')} → ${trv2Esc(row.destino || 'Destino')}</td>
-      <td>${trv2Esc(trv2TripRelatedLabel(row, 'vehiculos', 'vehiculo_alias') || 'Pendiente')}</td>
+      <td>${trv2Esc(trv2TripVehicleLabel(row))}</td>
       <td>${trv2Esc(trv2TripRelatedLabel(row, 'productos', 'producto_descripcion') || 'Pendiente')}</td>
       <td>${Number(row.volumen_litros || 0).toLocaleString('es-MX')} L</td>
       <td><span class="trv2-chip">${trv2Esc(row.estatus || 'borrador')}</span></td>
       <td>
         <button class="trv2-mini-btn" type="button" onclick="trv2StartCartaPorteStamp(${Number(row.id || 0)})">Timbrar Carta Porte</button>
+        ${row.factura_carga_pdf_url || row.factura_carga_nombre ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenLoadInvoice(${Number(row.id || 0)}, false)">Ver factura</button><button class="trv2-mini-btn" type="button" onclick="trv2OpenLoadInvoice(${Number(row.id || 0)}, true)">Descargar factura</button>` : ''}
         <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteDraftTrip(${Number(row.id || 0)})">Eliminar</button>
       </td>
     </tr>

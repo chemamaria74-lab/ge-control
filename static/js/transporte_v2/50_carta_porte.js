@@ -258,6 +258,23 @@ function trv2RenderCartaPortePreview(data) {
   const canStamp = Boolean(data.ready_to_stamp && data.timbrado_habilitado);
   const pacLabel = data.pac_configurado ? 'Habilitado' : 'Deshabilitado';
   const pacClass = data.pac_configurado ? 'trv2-alert-ok' : 'trv2-alert-warn';
+  const permisos = data.permisos_compatibles || [];
+  const selectedPermit = data.permiso_seleccionado || null;
+  const permitHtml = permisos.length > 1 ? `
+    <section class="trv2-preview-block">
+      <h3>Permiso para este viaje</h3>
+      <label>Permiso compatible
+        <select onchange="trv2SelectCartaPortePermit(this.value)">
+          <option value="">Selecciona el permiso a utilizar</option>
+          ${permisos.map(item => `<option value="${Number(item.id || 0)}" ${String(item.id) === String(selectedPermit?.id) ? 'selected' : ''}>${trv2Esc(`${item.tipo_permiso} · ${item.numero_permiso} · ${(item.familias_producto || []).join(', ')}`)}</option>`).join('')}
+        </select>
+      </label>
+    </section>` : (selectedPermit ? trv2RenderPreviewBlock('Permiso para este viaje', {
+      tipo_permiso: selectedPermit.tipo_permiso,
+      numero_permiso: selectedPermit.numero_permiso,
+      aplica_para: (selectedPermit.familias_producto || selectedPermit.productos_permitidos || []).join(', '),
+      unidad: (selectedPermit.vehiculo_ids || []).length ? (selectedPermit.vehiculo_ids || []).join(', ') : 'Cualquier unidad del transportista',
+    }) : '');
   const validationHtml = validations.length
     ? validations.map(item => `
       <div class="trv2-validation ${trv2Esc(item.nivel)}">
@@ -292,6 +309,7 @@ function trv2RenderCartaPortePreview(data) {
     </div>
     <div class="trv2-alert ${pacClass}">${trv2Esc(data.pac_mensaje || 'Validación previa: no timbra, no genera XML final y no llama PAC hasta confirmar.')}</div>
     <div class="trv2-alert trv2-alert-ok">Resumen generado. Revisa datos y errores antes de confirmar timbrado.</div>
+    ${permitHtml}
     <div class="trv2-form-actions trv2-form-actions-inline">
       <button class="trv2-btn trv2-btn-primary" type="button" id="trv2-cp-confirm-stamp-btn" ${canStamp ? '' : 'disabled'} onclick="trv2ConfirmStampCartaPorte()">
         <i class="fa-solid fa-stamp"></i> Timbrar Carta Porte
@@ -403,6 +421,7 @@ async function trv2ConfirmStampCartaPorte() {
       perfil_id: TRV2_PERFIL?.id || null,
       viaje_id: viajeId,
       confirmar: true,
+      permiso_id: Number(TRV2_SELECTED_CP_PERMIT_ID || TRV2_CP_PREVIEW?.permiso_seleccionado?.id || 0) || null,
     }, {allowError: true, timeoutMs: 90000});
   } finally {
     TRV2_CP_STAMP_IN_PROGRESS = false;
@@ -474,7 +493,7 @@ async function trv2ConfirmStampCartaPorte() {
   return 'stamped';
 }
 
-async function trv2PreviewCartaPorte(viajeId) {
+async function trv2PreviewCartaPorte(viajeId, permisoId = 0) {
   const id = Number(viajeId || 0);
   if (!id) {
     trv2Toast('Elige un movimiento pendiente para timbrar Carta Porte.', 'error');
@@ -485,6 +504,7 @@ async function trv2PreviewCartaPorte(viajeId) {
     perfil_id: TRV2_PERFIL?.id || null,
     viaje_id: id,
     tipo_cfdi: 'T',
+    permiso_id: Number(permisoId || 0) || null,
   }, {allowError: true});
   if (!data?.ok) {
     trv2Toast(data?.detail || data?.message || 'No se pudo generar resumen Carta Porte.', 'error');
@@ -493,10 +513,18 @@ async function trv2PreviewCartaPorte(viajeId) {
   TRV2_CP_PREVIEW = data;
   TRV2_CP_PREVIEW.viaje_id = id;
   TRV2_SELECTED_CP_TRIP_ID = id;
+  TRV2_SELECTED_CP_PERMIT_ID = Number(data.permiso_seleccionado?.id || permisoId || 0);
   trv2SwitchTab('carta-porte');
   trv2RenderCartaPortePreview(data);
   trv2SetCartaPorteWorkflow('preview');
   return true;
+}
+
+async function trv2SelectCartaPortePermit(permisoId) {
+  const id = Number(permisoId || 0);
+  if (!id) return;
+  TRV2_SELECTED_CP_PERMIT_ID = id;
+  await trv2PreviewCartaPorte(TRV2_SELECTED_CP_TRIP_ID, id);
 }
 
 async function trv2StartCartaPorteStamp(viajeId = 0) {

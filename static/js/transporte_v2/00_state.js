@@ -12,6 +12,7 @@ let TRV2_CP_WORKFLOW = 'timbrar';
 let TRV2_CP_STAMPED_FILTER = 'hoy';
 let TRV2_CP_STAMP_IN_PROGRESS = false;
 let TRV2_SELECTED_CP_TRIP_ID = 0;
+let TRV2_SELECTED_CP_PERMIT_ID = 0;
 let TRV2_DOCUMENT_DETECTED = null;
 let TRV2_DOCUMENT_SCOPE = 'carga';
 let TRV2_DOC_SAVE_IN_PROGRESS = false;
@@ -23,6 +24,7 @@ let TRV2_CATALOGS = {
   operadores: [],
   vehiculos: [],
   productos: [],
+  permisos: [],
   rutas: [],
 };
 
@@ -31,5 +33,6 @@ const TRV2_CATALOG_LABELS = {
   operadores: 'Operadores',
   vehiculos: 'Vehículos',
   productos: 'Productos',
+  permisos: 'Permisos Carta Porte',
   rutas: 'Rutas',
 };

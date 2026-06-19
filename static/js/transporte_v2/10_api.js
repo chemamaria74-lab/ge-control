@@ -298,6 +298,7 @@ function trv2ShowSchemaWarning(message) {
 
 async function trv2Logout() {
   await fetch('/api/auth/logout', {method: 'POST', headers: trv2Headers()}).catch(() => {});
+  if (window.GESessionTimeout) window.GESessionTimeout.clear();
   localStorage.removeItem('sat_token');
   localStorage.removeItem('sat_user_id');
   localStorage.removeItem('sat_email');

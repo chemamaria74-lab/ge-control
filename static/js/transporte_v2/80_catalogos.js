@@ -7,36 +7,19 @@ TRV2_CATALOGS.tarifas = TRV2_CATALOGS.tarifas || [];
 TRV2_CATALOG_LABELS.instalaciones = 'Instalaciones';
 TRV2_CATALOG_LABELS.proveedores = 'Proveedores';
 TRV2_CATALOG_LABELS.remolques = 'Remolques';
+TRV2_CATALOG_LABELS.permisos = 'Permisos Carta Porte';
 let TRV2_VEHICLE_SUBCATALOG = 'vehiculos';
 let TRV2_INSTALLATION_RETURN_CATALOG = '';
 
-const TRV2_CATALOG_LOAD_NAMES = ['clientes', 'operadores', 'vehiculos', 'remolques', 'productos', 'origenes', 'destinos', 'rutas'];
+const TRV2_CATALOG_LOAD_NAMES = ['clientes', 'operadores', 'vehiculos', 'remolques', 'productos', 'permisos', 'origenes', 'destinos', 'rutas'];
+// Claves tomadas de c_TipoPermiso en catCartaPorte.xsd. El catálogo SAT define
+// el tipo de transporte, no una matriz de productos autorizados.
 const TRV2_SCT_PERMISOS = [
-  ['TPAF01', 'Autotransporte Federal de carga general'],
-  ['TPAF02', 'Transporte privado de carga'],
-  ['TPAF03', 'Autotransporte Federal de carga especializada de materiales y residuos peligrosos'],
-  ['TPAF04', 'Servicio auxiliar de arrastre'],
-  ['TPAF05', 'Servicio auxiliar de arrastre y salvamento'],
-  ['TPAF06', 'Servicio auxiliar de depósito de vehículos'],
-  ['TPAF07', 'Paquetería y mensajería'],
-  ['TPAF08', 'Servicio expreso'],
-  ['TPAF09', 'Transporte de fondos y valores'],
-  ['TPAF10', 'Grúas industriales'],
-  ['TPAF11', 'Carga consolidada'],
-  ['TPAF12', 'Transporte internacional de carga'],
-  ['TPAF13', 'Transporte de carga especializada'],
-  ['TPAF14', 'Transporte privado especializado'],
-  ['TPAF15', 'Transporte de hidrocarburos y petrolíferos'],
-  ['TPAF16', 'Transporte de carga sobredimensionada'],
-  ['TPAF17', 'Transporte de residuos peligrosos'],
-  ['TPAF18', 'Servicio de traslado de vehículos'],
-  ['TPAF19', 'Transporte por contrato'],
-  ['TPAF20', 'Transporte de carga refrigerada'],
-  ['TPAF21', 'Transporte de carga a granel'],
-  ['TPAF22', 'Transporte de gas LP y combustibles'],
-  ['TPAF23', 'Transporte de materiales peligrosos'],
-  ['TPAF24', 'Transporte de sustancias químicas'],
-  ['TPAF25', 'Otro permiso SCT/SICT aplicable'],
+  ...Array.from({length: 20}, (_, index) => [`TPAF${String(index + 1).padStart(2, '0')}`, 'Tipo de permiso federal SAT']),
+  ['TPTM01', 'Permiso de transporte marítimo'],
+  ['TPTA01', 'Permiso de transporte aéreo'],
+  ['TPTA02', 'Permiso de transporte aéreo'],
+  ['TPXX00', 'Permiso no contemplado en el catálogo'],
 ];
 const TRV2_TIPOS_LICENCIA = [
   ['A', 'Transporte de pasajeros'],
@@ -126,6 +109,7 @@ const TRV2_REQUIRED_FIELDS = {
   vehiculos: ['alias', 'placas', 'config_vehicular', 'permiso_sct', 'num_permiso_sct', 'id_cre', 'aseguradora_rc', 'poliza_rc'],
   remolques: ['alias', 'placas', 'subtipo_remolque'],
   productos: ['descripcion', 'clave_producto', 'unidad'],
+  permisos: ['nombre_interno', 'tipo_permiso', 'numero_permiso'],
   proveedores: ['rfc', 'nombre', 'producto', 'permiso_cre'],
   origenes: ['nombre', 'cp'],
   destinos: ['nombre', 'cp'],
@@ -197,6 +181,18 @@ const TRV2_CATALOG_FORMS = {
     ['embalaje', 'Embalaje', 'embalaje-sat'],
     ['factor_kg_l', 'Factor kg/L', 'number'],
     ['tipo_producto', 'Tipo producto', 'product-type'],
+    ['activo', 'Activo', 'checkbox'],
+  ],
+  permisos: [
+    ['nombre_interno', 'Nombre interno'],
+    ['tipo_permiso', 'Tipo permiso SAT/SICT', 'sct-permit'],
+    ['numero_permiso', 'Número de permiso'],
+    ['titular_rfc', 'RFC transportista/emisor', 'rfc'],
+    ['familias_producto', 'Familias autorizadas', 'permit-families'],
+    ['productos_permitidos', 'Productos específicos', 'product-multiselect'],
+    ['vehiculo_ids', 'Vehículos / unidades', 'vehicle-multiselect'],
+    ['vigencia_desde', 'Vigente desde', 'date'],
+    ['vigencia_hasta', 'Vigente hasta', 'date'],
     ['activo', 'Activo', 'checkbox'],
   ],
   proveedores: [
@@ -292,6 +288,13 @@ const TRV2_CATALOG_UI = {
     metrics: [['Registros', 'count'], ['Mat. peligroso', 'material_peligroso'], ['Con clave SAT', 'clave_producto']],
     fields: [['Clave SAT', 'clave_producto'], ['Unidad', 'unidad'], ['Material peligroso', 'material_peligroso'], ['Embalaje', 'embalaje']],
   },
+  permisos: {
+    icon: 'fa-file-shield',
+    title: 'Permisos Carta Porte',
+    subtitle: 'PermSCT y NumPermisoSCT por transportista, unidad y alcance de producto.',
+    metrics: [['Registros', 'count'], ['Activos', 'activo'], ['Con número', 'numero_permiso']],
+    fields: [['Tipo SAT', 'tipo_permiso'], ['Número', 'numero_permiso'], ['Aplica para', 'aplica_para'], ['RFC', 'titular_rfc']],
+  },
   proveedores: {
     icon: 'fa-address-card',
     title: 'Proveedores',
@@ -371,6 +374,7 @@ function trv2CatalogLabel(name, item) {
     return alias || placas || `#${item.id}`;
   }
   if (name === 'productos') return item.descripcion || item.clave_producto || `#${item.id}`;
+  if (name === 'permisos') return item.nombre_interno || item.numero_permiso || `#${item.id}`;
   if (name === 'rutas') return item.nombre || `${item.origen || 'Origen'} → ${item.destino || 'Destino'}`;
   if (name === 'instalaciones') return item.nombre || item.cp || `#${item.id}`;
   if (name === 'origenes' || name === 'destinos') return item.nombre || item.cp || `#${item.id}`;
@@ -798,6 +802,14 @@ function trv2RenderCatalogFields(name) {
         ${trv2CatalogOptions('productos', 'Seleccionar producto')}
       </select></label>`;
     }
+    if (type === 'permit-families') {
+      const families = [['gas_lp', 'Gas L.P.'], ['petroliferos', 'Gasolinas / petrolíferos'], ['gasolinas', 'Gasolinas'], ['magna', 'Magna'], ['premium', 'Premium'], ['diesel', 'Diésel'], ['otros', 'Otros']];
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" multiple size="7" ${required ? 'required' : ''}>${families.map(([value, text]) => `<option value="${value}">${text}</option>`).join('')}</select><small class="trv2-field-help">Selecciona una familia fiscal o uno o más productos específicos.</small></label>`;
+    }
+    if (type === 'product-multiselect' || type === 'vehicle-multiselect') {
+      const catalog = type === 'product-multiselect' ? 'productos' : 'vehiculos';
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" multiple size="6">${(TRV2_CATALOGS[catalog] || []).map(item => `<option value="${trv2Esc(item.id)}">${trv2Esc(trv2CatalogLabel(catalog, item))}</option>`).join('')}</select><small class="trv2-field-help">Vacío significa sin restricción específica en este nivel.</small></label>`;
+    }
     if (type === 'tariff-rule') {
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
         <option value="">Seleccionar base</option>
@@ -1199,6 +1211,10 @@ function trv2FillCatalogModalForm(form, item) {
     const key = input.dataset.field;
     const value = item[key];
     if (input.type === 'checkbox') input.checked = Boolean(value);
+    else if (input.multiple) {
+      const selected = new Set(Array.isArray(value) ? value.map(String) : []);
+      [...input.options].forEach(option => { option.selected = selected.has(String(option.value)); });
+    }
     else {
       input.value = input.type === 'date' ? trv2DateInputValue(value) : (value ?? '');
       if (key === 'municipio_sat') input.dataset.pendingValue = value ?? '';
@@ -1294,7 +1310,9 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
   const data = {};
   form.querySelectorAll('[data-field]').forEach(input => {
     const key = input.dataset.field;
-    data[key] = input.type === 'checkbox' ? input.checked : input.value.trim();
+    data[key] = input.type === 'checkbox'
+      ? input.checked
+      : (input.multiple ? [...input.selectedOptions].map(option => option.value) : input.value.trim());
     if (input.type === 'number') data[key] = Number(input.value || 0);
   });
   if (name === 'instalaciones') trv2CoerceInstallationContext(form, data);
@@ -1361,6 +1379,11 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
       data.poliza_seguro = data.poliza;
     }
     if (data.peso_bruto) data.peso_bruto_toneladas = data.peso_bruto;
+  }
+  if (name === 'permisos') {
+    data.categoria_producto = (data.familias_producto || [])[0] || '';
+    data.productos_permitidos = data.productos_permitidos || [];
+    data.vehiculo_ids = data.vehiculo_ids || [];
   }
   if (name === 'rutas') {
     const origen = trv2FindCatalog('origenes', data.origen_id);
