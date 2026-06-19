@@ -392,6 +392,7 @@ async def login_global_view(request: Request):
       <a class="back" href="/choice">Cambiar módulo</a>
     </section>
   </main>
+  <script src="/static/js/session_timeout.js"></script>
   <script>
     const LOGIN_NEXT = '__NEXT__';
     document.getElementById('loginForm').addEventListener('submit', async (event) => {
@@ -418,6 +419,7 @@ async def login_global_view(request: Request):
         if (data.user_id) localStorage.setItem('sat_user_id', data.user_id);
         if (data.email) localStorage.setItem('sat_email', data.email);
         localStorage.setItem('sat_modulo', 'transporte');
+        window.GESessionTimeout?.markLogin();
         window.location.href = LOGIN_NEXT;
       } catch (err) {
         error.textContent = err.message || 'No se pudo iniciar sesión.';
@@ -656,6 +658,7 @@ def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param
       <a class="back" href="/transporte-v2/roles">Cambiar acceso</a>
     </section>
   </main>
+  <script src="/static/js/session_timeout.js"></script>
   <script>
     const LOGIN_NEXT = '__NEXT__';
     const IS_OPERATOR = __OPERATOR__;
@@ -682,6 +685,7 @@ def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param
       if (data.user_id) localStorage.setItem('sat_user_id', data.user_id);
       if (data.email) localStorage.setItem('sat_email', data.email);
       localStorage.setItem('sat_modulo', 'transporte');
+      window.GESessionTimeout?.markLogin();
       return token;
     }
     async function fetchJson(url, token) {
@@ -934,6 +938,7 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
     let TRV2_OPERATOR_TRIP = null;
     let TRV2_OPERATOR_META = {{}};
     let TRV2_OPERATOR_PREPARED = null;
+    let TRV2_OPERATOR_CREATING_TRIP = false;
     function trv2OperadorToken() {{ return localStorage.getItem('trv2_operator_token') || ''; }}
     function trv2OperadorHeaders() {{ return {{Authorization: `Bearer ${{trv2OperadorToken()}}`}}; }}
     async function trv2OperadorFetch(path) {{
@@ -997,6 +1002,7 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
         ['Destino', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'destino')],
         ['Vehículo', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'vehiculo_alias')],
         ['Placas', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'placas')],
+        ['Remolque', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'remolque_placas')],
         ['Operador', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'operador_nombre')],
         ['Fecha', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'fecha_salida')],
         ['Estado', trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'estatus', 'Asignado')],
@@ -1009,6 +1015,7 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
     function trv2OperadorRenderInvoice() {{
       const factura = TRV2_OPERATOR_META.factura_operador || null;
       const stamped = Boolean(trv2OperadorUuid());
+      const tripCreated = Boolean(TRV2_OPERATOR_TRIP?.id);
       const status = document.getElementById('trv2-operator-invoice-status');
       const info = document.getElementById('trv2-operator-invoice-info');
       if (status) status.textContent = factura ? 'Cargada' : 'Pendiente';
@@ -1018,11 +1025,11 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       const view = document.getElementById('trv2-operator-invoice-view');
       const download = document.getElementById('trv2-operator-invoice-download');
       const remove = document.getElementById('trv2-operator-invoice-delete');
-      if (upload) upload.hidden = stamped;
-      if (uploadButton) uploadButton.hidden = stamped;
+      if (upload) upload.hidden = stamped || tripCreated;
+      if (uploadButton) uploadButton.hidden = stamped || tripCreated;
       if (view) view.hidden = !factura;
       if (download) download.hidden = !factura;
-      if (remove) remove.hidden = !factura || stamped;
+      if (remove) remove.hidden = !factura || stamped || tripCreated;
     }}
     function trv2OperadorRenderCartaPorte() {{
       const uuid = trv2OperadorUuid();
@@ -1032,7 +1039,7 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       if (status) status.textContent = uuid ? 'Timbrada' : 'Pendiente';
       if (summary) summary.textContent = uuid ? `UUID: ${{uuid}}` : 'Factura y datos operativos requeridos para timbrar.';
       if (actions) actions.innerHTML = uuid
-        ? `<button type="button" onclick="trv2OperadorOpenCartaPorte('pdf')"><i class="fa-solid fa-file-pdf"></i> Ver PDF</button><button type="button" onclick="trv2OperadorOpenCartaPorte('pdf', true)"><i class="fa-solid fa-download"></i> Descargar PDF</button><button type="button" onclick="trv2OperadorOpenCartaPorte('xml')"><i class="fa-solid fa-file-code"></i> Ver XML</button><button type="button" onclick="trv2OperadorOpenCartaPorte('xml', true)"><i class="fa-solid fa-download"></i> Descargar XML</button>`
+        ? `<button type="button" onclick="trv2OperadorOpenCartaPorte('pdf')"><i class="fa-solid fa-file-pdf"></i> Ver Carta Porte PDF</button><button type="button" onclick="trv2OperadorOpenCartaPorte('pdf', true)"><i class="fa-solid fa-download"></i> Descargar Carta Porte PDF</button>`
         : `<button class="primary" type="button" id="trv2-operator-stamp-btn" onclick="trv2OperadorTimbrar()"><i class="fa-solid fa-stamp"></i> Timbrar Carta Porte</button>`;
       trv2OperadorRenderInvoice();
     }}
@@ -1104,10 +1111,11 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
           </dl>
           ${{errors ? `<ul class="start-errors">${{errors}}</ul>` : ''}}
           ${{routes.length ? `<label for="trv2-operator-start-route"><strong>Destino / ruta</strong></label><select id="trv2-operator-start-route">${{routeOptions}}</select>` : ''}}
-          <div class="actions"><button class="primary" type="button" onclick="trv2OperadorAcceptTrip()" ${{data.ready ? '' : 'disabled'}}>Aceptar y crear viaje</button></div>`;
+          <div class="actions"><button class="primary" id="trv2-operator-create-trip-btn" type="button" onclick="trv2OperadorAcceptTrip()" ${{data.ready ? '' : 'disabled'}}>Aceptar y crear viaje</button></div>`;
       }}
     }}
     async function trv2OperadorAcceptTrip() {{
+      if (TRV2_OPERATOR_CREATING_TRIP) return;
       if (!TRV2_OPERATOR_PREPARED) return trv2OperadorToast('Analiza la factura primero.');
       const routeId = Number(document.getElementById('trv2-operator-start-route')?.value || 0);
       const sourceFile = document.getElementById('trv2-operator-start-file')?.files?.[0];
@@ -1115,38 +1123,59 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       const form = new FormData();
       form.append('file', sourceFile);
       form.append('ruta_id', String(routeId));
-      const response = await fetch('/api/tr-v2/operator/crear-viaje', {{
-        method:'POST', headers:trv2OperadorHeaders(), body:form,
-      }});
-      const data = await response.json().catch(() => ({{}}));
-      if (!response.ok || data.ok === false) {{
-        return trv2OperadorToast(trv2OperadorError(data, 'No se pudo crear el viaje.'));
+      const button = document.getElementById('trv2-operator-create-trip-btn');
+      TRV2_OPERATOR_CREATING_TRIP = true;
+      if (button) {{
+        button.disabled = true;
+        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creando viaje...';
       }}
-      trv2OperadorRenderTrip(data);
-      if (sourceFile) {{
-        const invoiceInput = document.getElementById('trv2-operator-invoice-file');
-        const transfer = new DataTransfer();
-        transfer.items.add(sourceFile);
-        invoiceInput.files = transfer.files;
-        await trv2OperadorUploadInvoice();
+      try {{
+        const response = await fetch('/api/tr-v2/operator/crear-viaje', {{
+          method:'POST', headers:trv2OperadorHeaders(), body:form,
+        }});
+        const data = await response.json().catch(() => ({{}}));
+        if (!response.ok || data.ok === false) {{
+          return trv2OperadorToast(trv2OperadorError(data, 'No se pudo crear el viaje.'));
+        }}
+        trv2OperadorRenderTrip(data);
+        TRV2_OPERATOR_PREPARED = null;
+        trv2OperadorToast('Viaje creado y asignado.');
+      }} finally {{
+        TRV2_OPERATOR_CREATING_TRIP = false;
+        if (button && TRV2_OPERATOR_PREPARED) {{
+          button.disabled = false;
+          button.textContent = 'Aceptar y crear viaje';
+        }}
       }}
-      TRV2_OPERATOR_PREPARED = null;
-      trv2OperadorToast('Viaje creado y asignado.');
+    }}
+    async function trv2OperadorOpenInvoice(download = false) {{
+      const factura = TRV2_OPERATOR_META.factura_operador;
+      if (!factura) return trv2OperadorToast('No hay factura cargada.');
+      const response = await fetch(`/api/tr-v2/operator/factura/pdf?download=${{download ? 'true' : 'false'}}`, {{headers:trv2OperadorHeaders()}});
+      if (!response.ok) {{
+        const data = await response.json().catch(() => ({{}}));
+        return trv2OperadorToast(trv2OperadorError(data, 'No se pudo abrir la factura.'));
+      }}
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      if (download) {{
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = factura.nombre || 'factura-carga.pdf';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }} else {{
+        const popup = window.open(url, '_blank', 'noopener');
+        if (!popup) trv2OperadorToast('Permite ventanas emergentes para ver la factura.');
+      }}
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     }}
     function trv2OperadorViewInvoice() {{
-      const factura = TRV2_OPERATOR_META.factura_operador;
-      if (!factura?.data_url) return trv2OperadorToast('No hay factura cargada.');
-      window.open(factura.data_url, '_blank', 'noopener');
+      trv2OperadorOpenInvoice(false);
     }}
     function trv2OperadorDownloadInvoice() {{
-      const factura = TRV2_OPERATOR_META.factura_operador;
-      if (!factura?.data_url) return trv2OperadorToast('No hay factura cargada.');
-      const link = document.createElement('a');
-      link.href = factura.data_url;
-      link.download = factura.nombre || 'factura-operador';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      trv2OperadorOpenInvoice(true);
     }}
     async function trv2OperadorDeleteInvoice() {{
       if (!TRV2_OPERATOR_META.factura_operador) return trv2OperadorToast('No hay factura cargada.');
@@ -1184,12 +1213,18 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       if (!TRV2_OPERATOR_META.factura_operador) return trv2OperadorToast('Sube la factura antes de timbrar.');
       if (!confirm('¿Timbrar Carta Porte real de este viaje?')) return;
       const button = document.getElementById('trv2-operator-stamp-btn');
-      if (button) button.disabled = true;
+      if (button) {{
+        button.disabled = true;
+        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando...';
+      }}
       trv2OperadorToast('Timbrando Carta Porte...');
       const response = await fetch('/api/tr-v2/operator/carta-porte/timbrar', {{method:'POST', headers: trv2OperadorHeaders()}});
       const data = await response.json().catch(() => ({{}}));
       if (!response.ok || data.ok === false) {{
-        if (button) button.disabled = false;
+        if (button) {{
+          button.disabled = false;
+          button.innerHTML = '<i class="fa-solid fa-stamp"></i> Timbrar Carta Porte';
+        }}
         return trv2OperadorToast(trv2OperadorError(data, 'No se pudo timbrar Carta Porte.'));
       }}
       const uuid = data.uuid_sat || data.uuid_cfdi || '';
