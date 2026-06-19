@@ -19,7 +19,7 @@ async def listar_cartas_porte_facturables(
     except Exception:
         facturados = set()
     try:
-        cfdi_q = sb.table(_TBL_CFDI).select("*").eq("user_id", uid).eq("status", "Vigente")
+        cfdi_q = sb.table(_TBL_CFDI).select("*").eq("user_id", uid).eq("status", "Vigente").eq("tipo_cfdi", "T")
         if pid:
             cfdi_q = cfdi_q.eq("perfil_id", pid)
         cfdi_res = cfdi_q.order("fecha_timbrado", desc=True).execute()
@@ -157,6 +157,17 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         cliente_cfg = cliente_rows[0] if cliente_rows else {}
     if not cliente_cfg:
         cliente_cfg = _cliente_por_receptor(sb, uid, perfil_factura, payload.rfc_receptor)
+    cliente_meta = cliente_cfg.get("metadata") if isinstance(cliente_cfg.get("metadata"), dict) else {}
+    email_receptor = _clean_billing_email(
+        payload.email_receptor
+        or cliente_cfg.get("email_facturacion")
+        or cliente_cfg.get("email")
+        or cliente_meta.get("email_facturacion")
+        or cliente_meta.get("email")
+        or cliente_meta.get("correo")
+    )
+    if not email_receptor:
+        raise HTTPException(400, "Captura el email fiscal/comercial del cliente antes de timbrar la factura de servicio.")
     fiscal_defaults = _cliente_defaults_fiscales(cliente_cfg, settings)
     forma_pago = payload.forma_pago or fiscal_defaults["forma_pago"]
     metodo_pago = payload.metodo_pago or fiscal_defaults["metodo_pago"]
@@ -212,11 +223,18 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "xml_content":     sw_data.get("cfdi", ""),
         "pdf_url":         sw_data.get("pdfUrl", ""),
         "status":          "timbrada",
+        "metadata":        {"email_receptor": email_receptor, "email_delivery": {"status": "pendiente", "provider": "resend"}},
         "created_at":      now_iso,
     }
     try:
         res = sb.table(_TBL_FACT_SERV).insert(row).execute()
         factura_id = res.data[0]["id"] if res.data else None
+        try:
+            sb.table(_TBL_FACT_SERV).update({
+                "idempotency_key": f"{'-'.join(str(v) for v in sorted(payload.viaje_ids))}:factura_servicio",
+            }).eq("id", factura_id).eq("user_id", uid).execute()
+        except Exception as exc:
+            logger.info("Columnas idempotency factura servicio aun no disponibles factura=%s: %s", factura_id, exc)
         try:
             sb.table(_TBL_FACT_SERV_CARTAS).insert([
                 {"user_id": uid, "perfil_id": perfil_factura, "factura_servicio_id": factura_id, "viaje_id": vid, "created_at": now_iso}
@@ -231,6 +249,15 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                 f"UUID SAT {sw_data.get('uuid', '')}" if sw_data.get("uuid") else "Factura de servicio generada.",
                 "system", "sw_sapien", {"factura_servicio_id": factura_id, "uuid_sat": sw_data.get("uuid", "")},
             )
+            try:
+                sb.table(_TBL_VIAJES).update({
+                    "factura_servicio_status": "timbrada",
+                    "factura_servicio_uuid": sw_data.get("uuid", ""),
+                    "factura_servicio_pdf_url": f"/api/tr/facturas-servicio/{factura_id}/pdf?download=true",
+                    "factura_servicio_xml_url": f"/api/tr/facturas-servicio/{factura_id}/xml",
+                }).eq("id", int(vid)).eq("user_id", uid).execute()
+            except Exception as exc:
+                logger.info("Columnas separadas factura servicio aun no disponibles viaje=%s: %s", vid, exc)
         version_xml(
             module="transporte",
             entity_type="factura_servicio",
@@ -241,7 +268,35 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             perfil_id=perfil_factura,
             source="sw_sapien",
         )
-        return JSONResponse({"ok": True, "id": factura_id, "status": "timbrada", "uuid_sat": sw_data.get("uuid", "")})
+        email_delivery = {"ok": False, "skipped": True, "error": "Factura sin XML para adjuntar.", "provider": "resend"}
+        xml_content = sw_data.get("cfdi", "") or ""
+        if xml_content:
+            try:
+                info = fiscal_pdf_info(xml_content, "factura_servicio_transporte")
+                pdf_bytes = generar_pdf_ingreso_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+                email_result = send_gas_lp_invoice_email(
+                    to_email=email_receptor,
+                    issuer_name=emisor.get("nombre", ""),
+                    customer_name=payload.nombre_receptor,
+                    uuid_sat=sw_data.get("uuid", ""),
+                    total=calculo_servicio["total"],
+                    xml_content=xml_content,
+                    pdf_bytes=pdf_bytes,
+                    pdf_filename=info.filename,
+                    serie_folio=f"FS-{factura_id or ''}",
+                )
+                email_delivery = email_result.as_metadata()
+            except Exception as exc:
+                email_delivery = {"ok": False, "skipped": False, "error": str(exc)[:500], "provider": "resend"}
+        try:
+            update_payload = {"metadata": {"email_receptor": email_receptor, "email_delivery": email_delivery}, "email_receptor": email_receptor}
+            try:
+                sb.table(_TBL_FACT_SERV).update(update_payload).eq("id", factura_id).eq("user_id", uid).execute()
+            except Exception:
+                sb.table(_TBL_FACT_SERV).update({"metadata": update_payload["metadata"]}).eq("id", factura_id).eq("user_id", uid).execute()
+        except Exception as exc:
+            logger.warning("No se pudo guardar auditoría email factura servicio: %s", exc)
+        return JSONResponse({"ok": True, "id": factura_id, "status": "timbrada", "uuid_sat": sw_data.get("uuid", ""), "email_delivery": email_delivery})
     except Exception as e:
         raise HTTPException(500, f"Error al crear factura de servicio: {e}")
 
@@ -825,4 +880,3 @@ async def generar_covol_transporte(
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── Choferes ──────────────────────────────────────────────────────────────────
-
