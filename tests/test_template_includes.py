@@ -52,7 +52,7 @@ def test_template_includes_stop_deep_recursion(tmp_path, monkeypatch):
         "asistente_gas_lp.html",
         "conciliacion_gas_lp.html",
         "admin_saas.html",
-        "transporte.html",
+        "transporte_v2.html",
     ],
 )
 def test_key_templates_have_no_unresolved_includes(template_name):
