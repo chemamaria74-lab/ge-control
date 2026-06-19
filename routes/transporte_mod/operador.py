@@ -224,6 +224,7 @@ async def operador_pdf_carta_porte(viaje_id: int, token: str = Query(...), downl
         .eq("perfil_id", acc["perfil_id"])
         .eq("viaje_id", viaje_id)
         .eq("status", "Vigente")
+        .eq("tipo_cfdi", "T")
         .order("fecha_timbrado", desc=True)
         .limit(1)
         .execute()
@@ -258,43 +259,7 @@ async def operador_pdf_carta_porte(viaje_id: int, token: str = Query(...), downl
 @router.get("/tr/operador/viajes/{viaje_id}/xml")
 async def operador_xml_carta_porte(viaje_id: int, token: str = Query(...), download: bool = Query(True)):
     """XML de Carta Porte para el operador asignado."""
-    sb, acc = _operador_context(token)
-    viaje_rows = (
-        sb.table(_TBL_VIAJES)
-        .select("id,user_id,perfil_id,chofer_id")
-        .eq("id", viaje_id)
-        .eq("user_id", acc["user_id"])
-        .eq("perfil_id", acc["perfil_id"])
-        .eq("chofer_id", acc["chofer_id"])
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
-    if not viaje_rows:
-        raise HTTPException(404, "Viaje no encontrado para este operador.")
-    cfdi_rows = (
-        sb.table(_TBL_CFDI)
-        .select("uuid_sat,xml_content")
-        .eq("user_id", acc["user_id"])
-        .eq("perfil_id", acc["perfil_id"])
-        .eq("viaje_id", viaje_id)
-        .eq("status", "Vigente")
-        .order("fecha_timbrado", desc=True)
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
-    if not cfdi_rows or not cfdi_rows[0].get("xml_content"):
-        raise HTTPException(404, "Este viaje todavía no tiene XML de Carta Porte.")
-    filename = f"carta_porte_{cfdi_rows[0].get('uuid_sat') or viaje_id}.xml"
-    disposition = "attachment" if download else "inline"
-    return Response(
-        content=cfdi_rows[0]["xml_content"],
-        media_type="application/xml",
-        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
-    )
+    raise HTTPException(403, "El operador solo puede consultar el PDF de Carta Porte.")
 
 
 @router.get("/tr/operador/viajes/{viaje_id}/documentos-relacionados")
@@ -316,29 +281,16 @@ async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...
     if not viaje_rows:
         raise HTTPException(404, "Viaje no encontrado para este operador.")
     docs: list[dict] = []
-    cfdi_rows = sb.table(_TBL_CFDI).select("uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("viaje_id", viaje_id).eq("status", "Vigente").order("fecha_timbrado", desc=True).limit(1).execute().data or []
+    cfdi_rows = sb.table(_TBL_CFDI).select("uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("viaje_id", viaje_id).eq("status", "Vigente").eq("tipo_cfdi", "T").order("fecha_timbrado", desc=True).limit(1).execute().data or []
     if cfdi_rows and cfdi_rows[0].get("xml_content"):
-        docs.extend([
-            {"tipo": "carta_porte_pdf", "label": "PDF Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/pdf?token={token}", "status": cfdi_rows[0].get("status")},
-            {"tipo": "carta_porte_xml", "label": "XML Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/xml?token={token}", "status": cfdi_rows[0].get("status")},
-        ])
-    links = sb.table(_TBL_FACT_SERV_CARTAS).select("factura_servicio_id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("viaje_id", viaje_id).execute().data or []
-    factura_ids = [int(x.get("factura_servicio_id")) for x in links if x.get("factura_servicio_id")]
-    if factura_ids:
-        facturas = sb.table(_TBL_FACT_SERV).select("id,uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).in_("id", factura_ids).execute().data or []
-        for f in facturas:
-            if f.get("xml_content"):
-                docs.extend([
-                    {"tipo": "factura_servicio_pdf", "label": "PDF factura servicio", "url": f"/api/tr/operador/facturas-servicio/{f['id']}/pdf?token={token}", "status": f.get("status")},
-                    {"tipo": "factura_servicio_xml", "label": "XML factura servicio", "url": f"/api/tr/operador/facturas-servicio/{f['id']}/xml?token={token}", "status": f.get("status")},
-                ])
+        docs.append({"tipo": "carta_porte_pdf", "label": "PDF Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/pdf?token={token}", "status": cfdi_rows[0].get("status")})
     provider_docs = (
         sb.table(_TBL_DOCS)
         .select("*")
         .eq("user_id", acc["user_id"])
         .eq("perfil_id", acc["perfil_id"])
         .eq("viaje_id", viaje_id)
-        .in_("tipo", ["factura_producto_pdf", "factura_producto_xml", "factura_proveedor_pdf", "factura_proveedor_xml", "cfdi_proveedor_pdf", "cfdi_proveedor_xml"])
+        .in_("tipo", ["factura_producto_pdf", "factura_proveedor_pdf", "cfdi_proveedor_pdf"])
         .order("created_at", desc=True)
         .execute()
         .data
@@ -356,40 +308,12 @@ async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...
 
 @router.get("/tr/operador/facturas-servicio/{factura_id}/pdf")
 async def operador_pdf_factura_servicio(factura_id: int, token: str = Query(...), download: bool = Query(False)):
-    sb, acc = _operador_context(token)
-    links = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("factura_servicio_id", factura_id).execute().data or []
-    viaje_ids = [int(x.get("viaje_id")) for x in links if x.get("viaje_id")]
-    if not viaje_ids:
-        raise HTTPException(404, "Factura de servicio no relacionada a viaje del operador.")
-    viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("chofer_id", acc["chofer_id"]).in_("id", viaje_ids).execute().data or []
-    if not viajes:
-        raise HTTPException(404, "Factura de servicio no disponible para este operador.")
-    rows = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("id", factura_id).limit(1).execute().data or []
-    if not rows or not rows[0].get("xml_content"):
-        raise HTTPException(404, "Factura de servicio sin XML.")
-    row = rows[0]
-    settings_rows = get_supabase_admin().table(_TBL_SETTINGS).select("data").eq("user_id", acc["user_id"]).eq("perfil_id", row.get("perfil_id")).limit(1).execute().data or []
-    settings = settings_rows[0].get("data", {}) if settings_rows else {}
-    info = fiscal_pdf_info(row["xml_content"], "factura_servicio_transporte")
-    pdf_bytes = generar_pdf_ingreso_desde_xml(row["xml_content"], logo_data_url=settings.get("PdfLogoDataUrl", ""))
-    disposition = "attachment" if download else "inline"
-    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'})
+    raise HTTPException(403, "El operador no puede consultar factura de servicio/flete.")
 
 
 @router.get("/tr/operador/facturas-servicio/{factura_id}/xml")
 async def operador_xml_factura_servicio(factura_id: int, token: str = Query(...), download: bool = Query(True)):
-    sb, acc = _operador_context(token)
-    links = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("factura_servicio_id", factura_id).execute().data or []
-    viaje_ids = [int(x.get("viaje_id")) for x in links if x.get("viaje_id")]
-    viajes = sb.table(_TBL_VIAJES).select("id").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("chofer_id", acc["chofer_id"]).in_("id", viaje_ids or [-1]).execute().data or []
-    if not viajes:
-        raise HTTPException(404, "Factura de servicio no disponible para este operador.")
-    rows = sb.table(_TBL_FACT_SERV).select("uuid_sat,xml_content").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("id", factura_id).limit(1).execute().data or []
-    if not rows or not rows[0].get("xml_content"):
-        raise HTTPException(404, "Factura de servicio sin XML.")
-    filename = f"factura_servicio_{rows[0].get('uuid_sat') or factura_id}.xml"
-    disposition = "attachment" if download else "inline"
-    return Response(content=rows[0]["xml_content"], media_type="application/xml", headers={"Content-Disposition": f'{disposition}; filename="{filename}"'})
+    raise HTTPException(403, "El operador no puede consultar XML ni factura de servicio/flete.")
 
 
 @router.get("/tr/operador/viajes/{viaje_id}/documentos/{documento_id}")
@@ -411,4 +335,3 @@ async def operador_documento_storage(viaje_id: int, documento_id: int, token: st
         media_type=doc.get("mime_type") or "application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{doc.get("nombre") or "documento"}"'},
     )
-
