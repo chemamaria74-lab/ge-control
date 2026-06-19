@@ -336,8 +336,15 @@ def test_carta_porte_tipo_t_contract_from_builder(monkeypatch):
 
     assert cfdi["TipoDeComprobante"] == "T"
     assert cfdi["Fecha"] == "2026-06-06T11:55:00"
+    assert cfdi["SubTotal"] == "0.00"
     assert cfdi["Moneda"] == "XXX"
     assert cfdi["Total"] == "0.00"
+    assert "MetodoPago" not in cfdi
+    assert "FormaPago" not in cfdi
+    assert "Impuestos" not in cfdi
+    assert cfdi["Receptor"]["UsoCFDI"] == "S01"
+    assert cfdi["Conceptos"][0]["ValorUnitario"] == "0.00"
+    assert cfdi["Conceptos"][0]["ObjetoImp"] == "01"
     assert cfdi["xmlns:cartaporte31"] == "http://www.sat.gob.mx/CartaPorte31"
     assert "CartaPorte31.xsd" in cfdi["xsi:schemaLocation"]
     carta = cfdi["Complemento"]["cartaporte31:CartaPorte"]
@@ -387,6 +394,41 @@ def test_carta_porte_xml_validation_contract_excludes_normal_sales_shape():
     sale_result = validar_xml_carta_porte_transporte(_stamp_xml(sale_xml), [{"clave_producto": "PR12"}], enforce_hidrocarburos=False)
     assert sale_result.bloquea_pdf
     assert any("Carta Porte" in error for error in sale_result.errors)
+
+
+def test_carta_porte_xml_validation_rejects_ingreso_even_with_carta_porte():
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" xmlns:cartaporte31="http://www.sat.gob.mx/CartaPorte31" Version="4.0" TipoDeComprobante="I" SubTotal="1000.00" Moneda="MXN" Total="1120.00">
+  <cfdi:Emisor Rfc="GLU760309457" Nombre="GAS LUX" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="OORD570426CT2" Nombre="DALILA OCHOA ROJAS" DomicilioFiscalReceptor="99540" RegimenFiscalReceptor="612" UsoCFDI="G03"/>
+  <cfdi:Complemento>
+    <cartaporte31:CartaPorte Version="3.1" IdCCP="CCC11111-2222-3333-4444-555555555555" TranspInternac="No" TotalDistRec="180.5">
+      <cartaporte31:Ubicaciones>
+        <cartaporte31:Ubicacion TipoUbicacion="Origen" IDUbicacion="OR000001" RFCRemitenteDestinatario="GLU760309457" FechaHoraSalidaLlegada="2026-06-06T08:00:00"><cartaporte31:Domicilio CodigoPostal="99300" Pais="MEX"/></cartaporte31:Ubicacion>
+        <cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="DE000001" RFCRemitenteDestinatario="OORD570426CT2" FechaHoraSalidaLlegada="2026-06-06T11:00:00" DistanciaRecorrida="180.5"><cartaporte31:Domicilio CodigoPostal="99540" Pais="MEX"/></cartaporte31:Ubicacion>
+      </cartaporte31:Ubicaciones>
+      <cartaporte31:Mercancias NumTotalMercancias="1" PesoBrutoTotal="9000" UnidadPeso="KGM">
+        <cartaporte31:Mercancia BienesTransp="15111501" Descripcion="Gas licuado de petroleo" Cantidad="12000" ClaveUnidad="LTR" PesoEnKg="9000" MaterialPeligroso="Sí" CveMaterialPeligroso="UN1075" Embalaje="Z01" ValorMercancia="1"/>
+        <cartaporte31:Autotransporte PermSCT="TPAF01" NumPermisoSCT="SCT-123456">
+          <cartaporte31:IdentificacionVehicular ConfigVehicular="C2" PlacaVM="ABC123A" AnioModeloVM="2024"/>
+          <cartaporte31:Seguros AseguraRespCivil="ASEGURADORA SA" PolizaRespCivil="POL123"/>
+        </cartaporte31:Autotransporte>
+      </cartaporte31:Mercancias>
+      <cartaporte31:FiguraTransporte><cartaporte31:TiposFigura TipoFigura="01" RFCFigura="PEGJ850101AB1" NombreFigura="JUAN PEREZ GOMEZ" NumLicencia="LIC123456"/></cartaporte31:FiguraTransporte>
+    </cartaporte31:CartaPorte>
+    <tfd:TimbreFiscalDigital UUID="99999999-1111-2222-3333-444444444444"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>"""
+
+    result = validar_xml_carta_porte_transporte(xml, [{"clave_producto": "PR12"}], enforce_hidrocarburos=False)
+
+    assert not result.ok
+    assert result.bloquea_pdf
+    assert result.metadata["tipo_cfdi"] == "I"
+    assert any("CFDI de ingreso/factura de flete" in error for error in result.errors)
+    assert any("Moneda XXX" in error for error in result.errors)
+    assert any("Total 0" in error for error in result.errors)
+    assert any("UsoCFDI S01" in error for error in result.errors)
 
 
 def test_logs_sensitive_patterns_are_documented_for_phase2_reduction():
