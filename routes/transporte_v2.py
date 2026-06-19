@@ -1185,7 +1185,11 @@ def _operator_create_trip(
         "defaults_json": metadata,
         "updated_at": _now_iso(),
     }
-    inserted = sb.table(TBL_VIAJES).insert(row).execute().data or []
+    try:
+        inserted = _insert_table_row_tolerant(sb, TBL_VIAJES, row)
+    except Exception as exc:
+        logger.exception("No se pudo crear viaje operador")
+        raise HTTPException(500, f"No se pudo crear el viaje del operador: {exc}")
     if not inserted:
         raise HTTPException(500, "No se pudo crear el viaje del operador.")
     trip = dict(inserted[0])
@@ -1933,6 +1937,21 @@ def _insert_catalog_row(token: str, table: str, row: dict[str, Any]) -> list[dic
             column = _missing_column_from_error(exc)
             if not column or column in {"user_id", "perfil_id"} or column in removed or column not in pending:
                 raise
+            removed.add(column)
+            pending.pop(column, None)
+
+
+def _insert_table_row_tolerant(sb: Any, table: str, row: dict[str, Any]) -> list[dict[str, Any]]:
+    pending = dict(row)
+    removed: set[str] = set()
+    while True:
+        try:
+            return sb.table(table).insert(pending).execute().data or []
+        except Exception as exc:
+            column = _missing_column_from_error(exc)
+            if not column or column == "user_id" or column in removed or column not in pending:
+                raise
+            logger.info("Transporte v2 omitió columna no migrada %s.%s al insertar.", table, column)
             removed.add(column)
             pending.pop(column, None)
 
@@ -4757,7 +4776,7 @@ async def transporte_v2_crear_viaje(
     _require_profile_if_present(uid, token, pid)
     row = _resolve_legacy_trip_row(uid, token, pid, payload)
     try:
-        inserted = _sb(token).table(TBL_VIAJES).insert(row).execute().data or []
+        inserted = _insert_table_row_tolerant(_sb(token), TBL_VIAJES, row)
         item = _normalize_viaje_row(inserted[0] if inserted else row)
         _audit(uid, token, pid, TBL_VIAJES, item.get("id"), "crear_borrador", {"source": "transporte_v2"})
         return {"ok": True, "item": item}
