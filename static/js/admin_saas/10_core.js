@@ -39,6 +39,7 @@ async function init(){
   if(!TOKEN){ showAdminLogin(); return; }
   try{ await verifySuperadmin(); }
   catch(e){
+    if (window.GESessionTimeout) window.GESessionTimeout.clear();
     localStorage.removeItem('zc_token');
     localStorage.removeItem('sat_token');
     TOKEN = '';
@@ -64,6 +65,7 @@ async function loginAdminSaas(event) {
     TOKEN = data.token;
     localStorage.setItem('zc_token', TOKEN);
     localStorage.setItem('sat_token', TOKEN);
+    window.GESessionTimeout?.markLogin();
     await verifySuperadmin();
   } catch(e) {
     err.textContent = e.message;
