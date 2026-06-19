@@ -2538,6 +2538,9 @@ def _normalize_viaje_row(row: dict[str, Any]) -> dict[str, Any]:
     item["estatus"] = _first_text(item.get("estatus"), item.get("status"), item.get("operacion_status"), "borrador")
     item["cliente_nombre"] = _first_text(item.get("nombre_receptor"), meta.get("cliente_nombre"), meta.get("receptor_nombre"))
     item["producto_descripcion"] = _first_text(product.get("descripcion"), meta.get("producto_descripcion"), meta.get("producto"))
+    item["uuid_cfdi"] = _first_text(item.get("uuid_cfdi"), meta.get("uuid_carta_porte"), meta.get("carta_porte_uuid"), meta.get("cfdi_uuid"))
+    item["id_ccp"] = _first_text(item.get("id_ccp"), meta.get("id_ccp"))
+    item["carta_porte_status"] = _first_text(item.get("carta_porte_status"), meta.get("carta_porte_status"))
     return item
 
 
@@ -2635,7 +2638,7 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
     clave_producto = _first_text(producto.get("clave_producto"), producto.get("clave_prodserv_cfdi"))
     peso_kg = _num(payload.peso_kg)
     volumen = _num(payload.volumen_litros)
-    tipo_cfdi = _first_text("I")
+    tipo_cfdi = "I"
     tarifa_calc = _resolve_tariff_calculation(
         token,
         uid,
@@ -2746,8 +2749,8 @@ def _legacy_trip_patch_row(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _tipo_cfdi_sugerido(viaje: dict[str, Any], cliente: dict[str, Any], requested: str = "") -> str:
-    # Transporte v2 timbra Carta Porte como CFDI de Ingreso por servicio de transporte.
-    # No se expone selector de tipo CFDI para evitar timbrados ambiguos o duplicados.
+    # El transportista que presta el servicio emite CFDI Ingreso con el
+    # complemento Carta Porte; SW lo clasifica fiscalmente como Ingreso.
     return "I"
 
 
@@ -3485,6 +3488,9 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
             context["operador"],
             context["vehiculo"],
         )
+        carta_payload = (cfdi_dict.get("Complemento") or {}).get("cartaporte31:CartaPorte") or {}
+        if carta_payload.get("Version") != "3.1" or not carta_payload.get("IdCCP"):
+            raise ValueError("El payload fiscal no contiene Complemento Carta Porte 3.1 válido.")
         cfdi_dict["MetodoPago"] = "PUE"
         cfdi_dict["FormaPago"] = "99"
     except Exception as exc:
@@ -3601,6 +3607,7 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
             "warnings": validacion.warnings if validacion else [],
             "metadata": validacion.metadata if validacion else {},
         },
+        "carta_porte_status": "timbrado" if carta_ok else "error",
     })
     update = {
         "uuid_cfdi": uuid_sat,
@@ -4599,6 +4606,8 @@ async def transporte_v2_carta_porte_timbrar(
     uid, token = _auth(authorization)
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
+    if not payload.confirmar:
+        raise HTTPException(400, "Confirma el resumen de Carta Porte antes de enviarlo a SW Sapiens.")
     context = _stamp_build_context(uid=uid, pid=pid, viaje_id=payload.viaje_id, actor="admin")
     return _stamp_carta_porte_context(context)
 
@@ -4618,6 +4627,7 @@ async def transporte_v2_carta_porte_timbradas(
         sb.table(TBL_CFDI)
         .select("id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,pdf_url,status,fecha_timbrado,rfc_receptor,volumen_total,importe_total")
         .eq("user_id", uid)
+        .eq("status", "Vigente")
         .order("fecha_timbrado", desc=True)
         .limit(limit)
     )
@@ -4680,7 +4690,7 @@ async def transporte_v2_carta_porte_pdf(
     uid, token = _auth(authorization)
     pid = _profile_id(None, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id)
+    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).eq("status", "Vigente")
     if pid:
         q = q.eq("perfil_id", pid)
     rows = q.order("fecha_timbrado", desc=True).limit(1).execute().data or []
@@ -4715,7 +4725,7 @@ async def transporte_v2_carta_porte_xml(
     uid, token = _auth(authorization)
     pid = _profile_id(None, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id)
+    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).eq("status", "Vigente")
     if pid:
         q = q.eq("perfil_id", pid)
     rows = q.order("fecha_timbrado", desc=True).limit(1).execute().data or []
