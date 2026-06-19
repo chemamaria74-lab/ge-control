@@ -385,7 +385,7 @@ async function trv2ConfirmServiceInvoice(tripId) {
   TRV2_SERVICE_INVOICE_BUSY = true;
   if (button) { button.disabled = true; button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando factura...'; }
   try {
-    const data = await trv2Api('POST', '/api/tr/facturas-servicio', {
+    const data = await trv2Api('POST', '/api/tr-v2/facturas-servicio', {
       perfil_id: Number(TRV2_PERFIL?.id || 0) || null,
       cliente_id: service.cliente_id,
       viaje_ids: [Number(tripId)],
@@ -492,7 +492,7 @@ function trv2RenderServiceGeneratedTables() {
 
 async function trv2OpenServiceArtifact(invoiceId, kind, download = false) {
   const suffix = kind === 'xml' ? 'xml' : `pdf${download ? '?download=true' : ''}`;
-  const response = await fetch(`/api/tr/facturas-servicio/${Number(invoiceId)}/${suffix}`, {headers: trv2Headers()});
+  const response = await fetch(`/api/tr-v2/facturas-servicio/${Number(invoiceId)}/${suffix}`, {headers: trv2Headers()});
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     trv2Toast(data.detail || `No se pudo abrir ${kind.toUpperCase()}.`, 'error');
@@ -531,7 +531,7 @@ async function trv2LoadServiceInvoices() {
   if (typeof trv2LoadCatalogs === 'function') loads.push(trv2LoadCatalogs({silent: true}));
   if (loads.length) await Promise.all(loads);
   await trv2LoadServiceTariffs();
-  const invoices = await trv2Api('GET', '/api/tr/facturas-servicio', undefined, {silent: true, allowError: true});
+  const invoices = await trv2Api('GET', '/api/tr-v2/facturas-servicio', undefined, {silent: true, allowError: true});
   trv2WriteServiceInvoices(invoices?.facturas_servicio || []);
   trv2RenderServiceInvoices();
 }
