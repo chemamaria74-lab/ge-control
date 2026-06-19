@@ -118,7 +118,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "clientes": {
         "table": TBL_CLIENTES,
         "required": ["nombre", "rfc", "cp"],
-        "allowed": ["nombre", "rfc", "cp", "regimen_fiscal", "uso_cfdi", "email", "email_facturacion", "activo"],
+        "allowed": ["nombre", "rfc", "cp", "regimen_fiscal", "uso_cfdi", "email", "email_facturacion", "activo", "metadata"],
         "defaults": {"activo": True},
     },
     "operadores": {
@@ -1014,34 +1014,41 @@ def _sync_factura_carga_to_trip(sb: Any, trip: dict[str, Any], factura: dict[str
     metadata["factura_operador"] = factura
     metadata["factura_carga"] = factura
     metadata["factura_carga_nombre"] = factura.get("nombre") or ""
-    update = {
-        "defaults_json": metadata,
-        "documentos_status": "registrado",
-        "updated_at": _now_iso(),
-    }
+    base_update = {"defaults_json": metadata}
+    update = {**base_update, "documentos_status": "registrado", "updated_at": _now_iso()}
     optional_url = factura.get("url") or factura.get("data_url") or ""
-    optional_update = {**update, "factura_carga_pdf_url": optional_url}
-    try:
-        updated = (
-            sb.table(TBL_VIAJES)
-            .update(optional_update)
-            .eq("id", trip.get("id"))
-            .eq("user_id", trip.get("user_id"))
-            .execute()
-            .data
-            or []
-        )
-    except Exception as exc:
-        logger.info("Columna factura_carga_pdf_url no disponible o no aceptada viaje=%s: %s", trip.get("id"), exc)
-        updated = (
-            sb.table(TBL_VIAJES)
-            .update(update)
-            .eq("id", trip.get("id"))
-            .eq("user_id", trip.get("user_id"))
-            .execute()
-            .data
-            or []
-        )
+    payloads = [
+        {**update, "factura_carga_pdf_url": optional_url},
+        update,
+        {**base_update, "updated_at": _now_iso()},
+        base_update,
+    ]
+    updated: list[dict[str, Any]] = []
+    for payload in payloads:
+        pending = dict(payload)
+        removed: set[str] = set()
+        while True:
+            try:
+                updated = (
+                    sb.table(TBL_VIAJES)
+                    .update(pending)
+                    .eq("id", trip.get("id"))
+                    .eq("user_id", trip.get("user_id"))
+                    .execute()
+                    .data
+                    or []
+                )
+                return updated[0] if updated else {**trip, "defaults_json": metadata, "metadata": metadata}
+            except Exception as exc:
+                column = _missing_column_from_error(exc)
+                if column and column in pending and column not in removed:
+                    logger.info("Transporte v2 omitió columna no migrada %s.%s al sincronizar factura.", TBL_VIAJES, column)
+                    removed.add(column)
+                    pending.pop(column, None)
+                    continue
+                logger.info("No se pudo sincronizar factura carga con payload %s viaje=%s: %s", sorted(payload.keys()), trip.get("id"), exc)
+                break
+    logger.warning("Viaje operador creado sin sincronizar metadata de factura viaje=%s", trip.get("id"))
     return updated[0] if updated else {**trip, "defaults_json": metadata, "metadata": metadata}
 
 
@@ -1083,18 +1090,22 @@ def _operator_create_trip(
     invoice_sha256: str = "",
 ) -> dict[str, Any]:
     if invoice_sha256:
-        recent = (
-            sb.table(TBL_VIAJES)
-            .select("*")
-            .eq("user_id", acc.get("user_id"))
-            .eq("perfil_id", acc.get("perfil_id"))
-            .eq("chofer_id", acc.get("chofer_id"))
-            .order("created_at", desc=True)
-            .limit(20)
-            .execute()
-            .data
-            or []
-        )
+        recent: list[dict[str, Any]] = []
+        try:
+            recent = (
+                sb.table(TBL_VIAJES)
+                .select("*")
+                .eq("user_id", acc.get("user_id"))
+                .eq("perfil_id", acc.get("perfil_id"))
+                .eq("chofer_id", acc.get("chofer_id"))
+                .order("created_at", desc=True)
+                .limit(20)
+                .execute()
+                .data
+                or []
+            )
+        except Exception as exc:
+            logger.info("Se omitió revisión de duplicado operador antes de crear viaje: %s", exc)
         duplicate = next(
             (
                 row for row in recent
@@ -1146,18 +1157,25 @@ def _operator_create_trip(
     row = {
         "user_id": acc.get("user_id"),
         "perfil_id": acc.get("perfil_id"),
+        "cliente_id": client.get("id"),
         "chofer_id": acc.get("chofer_id"),
+        "operador_id": acc.get("chofer_id"),
         "vehiculo_id": vehicle.get("id"),
         "ruta_id": route.get("id"),
         "origen_id": route.get("origen_id"),
         "destino_id": route.get("destino_id"),
         "producto_operacion_id": product.get("id"),
+        "producto_id": product.get("id"),
         "cp_origen": route.get("cp_origen") or "",
         "nombre_origen": route.get("nombre_origen") or "",
+        "origen": route.get("nombre_origen") or "",
         "cp_destino": route.get("cp_destino") or client.get("cp") or "",
         "nombre_destino": route.get("nombre_destino") or client.get("nombre") or "",
+        "destino": route.get("nombre_destino") or client.get("nombre") or "",
         "fecha_hora_salida": now.isoformat(timespec="minutes"),
         "fecha_hora_llegada": arrival.isoformat(timespec="minutes"),
+        "fecha_salida": now.isoformat(timespec="minutes"),
+        "fecha_llegada_estimada": arrival.isoformat(timespec="minutes"),
         "productos_json": json.dumps([{
             "producto_id": product.get("id"), "descripcion": product_name,
             "clave_producto": _first_text(product.get("clave_producto"), product.get("clave_prodserv_cfdi")),
@@ -1168,6 +1186,8 @@ def _operator_create_trip(
             "embalaje": _first_text(product.get("embalaje")),
         }], ensure_ascii=False),
         "volumen_total_litros": liters,
+        "volumen_litros": liters,
+        "peso_kg": kilos,
         "tipo_cfdi": "T",
         "rfc_receptor": client.get("rfc") or "",
         "nombre_receptor": client.get("nombre") or "",
@@ -1177,12 +1197,14 @@ def _operator_create_trip(
         "distancia_km": _num(route.get("distancia_km")),
         "duracion_estimada_min": duration,
         "status": "asignado",
+        "estatus": "asignado",
         "operacion_status": "asignado",
         "carta_porte_status": "pendiente",
         "factura_status": "pendiente",
         "liquidacion_status": "pendiente",
         "documentos_status": "pendiente",
         "defaults_json": metadata,
+        "metadata": metadata,
         "updated_at": _now_iso(),
     }
     try:
@@ -1194,18 +1216,21 @@ def _operator_create_trip(
         raise HTTPException(500, "No se pudo crear el viaje del operador.")
     trip = dict(inserted[0])
     if invoice_content:
-        factura = _factura_carga_metadata(
-            sb=sb,
-            uid=acc.get("user_id"),
-            pid=acc.get("perfil_id"),
-            viaje_id=int(trip.get("id")),
-            filename=invoice_filename,
-            content_type=invoice_content_type,
-            content=invoice_content,
-            uploaded_by=acc.get("chofer_id"),
-        )
-        trip = _sync_factura_carga_to_trip(sb, trip, factura)
-        _insert_factura_carga_document(sb, trip, factura, detected)
+        try:
+            factura = _factura_carga_metadata(
+                sb=sb,
+                uid=acc.get("user_id"),
+                pid=acc.get("perfil_id"),
+                viaje_id=int(trip.get("id")),
+                filename=invoice_filename,
+                content_type=invoice_content_type,
+                content=invoice_content,
+                uploaded_by=acc.get("chofer_id"),
+            )
+            trip = _sync_factura_carga_to_trip(sb, trip, factura)
+            _insert_factura_carga_document(sb, trip, factura, detected)
+        except Exception as exc:
+            logger.warning("Viaje operador creado, pero no se pudo adjuntar factura viaje=%s: %s", trip.get("id"), exc)
     return trip
 
 
@@ -1334,6 +1359,22 @@ def _clean_payload(data: dict[str, Any], allowed: list[str], defaults: Optional[
                 continue
         cleaned[key] = value
     return cleaned
+
+
+def _expand_client_contact_metadata(row: dict[str, Any]) -> dict[str, Any]:
+    expanded = dict(row)
+    metadata = _parse_json_value(expanded.get("metadata"), {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    email = _first_text(expanded.get("email_facturacion"), expanded.get("email"), metadata.get("email_facturacion"), metadata.get("email"))
+    if email:
+        expanded["email_facturacion"] = email
+        expanded["email"] = _first_text(expanded.get("email"), email)
+        metadata["email_facturacion"] = email
+        metadata["email"] = email
+    if metadata:
+        expanded["metadata"] = metadata
+    return expanded
 
 
 def _expand_vehicle_aliases(row: dict[str, Any]) -> dict[str, Any]:
@@ -1918,12 +1959,22 @@ def _missing_column_from_error(exc: Exception) -> str:
     patterns = [
         r"Could not find the '([^']+)' column",
         r"column ['\"]?([A-Za-z0-9_]+)['\"]? does not exist",
+        r"null value in column ['\"]?([A-Za-z0-9_]+)['\"]?",
         r"record has no field ['\"]?([A-Za-z0-9_]+)['\"]?",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, re.I)
         if match:
             return match.group(1)
+    lower = text.lower()
+    if "violates foreign key constraint" in lower:
+        for field in (
+            "producto_operacion_id", "producto_id", "cliente_id", "operador_id",
+            "chofer_id", "vehiculo_id", "ruta_id", "origen_id", "destino_id",
+            "tarifa_id", "proveedor_id",
+        ):
+            if field in lower:
+                return field
     return ""
 
 
@@ -1949,6 +2000,9 @@ def _insert_table_row_tolerant(sb: Any, table: str, row: dict[str, Any]) -> list
             return sb.table(table).insert(pending).execute().data or []
         except Exception as exc:
             column = _missing_column_from_error(exc)
+            text = str(exc).lower()
+            if "null value in column" in text:
+                raise
             if not column or column == "user_id" or column in removed or column not in pending:
                 raise
             logger.info("Transporte v2 omitió columna no migrada %s.%s al insertar.", table, column)
@@ -2002,6 +2056,9 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["cp"] = _first_text(item.get("cp"), item.get("codigo_postal"), item.get("domicilio_fiscal_cp"))
         item["regimen_fiscal"] = _first_text(item.get("regimen_fiscal"), item.get("regimen"))
         item["uso_cfdi"] = _first_text(item.get("uso_cfdi"), item.get("uso_cfdi_default"))
+        client_meta = _meta(item)
+        item["email_facturacion"] = _first_text(item.get("email_facturacion"), item.get("email"), client_meta.get("email_facturacion"), client_meta.get("email"))
+        item["email"] = _first_text(item.get("email"), item["email_facturacion"])
     elif catalogo == "operadores":
         operator_meta = _meta(item)
         item["nombre"] = _first_text(item.get("nombre"))
@@ -2178,6 +2235,8 @@ def _create_catalog_item(
     if not perfil_id:
         raise HTTPException(400, "perfil_id requerido para actualizar catálogos Transporte.")
     row = _clean_payload(payload, config["allowed"], config.get("defaults") or {})
+    if catalogo == "clientes":
+        row = _expand_client_contact_metadata(row)
     if catalogo == "operadores":
         row = _expand_operator_vehicle_assignment(row)
     if catalogo == "vehiculos":
@@ -2241,6 +2300,8 @@ def _update_catalog_item(
     if not config:
         raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
     row = _clean_payload(payload, config["allowed"], {})
+    if catalogo == "clientes":
+        row = _expand_client_contact_metadata(row)
     if catalogo == "operadores":
         row = _expand_operator_vehicle_assignment(row)
     if catalogo == "vehiculos":
@@ -2503,7 +2564,9 @@ def _normalize_permiso_row(row: dict[str, Any]) -> dict[str, Any]:
     item = dict(row or {})
     metadata = _parse_json_value(item.get("metadata"), {})
     item["tipo"] = _first_text(item.get("tipo"), metadata.get("tipo"), "Proveedor")
-    item["producto"] = _first_text(item.get("producto"), metadata.get("producto"))
+    item["familias_producto"] = _parse_json_value(item.get("familias_producto"), metadata.get("familias_producto") or [])
+    item["productos_permitidos"] = _parse_json_value(item.get("productos_permitidos"), metadata.get("productos_permitidos") or [])
+    item["producto"] = _producto_permiso_label(_first_text(item.get("producto"), metadata.get("producto"), (item["familias_producto"] or [""])[0]))
     item["permiso_cre"] = _first_text(item.get("permiso_cre"), metadata.get("permiso_cre"), metadata.get("permiso"), item.get("permiso"))
     item["permiso_almacenamiento_terminal"] = _first_text(
         item.get("permiso_almacenamiento_terminal"),
@@ -2544,6 +2607,8 @@ def _normalize_producto_value(value: Any) -> str:
         .replace(".", "")
     )
     compact = re.sub(r"\s+", "", text)
+    if "PETROLIF" in compact:
+        return "PETROLIFEROS"
     if ("GAS" in compact and "LP" in compact) or "GASLICUADODEPETROLEO" in compact:
         return "GASLP"
     if "DIESEL" in compact:
@@ -2553,6 +2618,51 @@ def _normalize_producto_value(value: Any) -> str:
     if "PREMIUM" in compact:
         return "PREMIUM"
     return compact
+
+
+def _producto_permiso_family(value: Any) -> str:
+    norm = _normalize_producto_value(value)
+    if norm == "GASLP":
+        return "gas_lp"
+    if norm in {"MAGNA", "PREMIUM", "DIESEL", "PETROLIFEROS", "GASOLINA", "GASOLINAS"}:
+        return "petroliferos"
+    return norm.lower() if norm else ""
+
+
+def _producto_permiso_label(value: Any) -> str:
+    family = _producto_permiso_family(value)
+    if family == "gas_lp":
+        return "Gas LP"
+    if family == "petroliferos":
+        return "Petrolíferos"
+    return _first_text(value)
+
+
+def _permiso_product_family_match(row: dict[str, Any], producto_text: Any) -> bool:
+    target_family = _producto_permiso_family(producto_text)
+    target_norm = _normalize_producto_value(producto_text)
+    if not target_family and not target_norm:
+        return False
+    metadata = _parse_json_value(row.get("metadata"), {})
+    familias = _parse_json_value(row.get("familias_producto"), [])
+    productos = _parse_json_value(row.get("productos_permitidos"), [])
+    if isinstance(metadata, dict):
+        familias = familias or _parse_json_value(metadata.get("familias_producto"), [])
+        productos = productos or _parse_json_value(metadata.get("productos_permitidos"), [])
+    if isinstance(familias, str):
+        familias = [familias]
+    if isinstance(productos, str):
+        productos = [productos]
+    family_norms = {_producto_permiso_family(value) for value in (familias or []) if _first_text(value)}
+    product_norms = {_normalize_producto_value(value) for value in (productos or []) if _first_text(value)}
+    row_family = _producto_permiso_family(row.get("producto"))
+    row_product = _normalize_producto_value(row.get("producto"))
+    return (
+        bool(target_family and target_family in family_norms)
+        or bool(target_norm and target_norm in product_norms)
+        or bool(target_family and target_family == row_family)
+        or bool(target_norm and target_norm == row_product)
+    )
 
 
 def _resolve_client_match(client_rows: list[dict[str, Any]], detected: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -2656,7 +2766,8 @@ def _permiso_payload(data: dict[str, Any], settings: Optional[dict[str, Any]] = 
         raise HTTPException(400, "RFC inválido o faltante en Configuración. Guarda el RFC del contribuyente antes de registrar el permiso.")
     nombre = str(data.get("nombre") or fiscal.get("nombre_fiscal") or "").strip()
     tipo = str(data.get("tipo") or "Transportista").strip()
-    producto = str(data.get("producto") or "").strip()
+    producto = _producto_permiso_label(data.get("producto") or "")
+    producto_family = _producto_permiso_family(producto)
     permiso_cre = str(data.get("permiso_cre") or data.get("permiso") or "").strip()
     if not nombre or not tipo or not producto or not permiso_cre:
         raise HTTPException(400, "Faltan campos requeridos: producto, permiso CRE o nombre fiscal en Configuración.")
@@ -2664,6 +2775,8 @@ def _permiso_payload(data: dict[str, Any], settings: Optional[dict[str, Any]] = 
     metadata.update({
         "tipo": tipo,
         "producto": producto,
+        "familias_producto": [producto_family] if producto_family else [],
+        "productos_permitidos": ["Magna", "Premium", "Diésel"] if producto_family == "petroliferos" else [producto],
         "permiso_cre": permiso_cre,
         "permiso_almacenamiento_terminal": str(data.get("permiso_almacenamiento_terminal") or "").strip(),
     })
@@ -2716,7 +2829,14 @@ def _lookup_permiso_rfc(token: str, uid: str, pid: Optional[int], detected: dict
         }
     permiso_norm = _normalize_permiso_value(permiso_detectado)
     producto_norm = _normalize_producto_value(producto_detectado)
-    exact = next((row for row in normalized if permiso_norm and _normalize_permiso_value(row.get("permiso_cre")) == permiso_norm), None)
+    exact = next((
+        row for row in normalized
+        if permiso_norm
+        and _normalize_permiso_value(row.get("permiso_cre")) == permiso_norm
+        and (not producto_norm or _permiso_product_family_match(row, producto_detectado))
+    ), None)
+    if not exact:
+        exact = next((row for row in normalized if permiso_norm and _normalize_permiso_value(row.get("permiso_cre")) == permiso_norm), None)
     if exact:
         return {"status": "registrado", "message": "Permiso registrado.", "item": exact}
     if not permiso_norm:
@@ -2946,20 +3066,29 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
     return {
         "user_id": uid,
         "perfil_id": pid,
+        "cliente_id": payload.cliente_id,
         "chofer_id": chofer_id,
+        "operador_id": chofer_id,
         "vehiculo_id": vehiculo_id,
         "ruta_id": payload.ruta_id,
         "origen_id": ruta.get("origen_id") if ruta else None,
         "destino_id": ruta.get("destino_id") if ruta else None,
         "producto_operacion_id": payload.producto_id,
+        "producto_id": payload.producto_id,
         "cp_origen": cp_origen,
         "nombre_origen": origen,
+        "origen": origen,
         "cp_destino": cp_destino,
         "nombre_destino": destino,
+        "destino": destino,
         "fecha_hora_salida": fecha_salida,
         "fecha_hora_llegada": payload.fecha_llegada_estimada or None,
+        "fecha_salida": fecha_salida,
+        "fecha_llegada_estimada": payload.fecha_llegada_estimada or None,
         "productos_json": json.dumps(productos_json, ensure_ascii=False),
         "volumen_total_litros": volumen,
+        "volumen_litros": volumen,
+        "peso_kg": peso_kg,
         "tipo_cfdi": tipo_cfdi,
         "tarifa_id": tarifa_calc.get("tarifa_id"),
         "subtotal_flete": tarifa_calc.get("subtotal_flete", 0),
@@ -2972,6 +3101,7 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "distancia_km": _num(ruta.get("distancia_km")) or 1,
         "duracion_estimada_min": int(_num(ruta.get("duracion_estimada_min")) or 0),
         "status": _first_text(payload.estatus, "asignado") if _first_text(payload.estatus).lower() not in {"borrador", "draft"} else "asignado",
+        "estatus": _first_text(payload.estatus, "asignado") if _first_text(payload.estatus).lower() not in {"borrador", "draft"} else "asignado",
         "operacion_status": "asignado",
         "carta_porte_status": "pendiente",
         "factura_status": "pendiente",
@@ -2979,6 +3109,7 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "documentos_status": "pendiente",
         "observaciones": payload.observaciones.strip(),
         "defaults_json": metadata,
+        "metadata": metadata,
         "updated_at": _now_iso(),
     }
 
@@ -3344,7 +3475,7 @@ def _stamp_transportista_permiso(sb: Any, uid: str, pid: Optional[int], producto
         if _normalize_producto_value(row.get("tipo")) in transportista_tipos
         and _normalize_permiso_value(row.get("permiso_cre"))
     ]
-    exact = next((row for row in candidates if product_norm and _normalize_producto_value(row.get("producto")) == product_norm), None)
+    exact = next((row for row in candidates if product_norm and _permiso_product_family_match(row, producto_text)), None)
     if exact:
         return exact
     if not product_norm and len(candidates) == 1:
