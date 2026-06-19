@@ -378,12 +378,10 @@ def _build_carta_porte(
     ]
 
     carta_porte: dict = {
-        "@xmlns:cartaporte31":  NS_CP31,
-        "@xsi:schemaLocation":  f"{NS_CP31} {SCHEMA_CP31}",
-        "@Version":             "3.1",
-        "@IdCCP":               id_ccp,
-        "@TranspInternac":      "No",
-        "@TotalDistRec":        _smart_round(distancia, 1),
+        "Version":             "3.1",
+        "IdCCP":               id_ccp,
+        "TranspInternac":      "No",
+        "TotalDistRec":        _smart_round(distancia, 1),
         "Ubicaciones":          {"Ubicacion": ubicaciones},
         "Mercancias":           mercancias,
         "FiguraTransporte":     {"TiposFigura": figuras},
@@ -491,6 +489,9 @@ def build_cfdi_transporte(
 
     # ── Nodo Comprobante raíz ──────────────────────────────────────────────────
     cfdi: dict = {
+        "xmlns:cartaporte31": NS_CP31,
+        "xmlns:xsi":          "http://www.w3.org/2001/XMLSchema-instance",
+        "xsi:schemaLocation": f"http://www.sat.gob.mx/cfd/4 {SCHEMA_CFDI40} {NS_CP31} {SCHEMA_CP31}",
         "Version":            "4.0",
         "Serie":              "TR",
         "Folio":              ccp[:8].upper(),
