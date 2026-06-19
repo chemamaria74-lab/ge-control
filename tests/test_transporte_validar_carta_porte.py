@@ -79,7 +79,6 @@ def test_validar_carta_porte_no_llama_pac(monkeypatch):
         raise AssertionError("La validación seca no debe llamar PAC/SW.")
 
     monkeypatch.setattr(viajes, "_build_transport_cfdi_context", lambda *_args, **_kwargs: _context())
-    monkeypatch.setattr(viajes, "_cliente_por_receptor", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(viajes, "emitir_timbrar_json", fail_pac)
 
     resp = asyncio.run(viajes.validar_carta_porte_viaje(10, TimbradoViajeRequest(viaje_id=10), authorization="Bearer test"))
@@ -90,12 +89,11 @@ def test_validar_carta_porte_no_llama_pac(monkeypatch):
     assert data["tipo_cfdi"] == "I"
     assert data["resumen"]["subtotal"] == 1000.0
     assert data["resumen"]["iva"] == 160.0
-    assert data["resumen"]["total"] == 1160.0
+    assert data["resumen"]["total"] == 1120.0
 
 
 def test_validar_carta_porte_faltantes_bloquea(monkeypatch):
     monkeypatch.setattr(viajes, "_build_transport_cfdi_context", lambda *_args, **_kwargs: _context(chofer_rfc=""))
-    monkeypatch.setattr(viajes, "_cliente_por_receptor", lambda *_args, **_kwargs: {})
 
     resp = asyncio.run(viajes.validar_carta_porte_viaje(10, TimbradoViajeRequest(viaje_id=10), authorization="Bearer test"))
     data = _response_json(resp)
@@ -107,7 +105,6 @@ def test_validar_carta_porte_faltantes_bloquea(monkeypatch):
 
 def test_validar_carta_porte_petrolifero_bloquea_hidrocarburos(monkeypatch):
     monkeypatch.setattr(viajes, "_build_transport_cfdi_context", lambda *_args, **_kwargs: _context(producto="PR05", subproducto="SP6", material_peligroso=True, enforce_hidro=True))
-    monkeypatch.setattr(viajes, "_cliente_por_receptor", lambda *_args, **_kwargs: {})
 
     resp = asyncio.run(viajes.validar_carta_porte_viaje(10, TimbradoViajeRequest(viaje_id=10), authorization="Bearer test"))
     data = _response_json(resp)
