@@ -71,3 +71,42 @@ def test_operator_cannot_access_carta_porte_xml():
 
     assert exc.value.status_code == 403
     assert "solo puede consultar el PDF" in str(exc.value.detail)
+
+
+def test_tolerant_trip_insert_retries_without_missing_optional_column():
+    class FakeExecute:
+        def __init__(self, table):
+            self.table = table
+
+        def execute(self):
+            self.table.calls += 1
+            if self.table.calls == 1:
+                raise Exception("Could not find the 'factura_status' column of 'tr_viajes' in the schema cache")
+            return type("Result", (), {"data": [dict(self.table.last_row, id=7)]})()
+
+    class FakeTable:
+        def __init__(self):
+            self.calls = 0
+            self.last_row = {}
+
+        def insert(self, row):
+            self.last_row = dict(row)
+            return FakeExecute(self)
+
+    class FakeSupabase:
+        def __init__(self):
+            self.table_obj = FakeTable()
+
+        def table(self, name):
+            assert name == transporte_v2.TBL_VIAJES
+            return self.table_obj
+
+    sb = FakeSupabase()
+    inserted = transporte_v2._insert_table_row_tolerant(sb, transporte_v2.TBL_VIAJES, {
+        "user_id": "u1",
+        "status": "asignado",
+        "factura_status": "pendiente",
+    })
+
+    assert inserted[0]["id"] == 7
+    assert "factura_status" not in sb.table_obj.last_row
