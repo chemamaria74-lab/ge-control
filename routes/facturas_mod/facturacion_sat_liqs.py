@@ -1,4 +1,6 @@
 from .core import *
+from fastapi import File, Form, UploadFile
+from models.transport_schemas import FacturaServicioCreate
 
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
@@ -253,8 +255,8 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                 sb.table(_TBL_VIAJES).update({
                     "factura_servicio_status": "timbrada",
                     "factura_servicio_uuid": sw_data.get("uuid", ""),
-                    "factura_servicio_pdf_url": f"/api/tr/facturas-servicio/{factura_id}/pdf?download=true",
-                    "factura_servicio_xml_url": f"/api/tr/facturas-servicio/{factura_id}/xml",
+                    "factura_servicio_pdf_url": f"/api/tr-v2/facturas-servicio/{factura_id}/pdf?download=true",
+                    "factura_servicio_xml_url": f"/api/tr-v2/facturas-servicio/{factura_id}/xml",
                 }).eq("id", int(vid)).eq("user_id", uid).execute()
             except Exception as exc:
                 logger.info("Columnas separadas factura servicio aun no disponibles viaje=%s: %s", vid, exc)
