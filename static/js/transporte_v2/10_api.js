@@ -103,9 +103,21 @@ function trv2Toast(message, type = 'info') {
   if (!area) return;
   const el = document.createElement('div');
   el.className = `toast ${type}`;
-  el.textContent = message;
+  el.textContent = trv2MessageText(message);
   area.appendChild(el);
   setTimeout(() => el.remove(), 4200);
+}
+
+function trv2MessageText(message) {
+  if (message === null || message === undefined) return '';
+  if (typeof message === 'string') return message;
+  if (Array.isArray(message)) return message.map(trv2MessageText).filter(Boolean).join(' · ');
+  if (typeof message === 'object') {
+    const direct = message.message || message.detail || message.error;
+    const errors = Array.isArray(message.errors) ? message.errors.map(trv2MessageText).filter(Boolean).join(' · ') : '';
+    return [direct ? trv2MessageText(direct) : '', errors].filter(Boolean).join(' · ') || JSON.stringify(message);
+  }
+  return String(message);
 }
 
 function trv2Esc(value) {
@@ -145,7 +157,7 @@ async function trv2Api(method, path, body, options = {}) {
       return fallback;
     }
     if (!response.ok && !options.allowError) {
-      throw new Error(data.detail || data.message || `HTTP ${response.status}`);
+      throw new Error(trv2MessageText(data.detail || data.message || `HTTP ${response.status}`));
     }
     return data;
   } catch (err) {
