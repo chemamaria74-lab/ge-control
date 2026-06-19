@@ -113,16 +113,26 @@ def _internal_session(token_plain: str, section: str | None = None) -> dict:
     session = rows[0]
     if section and (session.get("section") or "") != section:
         raise HTTPException(403, "Sesión no corresponde a este módulo.")
-    try:
-        expires_at = datetime.fromisoformat(str(session.get("expires_at")).replace("Z", "+00:00"))
-    except Exception:
-        raise HTTPException(401, "Sesión inválida o expirada.")
-    if expires_at <= _now():
-        raise HTTPException(401, "Sesión expirada.")
+    is_operator = (session.get("role") or "").lower() == "operador"
+    if not is_operator:
+        try:
+            expires_at = datetime.fromisoformat(str(session.get("expires_at")).replace("Z", "+00:00"))
+        except Exception:
+            raise HTTPException(401, "Sesión inválida o expirada.")
+        if expires_at <= _now():
+            raise HTTPException(401, "Sesión expirada.")
     user = session.get("internal_users") or {}
     if (user.get("status") or "active") != "active":
         raise HTTPException(403, "Usuario interno inactivo.")
     _validate_internal_scope(user)
+    if not is_operator:
+        refreshed_expires_at = _now() + timedelta(hours=SESSION_HOURS)
+        try:
+            sb.table("internal_user_sessions").update({"expires_at": refreshed_expires_at.isoformat()}).eq("id", session["id"]).execute()
+            sb.table("internal_users").update({"last_access_at": _now_iso()}).eq("id", user["id"]).execute()
+            session["expires_at"] = refreshed_expires_at.isoformat()
+        except Exception:
+            pass
     return {"session": session, "user": user}
 
 
@@ -317,6 +327,7 @@ async def internal_login(payload: InternalLogin):
         raise HTTPException(401, "Usuario o contraseña incorrectos.")
 
     session_token = secrets.token_urlsafe(32)
+    is_operator = (user.get("role") or "").lower() == "operador"
     expires_at = _now() + timedelta(hours=SESSION_HOURS)
     sb.table("internal_user_sessions").insert({
         "internal_user_id": user["id"],
@@ -325,7 +336,7 @@ async def internal_login(payload: InternalLogin):
         "section": user.get("section"),
         "role": user.get("role"),
         "token_hash": _hash_token(session_token),
-        "expires_at": expires_at.isoformat(),
+        "expires_at": None if is_operator else expires_at.isoformat(),
         "created_at": _now_iso(),
     }).execute()
     sb.table("internal_users").update({
@@ -339,7 +350,7 @@ async def internal_login(payload: InternalLogin):
     result = {
         "ok": True,
         "token": session_token,
-        "expires_at": expires_at.isoformat(),
+        "expires_at": None if is_operator else expires_at.isoformat(),
         "section": user.get("section"),
         "role": user.get("role"),
         "perfil_id": user.get("perfil_id"),
@@ -355,7 +366,7 @@ async def internal_login(payload: InternalLogin):
             "chofer_id": user.get("chofer_id"),
             "token_hash": _hash_token(operator_token),
             "status": "activo",
-            "expires_at": expires_at.isoformat(),
+            "expires_at": None,
         }).execute()
         result["operator_url"] = f"/operador/transporte?token={operator_token}"
     return JSONResponse(result)
@@ -380,12 +391,15 @@ async def internal_me(token: str, section: str | None = None):
 
 @router.post("/internal-auth/logout")
 async def internal_logout(payload: InternalLogout):
+    revoked = False
     if payload.token:
         try:
-            get_supabase_admin().table("internal_user_sessions").delete().eq("token_hash", _hash_token(payload.token)).execute()
+            result = get_supabase_admin().table("internal_user_sessions").delete().eq("token_hash", _hash_token(payload.token)).execute()
+            revoked = bool(getattr(result, "data", None))
         except Exception as e:
             logger.warning("internal logout failed: %s", e)
-    return JSONResponse({"ok": True})
+            raise HTTPException(502, "No fue posible cerrar la sesión interna.")
+    return JSONResponse({"ok": True, "revoked": revoked})
 
 
 @router.get("/internal-auth/gas-lp/summary")
