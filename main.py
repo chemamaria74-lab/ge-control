@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from routes.upload      import router as upload_router
 from routes.cfdi        import router as cfdi_router
 from routes.transporte_v2 import router as transporte_v2_router
+from routes.transporte_v2_facturas_servicio import router as transporte_v2_facturas_servicio_router
 from routes.settings    import router as settings_router
 from routes.auth        import router as auth_router
 from routes.history     import router as history_router
@@ -273,6 +274,7 @@ app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
 app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
 app.include_router(internal_users_router, prefix="/api", tags=["Usuarios internos"])
 app.include_router(transporte_v2_router, prefix="/api", tags=["Transporte v2"])
+app.include_router(transporte_v2_facturas_servicio_router, prefix="/api", tags=["Transporte v2"])
 
 # ── Archivos estáticos ────────────────────────────────────────────────────────
 app.mount(
