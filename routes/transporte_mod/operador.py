@@ -80,7 +80,7 @@ async def operador_viajes(token: str = Query(...)):
     cfdis = []
     ids = [int(v["id"]) for v in viajes if v.get("id")]
     if ids:
-        cfdis = sb.table(_TBL_CFDI).select("viaje_id,uuid_sat,id_ccp,status").eq("user_id", acc["user_id"]).in_("viaje_id", ids).execute().data or []
+        cfdis = sb.table(_TBL_CFDI).select("viaje_id,uuid_sat,id_ccp,status").eq("user_id", acc["user_id"]).eq("status", "Vigente").in_("viaje_id", ids).execute().data or []
     cfdi_map = {int(c.get("viaje_id")): c for c in cfdis if c.get("viaje_id")}
     for v in viajes:
         v["productos"] = _productos_from_row(v)
@@ -223,6 +223,7 @@ async def operador_pdf_carta_porte(viaje_id: int, token: str = Query(...), downl
         .eq("user_id", acc["user_id"])
         .eq("perfil_id", acc["perfil_id"])
         .eq("viaje_id", viaje_id)
+        .eq("status", "Vigente")
         .order("fecha_timbrado", desc=True)
         .limit(1)
         .execute()
@@ -278,6 +279,7 @@ async def operador_xml_carta_porte(viaje_id: int, token: str = Query(...), downl
         .eq("user_id", acc["user_id"])
         .eq("perfil_id", acc["perfil_id"])
         .eq("viaje_id", viaje_id)
+        .eq("status", "Vigente")
         .order("fecha_timbrado", desc=True)
         .limit(1)
         .execute()
@@ -314,7 +316,7 @@ async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...
     if not viaje_rows:
         raise HTTPException(404, "Viaje no encontrado para este operador.")
     docs: list[dict] = []
-    cfdi_rows = sb.table(_TBL_CFDI).select("uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("viaje_id", viaje_id).order("fecha_timbrado", desc=True).limit(1).execute().data or []
+    cfdi_rows = sb.table(_TBL_CFDI).select("uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("viaje_id", viaje_id).eq("status", "Vigente").order("fecha_timbrado", desc=True).limit(1).execute().data or []
     if cfdi_rows and cfdi_rows[0].get("xml_content"):
         docs.extend([
             {"tipo": "carta_porte_pdf", "label": "PDF Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/pdf?token={token}", "status": cfdi_rows[0].get("status")},
@@ -409,5 +411,4 @@ async def operador_documento_storage(viaje_id: int, documento_id: int, token: st
         media_type=doc.get("mime_type") or "application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{doc.get("nombre") or "documento"}"'},
     )
-
 
