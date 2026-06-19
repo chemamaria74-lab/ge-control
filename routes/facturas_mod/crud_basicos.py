@@ -393,7 +393,7 @@ _CATALOGOS_OPERATIVOS = {
     "centros-emisores": {
         "table": _TBL_CENTROS,
         "return_key": "centros",
-        "fields": {"nombre", "rfc", "cp", "regimen_fiscal", "serie_cfdi", "serie_factura_servicio", "metadata", "activo"},
+        "fields": {"nombre", "rfc", "cp", "regimen_fiscal", "uso_cfdi", "email", "email_facturacion", "serie_cfdi", "serie_factura_servicio", "metadata", "activo"},
         "order": "nombre",
     },
     "remolques": {
@@ -439,4 +439,3 @@ _CATALOGOS_OPERATIVOS = {
         "order": "nombre",
     },
 }
-

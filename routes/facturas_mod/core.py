@@ -48,6 +48,7 @@ from services.fiscal_pdf import (
 )
 from services.fiscal_audit import version_xml
 from services.cfdi_cancellation import cancel_cfdi_universal
+from services.email_delivery import send_gas_lp_invoice_email
 from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
 from services.carta_porte_validation import validar_xml_carta_porte_transporte
 from supabase_config import get_supabase_admin
