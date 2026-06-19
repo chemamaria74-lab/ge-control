@@ -320,7 +320,6 @@ async def crear_acceso_operador(payload: dict, authorization: str = Header(defau
     if chofer_rows[0].get("activo") is False:
         raise HTTPException(400, "No puedes generar acceso para un chofer inactivo.")
     token_plain = secrets.token_urlsafe(24)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
     try:
         _sb(token).table(_TBL_OPER_ACC).update({
             "status": "reemplazado",
@@ -333,8 +332,7 @@ async def crear_acceso_operador(payload: dict, authorization: str = Header(defau
         "chofer_id": chofer_id,
         "token_hash": _hash_operator_token(token_plain),
         "status": "activo",
-        "expires_at": expires_at.isoformat(),
+        "expires_at": None,
     }).execute()
     return JSONResponse({"ok": True, "token": token_plain, "url": f"/operador/transporte?token={token_plain}"})
-
 

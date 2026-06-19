@@ -8,20 +8,6 @@ def _operador_context(token_plain: str):
     acc = rows[0]
     if not acc.get("perfil_id") or not acc.get("chofer_id") or not acc.get("user_id"):
         raise HTTPException(403, "Acceso de operador incompleto. Requiere regenerar el link.")
-    expires_at = acc.get("expires_at")
-    if expires_at:
-        try:
-            exp = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
-            if exp <= datetime.now(timezone.utc):
-                try:
-                    sb.table(_TBL_OPER_ACC).update({"status": "expirado"}).eq("id", acc["id"]).execute()
-                except Exception:
-                    pass
-                raise HTTPException(401, "Acceso de operador expirado.")
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(401, "Acceso de operador inválido.")
     chofer_rows = (
         sb.table(_TBL_CHOFERES)
         .select("id,perfil_id,activo")

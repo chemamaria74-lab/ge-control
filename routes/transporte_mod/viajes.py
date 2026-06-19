@@ -1,5 +1,9 @@
 from .core import *
 
+from services.carta_porte_validation import requiere_complemento_hidrocarburos
+from services.sw_sapien import emitir_timbrar_json
+from services.transport_builder import build_cfdi_transporte
+
 @router.get("/tr/catalogo/productos")
 async def get_catalogo_productos(authorization: str = Header(default="")):
     """Lista todos los productos del catálogo SAT para transporte."""
@@ -244,6 +248,296 @@ async def detalle_viaje(viaje_id: int, authorization: str = Header(default="")):
         raise
     except Exception as e:
         raise HTTPException(500, f"Error al obtener viaje: {e}")
+
+
+def _build_transport_cfdi_context(
+    viaje_id: int,
+    payload: TimbradoViajeRequest,
+    authorization: str,
+    *,
+    validate_emisor: bool = True,
+) -> dict:
+    """Carga los mismos datos base que timbrar, sin llamar PAC ni escribir CFDI."""
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+    try:
+        res = sb.table(_TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).limit(1).execute()
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(404, f"Viaje {viaje_id} no encontrado.")
+        viaje_row = rows[0]
+        _require_row_profile(uid, token, viaje_row)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Error al obtener viaje: {e}")
+
+    chofer = _get_chofer(uid, token, viaje_row["chofer_id"])
+    try:
+        productos_raw = json.loads(viaje_row.get("productos_json") or "[]")
+        productos = [ProductoTransporte(**p) for p in productos_raw]
+    except Exception as e:
+        raise HTTPException(400, f"Productos del viaje inválidos: {e}")
+
+    primer_producto_nombre = (productos_raw[0].get("descripcion") or productos_raw[0].get("clave_producto") or "") if productos_raw else ""
+    vehiculo = _enriquecer_vehiculo_operativo(
+        uid,
+        token,
+        _get_vehiculo(uid, token, viaje_row["vehiculo_id"]),
+        viaje_row.get("perfil_id"),
+        primer_producto_nombre,
+    )
+    settings = _settings_transporte(uid, token, viaje_row.get("perfil_id"))
+
+    regimen_emisor = (payload.regimen_fiscal_emisor or settings.get("RegimenFiscal") or "").strip()
+    if validate_emisor:
+        if not settings.get("RfcContribuyente"):
+            raise HTTPException(400, "Configura el RFC del contribuyente en Ajustes del módulo Transporte.")
+        _validar_regimen_para_rfc(settings.get("RfcContribuyente", ""), regimen_emisor, "emisor")
+
+    emisor = {
+        "rfc": settings.get("RfcContribuyente", ""),
+        "nombre": settings.get("DescripcionInstalacion", ""),
+        "regimen_fiscal": regimen_emisor,
+        "domicilio_fiscal": settings.get("CodigoPostal", "20000"),
+        "num_permiso_cne": viaje_row.get("num_permiso_cne") or settings.get("NumPermiso", ""),
+    }
+    receptor_cfdi = _normalizar_receptor_cfdi(
+        viaje_row.get("rfc_receptor", ""),
+        viaje_row.get("nombre_receptor", ""),
+        viaje_row.get("cp_receptor", "20000"),
+        viaje_row.get("regimen_fiscal_receptor", "601"),
+    )
+    viaje_obj = ViajeCreate(
+        chofer_id=viaje_row["chofer_id"],
+        vehiculo_id=viaje_row["vehiculo_id"],
+        ruta_id=viaje_row.get("ruta_id"),
+        cp_origen=viaje_row.get("cp_origen", ""),
+        nombre_origen=viaje_row.get("nombre_origen", ""),
+        cp_destino=viaje_row.get("cp_destino", ""),
+        nombre_destino=viaje_row.get("nombre_destino", ""),
+        fecha_hora_salida=viaje_row["fecha_hora_salida"],
+        fecha_hora_llegada=viaje_row.get("fecha_hora_llegada"),
+        productos=productos,
+        tipo_cfdi=payload.tipo_cfdi or viaje_row.get("tipo_cfdi", "T"),
+        rfc_receptor=receptor_cfdi["rfc"],
+        nombre_receptor=receptor_cfdi["nombre"],
+        cp_receptor=receptor_cfdi["cp"] or "20000",
+        regimen_fiscal_receptor=receptor_cfdi["regimen_fiscal"] or "601",
+        uso_cfdi=viaje_row.get("uso_cfdi", "S01"),
+        num_permiso_cne=viaje_row.get("num_permiso_cne", ""),
+        distancia_km=float(viaje_row.get("distancia_km") or 1.0),
+    )
+    return {
+        "uid": uid,
+        "token": token,
+        "sb": sb,
+        "viaje_row": viaje_row,
+        "viaje_obj": viaje_obj,
+        "chofer": chofer,
+        "vehiculo": vehiculo,
+        "settings": settings,
+        "emisor": emisor,
+        "productos": productos,
+        "productos_dicts": [p.model_dump() for p in productos],
+        "enforce_hidro": bool(settings.get("ValidarComplementoHidrocarburos", True)),
+    }
+
+
+def _vehiculo_metadata(vehiculo: dict) -> dict:
+    return vehiculo.get("metadata") if isinstance(vehiculo.get("metadata"), dict) else {}
+
+
+def _has_seguro_operacion(vehiculo: dict, needle: str) -> bool:
+    needle = needle.lower()
+    for seguro in vehiculo.get("seguros_operacion") or []:
+        tipo = str(seguro.get("tipo") or "").lower()
+        if needle in tipo and (seguro.get("aseguradora") or seguro.get("aseguradora_medio_ambiente")) and (seguro.get("poliza") or seguro.get("poliza_medio_ambiente")):
+            return True
+    return False
+
+
+def _context_has_material_peligroso(context: dict) -> bool:
+    return any(bool(getattr(p, "material_peligroso", False)) for p in context["productos"])
+
+
+def _resumen_carta_porte_transporte(context: dict, cfdi_dict: Optional[dict] = None) -> dict:
+    viaje = context["viaje_obj"]
+    vehiculo = context["vehiculo"]
+    chofer = context["chofer"]
+    productos = context["productos"]
+    return {
+        "cliente": viaje.nombre_receptor or "",
+        "rfc_cliente": viaje.rfc_receptor or "",
+        "origen": viaje.nombre_origen or viaje.cp_origen,
+        "destino": viaje.nombre_destino or viaje.cp_destino,
+        "distancia_km": viaje.distancia_km,
+        "vehiculo": " / ".join(x for x in [str(vehiculo.get("alias") or vehiculo.get("numero_economico") or "").strip(), str(vehiculo.get("placas") or "").strip()] if x),
+        "chofer": chofer.get("nombre") or "",
+        "mercancias": [getattr(p, "descripcion", "") or getattr(p, "clave_producto", "") for p in productos],
+        "tipo_cfdi": viaje.tipo_cfdi,
+        "subtotal": float((cfdi_dict or {}).get("SubTotal") or 0),
+        "iva": float(((cfdi_dict or {}).get("Impuestos") or {}).get("TotalImpuestosTrasladados") or 0),
+        "total": float((cfdi_dict or {}).get("Total") or 0),
+    }
+
+
+def _validar_contexto_carta_porte_transporte(context: dict, cfdi_dict: Optional[dict] = None) -> dict:
+    faltantes: list[str] = []
+    advertencias: list[str] = []
+    checklist: list[dict] = []
+
+    def req(label: str, ok: bool, message: str):
+        checklist.append({"item": label, "ok": bool(ok), "mensaje": "" if ok else message})
+        if not ok:
+            faltantes.append(message)
+
+    viaje = context["viaje_obj"]
+    chofer = context["chofer"]
+    vehiculo = context["vehiculo"]
+    emisor = context["emisor"]
+    productos = context["productos"]
+    cfdi_dict = cfdi_dict or {}
+    tipo_cfdi = viaje.tipo_cfdi
+    md = _vehiculo_metadata(vehiculo)
+
+    req("Tipo CFDI", tipo_cfdi in {"I", "T"}, "Tipo CFDI debe ser I o T.")
+    req("RFC emisor", bool(emisor.get("rfc")), "Configura RFC del contribuyente en Transporte.")
+    req("Nombre emisor", bool(emisor.get("nombre")), "Configura nombre/razón social del contribuyente.")
+    req("Régimen emisor", bool(emisor.get("regimen_fiscal")), "Configura régimen fiscal del contribuyente.")
+    req("Lugar expedición", bool(emisor.get("domicilio_fiscal")), "Configura código postal fiscal del contribuyente.")
+
+    subtotal = float(cfdi_dict.get("SubTotal") or 0)
+    total = float(cfdi_dict.get("Total") or 0)
+    moneda = str(cfdi_dict.get("Moneda") or "")
+    conceptos = cfdi_dict.get("Conceptos") or []
+    if tipo_cfdi == "I":
+        req("Receptor cliente", bool(viaje.rfc_receptor and viaje.nombre_receptor), "CFDI Ingreso requiere receptor cliente con RFC y nombre.")
+        req("CP receptor", bool(viaje.cp_receptor), "CFDI Ingreso requiere código postal del receptor.")
+        req("Régimen receptor", bool(viaje.regimen_fiscal_receptor), "CFDI Ingreso requiere régimen fiscal del receptor.")
+        req("Uso CFDI", bool(viaje.uso_cfdi), "CFDI Ingreso requiere Uso CFDI.")
+        req("Subtotal", subtotal > 0, "CFDI Ingreso requiere subtotal mayor a 0.")
+        req("Total", total > 0, "CFDI Ingreso requiere total mayor a 0.")
+        req("Concepto servicio", bool(conceptos and conceptos[0].get("ClaveProdServ") == "78101800"), "CFDI Ingreso requiere concepto de servicio de transporte 78101800.")
+    elif tipo_cfdi == "T":
+        req("Subtotal traslado", subtotal == 0, "CFDI Traslado debe llevar subtotal 0.")
+        req("Total traslado", total == 0, "CFDI Traslado debe llevar total 0.")
+        req("Moneda traslado", moneda == "XXX", "CFDI Traslado debe llevar moneda XXX.")
+
+    req("Origen", bool(viaje.nombre_origen or viaje.cp_origen), "Carta Porte requiere origen.")
+    req("Destino", bool(viaje.nombre_destino or viaje.cp_destino), "Carta Porte requiere destino.")
+    req("CP origen", bool(viaje.cp_origen), "Carta Porte requiere CP origen.")
+    req("CP destino", bool(viaje.cp_destino), "Carta Porte requiere CP destino.")
+    req("Distancia", float(viaje.distancia_km or 0) > 0, "Carta Porte requiere distancia mayor a 0.")
+    req("Fecha salida", bool(viaje.fecha_hora_salida), "Carta Porte requiere fecha de salida.")
+    req("Fecha llegada", bool(viaje.fecha_hora_llegada or viaje.duracion_estimada_min), "Carta Porte requiere fecha de llegada o duración estimada.")
+
+    req("Placas", bool(vehiculo.get("placas")), "Vehículo sin placas.")
+    req("Configuración vehicular", bool(vehiculo.get("config_vehicular")), "Vehículo sin configuración vehicular SAT.")
+    req("Año modelo", bool(vehiculo.get("anio")), "Vehículo sin año modelo.")
+    req("Permiso SCT/SICT", bool(vehiculo.get("permiso_sct")), "Vehículo sin permiso SCT/SICT.")
+    req("Número permiso SCT/SICT", bool(vehiculo.get("num_permiso_sct")), "Vehículo sin número de permiso SCT/SICT.")
+    req("Peso bruto vehicular", float(md.get("peso_bruto_vehicular") or vehiculo.get("peso_bruto_vehicular") or 0) > 0, "Vehículo sin peso bruto vehicular.")
+    resp_ok = bool((vehiculo.get("aseguradora") and vehiculo.get("poliza_seguro")) or _has_seguro_operacion(vehiculo, "responsabilidad"))
+    req("Seguro responsabilidad civil", resp_ok, "Vehículo sin aseguradora/póliza de responsabilidad civil.")
+    if _context_has_material_peligroso(context):
+        amb_ok = bool((md.get("aseguradora_medio_ambiente") and md.get("poliza_medio_ambiente")) or _has_seguro_operacion(vehiculo, "ambient"))
+        req("Seguro medio ambiente", amb_ok, "Mercancía peligrosa requiere aseguradora y póliza de medio ambiente.")
+
+    req("Chofer nombre", bool(chofer.get("nombre")), "Chofer sin nombre.")
+    req("RFC Figura", bool(chofer.get("rfc")), "Chofer sin RFC Figura SAT.")
+    req("Licencia", bool(chofer.get("licencia")), "Chofer sin licencia federal.")
+    tipo_figura = (chofer.get("metadata") or {}).get("tipo_figura_sat") if isinstance(chofer.get("metadata"), dict) else ""
+    req("Tipo figura", (tipo_figura or "01") == "01", "Chofer debe tener TipoFigura SAT 01 Operador.")
+
+    req("Mercancía", bool(productos), "Carta Porte requiere al menos una mercancía.")
+    for idx, prod in enumerate(productos, start=1):
+        label = f"Mercancía {idx}"
+        req(f"{label} producto", bool(prod.clave_producto or prod.clave_prodserv_cfdi), f"{label}: falta producto/BienesTransp.")
+        req(f"{label} descripción", bool(prod.descripcion), f"{label}: falta descripción.")
+        req(f"{label} cantidad", float(prod.volumen_litros or 0) > 0, f"{label}: falta cantidad/volumen.")
+        req(f"{label} unidad", bool(prod.unidad), f"{label}: falta unidad.")
+        req(f"{label} peso", float(prod.volumen_litros or 0) * float(prod.densidad_kg_l or 0) > 0, f"{label}: falta peso/densidad.")
+        if prod.material_peligroso:
+            req(f"{label} clave material peligroso", bool(prod.cve_material_peligroso), f"{label}: falta clave de material peligroso.")
+            req(f"{label} embalaje", bool(prod.embalaje), f"{label}: falta embalaje.")
+
+    hidro_bloqueado = context["enforce_hidro"] and requiere_complemento_hidrocarburos(context["productos_dicts"])
+    motivo_hidro = ""
+    if hidro_bloqueado:
+        motivo_hidro = "Producto petrolífero requiere Complemento Hidrocarburos/Petrolíferos. El payload exacto con SW Sapien aún no está cerrado."
+        advertencias.append(motivo_hidro)
+
+    motivo_bloqueo = ""
+    if faltantes:
+        motivo_bloqueo = "Faltan datos obligatorios para Carta Porte"
+    if hidro_bloqueado:
+        motivo_bloqueo = motivo_hidro
+
+    bloqueado = bool(faltantes or hidro_bloqueado)
+    return {
+        "ok": not bloqueado,
+        "bloqueado": bloqueado,
+        "tipo_cfdi": tipo_cfdi,
+        "checklist": checklist,
+        "faltantes": faltantes,
+        "advertencias": advertencias,
+        "motivo_bloqueo": motivo_bloqueo,
+        "resumen": _resumen_carta_porte_transporte(context, cfdi_dict),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. TIMBRADO
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/tr/viajes/{viaje_id}/validar-carta-porte")
+async def validar_carta_porte_viaje(
+    viaje_id: int,
+    payload: TimbradoViajeRequest,
+    authorization: str = Header(default=""),
+):
+    """Prevalidación seca: construye CFDI en memoria, sin PAC/SW y sin escrituras."""
+    try:
+        context = _build_transport_cfdi_context(viaje_id, payload, authorization, validate_emisor=False)
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({
+            "ok": False,
+            "bloqueado": True,
+            "tipo_cfdi": "",
+            "checklist": [],
+            "faltantes": [str(e)],
+            "advertencias": [],
+            "motivo_bloqueo": "No se pudo reconstruir el contexto de Carta Porte.",
+            "resumen": {},
+        })
+
+    cfdi_dict: dict = {}
+    build_error = ""
+    try:
+        if context["emisor"].get("rfc") and context["emisor"].get("regimen_fiscal"):
+            cfdi_dict, _id_ccp = build_cfdi_transporte(
+                context["viaje_obj"],
+                context["emisor"],
+                context["chofer"],
+                context["vehiculo"],
+            )
+        else:
+            build_error = "Configura RFC y régimen fiscal del emisor para construir el CFDI."
+    except Exception as e:
+        build_error = f"Error al construir CFDI en memoria: {e}"
+
+    result = _validar_contexto_carta_porte_transporte(context, cfdi_dict)
+    if build_error:
+        result["faltantes"].append(build_error)
+        result["checklist"].append({"item": "Construcción CFDI", "ok": False, "mensaje": build_error})
+        result["ok"] = False
+        result["bloqueado"] = True
+        if not result["motivo_bloqueo"]:
+            result["motivo_bloqueo"] = "No se pudo construir el CFDI en memoria."
+    return JSONResponse(result)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -544,4 +838,3 @@ async def cancelar_viaje(
 # ══════════════════════════════════════════════════════════════════════════════
 # 4. FACTURAS (listado y descarga)
 # ══════════════════════════════════════════════════════════════════════════════
-
