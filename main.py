@@ -12,9 +12,7 @@ from pydantic import BaseModel
 
 from routes.upload      import router as upload_router
 from routes.cfdi        import router as cfdi_router
-from routes.transporte  import router as transporte_router
 from routes.transporte_v2 import router as transporte_v2_router
-from routes.transporte_operator_detected import router as transporte_operator_detected_router
 from routes.settings    import router as settings_router
 from routes.auth        import router as auth_router
 from routes.history     import router as history_router
@@ -274,9 +272,7 @@ app.include_router(facturas_router,    prefix="/api", tags=["Facturas"])
 app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
 app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
 app.include_router(internal_users_router, prefix="/api", tags=["Usuarios internos"])
-app.include_router(transporte_router,  prefix="/api", tags=["Transporte"])
 app.include_router(transporte_v2_router, prefix="/api", tags=["Transporte v2"])
-app.include_router(transporte_operator_detected_router, prefix="/api", tags=["Transporte Operador"])
 
 # ── Archivos estáticos ────────────────────────────────────────────────────────
 app.mount(
@@ -476,6 +472,9 @@ async def login_view(modulo: str, request: Request):
 @app.get("/modulo/{modulo}/roles", response_class=HTMLResponse, include_in_schema=False)
 async def module_role_view(modulo: str, lang: str = "es"):
     modulo = modulo.replace("-", "_")
+    if modulo == "transporte":
+        suffix = "?lang=en" if lang == "en" else ""
+        return RedirectResponse(url=f"/transporte-v2/roles{suffix}", status_code=302)
     nombre = "Transporte" if modulo == "transporte" else "Gas LP"
     roles = (
         [("Administrador", "Selecciona empresa y entra al dashboard completo."), ("Operador", "Usa automáticamente la empresa asignada.")]
@@ -567,8 +566,8 @@ async def frontend(lang: str = "es"):
 
 @app.get("/transporte", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_transporte():
-    """Sirve el frontend del módulo de Transporte de Hidrocarburos."""
-    return _render_html_file("transporte.html")
+    """Compatibilidad: el módulo vigente de Transporte es v2."""
+    return RedirectResponse(url="/transporte-v2", status_code=302)
 
 
 @app.get("/transporte-v2", response_class=HTMLResponse, include_in_schema=False)
@@ -1284,14 +1283,14 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
 
 @app.get("/operador/transporte", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_operador_transporte():
-    """Portal movil simple para operadores de Transporte."""
-    return _render_html_file("operador_transporte.html")
+    """Compatibilidad con enlaces anteriores del portal operador."""
+    return RedirectResponse(url="/transporte-v2/login-operador?next=/transporte-v2/operador", status_code=302)
 
 
 @app.get("/transporte/operador", response_class=HTMLResponse, include_in_schema=False)
 async def login_operador_transporte():
-    """Login de operador por codigo/PIN, sin cuenta Supabase Auth."""
-    return _render_html_file("operador_transporte_login.html")
+    """Compatibilidad con el login anterior de operadores."""
+    return RedirectResponse(url="/transporte-v2/login-operador?next=/transporte-v2/operador", status_code=302)
 
 
 @app.get("/gas-lp/asistente", response_class=HTMLResponse, include_in_schema=False)
