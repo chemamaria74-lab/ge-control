@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 
 from services.product_catalog import get_producto, ClaveProdServCFDI
 from services.cne_validator import validar_num_permiso
+from services.carta_porte_permisos import permiso_compatible
 from models.transport_schemas import ViajeCreate, ProductoTransporte
 
 logger = logging.getLogger(__name__)
@@ -244,6 +245,14 @@ def _build_carta_porte(
     peso_total    = round(sum(p.volumen_litros * float(getattr(p, "densidad_kg_l", 0.75) or 0.75) for p in productos), 3)
 
     # ── Autotransporte ────────────────────────────────────────────────────────
+    permiso_configurado = vehiculo.get("permiso_carta_porte")
+    if permiso_configurado and not permiso_compatible(
+        permiso_configurado,
+        vehiculo.get("productos_carta_porte") or [p.model_dump() for p in productos],
+        vehiculo_id=vehiculo.get("id"),
+        emisor_rfc=emisor_rfc,
+    ):
+        raise ValueError("El permiso seleccionado no es compatible con el producto, transportista o vehiculo del viaje.")
     perm_sct    = (vehiculo.get("permiso_sct") or "TPAF01").strip()
     num_perm_sct = (vehiculo.get("num_permiso_sct") or "").strip()
     if not num_perm_sct or num_perm_sct.lower() in {"sin permiso", "s/p", "na", "n/a"}:
