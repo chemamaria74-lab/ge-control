@@ -116,7 +116,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "clientes": {
         "table": TBL_CLIENTES,
         "required": ["nombre", "rfc", "cp"],
-        "allowed": ["nombre", "rfc", "cp", "regimen_fiscal", "uso_cfdi", "activo"],
+        "allowed": ["nombre", "rfc", "cp", "regimen_fiscal", "uso_cfdi", "email", "email_facturacion", "activo"],
         "defaults": {"activo": True},
     },
     "operadores": {
@@ -835,6 +835,8 @@ def _operator_cfdi_row(sb: Any, acc: dict[str, Any], trip: dict[str, Any]) -> di
         .eq("user_id", acc.get("user_id"))
         .eq("perfil_id", acc.get("perfil_id"))
         .eq("viaje_id", trip.get("id"))
+        .eq("status", "Vigente")
+        .eq("tipo_cfdi", "T")
         .order("fecha_timbrado", desc=True)
         .limit(1)
         .execute()
@@ -2749,9 +2751,8 @@ def _legacy_trip_patch_row(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _tipo_cfdi_sugerido(viaje: dict[str, Any], cliente: dict[str, Any], requested: str = "") -> str:
-    # El transportista que presta el servicio emite CFDI Ingreso con el
-    # complemento Carta Porte; SW lo clasifica fiscalmente como Ingreso.
-    return "I"
+    # En la pestaña Carta Porte se emite únicamente CFDI Traslado con total cero.
+    return "T"
 
 
 def _is_hidrocarburo(text: str) -> bool:
@@ -2899,14 +2900,7 @@ def _build_carta_porte_preview(
     if preview["mercancia"]["peso_kg"] <= 0:
         _validation(validaciones, "error", "mercancia.peso_kg", "Falta peso mayor a cero.")
 
-    if tipo == "I":
-        _req(validaciones, "receptor.rfc", preview["receptor"]["rfc"], "CFDI Ingreso requiere RFC del receptor.")
-        _req(validaciones, "receptor.nombre", preview["receptor"]["nombre"], "CFDI Ingreso requiere nombre del receptor.")
-        _req(validaciones, "receptor.cp", preview["receptor"]["cp"], "CFDI Ingreso requiere CP fiscal del receptor.")
-        _req(validaciones, "receptor.regimen_fiscal", preview["receptor"]["regimen_fiscal"], "CFDI Ingreso requiere régimen fiscal del receptor.")
-        _req(validaciones, "receptor.uso_cfdi", preview["receptor"]["uso_cfdi"], "CFDI Ingreso requiere Uso CFDI.")
-    else:
-        _warn(validaciones, "receptor.rfc", preview["receptor"]["rfc"], "Para CFDI Traslado confirma receptor o destinatario fiscal.")
+    _warn(validaciones, "receptor.rfc", preview["receptor"]["rfc"], "Para CFDI Traslado el receptor fiscal será el mismo emisor con Uso CFDI S01.")
 
     _req(validaciones, "origen.cp", preview["origen"]["cp"], "Falta CP del origen.")
     _req(validaciones, "origen.id_ubicacion", preview["origen"]["id_ubicacion"], "Falta ID ubicación Carta Porte del origen.")
@@ -3345,7 +3339,7 @@ def _stamp_build_context(
         vehiculo,
         producto,
         ruta,
-        "I",
+        "T",
         settings=settings,
         permiso_transportista=permiso_transportista,
         pac_ready=pac_ready,
@@ -3358,8 +3352,6 @@ def _stamp_build_context(
     producto_obj: Optional[ProductoTransporte] = None
     try:
         producto_obj = _stamp_make_producto(viaje_row, producto, settings)
-        if producto_obj.importe <= 0:
-            errors.append({"nivel": "error", "campo": "flete.importe", "mensaje": "Falta importe/subtotal de flete mayor a cero para CFDI de Ingreso."})
     except Exception as exc:
         errors.append({"nivel": "error", "campo": "mercancia", "mensaje": f"Mercancía inválida para timbrar: {exc}"})
 
@@ -3404,12 +3396,12 @@ def _stamp_build_context(
         fecha_hora_salida=_first_text(viaje_row.get("fecha_hora_salida"), normalized_viaje.get("fecha_salida")),
         fecha_hora_llegada=_first_text(viaje_row.get("fecha_hora_llegada"), normalized_viaje.get("fecha_llegada_estimada")),
         productos=[producto_obj],
-        tipo_cfdi="I",
+        tipo_cfdi="T",
         rfc_receptor=receptor_rfc,
         nombre_receptor=receptor_nombre,
         cp_receptor=receptor_cp,
         regimen_fiscal_receptor=receptor_regimen,
-        uso_cfdi=_first_text(viaje_row.get("uso_cfdi"), cliente.get("uso_cfdi"), "G03"),
+        uso_cfdi="S01",
         num_permiso_cne=emisor["num_permiso_cne"],
         iva_tasa=_num(tarifa_meta.get("iva_tasa") or 0.16),
         retencion_tasa=_num(tarifa_meta.get("retencion_tasa") or 0.04),
@@ -3482,6 +3474,36 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     viaje_row = context["viaje_row"]
     viaje_id = int(viaje_row.get("id"))
     try:
+        existing_rows = (
+            sb.table(TBL_CFDI)
+            .select("id,uuid_sat,id_ccp,pdf_url,fecha_timbrado")
+            .eq("user_id", uid)
+            .eq("viaje_id", viaje_id)
+            .eq("status", "Vigente")
+            .eq("tipo_cfdi", "T")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if existing_rows:
+            existing = existing_rows[0]
+            return {
+                "ok": True,
+                "idempotent": True,
+                "viaje_id": viaje_id,
+                "cfdi_id": existing.get("id"),
+                "uuid_sat": existing.get("uuid_sat"),
+                "uuid_cfdi": existing.get("uuid_sat"),
+                "id_ccp": existing.get("id_ccp"),
+                "pdf_url": existing.get("pdf_url"),
+                "xml_url": f"/api/tr-v2/carta-porte/{viaje_id}/xml",
+                "status": "Vigente",
+                "fecha_timbrado": existing.get("fecha_timbrado"),
+            }
+    except Exception as exc:
+        logger.info("No se pudo validar idempotencia Carta Porte viaje=%s: %s", viaje_id, exc)
+    try:
         cfdi_dict, id_ccp = build_cfdi_transporte(
             context["viaje_obj"],
             context["emisor"],
@@ -3491,8 +3513,6 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
         carta_payload = (cfdi_dict.get("Complemento") or {}).get("cartaporte31:CartaPorte") or {}
         if carta_payload.get("Version") != "3.1" or not carta_payload.get("IdCCP"):
             raise ValueError("El payload fiscal no contiene Complemento Carta Porte 3.1 válido.")
-        cfdi_dict["MetodoPago"] = "PUE"
-        cfdi_dict["FormaPago"] = "99"
     except Exception as exc:
         raise HTTPException(400, f"Error al construir CFDI Carta Porte: {exc}") from exc
 
@@ -3545,20 +3565,66 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     now_iso = _now_iso()
     validacion = validar_xml_carta_porte_transporte(xml_timbrado, context["producto_dicts"]) if xml_timbrado else None
     carta_ok = bool(validacion and validacion.ok)
+    if not carta_ok:
+        validation_errors = validacion.errors if validacion else ["XML vacío o inválido"]
+        error_message = (
+            "SW devolvió un CFDI de ingreso/factura de flete, no una Carta Porte Traslado. "
+            "No se guardó como Carta Porte."
+        )
+        error_payload = {
+            "message": error_message,
+            "uuid_sat": uuid_sat,
+            "id_ccp_generado": id_ccp,
+            "validacion": validacion.metadata if validacion else {},
+            "errors": validation_errors,
+            "fecha": now_iso,
+        }
+        try:
+            metadata = _meta(viaje_row)
+            metadata["ultimo_error_timbrado"] = error_payload
+            metadata["validacion_carta_porte"] = {
+                "ok": False,
+                "errors": validation_errors,
+                "warnings": validacion.warnings if validacion else [],
+                "metadata": validacion.metadata if validacion else {},
+            }
+            _stamp_update_viaje(
+                sb,
+                uid,
+                pid,
+                viaje_id,
+                {"status": "error", "carta_porte_status": "error", "defaults_json": metadata, "updated_at": now_iso},
+            )
+        except Exception as exc:
+            logger.warning("No se pudo guardar invalidación Carta Porte Transporte v2 viaje=%s: %s", viaje_id, exc)
+        _audit(uid, "", pid, TBL_VIAJES, viaje_id, "cfdi_rechazado_como_carta_porte", error_payload)
+        raise HTTPException(409, {
+            "ok": False,
+            "message": error_message,
+            "error": error_message,
+            "uuid_sat": uuid_sat,
+            "id_ccp": id_ccp,
+            "validacion_carta_porte": {
+                "ok": False,
+                "errors": validation_errors,
+                "warnings": validacion.warnings if validacion else [],
+                "metadata": validacion.metadata if validacion else {},
+            },
+        })
     cfdi_row = {
         "user_id": uid,
         "perfil_id": pid,
         "viaje_id": viaje_id,
-        "tipo_cfdi": "I",
+        "tipo_cfdi": "T",
         "uuid_sat": uuid_sat,
         "id_ccp": id_ccp,
         "xml_content": xml_timbrado,
         "pdf_url": pdf_url,
-        "status": "Vigente" if carta_ok else "ErrorValidacion",
+        "status": "Vigente",
         "fecha_timbrado": now_iso,
-        "rfc_receptor": context["viaje_obj"].rfc_receptor,
+        "rfc_receptor": context["emisor"].get("rfc"),
         "volumen_total": float(viaje_row.get("volumen_total_litros") or context["viaje_obj"].volumen_total_litros or 0),
-        "importe_total": round(sum(p.importe for p in context["productos"]), 2),
+        "importe_total": 0,
         "num_permiso_cne": context["viaje_obj"].num_permiso_cne,
         "created_at": now_iso,
     }
@@ -3566,6 +3632,13 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     try:
         inserted = sb.table(TBL_CFDI).insert(cfdi_row).execute()
         cfdi_saved = (inserted.data or [{}])[0]
+        try:
+            sb.table(TBL_CFDI).update({
+                "documento_fiscal_tipo": "carta_porte_traslado",
+                "idempotency_key": f"{viaje_id}:carta_porte_traslado",
+            }).eq("id", cfdi_saved.get("id")).eq("user_id", uid).execute()
+        except Exception as exc:
+            logger.info("Columnas idempotency tr_cfdi aun no disponibles cfdi=%s: %s", cfdi_saved.get("id"), exc)
     except Exception as exc:
         logger.exception("Carta Porte Transporte v2 timbrada pero no se pudo guardar tr_cfdi viaje=%s", viaje_id)
         return {
@@ -3618,6 +3691,18 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
         "updated_at": now_iso,
     }
     _stamp_update_viaje(sb, uid, pid, viaje_id, update)
+    try:
+        optional_update = {
+            "carta_porte_uuid": uuid_sat,
+            "carta_porte_pdf_url": f"/api/tr-v2/carta-porte/{viaje_id}/pdf?download=1",
+            "carta_porte_xml_url": f"/api/tr-v2/carta-porte/{viaje_id}/xml",
+        }
+        q = sb.table(TBL_VIAJES).update(optional_update).eq("id", viaje_id).eq("user_id", uid)
+        if pid:
+            q = q.eq("perfil_id", pid)
+        q.execute()
+    except Exception as exc:
+        logger.info("Columnas separadas Carta Porte aun no disponibles viaje=%s: %s", viaje_id, exc)
     _audit(uid, "", pid, TBL_VIAJES, viaje_id, "carta_porte_timbrada", {
         "viaje_id": viaje_id,
         "uuid_cfdi": uuid_sat,
@@ -4214,20 +4299,7 @@ async def transporte_v2_operator_carta_porte_xml(
     authorization: str = Header(default=""),
     download: bool = Query(default=False),
 ):
-    token_plain = _operator_token_from_header(authorization)
-    sb, acc = _operator_context(token_plain)
-    trip = _operator_assigned_trip(sb, acc)
-    cfdi = _operator_cfdi_row(sb, acc, trip)
-    xml_content = cfdi.get("xml_content")
-    if not xml_content:
-        raise HTTPException(404, "La Carta Porte no tiene XML guardado.")
-    filename = f"carta-porte-{cfdi.get('uuid_sat') or trip.get('id')}.xml"
-    disposition = "attachment" if download else "inline"
-    return Response(
-        content=xml_content,
-        media_type="application/xml",
-        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
-    )
+    raise HTTPException(403, "El operador solo puede consultar el PDF de Carta Porte.")
 
 
 @router.get("/tr-v2/operator/carta-porte/pdf")
@@ -4628,6 +4700,7 @@ async def transporte_v2_carta_porte_timbradas(
         .select("id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,pdf_url,status,fecha_timbrado,rfc_receptor,volumen_total,importe_total")
         .eq("user_id", uid)
         .eq("status", "Vigente")
+        .eq("tipo_cfdi", "T")
         .order("fecha_timbrado", desc=True)
         .limit(limit)
     )
@@ -4661,7 +4734,7 @@ async def transporte_v2_carta_porte_timbradas(
         items.append({
             "id": row.get("id"),
             "viaje_id": viaje_id,
-            "tipo_cfdi": _first_text(row.get("tipo_cfdi"), "I"),
+            "tipo_cfdi": _first_text(row.get("tipo_cfdi"), "T"),
             "uuid_sat": _first_text(row.get("uuid_sat")),
             "id_ccp": _first_text(row.get("id_ccp"), meta.get("id_ccp")),
             "status": _first_text(row.get("status"), "Vigente"),
@@ -4690,7 +4763,7 @@ async def transporte_v2_carta_porte_pdf(
     uid, token = _auth(authorization)
     pid = _profile_id(None, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).eq("status", "Vigente")
+    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).eq("status", "Vigente").eq("tipo_cfdi", "T")
     if pid:
         q = q.eq("perfil_id", pid)
     rows = q.order("fecha_timbrado", desc=True).limit(1).execute().data or []
@@ -4725,7 +4798,7 @@ async def transporte_v2_carta_porte_xml(
     uid, token = _auth(authorization)
     pid = _profile_id(None, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).eq("status", "Vigente")
+    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).eq("status", "Vigente").eq("tipo_cfdi", "T")
     if pid:
         q = q.eq("perfil_id", pid)
     rows = q.order("fecha_timbrado", desc=True).limit(1).execute().data or []
