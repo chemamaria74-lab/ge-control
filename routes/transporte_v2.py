@@ -28,6 +28,7 @@ from supabase_config import get_supabase_admin, get_supabase_for_user
 from models.transport_schemas import GenerarCovolRequest, ProductoTransporte, ViajeCreate
 from services.carta_porte_validation import validar_xml_carta_porte_transporte
 from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml
+from services.carta_porte_permisos import TIPOS_PERMISO_SAT, aplicar_permiso, resolver_permiso
 from services.fiscal_audit import version_xml
 from services.sw_sapien import emitir_timbrar_json, sw_runtime_config
 from services.transport_builder import build_cfdi_transporte
@@ -56,6 +57,7 @@ TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
 TBL_AUDITORIA = "transporte_v2_auditoria"
 TBL_CFDI = "tr_cfdi"
 TBL_COVOL = "tr_covol_reports"
+TBL_PERMISOS = "tr_permisos_operacion"
 
 VEHICLE_DB_FIELDS = {
     "alias",
@@ -197,6 +199,17 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         ],
         "defaults": {"activo": True},
     },
+    "permisos": {
+        "table": TBL_PERMISOS,
+        "required": ["nombre_interno", "tipo_permiso", "numero_permiso"],
+        "allowed": [
+            "nombre_interno", "tipo_permiso", "numero_permiso", "autoridad",
+            "titular_rfc", "categoria_producto", "familias_producto",
+            "productos_permitidos", "vehiculo_ids", "vigencia_desde",
+            "vigencia_hasta", "activo", "metadata",
+        ],
+        "defaults": {"activo": True, "autoridad": "SICT"},
+    },
 }
 
 CATALOG_READ_ONLY = False
@@ -257,12 +270,14 @@ class TransporteV2CartaPortePreviewRequest(BaseModel):
     viaje_id: Optional[int] = None
     viaje: Optional[dict[str, Any]] = None
     tipo_cfdi: str = ""
+    permiso_id: Optional[int] = None
 
 
 class TransporteV2CartaPorteTimbrarRequest(BaseModel):
     perfil_id: Optional[int] = None
     viaje_id: int
     confirmar: bool = False
+    permiso_id: Optional[int] = None
 
 
 class TransporteV2OperatorAccessCreate(BaseModel):
@@ -744,20 +759,6 @@ def _operator_context(token_plain: str, usuario: str = "") -> tuple[Any, dict[st
     acc = rows[0]
     if not acc.get("perfil_id") or not acc.get("chofer_id") or not acc.get("user_id"):
         raise HTTPException(403, "Acceso de operador incompleto.")
-    expires_at = acc.get("expires_at")
-    if expires_at:
-        try:
-            exp = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
-            if exp <= datetime.now(timezone.utc):
-                try:
-                    sb.table(TBL_OPERADOR_ACCESOS).update({"status": "expirado"}).eq("id", acc["id"]).execute()
-                except Exception:
-                    pass
-                raise HTTPException(401, "Acceso de operador expirado.")
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(401, "Acceso de operador inválido.")
     chofer_rows = (
         sb.table(TBL_OPERADORES)
         .select("*")
@@ -800,14 +801,44 @@ def _operator_assigned_trip(sb: Any, acc: dict[str, Any]) -> dict[str, Any]:
     if not rows:
         raise HTTPException(404, "Sin viaje asignado.")
     trip = dict(rows[0])
+    trip_meta = _meta(trip)
+    status = _first_text(trip.get("status"), trip.get("operacion_status")).lower()
+    if trip_meta.get("source") == "portal_operador" and status in {"", "borrador", "draft", "programado"}:
+        try:
+            healed = (
+                sb.table(TBL_VIAJES)
+                .update({"status": "asignado", "operacion_status": "asignado", "updated_at": _now_iso()})
+                .eq("id", trip.get("id"))
+                .eq("user_id", trip.get("user_id"))
+                .execute()
+                .data
+                or []
+            )
+            if healed:
+                trip = dict(healed[0])
+                trip_meta = _meta(trip)
+        except Exception as exc:
+            logger.info("No se pudo normalizar el estado del viaje operador=%s: %s", trip.get("id"), exc)
     if not trip.get("vehiculo_id"):
         chofer = acc.get("chofer") or {}
         assigned_vehicle = chofer.get("vehiculo_frecuente_id") or _meta(chofer).get("vehiculo_frecuente_id") or _meta(chofer).get("vehiculo_asignado_id")
         if assigned_vehicle:
             trip["vehiculo_id"] = assigned_vehicle
-            trip_meta = _meta(trip)
             trip_meta["vehiculo_default_operador_id"] = assigned_vehicle
-            trip["metadata"] = trip_meta
+            try:
+                healed = (
+                    sb.table(TBL_VIAJES)
+                    .update({"vehiculo_id": assigned_vehicle, "defaults_json": trip_meta, "updated_at": _now_iso()})
+                    .eq("id", trip.get("id"))
+                    .eq("user_id", trip.get("user_id"))
+                    .execute()
+                    .data
+                    or []
+                )
+                if healed:
+                    trip = dict(healed[0])
+            except Exception as exc:
+                logger.info("No se pudo persistir vehículo frecuente viaje=%s: %s", trip.get("id"), exc)
     return trip
 
 
@@ -928,7 +959,153 @@ def _operator_prepare_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any
     }
 
 
-def _operator_create_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any], route_id: int) -> dict[str, Any]:
+def _safe_storage_filename(filename: str) -> str:
+    base = (filename or "factura-carga.pdf").strip().replace("\\", "/").rsplit("/", 1)[-1]
+    base = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("._")
+    return base or "factura-carga.pdf"
+
+
+def _factura_carga_metadata(
+    *,
+    sb: Any,
+    uid: str,
+    pid: Optional[int],
+    viaje_id: int,
+    filename: str,
+    content_type: str,
+    content: bytes,
+    uploaded_by: Any,
+) -> dict[str, Any]:
+    safe_name = _safe_storage_filename(filename)
+    mime = content_type or ("application/xml" if safe_name.lower().endswith(".xml") else "application/pdf")
+    factura = {
+        "nombre": filename or safe_name,
+        "content_type": mime,
+        "size_bytes": len(content or b""),
+        "uploaded_at": _now_iso(),
+        "uploaded_by": uploaded_by,
+        "storage_bucket": "",
+        "storage_path": "",
+        "url": f"/api/tr-v2/viajes/{viaje_id}/factura-carga",
+        "download_url": f"/api/tr-v2/viajes/{viaje_id}/factura-carga?download=true",
+        "operator_url": "/api/tr-v2/operator/factura/pdf",
+        "operator_download_url": "/api/tr-v2/operator/factura/pdf?download=true",
+    }
+    if content:
+        path = f"{uid}/{pid or 'sin-perfil'}/{viaje_id}/factura-carga/{secrets.token_hex(6)}-{safe_name}"
+        storage_error: Exception | None = None
+        for bucket in ("transport-documents", DOCUMENT_BUCKET):
+            try:
+                sb.storage.from_(bucket).upload(path, content, {"content-type": mime, "upsert": "true"})
+                factura["storage_bucket"] = bucket
+                factura["storage_path"] = path
+                storage_error = None
+                break
+            except Exception as exc:
+                storage_error = exc
+        if storage_error:
+            logger.info("Factura carga sin Storage; se guarda respaldo inline viaje=%s: %s", viaje_id, storage_error)
+            factura["data_url"] = f"data:{mime};base64,{base64.b64encode(content).decode('ascii')}"
+    return factura
+
+
+def _sync_factura_carga_to_trip(sb: Any, trip: dict[str, Any], factura: dict[str, Any]) -> dict[str, Any]:
+    metadata = _meta(trip)
+    metadata["factura_operador"] = factura
+    metadata["factura_carga"] = factura
+    metadata["factura_carga_nombre"] = factura.get("nombre") or ""
+    update = {
+        "defaults_json": metadata,
+        "documentos_status": "registrado",
+        "updated_at": _now_iso(),
+    }
+    optional_url = factura.get("url") or factura.get("data_url") or ""
+    optional_update = {**update, "factura_carga_pdf_url": optional_url}
+    try:
+        updated = (
+            sb.table(TBL_VIAJES)
+            .update(optional_update)
+            .eq("id", trip.get("id"))
+            .eq("user_id", trip.get("user_id"))
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.info("Columna factura_carga_pdf_url no disponible o no aceptada viaje=%s: %s", trip.get("id"), exc)
+        updated = (
+            sb.table(TBL_VIAJES)
+            .update(update)
+            .eq("id", trip.get("id"))
+            .eq("user_id", trip.get("user_id"))
+            .execute()
+            .data
+            or []
+        )
+    return updated[0] if updated else {**trip, "defaults_json": metadata, "metadata": metadata}
+
+
+def _insert_factura_carga_document(
+    sb: Any,
+    trip: dict[str, Any],
+    factura: dict[str, Any],
+    detected: Optional[dict[str, Any]] = None,
+) -> None:
+    try:
+        sb.table(TBL_DOCUMENTOS).insert({
+            "user_id": trip.get("user_id"),
+            "perfil_id": trip.get("perfil_id"),
+            "viaje_id": trip.get("id"),
+            "tipo": "factura_carga_pdf",
+            "nombre": factura.get("nombre") or "Factura carga",
+            "storage_bucket": factura.get("storage_bucket") or "",
+            "storage_path": factura.get("storage_path") or "",
+            "mime_type": factura.get("content_type") or "application/pdf",
+            "size_bytes": int(factura.get("size_bytes") or 0),
+            "uuid_sat": _first_text((detected or {}).get("uuid")),
+            "status": "vigente",
+            "metadata": {"source": "portal_operador", "factura_carga": factura, "detected": detected or {}},
+            "created_by": str(factura.get("uploaded_by") or ""),
+        }).execute()
+    except Exception as exc:
+        logger.info("No se pudo registrar tr_viaje_documentos factura carga viaje=%s: %s", trip.get("id"), exc)
+
+
+def _operator_create_trip(
+    sb: Any,
+    acc: dict[str, Any],
+    detected: dict[str, Any],
+    route_id: int,
+    *,
+    invoice_filename: str = "",
+    invoice_content_type: str = "",
+    invoice_content: bytes = b"",
+    invoice_sha256: str = "",
+) -> dict[str, Any]:
+    if invoice_sha256:
+        recent = (
+            sb.table(TBL_VIAJES)
+            .select("*")
+            .eq("user_id", acc.get("user_id"))
+            .eq("perfil_id", acc.get("perfil_id"))
+            .eq("chofer_id", acc.get("chofer_id"))
+            .order("created_at", desc=True)
+            .limit(20)
+            .execute()
+            .data
+            or []
+        )
+        duplicate = next(
+            (
+                row for row in recent
+                if _meta(row).get("source") == "portal_operador"
+                and _first_text(_meta(row).get("factura_sha256")) == invoice_sha256
+                and _first_text(row.get("status")).lower() != "eliminado"
+            ),
+            None,
+        )
+        if duplicate:
+            return dict(duplicate)
     prepared = _operator_prepare_trip(sb, acc, detected)
     if prepared["errors"]:
         raise HTTPException(400, {"message": "No se puede crear el viaje.", "errors": prepared["errors"]})
@@ -940,7 +1117,7 @@ def _operator_create_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any]
     arrival = now + timedelta(minutes=duration)
     client = prepared["client"]
     product = prepared["product"]
-    vehicle = prepared["vehicle"]
+    vehicle = _stamp_expand_vehicle_trailers(sb, acc.get("user_id"), acc.get("perfil_id"), prepared["vehicle"])
     liters = _num(detected.get("cantidad_litros") or detected.get("litros"))
     kilos = _num(detected.get("peso_kg") or detected.get("kilos"))
     product_name = _first_text(product.get("nombre"), detected.get("producto"))
@@ -950,12 +1127,20 @@ def _operator_create_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any]
         "cliente_nombre": client.get("nombre"),
         "operador_nombre": (acc.get("chofer") or {}).get("nombre"),
         "vehiculo_alias": _first_text(vehicle.get("numero_economico"), vehicle.get("alias"), vehicle.get("placas")),
+        "placas": _first_text(vehicle.get("placas")),
+        "remolque_id": vehicle.get("remolque_id") or _meta(vehicle).get("remolque_id"),
+        "remolque_placas": _first_text(vehicle.get("remolque_placas"), _meta(vehicle).get("remolque_placas")),
+        "remolque_subtipo": _first_text(vehicle.get("remolque_subtipo"), _meta(vehicle).get("remolque_subtipo")),
+        "remolque2_id": vehicle.get("remolque2_id") or _meta(vehicle).get("remolque2_id"),
+        "remolque2_placas": _first_text(vehicle.get("remolque2_placas"), _meta(vehicle).get("remolque2_placas")),
+        "remolque2_subtipo": _first_text(vehicle.get("remolque2_subtipo"), _meta(vehicle).get("remolque2_subtipo")),
         "producto": product_name,
         "producto_descripcion": product_name,
         "peso_kg": kilos,
         "proveedor_nombre": _first_text(detected.get("proveedor_nombre"), detected.get("emisor_nombre")),
         "proveedor_rfc": prepared["provider_rfc"],
         "proveedor_permiso": _first_text(detected.get("permiso"), detected.get("proveedor_permiso")),
+        "factura_sha256": invoice_sha256,
         "documento_detectado": detected,
     }
     row = {
@@ -983,16 +1168,16 @@ def _operator_create_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any]
             "embalaje": _first_text(product.get("embalaje")),
         }], ensure_ascii=False),
         "volumen_total_litros": liters,
-        "tipo_cfdi": "I",
+        "tipo_cfdi": "T",
         "rfc_receptor": client.get("rfc") or "",
         "nombre_receptor": client.get("nombre") or "",
         "cp_receptor": client.get("cp") or "",
-        "uso_cfdi": client.get("uso_cfdi") or "G03",
+        "uso_cfdi": "S01",
         "regimen_fiscal_receptor": client.get("regimen_fiscal") or "601",
         "distancia_km": _num(route.get("distancia_km")),
         "duracion_estimada_min": duration,
-        "status": "borrador",
-        "operacion_status": "programado",
+        "status": "asignado",
+        "operacion_status": "asignado",
         "carta_porte_status": "pendiente",
         "factura_status": "pendiente",
         "liquidacion_status": "pendiente",
@@ -1003,13 +1188,28 @@ def _operator_create_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any]
     inserted = sb.table(TBL_VIAJES).insert(row).execute().data or []
     if not inserted:
         raise HTTPException(500, "No se pudo crear el viaje del operador.")
-    return dict(inserted[0])
+    trip = dict(inserted[0])
+    if invoice_content:
+        factura = _factura_carga_metadata(
+            sb=sb,
+            uid=acc.get("user_id"),
+            pid=acc.get("perfil_id"),
+            viaje_id=int(trip.get("id")),
+            filename=invoice_filename,
+            content_type=invoice_content_type,
+            content=invoice_content,
+            uploaded_by=acc.get("chofer_id"),
+        )
+        trip = _sync_factura_carga_to_trip(sb, trip, factura)
+        _insert_factura_carga_document(sb, trip, factura, detected)
+    return trip
 
 
 def _update_operator_trip_metadata(sb: Any, trip: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
     payloads = [
-        {"metadata": metadata, "updated_at": _now_iso()},
-        {"metadata": metadata},
+        {"defaults_json": metadata, "metadata": metadata, "updated_at": _now_iso()},
+        {"defaults_json": metadata, "updated_at": _now_iso()},
+        {"defaults_json": metadata},
     ]
     updated: list[dict[str, Any]] = []
     last_error: Exception | None = None
@@ -1028,11 +1228,10 @@ def _update_operator_trip_metadata(sb: Any, trip: dict[str, Any], metadata: dict
             break
         except Exception as exc:
             last_error = exc
-            if "updated_at" not in str(exc).lower():
-                raise
+            continue
     if last_error:
         raise last_error
-    return updated[0] if updated else {**trip, "metadata": metadata}
+    return updated[0] if updated else {**trip, "defaults_json": metadata, "metadata": metadata}
 
 
 def _pdf_escape(value: Any) -> str:
@@ -1898,6 +2097,14 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["poliza_seguro"] = _first_text(item.get("poliza_seguro"), item["poliza"])
         item["peso_bruto"] = _num(item.get("peso_bruto") or item.get("peso_bruto_toneladas") or trailer_meta.get("peso_bruto") or trailer_meta.get("peso_bruto_toneladas"))
         item["peso_bruto_toneladas"] = _num(item.get("peso_bruto_toneladas") or item["peso_bruto"])
+    elif catalogo == "permisos":
+        permit_meta = _meta(item)
+        item["nombre_interno"] = _first_text(item.get("nombre_interno"), permit_meta.get("nombre_interno"), item.get("numero_permiso"))
+        item["numero_permiso"] = _first_text(item.get("numero_permiso"), item.get("num_permiso_sct"), permit_meta.get("numero_permiso"))
+        item["familias_producto"] = _parse_json_value(item.get("familias_producto"), [])
+        item["productos_permitidos"] = _parse_json_value(item.get("productos_permitidos"), [])
+        item["vehiculo_ids"] = _parse_json_value(item.get("vehiculo_ids"), [])
+        item["aplica_para"] = ", ".join(item["familias_producto"] or item["productos_permitidos"] or ["Sin alcance configurado"])
     item["source_table"] = CATALOG_CONFIG.get(catalogo, {}).get("table")
     return item
 
@@ -1960,6 +2167,13 @@ def _create_catalog_item(
         row = _expand_trailer_metadata(row)
     if catalogo == "productos":
         row = _expand_product_aliases(row)
+    if catalogo == "permisos":
+        for field in ("familias_producto", "productos_permitidos", "vehiculo_ids"):
+            row[field] = _parse_json_value(row.get(field), [])
+        if _first_text(row.get("tipo_permiso")).upper() not in TIPOS_PERMISO_SAT:
+            raise HTTPException(400, "Tipo de permiso fuera del catalogo SAT c_TipoPermiso para Carta Porte 3.1.")
+        if not row["familias_producto"] and not row["productos_permitidos"]:
+            raise HTTPException(400, "Asigna al menos una familia o un producto especifico al permiso.")
     if catalogo in {"origenes", "destinos"}:
         row = _expand_installation_metadata(row)
         row = _coerce_installation_scope(catalogo, row)
@@ -2016,6 +2230,12 @@ def _update_catalog_item(
         row = _expand_trailer_metadata(row)
     if catalogo == "productos":
         row = _expand_product_aliases(row)
+    if catalogo == "permisos":
+        for field in ("familias_producto", "productos_permitidos", "vehiculo_ids"):
+            if field in row:
+                row[field] = _parse_json_value(row.get(field), [])
+        if "tipo_permiso" in row and _first_text(row.get("tipo_permiso")).upper() not in TIPOS_PERMISO_SAT:
+            raise HTTPException(400, "Tipo de permiso fuera del catalogo SAT c_TipoPermiso para Carta Porte 3.1.")
     if catalogo in {"origenes", "destinos"}:
         row = _expand_installation_metadata(row)
         row = _coerce_installation_scope(catalogo, row)
@@ -2508,11 +2728,14 @@ def _lookup_permiso_rfc(token: str, uid: str, pid: Optional[int], detected: dict
 
 
 def _meta(row: dict[str, Any]) -> dict[str, Any]:
-    raw = row.get("metadata")
-    if raw is None and "defaults_json" in row:
-        raw = row.get("defaults_json")
-    parsed = _parse_json_value(raw, {})
-    return parsed if isinstance(parsed, dict) else {}
+    defaults = _parse_json_value(row.get("defaults_json"), {})
+    legacy = _parse_json_value(row.get("metadata"), {})
+    merged: dict[str, Any] = {}
+    if isinstance(legacy, dict):
+        merged.update(legacy)
+    if isinstance(defaults, dict):
+        merged.update(defaults)
+    return merged
 
 
 def _first_product(row: dict[str, Any]) -> dict[str, Any]:
@@ -2543,6 +2766,12 @@ def _normalize_viaje_row(row: dict[str, Any]) -> dict[str, Any]:
     item["uuid_cfdi"] = _first_text(item.get("uuid_cfdi"), meta.get("uuid_carta_porte"), meta.get("carta_porte_uuid"), meta.get("cfdi_uuid"))
     item["id_ccp"] = _first_text(item.get("id_ccp"), meta.get("id_ccp"))
     item["carta_porte_status"] = _first_text(item.get("carta_porte_status"), meta.get("carta_porte_status"))
+    item["vehiculo_alias"] = _first_text(item.get("vehiculo_alias"), meta.get("vehiculo_alias"))
+    item["placas"] = _first_text(item.get("placas"), meta.get("placas"))
+    item["remolque_placas"] = _first_text(item.get("remolque_placas"), meta.get("remolque_placas"))
+    item["remolque_subtipo"] = _first_text(item.get("remolque_subtipo"), meta.get("remolque_subtipo"))
+    item["factura_carga_pdf_url"] = _first_text(item.get("factura_carga_pdf_url"), meta.get("factura_carga", {}).get("url") if isinstance(meta.get("factura_carga"), dict) else "", meta.get("factura_operador", {}).get("url") if isinstance(meta.get("factura_operador"), dict) else "")
+    item["factura_carga_nombre"] = _first_text(meta.get("factura_carga_nombre"), meta.get("factura_carga", {}).get("nombre") if isinstance(meta.get("factura_carga"), dict) else "", meta.get("factura_operador", {}).get("nombre") if isinstance(meta.get("factura_operador"), dict) else "")
     return item
 
 
@@ -2620,6 +2849,8 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
     cliente = _catalog_row(token, uid, TBL_CLIENTES, payload.cliente_id, pid)
     operador = _catalog_row(token, uid, TBL_OPERADORES, chofer_id, pid)
     vehiculo = _catalog_row(token, uid, TBL_VEHICULOS, vehiculo_id, pid)
+    if vehiculo:
+        vehiculo = _stamp_expand_vehicle_trailers(_sb(token), uid, pid, vehiculo)
     producto = _catalog_row(token, uid, TBL_PRODUCTOS, payload.producto_id, pid)
     ruta = _catalog_row(token, uid, TBL_RUTAS, payload.ruta_id, pid)
 
@@ -2640,7 +2871,7 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
     clave_producto = _first_text(producto.get("clave_producto"), producto.get("clave_prodserv_cfdi"))
     peso_kg = _num(payload.peso_kg)
     volumen = _num(payload.volumen_litros)
-    tipo_cfdi = "I"
+    tipo_cfdi = "T"
     tarifa_calc = _resolve_tariff_calculation(
         token,
         uid,
@@ -2672,6 +2903,13 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "cliente_nombre": _first_text(cliente.get("nombre"), payload.cliente_nombre),
         "operador_nombre": _first_text(operador.get("nombre"), payload.operador_nombre),
         "vehiculo_alias": _first_text(vehiculo.get("alias"), payload.vehiculo_alias),
+        "placas": _first_text(vehiculo.get("placas")),
+        "remolque_id": vehiculo.get("remolque_id") or _meta(vehiculo).get("remolque_id"),
+        "remolque_placas": _first_text(vehiculo.get("remolque_placas"), _meta(vehiculo).get("remolque_placas")),
+        "remolque_subtipo": _first_text(vehiculo.get("remolque_subtipo"), _meta(vehiculo).get("remolque_subtipo")),
+        "remolque2_id": vehiculo.get("remolque2_id") or _meta(vehiculo).get("remolque2_id"),
+        "remolque2_placas": _first_text(vehiculo.get("remolque2_placas"), _meta(vehiculo).get("remolque2_placas")),
+        "remolque2_subtipo": _first_text(vehiculo.get("remolque2_subtipo"), _meta(vehiculo).get("remolque2_subtipo")),
         "producto_descripcion": producto_nombre,
         "producto": producto_nombre,
         "peso_kg": peso_kg,
@@ -2710,12 +2948,12 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "rfc_receptor": _first_text(cliente.get("rfc")),
         "nombre_receptor": _first_text(cliente.get("nombre"), payload.cliente_nombre),
         "cp_receptor": _first_text(cliente.get("cp"), "20000"),
-        "uso_cfdi": _first_text(cliente.get("uso_cfdi"), "G03"),
+        "uso_cfdi": "S01",
         "regimen_fiscal_receptor": _first_text(cliente.get("regimen_fiscal"), "601"),
         "distancia_km": _num(ruta.get("distancia_km")) or 1,
         "duracion_estimada_min": int(_num(ruta.get("duracion_estimada_min")) or 0),
-        "status": "borrador",
-        "operacion_status": "programado",
+        "status": _first_text(payload.estatus, "asignado") if _first_text(payload.estatus).lower() not in {"borrador", "draft"} else "asignado",
+        "operacion_status": "asignado",
         "carta_porte_status": "pendiente",
         "factura_status": "pendiente",
         "liquidacion_status": "pendiente",
@@ -3228,6 +3466,28 @@ def _stamp_vehicle_payload(vehiculo: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _resolve_carta_porte_permiso(
+    sb: Any,
+    uid: str,
+    pid: Optional[int],
+    producto: dict[str, Any],
+    vehiculo: dict[str, Any],
+    emisor_rfc: str,
+    permiso_id: Optional[int] = None,
+) -> dict[str, Any]:
+    q = sb.table(TBL_PERMISOS).select("*").eq("user_id", uid).eq("activo", True)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    permisos = q.limit(200).execute().data or []
+    return resolver_permiso(
+        permisos,
+        [producto],
+        vehiculo_id=vehiculo.get("id"),
+        emisor_rfc=emisor_rfc,
+        permiso_id=permiso_id,
+    )
+
+
 def _stamp_build_context(
     *,
     uid: str,
@@ -3235,6 +3495,7 @@ def _stamp_build_context(
     viaje_id: int,
     actor: str,
     operador_id: Optional[int] = None,
+    permiso_id: Optional[int] = None,
 ) -> dict[str, Any]:
     sb = _stamp_sb()
     rows = (
@@ -3331,6 +3592,17 @@ def _stamp_build_context(
             normalized_viaje = _normalize_viaje_row(viaje_row)
     product_text = _first_text(producto.get("tipo_producto"), producto.get("descripcion"), _meta(viaje_row).get("producto"))
     permiso_transportista = _stamp_transportista_permiso(sb, uid, pid, product_text)
+    emisor = _emisor_from_settings(settings)
+    try:
+        permiso_result = _resolve_carta_porte_permiso(sb, uid, pid, producto, vehiculo, emisor.get("rfc", ""), permiso_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if permiso_result["error"]:
+        raise HTTPException(400, permiso_result["error"])
+    if permiso_result["requiere_seleccion"]:
+        raise HTTPException(400, "Selecciona uno de los permisos compatibles antes de timbrar Carta Porte.")
+    vehiculo = aplicar_permiso(vehiculo, permiso_result["seleccionado"])
+    vehiculo["productos_carta_porte"] = [producto]
     pac_ready, pac_message, _pac_cfg = _sw_ready_state()
     preview = _build_carta_porte_preview(
         normalized_viaje,
@@ -3346,7 +3618,6 @@ def _stamp_build_context(
         pac_message=pac_message,
     )
     errors = [item for item in preview.get("validaciones", []) if item.get("nivel") == "error"]
-    emisor = _emisor_from_settings(settings)
     emisor["num_permiso_cne"] = _first_text(viaje_row.get("num_permiso_cne"), permiso_transportista.get("permiso_cre"))
 
     producto_obj: Optional[ProductoTransporte] = None
@@ -3935,7 +4206,6 @@ async def transporte_v2_operator_access_create(
         raise HTTPException(400, "No puedes crear acceso para un operador inactivo.")
     token_plain = (payload.token or "").strip() or secrets.token_urlsafe(24)
     usuario = (payload.usuario or "").strip()
-    expires_at = datetime.now(timezone.utc) + timedelta(days=30)
     try:
         _sb(token).table(TBL_OPERADOR_ACCESOS).update({"status": "reemplazado"}).eq("user_id", uid).eq("perfil_id", pid).eq("chofer_id", payload.chofer_id).eq("status", "activo").execute()
     except Exception as exc:
@@ -3952,7 +4222,7 @@ async def transporte_v2_operator_access_create(
             "token_hash": _hash_operator_token(token_plain),
             "pin_hash": _hash_operator_token(token_plain),
             "status": "activo" if payload.activo else "inactivo",
-            "expires_at": expires_at.isoformat(),
+            "expires_at": None,
             "updated_at": _now_iso(),
             })
             .execute()
@@ -3969,7 +4239,7 @@ async def transporte_v2_operator_access_create(
                 "chofer_nombre": chofer_rows[0].get("nombre"),
                 "usuario": item.get("usuario") or usuario,
                 "status": item.get("status") or ("activo" if payload.activo else "inactivo"),
-                "expires_at": item.get("expires_at") or expires_at.isoformat(),
+                "expires_at": item.get("expires_at"),
             },
             "token": token_plain,
             "operator_url": f"/transporte-v2/login-operador?token={token_plain}&next=/transporte-v2/operador",
@@ -4181,7 +4451,16 @@ async def transporte_v2_operator_crear_viaje(
         logger.exception("No se pudo validar factura al crear viaje operador")
         raise HTTPException(400, f"No se pudo validar la factura: {exc}")
     detected = analysis.get("detected") if isinstance(analysis.get("detected"), dict) else {}
-    trip = _operator_create_trip(sb, acc, detected, ruta_id)
+    trip = _operator_create_trip(
+        sb,
+        acc,
+        detected,
+        ruta_id,
+        invoice_filename=file.filename or "factura",
+        invoice_content_type=file.content_type or "",
+        invoice_content=content,
+        invoice_sha256=hashlib.sha256(content).hexdigest(),
+    )
     return {"ok": True, "viaje": _normalize_viaje_row(trip), "metadata": _meta(trip), "has_trip": True}
 
 
@@ -4202,17 +4481,19 @@ async def transporte_v2_operator_factura(
     content = await file.read()
     if len(content) > 2_500_000:
         raise HTTPException(400, "La factura excede el tamaño permitido de 2.5 MB.")
-    metadata = _meta(trip)
-    metadata["factura_operador"] = {
-        "nombre": filename,
-        "content_type": file.content_type or ("application/xml" if extension == "xml" else "application/pdf"),
-        "size_bytes": len(content),
-        "uploaded_at": _now_iso(),
-        "uploaded_by": acc.get("chofer_id"),
-        "data_url": f"data:{file.content_type or 'application/octet-stream'};base64,{base64.b64encode(content).decode('ascii')}",
-    }
-    updated = _update_operator_trip_metadata(sb, trip, metadata)
-    return {"ok": True, "factura": metadata["factura_operador"], "viaje": _normalize_viaje_row(updated)}
+    factura = _factura_carga_metadata(
+        sb=sb,
+        uid=acc.get("user_id"),
+        pid=acc.get("perfil_id"),
+        viaje_id=int(trip.get("id")),
+        filename=filename,
+        content_type=file.content_type or ("application/xml" if extension == "xml" else "application/pdf"),
+        content=content,
+        uploaded_by=acc.get("chofer_id"),
+    )
+    updated = _sync_factura_carga_to_trip(sb, trip, factura)
+    _insert_factura_carga_document(sb, updated, factura, _meta(updated).get("documento_detectado") if isinstance(_meta(updated).get("documento_detectado"), dict) else {})
+    return {"ok": True, "factura": factura, "viaje": _normalize_viaje_row(updated)}
 
 
 @router.post("/tr-v2/operator/factura/eliminar")
@@ -4222,10 +4503,68 @@ async def transporte_v2_operator_factura_eliminar(authorization: str = Header(de
     trip = _operator_assigned_trip(sb, acc)
     if _first_text(trip.get("uuid_cfdi"), _meta(trip).get("uuid_carta_porte")):
         raise HTTPException(409, "La factura no se puede eliminar después de timbrar Carta Porte.")
+    if _first_text(trip.get("status")).lower() not in {"borrador", "pendiente"}:
+        raise HTTPException(409, "La factura no se puede eliminar después de crear/asignar el viaje.")
     metadata = _meta(trip)
     metadata.pop("factura_operador", None)
+    metadata.pop("factura_carga", None)
+    metadata.pop("factura_carga_nombre", None)
     updated = _update_operator_trip_metadata(sb, trip, metadata)
     return {"ok": True, "viaje": _normalize_viaje_row(updated)}
+
+
+def _factura_carga_from_trip(trip: dict[str, Any]) -> dict[str, Any]:
+    meta = _meta(trip)
+    factura = meta.get("factura_operador") if isinstance(meta.get("factura_operador"), dict) else {}
+    if not factura:
+        factura = meta.get("factura_carga") if isinstance(meta.get("factura_carga"), dict) else {}
+    if not factura and _first_text(trip.get("factura_carga_pdf_url")):
+        factura = {
+            "nombre": meta.get("factura_carga_nombre") or "factura-carga.pdf",
+            "url": trip.get("factura_carga_pdf_url"),
+            "content_type": "application/pdf",
+        }
+    return factura or {}
+
+
+def _factura_carga_response(sb: Any, trip: dict[str, Any], *, download: bool) -> Response:
+    factura = _factura_carga_from_trip(trip)
+    if not factura:
+        raise HTTPException(404, "Este viaje no tiene factura de carga asociada.")
+    filename = _safe_storage_filename(_first_text(factura.get("nombre"), "factura-carga.pdf"))
+    mime = _first_text(factura.get("content_type"), "application/pdf")
+    content: bytes | None = None
+    if factura.get("storage_bucket") and factura.get("storage_path"):
+        try:
+            content = sb.storage.from_(factura.get("storage_bucket")).download(factura.get("storage_path"))
+        except Exception as exc:
+            raise HTTPException(404, f"No se pudo descargar la factura de carga desde Storage: {exc}") from exc
+    elif _first_text(factura.get("data_url")).startswith("data:"):
+        try:
+            header, encoded = str(factura.get("data_url")).split(",", 1)
+            content = base64.b64decode(encoded)
+            mime = _first_text(header.split(";", 1)[0].replace("data:", ""), mime)
+        except Exception as exc:
+            raise HTTPException(404, f"No se pudo leer la factura de carga guardada: {exc}") from exc
+    if content is None:
+        raise HTTPException(404, "La factura de carga no tiene archivo descargable asociado.")
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=content,
+        media_type=mime,
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+    )
+
+
+@router.get("/tr-v2/operator/factura/pdf")
+async def transporte_v2_operator_factura_pdf(
+    authorization: str = Header(default=""),
+    download: bool = Query(default=False),
+):
+    token_plain = _operator_token_from_header(authorization)
+    sb, acc = _operator_context(token_plain)
+    trip = _operator_assigned_trip(sb, acc)
+    return _factura_carga_response(sb, trip, download=download)
 
 
 @router.post("/tr-v2/operator/bitacora")
@@ -4454,6 +4793,27 @@ async def transporte_v2_detalle_viaje(
     return {"ok": True, "item": _normalize_viaje_row(rows[0])}
 
 
+@router.get("/tr-v2/viajes/{viaje_id}/factura-carga")
+async def transporte_v2_factura_carga_pdf(
+    viaje_id: int,
+    download: bool = Query(default=False),
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    sb = _sb(token)
+    query = sb.table(TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).limit(1)
+    if pid:
+        query = query.eq("perfil_id", pid)
+    rows = query.execute().data or []
+    if not rows:
+        raise HTTPException(404, "Viaje Transporte v2 no encontrado.")
+    return _factura_carga_response(sb, rows[0], download=download)
+
+
 @router.patch("/tr-v2/viajes/{viaje_id}")
 async def transporte_v2_actualizar_viaje(
     viaje_id: int,
@@ -4631,8 +4991,14 @@ async def transporte_v2_carta_porte_preview(
         settings = _load_settings(token, uid, _pid)
         product_text = _first_text(producto.get("tipo_producto"), producto.get("descripcion"), _meta(viaje).get("producto"))
         permiso_transportista = _stamp_transportista_permiso(_sb(token), uid, _pid, product_text)
+        permiso_result = _resolve_carta_porte_permiso(
+            _sb(token), uid, _pid, producto, vehiculo,
+            _emisor_from_settings(settings).get("rfc", ""), payload.permiso_id,
+        )
+        if permiso_result["seleccionado"]:
+            vehiculo = aplicar_permiso(vehiculo, permiso_result["seleccionado"])
         pac_ready, pac_message, _pac_cfg = _sw_ready_state()
-        return _build_carta_porte_preview(
+        result = _build_carta_porte_preview(
             viaje,
             cliente,
             operador,
@@ -4645,8 +5011,22 @@ async def transporte_v2_carta_porte_preview(
             pac_ready=pac_ready,
             pac_message=pac_message,
         )
+        result["permisos_compatibles"] = permiso_result["compatibles"]
+        result["permiso_seleccionado"] = permiso_result["seleccionado"]
+        result["requiere_seleccion_permiso"] = permiso_result["requiere_seleccion"]
+        if permiso_result["error"]:
+            result["validaciones"].append({"nivel": "error", "campo": "vehiculo.permiso_sct", "mensaje": permiso_result["error"]})
+        elif permiso_result["requiere_seleccion"]:
+            result["validaciones"].append({"nivel": "error", "campo": "vehiculo.permiso_sct", "mensaje": "Hay varios permisos compatibles. Selecciona el que se usara para timbrar."})
+        if permiso_result["error"] or permiso_result["requiere_seleccion"]:
+            result["ready_to_stamp"] = False
+            result["datos_completos_para_fase_3"] = False
+            result["timbrado_habilitado"] = False
+        return result
     except HTTPException:
         raise
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
         logger.exception("Transporte v2 preview Carta Porte error")
         raise HTTPException(500, f"No se pudo generar preview Carta Porte Transporte v2: {exc}")
@@ -4680,7 +5060,7 @@ async def transporte_v2_carta_porte_timbrar(
     _require_profile_if_present(uid, token, pid)
     if not payload.confirmar:
         raise HTTPException(400, "Confirma el resumen de Carta Porte antes de enviarlo a SW Sapiens.")
-    context = _stamp_build_context(uid=uid, pid=pid, viaje_id=payload.viaje_id, actor="admin")
+    context = _stamp_build_context(uid=uid, pid=pid, viaje_id=payload.viaje_id, actor="admin", permiso_id=payload.permiso_id)
     return _stamp_carta_porte_context(context)
 
 
@@ -5287,6 +5667,30 @@ async def transporte_v2_crear_producto(
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     return _create_catalog_item(token, uid, pid, "productos", payload.data)
+
+
+@router.get("/tr-v2/catalogos/permisos")
+async def transporte_v2_catalogo_permisos(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return _select_catalog(token, uid, "permisos", pid)
+
+
+@router.post("/tr-v2/catalogos/permisos")
+async def transporte_v2_crear_permiso(
+    payload: TransporteV2CatalogoCreate,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    return _create_catalog_item(token, uid, pid, "permisos", payload.data)
 
 
 @router.get("/tr-v2/catalogos/rutas")
