@@ -472,6 +472,7 @@ class FacturaServicioCreate(BaseModel):
     cp_receptor:         str = "20000"
     regimen_fiscal:      str = "601"
     uso_cfdi:            str = "G03"
+    email_receptor:      str = ""
     concepto:            str = "Servicio de transporte de hidrocarburos"
     subtotal:            float
     iva:                 float = 0.0
