@@ -229,7 +229,7 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
       Falta seleccionar ruta, vehículo y operador.
     </div>
     <div class="trv2-form-actions trv2-form-actions-sticky">
-      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2CreateTripFromDocument('${trv2Esc(scope)}')">
+      <button class="trv2-btn trv2-btn-primary" type="button" id="${scope === 'cp' ? 'trv2-cp-doc-save-trip' : 'trv2-doc-save-trip'}" onclick="trv2CreateTripFromDocument('${trv2Esc(scope)}')">
         <i class="fa-solid fa-circle-check"></i> Guardar para timbrar
       </button>
     </div>
@@ -439,6 +439,21 @@ function trv2DocFieldId(scope, suffix) {
   return scope === 'cp' ? `trv2-cp-doc-${suffix}` : `trv2-doc-${suffix}`;
 }
 
+function trv2SetDocumentSaveBusy(scope, busy, message = '') {
+  const button = document.getElementById(scope === 'cp' ? 'trv2-cp-doc-save-trip' : 'trv2-doc-save-trip');
+  const pending = document.getElementById(scope === 'cp' ? 'trv2-cp-doc-pending' : 'trv2-doc-pending');
+  if (button) {
+    button.disabled = Boolean(busy);
+    button.innerHTML = busy
+      ? '<i class="fa-solid fa-spinner fa-spin"></i> Guardando viaje...'
+      : '<i class="fa-solid fa-circle-check"></i> Guardar para timbrar';
+  }
+  if (pending && message) {
+    pending.className = `trv2-form-wide trv2-alert ${busy ? 'trv2-alert-ok' : 'trv2-alert-warn'}`;
+    pending.textContent = message;
+  }
+}
+
 function trv2SelectDetectedCatalogValues(scope, detected) {
   const backendCliente = TRV2_DOCUMENT_DETECTED?.cliente_match?.item || null;
   const backendProducto = TRV2_DOCUMENT_DETECTED?.producto_match?.item || null;
@@ -455,6 +470,10 @@ function trv2SelectDetectedCatalogValues(scope, detected) {
 }
 
 async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
+  if (TRV2_DOC_SAVE_IN_PROGRESS) {
+    trv2Toast('Ya estamos guardando este viaje. Espera un momento.', 'info');
+    return;
+  }
   if (!TRV2_DOCUMENT_DETECTED) {
     trv2Toast('Primero analiza un documento.', 'error');
     return;
@@ -523,42 +542,49 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
     trv2Toast('Captura litros y kilos, o configura factor kg/L para calcular el dato faltante.', 'error');
     return;
   }
-  const trip = await trv2Api('POST', '/api/tr-v2/viajes', body, {allowError: true});
-  if (!trip?.ok) {
-    trv2Toast(trip?.detail || trip?.message || 'No se pudo crear viaje borrador.', 'error');
-    return;
-  }
-  const viajeId = trip.item?.id || null;
-  await trv2Api('POST', '/api/tr-v2/documentos', {
-    perfil_id: TRV2_PERFIL?.id || null,
-    viaje_id: viajeId,
-    tipo_documento: trv2DocUi(scope).tipo?.value || 'factura_cliente',
-    nombre_archivo: TRV2_DOCUMENT_DETECTED.filename || 'Documento cliente',
-    content_type: TRV2_DOCUMENT_DETECTED.content_type || '',
-    size_bytes: TRV2_DOCUMENT_DETECTED.size_bytes || 0,
-    metadata: {
-      fase: 'transporte_v2_fase_2_8',
-      bucket_pendiente: true,
-      detected,
-      proveedor_nombre: detected.emisor_nombre || detected.proveedor_nombre || '',
-      proveedor_rfc: detected.emisor_rfc || detected.proveedor_rfc || '',
-      proveedor_permiso: detected.permiso || detected.proveedor_permiso || '',
-      ruta_id: ruta?.id || null,
-      operador_id: operador?.id || null,
-      vehiculo_id: vehiculo?.id || null,
-      source: TRV2_DOCUMENT_DETECTED.source,
-      confidence: TRV2_DOCUMENT_DETECTED.confidence,
-    },
-  }, {allowError: true, silent: true});
-  trv2Toast('Movimiento guardado para timbrar.', 'success');
-  await trv2LoadTrips();
-  await trv2LoadDashboard();
-  if (viajeId) {
-    if (typeof trv2SetCartaPorteWorkflow === 'function') trv2SetCartaPorteWorkflow('pendientes');
-    const panel = document.getElementById('trv2-cp-preview-panel');
-    if (panel) {
-      panel.innerHTML = '<div class="trv2-empty">Movimiento guardado. Ve a Pendientes para timbrarlo cuando estés lista.</div>';
+  TRV2_DOC_SAVE_IN_PROGRESS = true;
+  trv2SetDocumentSaveBusy(scope, true, 'Guardando viaje borrador. No vuelvas a presionar el botón.');
+  try {
+    const trip = await trv2Api('POST', '/api/tr-v2/viajes', body, {allowError: true});
+    if (!trip?.ok) {
+      trv2Toast(trip?.detail || trip?.message || 'No se pudo crear viaje borrador.', 'error');
+      return;
     }
+    const viajeId = trip.item?.id || null;
+    await trv2Api('POST', '/api/tr-v2/documentos', {
+      perfil_id: TRV2_PERFIL?.id || null,
+      viaje_id: viajeId,
+      tipo_documento: trv2DocUi(scope).tipo?.value || 'factura_cliente',
+      nombre_archivo: TRV2_DOCUMENT_DETECTED.filename || 'Documento cliente',
+      content_type: TRV2_DOCUMENT_DETECTED.content_type || '',
+      size_bytes: TRV2_DOCUMENT_DETECTED.size_bytes || 0,
+      metadata: {
+        fase: 'transporte_v2_fase_2_8',
+        bucket_pendiente: true,
+        detected,
+        proveedor_nombre: detected.emisor_nombre || detected.proveedor_nombre || '',
+        proveedor_rfc: detected.emisor_rfc || detected.proveedor_rfc || '',
+        proveedor_permiso: detected.permiso || detected.proveedor_permiso || '',
+        ruta_id: ruta?.id || null,
+        operador_id: operador?.id || null,
+        vehiculo_id: vehiculo?.id || null,
+        source: TRV2_DOCUMENT_DETECTED.source,
+        confidence: TRV2_DOCUMENT_DETECTED.confidence,
+      },
+    }, {allowError: true, silent: true});
+    trv2Toast('Movimiento guardado para timbrar.', 'success');
+    await trv2LoadTrips();
+    await trv2LoadDashboard();
+    if (viajeId) {
+      if (typeof trv2SetCartaPorteWorkflow === 'function') trv2SetCartaPorteWorkflow('pendientes');
+      const panel = document.getElementById('trv2-cp-preview-panel');
+      if (panel) {
+        panel.innerHTML = '<div class="trv2-empty">Movimiento guardado. Abre Pendientes para validar la tarjeta resumen antes de timbrar.</div>';
+      }
+    }
+  } finally {
+    TRV2_DOC_SAVE_IN_PROGRESS = false;
+    trv2SetDocumentSaveBusy(scope, false);
   }
 }
 

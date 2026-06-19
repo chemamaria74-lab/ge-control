@@ -140,8 +140,8 @@ function trv2PopulateCartaPorteTrips() {
   if (!list) return;
   const pending = (TRV2_TRIPS || []).filter(row => {
     const meta = row.metadata || {};
-    const uuid = row.uuid_cfdi || meta.uuid_carta_porte || meta.cfdi_uuid || '';
-    const status = String(row.estatus || row.status || meta.status || '').toLowerCase();
+    const uuid = row.uuid_cfdi || row.uuid_sat || row.cfdi_uuid || meta.uuid_carta_porte || meta.cfdi_uuid || '';
+    const status = String(row.estatus || row.status || row.carta_porte_status || meta.status || '').toLowerCase();
     return !uuid && !status.includes('timbr') && status !== 'eliminado' && !meta.eliminado_transporte_v2;
   });
   if (!pending.length) {
@@ -165,7 +165,7 @@ function trv2PopulateCartaPorteTrips() {
           <span>${trv2Esc(operador)} · ${trv2Esc(vehiculo)} · ${trv2Esc(fecha)} · ${trv2Esc(litros)} L</span>
         </div>
         <button class="trv2-mini-btn" type="button" onclick="trv2PreviewCartaPorte(${Number(row.id || 0)})">Ver / corregir</button>
-        <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2StartCartaPorteStamp(${Number(row.id || 0)})">Timbrar</button>
+        <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2StartCartaPorteStamp(${Number(row.id || 0)})">Validar</button>
         <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteDraftTrip(${Number(row.id || 0)})">Eliminar</button>
       </article>
     `;
@@ -271,7 +271,7 @@ function trv2RenderCartaPortePreview(data) {
     <div class="trv2-cp-summary">
       <div>
         <span>Tipo CFDI</span>
-        <strong>Ingreso</strong>
+        <strong>Ingreso + Carta Porte</strong>
       </div>
       <div>
         <span>Errores</span>
@@ -289,10 +289,10 @@ function trv2RenderCartaPortePreview(data) {
     <div class="trv2-alert ${pacClass}">${trv2Esc(data.pac_mensaje || 'Validación previa: no timbra, no genera XML final y no llama PAC hasta confirmar.')}</div>
     <div class="trv2-alert trv2-alert-ok">Resumen generado. Revisa datos y errores antes de confirmar timbrado.</div>
     <div class="trv2-form-actions trv2-form-actions-inline">
-      <button class="trv2-btn trv2-btn-primary" type="button" ${canStamp ? '' : 'disabled'} onclick="trv2ConfirmStampCartaPorte()">
+      <button class="trv2-btn trv2-btn-primary" type="button" id="trv2-cp-confirm-stamp-btn" ${canStamp ? '' : 'disabled'} onclick="trv2ConfirmStampCartaPorte()">
         <i class="fa-solid fa-stamp"></i> Timbrar Carta Porte
       </button>
-      <span class="trv2-muted">${trv2Esc(data.ready_to_stamp ? 'Datos mínimos completos. Al confirmar se enviará a SW Sapiens.' : 'Corrige los errores antes de timbrar.')}</span>
+      <span class="trv2-muted">${trv2Esc(data.ready_to_stamp ? 'Se timbrará el servicio de transporte con el complemento Carta Porte 3.1.' : 'Corrige los errores antes de timbrar.')}</span>
     </div>
     ${trv2RenderCartaPorteDocument(preview, data)}
     <div class="trv2-preview-grid">
@@ -312,6 +312,15 @@ function trv2RenderCartaPortePreview(data) {
       ${validationHtml}
     </section>
   `;
+}
+
+function trv2SetCartaPorteStampBusy(busy) {
+  const button = document.getElementById('trv2-cp-confirm-stamp-btn');
+  if (!button) return;
+  button.disabled = Boolean(busy);
+  button.innerHTML = busy
+    ? '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando con SW...'
+    : '<i class="fa-solid fa-stamp"></i> Timbrar Carta Porte';
 }
 
 function trv2PacErrorText(data = {}) {
@@ -363,6 +372,10 @@ function trv2RenderCartaPortePacError(data = {}) {
 }
 
 async function trv2ConfirmStampCartaPorte() {
+  if (TRV2_CP_STAMP_IN_PROGRESS) {
+    trv2Toast('Ya se está timbrando este movimiento. Espera la respuesta de SW.', 'info');
+    return 'busy';
+  }
   if (!TRV2_CP_PREVIEW?.ready_to_stamp) {
     trv2Toast('Corrige los errores del preview antes de timbrar.', 'error');
     return 'blocked';
@@ -377,12 +390,20 @@ async function trv2ConfirmStampCartaPorte() {
     return 'blocked';
   }
   if (!confirm('¿Timbrar Carta Porte real de este movimiento? Esta acción envía el CFDI a SW Sapiens.')) return 'cancelled';
+  TRV2_CP_STAMP_IN_PROGRESS = true;
+  trv2SetCartaPorteStampBusy(true);
   trv2Toast('Timbrando Carta Porte con SW Sapiens...');
-  const data = await trv2Api('POST', '/api/tr-v2/carta-porte/timbrar', {
-    perfil_id: TRV2_PERFIL?.id || null,
-    viaje_id: viajeId,
-    confirmar: true,
-  }, {allowError: true, timeoutMs: 90000});
+  let data = null;
+  try {
+    data = await trv2Api('POST', '/api/tr-v2/carta-porte/timbrar', {
+      perfil_id: TRV2_PERFIL?.id || null,
+      viaje_id: viajeId,
+      confirmar: true,
+    }, {allowError: true, timeoutMs: 90000});
+  } finally {
+    TRV2_CP_STAMP_IN_PROGRESS = false;
+    trv2SetCartaPorteStampBusy(false);
+  }
   if (!data?.ok) {
     const detail = data?.detail || data?.message || data?.error || 'No se pudo timbrar Carta Porte.';
     const detailErrors = Array.isArray(detail?.errors) ? detail.errors : [];
@@ -395,6 +416,39 @@ async function trv2ConfirmStampCartaPorte() {
     trv2RenderCartaPortePacError(data);
     trv2SetCartaPorteWorkflow('preview');
     return 'failed';
+  }
+  const cpValidation = data.validacion_carta_porte || {};
+  const cpInvalid = data.status === 'ErrorValidacion' || cpValidation.ok === false || Boolean(data.warning);
+  if (cpInvalid) {
+    const errors = Array.isArray(cpValidation.errors) ? cpValidation.errors.filter(Boolean) : [];
+    const warnings = Array.isArray(cpValidation.warnings) ? cpValidation.warnings.filter(Boolean) : [];
+    const detailHtml = [...errors, ...warnings].length
+      ? `<ul>${[...errors, ...warnings].map(item => `<li>${trv2Esc(item)}</li>`).join('')}</ul>`
+      : '<p>SW devolvió un CFDI timbrado, pero el XML no trae un Complemento Carta Porte válido.</p>';
+    trv2Toast(data.warning || 'CFDI timbrado, pero no validó como Carta Porte.', 'error');
+    const panel = document.getElementById('trv2-cp-preview-panel');
+    if (panel) {
+      panel.querySelectorAll('.trv2-pac-error-card').forEach(node => node.remove());
+      panel.insertAdjacentHTML('afterbegin', `
+        <section class="trv2-pac-error-card">
+          <div class="trv2-alert trv2-alert-warn">
+            <strong>SW timbró un CFDI, pero no quedó como Carta Porte válida.</strong><br>
+            ${trv2Esc(data.warning || 'El XML recibido no validó el complemento Carta Porte de carretera.')}
+          </div>
+          <div class="trv2-preview-block">
+            <h3>UUID recibido</h3>
+            <div class="trv2-preview-row"><span>UUID CFDI</span><strong>${trv2Esc(data.uuid_sat || data.uuid_cfdi || '')}</strong></div>
+            <div class="trv2-preview-row"><span>Estatus</span><strong>${trv2Esc(data.status || 'ErrorValidacion')}</strong></div>
+          </div>
+          <div class="trv2-alert trv2-alert-warn">${detailHtml}</div>
+        </section>
+      `);
+    }
+    await trv2LoadTrips();
+    trv2PopulateCartaPorteTrips();
+    await trv2LoadStampedCartaPorte({silent: true});
+    trv2SetCartaPorteWorkflow('preview');
+    return 'invalid';
   }
   trv2Toast(`Carta Porte timbrada. UUID: ${data.uuid_sat || data.uuid_cfdi || 'recibido'}`, 'success');
   const panel = document.getElementById('trv2-cp-preview-panel');
@@ -444,13 +498,8 @@ async function trv2PreviewCartaPorte(viajeId) {
 async function trv2StartCartaPorteStamp(viajeId = 0) {
   const previewOk = await trv2PreviewCartaPorte(viajeId || 0);
   if (!previewOk) return;
-  if (TRV2_CP_PREVIEW?.ready_to_stamp && TRV2_CP_PREVIEW?.timbrado_habilitado) {
-    const stampStatus = await trv2ConfirmStampCartaPorte();
-    if (stampStatus === 'stamped') return;
-    if (stampStatus === 'failed' || stampStatus === 'cancelled') return;
-  }
   if (TRV2_CP_PREVIEW?.ready_to_stamp) {
-    trv2Toast('Datos validados para timbrado.', 'success');
+    trv2Toast('Datos validados. Revisa la tarjeta y confirma timbrado.', 'success');
   }
 }
 

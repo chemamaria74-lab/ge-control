@@ -2,6 +2,8 @@ const TRV2_SERVICE_TARIFF_KEY = 'trv2_service_tariffs';
 const TRV2_SERVICE_INVOICE_KEY = 'trv2_service_invoices';
 let TRV2_SERVICE_TAB = 'pendientes';
 let TRV2_SERVICE_TARIFFS = [];
+let TRV2_SERVICE_INVOICES = [];
+let TRV2_SERVICE_INVOICE_BUSY = false;
 
 function trv2ServiceStorageKey(base) {
   return `${base}_${TRV2_PERFIL?.id || 'sin_perfil'}`;
@@ -17,15 +19,11 @@ function trv2WriteServiceTariffs(items) {
 }
 
 function trv2ReadServiceInvoices() {
-  try {
-    return JSON.parse(localStorage.getItem(trv2ServiceStorageKey(TRV2_SERVICE_INVOICE_KEY)) || '[]');
-  } catch (_err) {
-    return [];
-  }
+  return Array.isArray(TRV2_SERVICE_INVOICES) ? TRV2_SERVICE_INVOICES : [];
 }
 
 function trv2WriteServiceInvoices(items) {
-  localStorage.setItem(trv2ServiceStorageKey(TRV2_SERVICE_INVOICE_KEY), JSON.stringify(items || []));
+  TRV2_SERVICE_INVOICES = items || [];
 }
 
 function trv2ServiceNorm(value) {
@@ -149,7 +147,9 @@ function trv2ServiceCalc(tarifa, serviceOrKilos, maybeTariff = null) {
 
 function trv2ServicePendingRows() {
   const invoices = trv2ReadServiceInvoices();
-  const billedTrips = new Set(invoices.map(item => Number(item.viaje_id || 0)));
+  const billedTrips = new Set(invoices.flatMap(item => (
+    Array.isArray(item.viaje_ids) ? item.viaje_ids : [item.viaje_id]
+  )).map(Number).filter(Boolean));
   return (TRV2_TRIPS || []).filter(row => (
     trv2ServiceIsStamped(row)
     && !billedTrips.has(Number(row.id || 0))
@@ -309,30 +309,39 @@ function trv2SetServiceInvoiceTab(tab) {
   document.querySelectorAll('[data-service-panel]').forEach(panel => { panel.hidden = panel.dataset.servicePanel !== tab; });
 }
 
-function trv2OpenServiceDetail(tripId) {
+function trv2OpenServiceDetail(tripId, allowStamp = false) {
   const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
   if (!row) return;
   const service = trv2ServiceTripData(row);
   const tariff = trv2FindServiceTariff(service);
   const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
-  alert([
-    `Cliente: ${service.cliente}`,
-    `RFC: ${service.rfc}`,
-    `Origen: ${service.origen}`,
-    `Destino: ${service.destino}`,
-    `Producto: ${service.producto}`,
-    `Litros: ${trv2ServiceNumber(service.litros)}`,
-    `Kilos: ${trv2ServiceNumber(service.kilos)}`,
-    `Chofer: ${service.chofer}`,
-    `Vehículo: ${service.vehiculo}`,
-    `UUID Carta Porte: ${service.uuid_carta_porte}`,
-    `Tarifa: ${tariff ? trv2ServiceMoney(tariff.tarifa) : 'Falta configurar tarifa'}`,
-    `Base cálculo: ${calc.base_calculo}`,
-    `Subtotal: ${trv2ServiceMoney(calc.subtotal)}`,
-    `IVA: ${trv2ServiceMoney(calc.iva)}`,
-    `Retención: ${trv2ServiceMoney(calc.retencion)}`,
-    `Total: ${trv2ServiceMoney(calc.total)}`,
-  ].join('\n'));
+  let layer = document.getElementById('trv2-service-review-modal');
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = 'trv2-service-review-modal';
+    layer.className = 'trv2-modal-layer';
+    document.body.appendChild(layer);
+  }
+  layer.hidden = false;
+  layer.innerHTML = `<section class="trv2-modal" role="dialog" aria-modal="true">
+    <div class="trv2-modal-head"><div><h2>Revisar factura de servicio</h2><p>Este CFDI de ingreso es independiente de la Carta Porte.</p></div><button class="trv2-icon-btn" type="button" title="Cerrar" onclick="trv2CloseServiceReview()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="trv2-preview-grid">
+      ${trv2RenderPreviewBlock('Receptor', {cliente: service.cliente, rfc: service.rfc})}
+      ${trv2RenderPreviewBlock('Servicio', {ruta: `${service.origen} -> ${service.destino}`, producto: service.producto, carta_porte: service.uuid_carta_porte})}
+    </div>
+    <div class="trv2-cp-summary">
+      <div><span>Subtotal</span><strong>${trv2ServiceMoney(calc.subtotal)}</strong></div>
+      <div><span>IVA ${trv2ServiceNumber(calc.iva_tasa * 100)}%</span><strong>${trv2ServiceMoney(calc.iva)}</strong></div>
+      <div><span>Retención ${trv2ServiceNumber(calc.retencion_tasa * 100)}%</span><strong>${trv2ServiceMoney(calc.retencion)}</strong></div>
+      <div><span>Total</span><strong>${trv2ServiceMoney(calc.total)}</strong></div>
+    </div>
+    <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseServiceReview()">Cancelar</button>${allowStamp ? `<button class="trv2-btn trv2-btn-primary" id="trv2-service-confirm-btn" type="button" onclick="trv2ConfirmServiceInvoice(${Number(tripId)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar factura de servicio</button>` : ''}</div>
+  </section>`;
+}
+
+function trv2CloseServiceReview() {
+  const layer = document.getElementById('trv2-service-review-modal');
+  if (layer) layer.hidden = true;
 }
 
 function trv2GenerateServiceInvoice(tripId) {
@@ -344,29 +353,57 @@ function trv2GenerateServiceInvoice(tripId) {
     trv2Toast('Falta configurar tarifa. No se puede generar factura.', 'error');
     return;
   }
-  const calc = trv2ServiceCalc(tariff.tarifa, service, tariff);
   const invoices = trv2ReadServiceInvoices();
-  if (invoices.some(item => Number(item.viaje_id) === Number(tripId))) {
-    trv2Toast('Este viaje ya tiene registro local de factura.', 'error');
+  if (invoices.some(item => (item.viaje_ids || [item.viaje_id]).map(Number).includes(Number(tripId)))) {
+    trv2Toast('Este viaje ya tiene factura de servicio.', 'error');
     return;
   }
-  invoices.push({
-    id: Date.now(),
-    viaje_id: Number(tripId),
-    fecha: new Date().toISOString(),
-    cliente: service.cliente,
-    uuid_cfdi: '',
-    pdf: '',
-    xml: '',
-    saldo: calc.total,
-    estatus: 'pendiente_pago',
-    ...service,
-    tarifa: Number(tariff.tarifa),
-    ...calc,
-  });
-  trv2WriteServiceInvoices(invoices);
-  trv2Toast('Registro local de factura generado. Timbrado pendiente para siguiente etapa.', 'success');
-  trv2RenderServiceInvoices();
+  trv2OpenServiceDetail(tripId, true);
+}
+
+async function trv2ConfirmServiceInvoice(tripId) {
+  if (TRV2_SERVICE_INVOICE_BUSY) return;
+  const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
+  const service = trv2ServiceTripData(row || {});
+  const tariff = trv2FindServiceTariff(service);
+  const cliente = trv2FindCatalog?.('clientes', service.cliente_id) || {};
+  if (!row || !tariff) return;
+  const calc = trv2ServiceCalc(tariff.tarifa, service, tariff);
+  const button = document.getElementById('trv2-service-confirm-btn');
+  TRV2_SERVICE_INVOICE_BUSY = true;
+  if (button) { button.disabled = true; button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando factura...'; }
+  try {
+    const data = await trv2Api('POST', '/api/tr/facturas-servicio', {
+      perfil_id: Number(TRV2_PERFIL?.id || 0) || null,
+      cliente_id: service.cliente_id,
+      viaje_ids: [Number(tripId)],
+      rfc_receptor: cliente.rfc || service.rfc,
+      nombre_receptor: cliente.nombre || service.cliente,
+      cp_receptor: cliente.cp || '20000',
+      regimen_fiscal: cliente.regimen_fiscal || '601',
+      uso_cfdi: cliente.uso_cfdi || 'G03',
+      concepto: 'Servicio de transporte de carga por carretera',
+      subtotal: calc.subtotal,
+      iva: calc.iva,
+      retencion: calc.retencion,
+      total: calc.total,
+      iva_tasa: calc.iva_tasa,
+      retencion_tasa: calc.retencion_tasa,
+      aplica_iva: calc.iva_tasa > 0,
+      aplica_retencion: calc.retencion_tasa > 0,
+      forma_pago: cliente.forma_pago_default || '03',
+      metodo_pago: cliente.metodo_pago_default || 'PUE',
+      moneda: 'MXN',
+    });
+    if (!data?.ok) return;
+    trv2CloseServiceReview();
+    await trv2LoadServiceInvoices();
+    trv2SetServiceInvoiceTab('facturadas');
+    trv2Toast(`Factura de servicio timbrada. UUID ${data.uuid_sat || ''}`, 'success');
+  } finally {
+    TRV2_SERVICE_INVOICE_BUSY = false;
+    if (button) { button.disabled = false; button.innerHTML = '<i class="fa-solid fa-file-invoice-dollar"></i> Timbrar factura de servicio'; }
+  }
 }
 
 function trv2RenderServicePendingTable() {
@@ -404,7 +441,7 @@ function trv2RenderServicePendingTable() {
         <td><span class="trv2-chip">${trv2Esc(status)}</span></td>
         <td>
           <button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceDetail(${Number(row.id)})">Detalle</button>
-          <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})">Generar factura</button>
+          <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})">Revisar y facturar</button>
         </td>
       </tr>
     `;
@@ -418,26 +455,47 @@ function trv2RenderServiceGeneratedTables() {
   if (facturadas) {
     facturadas.innerHTML = invoices.length ? invoices.map(item => `
       <tr>
-        <td>${trv2Esc(String(item.fecha || '').slice(0, 10))}</td>
-        <td>${trv2Esc(item.cliente)}</td>
-        <td>${trv2Esc(item.uuid_cfdi || 'Pendiente de timbrar')}</td>
+        <td>${trv2Esc(String(item.created_at || item.fecha || '').slice(0, 10))}</td>
+        <td>${trv2Esc(item.nombre_receptor || item.cliente || item.rfc_receptor || '')}</td>
+        <td>${trv2Esc(item.uuid_sat || item.uuid_cfdi || 'Pendiente de timbrar')}</td>
         <td>${trv2ServiceMoney(item.total)}</td>
-        <td>${item.pdf ? '<button class="trv2-mini-btn">PDF</button>' : 'Pendiente'}</td>
-        <td>${item.xml ? '<button class="trv2-mini-btn">XML</button>' : 'Pendiente'}</td>
+        <td>${item.id ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceArtifact(${Number(item.id)}, 'pdf')">PDF</button>` : 'Pendiente'}</td>
+        <td>${item.id ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceArtifact(${Number(item.id)}, 'xml', true)">XML</button>` : 'Pendiente'}</td>
       </tr>
     `).join('') : '<tr><td colspan="6"><div class="trv2-empty">Aún no hay facturas generadas.</div></td></tr>';
   }
   if (pago) {
     pago.innerHTML = invoices.length ? invoices.map(item => `
       <tr>
-        <td>${trv2Esc(item.cliente)}</td>
-        <td>${trv2Esc(String(item.fecha || '').slice(0, 10))}</td>
+        <td>${trv2Esc(item.nombre_receptor || item.cliente || item.rfc_receptor || '')}</td>
+        <td>${trv2Esc(String(item.created_at || item.fecha || '').slice(0, 10))}</td>
         <td>${trv2ServiceMoney(item.total)}</td>
-        <td>${trv2ServiceMoney(item.saldo)}</td>
-        <td><span class="trv2-chip">${trv2Esc(item.estatus || 'pendiente_pago')}</span></td>
+        <td>${trv2ServiceMoney(item.saldo ?? item.total)}</td>
+        <td><span class="trv2-chip">${trv2Esc(item.estatus || item.status || 'pendiente_pago')}</span></td>
       </tr>
     `).join('') : '<tr><td colspan="5"><div class="trv2-empty">Sin pendientes de pago.</div></td></tr>';
   }
+}
+
+async function trv2OpenServiceArtifact(invoiceId, kind, download = false) {
+  const suffix = kind === 'xml' ? 'xml' : `pdf${download ? '?download=true' : ''}`;
+  const response = await fetch(`/api/tr/facturas-servicio/${Number(invoiceId)}/${suffix}`, {headers: trv2Headers()});
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    trv2Toast(data.detail || `No se pudo abrir ${kind.toUpperCase()}.`, 'error');
+    return;
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  if (download || kind === 'xml') {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${kind === 'xml' ? 'factura_servicio.xml' : 'factura_servicio.pdf'}`;
+    anchor.click();
+  } else {
+    window.open(url, '_blank', 'noopener');
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 function trv2RenderServiceKpis() {
@@ -460,6 +518,8 @@ async function trv2LoadServiceInvoices() {
   if (typeof trv2LoadCatalogs === 'function') loads.push(trv2LoadCatalogs({silent: true}));
   if (loads.length) await Promise.all(loads);
   await trv2LoadServiceTariffs();
+  const invoices = await trv2Api('GET', '/api/tr/facturas-servicio', undefined, {silent: true, allowError: true});
+  trv2WriteServiceInvoices(invoices?.facturas_servicio || []);
   trv2RenderServiceInvoices();
 }
 
