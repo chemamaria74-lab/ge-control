@@ -66,6 +66,7 @@ function trv2PopulateCvPermisos() {
     return `<option value="${trv2Esc(permiso)}">${trv2Esc(label || permiso)}</option>`;
   }).join('');
   if ([...select.options].some(option => option.value === current)) select.value = current;
+  else if (!select.value && transportPermits.length === 1) select.value = transportPermits[0].permiso_cre || transportPermits[0].permiso || '';
 }
 
 function trv2CvTripDate(row) {
@@ -118,7 +119,7 @@ function trv2BuildCvMovements() {
     const clientName = trv2TripRelatedLabel(row, 'clientes', 'cliente_nombre') || row.cliente_nombre || 'Cliente pendiente';
     const date = trv2CvTripDate(row);
     const status = trv2CvStatus(row, productName);
-    const permiso = row.metadata?.permiso_transportista || row.metadata?.transportista_permiso || row.metadata?.permiso_cre_transportista || '';
+    const permiso = trv2CvMovementPermit(row);
     const uuid = trv2CvCartaPorteUuid(row);
     const exportable = trv2CvIsStamped(row, uuid);
     return {
@@ -135,12 +136,48 @@ function trv2BuildCvMovements() {
     };
   }).filter(item => {
     if (productFilter && Number(item.row.producto_id) !== productFilter) return false;
-    if (permisoFilter && item.permiso && item.permiso !== permisoFilter) return false;
+    if (permisoFilter && item.permiso !== permisoFilter) return false;
     if (statusFilter && item.status !== statusFilter) return false;
     if (item.date && yearFilter && item.date.getFullYear() !== yearFilter) return false;
     if (item.date && monthFilter && item.date.getMonth() + 1 !== monthFilter) return false;
     return true;
   });
+}
+
+function trv2CvMovementPermit(row = {}) {
+  const meta = row.metadata || {};
+  return String(
+    row.num_permiso_cne
+    || row.permiso_transportista
+    || meta.num_permiso_cne
+    || meta.permiso_transportista
+    || meta.transportista_permiso
+    || meta.permiso_cre_transportista
+    || meta.permiso_cre
+    || ''
+  ).trim();
+}
+
+function trv2CvSelectedPermitItem() {
+  const permiso = document.getElementById('trv2-cv-permiso')?.value || '';
+  return (window.TRV2_PERMISOS_RFC || [])
+    .filter(trv2IsTransportistaPermit)
+    .find(item => String(item.permiso_cre || item.permiso || '') === permiso) || {};
+}
+
+function trv2RenderCvContext(movements) {
+  const context = document.getElementById('trv2-cv-context');
+  if (!context) return;
+  const permiso = document.getElementById('trv2-cv-permiso')?.value || '';
+  const permisoItem = trv2CvSelectedPermitItem();
+  const producto = permisoItem.producto || 'Todos';
+  const nombre = permisoItem.nombre || permisoItem.rfc || '';
+  context.innerHTML = `
+    <span><i class="fa-solid fa-id-card"></i> Permiso: <strong>${trv2Esc(permiso || 'Selecciona permiso')}</strong></span>
+    <span><i class="fa-solid fa-droplet"></i> Producto: <strong>${trv2Esc(producto)}</strong></span>
+    ${nombre ? `<span><i class="fa-solid fa-building"></i> Titular: <strong>${trv2Esc(nombre)}</strong></span>` : ''}
+    <span><i class="fa-solid fa-filter"></i> Movimientos visibles: <strong>${Number(movements?.length || 0).toLocaleString('es-MX')}</strong></span>
+  `;
 }
 
 function trv2RenderCvKpis(movements) {
@@ -150,18 +187,13 @@ function trv2RenderCvKpis(movements) {
   const exportableMovements = movements.filter(item => item.exportable);
   const exportableVolume = exportableMovements.reduce((sum, item) => sum + Number(item.row.volumen_litros || 0), 0);
   const alerts = movements.filter(item => item.status === 'alerta' || !item.exportable).length;
-  const permiso = document.getElementById('trv2-cv-permiso')?.value || 'Pendiente';
-  const permisoItem = (window.TRV2_PERMISOS_RFC || []).filter(trv2IsTransportistaPermit).find(item => (item.permiso_cre || item.permiso || '') === permiso) || {};
   const cards = [
     ['Volumen transportado', `${volume.toLocaleString('es-MX')} L`],
     ['Viajes', movements.length],
     ['Volumen exportable JSON', `${exportableVolume.toLocaleString('es-MX')} L`],
     ['Cartas Porte timbradas', exportableMovements.length],
-    ['Facturas de servicio', 'Próximamente'],
     ['UUIDs válidos exportables', exportableMovements.length],
     ['Pendientes de validar', alerts],
-    ['Producto', permisoItem.producto || 'Pendiente'],
-    ['Permiso transportista', permiso],
   ];
   kpis.innerHTML = cards.map(([label, value]) => `
     <article>
@@ -210,11 +242,25 @@ async function trv2LoadControlVolumetrico() {
   trv2PopulateControlVolumetricoFilters();
   if (!TRV2_TRIPS.length) await trv2LoadTrips();
   TRV2_CV_MOVEMENTS = trv2BuildCvMovements();
+  trv2RenderCvContext(TRV2_CV_MOVEMENTS);
   trv2RenderCvKpis(TRV2_CV_MOVEMENTS);
   trv2RenderCvTable(TRV2_CV_MOVEMENTS);
   const alert = document.getElementById('trv2-cv-alert');
   if (alert) {
     alert.textContent = 'Listo para generar JSON SAT con viajes timbrados del periodo.';
+  }
+}
+
+function trv2RefreshCvView() {
+  TRV2_CV_MOVEMENTS = trv2BuildCvMovements();
+  trv2RenderCvContext(TRV2_CV_MOVEMENTS);
+  trv2RenderCvKpis(TRV2_CV_MOVEMENTS);
+  trv2RenderCvTable(TRV2_CV_MOVEMENTS);
+  const alert = document.getElementById('trv2-cv-alert');
+  if (alert) {
+    alert.textContent = document.getElementById('trv2-cv-permiso')?.value
+      ? 'Filtro actualizado. El JSON SAT tomará únicamente viajes timbrados del periodo y permiso seleccionado.'
+      : 'Selecciona permiso y periodo para generar JSON SAT Transporte.';
   }
 }
 

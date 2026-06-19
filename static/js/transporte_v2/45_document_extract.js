@@ -547,7 +547,7 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
   try {
     const trip = await trv2Api('POST', '/api/tr-v2/viajes', body, {allowError: true});
     if (!trip?.ok) {
-      trv2Toast(trip?.detail || trip?.message || 'No se pudo crear viaje borrador.', 'error');
+      trv2Toast(trv2MessageText(trip?.detail || trip?.message || 'No se pudo crear viaje borrador.'), 'error');
       return;
     }
     const viajeId = trip.item?.id || null;

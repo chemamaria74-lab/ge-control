@@ -174,6 +174,6 @@ async function trv2CreateTrip(event) {
     await trv2LoadTrips();
     await trv2LoadDashboard();
   } else {
-    trv2Toast(data?.detail || data?.message || 'No se pudo guardar el viaje.', 'error');
+    trv2Toast(trv2MessageText(data?.detail || data?.message || 'No se pudo guardar el viaje.'), 'error');
   }
 }
