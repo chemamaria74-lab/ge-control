@@ -207,7 +207,7 @@ function trv2RenderCartaPorteDocument(preview = {}, data = {}) {
       <header class="trv2-cp-doc-header">
         <div>
           <span>Resumen para timbrar</span>
-          <h2>CFDI ${trv2DocValue(data.tipo_cfdi_sugerido || 'I')} · Complemento Carta Porte</h2>
+          <h2>CFDI ${trv2DocValue(data.tipo_cfdi_sugerido || 'T')} · Complemento Carta Porte</h2>
         </div>
         <strong>Validación previa</strong>
       </header>
@@ -271,7 +271,11 @@ function trv2RenderCartaPortePreview(data) {
     <div class="trv2-cp-summary">
       <div>
         <span>Tipo CFDI</span>
-        <strong>Ingreso + Carta Porte</strong>
+        <strong>Traslado + Carta Porte</strong>
+      </div>
+      <div>
+        <span>Total</span>
+        <strong>$0.00</strong>
       </div>
       <div>
         <span>Errores</span>
@@ -292,7 +296,7 @@ function trv2RenderCartaPortePreview(data) {
       <button class="trv2-btn trv2-btn-primary" type="button" id="trv2-cp-confirm-stamp-btn" ${canStamp ? '' : 'disabled'} onclick="trv2ConfirmStampCartaPorte()">
         <i class="fa-solid fa-stamp"></i> Timbrar Carta Porte
       </button>
-      <span class="trv2-muted">${trv2Esc(data.ready_to_stamp ? 'Se timbrará el servicio de transporte con el complemento Carta Porte 3.1.' : 'Corrige los errores antes de timbrar.')}</span>
+      <span class="trv2-muted">${trv2Esc(data.ready_to_stamp ? 'Se timbrará CFDI Traslado con Complemento Carta Porte 3.1, total $0 y moneda XXX.' : 'Corrige los errores antes de timbrar.')}</span>
     </div>
     ${trv2RenderCartaPorteDocument(preview, data)}
     <div class="trv2-preview-grid">
@@ -433,7 +437,7 @@ async function trv2ConfirmStampCartaPorte() {
         <section class="trv2-pac-error-card">
           <div class="trv2-alert trv2-alert-warn">
             <strong>SW timbró un CFDI, pero no quedó como Carta Porte válida.</strong><br>
-            ${trv2Esc(data.warning || 'El XML recibido no validó el complemento Carta Porte de carretera.')}
+            ${trv2Esc(data.warning || 'SW devolvió un CFDI de ingreso/factura de flete, no una Carta Porte Traslado. No se guardó como Carta Porte.')}
           </div>
           <div class="trv2-preview-block">
             <h3>UUID recibido</h3>
@@ -480,7 +484,7 @@ async function trv2PreviewCartaPorte(viajeId) {
   const data = await trv2Api('POST', '/api/tr-v2/carta-porte/preview', {
     perfil_id: TRV2_PERFIL?.id || null,
     viaje_id: id,
-    tipo_cfdi: 'I',
+    tipo_cfdi: 'T',
   }, {allowError: true});
   if (!data?.ok) {
     trv2Toast(data?.detail || data?.message || 'No se pudo generar resumen Carta Porte.', 'error');

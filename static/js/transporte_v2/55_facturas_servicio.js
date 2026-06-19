@@ -83,6 +83,7 @@ function trv2ServiceTripData(row = {}) {
     fecha: row.fecha_salida || row.fecha_hora_salida || row.created_at || '',
     cliente: cliente.nombre || row.cliente_nombre || trv2ServiceTripMeta(row, 'cliente_nombre') || '',
     rfc: cliente.rfc || trv2ServiceTripMeta(row, 'cliente_rfc') || '',
+    email: cliente.email_facturacion || cliente.email || meta.email_receptor || meta.cliente_email || '',
     origen,
     destino,
     distancia_km: Number(row.distancia_km || ruta.distancia_km || meta.distancia_km || 0),
@@ -315,6 +316,7 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
   const service = trv2ServiceTripData(row);
   const tariff = trv2FindServiceTariff(service);
   const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(service.email || '').trim());
   let layer = document.getElementById('trv2-service-review-modal');
   if (!layer) {
     layer = document.createElement('div');
@@ -326,9 +328,13 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
   layer.innerHTML = `<section class="trv2-modal" role="dialog" aria-modal="true">
     <div class="trv2-modal-head"><div><h2>Revisar factura de servicio</h2><p>Este CFDI de ingreso es independiente de la Carta Porte.</p></div><button class="trv2-icon-btn" type="button" title="Cerrar" onclick="trv2CloseServiceReview()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="trv2-preview-grid">
-      ${trv2RenderPreviewBlock('Receptor', {cliente: service.cliente, rfc: service.rfc})}
+      ${trv2RenderPreviewBlock('Receptor', {cliente: service.cliente, rfc: service.rfc, email: service.email || 'Pendiente'})}
       ${trv2RenderPreviewBlock('Servicio', {ruta: `${service.origen} -> ${service.destino}`, producto: service.producto, carta_porte: service.uuid_carta_porte})}
     </div>
+    <label class="trv2-form-wide">
+      <span>Email fiscal/comercial del cliente</span>
+      <input id="trv2-service-email" type="email" value="${trv2Esc(service.email || '')}" placeholder="facturacion@cliente.com">
+    </label>
     <div class="trv2-cp-summary">
       <div><span>Subtotal</span><strong>${trv2ServiceMoney(calc.subtotal)}</strong></div>
       <div><span>IVA ${trv2ServiceNumber(calc.iva_tasa * 100)}%</span><strong>${trv2ServiceMoney(calc.iva)}</strong></div>
@@ -337,6 +343,7 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
     </div>
     <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseServiceReview()">Cancelar</button>${allowStamp ? `<button class="trv2-btn trv2-btn-primary" id="trv2-service-confirm-btn" type="button" onclick="trv2ConfirmServiceInvoice(${Number(tripId)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar factura de servicio</button>` : ''}</div>
   </section>`;
+  if (!emailOk && allowStamp) trv2Toast('Captura el email fiscal/comercial antes de timbrar la factura de servicio.', 'info');
 }
 
 function trv2CloseServiceReview() {
@@ -369,6 +376,11 @@ async function trv2ConfirmServiceInvoice(tripId) {
   const cliente = trv2FindCatalog?.('clientes', service.cliente_id) || {};
   if (!row || !tariff) return;
   const calc = trv2ServiceCalc(tariff.tarifa, service, tariff);
+  const email = String(document.getElementById('trv2-service-email')?.value || service.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    trv2Toast('Captura un email fiscal/comercial válido antes de timbrar.', 'error');
+    return;
+  }
   const button = document.getElementById('trv2-service-confirm-btn');
   TRV2_SERVICE_INVOICE_BUSY = true;
   if (button) { button.disabled = true; button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando factura...'; }
@@ -382,6 +394,7 @@ async function trv2ConfirmServiceInvoice(tripId) {
       cp_receptor: cliente.cp || '20000',
       regimen_fiscal: cliente.regimen_fiscal || '601',
       uso_cfdi: cliente.uso_cfdi || 'G03',
+      email_receptor: email,
       concepto: 'Servicio de transporte de carga por carretera',
       subtotal: calc.subtotal,
       iva: calc.iva,

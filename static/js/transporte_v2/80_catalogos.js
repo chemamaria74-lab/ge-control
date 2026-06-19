@@ -139,6 +139,7 @@ const TRV2_CATALOG_FORMS = {
     ['cp', 'CP fiscal'],
     ['regimen_fiscal', 'Régimen fiscal', 'regimen-fiscal'],
     ['uso_cfdi', 'Uso CFDI', 'uso-cfdi'],
+    ['email_facturacion', 'Email fiscal / comercial', 'email'],
     ['activo', 'Activo', 'checkbox'],
   ],
   operadores: [
@@ -261,7 +262,7 @@ const TRV2_CATALOG_UI = {
     title: 'Clientes',
     subtitle: 'Receptores y contrapartes del servicio de transporte.',
     metrics: [['Registros', 'count'], ['Con RFC', 'rfc'], ['Con CP', 'cp']],
-    fields: [['RFC', 'rfc'], ['CP', 'cp'], ['Régimen', 'regimen_fiscal'], ['Uso CFDI', 'uso_cfdi']],
+    fields: [['RFC', 'rfc'], ['CP', 'cp'], ['Régimen', 'regimen_fiscal'], ['Uso CFDI', 'uso_cfdi'], ['Email', 'email_facturacion']],
   },
   operadores: {
     icon: 'fa-id-card',
