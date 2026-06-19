@@ -409,6 +409,7 @@ function hideLogin(displayName) {
 function clearSession() {
   authToken = '';
   currentUserRole = 'user';
+  if (window.GESessionTimeout) window.GESessionTimeout.clear();
   localStorage.removeItem('sat_token');
   localStorage.removeItem('sat_user_id');
   localStorage.removeItem('sat_email');
@@ -445,6 +446,7 @@ document.getElementById('btnLogin').addEventListener('click', async () => {
       localStorage.setItem('sat_user_id', currentUserId);
       localStorage.setItem('sat_email', user);   // guardar email para re-auth en modal crítico
       localStorage.setItem('sat_modulo', GAS_LP_MODULE);  // Guardar módulo
+      window.GESessionTimeout?.markLogin();
       assignedPerfilId = Number(data.perfil_id || 0) || null;
       if (assignedPerfilId) localStorage.setItem('sat_assigned_perfil_id', String(assignedPerfilId));
       // Mostrar dashboard base sin cargar datos aún (se cargan tras seleccionar empresa)
