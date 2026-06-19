@@ -230,6 +230,7 @@
       <a href="/choice"><i class="fa-solid fa-arrow-left"></i> Cambiar módulo</a>
     </div>
   </div>
+  <script src="/static/js/session_timeout.js"></script>
   <script>
     function currentLoginLang() {
       const urlLang = new URLSearchParams(location.search).get('lang');
@@ -270,6 +271,7 @@
           localStorage.setItem('zc_token',    data.token);
           localStorage.setItem('sat_user_id', data.user_id);
           localStorage.setItem('sat_modulo',  modulo);
+          window.GESessionTimeout?.markLogin();
           const _lang = localStorage.getItem('zc_lang') || 'es';
           window.location.href = data.modulo === 'transporte'
             ? '/transporte?lang=' + _lang
