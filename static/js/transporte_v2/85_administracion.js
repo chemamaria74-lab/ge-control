@@ -406,7 +406,7 @@ async function trv2SavePermisoRfc(event) {
   event.preventDefault();
   const payload = trv2PermisoPayloadFromForm();
   if (!payload.producto) {
-    trv2Toast('Selecciona el producto del permiso transportista.', 'error');
+    trv2Toast('Selecciona el alcance del permiso transportista.', 'error');
     return;
   }
   if (!payload.permiso_cre) {
