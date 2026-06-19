@@ -110,3 +110,51 @@ def test_tolerant_trip_insert_retries_without_missing_optional_column():
 
     assert inserted[0]["id"] == 7
     assert "factura_status" not in sb.table_obj.last_row
+
+
+def test_operator_trip_payload_includes_legacy_and_v2_aliases(monkeypatch):
+    captured = {}
+
+    def fake_insert(_sb, _table, row):
+        captured.update(row)
+        return [dict(row, id=91)]
+
+    monkeypatch.setattr(transporte_v2, "_insert_table_row_tolerant", fake_insert)
+    monkeypatch.setattr(transporte_v2, "_stamp_expand_vehicle_trailers", lambda _sb, _uid, _pid, vehicle: vehicle)
+    monkeypatch.setattr(transporte_v2, "_operator_prepare_trip", lambda *_args: {
+        "errors": [],
+        "routes": [{
+            "id": 10,
+            "origen_id": 1,
+            "destino_id": 2,
+            "cp_origen": "45100",
+            "cp_destino": "01000",
+            "nombre_origen": "Planta",
+            "nombre_destino": "Cliente",
+            "distancia_km": 120,
+            "duracion_estimada_min": 90,
+        }],
+        "client": {"id": 5, "nombre": "GAS LUX", "rfc": "GLU760309457", "cp": "01000", "regimen_fiscal": "601"},
+        "product": {"id": 6, "nombre": "GAS L.P.", "unidad": "LTR"},
+        "vehicle": {"id": 7, "numero_economico": "FZN-2992", "placas": "453EX1"},
+        "provider_rfc": "AAA010101AAA",
+    })
+
+    trip = transporte_v2._operator_create_trip(
+        object(),
+        {"user_id": "u1", "perfil_id": 2, "chofer_id": 3, "chofer": {"nombre": "Javier"}},
+        {"litros": 1000, "kilos": 524},
+        10,
+    )
+
+    assert trip["id"] == 91
+    assert captured["cliente_id"] == 5
+    assert captured["chofer_id"] == 3
+    assert captured["operador_id"] == 3
+    assert captured["producto_operacion_id"] == 6
+    assert captured["producto_id"] == 6
+    assert captured["volumen_total_litros"] == 1000
+    assert captured["volumen_litros"] == 1000
+    assert captured["peso_kg"] == 524
+    assert captured["status"] == "asignado"
+    assert captured["estatus"] == "asignado"
