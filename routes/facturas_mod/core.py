@@ -125,9 +125,9 @@ def _parse_perfil_id(raw: str) -> Optional[int]:
 
 
 def _validar_cliente_cfdi_payload(rfc: str, nombre: str, cp: str, regimen_fiscal: str, uso_cfdi: str) -> dict:
-    from routes.transporte import _normalizar_receptor_cfdi, _validar_datos_cfdi_receptor
+    from routes.core import _gas_lp_normalizar_receptor_cfdi, _gas_lp_validar_datos_cfdi_receptor
 
-    receptor = _normalizar_receptor_cfdi(rfc, nombre, cp, regimen_fiscal)
+    receptor = _gas_lp_normalizar_receptor_cfdi(rfc, nombre, cp, regimen_fiscal)
     if receptor["rfc"] == "XAXX010101000":
         receptor = {
             "rfc": "XAXX010101000",
@@ -136,7 +136,7 @@ def _validar_cliente_cfdi_payload(rfc: str, nombre: str, cp: str, regimen_fiscal
             "regimen_fiscal": "616",
         }
         uso_cfdi = "S01"
-    _validar_datos_cfdi_receptor(
+    _gas_lp_validar_datos_cfdi_receptor(
         receptor["rfc"],
         receptor["regimen_fiscal"],
         receptor["cp"],
