@@ -177,11 +177,11 @@
       </div>
       <div id="trv2-cp-pending-list" class="trv2-cp-pending-list"></div>
     </section>
-    <section class="trv2-panel trv2-cp-workflow-panel" id="trv2-cp-stamped-panel" data-cp-workflow-panel="stamped">
+    <section class="trv2-panel trv2-cp-workflow-panel" id="trv2-cp-stamped-panel" data-cp-workflow-panel="stamped" hidden>
       <div class="trv2-table-head">
         <div>
           <h2>Cartas Porte emitidas</h2>
-          <p class="trv2-muted">CFDI de ingreso con Complemento Carta Porte timbrados para descargar PDF o XML.</p>
+          <p class="trv2-muted">CFDI de traslado con Complemento Carta Porte timbrados para descargar PDF o XML.</p>
         </div>
         <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadStampedCartaPorte()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
       </div>
@@ -189,7 +189,7 @@
         <div class="trv2-empty">Aún no hay Cartas Porte timbradas en esta vista.</div>
       </div>
     </section>
-    <section class="trv2-panel trv2-cp-workflow-panel" id="trv2-cp-preview-panel" data-cp-workflow-panel="preview">
+    <section class="trv2-panel trv2-cp-workflow-panel" id="trv2-cp-preview-panel" data-cp-workflow-panel="preview" hidden>
       <div class="trv2-empty">Elige “Timbrar” en un movimiento pendiente para validar y revisar el resumen antes de confirmar.</div>
     </section>
   </section>
@@ -345,14 +345,15 @@
         <button class="trv2-btn trv2-btn-ghost" type="button" disabled><i class="fa-solid fa-trash-can"></i> Borrar reporte</button>
       </div>
     </div>
-    <section class="trv2-panel">
+    <section class="trv2-panel trv2-cv-filter-panel">
       <div class="trv2-form trv2-form-cv">
-        <label>Permiso * <select id="trv2-cv-permiso"></select></label>
-        <label>Año * <input id="trv2-cv-anio" type="number" min="2024" max="2100"></label>
-        <label>Mes * <select id="trv2-cv-mes"></select></label>
-        <label>Producto <select id="trv2-cv-producto"></select></label>
-        <label>Estado <select id="trv2-cv-estado"><option value="">Todos</option><option value="borrador">Borrador</option><option value="validado">Validado</option><option value="exportado">Exportado</option></select></label>
+        <label>Permiso * <select id="trv2-cv-permiso" onchange="trv2RefreshCvView()"></select></label>
+        <label>Año * <input id="trv2-cv-anio" type="number" min="2024" max="2100" onchange="trv2RefreshCvView()"></label>
+        <label>Mes * <select id="trv2-cv-mes" onchange="trv2RefreshCvView()"></select></label>
+        <label>Producto <select id="trv2-cv-producto" onchange="trv2RefreshCvView()"></select></label>
+        <label>Estado <select id="trv2-cv-estado" onchange="trv2RefreshCvView()"><option value="">Todos</option><option value="borrador">Borrador</option><option value="validado">Validado</option><option value="exportado">Exportado</option></select></label>
       </div>
+      <div class="trv2-cv-context" id="trv2-cv-context"></div>
     </section>
     <div class="trv2-kpis trv2-kpis-cv" id="trv2-cv-kpis"></div>
     <section class="trv2-panel">
