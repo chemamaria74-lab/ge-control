@@ -193,7 +193,7 @@ def test_gas_lp_carta_porte_omits_incomplete_driver_address_to_avoid_cp203():
     assert {dom.attrib.get("Estado") for dom in domicilios} == {"ZAC"}
 
 
-def test_gas_lp_carta_porte_driver_address_state_is_sat_normalized_when_present():
+def test_gas_lp_carta_porte_assistant_never_sends_driver_address_even_if_present():
     xml = _gas_lp_carta_porte_xml(
         chofer={
             "rfc": "RUGJ850101AB1",
@@ -209,10 +209,29 @@ def test_gas_lp_carta_porte_driver_address_state_is_sat_normalized_when_present(
     root = _root(xml)
     domicilio = root.find(".//cartaporte31:TiposFigura/cartaporte31:Domicilio", NS)
 
+    assert domicilio is None
+
+
+def test_carta_porte_transport_flow_can_explicitly_send_driver_address():
+    xml = _gas_lp_carta_porte_xml(
+        chofer={
+            "rfc": "RUGJ850101AB1",
+            "nombre": "JUAN PEDRO RUIZ GAMBOA",
+            "licencia": "LIC123456",
+            "tipo_figura": "01",
+            "cp": "99300",
+            "estado": "Zacatecas",
+            "municipio": "020",
+            "calle": "Domicilio operador",
+        },
+        incluir_domicilio_figura=True,
+    )
+    root = _root(xml)
+    domicilio = root.find(".//cartaporte31:TiposFigura/cartaporte31:Domicilio", NS)
+
     assert domicilio is not None
     assert domicilio.attrib["Pais"] == "MEX"
     assert domicilio.attrib["Estado"] == "ZAC"
-    assert domicilio.attrib["CodigoPostal"] == "99300"
 
 
 def test_gas_lp_ppd_normal_contract_marks_credit_without_changing_totals():
