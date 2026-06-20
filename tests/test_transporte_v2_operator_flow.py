@@ -158,3 +158,43 @@ def test_operator_trip_payload_includes_legacy_and_v2_aliases(monkeypatch):
     assert captured["peso_kg"] == 524
     assert captured["status"] == "asignado"
     assert captured["estatus"] == "asignado"
+
+
+def test_admin_document_trip_keeps_borrador_status_and_normalizes_dates(monkeypatch):
+    catalog = {
+        (transporte_v2.TBL_CLIENTES, 1): {"id": 1, "nombre": "ALFA GAS", "rfc": "AAA010101AAA", "cp": "01000", "regimen_fiscal": "601"},
+        (transporte_v2.TBL_OPERADORES, 2): {"id": 2, "nombre": "Juan Andres Hernandez Lopez", "rfc": "HELA800101AB1", "licencia": "LIC123"},
+        (transporte_v2.TBL_VEHICULOS, 3): {"id": 3, "alias": "PG-3535 T", "placas": "73BC3Y"},
+        (transporte_v2.TBL_PRODUCTOS, 4): {"id": 4, "nombre": "GAS L.P.", "clave_producto": "PR12", "unidad": "LTR"},
+        (transporte_v2.TBL_RUTAS, 5): {"id": 5, "origen": "Propane", "destino": "Alfa", "distancia_km": 185, "duracion_estimada_min": 180},
+    }
+
+    monkeypatch.setattr(transporte_v2, "_catalog_row", lambda _token, _uid, table, row_id, _pid: catalog.get((table, row_id), {}))
+    monkeypatch.setattr(transporte_v2, "_stamp_expand_vehicle_trailers", lambda _sb, _uid, _pid, vehicle: vehicle)
+    monkeypatch.setattr(transporte_v2, "_resolve_tariff_calculation", lambda *_args, **_kwargs: {})
+
+    row = transporte_v2._resolve_legacy_trip_row(
+        "u1",
+        "token",
+        9,
+        transporte_v2.TransporteV2ViajeCreate(
+            perfil_id=9,
+            cliente_id=1,
+            operador_id=2,
+            chofer_id=2,
+            vehiculo_id=3,
+            ruta_id=5,
+            producto_id=4,
+            volumen_litros=1000,
+            peso_kg=524,
+            fecha_salida="20/06/2026, 10:00",
+            fecha_llegada_estimada="20/06/2026, 13:00",
+            estatus="borrador",
+        ),
+    )
+
+    assert row["status"] == "borrador"
+    assert row["estatus"] == "borrador"
+    assert row["operacion_status"] == "asignado"
+    assert row["fecha_hora_salida"] == "2026-06-20T10:00:00"
+    assert row["fecha_hora_llegada"] == "2026-06-20T13:00:00"
