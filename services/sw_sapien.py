@@ -421,6 +421,7 @@ def build_carta_porte_xml(
     destino: dict = None,
     mercancia: dict = None,
     chofer: dict = None,
+    incluir_domicilio_figura: bool = False,
 ) -> str:
     """
     Construye el XML CFDI 4.0 con Complemento Carta Porte 3.1.
@@ -572,13 +573,15 @@ def build_carta_porte_xml(
         f'</cartaporte31:Mercancias>'
     )
     figura_attrs = {"TipoFigura": chofer.get("tipo_figura") or "01", "RFCFigura": chofer.get("rfc"), "NombreFigura": chofer.get("nombre"), "NumLicencia": chofer.get("licencia")}
-    domicilio_operador = _cp_figura_domicilio_xml({
-        "cp": chofer.get("cp") or chofer.get("codigo_postal"),
-        "estado": chofer.get("estado"),
-        "municipio": chofer.get("municipio"),
-        "localidad": chofer.get("localidad"),
-        "calle": chofer.get("calle") or chofer.get("domicilio"),
-    })
+    domicilio_operador = ""
+    if incluir_domicilio_figura:
+        domicilio_operador = _cp_figura_domicilio_xml({
+            "cp": chofer.get("cp") or chofer.get("codigo_postal"),
+            "estado": chofer.get("estado"),
+            "municipio": chofer.get("municipio"),
+            "localidad": chofer.get("localidad"),
+            "calle": chofer.get("calle") or chofer.get("domicilio"),
+        })
     if domicilio_operador:
         figuras_xml = (
             f'<cartaporte31:FiguraTransporte><cartaporte31:TiposFigura{_cp_optional_attrs(figura_attrs)}>'
