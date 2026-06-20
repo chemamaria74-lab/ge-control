@@ -940,6 +940,7 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             destino=destino,
             mercancia=mercancia,
             chofer=chofer_row,
+            incluir_domicilio_figura=True,
         )
     except Exception as e:
         logger.exception(
