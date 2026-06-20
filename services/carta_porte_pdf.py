@@ -116,6 +116,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     styles.add(ParagraphStyle(name="Label", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=muted, fontSize=5.75, leading=6.35))
     styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=6.85, leading=7.65, textColor=ink))
     styles.add(ParagraphStyle(name="SmallBold", parent=styles["Small"], fontName="Helvetica-Bold"))
+    styles.add(ParagraphStyle(name="CardHeader", parent=styles["SmallBold"], textColor=colors.white))
     styles.add(ParagraphStyle(name="Money", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold"))
     styles.add(ParagraphStyle(name="MoneyBig", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=11.5, leading=12.4, textColor=wine_dark))
     styles.add(ParagraphStyle(name="Seal", parent=styles["Tiny"], fontSize=4.45, leading=4.95, textColor=colors.HexColor("#313942")))
@@ -410,7 +411,7 @@ def _modern_header(title, logo, comp, emisor, timbre, Table, TableStyle, Paragra
 def _three_info_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream, line):
     def card(title, rows):
         clean_rows = _compact_rows(rows)
-        body = [[Paragraph(f"<b>{_text(title)}</b>", styles["SmallBold"])]]
+        body = [[Paragraph(f"<b>{_text(title)}</b>", styles["CardHeader"])]]
         for key, value in clean_rows:
             body.append([Paragraph(_text(key).upper(), styles["Label"]), Paragraph(_text(value), styles["Tiny"])])
         if len(body) == 1:
@@ -418,8 +419,8 @@ def _three_info_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream
         inner = Table(body, colWidths=[0.84 * inch(), 1.44 * inch()])
         inner.setStyle(TableStyle([
             ("SPAN", (0, 0), (-1, 0)),
-            ("BACKGROUND", (0, 0), (-1, 0), cream),
-            ("LINEBELOW", (0, 0), (-1, 0), 0.45, line),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4E111C")),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.55, colors.HexColor("#4E111C")),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 5),
             ("RIGHTPADDING", (0, 0), (-1, -1), 5),
@@ -454,14 +455,14 @@ def _compact_cp_summary(rows, Table, TableStyle, Paragraph, styles, colors, crea
     cells = cells[:col_count]
     table = Table(
         [
-            [Paragraph("<b>D. Resumen Carta Porte</b>", styles["SmallBold"])] + [""] * (col_count - 1),
+            [Paragraph("<b>D. Resumen Carta Porte</b>", styles["CardHeader"])] + [""] * (col_count - 1),
             cells,
         ],
         colWidths=[(7.66 / col_count) * inch()] * col_count,
     )
     table.setStyle(TableStyle([
         ("SPAN", (0, 0), (-1, 0)),
-        ("BACKGROUND", (0, 0), (-1, 0), cream),
+        ("BACKGROUND", (0, 0), (-1, 0), wine),
         ("LINEBELOW", (0, 0), (-1, 0), 0.75, wine),
         ("BOX", (0, 0), (-1, -1), 0.35, line),
         ("INNERGRID", (0, 1), (-1, -1), 0.16, line),
@@ -477,7 +478,7 @@ def _compact_cp_summary(rows, Table, TableStyle, Paragraph, styles, colors, crea
 def _party_rfc_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
     def card(title, rows):
         row_map = {str(k): str(v or "") for k, v in rows}
-        title_row = Paragraph(f"<b>{_text(title)}</b>", styles["SmallBold"])
+        title_row = Paragraph(f"<b>{_text(title)}</b>", styles["CardHeader"])
         rfc = Paragraph(f"<font size='13'><b>{_text(row_map.get('RFC', '—'))}</b></font>", styles["MetricValue"])
         name = Paragraph(_text(row_map.get("Nombre", "—")), styles["Small"])
         details = []
@@ -498,7 +499,7 @@ def _party_rfc_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream,
         ]))
         inner = Table([[title_row], [rfc], [name], [detail_table]], colWidths=[3.54 * inch()])
         inner.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), cream),
+            ("BACKGROUND", (0, 0), (-1, 0), wine),
             ("LINEBELOW", (0, 0), (-1, 0), 0.7, wine),
             ("BOX", (0, 0), (-1, -1), 0.35, line),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -551,14 +552,15 @@ def _executive_summary_card(carta, ubicaciones, mercancias, ident, figuras, Tabl
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    title = Paragraph("<b>Resumen ejecutivo del traslado</b>", styles["SummaryTitle"])
+    title = Paragraph("<b>Resumen ejecutivo del traslado</b>", styles["CardHeader"])
     subtitle = Paragraph(
         f"IdCCP {_text(_attr(carta, 'IdCCP', '—'))} &nbsp;&nbsp;|&nbsp;&nbsp; Tipo SAT: T Traslado",
         styles["Tiny"],
     )
     table = Table([[title], [subtitle], [grid]], colWidths=[7.60 * inch()])
     table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 1), cream),
+        ("BACKGROUND", (0, 0), (-1, 0), wine),
+        ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#F8F6F2")),
         ("LINEBELOW", (0, 1), (-1, 1), 1.0, wine),
         ("BOX", (0, 0), (-1, -1), 0.45, line),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
