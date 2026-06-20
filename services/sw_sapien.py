@@ -27,6 +27,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 import uuid
 import requests
 from datetime import datetime, timedelta, timezone
@@ -308,6 +309,7 @@ _CP_STATE_CODES = {
     "TLAXCALA": "TLA", "VERACRUZ": "VER", "VERACRUZ DE IGNACIO DE LA LLAVE": "VER",
     "YUCATAN": "YUC", "YUCATÁN": "YUC", "ZACATECAS": "ZAC",
 }
+_CP_VALID_STATE_CODES = set(_CP_STATE_CODES.values())
 
 _CP_POSTAL_OVERRIDES = {
     # SAT c_CodigoPostal: CP 98470 has state ZAC with municipio/localidad empty.
@@ -325,9 +327,15 @@ def _cp_clean_digits(value: object, length: int) -> str:
 
 def _cp_sat_state(value: object) -> str:
     text = str(value or "").strip().upper()
-    if len(text) == 3:
+    text = "".join(
+        ch
+        for ch in unicodedata.normalize("NFD", text)
+        if unicodedata.category(ch) != "Mn"
+    )
+    text = re.sub(r"\s+", " ", text).strip()
+    if text in _CP_VALID_STATE_CODES:
         return text
-    return _CP_STATE_CODES.get(text, text)
+    return _CP_STATE_CODES.get(text, "")
 
 
 def _cp_sat_postal_address(row: dict) -> dict:
@@ -372,6 +380,16 @@ def _cp_domicilio_xml(row: dict) -> str:
         "NumeroInterior": row.get("numero_interior"),
     }
     return f"<cartaporte31:Domicilio{_cp_optional_attrs(attrs)}/>"
+
+
+def _cp_figura_domicilio_xml(row: dict) -> str:
+    sat_address = _cp_sat_postal_address(row)
+    pais = str(row.get("pais") or "MEX").strip().upper()
+    cp = str(sat_address.get("CodigoPostal") or "").strip()
+    estado = str(sat_address.get("Estado") or "").strip()
+    if not cp or (pais in {"MEX", "USA", "CAN"} and not estado):
+        return ""
+    return _cp_domicilio_xml(row)
 
 
 def _cp_ubicacion_id(tipo: str, row: dict) -> str:
@@ -554,7 +572,7 @@ def build_carta_porte_xml(
         f'</cartaporte31:Mercancias>'
     )
     figura_attrs = {"TipoFigura": chofer.get("tipo_figura") or "01", "RFCFigura": chofer.get("rfc"), "NombreFigura": chofer.get("nombre"), "NumLicencia": chofer.get("licencia")}
-    domicilio_operador = _cp_domicilio_xml({
+    domicilio_operador = _cp_figura_domicilio_xml({
         "cp": chofer.get("cp") or chofer.get("codigo_postal"),
         "estado": chofer.get("estado"),
         "municipio": chofer.get("municipio"),
