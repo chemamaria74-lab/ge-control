@@ -356,6 +356,27 @@ def _parse_short_date(value: str) -> str:
         return text
 
 
+def _parse_trip_datetime(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    iso_match = re.match(r"^(\d{4}-\d{2}-\d{2})[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?", text)
+    if iso_match:
+        date, hour, minute, second = iso_match.groups()
+        return f"{date}T{int(hour):02d}:{minute}:{second or '00'}"
+    match = re.search(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4}).*?(\d{1,2}):(\d{2})(?::(\d{2}))?", text)
+    if not match:
+        return text
+    day, month, year, hour, minute, second = match.groups()
+    year_int = int(year)
+    if year_int < 100:
+        year_int += 2000
+    try:
+        return datetime(year_int, int(month), int(day), int(hour), int(minute), int(second or 0)).strftime("%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return text
+
+
 def _manual_document_fields() -> list[str]:
     return ["vehiculo_id", "operador_id", "ruta_id", "fecha_salida", "fecha_llegada"]
 
@@ -1993,7 +2014,7 @@ def _insert_catalog_row(token: str, table: str, row: dict[str, Any]) -> list[dic
 
 
 def _insert_table_row_tolerant(sb: Any, table: str, row: dict[str, Any]) -> list[dict[str, Any]]:
-    pending = dict(row)
+    pending = {key: value for key, value in row.items() if value is not None}
     removed: set[str] = set()
     while True:
         try:
@@ -2981,7 +3002,8 @@ def _legacy_trip_required_id(value: Optional[int], field: str, label: str) -> in
 def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: TransporteV2ViajeCreate) -> dict[str, Any]:
     chofer_id = _legacy_trip_required_id(payload.operador_id, "operador_id", "operador/chofer")
     vehiculo_id = _legacy_trip_required_id(payload.vehiculo_id, "vehiculo_id", "vehículo")
-    fecha_salida = _first_text(payload.fecha_salida)
+    fecha_salida = _parse_trip_datetime(payload.fecha_salida)
+    fecha_llegada = _parse_trip_datetime(payload.fecha_llegada_estimada)
     if not fecha_salida:
         raise HTTPException(400, "Para guardar en tr_viajes falta fecha_salida.")
 
@@ -3063,6 +3085,12 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         **payload_metadata,
     }
 
+    requested_status = _first_text(payload.estatus, "borrador").lower()
+    if requested_status in {"draft"}:
+        requested_status = "borrador"
+    if requested_status not in {"borrador", "programado", "en_ruta", "timbrado", "cancelado", "error"}:
+        requested_status = "borrador"
+
     return {
         "user_id": uid,
         "perfil_id": pid,
@@ -3082,9 +3110,9 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "nombre_destino": destino,
         "destino": destino,
         "fecha_hora_salida": fecha_salida,
-        "fecha_hora_llegada": payload.fecha_llegada_estimada or None,
+        "fecha_hora_llegada": fecha_llegada or None,
         "fecha_salida": fecha_salida,
-        "fecha_llegada_estimada": payload.fecha_llegada_estimada or None,
+        "fecha_llegada_estimada": fecha_llegada or None,
         "productos_json": json.dumps(productos_json, ensure_ascii=False),
         "volumen_total_litros": volumen,
         "volumen_litros": volumen,
@@ -3100,9 +3128,9 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "regimen_fiscal_receptor": _first_text(cliente.get("regimen_fiscal"), "601"),
         "distancia_km": _num(ruta.get("distancia_km")) or 1,
         "duracion_estimada_min": int(_num(ruta.get("duracion_estimada_min")) or 0),
-        "status": _first_text(payload.estatus, "asignado") if _first_text(payload.estatus).lower() not in {"borrador", "draft"} else "asignado",
-        "estatus": _first_text(payload.estatus, "asignado") if _first_text(payload.estatus).lower() not in {"borrador", "draft"} else "asignado",
-        "operacion_status": "asignado",
+        "status": requested_status,
+        "estatus": requested_status,
+        "operacion_status": "asignado" if requested_status == "borrador" else requested_status,
         "carta_porte_status": "pendiente",
         "factura_status": "pendiente",
         "liquidacion_status": "pendiente",
