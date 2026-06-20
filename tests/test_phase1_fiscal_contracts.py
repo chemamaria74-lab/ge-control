@@ -16,6 +16,7 @@ from services.gas_lp_calculations import (
     calculate_gas_lp_totals,
     calculate_symbolic_transfer_totals,
 )
+from services.sw_sapien import build_carta_porte_xml
 from services.transport_builder import build_cfdi_transporte
 from models.transport_schemas import ProductoTransporte, ViajeCreate
 
@@ -87,6 +88,81 @@ def _gas_lp_xml(**overrides):
     return internal_users._build_gas_lp_consumo_xml(**params)
 
 
+def _gas_lp_carta_porte_xml(**overrides):
+    params = {
+        "entrega": {
+            "uuid_mov": "CPTEST01",
+            "volumen_litros": 12500,
+            "importe": 0,
+            "fecha_salida": "2026-06-19T11:35:00",
+            "fecha_llegada": "2026-06-19T13:05:00",
+            "id_ccp": "CCC11111-2222-3333-4444-555555555555",
+        },
+        "emisor": {**ISSUER, "regimen_fiscal": ISSUER["regimen"], "domicilio_fiscal": ISSUER["cp"]},
+        "receptor": {
+            "rfc": ISSUER["rfc"],
+            "nombre": ISSUER["nombre"],
+            "regimen_fiscal": ISSUER["regimen"],
+            "uso_cfdi": "S01",
+            "domicilio_fiscal": ISSUER["cp"],
+        },
+        "vehiculo": {
+            "placas": "YZ7836C",
+            "anio_modelo": 2024,
+            "config_vehicular": "C2",
+            "peso_bruto_vehicular": 12000,
+            "perm_sct": "TPAF01",
+            "num_permiso_sct": "SCT-123456",
+            "aseguradora": "ASEGURADORA SA",
+            "poliza_seguro": "POL123",
+            "aseguradora_medio_ambiente": "ASEGURADORA MA",
+            "poliza_medio_ambiente": "POLMA123",
+        },
+        "tipo_comprobante": "T",
+        "ruta": {"distancia_km": 65},
+        "origen": {
+            "id_ubicacion": "OR000001",
+            "rfc": ISSUER["rfc"],
+            "nombre": "Planta Jerez",
+            "codigo_postal": "99300",
+            "estado": "Zacatecas",
+            "municipio": "020",
+            "calle": "Planta Jerez",
+            "pais": "MEX",
+        },
+        "destino": {
+            "id_ubicacion": "DE000001",
+            "rfc": ISSUER["rfc"],
+            "nombre": "Fresnillo",
+            "codigo_postal": "99000",
+            "estado": "ZAC",
+            "municipio": "010",
+            "calle": "Fresnillo",
+            "pais": "MEX",
+        },
+        "mercancia": {
+            "bienes_transp": "15111510",
+            "descripcion": "Gas LP",
+            "clave_unidad": "LTR",
+            "unidad": "Litro",
+            "factor_kg_litro": 0.524,
+            "peso_kg": 6550,
+            "material_peligroso": True,
+            "clave_material_peligroso": "1075",
+            "embalaje": "Z01",
+            "descripcion_embalaje": "No aplica",
+        },
+        "chofer": {
+            "rfc": "RUGJ850101AB1",
+            "nombre": "JUAN PEDRO RUIZ GAMBOA",
+            "licencia": "LIC123456",
+            "tipo_figura": "01",
+        },
+    }
+    params.update(overrides)
+    return build_carta_porte_xml(**params)
+
+
 def test_gas_lp_pue_normal_contract_totals_xml_and_pdf():
     xml, totals = _gas_lp_xml()
 
@@ -101,6 +177,42 @@ def test_gas_lp_pue_normal_contract_totals_xml_and_pdf():
     stamped = _stamp_xml(xml)
     pdf = generar_pdf_gas_lp_desde_xml(stamped)
     assert pdf.startswith(b"%PDF")
+
+
+def test_gas_lp_carta_porte_omits_incomplete_driver_address_to_avoid_cp203():
+    xml = _gas_lp_carta_porte_xml()
+    root = _root(xml)
+
+    figura = root.find(".//cartaporte31:TiposFigura", NS)
+    assert figura is not None
+    assert figura.attrib["NombreFigura"] == "JUAN PEDRO RUIZ GAMBOA"
+    assert figura.find("cartaporte31:Domicilio", NS) is None
+
+    domicilios = root.findall(".//cartaporte31:Ubicacion/cartaporte31:Domicilio", NS)
+    assert len(domicilios) == 2
+    assert {dom.attrib.get("Estado") for dom in domicilios} == {"ZAC"}
+
+
+def test_gas_lp_carta_porte_driver_address_state_is_sat_normalized_when_present():
+    xml = _gas_lp_carta_porte_xml(
+        chofer={
+            "rfc": "RUGJ850101AB1",
+            "nombre": "JUAN PEDRO RUIZ GAMBOA",
+            "licencia": "LIC123456",
+            "tipo_figura": "01",
+            "cp": "99300",
+            "estado": "Zacatecas",
+            "municipio": "020",
+            "calle": "Domicilio operador",
+        }
+    )
+    root = _root(xml)
+    domicilio = root.find(".//cartaporte31:TiposFigura/cartaporte31:Domicilio", NS)
+
+    assert domicilio is not None
+    assert domicilio.attrib["Pais"] == "MEX"
+    assert domicilio.attrib["Estado"] == "ZAC"
+    assert domicilio.attrib["CodigoPostal"] == "99300"
 
 
 def test_gas_lp_ppd_normal_contract_marks_credit_without_changing_totals():
