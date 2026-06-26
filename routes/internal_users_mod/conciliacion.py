@@ -1,4 +1,189 @@
+import re
+
 from .core import *
+
+_CONCILIACION_PUBLICO_RFC = "XAXX010101000"
+_CONCILIACION_COMPACT_METADATA_KEYS = {
+    "asistente_nombre",
+    "cliente_id",
+    "cliente_nombre",
+    "cliente_real_nombre",
+    "cliente_observado",
+    "comentarios",
+    "created_by",
+    "created_by_area",
+    "created_by_internal",
+    "created_by_internal_name",
+    "descuento",
+    "descuento_capturado",
+    "descuento_confirmado",
+    "descuento_por_litro",
+    "descuento_preview",
+    "destino_facility_name",
+    "destino_nombre",
+    "empresa_asignada_nombre",
+    "empresa_nombre",
+    "fecha_cfdi",
+    "fecha_emision",
+    "folio",
+    "folio_usuario",
+    "forma_pago",
+    "internal_user_id",
+    "is_transfer",
+    "iva",
+    "litros",
+    "metodo_pago",
+    "observaciones",
+    "operation_type",
+    "origen_facility_name",
+    "origen_nombre",
+    "payment_status",
+    "portal",
+    "precio_unitario",
+    "receptor_nombre",
+    "saldo_insoluto",
+    "subtotal",
+    "tipo_descuento",
+    "tipo_operacion",
+    "total",
+    "usuario_nombre",
+}
+
+
+def _conciliacion_clean_text(value) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text[:120]
+
+
+def _conciliacion_public_name_key(value) -> str:
+    return re.sub(r"[^A-Z0-9]+", " ", str(value or "").upper()).strip()
+
+
+def _conciliacion_extract_observed_client(text: str) -> tuple[str, str]:
+    raw = _conciliacion_clean_text(text)
+    if not raw:
+        return "", ""
+    patterns = (
+        r"(?:cliente|clienta|nombre|para|referencia|observaci[oó]n|comentario)\s*[:=\-]\s*([^|;\n\r]{3,80})",
+        r"(?:cliente|clienta)\s+([^|;\n\r]{3,80})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, raw, flags=re.IGNORECASE)
+        if match:
+            candidate = _conciliacion_clean_text(match.group(1))
+            if _conciliacion_public_name_key(candidate) not in {"", "PUBLICO EN GENERAL", "PUBLICO GENERAL"}:
+                return candidate, "observaciones"
+    if _conciliacion_public_name_key(raw) not in {"PUBLICO EN GENERAL", "PUBLICO GENERAL"} and len(raw.split()) >= 2:
+        return raw, "observaciones"
+    return "", ""
+
+
+def _conciliacion_real_cliente(row: dict, metadata: dict) -> dict:
+    is_public = str(row.get("rfc_receptor") or metadata.get("cliente_rfc") or "").upper() == _CONCILIACION_PUBLICO_RFC
+    observed_fields = (
+        "cliente_real_nombre",
+        "cliente_observado",
+        "nombre_cliente_real",
+        "cliente_referencia",
+        "nota",
+        "referencia",
+    )
+    observed = ""
+    source = ""
+    if is_public:
+        for key in observed_fields:
+            candidate = _conciliacion_clean_text(metadata.get(key))
+            if candidate and _conciliacion_public_name_key(candidate) not in {"PUBLICO EN GENERAL", "PUBLICO GENERAL"}:
+                observed = candidate
+                source = key
+                break
+        if not observed:
+            for key in ("comentarios", "observaciones", "nota", "referencia"):
+                observed, source = _conciliacion_extract_observed_client(metadata.get(key) or "")
+                if observed:
+                    break
+    base = _conciliacion_clean_text(metadata.get("cliente_nombre") or row.get("nombre_receptor") or row.get("rfc_receptor") or "—")
+    return {
+        "nombre": observed or base,
+        "fuente": source or ("metadata" if base else ""),
+        "es_publico_general": is_public,
+        "observaciones": _conciliacion_clean_text(metadata.get("observaciones") or metadata.get("comentarios")),
+    }
+
+
+def _conciliacion_discount_info(row: dict, metadata: dict, info: dict) -> dict:
+    tipo = str(metadata.get("tipo_descuento") or "").strip()
+    litros = float(_money(info.get("litros") or row.get("volumen_litros") or metadata.get("litros") or 0))
+    por_litro = float(_money(metadata.get("descuento_por_litro") or 0))
+    candidates = []
+    for key in ("descuento_confirmado", "descuento_preview", "descuento", "descuento_capturado"):
+        value = metadata.get(key)
+        if isinstance(value, dict):
+            value = value.get("total") or value.get("monto") or value.get("descuento_total_aplicado")
+        candidates.append(float(_money(value or 0)))
+    if por_litro > 0 and litros > 0:
+        candidates.append(round(por_litro * litros, 2))
+    total_desc = round(max(candidates or [0.0]), 2)
+    return {
+        "tipo": tipo or ("por_litro" if por_litro > 0 else ""),
+        "capturado": float(_money(metadata.get("descuento_capturado") or 0)),
+        "por_litro": round(por_litro, 6),
+        "total": total_desc,
+        "tiene_descuento": total_desc > 0,
+    }
+
+
+def _conciliacion_compact_metadata(metadata: dict) -> dict:
+    compact = {}
+    for key in _CONCILIACION_COMPACT_METADATA_KEYS:
+        if key in metadata:
+            compact[key] = metadata.get(key)
+    return compact
+
+
+def _conciliacion_compact_cliente(cliente: dict) -> dict:
+    credit = clienteCredit = cliente.get("credito_ppd") if isinstance(cliente.get("credito_ppd"), dict) else {}
+    metadata = cliente.get("metadata") if isinstance(cliente.get("metadata"), dict) else {}
+    if not credit:
+        raw_credit = metadata.get("credito_ppd") or metadata.get("credito") or {}
+        credit = raw_credit if isinstance(raw_credit, dict) else {}
+    return {
+        "id": cliente.get("id"),
+        "rfc": cliente.get("rfc"),
+        "nombre": cliente.get("nombre"),
+        "credito_habilitado": cliente.get("credito_habilitado") or credit.get("credito_habilitado") or credit.get("habilitado") or False,
+        "dias_credito": cliente.get("dias_credito") or credit.get("dias_credito") or credit.get("dias") or 0,
+        "limite_credito": cliente.get("limite_credito") or credit.get("limite_credito") or credit.get("limite"),
+        "credito_notas": cliente.get("credito_notas") or credit.get("credito_notas") or credit.get("notas") or "",
+        "metadata": {"credito_ppd": clienteCredit or credit},
+    }
+
+
+def _conciliacion_compact_factura(row: dict) -> dict:
+    keys = (
+        "id", "user_id", "tenant_id", "perfil_id", "facility_id", "record_uuid", "uuid_sat", "status",
+        "fecha_timbrado", "rfc_receptor", "tipo_comprobante", "created_at", "updated_at",
+        "email_enviado", "email_destinatario", "email_error", "fecha_factura_key", "realizado_por",
+    )
+    compact = {key: row.get(key) for key in keys if key in row}
+    compact["volumen_litros"] = float(_money(row.get("volumen_litros") or 0))
+    compact["importe"] = float(_money(row.get("importe") or 0))
+    compact["metadata"] = _conciliacion_compact_metadata(row.get("metadata") if isinstance(row.get("metadata"), dict) else {})
+    for key in (
+        "payment_info",
+        "fiscal_status",
+        "bank_reconciliation",
+        "issuer_info",
+        "complementos_pago",
+        "latest_complemento_pago",
+        "cliente_real",
+        "cliente_display",
+        "observaciones",
+        "discount_info",
+    ):
+        if key in row:
+            compact[key] = row.get(key)
+    return compact
 
 @router.get("/internal-auth/gas-lp/conciliacion/perfiles")
 async def gas_lp_conciliacion_perfiles(token: str):
@@ -88,7 +273,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
     try:
         bank_rows = (
             sb.table("gas_lp_invoice_bank_reconciliations")
-            .select("*")
+            .select("id,factura_id,amount,difference,status,payment_detected_at,confirmed_by,confirmed_by_name,confirmed_at,reference_note,comment,updated_at")
             .in_("factura_id", factura_ids)
             .execute()
             .data
@@ -98,7 +283,15 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
         logger.warning("gas_lp_conciliacion_bank_reconciliations_skipped perfil=%s err=%s", user.get("perfil_id"), exc)
         bank_rows = []
     bank_by_factura = {_safe_int_id(row.get("factura_id")): row for row in bank_rows}
+    clientes_compactos = [_conciliacion_compact_cliente(row) for row in clientes]
+    clientes_by_id = {_safe_int_id(c.get("id")): c for c in clientes_compactos if _safe_int_id(c.get("id"))}
+    clientes_by_rfc = {str(c.get("rfc") or "").upper(): c for c in clientes_compactos if c.get("rfc")}
     total = credito = publico = complementos_pendientes = 0.0
+    descuentos_periodo = facturas_con_descuento = publico_observado = 0
+    credito_pagado = saldo_vencido = 0.0
+    facturas_vencidas = facturas_vigentes = 0
+    clientes_con_saldo = set()
+    today_key = datetime.now().strftime("%Y-%m-%d")
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         info = _factura_payment_info(row)
@@ -129,17 +322,47 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
         row["complementos_pago"] = comps
         if comps:
             row["latest_complemento_pago"] = comps[0]
+        cliente_real = _conciliacion_real_cliente(row, md)
+        row["cliente_real"] = cliente_real
+        row["cliente_display"] = cliente_real["nombre"]
+        row["observaciones"] = cliente_real.get("observaciones") or ""
+        discount_info = _conciliacion_discount_info(row, md, info)
+        row["discount_info"] = discount_info
         if str(row.get("status") or "").lower().startswith("cancel"):
             continue
         amount = float(info["total"])
         total += amount
-        if str(row.get("rfc_receptor") or "").upper() == "XAXX010101000":
+        if discount_info["tiene_descuento"]:
+            descuentos_periodo += discount_info["total"]
+            facturas_con_descuento += 1
+        if cliente_real["es_publico_general"]:
             publico += amount
+            if cliente_real.get("fuente") and cliente_real.get("fuente") != "metadata":
+                publico_observado += 1
         if info["metodo_pago"] == "PPD" or str(md.get("metodo_pago") or "").upper() == "PPD":
             saldo = float(info["saldo_insoluto"])
             if saldo > 0:
                 credito += saldo
                 complementos_pendientes += 1
+                cliente = clientes_by_id.get(_safe_int_id(md.get("cliente_id"))) or clientes_by_rfc.get(str(row.get("rfc_receptor") or "").upper()) or {}
+                cliente_key = str(cliente.get("id") or row.get("rfc_receptor") or cliente_real.get("nombre") or row.get("id"))
+                clientes_con_saldo.add(cliente_key)
+                dias_credito = int(float(cliente.get("dias_credito") or 0))
+                vencimiento = ""
+                if dias_credito > 0:
+                    emision_key = row.get("fecha_factura_key") or ""
+                    try:
+                        venc = datetime.strptime(emision_key[:10], "%Y-%m-%d")
+                        vencimiento = (venc + timedelta(days=dias_credito)).strftime("%Y-%m-%d")
+                    except Exception:
+                        vencimiento = ""
+                if vencimiento and vencimiento < today_key:
+                    facturas_vencidas += 1
+                    saldo_vencido += saldo
+                else:
+                    facturas_vigentes += 1
+            credito_pagado += max(0.0, amount - saldo)
+    facturas_compactas = [_conciliacion_compact_factura(row) for row in rows]
     return JSONResponse({
         "ok": True,
         "periodo": month,
@@ -150,9 +373,32 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
             "credito_estimado": round(credito, 2),
             "publico_general": round(publico, 2),
             "complementos_pendientes": int(complementos_pendientes),
+            "credito_pendiente": round(credito, 2),
+            "credito_pagado": round(credito_pagado, 2),
+            "clientes_con_saldo": len(clientes_con_saldo),
+            "facturas_ppd_pendientes": int(complementos_pendientes),
+            "facturas_vencidas": int(facturas_vencidas),
+            "facturas_vigentes": int(facturas_vigentes),
+            "saldo_vencido": round(saldo_vencido, 2),
+            "descuentos_periodo": round(descuentos_periodo, 2),
+            "facturas_con_descuento": int(facturas_con_descuento),
+            "publico_general_con_cliente_observado": int(publico_observado),
         },
-        "facturas": rows,
-        "clientes": clientes,
+        "credito_summary": {
+            "pendiente": round(credito, 2),
+            "pagado": round(credito_pagado, 2),
+            "clientes_con_saldo": len(clientes_con_saldo),
+            "facturas_vencidas": int(facturas_vencidas),
+            "facturas_vigentes": int(facturas_vigentes),
+            "saldo_vencido": round(saldo_vencido, 2),
+        },
+        "descuentos_summary": {
+            "total": round(descuentos_periodo, 2),
+            "facturas": int(facturas_con_descuento),
+            "publico_general_observado": int(publico_observado),
+        },
+        "facturas": facturas_compactas,
+        "clientes": clientes_compactos,
     })
 
 

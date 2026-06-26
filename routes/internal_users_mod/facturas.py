@@ -1,4 +1,11 @@
 from .core import *
+from routes.facturas_mod.core import (
+    _cp_normalize_driver_payload,
+    _cp_normalize_id_ccp,
+    _cp_normalize_vehicle_payload,
+    _cp_validate_catalog_payload,
+    _generar_carta_porte_for_scope,
+)
 from .catalogos_clientes import _gas_lp_clientes_scope_query
 from services.carta_porte_pdf import (
     es_carta_porte_traslado,
@@ -33,6 +40,74 @@ def _gas_lp_credit_reminder_today_key(today_key: str | None = None) -> str:
         except ValueError:
             raise HTTPException(400, "Fecha de referencia inválida.")
     return datetime.now(_gas_lp_cfdi_timezone()).strftime("%Y-%m-%d")
+
+
+_GAS_LP_FACTURA_LIST_METADATA_KEYS = {
+    "asistente_nombre",
+    "carta_porte_summary",
+    "carta_porte_validation",
+    "cfdi_status",
+    "cfdi_tipo",
+    "cliente_id",
+    "cliente_nombre",
+    "created_by",
+    "created_by_area",
+    "created_by_internal",
+    "created_by_internal_name",
+    "destino_nombre",
+    "empresa_nombre",
+    "estado_fiscal",
+    "estado_sat",
+    "forma_pago",
+    "id_ccp",
+    "internal_user_id",
+    "is_transfer",
+    "litros",
+    "metodo_pago",
+    "origen_nombre",
+    "payment_status",
+    "portal",
+    "receptor_nombre",
+    "saldo_insoluto",
+    "sat_status",
+    "status",
+    "tipo_comprobante",
+    "tipo_flujo",
+    "tipo_operacion",
+    "total",
+    "ultimo_complemento_pago_id",
+    "usuario_nombre",
+    "volumen_litros",
+}
+
+
+def _gas_lp_compact_factura_for_list(row: dict) -> dict:
+    md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    compact_md = {key: md.get(key) for key in _GAS_LP_FACTURA_LIST_METADATA_KEYS if key in md}
+    return {
+        "id": row.get("id"),
+        "uuid_sat": row.get("uuid_sat") or "",
+        "status": row.get("status") or "",
+        "fecha_timbrado": row.get("fecha_timbrado") or "",
+        "rfc_receptor": row.get("rfc_receptor") or "",
+        "volumen_litros": row.get("volumen_litros"),
+        "importe": row.get("importe"),
+        "created_at": row.get("created_at") or "",
+        "updated_at": row.get("updated_at") or "",
+        "payment_status": row.get("payment_status") or compact_md.get("payment_status") or "",
+        "tipo_comprobante": row.get("tipo_comprobante") or compact_md.get("tipo_comprobante") or "",
+        "metadata": compact_md,
+        "fecha_factura_key": row.get("fecha_factura_key") or "",
+        "payment_info": row.get("payment_info") or {},
+        "fiscal_status": row.get("fiscal_status") or {},
+        "realizado_por": row.get("realizado_por") or "",
+        "has_xml": bool(row.get("has_xml") or row.get("uuid_sat")),
+        "carta_porte_summary": row.get("carta_porte_summary") or compact_md.get("carta_porte_summary") or {},
+        "complementos_pago": row.get("complementos_pago") or [],
+        "latest_complemento_pago": row.get("latest_complemento_pago") or None,
+        "created_by_internal": row.get("created_by_internal") or {},
+        "email_destinatario": row.get("email_destinatario") or "",
+    }
 
 
 def _gas_lp_credit_reminder_add_days(key: str, days: int) -> str:
@@ -219,7 +294,7 @@ async def gas_lp_credito_recordatorios_candidatos(
 
 
 @router.get("/internal-auth/gas-lp/facturas")
-async def gas_lp_internal_facturas(token: str, mes: str | None = None):
+async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: int = 50, deep: bool = False):
     started_at = datetime.now(timezone.utc)
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
@@ -234,13 +309,19 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
     else:
         month = ""
     try:
+        page_limit = int(limit or 50)
+    except (TypeError, ValueError):
+        page_limit = 50
+    page_limit = max(1, min(page_limit, 50))
+    try:
         rows = _gas_lp_company_facturas_rows(
             sb,
             user,
             profile,
             month=month,
-            limit=10000 if month else 1000,
+            limit=page_limit,
             select=GAS_LP_FACTURAS_LIST_SELECT,
+            company_fallback=bool(deep),
         )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
@@ -304,7 +385,13 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None):
         comp_stats.get("chunk_size", 100),
         elapsed_ms,
     )
-    return JSONResponse({"ok": True, "facturas": rows})
+    return JSONResponse({
+        "ok": True,
+        "facturas": [_gas_lp_compact_factura_for_list(row) for row in rows],
+        "limit": page_limit,
+        "month": month,
+        "deep": bool(deep),
+    })
 
 
 @router.get("/internal-auth/gas-lp/facturas/export-dia")
