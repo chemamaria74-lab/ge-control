@@ -19,6 +19,7 @@ from services.fiscal_pdf import (
     save_fiscal_artifacts,
 )
 from services.fiscal_audit import version_xml
+from services.landing_settings import get_landing_settings, save_landing_settings
 from services.sw_sapien import emitir_timbrar_json
 from supabase_config import get_supabase_admin
 
@@ -51,6 +52,22 @@ class SaaSBillingSettingsPayload(BaseModel):
     frequent_customers: list[dict[str, Any]] = Field(default_factory=list)
     default_concepts: list[dict[str, Any]] = Field(default_factory=list)
     fiscal_configs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class LandingSettingsPayload(BaseModel):
+    hero_eyebrow: str = Field("", max_length=180)
+    hero_title: str = Field("", max_length=120)
+    hero_accent: str = Field("", max_length=120)
+    hero_subtitle: str = Field("", max_length=420)
+    primary_cta: str = Field("", max_length=80)
+    secondary_cta: str = Field("", max_length=80)
+    final_headline: str = Field("", max_length=180)
+    final_subtitle: str = Field("", max_length=520)
+    form_note: str = Field("", max_length=320)
+    lead_email_to: str = Field("", max_length=180)
+    lead_email_from: str = Field("", max_length=180)
+    whatsapp_number: str = Field("", max_length=40)
+    whatsapp_message: str = Field("", max_length=220)
 
 
 class SaaSBillingCancelPayload(BaseModel):
@@ -303,6 +320,19 @@ async def save_saas_billing_settings(payload: SaaSBillingSettingsPayload, author
     }
     get_supabase_admin().table("saas_billing_settings").upsert(row, on_conflict="id").execute()
     return _json_response({"ok": True, "settings": _billing_settings()})
+
+
+@router.get("/admin-saas/landing/settings")
+async def get_admin_landing_settings(authorization: str = Header(default="")):
+    _require_superadmin(authorization)
+    return _json_response({"ok": True, "settings": get_landing_settings()})
+
+
+@router.put("/admin-saas/landing/settings")
+async def save_admin_landing_settings(payload: LandingSettingsPayload, authorization: str = Header(default="")):
+    uid, _email, _token = _require_superadmin(authorization)
+    settings = save_landing_settings(payload.model_dump(), updated_by=uid)
+    return _json_response({"ok": True, "settings": settings})
 
 
 @router.post("/admin-saas/billing/invoices")
