@@ -438,6 +438,33 @@ class TestBitacora:
         esperados = list(range(1, len(numeros) + 1))
         assert numeros == esperados, f"NumeroRegistro no es consecutivo: {numeros}"
 
+    def test_descripciones_sin_parentesis_y_max_250(self):
+        """SAT rechaza DescripcionEvento si excede 250 caracteres o trae parentesis."""
+        movs = [
+            _mov("entrada", 1500.0, uuid="CFDI-ENTRADA-0001"),
+            _mov("salida",  418.0,  uuid="CFDI-SALIDA-00001"),
+        ]
+        sat, _ = build_sat_report(
+            movimientos=movs,
+            settings=_settings_base(),
+            inventario_inicial_litros=213000.0,
+            inventario_final_medido=213515.03,
+            temperatura_medicion=20.0,
+            composicion_propano=75.57,
+            composicion_butano=24.43,
+            anio=2026, mes=6,
+        )
+
+        for evento in sat["BitacoraMensual"]:
+            descripcion = evento["DescripcionEvento"]
+            assert len(descripcion) <= 250
+            assert "(" not in descripcion
+            assert ")" not in descripcion
+
+        evento_reporte = sat["BitacoraMensual"][-1]["DescripcionEvento"]
+        assert "por movimiento cuando disponible" not in evento_reporte
+        assert "VCM:" in evento_reporte
+
 
 class TestTemperaturaPorMovimiento:
 

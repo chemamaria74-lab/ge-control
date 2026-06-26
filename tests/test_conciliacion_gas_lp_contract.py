@@ -1743,6 +1743,9 @@ def test_assistant_carta_porte_validation_flow_has_modal_and_real_error_text():
     assert "tipo === 'T'" not in html
     assert "No se pudo conectar con el servidor de timbrado" in html
     assert "Failed to fetch" not in html
+    assert "function cpNumberValue" in html
+    assert "text.includes(',') && text.includes('.')" in html
+    assert "volumen_litros: Number.isFinite(s.litrosNum) ? s.litrosNum : 0" in html
     timbrar_start = html.index("async function timbrarCartaPorteGasLp")
     timbrar_end = html.index("async function handleCartaPorteAction", timbrar_start)
     assert "confirm(" not in html[timbrar_start:timbrar_end]

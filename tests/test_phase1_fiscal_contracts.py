@@ -467,14 +467,14 @@ def test_carta_porte_tipo_t_contract_from_builder(monkeypatch):
 
     assert cfdi["TipoDeComprobante"] == "T"
     assert cfdi["Fecha"] == "2026-06-06T11:55:00"
-    assert cfdi["SubTotal"] == "0.00"
+    assert cfdi["SubTotal"] == "0"
     assert cfdi["Moneda"] == "XXX"
-    assert cfdi["Total"] == "0.00"
+    assert cfdi["Total"] == "0"
     assert "MetodoPago" not in cfdi
     assert "FormaPago" not in cfdi
     assert "Impuestos" not in cfdi
     assert cfdi["Receptor"]["UsoCFDI"] == "S01"
-    assert cfdi["Conceptos"][0]["ValorUnitario"] == "0.00"
+    assert cfdi["Conceptos"][0]["ValorUnitario"] == "0"
     assert cfdi["Conceptos"][0]["ObjetoImp"] == "01"
     assert cfdi["xmlns:cartaporte31"] == "http://www.sat.gob.mx/CartaPorte31"
     assert "CartaPorte31.xsd" in cfdi["xsi:schemaLocation"]
