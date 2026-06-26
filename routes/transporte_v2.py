@@ -28,7 +28,7 @@ from supabase_config import get_supabase_admin, get_supabase_for_user
 from models.transport_schemas import GenerarCovolRequest, ProductoTransporte, ViajeCreate
 from services.carta_porte_validation import validar_xml_carta_porte_transporte
 from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml
-from services.carta_porte_permisos import TIPOS_PERMISO_SAT, aplicar_permiso, resolver_permiso
+from services.carta_porte_permisos import TIPOS_PERMISO_SAT
 from services.fiscal_audit import version_xml
 from services.sw_sapien import emitir_timbrar_json, sw_runtime_config
 from services.transport_builder import build_cfdi_transporte
@@ -57,8 +57,6 @@ TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
 TBL_AUDITORIA = "transporte_v2_auditoria"
 TBL_CFDI = "tr_cfdi"
 TBL_COVOL = "tr_covol_reports"
-TBL_PERMISOS = "tr_permisos_operacion"
-
 VEHICLE_DB_FIELDS = {
     "alias",
     "numero_economico",
@@ -199,17 +197,6 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
         ],
         "defaults": {"activo": True},
     },
-    "permisos": {
-        "table": TBL_PERMISOS,
-        "required": ["nombre_interno", "tipo_permiso", "numero_permiso"],
-        "allowed": [
-            "nombre_interno", "tipo_permiso", "numero_permiso", "autoridad",
-            "titular_rfc", "categoria_producto", "familias_producto",
-            "productos_permitidos", "vehiculo_ids", "vigencia_desde",
-            "vigencia_hasta", "activo", "metadata",
-        ],
-        "defaults": {"activo": True, "autoridad": "SICT"},
-    },
 }
 
 CATALOG_READ_ONLY = False
@@ -270,14 +257,12 @@ class TransporteV2CartaPortePreviewRequest(BaseModel):
     viaje_id: Optional[int] = None
     viaje: Optional[dict[str, Any]] = None
     tipo_cfdi: str = ""
-    permiso_id: Optional[int] = None
 
 
 class TransporteV2CartaPorteTimbrarRequest(BaseModel):
     perfil_id: Optional[int] = None
     viaje_id: int
     confirmar: bool = False
-    permiso_id: Optional[int] = None
 
 
 class TransporteV2OperatorAccessCreate(BaseModel):
@@ -2194,14 +2179,6 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["poliza_seguro"] = _first_text(item.get("poliza_seguro"), item["poliza"])
         item["peso_bruto"] = _num(item.get("peso_bruto") or item.get("peso_bruto_toneladas") or trailer_meta.get("peso_bruto") or trailer_meta.get("peso_bruto_toneladas"))
         item["peso_bruto_toneladas"] = _num(item.get("peso_bruto_toneladas") or item["peso_bruto"])
-    elif catalogo == "permisos":
-        permit_meta = _meta(item)
-        item["nombre_interno"] = _first_text(item.get("nombre_interno"), permit_meta.get("nombre_interno"), item.get("numero_permiso"))
-        item["numero_permiso"] = _first_text(item.get("numero_permiso"), item.get("num_permiso_sct"), permit_meta.get("numero_permiso"))
-        item["familias_producto"] = _parse_json_value(item.get("familias_producto"), [])
-        item["productos_permitidos"] = _parse_json_value(item.get("productos_permitidos"), [])
-        item["vehiculo_ids"] = _parse_json_value(item.get("vehiculo_ids"), [])
-        item["aplica_para"] = ", ".join(item["familias_producto"] or item["productos_permitidos"] or ["Sin alcance configurado"])
     item["source_table"] = CATALOG_CONFIG.get(catalogo, {}).get("table")
     return item
 
@@ -2266,13 +2243,6 @@ def _create_catalog_item(
         row = _expand_trailer_metadata(row)
     if catalogo == "productos":
         row = _expand_product_aliases(row)
-    if catalogo == "permisos":
-        for field in ("familias_producto", "productos_permitidos", "vehiculo_ids"):
-            row[field] = _parse_json_value(row.get(field), [])
-        if _first_text(row.get("tipo_permiso")).upper() not in TIPOS_PERMISO_SAT:
-            raise HTTPException(400, "Tipo de permiso fuera del catalogo SAT c_TipoPermiso para Carta Porte 3.1.")
-        if not row["familias_producto"] and not row["productos_permitidos"]:
-            raise HTTPException(400, "Asigna al menos una familia o un producto especifico al permiso.")
     if catalogo in {"origenes", "destinos"}:
         row = _expand_installation_metadata(row)
         row = _coerce_installation_scope(catalogo, row)
@@ -2331,12 +2301,6 @@ def _update_catalog_item(
         row = _expand_trailer_metadata(row)
     if catalogo == "productos":
         row = _expand_product_aliases(row)
-    if catalogo == "permisos":
-        for field in ("familias_producto", "productos_permitidos", "vehiculo_ids"):
-            if field in row:
-                row[field] = _parse_json_value(row.get(field), [])
-        if "tipo_permiso" in row and _first_text(row.get("tipo_permiso")).upper() not in TIPOS_PERMISO_SAT:
-            raise HTTPException(400, "Tipo de permiso fuera del catalogo SAT c_TipoPermiso para Carta Porte 3.1.")
     if catalogo in {"origenes", "destinos"}:
         row = _expand_installation_metadata(row)
         row = _coerce_installation_scope(catalogo, row)
@@ -3644,25 +3608,37 @@ def _stamp_vehicle_payload(vehiculo: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _resolve_carta_porte_permiso(
-    sb: Any,
-    uid: str,
-    pid: Optional[int],
-    producto: dict[str, Any],
-    vehiculo: dict[str, Any],
-    emisor_rfc: str,
-    permiso_id: Optional[int] = None,
-) -> dict[str, Any]:
-    q = sb.table(TBL_PERMISOS).select("*").eq("user_id", uid).eq("activo", True)
-    if pid:
-        q = q.eq("perfil_id", pid)
-    permisos = q.limit(200).execute().data or []
-    return resolver_permiso(
-        permisos,
-        [producto],
-        vehiculo_id=vehiculo.get("id"),
-        emisor_rfc=emisor_rfc,
-        permiso_id=permiso_id,
+def _vehicle_carta_porte_permit(vehiculo: dict[str, Any]) -> dict[str, Any]:
+    tipo = _first_text(
+        vehiculo.get("permiso_sct"),
+        vehiculo.get("permiso_cre"),
+        vehiculo.get("perm_sct"),
+        _meta(vehiculo).get("permiso_sct"),
+        _meta(vehiculo).get("permiso_cre"),
+    ).upper()
+    numero = _first_text(
+        vehiculo.get("num_permiso_sct"),
+        vehiculo.get("numero_permiso"),
+        vehiculo.get("numero_permiso_sct"),
+        _meta(vehiculo).get("num_permiso_sct"),
+        _meta(vehiculo).get("numero_permiso"),
+    )
+    if not tipo or not numero:
+        return {"ok": False, "error": "Vehículo sin PermSCT/NumPermisoSCT configurado."}
+    if tipo not in TIPOS_PERMISO_SAT:
+        return {"ok": False, "error": "Tipo de permiso SCT/SICT del vehículo fuera del catálogo SAT c_TipoPermiso."}
+    return {
+        "ok": True,
+        "tipo_permiso": tipo,
+        "numero_permiso": numero,
+        "source": "vehiculo",
+    }
+
+
+def _retired_carta_porte_permits_catalog() -> None:
+    raise HTTPException(
+        410,
+        "Catálogo Permisos Carta Porte retirado. Usa PermSCT/NumPermisoSCT en Vehículos y Permisos CRE del transportista en Administración.",
     )
 
 
@@ -3673,7 +3649,6 @@ def _stamp_build_context(
     viaje_id: int,
     actor: str,
     operador_id: Optional[int] = None,
-    permiso_id: Optional[int] = None,
 ) -> dict[str, Any]:
     sb = _stamp_sb()
     rows = (
@@ -3771,15 +3746,9 @@ def _stamp_build_context(
     product_text = _first_text(producto.get("tipo_producto"), producto.get("descripcion"), _meta(viaje_row).get("producto"))
     permiso_transportista = _stamp_transportista_permiso(sb, uid, pid, product_text)
     emisor = _emisor_from_settings(settings)
-    try:
-        permiso_result = _resolve_carta_porte_permiso(sb, uid, pid, producto, vehiculo, emisor.get("rfc", ""), permiso_id)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    if permiso_result["error"]:
-        raise HTTPException(400, permiso_result["error"])
-    if permiso_result["requiere_seleccion"]:
-        raise HTTPException(400, "Selecciona uno de los permisos compatibles antes de timbrar Carta Porte.")
-    vehiculo = aplicar_permiso(vehiculo, permiso_result["seleccionado"])
+    permiso_vehiculo = _vehicle_carta_porte_permit(vehiculo)
+    if not permiso_vehiculo["ok"]:
+        raise HTTPException(400, permiso_vehiculo["error"])
     vehiculo["productos_carta_porte"] = [producto]
     pac_ready, pac_message, _pac_cfg = _sw_ready_state()
     preview = _build_carta_porte_preview(
@@ -5169,12 +5138,7 @@ async def transporte_v2_carta_porte_preview(
         settings = _load_settings(token, uid, _pid)
         product_text = _first_text(producto.get("tipo_producto"), producto.get("descripcion"), _meta(viaje).get("producto"))
         permiso_transportista = _stamp_transportista_permiso(_sb(token), uid, _pid, product_text)
-        permiso_result = _resolve_carta_porte_permiso(
-            _sb(token), uid, _pid, producto, vehiculo,
-            _emisor_from_settings(settings).get("rfc", ""), payload.permiso_id,
-        )
-        if permiso_result["seleccionado"]:
-            vehiculo = aplicar_permiso(vehiculo, permiso_result["seleccionado"])
+        permiso_vehiculo = _vehicle_carta_porte_permit(vehiculo)
         pac_ready, pac_message, _pac_cfg = _sw_ready_state()
         result = _build_carta_porte_preview(
             viaje,
@@ -5189,14 +5153,9 @@ async def transporte_v2_carta_porte_preview(
             pac_ready=pac_ready,
             pac_message=pac_message,
         )
-        result["permisos_compatibles"] = permiso_result["compatibles"]
-        result["permiso_seleccionado"] = permiso_result["seleccionado"]
-        result["requiere_seleccion_permiso"] = permiso_result["requiere_seleccion"]
-        if permiso_result["error"]:
-            result["validaciones"].append({"nivel": "error", "campo": "vehiculo.permiso_sct", "mensaje": permiso_result["error"]})
-        elif permiso_result["requiere_seleccion"]:
-            result["validaciones"].append({"nivel": "error", "campo": "vehiculo.permiso_sct", "mensaje": "Hay varios permisos compatibles. Selecciona el que se usara para timbrar."})
-        if permiso_result["error"] or permiso_result["requiere_seleccion"]:
+        result["permiso_vehiculo"] = permiso_vehiculo
+        if not permiso_vehiculo["ok"]:
+            result["validaciones"].append({"nivel": "error", "campo": "vehiculo.permiso_sct", "mensaje": permiso_vehiculo["error"]})
             result["ready_to_stamp"] = False
             result["datos_completos_para_fase_3"] = False
             result["timbrado_habilitado"] = False
@@ -5238,7 +5197,7 @@ async def transporte_v2_carta_porte_timbrar(
     _require_profile_if_present(uid, token, pid)
     if not payload.confirmar:
         raise HTTPException(400, "Confirma el resumen de Carta Porte antes de enviarlo a SW Sapiens.")
-    context = _stamp_build_context(uid=uid, pid=pid, viaje_id=payload.viaje_id, actor="admin", permiso_id=payload.permiso_id)
+    context = _stamp_build_context(uid=uid, pid=pid, viaje_id=payload.viaje_id, actor="admin")
     return _stamp_carta_porte_context(context)
 
 
@@ -5856,7 +5815,7 @@ async def transporte_v2_catalogo_permisos(
     uid, token = _auth(authorization)
     pid = _profile_id(perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    return _select_catalog(token, uid, "permisos", pid)
+    _retired_carta_porte_permits_catalog()
 
 
 @router.post("/tr-v2/catalogos/permisos")
@@ -5868,7 +5827,7 @@ async def transporte_v2_crear_permiso(
     uid, token = _auth(authorization)
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    return _create_catalog_item(token, uid, pid, "permisos", payload.data)
+    _retired_carta_porte_permits_catalog()
 
 
 @router.get("/tr-v2/catalogos/rutas")
