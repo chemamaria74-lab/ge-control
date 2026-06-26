@@ -4,6 +4,7 @@ let COMPANIES = [];
 let USERS_HEALTH = [];
 let LICENSES = [];
 let BILLING_SETTINGS = {};
+let LANDING_SETTINGS = {};
 let showOnlyProblems = false;
 const SAT_REGIMENES = [
   ['601','General de Ley Personas Morales'],['603','Personas Morales con Fines no Lucrativos'],['605','Sueldos y Salarios'],

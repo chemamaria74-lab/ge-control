@@ -19,7 +19,7 @@ function showPanel(name){
   if(name==='usuarios')loadUsers();
   if(name==='auditoria')loadAudit();
   if(name==='facturacion-ge')loadBillingInvoices();
-  if(name==='administracion'){ loadBillingSettings(); loadUsers(); }
+  if(name==='administracion'){ loadBillingSettings(); loadLandingSettings(); loadUsers(); }
 }
 function msg(id,text,ok=true){ const el=document.getElementById(id); if(el){el.textContent=text; el.className='status '+(ok?'ok':'err');} }
 function showAdminLogin(message='') {

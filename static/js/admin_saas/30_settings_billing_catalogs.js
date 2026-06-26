@@ -46,6 +46,45 @@ function renderBillingCatalogs(){
 }
 async function loadBillingSettings(){ try{ initFiscalSelects(); const d=await api('/billing/settings',{headers:H(false)}); const s=normalizeBillingSettings(d.settings||{}); BILLING_SETTINGS=s; setVal('billRfc',s.rfc||''); setVal('billName',s.fiscal_name||''); setVal('billCp',s.fiscal_cp||''); setVal('billRegimen',s.fiscal_regimen||'626'); setVal('billConcept',s.default_concept); setVal('billPrice',s.default_price||0); renderBillingCatalogs(); msg('billingMsg',`Cargado (${s.source||'config'})`); }catch(e){msg('billingMsg',e.message,false);} }
 async function saveBillingSettings(){ try{ const s=normalizeBillingSettings(BILLING_SETTINGS); const saved=await api('/billing/settings',{method:'PUT',headers:H(),body:JSON.stringify({rfc:billRfc.value,fiscal_name:billName.value,fiscal_cp:billCp.value,fiscal_regimen:billRegimen.value,default_concept:billConcept.value,default_price:Number(billPrice.value||0),frequent_customers:s.frequent_customers,default_concepts:s.default_concepts,fiscal_configs:s.fiscal_configs})}); BILLING_SETTINGS=normalizeBillingSettings(saved.settings||{}); renderBillingCatalogs(); msg('billingMsg','Datos fiscales guardados'); }catch(e){msg('billingMsg',e.message,false);} }
+function fillLandingSettings(s={}){
+  LANDING_SETTINGS=s||{};
+  setVal('landHeroEyebrow',s.hero_eyebrow||'');
+  setVal('landHeroTitle',s.hero_title||'');
+  setVal('landHeroAccent',s.hero_accent||'');
+  setVal('landHeroSubtitle',s.hero_subtitle||'');
+  setVal('landPrimaryCta',s.primary_cta||'');
+  setVal('landFinalHeadline',s.final_headline||'');
+  setVal('landFinalSubtitle',s.final_subtitle||'');
+  setVal('landFormNote',s.form_note||'');
+  setVal('landLeadEmailTo',s.lead_email_to||'');
+  setVal('landLeadEmailFrom',s.lead_email_from||'');
+  setVal('landWhatsappNumber',s.whatsapp_number||'');
+  setVal('landWhatsappMessage',s.whatsapp_message||'');
+}
+async function loadLandingSettings(){ try{ const d=await api('/landing/settings',{headers:H(false)}); fillLandingSettings(d.settings||{}); msg('landingMsg',`Cargado (${d.settings?.source||'config'})`); }catch(e){msg('landingMsg',e.message,false);} }
+async function saveLandingSettings(){
+  try{
+    const payload={
+      ...LANDING_SETTINGS,
+      hero_eyebrow:landHeroEyebrow.value,
+      hero_title:landHeroTitle.value,
+      hero_accent:landHeroAccent.value,
+      hero_subtitle:landHeroSubtitle.value,
+      primary_cta:landPrimaryCta.value,
+      secondary_cta:LANDING_SETTINGS.secondary_cta||'Ver modulos',
+      final_headline:landFinalHeadline.value,
+      final_subtitle:landFinalSubtitle.value,
+      form_note:landFormNote.value,
+      lead_email_to:landLeadEmailTo.value,
+      lead_email_from:landLeadEmailFrom.value,
+      whatsapp_number:landWhatsappNumber.value,
+      whatsapp_message:landWhatsappMessage.value
+    };
+    const d=await api('/landing/settings',{method:'PUT',headers:H(),body:JSON.stringify(payload)});
+    fillLandingSettings(d.settings||{});
+    msg('landingMsg','Landing guardada');
+  }catch(e){msg('landingMsg',e.message,false);}
+}
 async function saveBillingCatalogs(){ await saveBillingSettings(); }
 function addBillingCustomer(){ const s=normalizeBillingSettings(BILLING_SETTINGS); const customer={alias:catCustomerAlias.value||catCustomerName.value,tenant_id:catCustomerTenant.value||null,rfc:catCustomerRfc.value.trim().toUpperCase(),name:catCustomerName.value.trim(),cp:catCustomerCp.value.trim(),regimen:catCustomerRegimen.value,uso_cfdi:catCustomerUso.value,metodo_pago:catCustomerMetodo.value,forma_pago:catCustomerForma.value}; if(!customer.rfc||!customer.name||!customer.cp) return alert('RFC, nombre fiscal y CP son obligatorios.'); s.frequent_customers.push(customer); BILLING_SETTINGS=s; renderBillingCatalogs(); saveBillingCatalogs(); }
 function addBillingConcept(){ const s=normalizeBillingSettings(BILLING_SETTINGS); const concept={name:catConceptName.value||catConceptDesc.value||'Concepto',description:catConceptDesc.value||billConcept.value,price:Number(catConceptPrice.value||billPrice.value||0),iva_rate:0.16}; s.default_concepts.push(concept); BILLING_SETTINGS=s; renderBillingCatalogs(); saveBillingCatalogs(); }
