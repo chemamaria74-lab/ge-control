@@ -3,6 +3,8 @@ from . import facturas_fiscales
 from . import catalogos_basicos
 from . import carta_porte_catalogos
 from . import clientes
+from . import facturacion_sat_liqs
+from . import facturas_servicio_dashboard
 
 _MODULES = (
     core,
@@ -10,6 +12,8 @@ _MODULES = (
     catalogos_basicos,
     carta_porte_catalogos,
     clientes,
+    facturacion_sat_liqs,
+    facturas_servicio_dashboard,
 )
 
 for _module in _MODULES:
