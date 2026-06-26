@@ -1,4 +1,11 @@
 from .core import *
+from routes.facturas_mod.core import (
+    _cp_normalize_driver_payload,
+    _cp_normalize_id_ccp,
+    _cp_normalize_vehicle_payload,
+    _cp_validate_catalog_payload,
+    _generar_carta_porte_for_scope,
+)
 from .catalogos_clientes import _gas_lp_clientes_scope_query
 from services.carta_porte_pdf import (
     es_carta_porte_traslado,
