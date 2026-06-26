@@ -94,13 +94,13 @@ const TRV2_PRODUCTOS_SAT = [
   ['15111510', 'Gas licuado de petróleo'],
   ['15101514', 'Gasolina regular menor a 91 octanos'],
   ['15101515', 'Gasolina premium mayor o igual a 91 octanos'],
-  ['15101505', 'Combustible diesel'],
+  ['15101507', 'Combustible diésel'],
 ];
 const TRV2_SUBPRODUCTOS_SAT = {
   'Gas LP': [['', 'No aplica para HidroYPetro / validar solo si el CFDI lo requiere']],
-  Magna: [['SP16', 'Gasolina menor a 91 octanos / Magna']],
-  Premium: [['SP17', 'Gasolina mayor o igual a 91 octanos / Premium']],
-  'Diésel': [['SP18', 'Diésel automotriz']],
+  Magna: [['SP1', 'Gasolina menor a 91 octanos / Magna'], ['SP15', 'Gasolina Magna'], ['SP36', 'Biogasolina E10']],
+  Premium: [['SP2', 'Gasolina mayor a 91 octanos / Premium'], ['SP16', 'Gasolina Premium']],
+  'Diésel': [['SP6', 'Diésel automotriz'], ['SP7', 'Diésel marino'], ['SP8', 'Diésel de baja azufre'], ['SP9', 'Diésel industrial'], ['SP14', 'Diésel sin azufre']],
   default: [['', 'Sin subproducto / pendiente de validar SAT']],
 };
 const TRV2_UNIDADES_SAT = [['LTR', 'Litro'], ['KGM', 'Kilogramo'], ['E48', 'Unidad de servicio']];
@@ -1034,9 +1034,9 @@ function trv2RefreshProductSatDefaults() {
     if ([...subproducto.options].some(option => option.value === current)) subproducto.value = current;
   }
   if (type === 'Gas LP' && factor && !factor.value) factor.value = '0.5258';
-  if (type === 'Magna' && subproducto && !subproducto.value) subproducto.value = 'SP16';
-  if (type === 'Premium' && subproducto && !subproducto.value) subproducto.value = 'SP17';
-  if (type === 'Diésel' && subproducto && !subproducto.value) subproducto.value = 'SP18';
+  if (type === 'Magna' && subproducto && !subproducto.value) subproducto.value = 'SP1';
+  if (type === 'Premium' && subproducto && !subproducto.value) subproducto.value = 'SP16';
+  if (type === 'Diésel' && subproducto && !subproducto.value) subproducto.value = 'SP6';
 }
 
 function trv2ApplyProductoSatDefaults() {
@@ -1068,7 +1068,7 @@ function trv2ApplyProductoSatDefaults() {
     setIfEmpty('clave_material_peligroso', '1203');
     setIfEmpty('embalaje', 'Z01');
     setIfEmpty('tipo_producto', 'Magna');
-    setIfEmpty('clave_subproducto', 'SP16');
+    setIfEmpty('clave_subproducto', 'SP1');
     trv2RefreshProductSatDefaults();
   }
   if (clave === '15101515') {
@@ -1078,18 +1078,18 @@ function trv2ApplyProductoSatDefaults() {
     setIfEmpty('clave_material_peligroso', '1203');
     setIfEmpty('embalaje', 'Z01');
     setIfEmpty('tipo_producto', 'Premium');
-    setIfEmpty('clave_subproducto', 'SP17');
+    setIfEmpty('clave_subproducto', 'SP16');
     setIfEmpty('factor_kg_l', '0.524');
     trv2RefreshProductSatDefaults();
   }
-  if (clave === '15101505') {
+  if (clave === '15101505' || clave === '15101507') {
     setIfEmpty('descripcion', 'DIÉSEL');
     setIfEmpty('unidad', 'LTR');
     setChecked('material_peligroso', true);
     setIfEmpty('clave_material_peligroso', '1202');
     setIfEmpty('embalaje', 'Z01');
     setIfEmpty('tipo_producto', 'Diésel');
-    setIfEmpty('clave_subproducto', 'SP18');
+    setIfEmpty('clave_subproducto', 'SP6');
     trv2RefreshProductSatDefaults();
   }
 }
