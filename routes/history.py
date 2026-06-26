@@ -13,7 +13,12 @@ from services.database import (
     get_records, get_reports, get_available_periods, get_period_totals,
     delete_period, delete_all_periods, get_archived_records, get_archived_reports,
 )
-from services.sat_transformer import generate_filename
+from services.sat_transformer import (
+    build_sat_report,
+    generate_filename,
+    sat_dict_to_json,
+    sat_dict_to_xml,
+)
 from routes.auth import obtener_acceso_modulo, require_profile_access, resolve_profile_scope, verify_token
 from routes.settings import _load as load_settings
 from supabase_config import get_supabase_admin
@@ -207,7 +212,25 @@ def _invoice_is_carta_porte(row: dict) -> bool:
 
 def _invoice_cancelada(row: dict) -> bool:
     md = _metadata(row)
-    for marker in (row.get("status"), md.get("status"), md.get("estado_fiscal"), md.get("cancelacion_status")):
+    markers = (
+        row.get("status"),
+        row.get("estado_fiscal"),
+        row.get("cfdi_status"),
+        row.get("sat_estado"),
+        row.get("cancelacion_status"),
+        md.get("status"),
+        md.get("estado_fiscal"),
+        md.get("estado_sat"),
+        md.get("sat_status"),
+        md.get("cfdi_status"),
+        md.get("cancelacion_status"),
+        md.get("cancelacion_estado_fiscal_label"),
+    )
+    if any(row.get(k) for k in ("cancelada", "fecha_cancelacion", "acuse_cancelacion")):
+        return True
+    if any(md.get(k) for k in ("cancelacion_acuse", "acuse_cancelacion", "cancelacion_confirmada_at")):
+        return True
+    for marker in markers:
         text = str(marker or "").strip().lower()
         if "cancelad" in text or "cancelled" in text or "canceled" in text:
             return True
@@ -231,9 +254,20 @@ def _record_from_invoice(row: dict, tipo: str, *, file_path: str, rfc: str = "",
 
 
 def _merge_derived_records(records: dict, derived: dict) -> dict:
+    cancelled_uuids = {
+        str(uuid or "").strip().upper()
+        for uuid in (derived.get("cancelled_uuids") or [])
+        if str(uuid or "").strip()
+    }
     merged = {
-        "entradas": list(records.get("entradas") or []),
-        "salidas": list(records.get("salidas") or []),
+        "entradas": [
+            row for row in (records.get("entradas") or [])
+            if str(row.get("uuid") or "").strip().upper() not in cancelled_uuids
+        ],
+        "salidas": [
+            row for row in (records.get("salidas") or [])
+            if str(row.get("uuid") or "").strip().upper() not in cancelled_uuids
+        ],
     }
     def marker_for(row: dict, key: str) -> tuple[str, str, str]:
         tipo = str(row.get("tipo") or key)
@@ -277,10 +311,14 @@ def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int,
 
         entradas: list[dict] = []
         salidas: list[dict] = []
+        cancelled_uuids: set[str] = set()
         for row in rows:
             if _invoice_is_carta_porte(row):
                 continue
             if _invoice_cancelada(row):
+                uuid = _invoice_uuid(row).strip().upper()
+                if uuid:
+                    cancelled_uuids.add(uuid)
                 continue
             fecha = _invoice_date(row)
             if not fecha.startswith(periodo):
@@ -320,10 +358,14 @@ def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int,
                 "salida",
                 file_path=f"gas_lp_facturas:{invoice_id}:venta:{origen_id or ''}",
             ))
-        return {"entradas": entradas, "salidas": salidas}
+        return {
+            "entradas": entradas,
+            "salidas": salidas,
+            "cancelled_uuids": sorted(cancelled_uuids),
+        }
     except Exception as e:
         logger.warning("history_invoice_records: %s", e)
-        return {"entradas": [], "salidas": []}
+        return {"entradas": [], "salidas": [], "cancelled_uuids": []}
 
 
 @router.get("/history/periods")
@@ -354,7 +396,7 @@ async def get_history(
     totals    = get_period_totals(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     reports   = get_reports(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
     invoice_records = _history_invoice_records(uid, token, periodo, perfil_id, facility_id)
-    if invoice_records["entradas"] or invoice_records["salidas"]:
+    if invoice_records["entradas"] or invoice_records["salidas"] or invoice_records.get("cancelled_uuids"):
         records = _merge_derived_records(records, invoice_records)
         totals = _totals_from_records(records)
     source = "active"
@@ -434,6 +476,96 @@ async def delete_history(
     })
 
 
+def _record_to_sat_movement(row: dict, tipo: str) -> dict:
+    fecha = str(row.get("fecha") or "")[:10]
+    volumen = abs(_safe_float(row.get("volumen_litros")))
+    return {
+        "tipo_movimiento": tipo,
+        "fecha": fecha,
+        "fecha_hora": f"{fecha}T12:00:00-06:00" if fecha else "",
+        "volumen_litros": volumen,
+        "volumen": volumen,
+        "unidad": "litros",
+        "unidad_base": "litros",
+        "uuid": str(row.get("uuid") or ""),
+        "rfc_contraparte": str(row.get("rfc_contraparte") or ""),
+        "rfc_cp": str(row.get("rfc_contraparte") or ""),
+        "nombre_contraparte": str(row.get("nombre_contraparte") or ""),
+        "nombre_cp": str(row.get("nombre_contraparte") or ""),
+        "importe": _safe_float(row.get("importe")),
+        "file_path": row.get("file_path") or "",
+        "es_autoconsumo": bool(
+            row.get("es_autoconsumo")
+            or str(row.get("file_path") or "").startswith("manual:")
+            or str(row.get("uuid") or "").upper().startswith("AUTO-")
+        ),
+        "es_trasvase": bool(row.get("es_trasvase") or str(row.get("file_path") or "").startswith("traspaso:")),
+    }
+
+
+def _regenerate_history_report(uid: str, token: str, periodo: str, perfil_id: int, facility_id: Optional[int], rep: dict) -> tuple[dict, dict, dict]:
+    records = get_records(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    invoice_records = _history_invoice_records(uid, token, periodo, perfil_id, facility_id)
+    records = _merge_derived_records(records, invoice_records)
+
+    movimientos = [
+        *(_record_to_sat_movement(row, "entrada") for row in (records.get("entradas") or [])),
+        *(_record_to_sat_movement(row, "salida") for row in (records.get("salidas") or [])),
+    ]
+    if not movimientos:
+        raise HTTPException(404, f"No hay movimientos vigentes para regenerar el reporte {periodo}.")
+
+    settings = load_settings(uid, perfil_id)
+    anio = mes = None
+    if periodo and len(periodo) >= 7:
+        anio, mes = int(periodo[:4]), int(periodo[5:7])
+
+    sat_dict, sat_meta = build_sat_report(
+        movimientos=movimientos,
+        settings=settings,
+        inventario_inicial_litros=_safe_float(rep.get("inventario_inicial")),
+        anio=anio,
+        mes=mes,
+        inventario_final_medido=_safe_float(rep.get("vol_existencias")) if rep.get("vol_existencias") is not None else None,
+    )
+    return sat_dict, sat_meta, settings
+
+
+def _stream_regenerated_report(sat_dict: dict, sat_meta: dict, settings: dict, fmt_l: str):
+    import io
+    import zipfile
+    from fastapi.responses import StreamingResponse
+
+    first_uuid = sat_meta.get("first_uuid", "")
+    periodo = sat_meta.get("periodo", "")
+    json_base = generate_filename(settings, periodo, "JSON", first_uuid)
+    xml_base = generate_filename(settings, periodo, "XML", first_uuid)
+
+    if fmt_l == "xml":
+        return StreamingResponse(
+            io.BytesIO(sat_dict_to_xml(sat_dict).encode("utf-8")),
+            media_type="application/xml",
+            headers={"Content-Disposition": f'attachment; filename="{xml_base}.xml"'},
+        )
+    if fmt_l == "json":
+        return StreamingResponse(
+            io.BytesIO(sat_dict_to_json(sat_dict).encode("utf-8")),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{json_base}.json"'},
+        )
+    if fmt_l == "zip":
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(f"{json_base}.json", sat_dict_to_json(sat_dict).encode("utf-8"))
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{json_base}.zip"'},
+        )
+    raise HTTPException(400, "Formato no soportado.")
+
+
 @router.get("/history/{periodo}/download/{fmt}")
 async def download_report(
     periodo:       str,
@@ -450,6 +582,17 @@ async def download_report(
         raise HTTPException(404, f"No se encontró reporte para el periodo {periodo}.")
     rep   = reps[0]
     fmt_l = fmt.lower()
+    if fmt_l not in {"xml", "json", "zip"}:
+        raise HTTPException(400, "Formato no soportado.")
+
+    try:
+        sat_dict, sat_meta, settings = _regenerate_history_report(uid, token, periodo, perfil_id, facility_id, rep)
+        return _stream_regenerated_report(sat_dict, sat_meta, settings, fmt_l)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("history_download_regenerate_failed periodo=%s perfil=%s fmt=%s err=%s", periodo, perfil_id, fmt_l, exc)
+
     path_map = {"xml": rep["xml_path"], "json": rep["json_path"], "zip": rep["zip_path"]}
     path = path_map.get(fmt_l, "")
 
@@ -476,8 +619,7 @@ async def download_report(
         "zip":  "application/zip",
     }.get(fmt_l, "application/octet-stream")
 
-    # ── Intentar servir desde contenido guardado en Supabase (persistente) ──
-    # Esto garantiza que el ZIP del historial sea IDÉNTICO al que se generó
+    # ── Fallback: contenido guardado en Supabase si no se pudo regenerar ──
     if fmt_l == "zip" and rep.get("zip_content"):
         import base64, io
         from fastapi.responses import StreamingResponse
