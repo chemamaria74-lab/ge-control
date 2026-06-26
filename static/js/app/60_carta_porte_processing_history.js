@@ -927,9 +927,17 @@ async function loadHistorial() {
 
 async function downloadHistZIP() {
   if (!histPeriodo) return;
+  const btn = document.getElementById('btnDlHistZIP');
+  if (btn?.disabled) return;
+  const originalHtml = btn?.innerHTML;
   let url = `/api/history/${histPeriodo}/download/zip`;
   if (_histFacilityId) url += `?facility_id=${_histFacilityId}`;
   try {
+    if (btn) {
+      btn.disabled = true;
+      btn.setAttribute('aria-busy', 'true');
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:.35rem"></i> Descargando...';
+    }
     const res = await fetch(url, { headers: authHeader() });
     if (!res.ok) { alert('Archivo ZIP no disponible para este periodo.'); return; }
     const blob = await res.blob();
@@ -942,6 +950,13 @@ async function downloadHistZIP() {
     link.click();
     URL.revokeObjectURL(objUrl);
   } catch(e) { alert('Error al descargar: ' + e.message); }
+  finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      btn.innerHTML = originalHtml || '<i class="fa-solid fa-file-zipper" style="margin-right:.35rem"></i> Descargar Reporte ZIP';
+    }
+  }
 }
 
 // ── Modal de confirmación genérico ────────────────────────────────────────
