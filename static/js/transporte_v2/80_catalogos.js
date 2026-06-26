@@ -359,7 +359,7 @@ function trv2CatalogLabel(name, item) {
     return alias || placas || `#${item.id}`;
   }
   if (name === 'productos') return item.descripcion || item.clave_producto || `#${item.id}`;
-  if (name === 'rutas') return item.nombre || `${item.origen || 'Origen'} → ${item.destino || 'Destino'}`;
+  if (name === 'rutas') return item.nombre || `${item.nombre_origen || item.origen || 'Origen'} → ${item.nombre_destino || item.destino || 'Destino'}`;
   if (name === 'instalaciones') return item.nombre || item.cp || `#${item.id}`;
   if (name === 'origenes' || name === 'destinos') return item.nombre || item.cp || `#${item.id}`;
   return item.nombre || `#${item.id}`;
@@ -1638,8 +1638,10 @@ function trv2FindCatalog(name, id) {
 function trv2ApplyRouteToTrip() {
   const ruta = trv2FindCatalog('rutas', document.getElementById('trv2-trip-ruta-id')?.value);
   if (!ruta) return;
-  if (ruta.origen) document.getElementById('trv2-trip-origen').value = ruta.origen;
-  if (ruta.destino) document.getElementById('trv2-trip-destino').value = ruta.destino;
+  const origen = ruta.nombre_origen || ruta.origen || '';
+  const destino = ruta.nombre_destino || ruta.destino || '';
+  if (origen) document.getElementById('trv2-trip-origen').value = origen;
+  if (destino) document.getElementById('trv2-trip-destino').value = destino;
 }
 
 function trv2ApplyClientRouteToTrip() {

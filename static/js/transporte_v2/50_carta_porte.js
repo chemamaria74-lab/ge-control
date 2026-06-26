@@ -155,7 +155,7 @@ function trv2PopulateCartaPorteTrips() {
   list.innerHTML = pending.map((row, index) => {
     const operador = trv2TripRelatedLabel(row, 'operadores', 'operador_nombre') || 'Operador pendiente';
     const vehiculo = trv2TripRelatedLabel(row, 'vehiculos', 'vehiculo_alias') || 'Unidad pendiente';
-    const ruta = `${row.origen || 'Origen'} → ${row.destino || 'Destino'}`;
+    const ruta = `${row.nombre_origen || row.origen || 'Origen'} → ${row.nombre_destino || row.destino || 'Destino'}`;
     const fecha = row.fecha_salida || row.fecha_hora_salida || 'Sin fecha';
     const litros = Number(row.volumen_litros || row.volumen_total_litros || 0).toLocaleString('es-MX');
     return `
