@@ -2943,6 +2943,8 @@ def _catalog_row(token: str, uid: str, table_name: str, row_id: Optional[int], p
             TBL_VEHICULOS: "vehiculos",
             TBL_PRODUCTOS: "productos",
             TBL_RUTAS: "rutas",
+            TBL_ORIGENES: "origenes",
+            TBL_DESTINOS: "destinos",
         }
         catalogo = table_to_catalog.get(table_name)
         return _normalize_catalog_row(catalogo, row) if catalogo and row else row
@@ -2978,6 +2980,8 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         vehiculo = _stamp_expand_vehicle_trailers(_sb(token), uid, pid, vehiculo)
     producto = _catalog_row(token, uid, TBL_PRODUCTOS, payload.producto_id, pid)
     ruta = _catalog_row(token, uid, TBL_RUTAS, payload.ruta_id, pid)
+    if ruta:
+        ruta = _stamp_expand_route_locations(_sb(token), uid, pid, ruta)
 
     if not cliente:
         raise HTTPException(400, "Cliente no encontrado para el perfil activo. Revisa RFC/nombre detectado antes de guardar.")
@@ -2988,8 +2992,8 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
     if not producto:
         raise HTTPException(400, "Producto no encontrado para el perfil activo. Revisa clave SAT/producto detectado antes de guardar.")
 
-    origen = _first_text(payload.origen, ruta.get("origen"), ruta.get("nombre_origen"))
-    destino = _first_text(payload.destino, ruta.get("destino"), ruta.get("nombre_destino"))
+    origen = _first_text(ruta.get("nombre_origen"), ruta.get("origen"), payload.origen)
+    destino = _first_text(ruta.get("nombre_destino"), ruta.get("destino"), payload.destino)
     cp_origen = _first_text(ruta.get("cp_origen"))
     cp_destino = _first_text(ruta.get("cp_destino"), cliente.get("cp"))
     producto_nombre = _first_text(producto.get("descripcion"), payload.producto_descripcion)
@@ -3189,7 +3193,7 @@ def _build_carta_porte_preview(
             "uso_cfdi": _first_text(cliente.get("uso_cfdi"), "S01" if tipo == "T" else ""),
         },
         "origen": {
-            "nombre": _first_text(ruta.get("origen"), viaje.get("origen")),
+            "nombre": _first_text(ruta.get("nombre_origen"), ruta.get("origen"), viaje.get("nombre_origen"), viaje.get("origen")),
             "rfc": _first_text(route_meta.get("rfc_origen"), meta.get("rfc_origen"), meta.get("origen_rfc")),
             "cp": _first_text(ruta.get("cp_origen"), meta.get("cp_origen")),
             "estado": _first_text(route_meta.get("estado_origen"), meta.get("estado_origen")),
@@ -3200,7 +3204,7 @@ def _build_carta_porte_preview(
             "id_ubicacion": _first_text(route_meta.get("id_ubicacion_origen"), meta.get("id_ubicacion_origen")),
         },
         "destino": {
-            "nombre": _first_text(ruta.get("destino"), viaje.get("destino")),
+            "nombre": _first_text(ruta.get("nombre_destino"), ruta.get("destino"), viaje.get("nombre_destino"), viaje.get("destino")),
             "rfc": _first_text(route_meta.get("rfc_destino"), meta.get("rfc_destino"), meta.get("destino_rfc"), cliente.get("rfc")),
             "cp": _first_text(ruta.get("cp_destino"), meta.get("cp_destino")),
             "estado": _first_text(route_meta.get("estado_destino"), meta.get("estado_destino")),
@@ -3257,8 +3261,8 @@ def _build_carta_porte_preview(
             "producto": producto_nombre,
             "volumen": _num(viaje.get("volumen_litros")),
             "unidad": _first_text(producto.get("unidad"), "LTR"),
-            "origen": _first_text(ruta.get("origen"), viaje.get("origen")),
-            "destino": _first_text(ruta.get("destino"), viaje.get("destino")),
+            "origen": _first_text(ruta.get("nombre_origen"), ruta.get("origen"), viaje.get("nombre_origen"), viaje.get("origen")),
+            "destino": _first_text(ruta.get("nombre_destino"), ruta.get("destino"), viaje.get("nombre_destino"), viaje.get("destino")),
             "vehiculo": _first_text(vehiculo.get("alias"), meta.get("vehiculo_alias")),
             "fecha_hora": _first_text(viaje.get("fecha_salida")),
             "uuid_cfdi": "Disponible después del timbrado.",
@@ -3376,18 +3380,16 @@ def _stamp_expand_route_locations(sb: Any, uid: str, pid: Optional[int], route: 
     if not expanded.get("origen_id") or not expanded.get("destino_id"):
         return expanded
     meta = _meta(expanded)
-    if meta.get("id_ubicacion_origen") and meta.get("id_ubicacion_destino"):
-        return expanded
     origen = _normalize_catalog_row("origenes", _stamp_row(sb, TBL_ORIGENES, expanded.get("origen_id"), uid, pid))
     destino = _normalize_catalog_row("destinos", _stamp_row(sb, TBL_DESTINOS, expanded.get("destino_id"), uid, pid))
     if not origen or not destino:
         return expanded
-    expanded["origen"] = _first_text(expanded.get("origen"), expanded.get("nombre_origen"), origen.get("nombre"))
-    expanded["nombre_origen"] = _first_text(expanded.get("nombre_origen"), expanded.get("origen"), origen.get("nombre"))
-    expanded["cp_origen"] = _first_text(expanded.get("cp_origen"), origen.get("cp"))
-    expanded["destino"] = _first_text(expanded.get("destino"), expanded.get("nombre_destino"), destino.get("nombre"))
-    expanded["nombre_destino"] = _first_text(expanded.get("nombre_destino"), expanded.get("destino"), destino.get("nombre"))
-    expanded["cp_destino"] = _first_text(expanded.get("cp_destino"), destino.get("cp"))
+    expanded["origen"] = _first_text(origen.get("nombre"), expanded.get("nombre_origen"), expanded.get("origen"))
+    expanded["nombre_origen"] = _first_text(origen.get("nombre"), expanded.get("nombre_origen"), expanded.get("origen"))
+    expanded["cp_origen"] = _first_text(origen.get("cp"), expanded.get("cp_origen"))
+    expanded["destino"] = _first_text(destino.get("nombre"), expanded.get("nombre_destino"), expanded.get("destino"))
+    expanded["nombre_destino"] = _first_text(destino.get("nombre"), expanded.get("nombre_destino"), expanded.get("destino"))
+    expanded["cp_destino"] = _first_text(destino.get("cp"), expanded.get("cp_destino"))
     meta.update({
         "id_ubicacion_origen": _first_text(origen.get("id_ubicacion_carta_porte")),
         "rfc_origen": _first_text(origen.get("rfc")),
@@ -5123,6 +5125,8 @@ def _load_preview_context(
     )
     producto = _catalog_row(token, uid, TBL_PRODUCTOS, viaje.get("producto_id"), pid)
     ruta = _catalog_row(token, uid, TBL_RUTAS, viaje.get("ruta_id"), pid)
+    if ruta:
+        ruta = _stamp_expand_route_locations(_sb(token), uid, pid, ruta)
     return viaje, cliente, operador, vehiculo, producto, ruta, pid
 
 
