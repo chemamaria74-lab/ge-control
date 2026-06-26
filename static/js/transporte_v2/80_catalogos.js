@@ -7,11 +7,12 @@ TRV2_CATALOGS.tarifas = TRV2_CATALOGS.tarifas || [];
 TRV2_CATALOG_LABELS.instalaciones = 'Instalaciones';
 TRV2_CATALOG_LABELS.proveedores = 'Proveedores';
 TRV2_CATALOG_LABELS.remolques = 'Remolques';
-TRV2_CATALOG_LABELS.permisos = 'Permisos Carta Porte';
+delete TRV2_CATALOG_LABELS.permisos;
+delete TRV2_CATALOGS.permisos;
 let TRV2_VEHICLE_SUBCATALOG = 'vehiculos';
 let TRV2_INSTALLATION_RETURN_CATALOG = '';
 
-const TRV2_CATALOG_LOAD_NAMES = ['clientes', 'operadores', 'vehiculos', 'remolques', 'productos', 'permisos', 'origenes', 'destinos', 'rutas'];
+const TRV2_CATALOG_LOAD_NAMES = ['clientes', 'operadores', 'vehiculos', 'remolques', 'productos', 'origenes', 'destinos', 'rutas'];
 // Claves tomadas de c_TipoPermiso en catCartaPorte.xsd. El catálogo SAT define
 // el tipo de transporte, no una matriz de productos autorizados.
 const TRV2_SCT_PERMISOS = [
@@ -74,16 +75,19 @@ const TRV2_ESTADOS_SAT = [
   ['MEX', 'Estado de México'],
 ];
 const TRV2_MUNICIPIOS_SAT = {
+  AGU: [['001', 'Aguascalientes']],
   COA: [['035', 'Torreón']],
   JAL: [['039', 'Guadalajara'], ['078', 'San Miguel el Alto'], ['116', 'Villa Hidalgo'], ['123', 'Zapotlanejo'], ['091', 'Teocaltiche']],
   ZAC: [['051', 'Villa de Cos'], ['048', 'Tlaltenango de Sánchez Román'], ['020', 'Jerez'], ['056', 'Zacatecas']],
 };
 const TRV2_LOCALIDADES_SAT = {
+  AGU: [['01', 'Aguascalientes']],
   COA: [['01', 'Localidad principal / cabecera municipal']],
   JAL: [['01', 'Localidad principal / cabecera municipal']],
   ZAC: [['01', 'Localidad principal / cabecera municipal']],
 };
 const TRV2_CP_SAT_DEFAULTS = {
+  '20120': { estado_sat: 'AGU', municipio_sat: '001', localidad_sat: '01' },
   '27297': { estado_sat: 'COA', municipio_sat: '035', localidad_sat: '01' },
 };
 const TRV2_PRODUCTOS_SAT = [
@@ -183,18 +187,6 @@ const TRV2_CATALOG_FORMS = {
     ['tipo_producto', 'Tipo producto', 'product-type'],
     ['activo', 'Activo', 'checkbox'],
   ],
-  permisos: [
-    ['nombre_interno', 'Nombre interno'],
-    ['tipo_permiso', 'Tipo permiso SAT/SICT', 'sct-permit'],
-    ['numero_permiso', 'Número de permiso'],
-    ['titular_rfc', 'RFC transportista/emisor', 'rfc'],
-    ['familias_producto', 'Familias autorizadas', 'permit-families'],
-    ['productos_permitidos', 'Productos específicos', 'product-multiselect'],
-    ['vehiculo_ids', 'Vehículos / unidades', 'vehicle-multiselect'],
-    ['vigencia_desde', 'Vigente desde', 'date'],
-    ['vigencia_hasta', 'Vigente hasta', 'date'],
-    ['activo', 'Activo', 'checkbox'],
-  ],
   proveedores: [
     ['rfc', 'RFC proveedor', 'rfc'],
     ['nombre', 'Nombre'],
@@ -288,13 +280,6 @@ const TRV2_CATALOG_UI = {
     metrics: [['Registros', 'count'], ['Mat. peligroso', 'material_peligroso'], ['Con clave SAT', 'clave_producto']],
     fields: [['Clave SAT', 'clave_producto'], ['Unidad', 'unidad'], ['Material peligroso', 'material_peligroso'], ['Embalaje', 'embalaje']],
   },
-  permisos: {
-    icon: 'fa-file-shield',
-    title: 'Permisos Carta Porte',
-    subtitle: 'PermSCT y NumPermisoSCT por transportista, unidad y alcance de producto.',
-    metrics: [['Registros', 'count'], ['Activos', 'activo'], ['Con número', 'numero_permiso']],
-    fields: [['Tipo SAT', 'tipo_permiso'], ['Número', 'numero_permiso'], ['Aplica para', 'aplica_para'], ['RFC', 'titular_rfc']],
-  },
   proveedores: {
     icon: 'fa-address-card',
     title: 'Proveedores',
@@ -374,7 +359,6 @@ function trv2CatalogLabel(name, item) {
     return alias || placas || `#${item.id}`;
   }
   if (name === 'productos') return item.descripcion || item.clave_producto || `#${item.id}`;
-  if (name === 'permisos') return item.nombre_interno || item.numero_permiso || `#${item.id}`;
   if (name === 'rutas') return item.nombre || `${item.origen || 'Origen'} → ${item.destino || 'Destino'}`;
   if (name === 'instalaciones') return item.nombre || item.cp || `#${item.id}`;
   if (name === 'origenes' || name === 'destinos') return item.nombre || item.cp || `#${item.id}`;
@@ -458,6 +442,7 @@ function trv2RenderCatalogTabs() {
   const tabs = document.getElementById('trv2-catalog-tabs');
   if (!tabs) return;
   if (TRV2_ACTIVE_CATALOG === 'tarifas') TRV2_ACTIVE_CATALOG = 'rutas';
+  if (TRV2_ACTIVE_CATALOG === 'permisos') TRV2_ACTIVE_CATALOG = 'vehiculos';
   tabs.innerHTML = Object.keys(TRV2_CATALOG_LABELS).filter(name => !['remolques', 'instalaciones', 'tarifas'].includes(name)).map(name => {
     const ui = TRV2_CATALOG_UI[name] || {};
     const active = name === TRV2_ACTIVE_CATALOG || (name === 'vehiculos' && TRV2_ACTIVE_CATALOG === 'remolques') ? 'active' : '';
@@ -1379,11 +1364,6 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
       data.poliza_seguro = data.poliza;
     }
     if (data.peso_bruto) data.peso_bruto_toneladas = data.peso_bruto;
-  }
-  if (name === 'permisos') {
-    data.categoria_producto = (data.familias_producto || [])[0] || '';
-    data.productos_permitidos = data.productos_permitidos || [];
-    data.vehiculo_ids = data.vehiculo_ids || [];
   }
   if (name === 'rutas') {
     const origen = trv2FindCatalog('origenes', data.origen_id);
