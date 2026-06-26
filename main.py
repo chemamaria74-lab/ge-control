@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+from urllib.parse import quote
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
@@ -8,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 
 from routes.upload      import router as upload_router
 from routes.cfdi        import router as cfdi_router
@@ -30,6 +31,8 @@ from routes.movimientos import router as movimientos_router
 from routes.perfiles    import router as perfiles_router
 from routes.internal_users import router as internal_users_router
 from services.database  import init_db
+from services.email_delivery import send_sales_lead_email
+from services.landing_settings import get_landing_settings
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -293,6 +296,17 @@ class ConfigClienteSchema(BaseModel):
     densidad_kg_por_litro: float = 0.524
 
 
+class DemoLeadSchema(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    company: str = Field(..., min_length=2, max_length=160)
+    email: EmailStr
+    phone: str = Field("", max_length=40)
+    interest: str = Field("Demo GE Control", max_length=120)
+    message: str = Field("", max_length=900)
+    source: str = Field("landing", max_length=80)
+    website: str = Field("", max_length=120)
+
+
 # ── Endpoints legacy Supabase config ─────────────────────────────────────────
 @app.post("/api/supabase/config")
 async def guardar_config_cliente(config: ConfigClienteSchema):
@@ -322,6 +336,70 @@ async def eliminar_config_cliente(estacion_id: str):
         status_code=410,
         detail="Endpoint legacy deshabilitado por seguridad. Usa /api/settings con autenticación y perfil activo.",
     )
+
+
+@app.get("/api/leads/config", include_in_schema=False)
+async def leads_public_config():
+    settings = get_landing_settings()
+    whatsapp_number = re.sub(r"\D+", "", str(settings.get("whatsapp_number") or ""))
+    default_text = str(settings.get("whatsapp_message") or "Hola GE Control, quiero solicitar una demo.")
+    whatsapp_url = (
+        f"https://wa.me/{whatsapp_number}?text={quote(default_text)}"
+        if whatsapp_number
+        else f"https://wa.me/?text={quote(default_text)}"
+    )
+    public_settings = {
+        key: settings.get(key)
+        for key in (
+            "hero_eyebrow",
+            "hero_title",
+            "hero_accent",
+            "hero_subtitle",
+            "primary_cta",
+            "secondary_cta",
+            "final_headline",
+            "final_subtitle",
+            "form_note",
+        )
+    }
+    return JSONResponse({"whatsapp_url": whatsapp_url, "landing": public_settings})
+
+
+@app.post("/api/leads/demo")
+async def create_demo_lead(payload: DemoLeadSchema, request: Request):
+    if payload.website.strip():
+        return JSONResponse({"ok": True, "message": "Gracias. Te contactaremos pronto."})
+
+    name = payload.name.strip()
+    company = payload.company.strip()
+    phone = payload.phone.strip()
+    interest = payload.interest.strip() or "Demo GE Control"
+    message = payload.message.strip()
+    source = payload.source.strip() or "landing"
+    client_host = request.client.host if request.client else ""
+    settings = get_landing_settings()
+
+    result = send_sales_lead_email(
+        name=name,
+        company=company,
+        email=str(payload.email),
+        phone=phone,
+        interest=interest,
+        message=message,
+        source=f"{source} {client_host}".strip(),
+        to_email=str(settings.get("lead_email_to") or ""),
+        from_email_override=str(settings.get("lead_email_from") or ""),
+    )
+    if result.ok:
+        return JSONResponse({"ok": True, "message": "Gracias. Recibimos tus datos y te contactaremos para agendar la demo."})
+    if result.skipped:
+        logger.warning("lead_email_skipped company=%s email=%s error=%s", company, payload.email, result.error)
+        raise HTTPException(
+            status_code=503,
+            detail="Recibimos tus datos, pero falta configurar el correo comercial. Escríbenos por WhatsApp para avanzar más rápido.",
+        )
+    logger.warning("lead_email_failed company=%s email=%s error=%s", company, payload.email, result.error)
+    raise HTTPException(status_code=502, detail="No pudimos enviar la solicitud en este momento. Intenta por WhatsApp o vuelve a intentarlo.")
 
 
 # ── Vistas HTML ───────────────────────────────────────────────────────────────
