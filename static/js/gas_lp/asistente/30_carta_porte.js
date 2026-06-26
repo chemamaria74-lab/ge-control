@@ -664,12 +664,7 @@ async function confirmarTimbradoCartaPorteGasLp(){
       btn.disabled = true;
       btn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Timbrada';
     }
-    try{
-      await loadFacturas('', {surfaceError:false});
-      renderCartaPorteHistoryPanels();
-    }catch(refreshError){
-      console.warn('[GasLP Carta Porte] refresh after success failed', refreshError);
-    }
+    mergeFacturaFromResponse(data.factura);
   }catch(e){
     const message = cartaPorteErrorText(e);
     const waitNotice = document.getElementById('cpStampWaitNotice');

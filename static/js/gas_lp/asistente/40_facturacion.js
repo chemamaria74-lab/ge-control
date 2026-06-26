@@ -622,11 +622,7 @@ async function crearFactura(){
     }finally{
       suppressFacturaStatus = false;
     }
-    try{
-      await loadFacturas();
-    }catch(refreshError){
-      emailMsg += ' · actualiza la tabla para ver la factura en el listado';
-    }
+    mergeFacturaFromResponse(data.factura);
     renderFacturaSuccess(data, emailMsg);
   }catch(e){
     if(isTraspaso) transferDebug('timbrar error', {status:e.status, message:e.message, response:e.response, responseText:e.responseText});
@@ -635,7 +631,6 @@ async function crearFactura(){
       const uuid = backendDetail.uuid_sat || '';
       const id = backendDetail.factura_id || '';
       setStatus('facturaMsg',`${backendDetail.message || 'Esta factura ya existe.'}${uuid ? ` UUID: ${uuid}` : ''}${id ? ` Factura ID: ${id}` : ''}`, false);
-      try{ await loadFacturas('', {surfaceError:false}); }catch(_refreshError){}
       return;
     }
     setStatus('facturaMsg', isTraspaso ? transferErrorText(backendDetail, e.message) : detailText(backendDetail, e.message), false);

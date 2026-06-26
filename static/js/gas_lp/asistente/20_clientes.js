@@ -34,8 +34,6 @@ async function load(){
       ['clientes', loadClientes],
       ['instalaciones', loadFacilities],
       ['catalogos', loadCatalogos],
-      ['facturas', loadFacturas],
-      ['complementos', loadComplementos],
     ];
     const results = await Promise.allSettled(tasks.map(([, fn]) => fn()));
     const failed = results

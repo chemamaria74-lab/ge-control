@@ -20,6 +20,7 @@ let invoiceUserInteractedAt = 0;
 let FACTURAS_LOAD_PROMISE = null;
 let FACTURAS_LOAD_KEY = '';
 let FACTURAS_LOAD_CONTROLLER = null;
+let FACTURAS_LOADED = false;
 let CP_PREVIEW_READY = false;
 let CP_PREVIEW_VALIDO = false;
 let CP_FINAL_PAYLOAD = null;

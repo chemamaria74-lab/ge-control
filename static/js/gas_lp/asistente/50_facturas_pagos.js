@@ -6,7 +6,8 @@ function mergeFacturas(rows){
 async function loadFacturas(month='', opts={}){
   const selectedMonth = String(month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)).slice(0,7);
   if(document.getElementById('facturaMes') && !facturaMes.value) facturaMes.value = selectedMonth;
-  const loadKey = selectedMonth || 'current';
+  const limit = Math.max(1, Math.min(Number(opts.limit || 50) || 50, 50));
+  const loadKey = `${selectedMonth || 'current'}:${limit}`;
   if(FACTURAS_LOAD_PROMISE && FACTURAS_LOAD_KEY === loadKey) return FACTURAS_LOAD_PROMISE;
   if(FACTURAS_LOAD_CONTROLLER) FACTURAS_LOAD_CONTROLLER.abort();
   FACTURAS_LOAD_KEY = loadKey;
@@ -14,14 +15,16 @@ async function loadFacturas(month='', opts={}){
   const refreshButtons = [...document.querySelectorAll('button[onclick^="loadFacturas"]')];
   refreshButtons.forEach(btn => { btn.disabled = true; btn.dataset.loadingFacturas = '1'; });
   if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">Cargando...</td></tr>';
-  const qs = '?mes=' + encodeURIComponent(selectedMonth);
+  const qs = '?mes=' + encodeURIComponent(selectedMonth) + '&limit=' + encodeURIComponent(String(limit));
   FACTURAS_LOAD_PROMISE = (async () => {
     try{
       const data = await api('/api/internal-auth/gas-lp/facturas' + qs, {signal: FACTURAS_LOAD_CONTROLLER.signal});
       FACTURAS = data.facturas || [];
+      FACTURAS_LOADED = true;
       console.info('[GasLP asistente facturas]', {
         endpoint: '/api/internal-auth/gas-lp/facturas',
         mes: selectedMonth,
+        limit,
         count: FACTURAS.length,
         sample_fields: FACTURAS[0] ? Object.keys(FACTURAS[0]).slice(0,20) : []
       });
@@ -55,6 +58,17 @@ async function loadFacturas(month='', opts={}){
     return true;
   })();
   return FACTURAS_LOAD_PROMISE;
+}
+function mergeFacturaFromResponse(factura){
+  if(!factura || !factura.id || !FACTURAS_LOADED) return;
+  mergeFacturas([factura]);
+  renderFacturaClientOptions();
+  renderTodayFacturas();
+  renderDashboard();
+  renderDescuentosList();
+  renderComplementosPago();
+  if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels();
+  applyFacturasFilters();
 }
 async function loadComplementos(month=''){
   const selectedMonth = String(month || document.getElementById('compMes')?.value || todayKey().slice(0,7)).slice(0,7);
@@ -304,7 +318,7 @@ async function sendFacturaEmail(){
       })
     });
     setStatus('emailModalStatus',`Correo enviado correctamente a ${validation.emails.join(', ')}`);
-    await loadFacturas();
+    if(FACTURAS_LOADED) await loadFacturas(document.getElementById('facturaMes')?.value || todayKey().slice(0,7));
     setTimeout(closeEmailModal, 900);
   }catch(e){
     setStatus('emailModalStatus', e.message || 'Error de Resend', false);
@@ -444,6 +458,10 @@ function renderTodayFacturas(){
   }).join('') : '<tr><td colspan="5">Sin documentos fiscales timbrados hoy.</td></tr>';
 }
 function applyFacturasFilters(){
+  if(!FACTURAS_LOADED && !COMPLEMENTOS.length){
+    renderFacturasTable([], facturasRows, 'Selecciona un mes y presiona Cargar mes.');
+    return;
+  }
   const client = String(document.getElementById('facturaClienteFilter')?.value || '').trim().toUpperCase();
   const month = document.getElementById('facturaMes')?.value || '';
   const pago = document.getElementById('facturaPago')?.value || '';
@@ -465,9 +483,7 @@ function applyFacturasFilters(){
   renderFacturasTable(rows, facturasRows, 'Sin documentos con esos filtros.');
 }
 async function applyMonthFilter(){
-  const month = document.getElementById('facturaMes')?.value || '';
-  await loadFacturas(month || todayKey().slice(0,7));
-  await loadComplementos(month || todayKey().slice(0,7));
+  applyFacturasFilters();
 }
 function exportFacturasDiaExcel(){
   const day = document.getElementById('facturaExportDia')?.value || todayKey();
@@ -790,12 +806,8 @@ async function confirmTimbrarComplementoPago(){
     showComplementoTimbradoSuccess(data, docs, emailMsg, !!email.ok || !email.error);
     compModalConfirmBtn.disabled = false;
     closeComplementValidation();
-    try{
-      await loadFacturas();
-      await loadComplementos();
-    }catch(refreshError){
-      console.warn('No se pudo refrescar datos después del complemento timbrado', refreshError);
-    }
+    if(FACTURAS_LOADED) await loadFacturas(document.getElementById('facturaMes')?.value || todayKey().slice(0,7));
+    await loadComplementos();
   }catch(e){ setStatus('compModalMsg',e.message,false); }
   finally{ compModalConfirmBtn.disabled = false; }
 }
