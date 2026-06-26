@@ -187,3 +187,81 @@ def send_gas_lp_payment_complement_email(
         return EmailDeliveryResult(ok=True, message_id=str(data.get("id") or ""))
     except Exception as exc:
         return EmailDeliveryResult(ok=False, error=str(exc)[:500])
+
+
+def send_sales_lead_email(
+    *,
+    name: str,
+    company: str,
+    email: str,
+    phone: str = "",
+    interest: str = "",
+    message: str = "",
+    source: str = "landing",
+    to_email: str = "",
+    from_email_override: str = "",
+) -> EmailDeliveryResult:
+    recipient = _clean_email(to_email) or _clean_email(os.environ.get("GE_LEADS_EMAIL_TO", ""))
+    if not recipient:
+        reply_default = _clean_email(os.environ.get("GE_INVOICE_EMAIL_REPLY_TO", ""))
+        superadmin_default = str(os.environ.get("SUPERADMIN_EMAILS", "")).split(",", 1)[0]
+        recipient = reply_default or _clean_email(superadmin_default)
+    if not recipient:
+        return EmailDeliveryResult(ok=False, skipped=True, error="GE_LEADS_EMAIL_TO no configurado.")
+
+    lead_email = _clean_email(email)
+    if not lead_email:
+        return EmailDeliveryResult(ok=False, skipped=True, error="Correo del interesado inválido.")
+
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    from_email = (
+        from_email_override.strip()
+        or os.environ.get("GE_LEADS_EMAIL_FROM", "").strip()
+        or os.environ.get("GE_INVOICE_EMAIL_FROM", "").strip()
+    )
+    if not api_key or not from_email:
+        return EmailDeliveryResult(ok=False, skipped=True, error="RESEND_API_KEY/GE_LEADS_EMAIL_FROM no configurados.")
+
+    safe_name = html.escape(name.strip() or "Interesado")
+    safe_company = html.escape(company.strip() or "Sin empresa")
+    safe_email = html.escape(lead_email)
+    safe_phone = html.escape(phone.strip() or "No capturado")
+    safe_interest = html.escape(interest.strip() or "Demo GE Control")
+    safe_message = html.escape(message.strip() or "Sin mensaje adicional.")
+    safe_source = html.escape(source.strip() or "landing")
+    subject = f"Nuevo interesado GE Control - {company.strip() or name.strip() or lead_email}"
+
+    payload: dict[str, Any] = {
+        "from": from_email,
+        "to": [recipient],
+        "reply_to": lead_email,
+        "subject": subject[:180],
+        "html": (
+            "<h2>Nuevo interesado en GE Control</h2>"
+            f"<p><b>Nombre:</b> {safe_name}<br>"
+            f"<b>Empresa:</b> {safe_company}<br>"
+            f"<b>Correo:</b> {safe_email}<br>"
+            f"<b>Telefono / WhatsApp:</b> {safe_phone}<br>"
+            f"<b>Interes:</b> {safe_interest}<br>"
+            f"<b>Origen:</b> {safe_source}</p>"
+            f"<p><b>Mensaje:</b><br>{safe_message}</p>"
+            "<p>Este lead fue capturado desde la landing publica de GE Control.</p>"
+        ),
+    }
+
+    try:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            return EmailDeliveryResult(ok=False, error=response.text[:500])
+        data = response.json() if response.content else {}
+        return EmailDeliveryResult(ok=True, message_id=str(data.get("id") or ""))
+    except Exception as exc:
+        return EmailDeliveryResult(ok=False, error=str(exc)[:500])
