@@ -39,10 +39,16 @@ function cpMeta(row){
   return {};
 }
 function cpDecimalValue(value, fallback=''){
-  const text = String(value ?? '').trim().replace(',', '.');
+  let text = String(value ?? '').trim();
   if(!text) return fallback;
+  if(text.includes(',') && text.includes('.')) text = text.replace(/,/g, '');
+  else text = text.replace(',', '.');
   const number = Number(text);
   return Number.isFinite(number) ? String(number) : fallback;
+}
+function cpNumberValue(value, fallback=0){
+  const number = Number(cpDecimalValue(value, String(fallback)));
+  return Number.isFinite(number) ? number : fallback;
 }
 function normalizeCpDecimalInput(input, decimals=4){
   if(!input) return;
@@ -381,8 +387,8 @@ function selectedCp(){
   const instalaciones = assistantCpRows('instalaciones');
   const origen = cpFacilityById(cpOrigen?.value);
   const destino = cpFacilityById(cpDestino?.value);
-  const litrosNum = Number(cpDecimalValue(cpLitros?.value, '0'));
-  const factor = Number(merc?.factor_kg_litro || 0);
+  const litrosNum = cpNumberValue(cpLitros?.value, 0);
+  const factor = cpNumberValue(merc?.factor_kg_litro, 0);
   const peso = litrosNum * factor;
   return {merc, veh, chofer, origen, destino, litrosNum, peso};
 }
@@ -405,8 +411,8 @@ function cpChecklistResult(){
   const vehPermiso = String(cpVehicleValue(s.veh, 'permiso')).trim().toUpperCase();
   const salida = cpSalida?.value ? cpLocalDateTime(cpSalida.value) : null;
   const llegada = cpLlegada?.value ? cpLocalDateTime(cpLlegada.value) : null;
-  const km = Number(cpDistancia?.value || ruta?.distancia_km || 0);
-  const minutes = Number(cpTiempoMin?.value || cpRouteTimeMinutes(ruta) || 0);
+  const km = cpNumberValue(cpDistancia?.value || ruta?.distancia_km, 0);
+  const minutes = cpNumberValue(cpTiempoMin?.value || cpRouteTimeMinutes(ruta), 0);
   const errors = [];
   const warnings = [];
   const ok = [];
@@ -471,8 +477,8 @@ function cpChecklistResult(){
   req('Mercancía', 'clave material peligroso 1075', cpMercanciaValue(s.merc, 'clave_material_peligroso'));
   req('Mercancía', 'embalaje SAT', cpMercanciaValue(s.merc, 'embalaje'));
   if(!isGasLpMercancia(s.merc)) errors.push('Mercancía: debe ser Gas LP con BienesTransp 15111510, unidad LTR, material peligroso 1075 y factor kg/L.');
-  if(s.litrosNum <= 0) errors.push('Viaje: captura litros mayores a cero.');
-  if(s.peso <= 0) errors.push('Viaje: el peso kg debe calcularse mayor a cero.');
+  if(!Number.isFinite(s.litrosNum) || s.litrosNum <= 0) errors.push('Viaje: captura litros mayores a cero.');
+  if(!Number.isFinite(s.peso) || s.peso <= 0) errors.push('Viaje: el peso kg debe calcularse mayor a cero.');
   if(!cpSalida?.value) errors.push('Viaje: falta fecha/hora salida.');
   if(!cpLlegada?.value) errors.push('Viaje: falta fecha/hora llegada.');
   if(salida && llegada && llegada <= salida) errors.push('Viaje: la llegada debe ser posterior a la salida.');
@@ -533,14 +539,18 @@ function cartaPortePayload(){
   const s = selectedCp();
   const ruta = cpSelectedRoute();
   const officialId = value => /^\d+$/.test(String(value || '')) ? Number(value) : null;
+  const numericId = value => {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : null;
+  };
   return {
     record_uuid: (window.crypto?.randomUUID ? window.crypto.randomUUID() : `cp-${Date.now()}`),
-    volumen_litros: s.litrosNum,
+    volumen_litros: Number.isFinite(s.litrosNum) ? s.litrosNum : 0,
     importe: 0,
-    fecha_hora: cpSalida.value,
-    fecha_salida: cpSalida.value,
-    fecha_llegada: cpLlegada.value,
-    rfc_cliente: CURRENT_COMPANY?.rfc || '',
+    fecha_hora: String(cpSalida?.value || ''),
+    fecha_salida: String(cpSalida?.value || ''),
+    fecha_llegada: String(cpLlegada?.value || ''),
+    rfc_cliente: String(CURRENT_COMPANY?.rfc || ''),
     nombre_cliente: issuerFiscalName(),
     domicilio_cliente: issuerCp() || '00000',
     uso_cfdi: 'S01',
@@ -551,12 +561,12 @@ function cartaPortePayload(){
     destino_ubicacion_ref: String(cpDestino.value || ''),
     origen_ubicacion_id: cpFacilityValue(s.origen, 'id_ubicacion'),
     destino_ubicacion_id: cpFacilityValue(s.destino, 'id_ubicacion'),
-    vehiculo_id: Number(cpVehiculo.value),
-    chofer_id: Number(cpChofer.value),
-    ruta_id: Number(ruta?.id || ruta?.ruta_id || cpRuta?.value || 0) || null,
-    mercancia_id: Number(cpMercancia.value),
+    vehiculo_id: numericId(cpVehiculo?.value),
+    chofer_id: numericId(cpChofer?.value),
+    ruta_id: numericId(ruta?.id || ruta?.ruta_id || cpRuta?.value),
+    mercancia_id: numericId(cpMercancia?.value),
     tipo_comprobante: 'T',
-    distancia_km: Number(cpDistancia.value || 0),
+    distancia_km: cpNumberValue(cpDistancia?.value, 0),
     cfdi_relacionados: []
   };
 }
