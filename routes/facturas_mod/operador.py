@@ -8,20 +8,6 @@ def _operador_context(token_plain: str):
     acc = rows[0]
     if not acc.get("perfil_id") or not acc.get("chofer_id") or not acc.get("user_id"):
         raise HTTPException(403, "Acceso de operador incompleto. Requiere regenerar el link.")
-    expires_at = acc.get("expires_at")
-    if expires_at:
-        try:
-            exp = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
-            if exp <= datetime.now(timezone.utc):
-                try:
-                    sb.table(_TBL_OPER_ACC).update({"status": "expirado"}).eq("id", acc["id"]).execute()
-                except Exception:
-                    pass
-                raise HTTPException(401, "Acceso de operador expirado.")
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(401, "Acceso de operador inválido.")
     chofer_rows = (
         sb.table(_TBL_CHOFERES)
         .select("id,perfil_id,activo")
@@ -128,7 +114,6 @@ async def operador_liquidacion_actual(token: str = Query(...)):
     return JSONResponse({"ok": True, "liquidacion": liq, "items": items})
 
 
-@router.get("/tr/operador/carta-porte/tareas")
 @router.get("/tr/operador/carta-aporte/tareas")
 async def operador_tareas_carta_aporte(token: str = Query(...), force: bool = Query(False)):
     sb, acc = _operador_context(token)
@@ -158,8 +143,8 @@ async def operador_tareas_carta_aporte(token: str = Query(...), force: bool = Qu
         except Exception as exc:
             errores.append({"cfdi_id": row.get("id"), "error": f"No se pudo leer XML SAT: {exc}"})
     tasks = [{
-        "tipo": "generar_carta_porte",
-        "titulo": "Generar Carta Porte con las facturas timbradas en la ultima hora.",
+        "tipo": "generar_carta_aporte",
+        "titulo": "Generar Carta Aporte con las facturas timbradas en la ultima hora.",
         "perfil_id": acc.get("perfil_id"),
         "window_start": ini.isoformat(),
         "window_end": fin.isoformat(),

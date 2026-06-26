@@ -36,7 +36,6 @@ async def crear_chofer(
             "tipo_licencia": payload.tipo_licencia,
             "telefono":     payload.telefono.strip(),
             "curp":         payload.curp.strip().upper(),
-            "metadata":     {"tipo_figura_sat": str(getattr(payload, "tipo_figura", "01") or "01").strip()},
             "activo":       True,
             "created_at":   datetime.now(timezone.utc).isoformat(),
         }).execute()
@@ -62,7 +61,6 @@ async def actualizar_chofer(
         "tipo_licencia": payload.tipo_licencia,
         "telefono":     payload.telefono.strip(),
         "curp":         payload.curp.strip().upper(),
-        "metadata":     {"tipo_figura_sat": str(getattr(payload, "tipo_figura", "01") or "01").strip()},
     }).eq("id", chofer_id).eq("user_id", uid)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -113,15 +111,6 @@ async def crear_vehiculo(
     uid, token = _auth(authorization)
     pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     try:
-        metadata = {
-            "alias": str(getattr(payload, "alias", "") or "").strip(),
-            "numero_economico": str(getattr(payload, "numero_economico", "") or "").strip(),
-            "peso_bruto_vehicular": _safe_float(getattr(payload, "peso_bruto_vehicular", 0)),
-            "aseguradora_medio_ambiente": str(getattr(payload, "aseguradora_medio_ambiente", "") or "").strip(),
-            "poliza_medio_ambiente": str(getattr(payload, "poliza_medio_ambiente", "") or "").strip(),
-            "aseguradora_carga": str(getattr(payload, "aseguradora_carga", "") or "").strip(),
-            "poliza_carga": str(getattr(payload, "poliza_carga", "") or "").strip(),
-        }
         res = _sb(token).table(_TBL_VEHICULOS).insert({
             "user_id":           uid,
             "perfil_id":         pid,
@@ -135,7 +124,6 @@ async def crear_vehiculo(
             "num_permiso_sct":   payload.num_permiso_sct.strip(),
             "capacidad_litros":  payload.capacidad_litros,
             "num_ejes":          payload.num_ejes,
-            "metadata":          metadata,
             "activo":            True,
             "created_at":        datetime.now(timezone.utc).isoformat(),
         }).execute()
@@ -153,15 +141,6 @@ async def actualizar_vehiculo(
 ):
     uid, token = _auth(authorization)
     pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
-    metadata = {
-        "alias": str(getattr(payload, "alias", "") or "").strip(),
-        "numero_economico": str(getattr(payload, "numero_economico", "") or "").strip(),
-        "peso_bruto_vehicular": _safe_float(getattr(payload, "peso_bruto_vehicular", 0)),
-        "aseguradora_medio_ambiente": str(getattr(payload, "aseguradora_medio_ambiente", "") or "").strip(),
-        "poliza_medio_ambiente": str(getattr(payload, "poliza_medio_ambiente", "") or "").strip(),
-        "aseguradora_carga": str(getattr(payload, "aseguradora_carga", "") or "").strip(),
-        "poliza_carga": str(getattr(payload, "poliza_carga", "") or "").strip(),
-    }
     q = _sb(token).table(_TBL_VEHICULOS).update({
         "placas":          payload.placas,
         "modelo":          payload.modelo.strip(),
@@ -172,7 +151,6 @@ async def actualizar_vehiculo(
         "permiso_sct":     payload.permiso_sct.strip(),
         "num_permiso_sct": payload.num_permiso_sct.strip(),
         "capacidad_litros": payload.capacidad_litros,
-        "metadata": metadata,
     }).eq("id", vehiculo_id).eq("user_id", uid)
     if pid:
         q = q.eq("perfil_id", pid)
@@ -439,3 +417,4 @@ _CATALOGOS_OPERATIVOS = {
         "order": "nombre",
     },
 }
+

@@ -1,16 +1,14 @@
 from .core import *
 
+from services.carta_porte_validation import requiere_complemento_hidrocarburos
+from services.sw_sapien import emitir_timbrar_json
+from services.transport_builder import build_cfdi_transporte
+
 @router.get("/tr/catalogo/productos")
 async def get_catalogo_productos(authorization: str = Header(default="")):
     """Lista todos los productos del catálogo SAT para transporte."""
     uid, _ = _auth(authorization)
     return JSONResponse({"ok": True, "productos": get_all_productos()})
-
-
-@router.get("/tr/catalogos/productos")
-async def get_catalogo_productos_plural(authorization: str = Header(default="")):
-    """Alias defensivo para llamadas legacy/plurales del catálogo SAT."""
-    return await get_catalogo_productos(authorization=authorization)
 
 
 @router.get("/tr/catalogo/validar-clave")
@@ -526,11 +524,6 @@ async def validar_carta_porte_viaje(
                 context["chofer"],
                 context["vehiculo"],
             )
-            if context["viaje_obj"].tipo_cfdi == "I":
-                cliente_cfg = _cliente_por_receptor(context["sb"], context["uid"], context["viaje_row"].get("perfil_id"), context["viaje_obj"].rfc_receptor)
-                fiscal_defaults = _cliente_defaults_fiscales(cliente_cfg, context["settings"])
-                cfdi_dict["MetodoPago"] = fiscal_defaults["metodo_pago"]
-                cfdi_dict["FormaPago"] = fiscal_defaults["forma_pago"]
         else:
             build_error = "Configura RFC y régimen fiscal del emisor para construir el CFDI."
     except Exception as e:
@@ -547,6 +540,10 @@ async def validar_carta_porte_viaje(
     return JSONResponse(result)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. TIMBRADO
+# ══════════════════════════════════════════════════════════════════════════════
+
 @router.post("/tr/viajes/{viaje_id}/timbrar")
 async def timbrar_viaje(
     viaje_id:      int,
@@ -559,34 +556,107 @@ async def timbrar_viaje(
       · Complemento Carta Porte 3.1
       · Complemento Hidrocarburos y Petrolíferos 1.0
     """
-    context = _build_transport_cfdi_context(viaje_id, payload, authorization, validate_emisor=True)
-    uid = context["uid"]
-    token = context["token"]
-    sb = context["sb"]
-    viaje_row = context["viaje_row"]
-    viaje_obj = context["viaje_obj"]
-    chofer = context["chofer"]
-    vehiculo = context["vehiculo"]
-    emisor = context["emisor"]
-    productos = context["productos"]
-    enforce_hidro = context["enforce_hidro"]
+    uid, token = _auth(authorization)
+    sb = _sb(token)
+
+    # Obtener viaje
+    try:
+        res = sb.table(_TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).limit(1).execute()
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(404, f"Viaje {viaje_id} no encontrado.")
+        viaje_row = rows[0]
+        _require_row_profile(uid, token, viaje_row)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Error al obtener viaje: {e}")
 
     if viaje_row.get("status") == "timbrado":
         raise HTTPException(400, "Este viaje ya tiene un CFDI timbrado.")
 
-    if enforce_hidro and requiere_complemento_hidrocarburos(context["productos_dicts"]):
+    # Obtener datos relacionados
+    chofer   = _get_chofer(uid, token, viaje_row["chofer_id"])
+    primer_producto_nombre = ""
+    try:
+        _productos_tmp = json.loads(viaje_row.get("productos_json") or "[]")
+        primer_producto_nombre = (_productos_tmp[0].get("descripcion") or _productos_tmp[0].get("clave_producto") or "") if _productos_tmp else ""
+    except Exception:
+        primer_producto_nombre = ""
+    vehiculo = _enriquecer_vehiculo_operativo(
+        uid,
+        token,
+        _get_vehiculo(uid, token, viaje_row["vehiculo_id"]),
+        viaje_row.get("perfil_id"),
+        primer_producto_nombre,
+    )
+
+    # Obtener settings del módulo transporte
+    settings = _settings_transporte(uid, token, viaje_row.get("perfil_id"))
+
+    if not settings.get("RfcContribuyente"):
+        raise HTTPException(400, "Configura el RFC del contribuyente en Ajustes del módulo Transporte.")
+
+    regimen_emisor = (payload.regimen_fiscal_emisor or settings.get("RegimenFiscal") or "").strip()
+    _validar_regimen_para_rfc(settings.get("RfcContribuyente", ""), regimen_emisor, "emisor")
+
+    emisor = {
+        "rfc":              settings.get("RfcContribuyente", ""),
+        "nombre":           settings.get("DescripcionInstalacion", ""),
+        "regimen_fiscal":   regimen_emisor,
+        "domicilio_fiscal": settings.get("CodigoPostal", "20000"),
+        "num_permiso_cne":  viaje_row.get("num_permiso_cne") or settings.get("NumPermiso", ""),
+    }
+
+    # Reconstruir ViajeCreate desde el row de BD
+    try:
+        productos_raw = json.loads(viaje_row.get("productos_json") or "[]")
+        from models.transport_schemas import ProductoTransporte
+        productos = [ProductoTransporte(**p) for p in productos_raw]
+    except Exception as e:
+        raise HTTPException(400, f"Productos del viaje inválidos: {e}")
+    enforce_hidro = bool(settings.get("ValidarComplementoHidrocarburos", True))
+    if enforce_hidro and requiere_complemento_hidrocarburos([p.model_dump() for p in productos]):
         raise HTTPException(
             400,
             "Timbrado bloqueado para no gastar timbres: Magna/Premium/Diésel requieren validar e incorporar "
             "el complemento Hidrocarburos y Petrolíferos junto con Carta Porte. Falta cerrar el payload exacto con SW Sapien."
         )
 
+    from models.transport_schemas import ViajeCreate
+    receptor_cfdi = _normalizar_receptor_cfdi(
+        viaje_row.get("rfc_receptor", ""),
+        viaje_row.get("nombre_receptor", ""),
+        viaje_row.get("cp_receptor", "20000"),
+        viaje_row.get("regimen_fiscal_receptor", "601"),
+    )
+    viaje_obj = ViajeCreate(
+        chofer_id=          viaje_row["chofer_id"],
+        vehiculo_id=        viaje_row["vehiculo_id"],
+        ruta_id=            viaje_row.get("ruta_id"),
+        cp_origen=          viaje_row.get("cp_origen", ""),
+        nombre_origen=      viaje_row.get("nombre_origen", ""),
+        cp_destino=         viaje_row.get("cp_destino", ""),
+        nombre_destino=     viaje_row.get("nombre_destino", ""),
+        fecha_hora_salida=  viaje_row["fecha_hora_salida"],
+        fecha_hora_llegada= viaje_row.get("fecha_hora_llegada"),
+        productos=          productos,
+        tipo_cfdi=          payload.tipo_cfdi or viaje_row.get("tipo_cfdi", "T"),
+        rfc_receptor=       receptor_cfdi["rfc"],
+        nombre_receptor=    receptor_cfdi["nombre"],
+        cp_receptor=        receptor_cfdi["cp"] or "20000",
+        regimen_fiscal_receptor= receptor_cfdi["regimen_fiscal"] or "601",
+        uso_cfdi=           viaje_row.get("uso_cfdi", "S01"),
+        num_permiso_cne=    viaje_row.get("num_permiso_cne", ""),
+        distancia_km=       float(viaje_row.get("distancia_km") or 1.0),
+    )
+
     # Construir CFDI
     try:
         cfdi_dict, id_ccp = build_cfdi_transporte(viaje_obj, emisor, chofer, vehiculo)
         if viaje_obj.tipo_cfdi == "I":
             cliente_cfg = _cliente_por_receptor(sb, uid, viaje_row.get("perfil_id"), viaje_obj.rfc_receptor)
-            fiscal_defaults = _cliente_defaults_fiscales(cliente_cfg, context["settings"])
+            fiscal_defaults = _cliente_defaults_fiscales(cliente_cfg, settings)
             cfdi_dict["MetodoPago"] = fiscal_defaults["metodo_pago"]
             cfdi_dict["FormaPago"] = fiscal_defaults["forma_pago"]
     except ValueError as e:

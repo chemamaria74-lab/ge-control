@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 from .core import *
-from models.transport_schemas import CancelacionViajeRequest as CancelacionFacturaServicioRequest
 
 @router.get("/tr/facturas-servicio")
 async def listar_facturas_servicio(
@@ -295,4 +292,5 @@ async def dashboard_operativo_transporte(
         {"tipo": "operador", "label": "Viajes sin confirmacion de operador", "count": resumen["sin_confirmacion"]},
     ]
     return JSONResponse({"ok": True, "periodo": periodo, "resumen": resumen, "viajes": viajes[:100]})
+
 

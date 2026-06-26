@@ -1,6 +1,5 @@
 from .core import *
 
-@router.get("/tr/carta-porte/tareas")
 @router.get("/tr/carta-aporte/tareas")
 async def tareas_carta_aporte_desde_sat(
     perfil_id: Optional[int] = Query(None),
@@ -9,7 +8,7 @@ async def tareas_carta_aporte_desde_sat(
     x_perfil_id: str = Header(default=""),
 ):
     """
-    Tarea operativa diaria: a partir de las 02:00 CDMX propone generar Carta Porte
+    Tarea operativa diaria: a partir de las 02:00 CDMX propone generar Carta Aporte
     con las facturas timbradas en la ultima hora, leyendo datos fiscales desde XML SAT.
     Disponible para administradores y operadores con acceso a Transporte.
     """
@@ -21,7 +20,7 @@ async def tareas_carta_aporte_desde_sat(
             "ok": True,
             "tasks": [],
             "next_run_local": now_mx.replace(hour=2, minute=0, second=0, microsecond=0).isoformat(),
-            "message": "La tarea automática de Carta Porte aparece a partir de las 02:00.",
+            "message": "La tarea automática de Carta Aporte aparece a partir de las 02:00.",
         })
 
     fin = datetime.now(timezone.utc)
@@ -58,8 +57,8 @@ async def tareas_carta_aporte_desde_sat(
     tasks = []
     if facturas:
         tasks.append({
-            "tipo": "generar_carta_porte",
-            "titulo": "Generar Carta Porte con las facturas timbradas en la ultima hora.",
+            "tipo": "generar_carta_aporte",
+            "titulo": "Generar Carta Aporte con las facturas timbradas en la ultima hora.",
             "perfil_id": pid,
             "window_start": ini.isoformat(),
             "window_end": fin.isoformat(),
@@ -321,7 +320,6 @@ async def crear_acceso_operador(payload: dict, authorization: str = Header(defau
     if chofer_rows[0].get("activo") is False:
         raise HTTPException(400, "No puedes generar acceso para un chofer inactivo.")
     token_plain = secrets.token_urlsafe(24)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
     try:
         _sb(token).table(_TBL_OPER_ACC).update({
             "status": "reemplazado",
@@ -334,7 +332,7 @@ async def crear_acceso_operador(payload: dict, authorization: str = Header(defau
         "chofer_id": chofer_id,
         "token_hash": _hash_operator_token(token_plain),
         "status": "activo",
-        "expires_at": expires_at.isoformat(),
+        "expires_at": None,
     }).execute()
     return JSONResponse({"ok": True, "token": token_plain, "url": f"/operador/transporte?token={token_plain}"})
 

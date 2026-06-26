@@ -1,13 +1,4 @@
 from .core import *
-from .crud_basicos import _CATALOGOS_OPERATIVOS
-
-def _catalogo_operativo_config(catalogo: str) -> dict:
-    cfg = _CATALOGOS_OPERATIVOS.get(catalogo)
-    if cfg:
-        return cfg
-    validos = ", ".join(sorted(_CATALOGOS_OPERATIVOS))
-    raise HTTPException(404, f"Catálogo Transporte no encontrado: {catalogo}. Catálogos válidos: {validos}.")
-
 
 def _clean_catalog_row(payload: dict, allowed: set[str]) -> dict:
     row = {}
@@ -27,88 +18,24 @@ def _clean_catalog_row(payload: dict, allowed: set[str]) -> dict:
     return row
 
 
-_PRODUCTO_GENERICO_METADATA_KEYS = {
-    "alias_visible",
-    "descripcion",
-    "bienes_transp_sat",
-    "clave_unidad",
-    "unidad_visible",
-    "requiere_peso",
-    "unidad_peso",
-    "peso_unitario_kg",
-    "factor_conversion_kg",
-    "permite_peso_manual",
-    "descripcion_embalaje",
-}
-
-
-def _catalogo_producto_generico_payload(payload: dict) -> dict:
-    payload = payload or {}
-    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-    metadata = {**metadata}
-    for key in _PRODUCTO_GENERICO_METADATA_KEYS:
-        if key in payload:
-            metadata[key] = payload.get(key)
-    alias = str(payload.get("alias_visible") or payload.get("nombre") or metadata.get("alias_visible") or "").strip()
-    descripcion = str(payload.get("descripcion") or metadata.get("descripcion") or alias).strip()
-    bienes_transp = str(
-        payload.get("bienes_transp_sat")
-        or payload.get("clave_prodserv_cfdi")
-        or metadata.get("bienes_transp_sat")
-        or ""
-    ).strip()
-    clave_unidad = str(payload.get("clave_unidad") or payload.get("unidad") or metadata.get("clave_unidad") or "").strip().upper()
-    row = _clean_catalog_row(payload, _CATALOGOS_OPERATIVOS["productos-operacion"]["fields"])
-    row["nombre"] = alias or descripcion
-    row["clave_prodserv_cfdi"] = bienes_transp
-    row["unidad"] = clave_unidad
-    row["material_peligroso"] = bool(payload.get("material_peligroso"))
-    row["cve_material_peligroso"] = _clean_material_code(payload.get("cve_material_peligroso") or "")
-    row["embalaje"] = str(payload.get("embalaje") or "").strip().upper()
-    metadata.update({
-        "alias_visible": alias,
-        "descripcion": descripcion,
-        "bienes_transp_sat": bienes_transp,
-        "clave_unidad": clave_unidad,
-        "unidad_visible": str(payload.get("unidad_visible") or metadata.get("unidad_visible") or clave_unidad).strip(),
-        "requiere_peso": bool(payload.get("requiere_peso")),
-        "unidad_peso": str(payload.get("unidad_peso") or metadata.get("unidad_peso") or "KGM").strip().upper(),
-        "peso_unitario_kg": _safe_float(payload.get("peso_unitario_kg")),
-        "factor_conversion_kg": _safe_float(payload.get("factor_conversion_kg")),
-        "permite_peso_manual": bool(payload.get("permite_peso_manual")),
-        "descripcion_embalaje": str(payload.get("descripcion_embalaje") or metadata.get("descripcion_embalaje") or "").strip(),
-    })
-    row["metadata"] = metadata
-    return row
-
-
 def _normalizar_catalogo_producto_operacion(row: dict) -> dict:
     clave_producto = str(row.get("clave_producto") or "").strip().upper()
     clave_subproducto = str(row.get("clave_subproducto") or "").strip().upper()
-    sat = None
-    if clave_producto or clave_subproducto:
-        ok, msg = validar_producto_completo(clave_producto, clave_subproducto)
-        if not ok:
-            raise HTTPException(400, f"Producto SAT inválido: {msg}")
-        sat = get_producto(clave_producto)
+    ok, msg = validar_producto_completo(clave_producto, clave_subproducto)
+    if not ok:
+        raise HTTPException(400, f"Producto SAT inválido: {msg}")
+    sat = get_producto(clave_producto)
     row["clave_producto"] = clave_producto
     row["clave_subproducto"] = clave_subproducto
     row["clave_prodserv_cfdi"] = row.get("clave_prodserv_cfdi") or (sat.clave_prod_serv_cfdi if sat else "")
-    if not row["clave_prodserv_cfdi"]:
-        raise HTTPException(400, "BienesTransp SAT / c_ClaveProdServ requerido.")
-    row["unidad"] = (row.get("unidad") or "").upper()
-    if not row["unidad"]:
-        raise HTTPException(400, "Clave unidad SAT requerida.")
-    row["material_peligroso"] = bool(row.get("material_peligroso", False))
+    row["unidad"] = (row.get("unidad") or "LTR").upper()
+    row["material_peligroso"] = bool(row.get("material_peligroso", True))
     row["cve_material_peligroso"] = _clean_material_code(row.get("cve_material_peligroso") or (sat.cve_material_peligroso if sat else ""))
-    if row["material_peligroso"] and not row["cve_material_peligroso"]:
-        raise HTTPException(400, "Clave material peligroso requerida cuando la mercancía es peligrosa.")
-    row["embalaje"] = (row.get("embalaje") or "").upper()
+    row["embalaje"] = (row.get("embalaje") or "Z01").upper()
     if row["embalaje"] == "4H2":
         row["embalaje"] = "Z01"
     if _safe_float(row.get("densidad_kg_l")) <= 0:
-        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        row["densidad_kg_l"] = _safe_float(metadata.get("factor_conversion_kg"))
+        row["densidad_kg_l"] = 0.75
     return row
 
 
@@ -119,7 +46,9 @@ async def listar_catalogo_operativo(
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
-    cfg = _catalogo_operativo_config(catalogo)
+    cfg = _CATALOGOS_OPERATIVOS.get(catalogo)
+    if not cfg:
+        raise HTTPException(404, "Catálogo no encontrado.")
     uid, token = _auth(authorization)
     pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     q = _sb(token).table(cfg["table"]).select("*").eq("user_id", uid)
@@ -139,10 +68,12 @@ async def crear_catalogo_operativo(
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
-    cfg = _catalogo_operativo_config(catalogo)
+    cfg = _CATALOGOS_OPERATIVOS.get(catalogo)
+    if not cfg:
+        raise HTTPException(404, "Catálogo no encontrado.")
     uid, token = _auth(authorization)
     pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
-    row = _catalogo_producto_generico_payload(payload) if catalogo == "productos-operacion" else _clean_catalog_row(payload, cfg["fields"])
+    row = _clean_catalog_row(payload, cfg["fields"])
     row.update({"user_id": uid, "perfil_id": pid, "created_at": datetime.now(timezone.utc).isoformat()})
     if not row.get("nombre") and catalogo in {"origenes", "destinos", "centros-emisores"}:
         raise HTTPException(400, "Nombre requerido.")
@@ -170,10 +101,12 @@ async def actualizar_catalogo_operativo(
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
-    cfg = _catalogo_operativo_config(catalogo)
+    cfg = _CATALOGOS_OPERATIVOS.get(catalogo)
+    if not cfg:
+        raise HTTPException(404, "Catálogo no encontrado.")
     uid, token = _auth(authorization)
     pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
-    row = _catalogo_producto_generico_payload(payload) if catalogo == "productos-operacion" else _clean_catalog_row(payload, cfg["fields"])
+    row = _clean_catalog_row(payload, cfg["fields"])
     if catalogo == "productos-operacion":
         existing_q = _sb(token).table(cfg["table"]).select("*").eq("id", item_id).eq("user_id", uid)
         if pid:
@@ -198,7 +131,9 @@ async def eliminar_catalogo_operativo(
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
-    cfg = _catalogo_operativo_config(catalogo)
+    cfg = _CATALOGOS_OPERATIVOS.get(catalogo)
+    if not cfg:
+        raise HTTPException(404, "Catálogo no encontrado.")
     uid, token = _auth(authorization)
     pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     if "activo" in cfg["fields"]:
