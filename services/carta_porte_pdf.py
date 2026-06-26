@@ -103,22 +103,22 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     line = colors.HexColor("#DED7CE")
     ink = colors.HexColor("#1F2933")
     muted = colors.HexColor("#67717D")
-    styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=12.8, textColor=wine_dark, leading=14.2))
-    styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=16.8, leading=18.6, textColor=wine_dark))
-    styles.add(ParagraphStyle(name="DocMeta", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=6.75, leading=7.55, textColor=muted))
-    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=8.7, leading=9.5, textColor=wine_dark, spaceBefore=5, spaceAfter=2))
-    styles.add(ParagraphStyle(name="SummaryTitle", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.8, leading=11.0, textColor=wine_dark, alignment=TA_LEFT))
-    styles.add(ParagraphStyle(name="MetricValue", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=9.6, leading=10.6, textColor=ink))
-    styles.add(ParagraphStyle(name="MetricLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=5.45, leading=6.1, textColor=muted))
-    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.25, leading=7.05, textColor=ink))
+    styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=12.0, textColor=wine_dark, leading=13.2))
+    styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=16.2, leading=17.8, textColor=wine_dark))
+    styles.add(ParagraphStyle(name="DocMeta", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=6.2, leading=7.2, textColor=muted))
+    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.2, leading=10.2, textColor=wine_dark, spaceBefore=5, spaceAfter=2))
+    styles.add(ParagraphStyle(name="SummaryTitle", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.2, leading=10.2, textColor=wine_dark, alignment=TA_LEFT))
+    styles.add(ParagraphStyle(name="MetricValue", parent=styles["Normal"], fontName="Helvetica", fontSize=7.2, leading=8.2, textColor=ink))
+    styles.add(ParagraphStyle(name="MetricLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=6.0, leading=6.8, textColor=muted))
+    styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontName="Helvetica", fontSize=7.2, leading=8.2, textColor=ink))
     styles.add(ParagraphStyle(name="TinyBold", parent=styles["Tiny"], fontName="Helvetica-Bold"))
-    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["TinyBold"], textColor=colors.white, fontSize=6.2, leading=6.9))
-    styles.add(ParagraphStyle(name="Label", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=muted, fontSize=5.75, leading=6.35))
-    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=6.85, leading=7.65, textColor=ink))
+    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["TinyBold"], textColor=colors.white))
+    styles.add(ParagraphStyle(name="Label", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=muted, fontSize=6.0, leading=6.8))
+    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontName="Helvetica", fontSize=7.2, leading=8.2, textColor=ink))
     styles.add(ParagraphStyle(name="SmallBold", parent=styles["Small"], fontName="Helvetica-Bold"))
     styles.add(ParagraphStyle(name="CardHeader", parent=styles["SmallBold"], textColor=colors.white))
-    styles.add(ParagraphStyle(name="Money", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold"))
-    styles.add(ParagraphStyle(name="MoneyBig", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=11.5, leading=12.4, textColor=wine_dark))
+    styles.add(ParagraphStyle(name="Money", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica"))
+    styles.add(ParagraphStyle(name="MoneyBig", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold", textColor=wine_dark))
     styles.add(ParagraphStyle(name="Seal", parent=styles["Tiny"], fontSize=4.45, leading=4.95, textColor=colors.HexColor("#313942")))
     styles.add(ParagraphStyle(name="Footer", parent=styles["Tiny"], alignment=TA_CENTER, textColor=muted))
     styles.add(ParagraphStyle(name="Warn", parent=styles["Small"], fontName="Helvetica-Bold", textColor=wine_dark))
@@ -479,8 +479,8 @@ def _party_rfc_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream,
     def card(title, rows):
         row_map = {str(k): str(v or "") for k, v in rows}
         title_row = Paragraph(f"<b>{_text(title)}</b>", styles["CardHeader"])
-        rfc = Paragraph(f"<font size='13'><b>{_text(row_map.get('RFC', '—'))}</b></font>", styles["MetricValue"])
-        name = Paragraph(_text(row_map.get("Nombre", "—")), styles["Small"])
+        rfc = Paragraph(_text(row_map.get("RFC", "—")), styles["MetricValue"])
+        name = Paragraph(_text(row_map.get("Nombre", "—")), styles["Tiny"])
         details = []
         for key, value in rows:
             if key in {"Nombre", "RFC"}:
@@ -505,8 +505,8 @@ def _party_rfc_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream,
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 8),
             ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ]))
         return inner
 
@@ -619,7 +619,7 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
         ])
     if len(conceptos) > 35:
         data.append(["", "", "", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", "", ""])
-    table = Table(data, colWidths=[0.78 * inch(), 0.78 * inch(), 0.88 * inch(), 2.90 * inch(), 0.86 * inch(), 0.78 * inch(), 0.62 * inch()], repeatRows=1)
+    table = Table(data, colWidths=[0.72 * inch(), 0.74 * inch(), 0.82 * inch(), 2.78 * inch(), 0.88 * inch(), 0.76 * inch(), 0.90 * inch()], repeatRows=1)
     table.setStyle(_detail_table_style(colors, wine, line))
     table.setStyle(TableStyle([
         ("ALIGN", (0, 1), (0, -1), "RIGHT"),
@@ -691,7 +691,7 @@ def _ubicaciones_table(ubicaciones, Table, TableStyle, Paragraph, styles, colors
         ])
     if len(rows) == 1:
         rows.append(["—", "Sin ubicaciones en XML", "", "", "", "", ""])
-    return _simple_table(rows, [0.60, 0.88, 1.02, 1.44, 1.08, 0.46, 2.12], Table, TableStyle, Paragraph, styles, colors, wine, line)
+    return _simple_table(rows, [0.58, 0.84, 0.98, 1.36, 1.32, 0.42, 2.10], Table, TableStyle, Paragraph, styles, colors, wine, line)
 
 
 def _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
@@ -700,7 +700,7 @@ def _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, c
     def location_card(label, node):
         data = [
             [Paragraph(f"<b>{label}</b>", styles["SmallBold"]), Paragraph(_text(_attr(node, "IDUbicacion", "—")), styles["Tiny"])],
-            [Paragraph("NOMBRE", styles["MetricLabel"]), Paragraph(_text(_attr(node, "NombreRemitenteDestinatario", "—")), styles["SmallBold"])],
+            [Paragraph("NOMBRE", styles["MetricLabel"]), Paragraph(_text(_attr(node, "NombreRemitenteDestinatario", "—")), styles["Tiny"])],
             [Paragraph("RFC", styles["MetricLabel"]), Paragraph(_text(_attr(node, "RFCRemitenteDestinatario", "—")), styles["Tiny"])],
             [Paragraph("FECHA/HORA", styles["MetricLabel"]), Paragraph(_text(_attr(node, "FechaHoraSalidaLlegada", "—")), styles["Tiny"])],
             [Paragraph("DIRECCIÓN", styles["MetricLabel"]), Paragraph(_text(_domicilio_ubicacion(node)), styles["Tiny"])],
@@ -769,7 +769,8 @@ def _compact_card(title, rows, width, Table, TableStyle, Paragraph, styles, colo
     data += [[Paragraph(_text(k), styles["Label"]), Paragraph(_text(v), styles["Tiny"])] for k, v in _compact_rows(rows)]
     if len(data) == 1:
         data.append([Paragraph("SIN DATOS", styles["Label"]), Paragraph("—", styles["Tiny"])])
-    table = Table(data, colWidths=[0.92 * inch(), (width - 0.92) * inch()])
+    label_width = min(1.06, max(0.92, width * 0.40))
+    table = Table(data, colWidths=[label_width * inch(), (width - label_width) * inch()])
     table.setStyle(TableStyle([
         ("SPAN", (0, 0), (-1, 0)),
         ("BACKGROUND", (0, 0), (-1, 0), cream),
@@ -777,10 +778,10 @@ def _compact_card(title, rows, width, Table, TableStyle, Paragraph, styles, colo
         ("BOX", (0, 0), (-1, -1), 0.35, line),
         ("GRID", (0, 1), (-1, -1), 0.16, line),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4.2),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4.2),
-        ("TOPPADDING", (0, 0), (-1, -1), 2.4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
     return table
 
@@ -809,7 +810,7 @@ def _operations_grid(autotransporte, ident, remolques, seguros, figuras, Table, 
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
@@ -831,7 +832,7 @@ def _figuras_table(figuras, Table, TableStyle, Paragraph, styles, colors, wine, 
         rows.append([_attr(f, "TipoFigura"), _attr(f, "RFCFigura"), _attr(f, "NombreFigura"), _attr(f, "NumLicencia")])
     if len(rows) == 1:
         rows.append(["—", "Sin figuras de transporte en XML", "", ""])
-    return _simple_table(rows, [0.86, 1.28, 3.72, 1.34], Table, TableStyle, Paragraph, styles, colors, wine, line, no_wrap_cols={0, 1, 3})
+    return _simple_table(rows, [0.82, 1.26, 3.82, 1.30], Table, TableStyle, Paragraph, styles, colors, wine, line, no_wrap_cols={0, 1, 3})
 
 
 def _operator_card(figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
@@ -850,7 +851,6 @@ def _operator_card(figuras, Table, TableStyle, Paragraph, styles, colors, cream,
 
 
 def _simple_table(rows: list[list[object]], widths: list[float], Table, TableStyle, Paragraph, styles, colors, wine, line, no_wrap_cols: set[int] | None = None):
-    no_wrap_cols = no_wrap_cols or set()
     data = []
     for row_idx, row in enumerate(rows):
         style_name = "HeaderTiny" if row_idx == 0 else "Tiny"
@@ -859,8 +859,6 @@ def _simple_table(rows: list[list[object]], widths: list[float], Table, TableSty
             text = _text(cell)
             if row_idx == 0:
                 rendered.append(Paragraph(f"<b>{text}</b>", styles[style_name]))
-            elif col_idx in no_wrap_cols:
-                rendered.append(str(cell or "—"))
             else:
                 rendered.append(Paragraph(text, styles[style_name]))
         data.append(rendered)
