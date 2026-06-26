@@ -3,48 +3,74 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="GE Control centraliza operación, documentos y cumplimiento fiscal para empresas de Gas LP y Transporte.">
-  <title>GE Control | Control operativo y fiscal</title>
+  <meta name="description" content="GE Control centraliza transporte, CFDI, inventarios, evidencias, reportes y cumplimiento en una plataforma SaaS para empresas que necesitan control operativo y trazabilidad.">
+  <meta name="theme-color" content="#5B0F1D">
+  <meta property="og:title" content="GE Control | Toda tu operacion. Un solo lugar.">
+  <meta property="og:description" content="Control operativo, trazabilidad, CFDI, evidencias, inventarios y cumplimiento conectados para empresas.">
+  <meta property="og:type" content="website">
+  <title>GE Control | Toda tu operacion en un solo lugar</title>
   <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
+  <link rel="preload" href="/static/img/ge-control-logo.svg" as="image">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <style>
     :root {
-      --lp-ink: #171214;
-      --lp-muted: #6e6661;
-      --lp-soft: #f7f3ed;
-      --lp-paper: #fffdf9;
-      --lp-line: rgba(51, 36, 31, .13);
-      --lp-wine: #74182a;
-      --lp-wine-dark: #3b0a14;
-      --lp-rose: #f3e8e8;
-      --lp-gold: #c7a866;
-      --lp-green: #486c5a;
+      --lp-ink: var(--ge-black, #111111);
+      --lp-graphite: var(--ge-graphite, #2B2B2B);
+      --lp-muted: var(--ge-muted, #6F6A64);
+      --lp-bg: var(--ge-bg, #F5F5F5);
+      --lp-surface: var(--ge-surface, #FFFFFF);
+      --lp-line: var(--ge-line, #E7E3DC);
+      --lp-wine: var(--ge-tinto, #7A1E2C);
+      --lp-wine-dark: var(--ge-tinto-dark, #5B0F1D);
+      --lp-gold: var(--ge-gold, #C8A96B);
+      --lp-radius: var(--ge-radius, 10px);
+      --lp-shadow: var(--ge-shadow, 0 12px 34px rgba(17, 17, 17, .07));
+      --lp-soft: #F8F6F3;
+      --lp-success: #486C5A;
+      --lp-warning: #8A6424;
+      --lp-blue: #314C63;
+      --lp-shell: min(1180px, calc(100% - 44px));
     }
+
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
     body.lp-page {
       margin: 0;
-      min-height: 100vh;
       overflow-x: hidden;
-      background: var(--lp-paper) !important;
+      background: var(--lp-bg) !important;
       color: var(--lp-ink) !important;
       font-family: var(--ge-font, Inter, system-ui, sans-serif) !important;
+      text-rendering: optimizeLegibility;
     }
     .lp-page a { color: inherit; }
     .lp-shell {
-      width: min(1180px, calc(100% - 44px));
+      width: var(--lp-shell);
       margin: 0 auto;
     }
+    .lp-skip {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 100;
+      transform: translateY(-150%);
+      padding: 10px 12px;
+      border-radius: 8px;
+      color: #fff !important;
+      background: var(--lp-wine);
+      text-decoration: none;
+      font-weight: 900;
+    }
+    .lp-skip:focus { transform: translateY(0); }
     .lp-nav {
       position: sticky;
       top: 0;
-      z-index: 20;
+      z-index: 30;
       display: block !important;
       min-height: 0 !important;
       padding: 0 !important;
       overflow: visible !important;
-      background: rgba(255,253,249,.88) !important;
+      background: rgba(255,255,255,.92) !important;
       color: var(--lp-ink) !important;
       border-bottom: 1px solid var(--lp-line) !important;
       box-shadow: none !important;
@@ -63,117 +89,153 @@
       text-decoration: none;
     }
     .lp-brand img {
-      display: block;
       width: 184px;
       height: auto;
+      display: block;
     }
     .lp-links {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 4px;
     }
     .lp-link {
-      padding: 10px 9px;
+      min-height: 42px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 10px;
       color: #504844 !important;
       font-size: .86rem;
-      font-weight: 800;
+      font-weight: 850;
       text-decoration: none;
+      border-radius: 8px;
     }
-    .lp-link:hover { color: var(--lp-wine) !important; }
-    .lp-login,
+    .lp-link:hover,
+    .lp-link:focus-visible {
+      color: var(--lp-wine) !important;
+      background: #F7F3ED;
+      outline: 0;
+    }
     .lp-button {
+      min-height: 44px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 44px;
-      border-radius: 8px;
-      text-decoration: none;
-      font-size: .9rem;
-      font-weight: 900;
-      transition: transform .18s ease, background .18s ease, border-color .18s ease, color .18s ease;
-    }
-    .lp-login {
-      padding: 0 17px;
-      color: var(--lp-wine) !important;
-      border: 1px solid rgba(116,24,42,.2);
-      background: #fff;
-    }
-    .lp-login:hover {
-      transform: translateY(-1px);
-      border-color: rgba(116,24,42,.38);
-      background: #fff7f7;
-    }
-    .lp-button {
-      padding: 0 20px;
-      color: #fff !important;
+      gap: 9px;
+      padding: 0 18px;
       border: 1px solid var(--lp-wine);
+      border-radius: 8px;
       background: var(--lp-wine);
-      box-shadow: 0 14px 28px rgba(116,24,42,.18);
+      color: #fff !important;
+      box-shadow: 0 14px 28px rgba(122,30,44,.18);
+      font-size: .9rem;
+      font-weight: 950;
+      line-height: 1;
+      text-decoration: none;
+      transition: transform .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease;
+      white-space: nowrap;
     }
     .lp-button:hover {
       transform: translateY(-2px);
       background: var(--lp-wine-dark);
       border-color: var(--lp-wine-dark);
+      box-shadow: 0 18px 34px rgba(91,15,29,.22);
     }
-    .lp-button.lp-light {
-      color: var(--lp-ink) !important;
-      border-color: var(--lp-line);
-      background: rgba(255,255,255,.7);
-      box-shadow: none;
+    .lp-button:focus-visible,
+    .lp-icon-link:focus-visible,
+    .lp-faq summary:focus-visible {
+      outline: 2px solid var(--lp-gold);
+      outline-offset: 3px;
     }
-    .lp-button.lp-light:hover {
+    .lp-button.secondary {
       color: var(--lp-wine) !important;
       background: #fff;
-      border-color: rgba(116,24,42,.24);
+      border-color: rgba(122,30,44,.24);
+      box-shadow: none;
     }
+    .lp-button.secondary:hover {
+      background: #FFF8F0;
+      border-color: rgba(122,30,44,.42);
+    }
+    .lp-button.ghost {
+      color: var(--lp-ink) !important;
+      background: transparent;
+      border-color: var(--lp-line);
+      box-shadow: none;
+    }
+    .lp-button.gold {
+      color: #251214 !important;
+      background: var(--lp-gold);
+      border-color: var(--lp-gold);
+      box-shadow: none;
+    }
+    .lp-main { background: #fff; }
+    .lp-section {
+      padding: 92px 0;
+      background: #fff;
+    }
+    .lp-section.soft { background: var(--lp-soft); }
+    .lp-section.dark {
+      color: #fff;
+      background: #211719;
+    }
+    .lp-section-head {
+      display: grid;
+      grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr);
+      gap: 56px;
+      align-items: end;
+      margin-bottom: 34px;
+    }
+    .lp-overline,
+    .lp-eyebrow {
+      margin: 0 0 14px;
+      color: var(--lp-wine);
+      font-size: .72rem;
+      font-weight: 950;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .lp-section.dark .lp-overline { color: var(--lp-gold); }
+    .lp-heading {
+      max-width: 680px;
+      margin: 0;
+      color: #211719;
+      font-size: clamp(2rem, 4vw, 3.7rem);
+      font-weight: 880;
+      letter-spacing: 0;
+      line-height: 1.02;
+    }
+    .lp-section.dark .lp-heading { color: #fff; }
+    .lp-copy {
+      max-width: 650px;
+      margin: 0;
+      color: var(--lp-muted);
+      font-size: 1.02rem;
+      line-height: 1.72;
+    }
+    .lp-section.dark .lp-copy { color: rgba(255,255,255,.68); }
+
     .lp-hero {
       position: relative;
-      min-height: calc(100vh - 76px);
-      display: grid;
-      align-items: center;
-      padding: 48px 0 40px;
+      padding: 62px 0 76px;
       background:
-        linear-gradient(90deg, rgba(255,253,249,.96) 0%, rgba(255,253,249,.9) 58%, rgba(245,239,232,.78) 100%),
-        linear-gradient(135deg, #fffdf9, #f3eee6);
-    }
-    .lp-hero::after {
-      content: "";
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      height: 1px;
-      background: var(--lp-line);
+        linear-gradient(90deg, rgba(255,255,255,.98) 0%, rgba(255,255,255,.94) 48%, rgba(248,246,243,.96) 100%),
+        linear-gradient(180deg, #fff 0%, #F8F6F3 100%);
+      border-bottom: 1px solid var(--lp-line);
+      overflow: hidden;
     }
     .lp-hero-grid {
       display: grid;
-      grid-template-columns: minmax(0, .95fr) minmax(420px, 1.05fr);
-      gap: 64px;
+      grid-template-columns: minmax(0, .84fr) minmax(520px, 1.16fr);
+      gap: 54px;
       align-items: center;
     }
-    .lp-eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      margin: 0 0 22px;
-      color: var(--lp-wine);
-      font-size: .76rem;
-      font-weight: 950;
-      letter-spacing: .12em;
-      text-transform: uppercase;
-    }
-    .lp-eyebrow::before {
-      content: "";
-      width: 26px;
-      height: 2px;
-      background: var(--lp-gold);
-    }
+    .lp-hero-copy { min-width: 0; }
     .lp-title {
       max-width: 760px;
       margin: 0;
       color: var(--lp-ink);
-      font-size: clamp(3.35rem, 6.7vw, 6rem);
-      font-weight: 880;
+      font-size: clamp(3.2rem, 6.4vw, 6.1rem);
+      font-weight: 890;
       letter-spacing: 0;
       line-height: .94;
     }
@@ -182,10 +244,10 @@
       color: var(--lp-wine);
     }
     .lp-lead {
-      max-width: 620px;
-      margin: 28px 0 0;
+      max-width: 650px;
+      margin: 26px 0 0;
       color: var(--lp-muted);
-      font-size: clamp(1.04rem, 1.6vw, 1.22rem);
+      font-size: clamp(1.04rem, 1.5vw, 1.22rem);
       line-height: 1.68;
     }
     .lp-actions {
@@ -195,108 +257,136 @@
       margin-top: 32px;
     }
     .lp-proof {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px 18px;
-      margin-top: 30px;
-      color: #5f5652;
-      font-size: .84rem;
-      font-weight: 800;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 34px;
+      max-width: 640px;
     }
-    .lp-proof span {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
+    .lp-proof-item {
+      min-height: 82px;
+      padding: 14px;
+      border: 1px solid var(--lp-line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.74);
     }
-    .lp-proof span::before {
-      content: "";
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--lp-gold);
+    .lp-proof-item strong {
+      display: block;
+      color: #211719;
+      font-size: .94rem;
     }
-    .lp-product {
+    .lp-proof-item span {
+      display: block;
+      margin-top: 5px;
+      color: var(--lp-muted);
+      font-size: .78rem;
+      line-height: 1.45;
+    }
+
+    .lp-dashboard {
       position: relative;
-      border: 1px solid rgba(59,10,20,.14);
+      border: 1px solid rgba(91,15,29,.16);
       border-radius: 8px;
       background: #fff;
-      box-shadow: 0 30px 80px rgba(37,22,19,.13);
+      box-shadow: 0 30px 80px rgba(37,22,19,.14);
       overflow: hidden;
+      transform: translateZ(0);
     }
-    .lp-product-top {
-      height: 58px;
+    .lp-dashboard.hero-mockup {
+      width: min(790px, 100%);
+      margin-left: auto;
+    }
+    .lp-dash-top {
+      min-height: 58px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 16px;
       padding: 0 18px;
       color: #fff;
       background: var(--lp-wine-dark);
     }
-    .lp-product-brand {
+    .lp-dash-brand {
       display: inline-flex;
       align-items: center;
       gap: 10px;
       font-size: .78rem;
-      font-weight: 900;
+      font-weight: 950;
       letter-spacing: .06em;
       text-transform: uppercase;
     }
-    .lp-product-brand img {
+    .lp-dash-brand img {
       width: 28px;
       height: 28px;
       object-fit: contain;
     }
-    .lp-status {
+    .lp-dash-status {
       display: inline-flex;
       align-items: center;
       gap: 7px;
       color: #d9eadf;
       font-size: .72rem;
       font-weight: 850;
+      white-space: nowrap;
     }
-    .lp-status::before {
+    .lp-dash-status::before {
       content: "";
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: #7db08d;
+      background: #7DB08D;
     }
-    .lp-product-body {
+    .lp-dash-body {
       display: grid;
       grid-template-columns: 168px 1fr;
-      min-height: 420px;
+      min-height: 540px;
     }
     .lp-side {
-      padding: 22px 14px;
+      padding: 18px 12px;
       border-right: 1px solid var(--lp-line);
-      background: #f6f1e9;
+      background: #F6F1E9;
+    }
+    .lp-side-label {
+      margin: 0 10px 12px;
+      color: #81766F;
+      font-size: .65rem;
+      font-weight: 950;
+      letter-spacing: .09em;
+      text-transform: uppercase;
     }
     .lp-side-item {
+      min-height: 38px;
       display: flex;
       align-items: center;
       gap: 9px;
-      min-height: 38px;
-      padding: 0 11px;
+      padding: 0 10px;
       border-radius: 7px;
-      color: #675d58;
+      color: #675D58;
       font-size: .78rem;
       font-weight: 850;
     }
-    .lp-side-item + .lp-side-item { margin-top: 6px; }
+    .lp-side-item + .lp-side-item { margin-top: 5px; }
     .lp-side-item.active {
       color: var(--lp-wine);
       background: #fff;
       box-shadow: 0 8px 18px rgba(39,25,20,.06);
     }
-    .lp-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--lp-gold);
+    .lp-mini-icon {
+      width: 20px;
+      height: 20px;
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 1px solid rgba(122,30,44,.12);
+      border-radius: 6px;
+      color: var(--lp-wine);
+      background: #fff;
+      font-size: .58rem;
+      font-weight: 950;
     }
     .lp-workspace {
-      padding: 24px;
-      background: #fffdf9;
+      padding: 22px;
+      background: #FFFDF9;
     }
     .lp-work-head {
       display: flex;
@@ -308,30 +398,35 @@
     }
     .lp-work-head p {
       margin: 0 0 7px;
-      color: #81766f;
-      font-size: .74rem;
-      font-weight: 850;
+      color: #81766F;
+      font-size: .72rem;
+      font-weight: 900;
       letter-spacing: .08em;
       text-transform: uppercase;
     }
     .lp-work-head strong {
       display: block;
       color: #221719;
-      font-size: 1.2rem;
+      font-size: 1.24rem;
+      line-height: 1.2;
     }
     .lp-chip {
       flex: 0 0 auto;
-      padding: 8px 10px;
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 0 10px;
       border: 1px solid rgba(72,108,90,.22);
       border-radius: 999px;
-      color: var(--lp-green);
-      background: #f3f8f4;
+      color: var(--lp-success);
+      background: #F3F8F4;
       font-size: .72rem;
       font-weight: 900;
+      white-space: nowrap;
     }
     .lp-metrics {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 12px;
       margin: 16px 0;
     }
@@ -344,26 +439,34 @@
     }
     .lp-metric span {
       display: block;
-      color: #857a73;
-      font-size: .68rem;
-      font-weight: 900;
+      color: #857A73;
+      font-size: .66rem;
+      font-weight: 950;
       letter-spacing: .08em;
       text-transform: uppercase;
     }
     .lp-metric strong {
       display: block;
-      margin-top: 18px;
-      color: #24191b;
-      font-size: 1.35rem;
+      margin-top: 16px;
+      color: #24191B;
+      font-size: 1.4rem;
+      line-height: 1;
     }
     .lp-metric small {
       display: block;
-      margin-top: 4px;
-      color: var(--lp-green);
+      margin-top: 7px;
+      color: var(--lp-success);
       font-size: .72rem;
-      font-weight: 800;
+      font-weight: 850;
+      line-height: 1.3;
     }
-    .lp-flow-card {
+    .lp-dash-grid {
+      display: grid;
+      grid-template-columns: 1.08fr .92fr;
+      gap: 12px;
+    }
+    .lp-flow-card,
+    .lp-panel {
       border: 1px solid var(--lp-line);
       border-radius: 8px;
       background: #fff;
@@ -372,188 +475,665 @@
     .lp-row {
       display: grid;
       grid-template-columns: 1fr auto;
-      gap: 18px;
+      gap: 16px;
       align-items: center;
       min-height: 70px;
-      padding: 0 16px;
+      padding: 0 15px;
       border-bottom: 1px solid var(--lp-line);
     }
     .lp-row:last-child { border-bottom: 0; }
     .lp-row strong {
       display: block;
-      color: #24191b;
-      font-size: .92rem;
+      color: #24191B;
+      font-size: .9rem;
+      line-height: 1.25;
     }
     .lp-row span {
       display: block;
       margin-top: 4px;
-      color: #7b716b;
-      font-size: .78rem;
+      color: #7B716B;
+      font-size: .76rem;
+      line-height: 1.35;
     }
     .lp-row-badge {
+      min-width: 76px;
       color: #fff;
       background: var(--lp-wine);
       border-radius: 999px;
-      padding: 7px 10px;
-      font-size: .68rem;
-      font-weight: 900;
+      padding: 7px 9px;
+      text-align: center;
+      font-size: .66rem;
+      font-weight: 950;
       white-space: nowrap;
     }
-    .lp-section {
-      padding: 86px 0;
-      background: #fffdf9;
+    .lp-panel { padding: 15px; }
+    .lp-panel h3 {
+      margin: 0 0 14px;
+      color: #24191B;
+      font-size: .92rem;
     }
-    .lp-section.alt { background: var(--lp-soft); }
-    .lp-section-head {
+    .lp-bars {
       display: grid;
-      grid-template-columns: .9fr 1.1fr;
-      gap: 58px;
+      grid-template-columns: repeat(6, 1fr);
       align-items: end;
-      margin-bottom: 34px;
+      gap: 7px;
+      height: 150px;
+      padding-top: 12px;
     }
-    .lp-overline {
-      margin: 0 0 12px;
-      color: var(--lp-wine);
+    .lp-bar {
+      min-height: 22px;
+      border-radius: 6px 6px 0 0;
+      background: linear-gradient(180deg, var(--lp-gold), #DCCB9D);
+    }
+    .lp-bar:nth-child(2) { height: 58%; }
+    .lp-bar:nth-child(3) { height: 74%; background: linear-gradient(180deg, var(--lp-wine), #A04454); }
+    .lp-bar:nth-child(4) { height: 44%; }
+    .lp-bar:nth-child(5) { height: 86%; background: linear-gradient(180deg, var(--lp-success), #7DA58B); }
+    .lp-bar:nth-child(6) { height: 65%; }
+    .lp-hotspot {
+      position: absolute;
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 9px;
+      align-items: start;
+      max-width: 230px;
+      padding: 10px;
+      border: 1px solid rgba(122,30,44,.16);
+      border-radius: 8px;
+      background: rgba(255,255,255,.96);
+      box-shadow: 0 16px 36px rgba(17,17,17,.11);
+    }
+    .lp-hotspot.one { right: 26px; top: 96px; }
+    .lp-hotspot.two { left: 186px; bottom: 28px; }
+    .lp-hotspot-dot {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      color: #fff;
+      background: var(--lp-wine);
       font-size: .72rem;
       font-weight: 950;
-      letter-spacing: .13em;
-      text-transform: uppercase;
     }
-    .lp-heading {
-      margin: 0;
-      max-width: 650px;
+    .lp-hotspot strong {
+      display: block;
       color: #211719;
-      font-size: clamp(2rem, 4vw, 3.7rem);
-      font-weight: 860;
-      letter-spacing: 0;
-      line-height: 1.02;
+      font-size: .78rem;
+      line-height: 1.25;
     }
-    .lp-copy {
-      max-width: 610px;
+    .lp-hotspot span {
+      display: block;
+      margin-top: 3px;
+      color: var(--lp-muted);
+      font-size: .72rem;
+      line-height: 1.35;
+    }
+
+    .lp-logo-strip {
+      padding: 30px 0;
+      background: #fff;
+      border-bottom: 1px solid var(--lp-line);
+    }
+    .lp-logo-inner {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 28px;
+      align-items: center;
+    }
+    .lp-logo-inner p {
       margin: 0;
       color: var(--lp-muted);
-      font-size: 1.02rem;
-      line-height: 1.72;
+      font-size: .86rem;
+      font-weight: 850;
+      line-height: 1.45;
     }
-    .lp-modules {
+    .lp-logos {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 18px;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
     }
-    .lp-module {
-      min-height: 330px;
-      padding: 30px;
+    .lp-logo-placeholder {
+      min-height: 54px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--lp-line);
+      border-radius: 8px;
+      color: #8A807A;
+      background: #FBFAF8;
+      font-size: .74rem;
+      font-weight: 950;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .lp-problem-grid {
+      display: grid;
+      grid-template-columns: minmax(0, .86fr) minmax(0, 1.14fr);
+      gap: 34px;
+      align-items: stretch;
+    }
+    .lp-pain-list {
+      display: grid;
+      gap: 10px;
+    }
+    .lp-pain {
+      min-height: 62px;
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
       border: 1px solid var(--lp-line);
       border-radius: 8px;
       background: #fff;
-      box-shadow: 0 18px 42px rgba(37,22,19,.06);
     }
-    .lp-module.dark {
-      color: #fff;
-      border-color: rgba(255,255,255,.1);
-      background: linear-gradient(145deg, #3b0a14, #74182a);
-    }
-    .lp-module-num {
-      color: #9a8f88;
-      font-size: .76rem;
+    .lp-x {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: var(--lp-wine);
+      background: #F5E9EA;
       font-weight: 950;
-      letter-spacing: .12em;
     }
-    .lp-module.dark .lp-module-num { color: #e4cf9e; }
-    .lp-module h3 {
-      margin: 52px 0 12px;
-      font-size: clamp(2rem, 4vw, 3.2rem);
+    .lp-pain strong {
+      display: block;
+      color: #211719;
+      font-size: .98rem;
+    }
+    .lp-pain span {
+      display: block;
+      margin-top: 3px;
+      color: var(--lp-muted);
+      font-size: .82rem;
+      line-height: 1.4;
+    }
+    .lp-connected {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      padding: 24px;
+      border: 1px solid rgba(91,15,29,.16);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: var(--lp-shadow);
+    }
+    .lp-connected h3 {
+      grid-column: 1 / -1;
+      margin: 0 0 4px;
+      color: #211719;
+      font-size: clamp(1.8rem, 3vw, 3rem);
+      line-height: 1.04;
+      letter-spacing: 0;
+    }
+    .lp-connected p {
+      grid-column: 1 / -1;
+      margin: 0 0 12px;
+      color: var(--lp-muted);
+      line-height: 1.65;
+    }
+    .lp-node {
+      min-height: 118px;
+      padding: 16px;
+      border: 1px solid var(--lp-line);
+      border-radius: 8px;
+      background: #FFFDF9;
+    }
+    .lp-node span {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 9px;
+      border-radius: 999px;
+      color: var(--lp-wine);
+      background: #F5E9EA;
+      font-size: .68rem;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+    .lp-node strong {
+      display: block;
+      margin-top: 18px;
+      color: #211719;
+      font-size: 1.02rem;
+      line-height: 1.3;
+    }
+
+    .lp-card-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .lp-value-card,
+    .lp-module-card,
+    .lp-use-card,
+    .lp-faq {
+      border: 1px solid var(--lp-line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 16px 36px rgba(17,17,17,.045);
+    }
+    .lp-value-card {
+      min-height: 238px;
+      padding: 24px;
+      transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+    }
+    .lp-value-card:hover,
+    .lp-module-card:hover,
+    .lp-use-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(200,169,107,.72);
+      box-shadow: 0 22px 48px rgba(17,17,17,.08);
+    }
+    .lp-card-icon {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: var(--lp-wine);
+      background: #F5F1E8;
+      border: 1px solid #E3D4B4;
+      font-size: .72rem;
+      font-weight: 950;
+    }
+    .lp-value-card h3,
+    .lp-module-card h3,
+    .lp-use-card h3 {
+      margin: 24px 0 10px;
+      color: #211719;
+      font-size: 1.24rem;
+      letter-spacing: 0;
+      line-height: 1.18;
+    }
+    .lp-value-card p,
+    .lp-module-card p,
+    .lp-use-card p {
+      margin: 0;
+      color: var(--lp-muted);
+      font-size: .95rem;
+      line-height: 1.62;
+    }
+
+    .lp-steps {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      counter-reset: step;
+    }
+    .lp-step {
+      position: relative;
+      min-height: 330px;
+      padding: 24px;
+      border: 1px solid var(--lp-line);
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+      counter-increment: step;
+    }
+    .lp-step::before {
+      content: "0" counter(step);
+      position: absolute;
+      right: 18px;
+      top: 14px;
+      color: rgba(122,30,44,.13);
+      font-size: 4.2rem;
+      font-weight: 900;
+      line-height: 1;
+    }
+    .lp-step-visual {
+      position: relative;
+      height: 150px;
+      border: 1px solid var(--lp-line);
+      border-radius: 8px;
+      background: #FBFAF8;
+      overflow: hidden;
+    }
+    .lp-step-line {
+      position: absolute;
+      left: 20px;
+      right: 20px;
+      top: 50%;
+      height: 2px;
+      background: #E3D4B4;
+    }
+    .lp-step-dot {
+      position: absolute;
+      top: calc(50% - 13px);
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      background: var(--lp-wine);
+      border: 5px solid #F5E9EA;
+    }
+    .lp-step-dot:nth-child(2) { left: 28px; }
+    .lp-step-dot:nth-child(3) { left: calc(50% - 13px); background: var(--lp-gold); }
+    .lp-step-dot:nth-child(4) { right: 28px; background: var(--lp-success); }
+    .lp-mini-table {
+      display: grid;
+      gap: 8px;
+      padding: 18px;
+    }
+    .lp-mini-table span {
+      height: 18px;
+      border-radius: 999px;
+      background: #EDE6DB;
+    }
+    .lp-mini-table span:nth-child(2) { width: 72%; background: #F1DCCF; }
+    .lp-mini-table span:nth-child(3) { width: 84%; background: #DDE8DF; }
+    .lp-step h3 {
+      position: relative;
+      margin: 24px 0 10px;
+      color: #211719;
+      font-size: 1.26rem;
+      line-height: 1.2;
+    }
+    .lp-step p {
+      position: relative;
+      margin: 0;
+      color: var(--lp-muted);
+      line-height: 1.62;
+    }
+
+    .lp-modules-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .lp-module-card {
+      min-height: 244px;
+      padding: 20px;
+      transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+    }
+    .lp-module-card h3 { margin-top: 20px; font-size: 1.05rem; }
+    .lp-module-card p { font-size: .88rem; }
+    .lp-icon-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 18px;
+      color: var(--lp-wine) !important;
+      font-size: .84rem;
+      font-weight: 950;
+      text-decoration: none;
+    }
+
+    .lp-dashboard-section .lp-dashboard {
+      width: 100%;
+      box-shadow: 0 26px 70px rgba(17,17,17,.16);
+    }
+    .lp-dashboard-section .lp-dash-body {
+      min-height: 620px;
+      grid-template-columns: 190px 1fr;
+    }
+    .lp-dashboard-section .lp-workspace { padding: 26px; }
+    .lp-dashboard-section .lp-hotspot.one { right: 34px; top: 118px; }
+    .lp-dashboard-section .lp-hotspot.two { left: 222px; bottom: 38px; }
+
+    .lp-kpis {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .lp-kpi {
+      min-height: 168px;
+      padding: 22px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 8px;
+      background: rgba(255,255,255,.06);
+    }
+    .lp-kpi strong {
+      display: block;
+      color: #fff;
+      font-size: clamp(2rem, 3vw, 3rem);
       line-height: 1;
       letter-spacing: 0;
     }
-    .lp-module p {
-      max-width: 470px;
-      margin: 0;
-      color: #716862;
-      line-height: 1.64;
-    }
-    .lp-module.dark p { color: rgba(255,255,255,.72); }
-    .lp-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 28px;
-    }
-    .lp-tag {
-      padding: 8px 10px;
-      border: 1px solid var(--lp-line);
-      border-radius: 999px;
-      color: #635954;
-      background: #fffaf4;
-      font-size: .7rem;
-      font-weight: 900;
-    }
-    .lp-module.dark .lp-tag {
-      color: rgba(255,255,255,.78);
-      border-color: rgba(255,255,255,.16);
-      background: rgba(255,255,255,.08);
-    }
-    .lp-benefits {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      border-top: 1px solid var(--lp-line);
-      border-bottom: 1px solid var(--lp-line);
-    }
-    .lp-benefit {
-      min-height: 170px;
-      padding: 28px 24px;
-      border-right: 1px solid var(--lp-line);
-    }
-    .lp-benefit:last-child { border-right: 0; }
-    .lp-benefit span {
-      color: var(--lp-wine);
-      font-size: .7rem;
-      font-weight: 950;
-      letter-spacing: .1em;
-    }
-    .lp-benefit strong {
+    .lp-kpi span {
       display: block;
-      margin-top: 20px;
-      color: #211719;
-      font-size: 1.02rem;
+      margin-top: 14px;
+      color: var(--lp-gold);
+      font-size: .76rem;
+      font-weight: 950;
+      letter-spacing: .08em;
+      text-transform: uppercase;
     }
-    .lp-benefit p {
+    .lp-kpi p {
       margin: 8px 0 0;
-      color: var(--lp-muted);
-      font-size: .9rem;
-      line-height: 1.55;
+      color: rgba(255,255,255,.66);
+      font-size: .88rem;
+      line-height: 1.5;
     }
+
+    .lp-use-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .lp-use-card {
+      min-height: 258px;
+      padding: 20px;
+      transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+    }
+    .lp-use-card h3 { margin-top: 22px; font-size: 1.06rem; }
+    .lp-use-card p { font-size: .88rem; }
+    .lp-use-card ul {
+      display: grid;
+      gap: 8px;
+      margin: 16px 0 0;
+      padding: 0;
+      list-style: none;
+      color: var(--lp-muted);
+      font-size: .82rem;
+      line-height: 1.35;
+    }
+    .lp-use-card li {
+      display: grid;
+      grid-template-columns: 7px 1fr;
+      gap: 8px;
+      align-items: start;
+    }
+    .lp-use-card li::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      margin-top: 5px;
+      border-radius: 999px;
+      background: var(--lp-gold);
+    }
+
+    .lp-integrations {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .lp-integration {
+      min-height: 116px;
+      display: grid;
+      place-items: center;
+      padding: 16px;
+      border: 1px solid var(--lp-line);
+      border-radius: 8px;
+      background: #fff;
+      text-align: center;
+    }
+    .lp-integration strong {
+      display: block;
+      color: #211719;
+      font-size: .98rem;
+      line-height: 1.2;
+    }
+    .lp-integration span {
+      display: block;
+      margin-top: 6px;
+      color: var(--lp-muted);
+      font-size: .72rem;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+    }
+
+    .lp-faq-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .lp-faq {
+      box-shadow: none;
+      overflow: hidden;
+    }
+    .lp-faq summary {
+      min-height: 66px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px;
+      color: #211719;
+      cursor: pointer;
+      font-weight: 950;
+      list-style: none;
+    }
+    .lp-faq summary::-webkit-details-marker { display: none; }
+    .lp-faq summary::after {
+      content: "+";
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      color: var(--lp-wine);
+      background: #F5E9EA;
+      font-weight: 950;
+    }
+    .lp-faq[open] summary::after { content: "-"; }
+    .lp-faq p {
+      margin: 0;
+      padding: 0 18px 18px;
+      color: var(--lp-muted);
+      line-height: 1.62;
+    }
+
     .lp-final {
-      padding: 74px 0;
+      padding: 84px 0;
       color: #fff;
       background: #221719;
     }
     .lp-final-inner {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: minmax(0, .86fr) minmax(360px, .64fr);
       gap: 34px;
+      align-items: start;
     }
     .lp-final h2 {
-      max-width: 650px;
+      max-width: 760px;
       margin: 0;
-      font-size: clamp(2rem, 4vw, 3.8rem);
+      font-size: clamp(2.2rem, 4vw, 4.2rem);
       line-height: 1;
       letter-spacing: 0;
     }
     .lp-final p {
-      max-width: 520px;
-      margin: 16px 0 0;
+      max-width: 610px;
+      margin: 18px 0 0;
       color: rgba(255,255,255,.66);
       line-height: 1.65;
     }
-    .lp-final .lp-button {
-      flex: 0 0 auto;
-      background: #d6bd82;
-      border-color: #d6bd82;
-      color: #251214 !important;
-      box-shadow: none;
+    .lp-lead-form {
+      padding: 22px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 8px;
+      background: rgba(255,255,255,.06);
+      box-shadow: 0 24px 60px rgba(0,0,0,.22);
     }
+    .lp-form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .lp-form-field {
+      display: grid;
+      gap: 7px;
+    }
+    .lp-form-field.full { grid-column: 1 / -1; }
+    .lp-form-field label {
+      color: rgba(255,255,255,.72);
+      font-size: .72rem;
+      font-weight: 950;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .lp-form-field input,
+    .lp-form-field select,
+    .lp-form-field textarea {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 8px;
+      padding: 10px 11px;
+      color: #211719;
+      background: #fff;
+      font: inherit;
+      font-size: .92rem;
+    }
+    .lp-form-field textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+    .lp-form-field input:focus,
+    .lp-form-field select:focus,
+    .lp-form-field textarea:focus {
+      outline: 2px solid var(--lp-gold);
+      outline-offset: 2px;
+    }
+    .lp-honeypot {
+      position: fixed;
+      inset: auto;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      overflow: hidden;
+      pointer-events: none;
+      clip-path: inset(50%);
+    }
+    .lp-form-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .lp-form-actions .lp-button {
+      width: 100%;
+      box-shadow: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .lp-form-actions button.lp-button {
+      appearance: none;
+    }
+    .lp-whatsapp {
+      color: #14532D !important;
+      background: #DCFCE7;
+      border-color: #86EFAC;
+    }
+    .lp-form-note {
+      margin: 12px 0 0;
+      color: rgba(255,255,255,.58);
+      font-size: .78rem;
+      line-height: 1.45;
+    }
+    .lp-form-status {
+      min-height: 20px;
+      margin: 12px 0 0;
+      color: rgba(255,255,255,.82);
+      font-size: .84rem;
+      font-weight: 850;
+      line-height: 1.45;
+    }
+    .lp-form-status.ok { color: #BBF7D0; }
+    .lp-form-status.err { color: #FECACA; }
     .lp-footer {
       background: #221719;
       color: rgba(255,255,255,.54);
@@ -570,265 +1150,716 @@
     .lp-footer a {
       color: rgba(255,255,255,.72) !important;
       text-decoration: none;
-      font-weight: 800;
+      font-weight: 850;
     }
     .lp-footer a:hover { color: #fff !important; }
-    @media (max-width: 980px) {
-      .lp-hero { min-height: auto; }
-      .lp-hero-grid,
-      .lp-section-head { grid-template-columns: 1fr; }
-      .lp-hero-grid { gap: 42px; }
-      .lp-product { max-width: 720px; }
-      .lp-benefits { grid-template-columns: repeat(2, 1fr); }
-      .lp-benefit:nth-child(2) { border-right: 0; }
-      .lp-benefit:nth-child(-n+2) { border-bottom: 1px solid var(--lp-line); }
-      .lp-final-inner { align-items: flex-start; flex-direction: column; }
+
+    .lp-reveal {
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity .55s ease, transform .55s ease;
     }
-    @media (max-width: 720px) {
-      .lp-shell { width: min(100% - 28px, 1180px); }
+    .lp-reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .lp-parallax { transition: transform .12s linear; }
+
+    @media (max-width: 1120px) {
+      .lp-hero-grid,
+      .lp-problem-grid,
+      .lp-section-head {
+        grid-template-columns: 1fr;
+      }
+      .lp-hero-grid { gap: 42px; }
+      .lp-dashboard.hero-mockup { margin: 0; }
+      .lp-card-grid,
+      .lp-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .lp-modules-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .lp-kpis,
+      .lp-use-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .lp-integrations { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 820px) {
+      :root { --lp-shell: min(100% - 28px, 1180px); }
       .lp-nav-inner { min-height: 68px; }
       .lp-brand img { width: 148px; }
       .lp-link { display: none; }
-      .lp-login { min-height: 40px; padding: 0 13px; font-size: .78rem; }
-      .lp-hero { padding: 48px 0 42px; }
-      .lp-title { font-size: clamp(3.1rem, 15vw, 4.7rem); }
-      .lp-actions .lp-button { width: 100%; }
-      .lp-product-body { grid-template-columns: 1fr; min-height: auto; }
+      .lp-nav .lp-button.secondary { display: none !important; }
+      .lp-hero { padding: 46px 0 54px; }
+      .lp-title { font-size: clamp(3rem, 14vw, 4.8rem); }
+      .lp-proof,
+      .lp-logo-inner,
+      .lp-logos,
+      .lp-card-grid,
+      .lp-steps,
+      .lp-modules-grid,
+      .lp-faq-grid,
+      .lp-final-inner {
+        grid-template-columns: 1fr;
+      }
+      .lp-logo-inner { gap: 14px; }
+      .lp-logos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .lp-dashboard.hero-mockup { width: 100%; }
+      .lp-dash-body,
+      .lp-dashboard-section .lp-dash-body {
+        grid-template-columns: 1fr;
+        min-height: auto;
+      }
       .lp-side {
         display: grid;
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 6px;
         border-right: 0;
         border-bottom: 1px solid var(--lp-line);
       }
-      .lp-side-item + .lp-side-item { margin-top: 0; }
-      .lp-workspace { padding: 18px; }
-      .lp-work-head { flex-direction: column; }
-      .lp-metrics { grid-template-columns: 1fr; }
-      .lp-modules,
-      .lp-benefits { grid-template-columns: 1fr; }
-      .lp-module { min-height: auto; }
-      .lp-module h3 { margin-top: 38px; }
-      .lp-benefit,
-      .lp-benefit:nth-child(2) {
-        min-height: auto;
-        border-right: 0;
-        border-bottom: 1px solid var(--lp-line);
+      .lp-side-label {
+        grid-column: 1 / -1;
+        margin: 0 4px 6px;
       }
-      .lp-benefit:last-child { border-bottom: 0; }
+      .lp-side-item + .lp-side-item { margin-top: 0; }
+      .lp-workspace,
+      .lp-dashboard-section .lp-workspace { padding: 18px; }
+      .lp-work-head { flex-direction: column; }
+      .lp-metrics,
+      .lp-dash-grid,
+      .lp-connected,
+      .lp-kpis,
+      .lp-use-grid,
+      .lp-integrations {
+        grid-template-columns: 1fr;
+      }
+      .lp-connected h3,
+      .lp-connected p { grid-column: auto; }
+      .lp-hotspot,
+      .lp-dashboard-section .lp-hotspot.one,
+      .lp-dashboard-section .lp-hotspot.two,
+      .lp-hotspot.one,
+      .lp-hotspot.two {
+        position: static;
+        max-width: none;
+        margin: 10px 18px 0;
+      }
+      .lp-row { grid-template-columns: 1fr; padding: 14px; }
+      .lp-row-badge { width: fit-content; }
       .lp-section { padding: 64px 0; }
+      .lp-actions .lp-button { flex: 1 1 180px; }
+      .lp-final .lp-button { width: 100%; }
+      .lp-form-grid,
+      .lp-form-actions {
+        grid-template-columns: 1fr;
+      }
       .lp-footer-inner {
         align-items: flex-start;
         flex-direction: column;
         padding: 22px 0;
       }
     }
-    @media (max-width: 420px) {
-      .lp-product-top { padding: 0 14px; }
-      .lp-status { display: none; }
+
+    @media (max-width: 440px) {
+      .lp-nav-inner { gap: 12px; }
+      .lp-button { width: 100%; white-space: normal; text-align: center; }
+      .lp-nav .lp-button.secondary { display: none !important; }
+      .lp-nav .lp-button { width: auto; min-width: 112px; padding: 0 12px; font-size: .78rem; }
+      .lp-title { font-size: clamp(2.84rem, 16vw, 4rem); }
+      .lp-lead { font-size: 1rem; }
       .lp-side { grid-template-columns: 1fr; }
-      .lp-row {
-        grid-template-columns: 1fr;
-        gap: 10px;
-        padding: 14px;
-      }
-      .lp-row-badge { width: fit-content; }
+      .lp-dash-top { align-items: flex-start; flex-direction: column; padding: 14px; }
+      .lp-dash-status { white-space: normal; }
+      .lp-bars { height: 118px; }
+      .lp-value-card,
+      .lp-module-card,
+      .lp-use-card,
+      .lp-step,
+      .lp-connected { padding: 18px; }
     }
+
     @media (prefers-reduced-motion: reduce) {
       html { scroll-behavior: auto; }
-      * { transition: none !important; }
+      *,
+      *::before,
+      *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+      }
+      .lp-reveal {
+        opacity: 1;
+        transform: none;
+      }
     }
   </style>
 </head>
 <body class="lp-page">
-  <header class="lp-nav">
+  <a class="lp-skip" href="#contenido">Saltar al contenido</a>
+
+  <header class="lp-nav" aria-label="GE Control">
     <div class="lp-shell lp-nav-inner">
-      <a class="lp-brand" href="/" aria-label="GE Control">
-        <img src="/static/img/ge-control-logo.svg" alt="GE Control">
+      <a class="lp-brand" href="/" aria-label="GE Control inicio">
+        <img src="/static/img/ge-control-logo.svg" alt="GE Control" width="184" height="48">
       </a>
-      <nav class="lp-links" aria-label="Navegación principal">
-        <a class="lp-link" href="#modulos">Módulos</a>
-        <a class="lp-link" href="#control">Control</a>
-        <a class="lp-login" href="/choice">Iniciar sesión</a>
+      <nav class="lp-links" aria-label="Navegacion principal">
+        <a class="lp-link" href="#beneficios">Beneficios</a>
+        <a class="lp-link" href="#modulos">Modulos</a>
+        <a class="lp-link" href="#dashboard">Dashboard</a>
+        <a class="lp-link" href="#faq">FAQ</a>
+        <a class="lp-button secondary" href="/choice">Iniciar sesion</a>
+        <a class="lp-button" href="#demo" data-landing="primary_cta">Solicitar demo</a>
       </nav>
     </div>
   </header>
 
-  <main>
+  <main id="contenido" class="lp-main">
     <section class="lp-hero">
       <div class="lp-shell lp-hero-grid">
-        <div>
-          <p class="lp-eyebrow">SaaS operativo y fiscal</p>
-          <h1 class="lp-title">Control claro <span>para operar mejor.</span></h1>
-          <p class="lp-lead">
-            GE Control organiza Gas LP y Transporte en una plataforma privada:
-            documentos, viajes, inventarios, CFDI, evidencias y roles sin hojas sueltas.
+        <div class="lp-hero-copy lp-reveal">
+          <p class="lp-eyebrow" data-landing="hero_eyebrow">SaaS operativo para empresas con procesos criticos</p>
+          <h1 class="lp-title"><span data-landing="hero_title_text">Toda tu operacion.</span> <span data-landing="hero_accent">Un solo lugar.</span></h1>
+          <p class="lp-lead" data-landing="hero_subtitle">
+            Centraliza transporte, CFDI, inventarios, evidencias, reportes y cumplimiento en una plataforma disenada para operar con control, trazabilidad y menos trabajo manual.
           </p>
-          <div class="lp-actions">
-            <a class="lp-button" href="/choice">Entrar a plataforma</a>
-            <a class="lp-button lp-light" href="#modulos">Ver módulos</a>
+          <div class="lp-actions" aria-label="Acciones principales">
+            <a class="lp-button" href="#demo" data-landing="primary_cta">Solicitar demo</a>
+            <a class="lp-button ghost" href="#modulos" data-landing="secondary_cta">Ver modulos</a>
           </div>
-          <div class="lp-proof" aria-label="Características principales">
-            <span>Multiempresa</span>
-            <span>Accesos por rol</span>
-            <span>Operación y fiscal en un lugar</span>
+          <div class="lp-proof" aria-label="Resumen de valor">
+            <div class="lp-proof-item">
+              <strong>Para operacion</strong>
+              <span>Viajes, documentos, evidencias y tareas conectadas.</span>
+            </div>
+            <div class="lp-proof-item">
+              <strong>Para administracion</strong>
+              <span>CFDI, reportes, roles y cumplimiento con contexto.</span>
+            </div>
+            <div class="lp-proof-item">
+              <strong>Para direccion</strong>
+              <span>Visibilidad diaria sin perseguir archivos o mensajes.</span>
+            </div>
           </div>
         </div>
 
-        <div class="lp-product" aria-label="Vista previa de GE Control">
-          <div class="lp-product-top">
-            <div class="lp-product-brand">
-              <img src="/static/img/ge-isotype-light.svg" alt="">
+        <div class="lp-dashboard hero-mockup lp-reveal lp-parallax" aria-label="Mockup grande del dashboard de GE Control">
+          <div class="lp-dash-top">
+            <div class="lp-dash-brand">
+              <img src="/static/img/ge-isotype-light.svg" alt="" width="28" height="28">
               <span>Centro de control</span>
             </div>
-            <div class="lp-status">Operación activa</div>
+            <div class="lp-dash-status">Operacion activa</div>
           </div>
-          <div class="lp-product-body">
-            <aside class="lp-side" aria-label="Módulos">
-              <div class="lp-side-item active"><span class="lp-dot"></span> Transporte</div>
-              <div class="lp-side-item"><span class="lp-dot"></span> Gas LP</div>
-              <div class="lp-side-item"><span class="lp-dot"></span> CFDI</div>
-              <div class="lp-side-item"><span class="lp-dot"></span> Reportes</div>
+          <div class="lp-dash-body">
+            <aside class="lp-side" aria-label="Modulos del sistema">
+              <p class="lp-side-label">Modulos</p>
+              <div class="lp-side-item active"><span class="lp-mini-icon">TR</span> Transporte</div>
+              <div class="lp-side-item"><span class="lp-mini-icon">LP</span> Gas LP</div>
+              <div class="lp-side-item"><span class="lp-mini-icon">CF</span> CFDI</div>
+              <div class="lp-side-item"><span class="lp-mini-icon">IN</span> Inventarios</div>
+              <div class="lp-side-item"><span class="lp-mini-icon">EV</span> Evidencias</div>
+              <div class="lp-side-item"><span class="lp-mini-icon">RO</span> Roles</div>
             </aside>
             <div class="lp-workspace">
               <div class="lp-work-head">
                 <div>
-                  <p>Resumen de hoy</p>
-                  <strong>Operación trazable por empresa</strong>
+                  <p>Resumen operativo</p>
+                  <strong>Viajes, documentos y cumplimiento sincronizados</strong>
                 </div>
-                <span class="lp-chip">Listo para revisar</span>
+                <span class="lp-chip">Listo para decision</span>
               </div>
               <div class="lp-metrics">
                 <div class="lp-metric">
                   <span>Documentos</span>
-                  <strong>36</strong>
-                  <small>XML y PDF ligados</small>
+                  <strong>1,284</strong>
+                  <small>XML, PDF y evidencias ligadas</small>
                 </div>
                 <div class="lp-metric">
                   <span>Viajes</span>
-                  <strong>12</strong>
-                  <small>Carta Porte en flujo</small>
+                  <strong>86</strong>
+                  <small>Carta Porte y expedientes en flujo</small>
                 </div>
                 <div class="lp-metric">
-                  <span>Gas LP</span>
+                  <span>Conciliacion</span>
                   <strong>98%</strong>
-                  <small>Datos conciliados</small>
+                  <small>Datos listos para revision</small>
                 </div>
               </div>
-              <div class="lp-flow-card">
-                <div class="lp-row">
-                  <div>
-                    <strong>Origen, destino y operador confirmados</strong>
-                    <span>Ruta con expediente operativo completo.</span>
+              <div class="lp-dash-grid">
+                <div class="lp-flow-card" aria-label="Flujos operativos">
+                  <div class="lp-row">
+                    <div>
+                      <strong>Origen, destino, unidad y operador confirmados</strong>
+                      <span>El expediente del viaje queda completo antes de facturar.</span>
+                    </div>
+                    <div class="lp-row-badge">Transporte</div>
                   </div>
-                  <div class="lp-row-badge">Transporte</div>
+                  <div class="lp-row">
+                    <div>
+                      <strong>Inventario y movimientos conectados</strong>
+                      <span>Entradas, salidas y documentos se consultan desde la misma fuente.</span>
+                    </div>
+                    <div class="lp-row-badge">Gas LP</div>
+                  </div>
+                  <div class="lp-row">
+                    <div>
+                      <strong>CFDI y evidencias sin carpetas dispersas</strong>
+                      <span>XML, PDF y soportes quedan asociados al proceso correcto.</span>
+                    </div>
+                    <div class="lp-row-badge">CFDI</div>
+                  </div>
                 </div>
-                <div class="lp-row">
-                  <div>
-                    <strong>Inventario y movimientos conectados</strong>
-                    <span>Información lista para reportes y anexos.</span>
+                <div class="lp-panel" aria-label="Grafica de reportes">
+                  <h3>Reportes automaticos</h3>
+                  <div class="lp-bars" aria-hidden="true">
+                    <div class="lp-bar" style="height:38%"></div>
+                    <div class="lp-bar"></div>
+                    <div class="lp-bar"></div>
+                    <div class="lp-bar"></div>
+                    <div class="lp-bar"></div>
+                    <div class="lp-bar"></div>
                   </div>
-                  <div class="lp-row-badge">Gas LP</div>
                 </div>
               </div>
             </div>
           </div>
+          <div class="lp-hotspot one">
+            <span class="lp-hotspot-dot">1</span>
+            <div><strong>Control por rol</strong><span>Cada usuario ve solo la empresa, modulo y accion que corresponde.</span></div>
+          </div>
+          <div class="lp-hotspot two">
+            <span class="lp-hotspot-dot">2</span>
+            <div><strong>Trazabilidad completa</strong><span>Todo movimiento queda unido a documentos, evidencia y responsable.</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-logo-strip" aria-label="Empresas que usan GE Control">
+      <div class="lp-shell lp-logo-inner">
+        <p>Equipos operativos, administrativos y directivos usan GE Control para trabajar con una sola fuente de verdad.</p>
+        <div class="lp-logos">
+          <div class="lp-logo-placeholder">Cliente 01</div>
+          <div class="lp-logo-placeholder">Cliente 02</div>
+          <div class="lp-logo-placeholder">Cliente 03</div>
+          <div class="lp-logo-placeholder">Cliente 04</div>
+          <div class="lp-logo-placeholder">Cliente 05</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-section soft" id="problema">
+      <div class="lp-shell lp-problem-grid">
+        <div class="lp-reveal">
+          <p class="lp-overline">El problema real</p>
+          <h2 class="lp-heading">La operacion no falla por falta de esfuerzo. Falla por informacion fragmentada.</h2>
+          <p class="lp-copy" style="margin-top:18px">
+            Cuando cada area trabaja en su archivo, chat o carpeta, el control depende de memoria humana. GE Control convierte procesos dispersos en una operacion conectada.
+          </p>
+        </div>
+        <div class="lp-reveal">
+          <div class="lp-pain-list" aria-label="Dolores operativos">
+            <div class="lp-pain"><span class="lp-x">X</span><div><strong>Excel como sistema operativo</strong><span>Versiones distintas, formulas rotas y datos que nadie sabe si son los finales.</span></div></div>
+            <div class="lp-pain"><span class="lp-x">X</span><div><strong>WhatsApp para dar seguimiento</strong><span>Solicitudes, evidencias y autorizaciones perdidas entre conversaciones.</span></div></div>
+            <div class="lp-pain"><span class="lp-x">X</span><div><strong>Carpetas sin contexto</strong><span>XML, PDF, fotos y anexos guardados sin relacion clara con viajes o inventarios.</span></div></div>
+            <div class="lp-pain"><span class="lp-x">X</span><div><strong>Errores que llegan tarde</strong><span>El problema se detecta cuando ya hay factura, reporte o auditoria encima.</span></div></div>
+          </div>
+        </div>
+        <div class="lp-connected lp-reveal">
+          <h3>Con GE Control todo esta conectado.</h3>
+          <p>El dato nace en operacion, se liga a documentos y queda disponible para administracion, cumplimiento y direccion sin recaptura.</p>
+          <div class="lp-node"><span>Captura</span><strong>La informacion entra desde el proceso donde ocurre.</strong></div>
+          <div class="lp-node"><span>Relaciona</span><strong>Viajes, CFDI, inventarios y evidencias se conectan automaticamente.</strong></div>
+          <div class="lp-node"><span>Controla</span><strong>Roles, bitacoras y permisos mantienen orden por empresa.</strong></div>
+          <div class="lp-node"><span>Decide</span><strong>Reportes y tableros muestran el estado real de la operacion.</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-section" id="beneficios">
+      <div class="lp-shell">
+        <div class="lp-section-head lp-reveal">
+          <div>
+            <p class="lp-overline">Beneficios</p>
+            <h2 class="lp-heading">Menos persecucion de datos. Mas control operativo.</h2>
+          </div>
+          <p class="lp-copy">GE Control no solo guarda documentos. Ordena como trabaja la empresa: captura, valida, conecta y deja evidencia util para operar y cumplir.</p>
+        </div>
+        <div class="lp-card-grid">
+          <article class="lp-value-card lp-reveal">
+            <span class="lp-card-icon">TR</span>
+            <h3>Trazabilidad completa</h3>
+            <p>Sigue cada viaje, documento, movimiento e incidencia desde su origen hasta el reporte final.</p>
+          </article>
+          <article class="lp-value-card lp-reveal">
+            <span class="lp-card-icon">CF</span>
+            <h3>CFDI organizados</h3>
+            <p>XML, PDF, facturas de servicio y soportes quedan asociados a clientes, empresas y procesos.</p>
+          </article>
+          <article class="lp-value-card lp-reveal">
+            <span class="lp-card-icon">TP</span>
+            <h3>Transporte conectado</h3>
+            <p>Rutas, operadores, unidades, Carta Porte y facturacion operan dentro del mismo flujo.</p>
+          </article>
+          <article class="lp-value-card lp-reveal">
+            <span class="lp-card-icon">RP</span>
+            <h3>Reportes automaticos</h3>
+            <p>La informacion capturada se convierte en tableros, historiales y reportes accionables.</p>
+          </article>
+          <article class="lp-value-card lp-reveal">
+            <span class="lp-card-icon">EV</span>
+            <h3>Evidencias centralizadas</h3>
+            <p>Fotografias, documentos y validaciones se guardan junto al proceso que las necesita.</p>
+          </article>
+          <article class="lp-value-card lp-reveal">
+            <span class="lp-card-icon">RL</span>
+            <h3>Control por roles</h3>
+            <p>Define accesos por empresa, modulo y responsabilidad para reducir errores y exposicion.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-section soft" id="como-funciona">
+      <div class="lp-shell">
+        <div class="lp-section-head lp-reveal">
+          <div>
+            <p class="lp-overline">Como funciona</p>
+            <h2 class="lp-heading">Del dato operativo al control en tiempo real.</h2>
+          </div>
+          <p class="lp-copy">El valor aparece cuando la operacion deja de recapturar y empieza a trabajar sobre informacion compartida, validada y lista para consultar.</p>
+        </div>
+        <div class="lp-steps">
+          <article class="lp-step lp-reveal">
+            <div class="lp-step-visual">
+              <div class="lp-mini-table"><span></span><span></span><span></span><span></span></div>
+            </div>
+            <h3>Captura informacion</h3>
+            <p>Registra viajes, movimientos, clientes, CFDI, evidencias e inventario desde el modulo correcto.</p>
+          </article>
+          <article class="lp-step lp-reveal">
+            <div class="lp-step-visual">
+              <div class="lp-step-line"></div><span class="lp-step-dot"></span><span class="lp-step-dot"></span><span class="lp-step-dot"></span>
+            </div>
+            <h3>Conecta procesos</h3>
+            <p>Relaciona documentos, responsables, empresas, rutas y reportes sin depender de archivos sueltos.</p>
+          </article>
+          <article class="lp-step lp-reveal">
+            <div class="lp-step-visual">
+              <div class="lp-bars" style="height:150px;padding:18px"><div class="lp-bar" style="height:42%"></div><div class="lp-bar"></div><div class="lp-bar"></div><div class="lp-bar"></div><div class="lp-bar"></div><div class="lp-bar"></div></div>
+            </div>
+            <h3>Obtiene control</h3>
+            <p>Consulta indicadores, expedientes, pendientes y cumplimiento desde una vista clara y accionable.</p>
+          </article>
         </div>
       </div>
     </section>
 
     <section class="lp-section" id="modulos">
       <div class="lp-shell">
-        <div class="lp-section-head">
+        <div class="lp-section-head lp-reveal">
           <div>
-            <p class="lp-overline">Módulos especializados</p>
-            <h2 class="lp-heading">Simple para el usuario. Robusto para la operación.</h2>
+            <p class="lp-overline">Modulos</p>
+            <h2 class="lp-heading">Una plataforma modular para la operacion completa.</h2>
           </div>
-          <p class="lp-copy">
-            Cada modulo respeta su proceso, pero todos comparten clientes, empresas,
-            usuarios, documentos y trazabilidad para que el equipo trabaje con contexto.
-          </p>
+          <p class="lp-copy">Activa solo lo que tu empresa necesita hoy y conserva la misma base de usuarios, roles, empresas, documentos y trazabilidad para crecer sin rehacer procesos.</p>
         </div>
-        <div class="lp-modules">
-          <article class="lp-module dark">
-            <span class="lp-module-num">01</span>
-            <h3>Transporte</h3>
-            <p>Viajes, rutas, operadores, unidades, Carta Porte, bitácoras y factura de servicio en un flujo conectado.</p>
-            <div class="lp-tags">
-              <span class="lp-tag">Carta Porte</span>
-              <span class="lp-tag">Operadores</span>
-              <span class="lp-tag">Rutas</span>
-              <span class="lp-tag">CFDI</span>
-            </div>
-          </article>
-          <article class="lp-module">
-            <span class="lp-module-num">02</span>
-            <h3>Gas LP</h3>
-            <p>Control volumétrico, instalaciones, inventarios, facturación, conciliación y reportes fiscales por empresa.</p>
-            <div class="lp-tags">
-              <span class="lp-tag">Volumetricos</span>
-              <span class="lp-tag">Inventarios</span>
-              <span class="lp-tag">Conciliacion</span>
-              <span class="lp-tag">Anexos SAT</span>
-            </div>
-          </article>
+        <div class="lp-modules-grid">
+          <article class="lp-module-card lp-reveal"><span class="lp-card-icon">TP</span><h3>Transporte</h3><p>Viajes, rutas, operadores, unidades, Carta Porte y expedientes.</p><a class="lp-icon-link" href="#dashboard">Ver flujo</a></article>
+          <article class="lp-module-card lp-reveal"><span class="lp-card-icon">LP</span><h3>Gas LP</h3><p>Instalaciones, controles volumetricos, inventarios y conciliacion.</p><a class="lp-icon-link" href="#dashboard">Ver flujo</a></article>
+          <article class="lp-module-card lp-reveal"><span class="lp-card-icon">CF</span><h3>CFDI</h3><p>XML, PDF, timbrado, facturacion y documentos fiscales asociados.</p><a class="lp-icon-link" href="#dashboard">Ver flujo</a></article>
+          <article class="lp-module-card lp-reveal"><span class="lp-card-icon">IN</span><h3>Inventarios</h3><p>Entradas, salidas, movimientos, instalaciones y existencias.</p><a class="lp-icon-link" href="#dashboard">Ver flujo</a></article>
+          <article class="lp-module-card lp-reveal"><span class="lp-card-icon">EV</span><h3>Evidencias</h3><p>Soportes, archivos, fotos y validaciones dentro del expediente.</p><a class="lp-icon-link" href="#dashboard">Ver flujo</a></article>
+          <article class="lp-module-card lp-reveal"><span class="lp-card-icon">DC</span><h3>Documentos</h3><p>Repositorio operativo con contexto, control y relacion por empresa.</p><a class="lp-icon-link" href="#dashboard">Ver flujo</a></article>
+          <article class="lp-module-card lp-reveal"><span class="lp-card-icon">RP</span><h3>Reportes</h3><p>Indicadores, historiales, descargas y seguimiento para direccion.</p><a class="lp-icon-link" href="#dashboard">Ver flujo</a></article>
+          <article class="lp-module-card lp-reveal"><span class="lp-card-icon">RL</span><h3>Roles</h3><p>Permisos por usuario, empresa, modulo y responsabilidad.</p><a class="lp-icon-link" href="#dashboard">Ver flujo</a></article>
         </div>
       </div>
     </section>
 
-    <section class="lp-section alt" id="control">
+    <section class="lp-section soft lp-dashboard-section" id="dashboard">
       <div class="lp-shell">
-        <div class="lp-section-head">
+        <div class="lp-section-head lp-reveal">
           <div>
-            <p class="lp-overline">Lo que ve el cliente</p>
-            <h2 class="lp-heading">Nada de ruido. Solo lo que necesita para avanzar.</h2>
+            <p class="lp-overline">Dashboard</p>
+            <h2 class="lp-heading">El producto al centro. No una captura pequena.</h2>
           </div>
-          <p class="lp-copy">
-            La experiencia prioriza claridad: entrar, elegir modulo, operar y consultar
-            evidencia sin perderse entre pantallas administrativas.
-          </p>
+          <p class="lp-copy">El tablero esta disenado para operar: muestra pendientes, indicadores, documentos y procesos conectados. La empresa deja de preguntar donde esta cada cosa.</p>
         </div>
-        <div class="lp-benefits">
-          <div class="lp-benefit">
-            <span>01</span>
-            <strong>Acceso limpio</strong>
-            <p>Botones claros para iniciar sesión y continuar al módulo habilitado.</p>
+        <div class="lp-dashboard lp-reveal" aria-label="Vista ampliada del dashboard de GE Control">
+          <div class="lp-dash-top">
+            <div class="lp-dash-brand"><img src="/static/img/ge-isotype-light.svg" alt="" width="28" height="28"><span>GE Control Dashboard</span></div>
+            <div class="lp-dash-status">Datos sincronizados</div>
           </div>
-          <div class="lp-benefit">
-            <span>02</span>
-            <strong>Datos ordenados</strong>
-            <p>Clientes, empresas, instalaciones y documentos siempre con contexto.</p>
+          <div class="lp-dash-body">
+            <aside class="lp-side" aria-label="Navegacion del dashboard">
+              <p class="lp-side-label">Operacion</p>
+              <div class="lp-side-item active"><span class="lp-mini-icon">HO</span> Home</div>
+              <div class="lp-side-item"><span class="lp-mini-icon">VI</span> Viajes</div>
+              <div class="lp-side-item"><span class="lp-mini-icon">FA</span> Facturas</div>
+              <div class="lp-side-item"><span class="lp-mini-icon">IN</span> Inventarios</div>
+              <div class="lp-side-item"><span class="lp-mini-icon">DO</span> Documentos</div>
+              <div class="lp-side-item"><span class="lp-mini-icon">AU</span> Auditoria</div>
+            </aside>
+            <div class="lp-workspace">
+              <div class="lp-work-head">
+                <div><p>Control diario</p><strong>Estado operativo por empresa, modulo y responsable</strong></div>
+                <span class="lp-chip">Sin pendientes criticos</span>
+              </div>
+              <div class="lp-metrics">
+                <div class="lp-metric"><span>Cumplimiento</span><strong>100%</strong><small>Expedientes con evidencia</small></div>
+                <div class="lp-metric"><span>Tiempo ahorrado</span><strong>12h</strong><small>Menos recaptura semanal</small></div>
+                <div class="lp-metric"><span>Errores evitados</span><strong>42</strong><small>Validaciones antes de facturar</small></div>
+              </div>
+              <div class="lp-dash-grid">
+                <div class="lp-flow-card">
+                  <div class="lp-row"><div><strong>Viaje TR-204 con Carta Porte lista</strong><span>Operador, unidad, origen, destino y evidencia completos.</span></div><div class="lp-row-badge">Listo</div></div>
+                  <div class="lp-row"><div><strong>CFDI ligados a cliente y servicio</strong><span>XML y PDF disponibles para consulta y descarga.</span></div><div class="lp-row-badge">CFDI</div></div>
+                  <div class="lp-row"><div><strong>Inventario conciliado por instalacion</strong><span>Entradas y salidas revisadas contra documentos.</span></div><div class="lp-row-badge">Gas LP</div></div>
+                  <div class="lp-row"><div><strong>Reporte mensual actualizado</strong><span>Datos listos para direccion y administracion.</span></div><div class="lp-row-badge">Reporte</div></div>
+                </div>
+                <div class="lp-panel">
+                  <h3>Operacion por modulo</h3>
+                  <div class="lp-bars" aria-hidden="true"><div class="lp-bar" style="height:52%"></div><div class="lp-bar"></div><div class="lp-bar"></div><div class="lp-bar"></div><div class="lp-bar"></div><div class="lp-bar"></div></div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="lp-benefit">
-            <span>03</span>
-            <strong>Cumplimiento visible</strong>
-            <p>CFDI, XML, Carta Porte, anexos y evidencia desde una sola fuente.</p>
-          </div>
-          <div class="lp-benefit">
-            <span>04</span>
-            <strong>Roles privados</strong>
-            <p>Cada usuario ve solo lo que corresponde a su empresa y responsabilidad.</p>
-          </div>
+          <div class="lp-hotspot one"><span class="lp-hotspot-dot">A</span><div><strong>KPIs con contexto</strong><span>Los numeros vienen de procesos reales, no de reportes armados a mano.</span></div></div>
+          <div class="lp-hotspot two"><span class="lp-hotspot-dot">B</span><div><strong>Expediente completo</strong><span>Cada registro conserva documentos, evidencia, usuario y fecha.</span></div></div>
         </div>
       </div>
     </section>
 
-    <section class="lp-final">
-      <div class="lp-shell lp-final-inner">
-        <div>
-          <h2>Tu operación, con estructura desde el primer clic.</h2>
-          <p>Accede a GE Control y continúa trabajando en los módulos habilitados para tu empresa.</p>
+    <section class="lp-section dark" id="kpis">
+      <div class="lp-shell">
+        <div class="lp-section-head lp-reveal">
+          <div>
+            <p class="lp-overline">Impacto</p>
+            <h2 class="lp-heading">Control que se nota en la operacion diaria.</h2>
+          </div>
+          <p class="lp-copy">Los indicadores son ejemplos de beneficios que una empresa puede medir al centralizar documentos, procesos y responsables en GE Control.</p>
         </div>
-        <a class="lp-button" href="/choice">Acceder ahora</a>
+        <div class="lp-kpis">
+          <div class="lp-kpi lp-reveal"><strong>98%</strong><span>Conciliacion</span><p>Menos diferencias entre documentos, movimientos y reportes.</p></div>
+          <div class="lp-kpi lp-reveal"><strong>100%</strong><span>Trazabilidad</span><p>Procesos con evidencia, responsable y estado consultable.</p></div>
+          <div class="lp-kpi lp-reveal"><strong>1 fuente</strong><span>De verdad</span><p>Operacion, administracion y direccion leyendo el mismo dato.</p></div>
+          <div class="lp-kpi lp-reveal"><strong>0 carpetas</strong><span>Sin contexto</span><p>Los documentos viven junto al proceso que los genera.</p></div>
+          <div class="lp-kpi lp-reveal"><strong>Horas</strong><span>Ahorradas</span><p>Menos recaptura, busquedas manuales y reportes armados desde cero.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-section" id="casos">
+      <div class="lp-shell">
+        <div class="lp-section-head lp-reveal">
+          <div>
+            <p class="lp-overline">Casos de uso</p>
+            <h2 class="lp-heading">Cada perfil entra por una razon distinta. Todos trabajan sobre la misma operacion.</h2>
+          </div>
+          <p class="lp-copy">GE Control da valor por area sin crear islas: operaciones captura, administracion valida, cumplimiento consulta y direccion decide.</p>
+        </div>
+        <div class="lp-use-grid">
+          <article class="lp-use-card lp-reveal"><span class="lp-card-icon">ET</span><h3>Empresa transportista</h3><p>Controla viajes y documentos antes de que el servicio llegue a facturacion.</p><ul><li>Rutas y operadores</li><li>Carta Porte</li><li>Evidencias por viaje</li></ul></article>
+          <article class="lp-use-card lp-reveal"><span class="lp-card-icon">LP</span><h3>Gas LP</h3><p>Conecta inventarios, movimientos, CFDI y reportes para operar con cumplimiento.</p><ul><li>Instalaciones</li><li>Controles volumetricos</li><li>Conciliacion</li></ul></article>
+          <article class="lp-use-card lp-reveal"><span class="lp-card-icon">OP</span><h3>Operacion</h3><p>Registra lo que ocurre sin depender de chats, llamadas o archivos aislados.</p><ul><li>Pendientes visibles</li><li>Expedientes completos</li><li>Seguimiento diario</li></ul></article>
+          <article class="lp-use-card lp-reveal"><span class="lp-card-icon">AD</span><h3>Administracion</h3><p>Consulta CFDI, clientes, documentos y estados con menos recaptura.</p><ul><li>Facturas ligadas</li><li>Descargas ordenadas</li><li>Control por empresa</li></ul></article>
+          <article class="lp-use-card lp-reveal"><span class="lp-card-icon">DI</span><h3>Direccion</h3><p>Ve el estado real de la operacion sin pedir reportes manuales cada semana.</p><ul><li>KPIs operativos</li><li>Riesgos visibles</li><li>Decision con datos</li></ul></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-section soft" id="integraciones">
+      <div class="lp-shell">
+        <div class="lp-section-head lp-reveal">
+          <div>
+            <p class="lp-overline">Integraciones</p>
+            <h2 class="lp-heading">Conecta GE Control con el ecosistema que ya usa tu empresa.</h2>
+          </div>
+          <p class="lp-copy">La plataforma esta pensada para convivir con sistemas fiscales, facturacion, archivos operativos y herramientas internas. Algunas integraciones pueden activarse por proyecto.</p>
+        </div>
+        <div class="lp-integrations">
+          <div class="lp-integration lp-reveal"><div><strong>SAT</strong><span>Fiscal</span></div></div>
+          <div class="lp-integration lp-reveal"><div><strong>Facturacion</strong><span>CFDI</span></div></div>
+          <div class="lp-integration lp-reveal"><div><strong>ERP</strong><span>Operacion</span></div></div>
+          <div class="lp-integration lp-reveal"><div><strong>Excel / CSV</strong><span>Importacion</span></div></div>
+          <div class="lp-integration lp-reveal"><div><strong>Almacenamiento</strong><span>Documentos</span></div></div>
+          <div class="lp-integration lp-reveal"><div><strong>APIs</strong><span>Automatizacion</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-section" id="faq">
+      <div class="lp-shell">
+        <div class="lp-section-head lp-reveal">
+          <div>
+            <p class="lp-overline">FAQ</p>
+            <h2 class="lp-heading">Preguntas antes de solicitar una demo.</h2>
+          </div>
+          <p class="lp-copy">La demo sirve para mapear tus procesos actuales, identificar modulos prioritarios y mostrar como GE Control centraliza la operacion sin cambiar tu empresa de golpe.</p>
+        </div>
+        <div class="lp-faq-grid">
+          <details class="lp-faq lp-reveal"><summary>GE Control reemplaza todos mis sistemas actuales?</summary><p>No necesariamente. Puede funcionar como capa central de control operativo y conectarse con herramientas fiscales, administrativas o archivos existentes.</p></details>
+          <details class="lp-faq lp-reveal"><summary>Es solo para empresas de Gas LP o transporte?</summary><p>Es especialmente fuerte en Gas LP, transporte, CFDI y cumplimiento, pero la estructura modular permite centralizar otros procesos operativos por empresa.</p></details>
+          <details class="lp-faq lp-reveal"><summary>Puedo controlar permisos por usuario?</summary><p>Si. La plataforma contempla roles, empresas, modulos y accesos para que cada usuario trabaje solo con lo que le corresponde.</p></details>
+          <details class="lp-faq lp-reveal"><summary>Que necesito para empezar?</summary><p>Una demo inicial, el mapa de tus procesos principales y los documentos o reportes que hoy generan mas friccion. Con eso se define el alcance de activacion.</p></details>
+          <details class="lp-faq lp-reveal"><summary>Se pueden migrar datos existentes?</summary><p>Depende del origen y calidad de los datos. GE Control puede trabajar con cargas, importaciones y configuraciones por empresa cuando el proyecto lo requiere.</p></details>
+          <details class="lp-faq lp-reveal"><summary>La informacion queda separada por empresa?</summary><p>Si. La experiencia esta disenada para operar con separacion por cliente, empresa, modulo y rol, manteniendo trazabilidad y control de acceso.</p></details>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-final" id="demo">
+      <div class="lp-shell lp-final-inner">
+        <div class="lp-reveal">
+          <h2 data-landing="final_headline">La plataforma que conecta toda tu operacion.</h2>
+          <p data-landing="final_subtitle">Desde los documentos hasta los viajes, inventarios y cumplimiento fiscal. Todo sincronizado, trazable y listo para tomar decisiones. Todo en GE Control.</p>
+        </div>
+        <form class="lp-lead-form lp-reveal" id="leadForm" aria-label="Solicitar demo de GE Control">
+          <div class="lp-form-grid">
+            <div class="lp-form-field">
+              <label for="leadName">Nombre</label>
+              <input id="leadName" name="name" autocomplete="name" required minlength="2" maxlength="120" placeholder="Tu nombre">
+            </div>
+            <div class="lp-form-field">
+              <label for="leadCompany">Empresa</label>
+              <input id="leadCompany" name="company" autocomplete="organization" required minlength="2" maxlength="160" placeholder="Nombre de empresa">
+            </div>
+            <div class="lp-form-field">
+              <label for="leadEmail">Correo</label>
+              <input id="leadEmail" name="email" type="email" autocomplete="email" required placeholder="correo@empresa.com">
+            </div>
+            <div class="lp-form-field">
+              <label for="leadPhone">WhatsApp</label>
+              <input id="leadPhone" name="phone" autocomplete="tel" maxlength="40" placeholder="+52 ...">
+            </div>
+            <div class="lp-form-field full">
+              <label for="leadInterest">Que quieres controlar?</label>
+              <select id="leadInterest" name="interest">
+                <option>Operacion completa</option>
+                <option>Transporte y Carta Porte</option>
+                <option>Gas LP e inventarios</option>
+                <option>CFDI, documentos y cumplimiento</option>
+                <option>Reportes y direccion</option>
+              </select>
+            </div>
+            <div class="lp-form-field full">
+              <label for="leadMessage">Mensaje</label>
+              <textarea id="leadMessage" name="message" maxlength="900" placeholder="Cuentanos que proceso quieres centralizar primero."></textarea>
+            </div>
+            <div class="lp-honeypot" aria-hidden="true">
+              <label for="leadWebsite">Sitio web</label>
+              <input id="leadWebsite" name="website" tabindex="-1" autocomplete="off">
+            </div>
+          </div>
+          <div class="lp-form-actions">
+            <button class="lp-button gold" type="submit" data-landing="submit_cta">Enviar solicitud</button>
+            <a class="lp-button lp-whatsapp" id="leadWhatsapp" href="https://wa.me/?text=Hola%20GE%20Control%2C%20quiero%20solicitar%20una%20demo." target="_blank" rel="noopener">WhatsApp</a>
+          </div>
+          <p class="lp-form-status" id="leadStatus" role="status" aria-live="polite"></p>
+          <p class="lp-form-note" data-landing="form_note">Te contactaremos para entender tus modulos prioritarios y preparar una demo con contexto de tu operacion.</p>
+        </form>
       </div>
     </section>
   </main>
 
   <footer class="lp-footer">
     <div class="lp-shell lp-footer-inner">
-      <span>GE Control | Operación y cumplimiento para Gas LP y Transporte</span>
-      <span><a href="/terms?lang=es">Términos</a> · <a href="/privacy?lang=es">Privacidad</a></span>
+      <span>GE Control | Operacion, trazabilidad y cumplimiento para empresas</span>
+      <span><a href="/terms?lang=es">Terminos</a> · <a href="/privacy?lang=es">Privacidad</a></span>
     </div>
   </footer>
+
+  <script>
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (!reduceMotion && 'IntersectionObserver' in window) {
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+
+      document.querySelectorAll('.lp-reveal').forEach((el) => observer.observe(el));
+    } else {
+      document.querySelectorAll('.lp-reveal').forEach((el) => el.classList.add('visible'));
+    }
+
+    if (!reduceMotion) {
+      const parallax = document.querySelector('.lp-parallax');
+      window.addEventListener('scroll', () => {
+        if (!parallax || window.innerWidth < 900) return;
+        const offset = Math.min(window.scrollY * 0.025, 16);
+        parallax.style.transform = `translateY(${offset}px)`;
+      }, { passive: true });
+    }
+
+    const leadForm = document.getElementById('leadForm');
+    const leadStatus = document.getElementById('leadStatus');
+    const leadWhatsapp = document.getElementById('leadWhatsapp');
+
+    function applyLandingSettings(settings) {
+      if (!settings) return;
+      const map = {
+        hero_eyebrow: settings.hero_eyebrow,
+        hero_title_text: settings.hero_title,
+        hero_accent: settings.hero_accent,
+        hero_subtitle: settings.hero_subtitle,
+        primary_cta: settings.primary_cta,
+        secondary_cta: settings.secondary_cta,
+        final_headline: settings.final_headline,
+        final_subtitle: settings.final_subtitle,
+        form_note: settings.form_note,
+      };
+      Object.entries(map).forEach(([key, value]) => {
+        if (!value) return;
+        document.querySelectorAll(`[data-landing="${key}"]`).forEach((el) => {
+          el.textContent = value;
+        });
+      });
+    }
+
+    fetch('/api/leads/config')
+      .then((response) => response.ok ? response.json() : null)
+      .then((config) => {
+        if (config && config.whatsapp_url && leadWhatsapp) leadWhatsapp.href = config.whatsapp_url;
+        if (config && config.landing) applyLandingSettings(config.landing);
+      })
+      .catch(() => {});
+
+    function setLeadStatus(message, type) {
+      if (!leadStatus) return;
+      leadStatus.textContent = message || '';
+      leadStatus.classList.remove('ok', 'err');
+      if (type) leadStatus.classList.add(type);
+    }
+
+    if (leadForm) {
+      leadForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const submit = leadForm.querySelector('button[type="submit"]');
+        const data = Object.fromEntries(new FormData(leadForm).entries());
+        data.source = 'landing-home';
+        setLeadStatus('Enviando solicitud...', '');
+        if (submit) submit.disabled = true;
+        try {
+          const response = await fetch('/api/leads/demo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.detail || 'No se pudo enviar la solicitud.');
+          setLeadStatus(result.message || 'Gracias. Te contactaremos pronto.', 'ok');
+          leadForm.reset();
+        } catch (error) {
+          setLeadStatus(error.message || 'No se pudo enviar. Intenta por WhatsApp.', 'err');
+        } finally {
+          if (submit) submit.disabled = false;
+        }
+      });
+    }
+  </script>
 </body>
 </html>
