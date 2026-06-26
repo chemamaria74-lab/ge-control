@@ -13,6 +13,30 @@
           <div class="actions"><button class="btn" onclick="saveBillingSettings()">Guardar datos fiscales</button><span id="billingMsg" class="status"></span></div>
           <p class="muted" style="margin-top:12px">No guardar aquí SW_TOKEN, SUPABASE_SERVICE_ROLE_KEY, contraseñas ni llaves privadas. Esos secretos viven solo en Render Environment.</p>
         </div>
+        <div class="card" style="margin-top:14px">
+          <h3>Landing pública e interesados</h3>
+          <p class="muted" style="margin:6px 0 12px">Edita el mensaje comercial, el correo que recibe leads y el WhatsApp de contacto sin cambiar código.</p>
+          <div class="form-grid">
+            <div><label>Eyebrow hero</label><input id="landHeroEyebrow" placeholder="SaaS operativo..."></div>
+            <div><label>CTA principal</label><input id="landPrimaryCta" placeholder="Solicitar demo"></div>
+            <div><label>Título hero</label><input id="landHeroTitle" placeholder="Toda tu operación."></div>
+            <div><label>Texto destacado</label><input id="landHeroAccent" placeholder="Un solo lugar."></div>
+            <div style="grid-column:1/-1"><label>Subheadline hero</label><textarea id="landHeroSubtitle" rows="3" placeholder="Centraliza transporte, CFDI..."></textarea></div>
+            <div><label>Headline CTA final</label><input id="landFinalHeadline" placeholder="La plataforma que conecta..."></div>
+            <div><label>WhatsApp</label><input id="landWhatsappNumber" placeholder="521XXXXXXXXXX"></div>
+            <div><label>Correo destino leads</label><input id="landLeadEmailTo" placeholder="ventas@gecontrol.mx"></div>
+            <div><label>Remitente Resend</label><input id="landLeadEmailFrom" placeholder="GE Control <contacto@gecontrol.mx>"></div>
+            <div style="grid-column:1/-1"><label>Mensaje WhatsApp</label><input id="landWhatsappMessage" placeholder="Hola GE Control, quiero solicitar una demo."></div>
+            <div style="grid-column:1/-1"><label>Subtexto CTA final</label><textarea id="landFinalSubtitle" rows="3"></textarea></div>
+            <div style="grid-column:1/-1"><label>Nota del formulario</label><input id="landFormNote"></div>
+          </div>
+          <div class="actions">
+            <button class="btn" onclick="saveLandingSettings()">Guardar landing</button>
+            <button class="btn btn-ghost" onclick="loadLandingSettings()">Recargar</button>
+            <a class="btn btn-ghost" href="/" target="_blank" rel="noopener">Ver landing</a>
+            <span id="landingMsg" class="status"></span>
+          </div>
+        </div>
         <div class="grid-2" style="margin-top:14px">
           <div class="card">
             <h3>Clientes/receptores frecuentes</h3>
@@ -58,4 +82,3 @@
           <div class="actions"><button class="btn btn-ghost" onclick="showPanel('usuarios')">Herramientas avanzadas de usuarios</button></div>
         </div>
       </section>
-
