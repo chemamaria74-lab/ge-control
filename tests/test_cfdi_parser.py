@@ -49,6 +49,21 @@ XML_SIN_GAS_LP = b"""<?xml version="1.0" encoding="UTF-8"?>
   </cfdi:Conceptos>
 </cfdi:Comprobante>"""
 
+XML_GAS_LP_15111510_DESCRIPCION_GENERICA = b"""<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  Version="4.0" Fecha="2026-05-25T01:28:36" TipoDeComprobante="I" Total="239647.11">
+  <cfdi:Emisor Rfc="PME380607P35" Nombre="PETROLEOS MEXICANOS"/>
+  <cfdi:Receptor Rfc="GLU760309457" Nombre="GAS LUX"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="15111510" ClaveUnidad="LTR" Cantidad="35714.286"
+      Descripcion="Precio de Venta de Primera Mano" ValorUnitario="5.92610" Importe="211646.46"/>
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+      UUID="817579A2-DED9-4FF4-80CF-D319D183D697"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>"""
+
 def test_extrae_gas_lp_en_kg():
     movs, errs, _ = parse_xml(XML_GAS_LP_KG, "test_kg.xml")
     assert not errs
@@ -77,6 +92,21 @@ def test_no_gas_lp_ignorado():
     movs, errs, _ = parse_xml(XML_SIN_GAS_LP, "test_sin.xml")
     assert not errs and len(movs) == 0
     print("✓ test_no_gas_lp_ignorado")
+
+def test_extrae_gas_lp_clave_15111510_con_descripcion_generica():
+    movs, errs, _ = parse_xml(
+        XML_GAS_LP_15111510_DESCRIPCION_GENERICA,
+        "pemex_gaslux.xml",
+        rfc_activo="GLU760309457",
+    )
+    assert not errs
+    assert len(movs) == 1
+    assert movs[0]["tipo_movimiento"] == "entrada"
+    assert movs[0]["rfc_cp"] == "PME380607P35"
+    assert movs[0]["unidad"] == "litros"
+    assert movs[0]["volumen_litros"] == 35714.286
+    assert movs[0]["uuid"] == "817579A2-DED9-4FF4-80CF-D319D183D697"
+    print("✓ test_extrae_gas_lp_clave_15111510_con_descripcion_generica")
 
 def test_uuid_extraido():
     movs, _, _ = parse_xml(XML_GAS_LP_KG, "uuid.xml")
@@ -112,6 +142,7 @@ if __name__ == "__main__":
     test_extrae_gas_lp_en_litros()
     test_deteccion_por_keyword()
     test_no_gas_lp_ignorado()
+    test_extrae_gas_lp_clave_15111510_con_descripcion_generica()
     test_uuid_extraido()
     test_zip_multiples_facturas()
     test_xml_malformado()

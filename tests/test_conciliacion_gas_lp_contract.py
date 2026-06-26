@@ -135,6 +135,54 @@ def test_conciliacion_exposes_manual_bank_reconciliation_layer():
     assert "bank_reconciliation" in summary_source
 
 
+def test_conciliacion_summary_compacts_payload_and_exposes_credit_discount_helpers():
+    source = inspect.getsource(internal_users.gas_lp_conciliacion_summary)
+    html = _conciliacion_frontend_source()
+
+    assert "xml_content" not in source
+    assert "response_payload" not in source
+    assert 'select("id,factura_id,amount,difference,status' in source
+    assert "_conciliacion_compact_factura" in source
+    assert "_conciliacion_discount_info" in source
+    assert "credito_pendiente" in source
+    assert "descuentos_periodo" in source
+    assert "publico_general_con_cliente_observado" in source
+    assert "Descuentos del mes" in html
+    assert "Vencidas / vigentes" in html
+    assert "observacionesCliente" in html
+    assert "discountInfo" in html
+
+
+def test_conciliacion_publico_general_real_client_and_discount_are_lightweight():
+    row = {
+        "id": 10,
+        "rfc_receptor": "XAXX010101000",
+        "volumen_litros": Decimal("100"),
+        "importe": Decimal("1000"),
+        "metadata": {
+            "cliente_nombre": "PUBLICO EN GENERAL",
+            "comentarios": "Cliente: Transportes Alfa turno nocturno",
+            "descuento_por_litro": Decimal("0.50"),
+            "xml_content": "<xml pesado/>",
+            "response_payload": {"pac": "pesado"},
+        },
+    }
+    metadata = row["metadata"]
+    info = {"litros": Decimal("100"), "total": Decimal("1160"), "metodo_pago": "PUE", "saldo_insoluto": Decimal("0")}
+
+    real = internal_users._conciliacion_real_cliente(row, metadata)
+    discount = internal_users._conciliacion_discount_info(row, metadata, info)
+    row.update({"cliente_real": real, "cliente_display": real["nombre"], "discount_info": discount})
+    compact = internal_users._conciliacion_compact_factura(row)
+
+    assert real["nombre"] == "Transportes Alfa turno nocturno"
+    assert real["fuente"] == "observaciones"
+    assert discount["total"] == 50.0
+    assert compact["cliente_display"] == "Transportes Alfa turno nocturno"
+    assert "xml_content" not in compact["metadata"]
+    assert "response_payload" not in compact["metadata"]
+
+
 def test_manual_bank_reconciliation_status_suggestion_stays_separate_from_fiscal_status():
     status, difference = internal_users._normalize_bank_reconciliation_status(
         "conciliada",
