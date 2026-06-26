@@ -125,6 +125,13 @@ def _smart_round(v: float, decimales: int = 2) -> str:
     return f"{v:.{decimales}f}"
 
 
+def _cfdi_total_str(v: float, tipo_cfdi: str) -> str:
+    """CFDI tipo T usa Moneda XXX, cuyo catálogo SAT no admite decimales."""
+    if tipo_cfdi == "T":
+        return "0"
+    return _smart_round(v, 2)
+
+
 def _domicilio_ubicacion(cp: str, estado: str = "", municipio: str = "", localidad: str = "", calle: str = "") -> dict:
     domicilio = {
         "CodigoPostal": (cp or "").strip(),
@@ -170,8 +177,8 @@ def _build_concepto_hidrocarburo(
 
     if tipo_cfdi == "T":
         # Traslado: SubTotal 0, sin impuestos
-        valor_unitario = "0.00"
-        importe_str    = "0.00"
+        valor_unitario = "0"
+        importe_str    = "0"
         objeto_imp     = "01"  # No objeto de impuesto
         concepto: dict = {
             "ClaveProdServ":   ClaveProdServCFDI.SERVICIO_FLETE,
@@ -508,9 +515,9 @@ def build_cfdi_transporte(
         "Sello":              "",
         "NoCertificado":      "",
         "Certificado":        "",
-        "SubTotal":           _smart_round(subtotal, 2),
+        "SubTotal":           _cfdi_total_str(subtotal, tipo_cfdi),
         "Moneda":             "MXN" if tipo_cfdi == "I" else "XXX",
-        "Total":              _smart_round(total, 2),
+        "Total":              _cfdi_total_str(total, tipo_cfdi),
         "TipoDeComprobante":  tipo_cfdi,
         "Exportacion":        "01",
         "LugarExpedicion":    lu_expedicion,

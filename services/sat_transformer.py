@@ -37,6 +37,7 @@ import calendar
 import json
 import logging
 import os
+import re
 import zipfile
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -51,6 +52,7 @@ UM03              = "UM03"           # Litros — unidad oficial SAT petrolífer
 CLAVE_PRODUCTO    = "PR12"           # Gas LP
 CAPACIDAD_MAX     = 277_000.0        # litros — umbral de advertencia física
 RFC_PROVEEDOR_SAT = "PCO960701A49"
+MAX_DESCRIPCION_EVENTO = 250
 
 # ── Defaults de composición GLP estándar (NOM-016-CRE-2016) ──────────────────
 PROPANO_DEFAULT_FRAC = 0.60
@@ -76,6 +78,15 @@ TIPO_EVENTO_DESC = {
     10: "Alarma: condicion anormal detectada en tanque",
     11: "Alarma: corte de energia electrica en instalacion",
 }
+
+
+def _limpiar_descripcion_evento(texto: Any, max_len: int = MAX_DESCRIPCION_EVENTO) -> str:
+    """Normaliza descripciones para no exceder limites SAT ni enviar parentesis."""
+    limpio = re.sub(r"\s*\([^()]*\)", "", str(texto or ""))
+    limpio = " ".join(limpio.split())
+    if len(limpio) <= max_len:
+        return limpio
+    return limpio[: max_len - 1].rstrip(" ,.;:") + "."
 
 # ── Catálogo actividades SAT por permiso (Apéndice 4) ─────────────────────────
 ACTIVIDAD_POR_PERMISO: dict = {
@@ -649,15 +660,12 @@ def build_sat_report(
         "UsuarioResponsable": _usuario_resp,
         "TipoEvento":         6,
         "DescripcionEvento":  (
-            f"Reporte mensual generado por Z-Control v3.5. "
-            f"Recepciones: {cnt_rec}, Entregas: {cnt_ent}, "
-            f"VolumenExistenciasMes: {vol_existencias:,.2f} L. "
-            f"Temperatura base: {temp_base}°C (por movimiento cuando disponible), "
-            f"Presion: {pres_base} kPa. "
-            f"Composicion: {compos_propano}% propano / {compos_butano}% butano "
-            f"({'real' if es_composicion_real else 'default industria'}). "
-            f"Coef. expansion termica: {coef_exp:.5f} L/(L·°C). "
-            f"Factor VCM aplicado: {factor_vcm:.6f}."
+            f"Reporte mensual Z-Control v3.5. "
+            f"Rec: {cnt_rec}, Ent: {cnt_ent}, Exist: {vol_existencias:,.2f} L. "
+            f"Temp: {temp_base}°C, Presion: {pres_base} kPa. "
+            f"Gas LP: {compos_propano}% propano / {compos_butano}% butano "
+            f"{'real' if es_composicion_real else 'default'}. "
+            f"Coef: {coef_exp:.5f}. VCM: {factor_vcm:.6f}."
         ),
     })
 
@@ -745,6 +753,11 @@ def build_sat_report(
             },
         },
     }
+    for evento in bitacora:
+        evento["DescripcionEvento"] = _limpiar_descripcion_evento(
+            evento.get("DescripcionEvento")
+        )
+
     sat_dict["Producto"]        = [producto_dict]
     sat_dict["BitacoraMensual"] = bitacora
 
