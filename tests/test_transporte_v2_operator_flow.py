@@ -198,3 +198,18 @@ def test_admin_document_trip_keeps_borrador_status_and_normalizes_dates(monkeypa
     assert row["operacion_status"] == "asignado"
     assert row["fecha_hora_salida"] == "2026-06-20T10:00:00"
     assert row["fecha_hora_llegada"] == "2026-06-20T13:00:00"
+
+
+def test_carta_porte_uses_vehicle_sct_permit_without_permit_catalog():
+    result = transporte_v2._vehicle_carta_porte_permit(
+        {
+            "id": 3,
+            "permiso_sct": "TPAF03",
+            "num_permiso_sct": "3268OEMR07062011230301009",
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["tipo_permiso"] == "TPAF03"
+    assert result["numero_permiso"] == "3268OEMR07062011230301009"
+    assert result["source"] == "vehiculo"
