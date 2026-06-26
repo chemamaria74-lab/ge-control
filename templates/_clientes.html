@@ -1,0 +1,55 @@
+    <section id="panel-clientes" class="tab-panel">
+      <nav class="subtabs" aria-label="Clientes">
+        <button class="subtab-btn active" id="clients-tab-clientes" type="button" onclick="switchClientsTab('clientes')"><i class="fa-solid fa-users"></i> Clientes</button>
+        <button class="subtab-btn" id="clients-tab-credito" type="button" onclick="switchClientsTab('credito')"><i class="fa-solid fa-hand-holding-dollar"></i> Crédito</button>
+        <button class="subtab-btn" id="clients-tab-descuentos" type="button" onclick="switchClientsTab('descuentos')"><i class="fa-solid fa-tags"></i> Descuentos</button>
+      </nav>
+      <div id="clients-panel-clientes" class="clients-subpanel card active">
+      <div class="section-title">
+        <div>
+          <h2>Clientes</h2>
+          <p class="muted" style="margin:4px 0 0">Catálogo de receptores frecuentes para seleccionar al facturar.</p>
+        </div>
+        <div class="toolbar">
+          <span class="count-pill" id="clientesCount">0 clientes</span>
+          <button class="btn ghost" type="button" onclick="loadClientes()">Actualizar</button>
+          <button class="btn" type="button" onclick="openClienteFormFromTab()"><i class="fa-solid fa-user-plus"></i> Agregar</button>
+        </div>
+      </div>
+      <div id="clientesNotice" class="status" aria-live="polite"></div>
+      <div id="clienteFormClientes" class="card hide" style="box-shadow:none;margin-bottom:12px;background:#fbfaf8">
+        <h3 id="clienteFormTitle" class="client-form-title">Agregar cliente</h3>
+        <div class="form-grid">
+          <div><label>RFC</label><input id="cliRfc" value="XAXX010101000" oninput="this.value=this.value.toUpperCase()"></div>
+          <div><label>Nombre fiscal</label><input id="cliNombre" value="PUBLICO EN GENERAL"></div>
+          <div><label>CP</label><input id="cliCp" inputmode="numeric" maxlength="5"></div>
+          <div><label>Correo oficial/principal</label><input id="cliEmail" type="email" placeholder="cliente@empresa.com"></div>
+          <div><label>Correo adicional</label><input id="cliEmailAdicional1" type="email" placeholder="contabilidad@empresa.com"></div>
+          <div><label>&nbsp;</label><div class="muted" style="font-size:.8rem;padding-top:9px">Máximo 2 correos: 1 principal y 1 adicional.</div></div>
+          <div><label>Régimen</label><select id="cliRegimen"></select></div>
+          <div><label>Uso CFDI</label><select id="cliUso"></select></div>
+        </div>
+        <div class="section-title" style="margin-top:14px"><h3 style="margin:0">Crédito</h3><span class="muted">Solo para facturas PPD o clientes con crédito autorizado.</span></div>
+        <div class="form-grid">
+          <div><label>Apto para crédito</label><select id="cliCreditoHabilitado" onchange="updateClientCreditForm()"><option value="0">No</option><option value="1">Sí</option></select></div>
+          <div><label>Días de crédito</label><input id="cliDiasCredito" type="number" min="0" max="365" step="1" value="0"></div>
+          <div><label>Límite de crédito opcional</label><input id="cliLimiteCredito" type="number" min="0" step="0.01" placeholder="Sin límite"></div>
+        </div>
+        <div class="section-title" style="margin-top:14px"><h3 style="margin:0">Descuento</h3><span class="muted">Se aplica automáticamente al seleccionar el cliente en Facturación.</span></div>
+        <div class="form-grid">
+          <div><label>Descuento activo</label><select id="cliDescuentoActivo" onchange="updateClientDiscountForm()"><option value="0">No</option><option value="1">Sí</option></select></div>
+          <div><label>Tipo de descuento</label><select id="cliTipoDescuento" onchange="updateClientDiscountForm()"><option value="sin_descuento">Sin descuento</option><option value="por_litro">Descuento por litro</option><option value="total_pesos">Descuento por total</option><option value="precio_especial">Precio especial por litro</option></select></div>
+          <div id="cliDescuentoValorField"><label id="cliDescuentoValorLabel">Monto del descuento</label><input id="cliDescuentoValor" inputmode="decimal" placeholder="Ej. 1.00"><span id="cliDescuentoValorHint" class="hint muted">Se descontará este monto por cada litro.</span></div>
+        </div>
+        <div class="toolbar" style="margin-top:10px">
+          <button class="btn" id="btnGuardarCliente" type="button" onclick="saveClienteFromTab()">Guardar cliente</button>
+          <button class="btn ghost" type="button" onclick="cancelClienteForm()">Cancelar</button>
+          <span id="clientesMsg" class="status"></span>
+        </div>
+      </div>
+      <div><label>Buscar cliente</label><input id="clienteSearch" placeholder="Nombre, RFC, CP o uso CFDI" oninput="renderClientesList()"></div>
+      <div class="list client-list" id="clientesList"><div class="empty">Cargando clientes...</div></div>
+      </div>
+      <!-- ge-include: gas_lp/asistente/_dashboard.html -->
+      <!-- ge-include: gas_lp/asistente/_descuentos.html -->
+    </section>

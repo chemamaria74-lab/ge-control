@@ -1,0 +1,81 @@
+  <div id="emailModal" class="modal-backdrop hide" role="dialog" aria-modal="true" aria-labelledby="emailModalTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <h2 id="emailModalTitle">Enviar correo</h2>
+          <p class="muted" id="emailModalMeta" style="margin:4px 0 0">XML/PDF de la factura</p>
+        </div>
+        <button class="btn ghost icon-btn" type="button" onclick="closeEmailModal()" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <label for="emailModalInput">Correo oficial/principal</label>
+      <input id="emailModalInput" type="email" placeholder="cliente@empresa.com">
+      <label for="emailModalExtra1" style="margin-top:10px">Correo adicional</label>
+      <input id="emailModalExtra1" type="email" placeholder="contabilidad@empresa.com">
+      <p class="muted" style="margin:8px 0 0;font-size:.8rem">Máximo 2 correos: 1 principal y 1 adicional.</p>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" onclick="closeEmailModal()">Cancelar</button>
+        <button class="btn" id="emailModalSendBtn" type="button" onclick="sendFacturaEmail()"><i class="fa-solid fa-paper-plane"></i> Enviar XML/PDF</button>
+      </div>
+      <div id="emailModalStatus" class="status"></div>
+    </div>
+  </div>
+  <div id="compConfirmModal" class="modal-backdrop hide" role="dialog" aria-modal="true" aria-labelledby="compConfirmTitle">
+    <div class="modal" style="width:min(780px,100%)">
+      <div class="modal-head">
+        <div>
+          <h2 id="compConfirmTitle">Validar complemento de pago</h2>
+          <p class="muted" style="margin:4px 0 0">Este proceso generará un CFDI tipo Pago. Verifica que la fecha e importe coincidan con el depósito recibido.</p>
+        </div>
+        <button class="btn ghost icon-btn" type="button" onclick="closeComplementValidation()" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="form-grid" style="margin-bottom:12px">
+        <div><label>Fecha pago</label><input id="compModalFechaPago" type="datetime-local" onchange="updateComplementValidation()"></div>
+        <div><label>Forma de pago</label><select id="compModalFormaPago" onchange="updateComplementValidation()"><option value="03">03 - Transferencia</option><option value="01">01 - Efectivo</option><option value="02">02 - Cheque nominativo</option><option value="04">04 - Tarjeta de crédito</option><option value="28">28 - Tarjeta de débito</option></select></div>
+      </div>
+      <div id="compModalClient" class="notice" style="margin-bottom:10px"></div>
+      <div class="table-wrap" style="max-height:310px;overflow:auto"><table><thead><tr><th>Factura</th><th>UUID</th><th>Saldo anterior</th><th>Monto recibido</th><th>Saldo insoluto</th></tr></thead><tbody id="compModalRows"></tbody></table></div>
+      <div class="invoice-summary" style="margin-top:12px">
+        <div><span>Saldo anterior</span><b id="compModalSaldoAnterior">$0.00</b></div>
+        <div><span>Importe pagado</span><b id="compModalImportePagado">$0.00</b></div>
+        <div><span>Saldo insoluto resultante</span><b id="compModalSaldoFinal">$0.00</b></div>
+      </div>
+      <div id="compModalBadge" class="status"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" onclick="closeComplementValidation()">Cancelar</button>
+        <button class="btn" id="compModalConfirmBtn" type="button" onclick="confirmTimbrarComplementoPago()"><i class="fa-solid fa-stamp"></i> Confirmar y timbrar complemento</button>
+      </div>
+      <div id="compModalMsg" class="status"></div>
+    </div>
+  </div>
+  <div id="transferConfirmModal" class="modal-backdrop hide" role="dialog" aria-modal="true" aria-labelledby="transferConfirmTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <h2 id="transferConfirmTitle">Confirmar traspaso</h2>
+          <p class="muted" style="margin:4px 0 0">Vas a generar un CFDI interno sin efectos fiscales.</p>
+        </div>
+        <button class="btn ghost icon-btn" type="button" onclick="resolveTransferConfirm(false)" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="transferConfirmBody" class="invoice-summary"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" onclick="resolveTransferConfirm(false)">Cancelar</button>
+        <button class="btn" type="button" onclick="resolveTransferConfirm(true)"><i class="fa-solid fa-stamp"></i> Confirmar y timbrar traspaso</button>
+      </div>
+    </div>
+  </div>
+  <div id="invoiceConfirmModal" class="modal-backdrop hide" role="dialog" aria-modal="true" aria-labelledby="invoiceConfirmTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <h2 id="invoiceConfirmTitle">Verificar factura antes de timbrar</h2>
+          <p class="muted" style="margin:4px 0 0">El total mostrado aquí será el total enviado al PAC.</p>
+        </div>
+        <button class="btn ghost icon-btn" type="button" onclick="resolveInvoiceConfirm(false)" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="invoiceConfirmBody" class="invoice-summary"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" onclick="resolveInvoiceConfirm(false)">Cancelar</button>
+        <button class="btn" type="button" onclick="resolveInvoiceConfirm(true)"><i class="fa-solid fa-stamp"></i> Confirmar y timbrar</button>
+      </div>
+    </div>
+  </div>

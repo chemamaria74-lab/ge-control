@@ -1,0 +1,20 @@
+    <div id="billing-panel-facturas" class="billing-subpanel card">
+      <div class="section-title">
+        <div>
+          <h2>Facturas</h2>
+          <p class="muted" style="margin:4px 0 0">Consulta y filtra las facturas timbradas de la empresa asignada.</p>
+        </div>
+        <div class="toolbar">
+          <div><label>Exportar día</label><input id="facturaExportDia" type="date"></div>
+          <button class="btn ghost" type="button" onclick="exportFacturasDiaExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
+          <button class="btn ghost" type="button" onclick="loadFacturas(facturaMes?.value || '')"><i class="fa-solid fa-magnifying-glass"></i> Cargar mes</button>
+        </div>
+      </div>
+      <div class="filters month-filters">
+        <div><label>Cliente</label><select id="facturaClienteFilter" onchange="applyFacturasFilters()"><option value="">Todos los clientes</option></select></div>
+        <div><label>Mes</label><input id="facturaMes" type="month" onchange="applyMonthFilter()"></div>
+        <div><label>Pago</label><select id="facturaPago" onchange="applyFacturasFilters()"><option value="">Todos</option><option value="PUE">PUE</option><option value="PPD">PPD</option><option value="Complemento">Complemento</option><option value="Traslado">Traslado</option></select></div>
+        <div><label>Tipo</label><select id="facturaTipo" onchange="applyFacturasFilters()"><option value="">Todos</option><option value="factura">Facturas</option><option value="complemento">Complementos de pago</option><option value="traspaso">Traspasos</option></select></div>
+      </div>
+      <div class="table-wrap facturas-table-wrap"><table class="facturas-table"><thead><tr><th class="date-cell">Fecha</th><th class="op-cell">Operación</th><th class="facility-cell">Instalación</th><th class="client-cell">Cliente/Destino</th><th class="liters-cell">Litros</th><th class="money-cell">Total</th><th class="pay-cell">Pago</th><th class="assistant-cell">Realizado por</th><th class="status-cell">Estado fiscal</th><th class="uuid-cell">UUID</th><th class="docs-cell">Docs</th></tr></thead><tbody id="facturasRows"><tr><td colspan="11">Selecciona un mes y presiona Cargar mes.</td></tr></tbody></table></div>
+    </div>

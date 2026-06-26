@@ -1,0 +1,57 @@
+    <section id="panel-carta-porte" class="tab-panel">
+      <nav class="subtabs" aria-label="Carta Porte">
+        <button class="subtab-btn active" id="cp-tab-timbrar" type="button" onclick="switchCartaPorteTab('timbrar')"><i class="fa-solid fa-stamp"></i> Timbrar Carta Porte</button>
+        <button class="subtab-btn" id="cp-tab-hoy" type="button" onclick="switchCartaPorteTab('hoy')"><i class="fa-solid fa-calendar-day"></i> Cartas Porte de hoy</button>
+        <button class="subtab-btn" id="cp-tab-todas" type="button" onclick="switchCartaPorteTab('todas')"><i class="fa-solid fa-list"></i> Todas</button>
+        <button class="subtab-btn" id="cp-tab-configuracion" type="button" onclick="switchCartaPorteTab('configuracion')"><i class="fa-solid fa-gears"></i> Configuración</button>
+      </nav>
+      <div id="cp-panel-timbrar" class="billing-subpanel active">
+        <div class="card">
+          <div class="section-title">
+            <div>
+              <h2>Timbrar Carta Porte</h2>
+              <p class="muted" style="margin:4px 0 0">CFDI tipo T para traslado Carta Porte.</p>
+            </div>
+            <button class="btn ghost" type="button" onclick="loadCatalogos();resetCartaPorteState({clearForm:true, keepStatus:true})"><i class="fa-solid fa-arrows-rotate"></i> Actualizar</button>
+          </div>
+          <div id="cartaPorteWizard"></div>
+          <div class="toolbar" style="margin-top:12px">
+            <button class="btn" id="cpStampBtn" type="button" onclick="handleCartaPorteAction()"><i class="fa-solid fa-stamp"></i> Timbrar Carta Porte</button>
+            <button class="btn ghost" type="button" onclick="resetCartaPorteState({clearForm:true})"><i class="fa-solid fa-eraser"></i> Limpiar</button>
+            <span id="cpMsg" class="status"></span>
+          </div>
+        </div>
+      </div>
+      <div id="cp-panel-hoy" class="billing-subpanel">
+        <div class="card">
+          <div class="section-title">
+            <div>
+              <h2>Cartas Porte de hoy</h2>
+              <p class="muted" style="margin:4px 0 0">CFDI tipo T timbrados hoy para descargar PDF/XML.</p>
+            </div>
+            <button class="btn ghost" type="button" onclick="loadFacturas('', {surfaceError:true})"><i class="fa-solid fa-arrows-rotate"></i> Actualizar</button>
+          </div>
+          <div id="cpTodayHistory"></div>
+        </div>
+      </div>
+      <div id="cp-panel-todas" class="billing-subpanel">
+        <div class="card">
+          <div class="section-title">
+            <div>
+              <h2>Todas las Cartas Porte</h2>
+              <p class="muted" style="margin:4px 0 0">Histórico mensual con deslizador horizontal para revisar documentos.</p>
+            </div>
+            <div class="toolbar">
+              <input id="cpHistoryMes" type="month" onchange="loadFacturas(this.value, {surfaceError:true})">
+              <button class="btn ghost" type="button" onclick="loadFacturas(cpHistoryMes?.value || '', {surfaceError:true})"><i class="fa-solid fa-arrows-rotate"></i> Actualizar</button>
+            </div>
+          </div>
+          <div id="cpAllHistory"></div>
+        </div>
+      </div>
+      <div id="cp-panel-configuracion" class="billing-subpanel">
+        <div class="card">
+          <div id="assistantCpCatalogApp"></div>
+        </div>
+      </div>
+    </section>
