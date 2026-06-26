@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from .core import *
 from fastapi import File, Form, UploadFile
+from models.transport_schemas import FacturaServicioCreate, GenerarCovolRequest
 
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(

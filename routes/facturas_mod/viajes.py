@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from .core import *
+from models.transport_schemas import CancelacionViajeRequest, ViajeCreate
 
 from services.carta_porte_validation import requiere_complemento_hidrocarburos
 from services.sw_sapien import emitir_timbrar_json
