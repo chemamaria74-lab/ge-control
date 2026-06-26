@@ -359,7 +359,7 @@ def test_assistant_carta_porte_route_form_is_operational_and_derives_facility_da
         "Distancia recorrida km",
         "Duración estimada minutos",
         "origen y destino deben ser distintos",
-        "cpName('instalaciones', row.origen_facility_id)",
+        "cpName('instalaciones', cpRouteLocationRef(row, 'origen'))",
         "cpVehiculo) cpVehiculo.value = '';",
         "cpChofer) cpChofer.value = '';",
     ):
@@ -1471,7 +1471,13 @@ def test_assistant_today_invoices_use_backend_date_key_and_current_month():
     html = _assistant_frontend_source()
 
     assert "month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)" in html
-    assert "await loadFacturas(month || todayKey().slice(0,7))" in html
+    startup_start = html.index("async function load()")
+    startup_end = html.index("function openClientesTab", startup_start)
+    assert "['facturas', loadFacturas]" not in html[startup_start:startup_end]
+    assert "['complementos', loadComplementos]" not in html[startup_start:startup_end]
+    assert "Cargar mes" in html
+    assert "Selecciona un mes y presiona Cargar mes." in html
+    assert "limit=' + encodeURIComponent(String(limit))" in html
     assert "f.fecha_factura_key || facturaDateValue(f)" in html
     assert "todayFacturasRows" in html
 
