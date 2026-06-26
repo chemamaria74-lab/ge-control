@@ -944,9 +944,11 @@ async function downloadHistZIP() {
     const objUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = objUrl;
-    // Usar siempre el nombre oficial SAT devuelto por la API al cargar el historial.
-    // No depender del Content-Disposition porque puede venir con quotes o no estar expuesto.
-    link.download = histZipFilename || `reporte_${histPeriodo}.zip`;
+    const cd = res.headers.get('Content-Disposition') || res.headers.get('content-disposition') || '';
+    const headerFilename = (cd.match(/filename\*=UTF-8''([^;]+)/i)?.[1])
+      || (cd.match(/filename="?([^"]+)"?/i)?.[1])
+      || '';
+    link.download = headerFilename ? decodeURIComponent(headerFilename) : (histZipFilename || `reporte_${histPeriodo}.zip`);
     link.click();
     URL.revokeObjectURL(objUrl);
   } catch(e) { alert('Error al descargar: ' + e.message); }
