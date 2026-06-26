@@ -3534,7 +3534,7 @@ def _stamp_internal_product_keys(producto: dict[str, Any], raw: dict[str, Any]) 
         internal = "PR06"
         sub = sub or "SP1"
         sat_key = sat_key if str(sat_key).isdigit() else "15101514"
-    elif "15101507" in text or "DIESEL" in text or "DIÉSEL" in text:
+    elif "15101505" in text or "15101507" in text or "DIESEL" in text or "DIÉSEL" in text:
         internal = "PR05"
         sub = sub or "SP6"
         sat_key = sat_key if str(sat_key).isdigit() else "15101507"
