@@ -616,7 +616,9 @@ def test_gas_lp_complementos_por_factura_chunks_and_uses_light_select():
 def test_gas_lp_facturas_list_select_excludes_heavy_columns():
     source = inspect.getsource(internal_users.gas_lp_internal_facturas)
 
-    assert "select=GAS_LP_FACTURAS_LIST_SELECT" in source
+    assert "facturas_select = GAS_LP_FACTURAS_LIST_SELECT" in source
+    assert "max_limit = 10000 if deep else 50" in source
+    assert "xml_content" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
     assert "xml_content" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
     assert "acuse_cancelacion" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
     assert "pac_response" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
@@ -626,6 +628,13 @@ def test_gas_lp_facturas_list_select_excludes_heavy_columns():
     assert "cfdi_status" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
     assert "sat_estado" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
     assert "cancelacion_status" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
+
+
+def test_asistente_cargar_mes_facturas_requests_full_company_month():
+    html = _assistant_frontend_source()
+
+    assert "Cargar mes" in html
+    assert "loadFacturas(facturaMes?.value || '', {limit:10000, deep:true})" in html
 
 
 def test_gas_lp_facturas_complementos_mode_returns_only_pending_ppd_without_50_limit(monkeypatch):
@@ -676,13 +685,18 @@ def test_gas_lp_facturas_complementos_mode_returns_only_pending_ppd_without_50_l
     monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", fake_rows)
     monkeypatch.setattr(internal_users, "_gas_lp_attach_internal_creators", lambda sb, rows: None)
     monkeypatch.setattr(internal_users, "_gas_lp_attach_cliente_email_recipients", lambda sb, user, rows: None)
-    monkeypatch.setattr(internal_users, "_gas_lp_complementos_por_factura", lambda sb, ids, **kwargs: {2: [{"id": 9, "complemento_id": 9, "saldo_insoluto": 0, "created_at": "2026-06-04"}]})
+    monkeypatch.setitem(
+        internal_users.gas_lp_internal_facturas.__globals__,
+        "_gas_lp_complementos_por_factura",
+        lambda sb, ids, **kwargs: {2: [{"id": 9, "complemento_id": 9, "saldo_insoluto": 0, "created_at": "2026-06-04"}]},
+    )
 
     response = asyncio.run(internal_users.gas_lp_internal_facturas(token="token", mes="2026-06", limit=50, complementos=True))
     payload = json.loads(response.body)
 
     assert captured["month"] == ""
     assert captured["limit"] == 10000
+    assert "xml_content" in captured["select"]
     assert captured["company_fallback"] is True
     assert captured["visibility_log"] is False
     assert payload["complementos"] is True
