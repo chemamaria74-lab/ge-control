@@ -3522,29 +3522,35 @@ def _stamp_expand_route_locations(sb: Any, uid: str, pid: Optional[int], route: 
     if not expanded.get("origen_id") or not expanded.get("destino_id"):
         return expanded
     meta = _meta(expanded)
-    origen = _normalize_catalog_row("origenes", _stamp_row(sb, TBL_ORIGENES, expanded.get("origen_id"), uid, pid))
-    destino = _normalize_catalog_row("destinos", _stamp_row(sb, TBL_DESTINOS, expanded.get("destino_id"), uid, pid))
-    if not origen or not destino:
+    origen_raw = _stamp_row(sb, TBL_ORIGENES, expanded.get("origen_id"), uid, pid)
+    destino_raw = _stamp_row(sb, TBL_DESTINOS, expanded.get("destino_id"), uid, pid)
+    if not origen_raw or not destino_raw:
         return expanded
+    origen = _normalize_catalog_row("origenes", origen_raw)
+    destino = _normalize_catalog_row("destinos", destino_raw)
     expanded["origen"] = _first_text(origen.get("nombre"), expanded.get("nombre_origen"), expanded.get("origen"))
     expanded["nombre_origen"] = _first_text(origen.get("nombre"), expanded.get("nombre_origen"), expanded.get("origen"))
     expanded["cp_origen"] = _first_text(origen.get("cp"), expanded.get("cp_origen"))
     expanded["destino"] = _first_text(destino.get("nombre"), expanded.get("nombre_destino"), expanded.get("destino"))
     expanded["nombre_destino"] = _first_text(destino.get("nombre"), expanded.get("nombre_destino"), expanded.get("destino"))
     expanded["cp_destino"] = _first_text(destino.get("cp"), expanded.get("cp_destino"))
+    expanded["id_ubicacion_origen"] = _first_text(origen.get("id_ubicacion_carta_porte"), expanded.get("id_ubicacion_origen"), meta.get("id_ubicacion_origen"))
+    expanded["id_ubicacion_destino"] = _first_text(destino.get("id_ubicacion_carta_porte"), expanded.get("id_ubicacion_destino"), meta.get("id_ubicacion_destino"))
+    expanded["rfc_origen"] = _first_text(origen.get("rfc"), expanded.get("rfc_origen"), meta.get("rfc_origen"))
+    expanded["rfc_destino"] = _first_text(destino.get("rfc"), expanded.get("rfc_destino"), meta.get("rfc_destino"))
     meta.update({
-        "id_ubicacion_origen": _first_text(origen.get("id_ubicacion_carta_porte")),
-        "rfc_origen": _first_text(origen.get("rfc")),
-        "estado_origen": _first_text(origen.get("estado_sat")),
-        "municipio_origen": _first_text(origen.get("municipio_sat")),
-        "localidad_origen": _first_text(origen.get("localidad_sat")),
-        "calle_origen": _first_text(origen.get("direccion")),
-        "id_ubicacion_destino": _first_text(destino.get("id_ubicacion_carta_porte")),
-        "rfc_destino": _first_text(destino.get("rfc")),
-        "estado_destino": _first_text(destino.get("estado_sat")),
-        "municipio_destino": _first_text(destino.get("municipio_sat")),
-        "localidad_destino": _first_text(destino.get("localidad_sat")),
-        "calle_destino": _first_text(destino.get("direccion")),
+        "id_ubicacion_origen": expanded["id_ubicacion_origen"],
+        "rfc_origen": expanded["rfc_origen"],
+        "estado_origen": _first_text(origen.get("estado_sat"), meta.get("estado_origen")),
+        "municipio_origen": _first_text(origen.get("municipio_sat"), meta.get("municipio_origen")),
+        "localidad_origen": _first_text(origen.get("localidad_sat"), meta.get("localidad_origen")),
+        "calle_origen": _first_text(origen.get("direccion"), meta.get("calle_origen")),
+        "id_ubicacion_destino": expanded["id_ubicacion_destino"],
+        "rfc_destino": expanded["rfc_destino"],
+        "estado_destino": _first_text(destino.get("estado_sat"), meta.get("estado_destino")),
+        "municipio_destino": _first_text(destino.get("municipio_sat"), meta.get("municipio_destino")),
+        "localidad_destino": _first_text(destino.get("localidad_sat"), meta.get("localidad_destino")),
+        "calle_destino": _first_text(destino.get("direccion"), meta.get("calle_destino")),
     })
     expanded["metadata"] = meta
     return expanded
@@ -3930,7 +3936,28 @@ def _stamp_build_context(
     receptor_cp = _first_text(viaje_row.get("cp_receptor"), cliente.get("cp"))
     receptor_regimen = _first_text(viaje_row.get("regimen_fiscal_receptor"), cliente.get("regimen_fiscal"))
     route_meta = _meta(ruta)
-    tarifa_meta = _meta(viaje_row).get("tarifa_calculo") if isinstance(_meta(viaje_row).get("tarifa_calculo"), dict) else {}
+    viaje_meta = _meta(viaje_row)
+    origen_catalog = _normalize_catalog_row(
+        "origenes",
+        _stamp_row(sb, TBL_ORIGENES, viaje_row.get("origen_id") or ruta.get("origen_id"), uid, pid),
+    )
+    destino_catalog = _normalize_catalog_row(
+        "destinos",
+        _stamp_row(sb, TBL_DESTINOS, viaje_row.get("destino_id") or ruta.get("destino_id"), uid, pid),
+    )
+    id_ubicacion_origen = _first_text(
+        route_meta.get("id_ubicacion_origen"),
+        ruta.get("id_ubicacion_origen"),
+        viaje_meta.get("id_ubicacion_origen"),
+        origen_catalog.get("id_ubicacion_carta_porte"),
+    )
+    id_ubicacion_destino = _first_text(
+        route_meta.get("id_ubicacion_destino"),
+        ruta.get("id_ubicacion_destino"),
+        viaje_meta.get("id_ubicacion_destino"),
+        destino_catalog.get("id_ubicacion_carta_porte"),
+    )
+    tarifa_meta = viaje_meta.get("tarifa_calculo") if isinstance(viaje_meta.get("tarifa_calculo"), dict) else {}
     viaje_obj = ViajeCreate(
         perfil_id=pid,
         chofer_id=int(viaje_row.get("chofer_id")),
@@ -3941,20 +3968,20 @@ def _stamp_build_context(
         producto_operacion_id=viaje_row.get("producto_operacion_id"),
         cp_origen=_first_text(viaje_row.get("cp_origen"), ruta.get("cp_origen")),
         nombre_origen=_first_text(viaje_row.get("nombre_origen"), ruta.get("nombre_origen"), ruta.get("origen")),
-        rfc_origen=_first_text(route_meta.get("rfc_origen"), _meta(viaje_row).get("rfc_origen")),
-        id_ubicacion_origen=_first_text(route_meta.get("id_ubicacion_origen"), _meta(viaje_row).get("id_ubicacion_origen")),
-        estado_origen=_first_text(route_meta.get("estado_origen"), _meta(viaje_row).get("estado_origen")),
-        municipio_origen=_first_text(route_meta.get("municipio_origen"), _meta(viaje_row).get("municipio_origen")),
-        localidad_origen=_first_text(route_meta.get("localidad_origen"), _meta(viaje_row).get("localidad_origen")),
-        calle_origen=_first_text(route_meta.get("calle_origen"), _meta(viaje_row).get("calle_origen")),
+        rfc_origen=_first_text(route_meta.get("rfc_origen"), ruta.get("rfc_origen"), viaje_meta.get("rfc_origen"), origen_catalog.get("rfc")),
+        id_ubicacion_origen=id_ubicacion_origen,
+        estado_origen=_first_text(route_meta.get("estado_origen"), viaje_meta.get("estado_origen"), origen_catalog.get("estado_sat")),
+        municipio_origen=_first_text(route_meta.get("municipio_origen"), viaje_meta.get("municipio_origen"), origen_catalog.get("municipio_sat")),
+        localidad_origen=_first_text(route_meta.get("localidad_origen"), viaje_meta.get("localidad_origen"), origen_catalog.get("localidad_sat")),
+        calle_origen=_first_text(route_meta.get("calle_origen"), viaje_meta.get("calle_origen"), origen_catalog.get("direccion")),
         cp_destino=_first_text(viaje_row.get("cp_destino"), ruta.get("cp_destino")),
         nombre_destino=_first_text(viaje_row.get("nombre_destino"), ruta.get("nombre_destino"), ruta.get("destino")),
-        rfc_destino=_first_text(route_meta.get("rfc_destino"), _meta(viaje_row).get("rfc_destino"), receptor_rfc),
-        id_ubicacion_destino=_first_text(route_meta.get("id_ubicacion_destino"), _meta(viaje_row).get("id_ubicacion_destino")),
-        estado_destino=_first_text(route_meta.get("estado_destino"), _meta(viaje_row).get("estado_destino")),
-        municipio_destino=_first_text(route_meta.get("municipio_destino"), _meta(viaje_row).get("municipio_destino")),
-        localidad_destino=_first_text(route_meta.get("localidad_destino"), _meta(viaje_row).get("localidad_destino")),
-        calle_destino=_first_text(route_meta.get("calle_destino"), _meta(viaje_row).get("calle_destino")),
+        rfc_destino=_first_text(route_meta.get("rfc_destino"), ruta.get("rfc_destino"), viaje_meta.get("rfc_destino"), destino_catalog.get("rfc"), receptor_rfc),
+        id_ubicacion_destino=id_ubicacion_destino,
+        estado_destino=_first_text(route_meta.get("estado_destino"), viaje_meta.get("estado_destino"), destino_catalog.get("estado_sat")),
+        municipio_destino=_first_text(route_meta.get("municipio_destino"), viaje_meta.get("municipio_destino"), destino_catalog.get("municipio_sat")),
+        localidad_destino=_first_text(route_meta.get("localidad_destino"), viaje_meta.get("localidad_destino"), destino_catalog.get("localidad_sat")),
+        calle_destino=_first_text(route_meta.get("calle_destino"), viaje_meta.get("calle_destino"), destino_catalog.get("direccion")),
         fecha_hora_salida=_first_text(viaje_row.get("fecha_hora_salida"), normalized_viaje.get("fecha_salida")),
         fecha_hora_llegada=_first_text(viaje_row.get("fecha_hora_llegada"), normalized_viaje.get("fecha_llegada_estimada")),
         productos=[producto_obj],
@@ -4064,6 +4091,83 @@ def _delete_unstamped_operator_trip(sb: Any, acc: dict[str, Any], trip: dict[str
     return False
 
 
+def _xml_local_name(tag: str) -> str:
+    if "}" in tag:
+        tag = tag.rsplit("}", 1)[1]
+    if ":" in tag:
+        tag = tag.rsplit(":", 1)[1]
+    return tag
+
+
+def _validate_carta_porte_xml_locations(xml_pre_sw: str) -> None:
+    try:
+        root = ET.fromstring(xml_pre_sw.encode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(400, f"El XML previo a SW no se pudo leer: {exc}") from exc
+
+    ubicaciones = [node for node in root.iter() if _xml_local_name(node.tag) == "Ubicacion"]
+    cantidades = [node for node in root.iter() if _xml_local_name(node.tag) == "CantidadTransporta"]
+    ids_por_tipo: dict[str, set[str]] = {"origen": set(), "destino": set()}
+    errores: list[dict[str, str]] = []
+
+    for idx, ubicacion in enumerate(ubicaciones, start=1):
+        tipo = _first_text(ubicacion.get("TipoUbicacion")).lower()
+        id_ubicacion = _first_text(ubicacion.get("IDUbicacion")).upper()
+        if not id_ubicacion:
+            errores.append({
+                "nivel": "error",
+                "campo": f"ubicaciones[{idx}].IDUbicacion",
+                "mensaje": "Falta IDUbicacion en una ubicación Carta Porte.",
+            })
+            continue
+        if not re.fullmatch(r"(OR|DE)\d{6}", id_ubicacion):
+            errores.append({
+                "nivel": "error",
+                "campo": f"ubicaciones[{idx}].IDUbicacion",
+                "mensaje": f"IDUbicacion inválido: {id_ubicacion}. Debe ser OR/DE + 6 dígitos.",
+            })
+        if tipo.startswith("origen"):
+            ids_por_tipo["origen"].add(id_ubicacion)
+        elif tipo.startswith("destino"):
+            ids_por_tipo["destino"].add(id_ubicacion)
+
+    for idx, cantidad in enumerate(cantidades, start=1):
+        id_origen = _first_text(cantidad.get("IDOrigen")).upper()
+        id_destino = _first_text(cantidad.get("IDDestino")).upper()
+        if not id_origen:
+            errores.append({
+                "nivel": "error",
+                "campo": f"cantidad_transporta[{idx}].IDOrigen",
+                "mensaje": "Falta IDOrigen en CantidadTransporta.",
+            })
+        elif id_origen not in ids_por_tipo["origen"]:
+            errores.append({
+                "nivel": "error",
+                "campo": f"cantidad_transporta[{idx}].IDOrigen",
+                "mensaje": f"IDOrigen {id_origen} no coincide con una ubicación origen del XML.",
+            })
+        if not id_destino:
+            errores.append({
+                "nivel": "error",
+                "campo": f"cantidad_transporta[{idx}].IDDestino",
+                "mensaje": "Falta IDDestino en CantidadTransporta.",
+            })
+        elif id_destino not in ids_por_tipo["destino"]:
+            errores.append({
+                "nivel": "error",
+                "campo": f"cantidad_transporta[{idx}].IDDestino",
+                "mensaje": f"IDDestino {id_destino} no coincide con una ubicación destino del XML.",
+            })
+
+    if errores:
+        raise HTTPException(400, {
+            "ok": False,
+            "message": "Falta configurar ID ubicación Carta Porte en el origen o destino de la ruta. Revisa la instalación del proveedor y la instalación del cliente.",
+            "errors": errores,
+            "validaciones": errores,
+        })
+
+
 def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     sb = context["sb"]
     uid = context["uid"]
@@ -4133,6 +4237,7 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
         xml_pre_sw = build_cfdi_transporte_xml(cfdi_dict)
         if "cartaporte31:CartaPorte" not in xml_pre_sw:
             raise ValueError("El XML fiscal no contiene Complemento Carta Porte 3.1 antes de enviar a SW Sapiens.")
+        _validate_carta_porte_xml_locations(xml_pre_sw)
         resultado_xml = timbrar_cfdi(xml_pre_sw)
         resultado_sw = {
             "ok": not bool(resultado_xml.get("error")),
@@ -4145,6 +4250,8 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
             "pac_response": resultado_xml.get("pac_response") or {},
             "raw": {k: v for k, v in resultado_xml.items() if k != "xml_timbrado"},
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         error_payload = {"message": str(exc), "type": type(exc).__name__, "fecha": _now_iso()}
         _audit(uid, "", pid, TBL_VIAJES, viaje_id, "timbrado_sw_exception", error_payload)
