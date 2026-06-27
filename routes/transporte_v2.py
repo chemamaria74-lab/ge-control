@@ -955,6 +955,38 @@ def _operator_cfdi_row(sb: Any, acc: dict[str, Any], trip: dict[str, Any]) -> di
     return dict(rows[0])
 
 
+def _route_provider_match_score(route: dict[str, Any], origin: dict[str, Any], detected: dict[str, Any]) -> int:
+    meta = _meta(route)
+    origin_meta = _meta(origin)
+    score = 0
+    provider_rfc = _normalize_rfc_value(_first_text(detected.get("proveedor_rfc"), detected.get("emisor_rfc")))
+    route_rfc = _normalize_rfc_value(_first_text(route.get("rfc_origen"), meta.get("rfc_origen"), origin.get("rfc"), origin_meta.get("rfc")))
+    if provider_rfc and route_rfc and provider_rfc == route_rfc:
+        score += 100
+    provider_permiso = _normalize_permiso_value(_first_text(detected.get("proveedor_permiso"), detected.get("permiso")))
+    route_permiso = _normalize_permiso_value(_first_text(route.get("permiso_cre"), meta.get("permiso_cre"), origin.get("permiso_cre"), origin_meta.get("permiso_cre")))
+    if provider_permiso and route_permiso and provider_permiso == route_permiso:
+        score += 80
+    provider_text = _normalize_match_text(_first_text(detected.get("proveedor_nombre"), detected.get("emisor_nombre")))
+    route_text = _normalize_match_text(" ".join(str(value or "") for value in [
+        route.get("nombre"),
+        route.get("origen"),
+        route.get("nombre_origen"),
+        meta.get("nombre_origen"),
+        meta.get("origen_nombre"),
+        origin.get("nombre"),
+        origin.get("proveedor_nombre"),
+        origin_meta.get("nombre"),
+        origin_meta.get("proveedor_nombre"),
+    ]))
+    if provider_text and route_text and (provider_text in route_text or route_text in provider_text):
+        score += 50
+    provider_tokens = {token for token in provider_text.split() if len(token) >= 4}
+    route_tokens = {token for token in route_text.split() if len(token) >= 4}
+    score += len(provider_tokens & route_tokens) * 25
+    return score
+
+
 def _operator_prepare_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any]) -> dict[str, Any]:
     provider_rfc = _normalize_rfc_value(_first_text(detected.get("proveedor_rfc"), detected.get("emisor_rfc")))
     client_rfc = _normalize_rfc_value(_first_text(detected.get("cliente_rfc"), detected.get("receptor_rfc")))
@@ -995,6 +1027,28 @@ def _operator_prepare_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any
         int(row.get("id")) for row in destination_rows
         if client.get("id") and int(row.get("cliente_id") or 0) == int(client.get("id"))
     }
+    if not destination_ids and client:
+        client_text = _normalize_match_text(_first_text(client.get("nombre"), detected.get("cliente_nombre"), detected.get("receptor_nombre")))
+        client_tokens = {token for token in client_text.split() if len(token) >= 3}
+        client_cp = _first_text(client.get("cp"), detected.get("cp_receptor"))
+        for row in destination_rows:
+            row_norm = _normalize_catalog_row("destinos", row)
+            dest_text = _normalize_match_text(_first_text(row_norm.get("nombre"), row_norm.get("cliente_nombre")))
+            dest_tokens = {token for token in dest_text.split() if len(token) >= 3}
+            if (
+                (_normalize_rfc_value(row_norm.get("rfc")) and _normalize_rfc_value(row_norm.get("rfc")) == client_rfc)
+                or (client_cp and _first_text(row_norm.get("cp")) == client_cp)
+                or (client_tokens and dest_tokens and client_tokens & dest_tokens)
+            ):
+                destination_ids.add(int(row_norm.get("id") or 0))
+    origin_rows = (
+        sb.table(TBL_ORIGENES).select("*")
+        .eq("user_id", acc.get("user_id"))
+        .eq("perfil_id", acc.get("perfil_id"))
+        .eq("activo", True)
+        .execute().data or []
+    )
+    origins_by_id = {int(row.get("id") or 0): _normalize_catalog_row("origenes", row) for row in origin_rows}
     route_rows = (
         sb.table(TBL_RUTAS).select("*")
         .eq("user_id", acc.get("user_id"))
@@ -1002,9 +1056,16 @@ def _operator_prepare_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any
         .eq("activo", True)
         .execute().data or []
     )
-    routes = [row for row in route_rows if int(row.get("destino_id") or 0) in destination_ids]
+    expanded_routes = [_stamp_expand_route_locations(sb, acc.get("user_id"), acc.get("perfil_id"), row) for row in route_rows]
+    routes = [row for row in expanded_routes if int(row.get("destino_id") or 0) in destination_ids]
     if not routes and len(route_rows) == 1:
-        routes = route_rows
+        routes = expanded_routes
+    routes = sorted(
+        routes,
+        key=lambda row: _route_provider_match_score(row, origins_by_id.get(int(row.get("origen_id") or 0), {}), detected),
+        reverse=True,
+    )
+    suggested_route = routes[0] if routes else {}
 
     vehicle_id = acc.get("vehiculo_id") or (acc.get("chofer") or {}).get("vehiculo_frecuente_id")
     vehicle = _operator_trip_catalog_row(sb, TBL_VEHICULOS, vehicle_id, acc)
@@ -1027,6 +1088,7 @@ def _operator_prepare_trip(sb: Any, acc: dict[str, Any], detected: dict[str, Any
         "product": product,
         "vehicle": vehicle,
         "routes": routes,
+        "suggested_route_id": suggested_route.get("id"),
         "provider_rfc": provider_rfc,
         "client_match": client_match,
         "product_match": product_match,
@@ -3967,6 +4029,41 @@ def _try_delete_transport_rows(sb: Any, table: str, uid: str, pid: Optional[int]
         raise
 
 
+def _delete_unstamped_operator_trip(sb: Any, acc: dict[str, Any], trip: dict[str, Any]) -> bool:
+    uid = acc.get("user_id")
+    pid = _profile_id(acc.get("perfil_id"))
+    viaje_id = int(trip.get("id") or 0)
+    if not uid or not viaje_id:
+        return False
+    if _first_text(trip.get("uuid_cfdi"), _meta(trip).get("uuid_carta_porte"), _meta(trip).get("cfdi_uuid")):
+        return False
+    cfdi_rows = (
+        sb.table(TBL_CFDI)
+        .select("id,uuid_sat,status")
+        .eq("user_id", uid)
+        .eq("viaje_id", viaje_id)
+        .limit(25)
+        .execute()
+        .data
+        or []
+    )
+    if any(_first_text(row.get("uuid_sat")) and _first_text(row.get("status")).lower() != "cancelada" for row in cfdi_rows):
+        return False
+    for client in (sb, get_supabase_admin()):
+        try:
+            _try_delete_transport_rows(client, TBL_DOCUMENTOS, uid, pid, viaje_id)
+            _try_delete_transport_rows(client, TBL_CFDI, uid, pid, viaje_id, only_unstamped_cfdi=True)
+            query = client.table(TBL_VIAJES).delete().eq("id", viaje_id).eq("user_id", uid)
+            if pid:
+                query = query.eq("perfil_id", pid)
+            deleted = query.execute().data or []
+            if deleted:
+                return True
+        except Exception as exc:
+            logger.info("No se pudo eliminar viaje operador sin timbrar con cliente actual viaje=%s: %s", viaje_id, exc)
+    return False
+
+
 def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     sb = context["sb"]
     uid = context["uid"]
@@ -4687,6 +4784,7 @@ async def transporte_v2_operator_preparar_viaje(
             "nombre": _first_text(prepared["vehicle"].get("numero_economico"), prepared["vehicle"].get("alias"), prepared["vehicle"].get("placas")),
             "placas": prepared["vehicle"].get("placas") or "",
         },
+        "ruta_id_sugerida": prepared.get("suggested_route_id"),
         "rutas": [{
             "id": row.get("id"), "nombre": row.get("nombre"),
             "origen": row.get("nombre_origen"), "destino": row.get("nombre_destino"),
@@ -4725,6 +4823,100 @@ async def transporte_v2_operator_crear_viaje(
         invoice_sha256=hashlib.sha256(content).hexdigest(),
     )
     return {"ok": True, "viaje": _normalize_viaje_row(trip), "metadata": _meta(trip), "has_trip": True}
+
+
+@router.post("/tr-v2/operator/crear-y-timbrar")
+async def transporte_v2_operator_crear_y_timbrar(
+    file: UploadFile = File(...),
+    ruta_id: int = Form(...),
+    authorization: str = Header(default=""),
+):
+    token_plain = _operator_token_from_header(authorization)
+    sb, acc = _operator_context(token_plain)
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "El archivo está vacío.")
+    if len(content) > 2_500_000:
+        raise HTTPException(400, "La factura excede el tamaño permitido de 2.5 MB.")
+    try:
+        analysis = _detect_document_metadata(content, file.filename or "factura", file.content_type or "")
+    except Exception as exc:
+        logger.exception("No se pudo validar factura al crear y timbrar viaje operador")
+        raise HTTPException(400, f"No se pudo validar la factura: {exc}")
+    detected = analysis.get("detected") if isinstance(analysis.get("detected"), dict) else {}
+    trip = _operator_create_trip(
+        sb,
+        acc,
+        detected,
+        ruta_id,
+        invoice_filename=file.filename or "factura",
+        invoice_content_type=file.content_type or "",
+        invoice_content=content,
+        invoice_sha256=hashlib.sha256(content).hexdigest(),
+    )
+    trip_id = int(trip.get("id") or 0)
+    try:
+        context = _stamp_build_context(
+            uid=acc.get("user_id"),
+            pid=_profile_id(acc.get("perfil_id")),
+            viaje_id=trip_id,
+            actor="operador",
+            operador_id=int(acc.get("chofer_id") or 0),
+        )
+        claimed = (
+            sb.table(TBL_VIAJES)
+            .update({"carta_porte_status": "timbrando", "updated_at": _now_iso()})
+            .eq("id", trip_id)
+            .eq("user_id", acc.get("user_id"))
+            .eq("perfil_id", acc.get("perfil_id"))
+            .in_("carta_porte_status", ["pendiente", "error", "borrador"])
+            .execute()
+            .data
+            or []
+        )
+        if not claimed:
+            raise HTTPException(409, "La Carta Porte ya está timbrada o hay un timbrado en curso.")
+        stamped = _stamp_carta_porte_context(context)
+        refreshed = _operator_assigned_trip(sb, acc)
+        meta = _meta(refreshed)
+        return {
+            "ok": True,
+            "has_trip": True,
+            "viaje": _normalize_viaje_row(refreshed),
+            "metadata": meta,
+            "carta_porte": stamped,
+            "uuid_sat": stamped.get("uuid_sat") or stamped.get("uuid_cfdi"),
+            "id_ccp": stamped.get("id_ccp"),
+        }
+    except HTTPException as exc:
+        detail = exc.detail
+        uuid = ""
+        if isinstance(detail, dict):
+            uuid = _first_text(detail.get("uuid_sat"), detail.get("uuid_cfdi"))
+        deleted = False
+        if not uuid:
+            try:
+                deleted = _delete_unstamped_operator_trip(sb, acc, trip)
+            except Exception as cleanup_exc:
+                logger.warning("No se pudo limpiar viaje operador sin timbrar %s: %s", trip_id, cleanup_exc)
+        raise HTTPException(exc.status_code, {
+            "ok": False,
+            "message": detail.get("message") if isinstance(detail, dict) else str(detail),
+            "detail": detail,
+            "viaje_eliminado": deleted,
+        }) from exc
+    except Exception as exc:
+        deleted = False
+        try:
+            deleted = _delete_unstamped_operator_trip(sb, acc, trip)
+        except Exception as cleanup_exc:
+            logger.warning("No se pudo limpiar viaje operador sin timbrar %s: %s", trip_id, cleanup_exc)
+        logger.exception("No se pudo crear y timbrar viaje operador")
+        raise HTTPException(500, {
+            "ok": False,
+            "message": f"No se pudo crear y timbrar Carta Porte: {exc}",
+            "viaje_eliminado": deleted,
+        }) from exc
 
 
 @router.post("/tr-v2/operator/factura")
