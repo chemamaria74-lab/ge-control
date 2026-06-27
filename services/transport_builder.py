@@ -74,6 +74,9 @@ _CP_POSTAL_OVERRIDES = {
     "20120": {"estado": "AGU", "municipio": "001", "localidad": "01"},
     "27019": {"estado": "COA", "municipio": "035", "localidad": ""},
     "27297": {"estado": "COA", "municipio": "035", "localidad": "01"},
+    # CP operativo capturado para Propane; SAT c_CodigoPostal lo rechaza.
+    # Para el XML fiscal usamos la cabecera SAT de Zapotlanejo.
+    "45464": {"codigo_postal": "45430", "estado": "JAL", "municipio": "", "localidad": ""},
     "47200": {"estado": "JAL", "municipio": "091", "localidad": ""},
     "98057": {"estado": "ZAC", "municipio": "056", "localidad": "03"},
     "98470": {"estado": "ZAC", "municipio": "", "localidad": ""},
@@ -191,19 +194,14 @@ def _sat_cp(value: object) -> str:
 def _domicilio_ubicacion(cp: str, estado: str = "", municipio: str = "", localidad: str = "", calle: str = "") -> dict:
     cp_sat = _sat_cp(cp)
     override = _CP_POSTAL_OVERRIDES.get(cp_sat, {})
+    cp_sat = override.get("codigo_postal") or cp_sat
     estado_sat = override.get("estado") or _sat_state(estado)
-    municipio_sat = override.get("municipio") if "municipio" in override else _sat_digits(municipio, 3)
-    localidad_sat = override.get("localidad") if "localidad" in override else _sat_digits(localidad, 2)
     domicilio = {
         "CodigoPostal": cp_sat,
         "Pais": "MEX",
     }
     if estado_sat:
         domicilio["Estado"] = estado_sat
-    if municipio_sat:
-        domicilio["Municipio"] = municipio_sat
-    if localidad_sat:
-        domicilio["Localidad"] = localidad_sat
     if calle:
         domicilio["Calle"] = calle.strip()
     return domicilio
