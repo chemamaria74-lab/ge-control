@@ -26,6 +26,7 @@ import logging
 import uuid as _uuid_mod
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from xml.sax.saxutils import escape as _xml_escape
 from zoneinfo import ZoneInfo
 
 from services.product_catalog import get_producto, ClaveProdServCFDI
@@ -39,7 +40,8 @@ logger = logging.getLogger(__name__)
 # ── Constantes ────────────────────────────────────────────────────────────────
 IVA_TASA      = 0.16
 RETENCION_IVA_TASA = 0.04
-CLAVE_UNIDAD_SERVICIO = "H87"
+CLAVE_UNIDAD_SERVICIO = "E48"
+UNIDAD_SERVICIO = "Unidad de Servicios"
 CLAVE_UNIDAD_LITRO_CFDI = "LTR"
 NS_HIDRO      = "http://www.sat.gob.mx/hidrocarburospetroliferos"
 NS_CP31       = "http://www.sat.gob.mx/CartaPorte31"
@@ -171,7 +173,7 @@ def _build_concepto_hidrocarburo(
     Para tipo T (Traslado): ValorUnitario=0, sin impuestos.
     Para tipo I (Ingreso):  ValorUnitario calculado, IVA 16%.
     """
-    descripcion = "Servicio de transporte de carga por carretera"
+    descripcion = "FLETE"
 
     importe  = round(producto.importe, 2)
 
@@ -182,13 +184,13 @@ def _build_concepto_hidrocarburo(
         objeto_imp     = "01"  # No objeto de impuesto
         concepto: dict = {
             "ClaveProdServ":   ClaveProdServCFDI.SERVICIO_FLETE,
-            "NoIdentificacion": f"TR-{indice+1:03d}",
-            "Cantidad":        "1",
+            "NoIdentificacion": ClaveProdServCFDI.SERVICIO_FLETE,
+            "Cantidad":        "1.00",
             "ClaveUnidad":     CLAVE_UNIDAD_SERVICIO,
-            "Unidad":          "Pieza",
+            "Unidad":          UNIDAD_SERVICIO,
             "Descripcion":     descripcion,
-            "ValorUnitario":   valor_unitario,
-            "Importe":         importe_str,
+            "ValorUnitario":   "0.000000",
+            "Importe":         "0.00",
             "ObjetoImp":       objeto_imp,
         }
     else:
@@ -199,12 +201,12 @@ def _build_concepto_hidrocarburo(
 
         concepto = {
             "ClaveProdServ":   ClaveProdServCFDI.SERVICIO_FLETE,
-            "NoIdentificacion": f"TR-{indice+1:03d}",
-            "Cantidad":        "1",
+            "NoIdentificacion": ClaveProdServCFDI.SERVICIO_FLETE,
+            "Cantidad":        "1.00",
             "ClaveUnidad":     CLAVE_UNIDAD_SERVICIO,
-            "Unidad":          "Pieza",
+            "Unidad":          UNIDAD_SERVICIO,
             "Descripcion":     descripcion,
-            "ValorUnitario":   _smart_round(importe, 2),
+            "ValorUnitario":   _smart_round(importe, 6),
             "Importe":         _smart_round(importe, 2),
             "ObjetoImp":       objeto_imp,
         }
@@ -228,6 +230,131 @@ def _build_concepto_hidrocarburo(
         if impuestos:
             concepto["Impuestos"] = impuestos
     return concepto
+
+
+def _xml_attr(value: object) -> str:
+    return _xml_escape(str(value), {'"': "&quot;"})
+
+
+def _is_xml_attr_value(value: object) -> bool:
+    return value is not None and not isinstance(value, (dict, list, tuple))
+
+
+def _xml_attrs(data: dict) -> str:
+    attrs = []
+    for key, value in data.items():
+        if not _is_xml_attr_value(value):
+            continue
+        attrs.append(f'{key}="{_xml_attr(value)}"')
+    return (" " + " ".join(attrs)) if attrs else ""
+
+
+def _cfdi_node(local_name: str, data: dict | list) -> str:
+    return _xml_node(f"cfdi:{local_name}", data, "cfdi")
+
+
+def _cp_node(local_name: str, data: dict | list) -> str:
+    return _xml_node(f"cartaporte31:{local_name}", data, "cartaporte31")
+
+
+def _xml_node(tag: str, data: dict | list, ns: str) -> str:
+    if isinstance(data, list):
+        local = tag.split(":", 1)[-1]
+        return "".join(_xml_node(tag, item, ns) for item in data if isinstance(item, dict))
+    attrs = _xml_attrs(data)
+    children: list[str] = []
+    for key, value in data.items():
+        if _is_xml_attr_value(value) or value in (None, "", [], {}):
+            continue
+        if ns == "cfdi":
+            children.append(_cfdi_child_xml(key, value))
+        else:
+            children.append(_cp_child_xml(key, value))
+    if children:
+        return f"<{tag}{attrs}>{''.join(children)}</{tag}>"
+    return f"<{tag}{attrs}/>"
+
+
+def _cfdi_child_xml(key: str, value: object) -> str:
+    if key == "CfdiRelacionados" and isinstance(value, dict):
+        relacionados = value.get("CfdiRelacionado") or []
+        attrs = {k: v for k, v in value.items() if k != "CfdiRelacionado"}
+        inner = _cfdi_node("CfdiRelacionado", relacionados) if isinstance(relacionados, list) else ""
+        return f"<cfdi:CfdiRelacionados{_xml_attrs(attrs)}>{inner}</cfdi:CfdiRelacionados>"
+    if key == "Emisor" and isinstance(value, dict):
+        return _cfdi_node("Emisor", value)
+    if key == "Receptor" and isinstance(value, dict):
+        return _cfdi_node("Receptor", value)
+    if key == "Conceptos" and isinstance(value, list):
+        return f"<cfdi:Conceptos>{_cfdi_node('Concepto', value)}</cfdi:Conceptos>"
+    if key == "Impuestos" and isinstance(value, dict):
+        return _cfdi_impuestos_xml(value)
+    if key == "Complemento" and isinstance(value, dict):
+        inner = "".join(
+            _xml_node(child_key, child_value, "cartaporte31" if child_key.startswith("cartaporte31:") else "cfdi")
+            for child_key, child_value in value.items()
+            if isinstance(child_value, dict)
+        )
+        return f"<cfdi:Complemento>{inner}</cfdi:Complemento>"
+    return ""
+
+
+def _cfdi_impuestos_xml(data: dict) -> str:
+    attrs = _xml_attrs({k: v for k, v in data.items() if k not in {"Traslados", "Retenciones"}})
+    children = []
+    traslados = data.get("Traslados") or []
+    if traslados:
+        children.append(f"<cfdi:Traslados>{_cfdi_node('Traslado', traslados)}</cfdi:Traslados>")
+    retenciones = data.get("Retenciones") or []
+    if retenciones:
+        children.append(f"<cfdi:Retenciones>{_cfdi_node('Retencion', retenciones)}</cfdi:Retenciones>")
+    if children:
+        return f"<cfdi:Impuestos{attrs}>{''.join(children)}</cfdi:Impuestos>"
+    return f"<cfdi:Impuestos{attrs}/>"
+
+
+def _cp_child_xml(key: str, value: object) -> str:
+    if key == "Ubicaciones" and isinstance(value, dict):
+        return f"<cartaporte31:Ubicaciones>{_cp_node('Ubicacion', value.get('Ubicacion') or [])}</cartaporte31:Ubicaciones>"
+    if key == "Mercancias" and isinstance(value, dict):
+        attrs = _xml_attrs({k: v for k, v in value.items() if k not in {"Mercancia", "Autotransporte"}})
+        mercancias = _cp_node("Mercancia", value.get("Mercancia") or [])
+        autotransporte = _cp_node("Autotransporte", value.get("Autotransporte") or {}) if isinstance(value.get("Autotransporte"), dict) else ""
+        return f"<cartaporte31:Mercancias{attrs}>{mercancias}{autotransporte}</cartaporte31:Mercancias>"
+    if key == "Autotransporte" and isinstance(value, dict):
+        return _cp_node("Autotransporte", value)
+    if key == "FiguraTransporte" and isinstance(value, dict):
+        tipos = value.get("TiposFigura") or []
+        return f"<cartaporte31:FiguraTransporte>{_cp_node('TiposFigura', tipos)}</cartaporte31:FiguraTransporte>"
+    if key == "Remolques" and isinstance(value, dict):
+        return f"<cartaporte31:Remolques>{_cp_node('Remolque', value.get('Remolque') or [])}</cartaporte31:Remolques>"
+    if isinstance(value, dict):
+        return _cp_node(key, value)
+    if isinstance(value, list):
+        return _cp_node(key, value)
+    return ""
+
+
+def build_cfdi_transporte_xml(cfdi: dict) -> str:
+    """
+    Serializa el CFDI de Transporte a XML explícito.
+
+    SW Sapiens acepta JSON-to-XML, pero Carta Porte 3.1 con prefijo
+    cartaporte31 debe viajar sin ambigüedad para evitar timbrar solo el CFDI
+    base sin complemento.
+    """
+    root_attrs = {
+        "xmlns:cfdi": "http://www.sat.gob.mx/cfd/4",
+        "xmlns:cartaporte31": NS_CP31,
+        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+        **{k: v for k, v in cfdi.items() if _is_xml_attr_value(v)},
+    }
+    children = []
+    for key in ("CfdiRelacionados", "Emisor", "Receptor", "Conceptos", "Impuestos", "Complemento"):
+        value = cfdi.get(key)
+        if value not in (None, "", [], {}):
+            children.append(_cfdi_child_xml(key, value))
+    return f'<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante{_xml_attrs(root_attrs)}>{"".join(children)}</cfdi:Comprobante>'
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -274,6 +401,12 @@ def _build_carta_porte(
             poliza_resp = poliza_resp or (seguro.get("poliza") or "").strip()
     if not asegura_resp or not poliza_resp:
         raise ValueError("Configura aseguradora y póliza de responsabilidad civil del vehículo antes de timbrar Carta Porte.")
+    peso_bruto_vm = str(
+        vehiculo.get("peso_bruto_vehicular")
+        or vehiculo.get("peso_bruto")
+        or vehiculo.get("peso_bruto_toneladas")
+        or ""
+    ).strip()
     autotransporte: dict = {
         "PermSCT":    perm_sct,
         "NumPermisoSCT": num_perm_sct,
@@ -287,6 +420,8 @@ def _build_carta_porte(
             "PolizaRespCivil":  poliza_resp,
         },
     }
+    if peso_bruto_vm:
+        autotransporte["IdentificacionVehicular"]["PesoBrutoVehicular"] = peso_bruto_vm
     asegura_med = ""
     poliza_med = ""
     for seguro in seguros_operacion:
@@ -327,6 +462,7 @@ def _build_carta_porte(
             "Descripcion":            desc_mat,
             "Cantidad":               _smart_round(vol_prod, 3),
             "ClaveUnidad":            CLAVE_UNIDAD_LITRO_CFDI,
+            "Unidad":                  getattr(prod, "unidad", "") or "L",
             "PesoEnKg":               _smart_round(peso_prod, 3),
             "MaterialPeligroso":      "Sí",
             "CveMaterialPeligroso":   cve_mat,
@@ -379,6 +515,7 @@ def _build_carta_porte(
         {
             "TipoUbicacion":    "Origen",
             "IDUbicacion":      id_origen,
+            "NombreRemitenteDestinatario": viaje.nombre_origen.strip(),
             "RFCRemitenteDestinatario": rfc_origen,
             "FechaHoraSalidaLlegada":  fecha_salida,
             "Domicilio": _domicilio_ubicacion(cp_origen, viaje.estado_origen, viaje.municipio_origen, viaje.localidad_origen, viaje.calle_origen),
@@ -387,6 +524,7 @@ def _build_carta_porte(
             "TipoUbicacion":    "Destino",
             "IDUbicacion":      id_destino,
             "DistanciaRecorrida": _smart_round(distancia, 1),
+            "NombreRemitenteDestinatario": viaje.nombre_destino.strip(),
             "RFCRemitenteDestinatario": rfc_destino,
             "FechaHoraSalidaLlegada":  fecha_llegada,
             "Domicilio": _domicilio_ubicacion(cp_destino, viaje.estado_destino, viaje.municipio_destino, viaje.localidad_destino, viaje.calle_destino),
