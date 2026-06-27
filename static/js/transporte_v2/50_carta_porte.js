@@ -22,7 +22,7 @@ function trv2SetCartaPorteWorkflow(workflow = 'timbrar') {
 function trv2RenderCartaPorteWorkflow() {
   const workflow = TRV2_CP_WORKFLOW || 'timbrar';
   document.querySelectorAll('[id^="trv2-cp-workflow-tab-"]').forEach(tab => tab.classList.remove('active'));
-  const activeTab = ['preview'].includes(workflow) ? 'pendientes' : workflow;
+  const activeTab = ['preview', 'pendientes'].includes(workflow) ? 'timbrar' : workflow;
   document.getElementById(`trv2-cp-workflow-tab-${activeTab}`)?.classList.add('active');
   document.querySelectorAll('[data-cp-workflow-panel]').forEach(panel => {
     const target = panel.dataset.cpWorkflowPanel;
@@ -505,15 +505,17 @@ async function trv2PreviewCartaPorte(viajeId, permisoId = 0) {
 
 async function trv2StartCartaPorteStamp(viajeId = 0, options = {}) {
   const previewOk = await trv2PreviewCartaPorte(viajeId || 0);
-  if (!previewOk) return;
+  if (!previewOk) return 'blocked';
   if (TRV2_CP_PREVIEW?.ready_to_stamp) {
     if (options.autoStamp) {
       trv2Toast('Datos validados. Timbrando Carta Porte...', 'success');
-      await trv2ConfirmStampCartaPorte();
+      return await trv2ConfirmStampCartaPorte();
     } else {
       trv2Toast('Datos validados. Presiona Timbrar Carta Porte para enviar a SW.', 'success');
     }
+    return 'ready';
   }
+  return 'blocked';
 }
 
 function trv2PreviewSelectedTrip() {

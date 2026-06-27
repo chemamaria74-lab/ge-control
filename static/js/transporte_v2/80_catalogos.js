@@ -1651,12 +1651,14 @@ function trv2ApplyClientRouteToTrip() {
   const cliente = trv2FindCatalog('clientes', document.getElementById('trv2-trip-cliente-id')?.value);
   const routeSelect = document.getElementById('trv2-trip-ruta-id');
   if (!cliente || !routeSelect || typeof trv2DefaultRouteForClient !== 'function') return;
+  const detected = typeof TRV2_DOCUMENT_DETECTED !== 'undefined' ? (TRV2_DOCUMENT_DETECTED?.detected || {}) : {};
   const currentRoute = trv2FindCatalog('rutas', routeSelect.value);
-  if (currentRoute && typeof trv2RouteMatchesClient === 'function' && trv2RouteMatchesClient(currentRoute, cliente)) {
+  const route = trv2DefaultRouteForClient(cliente, detected);
+  const providerDetected = Boolean(detected.proveedor_rfc || detected.emisor_rfc || detected.proveedor_nombre || detected.emisor_nombre || detected.permiso);
+  if (currentRoute && (!providerDetected || (route?.id && Number(route.id) === Number(currentRoute.id))) && typeof trv2RouteMatchesClient === 'function' && trv2RouteMatchesClient(currentRoute, cliente)) {
     trv2ApplyRouteToTrip();
     return;
   }
-  const route = trv2DefaultRouteForClient(cliente);
   if (!route?.id) return;
   routeSelect.value = String(route.id);
   trv2ApplyRouteToTrip();

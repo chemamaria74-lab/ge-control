@@ -256,7 +256,16 @@ function trv2RouteMatchesClient(route = {}, cliente = {}) {
   if (clienteRfc && routeRfc && clienteRfc === routeRfc) return true;
   const routeText = trv2DocNormalizeText(`${route.nombre || ''} ${route.destino || ''} ${route.nombre_destino || ''} ${meta.destino_nombre || ''}`);
   const clientText = trv2DocNormalizeText(cliente.nombre || cliente.razon_social || '');
-  return Boolean(clientText && routeText && (routeText.includes(clientText) || clientText.includes(routeText)));
+  if (clientText && routeText && (routeText.includes(clientText) || clientText.includes(routeText))) return true;
+  const clientTokens = new Set(clientText.split(' ').filter(token => token.length >= 3));
+  const routeTokens = routeText.split(' ').filter(token => token.length >= 3);
+  return Boolean(clientTokens.size && routeTokens.some(token => clientTokens.has(token)));
+}
+
+function trv2DocTokenOverlapScore(left = '', right = '') {
+  const leftTokens = trv2DocNormalizeText(left).split(' ').filter(token => token.length >= 4);
+  const rightTokens = new Set(trv2DocNormalizeText(right).split(' ').filter(token => token.length >= 4));
+  return leftTokens.filter(token => rightTokens.has(token)).length;
 }
 
 function trv2RouteMatchScore(route = {}, cliente = {}, detected = {}) {
@@ -266,10 +275,15 @@ function trv2RouteMatchScore(route = {}, cliente = {}, detected = {}) {
   let score = 10;
   const proveedorRfc = trv2DocNormalizeRfc(detected.proveedor_rfc || detected.emisor_rfc || '');
   const routeProveedorRfc = trv2DocNormalizeRfc(`${route.rfc_origen || meta.rfc_origen || origen?.rfc || meta.origen_rfc || ''}`);
-  if (proveedorRfc && routeProveedorRfc && proveedorRfc === routeProveedorRfc) score += 30;
+  if (proveedorRfc && routeProveedorRfc && proveedorRfc === routeProveedorRfc) score += 100;
+  const proveedorPermiso = trv2DocNormalizeText(detected.proveedor_permiso || detected.permiso || '');
+  const routePermiso = trv2DocNormalizeText(`${route.permiso_cre || meta.permiso_cre || meta.origen_instalacion?.permiso_cre || origen?.permiso_cre || ''}`);
+  if (proveedorPermiso && routePermiso && proveedorPermiso === routePermiso) score += 80;
   const proveedorText = trv2DocNormalizeText(detected.proveedor_nombre || detected.emisor_nombre || '');
-  const routeOrigenText = trv2DocNormalizeText(`${route.nombre_origen || route.origen || meta.nombre_origen || meta.origen_nombre || origen?.nombre || ''}`);
-  if (proveedorText && routeOrigenText && (routeOrigenText.includes(proveedorText) || proveedorText.includes(routeOrigenText))) score += 20;
+  const routeOrigenRaw = `${route.nombre_origen || ''} ${route.origen || ''} ${route.nombre || ''} ${meta.nombre_origen || ''} ${meta.origen_nombre || ''} ${meta.origen_instalacion?.nombre || ''} ${origen?.nombre || ''} ${origen?.proveedor_nombre || ''}`;
+  const routeOrigenText = trv2DocNormalizeText(routeOrigenRaw);
+  if (proveedorText && routeOrigenText && (routeOrigenText.includes(proveedorText) || proveedorText.includes(routeOrigenText))) score += 50;
+  score += trv2DocTokenOverlapScore(proveedorText, routeOrigenRaw) * 25;
   const origenDetectado = trv2DocNormalizeText(detected.origen_sugerido || detected.origen || '');
   if (origenDetectado && routeOrigenText && (routeOrigenText.includes(origenDetectado) || origenDetectado.includes(routeOrigenText))) score += 15;
   const clienteText = trv2DocNormalizeText(cliente.nombre || cliente.razon_social || detected.cliente_nombre || detected.receptor_nombre || '');
@@ -297,11 +311,12 @@ function trv2ApplyClientRouteDefault(scope = TRV2_DOCUMENT_SCOPE || 'carga', man
     return;
   }
   const currentRoute = trv2FindCatalog('rutas', routeSelect.value);
-  if (currentRoute && trv2RouteMatchesClient(currentRoute, cliente)) {
+  const providerDetected = Boolean(detected.proveedor_rfc || detected.emisor_rfc || detected.proveedor_nombre || detected.emisor_nombre || detected.permiso);
+  const route = trv2DefaultRouteForClient(cliente, detected);
+  if (currentRoute && (!providerDetected || (route?.id && Number(route.id) === Number(currentRoute.id))) && trv2RouteMatchesClient(currentRoute, cliente)) {
     trv2UpdateTripDatesFromRoute(scope);
     return;
   }
-  const route = trv2DefaultRouteForClient(cliente, detected);
   if (route?.id) {
     routeSelect.value = String(route.id);
     trv2UpdateTripDatesFromRoute(scope);
@@ -607,7 +622,16 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
     await trv2LoadDashboard();
     if (viajeId) {
       if (scope === 'cp' && typeof trv2StartCartaPorteStamp === 'function') {
-        await trv2StartCartaPorteStamp(viajeId, {autoStamp: true});
+        const stampResult = await trv2StartCartaPorteStamp(viajeId, {autoStamp: true});
+        if (!['stamped', 'invalid'].includes(stampResult)) {
+          await trv2Api('POST', `/api/tr-v2/viajes/${viajeId}/eliminar`, {
+            perfil_id: TRV2_PERFIL?.id || null,
+            data: {},
+          }, {allowError: true, silent: true});
+          await trv2LoadTrips();
+          await trv2LoadDashboard();
+          trv2Toast('No se timbró Carta Porte; se eliminó el borrador del viaje.', 'info');
+        }
       } else if (typeof trv2SetCartaPorteWorkflow === 'function') {
         trv2SetCartaPorteWorkflow('pendientes');
         const panel = document.getElementById('trv2-cp-preview-panel');
