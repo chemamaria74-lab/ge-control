@@ -628,6 +628,68 @@ def test_gas_lp_facturas_list_select_excludes_heavy_columns():
     assert "cancelacion_status" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
 
 
+def test_gas_lp_facturas_complementos_mode_returns_only_pending_ppd_without_50_limit(monkeypatch):
+    rows = [
+        {
+            "id": 1,
+            "uuid_sat": "ppd-pending",
+            "status": "timbrada",
+            "rfc_receptor": "MEME800101XX1",
+            "created_at": "2026-06-03T10:00:00",
+            "metadata": {"metodo_pago": "PPD", "payment_status": "pendiente_complemento", "saldo_insoluto": 1200, "total": 1200},
+        },
+        {
+            "id": 2,
+            "uuid_sat": "ppd-paid",
+            "status": "timbrada",
+            "rfc_receptor": "MEME800101XX1",
+            "created_at": "2026-06-03T11:00:00",
+            "metadata": {"metodo_pago": "PPD", "payment_status": "pendiente_complemento", "saldo_insoluto": 800, "total": 800},
+        },
+        {
+            "id": 3,
+            "uuid_sat": "pue",
+            "status": "timbrada",
+            "rfc_receptor": "MEME800101XX1",
+            "created_at": "2026-06-03T12:00:00",
+            "metadata": {"metodo_pago": "PUE", "payment_status": "pagado_pue", "saldo_insoluto": 0, "total": 500},
+        },
+        {
+            "id": 4,
+            "uuid_sat": "ppd-cancelled",
+            "status": "cancelada",
+            "rfc_receptor": "MEME800101XX1",
+            "created_at": "2026-06-03T13:00:00",
+            "metadata": {"metodo_pago": "PPD", "payment_status": "pendiente_complemento", "saldo_insoluto": 300, "total": 300},
+        },
+    ]
+    captured = {}
+
+    def fake_rows(sb, user, profile, **kwargs):
+        captured.update(kwargs)
+        return rows
+
+    monkeypatch.setenv("GAS_LP_COMPLEMENTOS_PPD_LIMIT", "10000")
+    monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token: {"user": {"perfil_id": 7, "tenant_id": "t1"}})
+    monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=False: {"id": user["perfil_id"], "nombre": "Gas del Cañón", "rfc": "GCA010101AA1"})
+    monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: object())
+    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", fake_rows)
+    monkeypatch.setattr(internal_users, "_gas_lp_attach_internal_creators", lambda sb, rows: None)
+    monkeypatch.setattr(internal_users, "_gas_lp_attach_cliente_email_recipients", lambda sb, user, rows: None)
+    monkeypatch.setattr(internal_users, "_gas_lp_complementos_por_factura", lambda sb, ids, **kwargs: {2: [{"id": 9, "complemento_id": 9, "saldo_insoluto": 0, "created_at": "2026-06-04"}]})
+
+    response = asyncio.run(internal_users.gas_lp_internal_facturas(token="token", mes="2026-06", limit=50, complementos=True))
+    payload = json.loads(response.body)
+
+    assert captured["month"] == ""
+    assert captured["limit"] == 10000
+    assert captured["company_fallback"] is True
+    assert captured["visibility_log"] is False
+    assert payload["complementos"] is True
+    assert payload["limit"] == 10000
+    assert [row["uuid_sat"] for row in payload["facturas"]] == ["ppd-pending"]
+
+
 def test_gas_lp_factura_realizado_por_uses_flat_internal_creator_name():
     row = {
         "created_by_internal": 30,
