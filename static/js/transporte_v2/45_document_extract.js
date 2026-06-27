@@ -86,12 +86,20 @@ async function trv2AnalyzeDocument(event, scope = '') {
     trv2Toast(text, 'error');
     return;
   }
+  await trv2EnsureDocumentCatalogs();
   TRV2_DOCUMENT_DETECTED = data;
   TRV2_DOCUMENT_SCOPE = formScope;
   data.detected = trv2NormalizeDetected(data.detected || {});
   trv2RenderDocumentDetected(data, formScope);
   if (message) message.textContent = 'Documento analizado. Revisa y confirma los datos detectados.';
   trv2Toast('Documento analizado sin timbrar ni generar XML fiscal.', 'success');
+}
+
+async function trv2EnsureDocumentCatalogs() {
+  const required = ['clientes', 'operadores', 'vehiculos', 'productos', 'rutas'];
+  const missing = required.some(name => !(TRV2_CATALOGS[name] || []).length);
+  if (!missing || typeof trv2LoadCatalogs !== 'function') return;
+  await trv2LoadCatalogs({silent: true});
 }
 
 function trv2NormalizeDetected(raw = {}) {
@@ -505,13 +513,24 @@ function trv2SelectDetectedCatalogValues(scope, detected) {
   const cliente = trv2FindCatalog('clientes', detected.cliente_id || backendCliente?.id)
     || trv2FindOrLabel('clientes', detected.receptor_rfc || detected.cliente_rfc, detected.receptor_nombre || detected.cliente_nombre);
   const producto = trv2FindCatalog('productos', detected.producto_id || backendProducto?.id)
-    || trv2FindOrLabel('productos', detected.clave_sat, detected.producto);
+    || trv2FindOrLabel('productos', detected.clave_sat, detected.producto)
+    || trv2DefaultDetectedProduct(detected);
   const clienteSelect = document.getElementById(trv2DocFieldId(scope, 'cliente-id'));
   const productoSelect = document.getElementById(trv2DocFieldId(scope, 'producto-id'));
   if (clienteSelect && cliente?.id) clienteSelect.value = String(cliente.id);
   if (productoSelect && producto?.id) productoSelect.value = String(producto.id);
   trv2ApplyClientRouteDefault(scope, false);
   trv2UpdateDocumentPending(scope);
+}
+
+function trv2DefaultDetectedProduct(detected = {}) {
+  const products = (TRV2_CATALOGS.productos || []).filter(item => item.activo !== false);
+  if (products.length === 1) return products[0];
+  const detectedProduct = trv2DocNormalizeProduct(detected.producto || detected.descripcion || '');
+  if (!detectedProduct) return null;
+  return products.find(item => (
+    trv2DocNormalizeProduct(`${item.descripcion || ''} ${item.nombre || ''} ${item.tipo_producto || ''}`) === detectedProduct
+  )) || null;
 }
 
 async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga') {

@@ -1467,9 +1467,13 @@ function trv2ValidateCatalogPayload(name, data) {
 }
 
 function trv2BuildCartaPorteLocationId(data = {}, target = 'origenes') {
-  const existing = String(data.id_ubicacion_carta_porte || '').trim();
-  if (existing) return existing;
   const prefix = target === 'destinos' || data.tipo_carta_porte === 'Destino' ? 'DE' : 'OR';
+  const existing = String(data.id_ubicacion_carta_porte || '').trim().toUpperCase();
+  if (existing) {
+    const match = existing.match(/(\d{1,6})$/);
+    if (/^(OR|DE)\d{6}$/.test(existing) && existing.startsWith(prefix)) return existing;
+    if (match) return `${prefix}${match[1].slice(-6).padStart(6, '0')}`;
+  }
   const base = String(data.nombre || data.cp || Date.now()).toUpperCase().replace(/[^A-Z0-9]/g, '');
   const digits = String(Math.abs([...base].reduce((sum, ch) => sum + ch.charCodeAt(0), 0))).slice(-6).padStart(6, '0');
   return `${prefix}${digits}`;
