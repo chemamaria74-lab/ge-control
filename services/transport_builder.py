@@ -23,7 +23,6 @@
 
 from __future__ import annotations
 import logging
-import re
 import uuid as _uuid_mod
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -126,16 +125,6 @@ def _normalizar_id_ccp(value: Optional[str]) -> str:
 def _smart_round(v: float, decimales: int = 2) -> str:
     """Serializa float sin notación científica, con los decimales exactos."""
     return f"{v:.{decimales}f}"
-
-
-def _id_ubicacion_cp(raw: object, prefix: str, fallback_id: object = "") -> str:
-    value = str(raw or "").strip().upper()
-    if re.fullmatch(rf"{prefix}\d{{6}}", value):
-        return value
-    digits = re.sub(r"\D+", "", value or str(fallback_id or ""))
-    if digits:
-        return f"{prefix}{int(digits):06d}"
-    return f"{prefix}000001"
 
 
 def _cfdi_total_str(v: float, tipo_cfdi: str) -> str:
@@ -454,9 +443,9 @@ def _build_carta_porte(
     if remolques:
         autotransporte["Remolques"] = {"Remolque": remolques}
 
-    # ── IDs de ubicaciones fiscales (también referenciados por CantidadTransporta)
-    id_origen = _id_ubicacion_cp(viaje.id_ubicacion_origen, "OR", viaje.origen_id or viaje.ruta_id or 1)
-    id_destino = _id_ubicacion_cp(viaje.id_ubicacion_destino, "DE", viaje.destino_id or viaje.ruta_id or 1)
+    # ── IDs de ubicaciones fiscales del catálogo (también referenciados por CantidadTransporta)
+    id_origen = viaje.id_ubicacion_origen.strip().upper()
+    id_destino = viaje.id_ubicacion_destino.strip().upper()
 
     # ── Mercancías (una por producto) ─────────────────────────────────────────
     mercancias_list = []
