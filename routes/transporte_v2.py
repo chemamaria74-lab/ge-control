@@ -2273,9 +2273,17 @@ def _select_catalog(token: str, uid: str, catalogo: str, perfil_id: Optional[int
         if perfil_id:
             query = query.eq("perfil_id", perfil_id)
         rows = query.execute().data or []
+        items = []
+        for row in rows:
+            if catalogo == "rutas":
+                try:
+                    row = _expand_route_from_installations(token, uid, perfil_id, row)
+                except HTTPException:
+                    pass
+            items.append(_normalize_catalog_row(catalogo, row))
         return {
             "ok": True,
-            "items": [_normalize_catalog_row(catalogo, row) for row in rows],
+            "items": items,
             "needs_schema": False,
             "source": "tr_legacy",
             "table": table_name,
@@ -2984,16 +2992,6 @@ def _num(value: Any) -> float:
         return 0.0
 
 
-def _id_ubicacion_cp(raw: Any, prefix: str, fallback_id: Any = "") -> str:
-    value = str(raw or "").strip().upper()
-    if re.fullmatch(rf"{prefix}\d{{6}}", value):
-        return value
-    digits = re.sub(r"\D+", "", value or str(fallback_id or ""))
-    if digits:
-        return f"{prefix}{int(digits):06d}"
-    return f"{prefix}000001"
-
-
 def _validation(validaciones: list[dict[str, str]], nivel: str, campo: str, mensaje: str) -> None:
     validaciones.append({"nivel": nivel, "campo": campo, "mensaje": mensaje})
 
@@ -3281,11 +3279,7 @@ def _build_carta_porte_preview(
             "localidad": _first_text(route_meta.get("localidad_origen"), meta.get("localidad_origen")),
             "pais": _first_text(meta.get("pais_origen"), "MEX"),
             "calle": _first_text(route_meta.get("calle_origen"), meta.get("calle_origen")),
-            "id_ubicacion": _id_ubicacion_cp(
-                _first_text(route_meta.get("id_ubicacion_origen"), meta.get("id_ubicacion_origen")),
-                "OR",
-                viaje.get("origen_id") or ruta.get("origen_id") or ruta.get("id") or 1,
-            ),
+            "id_ubicacion": _first_text(route_meta.get("id_ubicacion_origen"), meta.get("id_ubicacion_origen")),
         },
         "destino": {
             "nombre": _first_text(ruta.get("nombre_destino"), ruta.get("destino"), viaje.get("nombre_destino"), viaje.get("destino")),
@@ -3296,11 +3290,7 @@ def _build_carta_porte_preview(
             "localidad": _first_text(route_meta.get("localidad_destino"), meta.get("localidad_destino")),
             "pais": _first_text(meta.get("pais_destino"), "MEX"),
             "calle": _first_text(route_meta.get("calle_destino"), meta.get("calle_destino")),
-            "id_ubicacion": _id_ubicacion_cp(
-                _first_text(route_meta.get("id_ubicacion_destino"), meta.get("id_ubicacion_destino")),
-                "DE",
-                viaje.get("destino_id") or ruta.get("destino_id") or ruta.get("id") or 1,
-            ),
+            "id_ubicacion": _first_text(route_meta.get("id_ubicacion_destino"), meta.get("id_ubicacion_destino")),
         },
         "mercancia": {
             "descripcion": producto_nombre,
@@ -3890,11 +3880,7 @@ def _stamp_build_context(
         cp_origen=_first_text(viaje_row.get("cp_origen"), ruta.get("cp_origen")),
         nombre_origen=_first_text(viaje_row.get("nombre_origen"), ruta.get("nombre_origen"), ruta.get("origen")),
         rfc_origen=_first_text(route_meta.get("rfc_origen"), _meta(viaje_row).get("rfc_origen")),
-        id_ubicacion_origen=_id_ubicacion_cp(
-            _first_text(route_meta.get("id_ubicacion_origen"), _meta(viaje_row).get("id_ubicacion_origen")),
-            "OR",
-            viaje_row.get("origen_id") or ruta.get("origen_id") or ruta.get("id") or 1,
-        ),
+        id_ubicacion_origen=_first_text(route_meta.get("id_ubicacion_origen"), _meta(viaje_row).get("id_ubicacion_origen")),
         estado_origen=_first_text(route_meta.get("estado_origen"), _meta(viaje_row).get("estado_origen")),
         municipio_origen=_first_text(route_meta.get("municipio_origen"), _meta(viaje_row).get("municipio_origen")),
         localidad_origen=_first_text(route_meta.get("localidad_origen"), _meta(viaje_row).get("localidad_origen")),
@@ -3902,11 +3888,7 @@ def _stamp_build_context(
         cp_destino=_first_text(viaje_row.get("cp_destino"), ruta.get("cp_destino")),
         nombre_destino=_first_text(viaje_row.get("nombre_destino"), ruta.get("nombre_destino"), ruta.get("destino")),
         rfc_destino=_first_text(route_meta.get("rfc_destino"), _meta(viaje_row).get("rfc_destino"), receptor_rfc),
-        id_ubicacion_destino=_id_ubicacion_cp(
-            _first_text(route_meta.get("id_ubicacion_destino"), _meta(viaje_row).get("id_ubicacion_destino")),
-            "DE",
-            viaje_row.get("destino_id") or ruta.get("destino_id") or ruta.get("id") or 1,
-        ),
+        id_ubicacion_destino=_first_text(route_meta.get("id_ubicacion_destino"), _meta(viaje_row).get("id_ubicacion_destino")),
         estado_destino=_first_text(route_meta.get("estado_destino"), _meta(viaje_row).get("estado_destino")),
         municipio_destino=_first_text(route_meta.get("municipio_destino"), _meta(viaje_row).get("municipio_destino")),
         localidad_destino=_first_text(route_meta.get("localidad_destino"), _meta(viaje_row).get("localidad_destino")),
