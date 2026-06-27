@@ -88,7 +88,14 @@ const TRV2_LOCALIDADES_SAT = {
 };
 const TRV2_CP_SAT_DEFAULTS = {
   '20120': { estado_sat: 'AGU', municipio_sat: '001', localidad_sat: '01' },
+  '27019': { estado_sat: 'COA', municipio_sat: '035', localidad_sat: '' },
   '27297': { estado_sat: 'COA', municipio_sat: '035', localidad_sat: '01' },
+  '47200': { estado_sat: 'JAL', municipio_sat: '091', localidad_sat: '' },
+  '98057': { estado_sat: 'ZAC', municipio_sat: '056', localidad_sat: '03' },
+  '98470': { estado_sat: 'ZAC', municipio_sat: '', localidad_sat: '' },
+  '98659': { estado_sat: 'ZAC', municipio_sat: '017', localidad_sat: '' },
+  '99300': { estado_sat: 'ZAC', municipio_sat: '020', localidad_sat: '' },
+  '99700': { estado_sat: 'ZAC', municipio_sat: '048', localidad_sat: '' },
 };
 const TRV2_PRODUCTOS_SAT = [
   ['15111510', 'Gas licuado de petróleo'],

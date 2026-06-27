@@ -362,12 +362,19 @@ function trv2RenderCartaPortePacError(data = {}) {
   const response = data.pac_response || detail.pac_response || data.raw?.pac_response || detail.raw?.pac_response || {};
   const status = response.status_code_sw ? `HTTP ${response.status_code_sw}` : 'Respuesta PAC';
   const endpoint = response.endpoint_sw || '';
+  panel.querySelector('#trv2-cp-confirm-stamp-btn')?.closest('.trv2-form-actions')?.remove();
+  panel.querySelectorAll('.trv2-alert-ok').forEach(node => {
+    if (/SW Sapiens listo|Resumen generado/i.test(node.textContent || '')) node.remove();
+  });
   panel.querySelectorAll('.trv2-pac-error-card').forEach(node => node.remove());
   panel.insertAdjacentHTML('afterbegin', `
     <section class="trv2-pac-error-card">
       <div class="trv2-alert trv2-alert-warn">
         <strong>SW Sapiens rechazó la Carta Porte</strong><br>
         ${trv2Esc(trv2PacErrorText(data))}
+      </div>
+      <div class="trv2-alert trv2-alert-warn">
+        Este intento ya quedó cerrado. Corrige catálogo/ruta y vuelve a crear el viaje para timbrar una Carta Porte limpia.
       </div>
       <div class="trv2-preview-grid">
         <section class="trv2-preview-block">
