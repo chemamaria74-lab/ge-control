@@ -501,10 +501,20 @@ def _clean_uuid(value: str) -> str:
 
 
 def _pdf_uuid(text: str) -> str:
+    folio_block = _regex_first(r"(FOLIO\s+FISCAL.*?)(?:SELLOS|CADENA\s+ORIGINAL|$)", text, re.I | re.S)
+    if folio_block:
+        prefix = _regex_first(r"([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-)", folio_block)
+        suffixes = re.findall(r"\b([0-9A-F]{12})\b", folio_block, re.I)
+        suffix = next((value for value in suffixes if not value.startswith("000010")), "")
+        uuid = _clean_uuid(f"{prefix}{suffix}") if prefix and suffix else ""
+        if uuid:
+            return uuid
     patterns = [
         r"FOLIO\s+FISCAL:.*?([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})",
         r"FOLIO\s+FISCAL[:\s]+([0-9A-F][0-9A-F\-\s]{34,70}[0-9A-F])",
+        r"FOLIO\s+FISCAL.*?([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-\s*[0-9A-F]{12})",
         r"\|\|1\.1\|([0-9A-F][0-9A-F\-\s]{34,70}[0-9A-F])\|",
+        r"\b([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-\s*[0-9A-F]{12})\b",
         r"\b([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})\b",
     ]
     for pattern in patterns:
@@ -531,6 +541,21 @@ def _invoice_totals_block(text: str) -> tuple[float, float, float]:
     return _to_float(match.group(1)), _to_float(match.group(2)), _to_float(match.group(3))
 
 
+def _pdf_mgc_customer_block(text: str) -> tuple[str, str, str, str]:
+    match = re.search(
+        r"FACTURADO\s+A\s+FECHA\s+DE\s+LA\s+FACTURA\s+(.+?)\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})",
+        text,
+        re.I | re.S,
+    )
+    if not match:
+        return "", "", "", ""
+    block = re.sub(r"\s+", " ", match.group(1)).strip()
+    rfc = _regex_first(r"\b([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})\b", block)
+    name = block.split(rfc, 1)[0].strip() if rfc else block
+    cp = _regex_first(r"C\.?\s*P\.?\s*(\d{5})", block)
+    return name, rfc, cp, match.group(2)
+
+
 def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     text, warnings = _extract_pdf_text(content)
     text = _clean_pdf_text(text)
@@ -548,6 +573,8 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     folio_match = re.search(r"\b(FE)\s+(\d{3,})\b", upper, re.I)
     if not folio_match:
         folio_match = re.search(r"FACTURA\s+FOLIO.*?\b([A-Z]{1,6})\s+(\d{3,})\b", upper, re.I | re.S)
+    if not folio_match:
+        folio_match = re.search(r"CADENA\s+ORIGINAL.*?\|\|4\.0\|([A-Z]{1,6})\|(\d{3,})\|", upper, re.I | re.S)
     serie = folio_match.group(1).strip() if folio_match else _regex_first(r"\b([A-Z]{1,6})\s+\d{3,}\b", upper)
     folio_numero = folio_match.group(2).strip() if folio_match else _regex_first(r"\b[A-Z]{1,6}\s+(\d{3,})\b", upper)
     folio = f"{serie} {folio_numero}".strip()
@@ -558,10 +585,18 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         re.I | re.S,
     )
     liters = concept_match.group(1) if concept_match else _regex_first(r"([\d,]+(?:\.\d+)?)\s*(?:LITROS|LTR)\b", upper)
+    if not liters:
+        liters = _regex_first(r"CANTIDAD\s+A\s+20[°º]?\s+.*?\b([\d,]+(?:\.\d+)?)\s+RUTH\s+ORNELAS", upper, re.I | re.S)
+    if not liters:
+        liters = _regex_first(r"TOTAL\s+([\d,]+(?:\.\d+)?)\s+L\b", upper)
     clave_sat = concept_match.group(2) if concept_match else ("15111510" if "15111510" in upper else _regex_first(r"\b(1511\d{4})\b", upper))
+    if not clave_sat and "PEMEX PREMIUM" in upper:
+        clave_sat = "15101515"
     producto_detectado = concept_match.group(3).strip() if concept_match else ""
-    permiso = concept_match.group(4) if concept_match else _regex_first(r"\b(LP/\d+/[A-Z]+/\d{4})\b", upper)
+    permiso = concept_match.group(4) if concept_match else _regex_first(r"\b([A-Z]/\d+/[A-Z]+/\d{4})\b", upper)
     unidad = concept_match.group(5) if concept_match else ("LTR" if re.search(r"\bLTR\b", upper) else "")
+    if not unidad and re.search(r"\bL\b", upper):
+        unidad = "LTR"
     precio_unitario = _to_float(concept_match.group(6)) if concept_match else 0.0
     subtotal = _to_float(concept_match.group(7)) if concept_match else _money_after("SUB-TOTAL", upper)
     iva = _to_float(_regex_first(r"TASA\s*002\s*0\.160000\s*[\d,]+\.\d{2}\s*([\d,]+\.\d{2})", upper)) or _money_after("IVA", upper)
@@ -574,8 +609,11 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     kilos = _regex_first(r"(?:KILOS)\s*:?\s*([\d,]+(?:\.\d+)?)", upper)
     if not kilos:
         kilos = _regex_first(r"(?:KILOS|PESO|KGM)\D{0,20}([\d,]+(?:\.\d+)?)", upper)
-    permiso = permiso or _regex_first(r"(LP/\d+/[A-Z]+/\d{4})", upper)
-    boleta = _regex_first(r"(?:BOLETA|BOL\.?)\s*:?\s*(\d{6,})", upper)
+    permiso = permiso or _regex_first(r"PERMISO\s+DE\s+COMERCIALIZACI[ÓO]N:\s*([A-Z]/\d+/[A-Z]+/\d{4})", upper)
+    permiso = permiso or _regex_first(r"([A-Z]/\d+/[A-Z]+/\d{4})", upper)
+    boleta = _regex_first(r"(?:BOLETA|BOL\.?|BOLETA\s+DE\s+AFORO)\s*:?\s*(\d{4,})", upper)
+    if not boleta:
+        boleta = _regex_first(r"NOMBRE\s+DEL\s+OPERADOR\s+NO\.\s+DE\s+ORDEN.*?\b(\d{4,})\s+\d{2}\s+\d{2}\s+\d{4}", upper, re.I | re.S)
     fecha_boleta = _parse_short_date(
         _regex_first(r"FECHA\s+BOLETA\s*:\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", upper)
         or _regex_first(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(?:BOLETA|BOL\.?)", upper)
@@ -584,6 +622,10 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     producto = ""
     if producto_detectado:
         producto = re.sub(r"\s+", " ", producto_detectado).strip()
+    elif "PEMEX PREMIUM" in upper:
+        producto = "PEMEX PREMIUM"
+    elif "PEMEX MAGNA" in upper:
+        producto = "PEMEX MAGNA"
     elif "GAS LICUADO" in upper:
         producto = "GAS LICUADO DE PETROLEO"
     elif "GAS L.P" in upper or "GAS LP" in upper:
@@ -597,13 +639,24 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         origen = origen_raw.splitlines()[0].strip() if origen_raw else ""
     if not origen and "ZAPOTLANEJO" in upper:
         origen = "ZAPOTLANEJO"
-    emisor_nombre = "PROPANE SERVICES" if "PROPANE SERVICES" in upper else _regex_first(r"EMISOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper)
-    receptor_nombre = "DISTRIBUIDORA DE GAS DEL CAÑON" if "DISTRIBUIDORA DE GAS DEL CA" in upper else _regex_first(r"SR\.?\s*\(?ES\)?\s*([A-ZÁÉÍÓÚÜÑ& .]{3,80})", upper)
+    if not origen:
+        origen = _regex_first(r"LUGAR\s+DE\s+CARGA/DESCARGA\s+CONDICIONES\s+DE\s+PAGO\s+.*?\b(TAD\s+[A-ZÁÉÍÓÚÜÑ .]+)", upper, re.I | re.S)
+    if not origen:
+        origen = _regex_first(r"\b(TAD\s+[A-ZÁÉÍÓÚÜÑ ,\.]+?)\s+VENCIMIENTO", upper, re.I | re.S)
+    mgc_cliente, mgc_rfc, mgc_cp, mgc_fecha = _pdf_mgc_customer_block(text)
+    if not receptor_rfc and mgc_rfc:
+        receptor_rfc = mgc_rfc
+    emisor_nombre = "MGC MEXICO" if emisor_rfc == "MME141110IJ9" or "MGC MEXICO" in upper else ("PROPANE SERVICES" if "PROPANE SERVICES" in upper else _regex_first(r"EMISOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper))
+    receptor_nombre = mgc_cliente or ("DISTRIBUIDORA DE GAS DEL CAÑON" if "DISTRIBUIDORA DE GAS DEL CA" in upper else _regex_first(r"SR\.?\s*\(?ES\)?\s*([A-ZÁÉÍÓÚÜÑ& .]{3,80})", upper))
     if not receptor_nombre:
         receptor_nombre = _regex_first(r"RECEPTOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper)
     domicilio_receptor = _regex_first(r"DOM\.\s+(.+?C\.P\.?\s*\d{5})", text, re.I | re.S)
     domicilio_receptor = re.sub(r"\s+", " ", domicilio_receptor).strip()
     cp_receptor = _regex_first(r"DOMICILIO\s+FISCAL:\s*(\d{5})", upper) or _regex_first(r"C\.P\.?\s*(\d{5})", domicilio_receptor.upper())
+    cp_receptor = cp_receptor or mgc_cp
+    if not cp_receptor and receptor_rfc:
+        after_receptor = upper.split(receptor_rfc, 1)[-1]
+        cp_receptor = _regex_first(r"C\.?\s*P\.?\s*(\d{5})", after_receptor)
     if not cp_receptor:
         cp_receptor = _regex_first(r"DOMICILIO\s+FISCAL:\s*(\d{3})\s*(\d{2})", upper)
         if cp_receptor and len(cp_receptor) == 3:
@@ -611,12 +664,14 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
             cp_receptor = f"{cp_receptor}{cp_tail}" if cp_tail else cp_receptor
     regimen_emisor = _regex_first(r"REGIMEN\s+FISCAL:\s*(\d{3})", upper)
     regimen_receptor = _regex_first(r"DOMICILIO\s+FISCAL:\s*\d{5}\s+REGIMEN\s+FISCAL:\s*(\d{3})", upper)
+    regimen_receptor = regimen_receptor or _regex_first(r"R[ÉE]GIMEN\s+FISCAL\s+DEL\s+RECEPTOR\s+.*?\b(\d{3})\b", upper, re.I | re.S)
     lugar_expedicion = _regex_first(r"LUGAR\s+Y\s+FECHA\s+DE\s+EXP\.?\s*(\d{5})", upper) or _regex_first(r"REGIMEN\s+FISCAL:\s*\d{3}\s+(\d{5})", upper)
-    fecha_factura = _regex_first(r"(\d{1,2}/[A-ZÁÉÍÓÚÜÑ]+/\d{4}\s+\d{2}:\d{2}:\d{2})", text, re.I)
+    lugar_expedicion = lugar_expedicion or _regex_first(r"LUGAR\s+DE\s+EXPEDICI[ÓO]N\s+.*?\b(\d{5})\b", upper, re.I | re.S)
+    fecha_factura = mgc_fecha or _regex_first(r"(\d{1,2}/[A-ZÁÉÍÓÚÜÑ]+/\d{4}\s+\d{2}:\d{2}:\d{2})", text, re.I)
     fecha_certificacion = _regex_first(r"FECHA\s+Y\s+HORA\s+DE\s+CERTIFICACI[ÓO]N:\s*([0-9T:\-]+)", upper)
     forma_pago = _regex_first(r"FORMA\s+DE\s+PAGO:\s*(\d{2})", upper)
     metodo_pago = _regex_first(r"METODO\s+DE\s+PAGO:\s*([A-Z]{3})", upper)
-    uso_cfdi = _regex_first(r"USO\s+DEL\s+CFDI:\s*([A-Z0-9]{3})", upper)
+    uso_cfdi = _regex_first(r"USO\s+DE\s+CFDI\s+([A-Z0-9]{3})", upper) or _regex_first(r"USO\s+DEL\s+CFDI:\s*([A-Z0-9]{3})", upper)
     tipo_comprobante = _regex_first(r"TIPO\s+DE\s+COMPROBANT\s*E:\s*([A-Z])", upper)
     detected = {
         "emisor_nombre": emisor_nombre,
@@ -649,6 +704,7 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         "permiso": permiso,
         "unidad": unidad,
         "precio_unitario": precio_unitario,
+        "factor_kg_l": 0.74 if "PREMIUM" in producto or "MAGNA" in producto else (0.84 if "DIESEL" in producto or "DIÉSEL" in producto else 0),
         "subtotal": subtotal,
         "iva": iva,
         "total": total,
@@ -663,6 +719,20 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         "forma_pago": forma_pago,
         "uso_cfdi": uso_cfdi,
     }
+    if (
+        detected["factor_kg_l"]
+        and detected["cantidad_litros"] > 1000
+        and 0 < detected["peso_kg"] < (float(detected["cantidad_litros"]) * 0.2)
+    ):
+        detected["peso_kg"] = 0
+        detected["kilos"] = 0
+    if not detected["peso_kg"] and detected["cantidad_litros"] and detected["factor_kg_l"]:
+        estimated_kg = round(float(detected["cantidad_litros"]) * float(detected["factor_kg_l"]), 3)
+        detected["peso_kg"] = estimated_kg
+        detected["kilos"] = estimated_kg
+        warnings.append(
+            f"PDF sin kilos explícitos; se estimaron con factor {detected['factor_kg_l']} kg/L. Revisa antes de guardar."
+        )
     missing_core = [key for key in ("uuid", "emisor_rfc", "receptor_rfc", "producto", "cantidad_litros", "peso_kg") if not detected.get(key)]
     if missing_core:
         warnings.append("PDF requiere captura manual asistida para: " + ", ".join(missing_core))
@@ -2914,6 +2984,16 @@ def _num(value: Any) -> float:
         return 0.0
 
 
+def _id_ubicacion_cp(raw: Any, prefix: str, fallback_id: Any = "") -> str:
+    value = str(raw or "").strip().upper()
+    if re.fullmatch(rf"{prefix}\d{{6}}", value):
+        return value
+    digits = re.sub(r"\D+", "", value or str(fallback_id or ""))
+    if digits:
+        return f"{prefix}{int(digits):06d}"
+    return f"{prefix}000001"
+
+
 def _validation(validaciones: list[dict[str, str]], nivel: str, campo: str, mensaje: str) -> None:
     validaciones.append({"nivel": nivel, "campo": campo, "mensaje": mensaje})
 
@@ -3201,7 +3281,11 @@ def _build_carta_porte_preview(
             "localidad": _first_text(route_meta.get("localidad_origen"), meta.get("localidad_origen")),
             "pais": _first_text(meta.get("pais_origen"), "MEX"),
             "calle": _first_text(route_meta.get("calle_origen"), meta.get("calle_origen")),
-            "id_ubicacion": _first_text(route_meta.get("id_ubicacion_origen"), meta.get("id_ubicacion_origen")),
+            "id_ubicacion": _id_ubicacion_cp(
+                _first_text(route_meta.get("id_ubicacion_origen"), meta.get("id_ubicacion_origen")),
+                "OR",
+                viaje.get("origen_id") or ruta.get("origen_id") or ruta.get("id") or 1,
+            ),
         },
         "destino": {
             "nombre": _first_text(ruta.get("nombre_destino"), ruta.get("destino"), viaje.get("nombre_destino"), viaje.get("destino")),
@@ -3212,7 +3296,11 @@ def _build_carta_porte_preview(
             "localidad": _first_text(route_meta.get("localidad_destino"), meta.get("localidad_destino")),
             "pais": _first_text(meta.get("pais_destino"), "MEX"),
             "calle": _first_text(route_meta.get("calle_destino"), meta.get("calle_destino")),
-            "id_ubicacion": _first_text(route_meta.get("id_ubicacion_destino"), meta.get("id_ubicacion_destino")),
+            "id_ubicacion": _id_ubicacion_cp(
+                _first_text(route_meta.get("id_ubicacion_destino"), meta.get("id_ubicacion_destino")),
+                "DE",
+                viaje.get("destino_id") or ruta.get("destino_id") or ruta.get("id") or 1,
+            ),
         },
         "mercancia": {
             "descripcion": producto_nombre,
@@ -3230,6 +3318,7 @@ def _build_carta_porte_preview(
             "placas": _first_text(vehiculo.get("placas"), meta.get("placas")),
             "config_vehicular": _first_text(vehiculo.get("config_vehicular"), meta.get("config_vehicular")),
             "anio_modelo": _first_text(vehiculo.get("anio"), meta.get("anio")),
+            "peso_bruto_vehicular": _first_text(vehiculo.get("peso_bruto_vehicular"), meta.get("peso_bruto_vehicular")),
             "permiso_sct": _first_text(vehiculo.get("permiso_sct"), meta.get("permiso_sct")),
             "num_permiso_sct": _first_text(vehiculo.get("num_permiso_sct"), meta.get("num_permiso_sct")),
             "aseguradora_rc": _first_text(vehiculo.get("aseguradora_rc"), vehiculo.get("aseguradora"), meta.get("aseguradora_rc")),
@@ -3302,6 +3391,7 @@ def _build_carta_porte_preview(
     _req(validaciones, "vehiculo.placas", preview["autotransporte"]["placas"], "Faltan placas del vehículo.")
     _req(validaciones, "vehiculo.config_vehicular", preview["autotransporte"]["config_vehicular"], "Falta configuración vehicular.")
     _req(validaciones, "vehiculo.anio_modelo", preview["autotransporte"]["anio_modelo"], "Falta año/modelo del vehículo.")
+    _req(validaciones, "vehiculo.peso_bruto_vehicular", preview["autotransporte"]["peso_bruto_vehicular"], "Falta peso bruto vehicular.")
     _req(validaciones, "vehiculo.permiso_sct", preview["autotransporte"]["permiso_sct"], "Falta permiso SCT/SICT.")
     _req(validaciones, "vehiculo.num_permiso_sct", preview["autotransporte"]["num_permiso_sct"], "Falta número de permiso SCT/SICT.")
     _req(validaciones, "vehiculo.seguro_rc", preview["autotransporte"]["aseguradora_rc"], "Falta aseguradora de responsabilidad civil.")
@@ -3800,7 +3890,11 @@ def _stamp_build_context(
         cp_origen=_first_text(viaje_row.get("cp_origen"), ruta.get("cp_origen")),
         nombre_origen=_first_text(viaje_row.get("nombre_origen"), ruta.get("nombre_origen"), ruta.get("origen")),
         rfc_origen=_first_text(route_meta.get("rfc_origen"), _meta(viaje_row).get("rfc_origen")),
-        id_ubicacion_origen=_first_text(route_meta.get("id_ubicacion_origen"), _meta(viaje_row).get("id_ubicacion_origen")),
+        id_ubicacion_origen=_id_ubicacion_cp(
+            _first_text(route_meta.get("id_ubicacion_origen"), _meta(viaje_row).get("id_ubicacion_origen")),
+            "OR",
+            viaje_row.get("origen_id") or ruta.get("origen_id") or ruta.get("id") or 1,
+        ),
         estado_origen=_first_text(route_meta.get("estado_origen"), _meta(viaje_row).get("estado_origen")),
         municipio_origen=_first_text(route_meta.get("municipio_origen"), _meta(viaje_row).get("municipio_origen")),
         localidad_origen=_first_text(route_meta.get("localidad_origen"), _meta(viaje_row).get("localidad_origen")),
@@ -3808,7 +3902,11 @@ def _stamp_build_context(
         cp_destino=_first_text(viaje_row.get("cp_destino"), ruta.get("cp_destino")),
         nombre_destino=_first_text(viaje_row.get("nombre_destino"), ruta.get("nombre_destino"), ruta.get("destino")),
         rfc_destino=_first_text(route_meta.get("rfc_destino"), _meta(viaje_row).get("rfc_destino"), receptor_rfc),
-        id_ubicacion_destino=_first_text(route_meta.get("id_ubicacion_destino"), _meta(viaje_row).get("id_ubicacion_destino")),
+        id_ubicacion_destino=_id_ubicacion_cp(
+            _first_text(route_meta.get("id_ubicacion_destino"), _meta(viaje_row).get("id_ubicacion_destino")),
+            "DE",
+            viaje_row.get("destino_id") or ruta.get("destino_id") or ruta.get("id") or 1,
+        ),
         estado_destino=_first_text(route_meta.get("estado_destino"), _meta(viaje_row).get("estado_destino")),
         municipio_destino=_first_text(route_meta.get("municipio_destino"), _meta(viaje_row).get("municipio_destino")),
         localidad_destino=_first_text(route_meta.get("localidad_destino"), _meta(viaje_row).get("localidad_destino")),
