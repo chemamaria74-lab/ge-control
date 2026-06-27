@@ -443,7 +443,7 @@ def _build_carta_porte(
     if remolques:
         autotransporte["Remolques"] = {"Remolque": remolques}
 
-    # ── IDs de ubicaciones fiscales del catálogo (también referenciados por CantidadTransporta)
+    # ── IDs de ubicaciones fiscales del catálogo
     id_origen = viaje.id_ubicacion_origen.strip().upper()
     id_destino = viaje.id_ubicacion_destino.strip().upper()
 
@@ -471,11 +471,6 @@ def _build_carta_porte(
             "MaterialPeligroso":      "Sí",
             "CveMaterialPeligroso":   cve_mat,
             "Embalaje":               embalaje,
-            "CantidadTransporta": {
-                "Cantidad": _smart_round(vol_prod, 3),
-                "IDOrigen": id_origen,
-                "IDDestino": id_destino,
-            },
         }
         valor_mercancia = round(float(getattr(prod, "valor_mercancia", 0.0) or 0.0), 2)
         if valor_mercancia > 0:
