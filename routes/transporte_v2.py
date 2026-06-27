@@ -30,8 +30,8 @@ from services.carta_porte_validation import validar_xml_carta_porte_transporte
 from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml
 from services.carta_porte_permisos import TIPOS_PERMISO_SAT
 from services.fiscal_audit import version_xml
-from services.sw_sapien import emitir_timbrar_json, sw_runtime_config
-from services.transport_builder import build_cfdi_transporte
+from services.sw_sapien import emitir_timbrar_json, sw_runtime_config, timbrar_cfdi
+from services.transport_builder import build_cfdi_transporte, build_cfdi_transporte_xml
 from services.transport_transformer import build_transport_covol, save_transport_covol
 
 logger = logging.getLogger(__name__)
@@ -3893,6 +3893,22 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     pid = context["pid"]
     viaje_row = context["viaje_row"]
     viaje_id = int(viaje_row.get("id"))
+    previous_error = _meta(viaje_row).get("ultimo_error_timbrado") or {}
+    previous_uuid = _first_text(previous_error.get("uuid_sat"))
+    if previous_uuid:
+        previous_errors = previous_error.get("errors") if isinstance(previous_error.get("errors"), list) else []
+        previous_message = _first_text(
+            previous_error.get("message"),
+            "SW Sapiens ya timbró un CFDI para este viaje, pero GE CONTROL no lo guardó como Carta Porte válida.",
+        )
+        raise HTTPException(409, {
+            "ok": False,
+            "message": previous_message,
+            "error": previous_message,
+            "uuid_sat": previous_uuid,
+            "errors": previous_errors,
+            "blocked_retry": True,
+        })
     try:
         existing_rows = (
             sb.table(TBL_CFDI)
@@ -3937,7 +3953,21 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(400, f"Error al construir CFDI Carta Porte: {exc}") from exc
 
     try:
-        resultado_sw = emitir_timbrar_json(cfdi_dict)
+        xml_pre_sw = build_cfdi_transporte_xml(cfdi_dict)
+        if "cartaporte31:CartaPorte" not in xml_pre_sw:
+            raise ValueError("El XML fiscal no contiene Complemento Carta Porte 3.1 antes de enviar a SW Sapiens.")
+        resultado_xml = timbrar_cfdi(xml_pre_sw)
+        resultado_sw = {
+            "ok": not bool(resultado_xml.get("error")),
+            "data": {
+                "uuid": resultado_xml.get("uuid"),
+                "cfdi": resultado_xml.get("xml_timbrado"),
+                "pdfUrl": resultado_xml.get("pdf_url"),
+            },
+            "error": resultado_xml.get("error"),
+            "pac_response": resultado_xml.get("pac_response") or {},
+            "raw": {k: v for k, v in resultado_xml.items() if k != "xml_timbrado"},
+        }
     except Exception as exc:
         error_payload = {"message": str(exc), "type": type(exc).__name__, "fecha": _now_iso()}
         _audit(uid, "", pid, TBL_VIAJES, viaje_id, "timbrado_sw_exception", error_payload)
@@ -3987,15 +4017,19 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     carta_ok = bool(validacion and validacion.ok)
     if not carta_ok:
         validation_errors = validacion.errors if validacion else ["XML vacío o inválido"]
-        error_message = (
-            "SW devolvió un CFDI de ingreso/factura de flete, no una Carta Porte Traslado. "
-            "No se guardó como Carta Porte."
-        )
+        validation_metadata = validacion.metadata if validacion else {}
+        if validation_metadata.get("tipo_cfdi") == "T" and not validation_metadata.get("has_carta_porte"):
+            error_message = (
+                "SW Sapiens sí timbró un CFDI Traslado, pero el XML no trae complemento Carta Porte 3.1. "
+                "No se guardó como Carta Porte y no se debe reintentar hasta corregir/cancelar ese CFDI."
+            )
+        else:
+            error_message = "SW Sapiens timbró un CFDI, pero no cumple como Carta Porte Traslado. No se guardó como Carta Porte."
         error_payload = {
             "message": error_message,
             "uuid_sat": uuid_sat,
             "id_ccp_generado": id_ccp,
-            "validacion": validacion.metadata if validacion else {},
+            "validacion": validation_metadata,
             "errors": validation_errors,
             "fecha": now_iso,
         }
