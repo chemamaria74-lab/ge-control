@@ -23,6 +23,8 @@
 
 from __future__ import annotations
 import logging
+import re
+import unicodedata
 import uuid as _uuid_mod
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -53,6 +55,32 @@ SCHEMA_CFDI40 = "http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd"
 CVE_MATERIAL_DEFAULT = "UN1267"  # Petróleo crudo genérico
 DESC_MATERIAL_DEFAULT = "Hidrocarburo / Petrolífero"
 CFDI_EMISION_SKEW_MINUTES = 5
+
+_CP_STATE_CODES = {
+    "AGUASCALIENTES": "AGU", "BAJA CALIFORNIA": "BCN", "BAJA CALIFORNIA SUR": "BCS",
+    "CAMPECHE": "CAM", "COAHUILA": "COA", "COAHUILA DE ZARAGOZA": "COA", "COLIMA": "COL",
+    "CHIAPAS": "CHP", "CHIHUAHUA": "CHH", "CIUDAD DE MEXICO": "CMX", "DISTRITO FEDERAL": "CMX",
+    "DURANGO": "DUR", "GUANAJUATO": "GUA", "GUERRERO": "GRO", "HIDALGO": "HID",
+    "JALISCO": "JAL", "MEXICO": "MEX", "ESTADO DE MEXICO": "MEX", "MICHOACAN": "MIC",
+    "MICHOACAN DE OCAMPO": "MIC", "MORELOS": "MOR", "NAYARIT": "NAY", "NUEVO LEON": "NLE",
+    "OAXACA": "OAX", "PUEBLA": "PUE", "QUERETARO": "QUE", "QUINTANA ROO": "ROO",
+    "SAN LUIS POTOSI": "SLP", "SINALOA": "SIN", "SONORA": "SON", "TABASCO": "TAB",
+    "TAMAULIPAS": "TAM", "TLAXCALA": "TLA", "VERACRUZ": "VER", "YUCATAN": "YUC",
+    "ZACATECAS": "ZAC",
+}
+_CP_VALID_STATE_CODES = set(_CP_STATE_CODES.values())
+
+_CP_POSTAL_OVERRIDES = {
+    "20120": {"estado": "AGU", "municipio": "001", "localidad": "01"},
+    "27019": {"estado": "COA", "municipio": "035", "localidad": ""},
+    "27297": {"estado": "COA", "municipio": "035", "localidad": "01"},
+    "47200": {"estado": "JAL", "municipio": "091", "localidad": ""},
+    "98057": {"estado": "ZAC", "municipio": "056", "localidad": "03"},
+    "98470": {"estado": "ZAC", "municipio": "", "localidad": ""},
+    "98659": {"estado": "ZAC", "municipio": "017", "localidad": ""},
+    "99300": {"estado": "ZAC", "municipio": "020", "localidad": ""},
+    "99700": {"estado": "ZAC", "municipio": "048", "localidad": ""},
+}
 
 
 def _now_mexico() -> datetime:
@@ -134,17 +162,48 @@ def _cfdi_total_str(v: float, tipo_cfdi: str) -> str:
     return _smart_round(v, 2)
 
 
+def _sat_digits(value: object, length: int) -> str:
+    match = re.search(r"\d+", str(value or ""))
+    if not match:
+        return ""
+    return match.group(0)[-length:].zfill(length)
+
+
+def _sat_state(value: object) -> str:
+    text = str(value or "").strip().upper()
+    text = "".join(ch for ch in unicodedata.normalize("NFD", text) if unicodedata.category(ch) != "Mn")
+    text = re.sub(r"[^A-Z0-9]+", " ", text).strip()
+    first = text.split(" ", 1)[0] if text else ""
+    if first in _CP_VALID_STATE_CODES:
+        return first
+    if text in _CP_VALID_STATE_CODES:
+        return text
+    return _CP_STATE_CODES.get(text, "")
+
+
+def _sat_cp(value: object) -> str:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if not digits:
+        return ""
+    return digits[-5:].zfill(5)
+
+
 def _domicilio_ubicacion(cp: str, estado: str = "", municipio: str = "", localidad: str = "", calle: str = "") -> dict:
+    cp_sat = _sat_cp(cp)
+    override = _CP_POSTAL_OVERRIDES.get(cp_sat, {})
+    estado_sat = override.get("estado") or _sat_state(estado)
+    municipio_sat = override.get("municipio") if "municipio" in override else _sat_digits(municipio, 3)
+    localidad_sat = override.get("localidad") if "localidad" in override else _sat_digits(localidad, 2)
     domicilio = {
-        "CodigoPostal": (cp or "").strip(),
+        "CodigoPostal": cp_sat,
         "Pais": "MEX",
     }
-    if estado:
-        domicilio["Estado"] = estado.strip()
-    if municipio:
-        domicilio["Municipio"] = municipio.strip()
-    if localidad:
-        domicilio["Localidad"] = localidad.strip()
+    if estado_sat:
+        domicilio["Estado"] = estado_sat
+    if municipio_sat:
+        domicilio["Municipio"] = municipio_sat
+    if localidad_sat:
+        domicilio["Localidad"] = localidad_sat
     if calle:
         domicilio["Calle"] = calle.strip()
     return domicilio
