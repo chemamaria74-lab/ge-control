@@ -234,7 +234,7 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
     </div>
     <div class="trv2-form-actions trv2-form-actions-sticky">
       <button class="trv2-btn trv2-btn-primary" type="button" id="${scope === 'cp' ? 'trv2-cp-doc-save-trip' : 'trv2-doc-save-trip'}" onclick="trv2CreateTripFromDocument('${trv2Esc(scope)}')">
-        <i class="fa-solid fa-circle-check"></i> Guardar para timbrar
+        <i class="fa-solid fa-circle-check"></i> ${scope === 'cp' ? 'Guardar, validar y timbrar' : 'Guardar para timbrar'}
       </button>
     </div>
   `;
@@ -476,7 +476,7 @@ function trv2SetDocumentSaveBusy(scope, busy, message = '') {
     button.disabled = Boolean(busy);
     button.innerHTML = busy
       ? '<i class="fa-solid fa-spinner fa-spin"></i> Guardando viaje...'
-      : '<i class="fa-solid fa-circle-check"></i> Guardar para timbrar';
+      : `<i class="fa-solid fa-circle-check"></i> ${scope === 'cp' ? 'Guardar, validar y timbrar' : 'Guardar para timbrar'}`;
   }
   if (pending && message) {
     pending.className = `trv2-form-wide trv2-alert ${busy ? 'trv2-alert-ok' : 'trv2-alert-warn'}`;
@@ -606,10 +606,14 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
     await trv2LoadTrips();
     await trv2LoadDashboard();
     if (viajeId) {
-      if (typeof trv2SetCartaPorteWorkflow === 'function') trv2SetCartaPorteWorkflow('pendientes');
-      const panel = document.getElementById('trv2-cp-preview-panel');
-      if (panel) {
-        panel.innerHTML = '<div class="trv2-empty">Movimiento guardado. Abre Pendientes para validar la tarjeta resumen antes de timbrar.</div>';
+      if (scope === 'cp' && typeof trv2StartCartaPorteStamp === 'function') {
+        await trv2StartCartaPorteStamp(viajeId, {autoStamp: true});
+      } else if (typeof trv2SetCartaPorteWorkflow === 'function') {
+        trv2SetCartaPorteWorkflow('pendientes');
+        const panel = document.getElementById('trv2-cp-preview-panel');
+        if (panel) {
+          panel.innerHTML = '<div class="trv2-empty">Movimiento guardado. Abre Pendientes para validar la tarjeta resumen antes de timbrar.</div>';
+        }
       }
     }
   } finally {

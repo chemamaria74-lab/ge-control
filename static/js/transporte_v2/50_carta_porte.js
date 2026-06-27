@@ -398,7 +398,6 @@ async function trv2ConfirmStampCartaPorte() {
     trv2Toast('Selecciona el movimiento a timbrar.', 'error');
     return 'blocked';
   }
-  if (!confirm('¿Timbrar Carta Porte real de este movimiento? Esta acción envía el CFDI a SW Sapiens.')) return 'cancelled';
   TRV2_CP_STAMP_IN_PROGRESS = true;
   trv2SetCartaPorteStampBusy(true);
   trv2Toast('Timbrando Carta Porte con SW Sapiens...');
@@ -504,11 +503,16 @@ async function trv2PreviewCartaPorte(viajeId, permisoId = 0) {
   return true;
 }
 
-async function trv2StartCartaPorteStamp(viajeId = 0) {
+async function trv2StartCartaPorteStamp(viajeId = 0, options = {}) {
   const previewOk = await trv2PreviewCartaPorte(viajeId || 0);
   if (!previewOk) return;
   if (TRV2_CP_PREVIEW?.ready_to_stamp) {
-    trv2Toast('Datos validados. Revisa la tarjeta y confirma timbrado.', 'success');
+    if (options.autoStamp) {
+      trv2Toast('Datos validados. Timbrando Carta Porte...', 'success');
+      await trv2ConfirmStampCartaPorte();
+    } else {
+      trv2Toast('Datos validados. Presiona Timbrar Carta Porte para enviar a SW.', 'success');
+    }
   }
 }
 
