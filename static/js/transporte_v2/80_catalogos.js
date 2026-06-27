@@ -1628,6 +1628,7 @@ function trv2PopulateTripSelects() {
   trv2FillSelect('trv2-trip-operador-id', 'operadores', 'Operador pendiente');
   trv2FillSelect('trv2-trip-vehiculo-id', 'vehiculos', 'Vehículo pendiente');
   trv2FillSelect('trv2-trip-producto-id', 'productos', 'Producto pendiente');
+  trv2ApplyClientRouteToTrip();
 }
 
 function trv2FindCatalog(name, id) {

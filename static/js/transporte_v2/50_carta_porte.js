@@ -262,7 +262,6 @@ function trv2RenderCartaPortePreview(data) {
   const permitHtml = vehiclePermit.ok ? trv2RenderPreviewBlock('Permiso SCT/SICT del vehículo', {
     tipo_permiso: vehiclePermit.tipo_permiso,
     numero_permiso: vehiclePermit.numero_permiso,
-    origen: 'Vehículo seleccionado',
   }) : '';
   const validationHtml = validations.length
     ? validations.map(item => `
@@ -309,7 +308,6 @@ function trv2RenderCartaPortePreview(data) {
     <div class="trv2-preview-grid">
       ${trv2RenderPreviewBlock('Emisor / transportista', preview.emisor)}
       ${trv2RenderPreviewBlock('Cliente / receptor', preview.receptor)}
-      ${trv2RenderPreviewBlock('Origen', preview.origen)}
       ${trv2RenderPreviewBlock('Destino', preview.destino)}
       ${trv2RenderPreviewBlock('Mercancía', preview.mercancia)}
       ${trv2RenderPreviewBlock('Autotransporte', preview.autotransporte)}

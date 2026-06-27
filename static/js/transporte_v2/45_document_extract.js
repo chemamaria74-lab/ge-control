@@ -48,7 +48,6 @@ const TRV2_DOC_SUMMARY_FIELDS = [
   ['Kilos', 'kilos', 'number'],
   ['Permiso', 'permiso'],
   ['Boleta', 'boleta'],
-  ['Origen', 'origen_sugerido'],
 ];
 
 function trv2DocUi(scope = 'carga') {
@@ -109,6 +108,11 @@ function trv2NormalizeDetected(raw = {}) {
   detected.cantidad_litros = Number(detected.cantidad_litros || detected.litros || 0);
   detected.kilos = Number(detected.kilos || detected.peso_kg || 0);
   detected.peso_kg = Number(detected.peso_kg || detected.kilos || 0);
+  const factorKgL = Number(detected.factor_kg_l || 0);
+  if (!detected.kilos && detected.litros && factorKgL) {
+    detected.kilos = Number((detected.litros * factorKgL).toFixed(3));
+    detected.peso_kg = detected.kilos;
+  }
   detected.folio_display = detected.folio_display || detected.folio || [detected.serie, detected.folio_numero].filter(Boolean).join(' ');
   return detected;
 }
@@ -241,25 +245,52 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
 function trv2RouteMatchesClient(route = {}, cliente = {}) {
   const clienteId = Number(cliente?.id || 0);
   if (!clienteId || !route) return false;
-  if (Number(route.cliente_id || 0) === clienteId) return true;
+  const meta = route.metadata && typeof route.metadata === 'object' ? route.metadata : {};
   const destino = trv2FindCatalog('destinos', route.destino_id);
+  if (Number(route.cliente_id || meta.cliente_id || meta.destino_cliente_id || 0) === clienteId) return true;
   if (Number(destino?.cliente_id || 0) === clienteId) return true;
   const clienteCp = String(cliente.cp || '').trim();
-  if (clienteCp && String(route.cp_destino || '').trim() === clienteCp) return true;
-  const routeText = trv2DocNormalizeText(`${route.destino || ''} ${route.nombre_destino || ''}`);
+  if (clienteCp && String(route.cp_destino || meta.cp_destino || destino?.cp || '').trim() === clienteCp) return true;
+  const clienteRfc = trv2DocNormalizeText(cliente.rfc || cliente.rfc_receptor || '');
+  const routeRfc = trv2DocNormalizeText(`${route.rfc_destino || meta.rfc_destino || destino?.rfc || meta.destino_rfc || ''}`);
+  if (clienteRfc && routeRfc && clienteRfc === routeRfc) return true;
+  const routeText = trv2DocNormalizeText(`${route.nombre || ''} ${route.destino || ''} ${route.nombre_destino || ''} ${meta.destino_nombre || ''}`);
   const clientText = trv2DocNormalizeText(cliente.nombre || cliente.razon_social || '');
   return Boolean(clientText && routeText && (routeText.includes(clientText) || clientText.includes(routeText)));
 }
 
-function trv2DefaultRouteForClient(cliente = {}) {
-  const matches = (TRV2_CATALOGS.rutas || []).filter(route => (
-    route.activo !== false && trv2RouteMatchesClient(route, cliente)
-  ));
-  return matches.length === 1 ? matches[0] : null;
+function trv2RouteMatchScore(route = {}, cliente = {}, detected = {}) {
+  if (!route || route.activo === false || !trv2RouteMatchesClient(route, cliente)) return 0;
+  const meta = route.metadata && typeof route.metadata === 'object' ? route.metadata : {};
+  const origen = trv2FindCatalog('origenes', route.origen_id);
+  let score = 10;
+  const proveedorRfc = trv2DocNormalizeRfc(detected.proveedor_rfc || detected.emisor_rfc || '');
+  const routeProveedorRfc = trv2DocNormalizeRfc(`${route.rfc_origen || meta.rfc_origen || origen?.rfc || meta.origen_rfc || ''}`);
+  if (proveedorRfc && routeProveedorRfc && proveedorRfc === routeProveedorRfc) score += 30;
+  const proveedorText = trv2DocNormalizeText(detected.proveedor_nombre || detected.emisor_nombre || '');
+  const routeOrigenText = trv2DocNormalizeText(`${route.nombre_origen || route.origen || meta.nombre_origen || meta.origen_nombre || origen?.nombre || ''}`);
+  if (proveedorText && routeOrigenText && (routeOrigenText.includes(proveedorText) || proveedorText.includes(routeOrigenText))) score += 20;
+  const origenDetectado = trv2DocNormalizeText(detected.origen_sugerido || detected.origen || '');
+  if (origenDetectado && routeOrigenText && (routeOrigenText.includes(origenDetectado) || origenDetectado.includes(routeOrigenText))) score += 15;
+  const clienteText = trv2DocNormalizeText(cliente.nombre || cliente.razon_social || detected.cliente_nombre || detected.receptor_nombre || '');
+  const routeDestinoText = trv2DocNormalizeText(`${route.nombre_destino || route.destino || meta.nombre_destino || meta.destino_nombre || ''}`);
+  if (clienteText && routeDestinoText && (routeDestinoText.includes(clienteText) || clienteText.includes(routeDestinoText))) score += 20;
+  return score;
+}
+
+function trv2DefaultRouteForClient(cliente = {}, detected = {}) {
+  const matches = (TRV2_CATALOGS.rutas || [])
+    .map(route => ({route, score: trv2RouteMatchScore(route, cliente, detected)}))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+  if (!matches.length) return null;
+  if (matches.length === 1 || matches[0].score > matches[1].score) return matches[0].route;
+  return null;
 }
 
 function trv2ApplyClientRouteDefault(scope = TRV2_DOCUMENT_SCOPE || 'carga', manual = false) {
   const cliente = trv2FindCatalog('clientes', document.getElementById(trv2DocFieldId(scope, 'cliente-id'))?.value);
+  const detected = TRV2_DOCUMENT_DETECTED?.detected || {};
   const routeSelect = document.getElementById(trv2DocFieldId(scope, 'ruta-id'));
   if (!routeSelect || !cliente) {
     trv2UpdateDocumentPending(scope);
@@ -270,7 +301,7 @@ function trv2ApplyClientRouteDefault(scope = TRV2_DOCUMENT_SCOPE || 'carga', man
     trv2UpdateTripDatesFromRoute(scope);
     return;
   }
-  const route = trv2DefaultRouteForClient(cliente);
+  const route = trv2DefaultRouteForClient(cliente, detected);
   if (route?.id) {
     routeSelect.value = String(route.id);
     trv2UpdateTripDatesFromRoute(scope);
@@ -397,7 +428,6 @@ function trv2DetectedMessage(detected) {
     ['litros', detected.litros],
     ['kilos', detected.kilos],
     ['permiso', detected.permiso],
-    ['origen', detected.origen_sugerido],
     ['producto', detected.producto],
   ];
   const found = foundMap.filter(([, value]) => String(value || '').trim()).map(([label]) => label);
