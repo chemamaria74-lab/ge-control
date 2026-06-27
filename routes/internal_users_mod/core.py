@@ -1939,8 +1939,12 @@ def _factura_payment_info(factura: dict) -> dict:
         precio_unitario = (Decimal(str(xml_unit_net or 0)) * (Decimal("1") + rate)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     except Exception:
         precio_unitario = Decimal(str(md.get("precio_unitario") or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    metodo_pago = str(xml_metodo_pago or md.get("metodo_pago") or "").upper()
+    payment_status = str(md.get("payment_status") or ("pendiente_complemento" if metodo_pago == "PPD" else "pagado_pue"))
+    if metodo_pago == "PPD" and payment_status == "pagado_pue" and saldo > 0:
+        payment_status = "pendiente_complemento"
     return {
-        "metodo_pago": str(xml_metodo_pago or md.get("metodo_pago") or "").upper(),
+        "metodo_pago": metodo_pago,
         "forma_pago": str(xml_forma_pago or md.get("forma_pago") or ""),
         "subtotal": subtotal,
         "descuento": descuento,
@@ -1949,7 +1953,7 @@ def _factura_payment_info(factura: dict) -> dict:
         "saldo_insoluto": saldo,
         "litros": litros,
         "precio_unitario": precio_unitario,
-        "payment_status": str(md.get("payment_status") or ("pendiente_complemento" if str(md.get("metodo_pago") or "").upper() == "PPD" else "pagado_pue")),
+        "payment_status": payment_status,
     }
 
 
