@@ -360,12 +360,30 @@ function trv2RenderCartaPortePacError(data = {}) {
   if (!panel) return;
   const detail = data.detail && typeof data.detail === 'object' ? data.detail : {};
   const response = data.pac_response || detail.pac_response || data.raw?.pac_response || detail.raw?.pac_response || {};
+  const ubicacionesXml = data.ubicaciones_xml || detail.ubicaciones_xml || data.raw?.ubicaciones_xml || detail.raw?.ubicaciones_xml || [];
   const status = response.status_code_sw ? `HTTP ${response.status_code_sw}` : 'Respuesta PAC';
   const endpoint = response.endpoint_sw || '';
+  const ubicacionesHtml = Array.isArray(ubicacionesXml) && ubicacionesXml.length
+    ? `<section class="trv2-preview-block">
+        <h3>Ubicaciones enviadas</h3>
+        ${ubicacionesXml.map(ubicacion => `
+          <div class="trv2-preview-row">
+            <span>${trv2Esc(ubicacion.tipo || 'Ubicación')}</span>
+            <strong>${trv2Esc([
+              ubicacion.id_ubicacion,
+              ubicacion.nombre,
+              ubicacion.codigo_postal ? `CP ${ubicacion.codigo_postal}` : '',
+              ubicacion.estado ? `Estado ${ubicacion.estado}` : '',
+            ].filter(Boolean).join(' · '))}</strong>
+          </div>
+        `).join('')}
+      </section>`
+    : '';
   panel.querySelector('#trv2-cp-confirm-stamp-btn')?.closest('.trv2-form-actions')?.remove();
   panel.querySelectorAll('.trv2-alert-ok').forEach(node => {
     if (/SW Sapiens listo|Resumen generado/i.test(node.textContent || '')) node.remove();
   });
+  panel.querySelectorAll('[onclick="trv2ConfirmStampCartaPorte()"]').forEach(node => node.closest('.trv2-form-actions')?.remove());
   panel.querySelectorAll('.trv2-pac-error-card').forEach(node => node.remove());
   panel.insertAdjacentHTML('afterbegin', `
     <section class="trv2-pac-error-card">
@@ -382,6 +400,7 @@ function trv2RenderCartaPortePacError(data = {}) {
           <div class="trv2-preview-row"><span>Estatus</span><strong>${trv2Esc(status)}</strong></div>
           ${endpoint ? `<div class="trv2-preview-row"><span>Endpoint</span><strong>${trv2Esc(endpoint)}</strong></div>` : ''}
         </section>
+        ${ubicacionesHtml}
       </div>
     </section>
   `);
