@@ -1,6 +1,7 @@
 const token = localStorage.getItem('ge_gaslp_internal_token') || '';
 let CLIENTES = [];
 let FACTURAS = [];
+let COMPLEMENTO_FACTURAS = [];
 let COMPLEMENTOS = [];
 let FACILITIES = [];
 let CATALOGOS = {choferes:[], vehiculos:[], rutas:[], ubicaciones:[], ubicaciones_legacy:[], instalaciones:[], mercancias:[]};

@@ -169,8 +169,8 @@ function switchBillingTab(tab){
   if(active === 'facturas') applyFacturasFilters();
   if(active === 'complementos') {
     if(!compFechaPago.value) compFechaPago.value = localDateTimeValue();
+    loadComplementoFacturas();
     loadComplementos();
-    renderComplementosPago();
   }
 }
 function switchClientsTab(tab){

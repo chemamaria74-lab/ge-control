@@ -86,6 +86,25 @@ async function loadComplementos(month=''){
     setStatus('compEmitidosMsg', e.message || 'No fue posible cargar complementos emitidos.', false);
   }
 }
+async function loadComplementoFacturas(){
+  if(window.complementosRows) complementosRows.innerHTML = '<tr><td colspan="6">Cargando facturas PPD pendientes...</td></tr>';
+  try{
+    const data = await api('/api/internal-auth/gas-lp/facturas?complementos=1&deep=1');
+    COMPLEMENTO_FACTURAS = data.facturas || [];
+    renderComplementosPago();
+    return true;
+  }catch(e){
+    console.warn('[GasLP complementos facturas PPD] error', {message:e.message, status:e.status});
+    COMPLEMENTO_FACTURAS = [];
+    if(window.complementosRows) complementosRows.innerHTML = '<tr><td colspan="6">No fue posible cargar facturas PPD pendientes.</td></tr>';
+    setStatus('compMsg', e.message || 'No fue posible cargar facturas PPD pendientes.', false);
+    return false;
+  }
+}
+async function refreshComplementosPagoData(){
+  await Promise.allSettled([loadComplementoFacturas(), loadComplementos(document.getElementById('compMes')?.value || '')]);
+  renderComplementosPago();
+}
 function facturaAmount(f){
   const md = f.metadata || {};
   return Number(md.total ?? (Number(f.importe || 0) * 1.16)) || 0;
@@ -597,7 +616,7 @@ function complementoRows(options={}){
   const desde = document.getElementById('compDesde')?.value || '';
   const hasta = document.getElementById('compHasta')?.value || '';
   const estado = document.getElementById('compEstado')?.value || 'pendiente';
-  return FACTURAS.filter(f => {
+  return (COMPLEMENTO_FACTURAS || []).filter(f => {
     if(!isPPD(f) || isCanceled(f) || (f.metadata || {}).tipo_operacion === 'traspaso') return false;
     if(estado === 'pendiente' && isPaid(f)) return false;
     const key = facturaDateKey(f);
@@ -617,7 +636,7 @@ function refreshComplementSelection(){
 function renderComplementosPago(){
   if(!document.getElementById('complementosRows')) return;
   Object.keys(COMP_SEL).forEach(id => {
-    const f = FACTURAS.find(x => String(x.id) === String(id));
+    const f = (COMPLEMENTO_FACTURAS || []).find(x => String(x.id) === String(id));
     if(!f || !isComplementable(f)) delete COMP_SEL[id];
   });
   renderComplementClientOptions(complementoRows({ignoreClient:true}).filter(isComplementable));
@@ -643,7 +662,7 @@ function renderComplementosPago(){
   refreshComplementSelection();
 }
 function toggleComplemento(id, checked){
-  const f = FACTURAS.find(x => Number(x.id) === Number(id));
+  const f = (COMPLEMENTO_FACTURAS || []).find(x => Number(x.id) === Number(id));
   if(!f) return;
   if(!checked){
     delete COMP_SEL[id];
@@ -685,13 +704,13 @@ async function applyComplementMonthFilter(){
     compDesde.value = '';
     compHasta.value = '';
   }
-  if(month) await loadFacturas(month);
+  await loadComplementoFacturas();
   await loadComplementos(month || '');
   renderComplementosPago();
 }
 function complementoSelectedRows(){
   return Object.values(COMP_SEL).map(item => {
-    const f = FACTURAS.find(x => Number(x.id) === Number(item.id));
+    const f = (COMPLEMENTO_FACTURAS || []).find(x => Number(x.id) === Number(item.id));
     if(!f) return null;
     const md = f.metadata || {};
     return {
@@ -806,6 +825,7 @@ async function confirmTimbrarComplementoPago(){
     showComplementoTimbradoSuccess(data, docs, emailMsg, !!email.ok || !email.error);
     compModalConfirmBtn.disabled = false;
     closeComplementValidation();
+    await loadComplementoFacturas();
     if(FACTURAS_LOADED) await loadFacturas(document.getElementById('facturaMes')?.value || todayKey().slice(0,7));
     await loadComplementos();
   }catch(e){ setStatus('compModalMsg',e.message,false); }
