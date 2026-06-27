@@ -294,7 +294,7 @@ async def gas_lp_credito_recordatorios_candidatos(
 
 
 @router.get("/internal-auth/gas-lp/facturas")
-async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: int = 50, deep: bool = False):
+async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: int = 50, deep: bool = False, complementos: bool = False):
     started_at = datetime.now(timezone.utc)
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
@@ -308,11 +308,19 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: in
             month = ""
     else:
         month = ""
-    try:
-        page_limit = int(limit or 50)
-    except (TypeError, ValueError):
-        page_limit = 50
-    page_limit = max(1, min(page_limit, 50))
+    if complementos:
+        month = ""
+        try:
+            page_limit = int(os.environ.get("GAS_LP_COMPLEMENTOS_PPD_LIMIT", "10000") or "10000")
+        except (TypeError, ValueError):
+            page_limit = 10000
+        page_limit = max(1, page_limit)
+    else:
+        try:
+            page_limit = int(limit or 50)
+        except (TypeError, ValueError):
+            page_limit = 50
+        page_limit = max(1, min(page_limit, 50))
     try:
         rows = _gas_lp_company_facturas_rows(
             sb,
@@ -321,7 +329,8 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: in
             month=month,
             limit=page_limit,
             select=GAS_LP_FACTURAS_LIST_SELECT,
-            company_fallback=bool(deep),
+            company_fallback=bool(deep or complementos),
+            visibility_log=not bool(complementos),
         )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
@@ -372,9 +381,19 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: in
             row["has_xml"] = bool(row.get("uuid_sat") or row.get("xml_content"))
             row["carta_porte_summary"] = _gas_lp_factura_carta_porte_summary(row.get("xml_content") or "") if row.get("xml_content") else {}
             row["complementos_pago"] = []
+    if complementos:
+        rows = [
+            row
+            for row in rows
+            if _gas_lp_factura_metodo_pago(row) == "PPD"
+            and not _gas_lp_factura_cancelada(row)
+            and not _gas_lp_factura_is_carta_porte(row)
+            and not ((row.get("metadata") if isinstance(row.get("metadata"), dict) else {}).get("tipo_operacion") == "traspaso")
+            and _money((row.get("payment_info") if isinstance(row.get("payment_info"), dict) else {}).get("saldo_insoluto")) > 0
+        ]
     elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
     logger.info(
-        "gas_lp_facturas_list perfil=%s tenant=%s month=%s facturas=%s complemento_ids=%s complemento_rows=%s complemento_chunks=%s complemento_chunk_size=%s elapsed_ms=%s select=light",
+        "gas_lp_facturas_list perfil=%s tenant=%s month=%s facturas=%s complemento_ids=%s complemento_rows=%s complemento_chunks=%s complemento_chunk_size=%s elapsed_ms=%s select=light complementos=%s",
         user.get("perfil_id"),
         user.get("tenant_id"),
         month or "",
@@ -384,6 +403,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: in
         comp_stats.get("chunks", 0),
         comp_stats.get("chunk_size", 100),
         elapsed_ms,
+        bool(complementos),
     )
     return JSONResponse({
         "ok": True,
@@ -391,6 +411,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: in
         "limit": page_limit,
         "month": month,
         "deep": bool(deep),
+        "complementos": bool(complementos),
     })
 
 
