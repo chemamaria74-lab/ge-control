@@ -6,8 +6,9 @@ function mergeFacturas(rows){
 async function loadFacturas(month='', opts={}){
   const selectedMonth = String(month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)).slice(0,7);
   if(document.getElementById('facturaMes') && !facturaMes.value) facturaMes.value = selectedMonth;
-  const limit = Math.max(1, Math.min(Number(opts.limit || 50) || 50, 50));
-  const loadKey = `${selectedMonth || 'current'}:${limit}`;
+  const limit = Math.max(1, Math.min(Number(opts.limit || 50) || 50, 10000));
+  const deep = !!opts.deep || limit > 50;
+  const loadKey = `${selectedMonth || 'current'}:${limit}:${deep ? 'deep' : 'fast'}`;
   if(FACTURAS_LOAD_PROMISE && FACTURAS_LOAD_KEY === loadKey) return FACTURAS_LOAD_PROMISE;
   if(FACTURAS_LOAD_CONTROLLER) FACTURAS_LOAD_CONTROLLER.abort();
   FACTURAS_LOAD_KEY = loadKey;
@@ -15,7 +16,7 @@ async function loadFacturas(month='', opts={}){
   const refreshButtons = [...document.querySelectorAll('button[onclick^="loadFacturas"]')];
   refreshButtons.forEach(btn => { btn.disabled = true; btn.dataset.loadingFacturas = '1'; });
   if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">Cargando...</td></tr>';
-  const qs = '?mes=' + encodeURIComponent(selectedMonth) + '&limit=' + encodeURIComponent(String(limit));
+  const qs = '?mes=' + encodeURIComponent(selectedMonth) + '&limit=' + encodeURIComponent(String(limit)) + (deep ? '&deep=1' : '');
   FACTURAS_LOAD_PROMISE = (async () => {
     try{
       const data = await api('/api/internal-auth/gas-lp/facturas' + qs, {signal: FACTURAS_LOAD_CONTROLLER.signal});
@@ -25,6 +26,7 @@ async function loadFacturas(month='', opts={}){
         endpoint: '/api/internal-auth/gas-lp/facturas',
         mes: selectedMonth,
         limit,
+        deep,
         count: FACTURAS.length,
         sample_fields: FACTURAS[0] ? Object.keys(FACTURAS[0]).slice(0,20) : []
       });
