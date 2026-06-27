@@ -4153,6 +4153,29 @@ def _xml_local_name(tag: str) -> str:
     return tag
 
 
+def _carta_porte_xml_ubicaciones(xml_pre_sw: str) -> list[dict[str, str]]:
+    try:
+        root = ET.fromstring(xml_pre_sw.encode("utf-8"))
+    except Exception:
+        return []
+    ubicaciones: list[dict[str, str]] = []
+    for ubicacion in root.iter():
+        if _xml_local_name(ubicacion.tag) != "Ubicacion":
+            continue
+        domicilio = next((node for node in list(ubicacion) if _xml_local_name(node.tag) == "Domicilio"), None)
+        ubicaciones.append({
+            "tipo": _first_text(ubicacion.get("TipoUbicacion")),
+            "id_ubicacion": _first_text(ubicacion.get("IDUbicacion")),
+            "nombre": _first_text(ubicacion.get("NombreRemitenteDestinatario")),
+            "rfc": _first_text(ubicacion.get("RFCRemitenteDestinatario")),
+            "codigo_postal": _first_text(domicilio.get("CodigoPostal") if domicilio is not None else ""),
+            "estado": _first_text(domicilio.get("Estado") if domicilio is not None else ""),
+            "pais": _first_text(domicilio.get("Pais") if domicilio is not None else ""),
+            "calle": _first_text(domicilio.get("Calle") if domicilio is not None else ""),
+        })
+    return ubicaciones
+
+
 def _validate_carta_porte_xml_locations(xml_pre_sw: str) -> None:
     try:
         root = ET.fromstring(xml_pre_sw.encode("utf-8"))
@@ -4253,6 +4276,7 @@ def _validate_carta_porte_xml_locations(xml_pre_sw: str) -> None:
             "message": "Falta configurar ID ubicación Carta Porte en el origen o destino de la ruta. Revisa la instalación del proveedor y la instalación del cliente.",
             "errors": errores,
             "validaciones": errores,
+            "ubicaciones_xml": _carta_porte_xml_ubicaciones(xml_pre_sw),
         })
 
 
@@ -4325,6 +4349,7 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
         xml_pre_sw = build_cfdi_transporte_xml(cfdi_dict)
         if "cartaporte31:CartaPorte" not in xml_pre_sw:
             raise ValueError("El XML fiscal no contiene Complemento Carta Porte 3.1 antes de enviar a SW Sapiens.")
+        ubicaciones_xml = _carta_porte_xml_ubicaciones(xml_pre_sw)
         _validate_carta_porte_xml_locations(xml_pre_sw)
         resultado_xml = timbrar_cfdi(xml_pre_sw)
         resultado_sw = {
@@ -4341,7 +4366,12 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     except HTTPException:
         raise
     except Exception as exc:
-        error_payload = {"message": str(exc), "type": type(exc).__name__, "fecha": _now_iso()}
+        error_payload = {
+            "message": str(exc),
+            "type": type(exc).__name__,
+            "fecha": _now_iso(),
+            "ubicaciones_xml": locals().get("ubicaciones_xml") or [],
+        }
         _audit(uid, "", pid, TBL_VIAJES, viaje_id, "timbrado_sw_exception", error_payload)
         raise HTTPException(502, f"SW Sapiens no respondió correctamente: {exc}") from exc
 
@@ -4360,6 +4390,7 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
             "pac_detail": pac_detail,
             "pac_response": pac_response,
             "raw": resultado_sw,
+            "ubicaciones_xml": ubicaciones_xml,
             "fecha": _now_iso(),
         }
         try:
@@ -4376,6 +4407,7 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
             "pac_detail": pac_detail,
             "pac_response": pac_response,
             "raw": resultado_sw,
+            "ubicaciones_xml": ubicaciones_xml,
         })
 
     data = resultado_sw.get("data") or {}
