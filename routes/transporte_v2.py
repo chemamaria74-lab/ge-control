@@ -3517,6 +3517,54 @@ def _stamp_row(sb: Any, table: str, row_id: Any, uid: str, pid: Optional[int]) -
     return rows[0] if rows else {}
 
 
+def _build_carta_porte_location_id(row: dict[str, Any], target: str) -> str:
+    prefix = "DE" if target == "destinos" else "OR"
+    existing = _first_text(row.get("id_ubicacion_carta_porte"), row.get("id_ubicacion")).upper()
+    if existing:
+        match = re.search(r"(\d{1,6})$", existing)
+        if re.fullmatch(r"(OR|DE)\d{6}", existing) and existing.startswith(prefix):
+            return existing
+        if match:
+            return f"{prefix}{match.group(1)[-6:].zfill(6)}"
+    try:
+        row_id = int(row.get("id") or 0)
+    except (TypeError, ValueError):
+        row_id = 0
+    if row_id > 0:
+        return f"{prefix}{row_id:06d}"
+    base = _normalize_match_text(_first_text(row.get("nombre"), row.get("cp"), target))
+    checksum = sum(ord(ch) for ch in base if ch.isalnum())
+    return f"{prefix}{str(abs(checksum))[-6:].zfill(6)}"
+
+
+def _ensure_stamp_location_id(
+    sb: Any,
+    table: str,
+    row: dict[str, Any],
+    uid: str,
+    pid: Optional[int],
+    target: str,
+) -> str:
+    if not row:
+        return ""
+    location_id = _build_carta_porte_location_id(row, target)
+    current = _first_text(row.get("id_ubicacion_carta_porte"), row.get("id_ubicacion")).upper()
+    if current == location_id or not row.get("id"):
+        return location_id
+    try:
+        query = sb.table(table).update({
+            "id_ubicacion_carta_porte": location_id,
+            "updated_at": _now_iso(),
+        }).eq("id", row.get("id")).eq("user_id", uid)
+        if pid:
+            query = query.eq("perfil_id", pid)
+        query.execute()
+    except Exception as exc:
+        logger.info("No se pudo autocompletar IDUbicacion Carta Porte table=%s id=%s: %s", table, row.get("id"), exc)
+    row["id_ubicacion_carta_porte"] = location_id
+    return location_id
+
+
 def _stamp_expand_route_locations(sb: Any, uid: str, pid: Optional[int], route: dict[str, Any]) -> dict[str, Any]:
     expanded = dict(route or {})
     if not expanded.get("origen_id") or not expanded.get("destino_id"):
@@ -3528,14 +3576,16 @@ def _stamp_expand_route_locations(sb: Any, uid: str, pid: Optional[int], route: 
         return expanded
     origen = _normalize_catalog_row("origenes", origen_raw)
     destino = _normalize_catalog_row("destinos", destino_raw)
+    id_origen = _ensure_stamp_location_id(sb, TBL_ORIGENES, origen, uid, pid, "origenes")
+    id_destino = _ensure_stamp_location_id(sb, TBL_DESTINOS, destino, uid, pid, "destinos")
     expanded["origen"] = _first_text(origen.get("nombre"), expanded.get("nombre_origen"), expanded.get("origen"))
     expanded["nombre_origen"] = _first_text(origen.get("nombre"), expanded.get("nombre_origen"), expanded.get("origen"))
     expanded["cp_origen"] = _first_text(origen.get("cp"), expanded.get("cp_origen"))
     expanded["destino"] = _first_text(destino.get("nombre"), expanded.get("nombre_destino"), expanded.get("destino"))
     expanded["nombre_destino"] = _first_text(destino.get("nombre"), expanded.get("nombre_destino"), expanded.get("destino"))
     expanded["cp_destino"] = _first_text(destino.get("cp"), expanded.get("cp_destino"))
-    expanded["id_ubicacion_origen"] = _first_text(origen.get("id_ubicacion_carta_porte"), expanded.get("id_ubicacion_origen"), meta.get("id_ubicacion_origen"))
-    expanded["id_ubicacion_destino"] = _first_text(destino.get("id_ubicacion_carta_porte"), expanded.get("id_ubicacion_destino"), meta.get("id_ubicacion_destino"))
+    expanded["id_ubicacion_origen"] = _first_text(id_origen, expanded.get("id_ubicacion_origen"), meta.get("id_ubicacion_origen"))
+    expanded["id_ubicacion_destino"] = _first_text(id_destino, expanded.get("id_ubicacion_destino"), meta.get("id_ubicacion_destino"))
     expanded["rfc_origen"] = _first_text(origen.get("rfc"), expanded.get("rfc_origen"), meta.get("rfc_origen"))
     expanded["rfc_destino"] = _first_text(destino.get("rfc"), expanded.get("rfc_destino"), meta.get("rfc_destino"))
     meta.update({
@@ -3945,16 +3995,20 @@ def _stamp_build_context(
         "destinos",
         _stamp_row(sb, TBL_DESTINOS, viaje_row.get("destino_id") or ruta.get("destino_id"), uid, pid),
     )
+    origen_location_id = _ensure_stamp_location_id(sb, TBL_ORIGENES, origen_catalog, uid, pid, "origenes")
+    destino_location_id = _ensure_stamp_location_id(sb, TBL_DESTINOS, destino_catalog, uid, pid, "destinos")
     id_ubicacion_origen = _first_text(
         route_meta.get("id_ubicacion_origen"),
         ruta.get("id_ubicacion_origen"),
         viaje_meta.get("id_ubicacion_origen"),
+        origen_location_id,
         origen_catalog.get("id_ubicacion_carta_porte"),
     )
     id_ubicacion_destino = _first_text(
         route_meta.get("id_ubicacion_destino"),
         ruta.get("id_ubicacion_destino"),
         viaje_meta.get("id_ubicacion_destino"),
+        destino_location_id,
         destino_catalog.get("id_ubicacion_carta_porte"),
     )
     tarifa_meta = viaje_meta.get("tarifa_calculo") if isinstance(viaje_meta.get("tarifa_calculo"), dict) else {}
@@ -4127,8 +4181,20 @@ def _validate_carta_porte_xml_locations(xml_pre_sw: str) -> None:
                 "mensaje": f"IDUbicacion inválido: {id_ubicacion}. Debe ser OR/DE + 6 dígitos.",
             })
         if tipo.startswith("origen"):
+            if id_ubicacion and not id_ubicacion.startswith("OR"):
+                errores.append({
+                    "nivel": "error",
+                    "campo": f"ubicaciones[{idx}].IDUbicacion",
+                    "mensaje": f"IDUbicacion de origen debe iniciar con OR: {id_ubicacion}.",
+                })
             ids_por_tipo["origen"].add(id_ubicacion)
         elif tipo.startswith("destino"):
+            if id_ubicacion and not id_ubicacion.startswith("DE"):
+                errores.append({
+                    "nivel": "error",
+                    "campo": f"ubicaciones[{idx}].IDUbicacion",
+                    "mensaje": f"IDUbicacion de destino debe iniciar con DE: {id_ubicacion}.",
+                })
             ids_por_tipo["destino"].add(id_ubicacion)
 
     for idx, cantidad in enumerate(cantidades, start=1):
