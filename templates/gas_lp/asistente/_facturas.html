@@ -7,7 +7,7 @@
         <div class="toolbar">
           <div><label>Exportar día</label><input id="facturaExportDia" type="date"></div>
           <button class="btn ghost" type="button" onclick="exportFacturasDiaExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
-          <button class="btn ghost" type="button" onclick="loadFacturas(facturaMes?.value || '')"><i class="fa-solid fa-magnifying-glass"></i> Cargar mes</button>
+          <button class="btn ghost" type="button" onclick="loadFacturas(facturaMes?.value || '', {limit:10000, deep:true})"><i class="fa-solid fa-magnifying-glass"></i> Cargar mes</button>
         </div>
       </div>
       <div class="filters month-filters">
