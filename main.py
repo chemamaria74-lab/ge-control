@@ -1176,7 +1176,8 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       TRV2_OPERATOR_PREPARED = data;
       const summary = document.getElementById('trv2-operator-start-summary');
       const routes = data.rutas || [];
-      const routeOptions = routes.map(route => `<option value="${{trv2OpEsc(route.id)}}">${{trv2OpEsc(route.nombre || `${{route.origen}} - ${{route.destino}}`)}}</option>`).join('');
+      const suggestedRouteId = Number(data.ruta_id_sugerida || routes[0]?.id || 0);
+      const routeOptions = routes.map(route => `<option value="${{trv2OpEsc(route.id)}}" ${{Number(route.id || 0) === suggestedRouteId ? 'selected' : ''}}>${{trv2OpEsc(route.nombre || `${{route.origen}} - ${{route.destino}}`)}}</option>`).join('');
       const errors = (data.errors || []).map(error => `<li>${{trv2OpEsc(error)}}</li>`).join('');
       if (summary) {{
         summary.classList.add('show');
@@ -1190,7 +1191,7 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
           </dl>
           ${{errors ? `<ul class="start-errors">${{errors}}</ul>` : ''}}
           ${{routes.length ? `<label for="trv2-operator-start-route"><strong>Destino / ruta</strong></label><select id="trv2-operator-start-route">${{routeOptions}}</select>` : ''}}
-          <div class="actions"><button class="primary" id="trv2-operator-create-trip-btn" type="button" onclick="trv2OperadorAcceptTrip()" ${{data.ready ? '' : 'disabled'}}>Aceptar y crear viaje</button></div>`;
+          <div class="actions"><button class="primary" id="trv2-operator-create-trip-btn" type="button" onclick="trv2OperadorAcceptTrip()" ${{data.ready ? '' : 'disabled'}}>Crear viaje y timbrar Carta Porte</button></div>`;
       }}
     }}
     async function trv2OperadorAcceptTrip() {{
@@ -1206,10 +1207,10 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       TRV2_OPERATOR_CREATING_TRIP = true;
       if (button) {{
         button.disabled = true;
-        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creando viaje...';
+        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creando y timbrando...';
       }}
       try {{
-        const response = await fetch('/api/tr-v2/operator/crear-viaje', {{
+        const response = await fetch('/api/tr-v2/operator/crear-y-timbrar', {{
           method:'POST', headers:trv2OperadorHeaders(), body:form,
         }});
         const data = await response.json().catch(() => ({{}}));
@@ -1218,12 +1219,12 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
         }}
         trv2OperadorRenderTrip(data);
         TRV2_OPERATOR_PREPARED = null;
-        trv2OperadorToast('Viaje creado y asignado.');
+        trv2OperadorToast(`Viaje creado y Carta Porte timbrada${{data.uuid_sat ? ': ' + data.uuid_sat : ''}}.`);
       }} finally {{
         TRV2_OPERATOR_CREATING_TRIP = false;
         if (button && TRV2_OPERATOR_PREPARED) {{
           button.disabled = false;
-          button.textContent = 'Aceptar y crear viaje';
+          button.textContent = 'Crear viaje y timbrar Carta Porte';
         }}
       }}
     }}
@@ -1290,7 +1291,6 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
     async function trv2OperadorTimbrar() {{
       if (TRV2_OPERATOR_TRIP?.uuid_cfdi || TRV2_OPERATOR_META.uuid_carta_porte) return trv2OperadorToast('Carta Porte ya timbrada.');
       if (!TRV2_OPERATOR_META.factura_operador) return trv2OperadorToast('Sube la factura antes de timbrar.');
-      if (!confirm('¿Timbrar Carta Porte real de este viaje?')) return;
       const button = document.getElementById('trv2-operator-stamp-btn');
       if (button) {{
         button.disabled = true;
