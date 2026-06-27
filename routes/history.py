@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from services.database import (
     get_records, get_reports, get_available_periods, get_period_totals,
     delete_period, delete_all_periods, get_archived_records, get_archived_reports,
+    get_facility,
 )
 from services.sat_transformer import (
     build_sat_report,
@@ -237,7 +238,7 @@ def _invoice_cancelada(row: dict) -> bool:
     return False
 
 
-def _record_from_invoice(row: dict, tipo: str, *, file_path: str, rfc: str = "", nombre: str = "") -> dict:
+def _record_from_invoice(row: dict, tipo: str, *, file_path: str, rfc: str = "", nombre: str = "", facility_id: Optional[int] = None) -> dict:
     md = _metadata(row)
     return {
         "id": f"gas_lp_facturas:{row.get('id')}:{tipo}",
@@ -249,6 +250,7 @@ def _record_from_invoice(row: dict, tipo: str, *, file_path: str, rfc: str = "",
         "nombre_contraparte": nombre or _invoice_receptor_nombre(row),
         "importe": round(_safe_float(row.get("importe") or md.get("subtotal") or md.get("total")), 2),
         "file_path": file_path,
+        "facility_id": facility_id if facility_id is not None else _invoice_facility_id(row),
         "es_autoconsumo": False,
     }
 
@@ -338,6 +340,7 @@ def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int,
                         file_path=f"traspaso:gas_lp_facturas:{invoice_id}:destino:{destino_id or ''}",
                         rfc=factura_rfc,
                         nombre=_metadata(row).get("origen_nombre") or _metadata(row).get("origen_facility_name") or "",
+                        facility_id=destino_id,
                     ))
                 if facility_id is None or facility_id == origen_id:
                     rec = _record_from_invoice(
@@ -346,6 +349,7 @@ def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int,
                         file_path=f"traspaso:gas_lp_facturas:{invoice_id}:origen:{origen_id or ''}",
                         rfc=str(row.get("rfc_receptor") or _metadata(row).get("receptor_rfc") or ""),
                         nombre=_metadata(row).get("destino_nombre") or _metadata(row).get("destino_facility_name") or "",
+                        facility_id=origen_id,
                     )
                     rec["es_trasvase"] = True
                     salidas.append(rec)
@@ -357,6 +361,7 @@ def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int,
                 row,
                 "salida",
                 file_path=f"gas_lp_facturas:{invoice_id}:venta:{origen_id or ''}",
+                facility_id=origen_id,
             ))
         return {
             "entradas": entradas,
@@ -503,10 +508,53 @@ def _record_to_sat_movement(row: dict, tipo: str) -> dict:
     }
 
 
+def _apply_facility_settings(settings: dict, uid: str, perfil_id: int, facility_id: Optional[int]) -> tuple[dict, Optional[float]]:
+    if not facility_id:
+        return settings, None
+    fac = get_facility(facility_id, uid, perfil_id=perfil_id)
+    if not fac:
+        return settings, None
+
+    capacidad = None
+    if fac.get("capacidad_tanque"):
+        capacidad = _safe_float(fac.get("capacidad_tanque"))
+    if fac.get("num_permiso"):
+        settings["NumPermiso"] = fac["num_permiso"]
+    if fac.get("permiso_alm"):
+        settings["PermisoAlmYDist"] = fac["permiso_alm"]
+    elif fac.get("num_permiso"):
+        settings["PermisoAlmYDist"] = fac["num_permiso"]
+
+    for campo_fac, campo_set in [
+        ("clave_instalacion", "ClaveInstalacion"),
+        ("descripcion", "DescripcionInstalacion"),
+        ("num_tanques", "NumeroTanques"),
+        ("num_dispensarios", "NumeroDispensarios"),
+        ("modalidad_permiso", "ModalidadPermiso"),
+        ("caracter", "Caracter"),
+        ("tipo_permiso", "tipo_permiso"),
+        ("actividad_sat", "actividad_sat"),
+    ]:
+        if fac.get(campo_fac) is not None:
+            settings[campo_set] = fac[campo_fac]
+    return settings, capacidad
+
+
 def _regenerate_history_report(uid: str, token: str, periodo: str, perfil_id: int, facility_id: Optional[int], rep: dict) -> tuple[dict, dict, dict]:
-    records = get_records(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
-    invoice_records = _history_invoice_records(uid, token, periodo, perfil_id, facility_id)
+    scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+    data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
+    effective_facility_id = facility_id or _safe_int(rep.get("facility_id"))
+    records = get_records(data_user_id, periodo, facility_id=effective_facility_id, perfil_id=perfil_id)
+    invoice_records = _history_invoice_records(uid, token, periodo, perfil_id, effective_facility_id)
     records = _merge_derived_records(records, invoice_records)
+    if not effective_facility_id:
+        facility_ids = {
+            _safe_int(row.get("facility_id"))
+            for row in [*(records.get("entradas") or []), *(records.get("salidas") or [])]
+        }
+        facility_ids.discard(None)
+        if len(facility_ids) == 1:
+            effective_facility_id = next(iter(facility_ids))
 
     movimientos = [
         *(_record_to_sat_movement(row, "entrada") for row in (records.get("entradas") or [])),
@@ -515,7 +563,8 @@ def _regenerate_history_report(uid: str, token: str, periodo: str, perfil_id: in
     if not movimientos:
         raise HTTPException(404, f"No hay movimientos vigentes para regenerar el reporte {periodo}.")
 
-    settings = load_settings(uid, perfil_id)
+    settings = load_settings(data_user_id, perfil_id)
+    settings, capacidad_tanque = _apply_facility_settings(settings, data_user_id, perfil_id, effective_facility_id)
     anio = mes = None
     if periodo and len(periodo) >= 7:
         anio, mes = int(periodo[:4]), int(periodo[5:7])
@@ -526,6 +575,7 @@ def _regenerate_history_report(uid: str, token: str, periodo: str, perfil_id: in
         inventario_inicial_litros=_safe_float(rep.get("inventario_inicial")),
         anio=anio,
         mes=mes,
+        capacidad_tanque=capacidad_tanque,
         inventario_final_medido=_safe_float(rep.get("vol_existencias")) if rep.get("vol_existencias") is not None else None,
     )
     return sat_dict, sat_meta, settings
