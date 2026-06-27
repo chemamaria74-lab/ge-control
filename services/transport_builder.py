@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 import logging
+import re
 import uuid as _uuid_mod
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -125,6 +126,16 @@ def _normalizar_id_ccp(value: Optional[str]) -> str:
 def _smart_round(v: float, decimales: int = 2) -> str:
     """Serializa float sin notación científica, con los decimales exactos."""
     return f"{v:.{decimales}f}"
+
+
+def _id_ubicacion_cp(raw: object, prefix: str, fallback_id: object = "") -> str:
+    value = str(raw or "").strip().upper()
+    if re.fullmatch(rf"{prefix}\d{{6}}", value):
+        return value
+    digits = re.sub(r"\D+", "", value or str(fallback_id or ""))
+    if digits:
+        return f"{prefix}{int(digits):06d}"
+    return f"{prefix}000001"
 
 
 def _cfdi_total_str(v: float, tipo_cfdi: str) -> str:
@@ -443,6 +454,10 @@ def _build_carta_porte(
     if remolques:
         autotransporte["Remolques"] = {"Remolque": remolques}
 
+    # ── IDs de ubicaciones fiscales (también referenciados por CantidadTransporta)
+    id_origen = _id_ubicacion_cp(viaje.id_ubicacion_origen, "OR", viaje.origen_id or viaje.ruta_id or 1)
+    id_destino = _id_ubicacion_cp(viaje.id_ubicacion_destino, "DE", viaje.destino_id or viaje.ruta_id or 1)
+
     # ── Mercancías (una por producto) ─────────────────────────────────────────
     mercancias_list = []
     for i, prod in enumerate(productos):
@@ -467,6 +482,11 @@ def _build_carta_porte(
             "MaterialPeligroso":      "Sí",
             "CveMaterialPeligroso":   cve_mat,
             "Embalaje":               embalaje,
+            "CantidadTransporta": {
+                "Cantidad": _smart_round(vol_prod, 3),
+                "IDOrigen": id_origen,
+                "IDDestino": id_destino,
+            },
         }
         valor_mercancia = round(float(getattr(prod, "valor_mercancia", 0.0) or 0.0), 2)
         if valor_mercancia > 0:
@@ -504,8 +524,6 @@ def _build_carta_porte(
     # ── Ubicaciones (origen y destino) ─────────────────────────────────────────
     cp_origen  = viaje.cp_origen.strip()  or "20000"
     cp_destino = viaje.cp_destino.strip() or "20000"
-    id_origen = viaje.id_ubicacion_origen.strip() or "OR000001"
-    id_destino = viaje.id_ubicacion_destino.strip() or "DE000001"
     rfc_origen = viaje.rfc_origen.strip().upper() or emisor_rfc
     rfc_destino = viaje.rfc_destino.strip().upper() or viaje.rfc_receptor or ""
     fecha_salida  = _fmt_fecha(viaje.fecha_hora_salida)
