@@ -4167,6 +4167,7 @@ def _validate_carta_porte_xml_locations(xml_pre_sw: str) -> None:
     for idx, ubicacion in enumerate(ubicaciones, start=1):
         tipo = _first_text(ubicacion.get("TipoUbicacion")).lower()
         id_ubicacion = _first_text(ubicacion.get("IDUbicacion")).upper()
+        domicilio = next((node for node in list(ubicacion) if _xml_local_name(node.tag) == "Domicilio"), None)
         if not id_ubicacion:
             errores.append({
                 "nivel": "error",
@@ -4196,6 +4197,27 @@ def _validate_carta_porte_xml_locations(xml_pre_sw: str) -> None:
                     "mensaje": f"IDUbicacion de destino debe iniciar con DE: {id_ubicacion}.",
                 })
             ids_por_tipo["destino"].add(id_ubicacion)
+        if domicilio is None:
+            errores.append({
+                "nivel": "error",
+                "campo": f"ubicaciones[{idx}].Domicilio",
+                "mensaje": "Falta Domicilio en una ubicación Carta Porte.",
+            })
+            continue
+        cp = _first_text(domicilio.get("CodigoPostal"))
+        estado = _first_text(domicilio.get("Estado")).upper()
+        if not re.fullmatch(r"\d{5}", cp):
+            errores.append({
+                "nivel": "error",
+                "campo": f"ubicaciones[{idx}].Domicilio.CodigoPostal",
+                "mensaje": f"CodigoPostal inválido para Carta Porte: {cp or 'vacío'}.",
+            })
+        if not re.fullmatch(r"[A-Z]{3}", estado):
+            errores.append({
+                "nivel": "error",
+                "campo": f"ubicaciones[{idx}].Domicilio.Estado",
+                "mensaje": f"Estado SAT inválido para Carta Porte: {estado or 'vacío'}. Usa clave SAT de 3 letras.",
+            })
 
     for idx, cantidad in enumerate(cantidades, start=1):
         id_origen = _first_text(cantidad.get("IDOrigen")).upper()
