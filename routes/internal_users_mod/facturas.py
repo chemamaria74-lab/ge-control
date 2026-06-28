@@ -110,6 +110,81 @@ def _gas_lp_compact_factura_for_list(row: dict) -> dict:
     }
 
 
+def _gas_lp_factura_receptor_rfc(factura: dict) -> str:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    root = _gas_lp_factura_xml_root(factura)
+    receptor = _xml_first(root, "Receptor") if root is not None else None
+    return _clean_rfc(
+        factura.get("rfc_receptor")
+        or md.get("cliente_rfc")
+        or md.get("receptor_rfc")
+        or _xml_attr(receptor, "Rfc")
+        or ""
+    )
+
+
+def _gas_lp_company_client_rfcs(sb, user: dict, *, limit: int = 10000) -> list[str]:
+    try:
+        rows = (
+            _gas_lp_clientes_scope_query(
+                sb.table("gas_lp_clientes_facturacion").select("rfc,activo"),
+                user,
+            )
+            .eq("activo", True)
+            .limit(limit)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_company_client_rfcs_failed perfil=%s tenant=%s err=%s", user.get("perfil_id"), user.get("tenant_id"), exc)
+        return []
+    return list(dict.fromkeys(_clean_rfc(row.get("rfc") or "") for row in rows if _clean_rfc(row.get("rfc") or "")))
+
+
+def _gas_lp_fetch_facturas_by_receptor_rfcs(
+    sb,
+    user: dict,
+    profile: dict,
+    *,
+    rfcs: list[str],
+    select: str,
+    limit: int = 10000,
+) -> list[dict]:
+    clean_rfcs = list(dict.fromkeys(_clean_rfc(rfc) for rfc in rfcs if _clean_rfc(rfc)))
+    if not clean_rfcs:
+        return []
+    chunk_size = 100
+    rows: list[dict] = []
+    query_fields = ("rfc_receptor", "metadata->>cliente_rfc", "metadata->>receptor_rfc")
+    for chunk in (clean_rfcs[i : i + chunk_size] for i in range(0, len(clean_rfcs), chunk_size)):
+        for field in query_fields:
+            try:
+                query = sb.table("gas_lp_facturas").select(select)
+                if user.get("tenant_id"):
+                    query = query.eq("tenant_id", user.get("tenant_id"))
+                else:
+                    query = query.eq("user_id", user.get("owner_user_id")).is_("tenant_id", "null")
+                rows.extend(query.in_(field, chunk).order("created_at", desc=True).limit(limit).execute().data or [])
+            except Exception as exc:
+                logger.warning("gas_lp_facturas_receptor_lookup_failed field=%s rfcs=%s err=%s", field, len(chunk), exc)
+    profile_rfc = _gas_lp_company_rfc(user, profile)
+    match_profile = {**profile, "rfc": profile_rfc or profile.get("rfc")}
+    filtered = []
+    for row in _dedupe_rows_by_id(rows):
+        receptor_rfc = _gas_lp_factura_receptor_rfc(row)
+        if receptor_rfc not in clean_rfcs:
+            continue
+        if _gas_lp_factura_matches_company(row, user, match_profile):
+            filtered.append(row)
+            continue
+        # Legacy/imported rows can miss perfil_id while still carrying the correct issuer RFC in XML.
+        issuer_rfc = _gas_lp_factura_emisor_rfc(row)
+        if profile_rfc and issuer_rfc == profile_rfc and str(row.get("tenant_id") or "") == str(user.get("tenant_id") or ""):
+            filtered.append(row)
+    return _dedupe_rows_by_id(filtered)
+
+
 def _gas_lp_credit_reminder_add_days(key: str, days: int) -> str:
     try:
         base = datetime.strptime(str(key or "")[:10], "%Y-%m-%d")
@@ -294,7 +369,7 @@ async def gas_lp_credito_recordatorios_candidatos(
 
 
 @router.get("/internal-auth/gas-lp/facturas")
-async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: int = 50, deep: bool = False, complementos: bool = False):
+async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: int = 50, deep: bool = False, complementos: bool = False, receptor_rfc: str | None = None):
     started_at = datetime.now(timezone.utc)
     ctx = _gas_lp_internal_context(token)
     user = ctx["user"]
@@ -308,6 +383,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: in
             month = ""
     else:
         month = ""
+    clean_receptor_rfc = _clean_rfc(receptor_rfc or "")
     if complementos:
         month = ""
         try:
@@ -323,7 +399,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: in
             page_limit = 50
         max_limit = 10000 if deep else 50
         page_limit = max(1, min(page_limit, max_limit))
-        facturas_select = GAS_LP_FACTURAS_LIST_SELECT
+        facturas_select = f"{GAS_LP_FACTURAS_LIST_SELECT},xml_content,nombre_receptor,rfc_emisor" if (deep or clean_receptor_rfc) else GAS_LP_FACTURAS_LIST_SELECT
     try:
         rows = _gas_lp_company_facturas_rows(
             sb,
@@ -337,6 +413,23 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: in
         )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
+    try:
+        rescue_rfcs = [clean_receptor_rfc] if clean_receptor_rfc else (_gas_lp_company_client_rfcs(sb, user) if complementos else [])
+        if rescue_rfcs:
+            rescue_rows = _gas_lp_fetch_facturas_by_receptor_rfcs(
+                sb,
+                user,
+                profile,
+                rfcs=rescue_rfcs,
+                select=facturas_select,
+                limit=page_limit,
+            )
+            if rescue_rows:
+                rows = _dedupe_rows_by_id([*rows, *rescue_rows])
+                if month:
+                    rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
+    except Exception as exc:
+        logger.warning("gas_lp_facturas_receptor_rescue_failed perfil=%s tenant=%s receptor=%s err=%s", user.get("perfil_id"), user.get("tenant_id"), clean_receptor_rfc or "*", exc)
     try:
         _gas_lp_attach_internal_creators(sb, rows)
     except Exception as exc:
@@ -415,6 +508,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: in
         "month": month,
         "deep": bool(deep),
         "complementos": bool(complementos),
+        "receptor_rfc": clean_receptor_rfc,
     })
 
 
