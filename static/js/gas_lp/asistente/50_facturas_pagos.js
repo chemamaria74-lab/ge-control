@@ -8,7 +8,8 @@ async function loadFacturas(month='', opts={}){
   if(document.getElementById('facturaMes') && !facturaMes.value) facturaMes.value = selectedMonth;
   const limit = Math.max(1, Math.min(Number(opts.limit || 50) || 50, 10000));
   const deep = !!opts.deep || limit > 50;
-  const loadKey = `${selectedMonth || 'current'}:${limit}:${deep ? 'deep' : 'fast'}`;
+  const receptorRfc = String(opts.receptorRfc || '').trim().toUpperCase();
+  const loadKey = `${selectedMonth || 'current'}:${limit}:${deep ? 'deep' : 'fast'}:${receptorRfc}`;
   if(FACTURAS_LOAD_PROMISE && FACTURAS_LOAD_KEY === loadKey) return FACTURAS_LOAD_PROMISE;
   if(FACTURAS_LOAD_CONTROLLER) FACTURAS_LOAD_CONTROLLER.abort();
   FACTURAS_LOAD_KEY = loadKey;
@@ -16,7 +17,7 @@ async function loadFacturas(month='', opts={}){
   const refreshButtons = [...document.querySelectorAll('button[onclick^="loadFacturas"]')];
   refreshButtons.forEach(btn => { btn.disabled = true; btn.dataset.loadingFacturas = '1'; });
   if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">Cargando...</td></tr>';
-  const qs = '?mes=' + encodeURIComponent(selectedMonth) + '&limit=' + encodeURIComponent(String(limit)) + (deep ? '&deep=1' : '');
+  const qs = '?mes=' + encodeURIComponent(selectedMonth) + '&limit=' + encodeURIComponent(String(limit)) + (deep ? '&deep=1' : '') + (receptorRfc ? '&receptor_rfc=' + encodeURIComponent(receptorRfc) : '');
   FACTURAS_LOAD_PROMISE = (async () => {
     try{
       const data = await api('/api/internal-auth/gas-lp/facturas' + qs, {signal: FACTURAS_LOAD_CONTROLLER.signal});
@@ -27,6 +28,7 @@ async function loadFacturas(month='', opts={}){
         mes: selectedMonth,
         limit,
         deep,
+        receptorRfc,
         count: FACTURAS.length,
         sample_fields: FACTURAS[0] ? Object.keys(FACTURAS[0]).slice(0,20) : []
       });
@@ -102,6 +104,14 @@ async function loadComplementoFacturas(){
     setStatus('compMsg', e.message || 'No fue posible cargar facturas PPD pendientes.', false);
     return false;
   }
+}
+function selectedFacturaClientRfc(){
+  const select = document.getElementById('facturaClienteFilter');
+  const option = select?.selectedOptions?.[0];
+  return String(option?.dataset?.rfc || '').trim().toUpperCase();
+}
+function loadFacturasSelectedMonth(){
+  return loadFacturas(facturaMes?.value || '', {limit:10000, deep:true, receptorRfc:selectedFacturaClientRfc()});
 }
 async function refreshComplementosPagoData(){
   await Promise.allSettled([loadComplementoFacturas(), loadComplementos(document.getElementById('compMes')?.value || '')]);
@@ -462,10 +472,12 @@ function renderFacturaClientOptions(){
   fiscalDocumentRows().forEach(f => {
     const key = f.__kind === 'complemento' ? String(f.cliente || f.rfc_receptor || 'SIN CLIENTE').trim().toUpperCase() : facturaClientKey(f);
     const label = f.__kind === 'complemento' ? `${f.cliente || 'Cliente'}${f.rfc_receptor ? ' · ' + f.rfc_receptor : ''}` : facturaClientLabel(f);
-    if(!byClient.has(key)) byClient.set(key, label);
+    const rfc = String(f.rfc_receptor || '').trim().toUpperCase();
+    if(!byClient.has(key)) byClient.set(key, {label, rfc});
+    else if(!byClient.get(key).rfc && rfc) byClient.get(key).rfc = rfc;
   });
-  const clients = [...byClient.entries()].sort((a,b)=>a[1].localeCompare(b[1], 'es'));
-  el.innerHTML = '<option value="">Todos los clientes</option>' + clients.map(([key,label]) => `<option value="${esc(key)}">${esc(label)}</option>`).join('');
+  const clients = [...byClient.entries()].sort((a,b)=>a[1].label.localeCompare(b[1].label, 'es'));
+  el.innerHTML = '<option value="">Todos los clientes</option>' + clients.map(([key,item]) => `<option value="${esc(key)}" data-rfc="${esc(item.rfc || '')}">${esc(item.label)}</option>`).join('');
   el.value = clients.some(([key]) => key === previous) ? previous : '';
 }
 function renderTodayFacturas(){
