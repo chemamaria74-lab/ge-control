@@ -237,10 +237,10 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
             user,
             profile,
             month=month,
-            limit=1200,
+            limit=10000,
             include_carta_porte=False,
-            select="id,user_id,tenant_id,perfil_id,facility_id,record_uuid,uuid_sat,status,fecha_timbrado,rfc_receptor,volumen_litros,importe,tipo_comprobante,metadata,created_at,updated_at,email_enviado,email_destinatario,email_error",
-            company_fallback=False,
+            select="*",
+            company_fallback=True,
             visibility_log=False,
         )
     except Exception as exc:

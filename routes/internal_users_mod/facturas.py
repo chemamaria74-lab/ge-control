@@ -391,15 +391,15 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: in
         except (TypeError, ValueError):
             page_limit = 10000
         page_limit = max(1, page_limit)
-        facturas_select = f"{GAS_LP_FACTURAS_LIST_SELECT},xml_content,nombre_receptor,rfc_emisor"
+        facturas_select = "*"
     else:
         try:
-            page_limit = int(limit or 50)
+            page_limit = int(limit or 10000)
         except (TypeError, ValueError):
-            page_limit = 50
-        max_limit = 10000 if deep else 50
+            page_limit = 10000
+        max_limit = 10000
         page_limit = max(1, min(page_limit, max_limit))
-        facturas_select = f"{GAS_LP_FACTURAS_LIST_SELECT},xml_content,nombre_receptor,rfc_emisor" if (deep or clean_receptor_rfc) else GAS_LP_FACTURAS_LIST_SELECT
+        facturas_select = "*"
     try:
         rows = _gas_lp_company_facturas_rows(
             sb,

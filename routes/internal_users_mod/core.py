@@ -2046,9 +2046,7 @@ def _gas_lp_month_created_range(month: str) -> tuple[str, str] | None:
 
 
 def _gas_lp_apply_created_range(query, created_range: tuple[str, str] | None):
-    if not created_range or not hasattr(query, "gte") or not hasattr(query, "lt"):
-        return query, False
-    return query.gte("created_at", created_range[0]).lt("created_at", created_range[1]), True
+    return query, False
 
 
 def _gas_lp_factura_xml_root(factura: dict) -> Optional[ET.Element]:
