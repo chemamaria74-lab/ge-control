@@ -616,7 +616,8 @@ def test_gas_lp_complementos_por_factura_chunks_and_uses_light_select():
 def test_gas_lp_facturas_list_select_excludes_heavy_columns():
     source = inspect.getsource(internal_users.gas_lp_internal_facturas)
 
-    assert "facturas_select = GAS_LP_FACTURAS_LIST_SELECT" in source
+    assert "else GAS_LP_FACTURAS_LIST_SELECT" in source
+    assert "if (deep or clean_receptor_rfc)" in source
     assert "max_limit = 10000 if deep else 50" in source
     assert "xml_content" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
     assert "xml_content" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
@@ -634,7 +635,8 @@ def test_asistente_cargar_mes_facturas_requests_full_company_month():
     html = _assistant_frontend_source()
 
     assert "Cargar mes" in html
-    assert "loadFacturas(facturaMes?.value || '', {limit:10000, deep:true})" in html
+    assert "loadFacturasSelectedMonth()" in html
+    assert "receptor_rfc=' + encodeURIComponent(receptorRfc)" in html
 
 
 def test_gas_lp_facturas_complementos_mode_returns_only_pending_ppd_without_50_limit(monkeypatch):
