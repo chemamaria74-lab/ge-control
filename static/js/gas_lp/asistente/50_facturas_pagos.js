@@ -6,8 +6,8 @@ function mergeFacturas(rows){
 async function loadFacturas(month='', opts={}){
   const selectedMonth = String(month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)).slice(0,7);
   if(document.getElementById('facturaMes') && !facturaMes.value) facturaMes.value = selectedMonth;
-  const limit = Math.max(1, Math.min(Number(opts.limit || 50) || 50, 10000));
-  const deep = !!opts.deep || limit > 50;
+  const limit = Math.max(1, Math.min(Number(opts.limit || 10000) || 10000, 10000));
+  const deep = opts.deep !== false;
   const receptorRfc = String(opts.receptorRfc || '').trim().toUpperCase();
   const loadKey = `${selectedMonth || 'current'}:${limit}:${deep ? 'deep' : 'fast'}:${receptorRfc}`;
   if(FACTURAS_LOAD_PROMISE && FACTURAS_LOAD_KEY === loadKey) return FACTURAS_LOAD_PROMISE;
