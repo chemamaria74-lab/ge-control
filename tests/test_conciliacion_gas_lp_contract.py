@@ -613,22 +613,16 @@ def test_gas_lp_complementos_por_factura_chunks_and_uses_light_select():
     assert rows[1][0]["saldo_insoluto"] == 0
 
 
-def test_gas_lp_facturas_list_select_excludes_heavy_columns():
+def test_gas_lp_facturas_list_uses_full_rows_for_visibility():
     source = inspect.getsource(internal_users.gas_lp_internal_facturas)
+    summary_source = inspect.getsource(internal_users.gas_lp_conciliacion_summary)
 
-    assert "else GAS_LP_FACTURAS_LIST_SELECT" in source
-    assert "if (deep or clean_receptor_rfc)" in source
-    assert "max_limit = 10000 if deep else 50" in source
-    assert "xml_content" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
-    assert "xml_content" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
-    assert "acuse_cancelacion" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
-    assert "pac_response" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
-    assert "rfc_emisor" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
-    assert "nombre_receptor" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
-    assert "estado_fiscal" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
-    assert "cfdi_status" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
-    assert "sat_estado" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
-    assert "cancelacion_status" not in internal_users.GAS_LP_FACTURAS_LIST_SELECT
+    assert 'facturas_select = "*"' in source
+    assert "max_limit = 10000" in source
+    assert "max_limit = 10000 if deep else 50" not in source
+    assert 'select="*"' in summary_source
+    assert "limit=10000" in summary_source
+    assert "company_fallback=True" in summary_source
 
 
 def test_asistente_cargar_mes_facturas_requests_full_company_month():
@@ -698,7 +692,7 @@ def test_gas_lp_facturas_complementos_mode_returns_only_pending_ppd_without_50_l
 
     assert captured["month"] == ""
     assert captured["limit"] == 10000
-    assert "xml_content" in captured["select"]
+    assert captured["select"] == "*"
     assert captured["company_fallback"] is True
     assert captured["visibility_log"] is False
     assert payload["complementos"] is True
