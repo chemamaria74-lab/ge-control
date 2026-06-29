@@ -111,6 +111,13 @@ p{margin:0;color:var(--trv2-muted);line-height:1.5}
 .trv2-catalog-empty h2{margin:0}
 .trv2-table-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:10px}
 .trv2-table-wrap{overflow:auto;border:1px solid var(--trv2-line);border-radius:8px}
+.trv2-cp-history-table{min-width:1180px;width:100%;border-collapse:collapse;background:#fff}
+.trv2-cp-history-table th,.trv2-cp-history-table td{border-bottom:1px solid #edf0f4;padding:10px 12px;text-align:left;vertical-align:top;white-space:nowrap}
+.trv2-cp-history-table th{background:#f4f1ec;color:var(--trv2-muted);font-size:11px;font-weight:900;letter-spacing:.04em;text-transform:uppercase}
+.trv2-cp-history-table td{font-size:13px;font-weight:800;color:var(--trv2-ink)}
+.trv2-cp-history-table td:nth-child(5),.trv2-cp-history-table td:nth-child(6){font-weight:900}
+.trv2-cp-history-table code{display:inline-block;max-width:190px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.trv2-doc-actions{display:flex;gap:8px}
 table{width:100%;border-collapse:collapse;background:#fff}
 th,td{padding:13px 14px;border-bottom:1px solid var(--trv2-line);text-align:left;vertical-align:top;font-size:14px}
 th{background:#f3eee7;color:#6c665d;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
