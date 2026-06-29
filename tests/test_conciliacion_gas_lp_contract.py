@@ -1723,7 +1723,8 @@ def test_assistant_today_invoices_use_backend_date_key_and_current_month():
     assert "Cargar mes" in html
     assert "Selecciona un mes y presiona Cargar mes." in html
     assert "limit=' + encodeURIComponent(String(limit))" in html
-    assert "f.fecha_factura_key || facturaDateValue(f)" in html
+    assert "function facturaFiscalDateValue" in html
+    assert "wallClockDateParts(fiscalValue)" in html
     assert "todayFacturasRows" in html
 
 
