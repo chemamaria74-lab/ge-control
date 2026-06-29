@@ -199,13 +199,13 @@ function validateClientDiscountPayload(){
 
 function facturaDiscountInfo(f){
   const md = f?.metadata || {};
-  const rawType = normalizeInvoiceDiscountType(md.tipo_descuento_confirmado || md.tipo_descuento || md.descuento_tipo || '');
+  const rawType = normalizeInvoiceDiscountType(f?.tipo_descuento || md.tipo_descuento_confirmado || md.tipo_descuento || md.descuento_tipo || '');
   const configured = clienteDiscountFields(clienteByFactura(f));
   const captured = decimalInputValue(md.descuento_capturado ?? 0);
-  const confirmed = decimalInputValue(md.descuento_confirmado ?? md.descuento_preview ?? 0);
-  const backend = decimalInputValue(md.descuento_total ?? md.descuento_monto ?? md.descuento ?? 0);
-  const liters = decimalInputValue(f?.volumen_litros || md.litros_confirmados || 0);
-  const perLiter = decimalInputValue(md.descuento_por_litro || 0);
+  const confirmed = decimalInputValue(f?.descuento_confirmado ?? md.descuento_confirmado ?? md.descuento_preview ?? 0);
+  const backend = decimalInputValue(f?.descuento_total ?? md.descuento_total ?? md.descuento_monto ?? md.descuento ?? 0);
+  const liters = decimalInputValue(f?.litros_confirmados || f?.volumen_litros || md.litros_confirmados || 0);
+  const perLiter = decimalInputValue(f?.descuento_por_litro ?? md.descuento_por_litro ?? 0);
   const estimatedGross = perLiter > 0 && liters > 0 ? perLiter * liters : 0;
   const amount = Math.max(confirmed, estimatedGross, backend, 0);
   const tipo = inferInvoiceDiscountType(md, rawType, amount, liters, perLiter, configured);
@@ -259,7 +259,7 @@ function discountInvoiceRows(){
   const selectedMonth = document.getElementById('descuentosMes')?.value || '';
   return FACTURAS.filter(f => {
     const md = f.metadata || {};
-    if(isCanceled(f) || md.tipo_operacion === 'traspaso' || md.is_transfer) return false;
+    if(isCanceled(f) || f.tipo_operacion === 'traspaso' || md.tipo_operacion === 'traspaso' || f.is_transfer || md.is_transfer) return false;
     if(selectedMonth && !facturaDateKey(f).startsWith(selectedMonth)) return false;
     return facturaDiscountInfo(f).amount > 0 && facturaAmount(f) > 0;
   });
@@ -278,11 +278,11 @@ function discountDashboardRows(){
   discountInvoiceRows().forEach(f => {
     const md = f.metadata || {};
     const cliente = clienteByFactura(f);
-    const key = String(f.rfc_receptor || cliente?.rfc || md.cliente_nombre || 'SIN RFC').toUpperCase();
-    const item = byClient.get(key) || {key, cliente_id: cliente?.id || md.cliente_id || '', nombre: md.cliente_nombre || cliente?.nombre || f.rfc_receptor || 'Cliente', rfc: f.rfc_receptor || cliente?.rfc || '—', facturas:[], count:0, litros:0, venta:0, descuento:0, types:[]};
+    const key = String(f.rfc_receptor || cliente?.rfc || f.cliente_nombre || md.cliente_nombre || 'SIN RFC').toUpperCase();
+    const item = byClient.get(key) || {key, cliente_id: cliente?.id || f.cliente_id || md.cliente_id || '', nombre: f.cliente_nombre || md.cliente_nombre || cliente?.nombre || f.rfc_receptor || 'Cliente', rfc: f.rfc_receptor || cliente?.rfc || '—', facturas:[], count:0, litros:0, venta:0, descuento:0, types:[]};
     const info = facturaDiscountInfo(f);
     item.count += 1;
-    item.litros += decimalInputValue(f.volumen_litros || md.litros_confirmados || 0);
+    item.litros += decimalInputValue(f.litros_confirmados || f.volumen_litros || md.litros_confirmados || 0);
     item.venta += facturaAmount(f);
     item.descuento += info.amount;
     if(info.tipo !== 'sin_descuento') item.types.push(info.tipo);

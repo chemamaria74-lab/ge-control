@@ -104,7 +104,7 @@ function cfdiFechaFromXml(xml){
 }
 function facturaDateValue(f){
   const md = f.metadata || {};
-  return md.fecha_emision || md.fecha_cfdi || cfdiFechaFromXml(f.xml_content) || f.fecha_timbrado || f.created_at || '';
+  return f.fecha_emision || md.fecha_emision || md.fecha_cfdi || cfdiFechaFromXml(f.xml_content) || f.fecha_timbrado || f.created_at || '';
 }
 function dateDMY(value){
   const s = mexicoDateKey(value) || String(value || '').slice(0,10);

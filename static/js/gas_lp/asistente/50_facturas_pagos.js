@@ -124,11 +124,12 @@ async function refreshComplementosPagoData(){
 }
 function facturaAmount(f){
   const md = f.metadata || {};
-  return Number(md.total ?? (Number(f.importe || 0) * 1.16)) || 0;
+  return Number(f.total ?? md.total ?? (Number(f.importe || 0) * 1.16)) || 0;
 }
 function facturaSaldo(f){
   const md = f.metadata || {};
   const info = f.payment_info || {};
+  if(f.saldo_insoluto !== undefined && f.saldo_insoluto !== null && f.saldo_insoluto !== '') return Number(f.saldo_insoluto) || 0;
   if(info.saldo_insoluto !== undefined && info.saldo_insoluto !== null && info.saldo_insoluto !== '') return Number(info.saldo_insoluto) || 0;
   if(md.saldo_insoluto !== undefined && md.saldo_insoluto !== null && md.saldo_insoluto !== '') return Number(md.saldo_insoluto) || 0;
   return isPPD(f) ? facturaAmount(f) : 0;
@@ -136,7 +137,7 @@ function facturaSaldo(f){
 function isPPD(f){
   const md = f.metadata || {};
   const info = f.payment_info || {};
-  return String(info.metodo_pago || md.metodo_pago || '').toUpperCase() === 'PPD';
+  return String(f.metodo_pago || info.metodo_pago || md.metodo_pago || '').toUpperCase() === 'PPD';
 }
 function isCanceled(f){ return isCanceledForDisplay(f); }
 function isCanceledForDisplay(f){
@@ -163,10 +164,10 @@ function facturaComplementoId(f){
 function facturaPaymentState(f){
   const md = f.metadata || {};
   const info = f.payment_info || {};
-  const metodoPago = String(info.metodo_pago || md.metodo_pago || '').toUpperCase();
+  const metodoPago = String(f.metodo_pago || info.metodo_pago || md.metodo_pago || '').toUpperCase();
   const compId = facturaComplementoId(f);
   const saldoFactura = facturaSaldo(f);
-  const traspaso = md.tipo_operacion === 'traspaso' || md.is_transfer;
+  const traspaso = f.tipo_operacion === 'traspaso' || md.tipo_operacion === 'traspaso' || f.is_transfer || md.is_transfer;
   if(traspaso) return {payLabel:'Traslado', statusLabel:'', className:'neutral', title:'Traspaso interno', note:''};
   if(metodoPago !== 'PPD') return {payLabel:'PUE', statusLabel:'', className:'paid', title:'Factura de ingreso PUE', note:''};
   if(compId) return {payLabel:'Complemento', statusLabel:'', className: saldoFactura <= 0 ? 'paid' : 'partial', title:'Factura PPD con Complemento de Pago', note:''};
@@ -176,12 +177,12 @@ function facturaPaymentState(f){
 function isPaid(f){
   const md = f.metadata || {};
   const info = f.payment_info || {};
-  const status = String(info.payment_status || md.payment_status || '').toLowerCase();
+  const status = String(f.payment_status || info.payment_status || md.payment_status || '').toLowerCase();
   return facturaSaldo(f) <= 0 || ['pagado_pue','pagado_con_complemento','pagado_manual'].includes(status);
 }
 function isComplementable(f){
   const md = f.metadata || {};
-  return isPPD(f) && !isPaid(f) && !isCanceled(f) && md.tipo_operacion !== 'traspaso';
+  return isPPD(f) && !isPaid(f) && !isCanceled(f) && f.tipo_operacion !== 'traspaso' && md.tipo_operacion !== 'traspaso';
 }
 function renderDashboard(){
   if(!document.getElementById('dashTotal')) return;
@@ -197,7 +198,7 @@ function renderDashboard(){
     return;
   }
   const rows = FACTURAS.filter(f => !isCanceled(f));
-  const ventas = rows.filter(f => (f.metadata || {}).tipo_operacion !== 'traspaso');
+  const ventas = rows.filter(f => f.tipo_operacion !== 'traspaso' && (f.metadata || {}).tipo_operacion !== 'traspaso' && !f.is_transfer && !(f.metadata || {}).is_transfer);
   const ppd = ventas.filter(f => isPPD(f) && facturaSaldo(f) > 0);
   const credito = ppd.reduce((sum,f)=>sum+facturaAmount(f),0);
   const saldo = ppd.reduce((sum,f)=>sum+facturaSaldo(f),0);
@@ -211,11 +212,11 @@ function renderDashboard(){
   const byClient = new Map();
   ppd.forEach(f => {
     const md = f.metadata || {};
-    const key = String(f.rfc_receptor || md.cliente_nombre || 'SIN RFC').toUpperCase();
+    const key = String(f.rfc_receptor || f.cliente_nombre || md.cliente_nombre || 'SIN RFC').toUpperCase();
     const cliente = clienteByFactura(f);
     const policy = clienteCreditoLabel(cliente);
-    const item = byClient.get(key) || {key, cliente_id: cliente?.id || md.cliente_id || '', nombre: md.cliente_nombre || cliente?.nombre || f.rfc_receptor || '—', rfc: f.rfc_receptor || cliente?.rfc || '—', policy, count:0, credito:0, saldo:0, pagado:0, vencidas:0, saldo_vencido:0, peor_atraso:0, facturas:[]};
-    if(!item.cliente_id && cliente?.id) item.cliente_id = cliente.id;
+    const item = byClient.get(key) || {key, cliente_id: cliente?.id || f.cliente_id || md.cliente_id || '', nombre: f.cliente_nombre || md.cliente_nombre || cliente?.nombre || f.rfc_receptor || '—', rfc: f.rfc_receptor || cliente?.rfc || '—', policy, count:0, credito:0, saldo:0, pagado:0, vencidas:0, saldo_vencido:0, peor_atraso:0, facturas:[]};
+    if(!item.cliente_id && (cliente?.id || f.cliente_id)) item.cliente_id = cliente?.id || f.cliente_id;
     const itemSaldo = facturaSaldo(f);
     const creditInfo = creditStatusForFactura(f);
     item.count += itemSaldo > 0 ? 1 : 0;
@@ -345,7 +346,7 @@ function openEmailModal(facturaId){
   const recipients = md.tipo_operacion === 'traspaso' ? facturaEmailValue(f).split(',').map(x => x.trim()).filter(Boolean).slice(0,2) : invoiceEmailRecipients(f);
   emailModalInput.value = recipients[0] || '';
   if(window.emailModalExtra1) emailModalExtra1.value = recipients[1] || '';
-  emailModalMeta.textContent = `${md.cliente_nombre || f.rfc_receptor || 'Cliente'} · ${f.uuid_sat || 'UUID pendiente'}`;
+  emailModalMeta.textContent = `${f.cliente_nombre || md.cliente_nombre || f.rfc_receptor || 'Cliente'} · ${f.uuid_sat || 'UUID pendiente'}`;
   setStatus('emailModalStatus','');
   emailModal.classList.remove('hide');
   setTimeout(() => emailModalInput.focus(), 50);
@@ -407,10 +408,10 @@ function facturaView(f){
     const isCartaPorte = isCartaPorteDocument(f);
     const isTraspaso = !isCartaPorte && (md.tipo_operacion === 'traspaso' || md.is_transfer);
     const op = isCartaPorte ? 'Carta Porte' : (isTraspaso ? 'Traspaso' : 'Venta');
-    const transferReceiver = md.receptor_nombre || md.empresa_nombre || md.cliente_nombre || f.nombre_receptor || issuerFiscalName();
+    const transferReceiver = f.receptor_nombre || md.receptor_nombre || f.empresa_nombre || md.empresa_nombre || f.cliente_nombre || md.cliente_nombre || f.nombre_receptor || issuerFiscalName();
     const transferRoute = [md.origen_nombre, md.destino_nombre].filter(Boolean).join(' → ');
     const cartaPorteRoute = [cp.origen_nombre || md.origen_nombre, cp.destino_nombre || md.destino_nombre].filter(Boolean).join(' → ');
-    const destino = isCartaPorte ? (cp.destino_nombre || md.destino_nombre || 'Carta Porte') : (isTraspaso ? (transferReceiver || 'Misma empresa') : (md.cliente_nombre || f.rfc_receptor || '—'));
+    const destino = isCartaPorte ? (cp.destino_nombre || f.destino_nombre || md.destino_nombre || 'Carta Porte') : (isTraspaso ? (transferReceiver || 'Misma empresa') : (f.cliente_nombre || md.cliente_nombre || f.rfc_receptor || '—'));
     const assistant = assistantInfo(f).name;
     const info = f.payment_info || {};
     const metodo = String(info.metodo_pago || md.metodo_pago || '').toUpperCase();
@@ -447,7 +448,7 @@ function facturaView(f){
       statusHtml: facturaStatusHtml(f),
       uuid: f.uuid_sat || '—',
       docs,
-      search: [f.uuid_sat,f.rfc_receptor,md.cliente_nombre,md.destino_nombre,md.origen_nombre,cp.origen_nombre,cp.destino_nombre,assistant,pago,paymentStatus,op].join(' ').toLowerCase()
+      search: [f.uuid_sat,f.rfc_receptor,f.cliente_nombre,md.cliente_nombre,f.destino_nombre,md.destino_nombre,f.origen_nombre,md.origen_nombre,cp.origen_nombre,cp.destino_nombre,assistant,pago,paymentStatus,op].join(' ').toLowerCase()
     };
 }
 function renderFacturasTable(rows, tbody, emptyText){
@@ -474,7 +475,7 @@ function facturaClientKey(f){
     const cp = facturaCartaPorteSummary(f);
     return String(cp.destino_nombre || md.destino_nombre || cp.origen_nombre || md.origen_nombre || 'CARTA PORTE').trim().toUpperCase();
   }
-  return String(md.cliente_nombre || f.nombre_receptor || f.rfc_receptor || md.destino_nombre || 'SIN CLIENTE').trim().toUpperCase();
+  return String(f.cliente_nombre || md.cliente_nombre || f.nombre_receptor || f.rfc_receptor || f.destino_nombre || md.destino_nombre || 'SIN CLIENTE').trim().toUpperCase();
 }
 function facturaClientLabel(f){
   const md = f.metadata || {};
@@ -483,7 +484,7 @@ function facturaClientLabel(f){
     const route = [cp.origen_nombre || md.origen_nombre, cp.destino_nombre || md.destino_nombre].filter(Boolean).join(' → ');
     return route ? `Carta Porte · ${route}` : 'Carta Porte';
   }
-  const name = md.cliente_nombre || f.nombre_receptor || md.destino_nombre || f.rfc_receptor || 'Sin cliente';
+  const name = f.cliente_nombre || md.cliente_nombre || f.nombre_receptor || f.destino_nombre || md.destino_nombre || f.rfc_receptor || 'Sin cliente';
   return `${name}${f.rfc_receptor ? ' · ' + f.rfc_receptor : ''}`;
 }
 function renderFacturaClientOptions(){
@@ -620,11 +621,11 @@ function showComplementoTimbradoSuccess(data, docs, emailMsg, emailOk){
 }
 function complementoClientKey(f){
   const md = f.metadata || {};
-  return String(f.rfc_receptor || md.cliente_nombre || 'SIN RFC').trim().toUpperCase();
+  return String(f.rfc_receptor || f.cliente_nombre || md.cliente_nombre || 'SIN RFC').trim().toUpperCase();
 }
 function complementoClientName(f){
   const md = f.metadata || {};
-  return md.cliente_nombre || f.nombre_receptor || f.rfc_receptor || 'Cliente sin nombre';
+  return f.cliente_nombre || md.cliente_nombre || f.nombre_receptor || f.rfc_receptor || 'Cliente sin nombre';
 }
 function renderComplementClientOptions(rows){
   const el = document.getElementById('compClienteFilter');
@@ -690,7 +691,7 @@ function renderComplementosPago(){
     const selected = COMP_SEL[id];
     const checked = selected ? 'checked' : '';
     const disabled = isPaid(f) ? 'disabled' : '';
-    const cliente = md.cliente_nombre || f.rfc_receptor || '—';
+    const cliente = f.cliente_nombre || md.cliente_nombre || f.rfc_receptor || '—';
     const uuidShort = String(f.uuid_sat || '').slice(0,8);
     return `<tr>
       <td><input type="checkbox" ${checked} ${disabled} onchange="toggleComplemento(${id},this.checked)"></td>
@@ -724,7 +725,7 @@ function toggleComplemento(id, checked){
     return;
   }
   const md = f.metadata || {};
-  COMP_SEL[id] = {id:Number(id), rfc, cliente:md.cliente_nombre || f.rfc_receptor || 'Cliente', saldo:facturaSaldo(f)};
+  COMP_SEL[id] = {id:Number(id), rfc, cliente:f.cliente_nombre || md.cliente_nombre || f.rfc_receptor || 'Cliente', saldo:facturaSaldo(f)};
   setStatus('compMsg','');
   renderComplementosPago();
 }
@@ -758,7 +759,7 @@ function complementoSelectedRows(){
     const md = f.metadata || {};
     return {
       id:Number(f.id),
-      cliente:md.cliente_nombre || f.rfc_receptor || 'Cliente',
+      cliente:f.cliente_nombre || md.cliente_nombre || f.rfc_receptor || 'Cliente',
       rfc:String(f.rfc_receptor || item.rfc || '').toUpperCase(),
       fecha:facturaDateKey(f),
       uuid:f.uuid_sat || '',
