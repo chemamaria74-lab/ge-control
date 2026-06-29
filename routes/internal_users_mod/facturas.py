@@ -160,12 +160,16 @@ def _gas_lp_fetch_facturas_by_receptor_rfcs(
     for chunk in (clean_rfcs[i : i + chunk_size] for i in range(0, len(clean_rfcs), chunk_size)):
         for field in query_fields:
             try:
-                query = sb.table("gas_lp_facturas").select(select)
-                if user.get("tenant_id"):
-                    query = query.eq("tenant_id", user.get("tenant_id"))
-                else:
-                    query = query.eq("user_id", user.get("owner_user_id")).is_("tenant_id", "null")
-                rows.extend(query.in_(field, chunk).order("created_at", desc=True).limit(limit).execute().data or [])
+                rows.extend(
+                    sb.table("gas_lp_facturas")
+                    .select(select)
+                    .in_(field, chunk)
+                    .order("created_at", desc=True)
+                    .limit(limit)
+                    .execute()
+                    .data
+                    or []
+                )
             except Exception as exc:
                 logger.warning("gas_lp_facturas_receptor_lookup_failed field=%s rfcs=%s err=%s", field, len(chunk), exc)
     profile_rfc = _gas_lp_company_rfc(user, profile)
@@ -180,7 +184,7 @@ def _gas_lp_fetch_facturas_by_receptor_rfcs(
             continue
         # Legacy/imported rows can miss perfil_id while still carrying the correct issuer RFC in XML.
         issuer_rfc = _gas_lp_factura_emisor_rfc(row)
-        if profile_rfc and issuer_rfc == profile_rfc and str(row.get("tenant_id") or "") == str(user.get("tenant_id") or ""):
+        if profile_rfc and issuer_rfc == profile_rfc:
             filtered.append(row)
     return _dedupe_rows_by_id(filtered)
 
@@ -385,7 +389,6 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: in
         month = ""
     clean_receptor_rfc = _clean_rfc(receptor_rfc or "")
     if complementos:
-        month = ""
         try:
             page_limit = int(os.environ.get("GAS_LP_COMPLEMENTOS_PPD_LIMIT", "10000") or "10000")
         except (TypeError, ValueError):

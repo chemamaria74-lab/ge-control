@@ -9,25 +9,68 @@ def _gas_lp_clientes_scope_query(query, user: dict):
     return query.eq("user_id", user.get("owner_user_id")).is_("tenant_id", "null")
 
 
+def _gas_lp_cliente_row_company_rfc(row: dict) -> str:
+    md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    return _clean_rfc(
+        md.get("empresa_rfc")
+        or md.get("rfc_emisor")
+        or md.get("empresa_asignada_rfc")
+        or row.get("empresa_rfc")
+        or row.get("rfc_emisor")
+        or ""
+    )
+
+
+def _gas_lp_cliente_matches_company(row: dict, user: dict, profile: dict | None = None) -> bool:
+    profile = profile or _gas_lp_profile(user)
+    profile_rfc = _gas_lp_company_rfc(user, profile)
+    row_rfc = _gas_lp_cliente_row_company_rfc(row)
+    if profile_rfc and row_rfc:
+        return row_rfc == profile_rfc
+    return str(row.get("perfil_id") or "") == str(user.get("perfil_id") or "")
+
+
+def _gas_lp_company_clientes_rows(sb, user: dict, *, active_only: bool = True, limit: int = 10000) -> list[dict]:
+    profile = _gas_lp_profile(user)
+    profile_rfc = _gas_lp_company_rfc(user, profile)
+    candidate_rows: list[dict] = []
+
+    def add(rows: list[dict]):
+        candidate_rows.extend(rows or [])
+
+    try:
+        query = _gas_lp_clientes_scope_query(
+            sb.table("gas_lp_clientes_facturacion").select(GAS_LP_CLIENTES_LIST_SELECT),
+            user,
+        )
+        if active_only:
+            query = query.eq("activo", True)
+        add(query.order("nombre", desc=False).limit(limit).execute().data or [])
+    except Exception as exc:
+        logger.warning("gas_lp_clientes_primary_lookup_failed perfil=%s tenant=%s err=%s", user.get("perfil_id"), user.get("tenant_id"), exc)
+
+    if profile_rfc:
+        for rfc_field in ("metadata->>empresa_rfc", "metadata->>rfc_emisor", "metadata->>empresa_asignada_rfc", "rfc_emisor"):
+            try:
+                query = sb.table("gas_lp_clientes_facturacion").select(GAS_LP_CLIENTES_LIST_SELECT).eq(rfc_field, profile_rfc)
+                if active_only:
+                    query = query.eq("activo", True)
+                add(query.order("nombre", desc=False).limit(limit).execute().data or [])
+            except Exception as exc:
+                logger.warning("gas_lp_clientes_company_rfc_lookup_failed field=%s rfc=%s err=%s", rfc_field, profile_rfc, exc)
+
+    rows = _dedupe_rows_by_id(candidate_rows)
+    rows = [row for row in rows if (not active_only or _gas_lp_cliente_is_active(row)) and _gas_lp_cliente_matches_company(row, user, profile)]
+    rows.sort(key=lambda row: str(row.get("nombre") or "").upper())
+    return rows[:limit]
+
+
 def _gas_lp_cliente_existing_by_rfc(sb, user: dict, rfc: str, *, exclude_id: int | None = None) -> dict | None:
     clean = _clean_rfc(rfc)
     if not clean:
         return None
     try:
-        rows = (
-            _gas_lp_clientes_scope_query(
-                sb.table("gas_lp_clientes_facturacion").select(GAS_LP_CLIENTES_LIST_SELECT),
-                user,
-            )
-            .eq("rfc", clean)
-            .eq("activo", True)
-            .order("activo", desc=True)
-            .order("updated_at", desc=True)
-            .limit(5)
-            .execute()
-            .data
-            or []
-        )
+        rows = [row for row in _gas_lp_company_clientes_rows(sb, user, active_only=True) if _clean_rfc(row.get("rfc") or "") == clean]
     except Exception as exc:
         logger.warning("gas_lp_cliente_rfc_lookup_failed perfil=%s tenant=%s rfc=%s err=%s", user.get("perfil_id"), user.get("tenant_id"), clean, exc)
         return None
@@ -35,6 +78,13 @@ def _gas_lp_cliente_existing_by_rfc(sb, user: dict, rfc: str, *, exclude_id: int
         if exclude_id and str(row.get("id")) == str(exclude_id):
             continue
         return row
+    return None
+
+
+def _gas_lp_cliente_existing_by_id(sb, user: dict, cliente_id: int, *, active_only: bool = True) -> dict | None:
+    for row in _gas_lp_company_clientes_rows(sb, user, active_only=active_only):
+        if str(row.get("id")) == str(cliente_id):
+            return row
     return None
 
 
@@ -58,19 +108,23 @@ def _gas_lp_cliente_invoice_counts(sb, user: dict, clientes: list[dict]) -> dict
         return {}
     counts = {cid: 0 for cid in cliente_ids}
     try:
-        rows = (
-            sb.table("gas_lp_facturas")
-            .select("id,rfc_receptor,metadata")
-            .eq("tenant_id", user.get("tenant_id"))
-            .eq("perfil_id", user.get("perfil_id"))
-            .limit(10000)
-            .execute()
-            .data
-            or []
-        )
+        profile = _gas_lp_profile(user)
+        rows = _gas_lp_company_facturas_rows(sb, user, profile, select="id,rfc_receptor,metadata,rfc_emisor", limit=10000, company_fallback=True, visibility_log=False)
     except Exception as exc:
         logger.warning("gas_lp_cliente_invoice_counts_failed perfil=%s tenant=%s err=%s", user.get("perfil_id"), user.get("tenant_id"), exc)
-        return counts
+        try:
+            rows = (
+                sb.table("gas_lp_facturas")
+                .select("id,rfc_receptor,metadata")
+                .eq("tenant_id", user.get("tenant_id"))
+                .eq("perfil_id", user.get("perfil_id"))
+                .limit(10000)
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            return counts
     for factura in rows:
         md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
         cid = _safe_int_id(md.get("cliente_id"))
@@ -777,17 +831,7 @@ async def gas_lp_internal_clientes(token: str):
     user = ctx["user"]
     sb = get_supabase_admin()
     try:
-        rows = (
-            _gas_lp_clientes_scope_query(
-                sb.table("gas_lp_clientes_facturacion").select(GAS_LP_CLIENTES_LIST_SELECT),
-                user,
-            )
-            .eq("activo", True)
-            .order("nombre", desc=False)
-            .execute()
-            .data
-            or []
-        )
+        rows = _gas_lp_company_clientes_rows(sb, user, active_only=True)
     except Exception as exc:
         raise _safe_internal_error("gas_lp_clientes", exc)
     rows = [_normalize_gas_lp_cliente_credit(row) for row in rows]
@@ -854,15 +898,15 @@ async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInte
                 f"{existing.get('nombre') or 'sin nombre'}. Corrige el nombre o edita ese cliente."
             )
         raise HTTPException(409, detail)
+    current = _gas_lp_cliente_existing_by_id(sb, user, cliente_id, active_only=True)
+    if not current:
+        raise HTTPException(404, "Cliente no encontrado para esta empresa.")
     try:
         data = (
-            _gas_lp_clientes_scope_query(
-                sb
-                .table("gas_lp_clientes_facturacion")
-                .update(row)
-                .eq("id", cliente_id),
-                user,
-            )
+            sb
+            .table("gas_lp_clientes_facturacion")
+            .update(row)
+            .eq("id", cliente_id)
             .eq("activo", True)
             .execute()
             .data
@@ -879,14 +923,17 @@ async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInte
 async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str):
     ctx = _gas_lp_internal_context(token, write=True)
     user = ctx["user"]
+    sb = get_supabase_admin()
+    current = _gas_lp_cliente_existing_by_id(sb, user, cliente_id, active_only=True)
+    if not current:
+        raise HTTPException(404, "Cliente no encontrado para esta empresa.")
     try:
         q = (
-            get_supabase_admin()
+            sb
             .table("gas_lp_clientes_facturacion")
             .delete()
             .eq("id", cliente_id)
         )
-        q = _gas_lp_clientes_scope_query(q, user)
         data = q.execute().data or []
     except Exception as exc:
         raise _safe_internal_error("gas_lp_eliminar_cliente", exc)

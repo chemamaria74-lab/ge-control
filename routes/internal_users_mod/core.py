@@ -2364,23 +2364,18 @@ def _gas_lp_company_facturas_rows_impl(
     profile_rfc = _gas_lp_company_rfc(user, profile)
     match_profile = {**profile, "rfc": profile_rfc or profile.get("rfc")}
     if profile_rfc and company_fallback:
-        # Rescata facturas timbradas por otro usuario/perfil de la misma empresa fiscal.
+        # La visibilidad fiscal es por RFC emisor de la empresa asignada, no por asistente.
         rfc_rows = []
-        for rfc_field in ("metadata->>rfc_emisor", "metadata->>empresa_rfc", "metadata->>empresa_asignada_rfc"):
+        for rfc_field in ("rfc_emisor", "metadata->>rfc_emisor", "metadata->>empresa_rfc", "metadata->>empresa_asignada_rfc"):
             try:
-                query = (
-                    sb.table("gas_lp_facturas")
-                    .select(select)
-                    .eq("tenant_id", user.get("tenant_id"))
-                    .eq(rfc_field, profile_rfc)
-                )
+                query = sb.table("gas_lp_facturas").select(select).eq(rfc_field, profile_rfc)
                 query, rfc_range_applied = _gas_lp_apply_created_range(query, created_range)
                 found = query.order("created_at", desc=True).limit(limit).execute().data or []
                 rfc_rows.extend(found)
-                filters.append({"source": f"tenant_{rfc_field}", "tenant_id": user.get("tenant_id"), rfc_field: profile_rfc, "date_filter": "created_at_range" if rfc_range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
+                filters.append({"source": f"issuer_{rfc_field}", rfc_field: profile_rfc, "date_filter": "created_at_range" if rfc_range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
             except Exception as exc:
                 logger.warning("gas_lp_facturas_rfc_lookup_failed field=%s rfc=%s err=%s", rfc_field, profile_rfc, exc)
-                filters.append({"source": f"tenant_{rfc_field}", "tenant_id": user.get("tenant_id"), rfc_field: profile_rfc, "error": str(exc)})
+                filters.append({"source": f"issuer_{rfc_field}", rfc_field: profile_rfc, "error": str(exc)})
         candidate_rows.extend(rfc_rows)
 
         tenant_scan_limit = max(limit, int(os.environ.get("GAS_LP_FACTURAS_TENANT_SCAN_LIMIT", "10000") or "10000"))
