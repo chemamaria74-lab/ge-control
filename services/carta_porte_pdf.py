@@ -4,8 +4,12 @@ from dataclasses import dataclass
 import base64
 from io import BytesIO
 from xml.sax.saxutils import escape
+from xml.etree import ElementTree as _ET
 
-from lxml import etree
+try:  # lxml ayuda con XML timbrado grande; ElementTree mantiene el PDF operativo si no está instalado.
+    from lxml import etree
+except Exception:  # pragma: no cover - depende del entorno de deploy
+    etree = None
 
 
 NS_CFDI = "http://www.sat.gob.mx/cfd/4"
@@ -19,6 +23,57 @@ class CartaPortePdfInfo:
     id_ccp: str
     has_carta_porte: bool
     filename: str
+
+
+def resumen_carta_porte_desde_xml(xml_content: str | bytes) -> dict[str, object]:
+    """Datos de pantalla extraídos del XML timbrado, sin depender del viaje operativo."""
+    root = _parse_xml(xml_content)
+    emisor = _first(root, "Emisor")
+    receptor = _first(root, "Receptor")
+    timbre = _first(root, "TimbreFiscalDigital")
+    carta = _first(root, "CartaPorte")
+    origen, destino = _origen_destino(_all(root, "Ubicacion"))
+    mercancancias = _all(root, "Mercancia")
+    autotransporte = _first(root, "Autotransporte")
+    ident_veh = _first(root, "IdentificacionVehicular")
+    figura = (_all(root, "TiposFigura") or [None])[0]
+    litros = 0.0
+    peso = 0.0
+    for mercancia in mercancancias:
+        if (_attr(mercancia, "ClaveUnidad") or _attr(mercancia, "Unidad")).upper() in {"LTR", "L", "LT"}:
+            litros += _float_attr(mercancia, "Cantidad")
+        peso += _float_attr(mercancia, "PesoEnKg")
+    if not litros and mercancancias:
+        litros = _float_attr(mercancancias[0], "Cantidad")
+    return {
+        "uuid_sat": _attr(timbre, "UUID"),
+        "id_ccp": _attr(carta, "IdCCP"),
+        "fecha_timbrado": _attr(timbre, "FechaTimbrado"),
+        "fecha_emision": _attr(root, "Fecha"),
+        "tipo_cfdi": _attr(root, "TipoDeComprobante"),
+        "emisor_rfc": _attr(emisor, "Rfc"),
+        "emisor_nombre": _attr(emisor, "Nombre"),
+        "receptor_rfc": _attr(receptor, "Rfc"),
+        "receptor_nombre": _attr(receptor, "Nombre"),
+        "origen_nombre": _attr(origen, "NombreRemitenteDestinatario"),
+        "origen_rfc": _attr(origen, "RFCRemitenteDestinatario"),
+        "origen_id": _attr(origen, "IDUbicacion"),
+        "origen_fecha": _attr(origen, "FechaHoraSalidaLlegada"),
+        "destino_nombre": _attr(destino, "NombreRemitenteDestinatario"),
+        "destino_rfc": _attr(destino, "RFCRemitenteDestinatario"),
+        "destino_id": _attr(destino, "IDUbicacion"),
+        "destino_fecha": _attr(destino, "FechaHoraSalidaLlegada"),
+        "distancia_km": _float_attr(carta, "TotalDistRec") or _float_attr(destino, "DistanciaRecorrida"),
+        "litros": round(litros, 3),
+        "peso_kg": round(peso, 3),
+        "producto": _attr(mercancancias[0], "Descripcion") if mercancancias else "",
+        "bienes_transp": _attr(mercancancias[0], "BienesTransp") if mercancancias else "",
+        "placas": _attr(ident_veh, "PlacaVM"),
+        "vehiculo": _join_nonempty([_attr(ident_veh, "PlacaVM"), _attr(ident_veh, "ConfigVehicular")], " · "),
+        "permiso_sct": _join_nonempty([_attr(autotransporte, "PermSCT"), _attr(autotransporte, "NumPermisoSCT")], " / "),
+        "chofer": _attr(figura, "NombreFigura"),
+        "chofer_rfc": _attr(figura, "RFCFigura"),
+    }
 
 
 def xml_tiene_carta_porte(xml_content: str | bytes) -> bool:
@@ -258,16 +313,32 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
 
 def _parse_xml(xml_content: str | bytes):
     raw = xml_content.encode("utf-8") if isinstance(xml_content, str) else xml_content
-    return etree.fromstring(raw, parser=etree.XMLParser(recover=True, huge_tree=True))
+    if etree is not None:
+        return etree.fromstring(raw, parser=etree.XMLParser(recover=True, huge_tree=True))
+    return _ET.fromstring(raw)
+
+
+def _local_name(tag: object) -> str:
+    text = str(tag or "")
+    if "}" in text:
+        text = text.rsplit("}", 1)[1]
+    if ":" in text:
+        text = text.rsplit(":", 1)[1]
+    return text
 
 
 def _first(root, local_name: str):
-    rows = root.xpath(f'//*[local-name()="{local_name}"]')
+    if etree is not None and hasattr(root, "xpath"):
+        rows = root.xpath(f'//*[local-name()="{local_name}"]')
+    else:
+        rows = [node for node in root.iter() if _local_name(node.tag) == local_name]
     return rows[0] if rows else None
 
 
 def _all(root, local_name: str):
-    return root.xpath(f'//*[local-name()="{local_name}"]')
+    if etree is not None and hasattr(root, "xpath"):
+        return root.xpath(f'//*[local-name()="{local_name}"]')
+    return [node for node in root.iter() if _local_name(node.tag) == local_name]
 
 
 def _attr(node, key: str, default: str = "") -> str:
@@ -276,11 +347,19 @@ def _attr(node, key: str, default: str = "") -> str:
     return str(node.get(key) or default)
 
 
+def _float_attr(node, key: str) -> float:
+    text = _attr(node, key).replace(",", "").strip()
+    try:
+        return float(text) if text else 0.0
+    except Exception:
+        return 0.0
+
+
 def _child(node, local_name: str):
     if node is None:
         return None
     for child in node:
-        if etree.QName(child).localname == local_name:
+        if _local_name(child.tag) == local_name:
             return child
     return None
 
@@ -343,7 +422,7 @@ def _origen_destino(ubicaciones):
 
 def _domicilio_ubicacion(ubicacion) -> str:
     children = list(ubicacion) if ubicacion is not None else []
-    dom = next((child for child in children if etree.QName(child).localname == "Domicilio"), None)
+    dom = next((child for child in children if _local_name(child.tag) == "Domicilio"), None)
     domicilio = " ".join(part for part in [
         _attr(dom, "Calle", ""),
         _attr(dom, "NumeroExterior", ""),
@@ -666,7 +745,7 @@ def _totals_block(comp, impuestos, Table, TableStyle, Paragraph, styles, colors,
 def _ubicaciones_table(ubicaciones, Table, TableStyle, Paragraph, styles, colors, wine, line):
     rows = [["Tipo", "ID ubicación", "RFC", "Nombre", "Fecha salida/llegada", "Dist.", "Domicilio SAT"]]
     for u in ubicaciones:
-        dom = next((child for child in u if etree.QName(child).localname == "Domicilio"), None)
+        dom = next((child for child in u if _local_name(child.tag) == "Domicilio"), None)
         domicilio = " ".join(part for part in [
             _attr(dom, "Calle", ""),
             _attr(dom, "NumeroExterior", ""),
