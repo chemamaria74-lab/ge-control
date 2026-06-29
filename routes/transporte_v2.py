@@ -27,7 +27,7 @@ from routes.auth import require_profile_access, verify_token
 from supabase_config import get_supabase_admin, get_supabase_for_user
 from models.transport_schemas import GenerarCovolRequest, ProductoTransporte, ViajeCreate
 from services.carta_porte_validation import validar_xml_carta_porte_transporte
-from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml
+from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml, resumen_carta_porte_desde_xml
 from services.carta_porte_permisos import TIPOS_PERMISO_SAT
 from services.fiscal_audit import version_xml
 from services.sw_sapien import emitir_timbrar_json, sw_runtime_config, timbrar_cfdi
@@ -4480,7 +4480,7 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
         "pdf_url": pdf_url,
         "status": "Vigente",
         "fecha_timbrado": now_iso,
-        "rfc_receptor": context["emisor"].get("rfc"),
+        "rfc_receptor": context["viaje_obj"].rfc_receptor,
         "volumen_total": float(viaje_row.get("volumen_total_litros") or context["viaje_obj"].volumen_total_litros or 0),
         "importe_total": 0,
         "num_permiso_cne": context["viaje_obj"].num_permiso_cne,
@@ -5749,60 +5749,102 @@ async def transporte_v2_carta_porte_timbradas(
     pid = _profile_id(None, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     sb = _stamp_sb()
-    q = (
-        sb.table(TBL_CFDI)
-        .select("id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,pdf_url,status,fecha_timbrado,rfc_receptor,volumen_total,importe_total")
-        .eq("user_id", uid)
-        .eq("status", "Vigente")
-        .eq("tipo_cfdi", "T")
-        .order("fecha_timbrado", desc=True)
-        .limit(limit)
-    )
-    if pid:
-        q = q.eq("perfil_id", pid)
-    if filtro == "hoy":
-        mx_tz = timezone(timedelta(hours=-6))
-        today = datetime.now(mx_tz).date()
-        start = datetime(today.year, today.month, today.day, tzinfo=mx_tz).isoformat()
-        end = datetime(today.year, today.month, today.day, tzinfo=mx_tz) + timedelta(days=1)
-        q = q.gte("fecha_timbrado", start).lt("fecha_timbrado", end.isoformat())
-    rows = q.execute().data or []
+    def _cfdi_timbradas_query(select_cols: str):
+        query = (
+            sb.table(TBL_CFDI)
+            .select(select_cols)
+            .eq("user_id", uid)
+            .eq("status", "Vigente")
+            .eq("tipo_cfdi", "T")
+            .order("fecha_timbrado", desc=True)
+            .limit(limit)
+        )
+        if pid:
+            query = query.eq("perfil_id", pid)
+        if filtro == "hoy":
+            mx_tz = timezone(timedelta(hours=-6))
+            today = datetime.now(mx_tz).date()
+            start = datetime(today.year, today.month, today.day, tzinfo=mx_tz).isoformat()
+            end = datetime(today.year, today.month, today.day, tzinfo=mx_tz) + timedelta(days=1)
+            query = query.gte("fecha_timbrado", start).lt("fecha_timbrado", end.isoformat())
+        return query
+
+    try:
+        rows = _cfdi_timbradas_query(
+            "id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,xml_content,pdf_url,status,fecha_timbrado,rfc_receptor,volumen_total,importe_total"
+        ).execute().data or []
+    except Exception as exc:
+        logger.info("tr_cfdi timbradas columnas extendidas no disponibles; usando fallback: %s", exc)
+        try:
+            rows = _cfdi_timbradas_query(
+                "id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,xml_content,pdf_url,status,fecha_timbrado,rfc_receptor"
+            ).execute().data or []
+        except Exception as fallback_exc:
+            logger.exception("No se pudieron cargar Cartas Porte timbradas Transporte v2")
+            raise HTTPException(500, f"No se pudieron cargar Cartas Porte timbradas: {fallback_exc}") from fallback_exc
     trip_ids = [int(row.get("viaje_id") or 0) for row in rows if row.get("viaje_id")]
     trips_by_id: dict[int, dict[str, Any]] = {}
     if trip_ids:
-        tq = (
-            sb.table(TBL_VIAJES)
-            .select("id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,operador_nombre,vehiculo_alias,metadata,defaults_json")
-            .eq("user_id", uid)
-            .in_("id", trip_ids)
-        )
-        if pid:
-            tq = tq.eq("perfil_id", pid)
-        for trip in tq.execute().data or []:
+        def _viajes_timbradas_query(select_cols: str):
+            query = (
+                sb.table(TBL_VIAJES)
+                .select(select_cols)
+                .eq("user_id", uid)
+                .in_("id", trip_ids)
+            )
+            if pid:
+                query = query.eq("perfil_id", pid)
+            return query
+        try:
+            trip_rows = _viajes_timbradas_query(
+                "id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,operador_nombre,vehiculo_alias,metadata,defaults_json"
+            ).execute().data or []
+        except Exception as exc:
+            logger.info("tr_viajes timbradas columnas extendidas no disponibles; usando fallback: %s", exc)
+            trip_rows = _viajes_timbradas_query("*").execute().data or []
+        for trip in trip_rows:
             trips_by_id[int(trip.get("id") or 0)] = trip
     items: list[dict[str, Any]] = []
     for row in rows:
         viaje_id = int(row.get("viaje_id") or 0)
         trip = trips_by_id.get(viaje_id, {})
         meta = _meta(trip)
+        xml_summary: dict[str, Any] = {}
+        xml_content = _first_text(row.get("xml_content"))
+        if xml_content:
+            try:
+                xml_summary = resumen_carta_porte_desde_xml(xml_content)
+            except Exception as exc:
+                logger.info("No se pudo extraer resumen XML Carta Porte cfdi=%s viaje=%s: %s", row.get("id"), viaje_id, exc)
+        origen_xml = _first_text(xml_summary.get("origen_nombre"), xml_summary.get("origen_id"))
+        destino_xml = _first_text(xml_summary.get("destino_nombre"), xml_summary.get("destino_id"))
+        ruta_xml = f"{origen_xml} -> {destino_xml}" if origen_xml or destino_xml else ""
         items.append({
             "id": row.get("id"),
             "viaje_id": viaje_id,
-            "tipo_cfdi": _first_text(row.get("tipo_cfdi"), "T"),
-            "uuid_sat": _first_text(row.get("uuid_sat")),
-            "id_ccp": _first_text(row.get("id_ccp"), meta.get("id_ccp")),
+            "tipo_cfdi": _first_text(xml_summary.get("tipo_cfdi"), row.get("tipo_cfdi"), "T"),
+            "uuid_sat": _first_text(xml_summary.get("uuid_sat"), row.get("uuid_sat")),
+            "id_ccp": _first_text(xml_summary.get("id_ccp"), row.get("id_ccp"), meta.get("id_ccp")),
             "status": _first_text(row.get("status"), "Vigente"),
-            "fecha_timbrado": _first_text(row.get("fecha_timbrado")),
-            "cliente_nombre": _first_text(trip.get("cliente_nombre"), meta.get("cliente_nombre"), row.get("rfc_receptor")),
-            "ruta": f"{_first_text(trip.get('origen'), meta.get('origen'), 'Origen')} -> {_first_text(trip.get('destino'), meta.get('destino'), 'Destino')}",
-            "fecha_salida": _first_text(trip.get("fecha_salida"), trip.get("fecha_hora_salida")),
-            "operador_nombre": _first_text(trip.get("operador_nombre"), meta.get("operador_nombre")),
-            "vehiculo_alias": _first_text(trip.get("vehiculo_alias"), meta.get("vehiculo_alias")),
-            "volumen_litros": _num(row.get("volumen_total") or trip.get("volumen_litros") or trip.get("volumen_total_litros")),
+            "fecha_timbrado": _first_text(xml_summary.get("fecha_timbrado"), row.get("fecha_timbrado")),
+            "fecha_emision": _first_text(xml_summary.get("fecha_emision")),
+            "cliente_nombre": _first_text(xml_summary.get("receptor_nombre"), xml_summary.get("receptor_rfc"), trip.get("cliente_nombre"), meta.get("cliente_nombre"), row.get("rfc_receptor")),
+            "ruta": _first_text(ruta_xml, f"{_first_text(trip.get('origen'), meta.get('origen'), 'Origen')} -> {_first_text(trip.get('destino'), meta.get('destino'), 'Destino')}"),
+            "origen_nombre": _first_text(xml_summary.get("origen_nombre")),
+            "destino_nombre": _first_text(xml_summary.get("destino_nombre")),
+            "fecha_salida": _first_text(xml_summary.get("origen_fecha"), trip.get("fecha_salida"), trip.get("fecha_hora_salida")),
+            "fecha_llegada": _first_text(xml_summary.get("destino_fecha")),
+            "operador_nombre": _first_text(xml_summary.get("chofer"), trip.get("operador_nombre"), meta.get("operador_nombre")),
+            "vehiculo_alias": _first_text(xml_summary.get("vehiculo"), trip.get("vehiculo_alias"), meta.get("vehiculo_alias")),
+            "producto": _first_text(xml_summary.get("producto")),
+            "volumen_litros": _num(xml_summary.get("litros") or row.get("volumen_total") or trip.get("volumen_litros") or trip.get("volumen_total_litros")),
+            "peso_kg": _num(xml_summary.get("peso_kg") or trip.get("peso_kg")),
+            "distancia_km": _num(xml_summary.get("distancia_km") or meta.get("distancia_km")),
             "importe_total": _num(row.get("importe_total")),
             "pdf_url": f"/api/tr-v2/carta-porte/{viaje_id}/pdf?download=1",
             "xml_url": f"/api/tr-v2/carta-porte/{viaje_id}/xml",
             "pac_pdf_url": _first_text(row.get("pdf_url")),
+            "fuente": "xml" if xml_summary else "viaje",
         })
     return {"ok": True, "items": items, "filtro": filtro}
 
