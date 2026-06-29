@@ -766,6 +766,48 @@ def test_gas_lp_receptor_rescue_allows_legacy_rows_outside_tenant_when_issuer_ma
     assert [item["uuid_sat"] for item in rows] == ["maria-ppd"]
 
 
+def test_gas_lp_facturas_deep_rescues_company_client_receptor_rows(monkeypatch):
+    legacy_row = {
+        "id": 88,
+        "uuid_sat": "magdalena-june-legacy",
+        "status": "timbrada",
+        "rfc_receptor": "MAGO800101XX1",
+        "rfc_emisor": "AGA9603186X8",
+        "created_at": "2026-06-10T09:00:00",
+        "metadata": {"fecha_emision": "2026-06-10T09:00:00", "metodo_pago": "PPD", "saldo_insoluto": 500, "total": 500},
+    }
+    captured = {"client_rfcs": False, "receptor_rescue": False}
+
+    monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token: {"user": {"perfil_id": 7, "tenant_id": "tenant-a", "owner_user_id": "owner"}})
+    monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=False: {"id": 7, "nombre": "ALFA GAS", "rfc": "AGA9603186X8"})
+    monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: object())
+    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", lambda *args, **kwargs: [])
+    monkeypatch.setattr(internal_users, "_gas_lp_attach_internal_creators", lambda sb, rows: None)
+    monkeypatch.setattr(internal_users, "_gas_lp_attach_cliente_email_recipients", lambda sb, user, rows: None)
+    monkeypatch.setitem(internal_users.gas_lp_internal_facturas.__globals__, "_gas_lp_complementos_por_factura", lambda sb, ids, **kwargs: {})
+
+    def fake_client_rfcs(sb, user):
+        captured["client_rfcs"] = True
+        return ["MAGO800101XX1"]
+
+    def fake_receptor_rescue(sb, user, profile, *, rfcs, select, limit):
+        captured["receptor_rescue"] = True
+        assert rfcs == ["MAGO800101XX1"]
+        assert select == "*"
+        assert limit == 10000
+        return [legacy_row]
+
+    monkeypatch.setitem(internal_users.gas_lp_internal_facturas.__globals__, "_gas_lp_company_client_rfcs", fake_client_rfcs)
+    monkeypatch.setitem(internal_users.gas_lp_internal_facturas.__globals__, "_gas_lp_fetch_facturas_by_receptor_rfcs", fake_receptor_rescue)
+
+    response = asyncio.run(internal_users.gas_lp_internal_facturas(token="token", mes="2026-06", limit=10000, deep=True))
+    payload = json.loads(response.body)
+
+    assert captured == {"client_rfcs": True, "receptor_rescue": True}
+    assert payload["deep"] is True
+    assert [row["uuid_sat"] for row in payload["facturas"]] == ["magdalena-june-legacy"]
+
+
 def test_gas_lp_factura_realizado_por_uses_flat_internal_creator_name():
     row = {
         "created_by_internal": 30,
