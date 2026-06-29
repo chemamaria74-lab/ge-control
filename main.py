@@ -919,7 +919,7 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
     .cards{{display:grid;grid-template-columns:1fr;gap:14px}}.card{{background:#fff;border:1px solid #e7dfd4;border-radius:8px;padding:18px;box-shadow:0 12px 30px rgba(38,25,8,.05)}}.card-head{{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:start;margin-bottom:12px}}.icon{{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;background:#f7efe4;color:#7A1E2C;font-size:23px}}h2{{font-size:21px;line-height:1.15;margin:0 0 4px}}.status{{border-radius:999px;padding:6px 9px;background:#f3eee7;color:#5f554b;font-size:12px;font-weight:900;white-space:nowrap}}.note{{font-size:13px;color:#7a6f61;margin-top:10px}}
     .actions{{display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px}}button,.btn{{border:1px solid #e0d7cc;border-radius:8px;padding:14px 16px;min-height:50px;background:#fff;color:#111;font:inherit;font-weight:900;display:flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;cursor:pointer}}button.primary,.btn.primary{{background:#7A1E2C;border-color:#7A1E2C;color:#fff}}button.warning{{background:#fff8e6;border-color:#f1d18a;color:#684800}}button.ok{{background:#ecfdf5;border-color:#a7f3d0;color:#047857}}button:disabled{{opacity:.55;cursor:not-allowed}}
     .bitacora-grid{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}}.toast{{position:fixed;left:16px;right:16px;bottom:18px;background:#111;color:#fff;border-radius:8px;padding:13px 15px;font-weight:900;text-align:center;box-shadow:0 18px 42px rgba(0,0,0,.22);opacity:0;transform:translateY(12px);transition:.18s ease;pointer-events:none}}.toast.show{{opacity:1;transform:translateY(0)}}
-    .no-trip{{background:#fff;border:1px solid #e7dfd4;border-radius:8px;padding:16px;box-shadow:0 12px 30px rgba(38,25,8,.05);margin-bottom:14px;display:none}}.no-trip.show{{display:block}}.no-trip strong{{display:block;font-size:18px;margin-bottom:4px;color:#5B0F1D}}.start-trip{{margin-top:16px;padding-top:16px;border-top:1px solid #eee6dc}}.start-trip h2{{font-size:19px}}.start-summary{{display:none;margin-top:12px;background:#faf8f5;border:1px solid #eee6dc;border-radius:8px;padding:12px}}.start-summary.show{{display:block}}.start-summary dl{{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:0 0 12px}}.start-summary dt{{color:#6f6a64;font-weight:800}}.start-summary dd{{margin:0;font-weight:900}}.start-errors{{color:#9a3412;margin:10px 0;padding-left:18px}}
+    .no-trip{{background:#fff;border:1px solid #e7dfd4;border-radius:8px;padding:16px;box-shadow:0 12px 30px rgba(38,25,8,.05);margin-bottom:14px;display:none}}.no-trip.show{{display:block}}.no-trip strong{{display:block;font-size:18px;margin-bottom:4px;color:#5B0F1D}}.start-trip{{margin-top:16px;padding-top:16px;border-top:1px solid #eee6dc}}.start-trip h2{{font-size:19px}}.start-summary{{display:none;margin-top:12px;background:#faf8f5;border:1px solid #eee6dc;border-radius:8px;padding:12px}}.start-summary.show{{display:block}}.start-summary dl{{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:0 0 12px}}.start-summary dt{{color:#6f6a64;font-weight:800}}.start-summary dd{{margin:0;font-weight:900}}.start-errors{{color:#9a3412;margin:10px 0;padding-left:18px}}.date-check{{border-radius:8px;padding:11px 12px;margin:10px 0;font-weight:900;border:1px solid #a7f3d0;background:#ecfdf5;color:#047857}}.date-check.warn{{border-color:#f1d18a;background:#fff8e6;color:#684800}}select{{width:100%;border:1px solid #e0d7cc;border-radius:8px;padding:12px;background:#fff;font:inherit;font-weight:900;margin-top:6px}}
     .operator-content.hidden{{display:none}}.trip-details{{display:grid;grid-template-columns:1fr;gap:8px;margin-top:14px}}.trip-details div{{background:#faf8f5;border:1px solid #eee6dc;border-radius:8px;padding:10px}}.trip-details span{{display:block;color:#6f6a64;font-size:12px;font-weight:900;text-transform:uppercase}}.trip-details strong{{display:block;margin-top:3px}}.file-row{{display:flex;flex-direction:column;gap:8px;margin-top:10px}}input[type=file]{{width:100%;border:1px solid #e0d7cc;border-radius:8px;padding:10px;background:#fff}}.history{{margin-top:12px;padding-left:18px;color:#5f554b}}
     @media(min-width:760px){{body{{padding:24px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr))}}.card.bitacora{{grid-column:1/-1}}.actions{{grid-template-columns:repeat(2,minmax(0,1fr))}}.bitacora-grid{{grid-template-columns:repeat(3,minmax(0,1fr))}}}}
   </style>
@@ -948,9 +948,8 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       <p>Puedes iniciar un movimiento con la factura de la carga.</p>
       <div class="trip-details" aria-label="Flujo para crear y timbrar viaje">
         <div><span>Paso 1</span><strong>Subir factura</strong></div>
-        <div><span>Paso 2</span><strong>Revisar datos</strong></div>
-        <div><span>Paso 3</span><strong>Crear viaje</strong></div>
-        <div><span>Paso 4</span><strong>Timbrar Carta Porte</strong></div>
+        <div><span>Paso 2</span><strong>Revisar datos detectados</strong></div>
+        <div><span>Paso 3</span><strong>Crear viaje y timbrar Carta Porte</strong></div>
       </div>
       <div class="start-trip">
         <h2>Crear viaje</h2>
@@ -1119,7 +1118,7 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       if (summary) summary.textContent = uuid ? `UUID: ${{uuid}}` : 'Factura y datos operativos requeridos para timbrar.';
       if (actions) actions.innerHTML = uuid
         ? `<button type="button" onclick="trv2OperadorOpenCartaPorte('pdf')"><i class="fa-solid fa-file-pdf"></i> Ver Carta Porte PDF</button><button type="button" onclick="trv2OperadorOpenCartaPorte('pdf', true)"><i class="fa-solid fa-download"></i> Descargar Carta Porte PDF</button>`
-        : `<button class="primary" type="button" id="trv2-operator-stamp-btn" onclick="trv2OperadorTimbrar()"><i class="fa-solid fa-stamp"></i> Timbrar Carta Porte</button>`;
+        : `<div class="note">La Carta Porte se timbra al crear el viaje desde la factura. Si este viaje ya existe sin timbrar, oficina debe revisarlo.</div>`;
       trv2OperadorRenderInvoice();
     }}
     function trv2OperadorBitacoraEstado() {{ return TRV2_OPERATOR_META.bitacora_operador?.estado || 'SIN_INICIAR'; }}
@@ -1166,12 +1165,19 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       const file = input?.files?.[0];
       if (!file) return trv2OperadorToast('Selecciona la factura PDF o XML.');
       const button = document.getElementById('trv2-operator-analyze-btn');
-      if (button) button.disabled = true;
+      if (button) {{
+        button.disabled = true;
+        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Analizando...';
+      }}
+      await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
       const form = new FormData();
       form.append('file', file);
       const response = await fetch('/api/tr-v2/operator/preparar-viaje', {{method:'POST', headers:trv2OperadorHeaders(), body:form}});
       const data = await response.json().catch(() => ({{}}));
-      if (button) button.disabled = false;
+      if (button) {{
+        button.disabled = false;
+        button.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Analizar factura';
+      }}
       if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo analizar la factura.'));
       TRV2_OPERATOR_PREPARED = data;
       const summary = document.getElementById('trv2-operator-start-summary');
@@ -1179,6 +1185,10 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       const suggestedRouteId = Number(data.ruta_id_sugerida || routes[0]?.id || 0);
       const routeOptions = routes.map(route => `<option value="${{trv2OpEsc(route.id)}}" ${{Number(route.id || 0) === suggestedRouteId ? 'selected' : ''}}>${{trv2OpEsc(route.nombre || `${{route.origen}} - ${{route.destino}}`)}}</option>`).join('');
       const errors = (data.errors || []).map(error => `<li>${{trv2OpEsc(error)}}</li>`).join('');
+      const dateValidation = data.validacion_fecha_factura || {{}};
+      const dateClass = dateValidation.nivel === 'ok' ? '' : ' warn';
+      const dateHtml = dateValidation.message ? `<div class="date-check${{dateClass}}">${{trv2OpEsc(dateValidation.message)}}</div>` : '';
+      const canCreate = Boolean(data.ready && !dateValidation.bloqueante);
       if (summary) {{
         summary.classList.add('show');
         summary.innerHTML = `
@@ -1189,14 +1199,17 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
             <dt>Kilos</dt><dd>${{trv2OpEsc(data.detected?.peso_kg || data.detected?.kilos || '')}}</dd>
             <dt>Vehículo</dt><dd>${{trv2OpEsc(data.vehiculo?.nombre || 'Sin asignar')}} ${{data.vehiculo?.placas ? '· ' + trv2OpEsc(data.vehiculo.placas) : ''}}</dd>
           </dl>
+          ${{dateHtml}}
           ${{errors ? `<ul class="start-errors">${{errors}}</ul>` : ''}}
           ${{routes.length ? `<label for="trv2-operator-start-route"><strong>Destino / ruta</strong></label><select id="trv2-operator-start-route">${{routeOptions}}</select>` : ''}}
-          <div class="actions"><button class="primary" id="trv2-operator-create-trip-btn" type="button" onclick="trv2OperadorAcceptTrip()" ${{data.ready ? '' : 'disabled'}}>Crear viaje y timbrar Carta Porte</button></div>`;
+          <div class="actions"><button class="primary" id="trv2-operator-create-trip-btn" type="button" onclick="trv2OperadorAcceptTrip()" ${{canCreate ? '' : 'disabled'}}>Crear viaje y timbrar Carta Porte</button></div>`;
       }}
     }}
     async function trv2OperadorAcceptTrip() {{
       if (TRV2_OPERATOR_CREATING_TRIP) return;
       if (!TRV2_OPERATOR_PREPARED) return trv2OperadorToast('Analiza la factura primero.');
+      const dateValidation = TRV2_OPERATOR_PREPARED.validacion_fecha_factura || {{}};
+      if (dateValidation.bloqueante) return trv2OperadorToast(dateValidation.message || 'La fecha de la factura no corresponde a hoy o ayer.');
       const routeId = Number(document.getElementById('trv2-operator-start-route')?.value || 0);
       const sourceFile = document.getElementById('trv2-operator-start-file')?.files?.[0];
       if (!sourceFile) return trv2OperadorToast('Vuelve a seleccionar la factura.');
