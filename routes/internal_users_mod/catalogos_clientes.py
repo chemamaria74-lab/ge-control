@@ -762,11 +762,23 @@ async def gas_lp_internal_catalogo_delete(kind: str, row_id: int, token: str, pe
 
 @router.post("/internal-auth/gas-lp/carta-porte")
 async def gas_lp_internal_carta_porte(request: Request, token: str):
-    ctx = _gas_lp_internal_context(token, write=True)
-    user = ctx["user"]
-    from routes.facturas import CartaPorteRequest, _generar_carta_porte_for_scope
-
     endpoint = "/api/internal-auth/gas-lp/carta-porte"
+    raw_payload = None
+    try:
+        ctx = _gas_lp_internal_context(token, write=True)
+        user = ctx["user"]
+        from routes.facturas_mod.core import CartaPorteRequest, _generar_carta_porte_for_scope
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("gas_lp_carta_porte_internal_bootstrap_failed endpoint=%s", endpoint)
+        raise HTTPException(500, {
+            "message": f"Error al iniciar timbrado Carta Porte ({type(exc).__name__}: {exc}).",
+            "code": "gas_lp_carta_porte_bootstrap_failed",
+            "phase": "bootstrap",
+            "endpoint": endpoint,
+            "before_pac": True,
+        }) from exc
     try:
         raw_payload = await request.json()
     except Exception as exc:
