@@ -66,33 +66,51 @@ function trv2DocUi(scope = 'carga') {
 
 async function trv2AnalyzeDocument(event, scope = '') {
   event.preventDefault();
+  const submitButton = event.submitter || event.target?.querySelector?.('[type="submit"]');
+  trv2SetAnalyzeBusy(submitButton, true);
   const formScope = scope || (event.target?.id === 'trv2-cp-doc-form' ? 'cp' : 'carga');
   const ui = trv2DocUi(formScope);
   const file = ui.file?.files?.[0];
   const message = ui.message;
   if (!file) {
     if (message) message.textContent = 'Selecciona un PDF o XML para analizar.';
+    trv2SetAnalyzeBusy(submitButton, false);
     return;
   }
-  const form = new FormData();
-  form.append('file', file);
-  form.append('perfil_id', TRV2_PERFIL?.id || '');
-  form.append('viaje_id', ui.viajeId?.value || '');
-  form.append('tipo_documento', ui.tipo?.value || 'factura_cliente');
-  const data = await trv2UploadForm('/api/tr-v2/documentos/analizar', form);
-  if (!data?.ok) {
-    const text = data?.detail || data?.message || 'No se pudo analizar el documento.';
-    if (message) message.textContent = text;
-    trv2Toast(text, 'error');
-    return;
+  if (message) message.textContent = 'Analizando documento...';
+  await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('perfil_id', TRV2_PERFIL?.id || '');
+    form.append('viaje_id', ui.viajeId?.value || '');
+    form.append('tipo_documento', ui.tipo?.value || 'factura_cliente');
+    const data = await trv2UploadForm('/api/tr-v2/documentos/analizar', form);
+    if (!data?.ok) {
+      const text = data?.detail || data?.message || 'No se pudo analizar el documento.';
+      if (message) message.textContent = text;
+      trv2Toast(text, 'error');
+      return;
+    }
+    await trv2EnsureDocumentCatalogs();
+    TRV2_DOCUMENT_DETECTED = data;
+    TRV2_DOCUMENT_SCOPE = formScope;
+    data.detected = trv2NormalizeDetected(data.detected || {});
+    trv2RenderDocumentDetected(data, formScope);
+    if (message) message.textContent = 'Documento analizado. Revisa y confirma los datos detectados.';
+    trv2Toast('Documento analizado sin timbrar ni generar XML fiscal.', 'success');
+  } finally {
+    trv2SetAnalyzeBusy(submitButton, false);
   }
-  await trv2EnsureDocumentCatalogs();
-  TRV2_DOCUMENT_DETECTED = data;
-  TRV2_DOCUMENT_SCOPE = formScope;
-  data.detected = trv2NormalizeDetected(data.detected || {});
-  trv2RenderDocumentDetected(data, formScope);
-  if (message) message.textContent = 'Documento analizado. Revisa y confirma los datos detectados.';
-  trv2Toast('Documento analizado sin timbrar ni generar XML fiscal.', 'success');
+}
+
+function trv2SetAnalyzeBusy(button, busy) {
+  if (!button) return;
+  const label = button.dataset.analyzeLabel || 'Analizar';
+  button.disabled = Boolean(busy);
+  button.innerHTML = busy
+    ? '<i class="fa-solid fa-spinner fa-spin"></i> Analizando...'
+    : `<i class="fa-solid fa-gears"></i> ${trv2Esc(label)}`;
 }
 
 async function trv2EnsureDocumentCatalogs() {

@@ -74,26 +74,42 @@ async function trv2LoadStampedCartaPorte(options = {}) {
     list.innerHTML = `<div class="trv2-empty">${filter === 'hoy' ? 'Hoy todavía no hay Cartas Porte timbradas.' : 'Aún no hay Cartas Porte timbradas.'}</div>`;
     return;
   }
-  list.innerHTML = items.map(item => {
+  const firstColumn = filter === 'todas' ? 'Fecha' : 'Hora';
+  const rows = items.map(item => {
     const uuid = item.uuid_sat || 'UUID pendiente';
-    const route = item.ruta || 'Origen -> Destino';
-    const cliente = item.cliente_nombre || item.rfc_receptor || 'Cliente pendiente';
     const fecha = trv2StampedCartaPorteDate(item.fecha_timbrado);
     const litros = Number(item.volumen_litros || 0).toLocaleString('es-MX');
-    const statusClass = String(item.status || '').toLowerCase().includes('error') ? 'trv2-mini-btn-danger' : '';
+    const peso = Number(item.peso_kg || 0).toLocaleString('es-MX');
     return `
-      <article class="trv2-cp-pending-card trv2-cp-stamped-card">
-        <div>
-          <strong>Carta Porte · ${trv2Esc(cliente)}</strong>
-          <span>${trv2Esc(route)} · ${trv2Esc(fecha)} · ${trv2Esc(litros)} L</span>
-          <span>UUID ${trv2Esc(uuid)}${item.id_ccp ? ` · IdCCP ${trv2Esc(item.id_ccp)}` : ''}</span>
-        </div>
-        <button class="trv2-mini-btn ${statusClass}" type="button" disabled>${trv2Esc(item.status || 'Vigente')}</button>
-        <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2DownloadCartaPorteFile(${Number(item.viaje_id || 0)}, 'pdf')"><i class="fa-solid fa-file-pdf"></i> PDF</button>
-        <button class="trv2-mini-btn" type="button" onclick="trv2DownloadCartaPorteFile(${Number(item.viaje_id || 0)}, 'xml')"><i class="fa-solid fa-file-code"></i> XML</button>
-      </article>
+      <tr>
+        <td>${trv2Esc(fecha)}</td>
+        <td>${trv2Esc(item.origen_nombre || 'Origen')}</td>
+        <td>${trv2Esc(item.destino_nombre || 'Destino')}</td>
+        <td>${trv2Esc(item.producto || '')}</td>
+        <td>${trv2Esc(litros)} L</td>
+        <td>${trv2Esc(peso)} kg</td>
+        <td>${trv2Esc(item.vehiculo_alias || '')}</td>
+        <td>${trv2Esc(item.operador_nombre || '')}</td>
+        <td><code title="${trv2Esc(uuid)}">${trv2Esc(uuid)}</code></td>
+        <td class="trv2-doc-actions">
+          <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2DownloadCartaPorteFile(${Number(item.viaje_id || 0)}, 'pdf')"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+          <button class="trv2-mini-btn" type="button" onclick="trv2DownloadCartaPorteFile(${Number(item.viaje_id || 0)}, 'xml')"><i class="fa-solid fa-file-code"></i> XML</button>
+        </td>
+      </tr>
     `;
   }).join('');
+  list.innerHTML = `
+    <div class="trv2-table-wrap trv2-cp-history-wrap">
+      <table class="trv2-cp-history-table">
+        <thead>
+          <tr>
+            <th>${firstColumn}</th><th>Origen</th><th>Destino</th><th>Producto</th><th>Litros</th><th>Peso</th><th>Vehículo</th><th>Operador</th><th>UUID</th><th>Docs</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 async function trv2DownloadCartaPorteFile(viajeId, type = 'pdf') {

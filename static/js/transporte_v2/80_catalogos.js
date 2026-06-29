@@ -90,6 +90,7 @@ const TRV2_CP_SAT_DEFAULTS = {
   '20120': { estado_sat: 'AGU', municipio_sat: '001', localidad_sat: '01' },
   '27019': { estado_sat: 'COA', municipio_sat: '035', localidad_sat: '' },
   '27297': { estado_sat: 'COA', municipio_sat: '035', localidad_sat: '01' },
+  '45464': { estado_sat: 'JAL', municipio_sat: '123', localidad_sat: '' },
   '47200': { estado_sat: 'JAL', municipio_sat: '091', localidad_sat: '' },
   '98057': { estado_sat: 'ZAC', municipio_sat: '056', localidad_sat: '03' },
   '98470': { estado_sat: 'ZAC', municipio_sat: '', localidad_sat: '' },
