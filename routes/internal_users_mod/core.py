@@ -2366,7 +2366,7 @@ def _gas_lp_company_facturas_rows_impl(
     if profile_rfc and company_fallback:
         # La visibilidad fiscal es por RFC emisor de la empresa asignada, no por asistente.
         rfc_rows = []
-        for rfc_field in ("rfc_emisor", "metadata->>rfc_emisor", "metadata->>empresa_rfc", "metadata->>empresa_asignada_rfc"):
+        for rfc_field in ("metadata->>rfc_emisor", "metadata->>empresa_rfc", "metadata->>empresa_asignada_rfc"):
             try:
                 query = sb.table("gas_lp_facturas").select(select).eq(rfc_field, profile_rfc)
                 query, rfc_range_applied = _gas_lp_apply_created_range(query, created_range)
@@ -2393,8 +2393,21 @@ def _gas_lp_company_facturas_rows_impl(
             logger.warning("gas_lp_facturas_tenant_scan_failed tenant=%s err=%s", user.get("tenant_id"), exc)
             filters.append({"source": "tenant_scan_rfc_fallback", "tenant_id": user.get("tenant_id"), "limit": tenant_scan_limit, "error": str(exc)})
         candidate_rows.extend(company_rows)
+
+        global_scan_limit = max(limit, int(os.environ.get("GAS_LP_FACTURAS_GLOBAL_SCAN_LIMIT", "10000") or "10000"))
+        try:
+            query = sb.table("gas_lp_facturas").select(select)
+            query, global_range_applied = _gas_lp_apply_created_range(query, created_range)
+            global_rows = query.order("created_at", desc=True).limit(global_scan_limit).execute().data or []
+            filters.append({"source": "global_scan_rfc_xml_fallback", "limit": global_scan_limit, "match": "same issuer RFC from row/metadata/xml", "date_filter": "created_at_range" if global_range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
+        except Exception as exc:
+            global_rows = []
+            logger.warning("gas_lp_facturas_global_scan_failed rfc=%s err=%s", profile_rfc, exc)
+            filters.append({"source": "global_scan_rfc_xml_fallback", "limit": global_scan_limit, "error": str(exc)})
+        candidate_rows.extend(global_rows)
         rows.extend(row for row in rfc_rows if _gas_lp_factura_matches_company(row, user, match_profile))
         rows.extend(row for row in company_rows if _gas_lp_factura_matches_company(row, user, match_profile))
+        rows.extend(row for row in global_rows if _gas_lp_factura_matches_company(row, user, match_profile))
 
     rows = _dedupe_rows_by_id(rows)
     rows = [row for row in rows if _gas_lp_factura_matches_company(row, user, match_profile)]

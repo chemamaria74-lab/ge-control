@@ -6,7 +6,7 @@ from routes.facturas_mod.core import (
     _cp_validate_catalog_payload,
     _generar_carta_porte_for_scope,
 )
-from .catalogos_clientes import _gas_lp_clientes_scope_query
+from .catalogos_clientes import _gas_lp_clientes_scope_query, _gas_lp_company_clientes_rows
 from services.carta_porte_pdf import (
     es_carta_porte_traslado,
     extraer_info_pdf as carta_porte_pdf_info,
@@ -125,17 +125,7 @@ def _gas_lp_factura_receptor_rfc(factura: dict) -> str:
 
 def _gas_lp_company_client_rfcs(sb, user: dict, *, limit: int = 10000) -> list[str]:
     try:
-        rows = (
-            _gas_lp_clientes_scope_query(
-                sb.table("gas_lp_clientes_facturacion").select("rfc,activo"),
-                user,
-            )
-            .eq("activo", True)
-            .limit(limit)
-            .execute()
-            .data
-            or []
-        )
+        rows = _gas_lp_company_clientes_rows(sb, user, active_only=True, limit=limit)
     except Exception as exc:
         logger.warning("gas_lp_company_client_rfcs_failed perfil=%s tenant=%s err=%s", user.get("perfil_id"), user.get("tenant_id"), exc)
         return []
@@ -417,7 +407,7 @@ async def gas_lp_internal_facturas(token: str, mes: str | None = None, limit: in
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
     try:
-        rescue_rfcs = [clean_receptor_rfc] if clean_receptor_rfc else (_gas_lp_company_client_rfcs(sb, user) if complementos else [])
+        rescue_rfcs = [clean_receptor_rfc] if clean_receptor_rfc else (_gas_lp_company_client_rfcs(sb, user) if (deep or complementos) else [])
         if rescue_rfcs:
             rescue_rows = _gas_lp_fetch_facturas_by_receptor_rfcs(
                 sb,
