@@ -257,7 +257,7 @@ function inferInvoiceDiscountType(md, rawType, amount, liters, perLiter, configu
 
 function discountInvoiceRows(){
   const selectedMonth = document.getElementById('descuentosMes')?.value || '';
-  return FACTURAS.filter(f => {
+  return DESCUENTO_FACTURAS.filter(f => {
     const md = f.metadata || {};
     if(isCanceled(f) || f.tipo_operacion === 'traspaso' || md.tipo_operacion === 'traspaso' || f.is_transfer || md.is_transfer) return false;
     if(selectedMonth && !facturaDateKey(f).startsWith(selectedMonth)) return false;
@@ -302,7 +302,7 @@ function renderDescuentosList(){
     discountPromedioLitro.textContent = '—';
     discountFacturasCount.textContent = '0';
     descuentosCount.textContent = '0 clientes';
-    descuentosRows.innerHTML = '<tr><td colspan="8">Selecciona un mes y presiona Buscar.</td></tr>';
+    descuentosRows.innerHTML = '<tr><td colspan="8">Utiliza el buscador para consultar facturas con descuento.</td></tr>';
     renderDiscountClientDetail([]);
     return;
   }
@@ -329,7 +329,7 @@ function renderDescuentosList(){
       <td><b class="credit-high">${money(c.descuento)}</b></td>
       <td>${c.litros > 0 ? money(perLiter) : '—'}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="8">Sin facturas con descuento en el periodo.</td></tr>';
+  }).join('') : '<tr><td colspan="8">No se encontraron facturas con descuentos para los criterios actuales.</td></tr>';
   renderDiscountClientDetail(rows);
 }
 
@@ -379,8 +379,7 @@ function clearDescuentosMonth(){
 
 async function refreshDescuentosData(){
   const month = document.getElementById('descuentosMes')?.value || todayKey().slice(0,7);
-  DESCUENTOS_SEARCHED = true;
-  await Promise.allSettled([loadClientes(), loadFacturas(month, {limit:10000, deep:true})]);
+  await Promise.allSettled([loadClientes(), loadFacturas(month, {limit:10000, deep:true, descuentos:true})]);
   renderDescuentosList();
 }
 

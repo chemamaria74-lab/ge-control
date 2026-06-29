@@ -1,6 +1,8 @@
 const token = localStorage.getItem('ge_gaslp_internal_token') || '';
 let CLIENTES = [];
 let FACTURAS = [];
+let CREDITO_FACTURAS = [];
+let DESCUENTO_FACTURAS = [];
 let COMPLEMENTO_FACTURAS = [];
 let COMPLEMENTOS = [];
 let COMPLEMENTOS_PAGO_SEARCHED = false;

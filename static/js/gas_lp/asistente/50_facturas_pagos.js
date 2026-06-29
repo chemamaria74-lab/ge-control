@@ -9,7 +9,10 @@ async function loadFacturas(month='', opts={}){
   const limit = Math.max(1, Math.min(Number(opts.limit || 10000) || 10000, 10000));
   const deep = opts.deep !== false;
   const receptorRfc = String(opts.receptorRfc || '').trim().toUpperCase();
-  const loadKey = `${selectedMonth || 'current'}:${limit}:${deep ? 'deep' : 'fast'}:${receptorRfc}`;
+  const complementos = !!opts.complementos;
+  const credito = !!opts.credito;
+  const descuentos = !!opts.descuentos;
+  const loadKey = `${selectedMonth || 'current'}:${limit}:${deep ? 'deep' : 'fast'}:${receptorRfc}:${complementos ? 'comp' : ''}:${credito ? 'cred' : ''}:${descuentos ? 'desc' : ''}`;
   if(FACTURAS_LOAD_PROMISE && FACTURAS_LOAD_KEY === loadKey) return FACTURAS_LOAD_PROMISE;
   if(FACTURAS_LOAD_CONTROLLER) FACTURAS_LOAD_CONTROLLER.abort();
   FACTURAS_LOAD_KEY = loadKey;
@@ -17,28 +20,50 @@ async function loadFacturas(month='', opts={}){
   const refreshButtons = [...document.querySelectorAll('button[onclick^="loadFacturas"]')];
   refreshButtons.forEach(btn => { btn.disabled = true; btn.dataset.loadingFacturas = '1'; });
   if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">Cargando...</td></tr>';
-  const qs = '?mes=' + encodeURIComponent(selectedMonth) + '&limit=' + encodeURIComponent(String(limit)) + (deep ? '&deep=1' : '') + (receptorRfc ? '&receptor_rfc=' + encodeURIComponent(receptorRfc) : '');
+  const qs = '?mes=' + encodeURIComponent(selectedMonth)
+    + '&limit=' + encodeURIComponent(String(limit))
+    + (deep ? '&deep=1' : '')
+    + (complementos ? '&complementos=1' : '')
+    + (credito ? '&credito=1' : '')
+    + (descuentos ? '&descuentos=1' : '')
+    + (receptorRfc ? '&receptor_rfc=' + encodeURIComponent(receptorRfc) : '');
   FACTURAS_LOAD_PROMISE = (async () => {
     try{
       const data = await api('/api/internal-auth/gas-lp/facturas' + qs, {signal: FACTURAS_LOAD_CONTROLLER.signal});
-      FACTURAS = data.facturas || [];
-      FACTURAS_LOADED = true;
+      const loadedRows = data.facturas || [];
+      if(credito){
+        CREDITO_FACTURAS = loadedRows;
+        CREDITO_PPD_SEARCHED = true;
+      }else if(descuentos){
+        DESCUENTO_FACTURAS = loadedRows;
+        DESCUENTOS_SEARCHED = true;
+      }else{
+        FACTURAS = loadedRows;
+        FACTURAS_LOADED = true;
+      }
       console.info('[GasLP asistente facturas]', {
         endpoint: '/api/internal-auth/gas-lp/facturas',
         mes: selectedMonth,
         limit,
         deep,
         receptorRfc,
-        count: FACTURAS.length,
-        sample_fields: FACTURAS[0] ? Object.keys(FACTURAS[0]).slice(0,20) : []
+        complementos,
+        credito,
+        descuentos,
+        count: loadedRows.length,
+        sample_fields: loadedRows[0] ? Object.keys(loadedRows[0]).slice(0,20) : []
       });
-      renderFacturaClientOptions();
-      renderTodayFacturas();
+      if(!credito && !descuentos){
+        renderFacturaClientOptions();
+        renderTodayFacturas();
+      }
       renderDashboard();
       renderDescuentosList();
-      renderComplementosPago();
-      if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels();
-      applyFacturasFilters();
+      if(!credito && !descuentos){
+        renderComplementosPago();
+        if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels();
+        applyFacturasFilters();
+      }
     }catch(e){
       if(e?.name === 'AbortError') return false;
       console.warn('[GasLP asistente facturas] error', {mes:selectedMonth, message:e.message, status:e.status});
@@ -182,7 +207,7 @@ function isPaid(f){
 }
 function isComplementable(f){
   const md = f.metadata || {};
-  return isPPD(f) && !isPaid(f) && !isCanceled(f) && f.tipo_operacion !== 'traspaso' && md.tipo_operacion !== 'traspaso';
+  return isPPD(f) && !isPaid(f) && !isCanceled(f) && f.tipo_operacion !== 'traspaso' && md.tipo_operacion !== 'traspaso' && !f.is_transfer && !md.is_transfer;
 }
 function renderDashboard(){
   if(!document.getElementById('dashTotal')) return;
@@ -192,12 +217,12 @@ function renderDashboard(){
     dashSaldo.textContent = money(0);
     dashFacturas.textContent = '0';
     dashClientesCredito.textContent = '0 clientes';
-    dashCreditoRows.innerHTML = '<tr><td colspan="10">Presiona Buscar cartera para cargar PPD pendientes.</td></tr>';
+    dashCreditoRows.innerHTML = '<tr><td colspan="10">Utiliza el buscador para consultar facturas a crédito pendientes.</td></tr>';
     dashPeriodo.textContent = 'Sin selección';
-    dashBars.innerHTML = '<div class="dashboard-detail-note">Presiona Buscar cartera para cargar PPD pendientes.</div>';
+    dashBars.innerHTML = '<div class="dashboard-detail-note">Utiliza el buscador para consultar facturas a crédito pendientes.</div>';
     return;
   }
-  const rows = FACTURAS.filter(f => !isCanceled(f));
+  const rows = CREDITO_FACTURAS.filter(f => !isCanceled(f));
   const ventas = rows.filter(f => f.tipo_operacion !== 'traspaso' && (f.metadata || {}).tipo_operacion !== 'traspaso' && !f.is_transfer && !(f.metadata || {}).is_transfer);
   const ppd = ventas.filter(f => isPPD(f) && facturaSaldo(f) > 0);
   const credito = ppd.reduce((sum,f)=>sum+facturaAmount(f),0);
@@ -238,7 +263,7 @@ function renderDashboard(){
     const policyClass = c.policy === 'Sin política de crédito configurada' ? 'none' : 'ok';
     const policyHtml = c.cliente_id ? `<button class="credit-badge ${policyClass} dashboard-policy-btn" type="button" title="Configurar crédito del cliente" onclick="event.stopPropagation();configureDashboardClient(${Number(c.cliente_id)})">${esc(c.policy)}</button>` : `<span class="credit-badge ${policyClass}">${esc(c.policy)}</span>`;
     return `<tr class="dashboard-client-row ${DASH_CLIENT_KEY === c.key ? 'active' : ''}" data-client-key="${esc(c.key)}" onclick="selectDashboardClient(this.dataset.clientKey)"><td><b>${esc(c.nombre)}</b></td><td>${esc(c.rfc)}</td><td>${policyHtml}</td><td>${c.count}</td><td><b class="${c.vencidas > 0 ? 'credit-high' : 'credit-ok'}">${c.vencidas}</b></td><td>${money(c.saldo_vencido)}</td><td>${c.peor_atraso ? `${c.peor_atraso} d` : '—'}</td><td>${money(c.credito)}</td><td>${money(c.pagado)}</td><td><b class="${c.saldo > 0 ? 'credit-high' : 'credit-ok'}">${money(c.saldo)}</b></td></tr>`;
-  }).join('') : '<tr><td colspan="10">Sin crédito PPD registrado.</td></tr>';
+  }).join('') : '<tr><td colspan="10">No existen facturas a crédito pendientes para esta búsqueda.</td></tr>';
   const selectedClient = byClient.get(DASH_CLIENT_KEY);
   if(selectedClient){
     const detailRows = selectedClient.facturas.filter(f=>facturaSaldo(f) > 0).sort((a,b)=>String(facturaDateValue(b) || '').localeCompare(String(facturaDateValue(a) || '')));
@@ -277,8 +302,7 @@ function clearDashboardMonth(){
 }
 async function loadDashboardData(){
   DASH_CLIENT_KEY = '';
-  CREDITO_PPD_SEARCHED = true;
-  await loadFacturas('', {limit:10000, deep:true, allMonths:true});
+  await loadFacturas('', {limit:10000, deep:true, allMonths:true, credito:true});
   renderDashboard();
 }
 function assistantInfo(f){
@@ -515,7 +539,7 @@ function renderTodayFacturas(){
 }
 function applyFacturasFilters(){
   if(!FACTURAS_LOADED && !COMPLEMENTOS.length){
-    renderFacturasTable([], facturasRows, 'Selecciona un mes y presiona Cargar mes.');
+    renderFacturasTable([], facturasRows, 'Utiliza el buscador para consultar facturas.');
     return;
   }
   const client = String(document.getElementById('facturaClienteFilter')?.value || '').trim().toUpperCase();
@@ -536,7 +560,7 @@ function applyFacturasFilters(){
     if(tipo === 'factura' && (isComp || v.isTraspaso || v.isCartaPorte)) return false;
     return true;
   });
-  renderFacturasTable(rows, facturasRows, 'Sin documentos con esos filtros.');
+  renderFacturasTable(rows, facturasRows, 'No encontramos facturas con los filtros actuales. Prueba cambiando el rango de fechas o utiliza el buscador.');
 }
 async function applyMonthFilter(){
   applyFacturasFilters();
@@ -676,7 +700,7 @@ function renderComplementosPago(){
   if(!document.getElementById('complementosRows')) return;
   if(!COMPLEMENTOS_PAGO_SEARCHED){
     renderComplementClientOptions([]);
-    complementosRows.innerHTML = '<tr><td colspan="6">Selecciona un mes y presiona Buscar.</td></tr>';
+    complementosRows.innerHTML = '<tr><td colspan="6">Utiliza el buscador para consultar facturas PPD pendientes.</td></tr>';
     refreshComplementSelection();
     return;
   }
@@ -703,7 +727,7 @@ function renderComplementosPago(){
       <td><b class="${saldo > 0 ? 'credit-high' : 'credit-ok'}">${money(saldo)}</b></td>
       <td><span class="muted">${selected ? 'Capturar en validación' : 'Selecciona para validar'}</span></td>
     </tr>`;
-  }).join('') : '<tr><td colspan="6">Sin facturas PPD pendientes para los filtros.</td></tr>';
+  }).join('') : '<tr><td colspan="6">No hay facturas pendientes de complemento para los filtros seleccionados.</td></tr>';
   refreshComplementSelection();
 }
 function toggleComplemento(id, checked){
