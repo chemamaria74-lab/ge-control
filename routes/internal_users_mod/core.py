@@ -1925,22 +1925,42 @@ def _factura_payment_info(factura: dict) -> dict:
     xml_unit_net = _xml_attr(concepto, "ValorUnitario") if concepto is not None else ""
     xml_rate = _xml_attr(traslado, "TasaOCuota") if traslado is not None else ""
     fallback_total = _money(factura.get("importe")) * Decimal("1.16")
-    total = _money(xml_total if xml_total not in {None, ""} else (md.get("total") if md.get("total") not in {None, ""} else fallback_total))
-    saldo = _money(md.get("saldo_insoluto") if md.get("saldo_insoluto") not in {None, ""} else total)
-    subtotal = _money(xml_subtotal if xml_subtotal not in {None, ""} else (md.get("subtotal") if md.get("subtotal") not in {None, ""} else factura.get("importe")))
-    iva = _money(xml_iva if xml_iva not in {None, ""} else (md.get("iva") if md.get("iva") not in {None, ""} else (total - subtotal)))
-    descuento = _money(xml_descuento if xml_descuento not in {None, ""} else (md.get("descuento") if md.get("descuento") not in {None, ""} else 0))
+    total = _money(
+        factura.get("total")
+        if factura.get("total") not in {None, ""}
+        else (xml_total if xml_total not in {None, ""} else (md.get("total") if md.get("total") not in {None, ""} else fallback_total))
+    )
+    saldo = _money(
+        factura.get("saldo_insoluto")
+        if factura.get("saldo_insoluto") not in {None, ""}
+        else (md.get("saldo_insoluto") if md.get("saldo_insoluto") not in {None, ""} else total)
+    )
+    subtotal = _money(
+        factura.get("subtotal")
+        if factura.get("subtotal") not in {None, ""}
+        else (xml_subtotal if xml_subtotal not in {None, ""} else (md.get("subtotal") if md.get("subtotal") not in {None, ""} else factura.get("importe")))
+    )
+    iva = _money(
+        factura.get("iva")
+        if factura.get("iva") not in {None, ""}
+        else (xml_iva if xml_iva not in {None, ""} else (md.get("iva") if md.get("iva") not in {None, ""} else (total - subtotal)))
+    )
+    descuento = _money(
+        factura.get("descuento_total")
+        if factura.get("descuento_total") not in {None, ""}
+        else (xml_descuento if xml_descuento not in {None, ""} else (md.get("descuento") if md.get("descuento") not in {None, ""} else 0))
+    )
     try:
-        litros = Decimal(str(xml_litros if xml_litros not in {None, ""} else (factura.get("volumen_litros") or md.get("litros") or 0))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+        litros = Decimal(str(factura.get("litros_confirmados") or xml_litros or factura.get("volumen_litros") or md.get("litros") or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
     except Exception:
         litros = Decimal("0.0000")
     try:
         rate = Decimal(str(xml_rate or 0))
         precio_unitario = (Decimal(str(xml_unit_net or 0)) * (Decimal("1") + rate)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     except Exception:
-        precio_unitario = Decimal(str(md.get("precio_unitario") or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
-    metodo_pago = str(xml_metodo_pago or md.get("metodo_pago") or "").upper()
-    payment_status = str(md.get("payment_status") or ("pendiente_complemento" if metodo_pago == "PPD" else "pagado_pue"))
+        precio_unitario = Decimal(str(factura.get("precio_unitario") or md.get("precio_unitario") or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    metodo_pago = str(factura.get("metodo_pago") or xml_metodo_pago or md.get("metodo_pago") or "").upper()
+    payment_status = str(factura.get("payment_status") or md.get("payment_status") or ("pendiente_complemento" if metodo_pago == "PPD" else "pagado_pue"))
     if metodo_pago == "PPD" and payment_status == "pagado_pue" and saldo > 0:
         payment_status = "pendiente_complemento"
     return {
@@ -2017,7 +2037,7 @@ def _gas_lp_factura_fiscal_status_info(factura: dict) -> dict:
 
 def _gas_lp_factura_date_key(factura: dict) -> str:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
-    for value in (md.get("fecha_emision"), md.get("fecha_cfdi"), factura.get("fecha_timbrado"), factura.get("created_at")):
+    for value in (factura.get("fecha_emision"), md.get("fecha_emision"), md.get("fecha_cfdi"), factura.get("fecha_timbrado"), factura.get("created_at")):
         text = str(value or "")
         if len(text) >= 10:
             return text[:10]
@@ -2046,7 +2066,12 @@ def _gas_lp_month_created_range(month: str) -> tuple[str, str] | None:
 
 
 def _gas_lp_apply_created_range(query, created_range: tuple[str, str] | None):
-    return query, False
+    if not created_range:
+        return query, False
+    if not (hasattr(query, "gte") and hasattr(query, "lt")):
+        return query, False
+    start, end = created_range
+    return query.gte("fecha_emision", start).lt("fecha_emision", end), True
 
 
 def _gas_lp_factura_xml_root(factura: dict) -> Optional[ET.Element]:
@@ -2178,20 +2203,23 @@ def _gas_lp_factura_razon_social(factura: dict) -> str:
 
 
 def _gas_lp_factura_emisor_rfc(factura: dict) -> str:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    rfc = _clean_rfc(
+        factura.get("rfc_emisor")
+        or factura.get("empresa_rfc")
+        or md.get("rfc_emisor")
+        or md.get("empresa_rfc")
+        or md.get("empresa_asignada_rfc")
+        or ""
+    )
+    if rfc:
+        return rfc
     root = _gas_lp_factura_xml_root(factura)
     emisor = _xml_first(root, "Emisor") if root is not None else None
     rfc_xml = _clean_rfc(_xml_attr(emisor, "Rfc"))
     if rfc_xml:
         return rfc_xml
-    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
-    rfc = _clean_rfc(
-        md.get("rfc_emisor")
-        or md.get("empresa_rfc")
-        or md.get("empresa_asignada_rfc")
-        or factura.get("rfc_emisor")
-        or ""
-    )
-    return rfc
+    return ""
 
 
 def _gas_lp_factura_emisor_nombre(factura: dict) -> str:
@@ -2366,7 +2394,7 @@ def _gas_lp_company_facturas_rows_impl(
     if profile_rfc and company_fallback:
         # La visibilidad fiscal es por RFC emisor de la empresa asignada, no por asistente.
         rfc_rows = []
-        for rfc_field in ("metadata->>rfc_emisor", "metadata->>empresa_rfc", "metadata->>empresa_asignada_rfc"):
+        for rfc_field in ("empresa_rfc", "rfc_emisor", "metadata->>rfc_emisor", "metadata->>empresa_rfc", "metadata->>empresa_asignada_rfc"):
             try:
                 query = sb.table("gas_lp_facturas").select(select).eq(rfc_field, profile_rfc)
                 query, rfc_range_applied = _gas_lp_apply_created_range(query, created_range)
@@ -2416,7 +2444,7 @@ def _gas_lp_company_facturas_rows_impl(
     candidate_rows = _dedupe_rows_by_id(candidate_rows)
     if month:
         rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
-    rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
+    rows.sort(key=lambda row: (_gas_lp_factura_date_key(row), str(row.get("created_at") or "")), reverse=True)
     rows = rows[:limit]
     if visibility_log:
         _gas_lp_log_facturas_visibility(user=user, profile={**profile, "rfc": profile_rfc or profile.get("rfc")}, month=month, filters=filters, candidates=candidate_rows, included=rows)

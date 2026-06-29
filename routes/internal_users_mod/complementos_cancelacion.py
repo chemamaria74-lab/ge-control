@@ -263,7 +263,12 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
         md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
         status = "pagado_con_complemento" if _money(doc["saldo_insoluto"]) <= 0 else "pago_parcial"
         md = {**md, "payment_status": status, "saldo_insoluto": doc["saldo_insoluto"], "ultimo_complemento_pago_id": comp.get("id"), "ultimo_complemento_pago_uuid": comp.get("uuid_sat") or ""}
-        sb.table("gas_lp_facturas").update({"metadata": md, "updated_at": now}).eq("id", doc["factura_id"]).execute()
+        sb.table("gas_lp_facturas").update({
+            "metadata": md,
+            "payment_status": status,
+            "saldo_insoluto": doc["saldo_insoluto"],
+            "updated_at": now,
+        }).eq("id", doc["factura_id"]).execute()
     comp, email_delivery = _gas_lp_send_complemento_pago_email(
         sb=sb,
         user=user,
@@ -495,5 +500,4 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
             "respuesta_sw": resultado.get("raw") or {},
         },
     })
-
 
