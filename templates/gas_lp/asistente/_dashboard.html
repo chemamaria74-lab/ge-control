@@ -6,9 +6,8 @@
             <p class="muted" style="margin:4px 0 0">Los clientes se agrupan por RFC. Las facturas pendientes son los CFDI PPD individuales que aún requieren complemento de pago.</p>
           </div>
           <div class="toolbar">
-            <div><label>Mes</label><input id="dashboardMes" type="month" onchange="renderDashboard()"></div>
-            <button class="btn ghost" type="button" onclick="clearDashboardMonth()">Todo</button>
-            <button class="btn ghost" type="button" onclick="loadFacturas()">Actualizar</button>
+            <button class="btn ghost" type="button" onclick="clearDashboardMonth()">Limpiar</button>
+            <button class="btn ghost" type="button" onclick="loadDashboardData()"><i class="fa-solid fa-magnifying-glass"></i> Buscar cartera</button>
           </div>
         </div>
         <div class="dashboard-grid">
@@ -20,7 +19,7 @@
         <div class="dashboard-layout">
           <div>
             <div class="section-title"><h2>Clientes con crédito PPD</h2><span class="count-pill" id="dashClientesCredito">0 clientes</span></div>
-            <div class="table-wrap dashboard-scroll"><table><thead><tr><th>Cliente</th><th>RFC</th><th>Política</th><th>Pendientes</th><th>Vencidas</th><th>Saldo vencido</th><th>Peor atraso</th><th>Crédito</th><th>Complementado</th><th>Saldo</th></tr></thead><tbody id="dashCreditoRows"><tr><td colspan="10">Cargando...</td></tr></tbody></table></div>
+            <div class="table-wrap dashboard-scroll"><table><thead><tr><th>Cliente</th><th>RFC</th><th>Política</th><th>Pendientes</th><th>Vencidas</th><th>Saldo vencido</th><th>Peor atraso</th><th>Crédito</th><th>Complementado</th><th>Saldo</th></tr></thead><tbody id="dashCreditoRows"><tr><td colspan="10">Presiona Buscar cartera para cargar PPD pendientes.</td></tr></tbody></table></div>
           </div>
           <div>
             <div class="section-title"><h2>Facturas del cliente</h2><span class="count-pill" id="dashPeriodo">Sin selección</span></div>

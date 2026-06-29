@@ -106,7 +106,7 @@
           </div>
           <div class="toolbar">
             <span class="pill warn" id="compSelCount">0 seleccionadas</span>
-            <button class="btn ghost" type="button" onclick="loadFacturas()">Actualizar</button>
+            <button class="btn ghost" type="button" onclick="refreshComplementosPagoData()"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
           </div>
         </div>
         <div class="form-grid" style="margin-bottom:12px">
@@ -120,7 +120,7 @@
           <div class="system-field"><label>Hasta</label><input id="compHasta" type="date" onchange="renderComplementosPago()"></div>
           <div><label>Estado</label><select id="compEstado" onchange="renderComplementosPago()"><option value="pendiente">Pendientes</option><option value="todas">Todas PPD</option></select></div>
         </div>
-        <div class="table-wrap complementos-scroll"><table><thead><tr><th></th><th>Factura</th><th>Cliente</th><th>Total</th><th>Saldo</th><th>Validación</th></tr></thead><tbody id="complementosRows"><tr><td colspan="6">Cargando facturas PPD...</td></tr></tbody></table></div>
+        <div class="table-wrap complementos-scroll"><table><thead><tr><th></th><th>Factura</th><th>Cliente</th><th>Total</th><th>Saldo</th><th>Validación</th></tr></thead><tbody id="complementosRows"><tr><td colspan="6">Selecciona un mes y presiona Buscar.</td></tr></tbody></table></div>
         <div class="selection">
           <div>
             <b id="compSelTotal">$0.00</b>
