@@ -654,7 +654,9 @@ function complementoRows(options={}){
   const hasta = document.getElementById('compHasta')?.value || '';
   const estado = document.getElementById('compEstado')?.value || 'pendiente';
   return (COMPLEMENTO_FACTURAS || []).filter(f => {
-    if(!isPPD(f) || isCanceled(f) || (f.metadata || {}).tipo_operacion === 'traspaso') return false;
+    const md = f.metadata || {};
+    const isTransfer = f.tipo_operacion === 'traspaso' || md.tipo_operacion === 'traspaso' || f.is_transfer || md.is_transfer;
+    if(!isPPD(f) || isCanceled(f) || isTransfer) return false;
     if(estado === 'pendiente' && isPaid(f)) return false;
     const key = facturaDateKey(f);
     if(!options.ignoreClient && selectedClient && complementoClientKey(f) !== selectedClient) return false;

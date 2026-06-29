@@ -481,7 +481,8 @@ function clienteCreditFields(c){
 }
 function clienteByFactura(f){
   const md = f?.metadata || {};
-  const byId = CLIENTES.find(c => Number(c.id) === Number(md.cliente_id || 0));
+  const clienteId = f?.cliente_id || md.cliente_id || 0;
+  const byId = CLIENTES.find(c => Number(c.id) === Number(clienteId));
   if(byId) return byId;
   const rfc = String(f?.rfc_receptor || '').toUpperCase();
   return CLIENTES.find(c => String(c.rfc || '').toUpperCase() === rfc) || null;
