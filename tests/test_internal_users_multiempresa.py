@@ -26,6 +26,8 @@ class FakeQuery:
         self.update_row = None
         self.limit_n = None
         self.range_bounds = None
+        self.or_filters = []
+        self.comparisons = []
 
     def select(self, *args, **kwargs):
         return self
@@ -36,6 +38,22 @@ class FakeQuery:
 
     def is_(self, key, value):
         self.filters.append((key, None if value == "null" else value))
+        return self
+
+    def or_(self, value):
+        self.or_filters.append(value)
+        return self
+
+    def gt(self, key, value):
+        self.comparisons.append((key, "gt", value))
+        return self
+
+    def gte(self, key, value):
+        self.comparisons.append((key, "gte", value))
+        return self
+
+    def lt(self, key, value):
+        self.comparisons.append((key, "lt", value))
         return self
 
     def limit(self, n):
@@ -69,7 +87,53 @@ class FakeQuery:
                 nested = row.get(root)
                 return nested.get(child) if isinstance(nested, dict) else None
             return row.get(key)
-        matched = [r for r in self.db.rows[self.table] if all(value_for(r, k) == v for k, v in self.filters)]
+        def norm(value):
+            if isinstance(value, bool):
+                return "true" if value else "false"
+            if value is None:
+                return None
+            return str(value)
+        def compare(row, key, op, expected):
+            actual = value_for(row, key)
+            if actual is None:
+                return False
+            if op == "gt":
+                return float(actual) > float(expected)
+            actual_text = str(actual)
+            expected_text = str(expected)
+            if op == "gte":
+                return actual_text >= expected_text
+            if op == "lt":
+                return actual_text < expected_text
+            return False
+        def match_term(row, term):
+            parts = term.split(".", 2)
+            if len(parts) != 3:
+                return False
+            key, op, expected = parts
+            actual = value_for(row, key)
+            if op == "eq":
+                return norm(actual) == expected
+            if op == "neq":
+                return norm(actual) != expected
+            if op == "is":
+                return actual is None if expected == "null" else norm(actual) == expected
+            if op == "gt":
+                return compare(row, key, "gt", expected)
+            if op == "not" and expected.startswith("ilike."):
+                pattern = expected.replace("ilike.", "", 1).replace("*", "").lower()
+                return pattern not in str(actual or "").lower()
+            return False
+        def matches(row):
+            if not all(value_for(row, k) == v for k, v in self.filters):
+                return False
+            if not all(compare(row, k, op, v) for k, op, v in self.comparisons):
+                return False
+            for group in self.or_filters:
+                if not any(match_term(row, term.strip()) for term in str(group).split(",") if term.strip()):
+                    return False
+            return True
+        matched = [r for r in self.db.rows[self.table] if matches(r)]
         if self.update_row is not None:
             for row in matched:
                 row.update(self.update_row)
@@ -424,9 +488,11 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
                 "perfil_id": 2,
                 "user_id": "other-admin",
                 "rfc_emisor": "GLU760309457",
+                "empresa_rfc": "GLU760309457",
                 "rfc_receptor": "XAXX010101000",
                 "uuid_sat": "13f8787f-43e7-4d3c-81b4-1741304cc6fa",
                 "fecha_timbrado": "2026-05-31T23:30:00-06:00",
+                "fecha_emision": "2026-05-31T23:29:00Z",
                 "created_at": "2026-06-01T05:35:00+00:00",
                 "status": "timbrada",
                 "metadata": {
@@ -441,8 +507,10 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
                 "perfil_id": 1,
                 "user_id": "admin",
                 "rfc_emisor": "OTR010101AAA",
+                "empresa_rfc": "OTR010101AAA",
                 "rfc_receptor": "XAXX010101000",
                 "fecha_timbrado": "2026-05-10T12:00:00-06:00",
+                "fecha_emision": "2026-05-10T12:00:00Z",
                 "created_at": "2026-05-10T18:00:00+00:00",
                 "status": "timbrada",
                 "metadata": {},
@@ -471,9 +539,11 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
                 "tenant_id": "tenant-a",
                 "perfil_id": 9,
                 "user_id": "anabel",
+                "empresa_rfc": "GLU760309457",
                 "rfc_receptor": "XAXX010101000",
                 "uuid_sat": "gas-lux-june",
                 "fecha_timbrado": "2026-06-03T10:10:00-06:00",
+                "fecha_emision": "2026-06-03T10:10:00Z",
                 "created_at": "2026-06-03T16:10:00+00:00",
                 "status": "timbrada",
                 "metadata": {
@@ -507,9 +577,13 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
                 "perfil_id": 99,
                 "user_id": "ernesto",
                 "rfc_emisor": "AGA9603186X8",
+                "empresa_rfc": "AGA9603186X8",
                 "rfc_receptor": "MEHE950226BZ3",
                 "uuid_sat": "maria-legacy-alfa",
                 "fecha_timbrado": "2026-06-24T11:20:26",
+                "fecha_emision": "2026-06-24T11:11:00Z",
+                "metodo_pago": "PPD",
+                "saldo_insoluto": 1925,
                 "created_at": "2026-06-24T17:20:26+00:00",
                 "status": "Vigente",
                 "metadata": {
@@ -526,9 +600,11 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
                 "perfil_id": 99,
                 "user_id": "ernesto",
                 "rfc_emisor": "OTR010101AAA",
+                "empresa_rfc": "OTR010101AAA",
                 "rfc_receptor": "MEHE950226BZ3",
                 "uuid_sat": "maria-other-company",
                 "fecha_timbrado": "2026-06-24T11:20:26",
+                "fecha_emision": "2026-06-24T11:11:00Z",
                 "created_at": "2026-06-24T17:20:26+00:00",
                 "status": "Vigente",
                 "metadata": {"fecha_emision": "2026-06-24T11:11:00"},
@@ -548,7 +624,7 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
 
         self.assertEqual([row["uuid_sat"] for row in rows], ["maria-legacy-alfa"])
 
-    def test_gas_lp_facturas_global_scan_finds_xml_only_issuer_rfc(self):
+    def test_gas_lp_facturas_require_backfilled_real_issuer_columns(self):
         db = FakeDB()
         db.rows["gas_lp_facturas"] = [
             {
@@ -556,9 +632,14 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
                 "tenant_id": "legacy-tenant",
                 "perfil_id": 99,
                 "user_id": "ernesto",
+                "rfc_emisor": "AGA9603186X8",
+                "empresa_rfc": "AGA9603186X8",
                 "rfc_receptor": "MEHE950226BZ3",
                 "uuid_sat": "maria-xml-only-issuer",
                 "fecha_timbrado": "2026-06-24T11:20:26",
+                "fecha_emision": "2026-06-24T11:11:00Z",
+                "metodo_pago": "PPD",
+                "saldo_insoluto": 1925,
                 "created_at": "2026-06-24T17:20:26+00:00",
                 "status": "Vigente",
                 "metadata": {
@@ -580,9 +661,12 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
                 "tenant_id": "legacy-tenant",
                 "perfil_id": 99,
                 "user_id": "ernesto",
+                "rfc_emisor": "OTR010101AAA",
+                "empresa_rfc": "OTR010101AAA",
                 "rfc_receptor": "MEHE950226BZ3",
                 "uuid_sat": "maria-xml-other-issuer",
                 "fecha_timbrado": "2026-06-24T11:20:26",
+                "fecha_emision": "2026-06-24T11:11:00Z",
                 "created_at": "2026-06-24T17:20:26+00:00",
                 "status": "Vigente",
                 "metadata": {"fecha_emision": "2026-06-24T11:11:00"},
@@ -617,9 +701,11 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
                 "perfil_id": 9,
                 "user_id": "admin",
                 "rfc_emisor": "GLU760309457",
+                "empresa_rfc": "GLU760309457",
                 "rfc_receptor": "XAXX010101000",
                 "uuid_sat": "gas-lux-conciliacion",
                 "fecha_timbrado": "2026-06-03T11:36:00-06:00",
+                "fecha_emision": "2026-06-03T11:36:00Z",
                 "created_at": "2026-06-03T17:36:00+00:00",
                 "status": "Vigente",
                 "metadata": {

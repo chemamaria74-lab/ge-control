@@ -149,8 +149,8 @@ def test_conciliacion_summary_compacts_payload_and_exposes_credit_discount_helpe
     assert "publico_general_con_cliente_observado" in source
     assert "Descuentos del mes" in html
     assert "Vencidas / vigentes" in html
-    assert "observacionesCliente" in html
-    assert "discountInfo" in html
+    assert "cliente_observado" in source
+    assert "discount_info" in source
 
 
 def test_conciliacion_publico_general_real_client_and_discount_are_lightweight():
@@ -672,6 +672,8 @@ def test_gas_lp_facturas_complementos_mode_returns_only_pending_ppd_without_50_l
 
     def fake_rows(sb, user, profile, **kwargs):
         captured.update(kwargs)
+        if kwargs.get("ppd_pending"):
+            return [rows[0]]
         return rows
 
     monkeypatch.setenv("GAS_LP_COMPLEMENTOS_PPD_LIMIT", "10000")
@@ -694,118 +696,45 @@ def test_gas_lp_facturas_complementos_mode_returns_only_pending_ppd_without_50_l
     assert captured["limit"] == 10000
     assert captured["select"] == "*"
     assert captured["company_fallback"] is True
+    assert captured["ppd_pending"] is True
     assert captured["visibility_log"] is False
     assert payload["complementos"] is True
     assert payload["limit"] == 10000
     assert [row["uuid_sat"] for row in payload["facturas"]] == ["ppd-pending"]
 
 
-def test_gas_lp_receptor_rescue_allows_legacy_rows_outside_tenant_when_issuer_matches():
-    xml = """
-    <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Version="4.0" TipoDeComprobante="I" MetodoPago="PPD" Total="1925.00">
-      <cfdi:Emisor Rfc="AGA9603186X8" Nombre="ALFA GAS" RegimenFiscal="601"/>
-      <cfdi:Receptor Rfc="MEHE950226BZ3" Nombre="MARIA ELIZABETH MEDINA HERNANDEZ"/>
-    </cfdi:Comprobante>
-    """
-    row = {
-        "id": 44,
-        "tenant_id": None,
-        "perfil_id": 999,
-        "rfc_receptor": "MEHE950226BZ3",
-        "rfc_emisor": "",
-        "uuid_sat": "maria-ppd",
-        "xml_content": xml,
-        "metadata": {"saldo_insoluto": 1925, "total": 1925},
-        "created_at": "2026-06-24T11:20:00",
-    }
-
-    class Result:
-        def __init__(self, data):
-            self.data = data
-
-    class Query:
-        def __init__(self):
-            self.field = ""
-            self.values = []
-
-        def select(self, *_):
-            return self
-
-        def in_(self, field, values):
-            self.field = field
-            self.values = values
-            return self
-
-        def order(self, *_args, **_kwargs):
-            return self
-
-        def limit(self, *_):
-            return self
-
-        def execute(self):
-            if self.field == "rfc_receptor" and "MEHE950226BZ3" in self.values:
-                return Result([row])
-            return Result([])
-
-    class DB:
-        def table(self, name):
-            assert name == "gas_lp_facturas"
-            return Query()
-
-    user = {"tenant_id": "tenant-new", "perfil_id": 7, "owner_user_id": "owner"}
-    profile = {"id": 7, "rfc": "AGA9603186X8"}
-    rows = internal_users._gas_lp_fetch_facturas_by_receptor_rfcs(
-        DB(),
-        user,
-        profile,
-        rfcs=["MEHE950226BZ3"],
-        select="*",
-        limit=10000,
-    )
-
-    assert [item["uuid_sat"] for item in rows] == ["maria-ppd"]
-
-
-def test_gas_lp_facturas_deep_rescues_company_client_receptor_rows(monkeypatch):
-    legacy_row = {
+def test_gas_lp_facturas_deep_uses_single_company_query_without_receptor_rescue(monkeypatch):
+    real_column_row = {
         "id": 88,
-        "uuid_sat": "magdalena-june-legacy",
+        "uuid_sat": "magdalena-june-real-columns",
         "status": "timbrada",
         "rfc_receptor": "MAGO800101XX1",
         "rfc_emisor": "AGA9603186X8",
+        "empresa_rfc": "AGA9603186X8",
+        "fecha_emision": "2026-06-10T09:00:00Z",
         "created_at": "2026-06-10T09:00:00",
-        "metadata": {"fecha_emision": "2026-06-10T09:00:00", "metodo_pago": "PPD", "saldo_insoluto": 500, "total": 500},
+        "metadata": {"metodo_pago": "PPD", "saldo_insoluto": 500, "total": 500},
     }
-    captured = {"client_rfcs": False, "receptor_rescue": False}
+    captured = {}
 
     monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token: {"user": {"perfil_id": 7, "tenant_id": "tenant-a", "owner_user_id": "owner"}})
     monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=False: {"id": 7, "nombre": "ALFA GAS", "rfc": "AGA9603186X8"})
     monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: object())
-    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", lambda *args, **kwargs: [])
+    def fake_company_rows(*args, **kwargs):
+        captured.update(kwargs)
+        return [real_column_row]
+    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", fake_company_rows)
     monkeypatch.setattr(internal_users, "_gas_lp_attach_internal_creators", lambda sb, rows: None)
     monkeypatch.setattr(internal_users, "_gas_lp_attach_cliente_email_recipients", lambda sb, user, rows: None)
     monkeypatch.setitem(internal_users.gas_lp_internal_facturas.__globals__, "_gas_lp_complementos_por_factura", lambda sb, ids, **kwargs: {})
 
-    def fake_client_rfcs(sb, user):
-        captured["client_rfcs"] = True
-        return ["MAGO800101XX1"]
-
-    def fake_receptor_rescue(sb, user, profile, *, rfcs, select, limit):
-        captured["receptor_rescue"] = True
-        assert rfcs == ["MAGO800101XX1"]
-        assert select == "*"
-        assert limit == 10000
-        return [legacy_row]
-
-    monkeypatch.setitem(internal_users.gas_lp_internal_facturas.__globals__, "_gas_lp_company_client_rfcs", fake_client_rfcs)
-    monkeypatch.setitem(internal_users.gas_lp_internal_facturas.__globals__, "_gas_lp_fetch_facturas_by_receptor_rfcs", fake_receptor_rescue)
-
     response = asyncio.run(internal_users.gas_lp_internal_facturas(token="token", mes="2026-06", limit=10000, deep=True))
     payload = json.loads(response.body)
 
-    assert captured == {"client_rfcs": True, "receptor_rescue": True}
+    assert captured["company_fallback"] is True
+    assert captured["month"] == "2026-06"
     assert payload["deep"] is True
-    assert [row["uuid_sat"] for row in payload["facturas"]] == ["magdalena-june-legacy"]
+    assert [row["uuid_sat"] for row in payload["facturas"]] == ["magdalena-june-real-columns"]
 
 
 def test_gas_lp_factura_realizado_por_uses_flat_internal_creator_name():
@@ -879,6 +808,7 @@ def test_gas_lp_crear_cliente_reuses_existing_rfc_in_same_profile(monkeypatch):
 
     db = DB()
     monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token, write=False: {"user": {"id": 5, "display_name": "Ana", "owner_user_id": "owner-a", "tenant_id": "tenant-a", "perfil_id": 7}})
+    monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=False: {"id": 7, "nombre": "ALFA GAS", "rfc": "AGA9603186X8"})
     monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: db)
     payload = internal_users.GasLpInternalClientePayload(rfc="ABC010101AB1", nombre="CLIENTE EXISTENTE", cp="64000", regimen_fiscal="601", uso_cfdi="G03")
 
@@ -1030,6 +960,7 @@ def test_gas_lp_crear_cliente_blocks_active_rfc_name_mismatch(monkeypatch):
             return Query(self)
 
     monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token, write=False: {"user": {"id": 9, "display_name": "ALFA ASISTENTE", "owner_user_id": "owner-a", "tenant_id": "tenant-a", "perfil_id": 5}})
+    monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=False: {"id": 5, "nombre": "ALFA GAS", "rfc": "AGA9603186X8"})
     monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: DB())
     payload = internal_users.GasLpInternalClientePayload(
         rfc="EAVL960621VY7",
@@ -1058,6 +989,9 @@ def test_gas_lp_eliminar_cliente_hard_deletes_row(monkeypatch):
             self.filters = []
             self.deleting = False
 
+        def select(self, *_args):
+            return self
+
         def delete(self):
             self.deleting = True
             return self
@@ -1068,6 +1002,12 @@ def test_gas_lp_eliminar_cliente_hard_deletes_row(monkeypatch):
 
         def is_(self, key, value):
             self.filters.append((key, None if value == "null" else value))
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def limit(self, *_args):
             return self
 
         def execute(self):
@@ -1099,6 +1039,7 @@ def test_gas_lp_eliminar_cliente_hard_deletes_row(monkeypatch):
 
     db = DB()
     monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token, write=False: {"user": {"id": 5, "display_name": "Ana", "owner_user_id": "owner-a", "tenant_id": "tenant-a", "perfil_id": 7}})
+    monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=False: {"id": 7, "nombre": "ALFA GAS", "rfc": "AGA9603186X8"})
     monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: db)
 
     response = asyncio.run(internal_users.gas_lp_internal_eliminar_cliente(12, token="tok"))
@@ -1738,12 +1679,12 @@ def test_assistant_complementos_search_is_manual_and_month_scoped():
     assert "loadComplementos(month)" in refresh_source
     assert "async function loadDashboardData()" in html
     assert "CREDITO_PPD_SEARCHED = true" in html
-    assert "loadFacturas('', {limit:10000, deep:true, allMonths:true})" in html
+    assert "loadFacturas('', {limit:10000, deep:true, allMonths:true, credito:true})" in html
     assert "Buscar cartera" in html
     assert "async function refreshDescuentosData()" in html
     assert "DESCUENTOS_SEARCHED = true" in html
-    assert "loadFacturas(month, {limit:10000, deep:true})" in html
-    assert "Selecciona un mes y presiona Buscar." in html
+    assert "loadFacturas(month, {limit:10000, deep:true, descuentos:true})" in html
+    assert "Utiliza el buscador para consultar facturas con descuento." in html
 
 
 def test_assistant_startup_errors_do_not_override_user_facility_selection():
