@@ -641,10 +641,17 @@ async def gas_lp_conciliacion_export_excel(
     else:
         rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
     tipo_filter = str(tipo or "").strip().lower()
+    def _row_is_transfer(row: dict) -> bool:
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        return (
+            str(row.get("tipo_operacion") or md.get("tipo_operacion") or "").strip().lower() == "traspaso"
+            or bool(row.get("is_transfer"))
+            or bool(md.get("is_transfer"))
+        )
     if tipo_filter == "factura":
-        rows = [row for row in rows if not ((row.get("metadata") or {}).get("tipo_operacion") == "traspaso" or (row.get("metadata") or {}).get("is_transfer"))]
+        rows = [row for row in rows if not _row_is_transfer(row)]
     elif tipo_filter == "traspaso":
-        rows = [row for row in rows if (row.get("metadata") or {}).get("tipo_operacion") == "traspaso" or (row.get("metadata") or {}).get("is_transfer")]
+        rows = [row for row in rows if _row_is_transfer(row)]
     elif tipo_filter == "complemento":
         rows = []
 

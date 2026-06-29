@@ -2410,75 +2410,58 @@ def _gas_lp_company_facturas_rows_impl(
     select: str = "*",
     company_fallback: bool = True,
     visibility_log: bool = True,
+    ppd_pending: bool = False,
+    discounted_only: bool = False,
+    receptor_rfc: str = "",
 ) -> list[dict]:
-    filters = []
-    candidate_rows: list[dict] = []
+    filters: list[dict] = []
     created_range = _gas_lp_month_created_range(month)
-    base_query = sb.table("gas_lp_facturas").select(select).eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
-    base_query, range_applied = _gas_lp_apply_created_range(base_query, created_range)
-    filters.append({"source": "tenant_perfil", "tenant_id": user.get("tenant_id"), "perfil_id": user.get("perfil_id"), "date_filter": "created_at_range" if range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
-    rows = base_query.order("created_at", desc=True).limit(limit).execute().data or []
-    candidate_rows.extend(rows)
-
     profile_rfc = _gas_lp_company_rfc(user, profile)
-    match_profile = {**profile, "rfc": profile_rfc or profile.get("rfc")}
-    if profile_rfc and company_fallback:
-        # La visibilidad fiscal es por RFC emisor de la empresa asignada, no por asistente.
-        rfc_rows = []
-        for rfc_field in ("empresa_rfc", "rfc_emisor", "metadata->>rfc_emisor", "metadata->>empresa_rfc", "metadata->>empresa_asignada_rfc"):
-            try:
-                query = sb.table("gas_lp_facturas").select(select).eq(rfc_field, profile_rfc)
-                query, rfc_range_applied = _gas_lp_apply_created_range(query, created_range)
-                found = query.order("created_at", desc=True).limit(limit).execute().data or []
-                rfc_rows.extend(found)
-                filters.append({"source": f"issuer_{rfc_field}", rfc_field: profile_rfc, "date_filter": "created_at_range" if rfc_range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
-            except Exception as exc:
-                logger.warning("gas_lp_facturas_rfc_lookup_failed field=%s rfc=%s err=%s", rfc_field, profile_rfc, exc)
-                filters.append({"source": f"issuer_{rfc_field}", rfc_field: profile_rfc, "error": str(exc)})
-        candidate_rows.extend(rfc_rows)
+    clean_receptor_rfc = _clean_rfc(receptor_rfc or "")
+    page_limit = max(1, min(int(limit or 10000), 10000))
 
-        tenant_scan_limit = max(limit, int(os.environ.get("GAS_LP_FACTURAS_TENANT_SCAN_LIMIT", "10000") or "10000"))
-        try:
-            query = (
-                sb.table("gas_lp_facturas")
-                .select(select)
-                .eq("tenant_id", user.get("tenant_id"))
-            )
-            query, scan_range_applied = _gas_lp_apply_created_range(query, created_range)
-            company_rows = query.order("created_at", desc=True).limit(tenant_scan_limit).execute().data or []
-            filters.append({"source": "tenant_scan_rfc_fallback", "tenant_id": user.get("tenant_id"), "limit": tenant_scan_limit, "match": "same tenant/perfil OR same issuer RFC from row/metadata/xml", "date_filter": "created_at_range" if scan_range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
-        except Exception as exc:
-            company_rows = []
-            logger.warning("gas_lp_facturas_tenant_scan_failed tenant=%s err=%s", user.get("tenant_id"), exc)
-            filters.append({"source": "tenant_scan_rfc_fallback", "tenant_id": user.get("tenant_id"), "limit": tenant_scan_limit, "error": str(exc)})
-        candidate_rows.extend(company_rows)
-
-        global_scan_limit = max(limit, int(os.environ.get("GAS_LP_FACTURAS_GLOBAL_SCAN_LIMIT", "10000") or "10000"))
-        try:
-            query = sb.table("gas_lp_facturas").select(select)
-            query, global_range_applied = _gas_lp_apply_created_range(query, created_range)
-            global_rows = query.order("created_at", desc=True).limit(global_scan_limit).execute().data or []
-            filters.append({"source": "global_scan_rfc_xml_fallback", "limit": global_scan_limit, "match": "same issuer RFC from row/metadata/xml", "date_filter": "created_at_range" if global_range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
-        except Exception as exc:
-            global_rows = []
-            logger.warning("gas_lp_facturas_global_scan_failed rfc=%s err=%s", profile_rfc, exc)
-            filters.append({"source": "global_scan_rfc_xml_fallback", "limit": global_scan_limit, "error": str(exc)})
-        candidate_rows.extend(global_rows)
-        rows.extend(row for row in rfc_rows if _gas_lp_factura_matches_company(row, user, match_profile))
-        rows.extend(row for row in company_rows if _gas_lp_factura_matches_company(row, user, match_profile))
-        rows.extend(row for row in global_rows if _gas_lp_factura_matches_company(row, user, match_profile))
-
-    rows = _dedupe_rows_by_id(rows)
-    rows = [row for row in rows if _gas_lp_factura_matches_company(row, user, match_profile)]
+    query = sb.table("gas_lp_facturas").select(select)
+    if profile_rfc:
+        query = query.or_(f"empresa_rfc.eq.{profile_rfc},rfc_emisor.eq.{profile_rfc}")
+        filters.append({"company": "empresa_rfc OR rfc_emisor", "rfc": profile_rfc})
+    else:
+        query = query.eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
+        filters.append({"company": "tenant_id + perfil_id", "tenant_id": user.get("tenant_id"), "perfil_id": user.get("perfil_id")})
+    query, range_applied = _gas_lp_apply_created_range(query, created_range)
+    if created_range:
+        filters.append({"date_filter": "fecha_emision", "start": created_range[0], "end": created_range[1], "applied": range_applied})
+    if clean_receptor_rfc:
+        query = query.eq("rfc_receptor", clean_receptor_rfc)
+        filters.append({"receptor_rfc": clean_receptor_rfc})
     if not include_carta_porte:
-        rows = [row for row in rows if not _gas_lp_factura_is_carta_porte(row)]
-    candidate_rows = _dedupe_rows_by_id(candidate_rows)
-    if month:
-        rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
-    rows.sort(key=lambda row: (_gas_lp_factura_date_key(row), str(row.get("created_at") or "")), reverse=True)
-    rows = rows[:limit]
+        query = query.or_("tipo_comprobante.is.null,tipo_comprobante.neq.T")
+        filters.append({"tipo_comprobante": "not T"})
+    if ppd_pending:
+        query = (
+            query
+            .eq("metodo_pago", "PPD")
+            .gt("saldo_insoluto", 0)
+            .or_("status.is.null,status.not.ilike.*cancel*")
+            .or_("tipo_operacion.is.null,tipo_operacion.neq.traspaso")
+            .or_("is_transfer.is.null,is_transfer.eq.false")
+        )
+        filters.append({"payment": "metodo_pago=PPD AND saldo_insoluto>0", "operation": "not transfer"})
+    if discounted_only:
+        query = query.or_("descuento_total.gt.0,descuento_confirmado.gt.0,descuento_por_litro.gt.0")
+        filters.append({"discount": "descuento_total/descuento_confirmado/descuento_por_litro > 0"})
+
+    rows = (
+        query
+        .order("fecha_emision", desc=True)
+        .order("created_at", desc=True)
+        .limit(page_limit)
+        .execute()
+        .data
+        or []
+    )
+    rows = _dedupe_rows_by_id(rows)
     if visibility_log:
-        _gas_lp_log_facturas_visibility(user=user, profile={**profile, "rfc": profile_rfc or profile.get("rfc")}, month=month, filters=filters, candidates=candidate_rows, included=rows)
+        _gas_lp_log_facturas_visibility(user=user, profile={**profile, "rfc": profile_rfc or profile.get("rfc")}, month=month, filters=filters, candidates=rows, included=rows)
     return rows
 
 
