@@ -19,6 +19,7 @@ async function loadFacturas(month='', opts={}){
   FACTURAS_LOAD_CONTROLLER = new AbortController();
   const refreshButtons = [...document.querySelectorAll('button[onclick^="loadFacturas"]')];
   refreshButtons.forEach(btn => { btn.disabled = true; btn.dataset.loadingFacturas = '1'; });
+  if(!credito && !descuentos && todayFacturasRows) todayFacturasRows.innerHTML = '<tr><td colspan="5">Cargando facturas de hoy...</td></tr>';
   if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">Cargando...</td></tr>';
   const qs = '?mes=' + encodeURIComponent(selectedMonth)
     + '&limit=' + encodeURIComponent(String(limit))
@@ -528,6 +529,7 @@ function renderFacturaClientOptions(){
   el.value = clients.some(([key]) => key === previous) ? previous : '';
 }
 function renderTodayFacturas(){
+  if(!todayFacturasRows || !todayLabel) return;
   const key = todayKey();
   todayLabel.textContent = new Date(`${key}T00:00:00`).toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'});
   const rows = fiscalDocumentRows().filter(f => (f.__kind === 'complemento' ? mexicoDateKey(f.fecha_timbrado || f.fecha_pago) : facturaDateKey(f)) === key);

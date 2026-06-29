@@ -25,6 +25,7 @@ async function load(){
     if(window.descuentosMes) descuentosMes.value = todayKey().slice(0,7);
     facturaMes.value = todayKey().slice(0,7);
     facturaExportDia.value = todayKey();
+    if(window.todayLabel) todayLabel.textContent = new Date(`${todayKey()}T00:00:00`).toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'});
     compMes.value = todayKey().slice(0,7);
     compFechaPago.value = localDateTimeValue();
     ensureFechaEmision();

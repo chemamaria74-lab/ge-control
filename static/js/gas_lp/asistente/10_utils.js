@@ -65,6 +65,12 @@ function mexicoDateParts(value){
 }
 function mexicoDateKey(value){ return mexicoDateParts(value).date; }
 function mexicoTimeLabel(value){ return mexicoDateParts(value).time; }
+function wallClockDateParts(value){
+  const text = String(value || '').trim();
+  if(!text) return {date:'', time:''};
+  const m = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+  return m ? {date:`${m[1]}-${m[2]}-${m[3]}`, time:m[4] ? `${m[4]}:${m[5]}` : ''} : {date:'', time:''};
+}
 function friendlyApiErrorText(path, data={}, rawText=''){
   const detail = detailText(data.detail || data.message || rawText, '');
   const genericServerError = !detail || /^internal server error$/i.test(String(detail).trim());
@@ -107,7 +113,7 @@ function facturaDateValue(f){
   return f.fecha_emision || md.fecha_emision || md.fecha_cfdi || cfdiFechaFromXml(f.xml_content) || f.fecha_timbrado || f.created_at || '';
 }
 function dateDMY(value){
-  const s = mexicoDateKey(value) || String(value || '').slice(0,10);
+  const s = wallClockDateParts(value).date || mexicoDateKey(value) || String(value || '').slice(0,10);
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
 }
@@ -120,8 +126,21 @@ function calcularEstatusLicencia(fechaVencimiento){
   if(days <= 30) return {status:'soon', label:'Por vencer', days_remaining:days, date_label:dateDMY(key)};
   return {status:'valid', label:'Licencia vigente', days_remaining:days, date_label:dateDMY(key)};
 }
-function facturaDateKey(f){ return mexicoDateKey(f.fecha_factura_key || facturaDateValue(f) || '') || String(f.fecha_factura_key || facturaDateValue(f) || '').slice(0,10); }
-function facturaTimeLabel(f){ return mexicoTimeLabel(facturaDateValue(f) || f.created_at || '') || '—'; }
+function facturaFiscalDateValue(f){
+  const md = f.metadata || {};
+  return f.fecha_factura_key || f.fecha_emision || md.fecha_emision || md.fecha_cfdi || cfdiFechaFromXml(f.xml_content) || '';
+}
+function facturaDateKey(f){
+  const fiscalValue = facturaFiscalDateValue(f);
+  if(fiscalValue) return wallClockDateParts(fiscalValue).date || mexicoDateKey(fiscalValue) || String(fiscalValue || '').slice(0,10);
+  const value = f.fecha_timbrado || f.created_at || '';
+  return mexicoDateKey(value) || String(value || '').slice(0,10);
+}
+function facturaTimeLabel(f){
+  const fiscalValue = facturaFiscalDateValue(f);
+  if(fiscalValue) return wallClockDateParts(fiscalValue).time || mexicoTimeLabel(fiscalValue) || '—';
+  return mexicoTimeLabel(f.fecha_timbrado || f.created_at || '') || '—';
+}
 function switchPortalTab(tab, subtab=''){
   const legacy = {
     dashboard: ['clientes','credito'],
