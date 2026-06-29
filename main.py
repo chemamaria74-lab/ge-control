@@ -26,7 +26,6 @@ from routes.admin_saas_delete_fix import router as admin_saas_delete_fix_router
 from routes.admin_saas_scope_guard import router as admin_saas_scope_guard_router
 from routes.admin_saas  import router as admin_saas_router
 from routes.admin_saas_billing import router as admin_saas_billing_router
-from routes.facturas    import router as facturas_router
 from routes.movimientos import router as movimientos_router
 from routes.perfiles    import router as perfiles_router
 from routes.internal_users import router as internal_users_router
@@ -272,7 +271,6 @@ app.include_router(admin_saas_delete_fix_router, prefix="/api", tags=["Admin Saa
 app.include_router(admin_saas_scope_guard_router, prefix="/api", tags=["Admin SaaS"])
 app.include_router(admin_saas_router,  prefix="/api", tags=["Admin SaaS"])
 app.include_router(admin_saas_billing_router, prefix="/api", tags=["Admin SaaS Billing"])
-app.include_router(facturas_router,    prefix="/api", tags=["Facturas"])
 app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
 app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
 app.include_router(internal_users_router, prefix="/api", tags=["Usuarios internos"])
