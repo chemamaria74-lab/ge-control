@@ -17,6 +17,7 @@ import base64
 import unicodedata
 from xml.etree import ElementTree as ET
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query, UploadFile, File, Form
@@ -761,6 +762,132 @@ def _detect_document_metadata(content: bytes, filename: str, content_type: str) 
         "detected": {},
         "warnings": ["Tipo de archivo no soportado para extracción automática. Usa captura manual asistida."],
     }
+
+
+_SPANISH_MONTHS = {
+    "ENE": 1, "ENERO": 1,
+    "FEB": 2, "FEBRERO": 2,
+    "MAR": 3, "MARZO": 3,
+    "ABR": 4, "ABRIL": 4,
+    "MAY": 5, "MAYO": 5,
+    "JUN": 6, "JUNIO": 6,
+    "JUL": 7, "JULIO": 7,
+    "AGO": 8, "AGOSTO": 8,
+    "SEP": 9, "SEPT": 9, "SEPTIEMBRE": 9,
+    "OCT": 10, "OCTUBRE": 10,
+    "NOV": 11, "NOVIEMBRE": 11,
+    "DIC": 12, "DICIEMBRE": 12,
+}
+
+
+def _business_today() -> datetime.date:
+    try:
+        return datetime.now(ZoneInfo("America/Mexico_City")).date()
+    except Exception:
+        return datetime.now().date()
+
+
+def _parse_detected_document_date(value: Any) -> Optional[datetime.date]:
+    text = _first_text(value)
+    if not text:
+        return None
+    text = text.strip()
+    iso_match = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", text)
+    if iso_match:
+        try:
+            return datetime(int(iso_match.group(1)), int(iso_match.group(2)), int(iso_match.group(3))).date()
+        except ValueError:
+            return None
+    numeric_match = re.search(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b", text)
+    if numeric_match:
+        day = int(numeric_match.group(1))
+        month = int(numeric_match.group(2))
+        year = int(numeric_match.group(3))
+        if year < 100:
+            year += 2000
+        try:
+            return datetime(year, month, day).date()
+        except ValueError:
+            return None
+    month_match = re.search(r"\b(\d{1,2})/([A-ZÁÉÍÓÚÜÑ]{3,12})/(\d{4})\b", text.upper())
+    if month_match:
+        month_key = unicodedata.normalize("NFD", month_match.group(2)).encode("ascii", "ignore").decode("ascii")
+        month = _SPANISH_MONTHS.get(month_key)
+        if month:
+            try:
+                return datetime(int(month_match.group(3)), month, int(month_match.group(1))).date()
+            except ValueError:
+                return None
+    return None
+
+
+def _document_date_validation(detected: dict[str, Any]) -> dict[str, Any]:
+    source_fields = [
+        ("fecha_factura", "fecha de factura"),
+        ("fecha_boleta", "fecha de boleta"),
+        ("fecha_certificacion", "fecha de certificación"),
+    ]
+    raw = ""
+    field = ""
+    label = ""
+    parsed: Optional[datetime.date] = None
+    for candidate, candidate_label in source_fields:
+        raw = _first_text(detected.get(candidate))
+        parsed = _parse_detected_document_date(raw)
+        if parsed:
+            field = candidate
+            label = candidate_label
+            break
+    if not parsed:
+        return {
+            "ok": True,
+            "bloqueante": False,
+            "nivel": "advertencia",
+            "campo": "",
+            "fecha": "",
+            "message": "No se detectó fecha de factura; revisa manualmente antes de crear la Carta Porte.",
+        }
+    today = _business_today()
+    delta = (parsed - today).days
+    payload = {
+        "campo": field,
+        "campo_label": label,
+        "fecha": parsed.isoformat(),
+        "hoy": today.isoformat(),
+        "diferencia_dias": delta,
+    }
+    if delta in {-1, 0}:
+        return {
+            **payload,
+            "ok": True,
+            "bloqueante": False,
+            "nivel": "ok",
+            "message": f"La {label} ({parsed.isoformat()}) corresponde a hoy o ayer.",
+        }
+    if delta == 1:
+        return {
+            **payload,
+            "ok": True,
+            "bloqueante": False,
+            "nivel": "advertencia",
+            "message": f"La {label} es de mañana ({parsed.isoformat()}). Confirma que no sea una factura equivocada.",
+        }
+    direction = "anterior" if delta < -1 else "posterior"
+    return {
+        **payload,
+        "ok": False,
+        "bloqueante": True,
+        "nivel": "error",
+        "message": f"La {label} ({parsed.isoformat()}) es {direction} a la ventana permitida. Usa factura de hoy o ayer.",
+    }
+
+
+def _enforce_document_date_validation(validation: dict[str, Any]) -> None:
+    if validation.get("bloqueante"):
+        raise HTTPException(400, {
+            "message": validation.get("message") or "La fecha de la factura no corresponde a hoy o ayer.",
+            "validacion_fecha_factura": validation,
+        })
 
 
 def _auth(authorization: str) -> tuple[str, str]:
@@ -4996,11 +5123,13 @@ async def transporte_v2_operator_preparar_viaje(
         logger.exception("No se pudo analizar factura del operador")
         raise HTTPException(400, f"No se pudo analizar la factura: {exc}")
     detected = analysis.get("detected") if isinstance(analysis.get("detected"), dict) else {}
+    date_validation = _document_date_validation(detected)
     prepared = _operator_prepare_trip(sb, acc, detected)
     return {
         "ok": True,
         "source": analysis.get("source"),
         "warnings": analysis.get("warnings") or [],
+        "validacion_fecha_factura": date_validation,
         "detected": detected,
         "ready": prepared["ready"],
         "errors": prepared["errors"],
@@ -5039,6 +5168,7 @@ async def transporte_v2_operator_crear_viaje(
         logger.exception("No se pudo validar factura al crear viaje operador")
         raise HTTPException(400, f"No se pudo validar la factura: {exc}")
     detected = analysis.get("detected") if isinstance(analysis.get("detected"), dict) else {}
+    _enforce_document_date_validation(_document_date_validation(detected))
     trip = _operator_create_trip(
         sb,
         acc,
@@ -5071,6 +5201,7 @@ async def transporte_v2_operator_crear_y_timbrar(
         logger.exception("No se pudo validar factura al crear y timbrar viaje operador")
         raise HTTPException(400, f"No se pudo validar la factura: {exc}")
     detected = analysis.get("detected") if isinstance(analysis.get("detected"), dict) else {}
+    _enforce_document_date_validation(_document_date_validation(detected))
     trip = _operator_create_trip(
         sb,
         acc,
@@ -5437,6 +5568,9 @@ async def transporte_v2_crear_viaje(
     uid, token = _auth(authorization)
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
+    metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
+    date_validation = metadata.get("validacion_fecha_factura") if isinstance(metadata.get("validacion_fecha_factura"), dict) else {}
+    _enforce_document_date_validation(date_validation)
     row = _resolve_legacy_trip_row(uid, token, pid, payload)
     try:
         inserted = _insert_table_row_tolerant(_sb(token), TBL_VIAJES, row)
@@ -6002,6 +6136,10 @@ async def transporte_v2_documentos_analizar(
             "warnings": [f"No se pudo extraer metadata automáticamente: {exc}. Usa captura manual asistida."],
         }
     detected_for_lookup = result.get("detected") if isinstance(result.get("detected"), dict) else {}
+    date_validation = _document_date_validation(detected_for_lookup)
+    result["validacion_fecha_factura"] = date_validation
+    if date_validation.get("message") and date_validation.get("nivel") != "ok":
+        result.setdefault("warnings", []).append(date_validation["message"])
     try:
         catalog_sb = _sb(token)
         client_query = catalog_sb.table(TBL_CLIENTES).select("*").eq("user_id", uid).eq("activo", True)
@@ -6067,6 +6205,7 @@ async def transporte_v2_documentos_analizar(
         "fase": "transporte_v2_fase_2_8",
         "bucket_pendiente": True,
         "analisis": result,
+        "validacion_fecha_factura": date_validation,
         "permiso_rfc": permiso_rfc,
         "filename": file.filename or "documento",
         "content_type": file.content_type or "",
