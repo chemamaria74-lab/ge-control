@@ -690,7 +690,7 @@ def test_gas_lp_facturas_complementos_mode_returns_only_pending_ppd_without_50_l
     response = asyncio.run(internal_users.gas_lp_internal_facturas(token="token", mes="2026-06", limit=50, complementos=True))
     payload = json.loads(response.body)
 
-    assert captured["month"] == ""
+    assert captured["month"] == "2026-06"
     assert captured["limit"] == 10000
     assert captured["select"] == "*"
     assert captured["company_fallback"] is True
@@ -698,6 +698,72 @@ def test_gas_lp_facturas_complementos_mode_returns_only_pending_ppd_without_50_l
     assert payload["complementos"] is True
     assert payload["limit"] == 10000
     assert [row["uuid_sat"] for row in payload["facturas"]] == ["ppd-pending"]
+
+
+def test_gas_lp_receptor_rescue_allows_legacy_rows_outside_tenant_when_issuer_matches():
+    xml = """
+    <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Version="4.0" TipoDeComprobante="I" MetodoPago="PPD" Total="1925.00">
+      <cfdi:Emisor Rfc="AGA9603186X8" Nombre="ALFA GAS" RegimenFiscal="601"/>
+      <cfdi:Receptor Rfc="MEHE950226BZ3" Nombre="MARIA ELIZABETH MEDINA HERNANDEZ"/>
+    </cfdi:Comprobante>
+    """
+    row = {
+        "id": 44,
+        "tenant_id": None,
+        "perfil_id": 999,
+        "rfc_receptor": "MEHE950226BZ3",
+        "rfc_emisor": "",
+        "uuid_sat": "maria-ppd",
+        "xml_content": xml,
+        "metadata": {"saldo_insoluto": 1925, "total": 1925},
+        "created_at": "2026-06-24T11:20:00",
+    }
+
+    class Result:
+        def __init__(self, data):
+            self.data = data
+
+    class Query:
+        def __init__(self):
+            self.field = ""
+            self.values = []
+
+        def select(self, *_):
+            return self
+
+        def in_(self, field, values):
+            self.field = field
+            self.values = values
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def limit(self, *_):
+            return self
+
+        def execute(self):
+            if self.field == "rfc_receptor" and "MEHE950226BZ3" in self.values:
+                return Result([row])
+            return Result([])
+
+    class DB:
+        def table(self, name):
+            assert name == "gas_lp_facturas"
+            return Query()
+
+    user = {"tenant_id": "tenant-new", "perfil_id": 7, "owner_user_id": "owner"}
+    profile = {"id": 7, "rfc": "AGA9603186X8"}
+    rows = internal_users._gas_lp_fetch_facturas_by_receptor_rfcs(
+        DB(),
+        user,
+        profile,
+        rfcs=["MEHE950226BZ3"],
+        select="*",
+        limit=10000,
+    )
+
+    assert [item["uuid_sat"] for item in rows] == ["maria-ppd"]
 
 
 def test_gas_lp_factura_realizado_por_uses_flat_internal_creator_name():
@@ -1047,6 +1113,58 @@ def test_gas_lp_clientes_selector_dedupes_active_rfc_by_invoice_history():
     )
 
     assert [row["id"] for row in rows] == [96]
+
+
+def test_gas_lp_clientes_list_includes_legacy_rows_by_company_rfc(monkeypatch):
+    class Result:
+        def __init__(self, data):
+            self.data = data
+
+    class Query:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def eq(self, key, value):
+            if "->>" in key:
+                _prefix, meta_key = key.split("->>", 1)
+                self.rows = [row for row in self.rows if (row.get("metadata") or {}).get(meta_key) == value]
+            else:
+                self.rows = [row for row in self.rows if row.get(key) == value]
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def limit(self, *_args):
+            return self
+
+        def execute(self):
+            return Result(self.rows)
+
+    class DB:
+        def __init__(self):
+            self.rows = [
+                {"id": 1, "tenant_id": "legacy", "perfil_id": 99, "rfc": "MEHE950226BZ3", "nombre": "MARIA ELIZABETH MEDINA HERNANDEZ", "activo": True, "metadata": {"empresa_rfc": "AGA9603186X8"}},
+                {"id": 2, "tenant_id": "legacy", "perfil_id": 99, "rfc": "OTRO010101XX1", "nombre": "OTRA EMPRESA", "activo": True, "metadata": {"empresa_rfc": "OTRO9603186X8"}},
+            ]
+
+        def table(self, name):
+            assert name == "gas_lp_clientes_facturacion"
+            return Query(list(self.rows))
+
+    monkeypatch.setattr(cp_catalogos, "_gas_lp_profile", lambda _user: {"id": 5, "rfc": "AGA9603186X8"})
+    monkeypatch.setattr(cp_catalogos, "_gas_lp_company_rfc", lambda _user, profile=None: (profile or {}).get("rfc") or "AGA9603186X8")
+
+    rows = cp_catalogos._gas_lp_company_clientes_rows(
+        DB(),
+        {"tenant_id": "tenant-a", "perfil_id": 5, "owner_user_id": "owner"},
+        active_only=True,
+    )
+
+    assert [row["rfc"] for row in rows] == ["MEHE950226BZ3"]
 
 
 def test_conciliacion_publico_general_payload_keeps_operational_defaults():
@@ -1560,6 +1678,30 @@ def test_assistant_load_facturas_does_not_pollute_main_invoice_status_by_default
 
     assert "opts.surfaceError" in load_source
     assert "setStatus('facturaMsg'" in load_source
+
+
+def test_assistant_complementos_search_is_manual_and_month_scoped():
+    html = _assistant_frontend_source()
+    switch_start = html.index("function switchBillingTab")
+    switch_end = html.index("function switchClientsTab", switch_start)
+    switch_source = html[switch_start:switch_end]
+    refresh_start = html.index("async function refreshComplementosPagoData")
+    refresh_end = html.index("function facturaAmount", refresh_start)
+    refresh_source = html[refresh_start:refresh_end]
+
+    assert "loadComplementoFacturas()" not in switch_source
+    assert "loadComplementos()" not in switch_source
+    assert "applyComplementMonthFilter()" in switch_source
+    assert "loadComplementoFacturas(month)" in refresh_source
+    assert "loadComplementos(month)" in refresh_source
+    assert "async function loadDashboardData()" in html
+    assert "CREDITO_PPD_SEARCHED = true" in html
+    assert "loadFacturas('', {limit:10000, deep:true, allMonths:true})" in html
+    assert "Buscar cartera" in html
+    assert "async function refreshDescuentosData()" in html
+    assert "DESCUENTOS_SEARCHED = true" in html
+    assert "loadFacturas(month, {limit:10000, deep:true})" in html
+    assert "Selecciona un mes y presiona Buscar." in html
 
 
 def test_assistant_startup_errors_do_not_override_user_facility_selection():
