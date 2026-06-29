@@ -159,7 +159,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     ink = colors.HexColor("#1F2933")
     muted = colors.HexColor("#67717D")
     styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=12.0, textColor=wine_dark, leading=13.2))
-    styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=16.2, leading=17.8, textColor=wine_dark))
+    styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=13.8, leading=15.0, textColor=wine_dark))
     styles.add(ParagraphStyle(name="DocMeta", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=6.2, leading=7.2, textColor=muted))
     styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.2, leading=10.2, textColor=wine_dark, spaceBefore=5, spaceAfter=2))
     styles.add(ParagraphStyle(name="SummaryTitle", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.2, leading=10.2, textColor=wine_dark, alignment=TA_LEFT))
@@ -250,7 +250,6 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
             ])),
             ("Complemento Carta Porte 3.1", [
                 ("Version", _attr(carta, "Version", "—")),
-                ("IdCCP", _attr(carta, "IdCCP", "—")),
                 ("Transporte internacional", _attr(carta, "TranspInternac", "—")),
                 ("TotalDistRec", _attr(carta, "TotalDistRec", "—")),
             ]),
@@ -263,19 +262,8 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         ],
         Table, TableStyle, Paragraph, styles, colors, cream, line,
     ))
-    story.append(_compact_cp_summary(
-        [
-            ("Version", _attr(carta, "Version", "—")),
-            ("IdCCP", _attr(carta, "IdCCP", "—")),
-            ("Transporte internacional", _attr(carta, "TranspInternac", "—")),
-            ("Total distancia recorrida", _attr(carta, "TotalDistRec", "—")),
-            ("Registro ISTMO", _attr(carta, "RegistroISTMO", "—")),
-            ("Polo origen/destino", f"{_attr(carta, 'UbicacionPoloOrigen', '—')} / {_attr(carta, 'UbicacionPoloDestino', '—')}"),
-        ],
-        Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark,
-    ))
     story.append(KeepTogether([
-        _section("E. Origen y destino", Paragraph, styles),
+        _section("D. Origen y destino", Paragraph, styles),
         _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark),
     ]))
     story.append(PageBreak())
@@ -284,11 +272,11 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         Spacer(1, 5),
     ]
     story.append(KeepTogether([
-        _section("F. Mercancías transportadas", Paragraph, styles),
+        _section("E. Mercancías transportadas", Paragraph, styles),
         _mercancias_table(mercancias, Table, TableStyle, Paragraph, styles, colors, wine_dark, line),
     ]))
     story.append(KeepTogether([
-        _section("G-I. Autotransporte, seguros y figura de transporte", Paragraph, styles),
+        _section("F-H. Autotransporte, seguros y figura de transporte", Paragraph, styles),
         _operations_grid(autotransporte, ident_veh, remolques, seguros, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark),
     ]))
 
@@ -301,7 +289,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     story.append(_section("Detalle SAT de figuras", Paragraph, styles))
     story.append(_figuras_table(figuras, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
 
-    story.append(_section("J. Validación SAT", Paragraph, styles))
+    story.append(_section("I. Validación SAT", Paragraph, styles))
     story.append(_seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line))
 
     story.append(Spacer(1, 8))
@@ -458,10 +446,12 @@ def _modern_header(title, logo, comp, emisor, timbre, Table, TableStyle, Paragra
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
     ]))
+    folio = _serie_folio(comp)
+    title_text = f"{title} No. {folio}" if folio and folio != "—" else title
     right = Table([
-        [Paragraph(f"<b>{_text(title)}</b>", styles["DocTitle"])],
+        [Paragraph(f"<b>{_text(title_text)}</b>", styles["DocTitle"])],
         [Paragraph(
-            f"Folio: <b>{_text(_serie_folio(comp))}</b> &nbsp;&nbsp;|&nbsp;&nbsp; UUID: {_text(_attr(timbre, 'UUID'))}<br/>"
+            f"UUID fiscal: {_text(_attr(timbre, 'UUID'))}<br/>"
             f"Certificado emisor: {_text(_attr(comp, 'NoCertificado'))} &nbsp;&nbsp;|&nbsp;&nbsp; Certificado SAT: {_text(_attr(timbre, 'NoCertificadoSAT'))}",
             styles["DocMeta"],
         )],
@@ -633,7 +623,7 @@ def _executive_summary_card(carta, ubicaciones, mercancias, ident, figuras, Tabl
     ]))
     title = Paragraph("<b>Resumen ejecutivo del traslado</b>", styles["CardHeader"])
     subtitle = Paragraph(
-        f"IdCCP {_text(_attr(carta, 'IdCCP', '—'))} &nbsp;&nbsp;|&nbsp;&nbsp; Tipo SAT: T Traslado",
+        f"Identificador del Complemento Carta Porte: <b>{_text(_attr(carta, 'IdCCP', '—'))}</b> &nbsp;&nbsp;|&nbsp;&nbsp; Tipo SAT: T Traslado",
         styles["Tiny"],
     )
     table = Table([[title], [subtitle], [grid]], colWidths=[7.60 * inch()])
