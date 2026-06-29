@@ -22,7 +22,6 @@ async function load(){
     initSatCatalogs();
     setPublicoGeneralDefaults();
     setClientesTabDefaults();
-    dashboardMes.value = todayKey().slice(0,7);
     if(window.descuentosMes) descuentosMes.value = todayKey().slice(0,7);
     facturaMes.value = todayKey().slice(0,7);
     facturaExportDia.value = todayKey();
@@ -77,7 +76,7 @@ async function loadClientes(){
   if(selectedId) clienteSelect.value = selectedId;
   selectCliente();
   renderClientesList();
-  renderDescuentosList();
+  if(DESCUENTOS_SEARCHED) renderDescuentosList();
 }
 function renderClientesList(){
   const q = String(document.getElementById('clienteSearch')?.value || '').trim().toLowerCase();
@@ -297,6 +296,16 @@ function discountDashboardRows(){
 
 function renderDescuentosList(){
   if(!document.getElementById('descuentosRows')) return;
+  if(!DESCUENTOS_SEARCHED){
+    discountTotalVentas.textContent = money(0);
+    discountTotalMonto.textContent = money(0);
+    discountPromedioLitro.textContent = '—';
+    discountFacturasCount.textContent = '0';
+    descuentosCount.textContent = '0 clientes';
+    descuentosRows.innerHTML = '<tr><td colspan="8">Selecciona un mes y presiona Buscar.</td></tr>';
+    renderDiscountClientDetail([]);
+    return;
+  }
   const rows = discountDashboardRows();
   const invoices = rows.flatMap(row => row.facturas);
   const totalVenta = rows.reduce((sum,row)=>sum+row.venta,0);
@@ -357,7 +366,7 @@ function selectDiscountClient(key){
 async function applyDescuentosMonthFilter(){
   const month = document.getElementById('descuentosMes')?.value || '';
   DISCOUNT_CLIENT_KEY = '';
-  if(month) await loadFacturas(month);
+  DESCUENTOS_SEARCHED = false;
   renderDescuentosList();
 }
 
@@ -369,7 +378,9 @@ function clearDescuentosMonth(){
 }
 
 async function refreshDescuentosData(){
-  await Promise.allSettled([loadClientes(), loadFacturas(document.getElementById('descuentosMes')?.value || '')]);
+  const month = document.getElementById('descuentosMes')?.value || todayKey().slice(0,7);
+  DESCUENTOS_SEARCHED = true;
+  await Promise.allSettled([loadClientes(), loadFacturas(month, {limit:10000, deep:true})]);
   renderDescuentosList();
 }
 
