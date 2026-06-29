@@ -219,6 +219,7 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
     <div class="trv2-detected-overview trv2-form-wide">
       ${trv2RenderDetectedCards(detected)}
     </div>
+    ${trv2RenderDateValidation(data.validacion_fecha_factura)}
     ${trv2RenderPermisoStatus(data.permiso_rfc)}
     <div class="trv2-form-wide trv2-detected-actions">
       <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ToggleDetectedEdit('${trv2Esc(scope)}')"><i class="fa-solid fa-pen"></i> Editar datos</button>
@@ -266,6 +267,20 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
   `;
   trv2SelectDetectedCatalogValues(scope, detected);
   trv2SetDefaultTripDates(scope);
+}
+
+function trv2RenderDateValidation(info = {}) {
+  if (!info || !info.message) return '';
+  const level = info.nivel || (info.bloqueante ? 'error' : 'advertencia');
+  const cls = level === 'ok' ? 'trv2-alert-ok' : 'trv2-alert-warn';
+  const icon = level === 'ok' ? 'fa-circle-check' : 'fa-triangle-exclamation';
+  const prefix = level === 'ok' ? 'Fecha validada' : (info.bloqueante ? 'Fecha fuera de ventana' : 'Revisa fecha');
+  return `
+    <div class="trv2-alert ${cls} trv2-form-wide">
+      <i class="fa-solid ${icon}"></i>
+      <strong>${trv2Esc(prefix)}.</strong> ${trv2Esc(info.message)}
+    </div>
+  `;
 }
 
 function trv2RouteMatchesClient(route = {}, cliente = {}) {
@@ -560,6 +575,11 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
     trv2Toast('Primero analiza un documento.', 'error');
     return;
   }
+  const dateValidation = TRV2_DOCUMENT_DETECTED.validacion_fecha_factura || {};
+  if (dateValidation.bloqueante) {
+    trv2Toast(dateValidation.message || 'La fecha de la factura no corresponde a hoy o ayer.', 'error');
+    return;
+  }
   const detected = trv2ReadDetectedForm(scope);
   const backendCliente = TRV2_DOCUMENT_DETECTED?.cliente_match?.item || null;
   const backendProducto = TRV2_DOCUMENT_DETECTED?.producto_match?.item || null;
@@ -612,6 +632,7 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
       cliente_match: TRV2_DOCUMENT_DETECTED?.cliente_match || null,
       producto_match: TRV2_DOCUMENT_DETECTED?.producto_match || null,
       permiso_transportista: TRV2_DOCUMENT_DETECTED?.permiso_transportista || null,
+      validacion_fecha_factura: TRV2_DOCUMENT_DETECTED?.validacion_fecha_factura || null,
       proveedor_nombre: detected.emisor_nombre || detected.proveedor_nombre || '',
       proveedor_rfc: detected.emisor_rfc || detected.proveedor_rfc || '',
       proveedor_permiso: detected.permiso || detected.proveedor_permiso || '',
@@ -647,6 +668,7 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
         proveedor_nombre: detected.emisor_nombre || detected.proveedor_nombre || '',
         proveedor_rfc: detected.emisor_rfc || detected.proveedor_rfc || '',
         proveedor_permiso: detected.permiso || detected.proveedor_permiso || '',
+        validacion_fecha_factura: TRV2_DOCUMENT_DETECTED?.validacion_fecha_factura || null,
         ruta_id: ruta?.id || null,
         operador_id: operador?.id || null,
         vehiculo_id: vehiculo?.id || null,
