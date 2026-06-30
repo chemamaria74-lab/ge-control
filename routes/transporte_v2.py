@@ -1045,6 +1045,24 @@ def _operator_assigned_trip(sb: Any, acc: dict[str, Any]) -> dict[str, Any]:
     return trip
 
 
+def _operator_trip_by_id(sb: Any, acc: dict[str, Any], viaje_id: int) -> dict[str, Any]:
+    rows = (
+        sb.table(TBL_VIAJES)
+        .select("*")
+        .eq("id", viaje_id)
+        .eq("user_id", acc.get("user_id"))
+        .eq("perfil_id", acc.get("perfil_id"))
+        .eq("chofer_id", acc.get("chofer_id"))
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(404, "Viaje no encontrado para este operador.")
+    return dict(rows[0])
+
+
 def _operator_trip_catalog_row(sb: Any, table: str, row_id: Any, acc: dict[str, Any]) -> dict[str, Any]:
     if not row_id:
         return {}
@@ -1080,6 +1098,43 @@ def _operator_cfdi_row(sb: Any, acc: dict[str, Any], trip: dict[str, Any]) -> di
     if not rows:
         raise HTTPException(404, "Este viaje todavía no tiene Carta Porte timbrada.")
     return dict(rows[0])
+
+
+def _operator_carta_porte_links(stamped: dict[str, Any] | None = None) -> dict[str, str]:
+    return {
+        "pdf_url": "/api/tr-v2/operator/carta-porte/pdf",
+        "pdf_download_url": "/api/tr-v2/operator/carta-porte/pdf?download=true",
+        "xml_url": "",
+        "xml_download_url": "",
+        "pac_pdf_url": _first_text((stamped or {}).get("pdf_url")),
+    }
+
+
+def _operator_carta_porte_payload(
+    sb: Any,
+    acc: dict[str, Any],
+    trip: dict[str, Any],
+    stamped: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    uuid = _first_text(
+        (stamped or {}).get("uuid_sat"),
+        (stamped or {}).get("uuid_cfdi"),
+        trip.get("uuid_cfdi"),
+        _meta(trip).get("uuid_carta_porte"),
+        _meta(trip).get("cfdi_uuid"),
+    )
+    if not stamped and uuid:
+        try:
+            stamped = _operator_cfdi_row(sb, acc, trip)
+        except HTTPException:
+            stamped = {}
+    return {
+        "uuid_sat": uuid or _first_text((stamped or {}).get("uuid_sat")),
+        "uuid_cfdi": uuid or _first_text((stamped or {}).get("uuid_sat")),
+        "id_ccp": _first_text((stamped or {}).get("id_ccp"), trip.get("id_ccp"), _meta(trip).get("id_ccp")),
+        "fecha_timbrado": _first_text((stamped or {}).get("fecha_timbrado"), _meta(trip).get("fecha_timbrado")),
+        **_operator_carta_porte_links(stamped),
+    }
 
 
 def _route_provider_match_score(route: dict[str, Any], origin: dict[str, Any], detected: dict[str, Any]) -> int:
@@ -1396,6 +1451,10 @@ def _operator_create_trip(
     vehicle = _stamp_expand_vehicle_trailers(sb, acc.get("user_id"), acc.get("perfil_id"), prepared["vehicle"])
     liters = _num(detected.get("cantidad_litros") or detected.get("litros"))
     kilos = _num(detected.get("peso_kg") or detected.get("kilos"))
+    factura_subtotal = _num(detected.get("subtotal"))
+    factura_iva = _num(detected.get("iva"))
+    factura_total = _num(detected.get("total"))
+    valor_mercancia = factura_total or factura_subtotal
     product_name = _first_text(product.get("nombre"), detected.get("producto"))
     metadata = {
         "source": "portal_operador",
@@ -1413,6 +1472,10 @@ def _operator_create_trip(
         "producto": product_name,
         "producto_descripcion": product_name,
         "peso_kg": kilos,
+        "subtotal": factura_subtotal,
+        "iva": factura_iva,
+        "total": factura_total,
+        "valor_mercancia": valor_mercancia,
         "proveedor_nombre": _first_text(detected.get("proveedor_nombre"), detected.get("emisor_nombre")),
         "proveedor_rfc": prepared["provider_rfc"],
         "proveedor_permiso": _first_text(detected.get("permiso"), detected.get("proveedor_permiso")),
@@ -1446,6 +1509,7 @@ def _operator_create_trip(
             "clave_producto": _first_text(product.get("clave_producto"), product.get("clave_prodserv_cfdi")),
             "unidad": _first_text(product.get("unidad"), "LTR"),
             "cantidad_litros": liters, "peso_kg": kilos,
+            "valor_mercancia": valor_mercancia,
             "material_peligroso": bool(product.get("material_peligroso")),
             "clave_material_peligroso": _first_text(product.get("cve_material_peligroso")),
             "embalaje": _first_text(product.get("embalaje")),
@@ -4272,6 +4336,17 @@ def _delete_unstamped_operator_trip(sb: Any, acc: dict[str, Any], trip: dict[str
     return False
 
 
+def _ensure_operator_trip_deletable(trip: dict[str, Any]) -> None:
+    meta = _meta(trip)
+    status = _first_text(trip.get("status"), trip.get("estatus"), trip.get("operacion_status")).lower()
+    if meta.get("source") != "portal_operador":
+        raise HTTPException(409, "Solo puedes borrar cargas creadas desde el portal de operador.")
+    if status not in {"", "borrador", "draft", "programado", "asignado", "pendiente", "error"}:
+        raise HTTPException(409, "Este viaje ya avanzó de estado y no se puede borrar desde el portal.")
+    if _first_text(trip.get("uuid_cfdi"), meta.get("uuid_carta_porte"), meta.get("cfdi_uuid")):
+        raise HTTPException(409, "No se puede borrar una carga con Carta Porte timbrada.")
+
+
 def _xml_local_name(tag: str) -> str:
     if "}" in tag:
         tag = tag.rsplit("}", 1)[1]
@@ -5098,7 +5173,8 @@ async def transporte_v2_operator_mi_viaje(authorization: str = Header(default=""
     meta.setdefault("vehiculo_alias", _first_text(vehicle.get("numero_economico"), vehicle.get("alias"), vehicle.get("placas")))
     meta.setdefault("placas", vehicle.get("placas") or "")
     viaje["defaults_json"] = meta
-    return {"ok": True, "viaje": _normalize_viaje_row(viaje), "metadata": meta, "has_trip": True}
+    carta_porte = _operator_carta_porte_payload(sb, acc, viaje) if _first_text(viaje.get("uuid_cfdi"), meta.get("uuid_carta_porte"), meta.get("cfdi_uuid")) else {}
+    return {"ok": True, "viaje": _normalize_viaje_row(viaje), "metadata": meta, "carta_porte": carta_porte, "has_trip": True}
 
 
 @router.post("/tr-v2/operator/preparar-viaje")
@@ -5213,6 +5289,22 @@ async def transporte_v2_operator_crear_y_timbrar(
         invoice_sha256=hashlib.sha256(content).hexdigest(),
     )
     trip_id = int(trip.get("id") or 0)
+    existing_uuid = _first_text(trip.get("uuid_cfdi"), _meta(trip).get("uuid_carta_porte"), _meta(trip).get("cfdi_uuid"))
+    if existing_uuid:
+        refreshed = _operator_trip_by_id(sb, acc, trip_id)
+        carta_porte = _operator_carta_porte_payload(sb, acc, refreshed)
+        return {
+            "ok": True,
+            "has_trip": True,
+            "idempotent": True,
+            "viaje": _normalize_viaje_row(refreshed),
+            "metadata": _meta(refreshed),
+            "carta_porte": carta_porte,
+            "uuid_sat": carta_porte.get("uuid_sat"),
+            "id_ccp": carta_porte.get("id_ccp"),
+            "pdf_url": carta_porte.get("pdf_url"),
+            "pdf_download_url": carta_porte.get("pdf_download_url"),
+        }
     try:
         context = _stamp_build_context(
             uid=acc.get("user_id"),
@@ -5235,16 +5327,19 @@ async def transporte_v2_operator_crear_y_timbrar(
         if not claimed:
             raise HTTPException(409, "La Carta Porte ya está timbrada o hay un timbrado en curso.")
         stamped = _stamp_carta_porte_context(context)
-        refreshed = _operator_assigned_trip(sb, acc)
+        refreshed = _operator_trip_by_id(sb, acc, trip_id)
         meta = _meta(refreshed)
+        carta_porte = _operator_carta_porte_payload(sb, acc, refreshed, stamped)
         return {
             "ok": True,
             "has_trip": True,
             "viaje": _normalize_viaje_row(refreshed),
             "metadata": meta,
-            "carta_porte": stamped,
-            "uuid_sat": stamped.get("uuid_sat") or stamped.get("uuid_cfdi"),
-            "id_ccp": stamped.get("id_ccp"),
+            "carta_porte": {**stamped, **carta_porte},
+            "uuid_sat": carta_porte.get("uuid_sat"),
+            "id_ccp": carta_porte.get("id_ccp"),
+            "pdf_url": carta_porte.get("pdf_url"),
+            "pdf_download_url": carta_porte.get("pdf_download_url"),
         }
     except HTTPException as exc:
         detail = exc.detail
@@ -5324,6 +5419,18 @@ async def transporte_v2_operator_factura_eliminar(authorization: str = Header(de
     metadata.pop("factura_carga_nombre", None)
     updated = _update_operator_trip_metadata(sb, trip, metadata)
     return {"ok": True, "viaje": _normalize_viaje_row(updated)}
+
+
+@router.post("/tr-v2/operator/viaje/eliminar")
+async def transporte_v2_operator_viaje_eliminar(authorization: str = Header(default="")):
+    token_plain = _operator_token_from_header(authorization)
+    sb, acc = _operator_context(token_plain)
+    trip = _operator_assigned_trip(sb, acc)
+    _ensure_operator_trip_deletable(trip)
+    deleted = _delete_unstamped_operator_trip(sb, acc, trip)
+    if not deleted:
+        raise HTTPException(409, "No se pudo borrar la carga. Si ya fue timbrada, debe revisarla administración.")
+    return {"ok": True, "has_trip": False, "message": "Carga borrada."}
 
 
 def _factura_carga_from_trip(trip: dict[str, Any]) -> dict[str, Any]:
@@ -6068,7 +6175,10 @@ async def transporte_v2_operator_carta_porte_timbrar(authorization: str = Header
     if not claimed:
         raise HTTPException(409, "La Carta Porte ya está timbrada o hay un timbrado en curso.")
     try:
-        return _stamp_carta_porte_context(context)
+        stamped = _stamp_carta_porte_context(context)
+        refreshed = _operator_trip_by_id(sb, acc, int(trip.get("id")))
+        carta_porte = _operator_carta_porte_payload(sb, acc, refreshed, stamped)
+        return {**stamped, **carta_porte}
     except Exception:
         _stamp_update_viaje(
             sb,
