@@ -117,8 +117,8 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "clientes": {
         "table": TBL_CLIENTES,
         "required": ["nombre", "rfc", "cp"],
-        "allowed": ["nombre", "rfc", "cp", "regimen_fiscal", "uso_cfdi", "email", "email_facturacion", "activo", "metadata"],
-        "defaults": {"activo": True},
+        "allowed": ["nombre", "rfc", "cp", "regimen_fiscal", "uso_cfdi", "email", "email_facturacion", "metodo_pago_default", "forma_pago_default", "activo", "metadata"],
+        "defaults": {"activo": True, "metodo_pago_default": "PUE", "forma_pago_default": "03"},
     },
     "operadores": {
         "table": TBL_OPERADORES,
@@ -1701,6 +1701,16 @@ def _expand_client_contact_metadata(row: dict[str, Any]) -> dict[str, Any]:
         expanded["email"] = _first_text(expanded.get("email"), email)
         metadata["email_facturacion"] = email
         metadata["email"] = email
+    metodo_pago = _first_text(expanded.get("metodo_pago_default"), metadata.get("metodo_pago_default"), metadata.get("metodo_pago"), "PUE").upper()
+    forma_pago = _first_text(expanded.get("forma_pago_default"), metadata.get("forma_pago_default"), metadata.get("forma_pago"), "03")
+    if metodo_pago not in {"PUE", "PPD"}:
+        raise HTTPException(400, "Método de pago de flete inválido. Usa PUE o PPD.")
+    if not re.fullmatch(r"\d{2}", forma_pago):
+        raise HTTPException(400, "Forma de pago de flete inválida. Usa clave SAT de 2 dígitos.")
+    expanded["metodo_pago_default"] = metodo_pago
+    expanded["forma_pago_default"] = forma_pago
+    metadata["metodo_pago_default"] = metodo_pago
+    metadata["forma_pago_default"] = forma_pago
     if metadata:
         expanded["metadata"] = metadata
     return expanded
@@ -2388,6 +2398,8 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         client_meta = _meta(item)
         item["email_facturacion"] = _first_text(item.get("email_facturacion"), item.get("email"), client_meta.get("email_facturacion"), client_meta.get("email"))
         item["email"] = _first_text(item.get("email"), item["email_facturacion"])
+        item["metodo_pago_default"] = _first_text(item.get("metodo_pago_default"), client_meta.get("metodo_pago_default"), client_meta.get("metodo_pago"), "PUE").upper()
+        item["forma_pago_default"] = _first_text(item.get("forma_pago_default"), client_meta.get("forma_pago_default"), client_meta.get("forma_pago"), "03")
     elif catalogo == "operadores":
         operator_meta = _meta(item)
         item["nombre"] = _first_text(item.get("nombre"))
@@ -4494,12 +4506,119 @@ def _validate_carta_porte_xml_locations(xml_pre_sw: str) -> None:
         })
 
 
+def _invoice_duplicate_signature(viaje: dict[str, Any]) -> dict[str, Any]:
+    meta = _meta(viaje)
+    detected = meta.get("documento_detectado") if isinstance(meta.get("documento_detectado"), dict) else {}
+    raw = _first_product(viaje)
+    uuid_factura = _first_text(
+        detected.get("uuid"),
+        detected.get("uuid_factura"),
+        detected.get("uuid_cfdi"),
+        meta.get("uuid_factura"),
+        meta.get("factura_uuid"),
+    ).lower()
+    fecha = _first_text(
+        detected.get("fecha_factura"),
+        detected.get("fecha_boleta"),
+        detected.get("fecha"),
+        meta.get("fecha_factura"),
+    )[:10]
+    litros = round(_num(
+        detected.get("cantidad_litros")
+        or detected.get("litros")
+        or viaje.get("volumen_total_litros")
+        or viaje.get("volumen_litros")
+        or raw.get("cantidad_litros")
+    ), 3)
+    valor = round(_num(
+        detected.get("valor_mercancia")
+        or detected.get("importe_carga")
+        or detected.get("total")
+        or detected.get("subtotal")
+        or meta.get("valor_mercancia")
+        or meta.get("total")
+        or raw.get("valor_mercancia")
+    ), 2)
+    return {"uuid": uuid_factura, "fecha": fecha, "litros": litros, "valor": valor}
+
+
+def _same_invoice_signature(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    if left.get("uuid") and right.get("uuid"):
+        return left["uuid"] == right["uuid"]
+    if not left.get("fecha") or not right.get("fecha") or left["fecha"] != right["fecha"]:
+        return False
+    if not left.get("litros") or not right.get("litros"):
+        return False
+    if abs(float(left["litros"]) - float(right["litros"])) > 0.01:
+        return False
+    if left.get("valor") and right.get("valor"):
+        return abs(float(left["valor"]) - float(right["valor"])) <= 0.01
+    return True
+
+
+def _find_duplicate_carta_porte_invoice(
+    sb: Any,
+    uid: str,
+    pid: Optional[int],
+    viaje_row: dict[str, Any],
+    viaje_id: int,
+) -> Optional[dict[str, Any]]:
+    signature = _invoice_duplicate_signature(viaje_row)
+    if not signature.get("uuid") and not (signature.get("fecha") and signature.get("litros")):
+        return None
+    try:
+        query = (
+            sb.table(TBL_VIAJES)
+            .select("id,status,estatus,uuid_cfdi,uuid_sat,volumen_total_litros,volumen_litros,productos_json,defaults_json,metadata,carta_porte_status,created_at")
+            .eq("user_id", uid)
+            .order("created_at", desc=True)
+            .limit(250)
+        )
+        if pid:
+            query = query.eq("perfil_id", pid)
+        rows = query.execute().data or []
+    except Exception as exc:
+        logger.info("No se pudo revisar duplicado de factura Carta Porte viaje=%s: %s", viaje_id, exc)
+        return None
+    for row in rows:
+        if int(row.get("id") or 0) == viaje_id:
+            continue
+        status = _first_text(row.get("status"), row.get("estatus"), row.get("carta_porte_status"), _meta(row).get("carta_porte_status")).lower()
+        if status in {"eliminado", "cancelado"} or _meta(row).get("eliminado_transporte_v2"):
+            continue
+        if not (
+            _first_text(row.get("uuid_cfdi"), row.get("uuid_sat"), _meta(row).get("uuid_carta_porte"))
+            or "timbr" in status
+            or status in {"programado", "borrador", "asignado"}
+        ):
+            continue
+        if _same_invoice_signature(signature, _invoice_duplicate_signature(row)):
+            return row
+    return None
+
+
 def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     sb = context["sb"]
     uid = context["uid"]
     pid = context["pid"]
     viaje_row = context["viaje_row"]
     viaje_id = int(viaje_row.get("id"))
+    duplicate = _find_duplicate_carta_porte_invoice(sb, uid, pid, viaje_row, viaje_id)
+    if duplicate:
+        dup_uuid = _first_text(duplicate.get("uuid_cfdi"), duplicate.get("uuid_sat"), _meta(duplicate).get("uuid_carta_porte"))
+        dup_msg = (
+            "Esta factura ya tiene Carta Porte timbrada"
+            if dup_uuid
+            else "Esta factura ya fue usada para crear una Carta Porte"
+        )
+        raise HTTPException(409, {
+            "ok": False,
+            "message": f"{dup_msg}: viaje {duplicate.get('id')}.",
+            "error": f"{dup_msg}: viaje {duplicate.get('id')}.",
+            "duplicate": True,
+            "duplicate_viaje_id": duplicate.get("id"),
+            "uuid_sat": dup_uuid,
+        })
     previous_error = _meta(viaje_row).get("ultimo_error_timbrado") or {}
     previous_uuid = _first_text(previous_error.get("uuid_sat"))
     if previous_uuid:
