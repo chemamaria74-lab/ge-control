@@ -98,7 +98,7 @@ def test_carta_porte_traslado_uses_specialized_pdf_layout():
             <cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="DE000002" RFCRemitenteDestinatario="AGA990907II8" NombreRemitenteDestinatario="Estación Zacatecas" FechaHoraSalidaLlegada="2026-06-09T20:54:00" DistanciaRecorrida="70"><cartaporte31:Domicilio Pais="MEX" CodigoPostal="98057" Estado="ZAC" Municipio="056" Localidad="03"/></cartaporte31:Ubicacion>
           </cartaporte31:Ubicaciones>
           <cartaporte31:Mercancias NumTotalMercancias="1" PesoBrutoTotal="41.920" UnidadPeso="KGM">
-            <cartaporte31:Mercancia BienesTransp="15111510" Descripcion="Gas licuado de petróleo" Cantidad="80.000" ClaveUnidad="LTR" Unidad="Litro" PesoEnKg="41.920" MaterialPeligroso="Sí" CveMaterialPeligroso="1075" Embalaje="Z01"/>
+            <cartaporte31:Mercancia BienesTransp="15111510" Descripcion="Gas licuado de petróleo" Cantidad="80.000" ClaveUnidad="LTR" Unidad="Litro" PesoEnKg="41.920" ValorMercancia="12345.67" Moneda="MXN" MaterialPeligroso="Sí" CveMaterialPeligroso="1075" Embalaje="Z01"/>
             <cartaporte31:Autotransporte PermSCT="TPAF02" NumPermisoSCT="A0122865">
               <cartaporte31:IdentificacionVehicular ConfigVehicular="C2" PesoBrutoVehicular="12.00" PlacaVM="AC6116E" AnioModeloVM="2021"/>
               <cartaporte31:Seguros AseguraRespCivil="INBURSA" PolizaRespCivil="16211 20025429" AseguraMedAmbiente="INBURSA" PolizaMedAmbiente="16211 20025429"/>
@@ -121,6 +121,8 @@ def test_carta_porte_traslado_uses_specialized_pdf_layout():
     assert b"063d5c96-1fa0-4129-9f5a-0bea8a18680e" in pdf
     assert b"T Traslado" in pdf
     assert b"Gas licuado" in pdf
+    assert b"IMPORTE TOTAL CARGA" in pdf
+    assert b"$12,345.67 MXN" in pdf
     assert b"Autotransporte" in pdf
     assert b"AC6116E" in pdf
     assert b"CAHA9403247E1" in pdf
