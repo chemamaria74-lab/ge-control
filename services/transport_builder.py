@@ -97,11 +97,18 @@ def _fmt_fecha(iso: str) -> str:
     """Normaliza a YYYY-MM-DDTHH:MM:SS (sin zona horaria — SAT no la admite en CFDI)."""
     if not iso:
         return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    raw = str(iso).strip()
     try:
-        # Quitar zona horaria si viene con offset
-        parte = iso[:19]
-        return parte
+        normalized = raw.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+        return parsed.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S")
     except Exception:
+        match = re.match(r"^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?", raw)
+        if match:
+            seconds = match.group(4) or "00"
+            return f"{match.group(1)}T{match.group(2)}:{match.group(3)}:{seconds}"
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", raw):
+            return f"{raw}T00:00:00"
         return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
 
