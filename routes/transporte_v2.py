@@ -996,11 +996,21 @@ def _operator_assigned_trip(sb: Any, acc: dict[str, Any]) -> dict[str, Any]:
         .data
         or []
     )
-    rows = [
-        row for row in rows
-        if _first_text(row.get("status")).lower() != "eliminado"
-        and not _meta(row).get("eliminado_transporte_v2")
-    ]
+    active_rows = []
+    for row in rows:
+        meta = _meta(row)
+        bitacora = meta.get("bitacora_operador") if isinstance(meta.get("bitacora_operador"), dict) else {}
+        status_text = _first_text(row.get("status"), row.get("estatus"), row.get("operacion_status")).lower()
+        if _first_text(row.get("status")).lower() == "eliminado":
+            continue
+        if status_text in {"finalizado", "cerrado", "entregado"}:
+            continue
+        if _first_text(bitacora.get("estado")).upper() == "FINALIZADO":
+            continue
+        if meta.get("eliminado_transporte_v2"):
+            continue
+        active_rows.append(row)
+    rows = active_rows
     if not rows:
         raise HTTPException(404, "Sin viaje asignado.")
     trip = dict(rows[0])
@@ -5649,7 +5659,24 @@ async def transporte_v2_operator_bitacora(payload: dict[str, Any], authorization
     })
     bitacora["eventos"] = events
     metadata["bitacora_operador"] = bitacora
-    updated = _update_operator_trip_metadata(sb, trip, metadata)
+    update_payload = {"defaults_json": metadata, "metadata": metadata, "updated_at": _now_iso()}
+    if bitacora.get("estado") == "FINALIZADO":
+        metadata["finalizado_operador_at"] = events[-1]["created_at"]
+        update_payload.update({
+            "status": "finalizado",
+            "estatus": "finalizado",
+            "operacion_status": "cerrado",
+            "closed_at": events[-1]["created_at"],
+        })
+    try:
+        query = sb.table(TBL_VIAJES).update(update_payload).eq("id", trip.get("id")).eq("user_id", trip.get("user_id"))
+        if trip.get("perfil_id"):
+            query = query.eq("perfil_id", trip.get("perfil_id"))
+        updated_rows = query.execute().data or []
+        updated = updated_rows[0] if updated_rows else {**trip, **update_payload}
+    except Exception as exc:
+        logger.info("No se pudo actualizar estado operativo de bitácora viaje=%s: %s", trip.get("id"), exc)
+        updated = _update_operator_trip_metadata(sb, trip, metadata)
     return {"ok": True, "bitacora": bitacora, "viaje": _normalize_viaje_row(updated)}
 
 
