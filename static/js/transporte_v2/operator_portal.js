@@ -107,6 +107,7 @@
       const factura = TRV2_OPERATOR_META.factura_operador || null;
       const stamped = Boolean(trv2OperadorUuid());
       const tripCreated = Boolean(TRV2_OPERATOR_TRIP?.id);
+      const locked = stamped || tripCreated || ['EN_CURSO', 'DESCANSO', 'FINALIZADO'].includes(trv2OperadorBitacoraEstado());
       const status = document.getElementById('trv2-operator-invoice-status');
       const info = document.getElementById('trv2-operator-invoice-info');
       if (status) status.textContent = factura ? 'Cargada' : 'Pendiente';
@@ -116,11 +117,11 @@
       const view = document.getElementById('trv2-operator-invoice-view');
       const download = document.getElementById('trv2-operator-invoice-download');
       const remove = document.getElementById('trv2-operator-invoice-delete');
-      if (upload) upload.hidden = stamped || tripCreated;
-      if (uploadButton) uploadButton.hidden = stamped || tripCreated;
+      if (upload) upload.hidden = locked;
+      if (uploadButton) uploadButton.hidden = locked;
       if (view) view.hidden = !factura;
       if (download) download.hidden = !factura;
-      if (remove) remove.hidden = !factura || stamped || tripCreated;
+      if (remove) remove.hidden = !factura || locked;
     }
     function trv2OperadorRenderCartaPorte() {
       const uuid = trv2OperadorUuid();
@@ -130,7 +131,7 @@
       if (status) status.textContent = uuid ? 'Timbrada' : 'Pendiente';
       if (summary) summary.textContent = uuid ? `UUID: ${uuid}` : 'Factura y datos operativos requeridos para timbrar.';
       if (actions) actions.innerHTML = uuid
-        ? `<button type="button" onclick="trv2OperadorOpenCartaPorte('pdf')"><i class="fa-solid fa-file-pdf"></i> Ver Carta Porte PDF</button><button type="button" onclick="trv2OperadorBitacora('INICIAR')"><i class="fa-solid fa-play"></i> Iniciar viaje</button><button type="button" onclick="trv2OperadorOpenCartaPorte('pdf', true)"><i class="fa-solid fa-download"></i> Descargar Carta Porte PDF</button>`
+        ? `<button type="button" onclick="trv2OperadorOpenCartaPorte('pdf')"><i class="fa-solid fa-file-pdf"></i> Ver Carta Porte PDF</button><button type="button" onclick="trv2OperadorOpenCartaPorte('pdf', true)"><i class="fa-solid fa-download"></i> Descargar Carta Porte PDF</button>`
         : `<button type="button" onclick="trv2OperadorDeleteTrip()"><i class="fa-solid fa-trash"></i> Borrar carga</button><div class="note">La Carta Porte se timbra al crear el viaje desde la factura. Si hay datos incorrectos, borra la carga y vuelve a subir la factura.</div>`;
       trv2OperadorRenderInvoice();
     }

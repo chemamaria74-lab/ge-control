@@ -46,6 +46,7 @@ const TRV2_DOC_SUMMARY_FIELDS = [
   ['Producto', 'producto'],
   ['Litros', 'litros', 'number'],
   ['Kilos', 'kilos', 'number'],
+  ['Importe carga', 'importe_carga', 'currency'],
   ['Permiso', 'permiso'],
   ['Boleta', 'boleta'],
 ];
@@ -134,6 +135,8 @@ function trv2NormalizeDetected(raw = {}) {
   detected.cantidad_litros = Number(detected.cantidad_litros || detected.litros || 0);
   detected.kilos = Number(detected.kilos || detected.peso_kg || 0);
   detected.peso_kg = Number(detected.peso_kg || detected.kilos || 0);
+  detected.importe_carga = Number(detected.importe_carga || detected.valor_mercancia || detected.total || detected.subtotal || 0);
+  detected.valor_mercancia = Number(detected.valor_mercancia || detected.importe_carga || 0);
   const factorKgL = Number(detected.factor_kg_l || 0);
   if (!detected.kilos && detected.litros && factorKgL) {
     detected.kilos = Number((detected.litros * factorKgL).toFixed(3));
@@ -461,6 +464,7 @@ function trv2UpdateDocumentPending(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
 
 function trv2DetectedValue(value, type = '') {
   if (type === 'number') return Number(value || 0) ? Number(value || 0).toLocaleString('es-MX') : '';
+  if (type === 'currency') return Number(value || 0) ? Number(value || 0).toLocaleString('es-MX', {style: 'currency', currency: 'MXN'}) : '';
   return String(value ?? '').trim();
 }
 
@@ -636,6 +640,10 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
       proveedor_nombre: detected.emisor_nombre || detected.proveedor_nombre || '',
       proveedor_rfc: detected.emisor_rfc || detected.proveedor_rfc || '',
       proveedor_permiso: detected.permiso || detected.proveedor_permiso || '',
+      subtotal: Number(detected.subtotal || 0),
+      iva: Number(detected.iva || 0),
+      total: Number(detected.total || detected.importe_carga || detected.valor_mercancia || 0),
+      valor_mercancia: Number(detected.valor_mercancia || detected.importe_carga || detected.total || detected.subtotal || 0),
       source: TRV2_DOCUMENT_DETECTED.source,
       confidence: TRV2_DOCUMENT_DETECTED.confidence,
     },

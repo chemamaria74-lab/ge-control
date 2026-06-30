@@ -407,8 +407,11 @@ async function trv2ConfirmServiceInvoice(tripId) {
       forma_pago: cliente.forma_pago_default || '03',
       metodo_pago: cliente.metodo_pago_default || 'PUE',
       moneda: 'MXN',
-    });
-    if (!data?.ok) return;
+    }, {allowError: true});
+    if (!data?.ok) {
+      trv2Toast(trv2MessageText(data?.detail || data?.message || 'No se pudo timbrar la factura de servicio.'), 'error');
+      return;
+    }
     trv2CloseServiceReview();
     await trv2LoadServiceInvoices();
     trv2SetServiceInvoiceTab('facturadas');
