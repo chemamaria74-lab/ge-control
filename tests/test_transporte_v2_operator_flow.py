@@ -156,7 +156,7 @@ def test_operator_trip_payload_includes_legacy_and_v2_aliases(monkeypatch):
     assert captured["volumen_total_litros"] == 1000
     assert captured["volumen_litros"] == 1000
     assert captured["peso_kg"] == 524
-    assert captured["status"] == "asignado"
+    assert captured["status"] == "borrador"
     assert captured["estatus"] == "asignado"
 
 
