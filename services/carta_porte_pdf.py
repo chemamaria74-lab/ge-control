@@ -43,6 +43,7 @@ def resumen_carta_porte_desde_xml(xml_content: str | bytes) -> dict[str, object]
         if (_attr(mercancia, "ClaveUnidad") or _attr(mercancia, "Unidad")).upper() in {"LTR", "L", "LT"}:
             litros += _float_attr(mercancia, "Cantidad")
         peso += _float_attr(mercancia, "PesoEnKg")
+    valor_carga = _mercancias_valor_total(mercancancias)
     if not litros and mercancancias:
         litros = _float_attr(mercancancias[0], "Cantidad")
     return {
@@ -66,6 +67,8 @@ def resumen_carta_porte_desde_xml(xml_content: str | bytes) -> dict[str, object]
         "distancia_km": _float_attr(carta, "TotalDistRec") or _float_attr(destino, "DistanciaRecorrida"),
         "litros": round(litros, 3),
         "peso_kg": round(peso, 3),
+        "valor_carga": round(valor_carga, 2),
+        "moneda_carga": _mercancias_moneda(mercancancias),
         "producto": _attr(mercancancias[0], "Descripcion") if mercancancias else "",
         "bienes_transp": _attr(mercancancias[0], "BienesTransp") if mercancancias else "",
         "placas": _attr(ident_veh, "PlacaVM"),
@@ -594,11 +597,13 @@ def _executive_summary_card(carta, ubicaciones, mercancias, ident, figuras, Tabl
     origen, destino = _origen_destino(ubicaciones)
     mercancia = mercancias[0] if mercancias else None
     figura = figuras[0] if figuras else None
+    valor_carga = _mercancias_valor_total(mercancias)
+    valor_carga_txt = _format_currency_value(valor_carga, _mercancias_moneda(mercancias)) if valor_carga > 0 else "No declarado"
     rows = [
         ("Producto", _attr(mercancia, "Descripcion", "—")),
         ("Cantidad", _join_nonempty([_attr(mercancia, "Cantidad"), _attr(mercancia, "Unidad") or _attr(mercancia, "ClaveUnidad")], " ")),
         ("Peso total", _join_nonempty([_attr(mercancia, "PesoEnKg"), "kg"], " ")),
-        ("Distancia", _join_nonempty([_attr(carta, "TotalDistRec") or _attr(destino, "DistanciaRecorrida"), "km"], " ")),
+        ("Importe total carga", valor_carga_txt),
         ("Origen", _attr(origen, "NombreRemitenteDestinatario", "—")),
         ("Destino", _attr(destino, "NombreRemitenteDestinatario", "—")),
         ("Vehículo", _join_nonempty([_attr(ident, "ConfigVehicular"), _attr(ident, "PlacaVM")], " / ")),
@@ -806,18 +811,20 @@ def _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, c
 
 
 def _mercancias_table(mercancias, Table, TableStyle, Paragraph, styles, colors, wine, line):
-    rows = [["Producto", "Cantidad", "Unidad", "Peso", "Material Peligroso"]]
+    rows = [["Producto", "Cantidad", "Unidad", "Peso", "Valor mercancía", "Material Peligroso"]]
     for m in mercancias:
+        valor = _money_value(_attr(m, "ValorMercancia"))
         rows.append([
             _join_nonempty([_attr(m, "Descripcion"), _attr(m, "BienesTransp")], " - "),
             _attr(m, "Cantidad"),
             _attr(m, "Unidad") or _attr(m, "ClaveUnidad"),
             _join_nonempty([_attr(m, "PesoEnKg"), "kg"], " "),
+            _format_currency_value(valor, _attr(m, "Moneda") or "MXN") if valor > 0 else "—",
             _join_nonempty([_attr(m, "MaterialPeligroso"), _attr(m, "CveMaterialPeligroso"), _attr(m, "Embalaje")], " / "),
         ])
     if len(rows) == 1:
-        rows.append(["Sin mercancías Carta Porte en XML", "", "", "", ""])
-    return _simple_table(rows, [3.16, 0.92, 0.92, 0.92, 1.68], Table, TableStyle, Paragraph, styles, colors, wine, line, no_wrap_cols={1, 2, 3})
+        rows.append(["Sin mercancías Carta Porte en XML", "", "", "", "", ""])
+    return _simple_table(rows, [2.62, 0.78, 0.66, 0.82, 1.08, 1.64], Table, TableStyle, Paragraph, styles, colors, wine, line, no_wrap_cols={1, 2, 3, 4})
 
 
 def _autotransporte_table(autotransporte, ident, remolques, Table, TableStyle, Paragraph, styles, colors, cream, line):
@@ -1055,6 +1062,23 @@ def _sum_importes_value(nodes) -> float:
         except Exception:
             continue
     return total
+
+
+def _mercancias_valor_total(mercancias) -> float:
+    return round(sum(_money_value(_attr(m, "ValorMercancia")) for m in mercancias or []), 2)
+
+
+def _mercancias_moneda(mercancias) -> str:
+    for mercancia in mercancias or []:
+        moneda = (_attr(mercancia, "Moneda") or "").strip().upper()
+        if moneda:
+            return moneda
+    return "MXN"
+
+
+def _format_currency_value(value: float | int | None, moneda: str = "MXN") -> str:
+    moneda = (moneda or "MXN").strip().upper()
+    return f"${_format_money(value)} {moneda}"
 
 
 def _format_money(value: float | int | None) -> str:
