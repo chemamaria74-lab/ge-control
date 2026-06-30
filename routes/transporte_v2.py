@@ -5245,16 +5245,25 @@ async def transporte_v2_operator_crear_viaje(
         raise HTTPException(400, f"No se pudo validar la factura: {exc}")
     detected = analysis.get("detected") if isinstance(analysis.get("detected"), dict) else {}
     _enforce_document_date_validation(_document_date_validation(detected))
-    trip = _operator_create_trip(
-        sb,
-        acc,
-        detected,
-        ruta_id,
-        invoice_filename=file.filename or "factura",
-        invoice_content_type=file.content_type or "",
-        invoice_content=content,
-        invoice_sha256=hashlib.sha256(content).hexdigest(),
-    )
+    try:
+        trip = _operator_create_trip(
+            sb,
+            acc,
+            detected,
+            ruta_id,
+            invoice_filename=file.filename or "factura",
+            invoice_content_type=file.content_type or "",
+            invoice_content=content,
+            invoice_sha256=hashlib.sha256(content).hexdigest(),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("No se pudo crear viaje operador antes de timbrar")
+        raise HTTPException(500, {
+            "ok": False,
+            "message": f"No se pudo crear el viaje antes de timbrar Carta Porte: {exc}",
+        }) from exc
     return {"ok": True, "viaje": _normalize_viaje_row(trip), "metadata": _meta(trip), "has_trip": True}
 
 
