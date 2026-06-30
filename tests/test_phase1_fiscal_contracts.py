@@ -248,7 +248,9 @@ def test_gas_lp_discount_per_liter_contract():
 
     assert totals["descuento_con_iva"] == 475.0
     assert totals["descuento"] == 409.48
-    assert totals["total"] == 4313.0
+    assert totals["total"] == 4313.01
+    assert _attr(xml, ".//cfdi:Traslado", "Base") == "3718.11"
+    assert _attr(xml, ".//cfdi:Traslado", "Importe") == "594.90"
     assert _root(xml).attrib["Descuento"] == "409.48"
     assert _attr(xml, ".//cfdi:Concepto", "Descuento") == "409.48"
 
@@ -262,6 +264,21 @@ def test_gas_lp_discount_per_liter_matches_visible_summary_example():
     assert totals["iva"] == 12.41
     assert totals["total"] == 90.0
     assert _root(xml).attrib["Descuento"] == "8.62"
+
+
+def test_gas_lp_discount_per_liter_uses_sat_tax_base_limit_regression():
+    xml, totals = _gas_lp_xml(litros=191, precio_unitario=10.92, descuento=1)
+    pure = calculate_gas_lp_totals(litros=191, precio_unitario=10.92, descuento_por_litro=1)
+
+    assert totals["subtotal"] == 1798.03
+    assert totals["descuento"] == 164.66
+    assert totals["descuento_con_iva"] == 191.0
+    assert totals["iva"] == 261.34
+    assert totals["total"] == 1894.71
+    assert pure.iva == Decimal("261.34")
+    assert pure.total == Decimal("1894.71")
+    assert _attr(xml, ".//cfdi:Traslado", "Base") == "1633.37"
+    assert _attr(xml, ".//cfdi:Traslado", "Importe") == "261.34"
 
 
 def test_gas_lp_discount_total_base_before_iva_contract():
