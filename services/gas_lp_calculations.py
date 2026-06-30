@@ -76,10 +76,9 @@ def calculate_gas_lp_totals(
         discount_gross = money(qty * discount_unit)
         discount_base = money(discount_gross / divisor) if tax_rate > 0 else discount_gross
 
-    net_gross = money(gross_total - discount_gross)
     taxable_base = money(subtotal - discount_base)
-    iva = money(net_gross - taxable_base)
-    total = net_gross
+    iva = money(taxable_base * tax_rate) if tax_rate > 0 else Decimal("0.00")
+    total = money(taxable_base + iva)
     if total <= 0 and not allow_zero_total:
         raise ValueError("El total de la factura debe ser mayor a cero. Revisa precio y descuento.")
     return GasLpTotals(

@@ -52,7 +52,7 @@ def build_cfdi_servicio_transporte(
     total_d = money(subtotal_d + iva_d - ret_d)
     cartas = list(cartas_porte or [])
     folios = ", ".join(
-        str(c.get("uuid_cfdi") or c.get("uuid_sat") or c.get("id") or "").strip()[:8]
+        str(c.get("uuid_sat") or c.get("uuid_cfdi") or c.get("id") or "").strip()[:8]
         for c in cartas
         if c
     )
@@ -135,9 +135,9 @@ def build_cfdi_servicio_transporte(
         cfdi["Impuestos"] = impuestos_root
 
     uuids = [
-        str(c.get("uuid_cfdi") or c.get("uuid_sat") or "").strip()
+        str(c.get("uuid_sat") or c.get("uuid_cfdi") or "").strip()
         for c in cartas
-        if str(c.get("uuid_cfdi") or c.get("uuid_sat") or "").strip()
+        if str(c.get("uuid_sat") or c.get("uuid_cfdi") or "").strip()
     ]
     if uuids:
         cfdi["CfdiRelacionados"] = {
