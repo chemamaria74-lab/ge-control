@@ -1010,7 +1010,7 @@ def _operator_assigned_trip(sb: Any, acc: dict[str, Any]) -> dict[str, Any]:
         try:
             healed = (
                 sb.table(TBL_VIAJES)
-                .update({"status": "asignado", "operacion_status": "asignado", "updated_at": _now_iso()})
+                .update({"status": "borrador", "estatus": "asignado", "operacion_status": "asignado", "updated_at": _now_iso()})
                 .eq("id", trip.get("id"))
                 .eq("user_id", trip.get("user_id"))
                 .execute()
@@ -1525,7 +1525,7 @@ def _operator_create_trip(
         "regimen_fiscal_receptor": client.get("regimen_fiscal") or "601",
         "distancia_km": _num(route.get("distancia_km")),
         "duracion_estimada_min": duration,
-        "status": "asignado",
+        "status": "borrador",
         "estatus": "asignado",
         "operacion_status": "asignado",
         "carta_porte_status": "pendiente",
