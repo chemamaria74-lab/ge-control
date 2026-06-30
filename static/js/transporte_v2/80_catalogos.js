@@ -136,6 +136,8 @@ const TRV2_CATALOG_FORMS = {
     ['regimen_fiscal', 'Régimen fiscal', 'regimen-fiscal'],
     ['uso_cfdi', 'Uso CFDI', 'uso-cfdi'],
     ['email_facturacion', 'Email fiscal / comercial', 'email'],
+    ['metodo_pago_default', 'Método pago flete', 'payment-method'],
+    ['forma_pago_default', 'Forma pago flete', 'payment-form'],
     ['activo', 'Activo', 'checkbox'],
   ],
   operadores: [
@@ -260,7 +262,7 @@ const TRV2_CATALOG_UI = {
     title: 'Clientes',
     subtitle: 'Receptores y contrapartes del servicio de transporte.',
     metrics: [['Registros', 'count'], ['Con RFC', 'rfc'], ['Con CP', 'cp']],
-    fields: [['RFC', 'rfc'], ['CP', 'cp'], ['Régimen', 'regimen_fiscal'], ['Uso CFDI', 'uso_cfdi'], ['Email', 'email_facturacion']],
+    fields: [['RFC', 'rfc'], ['CP', 'cp'], ['Régimen', 'regimen_fiscal'], ['Uso CFDI', 'uso_cfdi'], ['Email', 'email_facturacion'], ['Método flete', 'metodo_pago_default']],
   },
   operadores: {
     icon: 'fa-id-card',
@@ -884,6 +886,21 @@ function trv2RenderCatalogFields(name) {
       return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
         <option value="">Seleccionar Uso CFDI</option>
         ${TRV2_USOS_CFDI.map(([code, desc]) => `<option value="${trv2Esc(code)}">${trv2Esc(`${code} — ${desc}`)}</option>`).join('')}
+      </select></label>`;
+    }
+    if (type === 'payment-method') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="PUE">PUE — Pago en una sola exhibición</option>
+        <option value="PPD">PPD — Pago en parcialidades o diferido</option>
+      </select></label>`;
+    }
+    if (type === 'payment-form') {
+      return `<label>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="03">03 — Transferencia electrónica</option>
+        <option value="99">99 — Por definir</option>
+        <option value="01">01 — Efectivo</option>
+        <option value="02">02 — Cheque nominativo</option>
+        <option value="28">28 — Tarjeta de débito</option>
       </select></label>`;
     }
     if (type === 'estado-sat') {

@@ -315,6 +315,11 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
   if (!row) return;
   const service = trv2ServiceTripData(row);
   const tariff = trv2FindServiceTariff(service);
+  const cliente = trv2FindCatalog?.('clientes', service.cliente_id) || {};
+  const metodoPago = String(cliente.metodo_pago_default || 'PUE').toUpperCase();
+  const formaPago = metodoPago === 'PPD' && (!cliente.forma_pago_default || cliente.forma_pago_default === '03')
+    ? '99'
+    : (cliente.forma_pago_default || '03');
   const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(service.email || '').trim());
   let layer = document.getElementById('trv2-service-review-modal');
@@ -328,7 +333,7 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
   layer.innerHTML = `<section class="trv2-modal" role="dialog" aria-modal="true">
     <div class="trv2-modal-head"><div><h2>Revisar factura de servicio</h2><p>Este CFDI de ingreso es independiente de la Carta Porte.</p></div><button class="trv2-icon-btn" type="button" title="Cerrar" onclick="trv2CloseServiceReview()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="trv2-preview-grid">
-      ${trv2RenderPreviewBlock('Receptor', {cliente: service.cliente, rfc: service.rfc, email: service.email || 'Pendiente'})}
+      ${trv2RenderPreviewBlock('Receptor', {cliente: service.cliente, rfc: service.rfc, email: service.email || 'Pendiente', metodo_pago: metodoPago, forma_pago: formaPago})}
       ${trv2RenderPreviewBlock('Servicio', {ruta: `${service.origen} -> ${service.destino}`, producto: service.producto, carta_porte: service.uuid_carta_porte})}
     </div>
     <label class="trv2-form-wide">
@@ -381,6 +386,10 @@ async function trv2ConfirmServiceInvoice(tripId) {
     trv2Toast('Captura un email fiscal/comercial válido antes de timbrar.', 'error');
     return;
   }
+  const metodoPago = String(cliente.metodo_pago_default || 'PUE').toUpperCase();
+  const formaPago = metodoPago === 'PPD' && (!cliente.forma_pago_default || cliente.forma_pago_default === '03')
+    ? '99'
+    : (cliente.forma_pago_default || '03');
   const button = document.getElementById('trv2-service-confirm-btn');
   TRV2_SERVICE_INVOICE_BUSY = true;
   if (button) { button.disabled = true; button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando factura...'; }
@@ -404,8 +413,8 @@ async function trv2ConfirmServiceInvoice(tripId) {
       retencion_tasa: calc.retencion_tasa,
       aplica_iva: calc.iva_tasa > 0,
       aplica_retencion: calc.retencion_tasa > 0,
-      forma_pago: cliente.forma_pago_default || '03',
-      metodo_pago: cliente.metodo_pago_default || 'PUE',
+      forma_pago: formaPago,
+      metodo_pago: metodoPago,
       moneda: 'MXN',
     }, {allowError: true});
     if (!data?.ok) {

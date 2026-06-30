@@ -181,7 +181,7 @@ function trv2PopulateCartaPorteTrips() {
           <span>${trv2Esc(operador)} · ${trv2Esc(vehiculo)} · ${trv2Esc(fecha)} · ${trv2Esc(litros)} L</span>
         </div>
         <button class="trv2-mini-btn" type="button" onclick="trv2PreviewCartaPorte(${Number(row.id || 0)})">Ver / corregir</button>
-        <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2StartCartaPorteStamp(${Number(row.id || 0)})">Validar</button>
+        <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2StartCartaPorteStamp(${Number(row.id || 0)}, {autoStamp: true})">Timbrar</button>
         <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteDraftTrip(${Number(row.id || 0)})">Eliminar</button>
       </article>
     `;
@@ -501,6 +501,9 @@ async function trv2ConfirmStampCartaPorte() {
     return 'invalid';
   }
   trv2Toast(`Carta Porte timbrada. UUID: ${data.uuid_sat || data.uuid_cfdi || 'recibido'}`, 'success');
+  if (typeof trv2ClearCartaPorteLoad === 'function') {
+    trv2ClearCartaPorteLoad({silent: true, message: 'Carta Porte timbrada. Selecciona otra factura para analizar.'});
+  }
   const panel = document.getElementById('trv2-cp-preview-panel');
   if (panel) {
     const stampedViajeId = Number(data.viaje_id || viajeId || 0);
@@ -520,7 +523,7 @@ async function trv2ConfirmStampCartaPorte() {
   return 'stamped';
 }
 
-async function trv2PreviewCartaPorte(viajeId, permisoId = 0) {
+async function trv2PreviewCartaPorte(viajeId, permisoId = 0, options = {}) {
   const id = Number(viajeId || 0);
   if (!id) {
     trv2Toast('Elige un movimiento pendiente para timbrar Carta Porte.', 'error');
@@ -539,14 +542,16 @@ async function trv2PreviewCartaPorte(viajeId, permisoId = 0) {
   TRV2_CP_PREVIEW = data;
   TRV2_CP_PREVIEW.viaje_id = id;
   TRV2_SELECTED_CP_TRIP_ID = id;
-  trv2SwitchTab('carta-porte');
-  trv2RenderCartaPortePreview(data);
-  trv2SetCartaPorteWorkflow('preview');
+  if (!options.internal) {
+    trv2SwitchTab('carta-porte');
+    trv2RenderCartaPortePreview(data);
+    trv2SetCartaPorteWorkflow('preview');
+  }
   return true;
 }
 
 async function trv2StartCartaPorteStamp(viajeId = 0, options = {}) {
-  const previewOk = await trv2PreviewCartaPorte(viajeId || 0);
+  const previewOk = await trv2PreviewCartaPorte(viajeId || 0, 0, {internal: Boolean(options.autoStamp)});
   if (!previewOk) return 'blocked';
   if (TRV2_CP_PREVIEW?.ready_to_stamp) {
     if (options.autoStamp) {
@@ -556,6 +561,12 @@ async function trv2StartCartaPorteStamp(viajeId = 0, options = {}) {
       trv2Toast('Datos validados. Presiona Timbrar Carta Porte para enviar a SW.', 'success');
     }
     return 'ready';
+  }
+  if (options.autoStamp) {
+    trv2SwitchTab('carta-porte');
+    trv2RenderCartaPortePreview(TRV2_CP_PREVIEW);
+    trv2SetCartaPorteWorkflow('preview');
+    trv2Toast('Faltan datos para timbrar. Revisa las validaciones.', 'error');
   }
   return 'blocked';
 }

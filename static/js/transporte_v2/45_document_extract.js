@@ -713,7 +713,7 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
   }
 }
 
-function trv2ClearCartaPorteLoad() {
+function trv2ClearCartaPorteLoad(options = {}) {
   TRV2_DOCUMENT_DETECTED = null;
   const file = document.getElementById('trv2-cp-doc-file');
   const message = document.getElementById('trv2-cp-doc-message');
@@ -722,13 +722,13 @@ function trv2ClearCartaPorteLoad() {
   const form = document.getElementById('trv2-cp-doc-detected-form');
   const preview = document.getElementById('trv2-cp-preview-panel');
   if (file) file.value = '';
-  if (message) message.textContent = 'Carga limpia. Selecciona otro PDF/XML para analizar.';
+  if (message) message.textContent = options.message || 'Carga limpia. Selecciona otro PDF/XML para analizar.';
   if (panel) panel.hidden = true;
   if (summary) summary.innerHTML = '';
   if (form) form.innerHTML = '';
   if (preview) preview.innerHTML = '<div class="trv2-empty">Sube una factura, completa los datos y usa Timbrar para validar antes de confirmar.</div>';
   TRV2_CP_PREVIEW = null;
-  trv2Toast('Carga borrada. No se eliminó ningún movimiento guardado.', 'success');
+  if (!options.silent) trv2Toast('Carga borrada. No se eliminó ningún movimiento guardado.', 'success');
 }
 
 function trv2ApplyDensityFallback(body, detected = {}, producto = {}) {
