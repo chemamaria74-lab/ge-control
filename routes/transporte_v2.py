@@ -5313,19 +5313,6 @@ async def transporte_v2_operator_crear_y_timbrar(
             actor="operador",
             operador_id=int(acc.get("chofer_id") or 0),
         )
-        claimed = (
-            sb.table(TBL_VIAJES)
-            .update({"carta_porte_status": "timbrando", "updated_at": _now_iso()})
-            .eq("id", trip_id)
-            .eq("user_id", acc.get("user_id"))
-            .eq("perfil_id", acc.get("perfil_id"))
-            .in_("carta_porte_status", ["pendiente", "error", "borrador"])
-            .execute()
-            .data
-            or []
-        )
-        if not claimed:
-            raise HTTPException(409, "La Carta Porte ya está timbrada o hay un timbrado en curso.")
         stamped = _stamp_carta_porte_context(context)
         refreshed = _operator_trip_by_id(sb, acc, trip_id)
         meta = _meta(refreshed)
@@ -6161,19 +6148,6 @@ async def transporte_v2_operator_carta_porte_timbrar(authorization: str = Header
         actor="operador",
         operador_id=int(acc.get("chofer_id") or 0),
     )
-    claimed = (
-        sb.table(TBL_VIAJES)
-        .update({"carta_porte_status": "timbrando", "updated_at": _now_iso()})
-        .eq("id", trip.get("id"))
-        .eq("user_id", acc.get("user_id"))
-        .eq("perfil_id", acc.get("perfil_id"))
-        .in_("carta_porte_status", ["pendiente", "error", "borrador"])
-        .execute()
-        .data
-        or []
-    )
-    if not claimed:
-        raise HTTPException(409, "La Carta Porte ya está timbrada o hay un timbrado en curso.")
     try:
         stamped = _stamp_carta_porte_context(context)
         refreshed = _operator_trip_by_id(sb, acc, int(trip.get("id")))
