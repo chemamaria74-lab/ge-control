@@ -10,7 +10,7 @@
         return null;
       }
       const response = await fetch(path, {headers: trv2OperadorHeaders()});
-      const data = await response.json().catch(() => ({}));
+      const data = await trv2OperadorReadResponse(response);
       if (!response.ok || data.ok === false) {
         if (response.status === 401 || response.status === 403) {
           localStorage.removeItem('trv2_operator_token');
@@ -49,6 +49,16 @@
         return [label, text].filter(Boolean).join(': ');
       }).filter(Boolean);
       return [direct, ...messages].filter(Boolean).join(' · ') || fallback;
+    }
+    async function trv2OperadorReadResponse(response) {
+      const text = await response.text().catch(() => '');
+      if (!text) return {};
+      try {
+        return JSON.parse(text);
+      } catch (_err) {
+        const plain = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        return {detail: plain || `${response.status} ${response.statusText}`};
+      }
     }
     function trv2OperadorUuid() {
       return TRV2_OPERATOR_TRIP?.uuid_cfdi || TRV2_OPERATOR_META.uuid_carta_porte || TRV2_OPERATOR_META.cfdi_uuid || '';
@@ -157,7 +167,7 @@
       const form = new FormData();
       form.append('file', file);
       const response = await fetch('/api/tr-v2/operator/factura', {method:'POST', headers: trv2OperadorHeaders(), body: form});
-      const data = await response.json().catch(() => ({}));
+      const data = await trv2OperadorReadResponse(response);
       if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo subir factura.'));
       TRV2_OPERATOR_META.factura_operador = data.factura;
       trv2OperadorRenderInvoice();
@@ -176,7 +186,7 @@
       const form = new FormData();
       form.append('file', file);
       const response = await fetch('/api/tr-v2/operator/preparar-viaje', {method:'POST', headers:trv2OperadorHeaders(), body:form});
-      const data = await response.json().catch(() => ({}));
+      const data = await trv2OperadorReadResponse(response);
       if (button) {
         button.disabled = false;
         button.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Analizar factura';
@@ -243,7 +253,7 @@
         const response = await fetch('/api/tr-v2/operator/crear-y-timbrar', {
           method:'POST', headers:trv2OperadorHeaders(), body:form,
         });
-        const data = await response.json().catch(() => ({}));
+        const data = await trv2OperadorReadResponse(response);
         if (!response.ok || data.ok === false) {
           return trv2OperadorToast(trv2OperadorError(data, 'No se pudo crear el viaje.'));
         }
@@ -264,7 +274,7 @@
       if (!factura) return trv2OperadorToast('No hay factura cargada.');
       const response = await fetch(`/api/tr-v2/operator/factura/pdf?download=${download ? 'true' : 'false'}`, {headers:trv2OperadorHeaders()});
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
+        const data = await trv2OperadorReadResponse(response);
         return trv2OperadorToast(trv2OperadorError(data, 'No se pudo abrir la factura.'));
       }
       const blob = await response.blob();
@@ -292,7 +302,7 @@
       if (!TRV2_OPERATOR_META.factura_operador) return trv2OperadorToast('No hay factura cargada.');
       if (trv2OperadorUuid()) return trv2OperadorToast('La factura no se puede eliminar después de timbrar Carta Porte.');
       const response = await fetch('/api/tr-v2/operator/factura/eliminar', {method:'POST', headers: trv2OperadorHeaders()});
-      const data = await response.json().catch(() => ({}));
+      const data = await trv2OperadorReadResponse(response);
       if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo eliminar factura.'));
       delete TRV2_OPERATOR_META.factura_operador;
       trv2OperadorRenderInvoice();
@@ -301,7 +311,7 @@
     async function trv2OperadorDeleteTrip() {
       if (trv2OperadorUuid()) return trv2OperadorToast('No se puede borrar una carga con Carta Porte timbrada.');
       const response = await fetch('/api/tr-v2/operator/viaje/eliminar', {method:'POST', headers: trv2OperadorHeaders()});
-      const data = await response.json().catch(() => ({}));
+      const data = await trv2OperadorReadResponse(response);
       if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo borrar la carga.'));
       TRV2_OPERATOR_TRIP = null;
       TRV2_OPERATOR_META = {};
@@ -312,7 +322,7 @@
     async function trv2OperadorOpenCartaPorte(format, download = false) {
       const response = await fetch(`/api/tr-v2/operator/carta-porte/${format}?download=${download ? 'true' : 'false'}`, {headers:trv2OperadorHeaders()});
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
+        const data = await trv2OperadorReadResponse(response);
         return trv2OperadorToast(trv2OperadorError(data, `No se pudo abrir ${format.toUpperCase()}.`));
       }
       const blob = await response.blob();
@@ -340,7 +350,7 @@
       }
       trv2OperadorToast('Timbrando Carta Porte...');
       const response = await fetch('/api/tr-v2/operator/carta-porte/timbrar', {method:'POST', headers: trv2OperadorHeaders()});
-      const data = await response.json().catch(() => ({}));
+      const data = await trv2OperadorReadResponse(response);
       if (!response.ok || data.ok === false) {
         if (button) {
           button.disabled = false;
@@ -361,7 +371,7 @@
       if (action === 'DOWNLOAD_PDF' || action === 'VIEW_PDF') {
         const response = await fetch('/api/tr-v2/operator/bitacora.pdf', {headers: trv2OperadorHeaders()});
         if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
+          const data = await trv2OperadorReadResponse(response);
           return trv2OperadorToast(trv2OperadorError(data, 'No se pudo descargar bitácora.'));
         }
         const blob = await response.blob();
@@ -383,7 +393,7 @@
         headers: {...trv2OperadorHeaders(), 'Content-Type':'application/json'},
         body: JSON.stringify({action, nota}),
       });
-      const data = await response.json().catch(() => ({}));
+      const data = await trv2OperadorReadResponse(response);
       if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo registrar bitácora.'));
       TRV2_OPERATOR_META.bitacora_operador = data.bitacora;
       trv2OperadorRenderBitacora();
