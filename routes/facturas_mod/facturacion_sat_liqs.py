@@ -4,6 +4,36 @@ from .core import *
 from fastapi import File, Form, UploadFile
 from models.transport_schemas import FacturaServicioCreate, GenerarCovolRequest
 
+
+def _service_invoice_payment_defaults(cliente_cfg: dict, settings: dict) -> dict:
+    meta = cliente_cfg.get("metadata") if isinstance(cliente_cfg.get("metadata"), dict) else {}
+    settings_meta = settings.get("metadata") if isinstance(settings.get("metadata"), dict) else {}
+    metodo = str(
+        cliente_cfg.get("metodo_pago_default")
+        or meta.get("metodo_pago_default")
+        or meta.get("metodo_pago")
+        or settings.get("MetodoPagoServicio")
+        or settings_meta.get("metodo_pago_servicio")
+        or "PUE"
+    ).strip().upper()
+    forma = str(
+        cliente_cfg.get("forma_pago_default")
+        or meta.get("forma_pago_default")
+        or meta.get("forma_pago")
+        or settings.get("FormaPagoServicio")
+        or settings_meta.get("forma_pago_servicio")
+        or "03"
+    ).strip()
+    if metodo not in {"PUE", "PPD"}:
+        metodo = "PUE"
+    if not re.fullmatch(r"\d{2}", forma):
+        forma = "03" if metodo == "PUE" else "99"
+    if metodo == "PPD" and forma == "03" and not (
+        cliente_cfg.get("forma_pago_default") or meta.get("forma_pago_default") or meta.get("forma_pago")
+    ):
+        forma = "99"
+    return {"metodo_pago": metodo, "forma_pago": forma}
+
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
     perfil_id: Optional[int] = Query(None),
@@ -172,9 +202,13 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     )
     if not email_receptor:
         raise HTTPException(400, "Captura el email fiscal/comercial del cliente antes de timbrar la factura de servicio.")
-    fiscal_defaults = _cliente_defaults_fiscales(cliente_cfg, settings)
+    fiscal_defaults = _service_invoice_payment_defaults(cliente_cfg, settings)
     forma_pago = payload.forma_pago or fiscal_defaults["forma_pago"]
     metodo_pago = payload.metodo_pago or fiscal_defaults["metodo_pago"]
+    if fiscal_defaults["metodo_pago"] != "PUE" and metodo_pago == "PUE":
+        metodo_pago = fiscal_defaults["metodo_pago"]
+    if fiscal_defaults["forma_pago"] != "03" and forma_pago == "03":
+        forma_pago = fiscal_defaults["forma_pago"]
     cfdi_dict = build_cfdi_servicio_transporte(
         emisor=emisor,
         receptor=receptor,
@@ -202,7 +236,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "cliente_id":      payload.cliente_id,
         "viaje_ids":       payload.viaje_ids,
         "cfdi_relacionados": [
-            {"viaje_id": v["id"], "uuid_cfdi": v.get("uuid_cfdi", ""), "id_ccp": v.get("id_ccp", "")}
+            {"viaje_id": v["id"], "uuid_cfdi": v.get("uuid_sat") or v.get("uuid_cfdi", ""), "uuid_sat": v.get("uuid_sat") or v.get("uuid_cfdi", ""), "id_ccp": v.get("id_ccp", "")}
             for v in viajes
         ],
         "rfc_receptor":    payload.rfc_receptor,
