@@ -130,9 +130,9 @@ function buildInvoicePreview(isTraspaso=false){
     discountGross = invoiceRound(descuentoBase * divisor, 2);
   }
   const discountPerLiter = litrosCalc > 0 ? discountGross / litrosCalc : 0;
-  const total = invoiceRound(Math.max(gross - discountGross, 0), 2);
   const taxableBase = invoiceRound(Math.max(subtotal - descuentoBase, 0), 2);
-  const iva = invoiceRound(total - taxableBase, 2);
+  const iva = invoiceRound(taxableBase * rate, 2);
+  const total = invoiceRound(taxableBase + iva, 2);
   return {
     litros: litrosCalc,
     precio_unitario: precioCalc,
