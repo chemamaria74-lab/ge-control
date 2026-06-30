@@ -674,7 +674,11 @@ async function confirmarTimbradoCartaPorteGasLp(){
       btn.disabled = true;
       btn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Timbrada';
     }
-    mergeFacturaFromResponse(data.factura);
+    if(typeof mergeFacturaFromResponse === 'function') mergeFacturaFromResponse(data.factura);
+    if(data.factura && !FACTURAS_LOADED && typeof mergeFacturas === 'function'){
+      mergeFacturas([data.factura]);
+      if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels();
+    }
   }catch(e){
     const message = cartaPorteErrorText(e);
     const waitNotice = document.getElementById('cpStampWaitNotice');
@@ -698,7 +702,8 @@ async function handleCartaPorteAction(){
 function isCartaPorteFactura(f){
   const md = f?.metadata || {};
   const flow = String(md.tipo_flujo || md.tipo_operacion || md.cfdi_tipo || '').toLowerCase();
-  return flow.includes('carta_porte') || Boolean(md.id_ccp) || Boolean(md.carta_porte_validation);
+  const tipoComprobante = String(f?.tipo_comprobante || md.tipo_comprobante || '').trim().toUpperCase();
+  return tipoComprobante === 'T' || flow.includes('carta_porte') || Boolean(md.id_ccp) || Boolean(md.carta_porte_validation);
 }
 function cartaPorteDateValue(f){
   const md = cpMeta(f);
