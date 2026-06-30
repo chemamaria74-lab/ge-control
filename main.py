@@ -213,11 +213,14 @@ app = FastAPI(
 
 @app.exception_handler(HTTPException)
 async def clean_http_exception_handler(request: Request, exc: HTTPException):
-    if request.url.path.startswith("/api/tr-v2/operator") and isinstance(exc.detail, dict):
-        detail = {
-            key: value for key, value in exc.detail.items()
-            if key in {"message", "error", "errors", "validaciones"}
-        }
+    if request.url.path.startswith("/api/tr-v2/operator"):
+        if isinstance(exc.detail, dict):
+            detail = {
+                key: value for key, value in exc.detail.items()
+                if key in {"message", "error", "errors", "validaciones", "detail"}
+            }
+        else:
+            detail = str(exc.detail or "")
     else:
         detail = _public_error_detail(exc.detail)
     return JSONResponse(
