@@ -150,7 +150,7 @@
         <label>Tipo documento <select id="trv2-cp-doc-tipo"><option value="factura_cliente">Factura cliente</option><option value="documento_carga">Documento carga</option><option value="xml_cliente">XML cliente</option><option value="otro">Otro</option></select></label>
         <label class="trv2-form-wide">Archivo PDF/XML <input id="trv2-cp-doc-file" type="file" accept=".pdf,.xml,image/*"></label>
         <div class="trv2-form-actions">
-          <button class="trv2-btn trv2-btn-primary" type="submit"><i class="fa-solid fa-gears"></i> Analizar</button>
+          <button class="trv2-btn trv2-btn-primary" type="submit" data-analyze-label="Analizar"><i class="fa-solid fa-gears"></i> Analizar</button>
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ClearCartaPorteLoad()"><i class="fa-solid fa-eraser"></i> Borrar carga</button>
         </div>
       </form>
@@ -211,7 +211,7 @@
         <label class="trv2-form-wide">Archivo ZIP/XML/PDF <input id="trv2-doc-file" type="file" accept=".zip,.pdf,.xml,image/*"></label>
         <div class="trv2-form-actions">
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2UploadDocument(event)">Guardar metadata</button>
-          <button class="trv2-btn trv2-btn-primary" type="submit"><i class="fa-solid fa-gears"></i> Procesar archivos</button>
+          <button class="trv2-btn trv2-btn-primary" type="submit" data-analyze-label="Procesar archivos"><i class="fa-solid fa-gears"></i> Procesar archivos</button>
         </div>
       </form>
       <p id="trv2-doc-message" class="trv2-muted"></p>

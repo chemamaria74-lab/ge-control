@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GE CONTROL - Operador Transporte v2</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/transporte_v2_operator.css">
+
+</head>
+<body>
+  <main>
+    <div class="brand">
+      <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
+      <div class="brand-actions">
+        <a href="/transporte-v2/roles">Cambiar acceso</a>
+        <button type="button" onclick="trv2OperadorLogout()">Salir</button>
+      </div>
+    </div>
+    <section class="hero">
+      <h1>Mi viaje</h1>
+      <p>Consulta tu viaje, sube documentos y registra tu bitácora.</p>
+      <p id="trv2-operator-name" class="note">Validando operador...</p>
+      <div class="trip-status">
+        <span class="pill" id="trv2-operator-trip-status"><i class="fa-solid fa-circle"></i> Pendiente</span>
+        <span class="pill ok"><i class="fa-solid fa-mobile-screen"></i> Portal móvil</span>
+      </div>
+    </section>
+
+    <section class="no-trip" id="trv2-operator-no-trip">
+      <strong>Sin viaje asignado</strong>
+      <p>Puedes iniciar un movimiento con la factura de la carga.</p>
+      <div class="trip-details" aria-label="Flujo para crear y timbrar viaje">
+        <div><span>Paso 1</span><strong>Subir factura</strong></div>
+        <div><span>Paso 2</span><strong>Revisar datos detectados</strong></div>
+        <div><span>Paso 3</span><strong>Crear viaje y timbrar Carta Porte</strong></div>
+      </div>
+      <div class="start-trip">
+        <h2>Crear viaje</h2>
+        <p>Sube la factura. Usaremos la configuración preparada por administración.</p>
+        <div class="file-row" id="trv2-operator-start-upload">
+          <input id="trv2-operator-start-file" type="file" accept=".pdf,.xml">
+          <button class="primary" type="button" id="trv2-operator-analyze-btn" onclick="trv2OperadorPrepareTrip()"><i class="fa-solid fa-wand-magic-sparkles"></i> Analizar factura</button>
+        </div>
+        <div class="start-summary" id="trv2-operator-start-summary"></div>
+      </div>
+    </section>
+
+    <section class="card operator-content hidden" id="trv2-operator-trip-card">
+      <div class="card-head">
+        <span class="icon"><i class="fa-solid fa-route"></i></span>
+        <div><h2>Datos del viaje</h2><p>Información asignada por administración.</p></div>
+        <span class="status" id="trv2-operator-trip-chip">Asignado</span>
+      </div>
+      <div class="trip-details" id="trv2-operator-trip-details"></div>
+    </section>
+
+    <div class="cards operator-content hidden" id="trv2-operator-actions">
+      <section class="card">
+        <div class="card-head">
+          <span class="icon"><i class="fa-solid fa-file-arrow-up"></i></span>
+          <div><h2>Factura</h2><p>Sube la factura o documento de la carga.</p></div>
+          <span class="status" id="trv2-operator-invoice-status">Pendiente</span>
+        </div>
+        <div id="trv2-operator-invoice-info" class="note">Sin factura cargada.</div>
+        <div class="file-row" id="trv2-operator-invoice-upload">
+          <input id="trv2-operator-invoice-file" type="file" accept=".pdf,.xml">
+        </div>
+        <div class="actions">
+          <button class="primary" type="button" id="trv2-operator-invoice-upload-button" onclick="trv2OperadorUploadInvoice()"><i class="fa-solid fa-upload"></i> Subir / reemplazar factura</button>
+          <button type="button" id="trv2-operator-invoice-view" onclick="trv2OperadorViewInvoice()"><i class="fa-solid fa-eye"></i> Ver factura</button>
+          <button type="button" id="trv2-operator-invoice-download" onclick="trv2OperadorDownloadInvoice()"><i class="fa-solid fa-download"></i> Descargar factura</button>
+          <button type="button" id="trv2-operator-invoice-delete" onclick="trv2OperadorDeleteInvoice()"><i class="fa-solid fa-trash"></i> Eliminar factura</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <span class="icon"><i class="fa-solid fa-file-invoice"></i></span>
+          <div><h2>Carta Porte</h2><p>Consulta o descarga la Carta Porte del viaje.</p></div>
+          <span class="status" id="trv2-operator-cp-status">Pendiente</span>
+        </div>
+        <div id="trv2-operator-cp-summary" class="note"></div>
+        <div class="actions" id="trv2-operator-cp-actions"></div>
+      </section>
+
+      <section class="card bitacora">
+        <div class="card-head">
+          <span class="icon"><i class="fa-solid fa-clipboard-list"></i></span>
+          <div><h2>Bitácora</h2><p>Registra inicio, descansos, incidencias y fin del viaje.</p></div>
+          <span class="status" id="trv2-operator-log-status">SIN_INICIAR</span>
+        </div>
+        <div class="bitacora-grid" id="trv2-operator-log-actions"></div>
+        <ol class="history" id="trv2-operator-log-history"></ol>
+      </section>
+    </div>
+  </main>
+  <div class="toast" id="trv2-operador-toast"></div>
+  <script src="/static/js/transporte_v2/operator_portal.js"></script>
+
+</body>
+</html>
