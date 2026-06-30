@@ -952,7 +952,7 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       <div class="start-trip">
         <h2>Crear viaje</h2>
         <p>Sube la factura. Usaremos la configuración preparada por administración.</p>
-        <div class="file-row">
+        <div class="file-row" id="trv2-operator-start-upload">
           <input id="trv2-operator-start-file" type="file" accept=".pdf,.xml">
           <button class="primary" type="button" id="trv2-operator-analyze-btn" onclick="trv2OperadorPrepareTrip()"><i class="fa-solid fa-wand-magic-sparkles"></i> Analizar factura</button>
         </div>
@@ -1058,6 +1058,12 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
     function trv2OperadorRenderTrip(data) {{
       TRV2_OPERATOR_TRIP = data.viaje || null;
       TRV2_OPERATOR_META = data.metadata || TRV2_OPERATOR_TRIP?.metadata || {{}};
+      if (data.carta_porte?.uuid_sat || data.carta_porte?.uuid_cfdi) {{
+        TRV2_OPERATOR_META.uuid_carta_porte = data.carta_porte.uuid_sat || data.carta_porte.uuid_cfdi || '';
+        TRV2_OPERATOR_META.id_ccp = data.carta_porte.id_ccp || TRV2_OPERATOR_META.id_ccp || '';
+        TRV2_OPERATOR_META.pdf_url = data.carta_porte.pdf_url || TRV2_OPERATOR_META.pdf_url || '';
+        TRV2_OPERATOR_META.pdf_download_url = data.carta_porte.pdf_download_url || TRV2_OPERATOR_META.pdf_download_url || '';
+      }}
       const noTrip = document.getElementById('trv2-operator-no-trip');
       const status = document.getElementById('trv2-operator-trip-status');
       const content = document.querySelectorAll('.operator-content');
@@ -1115,8 +1121,8 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       if (status) status.textContent = uuid ? 'Timbrada' : 'Pendiente';
       if (summary) summary.textContent = uuid ? `UUID: ${{uuid}}` : 'Factura y datos operativos requeridos para timbrar.';
       if (actions) actions.innerHTML = uuid
-        ? `<button type="button" onclick="trv2OperadorOpenCartaPorte('pdf')"><i class="fa-solid fa-file-pdf"></i> Ver Carta Porte PDF</button><button type="button" onclick="trv2OperadorOpenCartaPorte('pdf', true)"><i class="fa-solid fa-download"></i> Descargar Carta Porte PDF</button>`
-        : `<div class="note">La Carta Porte se timbra al crear el viaje desde la factura. Si este viaje ya existe sin timbrar, oficina debe revisarlo.</div>`;
+        ? `<button type="button" onclick="trv2OperadorOpenCartaPorte('pdf')"><i class="fa-solid fa-file-pdf"></i> Ver Carta Porte PDF</button><button type="button" onclick="trv2OperadorBitacora('INICIAR')"><i class="fa-solid fa-play"></i> Iniciar viaje</button><button type="button" onclick="trv2OperadorOpenCartaPorte('pdf', true)"><i class="fa-solid fa-download"></i> Descargar Carta Porte PDF</button>`
+        : `<button type="button" onclick="trv2OperadorDeleteTrip()"><i class="fa-solid fa-trash"></i> Borrar carga</button><div class="note">La Carta Porte se timbra al crear el viaje desde la factura. Si hay datos incorrectos, borra la carga y vuelve a subir la factura.</div>`;
       trv2OperadorRenderInvoice();
     }}
     function trv2OperadorBitacoraEstado() {{ return TRV2_OPERATOR_META.bitacora_operador?.estado || 'SIN_INICIAR'; }}
@@ -1200,8 +1206,22 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
           ${{dateHtml}}
           ${{errors ? `<ul class="start-errors">${{errors}}</ul>` : ''}}
           ${{routes.length ? `<label for="trv2-operator-start-route"><strong>Destino / ruta</strong></label><select id="trv2-operator-start-route">${{routeOptions}}</select>` : ''}}
-          <div class="actions"><button class="primary" id="trv2-operator-create-trip-btn" type="button" onclick="trv2OperadorAcceptTrip()" ${{canCreate ? '' : 'disabled'}}>Crear viaje y timbrar Carta Porte</button></div>`;
+          <div class="actions"><button class="primary" id="trv2-operator-create-trip-btn" type="button" onclick="trv2OperadorAcceptTrip()" ${{canCreate ? '' : 'disabled'}}>Crear viaje y timbrar Carta Porte</button><button type="button" onclick="trv2OperadorClearStartLoad()"><i class="fa-solid fa-trash"></i> Borrar carga</button></div>`;
       }}
+      document.getElementById('trv2-operator-start-upload')?.setAttribute('hidden', 'hidden');
+    }}
+    function trv2OperadorClearStartLoad() {{
+      TRV2_OPERATOR_PREPARED = null;
+      const input = document.getElementById('trv2-operator-start-file');
+      const upload = document.getElementById('trv2-operator-start-upload');
+      const summary = document.getElementById('trv2-operator-start-summary');
+      if (input) input.value = '';
+      if (upload) upload.hidden = false;
+      if (summary) {{
+        summary.classList.remove('show');
+        summary.innerHTML = '';
+      }}
+      trv2OperadorToast('Carga borrada. Puedes subir otra factura.');
     }}
     async function trv2OperadorAcceptTrip() {{
       if (TRV2_OPERATOR_CREATING_TRIP) return;
@@ -1231,6 +1251,7 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
         trv2OperadorRenderTrip(data);
         TRV2_OPERATOR_PREPARED = null;
         trv2OperadorToast(`Viaje creado y Carta Porte timbrada${{data.uuid_sat ? ': ' + data.uuid_sat : ''}}.`);
+        setTimeout(() => trv2OperadorOpenCartaPorte('pdf'), 350);
       }} finally {{
         TRV2_OPERATOR_CREATING_TRIP = false;
         if (button && TRV2_OPERATOR_PREPARED) {{
@@ -1277,6 +1298,17 @@ async def frontend_transporte_v2_operador(lang: str = "es"):
       delete TRV2_OPERATOR_META.factura_operador;
       trv2OperadorRenderInvoice();
       trv2OperadorToast('Factura eliminada.');
+    }}
+    async function trv2OperadorDeleteTrip() {{
+      if (trv2OperadorUuid()) return trv2OperadorToast('No se puede borrar una carga con Carta Porte timbrada.');
+      const response = await fetch('/api/tr-v2/operator/viaje/eliminar', {{method:'POST', headers: trv2OperadorHeaders()}});
+      const data = await response.json().catch(() => ({{}}));
+      if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo borrar la carga.'));
+      TRV2_OPERATOR_TRIP = null;
+      TRV2_OPERATOR_META = {{}};
+      trv2OperadorClearStartLoad();
+      trv2OperadorRenderTrip({{ok:true, has_trip:false}});
+      trv2OperadorToast('Carga borrada.');
     }}
     async function trv2OperadorOpenCartaPorte(format, download = false) {{
       const response = await fetch(`/api/tr-v2/operator/carta-porte/${{format}}?download=${{download ? 'true' : 'false'}}`, {{headers:trv2OperadorHeaders()}});
