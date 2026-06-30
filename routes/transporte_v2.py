@@ -3332,6 +3332,17 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
     peso_kg = _num(payload.peso_kg)
     volumen = _num(payload.volumen_litros)
     tipo_cfdi = "T"
+    payload_metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
+    doc_detected = payload_metadata.get("documento_detectado") if isinstance(payload_metadata.get("documento_detectado"), dict) else {}
+    valor_mercancia = _num(
+        payload_metadata.get("valor_mercancia")
+        or payload_metadata.get("importe_carga")
+        or payload_metadata.get("total")
+        or doc_detected.get("valor_mercancia")
+        or doc_detected.get("importe_carga")
+        or doc_detected.get("total")
+        or doc_detected.get("subtotal")
+    )
     tarifa_calc = _resolve_tariff_calculation(
         token,
         uid,
@@ -3351,11 +3362,11 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "unidad": _first_text(producto.get("unidad"), "LTR"),
         "cantidad_litros": volumen,
         "peso_kg": peso_kg,
+        "valor_mercancia": valor_mercancia,
         "material_peligroso": bool(producto.get("material_peligroso", False)),
         "clave_material_peligroso": _first_text(producto.get("clave_material_peligroso")),
         "embalaje": _first_text(producto.get("embalaje")),
     }]
-    payload_metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
     metadata = {
         "fase": "transporte_v2_fase_3",
         "source": "transporte_v2",
@@ -3373,6 +3384,7 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "producto_descripcion": producto_nombre,
         "producto": producto_nombre,
         "peso_kg": peso_kg,
+        "valor_mercancia": valor_mercancia,
         "origen_sugerido": origen,
         "destino_sugerido": destino,
         "tarifa_calculo": tarifa_calc,
@@ -3952,7 +3964,7 @@ def _stamp_make_producto(viaje: dict[str, Any], producto: dict[str, Any], settin
         clave_producto=internal_key,
         clave_subproducto=sub_key,
         volumen_litros=volumen,
-        valor_mercancia=_num(raw.get("valor_mercancia") or _meta(viaje).get("total") or 0),
+        valor_mercancia=_num(raw.get("valor_mercancia") or _meta(viaje).get("valor_mercancia") or _meta(viaje).get("importe_carga") or _meta(viaje).get("total") or 0),
         importe=importe,
         descripcion=_first_text(producto.get("descripcion"), raw.get("descripcion"), _meta(viaje).get("producto")),
         clave_prodserv_cfdi=sat_key,

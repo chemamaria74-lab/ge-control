@@ -1673,10 +1673,9 @@ def _build_gas_lp_consumo_xml(
     else:
         discount_gross = _money(qty * discount_unit)
         discount_total = _money(discount_gross / divisor) if tax_rate > 0 else discount_gross
-    net_gross = _money(gross_total - discount_gross)
     taxable_base = _money(subtotal - discount_total)
-    iva = _money(net_gross - taxable_base)
-    total = net_gross
+    iva = _money(taxable_base * tax_rate) if tax_rate > 0 else Decimal("0.00")
+    total = _money(taxable_base + iva)
     fecha_cfdi, fecha_reemplazada, fecha_reason = _gas_lp_cfdi_fecha_actualizada(fecha, issuer.get("cp"))
     folio_dt = _parse_gas_lp_cfdi_fecha(fecha_cfdi, _gas_lp_cfdi_timezone(issuer.get("cp")))
     folio = (str(folio or "").strip() or (folio_dt or datetime.now(_gas_lp_cfdi_timezone(issuer.get("cp")))).strftime("GLP%Y%m%d%H%M%S"))[:40]
