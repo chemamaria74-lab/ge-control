@@ -1,9 +1,4 @@
-import sys
-import types
-
 from lxml import etree
-
-sys.modules.setdefault("requests", types.SimpleNamespace(get=lambda *args, **kwargs: None))
 
 from models.transport_schemas import ProductoTransporte, ViajeCreate
 from services.transport_builder import build_cfdi_transporte, build_cfdi_transporte_xml
@@ -85,3 +80,66 @@ def test_transporte_xml_incluye_carta_porte_31_y_concepto_flete():
     assert root.xpath('string(//*[local-name()="Mercancia"]/@BienesTransp)') == "15111510"
     assert root.xpath('string(//*[local-name()="Mercancia"]/@Unidad)') == "L"
     assert root.xpath('string(//*[local-name()="Remolque"]/@SubTipoRem)') == "CTR028"
+
+
+def test_transporte_xml_normaliza_fechas_operador_con_offset_sin_segundos():
+    producto = ProductoTransporte(
+        clave_producto="PR12",
+        clave_subproducto="SP46",
+        volumen_litros=35864.17,
+        valor_mercancia=249359.37,
+        descripcion="GAS L.P.",
+        clave_prodserv_cfdi="15111510",
+        unidad="LTR",
+        densidad_kg_l=0.512,
+        cve_material_peligroso="1075",
+        embalaje="Z01",
+    )
+    viaje = ViajeCreate(
+        chofer_id=1,
+        vehiculo_id=1,
+        cp_origen="45464",
+        nombre_origen="PROPANE",
+        rfc_origen="PSE170512969",
+        cp_destino="99300",
+        nombre_destino="GAS LUX",
+        rfc_destino="GLU760309457",
+        fecha_hora_salida="2026-06-30T17:00+00:00",
+        fecha_hora_llegada="2026-06-30T22:00+00:00",
+        productos=[producto],
+        tipo_cfdi="T",
+        rfc_receptor="GLU760309457",
+        nombre_receptor="GAS LUX",
+        cp_receptor="99300",
+        regimen_fiscal_receptor="601",
+        uso_cfdi="S01",
+        num_permiso_cne="LP/20740/COM/2017",
+        distancia_km=380,
+    )
+    cfdi, _id_ccp = build_cfdi_transporte(
+        viaje,
+        {
+            "rfc": "PSE170512969",
+            "nombre": "PROPANE SERVICES",
+            "regimen_fiscal": "601",
+            "domicilio_fiscal": "45430",
+            "num_permiso_cne": "LP/20740/COM/2017",
+        },
+        {"nombre": "OPERADOR", "rfc": "XAXX010101000", "licencia": "LIC123"},
+        {
+            "placas": "739ER9",
+            "anio": 2020,
+            "config_vehicular": "T3S2",
+            "peso_bruto_vehicular": "46.5000",
+            "aseguradora": "ASEGURADORA",
+            "poliza_seguro": "POL123",
+            "permiso_sct": "TPAF03",
+            "num_permiso_sct": "SCT123456",
+        },
+    )
+
+    root = etree.fromstring(build_cfdi_transporte_xml(cfdi).encode())
+
+    assert root.get("Fecha").count("+") == 0
+    assert root.xpath('string(//*[local-name()="Ubicacion" and @TipoUbicacion="Origen"]/@FechaHoraSalidaLlegada)') == "2026-06-30T17:00:00"
+    assert root.xpath('string(//*[local-name()="Ubicacion" and @TipoUbicacion="Destino"]/@FechaHoraSalidaLlegada)') == "2026-06-30T22:00:00"
