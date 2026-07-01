@@ -137,9 +137,13 @@ function facturaDateKey(f){
   return mexicoDateKey(value) || String(value || '').slice(0,10);
 }
 function facturaTimeLabel(f){
-  const fiscalValue = facturaFiscalDateValue(f);
-  if(fiscalValue) return wallClockDateParts(fiscalValue).time || mexicoTimeLabel(fiscalValue) || '—';
-  return mexicoTimeLabel(f.fecha_timbrado || f.created_at || '') || '—';
+  const md = f.metadata || {};
+  const values = [f.fecha_emision, md.fecha_emision, md.fecha_cfdi, cfdiFechaFromXml(f.xml_content), f.fecha_timbrado, f.created_at];
+  for(const value of values){
+    const time = wallClockDateParts(value).time || mexicoTimeLabel(value);
+    if(time) return time;
+  }
+  return '—';
 }
 function switchPortalTab(tab, subtab=''){
   const legacy = {
