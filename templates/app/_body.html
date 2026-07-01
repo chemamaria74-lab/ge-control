@@ -168,8 +168,8 @@
 <!-- ── Navegación principal ───────────────────────────────────────────── -->
 <div class="main-nav-tabs">
   <button class="main-nav-tab" data-main="ventas"><i class="fa-solid fa-chart-line"></i> <span data-i18n="nav.ventas">Dashboard</span></button>
-  <button class="main-nav-tab active" data-main="procesar"><i class="fa-solid fa-file-upload"></i> <span data-i18n="nav.procesar">Carga de archivos</span></button>
-  <button class="main-nav-tab" data-main="historial"><i class="fa-solid fa-file-lines"></i> <span data-i18n="nav.historial">Reportes SAT</span></button>
+  <button class="main-nav-tab" data-main="procesar" style="display:none"><i class="fa-solid fa-file-upload"></i> <span data-i18n="nav.procesar">Carga de archivos</span></button>
+  <button class="main-nav-tab active" data-main="historial"><i class="fa-solid fa-file-lines"></i> <span data-i18n="nav.historial">Reportes SAT</span></button>
   <button class="main-nav-tab" data-main="controles"><i class="fa-solid fa-gauge-high"></i> <span data-i18n="nav.controles">Inventario</span></button>
   <button class="main-nav-tab" data-main="proveedores"><i class="fa-solid fa-truck-fast"></i> <span data-i18n="nav.proveedores">Proveedores</span></button>
   <button class="main-nav-tab" data-main="config"><i class="fa-solid fa-gear"></i> Administración</button>
@@ -179,7 +179,7 @@
 <!-- ══════════════════════════════════════════════════════════════════════
      PANEL: PROCESAR
      ══════════════════════════════════════════════════════════════════════ -->
-<div class="main-panel active" id="mpanel-procesar">
+<div class="main-panel" id="mpanel-procesar">
 
 <!-- Selector de instalación activa -->
 <div class="card" id="facilityPickerCard" style="padding:.9rem 1.2rem">
@@ -1080,7 +1080,7 @@
 <!-- ══════════════════════════════════════════════════════════════════════
      PANEL: HISTORIAL
      ══════════════════════════════════════════════════════════════════════ -->
-<div class="main-panel" id="mpanel-historial">
+<div class="main-panel active" id="mpanel-historial">
 <div class="card" id="histCard">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.8rem">
     <h2 style="margin:0"><i class="fa-solid fa-file-circle-check" style="margin-right:.4rem"></i> <span data-en="SAT Monthly Report">Reporte SAT Mensual</span></h2>
@@ -1088,7 +1088,7 @@
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:.7rem;margin-bottom:1rem">
     <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;padding:.8rem .95rem;color:#1e3a8a">
       <div style="font-size:.78rem;font-weight:800;margin-bottom:.25rem"><i class="fa-solid fa-truck-ramp-box" style="margin-right:.35rem"></i>Subir pendientes de proveedor</div>
-      <div style="font-size:.72rem;line-height:1.5;color:#475569">Para facturas externas que no se generan en el portal.</div>
+      <div style="font-size:.72rem;line-height:1.5;color:#475569">Para facturas externas o hechas en otro sistema; se agregan a lo ya cargado del mes.</div>
       <button class="btn-save" id="btnHistUploadProvider" style="margin-top:.65rem;width:auto;padding:.42rem .8rem;font-size:.78rem"><i class="fa-solid fa-upload" style="margin-right:.35rem"></i>Subir XML/ZIP</button>
     </div>
     <div style="border:1px solid #fde68a;background:#fffbeb;border-radius:8px;padding:.8rem .95rem;color:#78350f">
