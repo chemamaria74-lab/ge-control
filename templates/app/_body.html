@@ -1083,12 +1083,29 @@
 <div class="main-panel" id="mpanel-historial">
 <div class="card" id="histCard">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.8rem">
-    <h2 style="margin:0"><i class="fa-solid fa-clock-rotate-left" style="margin-right:.4rem"></i> <span data-en="Report History">Historial de Reportes</span></h2>
+    <h2 style="margin:0"><i class="fa-solid fa-file-circle-check" style="margin-right:.4rem"></i> <span data-en="SAT Monthly Report">Reporte SAT Mensual</span></h2>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:.7rem;margin-bottom:1rem">
+    <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;padding:.8rem .95rem;color:#1e3a8a">
+      <div style="font-size:.78rem;font-weight:800;margin-bottom:.25rem"><i class="fa-solid fa-truck-ramp-box" style="margin-right:.35rem"></i>Subir pendientes de proveedor</div>
+      <div style="font-size:.72rem;line-height:1.5;color:#475569">Para facturas externas que no se generan en el portal.</div>
+      <button class="btn-save" id="btnHistUploadProvider" style="margin-top:.65rem;width:auto;padding:.42rem .8rem;font-size:.78rem"><i class="fa-solid fa-upload" style="margin-right:.35rem"></i>Subir XML/ZIP</button>
+    </div>
+    <div style="border:1px solid #fde68a;background:#fffbeb;border-radius:8px;padding:.8rem .95rem;color:#78350f">
+      <div style="font-size:.78rem;font-weight:800;margin-bottom:.25rem"><i class="fa-solid fa-gas-pump" style="margin-right:.35rem"></i>Subir autoconsumo</div>
+      <div style="font-size:.72rem;line-height:1.5;color:#475569">Captura consumo propio sin CFDI para incluirlo en el mes.</div>
+      <button class="btn-save" id="btnHistAutoconsumo" style="margin-top:.65rem;width:auto;padding:.42rem .8rem;font-size:.78rem;background:#92400e"><i class="fa-solid fa-plus" style="margin-right:.35rem"></i>Registrar</button>
+    </div>
+    <div style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:8px;padding:.8rem .95rem;color:#14532d">
+      <div style="font-size:.78rem;font-weight:800;margin-bottom:.25rem"><i class="fa-solid fa-lock" style="margin-right:.35rem"></i>Cerrar mes</div>
+      <div style="font-size:.72rem;line-height:1.5;color:#475569">Selecciona planta, año y mes; después descarga el ZIP JSON por instalación.</div>
+      <button class="btn-save" id="btnCloseHistMonth" style="margin-top:.65rem;width:auto;padding:.42rem .8rem;font-size:.78rem;background:#15803d"><i class="fa-solid fa-file-zipper" style="margin-right:.35rem"></i>Cerrar y descargar ZIP</button>
+    </div>
   </div>
   <div class="hist-selector">
     <div class="field" style="max-width:180px"><label>Instalación</label>
       <select id="histFacility" style="padding:.42rem .6rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.86rem;width:100%">
-        <option value="">Todas</option>
+        <option value="">Selecciona planta...</option>
       </select>
     </div>
     <div class="field" style="max-width:140px"><label>Año</label>
@@ -1109,8 +1126,8 @@
         <option value="12">12 — Diciembre</option>
       </select></div>
     <div style="display:flex;align-items:flex-end;gap:.5rem;flex-wrap:wrap">
-      <button class="btn-save" id="btnLoadHist"><i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i> Cargar historial</button>
-      <button class="btn-xml" style="width:auto;padding:.52rem 1rem;font-size:.84rem" id="btnDlHistZIP"><i class="fa-solid fa-file-zipper" style="margin-right:.35rem"></i> Descargar Reporte ZIP</button>
+      <button class="btn-save" id="btnLoadHist"><i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i> Revisar mes</button>
+      <button class="btn-xml" style="display:none;width:auto;padding:.52rem 1rem;font-size:.84rem" id="btnDlHistZIP"><i class="fa-solid fa-file-zipper" style="margin-right:.35rem"></i> Descargar ZIP JSON</button>
       <button id="btnDelHist" style="display:none;width:auto;padding:.52rem 1rem;font-size:.84rem;
         background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:8px;
         cursor:pointer;font-family:inherit;font-weight:600">
@@ -1118,7 +1135,8 @@
       </button>
     </div>
   </div>
-  <div id="histLoading" style="display:none;font-size:.82rem;color:#457b9d">⏳ Cargando historial...</div>
+  <div id="histCloseInfo" style="display:none;margin:.2rem 0 .8rem;padding:.6rem .8rem;border-radius:8px;font-size:.78rem"></div>
+  <div id="histLoading" style="display:none;font-size:.82rem;color:#457b9d">Cargando historial...</div>
   <div id="histContent" style="display:none">
     <div id="histReportInfo" style="font-size:.68rem;color:#64748b;margin-bottom:.4rem;display:none">
       ℹ Datos del reporte SAT oficial guardado para este periodo.
