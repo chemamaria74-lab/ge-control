@@ -58,6 +58,72 @@ def _parse_float(v: Any) -> Optional[float]:
         return None
 
 
+def _local_name(tag: str) -> str:
+    return str(tag or "").split("}", 1)[-1]
+
+
+def extract_cancelled_uuid(xml_bytes: bytes) -> str:
+    """Best-effort detection for SAT cancellation acknowledgements or cancelled XML wrappers."""
+    if xml_bytes.startswith(b"\xef\xbb\xbf"):
+        xml_bytes = xml_bytes[3:]
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return ""
+
+    text_blob = " ".join(
+        str(value or "")
+        for value in [
+            _local_name(root.tag),
+            *root.attrib.values(),
+            *(child.text or "" for child in root.iter()),
+        ]
+    ).lower()
+    has_cancel_marker = any(
+        marker in text_blob
+        for marker in ("cancelad", "cancelaci", "canceled", "cancelled", "acuse")
+    )
+    if not has_cancel_marker:
+        return ""
+
+    for node in root.iter():
+        attrs = {str(k).lower(): str(v or "") for k, v in node.attrib.items()}
+        for key in ("uuid", "uuidcancelado", "uuid_cancelado", "foliofiscal", "folio"):
+            value = attrs.get(key)
+            if value and re.match(r"^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$", value.strip()):
+                return value.strip().upper()
+
+    return _extraer_uuid(root).strip().upper()
+
+
+def extract_cancelled_uuids_from_upload(file_bytes: bytes, filename: str = "") -> list[str]:
+    name = str(filename or "").lower()
+    uuids: list[str] = []
+    if name.endswith(".zip"):
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+                for xml_name in zf.namelist():
+                    if not xml_name.lower().endswith(".xml") or _es_archivo_sistema(xml_name):
+                        continue
+                    uuid = extract_cancelled_uuid(zf.read(xml_name))
+                    if uuid:
+                        uuids.append(uuid)
+        except zipfile.BadZipFile:
+            return []
+    else:
+        uuid = extract_cancelled_uuid(file_bytes)
+        if uuid:
+            uuids.append(uuid)
+    seen = set()
+    unique: list[str] = []
+    for uuid in uuids:
+        key = uuid.strip().upper()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(key)
+    return unique
+
+
 def parse_zip(
     zip_bytes: bytes,
     rfc_activo: str = "",
@@ -66,7 +132,7 @@ def parse_zip(
     errores:     list[str]  = []
     logs:        list[str]  = []
 
-    cnt_nomina = cnt_traslado = cnt_pago = cnt_carta = cnt_trasvase_excl = 0
+    cnt_nomina = cnt_traslado = cnt_pago = cnt_carta = cnt_trasvase_excl = cnt_cancelados = 0
 
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
@@ -85,8 +151,14 @@ def parse_zip(
 
             for nombre in xml_files:
                 try:
+                    raw_xml = zf.read(nombre)
+                    uuid_cancelado = extract_cancelled_uuid(raw_xml)
+                    if uuid_cancelado:
+                        cnt_cancelados += 1
+                        logs.append(f"[{nombre}] CFDI cancelado/acuse de cancelación — UUID {uuid_cancelado} excluido del JSON.")
+                        continue
                     movs, errs, lgs, filtro = _parse_xml_con_filtro(
-                        zf.read(nombre), source=nombre, rfc_activo=rfc_activo
+                        raw_xml, source=nombre, rfc_activo=rfc_activo
                     )
                     cnt_nomina        += filtro.get("nomina", 0)
                     cnt_traslado      += filtro.get("traslado", 0)
@@ -103,8 +175,10 @@ def parse_zip(
         errores.append("El archivo ZIP está corrupto o no es válido.")
         return movimientos, errores, logs
 
-    if cnt_nomina or cnt_traslado or cnt_pago or cnt_carta or cnt_trasvase_excl:
+    if cnt_nomina or cnt_traslado or cnt_pago or cnt_carta or cnt_trasvase_excl or cnt_cancelados:
         partes = []
+        if cnt_cancelados:
+            partes.append(f"🚫 {cnt_cancelados} cancelada(s) — no aplican al JSON")
         if cnt_nomina:
             partes.append(f"📋 {cnt_nomina} nómina(s) — no aplican a controles volumétricos")
         if cnt_traslado:
@@ -156,6 +230,11 @@ def _parse_xml_con_filtro(
         root = ET.fromstring(xml_bytes)
     except ET.ParseError as e:
         errores.append(f"[{source}] XML malformado: {e}")
+        return movimientos, errores, logs, filtro
+
+    uuid_cancelado = extract_cancelled_uuid(xml_bytes)
+    if uuid_cancelado:
+        logs.append(f"[{source}] CFDI cancelado/acuse de cancelación — UUID {uuid_cancelado} excluido del JSON.")
         return movimientos, errores, logs, filtro
 
     tag = root.tag
