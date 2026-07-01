@@ -184,6 +184,31 @@ def _safe_int(value: object) -> Optional[int]:
         return None
 
 
+def _previous_period(periodo: str) -> str:
+    try:
+        anio = int(str(periodo)[:4])
+        mes = int(str(periodo)[5:7])
+        if mes == 1:
+            return f"{anio - 1}-12"
+        return f"{anio}-{mes - 1:02d}"
+    except Exception:
+        return ""
+
+
+def _previous_inventory_final(user_id: str, periodo: str, facility_id: Optional[int], perfil_id: int) -> Optional[float]:
+    prev = _previous_period(periodo)
+    if not prev:
+        return None
+    try:
+        reports = get_reports(user_id, prev, facility_id=facility_id, perfil_id=perfil_id)
+        if not reports:
+            return None
+        value = reports[0].get("vol_existencias")
+        return float(value) if value is not None else None
+    except Exception:
+        return None
+
+
 def _invoice_facility_id(row: dict) -> Optional[int]:
     md = _metadata(row)
     return _safe_int(row.get("facility_id") or md.get("facility_id") or md.get("origen_facility_id"))
@@ -414,6 +439,7 @@ async def get_history(
             totals = _totals_from_records(records)
             source = "archived_legacy"
     latest    = reports[0] if reports else None
+    prev_inventory_final = _previous_inventory_final(uid, periodo, facility_id, perfil_id)
 
     sat_zip_filename = None
     if latest:
@@ -436,6 +462,8 @@ async def get_history(
         "totals":       totals,
         "report":       latest,
         "zip_filename": sat_zip_filename,
+        "previous_inventory_final": prev_inventory_final,
+        "previous_period": _previous_period(periodo),
         "source":       source,
     })
 
@@ -569,10 +597,16 @@ def _regenerate_history_report(uid: str, token: str, periodo: str, perfil_id: in
     if periodo and len(periodo) >= 7:
         anio, mes = int(periodo[:4]), int(periodo[5:7])
 
+    inv_inicial = _safe_float(rep.get("inventario_inicial"))
+    if inv_inicial <= 0:
+        prev_inv = _previous_inventory_final(data_user_id, periodo, effective_facility_id, perfil_id)
+        if prev_inv is not None:
+            inv_inicial = prev_inv
+
     sat_dict, sat_meta = build_sat_report(
         movimientos=movimientos,
         settings=settings,
-        inventario_inicial_litros=_safe_float(rep.get("inventario_inicial")),
+        inventario_inicial_litros=inv_inicial,
         anio=anio,
         mes=mes,
         capacidad_tanque=capacidad_tanque,
