@@ -14,7 +14,7 @@ function applyRole(role) {
   document.querySelectorAll('.main-nav-tab').forEach(t => {
     const allowed = allowedTabs ? allowedTabs.includes(t.dataset.main) : true;
     if (allowedTabs && !allowed) t.style.display = 'none';
-    if (!allowedTabs && t.id !== 'tabAdmin') t.style.display = '';
+    if (!allowedTabs && t.id !== 'tabAdmin') t.style.display = t.dataset.main === 'procesar' ? 'none' : '';
   });
   const switcher = document.getElementById('empresaSwitcher');
   if (switcher && allowedTabs) switcher.style.pointerEvents = 'none';
@@ -55,6 +55,7 @@ function updateModuleUI(modulo) {
     badge.textContent = 'Gas LP';
     badge.className = 'badge badge-blue';
     tabs.forEach(t => {
+      if (t.dataset.main === 'procesar') t.style.display = 'none';
       if (t.dataset.main === 'controles') t.style.display = '';
     });
     // Mostrar botón Cargar Entregas

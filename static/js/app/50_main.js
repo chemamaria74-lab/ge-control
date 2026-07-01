@@ -136,7 +136,7 @@ function applyRole(role) {
   document.querySelectorAll('.main-nav-tab').forEach(t => {
     const allowed = allowedTabs ? allowedTabs.includes(t.dataset.main) : true;
     if (allowedTabs && !allowed) t.style.display = 'none';
-    if (!allowedTabs && t.id !== 'tabAdmin') t.style.display = '';
+    if (!allowedTabs && t.id !== 'tabAdmin') t.style.display = t.dataset.main === 'procesar' ? 'none' : '';
   });
   const switcher = document.getElementById('empresaSwitcher');
   if (switcher && allowedTabs) switcher.style.pointerEvents = 'none';
@@ -177,6 +177,7 @@ function updateModuleUI(modulo) {
     badge.textContent = 'Gas LP';
     badge.className = 'badge badge-blue';
     tabs.forEach(t => {
+      if (t.dataset.main === 'procesar') t.style.display = 'none';
       if (t.dataset.main === 'controles') t.style.display = '';
     });
     // Mostrar botón Cargar Entregas
@@ -3094,12 +3095,14 @@ async function loadHistorial() {
 
     const totals = data.totals || {};
     const rep    = data.report || {};
+    const prevInv = data.previous_inventory_final != null ? parseFloat(data.previous_inventory_final) : null;
     histZipFilename = data.zip_filename || null;
 
     // Prefer values from the saved SAT report (exact); fallback to aggregated records
     const hasReport = rep && rep.total_recepciones != null && rep.total_recepciones > 0;
     // Inv. inicial: del reporte si > 0; si no, calcularlo implícito desde el balance
     let invIni = (rep && rep.inventario_inicial > 0) ? rep.inventario_inicial : null;
+    if (invIni == null && prevInv != null && prevInv > 0) invIni = prevInv;
     let invFin = (rep && rep.vol_existencias   > 0) ? rep.vol_existencias    : null;
     if (invIni == null && hasReport && invFin != null) {
       const calc = invFin + (rep.total_entregas || 0) - (rep.total_recepciones || 0);

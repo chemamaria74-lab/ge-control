@@ -263,6 +263,9 @@ async function processCFDI(files) {
   files.forEach(f => fd.append('files', f));
   fd.append('rfc',         (document.getElementById('rfc')?.value || ''));
   fd.append('unidad_base', document.getElementById('unidad_base').value);
+  const procAnio = document.getElementById('procAnio')?.value || '';
+  const procMes = document.getElementById('procMes')?.value || '';
+  if (procAnio && procMes) fd.append('periodo', `${procAnio}-${procMes}`);
   const invIni = document.getElementById('inv_inicial').value;
   if (invIni !== '') fd.append('inventario_inicial', invIni);
   if (_activeFacilityId) fd.append('facility_id', _activeFacilityId);
@@ -898,12 +901,14 @@ async function loadHistorial() {
 
     const totals = data.totals || {};
     const rep    = data.report || {};
+    const prevInv = data.previous_inventory_final != null ? parseFloat(data.previous_inventory_final) : null;
     histZipFilename = data.zip_filename || null;
 
     // Prefer values from the saved SAT report (exact); fallback to aggregated records
     const hasReport = rep && rep.total_recepciones != null && rep.total_recepciones > 0;
     // Inv. inicial: del reporte si > 0; si no, calcularlo implícito desde el balance
     let invIni = (rep && rep.inventario_inicial > 0) ? rep.inventario_inicial : null;
+    if (invIni == null && prevInv != null && prevInv > 0) invIni = prevInv;
     let invFin = (rep && rep.vol_existencias   > 0) ? rep.vol_existencias    : null;
     if (invIni == null && hasReport && invFin != null) {
       const calc = invFin + (rep.total_entregas || 0) - (rep.total_recepciones || 0);
