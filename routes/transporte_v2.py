@@ -338,12 +338,14 @@ def _cancelacion_fiscal_confirmada(row: dict[str, Any] | None = None, meta: dict
     meta = meta or {}
     result = row.get("cancelacion_resultado") or meta.get("cancelacion_carta_porte") or {}
     status = _first_text(row.get("cancelacion_status"), result.get("status")).lower() if isinstance(result, dict) else _first_text(row.get("cancelacion_status")).lower()
+    if isinstance(result, dict) and (result.get("operativa") is True or result.get("warning")):
+        return False
     if isinstance(result, dict) and result.get("ok") is True:
         return True
     if status in {"cancelled", "cancelado", "cancelada", "ok"}:
         return True
-    if isinstance(result, dict) and (result.get("operativa") is True or result.get("warning")):
-        return False
+    if _status_cancelado(row.get("status"), row.get("estatus"), row.get("carta_porte_status")) and status not in {"error", "rechazada", "rejected"}:
+        return True
     return False
 
 
@@ -3332,6 +3334,51 @@ def _normalize_viaje_row(row: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _apply_cfdi_cancelacion_to_viajes(
+    token: str,
+    uid: str,
+    pid: Optional[int],
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    trip_ids = [int(item.get("id") or 0) for item in items if item.get("id")]
+    if not trip_ids:
+        return items
+    try:
+        query = (
+            _sb(token)
+            .table(TBL_CFDI)
+            .select("viaje_id,status,cancelacion_status,cancelacion_resultado")
+            .eq("user_id", uid)
+            .eq("tipo_cfdi", "T")
+            .in_("viaje_id", trip_ids)
+        )
+        if pid:
+            query = query.eq("perfil_id", pid)
+        cfdi_rows = query.execute().data or []
+    except Exception as exc:
+        logger.info("No se pudo cruzar cancelaciones CFDI para viajes Transporte v2: %s", exc)
+        return items
+    cancelled_trip_ids = {
+        int(row.get("viaje_id") or 0)
+        for row in cfdi_rows
+        if row.get("viaje_id") and _cancelacion_fiscal_confirmada(row)
+    }
+    if not cancelled_trip_ids:
+        return items
+    for item in items:
+        if int(item.get("id") or 0) not in cancelled_trip_ids:
+            continue
+        meta = dict(item.get("metadata") or {})
+        meta["carta_porte_status"] = "cancelada"
+        meta["carta_porte_cancelada"] = True
+        item["metadata"] = meta
+        item["carta_porte_status"] = "cancelada"
+        item["carta_porte_cancelada"] = True
+        item["status"] = "cancelado"
+        item["estatus"] = "cancelado"
+    return items
+
+
 def _first_text(*values: Any) -> str:
     for value in values:
         text = str(value or "").strip()
@@ -6066,6 +6113,7 @@ async def transporte_v2_listar_viajes(
             if _first_text(row.get("status"), row.get("estatus"), _meta(row).get("status")).lower() != "eliminado"
             and not _meta(row).get("eliminado_transporte_v2")
         ]
+        items = _apply_cfdi_cancelacion_to_viajes(token, uid, pid, items)
         return {"ok": True, "items": items, "needs_schema": False}
     except Exception as exc:
         if _is_missing_table_error(exc):
