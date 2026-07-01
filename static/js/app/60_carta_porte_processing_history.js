@@ -792,6 +792,83 @@ document.getElementById('btnDelHist').addEventListener('click', () => {
   );
 });
 
+function histSelectedPeriodAndFacility() {
+  const anio = document.getElementById('histAnio')?.value || '';
+  const mes = document.getElementById('histMes')?.value || '';
+  const facilityId = parseInt(document.getElementById('histFacility')?.value || '', 10) || null;
+  return { anio, mes, periodo: anio && mes ? `${anio}-${mes}` : '', facilityId };
+}
+
+function setHistCloseInfo(message, ok = true) {
+  const el = document.getElementById('histCloseInfo');
+  if (!el) return;
+  el.textContent = message || '';
+  el.style.display = message ? '' : 'none';
+  el.style.background = ok ? '#f0fdf4' : '#fef2f2';
+  el.style.border = ok ? '1px solid #86efac' : '1px solid #fca5a5';
+  el.style.color = ok ? '#166534' : '#991b1b';
+}
+
+function syncProcessPeriodAndFacilityFromHistory() {
+  const { anio, mes, facilityId } = histSelectedPeriodAndFacility();
+  if (!anio || !mes) {
+    setHistCloseInfo('Selecciona año y mes antes de continuar.', false);
+    return false;
+  }
+  if (!facilityId) {
+    setHistCloseInfo('Selecciona una planta. El cierre mensual y las cargas pendientes no se hacen en "Todas".', false);
+    return false;
+  }
+  const procAnio = document.getElementById('procAnio');
+  const procMes = document.getElementById('procMes');
+  const activeSel = document.getElementById('activeFacilitySelect');
+  if (procAnio) procAnio.value = anio;
+  if (procMes) procMes.value = mes;
+  if (activeSel) activeSel.value = String(facilityId);
+  _activeFacilityId = facilityId;
+  updateFacilityBadge(_facilities.find(f => Number(f.id) === facilityId) || null);
+  setUploaderLock(false);
+  const cfdiInput = document.getElementById('fileCFDI');
+  if (cfdiInput && typeof renderChips === 'function') renderChips(cfdiInput, 'btnCFDI');
+  return true;
+}
+
+function openProcessSubpanel(tabName) {
+  switchTab('procesar');
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+  const tab = document.querySelector(`.tab[data-tab="${tabName}"]`);
+  const panel = document.getElementById('panel-' + tabName);
+  if (tab) tab.classList.add('active');
+  if (panel) panel.classList.add('active');
+}
+
+document.getElementById('btnHistUploadProvider')?.addEventListener('click', () => {
+  if (!syncProcessPeriodAndFacilityFromHistory()) return;
+  openProcessSubpanel('cfdi');
+  setHistCloseInfo('Sube los XML/ZIP pendientes del proveedor externo y procesa el CFDI para alimentar el mes seleccionado.');
+  const drop = document.getElementById('dropCFDI');
+  if (drop) drop.scrollIntoView({ behavior: 'smooth', block: 'center' });
+});
+
+document.getElementById('btnHistAutoconsumo')?.addEventListener('click', () => {
+  if (!syncProcessPeriodAndFacilityFromHistory()) return;
+  openProcessSubpanel('autoconsumo');
+  const date = document.getElementById('ac_fecha');
+  const { anio, mes } = histSelectedPeriodAndFacility();
+  if (date && !date.value) date.value = `${anio}-${mes}-01`;
+  if (!_autoconsumoActivo) toggleAutoconsumoSwitch();
+  setTimeout(cargarAutoconsumos, 100);
+});
+
+document.getElementById('btnCloseHistMonth')?.addEventListener('click', async () => {
+  if (!syncProcessPeriodAndFacilityFromHistory()) return;
+  setHistCloseInfo('Cerrando mes: revisando registros y preparando descarga ZIP por instalación...');
+  await loadHistorial({ closing: true });
+  const zipBtn = document.getElementById('btnDlHistZIP');
+  if (histPeriodo && _histFacilityId && zipBtn?.style.display !== 'none') await downloadHistZIP();
+});
+
 async function loadHistorial() {
   const anio = document.getElementById('histAnio').value;
   const mes  = document.getElementById('histMes').value;
@@ -800,6 +877,10 @@ async function loadHistorial() {
   histPeriodo = periodo;
   const facSel = document.getElementById('histFacility');
   _histFacilityId = facSel ? (parseInt(facSel.value) || null) : null;
+  if (!_histFacilityId) {
+    setHistCloseInfo('Selecciona una planta para revisar o cerrar el mes. El ZIP JSON se descarga por instalación.', false);
+    return;
+  }
 
   document.getElementById('histLoading').style.display = 'block';
   document.getElementById('histContent').style.display = 'none';
@@ -918,6 +999,11 @@ async function loadHistorial() {
     if (hasAnyData) {
       document.getElementById('btnDelHist').style.display = '';
     }
+    setHistCloseInfo(data.report && data.report.zip_path
+      ? 'Mes cerrado para la planta seleccionada. Ya puedes descargar el ZIP JSON.'
+      : (hasAnyData
+        ? 'Mes revisado para la planta seleccionada. Procesa los pendientes antes de descargar el ZIP JSON.'
+        : 'No hay registros para cerrar en la planta y periodo seleccionados.'), hasAnyData);
 
   } catch(e) {
     document.getElementById('histLoading').style.display = 'none';
@@ -927,6 +1013,10 @@ async function loadHistorial() {
 
 async function downloadHistZIP() {
   if (!histPeriodo) return;
+  if (!_histFacilityId) {
+    setHistCloseInfo('Selecciona una planta antes de descargar el ZIP JSON.', false);
+    return;
+  }
   const btn = document.getElementById('btnDlHistZIP');
   if (btn?.disabled) return;
   const originalHtml = btn?.innerHTML;
