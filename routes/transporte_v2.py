@@ -6626,7 +6626,7 @@ async def transporte_v2_carta_porte_cancelar(
     if xml_content:
         try:
             root = ET.fromstring(xml_content.encode("utf-8"))
-            emisor = _first(root, "Emisor")
+            emisor = _xml_first(root, "Emisor")
             cancel_result = cancel_cfdi_universal(
                 sb=sb,
                 module="transporte_v2",
@@ -6642,17 +6642,25 @@ async def transporte_v2_carta_porte_cancelar(
             )
         except Exception as exc:
             error_payload = getattr(exc, "detail", None) or str(exc)
+            error_message = error_payload
+            if isinstance(error_payload, dict):
+                error_message = _first_text(
+                    error_payload.get("message"),
+                    error_payload.get("error"),
+                    (error_payload.get("diagnostic") or {}).get("error") if isinstance(error_payload.get("diagnostic"), dict) else "",
+                    str(error_payload),
+                )
             try:
                 sb.table(TBL_CFDI).update({
                     "cancelacion_status": "error",
                     "cancelacion_motivo": motivo,
                     "cancelacion_uuid_sustitucion": _first_text(payload.uuid_sustitucion),
-                    "cancelacion_resultado": {"ok": False, "error": error_payload},
+                    "cancelacion_resultado": {"ok": False, "error": error_message, "diagnostic": error_payload},
                     "canceled_by": uid,
                 }).eq("id", cfdi.get("id")).eq("user_id", uid).execute()
             except Exception:
                 pass
-            raise HTTPException(400, {"message": "SW Sapiens no aceptó la cancelación. La Carta Porte sigue vigente.", "diagnostic": error_payload}) from exc
+            raise HTTPException(400, {"message": f"SW Sapiens no aceptó la cancelación: {error_message}. La Carta Porte sigue vigente.", "diagnostic": error_payload}) from exc
 
     if not cancel_result.get("ok"):
         raise HTTPException(400, {"message": "SW Sapiens no confirmó la cancelación. La Carta Porte sigue vigente.", "diagnostic": cancel_result})
