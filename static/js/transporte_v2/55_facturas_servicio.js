@@ -70,6 +70,7 @@ function trv2ServiceRowMonth(row = {}) {
 
 function trv2ServiceIsCancelled(row = {}) {
   const meta = row.metadata || {};
+  if (row.carta_porte_cancelada === true || meta.carta_porte_cancelada === true) return true;
   const cancelData = meta.cancelacion_carta_porte || row.cancelacion_resultado || {};
   const cancelStatus = String(row.cancelacion_status || cancelData.status || '').toLowerCase();
   const rejected = cancelData.operativa === true || cancelStatus.includes('operativa') || cancelStatus.includes('error') || cancelStatus.includes('rechaz');
@@ -581,7 +582,7 @@ async function trv2LoadServiceInvoices() {
   }
   if (monthMode) monthMode.value = TRV2_SERVICE_MONTH ? 'month' : '';
   const loads = [];
-  if (!TRV2_TRIPS.length && typeof trv2LoadTrips === 'function') loads.push(trv2LoadTrips());
+  if (typeof trv2LoadTrips === 'function') loads.push(trv2LoadTrips());
   const catalogsReady = ['clientes', 'productos', 'rutas'].every(name => Array.isArray(TRV2_CATALOGS?.[name]) && TRV2_CATALOGS[name].length);
   if (!catalogsReady && typeof trv2LoadCatalogs === 'function') loads.push(trv2LoadCatalogs({silent: true}));
   if (loads.length) await Promise.all(loads);

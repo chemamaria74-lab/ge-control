@@ -146,7 +146,9 @@ async function trv2CancelCartaPorte(viajeId) {
   }, {allowError: true});
   if (data?.ok) {
     trv2Toast('Carta Porte cancelada en SW Sapiens.', 'success');
+    if (typeof trv2LoadTrips === 'function') await trv2LoadTrips();
     await trv2LoadStampedCartaPorte({silent: true});
+    if (typeof trv2RenderServiceInvoices === 'function') trv2RenderServiceInvoices();
   } else {
     const detail = data?.detail || data?.message || 'No se pudo cancelar Carta Porte.';
     trv2Toast(typeof detail === 'string' ? detail : (detail.message || JSON.stringify(detail)), 'error');
