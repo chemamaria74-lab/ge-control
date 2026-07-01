@@ -23,6 +23,7 @@ import logging
 import os
 import zipfile
 import base64
+from xml.etree import ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import uuid4
@@ -416,6 +417,122 @@ def transport_covol_to_json(sat_dict: dict) -> str:
     return json.dumps(sat_dict, ensure_ascii=False, separators=(",", ":"))
 
 
+def transport_covol_to_xml(sat_dict: dict) -> str:
+    """Serializa el reporte TRA al XML mensual SAT usado en el paquete ZIP."""
+    ns_covol = "https://repositorio.cloudb.sat.gob.mx/Covol/xml/Mensuales"
+    ns_tr = "Complemento_Transporte"
+    ET.register_namespace("Covol", ns_covol)
+    ET.register_namespace("tr", ns_tr)
+    ET.register_namespace("xs", "http://www.w3.org/2001/XMLSchema")
+
+    def covol_tag(name: str) -> str:
+        return f"{{{ns_covol}}}{name}"
+
+    def tr_tag(name: str) -> str:
+        return f"{{{ns_tr}}}{name}"
+
+    def add(parent: ET.Element, name: str, value: Any = None, *, tr: bool = False) -> ET.Element:
+        child = ET.SubElement(parent, tr_tag(name) if tr else covol_tag(name))
+        if value is not None:
+            child.text = str(value)
+        return child
+
+    def add_volume(parent: ET.Element, name: str, volume: dict | float | int | str | None) -> ET.Element:
+        node = add(parent, name)
+        if isinstance(volume, dict):
+            add(node, "ValorNumerico", _smart_num(volume.get("ValorNumerico", 0)))
+            add(node, "UM", "UM03")
+        else:
+            add(node, "ValorNumerico", _smart_num(volume or 0))
+            add(node, "UM", "UM03")
+        return node
+
+    def add_transport_complement(parent: ET.Element, complementos: list[dict], empty_text: str) -> None:
+        comp_node = add(parent, "Complemento")
+        tr_root = add(comp_node, "Complemento_Transporte", tr=True)
+        if not complementos:
+            acl = add(tr_root, "ACLARACION", tr=True)
+            add(acl, "Aclaracion", empty_text, tr=True)
+            return
+        for comp in complementos:
+            nacionales = comp.get("Nacional") if isinstance(comp, dict) else []
+            for nacional in nacionales or []:
+                nac = add(tr_root, "NACIONAL", tr=True)
+                add(nac, "RfcCliente", nacional.get("RfcClienteOProveedor", ""), tr=True)
+                add(nac, "NombreCliente", nacional.get("NombreClienteOProveedor", ""), tr=True)
+                cfdis = add(nac, "CFDIs", tr=True)
+                for cfdi_data in nacional.get("CFDIs") or []:
+                    cfdi = add(cfdis, "CFDI", tr=True)
+                    add(cfdi, "Cfdi", cfdi_data.get("Cfdi", ""), tr=True)
+                    add(cfdi, "TipoCFDI", cfdi_data.get("TipoCfdi", ""), tr=True)
+                    contraprestacion = _smart_num(cfdi_data.get("PrecioVentaOCompraOContrap", 0))
+                    add(cfdi, "Contraprestacion", contraprestacion, tr=True)
+                    add(cfdi, "TarifaDeTransporte", contraprestacion, tr=True)
+                    add(cfdi, "FechaYHoraTransaccion", cfdi_data.get("FechaYHoraTransaccion", ""), tr=True)
+                    vol_doc = add(cfdi, "VolumenDocumentado", tr=True)
+                    volumen = cfdi_data.get("VolumenDocumentado") or {}
+                    add(vol_doc, "ValorNumerico", _smart_num(volumen.get("ValorNumerico", 0)), tr=True)
+                    add(vol_doc, "UM", "UM03", tr=True)
+
+    root = ET.Element(covol_tag("ControlesVolumetricos"))
+    root.set("xmlns:xs", "http://www.w3.org/2001/XMLSchema")
+    add(root, "Version", sat_dict.get("Version", "1.0"))
+    add(root, "RfcContribuyente", sat_dict.get("RfcContribuyente", ""))
+    add(root, "RfcProveedor", sat_dict.get("RfcProveedor", RFC_PROVEEDOR_DEFAULT))
+    caracter = add(root, "Caracter")
+    add(caracter, "TipoCaracter", sat_dict.get("Caracter", "permisionario"))
+    add(caracter, "ModalidadPermiso", sat_dict.get("ModalidadPermiso", ""))
+    add(caracter, "NumPermiso", sat_dict.get("NumPermiso", ""))
+    add(root, "ClaveInstalacion", sat_dict.get("ClaveInstalacion", ""))
+    add(root, "DescripcionInstalacion", sat_dict.get("DescripcionInstalacion", ""))
+    add(root, "NumeroPozos", sat_dict.get("NumeroPozos", 0))
+    add(root, "NumeroTanques", sat_dict.get("NumeroTanques", 0))
+    add(root, "NumeroDuctosEntradaSalida", sat_dict.get("NumeroDuctosEntradaSalida", 0))
+    add(root, "NumeroDuctosTransporteDistribucion", sat_dict.get("NumeroDuctosTransporteDistribucion", 1))
+    add(root, "NumeroDispensarios", sat_dict.get("NumeroDispensarios", 0))
+    add(root, "FechaYHoraReporteMes", sat_dict.get("FechaYHoraReporteMes", ""))
+
+    for producto in sat_dict.get("Producto") or []:
+        prod_node = add(root, "PRODUCTO")
+        add(prod_node, "ClaveProducto", producto.get("ClaveProducto", ""))
+        if producto.get("ClaveSubProducto"):
+            add(prod_node, "ClaveSubProducto", producto.get("ClaveSubProducto", ""))
+        reporte = producto.get("ReporteDeVolumenMensual") or {}
+        reporte_node = add(prod_node, "REPORTEDEVOLUMENMENSUAL")
+        control = reporte.get("ControlDeExistencias") or {}
+        control_node = add(reporte_node, "CONTROLDEEXISTENCIAS")
+        add_volume(control_node, "VolumenExistenciasMes", control.get("VolumenExistenciasMes", 0))
+        add(control_node, "FechaYHoraEstaMedicionMes", control.get("FechaYHoraEstaMedicionMes", sat_dict.get("FechaYHoraReporteMes", "")))
+
+        recepciones = reporte.get("Recepciones") or {}
+        rec_node = add(reporte_node, "RECEPCIONES")
+        add(rec_node, "TotalRecepcionesMes", recepciones.get("TotalRecepcionesMes", 0))
+        add_volume(rec_node, "SumaVolumenRecepcionMes", recepciones.get("SumaVolumenRecepcionMes"))
+        add(rec_node, "TotalDocumentosMes", recepciones.get("TotalDocumentosMes", 0))
+        add(rec_node, "ImporteTotalRecepcionesMensual", _smart_num(recepciones.get("ImporteTotalRecepcionesMensual", 0)))
+        add_transport_complement(rec_node, recepciones.get("Complemento") or [], "Sin Recepciones en el periodo")
+
+        entregas = reporte.get("Entregas") or {}
+        ent_node = add(reporte_node, "ENTREGAS")
+        add(ent_node, "TotalEntregasMes", entregas.get("TotalEntregasMes", 0))
+        add_volume(ent_node, "SumaVolumenEntregadoMes", entregas.get("SumaVolumenEntregadoMes"))
+        add(ent_node, "TotalDocumentosMes", entregas.get("TotalDocumentosMes", 0))
+        add(ent_node, "ImporteTotalEntregasMes", _smart_num(entregas.get("ImporteTotalEntregasMes", 0)))
+        add_transport_complement(ent_node, entregas.get("Complemento") or [], "Sin Entregas en el periodo")
+
+    bitacora_node = add(root, "BITACORAMENSUAL")
+    for evento_data in sat_dict.get("BitacoraMensual") or []:
+        evento = add(bitacora_node, "EVENTO")
+        add(evento, "NumeroRegistro", evento_data.get("NumeroRegistro", 0))
+        add(evento, "FechaYHoraEvento", evento_data.get("FechaYHoraEvento", ""))
+        add(evento, "UsuarioResponsable", evento_data.get("UsuarioResponsable", ""))
+        add(evento, "TipoEvento", evento_data.get("TipoEvento", ""))
+        add(evento, "DescripcionEvento", evento_data.get("DescripcionEvento", ""))
+
+    ET.indent(root, space="  ")
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode", short_empty_elements=False)
+
+
 def save_transport_covol(
     sat_dict:   dict,
     sat_meta:   dict,
@@ -423,34 +540,42 @@ def save_transport_covol(
     output_dir: str = "storage/transporte",
 ) -> dict:
     """
-    Serializa y guarda los archivos JSON + ZIP del covol de transporte.
+    Serializa y guarda los archivos XML + ZIP del covol de transporte.
     Retorna dict con rutas y contenido base64 del ZIP.
     """
     periodo    = sat_meta.get("periodo", "2026-01")
     first_uuid = sat_meta.get("first_uuid", "")
 
+    base_xml = _nombre_archivo(settings, periodo, "XML", first_uuid)
     base_json = _nombre_archivo(settings, periodo, "JSON", first_uuid)
     os.makedirs(output_dir, exist_ok=True)
 
     json_content = transport_covol_to_json(sat_dict)
-    json_bytes   = json_content.encode("utf-8")
+    xml_content  = transport_covol_to_xml(sat_dict)
+    xml_bytes    = xml_content.encode("utf-8")
     json_path    = os.path.join(output_dir, base_json + ".json")
-    zip_path     = os.path.join(output_dir, base_json + ".zip")
+    xml_path     = os.path.join(output_dir, base_xml + ".xml")
+    zip_path     = os.path.join(output_dir, base_xml + ".zip")
 
     with open(json_path, "w", encoding="utf-8") as f:
         f.write(json_content)
+    with open(xml_path, "w", encoding="utf-8") as f:
+        f.write(xml_content)
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(base_json + ".json", json_bytes)
+        zf.writestr(base_xml + ".xml", xml_bytes)
 
     with open(zip_path, "rb") as f:
         zip_b64 = base64.b64encode(f.read()).decode("utf-8")
 
     return {
         "json_path":    json_path,
+        "xml_path":     xml_path,
         "zip_path":     zip_path,
         "json_name":    base_json + ".json",
-        "zip_name":     base_json + ".zip",
+        "xml_name":     base_xml + ".xml",
+        "zip_name":     base_xml + ".zip",
         "json_content": json_content,
+        "xml_content":  xml_content,
         "zip_b64":      zip_b64,
     }
