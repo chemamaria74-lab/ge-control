@@ -211,6 +211,8 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-access-card span{color:var(--trv2-muted);font-size:12px;font-weight:800;margin-top:3px}
 .trv2-access-card em{font-style:normal;border-radius:999px;background:#f3f4f6;color:#4b5563;border:1px solid #d1d5db;padding:4px 9px;font-size:12px;font-weight:900}
 .trv2-access-card em.active{background:#ecfdf5;color:#047857;border-color:#a7f3d0}
+.trv2-inline-filter{display:inline-flex;align-items:center;gap:8px;color:var(--trv2-muted);font-size:12px;font-weight:900}
+.trv2-inline-filter input{min-height:38px;border:1px solid var(--trv2-line);border-radius:8px;background:#fff;padding:7px 10px;color:var(--trv2-ink);font:inherit;font-size:13px}
 .trv2-permission-group{display:grid;gap:8px;margin-top:12px}
 .trv2-permission-group h3{font-size:15px;margin:0;color:var(--trv2-ink)}
 .trv2-cp-pending-list{display:grid;gap:10px;margin-top:10px}
