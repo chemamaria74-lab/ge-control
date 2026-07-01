@@ -155,8 +155,7 @@ function trv2BuildCvMovements() {
     };
   }).filter(item => {
     if (productFilter && Number(item.row.producto_id) !== productFilter) return false;
-    if (permisoFilter && item.permiso && item.permiso !== permisoFilter) return false;
-    if (permisoFilter && !item.permiso && !trv2CvProductMatchesPermit(item.productName, permisoItem)) return false;
+    if (permisoFilter && item.permiso !== permisoFilter && !trv2CvProductMatchesPermit(item.productName, permisoItem)) return false;
     if (statusFilter && item.status !== statusFilter) return false;
     if (item.status === 'cancelado') return false;
     if (item.date && yearFilter && item.date.getFullYear() !== yearFilter) return false;

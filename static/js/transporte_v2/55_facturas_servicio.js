@@ -477,7 +477,7 @@ function trv2RenderServicePendingTable() {
   const tariffs = trv2ReadServiceTariffs();
   const rows = trv2ServicePendingRows();
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="17"><div class="trv2-empty">No hay servicios pendientes de facturar con Carta Porte timbrada en este periodo.</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="15"><div class="trv2-empty">No hay servicios pendientes de facturar con Carta Porte timbrada en este periodo.</div></td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(row => {
@@ -491,7 +491,6 @@ function trv2RenderServicePendingTable() {
         <td>#${trv2Esc(row.id)}</td>
         <td>${trv2Esc(service.cliente)}</td>
         <td>${trv2Esc(service.origen)}</td>
-        <td>${trv2Esc(service.destino)}</td>
         <td>${trv2Esc(service.producto)}</td>
         <td>${trv2ServiceNumber(service.litros)}</td>
         <td>${trv2ServiceNumber(service.kilos)}</td>
@@ -502,7 +501,6 @@ function trv2RenderServicePendingTable() {
         <td>${trv2ServiceMoney(calc.iva)}</td>
         <td>${trv2ServiceMoney(calc.retencion)}</td>
         <td>${trv2ServiceMoney(calc.total)}</td>
-        <td><span class="trv2-chip">${trv2Esc(status)}</span></td>
         <td>
           <button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceDetail(${Number(row.id)})">Detalle</button>
           <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})">Revisar y facturar</button>
@@ -584,7 +582,8 @@ async function trv2LoadServiceInvoices() {
   if (monthMode) monthMode.value = TRV2_SERVICE_MONTH ? 'month' : '';
   const loads = [];
   if (!TRV2_TRIPS.length && typeof trv2LoadTrips === 'function') loads.push(trv2LoadTrips());
-  if (typeof trv2LoadCatalogs === 'function') loads.push(trv2LoadCatalogs({silent: true}));
+  const catalogsReady = ['clientes', 'productos', 'rutas'].every(name => Array.isArray(TRV2_CATALOGS?.[name]) && TRV2_CATALOGS[name].length);
+  if (!catalogsReady && typeof trv2LoadCatalogs === 'function') loads.push(trv2LoadCatalogs({silent: true}));
   if (loads.length) await Promise.all(loads);
   await trv2LoadServiceTariffs();
   const query = TRV2_SERVICE_MONTH ? `?periodo=${encodeURIComponent(TRV2_SERVICE_MONTH)}` : '';
