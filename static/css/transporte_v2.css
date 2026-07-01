@@ -117,6 +117,9 @@ p{margin:0;color:var(--trv2-muted);line-height:1.5}
 .trv2-cp-history-table td{font-size:13px;font-weight:800;color:var(--trv2-ink)}
 .trv2-cp-history-table td:nth-child(5),.trv2-cp-history-table td:nth-child(6){font-weight:900}
 .trv2-cp-history-table code{display:inline-block;max-width:190px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.trv2-cp-cancelled-row td{background:#fff5f5;color:#8f1d2c}
+.trv2-cp-status{display:inline-flex;margin-left:6px;border-radius:999px;padding:3px 7px;font-size:10px;font-weight:900;vertical-align:middle}
+.trv2-cp-status-cancelled{border:1px solid #fecaca;background:#fef2f2;color:#b91c1c}
 .trv2-doc-actions{display:flex;gap:8px}
 table{width:100%;border-collapse:collapse;background:#fff}
 th,td{padding:13px 14px;border-bottom:1px solid var(--trv2-line);text-align:left;vertical-align:top;font-size:14px}
