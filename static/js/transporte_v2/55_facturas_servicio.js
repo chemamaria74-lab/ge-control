@@ -4,6 +4,7 @@ let TRV2_SERVICE_TAB = 'pendientes';
 let TRV2_SERVICE_TARIFFS = [];
 let TRV2_SERVICE_INVOICES = [];
 let TRV2_SERVICE_INVOICE_BUSY = false;
+let TRV2_SERVICE_MONTH = new Date().toISOString().slice(0, 7);
 
 function trv2ServiceStorageKey(base) {
   return `${base}_${TRV2_PERFIL?.id || 'sin_perfil'}`;
@@ -43,6 +44,26 @@ function trv2ServiceNumber(value, decimals = 2) {
 
 function trv2ServiceTripMeta(row, key) {
   return (row?.metadata || {})[key] || '';
+}
+
+function trv2ServiceSetMonth(value = '') {
+  TRV2_SERVICE_MONTH = String(value || '').slice(0, 7) || new Date().toISOString().slice(0, 7);
+  trv2LoadServiceInvoices();
+}
+
+function trv2ServiceRowMonth(row = {}) {
+  const service = trv2ServiceTripData(row);
+  return String(service.fecha || row.fecha_timbrado || row.created_at || '').slice(0, 7);
+}
+
+function trv2ServiceIsCancelled(row = {}) {
+  const meta = row.metadata || {};
+  const text = [
+    row.status, row.estatus, row.carta_porte_status,
+    meta.status, meta.estatus, meta.carta_porte_status,
+    meta.cancelada_at, meta.cancelacion_carta_porte ? 'cancelada' : '',
+  ].join(' ').toLowerCase();
+  return text.includes('cancel');
 }
 
 function trv2ServiceTripUuid(row = {}) {
@@ -153,6 +174,8 @@ function trv2ServicePendingRows() {
   )).map(Number).filter(Boolean));
   return (TRV2_TRIPS || []).filter(row => (
     trv2ServiceIsStamped(row)
+    && !trv2ServiceIsCancelled(row)
+    && (!TRV2_SERVICE_MONTH || trv2ServiceRowMonth(row) === TRV2_SERVICE_MONTH)
     && !billedTrips.has(Number(row.id || 0))
     && (trv2ServiceTripData(row).cliente || '').trim()
   ));
@@ -538,12 +561,15 @@ function trv2RenderServiceKpis() {
 }
 
 async function trv2LoadServiceInvoices() {
+  const monthInput = document.getElementById('trv2-service-month');
+  if (monthInput && !monthInput.value) monthInput.value = TRV2_SERVICE_MONTH;
   const loads = [];
   if (!TRV2_TRIPS.length && typeof trv2LoadTrips === 'function') loads.push(trv2LoadTrips());
   if (typeof trv2LoadCatalogs === 'function') loads.push(trv2LoadCatalogs({silent: true}));
   if (loads.length) await Promise.all(loads);
   await trv2LoadServiceTariffs();
-  const invoices = await trv2Api('GET', '/api/tr-v2/facturas-servicio', undefined, {silent: true, allowError: true});
+  const query = TRV2_SERVICE_MONTH ? `?periodo=${encodeURIComponent(TRV2_SERVICE_MONTH)}` : '';
+  const invoices = await trv2Api('GET', `/api/tr-v2/facturas-servicio${query}`, undefined, {silent: true, allowError: true});
   trv2WriteServiceInvoices(invoices?.facturas_servicio || []);
   trv2RenderServiceInvoices();
 }

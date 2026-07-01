@@ -10,6 +10,7 @@ let TRV2_TRIPS = [];
 let TRV2_CP_PREVIEW = null;
 let TRV2_CP_WORKFLOW = 'timbrar';
 let TRV2_CP_STAMPED_FILTER = 'hoy';
+let TRV2_CP_STAMPED_MONTH = new Date().toISOString().slice(0, 7);
 let TRV2_CP_STAMP_IN_PROGRESS = false;
 let TRV2_SELECTED_CP_TRIP_ID = 0;
 let TRV2_DOCUMENT_DETECTED = null;

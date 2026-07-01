@@ -77,11 +77,13 @@ async function trv2LoadStampedCartaPorte(options = {}) {
   const firstColumn = filter === 'todas' ? 'Fecha' : 'Hora';
   const rows = items.map(item => {
     const uuid = item.uuid_sat || 'UUID pendiente';
+    const status = String(item.status || '').toLowerCase();
+    const cancelled = status.includes('cancel');
     const fecha = trv2StampedCartaPorteDate(item.fecha_timbrado);
     const litros = Number(item.volumen_litros || 0).toLocaleString('es-MX');
     const peso = Number(item.peso_kg || 0).toLocaleString('es-MX');
     return `
-      <tr>
+      <tr class="${cancelled ? 'trv2-cp-cancelled-row' : ''}">
         <td>${trv2Esc(fecha)}</td>
         <td>${trv2Esc(item.origen_nombre || 'Origen')}</td>
         <td>${trv2Esc(item.destino_nombre || 'Destino')}</td>
@@ -90,10 +92,11 @@ async function trv2LoadStampedCartaPorte(options = {}) {
         <td>${trv2Esc(peso)} kg</td>
         <td>${trv2Esc(item.vehiculo_alias || '')}</td>
         <td>${trv2Esc(item.operador_nombre || '')}</td>
-        <td><code title="${trv2Esc(uuid)}">${trv2Esc(uuid)}</code></td>
+        <td><code title="${trv2Esc(uuid)}">${trv2Esc(uuid)}</code>${cancelled ? '<span class="trv2-cp-status trv2-cp-status-cancelled">Cancelada</span>' : ''}</td>
         <td class="trv2-doc-actions">
           <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2DownloadCartaPorteFile(${Number(item.viaje_id || 0)}, 'pdf')"><i class="fa-solid fa-file-pdf"></i> PDF</button>
           <button class="trv2-mini-btn" type="button" onclick="trv2DownloadCartaPorteFile(${Number(item.viaje_id || 0)}, 'xml')"><i class="fa-solid fa-file-code"></i> XML</button>
+          ${cancelled ? '' : `<button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2CancelCartaPorte(${Number(item.viaje_id || 0)})"><i class="fa-solid fa-ban"></i> Cancelar</button>`}
         </td>
       </tr>
     `;
@@ -110,6 +113,26 @@ async function trv2LoadStampedCartaPorte(options = {}) {
       </table>
     </div>
   `;
+}
+
+async function trv2CancelCartaPorte(viajeId) {
+  const id = Number(viajeId || 0);
+  if (!id) return trv2Toast('No se encontró la Carta Porte.', 'error');
+  const typed = prompt('Vas a cancelar esta Carta Porte en Transporte v2. Escribe CANCELAR para confirmar.');
+  if (typed !== 'CANCELAR') return;
+  const motivo = prompt('Motivo SAT de cancelación (02 por defecto). Usa 01, 02, 03 o 04.', '02') || '02';
+  const data = await trv2Api('POST', `/api/tr-v2/carta-porte/${id}/cancelar`, {
+    perfil_id: TRV2_PERFIL?.id || null,
+    motivo,
+    solo_operativo: false,
+  }, {allowError: true});
+  if (data?.ok) {
+    const warning = data.cancelacion?.warning || '';
+    trv2Toast(warning || 'Carta Porte cancelada.', warning ? 'info' : 'success');
+    await trv2LoadStampedCartaPorte({silent: true});
+  } else {
+    trv2Toast(data?.detail || data?.message || 'No se pudo cancelar Carta Porte.', 'error');
+  }
 }
 
 async function trv2DownloadCartaPorteFile(viajeId, type = 'pdf') {

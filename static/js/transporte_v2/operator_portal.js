@@ -331,7 +331,12 @@
       if (download) {
         const link = document.createElement('a');
         link.href = url;
-        link.download = `carta-porte-${TRV2_OPERATOR_TRIP?.id || 'operador'}.${format}`;
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?([^";]+)"?/i);
+        const operador = String(trv2OperadorTripValue(TRV2_OPERATOR_TRIP, 'operador_nombre') || 'OPERADOR')
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').toUpperCase();
+        link.download = match?.[1] || `CARTA_PORTE_${operador || 'OPERADOR'}.${format}`;
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -397,6 +402,15 @@
       const data = await trv2OperadorReadResponse(response);
       if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo registrar bitácora.'));
       TRV2_OPERATOR_META.bitacora_operador = data.bitacora;
+      if (data.bitacora?.estado === 'FINALIZADO') {
+        TRV2_OPERATOR_TRIP = null;
+        TRV2_OPERATOR_META = {};
+        TRV2_OPERATOR_PREPARED = null;
+        trv2OperadorRenderTrip({ok: true, has_trip: false});
+        trv2OperadorClearStartLoad();
+        trv2OperadorToast('Viaje finalizado. Puedes crear otro viaje.');
+        return;
+      }
       trv2OperadorRenderBitacora();
       trv2OperadorToast('Bitácora actualizada.');
     }

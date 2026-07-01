@@ -2,7 +2,8 @@ function trv2PopulateOperatorAdminSelects() {
   const choferSelect = document.getElementById('trv2-admin-operator-chofer');
   if (choferSelect) {
     const current = choferSelect.value;
-    choferSelect.innerHTML = '<option value="">Seleccionar operador</option>' + (TRV2_CATALOGS.operadores || []).map(item => (
+    const operadores = (TRV2_CATALOGS.operadores || []).filter(item => item.activo !== false);
+    choferSelect.innerHTML = '<option value="">Seleccionar operador</option>' + operadores.map(item => (
       `<option value="${Number(item.id)}">${trv2Esc(item.nombre || `Operador #${item.id}`)}</option>`
     )).join('');
     if (current) choferSelect.value = current;

@@ -181,6 +181,9 @@ function trv2SwitchTab(tab) {
   if (tab === 'catalogos') trv2LoadCatalogs();
   if (tab === 'reportes-sat') trv2LoadControlVolumetrico();
   if (tab === 'administracion') {
+    if (typeof trv2LoadCatalogs === 'function') trv2LoadCatalogs({silent: true}).then(() => {
+      if (typeof trv2PopulateOperatorAdminSelects === 'function') trv2PopulateOperatorAdminSelects();
+    }).catch(() => {});
     if (typeof trv2PopulateOperatorAdminSelects === 'function') trv2PopulateOperatorAdminSelects();
     if (typeof trv2LoadOperatorAccesses === 'function') trv2LoadOperatorAccesses();
   }

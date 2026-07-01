@@ -117,7 +117,7 @@ const TRV2_EMBALAJES = [['4H2', 'Cajas de plástico sólido'], ['Z01', 'No aplic
 
 const TRV2_REQUIRED_FIELDS = {
   clientes: ['nombre', 'rfc', 'cp'],
-  operadores: ['nombre', 'rfc_figura', 'licencia', 'cp', 'estado_sat', 'municipio_sat', 'domicilio'],
+  operadores: ['nombre'],
   vehiculos: ['alias', 'placas', 'config_vehicular', 'permiso_sct', 'num_permiso_sct', 'id_cre', 'aseguradora_rc', 'poliza_rc'],
   remolques: ['alias', 'placas', 'subtipo_remolque'],
   productos: ['descripcion', 'clave_producto', 'unidad'],
@@ -378,7 +378,7 @@ function trv2CatalogLabel(name, item) {
 }
 
 function trv2CatalogOptions(name, placeholder = 'Seleccionar') {
-  const items = TRV2_CATALOGS[name] || [];
+  const items = (TRV2_CATALOGS[name] || []).filter(item => item.activo !== false);
   return `<option value="">${trv2Esc(placeholder)}</option>` + items.map(item => (
     `<option value="${trv2Esc(item.id)}">${trv2Esc(trv2CatalogLabel(name, item))}</option>`
   )).join('');
