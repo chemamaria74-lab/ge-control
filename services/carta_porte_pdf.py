@@ -17,6 +17,10 @@ except Exception:  # pragma: no cover - depende del entorno de deploy
 NS_CFDI = "http://www.sat.gob.mx/cfd/4"
 NS_CP31 = "http://www.sat.gob.mx/CartaPorte31"
 NS_TFD = "http://www.sat.gob.mx/TimbreFiscalDigital"
+PDF_CONTENT_WIDTH_IN = 7.60
+PDF_SIDE_MARGIN_IN = (8.50 - PDF_CONTENT_WIDTH_IN) / 2
+PDF_DEFAULT_HEADER_COLOR = "#6B7280"
+PDF_DEFAULT_HEADER_TEXT_COLOR = "#FFFFFF"
 
 
 @dataclass
@@ -115,7 +119,7 @@ def _safe_filename_part(value: str) -> str:
     return "_".join(parts[:3])[:60]
 
 
-def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: str = "") -> bytes:
+def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: str = "", pdf_theme: dict | None = None) -> bytes:
     """Genera la representación impresa fiscal de un CFDI 4.0 con Carta Porte 3.1."""
     try:
         from reportlab.lib import colors
@@ -158,8 +162,8 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        rightMargin=0.36 * inch,
-        leftMargin=0.36 * inch,
+        rightMargin=PDF_SIDE_MARGIN_IN * inch,
+        leftMargin=PDF_SIDE_MARGIN_IN * inch,
         topMargin=0.32 * inch,
         bottomMargin=0.34 * inch,
         title="Carta Porte",
@@ -167,8 +171,28 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     )
 
     styles = getSampleStyleSheet()
-    wine = colors.HexColor("#7A1E2C")
-    wine_dark = colors.HexColor("#4E111C")
+    theme = pdf_theme or {}
+    header_hex = _pdf_hex_color(
+        theme.get("header_color")
+        or theme.get("pdf_header_color")
+        or theme.get("color_encabezado_pdf"),
+        PDF_DEFAULT_HEADER_COLOR,
+    )
+    title_hex = _pdf_hex_color(
+        theme.get("title_color")
+        or theme.get("pdf_title_color")
+        or theme.get("color_titulos_pdf"),
+        header_hex,
+    )
+    header_text_hex = _pdf_hex_color(
+        theme.get("header_text_color")
+        or theme.get("pdf_header_text_color")
+        or theme.get("color_texto_encabezado_pdf"),
+        PDF_DEFAULT_HEADER_TEXT_COLOR,
+    )
+    wine = colors.HexColor(header_hex)
+    wine_dark = colors.HexColor(title_hex)
+    header_text = colors.HexColor(header_text_hex)
     cream = colors.HexColor("#F8F6F2")
     line = colors.HexColor("#DED7CE")
     ink = colors.HexColor("#1F2933")
@@ -182,11 +206,11 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     styles.add(ParagraphStyle(name="MetricLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=6.0, leading=6.8, textColor=muted))
     styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontName="Helvetica", fontSize=7.2, leading=8.2, textColor=ink))
     styles.add(ParagraphStyle(name="TinyBold", parent=styles["Tiny"], fontName="Helvetica-Bold"))
-    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["TinyBold"], textColor=colors.white))
+    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["TinyBold"], textColor=header_text))
     styles.add(ParagraphStyle(name="Label", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=muted, fontSize=6.0, leading=6.8))
     styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontName="Helvetica", fontSize=7.2, leading=8.2, textColor=ink))
     styles.add(ParagraphStyle(name="SmallBold", parent=styles["Small"], fontName="Helvetica-Bold"))
-    styles.add(ParagraphStyle(name="CardHeader", parent=styles["SmallBold"], textColor=colors.white))
+    styles.add(ParagraphStyle(name="CardHeader", parent=styles["SmallBold"], textColor=header_text))
     styles.add(ParagraphStyle(name="Money", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica"))
     styles.add(ParagraphStyle(name="MoneyBig", parent=styles["Small"], alignment=TA_RIGHT, fontName="Helvetica-Bold", textColor=wine_dark))
     styles.add(ParagraphStyle(name="Seal", parent=styles["Tiny"], fontSize=4.45, leading=4.95, textColor=colors.HexColor("#313942")))
@@ -249,7 +273,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         line,
         wine_dark,
     ))
-    story.append(_section("C. Datos del comprobante", Paragraph, styles))
+    story.append(_section("C. Datos del comprobante", Paragraph, styles, wine_dark))
     story.append(_three_info_cards(
         [
             ("Comprobante CFDI 4.0", _compact_rows([
@@ -275,10 +299,10 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
                 ("Certificado emisor", _attr(comp, "NoCertificado")),
             ]),
         ],
-        Table, TableStyle, Paragraph, styles, colors, cream, line,
+        Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark,
     ))
     story.append(KeepTogether([
-        _section("D. Origen y destino", Paragraph, styles),
+        _section("D. Origen y destino", Paragraph, styles, wine_dark),
         _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark),
     ]))
     story.append(PageBreak())
@@ -287,24 +311,24 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         Spacer(1, 5),
     ]
     story.append(KeepTogether([
-        _section("E. Mercancías transportadas", Paragraph, styles),
+        _section("E. Mercancías transportadas", Paragraph, styles, wine_dark),
         _mercancias_table(mercancias, Table, TableStyle, Paragraph, styles, colors, wine_dark, line),
     ]))
     story.append(KeepTogether([
-        _section("F-H. Autotransporte, seguros y figura de transporte", Paragraph, styles),
+        _section("F-H. Autotransporte, seguros y figura de transporte", Paragraph, styles, wine_dark),
         _operations_grid(autotransporte, ident_veh, remolques, seguros, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark),
     ]))
 
-    story.append(_section("Conceptos CFDI", Paragraph, styles))
+    story.append(_section("Conceptos CFDI", Paragraph, styles, wine_dark))
     story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
-    story.append(_totals_block(comp, impuestos, Table, TableStyle, Paragraph, styles, colors, cream, line))
+    story.append(_totals_block(comp, impuestos, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark))
 
-    story.append(_section("Detalle SAT de ubicaciones", Paragraph, styles))
+    story.append(_section("Detalle SAT de ubicaciones", Paragraph, styles, wine_dark))
     story.append(_ubicaciones_table(ubicaciones, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
-    story.append(_section("Detalle SAT de figuras", Paragraph, styles))
+    story.append(_section("Detalle SAT de figuras", Paragraph, styles, wine_dark))
     story.append(_figuras_table(figuras, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
 
-    story.append(_section("I. Validación SAT", Paragraph, styles))
+    story.append(_section("I. Validación SAT", Paragraph, styles, wine_dark))
     story.append(_seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line))
 
     story.append(Spacer(1, 8))
@@ -319,6 +343,15 @@ def _parse_xml(xml_content: str | bytes):
     if etree is not None:
         return etree.fromstring(raw, parser=etree.XMLParser(recover=True, huge_tree=True))
     return _ET.fromstring(raw)
+
+
+def _pdf_hex_color(value: object, fallback: str) -> str:
+    text = str(value or "").strip()
+    if re.fullmatch(r"#[0-9A-Fa-f]{6}", text):
+        return text.upper()
+    if re.fullmatch(r"[0-9A-Fa-f]{6}", text):
+        return f"#{text.upper()}"
+    return fallback
 
 
 def _local_name(tag: object) -> str:
@@ -382,15 +415,16 @@ def _draw_pdf_page_background(canvas, doc) -> None:
     canvas.restoreState()
 
 
-def _section(title: str, Paragraph, styles):
+def _section(title: str, Paragraph, styles, accent=None):
     from reportlab.lib import colors
     from reportlab.platypus import Table, TableStyle
 
+    accent_color = accent or colors.HexColor(PDF_DEFAULT_HEADER_COLOR)
     label = Paragraph(f"<b>{_text(title)}</b>", styles["Section"])
     table = Table([[label, ""]], colWidths=[2.05 * inch(), 5.55 * inch()])
     table.setStyle(TableStyle([
         ("LINEBELOW", (0, 0), (-1, -1), 0.65, colors.HexColor("#DED7CE")),
-        ("LINEBELOW", (0, 0), (0, 0), 1.35, colors.HexColor("#7A1E2C")),
+        ("LINEBELOW", (0, 0), (0, 0), 1.35, accent_color),
         ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
@@ -453,7 +487,7 @@ def _modern_header(title, logo, comp, emisor, timbre, Table, TableStyle, Paragra
         f"<b>{_text(issuer_name)}</b><br/><font size='7.5' color='#67717D'>RFC {_text(issuer_rfc)}</font>",
         styles["Brand"],
     )
-    left = Table([[brand]], colWidths=[2.05 * inch()])
+    left = Table([[brand]], colWidths=[2.15 * inch()])
     left.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -470,7 +504,7 @@ def _modern_header(title, logo, comp, emisor, timbre, Table, TableStyle, Paragra
             f"Certificado emisor: {_text(_attr(comp, 'NoCertificado'))} &nbsp;&nbsp;|&nbsp;&nbsp; Certificado SAT: {_text(_attr(timbre, 'NoCertificadoSAT'))}",
             styles["DocMeta"],
         )],
-    ], colWidths=[4.55 * inch()])
+    ], colWidths=[5.05 * inch()])
     right.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -478,7 +512,7 @@ def _modern_header(title, logo, comp, emisor, timbre, Table, TableStyle, Paragra
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
     ]))
-    table = Table([[left, right]], colWidths=[2.20 * inch(), 4.90 * inch()])
+    table = Table([[left, right]], colWidths=[2.35 * inch(), 5.25 * inch()])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("BOX", (0, 0), (-1, -1), 0.55, line),
@@ -492,19 +526,22 @@ def _modern_header(title, logo, comp, emisor, timbre, Table, TableStyle, Paragra
     return table
 
 
-def _three_info_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream, line):
-    def card(title, rows):
+def _three_info_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
+    widths = [2.48, 2.48, 2.64]
+
+    def card(title, rows, width):
         clean_rows = _compact_rows(rows)
         body = [[Paragraph(f"<b>{_text(title)}</b>", styles["CardHeader"])]]
         for key, value in clean_rows:
             body.append([Paragraph(_text(key).upper(), styles["Label"]), Paragraph(_text(value), styles["Tiny"])])
         if len(body) == 1:
             body.append([Paragraph("SIN DATOS", styles["Label"]), Paragraph("—", styles["Tiny"])])
-        inner = Table(body, colWidths=[0.84 * inch(), 1.44 * inch()])
+        label_width = min(0.96, max(0.78, width * 0.34))
+        inner = Table(body, colWidths=[label_width * inch(), (width - label_width) * inch()])
         inner.setStyle(TableStyle([
             ("SPAN", (0, 0), (-1, 0)),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4E111C")),
-            ("LINEBELOW", (0, 0), (-1, 0), 0.55, colors.HexColor("#4E111C")),
+            ("BACKGROUND", (0, 0), (-1, 0), wine),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.55, wine),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 5),
             ("RIGHTPADDING", (0, 0), (-1, -1), 5),
@@ -513,7 +550,8 @@ def _three_info_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream
         ]))
         return inner
 
-    table = Table([[card(title, rows) for title, rows in cards]], colWidths=[2.48 * inch(), 2.48 * inch(), 2.64 * inch()])
+    rendered_cards = [card(title, rows, widths[idx]) for idx, (title, rows) in enumerate(cards)]
+    table = Table([rendered_cards], colWidths=[w * inch() for w in widths[:len(rendered_cards)]])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("BOX", (0, 0), (-1, -1), 0.45, line),
@@ -542,7 +580,7 @@ def _compact_cp_summary(rows, Table, TableStyle, Paragraph, styles, colors, crea
             [Paragraph("<b>D. Resumen Carta Porte</b>", styles["CardHeader"])] + [""] * (col_count - 1),
             cells,
         ],
-        colWidths=[(7.66 / col_count) * inch()] * col_count,
+        colWidths=[(PDF_CONTENT_WIDTH_IN / col_count) * inch()] * col_count,
     )
     table.setStyle(TableStyle([
         ("SPAN", (0, 0), (-1, 0)),
@@ -581,7 +619,7 @@ def _party_rfc_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream,
             ("TOPPADDING", (0, 0), (-1, -1), 1.5),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
         ]))
-        inner = Table([[title_row], [rfc], [name], [detail_table]], colWidths=[3.54 * inch()])
+        inner = Table([[title_row], [rfc], [name], [detail_table]], colWidths=[3.72 * inch()])
         inner.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), wine),
             ("LINEBELOW", (0, 0), (-1, 0), 0.7, wine),
@@ -594,11 +632,13 @@ def _party_rfc_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream,
         ]))
         return inner
 
-    table = Table([[card(title, rows) for title, rows in cards]], colWidths=[3.76 * inch(), 3.76 * inch()])
+    left_card = card(cards[0][0], cards[0][1]) if cards else ""
+    right_card = card(cards[1][0], cards[1][1]) if len(cards) > 1 else ""
+    table = Table([[left_card, "", right_card]], colWidths=[3.72 * inch(), 0.16 * inch(), 3.72 * inch()])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
@@ -715,7 +755,7 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
     return table
 
 
-def _totals_block(comp, impuestos, Table, TableStyle, Paragraph, styles, colors, cream, line):
+def _totals_block(comp, impuestos, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
     impuestos_raiz = _child(comp, "Impuestos")
     iva = _attr(impuestos_raiz, "TotalImpuestosTrasladados", "")
     ret = _attr(impuestos_raiz, "TotalImpuestosRetenidos", "")
@@ -731,7 +771,7 @@ def _totals_block(comp, impuestos, Table, TableStyle, Paragraph, styles, colors,
         ("BOX", (0, 0), (-1, -1), 0.35, line),
         ("LINEBELOW", (0, 0), (-1, -2), 0.2, line),
         ("BACKGROUND", (0, -1), (-1, -1), cream),
-        ("LINEABOVE", (0, -1), (-1, -1), 1.0, colors.HexColor("#7A1E2C")),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.0, wine),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 7),
         ("RIGHTPADDING", (0, 0), (-1, -1), 7),
@@ -894,11 +934,11 @@ def _operations_grid(autotransporte, ident, remolques, seguros, figuras, Table, 
         ("Licencia", _attr(figura, "NumLicencia", "—")),
         ("Tipo figura", _attr(figura, "TipoFigura", "—")),
     ], 2.46, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
-    table = Table([[vehicle, insurance, operator]], colWidths=[2.70 * inch(), 2.40 * inch(), 2.46 * inch()])
+    table = Table([[vehicle, insurance, operator]], colWidths=[2.70 * inch(), 2.40 * inch(), 2.50 * inch()])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
@@ -965,7 +1005,7 @@ def _seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors,
         [Paragraph("<b>Cadena original</b>", styles["TinyBold"])],
         [Paragraph(_text(_short(_cadena_original_tfd(timbre), 620)), styles["Seal"])],
     ]
-    seal_table = Table(seal_rows, colWidths=[5.36 * inch()])
+    seal_table = Table(seal_rows, colWidths=[5.32 * inch()])
     seal_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), cream),
         ("BACKGROUND", (0, 2), (-1, 2), cream),
@@ -999,7 +1039,7 @@ def _seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors,
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    table = Table([[seal_table, qr_block]], colWidths=[5.42 * inch(), 2.22 * inch()])
+    table = Table([[seal_table, qr_block]], colWidths=[5.38 * inch(), 2.22 * inch()])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -1108,9 +1148,9 @@ def _money_value(value: object) -> float:
 
 
 def _warning_box(text, Table, TableStyle, Paragraph, styles, colors):
-    table = Table([[Paragraph(f"<b>{_text(text)}</b>", styles["Warn"])]], colWidths=[7.25 * inch()])
+    table = Table([[Paragraph(f"<b>{_text(text)}</b>", styles["Warn"])]], colWidths=[PDF_CONTENT_WIDTH_IN * inch()])
     table.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#7A1E2C")),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor(PDF_DEFAULT_HEADER_COLOR)),
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FFF2F2")),
         ("LEFTPADDING", (0, 0), (-1, -1), 8),
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
