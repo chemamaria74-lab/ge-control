@@ -620,6 +620,8 @@ def build_cfdi_transporte(
     chofer:     dict,
     vehiculo:   dict,
     id_ccp:     Optional[str] = None,
+    serie:      str = "TR",
+    folio:      Optional[str] = None,
 ) -> tuple[dict, str]:
     """
     Construye el payload completo del CFDI para un viaje de transporte.
@@ -632,6 +634,8 @@ def build_cfdi_transporte(
         vehiculo: Dict con placas, anio, config_vehicular, aseguradora, poliza_seguro,
                   permiso_sct, num_permiso_sct.
         id_ccp:   UUID para la Carta Porte (se genera si None).
+        serie:    Serie fiscal del CFDI.
+        folio:    Folio fiscal visible del CFDI. Si falta, usa el IdCCP corto legacy.
 
     Returns:
         (cfdi_dict, id_ccp_usado)
@@ -652,6 +656,8 @@ def build_cfdi_transporte(
     tipo_cfdi   = viaje.tipo_cfdi
     fecha_cfdi  = _fmt_fecha_emision_cfdi()
     lu_expedicion = (emisor.get("domicilio_fiscal") or "20000").strip()
+    serie_cfdi = (serie or "TR").strip().upper()[:10] or "TR"
+    folio_cfdi = (folio or ccp[:8].upper()).strip()[:40] or ccp[:8].upper()
 
     # ── Calcular totales ──────────────────────────────────────────────────────
     subtotal = 0.0
@@ -713,8 +719,8 @@ def build_cfdi_transporte(
         "xmlns:xsi":          "http://www.w3.org/2001/XMLSchema-instance",
         "xsi:schemaLocation": f"http://www.sat.gob.mx/cfd/4 {SCHEMA_CFDI40} {NS_CP31} {SCHEMA_CP31}",
         "Version":            "4.0",
-        "Serie":              "TR",
-        "Folio":              ccp[:8].upper(),
+        "Serie":              serie_cfdi,
+        "Folio":              folio_cfdi,
         "Fecha":              fecha_cfdi,
         "Sello":              "",
         "NoCertificado":      "",

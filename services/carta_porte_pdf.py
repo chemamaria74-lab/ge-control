@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import base64
 from io import BytesIO
+import re
+import unicodedata
 from xml.sax.saxutils import escape
 from xml.etree import ElementTree as _ET
 
@@ -97,10 +99,20 @@ def extraer_info_pdf(xml_content: str | bytes) -> CartaPortePdfInfo:
     root = _parse_xml(xml_content)
     timbre = _first(root, "TimbreFiscalDigital")
     carta = _first(root, "CartaPorte")
+    figura = (_all(root, "TiposFigura") or [None])[0]
     uuid = _attr(timbre, "UUID", "sin_uuid")
     id_ccp = _attr(carta, "IdCCP", "")
-    safe = (uuid or id_ccp or "carta_porte").replace("/", "_")
-    return CartaPortePdfInfo(uuid=uuid, id_ccp=id_ccp, has_carta_porte=carta is not None, filename=f"CARTA_PORTE_TRASLADO_{safe}.pdf")
+    chofer = _safe_filename_part(_attr(figura, "NombreFigura"))
+    safe = chofer or _safe_filename_part(uuid or id_ccp or "carta_porte")
+    return CartaPortePdfInfo(uuid=uuid, id_ccp=id_ccp, has_carta_porte=carta is not None, filename=f"CARTA_PORTE_{safe}.pdf")
+
+
+def _safe_filename_part(value: str) -> str:
+    text = str(value or "").strip().upper()
+    text = "".join(ch for ch in unicodedata.normalize("NFD", text) if unicodedata.category(ch) != "Mn")
+    text = re.sub(r"[^A-Z0-9]+", "_", text).strip("_")
+    parts = [part for part in text.split("_") if part]
+    return "_".join(parts[:3])[:60]
 
 
 def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: str = "") -> bytes:
@@ -146,10 +158,10 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        rightMargin=0.30 * inch,
-        leftMargin=0.30 * inch,
-        topMargin=0.27 * inch,
-        bottomMargin=0.30 * inch,
+        rightMargin=0.36 * inch,
+        leftMargin=0.36 * inch,
+        topMargin=0.32 * inch,
+        bottomMargin=0.34 * inch,
         title="Carta Porte",
         pageCompression=0,
     )
@@ -162,7 +174,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     ink = colors.HexColor("#1F2933")
     muted = colors.HexColor("#67717D")
     styles.add(ParagraphStyle(name="Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=12.0, textColor=wine_dark, leading=13.2))
-    styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=13.8, leading=15.0, textColor=wine_dark))
+    styles.add(ParagraphStyle(name="DocTitle", parent=styles["Heading1"], alignment=TA_RIGHT, fontName="Helvetica-Bold", fontSize=12.8, leading=14.0, textColor=wine_dark))
     styles.add(ParagraphStyle(name="DocMeta", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=6.2, leading=7.2, textColor=muted))
     styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.2, leading=10.2, textColor=wine_dark, spaceBefore=5, spaceAfter=2))
     styles.add(ParagraphStyle(name="SummaryTitle", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.2, leading=10.2, textColor=wine_dark, alignment=TA_LEFT))
@@ -441,7 +453,7 @@ def _modern_header(title, logo, comp, emisor, timbre, Table, TableStyle, Paragra
         f"<b>{_text(issuer_name)}</b><br/><font size='7.5' color='#67717D'>RFC {_text(issuer_rfc)}</font>",
         styles["Brand"],
     )
-    left = Table([[brand]], colWidths=[2.55 * inch()])
+    left = Table([[brand]], colWidths=[2.05 * inch()])
     left.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -458,7 +470,7 @@ def _modern_header(title, logo, comp, emisor, timbre, Table, TableStyle, Paragra
             f"Certificado emisor: {_text(_attr(comp, 'NoCertificado'))} &nbsp;&nbsp;|&nbsp;&nbsp; Certificado SAT: {_text(_attr(timbre, 'NoCertificadoSAT'))}",
             styles["DocMeta"],
         )],
-    ], colWidths=[4.75 * inch()])
+    ], colWidths=[4.55 * inch()])
     right.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -466,16 +478,16 @@ def _modern_header(title, logo, comp, emisor, timbre, Table, TableStyle, Paragra
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
     ]))
-    table = Table([[left, right]], colWidths=[2.65 * inch(), 4.95 * inch()])
+    table = Table([[left, right]], colWidths=[2.20 * inch(), 4.90 * inch()])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("BOX", (0, 0), (-1, -1), 0.55, line),
         ("LINEBELOW", (0, 0), (-1, -1), 2.0, wine),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 9),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
     ]))
     return table
 
@@ -1152,7 +1164,7 @@ def _logo_flowable(data_url: str, Image):
     try:
         raw_b64 = data_url.split(",", 1)[1]
         raw = base64.b64decode(raw_b64)
-        return Image(BytesIO(raw), width=2.05 * inch(), height=0.92 * inch(), kind="proportional")
+        return Image(BytesIO(raw), width=1.75 * inch(), height=0.72 * inch(), kind="proportional")
     except Exception:
         return None
 
