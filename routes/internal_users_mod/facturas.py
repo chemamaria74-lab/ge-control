@@ -424,7 +424,11 @@ async def gas_lp_internal_facturas(
             row["has_xml"] = bool(row.get("uuid_sat") or row.get("xml_content"))
             row["carta_porte_summary"] = _gas_lp_factura_carta_porte_summary(row.get("xml_content") or "") if row.get("xml_content") else {}
             row["complementos_pago"] = []
+    ppd_diagnostics = {}
     if complementos or credito:
+        for row in rows:
+            reason = _gas_lp_factura_pending_ppd_reason(row)
+            ppd_diagnostics[reason] = ppd_diagnostics.get(reason, 0) + 1
         rows = [row for row in rows if _gas_lp_factura_is_pending_ppd(row)]
     elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
     logger.info(
@@ -450,6 +454,7 @@ async def gas_lp_internal_facturas(
         "credito": bool(credito),
         "descuentos": bool(descuentos),
         "receptor_rfc": clean_receptor_rfc,
+        "ppd_diagnostics": ppd_diagnostics,
     })
 
 

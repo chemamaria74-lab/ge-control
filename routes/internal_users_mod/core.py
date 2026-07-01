@@ -2085,6 +2085,33 @@ def _gas_lp_factura_is_pending_ppd(factura: dict) -> bool:
     return _money(payment_info.get("saldo_insoluto")) > 0
 
 
+def _gas_lp_factura_pending_ppd_reason(factura: dict) -> str:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    payment_info = factura.get("payment_info") if isinstance(factura.get("payment_info"), dict) else _factura_payment_info(factura)
+    metodo_pago = str(payment_info.get("metodo_pago") or factura.get("metodo_pago") or md.get("metodo_pago") or "").upper()
+    if metodo_pago != "PPD":
+        return "no_ppd"
+    is_transfer = (
+        factura.get("tipo_operacion") == "traspaso"
+        or md.get("tipo_operacion") == "traspaso"
+        or factura.get("is_transfer")
+        or md.get("is_transfer")
+    )
+    if is_transfer:
+        return "traspaso"
+    if _gas_lp_factura_fiscal_status_info(factura).get("code") == "cancelada":
+        return "cancelada"
+    latest = factura.get("latest_complemento_pago") if isinstance(factura.get("latest_complemento_pago"), dict) else {}
+    if latest.get("saldo_insoluto") not in {None, ""} and _money(latest.get("saldo_insoluto")) <= 0:
+        return "complementada"
+    status = str(payment_info.get("payment_status") or factura.get("payment_status") or md.get("payment_status") or "").lower()
+    if status in {"pagado_con_complemento", "pagado_manual"}:
+        return "complementada"
+    if _money(payment_info.get("saldo_insoluto")) <= 0:
+        return "sin_saldo"
+    return "pendiente"
+
+
 def _gas_lp_factura_date_key(factura: dict) -> str:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
     for value in (factura.get("fecha_emision"), md.get("fecha_emision"), md.get("fecha_cfdi"), factura.get("fecha_timbrado"), factura.get("created_at")):

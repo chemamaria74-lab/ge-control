@@ -390,6 +390,10 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
                     facturas_vigentes += 1
             credito_pagado += max(0.0, amount - saldo)
     facturas_compactas = [_conciliacion_compact_factura(row) for row in rows]
+    ppd_diagnostics = {}
+    for row in combined_rows:
+        reason = _gas_lp_factura_pending_ppd_reason(row)
+        ppd_diagnostics[reason] = ppd_diagnostics.get(reason, 0) + 1
     ppd_pendientes_compactas = [_conciliacion_compact_factura(row) for row in combined_rows if _gas_lp_factura_is_pending_ppd(row)]
     return JSONResponse({
         "ok": True,
@@ -427,6 +431,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
         },
         "facturas": facturas_compactas,
         "ppd_pendientes": ppd_pendientes_compactas,
+        "ppd_diagnostics": ppd_diagnostics,
         "clientes": clientes_compactos,
     })
 
