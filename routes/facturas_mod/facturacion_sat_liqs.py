@@ -62,6 +62,26 @@ def _fact_serv_trip_permit(row: dict) -> str:
     ).strip()
 
 
+def _fact_serv_cfdi_cancelada(row: dict) -> bool:
+    if not row:
+        return False
+    result = row.get("cancelacion_resultado") or {}
+    if isinstance(result, str):
+        try:
+            parsed = json.loads(result)
+            result = parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            result = {}
+    status = str(row.get("cancelacion_status") or result.get("status") or "").strip().lower()
+    if isinstance(result, dict) and (result.get("operativa") is True or result.get("warning")):
+        return False
+    if isinstance(result, dict) and result.get("ok") is True:
+        return True
+    if status in {"cancelled", "cancelado", "cancelada", "ok"}:
+        return True
+    return "cancel" in str(row.get("status") or "").lower() and status not in {"error", "rechazada", "rejected"}
+
+
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
     perfil_id: Optional[int] = Query(None),
@@ -186,6 +206,25 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             cancelados.append(v.get("id"))
     if cancelados:
         raise HTTPException(400, f"Estas Cartas Porte están canceladas y no se pueden facturar: {cancelados}")
+    try:
+        cfdi_q = (
+            sb.table(_TBL_CFDI)
+            .select("viaje_id,status,cancelacion_status,cancelacion_resultado")
+            .eq("user_id", uid)
+            .eq("tipo_cfdi", "T")
+            .in_("viaje_id", payload.viaje_ids)
+        )
+        if perfil_factura:
+            cfdi_q = cfdi_q.eq("perfil_id", perfil_factura)
+        cfdi_cancelados = [
+            int(row.get("viaje_id") or 0)
+            for row in (cfdi_q.execute().data or [])
+            if row.get("viaje_id") and _fact_serv_cfdi_cancelada(row)
+        ]
+    except Exception:
+        cfdi_cancelados = []
+    if cfdi_cancelados:
+        raise HTTPException(400, f"Estas Cartas Porte están canceladas fiscalmente y no se pueden facturar: {sorted(set(cfdi_cancelados))}")
     if perfil_factura:
         cerrados = []
         for v in viajes:
