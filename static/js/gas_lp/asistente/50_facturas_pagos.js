@@ -123,6 +123,13 @@ async function loadComplementoFacturas(){
     COMPLEMENTO_FACTURAS = data.facturas || [];
     COMPLEMENTOS_PAGO_SEARCHED = true;
     renderComplementosPago();
+    const d = data.ppd_diagnostics || {};
+    const parts = [
+      `${COMPLEMENTO_FACTURAS.length} PPD pendiente${COMPLEMENTO_FACTURAS.length === 1 ? '' : 's'}`,
+      d.complementada ? `${d.complementada} ya complementada${d.complementada === 1 ? '' : 's'}` : '',
+      d.cancelada ? `${d.cancelada} cancelada${d.cancelada === 1 ? '' : 's'}` : '',
+    ].filter(Boolean);
+    setStatus('compMsg', parts.join(' · '), true);
     return true;
   }catch(e){
     console.warn('[GasLP complementos facturas PPD] error', {message:e.message, status:e.status});
