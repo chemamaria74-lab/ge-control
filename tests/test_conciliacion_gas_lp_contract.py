@@ -1699,6 +1699,10 @@ def test_assistant_complementos_search_is_manual_and_all_pending_ppd():
     assert "rows = [row for row in rows if _gas_lp_factura_is_pending_ppd(row)]" in facturas_source
     assert 'id="compMes"' not in html
     assert 'id="compEstado"' not in html
+    assert 'id="compClienteFilter"' in html
+    assert 'Buscar por cliente' in html
+    assert "onComplementClientChange()" in html
+    assert "renderComplementClientOptions(complementoRows({ignoreClient:true}).filter(isComplementable))" in html
     assert "Presiona Buscar para consultar todas las facturas PPD pendientes." in html
     assert "async function loadDashboardData()" in html
     assert "CREDITO_PPD_SEARCHED = true" in html
