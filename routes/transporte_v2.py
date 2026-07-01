@@ -333,6 +333,20 @@ def _status_cancelado(*values: Any) -> bool:
     return "cancel" in text
 
 
+def _cancelacion_fiscal_confirmada(row: dict[str, Any] | None = None, meta: dict[str, Any] | None = None) -> bool:
+    row = row or {}
+    meta = meta or {}
+    result = row.get("cancelacion_resultado") or meta.get("cancelacion_carta_porte") or {}
+    status = _first_text(row.get("cancelacion_status"), result.get("status")).lower() if isinstance(result, dict) else _first_text(row.get("cancelacion_status")).lower()
+    if isinstance(result, dict) and result.get("ok") is True:
+        return True
+    if status in {"cancelled", "cancelado", "cancelada", "ok"}:
+        return True
+    if isinstance(result, dict) and (result.get("operativa") is True or result.get("warning")):
+        return False
+    return False
+
+
 def _local_name(tag: str) -> str:
     return tag.split("}", 1)[-1] if "}" in tag else tag
 
@@ -5154,7 +5168,7 @@ async def transporte_v2_generar_control_volumetrico(
         .select("*")
         .eq("user_id", uid)
         .eq("perfil_id", pid)
-        .eq("status", "timbrado")
+        .in_("status", ["timbrado", "cancelado"])
         .like("fecha_hora_salida", f"{periodo}%")
         .execute()
         .data
@@ -5163,22 +5177,58 @@ async def transporte_v2_generar_control_volumetrico(
     if not rows:
         raise HTTPException(404, f"No hay viajes timbrados en {periodo}.")
 
+    selected_permiso_row: dict[str, Any] = {}
+    try:
+        permiso_rows = (
+            sb.table(TBL_PROVEEDORES)
+            .select("*")
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .eq("activo", True)
+            .eq("permiso_cre", selected_permiso)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        selected_permiso_row = permiso_rows[0] if permiso_rows else {}
+    except Exception:
+        selected_permiso_row = {}
+
     viajes_para_covol: list[dict[str, Any]] = []
     permisos_detectados: set[str] = set()
     for row in rows:
         meta = _meta(row)
-        if _status_cancelado(row.get("status"), row.get("estatus"), row.get("carta_porte_status"), meta.get("carta_porte_status")):
-            continue
-        permiso_viaje = _first_text(row.get("num_permiso_cne"), meta.get("num_permiso_cne"), meta.get("permiso_transportista"), selected_permiso)
-        if permiso_viaje:
-            permisos_detectados.add(permiso_viaje)
-        if permiso_viaje != selected_permiso:
+        if _status_cancelado(row.get("status"), row.get("estatus"), row.get("carta_porte_status"), meta.get("carta_porte_status")) and _cancelacion_fiscal_confirmada(row, meta):
             continue
         productos_json = _parse_json_value(row.get("productos_json"), [])
+        permiso_viaje = _first_text(row.get("num_permiso_cne"), meta.get("num_permiso_cne"), meta.get("permiso_transportista"))
+        if permiso_viaje:
+            permisos_detectados.add(permiso_viaje)
+        productos_texto = [
+            _first_text(prod.get("descripcion"), prod.get("producto"), prod.get("clave_subproducto"), prod.get("clave_producto"))
+            for prod in (productos_json if isinstance(productos_json, list) else [])
+            if isinstance(prod, dict)
+        ]
+        productos_texto.extend([
+            _first_text(row.get("producto_descripcion")),
+            _first_text(row.get("producto")),
+            _first_text(meta.get("producto_descripcion")),
+            _first_text(meta.get("producto")),
+        ])
+        productos_texto = [text for text in productos_texto if text]
+        producto_match_permiso = bool(selected_permiso_row) and any(
+            _permiso_product_family_match(selected_permiso_row, producto_text)
+            for producto_text in productos_texto
+        )
+        if permiso_viaje and permiso_viaje != selected_permiso and not producto_match_permiso:
+            continue
+        if not permiso_viaje and selected_permiso_row and not producto_match_permiso:
+            continue
         viajes_para_covol.append({
             "uuid_cfdi": _first_text(row.get("uuid_cfdi"), meta.get("uuid_carta_porte")),
             "id_ccp": _first_text(row.get("id_ccp"), meta.get("id_ccp")),
-            "num_permiso_cne": permiso_viaje,
+            "num_permiso_cne": selected_permiso,
             "tipo_movimiento": "descarga",
             "fecha_hora_salida": row.get("fecha_hora_salida") or "",
             "rfc_receptor": row.get("rfc_receptor") or "",
@@ -6400,7 +6450,7 @@ async def transporte_v2_carta_porte_timbradas(
 
     try:
         rows = _cfdi_timbradas_query(
-            "id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,xml_content,pdf_url,status,fecha_timbrado,rfc_receptor,volumen_total,importe_total"
+            "id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,xml_content,pdf_url,status,fecha_timbrado,rfc_receptor,volumen_total,importe_total,cancelacion_status,cancelacion_resultado"
         ).execute().data or []
     except Exception as exc:
         logger.info("tr_cfdi timbradas columnas extendidas no disponibles; usando fallback: %s", exc)
@@ -6455,6 +6505,9 @@ async def transporte_v2_carta_porte_timbradas(
             "uuid_sat": _first_text(xml_summary.get("uuid_sat"), row.get("uuid_sat")),
             "id_ccp": _first_text(xml_summary.get("id_ccp"), row.get("id_ccp"), meta.get("id_ccp")),
             "status": _first_text(row.get("status"), "Vigente"),
+            "cancelacion_status": _first_text(row.get("cancelacion_status")),
+            "cancelacion_confirmada": _cancelacion_fiscal_confirmada(row, meta),
+            "cancelacion_resultado": row.get("cancelacion_resultado") if isinstance(row.get("cancelacion_resultado"), dict) else {},
             "fecha_timbrado": _first_text(xml_summary.get("fecha_timbrado"), row.get("fecha_timbrado")),
             "fecha_emision": _first_text(xml_summary.get("fecha_emision")),
             "cliente_nombre": _first_text(xml_summary.get("receptor_nombre"), xml_summary.get("receptor_rfc"), trip.get("cliente_nombre"), meta.get("cliente_nombre"), row.get("rfc_receptor")),
@@ -6559,14 +6612,18 @@ async def transporte_v2_carta_porte_cancelar(
     if not rows:
         raise HTTPException(404, "Carta Porte no encontrada para cancelar.")
     cfdi = rows[0]
-    if _first_text(cfdi.get("status")).lower() == "cancelada":
+    if _first_text(cfdi.get("status")).lower() == "cancelada" and _cancelacion_fiscal_confirmada(cfdi):
         return {"ok": True, "already_cancelled": True, "message": "La Carta Porte ya estaba cancelada."}
 
     now = _now_iso()
     motivo = _first_text(payload.motivo, "02")
-    cancel_result: dict[str, Any] = {"ok": False, "operativa": True}
+    cancel_result: dict[str, Any] = {"ok": False}
     xml_content = _first_text(cfdi.get("xml_content"))
-    if xml_content and not payload.solo_operativo:
+    if not xml_content:
+        raise HTTPException(400, "No se puede cancelar en SW Sapiens porque la Carta Porte no tiene XML timbrado guardado.")
+    if payload.solo_operativo:
+        raise HTTPException(400, "La cancelación operativa local está deshabilitada. La Carta Porte solo se marca cancelada cuando SW Sapiens confirma la cancelación fiscal.")
+    if xml_content:
         try:
             root = ET.fromstring(xml_content.encode("utf-8"))
             emisor = _first(root, "Emisor")
@@ -6584,15 +6641,25 @@ async def transporte_v2_carta_porte_cancelar(
                 requested_by=uid,
             )
         except Exception as exc:
-            cancel_result = {
-                "ok": False,
-                "operativa": True,
-                "warning": f"No se pudo enviar cancelación fiscal SAT/PAC; se marcó cancelada operativamente: {exc}",
-            }
+            error_payload = getattr(exc, "detail", None) or str(exc)
+            try:
+                sb.table(TBL_CFDI).update({
+                    "cancelacion_status": "error",
+                    "cancelacion_motivo": motivo,
+                    "cancelacion_uuid_sustitucion": _first_text(payload.uuid_sustitucion),
+                    "cancelacion_resultado": {"ok": False, "error": error_payload},
+                    "canceled_by": uid,
+                }).eq("id", cfdi.get("id")).eq("user_id", uid).execute()
+            except Exception:
+                pass
+            raise HTTPException(400, {"message": "SW Sapiens no aceptó la cancelación. La Carta Porte sigue vigente.", "diagnostic": error_payload}) from exc
+
+    if not cancel_result.get("ok"):
+        raise HTTPException(400, {"message": "SW Sapiens no confirmó la cancelación. La Carta Porte sigue vigente.", "diagnostic": cancel_result})
 
     cfdi_update = {
         "status": "Cancelada",
-        "cancelacion_status": _first_text(cancel_result.get("status"), "operativa"),
+        "cancelacion_status": _first_text(cancel_result.get("status"), "cancelled"),
         "cancelacion_motivo": motivo,
         "cancelacion_uuid_sustitucion": _first_text(payload.uuid_sustitucion),
         "cancelacion_resultado": cancel_result,
@@ -6636,7 +6703,7 @@ async def transporte_v2_carta_porte_cancelar(
     })
     return {
         "ok": True,
-        "message": "Carta Porte marcada como cancelada.",
+        "message": "Carta Porte cancelada fiscalmente.",
         "cancelacion": cancel_result,
         "status": "Cancelada",
     }
