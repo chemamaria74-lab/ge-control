@@ -1166,7 +1166,19 @@ def test_conciliacion_publico_general_payload_keeps_operational_defaults():
     assert "stop_on_success" not in data
 
 
-def test_publico_general_xml_auto_includes_informacion_global():
+def _freeze_gas_lp_consumo_xml_now(monkeypatch, fixed_now: datetime):
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return fixed_now.replace(tzinfo=None)
+            return fixed_now.astimezone(tz)
+
+    monkeypatch.setitem(internal_users._build_gas_lp_consumo_xml.__globals__, "datetime", FixedDatetime)
+
+
+def test_publico_general_xml_auto_includes_informacion_global(monkeypatch):
+    _freeze_gas_lp_consumo_xml_now(monkeypatch, datetime(2026, 6, 3, 16, 30, 0, tzinfo=timezone.utc))
     xml, totals = internal_users._build_gas_lp_consumo_xml(
         issuer={
             "rfc": "AGA990907II8",
@@ -1204,7 +1216,8 @@ def test_publico_general_xml_auto_includes_informacion_global():
     assert 'Rfc="XAXX010101000" Nombre="PUBLICO EN GENERAL"' in xml
 
 
-def test_publico_general_xml_detects_accented_receptor_name():
+def test_publico_general_xml_detects_accented_receptor_name(monkeypatch):
+    _freeze_gas_lp_consumo_xml_now(monkeypatch, datetime(2026, 6, 3, 16, 30, 0, tzinfo=timezone.utc))
     xml, totals = internal_users._build_gas_lp_consumo_xml(
         issuer={
             "rfc": "AGA990907II8",
@@ -1663,7 +1676,7 @@ def test_assistant_load_facturas_does_not_pollute_main_invoice_status_by_default
     assert "setStatus('facturaMsg'" in load_source
 
 
-def test_assistant_complementos_search_is_manual_and_month_scoped():
+def test_assistant_complementos_search_is_manual_and_all_pending_ppd():
     html = _assistant_frontend_source()
     switch_start = html.index("function switchBillingTab")
     switch_end = html.index("function switchClientsTab", switch_start)
@@ -1674,9 +1687,13 @@ def test_assistant_complementos_search_is_manual_and_month_scoped():
 
     assert "loadComplementoFacturas()" not in switch_source
     assert "loadComplementos()" not in switch_source
-    assert "applyComplementMonthFilter()" in switch_source
-    assert "loadComplementoFacturas(month)" in refresh_source
-    assert "loadComplementos(month)" in refresh_source
+    assert "applyComplementMonthFilter()" not in switch_source
+    assert "loadComplementoFacturas()" in refresh_source
+    assert "loadComplementoFacturas(month)" not in refresh_source
+    assert "/api/internal-auth/gas-lp/facturas?complementos=1&deep=1&mes=" not in html
+    assert 'id="compMes"' not in html
+    assert 'id="compEstado"' not in html
+    assert "Presiona Buscar para consultar todas las facturas PPD pendientes." in html
     assert "async function loadDashboardData()" in html
     assert "CREDITO_PPD_SEARCHED = true" in html
     assert "loadFacturas('', {limit:10000, deep:true, allMonths:true, credito:true})" in html
