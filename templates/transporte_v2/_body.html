@@ -14,7 +14,6 @@
 </header>
 
 <nav class="trv2-tabs" id="trv2-admin-tabs" aria-label="Navegación Transporte v2" hidden>
-  <button class="trv2-tab" type="button" data-tab="carga-archivos" onclick="trv2SwitchTab('carga-archivos')">Carga de archivos</button>
   <button class="trv2-tab active" type="button" data-tab="carta-porte" onclick="trv2SwitchTab('carta-porte')">Carta Porte</button>
   <button class="trv2-tab" type="button" data-tab="facturas-servicio" onclick="trv2SwitchTab('facturas-servicio')">Facturas de servicio</button>
   <button class="trv2-tab" type="button" data-tab="conciliacion" onclick="trv2SwitchTab('conciliacion')">Conciliación</button>
@@ -273,14 +272,19 @@
         <p>Genera el registro local de facturas de flete a partir de viajes con Carta Porte timbrada.</p>
       </div>
       <div class="trv2-actions">
-        <label class="trv2-inline-filter">Mes <input id="trv2-service-month" type="month" onchange="trv2ServiceSetMonth(this.value)"></label>
+        <label class="trv2-inline-filter trv2-month-filter">Periodo
+          <select id="trv2-service-month-mode" onchange="trv2ServiceSetMonthMode(this.value)">
+            <option value="">Todos los meses</option>
+            <option value="month">Filtrar por mes</option>
+          </select>
+          <input id="trv2-service-month" type="month" onchange="trv2ServiceSetMonth(this.value)" hidden>
+        </label>
       </div>
     </div>
     <div class="trv2-kpis trv2-kpis-compact" id="trv2-service-invoice-kpis">
       <article><span>Pendientes de facturar</span><strong>0</strong></article>
       <article><span>Facturadas</span><strong>0</strong></article>
       <article><span>Pendientes de pago</span><strong>0</strong></article>
-      <article><span>Falta tarifa</span><strong>0</strong></article>
     </div>
     <section class="trv2-panel">
       <nav class="trv2-subtabs" aria-label="Facturas de servicio">
@@ -292,7 +296,7 @@
         <table>
           <thead>
             <tr>
-              <th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Origen</th><th>Destino</th><th>Producto</th><th>Litros</th><th>Kilos</th><th>Chofer</th><th>Vehículo</th><th>UUID Carta Porte</th><th>Tarifa</th><th>Subtotal</th><th>IVA</th><th>Retención</th><th>Total</th><th>Estatus</th><th>Acción</th>
+              <th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Origen</th><th>Destino</th><th>Producto</th><th>Litros</th><th>Kilos</th><th>Chofer</th><th>Vehículo</th><th>UUID Carta Porte</th><th>Subtotal</th><th>IVA</th><th>Retención</th><th>Total</th><th>Estatus</th><th>Acción</th>
             </tr>
           </thead>
           <tbody id="trv2-service-pending-table"></tbody>
@@ -348,7 +352,6 @@
         <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseCvMonth()"><i class="fa-solid fa-lock"></i> Cerrar mes</button>
         <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico()"><i class="fa-solid fa-clock-rotate-left"></i> Cargar historial</button>
         <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2GenerateCvReport('zip')"><i class="fa-solid fa-download"></i> Descargar ZIP XML</button>
-        <button class="trv2-btn trv2-btn-ghost" type="button" disabled><i class="fa-solid fa-trash-can"></i> Borrar reporte</button>
       </div>
     </div>
     <section class="trv2-panel trv2-cv-filter-panel">
@@ -367,11 +370,6 @@
         <div>
           <h2>Movimientos del periodo</h2>
           <p class="trv2-muted">Corte mensual alimentado por viajes Transporte v2 timbrados.</p>
-        </div>
-        <div class="trv2-actions">
-          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseCvMonth()"><i class="fa-solid fa-lock"></i> Cerrar mes</button>
-          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2GenerateCvReport('xml')"><i class="fa-solid fa-download"></i> Descargar XML</button>
-          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2GenerateCvReport('zip')"><i class="fa-solid fa-file-export"></i> Exportar ZIP SAT</button>
         </div>
       </div>
       <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">Selecciona permiso y periodo para cerrar el mes y generar ZIP XML SAT Transporte.</div>
