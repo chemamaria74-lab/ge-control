@@ -58,6 +58,8 @@ _GAS_LP_FACTURA_LIST_METADATA_KEYS = {
     "empresa_nombre",
     "estado_fiscal",
     "estado_sat",
+    "fecha_cfdi",
+    "fecha_emision",
     "forma_pago",
     "id_ccp",
     "internal_user_id",
@@ -422,6 +424,8 @@ async def gas_lp_internal_facturas(
             row["has_xml"] = bool(row.get("uuid_sat") or row.get("xml_content"))
             row["carta_porte_summary"] = _gas_lp_factura_carta_porte_summary(row.get("xml_content") or "") if row.get("xml_content") else {}
             row["complementos_pago"] = []
+    if complementos or credito:
+        rows = [row for row in rows if _gas_lp_factura_is_pending_ppd(row)]
     elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
     logger.info(
         "gas_lp_facturas_list perfil=%s tenant=%s month=%s facturas=%s complemento_ids=%s complemento_rows=%s complemento_chunks=%s complemento_chunk_size=%s elapsed_ms=%s select=light complementos=%s",
