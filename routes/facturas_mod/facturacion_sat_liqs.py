@@ -73,11 +73,27 @@ async def listar_cartas_porte_facturables(
     sb = _sb(token)
     pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     try:
-        fact_q = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid)
+        fact_q = sb.table(_TBL_FACT_SERV_CARTAS).select("factura_servicio_id,viaje_id").eq("user_id", uid)
         if pid:
             fact_q = fact_q.eq("perfil_id", pid)
         fact_res = fact_q.execute()
-        facturados = {int(r.get("viaje_id")) for r in (fact_res.data or []) if r.get("viaje_id")}
+        links = fact_res.data or []
+        factura_ids = [int(r.get("factura_servicio_id") or 0) for r in links if r.get("factura_servicio_id")]
+        facturas_activas = set()
+        if factura_ids:
+            fq = sb.table(_TBL_FACT_SERV).select("id,status").eq("user_id", uid).in_("id", factura_ids)
+            if pid:
+                fq = fq.eq("perfil_id", pid)
+            facturas_activas = {
+                int(r.get("id") or 0)
+                for r in (fq.execute().data or [])
+                if "cancel" not in str(r.get("status") or "").lower()
+            }
+        facturados = {
+            int(r.get("viaje_id"))
+            for r in links
+            if r.get("viaje_id") and int(r.get("factura_servicio_id") or 0) in facturas_activas
+        }
     except Exception:
         facturados = set()
     try:
@@ -198,11 +214,23 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         if cerrados:
             raise HTTPException(409, f"El mes ya está cerrado para estas Cartas Porte: {cerrados}")
     try:
-        ya_q = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid).in_("viaje_id", payload.viaje_ids)
+        ya_q = sb.table(_TBL_FACT_SERV_CARTAS).select("factura_servicio_id,viaje_id").eq("user_id", uid).in_("viaje_id", payload.viaje_ids)
         if perfil_factura:
             ya_q = ya_q.eq("perfil_id", perfil_factura)
         ya_res = ya_q.execute()
-        ya = [r.get("viaje_id") for r in (ya_res.data or [])]
+        links = ya_res.data or []
+        factura_ids = [int(r.get("factura_servicio_id") or 0) for r in links if r.get("factura_servicio_id")]
+        facturas_activas = set()
+        if factura_ids:
+            fq = sb.table(_TBL_FACT_SERV).select("id,status").eq("user_id", uid).in_("id", factura_ids)
+            if perfil_factura:
+                fq = fq.eq("perfil_id", perfil_factura)
+            facturas_activas = {
+                int(r.get("id") or 0)
+                for r in (fq.execute().data or [])
+                if "cancel" not in str(r.get("status") or "").lower()
+            }
+        ya = [r.get("viaje_id") for r in links if int(r.get("factura_servicio_id") or 0) in facturas_activas]
         if ya:
             raise HTTPException(400, f"Estas Cartas Porte ya tienen factura de servicio: {ya}")
     except HTTPException:
