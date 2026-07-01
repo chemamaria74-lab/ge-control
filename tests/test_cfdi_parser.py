@@ -2,7 +2,7 @@
 
 import sys, os, zipfile, io
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from services.cfdi_parser import parse_xml, parse_zip
+from services.cfdi_parser import extract_cancelled_uuids_from_upload, parse_xml, parse_zip
 
 XML_GAS_LP_KG = b"""<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/3"
@@ -63,6 +63,26 @@ XML_GAS_LP_15111510_DESCRIPCION_GENERICA = b"""<?xml version="1.0" encoding="UTF
       UUID="817579A2-DED9-4FF4-80CF-D319D183D697"/>
   </cfdi:Complemento>
 </cfdi:Comprobante>"""
+
+XML_CARTA_PORTE_GAS_LP = b"""<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:cartaporte31="http://www.sat.gob.mx/CartaPorte31"
+  Version="4.0" Fecha="2026-06-15T10:00:00" TipoDeComprobante="I" Total="1000.00">
+  <cfdi:Emisor Rfc="DGC881020LC4" Nombre="DISTRIBUIDORA"/>
+  <cfdi:Receptor Rfc="AAA010101AAA" Nombre="CLIENTE"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="15111510" ClaveUnidad="LTR" Cantidad="1000"
+      Descripcion="Gas LP" ValorUnitario="1" Importe="1000"/>
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <cartaporte31:CartaPorte Version="3.1" IdCCP="CCC12345-1234-1234-1234-123456789012"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>"""
+
+XML_ACUSE_CANCELACION = b"""<?xml version="1.0" encoding="UTF-8"?>
+<Acuse Fecha="2026-06-20T12:00:00">
+  <Folios UUID="11111111-2222-3333-4444-555555555555" EstatusUUID="Cancelado"/>
+</Acuse>"""
 
 def test_extrae_gas_lp_en_kg():
     movs, errs, _ = parse_xml(XML_GAS_LP_KG, "test_kg.xml")
@@ -137,6 +157,23 @@ def test_fecha_invalida():
     assert any("fecha" in e.lower() for e in errs)
     print("✓ test_fecha_invalida")
 
+def test_carta_porte_no_pasa_a_json():
+    movs, errs, logs = parse_xml(XML_CARTA_PORTE_GAS_LP, "carta_porte.xml")
+    assert not errs
+    assert movs == []
+    assert any("Carta Porte" in log for log in logs)
+    print("✓ test_carta_porte_no_pasa_a_json")
+
+def test_cancelada_no_pasa_a_json_y_expone_uuid():
+    movs, errs, logs = parse_xml(XML_ACUSE_CANCELACION, "acuse_cancelacion.xml")
+    assert not errs
+    assert movs == []
+    assert any("cancel" in log.lower() for log in logs)
+    assert extract_cancelled_uuids_from_upload(XML_ACUSE_CANCELACION, "acuse_cancelacion.xml") == [
+        "11111111-2222-3333-4444-555555555555"
+    ]
+    print("✓ test_cancelada_no_pasa_a_json_y_expone_uuid")
+
 if __name__ == "__main__":
     test_extrae_gas_lp_en_kg()
     test_extrae_gas_lp_en_litros()
@@ -147,4 +184,6 @@ if __name__ == "__main__":
     test_zip_multiples_facturas()
     test_xml_malformado()
     test_fecha_invalida()
+    test_carta_porte_no_pasa_a_json()
+    test_cancelada_no_pasa_a_json_y_expone_uuid()
     print("\n✅ Todas las pruebas CFDI Gas LP pasaron.")
