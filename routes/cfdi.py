@@ -33,7 +33,7 @@ from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 from models.schemas import UploadResponse
 from routes.auth import obtener_acceso_modulo, resolve_profile_scope, verify_token, obtener_secciones_usuario
 from routes.settings import _load as load_settings
-from services.cfdi_parser import parse_xml, parse_zip
+from services.cfdi_parser import extract_cancelled_uuids_from_upload, parse_xml, parse_zip
 from services.database import (
     delete_period,
     get_facility,
@@ -98,6 +98,90 @@ def _alerta_capacidad_msg(cap_limit: float, raw: float, capped: float) -> str:
     )
 
 
+def _periodo_form_valido(value: str) -> str:
+    text = (value or "").strip()
+    if len(text) == 7 and text[4] == "-" and text[:4].isdigit() and text[5:7].isdigit():
+        mes = int(text[5:7])
+        if 1 <= mes <= 12:
+            return text
+    return ""
+
+
+def _periodo_anterior(periodo: str) -> str:
+    anio = int(periodo[:4])
+    mes = int(periodo[5:7])
+    if mes == 1:
+        return f"{anio - 1}-12"
+    return f"{anio}-{mes - 1:02d}"
+
+
+def _record_to_movement(row: dict, tipo: str, display_name: str) -> dict:
+    fecha = str(row.get("fecha") or "")[:10]
+    volumen = abs(float(row.get("volumen_litros") or 0))
+    file_path = str(row.get("file_path") or "")
+    return {
+        "tipo_movimiento": tipo,
+        "fecha": fecha,
+        "fecha_hora": f"{fecha}T12:00:00-06:00" if fecha else "",
+        "volumen_litros": volumen,
+        "volumen": volumen,
+        "unidad": "litros",
+        "unidad_base": "litros",
+        "uuid": str(row.get("uuid") or ""),
+        "rfc_contraparte": str(row.get("rfc_contraparte") or ""),
+        "rfc_cp": str(row.get("rfc_contraparte") or ""),
+        "nombre_contraparte": str(row.get("nombre_contraparte") or ""),
+        "nombre_cp": str(row.get("nombre_contraparte") or ""),
+        "importe": float(row.get("importe") or 0),
+        "file_path": file_path,
+        "es_autoconsumo": bool(
+            row.get("es_autoconsumo")
+            or file_path.startswith("manual:")
+            or str(row.get("uuid") or "").upper().startswith("AUTO-")
+        ),
+        "es_trasvase": bool(file_path.startswith("traspaso:")),
+        "usuario": display_name,
+    }
+
+
+def _movement_marker(mov: dict) -> tuple[str, str]:
+    tipo = str(mov.get("tipo_movimiento") or "")
+    uuid = str(mov.get("uuid") or "").strip().upper()
+    if uuid:
+        return tipo, uuid
+    return tipo, str(mov.get("file_path") or mov.get("_source") or mov.get("fecha_hora") or "")
+
+
+def _merge_movements(base: list[dict], extras: list[dict], cancelled_uuids: set[str]) -> tuple[list[dict], int]:
+    merged: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    skipped = 0
+    for mov in [*base, *extras]:
+        uuid = str(mov.get("uuid") or "").strip().upper()
+        if uuid and uuid in cancelled_uuids:
+            skipped += 1
+            continue
+        marker = _movement_marker(mov)
+        if marker in seen:
+            skipped += 1
+            continue
+        seen.add(marker)
+        merged.append(mov)
+    return merged, skipped
+
+
+def _inventario_inicial_desde_mes_anterior(user_id: str, periodo: str, facility_id: Optional[int], perfil_id: int) -> Optional[float]:
+    try:
+        prev = _periodo_anterior(periodo)
+        reports = get_reports(user_id, prev, facility_id=facility_id, perfil_id=perfil_id)
+        if not reports:
+            return None
+        value = reports[0].get("vol_existencias")
+        return float(value) if value is not None else None
+    except Exception:
+        return None
+
+
 @router.post(
     "/upload/cfdi",
     response_model=UploadResponse,
@@ -110,6 +194,7 @@ async def upload_cfdi(
     unidad_base:           str              = Form(default="litros"),
     inventario_inicial:    Optional[float]  = Form(default=None),
     inventario_final:      Optional[float]  = Form(default=None),
+    periodo:               str              = Form(default=""),
     facility_id:           Optional[int]    = Form(default=None),
     temperatura_medicion:  Optional[float]  = Form(default=20.0),
     composicion_propano:   Optional[float]  = Form(default=None),
@@ -122,7 +207,7 @@ async def upload_cfdi(
         return await _upload_cfdi_impl(
             files=files, estacion_id=estacion_id, rfc=rfc,
             unidad_base=unidad_base, inventario_inicial=inventario_inicial,
-            inventario_final=inventario_final, facility_id=facility_id,
+            inventario_final=inventario_final, periodo=periodo, facility_id=facility_id,
             temperatura_medicion=temperatura_medicion,
             composicion_propano=composicion_propano, composicion_butano=composicion_butano,
             authorization=authorization, x_perfil_id=x_perfil_id,
@@ -141,7 +226,7 @@ async def upload_cfdi(
 
 async def _upload_cfdi_impl(
     files, estacion_id, rfc, unidad_base, inventario_inicial, inventario_final,
-    facility_id, temperatura_medicion, composicion_propano, composicion_butano,
+    periodo, facility_id, temperatura_medicion, composicion_propano, composicion_butano,
     authorization, x_perfil_id,
 ):
     todos_logs:    list[str] = []
@@ -287,6 +372,7 @@ async def _upload_cfdi_impl(
 
     # ── PASO 1: Parsear todos los archivos ────────────────────────────────────
     todos_movimientos: list = []
+    cancelled_uuids: set[str] = set()
     for upload in files:
         filename  = (upload.filename or "archivo").lower()
         ext       = ("." + filename.rsplit(".", 1)[-1]) if "." in filename else ""
@@ -297,6 +383,13 @@ async def _upload_cfdi_impl(
             raise HTTPException(413, "Carga demasiado grande. Límite total: 35 MB.")
         upload._cached_bytes = file_bytes
         todos_logs.append(f"Procesando: {upload.filename} ({len(file_bytes):,} bytes)")
+        cancelados_upload = extract_cancelled_uuids_from_upload(file_bytes, upload.filename or filename)
+        if cancelados_upload:
+            cancelled_uuids.update(u.strip().upper() for u in cancelados_upload if u)
+            todos_logs.append(
+                f"  → {upload.filename}: {len(cancelados_upload)} UUID cancelado(s) detectado(s); "
+                "se excluirán del JSON y del cierre del mes."
+            )
 
         if ext == ".zip":
             movs, errs, lgs = parse_zip(file_bytes, rfc_activo=rfc_activo)
@@ -318,16 +411,39 @@ async def _upload_cfdi_impl(
     for m in todos_movimientos:
         m["usuario"] = display_name or user_id
 
+    periodo_form = _periodo_form_valido(periodo)
+    fechas_mov = [m.get("fecha", "") for m in todos_movimientos if m.get("fecha")]
+    periodo_inferido = periodo_form or (sorted(fechas_mov)[-1][:7] if fechas_mov else "")
+
+    if cancelled_uuids:
+        todos_movimientos, cancel_skipped = _merge_movements([], todos_movimientos, cancelled_uuids)
+        todas_alertas.append(
+            "🚫 CFDI cancelado(s) excluido(s) del JSON: " + ", ".join(sorted(cancelled_uuids))
+        )
+        if cancel_skipped:
+            todos_logs.append(f"Canceladas retiradas de la carga actual: {cancel_skipped}.")
+
     movimientos = todos_movimientos
-    if not movimientos:
+    if not movimientos and not (cancelled_uuids and periodo_inferido):
+        if cancelled_uuids and periodo_inferido:
+            todos_logs.append(
+                f"Solo se recibieron cancelaciones para {periodo_inferido}. "
+                "Sube movimientos vigentes del mes para regenerar el JSON sin esos UUID."
+            )
         if not todos_errores:
             todos_errores.append(
                 "No se extrajo ningún movimiento de Gas LP de los CFDI. "
-                "Verifica que las facturas contengan conceptos de Gas LP, propano o butano."
+                "Verifica que las facturas contengan conceptos de Gas LP, propano o butano. "
+                "Las canceladas y cartas porte se excluyen del JSON."
             )
         return UploadResponse(
             success=False, errores=todos_errores, alertas=todas_alertas,
             logs=todos_logs, conteo_compras=0, conteo_ventas=0,
+        )
+    elif not movimientos and cancelled_uuids and periodo_inferido:
+        todos_logs.append(
+            f"Solo se recibieron cancelaciones para {periodo_inferido}; "
+            "se reconstruirá con los movimientos vigentes ya guardados."
         )
 
     conteo_compras = sum(1 for m in movimientos if m.get("tipo_movimiento") == "entrada")
@@ -341,12 +457,36 @@ async def _upload_cfdi_impl(
     todos_logs.append("=== PASO 2: Generación SAT Controles Volumétricos ===")
     init_db()
 
+    if periodo_inferido:
+        existing = get_records(data_user_id, periodo_inferido, facility_id=fid, perfil_id=perfil_id)
+        existing_movs = [
+            *(
+                _record_to_movement(row, "entrada", display_name or user_id)
+                for row in (existing.get("entradas") or [])
+            ),
+            *(
+                _record_to_movement(row, "salida", display_name or user_id)
+                for row in (existing.get("salidas") or [])
+                if not (
+                    row.get("es_autoconsumo")
+                    or str(row.get("file_path") or "").startswith("manual:")
+                    or str(row.get("uuid") or "").upper().startswith("AUTO-")
+                )
+            ),
+        ]
+        if existing_movs:
+            movimientos, skipped_existing = _merge_movements(existing_movs, movimientos, cancelled_uuids)
+            todos_logs.append(
+                f"Movimientos existentes del periodo {periodo_inferido} agregados al cierre: "
+                f"{len(existing_movs)} existentes; {skipped_existing} duplicado(s)/cancelado(s) omitido(s)."
+            )
+
     # ── Inyectar autoconsumos guardados en Supabase ───────────────────────────
     try:
         from supabase_config import get_supabase as _get_sb
 
         fechas_mov       = [m.get("fecha", "") for m in movimientos if m.get("fecha")]
-        periodo_inferido = sorted(fechas_mov)[-1][:7] if fechas_mov else None
+        periodo_inferido = periodo_inferido or (sorted(fechas_mov)[-1][:7] if fechas_mov else None)
 
         if periodo_inferido:
             sb_q = (
@@ -409,16 +549,43 @@ async def _upload_cfdi_impl(
     except Exception as e:
         todos_logs.append(f"Info: autoconsumos no inyectados — {e}")
 
+    if not movimientos:
+        todos_errores.append(
+            "No quedan movimientos vigentes para generar el JSON después de excluir canceladas y cartas porte."
+        )
+        return UploadResponse(
+            success=False, errores=todos_errores, alertas=todas_alertas,
+            logs=todos_logs, conteo_compras=0, conteo_ventas=0,
+        )
+
+    conteo_compras = sum(1 for m in movimientos if m.get("tipo_movimiento") == "entrada")
+    conteo_ventas  = sum(1 for m in movimientos if m.get("tipo_movimiento") == "salida")
+    todos_logs.append(
+        f"Total vigente para JSON: {len(movimientos)} movimientos "
+        f"(entradas={conteo_compras}, salidas={conteo_ventas})"
+    )
+
     # ── Inventario Inicial ────────────────────────────────────────────────────
     if inventario_inicial is not None:
         inventario_inicial_litros = float(inventario_inicial)
         todos_logs.append(f"Inventario inicial: {inventario_inicial_litros:,.4f} L")
     else:
-        inventario_inicial_litros = 0.0
-        todas_alertas.append(
-            "⚠ Inventario Inicial no proporcionado. Se usará 0 L. "
-            "Ingresa la lectura del tanque al inicio del mes para un cálculo correcto."
+        inv_prev = (
+            _inventario_inicial_desde_mes_anterior(data_user_id, periodo_inferido, fid, perfil_id)
+            if periodo_inferido else None
         )
+        if inv_prev is not None:
+            inventario_inicial_litros = inv_prev
+            todos_logs.append(
+                f"Inventario inicial tomado del inventario final del mes anterior "
+                f"({_periodo_anterior(periodo_inferido)}): {inventario_inicial_litros:,.4f} L"
+            )
+        else:
+            inventario_inicial_litros = 0.0
+            todas_alertas.append(
+                "⚠ Inventario Inicial no proporcionado y no se encontró cierre del mes anterior. "
+                "Se usará 0 L. Ingresa la lectura del tanque al inicio del mes para un cálculo correcto."
+            )
 
     try:
         # Temperatura: 1) form, 2) default instalación, 3) 20°C
@@ -468,6 +635,8 @@ async def _upload_cfdi_impl(
             settings=settings,
             inventario_inicial_litros=inventario_inicial_litros,
             factor_kg_a_litros=settings.get("FactorDeConversionKgALitros", 0.542),
+            anio=int(periodo_inferido[:4]) if periodo_inferido else None,
+            mes=int(periodo_inferido[5:7]) if periodo_inferido else None,
             capacidad_tanque=fac_capacidad,
             inventario_final_medido=float(inventario_final) if inventario_final is not None else None,
             temperatura_medicion=temp_final,
