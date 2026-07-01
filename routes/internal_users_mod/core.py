@@ -2065,6 +2065,26 @@ def _gas_lp_factura_fiscal_status_info(factura: dict) -> dict:
     return {"code": "pendiente", "label": "Pendiente", "class": "pending"}
 
 
+def _gas_lp_factura_is_pending_ppd(factura: dict) -> bool:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    payment_info = factura.get("payment_info") if isinstance(factura.get("payment_info"), dict) else _factura_payment_info(factura)
+    metodo_pago = str(payment_info.get("metodo_pago") or factura.get("metodo_pago") or md.get("metodo_pago") or "").upper()
+    is_transfer = (
+        factura.get("tipo_operacion") == "traspaso"
+        or md.get("tipo_operacion") == "traspaso"
+        or factura.get("is_transfer")
+        or md.get("is_transfer")
+    )
+    if metodo_pago != "PPD" or is_transfer:
+        return False
+    if _gas_lp_factura_fiscal_status_info(factura).get("code") == "cancelada":
+        return False
+    latest = factura.get("latest_complemento_pago") if isinstance(factura.get("latest_complemento_pago"), dict) else {}
+    if latest.get("saldo_insoluto") not in {None, ""}:
+        return _money(latest.get("saldo_insoluto")) > 0
+    return _money(payment_info.get("saldo_insoluto")) > 0
+
+
 def _gas_lp_factura_date_key(factura: dict) -> str:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
     for value in (factura.get("fecha_emision"), md.get("fecha_emision"), md.get("fecha_cfdi"), factura.get("fecha_timbrado"), factura.get("created_at")):
@@ -2420,7 +2440,10 @@ def _gas_lp_company_facturas_rows_impl(
     page_limit = max(1, min(int(limit or 10000), 10000))
 
     query = sb.table("gas_lp_facturas").select(select)
-    if profile_rfc:
+    if ppd_pending and user.get("tenant_id") and user.get("perfil_id"):
+        query = query.eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
+        filters.append({"company": "tenant_id + perfil_id for pending PPD", "tenant_id": user.get("tenant_id"), "perfil_id": user.get("perfil_id")})
+    elif profile_rfc:
         query = query.or_(f"empresa_rfc.eq.{profile_rfc},rfc_emisor.eq.{profile_rfc}")
         filters.append({"company": "empresa_rfc OR rfc_emisor", "rfc": profile_rfc})
     else:
@@ -2436,28 +2459,33 @@ def _gas_lp_company_facturas_rows_impl(
         query = query.or_("tipo_comprobante.is.null,tipo_comprobante.neq.T")
         filters.append({"tipo_comprobante": "not T"})
     if ppd_pending:
-        query = (
-            query
-            .eq("metodo_pago", "PPD")
-            .gt("saldo_insoluto", 0)
-            .or_("status.is.null,status.not.ilike.*cancel*")
-            .or_("tipo_operacion.is.null,tipo_operacion.neq.traspaso")
-            .or_("is_transfer.is.null,is_transfer.eq.false")
-        )
-        filters.append({"payment": "metodo_pago=PPD AND saldo_insoluto>0", "operation": "not transfer"})
+        filters.append({"payment": "PPD pending resolved after metadata/payment normalization", "operation": "not transfer"})
     if discounted_only:
         query = query.or_("descuento_total.gt.0,descuento_confirmado.gt.0,descuento_por_litro.gt.0")
         filters.append({"discount": "descuento_total/descuento_confirmado/descuento_por_litro > 0"})
 
-    rows = (
-        query
-        .order("fecha_emision", desc=True)
-        .order("created_at", desc=True)
-        .limit(page_limit)
-        .execute()
-        .data
-        or []
-    )
+    try:
+        rows = (
+            query
+            .order("fecha_emision", desc=True)
+            .order("created_at", desc=True)
+            .limit(page_limit)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        if "fecha_emision" not in str(exc):
+            raise
+        logger.warning("gas_lp_facturas_fecha_emision_order_fallback perfil=%s err=%s", user.get("perfil_id"), exc)
+        rows = (
+            query
+            .order("created_at", desc=True)
+            .limit(page_limit)
+            .execute()
+            .data
+            or []
+        )
     rows = _dedupe_rows_by_id(rows)
     if visibility_log:
         _gas_lp_log_facturas_visibility(user=user, profile={**profile, "rfc": profile_rfc or profile.get("rfc")}, month=month, filters=filters, candidates=rows, included=rows)

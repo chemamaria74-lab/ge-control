@@ -243,10 +243,29 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
             company_fallback=True,
             visibility_log=False,
         )
+        ppd_pending_rows = _gas_lp_company_facturas_rows(
+            sb,
+            user,
+            profile,
+            month="",
+            limit=10000,
+            include_carta_porte=False,
+            select="*",
+            company_fallback=True,
+            visibility_log=False,
+            ppd_pending=True,
+        )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_conciliacion_summary", exc)
-    _gas_lp_attach_internal_creators(sb, rows)
-    comp_by_factura = _gas_lp_complementos_por_factura(sb, [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))])
+    rows_by_id = {_safe_int_id(row.get("id")): row for row in rows if _safe_int_id(row.get("id"))}
+    combined_rows = list(rows)
+    for row in ppd_pending_rows:
+        row_id = _safe_int_id(row.get("id"))
+        if row_id and row_id not in rows_by_id:
+            combined_rows.append(row)
+            rows_by_id[row_id] = row
+    _gas_lp_attach_internal_creators(sb, combined_rows)
+    comp_by_factura = _gas_lp_complementos_por_factura(sb, [_safe_int_id(r.get("id")) for r in combined_rows if _safe_int_id(r.get("id"))])
     try:
         clientes_query = (
             sb.table("gas_lp_clientes_facturacion")
@@ -269,7 +288,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
             exc,
         )
         clientes = []
-    factura_ids = [_safe_int_id(r.get("id")) for r in rows if _safe_int_id(r.get("id"))]
+    factura_ids = [_safe_int_id(r.get("id")) for r in combined_rows if _safe_int_id(r.get("id"))]
     try:
         bank_rows = (
             sb.table("gas_lp_invoice_bank_reconciliations")
@@ -292,7 +311,9 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
     facturas_vencidas = facturas_vigentes = 0
     clientes_con_saldo = set()
     today_key = datetime.now().strftime("%Y-%m-%d")
-    for row in rows:
+    period_ids = {_safe_int_id(row.get("id")) for row in rows if _safe_int_id(row.get("id"))}
+    for row in combined_rows:
+        in_period = _safe_int_id(row.get("id")) in period_ids
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         info = _factura_payment_info(row)
         row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
@@ -322,6 +343,11 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
         row["complementos_pago"] = comps
         if comps:
             row["latest_complemento_pago"] = comps[0]
+            latest_saldo = comps[0].get("saldo_insoluto")
+            if latest_saldo not in {None, ""}:
+                info["saldo_insoluto"] = _money(latest_saldo)
+                info["payment_status"] = "pagado_con_complemento" if _money(latest_saldo) <= 0 else "parcial_con_complemento"
+                row["payment_info"] = _payment_info_json(info)
         cliente_real = _conciliacion_real_cliente(row, md)
         row["cliente_real"] = cliente_real
         row["cliente_display"] = cliente_real["nombre"]
@@ -331,11 +357,12 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
         if str(row.get("status") or "").lower().startswith("cancel"):
             continue
         amount = float(info["total"])
-        total += amount
-        if discount_info["tiene_descuento"]:
+        if in_period:
+            total += amount
+        if in_period and discount_info["tiene_descuento"]:
             descuentos_periodo += discount_info["total"]
             facturas_con_descuento += 1
-        if cliente_real["es_publico_general"]:
+        if in_period and cliente_real["es_publico_general"]:
             publico += amount
             if cliente_real.get("fuente") and cliente_real.get("fuente") != "metadata":
                 publico_observado += 1
@@ -363,6 +390,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
                     facturas_vigentes += 1
             credito_pagado += max(0.0, amount - saldo)
     facturas_compactas = [_conciliacion_compact_factura(row) for row in rows]
+    ppd_pendientes_compactas = [_conciliacion_compact_factura(row) for row in combined_rows if _gas_lp_factura_is_pending_ppd(row)]
     return JSONResponse({
         "ok": True,
         "periodo": month,
@@ -398,6 +426,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
             "publico_general_observado": int(publico_observado),
         },
         "facturas": facturas_compactas,
+        "ppd_pendientes": ppd_pendientes_compactas,
         "clientes": clientes_compactos,
     })
 
