@@ -2869,6 +2869,9 @@ def _settings_defaults() -> dict[str, Any]:
             "factor_kg_l_default": "",
             "logo_url": "",
             "logo_data_url": "",
+            "pdf_header_color": "#6B7280",
+            "pdf_header_text_color": "#FFFFFF",
+            "pdf_title_color": "#4B5563",
         },
         "productos_habilitados": {
             "gas_lp": True,
@@ -5973,9 +5976,14 @@ async def transporte_v2_operator_carta_porte_pdf(
     settings = _load_settings_admin(acc.get("user_id"), _profile_id(acc.get("perfil_id")))
     fiscal = settings.get("perfil_fiscal") or {}
     logo = _first_text(settings.get("PdfLogoDataUrl"), fiscal.get("logo_data_url"), fiscal.get("logo_url"))
+    pdf_theme = {
+        "header_color": fiscal.get("pdf_header_color") or fiscal.get("color_encabezado_pdf"),
+        "header_text_color": fiscal.get("pdf_header_text_color") or fiscal.get("color_texto_encabezado_pdf"),
+        "title_color": fiscal.get("pdf_title_color") or fiscal.get("color_titulos_pdf"),
+    }
     try:
         info = extraer_info_pdf(xml_content)
-        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo)
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo, pdf_theme)
     except Exception as exc:
         raise HTTPException(500, f"No se pudo generar el PDF de Carta Porte: {exc}") from exc
     disposition = "attachment" if download else "inline"
@@ -6554,9 +6562,14 @@ async def transporte_v2_carta_porte_pdf(
         settings = _settings_defaults()
     fiscal = settings.get("perfil_fiscal") or {}
     logo = _first_text(settings.get("PdfLogoDataUrl"), fiscal.get("logo_data_url"), fiscal.get("logo_url"))
+    pdf_theme = {
+        "header_color": fiscal.get("pdf_header_color") or fiscal.get("color_encabezado_pdf"),
+        "header_text_color": fiscal.get("pdf_header_text_color") or fiscal.get("color_texto_encabezado_pdf"),
+        "title_color": fiscal.get("pdf_title_color") or fiscal.get("color_titulos_pdf"),
+    }
     try:
         info = extraer_info_pdf(xml_content)
-        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo)
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo, pdf_theme)
     except Exception as exc:
         raise HTTPException(500, f"No se pudo generar el PDF de Carta Porte: {exc}") from exc
     disposition = "attachment" if download else "inline"
