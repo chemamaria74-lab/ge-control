@@ -101,7 +101,7 @@ function mergeFacturaFromResponse(factura){
   applyFacturasFilters();
 }
 async function loadComplementos(month=''){
-  const selectedMonth = String(month || document.getElementById('compMes')?.value || todayKey().slice(0,7)).slice(0,7);
+  const selectedMonth = String(month || todayKey().slice(0,7)).slice(0,7);
   const qs = selectedMonth ? '?mes=' + encodeURIComponent(selectedMonth) : '';
   try{
     const data = await api('/api/internal-auth/gas-lp/complementos-pago' + qs);
@@ -116,11 +116,10 @@ async function loadComplementos(month=''){
     setStatus('compEmitidosMsg', e.message || 'No fue posible cargar complementos emitidos.', false);
   }
 }
-async function loadComplementoFacturas(month=''){
-  const selectedMonth = String(month || document.getElementById('compMes')?.value || todayKey().slice(0,7)).slice(0,7);
+async function loadComplementoFacturas(){
   if(window.complementosRows) complementosRows.innerHTML = '<tr><td colspan="6">Cargando facturas PPD pendientes...</td></tr>';
   try{
-    const data = await api('/api/internal-auth/gas-lp/facturas?complementos=1&deep=1&mes=' + encodeURIComponent(selectedMonth));
+    const data = await api('/api/internal-auth/gas-lp/facturas?complementos=1&deep=1');
     COMPLEMENTO_FACTURAS = data.facturas || [];
     COMPLEMENTOS_PAGO_SEARCHED = true;
     renderComplementosPago();
@@ -143,9 +142,8 @@ function loadFacturasSelectedMonth(){
   return loadFacturas(facturaMes?.value || '', {limit:10000, deep:true, receptorRfc:selectedFacturaClientRfc()});
 }
 async function refreshComplementosPagoData(){
-  const month = document.getElementById('compMes')?.value || todayKey().slice(0,7);
   COMP_SEL = {};
-  await Promise.allSettled([loadComplementoFacturas(month), loadComplementos(month)]);
+  await Promise.allSettled([loadComplementoFacturas(), loadComplementos()]);
   renderComplementosPago();
 }
 function facturaAmount(f){
@@ -678,12 +676,11 @@ function complementoRows(options={}){
   const selectedClient = String(document.getElementById('compClienteFilter')?.value || '').trim().toUpperCase();
   const desde = document.getElementById('compDesde')?.value || '';
   const hasta = document.getElementById('compHasta')?.value || '';
-  const estado = document.getElementById('compEstado')?.value || 'pendiente';
   return (COMPLEMENTO_FACTURAS || []).filter(f => {
     const md = f.metadata || {};
     const isTransfer = f.tipo_operacion === 'traspaso' || md.tipo_operacion === 'traspaso' || f.is_transfer || md.is_transfer;
     if(!isPPD(f) || isCanceled(f) || isTransfer) return false;
-    if(estado === 'pendiente' && isPaid(f)) return false;
+    if(isPaid(f)) return false;
     const key = facturaDateKey(f);
     if(!options.ignoreClient && selectedClient && complementoClientKey(f) !== selectedClient) return false;
     if(desde && key < desde) return false;
@@ -761,23 +758,6 @@ function clearComplementSelection(){
   COMP_SEL = {};
   COMP_CONFIRM_CONTEXT = null;
   setStatus('compMsg','');
-  renderComplementosPago();
-}
-async function applyComplementMonthFilter(){
-  const month = document.getElementById('compMes')?.value || '';
-  if(month){
-    compDesde.value = `${month}-01`;
-    const d = new Date(`${month}-01T00:00:00`);
-    d.setMonth(d.getMonth() + 1);
-    d.setDate(0);
-    compHasta.value = localDateTimeValue(d).slice(0,10);
-  } else {
-    compDesde.value = '';
-    compHasta.value = '';
-  }
-  COMP_SEL = {};
-  COMPLEMENTO_FACTURAS = [];
-  COMPLEMENTOS_PAGO_SEARCHED = false;
   renderComplementosPago();
 }
 function complementoSelectedRows(){
@@ -897,7 +877,7 @@ async function confirmTimbrarComplementoPago(){
     showComplementoTimbradoSuccess(data, docs, emailMsg, !!email.ok || !email.error);
     compModalConfirmBtn.disabled = false;
     closeComplementValidation();
-    await loadComplementoFacturas(document.getElementById('compMes')?.value || '');
+    await loadComplementoFacturas();
     if(FACTURAS_LOADED) await loadFacturas(document.getElementById('facturaMes')?.value || todayKey().slice(0,7));
     await loadComplementos();
   }catch(e){ setStatus('compModalMsg',e.message,false); }

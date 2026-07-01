@@ -188,8 +188,7 @@ function switchBillingTab(tab){
   if(active === 'facturas') applyFacturasFilters();
   if(active === 'complementos') {
     if(!compFechaPago.value) compFechaPago.value = localDateTimeValue();
-    if(window.compMes && !compMes.value) compMes.value = todayKey().slice(0,7);
-    applyComplementMonthFilter();
+    renderComplementosPago();
   }
 }
 function switchClientsTab(tab){
