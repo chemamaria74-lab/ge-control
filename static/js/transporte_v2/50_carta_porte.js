@@ -42,6 +42,14 @@ function trv2SetCartaPorteStampedFilter(filter = 'hoy') {
   trv2LoadStampedCartaPorte();
 }
 
+function trv2SetCartaPorteStampedMonth(value = '') {
+  TRV2_CP_STAMPED_MONTH = value || new Date().toISOString().slice(0, 7);
+  TRV2_CP_STAMPED_FILTER = 'todas';
+  TRV2_CP_WORKFLOW = 'todas';
+  trv2LoadStampedCartaPorte();
+  trv2RenderCartaPorteWorkflow();
+}
+
 function trv2StampedCartaPorteDate(value = '') {
   if (!value) return 'Sin fecha';
   const date = new Date(value);
@@ -58,12 +66,18 @@ function trv2SetStampedCounts(filter, count) {
 
 async function trv2LoadStampedCartaPorte(options = {}) {
   const filter = TRV2_CP_STAMPED_FILTER || 'hoy';
+  const monthInput = document.getElementById('trv2-cp-stamped-month');
+  const monthWrap = document.getElementById('trv2-cp-stamped-month-wrap');
+  if (monthInput && !monthInput.value) monthInput.value = TRV2_CP_STAMPED_MONTH;
+  if (monthWrap) monthWrap.hidden = filter !== 'todas';
   document.getElementById('trv2-cp-workflow-tab-hoy')?.classList.toggle('active', TRV2_CP_WORKFLOW === 'hoy');
   document.getElementById('trv2-cp-workflow-tab-todas')?.classList.toggle('active', TRV2_CP_WORKFLOW === 'todas');
   const list = document.getElementById('trv2-cp-stamped-list');
   if (!list) return;
   list.innerHTML = '<div class="trv2-empty">Cargando Cartas Porte timbradas...</div>';
-  const data = await trv2Api('GET', `/api/tr-v2/carta-porte/timbradas?filtro=${encodeURIComponent(filter)}`, undefined, {silent: Boolean(options.silent), allowError: true});
+  const query = new URLSearchParams({filtro: filter});
+  if (filter === 'todas' && TRV2_CP_STAMPED_MONTH) query.set('periodo', TRV2_CP_STAMPED_MONTH);
+  const data = await trv2Api('GET', `/api/tr-v2/carta-porte/timbradas?${query.toString()}`, undefined, {silent: Boolean(options.silent), allowError: true});
   if (!data?.ok) {
     list.innerHTML = `<div class="trv2-empty">${trv2Esc(data?.detail || data?.message || 'No se pudieron cargar Cartas Porte timbradas.')}</div>`;
     return;

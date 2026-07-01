@@ -77,6 +77,8 @@ function trv2CvTripDate(row) {
 
 function trv2CvStatus(row, productName) {
   const meta = row.metadata || {};
+  const status = String(row.estatus || row.status || meta.estatus || meta.status || meta.carta_porte_status || '').toLowerCase();
+  if (status.includes('cancel')) return 'cancelado';
   if (meta.cv_exportado) return 'exportado';
   if (meta.cv_validado) return 'validado';
   if (!trv2IsHydrocarbonProduct(productName)) return 'alerta';
@@ -138,6 +140,7 @@ function trv2BuildCvMovements() {
     if (productFilter && Number(item.row.producto_id) !== productFilter) return false;
     if (permisoFilter && item.permiso !== permisoFilter) return false;
     if (statusFilter && item.status !== statusFilter) return false;
+    if (item.status === 'cancelado') return false;
     if (item.date && yearFilter && item.date.getFullYear() !== yearFilter) return false;
     if (item.date && monthFilter && item.date.getMonth() + 1 !== monthFilter) return false;
     return true;
@@ -190,7 +193,7 @@ function trv2RenderCvKpis(movements) {
   const cards = [
     ['Volumen transportado', `${volume.toLocaleString('es-MX')} L`],
     ['Viajes', movements.length],
-    ['Volumen exportable JSON', `${exportableVolume.toLocaleString('es-MX')} L`],
+    ['Volumen exportable XML', `${exportableVolume.toLocaleString('es-MX')} L`],
     ['Cartas Porte timbradas', exportableMovements.length],
     ['UUIDs válidos exportables', exportableMovements.length],
     ['Pendientes de validar', alerts],
@@ -247,7 +250,7 @@ async function trv2LoadControlVolumetrico() {
   trv2RenderCvTable(TRV2_CV_MOVEMENTS);
   const alert = document.getElementById('trv2-cv-alert');
   if (alert) {
-    alert.textContent = 'Listo para generar JSON SAT con viajes timbrados del periodo.';
+    alert.textContent = 'Listo para cerrar mes y generar ZIP XML SAT con viajes timbrados del periodo.';
   }
 }
 
@@ -259,8 +262,8 @@ function trv2RefreshCvView() {
   const alert = document.getElementById('trv2-cv-alert');
   if (alert) {
     alert.textContent = document.getElementById('trv2-cv-permiso')?.value
-      ? 'Filtro actualizado. El JSON SAT tomará únicamente viajes timbrados del periodo y permiso seleccionado.'
-      : 'Selecciona permiso y periodo para generar JSON SAT Transporte.';
+      ? 'Filtro actualizado. El ZIP XML SAT tomará únicamente viajes timbrados vigentes del periodo y permiso seleccionado.'
+      : 'Selecciona permiso y periodo para cerrar mes y generar ZIP XML SAT Transporte.';
   }
 }
 
@@ -297,10 +300,10 @@ async function trv2GenerateCvReport(format = 'zip') {
   const mes = Number(document.getElementById('trv2-cv-mes')?.value || 0);
   const alert = document.getElementById('trv2-cv-alert');
   if (!permiso || !anio || !mes) {
-    trv2Toast('Selecciona permiso, año y mes para generar JSON SAT.', 'error');
+    trv2Toast('Selecciona permiso, año y mes para generar XML SAT.', 'error');
     return;
   }
-  if (alert) alert.textContent = 'Generando JSON SAT Transporte...';
+  if (alert) alert.textContent = 'Generando XML SAT Transporte...';
   const response = await trv2Api('POST', '/api/tr-v2/control-volumetrico/generar', {
     perfil_id: TRV2_PERFIL?.id || null,
     anio,
@@ -311,17 +314,48 @@ async function trv2GenerateCvReport(format = 'zip') {
     descripcion_instalacion: '',
   }, {allowError: true});
   if (!response?.ok) {
-    const detail = response?.detail || response?.message || 'No se pudo generar JSON SAT Transporte.';
+    const detail = response?.detail || response?.message || 'No se pudo generar XML SAT Transporte.';
     const message = typeof detail === 'string' ? detail : JSON.stringify(detail);
     if (alert) alert.textContent = message;
     trv2Toast(message, 'error');
     return;
   }
   window.TRV2_LAST_CV_REPORT = response;
-  if (format === 'json') trv2DownloadTextFile(response.json_name, response.json_content, 'application/json');
+  if (format === 'xml') trv2DownloadTextFile(response.xml_name || response.json_name, response.xml_content || response.json_content, 'application/xml');
+  else if (format === 'json') trv2DownloadTextFile(response.json_name, response.json_content, 'application/json');
   else trv2DownloadBase64File(response.zip_name, response.zip_b64, 'application/zip');
   if (alert) alert.textContent = `Reporte ${response.periodo} generado para permiso ${response.num_permiso_cne}.`;
-  trv2Toast('JSON SAT Transporte generado.', 'success');
+  trv2Toast('XML SAT Transporte generado.', 'success');
+}
+
+async function trv2CloseCvMonth() {
+  const permiso = document.getElementById('trv2-cv-permiso')?.value || '';
+  const anio = Number(document.getElementById('trv2-cv-anio')?.value || 0);
+  const mes = Number(document.getElementById('trv2-cv-mes')?.value || 0);
+  const alert = document.getElementById('trv2-cv-alert');
+  if (!permiso || !anio || !mes) {
+    trv2Toast('Selecciona permiso, año y mes para cerrar el mes.', 'error');
+    return;
+  }
+  if (!confirm(`Cerrar mes ${anio}-${String(mes).padStart(2, '0')} para el permiso ${permiso}?`)) return;
+  if (alert) alert.textContent = 'Cerrando mes Transporte...';
+  const response = await trv2Api('POST', '/api/tr-v2/control-volumetrico/cerrar-mes', {
+    perfil_id: TRV2_PERFIL?.id || null,
+    anio,
+    mes,
+    num_permiso_cne: permiso,
+    clave_instalacion: '',
+    descripcion_instalacion: '',
+  }, {allowError: true});
+  if (!response?.ok) {
+    const detail = response?.detail || response?.message || 'No se pudo cerrar el mes.';
+    const message = typeof detail === 'string' ? detail : JSON.stringify(detail);
+    if (alert) alert.textContent = message;
+    trv2Toast(message, 'error');
+    return;
+  }
+  if (alert) alert.textContent = `Mes ${response.periodo} cerrado para permiso ${response.num_permiso_cne}. Ya puedes descargar el ZIP XML.`;
+  trv2Toast('Mes cerrado.', 'success');
 }
 
 function trv2ValidateCvDraft() {
@@ -335,7 +369,7 @@ function trv2ValidateCvDraft() {
     notExportable ? `${notExportable} movimiento(s) visibles no son exportables porque no están timbrados con UUID válido.` : 'Todos los movimientos filtrados están timbrados y con UUID válido.',
     missingUuid ? `${missingUuid} movimiento(s) sin UUID Carta Porte válido.` : 'UUID Carta Porte válido en movimientos exportables.',
     nonHydrocarbon ? `${nonHydrocarbon} movimiento(s) requieren confirmar si aplican a hidrocarburos/petrolíferos.` : 'Productos del periodo parecen compatibles con Control Volumétrico.',
-    'Exportar JSON SAT tomará únicamente viajes timbrados del periodo.',
+    'Exportar ZIP XML SAT tomará únicamente viajes timbrados vigentes del periodo.',
   ].join(' ');
   if (alert) alert.textContent = message;
   trv2Toast('Borrador de Control Volumétrico validado.', notExportable ? 'error' : 'success');
