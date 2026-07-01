@@ -105,6 +105,7 @@ def test_conciliacion_credito_ppd_exposes_due_tracking():
         "Peor atraso",
         "function creditStatusForFactura",
         "CLIENTES=d.clientes||[]",
+        "PPD_PENDIENTES=d.ppd_pendientes||[]",
         "creditBadgeHtml(info)",
         "dias_vencidos",
     ):
@@ -1678,6 +1679,8 @@ def test_assistant_load_facturas_does_not_pollute_main_invoice_status_by_default
 
 def test_assistant_complementos_search_is_manual_and_all_pending_ppd():
     html = _assistant_frontend_source()
+    rows_source = inspect.getsource(internal_users._gas_lp_company_facturas_rows_impl)
+    facturas_source = inspect.getsource(internal_users.gas_lp_internal_facturas)
     switch_start = html.index("function switchBillingTab")
     switch_end = html.index("function switchClientsTab", switch_start)
     switch_source = html[switch_start:switch_end]
@@ -1691,6 +1694,9 @@ def test_assistant_complementos_search_is_manual_and_all_pending_ppd():
     assert "loadComplementoFacturas()" in refresh_source
     assert "loadComplementoFacturas(month)" not in refresh_source
     assert "/api/internal-auth/gas-lp/facturas?complementos=1&deep=1&mes=" not in html
+    assert "metodo_pago\", \"PPD\"" not in rows_source
+    assert "saldo_insoluto\", 0" not in rows_source
+    assert "rows = [row for row in rows if _gas_lp_factura_is_pending_ppd(row)]" in facturas_source
     assert 'id="compMes"' not in html
     assert 'id="compEstado"' not in html
     assert "Presiona Buscar para consultar todas las facturas PPD pendientes." in html
@@ -1743,6 +1749,7 @@ def test_assistant_today_invoices_use_backend_date_key_and_current_month():
     assert "function facturaFiscalDateValue" in html
     assert "wallClockDateParts(fiscalValue)" in html
     assert "todayFacturasRows" in html
+    assert "const values = [f.fecha_emision, md.fecha_emision, md.fecha_cfdi, cfdiFechaFromXml(f.xml_content), f.fecha_timbrado, f.created_at]" in html
 
 
 def test_conciliacion_publico_general_list_uses_backend_date_key():
@@ -1751,6 +1758,10 @@ def test_conciliacion_publico_general_list_uses_backend_date_key():
 
     assert 'row["fecha_factura_key"] = _gas_lp_factura_date_key(row)' in summary_source
     assert "function facturaDateKey(f)" in html
+    assert "ppd_pending=True" in summary_source
+    assert '"ppd_pendientes": ppd_pendientes_compactas' in summary_source
+    assert "renderComplementClientOptions(PPD_PENDIENTES)" in html
+    assert "renderComplementos(PPD_PENDIENTES)" in html
     assert "facturaDateKey(f)!==day" in html
     assert "publicNameKey" in html
     assert "isPublicoGeneral(f)&&facturaDateKey(f)===key" in html
