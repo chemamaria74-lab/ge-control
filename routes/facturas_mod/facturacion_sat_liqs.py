@@ -34,6 +34,34 @@ def _service_invoice_payment_defaults(cliente_cfg: dict, settings: dict) -> dict
         forma = "99"
     return {"metodo_pago": metodo, "forma_pago": forma}
 
+
+def _fact_serv_trip_meta(row: dict) -> dict:
+    meta = row.get("metadata") or row.get("defaults_json") or {}
+    if isinstance(meta, str):
+        try:
+            parsed = json.loads(meta)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def _fact_serv_trip_period(row: dict) -> str:
+    return str(row.get("fecha_hora_salida") or row.get("fecha_salida") or row.get("created_at") or "")[:7]
+
+
+def _fact_serv_trip_permit(row: dict) -> str:
+    meta = _fact_serv_trip_meta(row)
+    return str(
+        row.get("num_permiso_cne")
+        or meta.get("num_permiso_cne")
+        or meta.get("permiso_transportista")
+        or meta.get("permiso_cre_transportista")
+        or meta.get("permiso_cre")
+        or ""
+    ).strip()
+
+
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
     perfil_id: Optional[int] = Query(None),
@@ -131,6 +159,44 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     no_timbrados = [v["id"] for v in viajes if not v.get("uuid_cfdi")]
     if no_timbrados:
         raise HTTPException(400, f"Para facturar el servicio, primero timbra la Carta Porte de los viajes: {no_timbrados}")
+    cancelados = []
+    for v in viajes:
+        meta = _fact_serv_trip_meta(v)
+        text = " ".join(str(value or "") for value in [
+            v.get("status"), v.get("estatus"), v.get("carta_porte_status"),
+            meta.get("status"), meta.get("estatus"), meta.get("carta_porte_status"),
+        ]).lower()
+        if "cancel" in text:
+            cancelados.append(v.get("id"))
+    if cancelados:
+        raise HTTPException(400, f"Estas Cartas Porte están canceladas y no se pueden facturar: {cancelados}")
+    if perfil_factura:
+        cerrados = []
+        for v in viajes:
+            periodo_viaje = _fact_serv_trip_period(v)
+            permiso_viaje = _fact_serv_trip_permit(v)
+            if not periodo_viaje or not permiso_viaje:
+                continue
+            try:
+                cierre = (
+                    sb.table("tr_covol_month_closures")
+                    .select("id")
+                    .eq("user_id", uid)
+                    .eq("perfil_id", perfil_factura)
+                    .eq("periodo", periodo_viaje)
+                    .eq("num_permiso_cne", permiso_viaje)
+                    .eq("status", "cerrado")
+                    .limit(1)
+                    .execute()
+                    .data
+                    or []
+                )
+                if cierre:
+                    cerrados.append({"viaje": v.get("id"), "periodo": periodo_viaje, "permiso": permiso_viaje})
+            except Exception:
+                pass
+        if cerrados:
+            raise HTTPException(409, f"El mes ya está cerrado para estas Cartas Porte: {cerrados}")
     try:
         ya_q = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid).in_("viaje_id", payload.viaje_ids)
         if perfil_factura:
