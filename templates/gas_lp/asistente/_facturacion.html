@@ -113,6 +113,9 @@
           <div><label>Fecha pago</label><input id="compFechaPago" type="datetime-local"></div>
           <div><label>Forma de pago</label><select id="compFormaPago"><option value="03">03 - Transferencia</option><option value="01">01 - Efectivo</option><option value="02">02 - Cheque nominativo</option><option value="04">04 - Tarjeta de crédito</option><option value="28">28 - Tarjeta de débito</option></select></div>
         </div>
+        <div class="filters compact-filters" style="margin-bottom:12px">
+          <div><label>Buscar por cliente</label><select id="compClienteFilter" onchange="onComplementClientChange()"><option value="">Todos los clientes pendientes</option></select></div>
+        </div>
         <div class="table-wrap complementos-scroll"><table><thead><tr><th></th><th>Factura</th><th>Cliente</th><th>Total</th><th>Saldo</th><th>Validación</th></tr></thead><tbody id="complementosRows"><tr><td colspan="6">Presiona Buscar para consultar todas las facturas PPD pendientes.</td></tr></tbody></table></div>
         <div class="selection">
           <div>
