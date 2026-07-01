@@ -59,6 +59,7 @@ TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
 TBL_AUDITORIA = "transporte_v2_auditoria"
 TBL_CFDI = "tr_cfdi"
 TBL_COVOL = "tr_covol_reports"
+TBL_COVOL_CIERRES = "tr_covol_month_closures"
 VEHICLE_DB_FIELDS = {
     "alias",
     "numero_economico",
@@ -275,6 +276,15 @@ class TransporteV2CartaPorteCancelRequest(BaseModel):
     solo_operativo: bool = False
 
 
+class TransporteV2CovolCloseRequest(BaseModel):
+    perfil_id: Optional[int] = None
+    anio: int
+    mes: int
+    num_permiso_cne: str
+    clave_instalacion: str = ""
+    descripcion_instalacion: str = ""
+
+
 class TransporteV2OperatorAccessCreate(BaseModel):
     perfil_id: Optional[int] = None
     chofer_id: int
@@ -301,6 +311,26 @@ class TransporteV2PermisoPayload(BaseModel):
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _periodo_month_bounds(periodo: str) -> tuple[str, str]:
+    if not re.match(r"^\d{4}-\d{2}$", str(periodo or "")):
+        raise HTTPException(400, "Periodo inválido. Usa formato YYYY-MM.")
+    year = int(periodo[:4])
+    month = int(periodo[5:7])
+    if month < 1 or month > 12:
+        raise HTTPException(400, "Mes inválido.")
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    if month == 12:
+        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+    return start.isoformat(), end.isoformat()
+
+
+def _status_cancelado(*values: Any) -> bool:
+    text = " ".join(str(value or "") for value in values).lower()
+    return "cancel" in text
 
 
 def _local_name(tag: str) -> str:
@@ -5018,6 +5048,79 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _covol_month_closed(sb: Any, uid: str, pid: int, periodo: str, permiso: str) -> dict[str, Any] | None:
+    try:
+        rows = (
+            sb.table(TBL_COVOL_CIERRES)
+            .select("*")
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .eq("periodo", periodo)
+            .eq("num_permiso_cne", permiso)
+            .eq("status", "cerrado")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return rows[0] if rows else None
+    except Exception as exc:
+        logger.warning("No se pudo consultar cierre COVOL Transporte: %s", exc)
+        raise HTTPException(409, "Falta aplicar la migración de cierre mensual Transporte.")
+
+
+@router.post("/tr-v2/control-volumetrico/cerrar-mes")
+async def transporte_v2_cerrar_mes_control_volumetrico(
+    payload: TransporteV2CovolCloseRequest,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    header_pid = _profile_id(None, x_perfil_id)
+    payload_pid = _profile_id(payload.perfil_id)
+    if header_pid and payload_pid and header_pid != payload_pid:
+        raise HTTPException(409, "La empresa activa no coincide entre el formulario y X-Perfil-Id.")
+    pid = header_pid or payload_pid
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "perfil_id requerido para cerrar mes.")
+    periodo = f"{payload.anio:04d}-{payload.mes:02d}"
+    selected_permiso = _first_text(payload.num_permiso_cne)
+    if not selected_permiso:
+        raise HTTPException(400, "Selecciona permiso CRE/CNE transportista.")
+    sb = _sb(token)
+    now = _now_iso()
+    metadata = {
+        "descripcion_instalacion": _first_text(payload.descripcion_instalacion),
+        "cerrado_desde": "transporte_v2",
+    }
+    row = {
+        "user_id": uid,
+        "perfil_id": pid,
+        "periodo": periodo,
+        "num_permiso_cne": selected_permiso,
+        "clave_instalacion": _first_text(payload.clave_instalacion),
+        "tipo_reporte": "TRA",
+        "status": "cerrado",
+        "metadata": metadata,
+        "closed_at": now,
+        "closed_by": uid,
+        "updated_at": now,
+    }
+    try:
+        sb.table(TBL_COVOL_CIERRES).upsert(
+            row,
+            on_conflict="user_id,perfil_id,periodo,num_permiso_cne",
+        ).execute()
+    except Exception as exc:
+        raise HTTPException(409, f"No se pudo cerrar el mes. Verifica la migración de cierre mensual: {exc}") from exc
+    _audit(uid, token, pid, TBL_COVOL_CIERRES, None, "cerrar_mes_covol", {
+        "periodo": periodo,
+        "num_permiso_cne": selected_permiso,
+    })
+    return {"ok": True, "closed": True, "periodo": periodo, "num_permiso_cne": selected_permiso}
+
+
 @router.post("/tr-v2/control-volumetrico/generar")
 async def transporte_v2_generar_control_volumetrico(
     payload: GenerarCovolRequest,
@@ -5037,13 +5140,15 @@ async def transporte_v2_generar_control_volumetrico(
     selected_permiso = _first_text(payload.num_permiso_cne)
     if not selected_permiso:
         raise HTTPException(400, "Selecciona permiso CRE/CNE transportista.")
+    sb = _sb(token)
+    cierre = _covol_month_closed(sb, uid, pid, periodo, selected_permiso)
+    if not cierre:
+        raise HTTPException(409, "Primero cierra el mes para este permiso. Después descarga el ZIP SAT.")
     settings = _load_settings(token, uid, pid)
     fiscal = settings.get("perfil_fiscal") or {}
     rfc_contribuyente = _first_text(fiscal.get("rfc_contribuyente"))
     if not rfc_contribuyente:
         raise HTTPException(400, "Configura RFC fiscal de Transporte en Administración.")
-
-    sb = _sb(token)
     rows = (
         sb.table(TBL_VIAJES)
         .select("*")
@@ -5062,6 +5167,8 @@ async def transporte_v2_generar_control_volumetrico(
     permisos_detectados: set[str] = set()
     for row in rows:
         meta = _meta(row)
+        if _status_cancelado(row.get("status"), row.get("estatus"), row.get("carta_porte_status"), meta.get("carta_porte_status")):
+            continue
         permiso_viaje = _first_text(row.get("num_permiso_cne"), meta.get("num_permiso_cne"), meta.get("permiso_transportista"), selected_permiso)
         if permiso_viaje:
             permisos_detectados.add(permiso_viaje)
@@ -5085,10 +5192,11 @@ async def transporte_v2_generar_control_volumetrico(
     covol_settings = {
         "RfcContribuyente": rfc_contribuyente,
         "NombreContribuyente": _first_text(fiscal.get("nombre_fiscal")),
+        "RfcProveedor": "ATI9404219D5",
         "NumPermiso": selected_permiso,
-        "ClaveInstalacion": payload.clave_instalacion or fiscal.get("clave_instalacion") or "",
-        "DescripcionInstalacion": payload.descripcion_instalacion or fiscal.get("descripcion_instalacion") or "",
-        "ModalidadPermiso": "PER51",
+        "ClaveInstalacion": payload.clave_instalacion or cierre.get("clave_instalacion") or fiscal.get("clave_instalacion") or "",
+        "DescripcionInstalacion": payload.descripcion_instalacion or (cierre.get("metadata") or {}).get("descripcion_instalacion") or fiscal.get("descripcion_instalacion") or "",
+        "ModalidadPermiso": _first_text(fiscal.get("modalidad_permiso"), "PER51"),
         "display_name": _first_text(fiscal.get("nombre_fiscal"), "GE Control Transporte"),
     }
     try:
@@ -5111,7 +5219,7 @@ async def transporte_v2_generar_control_volumetrico(
             "filename_base": meta.get("first_uuid", "")[:8],
             "json_name": archivos["json_name"],
             "zip_name": archivos["zip_name"],
-            "json_content": archivos["json_content"],
+            "json_content": archivos.get("xml_content") or archivos["json_content"],
             "zip_b64": archivos["zip_b64"],
             "total_cargas": meta.get("total_cargas", 0),
             "total_descargas": meta.get("total_descargas", 0),
@@ -5124,8 +5232,10 @@ async def transporte_v2_generar_control_volumetrico(
         "ok": True,
         "periodo": periodo,
         "json_name": archivos["json_name"],
+        "xml_name": archivos.get("xml_name"),
         "zip_name": archivos["zip_name"],
         "json_content": archivos["json_content"],
+        "xml_content": archivos.get("xml_content"),
         "zip_b64": archivos["zip_b64"],
         "num_permiso_cne": selected_permiso,
         "permisos_detectados": sorted(permisos_detectados),
@@ -5918,6 +6028,41 @@ async def transporte_v2_crear_viaje(
     metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
     date_validation = metadata.get("validacion_fecha_factura") if isinstance(metadata.get("validacion_fecha_factura"), dict) else {}
     _enforce_document_date_validation(date_validation)
+    periodo_factura = _first_text(
+        metadata.get("fecha_factura"),
+        metadata.get("factura_fecha"),
+        metadata.get("fecha"),
+        (metadata.get("detected") or {}).get("fecha") if isinstance(metadata.get("detected"), dict) else "",
+        payload.fecha_salida,
+    )[:7]
+    permiso_factura = _first_text(
+        metadata.get("num_permiso_cne"),
+        metadata.get("permiso_transportista"),
+        metadata.get("permiso_cre_transportista"),
+        metadata.get("permiso"),
+        (metadata.get("detected") or {}).get("permiso") if isinstance(metadata.get("detected"), dict) else "",
+    )
+    if pid and periodo_factura and permiso_factura:
+        try:
+            cierre_rows = (
+                _sb(token).table(TBL_COVOL_CIERRES)
+                .select("id")
+                .eq("user_id", uid)
+                .eq("perfil_id", pid)
+                .eq("periodo", periodo_factura)
+                .eq("num_permiso_cne", permiso_factura)
+                .eq("status", "cerrado")
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if cierre_rows:
+                raise HTTPException(409, f"El mes {periodo_factura} ya está cerrado para el permiso {permiso_factura}. No se pueden agregar más facturas.")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
     row = _resolve_legacy_trip_row(uid, token, pid, payload)
     try:
         inserted = _insert_table_row_tolerant(_sb(token), TBL_VIAJES, row)
@@ -6222,6 +6367,7 @@ async def transporte_v2_carta_porte_timbrar(
 @router.get("/tr-v2/carta-porte/timbradas")
 async def transporte_v2_carta_porte_timbradas(
     filtro: str = Query(default="hoy"),
+    periodo: Optional[str] = Query(default=None),
     limit: int = Query(default=80, ge=1, le=300),
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
@@ -6247,6 +6393,9 @@ async def transporte_v2_carta_porte_timbradas(
             start = datetime(today.year, today.month, today.day, tzinfo=mx_tz).isoformat()
             end = datetime(today.year, today.month, today.day, tzinfo=mx_tz) + timedelta(days=1)
             query = query.gte("fecha_timbrado", start).lt("fecha_timbrado", end.isoformat())
+        elif periodo:
+            start, end = _periodo_month_bounds(periodo)
+            query = query.gte("fecha_timbrado", start).lt("fecha_timbrado", end)
         return query
 
     try:
@@ -6326,7 +6475,7 @@ async def transporte_v2_carta_porte_timbradas(
             "pac_pdf_url": _first_text(row.get("pdf_url")),
             "fuente": "xml" if xml_summary else "viaje",
         })
-    return {"ok": True, "items": items, "filtro": filtro}
+    return {"ok": True, "items": items, "filtro": filtro, "periodo": periodo}
 
 
 @router.get("/tr-v2/carta-porte/{viaje_id}/pdf")
@@ -6441,11 +6590,23 @@ async def transporte_v2_carta_porte_cancelar(
                 "warning": f"No se pudo enviar cancelación fiscal SAT/PAC; se marcó cancelada operativamente: {exc}",
             }
 
-    cfdi_update = {"status": "Cancelada"}
+    cfdi_update = {
+        "status": "Cancelada",
+        "cancelacion_status": _first_text(cancel_result.get("status"), "operativa"),
+        "cancelacion_motivo": motivo,
+        "cancelacion_uuid_sustitucion": _first_text(payload.uuid_sustitucion),
+        "cancelacion_resultado": cancel_result,
+        "canceled_at": now,
+        "canceled_by": uid,
+    }
     try:
         sb.table(TBL_CFDI).update(cfdi_update).eq("id", cfdi.get("id")).eq("user_id", uid).execute()
     except Exception as exc:
-        raise HTTPException(500, f"No se pudo marcar Carta Porte como cancelada: {exc}") from exc
+        logger.info("Columnas extendidas de cancelación no disponibles en tr_cfdi; usando status simple: %s", exc)
+        try:
+            sb.table(TBL_CFDI).update({"status": "Cancelada"}).eq("id", cfdi.get("id")).eq("user_id", uid).execute()
+        except Exception as fallback_exc:
+            raise HTTPException(500, f"No se pudo marcar Carta Porte como cancelada: {fallback_exc}") from fallback_exc
 
     try:
         trip_rows = sb.table(TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).limit(1).execute().data or []
