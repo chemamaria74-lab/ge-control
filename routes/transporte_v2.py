@@ -30,6 +30,7 @@ from models.transport_schemas import GenerarCovolRequest, ProductoTransporte, Vi
 from services.carta_porte_validation import validar_xml_carta_porte_transporte
 from services.carta_porte_pdf import extraer_info_pdf, generar_pdf_carta_porte_desde_xml, resumen_carta_porte_desde_xml
 from services.carta_porte_permisos import TIPOS_PERMISO_SAT
+from services.cfdi_cancellation import cancel_cfdi_universal
 from services.fiscal_audit import version_xml
 from services.sw_sapien import emitir_timbrar_json, sw_runtime_config, timbrar_cfdi
 from services.transport_builder import build_cfdi_transporte, build_cfdi_transporte_xml
@@ -122,7 +123,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     },
     "operadores": {
         "table": TBL_OPERADORES,
-        "required": ["nombre", "rfc", "licencia"],
+        "required": ["nombre"],
         "allowed": [
             "nombre", "rfc_figura", "rfc", "licencia", "tipo_licencia", "vencimiento_licencia",
             "telefono", "cp", "domicilio", "estado_sat", "municipio_sat", "localidad_sat",
@@ -264,6 +265,14 @@ class TransporteV2CartaPorteTimbrarRequest(BaseModel):
     perfil_id: Optional[int] = None
     viaje_id: int
     confirmar: bool = False
+
+
+class TransporteV2CartaPorteCancelRequest(BaseModel):
+    perfil_id: Optional[int] = None
+    motivo: str = "02"
+    uuid_sustitucion: str = ""
+    notas: str = ""
+    solo_operativo: bool = False
 
 
 class TransporteV2OperatorAccessCreate(BaseModel):
@@ -2868,6 +2877,30 @@ def _load_settings(token: str, uid: str, pid: Optional[int]) -> dict[str, Any]:
         raise HTTPException(500, f"No se pudo cargar configuración Transporte: {exc}")
 
 
+def _load_settings_admin(uid: str, pid: Optional[int]) -> dict[str, Any]:
+    defaults = _settings_defaults()
+    if not pid:
+        return defaults
+    try:
+        rows = (
+            get_supabase_admin()
+            .table(TBL_SETTINGS)
+            .select("*")
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not rows:
+            return defaults
+        data = _parse_json_value(rows[0].get("data"), {})
+        return _deep_merge(defaults, data if isinstance(data, dict) else {})
+    except Exception:
+        return defaults
+
+
 def _save_settings(token: str, uid: str, pid: Optional[int], data: dict[str, Any]) -> dict[str, Any]:
     if not pid:
         raise HTTPException(400, "perfil_id requerido para guardar configuración.")
@@ -4607,6 +4640,51 @@ def _find_duplicate_carta_porte_invoice(
     return None
 
 
+def _carta_porte_folio_number(value: object) -> int:
+    text = str(value or "").strip().upper()
+    if not text:
+        return 0
+    if text.startswith("T"):
+        text = text[1:]
+    digits = "".join(ch for ch in text if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+def _carta_porte_xml_serie_folio(xml_content: object) -> tuple[str, str]:
+    raw = _first_text(xml_content)
+    if not raw:
+        return "", ""
+    try:
+        root = ET.fromstring(raw.encode("utf-8"))
+        return _first_text(root.get("Serie")).upper(), _first_text(root.get("Folio")).upper()
+    except Exception:
+        return "", ""
+
+
+def _next_carta_porte_traslado_folio(sb: Any, uid: str, pid: Optional[int]) -> tuple[str, str]:
+    serie = "T"
+    max_number = 0
+    try:
+        query = (
+            sb.table(TBL_CFDI)
+            .select("xml_content")
+            .eq("user_id", uid)
+            .eq("tipo_cfdi", "T")
+            .order("fecha_timbrado", desc=True)
+            .limit(1000)
+        )
+        if pid:
+            query = query.eq("perfil_id", pid)
+        rows = query.execute().data or []
+        for row in rows:
+            row_serie, row_folio = _carta_porte_xml_serie_folio(row.get("xml_content"))
+            if row_serie == serie:
+                max_number = max(max_number, _carta_porte_folio_number(row_folio))
+    except Exception as exc:
+        logger.info("No se pudo calcular consecutivo Carta Porte; se usara folio inicial: %s", exc)
+    return serie, f"{max_number + 1:02d}"
+
+
 def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     sb = context["sb"]
     uid = context["uid"]
@@ -4676,11 +4754,14 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         logger.info("No se pudo validar idempotencia Carta Porte viaje=%s: %s", viaje_id, exc)
     try:
+        serie_cp, folio_cp = _next_carta_porte_traslado_folio(sb, uid, pid)
         cfdi_dict, id_ccp = build_cfdi_transporte(
             context["viaje_obj"],
             context["emisor"],
             context["operador"],
             context["vehiculo"],
+            serie=serie_cp,
+            folio=folio_cp,
         )
         carta_payload = (cfdi_dict.get("Complemento") or {}).get("cartaporte31:CartaPorte") or {}
         if carta_payload.get("Version") != "3.1" or not carta_payload.get("IdCCP"):
@@ -4871,6 +4952,8 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     metadata.update({
         "uuid_carta_porte": uuid_sat,
         "id_ccp": id_ccp,
+        "serie_carta_porte": cfdi_dict.get("Serie"),
+        "folio_carta_porte": cfdi_dict.get("Folio"),
         "fecha_timbrado": now_iso,
         "cfdi_id": cfdi_saved.get("id"),
         "actor_timbrado": context.get("actor"),
@@ -5727,9 +5810,12 @@ async def transporte_v2_operator_carta_porte_pdf(
     xml_content = cfdi.get("xml_content")
     if not xml_content:
         raise HTTPException(404, "La Carta Porte no tiene XML guardado para generar el PDF.")
+    settings = _load_settings_admin(acc.get("user_id"), _profile_id(acc.get("perfil_id")))
+    fiscal = settings.get("perfil_fiscal") or {}
+    logo = _first_text(settings.get("PdfLogoDataUrl"), fiscal.get("logo_data_url"), fiscal.get("logo_url"))
     try:
         info = extraer_info_pdf(xml_content)
-        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content)
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo)
     except Exception as exc:
         raise HTTPException(500, f"No se pudo generar el PDF de Carta Porte: {exc}") from exc
     disposition = "attachment" if download else "inline"
@@ -6149,7 +6235,6 @@ async def transporte_v2_carta_porte_timbradas(
             sb.table(TBL_CFDI)
             .select(select_cols)
             .eq("user_id", uid)
-            .eq("status", "Vigente")
             .eq("tipo_cfdi", "T")
             .order("fecha_timbrado", desc=True)
             .limit(limit)
@@ -6254,7 +6339,7 @@ async def transporte_v2_carta_porte_pdf(
     uid, token = _auth(authorization)
     pid = _profile_id(None, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).eq("status", "Vigente").eq("tipo_cfdi", "T")
+    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).eq("tipo_cfdi", "T")
     if pid:
         q = q.eq("perfil_id", pid)
     rows = q.order("fecha_timbrado", desc=True).limit(1).execute().data or []
@@ -6289,18 +6374,111 @@ async def transporte_v2_carta_porte_xml(
     uid, token = _auth(authorization)
     pid = _profile_id(None, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).eq("status", "Vigente").eq("tipo_cfdi", "T")
+    q = _stamp_sb().table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).eq("tipo_cfdi", "T")
     if pid:
         q = q.eq("perfil_id", pid)
     rows = q.order("fecha_timbrado", desc=True).limit(1).execute().data or []
     if not rows or not rows[0].get("xml_content"):
         raise HTTPException(404, "XML Carta Porte no encontrado.")
-    filename = f"carta_porte_{rows[0].get('uuid_sat') or viaje_id}.xml"
+    try:
+        info = extraer_info_pdf(rows[0]["xml_content"])
+        filename = info.filename.replace(".pdf", ".xml")
+    except Exception:
+        filename = f"CARTA_PORTE_{rows[0].get('uuid_sat') or viaje_id}.xml"
     return Response(
         content=rows[0]["xml_content"],
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/tr-v2/carta-porte/{viaje_id}/cancelar")
+async def transporte_v2_carta_porte_cancelar(
+    viaje_id: int,
+    payload: TransporteV2CartaPorteCancelRequest,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    sb = _stamp_sb()
+    q = sb.table(TBL_CFDI).select("*").eq("user_id", uid).eq("viaje_id", viaje_id).eq("tipo_cfdi", "T")
+    if pid:
+        q = q.eq("perfil_id", pid)
+    rows = q.order("fecha_timbrado", desc=True).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Carta Porte no encontrada para cancelar.")
+    cfdi = rows[0]
+    if _first_text(cfdi.get("status")).lower() == "cancelada":
+        return {"ok": True, "already_cancelled": True, "message": "La Carta Porte ya estaba cancelada."}
+
+    now = _now_iso()
+    motivo = _first_text(payload.motivo, "02")
+    cancel_result: dict[str, Any] = {"ok": False, "operativa": True}
+    xml_content = _first_text(cfdi.get("xml_content"))
+    if xml_content and not payload.solo_operativo:
+        try:
+            root = ET.fromstring(xml_content.encode("utf-8"))
+            emisor = _first(root, "Emisor")
+            cancel_result = cancel_cfdi_universal(
+                sb=sb,
+                module="transporte_v2",
+                invoice_table=TBL_CFDI,
+                invoice_id=cfdi.get("id"),
+                uuid_sat=_first_text(cfdi.get("uuid_sat")),
+                rfc_emisor=_first_text(emisor.get("Rfc") if emisor is not None else ""),
+                motivo=motivo,
+                uuid_sustitucion=_first_text(payload.uuid_sustitucion),
+                user_id=uid,
+                perfil_id=pid,
+                requested_by=uid,
+            )
+        except Exception as exc:
+            cancel_result = {
+                "ok": False,
+                "operativa": True,
+                "warning": f"No se pudo enviar cancelación fiscal SAT/PAC; se marcó cancelada operativamente: {exc}",
+            }
+
+    cfdi_update = {"status": "Cancelada"}
+    try:
+        sb.table(TBL_CFDI).update(cfdi_update).eq("id", cfdi.get("id")).eq("user_id", uid).execute()
+    except Exception as exc:
+        raise HTTPException(500, f"No se pudo marcar Carta Porte como cancelada: {exc}") from exc
+
+    try:
+        trip_rows = sb.table(TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).limit(1).execute().data or []
+        trip = trip_rows[0] if trip_rows else {}
+        metadata = _meta(trip)
+        metadata.update({
+            "carta_porte_status": "cancelada",
+            "cancelada_at": now,
+            "motivo_cancelacion": motivo,
+            "notas_cancelacion": _first_text(payload.notas),
+            "cancelacion_carta_porte": cancel_result,
+        })
+        _stamp_update_viaje(sb, uid, pid, viaje_id, {
+            "status": "cancelado",
+            "estatus": "cancelado",
+            "carta_porte_status": "cancelada",
+            "defaults_json": metadata,
+            "updated_at": now,
+        })
+    except Exception as exc:
+        logger.info("Carta Porte cancelada en tr_cfdi pero no se pudo actualizar viaje=%s: %s", viaje_id, exc)
+    _audit(uid, token, pid, TBL_CFDI, cfdi.get("id"), "cancelar_carta_porte", {
+        "viaje_id": viaje_id,
+        "uuid_sat": cfdi.get("uuid_sat"),
+        "motivo": motivo,
+        "resultado": cancel_result,
+    })
+    return {
+        "ok": True,
+        "message": "Carta Porte marcada como cancelada.",
+        "cancelacion": cancel_result,
+        "status": "Cancelada",
+    }
 
 
 @router.post("/tr-v2/operator/carta-porte/timbrar")
