@@ -92,7 +92,11 @@ async function trv2LoadStampedCartaPorte(options = {}) {
   const rows = items.map(item => {
     const uuid = item.uuid_sat || 'UUID pendiente';
     const status = String(item.status || '').toLowerCase();
-    const cancelled = status.includes('cancel');
+    const cancelStatus = String(item.cancelacion_status || '').toLowerCase();
+    const cancelResult = item.cancelacion_resultado || {};
+    const cancelConfirmed = item.cancelacion_confirmada === true || cancelResult.ok === true || ['cancelled', 'cancelado', 'cancelada', 'ok'].includes(cancelStatus);
+    const cancelError = !cancelConfirmed && (cancelStatus.includes('error') || cancelResult.error || cancelResult.diagnostic);
+    const cancelled = status.includes('cancel') && cancelConfirmed;
     const fecha = trv2StampedCartaPorteDate(item.fecha_timbrado);
     const litros = Number(item.volumen_litros || 0).toLocaleString('es-MX');
     const peso = Number(item.peso_kg || 0).toLocaleString('es-MX');
@@ -106,7 +110,7 @@ async function trv2LoadStampedCartaPorte(options = {}) {
         <td>${trv2Esc(peso)} kg</td>
         <td>${trv2Esc(item.vehiculo_alias || '')}</td>
         <td>${trv2Esc(item.operador_nombre || '')}</td>
-        <td><code title="${trv2Esc(uuid)}">${trv2Esc(uuid)}</code>${cancelled ? '<span class="trv2-cp-status trv2-cp-status-cancelled">Cancelada</span>' : ''}</td>
+        <td><code title="${trv2Esc(uuid)}">${trv2Esc(uuid)}</code>${cancelled ? '<span class="trv2-cp-status trv2-cp-status-cancelled">Cancelada</span>' : ''}${cancelError ? '<span class="trv2-cp-status trv2-cp-status-warning">Error cancelación</span>' : ''}</td>
         <td class="trv2-doc-actions">
           <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2DownloadCartaPorteFile(${Number(item.viaje_id || 0)}, 'pdf')"><i class="fa-solid fa-file-pdf"></i> PDF</button>
           <button class="trv2-mini-btn" type="button" onclick="trv2DownloadCartaPorteFile(${Number(item.viaje_id || 0)}, 'xml')"><i class="fa-solid fa-file-code"></i> XML</button>
@@ -141,11 +145,11 @@ async function trv2CancelCartaPorte(viajeId) {
     solo_operativo: false,
   }, {allowError: true});
   if (data?.ok) {
-    const warning = data.cancelacion?.warning || '';
-    trv2Toast(warning || 'Carta Porte cancelada.', warning ? 'info' : 'success');
+    trv2Toast('Carta Porte cancelada en SW Sapiens.', 'success');
     await trv2LoadStampedCartaPorte({silent: true});
   } else {
-    trv2Toast(data?.detail || data?.message || 'No se pudo cancelar Carta Porte.', 'error');
+    const detail = data?.detail || data?.message || 'No se pudo cancelar Carta Porte.';
+    trv2Toast(typeof detail === 'string' ? detail : (detail.message || JSON.stringify(detail)), 'error');
   }
 }
 

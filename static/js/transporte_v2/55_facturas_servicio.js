@@ -4,7 +4,7 @@ let TRV2_SERVICE_TAB = 'pendientes';
 let TRV2_SERVICE_TARIFFS = [];
 let TRV2_SERVICE_INVOICES = [];
 let TRV2_SERVICE_INVOICE_BUSY = false;
-let TRV2_SERVICE_MONTH = new Date().toISOString().slice(0, 7);
+let TRV2_SERVICE_MONTH = '';
 
 function trv2ServiceStorageKey(base) {
   return `${base}_${TRV2_PERFIL?.id || 'sin_perfil'}`;
@@ -47,7 +47,19 @@ function trv2ServiceTripMeta(row, key) {
 }
 
 function trv2ServiceSetMonth(value = '') {
-  TRV2_SERVICE_MONTH = String(value || '').slice(0, 7) || new Date().toISOString().slice(0, 7);
+  TRV2_SERVICE_MONTH = String(value || '').slice(0, 7);
+  const mode = document.getElementById('trv2-service-month-mode');
+  if (mode) mode.value = TRV2_SERVICE_MONTH ? 'month' : '';
+  trv2LoadServiceInvoices();
+}
+
+function trv2ServiceSetMonthMode(value = '') {
+  const input = document.getElementById('trv2-service-month');
+  if (input) input.hidden = value !== 'month';
+  TRV2_SERVICE_MONTH = value === 'month'
+    ? (String(input?.value || '').slice(0, 7) || new Date().toISOString().slice(0, 7))
+    : '';
+  if (input && value === 'month') input.value = TRV2_SERVICE_MONTH;
   trv2LoadServiceInvoices();
 }
 
@@ -58,6 +70,10 @@ function trv2ServiceRowMonth(row = {}) {
 
 function trv2ServiceIsCancelled(row = {}) {
   const meta = row.metadata || {};
+  const cancelData = meta.cancelacion_carta_porte || row.cancelacion_resultado || {};
+  const cancelStatus = String(row.cancelacion_status || cancelData.status || '').toLowerCase();
+  const rejected = cancelData.operativa === true || cancelStatus.includes('operativa') || cancelStatus.includes('error') || cancelStatus.includes('rechaz');
+  if (rejected) return false;
   const text = [
     row.status, row.estatus, row.carta_porte_status,
     meta.status, meta.estatus, meta.carta_porte_status,
@@ -169,7 +185,8 @@ function trv2ServiceCalc(tarifa, serviceOrKilos, maybeTariff = null) {
 
 function trv2ServicePendingRows() {
   const invoices = trv2ReadServiceInvoices();
-  const billedTrips = new Set(invoices.flatMap(item => (
+  const activeInvoices = invoices.filter(item => !String(item.status || item.estatus || '').toLowerCase().includes('cancel'));
+  const billedTrips = new Set(activeInvoices.flatMap(item => (
     Array.isArray(item.viaje_ids) ? item.viaje_ids : [item.viaje_id]
   )).map(Number).filter(Boolean));
   return (TRV2_TRIPS || []).filter(row => (
@@ -460,7 +477,7 @@ function trv2RenderServicePendingTable() {
   const tariffs = trv2ReadServiceTariffs();
   const rows = trv2ServicePendingRows();
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="18"><div class="trv2-empty">No hay servicios pendientes de facturar con Carta Porte timbrada.</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="17"><div class="trv2-empty">No hay servicios pendientes de facturar con Carta Porte timbrada en este periodo.</div></td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(row => {
@@ -481,7 +498,6 @@ function trv2RenderServicePendingTable() {
         <td>${trv2Esc(service.chofer)}</td>
         <td>${trv2Esc(service.vehiculo)}</td>
         <td>${trv2Esc(service.uuid_carta_porte)}</td>
-        <td>${tariff ? `${trv2ServiceMoney(tariff.tarifa)} / ${calc.base_calculo}` : 'Falta configurar tarifa'}</td>
         <td>${trv2ServiceMoney(calc.subtotal)}</td>
         <td>${trv2ServiceMoney(calc.iva)}</td>
         <td>${trv2ServiceMoney(calc.retencion)}</td>
@@ -551,18 +567,21 @@ function trv2RenderServiceKpis() {
   if (!target) return;
   const rows = trv2ServicePendingRows();
   const invoices = trv2ReadServiceInvoices();
-  const faltaTarifa = rows.filter(row => !trv2FindServiceTariff(trv2ServiceTripData(row))).length;
   target.innerHTML = `
     <article><span>Pendientes de facturar</span><strong>${rows.length}</strong></article>
     <article><span>Facturadas</span><strong>${invoices.length}</strong></article>
     <article><span>Pendientes de pago</span><strong>${invoices.filter(item => item.estatus !== 'pagada').length}</strong></article>
-    <article><span>Falta tarifa</span><strong>${faltaTarifa}</strong></article>
   `;
 }
 
 async function trv2LoadServiceInvoices() {
   const monthInput = document.getElementById('trv2-service-month');
-  if (monthInput && !monthInput.value) monthInput.value = TRV2_SERVICE_MONTH;
+  const monthMode = document.getElementById('trv2-service-month-mode');
+  if (monthInput) {
+    monthInput.hidden = !TRV2_SERVICE_MONTH;
+    monthInput.value = TRV2_SERVICE_MONTH || new Date().toISOString().slice(0, 7);
+  }
+  if (monthMode) monthMode.value = TRV2_SERVICE_MONTH ? 'month' : '';
   const loads = [];
   if (!TRV2_TRIPS.length && typeof trv2LoadTrips === 'function') loads.push(trv2LoadTrips());
   if (typeof trv2LoadCatalogs === 'function') loads.push(trv2LoadCatalogs({silent: true}));

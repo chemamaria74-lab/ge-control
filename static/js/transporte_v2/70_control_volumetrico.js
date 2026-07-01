@@ -20,6 +20,19 @@ function trv2IsTransportistaPermit(item = {}) {
   return ['cliente', 'transportista', 'permisionario', 'razon social', 'razon_social'].includes(tipo);
 }
 
+function trv2CvProductMatchesPermit(productName = '', permitItem = {}) {
+  const product = trv2CvNormalize(productName);
+  const permitProduct = trv2CvNormalize(permitItem.producto || permitItem.tipo_producto || permitItem.alcance || '');
+  if (!permitProduct) return true;
+  if (permitProduct.includes('gas lp') || permitProduct.includes('gas l.p')) {
+    return product.includes('gas lp') || product.includes('gas l.p') || product.includes('gas l p');
+  }
+  if (permitProduct.includes('petrol') || permitProduct.includes('gasolina')) {
+    return ['magna', 'premium', 'diesel', 'diésel', 'gasolina', 'petrol'].some(word => product.includes(word));
+  }
+  return !product || product.includes(permitProduct) || permitProduct.includes(product);
+}
+
 function trv2PopulateCvSelect(id, catalogName, placeholder) {
   const select = document.getElementById(id);
   if (!select) return;
@@ -78,7 +91,10 @@ function trv2CvTripDate(row) {
 function trv2CvStatus(row, productName) {
   const meta = row.metadata || {};
   const status = String(row.estatus || row.status || meta.estatus || meta.status || meta.carta_porte_status || '').toLowerCase();
-  if (status.includes('cancel')) return 'cancelado';
+  const cancelData = meta.cancelacion_carta_porte || row.cancelacion_resultado || {};
+  const cancelStatus = String(row.cancelacion_status || cancelData.status || '').toLowerCase();
+  const fiscalCancelled = cancelData.ok === true || ['cancelled', 'cancelado', 'cancelada', 'ok'].includes(cancelStatus);
+  if (status.includes('cancel') && fiscalCancelled) return 'cancelado';
   if (meta.cv_exportado) return 'exportado';
   if (meta.cv_validado) return 'validado';
   if (!trv2IsHydrocarbonProduct(productName)) return 'alerta';
@@ -111,6 +127,7 @@ function trv2CvIsStamped(row, uuid) {
 function trv2BuildCvMovements() {
   const productFilter = Number(document.getElementById('trv2-cv-producto')?.value || 0);
   const permisoFilter = document.getElementById('trv2-cv-permiso')?.value || '';
+  const permisoItem = trv2CvSelectedPermitItem();
   const statusFilter = document.getElementById('trv2-cv-estado')?.value || '';
   const yearFilter = Number(document.getElementById('trv2-cv-anio')?.value || 0);
   const monthFilter = Number(document.getElementById('trv2-cv-mes')?.value || 0);
@@ -138,7 +155,8 @@ function trv2BuildCvMovements() {
     };
   }).filter(item => {
     if (productFilter && Number(item.row.producto_id) !== productFilter) return false;
-    if (permisoFilter && item.permiso !== permisoFilter) return false;
+    if (permisoFilter && item.permiso && item.permiso !== permisoFilter) return false;
+    if (permisoFilter && !item.permiso && !trv2CvProductMatchesPermit(item.productName, permisoItem)) return false;
     if (statusFilter && item.status !== statusFilter) return false;
     if (item.status === 'cancelado') return false;
     if (item.date && yearFilter && item.date.getFullYear() !== yearFilter) return false;
@@ -192,11 +210,8 @@ function trv2RenderCvKpis(movements) {
   const alerts = movements.filter(item => item.status === 'alerta' || !item.exportable).length;
   const cards = [
     ['Volumen transportado', `${volume.toLocaleString('es-MX')} L`],
-    ['Viajes', movements.length],
-    ['Volumen exportable XML', `${exportableVolume.toLocaleString('es-MX')} L`],
     ['Cartas Porte timbradas', exportableMovements.length],
-    ['UUIDs válidos exportables', exportableMovements.length],
-    ['Pendientes de validar', alerts],
+    ['Pendientes de revisar', alerts],
   ];
   kpis.innerHTML = cards.map(([label, value]) => `
     <article>

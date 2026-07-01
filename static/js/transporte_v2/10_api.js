@@ -190,7 +190,7 @@ function trv2SwitchTab(tab) {
 }
 
 function trv2ValidTab(tab) {
-  return ['carga-archivos', 'carta-porte', 'facturas-servicio', 'conciliacion', 'reportes-sat', 'catalogos', 'administracion'].includes(tab);
+  return ['carta-porte', 'facturas-servicio', 'conciliacion', 'reportes-sat', 'catalogos', 'administracion'].includes(tab);
 }
 
 function trv2InitialTab() {
