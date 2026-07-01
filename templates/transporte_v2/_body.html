@@ -182,7 +182,10 @@
           <h2>Cartas Porte emitidas</h2>
           <p class="trv2-muted">CFDI de traslado con Complemento Carta Porte timbrados para descargar PDF o XML.</p>
         </div>
-        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadStampedCartaPorte()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+        <div class="trv2-actions">
+          <label class="trv2-inline-filter" id="trv2-cp-stamped-month-wrap">Mes <input id="trv2-cp-stamped-month" type="month" onchange="trv2SetCartaPorteStampedMonth(this.value)"></label>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadStampedCartaPorte()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+        </div>
       </div>
       <div id="trv2-cp-stamped-list" class="trv2-cp-pending-list">
         <div class="trv2-empty">Aún no hay Cartas Porte timbradas en esta vista.</div>
@@ -269,6 +272,9 @@
         <h1>Facturas de servicio</h1>
         <p>Genera el registro local de facturas de flete a partir de viajes con Carta Porte timbrada.</p>
       </div>
+      <div class="trv2-actions">
+        <label class="trv2-inline-filter">Mes <input id="trv2-service-month" type="month" onchange="trv2ServiceSetMonth(this.value)"></label>
+      </div>
     </div>
     <div class="trv2-kpis trv2-kpis-compact" id="trv2-service-invoice-kpis">
       <article><span>Pendientes de facturar</span><strong>0</strong></article>
@@ -339,8 +345,9 @@
         <p>Reporte mensual por número de permiso. Se alimentará de viajes, Carta Porte y facturas de servicio.</p>
       </div>
       <div class="trv2-actions">
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseCvMonth()"><i class="fa-solid fa-lock"></i> Cerrar mes</button>
         <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico()"><i class="fa-solid fa-clock-rotate-left"></i> Cargar historial</button>
-        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2GenerateCvReport('zip')"><i class="fa-solid fa-download"></i> Descargar reporte ZIP</button>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2GenerateCvReport('zip')"><i class="fa-solid fa-download"></i> Descargar ZIP XML</button>
         <button class="trv2-btn trv2-btn-ghost" type="button" disabled><i class="fa-solid fa-trash-can"></i> Borrar reporte</button>
       </div>
     </div>
@@ -362,14 +369,15 @@
           <p class="trv2-muted">Corte mensual alimentado por viajes Transporte v2 timbrados.</p>
         </div>
         <div class="trv2-actions">
-          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2GenerateCvReport('json')"><i class="fa-solid fa-download"></i> Descargar JSON</button>
-          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2GenerateCvReport('zip')"><i class="fa-solid fa-file-export"></i> Exportar JSON SAT</button>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseCvMonth()"><i class="fa-solid fa-lock"></i> Cerrar mes</button>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2GenerateCvReport('xml')"><i class="fa-solid fa-download"></i> Descargar XML</button>
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2GenerateCvReport('zip')"><i class="fa-solid fa-file-export"></i> Exportar ZIP SAT</button>
         </div>
       </div>
-      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">Selecciona permiso y periodo para generar JSON SAT Transporte.</div>
+      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">Selecciona permiso y periodo para cerrar el mes y generar ZIP XML SAT Transporte.</div>
       <div class="trv2-table-wrap">
         <table>
-          <thead><tr><th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Producto</th><th>Volumen L</th><th>Vehículo</th><th>Origen</th><th>Destino</th><th>UUID Carta Porte</th><th>Estatus JSON</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Producto</th><th>Volumen L</th><th>Vehículo</th><th>Origen</th><th>Destino</th><th>UUID Carta Porte</th><th>Estatus XML</th><th>Acciones</th></tr></thead>
           <tbody id="trv2-cv-table"></tbody>
         </table>
       </div>
