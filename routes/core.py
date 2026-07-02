@@ -78,6 +78,22 @@ GAS_LP_FACTURAS_LIST_SELECT = ",".join([
     "payment_status",
     "email_destinatario",
 ])
+GAS_LP_FACTURAS_EXPORT_DAY_SELECT = ",".join([
+    "id",
+    "tenant_id",
+    "perfil_id",
+    "user_id",
+    "rfc_receptor",
+    "uuid_sat",
+    "fecha_timbrado",
+    "status",
+    "tipo_comprobante",
+    "volumen_litros",
+    "importe",
+    "metadata",
+    "created_at",
+    "updated_at",
+])
 GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT = ",".join([
     "id",
     "complemento_id",
@@ -2748,7 +2764,7 @@ def _gas_lp_facturas_by_ids_for_company(sb, user: dict, profile: dict, factura_i
         return {}
     rows = (
         sb.table("gas_lp_facturas")
-        .select("*")
+        .select(GAS_LP_FACTURAS_EXPORT_DAY_SELECT)
         .in_("id", ids)
         .eq("tenant_id", user.get("tenant_id"))
         .execute()

@@ -418,9 +418,10 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
             sb,
             user,
             profile,
-            month=day[:7],
+            month="",
             limit=GAS_LP_LIST_LIMIT_MAX,
-            select=GAS_LP_FACTURAS_LIST_SELECT,
+            select=GAS_LP_FACTURAS_EXPORT_DAY_SELECT,
+            company_fallback=False,
         )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas_export_dia", exc)
