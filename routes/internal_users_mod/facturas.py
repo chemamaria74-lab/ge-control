@@ -277,12 +277,20 @@ async def gas_lp_credito_recordatorios_candidatos(
     today_key = _gas_lp_credit_reminder_today_key()
     sb = get_supabase_admin()
     try:
-        facturas = _gas_lp_company_facturas_rows(sb, user, profile, month="", limit=10000, include_carta_porte=False)
+        facturas = _gas_lp_company_facturas_rows(
+            sb,
+            user,
+            profile,
+            month="",
+            limit=GAS_LP_LIST_LIMIT_MAX,
+            include_carta_porte=False,
+            select=GAS_LP_FACTURAS_LIST_SELECT,
+        )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_credito_recordatorios_facturas", exc)
     try:
         clientes = (
-            _gas_lp_clientes_scope_query(sb.table("gas_lp_clientes_facturacion").select("*"), user)
+            _gas_lp_clientes_scope_query(sb.table("gas_lp_clientes_facturacion").select(GAS_LP_CLIENTES_LIST_SELECT), user)
             .eq("activo", True)
             .execute()
             .data
@@ -348,19 +356,19 @@ async def gas_lp_internal_facturas(
     clean_receptor_rfc = _clean_rfc(receptor_rfc or "")
     if complementos or credito or descuentos:
         try:
-            page_limit = int(os.environ.get("GAS_LP_COMPLEMENTOS_PPD_LIMIT", "10000") or "10000")
+            page_limit = int(os.environ.get("GAS_LP_COMPLEMENTOS_PPD_LIMIT", str(GAS_LP_LIST_LIMIT_MAX)) or str(GAS_LP_LIST_LIMIT_MAX))
         except (TypeError, ValueError):
-            page_limit = 10000
-        page_limit = max(1, page_limit)
-        facturas_select = "*"
+            page_limit = GAS_LP_LIST_LIMIT_MAX
+        page_limit = max(1, min(page_limit, GAS_LP_LIST_LIMIT_MAX))
+        facturas_select = GAS_LP_FACTURAS_LIST_SELECT
     else:
         try:
-            page_limit = int(limit or 10000)
+            page_limit = int(limit or GAS_LP_LIST_LIMIT_DEFAULT)
         except (TypeError, ValueError):
-            page_limit = 10000
-        max_limit = 10000
+            page_limit = GAS_LP_LIST_LIMIT_DEFAULT
+        max_limit = GAS_LP_LIST_LIMIT_MAX
         page_limit = max(1, min(page_limit, max_limit))
-        facturas_select = "*"
+        facturas_select = GAS_LP_FACTURAS_LIST_SELECT
     try:
         rows = _gas_lp_company_facturas_rows(
             sb,
@@ -470,7 +478,14 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         raise HTTPException(400, "Selecciona una fecha válida para exportar.")
     sb = get_supabase_admin()
     try:
-        rows = _gas_lp_company_facturas_rows(sb, user, profile, month=day[:7], limit=10000)
+        rows = _gas_lp_company_facturas_rows(
+            sb,
+            user,
+            profile,
+            month=day[:7],
+            limit=GAS_LP_LIST_LIMIT_MAX,
+            select=GAS_LP_FACTURAS_LIST_SELECT,
+        )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas_export_dia", exc)
     rows = [row for row in rows if _gas_lp_factura_date_key(row) == day]
@@ -481,13 +496,13 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
     try:
         comp_q = (
             sb.table("gas_lp_complementos_pago")
-            .select("*")
+            .select(GAS_LP_COMPLEMENTOS_LIST_SELECT)
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
             .gte("created_at", f"{day}T00:00:00")
             .lt("created_at", f"{day}T23:59:59")
             .order("created_at", desc=True)
-            .limit(10000)
+            .limit(GAS_LP_LIST_LIMIT_MAX)
         )
         complementos = comp_q.execute().data or []
         _gas_lp_attach_complemento_creators(sb, complementos)
@@ -500,7 +515,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         try:
             comp_rels = (
                 sb.table("gas_lp_complementos_pago_facturas")
-                .select("*")
+                .select(GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT)
                 .in_("complemento_id", comp_ids)
                 .execute()
                 .data
