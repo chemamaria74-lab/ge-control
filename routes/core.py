@@ -92,8 +92,8 @@ GAS_LP_FACTURAS_EXPORT_DAY_SELECT = ",".join([
     "importe",
     "metadata",
     "created_at",
-    "updated_at",
 ])
+GAS_LP_FACTURAS_COMPAT_LIST_SELECT = GAS_LP_FACTURAS_EXPORT_DAY_SELECT
 GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT = ",".join([
     "id",
     "complemento_id",
