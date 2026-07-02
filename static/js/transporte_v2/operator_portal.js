@@ -64,6 +64,15 @@
       return TRV2_OPERATOR_TRIP?.uuid_cfdi || TRV2_OPERATOR_META.uuid_carta_porte || TRV2_OPERATOR_META.cfdi_uuid || '';
     }
     function trv2OperadorTripValue(obj, key, fallback = '') { return obj?.[key] || obj?.metadata?.[key] || fallback; }
+    function trv2OperadorFactura() {
+      return TRV2_OPERATOR_META.factura_operador || TRV2_OPERATOR_META.factura_carga || null;
+    }
+    function trv2OperadorFormatDate(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value).slice(0, 19);
+      return date.toLocaleString('es-MX', {dateStyle: 'medium', timeStyle: 'short'});
+    }
     function trv2OperadorRenderTrip(data) {
       TRV2_OPERATOR_TRIP = data.viaje || null;
       TRV2_OPERATOR_META = data.metadata || TRV2_OPERATOR_TRIP?.metadata || {};
@@ -104,7 +113,7 @@
       trv2OperadorRenderBitacora();
     }
     function trv2OperadorRenderInvoice() {
-      const factura = TRV2_OPERATOR_META.factura_operador || null;
+      const factura = trv2OperadorFactura();
       const stamped = Boolean(trv2OperadorUuid());
       const tripCreated = Boolean(TRV2_OPERATOR_TRIP?.id);
       const locked = stamped || tripCreated || ['EN_CURSO', 'DESCANSO', 'FINALIZADO'].includes(trv2OperadorBitacoraEstado());
@@ -121,7 +130,7 @@
       if (uploadButton) uploadButton.hidden = locked;
       if (view) view.hidden = !factura;
       if (download) download.hidden = !factura;
-      if (remove) remove.hidden = !factura || locked;
+      if (remove) remove.hidden = true;
     }
     function trv2OperadorRenderCartaPorte() {
       const uuid = trv2OperadorUuid();
@@ -144,13 +153,13 @@
       if (status) status.textContent = estado;
       const buttons = {
         SIN_INICIAR: [['INICIAR','Iniciar viaje','primary'], ['DOWNLOAD_PDF','Descargar PDF','']],
-        EN_CURSO: [['DESCANSO','Descanso','warning'], ['INCIDENCIA','Incidencia',''], ['FINALIZAR','Finalizar viaje',''], ['DOWNLOAD_PDF','Descargar PDF','']],
+        EN_CURSO: [['DESCANSO','Descanso','warning'], ['INCIDENCIA','Incidencia',''], ['DOWNLOAD_PDF','Descargar PDF',''], ['FINALIZAR','Finalizar viaje','danger final']],
         DESCANSO: [['REANUDAR','Reanudar','ok'], ['INCIDENCIA','Incidencia',''], ['DOWNLOAD_PDF','Descargar PDF','']],
         FINALIZADO: [['VIEW_PDF','Ver PDF',''], ['DOWNLOAD_PDF','Descargar PDF','']],
       }[estado] || [];
       if (actions) actions.innerHTML = buttons.map(([action, label, klass]) => `<button class="${klass}" type="button" onclick="trv2OperadorBitacora('${action}')">${trv2OpEsc(label)}</button>`).join('');
       const eventos = TRV2_OPERATOR_META.bitacora_operador?.eventos || [];
-      if (history) history.innerHTML = eventos.slice(-6).map(ev => `<li>${trv2OpEsc(ev.created_at || '')} · ${trv2OpEsc(ev.accion || '')} ${trv2OpEsc(ev.nota || '')}</li>`).join('');
+      if (history) history.innerHTML = eventos.slice(-6).map(ev => `<li>${trv2OpEsc(trv2OperadorFormatDate(ev.created_at))} · ${trv2OpEsc(ev.accion || '')} ${trv2OpEsc(ev.nota || '')}</li>`).join('');
     }
     async function trv2OperadorInit() {
       const me = await trv2OperadorFetch('/api/tr-v2/operator/me');
@@ -220,7 +229,7 @@
       }
       document.getElementById('trv2-operator-start-upload')?.setAttribute('hidden', 'hidden');
     }
-    function trv2OperadorClearStartLoad() {
+    function trv2OperadorClearStartLoad(options = {}) {
       TRV2_OPERATOR_PREPARED = null;
       const input = document.getElementById('trv2-operator-start-file');
       const upload = document.getElementById('trv2-operator-start-upload');
@@ -231,7 +240,7 @@
         summary.classList.remove('show');
         summary.innerHTML = '';
       }
-      trv2OperadorToast('Carga borrada. Puedes subir otra factura.');
+      if (!options.silent) trv2OperadorToast('Carga borrada. Puedes subir otra factura.');
     }
     async function trv2OperadorAcceptTrip() {
       if (TRV2_OPERATOR_CREATING_TRIP) return;
@@ -271,7 +280,7 @@
       }
     }
     async function trv2OperadorOpenInvoice(download = false) {
-      const factura = TRV2_OPERATOR_META.factura_operador;
+      const factura = trv2OperadorFactura();
       if (!factura) return trv2OperadorToast('No hay factura cargada.');
       const response = await fetch(`/api/tr-v2/operator/factura/pdf?download=${download ? 'true' : 'false'}`, {headers:trv2OperadorHeaders()});
       if (!response.ok) {
@@ -300,7 +309,7 @@
       trv2OperadorOpenInvoice(true);
     }
     async function trv2OperadorDeleteInvoice() {
-      if (!TRV2_OPERATOR_META.factura_operador) return trv2OperadorToast('No hay factura cargada.');
+      if (!trv2OperadorFactura()) return trv2OperadorToast('No hay factura cargada.');
       if (trv2OperadorUuid()) return trv2OperadorToast('La factura no se puede eliminar después de timbrar Carta Porte.');
       const response = await fetch('/api/tr-v2/operator/factura/eliminar', {method:'POST', headers: trv2OperadorHeaders()});
       const data = await trv2OperadorReadResponse(response);
@@ -348,7 +357,7 @@
     }
     async function trv2OperadorTimbrar() {
       if (TRV2_OPERATOR_TRIP?.uuid_cfdi || TRV2_OPERATOR_META.uuid_carta_porte) return trv2OperadorToast('Carta Porte ya timbrada.');
-      if (!TRV2_OPERATOR_META.factura_operador) return trv2OperadorToast('Sube la factura antes de timbrar.');
+      if (!trv2OperadorFactura()) return trv2OperadorToast('Sube la factura antes de timbrar.');
       const button = document.getElementById('trv2-operator-stamp-btn');
       if (button) {
         button.disabled = true;
@@ -393,6 +402,7 @@
         return;
       }
       if (action === 'HISTORIAL') return trv2OperadorRenderBitacora();
+      if (action === 'FINALIZAR' && !confirm('¿Seguro que quieres finalizar este viaje? Ya no aparecerá como viaje activo del operador.')) return;
       const nota = action === 'INCIDENCIA' ? prompt('Describe la incidencia') || '' : '';
       const response = await fetch('/api/tr-v2/operator/bitacora', {
         method:'POST',
@@ -407,7 +417,8 @@
         TRV2_OPERATOR_META = {};
         TRV2_OPERATOR_PREPARED = null;
         trv2OperadorRenderTrip({ok: true, has_trip: false});
-        trv2OperadorClearStartLoad();
+        trv2OperadorClearStartLoad({silent: true});
+        await trv2OperadorInit();
         trv2OperadorToast('Viaje finalizado. Puedes crear otro viaje.');
         return;
       }

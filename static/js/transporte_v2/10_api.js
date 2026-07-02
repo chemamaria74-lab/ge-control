@@ -137,15 +137,51 @@ function trv2WithPerfil(path) {
   return url.pathname + url.search;
 }
 
+const TRV2_SESSION_CACHE_TTL = 5 * 60 * 1000;
+function trv2CacheKey(path) {
+  return `trv2:${TRV2_TOKEN || 'anon'}:${TRV2_PERFIL?.id || 0}:${path}`;
+}
+function trv2CacheGet(path) {
+  try {
+    const raw = sessionStorage.getItem(trv2CacheKey(path));
+    if (!raw) return null;
+    const item = JSON.parse(raw);
+    if (!item || Date.now() - Number(item.t || 0) > TRV2_SESSION_CACHE_TTL) return null;
+    return item.data || null;
+  } catch (_err) {
+    return null;
+  }
+}
+function trv2CacheSet(path, data) {
+  try {
+    sessionStorage.setItem(trv2CacheKey(path), JSON.stringify({t: Date.now(), data}));
+  } catch (_err) {}
+}
+function trv2CacheClear() {
+  try {
+    const prefix = `trv2:${TRV2_TOKEN || 'anon'}:${TRV2_PERFIL?.id || 0}:`;
+    Object.keys(sessionStorage).forEach(key => {
+      if (key.startsWith(prefix)) sessionStorage.removeItem(key);
+    });
+  } catch (_err) {}
+}
+
 async function trv2Api(method, path, body, options = {}) {
   try {
     if ((!TRV2_TOKEN || !TRV2_ADMIN_READY) && path.startsWith('/api/tr-v2/') && !path.includes('/health')) {
       if (!options.silent) trv2Toast(trv2AuthMessage(), 'error');
       return trv2AuthFallback(path);
     }
+    const normalizedMethod = String(method || 'GET').toUpperCase();
+    const finalPath = trv2WithPerfil(path);
+    if (normalizedMethod === 'GET' && !options.force) {
+      const cached = trv2CacheGet(finalPath);
+      if (cached) return cached;
+    }
+    if (normalizedMethod !== 'GET') trv2CacheClear();
     const init = {method, headers: trv2Headers()};
     if (body !== undefined) init.body = JSON.stringify(body);
-    const response = await fetch(TRV2_API_BASE + trv2WithPerfil(path), init);
+    const response = await fetch(TRV2_API_BASE + finalPath, init);
     const text = await response.text();
     let data = {};
     try { data = text ? JSON.parse(text) : {}; }
@@ -159,6 +195,7 @@ async function trv2Api(method, path, body, options = {}) {
     if (!response.ok && !options.allowError) {
       throw new Error(trv2MessageText(data.detail || data.message || `HTTP ${response.status}`));
     }
+    if (normalizedMethod === 'GET' && response.ok) trv2CacheSet(finalPath, data);
     return data;
   } catch (err) {
     console.error('[Transporte v2 API]', method, path, err);
