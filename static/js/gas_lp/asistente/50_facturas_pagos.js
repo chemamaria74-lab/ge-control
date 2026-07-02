@@ -31,7 +31,7 @@ async function loadFacturas(month='', opts={}){
   if(FACTURAS_LOAD_CONTROLLER) FACTURAS_LOAD_CONTROLLER.abort();
   FACTURAS_LOAD_KEY = loadKey;
   FACTURAS_LOAD_CONTROLLER = new AbortController();
-  const refreshButtons = [...document.querySelectorAll('button[onclick^="loadFacturas"]')];
+  const refreshButtons = [...document.querySelectorAll('button[onclick^="loadFacturas"],button[onclick^="loadFacturasSelectedMonth"]')];
   refreshButtons.forEach(btn => { btn.disabled = true; btn.dataset.loadingFacturas = '1'; });
   if(!credito && !descuentos && todayFacturasRows) todayFacturasRows.innerHTML = '<tr><td colspan="5">Cargando facturas de hoy...</td></tr>';
   if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">Cargando...</td></tr>';
@@ -192,8 +192,8 @@ function selectedFacturaClientRfc(){
   const option = select?.selectedOptions?.[0];
   return String(option?.dataset?.rfc || '').trim().toUpperCase();
 }
-function loadFacturasSelectedMonth(){
-  return loadFacturas(facturaMes?.value || '', {limit:300, deep:true, receptorRfc:selectedFacturaClientRfc()});
+function loadFacturasSelectedMonth(opts={}){
+  return loadFacturas(facturaMes?.value || '', {limit:300, deep:true, receptorRfc:selectedFacturaClientRfc(), ...opts});
 }
 async function refreshComplementosPagoData(){
   COMP_SEL = {};
