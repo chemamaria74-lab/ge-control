@@ -125,8 +125,8 @@ GAS_LP_FACTURAS_EXPORT_DAY_SELECT = ",".join([
     "importe",
     "metadata",
     "created_at",
-    "updated_at",
 ])
+GAS_LP_FACTURAS_COMPAT_LIST_SELECT = GAS_LP_FACTURAS_EXPORT_DAY_SELECT
 GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT = ",".join([
     "id",
     "complemento_id",
@@ -2540,21 +2540,66 @@ def _gas_lp_company_facturas_rows_impl(
             or []
         )
     except Exception as exc:
-        if "fecha_emision" not in str(exc):
-            raise
-        logger.warning("gas_lp_facturas_fecha_emision_order_fallback perfil=%s err=%s", user.get("perfil_id"), exc)
-        rows = (
-            query
-            .order("created_at", desc=True)
-            .limit(page_limit)
-            .execute()
-            .data
-            or []
+        msg = str(exc)
+        schema_fallback = any(
+            marker in msg.lower()
+            for marker in ("fecha_emision", "schema cache", "could not find", "column", "pgrst")
         )
+        if not schema_fallback:
+            raise
+        logger.warning("gas_lp_facturas_compat_query_fallback perfil=%s select=%s err=%s", user.get("perfil_id"), select, exc)
+        fallback = sb.table("gas_lp_facturas").select(GAS_LP_FACTURAS_COMPAT_LIST_SELECT)
+        if ppd_pending and user.get("tenant_id") and user.get("perfil_id"):
+            fallback = fallback.eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
+        else:
+            fallback = fallback.eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
+        if clean_receptor_rfc:
+            fallback = fallback.eq("rfc_receptor", clean_receptor_rfc)
+        try:
+            rows = (
+                fallback
+                .order("created_at", desc=True)
+                .limit(page_limit)
+                .execute()
+                .data
+                or []
+            )
+            if created_range:
+                start_key, end_key = created_range[0][:10], created_range[1][:10]
+                rows = [row for row in rows if start_key <= _gas_lp_factura_date_key(row) < end_key]
+            if not include_carta_porte:
+                rows = [row for row in rows if str(row.get("tipo_comprobante") or "").upper() != "T"]
+        except Exception:
+            raise exc
     rows = _dedupe_rows_by_id(rows)
+    if discounted_only:
+        rows = [row for row in rows if _gas_lp_factura_has_discount(row)]
     if visibility_log:
         _gas_lp_log_facturas_visibility(user=user, profile={**profile, "rfc": profile_rfc or profile.get("rfc")}, month=month, filters=filters, candidates=rows, included=rows)
     return rows
+
+
+def _gas_lp_factura_has_discount(factura: dict) -> bool:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    raw_values = [
+        factura.get("descuento_total"),
+        factura.get("descuento_confirmado"),
+        factura.get("descuento_por_litro"),
+        md.get("descuento_total"),
+        md.get("descuento_confirmado"),
+        md.get("descuento_por_litro"),
+        md.get("descuento"),
+        md.get("descuento_capturado"),
+    ]
+    for value in raw_values:
+        if _money(value) > 0:
+            return True
+    policy = md.get("descuento_facturacion") or md.get("descuento_cliente") or {}
+    if isinstance(policy, dict):
+        tipo = str(policy.get("tipo") or policy.get("tipo_descuento") or "").strip().lower()
+        if tipo and tipo != "sin_descuento" and _money(policy.get("valor") or policy.get("descuento_valor") or policy.get("monto")) > 0:
+            return True
+    return False
 
 
 def _gas_lp_factura_metodo_pago(factura: dict) -> str:
