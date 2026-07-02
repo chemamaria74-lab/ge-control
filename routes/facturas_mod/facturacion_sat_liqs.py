@@ -4,84 +4,6 @@ from .core import *
 from fastapi import File, Form, UploadFile
 from models.transport_schemas import FacturaServicioCreate, GenerarCovolRequest
 
-
-def _service_invoice_payment_defaults(cliente_cfg: dict, settings: dict) -> dict:
-    meta = cliente_cfg.get("metadata") if isinstance(cliente_cfg.get("metadata"), dict) else {}
-    settings_meta = settings.get("metadata") if isinstance(settings.get("metadata"), dict) else {}
-    metodo = str(
-        cliente_cfg.get("metodo_pago_default")
-        or meta.get("metodo_pago_default")
-        or meta.get("metodo_pago")
-        or settings.get("MetodoPagoServicio")
-        or settings_meta.get("metodo_pago_servicio")
-        or "PUE"
-    ).strip().upper()
-    forma = str(
-        cliente_cfg.get("forma_pago_default")
-        or meta.get("forma_pago_default")
-        or meta.get("forma_pago")
-        or settings.get("FormaPagoServicio")
-        or settings_meta.get("forma_pago_servicio")
-        or "03"
-    ).strip()
-    if metodo not in {"PUE", "PPD"}:
-        metodo = "PUE"
-    if not re.fullmatch(r"\d{2}", forma):
-        forma = "03" if metodo == "PUE" else "99"
-    if metodo == "PPD" and forma == "03" and not (
-        cliente_cfg.get("forma_pago_default") or meta.get("forma_pago_default") or meta.get("forma_pago")
-    ):
-        forma = "99"
-    return {"metodo_pago": metodo, "forma_pago": forma}
-
-
-def _fact_serv_trip_meta(row: dict) -> dict:
-    meta = row.get("metadata") or row.get("defaults_json") or {}
-    if isinstance(meta, str):
-        try:
-            parsed = json.loads(meta)
-            return parsed if isinstance(parsed, dict) else {}
-        except Exception:
-            return {}
-    return meta if isinstance(meta, dict) else {}
-
-
-def _fact_serv_trip_period(row: dict) -> str:
-    return str(row.get("fecha_hora_salida") or row.get("fecha_salida") or row.get("created_at") or "")[:7]
-
-
-def _fact_serv_trip_permit(row: dict) -> str:
-    meta = _fact_serv_trip_meta(row)
-    return str(
-        row.get("num_permiso_cne")
-        or meta.get("num_permiso_cne")
-        or meta.get("permiso_transportista")
-        or meta.get("permiso_cre_transportista")
-        or meta.get("permiso_cre")
-        or ""
-    ).strip()
-
-
-def _fact_serv_cfdi_cancelada(row: dict) -> bool:
-    if not row:
-        return False
-    result = row.get("cancelacion_resultado") or {}
-    if isinstance(result, str):
-        try:
-            parsed = json.loads(result)
-            result = parsed if isinstance(parsed, dict) else {}
-        except Exception:
-            result = {}
-    status = str(row.get("cancelacion_status") or result.get("status") or "").strip().lower()
-    if isinstance(result, dict) and (result.get("operativa") is True or result.get("warning")):
-        return False
-    if isinstance(result, dict) and result.get("ok") is True:
-        return True
-    if status in {"cancelled", "cancelado", "cancelada", "ok"}:
-        return True
-    return "cancel" in str(row.get("status") or "").lower() and status not in {"error", "rechazada", "rejected"}
-
-
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
     perfil_id: Optional[int] = Query(None),
@@ -93,34 +15,24 @@ async def listar_cartas_porte_facturables(
     sb = _sb(token)
     pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
     try:
-        fact_q = sb.table(_TBL_FACT_SERV_CARTAS).select("factura_servicio_id,viaje_id").eq("user_id", uid)
+        fact_q = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid)
         if pid:
             fact_q = fact_q.eq("perfil_id", pid)
         fact_res = fact_q.execute()
-        links = fact_res.data or []
-        factura_ids = [int(r.get("factura_servicio_id") or 0) for r in links if r.get("factura_servicio_id")]
-        facturas_activas = set()
-        if factura_ids:
-            fq = sb.table(_TBL_FACT_SERV).select("id,status").eq("user_id", uid).in_("id", factura_ids)
-            if pid:
-                fq = fq.eq("perfil_id", pid)
-            facturas_activas = {
-                int(r.get("id") or 0)
-                for r in (fq.execute().data or [])
-                if "cancel" not in str(r.get("status") or "").lower()
-            }
-        facturados = {
-            int(r.get("viaje_id"))
-            for r in links
-            if r.get("viaje_id") and int(r.get("factura_servicio_id") or 0) in facturas_activas
-        }
+        facturados = {int(r.get("viaje_id")) for r in (fact_res.data or []) if r.get("viaje_id")}
     except Exception:
         facturados = set()
     try:
-        cfdi_q = sb.table(_TBL_CFDI).select("*").eq("user_id", uid).eq("status", "Vigente").eq("tipo_cfdi", "T")
+        cfdi_q = (
+            sb.table(_TBL_CFDI)
+            .select("id,user_id,perfil_id,viaje_id,uuid_sat,id_ccp,rfc_receptor,status,tipo_cfdi,fecha_timbrado")
+            .eq("user_id", uid)
+            .eq("status", "Vigente")
+            .eq("tipo_cfdi", "T")
+        )
         if pid:
             cfdi_q = cfdi_q.eq("perfil_id", pid)
-        cfdi_res = cfdi_q.order("fecha_timbrado", desc=True).execute()
+        cfdi_res = cfdi_q.order("fecha_timbrado", desc=True).limit(1000).execute()
         cfdis = [c for c in (cfdi_res.data or []) if int(c.get("viaje_id") or 0) not in facturados]
         viajes_ids = [int(c.get("viaje_id")) for c in cfdis if c.get("viaje_id")]
         viajes_map = {}
@@ -195,81 +107,12 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     no_timbrados = [v["id"] for v in viajes if not v.get("uuid_cfdi")]
     if no_timbrados:
         raise HTTPException(400, f"Para facturar el servicio, primero timbra la Carta Porte de los viajes: {no_timbrados}")
-    cancelados = []
-    for v in viajes:
-        meta = _fact_serv_trip_meta(v)
-        text = " ".join(str(value or "") for value in [
-            v.get("status"), v.get("estatus"), v.get("carta_porte_status"),
-            meta.get("status"), meta.get("estatus"), meta.get("carta_porte_status"),
-        ]).lower()
-        if "cancel" in text:
-            cancelados.append(v.get("id"))
-    if cancelados:
-        raise HTTPException(400, f"Estas Cartas Porte están canceladas y no se pueden facturar: {cancelados}")
     try:
-        cfdi_q = (
-            sb.table(_TBL_CFDI)
-            .select("viaje_id,status,cancelacion_status,cancelacion_resultado")
-            .eq("user_id", uid)
-            .eq("tipo_cfdi", "T")
-            .in_("viaje_id", payload.viaje_ids)
-        )
-        if perfil_factura:
-            cfdi_q = cfdi_q.eq("perfil_id", perfil_factura)
-        cfdi_cancelados = [
-            int(row.get("viaje_id") or 0)
-            for row in (cfdi_q.execute().data or [])
-            if row.get("viaje_id") and _fact_serv_cfdi_cancelada(row)
-        ]
-    except Exception:
-        cfdi_cancelados = []
-    if cfdi_cancelados:
-        raise HTTPException(400, f"Estas Cartas Porte están canceladas fiscalmente y no se pueden facturar: {sorted(set(cfdi_cancelados))}")
-    if perfil_factura:
-        cerrados = []
-        for v in viajes:
-            periodo_viaje = _fact_serv_trip_period(v)
-            permiso_viaje = _fact_serv_trip_permit(v)
-            if not periodo_viaje or not permiso_viaje:
-                continue
-            try:
-                cierre = (
-                    sb.table("tr_covol_month_closures")
-                    .select("id")
-                    .eq("user_id", uid)
-                    .eq("perfil_id", perfil_factura)
-                    .eq("periodo", periodo_viaje)
-                    .eq("num_permiso_cne", permiso_viaje)
-                    .eq("status", "cerrado")
-                    .limit(1)
-                    .execute()
-                    .data
-                    or []
-                )
-                if cierre:
-                    cerrados.append({"viaje": v.get("id"), "periodo": periodo_viaje, "permiso": permiso_viaje})
-            except Exception:
-                pass
-        if cerrados:
-            raise HTTPException(409, f"El mes ya está cerrado para estas Cartas Porte: {cerrados}")
-    try:
-        ya_q = sb.table(_TBL_FACT_SERV_CARTAS).select("factura_servicio_id,viaje_id").eq("user_id", uid).in_("viaje_id", payload.viaje_ids)
+        ya_q = sb.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid).in_("viaje_id", payload.viaje_ids)
         if perfil_factura:
             ya_q = ya_q.eq("perfil_id", perfil_factura)
         ya_res = ya_q.execute()
-        links = ya_res.data or []
-        factura_ids = [int(r.get("factura_servicio_id") or 0) for r in links if r.get("factura_servicio_id")]
-        facturas_activas = set()
-        if factura_ids:
-            fq = sb.table(_TBL_FACT_SERV).select("id,status").eq("user_id", uid).in_("id", factura_ids)
-            if perfil_factura:
-                fq = fq.eq("perfil_id", perfil_factura)
-            facturas_activas = {
-                int(r.get("id") or 0)
-                for r in (fq.execute().data or [])
-                if "cancel" not in str(r.get("status") or "").lower()
-            }
-        ya = [r.get("viaje_id") for r in links if int(r.get("factura_servicio_id") or 0) in facturas_activas]
+        ya = [r.get("viaje_id") for r in (ya_res.data or [])]
         if ya:
             raise HTTPException(400, f"Estas Cartas Porte ya tienen factura de servicio: {ya}")
     except HTTPException:
@@ -335,13 +178,9 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     )
     if not email_receptor:
         raise HTTPException(400, "Captura el email fiscal/comercial del cliente antes de timbrar la factura de servicio.")
-    fiscal_defaults = _service_invoice_payment_defaults(cliente_cfg, settings)
+    fiscal_defaults = _cliente_defaults_fiscales(cliente_cfg, settings)
     forma_pago = payload.forma_pago or fiscal_defaults["forma_pago"]
     metodo_pago = payload.metodo_pago or fiscal_defaults["metodo_pago"]
-    if fiscal_defaults["metodo_pago"] != "PUE" and metodo_pago == "PUE":
-        metodo_pago = fiscal_defaults["metodo_pago"]
-    if fiscal_defaults["forma_pago"] != "03" and forma_pago == "03":
-        forma_pago = fiscal_defaults["forma_pago"]
     cfdi_dict = build_cfdi_servicio_transporte(
         emisor=emisor,
         receptor=receptor,
@@ -369,7 +208,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "cliente_id":      payload.cliente_id,
         "viaje_ids":       payload.viaje_ids,
         "cfdi_relacionados": [
-            {"viaje_id": v["id"], "uuid_cfdi": v.get("uuid_sat") or v.get("uuid_cfdi", ""), "uuid_sat": v.get("uuid_sat") or v.get("uuid_cfdi", ""), "id_ccp": v.get("id_ccp", "")}
+            {"viaje_id": v["id"], "uuid_cfdi": v.get("uuid_cfdi", ""), "id_ccp": v.get("id_ccp", "")}
             for v in viajes
         ],
         "rfc_receptor":    payload.rfc_receptor,
@@ -794,7 +633,7 @@ async def listar_facturas_transporte(
     uid, token = _auth(authorization)
     sb = _sb(token)
     try:
-        q = sb.table(_TBL_CFDI).select("*").eq("user_id", uid).order("fecha_timbrado", desc=True)
+        q = sb.table(_TBL_CFDI).select("id,user_id,perfil_id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,pdf_url,status,fecha_timbrado,rfc_receptor,created_at,updated_at").eq("user_id", uid).order("fecha_timbrado", desc=True)
         if periodo:
             ini, fin = _periodo_bounds(periodo)
             q = q.gte("fecha_timbrado", ini).lt("fecha_timbrado", fin)
@@ -802,9 +641,6 @@ async def listar_facturas_transporte(
             q = q.eq("perfil_id", perfil_id)
         res  = q.execute()
         rows = res.data or []
-        # Omitir xml_content del listado (pesado)
-        for r in rows:
-            r.pop("xml_content", None)
         return JSONResponse({"ok": True, "facturas": rows})
     except Exception as e:
         raise HTTPException(500, f"Error al listar facturas: {e}")

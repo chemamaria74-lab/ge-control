@@ -152,19 +152,7 @@ async def cancelar_factura_servicio_transporte(
         perfil_id=row.get("perfil_id") or pid,
         requested_by=uid,
     )
-    update_payload = {
-        "status": "Cancelada",
-        "cancelacion_status": resultado.get("status") or "solicitada",
-        "cancelacion_motivo": payload.motivo,
-        "cancelacion_uuid_sustitucion": payload.uuid_sustitucion,
-        "cancelacion_resultado": resultado,
-        "canceled_at": datetime.now(timezone.utc).isoformat(),
-        "canceled_by": uid,
-    }
-    try:
-        sb.table(_TBL_FACT_SERV).update(update_payload).eq("id", factura_id).eq("user_id", uid).execute()
-    except Exception:
-        sb.table(_TBL_FACT_SERV).update({"status": "Cancelada"}).eq("id", factura_id).eq("user_id", uid).execute()
+    sb.table(_TBL_FACT_SERV).update({"status": "Cancelada"}).eq("id", factura_id).eq("user_id", uid).execute()
     return JSONResponse({"ok": True, "status": resultado["status"], "error": None})
 
 
@@ -307,3 +295,4 @@ async def dashboard_operativo_transporte(
         {"tipo": "operador", "label": "Viajes sin confirmacion de operador", "count": resumen["sin_confirmacion"]},
     ]
     return JSONResponse({"ok": True, "periodo": periodo, "resumen": resumen, "viajes": viajes[:100]})
+

@@ -130,6 +130,7 @@ async def operador_tareas_carta_aporte(token: str = Query(...), force: bool = Qu
         .gte("fecha_timbrado", ini.isoformat())
         .lte("fecha_timbrado", fin.isoformat())
         .order("fecha_timbrado", desc=True)
+        .limit(50)
     )
     if acc.get("perfil_id"):
         q = q.eq("perfil_id", acc.get("perfil_id"))
@@ -267,8 +268,8 @@ async def operador_documentos_relacionados(viaje_id: int, token: str = Query(...
     if not viaje_rows:
         raise HTTPException(404, "Viaje no encontrado para este operador.")
     docs: list[dict] = []
-    cfdi_rows = sb.table(_TBL_CFDI).select("uuid_sat,status,xml_content").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("viaje_id", viaje_id).eq("status", "Vigente").eq("tipo_cfdi", "T").order("fecha_timbrado", desc=True).limit(1).execute().data or []
-    if cfdi_rows and cfdi_rows[0].get("xml_content"):
+    cfdi_rows = sb.table(_TBL_CFDI).select("uuid_sat,status,pdf_url").eq("user_id", acc["user_id"]).eq("perfil_id", acc["perfil_id"]).eq("viaje_id", viaje_id).eq("status", "Vigente").eq("tipo_cfdi", "T").order("fecha_timbrado", desc=True).limit(1).execute().data or []
+    if cfdi_rows:
         docs.append({"tipo": "carta_porte_pdf", "label": "PDF Carta Porte", "url": f"/api/tr/operador/viajes/{viaje_id}/pdf?token={token}", "status": cfdi_rows[0].get("status")})
     provider_docs = (
         sb.table(_TBL_DOCS)
