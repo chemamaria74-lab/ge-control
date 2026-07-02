@@ -4,8 +4,8 @@
         <div class="muted" id="companyLabel">Empresa seleccionada</div>
       </div>
       <div class="toolbar">
-        <input id="periodoFiltro" class="month-input" type="month" onchange="loadAll()">
-        <button class="btn ghost" onclick="loadAll()">Actualizar</button>
+        <input id="periodoFiltro" class="month-input" type="month" onchange="loadAll({force:true})">
+        <button class="btn ghost" onclick="loadAll({force:true})">Actualizar</button>
       </div>
     </section>
 
