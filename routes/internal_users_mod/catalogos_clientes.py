@@ -30,7 +30,8 @@ def _gas_lp_cliente_matches_company(row: dict, user: dict, profile: dict | None 
     return str(row.get("perfil_id") or "") == str(user.get("perfil_id") or "")
 
 
-def _gas_lp_company_clientes_rows(sb, user: dict, *, active_only: bool = True, limit: int = 10000) -> list[dict]:
+def _gas_lp_company_clientes_rows(sb, user: dict, *, active_only: bool = True, limit: int = GAS_LP_LIST_LIMIT_MAX) -> list[dict]:
+    limit = max(1, min(int(limit or GAS_LP_LIST_LIMIT_DEFAULT), GAS_LP_LIST_LIMIT_MAX))
     profile = _gas_lp_profile(user)
     profile_rfc = _gas_lp_company_rfc(user, profile)
     candidate_rows: list[dict] = []
@@ -109,7 +110,7 @@ def _gas_lp_cliente_invoice_counts(sb, user: dict, clientes: list[dict]) -> dict
     counts = {cid: 0 for cid in cliente_ids}
     try:
         profile = _gas_lp_profile(user)
-        rows = _gas_lp_company_facturas_rows(sb, user, profile, select="id,rfc_receptor,metadata,rfc_emisor", limit=10000, company_fallback=True, visibility_log=False)
+        rows = _gas_lp_company_facturas_rows(sb, user, profile, select="id,rfc_receptor,metadata,rfc_emisor", limit=GAS_LP_LIST_LIMIT_MAX, company_fallback=True, visibility_log=False)
     except Exception as exc:
         logger.warning("gas_lp_cliente_invoice_counts_failed perfil=%s tenant=%s err=%s", user.get("perfil_id"), user.get("tenant_id"), exc)
         try:
@@ -118,7 +119,7 @@ def _gas_lp_cliente_invoice_counts(sb, user: dict, clientes: list[dict]) -> dict
                 .select("id,rfc_receptor,metadata")
                 .eq("tenant_id", user.get("tenant_id"))
                 .eq("perfil_id", user.get("perfil_id"))
-                .limit(10000)
+                .limit(GAS_LP_LIST_LIMIT_MAX)
                 .execute()
                 .data
                 or []

@@ -44,6 +44,8 @@ logger = logging.getLogger(__name__)
 
 _GAS_LP_RFC_RE = re.compile(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$", re.IGNORECASE)
 _GAS_LP_CP_RE = re.compile(r"^\d{5}$")
+GAS_LP_LIST_LIMIT_DEFAULT = 300
+GAS_LP_LIST_LIMIT_MAX = 1000
 _GAS_LP_REGIMENES_PERSONA_MORAL = {"601", "603", "610", "620", "622", "623", "624", "626"}
 _GAS_LP_REGIMENES_PERSONA_FISICA = {"605", "606", "607", "608", "611", "612", "614", "615", "616", "621", "625", "626"}
 _GAS_LP_RFC_PRUEBAS_SAT = {
@@ -109,6 +111,22 @@ GAS_LP_FACTURAS_LIST_SELECT = ",".join([
     "payment_status",
     "email_destinatario",
 ])
+GAS_LP_FACTURAS_EXPORT_DAY_SELECT = ",".join([
+    "id",
+    "tenant_id",
+    "perfil_id",
+    "user_id",
+    "rfc_receptor",
+    "uuid_sat",
+    "fecha_timbrado",
+    "status",
+    "tipo_comprobante",
+    "volumen_litros",
+    "importe",
+    "metadata",
+    "created_at",
+    "updated_at",
+])
 GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT = ",".join([
     "id",
     "complemento_id",
@@ -119,6 +137,26 @@ GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT = ",".join([
     "saldo_insoluto",
     "status",
     "created_at",
+])
+GAS_LP_COMPLEMENTOS_LIST_SELECT = ",".join([
+    "id",
+    "tenant_id",
+    "perfil_id",
+    "user_id",
+    "factura_id",
+    "uuid_sat",
+    "status",
+    "monto",
+    "fecha_pago",
+    "created_at",
+    "updated_at",
+    "email_enviado",
+    "email_destinatario",
+    "email_error",
+    "email_last_attempt_at",
+    "created_by_internal",
+    "created_by_internal_name",
+    "metadata",
 ])
 GAS_LP_CLIENTES_LIST_SELECT = ",".join([
     "id",
@@ -854,7 +892,7 @@ def _gas_lp_operational_profile_ids(sb, tenant_ids: list[str]) -> set[int]:
                 q = q.eq(key, value)
             if tenant_ids:
                 q = q.in_("tenant_id", tenant_ids)
-            rows = q.limit(10000).execute().data or []
+            rows = q.limit(GAS_LP_LIST_LIMIT_MAX).execute().data or []
             for row in rows:
                 add(row.get("perfil_id"))
         except Exception as exc:
@@ -2451,7 +2489,7 @@ def _gas_lp_company_facturas_rows_impl(
     profile: dict,
     *,
     month: str = "",
-    limit: int = 10000,
+    limit: int = GAS_LP_LIST_LIMIT_DEFAULT,
     include_carta_porte: bool = True,
     select: str = "*",
     company_fallback: bool = True,
@@ -2464,13 +2502,13 @@ def _gas_lp_company_facturas_rows_impl(
     created_range = _gas_lp_month_created_range(month)
     profile_rfc = _gas_lp_company_rfc(user, profile)
     clean_receptor_rfc = _clean_rfc(receptor_rfc or "")
-    page_limit = max(1, min(int(limit or 10000), 10000))
+    page_limit = max(1, min(int(limit or GAS_LP_LIST_LIMIT_DEFAULT), GAS_LP_LIST_LIMIT_MAX))
 
     query = sb.table("gas_lp_facturas").select(select)
     if ppd_pending and user.get("tenant_id") and user.get("perfil_id"):
         query = query.eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
         filters.append({"company": "tenant_id + perfil_id for pending PPD", "tenant_id": user.get("tenant_id"), "perfil_id": user.get("perfil_id")})
-    elif profile_rfc:
+    elif profile_rfc and company_fallback:
         query = query.or_(f"empresa_rfc.eq.{profile_rfc},rfc_emisor.eq.{profile_rfc}")
         filters.append({"company": "empresa_rfc OR rfc_emisor", "rfc": profile_rfc})
     else:
@@ -2860,7 +2898,7 @@ def _gas_lp_facturas_by_ids_for_company(sb, user: dict, profile: dict, factura_i
         return {}
     rows = (
         sb.table("gas_lp_facturas")
-        .select("*")
+        .select(GAS_LP_FACTURAS_EXPORT_DAY_SELECT)
         .in_("id", ids)
         .eq("tenant_id", user.get("tenant_id"))
         .execute()

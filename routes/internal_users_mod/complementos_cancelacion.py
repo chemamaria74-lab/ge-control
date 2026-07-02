@@ -10,11 +10,11 @@ async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perf
     try:
         q = (
             sb.table("gas_lp_complementos_pago")
-            .select("*")
+            .select(GAS_LP_COMPLEMENTOS_LIST_SELECT)
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
             .order("created_at", desc=True)
-            .limit(1000)
+            .limit(GAS_LP_LIST_LIMIT_DEFAULT)
         )
         if len(month) == 7 and month[4] == "-":
             start = f"{month}-01T00:00:00"
@@ -31,7 +31,7 @@ async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perf
         try:
             rels = (
                 sb.table("gas_lp_complementos_pago_facturas")
-                .select("*")
+                .select(GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT)
                 .in_("complemento_id", comp_ids)
                 .order("created_at", desc=True)
                 .execute()
@@ -500,4 +500,3 @@ async def gas_lp_conciliacion_cancelar(factura_id: int, payload: GasLpCancelacio
             "respuesta_sw": resultado.get("raw") or {},
         },
     })
-

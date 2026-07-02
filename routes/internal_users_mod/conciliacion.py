@@ -237,9 +237,9 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
             user,
             profile,
             month=month,
-            limit=10000,
+            limit=GAS_LP_LIST_LIMIT_MAX,
             include_carta_porte=False,
-            select="*",
+            select=GAS_LP_FACTURAS_LIST_SELECT,
             company_fallback=True,
             visibility_log=False,
         )
@@ -248,9 +248,9 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
             user,
             profile,
             month="",
-            limit=10000,
+            limit=GAS_LP_LIST_LIMIT_MAX,
             include_carta_porte=False,
-            select="*",
+            select=GAS_LP_FACTURAS_LIST_SELECT,
             company_fallback=True,
             visibility_log=False,
             ppd_pending=True,
@@ -269,7 +269,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
     try:
         clientes_query = (
             sb.table("gas_lp_clientes_facturacion")
-            .select("*")
+            .select(GAS_LP_CLIENTES_LIST_SELECT)
             .eq("user_id", user.get("owner_user_id"))
             .eq("perfil_id", user.get("perfil_id"))
             .eq("activo", True)
@@ -647,7 +647,15 @@ async def gas_lp_conciliacion_export_excel(
     sb = get_supabase_admin()
     try:
         profile = _gas_lp_profile(user, require_module_marker=True)
-        rows = _gas_lp_company_facturas_rows(sb, user, profile, month=month, limit=10000, include_carta_porte=False)
+        rows = _gas_lp_company_facturas_rows(
+            sb,
+            user,
+            profile,
+            month=month,
+            limit=GAS_LP_LIST_LIMIT_MAX,
+            include_carta_porte=False,
+            select=GAS_LP_FACTURAS_LIST_SELECT,
+        )
     except Exception as exc:
         logger.error(
             "conciliacion_export_excel_error profile_id=%s period=%s factura_id=%s exception=%s traceback=%s",
@@ -694,13 +702,13 @@ async def gas_lp_conciliacion_export_excel(
         try:
             comp_q = (
                 sb.table("gas_lp_complementos_pago")
-                .select("*")
+                .select(GAS_LP_COMPLEMENTOS_LIST_SELECT)
                 .eq("tenant_id", user.get("tenant_id"))
                 .eq("perfil_id", user.get("perfil_id"))
                 .gte("created_at", start.strftime("%Y-%m-%dT00:00:00"))
                 .lt("created_at", end.strftime("%Y-%m-%dT00:00:00"))
                 .order("created_at", desc=True)
-                .limit(10000)
+                .limit(GAS_LP_LIST_LIMIT_MAX)
             )
             complementos = comp_q.execute().data or []
             _gas_lp_attach_complemento_creators(sb, complementos)
@@ -713,7 +721,7 @@ async def gas_lp_conciliacion_export_excel(
         try:
             comp_rels = (
                 sb.table("gas_lp_complementos_pago_facturas")
-                .select("*")
+                .select(GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT)
                 .in_("complemento_id", comp_ids)
                 .execute()
                 .data
