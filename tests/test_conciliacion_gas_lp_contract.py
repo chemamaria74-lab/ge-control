@@ -1312,7 +1312,14 @@ def test_conciliacion_export_excel_handles_decimal_null_metadata_and_transfer(mo
     monkeypatch.setattr(internal_users, "_gas_lp_conciliacion_context", lambda token, perfil_id=None: {"user": {"perfil_id": perfil_id or 7}})
     monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=True: {"id": user["perfil_id"], "nombre": "ALFA GAS", "rfc": "AAA010101AAA"})
     monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: object())
-    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", lambda sb, user, profile, month="", limit=10000, include_carta_porte=True, **kwargs: rows)
+    export_capture = {}
+
+    def fake_company_rows(sb, user, profile, month="", limit=10000, include_carta_porte=True, **kwargs):
+        if kwargs.get("select") == internal_users.GAS_LP_FACTURAS_EXPORT_DAY_SELECT:
+            export_capture.update({"month": month, "limit": limit, **kwargs})
+        return rows
+
+    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", fake_company_rows)
     monkeypatch.setattr(internal_users, "_gas_lp_attach_internal_creators", lambda sb, rows: None)
 
     response = asyncio.run(
@@ -1402,7 +1409,14 @@ def test_gas_lp_excel_exports_use_previous_compact_column_order(monkeypatch):
     monkeypatch.setattr(internal_users, "_gas_lp_internal_context", lambda token: {"user": {"perfil_id": 7, "tenant_id": "t1"}})
     monkeypatch.setattr(internal_users, "_gas_lp_profile", lambda user, require_module_marker=False: {"id": user["perfil_id"], "nombre": "ALFA GAS", "rfc": "AAA010101AAA"})
     monkeypatch.setattr(internal_users, "get_supabase_admin", lambda: object())
-    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", lambda sb, user, profile, month="", limit=10000, include_carta_porte=True, **kwargs: rows)
+    export_capture = {}
+
+    def fake_company_rows(sb, user, profile, month="", limit=10000, include_carta_porte=True, **kwargs):
+        if kwargs.get("select") == internal_users.GAS_LP_FACTURAS_EXPORT_DAY_SELECT:
+            export_capture.update({"month": month, "limit": limit, **kwargs})
+        return rows
+
+    monkeypatch.setattr(internal_users, "_gas_lp_company_facturas_rows", fake_company_rows)
     monkeypatch.setattr(internal_users, "_gas_lp_attach_internal_creators", lambda sb, rows: None)
 
     conc_response = asyncio.run(
@@ -1440,6 +1454,11 @@ def test_gas_lp_excel_exports_use_previous_compact_column_order(monkeypatch):
     assert by_uuid[cancelled_uuid] == ("PUE", "Cancelada")
     assert by_uuid[vigente_uuid] == ("PUE", "Vigente")
     assert by_uuid["ppd-uuid"] == ("PPD", "Vigente")
+    assert export_capture["month"] == ""
+    assert export_capture["limit"] == internal_users.GAS_LP_LIST_LIMIT_MAX
+    assert export_capture["select"] == internal_users.GAS_LP_FACTURAS_EXPORT_DAY_SELECT
+    assert export_capture["company_fallback"] is False
+    assert "xml_content" not in export_capture["select"]
 
 
 def test_assistant_facturas_endpoint_exposes_shared_fiscal_status(monkeypatch):
@@ -1539,7 +1558,92 @@ def test_assistant_facturas_table_shows_fiscal_status_column():
     assert "facturaStatusHtml(f)" in html
     assert '<td class="status-cell">${v.statusHtml}</td>' in html
     assert '<td colspan="11">No fue posible cargar facturas. Presiona Actualizar.</td>' in html
+    assert "loadFacturasSelectedMonth({force:true})" in html
+    assert "> Actualizar</button>" in html
     assert '<tr><td colspan="11">${esc(emptyText)}</td></tr>' in html
+
+
+def test_gas_lp_facturas_rows_falls_back_to_compatible_select_when_schema_differs():
+    class FakeResult:
+        def __init__(self, data):
+            self.data = data
+
+    class FakeQuery:
+        def __init__(self, rows):
+            self.rows = rows
+            self.select_value = ""
+            self.filters = []
+            self.limit_value = None
+
+        def select(self, value):
+            self.select_value = value
+            return self
+
+        def eq(self, key, value):
+            self.filters.append(("eq", key, value))
+            return self
+
+        def or_(self, value):
+            self.filters.append(("or", value))
+            return self
+
+        def gte(self, key, value):
+            self.filters.append(("gte", key, value))
+            return self
+
+        def lt(self, key, value):
+            self.filters.append(("lt", key, value))
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def limit(self, value):
+            self.limit_value = value
+            return self
+
+        def execute(self):
+            if "fecha_emision" in self.select_value:
+                raise RuntimeError("Could not find the 'fecha_emision' column of 'gas_lp_facturas' in the schema cache")
+            rows = list(self.rows)
+            for kind, key, value in self.filters:
+                if kind == "eq":
+                    rows = [row for row in rows if row.get(key) == value]
+            return FakeResult(rows[: self.limit_value or len(rows)])
+
+    class FakeSupabase:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def table(self, name):
+            assert name == "gas_lp_facturas"
+            return FakeQuery(self.rows)
+
+    rows = [
+        {
+            "id": 1,
+            "tenant_id": "t1",
+            "perfil_id": 7,
+            "uuid_sat": "ok-uuid",
+            "rfc_receptor": "XAXX010101000",
+            "volumen_litros": 10,
+            "importe": 100,
+            "status": "timbrada",
+            "metadata": {"fecha_emision": "2026-07-02T08:00:00", "metodo_pago": "PUE", "total": 116},
+            "created_at": "2026-07-02T08:00:00",
+        }
+    ]
+    result = internal_users._gas_lp_company_facturas_rows_impl(
+        FakeSupabase(rows),
+        {"tenant_id": "t1", "perfil_id": 7},
+        {"id": 7, "rfc": "AAA010101AAA"},
+        month="2026-07",
+        limit=300,
+        select=internal_users.GAS_LP_FACTURAS_LIST_SELECT,
+        company_fallback=True,
+    )
+
+    assert [row["uuid_sat"] for row in result] == ["ok-uuid"]
 
 
 def test_assistant_invoice_endpoint_returns_controlled_error_on_unexpected_failure(monkeypatch):
