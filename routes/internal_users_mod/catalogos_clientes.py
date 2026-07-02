@@ -51,7 +51,7 @@ def _gas_lp_company_clientes_rows(sb, user: dict, *, active_only: bool = True, l
         logger.warning("gas_lp_clientes_primary_lookup_failed perfil=%s tenant=%s err=%s", user.get("perfil_id"), user.get("tenant_id"), exc)
 
     if profile_rfc:
-        for rfc_field in ("metadata->>empresa_rfc", "metadata->>rfc_emisor", "metadata->>empresa_asignada_rfc", "rfc_emisor"):
+        for rfc_field in ("metadata->>empresa_rfc", "metadata->>rfc_emisor", "metadata->>empresa_asignada_rfc"):
             try:
                 query = sb.table("gas_lp_clientes_facturacion").select(GAS_LP_CLIENTES_LIST_SELECT).eq(rfc_field, profile_rfc)
                 if active_only:
@@ -110,7 +110,7 @@ def _gas_lp_cliente_invoice_counts(sb, user: dict, clientes: list[dict]) -> dict
     counts = {cid: 0 for cid in cliente_ids}
     try:
         profile = _gas_lp_profile(user)
-        rows = _gas_lp_company_facturas_rows(sb, user, profile, select="id,rfc_receptor,metadata,rfc_emisor", limit=GAS_LP_LIST_LIMIT_MAX, company_fallback=True, visibility_log=False)
+        rows = _gas_lp_company_facturas_rows(sb, user, profile, select="id,rfc_receptor,metadata", limit=GAS_LP_LIST_LIMIT_MAX, company_fallback=True, visibility_log=False)
     except Exception as exc:
         logger.warning("gas_lp_cliente_invoice_counts_failed perfil=%s tenant=%s err=%s", user.get("perfil_id"), user.get("tenant_id"), exc)
         try:
