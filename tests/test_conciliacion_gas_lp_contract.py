@@ -17,7 +17,7 @@ import pytest
 import routes.internal_users as internal_users
 import routes.internal_users_mod.catalogos_clientes as cp_catalogos
 import routes.internal_users_mod.users_auth as users_auth
-import routes.facturas as facturas_routes
+import routes.facturas_mod.core as facturas_routes
 import services.sw_sapien as sw_sapien
 from services.sw_sapien import build_carta_porte_xml
 
@@ -621,6 +621,8 @@ def test_gas_lp_facturas_list_uses_light_rows_for_visibility():
     assert "facturas_select = GAS_LP_FACTURAS_LIST_SELECT" in source
     assert "max_limit = GAS_LP_LIST_LIMIT_MAX" in source
     assert "max_limit = 10000 if deep else 50" not in source
+    assert "include_carta_porte=bool(carta_porte)" in source
+    assert "company_fallback=True" in source
     assert "select=GAS_LP_FACTURAS_LIST_SELECT" in summary_source
     assert "limit=GAS_LP_LIST_LIMIT_MAX" in summary_source
     assert "company_fallback=True" in summary_source
@@ -632,6 +634,8 @@ def test_asistente_cargar_mes_facturas_requests_full_company_month():
     assert "Cargar mes" in html
     assert "loadFacturasSelectedMonth()" in html
     assert "receptor_rfc=' + encodeURIComponent(receptorRfc)" in html
+    assert "cartaPorte ? '&carta_porte=1' : ''" in html
+    assert "loadFacturas('', {surfaceError:true, cartaPorte:true, force:true})" in html
 
 
 def test_gas_lp_facturas_complementos_mode_returns_only_pending_ppd_without_50_limit(monkeypatch):
