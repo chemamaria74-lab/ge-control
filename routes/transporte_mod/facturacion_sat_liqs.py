@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from .core import *
 from fastapi import File, Form, UploadFile
+from models.transport_schemas import FacturaServicioCreate, GenerarCovolRequest
 
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
@@ -20,10 +23,16 @@ async def listar_cartas_porte_facturables(
     except Exception:
         facturados = set()
     try:
-        cfdi_q = sb.table(_TBL_CFDI).select("*").eq("user_id", uid).eq("status", "Vigente").eq("tipo_cfdi", "T")
+        cfdi_q = (
+            sb.table(_TBL_CFDI)
+            .select("id,user_id,perfil_id,viaje_id,uuid_sat,id_ccp,rfc_receptor,status,tipo_cfdi,fecha_timbrado")
+            .eq("user_id", uid)
+            .eq("status", "Vigente")
+            .eq("tipo_cfdi", "T")
+        )
         if pid:
             cfdi_q = cfdi_q.eq("perfil_id", pid)
-        cfdi_res = cfdi_q.order("fecha_timbrado", desc=True).execute()
+        cfdi_res = cfdi_q.order("fecha_timbrado", desc=True).limit(1000).execute()
         cfdis = [c for c in (cfdi_res.data or []) if int(c.get("viaje_id") or 0) not in facturados]
         viajes_ids = [int(c.get("viaje_id")) for c in cfdis if c.get("viaje_id")]
         viajes_map = {}
@@ -624,7 +633,7 @@ async def listar_facturas_transporte(
     uid, token = _auth(authorization)
     sb = _sb(token)
     try:
-        q = sb.table(_TBL_CFDI).select("*").eq("user_id", uid).order("fecha_timbrado", desc=True)
+        q = sb.table(_TBL_CFDI).select("id,user_id,perfil_id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,pdf_url,status,fecha_timbrado,rfc_receptor,created_at,updated_at").eq("user_id", uid).order("fecha_timbrado", desc=True)
         if periodo:
             ini, fin = _periodo_bounds(periodo)
             q = q.gte("fecha_timbrado", ini).lt("fecha_timbrado", fin)
@@ -632,9 +641,6 @@ async def listar_facturas_transporte(
             q = q.eq("perfil_id", perfil_id)
         res  = q.execute()
         rows = res.data or []
-        # Omitir xml_content del listado (pesado)
-        for r in rows:
-            r.pop("xml_content", None)
         return JSONResponse({"ok": True, "facturas": rows})
     except Exception as e:
         raise HTTPException(500, f"Error al listar facturas: {e}")
