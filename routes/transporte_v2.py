@@ -16,6 +16,7 @@ import zlib
 import base64
 import unicodedata
 from xml.etree import ElementTree as ET
+from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Any, Optional
@@ -60,6 +61,27 @@ TBL_AUDITORIA = "transporte_v2_auditoria"
 TBL_CFDI = "tr_cfdi"
 TBL_COVOL = "tr_covol_reports"
 TBL_COVOL_CIERRES = "tr_covol_month_closures"
+TRV2_LIST_LIMIT_DEFAULT = 100
+TRV2_LIST_LIMIT_MAX = 1000
+TRV2_CFDI_LIST_SELECT = ",".join([
+    "id",
+    "user_id",
+    "perfil_id",
+    "viaje_id",
+    "tipo_cfdi",
+    "uuid_sat",
+    "id_ccp",
+    "pdf_url",
+    "status",
+    "fecha_timbrado",
+    "rfc_receptor",
+    "volumen_total",
+    "importe_total",
+    "cancelacion_status",
+    "cancelacion_resultado",
+    "created_at",
+    "updated_at",
+])
 VEHICLE_DB_FIELDS = {
     "alias",
     "numero_economico",
@@ -1695,6 +1717,128 @@ def _simple_pdf_bytes(title: str, lines: list[str]) -> bytes:
         f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n".encode("ascii")
     )
     return bytes(pdf)
+
+
+def _format_mx_datetime(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        local = parsed.astimezone(ZoneInfo("America/Mexico_City"))
+        return local.strftime("%d/%m/%Y %I:%M %p").replace("AM", "a.m.").replace("PM", "p.m.")
+    except Exception:
+        return text
+
+
+def _operator_bitacora_pdf_bytes(trip: dict[str, Any], acc: dict[str, Any], bitacora: dict[str, Any]) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import inch
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except Exception:
+        lines = [
+            "GE Control - Bitacora Transporte",
+            f"Viaje: #{trip.get('id') or ''}",
+            f"Operador: {(acc.get('chofer') or {}).get('nombre') or ''}",
+            f"Origen: {_first_text(trip.get('origen'), trip.get('nombre_origen'), _meta(trip).get('origen_sugerido'))}",
+            f"Destino: {_first_text(trip.get('destino'), trip.get('nombre_destino'), _meta(trip).get('destino_sugerido'))}",
+            f"Estado bitacora: {_first_text(bitacora.get('estado'), 'SIN_INICIAR')}",
+            "",
+            "Historial:",
+        ]
+        for event in bitacora.get("eventos", []):
+            lines.append(f"- {_format_mx_datetime(event.get('created_at'))} {event.get('accion')} {event.get('nota') or ''}".strip())
+        return _simple_pdf_bytes("Bitacora Transporte", lines)
+
+    meta = _meta(trip)
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=0.55 * inch, rightMargin=0.55 * inch, topMargin=0.42 * inch, bottomMargin=0.45 * inch, title="Bitacora Transporte")
+    styles = getSampleStyleSheet()
+    accent = colors.HexColor("#6B7280")
+    title_color = colors.HexColor("#4B5563")
+    line = colors.HexColor("#DED7CE")
+    cream = colors.HexColor("#F8F6F2")
+    ink = colors.HexColor("#1F2933")
+    muted = colors.HexColor("#67717D")
+    styles.add(ParagraphStyle(name="BitTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=15, leading=18, textColor=title_color, alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name="BitMeta", parent=styles["Normal"], fontName="Helvetica", fontSize=8.5, leading=10, textColor=muted, alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name="BitHead", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8.8, leading=10.2, textColor=colors.white))
+    styles.add(ParagraphStyle(name="BitLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.2, leading=8.6, textColor=muted))
+    styles.add(ParagraphStyle(name="BitValue", parent=styles["Normal"], fontName="Helvetica", fontSize=8.4, leading=10, textColor=ink))
+    styles.add(ParagraphStyle(name="BitValueBold", parent=styles["BitValue"], fontName="Helvetica-Bold"))
+
+    def p(value: Any, style: str = "BitValue"):
+        return Paragraph(xml_escape(str(value or "")), styles[style])
+
+    def card(title: str, rows: list[tuple[str, Any]], width: float):
+        data = [[Paragraph(title, styles["BitHead"]), ""]]
+        data += [[Paragraph(label.upper(), styles["BitLabel"]), p(value)] for label, value in rows]
+        table = Table(data, colWidths=[1.05 * inch, (width - 1.05) * inch])
+        table.setStyle(TableStyle([
+            ("SPAN", (0, 0), (-1, 0)),
+            ("BACKGROUND", (0, 0), (-1, 0), accent),
+            ("BOX", (0, 0), (-1, -1), 0.45, line),
+            ("GRID", (0, 1), (-1, -1), 0.18, line),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        return table
+
+    operador = (acc.get("chofer") or {}).get("nombre") or meta.get("operador_nombre") or trip.get("operador_nombre") or ""
+    vehiculo = _first_text(meta.get("vehiculo_alias"), trip.get("vehiculo_alias"), trip.get("placas"), meta.get("placas"))
+    placas = _first_text(meta.get("placas"), trip.get("placas"))
+    remolque = _first_text(meta.get("remolque_placas"), trip.get("remolque_placas"))
+    origen = _first_text(trip.get("origen"), trip.get("nombre_origen"), meta.get("origen_sugerido"), meta.get("origen"))
+    destino = _first_text(trip.get("destino"), trip.get("nombre_destino"), meta.get("destino_sugerido"), meta.get("destino"))
+    producto = _first_text(trip.get("producto_descripcion"), meta.get("producto_descripcion"), meta.get("producto"))
+    litros = _num(trip.get("volumen_litros") or trip.get("volumen_total_litros"))
+    kilos = _num(trip.get("peso_kg"))
+
+    story = [
+        Paragraph("BITACORA DE VIAJE", styles["BitTitle"]),
+        Paragraph(f"GE Control Transporte · Viaje #{trip.get('id') or ''} · Estado: {_first_text(bitacora.get('estado'), 'SIN_INICIAR')}", styles["BitMeta"]),
+        Spacer(1, 10),
+        Table([[
+            card("Viaje", [("Origen", origen), ("Destino", destino), ("Producto", producto), ("Litros", f"{litros:,.2f} L" if litros else "No capturado"), ("Kilos", f"{kilos:,.2f} kg" if kilos else "No capturado")], 3.55),
+            "",
+            card("Operador y unidad", [("Operador", operador), ("Vehiculo", vehiculo), ("Placas", placas), ("Remolque", remolque or "No capturado"), ("Salida", _format_mx_datetime(trip.get("fecha_salida") or trip.get("fecha_hora_salida")))], 3.55),
+        ]], colWidths=[3.55 * inch, 0.20 * inch, 3.55 * inch]),
+        Spacer(1, 12),
+    ]
+    history_rows = [[Paragraph("FECHA/HORA", styles["BitHead"]), Paragraph("ACCION", styles["BitHead"]), Paragraph("DESCRIPCION", styles["BitHead"])]]
+    events = bitacora.get("eventos") if isinstance(bitacora.get("eventos"), list) else []
+    for event in events:
+        history_rows.append([
+            p(_format_mx_datetime(event.get("created_at"))),
+            p(event.get("accion"), "BitValueBold"),
+            p(_first_text(event.get("nota"), event.get("estado"), "")),
+        ])
+    if len(history_rows) == 1:
+        history_rows.append([p("Sin registros"), p(""), p("")])
+    history = Table(history_rows, colWidths=[1.60 * inch, 1.15 * inch, 4.55 * inch], repeatRows=1)
+    history.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), accent),
+        ("BOX", (0, 0), (-1, -1), 0.45, line),
+        ("GRID", (0, 1), (-1, -1), 0.18, line),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, cream]),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(history)
+    doc.build(story)
+    return buffer.getvalue()
 
 
 def _is_missing_table_error(exc: Exception) -> bool:
@@ -4761,7 +4905,7 @@ def _next_carta_porte_traslado_folio(sb: Any, uid: str, pid: Optional[int]) -> t
     try:
         query = (
             sb.table(TBL_CFDI)
-            .select("xml_content")
+            .select("metadata,created_at")
             .eq("user_id", uid)
             .eq("tipo_cfdi", "T")
             .order("fecha_timbrado", desc=True)
@@ -4771,9 +4915,26 @@ def _next_carta_porte_traslado_folio(sb: Any, uid: str, pid: Optional[int]) -> t
             query = query.eq("perfil_id", pid)
         rows = query.execute().data or []
         for row in rows:
-            row_serie, row_folio = _carta_porte_xml_serie_folio(row.get("xml_content"))
+            meta = _meta(row)
+            row_serie = _first_text(meta.get("serie_carta_porte"), meta.get("serie")).upper()
+            row_folio = _first_text(meta.get("folio_carta_porte"), meta.get("folio")).upper()
             if row_serie == serie:
                 max_number = max(max_number, _carta_porte_folio_number(row_folio))
+        if not max_number:
+            fallback_query = (
+                sb.table(TBL_CFDI)
+                .select("xml_content")
+                .eq("user_id", uid)
+                .eq("tipo_cfdi", "T")
+                .order("fecha_timbrado", desc=True)
+                .limit(50)
+            )
+            if pid:
+                fallback_query = fallback_query.eq("perfil_id", pid)
+            for row in fallback_query.execute().data or []:
+                row_serie, row_folio = _carta_porte_xml_serie_folio(row.get("xml_content"))
+                if row_serie == serie:
+                    max_number = max(max_number, _carta_porte_folio_number(row_folio))
     except Exception as exc:
         logger.info("No se pudo calcular consecutivo Carta Porte; se usara folio inicial: %s", exc)
     return serie, f"{max_number + 1:02d}"
@@ -5606,6 +5767,10 @@ async def transporte_v2_operator_mi_viaje(authorization: str = Header(default=""
     meta.setdefault("operador_nombre", (acc.get("chofer") or {}).get("nombre") or "")
     meta.setdefault("vehiculo_alias", _first_text(vehicle.get("numero_economico"), vehicle.get("alias"), vehicle.get("placas")))
     meta.setdefault("placas", vehicle.get("placas") or "")
+    factura = _factura_carga_from_trip(viaje)
+    if factura:
+        meta.setdefault("factura_carga", factura)
+        meta.setdefault("factura_carga_nombre", factura.get("nombre") or "")
     viaje["defaults_json"] = meta
     carta_porte = _operator_carta_porte_payload(sb, acc, viaje) if _first_text(viaje.get("uuid_cfdi"), meta.get("uuid_carta_porte"), meta.get("cfdi_uuid")) else {}
     return {"ok": True, "viaje": _normalize_viaje_row(viaje), "metadata": meta, "carta_porte": carta_porte, "has_trip": True}
@@ -5980,19 +6145,7 @@ async def transporte_v2_operator_bitacora_pdf(authorization: str = Header(defaul
     trip = _operator_assigned_trip(sb, acc)
     meta = _meta(trip)
     bitacora = meta.get("bitacora_operador") if isinstance(meta.get("bitacora_operador"), dict) else {}
-    lines = [
-        "GE Control - Bitacora Transporte",
-        "Viaje: Operador",
-        f"Operador: {(acc.get('chofer') or {}).get('nombre') or ''}",
-        f"Origen: {_first_text(trip.get('origen'), trip.get('nombre_origen'), meta.get('origen_sugerido'))}",
-        f"Destino: {_first_text(trip.get('destino'), trip.get('nombre_destino'), meta.get('destino_sugerido'))}",
-        f"Estado bitacora: {_first_text(bitacora.get('estado'), 'SIN_INICIAR')}",
-        "",
-        "Historial:",
-    ]
-    for event in bitacora.get("eventos", []):
-        lines.append(f"- {event.get('created_at')} {event.get('accion')} {event.get('nota') or ''}".strip())
-    content = _simple_pdf_bytes("Bitacora Transporte", lines)
+    content = _operator_bitacora_pdf_bytes(trip, acc, bitacora)
     return Response(
         content,
         media_type="application/pdf",
@@ -6474,7 +6627,7 @@ async def transporte_v2_carta_porte_timbrar(
 async def transporte_v2_carta_porte_timbradas(
     filtro: str = Query(default="hoy"),
     periodo: Optional[str] = Query(default=None),
-    limit: int = Query(default=80, ge=1, le=300),
+    limit: int = Query(default=80, ge=1, le=TRV2_LIST_LIMIT_MAX),
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -6489,7 +6642,7 @@ async def transporte_v2_carta_porte_timbradas(
             .eq("user_id", uid)
             .eq("tipo_cfdi", "T")
             .order("fecha_timbrado", desc=True)
-            .limit(limit)
+            .limit(min(int(limit or TRV2_LIST_LIMIT_DEFAULT), TRV2_LIST_LIMIT_MAX))
         )
         if pid:
             query = query.eq("perfil_id", pid)
@@ -6505,15 +6658,11 @@ async def transporte_v2_carta_porte_timbradas(
         return query
 
     try:
-        rows = _cfdi_timbradas_query(
-            "id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,xml_content,pdf_url,status,fecha_timbrado,rfc_receptor,volumen_total,importe_total,cancelacion_status,cancelacion_resultado"
-        ).execute().data or []
+        rows = _cfdi_timbradas_query(TRV2_CFDI_LIST_SELECT).execute().data or []
     except Exception as exc:
         logger.info("tr_cfdi timbradas columnas extendidas no disponibles; usando fallback: %s", exc)
         try:
-            rows = _cfdi_timbradas_query(
-                "id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,xml_content,pdf_url,status,fecha_timbrado,rfc_receptor"
-            ).execute().data or []
+            rows = _cfdi_timbradas_query("id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,pdf_url,status,fecha_timbrado,rfc_receptor").execute().data or []
         except Exception as fallback_exc:
             logger.exception("No se pudieron cargar Cartas Porte timbradas Transporte v2")
             raise HTTPException(500, f"No se pudieron cargar Cartas Porte timbradas: {fallback_exc}") from fallback_exc
@@ -6536,7 +6685,7 @@ async def transporte_v2_carta_porte_timbradas(
             ).execute().data or []
         except Exception as exc:
             logger.info("tr_viajes timbradas columnas extendidas no disponibles; usando fallback: %s", exc)
-            trip_rows = _viajes_timbradas_query("*").execute().data or []
+            trip_rows = _viajes_timbradas_query("id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,operador_nombre,vehiculo_alias,metadata").execute().data or []
         for trip in trip_rows:
             trips_by_id[int(trip.get("id") or 0)] = trip
     items: list[dict[str, Any]] = []
@@ -6545,12 +6694,6 @@ async def transporte_v2_carta_porte_timbradas(
         trip = trips_by_id.get(viaje_id, {})
         meta = _meta(trip)
         xml_summary: dict[str, Any] = {}
-        xml_content = _first_text(row.get("xml_content"))
-        if xml_content:
-            try:
-                xml_summary = resumen_carta_porte_desde_xml(xml_content)
-            except Exception as exc:
-                logger.info("No se pudo extraer resumen XML Carta Porte cfdi=%s viaje=%s: %s", row.get("id"), viaje_id, exc)
         origen_xml = _first_text(xml_summary.get("origen_nombre"), xml_summary.get("origen_id"))
         destino_xml = _first_text(xml_summary.get("destino_nombre"), xml_summary.get("destino_id"))
         ruta_xml = f"{origen_xml} -> {destino_xml}" if origen_xml or destino_xml else ""

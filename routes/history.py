@@ -27,6 +27,35 @@ from supabase_config import get_supabase_admin
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+GAS_LP_HISTORY_FACTURAS_SELECT = ",".join([
+    "id",
+    "tenant_id",
+    "perfil_id",
+    "user_id",
+    "record_uuid",
+    "uuid_sat",
+    "status",
+    "tipo_comprobante",
+    "fecha_timbrado",
+    "fecha_emision",
+    "created_at",
+    "updated_at",
+    "rfc_receptor",
+    "rfc_emisor",
+    "empresa_rfc",
+    "receptor_nombre",
+    "cliente_nombre",
+    "facility_id",
+    "volumen_litros",
+    "importe",
+    "tipo_operacion",
+    "is_transfer",
+    "origen_facility_id",
+    "destino_facility_id",
+    "metadata",
+])
+GAS_LP_HISTORY_FACTURAS_LIMIT = 1000
+
 
 def _auth(authorization: str) -> tuple[str, str]:
     if not authorization.startswith("Bearer "):
@@ -329,12 +358,12 @@ def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int,
             except Exception:
                 profile_rfc = ""
 
-        q = get_supabase_admin().table("gas_lp_facturas").select("*").eq("perfil_id", perfil_id)
+        q = get_supabase_admin().table("gas_lp_facturas").select(GAS_LP_HISTORY_FACTURAS_SELECT).eq("perfil_id", perfil_id)
         if tenant_id:
             q = q.eq("tenant_id", tenant_id)
         else:
             q = q.eq("user_id", owner_user_id)
-        rows = q.order("created_at", desc=True).limit(10000).execute().data or []
+        rows = q.order("created_at", desc=True).limit(GAS_LP_HISTORY_FACTURAS_LIMIT).execute().data or []
 
         entradas: list[dict] = []
         salidas: list[dict] = []
