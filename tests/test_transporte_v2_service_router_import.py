@@ -19,3 +19,15 @@ def test_service_invoice_request_models_are_explicit():
 
     assert "FacturaServicioCreate, GenerarCovolRequest" in create_source
     assert "CancelacionViajeRequest as CancelacionFacturaServicioRequest" in dashboard_source
+
+
+def test_carta_porte_timbradas_keeps_light_trip_enrichment():
+    source = (ROOT / "routes/transporte_v2.py").read_text(encoding="utf-8")
+
+    assert "productos_json" in source
+    assert "defaults_json" in source
+    assert '"origen_nombre": origen_nombre' in source
+    assert '"destino_nombre": destino_nombre' in source
+    assert '"operador_nombre": operador_nombre' in source
+    assert '"vehiculo_alias": vehiculo_alias' in source
+    assert '"producto": producto_nombre' in source
