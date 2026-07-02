@@ -824,15 +824,15 @@ def _gas_lp_operational_profile_ids(sb, tenant_ids: list[str]) -> set[int]:
         if rid:
             profile_ids.add(rid)
 
-    for table, select_fields, filters in (
-        ("user_facilities", "perfil_id,tenant_id,modulo_propietario", {"modulo_propietario": "gas_lp"}),
-        ("gas_lp_facturas", "perfil_id,tenant_id", {}),
+    for table, select_fields, filters, tenant_filter in (
+        ("user_facilities", "perfil_id,modulo_propietario", {"modulo_propietario": "gas_lp"}, False),
+        ("gas_lp_facturas", "perfil_id,tenant_id", {}, True),
     ):
         try:
             q = sb.table(table).select(select_fields)
             for key, value in filters.items():
                 q = q.eq(key, value)
-            if tenant_ids:
+            if tenant_filter and tenant_ids:
                 q = q.in_("tenant_id", tenant_ids)
             rows = q.limit(10000).execute().data or []
             for row in rows:

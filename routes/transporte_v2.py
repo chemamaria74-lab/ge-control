@@ -80,7 +80,6 @@ TRV2_CFDI_LIST_SELECT = ",".join([
     "cancelacion_status",
     "cancelacion_resultado",
     "created_at",
-    "updated_at",
 ])
 VEHICLE_DB_FIELDS = {
     "alias",
@@ -6692,11 +6691,10 @@ async def transporte_v2_carta_porte_timbradas(
             return query
         trip_rows = []
         trip_select_attempts = [
-            "id,cliente_id,cliente_nombre,nombre_receptor,rfc_receptor,ruta_id,origen,destino,nombre_origen,nombre_destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,distancia_km,producto_id,producto_operacion_id,producto_descripcion,productos_json,operador_id,chofer_id,operador_nombre,chofer_nombre,vehiculo_id,vehiculo_alias,placas,metadata,defaults_json,created_at",
-            "id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,operador_nombre,vehiculo_alias,metadata,defaults_json",
-            "id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,operador_nombre,vehiculo_alias,metadata",
-            "id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,metadata",
-            "id,metadata",
+            "id,nombre_receptor,rfc_receptor,ruta_id,proveedor_id,origen_id,destino_id,nombre_origen,nombre_destino,fecha_hora_salida,fecha_hora_llegada,volumen_total_litros,distancia_km,producto_operacion_id,productos_json,chofer_id,vehiculo_id,status,uuid_cfdi,id_ccp,defaults_json,created_at",
+            "id,nombre_receptor,rfc_receptor,ruta_id,nombre_origen,nombre_destino,fecha_hora_salida,volumen_total_litros,distancia_km,producto_operacion_id,productos_json,chofer_id,vehiculo_id,defaults_json,created_at",
+            "id,nombre_origen,nombre_destino,fecha_hora_salida,volumen_total_litros,productos_json,chofer_id,vehiculo_id,defaults_json",
+            "id,defaults_json",
         ]
         for select_cols in trip_select_attempts:
             try:
@@ -6933,7 +6931,7 @@ async def transporte_v2_carta_porte_cancelar(
             emisor = _xml_first(root, "Emisor")
             cancel_result = cancel_cfdi_universal(
                 sb=sb,
-                module="transporte_v2",
+                module="transporte",
                 invoice_table=TBL_CFDI,
                 invoice_id=cfdi.get("id"),
                 uuid_sat=_first_text(cfdi.get("uuid_sat")),
