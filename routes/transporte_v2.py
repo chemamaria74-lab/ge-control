@@ -6692,6 +6692,7 @@ async def transporte_v2_carta_porte_timbradas(
             return query
         trip_rows = []
         trip_select_attempts = [
+            "id,cliente_id,cliente_nombre,nombre_receptor,rfc_receptor,ruta_id,origen,destino,nombre_origen,nombre_destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,distancia_km,producto_id,producto_operacion_id,producto_descripcion,productos_json,operador_id,chofer_id,operador_nombre,chofer_nombre,vehiculo_id,vehiculo_alias,placas,metadata,defaults_json,created_at",
             "id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,operador_nombre,vehiculo_alias,metadata,defaults_json",
             "id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,operador_nombre,vehiculo_alias,metadata",
             "id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,metadata",
@@ -6710,15 +6711,94 @@ async def transporte_v2_carta_porte_timbradas(
     items: list[dict[str, Any]] = []
     for row in rows:
         viaje_id = int(row.get("viaje_id") or 0)
-        trip = trips_by_id.get(viaje_id, {})
+        trip = _normalize_viaje_row(trips_by_id.get(viaje_id, {})) if viaje_id in trips_by_id else {}
         meta = _meta(trip)
+        product = _first_product(trip)
         xml_summary: dict[str, Any] = {}
         origen_xml = _first_text(xml_summary.get("origen_nombre"), xml_summary.get("origen_id"))
         destino_xml = _first_text(xml_summary.get("destino_nombre"), xml_summary.get("destino_id"))
+        origen_nombre = _first_text(
+            origen_xml,
+            trip.get("origen_nombre"),
+            trip.get("nombre_origen"),
+            trip.get("origen"),
+            meta.get("origen_nombre"),
+            meta.get("nombre_origen"),
+            meta.get("origen"),
+            meta.get("origen_sugerido"),
+            meta.get("proveedor_nombre"),
+            meta.get("emisor_nombre"),
+        )
+        destino_nombre = _first_text(
+            destino_xml,
+            trip.get("destino_nombre"),
+            trip.get("nombre_destino"),
+            trip.get("destino"),
+            meta.get("destino_nombre"),
+            meta.get("nombre_destino"),
+            meta.get("destino"),
+            meta.get("destino_sugerido"),
+            meta.get("cliente_nombre"),
+            meta.get("receptor_nombre"),
+        )
         ruta_xml = f"{origen_xml} -> {destino_xml}" if origen_xml or destino_xml else ""
+        operador_nombre = _first_text(
+            xml_summary.get("chofer"),
+            trip.get("operador_nombre"),
+            trip.get("chofer_nombre"),
+            meta.get("operador_nombre"),
+            meta.get("chofer_nombre"),
+            meta.get("nombre_operador"),
+        )
+        vehiculo_alias = _first_text(
+            xml_summary.get("vehiculo"),
+            trip.get("vehiculo_alias"),
+            trip.get("vehiculo_nombre"),
+            trip.get("placas"),
+            meta.get("vehiculo_alias"),
+            meta.get("vehiculo_nombre"),
+            meta.get("vehiculo"),
+            meta.get("placas"),
+        )
+        producto_nombre = _first_text(
+            xml_summary.get("producto"),
+            trip.get("producto_descripcion"),
+            trip.get("producto"),
+            product.get("descripcion"),
+            product.get("nombre"),
+            meta.get("producto_descripcion"),
+            meta.get("producto_nombre"),
+            meta.get("producto"),
+            meta.get("mercancia_nombre"),
+        )
+        volumen_litros = _num(
+            xml_summary.get("litros")
+            or row.get("volumen_total")
+            or row.get("volumen_total_litros")
+            or trip.get("volumen_litros")
+            or trip.get("volumen_total_litros")
+            or product.get("cantidad_litros")
+            or meta.get("volumen_litros")
+            or meta.get("volumen_total_litros")
+            or meta.get("litros")
+        )
+        peso_kg = _num(
+            xml_summary.get("peso_kg")
+            or trip.get("peso_kg")
+            or product.get("peso_kg")
+            or product.get("kilos")
+            or meta.get("peso_kg")
+            or meta.get("kilos")
+            or meta.get("peso")
+        )
         items.append({
             "id": row.get("id"),
             "viaje_id": viaje_id,
+            "cliente_id": trip.get("cliente_id") or meta.get("cliente_id"),
+            "ruta_id": trip.get("ruta_id") or meta.get("ruta_id"),
+            "producto_id": trip.get("producto_id") or trip.get("producto_operacion_id") or meta.get("producto_id"),
+            "operador_id": trip.get("operador_id") or trip.get("chofer_id") or meta.get("operador_id") or meta.get("chofer_id"),
+            "vehiculo_id": trip.get("vehiculo_id") or meta.get("vehiculo_id"),
             "tipo_cfdi": _first_text(xml_summary.get("tipo_cfdi"), row.get("tipo_cfdi"), "T"),
             "uuid_sat": _first_text(xml_summary.get("uuid_sat"), row.get("uuid_sat")),
             "id_ccp": _first_text(xml_summary.get("id_ccp"), row.get("id_ccp"), meta.get("id_ccp")),
@@ -6729,16 +6809,17 @@ async def transporte_v2_carta_porte_timbradas(
             "fecha_timbrado": _first_text(xml_summary.get("fecha_timbrado"), row.get("fecha_timbrado")),
             "fecha_emision": _first_text(xml_summary.get("fecha_emision")),
             "cliente_nombre": _first_text(xml_summary.get("receptor_nombre"), xml_summary.get("receptor_rfc"), trip.get("cliente_nombre"), meta.get("cliente_nombre"), row.get("rfc_receptor")),
-            "ruta": _first_text(ruta_xml, f"{_first_text(trip.get('origen'), meta.get('origen'), 'Origen')} -> {_first_text(trip.get('destino'), meta.get('destino'), 'Destino')}"),
-            "origen_nombre": _first_text(xml_summary.get("origen_nombre")),
-            "destino_nombre": _first_text(xml_summary.get("destino_nombre")),
+            "ruta": _first_text(ruta_xml, f"{_first_text(origen_nombre, 'Origen')} -> {_first_text(destino_nombre, 'Destino')}"),
+            "origen_nombre": origen_nombre,
+            "destino_nombre": destino_nombre,
             "fecha_salida": _first_text(xml_summary.get("origen_fecha"), trip.get("fecha_salida"), trip.get("fecha_hora_salida")),
             "fecha_llegada": _first_text(xml_summary.get("destino_fecha")),
-            "operador_nombre": _first_text(xml_summary.get("chofer"), trip.get("operador_nombre"), meta.get("operador_nombre")),
-            "vehiculo_alias": _first_text(xml_summary.get("vehiculo"), trip.get("vehiculo_alias"), meta.get("vehiculo_alias")),
-            "producto": _first_text(xml_summary.get("producto")),
-            "volumen_litros": _num(xml_summary.get("litros") or row.get("volumen_total") or trip.get("volumen_litros") or trip.get("volumen_total_litros")),
-            "peso_kg": _num(xml_summary.get("peso_kg") or trip.get("peso_kg")),
+            "operador_nombre": operador_nombre,
+            "vehiculo_alias": vehiculo_alias,
+            "producto": producto_nombre,
+            "producto_descripcion": producto_nombre,
+            "volumen_litros": volumen_litros,
+            "peso_kg": peso_kg,
             "distancia_km": _num(xml_summary.get("distancia_km") or meta.get("distancia_km")),
             "importe_total": _num(row.get("importe_total")),
             "pdf_url": f"/api/tr-v2/carta-porte/{viaje_id}/pdf?download=1",
