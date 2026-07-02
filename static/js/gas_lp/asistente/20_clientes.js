@@ -379,7 +379,7 @@ function clearDescuentosMonth(){
 
 async function refreshDescuentosData(){
   const month = document.getElementById('descuentosMes')?.value || todayKey().slice(0,7);
-  await Promise.allSettled([loadClientes(), loadFacturas(month, {limit:10000, deep:true, descuentos:true})]);
+  await Promise.allSettled([loadClientes(), loadFacturas(month, {limit:300, deep:true, descuentos:true})]);
   renderDescuentosList();
 }
 

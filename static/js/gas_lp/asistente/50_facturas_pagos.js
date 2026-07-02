@@ -3,10 +3,24 @@ function mergeFacturas(rows){
   (rows || []).forEach(f => byId.set(String(f.id), f));
   FACTURAS = [...byId.values()].sort((a,b)=>String(facturaDateValue(b) || b.created_at || '').localeCompare(String(facturaDateValue(a) || a.created_at || '')));
 }
+const GASLP_SESSION_CACHE_TTL = 5 * 60 * 1000;
+function gaslpSessionCacheKey(kind, key){ return `ge_gaslp:${kind}:${token || 'anon'}:${key}`; }
+function gaslpSessionCacheGet(kind, key){
+  try{
+    const raw = sessionStorage.getItem(gaslpSessionCacheKey(kind, key));
+    if(!raw) return null;
+    const item = JSON.parse(raw);
+    if(!item || Date.now() - Number(item.t || 0) > GASLP_SESSION_CACHE_TTL) return null;
+    return item.data || null;
+  }catch(_e){ return null; }
+}
+function gaslpSessionCacheSet(kind, key, data){
+  try{ sessionStorage.setItem(gaslpSessionCacheKey(kind, key), JSON.stringify({t:Date.now(), data})); }catch(_e){}
+}
 async function loadFacturas(month='', opts={}){
   const selectedMonth = opts.allMonths ? '' : String(month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)).slice(0,7);
   if(document.getElementById('facturaMes') && !facturaMes.value) facturaMes.value = selectedMonth;
-  const limit = Math.max(1, Math.min(Number(opts.limit || 10000) || 10000, 10000));
+  const limit = Math.max(1, Math.min(Number(opts.limit || 300) || 300, 1000));
   const deep = opts.deep !== false;
   const receptorRfc = String(opts.receptorRfc || '').trim().toUpperCase();
   const complementos = !!opts.complementos;
@@ -28,9 +42,39 @@ async function loadFacturas(month='', opts={}){
     + (credito ? '&credito=1' : '')
     + (descuentos ? '&descuentos=1' : '')
     + (receptorRfc ? '&receptor_rfc=' + encodeURIComponent(receptorRfc) : '');
+  const cacheKey = qs;
+  if(!opts.force){
+    const cached = gaslpSessionCacheGet('facturas', cacheKey);
+    if(cached){
+      const loadedRows = cached.facturas || [];
+      if(credito){
+        CREDITO_FACTURAS = loadedRows;
+        CREDITO_PPD_SEARCHED = true;
+      }else if(descuentos){
+        DESCUENTO_FACTURAS = loadedRows;
+        DESCUENTOS_SEARCHED = true;
+      }else{
+        FACTURAS = loadedRows;
+        FACTURAS_LOADED = true;
+      }
+      if(!credito && !descuentos){
+        renderFacturaClientOptions();
+        renderTodayFacturas();
+      }
+      renderDashboard();
+      renderDescuentosList();
+      if(!credito && !descuentos){
+        renderComplementosPago();
+        if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels();
+        applyFacturasFilters();
+      }
+      return true;
+    }
+  }
   FACTURAS_LOAD_PROMISE = (async () => {
     try{
       const data = await api('/api/internal-auth/gas-lp/facturas' + qs, {signal: FACTURAS_LOAD_CONTROLLER.signal});
+      gaslpSessionCacheSet('facturas', cacheKey, data);
       const loadedRows = data.facturas || [];
       if(credito){
         CREDITO_FACTURAS = loadedRows;
@@ -100,11 +144,14 @@ function mergeFacturaFromResponse(factura){
   if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels();
   applyFacturasFilters();
 }
-async function loadComplementos(month=''){
+async function loadComplementos(month='', opts={}){
   const selectedMonth = String(month || todayKey().slice(0,7)).slice(0,7);
   const qs = selectedMonth ? '?mes=' + encodeURIComponent(selectedMonth) : '';
   try{
-    const data = await api('/api/internal-auth/gas-lp/complementos-pago' + qs);
+    const cacheKey = qs || 'all';
+    const cached = opts.force ? null : gaslpSessionCacheGet('complementos', cacheKey);
+    const data = cached || await api('/api/internal-auth/gas-lp/complementos-pago' + qs);
+    if(!cached) gaslpSessionCacheSet('complementos', cacheKey, data);
     COMPLEMENTOS = data.complementos || [];
     renderComplementosEmitidos();
     renderFacturaClientOptions();
@@ -146,11 +193,11 @@ function selectedFacturaClientRfc(){
   return String(option?.dataset?.rfc || '').trim().toUpperCase();
 }
 function loadFacturasSelectedMonth(){
-  return loadFacturas(facturaMes?.value || '', {limit:10000, deep:true, receptorRfc:selectedFacturaClientRfc()});
+  return loadFacturas(facturaMes?.value || '', {limit:300, deep:true, receptorRfc:selectedFacturaClientRfc()});
 }
 async function refreshComplementosPagoData(){
   COMP_SEL = {};
-  await Promise.allSettled([loadComplementoFacturas(), loadComplementos()]);
+  await Promise.allSettled([loadComplementoFacturas(), loadComplementos('', {force:true})]);
   renderComplementosPago();
 }
 function facturaAmount(f){
@@ -308,7 +355,7 @@ function clearDashboardMonth(){
 }
 async function loadDashboardData(){
   DASH_CLIENT_KEY = '';
-  await loadFacturas('', {limit:10000, deep:true, allMonths:true, credito:true});
+  await loadFacturas('', {limit:1000, deep:true, allMonths:true, credito:true});
   renderDashboard();
 }
 function assistantInfo(f){
@@ -633,10 +680,10 @@ async function reenviarComplementoEmail(id){
     const data = await api(`/api/internal-auth/gas-lp/complementos-pago/${encodeURIComponent(id)}/send-email`, {method:'POST', body:JSON.stringify({})});
     const status = data.email?.ok ? 'Correo enviado correctamente.' : (data.email?.error || 'No se pudo enviar el correo.');
     setStatus('compEmitidosMsg', status, !!data.email?.ok);
-    await loadComplementos();
+    await loadComplementos('', {force:true});
   }catch(e){
     setStatus('compEmitidosMsg', e.message || 'No se pudo reenviar el complemento.', false);
-    await loadComplementos();
+    await loadComplementos('', {force:true});
   }
 }
 function showComplementoTimbradoSuccess(data, docs, emailMsg, emailOk){
@@ -886,7 +933,7 @@ async function confirmTimbrarComplementoPago(){
     closeComplementValidation();
     await loadComplementoFacturas();
     if(FACTURAS_LOADED) await loadFacturas(document.getElementById('facturaMes')?.value || todayKey().slice(0,7));
-    await loadComplementos();
+    await loadComplementos('', {force:true});
   }catch(e){ setStatus('compModalMsg',e.message,false); }
   finally{ compModalConfirmBtn.disabled = false; }
 }
