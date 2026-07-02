@@ -98,18 +98,24 @@ async function trv2LoadStampedCartaPorte(options = {}) {
     const cancelError = !cancelConfirmed && (cancelStatus.includes('error') || cancelResult.error || cancelResult.diagnostic);
     const cancelled = status.includes('cancel') && cancelConfirmed;
     const fecha = trv2StampedCartaPorteDate(item.fecha_timbrado);
+    const ruta = typeof trv2FindCatalog === 'function' ? (trv2FindCatalog('rutas', item.ruta_id) || {}) : {};
+    const origen = item.origen_nombre || ruta.nombre_origen || ruta.origen || 'Origen';
+    const destino = item.destino_nombre || ruta.nombre_destino || ruta.destino || 'Destino';
+    const producto = (typeof trv2TripRelatedLabel === 'function' ? trv2TripRelatedLabel(item, 'productos', 'producto_descripcion') : '') || item.producto || '';
+    const vehiculo = (typeof trv2TripRelatedLabel === 'function' ? trv2TripRelatedLabel(item, 'vehiculos', 'vehiculo_alias') : '') || item.vehiculo_alias || '';
+    const operador = (typeof trv2TripRelatedLabel === 'function' ? trv2TripRelatedLabel(item, 'operadores', 'operador_nombre') : '') || item.operador_nombre || '';
     const litros = Number(item.volumen_litros || 0).toLocaleString('es-MX');
     const peso = Number(item.peso_kg || 0).toLocaleString('es-MX');
     return `
       <tr class="${cancelled ? 'trv2-cp-cancelled-row' : ''}">
         <td>${trv2Esc(fecha)}</td>
-        <td>${trv2Esc(item.origen_nombre || 'Origen')}</td>
-        <td>${trv2Esc(item.destino_nombre || 'Destino')}</td>
-        <td>${trv2Esc(item.producto || '')}</td>
+        <td>${trv2Esc(origen)}</td>
+        <td>${trv2Esc(destino)}</td>
+        <td>${trv2Esc(producto)}</td>
         <td>${trv2Esc(litros)} L</td>
         <td>${trv2Esc(peso)} kg</td>
-        <td>${trv2Esc(item.vehiculo_alias || '')}</td>
-        <td>${trv2Esc(item.operador_nombre || '')}</td>
+        <td>${trv2Esc(vehiculo)}</td>
+        <td>${trv2Esc(operador)}</td>
         <td><code title="${trv2Esc(uuid)}">${trv2Esc(uuid)}</code>${cancelled ? '<span class="trv2-cp-status trv2-cp-status-cancelled">Cancelada</span>' : ''}${cancelError ? '<span class="trv2-cp-status trv2-cp-status-warning">Error cancelación</span>' : ''}</td>
         <td class="trv2-doc-actions">
           <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2DownloadCartaPorteFile(${Number(item.viaje_id || 0)}, 'pdf')"><i class="fa-solid fa-file-pdf"></i> PDF</button>
