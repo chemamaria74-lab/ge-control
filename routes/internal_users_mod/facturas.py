@@ -339,6 +339,7 @@ async def gas_lp_internal_facturas(
     credito: bool = False,
     descuentos: bool = False,
     receptor_rfc: str | None = None,
+    carta_porte: bool = False,
 ):
     started_at = datetime.now(timezone.utc)
     ctx = _gas_lp_internal_context(token)
@@ -376,8 +377,9 @@ async def gas_lp_internal_facturas(
             profile,
             month=month,
             limit=page_limit,
+            include_carta_porte=bool(carta_porte),
             select=facturas_select,
-            company_fallback=bool(deep or complementos or credito or descuentos),
+            company_fallback=True,
             visibility_log=not bool(complementos),
             ppd_pending=bool(complementos or credito),
             discounted_only=bool(descuentos),
@@ -461,6 +463,7 @@ async def gas_lp_internal_facturas(
         "complementos": bool(complementos),
         "credito": bool(credito),
         "descuentos": bool(descuentos),
+        "carta_porte": bool(carta_porte),
         "receptor_rfc": clean_receptor_rfc,
         "ppd_diagnostics": ppd_diagnostics,
     })

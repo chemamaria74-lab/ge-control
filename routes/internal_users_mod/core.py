@@ -120,7 +120,6 @@ GAS_LP_FACTURAS_EXPORT_DAY_SELECT = ",".join([
     "uuid_sat",
     "fecha_timbrado",
     "status",
-    "tipo_comprobante",
     "volumen_litros",
     "importe",
     "metadata",
@@ -2568,7 +2567,7 @@ def _gas_lp_company_facturas_rows_impl(
                 start_key, end_key = created_range[0][:10], created_range[1][:10]
                 rows = [row for row in rows if start_key <= _gas_lp_factura_date_key(row) < end_key]
             if not include_carta_porte:
-                rows = [row for row in rows if str(row.get("tipo_comprobante") or "").upper() != "T"]
+                rows = [row for row in rows if not _gas_lp_factura_is_carta_porte(row)]
         except Exception:
             raise exc
     rows = _dedupe_rows_by_id(rows)
