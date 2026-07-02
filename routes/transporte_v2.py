@@ -6657,15 +6657,26 @@ async def transporte_v2_carta_porte_timbradas(
             query = query.gte("fecha_timbrado", start).lt("fecha_timbrado", end)
         return query
 
-    try:
-        rows = _cfdi_timbradas_query(TRV2_CFDI_LIST_SELECT).execute().data or []
-    except Exception as exc:
-        logger.info("tr_cfdi timbradas columnas extendidas no disponibles; usando fallback: %s", exc)
+    rows = []
+    cfdi_select_attempts = [
+        TRV2_CFDI_LIST_SELECT,
+        "id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,pdf_url,status,fecha_timbrado,rfc_receptor",
+        "id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,status,fecha_timbrado",
+        "id,viaje_id,uuid_sat,status,fecha_timbrado",
+    ]
+    last_cfdi_exc: Exception | None = None
+    for select_cols in cfdi_select_attempts:
         try:
-            rows = _cfdi_timbradas_query("id,viaje_id,tipo_cfdi,uuid_sat,id_ccp,pdf_url,status,fecha_timbrado,rfc_receptor").execute().data or []
-        except Exception as fallback_exc:
-            logger.exception("No se pudieron cargar Cartas Porte timbradas Transporte v2")
-            raise HTTPException(500, f"No se pudieron cargar Cartas Porte timbradas: {fallback_exc}") from fallback_exc
+            rows = _cfdi_timbradas_query(select_cols).execute().data or []
+            if select_cols != TRV2_CFDI_LIST_SELECT:
+                logger.info("tr_cfdi timbradas usando select compatible: %s", select_cols)
+            break
+        except Exception as exc:
+            last_cfdi_exc = exc
+            logger.info("tr_cfdi timbradas select no disponible (%s): %s", select_cols, exc)
+    else:
+        logger.exception("No se pudieron cargar Cartas Porte timbradas Transporte v2")
+        raise HTTPException(500, f"No se pudieron cargar Cartas Porte timbradas: {last_cfdi_exc}") from last_cfdi_exc
     trip_ids = [int(row.get("viaje_id") or 0) for row in rows if row.get("viaje_id")]
     trips_by_id: dict[int, dict[str, Any]] = {}
     if trip_ids:
@@ -6679,13 +6690,21 @@ async def transporte_v2_carta_porte_timbradas(
             if pid:
                 query = query.eq("perfil_id", pid)
             return query
-        try:
-            trip_rows = _viajes_timbradas_query(
-                "id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,operador_nombre,vehiculo_alias,metadata,defaults_json"
-            ).execute().data or []
-        except Exception as exc:
-            logger.info("tr_viajes timbradas columnas extendidas no disponibles; usando fallback: %s", exc)
-            trip_rows = _viajes_timbradas_query("id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,operador_nombre,vehiculo_alias,metadata").execute().data or []
+        trip_rows = []
+        trip_select_attempts = [
+            "id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,operador_nombre,vehiculo_alias,metadata,defaults_json",
+            "id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,operador_nombre,vehiculo_alias,metadata",
+            "id,cliente_nombre,origen,destino,fecha_salida,fecha_hora_salida,volumen_litros,volumen_total_litros,peso_kg,metadata",
+            "id,metadata",
+        ]
+        for select_cols in trip_select_attempts:
+            try:
+                trip_rows = _viajes_timbradas_query(select_cols).execute().data or []
+                if select_cols != trip_select_attempts[0]:
+                    logger.info("tr_viajes timbradas usando select compatible: %s", select_cols)
+                break
+            except Exception as exc:
+                logger.info("tr_viajes timbradas select no disponible (%s): %s", select_cols, exc)
         for trip in trip_rows:
             trips_by_id[int(trip.get("id") or 0)] = trip
     items: list[dict[str, Any]] = []

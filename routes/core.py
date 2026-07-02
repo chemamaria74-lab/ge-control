@@ -87,7 +87,6 @@ GAS_LP_FACTURAS_EXPORT_DAY_SELECT = ",".join([
     "uuid_sat",
     "fecha_timbrado",
     "status",
-    "tipo_comprobante",
     "volumen_litros",
     "importe",
     "metadata",
@@ -2360,6 +2359,9 @@ def _gas_lp_company_facturas_rows_impl(
     select: str = "*",
     company_fallback: bool = True,
     visibility_log: bool = True,
+    ppd_pending: bool = False,
+    discounted_only: bool = False,
+    receptor_rfc: str = "",
 ) -> list[dict]:
     filters = []
     candidate_rows: list[dict] = []
@@ -2412,11 +2414,18 @@ def _gas_lp_company_facturas_rows_impl(
 
     rows = _dedupe_rows_by_id(rows)
     rows = [row for row in rows if _gas_lp_factura_matches_company(row, user, match_profile)]
+    clean_receptor_rfc = _clean_rfc(receptor_rfc or "")
+    if clean_receptor_rfc:
+        rows = [row for row in rows if _clean_rfc(row.get("rfc_receptor") or (row.get("metadata") if isinstance(row.get("metadata"), dict) else {}).get("rfc_receptor") or "") == clean_receptor_rfc]
     if not include_carta_porte:
         rows = [row for row in rows if not _gas_lp_factura_is_carta_porte(row)]
+    if discounted_only:
+        rows = [row for row in rows if _gas_lp_factura_has_discount(row)]
     candidate_rows = _dedupe_rows_by_id(candidate_rows)
     if month:
         rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
+    if ppd_pending:
+        rows = [row for row in rows if _gas_lp_factura_is_pending_ppd(row)]
     rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
     rows = rows[:limit]
     if visibility_log:
@@ -2432,6 +2441,56 @@ def _gas_lp_factura_metodo_pago(factura: dict) -> str:
         return method
     root = _gas_lp_factura_xml_root(factura)
     return _xml_attr(root, "MetodoPago").upper() if root is not None else method
+
+
+def _gas_lp_factura_is_pending_ppd(factura: dict) -> bool:
+    return _gas_lp_factura_pending_ppd_reason(factura) == "pendiente"
+
+
+def _gas_lp_factura_pending_ppd_reason(factura: dict) -> str:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    payment_info = factura.get("payment_info") if isinstance(factura.get("payment_info"), dict) else _factura_payment_info(factura)
+    metodo_pago = str(payment_info.get("metodo_pago") or factura.get("metodo_pago") or md.get("metodo_pago") or "").upper()
+    if metodo_pago != "PPD":
+        return "no_ppd"
+    is_transfer = (
+        factura.get("tipo_operacion") == "traspaso"
+        or md.get("tipo_operacion") == "traspaso"
+        or factura.get("is_transfer")
+        or md.get("is_transfer")
+    )
+    if is_transfer:
+        return "traspaso"
+    if _gas_lp_factura_cancelada(factura):
+        return "cancelada"
+    latest = factura.get("latest_complemento_pago") if isinstance(factura.get("latest_complemento_pago"), dict) else {}
+    if latest.get("saldo_insoluto") not in {None, ""} and _money(latest.get("saldo_insoluto")) <= 0:
+        return "complementada"
+    status = str(payment_info.get("payment_status") or factura.get("payment_status") or md.get("payment_status") or "").lower()
+    if status in {"pagado_con_complemento", "pagado_manual"}:
+        return "complementada"
+    if _money(payment_info.get("saldo_insoluto")) <= 0:
+        return "sin_saldo"
+    return "pendiente"
+
+
+def _gas_lp_factura_has_discount(factura: dict) -> bool:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    values = [
+        factura.get("descuento_total"),
+        factura.get("descuento_confirmado"),
+        factura.get("descuento_por_litro"),
+        md.get("descuento_total"),
+        md.get("descuento_confirmado"),
+        md.get("descuento_por_litro"),
+        md.get("descuento"),
+        md.get("descuento_capturado"),
+    ]
+    for value in values:
+        if _money(value) > 0:
+            return True
+    policy = md.get("descuento_facturacion") or md.get("descuento_cliente") or {}
+    return isinstance(policy, dict) and str(policy.get("tipo") or "").lower() not in {"", "sin_descuento"} and _money(policy.get("valor")) > 0
 
 
 def _gas_lp_factura_cancelada(factura: dict) -> bool:
