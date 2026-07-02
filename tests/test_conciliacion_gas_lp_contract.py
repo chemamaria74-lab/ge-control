@@ -614,15 +614,15 @@ def test_gas_lp_complementos_por_factura_chunks_and_uses_light_select():
     assert rows[1][0]["saldo_insoluto"] == 0
 
 
-def test_gas_lp_facturas_list_uses_full_rows_for_visibility():
+def test_gas_lp_facturas_list_uses_light_rows_for_visibility():
     source = inspect.getsource(internal_users.gas_lp_internal_facturas)
     summary_source = inspect.getsource(internal_users.gas_lp_conciliacion_summary)
 
-    assert 'facturas_select = "*"' in source
-    assert "max_limit = 10000" in source
+    assert "facturas_select = GAS_LP_FACTURAS_LIST_SELECT" in source
+    assert "max_limit = GAS_LP_LIST_LIMIT_MAX" in source
     assert "max_limit = 10000 if deep else 50" not in source
-    assert 'select="*"' in summary_source
-    assert "limit=10000" in summary_source
+    assert "select=GAS_LP_FACTURAS_LIST_SELECT" in summary_source
+    assert "limit=GAS_LP_LIST_LIMIT_MAX" in summary_source
     assert "company_fallback=True" in summary_source
 
 
@@ -694,13 +694,13 @@ def test_gas_lp_facturas_complementos_mode_returns_only_pending_ppd_without_50_l
     payload = json.loads(response.body)
 
     assert captured["month"] == "2026-06"
-    assert captured["limit"] == 10000
-    assert captured["select"] == "*"
+    assert captured["limit"] == 1000
+    assert captured["select"] == internal_users.GAS_LP_FACTURAS_LIST_SELECT
     assert captured["company_fallback"] is True
     assert captured["ppd_pending"] is True
     assert captured["visibility_log"] is False
     assert payload["complementos"] is True
-    assert payload["limit"] == 10000
+    assert payload["limit"] == 1000
     assert [row["uuid_sat"] for row in payload["facturas"]] == ["ppd-pending"]
 
 
@@ -734,6 +734,7 @@ def test_gas_lp_facturas_deep_uses_single_company_query_without_receptor_rescue(
 
     assert captured["company_fallback"] is True
     assert captured["month"] == "2026-06"
+    assert captured["limit"] == 1000
     assert payload["deep"] is True
     assert [row["uuid_sat"] for row in payload["facturas"]] == ["magdalena-june-real-columns"]
 
@@ -1706,11 +1707,11 @@ def test_assistant_complementos_search_is_manual_and_all_pending_ppd():
     assert "Presiona Buscar para consultar todas las facturas PPD pendientes." in html
     assert "async function loadDashboardData()" in html
     assert "CREDITO_PPD_SEARCHED = true" in html
-    assert "loadFacturas('', {limit:10000, deep:true, allMonths:true, credito:true})" in html
+    assert "loadFacturas('', {limit:1000, deep:true, allMonths:true, credito:true})" in html
     assert "Buscar cartera" in html
     assert "async function refreshDescuentosData()" in html
     assert "DESCUENTOS_SEARCHED = true" in html
-    assert "loadFacturas(month, {limit:10000, deep:true, descuentos:true})" in html
+    assert "loadFacturas(month, {limit:300, deep:true, descuentos:true})" in html
     assert "Utiliza el buscador para consultar facturas con descuento." in html
 
 
