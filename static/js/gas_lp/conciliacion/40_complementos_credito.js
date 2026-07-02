@@ -116,7 +116,7 @@ async function confirmTimbrarComplemento(){
     closeCompValidation();
     setMsgHtml('compMsg',`Complemento timbrado correctamente.<br>UUID: ${esc(uuid)}<br>${esc(emailMsg)}${actions}`,!!email.ok||!email.error);
     try{
-      await loadAll();
+      await loadAll({force:true});
     }catch(refreshError){
       console.warn('No se pudo refrescar datos después del complemento timbrado', refreshError);
     }
@@ -132,7 +132,7 @@ async function reenviarComplementoEmail(id){
     setMsg('compEmitidosMsg','Reenviando correo del complemento...');
     const data=await api('/api/internal-auth/gas-lp/complementos-pago/'+encodeURIComponent(id)+'/send-email',{method:'POST',body:JSON.stringify({})});
     setMsg('compEmitidosMsg',data.email?.ok?'Correo enviado correctamente.':(data.email?.error||'No se pudo reenviar el correo.'),!!data.email?.ok);
-    await loadAll();
+    await loadAll({force:true});
   }catch(e){
     setMsg('compEmitidosMsg',e.message||'No se pudo reenviar el correo.',false);
   }
