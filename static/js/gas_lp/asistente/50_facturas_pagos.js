@@ -26,7 +26,8 @@ async function loadFacturas(month='', opts={}){
   const complementos = !!opts.complementos;
   const credito = !!opts.credito;
   const descuentos = !!opts.descuentos;
-  const loadKey = `${selectedMonth || 'current'}:${limit}:${deep ? 'deep' : 'fast'}:${receptorRfc}:${complementos ? 'comp' : ''}:${credito ? 'cred' : ''}:${descuentos ? 'desc' : ''}`;
+  const cartaPorte = !!opts.cartaPorte;
+  const loadKey = `${selectedMonth || 'current'}:${limit}:${deep ? 'deep' : 'fast'}:${receptorRfc}:${complementos ? 'comp' : ''}:${credito ? 'cred' : ''}:${descuentos ? 'desc' : ''}:${cartaPorte ? 'cp' : ''}`;
   if(FACTURAS_LOAD_PROMISE && FACTURAS_LOAD_KEY === loadKey) return FACTURAS_LOAD_PROMISE;
   if(FACTURAS_LOAD_CONTROLLER) FACTURAS_LOAD_CONTROLLER.abort();
   FACTURAS_LOAD_KEY = loadKey;
@@ -41,6 +42,7 @@ async function loadFacturas(month='', opts={}){
     + (complementos ? '&complementos=1' : '')
     + (credito ? '&credito=1' : '')
     + (descuentos ? '&descuentos=1' : '')
+    + (cartaPorte ? '&carta_porte=1' : '')
     + (receptorRfc ? '&receptor_rfc=' + encodeURIComponent(receptorRfc) : '');
   const cacheKey = qs;
   if(!opts.force){
@@ -95,6 +97,7 @@ async function loadFacturas(month='', opts={}){
         complementos,
         credito,
         descuentos,
+        cartaPorte,
         count: loadedRows.length,
         sample_fields: loadedRows[0] ? Object.keys(loadedRows[0]).slice(0,20) : []
       });
