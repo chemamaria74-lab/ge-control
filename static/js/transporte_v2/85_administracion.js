@@ -129,6 +129,7 @@ function trv2SettingsPayloadFromForm() {
       pdf_header_color: document.getElementById('trv2-set-pdf-header-color')?.value.trim() || '#6B7280',
       pdf_header_text_color: document.getElementById('trv2-set-pdf-header-text-color')?.value.trim() || '#FFFFFF',
       pdf_title_color: document.getElementById('trv2-set-pdf-title-color')?.value.trim() || '#4B5563',
+      pdf_declaration_contact_phones: document.getElementById('trv2-set-pdf-declaration-phones')?.value.trim() || '',
     },
     productos_habilitados: {
       gas_lp: Boolean(document.getElementById('trv2-set-prod-gaslp')?.checked),
@@ -154,6 +155,7 @@ function trv2FillSettingsForm(data = {}) {
     ['trv2-set-pdf-header-color', perfil.pdf_header_color || perfil.color_encabezado_pdf || '#6B7280'],
     ['trv2-set-pdf-header-text-color', perfil.pdf_header_text_color || perfil.color_texto_encabezado_pdf || '#FFFFFF'],
     ['trv2-set-pdf-title-color', perfil.pdf_title_color || perfil.color_titulos_pdf || '#4B5563'],
+    ['trv2-set-pdf-declaration-phones', perfil.pdf_declaration_contact_phones || perfil.declaration_contact_phones || perfil.telefono_contacto_carta_porte || ''],
   ];
   pairs.forEach(([id, value]) => {
     const el = document.getElementById(id);

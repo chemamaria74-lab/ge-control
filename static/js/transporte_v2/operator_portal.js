@@ -65,7 +65,17 @@
     }
     function trv2OperadorTripValue(obj, key, fallback = '') { return obj?.[key] || obj?.metadata?.[key] || fallback; }
     function trv2OperadorFactura() {
-      return TRV2_OPERATOR_META.factura_operador || TRV2_OPERATOR_META.factura_carga || null;
+      return TRV2_OPERATOR_META.factura_operador
+        || TRV2_OPERATOR_META.factura_carga
+        || (TRV2_OPERATOR_TRIP?.factura_carga_pdf_url ? {
+          nombre: TRV2_OPERATOR_TRIP.factura_carga_nombre || TRV2_OPERATOR_META.factura_carga_nombre || 'factura-carga.pdf',
+          url: TRV2_OPERATOR_TRIP.factura_carga_pdf_url,
+          download_url: TRV2_OPERATOR_TRIP.factura_carga_pdf_url,
+        } : null);
+    }
+    function trv2OperadorInvoiceLocked() {
+      const estado = trv2OperadorBitacoraEstado();
+      return Boolean(trv2OperadorUuid()) || ['EN_CURSO', 'DESCANSO', 'FINALIZADO'].includes(estado);
     }
     function trv2OperadorFormatDate(value) {
       if (!value) return '';
@@ -114,23 +124,24 @@
     }
     function trv2OperadorRenderInvoice() {
       const factura = trv2OperadorFactura();
-      const stamped = Boolean(trv2OperadorUuid());
-      const tripCreated = Boolean(TRV2_OPERATOR_TRIP?.id);
-      const locked = stamped || tripCreated || ['EN_CURSO', 'DESCANSO', 'FINALIZADO'].includes(trv2OperadorBitacoraEstado());
+      const locked = trv2OperadorInvoiceLocked();
       const status = document.getElementById('trv2-operator-invoice-status');
       const info = document.getElementById('trv2-operator-invoice-info');
       if (status) status.textContent = factura ? 'Cargada' : 'Pendiente';
-      if (info) info.textContent = factura ? `${factura.nombre || 'Factura'} · ${String(factura.uploaded_at || '').slice(0, 19)}` : 'Sin factura cargada.';
+      if (info) {
+        if (factura) info.textContent = locked ? `${factura.nombre || 'Factura'} · disponible para consulta` : `${factura.nombre || 'Factura'} · ${String(factura.uploaded_at || '').slice(0, 19)}`;
+        else info.textContent = locked ? 'Sin factura cargada. El viaje ya no permite cambios.' : 'Sin factura cargada.';
+      }
       const upload = document.getElementById('trv2-operator-invoice-upload');
       const uploadButton = document.getElementById('trv2-operator-invoice-upload-button');
       const view = document.getElementById('trv2-operator-invoice-view');
       const download = document.getElementById('trv2-operator-invoice-download');
       const remove = document.getElementById('trv2-operator-invoice-delete');
-      if (upload) upload.hidden = locked;
-      if (uploadButton) uploadButton.hidden = locked;
-      if (view) view.hidden = !factura;
-      if (download) download.hidden = !factura;
-      if (remove) remove.hidden = true;
+      if (upload) { upload.hidden = locked; upload.style.display = locked ? 'none' : ''; }
+      if (uploadButton) { uploadButton.hidden = locked; uploadButton.style.display = locked ? 'none' : ''; }
+      if (view) { view.hidden = !factura; view.style.display = factura ? '' : 'none'; }
+      if (download) { download.hidden = !factura; download.style.display = factura ? '' : 'none'; }
+      if (remove) { remove.hidden = true; remove.style.display = 'none'; }
     }
     function trv2OperadorRenderCartaPorte() {
       const uuid = trv2OperadorUuid();
@@ -172,6 +183,7 @@
       trv2OperadorRenderTrip(trip);
     }
     async function trv2OperadorUploadInvoice() {
+      if (trv2OperadorInvoiceLocked()) return trv2OperadorToast('La factura no se puede reemplazar después de timbrar o iniciar el viaje.');
       const file = document.getElementById('trv2-operator-invoice-file')?.files?.[0];
       if (!file) return trv2OperadorToast('Selecciona un archivo PDF o XML.');
       const form = new FormData();
@@ -308,9 +320,23 @@
     function trv2OperadorDownloadInvoice() {
       trv2OperadorOpenInvoice(true);
     }
+    function trv2OperadorCurrentLocation() {
+      return new Promise(resolve => {
+        if (!navigator.geolocation) return resolve(null);
+        navigator.geolocation.getCurrentPosition(
+          pos => resolve({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracy_m: pos.coords.accuracy,
+          }),
+          () => resolve(null),
+          {enableHighAccuracy: false, timeout: 3500, maximumAge: 600000},
+        );
+      });
+    }
     async function trv2OperadorDeleteInvoice() {
       if (!trv2OperadorFactura()) return trv2OperadorToast('No hay factura cargada.');
-      if (trv2OperadorUuid()) return trv2OperadorToast('La factura no se puede eliminar después de timbrar Carta Porte.');
+      if (trv2OperadorInvoiceLocked()) return trv2OperadorToast('La factura no se puede eliminar después de timbrar o iniciar el viaje.');
       const response = await fetch('/api/tr-v2/operator/factura/eliminar', {method:'POST', headers: trv2OperadorHeaders()});
       const data = await trv2OperadorReadResponse(response);
       if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo eliminar factura.'));
@@ -404,10 +430,13 @@
       if (action === 'HISTORIAL') return trv2OperadorRenderBitacora();
       if (action === 'FINALIZAR' && !confirm('¿Seguro que quieres finalizar este viaje? Ya no aparecerá como viaje activo del operador.')) return;
       const nota = action === 'INCIDENCIA' ? prompt('Describe la incidencia') || '' : '';
+      const ubicacion = await trv2OperadorCurrentLocation();
+      const body = {action, nota};
+      if (ubicacion) body.ubicacion = ubicacion;
       const response = await fetch('/api/tr-v2/operator/bitacora', {
         method:'POST',
         headers: {...trv2OperadorHeaders(), 'Content-Type':'application/json'},
-        body: JSON.stringify({action, nota}),
+        body: JSON.stringify(body),
       });
       const data = await trv2OperadorReadResponse(response);
       if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo registrar bitácora.'));
