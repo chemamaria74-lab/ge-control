@@ -1732,6 +1732,59 @@ def _format_mx_datetime(value: Any) -> str:
         return text
 
 
+def _operator_trip_quantity_summary(trip: dict[str, Any]) -> dict[str, Any]:
+    meta = _meta(trip)
+    product = _first_product(trip)
+    producto = _first_text(
+        trip.get("producto_descripcion"),
+        trip.get("producto"),
+        product.get("descripcion"),
+        product.get("nombre"),
+        product.get("producto"),
+        meta.get("producto_descripcion"),
+        meta.get("producto"),
+    )
+    litros = _num(
+        trip.get("volumen_litros")
+        or trip.get("volumen_total_litros")
+        or product.get("cantidad_litros")
+        or product.get("volumen_litros")
+        or product.get("litros")
+        or meta.get("volumen_litros")
+        or meta.get("volumen_total_litros")
+        or meta.get("litros")
+    )
+    kilos = _num(
+        trip.get("peso_kg")
+        or trip.get("peso_total_kg")
+        or product.get("peso_kg")
+        or product.get("peso_total_kg")
+        or product.get("peso_total")
+        or product.get("kilos")
+        or meta.get("peso_kg")
+        or meta.get("peso_total_kg")
+        or meta.get("peso_total")
+        or meta.get("kilos")
+    )
+    return {"producto": producto, "litros": litros, "kilos": kilos}
+
+
+def _operator_event_location_text(event: dict[str, Any]) -> str:
+    location = event.get("ubicacion") if isinstance(event.get("ubicacion"), dict) else {}
+    if not location:
+        return ""
+    lat = location.get("lat")
+    lng = location.get("lng")
+    try:
+        lat_f = float(lat)
+        lng_f = float(lng)
+    except Exception:
+        return ""
+    acc = _num(location.get("accuracy_m"))
+    suffix = f" ±{acc:.0f} m" if acc else ""
+    return f"{lat_f:.5f}, {lng_f:.5f}{suffix}"
+
+
 def _operator_bitacora_pdf_bytes(trip: dict[str, Any], acc: dict[str, Any], bitacora: dict[str, Any]) -> bytes:
     try:
         from reportlab.lib import colors
@@ -1798,9 +1851,13 @@ def _operator_bitacora_pdf_bytes(trip: dict[str, Any], acc: dict[str, Any], bita
     remolque = _first_text(meta.get("remolque_placas"), trip.get("remolque_placas"))
     origen = _first_text(trip.get("origen"), trip.get("nombre_origen"), meta.get("origen_sugerido"), meta.get("origen"))
     destino = _first_text(trip.get("destino"), trip.get("nombre_destino"), meta.get("destino_sugerido"), meta.get("destino"))
-    producto = _first_text(trip.get("producto_descripcion"), meta.get("producto_descripcion"), meta.get("producto"))
-    litros = _num(trip.get("volumen_litros") or trip.get("volumen_total_litros"))
-    kilos = _num(trip.get("peso_kg"))
+    quantity = _operator_trip_quantity_summary(trip)
+    producto = quantity["producto"]
+    litros = quantity["litros"]
+    kilos = quantity["kilos"]
+    chofer = acc.get("chofer") or {}
+    tipo_licencia = _first_text(chofer.get("tipo_licencia"), meta.get("operador_tipo_licencia"), meta.get("tipo_licencia"))
+    vigencia_licencia = _first_text(chofer.get("vencimiento_licencia"), chofer.get("vigencia_licencia"), meta.get("operador_vencimiento_licencia"), meta.get("vencimiento_licencia"))
 
     story = [
         Paragraph("BITACORA DE VIAJE", styles["BitTitle"]),
@@ -1809,21 +1866,22 @@ def _operator_bitacora_pdf_bytes(trip: dict[str, Any], acc: dict[str, Any], bita
         Table([[
             card("Viaje", [("Origen", origen), ("Destino", destino), ("Producto", producto), ("Litros", f"{litros:,.2f} L" if litros else "No capturado"), ("Kilos", f"{kilos:,.2f} kg" if kilos else "No capturado")], 3.55),
             "",
-            card("Operador y unidad", [("Operador", operador), ("Vehiculo", vehiculo), ("Placas", placas), ("Remolque", remolque or "No capturado"), ("Salida", _format_mx_datetime(trip.get("fecha_salida") or trip.get("fecha_hora_salida")))], 3.55),
+            card("Operador y unidad", [("Operador", operador), ("Licencia", _first_text(chofer.get("licencia"), meta.get("operador_licencia"), "No capturado")), ("Tipo licencia", tipo_licencia or "No capturado"), ("Vigencia licencia", _format_mx_datetime(vigencia_licencia) if vigencia_licencia else "No capturado"), ("Vehiculo", vehiculo), ("Placas", placas), ("Remolque", remolque or "No capturado"), ("Salida", _format_mx_datetime(trip.get("fecha_salida") or trip.get("fecha_hora_salida")))], 3.55),
         ]], colWidths=[3.55 * inch, 0.20 * inch, 3.55 * inch]),
         Spacer(1, 12),
     ]
-    history_rows = [[Paragraph("FECHA/HORA", styles["BitHead"]), Paragraph("ACCION", styles["BitHead"]), Paragraph("DESCRIPCION", styles["BitHead"])]]
+    history_rows = [[Paragraph("FECHA/HORA", styles["BitHead"]), Paragraph("ACCION", styles["BitHead"]), Paragraph("DESCRIPCION", styles["BitHead"]), Paragraph("LOCALIZACION", styles["BitHead"])]]
     events = bitacora.get("eventos") if isinstance(bitacora.get("eventos"), list) else []
     for event in events:
         history_rows.append([
             p(_format_mx_datetime(event.get("created_at"))),
             p(event.get("accion"), "BitValueBold"),
             p(_first_text(event.get("nota"), event.get("estado"), "")),
+            p(_operator_event_location_text(event)),
         ])
     if len(history_rows) == 1:
-        history_rows.append([p("Sin registros"), p(""), p("")])
-    history = Table(history_rows, colWidths=[1.60 * inch, 1.15 * inch, 4.55 * inch], repeatRows=1)
+        history_rows.append([p("Sin registros"), p(""), p(""), p("")])
+    history = Table(history_rows, colWidths=[1.45 * inch, 1.05 * inch, 3.25 * inch, 1.55 * inch], repeatRows=1)
     history.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), accent),
         ("BOX", (0, 0), (-1, -1), 0.45, line),
@@ -3017,6 +3075,7 @@ def _settings_defaults() -> dict[str, Any]:
             "pdf_header_color": "#6B7280",
             "pdf_header_text_color": "#FFFFFF",
             "pdf_title_color": "#4B5563",
+            "pdf_declaration_contact_phones": "",
         },
         "productos_habilitados": {
             "gas_lp": True,
@@ -5974,8 +6033,13 @@ async def transporte_v2_operator_factura(
     token_plain = _operator_token_from_header(authorization)
     sb, acc = _operator_context(token_plain)
     trip = _operator_assigned_trip(sb, acc)
-    if _first_text(trip.get("uuid_cfdi"), _meta(trip).get("uuid_carta_porte")):
+    trip_meta = _meta(trip)
+    bitacora = trip_meta.get("bitacora_operador") if isinstance(trip_meta.get("bitacora_operador"), dict) else {}
+    bitacora_estado = _first_text(bitacora.get("estado")).upper()
+    if _first_text(trip.get("uuid_cfdi"), trip_meta.get("uuid_carta_porte")):
         raise HTTPException(409, "La factura no se puede reemplazar después de timbrar Carta Porte.")
+    if bitacora_estado in {"EN_CURSO", "DESCANSO", "FINALIZADO"}:
+        raise HTTPException(409, "La factura no se puede reemplazar después de iniciar el viaje.")
     filename = file.filename or "factura"
     extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if extension not in {"pdf", "xml"}:
@@ -6003,11 +6067,14 @@ async def transporte_v2_operator_factura_eliminar(authorization: str = Header(de
     token_plain = _operator_token_from_header(authorization)
     sb, acc = _operator_context(token_plain)
     trip = _operator_assigned_trip(sb, acc)
-    if _first_text(trip.get("uuid_cfdi"), _meta(trip).get("uuid_carta_porte")):
+    metadata = _meta(trip)
+    bitacora = metadata.get("bitacora_operador") if isinstance(metadata.get("bitacora_operador"), dict) else {}
+    if _first_text(trip.get("uuid_cfdi"), metadata.get("uuid_carta_porte")):
         raise HTTPException(409, "La factura no se puede eliminar después de timbrar Carta Porte.")
+    if _first_text(bitacora.get("estado")).upper() in {"EN_CURSO", "DESCANSO", "FINALIZADO"}:
+        raise HTTPException(409, "La factura no se puede eliminar después de iniciar el viaje.")
     if _first_text(trip.get("status")).lower() not in {"borrador", "pendiente"}:
         raise HTTPException(409, "La factura no se puede eliminar después de crear/asignar el viaje.")
-    metadata = _meta(trip)
     metadata.pop("factura_operador", None)
     metadata.pop("factura_carga", None)
     metadata.pop("factura_carga_nombre", None)
@@ -6106,14 +6173,30 @@ async def transporte_v2_operator_bitacora(payload: dict[str, Any], authorization
         bitacora["estado"] = new_state
     elif action == "INCIDENCIA":
         bitacora["estado"] = current
+    location_payload = payload.get("ubicacion") if isinstance(payload.get("ubicacion"), dict) else {}
+    location = {}
+    if location_payload:
+        lat = location_payload.get("lat")
+        lng = location_payload.get("lng")
+        try:
+            location = {
+                "lat": float(lat),
+                "lng": float(lng),
+                "accuracy_m": _num(location_payload.get("accuracy_m")),
+            }
+        except Exception:
+            location = {}
     events = bitacora.get("eventos") if isinstance(bitacora.get("eventos"), list) else []
-    events.append({
+    event = {
         "accion": action,
         "estado": bitacora.get("estado", current),
         "nota": _first_text(payload.get("nota")),
         "created_at": _now_iso(),
         "operador_id": acc.get("chofer_id"),
-    })
+    }
+    if location:
+        event["ubicacion"] = location
+    events.append(event)
     bitacora["eventos"] = events
     metadata["bitacora_operador"] = bitacora
     update_payload = {"defaults_json": metadata, "metadata": metadata, "updated_at": _now_iso()}
@@ -6179,6 +6262,7 @@ async def transporte_v2_operator_carta_porte_pdf(
         "header_color": fiscal.get("pdf_header_color") or fiscal.get("color_encabezado_pdf"),
         "header_text_color": fiscal.get("pdf_header_text_color") or fiscal.get("color_texto_encabezado_pdf"),
         "title_color": fiscal.get("pdf_title_color") or fiscal.get("color_titulos_pdf"),
+        "declaration_contact_phones": fiscal.get("pdf_declaration_contact_phones") or fiscal.get("declaration_contact_phones") or fiscal.get("telefono_contacto_carta_porte"),
     }
     try:
         info = extraer_info_pdf(xml_content)
@@ -6855,6 +6939,7 @@ async def transporte_v2_carta_porte_pdf(
         "header_color": fiscal.get("pdf_header_color") or fiscal.get("color_encabezado_pdf"),
         "header_text_color": fiscal.get("pdf_header_text_color") or fiscal.get("color_texto_encabezado_pdf"),
         "title_color": fiscal.get("pdf_title_color") or fiscal.get("color_titulos_pdf"),
+        "declaration_contact_phones": fiscal.get("pdf_declaration_contact_phones") or fiscal.get("declaration_contact_phones") or fiscal.get("telefono_contacto_carta_porte"),
     }
     try:
         info = extraer_info_pdf(xml_content)
