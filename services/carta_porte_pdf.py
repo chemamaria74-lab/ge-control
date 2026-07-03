@@ -21,6 +21,13 @@ PDF_CONTENT_WIDTH_IN = 7.60
 PDF_SIDE_MARGIN_IN = (8.50 - PDF_CONTENT_WIDTH_IN) / 2
 PDF_DEFAULT_HEADER_COLOR = "#6B7280"
 PDF_DEFAULT_HEADER_TEXT_COLOR = "#FFFFFF"
+CP_DECLARATION_TEXT = (
+    "POR LA PRESENTE DECLARO QUE LOS CONTENIDOS DE ESTE EMBARQUE ESTAN DESCRITOS ARRIBA "
+    "DE FORMA COMPLETA Y EXACTA CON LA DESIGNACION OFICIAL DE TRANSPORTE Y ESTAN "
+    "CORRECTAMENTE CLASIFICADOS, ENVASADOS Y/O EMBALADOS, MARCADOS Y ETIQUETADOS E "
+    "IDENTIFICADOS Y EN TODOS LOS ASPECTOS DE CONDICIONES ADECUADAS PARA SU TRANSPORTE "
+    "DE CONFORMIDAD CON LA REGLAMENTACION APLICABLE."
+)
 
 
 @dataclass
@@ -290,7 +297,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
             ("Complemento Carta Porte 3.1", [
                 ("Version", _attr(carta, "Version", "—")),
                 ("Transporte internacional", _attr(carta, "TranspInternac", "—")),
-                ("TotalDistRec", _attr(carta, "TotalDistRec", "—")),
+                ("Total distancia recorrida", _attr(carta, "TotalDistRec", "—")),
             ]),
             ("Certificación", [
                 ("UUID", _attr(timbre, "UUID")),
@@ -318,6 +325,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         _section("F-H. Autotransporte, seguros y figura de transporte", Paragraph, styles, wine_dark),
         _operations_grid(autotransporte, ident_veh, remolques, seguros, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark),
     ]))
+    story.append(_declaration_box(theme.get("declaration_contact_phones"), Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark))
 
     story.append(_section("Conceptos CFDI", Paragraph, styles, wine_dark))
     story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
@@ -1156,6 +1164,24 @@ def _warning_box(text, Table, TableStyle, Paragraph, styles, colors):
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
         ("TOPPADDING", (0, 0), (-1, -1), 8),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return table
+
+
+def _declaration_box(contact_phones, Table, TableStyle, Paragraph, styles, colors, cream, line, accent):
+    phones = str(contact_phones or "").strip()
+    text = CP_DECLARATION_TEXT
+    if phones:
+        text = f"{text}<br/><br/><b>TELEFONO CONTACTO:</b> {phones}"
+    table = Table([[Paragraph(_text(text).replace("&lt;br/&gt;", "<br/>").replace("&lt;b&gt;", "<b>").replace("&lt;/b&gt;", "</b>"), styles["Small"])]], colWidths=[PDF_CONTENT_WIDTH_IN * inch()])
+    table.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.65, line),
+        ("LINEABOVE", (0, 0), (-1, 0), 1.1, accent),
+        ("BACKGROUND", (0, 0), (-1, -1), cream),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
     ]))
     return table
 
