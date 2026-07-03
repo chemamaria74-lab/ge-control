@@ -46,6 +46,21 @@ def test_defaults_json_overrides_stale_legacy_metadata():
     assert metadata["placas"] == "453EX1"
 
 
+def test_operator_bitacora_quantity_summary_uses_productos_json_weight():
+    summary = transporte_v2._operator_trip_quantity_summary({
+        "producto_descripcion": "",
+        "volumen_total_litros": 0,
+        "peso_kg": 0,
+        "productos_json": [
+            {"descripcion": "GAS L.P.", "cantidad_litros": 35764.65, "peso_kg": 19427},
+        ],
+    })
+
+    assert summary["producto"] == "GAS L.P."
+    assert summary["litros"] == 35764.65
+    assert summary["kilos"] == 19427
+
+
 def test_uploaded_invoice_inline_backup_is_downloadable():
     pdf = b"%PDF-1.4\noperator invoice\n%%EOF"
     trip = {
