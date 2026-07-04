@@ -488,6 +488,7 @@ def _detect_xml_document(content: bytes) -> dict[str, Any]:
 
 def _extract_pdf_text(content: bytes) -> tuple[str, list[str]]:
     warnings: list[str] = []
+    extractor_notes: list[str] = []
     try:
         import pdfplumber  # type: ignore
         with pdfplumber.open(io.BytesIO(content)) as pdf:
@@ -495,7 +496,7 @@ def _extract_pdf_text(content: bytes) -> tuple[str, list[str]]:
         if text.strip():
             return text, warnings
     except Exception as exc:
-        warnings.append(f"pdfplumber no disponible o sin texto: {exc}")
+        extractor_notes.append(f"pdfplumber no disponible o sin texto: {exc}")
     try:
         from pypdf import PdfReader  # type: ignore
         reader = PdfReader(io.BytesIO(content))
@@ -503,7 +504,7 @@ def _extract_pdf_text(content: bytes) -> tuple[str, list[str]]:
         if text.strip():
             return text, warnings
     except Exception as exc:
-        warnings.append(f"pypdf no disponible o sin texto: {exc}")
+        extractor_notes.append(f"pypdf no disponible o sin texto: {exc}")
     try:
         from PyPDF2 import PdfReader  # type: ignore
         reader = PdfReader(io.BytesIO(content))
@@ -511,7 +512,7 @@ def _extract_pdf_text(content: bytes) -> tuple[str, list[str]]:
         if text.strip():
             return text, warnings
     except Exception as exc:
-        warnings.append(f"PyPDF2 no disponible o sin texto: {exc}")
+        extractor_notes.append(f"PyPDF2 no disponible o sin texto: {exc}")
     stream_text = _extract_pdf_text_from_flate_streams(content)
     if stream_text.strip():
         warnings.append("Extracción PDF por streams internos; confirma visualmente datos sensibles.")
@@ -522,6 +523,7 @@ def _extract_pdf_text(content: bytes) -> tuple[str, list[str]]:
     if len(readable.strip()) > 80:
         warnings.append("Extracción PDF básica desde bytes; confirma manualmente los datos.")
         return readable, warnings
+    warnings.extend(extractor_notes)
     warnings.append("El PDF no tiene texto seleccionable disponible para extracción sin OCR.")
     return "", warnings
 
@@ -633,6 +635,38 @@ def _pdf_mgc_customer_block(text: str) -> tuple[str, str, str, str]:
     return name, rfc, cp, match.group(2)
 
 
+def _pdf_mgc_operational_fields(text: str) -> dict[str, str]:
+    upper = text.upper()
+    vehicle_block = _regex_first(
+        r"COMPA[NÑ]IA\s+TRANSPORTISTA\s*VEHICULO\s+PLACAS\s+CERTIFICADO\s+(.+?)\s+DE\s+FECHA",
+        upper,
+        re.I | re.S,
+    )
+    vehicle_match = re.search(
+        r"RUTH\s+ORNELAS\s+MUNOZ\s*([A-Z0-9-]+)\s+([A-Z0-9-]+)\s+([A-Z0-9/-]+)",
+        vehicle_block,
+        re.I,
+    )
+    operator_block = _regex_first(
+        r"NOMBRE\s+DEL\s+OPERADOR\s+NO\.\s+DE\s+ORDEN\s*.*?\n?(.+?)\s+DATOS\s+OPERATIVOS",
+        upper,
+        re.I | re.S,
+    )
+    operator_match = re.search(r"([A-ZÁÉÍÓÚÜÑ]+(?:\s+[A-ZÁÉÍÓÚÜÑ]+){2,5})\s+(\d{4,})\s+\d{2}\s+\d{2}\s+\d{4}", operator_block, re.I)
+    order = _regex_first(r"NO\.\s+ORDEN\s+([A-Z0-9/-]+)", upper)
+    if not order:
+        order = _regex_first(r"\b(RP-\d+-\d+-\d{2}/\d{2}/\d{4}-\d+)\b", upper)
+    return {
+        "vehiculo_alias": vehicle_match.group(1).strip() if vehicle_match else "",
+        "vehiculo_placas": vehicle_match.group(2).strip() if vehicle_match else "",
+        "certificado_carga": vehicle_match.group(3).strip() if vehicle_match else "",
+        "operador_nombre": operator_match.group(1).strip() if operator_match else "",
+        "boleta": operator_match.group(2).strip() if operator_match else "",
+        "remolque_placas": _regex_first(r"PLACAS\s+TONEL\s*:\s*([A-Z0-9-]+)", upper),
+        "orden": order,
+    }
+
+
 def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     text, warnings = _extract_pdf_text(content)
     text = _clean_pdf_text(text)
@@ -662,11 +696,17 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         re.I | re.S,
     )
     liters = concept_match.group(1) if concept_match else _regex_first(r"([\d,]+(?:\.\d+)?)\s*(?:LITROS|LTR)\b", upper)
+    if not liters and "PEMEX" in upper:
+        liters = _regex_first(r"ENTREGA/REFERENCIA\s+ENTRADA.*?\n?\d+\s+([\d,]+(?:\.\d+)?)\s+L\s+PEMEX", upper, re.I | re.S)
     if not liters:
         liters = _regex_first(r"CANTIDAD\s+A\s+20[°º]?\s+.*?\b([\d,]+(?:\.\d+)?)\s+RUTH\s+ORNELAS", upper, re.I | re.S)
     if not liters:
+        liters = _regex_first(r"CANTIDAD\s+AL\s+NATURAL\s*CANTIDAD\s+A\s+20[°º]?.*?\b[\d,]+(?:\.\d+)?\s+([\d,]+(?:\.\d+)?)\s+RUTH\s+ORNELAS", upper, re.I | re.S)
+    if not liters:
         liters = _regex_first(r"TOTAL\s+([\d,]+(?:\.\d+)?)\s+L\b", upper)
     clave_sat = concept_match.group(2) if concept_match else ("15111510" if "15111510" in upper else _regex_first(r"\b(1511\d{4})\b", upper))
+    if not clave_sat and "PEMEX MAGNA" in upper:
+        clave_sat = "15101514"
     if not clave_sat and "PEMEX PREMIUM" in upper:
         clave_sat = "15101515"
     producto_detectado = concept_match.group(3).strip() if concept_match else ""
@@ -675,9 +715,13 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     if not unidad and re.search(r"\bL\b", upper):
         unidad = "LTR"
     precio_unitario = _to_float(concept_match.group(6)) if concept_match else 0.0
-    subtotal = _to_float(concept_match.group(7)) if concept_match else _money_after("SUB-TOTAL", upper)
-    iva = _to_float(_regex_first(r"TASA\s*002\s*0\.160000\s*[\d,]+\.\d{2}\s*([\d,]+\.\d{2})", upper)) or _money_after("IVA", upper)
-    total = _money_after("TOTAL", upper)
+    subtotal = _to_float(concept_match.group(7)) if concept_match else (_money_after("SUB-?TOTAL", upper) or _money_after("SUBTOTAL", upper))
+    iva = (
+        _to_float(_regex_first(r"TASA\s*002\s*0\.160000\s*[\d,]+\.\d{2}\s*([\d,]+\.\d{2})", upper))
+        or _to_float(_regex_first(r"IMPUESTO\s+TRASLADADO\s+IVA\s+TASA\s+0\.160000\s+([\d,]+\.\d{2})", upper))
+        or _money_after("IVA", upper)
+    )
+    total = _to_float(_regex_first(r"TOTAL\s+[\d,]+(?:\.\d+)?\s+L\s+([\d,]+\.\d{2})\s+MXN", upper)) or _money_after("TOTAL", upper)
     block_subtotal, block_iva, block_total = _invoice_totals_block(upper)
     subtotal = subtotal or block_subtotal
     iva = iva or block_iva
@@ -688,9 +732,11 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         kilos = _regex_first(r"(?:KILOS|PESO|KGM)\D{0,20}([\d,]+(?:\.\d+)?)", upper)
     permiso = permiso or _regex_first(r"PERMISO\s+DE\s+COMERCIALIZACI[ÓO]N:\s*([A-Z]/\d+/[A-Z]+/\d{4})", upper)
     permiso = permiso or _regex_first(r"([A-Z]/\d+/[A-Z]+/\d{4})", upper)
+    mgc_operational = _pdf_mgc_operational_fields(text)
     boleta = _regex_first(r"(?:BOLETA|BOL\.?|BOLETA\s+DE\s+AFORO)\s*:?\s*(\d{4,})", upper)
     if not boleta:
         boleta = _regex_first(r"NOMBRE\s+DEL\s+OPERADOR\s+NO\.\s+DE\s+ORDEN.*?\b(\d{4,})\s+\d{2}\s+\d{2}\s+\d{4}", upper, re.I | re.S)
+    boleta = boleta or mgc_operational.get("boleta", "")
     fecha_boleta = _parse_short_date(
         _regex_first(r"FECHA\s+BOLETA\s*:\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", upper)
         or _regex_first(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(?:BOLETA|BOL\.?)", upper)
@@ -717,7 +763,9 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     if not origen and "ZAPOTLANEJO" in upper:
         origen = "ZAPOTLANEJO"
     if not origen:
-        origen = _regex_first(r"LUGAR\s+DE\s+CARGA/DESCARGA\s+CONDICIONES\s+DE\s+PAGO\s+.*?\b(TAD\s+[A-ZÁÉÍÓÚÜÑ .]+)", upper, re.I | re.S)
+        origen = _regex_first(r"LUGAR\s+DE\s+CARGA/DESCARGA\s+CONDICIONES\s+DE\s+PAGO\s+.*?\b(TAD\s+[A-ZÁÉÍÓÚÜÑ ,.]+?)\s+VENCIMIENTO", upper, re.I | re.S)
+    if not origen:
+        origen = _regex_first(r"DETERMINADO\s*(TAD\s+[A-ZÁÉÍÓÚÜÑ ,.]+?)\s+VENCIMIENTO", upper, re.I | re.S)
     if not origen:
         origen = _regex_first(r"\b(TAD\s+[A-ZÁÉÍÓÚÜÑ ,\.]+?)\s+VENCIMIENTO", upper, re.I | re.S)
     mgc_cliente, mgc_rfc, mgc_cp, mgc_fecha = _pdf_mgc_customer_block(text)
@@ -729,11 +777,11 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         receptor_nombre = _regex_first(r"RECEPTOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper)
     domicilio_receptor = _regex_first(r"DOM\.\s+(.+?C\.P\.?\s*\d{5})", text, re.I | re.S)
     domicilio_receptor = re.sub(r"\s+", " ", domicilio_receptor).strip()
-    cp_receptor = _regex_first(r"DOMICILIO\s+FISCAL:\s*(\d{5})", upper) or _regex_first(r"C\.P\.?\s*(\d{5})", domicilio_receptor.upper())
+    cp_receptor = _regex_first(r"DOMICILIO\s+FISCAL:\s*(\d{5})", upper) or _regex_first(r"C\.?\s*P\s*\.?\s*(\d{5})", domicilio_receptor.upper())
     cp_receptor = cp_receptor or mgc_cp
     if not cp_receptor and receptor_rfc:
         after_receptor = upper.split(receptor_rfc, 1)[-1]
-        cp_receptor = _regex_first(r"C\.?\s*P\.?\s*(\d{5})", after_receptor)
+        cp_receptor = _regex_first(r"C\.?\s*P\s*\.?\s*(\d{5})", after_receptor)
     if not cp_receptor:
         cp_receptor = _regex_first(r"DOMICILIO\s+FISCAL:\s*(\d{3})\s*(\d{2})", upper)
         if cp_receptor and len(cp_receptor) == 3:
@@ -744,10 +792,10 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     regimen_receptor = regimen_receptor or _regex_first(r"R[ÉE]GIMEN\s+FISCAL\s+DEL\s+RECEPTOR\s+.*?\b(\d{3})\b", upper, re.I | re.S)
     lugar_expedicion = _regex_first(r"LUGAR\s+Y\s+FECHA\s+DE\s+EXP\.?\s*(\d{5})", upper) or _regex_first(r"REGIMEN\s+FISCAL:\s*\d{3}\s+(\d{5})", upper)
     lugar_expedicion = lugar_expedicion or _regex_first(r"LUGAR\s+DE\s+EXPEDICI[ÓO]N\s+.*?\b(\d{5})\b", upper, re.I | re.S)
-    fecha_factura = mgc_fecha or _regex_first(r"(\d{1,2}/[A-ZÁÉÍÓÚÜÑ]+/\d{4}\s+\d{2}:\d{2}:\d{2})", text, re.I)
+    fecha_factura = mgc_fecha or _regex_first(r"FECHA\s+FACTURA:\s*([0-9T:\-]+)", upper) or _regex_first(r"(\d{1,2}/[A-ZÁÉÍÓÚÜÑ]+/\d{4}\s+\d{2}:\d{2}:\d{2})", text, re.I)
     fecha_certificacion = _regex_first(r"FECHA\s+Y\s+HORA\s+DE\s+CERTIFICACI[ÓO]N:\s*([0-9T:\-]+)", upper)
-    forma_pago = _regex_first(r"FORMA\s+DE\s+PAGO:\s*(\d{2})", upper)
-    metodo_pago = _regex_first(r"METODO\s+DE\s+PAGO:\s*([A-Z]{3})", upper)
+    forma_pago = _regex_first(r"FORMA\s+DE\s+PAGO:\s*(\d{2})", upper) or _regex_first(r"R[ÉE]GIMEN\s+FISCAL\s+M[ÉE]TODO\s+DE\s+PAGO\s+FORMA\s+DE\s+PAGO\s+LUGAR\s+DE\s+EXPEDICI[ÓO]N\s+\d{3}\s+[A-Z]{3}\s+(\d{2})", upper)
+    metodo_pago = _regex_first(r"METODO\s+DE\s+PAGO:\s*([A-Z]{3})", upper) or _regex_first(r"R[ÉE]GIMEN\s+FISCAL\s+M[ÉE]TODO\s+DE\s+PAGO\s+FORMA\s+DE\s+PAGO\s+LUGAR\s+DE\s+EXPEDICI[ÓO]N\s+\d{3}\s+([A-Z]{3})", upper)
     uso_cfdi = _regex_first(r"USO\s+DE\s+CFDI\s+([A-Z0-9]{3})", upper) or _regex_first(r"USO\s+DEL\s+CFDI:\s*([A-Z0-9]{3})", upper)
     tipo_comprobante = _regex_first(r"TIPO\s+DE\s+COMPROBANT\s*E:\s*([A-Z])", upper)
     detected = {
@@ -781,13 +829,19 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         "permiso": permiso,
         "unidad": unidad,
         "precio_unitario": precio_unitario,
-        "factor_kg_l": 0.74 if "PREMIUM" in producto or "MAGNA" in producto else (0.84 if "DIESEL" in producto or "DIÉSEL" in producto else 0),
+        "factor_kg_l": 0.73 if "PREMIUM" in producto or "MAGNA" in producto else (0.84 if "DIESEL" in producto or "DIÉSEL" in producto else 0),
         "subtotal": subtotal,
         "iva": iva,
         "total": total,
         "origen_sugerido": origen,
         "destino_sugerido": receptor_nombre,
         "boleta": boleta,
+        "orden": mgc_operational.get("orden", ""),
+        "operador_nombre": mgc_operational.get("operador_nombre", ""),
+        "vehiculo_alias": mgc_operational.get("vehiculo_alias", ""),
+        "vehiculo_placas": mgc_operational.get("vehiculo_placas", ""),
+        "remolque_placas": mgc_operational.get("remolque_placas", ""),
+        "certificado_carga": mgc_operational.get("certificado_carga", ""),
         "fecha_boleta": fecha_boleta,
         "pg": pg,
         "tipo_cfdi_sugerido": tipo_comprobante or "I",
@@ -1783,6 +1837,32 @@ def _operator_event_location_text(event: dict[str, Any]) -> str:
     acc = _num(location.get("accuracy_m"))
     suffix = f" ±{acc:.0f} m" if acc else ""
     return f"{lat_f:.5f}, {lng_f:.5f}{suffix}"
+
+
+def _operator_dashboard_elapsed(value: Any, now: Optional[datetime] = None) -> str:
+    text = _first_text(value)
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=ZoneInfo("America/Mexico_City"))
+        current = now or datetime.now(ZoneInfo("America/Mexico_City"))
+        seconds = max(0, int((current - parsed.astimezone(current.tzinfo)).total_seconds()))
+    except Exception:
+        return ""
+    minutes = seconds // 60
+    hours = minutes // 60
+    days = hours // 24
+    if days:
+        return f"{days} d {hours % 24} h"
+    if hours:
+        return f"{hours} h {minutes % 60} min"
+    return f"{minutes} min"
+
+
+def _operator_dashboard_event_time(value: Any) -> str:
+    return _format_mx_datetime(value) if _first_text(value) else ""
 
 
 def _operator_bitacora_pdf_bytes(trip: dict[str, Any], acc: dict[str, Any], bitacora: dict[str, Any]) -> bytes:
@@ -5615,6 +5695,117 @@ async def transporte_v2_operator_accesses(
         if _is_missing_table_error(exc):
             return JSONResponse(_missing_schema_payload(TBL_OPERADOR_ACCESOS), status_code=409)
         raise HTTPException(500, f"No se pudieron cargar accesos operador: {exc}")
+
+
+@router.get("/tr-v2/operator/dashboard")
+async def transporte_v2_operator_dashboard(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    try:
+        q = (
+            _sb(token)
+            .table(TBL_VIAJES)
+            .select("id,perfil_id,chofer_id,operador_id,vehiculo_id,nombre_origen,nombre_destino,origen,destino,producto_descripcion,fecha_hora_salida,status,estatus,operacion_status,defaults_json,metadata,created_at")
+            .eq("user_id", uid)
+            .order("fecha_hora_salida", desc=True)
+            .limit(120)
+        )
+        if pid:
+            q = q.eq("perfil_id", pid)
+        rows = q.execute().data or []
+    except Exception as exc:
+        if _missing_column_from_error(exc) == "metadata":
+            q = (
+                _sb(token)
+                .table(TBL_VIAJES)
+                .select("id,perfil_id,chofer_id,operador_id,vehiculo_id,nombre_origen,nombre_destino,origen,destino,producto_descripcion,fecha_hora_salida,status,estatus,operacion_status,defaults_json,created_at")
+                .eq("user_id", uid)
+                .order("fecha_hora_salida", desc=True)
+                .limit(120)
+            )
+            if pid:
+                q = q.eq("perfil_id", pid)
+            rows = q.execute().data or []
+        else:
+            raise HTTPException(500, f"No se pudo cargar dashboard operador: {exc}") from exc
+
+    active_rows: list[dict[str, Any]] = []
+    for row in rows:
+        meta = _meta(row)
+        bitacora = meta.get("bitacora_operador") if isinstance(meta.get("bitacora_operador"), dict) else {}
+        estado = _first_text(bitacora.get("estado")).upper()
+        if estado not in {"EN_CURSO", "DESCANSO"}:
+            continue
+        active_rows.append(row)
+
+    chofer_ids = sorted({int(_first_text(row.get("chofer_id"), row.get("operador_id")) or 0) for row in active_rows if _first_text(row.get("chofer_id"), row.get("operador_id"))})
+    vehiculo_ids = sorted({int(row.get("vehiculo_id")) for row in active_rows if row.get("vehiculo_id")})
+    choferes: dict[int, dict[str, Any]] = {}
+    vehiculos: dict[int, dict[str, Any]] = {}
+    if chofer_ids:
+        cq = _sb(token).table(TBL_OPERADORES).select("id,nombre,licencia,tipo_licencia,vencimiento_licencia").eq("user_id", uid).in_("id", chofer_ids)
+        if pid:
+            cq = cq.eq("perfil_id", pid)
+        choferes = {int(row.get("id")): row for row in (cq.execute().data or []) if row.get("id")}
+    if vehiculo_ids:
+        vq = _sb(token).table(TBL_VEHICULOS).select("id,alias,numero_economico,placas").eq("user_id", uid).in_("id", vehiculo_ids)
+        if pid:
+            vq = vq.eq("perfil_id", pid)
+        vehiculos = {int(row.get("id")): row for row in (vq.execute().data or []) if row.get("id")}
+
+    now = datetime.now(ZoneInfo("America/Mexico_City"))
+    summary = {"en_ruta": 0, "en_descanso": 0, "incidencias": 0}
+    items: list[dict[str, Any]] = []
+    for row in active_rows:
+        meta = _meta(row)
+        bitacora = meta.get("bitacora_operador") if isinstance(meta.get("bitacora_operador"), dict) else {}
+        estado = _first_text(bitacora.get("estado")).upper()
+        events = bitacora.get("eventos") if isinstance(bitacora.get("eventos"), list) else []
+        start_event = next((event for event in events if _first_text(event.get("accion")).upper() == "INICIAR"), None)
+        last_event = events[-1] if events else {}
+        descansos = sum(1 for event in events if _first_text(event.get("accion")).upper() == "DESCANSO")
+        incidencias = sum(1 for event in events if _first_text(event.get("accion")).upper() == "INCIDENCIA")
+        summary["incidencias"] += incidencias
+        if estado == "DESCANSO":
+            summary["en_descanso"] += 1
+        else:
+            summary["en_ruta"] += 1
+        chofer_id = int(_first_text(row.get("chofer_id"), row.get("operador_id")) or 0)
+        vehiculo_id = int(row.get("vehiculo_id") or 0)
+        chofer = choferes.get(chofer_id, {})
+        vehiculo = vehiculos.get(vehiculo_id, {})
+        vehicle_name = _first_text(vehiculo.get("alias"), vehiculo.get("numero_economico"), meta.get("vehiculo_alias"))
+        vehicle_plates = _first_text(vehiculo.get("placas"), meta.get("placas"))
+        vehicle_label = " · ".join(part for part in [vehicle_name, vehicle_plates] if part)
+        items.append({
+            "viaje_id": row.get("id"),
+            "estado": estado,
+            "operador_id": chofer_id,
+            "operador_nombre": _first_text(chofer.get("nombre"), meta.get("operador_nombre"), row.get("operador_nombre"), f"Operador #{chofer_id or ''}"),
+            "origen": _first_text(row.get("origen"), row.get("nombre_origen"), meta.get("origen_sugerido"), meta.get("origen")),
+            "destino": _first_text(row.get("destino"), row.get("nombre_destino"), meta.get("destino_sugerido"), meta.get("destino")),
+            "producto": _operator_trip_quantity_summary(row).get("producto") or "No capturado",
+            "vehiculo": vehicle_label if vehicle_label != "—" else "No capturado",
+            "tiempo_ruta": _operator_dashboard_elapsed((start_event or {}).get("created_at") or row.get("fecha_hora_salida") or row.get("created_at"), now),
+            "tiempo_estado": _operator_dashboard_elapsed(last_event.get("created_at"), now),
+            "descansos": descansos,
+            "incidencias": incidencias,
+            "ultimo_evento": _operator_dashboard_event_time(last_event.get("created_at")),
+            "eventos": [
+                {
+                    "fecha": _operator_dashboard_event_time(event.get("created_at")),
+                    "accion": _first_text(event.get("accion")),
+                    "descripcion": _first_text(event.get("nota"), event.get("estado")),
+                }
+                for event in events[-8:]
+            ],
+        })
+    return {"ok": True, "summary": summary, "items": items}
 
 
 @router.post("/tr-v2/operator/accesses")
