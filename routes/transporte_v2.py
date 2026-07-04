@@ -653,6 +653,12 @@ def _pdf_mgc_operational_fields(text: str) -> dict[str, str]:
         re.I | re.S,
     )
     operator_match = re.search(r"([A-ZÁÉÍÓÚÜÑ]+(?:\s+[A-ZÁÉÍÓÚÜÑ]+){2,5})\s+(\d{4,})\s+\d{2}\s+\d{2}\s+\d{4}", operator_block, re.I)
+    if not operator_match:
+        operator_match = re.search(
+            r"NOMBRE\s+DEL\s+OPERADOR\s+NO\.\s+DE\s+ORDEN.*?\b\d{2}\s+\d{2}\s+\d{4}\s+([A-ZÁÉÍÓÚÜÑ]+(?:\s+[A-ZÁÉÍÓÚÜÑ]+){2,5})\s+(\d{4,})\s+\d{2}\s+\d{2}\s+\d{4}",
+            upper,
+            re.I | re.S,
+        )
     order = _regex_first(r"NO\.\s+ORDEN\s+([A-Z0-9/-]+)", upper)
     if not order:
         order = _regex_first(r"\b(RP-\d+-\d+-\d{2}/\d{2}/\d{4}-\d+)\b", upper)
@@ -682,6 +688,12 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         receptor_rfc = next((rfc for rfc in rfcs if rfc != emisor_rfc), receptor_rfc)
 
     folio_match = re.search(r"\b(FE)\s+(\d{3,})\b", upper, re.I)
+    if not folio_match:
+        folio_match = re.search(
+            r"FOLIO\s+FISCAL.*?\b([A-Z]{1,6})\s+(\d{3,})\s+FECHA\s+FACTURA",
+            upper,
+            re.I | re.S,
+        )
     if not folio_match:
         folio_match = re.search(r"FACTURA\s+FOLIO.*?\b([A-Z]{1,6})\s+(\d{3,})\b", upper, re.I | re.S)
     if not folio_match:
