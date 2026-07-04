@@ -61,6 +61,58 @@ def test_operator_bitacora_quantity_summary_uses_productos_json_weight():
     assert summary["kilos"] == 19427
 
 
+def test_mgc_magna_pdf_text_detection_extracts_core_fields(monkeypatch):
+    text = """
+Entrega/referencia entrada Volumen Unidad ID TransporteConcepto Precio Importe Moneda
+8800725779 34805.000 L PEMEX MAGNA 18.785230 653,819.93 MXN
+Subtotal 653,819.93
+Impuesto trasladado IVA Tasa 0.160000 101,317.86
+Total 34805.000 L 755,137.79 MXN
+Permiso de comercialización: H/10376/COM/2015.
+Folio Fiscal Número de Certificado del Emisor CO 652512 Fecha Factura: 2026-07-04T10:10:59
+797B73A4-E94C-4E46-B6C8-2DDF65B47C33
+Compañia transportista Vehiculo Placas Certificado
+RUTH ORNELAS MUNOZFZC3156 21BG4S SAL0356/26
+De Fecha No. 3-218 Nombre del Operador No. de Orden DÍA MES AÑO Boleta de Aforo
+04 03 2026 MARTINEZ FUENTES JAVIER 63749 04 07 2026
+Placas tonel: 30UA6F RP-654-67750-04/07/2026-1041891
+FACTURADO A FECHA DE LA FACTURA
+PARADOR HACIENDA NUEVA PHN020815T83 2026-07-04T10:10:59
+CARR FEDERAL 45 ZACATECAS KM. 10.914
+HACIENDA NUEVA MORELOS Zacatecas
+México C.P . 98100
+USO DE CFDI G01 Adquisición de mercancías.
+PRODUCTO DESTINO FECHA DE CARGA RÉGIMEN FISCAL DEL RECEPTOR
+PEMEX MAGNA E15337 04/07/2026 601
+CONDICIONES DE ENTREGA LUGAR DE CARGA/DESCARGA CONDICIONES DE PAGO
+Entrega en lugar determinadoTAD LEON, GTO. Vencimiento 15 días
+Régimen Fiscal Método de pago Forma de pago Lugar de expedición
+601 PPD 99 11320
+"""
+    monkeypatch.setattr(transporte_v2, "_extract_pdf_text", lambda _content: (text, []))
+
+    result = transporte_v2._detect_pdf_document(b"%PDF")
+    detected = result["detected"]
+
+    assert detected["uuid"] == "797B73A4-E94C-4E46-B6C8-2DDF65B47C33"
+    assert detected["folio"] == "CO 652512"
+    assert detected["cliente_rfc"] == "PHN020815T83"
+    assert detected["cp_receptor"] == "98100"
+    assert detected["producto"] == "PEMEX MAGNA"
+    assert detected["clave_sat"] == "15101514"
+    assert detected["litros"] == 34805
+    assert detected["peso_kg"] == 25407.65
+    assert detected["permiso"] == "H/10376/COM/2015"
+    assert detected["boleta"] == "63749"
+    assert detected["origen_sugerido"] == "TAD LEON, GTO."
+    assert detected["operador_nombre"] == "MARTINEZ FUENTES JAVIER"
+    assert detected["vehiculo_placas"] == "21BG4S"
+    assert detected["remolque_placas"] == "30UA6F"
+    assert detected["subtotal"] == 653819.93
+    assert detected["iva"] == 101317.86
+    assert detected["total"] == 755137.79
+
+
 def test_uploaded_invoice_inline_backup_is_downloadable():
     pdf = b"%PDF-1.4\noperator invoice\n%%EOF"
     trip = {
