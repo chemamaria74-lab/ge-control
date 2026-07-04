@@ -173,7 +173,7 @@ def validar_xml_carta_porte_transporte(
     requiere_hidro = enforce_hidrocarburos and _requiere_complemento_hidrocarburos(productos)
     metadata["requiere_hidrocarburos"] = requiere_hidro
     if requiere_hidro and hidro is None:
-        errors.append("El producto transportado requiere validar complemento Hidrocarburos y Petrolíferos; el XML no lo contiene.")
+        warnings.append("XML sin complemento Hidrocarburos y Petrolíferos; SW/SAT aceptó Carta Porte, validar regla aplicable antes de producción.")
     elif _es_producto_hidrocarburo(productos) and hidro is None:
         warnings.append("XML sin complemento Hidrocarburos y Petrolíferos; validar regla aplicable antes de producción.")
 
