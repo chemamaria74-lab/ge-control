@@ -222,7 +222,7 @@ function trv2SwitchTab(tab) {
       if (typeof trv2PopulateOperatorAdminSelects === 'function') trv2PopulateOperatorAdminSelects();
     }).catch(() => {});
     if (typeof trv2PopulateOperatorAdminSelects === 'function') trv2PopulateOperatorAdminSelects();
-    if (typeof trv2LoadOperatorAccesses === 'function') trv2LoadOperatorAccesses();
+    if (typeof trv2SetAdminSubtab === 'function') trv2SetAdminSubtab('configuracion');
   }
 }
 

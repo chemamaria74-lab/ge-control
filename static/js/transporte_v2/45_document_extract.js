@@ -552,12 +552,51 @@ function trv2SelectDetectedCatalogValues(scope, detected) {
   const producto = trv2FindCatalog('productos', detected.producto_id || backendProducto?.id)
     || trv2FindOrLabel('productos', detected.clave_sat, detected.producto)
     || trv2DefaultDetectedProduct(detected);
+  const operador = trv2FindCatalog('operadores', detected.operador_id)
+    || trv2FindDetectedOperator(detected);
+  const vehiculo = trv2FindCatalog('vehiculos', detected.vehiculo_id)
+    || trv2FindDetectedVehicle(detected);
   const clienteSelect = document.getElementById(trv2DocFieldId(scope, 'cliente-id'));
   const productoSelect = document.getElementById(trv2DocFieldId(scope, 'producto-id'));
+  const operadorSelect = document.getElementById(trv2DocFieldId(scope, 'operador-id'));
+  const vehiculoSelect = document.getElementById(trv2DocFieldId(scope, 'vehiculo-id'));
   if (clienteSelect && cliente?.id) clienteSelect.value = String(cliente.id);
   if (productoSelect && producto?.id) productoSelect.value = String(producto.id);
+  if (operadorSelect && operador?.id) operadorSelect.value = String(operador.id);
+  if (vehiculoSelect && vehiculo?.id) vehiculoSelect.value = String(vehiculo.id);
   trv2ApplyClientRouteDefault(scope, false);
+  if (operador?.id && !vehiculo?.id) trv2ApplyOperatorVehicleDefault(scope);
   trv2UpdateDocumentPending(scope);
+}
+
+function trv2TokenOverlapCount(left = '', right = '') {
+  const leftTokens = trv2DocNormalizeText(left).split(' ').filter(token => token.length >= 4);
+  const rightTokens = new Set(trv2DocNormalizeText(right).split(' ').filter(token => token.length >= 4));
+  return leftTokens.filter(token => rightTokens.has(token)).length;
+}
+
+function trv2FindDetectedOperator(detected = {}) {
+  const detectedName = detected.operador_nombre || detected.chofer_nombre || '';
+  if (!detectedName) return null;
+  return (TRV2_CATALOGS.operadores || [])
+    .filter(item => item.activo !== false)
+    .map(item => ({
+      item,
+      score: trv2TokenOverlapCount(detectedName, `${item.nombre || ''} ${item.rfc || ''} ${item.licencia || ''}`),
+    }))
+    .filter(row => row.score > 0)
+    .sort((a, b) => b.score - a.score)[0]?.item || null;
+}
+
+function trv2FindDetectedVehicle(detected = {}) {
+  const placas = trv2DocNormalizeText(detected.vehiculo_placas || detected.placas || '');
+  const alias = trv2DocNormalizeText(detected.vehiculo_alias || detected.unidad || '');
+  if (!placas && !alias) return null;
+  return (TRV2_CATALOGS.vehiculos || []).find(item => {
+    const itemPlacas = trv2DocNormalizeText(item.placas || '');
+    const itemAlias = trv2DocNormalizeText(`${item.alias || ''} ${item.numero_economico || ''}`);
+    return (placas && itemPlacas === placas) || (alias && (itemAlias.includes(alias) || alias.includes(itemAlias)));
+  }) || null;
 }
 
 function trv2DefaultDetectedProduct(detected = {}) {

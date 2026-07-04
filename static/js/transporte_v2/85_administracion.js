@@ -10,8 +10,8 @@ function trv2PopulateOperatorAdminSelects() {
   }
 }
 
-function trv2SetAdminSubtab(name = 'usuarios-operador') {
-  if (!document.querySelector(`[data-admin-tab="${name}"]`)) name = 'usuarios-operador';
+function trv2SetAdminSubtab(name = 'configuracion') {
+  if (!document.querySelector(`[data-admin-tab="${name}"]`)) name = 'configuracion';
   document.querySelectorAll('[data-admin-tab]').forEach(button => {
     button.classList.toggle('active', button.dataset.adminTab === name);
   });
@@ -22,6 +22,84 @@ function trv2SetAdminSubtab(name = 'usuarios-operador') {
     trv2LoadSettings();
     trv2LoadPermisosRfc();
   }
+  if (name === 'operadores-ruta') trv2LoadOperatorDashboard();
+  if (name === 'usuarios-operador') trv2LoadOperatorAccesses();
+}
+
+function trv2AdminStatusLabel(status = '') {
+  const value = String(status || '').toUpperCase();
+  return {
+    EN_CURSO: 'En ruta',
+    DESCANSO: 'Descanso',
+    FINALIZADO: 'Finalizado',
+    SIN_INICIAR: 'Sin iniciar',
+  }[value] || value || 'Sin estado';
+}
+
+function trv2RenderOperatorDashboard(data = {}) {
+  const list = document.getElementById('trv2-operator-dashboard-list');
+  const kpis = document.getElementById('trv2-operator-dashboard-kpis');
+  const items = data.items || [];
+  const summary = data.summary || {};
+  if (kpis) {
+    kpis.innerHTML = `
+      <article><span>En ruta</span><strong>${Number(summary.en_ruta || 0)}</strong></article>
+      <article><span>En descanso</span><strong>${Number(summary.en_descanso || 0)}</strong></article>
+      <article><span>Incidencias</span><strong>${Number(summary.incidencias || 0)}</strong></article>
+    `;
+  }
+  if (!list) return;
+  if (!items.length) {
+    list.innerHTML = '<div class="trv2-empty">Sin operadores en ruta en este momento.</div>';
+    return;
+  }
+  list.innerHTML = items.map(item => {
+    const events = item.eventos || [];
+    const timeline = events.length
+      ? `<ol>${events.map(ev => `
+          <li>
+            <span>${trv2Esc(ev.fecha || '')}</span>
+            <strong>${trv2Esc(ev.accion || '')}</strong>
+            <em>${trv2Esc(ev.descripcion || '')}</em>
+          </li>
+        `).join('')}</ol>`
+      : '<div class="trv2-empty trv2-empty-compact">Sin eventos registrados.</div>';
+    return `
+      <article class="trv2-route-card">
+        <div class="trv2-route-card-head">
+          <div>
+            <strong>${trv2Esc(item.operador_nombre || 'Operador')}</strong>
+            <span>Viaje #${trv2Esc(item.viaje_id || '')} · ${trv2Esc(item.origen || 'Origen')} → ${trv2Esc(item.destino || 'Destino')}</span>
+          </div>
+          <em class="${String(item.estado || '').toUpperCase() === 'DESCANSO' ? 'warning' : 'active'}">${trv2Esc(trv2AdminStatusLabel(item.estado))}</em>
+        </div>
+        <div class="trv2-route-metrics">
+          <div><span>Tiempo ruta</span><strong>${trv2Esc(item.tiempo_ruta || '—')}</strong></div>
+          <div><span>Tiempo estado</span><strong>${trv2Esc(item.tiempo_estado || '—')}</strong></div>
+          <div><span>Descansos</span><strong>${Number(item.descansos || 0)}</strong></div>
+          <div><span>Incidencias</span><strong>${Number(item.incidencias || 0)}</strong></div>
+        </div>
+        <div class="trv2-route-context">
+          <span><b>Producto</b> ${trv2Esc(item.producto || 'No capturado')}</span>
+          <span><b>Vehículo</b> ${trv2Esc(item.vehiculo || 'No capturado')}</span>
+          <span><b>Último evento</b> ${trv2Esc(item.ultimo_evento || '—')}</span>
+        </div>
+        <div class="trv2-route-timeline">${timeline}</div>
+      </article>
+    `;
+  }).join('');
+}
+
+async function trv2LoadOperatorDashboard() {
+  if (!TRV2_ADMIN_READY) return;
+  const list = document.getElementById('trv2-operator-dashboard-list');
+  if (list) list.innerHTML = '<div class="trv2-empty">Cargando operadores en ruta...</div>';
+  const data = await trv2Api('GET', '/api/tr-v2/operator/dashboard', undefined, {allowError: true, silent: true});
+  if (!data?.ok) {
+    if (list) list.innerHTML = `<div class="trv2-empty">${trv2Esc(data?.detail || data?.message || 'No se pudo cargar el dashboard operador.')}</div>`;
+    return;
+  }
+  trv2RenderOperatorDashboard(data);
 }
 
 function trv2RenderOperatorAccesses(items = []) {
