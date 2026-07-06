@@ -11,6 +11,7 @@ delete TRV2_CATALOG_LABELS.permisos;
 delete TRV2_CATALOGS.permisos;
 let TRV2_VEHICLE_SUBCATALOG = 'vehiculos';
 let TRV2_INSTALLATION_RETURN_CATALOG = '';
+let TRV2_CATALOG_FAMILY_FILTER = 'todos';
 
 const TRV2_CATALOG_LOAD_NAMES = ['clientes', 'operadores', 'vehiculos', 'remolques', 'productos', 'origenes', 'destinos', 'rutas'];
 // Claves tomadas de c_TipoPermiso en catCartaPorte.xsd. El catálogo SAT define
@@ -69,6 +70,7 @@ const TRV2_ESTADOS_SAT = [
   ['COA', 'Coahuila de Zaragoza'],
   ['JAL', 'Jalisco'],
   ['ZAC', 'Zacatecas'],
+  ['GUA', 'Guanajuato'],
   ['AGU', 'Aguascalientes'],
   ['NLE', 'Nuevo León'],
   ['CMX', 'Ciudad de México'],
@@ -77,12 +79,14 @@ const TRV2_ESTADOS_SAT = [
 const TRV2_MUNICIPIOS_SAT = {
   AGU: [['001', 'Aguascalientes']],
   COA: [['035', 'Torreón']],
+  GUA: [['020', 'León']],
   JAL: [['039', 'Guadalajara'], ['078', 'San Miguel el Alto'], ['116', 'Villa Hidalgo'], ['123', 'Zapotlanejo'], ['091', 'Teocaltiche']],
-  ZAC: [['051', 'Villa de Cos'], ['048', 'Tlaltenango de Sánchez Román'], ['020', 'Jerez'], ['056', 'Zacatecas']],
+  ZAC: [['017', 'Guadalupe'], ['020', 'Jerez'], ['032', 'Morelos'], ['038', 'Pinos'], ['046', 'Tepetongo'], ['048', 'Tlaltenango de Sánchez Román'], ['051', 'Villa de Cos'], ['056', 'Zacatecas']],
 };
 const TRV2_LOCALIDADES_SAT = {
   AGU: [['01', 'Aguascalientes']],
   COA: [['01', 'Localidad principal / cabecera municipal']],
+  GUA: [['01', 'Localidad principal / cabecera municipal']],
   JAL: [['01', 'Localidad principal / cabecera municipal']],
   ZAC: [['01', 'Localidad principal / cabecera municipal']],
 };
@@ -90,12 +94,18 @@ const TRV2_CP_SAT_DEFAULTS = {
   '20120': { estado_sat: 'AGU', municipio_sat: '001', localidad_sat: '01' },
   '27019': { estado_sat: 'COA', municipio_sat: '035', localidad_sat: '' },
   '27297': { estado_sat: 'COA', municipio_sat: '035', localidad_sat: '01' },
+  '37490': { estado_sat: 'GUA', municipio_sat: '020', localidad_sat: '' },
   '45464': { estado_sat: 'JAL', municipio_sat: '123', localidad_sat: '' },
   '47200': { estado_sat: 'JAL', municipio_sat: '091', localidad_sat: '' },
   '98057': { estado_sat: 'ZAC', municipio_sat: '056', localidad_sat: '03' },
+  '98100': { estado_sat: 'ZAC', municipio_sat: '032', localidad_sat: '' },
   '98470': { estado_sat: 'ZAC', municipio_sat: '', localidad_sat: '' },
+  '98604': { estado_sat: 'ZAC', municipio_sat: '017', localidad_sat: '' },
+  '98636': { estado_sat: 'ZAC', municipio_sat: '017', localidad_sat: '' },
   '98659': { estado_sat: 'ZAC', municipio_sat: '017', localidad_sat: '' },
+  '98920': { estado_sat: 'ZAC', municipio_sat: '038', localidad_sat: '' },
   '99300': { estado_sat: 'ZAC', municipio_sat: '020', localidad_sat: '' },
+  '99570': { estado_sat: 'ZAC', municipio_sat: '046', localidad_sat: '' },
   '99700': { estado_sat: 'ZAC', municipio_sat: '048', localidad_sat: '' },
 };
 const TRV2_PRODUCTOS_SAT = [
@@ -432,6 +442,22 @@ function trv2NormalizeRfcValue(value) {
   return String(value || '').toUpperCase().replace(/\s+/g, '').trim();
 }
 
+function trv2ProveedorFamilyKey(item = {}) {
+  const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : {};
+  const text = trv2NormalizeFamilyText([
+    item.producto,
+    item.nombre,
+    metadata.familia_producto,
+    metadata.familias_producto,
+    metadata.productos_permitidos,
+  ].filter(value => value !== undefined && value !== null).map(value => (
+    typeof value === 'object' ? JSON.stringify(value) : String(value)
+  )).join(' '));
+  if (text.includes('petrol') || text.includes('gasolina') || text.includes('magna') || text.includes('premium') || text.includes('diesel')) return 'petroliferos';
+  if (text.includes('gas lp') || text.includes('gas l.p') || text.includes('gas licuado')) return 'gas_lp';
+  return 'sin_familia';
+}
+
 function trv2BuildProveedoresCatalog() {
   const byKey = new Map();
   (window.TRV2_PERMISOS_RFC || []).filter(trv2IsProveedorPermiso).forEach(item => {
@@ -439,7 +465,9 @@ function trv2BuildProveedoresCatalog() {
     const permiso = String(item.permiso_cre || item.permiso || '').trim();
     const nombre = String(item.nombre || '').trim();
     if (!rfc && !permiso && !nombre) return;
-    const key = rfc || [nombre.toUpperCase(), permiso.toUpperCase()].join('|');
+    const key = rfc
+      ? [rfc, trv2ProveedorFamilyKey(item)].join('|')
+      : [nombre.toUpperCase(), permiso.toUpperCase(), trv2ProveedorFamilyKey(item)].join('|');
     const current = byKey.get(key);
     const score = (item.activo === false ? 0 : 10) + (permiso ? 5 : 0) + (nombre ? 2 : 0);
     const currentScore = current
@@ -469,11 +497,74 @@ function trv2RenderCatalogTabs() {
 
 function trv2SetActiveCatalog(name) {
   TRV2_ACTIVE_CATALOG = name;
+  TRV2_CATALOG_FAMILY_FILTER = 'todos';
   if (name === 'vehiculos' || name === 'remolques') TRV2_VEHICLE_SUBCATALOG = name;
   const search = document.getElementById('trv2-catalog-search');
   if (search) search.value = '';
   trv2RenderCatalogTabs();
   trv2RenderActiveCatalog();
+}
+
+function trv2NormalizeFamilyText(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function trv2CatalogFamilyText(item = {}) {
+  const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : {};
+  return trv2NormalizeFamilyText([
+    item.producto,
+    item.nombre,
+    item.descripcion,
+    item.permiso_requerido,
+    item.tipo_producto,
+    item.clave_subproducto,
+    metadata.familia_producto,
+    metadata.familias_producto,
+    metadata.producto,
+    metadata.tipo_producto,
+    metadata.productos_permitidos,
+  ].filter(value => value !== undefined && value !== null).map(value => (
+    typeof value === 'object' ? JSON.stringify(value) : String(value)
+  )).join(' '));
+}
+
+function trv2CatalogItemFamily(item = {}) {
+  const text = trv2CatalogFamilyText(item);
+  if (text.includes('petrol') || text.includes('gasolina') || text.includes('magna') || text.includes('premium') || text.includes('diesel')) return 'petroliferos';
+  if (text.includes('gas lp') || text.includes('gas l.p') || text.includes('gas licuado') || text.includes('15111510')) return 'gas_lp';
+  return '';
+}
+
+function trv2CatalogSupportsFamilyFilter(name) {
+  return ['productos', 'proveedores', 'origenes', 'destinos', 'instalaciones', 'rutas'].includes(name);
+}
+
+function trv2CatalogMatchesFamily(name, item) {
+  if (!trv2CatalogSupportsFamilyFilter(name) || TRV2_CATALOG_FAMILY_FILTER === 'todos') return true;
+  return trv2CatalogItemFamily(item) === TRV2_CATALOG_FAMILY_FILTER;
+}
+
+function trv2SetCatalogFamilyFilter(value) {
+  TRV2_CATALOG_FAMILY_FILTER = value || 'todos';
+  trv2RenderActiveCatalog();
+}
+
+function trv2RenderCatalogFamilyFilter(name) {
+  if (!trv2CatalogSupportsFamilyFilter(name)) return '';
+  const options = [
+    ['todos', 'Todos'],
+    ['gas_lp', 'Gas LP'],
+    ['petroliferos', 'Petrolíferos'],
+  ];
+  return `
+    <div class="trv2-inline-tabs" role="tablist" aria-label="Familia de producto">
+      ${options.map(([value, label]) => `
+        <button class="trv2-subtab ${TRV2_CATALOG_FAMILY_FILTER === value ? 'active' : ''}" type="button" onclick="trv2SetCatalogFamilyFilter('${trv2Esc(value)}')">${trv2Esc(label)}</button>
+      `).join('')}
+    </div>
+  `;
 }
 
 function trv2SetVehicleSubCatalog(name) {
@@ -521,11 +612,13 @@ function trv2RenderActiveCatalog() {
   const ui = TRV2_CATALOG_UI[name] || {};
   const items = TRV2_CATALOGS[name] || [];
   const query = (document.getElementById('trv2-catalog-search')?.value || '').toLowerCase().trim();
+  const familyItems = items.filter(item => trv2CatalogMatchesFamily(name, item));
   const filtered = query
-    ? items.filter(item => JSON.stringify(item).toLowerCase().includes(query))
-    : items;
+    ? familyItems.filter(item => JSON.stringify(item).toLowerCase().includes(query))
+    : familyItems;
   if (caption) caption.textContent = ui.subtitle || '';
   trv2RenderCatalogMetrics(name, filtered);
+  const familyFilter = trv2RenderCatalogFamilyFilter(name);
   if (!filtered.length) {
     const emptyMessage = name === 'rutas' && !query
       ? 'No hay rutas configuradas para esta empresa. Crea una ruta para continuar.'
@@ -533,6 +626,7 @@ function trv2RenderActiveCatalog() {
     const vehicleSubtabs = (name === 'vehiculos' || name === 'remolques') ? trv2RenderVehicleCatalogSubtabs(name) : '';
     panel.innerHTML = `
       ${vehicleSubtabs}
+      ${familyFilter}
       <div class="trv2-catalog-empty">
         <i class="fa-solid ${trv2Esc(ui.icon || 'fa-table-list')}"></i>
         <h2>${trv2Esc(ui.title || TRV2_CATALOG_LABELS[name])}</h2>
@@ -544,11 +638,12 @@ function trv2RenderActiveCatalog() {
   }
   const vehicleSubtabs = (name === 'vehiculos' || name === 'remolques') ? trv2RenderVehicleCatalogSubtabs(name) : '';
   if (trv2CatalogUsesHorizontalList(name)) {
-    panel.innerHTML = `${vehicleSubtabs}${trv2RenderCatalogTable(name, filtered)}`;
+    panel.innerHTML = `${vehicleSubtabs}${familyFilter}${trv2RenderCatalogTable(name, filtered)}`;
     return;
   }
   panel.innerHTML = `
     ${vehicleSubtabs}
+    ${familyFilter}
     <div class="trv2-catalog-card-grid">
       ${filtered.map(item => trv2RenderCatalogCard(name, item)).join('')}
     </div>
@@ -732,7 +827,7 @@ function trv2OpenRelatedInstallations(parentCatalog, parentItemId) {
     <div class="trv2-form-wide trv2-access-list">
       ${items.length ? items.map(item => {
         const actionId = trv2CatalogActionId(item);
-        return `<article><div><strong>${trv2Esc(trv2CatalogLabel('instalaciones', item))}</strong><span>${trv2Esc(item.tipo_carta_porte || '')} · CP ${trv2Esc(item.cp || 'pendiente')}</span></div><div class="trv2-row-actions"><button class="trv2-mini-btn" type="button" onclick="trv2OpenRelatedInstallationEditor('${trv2Esc(parentCatalog)}', '${trv2Esc(parentItemId)}', '${trv2Esc(actionId)}')">Editar</button><button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteRelatedInstallation('${trv2Esc(parentCatalog)}', '${trv2Esc(parentItemId)}', '${trv2Esc(actionId)}')">Eliminar</button></div></article>`;
+        return `<article><div><strong>${trv2Esc(trv2CatalogLabel('instalaciones', item))}</strong><span> ${trv2Esc(item.tipo_carta_porte || '')} · CP ${trv2Esc(item.cp || 'pendiente')}</span></div><div class="trv2-row-actions"><button class="trv2-mini-btn" type="button" onclick="trv2OpenRelatedInstallationEditor('${trv2Esc(parentCatalog)}', '${trv2Esc(parentItemId)}', '${trv2Esc(actionId)}')">Editar</button><button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteRelatedInstallation('${trv2Esc(parentCatalog)}', '${trv2Esc(parentItemId)}', '${trv2Esc(actionId)}')">Eliminar</button></div></article>`;
       }).join('') : '<div class="trv2-empty">Aún no hay instalaciones registradas.</div>'}
     </div>
     <div class="trv2-form-actions">
