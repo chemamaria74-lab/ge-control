@@ -485,6 +485,8 @@ class FacturaServicioCreate(BaseModel):
     forma_pago:          str = "03"
     metodo_pago:         str = "PUE"
     moneda:              str = "MXN"
+    override_tarifa:     Optional[float] = None
+    override_tarifa_motivo: str = ""
 
     @field_validator("viaje_ids")
     @classmethod
