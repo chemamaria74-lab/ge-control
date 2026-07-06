@@ -949,7 +949,7 @@ def _parse_detected_document_date(value: Any) -> Optional[datetime.date]:
     if not text:
         return None
     text = text.strip()
-    iso_match = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", text)
+    iso_match = re.search(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?:[T\s]\d{2}:\d{2}(?::\d{2})?)?", text)
     if iso_match:
         try:
             return datetime(int(iso_match.group(1)), int(iso_match.group(2)), int(iso_match.group(3))).date()
