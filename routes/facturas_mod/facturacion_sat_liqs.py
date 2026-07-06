@@ -82,6 +82,81 @@ def _fact_serv_cfdi_cancelada(row: dict) -> bool:
     return "cancel" in str(row.get("status") or "").lower() and status not in {"error", "rechazada", "rejected"}
 
 
+def _fact_serv_amount(value, default: float = 0.0) -> float:
+    try:
+        return float(value if value is not None else default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _fact_serv_calc_base(item: dict, calculo: dict) -> float:
+    rule = str(
+        item.get("regla_calculo")
+        or item.get("base_calculo")
+        or calculo.get("regla_calculo")
+        or calculo.get("base_calculo")
+        or ""
+    ).strip().lower()
+    if rule in {"litro", "litros"}:
+        return _fact_serv_amount(item.get("litros") or item.get("volumen_litros") or item.get("cantidad_base"))
+    if rule in {"kg", "kilo", "kilos"}:
+        return _fact_serv_amount(item.get("kilos") or item.get("peso_kg") or item.get("cantidad_base"))
+    if rule == "distancia":
+        return _fact_serv_amount(item.get("distancia_km") or item.get("distancia") or item.get("cantidad_base"))
+    if rule == "viaje":
+        return 1.0
+    base = _fact_serv_amount(item.get("cantidad_base"))
+    if base > 0:
+        return base
+    litros = _fact_serv_amount(item.get("litros") or item.get("volumen_litros"))
+    kilos = _fact_serv_amount(item.get("kilos") or item.get("peso_kg"))
+    return litros or kilos or 1.0
+
+
+def _fact_serv_apply_tariff_override(calculo: dict, payload: FacturaServicioCreate) -> dict:
+    override = _fact_serv_amount(getattr(payload, "override_tarifa", None), -1)
+    if override < 0:
+        return calculo
+    items = calculo.get("items") if isinstance(calculo.get("items"), list) else []
+    if len(items) != 1:
+        return calculo
+    item = dict(items[0] or {})
+    base = _fact_serv_calc_base(item, calculo)
+    subtotal = round(base * override, 2)
+    iva_tasa = _fact_serv_amount(calculo.get("iva_tasa", item.get("iva_tasa")), 0.16)
+    retencion_tasa = _fact_serv_amount(calculo.get("retencion_tasa", item.get("retencion_tasa")), 0.04)
+    aplica_iva = bool(calculo.get("aplica_iva", item.get("aplica_iva", iva_tasa > 0)))
+    aplica_retencion = bool(calculo.get("aplica_retencion", item.get("aplica_retencion", retencion_tasa > 0)))
+    iva = round(subtotal * iva_tasa, 2) if aplica_iva else 0.0
+    retencion = round(subtotal * retencion_tasa, 2) if aplica_retencion else 0.0
+    total = round(subtotal + iva - retencion, 2)
+    motivo = getattr(payload, "override_tarifa_motivo", "") or "Tarifa editada en revisión"
+    item.update({
+        "cantidad_base": base,
+        "tarifa": override,
+        "tarifa_override": True,
+        "tarifa_override_motivo": motivo,
+        "subtotal": subtotal,
+        "iva": iva,
+        "retencion": retencion,
+        "total": total,
+    })
+    calculo.update({
+        "items": [item],
+        "subtotal": subtotal,
+        "iva": iva,
+        "retencion": retencion,
+        "total": total,
+        "iva_tasa": iva_tasa,
+        "retencion_tasa": retencion_tasa,
+        "aplica_iva": aplica_iva,
+        "aplica_retencion": aplica_retencion,
+        "tarifa_override": True,
+        "tarifa_override_motivo": motivo,
+    })
+    return calculo
+
+
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
     perfil_id: Optional[int] = Query(None),
@@ -301,6 +376,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     else:
         viajes_calc = viajes
     calculo_servicio = _sumar_calculos_servicio(viajes_calc, tarifas)
+    calculo_servicio = _fact_serv_apply_tariff_override(calculo_servicio, payload)
     sin_tarifa = [i.get("viaje_id") for i in calculo_servicio.get("items", []) if not i.get("tarifa_id")]
     if sin_tarifa:
         raise HTTPException(400, f"Configura una tarifa de servicio antes de facturar estas Cartas Porte: {sin_tarifa}")
