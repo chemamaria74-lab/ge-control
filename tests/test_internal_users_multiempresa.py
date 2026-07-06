@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import unittest
+from datetime import timedelta
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -345,6 +346,79 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             asyncio.run(internal_users.internal_login(internal_users.InternalLogin(section="gas_lp", code="MARTHA", pin="NOPE")))
         self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_failed_internal_login_temporarily_locks_without_deactivating(self):
+        db = FakeDB()
+        patches = [
+            patch.object(internal_users, "get_supabase_admin", lambda: db),
+            patch.object(internal_users, "get_supabase_for_user", lambda token: db),
+            patch.object(internal_users, "verify_token", lambda token: "admin"),
+            patch.object(internal_users, "_tenant_id_for_user", lambda uid, access_token="": "tenant-a"),
+            patch.object(internal_users, "obtener_acceso_modulo", lambda uid, section, access_token="": {"role": "admin"}),
+        ]
+        for p in patches:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in patches])
+
+        payload = internal_users.InternalUserCreate(
+            display_name="BLANCA",
+            section="gas_lp",
+            role="asistente_facturacion",
+            perfil_id=1,
+            code="BLANCA",
+            pin="PIN-CORRECTO",
+        )
+        response_json(asyncio.run(internal_users.create_internal_user(payload, authorization="Bearer admin-token")))
+
+        for _ in range(internal_users.MAX_FAILED_ATTEMPTS):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(internal_users.internal_login(internal_users.InternalLogin(section="gas_lp", code="BLANCA", pin="MAL")))
+            self.assertEqual(ctx.exception.status_code, 401)
+
+        user = db.rows["internal_users"][0]
+        self.assertEqual(user["status"], "active")
+        self.assertEqual(user["failed_attempts"], internal_users.MAX_FAILED_ATTEMPTS)
+        self.assertTrue(user["locked_until"])
+
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(internal_users.internal_login(internal_users.InternalLogin(section="gas_lp", code="BLANCA", pin="PIN-CORRECTO")))
+        self.assertEqual(ctx.exception.status_code, 423)
+
+    def test_legacy_locked_internal_user_recovers_after_lock_expires(self):
+        db = FakeDB()
+        patches = [
+            patch.object(internal_users, "get_supabase_admin", lambda: db),
+            patch.object(internal_users, "get_supabase_for_user", lambda token: db),
+            patch.object(internal_users, "verify_token", lambda token: "admin"),
+            patch.object(internal_users, "_tenant_id_for_user", lambda uid, access_token="": "tenant-a"),
+            patch.object(internal_users, "obtener_acceso_modulo", lambda uid, section, access_token="": {"role": "admin"}),
+        ]
+        for p in patches:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in patches])
+
+        payload = internal_users.InternalUserCreate(
+            display_name="BLANCA",
+            section="gas_lp",
+            role="asistente_facturacion",
+            perfil_id=1,
+            code="BLANCA-LEGACY",
+            pin="PIN-CORRECTO",
+        )
+        response_json(asyncio.run(internal_users.create_internal_user(payload, authorization="Bearer admin-token")))
+        user = db.rows["internal_users"][0]
+        user.update({
+            "status": "locked",
+            "failed_attempts": internal_users.MAX_FAILED_ATTEMPTS,
+            "locked_until": (internal_users._now() - timedelta(minutes=1)).isoformat(),
+        })
+
+        login = response_json(asyncio.run(internal_users.internal_login(internal_users.InternalLogin(section="gas_lp", code="BLANCA-LEGACY", pin="PIN-CORRECTO"))))
+
+        self.assertTrue(login["ok"])
+        self.assertEqual(user["status"], "active")
+        self.assertEqual(user["failed_attempts"], 0)
+        self.assertIsNone(user["locked_until"])
 
     def test_gas_lp_username_is_globally_unique_and_normalized(self):
         db = FakeDB()
