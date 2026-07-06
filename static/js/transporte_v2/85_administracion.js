@@ -1,3 +1,5 @@
+let TRV2_PERMISO_PRODUCT_FILTER = '';
+
 function trv2PopulateOperatorAdminSelects() {
   const choferSelect = document.getElementById('trv2-admin-operator-chofer');
   if (choferSelect) {
@@ -348,8 +350,16 @@ async function trv2SaveSettings(event) {
 function trv2PopulatePermisoSelects() {
   const origen = document.getElementById('trv2-permiso-origen');
   const producto = document.getElementById('trv2-permiso-producto-default');
+  const alcance = document.getElementById('trv2-permiso-producto');
   if (origen) origen.innerHTML = trv2CatalogOptions('origenes', 'Opcional');
   if (producto) producto.innerHTML = trv2CatalogOptions('productos', 'Opcional');
+  if (alcance) {
+    const current = alcance.value;
+    alcance.innerHTML = '<option value="">Seleccionar producto</option>' + trv2PermisoProductOptions().map(option => (
+      `<option value="${trv2Esc(option.value)}">${trv2Esc(option.label)}</option>`
+    )).join('');
+    if ([...alcance.options].some(option => option.value === current)) alcance.value = current;
+  }
 }
 
 function trv2ClearPermisoForm(options = {}) {
@@ -368,6 +378,11 @@ function trv2ClearPermisoForm(options = {}) {
 function trv2NewPermisoRfc() {
   trv2ClearPermisoForm({hide: false});
   trv2ApplyFiscalIdentityToPermisoForm();
+  const alcance = document.getElementById('trv2-permiso-producto');
+  if (alcance && TRV2_PERMISO_PRODUCT_FILTER) {
+    const option = trv2PermisoProductOptions().find(item => item.key === TRV2_PERMISO_PRODUCT_FILTER);
+    if (option) alcance.value = option.value;
+  }
   const form = document.getElementById('trv2-permiso-form');
   if (form) {
     form.hidden = false;
@@ -421,6 +436,76 @@ function trv2AdminNormalizeText(value) {
     .trim().toLowerCase();
 }
 
+function trv2AdminNormalizeProduct(value) {
+  const text = trv2AdminNormalizeText(value).replace(/\./g, '');
+  const compact = text.replace(/\s+/g, '');
+  if (compact.includes('gaslp') || compact.includes('gaslicuado')) return 'gas_lp';
+  if (compact.includes('magna')) return 'magna';
+  if (compact.includes('premium')) return 'premium';
+  if (compact.includes('diesel')) return 'diesel';
+  if (compact.includes('petrolif') || compact.includes('gasolina')) return 'petroliferos';
+  return compact;
+}
+
+function trv2PermisoProductOptions() {
+  return [
+    {value: 'Gas LP', label: 'Gas LP', key: 'gas_lp'},
+    {value: 'Petrolíferos', label: 'Petrolíferos', key: 'petroliferos'},
+  ];
+}
+
+function trv2PermisoAllowedProductKeys(item = {}) {
+  const meta = item.metadata && typeof item.metadata === 'object' ? item.metadata : {};
+  const values = [
+    item.producto,
+    ...(Array.isArray(item.productos_permitidos) ? item.productos_permitidos : []),
+    ...(Array.isArray(meta.productos_permitidos) ? meta.productos_permitidos : []),
+  ].filter(Boolean);
+  const keys = new Set(values.map(trv2AdminNormalizeProduct).filter(Boolean));
+  if (keys.has('petroliferos')) {
+    keys.add('magna');
+    keys.add('premium');
+    keys.add('diesel');
+  }
+  return keys;
+}
+
+function trv2PermisoMatchesProductFilter(item = {}) {
+  if (!TRV2_PERMISO_PRODUCT_FILTER) return true;
+  const keys = trv2PermisoAllowedProductKeys(item);
+  if (TRV2_PERMISO_PRODUCT_FILTER === 'gas_lp') return keys.has('gas_lp');
+  if (TRV2_PERMISO_PRODUCT_FILTER === 'petroliferos') {
+    return ['petroliferos', 'magna', 'premium', 'diesel'].some(key => keys.has(key));
+  }
+  return keys.has(TRV2_PERMISO_PRODUCT_FILTER);
+}
+
+function trv2SetPermisoProductFilter(value) {
+  TRV2_PERMISO_PRODUCT_FILTER = value || '';
+  trv2RenderPermisosRfc(window.TRV2_PERMISOS_RFC || []);
+}
+
+function trv2RenderPermisoProductTabs(items = []) {
+  const options = trv2PermisoProductOptions();
+  if (!TRV2_PERMISO_PRODUCT_FILTER && options.length) TRV2_PERMISO_PRODUCT_FILTER = options[0].key;
+  return `
+    <div class="trv2-inline-tabs" role="tablist" aria-label="Permisos por producto">
+      ${options.map(option => {
+        const count = items.filter(item => {
+          const keys = trv2PermisoAllowedProductKeys(item);
+          if (option.key === 'gas_lp') return keys.has('gas_lp');
+          return ['petroliferos', 'magna', 'premium', 'diesel'].some(key => keys.has(key));
+        }).length;
+        return `
+          <button class="trv2-subtab ${TRV2_PERMISO_PRODUCT_FILTER === option.key ? 'active' : ''}" type="button" onclick="trv2SetPermisoProductFilter('${trv2Esc(option.key)}')">
+            ${trv2Esc(option.label)} <span>${Number(count).toLocaleString('es-MX')}</span>
+          </button>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
 function trv2IsTransportistaPermiso(item = {}) {
   const tipo = trv2AdminNormalizeText(item.tipo);
   return ['cliente', 'transportista', 'permisionario', 'razon social', 'razon_social'].includes(tipo);
@@ -472,9 +557,11 @@ function trv2RenderPermisosRfc(items = []) {
   if (!list) return;
   const unique = trv2PermisoUniqueItems(items);
   const transportistas = unique.filter(trv2IsTransportistaPermiso);
+  const filtered = transportistas.filter(trv2PermisoMatchesProductFilter);
   list.innerHTML = `
+    ${trv2RenderPermisoProductTabs(transportistas)}
     <div class="trv2-permission-group">
-      ${trv2RenderPermisoCards(transportistas, 'Sin permisos CRE transportista registrados.')}
+      ${trv2RenderPermisoCards(filtered, 'Sin permisos CRE transportista para este producto.')}
     </div>
   `;
 }

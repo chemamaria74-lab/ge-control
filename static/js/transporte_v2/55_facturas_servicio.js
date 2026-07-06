@@ -94,6 +94,15 @@ function trv2ServiceIsStamped(row = {}) {
   return Boolean(uuid && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid)) || status.includes('timbr');
 }
 
+function trv2ServiceIsOmitted(row = {}) {
+  const meta = row.metadata || {};
+  const status = String(row.factura_servicio_status || meta.factura_servicio_status || '').toLowerCase();
+  return meta.factura_servicio_omitida === true
+    || row.factura_servicio_omitida === true
+    || status === 'omitida'
+    || status === 'no_facturar';
+}
+
 function trv2ServiceTripLabel(row, catalogName, metaKey) {
   if (typeof trv2TripRelatedLabel === 'function') return trv2TripRelatedLabel(row, catalogName, metaKey);
   return trv2ServiceTripMeta(row, metaKey);
@@ -193,6 +202,7 @@ function trv2ServicePendingRows() {
   return (TRV2_TRIPS || []).filter(row => (
     trv2ServiceIsStamped(row)
     && !trv2ServiceIsCancelled(row)
+    && !trv2ServiceIsOmitted(row)
     && (!TRV2_SERVICE_MONTH || trv2ServiceRowMonth(row) === TRV2_SERVICE_MONTH)
     && !billedTrips.has(Number(row.id || 0))
     && (trv2ServiceTripData(row).cliente || '').trim()
@@ -377,19 +387,52 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
       ${trv2RenderPreviewBlock('Receptor', {cliente: service.cliente, rfc: service.rfc, email: service.email || 'Pendiente', metodo_pago: metodoPago, forma_pago: formaPago})}
       ${trv2RenderPreviewBlock('Servicio', {ruta: `${service.origen} -> ${service.destino}`, producto: service.producto, carta_porte: service.uuid_carta_porte})}
     </div>
+    <div class="trv2-form trv2-form-compact">
+      <label>
+        <span>Tarifa editable (${trv2Esc(calc.base_calculo)})</span>
+        <input id="trv2-service-tarifa-override" type="number" step="0.0001" min="0" value="${Number(tariff?.tarifa || 0)}" oninput="trv2UpdateServiceReviewTotals(${Number(tripId)})">
+      </label>
+      <label>
+        <span>Base de cálculo</span>
+        <input id="trv2-service-cantidad-base" type="text" value="${trv2Esc(`${trv2ServiceNumber(calc.cantidad_base)} ${calc.base_calculo}`)}" disabled>
+      </label>
+    </div>
     <label class="trv2-form-wide">
       <span>Email fiscal/comercial del cliente</span>
       <input id="trv2-service-email" type="email" value="${trv2Esc(service.email || '')}" placeholder="facturacion@cliente.com">
     </label>
-    <div class="trv2-cp-summary">
-      <div><span>Subtotal</span><strong>${trv2ServiceMoney(calc.subtotal)}</strong></div>
-      <div><span>IVA ${trv2ServiceNumber(calc.iva_tasa * 100)}%</span><strong>${trv2ServiceMoney(calc.iva)}</strong></div>
-      <div><span>Retención ${trv2ServiceNumber(calc.retencion_tasa * 100)}%</span><strong>${trv2ServiceMoney(calc.retencion)}</strong></div>
-      <div><span>Total</span><strong>${trv2ServiceMoney(calc.total)}</strong></div>
+    <div class="trv2-cp-summary" id="trv2-service-review-summary">
+      ${trv2RenderServiceReviewTotals(calc)}
     </div>
     <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseServiceReview()">Cancelar</button>${allowStamp ? `<button class="trv2-btn trv2-btn-primary" id="trv2-service-confirm-btn" type="button" onclick="trv2ConfirmServiceInvoice(${Number(tripId)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar factura de servicio</button>` : ''}</div>
   </section>`;
   if (!emailOk && allowStamp) trv2Toast('Captura el email fiscal/comercial antes de timbrar la factura de servicio.', 'info');
+}
+
+function trv2RenderServiceReviewTotals(calc) {
+  return `
+    <div><span>Subtotal</span><strong>${trv2ServiceMoney(calc.subtotal)}</strong></div>
+    <div><span>IVA ${trv2ServiceNumber(calc.iva_tasa * 100)}%</span><strong>${trv2ServiceMoney(calc.iva)}</strong></div>
+    <div><span>Retención ${trv2ServiceNumber(calc.retencion_tasa * 100)}%</span><strong>${trv2ServiceMoney(calc.retencion)}</strong></div>
+    <div><span>Total</span><strong>${trv2ServiceMoney(calc.total)}</strong></div>
+  `;
+}
+
+function trv2ServiceReviewCalculation(tripId) {
+  const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
+  const service = trv2ServiceTripData(row || {});
+  const tariff = trv2FindServiceTariff(service);
+  const override = Number(document.getElementById('trv2-service-tarifa-override')?.value || 0);
+  const tarifa = override > 0 ? override : Number(tariff?.tarifa || 0);
+  return {row, service, tariff, tarifa, calc: trv2ServiceCalc(tarifa, service, tariff)};
+}
+
+function trv2UpdateServiceReviewTotals(tripId) {
+  const {calc} = trv2ServiceReviewCalculation(tripId);
+  const base = document.getElementById('trv2-service-cantidad-base');
+  const summary = document.getElementById('trv2-service-review-summary');
+  if (base) base.value = `${trv2ServiceNumber(calc.cantidad_base)} ${calc.base_calculo}`;
+  if (summary) summary.innerHTML = trv2RenderServiceReviewTotals(calc);
 }
 
 function trv2CloseServiceReview() {
@@ -416,12 +459,9 @@ function trv2GenerateServiceInvoice(tripId) {
 
 async function trv2ConfirmServiceInvoice(tripId) {
   if (TRV2_SERVICE_INVOICE_BUSY) return;
-  const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
-  const service = trv2ServiceTripData(row || {});
-  const tariff = trv2FindServiceTariff(service);
+  const {row, service, tariff, tarifa, calc} = trv2ServiceReviewCalculation(tripId);
   const cliente = trv2FindCatalog?.('clientes', service.cliente_id) || {};
   if (!row || !tariff) return;
-  const calc = trv2ServiceCalc(tariff.tarifa, service, tariff);
   const email = String(document.getElementById('trv2-service-email')?.value || service.email || '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     trv2Toast('Captura un email fiscal/comercial válido antes de timbrar.', 'error');
@@ -457,6 +497,8 @@ async function trv2ConfirmServiceInvoice(tripId) {
       forma_pago: formaPago,
       metodo_pago: metodoPago,
       moneda: 'MXN',
+      override_tarifa: tarifa,
+      override_tarifa_motivo: 'Tarifa editada en revisión de factura de servicio',
     }, {allowError: true});
     if (!data?.ok) {
       trv2Toast(trv2MessageText(data?.detail || data?.message || 'No se pudo timbrar la factura de servicio.'), 'error');
@@ -470,6 +512,26 @@ async function trv2ConfirmServiceInvoice(tripId) {
     TRV2_SERVICE_INVOICE_BUSY = false;
     if (button) { button.disabled = false; button.innerHTML = '<i class="fa-solid fa-file-invoice-dollar"></i> Timbrar factura de servicio'; }
   }
+}
+
+async function trv2OmitServiceInvoice(tripId) {
+  const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
+  const service = trv2ServiceTripData(row || {});
+  if (!row) return;
+  const label = `viaje #${Number(tripId)}${service.cliente ? ` de ${service.cliente}` : ''}`;
+  if (!confirm(`¿Marcar ${label} como no facturable en servicios? No se borra la Carta Porte.`)) return;
+  const reason = prompt('Motivo (opcional)', 'Se facturará en otro programa') || '';
+  const response = await trv2Api('POST', `/api/tr-v2/facturas-servicio/viajes/${Number(tripId)}/omitir`, {
+    perfil_id: TRV2_PERFIL?.id || null,
+    data: {motivo: reason},
+  }, {allowError: true});
+  if (!response?.ok) {
+    trv2Toast(response?.detail || response?.message || 'No se pudo marcar como no facturable.', 'error');
+    return;
+  }
+  await trv2LoadTrips?.();
+  trv2RenderServiceInvoices();
+  trv2Toast('Servicio marcado como no facturable.', 'success');
 }
 
 function trv2RenderServicePendingTable() {
@@ -505,6 +567,7 @@ function trv2RenderServicePendingTable() {
         <td>
           <button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceDetail(${Number(row.id)})">Detalle</button>
           <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})">Revisar y facturar</button>
+          <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2OmitServiceInvoice(${Number(row.id)})">No facturar</button>
         </td>
       </tr>
     `;
