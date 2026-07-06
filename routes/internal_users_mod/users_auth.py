@@ -210,10 +210,13 @@ async def update_internal_user_status(internal_user_id: int, payload: InternalUs
     if status not in {"active", "inactive", "locked"}:
         raise HTTPException(400, "Estatus inválido.")
     try:
-        get_supabase_for_user(token).table("internal_users").update({
+        update = {
             "status": status,
             "updated_at": _now_iso(),
-        }).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+        }
+        if status == "active":
+            update.update({"failed_attempts": 0, "locked_until": None})
+        get_supabase_for_user(token).table("internal_users").update(update).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
     except Exception as e:
         raise _safe_internal_error("status", e)
     return JSONResponse({"ok": True})
@@ -307,22 +310,38 @@ async def internal_login(payload: InternalLogin):
     user = next((row for row in rows if _verify_secret(payload.pin, row.get("pin_hash") or "")), None)
     if not user:
         user = rows[0]
-    if (user.get("status") or "active") != "active":
-        raise HTTPException(403, "Usuario interno inactivo.")
-    _validate_internal_scope(user)
     locked_until = user.get("locked_until")
+    locked_until_active = False
     if locked_until:
         try:
             if datetime.fromisoformat(str(locked_until).replace("Z", "+00:00")) > _now():
-                raise HTTPException(423, "Usuario bloqueado temporalmente. Intenta más tarde.")
+                locked_until_active = True
         except HTTPException:
             raise
+    status = (user.get("status") or "active").strip().lower()
+    if status == "locked" and not locked_until_active:
+        sb.table("internal_users").update({
+            "status": "active",
+            "failed_attempts": 0,
+            "locked_until": None,
+            "updated_at": _now_iso(),
+        }).eq("id", user["id"]).execute()
+        user["status"] = "active"
+        user["failed_attempts"] = 0
+        user["locked_until"] = None
+        status = "active"
+    if status == "locked" and locked_until_active:
+        raise HTTPException(423, "Usuario bloqueado temporalmente. Intenta más tarde.")
+    if status != "active":
+        raise HTTPException(403, "Usuario interno inactivo.")
+    _validate_internal_scope(user)
+    if locked_until_active:
+        raise HTTPException(423, "Usuario bloqueado temporalmente. Intenta más tarde.")
     if not _verify_secret(payload.pin, user.get("pin_hash") or ""):
         failed = int(user.get("failed_attempts") or 0) + 1
         update = {"failed_attempts": failed, "updated_at": _now_iso()}
         if failed >= MAX_FAILED_ATTEMPTS:
             update["locked_until"] = (_now() + timedelta(minutes=LOCK_MINUTES)).isoformat()
-            update["status"] = "locked"
         sb.table("internal_users").update(update).eq("id", user["id"]).execute()
         raise HTTPException(401, "Usuario o contraseña incorrectos.")
 
