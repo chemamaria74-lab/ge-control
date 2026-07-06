@@ -1321,7 +1321,10 @@ async def update_any_internal_user_status(internal_user_id: int, payload: Intern
     status = (payload.status or "").strip().lower()
     if status not in {"active", "inactive", "locked"}:
         raise HTTPException(400, "Estatus inválido.")
-    _sb_admin().table("internal_users").update({"status": status, "updated_at": _now()}).eq("id", internal_user_id).execute()
+    update = {"status": status, "updated_at": _now()}
+    if status == "active":
+        update.update({"failed_attempts": 0, "locked_until": None})
+    _sb_admin().table("internal_users").update(update).eq("id", internal_user_id).execute()
     _audit(uid, "update_internal_user_status", "internal_user", str(internal_user_id), {"status": status})
     return JSONResponse({"ok": True})
 

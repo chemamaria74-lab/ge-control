@@ -3386,12 +3386,17 @@ def _permiso_product_family_match(row: dict[str, Any], producto_text: Any) -> bo
     product_norms = {_normalize_producto_value(value) for value in (productos or []) if _first_text(value)}
     row_family = _producto_permiso_family(row.get("producto"))
     row_product = _normalize_producto_value(row.get("producto"))
-    return (
-        bool(target_family and target_family in family_norms)
-        or bool(target_norm and target_norm in product_norms)
-        or bool(target_family and target_family == row_family)
-        or bool(target_norm and target_norm == row_product)
-    )
+    if target_norm and target_norm in product_norms:
+        return True
+    if target_family and target_family in family_norms and (not product_norms or target_norm in product_norms):
+        return True
+    if target_norm and target_norm == row_product:
+        return True
+    if row_product in {"PETROLIFEROS", "GASOLINA", "GASOLINAS"} and target_family == "petroliferos":
+        return True
+    if row_product == "GASLP" and target_family == "gas_lp":
+        return True
+    return bool(target_family and target_family == row_family and not product_norms)
 
 
 def _resolve_client_match(client_rows: list[dict[str, Any]], detected: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -3497,6 +3502,7 @@ def _permiso_payload(data: dict[str, Any], settings: Optional[dict[str, Any]] = 
     tipo = str(data.get("tipo") or "Transportista").strip()
     producto = _producto_permiso_label(data.get("producto") or "")
     producto_family = _producto_permiso_family(producto)
+    producto_norm = _normalize_producto_value(producto)
     permiso_cre = str(data.get("permiso_cre") or data.get("permiso") or "").strip()
     if not nombre or not tipo or not producto or not permiso_cre:
         raise HTTPException(400, "Faltan campos requeridos: producto, permiso CRE o nombre fiscal en Configuración.")
@@ -3505,7 +3511,11 @@ def _permiso_payload(data: dict[str, Any], settings: Optional[dict[str, Any]] = 
         "tipo": tipo,
         "producto": producto,
         "familias_producto": [producto_family] if producto_family else [],
-        "productos_permitidos": ["Magna", "Premium", "Diésel"] if producto_family == "petroliferos" else [producto],
+        "productos_permitidos": (
+            ["Magna", "Premium", "Diésel"]
+            if producto_norm in {"PETROLIFEROS", "GASOLINA", "GASOLINAS"}
+            else [producto]
+        ),
         "permiso_cre": permiso_cre,
         "permiso_almacenamiento_terminal": str(data.get("permiso_almacenamiento_terminal") or "").strip(),
     })
@@ -5062,6 +5072,34 @@ def _carta_porte_xml_serie_folio(xml_content: object) -> tuple[str, str]:
         return _first_text(root.get("Serie")).upper(), _first_text(root.get("Folio")).upper()
     except Exception:
         return "", ""
+
+
+def _carta_porte_download_piece(value: object) -> str:
+    text = unicodedata.normalize("NFD", _first_text(value))
+    text = text.encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^A-Za-z0-9]+", "_", text).strip("_").upper()
+    return text
+
+
+def _carta_porte_download_filename(xml_content: object, viaje: dict[str, Any] | None = None, fallback: str = "") -> str:
+    serie, folio = _carta_porte_xml_serie_folio(xml_content)
+    folio_label = _carta_porte_download_piece(f"{serie}{folio}" if (serie or folio) else "")
+    meta = _meta(viaje or {}) if viaje else {}
+    operador = _carta_porte_download_piece(
+        _first_text(
+            (viaje or {}).get("operador_nombre"),
+            (viaje or {}).get("chofer_nombre"),
+            meta.get("operador_nombre"),
+            meta.get("chofer_nombre"),
+            meta.get("operador"),
+            meta.get("chofer"),
+        )
+    )
+    if not operador:
+        operador = _carta_porte_download_piece(fallback).replace("CARTA_PORTE_", "", 1)
+    pieces = ["CARTA_PORTE", folio_label, operador]
+    filename = "_".join(piece for piece in pieces if piece)
+    return f"{filename or _carta_porte_download_piece(fallback) or 'CARTA_PORTE'}.pdf"
 
 
 def _next_carta_porte_traslado_folio(sb: Any, uid: str, pid: Optional[int]) -> tuple[str, str]:
@@ -7147,6 +7185,14 @@ async def transporte_v2_carta_porte_pdf(
     if not rows or not rows[0].get("xml_content"):
         raise HTTPException(404, "XML Carta Porte no encontrado para generar PDF.")
     xml_content = rows[0]["xml_content"]
+    viaje_rows: list[dict[str, Any]] = []
+    try:
+        trip_q = _sb(token).table(TBL_VIAJES).select("*").eq("user_id", uid).eq("id", viaje_id).limit(1)
+        if pid:
+            trip_q = trip_q.eq("perfil_id", pid)
+        viaje_rows = trip_q.execute().data or []
+    except Exception:
+        viaje_rows = []
     try:
         settings = _load_settings(token, uid, pid)
     except Exception:
@@ -7162,13 +7208,14 @@ async def transporte_v2_carta_porte_pdf(
     try:
         info = extraer_info_pdf(xml_content)
         pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo, pdf_theme)
+        filename = _carta_porte_download_filename(xml_content, viaje_rows[0] if viaje_rows else None, info.filename)
     except Exception as exc:
         raise HTTPException(500, f"No se pudo generar el PDF de Carta Porte: {exc}") from exc
     disposition = "attachment" if download else "inline"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'{disposition}; filename="{info.filename}"'},
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
     )
 
 
@@ -7189,7 +7236,15 @@ async def transporte_v2_carta_porte_xml(
         raise HTTPException(404, "XML Carta Porte no encontrado.")
     try:
         info = extraer_info_pdf(rows[0]["xml_content"])
-        filename = info.filename.replace(".pdf", ".xml")
+        trip_q = _sb(token).table(TBL_VIAJES).select("*").eq("user_id", uid).eq("id", viaje_id).limit(1)
+        if pid:
+            trip_q = trip_q.eq("perfil_id", pid)
+        viaje_rows = trip_q.execute().data or []
+        filename = _carta_porte_download_filename(
+            rows[0]["xml_content"],
+            viaje_rows[0] if viaje_rows else None,
+            info.filename,
+        ).replace(".pdf", ".xml")
     except Exception:
         filename = f"CARTA_PORTE_{rows[0].get('uuid_sat') or viaje_id}.xml"
     return Response(
@@ -7672,6 +7727,51 @@ async def transporte_v2_eliminar_tarifa_servicio(
         raise HTTPException(404, "Tarifa no encontrada para este perfil.")
     _audit(uid, token, pid, TBL_TARIFAS, tarifa_id, "desactivar_tarifa", {})
     return {"ok": True, "item": _normalize_tariff_row(rows[0])}
+
+
+@router.post("/tr-v2/facturas-servicio/viajes/{viaje_id}/omitir")
+async def transporte_v2_omitir_factura_servicio_viaje(
+    viaje_id: int,
+    payload: TransporteV2ViajePatch,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    sb = _sb(token)
+    query = sb.table(TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).limit(1)
+    if pid:
+        query = query.eq("perfil_id", pid)
+    rows = query.execute().data or []
+    if not rows:
+        raise HTTPException(404, "Viaje Transporte v2 no encontrado.")
+    row = rows[0]
+    if not _first_text(row.get("uuid_cfdi"), _meta(row).get("uuid_carta_porte"), _meta(row).get("cfdi_uuid")):
+        raise HTTPException(400, "Solo puedes omitir servicios con Carta Porte timbrada.")
+    reason = _first_text((payload.data or {}).get("motivo"), (payload.data or {}).get("reason"), "Se facturará fuera de GE Control")
+    meta = _meta(row)
+    meta.update({
+        "factura_servicio_omitida": True,
+        "factura_servicio_status": "omitida",
+        "factura_servicio_omitida_motivo": reason,
+        "factura_servicio_omitida_at": _now_iso(),
+        "factura_servicio_omitida_by": uid,
+    })
+    update = {
+        "defaults_json": meta,
+        "updated_at": _now_iso(),
+    }
+    try:
+        update["factura_servicio_status"] = "omitida"
+        updated = sb.table(TBL_VIAJES).update(update).eq("id", viaje_id).eq("user_id", uid).execute().data or []
+    except Exception:
+        update.pop("factura_servicio_status", None)
+        updated = sb.table(TBL_VIAJES).update(update).eq("id", viaje_id).eq("user_id", uid).execute().data or []
+    if not updated:
+        raise HTTPException(404, "No se pudo actualizar el viaje.")
+    _audit(uid, token, pid, TBL_VIAJES, viaje_id, "omitir_factura_servicio", {"motivo": reason})
+    return {"ok": True, "item": _normalize_viaje_row(updated[0]), "message": "Servicio marcado como no facturable."}
 
 
 @router.get("/tr-v2/catalogos/clientes")
