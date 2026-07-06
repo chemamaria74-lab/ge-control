@@ -620,6 +620,19 @@ def _invoice_totals_block(text: str) -> tuple[float, float, float]:
     return _to_float(match.group(1)), _to_float(match.group(2)), _to_float(match.group(3))
 
 
+def _pdf_invoice_total(text: str) -> float:
+    patterns = [
+        r"TOTAL\s+[\d,]+(?:\.\d+)?\s+L\s+([\d,]+\.\d{2})\s*MXN",
+        r"\|\|4\.0\|(?:[^|]*\|){8}([\d,]+\.\d{2})\|I\|",
+        r"CADENA\s+ORIGINAL.*?\|\|4\.0\|(?:[^|]*\|){8}([\d,]+\.\d{2})\|I\|",
+    ]
+    for pattern in patterns:
+        value = _regex_first(pattern, text, re.I | re.S)
+        if value:
+            return _to_float(value)
+    return _money_after("TOTAL", text)
+
+
 def _pdf_mgc_customer_block(text: str) -> tuple[str, str, str, str]:
     match = re.search(
         r"FACTURADO\s+A\s+FECHA\s+DE\s+LA\s+FACTURA\s+(.+?)\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})",
@@ -733,7 +746,7 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         or _to_float(_regex_first(r"IMPUESTO\s+TRASLADADO\s+IVA\s+TASA\s+0\.160000\s+([\d,]+\.\d{2})", upper))
         or _money_after("IVA", upper)
     )
-    total = _to_float(_regex_first(r"TOTAL\s+[\d,]+(?:\.\d+)?\s+L\s+([\d,]+\.\d{2})\s+MXN", upper)) or _money_after("TOTAL", upper)
+    total = _pdf_invoice_total(upper)
     block_subtotal, block_iva, block_total = _invoice_totals_block(upper)
     subtotal = subtotal or block_subtotal
     iva = iva or block_iva
@@ -845,6 +858,8 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         "subtotal": subtotal,
         "iva": iva,
         "total": total,
+        "importe_carga": total or subtotal,
+        "valor_mercancia": total or subtotal,
         "origen_sugerido": origen,
         "destino_sugerido": receptor_nombre,
         "boleta": boleta,
