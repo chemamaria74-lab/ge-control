@@ -354,6 +354,12 @@ def _status_cancelado(*values: Any) -> bool:
     return "cancel" in text
 
 
+def _strip_tr_viajes_legacy_columns(row: dict[str, Any]) -> dict[str, Any]:
+    cleaned = dict(row or {})
+    cleaned.pop("estatus", None)
+    return cleaned
+
+
 def _cancelacion_fiscal_confirmada(row: dict[str, Any] | None = None, meta: dict[str, Any] | None = None) -> bool:
     row = row or {}
     meta = meta or {}
@@ -756,6 +762,7 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     kilos = _regex_first(r"(?:KILOS)\s*:?\s*([\d,]+(?:\.\d+)?)", upper)
     if not kilos:
         kilos = _regex_first(r"(?:KILOS|PESO|KGM)\D{0,20}([\d,]+(?:\.\d+)?)", upper)
+    peso_detectado_explicito = bool(_to_float(kilos))
     permiso = permiso or _regex_first(r"PERMISO\s+DE\s+COMERCIALIZACI[ÓO]N:\s*([A-Z]/\d+/[A-Z]+/\d{4})", upper)
     permiso = permiso or _regex_first(r"([A-Z]/\d+/[A-Z]+/\d{4})", upper)
     mgc_operational = _pdf_mgc_operational_fields(text)
@@ -914,9 +921,10 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
 def _detect_document_metadata(content: bytes, filename: str, content_type: str) -> dict[str, Any]:
     lower = (filename or "").lower()
     ctype = (content_type or "").lower()
-    if lower.endswith(".xml") or "xml" in ctype:
+    head = (content or b"")[:512].lstrip()
+    if lower.endswith(".xml") or "xml" in ctype or head.startswith(b"<?xml") or head.startswith(b"<cfdi:") or head.startswith(b"<Comprobante"):
         return _detect_xml_document(content)
-    if lower.endswith(".pdf") or "pdf" in ctype:
+    if lower.endswith(".pdf") or "pdf" in ctype or head.startswith(b"%PDF"):
         return _detect_pdf_document(content)
     return {
         "source": "manual",
@@ -1182,7 +1190,7 @@ def _operator_assigned_trip(sb: Any, acc: dict[str, Any]) -> dict[str, Any]:
         try:
             healed = (
                 sb.table(TBL_VIAJES)
-                .update({"status": "borrador", "estatus": "asignado", "operacion_status": "asignado", "updated_at": _now_iso()})
+                .update({"status": "borrador", "operacion_status": "asignado", "updated_at": _now_iso()})
                 .eq("id", trip.get("id"))
                 .eq("user_id", trip.get("user_id"))
                 .execute()
@@ -2710,6 +2718,8 @@ def _insert_catalog_row(token: str, table: str, row: dict[str, Any]) -> list[dic
 
 
 def _insert_table_row_tolerant(sb: Any, table: str, row: dict[str, Any]) -> list[dict[str, Any]]:
+    if table == TBL_VIAJES:
+        row = _strip_tr_viajes_legacy_columns(row)
     pending = {key: value for key, value in row.items() if value is not None}
     removed: set[str] = set()
     while True:
@@ -4762,6 +4772,7 @@ def _stamp_build_context(
 
 
 def _stamp_update_viaje(sb: Any, uid: str, pid: Optional[int], viaje_id: int, payload: dict[str, Any]) -> None:
+    payload = _strip_tr_viajes_legacy_columns(payload)
     attempts = [dict(payload), {k: v for k, v in payload.items() if k != "updated_at"}]
     last_error: Exception | None = None
     for attempt in attempts:
@@ -5037,7 +5048,7 @@ def _find_duplicate_carta_porte_invoice(
     try:
         query = (
             sb.table(TBL_VIAJES)
-            .select("id,status,estatus,uuid_cfdi,uuid_sat,volumen_total_litros,volumen_litros,productos_json,defaults_json,metadata,carta_porte_status,created_at")
+            .select("id,status,uuid_cfdi,volumen_total_litros,productos_json,defaults_json,carta_porte_status,created_at")
             .eq("user_id", uid)
             .order("created_at", desc=True)
             .limit(250)
@@ -5787,7 +5798,7 @@ async def transporte_v2_operator_dashboard(
         q = (
             _sb(token)
             .table(TBL_VIAJES)
-            .select("id,perfil_id,chofer_id,operador_id,vehiculo_id,nombre_origen,nombre_destino,origen,destino,producto_descripcion,fecha_hora_salida,status,estatus,operacion_status,defaults_json,metadata,created_at")
+            .select("id,perfil_id,chofer_id,operador_id,vehiculo_id,nombre_origen,nombre_destino,fecha_hora_salida,status,operacion_status,defaults_json,created_at")
             .eq("user_id", uid)
             .order("fecha_hora_salida", desc=True)
             .limit(120)
@@ -5800,7 +5811,7 @@ async def transporte_v2_operator_dashboard(
             q = (
                 _sb(token)
                 .table(TBL_VIAJES)
-                .select("id,perfil_id,chofer_id,operador_id,vehiculo_id,nombre_origen,nombre_destino,origen,destino,producto_descripcion,fecha_hora_salida,status,estatus,operacion_status,defaults_json,created_at")
+                .select("id,perfil_id,chofer_id,operador_id,vehiculo_id,nombre_origen,nombre_destino,fecha_hora_salida,status,operacion_status,defaults_json,created_at")
                 .eq("user_id", uid)
                 .order("fecha_hora_salida", desc=True)
                 .limit(120)
@@ -6004,7 +6015,7 @@ async def transporte_v2_operator_access_delete(
                 trips = (
                     _sb(token)
                     .table(TBL_VIAJES)
-                    .select("id,status,estatus,uuid_cfdi,metadata")
+                    .select("id,status,uuid_cfdi,defaults_json")
                     .eq("user_id", uid)
                     .eq(field, chofer_id)
                     .limit(5)
@@ -6472,7 +6483,6 @@ async def transporte_v2_operator_bitacora(payload: dict[str, Any], authorization
         metadata["finalizado_operador_at"] = events[-1]["created_at"]
         update_payload.update({
             "status": "finalizado",
-            "estatus": "finalizado",
             "operacion_status": "cerrado",
             "closed_at": events[-1]["created_at"],
         })
@@ -7368,7 +7378,6 @@ async def transporte_v2_carta_porte_cancelar(
         })
         _stamp_update_viaje(sb, uid, pid, viaje_id, {
             "status": "cancelado",
-            "estatus": "cancelado",
             "carta_porte_status": "cancelada",
             "defaults_json": metadata,
             "updated_at": now,
