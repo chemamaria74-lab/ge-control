@@ -159,6 +159,70 @@ function trv2ServiceProductFamily(service = {}) {
   return '';
 }
 
+function trv2ServiceFamilyLabel(value = '') {
+  return value === 'petroliferos' ? 'Petrolíferos' : 'Gas LP';
+}
+
+function trv2ServiceInvoiceFamily(item = {}) {
+  const meta = item.metadata || {};
+  const text = [
+    item.producto,
+    item.producto_nombre,
+    item.descripcion,
+    item.concepto,
+    meta.producto,
+    meta.producto_nombre,
+    meta.producto_descripcion,
+    meta.tipo_producto,
+    Array.isArray(item.conceptos) ? JSON.stringify(item.conceptos) : '',
+    Array.isArray(meta.conceptos) ? JSON.stringify(meta.conceptos) : '',
+  ].filter(Boolean).join(' ');
+  return trv2ServiceProductFamily({producto: text, producto_id: item.producto_id || meta.producto_id});
+}
+
+function trv2ServiceFamilyStats(rows = [], invoices = []) {
+  const tariffs = trv2ReadServiceTariffs();
+  const stats = {
+    gas_lp: {pendientes: 0, pendiente_total: 0, litros: 0, kilos: 0, facturadas: 0, facturado_total: 0},
+    petroliferos: {pendientes: 0, pendiente_total: 0, litros: 0, kilos: 0, facturadas: 0, facturado_total: 0},
+  };
+  rows.forEach(row => {
+    const service = trv2ServiceTripData(row);
+    const family = trv2ServiceProductFamily(service);
+    if (!stats[family]) return;
+    const tariff = trv2FindServiceTariff(service, tariffs);
+    const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
+    stats[family].pendientes += 1;
+    stats[family].pendiente_total += Number(calc.total || 0);
+    stats[family].litros += Number(service.litros || 0);
+    stats[family].kilos += Number(service.kilos || 0);
+  });
+  invoices.forEach(item => {
+    const family = trv2ServiceInvoiceFamily(item);
+    if (!stats[family]) return;
+    stats[family].facturadas += 1;
+    stats[family].facturado_total += Number(item.total || 0);
+  });
+  return stats;
+}
+
+function trv2RenderServiceFamilyDashboard() {
+  const target = document.getElementById('trv2-service-family-dashboard');
+  if (!target) return;
+  const stats = trv2ServiceFamilyStats(trv2ServicePendingRows(), trv2ReadServiceInvoices());
+  target.innerHTML = ['gas_lp', 'petroliferos'].map(family => {
+    const item = stats[family] || {};
+    return `
+      <button class="trv2-service-family-card ${TRV2_SERVICE_PRODUCT_FILTER === family ? 'active' : ''}" type="button" onclick="trv2SetServiceProductFilter('${family}')">
+        <span>${trv2Esc(trv2ServiceFamilyLabel(family))}</span>
+        <strong>${trv2ServiceMoney(item.pendiente_total || 0)}</strong>
+        <em>${Number(item.pendientes || 0)} pendientes · ${trv2ServiceNumber(item.litros || 0)} L</em>
+        <small>${Number(item.facturadas || 0)} facturadas · ${trv2ServiceMoney(item.facturado_total || 0)}</small>
+      </button>
+    `;
+  }).join('');
+}
+
 function trv2ServiceFilterRowsByProduct(rows = []) {
   if (!TRV2_SERVICE_PRODUCT_FILTER) return rows;
   return rows.filter(row => trv2ServiceProductFamily(trv2ServiceTripData(row)) === TRV2_SERVICE_PRODUCT_FILTER);
@@ -167,6 +231,7 @@ function trv2ServiceFilterRowsByProduct(rows = []) {
 function trv2SetServiceProductFilter(value = 'gas_lp') {
   TRV2_SERVICE_PRODUCT_FILTER = value || 'gas_lp';
   trv2RenderServicePendingTable();
+  trv2RenderServiceFamilyDashboard();
 }
 
 function trv2RenderServiceProductFilter(rows = []) {
@@ -724,5 +789,6 @@ function trv2RenderServiceInvoices() {
   trv2RenderServicePendingTable();
   trv2RenderServiceGeneratedTables();
   trv2RenderServiceKpis();
+  trv2RenderServiceFamilyDashboard();
   trv2SetServiceInvoiceTab(TRV2_SERVICE_TAB);
 }
