@@ -51,8 +51,9 @@ SCHEMA_HIDRO  = "http://www.sat.gob.mx/sitio_internet/cfd/hidrocarburospetrolife
 SCHEMA_CP31   = "http://www.sat.gob.mx/sitio_internet/cfd/CartaPorte/CartaPorte31.xsd"
 SCHEMA_CFDI40 = "http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd"
 
-# Material peligroso por default para autotransporte de hidrocarburos
-CVE_MATERIAL_DEFAULT = "UN1267"  # Petróleo crudo genérico
+# Material peligroso por default para autotransporte de hidrocarburos.
+# Carta Porte 3.1 espera la clave SAT numerica del material, no el prefijo ONU.
+CVE_MATERIAL_DEFAULT = "1267"  # Petroleo crudo generico
 DESC_MATERIAL_DEFAULT = "Hidrocarburo / Petrolífero"
 CFDI_EMISION_SKEW_MINUTES = 5
 
@@ -209,9 +210,30 @@ def _domicilio_ubicacion(cp: str, estado: str = "", municipio: str = "", localid
     }
     if estado_sat:
         domicilio["Estado"] = estado_sat
-    if calle:
-        domicilio["Calle"] = calle.strip()
     return domicilio
+
+
+def _material_peligroso_default(prod: ProductoTransporte, prod_cat: object | None = None) -> str:
+    clave_producto = str(getattr(prod, "clave_producto", "") or getattr(prod_cat, "clave", "") or "").strip().upper()
+    clave_ps = str(getattr(prod, "clave_prodserv_cfdi", "") or getattr(prod_cat, "clave_prod_serv_cfdi", "") or "").strip()
+    desc = str(getattr(prod, "descripcion", "") or getattr(prod_cat, "nombre", "") or "").upper()
+    if clave_producto == "PR12" or clave_ps == ClaveProdServCFDI.GAS_LP or "GAS L" in desc or "PROPANO" in desc:
+        return "1075"
+    if clave_producto in {"PR05", "PR08", "PR13"} or clave_ps == ClaveProdServCFDI.DIESEL or "DIESEL" in desc or "DIÉSEL" in desc:
+        return "1202"
+    if clave_producto in {"PR06", "PR07", "PR16"} or clave_ps in {ClaveProdServCFDI.GASOLINA_REGULAR, ClaveProdServCFDI.GASOLINA_PREMIUM} or "MAGNA" in desc or "PREMIUM" in desc or "GASOLINA" in desc:
+        return "1203"
+    return CVE_MATERIAL_DEFAULT
+
+
+def _cve_material_peligroso(value: object, prod: ProductoTransporte, prod_cat: object | None = None) -> str:
+    raw = str(value or "").strip().upper()
+    compact = re.sub(r"[^A-Z0-9]+", "", raw)
+    if compact.startswith("UN"):
+        compact = compact[2:]
+    if compact.isdigit():
+        return compact
+    return _material_peligroso_default(prod, prod_cat)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -515,7 +537,11 @@ def _build_carta_porte(
     mercancias_list = []
     for i, prod in enumerate(productos):
         prod_cat = get_producto(prod.clave_producto)
-        cve_mat  = (getattr(prod, "cve_material_peligroso", "") or (prod_cat.cve_material_peligroso if prod_cat else CVE_MATERIAL_DEFAULT))
+        cve_mat  = _cve_material_peligroso(
+            getattr(prod, "cve_material_peligroso", "") or (prod_cat.cve_material_peligroso if prod_cat else ""),
+            prod,
+            prod_cat,
+        )
         desc_mat = (getattr(prod, "descripcion", "") or (prod_cat.descripcion_material if prod_cat else DESC_MATERIAL_DEFAULT))
         clave_ps = (getattr(prod, "clave_prodserv_cfdi", "") or (prod_cat.clave_prod_serv_cfdi if prod_cat else "15101514"))
         vol_prod = round(prod.volumen_litros, 3)

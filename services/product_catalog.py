@@ -46,7 +46,7 @@ class ClaveProdServCFDI:
     GASOLINA_REGULAR  = "15101514"  # Gasolina sin plomo regular
     GASOLINA_PREMIUM  = "15101515"  # Gasolina sin plomo premium
     TURBOSINA         = "15101511"  # Combustible de aviación turbina
-    GAS_LP            = "15111501"  # Gas licuado de petróleo
+    GAS_LP            = "15111510"  # Gas licuado de petróleo
     GAS_NATURAL       = "15101505"  # Gas natural
     COMBUSTOLEO       = "15101512"  # Fuel oil / combustóleo
     SERVICIO_FLETE    = "78101800"  # Servicios de transporte por carretera
