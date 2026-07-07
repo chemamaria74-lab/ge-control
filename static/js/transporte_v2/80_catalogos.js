@@ -11,8 +11,9 @@ delete TRV2_CATALOG_LABELS.permisos;
 delete TRV2_CATALOGS.permisos;
 let TRV2_VEHICLE_SUBCATALOG = 'vehiculos';
 let TRV2_INSTALLATION_RETURN_CATALOG = '';
-let TRV2_CATALOG_FAMILY_FILTER = 'todos';
+let TRV2_CATALOG_FAMILY_FILTER = '';
 let TRV2_ROUTE_DESTINATION_FILTER = '';
+let TRV2_CATALOGS_LOADING_PROMISE = null;
 
 const TRV2_CATALOG_LOAD_NAMES = ['clientes', 'operadores', 'vehiculos', 'remolques', 'productos', 'origenes', 'destinos', 'rutas'];
 // Claves tomadas de c_TipoPermiso en catCartaPorte.xsd. El catálogo SAT define
@@ -341,29 +342,41 @@ const TRV2_CATALOG_UI = {
 };
 
 async function trv2LoadCatalogs(options = {}) {
-  const names = TRV2_CATALOG_LOAD_NAMES;
-  const results = await Promise.all(names.map(async name => {
-    const data = await trv2Api('GET', `/api/tr-v2/catalogos/${name}`, undefined, {silent: true});
-    TRV2_CATALOGS[name] = data?.items || [];
-    return {name, data};
-  }));
-  trv2BuildInstalacionesCatalog();
-  if (typeof trv2LoadPermisosRfc === 'function') {
-    await trv2LoadPermisosRfc({renderAdmin: false});
+  if (TRV2_CATALOGS_LOADING_PROMISE && !options.force) return TRV2_CATALOGS_LOADING_PROMISE;
+  const panel = document.getElementById('trv2-catalogs-grid');
+  if (panel && !options.silent) {
+    panel.innerHTML = '<div class="trv2-empty">Cargando catálogos...</div>';
   }
-  trv2BuildProveedoresCatalog();
-  if (typeof trv2LoadServiceTariffs === 'function') {
-    await trv2LoadServiceTariffs();
-    TRV2_CATALOGS.tarifas = trv2ReadServiceTariffs();
-  }
-  TRV2_CATALOGS_READ_ONLY = results.some(r => r.data?.read_only);
-  trv2RenderCatalogTabs();
-  trv2RenderActiveCatalog();
-  trv2PopulateTripSelects();
-  if (typeof trv2PopulateOperatorAdminSelects === 'function') trv2PopulateOperatorAdminSelects();
-  if (typeof trv2PopulateControlVolumetricoFilters === 'function') trv2PopulateControlVolumetricoFilters();
-  if (!options.silent && results.some(r => r.data?.needs_schema)) {
-    trv2Toast('Catálogos Transporte v2 pendientes de esquema SQL.', 'error');
+  TRV2_CATALOGS_LOADING_PROMISE = (async () => {
+    const names = TRV2_CATALOG_LOAD_NAMES;
+    const results = await Promise.all(names.map(async name => {
+      const data = await trv2Api('GET', `/api/tr-v2/catalogos/${name}`, undefined, {silent: true, force: Boolean(options.force)});
+      TRV2_CATALOGS[name] = data?.items || [];
+      return {name, data};
+    }));
+    trv2BuildInstalacionesCatalog();
+    if (typeof trv2LoadPermisosRfc === 'function') {
+      await trv2LoadPermisosRfc({renderAdmin: false, force: Boolean(options.force)});
+    }
+    trv2BuildProveedoresCatalog();
+    if (typeof trv2LoadServiceTariffs === 'function') {
+      await trv2LoadServiceTariffs({force: Boolean(options.force)});
+      TRV2_CATALOGS.tarifas = trv2ReadServiceTariffs();
+    }
+    TRV2_CATALOGS_READ_ONLY = results.some(r => r.data?.read_only);
+    trv2RenderCatalogTabs();
+    trv2RenderActiveCatalog();
+    trv2PopulateTripSelects();
+    if (typeof trv2PopulateOperatorAdminSelects === 'function') trv2PopulateOperatorAdminSelects();
+    if (typeof trv2PopulateControlVolumetricoFilters === 'function') trv2PopulateControlVolumetricoFilters();
+    if (!options.silent && results.some(r => r.data?.needs_schema)) {
+      trv2Toast('Catálogos Transporte v2 pendientes de esquema SQL.', 'error');
+    }
+  })();
+  try {
+    await TRV2_CATALOGS_LOADING_PROMISE;
+  } finally {
+    TRV2_CATALOGS_LOADING_PROMISE = null;
   }
 }
 
@@ -585,6 +598,38 @@ function trv2CatalogProductKeys(item = {}) {
   return keys;
 }
 
+function trv2ClientProductKeys(client = {}) {
+  const keys = new Set();
+  trv2CatalogProductKeys(client).forEach(key => keys.add(key));
+  const clientId = Number(client.id || 0);
+  const clientRfc = trv2NormalizeRfcValue(client.rfc);
+  const clientName = trv2NormalizeFamilyText(client.nombre || client.razon_social || '');
+  const destinationIds = new Set();
+  (TRV2_CATALOGS.destinos || []).forEach(dest => {
+    const destClientId = Number(dest.cliente_id || 0);
+    const destRfc = trv2NormalizeRfcValue(dest.rfc || dest.cliente_rfc);
+    const destClient = trv2NormalizeFamilyText(dest.cliente_nombre || dest.cliente || '');
+    const destName = trv2NormalizeFamilyText(dest.nombre || '');
+    const matches = (clientId && destClientId === clientId)
+      || (clientRfc && destRfc === clientRfc)
+      || (clientName && (destClient.includes(clientName) || destName.includes(clientName)));
+    if (!matches) return;
+    destinationIds.add(Number(dest.id || dest._source_id || 0));
+    trv2CatalogProductKeys(dest).forEach(key => keys.add(key));
+  });
+  (TRV2_CATALOGS.rutas || []).forEach(route => {
+    const destId = Number(route.destino_id || route.destino_catalogo_id || 0);
+    const routeClientId = Number(route.cliente_id || 0);
+    const routeDest = trv2NormalizeFamilyText(route.nombre_destino || route.destino || route.destino_nombre || '');
+    const matches = (destId && destinationIds.has(destId))
+      || (clientId && routeClientId === clientId)
+      || (clientName && routeDest.includes(clientName));
+    if (!matches) return;
+    trv2RouteProductKeys(route).forEach(key => keys.add(key));
+  });
+  return keys;
+}
+
 function trv2RouteTariffs(routeId) {
   const items = typeof trv2ReadServiceTariffs === 'function' ? trv2ReadServiceTariffs() : (TRV2_CATALOGS.tarifas || []);
   return (items || []).filter(item => Number(item.ruta_id || 0) === Number(routeId || 0) && item.activo !== false);
@@ -608,12 +653,14 @@ function trv2RouteProductKeys(route = {}) {
 }
 
 function trv2CatalogSupportsFamilyFilter(name) {
-  return ['productos', 'proveedores', 'origenes', 'destinos', 'instalaciones', 'rutas'].includes(name);
+  return ['clientes', 'productos', 'proveedores', 'origenes', 'destinos', 'instalaciones', 'rutas'].includes(name);
 }
 
 function trv2CatalogMatchesFamily(name, item) {
   if (!trv2CatalogSupportsFamilyFilter(name) || !TRV2_CATALOG_FAMILY_FILTER) return true;
-  const keys = name === 'rutas' ? trv2RouteProductKeys(item) : trv2CatalogProductKeys(item);
+  const keys = name === 'rutas'
+    ? trv2RouteProductKeys(item)
+    : (name === 'clientes' ? trv2ClientProductKeys(item) : trv2CatalogProductKeys(item));
   if (TRV2_CATALOG_FAMILY_FILTER === 'gas_lp') return keys.has('gas_lp');
   if (TRV2_CATALOG_FAMILY_FILTER === 'petroliferos') {
     return ['petroliferos', 'magna', 'premium', 'diesel'].some(key => keys.has(key));
@@ -634,11 +681,20 @@ function trv2CatalogProductFilterOptions() {
   ];
 }
 
-function trv2RenderCatalogFamilyFilter(name) {
-  if (!trv2CatalogSupportsFamilyFilter(name)) return '';
+function trv2EnsureCatalogFamilyFilter(name) {
+  if (!trv2CatalogSupportsFamilyFilter(name)) {
+    TRV2_CATALOG_FAMILY_FILTER = '';
+    return;
+  }
   const options = trv2CatalogProductFilterOptions();
   if (!TRV2_CATALOG_FAMILY_FILTER && options.length) TRV2_CATALOG_FAMILY_FILTER = options[0][0];
   if (options.length && !options.some(([value]) => value === TRV2_CATALOG_FAMILY_FILTER)) TRV2_CATALOG_FAMILY_FILTER = options[0][0];
+}
+
+function trv2RenderCatalogFamilyFilter(name) {
+  if (!trv2CatalogSupportsFamilyFilter(name)) return '';
+  trv2EnsureCatalogFamilyFilter(name);
+  const options = trv2CatalogProductFilterOptions();
   return `
     <div class="trv2-inline-tabs" role="tablist" aria-label="Familia de producto">
       ${options.map(([value, label]) => `
@@ -736,6 +792,7 @@ function trv2RenderActiveCatalog() {
   if (!panel) return;
   const name = TRV2_ACTIVE_CATALOG || 'clientes';
   const ui = TRV2_CATALOG_UI[name] || {};
+  trv2EnsureCatalogFamilyFilter(name);
   const items = TRV2_CATALOGS[name] || [];
   const query = (document.getElementById('trv2-catalog-search')?.value || '').toLowerCase().trim();
   const familyItems = items.filter(item => trv2CatalogMatchesFamily(name, item));

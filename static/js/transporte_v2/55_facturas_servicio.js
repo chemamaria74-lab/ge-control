@@ -5,6 +5,7 @@ let TRV2_SERVICE_TARIFFS = [];
 let TRV2_SERVICE_INVOICES = [];
 let TRV2_SERVICE_INVOICE_BUSY = false;
 let TRV2_SERVICE_MONTH = '';
+let TRV2_SERVICE_PRODUCT_FILTER = 'gas_lp';
 
 function trv2ServiceStorageKey(base) {
   return `${base}_${TRV2_PERFIL?.id || 'sin_perfil'}`;
@@ -141,6 +142,66 @@ function trv2ServiceTripData(row = {}) {
     vehiculo: trv2ServiceTripLabel(row, 'vehiculos', 'vehiculo_alias') || '',
     uuid_carta_porte: trv2ServiceTripUuid(row),
   };
+}
+
+function trv2ServiceProductFamily(service = {}) {
+  const product = trv2FindCatalog?.('productos', service.producto_id) || {};
+  const text = trv2ServiceNorm([
+    service.producto,
+    product.descripcion,
+    product.nombre,
+    product.tipo_producto,
+    product.clave_producto,
+    product.clave_subproducto,
+  ].filter(Boolean).join(' '));
+  if (text.includes('GAS L') || text.includes('GAS LP') || text.includes('GAS LICUADO') || text.includes('15111510')) return 'gas_lp';
+  if (text.includes('MAGNA') || text.includes('PREMIUM') || text.includes('DIESEL') || text.includes('DIÉSEL') || text.includes('GASOLINA') || text.includes('151015')) return 'petroliferos';
+  return '';
+}
+
+function trv2ServiceFilterRowsByProduct(rows = []) {
+  if (!TRV2_SERVICE_PRODUCT_FILTER) return rows;
+  return rows.filter(row => trv2ServiceProductFamily(trv2ServiceTripData(row)) === TRV2_SERVICE_PRODUCT_FILTER);
+}
+
+function trv2SetServiceProductFilter(value = 'gas_lp') {
+  TRV2_SERVICE_PRODUCT_FILTER = value || 'gas_lp';
+  trv2RenderServicePendingTable();
+}
+
+function trv2RenderServiceProductFilter(rows = []) {
+  const target = document.getElementById('trv2-service-product-filter');
+  if (!target) return;
+  const counts = rows.reduce((acc, row) => {
+    const family = trv2ServiceProductFamily(trv2ServiceTripData(row));
+    if (family) acc[family] = (acc[family] || 0) + 1;
+    return acc;
+  }, {gas_lp: 0, petroliferos: 0});
+  if (!TRV2_SERVICE_PRODUCT_FILTER || !['gas_lp', 'petroliferos'].includes(TRV2_SERVICE_PRODUCT_FILTER)) {
+    TRV2_SERVICE_PRODUCT_FILTER = 'gas_lp';
+  }
+  target.innerHTML = `
+    <div class="trv2-inline-tabs" role="tablist" aria-label="Servicios por producto">
+      <button class="trv2-subtab ${TRV2_SERVICE_PRODUCT_FILTER === 'gas_lp' ? 'active' : ''}" type="button" onclick="trv2SetServiceProductFilter('gas_lp')">
+        Gas LP <span>${Number(counts.gas_lp || 0)}</span>
+      </button>
+      <button class="trv2-subtab ${TRV2_SERVICE_PRODUCT_FILTER === 'petroliferos' ? 'active' : ''}" type="button" onclick="trv2SetServiceProductFilter('petroliferos')">
+        Petrolíferos <span>${Number(counts.petroliferos || 0)}</span>
+      </button>
+    </div>
+  `;
+}
+
+function trv2ServiceVehicleShort(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.split('·')[0].split(' - ')[0].replace(/\s*T\s*$/i, '').trim();
+}
+
+function trv2ServiceShortUuid(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.length > 18 ? `${text.slice(0, 8)}-${text.slice(9, 13)}...` : text;
 }
 
 function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
@@ -338,8 +399,8 @@ function trv2RenderServiceTariffs() {
   `).join('');
 }
 
-async function trv2LoadServiceTariffs() {
-  const response = await trv2Api('GET', '/api/tr-v2/facturas-servicio/tarifas', undefined, {silent: true, allowError: true});
+async function trv2LoadServiceTariffs(options = {}) {
+  const response = await trv2Api('GET', '/api/tr-v2/facturas-servicio/tarifas', undefined, {silent: true, allowError: true, force: Boolean(options.force)});
   if (response?.ok && Array.isArray(response.items)) {
     const activeProfileId = Number(TRV2_PERFIL?.id || 0);
     const invalid = response.items.find(item => Number(item.perfil_id || 0) !== activeProfileId);
@@ -538,9 +599,11 @@ function trv2RenderServicePendingTable() {
   const tbody = document.getElementById('trv2-service-pending-table');
   if (!tbody) return;
   const tariffs = trv2ReadServiceTariffs();
-  const rows = trv2ServicePendingRows();
+  const allRows = trv2ServicePendingRows();
+  trv2RenderServiceProductFilter(allRows);
+  const rows = trv2ServiceFilterRowsByProduct(allRows);
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="15"><div class="trv2-empty">No hay servicios pendientes de facturar con Carta Porte timbrada en este periodo.</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14"><div class="trv2-empty">No hay servicios pendientes de facturar para este producto y periodo.</div></td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(row => {
@@ -551,23 +614,22 @@ function trv2RenderServicePendingTable() {
     return `
       <tr>
         <td>${trv2Esc(String(service.fecha || '').slice(0, 10))}</td>
-        <td>#${trv2Esc(row.id)}</td>
         <td>${trv2Esc(service.cliente)}</td>
         <td>${trv2Esc(service.origen)}</td>
         <td>${trv2Esc(service.producto)}</td>
         <td>${trv2ServiceNumber(service.litros)}</td>
         <td>${trv2ServiceNumber(service.kilos)}</td>
         <td>${trv2Esc(service.chofer)}</td>
-        <td>${trv2Esc(service.vehiculo)}</td>
-        <td>${trv2Esc(service.uuid_carta_porte)}</td>
+        <td title="${trv2Esc(service.vehiculo)}">${trv2Esc(trv2ServiceVehicleShort(service.vehiculo))}</td>
+        <td><span class="trv2-service-uuid" title="${trv2Esc(service.uuid_carta_porte)}">${trv2Esc(trv2ServiceShortUuid(service.uuid_carta_porte))}</span></td>
         <td>${trv2ServiceMoney(calc.subtotal)}</td>
         <td>${trv2ServiceMoney(calc.iva)}</td>
         <td>${trv2ServiceMoney(calc.retencion)}</td>
         <td>${trv2ServiceMoney(calc.total)}</td>
-        <td>
-          <button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceDetail(${Number(row.id)})">Detalle</button>
-          <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})">Revisar y facturar</button>
-          <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2OmitServiceInvoice(${Number(row.id)})">No facturar</button>
+        <td class="trv2-service-actions">
+          <button class="trv2-mini-icon-btn" type="button" title="Detalle" aria-label="Detalle" onclick="trv2OpenServiceDetail(${Number(row.id)})"><i class="fa-solid fa-circle-info"></i></button>
+          <button class="trv2-mini-icon-btn trv2-mini-icon-primary" type="button" title="${trv2Esc(status)}" aria-label="Revisar y facturar" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-file-invoice-dollar"></i></button>
+          <button class="trv2-mini-icon-btn trv2-mini-icon-danger" type="button" title="No facturar" aria-label="No facturar" onclick="trv2OmitServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-ban"></i></button>
         </td>
       </tr>
     `;

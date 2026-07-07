@@ -141,6 +141,7 @@ function trv2NormalizeDetected(raw = {}) {
   if (!detected.kilos && detected.litros && factorKgL) {
     detected.kilos = Number((detected.litros * factorKgL).toFixed(3));
     detected.peso_kg = detected.kilos;
+    detected.peso_kg_estimado = true;
   }
   detected.folio_display = detected.folio_display || detected.folio || [detected.serie, detected.folio_numero].filter(Boolean).join(' ');
   return detected;
@@ -774,9 +775,20 @@ function trv2ApplyDensityFallback(body, detected = {}, producto = {}) {
   // Prioridad fiscal: 1) si factura trae litros y kilos se usan tal cual;
   // 2) si falta uno, se calcula con factor kg/L configurado o del producto;
   // 3) si faltan ambos, se deja en cero para que validación bloquee timbrado.
-  const factor = Number(producto?.factor_kg_l || detected.factor_kg_l || 0.5172);
+  const factor = Number(producto?.factor_kg_l || producto?.densidad_kg_l || detected.factor_kg_l || 0.5172);
   const litros = Number(body.volumen_litros || 0);
   const kilos = Number(body.peso_kg || 0);
+  const kilosEstimados = Boolean(detected.peso_kg_estimado || detected.estimated_peso_kg || detected.kilos_estimados);
+  if (litros > 0 && kilosEstimados && factor > 0) {
+    body.peso_kg = Number((litros * factor).toFixed(3));
+    if (body.metadata?.documento_detectado) {
+      body.metadata.documento_detectado.peso_kg = body.peso_kg;
+      body.metadata.documento_detectado.kilos = body.peso_kg;
+      body.metadata.documento_detectado.factor_kg_l = factor;
+      body.metadata.documento_detectado.peso_kg_estimado = true;
+    }
+    return;
+  }
   if (litros > 0 && kilos > 0) return;
   if (litros > 0 && !kilos && factor > 0) body.peso_kg = Number((litros * factor).toFixed(3));
   if (kilos > 0 && !litros && factor > 0) body.volumen_litros = Number((kilos / factor).toFixed(3));

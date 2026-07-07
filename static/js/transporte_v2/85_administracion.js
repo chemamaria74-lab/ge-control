@@ -569,7 +569,7 @@ function trv2RenderPermisosRfc(items = []) {
 async function trv2LoadPermisosRfc(options = {}) {
   trv2PopulatePermisoSelects();
   if (!options.keepFormOpen) trv2ClearPermisoForm();
-  const data = await trv2Api('GET', '/api/tr-v2/admin/permisos-rfc', undefined, {allowError: true, silent: true});
+  const data = await trv2Api('GET', '/api/tr-v2/admin/permisos-rfc', undefined, {allowError: true, silent: true, force: Boolean(options.force)});
   window.TRV2_PERMISOS_RFC = data?.items || [];
   if (options.renderAdmin !== false) trv2RenderPermisosRfc(window.TRV2_PERMISOS_RFC);
   if (typeof trv2BuildProveedoresCatalog === 'function') trv2BuildProveedoresCatalog();
