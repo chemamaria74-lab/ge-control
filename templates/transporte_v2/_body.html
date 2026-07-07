@@ -252,7 +252,7 @@
         <p>Configuración operativa para viajes, Carta Porte y servicio de transporte.</p>
       </div>
       <div class="trv2-actions">
-        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadCatalogs()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadCatalogs({force:true})"><i class="fa-solid fa-rotate"></i> Actualizar</button>
         <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenActiveCatalogEditor()"><i class="fa-solid fa-plus"></i> Nuevo</button>
       </div>
     </div>
@@ -286,6 +286,7 @@
       <article><span>Facturadas</span><strong>0</strong></article>
       <article><span>Pendientes de pago</span><strong>0</strong></article>
     </div>
+    <div class="trv2-service-family-dashboard" id="trv2-service-family-dashboard"></div>
     <section class="trv2-panel">
       <nav class="trv2-subtabs" aria-label="Facturas de servicio">
         <button class="trv2-subtab active" type="button" data-service-tab="pendientes" onclick="trv2SetServiceInvoiceTab('pendientes')">Servicios pendientes de facturar</button>
@@ -293,10 +294,11 @@
         <button class="trv2-subtab" type="button" data-service-tab="pago" onclick="trv2SetServiceInvoiceTab('pago')">Pendientes de pago</button>
       </nav>
       <div class="trv2-table-wrap" data-service-panel="pendientes">
-        <table>
+        <div id="trv2-service-product-filter" class="trv2-service-product-filter"></div>
+        <table class="trv2-service-pending-table">
           <thead>
             <tr>
-              <th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Origen</th><th>Producto</th><th>Litros</th><th>Kilos</th><th>Chofer</th><th>Vehículo</th><th>UUID Carta Porte</th><th>Subtotal</th><th>IVA</th><th>Retención</th><th>Total</th><th>Acción</th>
+              <th>Fecha</th><th>Cliente</th><th>Origen</th><th>Producto</th><th>Litros</th><th>Kilos</th><th>Chofer</th><th>Vehículo</th><th>UUID Carta Porte</th><th>Subtotal</th><th>IVA</th><th>Retención</th><th>Total</th><th>Acción</th>
             </tr>
           </thead>
           <tbody id="trv2-service-pending-table"></tbody>
@@ -390,10 +392,11 @@
       </div>
     </div>
     <nav class="trv2-subtabs" aria-label="Administración Transporte v2">
-      <button class="trv2-subtab active" type="button" data-admin-tab="usuarios-operador" onclick="trv2SetAdminSubtab('usuarios-operador')"><i class="fa-solid fa-user-lock"></i> Usuarios operador</button>
-      <button class="trv2-subtab" type="button" data-admin-tab="configuracion" onclick="trv2SetAdminSubtab('configuracion')"><i class="fa-solid fa-sliders"></i> Configuración</button>
+      <button class="trv2-subtab active" type="button" data-admin-tab="configuracion" onclick="trv2SetAdminSubtab('configuracion')"><i class="fa-solid fa-sliders"></i> Configuración</button>
+      <button class="trv2-subtab" type="button" data-admin-tab="operadores-ruta" onclick="trv2SetAdminSubtab('operadores-ruta')"><i class="fa-solid fa-route"></i> Operadores en ruta</button>
+      <button class="trv2-subtab" type="button" data-admin-tab="usuarios-operador" onclick="trv2SetAdminSubtab('usuarios-operador')"><i class="fa-solid fa-user-lock"></i> Usuarios operador</button>
     </nav>
-    <div class="trv2-admin-panel active" data-admin-panel="usuarios-operador">
+    <div class="trv2-admin-panel" data-admin-panel="usuarios-operador">
       <section class="trv2-panel">
         <h2><i class="fa-solid fa-user-lock"></i> Usuarios operador</h2>
         <p class="trv2-muted">Crea accesos para choferes y operadores. Ellos podrán consultar viajes asignados, subir facturas, ver Carta Porte y registrar bitácora.</p>
@@ -418,7 +421,24 @@
         <div id="trv2-operator-access-list" class="trv2-access-list"></div>
       </section>
     </div>
-    <div class="trv2-admin-panel" data-admin-panel="configuracion">
+    <div class="trv2-admin-panel" data-admin-panel="operadores-ruta">
+      <section class="trv2-panel">
+        <div class="trv2-table-head">
+          <div>
+            <h2><i class="fa-solid fa-route"></i> Operadores en ruta</h2>
+            <p class="trv2-muted">Seguimiento operativo de viajes con bitácora activa.</p>
+          </div>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorDashboard()">Actualizar</button>
+        </div>
+        <div class="trv2-admin-route-kpis" id="trv2-operator-dashboard-kpis">
+          <article><span>En ruta</span><strong>0</strong></article>
+          <article><span>En descanso</span><strong>0</strong></article>
+          <article><span>Incidencias</span><strong>0</strong></article>
+        </div>
+        <div id="trv2-operator-dashboard-list" class="trv2-operator-dashboard-list"></div>
+      </section>
+    </div>
+    <div class="trv2-admin-panel active" data-admin-panel="configuracion">
       <section class="trv2-panel">
         <h2><i class="fa-solid fa-sliders"></i> Configuración</h2>
         <p class="trv2-muted">Perfil fiscal y parámetros operativos guardados en configuración Transporte.</p>
