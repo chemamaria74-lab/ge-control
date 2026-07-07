@@ -1,0 +1,545 @@
+<body>
+<div id="toast-area" class="toast-area"></div>
+
+<header class="trv2-topbar" id="trv2-admin-topbar" hidden>
+  <a href="/choice" class="trv2-brand" aria-label="GE Control">
+    <img src="/static/img/ge-isotype-light.svg" alt="GE">
+    <span>Transporte</span>
+  </a>
+  <div class="trv2-topbar-spacer"></div>
+  <button class="trv2-badge trv2-company-chip" id="trv2-company" type="button" onclick="trv2OpenCompanySelector()">Empresa pendiente</button>
+  <span class="trv2-badge" id="trv2-user">Sesión validada</span>
+  <button class="trv2-btn trv2-btn-ghost" type="button" onclick="location.href='/choice'">Cambiar módulo</button>
+  <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2Logout()">Salir</button>
+</header>
+
+<nav class="trv2-tabs" id="trv2-admin-tabs" aria-label="Navegación Transporte v2" hidden>
+  <button class="trv2-tab active" type="button" data-tab="carta-porte" onclick="trv2SwitchTab('carta-porte')">Carta Porte</button>
+  <button class="trv2-tab" type="button" data-tab="facturas-servicio" onclick="trv2SwitchTab('facturas-servicio')">Facturas de servicio</button>
+  <button class="trv2-tab" type="button" data-tab="conciliacion" onclick="trv2SwitchTab('conciliacion')">Conciliación</button>
+  <button class="trv2-tab" type="button" data-tab="reportes-sat" onclick="trv2SwitchTab('reportes-sat')">Reportes SAT</button>
+  <button class="trv2-tab" type="button" data-tab="catalogos" onclick="trv2SwitchTab('catalogos')">Catálogos</button>
+  <button class="trv2-tab" type="button" data-tab="administracion" onclick="trv2SwitchTab('administracion')">Administración</button>
+</nav>
+
+<section class="trv2-validating" id="trv2-validating">
+  <div>
+    <i class="fa-solid fa-circle-notch fa-spin"></i>
+    <h1>Validando sesión...</h1>
+    <p>Estamos confirmando tu usuario, acceso a Transporte y empresa activa.</p>
+  </div>
+</section>
+
+<section class="trv2-auth-required" id="trv2-auth-required" hidden>
+  <div>
+    <i class="fa-solid fa-lock"></i>
+    <h1 id="trv2-auth-required-title">Sesión requerida para Transporte v2</h1>
+    <p id="trv2-auth-required-message">Valida tu sesión y empresa activa para entrar al administrador de Transporte v2.</p>
+    <div class="trv2-auth-actions">
+      <a class="trv2-btn trv2-btn-primary" href="/choice">Volver a selección de módulo</a>
+      <a class="trv2-btn trv2-btn-ghost" href="/transporte-v2/roles">Volver a roles Transporte</a>
+    </div>
+  </div>
+</section>
+
+<main class="trv2-shell" id="trv2-admin-shell" hidden>
+  <section id="trv2-tab-dashboard" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Centro de Transporte v2</h1>
+        <p>Base limpia para viajes, documentos, Carta Porte, facturación de servicio y Control Volumétrico.</p>
+      </div>
+      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2RefreshAll()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+    </div>
+
+    <div id="trv2-schema-warning" class="trv2-alert trv2-alert-warn" hidden></div>
+
+    <div class="trv2-kpis">
+      <article><span>Viajes</span><strong id="trv2-kpi-viajes">0</strong></article>
+      <article><span>Borradores</span><strong id="trv2-kpi-borradores">0</strong></article>
+      <article><span>Programados</span><strong id="trv2-kpi-programados">0</strong></article>
+      <article><span>Volumen</span><strong id="trv2-kpi-volumen">0 L</strong></article>
+    </div>
+
+    <div class="trv2-grid-2">
+      <section class="trv2-panel">
+        <h2><i class="fa-solid fa-list-check"></i> Flujo operativo</h2>
+        <div class="trv2-checklist">
+          <span><i class="fa-solid fa-circle-check"></i> Crear expediente manual</span>
+          <span><i class="fa-solid fa-circle-check"></i> Listar viajes</span>
+          <span><i class="fa-solid fa-circle-check"></i> Preparar carga documental</span>
+          <span><i class="fa-solid fa-circle-check"></i> Validación Carta Porte antes de timbrar</span>
+          <span><i class="fa-solid fa-clock"></i> Timbrado y PAC pendiente</span>
+          <span><i class="fa-solid fa-clock"></i> JSON SAT pendiente</span>
+        </div>
+      </section>
+      <section class="trv2-panel">
+        <h2><i class="fa-solid fa-shield-halved"></i> Seguridad operativa</h2>
+        <p class="trv2-muted">El módulo trabaja con permisos propios de Transporte. En esta etapa no llama PAC, no timbra y no genera XML fiscal final.</p>
+      </section>
+    </div>
+  </section>
+
+  <section id="trv2-tab-viajes" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Viajes</h1>
+        <p>Expedientes manuales básicos para arrancar Transporte v2.</p>
+      </div>
+      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenTripForm()"><i class="fa-solid fa-plus"></i> Nuevo viaje</button>
+    </div>
+
+    <div class="trv2-panel" id="trv2-trip-form" hidden>
+      <h2>Nuevo viaje</h2>
+      <form class="trv2-form" onsubmit="trv2CreateTrip(event)">
+        <label>Cliente <select id="trv2-trip-cliente-id" onchange="trv2ApplyClientRouteToTrip()"></select></label>
+        <label>Ruta <select id="trv2-trip-ruta-id" onchange="trv2ApplyRouteToTrip()" required></select></label>
+        <label>Origen <input id="trv2-trip-origen" required placeholder="Origen"></label>
+        <label>Destino <input id="trv2-trip-destino" required placeholder="Destino"></label>
+        <label>Operador <select id="trv2-trip-operador-id" required></select></label>
+        <label>Vehículo/autotanque <select id="trv2-trip-vehiculo-id" required></select></label>
+        <label>Producto <select id="trv2-trip-producto-id" required></select></label>
+        <label>Litros <input id="trv2-trip-litros" type="number" min="0" step="0.001" value="0"></label>
+        <label>Peso kg <input id="trv2-trip-peso" type="number" min="0" step="0.001" value="0"></label>
+        <label>Fecha salida <input id="trv2-trip-salida" type="datetime-local" required></label>
+        <label>Fecha llegada estimada <input id="trv2-trip-llegada" type="datetime-local"></label>
+        <label class="trv2-form-wide">Observaciones <textarea id="trv2-trip-observaciones" rows="3" placeholder="Notas operativas"></textarea></label>
+        <div class="trv2-form-actions">
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseTripForm()">Cancelar</button>
+          <button class="trv2-btn trv2-btn-primary" type="submit">Guardar expediente</button>
+        </div>
+      </form>
+    </div>
+
+    <section class="trv2-panel">
+      <div class="trv2-table-head">
+        <h2>Listado</h2>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadTrips()"><i class="fa-solid fa-rotate"></i> Recargar</button>
+      </div>
+      <div id="trv2-trips-message" class="trv2-muted"></div>
+      <div class="trv2-table-wrap">
+        <table>
+          <thead><tr><th>Viaje</th><th>Cliente</th><th>Ruta</th><th>Unidad</th><th>Producto</th><th>Volumen</th><th>Estatus</th><th>Acciones</th></tr></thead>
+          <tbody id="trv2-trips-table"></tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <section id="trv2-tab-carta-porte" class="trv2-section active">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Carta Porte</h1>
+        <p>Sube la factura del cliente, completa datos operativos y timbra la Carta Porte.</p>
+      </div>
+    </div>
+    <div class="trv2-subtabs trv2-inline-tabs trv2-cp-workflow-tabs" aria-label="Flujo Carta Porte">
+      <button class="trv2-subtab active" id="trv2-cp-workflow-tab-timbrar" type="button" onclick="trv2SetCartaPorteWorkflow('timbrar')"><i class="fa-solid fa-stamp"></i> Timbrar</button>
+      <button class="trv2-subtab" id="trv2-cp-workflow-tab-hoy" type="button" onclick="trv2SetCartaPorteWorkflow('hoy')"><i class="fa-solid fa-calendar-day"></i> Hoy <span id="trv2-cp-stamped-count-hoy">0</span></button>
+      <button class="trv2-subtab" id="trv2-cp-workflow-tab-todas" type="button" onclick="trv2SetCartaPorteWorkflow('todas')"><i class="fa-solid fa-box-archive"></i> Todas <span id="trv2-cp-stamped-count-todas">0</span></button>
+    </div>
+    <section class="trv2-panel trv2-cp-workflow-panel" data-cp-workflow-panel="timbrar">
+      <div class="trv2-table-head">
+        <div>
+          <h2>Factura del cliente</h2>
+          <p class="trv2-muted">Carga PDF/XML para detectar los datos base del viaje.</p>
+        </div>
+      </div>
+      <form class="trv2-form" id="trv2-cp-doc-form" onsubmit="trv2AnalyzeDocument(event, 'cp')">
+        <label>Tipo documento <select id="trv2-cp-doc-tipo"><option value="factura_cliente">Factura cliente</option><option value="documento_carga">Documento carga</option><option value="xml_cliente">XML cliente</option><option value="otro">Otro</option></select></label>
+        <label class="trv2-form-wide">Archivo PDF/XML <input id="trv2-cp-doc-file" type="file" accept=".pdf,.xml,image/*"></label>
+        <div class="trv2-form-actions">
+          <button class="trv2-btn trv2-btn-primary" type="submit" data-analyze-label="Analizar"><i class="fa-solid fa-gears"></i> Analizar</button>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ClearCartaPorteLoad()"><i class="fa-solid fa-eraser"></i> Borrar carga</button>
+        </div>
+      </form>
+      <p id="trv2-cp-doc-message" class="trv2-muted"></p>
+    </section>
+    <section class="trv2-panel trv2-cp-workflow-panel" id="trv2-cp-doc-detected-panel" data-cp-workflow-panel="timbrar" hidden>
+      <div class="trv2-table-head">
+        <div>
+          <h2>Datos detectados y viaje</h2>
+          <p class="trv2-muted">Revisa el resumen, completa los datos operativos y acepta para crear el viaje borrador.</p>
+        </div>
+      </div>
+      <div id="trv2-cp-doc-detected-summary" class="trv2-alert trv2-alert-warn"></div>
+      <form class="trv2-form" id="trv2-cp-doc-detected-form"></form>
+    </section>
+    <section class="trv2-panel trv2-cp-workflow-panel" id="trv2-cp-pending-panel" data-cp-workflow-panel="pendientes" hidden>
+      <div class="trv2-table-head">
+        <div>
+          <h2>Movimientos guardados</h2>
+          <p class="trv2-muted" id="trv2-cp-trip-message">Movimientos guardados que aún no tienen Carta Porte timbrada.</p>
+        </div>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadTrips()"><i class="fa-solid fa-rotate"></i> Actualizar pendientes</button>
+      </div>
+      <div id="trv2-cp-pending-list" class="trv2-cp-pending-list"></div>
+    </section>
+    <section class="trv2-panel trv2-cp-workflow-panel" id="trv2-cp-stamped-panel" data-cp-workflow-panel="stamped" hidden>
+      <div class="trv2-table-head">
+        <div>
+          <h2>Cartas Porte emitidas</h2>
+          <p class="trv2-muted">CFDI de traslado con Complemento Carta Porte timbrados para descargar PDF o XML.</p>
+        </div>
+        <div class="trv2-actions">
+          <label class="trv2-inline-filter" id="trv2-cp-stamped-month-wrap">Mes <input id="trv2-cp-stamped-month" type="month" onchange="trv2SetCartaPorteStampedMonth(this.value)"></label>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadStampedCartaPorte()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+        </div>
+      </div>
+      <div id="trv2-cp-stamped-list" class="trv2-cp-pending-list">
+        <div class="trv2-empty">Aún no hay Cartas Porte timbradas en esta vista.</div>
+      </div>
+    </section>
+    <section class="trv2-panel trv2-cp-workflow-panel" id="trv2-cp-preview-panel" data-cp-workflow-panel="preview" hidden>
+      <div class="trv2-empty">Elige “Timbrar” en un movimiento pendiente para validar y revisar el resumen antes de confirmar.</div>
+    </section>
+  </section>
+
+  <section id="trv2-tab-carga-archivos" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Carga de archivos</h1>
+        <p>Carga ZIP/XML/PDF de facturas de servicio e ingreso para alimentar reportes SAT y expediente operativo.</p>
+      </div>
+    </div>
+    <section class="trv2-panel">
+      <h2>Periodo y archivos</h2>
+      <div class="trv2-alert trv2-alert-warn">Carga documental pendiente de configurar bucket transporte-v2-documents.</div>
+      <form class="trv2-form" id="trv2-doc-form" onsubmit="trv2AnalyzeDocument(event)">
+        <label>Año <input id="trv2-upload-year" type="number" min="2024" max="2100" value="2026"></label>
+        <label>Mes <select id="trv2-upload-month"><option value="01">Enero</option><option value="02">Febrero</option><option value="03">Marzo</option><option value="04">Abril</option><option value="05">Mayo</option><option value="06" selected>Junio</option><option value="07">Julio</option><option value="08">Agosto</option><option value="09">Septiembre</option><option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option></select></label>
+        <label>Viaje ID <input id="trv2-doc-viaje-id" type="number" min="1" placeholder="Opcional"></label>
+        <label>Tipo documento <select id="trv2-doc-tipo"><option value="factura_cliente">Factura cliente</option><option value="xml_cliente">XML cliente</option><option value="evidencia">Evidencia</option><option value="otro">Otro</option></select></label>
+        <label class="trv2-form-wide">Archivo ZIP/XML/PDF <input id="trv2-doc-file" type="file" accept=".zip,.pdf,.xml,image/*"></label>
+        <div class="trv2-form-actions">
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2UploadDocument(event)">Guardar metadata</button>
+          <button class="trv2-btn trv2-btn-primary" type="submit" data-analyze-label="Procesar archivos"><i class="fa-solid fa-gears"></i> Procesar archivos</button>
+        </div>
+      </form>
+      <p id="trv2-doc-message" class="trv2-muted"></p>
+    </section>
+    <section class="trv2-panel">
+      <div class="trv2-table-head">
+        <div>
+          <h2>Archivos cargados</h2>
+          <p class="trv2-muted">Estatus operativo: pendiente / procesado / error.</p>
+        </div>
+      </div>
+      <div class="trv2-table-wrap">
+        <table>
+          <thead><tr><th>Archivo</th><th>Tipo</th><th>Periodo</th><th>Estatus</th><th>Resultado</th></tr></thead>
+          <tbody><tr><td colspan="5" class="trv2-empty">Aún no hay archivos procesados en esta vista.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="trv2-panel" id="trv2-doc-detected-panel" hidden>
+      <div class="trv2-table-head">
+        <div>
+          <h2>Datos detectados</h2>
+          <p class="trv2-muted">Confirma o edita antes de crear el viaje borrador.</p>
+        </div>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2CreateTripFromDocument()"><i class="fa-solid fa-route"></i> Crear viaje borrador</button>
+      </div>
+      <div id="trv2-doc-detected-summary" class="trv2-alert trv2-alert-warn"></div>
+      <form class="trv2-form" id="trv2-doc-detected-form"></form>
+    </section>
+  </section>
+
+  <section id="trv2-tab-catalogos" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Catálogos</h1>
+        <p>Configuración operativa para viajes, Carta Porte y servicio de transporte.</p>
+      </div>
+      <div class="trv2-actions">
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadCatalogs({force:true})"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenActiveCatalogEditor()"><i class="fa-solid fa-plus"></i> Nuevo</button>
+      </div>
+    </div>
+    <nav class="trv2-subtabs" id="trv2-catalog-tabs" aria-label="Catálogos Transporte v2"></nav>
+    <div class="trv2-catalog-toolbar">
+      <label class="trv2-search"><i class="fa-solid fa-magnifying-glass"></i><input id="trv2-catalog-search" type="search" placeholder="Buscar en catálogo" oninput="trv2RenderActiveCatalog()"></label>
+      <span class="trv2-muted" id="trv2-catalog-caption"></span>
+    </div>
+    <div class="trv2-kpis trv2-kpis-compact" id="trv2-catalog-metrics"></div>
+    <section class="trv2-panel trv2-catalog-panel" id="trv2-catalogs-grid"></section>
+  </section>
+
+  <section id="trv2-tab-facturas-servicio" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Facturas de servicio</h1>
+        <p>Genera el registro local de facturas de flete a partir de viajes con Carta Porte timbrada.</p>
+      </div>
+      <div class="trv2-actions">
+        <label class="trv2-inline-filter trv2-month-filter">Periodo
+          <select id="trv2-service-month-mode" onchange="trv2ServiceSetMonthMode(this.value)">
+            <option value="">Todos los meses</option>
+            <option value="month">Filtrar por mes</option>
+          </select>
+          <input id="trv2-service-month" type="month" onchange="trv2ServiceSetMonth(this.value)" hidden>
+        </label>
+      </div>
+    </div>
+    <div class="trv2-kpis trv2-kpis-compact" id="trv2-service-invoice-kpis">
+      <article><span>Pendientes de facturar</span><strong>0</strong></article>
+      <article><span>Facturadas</span><strong>0</strong></article>
+      <article><span>Pendientes de pago</span><strong>0</strong></article>
+    </div>
+    <section class="trv2-panel">
+      <nav class="trv2-subtabs" aria-label="Facturas de servicio">
+        <button class="trv2-subtab active" type="button" data-service-tab="pendientes" onclick="trv2SetServiceInvoiceTab('pendientes')">Servicios pendientes de facturar</button>
+        <button class="trv2-subtab" type="button" data-service-tab="facturadas" onclick="trv2SetServiceInvoiceTab('facturadas')">Facturadas</button>
+        <button class="trv2-subtab" type="button" data-service-tab="pago" onclick="trv2SetServiceInvoiceTab('pago')">Pendientes de pago</button>
+      </nav>
+      <div class="trv2-table-wrap" data-service-panel="pendientes">
+        <div id="trv2-service-product-filter" class="trv2-service-product-filter"></div>
+        <table class="trv2-service-pending-table">
+          <thead>
+            <tr>
+              <th>Fecha</th><th>Cliente</th><th>Origen</th><th>Producto</th><th>Litros</th><th>Kilos</th><th>Chofer</th><th>Vehículo</th><th>UUID Carta Porte</th><th>Subtotal</th><th>IVA</th><th>Retención</th><th>Total</th><th>Acción</th>
+            </tr>
+          </thead>
+          <tbody id="trv2-service-pending-table"></tbody>
+        </table>
+      </div>
+      <div class="trv2-table-wrap" data-service-panel="facturadas" hidden>
+        <table>
+          <thead><tr><th>Fecha</th><th>Cliente</th><th>UUID CFDI</th><th>Total</th><th>PDF</th><th>XML</th></tr></thead>
+          <tbody id="trv2-service-invoiced-table"></tbody>
+        </table>
+      </div>
+      <div class="trv2-table-wrap" data-service-panel="pago" hidden>
+        <table>
+          <thead><tr><th>Cliente</th><th>Fecha</th><th>Total</th><th>Saldo</th><th>Estatus</th></tr></thead>
+          <tbody id="trv2-service-payment-table"></tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <section id="trv2-tab-conciliacion" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Conciliación</h1>
+        <p>Vista separada para pagos de facturas de servicio Transporte. No toca Conciliación Gas LP.</p>
+      </div>
+    </div>
+    <section class="trv2-panel">
+      <div class="trv2-form trv2-form-compact">
+        <label>Mes <select><option>Junio 2026</option></select></label>
+        <label>Cliente <select><option>Todos</option></select></label>
+      </div>
+    </section>
+    <div class="trv2-kpis">
+      <article><span>Pendientes de pago</span><strong>0</strong></article>
+      <article><span>Pagadas</span><strong>0</strong></article>
+      <article><span>Conciliadas</span><strong>0</strong></article>
+      <article><span>Con diferencia</span><strong>0</strong></article>
+    </div>
+    <section class="trv2-panel">
+      <h2>Facturas de servicio</h2>
+      <div class="trv2-empty">Conciliación Transporte en preparación.</div>
+    </section>
+  </section>
+
+  <section id="trv2-tab-reportes-sat" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Reportes SAT</h1>
+        <p>Reporte mensual por número de permiso. Se alimentará de viajes, Carta Porte y facturas de servicio.</p>
+      </div>
+      <div class="trv2-actions">
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseCvMonth()"><i class="fa-solid fa-lock"></i> Cerrar mes</button>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico()"><i class="fa-solid fa-clock-rotate-left"></i> Cargar historial</button>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2GenerateCvReport('zip')"><i class="fa-solid fa-download"></i> Descargar ZIP XML</button>
+      </div>
+    </div>
+    <section class="trv2-panel trv2-cv-filter-panel">
+      <div class="trv2-form trv2-form-cv">
+        <label>Permiso * <select id="trv2-cv-permiso" onchange="trv2RefreshCvView()"></select></label>
+        <label>Año * <input id="trv2-cv-anio" type="number" min="2024" max="2100" onchange="trv2RefreshCvView()"></label>
+        <label>Mes * <select id="trv2-cv-mes" onchange="trv2RefreshCvView()"></select></label>
+        <label>Producto <select id="trv2-cv-producto" onchange="trv2RefreshCvView()"></select></label>
+        <label>Estado <select id="trv2-cv-estado" onchange="trv2RefreshCvView()"><option value="">Todos</option><option value="borrador">Borrador</option><option value="validado">Validado</option><option value="exportado">Exportado</option></select></label>
+      </div>
+      <div class="trv2-cv-context" id="trv2-cv-context"></div>
+    </section>
+    <div class="trv2-kpis trv2-kpis-cv" id="trv2-cv-kpis"></div>
+    <section class="trv2-panel">
+      <div class="trv2-table-head">
+        <div>
+          <h2>Movimientos del periodo</h2>
+          <p class="trv2-muted">Corte mensual alimentado por viajes Transporte v2 timbrados.</p>
+        </div>
+      </div>
+      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">Selecciona permiso y periodo para cerrar el mes y generar ZIP XML SAT Transporte.</div>
+      <div class="trv2-table-wrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Producto</th><th>Volumen L</th><th>Vehículo</th><th>Origen</th><th>Destino</th><th>UUID Carta Porte</th><th>Estatus XML</th><th>Acciones</th></tr></thead>
+          <tbody id="trv2-cv-table"></tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <section id="trv2-tab-administracion" class="trv2-section">
+    <div class="trv2-section-head">
+      <div>
+        <h1>Administración</h1>
+        <p>Usuarios operador y parámetros del módulo Transporte.</p>
+      </div>
+    </div>
+    <nav class="trv2-subtabs" aria-label="Administración Transporte v2">
+      <button class="trv2-subtab active" type="button" data-admin-tab="configuracion" onclick="trv2SetAdminSubtab('configuracion')"><i class="fa-solid fa-sliders"></i> Configuración</button>
+      <button class="trv2-subtab" type="button" data-admin-tab="operadores-ruta" onclick="trv2SetAdminSubtab('operadores-ruta')"><i class="fa-solid fa-route"></i> Operadores en ruta</button>
+      <button class="trv2-subtab" type="button" data-admin-tab="usuarios-operador" onclick="trv2SetAdminSubtab('usuarios-operador')"><i class="fa-solid fa-user-lock"></i> Usuarios operador</button>
+    </nav>
+    <div class="trv2-admin-panel" data-admin-panel="usuarios-operador">
+      <section class="trv2-panel">
+        <h2><i class="fa-solid fa-user-lock"></i> Usuarios operador</h2>
+        <p class="trv2-muted">Crea accesos para choferes y operadores. Ellos podrán consultar viajes asignados, subir facturas, ver Carta Porte y registrar bitácora.</p>
+        <div class="trv2-alert trv2-alert-warn">Acceso actual por token temporal. Usuario/PIN formal requiere migración no destructiva posterior.</div>
+        <form class="trv2-form trv2-form-admin" onsubmit="trv2CreateOperatorAccess(event)">
+          <label>Operador / chofer <select id="trv2-admin-operator-chofer" required><option value="">Seleccionar operador</option></select></label>
+          <label>Usuario operador <input id="trv2-admin-operator-user" placeholder="Ej. javier.t167"></label>
+          <label>Token/PIN temporal <input id="trv2-admin-operator-pin" placeholder="Define un token o PIN temporal"></label>
+          <label>Estado <select id="trv2-admin-operator-active"><option value="true">Activo</option><option value="false">Inactivo</option></select></label>
+          <div class="trv2-form-actions">
+            <button class="trv2-btn trv2-btn-primary" type="submit">Crear acceso operador</button>
+          </div>
+        </form>
+        <div id="trv2-operator-access-result" class="trv2-access-result" hidden></div>
+        <div class="trv2-table-head">
+          <div>
+            <h2>Accesos existentes</h2>
+            <p class="trv2-muted">Solo muestra accesos del perfil activo.</p>
+          </div>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorAccesses()">Actualizar</button>
+        </div>
+        <div id="trv2-operator-access-list" class="trv2-access-list"></div>
+      </section>
+    </div>
+    <div class="trv2-admin-panel" data-admin-panel="operadores-ruta">
+      <section class="trv2-panel">
+        <div class="trv2-table-head">
+          <div>
+            <h2><i class="fa-solid fa-route"></i> Operadores en ruta</h2>
+            <p class="trv2-muted">Seguimiento operativo de viajes con bitácora activa.</p>
+          </div>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorDashboard()">Actualizar</button>
+        </div>
+        <div class="trv2-admin-route-kpis" id="trv2-operator-dashboard-kpis">
+          <article><span>En ruta</span><strong>0</strong></article>
+          <article><span>En descanso</span><strong>0</strong></article>
+          <article><span>Incidencias</span><strong>0</strong></article>
+        </div>
+        <div id="trv2-operator-dashboard-list" class="trv2-operator-dashboard-list"></div>
+      </section>
+    </div>
+    <div class="trv2-admin-panel active" data-admin-panel="configuracion">
+      <section class="trv2-panel">
+        <h2><i class="fa-solid fa-sliders"></i> Configuración</h2>
+        <p class="trv2-muted">Perfil fiscal y parámetros operativos guardados en configuración Transporte.</p>
+        <form class="trv2-form" id="trv2-admin-settings-form" onsubmit="trv2SaveSettings(event)">
+          <label>RFC del contribuyente * <input id="trv2-set-rfc" data-rfc-field placeholder="OEMR710420FCA" required></label>
+          <label>Nombre fiscal / razón social * <input id="trv2-set-nombre" placeholder="RUTH ORNELAS MUÑOZ" required></label>
+          <label>CP fiscal / lugar expedición * <input id="trv2-set-cp" placeholder="00000" required></label>
+          <label>Régimen fiscal emisor *
+            <select id="trv2-set-regimen" required>
+              <option value="">Seleccionar régimen</option>
+              <option value="601">601 — General de Ley Personas Morales</option>
+              <option value="603">603 — Personas Morales con Fines no Lucrativos</option>
+              <option value="605">605 — Sueldos y Salarios e Ingresos Asimilados a Salarios</option>
+              <option value="606">606 — Arrendamiento</option>
+              <option value="612">612 — Personas Físicas con Actividades Empresariales y Profesionales</option>
+              <option value="616">616 — Sin obligaciones fiscales</option>
+              <option value="626">626 — Régimen Simplificado de Confianza</option>
+            </select>
+          </label>
+          <label>RFC representante legal <input id="trv2-set-rfc-rep" data-rfc-field placeholder="Opcional"></label>
+          <label>Factor kg/L default <input id="trv2-set-factor" type="number" step="0.000001" placeholder="0.517200"></label>
+          <div class="trv2-form-wide trv2-logo-box">
+            <label>Logo empresa <input id="trv2-set-logo-file" type="file" accept="image/png,image/jpeg,image/webp" onchange="trv2PreviewLogoFile(event)"></label>
+            <div class="trv2-logo-preview"><img id="trv2-logo-preview" alt="Logo Transporte" hidden><span id="trv2-logo-empty">Sin logo cargado</span></div>
+            <input id="trv2-set-logo" type="hidden">
+            <div class="trv2-actions">
+              <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2RemoveLogo()">Eliminar logo</button>
+            </div>
+          </div>
+          <div class="trv2-form-wide trv2-pdf-theme-box">
+            <label>Color encabezados PDF <input id="trv2-set-pdf-header-color" type="color" value="#6B7280"></label>
+            <label>Color texto encabezados <input id="trv2-set-pdf-header-text-color" type="color" value="#FFFFFF"></label>
+            <label>Color título PDF <input id="trv2-set-pdf-title-color" type="color" value="#4B5563"></label>
+            <label>Teléfonos contacto Carta Porte <input id="trv2-set-pdf-declaration-phones" placeholder="Opcional, separados por coma"></label>
+          </div>
+          <div class="trv2-form-wide trv2-check-grid">
+            <label class="trv2-check"><input id="trv2-set-prod-gaslp" type="checkbox"> Gas LP</label>
+            <label class="trv2-check"><input id="trv2-set-prod-magna" type="checkbox"> Gasolina Magna</label>
+            <label class="trv2-check"><input id="trv2-set-prod-premium" type="checkbox"> Gasolina Premium</label>
+            <label class="trv2-check"><input id="trv2-set-prod-diesel" type="checkbox"> Diésel</label>
+          </div>
+          <div class="trv2-form-actions">
+            <button class="trv2-btn trv2-btn-primary" type="submit">Guardar configuración</button>
+          </div>
+        </form>
+        <div id="trv2-settings-status" class="trv2-muted"></div>
+        <div class="trv2-divider"></div>
+        <div class="trv2-table-head">
+          <div>
+            <h2>Permisos CRE del transportista</h2>
+            <p class="trv2-muted">Estos permisos alimentan Reportes SAT / JSON mensual. Los proveedores se administran en Catálogos.</p>
+          </div>
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2NewPermisoRfc()">+ Nuevo permiso</button>
+        </div>
+        <form class="trv2-form trv2-form-admin trv2-permiso-editor" id="trv2-permiso-form" onsubmit="trv2SavePermisoRfc(event)" hidden>
+          <input type="hidden" id="trv2-permiso-id">
+          <div class="trv2-form-title">
+            <strong>Nuevo permiso CRE transportista</strong>
+            <span>Captura sólo cuando vayas a registrar o editar un permiso.</span>
+          </div>
+          <input type="hidden" id="trv2-permiso-tipo" value="Transportista">
+          <input type="hidden" id="trv2-permiso-rfc">
+          <input type="hidden" id="trv2-permiso-nombre">
+          <label>Alcance del permiso * <select id="trv2-permiso-producto" required><option value="">Seleccionar</option><option>Gas LP</option><option>Petrolíferos</option></select></label>
+          <label>Permiso CRE transportista * <input id="trv2-permiso-cre" required></label>
+          <input type="hidden" id="trv2-permiso-alm">
+          <input type="hidden" id="trv2-permiso-origen">
+          <input type="hidden" id="trv2-permiso-producto-default">
+          <label>Activo <select id="trv2-permiso-activo"><option value="true">Activo</option><option value="false">Inactivo</option></select></label>
+          <div class="trv2-form-actions">
+            <button class="trv2-btn trv2-btn-primary" type="submit">Guardar permiso</button>
+            <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ClearPermisoForm()">Cancelar</button>
+          </div>
+        </form>
+        <div id="trv2-permisos-list" class="trv2-access-list"></div>
+      </section>
+    </div>
+  </section>
+</main>
+
+<div class="trv2-modal-layer" id="trv2-catalog-modal" hidden>
+  <section class="trv2-modal" role="dialog" aria-modal="true" aria-labelledby="trv2-catalog-modal-title">
+    <div class="trv2-modal-head">
+      <div>
+        <h2 id="trv2-catalog-modal-title">Nuevo registro</h2>
+        <p id="trv2-catalog-modal-subtitle">Alta rápida de Transporte v2.</p>
+      </div>
+      <button class="trv2-mini-btn" type="button" onclick="trv2CloseCatalogModal()"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="trv2-catalog-modal-form" class="trv2-form" onsubmit="trv2CreateCatalogItem(event)"></form>
+  </section>
+</div>
+
+<div class="trv2-modal-layer" id="trv2-company-modal" hidden>
+  <section class="trv2-modal trv2-company-modal" role="dialog" aria-modal="true" aria-labelledby="trv2-company-modal-title">
+    <div class="trv2-modal-head">
+      <div>
+        <h2 id="trv2-company-modal-title">Seleccionar empresa</h2>
+        <p>Elige la empresa activa para entrar al administrador de Transporte v2.</p>
+      </div>
+      <button class="trv2-mini-btn" type="button" onclick="trv2CloseCompanySelector()"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="trv2-company-list" id="trv2-company-list"></div>
+  </section>
+</div>
