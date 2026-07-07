@@ -402,16 +402,27 @@ function trv2PacErrorText(data = {}) {
   const detailText = typeof data.detail === 'string' ? data.detail : '';
   const response = data.pac_response || detail.pac_response || data.raw?.pac_response || detail.raw?.pac_response || {};
   const raw = data.raw?.raw || detail.raw?.raw || data.raw || detail.raw || {};
+  const parsed = response.parsed_response_sw || raw.parsed_response_sw || raw.pac_response?.parsed_response_sw || {};
+  const nestedResponse = raw.pac_response || {};
+  const rawText = typeof response.raw_response_sw === 'string' ? response.raw_response_sw : '';
+  const cleanRawText = rawText && !/[<][a-z!?/]/i.test(rawText) ? rawText.slice(0, 500) : '';
   return [
     detailText,
     detail.pac_detail,
     data.pac_detail,
+    parsed.messageDetail,
+    parsed.message,
+    parsed.error,
     response.messageDetail,
     response.message,
     response.error,
+    nestedResponse.messageDetail,
+    nestedResponse.message,
+    nestedResponse.error,
     raw.messageDetail,
     raw.message,
     raw.error,
+    cleanRawText,
     detail.raw?.error,
     detail.error,
     detail.message,

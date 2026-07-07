@@ -171,6 +171,69 @@ function trv2DocNormalizeProduct(value) {
   return text;
 }
 
+function trv2DocDetectedFamily(detected = {}) {
+  const product = trv2DocNormalizeProduct(`${detected.producto || ''} ${detected.descripcion || ''} ${detected.tipo_producto || ''} ${detected.familia_producto || ''}`);
+  const claveSat = String(detected.clave_sat || detected.clave_prod_serv || '').trim();
+  if (product === 'GASLP' || claveSat === '15111510') return 'gas_lp';
+  if (['DIESEL', 'MAGNA', 'PREMIUM', 'PETROLIFEROS', 'GASOLINA'].includes(product) || claveSat.startsWith('151015')) return 'petroliferos';
+  return '';
+}
+
+function trv2DocProductKeys(item = {}) {
+  if (typeof trv2CatalogProductKeys === 'function') return trv2CatalogProductKeys(item);
+  const keys = new Set();
+  const text = trv2DocNormalizeProduct(`${item.producto || ''} ${item.tipo_producto || ''} ${item.familia_producto || ''} ${item.nombre || ''} ${item.descripcion || ''}`);
+  if (text === 'GASLP') keys.add('gas_lp');
+  if (['MAGNA', 'PREMIUM', 'DIESEL', 'PETROLIFEROS', 'GASOLINA'].includes(text)) {
+    keys.add('petroliferos');
+    if (text === 'MAGNA') keys.add('magna');
+    if (text === 'PREMIUM') keys.add('premium');
+    if (text === 'DIESEL') keys.add('diesel');
+  }
+  const claveSat = String(item.clave_sat || item.clave_prod_serv || '').trim();
+  if (claveSat === '15111510') keys.add('gas_lp');
+  if (claveSat.startsWith('151015')) keys.add('petroliferos');
+  return keys;
+}
+
+function trv2DocMatchesFamily(item = {}, family = '') {
+  if (!family) return true;
+  const keys = trv2DocProductKeys(item);
+  if (family === 'gas_lp') return keys.has('gas_lp');
+  if (family === 'petroliferos') return keys.has('petroliferos') || keys.has('magna') || keys.has('premium') || keys.has('diesel');
+  return true;
+}
+
+function trv2RouteMatchesDetectedFamily(route = {}, detected = {}) {
+  const family = trv2DocDetectedFamily(detected);
+  if (!family) return true;
+  if (typeof trv2RouteProductKeys === 'function') {
+    const keys = trv2RouteProductKeys(route);
+    if (family === 'gas_lp') return keys.has('gas_lp');
+    return keys.has('petroliferos') || keys.has('magna') || keys.has('premium') || keys.has('diesel');
+  }
+  return trv2DocMatchesFamily(route, family);
+}
+
+function trv2DocRouteOptions(detected = {}, placeholder = 'Selecciona ruta') {
+  const routes = (TRV2_CATALOGS.rutas || []).filter(route => route.activo !== false);
+  const filtered = routes.filter(route => trv2RouteMatchesDetectedFamily(route, detected));
+  const items = filtered.length ? filtered : routes;
+  return `<option value="">${trv2Esc(placeholder)}</option>` + items.map(item => (
+    `<option value="${Number(item.id)}">${trv2Esc(trv2CatalogLabel('rutas', item))}</option>`
+  )).join('');
+}
+
+function trv2DocProductOptions(detected = {}, placeholder = 'Selecciona producto') {
+  const family = trv2DocDetectedFamily(detected);
+  const products = (TRV2_CATALOGS.productos || []).filter(item => item.activo !== false);
+  const filtered = family ? products.filter(item => trv2DocMatchesFamily(item, family)) : products;
+  const items = filtered.length ? filtered : products;
+  return `<option value="">${trv2Esc(placeholder)}</option>` + items.map(item => (
+    `<option value="${Number(item.id)}">${trv2Esc(trv2CatalogLabel('productos', item))}</option>`
+  )).join('');
+}
+
 function trv2ApplyPermisoCatalogMatch(detected = {}, permisoInfo = {}) {
   const item = permisoInfo?.item || {};
   const permiso = item.permiso_cre || item.permiso || permisoInfo.permiso_detectado || '';
@@ -242,7 +305,7 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
       <select id="${scope === 'cp' ? 'trv2-cp-doc-cliente-id' : 'trv2-doc-cliente-id'}" onchange="trv2ApplyClientRouteDefault('${trv2Esc(scope)}', true)">${trv2CatalogOptions('clientes', 'Cliente pendiente')}</select>
     </label>
     <label>Ruta
-      <select id="${scope === 'cp' ? 'trv2-cp-doc-ruta-id' : 'trv2-doc-ruta-id'}" required onchange="trv2UpdateTripDatesFromRoute('${trv2Esc(scope)}')">${trv2CatalogOptions('rutas', 'Selecciona ruta')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-ruta-id' : 'trv2-doc-ruta-id'}" required onchange="trv2UpdateTripDatesFromRoute('${trv2Esc(scope)}')">${trv2DocRouteOptions(detected, 'Selecciona ruta')}</select>
       <small class="trv2-route-hint" id="${scope === 'cp' ? 'trv2-cp-doc-route-hint' : 'trv2-doc-route-hint'}"></small>
     </label>
     <label>Operador
@@ -252,7 +315,7 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
       <select id="${scope === 'cp' ? 'trv2-cp-doc-vehiculo-id' : 'trv2-doc-vehiculo-id'}" required onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">${trv2CatalogOptions('vehiculos', 'Selecciona vehículo')}</select>
     </label>
     <label>Producto
-      <select id="${scope === 'cp' ? 'trv2-cp-doc-producto-id' : 'trv2-doc-producto-id'}" required onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">${trv2CatalogOptions('productos', 'Selecciona producto')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-producto-id' : 'trv2-doc-producto-id'}" required onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">${trv2DocProductOptions(detected, 'Selecciona producto')}</select>
     </label>
     <label>Fecha salida
       <input id="${scope === 'cp' ? 'trv2-cp-doc-fecha-salida' : 'trv2-doc-fecha-salida'}" type="datetime-local" required onchange="trv2UpdateTripDatesFromRoute('${trv2Esc(scope)}')">
@@ -314,7 +377,7 @@ function trv2DocTokenOverlapScore(left = '', right = '') {
 }
 
 function trv2RouteMatchScore(route = {}, cliente = {}, detected = {}) {
-  if (!route || route.activo === false || !trv2RouteMatchesClient(route, cliente)) return 0;
+  if (!route || route.activo === false || !trv2RouteMatchesDetectedFamily(route, detected) || !trv2RouteMatchesClient(route, cliente)) return 0;
   const meta = route.metadata && typeof route.metadata === 'object' ? route.metadata : {};
   const origen = trv2FindCatalog('origenes', route.origen_id);
   let score = 10;
@@ -343,8 +406,7 @@ function trv2DefaultRouteForClient(cliente = {}, detected = {}) {
     .filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score);
   if (!matches.length) return null;
-  if (matches.length === 1 || matches[0].score > matches[1].score) return matches[0].route;
-  return null;
+  return matches[0].route;
 }
 
 function trv2ApplyClientRouteDefault(scope = TRV2_DOCUMENT_SCOPE || 'carga', manual = false) {
@@ -358,7 +420,12 @@ function trv2ApplyClientRouteDefault(scope = TRV2_DOCUMENT_SCOPE || 'carga', man
   const currentRoute = trv2FindCatalog('rutas', routeSelect.value);
   const providerDetected = Boolean(detected.proveedor_rfc || detected.emisor_rfc || detected.proveedor_nombre || detected.emisor_nombre || detected.permiso);
   const route = trv2DefaultRouteForClient(cliente, detected);
-  if (currentRoute && (!providerDetected || (route?.id && Number(route.id) === Number(currentRoute.id))) && trv2RouteMatchesClient(currentRoute, cliente)) {
+  if (
+    currentRoute
+    && trv2RouteMatchesDetectedFamily(currentRoute, detected)
+    && (!providerDetected || (route?.id && Number(route.id) === Number(currentRoute.id)))
+    && trv2RouteMatchesClient(currentRoute, cliente)
+  ) {
     trv2UpdateTripDatesFromRoute(scope);
     return;
   }

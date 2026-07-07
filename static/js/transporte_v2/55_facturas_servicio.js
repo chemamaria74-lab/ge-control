@@ -228,25 +228,26 @@ function trv2ServiceFilterRowsByProduct(rows = []) {
   return rows.filter(row => trv2ServiceProductFamily(trv2ServiceTripData(row)) === TRV2_SERVICE_PRODUCT_FILTER);
 }
 
+function trv2ServiceFilterInvoicesByProduct(invoices = []) {
+  if (!TRV2_SERVICE_PRODUCT_FILTER) return invoices;
+  return invoices.filter(item => trv2ServiceInvoiceFamily(item) === TRV2_SERVICE_PRODUCT_FILTER);
+}
+
 function trv2SetServiceProductFilter(value = 'gas_lp') {
   TRV2_SERVICE_PRODUCT_FILTER = value || 'gas_lp';
   trv2RenderServicePendingTable();
+  trv2RenderServiceGeneratedTables();
   trv2RenderServiceFamilyDashboard();
 }
 
-function trv2RenderServiceProductFilter(rows = []) {
-  const target = document.getElementById('trv2-service-product-filter');
+function trv2RenderServiceProductFilterTarget(targetId, counts = {gas_lp: 0, petroliferos: 0}, label = 'Servicios por producto') {
+  const target = document.getElementById(targetId);
   if (!target) return;
-  const counts = rows.reduce((acc, row) => {
-    const family = trv2ServiceProductFamily(trv2ServiceTripData(row));
-    if (family) acc[family] = (acc[family] || 0) + 1;
-    return acc;
-  }, {gas_lp: 0, petroliferos: 0});
   if (!TRV2_SERVICE_PRODUCT_FILTER || !['gas_lp', 'petroliferos'].includes(TRV2_SERVICE_PRODUCT_FILTER)) {
     TRV2_SERVICE_PRODUCT_FILTER = 'gas_lp';
   }
   target.innerHTML = `
-    <div class="trv2-inline-tabs" role="tablist" aria-label="Servicios por producto">
+    <div class="trv2-inline-tabs" role="tablist" aria-label="${trv2Esc(label)}">
       <button class="trv2-subtab ${TRV2_SERVICE_PRODUCT_FILTER === 'gas_lp' ? 'active' : ''}" type="button" onclick="trv2SetServiceProductFilter('gas_lp')">
         Gas LP <span>${Number(counts.gas_lp || 0)}</span>
       </button>
@@ -255,6 +256,28 @@ function trv2RenderServiceProductFilter(rows = []) {
       </button>
     </div>
   `;
+}
+
+function trv2RenderServiceProductFilter(rows = []) {
+  const pendingCounts = rows.reduce((acc, row) => {
+    const family = trv2ServiceProductFamily(trv2ServiceTripData(row));
+    if (family) acc[family] = (acc[family] || 0) + 1;
+    return acc;
+  }, {gas_lp: 0, petroliferos: 0});
+  const invoices = trv2ReadServiceInvoices();
+  const invoiceCounts = invoices.reduce((acc, item) => {
+    const family = trv2ServiceInvoiceFamily(item);
+    if (family) acc[family] = (acc[family] || 0) + 1;
+    return acc;
+  }, {gas_lp: 0, petroliferos: 0});
+  const paymentCounts = invoices.filter(item => item.estatus !== 'pagada').reduce((acc, item) => {
+    const family = trv2ServiceInvoiceFamily(item);
+    if (family) acc[family] = (acc[family] || 0) + 1;
+    return acc;
+  }, {gas_lp: 0, petroliferos: 0});
+  trv2RenderServiceProductFilterTarget('trv2-service-product-filter', pendingCounts, 'Servicios pendientes por producto');
+  trv2RenderServiceProductFilterTarget('trv2-service-invoiced-product-filter', invoiceCounts, 'Facturas generadas por producto');
+  trv2RenderServiceProductFilterTarget('trv2-service-payment-product-filter', paymentCounts, 'Pendientes de pago por producto');
 }
 
 function trv2ServiceVehicleShort(value = '') {
@@ -705,8 +728,10 @@ function trv2RenderServiceGeneratedTables() {
   const facturadas = document.getElementById('trv2-service-invoiced-table');
   const pago = document.getElementById('trv2-service-payment-table');
   const invoices = trv2ReadServiceInvoices();
+  const filteredInvoices = trv2ServiceFilterInvoicesByProduct(invoices);
+  const filteredPaymentInvoices = trv2ServiceFilterInvoicesByProduct(invoices.filter(item => item.estatus !== 'pagada'));
   if (facturadas) {
-    facturadas.innerHTML = invoices.length ? invoices.map(item => `
+    facturadas.innerHTML = filteredInvoices.length ? filteredInvoices.map(item => `
       <tr>
         <td>${trv2Esc(String(item.created_at || item.fecha || '').slice(0, 10))}</td>
         <td>${trv2Esc(item.nombre_receptor || item.cliente || item.rfc_receptor || '')}</td>
@@ -718,7 +743,7 @@ function trv2RenderServiceGeneratedTables() {
     `).join('') : '<tr><td colspan="6"><div class="trv2-empty">Aún no hay facturas generadas.</div></td></tr>';
   }
   if (pago) {
-    pago.innerHTML = invoices.length ? invoices.map(item => `
+    pago.innerHTML = filteredPaymentInvoices.length ? filteredPaymentInvoices.map(item => `
       <tr>
         <td>${trv2Esc(item.nombre_receptor || item.cliente || item.rfc_receptor || '')}</td>
         <td>${trv2Esc(String(item.created_at || item.fecha || '').slice(0, 10))}</td>

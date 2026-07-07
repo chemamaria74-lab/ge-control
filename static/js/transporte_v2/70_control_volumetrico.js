@@ -33,6 +33,55 @@ function trv2CvProductMatchesPermit(productName = '', permitItem = {}) {
   return !product || product.includes(permitProduct) || permitProduct.includes(product);
 }
 
+function trv2CvPermitNumber(item = {}) {
+  return String(item.permiso_cre || item.permiso || '').trim();
+}
+
+function trv2CvPermitFamilyKey(item = {}) {
+  if (typeof trv2PermisoAllowedProductKeys === 'function') {
+    const keys = trv2PermisoAllowedProductKeys(item);
+    if (keys.has('gas_lp')) return 'gas_lp';
+    if (['petroliferos', 'magna', 'premium', 'diesel'].some(key => keys.has(key))) return 'petroliferos';
+  }
+  const text = trv2CvNormalize([
+    item.producto,
+    item.tipo_producto,
+    item.alcance,
+    item.familia_producto,
+    ...(Array.isArray(item.productos_permitidos) ? item.productos_permitidos : []),
+    ...(Array.isArray(item.familias_producto) ? item.familias_producto : []),
+  ].filter(Boolean).join(' '));
+  if (text.includes('gas lp') || text.includes('gas_lp') || text.includes('gas l.p') || text.includes('gas l p')) return 'gas_lp';
+  if (['petrol', 'gasolina', 'magna', 'premium', 'diesel', 'diésel'].some(word => text.includes(word))) return 'petroliferos';
+  return '';
+}
+
+function trv2CvPermitFamilyLabel(key = '') {
+  if (key === 'gas_lp') return 'Gas LP';
+  if (key === 'petroliferos') return 'Petrolíferos';
+  return 'Producto pendiente';
+}
+
+function trv2CvPermitOptionKey(item = {}) {
+  return [
+    trv2CvPermitNumber(item).replace(/\s+/g, '').toUpperCase(),
+    trv2CvPermitFamilyKey(item),
+    String(item.rfc || '').replace(/\s+/g, '').toUpperCase(),
+  ].join('|');
+}
+
+function trv2CvTransportPermits() {
+  const seen = new Set();
+  return (window.TRV2_PERMISOS_RFC || [])
+    .filter(item => trv2IsTransportistaPermit(item) && trv2CvPermitNumber(item) && item.activo !== false)
+    .filter(item => {
+      const key = trv2CvPermitOptionKey(item);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 function trv2PopulateCvSelect(id, catalogName, placeholder) {
   const select = document.getElementById(id);
   if (!select) return;
@@ -63,8 +112,8 @@ function trv2PopulateCvPermisos() {
   const select = document.getElementById('trv2-cv-permiso');
   if (!select) return;
   const current = select.value;
-  const items = window.TRV2_PERMISOS_RFC || [];
-  const transportPermits = items.filter(trv2IsTransportistaPermit);
+  const currentPermit = trv2CvSelectedPermitValue();
+  const transportPermits = trv2CvTransportPermits();
   if (!transportPermits.length) {
     select.innerHTML = '<option value="">Registra permisos CRE del transportista en Administración</option>';
     const alert = document.getElementById('trv2-cv-alert');
@@ -74,12 +123,17 @@ function trv2PopulateCvPermisos() {
   const alert = document.getElementById('trv2-cv-alert');
   if (alert && alert.textContent.includes('Registra permisos CRE')) alert.textContent = '';
   select.innerHTML = '<option value="">Seleccionar permiso transportista</option>' + transportPermits.map(item => {
-    const permiso = item.permiso_cre || item.permiso || '';
-    const label = [permiso, item.producto, item.nombre, 'Permiso CRE transportista'].filter(Boolean).join(' · ');
-    return `<option value="${trv2Esc(permiso)}">${trv2Esc(label || permiso)}</option>`;
+    const permiso = trv2CvPermitNumber(item);
+    const family = trv2CvPermitFamilyLabel(trv2CvPermitFamilyKey(item));
+    const label = [permiso, family, item.nombre, 'Permiso CRE transportista'].filter(Boolean).join(' · ');
+    return `<option value="${trv2Esc(trv2CvPermitOptionKey(item))}">${trv2Esc(label || permiso)}</option>`;
   }).join('');
   if ([...select.options].some(option => option.value === current)) select.value = current;
-  else if (!select.value && transportPermits.length === 1) select.value = transportPermits[0].permiso_cre || transportPermits[0].permiso || '';
+  else if (currentPermit) {
+    const match = transportPermits.find(item => trv2CvPermitNumber(item) === currentPermit);
+    if (match) select.value = trv2CvPermitOptionKey(match);
+  }
+  if (!select.value && transportPermits.length === 1) select.value = trv2CvPermitOptionKey(transportPermits[0]);
 }
 
 function trv2CvTripDate(row) {
@@ -126,7 +180,7 @@ function trv2CvIsStamped(row, uuid) {
 
 function trv2BuildCvMovements() {
   const productFilter = Number(document.getElementById('trv2-cv-producto')?.value || 0);
-  const permisoFilter = document.getElementById('trv2-cv-permiso')?.value || '';
+  const permisoFilter = trv2CvSelectedPermitValue();
   const permisoItem = trv2CvSelectedPermitItem();
   const statusFilter = document.getElementById('trv2-cv-estado')?.value || '';
   const yearFilter = Number(document.getElementById('trv2-cv-anio')?.value || 0);
@@ -179,18 +233,27 @@ function trv2CvMovementPermit(row = {}) {
 }
 
 function trv2CvSelectedPermitItem() {
-  const permiso = document.getElementById('trv2-cv-permiso')?.value || '';
-  return (window.TRV2_PERMISOS_RFC || [])
-    .filter(trv2IsTransportistaPermit)
-    .find(item => String(item.permiso_cre || item.permiso || '') === permiso) || {};
+  const key = document.getElementById('trv2-cv-permiso')?.value || '';
+  const permits = trv2CvTransportPermits();
+  const byKey = permits.find(item => trv2CvPermitOptionKey(item) === key);
+  if (byKey) return byKey;
+  return permits.find(item => trv2CvPermitNumber(item) === key) || {};
+}
+
+function trv2CvSelectedPermitValue() {
+  const item = trv2CvSelectedPermitItem();
+  const permiso = trv2CvPermitNumber(item);
+  if (permiso) return permiso;
+  const raw = document.getElementById('trv2-cv-permiso')?.value || '';
+  return raw.includes('|') ? raw.split('|')[0] : raw;
 }
 
 function trv2RenderCvContext(movements) {
   const context = document.getElementById('trv2-cv-context');
   if (!context) return;
-  const permiso = document.getElementById('trv2-cv-permiso')?.value || '';
+  const permiso = trv2CvSelectedPermitValue();
   const permisoItem = trv2CvSelectedPermitItem();
-  const producto = permisoItem.producto || 'Todos';
+  const producto = permisoItem.producto || trv2CvPermitFamilyLabel(trv2CvPermitFamilyKey(permisoItem)) || 'Todos';
   const nombre = permisoItem.nombre || permisoItem.rfc || '';
   context.innerHTML = `
     <span><i class="fa-solid fa-id-card"></i> Permiso: <strong>${trv2Esc(permiso || 'Selecciona permiso')}</strong></span>
@@ -275,7 +338,7 @@ function trv2RefreshCvView() {
   trv2RenderCvTable(TRV2_CV_MOVEMENTS);
   const alert = document.getElementById('trv2-cv-alert');
   if (alert) {
-    alert.textContent = document.getElementById('trv2-cv-permiso')?.value
+    alert.textContent = trv2CvSelectedPermitValue()
       ? 'Filtro actualizado. El ZIP XML SAT tomará únicamente viajes timbrados vigentes del periodo y permiso seleccionado.'
       : 'Selecciona permiso y periodo para cerrar mes y generar ZIP XML SAT Transporte.';
   }
@@ -309,7 +372,7 @@ function trv2DownloadBase64File(filename, b64, mime = 'application/zip') {
 }
 
 async function trv2GenerateCvReport(format = 'zip') {
-  const permiso = document.getElementById('trv2-cv-permiso')?.value || '';
+  const permiso = trv2CvSelectedPermitValue();
   const anio = Number(document.getElementById('trv2-cv-anio')?.value || 0);
   const mes = Number(document.getElementById('trv2-cv-mes')?.value || 0);
   const alert = document.getElementById('trv2-cv-alert');
@@ -343,7 +406,7 @@ async function trv2GenerateCvReport(format = 'zip') {
 }
 
 async function trv2CloseCvMonth() {
-  const permiso = document.getElementById('trv2-cv-permiso')?.value || '';
+  const permiso = trv2CvSelectedPermitValue();
   const anio = Number(document.getElementById('trv2-cv-anio')?.value || 0);
   const mes = Number(document.getElementById('trv2-cv-mes')?.value || 0);
   const alert = document.getElementById('trv2-cv-alert');
@@ -379,7 +442,7 @@ function trv2ValidateCvDraft() {
   const nonHydrocarbon = TRV2_CV_MOVEMENTS.filter(item => !item.hydrocarbon).length;
   const alert = document.getElementById('trv2-cv-alert');
   const message = [
-    document.getElementById('trv2-cv-permiso')?.value ? 'Permiso mensual seleccionado.' : 'Selecciona un permiso para preparar el corte mensual.',
+    trv2CvSelectedPermitValue() ? 'Permiso mensual seleccionado.' : 'Selecciona un permiso para preparar el corte mensual.',
     notExportable ? `${notExportable} movimiento(s) visibles no son exportables porque no están timbrados con UUID válido.` : 'Todos los movimientos filtrados están timbrados y con UUID válido.',
     missingUuid ? `${missingUuid} movimiento(s) sin UUID Carta Porte válido.` : 'UUID Carta Porte válido en movimientos exportables.',
     nonHydrocarbon ? `${nonHydrocarbon} movimiento(s) requieren confirmar si aplican a hidrocarburos/petrolíferos.` : 'Productos del periodo parecen compatibles con Control Volumétrico.',
