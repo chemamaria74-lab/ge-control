@@ -454,6 +454,7 @@ def _detect_xml_document(content: bytes) -> dict[str, Any]:
     clave_sat = first_concept.get("ClaveProdServ") if first_concept is not None else ""
     unidad = (first_concept.get("ClaveUnidad") or first_concept.get("Unidad") or "") if first_concept is not None else ""
     producto = first_concept.get("Descripcion") if first_concept is not None else ""
+    peso_detectado_explicito = bool(_to_float(kilos))
     detected = {
         "emisor_nombre": emisor.get("Nombre", "") if emisor is not None else "",
         "emisor_rfc": emisor.get("Rfc", "") if emisor is not None else "",
@@ -851,6 +852,8 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         "litros": _to_float(liters),
         "peso_kg": _to_float(kilos),
         "kilos": _to_float(kilos),
+        "peso_kg_detectado_explicito": peso_detectado_explicito,
+        "peso_kg_estimado": False,
         "permiso": permiso,
         "unidad": unidad,
         "precio_unitario": precio_unitario,
@@ -884,10 +887,12 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     ):
         detected["peso_kg"] = 0
         detected["kilos"] = 0
+        detected["peso_kg_detectado_explicito"] = False
     if not detected["peso_kg"] and detected["cantidad_litros"] and detected["factor_kg_l"]:
         estimated_kg = round(float(detected["cantidad_litros"]) * float(detected["factor_kg_l"]), 3)
         detected["peso_kg"] = estimated_kg
         detected["kilos"] = estimated_kg
+        detected["peso_kg_estimado"] = True
         warnings.append(
             f"PDF sin kilos explícitos; se estimaron con factor {detected['factor_kg_l']} kg/L. Revisa antes de guardar."
         )
@@ -4419,7 +4424,14 @@ def _stamp_make_producto(viaje: dict[str, Any], producto: dict[str, Any], settin
     volumen = _num(viaje.get("volumen_total_litros") or viaje.get("volumen_litros") or raw.get("cantidad_litros"))
     peso = _num(viaje.get("peso_kg") or raw.get("peso_kg") or _meta(viaje).get("peso_kg"))
     default_factor = _num((settings.get("perfil_fiscal") or {}).get("factor_kg_l_default")) or 0.75
-    densidad = round(peso / volumen, 6) if volumen > 0 and peso > 0 else default_factor
+    product_factor = _num(producto.get("factor_kg_l") or producto.get("densidad_kg_l"))
+    detected = _meta(viaje).get("documento_detectado") if isinstance(_meta(viaje).get("documento_detectado"), dict) else {}
+    if volumen > 0 and detected.get("peso_kg_estimado") and product_factor:
+        densidad = product_factor
+    elif volumen > 0 and peso > 0:
+        densidad = round(peso / volumen, 12)
+    else:
+        densidad = product_factor or default_factor
     internal_key, sub_key, sat_key = _stamp_internal_product_keys(producto, raw)
     importe = _num(
         viaje.get("subtotal_flete")
@@ -7489,7 +7501,17 @@ async def transporte_v2_documentos_analizar(
                 result["detected"]["producto_id"] = product_match.get("id")
                 result["detected"]["producto"] = _first_text(result["detected"].get("producto"), product_match.get("nombre"), product_match.get("descripcion"))
                 result["detected"]["clave_sat"] = _first_text(result["detected"].get("clave_sat"), product_match.get("clave_producto"), product_match.get("clave_prodserv_cfdi"))
-                result["detected"]["factor_kg_l"] = result["detected"].get("factor_kg_l") or product_match.get("factor_kg_l") or product_match.get("densidad_kg_l")
+                catalog_factor = _num(product_match.get("factor_kg_l") or product_match.get("densidad_kg_l"))
+                if catalog_factor:
+                    result["detected"]["factor_kg_l"] = catalog_factor
+                    litros_detectados = _num(result["detected"].get("cantidad_litros") or result["detected"].get("litros"))
+                    peso_estimado = bool(result["detected"].get("peso_kg_estimado"))
+                    peso_explicito = bool(result["detected"].get("peso_kg_detectado_explicito"))
+                    if litros_detectados and (peso_estimado or not peso_explicito):
+                        peso_recalculado = round(litros_detectados * catalog_factor, 3)
+                        result["detected"]["peso_kg"] = peso_recalculado
+                        result["detected"]["kilos"] = peso_recalculado
+                        result["detected"]["peso_kg_estimado"] = True
         result["cliente_match"] = {
             "status": "registrado" if client_match else "no_encontrado",
             "item": _normalize_catalog_row("clientes", client_match) if client_match else None,
