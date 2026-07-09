@@ -291,7 +291,7 @@
       <article><span>Pendientes de pago</span><strong>0</strong></article>
     </div>
     <div class="trv2-service-family-dashboard" id="trv2-service-family-dashboard"></div>
-    <section class="trv2-panel" id="trv2-service-results" hidden>
+    <section class="trv2-panel" id="trv2-service-results">
       <div class="trv2-service-tabs-row">
         <nav class="trv2-subtabs" aria-label="Cartas Ingreso">
           <button class="trv2-subtab active" type="button" data-service-tab="pendientes" onclick="trv2SetServiceInvoiceTab('pendientes')">Pendientes de Facturar</button>
@@ -304,8 +304,9 @@
         <div class="trv2-service-table-toolbar">
           <div id="trv2-service-product-filter" class="trv2-service-product-filter"></div>
           <label class="trv2-service-search"><i class="fa-solid fa-magnifying-glass"></i><input id="trv2-service-search-pendientes" type="search" placeholder="Buscar pendientes de facturar" oninput="trv2SetServiceSearch('pendientes', this.value)"></label>
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2SearchServiceInvoices('pendientes')"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
         </div>
-        <div class="trv2-table-wrap trv2-service-scroll">
+        <div class="trv2-table-wrap trv2-service-scroll" id="trv2-service-table-pendientes" hidden>
           <table class="trv2-service-pending-table">
             <thead>
               <tr>
@@ -320,8 +321,9 @@
         <div class="trv2-service-table-toolbar">
           <div id="trv2-service-invoiced-product-filter" class="trv2-service-product-filter"></div>
           <label class="trv2-service-search"><i class="fa-solid fa-magnifying-glass"></i><input id="trv2-service-search-facturadas" type="search" placeholder="Buscar facturadas" oninput="trv2SetServiceSearch('facturadas', this.value)"></label>
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2SearchServiceInvoices('facturadas')"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
         </div>
-        <div class="trv2-table-wrap trv2-service-scroll">
+        <div class="trv2-table-wrap trv2-service-scroll" id="trv2-service-table-facturadas" hidden>
         <table class="trv2-service-generated-table">
           <thead><tr><th>Fecha</th><th>Cliente</th><th>UUID CFDI</th><th>Total</th><th>PDF</th><th>XML</th></tr></thead>
           <tbody id="trv2-service-invoiced-table"></tbody>
@@ -332,8 +334,9 @@
         <div class="trv2-service-table-toolbar">
           <div id="trv2-service-payment-product-filter" class="trv2-service-product-filter"></div>
           <label class="trv2-service-search"><i class="fa-solid fa-magnifying-glass"></i><input id="trv2-service-search-pago" type="search" placeholder="Buscar pendientes de pago" oninput="trv2SetServiceSearch('pago', this.value)"></label>
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2SearchServiceInvoices('pago')"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
         </div>
-        <div class="trv2-table-wrap trv2-service-scroll">
+        <div class="trv2-table-wrap trv2-service-scroll" id="trv2-service-table-pago" hidden>
         <table class="trv2-service-generated-table">
           <thead><tr><th>Cliente</th><th>Fecha</th><th>Total</th><th>Saldo</th><th>Estatus</th></tr></thead>
           <tbody id="trv2-service-payment-table"></tbody>
