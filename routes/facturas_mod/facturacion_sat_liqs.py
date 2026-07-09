@@ -262,8 +262,45 @@ def _tariff_match(viaje: dict, tarifa: dict) -> bool:
     return True
 
 
+def _tariff_specificity(viaje: dict, tarifa: dict) -> int:
+    if not _tariff_match(viaje, tarifa):
+        return -1
+    productos = viaje.get("productos_json")
+    if isinstance(productos, str):
+        try:
+            productos = json.loads(productos)
+        except Exception:
+            productos = []
+    first = (productos or [{}])[0] if isinstance(productos, list) and productos else {}
+    viaje_producto_id = (
+        viaje.get("producto_id")
+        or viaje.get("producto_operacion_id")
+        or first.get("producto_id")
+        or first.get("id")
+    )
+    score = 0
+    if tarifa.get("ruta_id") and str(tarifa.get("ruta_id")) == str(viaje.get("ruta_id") or ""):
+        score += 100
+    if tarifa.get("producto_id") and viaje_producto_id and str(tarifa.get("producto_id")) == str(viaje_producto_id):
+        score += 80
+    elif str(tarifa.get("producto") or "").strip().upper() and str(tarifa.get("producto") or "").strip().upper() in _tariff_product_text(viaje):
+        score += 40
+    if tarifa.get("cliente_id") and str(tarifa.get("cliente_id")) == str(viaje.get("cliente_id") or ""):
+        score += 20
+    if str(tarifa.get("origen") or "").strip():
+        score += 5
+    if str(tarifa.get("destino") or "").strip():
+        score += 5
+    try:
+        score -= int(tarifa.get("prioridad") or 100)
+    except Exception:
+        score -= 100
+    return score
+
+
 def _calcular_tarifa_operativa(viaje: dict, tarifas: list[dict]) -> dict:
-    tarifa = next((t for t in sorted(tarifas or [], key=lambda r: int(r.get("prioridad") or 100)) if _tariff_match(viaje, t)), None)
+    matches = [(t, _tariff_specificity(viaje, t)) for t in (tarifas or [])]
+    tarifa = next((t for t, score in sorted(matches, key=lambda item: item[1], reverse=True) if score >= 0), None)
     productos = viaje.get("productos_json")
     if isinstance(productos, str):
         try:
@@ -630,6 +667,33 @@ def _fact_serv_amount(value, default: float = 0.0) -> float:
         return default
 
 
+def _fact_serv_metadata(row: dict) -> dict:
+    meta = row.get("metadata") or {}
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except Exception:
+            meta = {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def _fact_serv_invoice_cancelada(row: dict) -> bool:
+    meta = _fact_serv_metadata(row)
+    cancel_result = meta.get("cancelacion_resultado") or row.get("cancelacion_resultado") or {}
+    text = " ".join(str(v or "") for v in (
+        row.get("status"),
+        row.get("estatus"),
+        row.get("cancelacion_status"),
+        meta.get("status"),
+        meta.get("estatus"),
+        meta.get("cancelacion_status"),
+        "cancelada" if meta.get("canceled_at") else "",
+        cancel_result.get("status") if isinstance(cancel_result, dict) else "",
+        "cancelada" if isinstance(cancel_result, dict) and cancel_result.get("manual") else "",
+    )).lower()
+    return "cancel" in text
+
+
 def _fact_serv_calc_base(item: dict, calculo: dict) -> float:
     rule = str(
         item.get("regla_calculo")
@@ -884,13 +948,13 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         factura_ids = [int(r.get("factura_servicio_id") or 0) for r in links if r.get("factura_servicio_id")]
         facturas_activas = set()
         if factura_ids:
-            fq = sb.table(_TBL_FACT_SERV).select("id,status").eq("user_id", uid).in_("id", factura_ids)
+            fq = sb.table(_TBL_FACT_SERV).select("id,status,estatus,cancelacion_status,cancelacion_resultado,metadata").eq("user_id", uid).in_("id", factura_ids)
             if perfil_factura:
                 fq = fq.eq("perfil_id", perfil_factura)
             facturas_activas = {
                 int(r.get("id") or 0)
                 for r in (fq.execute().data or [])
-                if "cancel" not in str(r.get("status") or "").lower()
+                if not _fact_serv_invoice_cancelada(r)
             }
         ya = [r.get("viaje_id") for r in links if int(r.get("factura_servicio_id") or 0) in facturas_activas]
         if ya:
@@ -899,9 +963,11 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         raise
     except Exception:
         # Compatibilidad con bases que aun no tienen la tabla de control.
-        existentes = sb.table(_TBL_FACT_SERV).select("viaje_ids").eq("user_id", uid).execute().data or []
+        existentes = sb.table(_TBL_FACT_SERV).select("viaje_ids,status,estatus,cancelacion_status,cancelacion_resultado,metadata").eq("user_id", uid).execute().data or []
         usados = set()
         for f in existentes:
+            if _fact_serv_invoice_cancelada(f):
+                continue
             vals = f.get("viaje_ids") or []
             if isinstance(vals, list):
                 usados.update(int(v) for v in vals if str(v).isdigit())
