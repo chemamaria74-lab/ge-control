@@ -365,6 +365,11 @@ function trv2ServicePaymentLabel(item = {}) {
   return trv2ServicePaymentStatus(item) === 'pagada' ? 'Pagada' : 'Pendiente de pago';
 }
 
+function trv2ServicePaymentIcon(item = {}) {
+  const paid = trv2ServicePaymentStatus(item) === 'pagada';
+  return `<span class="trv2-service-pay-icon ${paid ? 'paid' : 'pending'}" title="${trv2Esc(trv2ServicePaymentLabel(item))}" aria-label="${trv2Esc(trv2ServicePaymentLabel(item))}"><i class="fa-solid ${paid ? 'fa-check' : 'fa-clock'}"></i></span>`;
+}
+
 function trv2ServiceFilterInvoicesByMonth(invoices = []) {
   if (!TRV2_SERVICE_MONTH) return invoices;
   return invoices.filter(item => trv2ServiceInvoiceMonth(item) === TRV2_SERVICE_MONTH);
@@ -430,7 +435,6 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
       const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
       return [
         String(service.fecha || '').slice(0, 10),
-        service.cliente,
         service.no_carta_porte,
         service.origen,
         service.destino,
@@ -448,7 +452,7 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
         Number(calc.total || 0),
       ];
     });
-    trv2DownloadExcelTable(trv2ServiceExcelScope('pendientes'), ['Fecha', 'Cliente', 'No.', 'Origen', 'Destino', 'Producto', 'Litros', 'Kilos', 'Chofer', 'Vehiculo', 'UUID', 'Tarifa', 'Base', 'Subtotal', 'IVA', 'Retencion', 'Total'], rows);
+    trv2DownloadExcelTable(trv2ServiceExcelScope('pendientes'), ['Fecha', 'No.', 'Origen', 'Destino', 'Producto', 'Litros', 'Kilos', 'Chofer', 'Vehiculo', 'UUID', 'Tarifa', 'Base', 'Subtotal', 'IVA', 'Retencion', 'Total'], rows);
     return;
   }
   const invoices = trv2ServiceFilterInvoicesForView(targetTab);
@@ -467,7 +471,6 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
   }
   const rows = invoices.map(item => [
     String(item.created_at || item.fecha || '').slice(0, 10),
-    item.nombre_receptor || item.cliente || item.rfc_receptor || '',
     trv2ServiceInvoiceRouteValue(item, 'origen'),
     trv2ServiceInvoiceRouteValue(item, 'destino'),
     Number(trv2ServiceInvoiceQuantity(item, 'litros') || 0),
@@ -478,7 +481,7 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
     Number(item.total || 0),
     trv2ServicePaymentLabel(item),
   ]);
-  trv2DownloadExcelTable(trv2ServiceExcelScope('facturadas'), ['Fecha', 'Cliente', 'Origen', 'Destino', 'Litros', 'Kilos', 'Chofer', 'Factura', 'UUID CFDI', 'Total', 'Pago'], rows);
+  trv2DownloadExcelTable(trv2ServiceExcelScope('facturadas'), ['Fecha', 'Origen', 'Destino', 'Litros', 'Kilos', 'Chofer', 'Factura', 'UUID CFDI', 'Total', 'Pago'], rows);
 }
 
 function trv2ServiceVehicleShort(value = '') {
@@ -956,7 +959,7 @@ function trv2RenderServicePendingTable() {
   trv2RenderServiceProductFilter(allRows);
   const rows = trv2ServiceFilterPendingRowsForView();
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="15"><div class="trv2-empty">No hay Cartas Ingreso pendientes para este producto, periodo o búsqueda.</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14"><div class="trv2-empty">No hay Cartas Ingreso pendientes para este producto, periodo o búsqueda.</div></td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(row => {
@@ -968,7 +971,6 @@ function trv2RenderServicePendingTable() {
       <tr>
         <td>${trv2Esc(String(service.fecha || '').slice(0, 10))}</td>
         <td><strong title="${trv2Esc(service.uuid_carta_porte)}">${trv2Esc(service.no_carta_porte || 'T')}</strong></td>
-        <td><span class="trv2-service-main">${trv2Esc(service.cliente)}</span></td>
         <td><span class="trv2-service-main">${trv2Esc(service.origen)}</span></td>
         <td><span class="trv2-service-main">${trv2Esc(service.producto)}</span></td>
         <td class="trv2-num">${trv2ServiceNumber(service.litros)}</td>
@@ -999,7 +1001,6 @@ function trv2RenderServiceGeneratedTables() {
     facturadas.innerHTML = filteredInvoices.length ? filteredInvoices.map(item => `
       <tr>
         <td>${trv2Esc(String(item.created_at || item.fecha || '').slice(0, 10))}</td>
-        <td><span class="trv2-service-main">${trv2Esc(item.nombre_receptor || item.cliente || item.rfc_receptor || '')}</span></td>
         <td><span class="trv2-service-main">${trv2Esc(trv2ServiceInvoiceRouteValue(item, 'origen') || '—')}</span></td>
         <td><span class="trv2-service-main">${trv2Esc(trv2ServiceInvoiceRouteValue(item, 'destino') || '—')}</span></td>
         <td class="trv2-num">${trv2ServiceNumber(trv2ServiceInvoiceQuantity(item, 'litros'))}</td>
@@ -1008,12 +1009,12 @@ function trv2RenderServiceGeneratedTables() {
         <td><strong>${trv2Esc(trv2ServiceInvoiceFolio(item))}</strong></td>
         <td><span class="trv2-service-uuid" title="${trv2Esc(item.uuid_sat || item.uuid_cfdi || '')}">${trv2Esc(trv2ServiceShortUuid(item.uuid_sat || item.uuid_cfdi || 'Pendiente de timbrar'))}</span></td>
         <td class="trv2-num"><strong>${trv2ServiceMoney(item.total)}</strong></td>
-        <td><span class="trv2-chip">${trv2Esc(trv2ServicePaymentLabel(item))}</span></td>
+        <td>${trv2ServicePaymentIcon(item)}</td>
         <td class="trv2-service-actions">
-          ${item.id ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceArtifact(${Number(item.id)}, 'pdf')">PDF</button><button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceArtifact(${Number(item.id)}, 'xml', true)">XML</button><button class="trv2-mini-btn ${trv2ServicePaymentStatus(item) === 'pagada' ? '' : 'trv2-mini-btn-primary'}" type="button" onclick="trv2SetServicePaymentStatus(${Number(item.id)}, '${trv2ServicePaymentStatus(item) === 'pagada' ? 'pendiente_pago' : 'pagada'}')">${trv2ServicePaymentStatus(item) === 'pagada' ? 'No pagada' : 'Pagada'}</button><button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2CancelServiceInvoice(${Number(item.id)})">Cancelar</button>` : 'Pendiente'}
+          ${item.id ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceArtifact(${Number(item.id)}, 'pdf')">PDF</button><button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceArtifact(${Number(item.id)}, 'xml', true)">XML</button><button class="trv2-mini-icon-btn trv2-mini-icon-danger" type="button" title="Cancelar Carta Ingreso" aria-label="Cancelar Carta Ingreso" onclick="trv2CancelServiceInvoice(${Number(item.id)})"><i class="fa-solid fa-xmark"></i></button>` : 'Pendiente'}
         </td>
       </tr>
-    `).join('') : '<tr><td colspan="12"><div class="trv2-empty">No hay Cartas Ingreso facturadas para este producto, periodo o búsqueda.</div></td></tr>';
+    `).join('') : '<tr><td colspan="11"><div class="trv2-empty">No hay Cartas Ingreso facturadas para este producto, periodo o búsqueda.</div></td></tr>';
   }
   if (pago) {
     pago.innerHTML = filteredPaymentInvoices.length ? filteredPaymentInvoices.map(item => `
@@ -1042,12 +1043,30 @@ async function trv2CancelServiceInvoice(invoiceId) {
     uuid_sustitucion: uuidSustitucion,
   }, {allowError: true});
   if (!response?.ok) {
-    trv2Toast(response?.detail || response?.message || 'No se pudo cancelar la Carta Ingreso.', 'error');
+    const message = trv2MessageText(response?.detail || response?.message || 'No se pudo cancelar la Carta Ingreso.');
+    if (confirm(`${message}\n\n¿Ya está cancelada manualmente en SW Sapiens y solo quieres liberarla en GControl?`)) {
+      await trv2ReleaseManualCancelledServiceInvoice(invoiceId);
+      return;
+    }
+    trv2Toast(message, 'error');
     return;
   }
   await trv2LoadTrips?.();
   await trv2LoadServiceInvoices({force: true});
   trv2Toast('Carta Ingreso cancelada y viaje devuelto a pendientes de facturar.', 'success');
+}
+
+async function trv2ReleaseManualCancelledServiceInvoice(invoiceId) {
+  const response = await trv2Api('POST', `/api/tr-v2/facturas-servicio/${Number(invoiceId)}/liberar-cancelada-manual`, {
+    motivo: 'cancelada_manual_sw',
+  }, {allowError: true});
+  if (!response?.ok) {
+    trv2Toast(response?.detail || response?.message || 'No se pudo liberar la Carta Ingreso cancelada manualmente.', 'error');
+    return;
+  }
+  await trv2LoadTrips?.();
+  await trv2LoadServiceInvoices({force: true});
+  trv2Toast('Carta Ingreso marcada como cancelada manualmente y viaje devuelto a pendientes.', 'success');
 }
 
 async function trv2SetServicePaymentStatus(invoiceId, status = 'pagada') {
