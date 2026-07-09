@@ -325,7 +325,7 @@
         </div>
         <div class="trv2-table-wrap trv2-service-scroll" id="trv2-service-table-facturadas" hidden>
         <table class="trv2-service-generated-table">
-          <thead><tr><th>Fecha</th><th>Cliente</th><th>UUID CFDI</th><th>Total</th><th>PDF</th><th>XML</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Cliente</th><th>Chofer</th><th>Carta Porte</th><th>Factura</th><th>UUID CFDI</th><th>Total</th><th>Pago</th><th>Acciones</th></tr></thead>
           <tbody id="trv2-service-invoiced-table"></tbody>
         </table>
         </div>
@@ -338,7 +338,7 @@
         </div>
         <div class="trv2-table-wrap trv2-service-scroll" id="trv2-service-table-pago" hidden>
         <table class="trv2-service-generated-table">
-          <thead><tr><th>Cliente</th><th>Fecha</th><th>Total</th><th>Saldo</th><th>Estatus</th></tr></thead>
+          <thead><tr><th>Cliente</th><th>Factura</th><th>Fecha</th><th>Total</th><th>Saldo</th><th>Estatus</th><th>Acción</th></tr></thead>
           <tbody id="trv2-service-payment-table"></tbody>
         </table>
         </div>
@@ -350,24 +350,45 @@
     <div class="trv2-section-head">
       <div>
         <h1>Conciliación</h1>
-        <p>Vista separada para pagos de Cartas Ingreso Transporte. No toca Conciliación Gas LP.</p>
+        <p>Pagos de Cartas Ingreso y resumen mensual por operadores de Transporte.</p>
+      </div>
+      <div class="trv2-actions">
+        <label class="trv2-inline-filter trv2-month-filter">Mes
+          <input id="trv2-conc-month" type="month" onchange="trv2SetConciliacionMonth(this.value)">
+        </label>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2PrepareConciliacionTab({force:true})"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
       </div>
     </div>
-    <section class="trv2-panel">
-      <div class="trv2-form trv2-form-compact">
-        <label>Mes <select><option>Junio 2026</option></select></label>
-        <label>Cliente <select><option>Todos</option></select></label>
-      </div>
-    </section>
-    <div class="trv2-kpis">
+    <div class="trv2-kpis" id="trv2-conc-kpis">
       <article><span>Pendientes de pago</span><strong>0</strong></article>
       <article><span>Pagadas</span><strong>0</strong></article>
-      <article><span>Conciliadas</span><strong>0</strong></article>
-      <article><span>Con diferencia</span><strong>0</strong></article>
+      <article><span>Viajes del mes</span><strong>0</strong></article>
+      <article><span>Operadores</span><strong>0</strong></article>
     </div>
     <section class="trv2-panel">
-      <h2>Cartas Ingreso</h2>
-      <div class="trv2-empty">Conciliación Transporte en preparación.</div>
+      <div class="trv2-service-tabs-row">
+        <nav class="trv2-subtabs" aria-label="Conciliación Transporte">
+          <button class="trv2-subtab active" type="button" data-conc-tab="facturas" onclick="trv2SetConciliacionTab('facturas')">Facturas</button>
+          <button class="trv2-subtab" type="button" data-conc-tab="operadores" onclick="trv2SetConciliacionTab('operadores')">Operadores</button>
+        </nav>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportConciliacionExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
+      </div>
+      <div class="trv2-service-panel" data-conc-panel="facturas">
+        <div class="trv2-table-wrap trv2-service-scroll">
+          <table class="trv2-service-generated-table">
+            <thead><tr><th>Fecha</th><th>Cliente</th><th>Factura</th><th>Chofer</th><th>Total</th><th>Saldo</th><th>Estatus</th><th>Acción</th></tr></thead>
+            <tbody id="trv2-conc-invoices-table"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="trv2-service-panel" data-conc-panel="operadores" hidden>
+        <div class="trv2-table-wrap trv2-service-scroll">
+          <table class="trv2-service-generated-table">
+            <thead><tr><th>Operador</th><th>Viajes</th><th>Litros</th><th>Kilos</th><th>Total estimado</th><th>Cartas Porte</th><th>Clientes</th></tr></thead>
+            <tbody id="trv2-conc-operators-table"></tbody>
+          </table>
+        </div>
+      </div>
     </section>
   </section>
 
