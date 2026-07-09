@@ -66,6 +66,24 @@ def test_gas_lp_pdf_filename_and_amount_words_are_business_ready():
     assert _amount_to_spanish_mxn(4788.00, "MXN") == "CUATRO MIL SETECIENTOS OCHENTA Y OCHO PESOS 00/100 MXN"
 
 
+def test_carta_ingreso_pdf_filename_uses_business_label():
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+    <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Version="4.0" Serie="CI" Folio="F-64" Moneda="MXN" Total="26109.88" TipoDeComprobante="I">
+      <cfdi:Emisor Rfc="OEMR710420FCA" Nombre="RUTH ORNELAS MUÑOZ" RegimenFiscal="612"/>
+      <cfdi:Receptor Rfc="GLU760309457" Nombre="GAS LUX" DomicilioFiscalReceptor="99300" RegimenFiscalReceptor="601" UsoCFDI="G03"/>
+      <cfdi:Complemento>
+        <tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" UUID="b003ec62-a95c-4622-976f-5cfd2c4aa7fc"/>
+      </cfdi:Complemento>
+    </cfdi:Comprobante>
+    """
+
+    info = fiscal_pdf_info(xml, "carta_ingreso_transporte")
+
+    assert info.serie_folio == "CI-F-64"
+    assert info.filename.startswith("CARTA_INGRESO_RUTHORNELAS")
+    assert "GASLUX_CI-F-64_B003EC62.pdf" in info.filename
+
+
 def test_gas_lp_pdf_accepts_customer_observations_without_changing_concept():
     xml = """<?xml version="1.0" encoding="utf-8"?>
     <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="4.0" Serie="P7U22" Folio="000054" Fecha="2026-06-02T08:25:26" SubTotal="4127.59" Moneda="MXN" Total="4788.00" TipoDeComprobante="I" MetodoPago="PUE" FormaPago="03" Exportacion="01" LugarExpedicion="99300" NoCertificado="00001000000719623247" Sello="abc123456789">

@@ -212,7 +212,7 @@ def test_pdf_carta_ingreso_combina_factura_y_anexo_carta_porte(tmp_path):
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
 
     assert len(reader.pages) >= 3
-    assert "FACTURA CFDI 4.0" in text
+    assert "CARTA INGRESO CFDI 4.0" in text
     assert "CARTA PORTE - INGRESO" in text
     assert "Complemento Carta Porte 3.1" in text
     assert "78101802" in text
