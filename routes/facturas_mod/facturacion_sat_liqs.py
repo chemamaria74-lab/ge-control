@@ -344,6 +344,7 @@ def _build_carta_ingreso_viaje(viaje: dict, payload: FacturaServicioCreate, calc
         _stamp_expand_route_locations,
         _stamp_expand_vehicle_trailers,
         _stamp_make_producto,
+        _stamp_transportista_permiso,
         _stamp_vehicle_payload,
     )
 
@@ -356,6 +357,14 @@ def _build_carta_ingreso_viaje(viaje: dict, payload: FacturaServicioCreate, calc
     producto_row = _get_row(sb, TBL_PRODUCTOS, uid, perfil_id, viaje_expanded.get("producto_operacion_id") or viaje_expanded.get("producto_id"))
     producto = _stamp_make_producto(viaje_expanded, producto_row, settings)
     producto = producto.model_copy(update={"importe": _safe_float(calculo.get("subtotal"))})
+    producto_text = _first_text(
+        producto_row.get("tipo_producto"),
+        producto_row.get("descripcion"),
+        producto_row.get("nombre"),
+        producto.descripcion,
+        meta.get("producto"),
+    )
+    permiso_transportista = _stamp_transportista_permiso(sb, uid, perfil_id, producto_text)
     chofer = _get_row(sb, _TBL_CHOFERES, uid, perfil_id, viaje_expanded.get("chofer_id"))
     vehiculo_raw = _get_row(sb, _TBL_VEHICULOS, uid, perfil_id, viaje_expanded.get("vehiculo_id"))
     vehiculo = _stamp_vehicle_payload(_stamp_expand_vehicle_trailers(sb, uid, perfil_id, vehiculo_raw))
@@ -399,7 +408,13 @@ def _build_carta_ingreso_viaje(viaje: dict, payload: FacturaServicioCreate, calc
         cp_receptor=payload.cp_receptor,
         regimen_fiscal_receptor=payload.regimen_fiscal,
         uso_cfdi=payload.uso_cfdi,
-        num_permiso_cne=_first_text(viaje_expanded.get("num_permiso_cne"), meta.get("num_permiso_cne"), settings.get("NumPermisoCNE"), settings.get("num_permiso_cne")),
+        num_permiso_cne=_first_text(
+            viaje_expanded.get("num_permiso_cne"),
+            meta.get("num_permiso_cne"),
+            (permiso_transportista or {}).get("permiso_cre"),
+            settings.get("NumPermisoCNE"),
+            settings.get("num_permiso_cne"),
+        ),
         iva_tasa=_safe_float(calculo.get("iva_tasa"), 0.16),
         retencion_tasa=_safe_float(calculo.get("retencion_tasa"), 0.04),
         aplica_iva=bool(calculo.get("aplica_iva", True)),
