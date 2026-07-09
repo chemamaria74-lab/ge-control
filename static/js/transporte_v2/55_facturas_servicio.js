@@ -196,14 +196,25 @@ function trv2ServiceFamilyLabel(value = '') {
 
 function trv2ServiceInvoiceFamily(item = {}) {
   const meta = item.metadata || {};
+  const explicitFamily = trv2ServiceNorm([
+    item.producto_familia,
+    item.familia_producto,
+    meta.producto_familia,
+    meta.familia_producto,
+  ].filter(Boolean).join(' '));
+  if (explicitFamily.includes('GAS_LP') || explicitFamily.includes('GAS LP')) return 'gas_lp';
+  if (explicitFamily.includes('PETROL')) return 'petroliferos';
   const text = [
     item.producto,
     item.producto_nombre,
+    item.producto_descripcion,
     item.descripcion,
     item.concepto,
     meta.producto,
     meta.producto_nombre,
     meta.producto_descripcion,
+    meta.mercancia_descripcion,
+    meta.bienes_transp,
     meta.tipo_producto,
     Array.isArray(item.conceptos) ? JSON.stringify(item.conceptos) : '',
     Array.isArray(meta.conceptos) ? JSON.stringify(meta.conceptos) : '',
@@ -934,12 +945,24 @@ async function trv2OpenServiceArtifact(invoiceId, kind, download = false) {
   if (download || kind === 'xml') {
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${kind === 'xml' ? 'carta_ingreso.xml' : 'carta_ingreso.pdf'}`;
+    anchor.download = trv2DownloadFilename(response.headers.get('Content-Disposition'), kind === 'xml' ? 'carta_ingreso.xml' : 'carta_ingreso.pdf');
     anchor.click();
   } else {
     window.open(url, '_blank', 'noopener');
   }
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function trv2DownloadFilename(disposition = '', fallback = 'archivo') {
+  const header = String(disposition || '');
+  const utf = header.match(/filename\*=UTF-8''([^;]+)/i);
+  const plain = header.match(/filename="?([^";]+)"?/i);
+  const raw = utf?.[1] || plain?.[1] || fallback;
+  try {
+    return decodeURIComponent(raw);
+  } catch (_err) {
+    return raw || fallback;
+  }
 }
 
 function trv2RenderServiceKpis() {
