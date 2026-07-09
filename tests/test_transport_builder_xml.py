@@ -82,6 +82,58 @@ def test_transporte_xml_incluye_carta_porte_31_y_concepto_flete():
     assert root.xpath('string(//*[local-name()="Remolque"]/@SubTipoRem)') == "CTR028"
 
 
+def test_transporte_xml_diesel_pr05_usa_bienes_transp_15101505():
+    producto = ProductoTransporte(
+        clave_producto="PR05",
+        clave_subproducto="SP6",
+        volumen_litros=1000,
+        valor_mercancia=100,
+        descripcion="DIESEL",
+        unidad="LTR",
+        densidad_kg_l=0.84,
+        cve_material_peligroso="1202",
+        embalaje="Z01",
+    )
+    viaje = ViajeCreate(
+        chofer_id=1,
+        vehiculo_id=1,
+        cp_origen="99300",
+        nombre_origen="ORIGEN",
+        cp_destino="20000",
+        nombre_destino="DESTINO",
+        fecha_hora_salida="2026-07-08T08:00:00",
+        fecha_hora_llegada="2026-07-08T10:00:00",
+        productos=[producto],
+        tipo_cfdi="T",
+        distancia_km=100,
+        num_permiso_cne="PET-TEST",
+    )
+    cfdi, _id_ccp = build_cfdi_transporte(
+        viaje,
+        {
+            "rfc": "OEMR710420FCA",
+            "nombre": "RUTH ORNELAS MUNOZ",
+            "regimen_fiscal": "612",
+            "domicilio_fiscal": "98604",
+            "num_permiso_cne": "PET-TEST",
+        },
+        {"nombre": "OPERADOR", "rfc": "XAXX010101000", "licencia": "LIC123"},
+        {
+            "placas": "44AR3V",
+            "anio": 2021,
+            "config_vehicular": "T3S2",
+            "aseguradora": "ASEGURADORA",
+            "poliza_seguro": "POL123",
+            "permiso_sct": "TPAF03",
+            "num_permiso_sct": "SCT123456",
+        },
+    )
+
+    root = etree.fromstring(build_cfdi_transporte_xml(cfdi).encode())
+
+    assert root.xpath('string(//*[local-name()="Mercancia"]/@BienesTransp)') == "15101505"
+
+
 def test_transporte_xml_normaliza_fechas_operador_con_offset_sin_segundos():
     producto = ProductoTransporte(
         clave_producto="PR12",

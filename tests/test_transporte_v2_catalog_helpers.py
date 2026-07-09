@@ -9,6 +9,7 @@ from routes.transporte_v2 import (
     _normalize_permiso_row,
     _permiso_payload,
     _permiso_product_family_match,
+    _stamp_internal_product_keys,
 )
 
 
@@ -49,3 +50,25 @@ def test_transportista_petroliferos_permission_covers_gasoline_and_diesel_only()
     assert _permiso_product_family_match(row, "Premium")
     assert _permiso_product_family_match(row, "Diésel")
     assert not _permiso_product_family_match(row, "Gas LP")
+
+
+def test_diesel_defaults_to_clave_sat_15101505_for_stamping():
+    internal, subproducto, clave_sat = _stamp_internal_product_keys(
+        {"descripcion": "DIESEL", "tipo_producto": "Diésel"},
+        {},
+    )
+
+    assert internal == "PR05"
+    assert subproducto == "SP6"
+    assert clave_sat == "15101505"
+
+
+def test_diesel_legacy_15101507_still_maps_to_pr05():
+    internal, subproducto, clave_sat = _stamp_internal_product_keys(
+        {"clave_producto": "15101507", "descripcion": "DIESEL"},
+        {},
+    )
+
+    assert internal == "PR05"
+    assert subproducto == "SP6"
+    assert clave_sat == "15101507"
