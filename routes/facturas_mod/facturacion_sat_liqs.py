@@ -163,8 +163,27 @@ def _tariff_match(viaje: dict, tarifa: dict) -> bool:
         return False
     if tarifa.get("ruta_id") and str(tarifa.get("ruta_id")) != str(viaje.get("ruta_id") or ""):
         return False
+    productos = viaje.get("productos_json")
+    if isinstance(productos, str):
+        try:
+            productos = json.loads(productos)
+        except Exception:
+            productos = []
+    first = (productos or [{}])[0] if isinstance(productos, list) and productos else {}
+    tarifa_producto_id = tarifa.get("producto_id")
+    viaje_producto_id = (
+        viaje.get("producto_id")
+        or viaje.get("producto_operacion_id")
+        or first.get("producto_id")
+        or first.get("id")
+    )
+    mismo_producto_id = bool(
+        tarifa_producto_id
+        and viaje_producto_id
+        and str(tarifa_producto_id) == str(viaje_producto_id)
+    )
     producto_tarifa = str(tarifa.get("producto") or "").strip().upper()
-    if producto_tarifa and producto_tarifa not in _tariff_product_text(viaje):
+    if producto_tarifa and not mismo_producto_id and producto_tarifa not in _tariff_product_text(viaje):
         return False
     origen = str(tarifa.get("origen") or "").strip().upper()
     if origen and origen not in str(viaje.get("nombre_origen") or viaje.get("origen") or "").upper():
@@ -771,7 +790,11 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         viajes_calc = viajes
     calculo_servicio = _sumar_calculos_servicio(viajes_calc, tarifas)
     calculo_servicio = _fact_serv_apply_tariff_override(calculo_servicio, payload)
-    sin_tarifa = [i.get("viaje_id") for i in calculo_servicio.get("items", []) if not i.get("tarifa_id")]
+    sin_tarifa = [
+        i.get("viaje_id")
+        for i in calculo_servicio.get("items", [])
+        if not i.get("tarifa_id") and not i.get("tarifa_override")
+    ]
     if sin_tarifa:
         raise HTTPException(400, f"Configura una tarifa de servicio antes de timbrar Carta Ingreso para estos viajes: {sin_tarifa}")
     if calculo_servicio.get("tasas_mixtas"):
