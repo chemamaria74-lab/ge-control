@@ -55,6 +55,7 @@ TBL_DESTINOS = "tr_destinos"
 TBL_REMOLQUES = "tr_remolques"
 TBL_PROVEEDORES = "tr_proveedores_operacion"
 TBL_TARIFAS = "tr_tarifas"
+TBL_FACT_SERV = "gas_lp_facturas_servicio"
 TBL_SETTINGS = "tr_settings"
 TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
 TBL_AUDITORIA = "transporte_v2_auditoria"
@@ -7844,6 +7845,62 @@ async def transporte_v2_omitir_factura_servicio_viaje(
         raise HTTPException(404, "No se pudo actualizar el viaje.")
     _audit(uid, token, pid, TBL_VIAJES, viaje_id, "omitir_factura_servicio", {"motivo": reason})
     return {"ok": True, "item": _normalize_viaje_row(updated[0]), "message": "Servicio marcado como no facturable."}
+
+
+@router.patch("/tr-v2/facturas-servicio/{factura_id}/pago")
+async def transporte_v2_actualizar_pago_factura_servicio(
+    factura_id: int,
+    payload: TransporteV2ViajePatch,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    requested = _first_text((payload.data or {}).get("estatus"), (payload.data or {}).get("payment_status"), "pendiente_pago").lower()
+    if requested not in {"pagada", "pendiente_pago"}:
+        raise HTTPException(400, "Estatus de pago inválido.")
+    sb = _sb(token)
+    query = sb.table(TBL_FACT_SERV).select("*").eq("id", factura_id).eq("user_id", uid).limit(1)
+    if pid:
+        query = query.eq("perfil_id", pid)
+    rows = query.execute().data or []
+    if not rows:
+        raise HTTPException(404, "Carta Ingreso no encontrada para este perfil.")
+    row = rows[0]
+    if _first_text(row.get("status")).lower() == "cancelada":
+        raise HTTPException(400, "No puedes marcar pago en una Carta Ingreso cancelada.")
+    meta = _meta(row)
+    meta.update({
+        "payment_status": requested,
+        "payment_status_label": "Pagada" if requested == "pagada" else "Pendiente de pago",
+        "payment_status_updated_at": _now_iso(),
+        "payment_status_updated_by": uid,
+    })
+    attempts = [
+        {"estatus": requested, "metadata": meta, "updated_at": _now_iso()},
+        {"metadata": meta, "updated_at": _now_iso()},
+        {"metadata": meta},
+    ]
+    updated: list[dict[str, Any]] = []
+    last_exc: Exception | None = None
+    for attempt in attempts:
+        try:
+            q = sb.table(TBL_FACT_SERV).update(attempt).eq("id", factura_id).eq("user_id", uid)
+            if pid:
+                q = q.eq("perfil_id", pid)
+            updated = q.execute().data or []
+            if updated:
+                break
+        except Exception as exc:
+            last_exc = exc
+            continue
+    if not updated:
+        if last_exc:
+            raise HTTPException(500, f"No se pudo actualizar el pago de la Carta Ingreso: {last_exc}") from last_exc
+        raise HTTPException(404, "No se pudo actualizar el pago de la Carta Ingreso.")
+    _audit(uid, token, pid, TBL_FACT_SERV, factura_id, "actualizar_pago_factura_servicio", {"estatus": requested})
+    return {"ok": True, "item": updated[0], "estatus": requested}
 
 
 @router.get("/tr-v2/catalogos/clientes")
