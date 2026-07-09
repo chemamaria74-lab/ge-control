@@ -215,6 +215,7 @@ function trv2SwitchTab(tab) {
   if (tab === 'carga-archivos') trv2LoadTrips();
   if (tab === 'carta-porte') trv2PrepareCartaPorteTab();
   if (tab === 'facturas-servicio' && typeof trv2PrepareServiceInvoiceTab === 'function') trv2PrepareServiceInvoiceTab();
+  if (tab === 'conciliacion' && typeof trv2PrepareConciliacionTab === 'function') trv2PrepareConciliacionTab();
   if (tab === 'catalogos') trv2LoadCatalogs();
   if (tab === 'reportes-sat') trv2LoadControlVolumetrico();
   if (tab === 'administracion') {
