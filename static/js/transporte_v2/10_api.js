@@ -214,7 +214,6 @@ function trv2SwitchTab(tab) {
   document.querySelector(`.trv2-tab[data-tab="${tab}"]`)?.classList.add('active');
   if (tab === 'carga-archivos') trv2LoadTrips();
   if (tab === 'carta-porte') trv2PrepareCartaPorteTab();
-  if (tab === 'facturas-servicio' && typeof trv2LoadServiceInvoices === 'function') trv2LoadServiceInvoices();
   if (tab === 'catalogos') trv2LoadCatalogs();
   if (tab === 'reportes-sat') trv2LoadControlVolumetrico();
   if (tab === 'administracion') {

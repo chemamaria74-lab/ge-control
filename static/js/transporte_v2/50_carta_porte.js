@@ -130,6 +130,7 @@ function trv2CpStampedFilteredItems(items = TRV2_CP_STAMPED_ITEMS) {
       producto,
       vehiculo,
       operador,
+      `${item.serie || 'T'}-${item.folio || ''}`,
       item.uuid_sat,
       item.status,
     ].filter(Boolean).join(' ')).includes(query);
@@ -207,12 +208,13 @@ function trv2ExportStampedCartaPorteExcel() {
       Number(item.peso_kg || 0),
       (typeof trv2TripRelatedLabel === 'function' ? trv2TripRelatedLabel(item, 'vehiculos', 'vehiculo_alias') : '') || item.vehiculo_alias || '',
       (typeof trv2TripRelatedLabel === 'function' ? trv2TripRelatedLabel(item, 'operadores', 'operador_nombre') : '') || item.operador_nombre || '',
+      [item.serie || 'T', item.folio].filter(Boolean).join('-'),
       item.uuid_sat || '',
       item.status || '',
     ];
   });
   const scope = (TRV2_CP_STAMPED_FILTER || 'hoy') === 'todas' ? (TRV2_CP_STAMPED_MONTH || 'mes') : new Date().toISOString().slice(0, 10);
-  trv2DownloadExcelTable(`cartas_porte_${scope}_${TRV2_CP_STAMPED_FAMILY_FILTER}.xls`, ['Fecha', 'Origen', 'Destino', 'Producto', 'Litros', 'Peso kg', 'Vehiculo', 'Operador', 'UUID', 'Estatus'], rows);
+  trv2DownloadExcelTable(`cartas_porte_${scope}_${TRV2_CP_STAMPED_FAMILY_FILTER}.xls`, ['Fecha', 'Origen', 'Destino', 'Producto', 'Litros', 'Peso kg', 'Vehiculo', 'Operador', 'Carta Porte', 'UUID', 'Estatus'], rows);
 }
 
 function trv2RenderStampedCartaPorteList(filter = 'hoy', items = []) {
@@ -246,9 +248,11 @@ function trv2RenderStampedCartaPorteList(filter = 'hoy', items = []) {
     const operador = (typeof trv2TripRelatedLabel === 'function' ? trv2TripRelatedLabel(item, 'operadores', 'operador_nombre') : '') || item.operador_nombre || '';
     const litros = Number(item.volumen_litros || 0).toLocaleString('es-MX');
     const peso = Number(item.peso_kg || 0).toLocaleString('es-MX');
+    const cartaPorte = [item.serie || 'T', item.folio].filter(Boolean).join('-');
     return `
       <tr class="${cancelled ? 'trv2-cp-cancelled-row' : ''}">
         <td>${trv2Esc(fecha)}</td>
+        <td><strong>${trv2Esc(cartaPorte || 'Sin folio')}</strong></td>
         <td>${trv2Esc(origen)}</td>
         <td>${trv2Esc(destino)}</td>
         <td>${trv2Esc(producto)}</td>
@@ -270,7 +274,7 @@ function trv2RenderStampedCartaPorteList(filter = 'hoy', items = []) {
       <table class="trv2-cp-history-table">
         <thead>
           <tr>
-            <th>${firstColumn}</th><th>Origen</th><th>Destino</th><th>Producto</th><th>Litros</th><th>Peso</th><th>Vehículo</th><th>Operador</th><th>UUID</th><th>Docs</th>
+            <th>${firstColumn}</th><th>Carta Porte</th><th>Origen</th><th>Destino</th><th>Producto</th><th>Litros</th><th>Peso</th><th>Vehículo</th><th>Operador</th><th>UUID</th><th>Docs</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -299,7 +303,11 @@ async function trv2LoadStampedCartaPorte(options = {}) {
   list.innerHTML = '<div class="trv2-empty">Cargando Cartas Porte timbradas...</div>';
   const query = new URLSearchParams({filtro: filter});
   if (filter === 'todas' && TRV2_CP_STAMPED_MONTH) query.set('periodo', TRV2_CP_STAMPED_MONTH);
-  const data = await trv2Api('GET', `/api/tr-v2/carta-porte/timbradas?${query.toString()}`, undefined, {silent: Boolean(options.silent), allowError: true});
+  const data = await trv2Api('GET', `/api/tr-v2/carta-porte/timbradas?${query.toString()}`, undefined, {
+    silent: Boolean(options.silent),
+    allowError: true,
+    force: Boolean(options.force),
+  });
   if (!data?.ok) {
     list.innerHTML = `<div class="trv2-empty">${trv2Esc(data?.detail || data?.message || 'No se pudieron cargar Cartas Porte timbradas.')}</div>`;
     return;

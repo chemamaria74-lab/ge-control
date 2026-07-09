@@ -7,8 +7,8 @@ let TRV2_SERVICE_INVOICE_BUSY = false;
 let TRV2_SERVICE_MONTH = '';
 let TRV2_SERVICE_PRODUCT_FILTER = 'gas_lp';
 let TRV2_SERVICE_LOADED = false;
-let TRV2_SERVICE_SEARCHED = false;
 const TRV2_SERVICE_SEARCH = {pendientes: '', facturadas: '', pago: ''};
+const TRV2_SERVICE_SEARCHED = {pendientes: false, facturadas: false, pago: false};
 
 function trv2ServiceStorageKey(base) {
   return `${base}_${TRV2_PERFIL?.id || 'sin_perfil'}`;
@@ -65,11 +65,12 @@ function trv2ServiceSetMonthMode(value = '') {
   if (input && value === 'month') input.value = TRV2_SERVICE_MONTH;
 }
 
-async function trv2SearchServiceInvoices() {
+async function trv2SearchServiceInvoices(tab = TRV2_SERVICE_TAB) {
+  const targetTab = ['pendientes', 'facturadas', 'pago'].includes(tab) ? tab : TRV2_SERVICE_TAB;
   await trv2LoadServiceInvoices({force: true});
-  TRV2_SERVICE_SEARCHED = true;
-  const results = document.getElementById('trv2-service-results');
-  if (results) results.hidden = false;
+  TRV2_SERVICE_SEARCHED[targetTab] = true;
+  const table = document.getElementById(`trv2-service-table-${targetTab}`);
+  if (table) table.hidden = false;
   trv2RenderServiceInvoices();
 }
 
@@ -432,12 +433,13 @@ function trv2ServiceCalc(tarifa, serviceOrKilos, maybeTariff = null) {
   let cantidad = base === 'litros' ? Number(service.litros || 0) : Number(service.kilos || 0);
   if (base === 'viaje' || base === 'manual') cantidad = 1;
   if (base === 'distancia') cantidad = Number(service.distancia_km || service.distancia || 0);
-  const subtotal = Number(tarifa || 0) * cantidad;
+  const roundMoney = value => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+  const subtotal = roundMoney(Number(tarifa || 0) * cantidad);
   const ivaTasa = maybeTariff?.aplica_iva === false ? 0 : Number(maybeTariff?.iva_tasa ?? 0.16);
   const retencionTasa = maybeTariff?.aplica_retencion === false ? 0 : Number(maybeTariff?.retencion_tasa ?? 0.04);
-  const iva = subtotal * ivaTasa;
-  const retencion = subtotal * retencionTasa;
-  const total = subtotal + iva - retencion;
+  const iva = roundMoney(subtotal * ivaTasa);
+  const retencion = roundMoney(subtotal * retencionTasa);
+  const total = roundMoney(subtotal + iva - retencion);
   return {subtotal, iva, retencion, total, base_calculo: base, cantidad_base: cantidad, iva_tasa: ivaTasa, retencion_tasa: retencionTasa};
 }
 
