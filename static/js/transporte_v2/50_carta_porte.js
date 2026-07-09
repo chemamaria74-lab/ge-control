@@ -214,7 +214,7 @@ function trv2ExportStampedCartaPorteExcel() {
     ];
   });
   const scope = (TRV2_CP_STAMPED_FILTER || 'hoy') === 'todas' ? (TRV2_CP_STAMPED_MONTH || 'mes') : new Date().toISOString().slice(0, 10);
-  trv2DownloadExcelTable(`cartas_porte_${scope}_${TRV2_CP_STAMPED_FAMILY_FILTER}.xls`, ['Fecha', 'Origen', 'Destino', 'Producto', 'Litros', 'Peso kg', 'Vehiculo', 'Operador', 'Carta Porte', 'UUID', 'Estatus'], rows);
+  trv2DownloadExcelTable(`cartas_porte_${scope}_${TRV2_CP_STAMPED_FAMILY_FILTER}.xls`, ['Fecha', 'Origen', 'Destino', 'Producto', 'Litros', 'Peso kg', 'Vehiculo', 'Operador', 'No.', 'UUID', 'Estatus'], rows);
 }
 
 function trv2RenderStampedCartaPorteList(filter = 'hoy', items = []) {
@@ -274,7 +274,7 @@ function trv2RenderStampedCartaPorteList(filter = 'hoy', items = []) {
       <table class="trv2-cp-history-table">
         <thead>
           <tr>
-            <th>${firstColumn}</th><th>Carta Porte</th><th>Origen</th><th>Destino</th><th>Producto</th><th>Litros</th><th>Peso</th><th>Vehículo</th><th>Operador</th><th>UUID</th><th>Docs</th>
+            <th>${firstColumn}</th><th>No.</th><th>Origen</th><th>Destino</th><th>Producto</th><th>Litros</th><th>Peso</th><th>Vehículo</th><th>Operador</th><th>UUID</th><th>Docs</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>

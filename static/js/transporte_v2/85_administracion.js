@@ -452,9 +452,18 @@ function trv2PermisoProductOptions() {
 
 function trv2PermisoAllowedProductKeys(item = {}) {
   const meta = item.metadata && typeof item.metadata === 'object' ? item.metadata : {};
+  const primaryProduct = item.producto || meta.producto || item.tipo_producto || meta.tipo_producto || '';
+  const primaryKey = trv2AdminNormalizeProduct(primaryProduct);
+  if (primaryKey) {
+    const keys = new Set([primaryKey]);
+    if (primaryKey === 'petroliferos') {
+      keys.add('magna');
+      keys.add('premium');
+      keys.add('diesel');
+    }
+    return keys;
+  }
   const values = [
-    item.producto,
-    item.tipo_producto,
     item.alcance,
     item.familia_producto,
     ...(Array.isArray(item.familias_producto) ? item.familias_producto : []),

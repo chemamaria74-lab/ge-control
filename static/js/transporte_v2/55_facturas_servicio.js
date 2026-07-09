@@ -131,6 +131,10 @@ function trv2ServiceTripData(row = {}) {
   const origen = row.origen || ruta.origen || trv2ServiceTripMeta(row, 'origen') || '';
   const destino = row.destino || ruta.destino || trv2ServiceTripMeta(row, 'destino') || '';
   const productoNombre = producto.descripcion || row.producto_descripcion || trv2ServiceTripMeta(row, 'producto_descripcion') || '';
+  const noCartaPorte = [
+    meta.serie_carta_porte || meta.serie || 'T',
+    meta.folio_carta_porte || meta.folio,
+  ].filter(Boolean).join('-');
   return {
     id: Number(row.id || 0),
     ruta_id: Number(row.ruta_id || meta.ruta_id || 0) || null,
@@ -151,6 +155,7 @@ function trv2ServiceTripData(row = {}) {
     chofer: trv2ServiceTripLabel(row, 'operadores', 'operador_nombre') || '',
     vehiculo: trv2ServiceTripLabel(row, 'vehiculos', 'vehiculo_alias') || '',
     uuid_carta_porte: trv2ServiceTripUuid(row),
+    no_carta_porte: noCartaPorte,
   };
 }
 
@@ -338,6 +343,7 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
       return [
         String(service.fecha || '').slice(0, 10),
         service.cliente,
+        service.no_carta_porte,
         service.origen,
         service.destino,
         service.producto,
@@ -354,7 +360,7 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
         Number(calc.total || 0),
       ];
     });
-    trv2DownloadExcelTable(trv2ServiceExcelScope('pendientes'), ['Fecha', 'Cliente', 'Origen', 'Destino', 'Producto', 'Litros', 'Kilos', 'Chofer', 'Vehiculo', 'UUID Carta Porte', 'Tarifa', 'Base', 'Subtotal', 'IVA', 'Retencion', 'Total'], rows);
+    trv2DownloadExcelTable(trv2ServiceExcelScope('pendientes'), ['Fecha', 'Cliente', 'No.', 'Origen', 'Destino', 'Producto', 'Litros', 'Kilos', 'Chofer', 'Vehiculo', 'UUID', 'Tarifa', 'Base', 'Subtotal', 'IVA', 'Retencion', 'Total'], rows);
     return;
   }
   const invoices = trv2ServiceFilterInvoicesForView(targetTab);
@@ -835,7 +841,7 @@ function trv2RenderServicePendingTable() {
   trv2RenderServiceProductFilter(allRows);
   const rows = trv2ServiceFilterPendingRowsForView();
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="14"><div class="trv2-empty">No hay Cartas Ingreso pendientes para este producto, periodo o búsqueda.</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="15"><div class="trv2-empty">No hay Cartas Ingreso pendientes para este producto, periodo o búsqueda.</div></td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(row => {
@@ -846,6 +852,7 @@ function trv2RenderServicePendingTable() {
     return `
       <tr>
         <td>${trv2Esc(String(service.fecha || '').slice(0, 10))}</td>
+        <td><strong title="${trv2Esc(service.uuid_carta_porte)}">${trv2Esc(service.no_carta_porte || 'T')}</strong></td>
         <td><span class="trv2-service-main">${trv2Esc(service.cliente)}</span></td>
         <td><span class="trv2-service-main">${trv2Esc(service.origen)}</span></td>
         <td><span class="trv2-service-main">${trv2Esc(service.producto)}</span></td>
