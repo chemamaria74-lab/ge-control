@@ -183,9 +183,11 @@
         </div>
         <div class="trv2-actions">
           <label class="trv2-inline-filter" id="trv2-cp-stamped-month-wrap">Mes <input id="trv2-cp-stamped-month" type="month" onchange="trv2SetCartaPorteStampedMonth(this.value)"></label>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportStampedCartaPorteExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadStampedCartaPorte()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
         </div>
       </div>
+      <div id="trv2-cp-stamped-family-filter" class="trv2-service-product-filter"></div>
       <div id="trv2-cp-stamped-list" class="trv2-cp-pending-list">
         <div class="trv2-empty">Aún no hay Cartas Porte timbradas en esta vista.</div>
       </div>
@@ -294,7 +296,10 @@
         <button class="trv2-subtab" type="button" data-service-tab="pago" onclick="trv2SetServiceInvoiceTab('pago')">Pendientes de pago</button>
       </nav>
       <div class="trv2-table-wrap" data-service-panel="pendientes">
-        <div id="trv2-service-product-filter" class="trv2-service-product-filter"></div>
+        <div class="trv2-service-table-toolbar">
+          <div id="trv2-service-product-filter" class="trv2-service-product-filter"></div>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportServiceExcel('pendientes')"><i class="fa-solid fa-file-excel"></i> Excel</button>
+        </div>
         <table class="trv2-service-pending-table">
           <thead>
             <tr>
@@ -305,12 +310,20 @@
         </table>
       </div>
       <div class="trv2-table-wrap" data-service-panel="facturadas" hidden>
+        <div class="trv2-service-table-toolbar">
+          <div id="trv2-service-invoiced-product-filter" class="trv2-service-product-filter"></div>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportServiceExcel('facturadas')"><i class="fa-solid fa-file-excel"></i> Excel</button>
+        </div>
         <table>
           <thead><tr><th>Fecha</th><th>Cliente</th><th>UUID CFDI</th><th>Total</th><th>PDF</th><th>XML</th></tr></thead>
           <tbody id="trv2-service-invoiced-table"></tbody>
         </table>
       </div>
       <div class="trv2-table-wrap" data-service-panel="pago" hidden>
+        <div class="trv2-service-table-toolbar">
+          <div id="trv2-service-payment-product-filter" class="trv2-service-product-filter"></div>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportServiceExcel('pago')"><i class="fa-solid fa-file-excel"></i> Excel</button>
+        </div>
         <table>
           <thead><tr><th>Cliente</th><th>Fecha</th><th>Total</th><th>Saldo</th><th>Estatus</th></tr></thead>
           <tbody id="trv2-service-payment-table"></tbody>
@@ -428,7 +441,7 @@
             <h2><i class="fa-solid fa-route"></i> Operadores en ruta</h2>
             <p class="trv2-muted">Seguimiento operativo de viajes con bitácora activa.</p>
           </div>
-          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorDashboard()">Actualizar</button>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorDashboard()">Buscar</button>
         </div>
         <div class="trv2-admin-route-kpis" id="trv2-operator-dashboard-kpis">
           <article><span>En ruta</span><strong>0</strong></article>
@@ -473,12 +486,6 @@
             <label>Color texto encabezados <input id="trv2-set-pdf-header-text-color" type="color" value="#FFFFFF"></label>
             <label>Color título PDF <input id="trv2-set-pdf-title-color" type="color" value="#4B5563"></label>
             <label>Teléfonos contacto Carta Porte <input id="trv2-set-pdf-declaration-phones" placeholder="Opcional, separados por coma"></label>
-          </div>
-          <div class="trv2-form-wide trv2-check-grid">
-            <label class="trv2-check"><input id="trv2-set-prod-gaslp" type="checkbox"> Gas LP</label>
-            <label class="trv2-check"><input id="trv2-set-prod-magna" type="checkbox"> Gasolina Magna</label>
-            <label class="trv2-check"><input id="trv2-set-prod-premium" type="checkbox"> Gasolina Premium</label>
-            <label class="trv2-check"><input id="trv2-set-prod-diesel" type="checkbox"> Diésel</label>
           </div>
           <div class="trv2-form-actions">
             <button class="trv2-btn trv2-btn-primary" type="submit">Guardar configuración</button>
