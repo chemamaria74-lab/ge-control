@@ -648,6 +648,7 @@ def build_cfdi_transporte(
     id_ccp:     Optional[str] = None,
     serie:      str = "TR",
     folio:      Optional[str] = None,
+    validar_permiso_cne: bool = True,
 ) -> tuple[dict, str]:
     """
     Construye el payload completo del CFDI para un viaje de transporte.
@@ -674,9 +675,10 @@ def build_cfdi_transporte(
 
     # ── Validar permiso CNE del emisor ────────────────────────────────────────
     num_permiso = (viaje.num_permiso_cne or emisor.get("num_permiso_cne", "")).strip()
-    ok_perm, msg_perm = validar_num_permiso(num_permiso, emisor.get("rfc", ""))
-    if not ok_perm:
-        raise ValueError(f"Permiso CNE inválido: {msg_perm}")
+    if validar_permiso_cne:
+        ok_perm, msg_perm = validar_num_permiso(num_permiso, emisor.get("rfc", ""))
+        if not ok_perm:
+            raise ValueError(f"Permiso CNE inválido: {msg_perm}")
 
     productos   = viaje.productos
     tipo_cfdi   = viaje.tipo_cfdi

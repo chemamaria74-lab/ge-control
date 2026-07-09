@@ -232,6 +232,7 @@ def build_cfdi_ingreso_carta_porte(
         vehiculo,
         serie="CI",
         folio=folio,
+        validar_permiso_cne=False,
     )
     concepto_impuestos, impuestos_root = _service_tax_nodes(
         subtotal_d=subtotal_d,
