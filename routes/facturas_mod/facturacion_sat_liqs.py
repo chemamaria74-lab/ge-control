@@ -121,14 +121,14 @@ def _settings_transporte(uid: str, token: str, perfil_id) -> dict:
     except Exception as exc:
         logger.info("No se pudo mezclar tr_settings Transporte para Carta Ingreso: %s", exc)
     fiscal = settings.get("perfil_fiscal") if isinstance(settings.get("perfil_fiscal"), dict) else {}
-    if not settings.get("RfcContribuyente"):
-        settings["RfcContribuyente"] = fiscal.get("rfc_contribuyente") or settings.get("rfc") or ""
-    if not settings.get("DescripcionInstalacion"):
-        settings["DescripcionInstalacion"] = fiscal.get("nombre_fiscal") or settings.get("nombre") or ""
-    if not settings.get("CodigoPostal"):
-        settings["CodigoPostal"] = fiscal.get("cp_fiscal") or settings.get("codigo_postal") or ""
-    if not settings.get("RegimenFiscal"):
-        settings["RegimenFiscal"] = fiscal.get("regimen_fiscal") or settings.get("regimen_fiscal") or "601"
+    fiscal_rfc = str(fiscal.get("rfc_contribuyente") or "").strip()
+    fiscal_nombre = str(fiscal.get("nombre_fiscal") or "").strip()
+    fiscal_cp = str(fiscal.get("cp_fiscal") or "").strip()
+    fiscal_regimen = str(fiscal.get("regimen_fiscal") or "").strip()
+    settings["RfcContribuyente"] = fiscal_rfc or settings.get("RfcContribuyente") or settings.get("rfc") or ""
+    settings["DescripcionInstalacion"] = fiscal_nombre or settings.get("DescripcionInstalacion") or settings.get("nombre") or ""
+    settings["CodigoPostal"] = fiscal_cp or settings.get("CodigoPostal") or settings.get("codigo_postal") or ""
+    settings["RegimenFiscal"] = fiscal_regimen or settings.get("RegimenFiscal") or settings.get("regimen_fiscal") or "601"
     return settings
 
 
