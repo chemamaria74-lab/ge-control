@@ -7164,6 +7164,8 @@ async def transporte_v2_carta_porte_timbradas(
             "operador_id": trip.get("operador_id") or trip.get("chofer_id") or meta.get("operador_id") or meta.get("chofer_id"),
             "vehiculo_id": trip.get("vehiculo_id") or meta.get("vehiculo_id"),
             "tipo_cfdi": _first_text(xml_summary.get("tipo_cfdi"), row.get("tipo_cfdi"), "T"),
+            "serie": _first_text(xml_summary.get("serie"), meta.get("serie_carta_porte"), meta.get("serie"), "T"),
+            "folio": _first_text(xml_summary.get("folio"), meta.get("folio_carta_porte"), meta.get("folio")),
             "uuid_sat": _first_text(xml_summary.get("uuid_sat"), row.get("uuid_sat")),
             "id_ccp": _first_text(xml_summary.get("id_ccp"), row.get("id_ccp"), meta.get("id_ccp")),
             "status": _first_text(row.get("status"), "Vigente"),
