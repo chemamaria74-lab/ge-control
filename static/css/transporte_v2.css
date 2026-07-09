@@ -138,7 +138,7 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-service-tabs-row .trv2-subtabs{min-width:0;flex:1}
 .trv2-service-tabs-row>.trv2-btn{flex:0 0 auto;white-space:nowrap}
 .trv2-service-product-filter{padding:0;background:transparent}
-.trv2-service-table-toolbar{display:grid;grid-template-columns:minmax(300px,1fr) minmax(260px,360px);align-items:center;gap:12px;background:#fff;padding:14px;border-bottom:1px solid var(--trv2-line)}
+.trv2-service-table-toolbar{display:grid;grid-template-columns:minmax(300px,1fr) minmax(260px,360px) auto;align-items:center;gap:12px;background:#fff;padding:14px;border-bottom:1px solid var(--trv2-line)}
 .trv2-service-table-toolbar .trv2-service-product-filter{min-width:0}
 .trv2-service-table-toolbar>.trv2-btn{white-space:nowrap}
 .trv2-service-search{height:38px;border:1px solid var(--trv2-line);border-radius:8px;background:#fff;display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--trv2-muted);font-weight:900;min-width:0}
