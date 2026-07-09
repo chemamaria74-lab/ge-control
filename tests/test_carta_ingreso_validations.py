@@ -3,7 +3,10 @@ import os
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "dummy")
 
-from routes.facturas_mod.facturacion_sat_liqs import _base_cartas_porte_timbradas
+from routes.facturas_mod.facturacion_sat_liqs import (
+    _base_cartas_porte_timbradas,
+    _tariff_match,
+)
 
 
 class _FakeQuery:
@@ -57,3 +60,18 @@ def test_carta_ingreso_acepta_base_carta_porte_traslado_vigente():
     )
 
     assert found[123]["uuid_sat"] == "11111111-2222-3333-4444-555555555555"
+
+
+def test_tarifa_de_ruta_coincide_por_producto_id_aunque_cambie_descripcion():
+    viaje = {
+        "ruta_id": 12,
+        "producto_operacion_id": 7,
+        "productos_json": [{"descripcion": "Gas licuado de petroleo"}],
+    }
+    tarifa = {
+        "ruta_id": 12,
+        "producto_id": 7,
+        "producto": "GAS L.P.",
+    }
+
+    assert _tariff_match(viaje, tarifa) is True
