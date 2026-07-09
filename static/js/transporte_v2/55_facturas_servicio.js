@@ -513,26 +513,35 @@ function trv2ServiceShortUuid(value = '') {
 }
 
 function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
-  return tariffs.find(item => (
-    Number(item.ruta_id || 0) === Number(service.ruta_id || 0)
-    && (
-      (Number(item.producto_id || 0) && Number(item.producto_id) === Number(service.producto_id || 0))
-      || trv2ServiceNorm(item.producto || item.producto_nombre) === trv2ServiceNorm(service.producto)
-    )
-  )) || tariffs.find(item => (
-    (
-      (Number(item.proveedor_id || 0) && Number(item.proveedor_id) === Number(service.proveedor_id || 0))
-      || trv2ServiceNorm(item.proveedor || item.origen) === trv2ServiceNorm(service.proveedor || service.origen)
-    )
-    && (
-      (Number(item.cliente_id || 0) && Number(item.cliente_id) === Number(service.cliente_id || 0))
-      || trv2ServiceNorm(item.cliente || item.destino) === trv2ServiceNorm(service.cliente || service.destino)
-    )
-    && (
-      (Number(item.producto_id || 0) && Number(item.producto_id) === Number(service.producto_id || 0))
-      || trv2ServiceNorm(item.producto) === trv2ServiceNorm(service.producto)
-    )
-  )) || null;
+  const normProduct = trv2ServiceNorm(service.producto);
+  const candidates = (tariffs || []).map(item => {
+    const routeExact = Number(item.ruta_id || 0) && Number(item.ruta_id || 0) === Number(service.ruta_id || 0);
+    const productExact = Number(item.producto_id || 0) && Number(item.producto_id || 0) === Number(service.producto_id || 0);
+    const productName = trv2ServiceNorm(item.producto || item.producto_nombre);
+    const productText = productName && (productName === normProduct || normProduct.includes(productName) || productName.includes(normProduct));
+    const providerExact = Number(item.proveedor_id || 0) && Number(item.proveedor_id || 0) === Number(service.proveedor_id || 0);
+    const providerText = trv2ServiceNorm(item.proveedor || item.origen) && trv2ServiceNorm(item.proveedor || item.origen) === trv2ServiceNorm(service.proveedor || service.origen);
+    const clientExact = Number(item.cliente_id || 0) && Number(item.cliente_id || 0) === Number(service.cliente_id || 0);
+    const clientText = trv2ServiceNorm(item.cliente || item.destino) && trv2ServiceNorm(item.cliente || item.destino) === trv2ServiceNorm(service.cliente || service.destino);
+    if (Number(item.ruta_id || 0) && !routeExact) return null;
+    if (Number(item.producto_id || 0) && !productExact) return null;
+    if (!Number(item.producto_id || 0) && productName && !productText) return null;
+    if (Number(item.proveedor_id || 0) && !providerExact) return null;
+    if (!Number(item.proveedor_id || 0) && trv2ServiceNorm(item.proveedor || item.origen) && !providerText) return null;
+    if (Number(item.cliente_id || 0) && !clientExact) return null;
+    if (!Number(item.cliente_id || 0) && trv2ServiceNorm(item.cliente || item.destino) && !clientText) return null;
+    let score = 0;
+    if (routeExact) score += 100;
+    if (productExact) score += 80;
+    else if (productText) score += 40;
+    if (clientExact) score += 20;
+    if (providerExact) score += 10;
+    if (providerText) score += 5;
+    if (clientText) score += 5;
+    score -= Number(item.prioridad || 100) || 100;
+    return {item, score};
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
+  return candidates[0]?.item || null;
 }
 
 function trv2ServiceBillingBase(productName = '', tariff = null) {
