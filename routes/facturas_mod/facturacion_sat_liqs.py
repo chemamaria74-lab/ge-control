@@ -12,7 +12,8 @@ from services.service_invoice_builder import (
     build_cfdi_ingreso_carta_porte,
     build_cfdi_servicio_transporte,
 )
-from services.sw_sapien import emitir_timbrar_json
+from services.sw_sapien import emitir_timbrar_json, timbrar_cfdi
+from services.transport_builder import build_cfdi_transporte_xml
 
 _TBL_VIAJES = "tr_viajes"
 _TBL_CFDI = "tr_cfdi"
@@ -919,10 +920,21 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         except ValueError as exc:
             raise HTTPException(400, f"Faltan datos obligatorios Carta Porte 3.1 para Carta Ingreso: {exc}") from exc
         tipo_registro = "carta_ingreso"
-    sw = emitir_timbrar_json(cfdi_dict)
-    if not sw.get("ok"):
-        raise HTTPException(400, f"SW Sapien rechazó la Carta Ingreso: {sw.get('error')}")
-    sw_data = sw.get("data") or {}
+    if tipo_registro == "carta_ingreso":
+        xml_pre_timbrado = build_cfdi_transporte_xml(cfdi_dict)
+        sw_xml = timbrar_cfdi(xml_pre_timbrado)
+        if sw_xml.get("error"):
+            raise HTTPException(400, f"SW Sapien rechazó la Carta Ingreso: {sw_xml.get('error')}")
+        sw_data = {
+            "uuid": sw_xml.get("uuid", ""),
+            "cfdi": sw_xml.get("xml_timbrado", ""),
+            "pdfUrl": sw_xml.get("pdf_url", ""),
+        }
+    else:
+        sw = emitir_timbrar_json(cfdi_dict)
+        if not sw.get("ok"):
+            raise HTTPException(400, f"SW Sapien rechazó la Carta Ingreso: {sw.get('error')}")
+        sw_data = sw.get("data") or {}
 
     now_iso = datetime.now(timezone.utc).isoformat()
     row = {
