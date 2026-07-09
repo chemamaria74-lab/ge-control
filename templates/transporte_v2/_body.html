@@ -278,9 +278,9 @@
         <label class="trv2-inline-filter trv2-month-filter">Periodo
           <select id="trv2-service-month-mode" onchange="trv2ServiceSetMonthMode(this.value)">
             <option value="">Todos los meses</option>
-            <option value="month">Filtrar por mes</option>
+            <option value="month" selected>Filtrar por mes</option>
           </select>
-          <input id="trv2-service-month" type="month" onchange="trv2ServiceSetMonth(this.value)" hidden>
+          <input id="trv2-service-month" type="month" onchange="trv2ServiceSetMonth(this.value)">
         </label>
         <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2SearchServiceInvoices()"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
       </div>
