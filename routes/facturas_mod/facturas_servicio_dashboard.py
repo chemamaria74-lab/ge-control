@@ -3,6 +3,7 @@ from __future__ import annotations
 from .core import *
 from .facturacion_sat_liqs import (
     _TBL_FACT_SERV,
+    _TBL_FACT_SERV_CARTAS,
     _TBL_VIAJES,
     _auth,
     _perfil_autorizado,
@@ -77,6 +78,15 @@ def _enrich_facturas_servicio_with_trip_data(*, sb, uid: str, perfil_id, rows: l
                     break
             trip_meta = _fact_serv_product_metadata(viajes_map[first_vid], base_carta=base)
         merged_meta = {**trip_meta, **meta}
+        serie_folio = str(merged_meta.get("serie_folio") or merged_meta.get("folio_cfdi") or "").strip()
+        if not serie_folio and row.get("xml_content"):
+            try:
+                serie_folio = fiscal_pdf_info(row.get("xml_content") or "", "carta_ingreso_transporte").serie_folio
+            except Exception:
+                serie_folio = ""
+        if serie_folio:
+            merged_meta["serie_folio"] = serie_folio
+            merged_meta["folio_cfdi"] = serie_folio
         enriched.append({
             **row,
             "metadata": merged_meta,
@@ -86,7 +96,11 @@ def _enrich_facturas_servicio_with_trip_data(*, sb, uid: str, perfil_id, rows: l
             "producto_familia": row.get("producto_familia") or merged_meta.get("producto_familia"),
             "litros": row.get("litros") or merged_meta.get("litros"),
             "kilos": row.get("kilos") or merged_meta.get("kilos"),
+            "origen": row.get("origen") or merged_meta.get("origen"),
+            "destino": row.get("destino") or merged_meta.get("destino"),
             "no_carta_porte": row.get("no_carta_porte") or merged_meta.get("no_carta_porte"),
+            "serie_folio": row.get("serie_folio") or serie_folio,
+            "folio_cfdi": row.get("folio_cfdi") or serie_folio,
         })
     return enriched
 
@@ -235,7 +249,29 @@ async def cancelar_factura_servicio_transporte(
         sb.table(_TBL_FACT_SERV).update(update_payload).eq("id", factura_id).eq("user_id", uid).execute()
     except Exception:
         sb.table(_TBL_FACT_SERV).update({"status": "Cancelada"}).eq("id", factura_id).eq("user_id", uid).execute()
-    return JSONResponse({"ok": True, "status": resultado["status"], "error": None})
+    viaje_ids = [int(v) for v in (row.get("viaje_ids") or []) if str(v).isdigit()]
+    try:
+        rel_q = sb.table(_TBL_FACT_SERV_CARTAS).delete().eq("user_id", uid).eq("factura_servicio_id", factura_id)
+        if row.get("perfil_id") or pid:
+            rel_q = rel_q.eq("perfil_id", row.get("perfil_id") or pid)
+        rel_q.execute()
+    except Exception as exc:
+        logger.warning("No se pudo liberar relación Carta Ingreso cancelada factura=%s: %s", factura_id, exc)
+    if viaje_ids:
+        try:
+            upd = {
+                "factura_servicio_status": "pendiente",
+                "factura_servicio_uuid": "",
+                "factura_servicio_pdf_url": "",
+                "factura_servicio_xml_url": "",
+            }
+            vq = sb.table(_TBL_VIAJES).update(upd).eq("user_id", uid).in_("id", viaje_ids)
+            if row.get("perfil_id") or pid:
+                vq = vq.eq("perfil_id", row.get("perfil_id") or pid)
+            vq.execute()
+        except Exception as exc:
+            logger.warning("No se pudo devolver viajes a pendientes de Carta Ingreso factura=%s: %s", factura_id, exc)
+    return JSONResponse({"ok": True, "status": resultado["status"], "error": None, "viajes_liberados": viaje_ids})
 
 
 @router.get("/tr/dashboard")

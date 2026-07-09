@@ -89,6 +89,19 @@ def _safe_float(value, default: float = 0.0) -> float:
         return default
 
 
+def _rfc_tipo_persona(rfc: str) -> str:
+    clean = re.sub(r"[^A-Z0-9]", "", str(rfc or "").strip().upper())
+    if len(clean) == 13:
+        return "fisica"
+    if len(clean) == 12:
+        return "moral"
+    return ""
+
+
+def _fact_serv_requires_retencion(emisor_rfc: str, receptor_rfc: str) -> bool:
+    return _rfc_tipo_persona(emisor_rfc) == "fisica" and _rfc_tipo_persona(receptor_rfc) == "moral"
+
+
 def _validar_datos_cfdi_receptor(rfc: str, regimen: str, cp: str, uso_cfdi: str) -> None:
     from routes.core import _gas_lp_validar_datos_cfdi_receptor
 
@@ -203,6 +216,8 @@ def _fact_serv_product_metadata(viaje: dict, *, base_carta: dict | None = None) 
         "familia_producto": familia,
         "litros": _safe_float(viaje.get("volumen_litros") or viaje.get("volumen_total_litros") or first.get("volumen_litros") or first.get("cantidad_litros")),
         "kilos": _safe_float(viaje.get("peso_kg") or first.get("peso_kg")),
+        "origen": viaje.get("nombre_origen") or viaje.get("origen") or meta.get("nombre_origen") or meta.get("origen") or "",
+        "destino": viaje.get("nombre_destino") or viaje.get("destino") or meta.get("nombre_destino") or meta.get("destino") or "",
         "no_carta_porte": no_carta,
         "serie_carta_porte": serie,
         "folio_carta_porte": folio,
@@ -316,6 +331,45 @@ def _sumar_calculos_servicio(viajes: list[dict], tarifas: list[dict]) -> dict:
         "aplica_retencion": any(item["aplica_retencion"] for item in items),
         "tasas_mixtas": len(iva_rates) > 1 or len(ret_rates) > 1,
     }
+
+
+def _fact_serv_apply_required_retencion(calculo: dict, *, emisor_rfc: str, receptor_rfc: str) -> dict:
+    if not _fact_serv_requires_retencion(emisor_rfc, receptor_rfc):
+        return calculo
+    items = []
+    for raw in calculo.get("items") or []:
+        item = dict(raw or {})
+        subtotal = round(_safe_float(item.get("subtotal")), 2)
+        iva_tasa = _safe_float(item.get("iva_tasa"), _safe_float(calculo.get("iva_tasa"), 0.16))
+        retencion_tasa = _safe_float(item.get("retencion_tasa"), _safe_float(calculo.get("retencion_tasa"), 0.04)) or 0.04
+        aplica_iva = bool(item.get("aplica_iva", calculo.get("aplica_iva", True)))
+        iva = round(subtotal * iva_tasa, 2) if aplica_iva else 0.0
+        retencion = round(subtotal * retencion_tasa, 2)
+        item.update({
+            "iva": iva,
+            "retencion": retencion,
+            "total": round(subtotal + iva - retencion, 2),
+            "retencion_tasa": retencion_tasa,
+            "aplica_retencion": True,
+            "retencion_forzada_pf_pm": True,
+        })
+        items.append(item)
+    if not items:
+        return calculo
+    iva_rates = {item["iva_tasa"] for item in items}
+    ret_rates = {item["retencion_tasa"] for item in items}
+    calculo.update({
+        "items": items,
+        "iva": round(sum(item["iva"] for item in items), 2),
+        "retencion": round(sum(item["retencion"] for item in items), 2),
+        "total": round(sum(item["total"] for item in items), 2),
+        "iva_tasa": next(iter(iva_rates), _safe_float(calculo.get("iva_tasa"), 0.16)),
+        "retencion_tasa": next(iter(ret_rates), _safe_float(calculo.get("retencion_tasa"), 0.04) or 0.04),
+        "aplica_retencion": True,
+        "retencion_forzada_pf_pm": True,
+        "tasas_mixtas": len(iva_rates) > 1 or len(ret_rates) > 1,
+    })
+    return calculo
 
 
 def _validar_totales_servicio(payload: FacturaServicioCreate, calculo: dict) -> None:
@@ -855,6 +909,16 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         if repetidos:
             raise HTTPException(400, f"Estas Cartas Porte ya tienen Carta Ingreso: {repetidos}")
 
+    settings = _settings_transporte(uid, token, perfil_factura)
+    emisor = {
+        "rfc": settings.get("RfcContribuyente", ""),
+        "nombre": settings.get("DescripcionInstalacion", ""),
+        "regimen_fiscal": settings.get("RegimenFiscal", "601"),
+        "domicilio_fiscal": settings.get("CodigoPostal", ""),
+    }
+    if not emisor["rfc"] or not emisor["nombre"] or not emisor["domicilio_fiscal"]:
+        raise HTTPException(400, "Configura RFC, razón social y código postal del contribuyente antes de facturar.")
+
     tq = sb.table(_TBL_TARIFAS).select("*").eq("user_id", uid).eq("activo", True)
     if perfil_factura:
         tq = tq.eq("perfil_id", perfil_factura)
@@ -865,6 +929,11 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         viajes_calc = viajes
     calculo_servicio = _sumar_calculos_servicio(viajes_calc, tarifas)
     calculo_servicio = _fact_serv_apply_tariff_override(calculo_servicio, payload)
+    calculo_servicio = _fact_serv_apply_required_retencion(
+        calculo_servicio,
+        emisor_rfc=emisor["rfc"],
+        receptor_rfc=payload.rfc_receptor,
+    )
     sin_tarifa = [
         i.get("viaje_id")
         for i in calculo_servicio.get("items", [])
@@ -876,15 +945,6 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         raise HTTPException(400, "No mezcles Cartas Porte con tasas distintas de IVA/retención en una sola Carta Ingreso.")
     _validar_totales_servicio(payload, calculo_servicio)
 
-    settings = _settings_transporte(uid, token, perfil_factura)
-    emisor = {
-        "rfc": settings.get("RfcContribuyente", ""),
-        "nombre": settings.get("DescripcionInstalacion", ""),
-        "regimen_fiscal": settings.get("RegimenFiscal", "601"),
-        "domicilio_fiscal": settings.get("CodigoPostal", ""),
-    }
-    if not emisor["rfc"] or not emisor["nombre"] or not emisor["domicilio_fiscal"]:
-        raise HTTPException(400, "Configura RFC, razón social y código postal del contribuyente antes de facturar.")
     receptor = {
         "rfc": payload.rfc_receptor,
         "nombre": payload.nombre_receptor,
@@ -990,6 +1050,16 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             raise HTTPException(400, f"SW Sapien rechazó la Carta Ingreso: {sw.get('error')}")
         sw_data = sw.get("data") or {}
 
+    cfdi_info = None
+    if sw_data.get("cfdi"):
+        try:
+            cfdi_info = fiscal_pdf_info(
+                sw_data.get("cfdi") or "",
+                "carta_ingreso_transporte" if tipo_registro == "carta_ingreso" else "factura_servicio_transporte",
+            )
+        except Exception:
+            cfdi_info = None
+
     now_iso = datetime.now(timezone.utc).isoformat()
     product_metadata = {}
     if viajes:
@@ -1046,6 +1116,8 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             "id_ccp_carta_ingreso": id_ccp_carta_ingreso,
             "uuid_carta_ingreso": sw_data.get("uuid", "") if tipo_registro == "carta_ingreso" else "",
             "uuid_carta_porte_base": [base_cartas[int(v["id"])].get("uuid_sat", "") for v in viajes],
+            "serie_folio": cfdi_info.serie_folio if cfdi_info else "",
+            "folio_cfdi": cfdi_info.serie_folio if cfdi_info else "",
             "concepto_clave_prod_serv": clave_carta_ingreso,
             "legacy_simple_service_invoice": _ENABLE_SIMPLE_SERVICE_INVOICE,
             "email_receptor": email_receptor,
