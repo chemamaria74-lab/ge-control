@@ -240,7 +240,7 @@ function trv2SetServiceProductFilter(value = 'gas_lp') {
   trv2RenderServiceFamilyDashboard();
 }
 
-function trv2RenderServiceProductFilterTarget(targetId, counts = {gas_lp: 0, petroliferos: 0}, label = 'Servicios por producto') {
+function trv2RenderServiceProductFilterTarget(targetId, counts = {gas_lp: 0, petroliferos: 0}, label = 'Cartas Ingreso por producto') {
   const target = document.getElementById(targetId);
   if (!target) return;
   if (!TRV2_SERVICE_PRODUCT_FILTER || !['gas_lp', 'petroliferos'].includes(TRV2_SERVICE_PRODUCT_FILTER)) {
@@ -275,15 +275,15 @@ function trv2RenderServiceProductFilter(rows = []) {
     if (family) acc[family] = (acc[family] || 0) + 1;
     return acc;
   }, {gas_lp: 0, petroliferos: 0});
-  trv2RenderServiceProductFilterTarget('trv2-service-product-filter', pendingCounts, 'Servicios pendientes por producto');
-  trv2RenderServiceProductFilterTarget('trv2-service-invoiced-product-filter', invoiceCounts, 'Facturas generadas por producto');
+  trv2RenderServiceProductFilterTarget('trv2-service-product-filter', pendingCounts, 'Cartas Ingreso pendientes por producto');
+  trv2RenderServiceProductFilterTarget('trv2-service-invoiced-product-filter', invoiceCounts, 'Cartas Ingreso generadas por producto');
   trv2RenderServiceProductFilterTarget('trv2-service-payment-product-filter', paymentCounts, 'Pendientes de pago por producto');
 }
 
 function trv2ServiceExcelScope(tab = TRV2_SERVICE_TAB) {
   const product = TRV2_SERVICE_PRODUCT_FILTER || 'gas_lp';
   const period = TRV2_SERVICE_MONTH || 'todos_los_meses';
-  return `facturas_servicio_${tab}_${product}_${period}.xls`;
+  return `cartas_ingreso_${tab}_${product}_${period}.xls`;
 }
 
 function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
@@ -597,11 +597,11 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
     document.body.appendChild(layer);
   }
   layer.hidden = false;
-  layer.innerHTML = `<section class="trv2-modal" role="dialog" aria-modal="true">
-    <div class="trv2-modal-head"><div><h2>Revisar factura de servicio</h2><p>Este CFDI de ingreso es independiente de la Carta Porte.</p></div><button class="trv2-icon-btn" type="button" title="Cerrar" onclick="trv2CloseServiceReview()"><i class="fa-solid fa-xmark"></i></button></div>
+    layer.innerHTML = `<section class="trv2-modal" role="dialog" aria-modal="true">
+    <div class="trv2-modal-head"><div><h2>Revisar Carta Ingreso</h2><p>Este CFDI de ingreso cobrará el flete e incluirá Complemento Carta Porte 3.1.</p></div><button class="trv2-icon-btn" type="button" title="Cerrar" onclick="trv2CloseServiceReview()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="trv2-preview-grid">
       ${trv2RenderPreviewBlock('Receptor', {cliente: service.cliente, rfc: service.rfc, email: service.email || 'Pendiente', metodo_pago: metodoPago, forma_pago: formaPago})}
-      ${trv2RenderPreviewBlock('Servicio', {ruta: `${service.origen} -> ${service.destino}`, producto: service.producto, carta_porte: service.uuid_carta_porte})}
+      ${trv2RenderPreviewBlock('Carta Porte base', {ruta: `${service.origen} -> ${service.destino}`, producto: service.producto, uuid_carta_porte: service.uuid_carta_porte})}
     </div>
     <div class="trv2-form trv2-form-compact">
       <label>
@@ -620,9 +620,9 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
     <div class="trv2-cp-summary" id="trv2-service-review-summary">
       ${trv2RenderServiceReviewTotals(calc)}
     </div>
-    <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseServiceReview()">Cancelar</button>${allowStamp ? `<button class="trv2-btn trv2-btn-primary" id="trv2-service-confirm-btn" type="button" onclick="trv2ConfirmServiceInvoice(${Number(tripId)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar factura de servicio</button>` : ''}</div>
+    <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseServiceReview()">Cancelar</button>${allowStamp ? `<button class="trv2-btn trv2-btn-primary" id="trv2-service-confirm-btn" type="button" onclick="trv2ConfirmServiceInvoice(${Number(tripId)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso</button>` : ''}</div>
   </section>`;
-  if (!emailOk && allowStamp) trv2Toast('Captura el email fiscal/comercial antes de timbrar la factura de servicio.', 'info');
+  if (!emailOk && allowStamp) trv2Toast('Captura el email fiscal/comercial antes de timbrar Carta Ingreso.', 'info');
 }
 
 function trv2RenderServiceReviewTotals(calc) {
@@ -662,12 +662,12 @@ function trv2GenerateServiceInvoice(tripId) {
   const service = trv2ServiceTripData(row);
   const tariff = trv2FindServiceTariff(service);
   if (!tariff) {
-    trv2Toast('Falta configurar tarifa. No se puede generar factura.', 'error');
+    trv2Toast('Falta configurar tarifa. No se puede generar Carta Ingreso.', 'error');
     return;
   }
   const invoices = trv2ReadServiceInvoices();
   if (invoices.some(item => (item.viaje_ids || [item.viaje_id]).map(Number).includes(Number(tripId)))) {
-    trv2Toast('Este viaje ya tiene factura de servicio.', 'error');
+    trv2Toast('Este viaje ya tiene Carta Ingreso.', 'error');
     return;
   }
   trv2OpenServiceDetail(tripId, true);
@@ -689,7 +689,7 @@ async function trv2ConfirmServiceInvoice(tripId) {
     : (cliente.forma_pago_default || '03');
   const button = document.getElementById('trv2-service-confirm-btn');
   TRV2_SERVICE_INVOICE_BUSY = true;
-  if (button) { button.disabled = true; button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando factura...'; }
+  if (button) { button.disabled = true; button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando Carta Ingreso...'; }
   try {
     const data = await trv2Api('POST', '/api/tr-v2/facturas-servicio', {
       perfil_id: Number(TRV2_PERFIL?.id || 0) || null,
@@ -701,7 +701,7 @@ async function trv2ConfirmServiceInvoice(tripId) {
       regimen_fiscal: cliente.regimen_fiscal || '601',
       uso_cfdi: cliente.uso_cfdi || 'G03',
       email_receptor: email,
-      concepto: 'Servicio de transporte de carga por carretera',
+      concepto: 'Servicio de flete / servicio de transporte de carga por carretera',
       subtotal: calc.subtotal,
       iva: calc.iva,
       retencion: calc.retencion,
@@ -714,19 +714,19 @@ async function trv2ConfirmServiceInvoice(tripId) {
       metodo_pago: metodoPago,
       moneda: 'MXN',
       override_tarifa: tarifa,
-      override_tarifa_motivo: 'Tarifa editada en revisión de factura de servicio',
+      override_tarifa_motivo: 'Tarifa editada en revisión de Carta Ingreso',
     }, {allowError: true});
     if (!data?.ok) {
-      trv2Toast(trv2MessageText(data?.detail || data?.message || 'No se pudo timbrar la factura de servicio.'), 'error');
+      trv2Toast(trv2MessageText(data?.detail || data?.message || 'No se pudo timbrar Carta Ingreso.'), 'error');
       return;
     }
     trv2CloseServiceReview();
     await trv2LoadServiceInvoices();
     trv2SetServiceInvoiceTab('facturadas');
-    trv2Toast(`Factura de servicio timbrada. UUID ${data.uuid_sat || ''}`, 'success');
+    trv2Toast(`Carta Ingreso timbrada. UUID ${data.uuid_sat || ''}`, 'success');
   } finally {
     TRV2_SERVICE_INVOICE_BUSY = false;
-    if (button) { button.disabled = false; button.innerHTML = '<i class="fa-solid fa-file-invoice-dollar"></i> Timbrar factura de servicio'; }
+    if (button) { button.disabled = false; button.innerHTML = '<i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso'; }
   }
 }
 
@@ -735,7 +735,7 @@ async function trv2OmitServiceInvoice(tripId) {
   const service = trv2ServiceTripData(row || {});
   if (!row) return;
   const label = `viaje #${Number(tripId)}${service.cliente ? ` de ${service.cliente}` : ''}`;
-  if (!confirm(`¿Marcar ${label} como no facturable en servicios? No se borra la Carta Porte.`)) return;
+  if (!confirm(`¿Marcar ${label} como no facturable en Cartas Ingreso? No se borra la Carta Porte.`)) return;
   const reason = prompt('Motivo (opcional)', 'Se facturará en otro programa') || '';
   const response = await trv2Api('POST', `/api/tr-v2/facturas-servicio/viajes/${Number(tripId)}/omitir`, {
     perfil_id: TRV2_PERFIL?.id || null,
@@ -747,7 +747,7 @@ async function trv2OmitServiceInvoice(tripId) {
   }
   await trv2LoadTrips?.();
   trv2RenderServiceInvoices();
-  trv2Toast('Servicio marcado como no facturable.', 'success');
+  trv2Toast('Viaje marcado como no facturable para Carta Ingreso.', 'success');
 }
 
 function trv2RenderServicePendingTable() {
@@ -758,7 +758,7 @@ function trv2RenderServicePendingTable() {
   trv2RenderServiceProductFilter(allRows);
   const rows = trv2ServiceFilterRowsByProduct(allRows);
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="14"><div class="trv2-empty">No hay servicios pendientes de facturar para este producto y periodo.</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="15"><div class="trv2-empty">No hay Cartas Ingreso pendientes de facturar para este producto y periodo.</div></td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(row => {
@@ -781,9 +781,10 @@ function trv2RenderServicePendingTable() {
         <td>${trv2ServiceMoney(calc.iva)}</td>
         <td>${trv2ServiceMoney(calc.retencion)}</td>
         <td>${trv2ServiceMoney(calc.total)}</td>
+        <td><span class="trv2-chip">${trv2Esc(status)}</span></td>
         <td class="trv2-service-actions">
           <button class="trv2-mini-icon-btn" type="button" title="Detalle" aria-label="Detalle" onclick="trv2OpenServiceDetail(${Number(row.id)})"><i class="fa-solid fa-circle-info"></i></button>
-          <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" title="${trv2Esc(status)}" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-file-invoice-dollar"></i> Revisar y facturar</button>
+          <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" title="${trv2Esc(status)}" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso</button>
           <button class="trv2-mini-icon-btn trv2-mini-icon-danger" type="button" title="No facturar" aria-label="No facturar" onclick="trv2OmitServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-ban"></i></button>
         </td>
       </tr>
@@ -807,7 +808,7 @@ function trv2RenderServiceGeneratedTables() {
         <td>${item.id ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceArtifact(${Number(item.id)}, 'pdf')">PDF</button>` : 'Pendiente'}</td>
         <td>${item.id ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceArtifact(${Number(item.id)}, 'xml', true)">XML</button>` : 'Pendiente'}</td>
       </tr>
-    `).join('') : '<tr><td colspan="6"><div class="trv2-empty">Aún no hay facturas generadas.</div></td></tr>';
+    `).join('') : '<tr><td colspan="6"><div class="trv2-empty">Aún no hay Cartas Ingreso generadas.</div></td></tr>';
   }
   if (pago) {
     pago.innerHTML = filteredPaymentInvoices.length ? filteredPaymentInvoices.map(item => `
@@ -835,7 +836,7 @@ async function trv2OpenServiceArtifact(invoiceId, kind, download = false) {
   if (download || kind === 'xml') {
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${kind === 'xml' ? 'factura_servicio.xml' : 'factura_servicio.pdf'}`;
+    anchor.download = `${kind === 'xml' ? 'carta_ingreso.xml' : 'carta_ingreso.pdf'}`;
     anchor.click();
   } else {
     window.open(url, '_blank', 'noopener');
@@ -849,7 +850,7 @@ function trv2RenderServiceKpis() {
   const rows = trv2ServicePendingRows();
   const invoices = trv2ReadServiceInvoices();
   target.innerHTML = `
-    <article><span>Pendientes de facturar</span><strong>${rows.length}</strong></article>
+    <article><span>Pendientes de Facturar</span><strong>${rows.length}</strong></article>
     <article><span>Facturadas</span><strong>${invoices.length}</strong></article>
     <article><span>Pendientes de pago</span><strong>${invoices.filter(item => item.estatus !== 'pagada').length}</strong></article>
   `;

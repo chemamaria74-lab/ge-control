@@ -218,12 +218,17 @@ function trv2SettingsPayloadFromForm() {
       premium: true,
       diesel: true,
     },
+    facturacion: {
+      ...(window.TRV2_TRANSPORTE_SETTINGS?.facturacion || {}),
+      clave_prodserv_carta_ingreso: document.getElementById('trv2-set-ci-clave-prodserv')?.value.trim() || '78101802',
+    },
   };
 }
 
 function trv2FillSettingsForm(data = {}) {
   window.TRV2_TRANSPORTE_SETTINGS = data || {};
   const perfil = data.perfil_fiscal || {};
+  const facturacion = data.facturacion || {};
   const pairs = [
     ['trv2-set-rfc', perfil.rfc_contribuyente],
     ['trv2-set-nombre', perfil.nombre_fiscal],
@@ -231,6 +236,7 @@ function trv2FillSettingsForm(data = {}) {
     ['trv2-set-regimen', perfil.regimen_fiscal],
     ['trv2-set-rfc-rep', perfil.rfc_representante_legal],
     ['trv2-set-factor', perfil.factor_kg_l_default],
+    ['trv2-set-ci-clave-prodserv', facturacion.clave_prodserv_carta_ingreso || '78101802'],
     ['trv2-set-logo', perfil.logo_data_url || perfil.logo_url],
     ['trv2-set-pdf-header-color', perfil.pdf_header_color || perfil.color_encabezado_pdf || '#6B7280'],
     ['trv2-set-pdf-header-text-color', perfil.pdf_header_text_color || perfil.color_texto_encabezado_pdf || '#FFFFFF'],
