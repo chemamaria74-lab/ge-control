@@ -5,6 +5,7 @@ os.environ.setdefault("SUPABASE_KEY", "dummy")
 
 from routes.facturas_mod.facturacion_sat_liqs import (
     _base_cartas_porte_timbradas,
+    _calcular_tarifa_operativa,
     _tariff_match,
 )
 
@@ -75,3 +76,32 @@ def test_tarifa_de_ruta_coincide_por_producto_id_aunque_cambie_descripcion():
     }
 
     assert _tariff_match(viaje, tarifa) is True
+
+
+def test_tarifa_gas_lp_respeta_base_calculo_kilos():
+    calculo = _calcular_tarifa_operativa(
+        {
+            "id": 62,
+            "ruta_id": 12,
+            "producto_operacion_id": 7,
+            "volumen_total_litros": 35764.65,
+            "productos_json": [{"producto_id": 7, "descripcion": "GAS L.P.", "peso_kg": 19427}],
+        },
+        [{
+            "id": 10,
+            "ruta_id": 12,
+            "producto_id": 7,
+            "producto": "GAS L.P.",
+            "base_calculo": "kilos",
+            "tarifa": 1.2,
+            "iva_tasa": 0.16,
+            "retencion_tasa": 0.04,
+        }],
+    )
+
+    assert calculo["regla_calculo"] == "kilos"
+    assert calculo["cantidad_base"] == 19427
+    assert calculo["subtotal"] == 23312.40
+    assert calculo["iva"] == 3729.98
+    assert calculo["retencion"] == 932.50
+    assert calculo["total"] == 26109.88
