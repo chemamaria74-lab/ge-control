@@ -55,7 +55,7 @@ TBL_DESTINOS = "tr_destinos"
 TBL_REMOLQUES = "tr_remolques"
 TBL_PROVEEDORES = "tr_proveedores_operacion"
 TBL_TARIFAS = "tr_tarifas"
-TBL_FACT_SERV = "gas_lp_facturas_servicio"
+TBL_FACT_SERV = "tr_facturas_servicio"
 TBL_SETTINGS = "tr_settings"
 TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
 TBL_AUDITORIA = "transporte_v2_auditoria"
@@ -2064,6 +2064,9 @@ def _require_profile_if_present(uid: str, token: str, perfil_id: Optional[int]) 
         require_profile_access(uid, MODULO, perfil_id, access_token=token)
 
 
+TRV2_CLEARABLE_EMPTY_FIELDS = {"email", "email_facturacion"}
+
+
 def _clean_payload(data: dict[str, Any], allowed: list[str], defaults: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     cleaned: dict[str, Any] = dict(defaults or {})
     for key in allowed:
@@ -2072,7 +2075,7 @@ def _clean_payload(data: dict[str, Any], allowed: list[str], defaults: Optional[
         value = data[key]
         if isinstance(value, str):
             value = value.strip()
-            if value == "":
+            if value == "" and key not in TRV2_CLEARABLE_EMPTY_FIELDS:
                 continue
         cleaned[key] = value
     return cleaned
@@ -2083,7 +2086,16 @@ def _expand_client_contact_metadata(row: dict[str, Any]) -> dict[str, Any]:
     metadata = _parse_json_value(expanded.get("metadata"), {})
     if not isinstance(metadata, dict):
         metadata = {}
-    email = _first_text(expanded.get("email_facturacion"), expanded.get("email"), metadata.get("email_facturacion"), metadata.get("email"))
+    email_was_cleared = any(key in expanded and not str(expanded.get(key) or "").strip() for key in ("email", "email_facturacion"))
+    if email_was_cleared:
+        expanded["email_facturacion"] = ""
+        expanded["email"] = ""
+        metadata["email_facturacion"] = ""
+        metadata["email"] = ""
+        expanded["metadata"] = metadata
+        email = ""
+    else:
+        email = _first_text(expanded.get("email_facturacion"), expanded.get("email"), metadata.get("email_facturacion"), metadata.get("email"))
     if email:
         expanded["email_facturacion"] = email
         expanded["email"] = _first_text(expanded.get("email"), email)
@@ -3024,6 +3036,17 @@ def _update_catalog_item(
     if not config:
         raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
     row = _clean_payload(payload, config["allowed"], {})
+    if catalogo == "clientes" and any(key in row and not str(row.get(key) or "").strip() for key in ("email", "email_facturacion")):
+        try:
+            existing_q = _sb(token).table(config["table"]).select("metadata").eq("id", item_id).eq("user_id", uid).limit(1)
+            if perfil_id:
+                existing_q = existing_q.eq("perfil_id", perfil_id)
+            existing = existing_q.execute().data or []
+            existing_meta = _parse_json_value((existing[0] if existing else {}).get("metadata"), {})
+            if isinstance(existing_meta, dict):
+                row["metadata"] = {**existing_meta, **(_parse_json_value(row.get("metadata"), {}) if isinstance(_parse_json_value(row.get("metadata"), {}), dict) else {})}
+        except Exception:
+            pass
     if catalogo == "clientes":
         row = _expand_client_contact_metadata(row)
     if catalogo == "operadores":
