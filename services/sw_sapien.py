@@ -663,6 +663,13 @@ def _sw_issue_endpoint_uses_json(endpoint_sw: str) -> bool:
     endpoint = str(endpoint_sw or "").strip().lower()
     return "/json/" in endpoint or endpoint.endswith("/b64")
 
+def _sw_error_message(data: dict, fallback: str = "") -> str:
+    message = str((data or {}).get("message") or "").strip()
+    detail = str((data or {}).get("messageDetail") or "").strip()
+    if message and detail and detail not in message:
+        return f"{message} Detalle: {detail}"
+    return message or detail or fallback
+
 def timbrar_cfdi(xml_str: str) -> dict:
     """
     Envía el XML a SW Sapien.
@@ -750,7 +757,7 @@ def timbrar_cfdi(xml_str: str) -> dict:
 
         if resp.status_code >= 400 or data.get("status") != "success":
             public_error = _public_pac_error(
-                data.get("message") or data.get("messageDetail") or resp.text,
+                _sw_error_message(data, resp.text),
                 fallback=f"SW Sapien rechazó el CFDI con HTTP {resp.status_code}.",
             )
             result = {
@@ -863,7 +870,7 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
         except Exception:
             data = {"status": "error", "message": resp.text}
         if resp.status_code >= 400 or data.get("status") != "success":
-            public_error = _public_pac_error(data.get("message") or data.get("messageDetail") or resp.text, fallback="SW Sapien rechazó el CFDI.")
+            public_error = _public_pac_error(_sw_error_message(data, resp.text), fallback="SW Sapien rechazó el CFDI.")
             result = {
                 "ok": False,
                 "error": public_error,

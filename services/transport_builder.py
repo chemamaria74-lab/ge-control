@@ -349,11 +349,12 @@ def _xml_node(tag: str, data: dict | list, ns: str) -> str:
         return "".join(_xml_node(tag, item, ns) for item in data if isinstance(item, dict))
     attrs = _xml_attrs(data)
     children: list[str] = []
+    parent = tag.split(":", 1)[-1]
     for key, value in data.items():
         if _is_xml_attr_value(value) or value in (None, "", [], {}):
             continue
         if ns == "cfdi":
-            children.append(_cfdi_child_xml(key, value))
+            children.append(_cfdi_child_xml(key, value, parent=parent))
         else:
             children.append(_cp_child_xml(key, value))
     if children:
@@ -361,7 +362,7 @@ def _xml_node(tag: str, data: dict | list, ns: str) -> str:
     return f"<{tag}{attrs}/>"
 
 
-def _cfdi_child_xml(key: str, value: object) -> str:
+def _cfdi_child_xml(key: str, value: object, parent: str = "") -> str:
     if key == "CfdiRelacionados" and isinstance(value, dict):
         relacionados = value.get("CfdiRelacionado") or []
         attrs = {k: v for k, v in value.items() if k != "CfdiRelacionado"}
@@ -374,7 +375,7 @@ def _cfdi_child_xml(key: str, value: object) -> str:
     if key == "Conceptos" and isinstance(value, list):
         return f"<cfdi:Conceptos>{_cfdi_node('Concepto', value)}</cfdi:Conceptos>"
     if key == "Impuestos" and isinstance(value, dict):
-        return _cfdi_impuestos_xml(value)
+        return _cfdi_impuestos_xml(value, root=parent != "Concepto")
     if key == "Complemento" and isinstance(value, dict):
         inner = "".join(
             _xml_node(child_key, child_value, "cartaporte31" if child_key.startswith("cartaporte31:") else "cfdi")
@@ -385,15 +386,21 @@ def _cfdi_child_xml(key: str, value: object) -> str:
     return ""
 
 
-def _cfdi_impuestos_xml(data: dict) -> str:
+def _cfdi_impuestos_xml(data: dict, *, root: bool = True) -> str:
     attrs = _xml_attrs({k: v for k, v in data.items() if k not in {"Traslados", "Retenciones"}})
     children = []
-    traslados = data.get("Traslados") or []
-    if traslados:
-        children.append(f"<cfdi:Traslados>{_cfdi_node('Traslado', traslados)}</cfdi:Traslados>")
     retenciones = data.get("Retenciones") or []
-    if retenciones:
-        children.append(f"<cfdi:Retenciones>{_cfdi_node('Retencion', retenciones)}</cfdi:Retenciones>")
+    traslados = data.get("Traslados") or []
+    if root:
+        if retenciones:
+            children.append(f"<cfdi:Retenciones>{_cfdi_node('Retencion', retenciones)}</cfdi:Retenciones>")
+        if traslados:
+            children.append(f"<cfdi:Traslados>{_cfdi_node('Traslado', traslados)}</cfdi:Traslados>")
+    else:
+        if traslados:
+            children.append(f"<cfdi:Traslados>{_cfdi_node('Traslado', traslados)}</cfdi:Traslados>")
+        if retenciones:
+            children.append(f"<cfdi:Retenciones>{_cfdi_node('Retencion', retenciones)}</cfdi:Retenciones>")
     if children:
         return f"<cfdi:Impuestos{attrs}>{''.join(children)}</cfdi:Impuestos>"
     return f"<cfdi:Impuestos{attrs}/>"
