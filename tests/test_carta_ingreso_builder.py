@@ -1,7 +1,9 @@
 from lxml import etree
+from pypdf import PdfReader
 
 from models.transport_schemas import ProductoTransporte, ViajeCreate
 from services.service_invoice_builder import build_cfdi_ingreso_carta_porte
+from services.fiscal_pdf import generar_pdf_ingreso_carta_porte_desde_xml
 from services.transport_builder import build_cfdi_transporte, build_cfdi_transporte_xml
 
 
@@ -119,3 +121,37 @@ def test_carta_ingreso_genera_cfdi_i_con_carta_porte_31_y_concepto_default():
     assert root.xpath('string(//*[local-name()="Mercancia"]/@BienesTransp)') == "15111510"
     assert not root.xpath('boolean(//*[local-name()="Hidrocarburos"])')
     assert not root.xpath('boolean(//*[local-name()="ComplementoConcepto"])')
+
+
+def test_pdf_carta_ingreso_combina_factura_y_anexo_carta_porte(tmp_path):
+    cfdi, _id_ccp = build_cfdi_ingreso_carta_porte(
+        viaje=_sample_viaje("I"),
+        emisor=_emisor(),
+        receptor={
+            "rfc": "DGC881020LC4",
+            "nombre": "DISTRIBUIDORA DE GAS DEL CANON",
+            "cp": "99700",
+            "regimen_fiscal": "601",
+            "uso_cfdi": "G03",
+        },
+        chofer=_chofer(),
+        vehiculo=_vehiculo(),
+        cartas_porte_base=[{"uuid_sat": "11111111-2222-3333-4444-555555555555"}],
+        subtotal=14624,
+        iva=2339.84,
+        retencion=584.96,
+        aplica_iva=True,
+        aplica_retencion=True,
+    )
+    xml = build_cfdi_transporte_xml(cfdi)
+    pdf_path = tmp_path / "carta_ingreso.pdf"
+    pdf_path.write_bytes(generar_pdf_ingreso_carta_porte_desde_xml(xml))
+
+    reader = PdfReader(str(pdf_path))
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+
+    assert len(reader.pages) >= 3
+    assert "FACTURA CFDI 4.0" in text
+    assert "CARTA PORTE - INGRESO" in text
+    assert "Complemento Carta Porte 3.1" in text
+    assert "78101802" in text

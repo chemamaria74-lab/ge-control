@@ -1,3 +1,5 @@
+from pypdf import PdfReader
+
 from services.fiscal_pdf import (
     _amount_to_spanish_mxn,
     _concept_tax_nodes,
@@ -85,7 +87,7 @@ def test_gas_lp_pdf_accepts_customer_observations_without_changing_concept():
     assert 'Descripcion="LITRO DE GAS LP"' in xml
 
 
-def test_carta_porte_traslado_uses_specialized_pdf_layout():
+def test_carta_porte_traslado_uses_specialized_pdf_layout(tmp_path):
     xml = """<?xml version="1.0" encoding="utf-8"?>
     <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" xmlns:cartaporte31="http://www.sat.gob.mx/CartaPorte31" Version="4.0" Fecha="2026-06-09T19:54:00" SubTotal="0" Moneda="XXX" Total="0" TipoDeComprobante="T" LugarExpedicion="98470">
       <cfdi:Emisor Rfc="AGA990907II8" Nombre="AURE GAS" RegimenFiscal="601"/>
@@ -114,16 +116,19 @@ def test_carta_porte_traslado_uses_specialized_pdf_layout():
     assert es_carta_porte_traslado(xml)
     info = carta_porte_pdf_info(xml)
     pdf = generar_pdf_carta_porte_desde_xml(xml)
+    pdf_path = tmp_path / "carta_porte.pdf"
+    pdf_path.write_bytes(pdf)
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(str(pdf_path)).pages)
 
     assert info.filename.startswith("CARTA_PORTE_TRASLADO_063d5c96")
     assert b"%PDF" in pdf[:16]
-    assert b"CARTA PORTE - TRASLADO" in pdf
-    assert b"063d5c96-1fa0-4129-9f5a-0bea8a18680e" in pdf
-    assert b"T Traslado" in pdf
-    assert b"Gas licuado" in pdf
-    assert b"IMPORTE TOTAL CARGA" in pdf
-    assert b"$12,345.67 MXN" in pdf
-    assert b"Autotransporte" in pdf
-    assert b"AC6116E" in pdf
-    assert b"CAHA9403247E1" in pdf
-    assert b"Version" in pdf and b"3.1" in pdf
+    assert "CARTA PORTE - TRASLADO" in text
+    assert "063d5c96-1fa0-4129-9f5a-0bea8a18680e" in text
+    assert "T Traslado" in text
+    assert "Gas licuado" in text
+    assert "IMPORTE TOTAL CARGA" in text
+    assert "$12,345.67 MXN" in text
+    assert "Autotransporte" in text
+    assert "AC6116E" in text
+    assert "CAHA9403247E1" in text
+    assert "VERSION" in text.upper() and "3.1" in text
