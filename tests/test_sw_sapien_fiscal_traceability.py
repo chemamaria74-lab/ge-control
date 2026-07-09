@@ -96,6 +96,44 @@ def test_emitir_timbrar_json_returns_controlled_error_but_audits_raw_payload(mon
     assert calls["responses"][0]["error_message"] == result["error"]
 
 
+def test_timbrar_cfdi_error_includes_message_detail(monkeypatch):
+    calls = _patch_audit(monkeypatch)
+    monkeypatch.setattr(sw_sapien, "_get_token", lambda: "token-test")
+    monkeypatch.setattr(
+        sw_sapien.requests,
+        "post",
+        lambda *args, **kwargs: _FakeResponse(
+            {
+                "status": "error",
+                "message": "CP999 - Error no clasificado.",
+                "messageDetail": "The element 'Impuestos' has invalid child element 'Retenciones'.",
+                "data": None,
+            },
+            status_code=400,
+            text='{"status":"error"}',
+        ),
+    )
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Version="4.0" '
+        'SubTotal="1.00" Moneda="MXN" Total="1.00" TipoDeComprobante="I" '
+        'Exportacion="01" LugarExpedicion="20000">'
+        '<cfdi:Emisor Rfc="AAA010101AAA" Nombre="EMISOR" RegimenFiscal="601"/>'
+        '<cfdi:Receptor Rfc="XAXX010101000" Nombre="PUBLICO EN GENERAL" '
+        'DomicilioFiscalReceptor="20000" RegimenFiscalReceptor="616" UsoCFDI="S01"/>'
+        '<cfdi:Conceptos><cfdi:Concepto ClaveProdServ="78101802" Cantidad="1" '
+        'ClaveUnidad="E48" Descripcion="SERVICIO" ValorUnitario="1.00" Importe="1.00" '
+        'ObjetoImp="01"/></cfdi:Conceptos></cfdi:Comprobante>'
+    )
+
+    result = sw_sapien.timbrar_cfdi(xml)
+
+    assert result["error"].startswith("CP999")
+    assert "Detalle:" in result["error"]
+    assert "invalid child element" in result["error"]
+    assert calls["responses"][0]["error_message"] == result["error"]
+
+
 def test_cancelar_cfdi_controlled_validation_error_records_request_and_response(monkeypatch):
     calls = _patch_audit(monkeypatch)
 

@@ -123,6 +123,35 @@ def test_carta_ingreso_genera_cfdi_i_con_carta_porte_31_y_concepto_default():
     assert not root.xpath('boolean(//*[local-name()="ComplementoConcepto"])')
 
 
+def test_carta_ingreso_serializa_impuestos_en_orden_cfdi_40():
+    cfdi, _id_ccp = build_cfdi_ingreso_carta_porte(
+        viaje=_sample_viaje("I"),
+        emisor=_emisor(),
+        receptor={
+            "rfc": "DGC881020LC4",
+            "nombre": "DISTRIBUIDORA DE GAS DEL CANON",
+            "cp": "99700",
+            "regimen_fiscal": "601",
+            "uso_cfdi": "G03",
+        },
+        chofer=_chofer(),
+        vehiculo=_vehiculo(),
+        cartas_porte_base=[{"uuid_sat": "11111111-2222-3333-4444-555555555555"}],
+        subtotal=14624,
+        iva=2339.84,
+        retencion=584.96,
+        aplica_iva=True,
+        aplica_retencion=True,
+    )
+    xml = build_cfdi_transporte_xml(cfdi)
+
+    concepto_impuestos = xml.split("<cfdi:Concepto", 1)[1].split("</cfdi:Concepto>", 1)[0]
+    assert concepto_impuestos.index("<cfdi:Traslados>") < concepto_impuestos.index("<cfdi:Retenciones>")
+
+    root_impuestos = xml.rsplit("<cfdi:Impuestos", 1)[1].split("</cfdi:Impuestos>", 1)[0]
+    assert root_impuestos.index("<cfdi:Retenciones>") < root_impuestos.index("<cfdi:Traslados>")
+
+
 def test_carta_ingreso_no_requiere_permiso_cne_hidrocarburos_en_concepto_flete():
     viaje = _sample_viaje("I")
     viaje.num_permiso_cne = ""
