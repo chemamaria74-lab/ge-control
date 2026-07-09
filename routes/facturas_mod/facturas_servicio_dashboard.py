@@ -202,32 +202,104 @@ async def descargar_xml_factura_servicio_transporte(
 
 
 def _liberar_carta_ingreso_cancelada(sb, *, uid: str, perfil_id, factura_id: int, row: dict, update_payload: dict) -> list[int]:
+    now = update_payload.get("canceled_at") or datetime.now(timezone.utc).isoformat()
+    meta = dict(row.get("metadata") or {}) if isinstance(row.get("metadata"), dict) else {}
+    meta.update({
+        "status": "Cancelada",
+        "estatus": "Cancelada",
+        "cancelacion_status": update_payload.get("cancelacion_status") or "cancelada",
+        "cancelacion_motivo": update_payload.get("cancelacion_motivo") or "",
+        "cancelacion_resultado": update_payload.get("cancelacion_resultado") or {},
+        "canceled_at": now,
+        "canceled_by": uid,
+    })
+    attempts = [
+        {**update_payload, "metadata": meta},
+        {"status": "Cancelada", "metadata": meta},
+        {"estatus": "Cancelada", "metadata": meta},
+        {"metadata": meta},
+        {"status": "Cancelada"},
+    ]
+    clients = [sb]
     try:
-        sb.table(_TBL_FACT_SERV).update(update_payload).eq("id", factura_id).eq("user_id", uid).execute()
+        clients.append(get_supabase_admin())
     except Exception:
-        sb.table(_TBL_FACT_SERV).update({"status": "Cancelada"}).eq("id", factura_id).eq("user_id", uid).execute()
+        pass
+    invoice_updated = False
+    last_update_error = None
+    for client in clients:
+        for attempt in attempts:
+            try:
+                q = client.table(_TBL_FACT_SERV).update(attempt).eq("id", factura_id).eq("user_id", uid)
+                if perfil_id:
+                    q = q.eq("perfil_id", perfil_id)
+                q.execute()
+                invoice_updated = True
+                break
+            except Exception as exc:
+                last_update_error = exc
+        if invoice_updated:
+            break
+    if not invoice_updated and last_update_error:
+        logger.warning("No se pudo marcar Carta Ingreso cancelada factura=%s: %s", factura_id, last_update_error)
     viaje_ids = [int(v) for v in (row.get("viaje_ids") or []) if str(v).isdigit()]
-    try:
-        rel_q = sb.table(_TBL_FACT_SERV_CARTAS).delete().eq("user_id", uid).eq("factura_servicio_id", factura_id)
-        if perfil_id:
-            rel_q = rel_q.eq("perfil_id", perfil_id)
-        rel_q.execute()
-    except Exception as exc:
-        logger.warning("No se pudo liberar relación Carta Ingreso cancelada factura=%s: %s", factura_id, exc)
-    if viaje_ids:
+    rel_rows = []
+    for client in clients:
         try:
-            upd = {
+            rel_select = client.table(_TBL_FACT_SERV_CARTAS).select("viaje_id").eq("user_id", uid).eq("factura_servicio_id", factura_id)
+            if perfil_id:
+                rel_select = rel_select.eq("perfil_id", perfil_id)
+            rel_rows = rel_select.execute().data or []
+            break
+        except Exception as exc:
+            logger.info("No se pudieron leer relaciones Carta Ingreso factura=%s antes de liberar: %s", factura_id, exc)
+    for rel in rel_rows:
+        try:
+            viaje_ids.append(int(rel.get("viaje_id")))
+        except (TypeError, ValueError):
+            pass
+    viaje_ids = sorted(set(viaje_ids))
+    rel_deleted = False
+    last_rel_error = None
+    for client in clients:
+        try:
+            rel_q = client.table(_TBL_FACT_SERV_CARTAS).delete().eq("user_id", uid).eq("factura_servicio_id", factura_id)
+            if perfil_id:
+                rel_q = rel_q.eq("perfil_id", perfil_id)
+            rel_q.execute()
+            rel_deleted = True
+            break
+        except Exception as exc:
+            last_rel_error = exc
+    if not rel_deleted and last_rel_error:
+        logger.warning("No se pudo liberar relación Carta Ingreso cancelada factura=%s: %s", factura_id, last_rel_error)
+    if viaje_ids:
+        updates = [
+            {
                 "factura_servicio_status": "pendiente",
                 "factura_servicio_uuid": "",
                 "factura_servicio_pdf_url": "",
                 "factura_servicio_xml_url": "",
-            }
-            vq = sb.table(_TBL_VIAJES).update(upd).eq("user_id", uid).in_("id", viaje_ids)
-            if perfil_id:
-                vq = vq.eq("perfil_id", perfil_id)
-            vq.execute()
-        except Exception as exc:
-            logger.warning("No se pudo devolver viajes a pendientes de Carta Ingreso factura=%s: %s", factura_id, exc)
+            },
+            {"factura_servicio_status": "pendiente"},
+        ]
+        released = False
+        last_trip_error = None
+        for client in clients:
+            for upd in updates:
+                try:
+                    vq = client.table(_TBL_VIAJES).update(upd).eq("user_id", uid).in_("id", viaje_ids)
+                    if perfil_id:
+                        vq = vq.eq("perfil_id", perfil_id)
+                    vq.execute()
+                    released = True
+                    break
+                except Exception as exc:
+                    last_trip_error = exc
+            if released:
+                break
+        if not released and last_trip_error:
+            logger.warning("No se pudo devolver viajes a pendientes de Carta Ingreso factura=%s: %s", factura_id, last_trip_error)
     return viaje_ids
 
 
