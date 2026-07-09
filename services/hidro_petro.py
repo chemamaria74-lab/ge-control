@@ -19,19 +19,20 @@ class HidroPetroProduct:
 
 
 HIDRO_PETRO_PRODUCTS: dict[str, HidroPetroProduct] = {
-    "PR05": HidroPetroProduct("PR05", "15101507", "SP6", "1202", "Diesel automotriz"),
+    "PR05": HidroPetroProduct("PR05", "15101505", "SP6", "1202", "Diesel automotriz"),
     "PR06": HidroPetroProduct("PR06", "15101514", "SP1", "1203", "Gasolina regular"),
     "PR07": HidroPetroProduct("PR07", "15101515", "SP2", "1203", "Gasolina premium"),
-    "PR08": HidroPetroProduct("PR08", "15101507", "SP7", "1202", "Diesel marino"),
+    "PR08": HidroPetroProduct("PR08", "15101505", "SP7", "1202", "Diesel marino"),
     "PR10": HidroPetroProduct("PR10", "15101517", "SP17", "1223", "Queroseno"),
     "PR12": HidroPetroProduct("PR12", "15111510", "SP46", "1075", "Gas LP"),
-    "PR13": HidroPetroProduct("PR13", "15101507", "SP9", "1202", "Diesel industrial"),
+    "PR13": HidroPetroProduct("PR13", "15101505", "SP9", "1202", "Diesel industrial"),
     "PR16": HidroPetroProduct("PR16", "15101510", "SP3", "1203", "Gasolina de aviacion"),
 }
 
 _BY_CLAVE_PROD_SERV = {
     product.clave_prod_serv: product for product in HIDRO_PETRO_PRODUCTS.values()
 }
+_BY_CLAVE_PROD_SERV["15101507"] = HIDRO_PETRO_PRODUCTS["PR05"]
 _TIPO_PERMISO_RE = re.compile(r"^PER(0[1-9]|1[0-1])$")
 
 
@@ -116,4 +117,3 @@ def xml_hidro_petro_node(node: dict[str, Any]) -> str:
         f'SubProductoHYP="{node["SubProductoHYP"]}"/>'
         '</cfdi:ComplementoConcepto>'
     )
-
