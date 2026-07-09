@@ -60,9 +60,14 @@ async def ver_pdf_factura_servicio_transporte(
         raise HTTPException(404, "Carta Ingreso sin XML timbrado para generar PDF.")
     settings = _settings_transporte(uid, token, row.get("perfil_id") or pid)
     info = fiscal_pdf_info(xml_content, "factura_servicio_transporte")
-    pdf_bytes = generar_pdf_ingreso_desde_xml(
-        xml_content,
-        logo_data_url=settings.get("PdfLogoDataUrl", ""),
+    row_meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    is_carta_ingreso = (row.get("tipo") or row_meta.get("tipo")) == "carta_ingreso"
+    logo_data_url = settings.get("PdfLogoDataUrl", "") or (settings.get("perfil_fiscal") or {}).get("logo_data_url", "")
+    pdf_theme = settings.get("perfil_fiscal") if isinstance(settings.get("perfil_fiscal"), dict) else {}
+    pdf_bytes = (
+        generar_pdf_ingreso_carta_porte_desde_xml(xml_content, logo_data_url=logo_data_url, pdf_theme=pdf_theme)
+        if is_carta_ingreso
+        else generar_pdf_ingreso_desde_xml(xml_content, logo_data_url=logo_data_url)
     )
     storage = save_fiscal_artifacts(
         get_supabase_admin(),

@@ -43,6 +43,7 @@ from services.fiscal_pdf import (
     audit_fiscal_pdf_event,
     fiscal_pdf_info,
     generar_pdf_gas_lp_desde_xml,
+    generar_pdf_ingreso_carta_porte_desde_xml,
     generar_pdf_ingreso_desde_xml,
     save_fiscal_artifacts,
 )

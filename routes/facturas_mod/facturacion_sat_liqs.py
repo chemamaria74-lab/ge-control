@@ -982,7 +982,13 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         if xml_content:
             try:
                 info = fiscal_pdf_info(xml_content, "factura_servicio_transporte")
-                pdf_bytes = generar_pdf_ingreso_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+                logo_data_url = settings.get("PdfLogoDataUrl", "") or (settings.get("perfil_fiscal") or {}).get("logo_data_url", "")
+                pdf_theme = settings.get("perfil_fiscal") if isinstance(settings.get("perfil_fiscal"), dict) else {}
+                pdf_bytes = (
+                    generar_pdf_ingreso_carta_porte_desde_xml(xml_content, logo_data_url=logo_data_url, pdf_theme=pdf_theme)
+                    if tipo_registro == "carta_ingreso"
+                    else generar_pdf_ingreso_desde_xml(xml_content, logo_data_url=logo_data_url)
+                )
                 email_result = send_gas_lp_invoice_email(
                     to_email=email_receptor,
                     issuer_name=emisor.get("nombre", ""),
