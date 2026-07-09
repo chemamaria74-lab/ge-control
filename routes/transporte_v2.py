@@ -4421,7 +4421,7 @@ def _stamp_internal_product_keys(producto: dict[str, Any], raw: dict[str, Any]) 
     elif "15101505" in text or "15101507" in text or "DIESEL" in text or "DIÉSEL" in text:
         internal = "PR05"
         sub = sub or "SP6"
-        sat_key = sat_key if str(sat_key).isdigit() else "15101507"
+        sat_key = sat_key if str(sat_key).isdigit() else "15101505"
     else:
         internal = "PR12"
         sub = sub or "SP46"
@@ -5795,32 +5795,33 @@ async def transporte_v2_operator_dashboard(
     pid = _profile_id(perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     try:
-        q = (
-            _sb(token)
-            .table(TBL_VIAJES)
-            .select("id,perfil_id,chofer_id,operador_id,vehiculo_id,nombre_origen,nombre_destino,fecha_hora_salida,status,operacion_status,defaults_json,created_at")
-            .eq("user_id", uid)
-            .order("fecha_hora_salida", desc=True)
-            .limit(120)
-        )
-        if pid:
-            q = q.eq("perfil_id", pid)
-        rows = q.execute().data or []
+        select_attempts = [
+            "id,perfil_id,chofer_id,vehiculo_id,nombre_origen,nombre_destino,fecha_hora_salida,status,operacion_status,defaults_json,created_at",
+            "id,perfil_id,chofer_id,vehiculo_id,nombre_origen,nombre_destino,fecha_hora_salida,status,defaults_json,created_at",
+            "id,perfil_id,chofer_id,vehiculo_id,defaults_json,created_at",
+            "id,perfil_id,defaults_json,created_at",
+        ]
+        rows = []
+        for select_cols in select_attempts:
+            try:
+                q = (
+                    _sb(token)
+                    .table(TBL_VIAJES)
+                    .select(select_cols)
+                    .eq("user_id", uid)
+                    .order("fecha_hora_salida", desc=True)
+                    .limit(120)
+                )
+                if pid:
+                    q = q.eq("perfil_id", pid)
+                rows = q.execute().data or []
+                break
+            except Exception as select_exc:
+                if _missing_column_from_error(select_exc):
+                    continue
+                raise
     except Exception as exc:
-        if _missing_column_from_error(exc) == "metadata":
-            q = (
-                _sb(token)
-                .table(TBL_VIAJES)
-                .select("id,perfil_id,chofer_id,operador_id,vehiculo_id,nombre_origen,nombre_destino,fecha_hora_salida,status,operacion_status,defaults_json,created_at")
-                .eq("user_id", uid)
-                .order("fecha_hora_salida", desc=True)
-                .limit(120)
-            )
-            if pid:
-                q = q.eq("perfil_id", pid)
-            rows = q.execute().data or []
-        else:
-            raise HTTPException(500, f"No se pudo cargar dashboard operador: {exc}") from exc
+        raise HTTPException(500, f"No se pudo cargar dashboard operador: {exc}") from exc
 
     active_rows: list[dict[str, Any]] = []
     for row in rows:
