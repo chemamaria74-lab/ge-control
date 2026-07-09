@@ -1,5 +1,7 @@
 let TRV2_CP_STAMPED_ITEMS = [];
 let TRV2_CP_STAMPED_FAMILY_FILTER = 'gas_lp';
+let TRV2_CP_STAMPED_SEARCH = '';
+const TRV2_CP_STAMPED_CACHE = {};
 
 async function trv2PrepareCartaPorteTab() {
   const catalogsEmpty = !TRV2_CATALOGS.rutas?.length || !TRV2_CATALOGS.operadores?.length || !TRV2_CATALOGS.vehiculos?.length || !TRV2_CATALOGS.productos?.length;
@@ -109,12 +111,39 @@ function trv2CpStampedCounts(items = []) {
 }
 
 function trv2CpStampedFilteredItems(items = TRV2_CP_STAMPED_ITEMS) {
-  return (items || []).filter(item => trv2CpStampedFamily(item) === TRV2_CP_STAMPED_FAMILY_FILTER);
+  const query = trv2CpNorm(TRV2_CP_STAMPED_SEARCH);
+  return (items || []).filter(item => {
+    if (trv2CpStampedFamily(item) !== TRV2_CP_STAMPED_FAMILY_FILTER) return false;
+    if (!query) return true;
+    const ruta = typeof trv2FindCatalog === 'function' ? (trv2FindCatalog('rutas', item.ruta_id) || {}) : {};
+    const producto = (typeof trv2TripRelatedLabel === 'function' ? trv2TripRelatedLabel(item, 'productos', 'producto_descripcion') : '') || item.producto || '';
+    const vehiculo = (typeof trv2TripRelatedLabel === 'function' ? trv2TripRelatedLabel(item, 'vehiculos', 'vehiculo_alias') : '') || item.vehiculo_alias || '';
+    const operador = (typeof trv2TripRelatedLabel === 'function' ? trv2TripRelatedLabel(item, 'operadores', 'operador_nombre') : '') || item.operador_nombre || '';
+    return trv2CpNorm([
+      item.fecha_timbrado,
+      item.origen_nombre,
+      item.destino_nombre,
+      ruta.nombre_origen,
+      ruta.origen,
+      ruta.nombre_destino,
+      ruta.destino,
+      producto,
+      vehiculo,
+      operador,
+      item.uuid_sat,
+      item.status,
+    ].filter(Boolean).join(' ')).includes(query);
+  });
 }
 
 function trv2SetCpStampedFamilyFilter(family = 'gas_lp') {
   TRV2_CP_STAMPED_FAMILY_FILTER = family === 'petroliferos' ? 'petroliferos' : 'gas_lp';
   trv2RenderCpStampedFamilyFilter();
+  trv2RenderStampedCartaPorteList(TRV2_CP_STAMPED_FILTER || 'hoy', TRV2_CP_STAMPED_ITEMS);
+}
+
+function trv2SetCpStampedSearch(value = '') {
+  TRV2_CP_STAMPED_SEARCH = String(value || '');
   trv2RenderStampedCartaPorteList(TRV2_CP_STAMPED_FILTER || 'hoy', TRV2_CP_STAMPED_ITEMS);
 }
 
@@ -196,7 +225,7 @@ function trv2RenderStampedCartaPorteList(filter = 'hoy', items = []) {
   }
   const filteredItems = trv2CpStampedFilteredItems(items);
   if (!filteredItems.length) {
-    list.innerHTML = `<div class="trv2-empty">No hay Cartas Porte ${trv2Esc(trv2CpFamilyLabel(TRV2_CP_STAMPED_FAMILY_FILTER))} en esta vista.</div>`;
+    list.innerHTML = `<div class="trv2-empty">No hay Cartas Porte ${trv2Esc(trv2CpFamilyLabel(TRV2_CP_STAMPED_FAMILY_FILTER))} para esta búsqueda.</div>`;
     return;
   }
   const firstColumn = filter === 'todas' ? 'Fecha' : 'Hora';
@@ -260,6 +289,13 @@ async function trv2LoadStampedCartaPorte(options = {}) {
   document.getElementById('trv2-cp-workflow-tab-todas')?.classList.toggle('active', TRV2_CP_WORKFLOW === 'todas');
   const list = document.getElementById('trv2-cp-stamped-list');
   if (!list) return;
+  const cacheKey = filter === 'todas' ? `${filter}:${TRV2_CP_STAMPED_MONTH || ''}` : filter;
+  if (!options.force && Array.isArray(TRV2_CP_STAMPED_CACHE[cacheKey])) {
+    TRV2_CP_STAMPED_ITEMS = TRV2_CP_STAMPED_CACHE[cacheKey];
+    trv2SetStampedCounts(filter, TRV2_CP_STAMPED_ITEMS.length);
+    trv2RenderStampedCartaPorteList(filter, TRV2_CP_STAMPED_ITEMS);
+    return;
+  }
   list.innerHTML = '<div class="trv2-empty">Cargando Cartas Porte timbradas...</div>';
   const query = new URLSearchParams({filtro: filter});
   if (filter === 'todas' && TRV2_CP_STAMPED_MONTH) query.set('periodo', TRV2_CP_STAMPED_MONTH);
@@ -270,6 +306,7 @@ async function trv2LoadStampedCartaPorte(options = {}) {
   }
   const items = data.items || [];
   TRV2_CP_STAMPED_ITEMS = items;
+  TRV2_CP_STAMPED_CACHE[cacheKey] = items;
   trv2SetStampedCounts(filter, items.length);
   trv2RenderStampedCartaPorteList(filter, items);
 }
@@ -288,7 +325,7 @@ async function trv2CancelCartaPorte(viajeId) {
   if (data?.ok) {
     trv2Toast('Carta Porte cancelada en SW Sapiens.', 'success');
     if (typeof trv2LoadTrips === 'function') await trv2LoadTrips();
-    await trv2LoadStampedCartaPorte({silent: true});
+    await trv2LoadStampedCartaPorte({silent: true, force: true});
     if (typeof trv2RenderServiceInvoices === 'function') trv2RenderServiceInvoices();
   } else {
     const detail = data?.detail || data?.message || 'No se pudo cancelar Carta Porte.';
@@ -691,7 +728,7 @@ async function trv2ConfirmStampCartaPorte() {
     }
     await trv2LoadTrips();
     trv2PopulateCartaPorteTrips();
-    await trv2LoadStampedCartaPorte({silent: true});
+    await trv2LoadStampedCartaPorte({silent: true, force: true});
     trv2SetCartaPorteWorkflow('preview');
     return 'invalid';
   }
@@ -713,7 +750,7 @@ async function trv2ConfirmStampCartaPorte() {
   }
   await trv2LoadTrips();
   trv2PopulateCartaPorteTrips();
-  await trv2LoadStampedCartaPorte({silent: true});
+  await trv2LoadStampedCartaPorte({silent: true, force: true});
   trv2SetCartaPorteWorkflow('hoy');
   return 'stamped';
 }
