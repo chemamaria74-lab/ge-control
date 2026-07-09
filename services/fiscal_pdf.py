@@ -25,12 +25,15 @@ class FiscalPdfInfo:
 def fiscal_pdf_info(xml_content: str | bytes, prefix: str = "cfdi") -> FiscalPdfInfo:
     root = _parse_xml(xml_content)
     emisor = _first(root, "Emisor")
+    receptor = _first(root, "Receptor")
     timbre = _first(root, "TimbreFiscalDigital")
     uuid = _attr(timbre, "UUID", "sin_uuid")
     serie = _attr(root, "Serie", "")
     folio = _attr(root, "Folio", "")
     tipo = _attr(root, "TipoDeComprobante", "")
     serie_folio = f"{serie}{folio}".strip()
+    if prefix == "carta_ingreso_transporte":
+        serie_folio = _serie_folio_label(serie, folio)
     if prefix == "factura_gas_lp" and serie_folio:
         issuer = _safe_name(_attr(emisor, "Nombre", "GASLUX")).replace("_", "").upper() or "GASLUX"
         return FiscalPdfInfo(
@@ -54,6 +57,18 @@ def fiscal_pdf_info(xml_content: str | bytes, prefix: str = "cfdi") -> FiscalPdf
             serie_folio=serie_folio or "PAGO",
             filename=f"{filename}.pdf",
         )
+    if prefix == "carta_ingreso_transporte":
+        issuer = _safe_name(_attr(emisor, "Nombre", "TRANSPORTISTA")).replace("_", "").upper() or "TRANSPORTISTA"
+        receptor_name = _safe_name(_attr(receptor, "Nombre", "CLIENTE")).replace("_", "").upper() or "CLIENTE"
+        folio_label = _safe_name(serie_folio or folio or "CI").upper()
+        uuid_short = _safe_name(uuid).upper()[:8] or "SINUUID"
+        filename = "_".join(["CARTA_INGRESO", issuer, receptor_name, folio_label, uuid_short])
+        return FiscalPdfInfo(
+            uuid=uuid,
+            tipo=tipo,
+            serie_folio=serie_folio or "CI",
+            filename=f"{filename}.pdf",
+        )
     safe = _safe_name(uuid or f"{serie}_{folio}" or prefix)
     return FiscalPdfInfo(uuid=uuid, tipo=tipo, serie_folio=f"{serie}/{folio}".strip("/"), filename=f"{prefix}_{safe}.pdf")
 
@@ -65,6 +80,7 @@ def generar_pdf_cfdi_desde_xml(
     logo_data_url: str = "",
     observaciones: str = "",
     template: str = "ingreso",
+    pdf_theme: dict[str, Any] | None = None,
 ) -> bytes:
     """Genera representacion impresa fiscal basica desde XML timbrado CFDI 4.0.
 
@@ -101,8 +117,9 @@ def generar_pdf_cfdi_desde_xml(
         title=display_title,
     )
     styles = getSampleStyleSheet()
-    wine = colors.HexColor("#7A1E2C")
-    wine_dark = colors.HexColor("#4E111C")
+    theme = pdf_theme or {}
+    wine = colors.HexColor(_theme_hex(theme, "pdf_header_color", "color_encabezado_pdf", default="#7A1E2C"))
+    wine_dark = colors.HexColor(_theme_hex(theme, "pdf_title_color", "color_titulos_pdf", default="#4E111C"))
     cream = colors.HexColor("#F8F6F2")
     line = colors.HexColor("#DED7CE")
     ink = colors.HexColor("#1F2933")
@@ -150,7 +167,7 @@ def generar_pdf_cfdi_desde_xml(
             ]),
             ("Datos del comprobante", _compact_rows([
             ("Tipo", f"{_tipo_cfdi(_attr(root, 'TipoDeComprobante'))} ({_attr(root, 'TipoDeComprobante')})"),
-            ("Folio", f"{_attr(root, 'Serie', '')}{_attr(root, 'Folio', '')}".strip()),
+            ("Folio", _serie_folio_label(_attr(root, "Serie", ""), _attr(root, "Folio", ""))),
             ("Fecha emisión", _attr(root, "Fecha")),
             ("Fecha timbrado", _attr(timbre, "FechaTimbrado")),
             ("Forma de pago", _attr(root, "FormaPago")),
@@ -206,9 +223,10 @@ def generar_pdf_ingreso_carta_porte_desde_xml(
 
     ingreso_pdf = generar_pdf_cfdi_desde_xml(
         xml_content,
-        title="CFDI ingreso con Carta Porte",
+        title="Carta Ingreso CFDI 4.0",
         logo_data_url=logo_data_url,
         template="ingreso_carta_porte",
+        pdf_theme=pdf_theme,
     )
     carta_porte_pdf = generar_pdf_carta_porte_desde_xml(
         xml_content,
@@ -352,6 +370,22 @@ def _safe_name(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", str(value or "cfdi")).strip("_") or "cfdi"
 
 
+def _serie_folio_label(serie: str, folio: str) -> str:
+    serie = str(serie or "").strip()
+    folio = str(folio or "").strip()
+    if serie == "CI" and folio:
+        return f"{serie}-{folio}" if not folio.startswith("-") else f"{serie}{folio}"
+    return f"{serie}{folio}".strip()
+
+
+def _theme_hex(theme: dict[str, Any], *keys: str, default: str) -> str:
+    for key in keys:
+        value = str(theme.get(key) or "").strip()
+        if re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
+            return value
+    return default
+
+
 def _clean_path(value: str) -> str:
     return "/".join(_safe_name(part) for part in str(value or "fiscal").split("/") if part)
 
@@ -397,8 +431,11 @@ def _section(text, Paragraph, styles):
 
 def _display_title(title: str, root) -> str:
     tipo = _attr(root, "TipoDeComprobante", "")
+    title_upper = str(title or "").upper()
     if tipo == "P":
         return "COMPLEMENTO DE PAGO"
+    if tipo == "I" and ("CARTA INGRESO" in title_upper or "CARTA PORTE" in title_upper):
+        return "CARTA INGRESO CFDI 4.0"
     if tipo == "I":
         return "FACTURA CFDI 4.0"
     return f"{title.upper()} CFDI 4.0"
@@ -433,7 +470,7 @@ def _fiscal_header_box(title, root, timbre, Table, TableStyle, Paragraph, styles
     rows = [[Paragraph(f"<b>{_text(title)}</b>", title_style), ""]]
     rows += [[Paragraph(_text(k), label_style), Paragraph(_text(v), value_style)] for k, v in [
         ("UUID", _attr(timbre, "UUID")),
-        ("Folio", f"{_attr(root, 'Serie', '')}{_attr(root, 'Folio', '')}".strip() or "—"),
+        ("Folio", _serie_folio_label(_attr(root, "Serie", ""), _attr(root, "Folio", "")) or "—"),
         ("Cert. SAT", _attr(timbre, "NoCertificadoSAT")),
         ("Cert. emisor", _attr(root, "NoCertificado")),
         ("Emisión", _attr(root, "Fecha")),
@@ -459,7 +496,7 @@ def _fiscal_header_box(title, root, timbre, Table, TableStyle, Paragraph, styles
 def _modern_header(title, logo, root, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, wine_dark, cream, line):
     issuer_name = _attr(emisor, "Nombre", "Emisor")
     issuer_rfc = _attr(emisor, "Rfc", "")
-    serie_folio = f"{_attr(root, 'Serie', '')}{_attr(root, 'Folio', '')}".strip() or "—"
+    serie_folio = _serie_folio_label(_attr(root, "Serie", ""), _attr(root, "Folio", "")) or "—"
     uuid = _attr(timbre, "UUID")
     cert_sat = _attr(timbre, "NoCertificadoSAT")
     cert_emisor = _attr(root, "NoCertificado")
