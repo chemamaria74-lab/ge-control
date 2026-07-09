@@ -3311,9 +3311,15 @@ def _normalize_permiso_row(row: dict[str, Any]) -> dict[str, Any]:
     item = dict(row or {})
     metadata = _parse_json_value(item.get("metadata"), {})
     item["tipo"] = _first_text(item.get("tipo"), metadata.get("tipo"), "Proveedor")
-    item["familias_producto"] = _parse_json_value(item.get("familias_producto"), metadata.get("familias_producto") or [])
-    item["productos_permitidos"] = _parse_json_value(item.get("productos_permitidos"), metadata.get("productos_permitidos") or [])
     item["producto"] = _producto_permiso_label(_first_text(item.get("producto"), metadata.get("producto"), (item["familias_producto"] or [""])[0]))
+    producto_family = _producto_permiso_family(item["producto"])
+    producto_norm = _normalize_producto_value(item["producto"])
+    item["familias_producto"] = [producto_family] if producto_family else _parse_json_value(item.get("familias_producto"), metadata.get("familias_producto") or [])
+    item["productos_permitidos"] = (
+        ["Magna", "Premium", "Diésel"]
+        if producto_norm in {"PETROLIFEROS", "GASOLINA", "GASOLINAS"}
+        else ([item["producto"]] if producto_family else _parse_json_value(item.get("productos_permitidos"), metadata.get("productos_permitidos") or []))
+    )
     item["permiso_cre"] = _first_text(item.get("permiso_cre"), metadata.get("permiso_cre"), metadata.get("permiso"), item.get("permiso"))
     item["permiso_almacenamiento_terminal"] = _first_text(
         item.get("permiso_almacenamiento_terminal"),
@@ -7000,6 +7006,28 @@ async def transporte_v2_carta_porte_timbradas(
     pid = _profile_id(None, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     sb = _stamp_sb()
+    mx_tz = timezone(timedelta(hours=-6))
+
+    def _parse_fecha_timbrado(value: Any) -> datetime | None:
+        text = _first_text(value)
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(mx_tz)
+        except Exception:
+            return None
+
+    def _matches_requested_period(row: dict[str, Any]) -> bool:
+        stamped = _parse_fecha_timbrado(row.get("fecha_timbrado"))
+        if filtro == "hoy":
+            return bool(stamped and stamped.date() == datetime.now(mx_tz).date())
+        if periodo:
+            return bool(stamped and stamped.strftime("%Y-%m") == periodo)
+        return True
+
     def _cfdi_timbradas_query(select_cols: str):
         query = (
             sb.table(TBL_CFDI)
@@ -7011,15 +7039,6 @@ async def transporte_v2_carta_porte_timbradas(
         )
         if pid:
             query = query.eq("perfil_id", pid)
-        if filtro == "hoy":
-            mx_tz = timezone(timedelta(hours=-6))
-            today = datetime.now(mx_tz).date()
-            start = datetime(today.year, today.month, today.day, tzinfo=mx_tz).isoformat()
-            end = datetime(today.year, today.month, today.day, tzinfo=mx_tz) + timedelta(days=1)
-            query = query.gte("fecha_timbrado", start).lt("fecha_timbrado", end.isoformat())
-        elif periodo:
-            start, end = _periodo_month_bounds(periodo)
-            query = query.gte("fecha_timbrado", start).lt("fecha_timbrado", end)
         return query
 
     rows = []
@@ -7042,6 +7061,7 @@ async def transporte_v2_carta_porte_timbradas(
     else:
         logger.exception("No se pudieron cargar Cartas Porte timbradas Transporte v2")
         raise HTTPException(500, f"No se pudieron cargar Cartas Porte timbradas: {last_cfdi_exc}") from last_cfdi_exc
+    rows = [row for row in rows if _matches_requested_period(row)]
     trip_ids = [int(row.get("viaje_id") or 0) for row in rows if row.get("viaje_id")]
     trips_by_id: dict[int, dict[str, Any]] = {}
     if trip_ids:
