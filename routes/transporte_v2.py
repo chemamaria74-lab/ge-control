@@ -3211,6 +3211,9 @@ def _settings_defaults() -> dict[str, Any]:
             "permitir_operador_solicitar_carta_porte": True,
             "permitir_operador_generar_carta_porte": False,
         },
+        "facturacion": {
+            "clave_prodserv_carta_ingreso": "78101802",
+        },
     }
 
 
