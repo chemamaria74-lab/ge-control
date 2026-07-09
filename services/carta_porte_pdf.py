@@ -110,12 +110,11 @@ def extraer_info_pdf(xml_content: str | bytes) -> CartaPortePdfInfo:
     root = _parse_xml(xml_content)
     timbre = _first(root, "TimbreFiscalDigital")
     carta = _first(root, "CartaPorte")
-    figura = (_all(root, "TiposFigura") or [None])[0]
     uuid = _attr(timbre, "UUID", "sin_uuid")
     id_ccp = _attr(carta, "IdCCP", "")
-    chofer = _safe_filename_part(_attr(figura, "NombreFigura"))
-    safe = chofer or _safe_filename_part(uuid or id_ccp or "carta_porte")
-    return CartaPortePdfInfo(uuid=uuid, id_ccp=id_ccp, has_carta_porte=carta is not None, filename=f"CARTA_PORTE_{safe}.pdf")
+    tipo = "INGRESO" if _attr(root, "TipoDeComprobante") == "I" else "TRASLADO"
+    safe = re.sub(r"[^A-Za-z0-9]+", "_", uuid or id_ccp or "carta_porte").strip("_")
+    return CartaPortePdfInfo(uuid=uuid, id_ccp=id_ccp, has_carta_porte=carta is not None, filename=f"CARTA_PORTE_{tipo}_{safe}.pdf")
 
 
 def _safe_filename_part(value: str) -> str:
@@ -228,8 +227,10 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     uuid = _attr(timbre, "UUID")
     qr = _qr_flowable(_url_qr_fiscal(comp, emisor, receptor, timbre), Image)
     issuer_logo = _logo_flowable(logo_data_url, Image)
+    doc_kind = "INGRESO" if _attr(comp, "TipoDeComprobante") == "I" else "TRASLADO"
+    doc_title = f"CARTA PORTE - {doc_kind}"
     story += [
-        _modern_header("CARTA PORTE - TRASLADO", issuer_logo, comp, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, line),
+        _modern_header(doc_title, issuer_logo, comp, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, line),
         Spacer(1, 5),
     ]
 
@@ -279,6 +280,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         cream,
         line,
         wine_dark,
+        _attr(comp, "TipoDeComprobante"),
     ))
     story.append(_section("C. Datos del comprobante", Paragraph, styles, wine_dark))
     story.append(_three_info_cards(
@@ -314,7 +316,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     ]))
     story.append(PageBreak())
     story += [
-        _modern_header("CARTA PORTE - TRASLADO", issuer_logo, comp, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, line),
+        _modern_header(doc_title, issuer_logo, comp, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, line),
         Spacer(1, 5),
     ]
     story.append(KeepTogether([
@@ -653,7 +655,7 @@ def _party_rfc_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream,
     return table
 
 
-def _executive_summary_card(carta, ubicaciones, mercancias, ident, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
+def _executive_summary_card(carta, ubicaciones, mercancias, ident, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine, tipo_cfdi="T"):
     origen, destino = _origen_destino(ubicaciones)
     mercancia = mercancias[0] if mercancias else None
     figura = figuras[0] if figuras else None
@@ -686,9 +688,11 @@ def _executive_summary_card(carta, ubicaciones, mercancias, ident, figuras, Tabl
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    title = Paragraph("<b>Resumen ejecutivo del traslado</b>", styles["CardHeader"])
+    title_text = "Resumen ejecutivo de la Carta Ingreso" if tipo_cfdi == "I" else "Resumen ejecutivo del traslado"
+    tipo_label = f"{tipo_cfdi or '—'} {_tipo_cfdi(tipo_cfdi)}".strip()
+    title = Paragraph(f"<b>{_text(title_text)}</b>", styles["CardHeader"])
     subtitle = Paragraph(
-        f"Identificador del Complemento Carta Porte: <b>{_text(_attr(carta, 'IdCCP', '—'))}</b> &nbsp;&nbsp;|&nbsp;&nbsp; Tipo SAT: T Traslado",
+        f"Identificador del Complemento Carta Porte: <b>{_text(_attr(carta, 'IdCCP', '—'))}</b> &nbsp;&nbsp;|&nbsp;&nbsp; Tipo SAT: {_text(tipo_label)}",
         styles["Tiny"],
     )
     table = Table([[title], [subtitle], [grid]], colWidths=[7.60 * inch()])

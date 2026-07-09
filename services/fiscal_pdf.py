@@ -191,8 +191,38 @@ def generar_pdf_ingreso_desde_xml(xml_content: str | bytes, *, logo_data_url: st
     return generar_pdf_cfdi_desde_xml(xml_content, title="Factura CFDI de ingreso", logo_data_url=logo_data_url, template="ingreso")
 
 
-def generar_pdf_ingreso_carta_porte_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "") -> bytes:
-    return generar_pdf_cfdi_desde_xml(xml_content, title="CFDI ingreso con Carta Porte", logo_data_url=logo_data_url, template="ingreso_carta_porte")
+def generar_pdf_ingreso_carta_porte_desde_xml(
+    xml_content: str | bytes,
+    *,
+    logo_data_url: str = "",
+    pdf_theme: dict[str, Any] | None = None,
+) -> bytes:
+    """Genera Carta Ingreso impresa: CFDI ingreso primero y anexo Carta Porte después."""
+    try:
+        from pypdf import PdfReader, PdfWriter
+        from services.carta_porte_pdf import generar_pdf_carta_porte_desde_xml
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("Faltan dependencias para generar PDF combinado de Carta Ingreso. Instala pypdf y reportlab.") from exc
+
+    ingreso_pdf = generar_pdf_cfdi_desde_xml(
+        xml_content,
+        title="CFDI ingreso con Carta Porte",
+        logo_data_url=logo_data_url,
+        template="ingreso_carta_porte",
+    )
+    carta_porte_pdf = generar_pdf_carta_porte_desde_xml(
+        xml_content,
+        logo_data_url=logo_data_url,
+        pdf_theme=pdf_theme,
+    )
+    writer = PdfWriter()
+    for pdf_bytes in (ingreso_pdf, carta_porte_pdf):
+        reader = PdfReader(BytesIO(pdf_bytes))
+        for page in reader.pages:
+            writer.add_page(page)
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
 
 
 def generar_pdf_gas_lp_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "", observaciones: str = "") -> bytes:
