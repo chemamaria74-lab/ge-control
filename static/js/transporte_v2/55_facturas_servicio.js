@@ -280,6 +280,73 @@ function trv2RenderServiceProductFilter(rows = []) {
   trv2RenderServiceProductFilterTarget('trv2-service-payment-product-filter', paymentCounts, 'Pendientes de pago por producto');
 }
 
+function trv2ServiceExcelScope(tab = TRV2_SERVICE_TAB) {
+  const product = TRV2_SERVICE_PRODUCT_FILTER || 'gas_lp';
+  const period = TRV2_SERVICE_MONTH || 'todos_los_meses';
+  return `facturas_servicio_${tab}_${product}_${period}.xls`;
+}
+
+function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
+  if (typeof trv2DownloadExcelTable !== 'function') {
+    trv2Toast('Exportador Excel no disponible. Recarga la página e intenta de nuevo.', 'error');
+    return;
+  }
+  const targetTab = tab || TRV2_SERVICE_TAB || 'pendientes';
+  if (targetTab === 'pendientes') {
+    const tariffs = trv2ReadServiceTariffs();
+    const rows = trv2ServiceFilterRowsByProduct(trv2ServicePendingRows()).map(row => {
+      const service = trv2ServiceTripData(row);
+      const tariff = trv2FindServiceTariff(service, tariffs);
+      const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
+      return [
+        String(service.fecha || '').slice(0, 10),
+        service.cliente,
+        service.origen,
+        service.destino,
+        service.producto,
+        Number(service.litros || 0),
+        Number(service.kilos || 0),
+        service.chofer,
+        trv2ServiceVehicleShort(service.vehiculo),
+        service.uuid_carta_porte,
+        Number(tariff?.tarifa || 0),
+        calc.base_calculo,
+        Number(calc.subtotal || 0),
+        Number(calc.iva || 0),
+        Number(calc.retencion || 0),
+        Number(calc.total || 0),
+      ];
+    });
+    trv2DownloadExcelTable(trv2ServiceExcelScope('pendientes'), ['Fecha', 'Cliente', 'Origen', 'Destino', 'Producto', 'Litros', 'Kilos', 'Chofer', 'Vehiculo', 'UUID Carta Porte', 'Tarifa', 'Base', 'Subtotal', 'IVA', 'Retencion', 'Total'], rows);
+    return;
+  }
+  const invoices = trv2ServiceFilterInvoicesByProduct(
+    targetTab === 'pago'
+      ? trv2ReadServiceInvoices().filter(item => item.estatus !== 'pagada')
+      : trv2ReadServiceInvoices()
+  );
+  if (targetTab === 'pago') {
+    const rows = invoices.map(item => [
+      item.nombre_receptor || item.cliente || item.rfc_receptor || '',
+      String(item.created_at || item.fecha || '').slice(0, 10),
+      Number(item.total || 0),
+      Number(item.saldo ?? item.total ?? 0),
+      item.estatus || item.status || 'pendiente_pago',
+      item.uuid_sat || item.uuid_cfdi || '',
+    ]);
+    trv2DownloadExcelTable(trv2ServiceExcelScope('pendientes_pago'), ['Cliente', 'Fecha', 'Total', 'Saldo', 'Estatus', 'UUID CFDI'], rows);
+    return;
+  }
+  const rows = invoices.map(item => [
+    String(item.created_at || item.fecha || '').slice(0, 10),
+    item.nombre_receptor || item.cliente || item.rfc_receptor || '',
+    item.uuid_sat || item.uuid_cfdi || '',
+    Number(item.total || 0),
+    item.estatus || item.status || '',
+  ]);
+  trv2DownloadExcelTable(trv2ServiceExcelScope('facturadas'), ['Fecha', 'Cliente', 'UUID CFDI', 'Total', 'Estatus'], rows);
+}
+
 function trv2ServiceVehicleShort(value = '') {
   const text = String(value || '').trim();
   if (!text) return '';
@@ -716,7 +783,7 @@ function trv2RenderServicePendingTable() {
         <td>${trv2ServiceMoney(calc.total)}</td>
         <td class="trv2-service-actions">
           <button class="trv2-mini-icon-btn" type="button" title="Detalle" aria-label="Detalle" onclick="trv2OpenServiceDetail(${Number(row.id)})"><i class="fa-solid fa-circle-info"></i></button>
-          <button class="trv2-mini-icon-btn trv2-mini-icon-primary" type="button" title="${trv2Esc(status)}" aria-label="Revisar y facturar" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-file-invoice-dollar"></i></button>
+          <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" title="${trv2Esc(status)}" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-file-invoice-dollar"></i> Revisar y facturar</button>
           <button class="trv2-mini-icon-btn trv2-mini-icon-danger" type="button" title="No facturar" aria-label="No facturar" onclick="trv2OmitServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-ban"></i></button>
         </td>
       </tr>

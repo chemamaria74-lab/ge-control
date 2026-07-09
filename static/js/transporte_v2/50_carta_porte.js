@@ -1,3 +1,6 @@
+let TRV2_CP_STAMPED_ITEMS = [];
+let TRV2_CP_STAMPED_FAMILY_FILTER = 'gas_lp';
+
 async function trv2PrepareCartaPorteTab() {
   const catalogsEmpty = !TRV2_CATALOGS.rutas?.length || !TRV2_CATALOGS.operadores?.length || !TRV2_CATALOGS.vehiculos?.length || !TRV2_CATALOGS.productos?.length;
   const loads = [];
@@ -64,32 +67,140 @@ function trv2SetStampedCounts(filter, count) {
   if (filter === 'todas' && todas) todas.textContent = String(count || 0);
 }
 
-async function trv2LoadStampedCartaPorte(options = {}) {
-  const filter = TRV2_CP_STAMPED_FILTER || 'hoy';
-  const monthInput = document.getElementById('trv2-cp-stamped-month');
-  const monthWrap = document.getElementById('trv2-cp-stamped-month-wrap');
-  if (monthInput && !monthInput.value) monthInput.value = TRV2_CP_STAMPED_MONTH;
-  if (monthWrap) monthWrap.hidden = filter !== 'todas';
-  document.getElementById('trv2-cp-workflow-tab-hoy')?.classList.toggle('active', TRV2_CP_WORKFLOW === 'hoy');
-  document.getElementById('trv2-cp-workflow-tab-todas')?.classList.toggle('active', TRV2_CP_WORKFLOW === 'todas');
-  const list = document.getElementById('trv2-cp-stamped-list');
-  if (!list) return;
-  list.innerHTML = '<div class="trv2-empty">Cargando Cartas Porte timbradas...</div>';
-  const query = new URLSearchParams({filtro: filter});
-  if (filter === 'todas' && TRV2_CP_STAMPED_MONTH) query.set('periodo', TRV2_CP_STAMPED_MONTH);
-  const data = await trv2Api('GET', `/api/tr-v2/carta-porte/timbradas?${query.toString()}`, undefined, {silent: Boolean(options.silent), allowError: true});
-  if (!data?.ok) {
-    list.innerHTML = `<div class="trv2-empty">${trv2Esc(data?.detail || data?.message || 'No se pudieron cargar Cartas Porte timbradas.')}</div>`;
+function trv2CpFamilyLabel(family = '') {
+  return family === 'petroliferos' ? 'Petrolíferos' : 'Gas LP';
+}
+
+function trv2CpNorm(value = '') {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+function trv2CpStampedFamily(item = {}) {
+  const meta = item.metadata || item.defaults_json || {};
+  const product = typeof trv2FindCatalog === 'function'
+    ? (trv2FindCatalog('productos', item.producto_id || item.producto_operacion_id || meta.producto_id) || {})
+    : {};
+  const text = trv2CpNorm([
+    item.producto,
+    item.producto_nombre,
+    item.producto_descripcion,
+    product.nombre,
+    product.descripcion,
+    product.tipo_producto,
+    product.clave_producto,
+    meta.producto,
+    meta.producto_nombre,
+    meta.producto_descripcion,
+  ].filter(Boolean).join(' '));
+  if (text.includes('MAGNA') || text.includes('PREMIUM') || text.includes('DIESEL') || text.includes('GASOLINA') || text.includes('PETROL') || text.includes('151015')) return 'petroliferos';
+  return 'gas_lp';
+}
+
+function trv2CpStampedCounts(items = []) {
+  return items.reduce((acc, item) => {
+    const family = trv2CpStampedFamily(item);
+    if (family) acc[family] = (acc[family] || 0) + 1;
+    return acc;
+  }, {gas_lp: 0, petroliferos: 0});
+}
+
+function trv2CpStampedFilteredItems(items = TRV2_CP_STAMPED_ITEMS) {
+  return (items || []).filter(item => trv2CpStampedFamily(item) === TRV2_CP_STAMPED_FAMILY_FILTER);
+}
+
+function trv2SetCpStampedFamilyFilter(family = 'gas_lp') {
+  TRV2_CP_STAMPED_FAMILY_FILTER = family === 'petroliferos' ? 'petroliferos' : 'gas_lp';
+  trv2RenderCpStampedFamilyFilter();
+  trv2RenderStampedCartaPorteList(TRV2_CP_STAMPED_FILTER || 'hoy', TRV2_CP_STAMPED_ITEMS);
+}
+
+function trv2RenderCpStampedFamilyFilter(items = TRV2_CP_STAMPED_ITEMS) {
+  const target = document.getElementById('trv2-cp-stamped-family-filter');
+  if (!target) return;
+  const counts = trv2CpStampedCounts(items);
+  target.innerHTML = `
+    <div class="trv2-inline-tabs" role="tablist" aria-label="Cartas Porte por producto">
+      <button class="trv2-subtab ${TRV2_CP_STAMPED_FAMILY_FILTER === 'gas_lp' ? 'active' : ''}" type="button" onclick="trv2SetCpStampedFamilyFilter('gas_lp')">
+        Gas LP <span>${Number(counts.gas_lp || 0)}</span>
+      </button>
+      <button class="trv2-subtab ${TRV2_CP_STAMPED_FAMILY_FILTER === 'petroliferos' ? 'active' : ''}" type="button" onclick="trv2SetCpStampedFamilyFilter('petroliferos')">
+        Petrolíferos <span>${Number(counts.petroliferos || 0)}</span>
+      </button>
+    </div>
+  `;
+}
+
+function trv2ExcelCell(value = '') {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function trv2DownloadExcelTable(filename, headers = [], rows = []) {
+  if (!rows.length) {
+    trv2Toast('No hay datos para exportar en esta vista.', 'warn');
     return;
   }
-  const items = data.items || [];
-  trv2SetStampedCounts(filter, items.length);
+  const table = `
+    <table>
+      <thead><tr>${headers.map(header => `<th>${trv2ExcelCell(header)}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${trv2ExcelCell(cell)}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>
+  `;
+  const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>${table}</body></html>`;
+  const blob = new Blob([html], {type: 'application/vnd.ms-excel;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename.endsWith('.xls') ? filename : `${filename}.xls`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function trv2ExportStampedCartaPorteExcel() {
+  const rows = trv2CpStampedFilteredItems().map(item => {
+    const ruta = typeof trv2FindCatalog === 'function' ? (trv2FindCatalog('rutas', item.ruta_id) || {}) : {};
+    const producto = (typeof trv2TripRelatedLabel === 'function' ? trv2TripRelatedLabel(item, 'productos', 'producto_descripcion') : '') || item.producto || '';
+    return [
+      trv2StampedCartaPorteDate(item.fecha_timbrado),
+      item.origen_nombre || ruta.nombre_origen || ruta.origen || '',
+      item.destino_nombre || ruta.nombre_destino || ruta.destino || '',
+      producto,
+      Number(item.volumen_litros || 0),
+      Number(item.peso_kg || 0),
+      (typeof trv2TripRelatedLabel === 'function' ? trv2TripRelatedLabel(item, 'vehiculos', 'vehiculo_alias') : '') || item.vehiculo_alias || '',
+      (typeof trv2TripRelatedLabel === 'function' ? trv2TripRelatedLabel(item, 'operadores', 'operador_nombre') : '') || item.operador_nombre || '',
+      item.uuid_sat || '',
+      item.status || '',
+    ];
+  });
+  const scope = (TRV2_CP_STAMPED_FILTER || 'hoy') === 'todas' ? (TRV2_CP_STAMPED_MONTH || 'mes') : new Date().toISOString().slice(0, 10);
+  trv2DownloadExcelTable(`cartas_porte_${scope}_${TRV2_CP_STAMPED_FAMILY_FILTER}.xls`, ['Fecha', 'Origen', 'Destino', 'Producto', 'Litros', 'Peso kg', 'Vehiculo', 'Operador', 'UUID', 'Estatus'], rows);
+}
+
+function trv2RenderStampedCartaPorteList(filter = 'hoy', items = []) {
+  const list = document.getElementById('trv2-cp-stamped-list');
+  if (!list) return;
+  trv2RenderCpStampedFamilyFilter(items);
   if (!items.length) {
     list.innerHTML = `<div class="trv2-empty">${filter === 'hoy' ? 'Hoy todavía no hay Cartas Porte timbradas.' : 'Aún no hay Cartas Porte timbradas.'}</div>`;
     return;
   }
+  const filteredItems = trv2CpStampedFilteredItems(items);
+  if (!filteredItems.length) {
+    list.innerHTML = `<div class="trv2-empty">No hay Cartas Porte ${trv2Esc(trv2CpFamilyLabel(TRV2_CP_STAMPED_FAMILY_FILTER))} en esta vista.</div>`;
+    return;
+  }
   const firstColumn = filter === 'todas' ? 'Fecha' : 'Hora';
-  const rows = items.map(item => {
+  const rows = filteredItems.map(item => {
     const uuid = item.uuid_sat || 'UUID pendiente';
     const status = String(item.status || '').toLowerCase();
     const cancelStatus = String(item.cancelacion_status || '').toLowerCase();
@@ -137,6 +248,30 @@ async function trv2LoadStampedCartaPorte(options = {}) {
       </table>
     </div>
   `;
+}
+
+async function trv2LoadStampedCartaPorte(options = {}) {
+  const filter = TRV2_CP_STAMPED_FILTER || 'hoy';
+  const monthInput = document.getElementById('trv2-cp-stamped-month');
+  const monthWrap = document.getElementById('trv2-cp-stamped-month-wrap');
+  if (monthInput && !monthInput.value) monthInput.value = TRV2_CP_STAMPED_MONTH;
+  if (monthWrap) monthWrap.hidden = filter !== 'todas';
+  document.getElementById('trv2-cp-workflow-tab-hoy')?.classList.toggle('active', TRV2_CP_WORKFLOW === 'hoy');
+  document.getElementById('trv2-cp-workflow-tab-todas')?.classList.toggle('active', TRV2_CP_WORKFLOW === 'todas');
+  const list = document.getElementById('trv2-cp-stamped-list');
+  if (!list) return;
+  list.innerHTML = '<div class="trv2-empty">Cargando Cartas Porte timbradas...</div>';
+  const query = new URLSearchParams({filtro: filter});
+  if (filter === 'todas' && TRV2_CP_STAMPED_MONTH) query.set('periodo', TRV2_CP_STAMPED_MONTH);
+  const data = await trv2Api('GET', `/api/tr-v2/carta-porte/timbradas?${query.toString()}`, undefined, {silent: Boolean(options.silent), allowError: true});
+  if (!data?.ok) {
+    list.innerHTML = `<div class="trv2-empty">${trv2Esc(data?.detail || data?.message || 'No se pudieron cargar Cartas Porte timbradas.')}</div>`;
+    return;
+  }
+  const items = data.items || [];
+  TRV2_CP_STAMPED_ITEMS = items;
+  trv2SetStampedCounts(filter, items.length);
+  trv2RenderStampedCartaPorteList(filter, items);
 }
 
 async function trv2CancelCartaPorte(viajeId) {

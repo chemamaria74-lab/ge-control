@@ -114,7 +114,7 @@ const TRV2_PRODUCTOS_SAT = [
   ['15111510', 'Gas licuado de petróleo'],
   ['15101514', 'Gasolina regular menor a 91 octanos'],
   ['15101515', 'Gasolina premium mayor o igual a 91 octanos'],
-  ['15101507', 'Combustible diésel'],
+  ['15101505', 'Combustible diésel'],
 ];
 const TRV2_SUBPRODUCTOS_SAT = {
   'Gas LP': [['', 'No aplica para HidroYPetro / validar solo si el CFDI lo requiere']],
@@ -553,7 +553,7 @@ function trv2CatalogItemFamily(item = {}) {
 }
 
 function trv2CatalogProductKey(value) {
-  const text = trv2NormalizeFamilyText(value).replace(/\./g, '');
+  const text = trv2NormalizeFamilyText(value).replace(/[._-]/g, ' ');
   const compact = text.replace(/\s+/g, '');
   if (compact.includes('gaslp') || compact.includes('gaslicuado') || compact.includes('15111510')) return 'gas_lp';
   if (compact.includes('magna')) return 'magna';
@@ -627,6 +627,10 @@ function trv2ClientProductKeys(client = {}) {
     if (!matches) return;
     trv2RouteProductKeys(route).forEach(key => keys.add(key));
   });
+  if (!keys.size) {
+    const text = trv2NormalizeFamilyText([client.nombre, client.razon_social, client.rfc].filter(Boolean).join(' '));
+    if (/\bgas\b/.test(text) && !text.includes('parador')) keys.add('gas_lp');
+  }
   return keys;
 }
 

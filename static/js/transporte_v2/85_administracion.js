@@ -212,10 +212,11 @@ function trv2SettingsPayloadFromForm() {
       pdf_declaration_contact_phones: document.getElementById('trv2-set-pdf-declaration-phones')?.value.trim() || '',
     },
     productos_habilitados: {
-      gas_lp: Boolean(document.getElementById('trv2-set-prod-gaslp')?.checked),
-      magna: Boolean(document.getElementById('trv2-set-prod-magna')?.checked),
-      premium: Boolean(document.getElementById('trv2-set-prod-premium')?.checked),
-      diesel: Boolean(document.getElementById('trv2-set-prod-diesel')?.checked),
+      ...(window.TRV2_TRANSPORTE_SETTINGS?.productos_habilitados || {}),
+      gas_lp: true,
+      magna: true,
+      premium: true,
+      diesel: true,
     },
   };
 }
@@ -223,7 +224,6 @@ function trv2SettingsPayloadFromForm() {
 function trv2FillSettingsForm(data = {}) {
   window.TRV2_TRANSPORTE_SETTINGS = data || {};
   const perfil = data.perfil_fiscal || {};
-  const productos = data.productos_habilitados || {};
   const pairs = [
     ['trv2-set-rfc', perfil.rfc_contribuyente],
     ['trv2-set-nombre', perfil.nombre_fiscal],
@@ -240,16 +240,6 @@ function trv2FillSettingsForm(data = {}) {
   pairs.forEach(([id, value]) => {
     const el = document.getElementById(id);
     if (el) el.value = value || '';
-  });
-  const checks = [
-    ['trv2-set-prod-gaslp', productos.gas_lp],
-    ['trv2-set-prod-magna', productos.magna],
-    ['trv2-set-prod-premium', productos.premium],
-    ['trv2-set-prod-diesel', productos.diesel],
-  ];
-  checks.forEach(([id, value]) => {
-    const el = document.getElementById(id);
-    if (el) el.checked = Boolean(value);
   });
   trv2RenderLogoPreview(perfil.logo_data_url || perfil.logo_url || '');
 }
@@ -437,7 +427,7 @@ function trv2AdminNormalizeText(value) {
 }
 
 function trv2AdminNormalizeProduct(value) {
-  const text = trv2AdminNormalizeText(value).replace(/\./g, '');
+  const text = trv2AdminNormalizeText(value).replace(/[._-]/g, ' ');
   const compact = text.replace(/\s+/g, '');
   if (compact.includes('gaslp') || compact.includes('gaslicuado')) return 'gas_lp';
   if (compact.includes('magna')) return 'magna';
@@ -458,7 +448,16 @@ function trv2PermisoAllowedProductKeys(item = {}) {
   const meta = item.metadata && typeof item.metadata === 'object' ? item.metadata : {};
   const values = [
     item.producto,
+    item.tipo_producto,
+    item.alcance,
+    item.familia_producto,
+    ...(Array.isArray(item.familias_producto) ? item.familias_producto : []),
     ...(Array.isArray(item.productos_permitidos) ? item.productos_permitidos : []),
+    meta.producto,
+    meta.tipo_producto,
+    meta.alcance,
+    meta.familia_producto,
+    ...(Array.isArray(meta.familias_producto) ? meta.familias_producto : []),
     ...(Array.isArray(meta.productos_permitidos) ? meta.productos_permitidos : []),
   ].filter(Boolean);
   const keys = new Set(values.map(trv2AdminNormalizeProduct).filter(Boolean));
@@ -514,11 +513,12 @@ function trv2IsTransportistaPermiso(item = {}) {
 function trv2PermisoUniqueItems(items = []) {
   const seen = new Set();
   return items.filter(item => {
+    const families = [...trv2PermisoAllowedProductKeys(item)].sort().join(',');
     const key = [
       trv2AdminNormalizeText(item.tipo),
       String(item.rfc || '').replace(/\s+/g, '').toUpperCase(),
       String(item.permiso_cre || item.permiso || '').replace(/\s+/g, '').toUpperCase(),
-      trv2AdminNormalizeText(item.producto),
+      families || trv2AdminNormalizeText(item.producto),
     ].join('|');
     if (seen.has(key)) return false;
     seen.add(key);
