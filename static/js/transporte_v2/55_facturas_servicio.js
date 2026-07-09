@@ -4,11 +4,27 @@ let TRV2_SERVICE_TAB = 'pendientes';
 let TRV2_SERVICE_TARIFFS = [];
 let TRV2_SERVICE_INVOICES = [];
 let TRV2_SERVICE_INVOICE_BUSY = false;
-let TRV2_SERVICE_MONTH = '';
+let TRV2_SERVICE_MONTH = trv2ServiceDefaultMonth();
 let TRV2_SERVICE_PRODUCT_FILTER = 'gas_lp';
 let TRV2_SERVICE_LOADED = false;
 const TRV2_SERVICE_SEARCH = {pendientes: '', facturadas: '', pago: ''};
 const TRV2_SERVICE_SEARCHED = {pendientes: false, facturadas: false, pago: false};
+
+function trv2ServiceDefaultMonth() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function trv2PrepareServiceInvoiceTab() {
+  if (!TRV2_SERVICE_MONTH) TRV2_SERVICE_MONTH = trv2ServiceDefaultMonth();
+  const monthInput = document.getElementById('trv2-service-month');
+  const monthMode = document.getElementById('trv2-service-month-mode');
+  if (monthMode) monthMode.value = 'month';
+  if (monthInput) {
+    monthInput.hidden = false;
+    monthInput.value = TRV2_SERVICE_MONTH;
+  }
+  trv2RenderServiceInvoices();
+}
 
 function trv2ServiceStorageKey(base) {
   return `${base}_${TRV2_PERFIL?.id || 'sin_perfil'}`;
@@ -60,7 +76,7 @@ function trv2ServiceSetMonthMode(value = '') {
   const input = document.getElementById('trv2-service-month');
   if (input) input.hidden = value !== 'month';
   TRV2_SERVICE_MONTH = value === 'month'
-    ? (String(input?.value || '').slice(0, 7) || new Date().toISOString().slice(0, 7))
+    ? (String(input?.value || '').slice(0, 7) || trv2ServiceDefaultMonth())
     : '';
   if (input && value === 'month') input.value = TRV2_SERVICE_MONTH;
 }
@@ -943,7 +959,7 @@ async function trv2LoadServiceInvoices(options = {}) {
   const monthMode = document.getElementById('trv2-service-month-mode');
   if (monthInput) {
     monthInput.hidden = !TRV2_SERVICE_MONTH;
-    monthInput.value = TRV2_SERVICE_MONTH || new Date().toISOString().slice(0, 7);
+    monthInput.value = TRV2_SERVICE_MONTH || trv2ServiceDefaultMonth();
   }
   if (monthMode) monthMode.value = TRV2_SERVICE_MONTH ? 'month' : '';
   if (TRV2_SERVICE_LOADED && !options.force) {
