@@ -183,8 +183,9 @@
         </div>
         <div class="trv2-actions">
           <label class="trv2-inline-filter" id="trv2-cp-stamped-month-wrap">Mes <input id="trv2-cp-stamped-month" type="month" onchange="trv2SetCartaPorteStampedMonth(this.value)"></label>
+          <label class="trv2-service-search trv2-cp-stamped-search"><i class="fa-solid fa-magnifying-glass"></i><input id="trv2-cp-stamped-search" type="search" placeholder="Buscar Cartas Porte" oninput="trv2SetCpStampedSearch(this.value)"></label>
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportStampedCartaPorteExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
-          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadStampedCartaPorte()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadStampedCartaPorte({force:true})"><i class="fa-solid fa-rotate"></i> Actualizar</button>
         </div>
       </div>
       <div id="trv2-cp-stamped-family-filter" class="trv2-service-product-filter"></div>
@@ -281,6 +282,7 @@
           </select>
           <input id="trv2-service-month" type="month" onchange="trv2ServiceSetMonth(this.value)" hidden>
         </label>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadServiceInvoices({force:true})"><i class="fa-solid fa-rotate"></i> Actualizar</button>
       </div>
     </div>
     <div class="trv2-kpis trv2-kpis-compact" id="trv2-service-invoice-kpis">
@@ -295,39 +297,48 @@
         <button class="trv2-subtab" type="button" data-service-tab="facturadas" onclick="trv2SetServiceInvoiceTab('facturadas')">Facturadas</button>
         <button class="trv2-subtab" type="button" data-service-tab="pago" onclick="trv2SetServiceInvoiceTab('pago')">Pendientes de pago</button>
       </nav>
-      <div class="trv2-table-wrap" data-service-panel="pendientes">
+      <div class="trv2-service-panel" data-service-panel="pendientes">
         <div class="trv2-service-table-toolbar">
           <div id="trv2-service-product-filter" class="trv2-service-product-filter"></div>
+          <label class="trv2-service-search"><i class="fa-solid fa-magnifying-glass"></i><input id="trv2-service-search-pendientes" type="search" placeholder="Buscar pendientes de facturar" oninput="trv2SetServiceSearch('pendientes', this.value)"></label>
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportServiceExcel('pendientes')"><i class="fa-solid fa-file-excel"></i> Excel</button>
         </div>
-        <table class="trv2-service-pending-table">
-          <thead>
-            <tr>
-              <th>Fecha</th><th>Cliente</th><th>Origen</th><th>Producto</th><th>Litros</th><th>Kilos</th><th>Chofer</th><th>Vehículo</th><th>UUID Carta Porte</th><th>Subtotal</th><th>IVA</th><th>Retención</th><th>Total</th><th>Estado</th><th>Acción</th>
-            </tr>
-          </thead>
-          <tbody id="trv2-service-pending-table"></tbody>
-        </table>
+        <div class="trv2-table-wrap trv2-service-scroll">
+          <table class="trv2-service-pending-table">
+            <thead>
+              <tr>
+                <th>Fecha</th><th>Cliente</th><th>Origen</th><th>Producto</th><th>Litros</th><th>Kilos</th><th>Chofer</th><th>Vehículo</th><th>UUID Carta Porte</th><th>Subtotal</th><th>IVA</th><th>Retención</th><th>Total</th><th>Estado</th><th>Acción</th>
+              </tr>
+            </thead>
+            <tbody id="trv2-service-pending-table"></tbody>
+          </table>
+        </div>
       </div>
-      <div class="trv2-table-wrap" data-service-panel="facturadas" hidden>
+      <div class="trv2-service-panel" data-service-panel="facturadas" hidden>
         <div class="trv2-service-table-toolbar">
           <div id="trv2-service-invoiced-product-filter" class="trv2-service-product-filter"></div>
+          <label class="trv2-service-search"><i class="fa-solid fa-magnifying-glass"></i><input id="trv2-service-search-facturadas" type="search" placeholder="Buscar facturadas" oninput="trv2SetServiceSearch('facturadas', this.value)"></label>
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportServiceExcel('facturadas')"><i class="fa-solid fa-file-excel"></i> Excel</button>
         </div>
-        <table>
+        <div class="trv2-table-wrap trv2-service-scroll">
+        <table class="trv2-service-generated-table">
           <thead><tr><th>Fecha</th><th>Cliente</th><th>UUID CFDI</th><th>Total</th><th>PDF</th><th>XML</th></tr></thead>
           <tbody id="trv2-service-invoiced-table"></tbody>
         </table>
+        </div>
       </div>
-      <div class="trv2-table-wrap" data-service-panel="pago" hidden>
+      <div class="trv2-service-panel" data-service-panel="pago" hidden>
         <div class="trv2-service-table-toolbar">
           <div id="trv2-service-payment-product-filter" class="trv2-service-product-filter"></div>
+          <label class="trv2-service-search"><i class="fa-solid fa-magnifying-glass"></i><input id="trv2-service-search-pago" type="search" placeholder="Buscar pendientes de pago" oninput="trv2SetServiceSearch('pago', this.value)"></label>
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportServiceExcel('pago')"><i class="fa-solid fa-file-excel"></i> Excel</button>
         </div>
-        <table>
+        <div class="trv2-table-wrap trv2-service-scroll">
+        <table class="trv2-service-generated-table">
           <thead><tr><th>Cliente</th><th>Fecha</th><th>Total</th><th>Saldo</th><th>Estatus</th></tr></thead>
           <tbody id="trv2-service-payment-table"></tbody>
         </table>
+        </div>
       </div>
     </section>
   </section>
