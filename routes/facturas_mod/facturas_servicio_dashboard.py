@@ -1,6 +1,15 @@
 from __future__ import annotations
 
 from .core import *
+from .facturacion_sat_liqs import (
+    _TBL_FACT_SERV,
+    _auth,
+    _perfil_autorizado,
+    _periodo_bounds,
+    _require_admin_transporte,
+    _sb,
+    _settings_transporte,
+)
 from models.transport_schemas import CancelacionViajeRequest as CancelacionFacturaServicioRequest
 
 @router.get("/tr/facturas-servicio")
@@ -10,7 +19,7 @@ async def listar_facturas_servicio(
     authorization: str           = Header(default=""),
     x_perfil_id:   str           = Header(default=""),
 ):
-    """Lista facturas del servicio de transporte emitidas o preparadas."""
+    """Lista Cartas Ingreso emitidas o preparadas."""
     uid, token = _auth(authorization)
     try:
         pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
@@ -25,7 +34,7 @@ async def listar_facturas_servicio(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"Error al listar facturas de servicio: {e}")
+        raise HTTPException(500, f"Error al listar Cartas Ingreso: {e}")
 
 
 @router.get("/tr/facturas-servicio/{factura_id}/pdf")
@@ -44,11 +53,11 @@ async def ver_pdf_factura_servicio_transporte(
         q = q.eq("perfil_id", pid)
     rows = q.execute().data or []
     if not rows:
-        raise HTTPException(404, "Factura de servicio no encontrada.")
+        raise HTTPException(404, "Carta Ingreso no encontrada.")
     row = rows[0]
     xml_content = row.get("xml_content") or ""
     if not xml_content:
-        raise HTTPException(404, "Factura de servicio sin XML timbrado para generar PDF.")
+        raise HTTPException(404, "Carta Ingreso sin XML timbrado para generar PDF.")
     settings = _settings_transporte(uid, token, row.get("perfil_id") or pid)
     info = fiscal_pdf_info(xml_content, "factura_servicio_transporte")
     pdf_bytes = generar_pdf_ingreso_desde_xml(
@@ -62,13 +71,13 @@ async def ver_pdf_factura_servicio_transporte(
         xml_content=xml_content,
         pdf_bytes=pdf_bytes,
         pdf_filename=info.filename,
-        metadata={"module": "transporte", "entity_type": "factura_servicio", "uuid_sat": row.get("uuid_sat") or ""},
+        metadata={"module": "transporte", "entity_type": row.get("tipo") or "carta_ingreso", "uuid_sat": row.get("uuid_sat") or ""},
     )
     audit_fiscal_pdf_event(
         get_supabase_admin(),
         user_id=uid,
         module="transporte",
-        entity_type="factura_servicio",
+        entity_type=row.get("tipo") or "carta_ingreso",
         entity_id=factura_id,
         uuid_sat=row.get("uuid_sat") or "",
         action="pdf_generated_internal" if not download else "pdf_download_internal",
@@ -96,16 +105,16 @@ async def descargar_xml_factura_servicio_transporte(
         q = q.eq("perfil_id", pid)
     rows = q.execute().data or []
     if not rows:
-        raise HTTPException(404, "Factura de servicio no encontrada.")
+        raise HTTPException(404, "Carta Ingreso no encontrada.")
     row = rows[0]
     if not row.get("xml_content"):
-        raise HTTPException(404, "Factura de servicio sin XML timbrado.")
+        raise HTTPException(404, "Carta Ingreso sin XML timbrado.")
     info = fiscal_pdf_info(row["xml_content"], "factura_servicio_transporte")
     audit_fiscal_pdf_event(
         get_supabase_admin(),
         user_id=uid,
         module="transporte",
-        entity_type="factura_servicio",
+        entity_type=row.get("tipo") or "carta_ingreso",
         entity_id=factura_id,
         uuid_sat=row.get("uuid_sat") or "",
         action="xml_download",
@@ -134,10 +143,10 @@ async def cancelar_factura_servicio_transporte(
         q = q.eq("perfil_id", pid)
     rows = q.execute().data or []
     if not rows:
-        raise HTTPException(404, "Factura de servicio no encontrada.")
+        raise HTTPException(404, "Carta Ingreso no encontrada.")
     row = rows[0]
     if row.get("status") in {"Cancelada", "cancelada"}:
-        raise HTTPException(400, "Esta factura de servicio ya está cancelada.")
+        raise HTTPException(400, "Esta Carta Ingreso ya está cancelada.")
     settings = _settings_transporte(uid, token, row.get("perfil_id") or pid)
     resultado = cancel_cfdi_universal(
         sb=get_supabase_admin(),

@@ -1,8 +1,401 @@
 from __future__ import annotations
 
 from .core import *
+import os
+import re
+
 from fastapi import File, Form, UploadFile
-from models.transport_schemas import FacturaServicioCreate, GenerarCovolRequest
+from models.transport_schemas import FacturaServicioCreate, GenerarCovolRequest, ViajeCreate
+from services.service_invoice_builder import (
+    CLAVE_SERVICIO_TRANSPORTE,
+    DESCRIPCION_CARTA_INGRESO,
+    build_cfdi_ingreso_carta_porte,
+    build_cfdi_servicio_transporte,
+)
+from services.sw_sapien import emitir_timbrar_json
+
+_TBL_VIAJES = "tr_viajes"
+_TBL_CFDI = "tr_cfdi"
+_TBL_CLIENTES = "tr_clientes"
+_TBL_CHOFERES = "tr_choferes"
+_TBL_VEHICULOS = "tr_vehiculos"
+_TBL_TARIFAS = "tr_tarifas"
+_TBL_FACT_SERV = "tr_facturas_servicio"
+_TBL_FACT_SERV_CARTAS = "tr_facturas_servicio_cartas"
+_TBL_LIQS = "tr_liquidaciones"
+_TBL_LIQ_ITEMS = "tr_liquidacion_items"
+_TBL_GASTOS = "tr_gastos"
+_TBL_IMPORTS = "tr_imports"
+_TBL_COVOL = "tr_covol_reports"
+_TBL_OPER_ACC = "tr_operador_accesos"
+_ENABLE_SIMPLE_SERVICE_INVOICE = (os.environ.get("ENABLE_SIMPLE_SERVICE_INVOICE") or "").strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
+
+
+def _auth(authorization: str) -> tuple[str, str]:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(401, "No autenticado.")
+    token = authorization[7:]
+    uid = verify_token(token)
+    if not uid:
+        raise HTTPException(401, "Token inválido o expirado.")
+    return uid, token
+
+
+def _sb(token: str):
+    try:
+        from supabase_config import get_supabase_for_user
+
+        return get_supabase_for_user(token)
+    except Exception:
+        return get_supabase_admin()
+
+
+def _perfil_autorizado(uid: str, token: str, perfil_id=None, x_perfil_id: str = "") -> int | None:
+    raw = perfil_id or (x_perfil_id or "").strip() or None
+    if not raw:
+        return None
+    try:
+        pid = int(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Perfil inválido.")
+    rows = (
+        _sb(token)
+        .table("perfiles_empresa")
+        .select("id")
+        .eq("id", pid)
+        .eq("user_id", uid)
+        .eq("activo", True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(403, "La empresa seleccionada no pertenece a tu usuario o está inactiva.")
+    return pid
+
+
+def _require_admin_transporte(uid: str, token: str) -> None:
+    role = (obtener_acceso_modulo(uid, "transporte", access_token=token).get("role") or "user").lower()
+    if role != "admin":
+        raise HTTPException(403, "Solo administradores de Transporte pueden realizar esta acción.")
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value if value is not None and value != "" else default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _validar_datos_cfdi_receptor(rfc: str, regimen: str, cp: str, uso_cfdi: str) -> None:
+    from routes.core import _gas_lp_validar_datos_cfdi_receptor
+
+    _gas_lp_validar_datos_cfdi_receptor(rfc, regimen, cp, uso_cfdi)
+
+
+def _settings_transporte(uid: str, token: str, perfil_id) -> dict:
+    if not perfil_id:
+        return {}
+    from routes.settings import _load as load_settings
+    from routes.transporte_v2 import _deep_merge, _parse_json_value
+
+    settings = load_settings(uid, int(perfil_id)) or {}
+    try:
+        rows = (
+            _sb(token)
+            .table("tr_settings")
+            .select("data")
+            .eq("user_id", uid)
+            .eq("perfil_id", int(perfil_id))
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if rows:
+            tr_settings = _parse_json_value(rows[0].get("data"), {})
+            if isinstance(tr_settings, dict):
+                settings = _deep_merge(settings, tr_settings)
+    except Exception as exc:
+        logger.info("No se pudo mezclar tr_settings Transporte para Carta Ingreso: %s", exc)
+    fiscal = settings.get("perfil_fiscal") if isinstance(settings.get("perfil_fiscal"), dict) else {}
+    if not settings.get("RfcContribuyente"):
+        settings["RfcContribuyente"] = fiscal.get("rfc_contribuyente") or settings.get("rfc") or ""
+    if not settings.get("DescripcionInstalacion"):
+        settings["DescripcionInstalacion"] = fiscal.get("nombre_fiscal") or settings.get("nombre") or ""
+    if not settings.get("CodigoPostal"):
+        settings["CodigoPostal"] = fiscal.get("cp_fiscal") or settings.get("codigo_postal") or ""
+    if not settings.get("RegimenFiscal"):
+        settings["RegimenFiscal"] = fiscal.get("regimen_fiscal") or settings.get("regimen_fiscal") or "601"
+    return settings
+
+
+def _cliente_por_receptor(sb, uid: str, perfil_id, rfc: str) -> dict:
+    q = sb.table(_TBL_CLIENTES).select("*").eq("user_id", uid).eq("rfc", str(rfc or "").upper()).limit(1)
+    if perfil_id:
+        q = q.eq("perfil_id", perfil_id)
+    rows = q.execute().data or []
+    return rows[0] if rows else {}
+
+
+def _tariff_product_text(viaje: dict) -> str:
+    productos = viaje.get("productos_json")
+    if isinstance(productos, str):
+        try:
+            productos = json.loads(productos)
+        except Exception:
+            productos = []
+    first = (productos or [{}])[0] if isinstance(productos, list) and productos else {}
+    meta = _fact_serv_trip_meta(viaje)
+    return " ".join(str(v or "") for v in [
+        viaje.get("producto"),
+        viaje.get("tipo_producto"),
+        first.get("descripcion"),
+        first.get("clave_prodserv_cfdi"),
+        first.get("clave_producto"),
+        meta.get("producto"),
+    ]).strip().upper()
+
+
+def _tariff_match(viaje: dict, tarifa: dict) -> bool:
+    if tarifa.get("cliente_id") and str(tarifa.get("cliente_id")) != str(viaje.get("cliente_id") or ""):
+        return False
+    if tarifa.get("ruta_id") and str(tarifa.get("ruta_id")) != str(viaje.get("ruta_id") or ""):
+        return False
+    producto_tarifa = str(tarifa.get("producto") or "").strip().upper()
+    if producto_tarifa and producto_tarifa not in _tariff_product_text(viaje):
+        return False
+    origen = str(tarifa.get("origen") or "").strip().upper()
+    if origen and origen not in str(viaje.get("nombre_origen") or viaje.get("origen") or "").upper():
+        return False
+    destino = str(tarifa.get("destino") or "").strip().upper()
+    if destino and destino not in str(viaje.get("nombre_destino") or viaje.get("destino") or "").upper():
+        return False
+    return True
+
+
+def _calcular_tarifa_operativa(viaje: dict, tarifas: list[dict]) -> dict:
+    tarifa = next((t for t in sorted(tarifas or [], key=lambda r: int(r.get("prioridad") or 100)) if _tariff_match(viaje, t)), None)
+    productos = viaje.get("productos_json")
+    if isinstance(productos, str):
+        try:
+            productos = json.loads(productos)
+        except Exception:
+            productos = []
+    first = (productos or [{}])[0] if isinstance(productos, list) and productos else {}
+    regla = str((tarifa or {}).get("regla_calculo") or "litros").lower()
+    litros = _safe_float(viaje.get("volumen_total_litros") or viaje.get("volumen_litros") or first.get("volumen_litros") or first.get("cantidad_litros"))
+    kilos = _safe_float(viaje.get("peso_kg") or first.get("peso_kg"))
+    if regla in {"kg", "kilo", "kilos"}:
+        base = kilos
+    elif regla == "distancia":
+        base = _safe_float(viaje.get("distancia_km"), 1)
+    elif regla == "viaje":
+        base = 1.0
+    else:
+        base = litros
+    tarifa_val = _safe_float((tarifa or {}).get("tarifa"))
+    subtotal = round(base * tarifa_val, 2) if tarifa else round(_safe_float(viaje.get("subtotal_flete") or viaje.get("tarifa_total")), 2)
+    iva_tasa = _safe_float((tarifa or {}).get("iva_tasa"), 0.16)
+    retencion_tasa = _safe_float((tarifa or {}).get("retencion_tasa"), 0.04)
+    aplica_iva = bool((tarifa or {}).get("aplica_iva", True))
+    aplica_retencion = bool((tarifa or {}).get("aplica_retencion", True))
+    iva = round(subtotal * iva_tasa, 2) if aplica_iva else 0.0
+    retencion = round(subtotal * retencion_tasa, 2) if aplica_retencion else 0.0
+    total = round(subtotal + iva - retencion, 2)
+    return {
+        "viaje_id": viaje.get("id"),
+        "tarifa_id": (tarifa or {}).get("id"),
+        "regla_calculo": regla,
+        "cantidad_base": base,
+        "tarifa": tarifa_val,
+        "subtotal": subtotal,
+        "iva": iva,
+        "retencion": retencion,
+        "total": total,
+        "iva_tasa": iva_tasa,
+        "retencion_tasa": retencion_tasa,
+        "aplica_iva": aplica_iva,
+        "aplica_retencion": aplica_retencion,
+    }
+
+
+def _sumar_calculos_servicio(viajes: list[dict], tarifas: list[dict]) -> dict:
+    items = [_calcular_tarifa_operativa(v, tarifas) for v in viajes]
+    iva_rates = {item["iva_tasa"] for item in items}
+    ret_rates = {item["retencion_tasa"] for item in items}
+    return {
+        "items": items,
+        "subtotal": round(sum(item["subtotal"] for item in items), 2),
+        "iva": round(sum(item["iva"] for item in items), 2),
+        "retencion": round(sum(item["retencion"] for item in items), 2),
+        "total": round(sum(item["total"] for item in items), 2),
+        "iva_tasa": next(iter(iva_rates), 0.16),
+        "retencion_tasa": next(iter(ret_rates), 0.04),
+        "aplica_iva": any(item["aplica_iva"] for item in items),
+        "aplica_retencion": any(item["aplica_retencion"] for item in items),
+        "tasas_mixtas": len(iva_rates) > 1 or len(ret_rates) > 1,
+    }
+
+
+def _validar_totales_servicio(payload: FacturaServicioCreate, calculo: dict) -> None:
+    expected = round(_safe_float(calculo.get("total")), 2)
+    got = round(_safe_float(payload.total), 2)
+    if abs(expected - got) > 0.05:
+        raise HTTPException(400, f"El total cambió al recalcular la tarifa. Esperado ${expected:,.2f}, recibido ${got:,.2f}.")
+
+
+def _periodo_bounds(periodo: str) -> tuple[str, str]:
+    match = re.fullmatch(r"(\d{4})-(\d{2})", str(periodo or "").strip())
+    if not match:
+        raise HTTPException(400, "Periodo inválido. Usa formato YYYY-MM.")
+    year, month = int(match.group(1)), int(match.group(2))
+    if month < 1 or month > 12:
+        raise HTTPException(400, "Mes inválido.")
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    end = datetime(year + (1 if month == 12 else 0), 1 if month == 12 else month + 1, 1, tzinfo=timezone.utc)
+    return start.isoformat(), end.isoformat()
+
+
+def _registrar_evento(sb, uid: str, perfil_id, viaje_id: int, tipo: str, titulo: str, descripcion: str, actor_tipo: str, actor_id: str, metadata: dict) -> None:
+    try:
+        sb.table("tr_eventos").insert({
+            "user_id": uid,
+            "perfil_id": perfil_id,
+            "viaje_id": viaje_id,
+            "tipo": tipo,
+            "titulo": titulo,
+            "descripcion": descripcion,
+            "actor_tipo": actor_tipo,
+            "actor_id": actor_id,
+            "metadata": metadata or {},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }).execute()
+    except Exception as exc:
+        logger.info("No se pudo registrar evento transporte %s/%s: %s", viaje_id, tipo, exc)
+
+
+def _base_cartas_porte_timbradas(sb, uid: str, perfil_id, viaje_ids: list[int]) -> dict[int, dict]:
+    q = (
+        sb.table(_TBL_CFDI)
+        .select("id,viaje_id,uuid_sat,id_ccp,status,tipo_cfdi,fecha_timbrado,cancelacion_status,cancelacion_resultado")
+        .eq("user_id", uid)
+        .eq("tipo_cfdi", "T")
+        .in_("viaje_id", viaje_ids)
+    )
+    if perfil_id:
+        q = q.eq("perfil_id", perfil_id)
+    rows = q.order("fecha_timbrado", desc=True).execute().data or []
+    found: dict[int, dict] = {}
+    for row in rows:
+        vid = int(row.get("viaje_id") or 0)
+        if not vid or vid in found or _fact_serv_cfdi_cancelada(row):
+            continue
+        if str(row.get("status") or "").lower() != "vigente":
+            continue
+        if not str(row.get("uuid_sat") or "").strip():
+            continue
+        found[vid] = row
+    return found
+
+
+def _get_row(sb, table: str, uid: str, perfil_id, row_id) -> dict:
+    if not row_id:
+        return {}
+    q = sb.table(table).select("*").eq("id", row_id).eq("user_id", uid).limit(1)
+    if perfil_id:
+        q = q.eq("perfil_id", perfil_id)
+    rows = q.execute().data or []
+    return rows[0] if rows else {}
+
+
+def _build_carta_ingreso_viaje(viaje: dict, payload: FacturaServicioCreate, calculo: dict, settings: dict, sb, uid: str, perfil_id) -> tuple[ViajeCreate, dict, dict]:
+    from routes.transporte_v2 import (
+        TBL_PRODUCTOS,
+        _first_text,
+        _meta,
+        _stamp_expand_route_locations,
+        _stamp_expand_vehicle_trailers,
+        _stamp_make_producto,
+        _stamp_vehicle_payload,
+    )
+
+    viaje_expanded = dict(viaje or {})
+    if viaje_expanded.get("ruta_id"):
+        ruta = _get_row(sb, "tr_rutas", uid, perfil_id, viaje_expanded.get("ruta_id"))
+        if ruta:
+            viaje_expanded.update({k: v for k, v in _stamp_expand_route_locations(sb, uid, perfil_id, ruta).items() if v and not viaje_expanded.get(k)})
+    meta = _meta(viaje_expanded)
+    producto_row = _get_row(sb, TBL_PRODUCTOS, uid, perfil_id, viaje_expanded.get("producto_operacion_id") or viaje_expanded.get("producto_id"))
+    producto = _stamp_make_producto(viaje_expanded, producto_row, settings)
+    producto = producto.model_copy(update={"importe": _safe_float(calculo.get("subtotal"))})
+    chofer = _get_row(sb, _TBL_CHOFERES, uid, perfil_id, viaje_expanded.get("chofer_id"))
+    vehiculo_raw = _get_row(sb, _TBL_VEHICULOS, uid, perfil_id, viaje_expanded.get("vehiculo_id"))
+    vehiculo = _stamp_vehicle_payload(_stamp_expand_vehicle_trailers(sb, uid, perfil_id, vehiculo_raw))
+    if not chofer:
+        raise HTTPException(400, "Falta operador/chofer para generar Carta Ingreso con Carta Porte.")
+    if not vehiculo_raw:
+        raise HTTPException(400, "Falta vehículo para generar Carta Ingreso con Carta Porte.")
+    viaje_obj = ViajeCreate(
+        perfil_id=perfil_id,
+        facility_id=viaje_expanded.get("facility_id"),
+        chofer_id=int(viaje_expanded.get("chofer_id") or 0),
+        vehiculo_id=int(viaje_expanded.get("vehiculo_id") or 0),
+        ruta_id=viaje_expanded.get("ruta_id"),
+        proveedor_id=viaje_expanded.get("proveedor_id"),
+        origen_id=viaje_expanded.get("origen_id"),
+        destino_id=viaje_expanded.get("destino_id"),
+        producto_operacion_id=viaje_expanded.get("producto_operacion_id") or viaje_expanded.get("producto_id"),
+        programa_fecha=viaje_expanded.get("programa_fecha"),
+        cp_origen=_first_text(viaje_expanded.get("cp_origen"), meta.get("cp_origen")),
+        nombre_origen=_first_text(viaje_expanded.get("nombre_origen"), viaje_expanded.get("origen"), meta.get("nombre_origen")),
+        rfc_origen=_first_text(viaje_expanded.get("rfc_origen"), meta.get("rfc_origen")),
+        id_ubicacion_origen=_first_text(viaje_expanded.get("id_ubicacion_origen"), meta.get("id_ubicacion_origen")),
+        estado_origen=_first_text(viaje_expanded.get("estado_origen"), meta.get("estado_origen")),
+        municipio_origen=_first_text(viaje_expanded.get("municipio_origen"), meta.get("municipio_origen")),
+        localidad_origen=_first_text(viaje_expanded.get("localidad_origen"), meta.get("localidad_origen")),
+        calle_origen=_first_text(viaje_expanded.get("calle_origen"), meta.get("calle_origen")),
+        cp_destino=_first_text(viaje_expanded.get("cp_destino"), meta.get("cp_destino")),
+        nombre_destino=_first_text(viaje_expanded.get("nombre_destino"), viaje_expanded.get("destino"), meta.get("nombre_destino")),
+        rfc_destino=_first_text(viaje_expanded.get("rfc_destino"), meta.get("rfc_destino"), payload.rfc_receptor),
+        id_ubicacion_destino=_first_text(viaje_expanded.get("id_ubicacion_destino"), meta.get("id_ubicacion_destino")),
+        estado_destino=_first_text(viaje_expanded.get("estado_destino"), meta.get("estado_destino")),
+        municipio_destino=_first_text(viaje_expanded.get("municipio_destino"), meta.get("municipio_destino")),
+        localidad_destino=_first_text(viaje_expanded.get("localidad_destino"), meta.get("localidad_destino")),
+        calle_destino=_first_text(viaje_expanded.get("calle_destino"), meta.get("calle_destino")),
+        fecha_hora_salida=_first_text(viaje_expanded.get("fecha_hora_salida"), viaje_expanded.get("fecha_salida")),
+        fecha_hora_llegada=_first_text(viaje_expanded.get("fecha_hora_llegada"), viaje_expanded.get("fecha_llegada"), viaje_expanded.get("fecha_hora_salida")),
+        productos=[producto],
+        tipo_cfdi="I",
+        rfc_receptor=payload.rfc_receptor,
+        nombre_receptor=payload.nombre_receptor,
+        cp_receptor=payload.cp_receptor,
+        regimen_fiscal_receptor=payload.regimen_fiscal,
+        uso_cfdi=payload.uso_cfdi,
+        num_permiso_cne=_first_text(viaje_expanded.get("num_permiso_cne"), meta.get("num_permiso_cne"), settings.get("NumPermisoCNE"), settings.get("num_permiso_cne")),
+        iva_tasa=_safe_float(calculo.get("iva_tasa"), 0.16),
+        retencion_tasa=_safe_float(calculo.get("retencion_tasa"), 0.04),
+        aplica_iva=bool(calculo.get("aplica_iva", True)),
+        aplica_retencion=bool(calculo.get("aplica_retencion", False)),
+        distancia_km=_safe_float(viaje_expanded.get("distancia_km") or meta.get("distancia_km"), 1.0),
+        observaciones=_first_text(viaje_expanded.get("observaciones"), meta.get("observaciones")),
+    )
+    return viaje_obj, chofer, vehiculo
+
+
+def _insert_factura_servicio_tolerant(sb, row: dict):
+    try:
+        return sb.table(_TBL_FACT_SERV).insert(row).execute()
+    except Exception as exc:
+        fallback = dict(row)
+        metadata = dict(fallback.get("metadata") or {})
+        for key in ("tipo", "uuid_carta_ingreso", "uuid_carta_porte_base", "status_timbrado", "xml_path", "pdf_path"):
+            if key in fallback:
+                metadata[key] = fallback.pop(key)
+        fallback["metadata"] = metadata
+        logger.info("Insert Carta Ingreso sin columnas nuevas, usando metadata: %s", exc)
+        return sb.table(_TBL_FACT_SERV).insert(fallback).execute()
 
 
 def _service_invoice_payment_defaults(cliente_cfg: dict, settings: dict) -> dict:
@@ -163,7 +556,7 @@ async def listar_cartas_porte_facturables(
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
-    """Cartas Porte timbradas que todavia no han sido usadas en factura de servicio."""
+    """Cartas Porte timbradas que todavia no han sido usadas en Carta Ingreso."""
     uid, token = _auth(authorization)
     sb = _sb(token)
     pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
@@ -259,8 +652,8 @@ async def listar_cartas_porte_facturables(
 @router.post("/tr/facturas-servicio")
 async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: str = Header(default="")):
     """
-    Prepara una factura de ingreso por servicio de transporte y la relaciona con una o varias Cartas Porte.
-    El timbrado fiscal puede conectarse al PAC reutilizando esta misma estructura.
+    Timbrado visible de Carta Ingreso: CFDI I con Complemento Carta Porte 3.1.
+    El CFDI de ingreso simple queda solo como compatibilidad legacy por feature flag.
     """
     uid, token = _auth(authorization)
     sb = _sb(token)
@@ -273,9 +666,10 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     faltantes = [vid for vid in payload.viaje_ids if vid not in encontrados]
     if faltantes:
         raise HTTPException(404, f"Viajes no encontrados: {faltantes}")
-    no_timbrados = [v["id"] for v in viajes if not v.get("uuid_cfdi")]
+    base_cartas = _base_cartas_porte_timbradas(sb, uid, perfil_factura, payload.viaje_ids)
+    no_timbrados = [v["id"] for v in viajes if int(v["id"]) not in base_cartas]
     if no_timbrados:
-        raise HTTPException(400, f"Para facturar el servicio, primero timbra la Carta Porte de los viajes: {no_timbrados}")
+        raise HTTPException(400, f"Para timbrar Carta Ingreso, primero timbra la Carta Porte Traslado de los viajes: {no_timbrados}")
     cancelados = []
     for v in viajes:
         meta = _fact_serv_trip_meta(v)
@@ -352,7 +746,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             }
         ya = [r.get("viaje_id") for r in links if int(r.get("factura_servicio_id") or 0) in facturas_activas]
         if ya:
-            raise HTTPException(400, f"Estas Cartas Porte ya tienen factura de servicio: {ya}")
+            raise HTTPException(400, f"Estas Cartas Porte ya tienen Carta Ingreso: {ya}")
     except HTTPException:
         raise
     except Exception:
@@ -365,7 +759,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                 usados.update(int(v) for v in vals if str(v).isdigit())
         repetidos = [v for v in payload.viaje_ids if v in usados]
         if repetidos:
-            raise HTTPException(400, f"Estas Cartas Porte ya tienen factura de servicio: {repetidos}")
+            raise HTTPException(400, f"Estas Cartas Porte ya tienen Carta Ingreso: {repetidos}")
 
     tq = sb.table(_TBL_TARIFAS).select("*").eq("user_id", uid).eq("activo", True)
     if perfil_factura:
@@ -379,9 +773,9 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     calculo_servicio = _fact_serv_apply_tariff_override(calculo_servicio, payload)
     sin_tarifa = [i.get("viaje_id") for i in calculo_servicio.get("items", []) if not i.get("tarifa_id")]
     if sin_tarifa:
-        raise HTTPException(400, f"Configura una tarifa de servicio antes de facturar estas Cartas Porte: {sin_tarifa}")
+        raise HTTPException(400, f"Configura una tarifa de servicio antes de timbrar Carta Ingreso para estos viajes: {sin_tarifa}")
     if calculo_servicio.get("tasas_mixtas"):
-        raise HTTPException(400, "No mezcles Cartas Porte con tasas distintas de IVA/retención en una sola factura de servicio.")
+        raise HTTPException(400, "No mezcles Cartas Porte con tasas distintas de IVA/retención en una sola Carta Ingreso.")
     _validar_totales_servicio(payload, calculo_servicio)
 
     settings = _settings_transporte(uid, token, perfil_factura)
@@ -416,7 +810,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         or cliente_meta.get("correo")
     )
     if not email_receptor:
-        raise HTTPException(400, "Captura el email fiscal/comercial del cliente antes de timbrar la factura de servicio.")
+        raise HTTPException(400, "Captura el email fiscal/comercial del cliente antes de timbrar Carta Ingreso.")
     fiscal_defaults = _service_invoice_payment_defaults(cliente_cfg, settings)
     forma_pago = payload.forma_pago or fiscal_defaults["forma_pago"]
     metodo_pago = payload.metodo_pago or fiscal_defaults["metodo_pago"]
@@ -424,24 +818,65 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         metodo_pago = fiscal_defaults["metodo_pago"]
     if fiscal_defaults["forma_pago"] != "03" and forma_pago == "03":
         forma_pago = fiscal_defaults["forma_pago"]
-    cfdi_dict = build_cfdi_servicio_transporte(
-        emisor=emisor,
-        receptor=receptor,
-        cartas_porte=viajes,
-        subtotal=calculo_servicio["subtotal"],
-        iva=calculo_servicio["iva"],
-        retencion=calculo_servicio["retencion"],
-        iva_tasa=calculo_servicio["iva_tasa"],
-        retencion_tasa=calculo_servicio["retencion_tasa"],
-        aplica_iva=calculo_servicio["aplica_iva"],
-        aplica_retencion=calculo_servicio["aplica_retencion"],
-        forma_pago=forma_pago,
-        metodo_pago=metodo_pago,
-        uso_cfdi=payload.uso_cfdi,
-    )
+    clave_carta_ingreso = str(
+        settings.get("ClaveProdServCartaIngreso")
+        or settings.get("clave_prodserv_carta_ingreso")
+        or (settings.get("facturacion") or {}).get("clave_prodserv_carta_ingreso")
+        or (settings.get("metadata") or {}).get("clave_prodserv_carta_ingreso")
+        or CLAVE_SERVICIO_TRANSPORTE
+    ).strip() or CLAVE_SERVICIO_TRANSPORTE
+    descripcion_carta_ingreso = (payload.concepto or DESCRIPCION_CARTA_INGRESO).strip() or DESCRIPCION_CARTA_INGRESO
+    id_ccp_carta_ingreso = ""
+    if _ENABLE_SIMPLE_SERVICE_INVOICE:
+        cfdi_dict = build_cfdi_servicio_transporte(
+            emisor=emisor,
+            receptor=receptor,
+            cartas_porte=[base_cartas[int(v["id"])] for v in viajes],
+            subtotal=calculo_servicio["subtotal"],
+            iva=calculo_servicio["iva"],
+            retencion=calculo_servicio["retencion"],
+            iva_tasa=calculo_servicio["iva_tasa"],
+            retencion_tasa=calculo_servicio["retencion_tasa"],
+            aplica_iva=calculo_servicio["aplica_iva"],
+            aplica_retencion=calculo_servicio["aplica_retencion"],
+            forma_pago=forma_pago,
+            metodo_pago=metodo_pago,
+            uso_cfdi=payload.uso_cfdi,
+            clave_prod_serv=clave_carta_ingreso,
+            descripcion=descripcion_carta_ingreso,
+        )
+        tipo_registro = "factura_servicio"
+    else:
+        if len(viajes) != 1:
+            raise HTTPException(400, "Por ahora timbra una Carta Ingreso por viaje/Carta Porte base para conservar el complemento Carta Porte 3.1 completo.")
+        viaje_obj, chofer_row, vehiculo_row = _build_carta_ingreso_viaje(viajes[0], payload, calculo_servicio, settings, sb, uid, perfil_factura)
+        try:
+            cfdi_dict, id_ccp_carta_ingreso = build_cfdi_ingreso_carta_porte(
+                viaje=viaje_obj,
+                emisor=emisor,
+                receptor=receptor,
+                chofer=chofer_row,
+                vehiculo=vehiculo_row,
+                cartas_porte_base=[base_cartas[int(viajes[0]["id"])]],
+                subtotal=calculo_servicio["subtotal"],
+                iva=calculo_servicio["iva"],
+                retencion=calculo_servicio["retencion"],
+                iva_tasa=calculo_servicio["iva_tasa"],
+                retencion_tasa=calculo_servicio["retencion_tasa"],
+                aplica_iva=calculo_servicio["aplica_iva"],
+                aplica_retencion=calculo_servicio["aplica_retencion"],
+                forma_pago=forma_pago,
+                metodo_pago=metodo_pago,
+                uso_cfdi=payload.uso_cfdi,
+                clave_prod_serv=clave_carta_ingreso,
+                descripcion=descripcion_carta_ingreso,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, f"Faltan datos obligatorios Carta Porte 3.1 para Carta Ingreso: {exc}") from exc
+        tipo_registro = "carta_ingreso"
     sw = emitir_timbrar_json(cfdi_dict)
     if not sw.get("ok"):
-        raise HTTPException(400, f"SW Sapien rechazó la factura de servicio: {sw.get('error')}")
+        raise HTTPException(400, f"SW Sapien rechazó la Carta Ingreso: {sw.get('error')}")
     sw_data = sw.get("data") or {}
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -451,7 +886,12 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "cliente_id":      payload.cliente_id,
         "viaje_ids":       payload.viaje_ids,
         "cfdi_relacionados": [
-            {"viaje_id": v["id"], "uuid_cfdi": v.get("uuid_sat") or v.get("uuid_cfdi", ""), "uuid_sat": v.get("uuid_sat") or v.get("uuid_cfdi", ""), "id_ccp": v.get("id_ccp", "")}
+            {
+                "viaje_id": v["id"],
+                "uuid_cfdi": base_cartas[int(v["id"])].get("uuid_sat", ""),
+                "uuid_sat": base_cartas[int(v["id"])].get("uuid_sat", ""),
+                "id_ccp": base_cartas[int(v["id"])].get("id_ccp", ""),
+            }
             for v in viajes
         ],
         "rfc_receptor":    payload.rfc_receptor,
@@ -459,7 +899,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "cp_receptor":     payload.cp_receptor,
         "regimen_fiscal":  payload.regimen_fiscal,
         "uso_cfdi":        payload.uso_cfdi,
-        "concepto":        payload.concepto,
+        "concepto":        descripcion_carta_ingreso,
         "subtotal":        calculo_servicio["subtotal"],
         "iva":             calculo_servicio["iva"],
         "retencion":       calculo_servicio["retencion"],
@@ -476,15 +916,31 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "xml_content":     sw_data.get("cfdi", ""),
         "pdf_url":         sw_data.get("pdfUrl", ""),
         "status":          "timbrada",
-        "metadata":        {"email_receptor": email_receptor, "email_delivery": {"status": "pendiente", "provider": "resend"}},
+        "tipo":            tipo_registro,
+        "uuid_carta_ingreso": sw_data.get("uuid", "") if tipo_registro == "carta_ingreso" else "",
+        "uuid_carta_porte_base": ",".join(base_cartas[int(v["id"])].get("uuid_sat", "") for v in viajes),
+        "status_timbrado": "timbrada",
+        "xml_path":        "",
+        "pdf_path":        "",
+        "metadata":        {
+            "tipo": tipo_registro,
+            "cfdi_tipo": cfdi_dict.get("TipoDeComprobante"),
+            "id_ccp_carta_ingreso": id_ccp_carta_ingreso,
+            "uuid_carta_ingreso": sw_data.get("uuid", "") if tipo_registro == "carta_ingreso" else "",
+            "uuid_carta_porte_base": [base_cartas[int(v["id"])].get("uuid_sat", "") for v in viajes],
+            "concepto_clave_prod_serv": clave_carta_ingreso,
+            "legacy_simple_service_invoice": _ENABLE_SIMPLE_SERVICE_INVOICE,
+            "email_receptor": email_receptor,
+            "email_delivery": {"status": "pendiente", "provider": "resend"},
+        },
         "created_at":      now_iso,
     }
     try:
-        res = sb.table(_TBL_FACT_SERV).insert(row).execute()
+        res = _insert_factura_servicio_tolerant(sb, row)
         factura_id = res.data[0]["id"] if res.data else None
         try:
             sb.table(_TBL_FACT_SERV).update({
-                "idempotency_key": f"{'-'.join(str(v) for v in sorted(payload.viaje_ids))}:factura_servicio",
+                "idempotency_key": f"{'-'.join(str(v) for v in sorted(payload.viaje_ids))}:{tipo_registro}",
             }).eq("id", factura_id).eq("user_id", uid).execute()
         except Exception as exc:
             logger.info("Columnas idempotency factura servicio aun no disponibles factura=%s: %s", factura_id, exc)
@@ -497,10 +953,10 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             logger.warning("No se pudo registrar bloqueo de doble factura: %s", e)
         for vid in payload.viaje_ids:
             _registrar_evento(
-                sb, uid, perfil_factura, int(vid), "factura_servicio_timbrada",
-                "Factura de servicio timbrada",
-                f"UUID SAT {sw_data.get('uuid', '')}" if sw_data.get("uuid") else "Factura de servicio generada.",
-                "system", "sw_sapien", {"factura_servicio_id": factura_id, "uuid_sat": sw_data.get("uuid", "")},
+                sb, uid, perfil_factura, int(vid), "carta_ingreso_timbrada",
+                "Carta Ingreso timbrada",
+                f"UUID SAT {sw_data.get('uuid', '')}" if sw_data.get("uuid") else "Carta Ingreso generada.",
+                "system", "sw_sapien", {"factura_servicio_id": factura_id, "uuid_sat": sw_data.get("uuid", ""), "tipo": tipo_registro},
             )
             try:
                 sb.table(_TBL_VIAJES).update({
@@ -513,7 +969,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                 logger.info("Columnas separadas factura servicio aun no disponibles viaje=%s: %s", vid, exc)
         version_xml(
             module="transporte",
-            entity_type="factura_servicio",
+            entity_type=tipo_registro,
             entity_id=factura_id,
             uuid_sat=sw_data.get("uuid", ""),
             xml_content=sw_data.get("cfdi", ""),
@@ -521,7 +977,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             perfil_id=perfil_factura,
             source="sw_sapien",
         )
-        email_delivery = {"ok": False, "skipped": True, "error": "Factura sin XML para adjuntar.", "provider": "resend"}
+        email_delivery = {"ok": False, "skipped": True, "error": "Carta Ingreso sin XML para adjuntar.", "provider": "resend"}
         xml_content = sw_data.get("cfdi", "") or ""
         if xml_content:
             try:
@@ -536,7 +992,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                     xml_content=xml_content,
                     pdf_bytes=pdf_bytes,
                     pdf_filename=info.filename,
-                    serie_folio=f"FS-{factura_id or ''}",
+                    serie_folio=f"CI-{factura_id or ''}" if tipo_registro == "carta_ingreso" else f"FS-{factura_id or ''}",
                 )
                 email_delivery = email_result.as_metadata()
             except Exception as exc:
@@ -548,10 +1004,10 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             except Exception:
                 sb.table(_TBL_FACT_SERV).update({"metadata": update_payload["metadata"]}).eq("id", factura_id).eq("user_id", uid).execute()
         except Exception as exc:
-            logger.warning("No se pudo guardar auditoría email factura servicio: %s", exc)
+            logger.warning("No se pudo guardar auditoría email Carta Ingreso: %s", exc)
         return JSONResponse({"ok": True, "id": factura_id, "status": "timbrada", "uuid_sat": sw_data.get("uuid", ""), "email_delivery": email_delivery})
     except Exception as e:
-        raise HTTPException(500, f"Error al crear factura de servicio: {e}")
+        raise HTTPException(500, f"Error al crear Carta Ingreso: {e}")
 
 
 @router.post("/tr/sat-sync/manual-xml")
