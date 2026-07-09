@@ -203,7 +203,14 @@ def _calcular_tarifa_operativa(viaje: dict, tarifas: list[dict]) -> dict:
         except Exception:
             productos = []
     first = (productos or [{}])[0] if isinstance(productos, list) and productos else {}
-    regla = str((tarifa or {}).get("regla_calculo") or "litros").lower()
+    regla = str(
+        (tarifa or {}).get("regla_calculo")
+        or (tarifa or {}).get("base_calculo")
+        or ""
+    ).strip().lower()
+    if not regla:
+        product_text = _tariff_product_text(viaje)
+        regla = "kilos" if "GAS L" in product_text or "15111510" in product_text else "litros"
     litros = _safe_float(viaje.get("volumen_total_litros") or viaje.get("volumen_litros") or first.get("volumen_litros") or first.get("cantidad_litros"))
     kilos = _safe_float(viaje.get("peso_kg") or first.get("peso_kg"))
     if regla in {"kg", "kilo", "kilos"}:
