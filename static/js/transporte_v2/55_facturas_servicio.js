@@ -7,6 +7,7 @@ let TRV2_SERVICE_INVOICE_BUSY = false;
 let TRV2_SERVICE_MONTH = '';
 let TRV2_SERVICE_PRODUCT_FILTER = 'gas_lp';
 let TRV2_SERVICE_LOADED = false;
+let TRV2_SERVICE_SEARCHED = false;
 const TRV2_SERVICE_SEARCH = {pendientes: '', facturadas: '', pago: ''};
 
 function trv2ServiceStorageKey(base) {
@@ -53,7 +54,6 @@ function trv2ServiceSetMonth(value = '') {
   TRV2_SERVICE_MONTH = String(value || '').slice(0, 7);
   const mode = document.getElementById('trv2-service-month-mode');
   if (mode) mode.value = TRV2_SERVICE_MONTH ? 'month' : '';
-  trv2RenderServiceInvoices();
 }
 
 function trv2ServiceSetMonthMode(value = '') {
@@ -63,6 +63,13 @@ function trv2ServiceSetMonthMode(value = '') {
     ? (String(input?.value || '').slice(0, 7) || new Date().toISOString().slice(0, 7))
     : '';
   if (input && value === 'month') input.value = TRV2_SERVICE_MONTH;
+}
+
+async function trv2SearchServiceInvoices() {
+  await trv2LoadServiceInvoices({force: true});
+  TRV2_SERVICE_SEARCHED = true;
+  const results = document.getElementById('trv2-service-results');
+  if (results) results.hidden = false;
   trv2RenderServiceInvoices();
 }
 
@@ -826,7 +833,7 @@ function trv2RenderServicePendingTable() {
   trv2RenderServiceProductFilter(allRows);
   const rows = trv2ServiceFilterPendingRowsForView();
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="15"><div class="trv2-empty">No hay Cartas Ingreso pendientes para este producto, periodo o búsqueda.</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14"><div class="trv2-empty">No hay Cartas Ingreso pendientes para este producto, periodo o búsqueda.</div></td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(row => {
@@ -849,7 +856,6 @@ function trv2RenderServicePendingTable() {
         <td class="trv2-num">${trv2ServiceMoney(calc.iva)}</td>
         <td class="trv2-num">${trv2ServiceMoney(calc.retencion)}</td>
         <td class="trv2-num"><strong>${trv2ServiceMoney(calc.total)}</strong></td>
-        <td><span class="trv2-chip">${trv2Esc(status)}</span></td>
         <td class="trv2-service-actions">
           <button class="trv2-mini-icon-btn" type="button" title="Detalle" aria-label="Detalle" onclick="trv2OpenServiceDetail(${Number(row.id)})"><i class="fa-solid fa-circle-info"></i></button>
           <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" title="${trv2Esc(status)}" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso</button>
