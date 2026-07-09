@@ -242,7 +242,7 @@ function trv2ServiceFamilyStats(rows = [], invoices = []) {
     stats[family].litros += Number(service.litros || 0);
     stats[family].kilos += Number(service.kilos || 0);
   });
-  invoices.filter(item => !String(item.status || item.estatus || '').toLowerCase().includes('cancel')).forEach(item => {
+  invoices.filter(item => !trv2ServiceInvoiceIsCancelled(item)).forEach(item => {
     const family = trv2ServiceInvoiceFamily(item);
     if (!stats[family]) return;
     stats[family].facturadas += 1;
@@ -370,6 +370,22 @@ function trv2ServicePaymentIcon(item = {}) {
   return `<span class="trv2-service-pay-icon ${paid ? 'paid' : 'pending'}" title="${trv2Esc(trv2ServicePaymentLabel(item))}" aria-label="${trv2Esc(trv2ServicePaymentLabel(item))}"><i class="fa-solid ${paid ? 'fa-check' : 'fa-clock'}"></i></span>`;
 }
 
+function trv2ServiceInvoiceIsCancelled(item = {}) {
+  const meta = item.metadata || {};
+  const cancelData = meta.cancelacion_resultado || item.cancelacion_resultado || {};
+  return [
+    item.status,
+    item.estatus,
+    item.cancelacion_status,
+    meta.status,
+    meta.estatus,
+    meta.cancelacion_status,
+    meta.canceled_at ? 'cancelada' : '',
+    cancelData.status,
+    cancelData.manual ? 'cancelada' : '',
+  ].join(' ').toLowerCase().includes('cancel');
+}
+
 function trv2ServiceFilterInvoicesByMonth(invoices = []) {
   if (!TRV2_SERVICE_MONTH) return invoices;
   return invoices.filter(item => trv2ServiceInvoiceMonth(item) === TRV2_SERVICE_MONTH);
@@ -399,7 +415,7 @@ function trv2RenderServiceProductFilter(rows = []) {
     if (family) acc[family] = (acc[family] || 0) + 1;
     return acc;
   }, {gas_lp: 0, petroliferos: 0});
-  const invoices = trv2ServiceFilterInvoicesByMonth(trv2ReadServiceInvoices().filter(item => !String(item.status || item.estatus || '').toLowerCase().includes('cancel')));
+  const invoices = trv2ServiceFilterInvoicesByMonth(trv2ReadServiceInvoices().filter(item => !trv2ServiceInvoiceIsCancelled(item)));
   const invoiceCounts = invoices.reduce((acc, item) => {
     const family = trv2ServiceInvoiceFamily(item);
     if (family) acc[family] = (acc[family] || 0) + 1;
@@ -561,7 +577,7 @@ function trv2ServiceCalc(tarifa, serviceOrKilos, maybeTariff = null) {
 
 function trv2ServicePendingRows() {
   const invoices = trv2ReadServiceInvoices();
-  const activeInvoices = invoices.filter(item => !String(item.status || item.estatus || '').toLowerCase().includes('cancel'));
+  const activeInvoices = invoices.filter(item => !trv2ServiceInvoiceIsCancelled(item));
   const billedTrips = new Set(activeInvoices.flatMap(item => (
     Array.isArray(item.viaje_ids) ? item.viaje_ids : [item.viaje_id]
   )).map(Number).filter(Boolean));
@@ -595,7 +611,7 @@ function trv2ServiceFilterPendingRowsForView() {
 }
 
 function trv2ServiceFilterInvoicesForView(tab = TRV2_SERVICE_TAB) {
-  const activeInvoices = trv2ReadServiceInvoices().filter(item => !String(item.status || item.estatus || '').toLowerCase().includes('cancel'));
+  const activeInvoices = trv2ReadServiceInvoices().filter(item => !trv2ServiceInvoiceIsCancelled(item));
   const base = tab === 'pago'
     ? activeInvoices.filter(item => trv2ServicePaymentStatus(item) !== 'pagada')
     : activeInvoices;
@@ -1061,7 +1077,7 @@ async function trv2ReleaseManualCancelledServiceInvoice(invoiceId) {
     motivo: 'cancelada_manual_sw',
   }, {allowError: true});
   if (!response?.ok) {
-    trv2Toast(response?.detail || response?.message || 'No se pudo liberar la Carta Ingreso cancelada manualmente.', 'error');
+    trv2Toast(trv2MessageText(response?.detail || response?.message || 'No se pudo liberar la Carta Ingreso cancelada manualmente.'), 'error');
     return;
   }
   await trv2LoadTrips?.();
@@ -1071,16 +1087,30 @@ async function trv2ReleaseManualCancelledServiceInvoice(invoiceId) {
 
 async function trv2SetServicePaymentStatus(invoiceId, status = 'pagada') {
   const normalized = status === 'pagada' ? 'pagada' : 'pendiente_pago';
-  const response = await trv2Api('PATCH', `/api/tr-v2/facturas-servicio/${Number(invoiceId)}/pago`, {
-    perfil_id: Number(TRV2_PERFIL?.id || 0) || null,
-    data: {estatus: normalized},
-  }, {allowError: true});
-  if (!response?.ok) {
-    trv2Toast(response?.detail || response?.message || 'No se pudo actualizar el estatus de pago.', 'error');
-    return;
+  const buttons = Array.from(document.querySelectorAll(`button[onclick*="trv2SetServicePaymentStatus(${Number(invoiceId)},"]`));
+  buttons.forEach(btn => {
+    btn.disabled = true;
+    btn.dataset.originalText = btn.textContent || '';
+    btn.textContent = 'Guardando...';
+  });
+  try {
+    const response = await trv2Api('PATCH', `/api/tr-v2/facturas-servicio/${Number(invoiceId)}/pago`, {
+      perfil_id: Number(TRV2_PERFIL?.id || 0) || null,
+      data: {estatus: normalized},
+    }, {allowError: true});
+    if (!response?.ok) {
+      trv2Toast(trv2MessageText(response?.detail || response?.message || 'No se pudo actualizar el estatus de pago.'), 'error');
+      return;
+    }
+    await trv2LoadServiceInvoices({force: true});
+    trv2Toast(normalized === 'pagada' ? 'Carta Ingreso marcada como pagada.' : 'Carta Ingreso marcada como pendiente de pago.', 'success');
+  } finally {
+    buttons.forEach(btn => {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.originalText || 'Pagada';
+      delete btn.dataset.originalText;
+    });
   }
-  await trv2LoadServiceInvoices({force: true});
-  trv2Toast(normalized === 'pagada' ? 'Carta Ingreso marcada como pagada.' : 'Carta Ingreso marcada como pendiente de pago.', 'success');
 }
 
 async function trv2OpenServiceArtifact(invoiceId, kind, download = false) {
@@ -1120,7 +1150,7 @@ function trv2RenderServiceKpis() {
   const target = document.getElementById('trv2-service-invoice-kpis');
   if (!target) return;
   const rows = trv2ServicePendingRows();
-  const invoices = trv2ServiceFilterInvoicesByMonth(trv2ReadServiceInvoices().filter(item => !String(item.status || item.estatus || '').toLowerCase().includes('cancel')));
+  const invoices = trv2ServiceFilterInvoicesByMonth(trv2ReadServiceInvoices().filter(item => !trv2ServiceInvoiceIsCancelled(item)));
   target.innerHTML = `
     <article><span>Pendientes de Facturar</span><strong>${rows.length}</strong></article>
     <article><span>Facturadas</span><strong>${invoices.length}</strong></article>
@@ -1197,7 +1227,7 @@ function trv2ConcMonthTrips() {
 }
 
 function trv2ConcInvoices() {
-  return trv2ServiceFilterInvoicesByMonth(trv2ReadServiceInvoices().filter(item => !String(item.status || item.estatus || '').toLowerCase().includes('cancel')));
+  return trv2ServiceFilterInvoicesByMonth(trv2ReadServiceInvoices().filter(item => !trv2ServiceInvoiceIsCancelled(item)));
 }
 
 function trv2ConcOperatorRows() {
