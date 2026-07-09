@@ -201,6 +201,36 @@ async def descargar_xml_factura_servicio_transporte(
     )
 
 
+def _liberar_carta_ingreso_cancelada(sb, *, uid: str, perfil_id, factura_id: int, row: dict, update_payload: dict) -> list[int]:
+    try:
+        sb.table(_TBL_FACT_SERV).update(update_payload).eq("id", factura_id).eq("user_id", uid).execute()
+    except Exception:
+        sb.table(_TBL_FACT_SERV).update({"status": "Cancelada"}).eq("id", factura_id).eq("user_id", uid).execute()
+    viaje_ids = [int(v) for v in (row.get("viaje_ids") or []) if str(v).isdigit()]
+    try:
+        rel_q = sb.table(_TBL_FACT_SERV_CARTAS).delete().eq("user_id", uid).eq("factura_servicio_id", factura_id)
+        if perfil_id:
+            rel_q = rel_q.eq("perfil_id", perfil_id)
+        rel_q.execute()
+    except Exception as exc:
+        logger.warning("No se pudo liberar relación Carta Ingreso cancelada factura=%s: %s", factura_id, exc)
+    if viaje_ids:
+        try:
+            upd = {
+                "factura_servicio_status": "pendiente",
+                "factura_servicio_uuid": "",
+                "factura_servicio_pdf_url": "",
+                "factura_servicio_xml_url": "",
+            }
+            vq = sb.table(_TBL_VIAJES).update(upd).eq("user_id", uid).in_("id", viaje_ids)
+            if perfil_id:
+                vq = vq.eq("perfil_id", perfil_id)
+            vq.execute()
+        except Exception as exc:
+            logger.warning("No se pudo devolver viajes a pendientes de Carta Ingreso factura=%s: %s", factura_id, exc)
+    return viaje_ids
+
+
 @router.post("/tr/facturas-servicio/{factura_id}/cancelar")
 async def cancelar_factura_servicio_transporte(
     factura_id: int,
@@ -245,33 +275,54 @@ async def cancelar_factura_servicio_transporte(
         "canceled_at": datetime.now(timezone.utc).isoformat(),
         "canceled_by": uid,
     }
-    try:
-        sb.table(_TBL_FACT_SERV).update(update_payload).eq("id", factura_id).eq("user_id", uid).execute()
-    except Exception:
-        sb.table(_TBL_FACT_SERV).update({"status": "Cancelada"}).eq("id", factura_id).eq("user_id", uid).execute()
-    viaje_ids = [int(v) for v in (row.get("viaje_ids") or []) if str(v).isdigit()]
-    try:
-        rel_q = sb.table(_TBL_FACT_SERV_CARTAS).delete().eq("user_id", uid).eq("factura_servicio_id", factura_id)
-        if row.get("perfil_id") or pid:
-            rel_q = rel_q.eq("perfil_id", row.get("perfil_id") or pid)
-        rel_q.execute()
-    except Exception as exc:
-        logger.warning("No se pudo liberar relación Carta Ingreso cancelada factura=%s: %s", factura_id, exc)
-    if viaje_ids:
-        try:
-            upd = {
-                "factura_servicio_status": "pendiente",
-                "factura_servicio_uuid": "",
-                "factura_servicio_pdf_url": "",
-                "factura_servicio_xml_url": "",
-            }
-            vq = sb.table(_TBL_VIAJES).update(upd).eq("user_id", uid).in_("id", viaje_ids)
-            if row.get("perfil_id") or pid:
-                vq = vq.eq("perfil_id", row.get("perfil_id") or pid)
-            vq.execute()
-        except Exception as exc:
-            logger.warning("No se pudo devolver viajes a pendientes de Carta Ingreso factura=%s: %s", factura_id, exc)
+    viaje_ids = _liberar_carta_ingreso_cancelada(
+        sb,
+        uid=uid,
+        perfil_id=row.get("perfil_id") or pid,
+        factura_id=factura_id,
+        row=row,
+        update_payload=update_payload,
+    )
     return JSONResponse({"ok": True, "status": resultado["status"], "error": None, "viajes_liberados": viaje_ids})
+
+
+@router.post("/tr/facturas-servicio/{factura_id}/liberar-cancelada-manual")
+async def liberar_factura_servicio_cancelada_manual(
+    factura_id: int,
+    payload: dict | None = None,
+    perfil_id: Optional[int] = Query(None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    _require_admin_transporte(uid, token)
+    pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
+    sb = _sb(token)
+    q = sb.table(_TBL_FACT_SERV).select("*").eq("id", factura_id).eq("user_id", uid).limit(1)
+    if pid:
+        q = q.eq("perfil_id", pid)
+    rows = q.execute().data or []
+    if not rows:
+        raise HTTPException(404, "Carta Ingreso no encontrada.")
+    row = rows[0]
+    now = datetime.now(timezone.utc).isoformat()
+    update_payload = {
+        "status": "Cancelada",
+        "cancelacion_status": "cancelada_manual_sw",
+        "cancelacion_motivo": str((payload or {}).get("motivo") or "cancelada_manual_sw"),
+        "cancelacion_resultado": {"ok": True, "manual": True, "source": "sw_sapiens", "registered_at": now},
+        "canceled_at": now,
+        "canceled_by": uid,
+    }
+    viaje_ids = _liberar_carta_ingreso_cancelada(
+        sb,
+        uid=uid,
+        perfil_id=row.get("perfil_id") or pid,
+        factura_id=factura_id,
+        row=row,
+        update_payload=update_payload,
+    )
+    return JSONResponse({"ok": True, "status": "cancelada_manual_sw", "viajes_liberados": viaje_ids})
 
 
 @router.get("/tr/dashboard")
