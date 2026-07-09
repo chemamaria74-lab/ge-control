@@ -3,11 +3,13 @@ from __future__ import annotations
 from .core import *
 from .facturacion_sat_liqs import (
     _TBL_FACT_SERV,
+    _TBL_VIAJES,
     _auth,
     _perfil_autorizado,
     _periodo_bounds,
     _require_admin_transporte,
     _sb,
+    _fact_serv_product_metadata,
     _settings_transporte,
 )
 from models.transport_schemas import CancelacionViajeRequest as CancelacionFacturaServicioRequest
@@ -30,11 +32,63 @@ async def listar_facturas_servicio(
         if pid:
             q = q.eq("perfil_id", pid)
         res = q.execute()
-        return JSONResponse({"ok": True, "facturas_servicio": res.data or []})
+        rows = _enrich_facturas_servicio_with_trip_data(sb=_sb(token), uid=uid, perfil_id=pid, rows=res.data or [])
+        return JSONResponse({"ok": True, "facturas_servicio": rows})
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"Error al listar Cartas Ingreso: {e}")
+
+
+def _enrich_facturas_servicio_with_trip_data(*, sb, uid: str, perfil_id, rows: list[dict]) -> list[dict]:
+    viaje_ids: set[int] = set()
+    for row in rows:
+        for vid in row.get("viaje_ids") or []:
+            try:
+                viaje_ids.add(int(vid))
+            except (TypeError, ValueError):
+                pass
+    viajes_map: dict[int, dict] = {}
+    if viaje_ids:
+        q = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).in_("id", sorted(viaje_ids))
+        if perfil_id:
+            q = q.eq("perfil_id", perfil_id)
+        try:
+            viajes_map = {int(v["id"]): v for v in (q.execute().data or []) if v.get("id")}
+        except Exception:
+            viajes_map = {}
+    enriched = []
+    for row in rows:
+        meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        vids = row.get("viaje_ids") or []
+        first_vid = None
+        for vid in vids:
+            try:
+                first_vid = int(vid)
+                break
+            except (TypeError, ValueError):
+                continue
+        trip_meta = {}
+        if first_vid and first_vid in viajes_map:
+            base = {}
+            for rel in row.get("cfdi_relacionados") or []:
+                if str(rel.get("viaje_id") or "") == str(first_vid):
+                    base = rel
+                    break
+            trip_meta = _fact_serv_product_metadata(viajes_map[first_vid], base_carta=base)
+        merged_meta = {**trip_meta, **meta}
+        enriched.append({
+            **row,
+            "metadata": merged_meta,
+            "producto_id": row.get("producto_id") or merged_meta.get("producto_id"),
+            "producto_nombre": row.get("producto_nombre") or merged_meta.get("producto_nombre"),
+            "producto_descripcion": row.get("producto_descripcion") or merged_meta.get("producto_descripcion"),
+            "producto_familia": row.get("producto_familia") or merged_meta.get("producto_familia"),
+            "litros": row.get("litros") or merged_meta.get("litros"),
+            "kilos": row.get("kilos") or merged_meta.get("kilos"),
+            "no_carta_porte": row.get("no_carta_porte") or merged_meta.get("no_carta_porte"),
+        })
+    return enriched
 
 
 @router.get("/tr/facturas-servicio/{factura_id}/pdf")
@@ -59,9 +113,9 @@ async def ver_pdf_factura_servicio_transporte(
     if not xml_content:
         raise HTTPException(404, "Carta Ingreso sin XML timbrado para generar PDF.")
     settings = _settings_transporte(uid, token, row.get("perfil_id") or pid)
-    info = fiscal_pdf_info(xml_content, "factura_servicio_transporte")
     row_meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     is_carta_ingreso = (row.get("tipo") or row_meta.get("tipo")) == "carta_ingreso"
+    info = fiscal_pdf_info(xml_content, "carta_ingreso_transporte" if is_carta_ingreso else "factura_servicio_transporte")
     logo_data_url = settings.get("PdfLogoDataUrl", "") or (settings.get("perfil_fiscal") or {}).get("logo_data_url", "")
     pdf_theme = settings.get("perfil_fiscal") if isinstance(settings.get("perfil_fiscal"), dict) else {}
     pdf_bytes = (
@@ -114,7 +168,9 @@ async def descargar_xml_factura_servicio_transporte(
     row = rows[0]
     if not row.get("xml_content"):
         raise HTTPException(404, "Carta Ingreso sin XML timbrado.")
-    info = fiscal_pdf_info(row["xml_content"], "factura_servicio_transporte")
+    row_meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    is_carta_ingreso = (row.get("tipo") or row_meta.get("tipo")) == "carta_ingreso"
+    info = fiscal_pdf_info(row["xml_content"], "carta_ingreso_transporte" if is_carta_ingreso else "factura_servicio_transporte")
     audit_fiscal_pdf_event(
         get_supabase_admin(),
         user_id=uid,

@@ -159,6 +159,58 @@ def _tariff_product_text(viaje: dict) -> str:
     ]).strip().upper()
 
 
+def _fact_serv_product_metadata(viaje: dict, *, base_carta: dict | None = None) -> dict:
+    productos = viaje.get("productos_json")
+    if isinstance(productos, str):
+        try:
+            productos = json.loads(productos)
+        except Exception:
+            productos = []
+    first = (productos or [{}])[0] if isinstance(productos, list) and productos else {}
+    meta = _fact_serv_trip_meta(viaje)
+    producto_nombre = (
+        viaje.get("producto")
+        or viaje.get("producto_descripcion")
+        or first.get("descripcion")
+        or first.get("nombre")
+        or meta.get("producto")
+        or meta.get("producto_descripcion")
+        or ""
+    )
+    producto_id = (
+        viaje.get("producto_id")
+        or viaje.get("producto_operacion_id")
+        or first.get("producto_id")
+        or first.get("id")
+        or meta.get("producto_id")
+    )
+    product_text = _tariff_product_text(viaje)
+    familia = ""
+    if "GAS L" in product_text or "GAS LP" in product_text or "15111510" in product_text:
+        familia = "gas_lp"
+    elif any(token in product_text for token in ("MAGNA", "PREMIUM", "DIESEL", "DIÉSEL", "GASOLINA", "151015")):
+        familia = "petroliferos"
+    no_carta = "T"
+    serie = str(meta.get("serie_carta_porte") or meta.get("serie") or "T").strip() or "T"
+    folio = str(meta.get("folio_carta_porte") or meta.get("folio") or "").strip()
+    if folio:
+        no_carta = f"{serie}-{folio}"
+    return {
+        "producto_id": producto_id,
+        "producto_nombre": producto_nombre,
+        "producto_descripcion": producto_nombre,
+        "producto_familia": familia,
+        "familia_producto": familia,
+        "litros": _safe_float(viaje.get("volumen_litros") or viaje.get("volumen_total_litros") or first.get("volumen_litros") or first.get("cantidad_litros")),
+        "kilos": _safe_float(viaje.get("peso_kg") or first.get("peso_kg")),
+        "no_carta_porte": no_carta,
+        "serie_carta_porte": serie,
+        "folio_carta_porte": folio,
+        "uuid_carta_porte_base": (base_carta or {}).get("uuid_sat") or (base_carta or {}).get("uuid_cfdi") or "",
+        "id_ccp_carta_porte_base": (base_carta or {}).get("id_ccp") or "",
+    }
+
+
 def _tariff_match(viaje: dict, tarifa: dict) -> bool:
     if tarifa.get("cliente_id") and str(tarifa.get("cliente_id")) != str(viaje.get("cliente_id") or ""):
         return False
@@ -896,6 +948,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         if len(viajes) != 1:
             raise HTTPException(400, "Por ahora timbra una Carta Ingreso por viaje/Carta Porte base para conservar el complemento Carta Porte 3.1 completo.")
         viaje_obj, chofer_row, vehiculo_row = _build_carta_ingreso_viaje(viajes[0], payload, calculo_servicio, settings, sb, uid, perfil_factura)
+        folio_carta_ingreso = f"F-{int(viajes[0]['id'])}"
         try:
             cfdi_dict, id_ccp_carta_ingreso = build_cfdi_ingreso_carta_porte(
                 viaje=viaje_obj,
@@ -914,6 +967,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                 forma_pago=forma_pago,
                 metodo_pago=metodo_pago,
                 uso_cfdi=payload.uso_cfdi,
+                folio=folio_carta_ingreso,
                 clave_prod_serv=clave_carta_ingreso,
                 descripcion=descripcion_carta_ingreso,
             )
@@ -937,6 +991,13 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         sw_data = sw.get("data") or {}
 
     now_iso = datetime.now(timezone.utc).isoformat()
+    product_metadata = {}
+    if viajes:
+        first_viaje = viajes[0]
+        product_metadata = _fact_serv_product_metadata(
+            first_viaje,
+            base_carta=base_cartas.get(int(first_viaje["id"])),
+        )
     row = {
         "user_id":         uid,
         "perfil_id":       perfil_factura,
@@ -989,6 +1050,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             "legacy_simple_service_invoice": _ENABLE_SIMPLE_SERVICE_INVOICE,
             "email_receptor": email_receptor,
             "email_delivery": {"status": "pendiente", "provider": "resend"},
+            **product_metadata,
         },
         "created_at":      now_iso,
     }
@@ -1038,7 +1100,10 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         xml_content = sw_data.get("cfdi", "") or ""
         if xml_content:
             try:
-                info = fiscal_pdf_info(xml_content, "factura_servicio_transporte")
+                info = fiscal_pdf_info(
+                    xml_content,
+                    "carta_ingreso_transporte" if tipo_registro == "carta_ingreso" else "factura_servicio_transporte",
+                )
                 logo_data_url = settings.get("PdfLogoDataUrl", "") or (settings.get("perfil_fiscal") or {}).get("logo_data_url", "")
                 pdf_theme = settings.get("perfil_fiscal") if isinstance(settings.get("perfil_fiscal"), dict) else {}
                 pdf_bytes = (
@@ -1055,13 +1120,15 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                     xml_content=xml_content,
                     pdf_bytes=pdf_bytes,
                     pdf_filename=info.filename,
-                    serie_folio=f"CI-{factura_id or ''}" if tipo_registro == "carta_ingreso" else f"FS-{factura_id or ''}",
+                    serie_folio=info.serie_folio or (f"FS-{factura_id or ''}" if tipo_registro != "carta_ingreso" else "CI"),
                 )
                 email_delivery = email_result.as_metadata()
             except Exception as exc:
                 email_delivery = {"ok": False, "skipped": False, "error": str(exc)[:500], "provider": "resend"}
         try:
-            update_payload = {"metadata": {"email_receptor": email_receptor, "email_delivery": email_delivery}, "email_receptor": email_receptor}
+            merged_metadata = dict(row.get("metadata") or {})
+            merged_metadata.update({"email_receptor": email_receptor, "email_delivery": email_delivery})
+            update_payload = {"metadata": merged_metadata, "email_receptor": email_receptor}
             try:
                 sb.table(_TBL_FACT_SERV).update(update_payload).eq("id", factura_id).eq("user_id", uid).execute()
             except Exception:
