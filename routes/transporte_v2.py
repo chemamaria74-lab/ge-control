@@ -460,7 +460,6 @@ def _detect_xml_document(content: bytes) -> dict[str, Any]:
     clave_sat = first_concept.get("ClaveProdServ") if first_concept is not None else ""
     unidad = (first_concept.get("ClaveUnidad") or first_concept.get("Unidad") or "") if first_concept is not None else ""
     producto = first_concept.get("Descripcion") if first_concept is not None else ""
-    peso_detectado_explicito = bool(_to_float(kilos))
     detected = {
         "emisor_nombre": emisor.get("Nombre", "") if emisor is not None else "",
         "emisor_rfc": emisor.get("Rfc", "") if emisor is not None else "",
@@ -478,6 +477,8 @@ def _detect_xml_document(content: bytes) -> dict[str, Any]:
         "litros": cantidad if str(unidad).upper() in {"LTR", "LITRO", "LITROS"} else cantidad,
         "peso_kg": 0,
         "kilos": 0,
+        "peso_kg_detectado_explicito": False,
+        "peso_kg_estimado": False,
         "permiso": "",
         "origen_sugerido": "",
         "destino_sugerido": receptor.get("Nombre", "") if receptor is not None else "",
@@ -3311,14 +3312,21 @@ def _normalize_permiso_row(row: dict[str, Any]) -> dict[str, Any]:
     item = dict(row or {})
     metadata = _parse_json_value(item.get("metadata"), {})
     item["tipo"] = _first_text(item.get("tipo"), metadata.get("tipo"), "Proveedor")
-    item["producto"] = _producto_permiso_label(_first_text(item.get("producto"), metadata.get("producto"), (item["familias_producto"] or [""])[0]))
+    familias_raw = _parse_json_value(item.get("familias_producto"), metadata.get("familias_producto") or [])
+    if isinstance(familias_raw, str):
+        familias_raw = [familias_raw]
+    productos_raw = _parse_json_value(item.get("productos_permitidos"), metadata.get("productos_permitidos") or [])
+    if isinstance(productos_raw, str):
+        productos_raw = [productos_raw]
+    fallback_producto = (familias_raw or productos_raw or [""])[0]
+    item["producto"] = _producto_permiso_label(_first_text(item.get("producto"), metadata.get("producto"), fallback_producto))
     producto_family = _producto_permiso_family(item["producto"])
     producto_norm = _normalize_producto_value(item["producto"])
-    item["familias_producto"] = [producto_family] if producto_family else _parse_json_value(item.get("familias_producto"), metadata.get("familias_producto") or [])
+    item["familias_producto"] = [producto_family] if producto_family else familias_raw
     item["productos_permitidos"] = (
         ["Magna", "Premium", "Diésel"]
         if producto_norm in {"PETROLIFEROS", "GASOLINA", "GASOLINAS"}
-        else ([item["producto"]] if producto_family else _parse_json_value(item.get("productos_permitidos"), metadata.get("productos_permitidos") or []))
+        else ([item["producto"]] if producto_family else productos_raw)
     )
     item["permiso_cre"] = _first_text(item.get("permiso_cre"), metadata.get("permiso_cre"), metadata.get("permiso"), item.get("permiso"))
     item["permiso_almacenamiento_terminal"] = _first_text(
@@ -7561,7 +7569,14 @@ async def transporte_v2_documentos_analizar(
         logger.info("Transporte v2 catalog match omitido en análisis documento: %s", exc)
         result["cliente_match"] = {"status": "error", "message": "No se pudo validar cliente contra catálogo."}
         result["producto_match"] = {"status": "error", "message": "No se pudo validar producto contra catálogo."}
-    permiso_rfc = _lookup_permiso_rfc(token, uid, pid, detected_for_lookup)
+    try:
+        permiso_rfc = _lookup_permiso_rfc(token, uid, pid, detected_for_lookup)
+    except Exception as exc:
+        logger.exception("Transporte v2 permiso/RFC lookup falló en análisis documento")
+        permiso_rfc = {
+            "status": "error",
+            "message": f"No se pudo validar permiso/RFC contra catálogo ({type(exc).__name__}). Revisa Administración > Permisos / RFC.",
+        }
     if permiso_rfc.get("status") == "registrado" and isinstance(result.get("detected"), dict):
         item = permiso_rfc.get("item") or {}
         permiso_catalogo = _first_text(item.get("permiso_cre"), item.get("permiso"), permiso_rfc.get("permiso_detectado"))
