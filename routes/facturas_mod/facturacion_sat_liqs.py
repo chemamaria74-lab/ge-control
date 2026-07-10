@@ -251,7 +251,15 @@ def _tariff_match(viaje: dict, tarifa: dict) -> bool:
         and str(tarifa_producto_id) == str(viaje_producto_id)
     )
     producto_tarifa = str(tarifa.get("producto") or "").strip().upper()
-    if producto_tarifa and not mismo_producto_id and producto_tarifa not in _tariff_product_text(viaje):
+    tarifa_meta = _fact_serv_trip_meta(tarifa)
+    familia_tarifa = str(tarifa_meta.get("familia_producto") or "").strip().lower()
+    texto_viaje = _tariff_product_text(viaje)
+    es_petrolifero = any(value in texto_viaje for value in ("MAGNA", "PREMIUM", "DIESEL", "DIÉSEL", "GASOLINA"))
+    familia_compatible = (
+        (familia_tarifa == "petroliferos" and es_petrolifero)
+        or (familia_tarifa == "gas_lp" and any(value in texto_viaje for value in ("GAS L.P", "GAS LP", "15111510")))
+    )
+    if producto_tarifa and not mismo_producto_id and not familia_compatible and producto_tarifa not in texto_viaje:
         return False
     origen = str(tarifa.get("origen") or "").strip().upper()
     if origen and origen not in str(viaje.get("nombre_origen") or viaje.get("origen") or "").upper():
