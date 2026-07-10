@@ -302,7 +302,7 @@ const TRV2_CATALOG_UI = {
     title: 'Productos',
     subtitle: 'Claves SAT, unidades y material peligroso.',
     metrics: [['Registros', 'count'], ['Mat. peligroso', 'material_peligroso'], ['Con clave SAT', 'clave_producto']],
-    fields: [['Clave SAT', 'clave_producto'], ['Unidad', 'unidad'], ['Material peligroso', 'material_peligroso'], ['Embalaje', 'embalaje']],
+    fields: [['Clave SAT', 'clave_producto'], ['Unidad', 'unidad'], ['Conversión kg/L', 'factor_kg_l'], ['Material peligroso', 'material_peligroso'], ['Embalaje', 'embalaje']],
   },
   proveedores: {
     icon: 'fa-address-card',
