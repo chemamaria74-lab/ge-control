@@ -3,8 +3,12 @@
         <div class="section-head compact-head">
           <div><h2>Facturas</h2><div class="muted small">Consulta por empresa fiscal, no por usuario creador.</div></div>
           <div class="facturas-export-actions" aria-label="Exportar facturas">
-            <input id="expMes" type="hidden"><input id="expDia" type="hidden">
-            <button class="btn ghost" type="button" onclick="exportarMes()"><i class="fa-solid fa-file-excel"></i> Descargar mes cargado</button>
+            <button class="btn ghost" type="button" onclick="exportarExcel()">Excel actual</button>
+            <div class="facturas-export-field"><label>Mes</label><input id="expMes" type="month"></div>
+            <button class="btn ghost" type="button" onclick="cargarMesFacturas()"><i class="fa-solid fa-magnifying-glass"></i> Cargar mes</button>
+            <button class="btn" type="button" onclick="exportarMes()">Descargar mes</button>
+            <div class="facturas-export-field"><label>Día</label><input id="expDia" type="date"></div>
+            <button class="btn ghost" type="button" onclick="exportarDia()">Descargar día</button>
           </div>
         </div>
         <div class="filters" style="margin-bottom:12px">
@@ -14,6 +18,7 @@
           <div><label>Forma pago</label><select id="formaFiltro" onchange="renderAll()"><option value="">Todas</option><option value="01">01 Efectivo</option><option value="03">03 Transferencia</option><option value="04">04 Tarjeta crédito</option><option value="28">28 Tarjeta débito</option><option value="99">99 Por definir</option></select></div>
           <div><label>Método</label><select id="metodoFiltro" onchange="renderAll()"><option value="">Todos</option><option value="PUE">PUE</option><option value="PPD">PPD</option></select></div>
           <div><label>Tipo</label><select id="tipoFiltro" onchange="renderAll()"><option value="">Todos</option><option value="factura">Factura</option><option value="complemento">Complemento</option><option value="traspaso">Traspaso</option></select></div>
+          <button class="btn ghost" type="button" onclick="clearFilters()">Limpiar</button>
         </div>
         <div class="table-wrap facturas-scroll"><table class="facturas-table"><thead><tr><th>Fecha</th><th>Tipo</th><th>Cliente</th><th>Folio</th><th>UUID</th><th>Instalación</th><th>Litros</th><th>Subtotal</th><th>IVA</th><th>Total</th><th>Forma</th><th>Método</th><th>Realizado por</th><th>Estado fiscal</th><th>Estado banco</th><th>Banco</th><th>Docs</th></tr></thead><tbody id="facturasRows"></tbody></table></div>
       </div>
