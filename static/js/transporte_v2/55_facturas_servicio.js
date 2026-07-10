@@ -648,7 +648,7 @@ function trv2ServiceSavedCalc(row = {}) {
 
 function trv2ServiceTariffForRow(row = {}, tariffs = trv2ReadServiceTariffs()) {
   const service = trv2ServiceTripData(row);
-  return trv2FindServiceTariff(service, tariffs) || trv2ServiceSavedCalc(row);
+  return trv2FindServiceTariff(service, tariffs);
 }
 
 function trv2ServicePendingRows() {
@@ -898,8 +898,8 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
     </div>
     <div class="trv2-form trv2-form-compact">
       <label>
-        <span>Tarifa editable (${trv2Esc(calc.base_calculo)})</span>
-        <input id="trv2-service-tarifa-override" type="number" step="0.0001" min="0" value="${Number(tariff?.tarifa || 0)}" oninput="trv2UpdateServiceReviewTotals(${Number(tripId)})">
+        <span>Tarifa de catálogo (${trv2Esc(calc.base_calculo)})</span>
+        <input id="trv2-service-tarifa-override" type="number" value="${Number(tariff?.tarifa || 0)}" disabled>
       </label>
       <label>
         <span>Base de cálculo</span>
@@ -931,8 +931,7 @@ function trv2ServiceReviewCalculation(tripId) {
   const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
   const service = trv2ServiceTripData(row || {});
   const tariff = trv2ServiceTariffForRow(row);
-  const override = Number(document.getElementById('trv2-service-tarifa-override')?.value || 0);
-  const tarifa = override > 0 ? override : Number(tariff?.tarifa || 0);
+  const tarifa = Number(tariff?.tarifa || 0);
   return {row, service, tariff, tarifa, calc: trv2ServiceCalc(tarifa, service, tariff)};
 }
 
@@ -1007,8 +1006,6 @@ async function trv2ConfirmServiceInvoice(tripId) {
       forma_pago: formaPago,
       metodo_pago: metodoPago,
       moneda: 'MXN',
-      override_tarifa: tarifa,
-      override_tarifa_motivo: 'Tarifa editada en revisión de Carta Ingreso',
     }, {allowError: true});
     if (!data?.ok) {
       trv2Toast(trv2MessageText(data?.detail || data?.message || 'No se pudo timbrar Carta Ingreso.'), 'error');
@@ -1052,7 +1049,7 @@ function trv2RenderServicePendingTable() {
   trv2RenderServiceProductFilter(allRows);
   const rows = trv2ServiceFilterPendingRowsForView();
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="15"><div class="trv2-empty">No hay Cartas Ingreso pendientes para este producto, periodo o búsqueda.</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="16"><div class="trv2-empty">No hay Cartas Ingreso pendientes para este producto, periodo o búsqueda.</div></td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(row => {
@@ -1072,6 +1069,7 @@ function trv2RenderServicePendingTable() {
         <td><span class="trv2-service-main">${trv2Esc(service.chofer)}</span></td>
         <td title="${trv2Esc(service.vehiculo)}">${trv2Esc(trv2ServiceVehicleShort(service.vehiculo))}</td>
         <td><span class="trv2-service-uuid" title="${trv2Esc(service.uuid_carta_porte)}">${trv2Esc(trv2ServiceShortUuid(service.uuid_carta_porte))}</span></td>
+        <td class="trv2-num"><strong>${tariff ? `${trv2ServiceMoney(tariff.tarifa)} / ${trv2Esc(trv2ServiceBillingBase(service.producto, tariff))}` : 'Sin tarifa'}</strong></td>
         <td class="trv2-num">${trv2ServiceMoney(calc.subtotal)}</td>
         <td class="trv2-num">${trv2ServiceMoney(calc.iva)}</td>
         <td class="trv2-num">${trv2ServiceMoney(calc.retencion)}</td>
