@@ -153,7 +153,7 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-service-family-card span{color:var(--trv2-muted);font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.06em}
 .trv2-service-family-card strong{font-size:24px;line-height:1.05;font-weight:900}
 .trv2-service-family-card em,.trv2-service-family-card small{font-style:normal;color:var(--trv2-muted);font-size:12px;font-weight:800}
-.trv2-service-pending-table{min-width:1580px;table-layout:fixed}
+.trv2-service-pending-table{min-width:1710px;table-layout:fixed}
 .trv2-service-pending-table th,.trv2-service-pending-table td{padding:9px 10px;line-height:1.22;vertical-align:middle}
 .trv2-service-pending-table th:nth-child(1){width:84px}
 .trv2-service-pending-table th:nth-child(2){width:76px}
@@ -164,10 +164,11 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-service-pending-table th:nth-child(8){width:92px}
 .trv2-service-pending-table th:nth-child(9){width:126px}
 .trv2-service-pending-table th:nth-child(10){width:126px}
-.trv2-service-pending-table th:nth-child(11),.trv2-service-pending-table th:nth-child(12),.trv2-service-pending-table th:nth-child(13),.trv2-service-pending-table th:nth-child(14){width:110px}
-.trv2-service-pending-table th:nth-child(15){width:228px}
-.trv2-service-pending-table th:nth-child(15),.trv2-service-pending-table td:nth-child(15){position:sticky;right:0;z-index:3;background:#fff;box-shadow:-1px 0 0 var(--trv2-line)}
-.trv2-service-pending-table th:nth-child(15){background:#f3eee7;z-index:4}
+.trv2-service-pending-table th:nth-child(11){width:130px}
+.trv2-service-pending-table th:nth-child(12),.trv2-service-pending-table th:nth-child(13),.trv2-service-pending-table th:nth-child(14),.trv2-service-pending-table th:nth-child(15){width:110px}
+.trv2-service-pending-table th:nth-child(16){width:228px}
+.trv2-service-pending-table th:nth-child(16),.trv2-service-pending-table td:nth-child(16){position:sticky;right:0;z-index:3;background:#fff;box-shadow:-1px 0 0 var(--trv2-line)}
+.trv2-service-pending-table th:nth-child(16){background:#f3eee7;z-index:4}
 .trv2-service-main{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:normal;line-height:1.22}
 .trv2-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .trv2-service-actions{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:nowrap;white-space:nowrap}
