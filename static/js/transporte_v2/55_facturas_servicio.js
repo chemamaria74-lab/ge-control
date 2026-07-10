@@ -99,7 +99,10 @@ function trv2ServiceSetMonthMode(value = '') {
 
 async function trv2SearchServiceInvoices(tab = TRV2_SERVICE_TAB) {
   const targetTab = ['pendientes', 'facturadas', 'pago'].includes(tab) ? tab : TRV2_SERVICE_TAB;
-  await trv2LoadServiceInvoices({force: true});
+  await Promise.all([
+    trv2LoadServiceInvoices({force: true}),
+    trv2LoadServiceTariffs({force: true}),
+  ]);
   ['pendientes', 'facturadas', 'pago'].forEach(key => {
     TRV2_SERVICE_SEARCHED[key] = true;
     const table = document.getElementById(`trv2-service-table-${key}`);
@@ -868,6 +871,13 @@ function trv2SetServiceInvoiceTab(tab) {
     const table = document.getElementById(`trv2-service-table-${tab}`);
     if (table) table.hidden = false;
   }
+}
+
+async function trv2RefreshPendingServiceTariffs() {
+  await trv2LoadServiceTariffs({force: true});
+  trv2RenderServicePendingTable();
+  trv2RenderServiceFamilyDashboard();
+  trv2Toast('Tarifas actualizadas desde Catálogo.', 'success');
 }
 
 function trv2OpenServiceDetail(tripId, allowStamp = false) {
