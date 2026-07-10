@@ -83,6 +83,7 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
     assert 'onchange="syncSelectedMonth(this.value)"' in html
     assert "showMonthPromptState()" in html
     assert "cargarMesSat()" in html
+    assert "sat-month-actions" in html
     assert 'onclick="clearFilters()"' not in html
 
     assert "/api/internal-auth/gas-lp/conciliacion/summary" in html
