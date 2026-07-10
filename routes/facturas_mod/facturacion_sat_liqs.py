@@ -947,15 +947,28 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         links = ya_res.data or []
         factura_ids = [int(r.get("factura_servicio_id") or 0) for r in links if r.get("factura_servicio_id")]
         facturas_activas = set()
+        facturas_canceladas = set()
         if factura_ids:
             fq = sb.table(_TBL_FACT_SERV).select("id,status,estatus,cancelacion_status,cancelacion_resultado,metadata").eq("user_id", uid).in_("id", factura_ids)
             if perfil_factura:
                 fq = fq.eq("perfil_id", perfil_factura)
-            facturas_activas = {
-                int(r.get("id") or 0)
-                for r in (fq.execute().data or [])
-                if not _fact_serv_invoice_cancelada(r)
-            }
+            for r in (fq.execute().data or []):
+                fid = int(r.get("id") or 0)
+                if not fid:
+                    continue
+                if _fact_serv_invoice_cancelada(r):
+                    facturas_canceladas.add(fid)
+                else:
+                    facturas_activas.add(fid)
+        if facturas_canceladas:
+            try:
+                clean_q = sb.table(_TBL_FACT_SERV_CARTAS).delete().eq("user_id", uid).in_("factura_servicio_id", sorted(facturas_canceladas))
+                if perfil_factura:
+                    clean_q = clean_q.eq("perfil_id", perfil_factura)
+                clean_q.execute()
+                links = [r for r in links if int(r.get("factura_servicio_id") or 0) not in facturas_canceladas]
+            except Exception as exc:
+                logger.info("No se pudieron limpiar relaciones de Carta Ingreso cancelada: %s", exc)
         ya = [r.get("viaje_id") for r in links if int(r.get("factura_servicio_id") or 0) in facturas_activas]
         if ya:
             raise HTTPException(400, f"Estas Cartas Porte ya tienen Carta Ingreso: {ya}")
