@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "dummy")
@@ -12,6 +13,15 @@ from routes.transporte_v2 import (
     _permiso_product_family_match,
     _stamp_internal_product_keys,
 )
+
+
+def test_cartas_ingreso_priorizan_tarifa_de_ruta_aunque_varie_producto_operativo():
+    source = (Path(__file__).parents[1] / "static/js/transporte_v2/55_facturas_servicio.js").read_text(encoding="utf-8")
+
+    assert "const matchedRoute = routeExact || routeText" in source
+    assert "const hasRouteText = Boolean" in source
+    assert "if (!matchedRoute && Number(item.producto_id || 0)" in source
+    assert "if (routeExact) score += 200" in source
 
 
 def test_transporte_client_email_survives_in_metadata_fallback():
