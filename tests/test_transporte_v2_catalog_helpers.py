@@ -24,6 +24,15 @@ def test_cartas_ingreso_priorizan_tarifa_de_ruta_aunque_varie_producto_operativo
     assert "if (routeExact) score += 200" in source
 
 
+def test_guardar_tarifa_de_ruta_actualiza_duplicados_y_recarga_sin_cache():
+    root = Path(__file__).parents[1]
+    backend = (root / "routes/transporte_v2.py").read_text(encoding="utf-8")
+    frontend = (root / "static/js/transporte_v2/80_catalogos.js").read_text(encoding="utf-8")
+
+    assert '.eq("ruta_id", row["ruta_id"])' in backend
+    assert "trv2LoadServiceTariffs({force: true})" in frontend
+
+
 def test_transporte_client_email_survives_in_metadata_fallback():
     row = _expand_client_contact_metadata({"email_facturacion": "cliente@example.com"})
 
