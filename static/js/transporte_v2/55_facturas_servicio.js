@@ -11,7 +11,7 @@ const TRV2_SERVICE_SEARCH = {pendientes: '', facturadas: '', pago: ''};
 const TRV2_SERVICE_SEARCHED = {pendientes: false, facturadas: false, pago: false};
 
 function trv2ServiceDefaultMonth() {
-  return new Date().toISOString().slice(0, 7);
+  return trv2ServiceMxDate(new Date()).slice(0, 7);
 }
 
 function trv2PrepareServiceInvoiceTab() {
@@ -62,6 +62,22 @@ function trv2ServiceNumber(value, decimals = 2) {
   return Number(value || 0).toLocaleString('es-MX', {maximumFractionDigits: decimals});
 }
 
+function trv2ServiceMxDate(value) {
+  if (!value) return '';
+  const raw = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const date = value instanceof Date ? value : new Date(raw);
+  if (!Number.isNaN(date.getTime())) {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Mexico_City',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  }
+  return raw.slice(0, 10);
+}
+
 function trv2ServiceTripMeta(row, key) {
   return (row?.metadata || {})[key] || '';
 }
@@ -95,7 +111,7 @@ async function trv2SearchServiceInvoices(tab = TRV2_SERVICE_TAB) {
 
 function trv2ServiceRowMonth(row = {}) {
   const service = trv2ServiceTripData(row);
-  return String(service.fecha || row.fecha_timbrado || row.created_at || '').slice(0, 7);
+  return trv2ServiceMxDate(service.fecha || row.fecha_timbrado || row.created_at || '').slice(0, 7);
 }
 
 function trv2ServiceIsCancelled(row = {}) {
@@ -235,7 +251,7 @@ function trv2ServiceFamilyStats(rows = [], invoices = []) {
     const service = trv2ServiceTripData(row);
     const family = trv2ServiceProductFamily(service);
     if (!stats[family]) return;
-    const tariff = trv2FindServiceTariff(service, tariffs);
+    const tariff = trv2ServiceTariffForRow(row, tariffs);
     const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
     stats[family].pendientes += 1;
     stats[family].pendiente_total += Number(calc.total || 0);
@@ -304,7 +320,7 @@ function trv2ServiceMatchSearch(values = [], tab = TRV2_SERVICE_TAB) {
 }
 
 function trv2ServiceInvoiceMonth(item = {}) {
-  return String(item.created_at || item.fecha || item.fecha_timbrado || '').slice(0, 7);
+  return trv2ServiceMxDate(item.fecha_emision || item.fecha_cfdi || item.created_at || item.fecha || item.fecha_timbrado || '').slice(0, 7);
 }
 
 function trv2ServiceInvoiceTrips(item = {}) {
@@ -447,10 +463,10 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
     const tariffs = trv2ReadServiceTariffs();
     const rows = trv2ServiceFilterPendingRowsForView().map(row => {
       const service = trv2ServiceTripData(row);
-      const tariff = trv2FindServiceTariff(service, tariffs);
+      const tariff = trv2ServiceTariffForRow(row, tariffs);
       const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
       return [
-        String(service.fecha || '').slice(0, 10),
+        trv2ServiceMxDate(service.fecha || ''),
         service.no_carta_porte,
         service.origen,
         service.destino,
@@ -476,7 +492,7 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
     const rows = invoices.map(item => [
       item.nombre_receptor || item.cliente || item.rfc_receptor || '',
       trv2ServiceInvoiceFolio(item),
-      String(item.created_at || item.fecha || '').slice(0, 10),
+      trv2ServiceMxDate(item.fecha_emision || item.fecha_cfdi || item.created_at || item.fecha || ''),
       Number(item.total || 0),
       Number(item.saldo ?? item.total ?? 0),
       trv2ServicePaymentLabel(item),
@@ -486,7 +502,7 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
     return;
   }
   const rows = invoices.map(item => [
-    String(item.created_at || item.fecha || '').slice(0, 10),
+    trv2ServiceMxDate(item.fecha_emision || item.fecha_cfdi || item.created_at || item.fecha || ''),
     trv2ServiceInvoiceRouteValue(item, 'origen'),
     trv2ServiceInvoiceRouteValue(item, 'destino'),
     Number(trv2ServiceInvoiceQuantity(item, 'litros') || 0),
@@ -512,6 +528,13 @@ function trv2ServiceShortUuid(value = '') {
   return text.length > 18 ? `${text.slice(0, 8)}-${text.slice(9, 13)}...` : text;
 }
 
+function trv2ServiceTextMatch(a = '', b = '') {
+  const left = trv2ServiceNorm(a);
+  const right = trv2ServiceNorm(b);
+  if (!left || !right) return false;
+  return left === right || left.includes(right) || right.includes(left);
+}
+
 function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
   const normProduct = trv2ServiceNorm(service.producto);
   const candidates = (tariffs || []).map(item => {
@@ -520,22 +543,28 @@ function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
     const productName = trv2ServiceNorm(item.producto || item.producto_nombre);
     const productText = productName && (productName === normProduct || normProduct.includes(productName) || productName.includes(normProduct));
     const providerExact = Number(item.proveedor_id || 0) && Number(item.proveedor_id || 0) === Number(service.proveedor_id || 0);
-    const providerText = trv2ServiceNorm(item.proveedor || item.origen) && trv2ServiceNorm(item.proveedor || item.origen) === trv2ServiceNorm(service.proveedor || service.origen);
+    const providerText = trv2ServiceTextMatch(item.proveedor || item.origen, service.proveedor || service.origen);
     const clientExact = Number(item.cliente_id || 0) && Number(item.cliente_id || 0) === Number(service.cliente_id || 0);
-    const clientText = trv2ServiceNorm(item.cliente || item.destino) && trv2ServiceNorm(item.cliente || item.destino) === trv2ServiceNorm(service.cliente || service.destino);
-    if (Number(item.ruta_id || 0) && !routeExact) return null;
-    if (Number(item.producto_id || 0) && !productExact) return null;
+    const clientText = trv2ServiceTextMatch(item.cliente || item.destino, service.cliente || service.destino);
+    const originText = trv2ServiceTextMatch(item.origen, service.origen);
+    const destinationText = trv2ServiceTextMatch(item.destino, service.destino);
+    const routeText = (originText || !trv2ServiceNorm(item.origen)) && (destinationText || clientText || !trv2ServiceNorm(item.destino));
+    if (Number(item.ruta_id || 0) && !routeExact && !routeText) return null;
+    if (Number(item.producto_id || 0) && !productExact && !productText) return null;
     if (!Number(item.producto_id || 0) && productName && !productText) return null;
-    if (Number(item.proveedor_id || 0) && !providerExact) return null;
-    if (!Number(item.proveedor_id || 0) && trv2ServiceNorm(item.proveedor || item.origen) && !providerText) return null;
-    if (Number(item.cliente_id || 0) && !clientExact) return null;
-    if (!Number(item.cliente_id || 0) && trv2ServiceNorm(item.cliente || item.destino) && !clientText) return null;
+    if (Number(item.proveedor_id || 0) && !providerExact && !providerText && !originText) return null;
+    if (!Number(item.proveedor_id || 0) && trv2ServiceNorm(item.proveedor || item.origen) && !providerText && !originText) return null;
+    if (Number(item.cliente_id || 0) && !clientExact && !clientText && !destinationText) return null;
+    if (!Number(item.cliente_id || 0) && trv2ServiceNorm(item.cliente || item.destino) && !clientText && !destinationText) return null;
     let score = 0;
     if (routeExact) score += 100;
+    else if (routeText) score += 45;
     if (productExact) score += 80;
     else if (productText) score += 40;
     if (clientExact) score += 20;
     if (providerExact) score += 10;
+    if (originText) score += 8;
+    if (destinationText) score += 8;
     if (providerText) score += 5;
     if (clientText) score += 5;
     score -= Number(item.prioridad || 100) || 100;
@@ -582,6 +611,44 @@ function trv2ServiceCalc(tarifa, serviceOrKilos, maybeTariff = null) {
   const retencion = roundMoney(subtotal * retencionTasa);
   const total = roundMoney(subtotal + iva - retencion);
   return {subtotal, iva, retencion, total, base_calculo: base, cantidad_base: cantidad, iva_tasa: ivaTasa, retencion_tasa: retencionTasa};
+}
+
+function trv2ServiceSavedCalc(row = {}) {
+  const meta = row.metadata || {};
+  const sources = [
+    row.factura_servicio_calculo,
+    row.calculo_json,
+    meta.factura_servicio_calculo,
+    meta.calculo_servicio,
+    meta.calculo_json,
+  ].filter(Boolean);
+  for (const source of sources) {
+    let calc = source;
+    if (typeof calc === 'string') {
+      try { calc = JSON.parse(calc); } catch (_) { calc = {}; }
+    }
+    const item = Array.isArray(calc?.items) ? calc.items[0] : calc;
+    const tarifa = Number(item?.tarifa || item?.override_tarifa || item?.tarifa_unitaria || 0);
+    if (tarifa > 0) {
+      const rule = item?.regla_calculo || item?.base_calculo || calc?.regla_calculo || calc?.base_calculo || '';
+      return {
+        tarifa,
+        tarifa_id: item?.tarifa_id || calc?.tarifa_id || null,
+        base_calculo: rule,
+        regla_calculo: rule,
+        iva_tasa: Number(item?.iva_tasa ?? calc?.iva_tasa ?? 0.16),
+        retencion_tasa: Number(item?.retencion_tasa ?? calc?.retencion_tasa ?? 0.04),
+        aplica_iva: item?.aplica_iva ?? calc?.aplica_iva,
+        aplica_retencion: item?.aplica_retencion ?? calc?.aplica_retencion,
+      };
+    }
+  }
+  return null;
+}
+
+function trv2ServiceTariffForRow(row = {}, tariffs = trv2ReadServiceTariffs()) {
+  const service = trv2ServiceTripData(row);
+  return trv2FindServiceTariff(service, tariffs) || trv2ServiceSavedCalc(row);
 }
 
 function trv2ServicePendingRows() {
@@ -807,7 +874,7 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
   const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
   if (!row) return;
   const service = trv2ServiceTripData(row);
-  const tariff = trv2FindServiceTariff(service);
+  const tariff = trv2ServiceTariffForRow(row);
   const cliente = trv2FindCatalog?.('clientes', service.cliente_id) || {};
   const metodoPago = String(cliente.metodo_pago_default || 'PUE').toUpperCase();
   const formaPago = metodoPago === 'PPD' && (!cliente.forma_pago_default || cliente.forma_pago_default === '03')
@@ -863,7 +930,7 @@ function trv2RenderServiceReviewTotals(calc) {
 function trv2ServiceReviewCalculation(tripId) {
   const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
   const service = trv2ServiceTripData(row || {});
-  const tariff = trv2FindServiceTariff(service);
+  const tariff = trv2ServiceTariffForRow(row);
   const override = Number(document.getElementById('trv2-service-tarifa-override')?.value || 0);
   const tarifa = override > 0 ? override : Number(tariff?.tarifa || 0);
   return {row, service, tariff, tarifa, calc: trv2ServiceCalc(tarifa, service, tariff)};
@@ -886,13 +953,14 @@ function trv2GenerateServiceInvoice(tripId) {
   const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
   if (!row) return;
   const service = trv2ServiceTripData(row);
-  const tariff = trv2FindServiceTariff(service);
+  const tariff = trv2ServiceTariffForRow(row);
   if (!tariff) {
     trv2Toast('Falta configurar tarifa. No se puede generar Carta Ingreso.', 'error');
     return;
   }
   const invoices = trv2ReadServiceInvoices().filter(item => !trv2ServiceInvoiceIsCancelled(item));
-  if (invoices.some(item => (item.viaje_ids || [item.viaje_id]).map(Number).includes(Number(tripId)))) {
+  const visibleAsPending = trv2ServicePendingRows().some(item => Number(item.id || 0) === Number(tripId));
+  if (!visibleAsPending && invoices.some(item => (item.viaje_ids || [item.viaje_id]).map(Number).includes(Number(tripId)))) {
     trv2Toast('Este viaje ya tiene Carta Ingreso.', 'error');
     return;
   }
@@ -984,19 +1052,20 @@ function trv2RenderServicePendingTable() {
   trv2RenderServiceProductFilter(allRows);
   const rows = trv2ServiceFilterPendingRowsForView();
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="14"><div class="trv2-empty">No hay Cartas Ingreso pendientes para este producto, periodo o búsqueda.</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="15"><div class="trv2-empty">No hay Cartas Ingreso pendientes para este producto, periodo o búsqueda.</div></td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(row => {
     const service = trv2ServiceTripData(row);
-    const tariff = trv2FindServiceTariff(service, tariffs);
+    const tariff = trv2ServiceTariffForRow(row, tariffs);
     const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
     const status = tariff ? 'Listo' : 'Falta configurar tarifa';
     return `
       <tr>
-        <td>${trv2Esc(String(service.fecha || '').slice(0, 10))}</td>
+        <td>${trv2Esc(trv2ServiceMxDate(service.fecha || ''))}</td>
         <td><strong title="${trv2Esc(service.uuid_carta_porte)}">${trv2Esc(service.no_carta_porte || 'T')}</strong></td>
         <td><span class="trv2-service-main">${trv2Esc(service.origen)}</span></td>
+        <td><span class="trv2-service-main">${trv2Esc(service.destino)}</span></td>
         <td><span class="trv2-service-main">${trv2Esc(service.producto)}</span></td>
         <td class="trv2-num">${trv2ServiceNumber(service.litros)}</td>
         <td class="trv2-num">${trv2ServiceNumber(service.kilos)}</td>
@@ -1025,7 +1094,7 @@ function trv2RenderServiceGeneratedTables() {
   if (facturadas) {
     facturadas.innerHTML = filteredInvoices.length ? filteredInvoices.map(item => `
       <tr>
-        <td>${trv2Esc(String(item.created_at || item.fecha || '').slice(0, 10))}</td>
+        <td>${trv2Esc(trv2ServiceMxDate(item.fecha_emision || item.fecha_cfdi || item.created_at || item.fecha || ''))}</td>
         <td><span class="trv2-service-main">${trv2Esc(trv2ServiceInvoiceRouteValue(item, 'origen') || '—')}</span></td>
         <td><span class="trv2-service-main">${trv2Esc(trv2ServiceInvoiceRouteValue(item, 'destino') || '—')}</span></td>
         <td class="trv2-num">${trv2ServiceNumber(trv2ServiceInvoiceQuantity(item, 'litros'))}</td>
@@ -1046,7 +1115,7 @@ function trv2RenderServiceGeneratedTables() {
       <tr>
         <td><span class="trv2-service-main">${trv2Esc(item.nombre_receptor || item.cliente || item.rfc_receptor || '')}</span></td>
         <td><strong>${trv2Esc(trv2ServiceInvoiceFolio(item))}</strong></td>
-        <td>${trv2Esc(String(item.created_at || item.fecha || '').slice(0, 10))}</td>
+        <td>${trv2Esc(trv2ServiceMxDate(item.fecha_emision || item.fecha_cfdi || item.created_at || item.fecha || ''))}</td>
         <td class="trv2-num"><strong>${trv2ServiceMoney(item.total)}</strong></td>
         <td class="trv2-num">${trv2ServiceMoney(item.saldo ?? item.total)}</td>
         <td><span class="trv2-chip">${trv2Esc(trv2ServicePaymentLabel(item))}</span></td>
@@ -1249,7 +1318,8 @@ function trv2ConcOperatorRows() {
       grouped.set(key, {chofer: service.chofer || 'Sin operador', viajes: 0, litros: 0, kilos: 0, total: 0, cartas: new Set(), clientes: new Set()});
     }
     const item = grouped.get(key);
-    const calc = trv2ServiceCalc(trv2FindServiceTariff(service, tariffs)?.tarifa || 0, service, trv2FindServiceTariff(service, tariffs));
+    const tariff = trv2ServiceTariffForRow(row, tariffs);
+    const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
     item.viajes += 1;
     item.litros += Number(service.litros || 0);
     item.kilos += Number(service.kilos || 0);
@@ -1275,7 +1345,7 @@ function trv2RenderConciliacion() {
   `;
   invoiceBody.innerHTML = invoices.length ? invoices.map(item => `
     <tr>
-      <td>${trv2Esc(String(item.created_at || item.fecha || '').slice(0, 10))}</td>
+      <td>${trv2Esc(trv2ServiceMxDate(item.fecha_emision || item.fecha_cfdi || item.created_at || item.fecha || ''))}</td>
       <td><span class="trv2-service-main">${trv2Esc(item.nombre_receptor || item.cliente || item.rfc_receptor || '')}</span></td>
       <td><strong>${trv2Esc(trv2ServiceInvoiceFolio(item))}</strong></td>
       <td>${trv2Esc(trv2ServiceInvoiceDriver(item) || '—')}</td>
@@ -1309,6 +1379,6 @@ function trv2ExportConciliacionExcel() {
     trv2DownloadExcelTable(`conciliacion_operadores_${TRV2_CONC_MONTH}.xls`, ['Operador', 'Viajes', 'Litros', 'Kilos', 'Total estimado', 'Cartas Porte', 'Clientes'], rows);
     return;
   }
-  const rows = trv2ConcInvoices().map(item => [String(item.created_at || item.fecha || '').slice(0, 10), item.nombre_receptor || item.cliente || item.rfc_receptor || '', trv2ServiceInvoiceFolio(item), trv2ServiceInvoiceDriver(item), Number(item.total || 0), Number(item.saldo ?? item.total ?? 0), trv2ServicePaymentLabel(item)]);
+  const rows = trv2ConcInvoices().map(item => [trv2ServiceMxDate(item.fecha_emision || item.fecha_cfdi || item.created_at || item.fecha || ''), item.nombre_receptor || item.cliente || item.rfc_receptor || '', trv2ServiceInvoiceFolio(item), trv2ServiceInvoiceDriver(item), Number(item.total || 0), Number(item.saldo ?? item.total ?? 0), trv2ServicePaymentLabel(item)]);
   trv2DownloadExcelTable(`conciliacion_facturas_${TRV2_CONC_MONTH}.xls`, ['Fecha', 'Cliente', 'Factura', 'Chofer', 'Total', 'Saldo', 'Estatus'], rows);
 }
