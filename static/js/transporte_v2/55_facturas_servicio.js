@@ -891,7 +891,7 @@ function trv2GenerateServiceInvoice(tripId) {
     trv2Toast('Falta configurar tarifa. No se puede generar Carta Ingreso.', 'error');
     return;
   }
-  const invoices = trv2ReadServiceInvoices();
+  const invoices = trv2ReadServiceInvoices().filter(item => !trv2ServiceInvoiceIsCancelled(item));
   if (invoices.some(item => (item.viaje_ids || [item.viaje_id]).map(Number).includes(Number(tripId)))) {
     trv2Toast('Este viaje ya tiene Carta Ingreso.', 'error');
     return;
