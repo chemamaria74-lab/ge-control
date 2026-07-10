@@ -1584,7 +1584,7 @@ async function trv2SaveRouteTariff(routeId, data) {
     trv2Toast(trv2ReadableCatalogError(response, 'La ruta se guardó, pero no se pudo guardar su tarifa.'), 'error');
     return false;
   }
-  if (typeof trv2LoadServiceTariffs === 'function') await trv2LoadServiceTariffs();
+  if (typeof trv2LoadServiceTariffs === 'function') await trv2LoadServiceTariffs({force: true});
   return true;
 }
 
