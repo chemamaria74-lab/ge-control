@@ -101,9 +101,46 @@ async function timbrarPublicoGeneral(){
 }
 function exportUrl(params){if(activePerfilId)params.set('perfil_id',String(activePerfilId));params.set('token',token);return '/api/internal-auth/gas-lp/conciliacion/export-excel?'+params.toString()}
 function exportarExcel(){const params=new URLSearchParams({periodo:month()});if(diaFiltro.value)params.set('fecha',diaFiltro.value);if(tipoFiltro.value)params.set('tipo',tipoFiltro.value);window.open(exportUrl(params),'_blank','noopener')}
-async function cargarMesFacturas(){const selected=String(expMes.value||'').slice(0,7);if(!/^\d{4}-\d{2}$/.test(selected))return alert('Selecciona un mes.');MONTH_OVERRIDE=selected;periodoFiltro.value=selected;diaFiltro.value='';try{await loadAll({force:true})}finally{MONTH_OVERRIDE='';periodoFiltro.value=selected;expMes.value=selected}}
+async function cargarMesFacturas(){const selected=String(expMes.value||'').slice(0,7);if(!/^\d{4}-\d{2}$/.test(selected))return alert('Selecciona un mes.');MONTH_OVERRIDE=selected;periodoFiltro.value=selected;diaFiltro.value='';try{await loadAll({force:false})}finally{MONTH_OVERRIDE='';periodoFiltro.value=selected;syncSelectedMonth(selected)}}
+async function cargarMesSat(){const selected=String(satMesFiltro?.value||'').slice(0,7);if(!/^\d{4}-\d{2}$/.test(selected))return alert('Selecciona un mes.');expMes.value=selected;await cargarMesFacturas();satMesFiltro.value=selected;switchTab('sat')}
 function exportarMes(){const params=new URLSearchParams({periodo:expMes.value||month()});if(tipoFiltro.value)params.set('tipo',tipoFiltro.value);window.open(exportUrl(params),'_blank','noopener')}
-function exportarDia(){if(!expDia.value)return alert('Selecciona un día.');const params=new URLSearchParams({fecha:expDia.value});if(tipoFiltro.value)params.set('tipo',tipoFiltro.value);window.open(exportUrl(params),'_blank','noopener')}
 function exportarDia(){if(!expDia.value)return alert('Selecciona un día.');const params=new URLSearchParams({fecha:expDia.value});if(tipoFiltro.value)params.set('tipo',tipoFiltro.value);window.open(exportUrl(params),'_blank','noopener')}
 async function logout(){await fetch('/api/internal-auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}).catch(()=>{});localStorage.removeItem(CONCILIACION_TOKEN_KEY);location.href='/choice'}
 function disableNumberWheelChanges(){document.querySelectorAll('input[type="number"]').forEach(input=>{input.addEventListener('wheel',event=>{if(document.activeElement===input)event.preventDefault()},{passive:false})})}
+
+function complementoFiscalCode(c){const code=String(c?.fiscal_status?.code||c?.metadata?.estado_fiscal||c?.status||'').toLowerCase();if(code.includes('error')&&code.includes('cancel'))return'cancelacion_error';if(code.includes('solicit'))return'cancelacion_solicitada';if(code.includes('cancel'))return'cancelada';return'vigente'}
+function complementoFiscalLabel(c){const code=complementoFiscalCode(c);if(code==='cancelada')return'Cancelada fiscalmente';if(code==='cancelacion_solicitada')return'Cancelación solicitada';if(code==='cancelacion_error')return'Error de cancelación';return'Vigente'}
+function satFilteredRows(){
+  const q=String(satClienteFiltro?.value||'').toLowerCase().trim(),day=satDiaFiltro?.value||'',st=satEstadoFiltro?.value||'',mp=satMetodoFiltro?.value||'';
+  const facturas=FACTURAS.map(f=>({...f,__kind:'factura'}));
+  const complementos=(COMPLEMENTOS||[]).map(c=>({...c,__kind:'complemento'}));
+  return [...facturas,...complementos].filter(d=>{
+    const isComp=d.__kind==='complemento';
+    const hay=(isComp?[d.cliente,d.rfc_receptor,d.uuid_sat,complementoFacturasLabel(d)]:[razon(d),d.rfc_receptor,d.uuid_sat,folio(d),facilityName(d),transferRoute(d),realizadoPor(d)]).join(' ').toLowerCase();
+    const key=isComp?mexicoDateKey(d.fecha_timbrado||d.fecha_pago):facturaDateKey(d);
+    const cancelled=isComp?complementoFiscalCode(d)!=='vigente':isCancel(d);
+    if(q&&!hay.includes(q))return false;if(day&&key!==day)return false;if(mp&&(isComp||metodo(d)!==mp))return false;
+    if(st==='vigente'&&cancelled)return false;if(st==='cancelada'&&!cancelled)return false;if(st==='sin_uuid'&&d.uuid_sat)return false;return true;
+  }).sort((a,b)=>String(b.__kind==='complemento'?(b.fecha_timbrado||b.fecha_pago||''):(facturaDateValue(b)||'')).localeCompare(String(a.__kind==='complemento'?(a.fecha_timbrado||a.fecha_pago||''):(facturaDateValue(a)||''))));
+}
+function renderSat(rows){
+  if(satCount)satCount.textContent=`${rows.length} documento${rows.length===1?'':'s'}`;
+  satRows.innerHTML=rows.length?rows.map(d=>{
+    if(d.__kind==='complemento'){
+      const code=complementoFiscalCode(d),cls=code==='cancelada'?'err':(code==='vigente'?'neutral':'warn');
+      return `<tr><td class="nowrap">${esc(dateDMY(d.fecha_timbrado||d.fecha_pago))}</td><td><span class="cell-main" title="${esc(d.cliente||'Cliente')}">${esc(d.cliente||'Cliente')}</span><span class="cell-sub">${esc(d.rfc_receptor||'Complemento de pago')}</span></td><td class="num">${money(d.monto)}</td><td><span class="pill ${cls}">${esc(complementoFiscalLabel(d))}</span></td><td class="uuid">${uuidHtml(d.uuid_sat)}</td><td>${complementoDocs(d)}</td></tr>`;
+    }
+    return `<tr><td class="nowrap">${esc(dateDMY(facturaDateKey(d)))}</td><td><span class="cell-main" title="${esc(razon(d))}">${esc(razon(d))}</span><span class="cell-sub">${esc(d.rfc_receptor||folio(d)||'')}</span></td><td class="num">${money(total(d))}</td><td>${satEstadoHtml(d)}</td><td class="uuid">${uuidHtml(d.uuid_sat)}</td><td><div class="doc-actions"><button class="btn ghost sm" onclick="audit(${Number(d.id)})">Consultar SAT/PAC</button>${isCancel(d)?'':`<button class="btn danger sm" onclick="openCancelFiscal(${Number(d.id)})">Cancelar fiscal</button>`}</div></td></tr>`;
+  }).join(''):'<tr><td colspan="6">Sin documentos para los filtros seleccionados.</td></tr>';
+}
+const renderFacturasBase=renderFacturas;
+renderFacturas=function(rows){
+  renderFacturasBase(rows);
+  const tableRows=Array.from(facturasRows.querySelectorAll('tr'));
+  rows.forEach((d,index)=>{
+    if(d.__kind!=='complemento'||!tableRows[index])return;
+    const cells=tableRows[index].children;if(cells.length<14)return;
+    cells[11].textContent='Pago';cells[12].innerHTML=`<span class="cell-main" title="${esc(d.realizado_por||'Sistema')}">${esc(d.realizado_por||'Sistema')}</span>`;
+    const code=complementoFiscalCode(d);if(code==='vigente')return;const cls=code==='cancelada'?'err':'warn';cells[13].innerHTML=`<span class="pill ${cls}">${esc(complementoFiscalLabel(d))}</span>`;
+  });
+};
