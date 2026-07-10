@@ -513,8 +513,8 @@
         <h2><i class="fa-solid fa-sliders"></i> Configuración</h2>
         <p class="trv2-muted">Perfil fiscal y parámetros operativos guardados en configuración Transporte.</p>
         <form class="trv2-form" id="trv2-admin-settings-form" onsubmit="trv2SaveSettings(event)">
-          <label>RFC del contribuyente * <input id="trv2-set-rfc" data-rfc-field placeholder="OEMR710420FCA" required></label>
-          <label>Nombre fiscal / razón social * <input id="trv2-set-nombre" placeholder="RUTH ORNELAS MUÑOZ" required></label>
+          <label>RFC del contribuyente * <input id="trv2-set-rfc" data-rfc-field placeholder="RFC de la empresa" required></label>
+          <label>Nombre fiscal / razón social * <input id="trv2-set-nombre" placeholder="Razón social de la empresa" required></label>
           <label>CP fiscal / lugar expedición * <input id="trv2-set-cp" placeholder="00000" required></label>
           <label>Régimen fiscal emisor *
             <select id="trv2-set-regimen" required>
@@ -529,8 +529,13 @@
             </select>
           </label>
           <label>RFC representante legal <input id="trv2-set-rfc-rep" data-rfc-field placeholder="Opcional"></label>
-          <label>Factor kg/L default <input id="trv2-set-factor" type="number" step="0.000001" placeholder="0.517200"></label>
-          <label>Clave servicio Carta Ingreso <input id="trv2-set-ci-clave-prodserv" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="78101802"></label>
+          <label>Clave servicio Carta Ingreso
+            <select id="trv2-set-ci-clave-prodserv">
+              <option value="78101800">78101800 — Transporte de carga por carretera (general)</option>
+              <option value="78101801">78101801 — Transporte de carga por carretera en área local</option>
+              <option value="78101802">78101802 — Transporte de carga regional y nacional</option>
+            </select>
+          </label>
           <div class="trv2-form-wide trv2-logo-box">
             <label>Logo empresa <input id="trv2-set-logo-file" type="file" accept="image/png,image/jpeg,image/webp" onchange="trv2PreviewLogoFile(event)"></label>
             <div class="trv2-logo-preview"><img id="trv2-logo-preview" alt="Logo Transporte" hidden><span id="trv2-logo-empty">Sin logo cargado</span></div>
