@@ -2373,9 +2373,14 @@ def _normalize_tariff_row(row: dict[str, Any]) -> dict[str, Any]:
 def _route_product_tariff_payload(token: str, uid: str, perfil_id: int, data: dict[str, Any]) -> dict[str, Any]:
     try:
         ruta_id = int(str(data.get("ruta_id") or "").strip())
-        producto_id = int(str(data.get("producto_id") or "").strip())
     except (TypeError, ValueError):
-        raise HTTPException(400, "Selecciona ruta y producto para guardar tarifa.")
+        raise HTTPException(400, "Selecciona una ruta para guardar tarifa.")
+    producto_id = None
+    if data.get("producto_id") not in (None, ""):
+        try:
+            producto_id = int(str(data.get("producto_id")).strip())
+        except (TypeError, ValueError):
+            producto_id = None
     tarifa = _num(data.get("tarifa"))
     if tarifa <= 0:
         raise HTTPException(400, "La tarifa debe ser mayor a cero.")
@@ -2393,29 +2398,28 @@ def _route_product_tariff_payload(token: str, uid: str, perfil_id: int, data: di
     )
     if not route_rows:
         raise HTTPException(404, "Ruta no encontrada para este perfil.")
-    product_rows = (
-        sb.table(TBL_PRODUCTOS)
-        .select("*")
-        .eq("id", producto_id)
-        .eq("user_id", uid)
-        .eq("perfil_id", perfil_id)
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
-    if not product_rows:
-        raise HTTPException(404, "Producto no encontrado para este perfil.")
+    product_rows = []
+    if producto_id:
+        product_rows = (
+            sb.table(TBL_PRODUCTOS).select("*").eq("id", producto_id)
+            .eq("user_id", uid).eq("perfil_id", perfil_id).limit(1).execute().data or []
+        )
     ruta = _normalize_catalog_row("rutas", route_rows[0])
-    producto = _normalize_catalog_row("productos", product_rows[0])
+    producto = _normalize_catalog_row("productos", product_rows[0]) if product_rows else {}
     origen = _normalize_catalog_row("origenes", _fetch_catalog_row_for_route(token, uid, perfil_id, TBL_ORIGENES, ruta.get("origen_id"), "origen")) if ruta.get("origen_id") else {}
     destino = _normalize_catalog_row("destinos", _fetch_catalog_row_for_route(token, uid, perfil_id, TBL_DESTINOS, ruta.get("destino_id"), "destino")) if ruta.get("destino_id") else {}
     cliente_id = destino.get("cliente_id") or data.get("cliente_id")
     base_calculo = _normalize_tariff_rule(data.get("regla_calculo") or data.get("base_calculo"), producto)
+    familia = _first_text(
+        data.get("familia_producto"),
+        data.get("familia"),
+        "gas_lp" if base_calculo == "kilos" else "petroliferos",
+    )
     metadata = {
         "ruta_id": ruta_id,
         "producto_id": producto_id,
-        "producto_nombre": producto.get("descripcion") or producto.get("nombre") or "",
+        "producto_nombre": "Gas LP" if str(familia).lower() == "gas_lp" else "Petrolíferos",
+        "familia_producto": familia,
         "base_calculo": base_calculo,
         "proveedor_id": origen.get("proveedor_id"),
         "proveedor_nombre": origen.get("proveedor_nombre"),
@@ -2435,7 +2439,7 @@ def _route_product_tariff_payload(token: str, uid: str, perfil_id: int, data: di
         "perfil_id": perfil_id,
         "cliente_id": cliente_id,
         "ruta_id": ruta_id,
-        "producto_id": producto_id,
+        "producto_id": None,
         "origen": metadata["origen"],
         "destino": metadata["destino"],
         "producto": metadata["producto_nombre"],
@@ -7768,7 +7772,6 @@ async def transporte_v2_guardar_tarifa_servicio(
         .eq("user_id", uid)
         .eq("perfil_id", pid)
         .eq("ruta_id", row["ruta_id"])
-        .eq("producto_id", row["producto_id"])
         .eq("activo", True)
         .limit(1)
         .execute()
