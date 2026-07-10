@@ -78,6 +78,16 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
         receptor["cp"],
         receptor["uso_cfdi"],
     )
+    role = str(user.get("role") or "").strip().lower()
+    if role == "asistente_facturacion" and not is_transfer and receptor["rfc"] != "XAXX010101000":
+        tz = _gas_lp_cfdi_timezone(issuer.get("cp"))
+        requested_date = _parse_gas_lp_cfdi_fecha(payload.fecha, tz)
+        today_key = datetime.now(tz).strftime("%Y-%m-%d")
+        if requested_date and requested_date.strftime("%Y-%m-%d") != today_key:
+            raise HTTPException(
+                400,
+                "Las asistentes solo pueden timbrar facturas de clientes con fecha de hoy. Para una fecha anterior usa Público en general.",
+            )
     serie_factura = _gas_lp_internal_series(user, settings)
     folio_factura = ""
     transfer_folio_reservation = None

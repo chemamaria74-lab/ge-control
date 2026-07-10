@@ -101,6 +101,8 @@ async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perf
             "email_destinatario": comp.get("email_destinatario") or "",
             "email_error": email_error,
             "email_last_attempt_at": comp.get("email_last_attempt_at") or "",
+            "metadata": comp.get("metadata") if isinstance(comp.get("metadata"), dict) else {},
+            "issuer_info": {"rfc": _clean_rfc(profile.get("rfc") or ""), "nombre": profile.get("nombre") or ""},
         })
     return JSONResponse({"ok": True, "complementos": items})
 
@@ -333,6 +335,49 @@ async def gas_lp_complemento_pago_xml(complemento_id: int, token: str, perfil_id
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/internal-auth/gas-lp/conciliacion/complementos/{complemento_id}/cancelar")
+async def gas_lp_conciliacion_cancelar_complemento(complemento_id: int, payload: GasLpCancelacionPayload, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_conciliacion_context(token, write=True, perfil_id=perfil_id)
+    user = ctx["user"]
+    profile = _gas_lp_profile(user, require_module_marker=True)
+    motivo = str(payload.motivo or "").strip()
+    uuid_sustitucion = str(payload.uuid_sustitucion or "").strip()
+    if motivo not in {"01", "02", "03", "04"}:
+        raise HTTPException(400, "Motivo SAT inválido. Usa 01, 02, 03 o 04.")
+    if motivo == "01" and not uuid_sustitucion:
+        raise HTTPException(400, "El motivo SAT 01 requiere UUID sustituto.")
+    sw_config = sw_runtime_config()
+    if _sw_config_looks_like_sandbox(sw_config) or not sw_config.get("real_cancelacion_flag"):
+        raise HTTPException(400, "Cancelación real bloqueada: SW debe estar en producción y habilitado para cancelar.")
+    sb = get_supabase_admin()
+    rows = (
+        sb.table("gas_lp_complementos_pago").select("*")
+        .eq("id", complemento_id).eq("tenant_id", user.get("tenant_id"))
+        .eq("perfil_id", user.get("perfil_id")).limit(1).execute().data or []
+    )
+    if not rows:
+        raise HTTPException(404, "Complemento de pago no encontrado.")
+    complemento = rows[0]
+    if str(complemento.get("status") or "").lower().startswith("cancel"):
+        raise HTTPException(400, "El complemento ya tiene estado de cancelación.")
+    uuid_sat = str(complemento.get("uuid_sat") or "").strip()
+    rfc_emisor = _gas_lp_factura_emisor_rfc(complemento) or _clean_rfc(profile.get("rfc") or "")
+    if not uuid_sat or not rfc_emisor:
+        raise HTTPException(400, "El complemento requiere UUID SAT y RFC emisor para cancelarse.")
+    resultado = cancel_cfdi_universal(
+        sb=sb, module="gas_lp", invoice_table="gas_lp_complementos_pago", invoice_id=complemento_id,
+        uuid_sat=uuid_sat, rfc_emisor=rfc_emisor, motivo=motivo, uuid_sustitucion=uuid_sustitucion,
+        user_id=user.get("owner_user_id") or user.get("id") or "", perfil_id=user.get("perfil_id"),
+        tenant_id=user.get("tenant_id"), requested_by=user.get("display_name") or user.get("id") or "",
+    )
+    acuse = str(resultado.get("acuse") or "")
+    status_label = "Cancelada fiscalmente" if acuse else "Cancelación solicitada"
+    md = complemento.get("metadata") if isinstance(complemento.get("metadata"), dict) else {}
+    cancel_md = {**md, "estado_fiscal": "cancelada_fiscalmente" if acuse else "cancelacion_solicitada", "motivo_cancelacion": motivo, "uuid_sustitucion": uuid_sustitucion, "cancelacion_acuse": acuse, "cancelacion_solicitada_por": user.get("display_name") or user.get("id"), "cancelacion_solicitada_at": _now_iso()}
+    data = sb.table("gas_lp_complementos_pago").update({"status": status_label, "metadata": cancel_md, "updated_at": _now_iso()}).eq("id", complemento_id).execute().data or []
+    return JSONResponse({"ok": True, "complemento": data[0] if data else complemento, "cancelacion": {"status": status_label, "acuse": acuse}})
 
 
 @router.get("/internal-auth/gas-lp/complementos-pago/{complemento_id}/pdf")
