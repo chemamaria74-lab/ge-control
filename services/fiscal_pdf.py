@@ -31,7 +31,7 @@ def fiscal_pdf_info(xml_content: str | bytes, prefix: str = "cfdi") -> FiscalPdf
     serie = _attr(root, "Serie", "")
     folio = _attr(root, "Folio", "")
     tipo = _attr(root, "TipoDeComprobante", "")
-    serie_folio = f"{serie}{folio}".strip()
+    serie_folio = _serie_folio_label(serie, folio)
     if prefix == "carta_ingreso_transporte":
         serie_folio = _serie_folio_label(serie, folio)
     if prefix == "factura_gas_lp" and serie_folio:
@@ -373,9 +373,9 @@ def _safe_name(value: str) -> str:
 def _serie_folio_label(serie: str, folio: str) -> str:
     serie = str(serie or "").strip()
     folio = str(folio or "").strip()
-    if serie == "CI" and folio:
+    if serie and folio:
         return f"{serie}-{folio}" if not folio.startswith("-") else f"{serie}{folio}"
-    return f"{serie}{folio}".strip()
+    return serie or folio
 
 
 def _theme_hex(theme: dict[str, Any], *keys: str, default: str) -> str:
