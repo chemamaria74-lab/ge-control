@@ -42,7 +42,7 @@ function iva(f){return Number(f.payment_info?.iva ?? f.metadata?.iva ?? (total(f
 function saldo(f){return Number(f.payment_info?.saldo_insoluto ?? f.metadata?.saldo_insoluto ?? (metodo(f)==='PPD'?total(f):0))}
 function metodo(f){return String(f.payment_info?.metodo_pago||f.metadata?.metodo_pago||'PUE').toUpperCase()}
 function forma(f){return String(f.payment_info?.forma_pago||f.metadata?.forma_pago||'')}
-function folio(f){return f.metadata?.folio_usuario||f.metadata?.folio||f.record_uuid||'—'}
+function folio(f){const md=f.metadata||{};const serie=String(f.serie||md.serie||'').trim();const raw=String(f.folio_usuario||md.folio_usuario||md.folio||'').trim();const compact=raw&&/^\d+$/.test(raw)?String(Number(raw)):raw;if(compact)return serie?`${serie}-${compact}`:compact;return f.record_uuid||'—'}
 function razon(f){return f.metadata?.cliente_nombre||f.nombre_receptor||f.rfc_receptor||'—'}
 function litros(f){return Number(f.payment_info?.litros??f.volumen_litros??f.metadata?.litros??0)}
 function isTransfer(f){return f.metadata?.tipo_operacion==='traspaso'||f.metadata?.is_transfer===true||f.metadata?.operation_type==='transfer'}

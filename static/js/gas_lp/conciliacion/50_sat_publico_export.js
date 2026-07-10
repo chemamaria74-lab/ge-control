@@ -101,7 +101,9 @@ async function timbrarPublicoGeneral(){
 }
 function exportUrl(params){if(activePerfilId)params.set('perfil_id',String(activePerfilId));params.set('token',token);return '/api/internal-auth/gas-lp/conciliacion/export-excel?'+params.toString()}
 function exportarExcel(){const params=new URLSearchParams({periodo:month()});if(diaFiltro.value)params.set('fecha',diaFiltro.value);if(tipoFiltro.value)params.set('tipo',tipoFiltro.value);window.open(exportUrl(params),'_blank','noopener')}
+async function cargarMesFacturas(){if(!expMes.value)return alert('Selecciona un mes.');periodoFiltro.value=expMes.value;diaFiltro.value='';await loadAll({force:true})}
 function exportarMes(){const params=new URLSearchParams({periodo:expMes.value||month()});if(tipoFiltro.value)params.set('tipo',tipoFiltro.value);window.open(exportUrl(params),'_blank','noopener')}
+function exportarDia(){if(!expDia.value)return alert('Selecciona un día.');const params=new URLSearchParams({fecha:expDia.value});if(tipoFiltro.value)params.set('tipo',tipoFiltro.value);window.open(exportUrl(params),'_blank','noopener')}
 function exportarDia(){if(!expDia.value)return alert('Selecciona un día.');const params=new URLSearchParams({fecha:expDia.value});if(tipoFiltro.value)params.set('tipo',tipoFiltro.value);window.open(exportUrl(params),'_blank','noopener')}
 async function logout(){await fetch('/api/internal-auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}).catch(()=>{});localStorage.removeItem(CONCILIACION_TOKEN_KEY);location.href='/choice'}
 function disableNumberWheelChanges(){document.querySelectorAll('input[type="number"]').forEach(input=>{input.addEventListener('wheel',event=>{if(document.activeElement===input)event.preventDefault()},{passive:false})})}
