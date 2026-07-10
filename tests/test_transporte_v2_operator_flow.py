@@ -101,9 +101,10 @@ Régimen Fiscal Método de pago Forma de pago Lugar de expedición
     assert detected["producto"] == "PEMEX MAGNA"
     assert detected["clave_sat"] == "15101514"
     assert detected["litros"] == 34805
-    assert detected["peso_kg"] == 25407.65
+    assert detected["peso_kg"] == 0
+    assert detected["factor_kg_l"] == 0
     assert detected["permiso"] == "H/10376/COM/2015"
-    assert detected["boleta"] == "63749"
+    assert "boleta" not in detected
     assert detected["origen_sugerido"] == "TAD LEON, GTO."
     assert detected["operador_nombre"] == "MARTINEZ FUENTES JAVIER"
     assert detected["vehiculo_placas"] == "21BG4S"
