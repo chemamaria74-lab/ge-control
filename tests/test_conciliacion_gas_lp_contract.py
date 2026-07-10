@@ -74,12 +74,13 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
     assert "facturas-export-actions" in html
     assert "Descargar mes" in html
     assert "Descargar día" in html
-    assert "Excel actual" in html
+    assert "Excel actual" not in html
     assert "Cargar mes" in html
     assert "cargarMesFacturas()" in html
-    assert "periodoFiltro.value=expMes.value" in html
+    assert "MONTH_OVERRIDE=selected" in html
+    assert "periodoFiltro.value=selected" in html
     assert 'onchange="loadAll({force:true})"' in html
-    assert 'onclick="clearFilters()"' in html
+    assert 'onclick="clearFilters()"' not in html
 
     assert "/api/internal-auth/gas-lp/conciliacion/summary" in html
     assert "/api/internal-auth/gas-lp/conciliacion/facturar-publico-general" in html
@@ -116,6 +117,7 @@ def test_conciliacion_credito_ppd_exposes_due_tracking():
         "PPD_PENDIENTES=d.ppd_pendientes||[]",
         "creditBadgeHtml(info)",
         "dias_vencidos",
+        "kCreditoEstado.textContent=`${vencidas} / ${vigentes}`",
     ):
         assert token in html
 
