@@ -304,7 +304,10 @@
         <div class="trv2-service-table-toolbar">
           <div id="trv2-service-product-filter" class="trv2-service-product-filter"></div>
           <label class="trv2-service-search"><i class="fa-solid fa-magnifying-glass"></i><input id="trv2-service-search-pendientes" type="search" placeholder="Buscar pendientes de facturar" oninput="trv2SetServiceSearch('pendientes', this.value)"></label>
-          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2SearchServiceInvoices('pendientes')"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
+          <div class="trv2-service-toolbar-actions">
+            <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2RefreshPendingServiceTariffs()" title="Volver a consultar las tarifas configuradas por ruta"><i class="fa-solid fa-arrows-rotate"></i> Actualizar tarifas</button>
+            <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2SearchServiceInvoices('pendientes')"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
+          </div>
         </div>
         <div class="trv2-table-wrap trv2-service-scroll" id="trv2-service-table-pendientes" hidden>
           <table class="trv2-service-pending-table">
