@@ -762,6 +762,42 @@ def _fact_serv_apply_tariff_override(calculo: dict, payload: FacturaServicioCrea
     return calculo
 
 
+def _next_carta_ingreso_folio(sb, uid: str, perfil_id, *, prefix: str = "F") -> str:
+    """Siguiente folio interno CI-F-N sin reutilizar folios cancelados."""
+    max_num = 0
+    try:
+        q = sb.table(_TBL_FACT_SERV).select("serie_folio,folio_cfdi,metadata,xml_content").eq("user_id", uid)
+        if perfil_id:
+            q = q.eq("perfil_id", perfil_id)
+        rows = q.order("created_at", desc=True).limit(1000).execute().data or []
+    except Exception:
+        rows = []
+    pattern = re.compile(r"(?:CI-)?F-?(\d+)$", re.I)
+    for row in rows:
+        meta = _fact_serv_metadata(row)
+        values = [
+            row.get("serie_folio"),
+            row.get("folio_cfdi"),
+            meta.get("serie_folio"),
+            meta.get("folio_cfdi"),
+        ]
+        xml = row.get("xml_content") or ""
+        if xml:
+            try:
+                info = fiscal_pdf_info(xml, "carta_ingreso_transporte")
+                values.append(info.serie_folio)
+            except Exception:
+                pass
+        for value in values:
+            match = pattern.search(str(value or "").strip())
+            if match:
+                try:
+                    max_num = max(max_num, int(match.group(1)))
+                except ValueError:
+                    pass
+    return f"{prefix}-{max_num + 1}"
+
+
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
     perfil_id: Optional[int] = Query(None),
@@ -1087,7 +1123,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         if len(viajes) != 1:
             raise HTTPException(400, "Por ahora timbra una Carta Ingreso por viaje/Carta Porte base para conservar el complemento Carta Porte 3.1 completo.")
         viaje_obj, chofer_row, vehiculo_row = _build_carta_ingreso_viaje(viajes[0], payload, calculo_servicio, settings, sb, uid, perfil_factura)
-        folio_carta_ingreso = f"F-{int(viajes[0]['id'])}"
+        folio_carta_ingreso = _next_carta_ingreso_folio(sb, uid, perfil_factura)
         try:
             cfdi_dict, id_ccp_carta_ingreso = build_cfdi_ingreso_carta_porte(
                 viaje=viaje_obj,
@@ -1140,6 +1176,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             cfdi_info = None
 
     now_iso = datetime.now(timezone.utc).isoformat()
+    fecha_cfdi = str(cfdi_dict.get("Fecha") or "")
     product_metadata = {}
     if viajes:
         first_viaje = viajes[0]
@@ -1192,6 +1229,9 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "metadata":        {
             "tipo": tipo_registro,
             "cfdi_tipo": cfdi_dict.get("TipoDeComprobante"),
+            "folio_solicitado": folio_carta_ingreso if tipo_registro == "carta_ingreso" else "",
+            "fecha_emision": fecha_cfdi,
+            "fecha_cfdi": fecha_cfdi,
             "id_ccp_carta_ingreso": id_ccp_carta_ingreso,
             "uuid_carta_ingreso": sw_data.get("uuid", "") if tipo_registro == "carta_ingreso" else "",
             "uuid_carta_porte_base": [base_cartas[int(v["id"])].get("uuid_sat", "") for v in viajes],
@@ -1229,14 +1269,25 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                 "system", "sw_sapien", {"factura_servicio_id": factura_id, "uuid_sat": sw_data.get("uuid", ""), "tipo": tipo_registro},
             )
             try:
+                viaje_meta = _fact_serv_trip_meta(next((v for v in viajes if int(v.get("id") or 0) == int(vid)), {}))
+                viaje_meta.update({
+                    "factura_servicio_calculo": calculo_servicio,
+                    "factura_servicio_tarifa": (calculo_servicio.get("items") or [{}])[0].get("tarifa"),
+                    "factura_servicio_fecha_cfdi": fecha_cfdi,
+                })
                 sb.table(_TBL_VIAJES).update({
                     "factura_servicio_status": "timbrada",
                     "factura_servicio_uuid": sw_data.get("uuid", ""),
                     "factura_servicio_pdf_url": f"/api/tr-v2/facturas-servicio/{factura_id}/pdf?download=true",
                     "factura_servicio_xml_url": f"/api/tr-v2/facturas-servicio/{factura_id}/xml",
+                    "metadata": viaje_meta,
                 }).eq("id", int(vid)).eq("user_id", uid).execute()
             except Exception as exc:
                 logger.info("Columnas separadas factura servicio aun no disponibles viaje=%s: %s", vid, exc)
+                try:
+                    sb.table(_TBL_VIAJES).update({"metadata": viaje_meta}).eq("id", int(vid)).eq("user_id", uid).execute()
+                except Exception as meta_exc:
+                    logger.info("No se pudo guardar metadata de calculo Carta Ingreso viaje=%s: %s", vid, meta_exc)
         version_xml(
             module="transporte",
             entity_type=tipo_registro,
