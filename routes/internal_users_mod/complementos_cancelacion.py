@@ -25,6 +25,20 @@ async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perf
     except Exception as exc:
         raise _safe_internal_error("gas_lp_complementos_pago_list", exc)
     _gas_lp_attach_complemento_creators(sb, comps)
+    cancellation_by_uuid = {}
+    comp_uuids = [str(c.get("uuid_sat") or "").strip() for c in comps if str(c.get("uuid_sat") or "").strip()]
+    if comp_uuids:
+        try:
+            cancellation_rows = (
+                sb.table("invoice_cancellations")
+                .select("uuid_sat,status,acuse_cancelacion,cancelled_at")
+                .in_("uuid_sat", comp_uuids)
+                .in_("status", ["pending", "sent", "ok", "cancelled"])
+                .execute().data or []
+            )
+            cancellation_by_uuid = {str(row.get("uuid_sat") or "").strip().lower(): row for row in cancellation_rows}
+        except Exception as exc:
+            logger.warning("gas_lp_complementos_cancel_status_lookup_failed err=%s", exc)
     comp_ids = [_safe_int_id(c.get("id")) for c in comps if _safe_int_id(c.get("id"))]
     rels = []
     if comp_ids:
@@ -86,6 +100,17 @@ async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perf
         email_enviado = bool(comp.get("email_enviado"))
         email_status = "Correo enviado" if email_enviado else ("Sin correo" if "sin correo" in email_error.lower() else ("Error de envío" if email_error else "Pendiente"))
         comp_md = comp.get("metadata") if isinstance(comp.get("metadata"), dict) else {}
+        cancellation = cancellation_by_uuid.get(str(comp.get("uuid_sat") or "").strip().lower(), {})
+        cancellation_status = str(cancellation.get("status") or "").strip().lower()
+        if cancellation_status in {"ok", "cancelled"}:
+            comp["status"] = "Cancelada fiscalmente"
+            comp_md = {**comp_md, "estado_fiscal": "cancelada_fiscalmente", "cancelacion_acuse": cancellation.get("acuse_cancelacion") or comp_md.get("cancelacion_acuse") or "registrada"}
+        elif cancellation_status in {"pending", "sent"} and not str(comp.get("status") or "").lower().startswith("cancel"):
+            comp["status"] = "Cancelación solicitada"
+            comp_md = {**comp_md, "estado_fiscal": "cancelacion_solicitada"}
+        fiscal_status = _gas_lp_factura_fiscal_status_info({**comp, "metadata": comp_md})
+        if fiscal_status.get("code") in {"cancelada", "cancelacion_solicitada", "cancelacion_error"}:
+            email_status = fiscal_status.get("label") or email_status
         items.append({
             "id": comp_id,
             "uuid_sat": comp.get("uuid_sat") or "",
@@ -105,6 +130,7 @@ async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perf
             "serie": comp_md.get("serie") or "P",
             "folio_usuario": comp_md.get("folio_usuario") or "",
             "metadata": comp_md,
+            "fiscal_status": fiscal_status,
             "issuer_info": {"rfc": _clean_rfc(profile.get("rfc") or ""), "nombre": profile.get("nombre") or ""},
         })
     return JSONResponse({"ok": True, "complementos": items})
