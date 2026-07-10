@@ -551,17 +551,23 @@ function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
     const clientText = trv2ServiceTextMatch(item.cliente || item.destino, service.cliente || service.destino);
     const originText = trv2ServiceTextMatch(item.origen, service.origen);
     const destinationText = trv2ServiceTextMatch(item.destino, service.destino);
-    const routeText = (originText || !trv2ServiceNorm(item.origen)) && (destinationText || clientText || !trv2ServiceNorm(item.destino));
+    const hasRouteText = Boolean(trv2ServiceNorm(item.origen) || trv2ServiceNorm(item.destino));
+    const routeText = hasRouteText
+      && (originText || !trv2ServiceNorm(item.origen))
+      && (destinationText || clientText || !trv2ServiceNorm(item.destino));
     if (Number(item.ruta_id || 0) && !routeExact && !routeText) return null;
-    if (Number(item.producto_id || 0) && !productExact && !productText) return null;
-    if (!Number(item.producto_id || 0) && productName && !productText) return null;
+    // El flete se configura por ruta. En Petrolíferos el producto operativo
+    // puede diferir del producto usado para clasificar la ruta sin cambiarla.
+    const matchedRoute = routeExact || routeText;
+    if (!matchedRoute && Number(item.producto_id || 0) && !productExact && !productText) return null;
+    if (!matchedRoute && !Number(item.producto_id || 0) && productName && !productText) return null;
     if (Number(item.proveedor_id || 0) && !providerExact && !providerText && !originText) return null;
     if (!Number(item.proveedor_id || 0) && trv2ServiceNorm(item.proveedor || item.origen) && !providerText && !originText) return null;
     if (Number(item.cliente_id || 0) && !clientExact && !clientText && !destinationText) return null;
     if (!Number(item.cliente_id || 0) && trv2ServiceNorm(item.cliente || item.destino) && !clientText && !destinationText) return null;
     let score = 0;
-    if (routeExact) score += 100;
-    else if (routeText) score += 45;
+    if (routeExact) score += 200;
+    else if (routeText) score += 120;
     if (productExact) score += 80;
     else if (productText) score += 40;
     if (clientExact) score += 20;

@@ -137,7 +137,7 @@ const TRV2_REQUIRED_FIELDS = {
   proveedores: ['rfc', 'nombre', 'producto', 'permiso_cre'],
   origenes: ['nombre', 'cp'],
   destinos: ['nombre', 'cp'],
-  rutas: ['nombre', 'origen_id', 'destino_id', 'cp_origen', 'cp_destino', 'distancia_km', 'duracion_estimada_min', 'tarifa_producto_id', 'tarifa', 'regla_calculo'],
+  rutas: ['nombre', 'origen_id', 'destino_id', 'cp_origen', 'cp_destino', 'distancia_km', 'duracion_estimada_min', 'tarifa', 'regla_calculo'],
 };
 
 const TRV2_CATALOG_FORMS = {
@@ -256,7 +256,6 @@ const TRV2_CATALOG_FORMS = {
     ['destino_id', 'Destino', 'destino-select'],
     ['distancia_km', 'Distancia km', 'number'],
     ['duracion_estimada_min', 'Duración estimada min', 'number'],
-    ['tarifa_producto_id', 'Producto tarifa', 'product-select'],
     ['tarifa', 'Tarifa', 'number'],
     ['regla_calculo', 'Regla/base cálculo', 'tariff-rule'],
     ['iva_tasa', 'IVA tasa', 'number'],
@@ -321,9 +320,9 @@ const TRV2_CATALOG_UI = {
   rutas: {
     icon: 'fa-route',
     title: 'Rutas',
-    subtitle: 'Instalaciones, origen, destino, distancia, duración y tarifa de flete por producto.',
+    subtitle: 'Instalaciones, origen, destino, distancia, duración y una tarifa de flete por ruta.',
     metrics: [['Registros', 'count'], ['Con distancia', 'distancia_km'], ['Con tarifa', 'route_tariff']],
-    fields: [['Origen', 'origen'], ['Destino', 'destino'], ['Producto tarifa', 'tarifa_producto'], ['Tarifa', 'tarifa_valor'], ['Base', 'tarifa_base']],
+    fields: [['Origen', 'origen'], ['Destino', 'destino'], ['Tarifa de ruta', 'tarifa_valor'], ['Base', 'tarifa_base']],
   },
   origenes: {
     icon: 'fa-location-dot',
@@ -1545,7 +1544,6 @@ function trv2FillRouteTariffFields(form, item) {
   if (!form || form.dataset.catalog !== 'rutas' || !item?.id) return;
   const tariff = trv2RoutePrimaryTariff(item.id);
   const defaults = {
-    tarifa_producto_id: tariff?.producto_id || '',
     tarifa: tariff?.tarifa || '',
     regla_calculo: tariff?.regla_calculo || tariff?.base_calculo || '',
     iva_tasa: tariff?.iva_tasa ?? 0.16,
@@ -1563,18 +1561,17 @@ function trv2FillRouteTariffFields(form, item) {
 }
 
 async function trv2SaveRouteTariff(routeId, data) {
-  const productoId = Number(data.tarifa_producto_id || data.producto_id || 0);
   const tarifa = Number(data.tarifa || 0);
-  if (!routeId || !productoId || tarifa <= 0) {
-    trv2Toast('Ruta guardada, pero falta producto/tarifa para guardar la tarifa de flete.', 'error');
+  if (!routeId || tarifa <= 0) {
+    trv2Toast('Ruta guardada, pero falta una tarifa de flete válida.', 'error');
     return false;
   }
   const response = await trv2Api('POST', '/api/tr-v2/facturas-servicio/tarifas', {
     perfil_id: TRV2_PERFIL?.id || null,
     data: {
       ruta_id: Number(routeId),
-      producto_id: productoId,
       tarifa,
+      familia_producto: String(data.regla_calculo || '').toLowerCase() === 'kilos' ? 'gas_lp' : 'petroliferos',
       regla_calculo: data.regla_calculo || '',
       iva_tasa: Number(data.iva_tasa || 0.16),
       retencion_tasa: Number(data.retencion_tasa || 0.04),
@@ -1696,7 +1693,6 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
     data.cp_destino = destino.cp;
     data.nombre_origen = origen.nombre || origen.origen || '';
     data.nombre_destino = destino.nombre || destino.destino || '';
-    data.producto_id = Number(data.tarifa_producto_id || 0) || '';
   }
   const invalidRfc = [...form.querySelectorAll('[data-rfc-field]')].find(input => input.value.trim() && !trv2ValidRfc(input.value));
   if (invalidRfc) {
@@ -1771,7 +1767,6 @@ function trv2ValidateCatalogPayload(name, data) {
     if (!data.permiso_cre) return `Proveedor ${data.nombre || ''} no tiene permiso proveedor.`;
   }
   if (name === 'rutas') {
-    if (!Number(data.tarifa_producto_id || 0)) return `Ruta ${data.nombre || ''} requiere producto para tarifa de flete.`;
     if (Number(data.tarifa || 0) <= 0) return `Ruta ${data.nombre || ''} requiere tarifa de flete mayor a cero.`;
     if (!['litros', 'kilos', 'viaje', 'distancia', 'manual'].includes(String(data.regla_calculo || '').toLowerCase())) {
       return `Ruta ${data.nombre || ''} requiere base de cálculo válida: litros, kilos, viaje, distancia o manual.`;
