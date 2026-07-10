@@ -2505,10 +2505,7 @@ def _gas_lp_company_facturas_rows_impl(
     page_limit = max(1, min(int(limit or GAS_LP_LIST_LIMIT_DEFAULT), GAS_LP_LIST_LIMIT_MAX))
 
     query = sb.table("gas_lp_facturas").select(select)
-    if ppd_pending and user.get("tenant_id") and user.get("perfil_id"):
-        query = query.eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
-        filters.append({"company": "tenant_id + perfil_id for pending PPD", "tenant_id": user.get("tenant_id"), "perfil_id": user.get("perfil_id")})
-    elif profile_rfc and company_fallback:
+    if profile_rfc and company_fallback:
         query = query.or_(f"empresa_rfc.eq.{profile_rfc},rfc_emisor.eq.{profile_rfc}")
         filters.append({"company": "empresa_rfc OR rfc_emisor", "rfc": profile_rfc})
     else:
@@ -2549,10 +2546,7 @@ def _gas_lp_company_facturas_rows_impl(
             raise
         logger.warning("gas_lp_facturas_compat_query_fallback perfil=%s select=%s err=%s", user.get("perfil_id"), select, exc)
         fallback = sb.table("gas_lp_facturas").select(GAS_LP_FACTURAS_COMPAT_LIST_SELECT)
-        if ppd_pending and user.get("tenant_id") and user.get("perfil_id"):
-            fallback = fallback.eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
-        else:
-            fallback = fallback.eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
+        fallback = fallback.eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
         if clean_receptor_rfc:
             fallback = fallback.eq("rfc_receptor", clean_receptor_rfc)
         try:
