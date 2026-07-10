@@ -23,8 +23,6 @@ const TRV2_DOC_FIELDS = [
   ['total', 'Total', 'number'],
   ['origen_sugerido', 'Origen sugerido'],
   ['destino_sugerido', 'Destino sugerido'],
-  ['fecha_boleta', 'Fecha boleta/documento'],
-  ['boleta', 'Boleta'],
   ['pg', 'PG'],
   ['lugar_expedicion', 'Lugar expedición'],
   ['fecha_factura', 'Fecha factura'],
@@ -48,7 +46,6 @@ const TRV2_DOC_SUMMARY_FIELDS = [
   ['Kilos', 'kilos', 'number'],
   ['Importe carga', 'importe_carga', 'currency'],
   ['Permiso', 'permiso'],
-  ['Boleta', 'boleta'],
 ];
 
 function trv2DocUi(scope = 'carga') {
@@ -842,7 +839,7 @@ function trv2ApplyDensityFallback(body, detected = {}, producto = {}) {
   // Prioridad fiscal: 1) si factura trae litros y kilos se usan tal cual;
   // 2) si falta uno, se calcula con factor kg/L configurado o del producto;
   // 3) si faltan ambos, se deja en cero para que validación bloquee timbrado.
-  const factor = Number(producto?.factor_kg_l || producto?.densidad_kg_l || detected.factor_kg_l || 0.5172);
+  const factor = Number(producto?.factor_kg_l || producto?.densidad_kg_l || detected.factor_kg_l || 0);
   const litros = Number(body.volumen_litros || 0);
   const kilos = Number(body.peso_kg || 0);
   const kilosEstimados = Boolean(detected.peso_kg_estimado || detected.estimated_peso_kg || detected.kilos_estimados);

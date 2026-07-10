@@ -203,7 +203,6 @@ function trv2SettingsPayloadFromForm() {
       cp_fiscal: document.getElementById('trv2-set-cp')?.value.trim() || '',
       regimen_fiscal: document.getElementById('trv2-set-regimen')?.value.trim() || '',
       rfc_representante_legal: document.getElementById('trv2-set-rfc-rep')?.value.trim().toUpperCase() || '',
-      factor_kg_l_default: document.getElementById('trv2-set-factor')?.value || '',
       logo_url: document.getElementById('trv2-set-logo')?.value.trim() || '',
       logo_data_url: document.getElementById('trv2-set-logo')?.value.trim() || '',
       pdf_header_color: document.getElementById('trv2-set-pdf-header-color')?.value.trim() || '#6B7280',
@@ -235,7 +234,6 @@ function trv2FillSettingsForm(data = {}) {
     ['trv2-set-cp', perfil.cp_fiscal],
     ['trv2-set-regimen', perfil.regimen_fiscal],
     ['trv2-set-rfc-rep', perfil.rfc_representante_legal],
-    ['trv2-set-factor', perfil.factor_kg_l_default],
     ['trv2-set-ci-clave-prodserv', facturacion.clave_prodserv_carta_ingreso || '78101802'],
     ['trv2-set-logo', perfil.logo_data_url || perfil.logo_url],
     ['trv2-set-pdf-header-color', perfil.pdf_header_color || perfil.color_encabezado_pdf || '#6B7280'],
@@ -572,6 +570,9 @@ function trv2RenderPermisosRfc(items = []) {
   if (!list) return;
   const unique = trv2PermisoUniqueItems(items);
   const transportistas = unique.filter(trv2IsTransportistaPermiso);
+  // Establecer la pestaña antes de filtrar evita que la primera pintura muestre
+  // permisos de todas las familias mientras se inicializa la interfaz.
+  if (!TRV2_PERMISO_PRODUCT_FILTER) TRV2_PERMISO_PRODUCT_FILTER = 'gas_lp';
   const filtered = transportistas.filter(trv2PermisoMatchesProductFilter);
   list.innerHTML = `
     ${trv2RenderPermisoProductTabs(transportistas)}

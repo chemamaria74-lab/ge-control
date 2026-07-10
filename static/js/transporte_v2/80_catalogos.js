@@ -205,7 +205,7 @@ const TRV2_CATALOG_FORMS = {
     ['material_peligroso', 'Material peligroso', 'checkbox'],
     ['clave_material_peligroso', 'Clave mat. peligroso', 'material-peligroso'],
     ['embalaje', 'Embalaje', 'embalaje-sat'],
-    ['factor_kg_l', 'Factor kg/L', 'number'],
+    ['factor_kg_l', 'Conversión litros a kilos (kg/L)', 'number'],
     ['tipo_producto', 'Tipo producto', 'product-type'],
     ['activo', 'Activo', 'checkbox'],
   ],
@@ -1231,7 +1231,7 @@ function trv2RenderCatalogFields(name) {
       </select></label>`;
     }
     if (field === 'factor_kg_l') {
-      return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${required ? 'required' : ''} type="number" step="0.000001" placeholder="0.5258"><small class="trv2-field-help">Factor kg/L = densidad usada para convertir litros a kilos cuando la factura no trae ambos datos. Para Gas LP se sugiere 0.5258, editable.</small></label>`;
+      return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${required ? 'required' : ''} type="number" step="0.000001" placeholder="0.540"><small class="trv2-field-help">Densidad para convertir litros a kilos cuando la factura no trae el peso: Gas LP 0.540, gasolina 0.740 y diésel 0.850 kg/L. Editable si el documento indica otra densidad.</small></label>`;
     }
     if (field === 'cp') {
       return `<label>${trv2Esc(labelText)}<input data-field="${field}" ${required ? 'required' : ''} type="text" inputmode="numeric" maxlength="5" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,5); trv2ApplyCpSatDefaults();"></label>`;
@@ -1346,7 +1346,8 @@ function trv2RefreshProductSatDefaults() {
     subproducto.innerHTML = trv2SubproductoOptions(type);
     if ([...subproducto.options].some(option => option.value === current)) subproducto.value = current;
   }
-  if (type === 'Gas LP' && factor && !factor.value) factor.value = '0.5258';
+  const defaultFactors = {'Gas LP': '0.540', 'Magna': '0.740', 'Premium': '0.740', 'Diésel': '0.850'};
+  if (factor && !factor.value && defaultFactors[type]) factor.value = defaultFactors[type];
   if (type === 'Magna' && subproducto && !subproducto.value) subproducto.value = 'SP1';
   if (type === 'Premium' && subproducto && !subproducto.value) subproducto.value = 'SP16';
   if (type === 'Diésel' && subproducto && !subproducto.value) subproducto.value = 'SP6';
@@ -1371,7 +1372,7 @@ function trv2ApplyProductoSatDefaults() {
     setIfEmpty('clave_material_peligroso', '1075');
     setIfEmpty('embalaje', '4H2');
     setIfEmpty('tipo_producto', 'Gas LP');
-    setIfEmpty('factor_kg_l', '0.5258');
+    setIfEmpty('factor_kg_l', '0.540');
     trv2RefreshProductSatDefaults();
   }
   if (clave === '15101514') {
@@ -1382,6 +1383,7 @@ function trv2ApplyProductoSatDefaults() {
     setIfEmpty('embalaje', 'Z01');
     setIfEmpty('tipo_producto', 'Magna');
     setIfEmpty('clave_subproducto', 'SP1');
+    setIfEmpty('factor_kg_l', '0.740');
     trv2RefreshProductSatDefaults();
   }
   if (clave === '15101515') {
@@ -1392,7 +1394,7 @@ function trv2ApplyProductoSatDefaults() {
     setIfEmpty('embalaje', 'Z01');
     setIfEmpty('tipo_producto', 'Premium');
     setIfEmpty('clave_subproducto', 'SP16');
-    setIfEmpty('factor_kg_l', '0.524');
+    setIfEmpty('factor_kg_l', '0.740');
     trv2RefreshProductSatDefaults();
   }
   if (clave === '15101505' || clave === '15101507') {
@@ -1403,6 +1405,7 @@ function trv2ApplyProductoSatDefaults() {
     setIfEmpty('embalaje', 'Z01');
     setIfEmpty('tipo_producto', 'Diésel');
     setIfEmpty('clave_subproducto', 'SP6');
+    setIfEmpty('factor_kg_l', '0.850');
     trv2RefreshProductSatDefaults();
   }
 }
