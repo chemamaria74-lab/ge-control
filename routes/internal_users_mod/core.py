@@ -1176,7 +1176,7 @@ def _folio_number(value: object) -> int:
     return int(text) if text.isdigit() else 0
 
 
-def _gas_lp_next_invoice_folio(sb, user: dict, serie: str, *, return_reservation: bool = False):
+def _gas_lp_next_invoice_folio(sb, user: dict, serie: str, *, return_reservation: bool = False, source_table: str = "gas_lp_facturas"):
     params = {
         "p_user_id": user.get("owner_user_id"),
         "p_tenant_id": user.get("tenant_id"),
@@ -1189,7 +1189,7 @@ def _gas_lp_next_invoice_folio(sb, user: dict, serie: str, *, return_reservation
             value = value[0] if value else 0
         number = int(value or 0)
         if number > 0:
-            folio = f"{number:06d}"
+            folio = str(number)
             if return_reservation:
                 return folio, {
                     "reserved": True,
@@ -1203,9 +1203,10 @@ def _gas_lp_next_invoice_folio(sb, user: dict, serie: str, *, return_reservation
         logger.warning("gas_lp_folio_counter_rpc_unavailable: serie=%s err=%s", serie, exc)
 
     try:
+        select_fields = "record_uuid,metadata" if source_table == "gas_lp_facturas" else "metadata"
         rows = (
-            sb.table("gas_lp_facturas")
-            .select("record_uuid,metadata")
+            sb.table(source_table)
+            .select(select_fields)
             .eq("user_id", user.get("owner_user_id"))
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
@@ -1223,7 +1224,7 @@ def _gas_lp_next_invoice_folio(sb, user: dict, serie: str, *, return_reservation
         if str(md.get("serie") or "").strip().upper() != serie:
             continue
         current = max(current, _folio_number(md.get("folio_usuario")), _folio_number(row.get("record_uuid")))
-    folio = f"{current + 1:06d}"
+    folio = str(current + 1)
     if return_reservation:
         return folio, {
             "reserved": False,
@@ -2298,7 +2299,7 @@ def _gas_lp_factura_folio_label(factura: dict) -> str:
     if root is not None:
         serie = serie or _xml_attr(root, "Serie")
         folio = folio or _xml_attr(root, "Folio")
-    label = f"{serie}{folio}" if serie and folio and not str(folio).startswith(serie) else (folio or serie)
+    label = f"{serie}-{folio}" if serie and folio and not str(folio).startswith(serie) else (folio or serie)
     return label or str(factura.get("id") or "")
 
 
@@ -3109,7 +3110,7 @@ def _gas_lp_send_complemento_pago_email(
     return _gas_lp_update_complemento_email_audit(sb, comp, update_payload), update_payload["email_delivery"]
 
 
-def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_pago: str, forma_pago: str, pagos: dict[int, Decimal]) -> tuple[str, dict]:
+def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_pago: str, forma_pago: str, pagos: dict[int, Decimal], serie: str = "PAGO", folio: str = "") -> tuple[str, dict]:
     if not facturas:
         raise HTTPException(400, "Selecciona al menos una factura PPD.")
     receptor_ref: dict | None = None
@@ -3149,10 +3150,10 @@ def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_
         total_pago += pagado
         total_base += base
         total_iva += iva
-        serie = _xml_attr(root, "Serie")
-        folio = _xml_attr(root, "Folio")
-        serie_attr = f' Serie="{xml_escape(serie)}"' if serie else ""
-        folio_attr = f' Folio="{xml_escape(folio)}"' if folio else ""
+        related_serie = _xml_attr(root, "Serie")
+        related_folio = _xml_attr(root, "Folio")
+        serie_attr = f' Serie="{xml_escape(related_serie)}"' if related_serie else ""
+        folio_attr = f' Folio="{xml_escape(related_folio)}"' if related_folio else ""
         doctos.append({
             "factura_id": fid,
             "uuid_relacionado": uuid_rel,
@@ -3172,7 +3173,10 @@ def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_
             raise HTTPException(400, "Una factura seleccionada no tiene total válido.")
     receptor = receptor_ref or {}
     fecha_cfdi, fecha_cfdi_reason = _gas_lp_pago_cfdi_fecha(issuer)
-    folio_pago = fecha_cfdi.replace("-", "").replace(":", "").replace("T", "")[:14]
+    serie_pago = "".join(ch for ch in str(serie or "PAGO").strip().upper() if ch.isalnum())[:10] or "PAGO"
+    folio_pago = "".join(ch for ch in str(folio or "").strip() if ch.isalnum())[:40]
+    if not folio_pago:
+        folio_pago = fecha_cfdi.replace("-", "").replace(":", "").replace("T", "")[:14]
     fecha_pago = _payment_datetime(fecha_pago)
     forma_pago = "".join(ch for ch in str(forma_pago or "03") if ch.isdigit())[:2] or "03"
     doctos_xml = "".join(d["xml"] for d in doctos)
@@ -3180,7 +3184,7 @@ def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:pago20="http://www.sat.gob.mx/Pagos20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
         'xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd http://www.sat.gob.mx/Pagos20 http://www.sat.gob.mx/sitio_internet/cfd/Pagos/Pagos20.xsd" '
-        f'Version="4.0" Serie="PAGO" Folio="{folio_pago}" Fecha="{fecha_cfdi}" Sello="" NoCertificado="" Certificado="" SubTotal="0" Moneda="XXX" Total="0" TipoDeComprobante="P" Exportacion="01" LugarExpedicion="{xml_escape(issuer["cp"])}">'
+        f'Version="4.0" Serie="{xml_escape(serie_pago)}" Folio="{xml_escape(folio_pago)}" Fecha="{fecha_cfdi}" Sello="" NoCertificado="" Certificado="" SubTotal="0" Moneda="XXX" Total="0" TipoDeComprobante="P" Exportacion="01" LugarExpedicion="{xml_escape(issuer["cp"])}">'
         f'<cfdi:Emisor Rfc="{xml_escape(issuer["rfc"])}" Nombre="{xml_escape(issuer["nombre"])}" RegimenFiscal="{xml_escape(issuer["regimen"])}"/>'
         f'<cfdi:Receptor Rfc="{xml_escape(receptor["rfc"])}" Nombre="{xml_escape(receptor["nombre"])}" DomicilioFiscalReceptor="{xml_escape(receptor["cp"])}" RegimenFiscalReceptor="{xml_escape(receptor["regimen"])}" UsoCFDI="CP01"/>'
         '<cfdi:Conceptos><cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT" Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/></cfdi:Conceptos>'
@@ -3192,7 +3196,7 @@ def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_
     )
     for d in doctos:
         d.pop("xml", None)
-    return xml, {"fecha_cfdi": fecha_cfdi, "fecha_cfdi_reason": fecha_cfdi_reason, "fecha_pago": fecha_pago, "forma_pago": forma_pago, "monto": float(total_pago), "saldo_insoluto": float(sum(Decimal(str(d["saldo_insoluto"])) for d in doctos)), "facturas": doctos}
+    return xml, {"fecha_cfdi": fecha_cfdi, "fecha_cfdi_reason": fecha_cfdi_reason, "fecha_pago": fecha_pago, "forma_pago": forma_pago, "monto": float(total_pago), "saldo_insoluto": float(sum(Decimal(str(d["saldo_insoluto"])) for d in doctos)), "facturas": doctos, "serie": serie_pago, "folio": folio_pago}
 
 
 def _gas_lp_invoice_scope(user: dict, profile: dict) -> dict:

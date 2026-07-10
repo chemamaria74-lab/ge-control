@@ -85,6 +85,7 @@ async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perf
         email_error = str(comp.get("email_error") or "")
         email_enviado = bool(comp.get("email_enviado"))
         email_status = "Correo enviado" if email_enviado else ("Sin correo" if "sin correo" in email_error.lower() else ("Error de envío" if email_error else "Pendiente"))
+        comp_md = comp.get("metadata") if isinstance(comp.get("metadata"), dict) else {}
         items.append({
             "id": comp_id,
             "uuid_sat": comp.get("uuid_sat") or "",
@@ -101,7 +102,9 @@ async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perf
             "email_destinatario": comp.get("email_destinatario") or "",
             "email_error": email_error,
             "email_last_attempt_at": comp.get("email_last_attempt_at") or "",
-            "metadata": comp.get("metadata") if isinstance(comp.get("metadata"), dict) else {},
+            "serie": comp_md.get("serie") or "P",
+            "folio_usuario": comp_md.get("folio_usuario") or "",
+            "metadata": comp_md,
             "issuer_info": {"rfc": _clean_rfc(profile.get("rfc") or ""), "nombre": profile.get("nombre") or ""},
         })
     return JSONResponse({"ok": True, "complementos": items})
@@ -114,9 +117,9 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
     profile = _gas_lp_profile(user, require_module_marker=True)
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     issuer = _require_gas_lp_issuer(profile, settings)
-    serie_factura = _gas_lp_internal_series(user, settings)
-    folio_factura = datetime.now().strftime("GLP%Y%m%d%H%M%S")
     sb = get_supabase_admin()
+    serie_pago = "P"
+    folio_pago = _gas_lp_next_invoice_folio(sb, user, serie_pago, source_table="gas_lp_complementos_pago")
     requested: dict[int, Decimal | None] = {}
     for item in payload.facturas or []:
         fid = int(item.get("factura_id") or item.get("id") or 0)
@@ -176,7 +179,7 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
         remaining = _money(remaining - amount)
     if remaining != Decimal("0.00"):
         raise HTTPException(400, "El monto recibido no coincide con los importes asignados.")
-    xml_pago, totals = _build_gas_lp_pago20_multi_xml(facturas=facturas, issuer=issuer, fecha_pago=payload.fecha_pago, forma_pago=payload.forma_pago, pagos=pagos)
+    xml_pago, totals = _build_gas_lp_pago20_multi_xml(facturas=facturas, issuer=issuer, fecha_pago=payload.fecha_pago, forma_pago=payload.forma_pago, pagos=pagos, serie=serie_pago, folio=folio_pago)
     logger.info(
         "gas_lp_complemento_pago_pre_timbrado factura_ids=%s fecha_cfdi=%s fecha_pago=%s forma_pago=%s monto=%s perfil_id=%s tenant_id=%s",
         factura_ids,
@@ -231,6 +234,8 @@ async def gas_lp_generar_complemento_pago(factura_id: int, payload: GasLpComplem
             "created_by_internal": user.get("id"),
             "created_by": user.get("display_name") or "",
             "empresa_rfc": issuer.get("rfc") or profile.get("rfc") or "",
+            "serie": totals["serie"],
+            "folio_usuario": totals["folio"],
         },
         "created_at": now,
         "updated_at": now,

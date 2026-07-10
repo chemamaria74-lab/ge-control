@@ -445,7 +445,7 @@ async def gas_lp_conciliacion_facturar_publico_general(payload: GasLpConciliacio
     issuer = _require_gas_lp_issuer(profile, settings)
     receptor = _public_general_receptor(issuer["cp"])
     sb = get_supabase_admin()
-    serie_factura = _gas_lp_internal_series(user, settings)
+    serie_factura = "F"
     folio_factura = _gas_lp_next_invoice_folio(sb, user, serie_factura)
     facilities_by_id = {
         int(f["id"]): f

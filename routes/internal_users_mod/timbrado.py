@@ -88,7 +88,7 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
                 400,
                 "Las asistentes solo pueden timbrar facturas de clientes con fecha de hoy. Para una fecha anterior usa Público en general.",
             )
-    serie_factura = _gas_lp_internal_series(user, settings)
+    serie_factura = "T" if is_transfer else "F"
     folio_factura = ""
     transfer_folio_reservation = None
     if not is_transfer:
