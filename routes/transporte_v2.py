@@ -7782,9 +7782,10 @@ async def transporte_v2_guardar_tarifa_servicio(
         updated = (
             sb.table(TBL_TARIFAS)
             .update(row)
-            .eq("id", existing[0]["id"])
             .eq("user_id", uid)
             .eq("perfil_id", pid)
+            .eq("ruta_id", row["ruta_id"])
+            .eq("activo", True)
             .execute()
             .data
             or []
