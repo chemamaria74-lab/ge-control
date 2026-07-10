@@ -65,7 +65,21 @@ function selectCliente(){
     setStatus('facturaMsg','Público en general seleccionado. Se usará el CP del emisor.');
   }
   applyConfiguredPrice({silent:true});
+  syncInvoiceDateAccess();
   stampFormSignature();
+}
+function syncInvoiceDateAccess(opts={}){
+  const isCustomerInvoice = tipoOperacion.value === 'venta' && Boolean(clienteSelect.value);
+  fechaEmision.readOnly = isCustomerInvoice;
+  fechaEmision.classList.toggle('locked-field', isCustomerInvoice);
+  if(isCustomerInvoice && (opts.forceToday || String(fechaEmision.value || '').slice(0,10) !== todayKey())){
+    fechaEmision.value = localDateTimeValue();
+  }
+  if(window.fechaEmisionHelp){
+    fechaEmisionHelp.textContent = isCustomerInvoice
+      ? 'Para clientes, la fecha queda fija al día de hoy. Solo Público en general permite elegir otra fecha válida.'
+      : 'Público en general permite seleccionar la fecha fiscal dentro del rango aceptado por el PAC.';
+  }
 }
 function updateDiscountMode(){
   const mode = descuentoTipo?.value || 'sin_descuento';
@@ -394,6 +408,7 @@ async function crearFactura(){
     return;
   }
   const litrosVal = Number(litros.value || 0);
+  syncInvoiceDateAccess({forceToday:true});
   if(!facilitySelect.value){ setStatus('facturaMsg','Selecciona la instalación origen. Es obligatoria para control operativo GE Control.',false); facilitySelect.focus(); return; }
   if(!formStateMatches()){ setStatus('facturaMsg','Los datos del formulario no coinciden con la instalación u operación actual. Limpia y vuelve a capturar.',false); return; }
   const isTraspaso = tipoOperacion.value === 'traspaso';
