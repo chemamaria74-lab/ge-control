@@ -28,6 +28,9 @@ CP_DECLARATION_TEXT = (
     "IDENTIFICADOS Y EN TODOS LOS ASPECTOS DE CONDICIONES ADECUADAS PARA SU TRANSPORTE "
     "DE CONFORMIDAD CON LA REGLAMENTACION APLICABLE."
 )
+CP_VISUAL_FALLBACKS = {
+    "98636": {"estado": "ZAC", "municipio": "017", "localidad": ""},
+}
 
 
 @dataclass
@@ -470,6 +473,11 @@ def _origen_destino(ubicaciones):
 def _domicilio_ubicacion(ubicacion) -> str:
     children = list(ubicacion) if ubicacion is not None else []
     dom = next((child for child in children if _local_name(child.tag) == "Domicilio"), None)
+    cp = _attr(dom, "CodigoPostal")
+    fallback = CP_VISUAL_FALLBACKS.get(cp, {})
+    estado = _attr(dom, "Estado", "") or fallback.get("estado", "")
+    municipio = _attr(dom, "Municipio", "") or fallback.get("municipio", "")
+    localidad = _attr(dom, "Localidad", "") or fallback.get("localidad", "")
     domicilio = " ".join(part for part in [
         _attr(dom, "Calle", ""),
         _attr(dom, "NumeroExterior", ""),
@@ -477,10 +485,10 @@ def _domicilio_ubicacion(ubicacion) -> str:
         _attr(dom, "Colonia", ""),
     ] if part and part != "—")
     geo = " / ".join(part for part in [
-        f"CP {_attr(dom, 'CodigoPostal')}" if _attr(dom, "CodigoPostal") else "",
-        _attr(dom, "Estado", ""),
-        f"Mun. {_attr(dom, 'Municipio')}" if _attr(dom, "Municipio") else "",
-        f"Loc. {_attr(dom, 'Localidad')}" if _attr(dom, "Localidad") else "",
+        f"CP {cp}" if cp else "",
+        estado,
+        f"Mun. {municipio}" if municipio else "",
+        f"Loc. {localidad}" if localidad else "",
         _attr(dom, "Pais", ""),
     ] if part and part != "—")
     return _join_nonempty([geo, domicilio], " | ")

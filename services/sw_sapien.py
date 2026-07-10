@@ -316,6 +316,7 @@ _CP_POSTAL_OVERRIDES = {
     # Sending a manually captured Municipio like 051 triggers CP147.
     "98470": {"estado": "ZAC", "municipio": "", "localidad": ""},
     "98057": {"estado": "ZAC", "municipio": "056", "localidad": "03"},
+    "98636": {"estado": "ZAC", "municipio": "017", "localidad": ""},
     "98659": {"estado": "ZAC", "municipio": "017", "localidad": ""},
 }
 

@@ -81,6 +81,7 @@ _CP_POSTAL_OVERRIDES = {
     "47200": {"estado": "JAL", "municipio": "091", "localidad": ""},
     "98057": {"estado": "ZAC", "municipio": "056", "localidad": "03"},
     "98470": {"estado": "ZAC", "municipio": "", "localidad": ""},
+    "98636": {"estado": "ZAC", "municipio": "017", "localidad": ""},
     "98659": {"estado": "ZAC", "municipio": "017", "localidad": ""},
     "99300": {"estado": "ZAC", "municipio": "020", "localidad": ""},
     "99700": {"estado": "ZAC", "municipio": "048", "localidad": ""},
