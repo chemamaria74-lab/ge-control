@@ -87,6 +87,8 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
     assert "/api/internal-auth/gas-lp/conciliacion/export-excel" in html
     assert "/api/internal-auth/gas-lp/conciliacion/complementos/" in html
     assert "openCancelComplemento" in html
+    assert "invoice_cancellations" in inspect.getsource(internal_users.gas_lp_complementos_pago_list)
+    assert 'comp["status"] = "Cancelada fiscalmente"' in inspect.getsource(internal_users.gas_lp_complementos_pago_list)
     assert "/api/internal-auth/gas-lp/conciliacion/facilities" in html
     for token in (
         "pubDescuento",
