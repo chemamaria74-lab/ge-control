@@ -78,6 +78,22 @@ def test_tarifa_de_ruta_coincide_por_producto_id_aunque_cambie_descripcion():
     assert _tariff_match(viaje, tarifa) is True
 
 
+def test_tarifa_petroliferos_de_ruta_acepta_cualquier_producto_de_la_familia():
+    viaje = {
+        "ruta_id": 20,
+        "producto_operacion_id": 9,
+        "productos_json": [{"descripcion": "MAGNA"}],
+    }
+    tarifa = {
+        "ruta_id": 20,
+        "producto_id": None,
+        "producto": "Petrolíferos",
+        "metadata": {"familia_producto": "petroliferos"},
+    }
+
+    assert _tariff_match(viaje, tarifa) is True
+
+
 def test_tarifa_gas_lp_respeta_base_calculo_kilos():
     calculo = _calcular_tarifa_operativa(
         {
