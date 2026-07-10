@@ -698,6 +698,42 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
 
         self.assertEqual([row["uuid_sat"] for row in rows], ["maria-legacy-alfa"])
 
+    def test_gas_lp_pending_ppd_are_visible_by_issuer_rfc_even_in_legacy_scope(self):
+        db = FakeDB()
+        db.rows["gas_lp_facturas"] = [{
+            "id": 108,
+            "tenant_id": "legacy-tenant",
+            "perfil_id": 99,
+            "user_id": "ernesto",
+            "rfc_emisor": "AGA9603186X8",
+            "empresa_rfc": "AGA9603186X8",
+            "rfc_receptor": "MEHE950226BZ3",
+            "uuid_sat": "maria-legacy-ppd",
+            "fecha_timbrado": "2026-06-24T11:20:26",
+            "fecha_emision": "2026-06-24T11:11:00Z",
+            "metodo_pago": "PPD",
+            "saldo_insoluto": 1925,
+            "total": 1925,
+            "created_at": "2026-06-24T17:20:26+00:00",
+            "status": "Vigente",
+            "metadata": {"metodo_pago": "PPD", "saldo_insoluto": 1925},
+        }]
+        user = {
+            "id": 55,
+            "display_name": "Martha",
+            "role": "conciliacion",
+            "tenant_id": "tenant-a",
+            "owner_user_id": "admin",
+            "perfil_id": 1,
+        }
+        profile = {"id": 1, "tenant_id": "tenant-a", "nombre": "ALFA GAS", "rfc": "AGA9603186X8"}
+
+        rows = internal_users._gas_lp_company_facturas_rows(
+            db, user, profile, month="", limit=10000, ppd_pending=True
+        )
+
+        self.assertEqual([row["uuid_sat"] for row in rows], ["maria-legacy-ppd"])
+
     def test_gas_lp_facturas_require_backfilled_real_issuer_columns(self):
         db = FakeDB()
         db.rows["gas_lp_facturas"] = [
