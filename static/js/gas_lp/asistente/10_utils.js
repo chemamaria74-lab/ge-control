@@ -571,8 +571,7 @@ function ensureFolio(){
   folio.value = '';
 }
 function applyAssistantSeries(){
-  const s = String(CURRENT_ASSISTANT?.serie_factura || '').trim().toUpperCase();
-  serie.value = s || 'AA';
+  serie.value = tipoOperacion?.value === 'traspaso' ? 'T' : 'F';
 }
 function unitPriceConfigured(){
   if(!CURRENT_COMPANY) return false;

@@ -8,6 +8,7 @@ function updateOperacionUI(){
     applyConfiguredPrice({silent:true});
   }
   const traspaso = tipoOperacion.value === 'traspaso';
+  serie.value = traspaso ? 'T' : 'F';
   const cartaPorte = false;
   const transferHidden = [clienteField,facturaGlobalField,clientePreview,conceptoField,precioField,descuentoTipoField,ivaField,metodoPagoField,formaPagoField];
   transferHidden.forEach(el => el.classList.toggle('hide', traspaso || cartaPorte));
