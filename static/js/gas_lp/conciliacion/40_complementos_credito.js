@@ -61,6 +61,9 @@ function renderCredito(){
   const saldoPend=rows.reduce((s,x)=>s+x.saldo,0);
   const pagado=rows.reduce((s,x)=>s+x.pagado,0);
   const pendientes=rows.reduce((s,x)=>s+x.count,0);
+  const vencidas=rows.reduce((s,x)=>s+x.vencidas,0);
+  const vigentes=Math.max(0,pendientes-vencidas);
+  if(window.kCreditoEstado)kCreditoEstado.textContent=`${vencidas} / ${vigentes}`;
   credTotal.textContent=money(credito);
   credPagado.textContent=money(pagado);
   credSaldo.textContent=money(saldoPend);

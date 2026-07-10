@@ -7,7 +7,8 @@ function mexicoDateParts(value){const text=String(value||'').trim();if(!text)ret
 const mexicoDateKey=value=>mexicoDateParts(value).date;
 const mexicoTimeLabel=value=>mexicoDateParts(value).time;
 const today=()=>mexicoDateKey(new Date().toISOString());
-const month=()=>periodoFiltro.value||today().slice(0,7);
+let MONTH_OVERRIDE='';
+const month=()=>MONTH_OVERRIDE||periodoFiltro.value||today().slice(0,7);
 const localDateTimeValue=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 function dateDMY(value){const s=mexicoDateKey(value)||String(value||'').slice(0,10);const m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);return m?`${m[3]}/${m[2]}/${m[1]}`:s}
 function facturaDateValue(f){const md=f?.metadata||{};return md.fecha_emision||md.fecha_cfdi||f?.fecha_timbrado||f?.created_at||''}
