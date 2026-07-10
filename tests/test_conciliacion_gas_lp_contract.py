@@ -73,11 +73,17 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
     assert 'data-section="exportaciones"' not in html
     assert "facturas-export-actions" in html
     assert "Descargar mes" in html
-    assert "Descargar día" in html
+    assert "Descargar día" not in html
+    assert "Excel actual" not in html
+    assert "Cargar mes" in html
+    assert 'onchange="loadAll({force:true})"' not in html
+    assert 'onclick="clearFilters()"' not in html
 
     assert "/api/internal-auth/gas-lp/conciliacion/summary" in html
     assert "/api/internal-auth/gas-lp/conciliacion/facturar-publico-general" in html
     assert "/api/internal-auth/gas-lp/conciliacion/export-excel" in html
+    assert "/api/internal-auth/gas-lp/conciliacion/complementos/" in html
+    assert "openCancelComplemento" in html
     assert "/api/internal-auth/gas-lp/conciliacion/facilities" in html
     for token in (
         "pubDescuento",
@@ -636,6 +642,18 @@ def test_asistente_cargar_mes_facturas_requests_full_company_month():
     assert "receptor_rfc=' + encodeURIComponent(receptorRfc)" in html
     assert "cartaPorte ? '&carta_porte=1' : ''" in html
     assert "loadFacturas('', {surfaceError:true, cartaPorte:true, force:true})" in html
+
+
+def test_asistente_locks_customer_invoice_date_but_keeps_public_general_exception():
+    html = _assistant_frontend_source()
+    timbrado_source = (ROOT / "routes" / "internal_users_mod" / "timbrado.py").read_text(encoding="utf-8")
+
+    assert "syncInvoiceDateAccess({forceToday:true})" in html
+    assert "fechaEmision.readOnly = isCustomerInvoice" in html
+    assert "Solo Público en general permite elegir otra fecha válida" in html
+    assert 'role == "asistente_facturacion"' in timbrado_source
+    assert 'receptor["rfc"] != "XAXX010101000"' in timbrado_source
+    assert "solo pueden timbrar facturas de clientes con fecha de hoy" in timbrado_source
 
 
 def test_gas_lp_facturas_complementos_mode_returns_only_pending_ppd_without_50_limit(monkeypatch):
