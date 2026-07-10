@@ -1,6 +1,6 @@
     <section class="section" data-section="sat">
       <div class="panel">
-        <div class="section-head"><div><h2>Cancelación / Consulta SAT</h2><div class="muted small">Consulta auditoría PAC/SW y envía cancelaciones fiscales reales con evidencia.</div></div><span class="pill neutral" id="satCount">0 facturas</span></div>
+        <div class="section-head"><div><h2>Cancelación / Consulta SAT</h2><div class="muted small">Consulta facturas y complementos, auditoría PAC/SW y cancelaciones fiscales reales.</div></div><div class="toolbar"><div class="facturas-export-field"><label>Mes</label><input id="satMesFiltro" type="month"></div><button class="btn" type="button" onclick="cargarMesSat()"><i class="fa-solid fa-magnifying-glass"></i> Cargar mes</button><span class="pill neutral" id="satCount">0 documentos</span></div></div>
         <div class="filters sat-filters" style="margin-bottom:12px">
           <div><label>Cliente</label><input id="satClienteFiltro" placeholder="RFC, nombre, folio o UUID" oninput="renderSat(satFilteredRows())"></div>
           <div><label>Día</label><input id="satDiaFiltro" type="date" onchange="renderSat(satFilteredRows())"></div>
