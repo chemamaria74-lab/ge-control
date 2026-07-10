@@ -483,8 +483,7 @@ def _detect_xml_document(content: bytes) -> dict[str, Any]:
         "permiso": "",
         "origen_sugerido": "",
         "destino_sugerido": receptor.get("Nombre", "") if receptor is not None else "",
-        "boleta": "",
-        "fecha_boleta": (root.get("Fecha") or "")[:10],
+        "fecha_factura": (root.get("Fecha") or "")[:10],
         "tipo_cfdi_sugerido": root.get("TipoDeComprobante", ""),
     }
     warnings = []
@@ -689,7 +688,6 @@ def _pdf_mgc_operational_fields(text: str) -> dict[str, str]:
         "vehiculo_placas": vehicle_match.group(2).strip() if vehicle_match else "",
         "certificado_carga": vehicle_match.group(3).strip() if vehicle_match else "",
         "operador_nombre": operator_match.group(1).strip() if operator_match else "",
-        "boleta": operator_match.group(2).strip() if operator_match else "",
         "remolque_placas": _regex_first(r"PLACAS\s+TONEL\s*:\s*([A-Z0-9-]+)", upper),
         "orden": order,
     }
@@ -768,14 +766,6 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     permiso = permiso or _regex_first(r"PERMISO\s+DE\s+COMERCIALIZACI[ÓO]N:\s*([A-Z]/\d+/[A-Z]+/\d{4})", upper)
     permiso = permiso or _regex_first(r"([A-Z]/\d+/[A-Z]+/\d{4})", upper)
     mgc_operational = _pdf_mgc_operational_fields(text)
-    boleta = _regex_first(r"(?:BOLETA|BOL\.?|BOLETA\s+DE\s+AFORO)\s*:?\s*(\d{4,})", upper)
-    if not boleta:
-        boleta = _regex_first(r"NOMBRE\s+DEL\s+OPERADOR\s+NO\.\s+DE\s+ORDEN.*?\b(\d{4,})\s+\d{2}\s+\d{2}\s+\d{4}", upper, re.I | re.S)
-    boleta = boleta or mgc_operational.get("boleta", "")
-    fecha_boleta = _parse_short_date(
-        _regex_first(r"FECHA\s+BOLETA\s*:\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", upper)
-        or _regex_first(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(?:BOLETA|BOL\.?)", upper)
-    )
     pg = _regex_first(r"\bPG\s*:\s*(\d+)", upper)
     producto = ""
     if producto_detectado:
@@ -866,7 +856,9 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         "permiso": permiso,
         "unidad": unidad,
         "precio_unitario": precio_unitario,
-        "factor_kg_l": 0.73 if "PREMIUM" in producto or "MAGNA" in producto else (0.84 if "DIESEL" in producto or "DIÉSEL" in producto else 0),
+        # La conversión pertenece al catálogo de productos de cada empresa.
+        # No inferir aquí una densidad global ni reutilizable entre perfiles.
+        "factor_kg_l": 0,
         "subtotal": subtotal,
         "iva": iva,
         "total": total,
@@ -874,14 +866,12 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         "valor_mercancia": total or subtotal,
         "origen_sugerido": origen,
         "destino_sugerido": receptor_nombre,
-        "boleta": boleta,
         "orden": mgc_operational.get("orden", ""),
         "operador_nombre": mgc_operational.get("operador_nombre", ""),
         "vehiculo_alias": mgc_operational.get("vehiculo_alias", ""),
         "vehiculo_placas": mgc_operational.get("vehiculo_placas", ""),
         "remolque_placas": mgc_operational.get("remolque_placas", ""),
         "certificado_carga": mgc_operational.get("certificado_carga", ""),
-        "fecha_boleta": fecha_boleta,
         "pg": pg,
         "tipo_cfdi_sugerido": tipo_comprobante or "I",
         "tipo_comprobante": tipo_comprobante or "I",
@@ -996,7 +986,6 @@ def _parse_detected_document_date(value: Any) -> Optional[datetime.date]:
 def _document_date_validation(detected: dict[str, Any]) -> dict[str, Any]:
     source_fields = [
         ("fecha_factura", "fecha de factura"),
-        ("fecha_boleta", "fecha de boleta"),
         ("fecha_certificacion", "fecha de certificación"),
     ]
     raw = ""
@@ -3216,7 +3205,6 @@ def _settings_defaults() -> dict[str, Any]:
             "cp_fiscal": "",
             "regimen_fiscal": "",
             "rfc_representante_legal": "",
-            "factor_kg_l_default": "",
             "logo_url": "",
             "logo_data_url": "",
             "pdf_header_color": "#6B7280",
@@ -4474,7 +4462,6 @@ def _stamp_make_producto(viaje: dict[str, Any], producto: dict[str, Any], settin
     raw = _first_product(viaje)
     volumen = _num(viaje.get("volumen_total_litros") or viaje.get("volumen_litros") or raw.get("cantidad_litros"))
     peso = _num(viaje.get("peso_kg") or raw.get("peso_kg") or _meta(viaje).get("peso_kg"))
-    default_factor = _num((settings.get("perfil_fiscal") or {}).get("factor_kg_l_default")) or 0.75
     product_factor = _num(producto.get("factor_kg_l") or producto.get("densidad_kg_l"))
     detected = _meta(viaje).get("documento_detectado") if isinstance(_meta(viaje).get("documento_detectado"), dict) else {}
     if volumen > 0 and detected.get("peso_kg_estimado") and product_factor:
@@ -4482,7 +4469,12 @@ def _stamp_make_producto(viaje: dict[str, Any], producto: dict[str, Any], settin
     elif volumen > 0 and peso > 0:
         densidad = round(peso / volumen, 12)
     else:
-        densidad = product_factor or default_factor
+        densidad = product_factor
+    if densidad <= 0:
+        raise HTTPException(
+            422,
+            "El producto no tiene conversión litros a kilos. Configúrala en Catálogos > Productos.",
+        )
     internal_key, sub_key, sat_key = _stamp_internal_product_keys(producto, raw)
     importe = _num(
         viaje.get("subtotal_flete")
@@ -5039,7 +5031,6 @@ def _invoice_duplicate_signature(viaje: dict[str, Any]) -> dict[str, Any]:
     ).lower()
     fecha = _first_text(
         detected.get("fecha_factura"),
-        detected.get("fecha_boleta"),
         detected.get("fecha"),
         meta.get("fecha_factura"),
     )[:10]
