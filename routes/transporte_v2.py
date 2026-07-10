@@ -7563,13 +7563,26 @@ async def transporte_v2_documentos_analizar(
                 if catalog_factor:
                     result["detected"]["factor_kg_l"] = catalog_factor
                     litros_detectados = _num(result["detected"].get("cantidad_litros") or result["detected"].get("litros"))
+                    peso_detectado = _num(result["detected"].get("peso_kg") or result["detected"].get("kilos"))
                     peso_estimado = bool(result["detected"].get("peso_kg_estimado"))
                     peso_explicito = bool(result["detected"].get("peso_kg_detectado_explicito"))
-                    if litros_detectados and (peso_estimado or not peso_explicito):
+                    peso_esperado = litros_detectados * catalog_factor if litros_detectados else 0
+                    # Algunos PDF colocan números de partida/folio junto a la unidad y el
+                    # extractor los confunde con kilos. Si el supuesto peso no alcanza ni
+                    # 20 % de la conversión configurada, no es físicamente compatible con
+                    # el volumen y debe tratarse como un dato no explícito.
+                    peso_inverosimil = bool(
+                        peso_detectado
+                        and peso_esperado
+                        and peso_detectado < (peso_esperado * 0.2)
+                    )
+                    if litros_detectados and (peso_estimado or not peso_explicito or peso_inverosimil):
                         peso_recalculado = round(litros_detectados * catalog_factor, 3)
                         result["detected"]["peso_kg"] = peso_recalculado
                         result["detected"]["kilos"] = peso_recalculado
                         result["detected"]["peso_kg_estimado"] = True
+                        if peso_inverosimil:
+                            result["detected"]["peso_kg_detectado_explicito"] = False
         result["cliente_match"] = {
             "status": "registrado" if client_match else "no_encontrado",
             "item": _normalize_catalog_row("clientes", client_match) if client_match else None,
