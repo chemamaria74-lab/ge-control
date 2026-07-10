@@ -411,6 +411,8 @@ def test_payment_complement_contract_xml_pdf_and_email_resend_is_not_stamp_path(
         fecha_pago="2026-06-06T11:00:00",
         forma_pago="03",
         pagos={10: Decimal("1000.00")},
+        serie="PAGO",
+        folio="000027",
     )
 
     root = _root(xml_pago)
@@ -418,6 +420,10 @@ def test_payment_complement_contract_xml_pdf_and_email_resend_is_not_stamp_path(
     assert root.attrib["SubTotal"] == "0"
     assert root.attrib["Total"] == "0"
     assert root.attrib["Moneda"] == "XXX"
+    assert root.attrib["Serie"] == "PAGO"
+    assert root.attrib["Folio"] == "000027"
+    assert totals["serie"] == "PAGO"
+    assert totals["folio"] == "000027"
     assert _attr(xml_pago, ".//cfdi:Receptor", "UsoCFDI") == "CP01"
     assert _attr(xml_pago, ".//pago20:DoctoRelacionado", "IdDocumento") == factura["uuid_sat"]
     assert totals["monto"] == 1000.0

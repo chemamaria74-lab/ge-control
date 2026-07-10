@@ -73,11 +73,13 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
     assert 'data-section="exportaciones"' not in html
     assert "facturas-export-actions" in html
     assert "Descargar mes" in html
-    assert "Descargar día" not in html
-    assert "Excel actual" not in html
+    assert "Descargar día" in html
+    assert "Excel actual" in html
     assert "Cargar mes" in html
-    assert 'onchange="loadAll({force:true})"' not in html
-    assert 'onclick="clearFilters()"' not in html
+    assert "cargarMesFacturas()" in html
+    assert "periodoFiltro.value=expMes.value" in html
+    assert 'onchange="loadAll({force:true})"' in html
+    assert 'onclick="clearFilters()"' in html
 
     assert "/api/internal-auth/gas-lp/conciliacion/summary" in html
     assert "/api/internal-auth/gas-lp/conciliacion/facturar-publico-general" in html
