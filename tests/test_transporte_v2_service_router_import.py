@@ -47,3 +47,13 @@ def test_carta_ingreso_email_comes_only_from_current_client_catalog():
     assert "email_receptor = _service_invoice_catalog_email(cliente_cfg)" in backend
     assert "if xml_content and email_receptor:" in backend
     assert "cliente_sin_correo" in backend
+
+
+def test_carta_ingreso_action_layout_keeps_td_as_table_cell():
+    frontend = (ROOT / "static/js/transporte_v2/55_facturas_servicio.js").read_text(encoding="utf-8")
+    styles = (ROOT / "static/css/transporte_v2.css").read_text(encoding="utf-8")
+
+    assert '<td class="trv2-service-actions">' not in frontend
+    assert '<td class="trv2-service-action-cell">' in frontend
+    assert '<div class="trv2-service-actions">' in frontend
+    assert ".trv2-service-action-cell{text-align:center}" in styles
