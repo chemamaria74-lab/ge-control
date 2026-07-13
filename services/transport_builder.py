@@ -33,6 +33,7 @@ from zoneinfo import ZoneInfo
 
 from services.product_catalog import get_producto, ClaveProdServCFDI
 from services.cne_validator import validar_num_permiso
+from services.observability import measure_external
 from services.carta_porte_permisos import permiso_compatible
 from models.transport_schemas import ViajeCreate, ProductoTransporte
 
@@ -276,7 +277,7 @@ def _build_concepto_hidrocarburo(
             "ClaveUnidad":     CLAVE_UNIDAD_SERVICIO,
             "Unidad":          UNIDAD_SERVICIO,
             "Descripcion":     descripcion,
-            "ValorUnitario":   "0.000000",
+            "ValorUnitario":   valor_unitario,
             "Importe":         "0.00",
             "ObjetoImp":       objeto_imp,
         }
@@ -429,6 +430,7 @@ def _cp_child_xml(key: str, value: object) -> str:
     return ""
 
 
+@measure_external("xml")
 def build_cfdi_transporte_xml(cfdi: dict) -> str:
     """
     Serializa el CFDI de Transporte a XML explícito.

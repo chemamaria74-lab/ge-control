@@ -30,6 +30,7 @@ import time
 import unicodedata
 import uuid
 import requests
+from services.observability import measure_external
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlparse
@@ -671,6 +672,7 @@ def _sw_error_message(data: dict, fallback: str = "") -> str:
         return f"{message} Detalle: {detail}"
     return message or detail or fallback
 
+@measure_external("pac")
 def timbrar_cfdi(xml_str: str) -> dict:
     """
     Envía el XML a SW Sapien.
@@ -1062,6 +1064,7 @@ def _parse_sw_cancel_response(resp, *, endpoint: str, payload: dict, headers: di
         diag["error"] = str(exc)
         return None, "SW respondió JSON inválido en cancelación (HTTP %s)." % status_code, diag
 
+@measure_external("pac")
 def cancelar_cfdi(uuid_sat: str, rfc_emisor: str, motivo: str = "02", uuid_sustitucion: str = "", *, module: str = "transporte", user_id: str = "", perfil_id: Optional[int] = None, tenant_id: Optional[str] = None) -> dict:
     """
     Cancela un CFDI en el SAT vía SW Sapien.

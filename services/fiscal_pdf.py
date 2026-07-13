@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import quote_plus
 
 from lxml import etree
+from services.observability import measure_external
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ def fiscal_pdf_info(xml_content: str | bytes, prefix: str = "cfdi") -> FiscalPdf
     return FiscalPdfInfo(uuid=uuid, tipo=tipo, serie_folio=f"{serie}/{folio}".strip("/"), filename=f"{prefix}_{safe}.pdf")
 
 
+@measure_external("pdf")
 def generar_pdf_cfdi_desde_xml(
     xml_content: str | bytes,
     *,

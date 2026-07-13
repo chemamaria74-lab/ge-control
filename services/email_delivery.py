@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import requests
+from services.observability import measure_external
 
 
 @dataclass
@@ -34,6 +35,7 @@ def _clean_email(value: str | None) -> str:
     return email
 
 
+@measure_external("email")
 def send_gas_lp_invoice_email(
     *,
     to_email: str | None,
@@ -112,6 +114,7 @@ def send_gas_lp_invoice_email(
         return EmailDeliveryResult(ok=False, error=str(exc)[:500])
 
 
+@measure_external("email")
 def send_gas_lp_payment_complement_email(
     *,
     to_email: str | None,
@@ -189,6 +192,7 @@ def send_gas_lp_payment_complement_email(
         return EmailDeliveryResult(ok=False, error=str(exc)[:500])
 
 
+@measure_external("email")
 def send_sales_lead_email(
     *,
     name: str,

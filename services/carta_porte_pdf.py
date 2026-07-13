@@ -7,6 +7,7 @@ import re
 import unicodedata
 from xml.sax.saxutils import escape
 from xml.etree import ElementTree as _ET
+from services.observability import measure_external
 
 try:  # lxml ayuda con XML timbrado grande; ElementTree mantiene el PDF operativo si no está instalado.
     from lxml import etree
@@ -128,6 +129,7 @@ def _safe_filename_part(value: str) -> str:
     return "_".join(parts[:3])[:60]
 
 
+@measure_external("pdf")
 def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: str = "", pdf_theme: dict | None = None) -> bytes:
     """Genera la representación impresa fiscal de un CFDI 4.0 con Carta Porte 3.1."""
     try:
