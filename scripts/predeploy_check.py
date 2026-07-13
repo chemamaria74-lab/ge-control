@@ -12,6 +12,19 @@ import sys
 from pathlib import Path
 
 
+_TRUE_VALUES = {"1", "true", "yes", "on", "si", "sí"}
+
+
+def _validate_production_env(environ: dict[str, str] | None = None) -> list[str]:
+    env = os.environ if environ is None else environ
+    if str(env.get("APP_ENV") or "").strip().lower() != "production":
+        return []
+    required = ["SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_SERVICE_ROLE_KEY"]
+    if str(env.get("SW_ALLOW_REAL_TIMBRADO") or "").strip().lower() in _TRUE_VALUES:
+        required.extend(["SW_USER", "SW_PASSWORD"])
+    return [name for name in required if not str(env.get(name) or "").strip()]
+
+
 def _ensure_env_placeholders() -> None:
     # Render provides real values. Local/manual checks may not, so use valid
     # placeholders only to exercise imports without storing secrets.
@@ -21,6 +34,13 @@ def _ensure_env_placeholders() -> None:
 
 
 def main() -> int:
+    missing = _validate_production_env()
+    if missing:
+        print(
+            "[predeploy] Missing required production environment variables: " + ", ".join(missing),
+            file=sys.stderr,
+        )
+        return 1
     _ensure_env_placeholders()
     project_root = Path(__file__).resolve().parents[1]
     if str(project_root) not in sys.path:
@@ -47,8 +67,8 @@ def main() -> int:
         "/api/auth/login",
         "/api/upload",
         "/api/upload/cfdi",
-        "/api/tr/viajes",
-        "/api/tr/facturas",
+        "/api/tr-v2/viajes",
+        "/api/tr-v2/facturas-servicio",
     }
     missing = sorted(required_routes - route_paths)
     if missing:
@@ -72,8 +92,8 @@ def main() -> int:
             return 1
 
     protected_checks = [
-        "/api/tr/viajes",
-        "/api/tr/facturas",
+        "/api/tr-v2/viajes",
+        "/api/tr-v2/facturas-servicio",
     ]
     for path in protected_checks:
         response = client.get(path)
