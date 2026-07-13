@@ -153,6 +153,19 @@ def _cliente_por_receptor(sb, uid: str, perfil_id, rfc: str) -> dict:
     return rows[0] if rows else {}
 
 
+def _service_invoice_catalog_email(cliente: dict | None) -> str:
+    """Correo vigente del catálogo; nunca toma respaldos históricos del viaje/payload."""
+    row = cliente or {}
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    return _clean_billing_email(
+        row.get("email_facturacion")
+        or row.get("email")
+        or metadata.get("email_facturacion")
+        or metadata.get("email")
+        or metadata.get("correo")
+    )
+
+
 def _tariff_product_text(viaje: dict) -> str:
     productos = viaje.get("productos_json")
     if isinstance(productos, str):
@@ -1081,17 +1094,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         cliente_cfg = cliente_rows[0] if cliente_rows else {}
     if not cliente_cfg:
         cliente_cfg = _cliente_por_receptor(sb, uid, perfil_factura, payload.rfc_receptor)
-    cliente_meta = cliente_cfg.get("metadata") if isinstance(cliente_cfg.get("metadata"), dict) else {}
-    email_receptor = _clean_billing_email(
-        payload.email_receptor
-        or cliente_cfg.get("email_facturacion")
-        or cliente_cfg.get("email")
-        or cliente_meta.get("email_facturacion")
-        or cliente_meta.get("email")
-        or cliente_meta.get("correo")
-    )
-    if not email_receptor:
-        raise HTTPException(400, "Captura el email fiscal/comercial del cliente antes de timbrar Carta Ingreso.")
+    email_receptor = _service_invoice_catalog_email(cliente_cfg)
     fiscal_defaults = _service_invoice_payment_defaults(cliente_cfg, settings)
     forma_pago = payload.forma_pago or fiscal_defaults["forma_pago"]
     metodo_pago = payload.metodo_pago or fiscal_defaults["metodo_pago"]
@@ -1248,7 +1251,11 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             "concepto_clave_prod_serv": clave_carta_ingreso,
             "legacy_simple_service_invoice": _ENABLE_SIMPLE_SERVICE_INVOICE,
             "email_receptor": email_receptor,
-            "email_delivery": {"status": "pendiente", "provider": "resend"},
+            "email_delivery": {
+                "status": "pendiente" if email_receptor else "omitido",
+                "provider": "resend",
+                **({} if email_receptor else {"reason": "cliente_sin_correo"}),
+            },
             **product_metadata,
         },
         "created_at":      now_iso,
@@ -1306,9 +1313,14 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             perfil_id=perfil_factura,
             source="sw_sapien",
         )
-        email_delivery = {"ok": False, "skipped": True, "error": "Carta Ingreso sin XML para adjuntar.", "provider": "resend"}
+        email_delivery = {
+            "ok": False,
+            "skipped": True,
+            "error": "Carta Ingreso sin XML para adjuntar." if email_receptor else "Cliente sin correo fiscal.",
+            "provider": "resend",
+        }
         xml_content = sw_data.get("cfdi", "") or ""
-        if xml_content:
+        if xml_content and email_receptor:
             try:
                 info = fiscal_pdf_info(
                     xml_content,
