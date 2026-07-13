@@ -1,4 +1,32 @@
 from .core import *
+from services.product_catalog import get_producto, validar_producto_completo
+
+
+def _clean_material_code(value) -> str:
+    return str(value or "").strip().upper().removeprefix("UN")
+
+
+def _catalogo_producto_generico_payload(payload: dict) -> dict:
+    """Adapta el contrato de UI de mercancías genéricas al registro operativo."""
+    source = payload or {}
+    metadata = dict(source.get("metadata") or {})
+    for key in ("descripcion", "unidad_visible", "requiere_peso", "peso_unitario_kg", "permite_peso_manual"):
+        if key in source:
+            metadata[key] = source[key]
+    return {
+        "nombre": str(source.get("alias_visible") or source.get("nombre") or "").strip(),
+        "clave_producto": str(source.get("clave_producto") or "").strip(),
+        "clave_subproducto": str(source.get("clave_subproducto") or "").strip(),
+        "clave_prodserv_cfdi": str(source.get("bienes_transp_sat") or source.get("clave_prodserv_cfdi") or "").strip(),
+        "unidad": str(source.get("clave_unidad") or source.get("unidad") or "").strip(),
+        "densidad_kg_l": source.get("densidad_kg_l"),
+        "material_peligroso": bool(source.get("material_peligroso", False)),
+        "cve_material_peligroso": str(source.get("clave_material_peligroso") or source.get("cve_material_peligroso") or "").strip(),
+        "embalaje": str(source.get("embalaje") or "").strip(),
+        "permiso_requerido": str(source.get("permiso_requerido") or "").strip(),
+        "metadata": metadata,
+        "activo": bool(source.get("activo", True)),
+    }
 
 def _clean_catalog_row(payload: dict, allowed: set[str]) -> dict:
     row = {}
@@ -21,20 +49,26 @@ def _clean_catalog_row(payload: dict, allowed: set[str]) -> dict:
 def _normalizar_catalogo_producto_operacion(row: dict) -> dict:
     clave_producto = str(row.get("clave_producto") or "").strip().upper()
     clave_subproducto = str(row.get("clave_subproducto") or "").strip().upper()
-    ok, msg = validar_producto_completo(clave_producto, clave_subproducto)
-    if not ok:
-        raise HTTPException(400, f"Producto SAT inválido: {msg}")
+    clave_prodserv = str(row.get("clave_prodserv_cfdi") or "").strip()
+    if clave_producto or clave_subproducto:
+        ok, msg = validar_producto_completo(clave_producto, clave_subproducto)
+        if not ok:
+            raise HTTPException(400, f"Producto SAT inválido: {msg}")
+    elif not clave_prodserv:
+        raise HTTPException(400, "BienesTransp/ClaveProdServ requerida.")
     sat = get_producto(clave_producto)
     row["clave_producto"] = clave_producto
     row["clave_subproducto"] = clave_subproducto
     row["clave_prodserv_cfdi"] = row.get("clave_prodserv_cfdi") or (sat.clave_prod_serv_cfdi if sat else "")
     row["unidad"] = (row.get("unidad") or "LTR").upper()
-    row["material_peligroso"] = bool(row.get("material_peligroso", True))
+    row["material_peligroso"] = bool(row.get("material_peligroso", False))
     row["cve_material_peligroso"] = _clean_material_code(row.get("cve_material_peligroso") or (sat.cve_material_peligroso if sat else ""))
-    row["embalaje"] = (row.get("embalaje") or "Z01").upper()
+    if row["material_peligroso"] and not row["cve_material_peligroso"]:
+        raise HTTPException(400, "Clave material peligroso requerida.")
+    row["embalaje"] = (row.get("embalaje") or ("Z01" if row["material_peligroso"] else "")).upper()
     if row["embalaje"] == "4H2":
         row["embalaje"] = "Z01"
-    if _safe_float(row.get("densidad_kg_l")) <= 0:
+    if (clave_producto or clave_subproducto) and _safe_float(row.get("densidad_kg_l")) <= 0:
         row["densidad_kg_l"] = 0.75
     return row
 
