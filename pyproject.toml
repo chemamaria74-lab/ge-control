@@ -24,3 +24,8 @@ dependencies = [
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+markers = [
+    "integration_rls: requires a dedicated real Supabase/Postgres environment with RLS enabled",
+]

@@ -32,6 +32,8 @@ from routes.internal_users import router as internal_users_router
 from services.database  import init_db
 from services.email_delivery import send_sales_lead_email
 from services.landing_settings import get_landing_settings
+from services.observability import begin_request, end_request, log_request
+from services.security import client_ip, enforce_rate_limit
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -251,6 +253,22 @@ app.add_middleware(
 
 
 @app.middleware("http")
+async def structured_request_telemetry(request, call_next):
+    context_token, telemetry = begin_request(request.headers.get("x-correlation-id"))
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Correlation-ID"] = telemetry.correlation_id
+        return response
+    finally:
+        route = request.scope.get("route")
+        endpoint = getattr(route, "path", None) or request.url.path
+        log_request(method=request.method, endpoint=endpoint, status_code=status_code, telemetry=telemetry)
+        end_request(context_token)
+
+
+@app.middleware("http")
 async def security_headers(request, call_next):
     """Cabeceras defensivas básicas. CSP estricta queda pendiente por JS inline legado."""
     response = await call_next(request)
@@ -370,6 +388,12 @@ async def leads_public_config():
 async def create_demo_lead(payload: DemoLeadSchema, request: Request):
     if payload.website.strip():
         return JSONResponse({"ok": True, "message": "Gracias. Te contactaremos pronto."})
+
+    enforce_rate_limit(
+        f"demo-lead:ip:{client_ip(request)}",
+        limit=20,
+        window_seconds=600,
+    )
 
     name = payload.name.strip()
     company = payload.company.strip()

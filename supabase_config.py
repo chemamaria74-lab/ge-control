@@ -24,6 +24,7 @@ from functools import lru_cache
 
 import httpx
 from supabase import Client, ClientOptions, create_client
+from services.observability import supabase_request_hook, supabase_response_hook
 
 try:
     from dotenv import load_dotenv
@@ -58,7 +59,10 @@ def _create_supabase_client(key: str) -> Client:
     return create_client(
         SUPABASE_URL,
         key,
-        options=ClientOptions(httpx_client=httpx.Client(timeout=120)),
+        options=ClientOptions(httpx_client=httpx.Client(
+            timeout=120,
+            event_hooks={"request": [supabase_request_hook], "response": [supabase_response_hook]},
+        )),
     )
 
 
