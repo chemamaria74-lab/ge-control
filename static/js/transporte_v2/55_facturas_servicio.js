@@ -183,7 +183,9 @@ function trv2ServiceTripData(row = {}) {
     fecha: row.fecha_salida || row.fecha_hora_salida || row.created_at || '',
     cliente: cliente.nombre || row.cliente_nombre || trv2ServiceTripMeta(row, 'cliente_nombre') || '',
     rfc: cliente.rfc || trv2ServiceTripMeta(row, 'cliente_rfc') || '',
-    email: cliente.email_facturacion || cliente.email || meta.email_receptor || meta.cliente_email || '',
+    // El catálogo de clientes es la única fuente vigente del correo. No revivir
+    // correos históricos guardados en el viaje después de borrarlos del catálogo.
+    email: cliente.email_facturacion || cliente.email || '',
     origen,
     destino,
     distancia_km: Number(row.distancia_km || ruta.distancia_km || meta.distancia_km || 0),
@@ -897,7 +899,13 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
     ? '99'
     : (cliente.forma_pago_default || '03');
   const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
-  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(service.email || '').trim());
+  const receptorPreview = {
+    cliente: service.cliente,
+    rfc: service.rfc,
+    metodo_pago: metodoPago,
+    forma_pago: formaPago,
+  };
+  if (service.email) receptorPreview.email = service.email;
   let layer = document.getElementById('trv2-service-review-modal');
   if (!layer) {
     layer = document.createElement('div');
@@ -909,7 +917,7 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
     layer.innerHTML = `<section class="trv2-modal" role="dialog" aria-modal="true">
     <div class="trv2-modal-head"><div><h2>Revisar Carta Ingreso</h2><p>Este CFDI de ingreso cobrará el flete e incluirá Complemento Carta Porte 3.1.</p></div><button class="trv2-icon-btn" type="button" title="Cerrar" onclick="trv2CloseServiceReview()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="trv2-preview-grid">
-      ${trv2RenderPreviewBlock('Receptor', {cliente: service.cliente, rfc: service.rfc, email: service.email || 'Pendiente', metodo_pago: metodoPago, forma_pago: formaPago})}
+      ${trv2RenderPreviewBlock('Receptor', receptorPreview)}
       ${trv2RenderPreviewBlock('Carta Porte base', {ruta: `${service.origen} -> ${service.destino}`, producto: service.producto, uuid_carta_porte: service.uuid_carta_porte})}
     </div>
     <div class="trv2-form trv2-form-compact">
@@ -922,16 +930,15 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
         <input id="trv2-service-cantidad-base" type="text" value="${trv2Esc(`${trv2ServiceNumber(calc.cantidad_base)} ${calc.base_calculo}`)}" disabled>
       </label>
     </div>
-    <label class="trv2-form-wide">
+    ${service.email ? `<label class="trv2-form-wide">
       <span>Email fiscal/comercial del cliente</span>
-      <input id="trv2-service-email" type="email" value="${trv2Esc(service.email || '')}" placeholder="facturacion@cliente.com">
-    </label>
+      <input id="trv2-service-email" type="email" value="${trv2Esc(service.email)}" readonly>
+    </label>` : ''}
     <div class="trv2-cp-summary" id="trv2-service-review-summary">
       ${trv2RenderServiceReviewTotals(calc)}
     </div>
     <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseServiceReview()">Cancelar</button>${allowStamp ? `<button class="trv2-btn trv2-btn-primary" id="trv2-service-confirm-btn" type="button" onclick="trv2ConfirmServiceInvoice(${Number(tripId)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso</button>` : ''}</div>
   </section>`;
-  if (!emailOk && allowStamp) trv2Toast('Captura el email fiscal/comercial antes de timbrar Carta Ingreso.', 'info');
 }
 
 function trv2RenderServiceReviewTotals(calc) {
@@ -987,11 +994,7 @@ async function trv2ConfirmServiceInvoice(tripId) {
   const {row, service, tariff, tarifa, calc} = trv2ServiceReviewCalculation(tripId);
   const cliente = trv2FindCatalog?.('clientes', service.cliente_id) || {};
   if (!row || !tariff) return;
-  const email = String(document.getElementById('trv2-service-email')?.value || service.email || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    trv2Toast('Captura un email fiscal/comercial válido antes de timbrar.', 'error');
-    return;
-  }
+  const email = String(service.email || '').trim().toLowerCase();
   const metodoPago = String(cliente.metodo_pago_default || 'PUE').toUpperCase();
   const formaPago = metodoPago === 'PPD' && (!cliente.forma_pago_default || cliente.forma_pago_default === '03')
     ? '99'
