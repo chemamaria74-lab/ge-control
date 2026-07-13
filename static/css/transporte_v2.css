@@ -172,6 +172,7 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-service-pending-table th:nth-child(16){background:#f3eee7;z-index:4}
 .trv2-service-main{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:normal;line-height:1.22}
 .trv2-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.trv2-service-action-cell{text-align:center}
 .trv2-service-actions{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:nowrap;white-space:nowrap}
 .trv2-service-actions .trv2-mini-btn{padding:8px 10px}
 .trv2-service-pending-table .trv2-service-actions .trv2-mini-btn-primary{min-width:164px}
