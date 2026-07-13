@@ -1093,10 +1093,12 @@ function trv2RenderServicePendingTable() {
         <td class="trv2-num">${trv2ServiceMoney(calc.iva)}</td>
         <td class="trv2-num">${trv2ServiceMoney(calc.retencion)}</td>
         <td class="trv2-num"><strong>${trv2ServiceMoney(calc.total)}</strong></td>
-        <td class="trv2-service-actions">
-          <button class="trv2-mini-icon-btn" type="button" title="Detalle" aria-label="Detalle" onclick="trv2OpenServiceDetail(${Number(row.id)})"><i class="fa-solid fa-circle-info"></i></button>
-          <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" title="${trv2Esc(status)}" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso</button>
-          <button class="trv2-mini-icon-btn trv2-mini-icon-danger" type="button" title="No facturar" aria-label="No facturar" onclick="trv2OmitServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-ban"></i></button>
+        <td class="trv2-service-action-cell">
+          <div class="trv2-service-actions">
+            <button class="trv2-mini-icon-btn" type="button" title="Detalle" aria-label="Detalle" onclick="trv2OpenServiceDetail(${Number(row.id)})"><i class="fa-solid fa-circle-info"></i></button>
+            <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" title="${trv2Esc(status)}" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso</button>
+            <button class="trv2-mini-icon-btn trv2-mini-icon-danger" type="button" title="No facturar" aria-label="No facturar" onclick="trv2OmitServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-ban"></i></button>
+          </div>
         </td>
       </tr>
     `;
@@ -1121,8 +1123,10 @@ function trv2RenderServiceGeneratedTables() {
         <td><span class="trv2-service-uuid" title="${trv2Esc(item.uuid_sat || item.uuid_cfdi || '')}">${trv2Esc(trv2ServiceShortUuid(item.uuid_sat || item.uuid_cfdi || 'Pendiente de timbrar'))}</span></td>
         <td class="trv2-num"><strong>${trv2ServiceMoney(item.total)}</strong></td>
         <td>${trv2ServicePaymentIcon(item)}</td>
-        <td class="trv2-service-actions">
-          ${item.id ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceArtifact(${Number(item.id)}, 'pdf')">PDF</button><button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceArtifact(${Number(item.id)}, 'xml', true)">XML</button><button class="trv2-mini-icon-btn trv2-mini-icon-danger" type="button" title="Cancelar Carta Ingreso" aria-label="Cancelar Carta Ingreso" onclick="trv2CancelServiceInvoice(${Number(item.id)})"><i class="fa-solid fa-xmark"></i></button>` : 'Pendiente'}
+        <td class="trv2-service-action-cell">
+          <div class="trv2-service-actions">
+            ${item.id ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceArtifact(${Number(item.id)}, 'pdf')">PDF</button><button class="trv2-mini-btn" type="button" onclick="trv2OpenServiceArtifact(${Number(item.id)}, 'xml', true)">XML</button><button class="trv2-mini-icon-btn trv2-mini-icon-danger" type="button" title="Cancelar Carta Ingreso" aria-label="Cancelar Carta Ingreso" onclick="trv2CancelServiceInvoice(${Number(item.id)})"><i class="fa-solid fa-xmark"></i></button>` : 'Pendiente'}
+          </div>
         </td>
       </tr>
     `).join('') : '<tr><td colspan="11"><div class="trv2-empty">No hay Cartas Ingreso facturadas para este producto, periodo o búsqueda.</div></td></tr>';
