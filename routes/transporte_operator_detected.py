@@ -140,9 +140,18 @@ async def operador_cargas_detectadas_accion(load_id: str, payload: DetectedLoadA
 
     try:
         q = get_supabase_admin().table("detected_loads").update(update).eq("id", load_id)
-        if acc.get("perfil_id") is not None:
-            q = q.eq("perfil_id", acc.get("perfil_id"))
-        q.execute()
+        # service_role bypasses RLS: every available scope discriminator must
+        # therefore be applied explicitly before a mutation.
+        q = q.eq("perfil_id", acc.get("perfil_id"))
+        if acc.get("tenant_id"):
+            q = q.eq("tenant_id", acc.get("tenant_id"))
+        if acc.get("company_id"):
+            q = q.eq("company_id", acc.get("company_id"))
+        result = q.execute()
+        if not (result.data or []):
+            raise HTTPException(404, "Carga no encontrada para este operador.")
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(500, "No se pudo actualizar la carga detectada.")
     return JSONResponse({"ok": True, "status": status, "message": _status_label(status)})

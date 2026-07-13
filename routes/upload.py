@@ -14,6 +14,7 @@ from models.schemas import UploadResponse
 from config.cliente import ConfigCliente
 from routes.settings import _load as load_settings
 from routes.auth import verify_token, obtener_secciones_usuario
+from services.tenant_context import resolve_user_tenant_context
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -62,6 +63,14 @@ async def upload_file(
         raise HTTPException(400, "Solo se aceptan .xlsx, .xls o .csv")
     user_id, _token = _auth_gas_lp(authorization)
     perfil_id = _parse_perfil_id(x_perfil_id)
+    context = resolve_user_tenant_context(
+        user_id=user_id,
+        access_token=_token,
+        section="gas_lp",
+        requested_perfil_id=perfil_id,
+    )
+    perfil_id = context.require_profile(perfil_id)
+    data_user_id = context.owner_user_id
 
     file_bytes = await file.read()
     if len(file_bytes) > MAX_UPLOAD_BYTES:
@@ -70,7 +79,7 @@ async def upload_file(
     config = ConfigCliente(
         estacion_id=estacion_id, rfc=rfc,
         unidad_base=unidad_base,
-        factor_de_conversion_kg_a_litros=load_settings(user_id, perfil_id).get("FactorDeConversionKgALitros", 0.542),
+        factor_de_conversion_kg_a_litros=load_settings(data_user_id, perfil_id).get("FactorDeConversionKgALitros", 0.542),
     )
 
     # PASO 1: Parseo

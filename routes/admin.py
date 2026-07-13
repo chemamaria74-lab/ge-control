@@ -44,14 +44,12 @@ def _get_user_role(user_id: str) -> str:
 
 
 def _require_admin(authorization: str) -> str:
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="No autenticado.")
-    uid = verify_token(authorization[7:])
-    if not uid:
-        raise HTTPException(status_code=401, detail="Token inválido o expirado.")
-    role = _get_user_role(uid)
-    if role != "admin":
-        raise HTTPException(status_code=403, detail="Acceso restringido a administradores.")
+    # These legacy endpoints list/create users globally through service_role.
+    # A tenant-level `admin` role is therefore insufficient: require the same
+    # explicit global allowlist used by the active SaaS administration panel.
+    from routes.admin_saas import _require_superadmin
+
+    uid, _, _ = _require_superadmin(authorization)
     return uid
 
 

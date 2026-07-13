@@ -21,7 +21,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Any, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Header, HTTPException, Query, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
@@ -36,6 +36,8 @@ from services.fiscal_audit import version_xml
 from services.sw_sapien import emitir_timbrar_json, sw_runtime_config, timbrar_cfdi
 from services.transport_builder import build_cfdi_transporte, build_cfdi_transporte_xml
 from services.transport_transformer import build_transport_covol, save_transport_covol
+from services.observability import set_scope
+from services.security import client_ip, enforce_rate_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -1123,6 +1125,7 @@ def _operator_context(token_plain: str, usuario: str = "") -> tuple[Any, dict[st
     acc = rows[0]
     if not acc.get("perfil_id") or not acc.get("chofer_id") or not acc.get("user_id"):
         raise HTTPException(403, "Acceso de operador incompleto.")
+    set_scope(tenant_id=acc.get("tenant_id"), company_id=acc.get("perfil_id"), actor_type="operator")
     chofer_rows = (
         sb.table(TBL_OPERADORES)
         .select("*")
@@ -2049,8 +2052,9 @@ def _parse_json_value(value: Any, fallback: Any = None) -> Any:
 
 
 def _require_profile_if_present(uid: str, token: str, perfil_id: Optional[int]) -> None:
-    if perfil_id:
-        require_profile_access(uid, MODULO, perfil_id, access_token=token)
+    if not perfil_id:
+        raise HTTPException(400, "Selecciona una empresa activa antes de continuar.")
+    require_profile_access(uid, MODULO, perfil_id, access_token=token)
 
 
 TRV2_CLEARABLE_EMPTY_FIELDS = {"email", "email_facturacion"}
@@ -6079,9 +6083,20 @@ async def transporte_v2_operator_access_delete(
 
 
 @router.post("/tr-v2/operator/login")
-async def transporte_v2_operator_login(payload: TransporteV2OperatorLoginRequest):
+async def transporte_v2_operator_login(payload: TransporteV2OperatorLoginRequest, request: Request):
     token_plain = (payload.token or payload.pin or "").strip()
     usuario = (payload.usuario or "").strip()
+    credential_key = hashlib.sha256(f"{usuario.lower()}:{token_plain}".encode("utf-8")).hexdigest()[:20]
+    enforce_rate_limit(
+        f"operator-login:ip:{client_ip(request)}",
+        limit=20,
+        window_seconds=300,
+    )
+    enforce_rate_limit(
+        f"operator-login:credential:{credential_key}",
+        limit=8,
+        window_seconds=300,
+    )
     sb, acc = _operator_context(token_plain, usuario)
     empresa = {}
     try:
@@ -6827,18 +6842,6 @@ async def transporte_v2_eliminar_viaje(
         if pid:
             query = query.eq("perfil_id", pid)
         rows = query.execute().data or []
-        if not rows and pid:
-            rows = (
-                _sb(token)
-                .table(TBL_VIAJES)
-                .select("*")
-                .eq("id", viaje_id)
-                .eq("user_id", uid)
-                .limit(1)
-                .execute()
-                .data
-                or []
-            )
         if not rows:
             raise HTTPException(404, "Movimiento Transporte v2 no encontrado.")
         row = rows[0]

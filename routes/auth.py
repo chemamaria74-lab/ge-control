@@ -10,15 +10,18 @@ CAMBIOS vs versión anterior:
 - `require_admin` usa `get_supabase_for_user` para no contaminar el singleton.
 - Firma pública idéntica a v1: el resto del código no cambia.
 """
+import hashlib
 import logging
 from typing import Optional, Literal
 
-from fastapi import APIRouter, Header, HTTPException, Depends
+from fastapi import APIRouter, Header, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from supabase import create_client
 
 from supabase_config import get_supabase, get_supabase_for_user, SUPABASE_URL, SUPABASE_KEY
+from services.observability import set_scope
+from services.security import client_ip, enforce_rate_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -219,6 +222,7 @@ def _resolve_active_module_access(user_id: str, section: str, access_token: Opti
             except (TypeError, ValueError):
                 perfil_int = 0
             if perfil_int and _active_profile_allowed_for_module(user_id, section, perfil_int, access_token=access_token):
+                set_scope(tenant_id=candidate.get("tenant_id"), company_id=perfil_int, actor_type="user")
                 return candidate
     if selected:
         selected["perfil_id"] = _first_marked_profile_for_module(user_id, section, access_token=access_token)
@@ -307,7 +311,7 @@ def resolve_profile_scope(
         if selected_int and usuario_tiene_acceso_perfil(user_id, section, selected_int, access_token=access_token):
             profile = _active_profile_allowed_for_module(user_id, section, selected_int, access_token=access_token) or {}
             data_user_id = profile.get("user_id") or user_id
-            return {
+            scope = {
                 "user_id": data_user_id,
                 "data_user_id": data_user_id,
                 "owner_user_id": data_user_id,
@@ -317,6 +321,8 @@ def resolve_profile_scope(
                 "profile": profile,
                 "access": acceso,
             }
+            set_scope(tenant_id=scope.get("tenant_id"), company_id=selected_int, actor_type="user")
+            return scope
     raise HTTPException(403, "Selecciona una empresa/perfil activo para este módulo.")
 
 
@@ -440,11 +446,26 @@ class LoginPayload(BaseModel):
 
 
 @router.post("/auth/login")
-async def login(payload: LoginPayload):
+async def login(payload: LoginPayload, request: Request):
     """Login contra Supabase Auth con validación de sección."""
     email = payload.username.strip().lower()
     if not email or not payload.password:
         raise HTTPException(status_code=400, detail="Usuario y contraseña son obligatorios.")
+
+    # Limit both the source and the account without retaining the email in the
+    # in-memory limiter or application logs. This is intentionally enforced
+    # before contacting the identity provider.
+    account_key = hashlib.sha256(email.encode("utf-8")).hexdigest()[:20]
+    enforce_rate_limit(
+        f"login:ip:{client_ip(request)}",
+        limit=20,
+        window_seconds=300,
+    )
+    enforce_rate_limit(
+        f"login:account:{account_key}",
+        limit=8,
+        window_seconds=300,
+    )
 
     requested = (payload.modulo or "gas_lp").strip().lower()
     if requested not in SECCIONES_VALIDAS:
@@ -456,7 +477,7 @@ async def login(payload: LoginPayload):
     try:
         auth_resp = sb.auth.sign_in_with_password({"email": email, "password": payload.password})
     except Exception as e:
-        logger.info("Login fallido para %s: %s", email, e)
+        logger.info("Login fallido account_hash=%s error_type=%s", account_key, type(e).__name__)
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos.")
 
     session = getattr(auth_resp, "session", None)
