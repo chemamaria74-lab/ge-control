@@ -53,6 +53,7 @@ from services.email_delivery import send_gas_lp_invoice_email
 from services.sw_sapien import build_carta_porte_xml, timbrar_cfdi
 from services.carta_porte_validation import validar_xml_carta_porte_transporte
 from supabase_config import get_supabase_admin
+from services.legacy_sqlite import legacy_sqlite_enabled, require_legacy_sqlite_enabled
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -82,10 +83,7 @@ GAS_LP_CP_DEFAULTS = {
     "descripcion_embalaje": "",
 }
 _SB_CLIENTES = "gas_lp_clientes_facturacion"
-_TRUE_VALUES = {"1", "true", "yes", "on", "si", "sí"}
-GAS_LP_SQLITE_READONLY = (os.environ.get("GAS_LP_SQLITE_READONLY") or "").strip().lower() in _TRUE_VALUES
-
-if GAS_LP_SQLITE_READONLY:
+if legacy_sqlite_enabled():
     logger.warning(
         "Gas LP SQLite legacy READONLY está habilitado. Usar solo para backfill/consulta "
         "temporal; producción debe operar contra Supabase gas_lp_*."
@@ -191,7 +189,7 @@ def _require_supabase_scope(scope: dict) -> None:
 
 
 def _legacy_sqlite_enabled() -> bool:
-    return GAS_LP_SQLITE_READONLY
+    return legacy_sqlite_enabled()
 
 
 def _legacy_not_found(entity: str) -> HTTPException:
@@ -921,6 +919,7 @@ def _cfg() -> dict:
 
 
 def _connect() -> sqlite3.Connection:
+    require_legacy_sqlite_enabled()
     con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     return con
