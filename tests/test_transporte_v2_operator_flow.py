@@ -47,6 +47,101 @@ def test_operator_trip_end_accepts_carta_porte_nested_schedule():
     assert scheduled.isoformat().startswith("2026-07-13T21:45:00")
 
 
+def test_admin_can_finalize_active_operator_trip(monkeypatch):
+    trip = {
+        "id": 65,
+        "user_id": "admin-1",
+        "perfil_id": 9,
+        "defaults_json": {
+            "bitacora_operador": {
+                "estado": "EN_CURSO",
+                "eventos": [{"accion": "INICIAR", "created_at": "2026-07-03T11:59:00-06:00"}],
+            }
+        },
+    }
+
+    class FakeQuery:
+        def __init__(self):
+            self.mode = "select"
+            self.payload = {}
+
+        def select(self, *_args):
+            self.mode = "select"
+            return self
+
+        def update(self, payload):
+            self.mode = "update"
+            self.payload = payload
+            return self
+
+        def eq(self, *_args):
+            return self
+
+        def limit(self, *_args):
+            return self
+
+        def execute(self):
+            data = [trip] if self.mode == "select" else [{**trip, **self.payload}]
+            return type("Result", (), {"data": data})()
+
+    class FakeSupabase:
+        def __init__(self):
+            self.query = FakeQuery()
+
+        def table(self, name):
+            assert name == transporte_v2.TBL_VIAJES
+            return self.query
+
+    monkeypatch.setattr(transporte_v2, "_auth", lambda _authorization: ("admin-1", "token"))
+    monkeypatch.setattr(transporte_v2, "_require_profile_if_present", lambda *_args: None)
+    monkeypatch.setattr(transporte_v2, "_sb", lambda _token: FakeSupabase())
+
+    result = asyncio.run(transporte_v2.transporte_v2_operator_dashboard_finalize(
+        65,
+        {"nota": "Corrección administrativa"},
+        authorization="Bearer token",
+        perfil_id=9,
+    ))
+
+    assert result["ok"] is True
+    assert result["bitacora"]["estado"] == "FINALIZADO"
+    assert result["bitacora"]["eventos"][-1]["accion"] == "FINALIZAR"
+    assert result["bitacora"]["eventos"][-1]["origen_evento"] == "ADMINISTRACION"
+    assert result["bitacora"]["eventos"][-1]["nota"] == "Corrección administrativa"
+
+
+def test_admin_cannot_finalize_trip_that_is_not_active(monkeypatch):
+    trip = {
+        "id": 65,
+        "user_id": "admin-1",
+        "perfil_id": 9,
+        "defaults_json": {"bitacora_operador": {"estado": "FINALIZADO", "eventos": []}},
+    }
+
+    class FakeQuery:
+        def select(self, *_args): return self
+        def eq(self, *_args): return self
+        def limit(self, *_args): return self
+        def execute(self): return type("Result", (), {"data": [trip]})()
+
+    class FakeSupabase:
+        def table(self, _name): return FakeQuery()
+
+    monkeypatch.setattr(transporte_v2, "_auth", lambda _authorization: ("admin-1", "token"))
+    monkeypatch.setattr(transporte_v2, "_require_profile_if_present", lambda *_args: None)
+    monkeypatch.setattr(transporte_v2, "_sb", lambda _token: FakeSupabase())
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(transporte_v2.transporte_v2_operator_dashboard_finalize(
+            65,
+            {},
+            authorization="Bearer token",
+            perfil_id=9,
+        ))
+
+    assert exc.value.status_code == 409
+
+
 def test_operator_trip_normalization_preserves_vehicle_invoice_and_assigned_status():
     row = {
         "id": 82,
