@@ -3,6 +3,8 @@ const TRV2_MONTHS = [
   ['5', 'Mayo'], ['6', 'Junio'], ['7', 'Julio'], ['8', 'Agosto'],
   ['9', 'Septiembre'], ['10', 'Octubre'], ['11', 'Noviembre'], ['12', 'Diciembre'],
 ];
+let TRV2_CV_EXTERNAL = [];
+let TRV2_CV_EXTERNAL_TYPE = 'carga';
 
 function trv2IsHydrocarbonProduct(text) {
   const value = String(text || '').toLowerCase();
@@ -185,8 +187,9 @@ function trv2BuildCvMovements() {
   const statusFilter = document.getElementById('trv2-cv-estado')?.value || '';
   const yearFilter = Number(document.getElementById('trv2-cv-anio')?.value || 0);
   const monthFilter = Number(document.getElementById('trv2-cv-mes')?.value || 0);
+  const sourceFilter = document.getElementById('trv2-cv-source')?.value || '';
 
-  return (TRV2_TRIPS || []).map(row => {
+  const systemMovements = (TRV2_TRIPS || []).map(row => {
     const productName = trv2TripRelatedLabel(row, 'productos', 'producto_descripcion') || 'Producto pendiente';
     const vehicleName = trv2TripRelatedLabel(row, 'vehiculos', 'vehiculo_alias') || 'Vehículo pendiente';
     const clientName = trv2TripRelatedLabel(row, 'clientes', 'cliente_nombre') || row.cliente_nombre || 'Cliente pendiente';
@@ -206,6 +209,7 @@ function trv2BuildCvMovements() {
       uuid,
       exportable,
       hydrocarbon: trv2IsHydrocarbonProduct(productName),
+      source: 'sistema',
     };
   }).filter(item => {
     if (productFilter && Number(item.row.producto_id) !== productFilter) return false;
@@ -214,8 +218,42 @@ function trv2BuildCvMovements() {
     if (item.status === 'cancelado') return false;
     if (item.date && yearFilter && item.date.getFullYear() !== yearFilter) return false;
     if (item.date && monthFilter && item.date.getMonth() + 1 !== monthFilter) return false;
+    if (sourceFilter && item.source !== sourceFilter) return false;
     return true;
   });
+  const externalMovements = (TRV2_CV_EXTERNAL || []).map(row => {
+    const date = row.fecha_hora ? new Date(row.fecha_hora) : null;
+    return {
+      row: {
+        ...row,
+        volumen_total_litros: row.volumen_litros,
+        productos_json: JSON.stringify([{
+          descripcion: row.producto,
+          clave_producto: row.clave_producto,
+          cantidad_litros: row.volumen_litros,
+          importe: row.importe,
+        }]),
+      },
+      date: date && !Number.isNaN(date.getTime()) ? date : null,
+      status: 'validado',
+      productName: row.producto || row.clave_producto || 'Producto externo',
+      vehicleName: 'Documento externo',
+      clientName: row.nombre_contraparte || row.rfc_contraparte || 'Contraparte',
+      permiso: row.num_permiso_cne || '',
+      uuid: row.uuid_cfdi || '',
+      exportable: trv2CvValidUuid(row.uuid_cfdi),
+      hydrocarbon: true,
+      source: 'externo',
+      movementType: row.tipo_movimiento || 'descarga',
+    };
+  }).filter(item => {
+    if (sourceFilter && item.source !== sourceFilter) return false;
+    if (permisoFilter && item.permiso && item.permiso !== permisoFilter) return false;
+    if (item.date && yearFilter && item.date.getFullYear() !== yearFilter) return false;
+    if (item.date && monthFilter && item.date.getMonth() + 1 !== monthFilter) return false;
+    return true;
+  });
+  return [...systemMovements, ...externalMovements];
 }
 
 function trv2CvMovementPermit(row = {}) {
@@ -266,68 +304,108 @@ function trv2RenderCvContext(movements) {
 function trv2RenderCvKpis(movements) {
   const kpis = document.getElementById('trv2-cv-kpis');
   if (!kpis) return;
-  const volume = movements.reduce((sum, item) => sum + Number(item.row.volumen_litros || 0), 0);
-  const exportableMovements = movements.filter(item => item.exportable);
-  const exportableVolume = exportableMovements.reduce((sum, item) => sum + Number(item.row.volumen_litros || 0), 0);
-  const alerts = movements.filter(item => item.status === 'alerta' || !item.exportable).length;
-  const cards = [
-    ['Volumen transportado', `${volume.toLocaleString('es-MX')} L`],
-    ['Cartas Porte timbradas', exportableMovements.length],
-    ['Pendientes de revisar', alerts],
-  ];
-  kpis.innerHTML = cards.map(([label, value]) => `
-    <article>
-      <span>${trv2Esc(label)}</span>
-      <strong>${trv2Esc(value)}</strong>
-    </article>
-  `).join('');
+  const entries = trv2CvEntries(movements);
+  const loads = entries.filter(item => item.type === 'carga');
+  const deliveries = entries.filter(item => item.type === 'descarga');
+  const loadVolume = loads.reduce((sum, item) => sum + item.volume, 0);
+  const deliveryVolume = deliveries.reduce((sum, item) => sum + item.volume, 0);
+  const finalVolume = Math.max(0, loadVolume - deliveryVolume);
+  const uniqueCartaPorte = new Set(movements.filter(item => item.source === 'sistema' && item.uuid).map(item => item.uuid)).size;
+  const externals = movements.filter(item => item.source === 'externo').length;
+  kpis.innerHTML = `
+    <article><span>Inventario inicial</span><strong>0 L</strong><small>Autotanque vacío</small></article>
+    <article><span>Cargas</span><strong>${trv2CvNumber(loadVolume)} L</strong><small>${loads.length} registros</small></article>
+    <article><span>Entregas</span><strong>${trv2CvNumber(deliveryVolume)} L</strong><small>${deliveries.length} registros</small></article>
+    <article><span>En tránsito / final</span><strong>${trv2CvNumber(finalVolume)} L</strong><small>${finalVolume ? 'Viajes sin descarga equivalente' : 'Existencia conciliada'}</small></article>
+    <article><span>Cartas Porte</span><strong>${uniqueCartaPorte}</strong><small>UUID únicos del sistema</small></article>
+    <article><span>Externos</span><strong>${externals}</strong><small>XML de otras plataformas</small></article>
+  `;
 }
 
-function trv2RenderCvTable(movements) {
-  const tbody = document.getElementById('trv2-cv-table');
-  if (!tbody) return;
-  if (!movements.length) {
-    tbody.innerHTML = '<tr><td colspan="11"><div class="trv2-empty">Sin movimientos para el periodo seleccionado.</div></td></tr>';
-    return;
+function trv2CvNumber(value, decimals = 2) {
+  return Number(value || 0).toLocaleString('es-MX', {maximumFractionDigits: decimals});
+}
+
+function trv2CvProductData(row = {}) {
+  let products = row.productos_json || row.productos || [];
+  if (typeof products === 'string') {
+    try { products = JSON.parse(products); } catch (_err) { products = []; }
   }
-  tbody.innerHTML = movements.map(item => {
-    const row = item.row;
-    const dateText = item.date ? item.date.toLocaleDateString('es-MX') : 'Pendiente';
-    const statusLabel = item.exportable ? 'Timbrado exportable' : (item.uuid ? 'UUID sin timbrado' : 'Pendiente Carta Porte');
-    const statusClass = item.exportable ? 'active' : 'warning';
-    return `
-      <tr>
-        <td>${trv2Esc(dateText)}</td>
-        <td>Viaje ${trv2Esc(typeof trv2TripDisplayNumber === 'function' ? (trv2TripDisplayNumber(row) || 'nuevo') : (row.id || 'nuevo'))}</td>
-        <td>${trv2Esc(item.clientName)}</td>
-        <td>${trv2Esc(item.productName)}</td>
-        <td>${Number(row.volumen_litros || 0).toLocaleString('es-MX')}</td>
-        <td>${trv2Esc(item.vehicleName)}</td>
-        <td>${trv2Esc(row.origen || 'Origen pendiente')}</td>
-        <td>${trv2Esc(row.destino || 'Destino pendiente')}</td>
-        <td>${trv2Esc(item.uuid || 'Pendiente')}</td>
-        <td><span class="trv2-status ${statusClass}">${trv2Esc(statusLabel)}</span></td>
-        <td>
-          ${item.exportable ? '<span class="trv2-muted">Timbrado</span>' : `<button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteDraftTrip(${Number(row.id || 0)})">Eliminar</button>`}
-        </td>
-      </tr>
-    `;
-  }).join('');
+  const first = Array.isArray(products) ? (products[0] || {}) : {};
+  return {
+    name: first.descripcion || first.producto || row.producto || row.clave_producto || 'Producto pendiente',
+    volume: Number(first.volumen_litros || first.cantidad_litros || row.volumen_total_litros || row.volumen_litros || 0),
+    amount: Number(first.importe || first.valor_mercancia || row.importe || 0),
+  };
 }
 
-async function trv2LoadControlVolumetrico() {
+function trv2CvEntries(movements = []) {
+  return movements.flatMap(item => {
+    const row = item.row || {};
+    const product = trv2CvProductData(row);
+    const base = {item, product: product.name, volume: product.volume, amount: product.amount};
+    if (item.source === 'externo') return [{
+      ...base,
+      type: item.movementType,
+      date: item.date,
+      counterpart: item.clientName,
+      uuid: item.uuid,
+      source: 'Externo',
+    }];
+    return [
+      {...base, type: 'carga', date: trv2CvTripDate(row), counterpart: row.nombre_origen || row.origen || 'Origen de carga', uuid: item.uuid, source: 'GE Control'},
+      {...base, type: 'descarga', date: row.fecha_hora_llegada ? new Date(row.fecha_hora_llegada) : trv2CvTripDate(row), counterpart: item.clientName || row.nombre_destino || 'Destino', uuid: item.uuid, source: 'GE Control'},
+    ];
+  });
+}
+
+function trv2RenderCvTables(movements) {
+  const entries = trv2CvEntries(movements);
+  const render = (id, type) => {
+    const tbody = document.getElementById(id);
+    if (!tbody) return;
+    const rows = entries.filter(item => item.type === type);
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="7"><div class="trv2-empty">Sin movimientos para el periodo seleccionado.</div></td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(entry => `
+      <tr>
+        <td>${trv2Esc(entry.date && !Number.isNaN(entry.date.getTime()) ? entry.date.toLocaleString('es-MX') : 'Pendiente')}</td>
+        <td>${trv2Esc(entry.counterpart)}</td>
+        <td><span class="trv2-service-uuid" title="${trv2Esc(entry.uuid)}">${trv2Esc(entry.uuid || 'Sin UUID')}</span></td>
+        <td>${trv2Esc(entry.product)}</td>
+        <td>${trv2CvNumber(entry.volume)}</td>
+        <td>${Number(entry.amount || 0).toLocaleString('es-MX', {style:'currency', currency:'MXN'})}</td>
+        <td><span class="trv2-status ${entry.source === 'Externo' ? 'warning' : 'active'}">${trv2Esc(entry.source)}</span></td>
+      </tr>
+    `).join('');
+  };
+  render('trv2-cv-loads-table', 'carga');
+  render('trv2-cv-deliveries-table', 'descarga');
+}
+
+async function trv2LoadControlVolumetrico(options = {}) {
   if (typeof trv2LoadPermisosRfc === 'function' && !(window.TRV2_PERMISOS_RFC || []).length) {
     await trv2LoadPermisosRfc();
   }
   trv2PopulateControlVolumetricoFilters();
   if (!TRV2_TRIPS.length) await trv2LoadTrips();
+  const year = Number(document.getElementById('trv2-cv-anio')?.value || new Date().getFullYear());
+  const month = Number(document.getElementById('trv2-cv-mes')?.value || (new Date().getMonth() + 1));
+  const periodo = `${year}-${String(month).padStart(2, '0')}`;
+  const external = await trv2Api('GET', `/api/tr-v2/control-volumetrico/externos?periodo=${encodeURIComponent(periodo)}`, undefined, {silent: true, allowError: true, force: Boolean(options.force)});
+  TRV2_CV_EXTERNAL = external?.movimientos || [];
   TRV2_CV_MOVEMENTS = trv2BuildCvMovements();
   trv2RenderCvContext(TRV2_CV_MOVEMENTS);
   trv2RenderCvKpis(TRV2_CV_MOVEMENTS);
-  trv2RenderCvTable(TRV2_CV_MOVEMENTS);
+  trv2RenderCvTables(TRV2_CV_MOVEMENTS);
   const alert = document.getElementById('trv2-cv-alert');
   if (alert) {
-    alert.textContent = 'Listo para cerrar mes y generar ZIP XML SAT con viajes timbrados del periodo.';
+    const invalid = TRV2_CV_MOVEMENTS.filter(item => !item.exportable).length;
+    alert.textContent = invalid
+      ? `${invalid} movimiento(s) requieren UUID timbrado antes de cerrar el mes.`
+      : 'Mes revisado. Cada Carta Porte del sistema genera una carga y su entrega por el mismo volumen; la existencia final debe ser 0 L.';
   }
 }
 
@@ -335,13 +413,57 @@ function trv2RefreshCvView() {
   TRV2_CV_MOVEMENTS = trv2BuildCvMovements();
   trv2RenderCvContext(TRV2_CV_MOVEMENTS);
   trv2RenderCvKpis(TRV2_CV_MOVEMENTS);
-  trv2RenderCvTable(TRV2_CV_MOVEMENTS);
+  trv2RenderCvTables(TRV2_CV_MOVEMENTS);
   const alert = document.getElementById('trv2-cv-alert');
   if (alert) {
     alert.textContent = trv2CvSelectedPermitValue()
-      ? 'Filtro actualizado. El ZIP XML SAT tomará únicamente viajes timbrados vigentes del periodo y permiso seleccionado.'
-      : 'Selecciona permiso y periodo para cerrar mes y generar ZIP XML SAT Transporte.';
+      ? 'Filtro actualizado. Revisa las cargas y entregas antes de cerrar el mes.'
+      : 'Selecciona permiso y periodo para preparar el reporte SAT Transporte.';
   }
+}
+
+function trv2ChooseCvExternal(type = 'carga') {
+  TRV2_CV_EXTERNAL_TYPE = type === 'carga' ? 'carga' : 'descarga';
+  const input = document.getElementById('trv2-cv-external-file');
+  if (input) {
+    input.value = '';
+    input.click();
+  }
+}
+
+async function trv2UploadCvExternal(event) {
+  const files = [...(event?.target?.files || [])];
+  if (!files.length) return;
+  const permit = trv2CvSelectedPermitValue();
+  if (!permit) {
+    trv2Toast('Selecciona primero el permiso del reporte.', 'error');
+    return;
+  }
+  const form = new FormData();
+  form.append('tipo_movimiento', TRV2_CV_EXTERNAL_TYPE);
+  form.append('num_permiso_cne', permit);
+  files.forEach(file => form.append('files', file));
+  const alert = document.getElementById('trv2-cv-alert');
+  if (alert) alert.textContent = 'Analizando e importando XML externos…';
+  const headers = {};
+  if (TRV2_TOKEN) headers.Authorization = `Bearer ${TRV2_TOKEN}`;
+  if (TRV2_PERFIL?.id) headers['X-Perfil-Id'] = String(TRV2_PERFIL.id);
+  const response = await fetch('/api/tr-v2/control-volumetrico/externos', {method: 'POST', headers, body: form});
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    const detail = data?.detail?.message || data?.detail || data?.message || 'No se pudieron importar los XML.';
+    const message = typeof detail === 'string' ? detail : JSON.stringify(detail);
+    if (alert) alert.textContent = message;
+    trv2Toast(message, 'error');
+    return;
+  }
+  trv2Toast(`${data.importados} movimiento(s) externo(s) importado(s).`, 'success');
+  await trv2LoadControlVolumetrico({force: true});
+}
+
+async function trv2CloseAndDownloadCvMonth() {
+  const closed = await trv2CloseCvMonth();
+  if (closed) await trv2GenerateCvReport('zip');
 }
 
 function trv2DownloadTextFile(filename, content, mime = 'application/json') {
@@ -377,10 +499,10 @@ async function trv2GenerateCvReport(format = 'zip') {
   const mes = Number(document.getElementById('trv2-cv-mes')?.value || 0);
   const alert = document.getElementById('trv2-cv-alert');
   if (!permiso || !anio || !mes) {
-    trv2Toast('Selecciona permiso, año y mes para generar XML SAT.', 'error');
+    trv2Toast('Selecciona permiso, año y mes para generar el paquete SAT.', 'error');
     return;
   }
-  if (alert) alert.textContent = 'Generando XML SAT Transporte...';
+  if (alert) alert.textContent = 'Generando ZIP con JSON y XML SAT Transporte…';
   const response = await trv2Api('POST', '/api/tr-v2/control-volumetrico/generar', {
     perfil_id: TRV2_PERFIL?.id || null,
     anio,
@@ -391,7 +513,7 @@ async function trv2GenerateCvReport(format = 'zip') {
     descripcion_instalacion: '',
   }, {allowError: true});
   if (!response?.ok) {
-    const detail = response?.detail || response?.message || 'No se pudo generar XML SAT Transporte.';
+    const detail = response?.detail || response?.message || 'No se pudo generar el paquete SAT Transporte.';
     const message = typeof detail === 'string' ? detail : JSON.stringify(detail);
     if (alert) alert.textContent = message;
     trv2Toast(message, 'error');
@@ -402,7 +524,7 @@ async function trv2GenerateCvReport(format = 'zip') {
   else if (format === 'json') trv2DownloadTextFile(response.json_name, response.json_content, 'application/json');
   else trv2DownloadBase64File(response.zip_name, response.zip_b64, 'application/zip');
   if (alert) alert.textContent = `Reporte ${response.periodo} generado para permiso ${response.num_permiso_cne}.`;
-  trv2Toast('XML SAT Transporte generado.', 'success');
+  trv2Toast('ZIP SAT Transporte generado.', 'success');
 }
 
 async function trv2CloseCvMonth() {
@@ -412,9 +534,9 @@ async function trv2CloseCvMonth() {
   const alert = document.getElementById('trv2-cv-alert');
   if (!permiso || !anio || !mes) {
     trv2Toast('Selecciona permiso, año y mes para cerrar el mes.', 'error');
-    return;
+    return false;
   }
-  if (!confirm(`Cerrar mes ${anio}-${String(mes).padStart(2, '0')} para el permiso ${permiso}?`)) return;
+  if (!confirm(`Cerrar mes ${anio}-${String(mes).padStart(2, '0')} para el permiso ${permiso}?`)) return false;
   if (alert) alert.textContent = 'Cerrando mes Transporte...';
   const response = await trv2Api('POST', '/api/tr-v2/control-volumetrico/cerrar-mes', {
     perfil_id: TRV2_PERFIL?.id || null,
@@ -429,10 +551,11 @@ async function trv2CloseCvMonth() {
     const message = typeof detail === 'string' ? detail : JSON.stringify(detail);
     if (alert) alert.textContent = message;
     trv2Toast(message, 'error');
-    return;
+    return false;
   }
-  if (alert) alert.textContent = `Mes ${response.periodo} cerrado para permiso ${response.num_permiso_cne}. Ya puedes descargar el ZIP XML.`;
+  if (alert) alert.textContent = `Mes ${response.periodo} cerrado para permiso ${response.num_permiso_cne}. Ya puedes descargar el ZIP JSON/XML.`;
   trv2Toast('Mes cerrado.', 'success');
+  return true;
 }
 
 function trv2ValidateCvDraft() {
@@ -446,7 +569,7 @@ function trv2ValidateCvDraft() {
     notExportable ? `${notExportable} movimiento(s) visibles no son exportables porque no están timbrados con UUID válido.` : 'Todos los movimientos filtrados están timbrados y con UUID válido.',
     missingUuid ? `${missingUuid} movimiento(s) sin UUID Carta Porte válido.` : 'UUID Carta Porte válido en movimientos exportables.',
     nonHydrocarbon ? `${nonHydrocarbon} movimiento(s) requieren confirmar si aplican a hidrocarburos/petrolíferos.` : 'Productos del periodo parecen compatibles con Control Volumétrico.',
-    'Exportar ZIP XML SAT tomará únicamente viajes timbrados vigentes del periodo.',
+    'El ZIP JSON/XML SAT tomará únicamente viajes timbrados vigentes y XML externos importados del periodo.',
   ].join(' ');
   if (alert) alert.textContent = message;
   trv2Toast('Borrador de Control Volumétrico validado.', notExportable ? 'error' : 'success');

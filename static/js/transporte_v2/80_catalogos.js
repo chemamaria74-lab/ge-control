@@ -191,9 +191,14 @@ const TRV2_CATALOG_FORMS = {
     ['alias', 'Número económico remolque'],
     ['placas', 'Placas remolque'],
     ['subtipo_remolque', 'Subtipo remolque SAT', 'trailer-subtype'],
+    ['fabricante', 'Fabricante del tanque'],
+    ['modelo', 'Modelo del tanque'],
+    ['anio', 'Año del tanque', 'number'],
+    ['numero_serie', 'Serie / número de fabricación'],
     ['permiso', 'Permiso'],
     ['aseguradora', 'Aseguradora'],
     ['poliza', 'Póliza'],
+    ['capacidad_litros', 'Capacidad del tanque al 90% (litros)', 'number'],
     ['peso_bruto', 'Peso bruto en toneladas', 'number'],
     ['activo', 'Activo', 'checkbox'],
   ],
@@ -294,7 +299,7 @@ const TRV2_CATALOG_UI = {
     title: 'Remolques',
     subtitle: 'Semirremolques y remolques para configuraciones T2S/T3S.',
     metrics: [['Registros', 'count'], ['Con placas', 'placas'], ['Con subtipo', 'subtipo_remolque']],
-    fields: [['Placas', 'placas'], ['Subtipo', 'subtipo_remolque'], ['Permiso', 'permiso'], ['Seguro', 'poliza']],
+    fields: [['Placas', 'placas'], ['Subtipo', 'subtipo_remolque'], ['Fabricante', 'fabricante'], ['Año', 'anio'], ['Serie', 'numero_serie'], ['Capacidad 90%', 'capacidad_litros'], ['Permiso', 'permiso'], ['Seguro', 'poliza']],
   },
   productos: {
     icon: 'fa-gas-pump',
@@ -1671,6 +1676,8 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
     data.metadata.vehiculo_asignado_id = data.vehiculo_frecuente_id;
   }
   if (name === 'remolques') {
+    const current = itemId ? trv2FindCatalog('remolques', itemId) : null;
+    const existingMeta = current?.metadata && typeof current.metadata === 'object' ? current.metadata : {};
     const economico = data.alias || data.numero_economico || '';
     if (economico) {
       data.alias = economico;
@@ -1689,6 +1696,14 @@ async function trv2CreateCatalogItem(event, explicitName = '') {
       data.poliza_seguro = data.poliza;
     }
     if (data.peso_bruto) data.peso_bruto_toneladas = data.peso_bruto;
+    data.metadata = {
+      ...existingMeta,
+      fabricante: data.fabricante || existingMeta.fabricante || '',
+      modelo: data.modelo || existingMeta.modelo || '',
+      anio: Number(data.anio || existingMeta.anio || 0) || null,
+      numero_serie: data.numero_serie || existingMeta.numero_serie || '',
+      capacidad_litros: Number(data.capacidad_litros || existingMeta.capacidad_litros || 0),
+    };
   }
   if (name === 'rutas') {
     const origen = trv2FindCatalog('origenes', data.origen_id);

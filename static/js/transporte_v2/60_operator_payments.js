@@ -3,9 +3,10 @@ let TRV2_OPERATOR_TARIFFS = [];
 let TRV2_OPERATOR_PAYMENT_SELECTED = 0;
 let TRV2_OPERATOR_PAYMENT_INITIALIZED = false;
 let TRV2_OPERATOR_PAYMENT_VIEW = 'liquidaciones';
+let TRV2_OPERATOR_TARIFF_RETURN_VIEW = '';
 
 function trv2SetOperatorPaymentView(view = 'liquidaciones') {
-  TRV2_OPERATOR_PAYMENT_VIEW = view === 'ruta' ? 'ruta' : 'liquidaciones';
+  TRV2_OPERATOR_PAYMENT_VIEW = ['liquidaciones', 'tarifas', 'ruta'].includes(view) ? view : 'liquidaciones';
   document.querySelectorAll('[data-payment-tab]').forEach(button => {
     button.classList.toggle('active', button.dataset.paymentTab === TRV2_OPERATOR_PAYMENT_VIEW);
   });
@@ -14,6 +15,7 @@ function trv2SetOperatorPaymentView(view = 'liquidaciones') {
   });
   const exportButton = document.getElementById('trv2-payment-export');
   if (exportButton) exportButton.hidden = TRV2_OPERATOR_PAYMENT_VIEW !== 'liquidaciones';
+  if (TRV2_OPERATOR_PAYMENT_VIEW === 'tarifas') trv2RenderOperatorTariffs();
   if (TRV2_OPERATOR_PAYMENT_VIEW === 'ruta' && typeof trv2LoadOperatorDashboard === 'function') trv2LoadOperatorDashboard();
 }
 
@@ -214,7 +216,11 @@ function trv2ShowOperatorPaymentDetail(operatorId) {
       <td class="trv2-num">${item.sin_tarifa ? '—' : `${trv2ServiceNumber(item.cantidad_acumulada)} ${trv2Esc(item.base || '')}`}</td>
       <td class="trv2-num"><strong>${item.sin_tarifa ? '—' : trv2ServiceMoney(item.total_acumulado)}</strong></td>
       <td>${item.ya_liquidado ? '<span class="trv2-status active">Liquidado</span>' : (item.sin_tarifa ? '<span class="trv2-status inactive">Sin tarifa</span>' : '<span class="trv2-status">Pendiente</span>')}</td>
-    </tr>`).join('');
+      <td><div class="trv2-row-actions">${item.tarifa_id
+        ? `<button class="trv2-mini-btn" type="button" onclick="trv2EditOperatorTariff(${Number(item.tarifa_id)}, 'liquidaciones')">Editar tarifa</button>`
+        : `<button class="trv2-mini-btn trv2-mini-btn-primary" type="button" ${item.ruta_id ? '' : 'disabled title="El viaje no tiene una ruta asignada"'} onclick="trv2CreateOperatorTariffFromDetail(${Number(item.ruta_id || 0)}, ${Number(item.operador_id || 0)})">Asignar tarifa</button>`}
+      </div></td>
+    </tr>`).join('') || '<tr><td colspan="9"><div class="trv2-empty">No hay viajes para mostrar.</div></td></tr>';
   panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
 }
 
@@ -260,13 +266,15 @@ function trv2RenderOperatorTariffs() {
   }).join('') : '<tr><td colspan="8"><div class="trv2-empty">Todavía no hay tarifas para operadores.</div></td></tr>';
 }
 
-function trv2OpenOperatorTariffForm(item = null) {
+function trv2OpenOperatorTariffForm(item = null, defaults = {}, returnView = '') {
   const form = document.getElementById('trv2-operator-tariff-form');
   if (!form) return;
+  TRV2_OPERATOR_TARIFF_RETURN_VIEW = returnView;
+  form.reset();
   form.hidden = false;
   document.getElementById('trv2-operator-tariff-id').value = item?.id || '';
-  document.getElementById('trv2-operator-tariff-route').value = item?.ruta_id || '';
-  document.getElementById('trv2-operator-tariff-operator').value = item?.operador_id || '';
+  document.getElementById('trv2-operator-tariff-route').value = item?.ruta_id || defaults.ruta_id || '';
+  document.getElementById('trv2-operator-tariff-operator').value = item?.operador_id || defaults.operador_id || '';
   document.getElementById('trv2-operator-tariff-mode').value = item?.modalidad || 'viaje';
   document.getElementById('trv2-operator-tariff-rate').value = item?.tarifa || '';
   document.getElementById('trv2-operator-tariff-km').value = item?.distancia_km || '';
@@ -274,15 +282,22 @@ function trv2OpenOperatorTariffForm(item = null) {
   document.getElementById('trv2-operator-tariff-from').value = String(item?.vigencia_desde || '').slice(0, 10);
   document.getElementById('trv2-operator-tariff-to').value = String(item?.vigencia_hasta || '').slice(0, 10);
   document.getElementById('trv2-operator-tariff-notes').value = item?.notas || '';
+  const title = document.getElementById('trv2-operator-tariff-form-title');
+  const submit = document.getElementById('trv2-operator-tariff-submit');
+  if (title) title.textContent = item ? 'Editar tarifa' : 'Nueva tarifa';
+  if (submit) submit.textContent = item ? 'Guardar cambios' : 'Guardar tarifa';
   trv2ToggleOperatorTariffBase();
   form.scrollIntoView({behavior: 'smooth', block: 'nearest'});
 }
 
-function trv2CloseOperatorTariffForm() {
+function trv2CloseOperatorTariffForm(restoreView = true) {
   const form = document.getElementById('trv2-operator-tariff-form');
   if (form) { form.reset(); form.hidden = true; }
   const id = document.getElementById('trv2-operator-tariff-id');
   if (id) id.value = '';
+  const returnView = TRV2_OPERATOR_TARIFF_RETURN_VIEW;
+  TRV2_OPERATOR_TARIFF_RETURN_VIEW = '';
+  if (restoreView && returnView) trv2SetOperatorPaymentView(returnView);
 }
 
 function trv2ToggleOperatorTariffBase() {
@@ -299,9 +314,17 @@ function trv2SyncOperatorTariffBase() {
   if (hours && !Number(hours.value || 0)) hours.value = Number(route.duracion_estimada_min || 0) ? (Number(route.duracion_estimada_min) / 60).toFixed(2) : '';
 }
 
-function trv2EditOperatorTariff(id) {
+function trv2EditOperatorTariff(id, returnView = '') {
   const item = TRV2_OPERATOR_TARIFFS.find(row => Number(row.id) === Number(id));
-  if (item) trv2OpenOperatorTariffForm(item);
+  if (!item) return trv2Toast('No se encontró la tarifa seleccionada.', 'error');
+  trv2SetOperatorPaymentView('tarifas');
+  trv2OpenOperatorTariffForm(item, {}, returnView);
+}
+
+function trv2CreateOperatorTariffFromDetail(routeId, operatorId) {
+  if (!Number(routeId || 0)) return trv2Toast('Asigna una ruta al viaje antes de configurar su tarifa.', 'error');
+  trv2SetOperatorPaymentView('tarifas');
+  trv2OpenOperatorTariffForm(null, {ruta_id: Number(routeId), operador_id: Number(operatorId || 0)}, 'liquidaciones');
 }
 
 async function trv2SaveOperatorTariff(event) {
@@ -322,9 +345,14 @@ async function trv2SaveOperatorTariff(event) {
   const response = await trv2Api(id ? 'PUT' : 'POST', id ? `/api/tr-v2/operator-payments/tariffs/${id}` : '/api/tr-v2/operator-payments/tariffs', {perfil_id: TRV2_PERFIL?.id || null, data}, {allowError: true});
   if (!response?.ok) return trv2Toast(response?.detail || response?.message || 'No se pudo guardar la tarifa del operador.', 'error');
   trv2Toast('Tarifa de operador guardada.', 'success');
-  trv2CloseOperatorTariffForm();
+  const returnView = TRV2_OPERATOR_TARIFF_RETURN_VIEW;
+  trv2CloseOperatorTariffForm(false);
   await trv2LoadOperatorTariffs({force: true});
   await trv2LoadOperatorPayments({force: true});
+  if (returnView) {
+    trv2SetOperatorPaymentView(returnView);
+    if (returnView === 'liquidaciones' && TRV2_OPERATOR_PAYMENT_SELECTED) trv2ShowOperatorPaymentDetail(TRV2_OPERATOR_PAYMENT_SELECTED);
+  }
 }
 
 async function trv2DeactivateOperatorTariff(id) {

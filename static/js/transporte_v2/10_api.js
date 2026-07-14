@@ -12,7 +12,12 @@ function trv2AuthMessage(status = 0) {
 }
 
 function trv2SaveProfile(profile) {
+  const previousProfileId = Number(TRV2_PERFIL?.id || 0);
   TRV2_PERFIL = profile || null;
+  if (previousProfileId !== Number(TRV2_PERFIL?.id || 0) && typeof TRV2_SERVICE_SEARCHED !== 'undefined') {
+    Object.keys(TRV2_SERVICE_SEARCHED).forEach(key => { TRV2_SERVICE_SEARCHED[key] = false; });
+    if (typeof TRV2_SERVICE_LOADED !== 'undefined') TRV2_SERVICE_LOADED = false;
+  }
   if (TRV2_PERFIL?.id) {
     localStorage.setItem(TRV2_PROFILE_KEY, JSON.stringify(TRV2_PERFIL));
     localStorage.setItem('trv2_perfil', JSON.stringify(TRV2_PERFIL));
@@ -337,7 +342,7 @@ async function trv2BootstrapAuth() {
   } catch (err) {
     console.warn('[Transporte v2] Sesión no válida', err);
     TRV2_AUTH_MODE = 'required';
-    trv2BlockAdmin('No se pudo validar la sesión global. Vuelve a entrar desde /choice.');
+    trv2BlockAdmin('No se pudo validar la sesión. Vuelve a entrar al acceso de administrador de Transporte.');
     return false;
   }
 }
@@ -367,7 +372,7 @@ async function trv2Logout() {
   TRV2_PERFIL = null;
   TRV2_AUTH_MODE = 'required';
   TRV2_ADMIN_READY = false;
-  location.href = '/choice';
+  location.href = '/transporte-v2/login-admin?next=/transporte-v2/admin';
 }
 
 async function trv2RefreshAll() {

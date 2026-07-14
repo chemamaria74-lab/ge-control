@@ -2,6 +2,7 @@
     let TRV2_OPERATOR_META = {};
     let TRV2_OPERATOR_PREPARED = null;
     let TRV2_OPERATOR_CREATING_TRIP = false;
+    let TRV2_OPERATOR_END_TIMER = null;
     function trv2OperadorToken() { return localStorage.getItem('trv2_operator_token') || ''; }
     function trv2OperadorHeaders() { return {Authorization: `Bearer ${trv2OperadorToken()}`}; }
     async function trv2OperadorFetch(path) {
@@ -26,7 +27,7 @@
     function trv2OperadorLogout() {
       localStorage.removeItem('trv2_operator_token');
       localStorage.removeItem('trv2_operator_profile');
-      location.href = '/transporte-v2/roles';
+      location.href = '/transporte-v2/login-operador?next=/transporte-v2/operador';
     }
     function trv2OpEsc(value) {
       return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -96,6 +97,7 @@
       const status = document.getElementById('trv2-operator-trip-status');
       const content = document.querySelectorAll('.operator-content');
       if (!data?.has_trip || !TRV2_OPERATOR_TRIP) {
+        trv2OperadorClearEndTimer();
         noTrip?.classList.add('show');
         content.forEach(el => el.classList.add('hidden'));
         if (status) status.innerHTML = '<i class="fa-solid fa-circle"></i> Sin viaje';
@@ -156,6 +158,44 @@
       trv2OperadorRenderInvoice();
     }
     function trv2OperadorBitacoraEstado() { return TRV2_OPERATOR_META.bitacora_operador?.estado || 'SIN_INICIAR'; }
+    function trv2OperadorClearEndTimer() {
+      if (TRV2_OPERATOR_END_TIMER) clearTimeout(TRV2_OPERATOR_END_TIMER);
+      TRV2_OPERATOR_END_TIMER = null;
+    }
+    function trv2OperadorScheduledEnd() {
+      const values = [
+        TRV2_OPERATOR_TRIP?.fecha_hora_llegada,
+        TRV2_OPERATOR_TRIP?.fecha_llegada_estimada,
+        TRV2_OPERATOR_META.fecha_hora_llegada,
+        TRV2_OPERATOR_META.fecha_llegada_estimada,
+        TRV2_OPERATOR_META.fecha_llegada,
+        TRV2_OPERATOR_META.carta_porte?.fecha_hora_llegada,
+        TRV2_OPERATOR_META.fechas?.llegada_estimada,
+      ];
+      for (const value of values) {
+        if (!value) continue;
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) return parsed;
+      }
+      return null;
+    }
+    async function trv2OperadorRefreshScheduledEnd() {
+      TRV2_OPERATOR_END_TIMER = null;
+      if (trv2OperadorBitacoraEstado() !== 'SIN_INICIAR') return;
+      const response = await fetch('/api/tr-v2/operator/mi-viaje', {headers: trv2OperadorHeaders()});
+      const data = await trv2OperadorReadResponse(response);
+      if (!response.ok || data.ok === false) return;
+      trv2OperadorRenderTrip(data);
+      if (!data.has_trip) trv2OperadorToast('El horario de fin de Carta Porte concluyó este viaje.');
+    }
+    function trv2OperadorScheduleEndCheck() {
+      trv2OperadorClearEndTimer();
+      if (trv2OperadorBitacoraEstado() !== 'SIN_INICIAR') return;
+      const scheduledEnd = trv2OperadorScheduledEnd();
+      if (!scheduledEnd) return;
+      const delay = Math.max(0, scheduledEnd.getTime() - Date.now() + 250);
+      TRV2_OPERATOR_END_TIMER = setTimeout(trv2OperadorRefreshScheduledEnd, Math.min(delay, 2147483000));
+    }
     function trv2OperadorRenderBitacora() {
       const estado = trv2OperadorBitacoraEstado();
       const status = document.getElementById('trv2-operator-log-status');
@@ -165,12 +205,13 @@
       const buttons = {
         SIN_INICIAR: [['INICIAR','Iniciar viaje','primary'], ['DOWNLOAD_PDF','Descargar PDF','']],
         EN_CURSO: [['DESCANSO','Descanso','warning'], ['INCIDENCIA','Incidencia',''], ['DOWNLOAD_PDF','Descargar PDF',''], ['FINALIZAR','Finalizar viaje','danger final']],
-        DESCANSO: [['REANUDAR','Reanudar','ok'], ['INCIDENCIA','Incidencia',''], ['DOWNLOAD_PDF','Descargar PDF','']],
+        DESCANSO: [['REANUDAR','Reanudar','ok'], ['INCIDENCIA','Incidencia',''], ['DOWNLOAD_PDF','Descargar PDF',''], ['FINALIZAR','Finalizar viaje','danger final']],
         FINALIZADO: [['VIEW_PDF','Ver PDF',''], ['DOWNLOAD_PDF','Descargar PDF','']],
       }[estado] || [];
       if (actions) actions.innerHTML = buttons.map(([action, label, klass]) => `<button class="${klass}" type="button" onclick="trv2OperadorBitacora('${action}')">${trv2OpEsc(label)}</button>`).join('');
       const eventos = TRV2_OPERATOR_META.bitacora_operador?.eventos || [];
       if (history) history.innerHTML = eventos.slice(-6).map(ev => `<li>${trv2OpEsc(trv2OperadorFormatDate(ev.created_at))} · ${trv2OpEsc(ev.accion || '')} ${trv2OpEsc(ev.nota || '')}</li>`).join('');
+      trv2OperadorScheduleEndCheck();
     }
     async function trv2OperadorInit() {
       const me = await trv2OperadorFetch('/api/tr-v2/operator/me');

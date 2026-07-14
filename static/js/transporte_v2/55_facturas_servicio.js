@@ -23,7 +23,28 @@ function trv2PrepareServiceInvoiceTab() {
     monthInput.hidden = false;
     monthInput.value = TRV2_SERVICE_MONTH;
   }
+  if (!Object.values(TRV2_SERVICE_SEARCHED).some(Boolean)) {
+    trv2RenderServiceUnsearched();
+    return;
+  }
   trv2RenderServiceInvoices();
+}
+
+function trv2RenderServiceUnsearched() {
+  const target = document.getElementById('trv2-service-invoice-kpis');
+  if (target) target.innerHTML = `
+    <article><span>Pendientes de Facturar</span><strong>0</strong></article>
+    <article><span>Facturadas</span><strong>0</strong></article>
+    <article><span>Pendientes de pago</span><strong>0</strong></article>
+  `;
+  const dashboard = document.getElementById('trv2-service-family-dashboard');
+  if (dashboard) dashboard.innerHTML = '';
+  ['pendientes', 'facturadas', 'pago'].forEach(key => {
+    const table = document.getElementById(`trv2-service-table-${key}`);
+    if (table) table.hidden = true;
+  });
+  const results = document.getElementById('trv2-service-results');
+  if (results) results.classList.add('trv2-awaiting-search');
 }
 
 function trv2ServiceStorageKey(base) {
@@ -108,6 +129,7 @@ async function trv2SearchServiceInvoices(tab = TRV2_SERVICE_TAB) {
     const table = document.getElementById(`trv2-service-table-${key}`);
     if (table) table.hidden = false;
   });
+  document.getElementById('trv2-service-results')?.classList.remove('trv2-awaiting-search');
   trv2SetServiceInvoiceTab(targetTab);
   trv2RenderServiceInvoices();
 }
@@ -1282,6 +1304,10 @@ async function trv2LoadServiceInvoices(options = {}) {
 }
 
 function trv2RenderServiceInvoices() {
+  if (!Object.values(TRV2_SERVICE_SEARCHED).some(Boolean)) {
+    trv2RenderServiceUnsearched();
+    return;
+  }
   trv2PopulateServiceTariffSelects();
   trv2RenderServiceTariffs();
   trv2RenderServicePendingTable();
