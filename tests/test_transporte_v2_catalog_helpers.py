@@ -4,15 +4,113 @@ from pathlib import Path
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "dummy")
 
+from routes import transporte_v2
 from routes.transporte_v2 import (
     _detect_xml_document,
     _expand_client_contact_metadata,
     _normalize_catalog_row,
     _normalize_permiso_row,
+    _operator_payment_dates,
+    _operator_payment_tariff_for_trip,
+    _operator_tariff_payload,
     _permiso_payload,
     _permiso_product_family_match,
     _stamp_internal_product_keys,
 )
+
+
+def test_operator_payment_tariff_prefers_operator_override_over_route_default():
+    tariffs = [
+        {"id": 1, "ruta_id": 9, "operador_id": None, "tarifa": 700, "vigencia_desde": "2026-01-01"},
+        {"id": 2, "ruta_id": 9, "operador_id": 4, "tarifa": 850, "vigencia_desde": "2026-06-01"},
+    ]
+
+    selected = _operator_payment_tariff_for_trip(tariffs, operador_id=4, ruta_id=9, trip_date="2026-07-13")
+
+    assert selected["id"] == 2
+    assert selected["tarifa"] == 850
+
+
+def test_operator_tariff_is_separate_and_supports_three_payment_modes():
+    for mode in ("viaje", "kilometro", "hora"):
+        row = _operator_tariff_payload({"ruta_id": 3, "modalidad": mode, "tarifa": 125.50})
+        assert row["ruta_id"] == 3
+        assert row["modalidad"] == mode
+        assert row["tarifa"] == 125.50
+
+
+def test_operator_payment_date_range_is_inclusive_of_last_day():
+    start, exclusive_end = _operator_payment_dates("2026-07-01", "2026-07-15")
+
+    assert start.isoformat().startswith("2026-07-01")
+    assert exclusive_end.isoformat().startswith("2026-07-16")
+
+
+def test_operator_payment_screen_replaces_invoice_reconciliation():
+    root = Path(__file__).parents[1]
+    template = (root / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
+    frontend = (root / "static/js/transporte_v2/60_operator_payments.js").read_text(encoding="utf-8")
+
+    section = template.split('id="trv2-tab-conciliacion"', 1)[1].split('id="trv2-tab-reportes-sat"', 1)[0]
+    admin_section = template.split('id="trv2-tab-administracion"', 1)[1]
+    assert "Pago operadores" in template
+    assert "Liquidación de operadores" in section
+    assert "Facturas" not in section
+    assert "Cartas Porte" not in section
+    assert 'data-payment-tab="ruta"' in section
+    assert 'id="trv2-operator-dashboard-list"' in section
+    assert 'data-admin-tab="operadores-ruta"' not in admin_section
+    assert 'data-admin-panel="operadores-ruta"' not in admin_section
+    assert "operator-payments/preview" in frontend
+    assert "operator-payments/export.xlsx" in frontend
+
+
+def test_catalog_bootstrap_validates_once_and_expands_routes_without_extra_queries(monkeypatch):
+    auth_calls = []
+    access_calls = []
+    catalog_calls = []
+
+    monkeypatch.setattr(transporte_v2, "_auth", lambda authorization: auth_calls.append(authorization) or ("user-1", "token-1"))
+    monkeypatch.setattr(
+        transporte_v2,
+        "_require_profile_if_present",
+        lambda uid, token, perfil_id: access_calls.append((uid, token, perfil_id)),
+    )
+
+    items = {
+        "origenes": [{"id": 10, "nombre": "Terminal", "cp": "98057", "rfc": "AAA010101AAA"}],
+        "destinos": [{"id": 20, "nombre": "Cliente", "cp": "98604", "rfc": "BBB010101BBB"}],
+        "rutas": [{"id": 30, "origen_id": 10, "destino_id": 20, "distancia_km": 100}],
+    }
+
+    def fake_select(token, uid, name, perfil_id, *, expand_routes=True):
+        catalog_calls.append((token, uid, name, perfil_id, expand_routes))
+        return {"ok": True, "items": items.get(name, []), "read_only": True}
+
+    monkeypatch.setattr(transporte_v2, "_select_catalog", fake_select)
+
+    result = transporte_v2.transporte_v2_catalogos_bootstrap(
+        authorization="Bearer token-1",
+        perfil_id=7,
+    )
+
+    assert auth_calls == ["Bearer token-1"]
+    assert access_calls == [("user-1", "token-1", 7)]
+    assert {call[2] for call in catalog_calls} == set(transporte_v2.TRV2_BOOTSTRAP_CATALOGS)
+    assert all(call[4] is False for call in catalog_calls)
+    route = result["catalogs"]["rutas"]["items"][0]
+    assert route["origen"] == "Terminal"
+    assert route["destino"] == "Cliente"
+    assert route["cp_origen"] == "98057"
+    assert route["cp_destino"] == "98604"
+
+
+def test_catalog_frontend_uses_bootstrap_with_individual_fallback():
+    source = (Path(__file__).parents[1] / "static/js/transporte_v2/80_catalogos.js").read_text(encoding="utf-8")
+
+    assert "'/api/tr-v2/catalogos/bootstrap'" in source
+    assert "if (bootstrap?.ok && bootstrap.catalogs)" in source
+    assert "`/api/tr-v2/catalogos/${name}`" in source
 
 
 def test_cartas_ingreso_priorizan_tarifa_de_ruta_aunque_varie_producto_operativo():
