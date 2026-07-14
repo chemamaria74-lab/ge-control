@@ -184,20 +184,22 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-service-pay-icon.pending{border-color:#f1d8b6;background:#fffaf1;color:#8a1d2c}
 .trv2-service-generated-table{width:100%;table-layout:fixed}
 .trv2-service-generated-table th,.trv2-service-generated-table td{padding:10px 12px;vertical-align:middle}
-.trv2-service-invoiced-grid{min-width:1180px}
+.trv2-service-invoiced-grid{min-width:1460px}
 .trv2-service-invoiced-grid .trv2-col-date{width:86px}
 .trv2-service-invoiced-grid .trv2-col-origin{width:130px}
 .trv2-service-invoiced-grid .trv2-col-destination{width:170px}
 .trv2-service-invoiced-grid .trv2-col-liters{width:86px}
 .trv2-service-invoiced-grid .trv2-col-kilos{width:96px}
 .trv2-service-invoiced-grid .trv2-col-driver{width:150px}
+.trv2-service-invoiced-grid .trv2-col-cp-date{width:92px}
+.trv2-service-invoiced-grid .trv2-col-cp-folio{width:112px}
 .trv2-service-invoiced-grid .trv2-col-folio{width:88px}
 .trv2-service-invoiced-grid .trv2-col-uuid{width:132px}
 .trv2-service-invoiced-grid .trv2-col-total{width:112px}
 .trv2-service-invoiced-grid .trv2-col-payment{width:58px}
 .trv2-service-invoiced-grid .trv2-col-actions{width:168px}
-.trv2-service-invoiced-grid th:nth-child(10),.trv2-service-invoiced-grid td:nth-child(10){text-align:center;padding-left:6px;padding-right:6px}
-.trv2-service-invoiced-grid th:nth-child(11),.trv2-service-invoiced-grid td:nth-child(11){text-align:center}
+.trv2-service-invoiced-grid th:nth-child(12),.trv2-service-invoiced-grid td:nth-child(12){text-align:center;padding-left:6px;padding-right:6px}
+.trv2-service-invoiced-grid th:nth-child(13),.trv2-service-invoiced-grid td:nth-child(13){text-align:center}
 .trv2-service-payment-grid{min-width:920px}
 .trv2-service-payment-grid .trv2-col-client{width:220px}
 .trv2-service-payment-grid .trv2-col-folio{width:110px}
