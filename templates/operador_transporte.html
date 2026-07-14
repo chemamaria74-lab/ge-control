@@ -131,7 +131,7 @@
       if (accion === 'problema') nota = prompt('Describe brevemente el problema para oficina:') || '';
       try{await api(`/api/tr/operador/viajes/${id}/accion`,{method:'POST',body:{accion, nota}});toast('Actualizado');load()}catch(e){toast(e.message)}
     }
-    function logout(){ location.href='/choice'; }
+    function logout(){ location.href='/transporte-v2/login-operador?next=/transporte-v2/operador'; }
     load();
   </script>
 </body>
