@@ -1,4 +1,7 @@
 // ── Ventas Analytics ──────────────────────────────────────────────────────
+const VENTAS_ANALYTICS_CACHE_TTL = 5 * 60 * 1000;
+const ventasAnalyticsCache = new Map();
+
 (function() {
   const sel = document.getElementById('ventasYear');
   const now = new Date().getFullYear();
@@ -42,19 +45,41 @@ async function loadVentasAnalytics() {
   document.getElementById('ventasNoData').style.display = 'none';
   let url = '/api/analytics/ventas?year=' + year;
   if (facId) url += '&facility_id=' + facId;
+  const cacheKey = `${perfilId() || 0}:${year}:${facId || 'all'}`;
   try {
-    const res  = await fetch(url, { headers: authHeader() });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'No fue posible consultar el Dashboard.');
+    const cached = ventasAnalyticsCache.get(cacheKey);
+    let data = cached && Date.now() - cached.at < VENTAS_ANALYTICS_CACHE_TTL ? cached.data : null;
+    if (!data) {
+      const res = await fetch(url, { headers: authHeader() });
+      data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'No fue posible consultar el Dashboard.');
+      ventasAnalyticsCache.set(cacheKey, {at: Date.now(), data});
+    }
     document.getElementById('ventasSearchPrompt').style.display = 'none';
     document.getElementById('ventasResults').style.display = '';
-    renderVentasCharts(data.monthly || [], data.capacidad || null);
+    renderVentasCharts(data.monthly || [], data.capacidad || null, data.capacidad_alerta || null);
     st.textContent = 'Consulta realizada ' + new Date().toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'});
   } catch(e) {
     st.textContent = e.message || 'Error al consultar datos.';
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i> Buscar'; }
   }
+}
+
+function restoreVentasSearchView() {
+  const year = document.getElementById('ventasYear')?.value || '';
+  const facId = parseInt(document.getElementById('ventasFacility')?.value || '') || '';
+  const cacheKey = `${perfilId() || 0}:${year}:${facId || 'all'}`;
+  const cached = ventasAnalyticsCache.get(cacheKey);
+  if (!cached || Date.now() - cached.at >= VENTAS_ANALYTICS_CACHE_TTL) {
+    resetVentasSearchView();
+    return;
+  }
+  document.getElementById('ventasSearchPrompt').style.display = 'none';
+  document.getElementById('ventasResults').style.display = '';
+  renderVentasCharts(cached.data.monthly || [], cached.data.capacidad || null, cached.data.capacidad_alerta || null);
+  const status = document.getElementById('ventasStatus');
+  if (status) status.textContent = 'Resultado conservado temporalmente (5 min).';
 }
 
 function resetVentasSearchView() {
@@ -66,11 +91,15 @@ function resetVentasSearchView() {
   if (status) status.textContent = '';
 }
 
+function invalidateVentasAnalyticsCache() {
+  ventasAnalyticsCache.clear();
+}
+
 ['ventasYear', 'ventasFacility'].forEach(id => {
   document.getElementById(id)?.addEventListener('change', resetVentasSearchView);
 });
 
-function renderVentasCharts(monthly, capacidad) {
+function renderVentasCharts(monthly, capacidad, capacidadAlerta) {
   const totalLitros    = monthly.reduce((s,m) => s + m.litros,     0);
   const totalPesos     = monthly.reduce((s,m) => s + m.pesos,      0);
   const totalLitrosRec = monthly.reduce((s,m) => s + m.litros_rec, 0);
@@ -186,7 +215,7 @@ function renderVentasCharts(monthly, capacidad) {
   // ── Line chart: Inventario final (almacenamiento) ───────────────────────
   const svgInv = document.getElementById('lineChartInv');
   svgInv.innerHTML = '';
-  const maxInv = Math.max(...monthly.map(m => m.inv_final || 0), capacidad || 0, 1);
+  const maxInv = Math.max(...monthly.map(m => m.inv_final || 0), capacidadAlerta || capacidad || 0, 1);
 
   // Grid lines + Y labels
   for (let i = 0; i <= 4; i++) {
@@ -247,9 +276,9 @@ function renderVentasCharts(monthly, capacidad) {
     svgInv.appendChild(c);
   });
 
-  // Dashed capacity-limit line (only when a facility capacity is known)
-  if (capacidad && capacidad > 0 && maxInv > 0) {
-    const capY = H - PAD - ((capacidad / maxInv) * (H - PAD * 2));
+  // Dashed alert line includes the configured 100,000 L operating tolerance.
+  if (capacidadAlerta && capacidadAlerta > 0 && maxInv > 0) {
+    const capY = H - PAD - ((capacidadAlerta / maxInv) * (H - PAD * 2));
     const capLine = document.createElementNS('http://www.w3.org/2000/svg','line');
     capLine.setAttribute('x1', PAD); capLine.setAttribute('x2', W - PAD);
     capLine.setAttribute('y1', capY); capLine.setAttribute('y2', capY);
@@ -265,7 +294,7 @@ function renderVentasCharts(monthly, capacidad) {
     capTxt.setAttribute('fill', '#ef4444');
     capTxt.setAttribute('font-family', 'inherit');
     capTxt.setAttribute('font-weight', '600');
-    capTxt.textContent = 'Capacidad máx: ' + fmtLitros(capacidad);
+    capTxt.textContent = 'Alerta desde: ' + fmtLitros(capacidadAlerta);
     svgInv.appendChild(capTxt);
   }
 
@@ -282,9 +311,9 @@ function renderVentasCharts(monthly, capacidad) {
   if (capacidad) {
     const hdr = document.createElement('tr');
     hdr.id = 'balanceCapHdr';
-    hdr.innerHTML = '<td colspan="8" style="padding:.3rem .6rem;background:#fef2f2;color:#991b1b;font-size:.73rem;border-bottom:1px solid #fecaca">' +
+    hdr.innerHTML = '<td colspan="8" style="padding:.3rem .6rem;background:#f8fafc;color:#475569;font-size:.73rem;border-bottom:1px solid #e2e8f0">' +
       'Capacidad física del tanque: <strong>' + fmtNum(capacidad, 2) + ' L</strong> — ' +
-      'Las celdas resaltadas en rojo indican que el inventario supera este límite.' +
+      'Margen operativo de alerta: <strong>100,000.00 L</strong>. Se resaltará en rojo únicamente al superar ' + fmtNum(capacidadAlerta || (capacidad + 100000), 2) + ' L.' +
       '</td>';
     tbody.appendChild(hdr);
   }

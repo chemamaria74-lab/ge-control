@@ -542,7 +542,7 @@ async function switchTab(name) {
   const panel = document.getElementById('mpanel-' + name);
   if (panel) panel.classList.add('active');
   document.body.classList.toggle('config-panel-active', name === 'config');
-  if (name === 'ventas') resetVentasSearchView();
+  if (name === 'ventas') restoreVentasSearchView();
   if (name === 'proveedores') resetProveedoresSearchView();
   if (name === 'admin'       && authToken && currentUserRole === 'admin') {
     switchGasAdminTab('usuarios', false);

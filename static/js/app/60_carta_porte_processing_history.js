@@ -1174,6 +1174,7 @@ async function deleteHistPeriodo(periodo, facilityId, includeAutoconsumos = fals
     histZipFilename = null;
     // No consultar automáticamente: el Dashboard se vuelve a buscar bajo demanda.
     if (document.getElementById('mpanel-ventas').classList.contains('active')) {
+      invalidateVentasAnalyticsCache();
       resetVentasSearchView();
     }
     // Mostrar confirmación
