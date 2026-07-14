@@ -305,7 +305,11 @@ function trv2RenderOperatorTariffs() {
     const route = trv2FindCatalog('rutas', item.ruta_id) || {};
     const operator = trv2FindCatalog('operadores', item.operador_id) || {};
     const base = item.modalidad === 'kilometro' ? `${trv2ServiceNumber(item.distancia_km)} km` : (item.modalidad === 'hora' ? `${trv2ServiceNumber(item.horas)} h` : '1 viaje');
-    return `<tr><td><strong>${trv2Esc(trv2OperatorPaymentRouteLabel(route))}</strong></td><td>${trv2Esc(operator.nombre || 'Todos los operadores')}</td><td>${trv2Esc(trv2OperatorPaymentModeLabel(item.modalidad))}</td><td class="trv2-num"><strong>${trv2ServiceMoney(item.tarifa)}</strong></td><td>${trv2Esc(base)}</td><td>${trv2Esc([item.vigencia_desde || 'Sin inicio', item.vigencia_hasta || 'Sin fin'].join(' → '))}</td><td><span class="trv2-status ${item.activo === false ? 'inactive' : 'active'}">${item.activo === false ? 'Inactiva' : 'Activa'}</span></td><td><div class="trv2-row-actions"><button class="trv2-mini-btn" type="button" onclick="trv2EditOperatorTariff(${Number(item.id)})">Editar</button>${item.activo === false ? '' : `<button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeactivateOperatorTariff(${Number(item.id)})">Desactivar</button>`}</div></td></tr>`;
+    const vigencia = [
+      trv2DisplayDate(item.vigencia_desde, {fallback: 'Sin inicio'}),
+      trv2DisplayDate(item.vigencia_hasta, {fallback: 'Sin fin'}),
+    ].join(' → ');
+    return `<tr><td><strong>${trv2Esc(trv2OperatorPaymentRouteLabel(route))}</strong></td><td>${trv2Esc(operator.nombre || 'Todos los operadores')}</td><td>${trv2Esc(trv2OperatorPaymentModeLabel(item.modalidad))}</td><td class="trv2-num"><strong>${trv2ServiceMoney(item.tarifa)}</strong></td><td>${trv2Esc(base)}</td><td>${trv2Esc(vigencia)}</td><td><span class="trv2-status ${item.activo === false ? 'inactive' : 'active'}">${item.activo === false ? 'Inactiva' : 'Activa'}</span></td><td><div class="trv2-row-actions"><button class="trv2-mini-btn" type="button" onclick="trv2EditOperatorTariff(${Number(item.id)})">Editar</button>${item.activo === false ? '' : `<button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeactivateOperatorTariff(${Number(item.id)})">Desactivar</button>`}</div></td></tr>`;
   }).join('') : '<tr><td colspan="8"><div class="trv2-empty">Todavía no hay tarifas para operadores.</div></td></tr>';
 }
 

@@ -34,3 +34,28 @@ const TRV2_CATALOG_LABELS = {
   productos: 'Productos',
   rutas: 'Rutas',
 };
+
+// Formato exclusivo de presentacion. Los valores ISO originales se conservan
+// para filtros, ordenamiento, formularios y llamadas al backend.
+function trv2DisplayDate(value, {withTime = false, fallback = ''} = {}) {
+  if (!value) return fallback;
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+  const hasExplicitTimeZone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(raw);
+  if (match && !hasExplicitTimeZone) {
+    const date = `${match[3]}/${match[2]}/${match[1]}`;
+    return withTime && match[4] ? `${date} ${match[4]}:${match[5]}` : date;
+  }
+  const parsed = value instanceof Date ? value : new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  const options = {
+    timeZone: 'America/Mexico_City',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    ...(withTime ? {hour: '2-digit', minute: '2-digit', hour12: false} : {}),
+  };
+  return new Intl.DateTimeFormat('es-MX', options).format(parsed)
+    .replace(',', '')
+    .replace(/\s*a\.\s*m\.|\s*p\.\s*m\./gi, '');
+}

@@ -373,7 +373,7 @@ function trv2RenderCvTables(movements) {
     }
     tbody.innerHTML = rows.map(entry => `
       <tr>
-        <td>${trv2Esc(entry.date && !Number.isNaN(entry.date.getTime()) ? entry.date.toLocaleString('es-MX') : 'Pendiente')}</td>
+        <td>${trv2Esc(entry.date && !Number.isNaN(entry.date.getTime()) ? trv2DisplayDate(entry.date, {withTime: true}) : 'Pendiente')}</td>
         <td>${trv2Esc(entry.counterpart)}</td>
         <td><span class="trv2-service-uuid" title="${trv2Esc(entry.uuid)}">${trv2Esc(entry.uuid || 'Sin UUID')}</span></td>
         <td>${trv2Esc(entry.product)}</td>

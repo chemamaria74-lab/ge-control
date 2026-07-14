@@ -1,6 +1,7 @@
 let TRV2_CP_STAMPED_ITEMS = [];
 let TRV2_CP_STAMPED_FAMILY_FILTER = 'gas_lp';
 let TRV2_CP_STAMPED_SEARCH = '';
+let TRV2_CP_STAMPED_SEARCH_APPLIED = '';
 const TRV2_CP_STAMPED_CACHE = {};
 
 async function trv2PrepareCartaPorteTab() {
@@ -19,7 +20,8 @@ function trv2SetCartaPorteWorkflow(workflow = 'timbrar') {
   TRV2_CP_WORKFLOW = allowed.includes(workflow) ? workflow : 'timbrar';
   if (TRV2_CP_WORKFLOW === 'hoy' || TRV2_CP_WORKFLOW === 'todas') {
     TRV2_CP_STAMPED_FILTER = TRV2_CP_WORKFLOW;
-    trv2LoadStampedCartaPorte({silent: true});
+    if (TRV2_CP_WORKFLOW === 'hoy') trv2LoadStampedCartaPorte({silent: true});
+    else trv2MarkCpSearchPending();
   }
   trv2RenderCartaPorteWorkflow();
 }
@@ -44,22 +46,28 @@ function trv2RenderCartaPorteWorkflow() {
 
 function trv2SetCartaPorteStampedFilter(filter = 'hoy') {
   trv2SetCartaPorteWorkflow(filter === 'todas' ? 'todas' : 'hoy');
-  trv2LoadStampedCartaPorte();
+}
+
+function trv2MarkCpSearchPending() {
+  const list = document.getElementById('trv2-cp-stamped-list');
+  if (list) list.innerHTML = '<div class="trv2-empty">Elige el mes y pulsa Buscar para consultar las Cartas Porte.</div>';
 }
 
 function trv2SetCartaPorteStampedMonth(value = '') {
   TRV2_CP_STAMPED_MONTH = value || new Date().toISOString().slice(0, 7);
   TRV2_CP_STAMPED_FILTER = 'todas';
   TRV2_CP_WORKFLOW = 'todas';
-  trv2LoadStampedCartaPorte();
+  trv2MarkCpSearchPending();
   trv2RenderCartaPorteWorkflow();
 }
 
+async function trv2SearchStampedCartaPorte() {
+  TRV2_CP_STAMPED_SEARCH_APPLIED = TRV2_CP_STAMPED_SEARCH;
+  await trv2LoadStampedCartaPorte({force: true});
+}
+
 function trv2StampedCartaPorteDate(value = '') {
-  if (!value) return 'Sin fecha';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value).replace('T', ' ').slice(0, 16);
-  return date.toLocaleString('es-MX', {dateStyle: 'medium', timeStyle: 'short'});
+  return trv2DisplayDate(value, {withTime: true, fallback: 'Sin fecha'});
 }
 
 function trv2SetStampedCounts(filter, count) {
@@ -111,7 +119,7 @@ function trv2CpStampedCounts(items = []) {
 }
 
 function trv2CpStampedFilteredItems(items = TRV2_CP_STAMPED_ITEMS) {
-  const query = trv2CpNorm(TRV2_CP_STAMPED_SEARCH);
+  const query = trv2CpNorm(TRV2_CP_STAMPED_SEARCH_APPLIED);
   return (items || []).filter(item => {
     if (trv2CpStampedFamily(item) !== TRV2_CP_STAMPED_FAMILY_FILTER) return false;
     if (!query) return true;
@@ -145,7 +153,7 @@ function trv2SetCpStampedFamilyFilter(family = 'gas_lp') {
 
 function trv2SetCpStampedSearch(value = '') {
   TRV2_CP_STAMPED_SEARCH = String(value || '');
-  trv2RenderStampedCartaPorteList(TRV2_CP_STAMPED_FILTER || 'hoy', TRV2_CP_STAMPED_ITEMS);
+  trv2MarkCpSearchPending();
 }
 
 function trv2RenderCpStampedFamilyFilter(items = TRV2_CP_STAMPED_ITEMS) {

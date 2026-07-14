@@ -955,6 +955,7 @@ function trv2RenderCatalogTableRow(name, item, fields) {
 
 function trv2CatalogDisplayValue(name, key, raw, item = null) {
   if (typeof raw === 'boolean') return raw ? 'Sí' : 'No';
+  if (/(?:^fecha_|_fecha$|vencimiento|vigencia)/i.test(key) && raw) return trv2DisplayDate(raw);
   if (name === 'operadores' && key === 'vehiculo_frecuente_id') {
     return trv2CatalogLabel('vehiculos', trv2FindCatalog('vehiculos', raw)) || 'Sin vehículo asignado';
   }
