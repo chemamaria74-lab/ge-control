@@ -7,10 +7,14 @@
     <span>Transporte</span>
   </a>
   <div class="trv2-topbar-spacer"></div>
-  <button class="trv2-badge trv2-company-chip" id="trv2-company" type="button" onclick="trv2OpenCompanySelector()">Empresa pendiente</button>
-  <span class="trv2-badge" id="trv2-user">Sesión validada</span>
-  <button class="trv2-btn trv2-btn-ghost" type="button" onclick="location.href='/choice'">Cambiar módulo</button>
-  <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2Logout()">Salir</button>
+  <div class="trv2-topbar-session">
+    <button class="trv2-badge trv2-company-chip" id="trv2-company" type="button" onclick="trv2OpenCompanySelector()">Empresa pendiente</button>
+    <span class="trv2-badge" id="trv2-user">Sesión validada</span>
+  </div>
+  <div class="trv2-topbar-actions">
+    <button class="trv2-btn trv2-btn-ghost" type="button" onclick="location.href='/choice'">Cambiar módulo</button>
+    <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2Logout()">Salir</button>
+  </div>
 </header>
 
 <nav class="trv2-tabs" id="trv2-admin-tabs" aria-label="Navegación Transporte v2" hidden>
@@ -36,7 +40,7 @@
     <h1 id="trv2-auth-required-title">Sesión requerida para Transporte v2</h1>
     <p id="trv2-auth-required-message">Valida tu sesión y empresa activa para entrar al administrador de Transporte v2.</p>
     <div class="trv2-auth-actions">
-      <a class="trv2-btn trv2-btn-primary" href="/choice">Volver a selección de módulo</a>
+      <a class="trv2-btn trv2-btn-primary" href="/transporte-v2/login-admin?next=/transporte-v2/admin">Iniciar sesión en Transporte</a>
       <a class="trv2-btn trv2-btn-ghost" href="/transporte-v2/roles">Volver a roles Transporte</a>
     </div>
   </div>
@@ -383,6 +387,7 @@
     </div>
     <nav class="trv2-subtabs" aria-label="Pago y seguimiento de operadores">
       <button class="trv2-subtab active" type="button" data-payment-tab="liquidaciones" onclick="trv2SetOperatorPaymentView('liquidaciones')"><i class="fa-solid fa-money-check-dollar"></i> Liquidaciones</button>
+      <button class="trv2-subtab" type="button" data-payment-tab="tarifas" onclick="trv2SetOperatorPaymentView('tarifas')"><i class="fa-solid fa-tags"></i> Tarifas</button>
       <button class="trv2-subtab" type="button" data-payment-tab="ruta" onclick="trv2SetOperatorPaymentView('ruta')"><i class="fa-solid fa-route"></i> Operadores en ruta</button>
     </nav>
     <div class="trv2-payment-panel active" data-payment-panel="liquidaciones">
@@ -431,18 +436,21 @@
       </div>
       <div class="trv2-table-wrap trv2-service-scroll">
         <table class="trv2-service-generated-table">
-          <thead><tr><th>Ruta</th><th>Cliente</th><th>Total viajes</th><th>Modalidad</th><th>Tarifa</th><th>Base acumulada</th><th>Total</th><th>Estatus</th></tr></thead>
+          <thead><tr><th>Ruta</th><th>Cliente</th><th>Total viajes</th><th>Modalidad</th><th>Tarifa</th><th>Base acumulada</th><th>Total</th><th>Estatus</th><th>Acciones</th></tr></thead>
           <tbody id="trv2-payment-detail-table"></tbody>
         </table>
       </div>
     </section>
-    <section class="trv2-panel">
+    </div>
+    <div class="trv2-payment-panel" data-payment-panel="tarifas">
+    <section class="trv2-panel trv2-operator-tariffs-panel">
       <div class="trv2-table-head">
         <div><h2>Catálogo de tarifas de operador</h2><p class="trv2-muted">Estas tarifas son exclusivas para pagar operadores y no modifican las tarifas de Cartas Ingreso.</p></div>
         <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenOperatorTariffForm()"><i class="fa-solid fa-plus"></i> Nueva tarifa</button>
       </div>
-      <form class="trv2-form trv2-form-admin" id="trv2-operator-tariff-form" onsubmit="trv2SaveOperatorTariff(event)" hidden>
+      <form class="trv2-form trv2-form-admin trv2-tariff-editor" id="trv2-operator-tariff-form" onsubmit="trv2SaveOperatorTariff(event)" hidden>
         <input id="trv2-operator-tariff-id" type="hidden">
+        <div class="trv2-form-title"><strong id="trv2-operator-tariff-form-title">Nueva tarifa</strong><span>Define cómo se pagará esta ruta sin afectar la tarifa del cliente.</span></div>
         <label>Ruta * <select id="trv2-operator-tariff-route" required onchange="trv2SyncOperatorTariffBase()"></select></label>
         <label>Aplica a <select id="trv2-operator-tariff-operator"><option value="">Todos los operadores</option></select></label>
         <label>Forma de pago * <select id="trv2-operator-tariff-mode" required onchange="trv2ToggleOperatorTariffBase()"><option value="viaje">Fijo por viaje</option><option value="kilometro">Por kilómetro</option><option value="hora">Por hora</option></select></label>
@@ -452,7 +460,7 @@
         <label>Vigencia desde <input id="trv2-operator-tariff-from" type="date"></label>
         <label>Vigencia hasta <input id="trv2-operator-tariff-to" type="date"></label>
         <label class="trv2-form-wide">Notas <input id="trv2-operator-tariff-notes" placeholder="Opcional"></label>
-        <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseOperatorTariffForm()">Cancelar</button><button class="trv2-btn trv2-btn-primary" type="submit">Guardar tarifa</button></div>
+        <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseOperatorTariffForm()">Cancelar</button><button class="trv2-btn trv2-btn-primary" id="trv2-operator-tariff-submit" type="submit">Guardar tarifa</button></div>
       </form>
       <div class="trv2-table-wrap"><table class="trv2-service-generated-table"><thead><tr><th>Ruta</th><th>Operador</th><th>Modalidad</th><th>Tarifa</th><th>Base configurada</th><th>Vigencia</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="trv2-operator-tariffs-table"></tbody></table></div>
     </section>
@@ -480,13 +488,29 @@
     <div class="trv2-section-head">
       <div>
         <h1>Reportes SAT</h1>
-        <p>Reporte mensual por número de permiso. Se alimentará de viajes, Carta Porte y Cartas Ingreso.</p>
+        <p>Control volumétrico mensual de transporte. La Carta Porte define litros y trayecto; la Carta Ingreso sólo complementa el importe, sin duplicar volumen.</p>
       </div>
-      <div class="trv2-actions">
-        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseCvMonth()"><i class="fa-solid fa-lock"></i> Cerrar mes</button>
-        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico()"><i class="fa-solid fa-clock-rotate-left"></i> Cargar historial</button>
-        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2GenerateCvReport('zip')"><i class="fa-solid fa-download"></i> Descargar ZIP XML</button>
-      </div>
+    </div>
+    <div class="trv2-cv-action-grid">
+      <article class="trv2-cv-action-card trv2-cv-action-upload">
+        <h2><i class="fa-solid fa-cloud-arrow-up"></i> Subir pendientes externos</h2>
+        <p>Importa CFDI XML o ZIP hechos en otra plataforma como carga o entrega.</p>
+        <div class="trv2-actions">
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ChooseCvExternal('carga')">Subir carga</button>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ChooseCvExternal('descarga')">Subir entrega</button>
+        </div>
+        <input id="trv2-cv-external-file" type="file" accept=".xml,.zip,application/xml,text/xml,application/zip" multiple hidden onchange="trv2UploadCvExternal(event)">
+      </article>
+      <article class="trv2-cv-action-card trv2-cv-action-review">
+        <h2><i class="fa-solid fa-magnifying-glass-chart"></i> Revisar mes</h2>
+        <p>Valida cargas, entregas, UUID y diferencias antes de generar el archivo SAT.</p>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico({force:true})">Revisar movimientos</button>
+      </article>
+      <article class="trv2-cv-action-card trv2-cv-action-close">
+        <h2><i class="fa-solid fa-file-zipper"></i> Cerrar mes</h2>
+        <p>Cierra el periodo y descarga un ZIP con el JSON y XML de transporte.</p>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2CloseAndDownloadCvMonth()">Cerrar y descargar ZIP</button>
+      </article>
     </div>
     <section class="trv2-panel trv2-cv-filter-panel">
       <div class="trv2-form trv2-form-cv">
@@ -494,23 +518,44 @@
         <label>Año * <input id="trv2-cv-anio" type="number" min="2024" max="2100" onchange="trv2RefreshCvView()"></label>
         <label>Mes * <select id="trv2-cv-mes" onchange="trv2RefreshCvView()"></select></label>
         <label>Producto <select id="trv2-cv-producto" onchange="trv2RefreshCvView()"></select></label>
-        <label>Estado <select id="trv2-cv-estado" onchange="trv2RefreshCvView()"><option value="">Todos</option><option value="borrador">Borrador</option><option value="validado">Validado</option><option value="exportado">Exportado</option></select></label>
+        <label>Origen <select id="trv2-cv-source" onchange="trv2RefreshCvView()"><option value="">Todos</option><option value="sistema">GE Control</option><option value="externo">Externos</option></select></label>
       </div>
       <div class="trv2-cv-context" id="trv2-cv-context"></div>
     </section>
-    <div class="trv2-kpis trv2-kpis-cv" id="trv2-cv-kpis"></div>
+    <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">Selecciona permiso y periodo; después presiona “Revisar movimientos”.</div>
+    <div class="trv2-cv-metrics" id="trv2-cv-kpis">
+      <article><span>Inventario inicial</span><strong>0 L</strong></article>
+      <article><span>Cargas</span><strong>0 L</strong><small>0 registros</small></article>
+      <article><span>Entregas</span><strong>0 L</strong><small>0 registros</small></article>
+      <article><span>En tránsito / final</span><strong>0 L</strong></article>
+      <article><span>Cartas Porte</span><strong>0</strong></article>
+      <article><span>Externos</span><strong>0</strong></article>
+    </div>
     <section class="trv2-panel">
       <div class="trv2-table-head">
         <div>
-          <h2>Movimientos del periodo</h2>
-          <p class="trv2-muted">Corte mensual alimentado por viajes Transporte v2 timbrados.</p>
+          <h2>Cargas (recepciones al autotanque)</h2>
+          <p class="trv2-muted">El autotanque pasa de 0 al volumen documentado al iniciar el traslado.</p>
         </div>
       </div>
-      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">Selecciona permiso y periodo para cerrar el mes y generar ZIP XML SAT Transporte.</div>
-      <div class="trv2-table-wrap">
+      <div class="trv2-table-wrap trv2-cv-table-wrap">
         <table>
-          <thead><tr><th>Fecha</th><th>Viaje</th><th>Cliente</th><th>Producto</th><th>Volumen L</th><th>Vehículo</th><th>Origen</th><th>Destino</th><th>UUID Carta Porte</th><th>Estatus XML</th><th>Acciones</th></tr></thead>
-          <tbody id="trv2-cv-table"></tbody>
+          <thead><tr><th>Fecha</th><th>Origen / proveedor</th><th>UUID Carta Porte</th><th>Producto</th><th>Volumen (L)</th><th>Importe</th><th>Fuente</th></tr></thead>
+          <tbody id="trv2-cv-loads-table"><tr><td colspan="7"><div class="trv2-empty">Sin revisar el periodo.</div></td></tr></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="trv2-panel">
+      <div class="trv2-table-head">
+        <div>
+          <h2>Entregas (salidas del autotanque)</h2>
+          <p class="trv2-muted">Al concluir el traslado se descarga el mismo volumen y la existencia vuelve a 0.</p>
+        </div>
+      </div>
+      <div class="trv2-table-wrap trv2-cv-table-wrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Destino / cliente</th><th>UUID Carta Porte</th><th>Producto</th><th>Volumen (L)</th><th>Importe</th><th>Fuente</th></tr></thead>
+          <tbody id="trv2-cv-deliveries-table"><tr><td colspan="7"><div class="trv2-empty">Sin revisar el periodo.</div></td></tr></tbody>
         </table>
       </div>
     </section>
