@@ -15,6 +15,7 @@ import hashlib
 import zlib
 import base64
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime, timezone, timedelta
@@ -57,6 +58,7 @@ TBL_DESTINOS = "tr_destinos"
 TBL_REMOLQUES = "tr_remolques"
 TBL_PROVEEDORES = "tr_proveedores_operacion"
 TBL_TARIFAS = "tr_tarifas"
+TBL_TARIFAS_OPERADOR = "tr_tarifas_operador"
 TBL_FACT_SERV = "tr_facturas_servicio"
 TBL_SETTINGS = "tr_settings"
 TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
@@ -2584,12 +2586,12 @@ def _fetch_catalog_row_for_route(token: str, uid: str, perfil_id: Optional[int],
     return rows[0]
 
 
-def _expand_route_from_installations(token: str, uid: str, perfil_id: Optional[int], row: dict[str, Any]) -> dict[str, Any]:
+def _expand_route_with_installations(
+    row: dict[str, Any],
+    origen: dict[str, Any],
+    destino: dict[str, Any],
+) -> dict[str, Any]:
     expanded = dict(row)
-    if not expanded.get("origen_id") or not expanded.get("destino_id"):
-        return expanded
-    origen = _normalize_catalog_row("origenes", _fetch_catalog_row_for_route(token, uid, perfil_id, TBL_ORIGENES, expanded.get("origen_id"), "origen"))
-    destino = _normalize_catalog_row("destinos", _fetch_catalog_row_for_route(token, uid, perfil_id, TBL_DESTINOS, expanded.get("destino_id"), "destino"))
     if not _first_text(origen.get("cp")):
         raise HTTPException(400, "La instalación origen no tiene CP configurado.")
     if not _first_text(destino.get("cp")):
@@ -2647,6 +2649,15 @@ def _expand_route_from_installations(token: str, uid: str, perfil_id: Optional[i
     })
     expanded["metadata"] = metadata
     return expanded
+
+
+def _expand_route_from_installations(token: str, uid: str, perfil_id: Optional[int], row: dict[str, Any]) -> dict[str, Any]:
+    expanded = dict(row)
+    if not expanded.get("origen_id") or not expanded.get("destino_id"):
+        return expanded
+    origen = _normalize_catalog_row("origenes", _fetch_catalog_row_for_route(token, uid, perfil_id, TBL_ORIGENES, expanded.get("origen_id"), "origen"))
+    destino = _normalize_catalog_row("destinos", _fetch_catalog_row_for_route(token, uid, perfil_id, TBL_DESTINOS, expanded.get("destino_id"), "destino"))
+    return _expand_route_with_installations(expanded, origen, destino)
 
 
 def _valid_rfc(value: str) -> bool:
@@ -2917,7 +2928,14 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
     return item
 
 
-def _select_catalog(token: str, uid: str, catalogo: str, perfil_id: Optional[int]) -> dict[str, Any]:
+def _select_catalog(
+    token: str,
+    uid: str,
+    catalogo: str,
+    perfil_id: Optional[int],
+    *,
+    expand_routes: bool = True,
+) -> dict[str, Any]:
     config = CATALOG_CONFIG.get(catalogo)
     if not config:
         raise HTTPException(404, "Catálogo Transporte v2 no encontrado.")
@@ -2939,7 +2957,7 @@ def _select_catalog(token: str, uid: str, catalogo: str, perfil_id: Optional[int
         rows = query.execute().data or []
         items = []
         for row in rows:
-            if catalogo == "rutas":
+            if catalogo == "rutas" and expand_routes:
                 try:
                     row = _expand_route_from_installations(token, uid, perfil_id, row)
                 except HTTPException:
@@ -3235,6 +3253,9 @@ def _settings_defaults() -> dict[str, Any]:
         "facturacion": {
             "clave_prodserv_carta_ingreso": "78101802",
         },
+        "pago_operadores": {
+            "periodo_predeterminado": "quincenal",
+        },
     }
 
 
@@ -3326,6 +3347,215 @@ def _save_settings(token: str, uid: str, pid: Optional[int], data: dict[str, Any
         if _is_missing_table_error(exc):
             raise HTTPException(409, _missing_schema_payload(TBL_SETTINGS)["message"])
         raise HTTPException(500, f"No se pudo guardar configuración Transporte: {exc}")
+
+
+def _operator_payment_dates(fecha_desde: str, fecha_hasta: str) -> tuple[datetime, datetime]:
+    try:
+        start = datetime.strptime(str(fecha_desde or ""), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_day = datetime.strptime(str(fecha_hasta or ""), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError as exc:
+        raise HTTPException(400, "Selecciona fechas válidas en formato YYYY-MM-DD.") from exc
+    if end_day < start:
+        raise HTTPException(400, "La fecha final no puede ser anterior a la inicial.")
+    if (end_day - start).days > 366:
+        raise HTTPException(400, "El rango máximo para liquidaciones es de 366 días.")
+    return start, end_day + timedelta(days=1)
+
+
+def _operator_payment_catalog_map(sb: Any, table: str, ids: set[int], uid: str, pid: int) -> dict[int, dict[str, Any]]:
+    if not ids:
+        return {}
+    rows = (
+        sb.table(table)
+        .select("*")
+        .eq("user_id", uid)
+        .eq("perfil_id", pid)
+        .in_("id", sorted(ids))
+        .execute()
+        .data
+        or []
+    )
+    return {int(row["id"]): row for row in rows if row.get("id") is not None}
+
+
+def _operator_payment_trip_date(row: dict[str, Any]) -> str:
+    return _first_text(row.get("fecha_hora_salida"), row.get("fecha_salida"), row.get("created_at"))[:10]
+
+
+def _operator_payment_tariff_for_trip(
+    tariffs: list[dict[str, Any]],
+    operador_id: int,
+    ruta_id: int,
+    trip_date: str,
+) -> Optional[dict[str, Any]]:
+    matches = []
+    for tariff in tariffs:
+        if int(tariff.get("ruta_id") or 0) != ruta_id:
+            continue
+        assigned = int(tariff.get("operador_id") or 0)
+        if assigned not in {0, operador_id}:
+            continue
+        if tariff.get("vigencia_desde") and trip_date < str(tariff["vigencia_desde"])[:10]:
+            continue
+        if tariff.get("vigencia_hasta") and trip_date > str(tariff["vigencia_hasta"])[:10]:
+            continue
+        matches.append(tariff)
+    matches.sort(key=lambda item: (
+        1 if int(item.get("operador_id") or 0) == operador_id else 0,
+        str(item.get("vigencia_desde") or ""),
+        int(item.get("id") or 0),
+    ), reverse=True)
+    return matches[0] if matches else None
+
+
+def _operator_payment_hours(row: dict[str, Any], route: dict[str, Any], tariff: dict[str, Any]) -> tuple[float, str]:
+    meta = _parse_json_value(row.get("defaults_json") or row.get("metadata"), {})
+    start_text = _first_text(row.get("fecha_inicio_real"), meta.get("fecha_inicio_real"), meta.get("inicio_viaje_at"))
+    end_text = _first_text(row.get("fecha_fin_real"), row.get("fecha_entrega_confirmada"), meta.get("fecha_fin_real"), meta.get("finalizado_at"))
+    if start_text and end_text:
+        try:
+            started = datetime.fromisoformat(start_text.replace("Z", "+00:00"))
+            ended = datetime.fromisoformat(end_text.replace("Z", "+00:00"))
+            hours = (ended - started).total_seconds() / 3600
+            if hours > 0:
+                return round(hours, 4), "horas reales"
+        except ValueError:
+            pass
+    configured = _num(tariff.get("horas"))
+    if configured > 0:
+        return round(configured, 4), "horas configuradas en tarifa"
+    minutes = _num(row.get("duracion_estimada_min") or route.get("duracion_estimada_min"))
+    return round(minutes / 60, 4), "duración estimada de ruta"
+
+
+def _operator_payment_preview(
+    token: str,
+    uid: str,
+    pid: int,
+    fecha_desde: str,
+    fecha_hasta: str,
+    operador_id: int = 0,
+) -> dict[str, Any]:
+    start, end = _operator_payment_dates(fecha_desde, fecha_hasta)
+    sb = _sb(token)
+    query = (
+        sb.table(TBL_VIAJES)
+        .select("*")
+        .eq("user_id", uid)
+        .eq("perfil_id", pid)
+        .gte("fecha_hora_salida", start.isoformat())
+        .lt("fecha_hora_salida", end.isoformat())
+        .order("fecha_hora_salida")
+        .limit(TRV2_LIST_LIMIT_MAX)
+    )
+    if operador_id:
+        query = query.eq("chofer_id", operador_id)
+    trips = query.execute().data or []
+    payable = []
+    for row in trips:
+        meta = _parse_json_value(row.get("defaults_json") or row.get("metadata"), {})
+        status = _first_text(row.get("status"), row.get("estatus"), row.get("operacion_status"), meta.get("status")).lower()
+        if any(word in status for word in ("cancel", "elimin")) or meta.get("eliminado_transporte_v2"):
+            continue
+        if int(row.get("chofer_id") or row.get("operador_id") or 0) <= 0:
+            continue
+        payable.append(row)
+
+    operator_ids = {int(row.get("chofer_id") or row.get("operador_id") or 0) for row in payable}
+    route_ids = {int(row.get("ruta_id") or 0) for row in payable if row.get("ruta_id")}
+    client_ids = {int(row.get("cliente_id") or 0) for row in payable if row.get("cliente_id")}
+    operators = _operator_payment_catalog_map(sb, TBL_OPERADORES, operator_ids, uid, pid)
+    routes = _operator_payment_catalog_map(sb, TBL_RUTAS, route_ids, uid, pid)
+    clients = _operator_payment_catalog_map(sb, TBL_CLIENTES, client_ids, uid, pid)
+    tariffs = (
+        sb.table(TBL_TARIFAS_OPERADOR)
+        .select("*")
+        .eq("user_id", uid)
+        .eq("perfil_id", pid)
+        .eq("activo", True)
+        .order("created_at", desc=True)
+        .execute()
+        .data
+        or []
+    )
+    trip_ids = [int(row["id"]) for row in payable if row.get("id")]
+    liquidated_ids: set[int] = set()
+    if trip_ids:
+        existing = (
+            sb.table("tr_liquidacion_items")
+            .select("viaje_id")
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .in_("viaje_id", trip_ids)
+            .execute()
+            .data
+            or []
+        )
+        liquidated_ids = {int(item["viaje_id"]) for item in existing if item.get("viaje_id")}
+
+    items = []
+    for row in payable:
+        trip_id = int(row.get("id") or 0)
+        op_id = int(row.get("chofer_id") or row.get("operador_id") or 0)
+        route_id = int(row.get("ruta_id") or 0)
+        client_id = int(row.get("cliente_id") or 0)
+        route = routes.get(route_id, {})
+        operator = operators.get(op_id, {})
+        client = clients.get(client_id, {})
+        trip_date = _operator_payment_trip_date(row)
+        tariff = _operator_payment_tariff_for_trip(tariffs, op_id, route_id, trip_date)
+        modality = _first_text((tariff or {}).get("modalidad"), "viaje").lower()
+        quantity = 0.0
+        base_label = ""
+        if tariff:
+            if modality == "viaje":
+                quantity, base_label = 1.0, "viaje"
+            elif modality == "kilometro":
+                quantity = _num((tariff or {}).get("distancia_km") or row.get("distancia_km") or route.get("distancia_km"))
+                base_label = "km"
+            elif modality == "hora":
+                quantity, base_label = _operator_payment_hours(row, route, tariff)
+        rate = _num((tariff or {}).get("tarifa"))
+        amount = round(rate * quantity, 2) if tariff and quantity > 0 else 0.0
+        route_name = _first_text(
+            route.get("nombre"),
+            f"{_first_text(route.get('origen'), route.get('nombre_origen'), 'Origen')} → {_first_text(route.get('destino'), route.get('nombre_destino'), 'Destino')}",
+        )
+        items.append({
+            "viaje_id": trip_id,
+            "fecha": trip_date,
+            "operador_id": op_id,
+            "operador": _first_text(operator.get("nombre"), f"Operador #{op_id}"),
+            "ruta_id": route_id or None,
+            "ruta": route_name if route_id else "Sin ruta",
+            "cliente_id": client_id or None,
+            "cliente": _first_text(client.get("nombre"), row.get("cliente_nombre"), "Sin cliente"),
+            "modalidad": modality if tariff else "sin_tarifa",
+            "tarifa_id": (tariff or {}).get("id"),
+            "tarifa": round(rate, 4),
+            "cantidad_base": round(quantity, 4),
+            "base": base_label,
+            "total": amount,
+            "sin_tarifa": tariff is None or quantity <= 0,
+            "ya_liquidado": trip_id in liquidated_ids,
+            "litros": _num(row.get("volumen_litros") or row.get("volumen_total_litros")),
+            "kilos": _num(row.get("peso_kg")),
+        })
+    pending_items = [item for item in items if not item["ya_liquidado"]]
+    return {
+        "ok": True,
+        "fecha_desde": fecha_desde,
+        "fecha_hasta": fecha_hasta,
+        "items": items,
+        "summary": {
+            "viajes": len(pending_items),
+            "operadores": len({item["operador_id"] for item in pending_items}),
+            "rutas": len({item["ruta_id"] for item in pending_items if item["ruta_id"]}),
+            "sin_tarifa": sum(1 for item in pending_items if item["sin_tarifa"]),
+            "ya_liquidados": sum(1 for item in items if item["ya_liquidado"]),
+            "total_estimado": round(sum(item["total"] for item in pending_items if not item["sin_tarifa"]), 2),
+        },
+    }
 
 
 def _normalize_permiso_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -7937,6 +8167,66 @@ async def transporte_v2_actualizar_pago_factura_servicio(
     return {"ok": True, "item": updated[0], "estatus": requested}
 
 
+TRV2_BOOTSTRAP_CATALOGS = (
+    "clientes",
+    "operadores",
+    "vehiculos",
+    "remolques",
+    "productos",
+    "origenes",
+    "destinos",
+    "rutas",
+)
+
+
+@router.get("/tr-v2/catalogos/bootstrap")
+def transporte_v2_catalogos_bootstrap(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    """Carga los catálogos base con una sola validación de sesión y empresa."""
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+
+    def load_catalog(name: str) -> tuple[str, dict[str, Any]]:
+        return name, _select_catalog(token, uid, name, pid, expand_routes=False)
+
+    with ThreadPoolExecutor(max_workers=len(TRV2_BOOTSTRAP_CATALOGS)) as executor:
+        catalogs = dict(executor.map(load_catalog, TRV2_BOOTSTRAP_CATALOGS))
+
+    origenes = {
+        str(item.get("id")): item
+        for item in catalogs.get("origenes", {}).get("items", [])
+        if item.get("id") is not None
+    }
+    destinos = {
+        str(item.get("id")): item
+        for item in catalogs.get("destinos", {}).get("items", [])
+        if item.get("id") is not None
+    }
+    route_payload = catalogs.get("rutas", {})
+    expanded_routes = []
+    for route in route_payload.get("items", []):
+        origen = origenes.get(str(route.get("origen_id")))
+        destino = destinos.get(str(route.get("destino_id")))
+        if origen and destino:
+            try:
+                route = _expand_route_with_installations(route, origen, destino)
+            except HTTPException:
+                pass
+        expanded_routes.append(_normalize_catalog_row("rutas", route))
+    route_payload["items"] = expanded_routes
+
+    return {
+        "ok": True,
+        "catalogs": catalogs,
+        "needs_schema": any(payload.get("needs_schema") for payload in catalogs.values()),
+        "read_only": any(payload.get("read_only") for payload in catalogs.values()),
+    }
+
+
 @router.get("/tr-v2/catalogos/clientes")
 async def transporte_v2_catalogo_clientes(
     authorization: str = Header(default=""),
@@ -8175,6 +8465,272 @@ async def transporte_v2_settings_save(
     pid = _profile_id(payload.perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     return {"ok": True, "data": _save_settings(token, uid, pid, payload.data)}
+
+
+@router.get("/tr-v2/operator-payments/tariffs")
+def transporte_v2_operator_tariffs_list(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    try:
+        rows = (
+            _sb(token).table(TBL_TARIFAS_OPERADOR).select("*")
+            .eq("user_id", uid).eq("perfil_id", pid)
+            .order("created_at", desc=True).limit(500).execute().data or []
+        )
+        return {"ok": True, "items": rows}
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return JSONResponse(_missing_schema_payload(TBL_TARIFAS_OPERADOR), status_code=409)
+        raise HTTPException(500, f"No se pudieron cargar tarifas de operadores: {exc}") from exc
+
+
+def _operator_tariff_payload(data: dict[str, Any]) -> dict[str, Any]:
+    route_id = int(data.get("ruta_id") or 0)
+    operator_id = int(data.get("operador_id") or 0)
+    modality = _first_text(data.get("modalidad"), "viaje").lower()
+    rate = _num(data.get("tarifa"))
+    if route_id <= 0:
+        raise HTTPException(400, "Selecciona una ruta para la tarifa del operador.")
+    if modality not in {"viaje", "kilometro", "hora"}:
+        raise HTTPException(400, "La modalidad debe ser por viaje, kilómetro u hora.")
+    if rate <= 0:
+        raise HTTPException(400, "La tarifa del operador debe ser mayor a cero.")
+    start = _first_text(data.get("vigencia_desde")) or None
+    end = _first_text(data.get("vigencia_hasta")) or None
+    if start and end and start > end:
+        raise HTTPException(400, "La vigencia final no puede ser anterior a la inicial.")
+    return {
+        "operador_id": operator_id or None,
+        "ruta_id": route_id,
+        "modalidad": modality,
+        "tarifa": round(rate, 4),
+        "distancia_km": round(_num(data.get("distancia_km")), 4),
+        "horas": round(_num(data.get("horas")), 4),
+        "vigencia_desde": start,
+        "vigencia_hasta": end,
+        "notas": _first_text(data.get("notas")),
+        "activo": data.get("activo") is not False,
+        "updated_at": _now_iso(),
+    }
+
+
+@router.post("/tr-v2/operator-payments/tariffs")
+def transporte_v2_operator_tariff_create(
+    payload: TransporteV2SettingsPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    row = _operator_tariff_payload(payload.data)
+    row.update({"user_id": uid, "perfil_id": pid, "created_at": _now_iso()})
+    try:
+        created = _sb(token).table(TBL_TARIFAS_OPERADOR).insert(row).execute().data or []
+        return {"ok": True, "item": created[0] if created else row}
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return JSONResponse(_missing_schema_payload(TBL_TARIFAS_OPERADOR), status_code=409)
+        raise HTTPException(500, f"No se pudo guardar la tarifa del operador: {exc}") from exc
+
+
+@router.put("/tr-v2/operator-payments/tariffs/{tariff_id}")
+def transporte_v2_operator_tariff_update(
+    tariff_id: int,
+    payload: TransporteV2SettingsPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    row = _operator_tariff_payload(payload.data)
+    updated = (
+        _sb(token).table(TBL_TARIFAS_OPERADOR).update(row)
+        .eq("id", tariff_id).eq("user_id", uid).eq("perfil_id", pid)
+        .execute().data or []
+    )
+    if not updated:
+        raise HTTPException(404, "Tarifa de operador no encontrada.")
+    return {"ok": True, "item": updated[0]}
+
+
+@router.delete("/tr-v2/operator-payments/tariffs/{tariff_id}")
+def transporte_v2_operator_tariff_delete(
+    tariff_id: int,
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    updated = (
+        _sb(token).table(TBL_TARIFAS_OPERADOR)
+        .update({"activo": False, "updated_at": _now_iso()})
+        .eq("id", tariff_id).eq("user_id", uid).eq("perfil_id", pid)
+        .execute().data or []
+    )
+    if not updated:
+        raise HTTPException(404, "Tarifa de operador no encontrada.")
+    return {"ok": True}
+
+
+@router.get("/tr-v2/operator-payments/preview")
+def transporte_v2_operator_payments_preview(
+    fecha_desde: str = Query(...),
+    fecha_hasta: str = Query(...),
+    operador_id: int = Query(default=0, ge=0),
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    try:
+        return _operator_payment_preview(token, uid, pid, fecha_desde, fecha_hasta, operador_id)
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return JSONResponse(_missing_schema_payload(TBL_TARIFAS_OPERADOR), status_code=409)
+        raise
+
+
+@router.post("/tr-v2/operator-payments/generate")
+def transporte_v2_operator_payment_generate(
+    payload: TransporteV2SettingsPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    operator_id = int(payload.data.get("operador_id") or 0)
+    if operator_id <= 0:
+        raise HTTPException(400, "Selecciona un operador para generar su liquidación.")
+    start = _first_text(payload.data.get("fecha_desde"))
+    end = _first_text(payload.data.get("fecha_hasta"))
+    preview = _operator_payment_preview(token, uid, pid, start, end, operator_id)
+    items = [item for item in preview["items"] if not item["ya_liquidado"]]
+    if not items:
+        raise HTTPException(404, "No hay viajes pendientes de liquidar para ese operador y periodo.")
+    missing = [item for item in items if item["sin_tarifa"]]
+    if missing:
+        routes = sorted({item["ruta"] for item in missing})
+        raise HTTPException(400, f"Configura la tarifa de operador para: {', '.join(routes)}.")
+    total = round(sum(item["total"] for item in items), 2)
+    sb = _sb(token)
+    liquidation = {
+        "user_id": uid,
+        "perfil_id": pid,
+        "chofer_id": operator_id,
+        "periodo": f"{start}/{end}",
+        "periodo_inicio": f"{start}T00:00:00+00:00",
+        "periodo_fin": f"{end}T23:59:59+00:00",
+        "subtotal": total,
+        "iva": 0,
+        "retencion": 0,
+        "gastos": 0,
+        "anticipos": 0,
+        "comision_extra": 0,
+        "descuentos": 0,
+        "total": total,
+        "status": "emitida",
+        "notas": _first_text(payload.data.get("notas")),
+        "metadata": {"tipo": "pago_operador", "viajes": len(items), "calculo_congelado": True},
+        "created_at": _now_iso(),
+        "updated_at": _now_iso(),
+    }
+    created = sb.table("tr_liquidaciones").insert(liquidation).execute().data or []
+    if not created:
+        raise HTTPException(500, "No se pudo crear la liquidación del operador.")
+    liquidation_id = int(created[0]["id"])
+    db_items = [{
+        "user_id": uid,
+        "perfil_id": pid,
+        "liquidacion_id": liquidation_id,
+        "viaje_id": item["viaje_id"],
+        "concepto": f"{item['ruta']} · {item['modalidad']}",
+        "litros": item["litros"],
+        "kilos": item["kilos"],
+        "tarifa": item["tarifa"],
+        "subtotal": item["total"],
+        "iva": 0,
+        "retencion": 0,
+        "gastos": 0,
+        "total": item["total"],
+        "metadata": item,
+    } for item in items]
+    sb.table("tr_liquidacion_items").insert(db_items).execute()
+    trip_ids = [item["viaje_id"] for item in items]
+    try:
+        sb.table(TBL_VIAJES).update({"liquidacion_status": "emitida"}).eq("user_id", uid).eq("perfil_id", pid).in_("id", trip_ids).execute()
+    except Exception as exc:
+        logger.info("No se pudo actualizar liquidacion_status de viajes %s: %s", trip_ids, exc)
+    return {"ok": True, "liquidacion_id": liquidation_id, "viajes": len(items), "total": total}
+
+
+@router.get("/tr-v2/operator-payments/export.xlsx")
+def transporte_v2_operator_payments_export(
+    fecha_desde: str = Query(...),
+    fecha_hasta: str = Query(...),
+    operador_id: int = Query(default=0, ge=0),
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    preview = _operator_payment_preview(token, uid, pid, fecha_desde, fecha_hasta, operador_id)
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        workbook = Workbook()
+        summary_sheet = workbook.active
+        summary_sheet.title = "Resumen"
+        summary_sheet.append(["Operador", "Viajes", "Rutas", "Total estimado", "Sin tarifa"])
+        groups: dict[int, dict[str, Any]] = {}
+        for item in preview["items"]:
+            if item["ya_liquidado"]:
+                continue
+            group = groups.setdefault(item["operador_id"], {"name": item["operador"], "trips": 0, "routes": set(), "total": 0.0, "missing": 0})
+            group["trips"] += 1
+            group["routes"].add(item["ruta"])
+            group["total"] += item["total"]
+            group["missing"] += int(item["sin_tarifa"])
+        for group in groups.values():
+            summary_sheet.append([group["name"], group["trips"], len(group["routes"]), round(group["total"], 2), group["missing"]])
+        detail_sheet = workbook.create_sheet("Detalle")
+        detail_sheet.append(["Fecha", "Viaje", "Operador", "Ruta", "Cliente", "Modalidad", "Tarifa", "Cantidad base", "Unidad", "Total", "Estatus"])
+        for item in preview["items"]:
+            detail_sheet.append([
+                item["fecha"], item["viaje_id"], item["operador"], item["ruta"], item["cliente"],
+                item["modalidad"], item["tarifa"], item["cantidad_base"], item["base"], item["total"],
+                "Ya liquidado" if item["ya_liquidado"] else ("Sin tarifa" if item["sin_tarifa"] else "Pendiente"),
+            ])
+        for sheet in (summary_sheet, detail_sheet):
+            for cell in sheet[1]:
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.fill = PatternFill("solid", fgColor="7A1E2C")
+            sheet.freeze_panes = "A2"
+            for column in sheet.columns:
+                sheet.column_dimensions[column[0].column_letter].width = min(max(len(str(cell.value or "")) for cell in column) + 2, 42)
+        output = io.BytesIO()
+        workbook.save(output)
+    except Exception as exc:
+        raise HTTPException(500, f"No se pudo generar el Excel de pago a operadores: {exc}") from exc
+    filename = f"pago_operadores_{fecha_desde}_{fecha_hasta}.xlsx"
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/tr-v2/admin/permisos-rfc")

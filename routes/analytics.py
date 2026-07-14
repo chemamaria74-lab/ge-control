@@ -39,7 +39,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from routes.auth import verify_token
-from services.database import get_facility, get_reports
+from services.database import get_facility, get_records, get_reports
 from services.tenant_context import resolve_tenant_context
 
 logger = logging.getLogger(__name__)
@@ -196,43 +196,62 @@ async def get_ventas_analytics(
         if mes not in by_month:
             by_month[mes] = rep
 
-    # Obtener autoconsumos del año para este usuario/instalación
-    autoconsumos_por_mes: dict = {}
+    # Las facturas del portal de asistentes/conciliación existen antes de cerrar
+    # el reporte SAT. Consultarlas una sola vez por año permite que el Dashboard
+    # muestre esos meses de inmediato, con los mismos filtros de Historial
+    # (canceladas, Carta Porte y traspasos por instalación).
+    derived_by_month: dict[int, dict] = defaultdict(lambda: {
+        "entradas": [], "salidas": [], "cancelled_uuids": set(),
+    })
     try:
-        from supabase_config import get_supabase_for_user
-        sb = get_supabase_for_user(token)
-        q  = (sb.table("records")
-                .select("fecha,volumen_litros,nombre_contraparte")
-                .eq("user_id", uid)
-                .eq("tipo", "salida")
-                .eq("es_autoconsumo", True)
-                .gte("fecha", f"{year_str}-01-01")
-                .lte("fecha", f"{year_str}-12-31"))
-        if facility_id is not None:
-            q = q.eq("facility_id", facility_id)
-        if perfil_id is not None:
-            q = q.eq("perfil_id", perfil_id)
-        ac_rows = q.execute().data or []
-        for row in ac_rows:
-            mes_ac = int((row.get("fecha") or "0000-01")[5:7])
-            autoconsumos_por_mes[mes_ac] = round(
-                autoconsumos_por_mes.get(mes_ac, 0.0) + float(row.get("volumen_litros") or 0), 2
-            )
+        from routes.history import _history_invoice_records
+        derived_year = _history_invoice_records(uid, token, year_str, perfil_id, facility_id)
+        cancelled = {
+            str(value or "").strip().upper()
+            for value in derived_year.get("cancelled_uuids") or []
+            if str(value or "").strip()
+        }
+        for month in range(1, 13):
+            derived_by_month[month]["cancelled_uuids"].update(cancelled)
+        for tipo in ("entradas", "salidas"):
+            for row in derived_year.get(tipo) or []:
+                try:
+                    month = int(str(row.get("fecha") or "")[5:7])
+                except (TypeError, ValueError):
+                    continue
+                if 1 <= month <= 12:
+                    derived_by_month[month][tipo].append(row)
     except Exception as e:
-        logger.warning("analytics autoconsumos: %s", e)
+        logger.warning("analytics facturas vigentes: %s", e)
 
     monthly = []
     for m in range(1, 13):
         r = by_month.get(m)
 
+        live_totals = None
+        try:
+            from routes.history import _merge_derived_records, _totals_from_records
+            period = f"{year_str}-{m:02d}"
+            stored_records = get_records(uid, period, facility_id=facility_id, perfil_id=perfil_id)
+            derived = derived_by_month[m]
+            merged = _merge_derived_records(stored_records, {
+                "entradas": derived["entradas"],
+                "salidas": derived["salidas"],
+                "cancelled_uuids": sorted(derived["cancelled_uuids"]),
+            })
+            if merged["entradas"] or merged["salidas"]:
+                live_totals = _totals_from_records(merged)
+        except Exception as e:
+            logger.warning("analytics movimientos %s-%02d: %s", year, m, e)
+
         inv_ini        = round(float(r["inventario_inicial"]), 2) if r else None
-        litros_r       = round(float(r["total_recepciones"]),  2) if r else 0.0
-        litros_e_total = round(float(r["total_entregas"]),     2) if r else 0.0
-        litros_ac      = autoconsumos_por_mes.get(m, 0.0)
+        litros_r       = round(float(live_totals["total_entradas"]), 2) if live_totals else (round(float(r["total_recepciones"]), 2) if r else 0.0)
+        litros_e_total = round(float(live_totals["total_salidas"]), 2) if live_totals else (round(float(r["total_entregas"]), 2) if r else 0.0)
+        litros_ac      = round(float(live_totals["total_autoconsumo"]), 2) if live_totals else 0.0
         litros_e_cfdi  = round(litros_e_total - litros_ac, 2) if litros_e_total > 0 else 0.0
         inv_fin        = round(float(r["vol_existencias"]),    2) if r else None
-        pesos_e        = round(float(r.get("importe_entregas",   0) or 0), 2) if r else 0.0
-        pesos_r        = round(float(r.get("importe_recepciones",0) or 0), 2) if r else 0.0
+        pesos_e        = round(float(live_totals["importe_salidas"]), 2) if live_totals else (round(float(r.get("importe_entregas", 0) or 0), 2) if r else 0.0)
+        pesos_r        = round(float(live_totals["importe_entradas"]), 2) if live_totals else (round(float(r.get("importe_recepciones", 0) or 0), 2) if r else 0.0)
 
         if r and inv_ini is not None and inv_fin is not None:
             calc_val   = round(inv_ini + litros_r - litros_e_total, 2)
@@ -258,6 +277,7 @@ async def get_ventas_analytics(
             "inv_calc":           calc_val,
             "balance_ok":         balance_ok,
             "has_report":         bool(r),
+            "has_activity":       bool(r or live_totals),
             "exceeds_cap":        inv_fin_exceeds_cap,
             "calc_exceeds_cap":   inv_calc_exceeds_cap,
         })
