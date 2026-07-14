@@ -850,7 +850,7 @@ function openComplementValidation(){
   const first = rows[0] || {};
   compModalClient.innerHTML = `<b>${esc(first.cliente || 'Cliente')}</b>${first.rfc ? ` · RFC ${esc(first.rfc)}` : ''}<br><span class="muted">${rows.length} factura${rows.length === 1 ? '' : 's'} seleccionada${rows.length === 1 ? '' : 's'}</span>`;
   compModalRows.innerHTML = rows.map(r => `<tr>
-    <td><b>${esc(r.folio || r.fecha || 'Factura')}</b><br><span class="muted">${esc(r.fecha || '')}</span></td>
+    <td><b>${esc(r.folio || dateDMY(r.fecha) || 'Factura')}</b><br><span class="muted">${esc(dateDMY(r.fecha))}</span></td>
     <td><code class="uuid-text" title="${esc(r.uuid || '')}">${esc(r.uuid || 'UUID pendiente')}</code></td>
     <td>${money(r.saldo)}</td>
     <td><input class="comp-modal-amount" data-factura-id="${Number(r.id)}" type="number" min="0" step="0.01" placeholder="Captura monto" oninput="updateComplementValidation()"></td>
