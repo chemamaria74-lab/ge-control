@@ -189,7 +189,7 @@
           <label class="trv2-inline-filter" id="trv2-cp-stamped-month-wrap">Mes <input id="trv2-cp-stamped-month" type="month" onchange="trv2SetCartaPorteStampedMonth(this.value)"></label>
           <label class="trv2-service-search trv2-cp-stamped-search"><i class="fa-solid fa-magnifying-glass"></i><input id="trv2-cp-stamped-search" type="search" placeholder="Buscar Cartas Porte" oninput="trv2SetCpStampedSearch(this.value)"></label>
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportStampedCartaPorteExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
-          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadStampedCartaPorte({force:true})"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2SearchStampedCartaPorte()"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
         </div>
       </div>
       <div id="trv2-cp-stamped-family-filter" class="trv2-service-product-filter"></div>
@@ -282,7 +282,8 @@
         <label class="trv2-inline-filter trv2-month-filter">Periodo
           <select id="trv2-service-month-mode" onchange="trv2ServiceSetMonthMode(this.value)">
             <option value="">Todos los meses</option>
-            <option value="month" selected>Filtrar por mes</option>
+            <option value="invoice" selected>Mes de Carta Ingreso</option>
+            <option value="carta_porte">Mes de Carta Porte</option>
           </select>
           <input id="trv2-service-month" type="month" onchange="trv2ServiceSetMonth(this.value)">
         </label>
@@ -339,13 +340,15 @@
             <col class="trv2-col-liters">
             <col class="trv2-col-kilos">
             <col class="trv2-col-driver">
+            <col class="trv2-col-cp-date">
+            <col class="trv2-col-cp-folio">
             <col class="trv2-col-folio">
             <col class="trv2-col-uuid">
             <col class="trv2-col-total">
             <col class="trv2-col-payment">
             <col class="trv2-col-actions">
           </colgroup>
-          <thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th>Litros</th><th>Kilos</th><th>Chofer</th><th>Factura</th><th>UUID CFDI</th><th>Total</th><th>Pago</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Fecha ingreso</th><th>Origen</th><th>Destino</th><th>Litros</th><th>Kilos</th><th>Chofer</th><th>Fecha CP</th><th>Carta Porte</th><th>Carta Ingreso</th><th>UUID ingreso</th><th>Total</th><th>Pago</th><th>Acciones</th></tr></thead>
           <tbody id="trv2-service-invoiced-table"></tbody>
         </table>
         </div>
