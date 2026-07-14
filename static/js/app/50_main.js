@@ -397,7 +397,7 @@ function hideLoginDirect(displayName) {
 function showLogin() {
   // Siempre redirigir a /choice al cerrar sesión o sesión expirada
   clearSession();
-  window.location.href = '/choice';
+  window.location.href = '/modulo/gas-lp/roles';
 }
 function hideLogin(displayName) {
   document.getElementById('loginOverlay').classList.add('hidden');
@@ -472,7 +472,7 @@ document.getElementById('loginPass').addEventListener('keydown', e => {
 document.getElementById('btnLogout').addEventListener('click', async () => {
   await fetch('/api/auth/logout', { method: 'POST', headers: authHeader() }).catch(()=>{});
   clearSession();
-  window.location.href = '/choice';
+  window.location.href = '/modulo/gas-lp/roles';
 });
 
 // ── RFC activo hint ───────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ let authToken     = localStorage.getItem('sat_token') || '';
 let currentUserId = localStorage.getItem('sat_user_id') || '';
 let histPeriodo      = null;
 let histZipFilename  = null;
+let _histMonthClosed = false;
 let _facilities       = [];          // lista de instalaciones del usuario
 let _activeFacilityId = null;       // instalación seleccionada en Procesar
 let _histFacilityId   = null;       // instalación activa en Historial (capturada al cargar)

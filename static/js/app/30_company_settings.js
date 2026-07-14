@@ -302,6 +302,7 @@ function resetAppState() {
   // ── 4. Limpiar Historial ──────────────────────────────────────────────────
   histPeriodo     = null;
   histZipFilename = null;
+  _histMonthClosed = false;
   const histContent = document.getElementById('histContent');
   if (histContent) histContent.style.display = 'none';
   const histLoading = document.getElementById('histLoading');

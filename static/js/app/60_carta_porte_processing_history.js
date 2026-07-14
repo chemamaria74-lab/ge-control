@@ -822,6 +822,10 @@ function syncProcessPeriodAndFacilityFromHistory() {
     setHistCloseInfo('Selecciona una planta. El cierre mensual y las cargas pendientes no se hacen en "Todas".', false);
     return false;
   }
+  if (_histMonthClosed) {
+    setHistCloseInfo('Este mes está cerrado y ya no admite XML, autoconsumos ni cambios.', false);
+    return false;
+  }
   const procAnio = document.getElementById('procAnio');
   const procMes = document.getElementById('procMes');
   const activeSel = document.getElementById('activeFacilitySelect');
@@ -933,6 +937,7 @@ async function loadHistorial() {
 
     const totals = data.totals || {};
     const rep    = data.report || {};
+    _histMonthClosed = data.is_closed === true;
     const prevInv = data.previous_inventory_final != null ? parseFloat(data.previous_inventory_final) : null;
     histZipFilename = data.zip_filename || null;
 
@@ -947,7 +952,12 @@ async function loadHistorial() {
       const calc = invFin + (rep.total_entregas || 0) - (rep.total_recepciones || 0);
       if (calc > 0) invIni = calc;
     }
-    document.getElementById('histReportInfo').style.display = hasReport ? '' : 'none';
+    const reportInfo = document.getElementById('histReportInfo');
+    reportInfo.style.display = hasReport ? '' : 'none';
+    reportInfo.textContent = _histMonthClosed
+      ? '✓ Mes cerrado. Datos oficiales bloqueados contra cambios.'
+      : 'ℹ Borrador del reporte SAT; todavía admite ajustes antes del cierre.';
+    reportInfo.style.color = _histMonthClosed ? '#15803d' : '#b45309';
     document.getElementById('htFormula').style.display      = hasReport ? '' : 'none';
     document.getElementById('htInvIni').textContent = invIni != null ? fmt(invIni) + ' L' : '—';
     document.getElementById('htRec').textContent = hasReport
@@ -1029,21 +1039,27 @@ async function loadHistorial() {
 
     document.getElementById('histContent').style.display = 'block';
 
-    // Mostrar botones de acción si hay reporte o registros
+    // Un cierre es inmutable: solo permite consulta y descarga.
     const hasAnyData = (data.report != null) || (data.entradas?.length > 0) || (data.salidas?.length > 0);
-    if (data.report) {
+    const uploadBtn = document.getElementById('btnHistUploadProvider');
+    const autoBtn = document.getElementById('btnHistAutoconsumo');
+    const closeBtn = document.getElementById('btnCloseHistMonth');
+    if (uploadBtn) uploadBtn.disabled = _histMonthClosed;
+    if (autoBtn) autoBtn.disabled = _histMonthClosed;
+    if (closeBtn) closeBtn.style.display = _histMonthClosed ? 'none' : '';
+    if (_histMonthClosed && data.report) {
       document.getElementById('btnDlHistZIP').style.display = '';
     }
-    if (hasAnyData) {
+    if (hasAnyData && !_histMonthClosed) {
       document.getElementById('btnDelHist').style.display = '';
     }
     const missingInitialInventory = !data.report && data.previous_inventory_final == null && hasAnyData;
     setHistCloseInfo(missingInitialInventory
       ? `Hay movimientos, pero falta el inventario final de ${data.previous_period || 'mes anterior'}. Captura el inventario inicial antes de cerrar.`
-      : (data.report
-      ? 'Mes cerrado para la planta seleccionada. Ya puedes descargar el ZIP JSON.'
+      : (_histMonthClosed
+      ? 'Mes cerrado. La información está bloqueada contra cambios y el ZIP permanece disponible para descarga.'
       : (hasAnyData
-        ? 'Mes revisado para la planta seleccionada. Procesa los pendientes antes de descargar el ZIP JSON.'
+        ? 'Mes con información pendiente de cierre. Todavía puedes completar XML y autoconsumo.'
         : 'No hay registros para cerrar en la planta y periodo seleccionados.')), hasAnyData && !missingInitialInventory);
 
   } catch(e) {
@@ -1051,6 +1067,18 @@ async function loadHistorial() {
     alert('Error al cargar historial: ' + e.message);
   }
 }
+
+['histAnio', 'histMes', 'histFacility'].forEach(id => {
+  document.getElementById(id)?.addEventListener('change', () => {
+    _histMonthClosed = false;
+    const uploadBtn = document.getElementById('btnHistUploadProvider');
+    const autoBtn = document.getElementById('btnHistAutoconsumo');
+    const closeBtn = document.getElementById('btnCloseHistMonth');
+    if (uploadBtn) uploadBtn.disabled = false;
+    if (autoBtn) autoBtn.disabled = false;
+    if (closeBtn) closeBtn.style.display = '';
+  });
+});
 
 async function downloadHistZIP() {
   if (!histPeriodo) return;
@@ -1144,9 +1172,9 @@ async function deleteHistPeriodo(periodo, facilityId, includeAutoconsumos = fals
     document.getElementById('btnDelHist').style.display = 'none';
     histPeriodo = null;
     histZipFilename = null;
-    // Si el panel de ventas está activo, recargar
+    // No consultar automáticamente: el Dashboard se vuelve a buscar bajo demanda.
     if (document.getElementById('mpanel-ventas').classList.contains('active')) {
-      loadVentasAnalytics();
+      resetVentasSearchView();
     }
     // Mostrar confirmación
     const autoMsg = includeAutoconsumos ? ' (incluidos autoconsumos)' : '';

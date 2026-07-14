@@ -459,8 +459,8 @@ document.getElementById('provTipoGrafica')?.addEventListener('change', function(
 document.getElementById('provEspecifico')?.addEventListener('change', () => {
   if (_provData) renderProvChart(_provData);
 });
-document.getElementById('provMes')?.addEventListener('change', () => {
-  cargarProveedores();
+['provAnio', 'provMes', 'provFacility'].forEach(id => {
+  document.getElementById(id)?.addEventListener('change', resetProveedoresSearchView);
 });
 
 async function cargarProveedores() {
@@ -470,10 +470,18 @@ async function cargarProveedores() {
   let url = `/api/analytics/proveedores?year=${year}`;
   if (month) url += `&month=${month}`;
   if (facId) url += `&facility_id=${facId}`;
+  const btn = document.getElementById('btnBuscarProveedores');
+  const status = document.getElementById('provSearchStatus');
   try {
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:.35rem"></i> Buscando...'; }
+    if (status) status.textContent = 'Consultando Supabase...';
     const res = await fetch(url, { headers: authHeader() });
     const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'No fue posible consultar proveedores.');
     _provData  = data;
+    document.getElementById('provSearchPrompt').style.display = 'none';
+    document.getElementById('provChartWrap').style.display = '';
+    document.getElementById('forecastCard').style.display = '';
     renderProvChart(data);
     renderProvTable(data);
     renderProvKpis(data);
@@ -485,8 +493,25 @@ async function cargarProveedores() {
         sel.innerHTML += `<option value="${p.rfc}">${p.nombre} (${p.rfc})</option>`;
       });
     }
-    cargarForecast(facId);
-  } catch(e) { console.warn('cargarProveedores:', e); }
+    await cargarForecast(facId);
+    if (status) status.textContent = 'Consulta realizada ' + new Date().toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'});
+  } catch(e) {
+    if (status) status.textContent = e.message || 'Error al consultar proveedores.';
+    console.warn('cargarProveedores:', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i> Buscar'; }
+  }
+}
+
+function resetProveedoresSearchView() {
+  _provData = null;
+  if (_provChart) { _provChart.destroy(); _provChart = null; }
+  const idsToHide = ['provKpis','provChartWrap','provTable','forecastCard'];
+  idsToHide.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+  const prompt = document.getElementById('provSearchPrompt');
+  const status = document.getElementById('provSearchStatus');
+  if (prompt) prompt.style.display = '';
+  if (status) status.textContent = '';
 }
 
 function renderProvKpis(data) {

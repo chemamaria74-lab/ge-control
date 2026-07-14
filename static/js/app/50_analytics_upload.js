@@ -36,19 +36,39 @@ async function loadVentasAnalytics() {
   const facSel = document.getElementById('ventasFacility');
   const facId  = facSel ? (parseInt(facSel.value) || '') : '';
   const st     = document.getElementById('ventasStatus');
-  st.textContent = 'Cargando...';
+  const btn    = document.getElementById('btnLoadVentas');
+  st.textContent = 'Consultando Supabase...';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:.35rem"></i> Buscando...'; }
   document.getElementById('ventasNoData').style.display = 'none';
   let url = '/api/analytics/ventas?year=' + year;
   if (facId) url += '&facility_id=' + facId;
   try {
     const res  = await fetch(url, { headers: authHeader() });
     const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'No fue posible consultar el Dashboard.');
+    document.getElementById('ventasSearchPrompt').style.display = 'none';
+    document.getElementById('ventasResults').style.display = '';
     renderVentasCharts(data.monthly || [], data.capacidad || null);
-    st.textContent = '';
+    st.textContent = 'Consulta realizada ' + new Date().toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'});
   } catch(e) {
-    st.textContent = 'Error al cargar datos.';
+    st.textContent = e.message || 'Error al consultar datos.';
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i> Buscar'; }
   }
 }
+
+function resetVentasSearchView() {
+  const prompt = document.getElementById('ventasSearchPrompt');
+  const results = document.getElementById('ventasResults');
+  const status = document.getElementById('ventasStatus');
+  if (prompt) prompt.style.display = '';
+  if (results) results.style.display = 'none';
+  if (status) status.textContent = '';
+}
+
+['ventasYear', 'ventasFacility'].forEach(id => {
+  document.getElementById(id)?.addEventListener('change', resetVentasSearchView);
+});
 
 function renderVentasCharts(monthly, capacidad) {
   const totalLitros    = monthly.reduce((s,m) => s + m.litros,     0);
@@ -271,41 +291,45 @@ function renderVentasCharts(monthly, capacidad) {
 
   monthly.forEach(m => {
     const tr      = document.createElement('tr');
-    const hasData = m.has_report && m.inv_inicial !== null;
+    const hasData = !!m.has_activity;
     const stripe  = m.mes % 2 === 0 ? '#f8fafc' : '#fff';
-    const hasAc   = m.has_report && (m.litros_autoconsumo || 0) > 0;
+    const hasAc   = hasData && (m.litros_autoconsumo || 0) > 0;
     const litrosCfdi = m.litros_cfdi !== undefined ? m.litros_cfdi : m.litros;
 
     const calcOver     = hasData && m.calc_exceeds_cap;
     const finOver      = m.has_report && m.exceeds_cap;
     const capCellStyle = 'background:#fee2e2;color:#991b1b;font-weight:700;';
 
-    let statusCell = '<td style="text-align:center;font-size:1rem">—</td>';
-    if (hasData) {
+    let statusCell = '<td style="text-align:center;font-size:.75rem;color:#94a3b8">—</td>';
+    if (m.is_closed) {
       if (m.balance_ok === true && !calcOver && !finOver) {
-        statusCell = '<td style="text-align:center;font-size:1rem;color:#16a34a" title="Balance correcto"><i class="fa-solid fa-circle-check"></i></td>';
+        statusCell = '<td style="text-align:center;font-size:.72rem;color:#15803d;font-weight:800" title="Mes cerrado; ya no admite cambios"><i class="fa-solid fa-circle-check" style="margin-right:.25rem"></i>Cerrado</td>';
       } else if (calcOver || finOver) {
         const diff = m.inv_final !== null && m.inv_calc !== null ? ' Δ ' + fmtNum(Math.abs(m.inv_final - m.inv_calc), 2) + ' L' : '';
-        statusCell = '<td style="text-align:center;font-size:.8rem;background:#fee2e2;color:#991b1b;font-weight:700" title="Supera capacidad' + diff + '"><i class="fa-solid fa-circle-exclamation"></i></td>';
+        statusCell = '<td style="text-align:center;font-size:.72rem;background:#fee2e2;color:#991b1b;font-weight:800" title="Mes cerrado; supera capacidad' + diff + '"><i class="fa-solid fa-lock" style="margin-right:.25rem"></i>Cerrado con alerta</td>';
       } else if (m.balance_ok === false) {
         const diff = m.inv_final !== null && m.inv_calc !== null ? ' (Δ ' + fmtNum(Math.abs(m.inv_final - m.inv_calc), 2) + ' L)' : '';
-        statusCell = '<td style="text-align:center;font-size:1rem;color:#d97706" title="Diferencia detectada' + diff + '"><i class="fa-solid fa-triangle-exclamation"></i></td>';
+        statusCell = '<td style="text-align:center;font-size:.72rem;color:#b45309;font-weight:800" title="Mes cerrado con diferencia' + diff + '"><i class="fa-solid fa-lock" style="margin-right:.25rem"></i>Cerrado con alerta</td>';
+      } else {
+        statusCell = '<td style="text-align:center;font-size:.72rem;color:#15803d;font-weight:800" title="Mes cerrado; ya no admite cambios"><i class="fa-solid fa-circle-check" style="margin-right:.25rem"></i>Cerrado</td>';
       }
+    } else if (hasData) {
+      statusCell = '<td style="text-align:center;font-size:.72rem;color:#b45309;font-weight:800" title="Hay movimientos pendientes de cierre"><i class="fa-solid fa-clock" style="margin-right:.25rem"></i>Pendiente</td>';
     }
 
     const tdR = 'padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;text-align:right;color:';
     tr.style.background = stripe;
     tr.innerHTML =
       '<td style="padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;color:#374151;font-weight:600">' + m.label + '</td>' +
-      '<td style="' + tdR + '#1e40af">'  + (hasData      ? fmtNum(m.inv_inicial, 2)   : '—') + '</td>' +
-      '<td style="' + tdR + '#15803d">'  + (m.has_report ? fmtNum(m.litros_rec, 2)    : '—') + '</td>' +
+      '<td style="' + tdR + '#1e40af">'  + (m.inv_inicial !== null ? fmtNum(m.inv_inicial, 2) : '—') + '</td>' +
+      '<td style="' + tdR + '#15803d">'  + (hasData ? fmtNum(m.litros_rec, 2) : '—') + '</td>' +
       // Entregas CFDI (rojo)
-      '<td style="' + tdR + '#9a3412">'  + (m.has_report ? fmtNum(litrosCfdi, 2)      : '—') + '</td>' +
+      '<td style="' + tdR + '#9a3412">'  + (hasData ? fmtNum(litrosCfdi, 2) : '—') + '</td>' +
       // Autoconsumo (ámbar si hay, guión si no)
       (hasAc
         ? '<td style="' + tdR + '#92400e;background:#fffbeb;font-weight:700">' + fmtNum(m.litros_autoconsumo, 2) + ' <span title="Autoconsumo registrado" style="font-size:.7rem">AC</span></td>'
         : '<td style="' + tdR + '#94a3b8">—</td>') +
-      '<td style="padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;text-align:right;' + (calcOver ? capCellStyle : 'color:#374151;') + '">' + (hasData ? fmtNum(m.inv_calc, 2) : '—') + '</td>' +
+      '<td style="padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;text-align:right;' + (calcOver ? capCellStyle : 'color:#374151;') + '">' + (m.inv_calc !== null ? fmtNum(m.inv_calc, 2) : '—') + '</td>' +
       '<td style="padding:.38rem .6rem;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;' + (finOver ? capCellStyle : 'color:#374151;') + '">' + (m.has_report && m.inv_final !== null ? fmtNum(m.inv_final, 2) : '—') + '</td>' +
       statusCell;
     tbody.appendChild(tr);
