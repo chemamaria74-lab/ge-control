@@ -57,3 +57,38 @@ def test_carta_ingreso_action_layout_keeps_td_as_table_cell():
     assert '<td class="trv2-service-action-cell">' in frontend
     assert '<div class="trv2-service-actions">' in frontend
     assert ".trv2-service-action-cell{text-align:center}" in styles
+
+
+def test_carta_ingreso_view_exposes_carta_porte_relationship_and_date_mode():
+    frontend = (ROOT / "static/js/transporte_v2/55_facturas_servicio.js").read_text(encoding="utf-8")
+    template = (ROOT / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
+    dashboard = (ROOT / "routes/facturas_mod/facturas_servicio_dashboard.py").read_text(encoding="utf-8")
+
+    assert 'value="invoice" selected>Mes de Carta Ingreso' in template
+    assert 'value="carta_porte">Mes de Carta Porte' in template
+    assert "<th>Fecha CP</th><th>Carta Porte</th><th>Carta Ingreso</th>" in template
+    assert "TRV2_SERVICE_MONTH_MODE === 'carta_porte'" in frontend
+    assert "trv2ServiceInvoiceCartaPorteDate(item)" in frontend
+    assert 'row.get("viaje_id")' in dashboard
+    assert 'row.get("cfdi_relacionados")' in dashboard
+
+
+def test_carta_porte_filters_wait_for_search_button():
+    frontend = (ROOT / "static/js/transporte_v2/50_carta_porte.js").read_text(encoding="utf-8")
+    template = (ROOT / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
+
+    assert "async function trv2SearchStampedCartaPorte()" in frontend
+    assert "TRV2_CP_STAMPED_SEARCH_APPLIED = TRV2_CP_STAMPED_SEARCH" in frontend
+    assert 'onclick="trv2SearchStampedCartaPorte()"' in template
+    search_setter = frontend.split("function trv2SetCpStampedSearch", 1)[1].split("}", 1)[0]
+    assert "trv2RenderStampedCartaPorteList" not in search_setter
+
+
+def test_carta_ingreso_pdf_download_preserves_fiscal_filename():
+    frontend = (ROOT / "static/js/transporte_v2/55_facturas_servicio.js").read_text(encoding="utf-8")
+    dashboard = (ROOT / "routes/facturas_mod/facturas_servicio_dashboard.py").read_text(encoding="utf-8")
+    fiscal_pdf = (ROOT / "services/fiscal_pdf.py").read_text(encoding="utf-8")
+
+    assert "trv2OpenServiceArtifact(${Number(item.id)}, 'pdf', true)" in frontend
+    assert "operational_context = _carta_porte_pdf_operational_context" in dashboard
+    assert "operational_context=operational_context" in fiscal_pdf

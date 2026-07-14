@@ -194,6 +194,8 @@ def test_carta_porte_traslado_uses_specialized_pdf_layout(tmp_path):
     assert "36,000 L" in text
     assert "ATLACOMULCO - GUADALAJARA" in text
     assert "123 - Zapotlanejo" in text
+    assert "09/06/2026 19:54" in text
+    assert "09/06/2026 20:54" in text
     assert "LP/20740/COM/2016" in text
     assert "CAHA9403247E1" in text
     assert "VERSION" in text.upper() and "3.1" in text

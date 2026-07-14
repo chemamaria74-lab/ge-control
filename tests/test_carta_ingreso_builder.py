@@ -206,7 +206,15 @@ def test_pdf_carta_ingreso_combina_factura_y_anexo_carta_porte(tmp_path):
     )
     xml = build_cfdi_transporte_xml(cfdi)
     pdf_path = tmp_path / "carta_ingreso.pdf"
-    pdf_path.write_bytes(generar_pdf_ingreso_carta_porte_desde_xml(xml))
+    pdf_path.write_bytes(generar_pdf_ingreso_carta_porte_desde_xml(
+        xml,
+        operational_context={
+            "locations": {
+                "origin": {"direccion": "Atlacomulco - Guadalajara", "estado_sat": "JAL", "cp": "45464"},
+                "destination": {"direccion": "Carretera a Zacatecas", "estado_sat": "ZAC", "cp": "99700"},
+            },
+        },
+    ))
 
     reader = PdfReader(str(pdf_path))
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
@@ -216,3 +224,7 @@ def test_pdf_carta_ingreso_combina_factura_y_anexo_carta_porte(tmp_path):
     assert "CARTA PORTE - INGRESO" in text
     assert "Complemento Carta Porte 3.1" in text
     assert "78101802" in text
+    assert "23/05/2026 12:38" in text
+    assert "23/05/2026 15:50" in text
+    assert "Atlacomulco - Guadalajara" in text
+    assert "Carretera a Zacatecas" in text
