@@ -65,6 +65,14 @@ _loadPerfilFromSession();
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmt(n) { return Number(n||0).toLocaleString('es-MX', {maximumFractionDigits:2}); }
+function displayDate(value, {withTime = false, fallback = ''} = {}) {
+  if (!value) return fallback;
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+  if (!match) return raw;
+  const date = `${match[3]}/${match[2]}/${match[1]}`;
+  return withTime && match[4] ? `${date} ${match[4]}:${match[5]}` : date;
+}
 function authHeader() {
   const h = authToken ? { 'Authorization': 'Bearer ' + authToken } : {};
   const pid = perfilId();

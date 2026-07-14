@@ -388,7 +388,7 @@ async function cargarAutoconsumos() {
         <tbody>
           ${acs.map(a => `
             <tr style="border-bottom:1px solid #f1f5f9">
-              <td style="padding:.3rem .5rem">${a.fecha}</td>
+              <td style="padding:.3rem .5rem">${displayDate(a.fecha)}</td>
               <td style="padding:.3rem .5rem">${(a.nombre_contraparte||'').replace('AUTOCONSUMO — ','')}</td>
               <td style="padding:.3rem .5rem;text-align:right;font-weight:600;color:#dc2626">−${parseFloat(a.volumen_litros).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
               <td style="padding:.3rem .5rem;font-family:monospace;color:#64748b;font-size:.68rem">${(a.uuid||'').slice(0,16)}…</td>

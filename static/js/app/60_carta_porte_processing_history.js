@@ -1013,7 +1013,7 @@ async function loadHistorial() {
     } else {
       (data.entradas || []).forEach(r => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${r.fecha||''}</td><td>${r.rfc_contraparte||''}</td>` +
+        tr.innerHTML = `<td>${displayDate(r.fecha)}</td><td>${r.rfc_contraparte||''}</td>` +
           `<td title="${r.uuid||''}">${truncUUID(r.uuid)}</td>` +
           `<td style="text-align:right">${fmt(r.volumen_litros)}</td>` +
           `<td style="text-align:right">$${fmt(r.importe)}</td>`;
@@ -1029,7 +1029,7 @@ async function loadHistorial() {
     } else {
       (data.salidas || []).forEach(r => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${r.fecha||''}</td><td>${r.rfc_contraparte||''}</td>` +
+        tr.innerHTML = `<td>${displayDate(r.fecha)}</td><td>${r.rfc_contraparte||''}</td>` +
           `<td title="${r.uuid||''}">${truncUUID(r.uuid)}</td>` +
           `<td style="text-align:right">${fmt(r.volumen_litros)}</td>` +
           `<td style="text-align:right">$${fmt(r.importe)}</td>`;
