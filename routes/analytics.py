@@ -49,6 +49,7 @@ MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"
 
 # Umbral de alerta de stock (días)
 DIAS_ALERTA_STOCK = 30
+CAPACIDAD_ALERTA_MARGEN_LITROS = 100_000.0
 
 
 def _auth(authorization: str) -> tuple[str, str]:
@@ -166,17 +167,20 @@ async def get_ventas_analytics(
 ):
     uid, token = _auth(authorization)
     perfil_id = _require_perfil(uid, token, x_perfil_id)
+    tenant_context = resolve_tenant_context(token, "gas_lp", perfil_id)
+    data_user_id = tenant_context.data_user_id
     if year is None:
         year = datetime.now().year
 
     capacidad = None
     if facility_id is not None:
-        fac = get_facility(facility_id, uid, perfil_id=perfil_id)
+        fac = get_facility(facility_id, data_user_id, perfil_id=perfil_id)
         if fac and fac.get("capacidad_tanque") and fac["capacidad_tanque"] > 0:
             capacidad = round(float(fac["capacidad_tanque"]), 2)
+    capacidad_alerta = round(capacidad + CAPACIDAD_ALERTA_MARGEN_LITROS, 2) if capacidad else None
 
     try:
-        all_reports = get_reports(uid, facility_id=facility_id, perfil_id=perfil_id)
+        all_reports = get_reports(data_user_id, facility_id=facility_id, perfil_id=perfil_id)
     except Exception as e:
         logger.exception("Error obteniendo reportes de analytics")
         raise HTTPException(500, str(e))
@@ -225,7 +229,7 @@ async def get_ventas_analytics(
         logger.warning("analytics facturas vigentes: %s", e)
 
     stored_by_period = get_records_for_year(
-        uid, year_str, facility_id=facility_id, perfil_id=perfil_id,
+        data_user_id, year_str, facility_id=facility_id, perfil_id=perfil_id,
     )
 
     monthly = []
@@ -264,8 +268,8 @@ async def get_ventas_analytics(
             calc_val   = None
             balance_ok = None
 
-        inv_fin_exceeds_cap  = bool(capacidad and inv_fin  is not None and inv_fin  > capacidad)
-        inv_calc_exceeds_cap = bool(capacidad and calc_val is not None and calc_val > capacidad)
+        inv_fin_exceeds_cap  = bool(capacidad_alerta and inv_fin  is not None and inv_fin  > capacidad_alerta)
+        inv_calc_exceeds_cap = bool(capacidad_alerta and calc_val is not None and calc_val > capacidad_alerta)
 
         monthly.append({
             "mes":                m,
@@ -291,6 +295,8 @@ async def get_ventas_analytics(
         "year":      year,
         "monthly":   monthly,
         "capacidad": capacidad,
+        "capacidad_alerta": capacidad_alerta,
+        "capacidad_margen": CAPACIDAD_ALERTA_MARGEN_LITROS,
     })
 
 
