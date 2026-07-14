@@ -37,6 +37,7 @@ from services.cfdi_parser import extract_cancelled_uuids_from_upload, parse_xml,
 from services.database import (
     delete_period,
     get_facility,
+    get_closed_report,
     get_records,
     get_reports,
     init_db,
@@ -414,6 +415,14 @@ async def _upload_cfdi_impl(
     periodo_form = _periodo_form_valido(periodo)
     fechas_mov = [m.get("fecha", "") for m in todos_movimientos if m.get("fecha")]
     periodo_inferido = periodo_form or (sorted(fechas_mov)[-1][:7] if fechas_mov else "")
+
+    if periodo_inferido and get_closed_report(
+        data_user_id, periodo_inferido, facility_id=fid, perfil_id=perfil_id,
+    ):
+        raise HTTPException(
+            409,
+            f"El mes {periodo_inferido} está cerrado para esta planta y ya no admite nuevos XML ni cambios.",
+        )
 
     if cancelled_uuids:
         todos_movimientos, cancel_skipped = _merge_movements([], todos_movimientos, cancelled_uuids)

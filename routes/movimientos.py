@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from routes.auth import resolve_profile_scope, verify_token
+from services.database import get_closed_report
 from supabase_config import get_supabase_admin
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,12 @@ async def registrar_autoconsumo(
     user_id = scope["data_user_id"]
     perfil_id = scope["perfil_id"]
     _require_scope_facility(user_id, perfil_id, payload.facility_id)
+
+    if get_closed_report(user_id, payload.periodo, payload.facility_id, perfil_id):
+        raise HTTPException(
+            409,
+            f"El mes {payload.periodo} está cerrado y ya no admite autoconsumos ni cambios.",
+        )
 
     volumen_litros = _parse_litros_humano(payload.volumen_litros_raw, payload.volumen_litros)
 
@@ -271,13 +278,20 @@ async def eliminar_autoconsumo(
     try:
         sb   = get_supabase_admin()
         rows = (sb.table("records")
-                  .select("id,file_path,uuid")
+                  .select("id,file_path,uuid,periodo,facility_id")
                   .eq("id", record_id)
                   .eq("user_id", user_id)
                   .eq("perfil_id", perfil_id)
                   .execute().data or [])
         if not rows:
             raise HTTPException(404, "Registro no encontrado.")
+        if get_closed_report(
+            user_id,
+            str(rows[0].get("periodo") or ""),
+            rows[0].get("facility_id"),
+            perfil_id,
+        ):
+            raise HTTPException(409, "El mes está cerrado y el autoconsumo ya no se puede eliminar.")
         file_path = rows[0].get("file_path") or ""
         if not file_path.startswith("manual:"):
             raise HTTPException(

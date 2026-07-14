@@ -15,6 +15,7 @@ import hashlib
 import zlib
 import base64
 import unicodedata
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape as xml_escape
@@ -66,6 +67,7 @@ TBL_AUDITORIA = "transporte_v2_auditoria"
 TBL_CFDI = "tr_cfdi"
 TBL_COVOL = "tr_covol_reports"
 TBL_COVOL_CIERRES = "tr_covol_month_closures"
+TBL_COVOL_EXTERNOS = "tr_covol_external_movements"
 TRV2_LIST_LIMIT_DEFAULT = 100
 TRV2_LIST_LIMIT_MAX = 1000
 TRV2_CFDI_LIST_SELECT = ",".join([
@@ -222,7 +224,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
             "alias", "numero_economico", "placas", "subtipo_remolque",
             "subtipo_remolque_sat", "subtipo", "subtipo_rem", "permiso", "aseguradora",
             "aseguradora_rc", "poliza", "poliza_rc", "poliza_seguro", "peso_bruto",
-            "peso_bruto_toneladas", "activo", "metadata",
+            "peso_bruto_toneladas", "capacidad_litros", "activo", "metadata",
         ],
         "defaults": {"activo": True},
     },
@@ -1149,6 +1151,92 @@ def _operator_context(token_plain: str, usuario: str = "") -> tuple[Any, dict[st
     return sb, acc
 
 
+def _operator_trip_bitacora(row: dict[str, Any]) -> dict[str, Any]:
+    meta = _meta(row)
+    value = meta.get("bitacora_operador")
+    return value if isinstance(value, dict) else {}
+
+
+def _operator_bitacora_was_started(bitacora: dict[str, Any]) -> bool:
+    state = _first_text(bitacora.get("estado")).upper()
+    if state in {"EN_CURSO", "DESCANSO", "FINALIZADO"}:
+        return True
+    events = bitacora.get("eventos") if isinstance(bitacora.get("eventos"), list) else []
+    return any(_first_text(event.get("accion")).upper() == "INICIAR" for event in events)
+
+
+def _operator_trip_scheduled_end(row: dict[str, Any]) -> datetime | None:
+    meta = _meta(row)
+    carta_porte = meta.get("carta_porte") if isinstance(meta.get("carta_porte"), dict) else {}
+    fechas = meta.get("fechas") if isinstance(meta.get("fechas"), dict) else {}
+    candidates = (
+        row.get("fecha_hora_llegada"),
+        row.get("fecha_llegada_estimada"),
+        meta.get("fecha_hora_llegada"),
+        meta.get("fecha_llegada_estimada"),
+        meta.get("fecha_llegada"),
+        carta_porte.get("fecha_hora_llegada"),
+        carta_porte.get("fecha_llegada_estimada"),
+        fechas.get("llegada_estimada"),
+    )
+    local_tz = ZoneInfo("America/Mexico_City")
+    for value in candidates:
+        normalized = _parse_trip_datetime(value)
+        if not normalized:
+            continue
+        try:
+            parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=local_tz)
+        else:
+            parsed = parsed.astimezone(local_tz)
+        return parsed
+    return None
+
+
+def _operator_trip_expired_without_started_bitacora(
+    row: dict[str, Any],
+    now: datetime | None = None,
+) -> bool:
+    bitacora = _operator_trip_bitacora(row)
+    if _operator_bitacora_was_started(bitacora):
+        return False
+    scheduled_end = _operator_trip_scheduled_end(row)
+    if scheduled_end is None:
+        return False
+    local_tz = ZoneInfo("America/Mexico_City")
+    current = now or datetime.now(local_tz)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=local_tz)
+    else:
+        current = current.astimezone(local_tz)
+    return current >= scheduled_end
+
+
+def _close_operator_trip_on_schedule(sb: Any, row: dict[str, Any]) -> None:
+    scheduled_end = _operator_trip_scheduled_end(row)
+    closed_at = (scheduled_end or datetime.now(ZoneInfo("America/Mexico_City"))).isoformat()
+    metadata = _meta(row)
+    metadata["finalizado_programado_at"] = closed_at
+    metadata["finalizado_programado_source"] = "carta_porte_fecha_fin"
+    payload = {
+        "defaults_json": metadata,
+        "status": "finalizado",
+        "operacion_status": "cerrado",
+        "closed_at": closed_at,
+        "updated_at": _now_iso(),
+    }
+    try:
+        query = sb.table(TBL_VIAJES).update(payload).eq("id", row.get("id")).eq("user_id", row.get("user_id"))
+        if row.get("perfil_id"):
+            query = query.eq("perfil_id", row.get("perfil_id"))
+        query.execute()
+    except Exception as exc:
+        logger.info("No se pudo persistir cierre programado viaje=%s: %s", row.get("id"), exc)
+
+
 def _operator_assigned_trip(sb: Any, acc: dict[str, Any]) -> dict[str, Any]:
     rows = (
         sb.table(TBL_VIAJES)
@@ -1165,18 +1253,30 @@ def _operator_assigned_trip(sb: Any, acc: dict[str, Any]) -> dict[str, Any]:
     active_rows = []
     for row in rows:
         meta = _meta(row)
-        bitacora = meta.get("bitacora_operador") if isinstance(meta.get("bitacora_operador"), dict) else {}
+        bitacora = _operator_trip_bitacora(row)
+        bitacora_state = _first_text(bitacora.get("estado")).upper()
         status_text = _first_text(row.get("status"), row.get("estatus"), row.get("operacion_status")).lower()
         if _first_text(row.get("status")).lower() == "eliminado":
             continue
-        if status_text in {"finalizado", "cerrado", "entregado"}:
-            continue
-        if _first_text(bitacora.get("estado")).upper() == "FINALIZADO":
+        if bitacora_state == "FINALIZADO":
             continue
         if meta.get("eliminado_transporte_v2"):
             continue
+        # Una bitácora iniciada manda sobre el horario estimado y cualquier cierre
+        # administrativo: el operador conserva el viaje hasta pulsar FINALIZAR.
+        if _operator_bitacora_was_started(bitacora):
+            active_rows.append(row)
+            continue
+        if status_text in {"finalizado", "cerrado", "entregado"}:
+            continue
+        # Si nunca inició bitácora, la llegada de Carta Porte cierra su vista.
+        if _operator_trip_expired_without_started_bitacora(row):
+            _close_operator_trip_on_schedule(sb, row)
+            continue
         active_rows.append(row)
-    rows = active_rows
+    # Si hubiera otra asignación más reciente, conservar primero el viaje cuya
+    # bitácora ya inició para que nunca sea desplazado antes del cierre manual.
+    rows = sorted(active_rows, key=lambda item: 0 if _operator_bitacora_was_started(_operator_trip_bitacora(item)) else 1)
     if not rows:
         raise HTTPException(404, "Sin viaje asignado.")
     trip = dict(rows[0])
@@ -2924,6 +3024,11 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["poliza_seguro"] = _first_text(item.get("poliza_seguro"), item["poliza"])
         item["peso_bruto"] = _num(item.get("peso_bruto") or item.get("peso_bruto_toneladas") or trailer_meta.get("peso_bruto") or trailer_meta.get("peso_bruto_toneladas"))
         item["peso_bruto_toneladas"] = _num(item.get("peso_bruto_toneladas") or item["peso_bruto"])
+        item["capacidad_litros"] = _num(item.get("capacidad_litros") or trailer_meta.get("capacidad_litros"))
+        item["fabricante"] = _first_text(item.get("fabricante"), trailer_meta.get("fabricante"), trailer_meta.get("marca"))
+        item["modelo"] = _first_text(item.get("modelo"), trailer_meta.get("modelo"))
+        item["anio"] = item.get("anio") or trailer_meta.get("anio")
+        item["numero_serie"] = _first_text(item.get("numero_serie"), trailer_meta.get("numero_serie"), trailer_meta.get("serie"))
     item["source_table"] = CATALOG_CONFIG.get(catalogo, {}).get("table")
     return item
 
@@ -4470,6 +4575,56 @@ def _stamp_row(sb: Any, table: str, row_id: Any, uid: str, pid: Optional[int]) -
     return rows[0] if rows else {}
 
 
+def _carta_porte_pdf_operational_context(
+    sb: Any,
+    uid: str,
+    pid: Optional[int],
+    viaje: dict[str, Any],
+) -> dict[str, Any]:
+    """Enriquece la representación impresa con Catálogos sin alterar el XML timbrado."""
+    trip_meta = _meta(viaje)
+
+    def catalog(table: str, catalog_name: str, row_id: Any) -> dict[str, Any]:
+        try:
+            return _normalize_catalog_row(catalog_name, _stamp_row(sb, table, row_id, uid, pid))
+        except Exception as exc:
+            logger.info("Catálogo %s no disponible para PDF Carta Porte: %s", catalog_name, exc)
+            return {}
+
+    vehicle_id = viaje.get("vehiculo_id") or trip_meta.get("vehiculo_id")
+    vehicle = catalog(TBL_VEHICULOS, "vehiculos", vehicle_id)
+    vehicle_meta = _meta(vehicle)
+    trailers: list[dict[str, Any]] = []
+    seen_trailer_ids: set[str] = set()
+    for trailer_id in [
+        vehicle.get("remolque_id") or vehicle_meta.get("remolque_id"),
+        vehicle.get("remolque2_id") or vehicle_meta.get("remolque2_id"),
+    ]:
+        key = str(trailer_id or "").strip()
+        if not key or key in seen_trailer_ids:
+            continue
+        seen_trailer_ids.add(key)
+        trailer = catalog(TBL_REMOLQUES, "remolques", trailer_id)
+        if trailer:
+            trailers.append(trailer)
+
+    route = catalog(TBL_RUTAS, "rutas", viaje.get("ruta_id") or trip_meta.get("ruta_id"))
+    route_meta = _meta(route)
+    origin_id = viaje.get("origen_id") or trip_meta.get("origen_id") or route.get("origen_id") or route_meta.get("origen_id")
+    destination_id = viaje.get("destino_id") or trip_meta.get("destino_id") or route.get("destino_id") or route_meta.get("destino_id")
+    origin = catalog(TBL_ORIGENES, "origenes", origin_id)
+    destination = catalog(TBL_DESTINOS, "destinos", destination_id)
+
+    return {
+        "vehicle": vehicle,
+        "trailers": trailers,
+        "locations": {
+            "origin": origin,
+            "destination": destination,
+        },
+    }
+
+
 def _build_carta_porte_location_id(row: dict[str, Any], target: str) -> str:
     prefix = "DE" if target == "destinos" else "OR"
     existing = _first_text(row.get("id_ubicacion_carta_porte"), row.get("id_ubicacion")).upper()
@@ -5790,6 +5945,134 @@ def _covol_month_closed(sb: Any, uid: str, pid: int, periodo: str, permiso: str)
         raise HTTPException(409, "Falta aplicar la migración de cierre mensual Transporte.")
 
 
+def _covol_external_from_xml(content: bytes, filename: str, tipo_movimiento: str, permiso: str) -> dict[str, Any]:
+    root = ET.fromstring(content)
+    detected = _detect_xml_document(content).get("detected") or {}
+    mercancías = _xml_all(root, "Mercancia")
+    mercancia = mercancías[0] if mercancías else None
+    uuid_cfdi = _first_text(detected.get("uuid"))
+    if not uuid_cfdi:
+        raise HTTPException(400, f"{filename}: el XML no contiene UUID timbrado.")
+    clave_producto = _first_text(
+        mercancia.get("BienesTransp") if mercancia is not None else "",
+        detected.get("clave_sat"),
+    )
+    producto = _first_text(
+        mercancia.get("Descripcion") if mercancia is not None else "",
+        detected.get("producto"),
+    )
+    volumen = _num(
+        mercancia.get("Cantidad") if mercancia is not None else 0
+    ) or _num(detected.get("cantidad_litros"))
+    if not clave_producto or volumen <= 0:
+        raise HTTPException(400, f"{filename}: no se detectó producto y volumen en litros.")
+    fecha_hora = _first_text(root.get("Fecha"), detected.get("fecha_factura"))
+    if not fecha_hora:
+        raise HTTPException(400, f"{filename}: no se detectó la fecha del CFDI.")
+    contraparte_rfc = _first_text(
+        detected.get("proveedor_rfc") if tipo_movimiento == "carga" else detected.get("receptor_rfc")
+    )
+    contraparte_nombre = _first_text(
+        detected.get("proveedor_nombre") if tipo_movimiento == "carga" else detected.get("receptor_nombre")
+    )
+    carta_porte = _xml_first(root, "CartaPorte")
+    return {
+        "periodo": fecha_hora[:7],
+        "tipo_movimiento": tipo_movimiento,
+        "num_permiso_cne": permiso,
+        "fecha_hora": fecha_hora,
+        "uuid_cfdi": uuid_cfdi.upper(),
+        "id_ccp": _first_text(carta_porte.get("IdCCP") if carta_porte is not None else ""),
+        "clave_producto": clave_producto,
+        "clave_subproducto": "",
+        "producto": producto,
+        "volumen_litros": volumen,
+        "importe": _num(root.get("Total")) or _num(mercancia.get("ValorMercancia") if mercancia is not None else 0),
+        "rfc_contraparte": contraparte_rfc,
+        "nombre_contraparte": contraparte_nombre,
+        "filename": filename,
+        "metadata": {"source": "xml_externo", "tipo_comprobante": root.get("TipoDeComprobante", "")},
+    }
+
+
+@router.get("/tr-v2/control-volumetrico/externos")
+async def transporte_v2_listar_covol_externos(
+    periodo: str = Query(default=""),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(None, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "perfil_id requerido.")
+    try:
+        query = _sb(token).table(TBL_COVOL_EXTERNOS).select("*").eq("user_id", uid).eq("perfil_id", pid)
+        if periodo:
+            query = query.eq("periodo", periodo[:7])
+        rows = query.order("fecha_hora").execute().data or []
+    except Exception as exc:
+        raise HTTPException(409, f"Falta aplicar la migración de movimientos externos Transporte: {exc}") from exc
+    return {"ok": True, "movimientos": rows}
+
+
+@router.post("/tr-v2/control-volumetrico/externos")
+async def transporte_v2_subir_covol_externos(
+    tipo_movimiento: str = Form(...),
+    num_permiso_cne: str = Form(default=""),
+    files: list[UploadFile] = File(...),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(None, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "perfil_id requerido.")
+    tipo = "carga" if tipo_movimiento == "carga" else "descarga"
+    xml_files: list[tuple[str, bytes]] = []
+    for uploaded in files:
+        content = await uploaded.read()
+        if len(content) > 16 * 1024 * 1024:
+            raise HTTPException(413, f"{uploaded.filename}: excede 16 MB.")
+        filename = uploaded.filename or "documento.xml"
+        if filename.lower().endswith(".zip"):
+            try:
+                with zipfile.ZipFile(io.BytesIO(content)) as archive:
+                    for name in archive.namelist():
+                        if name.lower().endswith(".xml") and not name.startswith("__MACOSX/"):
+                            xml_files.append((name, archive.read(name)))
+            except zipfile.BadZipFile as exc:
+                raise HTTPException(400, f"{filename}: ZIP inválido.") from exc
+        elif filename.lower().endswith(".xml"):
+            xml_files.append((filename, content))
+    if not xml_files:
+        raise HTTPException(400, "Selecciona al menos un XML o ZIP con XML.")
+    if len(xml_files) > 100:
+        raise HTTPException(413, "El ZIP contiene más de 100 XML; divídelo en varios archivos.")
+    rows = []
+    errors = []
+    sb = _sb(token)
+    for filename, content in xml_files:
+        try:
+            row = _covol_external_from_xml(content, filename, tipo, _first_text(num_permiso_cne))
+            row.update({"user_id": uid, "perfil_id": pid, "updated_at": _now_iso()})
+            saved = sb.table(TBL_COVOL_EXTERNOS).upsert(
+                row,
+                on_conflict="user_id,perfil_id,tipo_movimiento,uuid_cfdi,clave_producto",
+            ).execute().data or []
+            if saved:
+                rows.append(saved[0])
+        except HTTPException as exc:
+            errors.append(str(exc.detail))
+        except Exception as exc:
+            errors.append(f"{filename}: {exc}")
+    if not rows:
+        raise HTTPException(400, {"message": "No se importó ningún XML.", "errors": errors})
+    _audit(uid, token, pid, TBL_COVOL_EXTERNOS, None, "importar_xml_covol", {"tipo": tipo, "total": len(rows)})
+    return {"ok": True, "importados": len(rows), "movimientos": rows, "errors": errors}
+
+
 @router.post("/tr-v2/control-volumetrico/cerrar-mes")
 async def transporte_v2_cerrar_mes_control_volumetrico(
     payload: TransporteV2CovolCloseRequest,
@@ -5881,9 +6164,6 @@ async def transporte_v2_generar_control_volumetrico(
         .data
         or []
     )
-    if not rows:
-        raise HTTPException(404, f"No hay viajes timbrados en {periodo}.")
-
     selected_permiso_row: dict[str, Any] = {}
     try:
         permiso_rows = (
@@ -5901,6 +6181,28 @@ async def transporte_v2_generar_control_volumetrico(
         selected_permiso_row = permiso_rows[0] if permiso_rows else {}
     except Exception:
         selected_permiso_row = {}
+
+    invoice_total_by_trip: dict[int, float] = {}
+    try:
+        invoice_rows = (
+            sb.table(TBL_FACT_SERV)
+            .select("viaje_ids,total,status")
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .execute()
+            .data
+            or []
+        )
+        for invoice in invoice_rows:
+            if _status_cancelado(invoice.get("status")):
+                continue
+            for trip_id in (_parse_json_value(invoice.get("viaje_ids"), []) or []):
+                try:
+                    invoice_total_by_trip[int(trip_id)] = _num(invoice.get("total"))
+                except (TypeError, ValueError):
+                    continue
+    except Exception as exc:
+        logger.info("COVOL Transporte sin complemento de Carta Ingreso: %s", exc)
 
     viajes_para_covol: list[dict[str, Any]] = []
     permisos_detectados: set[str] = set()
@@ -5932,16 +6234,69 @@ async def transporte_v2_generar_control_volumetrico(
             continue
         if not permiso_viaje and selected_permiso_row and not producto_match_permiso:
             continue
-        viajes_para_covol.append({
+        enriched_products = []
+        for product in (productos_json if isinstance(productos_json, list) else []):
+            if not isinstance(product, dict):
+                continue
+            enriched = dict(product)
+            enriched["importe"] = _num(enriched.get("importe")) or invoice_total_by_trip.get(int(row.get("id") or 0), 0)
+            enriched_products.append(enriched)
+        base_movement = {
             "uuid_cfdi": _first_text(row.get("uuid_cfdi"), meta.get("uuid_carta_porte")),
             "id_ccp": _first_text(row.get("id_ccp"), meta.get("id_ccp")),
             "num_permiso_cne": selected_permiso,
-            "tipo_movimiento": "descarga",
+            "tipo_cfdi": "Traslado",
+            "productos": enriched_products,
+        }
+        viajes_para_covol.append({
+            **base_movement,
+            "tipo_movimiento": "carga",
             "fecha_hora_salida": row.get("fecha_hora_salida") or "",
-            "rfc_receptor": row.get("rfc_receptor") or "",
-            "nombre_receptor": row.get("nombre_receptor") or "",
-            "productos": productos_json if isinstance(productos_json, list) else [],
+            "rfc_receptor": rfc_contribuyente,
+            "nombre_receptor": _first_text(row.get("nombre_origen"), "Origen de carga"),
         })
+        viajes_para_covol.append({
+            **base_movement,
+            "tipo_movimiento": "descarga",
+            "fecha_hora_salida": row.get("fecha_hora_llegada") or row.get("fecha_hora_salida") or "",
+            "rfc_receptor": row.get("rfc_receptor") or "",
+            "nombre_receptor": row.get("nombre_receptor") or row.get("nombre_destino") or "",
+        })
+
+    try:
+        external_rows = (
+            sb.table(TBL_COVOL_EXTERNOS)
+            .select("*")
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .eq("periodo", periodo)
+            .execute()
+            .data
+            or []
+        )
+        for external in external_rows:
+            external_permit = _first_text(external.get("num_permiso_cne"))
+            if external_permit and external_permit != selected_permiso:
+                continue
+            viajes_para_covol.append({
+                "uuid_cfdi": external.get("uuid_cfdi") or "",
+                "id_ccp": external.get("id_ccp") or "",
+                "num_permiso_cne": selected_permiso,
+                "tipo_movimiento": external.get("tipo_movimiento") or "descarga",
+                "tipo_cfdi": "Ingreso",
+                "fecha_hora_salida": external.get("fecha_hora") or "",
+                "rfc_receptor": external.get("rfc_contraparte") or "",
+                "nombre_receptor": external.get("nombre_contraparte") or "",
+                "productos": [{
+                    "clave_producto": external.get("clave_producto") or "",
+                    "clave_subproducto": external.get("clave_subproducto") or "",
+                    "descripcion": external.get("producto") or "",
+                    "cantidad_litros": external.get("volumen_litros") or 0,
+                    "importe": external.get("importe") or 0,
+                }],
+            })
+    except Exception as exc:
+        logger.info("COVOL Transporte sin movimientos externos: %s", exc)
     if not viajes_para_covol:
         detalle = f" Permisos detectados: {', '.join(sorted(permisos_detectados))}." if permisos_detectados else ""
         raise HTTPException(404, f"No hay viajes timbrados para el permiso {selected_permiso} en {periodo}.{detalle}")
@@ -5976,7 +6331,7 @@ async def transporte_v2_generar_control_volumetrico(
             "filename_base": meta.get("first_uuid", "")[:8],
             "json_name": archivos["json_name"],
             "zip_name": archivos["zip_name"],
-            "json_content": archivos.get("xml_content") or archivos["json_content"],
+            "json_content": archivos["json_content"],
             "zip_b64": archivos["zip_b64"],
             "total_cargas": meta.get("total_cargas", 0),
             "total_descargas": meta.get("total_descargas", 0),
@@ -6107,15 +6462,26 @@ async def transporte_v2_operator_dashboard(
     choferes: dict[int, dict[str, Any]] = {}
     vehiculos: dict[int, dict[str, Any]] = {}
     if chofer_ids:
-        cq = _sb(token).table(TBL_OPERADORES).select("id,nombre,licencia,tipo_licencia,vencimiento_licencia").eq("user_id", uid).in_("id", chofer_ids)
-        if pid:
-            cq = cq.eq("perfil_id", pid)
-        choferes = {int(row.get("id")): row for row in (cq.execute().data or []) if row.get("id")}
+        try:
+            cq = _sb(token).table(TBL_OPERADORES).select("id,nombre,licencia,tipo_licencia,metadata").eq("user_id", uid).in_("id", chofer_ids)
+            if pid:
+                cq = cq.eq("perfil_id", pid)
+            normalized_choferes = [
+                _normalize_catalog_row("operadores", row)
+                for row in (cq.execute().data or [])
+                if row.get("id")
+            ]
+            choferes = {int(row.get("id")): row for row in normalized_choferes}
+        except Exception as exc:
+            logger.info("Dashboard operador continuará sin detalle de choferes: %s", exc)
     if vehiculo_ids:
-        vq = _sb(token).table(TBL_VEHICULOS).select("id,alias,numero_economico,placas").eq("user_id", uid).in_("id", vehiculo_ids)
-        if pid:
-            vq = vq.eq("perfil_id", pid)
-        vehiculos = {int(row.get("id")): row for row in (vq.execute().data or []) if row.get("id")}
+        try:
+            vq = _sb(token).table(TBL_VEHICULOS).select("id,alias,numero_economico,placas").eq("user_id", uid).in_("id", vehiculo_ids)
+            if pid:
+                vq = vq.eq("perfil_id", pid)
+            vehiculos = {int(row.get("id")): row for row in (vq.execute().data or []) if row.get("id")}
+        except Exception as exc:
+            logger.info("Dashboard operador continuará sin detalle de vehículos: %s", exc)
 
     now = datetime.now(ZoneInfo("America/Mexico_City"))
     summary = {"en_ruta": 0, "en_descanso": 0, "incidencias": 0}
@@ -6146,10 +6512,13 @@ async def transporte_v2_operator_dashboard(
             "estado": estado,
             "operador_id": chofer_id,
             "operador_nombre": _first_text(chofer.get("nombre"), meta.get("operador_nombre"), row.get("operador_nombre"), f"Operador #{chofer_id or ''}"),
+            "licencia": _first_text(chofer.get("licencia")),
+            "tipo_licencia": _first_text(chofer.get("tipo_licencia")),
+            "vencimiento_licencia": _first_text(chofer.get("vencimiento_licencia")),
             "origen": _first_text(row.get("origen"), row.get("nombre_origen"), meta.get("origen_sugerido"), meta.get("origen")),
             "destino": _first_text(row.get("destino"), row.get("nombre_destino"), meta.get("destino_sugerido"), meta.get("destino")),
             "producto": _operator_trip_quantity_summary(row).get("producto") or "No capturado",
-            "vehiculo": vehicle_label if vehicle_label != "—" else "No capturado",
+            "vehiculo": vehicle_label or "No capturado",
             "tiempo_ruta": _operator_dashboard_elapsed((start_event or {}).get("created_at") or row.get("fecha_hora_salida") or row.get("created_at"), now),
             "tiempo_estado": _operator_dashboard_elapsed(last_event.get("created_at"), now),
             "descansos": descansos,
@@ -6725,9 +7094,12 @@ async def transporte_v2_operator_bitacora(payload: dict[str, Any], authorization
         "INICIAR": ("SIN_INICIAR", "EN_CURSO"),
         "DESCANSO": ("EN_CURSO", "DESCANSO"),
         "REANUDAR": ("DESCANSO", "EN_CURSO"),
-        "FINALIZAR": ("EN_CURSO", "FINALIZADO"),
     }
-    if action in transitions:
+    if action == "FINALIZAR":
+        if current not in {"EN_CURSO", "DESCANSO"}:
+            raise HTTPException(409, f"No se puede ejecutar {action} desde estado {current}.")
+        bitacora["estado"] = "FINALIZADO"
+    elif action in transitions:
         required, new_state = transitions[action]
         if current != required:
             raise HTTPException(409, f"No se puede ejecutar {action} desde estado {current}.")
@@ -6760,7 +7132,7 @@ async def transporte_v2_operator_bitacora(payload: dict[str, Any], authorization
     events.append(event)
     bitacora["eventos"] = events
     metadata["bitacora_operador"] = bitacora
-    update_payload = {"defaults_json": metadata, "metadata": metadata, "updated_at": _now_iso()}
+    update_payload = {"defaults_json": metadata, "updated_at": _now_iso()}
     if bitacora.get("estado") == "FINALIZADO":
         metadata["finalizado_operador_at"] = events[-1]["created_at"]
         update_payload.update({
@@ -6824,9 +7196,20 @@ async def transporte_v2_operator_carta_porte_pdf(
         "title_color": fiscal.get("pdf_title_color") or fiscal.get("color_titulos_pdf"),
         "declaration_contact_phones": fiscal.get("pdf_declaration_contact_phones") or fiscal.get("declaration_contact_phones") or fiscal.get("telefono_contacto_carta_porte"),
     }
+    operational_context = _carta_porte_pdf_operational_context(
+        sb,
+        str(acc.get("user_id") or ""),
+        _profile_id(acc.get("perfil_id")),
+        trip,
+    )
     try:
         info = extraer_info_pdf(xml_content)
-        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo, pdf_theme)
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(
+            xml_content,
+            logo,
+            pdf_theme,
+            operational_context=operational_context,
+        )
     except Exception as exc:
         raise HTTPException(500, f"No se pudo generar el PDF de Carta Porte: {exc}") from exc
     disposition = "attachment" if download else "inline"
@@ -7513,9 +7896,20 @@ async def transporte_v2_carta_porte_pdf(
         "title_color": fiscal.get("pdf_title_color") or fiscal.get("color_titulos_pdf"),
         "declaration_contact_phones": fiscal.get("pdf_declaration_contact_phones") or fiscal.get("declaration_contact_phones") or fiscal.get("telefono_contacto_carta_porte"),
     }
+    operational_context = _carta_porte_pdf_operational_context(
+        _sb(token),
+        uid,
+        pid,
+        viaje_rows[0] if viaje_rows else {},
+    )
     try:
         info = extraer_info_pdf(xml_content)
-        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo, pdf_theme)
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(
+            xml_content,
+            logo,
+            pdf_theme,
+            operational_context=operational_context,
+        )
         filename = _carta_porte_download_filename(xml_content, viaje_rows[0] if viaje_rows else None, info.filename)
     except Exception as exc:
         raise HTTPException(500, f"No se pudo generar el PDF de Carta Porte: {exc}") from exc

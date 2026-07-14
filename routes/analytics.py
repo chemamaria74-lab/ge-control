@@ -39,7 +39,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from routes.auth import verify_token
-from services.database import get_facility, get_records, get_reports
+from services.database import get_facility, get_records_for_year, get_reports, report_is_closed
 from services.tenant_context import resolve_tenant_context
 
 logger = logging.getLogger(__name__)
@@ -224,6 +224,10 @@ async def get_ventas_analytics(
     except Exception as e:
         logger.warning("analytics facturas vigentes: %s", e)
 
+    stored_by_period = get_records_for_year(
+        uid, year_str, facility_id=facility_id, perfil_id=perfil_id,
+    )
+
     monthly = []
     for m in range(1, 13):
         r = by_month.get(m)
@@ -232,7 +236,7 @@ async def get_ventas_analytics(
         try:
             from routes.history import _merge_derived_records, _totals_from_records
             period = f"{year_str}-{m:02d}"
-            stored_records = get_records(uid, period, facility_id=facility_id, perfil_id=perfil_id)
+            stored_records = stored_by_period.get(period, {"entradas": [], "salidas": []})
             derived = derived_by_month[m]
             merged = _merge_derived_records(stored_records, {
                 "entradas": derived["entradas"],
@@ -278,6 +282,7 @@ async def get_ventas_analytics(
             "balance_ok":         balance_ok,
             "has_report":         bool(r),
             "has_activity":       bool(r or live_totals),
+            "is_closed":          report_is_closed(r, f"{year_str}-{m:02d}"),
             "exceeds_cap":        inv_fin_exceeds_cap,
             "calc_exceeds_cap":   inv_calc_exceeds_cap,
         })

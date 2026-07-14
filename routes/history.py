@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from services.database import (
     get_records, get_reports, get_available_periods, get_period_totals,
     delete_period, delete_all_periods, get_archived_records, get_archived_reports,
-    get_facility, save_report,
+    get_facility, get_closed_report, mark_reports_closed, report_is_closed, save_report,
 )
 from services.sat_transformer import (
     build_sat_report,
@@ -451,24 +451,26 @@ async def get_history(
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
     perfil_id = _require_perfil(uid, token, x_perfil_id)
-    records   = get_records(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
-    totals    = get_period_totals(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
-    reports   = get_reports(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+    data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
+    records   = get_records(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    totals    = get_period_totals(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    reports   = get_reports(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id)
     invoice_records = _history_invoice_records(uid, token, periodo, perfil_id, facility_id)
     if invoice_records["entradas"] or invoice_records["salidas"] or invoice_records.get("cancelled_uuids"):
         records = _merge_derived_records(records, invoice_records)
         totals = _totals_from_records(records)
     source = "active"
     if not reports and not records["entradas"] and not records["salidas"]:
-        archived_records = get_archived_records(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
-        archived_reports = get_archived_reports(uid, periodo, facility_id=facility_id, perfil_id=perfil_id)
+        archived_records = get_archived_records(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id)
+        archived_reports = get_archived_reports(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id)
         if archived_reports or archived_records["entradas"] or archived_records["salidas"]:
             records = archived_records
             reports = archived_reports
             totals = _totals_from_records(records)
             source = "archived_legacy"
     latest    = reports[0] if reports else None
-    prev_inventory_final = _previous_inventory_final(uid, periodo, facility_id, perfil_id)
+    prev_inventory_final = _previous_inventory_final(data_user_id, periodo, facility_id, perfil_id)
 
     sat_zip_filename = None
     if latest:
@@ -478,7 +480,7 @@ async def get_history(
             sat_zip_filename = filename_base + ".zip"
         else:
             try:
-                settings = load_settings(uid, perfil_id)
+                settings = load_settings(data_user_id, perfil_id)
                 sat_zip_filename = generate_filename(settings, periodo, "JSON", stored_uuid) + ".zip"
             except Exception:
                 if latest.get("zip_path"):
@@ -490,6 +492,7 @@ async def get_history(
         "salidas":      records["salidas"],
         "totals":       totals,
         "report":       latest,
+        "is_closed":    report_is_closed(latest, periodo),
         "zip_filename": sat_zip_filename,
         "previous_inventory_final": prev_inventory_final,
         "previous_period": _previous_period(periodo),
@@ -524,7 +527,11 @@ async def delete_history(
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
     perfil_id = _require_perfil(uid, token, x_perfil_id)
-    counts    = delete_period(uid, periodo,
+    scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+    data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
+    if get_closed_report(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id):
+        raise HTTPException(409, "El mes está cerrado y ya no se puede borrar ni editar.")
+    counts    = delete_period(data_user_id, periodo,
                               facility_id=facility_id,
                               include_autoconsumos=include_autoconsumos,
                               perfil_id=perfil_id)
@@ -730,6 +737,12 @@ async def close_month_report(
         )
         if not get_reports(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id):
             raise HTTPException(500, "El ZIP se generó, pero no fue posible guardar el cierre mensual.")
+
+    if not mark_reports_closed(data_user_id, periodo, facility_id, perfil_id):
+        raise HTTPException(
+            409,
+            "No fue posible marcar el mes como cerrado. Aplica la migración de cierre mensual Gas LP.",
+        )
 
     return _stream_regenerated_report(sat_dict, sat_meta, settings, "zip")
 
