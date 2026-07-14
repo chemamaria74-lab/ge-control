@@ -16,7 +16,7 @@
 <nav class="trv2-tabs" id="trv2-admin-tabs" aria-label="Navegación Transporte v2" hidden>
   <button class="trv2-tab active" type="button" data-tab="carta-porte" onclick="trv2SwitchTab('carta-porte')">Carta Porte</button>
   <button class="trv2-tab" type="button" data-tab="facturas-servicio" onclick="trv2SwitchTab('facturas-servicio')">Cartas Ingreso</button>
-  <button class="trv2-tab" type="button" data-tab="conciliacion" onclick="trv2SwitchTab('conciliacion')">Conciliación</button>
+  <button class="trv2-tab" type="button" data-tab="conciliacion" onclick="trv2SwitchTab('conciliacion')">Pago operadores</button>
   <button class="trv2-tab" type="button" data-tab="reportes-sat" onclick="trv2SwitchTab('reportes-sat')">Reportes SAT</button>
   <button class="trv2-tab" type="button" data-tab="catalogos" onclick="trv2SwitchTab('catalogos')">Catálogos</button>
   <button class="trv2-tab" type="button" data-tab="administracion" onclick="trv2SwitchTab('administracion')">Administración</button>
@@ -374,47 +374,106 @@
   <section id="trv2-tab-conciliacion" class="trv2-section">
     <div class="trv2-section-head">
       <div>
-        <h1>Conciliación</h1>
-        <p>Pagos de Cartas Ingreso y resumen mensual por operadores de Transporte.</p>
+        <h1>Liquidación de operadores</h1>
+        <p>Calcula el pago por viaje, kilómetro u hora sin mezclarlo con la tarifa cobrada al cliente.</p>
       </div>
       <div class="trv2-actions">
-        <label class="trv2-inline-filter trv2-month-filter">Mes
-          <input id="trv2-conc-month" type="month" onchange="trv2SetConciliacionMonth(this.value)">
+        <button class="trv2-btn trv2-btn-ghost" id="trv2-payment-export" type="button" onclick="trv2ExportOperatorPayments()"><i class="fa-solid fa-file-excel"></i> Excel</button>
+      </div>
+    </div>
+    <nav class="trv2-subtabs" aria-label="Pago y seguimiento de operadores">
+      <button class="trv2-subtab active" type="button" data-payment-tab="liquidaciones" onclick="trv2SetOperatorPaymentView('liquidaciones')"><i class="fa-solid fa-money-check-dollar"></i> Liquidaciones</button>
+      <button class="trv2-subtab" type="button" data-payment-tab="ruta" onclick="trv2SetOperatorPaymentView('ruta')"><i class="fa-solid fa-route"></i> Operadores en ruta</button>
+    </nav>
+    <div class="trv2-payment-panel active" data-payment-panel="liquidaciones">
+    <section class="trv2-panel trv2-payment-filter-panel">
+      <div class="trv2-form trv2-payment-filters">
+        <label>Periodo rápido
+          <select id="trv2-payment-preset" onchange="trv2ApplyOperatorPaymentPreset(this.value)">
+            <option value="week">Semana actual</option>
+            <option value="fortnight">Quincena actual</option>
+            <option value="month">Mes actual</option>
+            <option value="custom">Personalizado</option>
+          </select>
         </label>
-        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2PrepareConciliacionTab({force:true})"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
-      </div>
-    </div>
-    <div class="trv2-kpis" id="trv2-conc-kpis">
-      <article><span>Pendientes de pago</span><strong>0</strong></article>
-      <article><span>Pagadas</span><strong>0</strong></article>
-      <article><span>Viajes del mes</span><strong>0</strong></article>
-      <article><span>Operadores</span><strong>0</strong></article>
-    </div>
-    <section class="trv2-panel">
-      <div class="trv2-service-tabs-row">
-        <nav class="trv2-subtabs" aria-label="Conciliación Transporte">
-          <button class="trv2-subtab active" type="button" data-conc-tab="facturas" onclick="trv2SetConciliacionTab('facturas')">Facturas</button>
-          <button class="trv2-subtab" type="button" data-conc-tab="operadores" onclick="trv2SetConciliacionTab('operadores')">Operadores</button>
-        </nav>
-        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportConciliacionExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
-      </div>
-      <div class="trv2-service-panel" data-conc-panel="facturas">
-        <div class="trv2-table-wrap trv2-service-scroll">
-          <table class="trv2-service-generated-table">
-            <thead><tr><th>Fecha</th><th>Cliente</th><th>Factura</th><th>Chofer</th><th>Total</th><th>Saldo</th><th>Estatus</th><th>Acción</th></tr></thead>
-            <tbody id="trv2-conc-invoices-table"></tbody>
-          </table>
-        </div>
-      </div>
-      <div class="trv2-service-panel" data-conc-panel="operadores" hidden>
-        <div class="trv2-table-wrap trv2-service-scroll">
-          <table class="trv2-service-generated-table">
-            <thead><tr><th>Operador</th><th>Viajes</th><th>Litros</th><th>Kilos</th><th>Total estimado</th><th>Cartas Porte</th><th>Clientes</th></tr></thead>
-            <tbody id="trv2-conc-operators-table"></tbody>
-          </table>
+        <label>Desde <input id="trv2-payment-from" type="date" onchange="trv2MarkOperatorPaymentCustom()"></label>
+        <label>Hasta <input id="trv2-payment-to" type="date" onchange="trv2MarkOperatorPaymentCustom()"></label>
+        <label>Operador <select id="trv2-payment-operator"><option value="">Todos los operadores</option></select></label>
+        <div class="trv2-form-actions">
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2LoadOperatorPayments({force:true})"><i class="fa-solid fa-magnifying-glass"></i> Calcular</button>
         </div>
       </div>
     </section>
+    <div class="trv2-kpis" id="trv2-payment-kpis">
+      <article><span>Viajes por liquidar</span><strong>0</strong></article>
+      <article><span>Operadores</span><strong>0</strong></article>
+      <article><span>Rutas</span><strong>0</strong></article>
+      <article><span>Total estimado</span><strong>$0.00</strong></article>
+    </div>
+    <div id="trv2-payment-alert" class="trv2-alert trv2-alert-warn" hidden></div>
+    <section class="trv2-panel">
+      <div class="trv2-table-head">
+        <div>
+          <h2>Resumen por operador</h2>
+          <p class="trv2-muted">Abre el detalle para revisar rutas, clientes y bases de cálculo antes de generar la liquidación.</p>
+        </div>
+      </div>
+      <div class="trv2-table-wrap trv2-service-scroll">
+        <table class="trv2-service-generated-table">
+          <thead><tr><th>Operador</th><th>Total viajes</th><th>Rutas</th><th>Sin tarifa</th><th>Total estimado</th><th>Acciones</th></tr></thead>
+          <tbody id="trv2-payment-summary-table"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="trv2-panel" id="trv2-payment-detail-panel" hidden>
+      <div class="trv2-table-head">
+        <div><h2 id="trv2-payment-detail-title">Detalle del operador</h2><p class="trv2-muted">Los clientes aparecen sólo como referencia; el pago se determina por ruta.</p></div>
+      </div>
+      <div class="trv2-table-wrap trv2-service-scroll">
+        <table class="trv2-service-generated-table">
+          <thead><tr><th>Ruta</th><th>Cliente</th><th>Total viajes</th><th>Modalidad</th><th>Tarifa</th><th>Base acumulada</th><th>Total</th><th>Estatus</th></tr></thead>
+          <tbody id="trv2-payment-detail-table"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="trv2-panel">
+      <div class="trv2-table-head">
+        <div><h2>Catálogo de tarifas de operador</h2><p class="trv2-muted">Estas tarifas son exclusivas para pagar operadores y no modifican las tarifas de Cartas Ingreso.</p></div>
+        <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2OpenOperatorTariffForm()"><i class="fa-solid fa-plus"></i> Nueva tarifa</button>
+      </div>
+      <form class="trv2-form trv2-form-admin" id="trv2-operator-tariff-form" onsubmit="trv2SaveOperatorTariff(event)" hidden>
+        <input id="trv2-operator-tariff-id" type="hidden">
+        <label>Ruta * <select id="trv2-operator-tariff-route" required onchange="trv2SyncOperatorTariffBase()"></select></label>
+        <label>Aplica a <select id="trv2-operator-tariff-operator"><option value="">Todos los operadores</option></select></label>
+        <label>Forma de pago * <select id="trv2-operator-tariff-mode" required onchange="trv2ToggleOperatorTariffBase()"><option value="viaje">Fijo por viaje</option><option value="kilometro">Por kilómetro</option><option value="hora">Por hora</option></select></label>
+        <label>Tarifa * <input id="trv2-operator-tariff-rate" type="number" min="0.01" step="0.01" required></label>
+        <label data-operator-tariff-base="kilometro">Kilómetros pagables <input id="trv2-operator-tariff-km" type="number" min="0" step="0.01"></label>
+        <label data-operator-tariff-base="hora">Horas pagables <input id="trv2-operator-tariff-hours" type="number" min="0" step="0.01"></label>
+        <label>Vigencia desde <input id="trv2-operator-tariff-from" type="date"></label>
+        <label>Vigencia hasta <input id="trv2-operator-tariff-to" type="date"></label>
+        <label class="trv2-form-wide">Notas <input id="trv2-operator-tariff-notes" placeholder="Opcional"></label>
+        <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseOperatorTariffForm()">Cancelar</button><button class="trv2-btn trv2-btn-primary" type="submit">Guardar tarifa</button></div>
+      </form>
+      <div class="trv2-table-wrap"><table class="trv2-service-generated-table"><thead><tr><th>Ruta</th><th>Operador</th><th>Modalidad</th><th>Tarifa</th><th>Base configurada</th><th>Vigencia</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="trv2-operator-tariffs-table"></tbody></table></div>
+    </section>
+    </div>
+    <div class="trv2-payment-panel" data-payment-panel="ruta">
+      <section class="trv2-panel">
+        <div class="trv2-table-head">
+          <div>
+            <h2><i class="fa-solid fa-route"></i> Operadores en ruta</h2>
+            <p class="trv2-muted">Seguimiento operativo de viajes con bitácora activa.</p>
+          </div>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorDashboard()">Actualizar</button>
+        </div>
+        <div class="trv2-admin-route-kpis" id="trv2-operator-dashboard-kpis">
+          <article><span>En ruta</span><strong>0</strong></article>
+          <article><span>En descanso</span><strong>0</strong></article>
+          <article><span>Incidencias</span><strong>0</strong></article>
+        </div>
+        <div id="trv2-operator-dashboard-list" class="trv2-operator-dashboard-list"></div>
+      </section>
+    </div>
   </section>
 
   <section id="trv2-tab-reportes-sat" class="trv2-section">
@@ -466,7 +525,6 @@
     </div>
     <nav class="trv2-subtabs" aria-label="Administración Transporte v2">
       <button class="trv2-subtab active" type="button" data-admin-tab="configuracion" onclick="trv2SetAdminSubtab('configuracion')"><i class="fa-solid fa-sliders"></i> Configuración</button>
-      <button class="trv2-subtab" type="button" data-admin-tab="operadores-ruta" onclick="trv2SetAdminSubtab('operadores-ruta')"><i class="fa-solid fa-route"></i> Operadores en ruta</button>
       <button class="trv2-subtab" type="button" data-admin-tab="usuarios-operador" onclick="trv2SetAdminSubtab('usuarios-operador')"><i class="fa-solid fa-user-lock"></i> Usuarios operador</button>
     </nav>
     <div class="trv2-admin-panel" data-admin-panel="usuarios-operador">
@@ -492,23 +550,6 @@
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorAccesses()">Actualizar</button>
         </div>
         <div id="trv2-operator-access-list" class="trv2-access-list"></div>
-      </section>
-    </div>
-    <div class="trv2-admin-panel" data-admin-panel="operadores-ruta">
-      <section class="trv2-panel">
-        <div class="trv2-table-head">
-          <div>
-            <h2><i class="fa-solid fa-route"></i> Operadores en ruta</h2>
-            <p class="trv2-muted">Seguimiento operativo de viajes con bitácora activa.</p>
-          </div>
-          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorDashboard()">Buscar</button>
-        </div>
-        <div class="trv2-admin-route-kpis" id="trv2-operator-dashboard-kpis">
-          <article><span>En ruta</span><strong>0</strong></article>
-          <article><span>En descanso</span><strong>0</strong></article>
-          <article><span>Incidencias</span><strong>0</strong></article>
-        </div>
-        <div id="trv2-operator-dashboard-list" class="trv2-operator-dashboard-list"></div>
       </section>
     </div>
     <div class="trv2-admin-panel active" data-admin-panel="configuracion">
@@ -537,6 +578,13 @@
               <option value="78101800">78101800 — Transporte de carga por carretera (general)</option>
               <option value="78101801">78101801 — Transporte de carga por carretera en área local</option>
               <option value="78101802">78101802 — Transporte de carga regional y nacional</option>
+            </select>
+          </label>
+          <label>Periodo predeterminado para pago a operadores
+            <select id="trv2-set-operator-payment-period">
+              <option value="semanal">Semanal</option>
+              <option value="quincenal">Quincenal</option>
+              <option value="mensual">Mensual</option>
             </select>
           </label>
           <div class="trv2-form-wide trv2-logo-box">
