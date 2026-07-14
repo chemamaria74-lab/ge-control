@@ -162,12 +162,13 @@ def build_transport_covol(
         fecha_h   = _fmt_iso(v.get("fecha_hora_salida") or v.get("fecha_hora") or "")
         rfc_cont  = (v.get("rfc_receptor") or "").strip().upper()
         nom_cont  = (v.get("nombre_receptor") or "").strip()
+        tipo_cfdi = (v.get("tipo_cfdi") or "Traslado").strip().title()
 
         for prod in productos_viaje:
-            clave_pr = (prod.get("clave_producto") or "").strip().upper()
+            clave_pr = (prod.get("clave_producto") or prod.get("clave_sat") or "").strip().upper()
             clave_sp = (prod.get("clave_subproducto") or "").strip().upper()
-            vol      = float(prod.get("volumen_litros") or 0)
-            imp      = float(prod.get("importe") or 0)
+            vol      = float(prod.get("volumen_litros") or prod.get("cantidad_litros") or prod.get("cantidad") or 0)
+            imp      = float(prod.get("importe") or prod.get("valor_mercancia") or 0)
 
             if not clave_pr or vol <= 0:
                 continue
@@ -184,6 +185,7 @@ def build_transport_covol(
                 "fecha_hora": fecha_h,
                 "rfc_cont":  rfc_cont,
                 "nom_cont":  nom_cont,
+                "tipo_cfdi": tipo_cfdi if tipo_cfdi in {"Ingreso", "Traslado", "Egreso"} else "Traslado",
             }
 
             if tipo_mov in ("carga", "recepcion", "entrada"):
@@ -245,7 +247,7 @@ def build_transport_covol(
                     "NombreClienteOProveedor": m["nom_cont"] or "PROVEEDOR",
                     "CFDIs": [{
                         "Cfdi":       m["uuid_cfdi"],
-                        "TipoCfdi":   "Ingreso",
+                        "TipoCfdi":   m["tipo_cfdi"],
                         "PrecioVentaOCompraOContrap": _smart_num(m["importe"]),
                         "FechaYHoraTransaccion": m["fecha_hora"],
                         "VolumenDocumentado": {
@@ -283,7 +285,7 @@ def build_transport_covol(
                     "NombreClienteOProveedor": m["nom_cont"] or "PÚBLICO EN GENERAL",
                     "CFDIs": [{
                         "Cfdi":       m["uuid_cfdi"],
-                        "TipoCfdi":   "Ingreso",
+                        "TipoCfdi":   m["tipo_cfdi"],
                         "PrecioVentaOCompraOContrap": _smart_num(m["importe"]),
                         "FechaYHoraTransaccion": m["fecha_hora"],
                         "VolumenDocumentado": {
@@ -564,6 +566,7 @@ def save_transport_covol(
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(base_xml + ".xml", xml_bytes)
+        zf.writestr(base_json + ".json", json_content.encode("utf-8"))
 
     with open(zip_path, "rb") as f:
         zip_b64 = base64.b64encode(f.read()).decode("utf-8")

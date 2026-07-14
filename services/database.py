@@ -1,6 +1,7 @@
 import logging
 import os
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user
@@ -336,6 +337,38 @@ def get_records(user_id: str, periodo: str,
         return {"entradas": [], "salidas": []}
 
 
+def get_records_for_year(user_id: str, year: int | str,
+                         facility_id: Optional[int] = None,
+                         perfil_id: Optional[int] = None) -> dict[str, dict]:
+    """Carga los doce meses en una sola consulta para analítica anual."""
+    year_str = str(year)
+    result = {
+        f"{year_str}-{month:02d}": {"entradas": [], "salidas": []}
+        for month in range(1, 13)
+    }
+    try:
+        q = (get_supabase_admin().table("records")
+             .select("id,tipo,periodo,fecha,volumen_litros,uuid,rfc_contraparte,"
+                     "nombre_contraparte,importe,file_path,es_autoconsumo")
+             .eq("user_id", user_id)
+             .gte("periodo", f"{year_str}-01")
+             .lte("periodo", f"{year_str}-12"))
+        if facility_id is not None:
+            q = q.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
+        for row in q.order("fecha").execute().data or []:
+            period = str(row.get("periodo") or row.get("fecha") or "")[:7]
+            bucket = result.get(period)
+            if bucket is None:
+                continue
+            key = "entradas" if row.get("tipo") == "entrada" else "salidas"
+            bucket[key].append(row)
+    except Exception as e:
+        logger.warning("get_records_for_year: %s", e)
+    return result
+
+
 def _archive_table_matches(value: str, table: str) -> bool:
     return str(value or "").split(".")[-1] == table
 
@@ -466,6 +499,7 @@ def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
             "importe_recepciones": meta.get("importe_recepciones", 0.0),
             "importe_entregas":    meta.get("importe_entregas", 0.0),
             "first_salida_uuid":   first_salida_uuid.strip().upper() if first_salida_uuid else "",
+            "status":               "draft",
             "created_at":          _now(),
         }
         if perfil_id:
@@ -476,7 +510,16 @@ def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
         if json_path and os.path.exists(json_path):
             with open(json_path, "r", encoding="utf-8") as f:
                 record["json_content"] = f.read()
-        get_supabase_admin().table("reports").insert(record).execute()
+        try:
+            get_supabase_admin().table("reports").insert(record).execute()
+        except Exception as insert_error:
+            # Compatibilidad durante un despliegue donde el código llegue unos
+            # minutos antes que la migración de cierre mensual.
+            message = str(insert_error).lower()
+            if "status" not in message or "column" not in message:
+                raise
+            record.pop("status", None)
+            get_supabase_admin().table("reports").insert(record).execute()
     except Exception as e:
         logger.error("save_report: %s", e)
 
@@ -496,6 +539,50 @@ def get_reports(user_id: str, periodo: Optional[str] = None,
     except Exception as e:
         logger.warning("get_reports: %s", e)
         return []
+
+
+def report_is_closed(report: Optional[dict], periodo: Optional[str] = None) -> bool:
+    """Determina si un reporte mensual ya es inmutable.
+
+    Los cierres nuevos usan ``status/closed_at``. Para reportes históricos
+    creados antes de incorporar el cierre explícito, un reporte de un mes
+    anterior se considera cerrado automáticamente.
+    """
+    if not report:
+        return False
+    status = str(report.get("status") or "").strip().lower()
+    if status in {"closed", "cerrado"} or report.get("closed_at"):
+        return True
+    period = str(periodo or report.get("periodo") or "")[:7]
+    current_period = datetime.now(ZoneInfo("America/Mexico_City")).strftime("%Y-%m")
+    return bool(period and period < current_period)
+
+
+def get_closed_report(user_id: str, periodo: str,
+                      facility_id: Optional[int] = None,
+                      perfil_id: Optional[int] = None) -> Optional[dict]:
+    for report in get_reports(user_id, periodo, facility_id=facility_id, perfil_id=perfil_id):
+        if report_is_closed(report, periodo):
+            return report
+    return None
+
+
+def mark_reports_closed(user_id: str, periodo: str,
+                        facility_id: Optional[int] = None,
+                        perfil_id: Optional[int] = None) -> bool:
+    try:
+        q = (get_supabase_admin().table("reports")
+             .update({"status": "closed", "closed_at": _now()})
+             .eq("user_id", user_id).eq("periodo", periodo))
+        if facility_id is not None:
+            q = q.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
+        q.execute()
+        return get_closed_report(user_id, periodo, facility_id, perfil_id) is not None
+    except Exception as e:
+        logger.error("mark_reports_closed: %s", e)
+        return False
 
 
 def get_archived_reports(user_id: str, periodo: Optional[str] = None,

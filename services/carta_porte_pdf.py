@@ -130,7 +130,12 @@ def _safe_filename_part(value: str) -> str:
 
 
 @measure_external("pdf")
-def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: str = "", pdf_theme: dict | None = None) -> bytes:
+def generar_pdf_carta_porte_desde_xml(
+    xml_content: str | bytes,
+    logo_data_url: str = "",
+    pdf_theme: dict | None = None,
+    operational_context: dict | None = None,
+) -> bytes:
     """Genera la representación impresa fiscal de un CFDI 4.0 con Carta Porte 3.1."""
     try:
         from reportlab.lib import colors
@@ -183,6 +188,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
 
     styles = getSampleStyleSheet()
     theme = pdf_theme or {}
+    operations = operational_context or {}
     header_hex = _pdf_hex_color(
         theme.get("header_color")
         or theme.get("pdf_header_color")
@@ -286,6 +292,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
         line,
         wine_dark,
         _attr(comp, "TipoDeComprobante"),
+        operations,
     ))
     story.append(_section("C. Datos del comprobante", Paragraph, styles, wine_dark))
     story.append(_three_info_cards(
@@ -317,7 +324,7 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     ))
     story.append(KeepTogether([
         _section("D. Origen y destino", Paragraph, styles, wine_dark),
-        _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark),
+        _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark, operations),
     ]))
     story.append(PageBreak())
     story += [
@@ -330,18 +337,13 @@ def generar_pdf_carta_porte_desde_xml(xml_content: str | bytes, logo_data_url: s
     ]))
     story.append(KeepTogether([
         _section("F-H. Autotransporte, seguros y figura de transporte", Paragraph, styles, wine_dark),
-        _operations_grid(autotransporte, ident_veh, remolques, seguros, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark),
+        _operations_grid(autotransporte, ident_veh, remolques, seguros, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark, operations),
     ]))
     story.append(_declaration_box(theme.get("declaration_contact_phones"), Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark))
 
     story.append(_section("Conceptos CFDI", Paragraph, styles, wine_dark))
     story.append(_conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
     story.append(_totals_block(comp, impuestos, Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark))
-
-    story.append(_section("Detalle SAT de ubicaciones", Paragraph, styles, wine_dark))
-    story.append(_ubicaciones_table(ubicaciones, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
-    story.append(_section("Detalle SAT de figuras", Paragraph, styles, wine_dark))
-    story.append(_figuras_table(figuras, Table, TableStyle, Paragraph, styles, colors, wine_dark, line))
 
     story.append(_section("I. Validación SAT", Paragraph, styles, wine_dark))
     story.append(_seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line))
@@ -494,6 +496,51 @@ def _domicilio_ubicacion(ubicacion) -> str:
         _attr(dom, "Pais", ""),
     ] if part and part != "—")
     return _join_nonempty([geo, domicilio], " | ")
+
+
+def _operation_dict(context: dict | None, key: str) -> dict:
+    value = (context or {}).get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _operation_list(context: dict | None, key: str) -> list[dict]:
+    value = (context or {}).get(key)
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _operation_value(row: dict, *keys: str, default: str = "") -> str:
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, "", 0, 0.0):
+            return str(value).strip()
+    return default
+
+
+def _operation_address(ubicacion, row: dict) -> str:
+    """Dirección legible: catálogo operativo primero y XML SAT como respaldo."""
+    parts = []
+    for value in [
+        _operation_value(row, "direccion", "domicilio", "calle"),
+        _operation_value(row, "municipio", "municipio_sat"),
+        _operation_value(row, "localidad", "localidad_sat"),
+        _operation_value(row, "estado", "estado_sat"),
+        f"CP {_operation_value(row, 'cp', 'codigo_postal')}" if _operation_value(row, "cp", "codigo_postal") else "",
+    ]:
+        clean = str(value or "").strip()
+        if clean and clean.lower() not in {item.lower() for item in parts}:
+            parts.append(clean)
+    return " / ".join(parts) or _domicilio_ubicacion(ubicacion)
+
+
+def _format_capacity_liters(value: object) -> str:
+    try:
+        amount = float(str(value or "0").replace(",", ""))
+    except (TypeError, ValueError):
+        return ""
+    if amount <= 0:
+        return ""
+    decimals = 0 if amount.is_integer() else 2
+    return f"{amount:,.{decimals}f} L"
 
 
 def _serie_folio(comp) -> str:
@@ -665,10 +712,11 @@ def _party_rfc_cards(cards, Table, TableStyle, Paragraph, styles, colors, cream,
     return table
 
 
-def _executive_summary_card(carta, ubicaciones, mercancias, ident, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine, tipo_cfdi="T"):
+def _executive_summary_card(carta, ubicaciones, mercancias, ident, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine, tipo_cfdi="T", operational_context=None):
     origen, destino = _origen_destino(ubicaciones)
     mercancia = mercancias[0] if mercancias else None
     figura = figuras[0] if figuras else None
+    vehicle_operation = _operation_dict(operational_context, "vehicle")
     valor_carga = _mercancias_valor_total(mercancias)
     valor_carga_txt = _format_currency_value(valor_carga, _mercancias_moneda(mercancias)) if valor_carga > 0 else "No declarado"
     rows = [
@@ -678,7 +726,10 @@ def _executive_summary_card(carta, ubicaciones, mercancias, ident, figuras, Tabl
         ("Importe total carga", valor_carga_txt),
         ("Origen", _attr(origen, "NombreRemitenteDestinatario", "—")),
         ("Destino", _attr(destino, "NombreRemitenteDestinatario", "—")),
-        ("Vehículo", _join_nonempty([_attr(ident, "ConfigVehicular"), _attr(ident, "PlacaVM")], " / ")),
+        ("Unidad", _join_nonempty([
+            _operation_value(vehicle_operation, "numero_economico", "alias", "unidad"),
+            _attr(ident, "PlacaVM"),
+        ], " / ")),
         ("Operador", _attr(figura, "NombreFigura", "—")),
     ]
     metric_cells = []
@@ -842,17 +893,21 @@ def _ubicaciones_table(ubicaciones, Table, TableStyle, Paragraph, styles, colors
     return _simple_table(rows, [0.58, 0.84, 0.98, 1.36, 1.32, 0.42, 2.10], Table, TableStyle, Paragraph, styles, colors, wine, line)
 
 
-def _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
+def _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, cream, line, wine, operational_context=None):
     origen, destino = _origen_destino(ubicaciones)
+    location_operations = _operation_dict(operational_context, "locations")
 
-    def location_card(label, node):
+    def location_card(label, node, operation):
         data = [
             [Paragraph(f"<b>{label}</b>", styles["SmallBold"]), Paragraph(_text(_attr(node, "IDUbicacion", "—")), styles["Tiny"])],
             [Paragraph("NOMBRE", styles["MetricLabel"]), Paragraph(_text(_attr(node, "NombreRemitenteDestinatario", "—")), styles["Tiny"])],
             [Paragraph("RFC", styles["MetricLabel"]), Paragraph(_text(_attr(node, "RFCRemitenteDestinatario", "—")), styles["Tiny"])],
             [Paragraph("FECHA/HORA", styles["MetricLabel"]), Paragraph(_text(_attr(node, "FechaHoraSalidaLlegada", "—")), styles["Tiny"])],
-            [Paragraph("DIRECCIÓN", styles["MetricLabel"]), Paragraph(_text(_domicilio_ubicacion(node)), styles["Tiny"])],
+            [Paragraph("DIRECCIÓN", styles["MetricLabel"]), Paragraph(_text(_operation_address(node, operation)), styles["Tiny"])],
         ]
+        permiso_cre = _operation_value(operation, "permiso_cre", "id_cre")
+        if permiso_cre:
+            data.append([Paragraph("PERMISO CRE", styles["MetricLabel"]), Paragraph(_text(permiso_cre), styles["Tiny"])])
         table = Table(data, colWidths=[0.82 * inch(), 2.62 * inch()])
         table.setStyle(TableStyle([
             ("SPAN", (0, 0), (-1, 0)),
@@ -875,7 +930,11 @@ def _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, c
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
     ]))
-    table = Table([[location_card("ORIGEN", origen), arrow, location_card("DESTINO", destino)]], colWidths=[3.55 * inch(), 0.50 * inch(), 3.55 * inch()])
+    table = Table([[
+        location_card("ORIGEN", origen, _operation_dict(location_operations, "origin")),
+        arrow,
+        location_card("DESTINO", destino, _operation_dict(location_operations, "destination")),
+    ]], colWidths=[3.55 * inch(), 0.50 * inch(), 3.55 * inch()])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -936,33 +995,72 @@ def _compact_card(title, rows, width, Table, TableStyle, Paragraph, styles, colo
     return table
 
 
-def _operations_grid(autotransporte, ident, remolques, seguros, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine):
+def _operations_grid(autotransporte, ident, remolques, seguros, figuras, Table, TableStyle, Paragraph, styles, colors, cream, line, wine, operational_context=None):
     figura = figuras[0] if figuras else None
-    remolques_txt = ", ".join(f"{_attr(r, 'SubTipoRem')} {_attr(r, 'Placa')}" for r in remolques) or "—"
-    vehicle = _compact_card("AUTOTRANSPORTE", [
+    vehicle_operation = _operation_dict(operational_context, "vehicle")
+    trailer_operations = _operation_list(operational_context, "trailers")
+    vehicle = _compact_card("UNIDAD MOTRIZ / AUTOTRANSPORTE", [
+        ("Núm. económico", _operation_value(vehicle_operation, "numero_economico", "alias", "unidad")),
+        ("Marca / modelo", _operation_value(vehicle_operation, "modelo", "marca_modelo")),
+        ("Placas", _attr(ident, "PlacaVM")),
+        ("Año", _attr(ident, "AnioModeloVM")),
+        ("VIN / NIV", _operation_value(vehicle_operation, "vin", "vin_niv", "niv")),
+        ("Motor", _operation_value(vehicle_operation, "numero_motor", "motor")),
+        ("ID CRE", _operation_value(vehicle_operation, "id_cre", "identificador_cre")),
         ("Permiso", _join_nonempty([_attr(autotransporte, "PermSCT"), _attr(autotransporte, "NumPermisoSCT")], " / ")),
         ("Configuración", _attr(ident, "ConfigVehicular")),
-        ("Placas/modelo", _join_nonempty([_attr(ident, "PlacaVM"), _attr(ident, "AnioModeloVM")], " / ")),
         ("PBV", _attr(ident, "PesoBrutoVehicular")),
-        ("Remolques", remolques_txt),
-    ], 2.68, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
+    ], 3.78, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
+
+    trailer_rows = []
+    for index, operation in enumerate(trailer_operations, start=1):
+        prefix = f"Remolque {index}" if len(trailer_operations) > 1 else "Autotanque"
+        trailer_rows.extend([
+            (f"{prefix} / unidad", _operation_value(operation, "numero_economico", "alias")),
+            (f"{prefix} / tipo", _operation_value(operation, "subtipo_remolque", "subtipo_rem", "subtipo")),
+            (f"{prefix} / placas", _operation_value(operation, "placas", "placa")),
+            (f"{prefix} / fabricante", _join_nonempty([
+                _operation_value(operation, "fabricante", "marca"),
+                _operation_value(operation, "modelo"),
+                _operation_value(operation, "anio"),
+            ], " / ")),
+            (f"{prefix} / serie", _operation_value(operation, "numero_serie", "serie")),
+            (f"{prefix} / cap. 90%", _format_capacity_liters(operation.get("capacidad_litros"))),
+            (f"{prefix} / permiso", _operation_value(operation, "permiso")),
+        ])
+    if not trailer_rows:
+        for index, remolque in enumerate(remolques, start=1):
+            prefix = f"Remolque {index}" if len(remolques) > 1 else "Autotanque"
+            trailer_rows.extend([
+                (f"{prefix} / tipo", _attr(remolque, "SubTipoRem")),
+                (f"{prefix} / placas", _attr(remolque, "Placa")),
+            ])
+    trailer = _compact_card(
+        "AUTOTANQUE / REMOLQUE",
+        trailer_rows,
+        3.78,
+        Table, TableStyle, Paragraph, styles, colors, cream, line, wine,
+    )
     insurance = _compact_card("SEGUROS", [
         ("RC", _join_nonempty([_attr(seguros, "AseguraRespCivil"), _attr(seguros, "PolizaRespCivil")], " / ")),
         ("Medio ambiente", _join_nonempty([_attr(seguros, "AseguraMedAmbiente"), _attr(seguros, "PolizaMedAmbiente")], " / ")),
-    ], 2.38, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
+    ], 3.78, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
     operator = _compact_card("OPERADOR", [
         ("Nombre", _attr(figura, "NombreFigura", "—")),
         ("RFC", _attr(figura, "RFCFigura", "—")),
         ("Licencia", _attr(figura, "NumLicencia", "—")),
         ("Tipo figura", _attr(figura, "TipoFigura", "—")),
-    ], 2.46, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
-    table = Table([[vehicle, insurance, operator]], colWidths=[2.70 * inch(), 2.40 * inch(), 2.50 * inch()])
+    ], 3.78, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
+    table = Table(
+        [[vehicle, trailer], [insurance, operator]],
+        colWidths=[3.80 * inch(), 3.80 * inch()],
+    )
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     return table
 
