@@ -168,7 +168,6 @@
 <!-- ── Navegación principal ───────────────────────────────────────────── -->
 <div class="main-nav-tabs">
   <button class="main-nav-tab" data-main="ventas"><i class="fa-solid fa-chart-line"></i> <span data-i18n="nav.ventas">Dashboard</span></button>
-  <button class="main-nav-tab" data-main="procesar" style="display:none"><i class="fa-solid fa-file-upload"></i> <span data-i18n="nav.procesar">Carga de archivos</span></button>
   <button class="main-nav-tab active" data-main="historial"><i class="fa-solid fa-file-lines"></i> <span data-i18n="nav.historial">Reportes SAT</span></button>
   <button class="main-nav-tab" data-main="controles"><i class="fa-solid fa-gauge-high"></i> <span data-i18n="nav.controles">Inventario</span></button>
   <button class="main-nav-tab" data-main="proveedores"><i class="fa-solid fa-truck-fast"></i> <span data-i18n="nav.proveedores">Proveedores</span></button>
@@ -1732,16 +1731,6 @@
      PANEL: USUARIOS INTERNOS
      ══════════════════════════════════════════════════════════════════════ -->
 <div class="main-panel" id="mpanel-admin">
-<div class="card" style="padding:.7rem .9rem;margin-bottom:.8rem">
-  <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
-    <button type="button" class="gas-admin-tab active" data-gas-admin-tab="usuarios" onclick="switchGasAdminTab('usuarios')" style="padding:.48rem .9rem;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit">
-      <i class="fa-solid fa-users-gear" style="margin-right:.3rem"></i>Usuarios y permisos
-    </button>
-    <button type="button" class="gas-admin-tab" data-gas-admin-tab="carta" onclick="switchGasAdminTab('carta')" style="padding:.48rem .9rem;border:1px solid #e2e8f0;background:#fff;color:#334155;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit">
-      <i class="fa-solid fa-truck-moving" style="margin-right:.3rem"></i>Catálogos Carta Porte
-    </button>
-  </div>
-</div>
 <!-- Usuarios internos por empresa -->
 <div class="card gas-admin-section" data-gas-admin-section="usuarios">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;gap:.8rem;flex-wrap:wrap">
@@ -1793,11 +1782,6 @@
       No hay usuarios internos para esta empresa.
     </div>
   </div>
-</div>
-
-<!-- Catálogos operativos Gas LP -->
-<div class="card gas-admin-section" data-gas-admin-section="carta" style="display:none">
-  <div id="gasCpCatalogApp"></div>
 </div>
 
 </div><!-- /mpanel-admin -->
