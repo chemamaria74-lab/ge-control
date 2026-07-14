@@ -148,6 +148,7 @@ const TRV2_CATALOG_FORMS = {
     ['regimen_fiscal', 'Régimen fiscal', 'regimen-fiscal'],
     ['uso_cfdi', 'Uso CFDI', 'uso-cfdi'],
     ['email_facturacion', 'Email fiscal / comercial', 'email'],
+    ['permiso_cre', 'Permiso destino (CRE)'],
     ['metodo_pago_default', 'Método pago flete', 'payment-method'],
     ['forma_pago_default', 'Forma pago flete', 'payment-form'],
     ['activo', 'Activo', 'checkbox'],
@@ -277,8 +278,8 @@ const TRV2_CATALOG_UI = {
     icon: 'fa-building-user',
     title: 'Clientes',
     subtitle: 'Receptores y contrapartes del servicio de transporte.',
-    metrics: [['Registros', 'count'], ['Con RFC', 'rfc'], ['Con CP', 'cp']],
-    fields: [['RFC', 'rfc'], ['CP', 'cp'], ['Régimen', 'regimen_fiscal'], ['Uso CFDI', 'uso_cfdi'], ['Email', 'email_facturacion'], ['Método flete', 'metodo_pago_default']],
+    metrics: [['Registros', 'count'], ['Con RFC', 'rfc'], ['Con permiso destino', 'permiso_cre']],
+    fields: [['RFC', 'rfc'], ['CP', 'cp'], ['Permiso destino', 'permiso_cre'], ['Régimen', 'regimen_fiscal'], ['Uso CFDI', 'uso_cfdi'], ['Email', 'email_facturacion'], ['Método flete', 'metodo_pago_default']],
   },
   operadores: {
     icon: 'fa-id-card',
@@ -1338,6 +1339,7 @@ function trv2CoerceInstallationContext(form, data) {
     if (cliente) {
       data.cliente_nombre = trv2CatalogLabel('clientes', cliente);
       data.rfc = data.rfc || cliente.rfc || '';
+      data.permiso_cre = data.permiso_cre || cliente.permiso_cre || '';
       data.nombre = data.nombre || data.cliente_nombre || '';
     }
   }
@@ -1852,7 +1854,9 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
     payload.cliente_id = isOrigin ? null : (Number(data.cliente_id || 0) || null);
     payload.cliente_nombre = isOrigin ? '' : (trv2CatalogLabel('clientes', cliente) || '');
     payload.rfc = data.rfc || (isOrigin ? proveedor?.rfc : cliente?.rfc) || '';
-    payload.permiso_cre = isOrigin ? (data.permiso_cre || proveedor?.permiso_cre || '') : '';
+    payload.permiso_cre = isOrigin
+      ? (data.permiso_cre || proveedor?.permiso_cre || '')
+      : (data.permiso_cre || cliente?.permiso_cre || '');
     payload.id_ubicacion_carta_porte = trv2BuildCartaPorteLocationId(data, target);
     const sourceId = current?._source_catalog === target ? Number(current._source_id || 0) : 0;
     const path = sourceId ? `/api/tr-v2/catalogos/${target}/${sourceId}` : `/api/tr-v2/catalogos/${target}`;

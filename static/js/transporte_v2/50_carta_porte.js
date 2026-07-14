@@ -180,6 +180,23 @@ function trv2ExcelCell(value = '') {
     .replace(/"/g, '&quot;');
 }
 
+function trv2ExcelNumber(value, format = 'decimal') {
+  return {value: Number(value || 0), excelFormat: format};
+}
+
+function trv2ExcelCellHtml(cell = '') {
+  const descriptor = cell && typeof cell === 'object' && !Array.isArray(cell) ? cell : {value: cell};
+  const formats = {
+    currency: '&quot;$&quot;#,##0.00',
+    decimal: '#,##0.00',
+    integer: '#,##0',
+  };
+  const style = formats[descriptor.excelFormat]
+    ? ` style="mso-number-format:'${formats[descriptor.excelFormat]}'"`
+    : '';
+  return `<td${style}>${trv2ExcelCell(descriptor.value)}</td>`;
+}
+
 function trv2DownloadExcelTable(filename, headers = [], rows = []) {
   if (!rows.length) {
     trv2Toast('No hay datos para exportar en esta vista.', 'warn');
@@ -188,7 +205,7 @@ function trv2DownloadExcelTable(filename, headers = [], rows = []) {
   const table = `
     <table>
       <thead><tr>${headers.map(header => `<th>${trv2ExcelCell(header)}</th>`).join('')}</tr></thead>
-      <tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${trv2ExcelCell(cell)}</td>`).join('')}</tr>`).join('')}</tbody>
+      <tbody>${rows.map(row => `<tr>${row.map(cell => trv2ExcelCellHtml(cell)).join('')}</tr>`).join('')}</tbody>
     </table>
   `;
   const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>${table}</body></html>`;

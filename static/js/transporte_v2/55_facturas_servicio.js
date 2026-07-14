@@ -185,6 +185,17 @@ function trv2ServiceTripLabel(row, catalogName, metaKey) {
   return trv2ServiceTripMeta(row, metaKey);
 }
 
+function trv2ServiceCartaPorteNumber(seriesValue = '', folioValue = '') {
+  const series = String(seriesValue || '').trim().replace(/-+$/g, '');
+  const folio = String(folioValue || '').trim().replace(/^-+/g, '');
+  if (!folio) return series && series.toUpperCase() !== 'T' ? series : '';
+  if (!series || series.toUpperCase() === folio.toUpperCase()) return folio;
+  const normalizedSeries = series.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+  const normalizedFolio = folio.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+  if (normalizedFolio && normalizedSeries.endsWith(normalizedFolio)) return series;
+  return `${series}-${folio}`;
+}
+
 function trv2ServiceTripData(row = {}) {
   const ruta = trv2FindCatalog?.('rutas', row.ruta_id) || {};
   const producto = trv2FindCatalog?.('productos', row.producto_id || row.producto_operacion_id) || {};
@@ -207,10 +218,10 @@ function trv2ServiceTripData(row = {}) {
   const origen = row.origen || ruta.origen || trv2ServiceTripMeta(row, 'origen') || '';
   const destino = row.destino || ruta.destino || trv2ServiceTripMeta(row, 'destino') || '';
   const productoNombre = producto.descripcion || row.producto_descripcion || trv2ServiceTripMeta(row, 'producto_descripcion') || '';
-  const noCartaPorte = [
-    meta.serie_carta_porte || meta.serie || 'T',
-    meta.folio_carta_porte || meta.folio,
-  ].filter(Boolean).join('-');
+  const noCartaPorte = trv2ServiceCartaPorteNumber(
+    row.serie_carta_porte || row.serie || meta.serie_carta_porte || meta.serie || 'T',
+    row.folio_carta_porte || row.folio || meta.folio_carta_porte || meta.folio,
+  );
   return {
     id: Number(row.id || 0),
     ruta_id: Number(row.ruta_id || meta.ruta_id || 0) || null,
@@ -434,14 +445,14 @@ function trv2ServiceInvoiceDriver(item = {}) {
 }
 
 function trv2ServiceInvoiceCartaPorte(item = {}) {
-  const fromTrips = trv2ServiceInvoiceTripData(item).map(service => service.no_carta_porte || service.uuid_carta_porte).filter(Boolean);
+  const fromTrips = [...new Set(trv2ServiceInvoiceTripData(item).map(service => service.no_carta_porte).filter(Boolean))];
+  if (fromTrips.length) return fromTrips.join(', ');
   const meta = item.metadata || {};
-  return [...new Set([
-    ...fromTrips,
-    meta.no_carta_porte,
-    meta.folio_carta_porte,
-    meta.uuid_carta_porte_base,
-  ].filter(Boolean))].join(', ');
+  if (meta.no_carta_porte) return String(meta.no_carta_porte);
+  return trv2ServiceCartaPorteNumber(
+    meta.serie_carta_porte || meta.serie || '',
+    meta.folio_carta_porte || meta.folio || '',
+  );
 }
 
 function trv2ServiceInvoiceRouteValue(item = {}, key = 'origen') {
@@ -594,25 +605,23 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
     return;
   }
   const rows = invoices.map(item => [
-    trv2ServiceMxDate(item.fecha_emision || item.fecha_cfdi || item.created_at || item.fecha || ''),
+    trv2DisplayDate(item.fecha_emision || item.fecha_cfdi || item.created_at || item.fecha || ''),
     trv2ServiceInvoiceDownloadDate(item),
     trv2ServiceInvoiceRouteValue(item, 'origen'),
     trv2ServiceInvoiceTripValues(item, 'permiso_origen'),
     trv2ServiceInvoiceRouteValue(item, 'destino'),
     trv2ServiceInvoiceTripValues(item, 'permiso_destino'),
-    Number(trv2ServiceInvoiceQuantity(item, 'litros') || 0),
-    Number(trv2ServiceInvoiceQuantity(item, 'kilos') || 0),
+    trv2ExcelNumber(trv2ServiceInvoiceQuantity(item, 'litros'), 'decimal'),
+    trv2ExcelNumber(trv2ServiceInvoiceQuantity(item, 'kilos'), 'decimal'),
     trv2ServiceInvoiceDriver(item),
     trv2ServiceInvoiceTripValues(item, 'unidad_id'),
-    trv2ServiceInvoiceCartaPorteDate(item),
     trv2ServiceInvoiceCartaPorte(item),
     trv2ServiceInvoiceFolio(item),
-    item.uuid_sat || item.uuid_cfdi || '',
-    trv2ServiceInvoiceFreightCost(item),
-    Number(item.total || 0),
+    trv2ExcelNumber(trv2ServiceInvoiceFreightCost(item), 'currency'),
+    trv2ExcelNumber(item.total, 'currency'),
     trv2ServicePaymentLabel(item),
   ]);
-  trv2DownloadExcelTable(trv2ServiceExcelScope('facturadas'), ['Fecha ingreso', 'Fecha de descarga', 'Origen', 'Permiso origen', 'Destino', 'Permiso destino', 'Litros', 'Kilos', 'Chofer', 'ID de la unidad', 'Fecha CP', 'Carta Porte', 'Carta Ingreso', 'UUID ingreso', 'Costo del flete', 'Total', 'Pago'], rows);
+  trv2DownloadExcelTable(trv2ServiceExcelScope('facturadas'), ['Fecha ingreso', 'Fecha de descarga', 'Origen', 'Permiso origen', 'Destino', 'Permiso destino', 'Litros', 'Kilos', 'Chofer', 'ID de la unidad', 'Carta Porte', 'Carta Ingreso', 'Costo del flete', 'Total', 'Pago'], rows);
 }
 
 function trv2ServiceVehicleShort(value = '') {
@@ -1218,7 +1227,6 @@ function trv2RenderServiceGeneratedTables() {
         <td class="trv2-num">${trv2ServiceNumber(trv2ServiceInvoiceQuantity(item, 'litros'))}</td>
         <td class="trv2-num">${trv2ServiceNumber(trv2ServiceInvoiceQuantity(item, 'kilos'))}</td>
         <td><span class="trv2-service-main">${trv2Esc(trv2ServiceInvoiceDriver(item) || '—')}</span></td>
-        <td>${trv2Esc(trv2ServiceInvoiceCartaPorteDate(item) || '—')}</td>
         <td><strong title="${trv2Esc((item.metadata || {}).uuid_carta_porte_base || '')}">${trv2Esc(trv2ServiceInvoiceCartaPorte(item) || '—')}</strong></td>
         <td><strong>${trv2Esc(trv2ServiceInvoiceFolio(item))}</strong></td>
         <td><span class="trv2-service-uuid" title="${trv2Esc(item.uuid_sat || item.uuid_cfdi || '')}">${trv2Esc(trv2ServiceShortUuid(item.uuid_sat || item.uuid_cfdi || 'Pendiente de timbrar'))}</span></td>
@@ -1230,7 +1238,7 @@ function trv2RenderServiceGeneratedTables() {
           </div>
         </td>
       </tr>
-    `).join('') : '<tr><td colspan="13"><div class="trv2-empty">No hay Cartas Ingreso facturadas para este producto, periodo o búsqueda.</div></td></tr>';
+    `).join('') : '<tr><td colspan="12"><div class="trv2-empty">No hay Cartas Ingreso facturadas para este producto, periodo o búsqueda.</div></td></tr>';
   }
   if (pago) {
     pago.innerHTML = filteredPaymentInvoices.length ? filteredPaymentInvoices.map(item => `

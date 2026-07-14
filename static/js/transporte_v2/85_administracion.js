@@ -382,6 +382,8 @@ function trv2ClearPermisoForm(options = {}) {
   if (form) {
     form.reset();
     form.classList.remove('is-open');
+    const title = form.querySelector('.trv2-form-title strong');
+    if (title) title.textContent = 'Nuevo permiso CRE transportista';
   }
   const id = document.getElementById('trv2-permiso-id');
   if (id) id.value = '';
@@ -427,6 +429,8 @@ function trv2FillPermisoForm(item = {}) {
   if (form) {
     form.hidden = false;
     form.classList.add('is-open');
+    const title = form.querySelector('.trv2-form-title strong');
+    if (title) title.textContent = 'Editar permiso CRE transportista';
   }
   const set = (id, value) => {
     const el = document.getElementById(id);
@@ -579,7 +583,9 @@ function trv2RenderPermisoCards(items = [], emptyText = '') {
         </div>
         <em class="${item.activo === false ? '' : 'active'}">${item.activo === false ? 'Inactivo' : 'Activo'}</em>
         <button class="trv2-mini-btn" type="button" onclick="trv2EditPermisoRfc(${Number(item.id || 0)})">Editar</button>
-        <button class="trv2-mini-btn" type="button" onclick="trv2DeactivatePermisoRfc(${Number(item.id || 0)})">Desactivar</button>
+        ${item.activo === false
+          ? '<button class="trv2-mini-btn" type="button" disabled>Ya desactivado</button>'
+          : `<button class="trv2-mini-btn" type="button" onclick="trv2DeactivatePermisoRfc(${Number(item.id || 0)})">Desactivar</button>`}
         <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeletePermisoRfc(${Number(item.id || 0)})">Eliminar seguro</button>
       </article>
     `;
