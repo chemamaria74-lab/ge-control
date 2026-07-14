@@ -42,13 +42,33 @@ async def listar_facturas_servicio(
 
 
 def _enrich_facturas_servicio_with_trip_data(*, sb, uid: str, perfil_id, rows: list[dict]) -> list[dict]:
+    relation_ids: dict[int, list[int]] = {}
+    factura_ids = [int(row["id"]) for row in rows if row.get("id")]
+    if factura_ids:
+        try:
+            links_q = (
+                sb.table(_TBL_FACT_SERV_CARTAS)
+                .select("factura_servicio_id,viaje_id")
+                .eq("user_id", uid)
+                .in_("factura_servicio_id", factura_ids)
+            )
+            if perfil_id:
+                links_q = links_q.eq("perfil_id", perfil_id)
+            for link in links_q.execute().data or []:
+                fid = int(link.get("factura_servicio_id") or 0)
+                vid = int(link.get("viaje_id") or 0)
+                if fid and vid:
+                    relation_ids.setdefault(fid, []).append(vid)
+        except Exception:
+            relation_ids = {}
+    normalized_rows = []
+    for row in rows:
+        related = relation_ids.get(int(row.get("id") or 0), [])
+        normalized_rows.append({**row, "viaje_ids": [*_factura_servicio_viaje_ids(row), *related]})
+    rows = normalized_rows
     viaje_ids: set[int] = set()
     for row in rows:
-        for vid in row.get("viaje_ids") or []:
-            try:
-                viaje_ids.add(int(vid))
-            except (TypeError, ValueError):
-                pass
+        viaje_ids.update(_factura_servicio_viaje_ids(row))
     viajes_map: dict[int, dict] = {}
     if viaje_ids:
         q = sb.table(_TBL_VIAJES).select("*").eq("user_id", uid).in_("id", sorted(viaje_ids))
@@ -61,14 +81,8 @@ def _enrich_facturas_servicio_with_trip_data(*, sb, uid: str, perfil_id, rows: l
     enriched = []
     for row in rows:
         meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        vids = row.get("viaje_ids") or []
-        first_vid = None
-        for vid in vids:
-            try:
-                first_vid = int(vid)
-                break
-            except (TypeError, ValueError):
-                continue
+        vids = _factura_servicio_viaje_ids(row)
+        first_vid = vids[0] if vids else None
         trip_meta = {}
         if first_vid and first_vid in viajes_map:
             base = {}
@@ -89,6 +103,7 @@ def _enrich_facturas_servicio_with_trip_data(*, sb, uid: str, perfil_id, rows: l
             merged_meta["folio_cfdi"] = serie_folio
         enriched.append({
             **row,
+            "viaje_ids": vids,
             "metadata": merged_meta,
             "producto_id": row.get("producto_id") or merged_meta.get("producto_id"),
             "producto_nombre": row.get("producto_nombre") or merged_meta.get("producto_nombre"),
@@ -105,6 +120,28 @@ def _enrich_facturas_servicio_with_trip_data(*, sb, uid: str, perfil_id, rows: l
             "fecha_cfdi": row.get("fecha_cfdi") or merged_meta.get("fecha_cfdi") or merged_meta.get("fecha_emision"),
         })
     return enriched
+
+
+def _factura_servicio_viaje_ids(row: dict) -> list[int]:
+    """Normaliza relaciones nuevas y legacy de Carta Ingreso a viaje."""
+    raw_ids = row.get("viaje_ids") or []
+    if not isinstance(raw_ids, list):
+        raw_ids = [raw_ids]
+    raw_ids = [*raw_ids, row.get("viaje_id")]
+    raw_ids.extend(
+        rel.get("viaje_id")
+        for rel in (row.get("cfdi_relacionados") or [])
+        if isinstance(rel, dict)
+    )
+    normalized: list[int] = []
+    for raw in raw_ids:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value and value not in normalized:
+            normalized.append(value)
+    return normalized
 
 
 @router.get("/tr/facturas-servicio/{factura_id}/pdf")
@@ -134,8 +171,46 @@ async def ver_pdf_factura_servicio_transporte(
     info = fiscal_pdf_info(xml_content, "carta_ingreso_transporte" if is_carta_ingreso else "factura_servicio_transporte")
     logo_data_url = settings.get("PdfLogoDataUrl", "") or (settings.get("perfil_fiscal") or {}).get("logo_data_url", "")
     pdf_theme = settings.get("perfil_fiscal") if isinstance(settings.get("perfil_fiscal"), dict) else {}
+    operational_context = None
+    if is_carta_ingreso:
+        viaje_ids = _factura_servicio_viaje_ids(row)
+        if not viaje_ids:
+            try:
+                link_q = (
+                    sb.table(_TBL_FACT_SERV_CARTAS)
+                    .select("viaje_id")
+                    .eq("factura_servicio_id", factura_id)
+                    .eq("user_id", uid)
+                    .limit(1)
+                )
+                if row.get("perfil_id") or pid:
+                    link_q = link_q.eq("perfil_id", row.get("perfil_id") or pid)
+                viaje_ids = [int(link["viaje_id"]) for link in (link_q.execute().data or []) if link.get("viaje_id")]
+            except Exception:
+                viaje_ids = []
+        if viaje_ids:
+            try:
+                viaje_q = sb.table(_TBL_VIAJES).select("*").eq("id", viaje_ids[0]).eq("user_id", uid).limit(1)
+                if row.get("perfil_id") or pid:
+                    viaje_q = viaje_q.eq("perfil_id", row.get("perfil_id") or pid)
+                viaje_rows = viaje_q.execute().data or []
+                if viaje_rows:
+                    from routes.transporte_v2 import _carta_porte_pdf_operational_context
+                    operational_context = _carta_porte_pdf_operational_context(
+                        sb,
+                        uid,
+                        row.get("perfil_id") or pid,
+                        viaje_rows[0],
+                    )
+            except Exception:
+                operational_context = None
     pdf_bytes = (
-        generar_pdf_ingreso_carta_porte_desde_xml(xml_content, logo_data_url=logo_data_url, pdf_theme=pdf_theme)
+        generar_pdf_ingreso_carta_porte_desde_xml(
+            xml_content,
+            logo_data_url=logo_data_url,
+            pdf_theme=pdf_theme,
+            operational_context=operational_context,
+        )
         if is_carta_ingreso
         else generar_pdf_ingreso_desde_xml(xml_content, logo_data_url=logo_data_url)
     )

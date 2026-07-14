@@ -234,6 +234,7 @@ def _fact_serv_product_metadata(viaje: dict, *, base_carta: dict | None = None) 
         "no_carta_porte": no_carta,
         "serie_carta_porte": serie,
         "folio_carta_porte": folio,
+        "fecha_carta_porte": viaje.get("fecha_salida") or viaje.get("fecha_hora_salida") or viaje.get("created_at") or "",
         "uuid_carta_porte_base": (base_carta or {}).get("uuid_sat") or (base_carta or {}).get("uuid_cfdi") or "",
         "id_ccp_carta_porte_base": (base_carta or {}).get("id_ccp") or "",
     }
