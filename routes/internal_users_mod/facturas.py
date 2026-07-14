@@ -60,6 +60,8 @@ _GAS_LP_FACTURA_LIST_METADATA_KEYS = {
     "estado_sat",
     "fecha_cfdi",
     "fecha_emision",
+    "fecha_llegada",
+    "fecha_salida",
     "forma_pago",
     "id_ccp",
     "internal_user_id",
@@ -67,6 +69,8 @@ _GAS_LP_FACTURA_LIST_METADATA_KEYS = {
     "litros",
     "metodo_pago",
     "origen_nombre",
+    "peso_kg",
+    "placas",
     "payment_status",
     "portal",
     "receptor_nombre",
@@ -79,7 +83,10 @@ _GAS_LP_FACTURA_LIST_METADATA_KEYS = {
     "total",
     "ultimo_complemento_pago_id",
     "usuario_nombre",
+    "vehiculo",
+    "vehiculo_placas",
     "volumen_litros",
+    "chofer_nombre",
 }
 
 
@@ -370,8 +377,6 @@ async def gas_lp_internal_facturas(
         max_limit = GAS_LP_LIST_LIMIT_MAX
         page_limit = max(1, min(page_limit, max_limit))
         facturas_select = GAS_LP_FACTURAS_LIST_SELECT
-    if carta_porte and "xml_content" not in facturas_select.split(","):
-        facturas_select += ",xml_content"
     try:
         rows = _gas_lp_company_facturas_rows(
             sb,
