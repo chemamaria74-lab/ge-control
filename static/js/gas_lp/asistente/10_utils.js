@@ -180,7 +180,8 @@ function switchCartaPorteTab(tab){
   else if(ACTIVE_CP_TAB === 'timbrar') renderCartaPorteWizard();
   else {
     if(window.cpHistoryMes && !cpHistoryMes.value) cpHistoryMes.value = todayKey().slice(0,7);
-    if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels();
+    loadFacturas(window.cpHistoryMes?.value || todayKey().slice(0,7), {limit:1000, deep:true, cartaPorte:true})
+      .catch(() => { if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels(); });
   }
 }
 function switchBillingTab(tab){
