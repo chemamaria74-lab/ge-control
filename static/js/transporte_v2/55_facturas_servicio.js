@@ -190,10 +190,20 @@ function trv2ServiceTripData(row = {}) {
   const producto = trv2FindCatalog?.('productos', row.producto_id || row.producto_operacion_id) || {};
   const cliente = trv2FindCatalog?.('clientes', row.cliente_id) || {};
   const meta = row.metadata || {};
+  const rutaMeta = ruta.metadata && typeof ruta.metadata === 'object' ? ruta.metadata : {};
+  const cartaMeta = meta.carta_porte && typeof meta.carta_porte === 'object' ? meta.carta_porte : {};
+  const origenMeta = meta.origen_instalacion && typeof meta.origen_instalacion === 'object' ? meta.origen_instalacion : {};
+  const destinoMeta = meta.destino_instalacion && typeof meta.destino_instalacion === 'object' ? meta.destino_instalacion : {};
   const proveedorId = Number(meta.proveedor_id || meta.proveedor_origen_id || 0) || null;
   const clienteId = Number(row.cliente_id || meta.cliente_id || 0) || null;
   const productoId = Number(row.producto_id || row.producto_operacion_id || meta.producto_id || 0) || null;
+  const origenId = Number(row.origen_id || meta.origen_id || ruta.origen_id || rutaMeta.origen_id || 0) || null;
+  const destinoId = Number(row.destino_id || meta.destino_id || ruta.destino_id || rutaMeta.destino_id || 0) || null;
+  const vehiculoId = Number(row.vehiculo_id || meta.vehiculo_id || 0) || null;
   const proveedor = trv2FindCatalog?.('proveedores', proveedorId) || {};
+  const origenCatalogo = trv2FindCatalog?.('origenes', origenId) || {};
+  const destinoCatalogo = trv2FindCatalog?.('destinos', destinoId) || {};
+  const vehiculoCatalogo = trv2FindCatalog?.('vehiculos', vehiculoId) || {};
   const origen = row.origen || ruta.origen || trv2ServiceTripMeta(row, 'origen') || '';
   const destino = row.destino || ruta.destino || trv2ServiceTripMeta(row, 'destino') || '';
   const productoNombre = producto.descripcion || row.producto_descripcion || trv2ServiceTripMeta(row, 'producto_descripcion') || '';
@@ -208,7 +218,11 @@ function trv2ServiceTripData(row = {}) {
     proveedor: proveedor.nombre || meta.proveedor_nombre || meta.emisor_nombre || '',
     cliente_id: clienteId,
     producto_id: productoId,
+    origen_id: origenId,
+    destino_id: destinoId,
+    vehiculo_id: vehiculoId,
     fecha: row.fecha_salida || row.fecha_hora_salida || row.created_at || '',
+    fecha_descarga: row.fecha_hora_llegada || row.fecha_llegada_estimada || row.fecha_llegada || meta.fecha_hora_llegada || meta.fecha_llegada_estimada || meta.fecha_llegada || '',
     cliente: cliente.nombre || row.cliente_nombre || trv2ServiceTripMeta(row, 'cliente_nombre') || '',
     rfc: cliente.rfc || trv2ServiceTripMeta(row, 'cliente_rfc') || '',
     // El catálogo de clientes es la única fuente vigente del correo. No revivir
@@ -222,6 +236,9 @@ function trv2ServiceTripData(row = {}) {
     kilos: Number(row.peso_kg || 0),
     chofer: trv2ServiceTripLabel(row, 'operadores', 'operador_nombre') || '',
     vehiculo: trv2ServiceTripLabel(row, 'vehiculos', 'vehiculo_alias') || '',
+    unidad_id: vehiculoCatalogo.numero_economico || vehiculoCatalogo.alias || meta.unidad_id || meta.numero_economico || meta.vehiculo_numero_economico || meta.vehiculo_alias || (vehiculoId ? String(vehiculoId) : ''),
+    permiso_origen: meta.permiso_origen || meta.origen_permiso || meta.permiso_cre_origen || meta.origen_permiso_cre || meta.proveedor_permiso || cartaMeta.permiso_origen || origenMeta.permiso_cre || origenMeta.permiso || origenCatalogo.permiso_cre || origenCatalogo.permiso || proveedor.permiso_cre || proveedor.permiso || ruta.permiso_origen || rutaMeta.permiso_origen || ruta.permiso_cre || rutaMeta.permiso_cre || '',
+    permiso_destino: meta.permiso_destino || meta.destino_permiso || meta.permiso_cre_destino || meta.destino_permiso_cre || meta.cliente_permiso || cartaMeta.permiso_destino || destinoMeta.permiso_cre || destinoMeta.permiso || destinoCatalogo.permiso_cre || destinoCatalogo.permiso || cliente.permiso_cre || cliente.permiso || ruta.permiso_destino || rutaMeta.permiso_destino || rutaMeta.permiso_cre_destino || '',
     uuid_carta_porte: trv2ServiceTripUuid(row),
     no_carta_porte: noCartaPorte,
   };
@@ -382,6 +399,27 @@ function trv2ServiceInvoiceTrips(item = {}) {
 
 function trv2ServiceInvoiceTripData(item = {}) {
   return trv2ServiceInvoiceTrips(item).map(row => trv2ServiceTripData(row));
+}
+
+function trv2ServiceInvoiceTripValues(item = {}, key = '') {
+  return [...new Set(trv2ServiceInvoiceTripData(item).map(service => service[key]).filter(Boolean))].join(', ');
+}
+
+function trv2ServiceInvoiceDownloadDate(item = {}) {
+  return [...new Set(trv2ServiceInvoiceTripData(item)
+    .map(service => service.fecha_descarga)
+    .filter(Boolean)
+    .map(value => typeof trv2DisplayDate === 'function'
+      ? trv2DisplayDate(value, {withTime: true})
+      : trv2ServiceMxDate(value)))]
+    .join(', ');
+}
+
+function trv2ServiceInvoiceFreightCost(item = {}) {
+  const meta = item.metadata || {};
+  const calc = item.calculo_json && typeof item.calculo_json === 'object' ? item.calculo_json : {};
+  const metaCalc = meta.calculo_servicio && typeof meta.calculo_servicio === 'object' ? meta.calculo_servicio : {};
+  return Number(item.subtotal ?? meta.subtotal ?? calc.subtotal ?? metaCalc.subtotal ?? 0);
 }
 
 function trv2ServiceInvoiceFolio(item = {}) {
@@ -557,19 +595,24 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
   }
   const rows = invoices.map(item => [
     trv2ServiceMxDate(item.fecha_emision || item.fecha_cfdi || item.created_at || item.fecha || ''),
+    trv2ServiceInvoiceDownloadDate(item),
     trv2ServiceInvoiceRouteValue(item, 'origen'),
+    trv2ServiceInvoiceTripValues(item, 'permiso_origen'),
     trv2ServiceInvoiceRouteValue(item, 'destino'),
+    trv2ServiceInvoiceTripValues(item, 'permiso_destino'),
     Number(trv2ServiceInvoiceQuantity(item, 'litros') || 0),
     Number(trv2ServiceInvoiceQuantity(item, 'kilos') || 0),
     trv2ServiceInvoiceDriver(item),
+    trv2ServiceInvoiceTripValues(item, 'unidad_id'),
     trv2ServiceInvoiceCartaPorteDate(item),
     trv2ServiceInvoiceCartaPorte(item),
     trv2ServiceInvoiceFolio(item),
     item.uuid_sat || item.uuid_cfdi || '',
+    trv2ServiceInvoiceFreightCost(item),
     Number(item.total || 0),
     trv2ServicePaymentLabel(item),
   ]);
-  trv2DownloadExcelTable(trv2ServiceExcelScope('facturadas'), ['Fecha ingreso', 'Origen', 'Destino', 'Litros', 'Kilos', 'Chofer', 'Fecha CP', 'Carta Porte', 'Carta Ingreso', 'UUID ingreso', 'Total', 'Pago'], rows);
+  trv2DownloadExcelTable(trv2ServiceExcelScope('facturadas'), ['Fecha ingreso', 'Fecha de descarga', 'Origen', 'Permiso origen', 'Destino', 'Permiso destino', 'Litros', 'Kilos', 'Chofer', 'ID de la unidad', 'Fecha CP', 'Carta Porte', 'Carta Ingreso', 'UUID ingreso', 'Costo del flete', 'Total', 'Pago'], rows);
 }
 
 function trv2ServiceVehicleShort(value = '') {
@@ -1329,8 +1372,11 @@ async function trv2LoadServiceInvoices(options = {}) {
   }
   const loads = [];
   if (typeof trv2LoadTrips === 'function' && (options.force || !Array.isArray(TRV2_TRIPS) || !TRV2_TRIPS.length)) loads.push(trv2LoadTrips());
-  const catalogsReady = ['clientes', 'productos', 'rutas'].every(name => Array.isArray(TRV2_CATALOGS?.[name]) && TRV2_CATALOGS[name].length);
-  if (!catalogsReady && typeof trv2LoadCatalogs === 'function') loads.push(trv2LoadCatalogs({silent: true}));
+  const catalogsReady = ['clientes', 'productos', 'rutas', 'vehiculos', 'origenes', 'destinos']
+    .every(name => Array.isArray(TRV2_CATALOGS?.[name]) && TRV2_CATALOGS[name].length);
+  if ((options.force || !catalogsReady) && typeof trv2LoadCatalogs === 'function') {
+    loads.push(trv2LoadCatalogs({silent: true, force: Boolean(options.force)}));
+  }
   if (loads.length) await Promise.all(loads);
   await trv2LoadServiceTariffs({force: Boolean(options.force)});
   const invoices = await trv2Api('GET', '/api/tr-v2/facturas-servicio', undefined, {silent: true, allowError: true, force: Boolean(options.force)});
