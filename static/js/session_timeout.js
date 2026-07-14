@@ -31,6 +31,16 @@
     localStorage.removeItem(LAST_ACTIVITY_KEY);
   }
 
+  function moduleLoginTarget() {
+    const path = location.pathname;
+    if (path.startsWith('/transporte-v2/operador')) return '/transporte-v2/login-operador?next=/transporte-v2/operador';
+    if (path.startsWith('/transporte-v2')) return '/transporte-v2/login-admin?next=/transporte-v2/admin';
+    if (path.startsWith('/gas-lp/asistente')) return '/gas-lp/asistente';
+    if (path.startsWith('/gas-lp/conciliacion')) return '/gas-lp/conciliacion';
+    if (path === '/app' || path.startsWith('/modulo/gas-lp')) return '/modulo/gas-lp/roles';
+    return '/choice';
+  }
+
   function lastActivity() {
     const value = Number(localStorage.getItem(LAST_ACTIVITY_KEY) || 0);
     return Number.isFinite(value) ? value : 0;
@@ -50,9 +60,10 @@
   }
 
   function logoutExpired() {
+    const target = moduleLoginTarget();
     clearStoredSession();
     if (!['/choice', '/login'].includes(location.pathname) && !location.pathname.startsWith('/login/')) {
-      location.href = '/choice';
+      location.href = target;
     }
   }
 
