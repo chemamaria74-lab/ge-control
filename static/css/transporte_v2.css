@@ -267,7 +267,9 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-validation.ok{border-color:#bbf7d0;background:#f0fdf4;color:#14532d}
 .trv2-soon{min-height:360px;display:grid;place-items:center;text-align:center;background:#fff;border:1px dashed #d8d0c5;border-radius:8px;padding:40px}
 .trv2-soon i{font-size:42px;color:var(--trv2-gold);margin-bottom:12px}
-.trv2-form-cv{grid-template-columns:minmax(220px,1.35fr) minmax(110px,.55fr) minmax(150px,.85fr) minmax(170px,1fr) minmax(150px,.85fr)}
+.trv2-form-cv{grid-template-columns:minmax(220px,1.35fr) minmax(100px,.5fr) minmax(140px,.75fr) minmax(160px,.9fr) minmax(140px,.75fr) auto;align-items:end}
+.trv2-form-cv .trv2-form-actions{grid-column:auto;align-self:end}
+.trv2-form-cv .trv2-form-actions .trv2-btn{min-height:42px}
 .trv2-payment-filters{grid-template-columns:minmax(170px,.8fr) minmax(150px,.7fr) minmax(150px,.7fr) minmax(220px,1.1fr) auto;align-items:end}
 .trv2-payment-filters .trv2-form-actions{grid-column:auto;align-self:end}
 .trv2-payment-filters .trv2-form-actions .trv2-btn{min-height:42px}
@@ -317,6 +319,7 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-route-card-head span{display:block;color:var(--trv2-muted);font-size:13px;font-weight:800;margin-top:3px;overflow-wrap:anywhere}
 .trv2-route-card-head em{font-style:normal;border-radius:999px;background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;padding:5px 10px;font-size:12px;font-weight:900;white-space:nowrap}
 .trv2-route-card-head em.warning{background:#fff8e6;border-color:#f1d18a;color:#684800}
+.trv2-route-card-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .trv2-route-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .trv2-route-metrics div{border:1px solid #f0ebe4;border-radius:8px;background:#faf8f5;padding:10px;display:grid;gap:4px}
 .trv2-route-metrics span,.trv2-route-context b{color:var(--trv2-muted);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}
