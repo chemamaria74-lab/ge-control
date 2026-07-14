@@ -215,6 +215,7 @@ def generar_pdf_ingreso_carta_porte_desde_xml(
     *,
     logo_data_url: str = "",
     pdf_theme: dict[str, Any] | None = None,
+    operational_context: dict[str, Any] | None = None,
 ) -> bytes:
     """Genera Carta Ingreso impresa: CFDI ingreso primero y anexo Carta Porte después."""
     try:
@@ -234,6 +235,7 @@ def generar_pdf_ingreso_carta_porte_desde_xml(
         xml_content,
         logo_data_url=logo_data_url,
         pdf_theme=pdf_theme,
+        operational_context=operational_context,
     )
     writer = PdfWriter()
     for pdf_bytes in (ingreso_pdf, carta_porte_pdf):

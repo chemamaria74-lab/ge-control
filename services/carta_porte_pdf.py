@@ -301,8 +301,8 @@ def generar_pdf_carta_porte_desde_xml(
                 ("Tipo", f"{_tipo_cfdi(_attr(comp, 'TipoDeComprobante'))} ({_attr(comp, 'TipoDeComprobante')})"),
                 ("Tipo SAT", f"{_attr(comp, 'TipoDeComprobante')} {_tipo_cfdi(_attr(comp, 'TipoDeComprobante'))}"),
                 ("Folio", _serie_folio(comp)),
-                ("Fecha emisión", _attr(comp, "Fecha")),
-                ("Fecha timbrado", _attr(timbre, "FechaTimbrado")),
+                ("Fecha emisión", _display_datetime(_attr(comp, "Fecha"))),
+                ("Fecha timbrado", _display_datetime(_attr(timbre, "FechaTimbrado"))),
                 ("Moneda", _attr(comp, "Moneda")),
                 ("Uso CFDI", _attr(receptor, "UsoCFDI")),
                 ("Lugar expedición", _attr(comp, "LugarExpedicion")),
@@ -463,6 +463,17 @@ def _compact_rows(rows: list[tuple[str, object]]) -> list[tuple[str, str]]:
 def _join_nonempty(parts, separator: str = " ") -> str:
     clean = [str(part).strip() for part in parts if str(part or "").strip() and str(part or "").strip() != "—"]
     return separator.join(clean) if clean else "—"
+
+
+def _display_datetime(value: object) -> str:
+    """Convierte fechas ISO del XML a presentación mexicana sin alterar el XML fiscal."""
+    raw = str(value or "").strip()
+    match = re.match(r"^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?", raw)
+    if not match:
+        return raw or "—"
+    year, month, day, hour, minute = match.groups()
+    date = f"{day}/{month}/{year}"
+    return f"{date} {hour}:{minute}" if hour and minute else date
 
 
 def _origen_destino(ubicaciones):
@@ -884,7 +895,7 @@ def _ubicaciones_table(ubicaciones, Table, TableStyle, Paragraph, styles, colors
             _attr(u, "IDUbicacion"),
             _attr(u, "RFCRemitenteDestinatario"),
             _attr(u, "NombreRemitenteDestinatario"),
-            _attr(u, "FechaHoraSalidaLlegada"),
+            _display_datetime(_attr(u, "FechaHoraSalidaLlegada")),
             _attr(u, "DistanciaRecorrida"),
             f"{geo} | {domicilio}" if domicilio else geo,
         ])
@@ -902,7 +913,7 @@ def _route_timeline(ubicaciones, Table, TableStyle, Paragraph, styles, colors, c
             [Paragraph(f"<b>{label}</b>", styles["SmallBold"]), Paragraph(_text(_attr(node, "IDUbicacion", "—")), styles["Tiny"])],
             [Paragraph("NOMBRE", styles["MetricLabel"]), Paragraph(_text(_attr(node, "NombreRemitenteDestinatario", "—")), styles["Tiny"])],
             [Paragraph("RFC", styles["MetricLabel"]), Paragraph(_text(_attr(node, "RFCRemitenteDestinatario", "—")), styles["Tiny"])],
-            [Paragraph("FECHA/HORA", styles["MetricLabel"]), Paragraph(_text(_attr(node, "FechaHoraSalidaLlegada", "—")), styles["Tiny"])],
+            [Paragraph("FECHA/HORA", styles["MetricLabel"]), Paragraph(_text(_display_datetime(_attr(node, "FechaHoraSalidaLlegada", "—"))), styles["Tiny"])],
             [Paragraph("DIRECCIÓN", styles["MetricLabel"]), Paragraph(_text(_operation_address(node, operation)), styles["Tiny"])],
         ]
         permiso_cre = _operation_value(operation, "permiso_cre", "id_cre")
@@ -1171,7 +1182,7 @@ def _seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors,
 def _qr_summary_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line):
     fiscal_rows = [
         ("UUID", _attr(timbre, "UUID")),
-        ("Fecha timbrado", _attr(timbre, "FechaTimbrado")),
+        ("Fecha timbrado", _display_datetime(_attr(timbre, "FechaTimbrado"))),
         ("RFC PAC", _attr(timbre, "RfcProvCertif")),
         ("Certificado SAT", _attr(timbre, "NoCertificadoSAT")),
         ("Certificado emisor", _attr(comp, "NoCertificado")),
