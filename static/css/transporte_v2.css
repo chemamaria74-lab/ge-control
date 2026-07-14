@@ -266,6 +266,10 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-soon{min-height:360px;display:grid;place-items:center;text-align:center;background:#fff;border:1px dashed #d8d0c5;border-radius:8px;padding:40px}
 .trv2-soon i{font-size:42px;color:var(--trv2-gold);margin-bottom:12px}
 .trv2-form-cv{grid-template-columns:minmax(220px,1.35fr) minmax(110px,.55fr) minmax(150px,.85fr) minmax(170px,1fr) minmax(150px,.85fr)}
+.trv2-payment-filters{grid-template-columns:minmax(170px,.8fr) minmax(150px,.7fr) minmax(150px,.7fr) minmax(220px,1.1fr) auto;align-items:end}
+.trv2-payment-filters .trv2-form-actions{grid-column:auto;align-self:end}
+.trv2-payment-filters .trv2-form-actions .trv2-btn{min-height:42px}
+.trv2-mini-btn:disabled{opacity:.5;cursor:not-allowed}
 .trv2-cv-filter-panel{padding:14px;margin-bottom:10px;box-shadow:none}
 .trv2-cv-filter-panel .trv2-form input,.trv2-cv-filter-panel .trv2-form select{min-height:38px;padding:8px 10px}
 .trv2-cv-context{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;color:var(--trv2-muted);font-size:12px;font-weight:800}
@@ -281,6 +285,8 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-form-title span{font-size:13px;color:var(--trv2-muted);font-weight:700}
 .trv2-admin-panel{display:none}
 .trv2-admin-panel.active{display:block}
+.trv2-payment-panel{display:none}
+.trv2-payment-panel.active{display:block}
 .trv2-admin-route-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:12px 0 14px}
 .trv2-admin-route-kpis article{border:1px solid var(--trv2-line);border-radius:8px;background:#fff;padding:13px;display:grid;gap:5px}
 .trv2-admin-route-kpis span{color:var(--trv2-muted);font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}
@@ -350,7 +356,7 @@ tbody tr:last-child td{border-bottom:0}
   .trv2-actions{justify-content:flex-start}
   .trv2-kpis,.trv2-kpis-compact,.trv2-kpis-cv{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-form{grid-template-columns:1fr}
-  .trv2-form-cv,.trv2-form-admin,.trv2-form-inner{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .trv2-form-cv,.trv2-form-admin,.trv2-form-inner,.trv2-payment-filters{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-detected-overview{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-step-grid{grid-template-columns:1fr}
   .trv2-access-card{grid-template-columns:1fr}
@@ -367,7 +373,7 @@ tbody tr:last-child td{border-bottom:0}
 }
 @media(max-width:560px){
   .trv2-kpis,.trv2-kpis-compact,.trv2-kpis-cv{grid-template-columns:1fr}
-  .trv2-form-cv,.trv2-form-admin,.trv2-form-inner,.trv2-catalog-card-grid,.trv2-detected-overview{grid-template-columns:1fr}
+  .trv2-form-cv,.trv2-form-admin,.trv2-form-inner,.trv2-payment-filters,.trv2-catalog-card-grid,.trv2-detected-overview{grid-template-columns:1fr}
   .trv2-admin-cp-grid{grid-template-columns:1fr}
   .trv2-card-head{grid-template-columns:auto minmax(0,1fr)}
   .trv2-card-head .trv2-status{grid-column:1/-1;justify-self:start}
