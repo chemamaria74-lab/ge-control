@@ -868,9 +868,17 @@
         <option value="">Todas las instalaciones</option>
       </select>
     </div>
-    <button class="btn-save" id="btnLoadVentas" style="margin-top:1.4rem"><i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i> Actualizar</button>
+    <button class="btn-save" id="btnLoadVentas" style="margin-top:1.4rem"><i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i> Buscar</button>
     <div id="ventasStatus" style="font-size:.78rem;color:#64748b;margin-top:1.4rem"></div>
   </div>
+
+  <div id="ventasSearchPrompt" style="padding:2.5rem 1rem;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc">
+    <i class="fa-solid fa-magnifying-glass-chart" style="font-size:1.7rem;color:#94a3b8;margin-bottom:.6rem"></i>
+    <div style="font-weight:700;color:#475569">Selecciona los filtros y presiona Buscar</div>
+    <div style="font-size:.78rem;margin-top:.25rem">Los datos se consultarán únicamente cuando lo solicites.</div>
+  </div>
+
+  <div id="ventasResults" style="display:none">
 
   <!-- KPI row -->
   <div id="ventasKpis" style="display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem;margin-bottom:1.2rem">
@@ -940,8 +948,9 @@
   </div>
 
   <div id="ventasNoData" style="display:none;text-align:center;padding:2rem;color:#94a3b8;font-size:.88rem">
-    Sin datos para el año seleccionado. Genera reportes en la pestaña Procesar primero.
+    Sin datos para los filtros seleccionados.
   </div>
+  </div><!-- /ventasResults -->
 </div>
 
 </div><!-- /mpanel-ventas -->
@@ -997,9 +1006,16 @@
         <option value="">— selecciona —</option>
       </select>
     </div>
-    <button class="btn-save" onclick="cargarProveedores()" style="margin-top:1.4rem">
-      <i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i>Actualizar
+    <button class="btn-save" id="btnBuscarProveedores" onclick="cargarProveedores()" style="margin-top:1.4rem">
+      <i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i>Buscar
     </button>
+    <div id="provSearchStatus" style="font-size:.78rem;color:#64748b;margin-bottom:.55rem"></div>
+  </div>
+
+  <div id="provSearchPrompt" style="padding:2.5rem 1rem;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc">
+    <i class="fa-solid fa-magnifying-glass-chart" style="font-size:1.7rem;color:#94a3b8;margin-bottom:.6rem"></i>
+    <div style="font-weight:700;color:#475569">Selecciona los filtros y presiona Buscar</div>
+    <div style="font-size:.78rem;margin-top:.25rem">El análisis y el pronóstico se consultarán bajo demanda.</div>
   </div>
 
   <!-- KPIs rápidos -->
@@ -1022,7 +1038,7 @@
   </div>
 
   <!-- Canvas gráfica -->
-  <div style="position:relative;height:280px">
+  <div id="provChartWrap" style="position:relative;height:280px;display:none">
     <canvas id="provChart"></canvas>
   </div>
 
@@ -1045,7 +1061,7 @@
 </div>
 
 <!-- Tarjeta Pronóstico -->
-<div class="card">
+<div class="card" id="forecastCard" style="display:none">
   <h2><i class="fa-solid fa-chart-line" style="margin-right:.4rem"></i><span data-en="Purchase Forecast">Pronóstico de Compras</span></h2>
   <p style="font-size:.8rem;color:#64748b;margin-bottom:1rem">
     Evalúa promedio móvil, suavizamiento exponencial y regresión lineal; usa el modelo con menor error histórico.
