@@ -92,3 +92,23 @@ def test_carta_ingreso_pdf_download_preserves_fiscal_filename():
     assert "trv2OpenServiceArtifact(${Number(item.id)}, 'pdf', true)" in frontend
     assert "operational_context = _carta_porte_pdf_operational_context" in dashboard
     assert "operational_context=operational_context" in fiscal_pdf
+
+
+def test_carta_ingreso_excel_includes_operational_columns():
+    frontend = (ROOT / "static/js/transporte_v2/55_facturas_servicio.js").read_text(encoding="utf-8")
+
+    for header in (
+        "Fecha de descarga",
+        "ID de la unidad",
+        "Permiso origen",
+        "Permiso destino",
+        "Costo del flete",
+        "Kilos",
+        "Litros",
+    ):
+        assert header in frontend
+    assert "trv2ServiceInvoiceDownloadDate(item)" in frontend
+    assert "trv2ServiceInvoiceTripValues(item, 'unidad_id')" in frontend
+    assert "trv2ServiceInvoiceTripValues(item, 'permiso_origen')" in frontend
+    assert "trv2ServiceInvoiceTripValues(item, 'permiso_destino')" in frontend
+    assert "trv2ServiceInvoiceFreightCost(item)" in frontend
