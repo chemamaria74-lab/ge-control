@@ -955,5 +955,5 @@ async function logout(){
     alert('No se pudo contactar al servidor para cerrar sesión. Se limpiará esta sesión local.');
   }
   localStorage.removeItem('ge_gaslp_internal_token');
-  location.href='/choice';
+  location.href='/gas-lp/asistente';
 }
