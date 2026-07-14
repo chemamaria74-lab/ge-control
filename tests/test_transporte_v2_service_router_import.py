@@ -66,7 +66,8 @@ def test_carta_ingreso_view_exposes_carta_porte_relationship_and_date_mode():
 
     assert 'value="invoice" selected>Mes de Carta Ingreso' in template
     assert 'value="carta_porte">Mes de Carta Porte' in template
-    assert "<th>Fecha CP</th><th>Carta Porte</th><th>Carta Ingreso</th>" in template
+    assert "<th>Fecha CP</th>" not in template
+    assert "<th>Carta Porte</th><th>Carta Ingreso</th>" in template
     assert "TRV2_SERVICE_MONTH_MODE === 'carta_porte'" in frontend
     assert "trv2ServiceInvoiceCartaPorteDate(item)" in frontend
     assert 'row.get("viaje_id")' in dashboard
@@ -112,3 +113,28 @@ def test_carta_ingreso_excel_includes_operational_columns():
     assert "trv2ServiceInvoiceTripValues(item, 'permiso_origen')" in frontend
     assert "trv2ServiceInvoiceTripValues(item, 'permiso_destino')" in frontend
     assert "trv2ServiceInvoiceFreightCost(item)" in frontend
+    assert "'Fecha CP'" not in frontend
+    assert "'UUID ingreso'" not in frontend
+    assert "trv2ExcelNumber(trv2ServiceInvoiceFreightCost(item), 'currency')" in frontend
+    assert "trv2ExcelNumber(item.total, 'currency')" in frontend
+    assert "if (fromTrips.length) return fromTrips.join(', ')" in frontend
+    carta_porte_helper = frontend.split("function trv2ServiceInvoiceCartaPorte", 1)[1].split("function trv2ServiceInvoiceRouteValue", 1)[0]
+    assert "uuid_carta_porte" not in carta_porte_helper
+
+
+def test_client_destination_permission_is_editable_and_not_cleared():
+    frontend = (ROOT / "static/js/transporte_v2/80_catalogos.js").read_text(encoding="utf-8")
+    backend = (ROOT / "routes/transporte_v2.py").read_text(encoding="utf-8")
+
+    assert "['permiso_cre', 'Permiso destino (CRE)']" in frontend
+    assert "data.permiso_cre || cliente?.permiso_cre || ''" in frontend
+    assert '"permiso_cre", "metodo_pago_default"' in backend
+    assert 'scoped["permiso_cre"] = ""' not in backend
+
+
+def test_transportista_permission_editor_distinguishes_edit_from_create():
+    frontend = (ROOT / "static/js/transporte_v2/85_administracion.js").read_text(encoding="utf-8")
+
+    assert "title.textContent = 'Editar permiso CRE transportista'" in frontend
+    assert "title.textContent = 'Nuevo permiso CRE transportista'" in frontend
+    assert '>Ya desactivado</button>' in frontend
