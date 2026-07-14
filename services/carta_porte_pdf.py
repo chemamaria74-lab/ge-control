@@ -348,10 +348,9 @@ def generar_pdf_carta_porte_desde_xml(
     story.append(_section("I. Validación SAT", Paragraph, styles, wine_dark))
     story.append(_seals_block(comp, timbre, qr, Table, TableStyle, Paragraph, styles, colors, cream, line))
 
-    story.append(Spacer(1, 8))
-    story.append(Paragraph("Este documento es una representación impresa de un CFDI con Complemento Carta Porte generado por GE Control.", styles["Footer"]))
-
-    doc.build(story, onFirstPage=_draw_pdf_page_background, onLaterPages=_draw_pdf_page_background)
+    # El pie se dibuja fuera del flujo. Si se agrega como Paragraph, un documento
+    # largo puede empujarlo solo a una tercera hoja vacía.
+    doc.build(story, onFirstPage=_draw_pdf_page_background, onLaterPages=_draw_pdf_page_with_footer)
     return buffer.getvalue()
 
 
@@ -408,6 +407,23 @@ def _float_attr(node, key: str) -> float:
         return 0.0
 
 
+def _duration_label(start: str, end: str) -> str:
+    from datetime import datetime
+
+    try:
+        start_dt = datetime.fromisoformat(str(start or "").replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(str(end or "").replace("Z", "+00:00"))
+        minutes = max(0, int(round((end_dt - start_dt).total_seconds() / 60)))
+    except (TypeError, ValueError):
+        return ""
+    hours, remainder = divmod(minutes, 60)
+    if hours and remainder:
+        return f"{hours} h {remainder} min"
+    if hours:
+        return f"{hours} h"
+    return f"{remainder} min"
+
+
 def _child(node, local_name: str):
     if node is None:
         return None
@@ -429,6 +445,19 @@ def _draw_pdf_page_background(canvas, doc) -> None:
     canvas.saveState()
     canvas.setFillColorRGB(1, 1, 1)
     canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1, stroke=0)
+    canvas.restoreState()
+
+
+def _draw_pdf_page_with_footer(canvas, doc) -> None:
+    _draw_pdf_page_background(canvas, doc)
+    canvas.saveState()
+    canvas.setFillColorRGB(0.40, 0.44, 0.49)
+    canvas.setFont("Helvetica", 7.2)
+    canvas.drawCentredString(
+        doc.pagesize[0] / 2,
+        0.18 * 72,
+        "Este documento es una representación impresa de un CFDI con Complemento Carta Porte generado por GE Control.",
+    )
     canvas.restoreState()
 
 
@@ -729,12 +758,24 @@ def _executive_summary_card(carta, ubicaciones, mercancias, ident, figuras, Tabl
     figura = figuras[0] if figuras else None
     vehicle_operation = _operation_dict(operational_context, "vehicle")
     valor_carga = _mercancias_valor_total(mercancias)
-    valor_carga_txt = _format_currency_value(valor_carga, _mercancias_moneda(mercancias)) if valor_carga > 0 else "No declarado"
+    distancia = _float_attr(carta, "TotalDistRec") or _float_attr(destino, "DistanciaRecorrida")
+    duracion = _duration_label(_attr(origen, "FechaHoraSalidaLlegada"), _attr(destino, "FechaHoraSalidaLlegada"))
+    if valor_carga > 0:
+        cargo_metric = ("Importe total carga", _format_currency_value(valor_carga, _mercancias_moneda(mercancias)))
+    else:
+        peligroso = _attr(mercancia, "MaterialPeligroso")
+        clasificacion = _join_nonempty([
+            "Peligrosa" if peligroso.lower() in {"si", "sí", "yes", "1", "true"} else "Carga",
+            _attr(mercancia, "CveMaterialPeligroso"),
+            _attr(mercancia, "Embalaje"),
+        ], " · ")
+        cargo_metric = ("Clasificación", clasificacion or "Carga general")
     rows = [
         ("Producto", _attr(mercancia, "Descripcion", "—")),
         ("Cantidad", _join_nonempty([_attr(mercancia, "Cantidad"), _attr(mercancia, "Unidad") or _attr(mercancia, "ClaveUnidad")], " ")),
         ("Peso total", _join_nonempty([_attr(mercancia, "PesoEnKg"), "kg"], " ")),
-        ("Importe total carga", valor_carga_txt),
+        ("Distancia total", f"{distancia:.1f} km" if distancia > 0 else "—"),
+        ("Tiempo estimado", duracion or "—"),
         ("Origen", _attr(origen, "NombreRemitenteDestinatario", "—")),
         ("Destino", _attr(destino, "NombreRemitenteDestinatario", "—")),
         ("Unidad", _join_nonempty([
@@ -742,14 +783,15 @@ def _executive_summary_card(carta, ubicaciones, mercancias, ident, figuras, Tabl
             _attr(ident, "PlacaVM"),
         ], " / ")),
         ("Operador", _attr(figura, "NombreFigura", "—")),
+        cargo_metric,
     ]
     metric_cells = []
     for label, value in rows:
         metric_cells.append(Table([
             [Paragraph(_text(label).upper(), styles["MetricLabel"])],
             [Paragraph(_text(value or "—"), styles["MetricValue"])],
-        ], colWidths=[1.78 * inch()]))
-    grid = Table([metric_cells[:4], metric_cells[4:]], colWidths=[1.90 * inch()] * 4)
+        ], colWidths=[1.40 * inch()]))
+    grid = Table([metric_cells[:5], metric_cells[5:]], colWidths=[1.52 * inch()] * 5)
     grid.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("BOX", (0, 0), (-1, -1), 0.35, line),
@@ -1010,6 +1052,8 @@ def _operations_grid(autotransporte, ident, remolques, seguros, figuras, Table, 
     figura = figuras[0] if figuras else None
     vehicle_operation = _operation_dict(operational_context, "vehicle")
     trailer_operations = _operation_list(operational_context, "trailers")
+    has_trailer = bool(trailer_operations or remolques)
+    vehicle_width = 3.78 if has_trailer else 7.58
     vehicle = _compact_card("UNIDAD MOTRIZ / AUTOTRANSPORTE", [
         ("Núm. económico", _operation_value(vehicle_operation, "numero_economico", "alias", "unidad")),
         ("Marca / modelo", _operation_value(vehicle_operation, "modelo", "marca_modelo")),
@@ -1021,7 +1065,7 @@ def _operations_grid(autotransporte, ident, remolques, seguros, figuras, Table, 
         ("Permiso", _join_nonempty([_attr(autotransporte, "PermSCT"), _attr(autotransporte, "NumPermisoSCT")], " / ")),
         ("Configuración", _attr(ident, "ConfigVehicular")),
         ("PBV", _attr(ident, "PesoBrutoVehicular")),
-    ], 3.78, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
+    ], vehicle_width, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
 
     trailer_rows = []
     for index, operation in enumerate(trailer_operations, start=1):
@@ -1046,12 +1090,7 @@ def _operations_grid(autotransporte, ident, remolques, seguros, figuras, Table, 
                 (f"{prefix} / tipo", _attr(remolque, "SubTipoRem")),
                 (f"{prefix} / placas", _attr(remolque, "Placa")),
             ])
-    trailer = _compact_card(
-        "AUTOTANQUE / REMOLQUE",
-        trailer_rows,
-        3.78,
-        Table, TableStyle, Paragraph, styles, colors, cream, line, wine,
-    )
+    trailer = _compact_card("AUTOTANQUE / REMOLQUE", trailer_rows, 3.78, Table, TableStyle, Paragraph, styles, colors, cream, line, wine) if has_trailer else None
     insurance = _compact_card("SEGUROS", [
         ("RC", _join_nonempty([_attr(seguros, "AseguraRespCivil"), _attr(seguros, "PolizaRespCivil")], " / ")),
         ("Medio ambiente", _join_nonempty([_attr(seguros, "AseguraMedAmbiente"), _attr(seguros, "PolizaMedAmbiente")], " / ")),
@@ -1062,17 +1101,16 @@ def _operations_grid(autotransporte, ident, remolques, seguros, figuras, Table, 
         ("Licencia", _attr(figura, "NumLicencia", "—")),
         ("Tipo figura", _attr(figura, "TipoFigura", "—")),
     ], 3.78, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
-    table = Table(
-        [[vehicle, trailer], [insurance, operator]],
-        colWidths=[3.80 * inch(), 3.80 * inch()],
-    )
+    data = [[vehicle, trailer], [insurance, operator]] if has_trailer else [[vehicle, ""], [insurance, operator]]
+    table = Table(data, colWidths=[3.80 * inch(), 3.80 * inch()])
+    extra_style = [("SPAN", (0, 0), (1, 0))] if not has_trailer else []
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
+    ] + extra_style))
     return table
 
 
