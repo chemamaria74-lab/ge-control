@@ -5,6 +5,8 @@ const TRV2_MONTHS = [
 ];
 let TRV2_CV_EXTERNAL = [];
 let TRV2_CV_EXTERNAL_TYPE = 'carga';
+const TRV2_CV_VIEW_CACHE_MS = 5 * 60 * 1000;
+let TRV2_CV_LAST_SEARCH = null;
 
 function trv2IsHydrocarbonProduct(text) {
   const value = String(text || '').toLowerCase();
@@ -385,18 +387,80 @@ function trv2RenderCvTables(movements) {
   render('trv2-cv-deliveries-table', 'descarga');
 }
 
+function trv2CvFilterKey() {
+  return JSON.stringify({
+    perfil: Number(TRV2_PERFIL?.id || 0),
+    permiso: document.getElementById('trv2-cv-permiso')?.value || '',
+    anio: document.getElementById('trv2-cv-anio')?.value || '',
+    mes: document.getElementById('trv2-cv-mes')?.value || '',
+    producto: document.getElementById('trv2-cv-producto')?.value || '',
+    origen: document.getElementById('trv2-cv-source')?.value || '',
+  });
+}
+
+function trv2ResetCvResults(message = 'Selecciona permiso y periodo; después presiona “Buscar”.') {
+  const context = document.getElementById('trv2-cv-context');
+  const kpis = document.getElementById('trv2-cv-kpis');
+  const loads = document.getElementById('trv2-cv-loads-table');
+  const deliveries = document.getElementById('trv2-cv-deliveries-table');
+  const alert = document.getElementById('trv2-cv-alert');
+  if (context) context.innerHTML = '';
+  if (kpis) kpis.innerHTML = `
+    <article><span>Inventario inicial</span><strong>0 L</strong></article>
+    <article><span>Cargas</span><strong>0 L</strong><small>Sin buscar</small></article>
+    <article><span>Entregas</span><strong>0 L</strong><small>Sin buscar</small></article>
+    <article><span>En tránsito / final</span><strong>0 L</strong></article>
+    <article><span>Cartas Porte</span><strong>0</strong></article>
+    <article><span>Externos</span><strong>0</strong></article>`;
+  if (loads) loads.innerHTML = '<tr><td colspan="7"><div class="trv2-empty">Selecciona los filtros y presiona Buscar.</div></td></tr>';
+  if (deliveries) deliveries.innerHTML = '<tr><td colspan="7"><div class="trv2-empty">Selecciona los filtros y presiona Buscar.</div></td></tr>';
+  if (alert) alert.textContent = message;
+}
+
+function trv2InvalidateCvSearch() {
+  trv2ResetCvResults('Filtros modificados. Presiona “Buscar” para consultar el periodo.');
+}
+
 async function trv2LoadControlVolumetrico(options = {}) {
+  // Cargar únicamente el catálogo necesario para armar los filtros. Los viajes
+  // y movimientos no se consultan hasta que la persona presiona Buscar.
   if (typeof trv2LoadPermisosRfc === 'function' && !(window.TRV2_PERMISOS_RFC || []).length) {
-    await trv2LoadPermisosRfc();
+    await trv2LoadPermisosRfc({renderAdmin: false});
   }
   trv2PopulateControlVolumetricoFilters();
+  const cachedViewIsFresh = TRV2_CV_LAST_SEARCH
+    && Date.now() - TRV2_CV_LAST_SEARCH.at < TRV2_CV_VIEW_CACHE_MS
+    && TRV2_CV_LAST_SEARCH.key === trv2CvFilterKey();
+  if (!options.search) {
+    if (cachedViewIsFresh) {
+      TRV2_CV_EXTERNAL = TRV2_CV_LAST_SEARCH.external || [];
+      TRV2_CV_MOVEMENTS = TRV2_CV_LAST_SEARCH.movements || [];
+      trv2RenderCvContext(TRV2_CV_MOVEMENTS);
+      trv2RenderCvKpis(TRV2_CV_MOVEMENTS);
+      trv2RenderCvTables(TRV2_CV_MOVEMENTS);
+    } else {
+      trv2ResetCvResults();
+    }
+    return;
+  }
+  if (!trv2CvSelectedPermitValue()) {
+    trv2Toast('Selecciona el permiso antes de buscar.', 'error');
+    trv2ResetCvResults('Selecciona un permiso de transportista para consultar el reporte.');
+    return;
+  }
   if (!TRV2_TRIPS.length) await trv2LoadTrips();
   const year = Number(document.getElementById('trv2-cv-anio')?.value || new Date().getFullYear());
   const month = Number(document.getElementById('trv2-cv-mes')?.value || (new Date().getMonth() + 1));
   const periodo = `${year}-${String(month).padStart(2, '0')}`;
-  const external = await trv2Api('GET', `/api/tr-v2/control-volumetrico/externos?periodo=${encodeURIComponent(periodo)}`, undefined, {silent: true, allowError: true, force: Boolean(options.force)});
+  const external = await trv2Api('GET', `/api/tr-v2/control-volumetrico/externos?periodo=${encodeURIComponent(periodo)}`, undefined, {silent: true, allowError: true});
   TRV2_CV_EXTERNAL = external?.movimientos || [];
   TRV2_CV_MOVEMENTS = trv2BuildCvMovements();
+  TRV2_CV_LAST_SEARCH = {
+    at: Date.now(),
+    key: trv2CvFilterKey(),
+    external: TRV2_CV_EXTERNAL,
+    movements: TRV2_CV_MOVEMENTS,
+  };
   trv2RenderCvContext(TRV2_CV_MOVEMENTS);
   trv2RenderCvKpis(TRV2_CV_MOVEMENTS);
   trv2RenderCvTables(TRV2_CV_MOVEMENTS);
@@ -458,7 +522,8 @@ async function trv2UploadCvExternal(event) {
     return;
   }
   trv2Toast(`${data.importados} movimiento(s) externo(s) importado(s).`, 'success');
-  await trv2LoadControlVolumetrico({force: true});
+  TRV2_CV_LAST_SEARCH = null;
+  await trv2LoadControlVolumetrico({search: true});
 }
 
 async function trv2CloseAndDownloadCvMonth() {

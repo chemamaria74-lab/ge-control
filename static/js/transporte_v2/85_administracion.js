@@ -72,7 +72,12 @@ function trv2RenderOperatorDashboard(data = {}) {
             <strong>${trv2Esc(item.operador_nombre || 'Operador')}</strong>
             <span>Viaje #${trv2Esc(item.viaje_id || '')} · ${trv2Esc(item.origen || 'Origen')} → ${trv2Esc(item.destino || 'Destino')}</span>
           </div>
-          <em class="${String(item.estado || '').toUpperCase() === 'DESCANSO' ? 'warning' : 'active'}">${trv2Esc(trv2AdminStatusLabel(item.estado))}</em>
+          <div class="trv2-route-card-actions">
+            <em class="${String(item.estado || '').toUpperCase() === 'DESCANSO' ? 'warning' : 'active'}">${trv2Esc(trv2AdminStatusLabel(item.estado))}</em>
+            <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2AdminFinalizeTrip(${Number(item.viaje_id)})">
+              <i class="fa-solid fa-flag-checkered"></i> Finalizar viaje
+            </button>
+          </div>
         </div>
         <div class="trv2-route-metrics">
           <div><span>Tiempo ruta</span><strong>${trv2Esc(item.tiempo_ruta || '—')}</strong></div>
@@ -101,6 +106,17 @@ async function trv2LoadOperatorDashboard() {
     return;
   }
   trv2RenderOperatorDashboard(data);
+}
+
+async function trv2AdminFinalizeTrip(viajeId) {
+  if (!viajeId) return;
+  if (!confirm('¿Finalizar este viaje desde administración? Se cerrará la bitácora activa y dejará de acumular tiempo.')) return;
+  const data = await trv2Api('POST', `/api/tr-v2/operator/dashboard/${Number(viajeId)}/finalize`, {
+    nota: 'Finalizado manualmente por administración.',
+  });
+  if (!data?.ok) return;
+  trv2Toast('Viaje finalizado por administración.', 'success');
+  await trv2LoadOperatorDashboard();
 }
 
 function trv2RenderOperatorAccesses(items = []) {

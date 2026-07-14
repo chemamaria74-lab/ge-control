@@ -4,6 +4,8 @@ let TRV2_OPERATOR_PAYMENT_SELECTED = 0;
 let TRV2_OPERATOR_PAYMENT_INITIALIZED = false;
 let TRV2_OPERATOR_PAYMENT_VIEW = 'liquidaciones';
 let TRV2_OPERATOR_TARIFF_RETURN_VIEW = '';
+const TRV2_OPERATOR_PAYMENT_CACHE_MS = 5 * 60 * 1000;
+let TRV2_OPERATOR_PAYMENT_LAST_SEARCH = null;
 
 function trv2SetOperatorPaymentView(view = 'liquidaciones') {
   TRV2_OPERATOR_PAYMENT_VIEW = ['liquidaciones', 'tarifas', 'ruta'].includes(view) ? view : 'liquidaciones';
@@ -114,7 +116,7 @@ async function trv2PrepareConciliacionTab(options = {}) {
     TRV2_OPERATOR_PAYMENT_INITIALIZED = true;
   }
   trv2SetOperatorPaymentView(TRV2_OPERATOR_PAYMENT_VIEW);
-  await trv2LoadOperatorPayments(options);
+  await trv2LoadOperatorPayments();
 }
 
 async function trv2LoadOperatorTariffs(options = {}) {
@@ -131,6 +133,20 @@ async function trv2LoadOperatorPayments(options = {}) {
   if (!from || !to) return;
   const query = new URLSearchParams({fecha_desde: from, fecha_hasta: to});
   if (operatorId) query.set('operador_id', String(operatorId));
+  const key = `${Number(TRV2_PERFIL?.id || 0)}:${query.toString()}`;
+  const cachedViewIsFresh = TRV2_OPERATOR_PAYMENT_LAST_SEARCH
+    && Date.now() - TRV2_OPERATOR_PAYMENT_LAST_SEARCH.at < TRV2_OPERATOR_PAYMENT_CACHE_MS
+    && TRV2_OPERATOR_PAYMENT_LAST_SEARCH.key === key;
+  const shouldSearch = Boolean(options.search || options.force);
+  if (!shouldSearch) {
+    if (cachedViewIsFresh) {
+      TRV2_OPERATOR_PAYMENT_ITEMS = TRV2_OPERATOR_PAYMENT_LAST_SEARCH.items || [];
+      trv2RenderOperatorPayments(TRV2_OPERATOR_PAYMENT_LAST_SEARCH.summary || {});
+    } else {
+      trv2ResetOperatorPaymentResults();
+    }
+    return;
+  }
   const data = await trv2Api('GET', `/api/tr-v2/operator-payments/preview?${query}`, undefined, {silent: true, allowError: true, force: Boolean(options.force)});
   if (!data?.ok) {
     TRV2_OPERATOR_PAYMENT_ITEMS = [];
@@ -143,7 +159,34 @@ async function trv2LoadOperatorPayments(options = {}) {
     return;
   }
   TRV2_OPERATOR_PAYMENT_ITEMS = data.items || [];
+  TRV2_OPERATOR_PAYMENT_LAST_SEARCH = {
+    at: Date.now(),
+    key,
+    items: TRV2_OPERATOR_PAYMENT_ITEMS,
+    summary: data.summary || {},
+  };
   trv2RenderOperatorPayments(data.summary || {});
+}
+
+function trv2ResetOperatorPaymentResults(message = 'Selecciona el periodo y presiona Calcular.') {
+  TRV2_OPERATOR_PAYMENT_ITEMS = [];
+  TRV2_OPERATOR_PAYMENT_SELECTED = 0;
+  const kpis = document.getElementById('trv2-payment-kpis');
+  const body = document.getElementById('trv2-payment-summary-table');
+  const detail = document.getElementById('trv2-payment-detail-panel');
+  const alert = document.getElementById('trv2-payment-alert');
+  if (kpis) kpis.innerHTML = `
+    <article><span>Viajes por liquidar</span><strong>0</strong></article>
+    <article><span>Operadores</span><strong>0</strong></article>
+    <article><span>Rutas</span><strong>0</strong></article>
+    <article><span>Total estimado</span><strong>$0.00</strong></article>`;
+  if (body) body.innerHTML = `<tr><td colspan="6"><div class="trv2-empty">${trv2Esc(message)}</div></td></tr>`;
+  if (detail) detail.hidden = true;
+  if (alert) alert.hidden = true;
+}
+
+function trv2InvalidateOperatorPaymentSearch() {
+  trv2ResetOperatorPaymentResults('Filtros modificados. Presiona Calcular para consultar.');
 }
 
 function trv2OperatorPaymentGroups() {
