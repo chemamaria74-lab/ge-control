@@ -348,18 +348,30 @@ async function trv2LoadCatalogs(options = {}) {
   }
   TRV2_CATALOGS_LOADING_PROMISE = (async () => {
     const names = TRV2_CATALOG_LOAD_NAMES;
-    const results = await Promise.all(names.map(async name => {
-      const data = await trv2Api('GET', `/api/tr-v2/catalogos/${name}`, undefined, {silent: true, force: Boolean(options.force)});
-      TRV2_CATALOGS[name] = data?.items || [];
-      return {name, data};
-    }));
-    trv2BuildInstalacionesCatalog();
-    if (typeof trv2LoadPermisosRfc === 'function') {
-      await trv2LoadPermisosRfc({renderAdmin: false, force: Boolean(options.force)});
+    const requestOptions = {silent: true, force: Boolean(options.force)};
+    const bootstrap = await trv2Api('GET', '/api/tr-v2/catalogos/bootstrap', undefined, requestOptions);
+    let results;
+    if (bootstrap?.ok && bootstrap.catalogs) {
+      results = names.map(name => ({name, data: bootstrap.catalogs[name] || {items: []}}));
+      results.forEach(({name, data}) => { TRV2_CATALOGS[name] = data?.items || []; });
+    } else {
+      results = await Promise.all(names.map(async name => {
+        const data = await trv2Api('GET', `/api/tr-v2/catalogos/${name}`, undefined, requestOptions);
+        TRV2_CATALOGS[name] = data?.items || [];
+        return {name, data};
+      }));
     }
+    trv2BuildInstalacionesCatalog();
+    const extraLoads = [];
+    if (typeof trv2LoadPermisosRfc === 'function') extraLoads.push(
+      trv2LoadPermisosRfc({renderAdmin: false, force: Boolean(options.force)})
+    );
     trv2BuildProveedoresCatalog();
+    if (typeof trv2LoadServiceTariffs === 'function') extraLoads.push(
+      trv2LoadServiceTariffs({force: Boolean(options.force)})
+    );
+    if (extraLoads.length) await Promise.all(extraLoads);
     if (typeof trv2LoadServiceTariffs === 'function') {
-      await trv2LoadServiceTariffs({force: Boolean(options.force)});
       TRV2_CATALOGS.tarifas = trv2ReadServiceTariffs();
     }
     TRV2_CATALOGS_READ_ONLY = results.some(r => r.data?.read_only);

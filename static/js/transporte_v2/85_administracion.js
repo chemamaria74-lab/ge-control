@@ -24,7 +24,6 @@ function trv2SetAdminSubtab(name = 'configuracion') {
     trv2LoadSettings();
     trv2LoadPermisosRfc();
   }
-  if (name === 'operadores-ruta') trv2LoadOperatorDashboard();
   if (name === 'usuarios-operador') trv2LoadOperatorAccesses();
 }
 
@@ -221,6 +220,10 @@ function trv2SettingsPayloadFromForm() {
       ...(window.TRV2_TRANSPORTE_SETTINGS?.facturacion || {}),
       clave_prodserv_carta_ingreso: document.getElementById('trv2-set-ci-clave-prodserv')?.value.trim() || '78101802',
     },
+    pago_operadores: {
+      ...(window.TRV2_TRANSPORTE_SETTINGS?.pago_operadores || {}),
+      periodo_predeterminado: document.getElementById('trv2-set-operator-payment-period')?.value || 'quincenal',
+    },
   };
 }
 
@@ -228,6 +231,7 @@ function trv2FillSettingsForm(data = {}) {
   window.TRV2_TRANSPORTE_SETTINGS = data || {};
   const perfil = data.perfil_fiscal || {};
   const facturacion = data.facturacion || {};
+  const pagoOperadores = data.pago_operadores || {};
   const pairs = [
     ['trv2-set-rfc', perfil.rfc_contribuyente],
     ['trv2-set-nombre', perfil.nombre_fiscal],
@@ -235,6 +239,7 @@ function trv2FillSettingsForm(data = {}) {
     ['trv2-set-regimen', perfil.regimen_fiscal],
     ['trv2-set-rfc-rep', perfil.rfc_representante_legal],
     ['trv2-set-ci-clave-prodserv', facturacion.clave_prodserv_carta_ingreso || '78101802'],
+    ['trv2-set-operator-payment-period', pagoOperadores.periodo_predeterminado || 'quincenal'],
     ['trv2-set-logo', perfil.logo_data_url || perfil.logo_url],
     ['trv2-set-pdf-header-color', perfil.pdf_header_color || perfil.color_encabezado_pdf || '#6B7280'],
     ['trv2-set-pdf-header-text-color', perfil.pdf_header_text_color || perfil.color_texto_encabezado_pdf || '#FFFFFF'],
