@@ -61,8 +61,8 @@ function renderVentasCharts(monthly, capacidad) {
   document.getElementById('kpiLitrosRec').textContent = fmtLitros(totalLitrosRec);
   document.getElementById('kpiMeses').textContent     = mesesActivos + ' / 12';
 
-  const hasAnyReport = monthly.some(m => m.has_report);
-  if (!hasAnyReport) {
+  const hasAnyActivity = monthly.some(m => m.has_activity || m.has_report || m.litros > 0 || m.litros_rec > 0);
+  if (!hasAnyActivity) {
     document.getElementById('ventasNoData').style.display = '';
   }
 

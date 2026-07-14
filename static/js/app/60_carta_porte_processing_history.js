@@ -867,9 +867,41 @@ document.getElementById('btnHistAutoconsumo')?.addEventListener('click', () => {
 document.getElementById('btnCloseHistMonth')?.addEventListener('click', async () => {
   if (!syncProcessPeriodAndFacilityFromHistory()) return;
   setHistCloseInfo('Cerrando mes: revisando registros y preparando descarga ZIP por instalación...');
-  await loadHistorial({ closing: true });
-  const zipBtn = document.getElementById('btnDlHistZIP');
-  if (histPeriodo && _histFacilityId && zipBtn?.style.display !== 'none') await downloadHistZIP();
+  const btn = document.getElementById('btnCloseHistMonth');
+  const originalHtml = btn?.innerHTML;
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:.35rem"></i> Cerrando...';
+    }
+    const { anio, mes, facilityId } = histSelectedPeriodAndFacility();
+    const periodo = `${anio}-${mes}`;
+    const res = await fetch(`/api/history/${periodo}/close?facility_id=${facilityId}`, {
+      method: 'POST', headers: authHeader(),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.detail || 'No fue posible cerrar el mes.');
+    }
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objUrl;
+    const cd = res.headers.get('Content-Disposition') || '';
+    const filename = (cd.match(/filename="?([^";]+)"?/i)?.[1]) || `reporte_${periodo}.zip`;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(objUrl);
+    await loadHistorial();
+    setHistCloseInfo('Mes cerrado para la planta seleccionada. El inventario inicial quedó ligado al cierre del mes anterior.', true);
+  } catch (e) {
+    setHistCloseInfo(e.message || 'No fue posible cerrar el mes.', false);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml || 'Cerrar y descargar ZIP';
+    }
+  }
 });
 
 async function loadHistorial() {
@@ -905,11 +937,12 @@ async function loadHistorial() {
     histZipFilename = data.zip_filename || null;
 
     // Prefer values from the saved SAT report (exact); fallback to aggregated records
-    const hasReport = rep && rep.total_recepciones != null && rep.total_recepciones > 0;
-    // Inv. inicial: del reporte si > 0; si no, calcularlo implícito desde el balance
-    let invIni = (rep && rep.inventario_inicial > 0) ? rep.inventario_inicial : null;
-    if (invIni == null && prevInv != null && prevInv > 0) invIni = prevInv;
-    let invFin = (rep && rep.vol_existencias   > 0) ? rep.vol_existencias    : null;
+    const hasReport = !!(rep && Object.keys(rep).length && (rep.id != null || rep.periodo || rep.total_recepciones != null));
+    // Cero es un inventario válido. Si aún no hay cierre, mostrar el cierre del
+    // mes calendario inmediato anterior como inventario inicial propuesto.
+    let invIni = (hasReport && rep.inventario_inicial != null) ? Number(rep.inventario_inicial) : null;
+    if (invIni == null && prevInv != null) invIni = prevInv;
+    let invFin = (hasReport && rep.vol_existencias != null) ? Number(rep.vol_existencias) : null;
     if (invIni == null && hasReport && invFin != null) {
       const calc = invFin + (rep.total_entregas || 0) - (rep.total_recepciones || 0);
       if (calc > 0) invIni = calc;
@@ -998,17 +1031,20 @@ async function loadHistorial() {
 
     // Mostrar botones de acción si hay reporte o registros
     const hasAnyData = (data.report != null) || (data.entradas?.length > 0) || (data.salidas?.length > 0);
-    if (data.report && data.report.zip_path) {
+    if (data.report) {
       document.getElementById('btnDlHistZIP').style.display = '';
     }
     if (hasAnyData) {
       document.getElementById('btnDelHist').style.display = '';
     }
-    setHistCloseInfo(data.report && data.report.zip_path
+    const missingInitialInventory = !data.report && data.previous_inventory_final == null && hasAnyData;
+    setHistCloseInfo(missingInitialInventory
+      ? `Hay movimientos, pero falta el inventario final de ${data.previous_period || 'mes anterior'}. Captura el inventario inicial antes de cerrar.`
+      : (data.report
       ? 'Mes cerrado para la planta seleccionada. Ya puedes descargar el ZIP JSON.'
       : (hasAnyData
         ? 'Mes revisado para la planta seleccionada. Procesa los pendientes antes de descargar el ZIP JSON.'
-        : 'No hay registros para cerrar en la planta y periodo seleccionados.'), hasAnyData);
+        : 'No hay registros para cerrar en la planta y periodo seleccionados.')), hasAnyData && !missingInitialInventory);
 
   } catch(e) {
     document.getElementById('histLoading').style.display = 'none';

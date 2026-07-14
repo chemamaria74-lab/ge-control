@@ -3837,9 +3837,13 @@ async function loadInternalUsersGasLp() {
     }
     tbody.innerHTML = users.map(u => {
       const active = (u.status || 'active') === 'active';
-      const badge = active
-        ? '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">Activo</span>'
-        : `<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">${u.status || 'Inactivo'}</span>`;
+      const lockedUntil = u.locked_until ? new Date(u.locked_until) : null;
+      const locked = lockedUntil && !Number.isNaN(lockedUntil.getTime()) && lockedUntil.getTime() > Date.now();
+      const badge = locked
+        ? `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">Bloqueado temporal</span>`
+        : (active
+          ? '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">Activo</span>'
+          : `<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">${u.status || 'Inactivo'}</span>`);
       return `<tr style="border-bottom:1px solid #f1f5f9">
         <td style="padding:.55rem .8rem;font-weight:600">${u.display_name || '—'}</td>
         <td style="padding:.55rem .8rem;font-family:monospace">${u.code || '—'}</td>
@@ -3903,11 +3907,16 @@ async function createInternalUserGasLp() {
 }
 
 async function setInternalStatusGasLp(id, status) {
-  await fetch(`/api/internal-users/${id}/status`, {
+  if (status === 'inactive' && !confirm('¿Desactivar este asistente? No podrá entrar al portal hasta que lo actives de nuevo.')) return;
+  const res = await fetch(`/api/internal-users/${id}/status`, {
     method: 'PUT',
     headers: { ...authHeader(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   });
+  if (!res.ok) {
+    const data = await res.json().catch(()=>({}));
+    alert(data.detail || 'No se pudo cambiar el estatus.');
+  }
   await loadInternalUsersGasLp();
 }
 

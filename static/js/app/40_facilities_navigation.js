@@ -510,7 +510,7 @@ function confirmDeleteFacility(id, nombre) {
 
 // ── Navegación principal ──────────────────────────────────────────────────
 function switchGasAdminTab(name, shouldLoad = true) {
-  const active = name === 'carta' ? 'carta' : 'usuarios';
+  const active = 'usuarios';
   document.querySelectorAll('.gas-admin-tab').forEach(btn => {
     const isActive = btn.dataset.gasAdminTab === active;
     btn.classList.toggle('active', isActive);
@@ -522,7 +522,6 @@ function switchGasAdminTab(name, shouldLoad = true) {
     section.style.display = section.dataset.gasAdminSection === active ? '' : 'none';
   });
   if (shouldLoad && active === 'usuarios') loadInternalUsersGasLp();
-  if (shouldLoad && active === 'carta') loadGasLpCartaPorteCatalogs();
 }
 
 async function switchTab(name) {
@@ -548,7 +547,6 @@ async function switchTab(name) {
   if (name === 'admin'       && authToken && currentUserRole === 'admin') {
     switchGasAdminTab('usuarios', false);
     loadInternalUsersGasLp();
-    loadGasLpCartaPorteCatalogs();
   }
   // Config avanzada: siempre recargar desde Supabase al abrir (limpia + puebla)
   // config-avanzada tab removed — adv config is now inside each facility form
