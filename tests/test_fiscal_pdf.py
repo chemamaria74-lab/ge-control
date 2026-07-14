@@ -133,7 +133,42 @@ def test_carta_porte_traslado_uses_specialized_pdf_layout(tmp_path):
 
     assert es_carta_porte_traslado(xml)
     info = carta_porte_pdf_info(xml)
-    pdf = generar_pdf_carta_porte_desde_xml(xml)
+    pdf = generar_pdf_carta_porte_desde_xml(
+        xml,
+        operational_context={
+            "vehicle": {
+                "numero_economico": "PG-3329 T",
+                "modelo": "FREIGHTLINER",
+                "vin": "3AKJHPDV4MSMP4403",
+                "numero_motor": "471953S0786452",
+                "id_cre": "S003633",
+            },
+            "trailers": [{
+                "numero_economico": "PG-3329 S",
+                "placas": "49UK1B",
+                "subtipo_remolque": "CTR001",
+                "fabricante": "SEMASA",
+                "anio": 2007,
+                "numero_serie": "24947",
+                "capacidad_litros": 36000,
+            }],
+            "locations": {
+                "origin": {
+                    "direccion": "ATLACOMULCO - GUADALAJARA",
+                    "municipio_sat": "123 - Zapotlanejo",
+                    "estado_sat": "JAL - Jalisco",
+                    "cp": "45464",
+                    "permiso_cre": "LP/20740/COM/2016",
+                },
+                "destination": {
+                    "direccion": "KM 1.5 CARRETERA TEOCALTICHE - JARALILLO",
+                    "municipio_sat": "091 - Teocaltiche",
+                    "estado_sat": "JAL - Jalisco",
+                    "cp": "47200",
+                },
+            },
+        },
+    )
     pdf_path = tmp_path / "carta_porte.pdf"
     pdf_path.write_bytes(pdf)
     text = "\n".join(page.extract_text() or "" for page in PdfReader(str(pdf_path)).pages)
@@ -148,5 +183,17 @@ def test_carta_porte_traslado_uses_specialized_pdf_layout(tmp_path):
     assert "$12,345.67 MXN" in text
     assert "Autotransporte" in text
     assert "AC6116E" in text
+    assert "PG-3329 T" in text
+    assert "FREIGHTLINER" in text
+    assert "3AKJHPDV4MSMP4403" in text
+    assert "471953S0786452" in text
+    assert "S003633" in text
+    assert "PG-3329 S" in text
+    assert "SEMASA / 2007" in text
+    assert "24947" in text
+    assert "36,000 L" in text
+    assert "ATLACOMULCO - GUADALAJARA" in text
+    assert "123 - Zapotlanejo" in text
+    assert "LP/20740/COM/2016" in text
     assert "CAHA9403247E1" in text
     assert "VERSION" in text.upper() and "3.1" in text

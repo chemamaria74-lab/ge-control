@@ -1,6 +1,8 @@
 import asyncio
 import base64
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi import HTTPException
@@ -10,6 +12,39 @@ os.environ.setdefault("SUPABASE_KEY", "test-anon-key")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
 
 from routes import transporte_v2  # noqa: E402
+
+
+def test_operator_trip_end_closes_view_only_when_bitacora_never_started():
+    now = datetime(2026, 7, 13, 22, 30, tzinfo=ZoneInfo("America/Mexico_City"))
+    expired = {
+        "fecha_hora_llegada": "2026-07-13T22:00:00",
+        "defaults_json": {},
+    }
+    started = {
+        **expired,
+        "defaults_json": {
+            "bitacora_operador": {
+                "estado": "EN_CURSO",
+                "eventos": [{"accion": "INICIAR", "created_at": "2026-07-13T20:00:00"}],
+            }
+        },
+    }
+
+    assert transporte_v2._operator_trip_expired_without_started_bitacora(expired, now) is True
+    assert transporte_v2._operator_trip_expired_without_started_bitacora(started, now) is False
+
+
+def test_operator_trip_end_accepts_carta_porte_nested_schedule():
+    row = {
+        "defaults_json": {
+            "carta_porte": {"fecha_hora_llegada": "13/07/2026, 21:45"},
+        }
+    }
+
+    scheduled = transporte_v2._operator_trip_scheduled_end(row)
+
+    assert scheduled is not None
+    assert scheduled.isoformat().startswith("2026-07-13T21:45:00")
 
 
 def test_operator_trip_normalization_preserves_vehicle_invoice_and_assigned_status():

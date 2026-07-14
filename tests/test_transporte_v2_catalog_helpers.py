@@ -39,6 +39,18 @@ def test_operator_tariff_is_separate_and_supports_three_payment_modes():
         assert row["tarifa"] == 125.50
 
 
+def test_operator_license_expiration_is_preserved_from_catalog_metadata():
+    row = _normalize_catalog_row("operadores", {
+        "id": 7,
+        "nombre": "Operador",
+        "licencia": "AGS0007441",
+        "tipo_licencia": "E",
+        "metadata": {"vencimiento_licencia": "2027-11-12"},
+    })
+
+    assert row["vencimiento_licencia"] == "2027-11-12"
+
+
 def test_operator_payment_date_range_is_inclusive_of_last_day():
     start, exclusive_end = _operator_payment_dates("2026-07-01", "2026-07-15")
 
@@ -57,12 +69,35 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
     assert "Liquidación de operadores" in section
     assert "Facturas" not in section
     assert "Cartas Porte" not in section
+    assert 'data-payment-tab="tarifas"' in section
+    assert 'data-payment-panel="tarifas"' in section
     assert 'data-payment-tab="ruta"' in section
     assert 'id="trv2-operator-dashboard-list"' in section
     assert 'data-admin-tab="operadores-ruta"' not in admin_section
     assert 'data-admin-panel="operadores-ruta"' not in admin_section
     assert "operator-payments/preview" in frontend
     assert "operator-payments/export.xlsx" in frontend
+    assert "trv2CreateOperatorTariffFromDetail" in frontend
+    assert "Editar tarifa" in frontend
+
+
+def test_transport_admin_mobile_shell_and_module_scoped_logout_contract():
+    root = Path(__file__).parents[1]
+    template = (root / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
+    css = (root / "static/css/transporte_v2.css").read_text(encoding="utf-8")
+    api = (root / "static/js/transporte_v2/10_api.js").read_text(encoding="utf-8")
+    operator = (root / "static/js/transporte_v2/operator_portal.js").read_text(encoding="utf-8")
+    timeout = (root / "static/js/session_timeout.js").read_text(encoding="utf-8")
+
+    assert 'class="trv2-topbar-session"' in template
+    assert 'class="trv2-topbar-actions"' in template
+    assert "@media(max-width:560px)" in css
+    assert ".trv2-modal{width:100%;max-height:100dvh;min-height:100dvh" in css
+    assert ".trv2-form input,.trv2-form select,.trv2-form textarea{font-size:16px}" in css
+    assert "location.href = '/transporte-v2/login-admin?next=/transporte-v2/admin'" in api
+    assert "location.href = '/transporte-v2/login-operador?next=/transporte-v2/operador'" in operator
+    assert "function moduleLoginTarget()" in timeout
+    assert "if (path.startsWith('/transporte-v2'))" in timeout
 
 
 def test_catalog_bootstrap_validates_once_and_expands_routes_without_extra_queries(monkeypatch):
@@ -226,3 +261,27 @@ def test_diesel_legacy_15101507_still_maps_to_pr05():
     assert internal == "PR05"
     assert subproducto == "SP6"
     assert clave_sat == "15101507"
+
+
+def test_trailer_catalog_exposes_capacity_at_ninety_percent_for_carta_porte_pdf():
+    row = _normalize_catalog_row(
+        "remolques",
+        {
+            "alias": "PG-3329 S",
+            "placas": "49UK1B",
+            "subtipo_rem": "CTR001",
+            "capacidad_litros": 36000,
+            "metadata": {"fabricante": "SEMASA", "anio": 2007, "numero_serie": "24947"},
+        },
+    )
+    frontend = Path("static/js/transporte_v2/80_catalogos.js").read_text(encoding="utf-8")
+    backend = Path("routes/transporte_v2.py").read_text(encoding="utf-8")
+
+    assert row["capacidad_litros"] == 36000
+    assert row["fabricante"] == "SEMASA"
+    assert row["anio"] == 2007
+    assert row["numero_serie"] == "24947"
+    assert "Capacidad del tanque al 90% (litros)" in frontend
+    assert "Serie / número de fabricación" in frontend
+    assert "['Capacidad 90%', 'capacidad_litros']" in frontend
+    assert '"capacidad_litros", "activo", "metadata"' in backend
