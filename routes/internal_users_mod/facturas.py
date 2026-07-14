@@ -370,6 +370,8 @@ async def gas_lp_internal_facturas(
         max_limit = GAS_LP_LIST_LIMIT_MAX
         page_limit = max(1, min(page_limit, max_limit))
         facturas_select = GAS_LP_FACTURAS_LIST_SELECT
+    if carta_porte and "xml_content" not in facturas_select.split(","):
+        facturas_select += ",xml_content"
     try:
         rows = _gas_lp_company_facturas_rows(
             sb,

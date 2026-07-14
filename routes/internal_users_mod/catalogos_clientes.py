@@ -705,8 +705,16 @@ async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Reque
         payload = _internal_cp_facility_config_payload(user, row_id, request.query_params)
         existing = _internal_cp_facility_config_rows(user).get(int(row_id))
         sb = get_supabase_admin()
+        scope = _internal_cp_company_scope(user)
         if existing:
-            data = sb.table("gas_lp_facility_carta_porte_config").update(payload).eq("id", existing.get("id")).execute().data or []
+            query = (sb.table("gas_lp_facility_carta_porte_config").update(payload)
+                     .eq("id", existing.get("id"))
+                     .eq("user_id", scope.get("owner_user_id"))
+                     .eq("perfil_id", scope.get("perfil_id")))
+            query = query.eq("tenant_id", scope.get("tenant_id")) if scope.get("tenant_id") else query.is_("tenant_id", "null")
+            data = query.execute().data or []
+            if not data:
+                raise HTTPException(404, "Configuración no encontrada para esta empresa.")
         else:
             data = sb.table("gas_lp_facility_carta_porte_config").insert({**payload, "created_at": datetime.now(timezone.utc).isoformat()}).execute().data or []
         record = next((row for row in _internal_cp_facilities(user) if int(row.get("facility_id") or row.get("id") or 0) == int(row_id)), None)
@@ -722,15 +730,16 @@ async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Reque
     payload = _internal_cp_company_payload(payload, user, current)
     logger.debug("gas_lp_catalogo_update table=%s kind=%s id=%s tenant=%s perfil=%s empresa_rfc=%s", table, kind, row_id, payload.get("tenant_id"), payload.get("perfil_id"), (payload.get("metadata") or {}).get("empresa_rfc"))
     try:
-        data = (
-            get_supabase_admin()
-            .table(table)
-            .update({**payload, "updated_at": datetime.now(timezone.utc).isoformat()})
-            .eq("id", row_id)
-            .execute()
-            .data
-            or []
-        )
+        scope = _internal_cp_company_scope(user)
+        query = (get_supabase_admin().table(table)
+                 .update({**payload, "updated_at": datetime.now(timezone.utc).isoformat()})
+                 .eq("id", row_id)
+                 .eq("user_id", scope.get("owner_user_id"))
+                 .eq("perfil_id", scope.get("perfil_id")))
+        query = query.eq("tenant_id", scope.get("tenant_id")) if scope.get("tenant_id") else query.is_("tenant_id", "null")
+        data = query.execute().data or []
+        if not data:
+            raise HTTPException(404, "Registro no encontrado para esta empresa.")
     except Exception as exc:
         raise _safe_internal_error(f"gas_lp_catalogo_update_{kind}", exc)
     record = _internal_cp_response_record(kind, data[0] if data else {**current, **payload}, user, row_id=row_id)
@@ -753,9 +762,15 @@ async def gas_lp_internal_catalogo_delete(kind: str, row_id: int, token: str, pe
         raise HTTPException(404, "Registro no encontrado para esta empresa.")
     try:
         if permanent:
-            q.delete().eq("id", row_id).execute()
+            query = q.delete().eq("id", row_id).eq("user_id", user.get("owner_user_id")).eq("perfil_id", user.get("perfil_id"))
+            query = query.eq("tenant_id", user.get("tenant_id")) if user.get("tenant_id") else query.is_("tenant_id", "null")
+            result = query.execute()
         else:
-            q.update({"activo": False, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id).execute()
+            query = q.update({"activo": False, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", row_id).eq("user_id", user.get("owner_user_id")).eq("perfil_id", user.get("perfil_id"))
+            query = query.eq("tenant_id", user.get("tenant_id")) if user.get("tenant_id") else query.is_("tenant_id", "null")
+            result = query.execute()
+        if not (result.data or []):
+            raise HTTPException(404, "Registro no encontrado para esta empresa.")
     except Exception as exc:
         raise _safe_internal_error(f"gas_lp_catalogo_delete_{kind}", exc)
     return JSONResponse({"ok": True})
