@@ -12,6 +12,7 @@
   font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 }
 *{box-sizing:border-box}
+html,body{max-width:100%;overflow-x:hidden}
 body{margin:0;background:var(--trv2-bg);color:var(--trv2-ink)}
 .trv2-topbar{height:58px;background:var(--trv2-maroon);color:#fff;display:flex;align-items:center;gap:12px;padding:0 16px;box-shadow:0 1px 0 rgba(0,0,0,.16)}
 .trv2-brand{display:flex;align-items:center;gap:11px;color:#fff;text-decoration:none;font-size:20px;font-weight:900;letter-spacing:0}
@@ -20,6 +21,7 @@ body{margin:0;background:var(--trv2-bg);color:var(--trv2-ink)}
 .trv2-company-chip{color:#fff;font:inherit;cursor:pointer;max-width:340px;overflow:hidden;text-overflow:ellipsis}
 .trv2-badge-soft{color:#ffe8a8}
 .trv2-topbar-spacer{flex:1}
+.trv2-topbar-session,.trv2-topbar-actions{display:flex;align-items:center;gap:8px;min-width:0}
 .trv2-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
 .trv2-btn{border:1px solid var(--trv2-line);border-radius:7px;padding:8px 12px;background:#fff;color:var(--trv2-ink);font:inherit;font-size:14px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px}
 .trv2-btn:hover{filter:brightness(.98)}
@@ -117,7 +119,7 @@ p{margin:0;color:var(--trv2-muted);line-height:1.5}
 .trv2-catalog-empty i{font-size:34px;color:var(--trv2-gold)}
 .trv2-catalog-empty h2{margin:0}
 .trv2-table-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:10px}
-.trv2-table-wrap{overflow:auto;border:1px solid var(--trv2-line);border-radius:8px}
+.trv2-table-wrap{max-width:100%;overflow:auto;border:1px solid var(--trv2-line);border-radius:8px;-webkit-overflow-scrolling:touch;overscroll-behavior-inline:contain}
 .trv2-cp-history-table{min-width:1180px;width:100%;border-collapse:collapse;background:#fff}
 .trv2-cp-history-table th,.trv2-cp-history-table td{border-bottom:1px solid #edf0f4;padding:10px 12px;text-align:left;vertical-align:top;white-space:nowrap}
 .trv2-cp-history-table th{background:#f4f1ec;color:var(--trv2-muted);font-size:11px;font-weight:900;letter-spacing:.04em;text-transform:uppercase}
@@ -275,11 +277,28 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-cv-context{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;color:var(--trv2-muted);font-size:12px;font-weight:800}
 .trv2-cv-context span{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--trv2-line);border-radius:999px;background:#faf8f5;padding:6px 9px;max-width:100%}
 .trv2-cv-context strong{color:var(--trv2-ink);overflow-wrap:anywhere}
+.trv2-cv-action-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.trv2-cv-action-card{border:1px solid var(--trv2-line);border-radius:10px;padding:16px;background:#fff;display:grid;align-content:start;gap:10px;min-width:0}
+.trv2-cv-action-card h2{font-size:15px;margin:0;display:flex;align-items:center;gap:8px}
+.trv2-cv-action-card p{margin:0;color:var(--trv2-muted);font-size:13px;line-height:1.45;font-weight:700}
+.trv2-cv-action-card .trv2-actions{margin-top:auto;padding-top:4px}
+.trv2-cv-action-upload{background:#f3f8ff;border-color:#cbdcf4}
+.trv2-cv-action-review{background:#fffaf0;border-color:#efd79e}
+.trv2-cv-action-close{background:#f0fbf4;border-color:#b8e2c7}
+.trv2-cv-metrics{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:12px 0 14px}
+.trv2-cv-metrics article{border:1px solid var(--trv2-line);border-radius:8px;background:#fff;padding:13px;display:grid;gap:5px;min-width:0}
+.trv2-cv-metrics span{color:var(--trv2-muted);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}
+.trv2-cv-metrics strong{font-size:20px;line-height:1.1;overflow-wrap:anywhere}
+.trv2-cv-metrics small{color:var(--trv2-muted);font-weight:700}
+.trv2-cv-table-wrap table{min-width:900px}
+.trv2-awaiting-search::before{content:'Selecciona el periodo y presiona Buscar para cargar la información.';display:block;margin:12px;border:1px dashed var(--trv2-line);border-radius:8px;padding:24px;text-align:center;color:var(--trv2-muted);font-weight:800;background:#faf8f5}
 .trv2-form-admin{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:14px}
 .trv2-permiso-editor{border:1px solid var(--trv2-line);border-radius:8px;background:#fff;padding:16px;margin:14px 0 18px;box-shadow:0 10px 24px rgba(38,25,8,.05)}
 .trv2-permiso-editor[hidden]{display:none}
 .trv2-tariff-editor{border:1px solid var(--trv2-line);border-radius:8px;background:#fff;padding:16px;margin:14px 0 18px;box-shadow:0 10px 24px rgba(38,25,8,.05)}
 .trv2-tariff-editor[hidden]{display:none}
+.trv2-tariff-editor [data-operator-tariff-base][hidden]{display:none}
+.trv2-operator-tariffs-panel{margin-top:0}
 .trv2-form-title{grid-column:1/-1;display:grid;gap:3px;margin-bottom:2px}
 .trv2-form-title strong{font-size:16px;font-weight:900;color:var(--trv2-ink)}
 .trv2-form-title span{font-size:13px;color:var(--trv2-muted);font-weight:700}
@@ -351,20 +370,33 @@ tbody tr:last-child td{border-bottom:0}
 .toast.success{border-left-color:var(--trv2-ok)}
 @media(max-width:900px){
   .trv2-topbar{height:auto;min-height:76px;flex-wrap:wrap;padding:16px}
+  .trv2-topbar-spacer{display:none}
+  .trv2-brand{margin-right:auto}
+  .trv2-topbar-session{order:3;flex:1 0 100%}
+  .trv2-company-chip{flex:1;max-width:none;min-width:0}
+  .trv2-topbar-actions{margin-left:auto}
   .trv2-shell{padding:22px 16px 70px}
+  .trv2-section,.trv2-panel,.trv2-section-head>div{min-width:0}
   .trv2-section-head,.trv2-grid-2{grid-template-columns:1fr;display:grid}
   .trv2-actions{justify-content:flex-start}
   .trv2-kpis,.trv2-kpis-compact,.trv2-kpis-cv{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .trv2-cv-action-grid{grid-template-columns:1fr}
+  .trv2-cv-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-form{grid-template-columns:1fr}
   .trv2-form-cv,.trv2-form-admin,.trv2-form-inner,.trv2-payment-filters{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-detected-overview{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-step-grid{grid-template-columns:1fr}
   .trv2-access-card{grid-template-columns:1fr}
+  .trv2-cp-pending-card{grid-template-columns:1fr;align-items:stretch}
   .trv2-admin-route-kpis,.trv2-route-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-route-card-head{grid-template-columns:1fr}
   .trv2-admin-cp-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-catalog-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trv2-catalog-toolbar{align-items:stretch;display:grid}
+  .trv2-logo-box{grid-template-columns:minmax(0,1fr) 160px}
+  .trv2-logo-box>.trv2-btn{grid-column:1/-1;justify-self:start}
+  .trv2-pdf-theme-box,.trv2-check-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .trv2-table-head{align-items:flex-start;flex-wrap:wrap}
   .trv2-cp-summary,.trv2-preview-grid{grid-template-columns:1fr}
   .trv2-cp-doc-header,.trv2-cp-doc-band,.trv2-cp-doc-route,.trv2-cp-doc-footer{flex-direction:column}
   .trv2-cp-doc-route>i{transform:rotate(90deg);align-self:center}
@@ -372,12 +404,47 @@ tbody tr:last-child td{border-bottom:0}
   .trv2-cp-doc-row-head{display:none}
 }
 @media(max-width:560px){
+  .trv2-topbar{display:grid;grid-template-columns:1fr;padding:12px;gap:10px}
+  .trv2-brand,.trv2-topbar-session,.trv2-topbar-actions{width:100%;grid-column:1;order:initial}
+  .trv2-topbar-session{display:grid;grid-template-columns:minmax(0,1fr)}
+  .trv2-topbar-session .trv2-badge{width:100%;justify-content:flex-start;overflow:hidden;text-overflow:ellipsis}
+  .trv2-topbar-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:0}
+  .trv2-topbar-actions .trv2-btn{width:100%;padding-left:8px;padding-right:8px}
+  .trv2-tabs{padding:0 8px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+  .trv2-tab{padding:12px 11px;scroll-snap-align:start}
+  .trv2-shell{padding:16px 10px 64px}
+  .trv2-panel,.trv2-kpis article{padding:12px}
+  .trv2-section-head{gap:12px;margin-bottom:13px}
+  .trv2-section-head>.trv2-btn,.trv2-section-head>.trv2-actions{width:100%}
+  .trv2-section-head>.trv2-btn{justify-self:stretch}
+  .trv2-section-head>.trv2-actions .trv2-btn{flex:1 1 140px}
+  .trv2-table-head{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+  .trv2-table-head>.trv2-btn,.trv2-table-head>.trv2-actions{width:100%}
+  .trv2-table-head>.trv2-btn{justify-self:stretch}
+  .trv2-table-head>.trv2-actions .trv2-btn{flex:1 1 130px}
+  .trv2-form input,.trv2-form select,.trv2-form textarea{font-size:16px}
+  .trv2-form-actions{display:grid;grid-template-columns:1fr;width:100%}
+  .trv2-form-actions .trv2-btn{width:100%}
+  .trv2-subtabs,.trv2-inline-tabs{margin-left:-2px;margin-right:-2px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+  .trv2-subtab{scroll-snap-align:start}
   .trv2-kpis,.trv2-kpis-compact,.trv2-kpis-cv{grid-template-columns:1fr}
+  .trv2-cv-metrics{grid-template-columns:1fr}
+  .trv2-cv-action-card .trv2-actions{display:grid;grid-template-columns:1fr}
+  .trv2-cv-action-card .trv2-btn{width:100%}
   .trv2-form-cv,.trv2-form-admin,.trv2-form-inner,.trv2-payment-filters,.trv2-catalog-card-grid,.trv2-detected-overview{grid-template-columns:1fr}
   .trv2-admin-cp-grid{grid-template-columns:1fr}
+  .trv2-admin-route-kpis,.trv2-route-metrics{grid-template-columns:1fr}
+  .trv2-logo-box,.trv2-pdf-theme-box,.trv2-check-grid{grid-template-columns:1fr}
+  .trv2-logo-box>.trv2-btn{grid-column:auto;width:100%}
   .trv2-card-head{grid-template-columns:auto minmax(0,1fr)}
   .trv2-card-head .trv2-status{grid-column:1/-1;justify-self:start}
   .trv2-card-row{grid-template-columns:1fr}
   .trv2-brand{font-size:20px}
   .trv2-brand img{width:58px}
+  .trv2-modal-layer{padding:0;align-items:stretch}
+  .trv2-modal{width:100%;max-height:100dvh;min-height:100dvh;border-radius:0;border:0;padding:14px}
+  .trv2-company-option{grid-template-columns:minmax(0,1fr)}
+  .trv2-company-option em{grid-row:auto;grid-column:auto;justify-self:start}
+  .toast-area{top:auto;right:10px;bottom:10px;width:calc(100vw - 20px)}
+  .trv2-service-scroll{min-height:220px;max-height:calc(100dvh - 260px)}
 }
