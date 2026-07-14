@@ -248,6 +248,7 @@ function trv2ServiceTripData(row = {}) {
     chofer: trv2ServiceTripLabel(row, 'operadores', 'operador_nombre') || '',
     vehiculo: trv2ServiceTripLabel(row, 'vehiculos', 'vehiculo_alias') || '',
     unidad_id: vehiculoCatalogo.numero_economico || vehiculoCatalogo.alias || meta.unidad_id || meta.numero_economico || meta.vehiculo_numero_economico || meta.vehiculo_alias || (vehiculoId ? String(vehiculoId) : ''),
+    id_cre: vehiculoCatalogo.id_cre || meta.id_cre || meta.id_cre_vehiculo || '',
     permiso_origen: meta.permiso_origen || meta.origen_permiso || meta.permiso_cre_origen || meta.origen_permiso_cre || meta.proveedor_permiso || cartaMeta.permiso_origen || origenMeta.permiso_cre || origenMeta.permiso || origenCatalogo.permiso_cre || origenCatalogo.permiso || proveedor.permiso_cre || proveedor.permiso || ruta.permiso_origen || rutaMeta.permiso_origen || ruta.permiso_cre || rutaMeta.permiso_cre || '',
     permiso_destino: meta.permiso_destino || meta.destino_permiso || meta.permiso_cre_destino || meta.destino_permiso_cre || meta.cliente_permiso || cartaMeta.permiso_destino || destinoMeta.permiso_cre || destinoMeta.permiso || destinoCatalogo.permiso_cre || destinoCatalogo.permiso || cliente.permiso_cre || cliente.permiso || ruta.permiso_destino || rutaMeta.permiso_destino || rutaMeta.permiso_cre_destino || '',
     uuid_carta_porte: trv2ServiceTripUuid(row),
@@ -553,6 +554,14 @@ function trv2RenderServiceProductFilter(rows = []) {
 function trv2ServiceExcelScope(tab = TRV2_SERVICE_TAB) {
   const product = TRV2_SERVICE_PRODUCT_FILTER || 'gas_lp';
   const period = TRV2_SERVICE_MONTH || 'todos_los_meses';
+  if (tab === 'facturadas') {
+    const [year, month] = period.split('-');
+    const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const monthName = monthNames[Number(month) - 1];
+    return monthName && year
+      ? `Cartas Ingreso ${monthName} ${year}.xls`
+      : 'Cartas Ingreso.xls';
+  }
   return `cartas_ingreso_${tab}_${product}_${period}.xls`;
 }
 
@@ -614,14 +623,14 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
     trv2ExcelNumber(trv2ServiceInvoiceQuantity(item, 'litros'), 'decimal'),
     trv2ExcelNumber(trv2ServiceInvoiceQuantity(item, 'kilos'), 'decimal'),
     trv2ServiceInvoiceDriver(item),
-    trv2ServiceInvoiceTripValues(item, 'unidad_id'),
+    trv2ServiceInvoiceTripValues(item, 'id_cre'),
     trv2ServiceInvoiceCartaPorte(item),
     trv2ServiceInvoiceFolio(item),
     trv2ExcelNumber(trv2ServiceInvoiceFreightCost(item), 'currency'),
     trv2ExcelNumber(item.total, 'currency'),
     trv2ServicePaymentLabel(item),
   ]);
-  trv2DownloadExcelTable(trv2ServiceExcelScope('facturadas'), ['Fecha ingreso', 'Fecha de descarga', 'Origen', 'Permiso origen', 'Destino', 'Permiso destino', 'Litros', 'Kilos', 'Chofer', 'ID de la unidad', 'Carta Porte', 'Carta Ingreso', 'Costo del flete', 'Total', 'Pago'], rows);
+  trv2DownloadExcelTable(trv2ServiceExcelScope('facturadas'), ['Fecha ingreso', 'Fecha de descarga', 'Origen', 'Permiso origen', 'Destino', 'Permiso destino', 'Litros', 'Kilos', 'Chofer', 'ID CRE', 'Carta Porte', 'Carta Ingreso', 'Costo del flete', 'Total', 'Pago'], rows);
 }
 
 function trv2ServiceVehicleShort(value = '') {
