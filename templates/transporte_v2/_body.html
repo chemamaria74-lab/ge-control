@@ -394,18 +394,18 @@
     <section class="trv2-panel trv2-payment-filter-panel">
       <div class="trv2-form trv2-payment-filters">
         <label>Periodo rápido
-          <select id="trv2-payment-preset" onchange="trv2ApplyOperatorPaymentPreset(this.value)">
+          <select id="trv2-payment-preset" onchange="trv2ApplyOperatorPaymentPreset(this.value);trv2InvalidateOperatorPaymentSearch()">
             <option value="week">Semana actual</option>
             <option value="fortnight">Quincena actual</option>
             <option value="month">Mes actual</option>
             <option value="custom">Personalizado</option>
           </select>
         </label>
-        <label>Desde <input id="trv2-payment-from" type="date" onchange="trv2MarkOperatorPaymentCustom()"></label>
-        <label>Hasta <input id="trv2-payment-to" type="date" onchange="trv2MarkOperatorPaymentCustom()"></label>
-        <label>Operador <select id="trv2-payment-operator"><option value="">Todos los operadores</option></select></label>
+        <label>Desde <input id="trv2-payment-from" type="date" onchange="trv2MarkOperatorPaymentCustom();trv2InvalidateOperatorPaymentSearch()"></label>
+        <label>Hasta <input id="trv2-payment-to" type="date" onchange="trv2MarkOperatorPaymentCustom();trv2InvalidateOperatorPaymentSearch()"></label>
+        <label>Operador <select id="trv2-payment-operator" onchange="trv2InvalidateOperatorPaymentSearch()"><option value="">Todos los operadores</option></select></label>
         <div class="trv2-form-actions">
-          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2LoadOperatorPayments({force:true})"><i class="fa-solid fa-magnifying-glass"></i> Calcular</button>
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2LoadOperatorPayments({search:true})"><i class="fa-solid fa-magnifying-glass"></i> Calcular</button>
         </div>
       </div>
     </section>
@@ -504,7 +504,7 @@
       <article class="trv2-cv-action-card trv2-cv-action-review">
         <h2><i class="fa-solid fa-magnifying-glass-chart"></i> Revisar mes</h2>
         <p>Valida cargas, entregas, UUID y diferencias antes de generar el archivo SAT.</p>
-        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico({force:true})">Revisar movimientos</button>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico({search:true})">Revisar movimientos</button>
       </article>
       <article class="trv2-cv-action-card trv2-cv-action-close">
         <h2><i class="fa-solid fa-file-zipper"></i> Cerrar mes</h2>
@@ -514,11 +514,14 @@
     </div>
     <section class="trv2-panel trv2-cv-filter-panel">
       <div class="trv2-form trv2-form-cv">
-        <label>Permiso * <select id="trv2-cv-permiso" onchange="trv2RefreshCvView()"></select></label>
-        <label>Año * <input id="trv2-cv-anio" type="number" min="2024" max="2100" onchange="trv2RefreshCvView()"></label>
-        <label>Mes * <select id="trv2-cv-mes" onchange="trv2RefreshCvView()"></select></label>
-        <label>Producto <select id="trv2-cv-producto" onchange="trv2RefreshCvView()"></select></label>
-        <label>Origen <select id="trv2-cv-source" onchange="trv2RefreshCvView()"><option value="">Todos</option><option value="sistema">GE Control</option><option value="externo">Externos</option></select></label>
+        <label>Permiso * <select id="trv2-cv-permiso" onchange="trv2InvalidateCvSearch()"></select></label>
+        <label>Año * <input id="trv2-cv-anio" type="number" min="2024" max="2100" onchange="trv2InvalidateCvSearch()"></label>
+        <label>Mes * <select id="trv2-cv-mes" onchange="trv2InvalidateCvSearch()"></select></label>
+        <label>Producto <select id="trv2-cv-producto" onchange="trv2InvalidateCvSearch()"></select></label>
+        <label>Origen <select id="trv2-cv-source" onchange="trv2InvalidateCvSearch()"><option value="">Todos</option><option value="sistema">GE Control</option><option value="externo">Externos</option></select></label>
+        <div class="trv2-form-actions">
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2LoadControlVolumetrico({search:true})"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
+        </div>
       </div>
       <div class="trv2-cv-context" id="trv2-cv-context"></div>
     </section>
@@ -534,8 +537,8 @@
     <section class="trv2-panel">
       <div class="trv2-table-head">
         <div>
-          <h2>Cargas (recepciones al autotanque)</h2>
-          <p class="trv2-muted">El autotanque pasa de 0 al volumen documentado al iniciar el traslado.</p>
+          <h2>Detalle de cargas (recepciones al autotanque)</h2>
+          <p class="trv2-muted">Cada Carta Porte suma una carga al iniciar el traslado; las tarjetas de arriba son sólo el resumen.</p>
         </div>
       </div>
       <div class="trv2-table-wrap trv2-cv-table-wrap">
@@ -548,8 +551,8 @@
     <section class="trv2-panel">
       <div class="trv2-table-head">
         <div>
-          <h2>Entregas (salidas del autotanque)</h2>
-          <p class="trv2-muted">Al concluir el traslado se descarga el mismo volumen y la existencia vuelve a 0.</p>
+          <h2>Detalle de entregas (salidas del autotanque)</h2>
+          <p class="trv2-muted">Es la segunda parte del mismo viaje: descarga el volumen en destino y no constituye un registro duplicado.</p>
         </div>
       </div>
       <div class="trv2-table-wrap trv2-cv-table-wrap">
