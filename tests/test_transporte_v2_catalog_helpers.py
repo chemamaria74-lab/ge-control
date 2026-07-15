@@ -39,6 +39,16 @@ def test_operator_tariff_is_separate_and_supports_three_payment_modes():
         assert row["tarifa"] == 125.50
 
 
+def test_operator_tariff_is_permanent_without_validity_dates():
+    row = _operator_tariff_payload({
+        "ruta_id": 3, "modalidad": "viaje", "tarifa": 1680,
+        "vigencia_desde": "2026-01-01", "vigencia_hasta": "2026-01-31",
+    })
+
+    assert row["vigencia_desde"] is None
+    assert row["vigencia_hasta"] is None
+
+
 def test_operator_license_expiration_is_preserved_from_catalog_metadata():
     row = _normalize_catalog_row("operadores", {
         "id": 7,
@@ -79,6 +89,12 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
     assert "operator-payments/export.xlsx" in frontend
     assert "trv2CreateOperatorTariffFromDetail" in frontend
     assert "Editar tarifa" in frontend
+    assert "Pago por banco (base)" in section
+    assert "Pago en efectivo" in section
+    assert 'data-operator-tariff-family="gas_lp"' in section
+    assert 'data-operator-tariff-family="petroliferos"' in section
+    assert "Base configurada" not in section
+    assert "Vigencia desde" not in section
 
 
 def test_transport_admin_mobile_shell_and_module_scoped_logout_contract():
