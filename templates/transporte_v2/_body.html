@@ -425,32 +425,7 @@
           <p class="trv2-muted">Abre la quincena para revisar cada viaje y definir banco, descuentos, gastos y efectivo.</p>
         </div>
       </div>
-      <div class="trv2-table-wrap trv2-service-scroll">
-        <table class="trv2-service-generated-table">
-          <thead><tr><th>Operador</th><th>Total viajes</th><th>Rutas</th><th>Sin tarifa</th><th>Total estimado</th><th>Acciones</th></tr></thead>
-          <tbody id="trv2-payment-summary-table"></tbody>
-        </table>
-      </div>
-    </section>
-    <section class="trv2-panel" id="trv2-payment-detail-panel" hidden>
-      <div class="trv2-table-head">
-        <div><h2 id="trv2-payment-detail-title">Desglose de la quincena</h2><p class="trv2-muted">Revisa cada viaje y completa cómo se pagará al operador.</p></div>
-      </div>
-      <div class="trv2-payment-closeout" id="trv2-payment-closeout">
-        <article class="trv2-payment-total"><span>Total de comisiones</span><strong id="trv2-closeout-commissions">$0.00</strong><small>Suma de las tarifas por viaje</small></article>
-        <label>Pago por banco (base)<input id="trv2-closeout-bank" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"><small>Importe que se deposita por nómina</small></label>
-        <label>Descuento INFONAVIT<input id="trv2-closeout-infonavit" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"></label>
-        <label>Gastos a reembolsar<input id="trv2-closeout-expenses" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"></label>
-        <label class="trv2-payment-expense-note">Detalle de gastos<input id="trv2-closeout-expense-note" placeholder="Ej. válvula, vulcanizadora, casetas extraordinarias"></label>
-        <article class="trv2-payment-cash"><span>Pago en efectivo</span><strong id="trv2-closeout-cash">$0.00</strong><small>Comisiones − banco − INFONAVIT + gastos</small></article>
-        <div class="trv2-payment-closeout-actions"><button class="trv2-btn trv2-btn-primary" id="trv2-closeout-generate" type="button" onclick="trv2GenerateSelectedOperatorPayment()"><i class="fa-solid fa-file-invoice-dollar"></i> Generar liquidación</button></div>
-      </div>
-      <div class="trv2-table-wrap trv2-service-scroll">
-        <table class="trv2-service-generated-table">
-          <thead><tr><th>Fecha</th><th>Viaje</th><th>Ruta</th><th>Producto</th><th>Litros</th><th>Kg</th><th>Tarifa</th><th>Comisión</th><th>Acciones</th></tr></thead>
-          <tbody id="trv2-payment-detail-table"></tbody>
-        </table>
-      </div>
+      <div class="trv2-operator-payroll-grid" id="trv2-payment-summary-table"></div>
     </section>
     </div>
     <div class="trv2-payment-panel" data-payment-panel="tarifas">
@@ -496,6 +471,23 @@
       </section>
     </div>
   </section>
+
+  <div class="trv2-modal-layer" id="trv2-payment-review-modal" hidden>
+    <section class="trv2-modal trv2-payment-review-modal" role="dialog" aria-modal="true" aria-labelledby="trv2-payment-detail-title">
+      <div class="trv2-modal-head"><div><h2 id="trv2-payment-detail-title">Preparar quincena</h2><p>Detalle completo de viajes y forma de pago del operador.</p></div><button class="trv2-icon-btn" type="button" title="Cerrar" onclick="trv2CloseOperatorPaymentDetail()"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="trv2-payment-review-context" id="trv2-payment-review-context"></div>
+      <div class="trv2-payment-closeout" id="trv2-payment-closeout">
+        <article class="trv2-payment-total"><span>Total de comisiones</span><strong id="trv2-closeout-commissions">$0.00</strong><small>Suma de todos los viajes</small></article>
+        <label>Pago por banco (base)<input id="trv2-closeout-bank" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"><small>Depósito de nómina</small></label>
+        <label>Descuento INFONAVIT<input id="trv2-closeout-infonavit" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"></label>
+        <label>Gastos a reembolsar<input id="trv2-closeout-expenses" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"></label>
+        <label class="trv2-payment-expense-note">Descripción de gastos<input id="trv2-closeout-expense-note" placeholder="Ej. válvula, vulcanizadora, casetas extraordinarias"></label>
+        <article class="trv2-payment-cash"><span>Pago en efectivo</span><strong id="trv2-closeout-cash">$0.00</strong><small>Comisiones − banco − INFONAVIT + gastos</small></article>
+      </div>
+      <div class="trv2-table-wrap trv2-service-scroll trv2-payment-trip-table"><table class="trv2-service-generated-table"><thead><tr><th>Fecha</th><th>Flete / folio</th><th>Origen</th><th>Destino</th><th>Producto</th><th>Litros</th><th>Kg</th><th>Km</th><th>Comisión</th><th>Gasto</th></tr></thead><tbody id="trv2-payment-detail-table"></tbody></table></div>
+      <div class="trv2-form-actions trv2-payment-review-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseOperatorPaymentDetail()">Cancelar</button><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportOperatorPayments()"><i class="fa-solid fa-file-excel"></i> Excel de este operador</button><button class="trv2-btn trv2-btn-primary" id="trv2-closeout-generate" type="button" onclick="trv2GenerateSelectedOperatorPayment()"><i class="fa-solid fa-file-invoice-dollar"></i> Generar liquidación</button></div>
+    </section>
+  </div>
 
   <section id="trv2-tab-reportes-sat" class="trv2-section">
     <div class="trv2-section-head">
