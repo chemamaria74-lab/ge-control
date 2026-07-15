@@ -303,6 +303,18 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-tariff-editor[hidden]{display:none}
 .trv2-tariff-editor [data-operator-tariff-base][hidden]{display:none}
 .trv2-operator-tariffs-panel{margin-top:0}
+.trv2-operator-tariff-products{margin:14px 0 12px}
+.trv2-payment-closeout{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px;align-items:stretch;margin:0 0 16px;padding:16px;border:1px solid var(--trv2-line);border-radius:10px;background:#faf8f5}
+.trv2-payment-closeout label{display:grid;gap:6px;font-size:12px;font-weight:900;color:var(--trv2-muted)}
+.trv2-payment-closeout input{min-height:42px;border:1px solid var(--trv2-line);border-radius:7px;background:#fff;padding:9px 11px;font:inherit;color:var(--trv2-ink)}
+.trv2-payment-closeout small{color:var(--trv2-muted);font-size:11px;font-weight:700}
+.trv2-payment-total,.trv2-payment-cash{display:grid;align-content:center;gap:4px;border-radius:9px;padding:13px 15px;background:#fff;border:1px solid var(--trv2-line)}
+.trv2-payment-total span,.trv2-payment-cash span{font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.04em;color:var(--trv2-muted)}
+.trv2-payment-total strong,.trv2-payment-cash strong{font-size:24px;line-height:1.1}
+.trv2-payment-cash{background:#fff8cc;border-color:#e9d862}.trv2-payment-cash strong{color:var(--trv2-burgundy)}
+.trv2-payment-expense-note{grid-column:span 2}.trv2-payment-closeout-actions{display:flex;align-items:end;justify-content:flex-end;grid-column:span 2}
+@media(max-width:1100px){.trv2-payment-closeout{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.trv2-payment-closeout{grid-template-columns:1fr}.trv2-payment-expense-note,.trv2-payment-closeout-actions{grid-column:auto}.trv2-payment-closeout-actions .trv2-btn{width:100%}}
 .trv2-form-title{grid-column:1/-1;display:grid;gap:3px;margin-bottom:2px}
 .trv2-form-title strong{font-size:16px;font-weight:900;color:var(--trv2-ink)}
 .trv2-form-title span{font-size:13px;color:var(--trv2-muted);font-weight:700}
