@@ -9096,7 +9096,20 @@ def transporte_v2_operator_payment_generate(
     total = round(sum(item["total"] for item in items), 2)
     bank_payment = round(max(0, _num(payload.data.get("pago_banco"))), 2)
     infonavit = round(max(0, _num(payload.data.get("descuento_infonavit"))), 2)
-    expenses = round(max(0, _num(payload.data.get("gastos"))), 2)
+    valid_trip_ids = {int(item["viaje_id"]) for item in items}
+    expenses_by_trip: dict[int, dict[str, Any]] = {}
+    raw_expenses = payload.data.get("gastos_por_viaje") if isinstance(payload.data.get("gastos_por_viaje"), list) else []
+    for expense in raw_expenses:
+        if not isinstance(expense, dict):
+            continue
+        trip_id = int(expense.get("viaje_id") or 0)
+        if trip_id not in valid_trip_ids:
+            continue
+        expenses_by_trip[trip_id] = {
+            "monto": round(max(0, _num(expense.get("monto"))), 2),
+            "descripcion": _first_text(expense.get("descripcion")),
+        }
+    expenses = round(sum(expense["monto"] for expense in expenses_by_trip.values()), 2)
     cash_payment = round(total - bank_payment - infonavit + expenses, 2)
     if bank_payment + infonavit > total + expenses:
         raise HTTPException(400, "El pago por banco y el descuento INFONAVIT superan las comisiones más gastos.")
@@ -9121,7 +9134,9 @@ def transporte_v2_operator_payment_generate(
         "metadata": {
             "tipo": "pago_operador", "viajes": len(items), "calculo_congelado": True,
             "total_comisiones": total, "pago_banco": bank_payment, "descuento_infonavit": infonavit,
-            "pago_efectivo": cash_payment, "detalle_gastos": _first_text(payload.data.get("detalle_gastos")),
+            "pago_efectivo": cash_payment, "gastos_por_viaje": [
+                {"viaje_id": trip_id, **expense} for trip_id, expense in expenses_by_trip.items()
+            ],
         },
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
@@ -9142,9 +9157,9 @@ def transporte_v2_operator_payment_generate(
         "subtotal": item["total"],
         "iva": 0,
         "retencion": 0,
-        "gastos": 0,
-        "total": item["total"],
-        "metadata": item,
+        "gastos": expenses_by_trip.get(int(item["viaje_id"]), {}).get("monto", 0),
+        "total": round(item["total"] + expenses_by_trip.get(int(item["viaje_id"]), {}).get("monto", 0), 2),
+        "metadata": {**item, "gasto_descripcion": expenses_by_trip.get(int(item["viaje_id"]), {}).get("descripcion", "")},
     } for item in items]
     sb.table("tr_liquidacion_items").insert(db_items).execute()
     trip_ids = [item["viaje_id"] for item in items]
@@ -9163,7 +9178,7 @@ def transporte_v2_operator_payments_export(
     pago_banco: float = Query(default=0, ge=0),
     descuento_infonavit: float = Query(default=0, ge=0),
     gastos: float = Query(default=0, ge=0),
-    detalle_gastos: str = Query(default=""),
+    gastos_json: str = Query(default=""),
     authorization: str = Header(default=""),
     perfil_id: Optional[int] = Query(default=None),
     x_perfil_id: str = Header(default=""),
@@ -9172,6 +9187,18 @@ def transporte_v2_operator_payments_export(
     pid = _profile_id(perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     preview = _operator_payment_preview(token, uid, pid, fecha_desde, fecha_hasta, operador_id)
+    export_expenses: dict[int, dict[str, Any]] = {}
+    try:
+        raw_export_expenses = json.loads(gastos_json) if gastos_json else []
+        if isinstance(raw_export_expenses, list):
+            for expense in raw_export_expenses:
+                if not isinstance(expense, dict):
+                    continue
+                trip_id = int(expense.get("viaje_id") or 0)
+                if trip_id:
+                    export_expenses[trip_id] = {"monto": round(max(0, _num(expense.get("monto"))), 2), "descripcion": _first_text(expense.get("descripcion"))}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raise HTTPException(400, "Los gastos por viaje no tienen un formato válido.")
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -9197,12 +9224,20 @@ def transporte_v2_operator_payments_export(
             items = group["items"]
             title_row = row_cursor
             sheet.merge_cells(start_row=title_row, start_column=1, end_row=title_row, end_column=12)
-            title = sheet.cell(title_row, 1, f"DESGLOSE PAGO OPERADOR · {group['name'].upper()} · {fecha_desde} AL {fecha_hasta}")
+            title = sheet.cell(title_row, 1, f"PRENÓMINA DE OPERADORES · {fecha_desde} AL {fecha_hasta}")
             title.fill = PatternFill("solid", fgColor=burgundy)
             title.font = Font(color="FFFFFF", bold=True, size=13)
             title.alignment = Alignment(vertical="center")
             sheet.row_dimensions[title_row].height = 28
-            header_row = title_row + 1
+            operator_row = title_row + 1
+            sheet.merge_cells(start_row=operator_row, start_column=1, end_row=operator_row, end_column=12)
+            operator_cell = sheet.cell(operator_row, 1, f"OPERADOR: {group['name'].upper()}")
+            operator_cell.fill = PatternFill("solid", fgColor="E9F2FB")
+            operator_cell.font = Font(color="173A5E", bold=True, size=15)
+            operator_cell.alignment = Alignment(vertical="center")
+            operator_cell.border = Border(bottom=Side(style="medium", color=blue))
+            sheet.row_dimensions[operator_row].height = 30
+            header_row = operator_row + 1
             for column, label in enumerate(headers, start=1):
                 cell = sheet.cell(header_row, column, label)
                 cell.fill = PatternFill("solid", fgColor=blue)
@@ -9213,11 +9248,12 @@ def transporte_v2_operator_payments_export(
             first_trip_row = header_row + 1
             for trip_number, item in enumerate(items, start=1):
                 row_number = first_trip_row + trip_number - 1
-                trip_expense = round(gastos, 2) if operador_id and trip_number == 1 else None
+                expense = export_expenses.get(int(item.get("viaje_id") or 0), {})
+                trip_expense = expense.get("monto") or None
                 values = [
                     item["fecha"], trip_number, item.get("folio"), item.get("origen"), item.get("destino"), item.get("producto"),
                     item.get("litros"), item.get("kilos"), item.get("kilometros"), item.get("total"),
-                    detalle_gastos if trip_expense else "", trip_expense,
+                    expense.get("descripcion", "") if trip_expense or expense.get("descripcion") else "", trip_expense,
                 ]
                 for column, value in enumerate(values, start=1):
                     cell = sheet.cell(row_number, column, value)
