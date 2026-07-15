@@ -192,15 +192,16 @@ function trv2ResetOperatorPaymentResults(message = 'Selecciona el periodo y pres
   TRV2_OPERATOR_PAYMENT_SELECTED = 0;
   const kpis = document.getElementById('trv2-payment-kpis');
   const body = document.getElementById('trv2-payment-summary-table');
-  const detail = document.getElementById('trv2-payment-detail-panel');
+  const detail = document.getElementById('trv2-payment-review-modal');
   const alert = document.getElementById('trv2-payment-alert');
   if (kpis) kpis.innerHTML = `
     <article><span>Viajes por liquidar</span><strong>0</strong></article>
     <article><span>Operadores</span><strong>0</strong></article>
     <article><span>Rutas</span><strong>0</strong></article>
     <article><span>Total estimado</span><strong>$0.00</strong></article>`;
-  if (body) body.innerHTML = `<tr><td colspan="6"><div class="trv2-empty">${trv2Esc(message)}</div></td></tr>`;
+  if (body) body.innerHTML = `<div class="trv2-empty">${trv2Esc(message)}</div>`;
   if (detail) detail.hidden = true;
+  document.body.style.overflow = '';
   if (alert) alert.hidden = true;
 }
 
@@ -232,15 +233,16 @@ function trv2RenderOperatorPayments(summary = {}) {
     <article><span>Rutas</span><strong>${Number(summary.rutas || 0)}</strong></article>
     <article><span>Total estimado</span><strong>${trv2ServiceMoney(Number(summary.total_estimado || 0))}</strong></article>`;
   const groups = trv2OperatorPaymentGroups();
-  body.innerHTML = groups.length ? groups.map(group => `
-    <tr>
-      <td><span class="trv2-service-main">${trv2Esc(group.name)}</span></td>
-      <td class="trv2-num"><strong>${group.items.length}</strong></td>
-      <td class="trv2-num">${group.routes.size}</td>
-      <td class="trv2-num">${group.missing ? `<span class="trv2-status inactive">${group.missing}</span>` : '<span class="trv2-status active">0</span>'}</td>
-      <td class="trv2-num"><strong>${trv2ServiceMoney(group.total)}</strong></td>
-      <td><div class="trv2-row-actions"><button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2ShowOperatorPaymentDetail(${group.id})">Preparar quincena</button></div></td>
-    </tr>`).join('') : '<tr><td colspan="6"><div class="trv2-empty">No hay viajes pendientes de liquidar en este periodo.</div></td></tr>';
+  body.innerHTML = groups.length ? groups.map(group => {
+    const liters = group.items.reduce((sum, item) => sum + Number(item.litros || 0), 0);
+    const kilos = group.items.reduce((sum, item) => sum + Number(item.kilos || 0), 0);
+    return `<article class="trv2-operator-payroll-card">
+      <div class="trv2-operator-payroll-head"><div><span>Operador</span><strong>${trv2Esc(group.name)}</strong></div>${group.missing ? `<em class="warning">${group.missing} sin tarifa</em>` : '<em>Lista para preparar</em>'}</div>
+      <div class="trv2-operator-payroll-metrics"><div><span>Viajes</span><strong>${group.items.length}</strong></div><div><span>Rutas</span><strong>${group.routes.size}</strong></div><div><span>Litros</span><strong>${trv2ServiceNumber(liters)}</strong></div><div><span>Kilos</span><strong>${trv2ServiceNumber(kilos)}</strong></div></div>
+      <div class="trv2-operator-payroll-total"><span>Total de comisiones</span><strong>${trv2ServiceMoney(group.total)}</strong></div>
+      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2ShowOperatorPaymentDetail(${group.id})">Ver y preparar quincena <i class="fa-solid fa-arrow-right"></i></button>
+    </article>`;
+  }).join('') : '<div class="trv2-empty">No hay viajes pendientes de liquidar en este periodo.</div>';
   const missing = Number(summary.sin_tarifa || 0);
   const already = Number(summary.ya_liquidados || 0);
   if (alert) {
@@ -252,29 +254,32 @@ function trv2RenderOperatorPayments(summary = {}) {
 
 function trv2ShowOperatorPaymentDetail(operatorId) {
   TRV2_OPERATOR_PAYMENT_SELECTED = Number(operatorId || 0);
-  const panel = document.getElementById('trv2-payment-detail-panel');
+  const panel = document.getElementById('trv2-payment-review-modal');
   const title = document.getElementById('trv2-payment-detail-title');
   const body = document.getElementById('trv2-payment-detail-table');
   const items = TRV2_OPERATOR_PAYMENT_ITEMS.filter(item => Number(item.operador_id) === TRV2_OPERATOR_PAYMENT_SELECTED);
   if (!panel || !body) return;
   panel.hidden = false;
-  if (title) title.textContent = `Detalle · ${items[0]?.operador || 'Operador'}`;
+  if (title) title.textContent = `Quincena · ${items[0]?.operador || 'Operador'}`;
   const pendingItems = items.filter(item => !item.ya_liquidado);
+  const context = document.getElementById('trv2-payment-review-context');
+  if (context) context.innerHTML = `
+    <article><span>Periodo</span><strong>${trv2Esc(trv2DisplayDate(document.getElementById('trv2-payment-from')?.value, {fallback: '—'}))} → ${trv2Esc(trv2DisplayDate(document.getElementById('trv2-payment-to')?.value, {fallback: '—'}))}</strong></article>
+    <article><span>Viajes</span><strong>${pendingItems.length}</strong></article>
+    <article><span>Litros</span><strong>${trv2ServiceNumber(pendingItems.reduce((sum, item) => sum + Number(item.litros || 0), 0))}</strong></article>
+    <article><span>Kilos</span><strong>${trv2ServiceNumber(pendingItems.reduce((sum, item) => sum + Number(item.kilos || 0), 0))}</strong></article>`;
   body.innerHTML = pendingItems.map((item, index) => `
     <tr>
       <td>${trv2Esc(trv2DisplayDate(item.fecha, {fallback: '—'}))}</td>
-      <td><strong>${trv2Esc(item.folio || `#${item.viaje_id}`)}</strong><small class="trv2-service-sub">${index + 1}</small></td>
-      <td><strong>${trv2Esc(item.ruta || 'Sin ruta')}</strong><small class="trv2-service-sub">${trv2Esc([item.origen, item.destino].filter(Boolean).join(' → '))}</small></td>
+      <td><strong>${index + 1}</strong><small class="trv2-service-sub">${trv2Esc(item.folio || `Viaje #${item.viaje_id}`)}</small></td>
+      <td>${trv2Esc(item.origen || '—')}</td><td>${trv2Esc(item.destino || '—')}</td>
       <td>${trv2Esc(item.producto || '—')}</td>
       <td class="trv2-num">${trv2ServiceNumber(item.litros || 0)}</td>
       <td class="trv2-num">${trv2ServiceNumber(item.kilos || 0)}</td>
-      <td class="trv2-num">${item.sin_tarifa ? '—' : trv2ServiceMoney(item.tarifa)}</td>
+      <td class="trv2-num">${trv2ServiceNumber(item.kilometros || 0)}</td>
       <td class="trv2-num"><strong>${item.sin_tarifa ? '—' : trv2ServiceMoney(item.total)}</strong></td>
-      <td><div class="trv2-row-actions">${item.tarifa_id
-        ? `<button class="trv2-mini-btn" type="button" onclick="trv2EditOperatorTariff(${Number(item.tarifa_id)}, 'liquidaciones')">Editar tarifa</button>`
-        : `<button class="trv2-mini-btn trv2-mini-btn-primary" type="button" ${item.ruta_id ? '' : 'disabled title="El viaje no tiene una ruta asignada"'} onclick="trv2CreateOperatorTariffFromDetail(${Number(item.ruta_id || 0)}, ${Number(item.operador_id || 0)})">Asignar tarifa</button>`}
-      </div></td>
-    </tr>`).join('') || '<tr><td colspan="9"><div class="trv2-empty">No hay viajes para mostrar.</div></td></tr>';
+      <td class="trv2-num">—</td>
+    </tr>`).join('') || '<tr><td colspan="10"><div class="trv2-empty">No hay viajes para mostrar.</div></td></tr>';
   const commission = pendingItems.filter(item => !item.sin_tarifa).reduce((sum, item) => sum + Number(item.total || 0), 0);
   const commissionNode = document.getElementById('trv2-closeout-commissions');
   if (commissionNode) commissionNode.dataset.value = String(commission);
@@ -285,7 +290,13 @@ function trv2ShowOperatorPaymentDetail(operatorId) {
   const generate = document.getElementById('trv2-closeout-generate');
   if (generate) generate.disabled = pendingItems.some(item => item.sin_tarifa) || !pendingItems.length;
   trv2UpdateOperatorPaymentCloseout();
-  panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  document.body.style.overflow = 'hidden';
+}
+
+function trv2CloseOperatorPaymentDetail() {
+  const panel = document.getElementById('trv2-payment-review-modal');
+  if (panel) panel.hidden = true;
+  document.body.style.overflow = '';
 }
 
 function trv2UpdateOperatorPaymentCloseout() {
@@ -320,6 +331,7 @@ async function trv2GenerateOperatorPayment(operatorId) {
   }, {allowError: true});
   if (!data?.ok) return trv2Toast(data?.detail || data?.message || 'No se pudo generar la liquidación.', 'error');
   trv2Toast(`Liquidación #${data.liquidacion_id} generada por ${trv2ServiceMoney(data.total)}.`, 'success');
+  trv2CloseOperatorPaymentDetail();
   await trv2LoadOperatorPayments({force: true});
 }
 
