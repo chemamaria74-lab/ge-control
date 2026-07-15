@@ -3607,6 +3607,13 @@ def _operator_payment_preview(
         operator = operators.get(op_id, {})
         client = clients.get(client_id, {})
         trip_date = _operator_payment_trip_date(row)
+        quantity_summary = _operator_trip_quantity_summary(row)
+        route_meta = _meta(route)
+        route_product_text = " ".join(str(value or "") for value in (
+            route.get("nombre"), route.get("origen"), route.get("destino"), route.get("producto"),
+            route_meta.get("familia_producto"), route_meta.get("producto"), route_meta.get("productos_permitidos"),
+        )).lower()
+        is_gas_lp_route = any(value in route_product_text for value in ("gas_lp", "gas lp", "gas l.p", "propane"))
         tariff = _operator_payment_tariff_for_trip(tariffs, op_id, route_id, trip_date)
         modality = _first_text((tariff or {}).get("modalidad"), "viaje").lower()
         quantity = 0.0
@@ -3634,10 +3641,10 @@ def _operator_payment_preview(
             "ruta": route_name if route_id else "Sin ruta",
             "cliente_id": client_id or None,
             "cliente": _first_text(client.get("nombre"), row.get("cliente_nombre"), "Sin cliente"),
-            "folio": _first_text(row.get("folio_factura_carga"), row.get("folio_factura"), row.get("folio"), meta.get("folio_factura_carga"), meta.get("folio_factura"), f"Viaje #{trip_id}"),
+            "folio": _first_text(row.get("folio_factura_carga"), row.get("folio_factura"), row.get("folio_carga"), row.get("folio"), meta.get("folio_factura_carga"), meta.get("folio_factura"), meta.get("folio_carga"), meta.get("numero_factura_carga"), row.get("id_ccp"), f"Viaje #{trip_id}"),
             "origen": _first_text(route.get("origen"), route.get("nombre_origen"), row.get("origen"), meta.get("origen")),
             "destino": _first_text(route.get("destino"), route.get("nombre_destino"), row.get("destino"), meta.get("destino")),
-            "producto": _first_text(row.get("producto_descripcion"), row.get("producto"), meta.get("producto_nombre"), meta.get("producto_descripcion"), "Gas LP"),
+            "producto": "Gas LP" if is_gas_lp_route else _first_text(quantity_summary.get("producto"), meta.get("producto_nombre"), "Petrolífero"),
             "modalidad": modality if tariff else "sin_tarifa",
             "tarifa_id": (tariff or {}).get("id"),
             "tarifa": round(rate, 4),
@@ -3646,8 +3653,9 @@ def _operator_payment_preview(
             "total": amount,
             "sin_tarifa": tariff is None or quantity <= 0,
             "ya_liquidado": trip_id in liquidated_ids,
-            "litros": _num(row.get("volumen_litros") or row.get("volumen_total_litros")),
-            "kilos": _num(row.get("peso_kg")),
+            "litros": _num(quantity_summary.get("litros")),
+            "kilos": _num(quantity_summary.get("kilos")),
+            "kilometros": _num(row.get("distancia_km") or meta.get("distancia_km") or route.get("distancia_km")),
         })
     pending_items = [item for item in items if not item["ya_liquidado"]]
     return {
@@ -9166,52 +9174,94 @@ def transporte_v2_operator_payments_export(
     preview = _operator_payment_preview(token, uid, pid, fecha_desde, fecha_hasta, operador_id)
     try:
         from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
         workbook = Workbook()
-        summary_sheet = workbook.active
-        summary_sheet.title = "Resumen"
-        summary_sheet.append(["Operador", "Viajes", "Rutas", "Total comisiones", "Banco", "INFONAVIT", "Gastos", "Pago en efectivo", "Sin tarifa"])
+        sheet = workbook.active
+        sheet.title = "Prenómina operadores"
+        sheet.sheet_view.showGridLines = False
         groups: dict[int, dict[str, Any]] = {}
         for item in preview["items"]:
             if item["ya_liquidado"]:
                 continue
-            group = groups.setdefault(item["operador_id"], {"name": item["operador"], "trips": 0, "routes": set(), "total": 0.0, "missing": 0})
-            group["trips"] += 1
-            group["routes"].add(item["ruta"])
-            group["total"] += item["total"]
-            group["missing"] += int(item["sin_tarifa"])
-        for group in groups.values():
+            group = groups.setdefault(item["operador_id"], {"name": item["operador"], "items": []})
+            group["items"].append(item)
+        burgundy = "7A1E2C"
+        blue = "2F80C9"
+        pale = "F7F3EE"
+        gold = "F4E66A"
+        line = Side(style="thin", color="D8CFC4")
+        headers = ["FECHA VIAJE", "FLETE", "FOLIO FACT CARGA", "ORIGEN", "DESTINO", "PRODUCTO", "LITROS", "KG", "KM REC", "COMISIÓN O TARIFA", "DESCRIPCIÓN DE GASTOS X VIAJE", "GASTO"]
+        row_cursor = 1
+        for group_index, group in enumerate(groups.values()):
+            items = group["items"]
+            title_row = row_cursor
+            sheet.merge_cells(start_row=title_row, start_column=1, end_row=title_row, end_column=12)
+            title = sheet.cell(title_row, 1, f"DESGLOSE PAGO OPERADOR · {group['name'].upper()} · {fecha_desde} AL {fecha_hasta}")
+            title.fill = PatternFill("solid", fgColor=burgundy)
+            title.font = Font(color="FFFFFF", bold=True, size=13)
+            title.alignment = Alignment(vertical="center")
+            sheet.row_dimensions[title_row].height = 28
+            header_row = title_row + 1
+            for column, label in enumerate(headers, start=1):
+                cell = sheet.cell(header_row, column, label)
+                cell.fill = PatternFill("solid", fgColor=blue)
+                cell.font = Font(bold=True, color="FFFFFF", size=10)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                cell.border = Border(bottom=line)
+            sheet.row_dimensions[header_row].height = 31
+            first_trip_row = header_row + 1
+            for trip_number, item in enumerate(items, start=1):
+                row_number = first_trip_row + trip_number - 1
+                trip_expense = round(gastos, 2) if operador_id and trip_number == 1 else None
+                values = [
+                    item["fecha"], trip_number, item.get("folio"), item.get("origen"), item.get("destino"), item.get("producto"),
+                    item.get("litros"), item.get("kilos"), item.get("kilometros"), item.get("total"),
+                    detalle_gastos if trip_expense else "", trip_expense,
+                ]
+                for column, value in enumerate(values, start=1):
+                    cell = sheet.cell(row_number, column, value)
+                    cell.border = Border(bottom=line)
+                    cell.alignment = Alignment(vertical="center", wrap_text=column in {3, 4, 5, 11})
+                sheet.cell(row_number, 1).number_format = "dd/mm/yyyy"
+                for column in (7, 8, 9):
+                    sheet.cell(row_number, column).number_format = "#,##0.00"
+                for column in (10, 12):
+                    sheet.cell(row_number, column).number_format = '$#,##0.00'
+                sheet.row_dimensions[row_number].height = 24
+            last_trip_row = first_trip_row + len(items) - 1
+            summary_start = last_trip_row + 2
             bank = round(pago_banco, 2) if operador_id else 0
             discount = round(descuento_infonavit, 2) if operador_id else 0
-            reimbursable = round(gastos, 2) if operador_id else 0
-            cash = round(group["total"] - bank - discount + reimbursable, 2)
-            summary_sheet.append([group["name"], group["trips"], len(group["routes"]), round(group["total"], 2), bank, discount, reimbursable, cash, group["missing"]])
-        detail_sheet = workbook.create_sheet("Detalle")
-        detail_sheet.append(["Fecha viaje", "Flete", "Folio factura carga", "Operador", "Origen", "Destino", "Km recorridos", "Producto", "Litros", "Kg", "Comisión o tarifa", "Descripción de gastos", "Gasto", "Estatus"])
-        for trip_number, item in enumerate(preview["items"], start=1):
-            detail_sheet.append([
-                item["fecha"], trip_number, item.get("folio"), item["operador"], item.get("origen"), item.get("destino"),
-                item["cantidad_base"] if item["base"] == "km" else None, item.get("producto"), item["litros"], item["kilos"], item["total"],
-                detalle_gastos if trip_number == 1 and gastos else "", round(gastos, 2) if trip_number == 1 and gastos else None,
-                "Ya liquidado" if item["ya_liquidado"] else ("Sin tarifa" if item["sin_tarifa"] else "Por liquidar"),
-            ])
-        if operador_id:
-            detail_sheet.append([])
-            total_commissions = round(preview["summary"]["total_estimado"], 2)
-            detail_sheet.append([None] * 9 + ["TOTAL COMISIONES", total_commissions])
-            detail_sheet.append([None] * 9 + ["PAGO POR BANCO", round(pago_banco, 2)])
-            detail_sheet.append([None] * 9 + ["INFONAVIT", round(descuento_infonavit, 2)])
-            detail_sheet.append([None] * 9 + ["DIFERENCIA DE NÓMINA", round(total_commissions - pago_banco - descuento_infonavit, 2)])
-            detail_sheet.append([None] * 9 + ["GASTOS", round(gastos, 2)])
-            detail_sheet.append([None] * 9 + ["PAGO EN EFECTIVO", round(total_commissions - pago_banco - descuento_infonavit + gastos, 2)])
-        for sheet in (summary_sheet, detail_sheet):
-            for cell in sheet[1]:
-                cell.font = Font(bold=True, color="FFFFFF")
-                cell.fill = PatternFill("solid", fgColor="7A1E2C")
-            sheet.freeze_panes = "A2"
-            sheet.auto_filter.ref = sheet.dimensions
-            for column in sheet.columns:
-                sheet.column_dimensions[column[0].column_letter].width = min(max(len(str(cell.value or "")) for cell in column) + 2, 42)
+            summary_rows = [
+                ("TOTAL COMISIONES", f"=SUM(J{first_trip_row}:J{last_trip_row})"),
+                ("PAGO POR BANCO", bank),
+                ("INFONAVIT", discount),
+                ("DIFERENCIA DE NÓMINA", f"=J{summary_start}-J{summary_start + 1}-J{summary_start + 2}"),
+                ("GASTOS", f"=SUM(L{first_trip_row}:L{last_trip_row})"),
+                ("PAGO EN EFECTIVO", f"=J{summary_start + 3}+J{summary_start + 4}"),
+            ]
+            for offset, (label, value) in enumerate(summary_rows):
+                row_number = summary_start + offset
+                label_cell = sheet.cell(row_number, 9, label)
+                value_cell = sheet.cell(row_number, 10)
+                label_cell.font = Font(bold=True, color=blue if label != "INFONAVIT" else "D90000")
+                label_cell.alignment = Alignment(horizontal="right")
+                value_cell.value = value
+                value_cell.number_format = '$#,##0.00'
+                value_cell.font = Font(bold=label in {"TOTAL COMISIONES", "PAGO EN EFECTIVO"})
+                label_cell.border = value_cell.border = Border(bottom=line)
+                if label == "PAGO EN EFECTIVO":
+                    label_cell.fill = value_cell.fill = PatternFill("solid", fgColor=gold)
+            row_cursor = summary_start + len(summary_rows) + 3
+        widths = [13, 9, 21, 19, 22, 15, 14, 13, 24, 19, 42, 14]
+        for index, width in enumerate(widths, start=1):
+            sheet.column_dimensions[get_column_letter(index)].width = width
+        sheet.freeze_panes = "A3"
+        sheet.page_setup.orientation = "landscape"
+        sheet.page_setup.fitToWidth = 1
+        sheet.sheet_properties.pageSetUpPr.fitToPage = True
+        sheet.print_options.horizontalCentered = True
         output = io.BytesIO()
         workbook.save(output)
     except Exception as exc:
