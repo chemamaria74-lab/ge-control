@@ -5,6 +5,7 @@ let TRV2_OPERATOR_PAYMENT_INITIALIZED = false;
 let TRV2_OPERATOR_PAYMENT_VIEW = 'liquidaciones';
 let TRV2_OPERATOR_TARIFF_RETURN_VIEW = '';
 let TRV2_OPERATOR_TARIFF_FAMILY = 'gas_lp';
+let TRV2_OPERATOR_PAYMENT_EXPENSES = {};
 const TRV2_OPERATOR_PAYMENT_CACHE_MS = 5 * 60 * 1000;
 let TRV2_OPERATOR_PAYMENT_LAST_SEARCH = null;
 
@@ -192,15 +193,17 @@ function trv2ResetOperatorPaymentResults(message = 'Selecciona el periodo y pres
   TRV2_OPERATOR_PAYMENT_SELECTED = 0;
   const kpis = document.getElementById('trv2-payment-kpis');
   const body = document.getElementById('trv2-payment-summary-table');
-  const detail = document.getElementById('trv2-payment-review-modal');
+  const detail = document.getElementById('trv2-payment-detail-panel');
+  const modal = document.getElementById('trv2-payment-review-modal');
   const alert = document.getElementById('trv2-payment-alert');
   if (kpis) kpis.innerHTML = `
     <article><span>Viajes por liquidar</span><strong>0</strong></article>
     <article><span>Operadores</span><strong>0</strong></article>
     <article><span>Rutas</span><strong>0</strong></article>
     <article><span>Total estimado</span><strong>$0.00</strong></article>`;
-  if (body) body.innerHTML = `<div class="trv2-empty">${trv2Esc(message)}</div>`;
+  if (body) body.innerHTML = `<tr><td colspan="8"><div class="trv2-empty">${trv2Esc(message)}</div></td></tr>`;
   if (detail) detail.hidden = true;
+  if (modal) modal.hidden = true;
   document.body.style.overflow = '';
   if (alert) alert.hidden = true;
 }
@@ -236,13 +239,8 @@ function trv2RenderOperatorPayments(summary = {}) {
   body.innerHTML = groups.length ? groups.map(group => {
     const liters = group.items.reduce((sum, item) => sum + Number(item.litros || 0), 0);
     const kilos = group.items.reduce((sum, item) => sum + Number(item.kilos || 0), 0);
-    return `<article class="trv2-operator-payroll-card">
-      <div class="trv2-operator-payroll-head"><div><span>Operador</span><strong>${trv2Esc(group.name)}</strong></div>${group.missing ? `<em class="warning">${group.missing} sin tarifa</em>` : '<em>Lista para preparar</em>'}</div>
-      <div class="trv2-operator-payroll-metrics"><div><span>Viajes</span><strong>${group.items.length}</strong></div><div><span>Rutas</span><strong>${group.routes.size}</strong></div><div><span>Litros</span><strong>${trv2ServiceNumber(liters)}</strong></div><div><span>Kilos</span><strong>${trv2ServiceNumber(kilos)}</strong></div></div>
-      <div class="trv2-operator-payroll-total"><span>Total de comisiones</span><strong>${trv2ServiceMoney(group.total)}</strong></div>
-      <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2ShowOperatorPaymentDetail(${group.id})">Ver y preparar quincena <i class="fa-solid fa-arrow-right"></i></button>
-    </article>`;
-  }).join('') : '<div class="trv2-empty">No hay viajes pendientes de liquidar en este periodo.</div>';
+    return `<tr><td><strong>${trv2Esc(group.name)}</strong></td><td class="trv2-num">${group.items.length}</td><td class="trv2-num">${group.routes.size}</td><td class="trv2-num">${trv2ServiceNumber(liters)}</td><td class="trv2-num">${trv2ServiceNumber(kilos)}</td><td class="trv2-num"><strong>${trv2ServiceMoney(group.total)}</strong></td><td>${group.missing ? `<span class="trv2-status inactive">${group.missing}</span>` : '<span class="trv2-status active">0</span>'}</td><td><button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2ShowOperatorPaymentDetail(${group.id})">Ver detalle</button></td></tr>`;
+  }).join('') : '<tr><td colspan="8"><div class="trv2-empty">No hay viajes pendientes de liquidar en este periodo.</div></td></tr>';
   const missing = Number(summary.sin_tarifa || 0);
   const already = Number(summary.ya_liquidados || 0);
   if (alert) {
@@ -254,15 +252,15 @@ function trv2RenderOperatorPayments(summary = {}) {
 
 function trv2ShowOperatorPaymentDetail(operatorId) {
   TRV2_OPERATOR_PAYMENT_SELECTED = Number(operatorId || 0);
-  const panel = document.getElementById('trv2-payment-review-modal');
-  const title = document.getElementById('trv2-payment-detail-title');
+  const panel = document.getElementById('trv2-payment-detail-panel');
+  const title = document.getElementById('trv2-payment-inline-title');
   const body = document.getElementById('trv2-payment-detail-table');
   const items = TRV2_OPERATOR_PAYMENT_ITEMS.filter(item => Number(item.operador_id) === TRV2_OPERATOR_PAYMENT_SELECTED);
   if (!panel || !body) return;
   panel.hidden = false;
-  if (title) title.textContent = `Quincena · ${items[0]?.operador || 'Operador'}`;
+  if (title) title.textContent = `Detalle · ${items[0]?.operador || 'Operador'}`;
   const pendingItems = items.filter(item => !item.ya_liquidado);
-  const context = document.getElementById('trv2-payment-review-context');
+  const context = document.getElementById('trv2-payment-inline-context');
   if (context) context.innerHTML = `
     <article><span>Periodo</span><strong>${trv2Esc(trv2DisplayDate(document.getElementById('trv2-payment-from')?.value, {fallback: '—'}))} → ${trv2Esc(trv2DisplayDate(document.getElementById('trv2-payment-to')?.value, {fallback: '—'}))}</strong></article>
     <article><span>Viajes</span><strong>${pendingItems.length}</strong></article>
@@ -272,24 +270,75 @@ function trv2ShowOperatorPaymentDetail(operatorId) {
     <tr>
       <td>${trv2Esc(trv2DisplayDate(item.fecha, {fallback: '—'}))}</td>
       <td><strong>${index + 1}</strong><small class="trv2-service-sub">${trv2Esc(item.folio || `Viaje #${item.viaje_id}`)}</small></td>
-      <td>${trv2Esc(item.origen || '—')}</td><td>${trv2Esc(item.destino || '—')}</td>
+      <td>${trv2Esc(item.origen || '—')}</td><td>${trv2Esc(item.destino || '—')}<small class="trv2-service-sub">${trv2Esc(item.ruta || '')}</small></td>
       <td>${trv2Esc(item.producto || '—')}</td>
       <td class="trv2-num">${trv2ServiceNumber(item.litros || 0)}</td>
       <td class="trv2-num">${trv2ServiceNumber(item.kilos || 0)}</td>
       <td class="trv2-num">${trv2ServiceNumber(item.kilometros || 0)}</td>
       <td class="trv2-num"><strong>${item.sin_tarifa ? '—' : trv2ServiceMoney(item.total)}</strong></td>
-      <td class="trv2-num">—</td>
-    </tr>`).join('') || '<tr><td colspan="10"><div class="trv2-empty">No hay viajes para mostrar.</div></td></tr>';
-  const commission = pendingItems.filter(item => !item.sin_tarifa).reduce((sum, item) => sum + Number(item.total || 0), 0);
+      <td><input class="trv2-trip-expense-description" value="${trv2Esc(TRV2_OPERATOR_PAYMENT_EXPENSES[item.viaje_id]?.descripcion || '')}" placeholder="Descripción" oninput="trv2UpdateOperatorTripExpense(${Number(item.viaje_id)}, 'descripcion', this.value)"></td>
+      <td><input class="trv2-trip-expense-amount" type="number" min="0" step="0.01" value="${Number(TRV2_OPERATOR_PAYMENT_EXPENSES[item.viaje_id]?.monto || 0) || ''}" placeholder="$0.00" oninput="trv2UpdateOperatorTripExpense(${Number(item.viaje_id)}, 'monto', this.value)"></td>
+      <td>${item.tarifa_id ? `<button class="trv2-mini-btn" type="button" onclick="trv2EditOperatorTariff(${Number(item.tarifa_id)}, 'liquidaciones')">Editar</button>` : `<button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2CreateOperatorTariffFromDetail(${Number(item.ruta_id || 0)}, ${Number(item.operador_id || 0)})">Asignar</button>`}</td>
+    </tr>`).join('') || '<tr><td colspan="12"><div class="trv2-empty">No hay viajes para mostrar.</div></td></tr>';
+  trv2RefreshOperatorExpenseTotal();
+  const prepare = document.getElementById('trv2-payment-prepare-btn');
+  if (prepare) prepare.disabled = pendingItems.some(item => item.sin_tarifa) || !pendingItems.length;
+  panel.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+function trv2CloseOperatorPaymentInlineDetail() {
+  const panel = document.getElementById('trv2-payment-detail-panel');
+  if (panel) panel.hidden = true;
+}
+
+function trv2UpdateOperatorTripExpense(tripId, field, value) {
+  const id = Number(tripId || 0);
+  if (!id) return;
+  const current = TRV2_OPERATOR_PAYMENT_EXPENSES[id] || {descripcion: '', monto: 0};
+  current[field] = field === 'monto' ? Math.max(0, Number(value || 0)) : String(value || '');
+  TRV2_OPERATOR_PAYMENT_EXPENSES[id] = current;
+  trv2RefreshOperatorExpenseTotal();
+}
+
+function trv2SelectedOperatorExpenses() {
+  const items = TRV2_OPERATOR_PAYMENT_ITEMS.filter(item => Number(item.operador_id) === Number(TRV2_OPERATOR_PAYMENT_SELECTED) && !item.ya_liquidado);
+  return trv2OperatorExpenseRows(items);
+}
+
+function trv2OperatorExpenseRows(items = []) {
+  return items.map((trip, index) => ({viaje_id: Number(trip.viaje_id), flete: index + 1, folio: trip.folio || `Viaje #${trip.viaje_id}`, descripcion: String(TRV2_OPERATOR_PAYMENT_EXPENSES[trip.viaje_id]?.descripcion || '').trim(), monto: Math.max(0, Number(TRV2_OPERATOR_PAYMENT_EXPENSES[trip.viaje_id]?.monto || 0))})).filter(item => item.descripcion || item.monto);
+}
+
+function trv2AllOperatorExpenses() {
+  return trv2OperatorExpenseRows(TRV2_OPERATOR_PAYMENT_ITEMS.filter(item => !item.ya_liquidado));
+}
+
+function trv2RefreshOperatorExpenseTotal() {
+  const total = trv2SelectedOperatorExpenses().reduce((sum, item) => sum + item.monto, 0);
+  const node = document.getElementById('trv2-payment-detail-expenses');
+  if (node) node.textContent = trv2ServiceMoney(total);
+  return total;
+}
+
+function trv2PrepareSelectedOperatorPayment() {
+  const group = trv2OperatorPaymentGroups().find(item => Number(item.id) === Number(TRV2_OPERATOR_PAYMENT_SELECTED));
+  if (!group || group.missing) return trv2Toast('Configura todas las tarifas antes de preparar la liquidación.', 'error');
+  const panel = document.getElementById('trv2-payment-review-modal');
+  const title = document.getElementById('trv2-payment-detail-title');
+  if (!panel) return;
+  if (title) title.textContent = `Preparar liquidación · ${group.name}`;
+  const context = document.getElementById('trv2-payment-review-context');
+  if (context) context.innerHTML = `<article><span>Periodo</span><strong>${trv2Esc(trv2DisplayDate(document.getElementById('trv2-payment-from')?.value, {fallback: '—'}))} → ${trv2Esc(trv2DisplayDate(document.getElementById('trv2-payment-to')?.value, {fallback: '—'}))}</strong></article><article><span>Viajes</span><strong>${group.items.length}</strong></article><article><span>Rutas</span><strong>${group.routes.size}</strong></article><article><span>Gastos</span><strong>${trv2ServiceMoney(trv2RefreshOperatorExpenseTotal())}</strong></article>`;
   const commissionNode = document.getElementById('trv2-closeout-commissions');
-  if (commissionNode) commissionNode.dataset.value = String(commission);
-  if (commissionNode) commissionNode.textContent = trv2ServiceMoney(commission);
-  ['trv2-closeout-bank', 'trv2-closeout-infonavit', 'trv2-closeout-expenses'].forEach(id => { const input = document.getElementById(id); if (input) input.value = '0'; });
-  const note = document.getElementById('trv2-closeout-expense-note');
-  if (note) note.value = '';
-  const generate = document.getElementById('trv2-closeout-generate');
-  if (generate) generate.disabled = pendingItems.some(item => item.sin_tarifa) || !pendingItems.length;
+  if (commissionNode) { commissionNode.dataset.value = String(group.total); commissionNode.textContent = trv2ServiceMoney(group.total); }
+  ['trv2-closeout-bank', 'trv2-closeout-infonavit'].forEach(id => { const input = document.getElementById(id); if (input) input.value = '0'; });
+  const expenses = trv2SelectedOperatorExpenses();
+  const expenseNode = document.getElementById('trv2-closeout-expenses');
+  if (expenseNode) { expenseNode.dataset.value = String(expenses.reduce((sum, item) => sum + item.monto, 0)); expenseNode.textContent = trv2ServiceMoney(Number(expenseNode.dataset.value)); }
+  const expenseSummary = document.getElementById('trv2-payment-expense-summary');
+  if (expenseSummary) expenseSummary.innerHTML = expenses.length ? `<h3>Gastos capturados por viaje</h3>${expenses.map(item => `<div><span>Flete ${item.flete} · ${trv2Esc(item.folio)} · ${trv2Esc(item.descripcion || 'Sin descripción')}</span><strong>${trv2ServiceMoney(item.monto)}</strong></div>`).join('')}` : '<div class="trv2-empty">No se capturaron gastos extraordinarios.</div>';
   trv2UpdateOperatorPaymentCloseout();
+  panel.hidden = false;
   document.body.style.overflow = 'hidden';
 }
 
@@ -303,7 +352,7 @@ function trv2UpdateOperatorPaymentCloseout() {
   const commission = Number(document.getElementById('trv2-closeout-commissions')?.dataset.value || 0);
   const bank = Math.max(0, Number(document.getElementById('trv2-closeout-bank')?.value || 0));
   const infonavit = Math.max(0, Number(document.getElementById('trv2-closeout-infonavit')?.value || 0));
-  const expenses = Math.max(0, Number(document.getElementById('trv2-closeout-expenses')?.value || 0));
+  const expenses = Math.max(0, Number(document.getElementById('trv2-closeout-expenses')?.dataset.value || 0));
   const cash = commission - bank - infonavit + expenses;
   const node = document.getElementById('trv2-closeout-cash');
   if (node) node.textContent = trv2ServiceMoney(cash);
@@ -326,7 +375,7 @@ async function trv2GenerateOperatorPayment(operatorId) {
     data: {
       operador_id: Number(operatorId), fecha_desde: document.getElementById('trv2-payment-from')?.value, fecha_hasta: document.getElementById('trv2-payment-to')?.value,
       pago_banco: closeout.bank, descuento_infonavit: closeout.infonavit, gastos: closeout.expenses,
-      detalle_gastos: document.getElementById('trv2-closeout-expense-note')?.value.trim() || '', pago_efectivo: closeout.cash,
+      gastos_por_viaje: trv2SelectedOperatorExpenses(), pago_efectivo: closeout.cash,
     },
   }, {allowError: true});
   if (!data?.ok) return trv2Toast(data?.detail || data?.message || 'No se pudo generar la liquidación.', 'error');
@@ -335,21 +384,24 @@ async function trv2GenerateOperatorPayment(operatorId) {
   await trv2LoadOperatorPayments({force: true});
 }
 
-async function trv2ExportOperatorPayments() {
+async function trv2ExportOperatorPayments(includeSelected = false) {
   const from = document.getElementById('trv2-payment-from')?.value || '';
   const to = document.getElementById('trv2-payment-to')?.value || '';
   if (!from || !to) return trv2Toast('Selecciona el periodo antes de exportar.', 'error');
   const query = new URLSearchParams({fecha_desde: from, fecha_hasta: to, perfil_id: String(TRV2_PERFIL?.id || '')});
   const operatorId = Number(document.getElementById('trv2-payment-operator')?.value || 0);
   if (operatorId) query.set('operador_id', String(operatorId));
-  const selectedOperator = operatorId || Number(TRV2_OPERATOR_PAYMENT_SELECTED || 0);
+  const selectedOperator = operatorId || (includeSelected ? Number(TRV2_OPERATOR_PAYMENT_SELECTED || 0) : 0);
   if (selectedOperator) {
     const closeout = trv2UpdateOperatorPaymentCloseout();
     query.set('operador_id', String(selectedOperator));
     query.set('pago_banco', String(closeout.bank));
     query.set('descuento_infonavit', String(closeout.infonavit));
     query.set('gastos', String(closeout.expenses));
-    query.set('detalle_gastos', document.getElementById('trv2-closeout-expense-note')?.value.trim() || '');
+    query.set('gastos_json', JSON.stringify(trv2SelectedOperatorExpenses()));
+  } else {
+    const allExpenses = trv2AllOperatorExpenses();
+    if (allExpenses.length) query.set('gastos_json', JSON.stringify(allExpenses));
   }
   const response = await fetch(`/api/tr-v2/operator-payments/export.xlsx?${query}`, {headers: trv2Headers()});
   if (!response.ok) return trv2Toast('No se pudo generar el Excel de pago a operadores.', 'error');
