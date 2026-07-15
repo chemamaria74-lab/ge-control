@@ -4,6 +4,7 @@ let TRV2_OPERATOR_PAYMENT_SELECTED = 0;
 let TRV2_OPERATOR_PAYMENT_INITIALIZED = false;
 let TRV2_OPERATOR_PAYMENT_VIEW = 'liquidaciones';
 let TRV2_OPERATOR_TARIFF_RETURN_VIEW = '';
+let TRV2_OPERATOR_TARIFF_FAMILY = 'gas_lp';
 const TRV2_OPERATOR_PAYMENT_CACHE_MS = 5 * 60 * 1000;
 let TRV2_OPERATOR_PAYMENT_LAST_SEARCH = null;
 
@@ -73,7 +74,7 @@ function trv2OperatorPaymentCatalogOptions() {
   const tariffOperator = document.getElementById('trv2-operator-tariff-operator');
   const route = document.getElementById('trv2-operator-tariff-route');
   const operatorOptions = (TRV2_CATALOGS.operadores || []).map(item => `<option value="${Number(item.id)}">${trv2Esc(item.nombre || `Operador #${item.id}`)}</option>`).join('');
-  const routeOptions = (TRV2_CATALOGS.rutas || []).map(item => `<option value="${Number(item.id)}">${trv2Esc(trv2OperatorPaymentRouteLabel(item))}</option>`).join('');
+  const routeOptions = (TRV2_CATALOGS.rutas || []).filter(item => trv2OperatorTariffRouteFamily(item) === TRV2_OPERATOR_TARIFF_FAMILY).map(item => `<option value="${Number(item.id)}">${trv2Esc(trv2OperatorPaymentRouteLabel(item))}</option>`).join('');
   if (operator) {
     const current = operator.value;
     operator.innerHTML = `<option value="">Todos los operadores</option>${operatorOptions}`;
@@ -93,6 +94,24 @@ function trv2OperatorPaymentCatalogOptions() {
 
 function trv2OperatorPaymentRouteLabel(route = {}) {
   return route.nombre || [route.origen || route.nombre_origen, route.destino || route.nombre_destino].filter(Boolean).join(' → ') || `Ruta #${route.id}`;
+}
+
+function trv2OperatorTariffRouteFamily(route = {}) {
+  if (typeof trv2RouteProductKeys === 'function') {
+    const keys = trv2RouteProductKeys(route);
+    if (['petroliferos', 'magna', 'premium', 'diesel'].some(key => keys.has(key))) return 'petroliferos';
+    if (keys.has('gas_lp')) return 'gas_lp';
+  }
+  if (typeof trv2CatalogItemFamily === 'function') return trv2CatalogItemFamily(route) || 'gas_lp';
+  const text = JSON.stringify(route).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /petrol|gasolina|magna|premium|diesel/.test(text) ? 'petroliferos' : 'gas_lp';
+}
+
+function trv2SetOperatorTariffFamily(family = 'gas_lp') {
+  TRV2_OPERATOR_TARIFF_FAMILY = family === 'petroliferos' ? 'petroliferos' : 'gas_lp';
+  document.querySelectorAll('[data-operator-tariff-family]').forEach(button => button.classList.toggle('active', button.dataset.operatorTariffFamily === TRV2_OPERATOR_TARIFF_FAMILY));
+  trv2OperatorPaymentCatalogOptions();
+  trv2RenderOperatorTariffs();
 }
 
 function trv2OperatorPaymentModeLabel(mode = '') {
@@ -220,7 +239,7 @@ function trv2RenderOperatorPayments(summary = {}) {
       <td class="trv2-num">${group.routes.size}</td>
       <td class="trv2-num">${group.missing ? `<span class="trv2-status inactive">${group.missing}</span>` : '<span class="trv2-status active">0</span>'}</td>
       <td class="trv2-num"><strong>${trv2ServiceMoney(group.total)}</strong></td>
-      <td><div class="trv2-row-actions"><button class="trv2-mini-btn" type="button" onclick="trv2ShowOperatorPaymentDetail(${group.id})">Ver detalle</button><button class="trv2-mini-btn trv2-mini-btn-primary" type="button" ${group.missing ? 'disabled title="Configura las tarifas faltantes"' : ''} onclick="trv2GenerateOperatorPayment(${group.id})">Generar liquidación</button></div></td>
+      <td><div class="trv2-row-actions"><button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2ShowOperatorPaymentDetail(${group.id})">Preparar quincena</button></div></td>
     </tr>`).join('') : '<tr><td colspan="6"><div class="trv2-empty">No hay viajes pendientes de liquidar en este periodo.</div></td></tr>';
   const missing = Number(summary.sin_tarifa || 0);
   const already = Number(summary.ya_liquidados || 0);
@@ -240,40 +259,64 @@ function trv2ShowOperatorPaymentDetail(operatorId) {
   if (!panel || !body) return;
   panel.hidden = false;
   if (title) title.textContent = `Detalle · ${items[0]?.operador || 'Operador'}`;
-  const routeGroups = new Map();
-  items.forEach(item => {
-    const status = item.ya_liquidado ? 'liquidado' : (item.sin_tarifa ? 'sin_tarifa' : 'pendiente');
-    const key = [item.ruta_id || item.ruta, item.cliente_id || item.cliente, item.modalidad, item.tarifa, status].join('|');
-    if (!routeGroups.has(key)) routeGroups.set(key, {...item, viajes: 0, cantidad_acumulada: 0, total_acumulado: 0, status});
-    const group = routeGroups.get(key);
-    group.viajes += 1;
-    group.cantidad_acumulada += Number(item.cantidad_base || 0);
-    group.total_acumulado += Number(item.total || 0);
-  });
-  body.innerHTML = [...routeGroups.values()].map(item => `
+  const pendingItems = items.filter(item => !item.ya_liquidado);
+  body.innerHTML = pendingItems.map((item, index) => `
     <tr>
-      <td><strong>${trv2Esc(item.ruta || 'Sin ruta')}</strong></td><td>${trv2Esc(item.cliente || '—')}</td>
-      <td class="trv2-num"><strong>${Number(item.viajes || 0)}</strong></td>
-      <td>${trv2Esc(trv2OperatorPaymentModeLabel(item.modalidad))}</td>
+      <td>${trv2Esc(trv2DisplayDate(item.fecha, {fallback: '—'}))}</td>
+      <td><strong>${trv2Esc(item.folio || `#${item.viaje_id}`)}</strong><small class="trv2-service-sub">${index + 1}</small></td>
+      <td><strong>${trv2Esc(item.ruta || 'Sin ruta')}</strong><small class="trv2-service-sub">${trv2Esc([item.origen, item.destino].filter(Boolean).join(' → '))}</small></td>
+      <td>${trv2Esc(item.producto || '—')}</td>
+      <td class="trv2-num">${trv2ServiceNumber(item.litros || 0)}</td>
+      <td class="trv2-num">${trv2ServiceNumber(item.kilos || 0)}</td>
       <td class="trv2-num">${item.sin_tarifa ? '—' : trv2ServiceMoney(item.tarifa)}</td>
-      <td class="trv2-num">${item.sin_tarifa ? '—' : `${trv2ServiceNumber(item.cantidad_acumulada)} ${trv2Esc(item.base || '')}`}</td>
-      <td class="trv2-num"><strong>${item.sin_tarifa ? '—' : trv2ServiceMoney(item.total_acumulado)}</strong></td>
-      <td>${item.ya_liquidado ? '<span class="trv2-status active">Liquidado</span>' : (item.sin_tarifa ? '<span class="trv2-status inactive">Sin tarifa</span>' : '<span class="trv2-status">Pendiente</span>')}</td>
+      <td class="trv2-num"><strong>${item.sin_tarifa ? '—' : trv2ServiceMoney(item.total)}</strong></td>
       <td><div class="trv2-row-actions">${item.tarifa_id
         ? `<button class="trv2-mini-btn" type="button" onclick="trv2EditOperatorTariff(${Number(item.tarifa_id)}, 'liquidaciones')">Editar tarifa</button>`
         : `<button class="trv2-mini-btn trv2-mini-btn-primary" type="button" ${item.ruta_id ? '' : 'disabled title="El viaje no tiene una ruta asignada"'} onclick="trv2CreateOperatorTariffFromDetail(${Number(item.ruta_id || 0)}, ${Number(item.operador_id || 0)})">Asignar tarifa</button>`}
       </div></td>
     </tr>`).join('') || '<tr><td colspan="9"><div class="trv2-empty">No hay viajes para mostrar.</div></td></tr>';
+  const commission = pendingItems.filter(item => !item.sin_tarifa).reduce((sum, item) => sum + Number(item.total || 0), 0);
+  const commissionNode = document.getElementById('trv2-closeout-commissions');
+  if (commissionNode) commissionNode.dataset.value = String(commission);
+  if (commissionNode) commissionNode.textContent = trv2ServiceMoney(commission);
+  ['trv2-closeout-bank', 'trv2-closeout-infonavit', 'trv2-closeout-expenses'].forEach(id => { const input = document.getElementById(id); if (input) input.value = '0'; });
+  const note = document.getElementById('trv2-closeout-expense-note');
+  if (note) note.value = '';
+  const generate = document.getElementById('trv2-closeout-generate');
+  if (generate) generate.disabled = pendingItems.some(item => item.sin_tarifa) || !pendingItems.length;
+  trv2UpdateOperatorPaymentCloseout();
   panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
+function trv2UpdateOperatorPaymentCloseout() {
+  const commission = Number(document.getElementById('trv2-closeout-commissions')?.dataset.value || 0);
+  const bank = Math.max(0, Number(document.getElementById('trv2-closeout-bank')?.value || 0));
+  const infonavit = Math.max(0, Number(document.getElementById('trv2-closeout-infonavit')?.value || 0));
+  const expenses = Math.max(0, Number(document.getElementById('trv2-closeout-expenses')?.value || 0));
+  const cash = commission - bank - infonavit + expenses;
+  const node = document.getElementById('trv2-closeout-cash');
+  if (node) node.textContent = trv2ServiceMoney(cash);
+  if (node) node.dataset.value = String(cash);
+  return {commission, bank, infonavit, expenses, cash};
+}
+
+function trv2GenerateSelectedOperatorPayment() {
+  return trv2GenerateOperatorPayment(TRV2_OPERATOR_PAYMENT_SELECTED);
 }
 
 async function trv2GenerateOperatorPayment(operatorId) {
   const group = trv2OperatorPaymentGroups().find(item => Number(item.id) === Number(operatorId));
   if (!group || group.missing) return trv2Toast('Configura todas las tarifas antes de generar la liquidación.', 'error');
-  if (!confirm(`Generar liquidación de ${group.name} por ${trv2ServiceMoney(group.total)}? El cálculo quedará congelado.`)) return;
+  const closeout = trv2UpdateOperatorPaymentCloseout();
+  if (closeout.cash < 0) return trv2Toast('El pago por banco y los descuentos superan las comisiones más gastos.', 'error');
+  if (!confirm(`Generar la quincena de ${group.name}? Banco ${trv2ServiceMoney(closeout.bank)} y efectivo ${trv2ServiceMoney(closeout.cash)}.`)) return;
   const data = await trv2Api('POST', '/api/tr-v2/operator-payments/generate', {
     perfil_id: TRV2_PERFIL?.id || null,
-    data: {operador_id: Number(operatorId), fecha_desde: document.getElementById('trv2-payment-from')?.value, fecha_hasta: document.getElementById('trv2-payment-to')?.value},
+    data: {
+      operador_id: Number(operatorId), fecha_desde: document.getElementById('trv2-payment-from')?.value, fecha_hasta: document.getElementById('trv2-payment-to')?.value,
+      pago_banco: closeout.bank, descuento_infonavit: closeout.infonavit, gastos: closeout.expenses,
+      detalle_gastos: document.getElementById('trv2-closeout-expense-note')?.value.trim() || '', pago_efectivo: closeout.cash,
+    },
   }, {allowError: true});
   if (!data?.ok) return trv2Toast(data?.detail || data?.message || 'No se pudo generar la liquidación.', 'error');
   trv2Toast(`Liquidación #${data.liquidacion_id} generada por ${trv2ServiceMoney(data.total)}.`, 'success');
@@ -287,6 +330,15 @@ async function trv2ExportOperatorPayments() {
   const query = new URLSearchParams({fecha_desde: from, fecha_hasta: to, perfil_id: String(TRV2_PERFIL?.id || '')});
   const operatorId = Number(document.getElementById('trv2-payment-operator')?.value || 0);
   if (operatorId) query.set('operador_id', String(operatorId));
+  const selectedOperator = operatorId || Number(TRV2_OPERATOR_PAYMENT_SELECTED || 0);
+  if (selectedOperator) {
+    const closeout = trv2UpdateOperatorPaymentCloseout();
+    query.set('operador_id', String(selectedOperator));
+    query.set('pago_banco', String(closeout.bank));
+    query.set('descuento_infonavit', String(closeout.infonavit));
+    query.set('gastos', String(closeout.expenses));
+    query.set('detalle_gastos', document.getElementById('trv2-closeout-expense-note')?.value.trim() || '');
+  }
   const response = await fetch(`/api/tr-v2/operator-payments/export.xlsx?${query}`, {headers: trv2Headers()});
   if (!response.ok) return trv2Toast('No se pudo generar el Excel de pago a operadores.', 'error');
   const blob = await response.blob();
@@ -301,16 +353,13 @@ async function trv2ExportOperatorPayments() {
 function trv2RenderOperatorTariffs() {
   const body = document.getElementById('trv2-operator-tariffs-table');
   if (!body) return;
-  body.innerHTML = TRV2_OPERATOR_TARIFFS.length ? TRV2_OPERATOR_TARIFFS.map(item => {
+  document.querySelectorAll('[data-operator-tariff-family]').forEach(button => button.classList.toggle('active', button.dataset.operatorTariffFamily === TRV2_OPERATOR_TARIFF_FAMILY));
+  const familyItems = TRV2_OPERATOR_TARIFFS.filter(item => trv2OperatorTariffRouteFamily(trv2FindCatalog('rutas', item.ruta_id) || {}) === TRV2_OPERATOR_TARIFF_FAMILY);
+  body.innerHTML = familyItems.length ? familyItems.map(item => {
     const route = trv2FindCatalog('rutas', item.ruta_id) || {};
     const operator = trv2FindCatalog('operadores', item.operador_id) || {};
-    const base = item.modalidad === 'kilometro' ? `${trv2ServiceNumber(item.distancia_km)} km` : (item.modalidad === 'hora' ? `${trv2ServiceNumber(item.horas)} h` : '1 viaje');
-    const vigencia = [
-      trv2DisplayDate(item.vigencia_desde, {fallback: 'Sin inicio'}),
-      trv2DisplayDate(item.vigencia_hasta, {fallback: 'Sin fin'}),
-    ].join(' → ');
-    return `<tr><td><strong>${trv2Esc(trv2OperatorPaymentRouteLabel(route))}</strong></td><td>${trv2Esc(operator.nombre || 'Todos los operadores')}</td><td>${trv2Esc(trv2OperatorPaymentModeLabel(item.modalidad))}</td><td class="trv2-num"><strong>${trv2ServiceMoney(item.tarifa)}</strong></td><td>${trv2Esc(base)}</td><td>${trv2Esc(vigencia)}</td><td><span class="trv2-status ${item.activo === false ? 'inactive' : 'active'}">${item.activo === false ? 'Inactiva' : 'Activa'}</span></td><td><div class="trv2-row-actions"><button class="trv2-mini-btn" type="button" onclick="trv2EditOperatorTariff(${Number(item.id)})">Editar</button>${item.activo === false ? '' : `<button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeactivateOperatorTariff(${Number(item.id)})">Desactivar</button>`}</div></td></tr>`;
-  }).join('') : '<tr><td colspan="8"><div class="trv2-empty">Todavía no hay tarifas para operadores.</div></td></tr>';
+    return `<tr><td><strong>${trv2Esc(trv2OperatorPaymentRouteLabel(route))}</strong></td><td>${trv2Esc(operator.nombre || 'Todos los operadores')}</td><td>${trv2Esc(trv2OperatorPaymentModeLabel(item.modalidad))}</td><td class="trv2-num"><strong>${trv2ServiceMoney(item.tarifa)}</strong></td><td><span class="trv2-status ${item.activo === false ? 'inactive' : 'active'}">${item.activo === false ? 'Inactiva' : 'Activa'}</span></td><td><div class="trv2-row-actions"><button class="trv2-mini-btn" type="button" onclick="trv2EditOperatorTariff(${Number(item.id)})">Editar</button>${item.activo === false ? '' : `<button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeactivateOperatorTariff(${Number(item.id)})">Desactivar</button>`}</div></td></tr>`;
+  }).join('') : '<tr><td colspan="6"><div class="trv2-empty">Todavía no hay tarifas para operadores.</div></td></tr>';
 }
 
 function trv2OpenOperatorTariffForm(item = null, defaults = {}, returnView = '') {
@@ -326,8 +375,6 @@ function trv2OpenOperatorTariffForm(item = null, defaults = {}, returnView = '')
   document.getElementById('trv2-operator-tariff-rate').value = item?.tarifa || '';
   document.getElementById('trv2-operator-tariff-km').value = item?.distancia_km || '';
   document.getElementById('trv2-operator-tariff-hours').value = item?.horas || '';
-  document.getElementById('trv2-operator-tariff-from').value = String(item?.vigencia_desde || '').slice(0, 10);
-  document.getElementById('trv2-operator-tariff-to').value = String(item?.vigencia_hasta || '').slice(0, 10);
   document.getElementById('trv2-operator-tariff-notes').value = item?.notas || '';
   const title = document.getElementById('trv2-operator-tariff-form-title');
   const submit = document.getElementById('trv2-operator-tariff-submit');
@@ -364,12 +411,16 @@ function trv2SyncOperatorTariffBase() {
 function trv2EditOperatorTariff(id, returnView = '') {
   const item = TRV2_OPERATOR_TARIFFS.find(row => Number(row.id) === Number(id));
   if (!item) return trv2Toast('No se encontró la tarifa seleccionada.', 'error');
+  TRV2_OPERATOR_TARIFF_FAMILY = trv2OperatorTariffRouteFamily(trv2FindCatalog('rutas', item.ruta_id) || {});
+  trv2OperatorPaymentCatalogOptions();
   trv2SetOperatorPaymentView('tarifas');
   trv2OpenOperatorTariffForm(item, {}, returnView);
 }
 
 function trv2CreateOperatorTariffFromDetail(routeId, operatorId) {
   if (!Number(routeId || 0)) return trv2Toast('Asigna una ruta al viaje antes de configurar su tarifa.', 'error');
+  TRV2_OPERATOR_TARIFF_FAMILY = trv2OperatorTariffRouteFamily(trv2FindCatalog('rutas', routeId) || {});
+  trv2OperatorPaymentCatalogOptions();
   trv2SetOperatorPaymentView('tarifas');
   trv2OpenOperatorTariffForm(null, {ruta_id: Number(routeId), operador_id: Number(operatorId || 0)}, 'liquidaciones');
 }
@@ -384,8 +435,6 @@ async function trv2SaveOperatorTariff(event) {
     tarifa: Number(document.getElementById('trv2-operator-tariff-rate')?.value || 0),
     distancia_km: Number(document.getElementById('trv2-operator-tariff-km')?.value || 0),
     horas: Number(document.getElementById('trv2-operator-tariff-hours')?.value || 0),
-    vigencia_desde: document.getElementById('trv2-operator-tariff-from')?.value || null,
-    vigencia_hasta: document.getElementById('trv2-operator-tariff-to')?.value || null,
     notas: document.getElementById('trv2-operator-tariff-notes')?.value.trim() || '',
     activo: true,
   };
