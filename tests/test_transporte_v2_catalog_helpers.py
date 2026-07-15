@@ -12,6 +12,7 @@ from routes.transporte_v2 import (
     _normalize_permiso_row,
     _operator_payment_dates,
     _operator_payment_tariff_for_trip,
+    _operator_trip_quantity_summary,
     _operator_tariff_payload,
     _permiso_payload,
     _permiso_product_family_match,
@@ -47,6 +48,17 @@ def test_operator_tariff_is_permanent_without_validity_dates():
 
     assert row["vigencia_desde"] is None
     assert row["vigencia_hasta"] is None
+
+
+def test_operator_payment_uses_carta_porte_product_quantities():
+    summary = _operator_trip_quantity_summary({
+        "volumen_total_litros": 41149.15,
+        "productos_json": '[{"descripcion":"Gas LP","cantidad_litros":41149.15,"peso_kg":21707}]',
+    })
+
+    assert summary["producto"] == "Gas LP"
+    assert summary["litros"] == 41149.15
+    assert summary["kilos"] == 21707
 
 
 def test_operator_license_expiration_is_preserved_from_catalog_metadata():
@@ -95,6 +107,11 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
     assert 'data-operator-tariff-family="petroliferos"' in section
     assert "Base configurada" not in section
     assert "Vigencia desde" not in section
+    assert 'id="trv2-payment-review-modal"' in template
+    assert "trv2-operator-payroll-card" in frontend
+    assert "trv2CloseOperatorPaymentDetail" in frontend
+    shell = (root / "templates/transporte_v2.html").read_text(encoding="utf-8")
+    assert "operator-payroll-cards-20260715a" in shell
 
 
 def test_transport_admin_mobile_shell_and_module_scoped_logout_contract():
