@@ -108,10 +108,13 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
     assert "Base configurada" not in section
     assert "Vigencia desde" not in section
     assert 'id="trv2-payment-review-modal"' in template
-    assert "trv2-operator-payroll-card" in frontend
+    assert "trv2UpdateOperatorTripExpense" in frontend
+    assert "trv2PrepareSelectedOperatorPayment" in frontend
+    assert 'id="trv2-payment-detail-panel"' in template
+    assert "Descripción del gasto" in section
     assert "trv2CloseOperatorPaymentDetail" in frontend
     shell = (root / "templates/transporte_v2.html").read_text(encoding="utf-8")
-    assert "operator-payroll-cards-20260715a" in shell
+    assert "operator-payroll-detail-20260715b" in shell
 
 
 def test_transport_admin_mobile_shell_and_module_scoped_logout_contract():
