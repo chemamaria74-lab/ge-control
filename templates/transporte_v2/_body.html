@@ -422,7 +422,7 @@
       <div class="trv2-table-head">
         <div>
           <h2>Resumen por operador</h2>
-          <p class="trv2-muted">Abre el detalle para revisar rutas, clientes y bases de cálculo antes de generar la liquidación.</p>
+          <p class="trv2-muted">Abre la quincena para revisar cada viaje y definir banco, descuentos, gastos y efectivo.</p>
         </div>
       </div>
       <div class="trv2-table-wrap trv2-service-scroll">
@@ -434,11 +434,20 @@
     </section>
     <section class="trv2-panel" id="trv2-payment-detail-panel" hidden>
       <div class="trv2-table-head">
-        <div><h2 id="trv2-payment-detail-title">Detalle del operador</h2><p class="trv2-muted">Los clientes aparecen sólo como referencia; el pago se determina por ruta.</p></div>
+        <div><h2 id="trv2-payment-detail-title">Desglose de la quincena</h2><p class="trv2-muted">Revisa cada viaje y completa cómo se pagará al operador.</p></div>
+      </div>
+      <div class="trv2-payment-closeout" id="trv2-payment-closeout">
+        <article class="trv2-payment-total"><span>Total de comisiones</span><strong id="trv2-closeout-commissions">$0.00</strong><small>Suma de las tarifas por viaje</small></article>
+        <label>Pago por banco (base)<input id="trv2-closeout-bank" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"><small>Importe que se deposita por nómina</small></label>
+        <label>Descuento INFONAVIT<input id="trv2-closeout-infonavit" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"></label>
+        <label>Gastos a reembolsar<input id="trv2-closeout-expenses" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"></label>
+        <label class="trv2-payment-expense-note">Detalle de gastos<input id="trv2-closeout-expense-note" placeholder="Ej. válvula, vulcanizadora, casetas extraordinarias"></label>
+        <article class="trv2-payment-cash"><span>Pago en efectivo</span><strong id="trv2-closeout-cash">$0.00</strong><small>Comisiones − banco − INFONAVIT + gastos</small></article>
+        <div class="trv2-payment-closeout-actions"><button class="trv2-btn trv2-btn-primary" id="trv2-closeout-generate" type="button" onclick="trv2GenerateSelectedOperatorPayment()"><i class="fa-solid fa-file-invoice-dollar"></i> Generar liquidación</button></div>
       </div>
       <div class="trv2-table-wrap trv2-service-scroll">
         <table class="trv2-service-generated-table">
-          <thead><tr><th>Ruta</th><th>Cliente</th><th>Total viajes</th><th>Modalidad</th><th>Tarifa</th><th>Base acumulada</th><th>Total</th><th>Estatus</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Viaje</th><th>Ruta</th><th>Producto</th><th>Litros</th><th>Kg</th><th>Tarifa</th><th>Comisión</th><th>Acciones</th></tr></thead>
           <tbody id="trv2-payment-detail-table"></tbody>
         </table>
       </div>
@@ -459,12 +468,14 @@
         <label>Tarifa * <input id="trv2-operator-tariff-rate" type="number" min="0.01" step="0.01" required></label>
         <label data-operator-tariff-base="kilometro">Kilómetros pagables <input id="trv2-operator-tariff-km" type="number" min="0" step="0.01"></label>
         <label data-operator-tariff-base="hora">Horas pagables <input id="trv2-operator-tariff-hours" type="number" min="0" step="0.01"></label>
-        <label>Vigencia desde <input id="trv2-operator-tariff-from" type="date"></label>
-        <label>Vigencia hasta <input id="trv2-operator-tariff-to" type="date"></label>
         <label class="trv2-form-wide">Notas <input id="trv2-operator-tariff-notes" placeholder="Opcional"></label>
         <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseOperatorTariffForm()">Cancelar</button><button class="trv2-btn trv2-btn-primary" id="trv2-operator-tariff-submit" type="submit">Guardar tarifa</button></div>
       </form>
-      <div class="trv2-table-wrap"><table class="trv2-service-generated-table"><thead><tr><th>Ruta</th><th>Operador</th><th>Modalidad</th><th>Tarifa</th><th>Base configurada</th><th>Vigencia</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="trv2-operator-tariffs-table"></tbody></table></div>
+      <div class="trv2-inline-tabs trv2-operator-tariff-products" role="tablist" aria-label="Producto de la tarifa">
+        <button class="trv2-subtab active" type="button" data-operator-tariff-family="gas_lp" onclick="trv2SetOperatorTariffFamily('gas_lp')">Gas LP</button>
+        <button class="trv2-subtab" type="button" data-operator-tariff-family="petroliferos" onclick="trv2SetOperatorTariffFamily('petroliferos')">Petrolíferos</button>
+      </div>
+      <div class="trv2-table-wrap"><table class="trv2-service-generated-table"><thead><tr><th>Ruta</th><th>Aplica a</th><th>Forma de pago</th><th>Tarifa</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="trv2-operator-tariffs-table"></tbody></table></div>
     </section>
     </div>
     <div class="trv2-payment-panel" data-payment-panel="ruta">
@@ -474,7 +485,7 @@
             <h2><i class="fa-solid fa-route"></i> Operadores en ruta</h2>
             <p class="trv2-muted">Seguimiento operativo de viajes con bitácora activa.</p>
           </div>
-          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorDashboard()">Actualizar</button>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorDashboard()"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
         </div>
         <div class="trv2-admin-route-kpis" id="trv2-operator-dashboard-kpis">
           <article><span>En ruta</span><strong>0</strong></article>
