@@ -3504,14 +3504,9 @@ def _operator_payment_tariff_for_trip(
         assigned = int(tariff.get("operador_id") or 0)
         if assigned not in {0, operador_id}:
             continue
-        if tariff.get("vigencia_desde") and trip_date < str(tariff["vigencia_desde"])[:10]:
-            continue
-        if tariff.get("vigencia_hasta") and trip_date > str(tariff["vigencia_hasta"])[:10]:
-            continue
         matches.append(tariff)
     matches.sort(key=lambda item: (
         1 if int(item.get("operador_id") or 0) == operador_id else 0,
-        str(item.get("vigencia_desde") or ""),
         int(item.get("id") or 0),
     ), reverse=True)
     return matches[0] if matches else None
@@ -3639,6 +3634,10 @@ def _operator_payment_preview(
             "ruta": route_name if route_id else "Sin ruta",
             "cliente_id": client_id or None,
             "cliente": _first_text(client.get("nombre"), row.get("cliente_nombre"), "Sin cliente"),
+            "folio": _first_text(row.get("folio_factura_carga"), row.get("folio_factura"), row.get("folio"), meta.get("folio_factura_carga"), meta.get("folio_factura"), f"Viaje #{trip_id}"),
+            "origen": _first_text(route.get("origen"), route.get("nombre_origen"), row.get("origen"), meta.get("origen")),
+            "destino": _first_text(route.get("destino"), route.get("nombre_destino"), row.get("destino"), meta.get("destino")),
+            "producto": _first_text(row.get("producto_descripcion"), row.get("producto"), meta.get("producto_nombre"), meta.get("producto_descripcion"), "Gas LP"),
             "modalidad": modality if tariff else "sin_tarifa",
             "tarifa_id": (tariff or {}).get("id"),
             "tarifa": round(rate, 4),
@@ -8967,10 +8966,6 @@ def _operator_tariff_payload(data: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(400, "La modalidad debe ser por viaje, kilómetro u hora.")
     if rate <= 0:
         raise HTTPException(400, "La tarifa del operador debe ser mayor a cero.")
-    start = _first_text(data.get("vigencia_desde")) or None
-    end = _first_text(data.get("vigencia_hasta")) or None
-    if start and end and start > end:
-        raise HTTPException(400, "La vigencia final no puede ser anterior a la inicial.")
     return {
         "operador_id": operator_id or None,
         "ruta_id": route_id,
@@ -8978,8 +8973,8 @@ def _operator_tariff_payload(data: dict[str, Any]) -> dict[str, Any]:
         "tarifa": round(rate, 4),
         "distancia_km": round(_num(data.get("distancia_km")), 4),
         "horas": round(_num(data.get("horas")), 4),
-        "vigencia_desde": start,
-        "vigencia_hasta": end,
+        "vigencia_desde": None,
+        "vigencia_hasta": None,
         "notas": _first_text(data.get("notas")),
         "activo": data.get("activo") is not False,
         "updated_at": _now_iso(),
@@ -9091,6 +9086,12 @@ def transporte_v2_operator_payment_generate(
         routes = sorted({item["ruta"] for item in missing})
         raise HTTPException(400, f"Configura la tarifa de operador para: {', '.join(routes)}.")
     total = round(sum(item["total"] for item in items), 2)
+    bank_payment = round(max(0, _num(payload.data.get("pago_banco"))), 2)
+    infonavit = round(max(0, _num(payload.data.get("descuento_infonavit"))), 2)
+    expenses = round(max(0, _num(payload.data.get("gastos"))), 2)
+    cash_payment = round(total - bank_payment - infonavit + expenses, 2)
+    if bank_payment + infonavit > total + expenses:
+        raise HTTPException(400, "El pago por banco y el descuento INFONAVIT superan las comisiones más gastos.")
     sb = _sb(token)
     liquidation = {
         "user_id": uid,
@@ -9102,14 +9103,18 @@ def transporte_v2_operator_payment_generate(
         "subtotal": total,
         "iva": 0,
         "retencion": 0,
-        "gastos": 0,
+        "gastos": expenses,
         "anticipos": 0,
         "comision_extra": 0,
-        "descuentos": 0,
-        "total": total,
+        "descuentos": infonavit,
+        "total": round(total + expenses - infonavit, 2),
         "status": "emitida",
         "notas": _first_text(payload.data.get("notas")),
-        "metadata": {"tipo": "pago_operador", "viajes": len(items), "calculo_congelado": True},
+        "metadata": {
+            "tipo": "pago_operador", "viajes": len(items), "calculo_congelado": True,
+            "total_comisiones": total, "pago_banco": bank_payment, "descuento_infonavit": infonavit,
+            "pago_efectivo": cash_payment, "detalle_gastos": _first_text(payload.data.get("detalle_gastos")),
+        },
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
@@ -9139,7 +9144,7 @@ def transporte_v2_operator_payment_generate(
         sb.table(TBL_VIAJES).update({"liquidacion_status": "emitida"}).eq("user_id", uid).eq("perfil_id", pid).in_("id", trip_ids).execute()
     except Exception as exc:
         logger.info("No se pudo actualizar liquidacion_status de viajes %s: %s", trip_ids, exc)
-    return {"ok": True, "liquidacion_id": liquidation_id, "viajes": len(items), "total": total}
+    return {"ok": True, "liquidacion_id": liquidation_id, "viajes": len(items), "total": liquidation["total"], "pago_efectivo": cash_payment}
 
 
 @router.get("/tr-v2/operator-payments/export.xlsx")
@@ -9147,6 +9152,10 @@ def transporte_v2_operator_payments_export(
     fecha_desde: str = Query(...),
     fecha_hasta: str = Query(...),
     operador_id: int = Query(default=0, ge=0),
+    pago_banco: float = Query(default=0, ge=0),
+    descuento_infonavit: float = Query(default=0, ge=0),
+    gastos: float = Query(default=0, ge=0),
+    detalle_gastos: str = Query(default=""),
     authorization: str = Header(default=""),
     perfil_id: Optional[int] = Query(default=None),
     x_perfil_id: str = Header(default=""),
@@ -9161,7 +9170,7 @@ def transporte_v2_operator_payments_export(
         workbook = Workbook()
         summary_sheet = workbook.active
         summary_sheet.title = "Resumen"
-        summary_sheet.append(["Operador", "Viajes", "Rutas", "Total estimado", "Sin tarifa"])
+        summary_sheet.append(["Operador", "Viajes", "Rutas", "Total comisiones", "Banco", "INFONAVIT", "Gastos", "Pago en efectivo", "Sin tarifa"])
         groups: dict[int, dict[str, Any]] = {}
         for item in preview["items"]:
             if item["ya_liquidado"]:
@@ -9172,20 +9181,35 @@ def transporte_v2_operator_payments_export(
             group["total"] += item["total"]
             group["missing"] += int(item["sin_tarifa"])
         for group in groups.values():
-            summary_sheet.append([group["name"], group["trips"], len(group["routes"]), round(group["total"], 2), group["missing"]])
+            bank = round(pago_banco, 2) if operador_id else 0
+            discount = round(descuento_infonavit, 2) if operador_id else 0
+            reimbursable = round(gastos, 2) if operador_id else 0
+            cash = round(group["total"] - bank - discount + reimbursable, 2)
+            summary_sheet.append([group["name"], group["trips"], len(group["routes"]), round(group["total"], 2), bank, discount, reimbursable, cash, group["missing"]])
         detail_sheet = workbook.create_sheet("Detalle")
-        detail_sheet.append(["Fecha", "Viaje", "Operador", "Ruta", "Cliente", "Modalidad", "Tarifa", "Cantidad base", "Unidad", "Total", "Estatus"])
-        for item in preview["items"]:
+        detail_sheet.append(["Fecha viaje", "Flete", "Folio factura carga", "Operador", "Origen", "Destino", "Km recorridos", "Producto", "Litros", "Kg", "Comisión o tarifa", "Descripción de gastos", "Gasto", "Estatus"])
+        for trip_number, item in enumerate(preview["items"], start=1):
             detail_sheet.append([
-                item["fecha"], item["viaje_id"], item["operador"], item["ruta"], item["cliente"],
-                item["modalidad"], item["tarifa"], item["cantidad_base"], item["base"], item["total"],
-                "Ya liquidado" if item["ya_liquidado"] else ("Sin tarifa" if item["sin_tarifa"] else "Pendiente"),
+                item["fecha"], trip_number, item.get("folio"), item["operador"], item.get("origen"), item.get("destino"),
+                item["cantidad_base"] if item["base"] == "km" else None, item.get("producto"), item["litros"], item["kilos"], item["total"],
+                detalle_gastos if trip_number == 1 and gastos else "", round(gastos, 2) if trip_number == 1 and gastos else None,
+                "Ya liquidado" if item["ya_liquidado"] else ("Sin tarifa" if item["sin_tarifa"] else "Por liquidar"),
             ])
+        if operador_id:
+            detail_sheet.append([])
+            total_commissions = round(preview["summary"]["total_estimado"], 2)
+            detail_sheet.append([None] * 9 + ["TOTAL COMISIONES", total_commissions])
+            detail_sheet.append([None] * 9 + ["PAGO POR BANCO", round(pago_banco, 2)])
+            detail_sheet.append([None] * 9 + ["INFONAVIT", round(descuento_infonavit, 2)])
+            detail_sheet.append([None] * 9 + ["DIFERENCIA DE NÓMINA", round(total_commissions - pago_banco - descuento_infonavit, 2)])
+            detail_sheet.append([None] * 9 + ["GASTOS", round(gastos, 2)])
+            detail_sheet.append([None] * 9 + ["PAGO EN EFECTIVO", round(total_commissions - pago_banco - descuento_infonavit + gastos, 2)])
         for sheet in (summary_sheet, detail_sheet):
             for cell in sheet[1]:
                 cell.font = Font(bold=True, color="FFFFFF")
                 cell.fill = PatternFill("solid", fgColor="7A1E2C")
             sheet.freeze_panes = "A2"
+            sheet.auto_filter.ref = sheet.dimensions
             for column in sheet.columns:
                 sheet.column_dimensions[column[0].column_letter].width = min(max(len(str(cell.value or "")) for cell in column) + 2, 42)
         output = io.BytesIO()
