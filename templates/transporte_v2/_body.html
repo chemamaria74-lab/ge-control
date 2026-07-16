@@ -390,6 +390,7 @@
     <nav class="trv2-subtabs" aria-label="Pago y seguimiento de operadores">
       <button class="trv2-subtab active" type="button" data-payment-tab="liquidaciones" onclick="trv2SetOperatorPaymentView('liquidaciones')"><i class="fa-solid fa-money-check-dollar"></i> Liquidaciones</button>
       <button class="trv2-subtab" type="button" data-payment-tab="tarifas" onclick="trv2SetOperatorPaymentView('tarifas')"><i class="fa-solid fa-tags"></i> Tarifas</button>
+      <button class="trv2-subtab" type="button" data-payment-tab="bases" onclick="trv2SetOperatorPaymentView('bases')"><i class="fa-solid fa-building-columns"></i> Bases de nómina</button>
       <button class="trv2-subtab" type="button" data-payment-tab="ruta" onclick="trv2SetOperatorPaymentView('ruta')"><i class="fa-solid fa-route"></i> Operadores en ruta</button>
     </nav>
     <div class="trv2-payment-panel active" data-payment-panel="liquidaciones">
@@ -430,7 +431,7 @@
     <section class="trv2-panel trv2-payment-inline-detail" id="trv2-payment-detail-panel" hidden>
       <div class="trv2-table-head"><div><h2 id="trv2-payment-inline-title">Detalle del operador</h2><p class="trv2-muted">Captura aquí los gastos de cada viaje. La preparación de nómina se realiza después.</p></div><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseOperatorPaymentInlineDetail()">Cerrar detalle</button></div>
       <div class="trv2-payment-inline-context" id="trv2-payment-inline-context"></div>
-      <div class="trv2-table-wrap trv2-service-scroll trv2-payment-inline-table"><table class="trv2-service-generated-table"><thead><tr><th>Fecha</th><th>Flete / folio</th><th>Origen</th><th>Destino / ruta</th><th>Producto</th><th>Litros</th><th>Kg</th><th>Km</th><th>Comisión</th><th>Descripción del gasto</th><th>Gasto</th><th>Tarifa</th></tr></thead><tbody id="trv2-payment-detail-table"></tbody></table></div>
+      <div class="trv2-table-wrap trv2-service-scroll trv2-payment-inline-table"><table class="trv2-service-generated-table"><thead><tr><th>Fecha</th><th>Flete / folio factura</th><th>Origen</th><th>Destino / ruta</th><th>Producto</th><th>Litros</th><th>Kg</th><th>Km</th><th>Comisión</th><th>Descripción del gasto</th><th>Gasto</th><th>Tarifa</th></tr></thead><tbody id="trv2-payment-detail-table"></tbody></table></div>
       <div class="trv2-payment-inline-footer"><div><span>Gastos capturados</span><strong id="trv2-payment-detail-expenses">$0.00</strong></div><button class="trv2-btn trv2-btn-primary" id="trv2-payment-prepare-btn" type="button" onclick="trv2PrepareSelectedOperatorPayment()"><i class="fa-solid fa-file-invoice-dollar"></i> Preparar liquidación</button></div>
     </section>
     </div>
@@ -459,6 +460,21 @@
       <div class="trv2-table-wrap"><table class="trv2-service-generated-table trv2-operator-tariff-table"><thead><tr><th>Ruta</th><th>Aplica a</th><th>Forma de pago</th><th>Tarifa</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="trv2-operator-tariffs-table"></tbody></table></div>
     </section>
     </div>
+    <div class="trv2-payment-panel" data-payment-panel="bases">
+      <section class="trv2-panel trv2-payroll-bases-panel">
+        <div class="trv2-table-head">
+          <div><h2>Bases de nómina por operador</h2><p class="trv2-muted">Define el depósito bancario y la retención INFONAVIT que se aplicarán automáticamente al preparar cada periodo.</p></div>
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2SaveOperatorPayrollBases()"><i class="fa-solid fa-floppy-disk"></i> Guardar bases</button>
+        </div>
+        <div class="trv2-inline-tabs trv2-payroll-period-tabs" role="tablist" aria-label="Periodicidad de las bases de nómina">
+          <button class="trv2-subtab" type="button" data-payroll-base-period="week" onclick="trv2SetOperatorPayrollBasePeriod('week')">Semanal</button>
+          <button class="trv2-subtab active" type="button" data-payroll-base-period="fortnight" onclick="trv2SetOperatorPayrollBasePeriod('fortnight')">Quincenal</button>
+          <button class="trv2-subtab" type="button" data-payroll-base-period="month" onclick="trv2SetOperatorPayrollBasePeriod('month')">Mensual</button>
+        </div>
+        <div class="trv2-payroll-bases-note"><i class="fa-solid fa-circle-info"></i><span id="trv2-payroll-bases-period-note">Estas cantidades se usarán cuando la liquidación sea quincenal.</span></div>
+        <div class="trv2-table-wrap"><table class="trv2-service-generated-table trv2-payroll-bases-table"><thead><tr><th>Operador</th><th>Pago por banco</th><th>Descuento INFONAVIT</th><th>Total base descontado</th></tr></thead><tbody id="trv2-payroll-bases-table"></tbody></table></div>
+      </section>
+    </div>
     <div class="trv2-payment-panel" data-payment-panel="ruta">
       <section class="trv2-panel">
         <div class="trv2-table-head">
@@ -484,8 +500,8 @@
       <div class="trv2-payment-review-context" id="trv2-payment-review-context"></div>
       <div class="trv2-payment-closeout" id="trv2-payment-closeout">
         <article class="trv2-payment-total"><span>Total de comisiones</span><strong id="trv2-closeout-commissions">$0.00</strong><small>Suma de todos los viajes</small></article>
-        <label>Pago por banco (base)<input id="trv2-closeout-bank" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"><small>Depósito de nómina</small></label>
-        <label>Descuento INFONAVIT<input id="trv2-closeout-infonavit" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"></label>
+        <label class="trv2-payment-input-card"><span>Pago por banco (base)</span><input id="trv2-closeout-bank" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"><small id="trv2-closeout-bank-note">Depósito de nómina</small></label>
+        <label class="trv2-payment-input-card"><span>Descuento INFONAVIT</span><input id="trv2-closeout-infonavit" type="number" min="0" step="0.01" value="0" oninput="trv2UpdateOperatorPaymentCloseout()"><small id="trv2-closeout-infonavit-note">Retención del periodo</small></label>
         <article class="trv2-payment-expenses"><span>Gastos por viaje</span><strong id="trv2-closeout-expenses">$0.00</strong><small>Capturados en el detalle</small></article>
         <article class="trv2-payment-cash"><span>Pago en efectivo</span><strong id="trv2-closeout-cash">$0.00</strong><small>Comisiones − banco − INFONAVIT + gastos</small></article>
       </div>
