@@ -10,6 +10,7 @@ from routes.transporte_v2 import (
     _expand_client_contact_metadata,
     _normalize_catalog_row,
     _normalize_permiso_row,
+    _operator_load_invoice_folio,
     _operator_payment_dates,
     _operator_payment_tariff_for_trip,
     _operator_trip_quantity_summary,
@@ -18,6 +19,19 @@ from routes.transporte_v2 import (
     _permiso_product_family_match,
     _stamp_internal_product_keys,
 )
+
+
+def test_operator_payment_uses_merchandise_invoice_folio_instead_of_uuid():
+    row = {"id_ccp": "CCC5FAC5-0E39-408E-ACEF-961F2E092248", "uuid_cfdi": "UUID-CARTA-PORTE"}
+    meta = {"documento_detectado": {"folio_display": "FE 111596", "uuid": "UUID-FACTURA"}}
+
+    assert _operator_load_invoice_folio(row, meta) == "FE 111596"
+
+
+def test_operator_payment_does_not_fall_back_to_carta_porte_uuid():
+    row = {"id_ccp": "CCC5FAC5-0E39-408E-ACEF-961F2E092248", "uuid_cfdi": "UUID-CARTA-PORTE"}
+
+    assert _operator_load_invoice_folio(row, {}) == "Sin folio de factura"
 
 
 def test_operator_payment_tariff_prefers_operator_override_over_route_default():
@@ -114,7 +128,12 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
     assert "Descripción del gasto" in section
     assert "trv2CloseOperatorPaymentDetail" in frontend
     shell = (root / "templates/transporte_v2.html").read_text(encoding="utf-8")
-    assert "operator-payroll-detail-20260715b" in shell
+    assert 'data-payment-tab="bases"' in section
+    assert 'id="trv2-payroll-bases-table"' in section
+    assert "trv2SaveOperatorPayrollBases" in frontend
+    assert "trv2OperatorPayrollBase" in frontend
+    assert "bases_json" in frontend
+    assert "operator-payroll-bases-20260715a" in shell
 
 
 def test_transport_admin_mobile_shell_and_module_scoped_logout_contract():
