@@ -36,6 +36,7 @@
     <strong>GE CONTROL</strong>
     <span class="ge-legal-links"><a href="/terms">Términos</a><a href="/privacy">Privacidad</a></span>
   </footer>
+  <script src="/static/js/session_timeout.js?v=session-expiry-20260715"></script>
   <script>
     document.getElementById('loginForm').addEventListener('submit', async e => {
       e.preventDefault();
@@ -50,6 +51,7 @@
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible entrar.');
         localStorage.setItem('ge_gaslp_internal_token', data.token);
+        window.GESessionTimeout?.markLogin();
         location.href = '/asistente/gas-lp';
       } catch (ex) {
         err.textContent = ex.message;
