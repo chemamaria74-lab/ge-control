@@ -3532,6 +3532,29 @@ def _operator_payment_hours(row: dict[str, Any], route: dict[str, Any], tariff: 
     return round(minutes / 60, 4), "duración estimada de ruta"
 
 
+def _operator_load_invoice_folio(row: dict[str, Any], meta: dict[str, Any]) -> str:
+    """Return the merchandise invoice folio, never a Carta Porte UUID/IdCCP."""
+    detected = meta.get("documento_detectado") if isinstance(meta.get("documento_detectado"), dict) else {}
+    factura = meta.get("factura_carga") if isinstance(meta.get("factura_carga"), dict) else {}
+    serie = _first_text(detected.get("serie"), meta.get("serie_factura_carga"))
+    number = _first_text(detected.get("folio_numero"), meta.get("numero_factura_carga"))
+    serie_number = " ".join(value for value in (serie, number) if value).strip()
+    return _first_text(
+        detected.get("folio_display"),
+        detected.get("folio"),
+        row.get("folio_factura_carga"),
+        row.get("folio_factura"),
+        row.get("folio_carga"),
+        meta.get("folio_factura_carga"),
+        meta.get("folio_factura"),
+        meta.get("folio_carga"),
+        factura.get("folio_display"),
+        factura.get("folio"),
+        serie_number,
+        "Sin folio de factura",
+    )
+
+
 def _operator_payment_preview(
     token: str,
     uid: str,
@@ -3641,7 +3664,7 @@ def _operator_payment_preview(
             "ruta": route_name if route_id else "Sin ruta",
             "cliente_id": client_id or None,
             "cliente": _first_text(client.get("nombre"), row.get("cliente_nombre"), "Sin cliente"),
-            "folio": _first_text(row.get("folio_factura_carga"), row.get("folio_factura"), row.get("folio_carga"), row.get("folio"), meta.get("folio_factura_carga"), meta.get("folio_factura"), meta.get("folio_carga"), meta.get("numero_factura_carga"), row.get("id_ccp"), f"Viaje #{trip_id}"),
+            "folio": _operator_load_invoice_folio(row, meta),
             "origen": _first_text(route.get("origen"), route.get("nombre_origen"), row.get("origen"), meta.get("origen")),
             "destino": _first_text(route.get("destino"), route.get("nombre_destino"), row.get("destino"), meta.get("destino")),
             "producto": "Gas LP" if is_gas_lp_route else _first_text(quantity_summary.get("producto"), meta.get("producto_nombre"), "Petrolífero"),
@@ -9179,6 +9202,7 @@ def transporte_v2_operator_payments_export(
     descuento_infonavit: float = Query(default=0, ge=0),
     gastos: float = Query(default=0, ge=0),
     gastos_json: str = Query(default=""),
+    bases_json: str = Query(default=""),
     authorization: str = Header(default=""),
     perfil_id: Optional[int] = Query(default=None),
     x_perfil_id: str = Header(default=""),
@@ -9188,6 +9212,7 @@ def transporte_v2_operator_payments_export(
     _require_profile_if_present(uid, token, pid)
     preview = _operator_payment_preview(token, uid, pid, fecha_desde, fecha_hasta, operador_id)
     export_expenses: dict[int, dict[str, Any]] = {}
+    export_bases: dict[int, dict[str, float]] = {}
     try:
         raw_export_expenses = json.loads(gastos_json) if gastos_json else []
         if isinstance(raw_export_expenses, list):
@@ -9199,6 +9224,20 @@ def transporte_v2_operator_payments_export(
                     export_expenses[trip_id] = {"monto": round(max(0, _num(expense.get("monto"))), 2), "descripcion": _first_text(expense.get("descripcion"))}
     except (TypeError, ValueError, json.JSONDecodeError):
         raise HTTPException(400, "Los gastos por viaje no tienen un formato válido.")
+    try:
+        raw_export_bases = json.loads(bases_json) if bases_json else {}
+        if isinstance(raw_export_bases, dict):
+            for operator_key, base in raw_export_bases.items():
+                if not isinstance(base, dict):
+                    continue
+                operator_key_int = int(operator_key or 0)
+                if operator_key_int:
+                    export_bases[operator_key_int] = {
+                        "banco": round(max(0, _num(base.get("banco"))), 2),
+                        "infonavit": round(max(0, _num(base.get("infonavit"))), 2),
+                    }
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raise HTTPException(400, "Las bases de nómina no tienen un formato válido.")
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -9267,8 +9306,9 @@ def transporte_v2_operator_payments_export(
                 sheet.row_dimensions[row_number].height = 24
             last_trip_row = first_trip_row + len(items) - 1
             summary_start = last_trip_row + 2
-            bank = round(pago_banco, 2) if operador_id else 0
-            discount = round(descuento_infonavit, 2) if operador_id else 0
+            configured_base = export_bases.get(int(items[0].get("operador_id") or 0), {}) if items else {}
+            bank = round(pago_banco, 2) if operador_id else _num(configured_base.get("banco"))
+            discount = round(descuento_infonavit, 2) if operador_id else _num(configured_base.get("infonavit"))
             summary_rows = [
                 ("TOTAL COMISIONES", f"=SUM(J{first_trip_row}:J{last_trip_row})"),
                 ("PAGO POR BANCO", bank),
