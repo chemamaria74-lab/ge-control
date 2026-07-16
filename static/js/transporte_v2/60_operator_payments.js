@@ -6,11 +6,12 @@ let TRV2_OPERATOR_PAYMENT_VIEW = 'liquidaciones';
 let TRV2_OPERATOR_TARIFF_RETURN_VIEW = '';
 let TRV2_OPERATOR_TARIFF_FAMILY = 'gas_lp';
 let TRV2_OPERATOR_PAYMENT_EXPENSES = {};
+let TRV2_OPERATOR_PAYROLL_BASE_PERIOD = 'fortnight';
 const TRV2_OPERATOR_PAYMENT_CACHE_MS = 5 * 60 * 1000;
 let TRV2_OPERATOR_PAYMENT_LAST_SEARCH = null;
 
 function trv2SetOperatorPaymentView(view = 'liquidaciones') {
-  TRV2_OPERATOR_PAYMENT_VIEW = ['liquidaciones', 'tarifas', 'ruta'].includes(view) ? view : 'liquidaciones';
+  TRV2_OPERATOR_PAYMENT_VIEW = ['liquidaciones', 'tarifas', 'bases', 'ruta'].includes(view) ? view : 'liquidaciones';
   document.querySelectorAll('[data-payment-tab]').forEach(button => {
     button.classList.toggle('active', button.dataset.paymentTab === TRV2_OPERATOR_PAYMENT_VIEW);
   });
@@ -20,6 +21,7 @@ function trv2SetOperatorPaymentView(view = 'liquidaciones') {
   const exportButton = document.getElementById('trv2-payment-export');
   if (exportButton) exportButton.hidden = TRV2_OPERATOR_PAYMENT_VIEW !== 'liquidaciones';
   if (TRV2_OPERATOR_PAYMENT_VIEW === 'tarifas') trv2RenderOperatorTariffs();
+  if (TRV2_OPERATOR_PAYMENT_VIEW === 'bases') trv2RenderOperatorPayrollBases();
   if (TRV2_OPERATOR_PAYMENT_VIEW === 'ruta' && typeof trv2LoadOperatorDashboard === 'function') trv2LoadOperatorDashboard();
 }
 
@@ -68,6 +70,85 @@ function trv2MarkOperatorPaymentCustom() {
 function trv2OperatorPaymentDefaultPreset() {
   const value = window.TRV2_TRANSPORTE_SETTINGS?.pago_operadores?.periodo_predeterminado || 'quincenal';
   return value === 'semanal' ? 'week' : (value === 'mensual' ? 'month' : 'fortnight');
+}
+
+function trv2PayrollBaseSettings() {
+  if (!window.TRV2_TRANSPORTE_SETTINGS) window.TRV2_TRANSPORTE_SETTINGS = {};
+  const payment = window.TRV2_TRANSPORTE_SETTINGS.pago_operadores || {};
+  if (!payment.bases_nomina || typeof payment.bases_nomina !== 'object') payment.bases_nomina = {};
+  ['week', 'fortnight', 'month'].forEach(period => {
+    if (!payment.bases_nomina[period] || typeof payment.bases_nomina[period] !== 'object') payment.bases_nomina[period] = {};
+  });
+  window.TRV2_TRANSPORTE_SETTINGS.pago_operadores = payment;
+  return payment.bases_nomina;
+}
+
+function trv2SetOperatorPayrollBasePeriod(period = 'fortnight') {
+  TRV2_OPERATOR_PAYROLL_BASE_PERIOD = ['week', 'fortnight', 'month'].includes(period) ? period : 'fortnight';
+  document.querySelectorAll('[data-payroll-base-period]').forEach(button => button.classList.toggle('active', button.dataset.payrollBasePeriod === TRV2_OPERATOR_PAYROLL_BASE_PERIOD));
+  trv2RenderOperatorPayrollBases();
+}
+
+function trv2PayrollPeriodLabel(period = 'fortnight') {
+  return ({week: 'semanal', fortnight: 'quincenal', month: 'mensual'})[period] || 'quincenal';
+}
+
+function trv2RenderOperatorPayrollBases() {
+  const body = document.getElementById('trv2-payroll-bases-table');
+  if (!body) return;
+  const bases = trv2PayrollBaseSettings()[TRV2_OPERATOR_PAYROLL_BASE_PERIOD] || {};
+  const operators = TRV2_CATALOGS.operadores || [];
+  body.innerHTML = operators.length ? operators.map(operator => {
+    const saved = bases[String(operator.id)] || {};
+    const bank = Math.max(0, Number(saved.banco || 0));
+    const infonavit = Math.max(0, Number(saved.infonavit || 0));
+    return `<tr data-payroll-base-operator="${Number(operator.id)}"><td><strong>${trv2Esc(operator.nombre || `Operador #${operator.id}`)}</strong><small class="trv2-service-sub">Base ${trv2PayrollPeriodLabel(TRV2_OPERATOR_PAYROLL_BASE_PERIOD)}</small></td><td><label class="trv2-money-input"><span>$</span><input data-payroll-base-bank type="number" min="0" step="0.01" value="${bank}" oninput="trv2UpdatePayrollBaseCash(this)"></label></td><td><label class="trv2-money-input"><span>$</span><input data-payroll-base-infonavit type="number" min="0" step="0.01" value="${infonavit}" oninput="trv2UpdatePayrollBaseCash(this)"></label></td><td><strong data-payroll-base-cash>${trv2ServiceMoney(bank + infonavit)}</strong><small class="trv2-service-sub">Se descontará de las comisiones</small></td></tr>`;
+  }).join('') : '<tr><td colspan="4"><div class="trv2-empty">Primero registra operadores en Catálogos.</div></td></tr>';
+  const note = document.getElementById('trv2-payroll-bases-period-note');
+  if (note) note.textContent = `Estas cantidades se usarán cuando la liquidación sea ${trv2PayrollPeriodLabel(TRV2_OPERATOR_PAYROLL_BASE_PERIOD)}.`;
+}
+
+function trv2UpdatePayrollBaseCash(input) {
+  const row = input?.closest('[data-payroll-base-operator]');
+  if (!row) return;
+  const bank = Math.max(0, Number(row.querySelector('[data-payroll-base-bank]')?.value || 0));
+  const infonavit = Math.max(0, Number(row.querySelector('[data-payroll-base-infonavit]')?.value || 0));
+  const total = row.querySelector('[data-payroll-base-cash]');
+  if (total) total.textContent = trv2ServiceMoney(bank + infonavit);
+}
+
+async function trv2SaveOperatorPayrollBases() {
+  const allBases = trv2PayrollBaseSettings();
+  const periodBases = {};
+  document.querySelectorAll('#trv2-payroll-bases-table [data-payroll-base-operator]').forEach(row => {
+    const operatorId = String(Number(row.dataset.payrollBaseOperator || 0));
+    if (operatorId === '0') return;
+    periodBases[operatorId] = {
+      banco: Math.max(0, Number(row.querySelector('[data-payroll-base-bank]')?.value || 0)),
+      infonavit: Math.max(0, Number(row.querySelector('[data-payroll-base-infonavit]')?.value || 0)),
+    };
+  });
+  allBases[TRV2_OPERATOR_PAYROLL_BASE_PERIOD] = periodBases;
+  const data = await trv2Api('POST', '/api/tr-v2/admin/settings', {perfil_id: TRV2_PERFIL?.id || null, data: {pago_operadores: {bases_nomina: allBases}}}, {allowError: true});
+  if (!data?.ok) return trv2Toast(data?.message || data?.detail || 'No se pudieron guardar las bases de nómina.', 'error');
+  window.TRV2_TRANSPORTE_SETTINGS = data.data || window.TRV2_TRANSPORTE_SETTINGS;
+  trv2Toast(`Bases de nómina guardadas para el periodo ${trv2PayrollPeriodLabel(TRV2_OPERATOR_PAYROLL_BASE_PERIOD)}.`, 'success');
+  trv2RenderOperatorPayrollBases();
+}
+
+function trv2CurrentPayrollBasePeriod() {
+  const preset = document.getElementById('trv2-payment-preset')?.value || 'custom';
+  if (['week', 'fortnight', 'month'].includes(preset)) return preset;
+  const from = new Date(`${document.getElementById('trv2-payment-from')?.value || ''}T00:00:00`);
+  const to = new Date(`${document.getElementById('trv2-payment-to')?.value || ''}T00:00:00`);
+  const days = Number.isFinite(from.getTime()) && Number.isFinite(to.getTime()) ? Math.floor((to - from) / 86400000) + 1 : 15;
+  return days <= 8 ? 'week' : (days <= 16 ? 'fortnight' : 'month');
+}
+
+function trv2OperatorPayrollBase(operatorId) {
+  const period = trv2CurrentPayrollBasePeriod();
+  const saved = trv2PayrollBaseSettings()[period]?.[String(Number(operatorId || 0))] || {};
+  return {period, banco: Math.max(0, Number(saved.banco || 0)), infonavit: Math.max(0, Number(saved.infonavit || 0))};
 }
 
 function trv2OperatorPaymentCatalogOptions() {
@@ -331,7 +412,16 @@ function trv2PrepareSelectedOperatorPayment() {
   if (context) context.innerHTML = `<article><span>Periodo</span><strong>${trv2Esc(trv2DisplayDate(document.getElementById('trv2-payment-from')?.value, {fallback: '—'}))} → ${trv2Esc(trv2DisplayDate(document.getElementById('trv2-payment-to')?.value, {fallback: '—'}))}</strong></article><article><span>Viajes</span><strong>${group.items.length}</strong></article><article><span>Rutas</span><strong>${group.routes.size}</strong></article><article><span>Gastos</span><strong>${trv2ServiceMoney(trv2RefreshOperatorExpenseTotal())}</strong></article>`;
   const commissionNode = document.getElementById('trv2-closeout-commissions');
   if (commissionNode) { commissionNode.dataset.value = String(group.total); commissionNode.textContent = trv2ServiceMoney(group.total); }
-  ['trv2-closeout-bank', 'trv2-closeout-infonavit'].forEach(id => { const input = document.getElementById(id); if (input) input.value = '0'; });
+  const payrollBase = trv2OperatorPayrollBase(group.id);
+  const bankInput = document.getElementById('trv2-closeout-bank');
+  const infonavitInput = document.getElementById('trv2-closeout-infonavit');
+  if (bankInput) bankInput.value = String(payrollBase.banco);
+  if (infonavitInput) infonavitInput.value = String(payrollBase.infonavit);
+  const bankNote = document.getElementById('trv2-closeout-bank-note');
+  const infonavitNote = document.getElementById('trv2-closeout-infonavit-note');
+  const baseLabel = trv2PayrollPeriodLabel(payrollBase.period);
+  if (bankNote) bankNote.textContent = payrollBase.banco ? `Base ${baseLabel} aplicada automáticamente` : `Sin base ${baseLabel} configurada`;
+  if (infonavitNote) infonavitNote.textContent = payrollBase.infonavit ? `Base ${baseLabel} aplicada automáticamente` : `Sin base ${baseLabel} configurada`;
   const expenses = trv2SelectedOperatorExpenses();
   const expenseNode = document.getElementById('trv2-closeout-expenses');
   if (expenseNode) { expenseNode.dataset.value = String(expenses.reduce((sum, item) => sum + item.monto, 0)); expenseNode.textContent = trv2ServiceMoney(Number(expenseNode.dataset.value)); }
@@ -402,6 +492,8 @@ async function trv2ExportOperatorPayments(includeSelected = false) {
   } else {
     const allExpenses = trv2AllOperatorExpenses();
     if (allExpenses.length) query.set('gastos_json', JSON.stringify(allExpenses));
+    const period = trv2CurrentPayrollBasePeriod();
+    query.set('bases_json', JSON.stringify(trv2PayrollBaseSettings()[period] || {}));
   }
   const response = await fetch(`/api/tr-v2/operator-payments/export.xlsx?${query}`, {headers: trv2Headers()});
   if (!response.ok) return trv2Toast('No se pudo generar el Excel de pago a operadores.', 'error');
