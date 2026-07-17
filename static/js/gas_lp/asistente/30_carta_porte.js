@@ -239,13 +239,17 @@ function cpFacilityValue(facility, key){
 }
 function cpRouteFacilityPayload(prefix, id){
   const facility = cpFacilityById(id);
+  const storedLocationId = cpFacilityValue(facility, 'id_ubicacion');
+  const suffix = String(storedLocationId || '').match(/(\d{6})$/)?.[1] || '';
   return {
     [`cp_${prefix}`]: cpFacilityValue(facility, 'cp'),
     [`nombre_${prefix}`]: cpFacilityValue(facility, 'nombre'),
     [`localidad_${prefix}`]: cpFacilityValue(facility, 'localidad'),
     [`municipio_${prefix}`]: cpFacilityValue(facility, 'municipio'),
     [`estado_${prefix}`]: cpFacilityValue(facility, 'estado'),
-    [`id_ubicacion_${prefix}`]: cpFacilityValue(facility, 'id_ubicacion')
+    // Una instalación "ambos" conserva un solo consecutivo y toma el prefijo
+    // fiscal correcto cuando se usa dentro de la ruta.
+    [`id_ubicacion_${prefix}`]: suffix ? `${prefix === 'origen' ? 'OR' : 'DE'}${suffix}` : storedLocationId
   };
 }
 function cpLocationIdError(group, value){
@@ -258,7 +262,9 @@ function cpLocationIdError(group, value){
 function cpRouteEndpointError(route, group, facility){
   const prefix = group === 'Origen' ? 'origen' : 'destino';
   const configured = cpRouteLocationId(route, prefix);
-  const actual = cpFacilityValue(facility, 'id_ubicacion');
+  const stored = cpFacilityValue(facility, 'id_ubicacion');
+  const suffix = String(stored || '').match(/(\d{6})$/)?.[1] || '';
+  const actual = suffix ? `${prefix === 'origen' ? 'OR' : 'DE'}${suffix}` : stored;
   return cpLocationIdError(group, actual || configured);
 }
 function cpMercanciaValue(merc, key){
@@ -835,6 +841,7 @@ let assistantCpSaving = false;
 const assistantCpDeleting = new Set();
 let assistantCpPostalLookupCache = null;
 let assistantCpPostalLookupPromise = null;
+let assistantCpPostalCatalog = null;
 function assistantCpActionLog(action, details={}){
   const payload = {area:'carta_porte_configuracion', action, ...details};
   if(details.error) console.warn('[Carta Porte Configuración]', payload);
@@ -950,6 +957,7 @@ async function loadAssistantCpPostalLookup(){
         return res.json();
       })
       .then(data => {
+        assistantCpPostalCatalog = data || {};
         assistantCpPostalLookupCache = data?.lookup || {};
         return assistantCpPostalLookupCache;
       })
@@ -971,6 +979,19 @@ function assistantCpApplyPostalMatch(match){
   if(window.acpu_estado) acpu_estado.value = match.estado || '';
   if(window.acpu_mun) acpu_mun.value = match.municipio || '';
   if(window.acpu_loc) acpu_loc.value = match.localidad || '';
+  assistantCpRefreshMunicipalities(match.municipio || '');
+}
+function assistantCpStateOptions(value=''){
+  const states = assistantCpPostalCatalog?.states || [];
+  return '<option value="">Selecciona un estado</option>' + states.map(state => `<option value="${esc(state.clave)}"${state.clave === value ? ' selected' : ''}>${esc(state.clave)} · ${esc(state.nombre)}</option>`).join('');
+}
+function assistantCpMunicipalityOptions(stateCode, value=''){
+  const state = (assistantCpPostalCatalog?.states || []).find(item => item.clave === stateCode);
+  return '<option value="">Selecciona un municipio</option>' + (state?.municipios || []).map(mun => `<option value="${esc(mun.clave)}"${mun.clave === value ? ' selected' : ''}>${esc(mun.clave)} · ${esc(mun.nombre)}</option>`).join('');
+}
+function assistantCpRefreshMunicipalities(value=''){
+  if(!window.acpu_estado || !window.acpu_mun) return;
+  acpu_mun.innerHTML = assistantCpMunicipalityOptions(acpu_estado.value, value || acpu_mun.value);
 }
 async function assistantCpLookupPostalCode(){
   if(!window.acpu_cp) return;
@@ -984,7 +1005,7 @@ async function assistantCpLookupPostalCode(){
     const lookup = await loadAssistantCpPostalLookup();
     const matches = lookup[cp] || [];
     if(!matches.length){
-      assistantCpPostalStatus('No encontré ese CP en el cache SAT local. Puedes capturar Estado/Municipio/Localidad manualmente y revisarlo antes de timbrar.', false);
+      assistantCpPostalStatus('No encontré ese CP en el cache local. Selecciona Estado y Municipio en las listas y revísalos antes de timbrar.', false);
       return;
     }
     if(matches.length === 1){
@@ -1007,6 +1028,7 @@ if(typeof window !== 'undefined'){
   window.assistantCpApplyPostalMatch = assistantCpApplyPostalMatch;
   window.assistantCpLookupPostalCode = assistantCpLookupPostalCode;
   window.assistantCpSelectPostalMatch = assistantCpSelectPostalMatch;
+  window.assistantCpRefreshMunicipalities = assistantCpRefreshMunicipalities;
 }
 function assistantCpFindRow(kind, id){
   return assistantCpRows(kind).find(x => {
@@ -1138,6 +1160,9 @@ function openAssistantCpEditor(kind,id=null){
   }
   assistantCpPanelOpen = true;
   renderAssistantCpCatalogs();
+  if(kind === 'instalaciones' && !assistantCpPostalCatalog){
+    loadAssistantCpPostalLookup().then(() => renderAssistantCpCatalogs()).catch(() => {});
+  }
 }
 function closeAssistantCpEditor(){
   assistantCpEdit = {kind:'',id:null};
@@ -1224,10 +1249,9 @@ function renderAssistantCpForm(){
     acpField('acpu_cp','<span class="acp-required">CP</span>',row?.codigo_postal || '','text',manualInstallation ? 'maxlength="5" inputmode="numeric" placeholder="98470" oninput="assistantCpLookupPostalCode()" onblur="assistantCpLookupPostalCode()"' : 'readonly class="locked-field"','Código postal SAT del domicilio.'),
     '<div id="acpu_cp_lookup" class="acp-span acp-cp-lookup"></div>',
     acpField('acpu_domicilio','<span class="acp-required">Domicilio</span>',row?.calle || row?.domicilio_operativo || '','text',manualInstallation ? 'placeholder="Calle, número y referencia"' : 'readonly class="locked-field"','Las oficiales se toman de Administración; las manuales se guardan solo en Carta Porte.'),
-    acpSelect('acpu_tipo','Tipo Carta Porte','<option value="origen">Origen</option><option value="destino">Destino</option><option value="ambos">Ambos</option>',row?.tipo||'ambos'),
-    acpField('acpu_id','<span class="acp-required">ID ubicación Carta Porte</span>',row?.id_ubicacion_carta_porte||row?.id_ubicacion||'','text','placeholder="OR000001 / DE000001"'),
-    acpField('acpu_estado','<span class="acp-required">Estado SAT</span>',row?.estado_sat||row?.estado||'','text','placeholder="ZAC"','Clave SAT del estado, por ejemplo ZAC.'),
-    acpField('acpu_mun','<span class="acp-required">Municipio SAT</span>',row?.municipio_sat||row?.municipio||'','text','placeholder="051"','Clave SAT de municipio.'),
+    acpSelect('acpu_tipo','Tipo Carta Porte','<option value="origen">Origen</option><option value="destino">Destino</option><option value="ambos">Ambos</option>',row?.tipo||'ambos','El ID ubicación se genera automáticamente; en “Ambos” toma OR o DE al timbrar según su uso.'),
+    acpSelect('acpu_estado','<span class="acp-required">Estado SAT</span>',assistantCpStateOptions(row?.estado_sat||row?.estado||''),row?.estado_sat||row?.estado||'','Solo se muestran Aguascalientes, Jalisco y Zacatecas.').replace('<select id="acpu_estado">','<select id="acpu_estado" onchange="assistantCpRefreshMunicipalities()">'),
+    acpSelect('acpu_mun','<span class="acp-required">Municipio SAT</span>',assistantCpMunicipalityOptions(row?.estado_sat||row?.estado||'',row?.municipio_sat||row?.municipio||''),row?.municipio_sat||row?.municipio||'','Clave oficial de municipio.'),
     acpField('acpu_loc','Localidad SAT',row?.localidad_sat||''),
     acpField('acpu_ref','Referencia Carta Porte',row?.referencia_carta_porte||'')
   ].join('');
@@ -1319,7 +1343,6 @@ function validateAssistantCp(kind){
     req('CP', acpu_cp.value);
     req('domicilio', acpu_domicilio.value);
     req('tipo Carta Porte', acpu_tipo.value);
-    req('ID ubicación Carta Porte', acpu_id.value);
     req('estado SAT', acpu_estado.value);
     req('municipio SAT', acpu_mun.value);
     if(cp && !/^\d{5}$/.test(cp)){
@@ -1343,8 +1366,8 @@ async function saveAssistantCp(){
   const editingRow = assistantCpEdit.kind === kind ? assistantCpFindRow(kind, assistantCpEdit.id) : null;
   if(kind==='vehiculos') p = {numero_economico:acpv_num.value,placa:acpv_placas.value,anio:acpv_anio.value,config_vehicular:acpv_config.value,permiso_cre:acpv_permiso.value,numero_permiso:acpv_numperm.value,peso_bruto_vehicular:acpv_pbv.value,aseguradora:acpv_aseg.value,poliza_seguro:acpv_poliza.value,aseguradora_medio_ambiente:acpv_asegma.value,poliza_medio_ambiente:acpv_polizama.value};
   if(kind==='choferes') p = {nombre:acpc_nombre.value,rfc:acpc_rfc.value,curp:acpc_curp.value,tipo_licencia:acpc_tipolic.value,licencia:acpc_lic.value,tipo_figura:acpc_tipo.value,fecha_expedicion_licencia:acpc_exp.value,fecha_vencimiento_licencia:acpc_venc.value,telefono:acpc_tel.value};
-  if(kind==='instalaciones' && editingRow && !editingRow._cp_manual) p = {tipo_ubicacion:acpu_tipo.value,id_ubicacion_carta_porte:acpu_id.value,estado_sat:acpu_estado.value,municipio_sat:acpu_mun.value,localidad_sat:acpu_loc.value,referencia_carta_porte:acpu_ref.value};
-  if(kind==='instalaciones' && (!editingRow || editingRow._cp_manual)) p = {alias:acpu_nombre.value,nombre:acpu_nombre.value,codigo_postal:acpu_cp.value,calle:acpu_domicilio.value,tipo:acpu_tipo.value,id_ubicacion:acpu_id.value,estado:acpu_estado.value,municipio:acpu_mun.value,localidad_colonia:acpu_loc.value,pais:'MEX',referencia_carta_porte:acpu_ref.value};
+  if(kind==='instalaciones' && editingRow && !editingRow._cp_manual) p = {tipo_ubicacion:acpu_tipo.value,estado_sat:acpu_estado.value,municipio_sat:acpu_mun.value,localidad_sat:acpu_loc.value,referencia_carta_porte:acpu_ref.value};
+  if(kind==='instalaciones' && (!editingRow || editingRow._cp_manual)) p = {alias:acpu_nombre.value,nombre:acpu_nombre.value,codigo_postal:acpu_cp.value,calle:acpu_domicilio.value,tipo:acpu_tipo.value,estado:acpu_estado.value,municipio:acpu_mun.value,localidad_colonia:acpu_loc.value,pais:'MEX',referencia_carta_porte:acpu_ref.value};
   if(kind==='mercancias') p = {alias:acpm_alias.value,bienes_transp:acpm_bienes.value,descripcion:acpm_desc.value,clave_unidad:acpm_clave.value,unidad:acpm_unidad.value,factor_kg_litro:cpDecimalValue(acpm_factor.value),material_peligroso:acpm_peligro.value,clave_material_peligroso:acpm_clavep.value,embalaje:acpm_emb.value,descripcion_embalaje:acpm_descemb.value};
   if(kind==='rutas') {
     p = {
