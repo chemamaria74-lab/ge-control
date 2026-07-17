@@ -243,8 +243,6 @@ def _fact_serv_product_metadata(viaje: dict, *, base_carta: dict | None = None) 
 def _tariff_match(viaje: dict, tarifa: dict) -> bool:
     if tarifa.get("cliente_id") and str(tarifa.get("cliente_id")) != str(viaje.get("cliente_id") or ""):
         return False
-    if tarifa.get("ruta_id") and str(tarifa.get("ruta_id")) != str(viaje.get("ruta_id") or ""):
-        return False
     productos = viaje.get("productos_json")
     if isinstance(productos, str):
         try:
@@ -275,11 +273,20 @@ def _tariff_match(viaje: dict, tarifa: dict) -> bool:
     )
     if producto_tarifa and not mismo_producto_id and not familia_compatible and producto_tarifa not in texto_viaje:
         return False
-    origen = str(tarifa.get("origen") or "").strip().upper()
-    if origen and origen not in str(viaje.get("nombre_origen") or viaje.get("origen") or "").upper():
+    def route_text(value):
+        return " ".join("".join(ch if ch.isalnum() else " " for ch in str(value or "").upper()).split())
+
+    origen = route_text(tarifa.get("origen"))
+    viaje_origen = route_text(viaje.get("nombre_origen") or viaje.get("origen"))
+    if origen and not (origen == viaje_origen or origen in viaje_origen or viaje_origen in origen):
         return False
-    destino = str(tarifa.get("destino") or "").strip().upper()
-    if destino and destino not in str(viaje.get("nombre_destino") or viaje.get("destino") or "").upper():
+    destino = route_text(tarifa.get("destino"))
+    viaje_destino = route_text(viaje.get("nombre_destino") or viaje.get("destino"))
+    if destino and not (destino == viaje_destino or destino in viaje_destino or viaje_destino in destino):
+        return False
+    has_route_text = bool(origen or destino)
+    same_route_id = bool(tarifa.get("ruta_id") and str(tarifa.get("ruta_id")) == str(viaje.get("ruta_id") or ""))
+    if tarifa.get("ruta_id") and not same_route_id and not has_route_text:
         return False
     return True
 
@@ -303,6 +310,10 @@ def _tariff_specificity(viaje: dict, tarifa: dict) -> int:
     score = 0
     if tarifa.get("ruta_id") and str(tarifa.get("ruta_id")) == str(viaje.get("ruta_id") or ""):
         score += 100
+    if str(tarifa.get("origen") or "").strip() or str(tarifa.get("destino") or "").strip():
+        # Una coincidencia validada de origen/destino es suficiente aunque el
+        # ruta_id histórico del viaje haya quedado desfasado.
+        score += 120
     if tarifa.get("producto_id") and viaje_producto_id and str(tarifa.get("producto_id")) == str(viaje_producto_id):
         score += 80
     elif str(tarifa.get("producto") or "").strip().upper() and str(tarifa.get("producto") or "").strip().upper() in _tariff_product_text(viaje):
@@ -322,7 +333,22 @@ def _tariff_specificity(viaje: dict, tarifa: dict) -> int:
 
 def _calcular_tarifa_operativa(viaje: dict, tarifas: list[dict]) -> dict:
     matches = [(t, _tariff_specificity(viaje, t)) for t in (tarifas or [])]
-    tarifa = next((t for t, score in sorted(matches, key=lambda item: item[1], reverse=True) if score >= 0), None)
+    valid_matches = sorted((item for item in matches if item[1] >= 0), key=lambda item: item[1], reverse=True)
+    tarifa = valid_matches[0][0] if valid_matches else None
+    tarifa_error = ""
+    if valid_matches:
+        top_score = valid_matches[0][1]
+        top_matches = [item[0] for item in valid_matches if item[1] == top_score]
+        top_values = {
+            (
+                round(_safe_float(item.get("tarifa")), 6),
+                str(item.get("regla_calculo") or item.get("base_calculo") or "").strip().lower(),
+            )
+            for item in top_matches
+        }
+        if len(top_values) > 1:
+            tarifa = None
+            tarifa_error = "Tarifa ambigua: existen configuraciones igualmente específicas con importes distintos."
     productos = viaje.get("productos_json")
     if isinstance(productos, str):
         try:
@@ -360,6 +386,7 @@ def _calcular_tarifa_operativa(viaje: dict, tarifas: list[dict]) -> dict:
     return {
         "viaje_id": viaje.get("id"),
         "tarifa_id": (tarifa or {}).get("id"),
+        "tarifa_error": tarifa_error,
         "regla_calculo": regla,
         "cantidad_base": base,
         "tarifa": tarifa_val,
@@ -1077,6 +1104,13 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         if not i.get("tarifa_id") and not i.get("tarifa_override")
     ]
     if sin_tarifa:
+        errores_tarifa = [
+            i.get("tarifa_error")
+            for i in calculo_servicio.get("items", [])
+            if i.get("tarifa_error")
+        ]
+        if errores_tarifa:
+            raise HTTPException(400, f"No se puede timbrar: {errores_tarifa[0]} Viajes: {sin_tarifa}")
         raise HTTPException(400, f"Configura una tarifa de servicio antes de timbrar Carta Ingreso para estos viajes: {sin_tarifa}")
     if calculo_servicio.get("tasas_mixtas"):
         raise HTTPException(400, "No mezcles Cartas Porte con tasas distintas de IVA/retención en una sola Carta Ingreso.")
