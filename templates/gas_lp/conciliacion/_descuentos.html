@@ -1,0 +1,22 @@
+    <section class="section" data-section="descuentos">
+      <div class="panel">
+        <div class="section-head compact-head">
+          <div><h2>Descuentos</h2><div class="muted small">Audita descuentos por cliente y reconoce ventas a Público en General mediante observaciones.</div></div>
+          <div class="toolbar discount-search-actions">
+            <input id="descuentosMes" type="month">
+            <input id="descuentosFiltro" placeholder="Cliente, RFC, folio u observaciones" oninput="renderDescuentos()">
+            <button class="btn ghost" type="button" onclick="buscarDescuentos()"><i class="fa-solid fa-magnifying-glass"></i> Buscar descuentos</button>
+          </div>
+        </div>
+        <div class="kpis dashboard-kpis" style="margin-top:0">
+          <div class="panel kpi"><span>Venta con descuento</span><b id="descVenta">$0.00</b></div>
+          <div class="panel kpi"><span>Descuento otorgado</span><b id="descTotal">$0.00</b></div>
+          <div class="panel kpi"><span>Promedio descuento/L</span><b id="descPromedio">$0.00</b></div>
+          <div class="panel kpi"><span>Facturas con descuento</span><b id="descFacturas">0</b></div>
+        </div>
+        <div class="section-head"><div><h2>Clientes con descuento</h2></div><span class="pill neutral" id="descClientesCount">0 clientes</span></div>
+        <div class="table-wrap descuento-clientes-scroll"><table><thead><tr><th>Cliente</th><th>RFC</th><th>Facturas</th><th>Litros</th><th>Venta</th><th>Descuento</th><th>Desc/L</th></tr></thead><tbody id="descRows"><tr><td colspan="7">Presiona Buscar descuentos.</td></tr></tbody></table></div>
+        <div class="section-head discount-detail-head"><div><h2>Facturas del cliente</h2></div><span class="pill neutral" id="descDetalleCount">Sin selección</span></div>
+        <div class="table-wrap descuento-detalle-scroll" id="descDetalle"><div class="notice">Selecciona un cliente para ver folio y observaciones.</div></div>
+      </div>
+    </section>

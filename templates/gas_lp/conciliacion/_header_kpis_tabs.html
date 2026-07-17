@@ -5,23 +5,31 @@
       </div>
       <div class="toolbar">
         <input id="periodoFiltro" class="month-input" type="month" onchange="syncSelectedMonth(this.value)">
-        <button class="btn ghost" type="button" onclick="loadAll({force:true})">Actualizar</button>
+        <button class="btn ghost" type="button" onclick="buscarDashboard()"><i class="fa-solid fa-magnifying-glass"></i> Buscar dashboard</button>
       </div>
     </section>
 
-    <section class="kpis">
-      <div class="panel kpi"><span>Facturas del mes</span><b id="kFacturas">0</b></div>
-      <div class="panel kpi"><span>Total facturado</span><b id="kTotal">$0.00</b></div>
-      <div class="panel kpi"><span>Pendiente PPD</span><b id="kCredito">$0.00</b></div>
-      <div class="panel kpi"><span>Complementos pendientes</span><b id="kCompPend">0</b></div>
-      <div class="panel kpi"><span>Descuentos del mes</span><b id="kDescuentos">$0.00</b></div>
-      <div class="panel kpi"><span>Vencidas / vigentes</span><b id="kCreditoEstado">0 / 0</b></div>
-    </section>
-
     <nav class="tabs">
-      <button class="tab active" data-tab="facturas" onclick="switchTab('facturas')">Facturas</button>
+      <button class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+      <button class="tab" data-tab="facturas" onclick="switchTab('facturas')">Facturas</button>
       <button class="tab" data-tab="publico" onclick="switchTab('publico')">Facturar Público General</button>
       <button class="tab" data-tab="complementos" onclick="switchTab('complementos')">Complementos de pago</button>
       <button class="tab" data-tab="credito" onclick="switchTab('credito')">Crédito</button>
+      <button class="tab" data-tab="descuentos" onclick="switchTab('descuentos')">Descuentos</button>
       <button class="tab" data-tab="sat" onclick="switchTab('sat')">Cancelación / Consulta SAT</button>
     </nav>
+
+    <section class="section active" data-section="dashboard">
+      <div class="panel dashboard-panel">
+        <div class="section-head"><div><h2>Dashboard del periodo</h2><div class="muted small">Resumen ejecutivo de la empresa seleccionada. Se carga únicamente al presionar Buscar dashboard.</div></div></div>
+        <section class="kpis dashboard-kpis">
+          <div class="panel kpi"><span>Facturas del mes</span><b id="kFacturas">0</b></div>
+          <div class="panel kpi"><span>Total facturado</span><b id="kTotal">$0.00</b></div>
+          <div class="panel kpi"><span>Pendiente PPD</span><b id="kCredito">$0.00</b></div>
+          <div class="panel kpi"><span>Complementos pendientes</span><b id="kCompPend">0</b></div>
+          <div class="panel kpi"><span>Descuentos del mes</span><b id="kDescuentos">$0.00</b></div>
+          <div class="panel kpi"><span>Vencidas / vigentes</span><b id="kCreditoEstado">0 / 0</b></div>
+        </section>
+        <div id="dashboardPrompt" class="notice">Selecciona un mes y presiona Buscar dashboard.</div>
+      </div>
+    </section>
