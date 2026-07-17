@@ -20,7 +20,7 @@
 <nav class="trv2-tabs" id="trv2-admin-tabs" aria-label="Navegación Transporte v2" hidden>
   <button class="trv2-tab active" type="button" data-tab="carta-porte" onclick="trv2SwitchTab('carta-porte')">Carta Porte</button>
   <button class="trv2-tab" type="button" data-tab="facturas-servicio" onclick="trv2SwitchTab('facturas-servicio')">Cartas Ingreso</button>
-  <button class="trv2-tab" type="button" data-tab="conciliacion" onclick="trv2SwitchTab('conciliacion')">Pago operadores</button>
+  <button class="trv2-tab" type="button" data-tab="conciliacion" onclick="trv2SwitchTab('conciliacion')">Nómina operadores</button>
   <button class="trv2-tab" type="button" data-tab="reportes-sat" onclick="trv2SwitchTab('reportes-sat')">Reportes SAT</button>
   <button class="trv2-tab" type="button" data-tab="catalogos" onclick="trv2SwitchTab('catalogos')">Catálogos</button>
   <button class="trv2-tab" type="button" data-tab="administracion" onclick="trv2SwitchTab('administracion')">Administración</button>
@@ -380,17 +380,18 @@
   <section id="trv2-tab-conciliacion" class="trv2-section">
     <div class="trv2-section-head">
       <div>
-        <h1>Liquidación de operadores</h1>
-        <p>Calcula el pago por viaje, kilómetro u hora sin mezclarlo con la tarifa cobrada al cliente.</p>
+        <h1>Nómina de operadores</h1>
+        <p>Prepara pagos por periodo y calcula por separado un finiquito o liquidación cuando termina una relación laboral.</p>
       </div>
       <div class="trv2-actions">
         <button class="trv2-btn trv2-btn-ghost" id="trv2-payment-export" type="button" onclick="trv2ExportOperatorPayments()"><i class="fa-solid fa-file-excel"></i> Excel</button>
       </div>
     </div>
     <nav class="trv2-subtabs" aria-label="Pago y seguimiento de operadores">
-      <button class="trv2-subtab active" type="button" data-payment-tab="liquidaciones" onclick="trv2SetOperatorPaymentView('liquidaciones')"><i class="fa-solid fa-money-check-dollar"></i> Liquidaciones</button>
-      <button class="trv2-subtab" type="button" data-payment-tab="tarifas" onclick="trv2SetOperatorPaymentView('tarifas')"><i class="fa-solid fa-tags"></i> Tarifas</button>
-      <button class="trv2-subtab" type="button" data-payment-tab="bases" onclick="trv2SetOperatorPaymentView('bases')"><i class="fa-solid fa-building-columns"></i> Bases de nómina</button>
+      <button class="trv2-subtab active" type="button" data-payment-tab="liquidaciones" onclick="trv2SetOperatorPaymentView('liquidaciones')"><i class="fa-solid fa-money-check-dollar"></i> Pago por periodo</button>
+      <button class="trv2-subtab" type="button" data-payment-tab="baja-laboral" onclick="trv2SetOperatorPaymentView('baja-laboral')"><i class="fa-solid fa-user-minus"></i> Finiquito y liquidación</button>
+      <button class="trv2-subtab" type="button" data-payment-tab="tarifas" onclick="trv2SetOperatorPaymentView('tarifas')"><i class="fa-solid fa-tags"></i> Tarifas por viaje</button>
+      <button class="trv2-subtab" type="button" data-payment-tab="bases" onclick="trv2SetOperatorPaymentView('bases')"><i class="fa-solid fa-building-columns"></i> Configuración de nómina</button>
       <button class="trv2-subtab" type="button" data-payment-tab="ruta" onclick="trv2SetOperatorPaymentView('ruta')"><i class="fa-solid fa-route"></i> Operadores en ruta</button>
     </nav>
     <div class="trv2-payment-panel active" data-payment-panel="liquidaciones">
@@ -413,7 +414,7 @@
       </div>
     </section>
     <div class="trv2-kpis" id="trv2-payment-kpis">
-      <article><span>Viajes por liquidar</span><strong>0</strong></article>
+      <article><span>Viajes por pagar</span><strong>0</strong></article>
       <article><span>Operadores</span><strong>0</strong></article>
       <article><span>Rutas</span><strong>0</strong></article>
       <article><span>Total estimado</span><strong>$0.00</strong></article>
@@ -423,7 +424,7 @@
       <div class="trv2-table-head">
         <div>
           <h2>Resumen por operador</h2>
-          <p class="trv2-muted">Abre la quincena para revisar cada viaje y definir banco, descuentos, gastos y efectivo.</p>
+          <p class="trv2-muted">Abre el periodo para revisar cada viaje y definir banco, descuentos, gastos y efectivo.</p>
         </div>
       </div>
       <div class="trv2-table-wrap trv2-service-scroll"><table class="trv2-service-generated-table"><thead><tr><th>Operador</th><th>Viajes</th><th>Rutas</th><th>Litros</th><th>Kg</th><th>Comisiones</th><th>Sin tarifa</th><th>Acciones</th></tr></thead><tbody id="trv2-payment-summary-table"></tbody></table></div>
@@ -432,8 +433,46 @@
       <div class="trv2-table-head"><div><h2 id="trv2-payment-inline-title">Detalle del operador</h2><p class="trv2-muted">Captura aquí los gastos de cada viaje. La preparación de nómina se realiza después.</p></div><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseOperatorPaymentInlineDetail()">Cerrar detalle</button></div>
       <div class="trv2-payment-inline-context" id="trv2-payment-inline-context"></div>
       <div class="trv2-table-wrap trv2-service-scroll trv2-payment-inline-table"><table class="trv2-service-generated-table"><thead><tr><th>Fecha</th><th>Flete / folio factura</th><th>Origen</th><th>Destino / ruta</th><th>Producto</th><th>Litros</th><th>Kg</th><th>Km</th><th>Comisión</th><th>Descripción del gasto</th><th>Gasto</th><th>Tarifa</th></tr></thead><tbody id="trv2-payment-detail-table"></tbody></table></div>
-      <div class="trv2-payment-inline-footer"><div><span>Gastos capturados</span><strong id="trv2-payment-detail-expenses">$0.00</strong></div><button class="trv2-btn trv2-btn-primary" id="trv2-payment-prepare-btn" type="button" onclick="trv2PrepareSelectedOperatorPayment()"><i class="fa-solid fa-file-invoice-dollar"></i> Preparar liquidación</button></div>
+      <div class="trv2-payment-inline-footer"><div><span>Gastos capturados</span><strong id="trv2-payment-detail-expenses">$0.00</strong></div><button class="trv2-btn trv2-btn-primary" id="trv2-payment-prepare-btn" type="button" onclick="trv2PrepareSelectedOperatorPayment()"><i class="fa-solid fa-file-invoice-dollar"></i> Preparar pago</button></div>
     </section>
+    </div>
+    <div class="trv2-payment-panel" data-payment-panel="baja-laboral">
+      <section class="trv2-panel trv2-termination-panel">
+        <div class="trv2-table-head">
+          <div><h2>Estimador de finiquito y liquidación</h2><p class="trv2-muted">Separa prestaciones ya devengadas de las indemnizaciones que sólo corresponden según la causa de terminación.</p></div>
+          <span class="trv2-termination-badge"><i class="fa-solid fa-scale-balanced"></i> Estimación laboral</span>
+        </div>
+        <div class="trv2-alert trv2-alert-warn trv2-termination-warning"><strong>Importante:</strong> el resultado es bruto y orientativo. Antes de pagar o firmar, valida causa, salario integrado, topes, ISR, adeudos y convenio con la persona responsable de nómina o un especialista laboral.</div>
+        <form class="trv2-termination-form" id="trv2-termination-form" onsubmit="event.preventDefault();trv2CalculateTermination()">
+          <fieldset><legend>1. Relación laboral</legend><div class="trv2-termination-fields">
+            <label>Operador <select id="trv2-termination-operator"><option value="">Seleccionar operador</option></select></label>
+            <label>Causa de terminación <select id="trv2-termination-cause" onchange="trv2ApplyTerminationCause()"><option value="resignation">Renuncia voluntaria</option><option value="mutual">Convenio / mutuo consentimiento</option><option value="justified">Rescisión justificada por el patrón</option><option value="unjustified">Despido injustificado</option></select></label>
+            <label>Fecha de ingreso <input id="trv2-termination-start" type="date" required onchange="trv2SuggestTerminationBenefits()"></label>
+            <label>Fecha de baja <input id="trv2-termination-end" type="date" required onchange="trv2SuggestTerminationBenefits()"></label>
+            <label>Salario diario <input id="trv2-termination-daily" type="number" min="0" step="0.01" required oninput="trv2CalculateTermination()"></label>
+            <label>Salario diario integrado <input id="trv2-termination-integrated" type="number" min="0" step="0.01" required oninput="trv2CalculateTermination()"><small>Se usa para indemnizaciones.</small></label>
+          </div></fieldset>
+          <fieldset><legend>2. Prestaciones devengadas (finiquito)</legend><div class="trv2-termination-fields">
+            <label>Días de salario pendientes <input id="trv2-termination-unpaid-days" type="number" min="0" step="0.01" value="0" oninput="trv2CalculateTermination()"></label>
+            <label>Días de aguinaldo al año <input id="trv2-termination-bonus-days" type="number" min="0" step="0.01" value="15" oninput="trv2CalculateTermination()"></label>
+            <label>Días de vacaciones pendientes <input id="trv2-termination-vacation-days" type="number" min="0" step="0.01" value="0" oninput="trv2CalculateTermination()"><small>Incluye proporcionales y no disfrutados.</small></label>
+            <label>Prima vacacional (%) <input id="trv2-termination-vacation-premium" type="number" min="0" step="0.01" value="25" oninput="trv2CalculateTermination()"></label>
+            <label>Otras percepciones <input id="trv2-termination-other" type="number" min="0" step="0.01" value="0" oninput="trv2CalculateTermination()"><small>Comisiones, PTU u otras cantidades pendientes.</small></label>
+            <label>Deducciones autorizadas <input id="trv2-termination-deductions" type="number" min="0" step="0.01" value="0" oninput="trv2CalculateTermination()"></label>
+          </div></fieldset>
+          <fieldset><legend>3. Indemnizaciones según la causa</legend><div class="trv2-termination-options">
+            <label class="trv2-termination-check"><input id="trv2-termination-90-days" type="checkbox" onchange="trv2CalculateTermination()"><span><strong>Indemnización constitucional</strong><small>90 días de salario diario integrado.</small></span></label>
+            <label class="trv2-termination-check"><input id="trv2-termination-20-days" type="checkbox" onchange="trv2CalculateTermination()"><span><strong>20 días por año</strong><small>No procede automáticamente en todas las separaciones; actívalo sólo cuando jurídicamente corresponda.</small></span></label>
+            <label class="trv2-termination-check"><input id="trv2-termination-seniority" type="checkbox" onchange="trv2CalculateTermination()"><span><strong>Prima de antigüedad</strong><small>12 días por año con el salario diario aplicable sujeto al tope legal.</small></span></label>
+            <label>Salario diario aplicable a prima <input id="trv2-termination-seniority-daily" type="number" min="0" step="0.01" value="0" oninput="trv2CalculateTermination()"><small>Captura el menor entre salario diario y el tope legal vigente.</small></label>
+          </div></fieldset>
+          <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ResetTerminationCalculator()">Limpiar</button><button class="trv2-btn trv2-btn-primary" type="submit"><i class="fa-solid fa-calculator"></i> Calcular baja</button></div>
+        </form>
+        <section class="trv2-termination-results" id="trv2-termination-results" aria-live="polite">
+          <div class="trv2-termination-result-kpis"><article><span>Antigüedad</span><strong id="trv2-termination-tenure">—</strong></article><article><span>Finiquito</span><strong id="trv2-termination-settlement-total">$0.00</strong></article><article><span>Indemnizaciones</span><strong id="trv2-termination-indemnity-total">$0.00</strong></article><article class="total"><span>Total bruto estimado</span><strong id="trv2-termination-grand-total">$0.00</strong></article></div>
+          <div class="trv2-table-wrap"><table class="trv2-service-generated-table"><thead><tr><th>Concepto</th><th>Base de cálculo</th><th>Importe</th></tr></thead><tbody id="trv2-termination-breakdown"><tr><td colspan="3"><div class="trv2-empty">Completa los datos para obtener el desglose.</div></td></tr></tbody></table></div>
+        </section>
+      </section>
     </div>
     <div class="trv2-payment-panel" data-payment-panel="tarifas">
     <section class="trv2-panel trv2-operator-tariffs-panel">
@@ -463,7 +502,7 @@
     <div class="trv2-payment-panel" data-payment-panel="bases">
       <section class="trv2-panel trv2-payroll-bases-panel">
         <div class="trv2-table-head">
-          <div><h2>Bases de nómina por operador</h2><p class="trv2-muted">Define el depósito bancario y la retención INFONAVIT que se aplicarán automáticamente al preparar cada periodo.</p></div>
+          <div><h2>Configuración de nómina por operador</h2><p class="trv2-muted">Define el depósito bancario y la retención INFONAVIT que se aplicarán automáticamente al preparar cada periodo.</p></div>
           <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2SaveOperatorPayrollBases()"><i class="fa-solid fa-floppy-disk"></i> Guardar bases</button>
         </div>
         <div class="trv2-inline-tabs trv2-payroll-period-tabs" role="tablist" aria-label="Periodicidad de las bases de nómina">
@@ -471,7 +510,7 @@
           <button class="trv2-subtab active" type="button" data-payroll-base-period="fortnight" onclick="trv2SetOperatorPayrollBasePeriod('fortnight')">Quincenal</button>
           <button class="trv2-subtab" type="button" data-payroll-base-period="month" onclick="trv2SetOperatorPayrollBasePeriod('month')">Mensual</button>
         </div>
-        <div class="trv2-payroll-bases-note"><i class="fa-solid fa-circle-info"></i><span id="trv2-payroll-bases-period-note">Estas cantidades se usarán cuando la liquidación sea quincenal.</span></div>
+        <div class="trv2-payroll-bases-note"><i class="fa-solid fa-circle-info"></i><span id="trv2-payroll-bases-period-note">Estas cantidades se usarán cuando el pago sea quincenal.</span></div>
         <div class="trv2-table-wrap"><table class="trv2-service-generated-table trv2-payroll-bases-table"><thead><tr><th>Operador</th><th>Pago por banco</th><th>Descuento INFONAVIT</th><th>Total base descontado</th></tr></thead><tbody id="trv2-payroll-bases-table"></tbody></table></div>
       </section>
     </div>
@@ -496,7 +535,7 @@
 
   <div class="trv2-modal-layer" id="trv2-payment-review-modal" hidden>
     <section class="trv2-modal trv2-payment-review-modal" role="dialog" aria-modal="true" aria-labelledby="trv2-payment-detail-title">
-      <div class="trv2-modal-head"><div><h2 id="trv2-payment-detail-title">Preparar liquidación</h2><p>Confirma la distribución entre banco, descuentos y efectivo.</p></div><button class="trv2-icon-btn" type="button" title="Cerrar" onclick="trv2CloseOperatorPaymentDetail()"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="trv2-modal-head"><div><h2 id="trv2-payment-detail-title">Preparar pago del periodo</h2><p>Confirma la distribución entre banco, descuentos y efectivo.</p></div><button class="trv2-icon-btn" type="button" title="Cerrar" onclick="trv2CloseOperatorPaymentDetail()"><i class="fa-solid fa-xmark"></i></button></div>
       <div class="trv2-payment-review-context" id="trv2-payment-review-context"></div>
       <div class="trv2-payment-closeout" id="trv2-payment-closeout">
         <article class="trv2-payment-total"><span>Total de comisiones</span><strong id="trv2-closeout-commissions">$0.00</strong><small>Suma de todos los viajes</small></article>
@@ -506,7 +545,7 @@
         <article class="trv2-payment-cash"><span>Pago en efectivo</span><strong id="trv2-closeout-cash">$0.00</strong><small>Comisiones − banco − INFONAVIT + gastos</small></article>
       </div>
       <div class="trv2-payment-expense-summary" id="trv2-payment-expense-summary"></div>
-      <div class="trv2-form-actions trv2-payment-review-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseOperatorPaymentDetail()">Cancelar</button><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportOperatorPayments(true)"><i class="fa-solid fa-file-excel"></i> Excel de este operador</button><button class="trv2-btn trv2-btn-primary" id="trv2-closeout-generate" type="button" onclick="trv2GenerateSelectedOperatorPayment()"><i class="fa-solid fa-file-invoice-dollar"></i> Generar liquidación</button></div>
+      <div class="trv2-form-actions trv2-payment-review-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseOperatorPaymentDetail()">Cancelar</button><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportOperatorPayments(true)"><i class="fa-solid fa-file-excel"></i> Excel de este operador</button><button class="trv2-btn trv2-btn-primary" id="trv2-closeout-generate" type="button" onclick="trv2GenerateSelectedOperatorPayment()"><i class="fa-solid fa-file-invoice-dollar"></i> Generar pago</button></div>
     </section>
   </div>
 
