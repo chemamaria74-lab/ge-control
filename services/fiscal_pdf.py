@@ -4,6 +4,7 @@ import base64
 import hashlib
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
@@ -36,12 +37,12 @@ def fiscal_pdf_info(xml_content: str | bytes, prefix: str = "cfdi") -> FiscalPdf
     if prefix == "carta_ingreso_transporte":
         serie_folio = _serie_folio_label(serie, folio)
     if prefix == "factura_gas_lp" and serie_folio:
-        issuer = _safe_name(_attr(emisor, "Nombre", "GASLUX")).replace("_", "").upper() or "GASLUX"
+        issuer = _safe_name(_attr(emisor, "Nombre", "GASLUX")).upper() or "GASLUX"
         return FiscalPdfInfo(
             uuid=uuid,
             tipo=tipo,
             serie_folio=serie_folio,
-            filename=f"{issuer}_{_safe_name(serie_folio)}_{_safe_name(uuid)}.pdf",
+            filename=f"{issuer}_{_safe_name(serie_folio)}.pdf",
         )
     if prefix == "complemento_pago_gas_lp":
         receptor = _first(root, "Receptor")
@@ -371,7 +372,8 @@ def _short(value: str, limit: int) -> str:
 
 
 def _safe_name(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", str(value or "cfdi")).strip("_") or "cfdi"
+    normalized = unicodedata.normalize("NFKD", str(value or "cfdi")).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", normalized).strip("_") or "cfdi"
 
 
 def _serie_folio_label(serie: str, folio: str) -> str:
@@ -521,15 +523,38 @@ def _modern_header(title, logo, root, emisor, timbre, Table, TableStyle, Paragra
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
     ]))
 
+    document_label_style = title_style.clone("BusinessDocumentLabel")
+    document_label_style.fontSize = 12.0
+    document_label_style.leading = 13.5
+    folio_label_style = styles["DocMeta"].clone("BusinessFolioLabel")
+    folio_label_style.alignment = 1
+    folio_value_style = title_style.clone("BusinessFolioValue")
+    folio_value_style.alignment = 1
+    folio_value_style.fontSize = 18.0
+    folio_value_style.leading = 19.5
+    folio_card = Table([
+        [Paragraph("FOLIO", folio_label_style)],
+        [Paragraph(f"<b>{_text(serie_folio)}</b>", folio_value_style)],
+    ], colWidths=[1.42 * 72])
+    folio_card.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.65, line),
+        ("BACKGROUND", (0, 0), (-1, -1), cream),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
     right = Table([
-        [Paragraph(f"<b>{_text(title)}</b>", title_style)],
+        [Paragraph(f"<b>{_text(title)}</b>", document_label_style), folio_card],
         [Paragraph(
-            f"Folio: <b>{_text(serie_folio)}</b> &nbsp;&nbsp;|&nbsp;&nbsp; UUID: {_text(uuid)}<br/>"
+            f"UUID: {_text(uuid)}<br/>"
             f"Certificado emisor: {_text(cert_emisor)} &nbsp;&nbsp;|&nbsp;&nbsp; Certificado SAT: {_text(cert_sat)}",
             styles["DocMeta"],
-        )],
-    ], colWidths=[4.75 * 72])
+        ), ""],
+    ], colWidths=[3.18 * 72, 1.57 * 72])
     right.setStyle(TableStyle([
+        ("SPAN", (0, 1), (-1, 1)),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
@@ -649,8 +674,8 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
         Paragraph("<b>Unidad</b>", styles["HeaderTiny"]),
         Paragraph("<b>Clave SAT</b>", styles["HeaderTiny"]),
         Paragraph("<b>Descripción</b>", styles["HeaderTiny"]),
-        Paragraph("<b>Precio c/IVA</b>", styles["HeaderTiny"]),
         Paragraph("<b>Valor unit.</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Precio c/IVA</b>", styles["HeaderTiny"]),
         Paragraph("<b>Importe</b>", styles["HeaderTiny"]),
     ]]
     for c in conceptos[:35]:
@@ -659,9 +684,9 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
             Paragraph(_text(_attr(c, "Unidad", _attr(c, "ClaveUnidad"))), styles["Tiny"]),
             Paragraph(_text(_attr(c, "ClaveProdServ")), styles["Tiny"]),
             Paragraph(_text(_attr(c, "Descripcion")), styles["Tiny"]),
-            Paragraph(_text(price_with_tax(c)), right_tiny),
-            Paragraph(_text(_attr(c, "ValorUnitario")), right_tiny),
-            Paragraph(_text(_attr(c, "Importe")), right_tiny),
+            Paragraph(f"${_text(_attr(c, 'ValorUnitario'))}", right_tiny),
+            Paragraph(f"${_text(price_with_tax(c))}", right_tiny),
+            Paragraph(f"${_text(_format_money(_money_value(_attr(c, 'Importe', '0'))))}", right_tiny),
         ])
     if len(conceptos) > 35:
         data.append(["", "", "", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", "", ""])
@@ -776,6 +801,16 @@ def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, st
     tax_text = "; ".join(_tax_line(t, "Traslado") for t in display_traslados[:8]) or "—"
     ret_text = "; ".join(_tax_line(r, "Retención") for r in display_retenciones[:8]) or "—"
     total_value = _money_value(_attr(root, "Total", "0"))
+    descuento_value = _money_value(_attr(root, "Descuento", "0"))
+    conceptos = _all(root, "Concepto")
+    total_quantity = sum(_money_value(_attr(c, "Cantidad", "0")) for c in conceptos)
+    unit_keys = {(_attr(c, "ClaveUnidad") or _attr(c, "Unidad")).upper() for c in conceptos if (_attr(c, "ClaveUnidad") or _attr(c, "Unidad"))}
+    unit_suffix = "/L" if unit_keys and all(key in {"LTR", "LITRO", "LITROS"} for key in unit_keys) else "/unidad"
+    discount_detail = f" (${descuento_value / total_quantity:,.2f}{unit_suffix})" if descuento_value > 0 and total_quantity > 0 else ""
+    traslado_rates = sorted({_money_value(_attr(node, "TasaOCuota", "0")) for node in display_traslados if _money_value(_attr(node, "TasaOCuota", "0")) > 0})
+    retencion_rates = sorted({_money_value(_attr(node, "TasaOCuota", "0")) for node in display_retenciones if _money_value(_attr(node, "TasaOCuota", "0")) > 0})
+    iva_detail = f" ({traslado_rates[0] * 100:g}%)" if len(traslado_rates) == 1 else ""
+    ret_detail = f" ({retencion_rates[0] * 100:g}%)" if len(retencion_rates) == 1 else ""
     amount_words = _amount_to_spanish_mxn(total_value, _attr(root, "Moneda", "MXN"))
     left = Table([
         [Paragraph("<b>Importe con letra</b>", styles["TinyBold"])],
@@ -796,9 +831,9 @@ def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, st
     ]))
     right = Table([
         [Paragraph("Subtotal", styles["Small"]), Paragraph(f"${_text(_format_money(_money_value(_attr(root, 'SubTotal', '0'))))}", styles["Money"])],
-        [Paragraph("Descuento", styles["Small"]), Paragraph(f"${_text(_format_money(_money_value(_attr(root, 'Descuento', '0'))))}", styles["Money"])],
-        [Paragraph("IVA trasladado", styles["Small"]), Paragraph(f"${_text(_format_money(iva_total))}", styles["Money"])],
-        [Paragraph("Retenciones", styles["Small"]), Paragraph(f"${_text(_format_money(ret_total))}", styles["Money"])],
+        [Paragraph(f"Descuento{_text(discount_detail)}", styles["Small"]), Paragraph(f"-${_text(_format_money(descuento_value))}" if descuento_value else "$0.00", styles["Money"])],
+        [Paragraph(f"IVA trasladado{_text(iva_detail)}", styles["Small"]), Paragraph(f"${_text(_format_money(iva_total))}", styles["Money"])],
+        [Paragraph(f"Retenciones{_text(ret_detail)}", styles["Small"]), Paragraph(f"-${_text(_format_money(ret_total))}" if ret_total else "$0.00", styles["Money"])],
         [Paragraph("<b>Total</b>", styles["SmallBold"]), Paragraph(f"${_text(_format_money(total_value))}", styles["MoneyBig"])],
     ], colWidths=[1.18 * 72, 1.64 * 72])
     right.setStyle(TableStyle([
