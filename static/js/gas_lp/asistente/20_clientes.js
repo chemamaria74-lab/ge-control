@@ -428,6 +428,7 @@ async function loadCatalogos(){
     : ((data.ubicaciones || []).length ? data.ubicaciones : FACILITIES);
   CATALOGOS = {
     choferes:data.choferes||[],
+    ayudantes:data.ayudantes||[],
     vehiculos:data.vehiculos||[],
     rutas:data.rutas||[],
     ubicaciones:data.ubicaciones||[],
