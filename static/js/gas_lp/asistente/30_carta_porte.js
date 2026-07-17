@@ -951,7 +951,7 @@ function assistantCpLocalKey(kind){
 async function loadAssistantCpPostalLookup(){
   if(assistantCpPostalLookupCache) return assistantCpPostalLookupCache;
   if(!assistantCpPostalLookupPromise){
-    assistantCpPostalLookupPromise = fetch('/static/data/sat_codigo_postal_agu_jal_zac.json', {cache:'force-cache'})
+    assistantCpPostalLookupPromise = fetch('/static/data/sat_codigo_postal_agu_jal_zac.json?v=municipios-20260716', {cache:'force-cache'})
       .then(res => {
         if(!res.ok) throw new Error('No fue posible cargar el catálogo SAT de códigos postales AGU/JAL/ZAC.');
         return res.json();
