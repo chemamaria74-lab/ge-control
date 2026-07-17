@@ -324,14 +324,14 @@ function renderDashboard(){
   if(selectedClient){
     const detailRows = selectedClient.facturas.filter(f=>facturaSaldo(f) > 0).sort((a,b)=>String(facturaDateValue(b) || '').localeCompare(String(facturaDateValue(a) || '')));
     dashPeriodo.textContent = `${detailRows.length} pendiente${detailRows.length === 1 ? '' : 's'}`;
-    dashBars.innerHTML = detailRows.length ? `<table class="dashboard-detail-table"><thead><tr><th>Emisión</th><th>Vencimiento</th><th>Días crédito</th><th>UUID</th><th>Total</th><th>Saldo</th><th>Seguimiento</th></tr></thead><tbody>${detailRows.map(f=>{
+    dashBars.innerHTML = detailRows.length ? `<table class="dashboard-detail-table"><thead><tr><th>Emisión</th><th>Vencimiento</th><th>Días crédito</th><th>Folio</th><th>Total</th><th>Saldo</th><th>Seguimiento</th></tr></thead><tbody>${detailRows.map(f=>{
       const md = f.metadata || {};
       const saldoFactura = facturaSaldo(f);
       const creditInfo = creditStatusForFactura(f);
       const vencimiento = creditInfo.vencimiento ? dateDMY(creditInfo.vencimiento) : '—';
       const diasLabel = creditInfo.dias ? `${creditInfo.dias} d` : '—';
       const delayLabel = creditInfo.status === 'Vencida' ? `${creditInfo.dias_vencidos} día${creditInfo.dias_vencidos===1?'':'s'} vencido${creditInfo.dias_vencidos===1?'':'s'}` : (creditInfo.status === 'Vigente' ? `${creditInfo.dias_restantes} día${creditInfo.dias_restantes===1?'':'s'} restantes` : creditInfo.label);
-      return `<tr><td>${esc(dateDMY(facturaDateKey(f)))}</td><td>${esc(vencimiento)}</td><td>${esc(diasLabel)}</td><td><code class="uuid-text" title="${esc(f.uuid_sat || 'UUID pendiente')}">${esc(f.uuid_sat || 'UUID pendiente')}</code></td><td>${money(facturaAmount(f))}</td><td><b class="${saldoFactura > 0 ? 'credit-high' : 'credit-ok'}">${money(saldoFactura)}</b></td><td><span class="muted">${esc(delayLabel)}</span></td></tr>`;
+      return `<tr><td>${esc(dateDMY(facturaDateKey(f)))}</td><td>${esc(vencimiento)}</td><td>${esc(diasLabel)}</td><td><b title="${esc(f.uuid_sat || '')}">${esc(facturaFolioLabel(f))}</b></td><td>${money(facturaAmount(f))}</td><td><b class="${saldoFactura > 0 ? 'credit-high' : 'credit-ok'}">${money(saldoFactura)}</b></td><td><span class="muted">${esc(delayLabel)}</span></td></tr>`;
     }).join('')}</tbody></table>` : '<div class="dashboard-detail-note">Este cliente no tiene facturas PPD pendientes con los filtros actuales.</div>';
   } else {
     dashPeriodo.textContent = 'Sin selección';
@@ -407,6 +407,7 @@ function complementoView(c){
     assistant:c.realizado_por || 'Sistema',
     assistantBadge:`<span class="assistant-chip"><i class="fa-solid fa-user-check"></i> ${esc(c.realizado_por || 'Sistema')}</span>`,
     statusHtml:`<span class="payment-status-badge paid">Complemento</span><span class="payment-note">${esc(c.email_status || 'Correo pendiente')}</span>`,
+    folio:complementoRelatedLabel(c),
     uuid:c.uuid_sat || 'UUID pendiente',
     docs,
     emailHtml:`<span class="email-status ${complementoEmailClass(c)}" title="${esc(emailTitle)}">${esc(c.email_status || 'Pendiente')}</span>`,
@@ -426,7 +427,7 @@ function openEmailModal(facturaId){
   const recipients = md.tipo_operacion === 'traspaso' ? facturaEmailValue(f).split(',').map(x => x.trim()).filter(Boolean).slice(0,2) : invoiceEmailRecipients(f);
   emailModalInput.value = recipients[0] || '';
   if(window.emailModalExtra1) emailModalExtra1.value = recipients[1] || '';
-  emailModalMeta.textContent = `${f.cliente_nombre || md.cliente_nombre || f.rfc_receptor || 'Cliente'} · ${f.uuid_sat || 'UUID pendiente'}`;
+  emailModalMeta.textContent = `${f.cliente_nombre || md.cliente_nombre || f.rfc_receptor || 'Cliente'} · ${facturaFolioLabel(f)}`;
   setStatus('emailModalStatus','');
   emailModal.classList.remove('hide');
   setTimeout(() => emailModalInput.focus(), 50);
@@ -526,9 +527,10 @@ function facturaView(f){
       assistantBadge: assistantChip(f),
       status: f.status || '—',
       statusHtml: facturaStatusHtml(f),
+      folio: facturaFolioLabel(f),
       uuid: f.uuid_sat || '—',
       docs,
-      search: [f.uuid_sat,f.rfc_receptor,f.cliente_nombre,md.cliente_nombre,f.destino_nombre,md.destino_nombre,f.origen_nombre,md.origen_nombre,cp.origen_nombre,cp.destino_nombre,assistant,pago,paymentStatus,op].join(' ').toLowerCase()
+      search: [facturaFolioLabel(f),facturaObservaciones(f),f.uuid_sat,f.rfc_receptor,f.cliente_nombre,md.cliente_nombre,f.destino_nombre,md.destino_nombre,f.origen_nombre,md.origen_nombre,cp.origen_nombre,cp.destino_nombre,assistant,pago,paymentStatus,op].join(' ').toLowerCase()
     };
 }
 function renderFacturasTable(rows, tbody, emptyText){
@@ -537,7 +539,7 @@ function renderFacturasTable(rows, tbody, emptyText){
     const opHtml = v.kind === 'complemento' ? `<span class="op-tag payment">Complemento</span><span class="cell-sub">${esc(v.origen)}</span>` : (v.isCartaPorte ? '<span class="op-tag transfer">Carta Porte</span>' : (v.isTraspaso ? '<span class="op-tag transfer">Traspaso</span>' : '<span class="op-tag">Venta</span>'));
     const clientHtml = `<span class="cell-main" title="${esc(v.destino)}">${esc(v.destino)}</span>${v.destinoSub ? `<span class="cell-sub">${esc(v.destinoSub)}</span>` : ''}`;
     const routeClass = v.isTraspaso || v.isCartaPorte ? 'cell-main transfer-route' : 'cell-main';
-    return `<tr><td class="date-cell">${v.fecha}</td><td class="op-cell">${opHtml}</td><td class="facility-cell"><span class="${routeClass}" title="${esc(v.origen)}">${esc(v.origen)}</span></td><td class="client-cell">${clientHtml}</td><td class="liters-cell">${esc(v.litros)}</td><td class="money-cell">${money(v.total)}</td><td class="pay-cell">${esc(v.pago)}</td><td class="assistant-cell">${v.assistantBadge}</td><td class="status-cell">${v.statusHtml}</td><td class="uuid-cell"><code class="uuid-text" title="${esc(v.uuid)}">${esc(v.uuid)}</code></td><td class="docs-cell">${v.docs}</td></tr>`;
+    return `<tr><td class="date-cell">${v.fecha}</td><td class="op-cell">${opHtml}</td><td class="facility-cell"><span class="${routeClass}" title="${esc(v.origen)}">${esc(v.origen)}</span></td><td class="client-cell">${clientHtml}</td><td class="liters-cell">${esc(v.litros)}</td><td class="money-cell">${money(v.total)}</td><td class="pay-cell">${esc(v.pago)}</td><td class="assistant-cell">${v.assistantBadge}</td><td class="status-cell">${v.statusHtml}</td><td class="uuid-cell"><b title="${esc(v.uuid)}">${esc(v.folio || 'Folio pendiente')}</b></td><td class="docs-cell">${v.docs}</td></tr>`;
   }).join('') : `<tr><td colspan="11">${esc(emptyText)}</td></tr>`;
 }
 function fiscalDocumentRows(){
@@ -774,10 +776,9 @@ function renderComplementosPago(){
     const checked = selected ? 'checked' : '';
     const disabled = isPaid(f) ? 'disabled' : '';
     const cliente = f.cliente_nombre || md.cliente_nombre || f.rfc_receptor || '—';
-    const uuidShort = String(f.uuid_sat || '').slice(0,8);
     return `<tr>
       <td><input type="checkbox" ${checked} ${disabled} onchange="toggleComplemento(${id},this.checked)"></td>
-      <td><b>${esc(facturaDateKey(f))}</b><br><span class="muted">${uuidShort ? `UUID ${esc(uuidShort)}...` : 'UUID pendiente'}</span><br>${assistantChip(f)}</td>
+      <td><b>${esc(facturaDateKey(f))}</b><br><span class="muted" title="${esc(f.uuid_sat || '')}">Folio ${esc(facturaFolioLabel(f))}</span><br>${assistantChip(f)}</td>
       <td><b>${esc(cliente)}</b><br><span class="muted">${esc(f.rfc_receptor || '—')}</span></td>
       <td>${money(facturaAmount(f))}</td>
       <td><b class="${saldo > 0 ? 'credit-high' : 'credit-ok'}">${money(saldo)}</b></td>
@@ -828,7 +829,7 @@ function complementoSelectedRows(){
       rfc:String(f.rfc_receptor || item.rfc || '').toUpperCase(),
       fecha:facturaDateKey(f),
       uuid:f.uuid_sat || '',
-      folio:md.folio_usuario || md.folio || f.record_uuid || '',
+      folio:facturaFolioLabel(f),
       saldo:facturaSaldo(f),
       total:facturaAmount(f)
     };
@@ -851,7 +852,6 @@ function openComplementValidation(){
   compModalClient.innerHTML = `<b>${esc(first.cliente || 'Cliente')}</b>${first.rfc ? ` · RFC ${esc(first.rfc)}` : ''}<br><span class="muted">${rows.length} factura${rows.length === 1 ? '' : 's'} seleccionada${rows.length === 1 ? '' : 's'}</span>`;
   compModalRows.innerHTML = rows.map(r => `<tr>
     <td><b>${esc(r.folio || dateDMY(r.fecha) || 'Factura')}</b><br><span class="muted">${esc(dateDMY(r.fecha))}</span></td>
-    <td><code class="uuid-text" title="${esc(r.uuid || '')}">${esc(r.uuid || 'UUID pendiente')}</code></td>
     <td>${money(r.saldo)}</td>
     <td><input class="comp-modal-amount" data-factura-id="${Number(r.id)}" type="number" min="0" step="0.01" placeholder="Captura monto" oninput="updateComplementValidation()"></td>
     <td><b id="compModalSaldoFinal_${Number(r.id)}">${money(r.saldo)}</b></td>

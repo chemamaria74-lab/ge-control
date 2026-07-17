@@ -290,7 +290,12 @@ function discountDashboardRows(){
     byClient.set(key, item);
   });
   let rows = [...byClient.values()].sort((a,b)=>b.descuento-a.descuento);
-  if(q) rows = rows.filter(c => [c.nombre,c.rfc,discountTypeSummary(c.types)].some(v => String(v || '').toLowerCase().includes(q)));
+  if(q) rows = rows.filter(c => [
+    c.nombre,
+    c.rfc,
+    discountTypeSummary(c.types),
+    ...c.facturas.flatMap(f => [facturaFolioLabel(f), facturaObservaciones(f)])
+  ].some(v => String(v || '').toLowerCase().includes(q)));
   return rows;
 }
 
@@ -344,11 +349,12 @@ function renderDiscountClientDetail(rows=discountDashboardRows()){
   }
   const detailRows = selected.facturas.slice().sort((a,b)=>String(facturaDateValue(b) || '').localeCompare(String(facturaDateValue(a) || '')));
   descuentosDetallePeriodo.textContent = `${detailRows.length} factura${detailRows.length === 1 ? '' : 's'}`;
-  host.innerHTML = detailRows.length ? `<table class="dashboard-detail-table"><thead><tr><th>Fecha</th><th>UUID</th><th>Tipo</th><th>Litros</th><th>Total</th><th>Descuento</th><th>Desc/L</th></tr></thead><tbody>${detailRows.map(f => {
+  host.innerHTML = detailRows.length ? `<table class="dashboard-detail-table"><thead><tr><th>Fecha</th><th>Folio</th><th>Observaciones</th><th>Tipo</th><th>Litros</th><th>Total</th><th>Descuento</th><th>Desc/L</th></tr></thead><tbody>${detailRows.map(f => {
     const info = facturaDiscountInfo(f);
     return `<tr>
       <td>${esc(dateDMY(facturaDateKey(f)))}</td>
-      <td><code class="uuid-text" title="${esc(f.uuid_sat || 'UUID pendiente')}">${esc(f.uuid_sat || 'UUID pendiente')}</code></td>
+      <td><b title="${esc(f.uuid_sat || '')}">${esc(facturaFolioLabel(f))}</b></td>
+      <td><span title="${esc(facturaObservaciones(f))}">${esc(facturaObservaciones(f) || '—')}</span></td>
       <td>${esc(descuentoTipoLabel(info.tipo))}</td>
       <td>${fmt(f.volumen_litros || (f.metadata || {}).litros_confirmados || 0)}</td>
       <td>${money(facturaAmount(f))}</td>

@@ -136,6 +136,19 @@ function facturaDateKey(f){
   const value = f.fecha_timbrado || f.created_at || '';
   return mexicoDateKey(value) || String(value || '').slice(0,10);
 }
+function facturaFolioLabel(f){
+  const md = f?.metadata || {};
+  const direct = String(f?.folio || '').trim();
+  if(direct) return direct;
+  const serie = String(f?.serie || md.serie || '').trim();
+  const folio = String(f?.folio_usuario || md.folio_usuario || md.folio || '').trim();
+  if(serie && folio && !folio.startsWith(serie)) return `${serie}${folio.startsWith('-') ? '' : '-'}${folio}`;
+  return folio || serie || 'Folio pendiente';
+}
+function facturaObservaciones(f){
+  const md = f?.metadata || {};
+  return String(f?.observaciones || md.comentarios || md.observaciones || '').trim();
+}
 function facturaTimeLabel(f){
   const md = f.metadata || {};
   const values = [f.fecha_emision, md.fecha_emision, md.fecha_cfdi, cfdiFechaFromXml(f.xml_content), f.fecha_timbrado, f.created_at];
