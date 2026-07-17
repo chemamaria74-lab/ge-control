@@ -579,6 +579,7 @@ async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp", include_
         return [row for row in rows if (row.get("modulo_propietario") or "gas_lp") == "gas_lp"]
 
     choferes = gas_lp_rows(company_rows("gas_lp_choferes", "nombre"))
+    ayudantes = gas_lp_rows(company_rows("gas_lp_ayudantes_carta_porte", "nombre"))
     vehiculos = gas_lp_rows(company_rows("gas_lp_vehiculos", "placas"))
     rutas = gas_lp_rows(company_rows("gas_lp_rutas", "nombre"))
     ubicaciones = company_rows("gas_lp_ubicaciones_carta_porte", "alias")
@@ -588,6 +589,7 @@ async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp", include_
         "ok": True,
         "modulo": modulo,
         "choferes": choferes,
+        "ayudantes": ayudantes,
         "vehiculos": vehiculos,
         "rutas": rutas,
         "ubicaciones": instalaciones,
@@ -595,3 +597,17 @@ async def gas_lp_internal_catalogos(token: str, modulo: str = "gas_lp", include_
         "instalaciones": instalaciones,
         "mercancias": mercancias,
     })
+
+
+@router.get("/internal-auth/gas-lp/catalogos-postales")
+async def gas_lp_internal_catalogos_postales(token: str):
+    """Catálogo controlado por backend para no depender del servido de archivos estáticos."""
+    _gas_lp_internal_context(token)
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "static", "data", "sat_codigo_postal_agu_jal_zac.json")
+    try:
+        with open(path, "r", encoding="utf-8") as source:
+            payload = json.load(source)
+    except (OSError, ValueError) as exc:
+        logger.exception("gas_lp_postal_catalog_load_failed path=%s", path)
+        raise HTTPException(500, "No fue posible cargar el catálogo postal administrado por el servidor.") from exc
+    return JSONResponse(payload, headers={"Cache-Control": "public, max-age=3600"})

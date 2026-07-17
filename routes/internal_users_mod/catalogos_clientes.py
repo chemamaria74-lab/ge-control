@@ -210,6 +210,7 @@ def _internal_cp_table(kind: str) -> tuple[str, str]:
     tables = {
         "vehiculos": ("gas_lp_vehiculos", "placas"),
         "choferes": ("gas_lp_choferes", "nombre"),
+        "ayudantes": ("gas_lp_ayudantes_carta_porte", "nombre"),
         "ubicaciones": ("gas_lp_ubicaciones_carta_porte", "alias"),
         "instalaciones": ("gas_lp_facility_carta_porte_config", "facility_id"),
         "mercancias": ("gas_lp_mercancias_carta_porte", "alias"),
@@ -372,6 +373,9 @@ def _internal_cp_duplicate_key(kind: str, row: dict) -> tuple:
             _internal_cp_key_text(row.get("nombre")),
             _internal_cp_key_text(row.get("licencia")),
         )
+    if kind == "ayudantes":
+        rfc = _internal_cp_key_text(row.get("rfc"))
+        return ("rfc", rfc) if rfc else ("nombre", _internal_cp_key_text(row.get("nombre")))
     if kind == "ubicaciones":
         location_id = _internal_cp_key_text(row.get("id_ubicacion") or row.get("id_ubicacion_carta_porte"))
         if location_id:
@@ -590,10 +594,23 @@ def _internal_cp_payload(kind: str, params, user: dict | None = None, current: d
             },
             "activo": True,
         }
+    if kind == "ayudantes":
+        rfc = s("rfc").upper().replace(" ", "")
+        if not rfc or len(rfc) not in {12, 13} or not re.match(r"^[A-Z&Ñ]{3,4}[0-9]{6}[A-Z0-9]{3}$", rfc):
+            raise HTTPException(400, {
+                "message": "RFC del ayudante inválido. Captura 12 o 13 caracteres, sin espacios.",
+                "code": "gas_lp_carta_porte_ayudante_rfc_invalid",
+            })
+        return {
+            "nombre": s("nombre", "nombre_completo"),
+            "rfc": rfc,
+            "telefono": s("telefono"),
+            "metadata": {"tipo_figura": "04", "descripcion_figura": "Notificado"},
+            "activo": True,
+        }
     if kind == "choferes":
         rfc = s("rfc").upper().replace(" ", "")
-        tipo_figura = s("tipo_figura", "tipo_figura_sat", default="01")
-        if tipo_figura == "01" and not rfc:
+        if not rfc:
             raise HTTPException(400, {
                 "message": "El RFC del operador es obligatorio para timbrar Carta Porte. CURP no sustituye RFCFigura.",
                 "code": "gas_lp_carta_porte_chofer_rfc_required",
@@ -609,9 +626,8 @@ def _internal_cp_payload(kind: str, params, user: dict | None = None, current: d
             "licencia": s("licencia", "licencia_federal"),
             "telefono": s("telefono"),
             "metadata": {
-                "curp": s("curp"),
                 "tipo_licencia": s("tipo_licencia", "tipo_licencia_federal", default="E"),
-                "tipo_figura": tipo_figura,
+                "tipo_figura": "01",
                 "fecha_expedicion_licencia": s("fecha_expedicion_licencia", "expedicion_licencia"),
                 "fecha_vencimiento_licencia": s("fecha_vencimiento_licencia", "vencimiento_licencia"),
                 "parte_transporte": s("parte_transporte", default=""),
