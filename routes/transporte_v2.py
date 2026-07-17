@@ -147,7 +147,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     "clientes": {
         "table": TBL_CLIENTES,
         "required": ["nombre", "rfc", "cp"],
-        "allowed": ["nombre", "rfc", "cp", "regimen_fiscal", "uso_cfdi", "email", "email_facturacion", "permiso_cre", "metodo_pago_default", "forma_pago_default", "activo", "metadata"],
+        "allowed": ["nombre", "rfc", "cp", "regimen_fiscal", "uso_cfdi", "email", "email_facturacion", "metodo_pago_default", "forma_pago_default", "activo", "metadata"],
         "defaults": {"activo": True, "metodo_pago_default": "PUE", "forma_pago_default": "03"},
     },
     "operadores": {
@@ -2181,10 +2181,6 @@ def _expand_client_contact_metadata(row: dict[str, Any]) -> dict[str, Any]:
     metadata = _parse_json_value(expanded.get("metadata"), {})
     if not isinstance(metadata, dict):
         metadata = {}
-    if "permiso_cre" in expanded:
-        permiso_cre = _first_text(expanded.get("permiso_cre"))
-        expanded["permiso_cre"] = permiso_cre
-        metadata["permiso_cre"] = permiso_cre
     email_was_cleared = any(key in expanded and not str(expanded.get(key) or "").strip() for key in ("email", "email_facturacion"))
     if email_was_cleared:
         expanded["email_facturacion"] = ""
@@ -2584,7 +2580,8 @@ def _upsert_route_tariff_from_payload(token: str, uid: str, perfil_id: int, rout
         .eq("user_id", uid)
         .eq("perfil_id", perfil_id)
         .eq("ruta_id", route_id)
-        .eq("producto_id", int(producto_id))
+        .eq("activo", True)
+        .order("updated_at", desc=True)
         .limit(1)
         .execute()
         .data
@@ -2608,7 +2605,7 @@ def _upsert_route_tariff_from_payload(token: str, uid: str, perfil_id: int, rout
         inserted = sb.table(TBL_TARIFAS).insert(insert_row).execute().data or []
         item = inserted[0] if inserted else insert_row
         action = "crear_tarifa_ruta"
-    _audit(uid, token, perfil_id, TBL_TARIFAS, item.get("id"), action, {"ruta_id": route_id, "producto_id": int(producto_id)})
+    _audit(uid, token, perfil_id, TBL_TARIFAS, item.get("id"), action, {"ruta_id": route_id, "tarifa_por_ruta": True})
     return _normalize_tariff_row(item)
 
 
@@ -2636,9 +2633,9 @@ def _resolve_tariff_calculation(
             .eq("user_id", uid)
             .eq("perfil_id", perfil_id)
             .eq("ruta_id", int(ruta_id))
-            .eq("producto_id", int(producto_id))
             .eq("activo", True)
-            .limit(20)
+            .order("updated_at", desc=True)
+            .limit(1)
             .execute()
             .data
             or []
@@ -2909,7 +2906,10 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["regimen_fiscal"] = _first_text(item.get("regimen_fiscal"), item.get("regimen"))
         item["uso_cfdi"] = _first_text(item.get("uso_cfdi"), item.get("uso_cfdi_default"))
         client_meta = _meta(item)
-        item["permiso_cre"] = _first_text(item.get("permiso_cre"), client_meta.get("permiso_cre"), client_meta.get("permiso_destino"))
+        item.pop("permiso_cre", None)
+        client_meta.pop("permiso_cre", None)
+        client_meta.pop("permiso_destino", None)
+        item["metadata"] = client_meta
         item["email_facturacion"] = _first_text(item.get("email_facturacion"), item.get("email"), client_meta.get("email_facturacion"), client_meta.get("email"))
         item["email"] = _first_text(item.get("email"), item["email_facturacion"])
         item["metodo_pago_default"] = _first_text(item.get("metodo_pago_default"), client_meta.get("metodo_pago_default"), client_meta.get("metodo_pago"), "PUE").upper()

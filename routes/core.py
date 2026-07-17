@@ -2161,14 +2161,14 @@ def _gas_lp_factura_carta_porte_summary(xml_content: str) -> dict:
 
 def _gas_lp_factura_folio_label(factura: dict) -> str:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
-    serie = str(md.get("serie") or "").strip()
-    folio = str(md.get("folio_usuario") or md.get("folio") or factura.get("record_uuid") or "").strip()
+    serie = str(factura.get("serie") or md.get("serie") or "").strip()
+    folio = str(factura.get("folio_usuario") or factura.get("folio") or md.get("folio_usuario") or md.get("folio") or "").strip()
     root = _gas_lp_factura_xml_root(factura)
     if root is not None:
         serie = serie or _xml_attr(root, "Serie")
         folio = folio or _xml_attr(root, "Folio")
-    label = f"{serie}{folio}" if serie and folio and not str(folio).startswith(serie) else (folio or serie)
-    return label or str(factura.get("id") or "")
+    label = f"{serie}-{folio}" if serie and folio and not str(folio).upper().startswith(serie.upper()) else (folio or serie)
+    return label or str(factura.get("record_uuid") or factura.get("id") or "")
 
 
 def _gas_lp_factura_observaciones(factura: dict) -> str:
