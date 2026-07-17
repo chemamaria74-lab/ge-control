@@ -167,7 +167,7 @@ def validar_xml_carta_porte_transporte(
             errors.append("FiguraTransporte: falta TipoFigura.")
         if not _attr(f, "NombreFigura"):
             errors.append("FiguraTransporte: falta NombreFigura.")
-        if not _attr(f, "NumLicencia"):
+        if _attr(f, "TipoFigura") == "01" and not _attr(f, "NumLicencia"):
             errors.append("FiguraTransporte: falta NumLicencia.")
 
     requiere_hidro = enforce_hidrocarburos and _requiere_complemento_hidrocarburos(productos)

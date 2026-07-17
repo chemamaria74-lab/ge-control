@@ -423,6 +423,7 @@ def build_carta_porte_xml(
     destino: dict = None,
     mercancia: dict = None,
     chofer: dict = None,
+    figuras_adicionales: list[dict] = None,
     incluir_domicilio_figura: bool = False,
 ) -> str:
     """
@@ -574,7 +575,7 @@ def build_carta_porte_xml(
         f'</cartaporte31:Autotransporte>'
         f'</cartaporte31:Mercancias>'
     )
-    figura_attrs = {"TipoFigura": chofer.get("tipo_figura") or "01", "RFCFigura": chofer.get("rfc"), "NombreFigura": chofer.get("nombre"), "NumLicencia": chofer.get("licencia")}
+    figura_attrs = {"TipoFigura": "01", "RFCFigura": chofer.get("rfc"), "NombreFigura": chofer.get("nombre"), "NumLicencia": chofer.get("licencia")}
     domicilio_operador = ""
     if incluir_domicilio_figura:
         domicilio_operador = _cp_figura_domicilio_xml({
@@ -585,17 +586,20 @@ def build_carta_porte_xml(
             "calle": chofer.get("calle") or chofer.get("domicilio"),
         })
     if domicilio_operador:
-        figuras_xml = (
-            f'<cartaporte31:FiguraTransporte><cartaporte31:TiposFigura{_cp_optional_attrs(figura_attrs)}>'
-            f'{domicilio_operador}'
-            f'</cartaporte31:TiposFigura></cartaporte31:FiguraTransporte>'
+        tipos_figura_xml = (
+            f'<cartaporte31:TiposFigura{_cp_optional_attrs(figura_attrs)}>'
+            f'{domicilio_operador}</cartaporte31:TiposFigura>'
         )
     else:
-        figuras_xml = (
-            f'<cartaporte31:FiguraTransporte><cartaporte31:TiposFigura'
-            f'{_cp_optional_attrs(figura_attrs)}/>'
-            f'</cartaporte31:FiguraTransporte>'
-        )
+        tipos_figura_xml = f'<cartaporte31:TiposFigura{_cp_optional_attrs(figura_attrs)}/>'
+    seen_rfc = {str(chofer.get("rfc") or "").strip().upper()}
+    for figura in figuras_adicionales or []:
+        rfc_figura = str(figura.get("rfc") or "").strip().upper()
+        if not rfc_figura or rfc_figura in seen_rfc:
+            continue
+        seen_rfc.add(rfc_figura)
+        tipos_figura_xml += f'<cartaporte31:TiposFigura{_cp_optional_attrs({"TipoFigura": "04", "RFCFigura": rfc_figura, "NombreFigura": figura.get("nombre")})}/>'
+    figuras_xml = f'<cartaporte31:FiguraTransporte>{tipos_figura_xml}</cartaporte31:FiguraTransporte>'
 
     xml = (
         f'<?xml version="1.0" encoding="UTF-8"?>'
