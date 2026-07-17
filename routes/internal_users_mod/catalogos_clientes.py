@@ -454,6 +454,24 @@ def _internal_cp_facility_config_rows(user: dict) -> dict[int, dict]:
     return {int(row.get("facility_id") or 0): row for row in rows if row.get("facility_id")}
 
 
+def _internal_cp_auto_location_id(user: dict, location_type: str, current: str = "") -> str:
+    """Return a stable SAT ID without exposing the fiscal prefix to the operator."""
+    prefix = "DE" if str(location_type or "").lower() == "destino" else "OR"
+    current_match = re.search(r"(\d{6})$", str(current or "").upper())
+    if current_match:
+        return f"{prefix}{current_match.group(1)}"
+    used: list[int] = []
+    for row in _internal_cp_facility_config_rows(user).values():
+        match = re.search(r"(\d{6})$", str(row.get("id_ubicacion_carta_porte") or "").upper())
+        if match:
+            used.append(int(match.group(1)))
+    for row in _internal_cp_company_rows("gas_lp_ubicaciones_carta_porte", user, active_only=False):
+        match = re.search(r"(\d{6})$", str(row.get("id_ubicacion") or "").upper())
+        if match:
+            used.append(int(match.group(1)))
+    return f"{prefix}{(max(used, default=0) + 1):06d}"
+
+
 def _internal_cp_facilities(user: dict) -> list[dict]:
     perfil_id = user.get("perfil_id")
     facilities = _gas_lp_admin_facilities(user)
@@ -509,13 +527,19 @@ def _internal_cp_facilities(user: dict) -> list[dict]:
 def _internal_cp_facility_config_payload(user: dict, facility_id: int, params) -> dict:
     def s(key: str, default: str = "") -> str:
         return str(params.get(key, default) or "").strip()
+    existing = _internal_cp_facility_config_rows(user).get(int(facility_id)) or {}
+    location_type = s("tipo_ubicacion", s("tipo", "ambos"))
     return {
         "user_id": user.get("owner_user_id"),
         "tenant_id": user.get("tenant_id"),
         "perfil_id": user.get("perfil_id"),
         "facility_id": facility_id,
-        "id_ubicacion_carta_porte": s("id_ubicacion_carta_porte", s("id_ubicacion")),
-        "tipo_ubicacion": s("tipo_ubicacion", s("tipo", "ambos")),
+        "id_ubicacion_carta_porte": _internal_cp_auto_location_id(
+            user,
+            location_type,
+            s("id_ubicacion_carta_porte", s("id_ubicacion", existing.get("id_ubicacion_carta_porte") or "")),
+        ),
+        "tipo_ubicacion": location_type,
         "estado_sat": s("estado_sat"),
         "municipio_sat": s("municipio_sat"),
         "localidad_sat": s("localidad_sat"),
@@ -526,7 +550,7 @@ def _internal_cp_facility_config_payload(user: dict, facility_id: int, params) -
     }
 
 
-def _internal_cp_payload(kind: str, params) -> dict:
+def _internal_cp_payload(kind: str, params, user: dict | None = None, current: dict | None = None) -> dict:
     def s(*keys: str, default: str = "") -> str:
         for key in keys:
             value = params.get(key)
@@ -595,9 +619,10 @@ def _internal_cp_payload(kind: str, params) -> dict:
             "activo": True,
         }
     if kind == "ubicaciones":
+        location_type = s("tipo", default="ambos")
         return {
             "alias": s("alias"),
-            "tipo": s("tipo", default="ambos"),
+            "tipo": location_type,
             "rfc": s("rfc").upper(),
             "nombre": s("nombre"),
             "codigo_postal": s("codigo_postal")[:5],
@@ -608,7 +633,11 @@ def _internal_cp_payload(kind: str, params) -> dict:
             "numero_exterior": s("numero_exterior"),
             "numero_interior": s("numero_interior"),
             "pais": s("pais", default="MEX").upper(),
-            "id_ubicacion": s("id_ubicacion"),
+            "id_ubicacion": _internal_cp_auto_location_id(
+                user,
+                location_type,
+                s("id_ubicacion", default=(current or {}).get("id_ubicacion") or ""),
+            ) if user else s("id_ubicacion"),
             "activo": True,
         }
     if kind == "mercancias":
@@ -663,7 +692,7 @@ async def gas_lp_internal_catalogo_create(kind: str, request: Request, token: st
     if kind == "instalaciones":
         raise HTTPException(400, "Las instalaciones se crean en Administración; aquí solo se completa su configuración Carta Porte.")
     table, _order = _internal_cp_table(kind)
-    payload = _internal_cp_payload(kind, request.query_params)
+    payload = _internal_cp_payload(kind, request.query_params, user=user)
     existing = _internal_cp_duplicate_row(table, kind, payload, user)
     if existing:
         payload = _internal_cp_merge_metadata(payload, existing)
@@ -722,10 +751,10 @@ async def gas_lp_internal_catalogo_update(kind: str, row_id: int, request: Reque
             record = {**payload, "id": row_id, "facility_id": row_id}
         return JSONResponse({"ok": True, "id": row_id, "record": record})
     table, _order = _internal_cp_table(kind)
-    payload = _internal_cp_payload(kind, request.query_params)
     current = _internal_cp_existing_row(table, row_id, user)
     if not current:
         raise HTTPException(404, "Registro no encontrado para esta empresa.")
+    payload = _internal_cp_payload(kind, request.query_params, user=user, current=current)
     payload = _internal_cp_merge_metadata(payload, current)
     payload = _internal_cp_company_payload(payload, user, current)
     logger.debug("gas_lp_catalogo_update table=%s kind=%s id=%s tenant=%s perfil=%s empresa_rfc=%s", table, kind, row_id, payload.get("tenant_id"), payload.get("perfil_id"), (payload.get("metadata") or {}).get("empresa_rfc"))
