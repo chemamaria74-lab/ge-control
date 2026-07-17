@@ -212,6 +212,40 @@ def test_gas_lp_carta_porte_assistant_never_sends_driver_address_even_if_present
     assert domicilio is None
 
 
+def test_gas_lp_carta_porte_emits_optional_helpers_as_sat_notified_figures():
+    xml = _gas_lp_carta_porte_xml(
+        figuras_adicionales=[
+            {"nombre": "AYUDANTE UNO", "rfc": "AUAJ850101AB1"},
+            {"nombre": "AYUDANTE DOS", "rfc": "AUDJ860202AB2"},
+        ]
+    )
+    figuras = _root(xml).findall(".//cartaporte31:TiposFigura", NS)
+
+    assert [figura.attrib["TipoFigura"] for figura in figuras] == ["01", "04", "04"]
+    assert figuras[0].attrib["NumLicencia"] == "LIC123456"
+    assert "NumLicencia" not in figuras[1].attrib
+    assert figuras[1].attrib["NombreFigura"] == "AYUDANTE UNO"
+
+    validation = validar_xml_carta_porte_transporte(xml, productos=[{"clave_producto": "15111510"}], enforce_hidrocarburos=False)
+    assert not any("NumLicencia" in error for error in validation.errors)
+
+
+def test_gas_lp_carta_porte_uses_numeric_visible_folio():
+    xml = _gas_lp_carta_porte_xml(
+        entrega={
+            "uuid_mov": "42",
+            "volumen_litros": 1000,
+            "importe": 0,
+            "fecha_hora": "2026-07-16T10:00:00",
+            "fecha_salida": "2026-07-16T10:00:00",
+            "fecha_llegada": "2026-07-16T11:00:00",
+            "id_ccp": "CCC12345-1234-1234-1234-123456789012",
+        }
+    )
+
+    assert _root(xml).attrib["Folio"] == "42"
+
+
 def test_carta_porte_transport_flow_can_explicitly_send_driver_address():
     xml = _gas_lp_carta_porte_xml(
         chofer={
