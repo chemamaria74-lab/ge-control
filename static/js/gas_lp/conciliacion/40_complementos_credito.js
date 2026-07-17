@@ -56,7 +56,9 @@ function creditoRows(){
 }
 function renderCredito(){
   if(!window.credRows)return;
-  const rows=creditoRows();
+  if(!CREDITO_SEARCHED){credRows.innerHTML='<tr><td colspan="10">Presiona Buscar cartera.</td></tr>';credDetalle.innerHTML='<div class="notice">La cartera se consulta de forma independiente a Facturas.</div>';return}
+  const q=String(creditoFiltro?.value||'').trim().toLowerCase();
+  const rows=creditoRows().filter(c=>!q||[c.nombre,c.rfc,...c.facturas.flatMap(f=>[folio(f),f.uuid_sat])].some(v=>String(v||'').toLowerCase().includes(q)));
   const credito=rows.reduce((s,x)=>s+x.credito,0);
   const saldoPend=rows.reduce((s,x)=>s+x.saldo,0);
   const pagado=rows.reduce((s,x)=>s+x.pagado,0);
@@ -78,7 +80,7 @@ function renderCredito(){
   if(!selected){credDetalleCount.textContent='Sin selección';credDetalle.innerHTML='<div class="notice">Selecciona un cliente para ver sus facturas PPD pendientes.</div>';return}
   const detail=selected.facturas.filter(f=>saldo(f)>0).sort((a,b)=>creditStatusForFactura(b).dias_vencidos-creditStatusForFactura(a).dias_vencidos||String(facturaDateValue(a)||'').localeCompare(String(facturaDateValue(b)||'')));
   credDetalleCount.textContent=`${detail.length} pendiente${detail.length===1?'':'s'}`;
-  credDetalle.innerHTML=detail.length?`<table class="credito-detail-table"><thead><tr><th>Fecha</th><th>Vence</th><th>Días</th><th>UUID</th><th>Total</th><th>Saldo</th><th>Seguimiento</th><th>Estado banco</th><th>Banco</th></tr></thead><tbody>${detail.map(f=>{const info=creditStatusForFactura(f);const vencimiento=info.vencimiento?dateDMY(info.vencimiento):'—';const diasLabel=info.dias?`${info.dias} d`:'—';return `<tr><td>${esc(dateDMY(facturaDateKey(f)))}</td><td>${esc(vencimiento)}</td><td>${esc(diasLabel)}</td><td>${uuidHtml(f.uuid_sat)}</td><td>${money(total(f))}</td><td><b class="${saldo(f)>0?'err':'ok'}">${money(saldo(f))}</b></td><td>${creditBadgeHtml(info)}<span class="cell-sub">${esc(info.label||'')}</span></td><td>${bankStatusHtml(f)}</td><td>${bankActionButton(f)}</td></tr>`}).join('')}</tbody></table>`:'<div class="notice">Este cliente no tiene facturas PPD pendientes.</div>';
+  credDetalle.innerHTML=detail.length?`<table class="credito-detail-table"><thead><tr><th>Fecha</th><th>Vence</th><th>Días</th><th>Folio</th><th>Total</th><th>Saldo</th><th>Seguimiento</th><th>Estado banco</th><th>Banco</th></tr></thead><tbody>${detail.map(f=>{const info=creditStatusForFactura(f);const vencimiento=info.vencimiento?dateDMY(info.vencimiento):'—';const diasLabel=info.dias?`${info.dias} d`:'—';return `<tr><td>${esc(dateDMY(facturaDateKey(f)))}</td><td>${esc(vencimiento)}</td><td>${esc(diasLabel)}</td><td><b title="${esc(f.uuid_sat||'')}">${esc(folio(f))}</b></td><td>${money(total(f))}</td><td><b class="${saldo(f)>0?'err':'ok'}">${money(saldo(f))}</b></td><td>${creditBadgeHtml(info)}<span class="cell-sub">${esc(info.label||'')}</span></td><td>${bankStatusHtml(f)}</td><td>${bankActionButton(f)}</td></tr>`}).join('')}</tbody></table>`:'<div class="notice">Este cliente no tiene facturas PPD pendientes.</div>';
 }
 function selectCreditoCliente(key){CRED_CLIENT_KEY=String(key||'');renderCredito()}
 function toggleSel(id,on){const f=PPD_PENDIENTES.find(x=>Number(x.id)===Number(id));if(!f)return;if(!on){delete SEL[id];refreshSel();return}const selected=Object.values(SEL);const rfc=String(f.rfc_receptor||'').toUpperCase();if(selected.length&&selected[0].rfc&&selected[0].rfc!==rfc){setMsg('compMsg','Selecciona facturas del mismo cliente/RFC para un mismo complemento.',false);renderAll();return}SEL[id]={id:Number(id),saldo:saldo(f),rfc,cliente:razon(f)};setMsg('compMsg','');renderAll()}
