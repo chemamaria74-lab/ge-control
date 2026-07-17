@@ -250,7 +250,7 @@ function trv2ServiceTripData(row = {}) {
     unidad_id: vehiculoCatalogo.numero_economico || vehiculoCatalogo.alias || meta.unidad_id || meta.numero_economico || meta.vehiculo_numero_economico || meta.vehiculo_alias || (vehiculoId ? String(vehiculoId) : ''),
     id_cre: vehiculoCatalogo.id_cre || meta.id_cre || meta.id_cre_vehiculo || '',
     permiso_origen: meta.permiso_origen || meta.origen_permiso || meta.permiso_cre_origen || meta.origen_permiso_cre || meta.proveedor_permiso || cartaMeta.permiso_origen || origenMeta.permiso_cre || origenMeta.permiso || origenCatalogo.permiso_cre || origenCatalogo.permiso || proveedor.permiso_cre || proveedor.permiso || ruta.permiso_origen || rutaMeta.permiso_origen || ruta.permiso_cre || rutaMeta.permiso_cre || '',
-    permiso_destino: meta.permiso_destino || meta.destino_permiso || meta.permiso_cre_destino || meta.destino_permiso_cre || meta.cliente_permiso || cartaMeta.permiso_destino || destinoMeta.permiso_cre || destinoMeta.permiso || destinoCatalogo.permiso_cre || destinoCatalogo.permiso || cliente.permiso_cre || cliente.permiso || ruta.permiso_destino || rutaMeta.permiso_destino || rutaMeta.permiso_cre_destino || '',
+    permiso_destino: destinoCatalogo.permiso_cre || destinoCatalogo.permiso || destinoMeta.permiso_cre || destinoMeta.permiso || ruta.permiso_destino || rutaMeta.permiso_destino || rutaMeta.permiso_cre_destino || '',
     uuid_carta_porte: trv2ServiceTripUuid(row),
     no_carta_porte: noCartaPorte,
   };
@@ -652,7 +652,7 @@ function trv2ServiceTextMatch(a = '', b = '') {
   return left === right || left.includes(right) || right.includes(left);
 }
 
-function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
+function trv2FindServiceTariffMatch(service, tariffs = trv2ReadServiceTariffs()) {
   const normProduct = trv2ServiceNorm(service.producto);
   const candidates = (tariffs || []).map(item => {
     const routeExact = Number(item.ruta_id || 0) && Number(item.ruta_id || 0) === Number(service.ruta_id || 0);
@@ -662,13 +662,17 @@ function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
     const providerExact = Number(item.proveedor_id || 0) && Number(item.proveedor_id || 0) === Number(service.proveedor_id || 0);
     const providerText = trv2ServiceTextMatch(item.proveedor || item.origen, service.proveedor || service.origen);
     const clientExact = Number(item.cliente_id || 0) && Number(item.cliente_id || 0) === Number(service.cliente_id || 0);
-    const clientText = trv2ServiceTextMatch(item.cliente || item.destino, service.cliente || service.destino);
+    const clientText = trv2ServiceTextMatch(item.cliente, service.cliente);
     const originText = trv2ServiceTextMatch(item.origen, service.origen);
     const destinationText = trv2ServiceTextMatch(item.destino, service.destino);
     const hasRouteText = Boolean(trv2ServiceNorm(item.origen) || trv2ServiceNorm(item.destino));
     const routeText = hasRouteText
       && (originText || !trv2ServiceNorm(item.origen))
-      && (destinationText || clientText || !trv2ServiceNorm(item.destino));
+      && (destinationText || !trv2ServiceNorm(item.destino));
+    // El ID guardado en un viaje puede quedar desfasado. Si el catálogo sí
+    // identifica origen/destino, esos textos mandan y nunca se sustituyen por
+    // el nombre general del cliente (un cliente puede tener varias plantas).
+    if (hasRouteText && !routeText) return null;
     if (Number(item.ruta_id || 0) && !routeExact && !routeText) return null;
     // El flete se configura por ruta. En Petrolíferos el producto operativo
     // puede diferir del producto usado para clasificar la ruta sin cambiarla.
@@ -680,8 +684,8 @@ function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
     if (Number(item.cliente_id || 0) && !clientExact && !clientText && !destinationText) return null;
     if (!Number(item.cliente_id || 0) && trv2ServiceNorm(item.cliente || item.destino) && !clientText && !destinationText) return null;
     let score = 0;
-    if (routeExact) score += 200;
-    else if (routeText) score += 120;
+    if (routeText) score += 220;
+    else if (routeExact) score += 120;
     if (productExact) score += 80;
     else if (productText) score += 40;
     if (clientExact) score += 20;
@@ -691,9 +695,24 @@ function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
     if (providerText) score += 5;
     if (clientText) score += 5;
     score -= Number(item.prioridad || 100) || 100;
-    return {item, score};
+    return {item, score, correctedRoute: Boolean(routeText && Number(item.ruta_id || 0) && !routeExact)};
   }).filter(Boolean).sort((a, b) => b.score - a.score);
-  return candidates[0]?.item || null;
+  if (!candidates.length) return {tariff: null, status: 'missing', reason: 'No existe una tarifa que coincida con el origen y destino de este viaje.'};
+  const top = candidates[0];
+  const tied = candidates.filter(candidate => candidate.score === top.score);
+  const distinctRates = new Set(tied.map(candidate => `${Number(candidate.item.tarifa || 0)}|${trv2ServiceBillingBase(service.producto, candidate.item)}`));
+  if (distinctRates.size > 1) {
+    return {tariff: null, status: 'ambiguous', reason: 'Hay más de una tarifa válida con importes distintos para esta ruta.'};
+  }
+  return {
+    tariff: top.item,
+    status: top.correctedRoute ? 'corrected' : 'ok',
+    reason: top.correctedRoute ? 'El ID de ruta del viaje no coincidía; la tarifa se validó por origen y destino.' : '',
+  };
+}
+
+function trv2FindServiceTariff(service, tariffs = trv2ReadServiceTariffs()) {
+  return trv2FindServiceTariffMatch(service, tariffs).tariff;
 }
 
 function trv2ServiceBillingBase(productName = '', tariff = null) {
@@ -772,6 +791,10 @@ function trv2ServiceSavedCalc(row = {}) {
 function trv2ServiceTariffForRow(row = {}, tariffs = trv2ReadServiceTariffs()) {
   const service = trv2ServiceTripData(row);
   return trv2FindServiceTariff(service, tariffs);
+}
+
+function trv2ServiceTariffMatchForRow(row = {}, tariffs = trv2ReadServiceTariffs()) {
+  return trv2FindServiceTariffMatch(trv2ServiceTripData(row), tariffs);
 }
 
 function trv2ServicePendingRows() {
@@ -1009,7 +1032,8 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
   const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
   if (!row) return;
   const service = trv2ServiceTripData(row);
-  const tariff = trv2ServiceTariffForRow(row);
+  const tariffMatch = trv2ServiceTariffMatchForRow(row);
+  const tariff = tariffMatch.tariff;
   const cliente = trv2FindCatalog?.('clientes', service.cliente_id) || {};
   const metodoPago = String(cliente.metodo_pago_default || 'PUE').toUpperCase();
   const formaPago = metodoPago === 'PPD' && (!cliente.forma_pago_default || cliente.forma_pago_default === '03')
@@ -1037,6 +1061,7 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
       ${trv2RenderPreviewBlock('Receptor', receptorPreview)}
       ${trv2RenderPreviewBlock('Carta Porte base', {ruta: `${service.origen} -> ${service.destino}`, producto: service.producto, uuid_carta_porte: service.uuid_carta_porte})}
     </div>
+    ${tariffMatch.status !== 'ok' ? `<div class="trv2-alert ${tariff ? 'trv2-alert-warning' : 'trv2-alert-danger'}"><strong>${tariff ? 'Ruta verificada por origen y destino.' : 'No se puede timbrar.'}</strong> ${trv2Esc(tariffMatch.reason)}</div>` : ''}
     <div class="trv2-form trv2-form-compact">
       <label>
         <span>Tarifa de catálogo (${trv2Esc(calc.base_calculo)})</span>
@@ -1054,7 +1079,7 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
     <div class="trv2-cp-summary" id="trv2-service-review-summary">
       ${trv2RenderServiceReviewTotals(calc)}
     </div>
-    <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseServiceReview()">Cancelar</button>${allowStamp ? `<button class="trv2-btn trv2-btn-primary" id="trv2-service-confirm-btn" type="button" onclick="trv2ConfirmServiceInvoice(${Number(tripId)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso</button>` : ''}</div>
+    <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseServiceReview()">Cancelar</button>${allowStamp && tariff ? `<button class="trv2-btn trv2-btn-primary" id="trv2-service-confirm-btn" type="button" onclick="trv2ConfirmServiceInvoice(${Number(tripId)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso</button>` : ''}</div>
   </section>`;
 }
 
@@ -1190,9 +1215,13 @@ function trv2RenderServicePendingTable() {
   }
   tbody.innerHTML = rows.map(row => {
     const service = trv2ServiceTripData(row);
-    const tariff = trv2ServiceTariffForRow(row, tariffs);
+    const tariffMatch = trv2ServiceTariffMatchForRow(row, tariffs);
+    const tariff = tariffMatch.tariff;
     const calc = trv2ServiceCalc(tariff?.tarifa || 0, service, tariff);
-    const status = tariff ? 'Listo' : 'Falta configurar tarifa';
+    const status = tariffMatch.status === 'ambiguous' ? 'Tarifa ambigua: revisar catálogo' : (tariff ? (tariffMatch.status === 'corrected' ? 'Ruta corregida por origen y destino' : 'Listo') : 'Falta configurar tarifa exacta');
+    const tariffLabel = tariff
+      ? `${trv2ServiceMoney(tariff.tarifa)} / ${trv2Esc(trv2ServiceBillingBase(service.producto, tariff))}${tariffMatch.status === 'corrected' ? '<br><small class="trv2-warning-text">Ruta verificada</small>' : ''}`
+      : `<span class="trv2-warning-text" title="${trv2Esc(tariffMatch.reason)}">${tariffMatch.status === 'ambiguous' ? 'Tarifa ambigua' : 'Sin tarifa exacta'}</span>`;
     return `
       <tr>
         <td>${trv2Esc(trv2DisplayDate(service.fecha || ''))}</td>
@@ -1205,7 +1234,7 @@ function trv2RenderServicePendingTable() {
         <td><span class="trv2-service-main">${trv2Esc(service.chofer)}</span></td>
         <td title="${trv2Esc(service.vehiculo)}">${trv2Esc(trv2ServiceVehicleShort(service.vehiculo))}</td>
         <td><span class="trv2-service-uuid" title="${trv2Esc(service.uuid_carta_porte)}">${trv2Esc(trv2ServiceShortUuid(service.uuid_carta_porte))}</span></td>
-        <td class="trv2-num"><strong>${tariff ? `${trv2ServiceMoney(tariff.tarifa)} / ${trv2Esc(trv2ServiceBillingBase(service.producto, tariff))}` : 'Sin tarifa'}</strong></td>
+        <td class="trv2-num"><strong>${tariffLabel}</strong></td>
         <td class="trv2-num">${trv2ServiceMoney(calc.subtotal)}</td>
         <td class="trv2-num">${trv2ServiceMoney(calc.iva)}</td>
         <td class="trv2-num">${trv2ServiceMoney(calc.retencion)}</td>

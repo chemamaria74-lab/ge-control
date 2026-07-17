@@ -11,7 +11,7 @@ const TRV2_OPERATOR_PAYMENT_CACHE_MS = 5 * 60 * 1000;
 let TRV2_OPERATOR_PAYMENT_LAST_SEARCH = null;
 
 function trv2SetOperatorPaymentView(view = 'liquidaciones') {
-  TRV2_OPERATOR_PAYMENT_VIEW = ['liquidaciones', 'tarifas', 'bases', 'ruta'].includes(view) ? view : 'liquidaciones';
+  TRV2_OPERATOR_PAYMENT_VIEW = ['liquidaciones', 'baja-laboral', 'tarifas', 'bases', 'ruta'].includes(view) ? view : 'liquidaciones';
   document.querySelectorAll('[data-payment-tab]').forEach(button => {
     button.classList.toggle('active', button.dataset.paymentTab === TRV2_OPERATOR_PAYMENT_VIEW);
   });
@@ -22,6 +22,7 @@ function trv2SetOperatorPaymentView(view = 'liquidaciones') {
   if (exportButton) exportButton.hidden = TRV2_OPERATOR_PAYMENT_VIEW !== 'liquidaciones';
   if (TRV2_OPERATOR_PAYMENT_VIEW === 'tarifas') trv2RenderOperatorTariffs();
   if (TRV2_OPERATOR_PAYMENT_VIEW === 'bases') trv2RenderOperatorPayrollBases();
+  if (TRV2_OPERATOR_PAYMENT_VIEW === 'baja-laboral') trv2PopulateTerminationOperators();
   if (TRV2_OPERATOR_PAYMENT_VIEW === 'ruta' && typeof trv2LoadOperatorDashboard === 'function') trv2LoadOperatorDashboard();
 }
 
@@ -105,7 +106,7 @@ function trv2RenderOperatorPayrollBases() {
     return `<tr data-payroll-base-operator="${Number(operator.id)}"><td><strong>${trv2Esc(operator.nombre || `Operador #${operator.id}`)}</strong><small class="trv2-service-sub">Base ${trv2PayrollPeriodLabel(TRV2_OPERATOR_PAYROLL_BASE_PERIOD)}</small></td><td><label class="trv2-money-input"><span>$</span><input data-payroll-base-bank type="number" min="0" step="0.01" value="${bank}" oninput="trv2UpdatePayrollBaseCash(this)"></label></td><td><label class="trv2-money-input"><span>$</span><input data-payroll-base-infonavit type="number" min="0" step="0.01" value="${infonavit}" oninput="trv2UpdatePayrollBaseCash(this)"></label></td><td><strong data-payroll-base-cash>${trv2ServiceMoney(bank + infonavit)}</strong><small class="trv2-service-sub">Se descontará de las comisiones</small></td></tr>`;
   }).join('') : '<tr><td colspan="4"><div class="trv2-empty">Primero registra operadores en Catálogos.</div></td></tr>';
   const note = document.getElementById('trv2-payroll-bases-period-note');
-  if (note) note.textContent = `Estas cantidades se usarán cuando la liquidación sea ${trv2PayrollPeriodLabel(TRV2_OPERATOR_PAYROLL_BASE_PERIOD)}.`;
+  if (note) note.textContent = `Estas cantidades se usarán cuando el pago sea ${trv2PayrollPeriodLabel(TRV2_OPERATOR_PAYROLL_BASE_PERIOD)}.`;
 }
 
 function trv2UpdatePayrollBaseCash(input) {
@@ -172,6 +173,138 @@ function trv2OperatorPaymentCatalogOptions() {
     route.innerHTML = `<option value="">Seleccionar ruta</option>${routeOptions}`;
     route.value = current;
   }
+  trv2PopulateTerminationOperators();
+}
+
+function trv2PopulateTerminationOperators() {
+  const select = document.getElementById('trv2-termination-operator');
+  if (!select) return;
+  const current = select.value;
+  const options = (TRV2_CATALOGS.operadores || []).map(item => `<option value="${Number(item.id)}">${trv2Esc(item.nombre || `Operador #${item.id}`)}</option>`).join('');
+  select.innerHTML = `<option value="">Seleccionar operador</option>${options}`;
+  select.value = current;
+}
+
+function trv2TerminationNumber(id) {
+  return Math.max(0, Number(document.getElementById(id)?.value || 0));
+}
+
+function trv2TerminationVacationDays(years) {
+  if (years < 1) return 12;
+  const completed = Math.max(1, Math.floor(years));
+  if (completed <= 5) return 10 + (completed * 2);
+  return 20 + (Math.floor((completed - 1) / 5) * 2);
+}
+
+function trv2TerminationDate(id) {
+  const value = document.getElementById(id)?.value || '';
+  const date = value ? new Date(`${value}T12:00:00`) : null;
+  return date && Number.isFinite(date.getTime()) ? date : null;
+}
+
+function trv2TerminationYears(start, end) {
+  if (!start || !end || end < start) return 0;
+  return ((end - start) / 86400000 + 1) / 365.2425;
+}
+
+function trv2SuggestTerminationBenefits() {
+  const start = trv2TerminationDate('trv2-termination-start');
+  const end = trv2TerminationDate('trv2-termination-end');
+  if (!start || !end || end < start) return trv2CalculateTermination();
+  const years = trv2TerminationYears(start, end);
+  let anniversary = new Date(end.getFullYear(), start.getMonth(), start.getDate(), 12);
+  if (anniversary > end) anniversary.setFullYear(anniversary.getFullYear() - 1);
+  const cycleStart = anniversary < start ? start : anniversary;
+  const cycleDays = Math.max(0, Math.floor((end - cycleStart) / 86400000) + 1);
+  const suggested = trv2TerminationVacationDays(years) * Math.min(1, cycleDays / 365.2425);
+  const vacationInput = document.getElementById('trv2-termination-vacation-days');
+  if (vacationInput) vacationInput.value = suggested.toFixed(2);
+  trv2ApplyTerminationCause();
+}
+
+function trv2ApplyTerminationCause() {
+  const cause = document.getElementById('trv2-termination-cause')?.value || 'resignation';
+  const start = trv2TerminationDate('trv2-termination-start');
+  const end = trv2TerminationDate('trv2-termination-end');
+  const years = trv2TerminationYears(start, end);
+  const ninety = document.getElementById('trv2-termination-90-days');
+  const twenty = document.getElementById('trv2-termination-20-days');
+  const seniority = document.getElementById('trv2-termination-seniority');
+  if (ninety) ninety.checked = cause === 'unjustified';
+  if (twenty) twenty.checked = false;
+  if (seniority) seniority.checked = cause === 'unjustified' || cause === 'justified' || (cause === 'resignation' && years >= 15);
+  trv2CalculateTermination();
+}
+
+function trv2TerminationRow(label, basis, amount) {
+  return `<tr><td><strong>${trv2Esc(label)}</strong></td><td>${trv2Esc(basis)}</td><td><strong>${trv2ServiceMoney(amount)}</strong></td></tr>`;
+}
+
+function trv2CalculateTermination() {
+  const start = trv2TerminationDate('trv2-termination-start');
+  const end = trv2TerminationDate('trv2-termination-end');
+  const body = document.getElementById('trv2-termination-breakdown');
+  if (!body) return;
+  if (!start || !end || end < start) {
+    body.innerHTML = '<tr><td colspan="3"><div class="trv2-empty">Captura un periodo laboral válido para obtener el desglose.</div></td></tr>';
+    return;
+  }
+  const daily = trv2TerminationNumber('trv2-termination-daily');
+  const integrated = trv2TerminationNumber('trv2-termination-integrated');
+  const years = trv2TerminationYears(start, end);
+  const unpaidDays = trv2TerminationNumber('trv2-termination-unpaid-days');
+  const annualBonusDays = trv2TerminationNumber('trv2-termination-bonus-days');
+  const vacationDays = trv2TerminationNumber('trv2-termination-vacation-days');
+  const vacationPremiumRate = trv2TerminationNumber('trv2-termination-vacation-premium') / 100;
+  const other = trv2TerminationNumber('trv2-termination-other');
+  const deductions = trv2TerminationNumber('trv2-termination-deductions');
+  const yearStart = new Date(end.getFullYear(), 0, 1, 12);
+  const bonusStart = start > yearStart ? start : yearStart;
+  const bonusAccruedDays = Math.max(0, Math.floor((end - bonusStart) / 86400000) + 1);
+  const unpaidSalary = daily * unpaidDays;
+  const bonus = daily * annualBonusDays * Math.min(1, bonusAccruedDays / 365.2425);
+  const vacationPay = daily * vacationDays;
+  const vacationPremium = vacationPay * vacationPremiumRate;
+  const settlementGross = unpaidSalary + bonus + vacationPay + vacationPremium + other;
+  const ninety = document.getElementById('trv2-termination-90-days')?.checked ? integrated * 90 : 0;
+  const twenty = document.getElementById('trv2-termination-20-days')?.checked ? integrated * 20 * years : 0;
+  const seniorityDaily = trv2TerminationNumber('trv2-termination-seniority-daily');
+  const seniority = document.getElementById('trv2-termination-seniority')?.checked ? seniorityDaily * 12 * years : 0;
+  const indemnity = ninety + twenty + seniority;
+  const grand = Math.max(0, settlementGross + indemnity - deductions);
+  const rows = [
+    trv2TerminationRow('Salarios pendientes', `${unpaidDays.toFixed(2)} días × ${trv2ServiceMoney(daily)}`, unpaidSalary),
+    trv2TerminationRow('Aguinaldo proporcional', `${annualBonusDays.toFixed(2)} días anuales × ${bonusAccruedDays} días devengados`, bonus),
+    trv2TerminationRow('Vacaciones pendientes', `${vacationDays.toFixed(2)} días × ${trv2ServiceMoney(daily)}`, vacationPay),
+    trv2TerminationRow('Prima vacacional', `${(vacationPremiumRate * 100).toFixed(2)}% sobre vacaciones`, vacationPremium),
+    trv2TerminationRow('Otras percepciones', 'Captura manual', other),
+  ];
+  if (ninety) rows.push(trv2TerminationRow('Indemnización constitucional', `90 días × ${trv2ServiceMoney(integrated)}`, ninety));
+  if (twenty) rows.push(trv2TerminationRow('20 días por año', `${years.toFixed(2)} años × 20 días × ${trv2ServiceMoney(integrated)}`, twenty));
+  if (seniority) rows.push(trv2TerminationRow('Prima de antigüedad', `${years.toFixed(2)} años × 12 días × ${trv2ServiceMoney(seniorityDaily)}`, seniority));
+  rows.push(trv2TerminationRow('Deducciones autorizadas', 'Resta al total', -deductions));
+  body.innerHTML = rows.join('');
+  const tenure = document.getElementById('trv2-termination-tenure');
+  const settlementNode = document.getElementById('trv2-termination-settlement-total');
+  const indemnityNode = document.getElementById('trv2-termination-indemnity-total');
+  const grandNode = document.getElementById('trv2-termination-grand-total');
+  if (tenure) tenure.textContent = `${years.toFixed(2)} años`;
+  if (settlementNode) settlementNode.textContent = trv2ServiceMoney(settlementGross);
+  if (indemnityNode) indemnityNode.textContent = trv2ServiceMoney(indemnity);
+  if (grandNode) grandNode.textContent = trv2ServiceMoney(grand);
+  return {settlementGross, indemnity, deductions, grand, years};
+}
+
+function trv2ResetTerminationCalculator() {
+  document.getElementById('trv2-termination-form')?.reset();
+  const breakdown = document.getElementById('trv2-termination-breakdown');
+  if (breakdown) breakdown.innerHTML = '<tr><td colspan="3"><div class="trv2-empty">Completa los datos para obtener el desglose.</div></td></tr>';
+  ['trv2-termination-settlement-total', 'trv2-termination-indemnity-total', 'trv2-termination-grand-total'].forEach(id => {
+    const node = document.getElementById(id);
+    if (node) node.textContent = '$0.00';
+  });
+  const tenure = document.getElementById('trv2-termination-tenure');
+  if (tenure) tenure.textContent = '—';
 }
 
 function trv2OperatorPaymentRouteLabel(route = {}) {
@@ -278,7 +411,7 @@ function trv2ResetOperatorPaymentResults(message = 'Selecciona el periodo y pres
   const modal = document.getElementById('trv2-payment-review-modal');
   const alert = document.getElementById('trv2-payment-alert');
   if (kpis) kpis.innerHTML = `
-    <article><span>Viajes por liquidar</span><strong>0</strong></article>
+    <article><span>Viajes por pagar</span><strong>0</strong></article>
     <article><span>Operadores</span><strong>0</strong></article>
     <article><span>Rutas</span><strong>0</strong></article>
     <article><span>Total estimado</span><strong>$0.00</strong></article>`;
@@ -312,7 +445,7 @@ function trv2RenderOperatorPayments(summary = {}) {
   const alert = document.getElementById('trv2-payment-alert');
   if (!kpis || !body) return;
   kpis.innerHTML = `
-    <article><span>Viajes por liquidar</span><strong>${Number(summary.viajes || 0)}</strong></article>
+    <article><span>Viajes por pagar</span><strong>${Number(summary.viajes || 0)}</strong></article>
     <article><span>Operadores</span><strong>${Number(summary.operadores || 0)}</strong></article>
     <article><span>Rutas</span><strong>${Number(summary.rutas || 0)}</strong></article>
     <article><span>Total estimado</span><strong>${trv2ServiceMoney(Number(summary.total_estimado || 0))}</strong></article>`;
@@ -321,12 +454,12 @@ function trv2RenderOperatorPayments(summary = {}) {
     const liters = group.items.reduce((sum, item) => sum + Number(item.litros || 0), 0);
     const kilos = group.items.reduce((sum, item) => sum + Number(item.kilos || 0), 0);
     return `<tr><td><strong>${trv2Esc(group.name)}</strong></td><td class="trv2-num">${group.items.length}</td><td class="trv2-num">${group.routes.size}</td><td class="trv2-num">${trv2ServiceNumber(liters)}</td><td class="trv2-num">${trv2ServiceNumber(kilos)}</td><td class="trv2-num"><strong>${trv2ServiceMoney(group.total)}</strong></td><td>${group.missing ? `<span class="trv2-status inactive">${group.missing}</span>` : '<span class="trv2-status active">0</span>'}</td><td><button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2ShowOperatorPaymentDetail(${group.id})">Ver detalle</button></td></tr>`;
-  }).join('') : '<tr><td colspan="8"><div class="trv2-empty">No hay viajes pendientes de liquidar en este periodo.</div></td></tr>';
+  }).join('') : '<tr><td colspan="8"><div class="trv2-empty">No hay viajes pendientes de pago en este periodo.</div></td></tr>';
   const missing = Number(summary.sin_tarifa || 0);
   const already = Number(summary.ya_liquidados || 0);
   if (alert) {
     alert.hidden = !missing && !already;
-    alert.textContent = [missing ? `${missing} viaje(s) no tienen tarifa de operador y no se incluirán en una liquidación.` : '', already ? `${already} viaje(s) del periodo ya fueron liquidados.` : ''].filter(Boolean).join(' ');
+    alert.textContent = [missing ? `${missing} viaje(s) no tienen tarifa de operador y no se incluirán en el pago.` : '', already ? `${already} viaje(s) del periodo ya fueron pagados.` : ''].filter(Boolean).join(' ');
   }
   if (TRV2_OPERATOR_PAYMENT_SELECTED) trv2ShowOperatorPaymentDetail(TRV2_OPERATOR_PAYMENT_SELECTED);
 }
@@ -403,11 +536,11 @@ function trv2RefreshOperatorExpenseTotal() {
 
 function trv2PrepareSelectedOperatorPayment() {
   const group = trv2OperatorPaymentGroups().find(item => Number(item.id) === Number(TRV2_OPERATOR_PAYMENT_SELECTED));
-  if (!group || group.missing) return trv2Toast('Configura todas las tarifas antes de preparar la liquidación.', 'error');
+  if (!group || group.missing) return trv2Toast('Configura todas las tarifas antes de preparar el pago.', 'error');
   const panel = document.getElementById('trv2-payment-review-modal');
   const title = document.getElementById('trv2-payment-detail-title');
   if (!panel) return;
-  if (title) title.textContent = `Preparar liquidación · ${group.name}`;
+  if (title) title.textContent = `Preparar pago · ${group.name}`;
   const context = document.getElementById('trv2-payment-review-context');
   if (context) context.innerHTML = `<article><span>Periodo</span><strong>${trv2Esc(trv2DisplayDate(document.getElementById('trv2-payment-from')?.value, {fallback: '—'}))} → ${trv2Esc(trv2DisplayDate(document.getElementById('trv2-payment-to')?.value, {fallback: '—'}))}</strong></article><article><span>Viajes</span><strong>${group.items.length}</strong></article><article><span>Rutas</span><strong>${group.routes.size}</strong></article><article><span>Gastos</span><strong>${trv2ServiceMoney(trv2RefreshOperatorExpenseTotal())}</strong></article>`;
   const commissionNode = document.getElementById('trv2-closeout-commissions');
@@ -456,7 +589,7 @@ function trv2GenerateSelectedOperatorPayment() {
 
 async function trv2GenerateOperatorPayment(operatorId) {
   const group = trv2OperatorPaymentGroups().find(item => Number(item.id) === Number(operatorId));
-  if (!group || group.missing) return trv2Toast('Configura todas las tarifas antes de generar la liquidación.', 'error');
+  if (!group || group.missing) return trv2Toast('Configura todas las tarifas antes de generar el pago.', 'error');
   const closeout = trv2UpdateOperatorPaymentCloseout();
   if (closeout.cash < 0) return trv2Toast('El pago por banco y los descuentos superan las comisiones más gastos.', 'error');
   if (!confirm(`Generar la quincena de ${group.name}? Banco ${trv2ServiceMoney(closeout.bank)} y efectivo ${trv2ServiceMoney(closeout.cash)}.`)) return;
@@ -468,8 +601,8 @@ async function trv2GenerateOperatorPayment(operatorId) {
       gastos_por_viaje: trv2SelectedOperatorExpenses(), pago_efectivo: closeout.cash,
     },
   }, {allowError: true});
-  if (!data?.ok) return trv2Toast(data?.detail || data?.message || 'No se pudo generar la liquidación.', 'error');
-  trv2Toast(`Liquidación #${data.liquidacion_id} generada por ${trv2ServiceMoney(data.total)}.`, 'success');
+  if (!data?.ok) return trv2Toast(data?.detail || data?.message || 'No se pudo generar el pago.', 'error');
+  trv2Toast(`Pago #${data.liquidacion_id} generado por ${trv2ServiceMoney(data.total)}.`, 'success');
   trv2CloseOperatorPaymentDetail();
   await trv2LoadOperatorPayments({force: true});
 }

@@ -148,7 +148,6 @@ const TRV2_CATALOG_FORMS = {
     ['regimen_fiscal', 'Régimen fiscal', 'regimen-fiscal'],
     ['uso_cfdi', 'Uso CFDI', 'uso-cfdi'],
     ['email_facturacion', 'Email fiscal / comercial', 'email'],
-    ['permiso_cre', 'Permiso destino (CRE)'],
     ['metodo_pago_default', 'Método pago flete', 'payment-method'],
     ['forma_pago_default', 'Forma pago flete', 'payment-form'],
     ['activo', 'Activo', 'checkbox'],
@@ -278,15 +277,15 @@ const TRV2_CATALOG_UI = {
     icon: 'fa-building-user',
     title: 'Clientes',
     subtitle: 'Receptores y contrapartes del servicio de transporte.',
-    metrics: [['Registros', 'count'], ['Con RFC', 'rfc'], ['Con permiso destino', 'permiso_cre']],
-    fields: [['RFC', 'rfc'], ['CP', 'cp'], ['Permiso destino', 'permiso_cre'], ['Régimen', 'regimen_fiscal'], ['Uso CFDI', 'uso_cfdi'], ['Email', 'email_facturacion'], ['Método flete', 'metodo_pago_default']],
+    metrics: [['Registros', 'count'], ['Con RFC', 'rfc'], ['Con email', 'email_facturacion']],
+    fields: [['RFC', 'rfc'], ['CP', 'cp'], ['Régimen', 'regimen_fiscal'], ['Uso CFDI', 'uso_cfdi'], ['Email', 'email_facturacion'], ['Método flete', 'metodo_pago_default']],
   },
   operadores: {
     icon: 'fa-id-card',
     title: 'Operadores',
     subtitle: 'Figuras Transporte tipo 01 para Carta Porte.',
-    metrics: [['Registros', 'count'], ['Con RFC figura', 'rfc_figura'], ['Con licencia', 'licencia']],
-    fields: [['RFC Figura', 'rfc_figura'], ['Licencia', 'licencia'], ['CP operador', 'cp'], ['Vehículo asignado', 'vehiculo_frecuente_id']],
+    metrics: [['Operadores activos', 'operator_active'], ['Vencidas', 'license_expired'], ['Por vencer', 'license_expiring'], ['Vigentes', 'license_valid']],
+    fields: [['RFC Figura', 'rfc_figura'], ['Licencia', 'licencia'], ['Tipo', 'tipo_licencia'], ['Vencimiento', 'vencimiento_licencia'], ['Vigencia', 'license_status'], ['Vehículo asignado', 'vehiculo_frecuente_id']],
   },
   vehiculos: {
     icon: 'fa-truck-moving',
@@ -779,6 +778,11 @@ function trv2SetVehicleSubCatalog(name) {
 
 function trv2CatalogMetricValue(items, key) {
   if (key === 'count') return items.length;
+  if (key === 'operator_active') return items.filter(item => item.activo !== false).length;
+  if (key.startsWith('license_')) {
+    const expected = key.replace('license_', '');
+    return items.filter(item => item.activo !== false && trv2OperatorLicenseStatus(item).key === expected).length;
+  }
   if (key === 'base_kg') {
     return items.filter(item => String(item.base_calculo || item.regla_calculo || '').toUpperCase() === 'KG').length;
   }
@@ -793,6 +797,19 @@ function trv2CatalogMetricValue(items, key) {
     if (typeof value === 'boolean') return value;
     return String(value ?? '').trim();
   }).length;
+}
+
+function trv2OperatorLicenseStatus(item = {}, warningDays = 30) {
+  const raw = String(item.vencimiento_licencia || item.metadata?.vencimiento_licencia || item.metadata?.licencia_vencimiento || '').trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return {key: 'missing', label: 'Sin fecha', className: 'inactive'};
+  const expiresAt = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const now = new Date();
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.ceil((expiresAt - today) / 86400000);
+  if (days < 0) return {key: 'expired', label: 'Vencida', className: 'danger'};
+  if (days <= warningDays) return {key: 'expiring', label: days === 0 ? 'Vence hoy' : `Por vencer · ${days} días`, className: 'warning'};
+  return {key: 'valid', label: 'Vigente', className: 'active'};
 }
 
 function trv2RenderCatalogMetrics(name, items) {
@@ -938,6 +955,10 @@ function trv2RenderCatalogTableRow(name, item, fields) {
       </td>
       ${fields.map(([, key]) => {
         const raw = item[key];
+        if (name === 'operadores' && key === 'license_status') {
+          const licenseStatus = trv2OperatorLicenseStatus(item);
+          return `<td><span class="trv2-status ${trv2Esc(licenseStatus.className)}">${trv2Esc(licenseStatus.label)}</span></td>`;
+        }
         const value = trv2CatalogDisplayValue(name, key, raw, item);
         return `<td>${trv2Esc(value || 'Pendiente')}</td>`;
       }).join('')}
@@ -1339,7 +1360,6 @@ function trv2CoerceInstallationContext(form, data) {
     if (cliente) {
       data.cliente_nombre = trv2CatalogLabel('clientes', cliente);
       data.rfc = data.rfc || cliente.rfc || '';
-      data.permiso_cre = data.permiso_cre || cliente.permiso_cre || '';
       data.nombre = data.nombre || data.cliente_nombre || '';
     }
   }
@@ -1856,7 +1876,7 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
     payload.rfc = data.rfc || (isOrigin ? proveedor?.rfc : cliente?.rfc) || '';
     payload.permiso_cre = isOrigin
       ? (data.permiso_cre || proveedor?.permiso_cre || '')
-      : (data.permiso_cre || cliente?.permiso_cre || '');
+      : (data.permiso_cre || '');
     payload.id_ubicacion_carta_porte = trv2BuildCartaPorteLocationId(data, target);
     const sourceId = current?._source_catalog === target ? Number(current._source_id || 0) : 0;
     const path = sourceId ? `/api/tr-v2/catalogos/${target}/${sourceId}` : `/api/tr-v2/catalogos/${target}`;
