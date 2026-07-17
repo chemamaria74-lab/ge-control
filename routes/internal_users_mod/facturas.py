@@ -715,7 +715,11 @@ async def gas_lp_internal_factura_pdf(factura_id: int, token: str, perfil_id: in
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     if es_carta_porte_traslado(xml_content):
         info = carta_porte_pdf_info(xml_content)
-        pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+        pdf_bytes = generar_pdf_carta_porte_desde_xml(
+            xml_content,
+            logo_data_url=settings.get("PdfLogoDataUrl", ""),
+            mostrar_figuras_adicionales=True,
+        )
     else:
         pac_pdf_url = str(row.get("pdf_url") or "").strip()
         if pac_pdf_url:
@@ -785,7 +789,11 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
     try:
         if es_carta_porte_traslado(xml_content):
             info = carta_porte_pdf_info(xml_content)
-            pdf_bytes = generar_pdf_carta_porte_desde_xml(xml_content, logo_data_url=settings.get("PdfLogoDataUrl", ""))
+            pdf_bytes = generar_pdf_carta_porte_desde_xml(
+                xml_content,
+                logo_data_url=settings.get("PdfLogoDataUrl", ""),
+                mostrar_figuras_adicionales=True,
+            )
         else:
             info = fiscal_pdf_info(xml_content, "factura_gas_lp")
             pdf_bytes = generar_pdf_gas_lp_desde_xml(
