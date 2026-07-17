@@ -1,0 +1,818 @@
+{
+  "source": "INEGI Catálogo Único de Claves Geoestadísticas; claves SAT Carta Porte",
+  "scope": "AGU/JAL/ZAC",
+  "states": [
+    {
+      "clave": "AGU",
+      "nombre": "Aguascalientes",
+      "municipios": [
+        {
+          "clave": "001",
+          "nombre": "Aguascalientes"
+        },
+        {
+          "clave": "002",
+          "nombre": "Asientos"
+        },
+        {
+          "clave": "003",
+          "nombre": "Calvillo"
+        },
+        {
+          "clave": "004",
+          "nombre": "Cosío"
+        },
+        {
+          "clave": "005",
+          "nombre": "Jesús María"
+        },
+        {
+          "clave": "006",
+          "nombre": "Pabellón de Arteaga"
+        },
+        {
+          "clave": "007",
+          "nombre": "Rincón de Romos"
+        },
+        {
+          "clave": "008",
+          "nombre": "San José de Gracia"
+        },
+        {
+          "clave": "009",
+          "nombre": "Tepezalá"
+        },
+        {
+          "clave": "010",
+          "nombre": "El Llano"
+        },
+        {
+          "clave": "011",
+          "nombre": "San Francisco de los Romo"
+        }
+      ]
+    },
+    {
+      "clave": "JAL",
+      "nombre": "Jalisco",
+      "municipios": [
+        {
+          "clave": "001",
+          "nombre": "Acatic"
+        },
+        {
+          "clave": "002",
+          "nombre": "Acatlán de Juárez"
+        },
+        {
+          "clave": "003",
+          "nombre": "Ahualulco de Mercado"
+        },
+        {
+          "clave": "004",
+          "nombre": "Amacueca"
+        },
+        {
+          "clave": "005",
+          "nombre": "Amatitán"
+        },
+        {
+          "clave": "006",
+          "nombre": "Ameca"
+        },
+        {
+          "clave": "007",
+          "nombre": "San Juanito de Escobedo"
+        },
+        {
+          "clave": "008",
+          "nombre": "Arandas"
+        },
+        {
+          "clave": "009",
+          "nombre": "El Arenal"
+        },
+        {
+          "clave": "010",
+          "nombre": "Atemajac de Brizuela"
+        },
+        {
+          "clave": "011",
+          "nombre": "Atengo"
+        },
+        {
+          "clave": "012",
+          "nombre": "Atenguillo"
+        },
+        {
+          "clave": "013",
+          "nombre": "Atotonilco el Alto"
+        },
+        {
+          "clave": "014",
+          "nombre": "Atoyac"
+        },
+        {
+          "clave": "015",
+          "nombre": "Autlán de Navarro"
+        },
+        {
+          "clave": "016",
+          "nombre": "Ayotlán"
+        },
+        {
+          "clave": "017",
+          "nombre": "Ayutla"
+        },
+        {
+          "clave": "018",
+          "nombre": "La Barca"
+        },
+        {
+          "clave": "019",
+          "nombre": "Bolaños"
+        },
+        {
+          "clave": "020",
+          "nombre": "Cabo Corrientes"
+        },
+        {
+          "clave": "021",
+          "nombre": "Casimiro Castillo"
+        },
+        {
+          "clave": "022",
+          "nombre": "Cihuatlán"
+        },
+        {
+          "clave": "023",
+          "nombre": "Zapotlán el Grande"
+        },
+        {
+          "clave": "024",
+          "nombre": "Cocula"
+        },
+        {
+          "clave": "025",
+          "nombre": "Colotlán"
+        },
+        {
+          "clave": "026",
+          "nombre": "Concepción de Buenos Aires"
+        },
+        {
+          "clave": "027",
+          "nombre": "Cuautitlán de García Barragán"
+        },
+        {
+          "clave": "028",
+          "nombre": "Cuautla"
+        },
+        {
+          "clave": "029",
+          "nombre": "Cuquío"
+        },
+        {
+          "clave": "030",
+          "nombre": "Chapala"
+        },
+        {
+          "clave": "031",
+          "nombre": "Chimaltitán"
+        },
+        {
+          "clave": "032",
+          "nombre": "Chiquilistlán"
+        },
+        {
+          "clave": "033",
+          "nombre": "Degollado"
+        },
+        {
+          "clave": "034",
+          "nombre": "Ejutla"
+        },
+        {
+          "clave": "035",
+          "nombre": "Encarnación de Díaz"
+        },
+        {
+          "clave": "036",
+          "nombre": "Etzatlán"
+        },
+        {
+          "clave": "037",
+          "nombre": "El Grullo"
+        },
+        {
+          "clave": "038",
+          "nombre": "Guachinango"
+        },
+        {
+          "clave": "039",
+          "nombre": "Guadalajara"
+        },
+        {
+          "clave": "040",
+          "nombre": "Hostotipaquillo"
+        },
+        {
+          "clave": "041",
+          "nombre": "Huejúcar"
+        },
+        {
+          "clave": "042",
+          "nombre": "Huejuquilla el Alto"
+        },
+        {
+          "clave": "043",
+          "nombre": "La Huerta"
+        },
+        {
+          "clave": "044",
+          "nombre": "Ixtlahuacán de los Membrillos"
+        },
+        {
+          "clave": "045",
+          "nombre": "Ixtlahuacán del Río"
+        },
+        {
+          "clave": "046",
+          "nombre": "Jalostotitlán"
+        },
+        {
+          "clave": "047",
+          "nombre": "Jamay"
+        },
+        {
+          "clave": "048",
+          "nombre": "Jesús María"
+        },
+        {
+          "clave": "049",
+          "nombre": "Jilotlán de los Dolores"
+        },
+        {
+          "clave": "050",
+          "nombre": "Jocotepec"
+        },
+        {
+          "clave": "051",
+          "nombre": "Juanacatlán"
+        },
+        {
+          "clave": "052",
+          "nombre": "Juchitlán"
+        },
+        {
+          "clave": "053",
+          "nombre": "Lagos de Moreno"
+        },
+        {
+          "clave": "054",
+          "nombre": "El Limón"
+        },
+        {
+          "clave": "055",
+          "nombre": "Magdalena"
+        },
+        {
+          "clave": "056",
+          "nombre": "Santa María del Oro"
+        },
+        {
+          "clave": "057",
+          "nombre": "La Manzanilla de la Paz"
+        },
+        {
+          "clave": "058",
+          "nombre": "Mascota"
+        },
+        {
+          "clave": "059",
+          "nombre": "Mazamitla"
+        },
+        {
+          "clave": "060",
+          "nombre": "Mexticacán"
+        },
+        {
+          "clave": "061",
+          "nombre": "Mezquitic"
+        },
+        {
+          "clave": "062",
+          "nombre": "Mixtlán"
+        },
+        {
+          "clave": "063",
+          "nombre": "Ocotlán"
+        },
+        {
+          "clave": "064",
+          "nombre": "Ojuelos de Jalisco"
+        },
+        {
+          "clave": "065",
+          "nombre": "Pihuamo"
+        },
+        {
+          "clave": "066",
+          "nombre": "Poncitlán"
+        },
+        {
+          "clave": "067",
+          "nombre": "Puerto Vallarta"
+        },
+        {
+          "clave": "068",
+          "nombre": "Villa Purificación"
+        },
+        {
+          "clave": "069",
+          "nombre": "Quitupan"
+        },
+        {
+          "clave": "070",
+          "nombre": "El Salto"
+        },
+        {
+          "clave": "071",
+          "nombre": "San Cristóbal de la Barranca"
+        },
+        {
+          "clave": "072",
+          "nombre": "San Diego de Alejandría"
+        },
+        {
+          "clave": "073",
+          "nombre": "San Juan de los Lagos"
+        },
+        {
+          "clave": "074",
+          "nombre": "San Julián"
+        },
+        {
+          "clave": "075",
+          "nombre": "San Marcos"
+        },
+        {
+          "clave": "076",
+          "nombre": "San Martín de Bolaños"
+        },
+        {
+          "clave": "077",
+          "nombre": "San Martín Hidalgo"
+        },
+        {
+          "clave": "078",
+          "nombre": "San Miguel el Alto"
+        },
+        {
+          "clave": "079",
+          "nombre": "Gómez Farías"
+        },
+        {
+          "clave": "080",
+          "nombre": "San Sebastián del Oeste"
+        },
+        {
+          "clave": "081",
+          "nombre": "Santa María de los Ángeles"
+        },
+        {
+          "clave": "082",
+          "nombre": "Sayula"
+        },
+        {
+          "clave": "083",
+          "nombre": "Tala"
+        },
+        {
+          "clave": "084",
+          "nombre": "Talpa de Allende"
+        },
+        {
+          "clave": "085",
+          "nombre": "Tamazula de Gordiano"
+        },
+        {
+          "clave": "086",
+          "nombre": "Tapalpa"
+        },
+        {
+          "clave": "087",
+          "nombre": "Tecalitlán"
+        },
+        {
+          "clave": "088",
+          "nombre": "Tecolotlán"
+        },
+        {
+          "clave": "089",
+          "nombre": "Techaluta de Montenegro"
+        },
+        {
+          "clave": "090",
+          "nombre": "Tenamaxtlán"
+        },
+        {
+          "clave": "091",
+          "nombre": "Teocaltiche"
+        },
+        {
+          "clave": "092",
+          "nombre": "Teocuitatlán de Corona"
+        },
+        {
+          "clave": "093",
+          "nombre": "Tepatitlán de Morelos"
+        },
+        {
+          "clave": "094",
+          "nombre": "Tequila"
+        },
+        {
+          "clave": "095",
+          "nombre": "Teuchitlán"
+        },
+        {
+          "clave": "096",
+          "nombre": "Tizapán el Alto"
+        },
+        {
+          "clave": "097",
+          "nombre": "Tlajomulco de Zúñiga"
+        },
+        {
+          "clave": "098",
+          "nombre": "San Pedro Tlaquepaque"
+        },
+        {
+          "clave": "099",
+          "nombre": "Tolimán"
+        },
+        {
+          "clave": "100",
+          "nombre": "Tomatlán"
+        },
+        {
+          "clave": "101",
+          "nombre": "Tonalá"
+        },
+        {
+          "clave": "102",
+          "nombre": "Tonaya"
+        },
+        {
+          "clave": "103",
+          "nombre": "Tonila"
+        },
+        {
+          "clave": "104",
+          "nombre": "Totatiche"
+        },
+        {
+          "clave": "105",
+          "nombre": "Tototlán"
+        },
+        {
+          "clave": "106",
+          "nombre": "Tuxcacuesco"
+        },
+        {
+          "clave": "107",
+          "nombre": "Tuxcueca"
+        },
+        {
+          "clave": "108",
+          "nombre": "Tuxpan"
+        },
+        {
+          "clave": "109",
+          "nombre": "Unión de San Antonio"
+        },
+        {
+          "clave": "110",
+          "nombre": "Unión de Tula"
+        },
+        {
+          "clave": "111",
+          "nombre": "Valle de Guadalupe"
+        },
+        {
+          "clave": "112",
+          "nombre": "Valle de Juárez"
+        },
+        {
+          "clave": "113",
+          "nombre": "San Gabriel"
+        },
+        {
+          "clave": "114",
+          "nombre": "Villa Corona"
+        },
+        {
+          "clave": "115",
+          "nombre": "Villa Guerrero"
+        },
+        {
+          "clave": "116",
+          "nombre": "Villa Hidalgo"
+        },
+        {
+          "clave": "117",
+          "nombre": "Cañadas de Obregón"
+        },
+        {
+          "clave": "118",
+          "nombre": "Yahualica de González Gallo"
+        },
+        {
+          "clave": "119",
+          "nombre": "Zacoalco de Torres"
+        },
+        {
+          "clave": "120",
+          "nombre": "Zapopan"
+        },
+        {
+          "clave": "121",
+          "nombre": "Zapotiltic"
+        },
+        {
+          "clave": "122",
+          "nombre": "Zapotitlán de Vadillo"
+        },
+        {
+          "clave": "123",
+          "nombre": "Zapotlán del Rey"
+        },
+        {
+          "clave": "124",
+          "nombre": "Zapotlanejo"
+        },
+        {
+          "clave": "125",
+          "nombre": "San Ignacio Cerro Gordo"
+        }
+      ]
+    },
+    {
+      "clave": "ZAC",
+      "nombre": "Zacatecas",
+      "municipios": [
+        {
+          "clave": "001",
+          "nombre": "Apozol"
+        },
+        {
+          "clave": "002",
+          "nombre": "Apulco"
+        },
+        {
+          "clave": "003",
+          "nombre": "Atolinga"
+        },
+        {
+          "clave": "004",
+          "nombre": "Benito Juárez"
+        },
+        {
+          "clave": "005",
+          "nombre": "Calera"
+        },
+        {
+          "clave": "006",
+          "nombre": "Cañitas de Felipe Pescador"
+        },
+        {
+          "clave": "007",
+          "nombre": "Concepción del Oro"
+        },
+        {
+          "clave": "008",
+          "nombre": "Cuauhtémoc"
+        },
+        {
+          "clave": "009",
+          "nombre": "Chalchihuites"
+        },
+        {
+          "clave": "010",
+          "nombre": "Fresnillo"
+        },
+        {
+          "clave": "011",
+          "nombre": "Trinidad García de la Cadena"
+        },
+        {
+          "clave": "012",
+          "nombre": "Genaro Codina"
+        },
+        {
+          "clave": "013",
+          "nombre": "General Enrique Estrada"
+        },
+        {
+          "clave": "014",
+          "nombre": "General Francisco R. Murguía"
+        },
+        {
+          "clave": "015",
+          "nombre": "El Plateado de Joaquín Amaro"
+        },
+        {
+          "clave": "016",
+          "nombre": "General Pánfilo Natera"
+        },
+        {
+          "clave": "017",
+          "nombre": "Guadalupe"
+        },
+        {
+          "clave": "018",
+          "nombre": "Huanusco"
+        },
+        {
+          "clave": "019",
+          "nombre": "Jalpa"
+        },
+        {
+          "clave": "020",
+          "nombre": "Jerez"
+        },
+        {
+          "clave": "021",
+          "nombre": "Jiménez del Teul"
+        },
+        {
+          "clave": "022",
+          "nombre": "Juan Aldama"
+        },
+        {
+          "clave": "023",
+          "nombre": "Juchipila"
+        },
+        {
+          "clave": "024",
+          "nombre": "Loreto"
+        },
+        {
+          "clave": "025",
+          "nombre": "Luis Moya"
+        },
+        {
+          "clave": "026",
+          "nombre": "Mazapil"
+        },
+        {
+          "clave": "027",
+          "nombre": "Melchor Ocampo"
+        },
+        {
+          "clave": "028",
+          "nombre": "Mezquital del Oro"
+        },
+        {
+          "clave": "029",
+          "nombre": "Miguel Auza"
+        },
+        {
+          "clave": "030",
+          "nombre": "Momax"
+        },
+        {
+          "clave": "031",
+          "nombre": "Monte Escobedo"
+        },
+        {
+          "clave": "032",
+          "nombre": "Morelos"
+        },
+        {
+          "clave": "033",
+          "nombre": "Moyahua de Estrada"
+        },
+        {
+          "clave": "034",
+          "nombre": "Nochistlán de Mejía"
+        },
+        {
+          "clave": "035",
+          "nombre": "Noria de Ángeles"
+        },
+        {
+          "clave": "036",
+          "nombre": "Ojocaliente"
+        },
+        {
+          "clave": "037",
+          "nombre": "Pánuco"
+        },
+        {
+          "clave": "038",
+          "nombre": "Pinos"
+        },
+        {
+          "clave": "039",
+          "nombre": "Río Grande"
+        },
+        {
+          "clave": "040",
+          "nombre": "Sain Alto"
+        },
+        {
+          "clave": "041",
+          "nombre": "El Salvador"
+        },
+        {
+          "clave": "042",
+          "nombre": "Sombrerete"
+        },
+        {
+          "clave": "043",
+          "nombre": "Susticacán"
+        },
+        {
+          "clave": "044",
+          "nombre": "Tabasco"
+        },
+        {
+          "clave": "045",
+          "nombre": "Tepechitlán"
+        },
+        {
+          "clave": "046",
+          "nombre": "Tepetongo"
+        },
+        {
+          "clave": "047",
+          "nombre": "Teúl de González Ortega"
+        },
+        {
+          "clave": "048",
+          "nombre": "Tlaltenango de Sánchez Román"
+        },
+        {
+          "clave": "049",
+          "nombre": "Valparaíso"
+        },
+        {
+          "clave": "050",
+          "nombre": "Vetagrande"
+        },
+        {
+          "clave": "051",
+          "nombre": "Villa de Cos"
+        },
+        {
+          "clave": "052",
+          "nombre": "Villa García"
+        },
+        {
+          "clave": "053",
+          "nombre": "Villa González Ortega"
+        },
+        {
+          "clave": "054",
+          "nombre": "Villa Hidalgo"
+        },
+        {
+          "clave": "055",
+          "nombre": "Villanueva"
+        },
+        {
+          "clave": "056",
+          "nombre": "Zacatecas"
+        },
+        {
+          "clave": "057",
+          "nombre": "Trancoso"
+        },
+        {
+          "clave": "058",
+          "nombre": "Santa María de la Paz"
+        }
+      ]
+    }
+  ],
+  "lookup": {
+    "20834": [
+      {
+        "estado": "AGU",
+        "municipio": "003",
+        "localidad": "",
+        "asentamiento": "Ojocaliente"
+      }
+    ],
+    "99990": [
+      {
+        "estado": "ZAC",
+        "municipio": "033",
+        "localidad": "",
+        "asentamiento": "Alameda Juárez"
+      }
+    ]
+  }
+}
