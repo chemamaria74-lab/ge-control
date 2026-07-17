@@ -64,6 +64,7 @@ CFG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "settings.jso
 _SB_FACTURAS = "gas_lp_facturas"
 _SB_FACTURAS_SERVICIO = "gas_lp_facturas_servicio"
 _SB_CHOFERES = "gas_lp_choferes"
+_SB_AYUDANTES_CP = "gas_lp_ayudantes_carta_porte"
 _SB_VEHICULOS = "gas_lp_vehiculos"
 _SB_RUTAS = "gas_lp_rutas"
 _SB_UBICACIONES_CP = "gas_lp_ubicaciones_carta_porte"
@@ -1043,6 +1044,7 @@ class CartaPorteRequest(BaseModel):
     destino_facility_id: Optional[int] = None
     vehiculo_id:       Optional[int] = None
     chofer_id:         Optional[int] = None
+    ayudante_ids:      Optional[list[int]] = None
     ruta_id:           Optional[int] = None
     origen_ubicacion_id: Optional[str] = None
     destino_ubicacion_id: Optional[str] = None
@@ -1144,7 +1146,16 @@ def _cp_normalize_driver_payload(row: dict) -> dict:
     item["rfc"] = str(_cp_first_value(item, "rfc", "rfc_figura", "RFCFigura")).strip().upper()
     item["curp"] = str(_cp_first_value(item, "curp", "CURP")).strip().upper()
     item["licencia"] = _cp_first_value(item, "licencia", "licencia_federal", "NumLicencia")
-    item["tipo_figura"] = _cp_first_value(item, "tipo_figura", "tipo_figura_sat", "TipoFigura") or "01"
+    item["tipo_figura"] = "01"
+    return item
+
+
+def _cp_normalize_helper_payload(row: dict) -> dict:
+    item = _cp_with_metadata(row)
+    item["nombre"] = _cp_first_value(item, "nombre", "nombre_completo", "NombreFigura")
+    item["rfc"] = str(_cp_first_value(item, "rfc", "rfc_figura", "RFCFigura")).strip().upper()
+    item["tipo_figura"] = "04"
+    item.pop("licencia", None)
     return item
 
 
@@ -1440,6 +1451,22 @@ def _cp_normalize_id_ccp(value: str = "") -> str:
         return "CCC" + str(uuid.uuid4()).lower()[3:]
 
 
+def _cp_next_gas_lp_folio() -> str:
+    """Reserva un folio numérico; se usa solo en Carta Porte del módulo Gas LP."""
+    try:
+        result = get_supabase_admin().rpc("ge_next_gas_lp_carta_porte_folio").execute()
+        value = result.data
+        if isinstance(value, list):
+            value = value[0] if value else None
+        folio = int(value or 0)
+    except Exception as exc:
+        logger.exception("gas_lp_carta_porte_folio_sequence_failed")
+        raise HTTPException(500, "No fue posible reservar el folio numérico de Carta Porte Gas LP.") from exc
+    if folio <= 0:
+        raise HTTPException(500, "El consecutivo de Carta Porte Gas LP devolvió un valor inválido.")
+    return str(folio)
+
+
 async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict):
     uid = _cp_phase_call("scope_auth", payload, scope, lambda: scope["user_id"])
     _cp_phase_call("scope_auth", payload, scope, lambda: _require_supabase_scope(scope))
@@ -1500,6 +1527,20 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         lambda: _cp_normalize_driver_payload(_require_active_catalog_row(_SB_CHOFERES, scope, chofer_id, "chofer")),
         chofer_id=chofer_id,
     )
+    ayudantes_rows: list[dict] = []
+    for ayudante_id in dict.fromkeys(payload.ayudante_ids or []):
+        helper = _cp_phase_call(
+            "load_ayudante",
+            payload,
+            scope,
+            lambda helper_id=ayudante_id: _cp_normalize_helper_payload(
+                _require_active_catalog_row(_SB_AYUDANTES_CP, scope, helper_id, "ayudante")
+            ),
+            ayudante_id=ayudante_id,
+        )
+        if helper.get("rfc") == chofer_row.get("rfc"):
+            raise HTTPException(400, "El chofer no puede agregarse también como ayudante.")
+        ayudantes_rows.append(helper)
     vehiculo_row = _cp_phase_call(
         "load_vehiculo",
         payload,
@@ -1567,6 +1608,7 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             payload.ruta_id,
         )
         return _cp_existing_timbrada_response(existing_cp)
+    folio_gas_lp = _cp_phase_call("reserve_folio", payload, scope, _cp_next_gas_lp_folio)
     logger.info(
         "gas_lp_carta_porte_timbrado_start empresa_rfc=%s ruta_id=%s vehiculo_id=%s chofer_id=%s mercancia_id=%s litros=%s peso_kg=%s",
         emisor.get("rfc"),
@@ -1613,7 +1655,7 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         "perm_sct": vehiculo_row.get("permiso_sct") or vehiculo_row.get("permiso_cre"),
     }
     entrega = {
-        "uuid_mov": payload.record_uuid,
+        "uuid_mov": folio_gas_lp,
         "volumen_litros": litros,
         "importe": payload.importe,
         "fecha_hora": fecha_salida,
@@ -1637,6 +1679,7 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             destino=destino,
             mercancia=mercancia,
             chofer=chofer_row,
+            figuras_adicionales=ayudantes_rows,
         )
     except Exception as e:
         logger.exception(
@@ -1697,6 +1740,9 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             "mercancia_id": mercancia_id,
             "vehiculo_id": vehiculo_id,
             "chofer_id": chofer_id,
+            "ayudante_ids": [row.get("id") for row in ayudantes_rows],
+            "ayudantes_nombres": [row.get("nombre") for row in ayudantes_rows],
+            "folio_gas_lp": folio_gas_lp,
             "ruta_id": payload.ruta_id,
             "tipo_flujo": "gas_lp_carta_porte_traspaso_interno",
             "origen_nombre": origen_facility.get("nombre"),
@@ -1864,6 +1910,9 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         "mercancia_id": mercancia_id,
         "vehiculo_id": vehiculo_id,
         "chofer_id": chofer_id,
+        "ayudante_ids": [row.get("id") for row in ayudantes_rows],
+        "ayudantes_nombres": [row.get("nombre") for row in ayudantes_rows],
+        "folio_gas_lp": folio_gas_lp,
         "ruta_id": payload.ruta_id,
         "tipo_flujo": "gas_lp_carta_porte_traspaso_interno",
         "origen_nombre": origen_facility.get("nombre"),
