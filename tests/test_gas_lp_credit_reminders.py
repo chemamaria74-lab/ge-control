@@ -92,3 +92,18 @@ def test_credit_reminder_due_date_uses_local_date_key_not_hour():
     assert candidate["fecha_emision"] == "2026-06-01"
     assert candidate["fecha_vencimiento"] == "2026-06-16"
     assert candidate["dias_restantes"] == 1
+
+
+def test_compact_invoice_exposes_business_folio_and_observations():
+    compact = facturas_mod._gas_lp_compact_factura_for_list({
+        "id": 50,
+        "record_uuid": "internal-record-50",
+        "uuid_sat": "9dafbb6d-90a0-4820-986b-8a6eb1fa5335",
+        "serie": "F",
+        "folio_usuario": "50",
+        "metadata": {"observaciones": "GERARDO PEREDIA"},
+    })
+
+    assert compact["folio"] == "F-50"
+    assert compact["observaciones"] == "GERARDO PEREDIA"
+    assert compact["uuid_sat"] == "9dafbb6d-90a0-4820-986b-8a6eb1fa5335"

@@ -101,8 +101,13 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
 
     section = template.split('id="trv2-tab-conciliacion"', 1)[1].split('id="trv2-tab-reportes-sat"', 1)[0]
     admin_section = template.split('id="trv2-tab-administracion"', 1)[1]
-    assert "Pago operadores" in template
-    assert "Liquidación de operadores" in section
+    assert "Nómina operadores" in template
+    assert "Nómina de operadores" in section
+    assert "Pago por periodo" in section
+    assert 'data-payment-tab="baja-laboral"' in section
+    assert 'data-payment-panel="baja-laboral"' in section
+    assert "Estimador de finiquito y liquidación" in section
+    assert "trv2CalculateTermination" in frontend
     assert "Facturas" not in section
     assert "Cartas Porte" not in section
     assert 'data-payment-tab="tarifas"' in section
@@ -133,7 +138,7 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
     assert "trv2SaveOperatorPayrollBases" in frontend
     assert "trv2OperatorPayrollBase" in frontend
     assert "bases_json" in frontend
-    assert "operator-payroll-bases-20260715a" in shell
+    assert "operator-payroll-termination-20260717a" in shell
 
 
 def test_transport_admin_mobile_shell_and_module_scoped_logout_contract():
@@ -209,7 +214,9 @@ def test_cartas_ingreso_priorizan_tarifa_de_ruta_aunque_varie_producto_operativo
     assert "const matchedRoute = routeExact || routeText" in source
     assert "const hasRouteText = Boolean" in source
     assert "if (!matchedRoute && Number(item.producto_id || 0)" in source
-    assert "if (routeExact) score += 200" in source
+    assert "if (hasRouteText && !routeText) return null" in source
+    assert "if (routeText) score += 220" in source
+    assert "else if (routeExact) score += 120" in source
 
 
 def test_guardar_tarifa_de_ruta_actualiza_duplicados_y_recarga_sin_cache():
@@ -218,7 +225,26 @@ def test_guardar_tarifa_de_ruta_actualiza_duplicados_y_recarga_sin_cache():
     frontend = (root / "static/js/transporte_v2/80_catalogos.js").read_text(encoding="utf-8")
 
     assert '.eq("ruta_id", row["ruta_id"])' in backend
+    upsert = backend[backend.index("def _upsert_route_tariff_from_payload"):backend.index("def _resolve_tariff_calculation")]
+    resolver = backend[backend.index("def _resolve_tariff_calculation"):backend.index("def _fetch_catalog_row_for_route")]
+    assert '.eq("activo", True)' in upsert
+    assert '.eq("producto_id", int(producto_id))' not in upsert
+    assert '.eq("producto_id", int(producto_id))' not in resolver
+    assert '.limit(1)' in resolver
     assert "trv2LoadServiceTariffs({force: true})" in frontend
+
+
+def test_catalogo_operadores_muestra_vigencia_de_licencias():
+    root = Path(__file__).parents[1]
+    source = (root / "static/js/transporte_v2/80_catalogos.js").read_text(encoding="utf-8")
+
+    assert "['Vencidas', 'license_expired']" in source
+    assert "['Por vencer', 'license_expiring']" in source
+    assert "['Vigentes', 'license_valid']" in source
+    assert "function trv2OperatorLicenseStatus" in source
+    assert "if (days < 0)" in source
+    assert "if (days <= warningDays)" in source
+    assert "key === 'license_status'" in source
 
 
 def test_transporte_client_email_survives_in_metadata_fallback():
@@ -228,6 +254,17 @@ def test_transporte_client_email_survives_in_metadata_fallback():
     assert row["email_facturacion"] == "cliente@example.com"
     assert row["metadata"]["email_facturacion"] == "cliente@example.com"
     assert _normalize_catalog_row("clientes", {"metadata": row["metadata"]})["email_facturacion"] == "cliente@example.com"
+
+
+def test_client_legacy_permission_is_not_exposed_as_destination_permission():
+    normalized = _normalize_catalog_row("clientes", {
+        "nombre": "Cliente",
+        "permiso_cre": "LP/LEGACY/CLIENTE",
+        "metadata": {"permiso_cre": "LP/LEGACY/METADATA"},
+    })
+
+    assert "permiso_cre" not in normalized
+    assert "permiso_cre" not in normalized["metadata"]
 
 
 def test_transportista_petroliferos_permission_covers_gasoline_and_diesel_only():

@@ -62,7 +62,7 @@ def test_gas_lp_pdf_filename_and_amount_words_are_business_ready():
     info = fiscal_pdf_info(xml, "factura_gas_lp")
 
     assert info.serie_folio == "P7U22-000054"
-    assert info.filename == "GASLUX_P7U22-000054_bbfd9aab-a58d-44d1-80f6-0b9cbc6324c2.pdf"
+    assert info.filename == "GAS_LUX_P7U22-000054.pdf"
     assert _amount_to_spanish_mxn(4788.00, "MXN") == "CUATRO MIL SETECIENTOS OCHENTA Y OCHO PESOS 00/100 MXN"
 
 

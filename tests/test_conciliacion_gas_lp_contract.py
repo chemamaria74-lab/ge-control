@@ -86,6 +86,19 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
     assert "sat-month-actions" in html
     assert 'onclick="clearFilters()"' not in html
 
+    for label in ("Dashboard", "Descuentos", "Buscar dashboard", "Buscar PPD pendientes", "Buscar cartera", "Buscar descuentos"):
+        assert label in html
+    assert 'data-section="dashboard"' in html
+    assert 'data-section="descuentos"' in html
+    assert "async function buscarComplementos()" in html
+    assert "async function buscarCredito()" in html
+    assert "async function buscarDescuentos()" in html
+    assert "Presiona Buscar PPD pendientes." in html
+    assert "Presiona Buscar cartera." in html
+    assert "Cliente, RFC, folio u observaciones" in html
+    assert "Identificado por observaciones" in html
+    assert "Cliente identificado" in html
+
     assert "/api/internal-auth/gas-lp/conciliacion/summary" in html
     assert "/api/internal-auth/gas-lp/conciliacion/facturar-publico-general" in html
     assert "/api/internal-auth/gas-lp/conciliacion/export-excel" in html
@@ -1934,7 +1947,7 @@ def test_assistant_carta_porte_catalog_save_accepts_decimal_comma_and_confirms_v
     assert "inputmode=\"decimal\" placeholder=\"0.524\"" in html
 
 
-def test_assistant_carta_porte_driver_form_requires_rfc_and_keeps_curp_internal():
+def test_assistant_carta_porte_driver_form_requires_rfc_and_fixes_operator_type():
     html = _assistant_frontend_source()
     payload = internal_users._internal_cp_payload(
         "choferes",
@@ -1952,7 +1965,7 @@ def test_assistant_carta_porte_driver_form_requires_rfc_and_keeps_curp_internal(
 
     assert payload["nombre"] == "Operador Prueba"
     assert payload["rfc"] == "OPEP850101AB1"
-    assert payload["metadata"]["curp"] == "OPEP850101HZSPRR01"
+    assert "curp" not in payload["metadata"]
     assert payload["licencia"] == "LIC123"
     assert payload["metadata"]["tipo_licencia"] == "E"
     assert payload["metadata"]["tipo_figura"] == "01"
@@ -1960,10 +1973,10 @@ def test_assistant_carta_porte_driver_form_requires_rfc_and_keeps_curp_internal(
     assert payload["metadata"]["fecha_vencimiento_licencia"] == "2028-01-01"
     assert "Parte transporte" not in html
     assert "acpc_parte" not in html
-    assert "acpc_curp" in html
+    assert "acpc_curp" not in html
     assert "RFC Figura SAT" in html
-    assert "CURP interna / referencia" in html
-    assert "no sustituye RFCFigura" in html
+    assert "CURP interna / referencia" not in html
+    assert "acpc_tipo','Tipo figura SAT" not in html
     assert "Expedición licencia" in html
     assert "Vencimiento licencia" in html
     assert "function calcularEstatusLicencia" in html
@@ -1971,6 +1984,22 @@ def test_assistant_carta_porte_driver_form_requires_rfc_and_keeps_curp_internal(
     assert "Licencia vencida" in html
     assert "Por vencer" in html
     assert "Sin vencimiento registrado" in html
+
+
+def test_assistant_carta_porte_helpers_and_hazardous_material_are_controlled_catalogs():
+    html = _assistant_frontend_source()
+    helper = internal_users._internal_cp_payload(
+        "ayudantes",
+        {"nombre": "Ayudante Prueba", "rfc": "AUPR850101AB1", "tipo_figura": "01"},
+    )
+
+    assert helper["metadata"]["tipo_figura"] == "04"
+    assert "gas_lp_ayudantes_carta_porte" in inspect.getsource(internal_users._internal_cp_table)
+    assert "Ayudantes (opcional)" in html
+    assert "ayudante_ids" in html
+    assert "1075 · Gases de petróleo licuados (Gas LP)" in html
+    assert "acpSelect('acpm_clavep'" in html
+    assert "api('/api/internal-auth/gas-lp/catalogos-postales')" in html
 
 
 def test_carta_porte_vehicle_environmental_insurance_aliases_validate():

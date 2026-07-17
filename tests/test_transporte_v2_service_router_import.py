@@ -124,13 +124,17 @@ def test_carta_ingreso_excel_includes_operational_columns():
     assert "uuid_carta_porte" not in carta_porte_helper
 
 
-def test_client_destination_permission_is_editable_and_not_cleared():
+def test_destination_permission_belongs_only_to_installation():
     frontend = (ROOT / "static/js/transporte_v2/80_catalogos.js").read_text(encoding="utf-8")
     backend = (ROOT / "routes/transporte_v2.py").read_text(encoding="utf-8")
 
-    assert "['permiso_cre', 'Permiso destino (CRE)']" in frontend
-    assert "data.permiso_cre || cliente?.permiso_cre || ''" in frontend
-    assert '"permiso_cre", "metodo_pago_default"' in backend
+    client_form = frontend.split("clientes: [", 1)[1].split("],", 1)[0]
+    client_ui = frontend.split("clientes: {", 1)[1].split("},", 1)[0]
+    assert "Permiso destino (CRE)" not in client_form
+    assert "Con permiso destino" not in client_ui
+    assert "data.permiso_cre || cliente?.permiso_cre || ''" not in frontend
+    client_config = backend.split('"clientes": {', 1)[1].split('},', 1)[0]
+    assert '"permiso_cre"' not in client_config
     assert 'scoped["permiso_cre"] = ""' not in backend
 
 

@@ -121,3 +121,65 @@ def test_tarifa_gas_lp_respeta_base_calculo_kilos():
     assert calculo["iva"] == 3729.98
     assert calculo["retencion"] == 932.50
     assert calculo["total"] == 26109.88
+
+
+def test_tarifa_carta_ingreso_prioriza_origen_destino_aunque_ruta_id_este_desfasado():
+    viaje = {
+        "id": 77,
+        "ruta_id": 30,
+        "cliente_id": 8,
+        "nombre_origen": "TAD ZACATECAS",
+        "nombre_destino": "PINOS 2 - PARADOR HACIENDA NUEVA",
+        "volumen_total_litros": 19930,
+        "productos_json": [{"descripcion": "DIESEL"}],
+    }
+    calculo = _calcular_tarifa_operativa(viaje, [
+        {
+            "id": 22,
+            "ruta_id": 30,
+            "cliente_id": 8,
+            "origen": "TAD ZACATECAS",
+            "destino": "GUADALUPE - PARADOR HACIENDA NUEVA",
+            "tarifa": 0.22,
+            "base_calculo": "litros",
+        },
+        {
+            "id": 41,
+            "ruta_id": 27,
+            "cliente_id": 8,
+            "origen": "TAD ZACATECAS",
+            "destino": "PINOS 2 - PARADOR HACIENDA NUEVA",
+            "tarifa": 0.41,
+            "base_calculo": "litros",
+        },
+    ])
+
+    assert calculo["tarifa_id"] == 41
+    assert calculo["tarifa"] == 0.41
+    assert calculo["subtotal"] == 8171.30
+
+
+def test_tarifa_carta_ingreso_bloquea_dos_importes_igual_de_especificos():
+    viaje = {
+        "id": 78,
+        "ruta_id": 27,
+        "cliente_id": 8,
+        "nombre_origen": "TAD ZACATECAS",
+        "nombre_destino": "PINOS 2 - PARADOR HACIENDA NUEVA",
+        "volumen_total_litros": 1000,
+        "productos_json": [{"descripcion": "DIESEL"}],
+    }
+    base = {
+        "ruta_id": 27,
+        "cliente_id": 8,
+        "origen": "TAD ZACATECAS",
+        "destino": "PINOS 2 - PARADOR HACIENDA NUEVA",
+        "base_calculo": "litros",
+    }
+    calculo = _calcular_tarifa_operativa(viaje, [
+        {**base, "id": 1, "tarifa": 0.41},
+        {**base, "id": 2, "tarifa": 0.22},
+    ])
+
+    assert calculo["tarifa_id"] is None
+    assert "ambigua" in calculo["tarifa_error"].lower()
