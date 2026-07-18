@@ -1527,8 +1527,11 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
         lambda: _cp_normalize_driver_payload(_require_active_catalog_row(_SB_CHOFERES, scope, chofer_id, "chofer")),
         chofer_id=chofer_id,
     )
+    ayudante_ids = list(dict.fromkeys(payload.ayudante_ids or []))
+    if len(ayudante_ids) > 1:
+        raise HTTPException(400, "Carta Porte Gas LP permite seleccionar como máximo un ayudante.")
     ayudantes_rows: list[dict] = []
-    for ayudante_id in dict.fromkeys(payload.ayudante_ids or []):
+    for ayudante_id in ayudante_ids:
         helper = _cp_phase_call(
             "load_ayudante",
             payload,
