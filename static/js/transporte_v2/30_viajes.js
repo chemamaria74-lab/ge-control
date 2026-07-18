@@ -1,3 +1,5 @@
+let TRV2_TRIP_EXPENSE_SELECTED = 0;
+
 function trv2OpenTripForm() {
   document.getElementById('trv2-trip-form').hidden = false;
 }
@@ -79,7 +81,9 @@ function trv2RenderTrips(items) {
     tbody.innerHTML = '<tr><td colspan="8"><div class="trv2-empty">Sin viajes en Transporte v2.</div></td></tr>';
     return;
   }
-  tbody.innerHTML = items.map(row => `
+  tbody.innerHTML = items.map(row => {
+    const expense = row.metadata?.gasto_operativo || {};
+    return `
     <tr>
       <td>Viaje ${trv2Esc(trv2TripDisplayNumber(row, items) || 'nuevo')}</td>
       <td>${trv2Esc(trv2TripRelatedLabel(row, 'clientes', 'cliente_nombre') || row.cliente_nombre || 'Pendiente')}</td>
@@ -91,10 +95,45 @@ function trv2RenderTrips(items) {
       <td>
         <button class="trv2-mini-btn" type="button" onclick="trv2StartCartaPorteStamp(${Number(row.id || 0)})">Timbrar Carta Porte</button>
         ${row.factura_carga_pdf_url || row.factura_carga_nombre ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenLoadInvoice(${Number(row.id || 0)}, false)">Ver factura</button><button class="trv2-mini-btn" type="button" onclick="trv2OpenLoadInvoice(${Number(row.id || 0)}, true)">Descargar factura</button>` : ''}
+        <button class="trv2-mini-btn" type="button" onclick="trv2CaptureTripExpense(${Number(row.id || 0)})"><i class="fa-solid fa-receipt"></i> ${Number(expense.monto || 0) ? `Gasto ${Number(expense.monto).toLocaleString('es-MX', {style:'currency', currency:'MXN'})}` : 'Registrar gasto'}</button>
         <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteDraftTrip(${Number(row.id || 0)})">Eliminar</button>
       </td>
     </tr>
-  `).join('');
+  `}).join('');
+}
+
+function trv2CaptureTripExpense(viajeId) {
+  const row = TRV2_TRIPS.find(item => Number(item.id) === Number(viajeId));
+  if (!row) return;
+  const current = row.metadata?.gasto_operativo || {};
+  TRV2_TRIP_EXPENSE_SELECTED = Number(viajeId);
+  document.getElementById('trv2-trip-expense-title').textContent = `Gasto · Viaje ${trv2TripDisplayNumber(row) || row.id}`;
+  document.getElementById('trv2-trip-expense-description').value = current.descripcion || '';
+  document.getElementById('trv2-trip-expense-amount').value = Number(current.monto || 0) || '';
+  document.getElementById('trv2-trip-expense-modal').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
+function trv2CloseTripExpense() {
+  const modal = document.getElementById('trv2-trip-expense-modal');
+  if (modal) modal.hidden = true;
+  TRV2_TRIP_EXPENSE_SELECTED = 0;
+  document.body.style.overflow = '';
+}
+
+async function trv2SaveTripExpense() {
+  const viajeId = Number(TRV2_TRIP_EXPENSE_SELECTED || 0);
+  const row = TRV2_TRIPS.find(item => Number(item.id) === viajeId);
+  if (!row) return;
+  const description = document.getElementById('trv2-trip-expense-description')?.value || '';
+  const amount = Number(document.getElementById('trv2-trip-expense-amount')?.value || 0);
+  if (!Number.isFinite(amount) || amount < 0) return trv2Toast('Captura un importe válido.', 'error');
+  const metadata = {...(row.metadata || {}), gasto_operativo: {monto: Math.round(amount * 100) / 100, descripcion: String(description || '').trim(), capturado_en: new Date().toISOString()}};
+  const data = await trv2Api('PATCH', `/api/tr-v2/viajes/${Number(viajeId)}`, {perfil_id: TRV2_PERFIL?.id || null, data: {metadata}}, {allowError: true});
+  if (!data?.ok) return trv2Toast(trv2ReadableApiError(data, 'No se pudo guardar el gasto.'), 'error');
+  trv2Toast('Gasto guardado y disponible automáticamente en Nómina.', 'success');
+  trv2CloseTripExpense();
+  await trv2LoadTrips();
 }
 
 async function trv2DeleteDraftTrip(viajeId) {

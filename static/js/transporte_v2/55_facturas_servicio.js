@@ -1083,6 +1083,17 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
   </section>`;
 }
 
+function trv2ResolveAmbiguousServiceTariff(tripId) {
+  const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
+  const service = trv2ServiceTripData(row || {});
+  trv2SwitchTab('catalogos');
+  trv2SetActiveCatalog('rutas');
+  const search = document.getElementById('trv2-catalog-search');
+  if (search) search.value = service.destino || service.origen || '';
+  trv2RenderActiveCatalog();
+  trv2Toast('Revisa las rutas coincidentes y deja una sola tarifa activa para este origen y destino.', 'info');
+}
+
 function trv2RenderServiceReviewTotals(calc) {
   return `
     <div><span>Subtotal</span><strong>${trv2ServiceMoney(calc.subtotal)}</strong></div>
@@ -1242,6 +1253,7 @@ function trv2RenderServicePendingTable() {
         <td class="trv2-service-action-cell">
           <div class="trv2-service-actions">
             <button class="trv2-mini-icon-btn" type="button" title="Detalle" aria-label="Detalle" onclick="trv2OpenServiceDetail(${Number(row.id)})"><i class="fa-solid fa-circle-info"></i></button>
+            ${tariffMatch.status === 'ambiguous' ? `<button class="trv2-mini-btn" type="button" onclick="trv2ResolveAmbiguousServiceTariff(${Number(row.id)})"><i class="fa-solid fa-screwdriver-wrench"></i> Resolver tarifa</button>` : ''}
             <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" title="${trv2Esc(status)}" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso</button>
             <button class="trv2-mini-icon-btn trv2-mini-icon-danger" type="button" title="No facturar" aria-label="No facturar" onclick="trv2OmitServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-ban"></i></button>
           </div>

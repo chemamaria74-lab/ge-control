@@ -9,9 +9,17 @@ let TRV2_OPERATOR_PAYMENT_EXPENSES = {};
 let TRV2_OPERATOR_PAYROLL_BASE_PERIOD = 'fortnight';
 const TRV2_OPERATOR_PAYMENT_CACHE_MS = 5 * 60 * 1000;
 let TRV2_OPERATOR_PAYMENT_LAST_SEARCH = null;
+let TRV2_OPERATOR_PAYMENT_PERIOD_VIEW = 'pendientes';
+
+function trv2SetPaymentPeriodView(view = 'pendientes') {
+  TRV2_OPERATOR_PAYMENT_PERIOD_VIEW = view === 'historial' ? 'historial' : 'pendientes';
+  document.querySelectorAll('[data-payment-period-view]').forEach(button => button.classList.toggle('active', button.dataset.paymentPeriodView === TRV2_OPERATOR_PAYMENT_PERIOD_VIEW));
+  document.querySelectorAll('[data-payment-period-panel]').forEach(panel => { panel.hidden = panel.dataset.paymentPeriodPanel !== TRV2_OPERATOR_PAYMENT_PERIOD_VIEW; });
+  if (TRV2_OPERATOR_PAYMENT_PERIOD_VIEW === 'historial') trv2LoadOperatorPaymentHistory();
+}
 
 function trv2SetOperatorPaymentView(view = 'liquidaciones') {
-  TRV2_OPERATOR_PAYMENT_VIEW = ['liquidaciones', 'baja-laboral', 'tarifas', 'bases', 'ruta'].includes(view) ? view : 'liquidaciones';
+  TRV2_OPERATOR_PAYMENT_VIEW = ['liquidaciones', 'tarifas', 'bases'].includes(view) ? view : 'liquidaciones';
   document.querySelectorAll('[data-payment-tab]').forEach(button => {
     button.classList.toggle('active', button.dataset.paymentTab === TRV2_OPERATOR_PAYMENT_VIEW);
   });
@@ -22,8 +30,6 @@ function trv2SetOperatorPaymentView(view = 'liquidaciones') {
   if (exportButton) exportButton.hidden = TRV2_OPERATOR_PAYMENT_VIEW !== 'liquidaciones';
   if (TRV2_OPERATOR_PAYMENT_VIEW === 'tarifas') trv2RenderOperatorTariffs();
   if (TRV2_OPERATOR_PAYMENT_VIEW === 'bases') trv2RenderOperatorPayrollBases();
-  if (TRV2_OPERATOR_PAYMENT_VIEW === 'baja-laboral') trv2PopulateTerminationOperators();
-  if (TRV2_OPERATOR_PAYMENT_VIEW === 'ruta' && typeof trv2LoadOperatorDashboard === 'function') trv2LoadOperatorDashboard();
 }
 
 function trv2PaymentIsoDate(date) {
@@ -415,7 +421,7 @@ function trv2ResetOperatorPaymentResults(message = 'Selecciona el periodo y pres
     <article><span>Operadores</span><strong>0</strong></article>
     <article><span>Rutas</span><strong>0</strong></article>
     <article><span>Total estimado</span><strong>$0.00</strong></article>`;
-  if (body) body.innerHTML = `<tr><td colspan="8"><div class="trv2-empty">${trv2Esc(message)}</div></td></tr>`;
+  if (body) body.innerHTML = `<tr><td colspan="10"><div class="trv2-empty">${trv2Esc(message)}</div></td></tr>`;
   if (detail) detail.hidden = true;
   if (modal) modal.hidden = true;
   document.body.style.overflow = '';
@@ -429,11 +435,12 @@ function trv2InvalidateOperatorPaymentSearch() {
 function trv2OperatorPaymentGroups() {
   const groups = new Map();
   TRV2_OPERATOR_PAYMENT_ITEMS.filter(item => !item.ya_liquidado).forEach(item => {
-    if (!groups.has(item.operador_id)) groups.set(item.operador_id, {id: item.operador_id, name: item.operador, items: [], routes: new Set(), total: 0, missing: 0});
+    if (!groups.has(item.operador_id)) groups.set(item.operador_id, {id: item.operador_id, name: item.operador, items: [], routes: new Set(), total: 0, expenses: 0, missing: 0});
     const group = groups.get(item.operador_id);
     group.items.push(item);
     if (item.ruta_id) group.routes.add(item.ruta_id);
     group.total += Number(item.total || 0);
+    group.expenses += Number(TRV2_OPERATOR_PAYMENT_EXPENSES[item.viaje_id]?.monto ?? item.gasto ?? 0);
     if (item.sin_tarifa) group.missing += 1;
   });
   return [...groups.values()].sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name, 'es'));
@@ -450,11 +457,21 @@ function trv2RenderOperatorPayments(summary = {}) {
     <article><span>Rutas</span><strong>${Number(summary.rutas || 0)}</strong></article>
     <article><span>Total estimado</span><strong>${trv2ServiceMoney(Number(summary.total_estimado || 0))}</strong></article>`;
   const groups = trv2OperatorPaymentGroups();
-  body.innerHTML = groups.length ? groups.map(group => {
+  const pendingRows = groups.map(group => {
     const liters = group.items.reduce((sum, item) => sum + Number(item.litros || 0), 0);
     const kilos = group.items.reduce((sum, item) => sum + Number(item.kilos || 0), 0);
-    return `<tr><td><strong>${trv2Esc(group.name)}</strong></td><td class="trv2-num">${group.items.length}</td><td class="trv2-num">${group.routes.size}</td><td class="trv2-num">${trv2ServiceNumber(liters)}</td><td class="trv2-num">${trv2ServiceNumber(kilos)}</td><td class="trv2-num"><strong>${trv2ServiceMoney(group.total)}</strong></td><td>${group.missing ? `<span class="trv2-status inactive">${group.missing}</span>` : '<span class="trv2-status active">0</span>'}</td><td><button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2ShowOperatorPaymentDetail(${group.id})">Ver detalle</button></td></tr>`;
-  }).join('') : '<tr><td colspan="8"><div class="trv2-empty">No hay viajes pendientes de pago en este periodo.</div></td></tr>';
+    return `<tr><td><strong>${trv2Esc(group.name)}</strong></td><td class="trv2-num">${group.items.length}</td><td class="trv2-num">${group.routes.size}</td><td class="trv2-num">${trv2ServiceNumber(liters)}</td><td class="trv2-num">${trv2ServiceNumber(kilos)}</td><td class="trv2-num"><strong>${trv2ServiceMoney(group.total)}</strong></td><td class="trv2-num"><strong>${trv2ServiceMoney(group.expenses)}</strong></td><td>${group.missing ? `<span class="trv2-status inactive">${group.missing}</span>` : '<span class="trv2-status active">0</span>'}</td><td><span class="trv2-status warning">Por preparar</span></td><td><button class="trv2-mini-btn trv2-mini-btn-primary" type="button" onclick="trv2ShowOperatorPaymentDetail(${group.id})">Ver detalle</button></td></tr>`;
+  }).join('');
+  const paidGroups = new Map();
+  TRV2_OPERATOR_PAYMENT_ITEMS.filter(item => item.ya_liquidado).forEach(item => {
+    if (!paidGroups.has(item.operador_id)) paidGroups.set(item.operador_id, {id:item.operador_id, name:item.operador, items:[], routes:new Set(), total:0, expenses:0});
+    const group = paidGroups.get(item.operador_id); group.items.push(item); if (item.ruta_id) group.routes.add(item.ruta_id); group.total += Number(item.pagado_total ?? item.total ?? 0); group.expenses += Number(item.gasto || 0);
+  });
+  const paidRows = [...paidGroups.values()].map(group => {
+    const liters = group.items.reduce((sum,item) => sum + Number(item.litros || 0), 0); const kilos = group.items.reduce((sum,item) => sum + Number(item.kilos || 0), 0);
+    return `<tr class="trv2-payment-paid-row"><td><strong>${trv2Esc(group.name)}</strong></td><td class="trv2-num">${group.items.length}</td><td class="trv2-num">${group.routes.size}</td><td class="trv2-num">${trv2ServiceNumber(liters)}</td><td class="trv2-num">${trv2ServiceNumber(kilos)}</td><td class="trv2-num"><strong>${trv2ServiceMoney(group.total)}</strong></td><td class="trv2-num">${trv2ServiceMoney(group.expenses)}</td><td><span class="trv2-status active">0</span></td><td><span class="trv2-status active"><i class="fa-solid fa-check"></i> Pagado</span></td><td><button class="trv2-mini-btn" type="button" onclick="trv2OpenOperatorPaymentHistory(${Number(group.id)})">Ver pagos</button></td></tr>`;
+  }).join('');
+  body.innerHTML = pendingRows + paidRows || '<tr><td colspan="10"><div class="trv2-empty">No hay viajes en este periodo.</div></td></tr>';
   const missing = Number(summary.sin_tarifa || 0);
   const already = Number(summary.ya_liquidados || 0);
   if (alert) {
@@ -462,6 +479,30 @@ function trv2RenderOperatorPayments(summary = {}) {
     alert.textContent = [missing ? `${missing} viaje(s) no tienen tarifa de operador y no se incluirán en el pago.` : '', already ? `${already} viaje(s) del periodo ya fueron pagados.` : ''].filter(Boolean).join(' ');
   }
   if (TRV2_OPERATOR_PAYMENT_SELECTED) trv2ShowOperatorPaymentDetail(TRV2_OPERATOR_PAYMENT_SELECTED);
+}
+
+function trv2OpenOperatorPaymentHistory(operatorId = 0) {
+  const select = document.getElementById('trv2-payment-operator');
+  if (select && operatorId) select.value = String(operatorId);
+  trv2SetPaymentPeriodView('historial');
+}
+
+async function trv2LoadOperatorPaymentHistory() {
+  const body = document.getElementById('trv2-payment-history-table');
+  if (!body) return;
+  body.innerHTML = '<tr><td colspan="10"><div class="trv2-empty">Cargando pagos realizados...</div></td></tr>';
+  const query = new URLSearchParams({perfil_id:String(TRV2_PERFIL?.id || ''), fecha_desde:document.getElementById('trv2-payment-from')?.value || '', fecha_hasta:document.getElementById('trv2-payment-to')?.value || ''});
+  const operatorId = Number(document.getElementById('trv2-payment-operator')?.value || 0); if (operatorId) query.set('operador_id', String(operatorId));
+  const data = await trv2Api('GET', `/api/tr-v2/operator-payments/history?${query}`, undefined, {silent:true, allowError:true, force:true});
+  const items = data?.items || [];
+  body.innerHTML = items.length ? items.map(item => `<tr><td><strong>${trv2Esc(trv2DisplayDate(item.fecha_desde, {fallback:'—'}))} → ${trv2Esc(trv2DisplayDate(item.fecha_hasta, {fallback:'—'}))}</strong><small class="trv2-service-sub">Pago #${Number(item.id)}</small></td><td><strong>${trv2Esc(item.operador)}</strong></td><td class="trv2-num">${Number(item.viajes || 0)}</td><td class="trv2-num">${trv2ServiceMoney(item.comisiones)}</td><td class="trv2-num">${trv2ServiceMoney(item.pago_banco)}</td><td class="trv2-num">${trv2ServiceMoney(item.infonavit)}</td><td class="trv2-num">${trv2ServiceMoney(item.gastos)}</td><td class="trv2-num"><strong>${trv2ServiceMoney(item.pago_efectivo)}</strong></td><td><span class="trv2-status active"><i class="fa-solid fa-check"></i> Pagado</span></td><td><button class="trv2-mini-btn" type="button" onclick="trv2ExportHistoricalOperatorPayment(${Number(item.id)}, '${trv2Esc(item.fecha_desde)}', '${trv2Esc(item.fecha_hasta)}')"><i class="fa-solid fa-file-excel"></i> Excel</button></td></tr>`).join('') : '<tr><td colspan="10"><div class="trv2-empty">No hay pagos realizados para estos filtros.</div></td></tr>';
+}
+
+async function trv2ExportHistoricalOperatorPayment(liquidationId, from, to) {
+  const query = new URLSearchParams({perfil_id:String(TRV2_PERFIL?.id || ''), fecha_desde:from, fecha_hasta:to, liquidacion_id:String(liquidationId)});
+  const response = await fetch(`/api/tr-v2/operator-payments/export.xlsx?${query}`, {headers:trv2Headers()});
+  if (!response.ok) return trv2Toast('No se pudo descargar este pago.', 'error');
+  const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `pago_operador_${liquidationId}_${from}_${to}.xlsx`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 function trv2ShowOperatorPaymentDetail(operatorId) {
@@ -474,6 +515,9 @@ function trv2ShowOperatorPaymentDetail(operatorId) {
   panel.hidden = false;
   if (title) title.textContent = `Detalle · ${items[0]?.operador || 'Operador'}`;
   const pendingItems = items.filter(item => !item.ya_liquidado);
+  pendingItems.forEach(item => {
+    if (!TRV2_OPERATOR_PAYMENT_EXPENSES[item.viaje_id] && (Number(item.gasto || 0) || item.gasto_descripcion)) TRV2_OPERATOR_PAYMENT_EXPENSES[item.viaje_id] = {monto: Number(item.gasto || 0), descripcion: String(item.gasto_descripcion || '')};
+  });
   const context = document.getElementById('trv2-payment-inline-context');
   if (context) context.innerHTML = `
     <article><span>Periodo</span><strong>${trv2Esc(trv2DisplayDate(document.getElementById('trv2-payment-from')?.value, {fallback: '—'}))} → ${trv2Esc(trv2DisplayDate(document.getElementById('trv2-payment-to')?.value, {fallback: '—'}))}</strong></article>
@@ -603,18 +647,19 @@ async function trv2GenerateOperatorPayment(operatorId) {
   }, {allowError: true});
   if (!data?.ok) return trv2Toast(data?.detail || data?.message || 'No se pudo generar el pago.', 'error');
   trv2Toast(`Pago #${data.liquidacion_id} generado por ${trv2ServiceMoney(data.total)}.`, 'success');
+  await trv2ExportHistoricalOperatorPayment(data.liquidacion_id, document.getElementById('trv2-payment-from')?.value || '', document.getElementById('trv2-payment-to')?.value || '');
   trv2CloseOperatorPaymentDetail();
   await trv2LoadOperatorPayments({force: true});
 }
 
-async function trv2ExportOperatorPayments(includeSelected = false) {
+async function trv2ExportOperatorPayments(includeSelected = false, consolidated = false) {
   const from = document.getElementById('trv2-payment-from')?.value || '';
   const to = document.getElementById('trv2-payment-to')?.value || '';
   if (!from || !to) return trv2Toast('Selecciona el periodo antes de exportar.', 'error');
   const query = new URLSearchParams({fecha_desde: from, fecha_hasta: to, perfil_id: String(TRV2_PERFIL?.id || '')});
   const operatorId = Number(document.getElementById('trv2-payment-operator')?.value || 0);
-  if (operatorId) query.set('operador_id', String(operatorId));
-  const selectedOperator = operatorId || (includeSelected ? Number(TRV2_OPERATOR_PAYMENT_SELECTED || 0) : 0);
+  if (consolidated) query.set('incluir_pagados', 'true');
+  const selectedOperator = consolidated ? 0 : (operatorId || (includeSelected ? Number(TRV2_OPERATOR_PAYMENT_SELECTED || 0) : 0));
   if (selectedOperator) {
     const closeout = trv2UpdateOperatorPaymentCloseout();
     query.set('operador_id', String(selectedOperator));
