@@ -1995,8 +1995,11 @@ def test_assistant_carta_porte_helpers_and_hazardous_material_are_controlled_cat
 
     assert helper["metadata"]["tipo_figura"] == "04"
     assert "gas_lp_ayudantes_carta_porte" in inspect.getsource(internal_users._internal_cp_table)
-    assert "Ayudantes (opcional)" in html
+    assert "Ayudante (opcional)" in html
     assert "ayudante_ids" in html
+    assert 'id="cpAyudante"' in html
+    assert 'multiple' not in html[html.index('id="cpAyudante"') - 80:html.index('id="cpAyudante"') + 120]
+    assert "permite seleccionar como máximo un ayudante" in inspect.getsource(facturas_routes._generar_carta_porte_for_scope)
     assert "1075 · Gases de petróleo licuados (Gas LP)" in html
     assert "acpSelect('acpm_clavep'" in html
     assert "api('/api/internal-auth/gas-lp/catalogos-postales')" in html

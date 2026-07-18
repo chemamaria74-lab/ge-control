@@ -34,6 +34,12 @@ def test_operator_payment_does_not_fall_back_to_carta_porte_uuid():
     assert _operator_load_invoice_folio(row, {}) == "Sin folio de factura"
 
 
+def test_operator_payment_prefers_invoice_series_and_number_over_generic_detected_folio():
+    meta = {"documento_detectado": {"serie": "FE", "folio_numero": "112320", "folio_display": "CO 707169"}}
+
+    assert _operator_load_invoice_folio({}, meta) == "FE 112320"
+
+
 def test_operator_payment_tariff_prefers_operator_override_over_route_default():
     tariffs = [
         {"id": 1, "ruta_id": 9, "operador_id": None, "tarifa": 700, "vigencia_desde": "2026-01-01"},
@@ -104,16 +110,16 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
     assert "Nómina operadores" in template
     assert "Nómina de operadores" in section
     assert "Pago por periodo" in section
-    assert 'data-payment-tab="baja-laboral"' in section
-    assert 'data-payment-panel="baja-laboral"' in section
-    assert "Estimador de finiquito y liquidación" in section
+    assert 'data-payment-tab="baja-laboral"' not in section
+    assert 'data-payment-panel="baja-laboral" hidden' in section
     assert "trv2CalculateTermination" in frontend
     assert "Facturas" not in section
     assert "Cartas Porte" not in section
     assert 'data-payment-tab="tarifas"' in section
     assert 'data-payment-panel="tarifas"' in section
-    assert 'data-payment-tab="ruta"' in section
-    assert 'id="trv2-operator-dashboard-list"' in section
+    assert 'data-payment-tab="ruta"' not in section
+    assert 'data-tab="operadores-ruta"' in template
+    assert 'id="trv2-operator-dashboard-main-list"' in template
     assert 'data-admin-tab="operadores-ruta"' not in admin_section
     assert 'data-admin-panel="operadores-ruta"' not in admin_section
     assert "operator-payments/preview" in frontend
@@ -138,7 +144,11 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
     assert "trv2SaveOperatorPayrollBases" in frontend
     assert "trv2OperatorPayrollBase" in frontend
     assert "bases_json" in frontend
-    assert "operator-payroll-termination-20260717a" in shell
+    assert "payroll-history-20260718a" in shell
+    assert 'data-payment-period-view="historial"' in section
+    assert 'id="trv2-payment-history-table"' in section
+    assert "operator-payments/history" in frontend
+    assert "trv2ExportHistoricalOperatorPayment" in frontend
 
 
 def test_transport_admin_mobile_shell_and_module_scoped_logout_contract():
