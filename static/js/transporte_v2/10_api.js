@@ -221,6 +221,7 @@ function trv2SwitchTab(tab) {
   if (tab === 'carta-porte') trv2PrepareCartaPorteTab();
   if (tab === 'facturas-servicio' && typeof trv2PrepareServiceInvoiceTab === 'function') trv2PrepareServiceInvoiceTab();
   if (tab === 'conciliacion' && typeof trv2PrepareConciliacionTab === 'function') trv2PrepareConciliacionTab();
+  if (tab === 'operadores-ruta' && typeof trv2LoadOperatorDashboard === 'function') trv2LoadOperatorDashboard();
   if (tab === 'catalogos') trv2LoadCatalogs();
   if (tab === 'reportes-sat') trv2LoadControlVolumetrico();
   if (tab === 'administracion') {
@@ -233,7 +234,7 @@ function trv2SwitchTab(tab) {
 }
 
 function trv2ValidTab(tab) {
-  return ['carta-porte', 'facturas-servicio', 'conciliacion', 'reportes-sat', 'catalogos', 'administracion'].includes(tab);
+  return ['carta-porte', 'facturas-servicio', 'conciliacion', 'operadores-ruta', 'reportes-sat', 'catalogos', 'administracion'].includes(tab);
 }
 
 function trv2InitialTab() {

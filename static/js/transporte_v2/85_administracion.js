@@ -38,8 +38,8 @@ function trv2AdminStatusLabel(status = '') {
 }
 
 function trv2RenderOperatorDashboard(data = {}) {
-  const list = document.getElementById('trv2-operator-dashboard-list');
-  const kpis = document.getElementById('trv2-operator-dashboard-kpis');
+  const list = document.getElementById('trv2-operator-dashboard-main-list') || document.getElementById('trv2-operator-dashboard-list');
+  const kpis = document.getElementById('trv2-operator-dashboard-main-kpis') || document.getElementById('trv2-operator-dashboard-kpis');
   const items = data.items || [];
   const summary = data.summary || {};
   if (kpis) {
@@ -98,7 +98,7 @@ function trv2RenderOperatorDashboard(data = {}) {
 
 async function trv2LoadOperatorDashboard() {
   if (!TRV2_ADMIN_READY) return;
-  const list = document.getElementById('trv2-operator-dashboard-list');
+  const list = document.getElementById('trv2-operator-dashboard-main-list') || document.getElementById('trv2-operator-dashboard-list');
   if (list) list.innerHTML = '<div class="trv2-empty">Cargando operadores en ruta...</div>';
   const data = await trv2Api('GET', '/api/tr-v2/operator/dashboard', undefined, {allowError: true, silent: true});
   if (!data?.ok) {
