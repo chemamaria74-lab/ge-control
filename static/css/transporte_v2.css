@@ -482,3 +482,8 @@ tbody tr:last-child td{border-bottom:0}
   .toast-area{top:auto;right:10px;bottom:10px;width:calc(100vw - 20px)}
   .trv2-service-scroll{min-height:220px;max-height:calc(100dvh - 260px)}
 }
+.trv2-trip-expense-modal{max-width:680px}
+.trv2-payment-period-tabs{margin:0 0 16px}
+.trv2-payment-paid-row{background:#f3fff8}
+.trv2-trip-expense-modal .trv2-form{grid-template-columns:minmax(0,2fr) minmax(180px,1fr);margin:18px 0}
+@media(max-width:720px){.trv2-trip-expense-modal .trv2-form{grid-template-columns:1fr}}
