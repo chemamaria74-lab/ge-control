@@ -3540,17 +3540,17 @@ def _operator_load_invoice_folio(row: dict[str, Any], meta: dict[str, Any]) -> s
     number = _first_text(detected.get("folio_numero"), meta.get("numero_factura_carga"))
     serie_number = " ".join(value for value in (serie, number) if value).strip()
     return _first_text(
-        detected.get("folio_display"),
-        detected.get("folio"),
+        serie_number,
         row.get("folio_factura_carga"),
         row.get("folio_factura"),
         row.get("folio_carga"),
         meta.get("folio_factura_carga"),
         meta.get("folio_factura"),
         meta.get("folio_carga"),
+        detected.get("folio_display"),
+        detected.get("folio"),
         factura.get("folio_display"),
         factura.get("folio"),
-        serie_number,
         "Sin folio de factura",
     )
 
@@ -3607,10 +3607,11 @@ def _operator_payment_preview(
     )
     trip_ids = [int(row["id"]) for row in payable if row.get("id")]
     liquidated_ids: set[int] = set()
+    liquidation_by_trip: dict[int, dict[str, Any]] = {}
     if trip_ids:
         existing = (
             sb.table("tr_liquidacion_items")
-            .select("viaje_id")
+            .select("viaje_id,gastos,metadata")
             .eq("user_id", uid)
             .eq("perfil_id", pid)
             .in_("viaje_id", trip_ids)
@@ -3619,10 +3620,15 @@ def _operator_payment_preview(
             or []
         )
         liquidated_ids = {int(item["viaje_id"]) for item in existing if item.get("viaje_id")}
+        liquidation_by_trip = {int(item["viaje_id"]): item for item in existing if item.get("viaje_id")}
 
     items = []
     for row in payable:
         trip_id = int(row.get("id") or 0)
+        trip_meta = _parse_json_value(row.get("defaults_json") or row.get("metadata"), {})
+        operational_expense = trip_meta.get("gasto_operativo") if isinstance(trip_meta.get("gasto_operativo"), dict) else {}
+        liquidation_item = liquidation_by_trip.get(trip_id, {})
+        liquidation_meta = _parse_json_value(liquidation_item.get("metadata"), {})
         op_id = int(row.get("chofer_id") or row.get("operador_id") or 0)
         route_id = int(row.get("ruta_id") or 0)
         client_id = int(row.get("cliente_id") or 0)
@@ -3664,10 +3670,10 @@ def _operator_payment_preview(
             "ruta": route_name if route_id else "Sin ruta",
             "cliente_id": client_id or None,
             "cliente": _first_text(client.get("nombre"), row.get("cliente_nombre"), "Sin cliente"),
-            "folio": _operator_load_invoice_folio(row, meta),
-            "origen": _first_text(route.get("origen"), route.get("nombre_origen"), row.get("origen"), meta.get("origen")),
-            "destino": _first_text(route.get("destino"), route.get("nombre_destino"), row.get("destino"), meta.get("destino")),
-            "producto": "Gas LP" if is_gas_lp_route else _first_text(quantity_summary.get("producto"), meta.get("producto_nombre"), "Petrolífero"),
+            "folio": _operator_load_invoice_folio(row, trip_meta),
+            "origen": _first_text(route.get("origen"), route.get("nombre_origen"), row.get("origen"), trip_meta.get("origen")),
+            "destino": _first_text(route.get("destino"), route.get("nombre_destino"), row.get("destino"), trip_meta.get("destino")),
+            "producto": "Gas LP" if is_gas_lp_route else _first_text(quantity_summary.get("producto"), trip_meta.get("producto_nombre"), "Petrolífero"),
             "modalidad": modality if tariff else "sin_tarifa",
             "tarifa_id": (tariff or {}).get("id"),
             "tarifa": round(rate, 4),
@@ -3678,7 +3684,9 @@ def _operator_payment_preview(
             "ya_liquidado": trip_id in liquidated_ids,
             "litros": _num(quantity_summary.get("litros")),
             "kilos": _num(quantity_summary.get("kilos")),
-            "kilometros": _num(row.get("distancia_km") or meta.get("distancia_km") or route.get("distancia_km")),
+            "kilometros": _num(row.get("distancia_km") or trip_meta.get("distancia_km") or route.get("distancia_km")),
+            "gasto": _num(liquidation_item.get("gastos")) if liquidation_item else _num(operational_expense.get("monto")),
+            "gasto_descripcion": _first_text(liquidation_meta.get("gasto_descripcion"), operational_expense.get("descripcion")),
         })
     pending_items = [item for item in items if not item["ya_liquidado"]]
     return {
@@ -4356,6 +4364,7 @@ def _legacy_trip_patch_row(data: dict[str, Any]) -> dict[str, Any]:
         "fecha_llegada_estimada": "fecha_hora_llegada",
         "estatus": "status",
         "observaciones": "observaciones",
+        "metadata": "defaults_json",
     }
     for key, column in mapping.items():
         if key in data:
@@ -9203,6 +9212,7 @@ def transporte_v2_operator_payments_export(
     gastos: float = Query(default=0, ge=0),
     gastos_json: str = Query(default=""),
     bases_json: str = Query(default=""),
+    incluir_pagados: bool = Query(default=False),
     authorization: str = Header(default=""),
     perfil_id: Optional[int] = Query(default=None),
     x_perfil_id: str = Header(default=""),
@@ -9248,7 +9258,7 @@ def transporte_v2_operator_payments_export(
         sheet.sheet_view.showGridLines = False
         groups: dict[int, dict[str, Any]] = {}
         for item in preview["items"]:
-            if item["ya_liquidado"]:
+            if item["ya_liquidado"] and not incluir_pagados:
                 continue
             group = groups.setdefault(item["operador_id"], {"name": item["operador"], "items": []})
             group["items"].append(item)
@@ -9287,7 +9297,7 @@ def transporte_v2_operator_payments_export(
             first_trip_row = header_row + 1
             for trip_number, item in enumerate(items, start=1):
                 row_number = first_trip_row + trip_number - 1
-                expense = export_expenses.get(int(item.get("viaje_id") or 0), {})
+                expense = export_expenses.get(int(item.get("viaje_id") or 0), {"monto": item.get("gasto", 0), "descripcion": item.get("gasto_descripcion", "")})
                 trip_expense = expense.get("monto") or None
                 values = [
                     item["fecha"], trip_number, item.get("folio"), item.get("origen"), item.get("destino"), item.get("producto"),
