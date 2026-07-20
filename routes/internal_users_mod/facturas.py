@@ -42,6 +42,16 @@ def _gas_lp_credit_reminder_today_key(today_key: str | None = None) -> str:
     return datetime.now(_gas_lp_cfdi_timezone()).strftime("%Y-%m-%d")
 
 
+def _gas_lp_carta_porte_pdf_context(row: dict) -> dict:
+    """Datos operativos exclusivos del PDF; nunca forman parte del XML fiscal."""
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    nombres = metadata.get("ayudantes_nombres") or []
+    if isinstance(nombres, str):
+        nombres = [nombres]
+    helpers = [{"nombre": str(nombre).strip()} for nombre in nombres if str(nombre).strip()]
+    return {"helpers": helpers[:1]}
+
+
 _GAS_LP_FACTURA_LIST_METADATA_KEYS = {
     "asistente_nombre",
     "carta_porte_summary",
@@ -50,6 +60,7 @@ _GAS_LP_FACTURA_LIST_METADATA_KEYS = {
     "cfdi_tipo",
     "cliente_id",
     "cliente_nombre",
+    "comentarios",
     "created_by",
     "created_by_area",
     "created_by_internal",
@@ -63,6 +74,8 @@ _GAS_LP_FACTURA_LIST_METADATA_KEYS = {
     "fecha_llegada",
     "fecha_salida",
     "forma_pago",
+    "folio",
+    "folio_usuario",
     "id_ccp",
     "internal_user_id",
     "is_transfer",
@@ -75,12 +88,14 @@ _GAS_LP_FACTURA_LIST_METADATA_KEYS = {
     "portal",
     "receptor_nombre",
     "saldo_insoluto",
+    "serie",
     "sat_status",
     "status",
     "tipo_comprobante",
     "tipo_flujo",
     "tipo_operacion",
     "total",
+    "observaciones",
     "ultimo_complemento_pago_id",
     "usuario_nombre",
     "vehiculo",
@@ -121,6 +136,9 @@ def _gas_lp_compact_factura_for_list(row: dict) -> dict:
         "destino_nombre": row.get("destino_nombre") or compact_md.get("destino_nombre") or "",
         "serie": row.get("serie") or compact_md.get("serie") or "",
         "folio_usuario": row.get("folio_usuario") or compact_md.get("folio_usuario") or "",
+        "folio": _gas_lp_factura_folio_label(row),
+        "observaciones": _gas_lp_factura_observaciones(row),
+        "record_uuid": row.get("record_uuid") or "",
         "tipo_descuento": row.get("tipo_descuento") or compact_md.get("tipo_descuento") or "",
         "descuento_confirmado": row.get("descuento_confirmado"),
         "descuento_por_litro": row.get("descuento_por_litro"),
@@ -718,7 +736,8 @@ async def gas_lp_internal_factura_pdf(factura_id: int, token: str, perfil_id: in
         pdf_bytes = generar_pdf_carta_porte_desde_xml(
             xml_content,
             logo_data_url=settings.get("PdfLogoDataUrl", ""),
-            mostrar_figuras_adicionales=True,
+            operational_context=_gas_lp_carta_porte_pdf_context(row),
+            mostrar_ayudantes_operativos=True,
         )
     else:
         pac_pdf_url = str(row.get("pdf_url") or "").strip()
@@ -792,7 +811,8 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
             pdf_bytes = generar_pdf_carta_porte_desde_xml(
                 xml_content,
                 logo_data_url=settings.get("PdfLogoDataUrl", ""),
-                mostrar_figuras_adicionales=True,
+                operational_context=_gas_lp_carta_porte_pdf_context(row),
+                mostrar_ayudantes_operativos=True,
             )
         else:
             info = fiscal_pdf_info(xml_content, "factura_gas_lp")

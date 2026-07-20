@@ -596,16 +596,11 @@ def _internal_cp_payload(kind: str, params, user: dict | None = None, current: d
         }
     if kind == "ayudantes":
         rfc = s("rfc").upper().replace(" ", "")
-        if not rfc or len(rfc) not in {12, 13} or not re.match(r"^[A-Z&Ñ]{3,4}[0-9]{6}[A-Z0-9]{3}$", rfc):
-            raise HTTPException(400, {
-                "message": "RFC del ayudante inválido. Captura 12 o 13 caracteres, sin espacios.",
-                "code": "gas_lp_carta_porte_ayudante_rfc_invalid",
-            })
         return {
             "nombre": s("nombre", "nombre_completo"),
             "rfc": rfc,
             "telefono": s("telefono"),
-            "metadata": {"tipo_figura": "04", "descripcion_figura": "Notificado"},
+            "metadata": {"uso_carta_porte": "referencia_operativa_pdf"},
             "activo": True,
         }
     if kind == "choferes":
