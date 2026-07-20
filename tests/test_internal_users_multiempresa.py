@@ -177,6 +177,45 @@ def response_json(response):
 
 
 class InternalUsersMultiempresaTest(unittest.TestCase):
+    def test_realizadas_hoy_filters_by_stamp_date_not_fiscal_issue_date(self):
+        db = FakeDB()
+        db.rows["gas_lp_facturas"] = [
+            {
+                "id": 177,
+                "tenant_id": "tenant-a",
+                "perfil_id": 1,
+                "empresa_rfc": "GLU760309457",
+                "rfc_emisor": "GLU760309457",
+                "uuid_sat": "d961fe4e-7c75-424b-ac70-3dbdeffbb62d",
+                "fecha_emision": "2026-07-18T11:44:00",
+                "fecha_timbrado": "2026-07-20T11:45:48",
+                "created_at": "2026-07-20T17:45:48Z",
+            },
+            {
+                "id": 176,
+                "tenant_id": "tenant-a",
+                "perfil_id": 1,
+                "empresa_rfc": "GLU760309457",
+                "rfc_emisor": "GLU760309457",
+                "uuid_sat": "timbrada-ayer",
+                "fecha_emision": "2026-07-20T09:00:00",
+                "fecha_timbrado": "2026-07-19T09:01:00",
+                "created_at": "2026-07-19T15:01:00Z",
+            },
+        ]
+        user = {"tenant_id": "tenant-a", "perfil_id": 1}
+        profile = {"id": 1, "rfc": "GLU760309457"}
+
+        rows = internal_users._gas_lp_company_facturas_rows(
+            db,
+            user,
+            profile,
+            realized_date="2026-07-20",
+            limit=300,
+        )
+
+        self.assertEqual([row["uuid_sat"] for row in rows], ["d961fe4e-7c75-424b-ac70-3dbdeffbb62d"])
+
     def test_gas_lp_carta_porte_facilities_fall_back_to_admin_facilities(self):
         db = FakeDB()
         db.rows["user_facilities"] = [
