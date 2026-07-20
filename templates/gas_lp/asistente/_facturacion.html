@@ -87,12 +87,12 @@
       <div class="card compact-card">
         <div class="section-title">
           <div>
-            <h2>Facturas de hoy</h2>
+            <h2>Realizadas hoy</h2>
             <p class="muted" id="todayLabel" style="margin:4px 0 0">—</p>
           </div>
-          <button class="btn ghost" type="button" onclick="loadFacturas(todayKey().slice(0,7), {limit:300, deep:true})"><i class="fa-solid fa-magnifying-glass"></i> Cargar hoy</button>
+          <button class="btn ghost" type="button" onclick="loadFacturas('', {limit:300, deep:true, realizadasHoy:true, force:true})"><i class="fa-solid fa-magnifying-glass"></i> Cargar realizadas hoy</button>
         </div>
-        <div class="table-wrap today-table-wrap"><table class="mini-table today-table"><thead><tr><th class="today-time">Hora</th><th class="today-client">Cliente</th><th class="today-total">Total</th><th class="today-pay">Pago</th><th class="today-docs">Docs</th></tr></thead><tbody id="todayFacturasRows"><tr><td colspan="5">Presiona Cargar hoy para consultar las facturas del día.</td></tr></tbody></table></div>
+        <div class="table-wrap today-table-wrap"><table class="mini-table today-table"><thead><tr><th class="today-time">Hora realizada</th><th class="today-client">Cliente</th><th class="today-total">Total</th><th class="today-pay">Pago</th><th class="today-docs">Docs</th></tr></thead><tbody id="todayFacturasRows"><tr><td colspan="5">Presiona Cargar realizadas hoy para consultar los documentos timbrados hoy.</td></tr></tbody></table></div>
       </div>
     </div>
     </div>
