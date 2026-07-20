@@ -31,7 +31,6 @@ _RFC_GENERICOS = {
     "XAX010101000",   # RFC proveedor de software (desarrollo propio)
 }
 
-
 def validar_rfc(rfc: str) -> tuple[bool, str]:
     """
     Valida el formato de un RFC mexicano.
