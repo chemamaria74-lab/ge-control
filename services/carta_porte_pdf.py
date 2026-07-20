@@ -135,7 +135,7 @@ def generar_pdf_carta_porte_desde_xml(
     logo_data_url: str = "",
     pdf_theme: dict | None = None,
     operational_context: dict | None = None,
-    mostrar_figuras_adicionales: bool = False,
+    mostrar_ayudantes_operativos: bool = False,
 ) -> bytes:
     """Genera la representación impresa fiscal de un CFDI 4.0 con Carta Porte 3.1."""
     try:
@@ -353,7 +353,7 @@ def generar_pdf_carta_porte_desde_xml(
             line,
             wine_dark,
             operations,
-            mostrar_figuras_adicionales=mostrar_figuras_adicionales,
+            mostrar_ayudantes_operativos=mostrar_ayudantes_operativos,
         ),
     ]))
     story.append(_declaration_box(theme.get("declaration_contact_phones"), Table, TableStyle, Paragraph, styles, colors, cream, line, wine_dark))
@@ -1080,7 +1080,7 @@ def _operations_grid(
     line,
     wine,
     operational_context=None,
-    mostrar_figuras_adicionales=False,
+    mostrar_ayudantes_operativos=False,
 ):
     figura = figuras[0] if figuras else None
     vehicle_operation = _operation_dict(operational_context, "vehicle")
@@ -1135,19 +1135,16 @@ def _operations_grid(
         ("Tipo figura", _attr(figura, "TipoFigura", "—")),
     ], 3.78, Table, TableStyle, Paragraph, styles, colors, cream, line, wine)
     data = [[vehicle, trailer], [insurance, operator]] if has_trailer else [[vehicle, ""], [insurance, operator]]
-    additional_figures = figuras[1:] if mostrar_figuras_adicionales else []
-    if additional_figures:
+    helpers_operations = _operation_list(operational_context, "helpers") if mostrar_ayudantes_operativos else []
+    if helpers_operations:
         helper_rows = []
-        for index, helper in enumerate(additional_figures, start=1):
-            helper_rows.extend([
-                (f"Ayudante {index}", _attr(helper, "NombreFigura", "—")),
-                (f"RFC ayudante {index}", _attr(helper, "RFCFigura", "—")),
-                (f"Tipo figura {index}", _attr(helper, "TipoFigura", "04")),
-            ])
+        for index, helper in enumerate(helpers_operations, start=1):
+            label = "Nombre" if len(helpers_operations) == 1 else f"Ayudante {index}"
+            helper_rows.append((label, _operation_value(helper, "nombre", "name")))
         helpers = _compact_card(
-            "AYUDANTES / FIGURAS ADICIONALES",
+            "AYUDANTE (REFERENCIA OPERATIVA)",
             helper_rows,
-            7.58,
+            3.78,
             Table,
             TableStyle,
             Paragraph,
@@ -1160,8 +1157,6 @@ def _operations_grid(
         data.append([helpers, ""])
     table = Table(data, colWidths=[3.80 * inch(), 3.80 * inch()])
     extra_style = [("SPAN", (0, 0), (1, 0))] if not has_trailer else []
-    if additional_figures:
-        extra_style.append(("SPAN", (0, len(data) - 1), (1, len(data) - 1)))
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
