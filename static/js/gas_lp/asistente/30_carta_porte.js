@@ -302,7 +302,7 @@ function renderCartaPorteWizard(){
   CP_FINAL_PAYLOAD = null;
   const now = localDateTimeValue();
   const rutasOpts = cpOption(CATALOGOS.rutas, r => `${r.nombre || 'Ruta'}${r.distancia_km ? ` · ${r.distancia_km} km` : ''}${cpRouteTimeMinutes(r) ? ` · ${cpRouteTimeMinutes(r)} min` : ''}`);
-  const helperOpts = cpOption(CATALOGOS.ayudantes || [], a => `${a.nombre || 'Ayudante'}${a.rfc ? ` · ${a.rfc}` : ''}`);
+  const helperOpts = cpOption(CATALOGOS.ayudantes || [], a => a.nombre || 'Ayudante');
   host.innerHTML = `
     <style>
       .cp-wizard{display:grid;gap:12px}.cp-step{border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px}.cp-step h3{margin:0 0 9px;font-size:15px}.cp-step p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.45}.cp-helper-dropdown{position:relative}.cp-helper-dropdown summary{box-sizing:border-box;display:flex;align-items:center;min-height:39px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;list-style:none}.cp-helper-dropdown summary::-webkit-details-marker{display:none}.cp-helper-dropdown summary:after{content:'▾';margin-left:auto}.cp-helper-dropdown[open] summary{border-color:var(--wine)}.cp-helper-menu{position:absolute;z-index:30;top:calc(100% + 4px);left:0;right:0;max-height:210px;overflow:auto;padding:6px;border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:0 12px 28px rgba(0,0,0,.16)}.cp-helper-option{display:flex;align-items:flex-start;gap:8px;padding:8px;border-radius:6px;cursor:pointer}.cp-helper-option:hover{background:#fbfaf8}.cp-helper-option input{width:auto;margin-top:2px}.cp-helper-option span,.cp-helper-option b,.cp-helper-option small{display:block}.cp-helper-option small{margin-top:2px;color:var(--muted)}.cp-helper-empty{padding:10px;color:var(--muted);font-size:12px}.cp-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.cp-preview div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-preview span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-preview b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-validation-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}.cp-validation-summary div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:9px}.cp-validation-summary span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-validation-summary b{display:block;margin-top:3px;overflow-wrap:anywhere}.cp-route-hint{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800}.cp-sat-note{border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;line-height:1.35}.cp-checklist{display:grid;gap:7px;margin-bottom:10px}.cp-check-row{display:flex;gap:8px;align-items:flex-start;border:1px solid #eadfd2;border-radius:8px;padding:8px 10px;background:#fff}.cp-check-row i{margin-top:2px}.cp-check-row.ok{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.cp-check-row.warn{border-color:#fde68a;background:#fffbeb;color:#92400e}.cp-check-row.error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.cp-check-row b{display:block}.cp-check-row span{display:block;font-size:12px;line-height:1.35;color:inherit;opacity:.9}.cp-confirm-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.cp-confirm-list div{border:1px solid #eadfd2;border-radius:8px;background:#fbfaf8;padding:8px}.cp-confirm-list span{display:block;color:var(--muted);font-size:11px;font-weight:900}.cp-confirm-list b{display:block;margin-top:2px;overflow-wrap:anywhere}.cp-stamp-wait{align-items:center;gap:10px;margin-top:16px;border:1px solid #bfdbfe;background:#eff6ff;color:#1e3a8a;border-radius:8px;padding:10px 12px}.cp-stamp-wait b,.cp-stamp-wait span{display:block}.cp-stamp-wait span{font-size:12px;margin-top:2px}.acp-modal-layer{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px}.acp-modal{background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;width:min(900px,96vw);max-height:90vh;overflow:auto;box-shadow:0 32px 64px rgba(0,0,0,.22)}.acp-modal-title{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:950;margin-bottom:18px}.acp-modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}@media(max-width:760px){.cp-confirm-list{grid-template-columns:1fr}.acp-modal{padding:18px}}
@@ -328,7 +328,7 @@ function renderCartaPorteWizard(){
         <div class="form-grid">
           <div><label>Vehículo</label><select id="cpVehiculo" onchange="invalidateCpPreview()">${cpOption(CATALOGOS.vehiculos, v => `${acpTitle('vehiculos', v)}${v.placas ? ` · ${v.placas}` : ''}`)}</select></div>
           <div><label>Chofer / operador</label><select id="cpChofer" onchange="invalidateCpPreview()">${cpOption(CATALOGOS.choferes, c => `${c.nombre || 'Chofer'}${c.licencia ? ` · ${c.licencia}` : ''}`)}</select></div>
-          <div><label>Ayudante (opcional)</label><select id="cpAyudante" onchange="invalidateCpPreview()">${helperOpts}</select><div class="muted" style="font-size:12px;margin-top:4px">Selecciona como máximo un ayudante del catálogo. Se agrega como figura SAT 04 Notificado.</div></div>
+          <div><label>Ayudante (opcional)</label><select id="cpAyudante" onchange="invalidateCpPreview()">${helperOpts}</select><div class="muted" style="font-size:12px;margin-top:4px">Referencia operativa interna. Aparece en el PDF, pero no se envía al SAT.</div></div>
         </div>
       </div>
       <div class="cp-step">
@@ -905,7 +905,7 @@ function assistantCpNaturalKey(kind, row){
   const md = cpMeta(row);
   if(kind === 'vehiculos') return ['vehiculo', row?.id, row?.vehiculo_id, row?.placas, md.numero_economico || md.alias].filter(Boolean).join(':');
   if(kind === 'choferes') return ['chofer', row?.id, row?.chofer_id, row?.rfc, row?.licencia, row?.nombre].filter(Boolean).join(':');
-  if(kind === 'ayudantes') return ['ayudante', row?.id, row?.rfc, row?.nombre].filter(Boolean).join(':');
+  if(kind === 'ayudantes') return ['ayudante', row?.id, row?.nombre].filter(Boolean).join(':');
   if(kind === 'mercancias') return ['mercancia', row?.id, row?.bienes_transp, row?.clave_unidad, row?.alias || row?.descripcion].filter(Boolean).join(':');
   if(kind === 'rutas') return ['ruta', row?.id, row?.nombre, cpRouteLocationRef(row, 'origen'), cpRouteLocationRef(row, 'destino')].filter(Boolean).join(':');
   return ['cp', kind, row?.id].filter(Boolean).join(':');
@@ -1250,7 +1250,6 @@ function renderAssistantCpForm(){
   ].join('');
   if(kind==='ayudantes') body = [
     acpField('acpa_nombre','<span class="acp-required">Nombre completo</span>',row?.nombre||'','text','placeholder="María López García"'),
-    acpField('acpa_rfc','<span class="acp-required">RFC Figura SAT</span>',row?.rfc||'','text','placeholder="LOGM850101AB1" maxlength="13" oninput="this.value=this.value.toUpperCase()"','Se enviará como figura adicional SAT 04 Notificado.'),
     acpField('acpa_tel','Teléfono',row?.telefono||'','text','placeholder="449 123 4567"')
   ].join('');
   if(kind==='instalaciones') body = [
@@ -1296,7 +1295,7 @@ function renderAssistantCpCard(kind,row){
   const routeOriginName = kind === 'rutas' ? cpName('instalaciones', cpRouteLocationRef(row, 'origen')) : '';
   const routeDestinationName = kind === 'rutas' ? cpName('instalaciones', cpRouteLocationRef(row, 'destino')) : '';
   const routePair = kind === 'rutas' ? `${routeOriginName} → ${routeDestinationName}` : '';
-  const line = kind==='vehiculos' ? `${row.placas||'Placas —'} · ${row.config_vehicular||'Config. —'} · Activo` : kind==='choferes' ? `${row.rfc||'RFC —'} · ${row.licencia||'Lic. —'}` : kind==='ayudantes' ? `${row.rfc||'RFC —'} · Figura SAT 04` : kind==='instalaciones' ? `${row._cp_manual ? 'Manual' : 'Administración'} · ${row.tipo||'ambos'} · ${row.codigo_postal||'CP —'} · ${row.id_ubicacion_carta_porte||row.id_ubicacion||'ID pendiente'}` : kind==='mercancias' ? `${row.factor_kg_litro||0} kg/L · ${row.material_peligroso?'Peligroso':'No peligroso'}` : `${routePair} · ${row.distancia_km||0} km · ${cpRouteTimeMinutes(row)||0} min`;
+  const line = kind==='vehiculos' ? `${row.placas||'Placas —'} · ${row.config_vehicular||'Config. —'} · Activo` : kind==='choferes' ? `${row.rfc||'RFC —'} · ${row.licencia||'Lic. —'}` : kind==='ayudantes' ? `${row.telefono||'Sin teléfono'} · Solo referencia operativa PDF` : kind==='instalaciones' ? `${row._cp_manual ? 'Manual' : 'Administración'} · ${row.tipo||'ambos'} · ${row.codigo_postal||'CP —'} · ${row.id_ubicacion_carta_porte||row.id_ubicacion||'ID pendiente'}` : kind==='mercancias' ? `${row.factor_kg_litro||0} kg/L · ${row.material_peligroso?'Peligroso':'No peligroso'}` : `${routePair} · ${row.distancia_km||0} km · ${cpRouteTimeMinutes(row)||0} min`;
   const licenseStatus = kind === 'choferes' ? calcularEstatusLicencia(cpDriverValue(row, 'fecha_vencimiento_licencia')) : null;
   const licenseText = licenseStatus
     ? (licenseStatus.status === 'missing'
@@ -1346,12 +1345,6 @@ function validateAssistantCp(kind){
   }
   if(kind==='ayudantes'){
     req('nombre completo', acpa_nombre.value);
-    const rfc = String(acpa_rfc.value || '').trim().toUpperCase().replace(/\s+/g, '');
-    acpa_rfc.value = rfc;
-    if(!/^[A-Z&Ñ]{3,4}[0-9]{6}[A-Z0-9]{3}$/.test(rfc) || ![12,13].includes(rfc.length)){
-      setStatus('assistantCpMsg','RFC del ayudante inválido. Captura 12 o 13 caracteres, sin espacios.',false);
-      return false;
-    }
   }
   if(kind==='mercancias'){ reqDecimal('factor kg/litro válido', acpm_factor.value); }
   if(kind==='instalaciones'){
@@ -1383,7 +1376,7 @@ async function saveAssistantCp(){
   const editingRow = assistantCpEdit.kind === kind ? assistantCpFindRow(kind, assistantCpEdit.id) : null;
   if(kind==='vehiculos') p = {numero_economico:acpv_num.value,placa:acpv_placas.value,anio:acpv_anio.value,config_vehicular:acpv_config.value,permiso_cre:acpv_permiso.value,numero_permiso:acpv_numperm.value,peso_bruto_vehicular:acpv_pbv.value,aseguradora:acpv_aseg.value,poliza_seguro:acpv_poliza.value,aseguradora_medio_ambiente:acpv_asegma.value,poliza_medio_ambiente:acpv_polizama.value};
   if(kind==='choferes') p = {nombre:acpc_nombre.value,rfc:acpc_rfc.value,tipo_licencia:acpc_tipolic.value,licencia:acpc_lic.value,tipo_figura:'01',fecha_expedicion_licencia:acpc_exp.value,fecha_vencimiento_licencia:acpc_venc.value,telefono:acpc_tel.value};
-  if(kind==='ayudantes') p = {nombre:acpa_nombre.value,rfc:acpa_rfc.value,telefono:acpa_tel.value,tipo_figura:'04'};
+  if(kind==='ayudantes') p = {nombre:acpa_nombre.value,telefono:acpa_tel.value};
   if(kind==='instalaciones' && editingRow && !editingRow._cp_manual) p = {tipo_ubicacion:acpu_tipo.value,estado_sat:acpu_estado.value,municipio_sat:acpu_mun.value,localidad_sat:acpu_loc.value,referencia_carta_porte:acpu_ref.value};
   if(kind==='instalaciones' && (!editingRow || editingRow._cp_manual)) p = {alias:acpu_nombre.value,nombre:acpu_nombre.value,codigo_postal:acpu_cp.value,calle:acpu_domicilio.value,tipo:acpu_tipo.value,estado:acpu_estado.value,municipio:acpu_mun.value,localidad_colonia:acpu_loc.value,pais:'MEX',referencia_carta_porte:acpu_ref.value};
   if(kind==='mercancias') p = {alias:acpm_alias.value,bienes_transp:acpm_bienes.value,descripcion:acpm_desc.value,clave_unidad:acpm_clave.value,unidad:acpm_unidad.value,factor_kg_litro:cpDecimalValue(acpm_factor.value),material_peligroso:'1',clave_material_peligroso:acpm_clavep.value,embalaje:acpm_emb.value,descripcion_embalaje:acpm_descemb.value};
