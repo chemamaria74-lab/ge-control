@@ -1154,7 +1154,6 @@ def _cp_normalize_helper_payload(row: dict) -> dict:
     item = _cp_with_metadata(row)
     item["nombre"] = _cp_first_value(item, "nombre", "nombre_completo", "NombreFigura")
     item["rfc"] = str(_cp_first_value(item, "rfc", "rfc_figura", "RFCFigura")).strip().upper()
-    item["tipo_figura"] = "04"
     item.pop("licencia", None)
     return item
 
@@ -1682,7 +1681,6 @@ async def _generar_carta_porte_for_scope(payload: CartaPorteRequest, scope: dict
             destino=destino,
             mercancia=mercancia,
             chofer=chofer_row,
-            figuras_adicionales=ayudantes_rows,
         )
     except Exception as e:
         logger.exception(
