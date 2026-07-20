@@ -668,6 +668,19 @@ def test_asistente_cargar_mes_facturas_requests_full_company_month():
     assert "loadFacturasSelectedMonth()" in html
     assert "receptor_rfc=' + encodeURIComponent(receptorRfc)" in html
     assert "cartaPorte ? '&carta_porte=1' : ''" in html
+
+
+def test_asistente_realizadas_hoy_uses_stamp_date_and_cache_busted_scripts():
+    html = _assistant_frontend_source()
+    shell = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+
+    assert "Realizadas hoy" in html
+    assert "> Cargar</button>" in html
+    assert "realizadasHoy:true" in html
+    assert "realizadas_fecha=" in html
+    assert "facturaRealizadaDateKey(f)" in html
+    assert "facturaRealizadaTimeLabel(f)" in html
+    assert "realizadas-hoy-20260720b" in shell
     assert "loadFacturas('', {surfaceError:true, cartaPorte:true, force:true})" in html
 
 
