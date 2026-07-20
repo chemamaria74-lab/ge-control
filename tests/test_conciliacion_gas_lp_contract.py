@@ -1988,15 +1988,18 @@ def test_assistant_carta_porte_driver_form_requires_rfc_and_fixes_operator_type(
 
 def test_assistant_carta_porte_helpers_and_hazardous_material_are_controlled_catalogs():
     html = _assistant_frontend_source()
-    helper = internal_users._internal_cp_payload(
+    helper = cp_catalogos._internal_cp_payload(
         "ayudantes",
         {"nombre": "Ayudante Prueba", "rfc": "AUPR850101AB1", "tipo_figura": "01"},
     )
 
-    assert helper["metadata"]["tipo_figura"] == "04"
+    assert helper["metadata"]["uso_carta_porte"] == "referencia_operativa_pdf"
     assert "gas_lp_ayudantes_carta_porte" in inspect.getsource(internal_users._internal_cp_table)
     assert "Ayudante (opcional)" in html
     assert "ayudante_ids" in html
+    assert "Aparece en el PDF, pero no se envía al SAT" in html
+    assert "acpa_rfc" not in html
+    assert "figuras_adicionales=ayudantes_rows" not in inspect.getsource(facturas_routes._generar_carta_porte_for_scope)
     assert 'id="cpAyudante"' in html
     assert 'multiple' not in html[html.index('id="cpAyudante"') - 80:html.index('id="cpAyudante"') + 120]
     assert "permite seleccionar como máximo un ayudante" in inspect.getsource(facturas_routes._generar_carta_porte_for_scope)

@@ -211,7 +211,6 @@ def test_carta_porte_pdf_only_shows_helpers_when_gas_lp_enables_them(tmp_path):
           <cartaporte31:Mercancias NumTotalMercancias="0"><cartaporte31:Autotransporte><cartaporte31:IdentificacionVehicular PlacaVM="ABC123"/><cartaporte31:Seguros/></cartaporte31:Autotransporte></cartaporte31:Mercancias>
           <cartaporte31:FiguraTransporte>
             <cartaporte31:TiposFigura TipoFigura="01" RFCFigura="CAHA9403247E1" NombreFigura="OPERADOR PRINCIPAL" NumLicencia="LIC-1"/>
-            <cartaporte31:TiposFigura TipoFigura="04" RFCFigura="AUPR850101AB1" NombreFigura="AYUDANTE PRUEBA"/>
           </cartaporte31:FiguraTransporte>
         </cartaporte31:CartaPorte>
       </cfdi:Complemento>
@@ -222,11 +221,15 @@ def test_carta_porte_pdf_only_shows_helpers_when_gas_lp_enables_them(tmp_path):
     transport_text = "\n".join(page.extract_text() or "" for page in PdfReader(str(transport_path)).pages)
 
     gas_lp_path = tmp_path / "gas_lp.pdf"
-    gas_lp_path.write_bytes(generar_pdf_carta_porte_desde_xml(xml, mostrar_figuras_adicionales=True))
+    gas_lp_path.write_bytes(generar_pdf_carta_porte_desde_xml(
+        xml,
+        operational_context={"helpers": [{"nombre": "AYUDANTE PRUEBA"}]},
+        mostrar_ayudantes_operativos=True,
+    ))
     gas_lp_text = "\n".join(page.extract_text() or "" for page in PdfReader(str(gas_lp_path)).pages)
 
     assert "OPERADOR PRINCIPAL" in transport_text
     assert "AYUDANTE PRUEBA" not in transport_text
-    assert "AYUDANTES / FIGURAS ADICIONALES" in gas_lp_text
+    assert "AYUDANTE (REFERENCIA OPERATIVA)" in gas_lp_text
     assert "AYUDANTE PRUEBA" in gas_lp_text
-    assert "AUPR850101AB1" in gas_lp_text
+    assert "AUPR850101AB1" not in gas_lp_text
