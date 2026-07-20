@@ -18,7 +18,8 @@ function gaslpSessionCacheSet(kind, key, data){
   try{ sessionStorage.setItem(gaslpSessionCacheKey(kind, key), JSON.stringify({t:Date.now(), data})); }catch(_e){}
 }
 async function loadFacturas(month='', opts={}){
-  const selectedMonth = opts.allMonths ? '' : String(month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)).slice(0,7);
+  const realizadasHoy = !!opts.realizadasHoy;
+  const selectedMonth = opts.allMonths || realizadasHoy ? '' : String(month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)).slice(0,7);
   if(document.getElementById('facturaMes') && !facturaMes.value) facturaMes.value = selectedMonth;
   const limit = Math.max(1, Math.min(Number(opts.limit || 300) || 300, 1000));
   const deep = opts.deep !== false;
@@ -27,14 +28,15 @@ async function loadFacturas(month='', opts={}){
   const credito = !!opts.credito;
   const descuentos = !!opts.descuentos;
   const cartaPorte = !!opts.cartaPorte;
-  const loadKey = `${selectedMonth || 'current'}:${limit}:${deep ? 'deep' : 'fast'}:${receptorRfc}:${complementos ? 'comp' : ''}:${credito ? 'cred' : ''}:${descuentos ? 'desc' : ''}:${cartaPorte ? 'cp' : ''}`;
+  const realizadasFecha = realizadasHoy ? todayKey() : '';
+  const loadKey = `${selectedMonth || 'current'}:${limit}:${deep ? 'deep' : 'fast'}:${receptorRfc}:${complementos ? 'comp' : ''}:${credito ? 'cred' : ''}:${descuentos ? 'desc' : ''}:${cartaPorte ? 'cp' : ''}:${realizadasFecha}`;
   if(FACTURAS_LOAD_PROMISE && FACTURAS_LOAD_KEY === loadKey) return FACTURAS_LOAD_PROMISE;
   if(FACTURAS_LOAD_CONTROLLER) FACTURAS_LOAD_CONTROLLER.abort();
   FACTURAS_LOAD_KEY = loadKey;
   FACTURAS_LOAD_CONTROLLER = new AbortController();
   const refreshButtons = [...document.querySelectorAll('button[onclick^="loadFacturas"],button[onclick^="loadFacturasSelectedMonth"]')];
   refreshButtons.forEach(btn => { btn.disabled = true; btn.dataset.loadingFacturas = '1'; });
-  if(!credito && !descuentos && todayFacturasRows) todayFacturasRows.innerHTML = '<tr><td colspan="5">Cargando facturas de hoy...</td></tr>';
+  if(!credito && !descuentos && todayFacturasRows) todayFacturasRows.innerHTML = '<tr><td colspan="5">Cargando documentos realizados hoy...</td></tr>';
   if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">Cargando...</td></tr>';
   const qs = '?mes=' + encodeURIComponent(selectedMonth)
     + '&limit=' + encodeURIComponent(String(limit))
@@ -43,6 +45,7 @@ async function loadFacturas(month='', opts={}){
     + (credito ? '&credito=1' : '')
     + (descuentos ? '&descuentos=1' : '')
     + (cartaPorte ? '&carta_porte=1' : '')
+    + (realizadasFecha ? '&realizadas_fecha=' + encodeURIComponent(realizadasFecha) : '')
     + (receptorRfc ? '&receptor_rfc=' + encodeURIComponent(receptorRfc) : '');
   const cacheKey = qs;
   if(!opts.force){
@@ -589,12 +592,13 @@ function renderTodayFacturas(){
   if(!todayFacturasRows || !todayLabel) return;
   const key = todayKey();
   todayLabel.textContent = new Date(`${key}T00:00:00`).toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'});
-  const rows = fiscalDocumentRows().filter(f => (f.__kind === 'complemento' ? mexicoDateKey(f.fecha_timbrado || f.fecha_pago) : facturaDateKey(f)) === key);
+  const rows = fiscalDocumentRows().filter(f => (f.__kind === 'complemento' ? mexicoDateKey(f.fecha_timbrado || f.fecha_pago) : facturaRealizadaDateKey(f)) === key);
   todayFacturasRows.innerHTML = rows.length ? rows.map(f=>{
     const v = f.__kind === 'complemento' ? complementoView(f) : facturaView(f);
     const docLabel = v.isCartaPorte ? '<span class="cell-sub">Carta Porte tipo T</span>' : (v.destinoSub ? `<span class="cell-sub">${esc(v.destinoSub)}</span>` : '');
-    return `<tr><td class="today-time">${v.hora}</td><td class="today-client"><span class="today-client-name" title="${esc(v.destino)}">${esc(v.destino)}</span>${docLabel}${v.assistantBadge}</td><td class="today-total">${money(v.total)}</td><td class="today-pay">${esc(v.pago)}</td><td class="today-docs">${v.docs}</td></tr>`;
-  }).join('') : '<tr><td colspan="5">Sin documentos fiscales timbrados hoy.</td></tr>';
+    const horaRealizada = f.__kind === 'complemento' ? facturaTimeLabel({metadata:{}, created_at:f.fecha_timbrado || f.fecha_pago}) : facturaRealizadaTimeLabel(f);
+    return `<tr><td class="today-time">${esc(horaRealizada)}</td><td class="today-client"><span class="today-client-name" title="${esc(v.destino)}">${esc(v.destino)}</span>${docLabel}${v.assistantBadge}</td><td class="today-total">${money(v.total)}</td><td class="today-pay">${esc(v.pago)}</td><td class="today-docs">${v.docs}</td></tr>`;
+  }).join('') : '<tr><td colspan="5">Sin documentos fiscales realizados hoy.</td></tr>';
 }
 function applyFacturasFilters(){
   if(!FACTURAS_LOADED && !COMPLEMENTOS.length){

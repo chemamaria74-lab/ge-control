@@ -136,6 +136,15 @@ function facturaDateKey(f){
   const value = f.fecha_timbrado || f.created_at || '';
   return mexicoDateKey(value) || String(value || '').slice(0,10);
 }
+function facturaRealizadaDateKey(f){
+  const value = f?.fecha_timbrado || f?.created_at || '';
+  return wallClockDateParts(value).date || mexicoDateKey(value) || String(value).slice(0,10);
+}
+function facturaRealizadaTimeLabel(f){
+  const value = f?.fecha_timbrado || f?.created_at || '';
+  const parts = wallClockDateParts(value);
+  return parts.time ? parts.time.slice(0,5) : '—';
+}
 function facturaFolioLabel(f){
   const md = f?.metadata || {};
   const direct = String(f?.folio || '').trim();
