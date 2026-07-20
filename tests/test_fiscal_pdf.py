@@ -230,6 +230,7 @@ def test_carta_porte_pdf_only_shows_helpers_when_gas_lp_enables_them(tmp_path):
 
     assert "OPERADOR PRINCIPAL" in transport_text
     assert "AYUDANTE PRUEBA" not in transport_text
-    assert "AYUDANTE (REFERENCIA OPERATIVA)" in gas_lp_text
+    assert "AYUDANTE" in gas_lp_text
+    assert "REFERENCIA OPERATIVA" not in gas_lp_text
     assert "AYUDANTE PRUEBA" in gas_lp_text
     assert "AUPR850101AB1" not in gas_lp_text
