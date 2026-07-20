@@ -1142,7 +1142,7 @@ def _operations_grid(
             label = "Nombre" if len(helpers_operations) == 1 else f"Ayudante {index}"
             helper_rows.append((label, _operation_value(helper, "nombre", "name")))
         helpers = _compact_card(
-            "AYUDANTE (REFERENCIA OPERATIVA)",
+            "AYUDANTE",
             helper_rows,
             3.78,
             Table,
@@ -1154,7 +1154,7 @@ def _operations_grid(
             line,
             wine,
         )
-        data.append([helpers, ""])
+        data.append(["", helpers])
     table = Table(data, colWidths=[3.80 * inch(), 3.80 * inch()])
     extra_style = [("SPAN", (0, 0), (1, 0))] if not has_trailer else []
     table.setStyle(TableStyle([
