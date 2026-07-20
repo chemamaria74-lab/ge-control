@@ -365,6 +365,7 @@ async def gas_lp_internal_facturas(
     descuentos: bool = False,
     receptor_rfc: str | None = None,
     carta_porte: bool = False,
+    realizadas_fecha: str | None = None,
 ):
     started_at = datetime.now(timezone.utc)
     ctx = _gas_lp_internal_context(token)
@@ -380,6 +381,12 @@ async def gas_lp_internal_facturas(
     else:
         month = ""
     clean_receptor_rfc = _clean_rfc(receptor_rfc or "")
+    realized_date = str(realizadas_fecha or "").strip()[:10]
+    if realized_date:
+        try:
+            datetime.strptime(realized_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, "Fecha de realización inválida.")
     if complementos or credito or descuentos:
         try:
             page_limit = int(os.environ.get("GAS_LP_COMPLEMENTOS_PPD_LIMIT", str(GAS_LP_LIST_LIMIT_MAX)) or str(GAS_LP_LIST_LIMIT_MAX))
@@ -409,6 +416,7 @@ async def gas_lp_internal_facturas(
             ppd_pending=bool(complementos or credito),
             discounted_only=bool(descuentos),
             receptor_rfc=clean_receptor_rfc,
+            realized_date=realized_date,
         )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
@@ -490,6 +498,7 @@ async def gas_lp_internal_facturas(
         "descuentos": bool(descuentos),
         "carta_porte": bool(carta_porte),
         "receptor_rfc": clean_receptor_rfc,
+        "realizadas_fecha": realized_date,
         "ppd_diagnostics": ppd_diagnostics,
     })
 

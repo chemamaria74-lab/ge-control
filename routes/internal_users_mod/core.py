@@ -2180,6 +2180,16 @@ def _gas_lp_month_created_range(month: str) -> tuple[str, str] | None:
     return start.isoformat().replace("+00:00", "Z"), end.isoformat().replace("+00:00", "Z")
 
 
+def _gas_lp_realized_day_range(day: str) -> tuple[str, str] | None:
+    """Rango de FechaTimbrado del PAC, almacenada como hora local sin zona."""
+    try:
+        start = datetime.strptime(str(day or "")[:10], "%Y-%m-%d")
+    except ValueError:
+        return None
+    end = start + timedelta(days=1)
+    return start.strftime("%Y-%m-%dT00:00:00"), end.strftime("%Y-%m-%dT00:00:00")
+
+
 def _gas_lp_apply_created_range(query, created_range: tuple[str, str] | None):
     if not created_range:
         return query, False
@@ -2497,9 +2507,11 @@ def _gas_lp_company_facturas_rows_impl(
     ppd_pending: bool = False,
     discounted_only: bool = False,
     receptor_rfc: str = "",
+    realized_date: str = "",
 ) -> list[dict]:
     filters: list[dict] = []
     created_range = _gas_lp_month_created_range(month)
+    realized_range = _gas_lp_realized_day_range(realized_date) if realized_date else None
     profile_rfc = _gas_lp_company_rfc(user, profile)
     clean_receptor_rfc = _clean_rfc(receptor_rfc or "")
     page_limit = max(1, min(int(limit or GAS_LP_LIST_LIMIT_DEFAULT), GAS_LP_LIST_LIMIT_MAX))
@@ -2511,8 +2523,14 @@ def _gas_lp_company_facturas_rows_impl(
     else:
         query = query.eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
         filters.append({"company": "tenant_id + perfil_id", "tenant_id": user.get("tenant_id"), "perfil_id": user.get("perfil_id")})
-    query, range_applied = _gas_lp_apply_created_range(query, created_range)
-    if created_range:
+    range_applied = False
+    if realized_range and hasattr(query, "gte") and hasattr(query, "lt"):
+        query = query.gte("fecha_timbrado", realized_range[0]).lt("fecha_timbrado", realized_range[1])
+        range_applied = True
+        filters.append({"date_filter": "fecha_timbrado", "start": realized_range[0], "end": realized_range[1], "applied": True})
+    else:
+        query, range_applied = _gas_lp_apply_created_range(query, created_range)
+    if created_range and not realized_range:
         filters.append({"date_filter": "fecha_emision", "start": created_range[0], "end": created_range[1], "applied": range_applied})
     if clean_receptor_rfc:
         query = query.eq("rfc_receptor", clean_receptor_rfc)
@@ -2529,7 +2547,7 @@ def _gas_lp_company_facturas_rows_impl(
     try:
         rows = (
             query
-            .order("fecha_emision", desc=True)
+            .order("fecha_timbrado" if realized_range else "fecha_emision", desc=True)
             .order("created_at", desc=True)
             .limit(page_limit)
             .execute()
@@ -2558,7 +2576,10 @@ def _gas_lp_company_facturas_rows_impl(
                 .data
                 or []
             )
-            if created_range:
+            if realized_range:
+                start_key, end_key = realized_range[0][:10], realized_range[1][:10]
+                rows = [row for row in rows if start_key <= str(row.get("fecha_timbrado") or row.get("created_at") or "")[:10] < end_key]
+            elif created_range:
                 start_key, end_key = created_range[0][:10], created_range[1][:10]
                 rows = [row for row in rows if start_key <= _gas_lp_factura_date_key(row) < end_key]
             if not include_carta_porte:
