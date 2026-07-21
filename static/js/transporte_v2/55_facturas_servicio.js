@@ -306,8 +306,8 @@ function trv2ServiceInvoiceFamily(item = {}) {
 function trv2ServiceFamilyStats(rows = [], invoices = []) {
   const tariffs = trv2ReadServiceTariffs();
   const stats = {
-    gas_lp: {pendientes: 0, pendiente_total: 0, litros: 0, kilos: 0, facturadas: 0, facturado_total: 0},
-    petroliferos: {pendientes: 0, pendiente_total: 0, litros: 0, kilos: 0, facturadas: 0, facturado_total: 0},
+    gas_lp: {pendientes: 0, pendiente_total: 0, litros: 0, kilos: 0, facturadas: 0, facturado_total: 0, pendientes_pago: 0, pendiente_pago_total: 0},
+    petroliferos: {pendientes: 0, pendiente_total: 0, litros: 0, kilos: 0, facturadas: 0, facturado_total: 0, pendientes_pago: 0, pendiente_pago_total: 0},
   };
   rows.forEach(row => {
     const service = trv2ServiceTripData(row);
@@ -325,6 +325,10 @@ function trv2ServiceFamilyStats(rows = [], invoices = []) {
     if (!stats[family]) return;
     stats[family].facturadas += 1;
     stats[family].facturado_total += Number(item.total || 0);
+    if (trv2ServicePaymentStatus(item) !== 'pagada') {
+      stats[family].pendientes_pago += 1;
+      stats[family].pendiente_pago_total += Number(item.saldo ?? item.total ?? 0);
+    }
   });
   return stats;
 }
@@ -341,9 +345,10 @@ function trv2RenderServiceFamilyDashboard() {
     return `
       <button class="trv2-service-family-card ${TRV2_SERVICE_PRODUCT_FILTER === family ? 'active' : ''}" type="button" onclick="trv2SetServiceProductFilter('${family}')">
         <span>${trv2Esc(trv2ServiceFamilyLabel(family))}</span>
-        <strong>${trv2ServiceMoney(item.pendiente_total || 0)}</strong>
-        <em>${Number(item.pendientes || 0)} pendientes · ${trv2ServiceNumber(item.litros || 0)} L</em>
-        <small>${Number(item.facturadas || 0)} facturadas · ${trv2ServiceMoney(item.facturado_total || 0)}</small>
+        <strong>${trv2ServiceMoney(item.pendiente_total || 0)} <b>estimado por facturar</b></strong>
+        <em>${Number(item.pendientes || 0)} viajes pendientes · ${trv2ServiceNumber(item.litros || 0)} L</em>
+        <small>Ya facturado: ${Number(item.facturadas || 0)} · ${trv2ServiceMoney(item.facturado_total || 0)}</small>
+        <small>Pendiente de pago: ${Number(item.pendientes_pago || 0)} · ${trv2ServiceMoney(item.pendiente_pago_total || 0)}</small>
       </button>
     `;
   }).join('');
