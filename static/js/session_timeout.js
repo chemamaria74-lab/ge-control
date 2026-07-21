@@ -13,6 +13,7 @@
   ];
   let lastWrite = 0;
   let redirecting = false;
+  let authValidation = null;
 
   function portal() {
     const path = location.pathname;
@@ -126,9 +127,32 @@
   // Convierte respuestas de autenticación vencida en una salida clara. Un 403 es
   // un problema de permisos y deliberadamente no cierra una sesión válida.
   const nativeFetch = window.fetch.bind(window);
+  function isAuthValidationRequest(input) {
+    try {
+      const raw = typeof input === 'string' ? input : input?.url;
+      return new URL(raw, location.origin).pathname === '/api/auth/me';
+    } catch (_err) { return false; }
+  }
+
+  async function sessionIsInvalid() {
+    if (authValidation) return authValidation;
+    const token = activeToken();
+    if (!token) return false;
+    authValidation = nativeFetch('/api/auth/me', {
+      headers: {Authorization: `Bearer ${token}`},
+      cache: 'no-store',
+    }).then(response => response.status === 401)
+      // Un problema de red o del servidor no demuestra que la sesión venció.
+      .catch(() => false)
+      .finally(() => { authValidation = null; });
+    return authValidation;
+  }
+
   window.fetch = async function geSessionFetch(input, init) {
     const response = await nativeFetch(input, init);
-    if (response.status === 401 && activeToken() && !portal().noTimeout) logoutExpired();
+    if (response.status === 401 && activeToken() && !portal().noTimeout) {
+      if (isAuthValidationRequest(input) || await sessionIsInvalid()) logoutExpired();
+    }
     return response;
   };
 
