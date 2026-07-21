@@ -221,6 +221,18 @@ def test_catalog_frontend_uses_bootstrap_with_individual_fallback():
     assert "`/api/tr-v2/catalogos/${name}`" in source
 
 
+def test_catalogos_no_conservan_buscador_global_que_oculte_registros():
+    root = Path(__file__).parents[1]
+    template = (root / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
+    frontend = (root / "static/js/transporte_v2/80_catalogos.js").read_text(encoding="utf-8")
+    shell = (root / "templates/transporte_v2.html").read_text(encoding="utf-8")
+
+    assert "trv2-catalog-search" not in template
+    assert "trv2-catalog-search" not in frontend
+    assert "No hay resultados para la búsqueda." not in frontend
+    assert "catalog-search-removed-20260721a" in shell
+
+
 def test_cartas_ingreso_priorizan_tarifa_de_ruta_aunque_varie_producto_operativo():
     source = (Path(__file__).parents[1] / "static/js/transporte_v2/55_facturas_servicio.js").read_text(encoding="utf-8")
 
@@ -230,6 +242,18 @@ def test_cartas_ingreso_priorizan_tarifa_de_ruta_aunque_varie_producto_operativo
     assert "if (hasRouteText && !routeText) return null" in source
     assert "if (routeText) score += 220" in source
     assert "else if (routeExact) score += 120" in source
+
+
+def test_carta_ingreso_historica_permite_tarifa_manual_sin_recrear_ruta():
+    root = Path(__file__).parents[1]
+    source = (root / "static/js/transporte_v2/55_facturas_servicio.js").read_text(encoding="utf-8")
+    shell = (root / "templates/transporte_v2.html").read_text(encoding="utf-8")
+
+    assert "trv2OpenServiceDetail(tripId, true, true)" in source
+    assert "override_tarifa: tarifa" in source
+    assert "Ruta o destino histórico ya no disponible" in source
+    assert "${!tariff ?" in source
+    assert "historical-manual-tariff-20260721a" in shell
 
 
 def test_guardar_tarifa_de_ruta_actualiza_duplicados_y_recarga_sin_cache():
