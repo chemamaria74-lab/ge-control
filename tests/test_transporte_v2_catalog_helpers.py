@@ -253,7 +253,18 @@ def test_carta_ingreso_historica_permite_tarifa_manual_sin_recrear_ruta():
     assert "override_tarifa: tarifa" in source
     assert "Ruta o destino histórico ya no disponible" in source
     assert "${!tariff ?" in source
-    assert "historical-manual-tariff-20260721a" in shell
+    assert "service-summary-labels-20260721a" in shell
+
+
+def test_resumen_cartas_ingreso_distingue_estimado_facturado_y_pendiente_pago():
+    root = Path(__file__).parents[1]
+    source = (root / "static/js/transporte_v2/55_facturas_servicio.js").read_text(encoding="utf-8")
+
+    assert "estimado por facturar" in source
+    assert "Ya facturado:" in source
+    assert "Pendiente de pago:" in source
+    assert "pendiente_pago_total" in source
+    assert "Number(item.saldo ?? item.total ?? 0)" in source
 
 
 def test_guardar_tarifa_de_ruta_actualiza_duplicados_y_recarga_sin_cache():
