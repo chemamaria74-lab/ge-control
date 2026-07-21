@@ -530,8 +530,6 @@ function trv2SetActiveCatalog(name) {
   TRV2_CATALOG_FAMILY_FILTER = '';
   TRV2_ROUTE_DESTINATION_FILTER = '';
   if (name === 'vehiculos' || name === 'remolques') TRV2_VEHICLE_SUBCATALOG = name;
-  const search = document.getElementById('trv2-catalog-search');
-  if (search) search.value = '';
   trv2RenderCatalogTabs();
   trv2RenderActiveCatalog();
 }
@@ -832,20 +830,16 @@ function trv2RenderActiveCatalog() {
   const ui = TRV2_CATALOG_UI[name] || {};
   trv2EnsureCatalogFamilyFilter(name);
   const items = TRV2_CATALOGS[name] || [];
-  const query = (document.getElementById('trv2-catalog-search')?.value || '').toLowerCase().trim();
   const familyItems = items.filter(item => trv2CatalogMatchesFamily(name, item));
-  const scopedItems = familyItems.filter(item => trv2CatalogMatchesRouteDestination(name, item));
-  const filtered = query
-    ? scopedItems.filter(item => JSON.stringify(item).toLowerCase().includes(query))
-    : scopedItems;
+  const filtered = familyItems.filter(item => trv2CatalogMatchesRouteDestination(name, item));
   if (caption) caption.textContent = ui.subtitle || '';
   trv2RenderCatalogMetrics(name, filtered);
   const familyFilter = trv2RenderCatalogFamilyFilter(name);
   const routeDestinationFilter = trv2RenderRouteDestinationFilter(name, familyItems);
   if (!filtered.length) {
-    const emptyMessage = name === 'rutas' && !query
+    const emptyMessage = name === 'rutas'
       ? 'No hay rutas configuradas para esta empresa. Crea una ruta para continuar.'
-      : (query ? 'No hay resultados para la búsqueda.' : 'Sin registros todavía.');
+      : 'Sin registros todavía.';
     const vehicleSubtabs = (name === 'vehiculos' || name === 'remolques') ? trv2RenderVehicleCatalogSubtabs(name) : '';
     panel.innerHTML = `
       ${vehicleSubtabs}

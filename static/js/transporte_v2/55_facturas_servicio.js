@@ -1028,7 +1028,7 @@ async function trv2RefreshPendingServiceTariffs() {
   trv2Toast('Tarifas actualizadas desde Catálogo.', 'success');
 }
 
-function trv2OpenServiceDetail(tripId, allowStamp = false) {
+function trv2OpenServiceDetail(tripId, allowStamp = false, manualResolution = false) {
   const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
   if (!row) return;
   const service = trv2ServiceTripData(row);
@@ -1061,17 +1061,18 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
       ${trv2RenderPreviewBlock('Receptor', receptorPreview)}
       ${trv2RenderPreviewBlock('Carta Porte base', {ruta: `${service.origen} -> ${service.destino}`, producto: service.producto, uuid_carta_porte: service.uuid_carta_porte})}
     </div>
-    ${tariffMatch.status !== 'ok' ? `<div class="trv2-alert ${tariff ? 'trv2-alert-warning' : 'trv2-alert-danger'}"><strong>${tariff ? 'Ruta verificada por origen y destino.' : 'No se puede timbrar.'}</strong> ${trv2Esc(tariffMatch.reason)}</div>` : ''}
+    ${tariffMatch.status !== 'ok' ? `<div class="trv2-alert ${tariff || manualResolution ? 'trv2-alert-warning' : 'trv2-alert-danger'}"><strong>${manualResolution ? 'Tarifa manual para viaje histórico.' : (tariff ? 'Ruta verificada por origen y destino.' : 'No se puede timbrar.')}</strong> ${trv2Esc(manualResolution ? 'La ruta o destino original ya no está disponible. Captura la tarifa acordada para este viaje; quedará registrada como ajuste manual en el CFDI.' : tariffMatch.reason)}</div>` : ''}
     <div class="trv2-form trv2-form-compact">
       <label>
-        <span>Tarifa de catálogo (${trv2Esc(calc.base_calculo)})</span>
-        <input id="trv2-service-tarifa-override" type="number" value="${Number(tariff?.tarifa || 0)}" disabled>
+        <span>${manualResolution ? 'Tarifa manual' : 'Tarifa de catálogo'} (${trv2Esc(calc.base_calculo)})</span>
+        <input id="trv2-service-tarifa-override" type="number" min="0.000001" step="0.000001" value="${Number(tariff?.tarifa || 0)}" data-manual="${manualResolution ? 'true' : 'false'}" data-base-calculo="${trv2Esc(calc.base_calculo)}" ${manualResolution ? `oninput="trv2UpdateServiceReviewTotals(${Number(tripId)})"` : 'disabled'}>
       </label>
       <label>
         <span>Base de cálculo</span>
         <input id="trv2-service-cantidad-base" type="text" value="${trv2Esc(`${trv2ServiceNumber(calc.cantidad_base)} ${calc.base_calculo}`)}" disabled>
       </label>
     </div>
+    ${manualResolution ? `<label class="trv2-form-wide"><span>Motivo del ajuste</span><input id="trv2-service-tarifa-motivo" type="text" value="Ruta o destino histórico ya no disponible" maxlength="180"></label>` : ''}
     ${service.email ? `<label class="trv2-form-wide">
       <span>Email fiscal/comercial del cliente</span>
       <input id="trv2-service-email" type="email" value="${trv2Esc(service.email)}" readonly>
@@ -1079,19 +1080,12 @@ function trv2OpenServiceDetail(tripId, allowStamp = false) {
     <div class="trv2-cp-summary" id="trv2-service-review-summary">
       ${trv2RenderServiceReviewTotals(calc)}
     </div>
-    <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseServiceReview()">Cancelar</button>${allowStamp && tariff ? `<button class="trv2-btn trv2-btn-primary" id="trv2-service-confirm-btn" type="button" onclick="trv2ConfirmServiceInvoice(${Number(tripId)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso</button>` : ''}</div>
+    <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseServiceReview()">Cancelar</button>${allowStamp && (tariff || manualResolution) ? `<button class="trv2-btn trv2-btn-primary" id="trv2-service-confirm-btn" type="button" onclick="trv2ConfirmServiceInvoice(${Number(tripId)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso</button>` : ''}</div>
   </section>`;
 }
 
 function trv2ResolveAmbiguousServiceTariff(tripId) {
-  const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
-  const service = trv2ServiceTripData(row || {});
-  trv2SwitchTab('catalogos');
-  trv2SetActiveCatalog('rutas');
-  const search = document.getElementById('trv2-catalog-search');
-  if (search) search.value = service.destino || service.origen || '';
-  trv2RenderActiveCatalog();
-  trv2Toast('Revisa las rutas coincidentes y deja una sola tarifa activa para este origen y destino.', 'info');
+  trv2OpenServiceDetail(tripId, true, true);
 }
 
 function trv2RenderServiceReviewTotals(calc) {
@@ -1107,8 +1101,11 @@ function trv2ServiceReviewCalculation(tripId) {
   const row = (TRV2_TRIPS || []).find(item => Number(item.id) === Number(tripId));
   const service = trv2ServiceTripData(row || {});
   const tariff = trv2ServiceTariffForRow(row);
-  const tarifa = Number(tariff?.tarifa || 0);
-  return {row, service, tariff, tarifa, calc: trv2ServiceCalc(tarifa, service, tariff)};
+  const input = document.getElementById('trv2-service-tarifa-override');
+  const manual = input?.dataset.manual === 'true';
+  const tarifa = manual ? Number(input?.value || 0) : Number(tariff?.tarifa || 0);
+  const effectiveTariff = tariff || (manual ? {base_calculo: input?.dataset.baseCalculo || trv2ServiceBillingBase(service.producto)} : null);
+  return {row, service, tariff, tarifa, manual, calc: trv2ServiceCalc(tarifa, service, effectiveTariff)};
 }
 
 function trv2UpdateServiceReviewTotals(tripId) {
@@ -1144,9 +1141,14 @@ function trv2GenerateServiceInvoice(tripId) {
 
 async function trv2ConfirmServiceInvoice(tripId) {
   if (TRV2_SERVICE_INVOICE_BUSY) return;
-  const {row, service, tariff, tarifa, calc} = trv2ServiceReviewCalculation(tripId);
+  const {row, service, tariff, tarifa, manual, calc} = trv2ServiceReviewCalculation(tripId);
   const cliente = trv2FindCatalog?.('clientes', service.cliente_id) || {};
-  if (!row || !tariff) return;
+  if (!row || (!tariff && !manual)) return;
+  if (manual && tarifa <= 0) {
+    trv2Toast('Captura una tarifa manual mayor a cero.', 'error');
+    document.getElementById('trv2-service-tarifa-override')?.focus();
+    return;
+  }
   const email = String(service.email || '').trim().toLowerCase();
   const metodoPago = String(cliente.metodo_pago_default || 'PUE').toUpperCase();
   const formaPago = metodoPago === 'PPD' && (!cliente.forma_pago_default || cliente.forma_pago_default === '03')
@@ -1178,6 +1180,10 @@ async function trv2ConfirmServiceInvoice(tripId) {
       forma_pago: formaPago,
       metodo_pago: metodoPago,
       moneda: 'MXN',
+      ...(manual ? {
+        override_tarifa: tarifa,
+        override_tarifa_motivo: document.getElementById('trv2-service-tarifa-motivo')?.value.trim() || 'Ruta o destino histórico ya no disponible',
+      } : {}),
     }, {allowError: true});
     if (!data?.ok) {
       trv2Toast(trv2MessageText(data?.detail || data?.message || 'No se pudo timbrar Carta Ingreso.'), 'error');
@@ -1253,7 +1259,7 @@ function trv2RenderServicePendingTable() {
         <td class="trv2-service-action-cell">
           <div class="trv2-service-actions">
             <button class="trv2-mini-icon-btn" type="button" title="Detalle" aria-label="Detalle" onclick="trv2OpenServiceDetail(${Number(row.id)})"><i class="fa-solid fa-circle-info"></i></button>
-            ${tariffMatch.status === 'ambiguous' ? `<button class="trv2-mini-btn" type="button" onclick="trv2ResolveAmbiguousServiceTariff(${Number(row.id)})"><i class="fa-solid fa-screwdriver-wrench"></i> Resolver tarifa</button>` : ''}
+            ${!tariff ? `<button class="trv2-mini-btn" type="button" onclick="trv2ResolveAmbiguousServiceTariff(${Number(row.id)})"><i class="fa-solid fa-screwdriver-wrench"></i> Resolver tarifa</button>` : ''}
             <button class="trv2-mini-btn trv2-mini-btn-primary" type="button" title="${trv2Esc(status)}" ${tariff ? '' : 'disabled'} onclick="trv2GenerateServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso</button>
             <button class="trv2-mini-icon-btn trv2-mini-icon-danger" type="button" title="No facturar" aria-label="No facturar" onclick="trv2OmitServiceInvoice(${Number(row.id)})"><i class="fa-solid fa-ban"></i></button>
           </div>
