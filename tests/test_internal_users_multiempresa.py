@@ -215,6 +215,10 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
         )
 
         self.assertEqual([row["uuid_sat"] for row in rows], ["d961fe4e-7c75-424b-ac70-3dbdeffbb62d"])
+        self.assertEqual(
+            internal_users._gas_lp_realized_day_range("2026-07-20"),
+            ("2026-07-20T06:00:00Z", "2026-07-21T06:00:00Z"),
+        )
 
     def test_gas_lp_carta_porte_facilities_fall_back_to_admin_facilities(self):
         db = FakeDB()

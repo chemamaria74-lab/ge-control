@@ -680,7 +680,9 @@ def test_asistente_realizadas_hoy_uses_stamp_date_and_cache_busted_scripts():
     assert "realizadas_fecha=" in html
     assert "facturaRealizadaDateKey(f)" in html
     assert "facturaRealizadaTimeLabel(f)" in html
-    assert "realizadas-hoy-20260720b" in shell
+    assert "mexicoDateKey(value)" in html
+    assert "mexicoTimeLabel(value)" in html
+    assert "realizadas-hoy-hora-mx-20260720c" in shell
     assert "loadFacturas('', {surfaceError:true, cartaPorte:true, force:true})" in html
 
 

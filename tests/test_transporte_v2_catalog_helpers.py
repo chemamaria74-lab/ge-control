@@ -168,6 +168,9 @@ def test_transport_admin_mobile_shell_and_module_scoped_logout_contract():
     assert "location.href = '/transporte-v2/login-operador?next=/transporte-v2/operador'" in operator
     assert "function moduleLoginTarget()" in timeout
     assert "if (path.startsWith('/transporte-v2'))" in timeout
+    assert "async function sessionIsInvalid()" in timeout
+    assert "await sessionIsInvalid()" in timeout
+    assert "session-validation-20260721" in (root / "templates/transporte_v2.html").read_text(encoding="utf-8")
 
 
 def test_catalog_bootstrap_validates_once_and_expands_routes_without_extra_queries(monkeypatch):
