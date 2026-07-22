@@ -124,6 +124,21 @@ def test_carta_ingreso_excel_includes_operational_columns():
     assert "uuid_carta_porte" not in carta_porte_helper
 
 
+def test_carta_ingreso_folio_sequence_works_without_optional_schema_columns():
+    backend = (ROOT / "routes/facturas_mod/facturacion_sat_liqs.py").read_text(encoding="utf-8")
+    frontend = (ROOT / "static/js/transporte_v2/55_facturas_servicio.js").read_text(encoding="utf-8")
+    shell = (ROOT / "templates/transporte_v2.html").read_text(encoding="utf-8")
+
+    folio_helper = backend.split("def _next_carta_ingreso_folio", 1)[1].split("@router.get", 1)[0]
+    assert '.select("id,metadata,xml_content")' in folio_helper
+    assert 'select("serie_folio,folio_cfdi' not in folio_helper
+    assert 'meta.get("folio_solicitado")' in folio_helper
+    assert "(max_num + 1) if max_num else (max_row_id + 1)" in folio_helper
+    assert "function trv2ServiceInvoiceFiscalFolio" in frontend
+    assert "`${folio} · Reg. ${Number(item.id)}`" in frontend
+    assert "unique-carta-ingreso-folio-20260722" in shell
+
+
 def test_destination_permission_belongs_only_to_installation():
     frontend = (ROOT / "static/js/transporte_v2/80_catalogos.js").read_text(encoding="utf-8")
     backend = (ROOT / "routes/transporte_v2.py").read_text(encoding="utf-8")
