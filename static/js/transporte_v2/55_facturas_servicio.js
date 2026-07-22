@@ -439,11 +439,22 @@ function trv2ServiceInvoiceFreightCost(item = {}) {
   return Number(item.subtotal ?? meta.subtotal ?? calc.subtotal ?? metaCalc.subtotal ?? 0);
 }
 
-function trv2ServiceInvoiceFolio(item = {}) {
+function trv2ServiceInvoiceFiscalFolio(item = {}) {
   const meta = item.metadata || {};
   const explicit = item.serie_folio || item.folio_cfdi || meta.serie_folio || meta.folio_cfdi || item.folio || item.folio_factura || item.numero_factura || item.no_factura;
   if (explicit) return explicit;
   return item.id ? `CI-${Number(item.id)}` : 'CI';
+}
+
+function trv2ServiceInvoiceFolio(item = {}) {
+  const folio = trv2ServiceInvoiceFiscalFolio(item);
+  const duplicates = trv2ReadServiceInvoices().filter(row =>
+    trv2ServiceInvoiceFiscalFolio(row) === folio
+    && !trv2ServiceInvoiceIsCancelled(row)
+  );
+  // El XML timbrado no se renombra; el registro distingue operativamente los
+  // folios fiscales que quedaron repetidos por el error legacy.
+  return duplicates.length > 1 && item.id ? `${folio} · Reg. ${Number(item.id)}` : folio;
 }
 
 function trv2ServiceInvoiceDriver(item = {}) {
