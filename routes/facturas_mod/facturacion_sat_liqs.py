@@ -814,8 +814,12 @@ def _fact_serv_apply_tariff_override(calculo: dict, payload: FacturaServicioCrea
 def _next_carta_ingreso_folio(sb, uid: str, perfil_id, *, prefix: str = "F") -> str:
     """Siguiente folio interno CI-F-N sin reutilizar folios cancelados."""
     max_num = 0
+    max_row_id = 0
     try:
-        q = sb.table(_TBL_FACT_SERV).select("serie_folio,folio_cfdi,metadata,xml_content").eq("user_id", uid)
+        # Las columnas serie_folio/folio_cfdi no existen aun en todos los
+        # esquemas. Si se solicitan explicitamente, Supabase rechaza toda la
+        # consulta y el consecutivo vuelve silenciosamente a F-1.
+        q = sb.table(_TBL_FACT_SERV).select("id,metadata,xml_content").eq("user_id", uid)
         if perfil_id:
             q = q.eq("perfil_id", perfil_id)
         rows = q.order("created_at", desc=True).limit(1000).execute().data or []
@@ -823,12 +827,12 @@ def _next_carta_ingreso_folio(sb, uid: str, perfil_id, *, prefix: str = "F") -> 
         rows = []
     pattern = re.compile(r"(?:CI-)?F-?(\d+)$", re.I)
     for row in rows:
+        max_row_id = max(max_row_id, int(row.get("id") or 0))
         meta = _fact_serv_metadata(row)
         values = [
-            row.get("serie_folio"),
-            row.get("folio_cfdi"),
             meta.get("serie_folio"),
             meta.get("folio_cfdi"),
+            meta.get("folio_solicitado"),
         ]
         xml = row.get("xml_content") or ""
         if xml:
@@ -844,7 +848,8 @@ def _next_carta_ingreso_folio(sb, uid: str, perfil_id, *, prefix: str = "F") -> 
                     max_num = max(max_num, int(match.group(1)))
                 except ValueError:
                     pass
-    return f"{prefix}-{max_num + 1}"
+    # Red de seguridad para registros legacy sin folio en metadata ni XML.
+    return f"{prefix}-{(max_num + 1) if max_num else (max_row_id + 1)}"
 
 
 @router.get("/tr/cartas-porte-facturables")
