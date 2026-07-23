@@ -1,49 +1,96 @@
 from __future__ import annotations
 
+import argparse
+import csv
 import json
+from collections import defaultdict
 from pathlib import Path
 
+
 OUTPUT = Path("static/data/sat_codigo_postal_agu_jal_zac.json")
-INEGI_SOURCES = {
-    "AGU": Path("/tmp/inegi_01.json"),
-    "JAL": Path("/tmp/inegi_14.json"),
-    "ZAC": Path("/tmp/inegi_32.json"),
+STATE_CONFIG = {
+    "01": ("AGU", "Aguascalientes"),
+    "14": ("JAL", "Jalisco"),
+    "32": ("ZAC", "Zacatecas"),
 }
 
 
-def _clean_code(value: object, width: int = 0) -> str:
-    text = str(value or "").strip()
-    if text.lower() == "nan":
-        return ""
-    return text.zfill(width) if width and text else text
+def _text(value: object) -> str:
+    return str(value or "").strip()
 
 
-def build_states() -> list[dict]:
-    names = {"AGU": "Aguascalientes", "JAL": "Jalisco", "ZAC": "Zacatecas"}
+def build_payload(source: Path) -> dict:
+    municipalities: dict[str, dict[str, str]] = defaultdict(dict)
+    postal_matches: dict[str, dict[tuple[str, str], set[str]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
+
+    # SEPOMEX publica el archivo en ISO-8859-1 y antepone una línea de licencia.
+    with source.open("r", encoding="iso-8859-1", newline="") as stream:
+        next(stream, None)
+        reader = csv.DictReader(stream, delimiter="|")
+        for row in reader:
+            state_number = _text(row.get("c_estado")).zfill(2)
+            state = STATE_CONFIG.get(state_number)
+            if not state:
+                continue
+            state_code, _ = state
+            cp = _text(row.get("d_codigo")).zfill(5)
+            municipality = _text(row.get("c_mnpio")).zfill(3)
+            if len(cp) != 5 or not cp.isdigit() or len(municipality) != 3:
+                continue
+            municipalities[state_code][municipality] = _text(row.get("D_mnpio"))
+            settlement = _text(row.get("d_asenta"))
+            if settlement:
+                postal_matches[cp][(state_code, municipality)].add(settlement)
+
     states = []
-    for sat_code, source in INEGI_SOURCES.items():
-        data = json.loads(source.read_text(encoding="utf-8"))
-        municipalities = [
-            {"clave": str(row["cve_mun"]).zfill(3), "nombre": row["nomgeo"]}
-            for row in data.get("datos", [])
+    for _, (state_code, state_name) in STATE_CONFIG.items():
+        states.append(
+            {
+                "clave": state_code,
+                "nombre": state_name,
+                "municipios": [
+                    {"clave": code, "nombre": name}
+                    for code, name in sorted(municipalities[state_code].items())
+                ],
+            }
+        )
+
+    lookup = {}
+    for cp, matches in sorted(postal_matches.items()):
+        lookup[cp] = [
+            {
+                "estado": state_code,
+                "municipio": municipality,
+                "localidad": "",
+                "asentamiento": " / ".join(sorted(settlements)),
+            }
+            for (state_code, municipality), settlements in sorted(matches.items())
         ]
-        states.append({"clave": sat_code, "nombre": names[sat_code], "municipios": municipalities})
-    return states
+
+    return {
+        "source": "Catálogo Nacional de Códigos Postales de Correos de México (SEPOMEX)",
+        "scope": "AGU/JAL/ZAC",
+        "states": states,
+        "lookup": lookup,
+    }
 
 
 def main() -> None:
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "source": "INEGI Catálogo Único de Claves Geoestadísticas",
-        "scope": "AGU/JAL/ZAC",
-        "states": build_states(),
-        "lookup": {
-            "20834": [{"estado": "AGU", "municipio": "003", "localidad": "", "asentamiento": "Ojocaliente"}],
-            "99990": [{"estado": "ZAC", "municipio": "033", "localidad": "", "asentamiento": "Alameda Juárez"}],
-        },
-    }
-    OUTPUT.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"wrote {OUTPUT} ({sum(len(s['municipios']) for s in payload['states'])} municipios)")
+    parser = argparse.ArgumentParser(description="Construye el cache postal de Carta Porte.")
+    parser.add_argument("source", type=Path, help="Archivo cpdescarga.txt oficial de SEPOMEX")
+    parser.add_argument("--output", type=Path, default=OUTPUT)
+    args = parser.parse_args()
+
+    payload = build_payload(args.source)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    municipality_count = sum(len(state["municipios"]) for state in payload["states"])
+    print(f"wrote {args.output} ({len(payload['lookup'])} CP, {municipality_count} municipios)")
 
 
 if __name__ == "__main__":
