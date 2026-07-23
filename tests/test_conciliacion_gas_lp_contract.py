@@ -2023,6 +2023,13 @@ def test_assistant_carta_porte_helpers_and_hazardous_material_are_controlled_cat
     assert "api('/api/internal-auth/gas-lp/catalogos-postales')" in html
 
 
+def test_carta_porte_location_id_uses_route_role_prefix_for_ambos():
+    assert facturas_routes._cp_location_id_for_role("OR000012", "destino") == "DE000012"
+    assert facturas_routes._cp_location_id_for_role("DE000012", "origen") == "OR000012"
+    assert facturas_routes._cp_location_id_for_role("OR000012", "origen") == "OR000012"
+    assert facturas_routes._cp_location_id_for_role("", "destino") == ""
+
+
 def test_carta_porte_vehicle_environmental_insurance_aliases_validate():
     origen = {
         "tipo": "origen",
