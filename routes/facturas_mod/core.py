@@ -1229,7 +1229,7 @@ def _cp_facility_to_ubicacion(scope: dict, facility: dict, tipo: str) -> dict:
     )
     return {
         "id": facility.get("id"),
-        "id_ubicacion": config.get("id_ubicacion_carta_porte") or "",
+        "id_ubicacion": _cp_location_id_for_role(config.get("id_ubicacion_carta_porte") or "", tipo),
         "tipo": config.get("tipo_ubicacion") or "ambos",
         "rfc": empresa_rfc,
         "nombre": empresa_nombre or profile.get("nombre") or facility.get("nombre") or "",
@@ -1288,10 +1288,21 @@ def _cp_manual_location_by_ref(scope: dict, ref) -> dict:
     return {}
 
 
+def _cp_location_id_for_role(value, tipo: str) -> str:
+    """Conserva el consecutivo y aplica OR/DE según el uso en la ruta."""
+    text = str(value or "").strip().upper()
+    match = re.search(r"(\d{6})$", text)
+    if not match:
+        return text
+    prefix = "OR" if tipo == "origen" else "DE"
+    return f"{prefix}{match.group(1)}"
+
+
 def _cp_manual_ubicacion_to_payload(scope: dict, row: dict, tipo: str, emisor: dict) -> dict:
+    stored_location_id = row.get("id_ubicacion") or row.get("id_ubicacion_carta_porte") or ""
     return {
         "id": row.get("id"),
-        "id_ubicacion": row.get("id_ubicacion") or row.get("id_ubicacion_carta_porte") or "",
+        "id_ubicacion": _cp_location_id_for_role(stored_location_id, tipo),
         "tipo": row.get("tipo") or row.get("tipo_ubicacion") or "ambos",
         "rfc": _clean_rfc(row.get("rfc") or emisor.get("rfc") or ""),
         "nombre": row.get("nombre") or row.get("alias") or emisor.get("nombre") or "",
