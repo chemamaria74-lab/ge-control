@@ -1017,7 +1017,7 @@ async function assistantCpLookupPostalCode(){
     }
     if(matches.length === 1){
       assistantCpApplyPostalMatch(matches[0]);
-      assistantCpPostalStatus(`CP ${esc(cp)} resuelto: ${esc(matches[0].estado)} · Municipio ${esc(matches[0].municipio)}${matches[0].localidad ? ` · Localidad ${esc(matches[0].localidad)}` : ''}.`);
+      assistantCpPostalStatus(`CP ${esc(cp)} resuelto: ${esc(matches[0].estado)} · Municipio ${esc(matches[0].municipio)}${matches[0].asentamiento ? ` · ${esc(matches[0].asentamiento)}` : ''}${matches[0].localidad ? ` · Localidad ${esc(matches[0].localidad)}` : ''}.`);
       return;
     }
     const options = matches.map((match, index) => `<option value="${index}">${esc(match.estado)} · Municipio ${esc(match.municipio)}${match.localidad ? ` · Localidad ${esc(match.localidad)}` : ''}</option>`).join('');

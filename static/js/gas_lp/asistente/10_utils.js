@@ -138,12 +138,11 @@ function facturaDateKey(f){
 }
 function facturaRealizadaDateKey(f){
   const value = f?.fecha_timbrado || f?.created_at || '';
-  return wallClockDateParts(value).date || mexicoDateKey(value) || String(value).slice(0,10);
+  return mexicoDateKey(value) || wallClockDateParts(value).date || String(value).slice(0,10);
 }
 function facturaRealizadaTimeLabel(f){
   const value = f?.fecha_timbrado || f?.created_at || '';
-  const parts = wallClockDateParts(value);
-  return parts.time ? parts.time.slice(0,5) : '—';
+  return mexicoTimeLabel(value) || wallClockDateParts(value).time || '—';
 }
 function facturaFolioLabel(f){
   const md = f?.metadata || {};
