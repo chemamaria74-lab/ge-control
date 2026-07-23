@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from routes.auth import verify_token
 from routes.internal_users import _hash_secret
+from services.motive import MotiveAPIError, diagnose_motive, motive_is_configured
 from supabase_config import get_supabase_admin, get_supabase_for_user
 
 
@@ -220,6 +221,18 @@ def _sb_admin():
         return get_supabase_admin()
     except RuntimeError as e:
         raise HTTPException(501, f"{e} Configura SUPABASE_SERVICE_ROLE_KEY para el panel SaaS.")
+
+
+@router.get("/admin-saas/integrations/motive/status")
+def motive_status(authorization: str = Header(default="")):
+    """Diagnóstico de solo lectura; nunca expone la clave API."""
+    _require_superadmin(authorization)
+    if not motive_is_configured():
+        return {"configured": False, "connected": False}
+    try:
+        return diagnose_motive()
+    except MotiveAPIError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 def _deep_merge(base: dict, override: dict | None) -> dict:
