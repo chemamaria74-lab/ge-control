@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import random
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -8,6 +10,7 @@ import requests
 
 
 MOTIVE_BASE_URL = "https://api.gomotive.com"
+MOTIVE_MAX_RETRIES = 3
 
 
 @dataclass(frozen=True)
@@ -33,22 +36,44 @@ def _api_key() -> str:
 def motive_get(path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
     if not path.startswith("/") or path.startswith("//"):
         raise ValueError("La ruta de Motive debe ser relativa y comenzar con '/'.")
-    try:
-        response = requests.get(
-            f"{MOTIVE_BASE_URL}{path}",
-            headers={
-                "x-api-key": _api_key(),
-                "Accept": "application/json",
-                "X-Time-Zone": "America/Mexico_City",
-                "X-Metric-Units": "true",
-            },
-            params=params or {},
-            timeout=(5, 20),
-        )
-    except requests.Timeout as exc:
-        raise MotiveAPIError(504, "Motive tardó demasiado en responder.") from exc
-    except requests.RequestException as exc:
-        raise MotiveAPIError(502, "No fue posible conectar con Motive.") from exc
+    response = None
+    for attempt in range(MOTIVE_MAX_RETRIES):
+        try:
+            response = requests.get(
+                f"{MOTIVE_BASE_URL}{path}",
+                headers={
+                    "x-api-key": _api_key(),
+                    "Accept": "application/json",
+                    "X-Time-Zone": "America/Mexico_City",
+                    "X-Metric-Units": "true",
+                },
+                params=params or {},
+                timeout=(5, 20),
+            )
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            if attempt + 1 >= MOTIVE_MAX_RETRIES:
+                code = 504 if isinstance(exc, requests.Timeout) else 502
+                message = "Motive tardó demasiado en responder." if code == 504 else "No fue posible conectar con Motive."
+                raise MotiveAPIError(code, message) from exc
+            time.sleep((2**attempt) + random.uniform(0, 0.25))
+            continue
+        except requests.RequestException as exc:
+            raise MotiveAPIError(502, "No fue posible conectar con Motive.") from exc
+
+        if response.status_code == 429 or response.status_code >= 500:
+            if attempt + 1 >= MOTIVE_MAX_RETRIES:
+                break
+            retry_after = response.headers.get("Retry-After", "")
+            try:
+                delay = min(max(float(retry_after), 0.0), 15.0)
+            except (TypeError, ValueError):
+                delay = (2**attempt) + random.uniform(0, 0.25)
+            time.sleep(delay)
+            continue
+        break
+
+    if response is None:
+        raise MotiveAPIError(502, "No fue posible conectar con Motive.")
 
     if response.status_code in {401, 403}:
         raise MotiveAPIError(502, "Motive rechazó la clave API o sus permisos.")
@@ -63,6 +88,33 @@ def motive_get(path: str, *, params: dict[str, Any] | None = None) -> dict[str, 
     if not isinstance(payload, dict):
         raise MotiveAPIError(502, "Motive devolvió un formato inesperado.")
     return payload
+
+
+def motive_get_all_pages(
+    path: str,
+    *,
+    collection_key: str,
+    params: dict[str, Any] | None = None,
+    per_page: int = 100,
+    max_pages: int = 1000,
+) -> list[Any]:
+    """Recorre paginación page_no/per_page sin asumir que una página contiene todo."""
+    records: list[Any] = []
+    base_params = dict(params or {})
+    page_no = 1
+    while page_no <= max_pages:
+        page = motive_get(
+            path,
+            params={**base_params, "per_page": per_page, "page_no": page_no},
+        )
+        batch = page.get(collection_key) or []
+        if not isinstance(batch, list):
+            raise MotiveAPIError(502, f"Motive devolvió {collection_key} en un formato inesperado.")
+        records.extend(batch)
+        if len(batch) < per_page:
+            return records
+        page_no += 1
+    raise MotiveAPIError(502, "La paginación de Motive excedió el límite de seguridad.")
 
 
 def _unwrap_vehicle(item: Any) -> dict[str, Any]:
