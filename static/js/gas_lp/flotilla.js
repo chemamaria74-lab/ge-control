@@ -1,7 +1,7 @@
 (function(){
   const token = localStorage.getItem('sat_token') || localStorage.getItem('zc_token') || '';
   const portalAccess = sessionStorage.getItem('ge_flotilla_access') || '';
-  const LOGIN_URL = '/login/gas-lp?intent=flotilla_360';
+  const LOGIN_URL = '/gas-lp/flotilla/acceso';
   const $ = id => document.getElementById(id);
   const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
