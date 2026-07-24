@@ -33,7 +33,7 @@
       tokenKeys: ['ge_gaslp_conciliacion_token'], login: '/gas-lp/conciliacion',
     };
     if (path.startsWith('/gas-lp/flotilla')) return {
-      tokenKeys: ['sat_token', 'zc_token'], login: '/login/gas-lp?intent=flotilla_360',
+      tokenKeys: ['sat_token', 'zc_token'], login: '/gas-lp/flotilla/acceso',
     };
     if (path === '/app' || path.startsWith('/modulo/gas-lp')) return {
       tokenKeys: ['sat_token', 'zc_token'], login: '/login?next=/app',
