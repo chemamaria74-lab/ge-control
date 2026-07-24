@@ -549,6 +549,11 @@ async def login_view(modulo: str, request: Request):
             target = f"{target}?lang={lang}"
         return RedirectResponse(url=target, status_code=307)
 
+    # Los portales que usan la sesión oficial regresan al destino elegido
+    # después de autenticar. El destino se resuelve en servidor y no se acepta
+    # una URL arbitraria del cliente, para evitar redirecciones abiertas.
+    login_next = "/gas-lp/flotilla" if modulo == "gas_lp" and intent == "flotilla_360" else "/app"
+
     if modulo == "transporte":
         color_primario    = "#7A1E2C"
         color_secundario  = "#5B0F1D"
@@ -572,6 +577,7 @@ async def login_view(modulo: str, request: Request):
         color_primario=color_primario,
         color_secundario=color_secundario,
         icon_module=icon_module,
+        login_next=login_next,
     )
     return HTMLResponse(content=_inject_legal_branding(html))
 
