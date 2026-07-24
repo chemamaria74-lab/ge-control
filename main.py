@@ -29,6 +29,7 @@ from routes.admin_saas_billing import router as admin_saas_billing_router
 from routes.movimientos import router as movimientos_router
 from routes.perfiles    import router as perfiles_router
 from routes.internal_users import router as internal_users_router
+from routes.flotilla import router as flotilla_router
 from services.database  import init_db
 from services.email_delivery import send_sales_lead_email
 from services.landing_settings import get_landing_settings
@@ -295,6 +296,7 @@ app.include_router(admin_saas_billing_router, prefix="/api", tags=["Admin SaaS B
 app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
 app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
 app.include_router(internal_users_router, prefix="/api", tags=["Usuarios internos"])
+app.include_router(flotilla_router, prefix="/api", tags=["Flotilla 360"])
 app.include_router(transporte_v2_router, prefix="/api", tags=["Transporte v2"])
 app.include_router(transporte_v2_facturas_servicio_router, prefix="/api", tags=["Transporte v2"])
 
@@ -588,6 +590,7 @@ async def module_role_view(modulo: str, lang: str = "es"):
             ("Administrador", "Selecciona empresa y entra al dashboard completo."),
             ("Asistente de facturación", "Usa la empresa asignada y solo accede a facturación."),
             ("Conciliación", "Complementos de pago, consulta y cancelación por empresa."),
+            ("Flotilla 360", "Gastos, consumo, inspecciones, mantenimiento y rendimiento conectados con Motive."),
         ]
     )
     html = templates.get_template("module_role.html").render(modulo=modulo, nombre=nombre, roles=roles, lang=lang)
@@ -668,6 +671,13 @@ async def frontend(lang: str = "es"):
     # Inyectamos el idioma para que el JS lo detecte
     html = html.replace('<html lang="es">', f'<html lang="{lang}">')
     return HTMLResponse(content=_inject_legal_branding(html))
+
+
+@app.get("/gas-lp/flotilla", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_flotilla_gas_lp():
+    """Cuarto portal de Gas LP: analítica histórica conectada con Motive."""
+    return _render_html_file("flotilla_gas_lp.html")
+
 
 @app.get("/transporte", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_transporte():
