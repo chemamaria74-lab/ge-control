@@ -1,5 +1,6 @@
 (function(){
   const token = localStorage.getItem('sat_token') || localStorage.getItem('zc_token') || '';
+  const portalAccess = sessionStorage.getItem('ge_flotilla_access') || '';
   const LOGIN_URL = '/login/gas-lp?intent=flotilla_360';
   const $ = id => document.getElementById(id);
   const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null};
@@ -7,18 +8,16 @@
   const fmt = value => new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(Number(value||0));
   const money = (value,currency) => new Intl.NumberFormat('es-MX',{style:'currency',currency:currency||'MXN',maximumFractionDigits:2}).format(Number(value||0));
   const dateText = value => value ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)) : 'Sin datos';
-  const headers = () => ({Authorization:`Bearer ${token}`});
+  const headers = () => ({Authorization:`Bearer ${token}`,'X-Flotilla-Access':portalAccess});
 
+  function clearPortalAccess(){
+    sessionStorage.removeItem('ge_flotilla_access');
+    sessionStorage.removeItem('ge_flotilla_expires_at');
+  }
   function clearOfficialSession(){
     ['sat_token','zc_token','sat_user_id','sat_email','sat_display_name','sat_role','sat_assigned_perfil_id','sat_modulo'].forEach(key=>localStorage.removeItem(key));
   }
-  function redirectToLogin(){ clearOfficialSession(); location.replace(LOGIN_URL); }
-  async function officialSessionIsInvalid(){
-    try{
-      const response=await fetch('/api/auth/me',{headers:headers(),cache:'no-store'});
-      return response.status===401;
-    }catch(_error){ return false; }
-  }
+  function redirectToLogin(){ clearPortalAccess(); clearOfficialSession(); location.replace(LOGIN_URL); }
   function showAuthGate(title,message,{retry=true}={}){
     document.documentElement.classList.add('fleet-auth-pending');
     $('fleetAuthTitle').textContent=title;
@@ -27,7 +26,7 @@
     $('fleetAuthActions').hidden=!retry;
   }
   async function validatePortalSession(){
-    if(!token){ redirectToLogin(); return false; }
+    if(!token || !portalAccess){ redirectToLogin(); return false; }
     $('fleetAuthSpinner').hidden=false; $('fleetAuthActions').hidden=true;
     try{
       const response=await fetch('/api/flotilla/session',{headers:headers(),cache:'no-store'});
@@ -52,8 +51,8 @@
     const response = await fetch(`/api/flotilla${path}`, {...options, headers:{...headers(),...(options.headers||{})}});
     const data = await response.json().catch(()=>({detail:'Respuesta inválida del servidor.'}));
     if(response.status===401){
-      if(await officialSessionIsInvalid()){ redirectToLogin(); throw new Error('Tu sesión expiró.'); }
-      throw new Error(data.detail||'La sesión es válida, pero Flotilla 360 no pudo autorizar esta operación.');
+      redirectToLogin();
+      throw new Error(data.detail||'El acceso a Flotilla 360 expiró.');
     }
     if(!response.ok) throw new Error(data.detail || 'No se pudo completar la operación.');
     return data;
@@ -117,7 +116,7 @@
   function initializeDates(){ const today=new Date(), first=new Date(today.getFullYear(),today.getMonth(),1); $('endDate').value=today.toISOString().slice(0,10); $('startDate').value=first.toISOString().slice(0,10); }
   function refresh(){ state.page=1; loadOverview(); loadVehicles(); }
   initializeDates();
-  $('fleetBack').onclick=()=>location.href='/modulo/gas-lp/roles'; $('fleetLogout').onclick=logout; $('syncButton').onclick=requestSync;
+  $('fleetBack').onclick=()=>{clearPortalAccess();location.href='/modulo/gas-lp/roles';}; $('fleetLogout').onclick=logout; $('syncButton').onclick=requestSync;
   $('fleetAuthRetry').onclick=()=>validatePortalSession().then(ok=>{if(ok){loadOverview();loadVehicles();}});
   $('drawerClose').onclick=closeDrawer; $('drawerBackdrop').onclick=closeDrawer; $('prevPage').onclick=()=>{if(state.page>1){state.page--;loadVehicles();}}; $('nextPage').onclick=()=>{if(state.page*state.perPage<state.total){state.page++;loadVehicles();}};
   $('vehicleSearch').addEventListener('input',()=>{clearTimeout(state.debounce);state.debounce=setTimeout(()=>{state.page=1;loadVehicles();},250);});
