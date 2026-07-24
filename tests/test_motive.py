@@ -10,6 +10,7 @@ class FakeResponse:
         self.status_code = status_code
         self.ok = 200 <= status_code < 300
         self._payload = payload or {}
+        self.headers = {}
 
     def json(self):
         return self._payload
@@ -70,3 +71,18 @@ def test_rejected_key_does_not_echo_upstream_body(monkeypatch):
         motive.diagnose_motive()
     assert error.value.status_code == 502
     assert "bad-secret" not in error.value.message
+
+
+def test_pagination_collects_every_page(monkeypatch):
+    calls = []
+
+    def fake_page(path, *, params):
+        calls.append(params["page_no"])
+        if params["page_no"] == 1:
+            return {"vehicles": [{"id": 1}, {"id": 2}]}
+        return {"vehicles": [{"id": 3}]}
+
+    monkeypatch.setattr(motive, "motive_get", fake_page)
+    rows = motive.motive_get_all_pages("/v1/vehicles", collection_key="vehicles", per_page=2)
+    assert [row["id"] for row in rows] == [1, 2, 3]
+    assert calls == [1, 2]
