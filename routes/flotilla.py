@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from io import BytesIO
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, File, Header, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 
 from routes.auth import obtener_acceso_modulo, verify_token
 from services.motive import motive_is_configured
 from services.motive_sync import sync_motive_tenant
+from services.fleet_reports import build_fleet_report, parse_expense_workbook, parse_maintenance_csv
 from services.flotilla_portal_auth import (
     FlotillaPortalAuthError,
     issue_flotilla_grant,
@@ -15,6 +18,7 @@ from services.flotilla_portal_auth import (
     verify_flotilla_grant,
 )
 from supabase_config import get_supabase_for_user
+from supabase_config import get_supabase_admin
 
 
 router = APIRouter()
@@ -273,3 +277,125 @@ def sync_status(
     if not rows:
         raise HTTPException(404, "Sincronización no encontrada.")
     return rows[0]
+
+
+def _between(query: Any, column: str, start: date, end: date) -> Any:
+    return query.gte(column, f"{start.isoformat()}T00:00:00+00:00").lte(column, f"{end.isoformat()}T23:59:59.999999+00:00")
+
+
+def _collect(query: Any, page_size: int = 1000) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        batch = query.range(offset, offset + page_size - 1).execute().data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            return rows
+        offset += page_size
+
+
+def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | None = None) -> dict[str, list[dict[str, Any]]]:
+    sb, tenant_id = ctx["sb"], ctx["tenant_id"]
+    vehicles = sb.table("fleet_vehicles").select("id,vehicle_number,motive_id").eq("tenant_id", tenant_id).execute().data or []
+    vehicle_by_id = {int(row["id"]): row for row in vehicles}
+    allowed_vehicle_ids: set[int] | None = None
+    if group_id is not None:
+        memberships = sb.table("fleet_vehicle_groups").select("vehicle_id").eq("tenant_id", tenant_id).eq("group_id", group_id).execute().data or []
+        allowed_vehicle_ids = {int(row["vehicle_id"]) for row in memberships}
+
+    def attach(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        result = []
+        for row in rows:
+            vehicle_id = row.get("vehicle_id")
+            if allowed_vehicle_ids is not None and (vehicle_id is None or int(vehicle_id) not in allowed_vehicle_ids):
+                continue
+            item = dict(row)
+            if not item.get("vehicle_number") and vehicle_id:
+                item["vehicle_number"] = vehicle_by_id.get(int(vehicle_id), {}).get("vehicle_number", "")
+            result.append(item)
+        return result
+
+    expenses = _collect(_between(sb.table("fleet_expenses").select("vehicle_id,occurred_at,vehicle_number,group_name,zone_name,expense_type,category,description,fuel_type,quantity_liters,unit_cost,amount_mxn,submitted_by,source"), "occurred_at", start, end).eq("tenant_id", tenant_id).order("occurred_at", desc=True))
+    events = _collect(_between(sb.table("fleet_driver_events").select("vehicle_id,started_at,ended_at,driver_name,event_type,primary_behavior,secondary_behaviors,severity,duration_seconds,location"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
+    speeding = _collect(_between(sb.table("fleet_speeding_events").select("vehicle_id,started_at,ended_at,driver_name,severity,duration_seconds,location,posted_limit_kph,max_over_kph,avg_over_kph,avg_speed_kph,distance_km"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
+    activity = _collect(_between(sb.table("fleet_driving_periods").select("vehicle_id,started_at,ended_at,driver_name,status,period_type,origin,destination,distance_km,notes"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
+    faults = _collect(_between(sb.table("fleet_fault_codes").select("vehicle_id,code,code_label,description,severity,status,occurrence_count,occurred_at,cleared_at"), "occurred_at", start, end).eq("tenant_id", tenant_id).order("occurred_at", desc=True))
+    return {"expenses": attach(expenses), "driver_events": attach(events), "speeding": attach(speeding), "activity": attach(activity), "faults": attach(faults)}
+
+
+@router.get("/flotilla/reports/catalog")
+def report_catalog(
+    start_date: date | None = Query(default=None), end_date: date | None = Query(default=None),
+    group_id: int | None = Query(default=None), authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+):
+    ctx = _context(authorization, x_flotilla_access)
+    start, end = _dates(start_date, end_date)
+    groups = ctx["sb"].table("fleet_groups").select("id,motive_id,motive_parent_id,name,path").eq("tenant_id", ctx["tenant_id"]).order("name").execute().data or []
+    data = _report_rows(ctx, start, end, group_id)
+    return {"period": {"start": start, "end": end}, "groups": groups, "counts": {key: len(value) for key, value in data.items()},
+            "totals": {"expenses_mxn": round(sum(float(row.get("amount_mxn") or 0) for row in data["expenses"]), 2),
+                       "fuel_liters": round(sum(float(row.get("quantity_liters") or 0) for row in data["expenses"]), 2)},
+            "submitters": _submitter_summary(data["expenses"])}
+
+
+def _submitter_summary(expenses: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summary: dict[str, dict[str, Any]] = {}
+    for row in expenses:
+        name = str(row.get("submitted_by") or "Sin responsable")
+        item = summary.setdefault(name, {"name": name, "records": 0, "amount_mxn": 0.0})
+        item["records"] += 1; item["amount_mxn"] += float(row.get("amount_mxn") or 0)
+    return sorted(summary.values(), key=lambda row: (-row["records"], row["name"]))
+
+
+@router.post("/flotilla/import/expenses")
+async def import_expenses(
+    file: UploadFile = File(...), authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+):
+    ctx = _context(authorization, x_flotilla_access)
+    filename = str(file.filename or "").lower()
+    if not filename.endswith((".csv", ".xlsx")):
+        raise HTTPException(400, "Sube el CSV de mantenimiento Motive o el XLSX de gastos CREDES.")
+    content = await file.read(12 * 1024 * 1024 + 1)
+    if len(content) > 12 * 1024 * 1024:
+        raise HTTPException(413, "El archivo excede 12 MB.")
+    try:
+        rows = parse_maintenance_csv(content) if filename.endswith(".csv") else parse_expense_workbook(content)
+    except Exception as exc:
+        raise HTTPException(400, "No se pudo leer el archivo. Verifica que sea el reporte original.") from exc
+    if not rows:
+        raise HTTPException(400, "No encontramos gastos válidos en el archivo.")
+    admin = get_supabase_admin()
+    integration = _integration(admin, ctx["tenant_id"])
+    vehicles = admin.table("fleet_vehicles").select("id,vehicle_number").eq("tenant_id", ctx["tenant_id"]).execute().data or []
+    vehicle_map = {str(row.get("vehicle_number") or "").strip().casefold(): int(row["id"]) for row in vehicles}
+    now = datetime.now(timezone.utc).isoformat()
+    for row in rows:
+        row.update({"tenant_id": ctx["tenant_id"], "integration_id": integration.get("id") if integration else None, "updated_at": now})
+        row["vehicle_id"] = vehicle_map.get(str(row.get("vehicle_number") or "").strip().casefold())
+    for index in range(0, len(rows), 250):
+        admin.table("fleet_expenses").upsert(rows[index:index + 250], on_conflict="tenant_id,source,source_key").execute()
+    return {"imported": len(rows), "matched_vehicles": sum(1 for row in rows if row.get("vehicle_id")),
+            "unmatched_vehicles": sorted({row["vehicle_number"] for row in rows if not row.get("vehicle_id") and row.get("vehicle_number")})[:50]}
+
+
+@router.get("/flotilla/reports/download")
+def download_report(
+    start_date: date | None = Query(default=None), end_date: date | None = Query(default=None),
+    group_id: int | None = Query(default=None), authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+):
+    ctx = _context(authorization, x_flotilla_access)
+    start, end = _dates(start_date, end_date)
+    group_name = ""
+    if group_id is not None:
+        rows = ctx["sb"].table("fleet_groups").select("name").eq("tenant_id", ctx["tenant_id"]).eq("id", group_id).limit(1).execute().data or []
+        if not rows:
+            raise HTTPException(404, "Grupo no encontrado.")
+        group_name = rows[0]["name"]
+    content = build_fleet_report(_report_rows(ctx, start, end, group_id), start, end, group_name)
+    safe_group = "_" + "".join(ch if ch.isalnum() else "_" for ch in group_name) if group_name else ""
+    filename = f"INFORME_FLOTILLA{safe_group}_{start:%Y%m%d}_{end:%Y%m%d}.xlsx"
+    return StreamingResponse(BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})

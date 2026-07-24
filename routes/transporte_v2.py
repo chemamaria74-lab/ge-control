@@ -3611,7 +3611,7 @@ def _operator_payment_preview(
     if trip_ids:
         existing = (
             sb.table("tr_liquidacion_items")
-            .select("viaje_id,gastos,metadata")
+            .select("viaje_id,subtotal,gastos,metadata")
             .eq("user_id", uid)
             .eq("perfil_id", pid)
             .in_("viaje_id", trip_ids)
@@ -3687,6 +3687,7 @@ def _operator_payment_preview(
             "kilometros": _num(row.get("distancia_km") or trip_meta.get("distancia_km") or route.get("distancia_km")),
             "gasto": _num(liquidation_item.get("gastos")) if liquidation_item else _num(operational_expense.get("monto")),
             "gasto_descripcion": _first_text(liquidation_meta.get("gasto_descripcion"), operational_expense.get("descripcion")),
+            "pagado_total": _num(liquidation_item.get("subtotal")) if liquidation_item else 0,
         })
     pending_items = [item for item in items if not item["ya_liquidado"]]
     return {
@@ -9103,6 +9104,71 @@ def transporte_v2_operator_payments_preview(
         raise
 
 
+@router.get("/tr-v2/operator-payments/history")
+def transporte_v2_operator_payments_history(
+    fecha_desde: str = Query(default=""),
+    fecha_hasta: str = Query(default=""),
+    operador_id: int = Query(default=0, ge=0),
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    sb = _sb(token)
+    query = (
+        sb.table("tr_liquidaciones").select("*")
+        .eq("user_id", uid).eq("perfil_id", pid)
+        .order("created_at", desc=True).limit(250)
+    )
+    if operador_id:
+        query = query.eq("chofer_id", operador_id)
+    rows = [
+        row for row in (query.execute().data or [])
+        if _first_text(_parse_json_value(row.get("metadata"), {}).get("tipo")).lower() == "pago_operador"
+    ]
+    if fecha_desde:
+        rows = [row for row in rows if _first_text(row.get("periodo_fin"), row.get("created_at"))[:10] >= fecha_desde]
+    if fecha_hasta:
+        rows = [row for row in rows if _first_text(row.get("periodo_inicio"), row.get("created_at"))[:10] <= fecha_hasta]
+    operator_ids = {int(row.get("chofer_id") or 0) for row in rows if row.get("chofer_id")}
+    operators = _operator_payment_catalog_map(sb, TBL_OPERADORES, operator_ids, uid, pid)
+    liquidation_ids = [int(row["id"]) for row in rows if row.get("id")]
+    item_rows = []
+    if liquidation_ids:
+        item_rows = (
+            sb.table("tr_liquidacion_items").select("liquidacion_id,viaje_id,litros,kilos,subtotal,gastos,total,metadata")
+            .eq("user_id", uid).eq("perfil_id", pid).in_("liquidacion_id", liquidation_ids)
+            .execute().data or []
+        )
+    grouped_items: dict[int, list[dict[str, Any]]] = {}
+    for item in item_rows:
+        grouped_items.setdefault(int(item.get("liquidacion_id") or 0), []).append(item)
+    history = []
+    for row in rows:
+        liquidation_id = int(row.get("id") or 0)
+        metadata = _parse_json_value(row.get("metadata"), {})
+        details = grouped_items.get(liquidation_id, [])
+        history.append({
+            "id": liquidation_id,
+            "operador_id": int(row.get("chofer_id") or 0),
+            "operador": _first_text(operators.get(int(row.get("chofer_id") or 0), {}).get("nombre"), f"Operador #{row.get('chofer_id')}"),
+            "fecha_desde": _first_text(row.get("periodo_inicio"))[:10],
+            "fecha_hasta": _first_text(row.get("periodo_fin"))[:10],
+            "generado_en": row.get("created_at"),
+            "status": "pagada",
+            "viajes": len(details) or int(metadata.get("viajes") or 0),
+            "comisiones": _num(metadata.get("total_comisiones") or row.get("subtotal")),
+            "pago_banco": _num(metadata.get("pago_banco")),
+            "infonavit": _num(metadata.get("descuento_infonavit") or row.get("descuentos")),
+            "gastos": _num(row.get("gastos")),
+            "pago_efectivo": _num(metadata.get("pago_efectivo")),
+            "total": _num(row.get("total")),
+        })
+    return {"ok": True, "items": history}
+
+
 @router.post("/tr-v2/operator-payments/generate")
 def transporte_v2_operator_payment_generate(
     payload: TransporteV2SettingsPayload,
@@ -9161,7 +9227,8 @@ def transporte_v2_operator_payment_generate(
         "comision_extra": 0,
         "descuentos": infonavit,
         "total": round(total + expenses - infonavit, 2),
-        "status": "emitida",
+        "status": "pagada",
+        "paid_at": _now_iso(),
         "notas": _first_text(payload.data.get("notas")),
         "metadata": {
             "tipo": "pago_operador", "viajes": len(items), "calculo_congelado": True,
@@ -9213,6 +9280,7 @@ def transporte_v2_operator_payments_export(
     gastos_json: str = Query(default=""),
     bases_json: str = Query(default=""),
     incluir_pagados: bool = Query(default=False),
+    liquidacion_id: int = Query(default=0, ge=0),
     authorization: str = Header(default=""),
     perfil_id: Optional[int] = Query(default=None),
     x_perfil_id: str = Header(default=""),
@@ -9220,7 +9288,44 @@ def transporte_v2_operator_payments_export(
     uid, token = _auth(authorization)
     pid = _profile_id(perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
-    preview = _operator_payment_preview(token, uid, pid, fecha_desde, fecha_hasta, operador_id)
+    historical_liquidation: dict[str, Any] = {}
+    if liquidacion_id:
+        sb = _sb(token)
+        liquidation_rows = (
+            sb.table("tr_liquidaciones").select("*").eq("id", liquidacion_id)
+            .eq("user_id", uid).eq("perfil_id", pid).limit(1).execute().data or []
+        )
+        if not liquidation_rows:
+            raise HTTPException(404, "Pago de operador no encontrado.")
+        historical_liquidation = liquidation_rows[0]
+        operator_id = int(historical_liquidation.get("chofer_id") or 0)
+        stored_items = (
+            sb.table("tr_liquidacion_items").select("*").eq("liquidacion_id", liquidacion_id)
+            .eq("user_id", uid).eq("perfil_id", pid).order("id").execute().data or []
+        )
+        operator_map = _operator_payment_catalog_map(sb, TBL_OPERADORES, {operator_id}, uid, pid)
+        operator_name = _first_text(operator_map.get(operator_id, {}).get("nombre"), f"Operador #{operator_id}")
+        preview_items = []
+        for stored in stored_items:
+            metadata = _parse_json_value(stored.get("metadata"), {})
+            preview_items.append({
+                **metadata,
+                "viaje_id": int(stored.get("viaje_id") or 0),
+                "operador_id": operator_id,
+                "operador": operator_name,
+                "total": _num(stored.get("subtotal")),
+                "litros": _num(stored.get("litros")),
+                "kilos": _num(stored.get("kilos")),
+                "gasto": _num(stored.get("gastos")),
+                "gasto_descripcion": _first_text(metadata.get("gasto_descripcion")),
+                "ya_liquidado": False,
+            })
+        preview = {"items": preview_items}
+        liquidation_meta = _parse_json_value(historical_liquidation.get("metadata"), {})
+        pago_banco = _num(liquidation_meta.get("pago_banco"))
+        descuento_infonavit = _num(liquidation_meta.get("descuento_infonavit") or historical_liquidation.get("descuentos"))
+    else:
+        preview = _operator_payment_preview(token, uid, pid, fecha_desde, fecha_hasta, operador_id)
     export_expenses: dict[int, dict[str, Any]] = {}
     export_bases: dict[int, dict[str, float]] = {}
     try:
