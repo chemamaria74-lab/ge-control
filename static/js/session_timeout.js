@@ -32,6 +32,9 @@
     if (path.startsWith('/conciliacion/gas-lp')) return {
       tokenKeys: ['ge_gaslp_conciliacion_token'], login: '/gas-lp/conciliacion',
     };
+    if (path.startsWith('/gas-lp/flotilla')) return {
+      tokenKeys: ['sat_token', 'zc_token'], login: '/login/gas-lp?intent=flotilla_360',
+    };
     if (path === '/app' || path.startsWith('/modulo/gas-lp')) return {
       tokenKeys: ['sat_token', 'zc_token'], login: '/login?next=/app',
     };
@@ -58,6 +61,8 @@
 
   function clearStoredSession() {
     AUTH_KEYS.forEach(key => localStorage.removeItem(key));
+    sessionStorage.removeItem('ge_flotilla_access');
+    sessionStorage.removeItem('ge_flotilla_expires_at');
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith(LAST_ACTIVITY_PREFIX)) localStorage.removeItem(key);
     });
