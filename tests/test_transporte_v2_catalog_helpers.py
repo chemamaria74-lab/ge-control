@@ -144,11 +144,21 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
     assert "trv2SaveOperatorPayrollBases" in frontend
     assert "trv2OperatorPayrollBase" in frontend
     assert "bases_json" in frontend
-    assert "payroll-history-20260718a" in shell
+    assert "payroll-history-tabs-20260724" in shell
     assert 'data-payment-period-view="historial"' in section
     assert 'id="trv2-payment-history-table"' in section
     assert "operator-payments/history" in frontend
     assert "trv2ExportHistoricalOperatorPayment" in frontend
+    payment_tabs = section.split('aria-label="Pago y seguimiento de operadores"', 1)[1].split("</nav>", 1)[0]
+    assert 'data-payment-tab="bases"' in payment_tabs
+    assert 'data-payment-period-view="pendientes"' in payment_tabs
+    assert 'data-payment-period-view="historial"' in payment_tabs
+    assert "trv2SetOperatorPaymentView('liquidaciones')" in frontend
+    history_source = Path(transporte_v2.__file__).read_text(encoding="utf-8").split(
+        'def transporte_v2_operator_payments_history(', 1
+    )[1].split('@router.post("/tr-v2/operator-payments/generate")', 1)[0]
+    assert '.in_("status"' not in history_source
+    assert '== "pago_operador"' in history_source
 
 
 def test_transport_admin_mobile_shell_and_module_scoped_logout_contract():
