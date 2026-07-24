@@ -249,6 +249,8 @@
       location.replace(url.toString());
     }
     syncLoginLangButtons();
+    const IS_FLOTILLA_LOGIN = {{ (login_next|default('/app') == '/gas-lp/flotilla')|tojson }};
+    if (IS_FLOTILLA_LOGIN) sessionStorage.removeItem('ge_flotilla_access');
 
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -272,6 +274,20 @@
           localStorage.setItem('sat_user_id', data.user_id);
           localStorage.setItem('sat_modulo',  modulo);
           if (data.display_name) localStorage.setItem('sat_display_name', data.display_name);
+          if (IS_FLOTILLA_LOGIN) {
+            const grantResponse = await fetch('/api/flotilla/grant', {
+              method: 'POST',
+              headers: {Authorization: `Bearer ${data.token}`},
+              cache: 'no-store',
+            });
+            const grantData = await grantResponse.json().catch(() => ({}));
+            if (!grantResponse.ok || !grantData.access) {
+              window.GESessionTimeout?.clear();
+              throw new Error(grantData.detail || 'No se pudo crear el acceso seguro de Flotilla 360.');
+            }
+            sessionStorage.setItem('ge_flotilla_access', grantData.access);
+            sessionStorage.setItem('ge_flotilla_expires_at', String(grantData.expires_at || ''));
+          }
           window.GESessionTimeout?.markLogin();
           const _lang = localStorage.getItem('zc_lang') || 'es';
           window.location.href = data.modulo === 'transporte'
@@ -280,7 +296,7 @@
         } else {
           errEl.textContent = data.detail || 'Credenciales incorrectas.';
         }
-      } catch(e) { errEl.textContent = 'Error de conexión.'; }
+      } catch(e) { errEl.textContent = e.message || 'Error de conexión.'; }
     });
   </script>
 </body>
