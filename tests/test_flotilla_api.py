@@ -47,6 +47,25 @@ def test_context_rejects_user_without_tenant(monkeypatch):
     assert error.value.status_code == 403
 
 
+def test_session_gate_returns_resolved_server_context(monkeypatch):
+    monkeypatch.setattr(flotilla, "_context", lambda authorization: {
+        "user_id": "user-1",
+        "tenant_id": "tenant-safe",
+        "perfil_id": 42,
+        "role": "admin",
+    })
+
+    result = flotilla.fleet_session(authorization="Bearer valid")
+
+    assert result == {
+        "authenticated": True,
+        "user_id": "user-1",
+        "tenant_id": "tenant-safe",
+        "perfil_id": 42,
+        "role": "admin",
+    }
+
+
 def test_period_rejects_inverted_and_oversized_ranges():
     with pytest.raises(HTTPException) as inverted:
         flotilla._dates(date(2026, 7, 2), date(2026, 7, 1))
