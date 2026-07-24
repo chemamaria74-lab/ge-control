@@ -1,0 +1,31 @@
+.fleet-auth-gate {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #f5f3ef;
+  place-content: center;
+  justify-items: center;
+  text-align: center;
+  padding: 28px;
+}
+.fleet-auth-pending .fleet-auth-gate { display: grid; }
+.fleet-auth-pending .fleet-topbar,
+.fleet-auth-pending .fleet-shell,
+.fleet-auth-pending .detail-drawer,
+.fleet-auth-pending .drawer-backdrop { visibility: hidden; }
+.fleet-auth-gate img { width: min(300px, 78vw); margin-bottom: 28px; }
+.fleet-auth-gate h1 { font-size: clamp(22px, 4vw, 32px); margin: 18px 0 8px; }
+.fleet-auth-gate p { max-width: 520px; color: #726b63; margin: 0; }
+.fleet-auth-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid #e0d8ce;
+  border-top-color: #7a1e2c;
+  border-radius: 50%;
+  animation: fleet-spin .75s linear infinite;
+}
+.fleet-auth-actions { margin-top: 22px; align-items: center; gap: 16px; }
+.fleet-auth-actions:not([hidden]) { display: flex; }
+.fleet-auth-actions a { color: #5b0f1d; font-weight: 800; text-decoration: none; }
+@keyframes fleet-spin { to { transform: rotate(360deg); } }
