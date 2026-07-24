@@ -389,12 +389,10 @@
       <button class="trv2-subtab active" type="button" data-payment-tab="liquidaciones" onclick="trv2SetOperatorPaymentView('liquidaciones')"><i class="fa-solid fa-money-check-dollar"></i> Pago por periodo</button>
       <button class="trv2-subtab" type="button" data-payment-tab="tarifas" onclick="trv2SetOperatorPaymentView('tarifas')"><i class="fa-solid fa-tags"></i> Tarifas por viaje</button>
       <button class="trv2-subtab" type="button" data-payment-tab="bases" onclick="trv2SetOperatorPaymentView('bases')"><i class="fa-solid fa-building-columns"></i> Configuración de nómina</button>
-    </nav>
-    <div class="trv2-payment-panel active" data-payment-panel="liquidaciones">
-    <div class="trv2-inline-tabs trv2-payment-period-tabs" role="tablist" aria-label="Pagos por periodo">
       <button class="trv2-subtab active" type="button" data-payment-period-view="pendientes" onclick="trv2SetPaymentPeriodView('pendientes')"><i class="fa-solid fa-list-check"></i> Pendientes y pagados del periodo</button>
       <button class="trv2-subtab" type="button" data-payment-period-view="historial" onclick="trv2SetPaymentPeriodView('historial')"><i class="fa-solid fa-clock-rotate-left"></i> Pagos realizados</button>
-    </div>
+    </nav>
+    <div class="trv2-payment-panel active" data-payment-panel="liquidaciones">
     <div data-payment-period-panel="pendientes">
     <section class="trv2-panel trv2-payment-filter-panel">
       <div class="trv2-form trv2-payment-filters">
