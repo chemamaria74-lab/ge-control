@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <link rel="stylesheet" href="/static/css/gas_lp/flotilla.css?v=20260724b">
+  <link rel="stylesheet" href="/static/css/gas_lp/flotilla_reports.css?v=20260724a">
   <link rel="stylesheet" href="/static/css/gas_lp/flotilla_auth_gate.css?v=20260724b">
 </head>
 <body>
@@ -64,6 +65,23 @@
       <article class="kpi"><span>Defectos abiertos</span><strong id="kpiDefects">—</strong><small id="kpiMajor">— graves</small></article>
     </section>
 
+    <section class="fleet-card report-center">
+      <div class="section-head"><div><span class="eyebrow"><i class="fa-solid fa-file-excel"></i> Centro de reportes</span><h3>Reportes listos, sin acomodar Excel</h3><p>Filtra por grupo o zona, actualiza Motive y descarga el informe consolidado en MXN.</p></div></div>
+      <div class="report-controls">
+        <label>Grupo / zona<select id="reportGroup"><option value="">Toda la flotilla</option></select></label>
+        <div class="report-step"><strong>1. Actualiza</strong><span>Trae grupos, seguridad, velocidad, actividad y fallas desde Motive.</span></div>
+        <div class="report-step"><strong>2. Complementa gastos</strong><span>Sube el CSV de mantenimiento Motive o el Excel de CREDES.</span></div>
+        <label class="upload-button"><i class="fa-solid fa-cloud-arrow-up"></i> Importar gastos<input id="expenseFile" type="file" accept=".csv,.xlsx" hidden></label>
+        <button class="btn-primary" id="downloadReport" type="button"><i class="fa-solid fa-download"></i> Descargar informe Excel</button>
+      </div>
+      <div class="report-stats">
+        <div><span>Gastos MXN</span><strong id="reportExpenses">$0.00</strong></div><div><span>Litros</span><strong id="reportLiters">0</strong></div>
+        <div><span>Seguridad</span><strong id="reportSafety">0</strong></div><div><span>Velocidad</span><strong id="reportSpeeding">0</strong></div>
+        <div><span>Actividad</span><strong id="reportActivity">0</strong></div><div><span>Fallas</span><strong id="reportFaults">0</strong></div>
+      </div>
+      <div class="submitter-list" id="submitterList">Aún no hay gastos importados para mostrar responsables.</div>
+    </section>
+
     <section class="fleet-card">
       <div class="section-head"><div><h3>Unidades</h3><p id="vehicleCount">Cargando catálogo…</p></div><button class="btn-ghost" id="clearFilters" type="button">Limpiar filtros</button></div>
       <div class="table-wrap">
@@ -83,6 +101,6 @@
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
 
   <script src="/static/js/session_timeout.js?v=20260724c"></script>
-  <script src="/static/js/gas_lp/flotilla.js?v=20260724c"></script>
+  <script src="/static/js/gas_lp/flotilla.js?v=20260724d"></script>
 </body>
 </html>
