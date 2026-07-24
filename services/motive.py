@@ -97,6 +97,7 @@ def motive_get_all_pages(
     params: dict[str, Any] | None = None,
     per_page: int = 100,
     max_pages: int = 1000,
+    page_param: str = "page_no",
 ) -> list[Any]:
     """Recorre paginación page_no/per_page sin asumir que una página contiene todo."""
     records: list[Any] = []
@@ -105,7 +106,7 @@ def motive_get_all_pages(
     while page_no <= max_pages:
         page = motive_get(
             path,
-            params={**base_params, "per_page": per_page, "page_no": page_no},
+            params={**base_params, "per_page": per_page, page_param: page_no},
         )
         batch = page.get(collection_key) or []
         if not isinstance(batch, list):

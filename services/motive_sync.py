@@ -162,6 +162,137 @@ def normalize_inspection(item: Any, *, integration_id: int, tenant_id: str) -> t
     return inspection, defects
 
 
+def _entity(item: dict[str, Any], key: str) -> dict[str, Any]:
+    value = item.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _name(entity: dict[str, Any]) -> str:
+    return " ".join(filter(None, [entity.get("first_name"), entity.get("last_name")])).strip() or str(entity.get("username") or "")
+
+
+def _integer(value: Any) -> int | None:
+    try:
+        return int(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _text_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if item not in (None, "")]
+    return [str(value)] if value not in (None, "") else []
+
+
+def normalize_driver_event(item: Any, *, integration_id: int, tenant_id: str) -> dict[str, Any]:
+    event = _inner(item, "driver_performance_event")
+    vehicle, driver = _entity(event, "vehicle"), _entity(event, "driver")
+    started_at = _iso(event.get("start_time"))
+    if event.get("id") is None or not started_at:
+        raise ValueError("Evento de seguridad Motive incompleto.")
+    primary = _text_list(event.get("primary_behavior"))
+    secondary = _text_list(event.get("secondary_behaviors"))
+    return {
+        "integration_id": integration_id, "tenant_id": tenant_id, "motive_id": int(event["id"]),
+        "motive_vehicle_id": vehicle.get("id"), "motive_driver_id": driver.get("id"),
+        "driver_name": _name(driver), "event_type": str(event.get("type") or ""),
+        "primary_behavior": primary[0] if primary else str(event.get("type") or ""),
+        "secondary_behaviors": secondary, "severity": str(event.get("severity") or ""),
+        "coaching_status": str(event.get("coaching_status") or ""), "started_at": started_at,
+        "ended_at": _iso(event.get("end_time")), "duration_seconds": _integer(event.get("duration")),
+        "location": str(event.get("location") or ""), "start_speed_kph": _number(_decimal(event.get("start_speed")), 3),
+        "end_speed_kph": _number(_decimal(event.get("end_speed")), 3), "max_speed_kph": _number(_decimal(event.get("max_speed")), 3),
+        "raw_metadata": {"annotation_tags": _text_list(event.get("annotation_tags")), "coachable_behaviors": _text_list(event.get("coachable_behaviors"))},
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def normalize_speeding_event(item: Any, *, integration_id: int, tenant_id: str) -> dict[str, Any]:
+    event = _inner(item, "speeding_event")
+    vehicle, driver = _entity(event, "vehicle"), _entity(event, "driver")
+    started_at = _iso(event.get("start_time"))
+    if event.get("id") is None or not started_at:
+        raise ValueError("Evento de velocidad Motive incompleto.")
+    return {
+        "integration_id": integration_id, "tenant_id": tenant_id, "motive_id": int(event["id"]),
+        "motive_vehicle_id": vehicle.get("id"), "motive_driver_id": driver.get("id"), "driver_name": _name(driver),
+        "severity": str(_entity(event, "metadata").get("severity") or event.get("severity") or ""),
+        "started_at": started_at, "ended_at": _iso(event.get("end_time")), "duration_seconds": _integer(event.get("duration")),
+        "location": str(event.get("location") or ""),
+        "posted_limit_kph": _number(_decimal(event.get("max_posted_speed_limit_in_kph") or event.get("min_posted_speed_limit_in_kph")), 3),
+        "max_over_kph": _number(_decimal(event.get("max_over_speed_in_kph")), 3),
+        "avg_over_kph": _number(_decimal(event.get("avg_over_speed_in_kph")), 3),
+        "avg_speed_kph": _number(_decimal(event.get("avg_vehicle_speed")), 3),
+        "distance_km": _number(_decimal(event.get("speeding_distance_in_km")), 3),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def normalize_driving_period(item: Any, *, integration_id: int, tenant_id: str) -> dict[str, Any]:
+    period = _inner(item, "driving_period")
+    vehicle, driver = _entity(period, "vehicle"), _entity(period, "driver")
+    started_at = _iso(period.get("start_time"))
+    if period.get("id") is None or not started_at:
+        raise ValueError("Periodo de actividad Motive incompleto.")
+    return {
+        "integration_id": integration_id, "tenant_id": tenant_id, "motive_id": int(period["id"]),
+        "motive_vehicle_id": vehicle.get("id"), "motive_driver_id": driver.get("id"), "driver_name": _name(driver),
+        "started_at": started_at, "ended_at": _iso(period.get("end_time")), "status": str(period.get("status") or ""),
+        "period_type": str(period.get("type") or ""), "origin": str(period.get("origin") or ""),
+        "destination": str(period.get("destination") or ""), "distance_km": _number(_decimal(period.get("distance")), 3),
+        "notes": str(period.get("notes") or ""), "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def normalize_fault(item: Any, *, integration_id: int, tenant_id: str) -> dict[str, Any]:
+    fault = _inner(item, "fault_code")
+    vehicle = _entity(fault, "vehicle")
+    if fault.get("id") is None:
+        raise ValueError("Código de falla Motive incompleto.")
+    return {
+        "integration_id": integration_id, "tenant_id": tenant_id, "source_key": str(fault["id"]),
+        "motive_vehicle_id": vehicle.get("id"), "code": str(fault.get("code") or ""),
+        "code_label": str(fault.get("code_label") or ""), "description": str(fault.get("code_description") or ""),
+        "severity": str(fault.get("type") or ""), "status": str(fault.get("status") or ""),
+        "occurrence_count": _integer(fault.get("occurrence_count") or fault.get("num_observations")),
+        "occurred_at": _iso(fault.get("first_observed_at")),
+        "cleared_at": _iso(fault.get("last_observed_at")) if str(fault.get("status") or "").lower() == "closed" else None,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def normalize_card_expense(item: Any, *, integration_id: int, tenant_id: str) -> dict[str, Any]:
+    tx = _inner(item, "transaction")
+    tx_id = str(tx.get("id") or "").strip()
+    occurred_at = _iso(tx.get("transaction_time") or tx.get("posted_at"))
+    if not tx_id or not occurred_at:
+        raise ValueError("Transacción Motive Card incompleta.")
+    products = [row for row in (tx.get("order_items") or []) if isinstance(row, dict)]
+    liters = sum((_decimal(row.get("quantity")) or Decimal(0)) for row in products if "fuel" in str(row.get("product_type") or "").lower() or str(row.get("product_type") or "").lower() in {"gasoline", "diesel"})
+    product_types = sorted({str(row.get("product_type") or "") for row in products if row.get("product_type")})
+    merchant = _entity(tx, "merchant_info")
+    post_metadata = _entity(tx, "post_transaction_metadata")
+    return {
+        "integration_id": integration_id, "tenant_id": tenant_id, "source": "motive_card", "source_key": tx_id,
+        "occurred_at": occurred_at, "vehicle_number": "", "expense_type": "tarjeta", "category": ", ".join(product_types),
+        "description": str(merchant.get("name") or post_metadata.get("comment") or "Transacción Motive Card"),
+        "fuel_type": next((value for value in product_types if value.lower() in {"gasoline", "diesel", "liquid propane gas (lpg)"}), ""),
+        "quantity_liters": _number(liters) if liters else None, "amount_mxn": _number(_decimal(tx.get("total_amount")) or Decimal(0)) or 0,
+        "submitted_by": str(tx.get("driver_id") or ""),
+        "raw_metadata": {"motive_vehicle_id": tx.get("vehicle_id"), "currency": tx.get("currency"), "status": tx.get("transaction_status")},
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _optional_pages(datasets: dict[str, Any], name: str, path: str, collection_key: str, **kwargs: Any) -> list[Any]:
+    try:
+        return motive_get_all_pages(path, collection_key=collection_key, **kwargs)
+    except MotiveAPIError as exc:
+        datasets[name] = {"status": "unavailable", "detail": str(exc)[:120]}
+        logger.info("motive_optional_dataset_unavailable dataset=%s", name)
+        return []
+
+
 def _lookback_dates(full: bool) -> tuple[str, str]:
     default_days = 365 if full else 14
     env_name = "MOTIVE_INITIAL_LOOKBACK_DAYS" if full else "MOTIVE_INCREMENTAL_LOOKBACK_DAYS"
@@ -208,6 +339,42 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
         stored = sb.table("fleet_vehicles").select("id,motive_id").eq("integration_id", integration_id).execute().data or []
         vehicle_ids = {int(row["motive_id"]): int(row["id"]) for row in stored}
 
+        group_items = _optional_pages(datasets, "groups", "/v1/groups", "groups")
+        groups = []
+        raw_group_by_id = {}
+        for item in group_items:
+            group = _inner(item, "group")
+            if group.get("id") is not None:
+                raw_group_by_id[int(group["id"])] = group
+                groups.append({"integration_id": integration_id, "tenant_id": tenant_id, "motive_id": int(group["id"]),
+                               "motive_parent_id": group.get("parent_id"), "name": str(group.get("name") or ""),
+                               "path": str(group.get("name") or ""), "updated_at": datetime.now(timezone.utc).isoformat()})
+        for row in groups:
+            names, current, visited = [], raw_group_by_id.get(row["motive_id"]), set()
+            while current and int(current.get("id") or 0) not in visited:
+                visited.add(int(current.get("id") or 0)); names.append(str(current.get("name") or ""))
+                current = raw_group_by_id.get(int(current.get("parent_id") or 0))
+            row["path"] = " / ".join(reversed([name for name in names if name]))
+        if groups:
+            datasets["groups"] = _upsert(sb, "fleet_groups", groups, "integration_id,motive_id")
+            stored_groups = sb.table("fleet_groups").select("id,motive_id").eq("integration_id", integration_id).execute().data or []
+            group_ids = {int(row["motive_id"]): int(row["id"]) for row in stored_groups}
+            memberships = []
+            membership_complete = True
+            for group in groups:
+                dataset_name = f"group_{group['motive_id']}_vehicles"
+                members = _optional_pages(datasets, dataset_name, f"/v1/groups/{group['motive_id']}/vehicles", "vehicles")
+                if isinstance(datasets.get(dataset_name), dict):
+                    membership_complete = False
+                for item in members:
+                    member = _inner(item, "vehicle")
+                    if member.get("id") is not None and int(member["id"]) in vehicle_ids:
+                        memberships.append({"integration_id": integration_id, "tenant_id": tenant_id,
+                                            "group_id": group_ids[group["motive_id"]], "vehicle_id": vehicle_ids[int(member["id"])]})
+            if membership_complete:
+                sb.table("fleet_vehicle_groups").delete().eq("integration_id", integration_id).execute()
+            datasets["vehicle_groups"] = _upsert(sb, "fleet_vehicle_groups", memberships, "group_id,vehicle_id")
+
         start_date, end_date = _lookback_dates(full)
         fuel_items = motive_get_all_pages("/v1/fuel_purchases", collection_key="fuel_purchases", params={"start_date": start_date, "end_date": end_date})
         fuels = [normalize_fuel_purchase(item, integration_id=integration_id, tenant_id=tenant_id) for item in fuel_items]
@@ -230,8 +397,46 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
                 defects.append(defect)
         datasets["defects"] = _upsert(sb, "fleet_inspection_defects", defects, "inspection_id,source_key")
 
+        event_items = _optional_pages(datasets, "driver_events", "/v2/driver_performance_events", "driver_performance_events", params={"start_date": start_date, "end_date": end_date, "media_required": "false"})
+        driver_events = [normalize_driver_event(item, integration_id=integration_id, tenant_id=tenant_id) for item in event_items]
+        for row in driver_events:
+            row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
+        if driver_events:
+            datasets["driver_events"] = _upsert(sb, "fleet_driver_events", driver_events, "integration_id,motive_id")
+
+        speeding_items = _optional_pages(datasets, "speeding_events", "/v1/speeding_events", "speeding_events", params={"start_date": start_date, "end_date": end_date})
+        speeding = [normalize_speeding_event(item, integration_id=integration_id, tenant_id=tenant_id) for item in speeding_items]
+        for row in speeding:
+            row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
+        if speeding:
+            datasets["speeding_events"] = _upsert(sb, "fleet_speeding_events", speeding, "integration_id,motive_id")
+
+        period_items = _optional_pages(datasets, "driving_periods", "/v1/driving_periods", "driving_periods", params={"start_date": start_date, "end_date": end_date})
+        periods = [normalize_driving_period(item, integration_id=integration_id, tenant_id=tenant_id) for item in period_items]
+        for row in periods:
+            row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
+        if periods:
+            datasets["driving_periods"] = _upsert(sb, "fleet_driving_periods", periods, "integration_id,motive_id")
+
+        fault_items = _optional_pages(datasets, "fault_codes", "/v1/fault_codes", "fault_codes", params={"start_date": start_date, "end_date": end_date})
+        faults = [normalize_fault(item, integration_id=integration_id, tenant_id=tenant_id) for item in fault_items]
+        for row in faults:
+            row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
+        if faults:
+            datasets["fault_codes"] = _upsert(sb, "fleet_fault_codes", faults, "integration_id,source_key")
+
+        card_items = _optional_pages(datasets, "card_expenses", "/motive_card/v2/transactions", "transactions",
+                                     params={"start_date": start_date, "end_date": end_date, "date_range_filter_type": "transaction_time"},
+                                     per_page=1000, page_param="page_number")
+        card_expenses = [normalize_card_expense(item, integration_id=integration_id, tenant_id=tenant_id) for item in card_items]
+        for row in card_expenses:
+            raw_vehicle_id = row["raw_metadata"].get("motive_vehicle_id")
+            row["vehicle_id"] = vehicle_ids.get(int(raw_vehicle_id)) if raw_vehicle_id is not None else None
+        if card_expenses:
+            datasets["card_expenses"] = _upsert(sb, "fleet_expenses", card_expenses, "tenant_id,source,source_key")
+
         finished = datetime.now(timezone.utc).isoformat()
-        total = sum(int(value) for value in datasets.values())
+        total = sum(int(value) for value in datasets.values() if isinstance(value, int))
         sb.table("fleet_sync_runs").update({"status": "succeeded", "finished_at": finished, "heartbeat_at": finished, "records_processed": total, "datasets": datasets}).eq("id", run_id).execute()
         sync_field = "last_full_sync_at" if full else "last_incremental_sync_at"
         sb.table("fleet_integrations").update({sync_field: finished, "last_success_at": finished, "last_error_code": None, "updated_at": finished}).eq("id", integration_id).execute()
