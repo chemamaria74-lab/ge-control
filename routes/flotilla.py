@@ -60,6 +60,19 @@ def _integration(sb: Any, tenant_id: str) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
+@router.get("/flotilla/session")
+def fleet_session(authorization: str = Header(default="")):
+    """Validate the official GE Control session before revealing the portal."""
+    ctx = _context(authorization)
+    return {
+        "authenticated": True,
+        "user_id": ctx["user_id"],
+        "tenant_id": ctx["tenant_id"],
+        "perfil_id": ctx.get("perfil_id"),
+        "role": ctx.get("role") or "user",
+    }
+
+
 @router.get("/flotilla/overview")
 def overview(
     start_date: date | None = Query(default=None),
