@@ -1,6 +1,6 @@
 (function(){
   const token = localStorage.getItem('sat_token') || localStorage.getItem('zc_token') || '';
-  if(!token){ location.replace('/login/gas-lp?intent=flotilla_360'); return; }
+  const LOGIN_URL = '/login/gas-lp?intent=flotilla_360';
   const $ = id => document.getElementById(id);
   const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -9,14 +9,56 @@
   const dateText = value => value ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)) : 'Sin datos';
   const headers = () => ({Authorization:`Bearer ${token}`});
 
+  function clearOfficialSession(){
+    ['sat_token','zc_token','sat_user_id','sat_email','sat_display_name','sat_role','sat_assigned_perfil_id','sat_modulo'].forEach(key=>localStorage.removeItem(key));
+  }
+  function redirectToLogin(){ clearOfficialSession(); location.replace(LOGIN_URL); }
+  async function officialSessionIsInvalid(){
+    try{
+      const response=await fetch('/api/auth/me',{headers:headers(),cache:'no-store'});
+      return response.status===401;
+    }catch(_error){ return false; }
+  }
+  function showAuthGate(title,message,{retry=true}={}){
+    document.documentElement.classList.add('fleet-auth-pending');
+    $('fleetAuthTitle').textContent=title;
+    $('fleetAuthMessage').textContent=message;
+    $('fleetAuthSpinner').hidden=true;
+    $('fleetAuthActions').hidden=!retry;
+  }
+  async function validatePortalSession(){
+    if(!token){ redirectToLogin(); return false; }
+    $('fleetAuthSpinner').hidden=false; $('fleetAuthActions').hidden=true;
+    try{
+      const response=await fetch('/api/flotilla/session',{headers:headers(),cache:'no-store'});
+      const data=await response.json().catch(()=>({}));
+      if(response.status===401){ redirectToLogin(); return false; }
+      if(response.status===403){
+        showAuthGate('Flotilla 360 no está habilitado',data.detail||'Tu sesión es válida, pero no tiene una empresa de Gas LP asignada.');
+        return false;
+      }
+      if(!response.ok) throw new Error(data.detail||'No se pudo validar el acceso al portal.');
+      $('fleetUser').textContent=localStorage.getItem('sat_display_name')||localStorage.getItem('sat_email')||'Usuario GE Control';
+      document.documentElement.classList.remove('fleet-auth-pending');
+      $('fleetAuthGate').hidden=true;
+      return true;
+    }catch(error){
+      showAuthGate('No pudimos validar tu acceso',`${error.message} Tu sesión no fue cerrada.`);
+      return false;
+    }
+  }
+
   async function api(path, options={}){
     const response = await fetch(`/api/flotilla${path}`, {...options, headers:{...headers(),...(options.headers||{})}});
     const data = await response.json().catch(()=>({detail:'Respuesta inválida del servidor.'}));
-    if(response.status===401){ logout(); throw new Error('Tu sesión expiró.'); }
+    if(response.status===401){
+      if(await officialSessionIsInvalid()){ redirectToLogin(); throw new Error('Tu sesión expiró.'); }
+      throw new Error(data.detail||'La sesión es válida, pero Flotilla 360 no pudo autorizar esta operación.');
+    }
     if(!response.ok) throw new Error(data.detail || 'No se pudo completar la operación.');
     return data;
   }
-  function logout(){ ['sat_token','zc_token','sat_user_id','sat_email','sat_modulo'].forEach(k=>localStorage.removeItem(k)); location.replace('/login/gas-lp?intent=flotilla_360'); }
+  function logout(){ window.GESessionTimeout?.clear(); clearOfficialSession(); location.replace(LOGIN_URL); }
   function params(extra={}){ const p=new URLSearchParams(extra); if($('startDate').value)p.set('start_date',$('startDate').value); if($('endDate').value)p.set('end_date',$('endDate').value); return p; }
   function notice(message,type=''){ const el=$('fleetNotice'); el.textContent=message||''; el.className=`fleet-notice${message?' show':''}${type?' '+type:''}`; }
   function setSync(kind,title,meta){ $('syncDot').className=`sync-dot ${kind||''}`; $('syncTitle').textContent=title; $('syncMeta').textContent=meta; }
@@ -74,11 +116,12 @@
 
   function initializeDates(){ const today=new Date(), first=new Date(today.getFullYear(),today.getMonth(),1); $('endDate').value=today.toISOString().slice(0,10); $('startDate').value=first.toISOString().slice(0,10); }
   function refresh(){ state.page=1; loadOverview(); loadVehicles(); }
-  initializeDates(); $('fleetUser').textContent=localStorage.getItem('sat_email')||'Usuario GE Control';
+  initializeDates();
   $('fleetBack').onclick=()=>location.href='/modulo/gas-lp/roles'; $('fleetLogout').onclick=logout; $('syncButton').onclick=requestSync;
+  $('fleetAuthRetry').onclick=()=>validatePortalSession().then(ok=>{if(ok){loadOverview();loadVehicles();}});
   $('drawerClose').onclick=closeDrawer; $('drawerBackdrop').onclick=closeDrawer; $('prevPage').onclick=()=>{if(state.page>1){state.page--;loadVehicles();}}; $('nextPage').onclick=()=>{if(state.page*state.perPage<state.total){state.page++;loadVehicles();}};
   $('vehicleSearch').addEventListener('input',()=>{clearTimeout(state.debounce);state.debounce=setTimeout(()=>{state.page=1;loadVehicles();},250);});
   ['statusFilter','fuelFilter'].forEach(id=>$(id).addEventListener('change',()=>{state.page=1;loadVehicles();})); ['startDate','endDate'].forEach(id=>$(id).addEventListener('change',refresh));
   $('clearFilters').onclick=()=>{$('vehicleSearch').value='';$('statusFilter').value='';$('fuelFilter').value='';refresh();};
-  loadOverview(); loadVehicles();
+  validatePortalSession().then(ok=>{if(ok){loadOverview();loadVehicles();}});
 })();
