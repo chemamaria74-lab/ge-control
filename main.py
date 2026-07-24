@@ -549,6 +549,13 @@ async def login_view(modulo: str, request: Request):
             target = f"{target}?lang={lang}"
         return RedirectResponse(url=target, status_code=307)
 
+    if modulo == "gas_lp" and intent == "flotilla_360":
+        lang = request.query_params.get("lang")
+        target = "/gas-lp/flotilla/acceso"
+        if lang:
+            target = f"{target}?lang={lang}"
+        return RedirectResponse(url=target, status_code=307)
+
     # Los portales que usan la sesión oficial regresan al destino elegido
     # después de autenticar. El destino se resuelve en servidor y no se acepta
     # una URL arbitraria del cliente, para evitar redirecciones abiertas.
@@ -971,6 +978,12 @@ async def login_asistente_gas_lp():
 async def login_conciliacion_gas_lp():
     """Login de conciliación Gas LP por codigo/PIN."""
     return _render_html_file("conciliacion_gas_lp_login.html")
+
+
+@app.get("/gas-lp/flotilla/acceso", response_class=HTMLResponse, include_in_schema=False)
+async def login_flotilla_gas_lp():
+    """Acceso independiente y temporal al portal Flotilla 360."""
+    return _render_html_file("flotilla_gas_lp_login.html")
 
 
 @app.get("/conciliacion/gas-lp", response_class=HTMLResponse, include_in_schema=False)
