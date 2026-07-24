@@ -12,6 +12,7 @@ let TRV2_OPERATOR_PAYMENT_LAST_SEARCH = null;
 let TRV2_OPERATOR_PAYMENT_PERIOD_VIEW = 'pendientes';
 
 function trv2SetPaymentPeriodView(view = 'pendientes') {
+  if (TRV2_OPERATOR_PAYMENT_VIEW !== 'liquidaciones') trv2SetOperatorPaymentView('liquidaciones');
   TRV2_OPERATOR_PAYMENT_PERIOD_VIEW = view === 'historial' ? 'historial' : 'pendientes';
   document.querySelectorAll('[data-payment-period-view]').forEach(button => button.classList.toggle('active', button.dataset.paymentPeriodView === TRV2_OPERATOR_PAYMENT_PERIOD_VIEW));
   document.querySelectorAll('[data-payment-period-panel]').forEach(panel => { panel.hidden = panel.dataset.paymentPeriodPanel !== TRV2_OPERATOR_PAYMENT_PERIOD_VIEW; });
