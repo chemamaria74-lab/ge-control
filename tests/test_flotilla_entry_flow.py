@@ -11,11 +11,11 @@ from main import app
 client = TestClient(app)
 
 
-def test_flotilla_role_reuses_the_official_session():
+def test_flotilla_role_always_requires_its_own_login():
     response = client.get("/modulo/gas-lp/roles")
 
     assert response.status_code == 200
-    assert 'href="/gas-lp/flotilla?lang=es"' in response.text
+    assert 'href="/login/gas-lp?intent=flotilla_360&lang=es"' in response.text
 
 
 def test_flotilla_dashboard_is_hidden_until_session_validation():
@@ -32,6 +32,8 @@ def test_flotilla_login_returns_to_flotilla_after_authentication():
 
     assert response.status_code == 200
     assert '"/gas-lp/flotilla" + \'?lang=\'' in response.text
+    assert "fetch('/api/flotilla/grant'" in response.text
+    assert "sessionStorage.setItem('ge_flotilla_access'" in response.text
 
 
 def test_regular_gas_lp_login_keeps_existing_app_destination():

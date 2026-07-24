@@ -43,19 +43,31 @@ def test_context_rejects_user_without_tenant(monkeypatch):
     monkeypatch.setattr(flotilla, "verify_token", lambda token: "user-1")
     monkeypatch.setattr(flotilla, "obtener_acceso_modulo", lambda *args, **kwargs: {"section": "gas_lp"})
     with pytest.raises(HTTPException) as error:
-        flotilla._context("Bearer valid")
+        flotilla._identity_context("Bearer valid")
     assert error.value.status_code == 403
 
 
+def test_context_rejects_missing_portal_grant_without_bypassing_identity(monkeypatch):
+    monkeypatch.setattr(flotilla, "_identity_context", lambda authorization: {
+        "user_id": "user-1", "tenant_id": "tenant-safe", "sb": object(),
+    })
+
+    with pytest.raises(HTTPException) as error:
+        flotilla._context("Bearer valid", "")
+
+    assert error.value.status_code == 401
+    assert "Flotilla 360" in error.value.detail
+
+
 def test_session_gate_returns_resolved_server_context(monkeypatch):
-    monkeypatch.setattr(flotilla, "_context", lambda authorization: {
+    monkeypatch.setattr(flotilla, "_context", lambda authorization, grant: {
         "user_id": "user-1",
         "tenant_id": "tenant-safe",
         "perfil_id": 42,
         "role": "admin",
     })
 
-    result = flotilla.fleet_session(authorization="Bearer valid")
+    result = flotilla.fleet_session(authorization="Bearer valid", x_flotilla_access="grant")
 
     assert result == {
         "authenticated": True,
@@ -82,8 +94,8 @@ def test_vehicle_search_is_local_and_query_is_tenant_scoped(monkeypatch):
             {"id": 2, "vehicle_number": "U-02", "make": "Isuzu", "status": "inactive", "fuel_type": "diesel"},
         ]
     })
-    monkeypatch.setattr(flotilla, "_context", lambda authorization: {"tenant_id": "tenant-safe", "sb": sb})
-    result = flotilla.vehicles(search="ford", status="active", fuel_type="diesel", page=1, per_page=25, authorization="Bearer x")
+    monkeypatch.setattr(flotilla, "_context", lambda authorization, grant: {"tenant_id": "tenant-safe", "sb": sb})
+    result = flotilla.vehicles(search="ford", status="active", fuel_type="diesel", page=1, per_page=25, authorization="Bearer x", x_flotilla_access="grant")
     assert result["total"] == 1
     assert result["items"][0]["vehicle_number"] == "U-01"
     assert ("eq", "tenant_id", "tenant-safe") in sb.calls
@@ -95,10 +107,10 @@ def test_sync_reuses_active_run_and_does_not_schedule(monkeypatch):
         "fleet_integrations": [{"id": 5, "status": "active", "last_success_at": None}],
         "fleet_sync_runs": [{"id": 99, "status": "running", "started_at": "2026-07-23T20:00:00Z"}],
     })
-    monkeypatch.setattr(flotilla, "_context", lambda authorization: {"tenant_id": "tenant-safe", "user_id": "user-1", "sb": sb})
+    monkeypatch.setattr(flotilla, "_context", lambda authorization, grant: {"tenant_id": "tenant-safe", "user_id": "user-1", "sb": sb})
     monkeypatch.setattr(flotilla, "motive_is_configured", lambda: True)
     tasks = BackgroundTasks()
-    result = flotilla.request_sync(tasks, full=False, authorization="Bearer x")
+    result = flotilla.request_sync(tasks, full=False, authorization="Bearer x", x_flotilla_access="grant")
     assert result["accepted"] is True
     assert result["reused"] is True
     assert result["sync"]["id"] == 99
@@ -107,8 +119,8 @@ def test_sync_reuses_active_run_and_does_not_schedule(monkeypatch):
 
 def test_sync_status_is_tenant_scoped(monkeypatch):
     sb = FakeSupabase({"fleet_sync_runs": [{"id": 12, "status": "succeeded"}]})
-    monkeypatch.setattr(flotilla, "_context", lambda authorization: {"tenant_id": "tenant-safe", "sb": sb})
-    result = flotilla.sync_status(12, authorization="Bearer x")
+    monkeypatch.setattr(flotilla, "_context", lambda authorization, grant: {"tenant_id": "tenant-safe", "sb": sb})
+    result = flotilla.sync_status(12, authorization="Bearer x", x_flotilla_access="grant")
     assert result["id"] == 12
     assert ("eq", "tenant_id", "tenant-safe") in sb.calls
     assert ("eq", "id", 12) in sb.calls
