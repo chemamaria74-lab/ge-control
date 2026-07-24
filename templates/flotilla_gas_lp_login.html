@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GE CONTROL | Acceso Flotilla 360</title>
+  <link rel="icon" href="/static/img/favicon.svg">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;grid-template-rows:1fr auto;place-items:center;background:#f5f5f5;font-family:var(--ge-font);padding:22px;color:#111;overflow-x:hidden}
+    .card{width:min(430px,100%);background:#fff;border:1px solid #e7e3dc;border-radius:10px;padding:30px 28px;box-shadow:0 24px 70px rgba(17,17,17,.13)}
+    .logo{width:195px;max-width:78%;height:auto;display:block;margin:0 auto 20px}
+    .portal-mark{display:flex;justify-content:center;align-items:center;gap:8px;color:#7A1E2C;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+    .portal-mark span{width:8px;height:8px;border-radius:50%;background:#C8A96B}
+    h1{font-size:25px;margin:0 0 5px;text-align:center;color:#111}.sub{text-align:center;color:#6F6A64;margin:0 auto 24px;line-height:1.45;max-width:330px}
+    label{display:block;font-size:12px;font-weight:800;color:#6F6A64;margin:0 0 6px}.field{margin-bottom:14px}
+    input{width:100%;border:1px solid #d8d0c4;border-radius:8px;padding:13px 14px;font:inherit;background:#fff;color:#111;outline:none}input:focus{border-color:#7A1E2C;box-shadow:0 0 0 3px rgba(122,30,44,.12)}
+    .btn{width:100%;border:0;border-radius:8px;background:#7A1E2C;color:#fff;padding:13px;font:inherit;font-weight:800;cursor:pointer;box-shadow:0 14px 26px rgba(122,30,44,.2)}.btn:hover{background:#5B0F1D}.btn:disabled{opacity:.6;cursor:wait}
+    .err{color:#b91c1c;font-size:13px;min-height:18px;margin:12px 0;text-align:center;font-weight:700}.back{text-align:center;margin-top:16px}.back a{color:#5B0F1D;text-decoration:none;font-weight:800}
+    .security{text-align:center;color:#817970;font-size:11px;line-height:1.4;margin-top:17px}.ge-legal-footer{grid-row:2;width:min(760px,calc(100vw - 44px));margin:14px auto 0;color:#6F6A64}.ge-legal-links a{color:#7A1E2C}
+    @media(max-width:640px){body{padding:18px 14px}.card{padding:25px 18px}.logo{width:175px}.ge-legal-footer{width:100%;font-size:10.5px}}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <img class="logo" src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
+    <div class="portal-mark"><span></span> Integración Motive</div>
+    <h1>Flotilla 360</h1>
+    <div class="sub">Inicia sesión para consultar gastos, consumo, inspecciones, mantenimiento y rendimiento.</div>
+    <form id="loginForm">
+      <div class="field"><label for="user">Usuario o correo</label><input id="user" autocomplete="username" placeholder="Tu usuario" required></div>
+      <div class="field"><label for="password">Contraseña</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••" required></div>
+      <button class="btn" id="submitButton" type="submit">Iniciar sesión</button>
+    </form>
+    <div class="err" id="errorMessage" role="alert"></div>
+    <div class="back"><a href="/modulo/gas-lp/roles">Cambiar acceso</a></div>
+    <div class="security">Acceso temporal protegido y vinculado a tu empresa de Gas LP.</div>
+  </main>
+  <footer class="ge-legal-footer">
+    <strong>GE CONTROL</strong>
+    <span class="ge-legal-links"><a href="/terms">Términos</a><a href="/privacy">Privacidad</a></span>
+  </footer>
+  <script src="/static/js/session_timeout.js?v=20260724d"></script>
+  <script>
+    const FLOTILLA_ACCESS_KEY = 'ge_flotilla_access';
+    sessionStorage.removeItem(FLOTILLA_ACCESS_KEY);
+    sessionStorage.removeItem('ge_flotilla_expires_at');
+
+    async function readJson(response) {
+      try { return await response.json(); } catch (_error) { return {}; }
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      const error = document.getElementById('errorMessage');
+      const button = document.getElementById('submitButton');
+      error.textContent = '';
+      button.disabled = true;
+      button.textContent = 'Validando acceso…';
+      try {
+        const loginResponse = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            modulo: 'gas_lp',
+            username: document.getElementById('user').value.trim(),
+            password: document.getElementById('password').value,
+          }),
+        });
+        const login = await readJson(loginResponse);
+        if (!loginResponse.ok || !login.success || !login.token) throw new Error(login.detail || 'Usuario o contraseña incorrectos.');
+
+        const grantResponse = await fetch('/api/flotilla/grant', {
+          method: 'POST',
+          headers: {Authorization: `Bearer ${login.token}`},
+          cache: 'no-store',
+        });
+        const grant = await readJson(grantResponse);
+        if (!grantResponse.ok || !grant.access) throw new Error(grant.detail || 'No se pudo crear el acceso seguro de Flotilla 360.');
+
+        localStorage.setItem('sat_token', login.token);
+        localStorage.setItem('zc_token', login.token);
+        localStorage.setItem('sat_user_id', login.user_id || '');
+        localStorage.setItem('sat_modulo', 'gas_lp');
+        if (login.display_name) localStorage.setItem('sat_display_name', login.display_name);
+        sessionStorage.setItem(FLOTILLA_ACCESS_KEY, grant.access);
+        sessionStorage.setItem('ge_flotilla_expires_at', String(grant.expires_at || ''));
+        window.GESessionTimeout?.markLogin();
+        location.replace('/gas-lp/flotilla');
+      } catch (exception) {
+        error.textContent = exception.message || 'No fue posible iniciar sesión.';
+        button.disabled = false;
+        button.textContent = 'Iniciar sesión';
+      }
+    });
+  </script>
+</body>
+</html>
