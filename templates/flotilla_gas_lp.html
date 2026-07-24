@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GE CONTROL | Flotilla 360</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
+  <link rel="stylesheet" href="/static/css/gas_lp/flotilla.css?v=20260723a">
+</head>
+<body>
+  <header class="fleet-topbar">
+    <a class="fleet-brand" href="/choice" aria-label="GE Control"><img src="/static/img/ge-isotype-light.svg" alt="GE"></a>
+    <div class="fleet-title"><span class="fleet-module">Gas LP</span><h1>Flotilla 360</h1></div>
+    <div class="fleet-top-actions">
+      <span class="fleet-user" id="fleetUser">—</span>
+      <button class="btn-light" id="fleetBack" type="button"><i class="fa-solid fa-layer-group"></i> Portales</button>
+      <button class="btn-light" id="fleetLogout" type="button"><i class="fa-solid fa-arrow-right-from-bracket"></i> Salir</button>
+    </div>
+  </header>
+
+  <main class="fleet-shell">
+    <section class="fleet-hero">
+      <div>
+        <span class="eyebrow"><i class="fa-solid fa-satellite-dish"></i> Integración Motive</span>
+        <h2>Control integral de la flotilla</h2>
+        <p>Gastos, consumo, inspecciones y rendimiento consolidados por unidad.</p>
+      </div>
+      <div class="sync-box">
+        <div><span class="sync-dot" id="syncDot"></span><strong id="syncTitle">Comprobando conexión…</strong></div>
+        <small id="syncMeta">Esperando información del servidor.</small>
+        <button class="btn-primary" id="syncButton" type="button"><i class="fa-solid fa-rotate"></i> Actualizar desde Motive</button>
+      </div>
+    </section>
+
+    <section class="fleet-filters" aria-label="Filtros">
+      <label>Desde<input id="startDate" type="date"></label>
+      <label>Hasta<input id="endDate" type="date"></label>
+      <label class="search-field">Buscar unidad<div><i class="fa-solid fa-magnifying-glass"></i><input id="vehicleSearch" placeholder="Número, placas, marca, modelo o conductor"></div></label>
+      <label>Estado<select id="statusFilter"><option value="">Todos</option><option value="active">Activas</option><option value="in_service">En servicio</option><option value="out_of_service">Fuera de servicio</option></select></label>
+      <label>Combustible<select id="fuelFilter"><option value="">Todos</option><option value="diesel">Diésel</option><option value="gasoline">Gasolina</option><option value="propane">Propano</option><option value="cng">GNC</option></select></label>
+    </section>
+
+    <div class="fleet-notice" id="fleetNotice" role="status" aria-live="polite"></div>
+
+    <section class="kpi-grid" aria-label="Indicadores">
+      <article class="kpi"><span>Unidades</span><strong id="kpiVehicles">—</strong><small id="kpiActive">— activas</small></article>
+      <article class="kpi"><span>Fuera de servicio</span><strong id="kpiOut">—</strong><small>Estado actual</small></article>
+      <article class="kpi"><span>Combustible</span><strong id="kpiLiters">—</strong><small>Litros del periodo</small></article>
+      <article class="kpi"><span>Gasto combustible</span><strong id="kpiCost">—</strong><small id="kpiCurrency">Periodo seleccionado</small></article>
+      <article class="kpi"><span>Inspecciones</span><strong id="kpiInspections">—</strong><small>Realizadas en el periodo</small></article>
+      <article class="kpi"><span>Defectos abiertos</span><strong id="kpiDefects">—</strong><small id="kpiMajor">— graves</small></article>
+    </section>
+
+    <section class="fleet-card">
+      <div class="section-head"><div><h3>Unidades</h3><p id="vehicleCount">Cargando catálogo…</p></div><button class="btn-ghost" id="clearFilters" type="button">Limpiar filtros</button></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Unidad</th><th>Vehículo</th><th>Conductor</th><th>Combustible</th><th>Estado</th><th>Odómetro</th><th>Actualización</th><th></th></tr></thead>
+          <tbody id="vehicleRows"><tr><td colspan="8" class="empty">Cargando unidades…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="pagination"><button id="prevPage" type="button">Anterior</button><span id="pageLabel">Página 1</span><button id="nextPage" type="button">Siguiente</button></div>
+    </section>
+  </main>
+
+  <aside class="detail-drawer" id="detailDrawer" aria-hidden="true">
+    <button class="drawer-close" id="drawerClose" type="button" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+    <div id="detailContent"><div class="empty">Selecciona una unidad.</div></div>
+  </aside>
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+
+  <script src="/static/js/session_timeout.js"></script>
+  <script src="/static/js/gas_lp/flotilla.js?v=20260723a"></script>
+</body>
+</html>
