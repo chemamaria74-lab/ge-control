@@ -113,8 +113,51 @@
     }catch(error){ notice(error.message,'error'); $('syncButton').disabled=false; }
   }
 
+  async function loadReportCatalog(){
+    const p=params(); if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
+    try{
+      const data=await api(`/reports/catalog?${p}`), counts=data.counts||{}, totals=data.totals||{};
+      const selected=$('reportGroup').value;
+      $('reportGroup').innerHTML='<option value="">Toda la flotilla</option>'+(data.groups||[]).map(g=>`<option value="${Number(g.id)}">${esc(g.name||'Grupo sin nombre')}</option>`).join('');
+      $('reportGroup').value=selected;
+      $('reportExpenses').textContent=money(totals.expenses_mxn,'MXN'); $('reportLiters').textContent=fmt(totals.fuel_liters);
+      $('reportSafety').textContent=fmt(counts.driver_events); $('reportSpeeding').textContent=fmt(counts.speeding);
+      $('reportActivity').textContent=fmt(counts.activity); $('reportFaults').textContent=fmt(counts.faults);
+      const submitters=data.submitters||[];
+      $('submitterList').innerHTML=submitters.length?'<strong>Quién registró gastos:</strong> '+submitters.slice(0,8).map(row=>`${esc(row.name)} · ${fmt(row.records)} registros · ${money(row.amount_mxn,'MXN')}`).join(' &nbsp;|&nbsp; '):'Aún no hay gastos importados para mostrar responsables.';
+    }catch(error){ notice(error.message,'error'); }
+  }
+
+  async function importExpenses(file){
+    if(!file)return;
+    const form=new FormData(); form.append('file',file);
+    notice(`Importando ${file.name}…`);
+    try{
+      const data=await api('/import/expenses',{method:'POST',body:form});
+      const missing=(data.unmatched_vehicles||[]).length;
+      notice(`Listo: ${fmt(data.imported)} movimientos importados y ${fmt(data.matched_vehicles)} vinculados a unidades.${missing?' '+missing+' nombres requieren homologación.':''}`);
+      await loadReportCatalog();
+    }catch(error){notice(error.message,'error');}
+    finally{$('expenseFile').value='';}
+  }
+
+  async function downloadReport(){
+    const p=params(); if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
+    $('downloadReport').disabled=true; notice('Preparando el Excel consolidado…');
+    try{
+      const response=await fetch(`/api/flotilla/reports/download?${p}`,{headers:headers()});
+      if(response.status===401){redirectToLogin();return;}
+      if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.detail||'No se pudo generar el informe.');}
+      const blob=await response.blob(), disposition=response.headers.get('Content-Disposition')||'';
+      const filename=(disposition.match(/filename="?([^";]+)"?/)||[])[1]||'INFORME_FLOTILLA_360.xlsx';
+      const url=URL.createObjectURL(blob), link=document.createElement('a'); link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
+      notice('Informe descargado. Ya incluye hojas separadas y cifras en MXN.');
+    }catch(error){notice(error.message,'error');}
+    finally{$('downloadReport').disabled=false;}
+  }
+
   function initializeDates(){ const today=new Date(), first=new Date(today.getFullYear(),today.getMonth(),1); $('endDate').value=today.toISOString().slice(0,10); $('startDate').value=first.toISOString().slice(0,10); }
-  function refresh(){ state.page=1; loadOverview(); loadVehicles(); }
+  function refresh(){ state.page=1; loadOverview(); loadVehicles(); loadReportCatalog(); }
   initializeDates();
   $('fleetBack').onclick=()=>{clearPortalAccess();location.href='/modulo/gas-lp/roles';}; $('fleetLogout').onclick=logout; $('syncButton').onclick=requestSync;
   $('fleetAuthRetry').onclick=()=>validatePortalSession().then(ok=>{if(ok){loadOverview();loadVehicles();}});
@@ -122,5 +165,6 @@
   $('vehicleSearch').addEventListener('input',()=>{clearTimeout(state.debounce);state.debounce=setTimeout(()=>{state.page=1;loadVehicles();},250);});
   ['statusFilter','fuelFilter'].forEach(id=>$(id).addEventListener('change',()=>{state.page=1;loadVehicles();})); ['startDate','endDate'].forEach(id=>$(id).addEventListener('change',refresh));
   $('clearFilters').onclick=()=>{$('vehicleSearch').value='';$('statusFilter').value='';$('fuelFilter').value='';refresh();};
-  validatePortalSession().then(ok=>{if(ok){loadOverview();loadVehicles();}});
+  $('reportGroup').addEventListener('change',loadReportCatalog); $('expenseFile').addEventListener('change',event=>importExpenses(event.target.files?.[0])); $('downloadReport').onclick=downloadReport;
+  validatePortalSession().then(ok=>{if(ok){loadOverview();loadVehicles();loadReportCatalog();}});
 })();
