@@ -8,6 +8,12 @@ from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query
 from routes.auth import obtener_acceso_modulo, verify_token
 from services.motive import motive_is_configured
 from services.motive_sync import sync_motive_tenant
+from services.flotilla_portal_auth import (
+    FlotillaPortalAuthError,
+    issue_flotilla_grant,
+    require_recent_password_login,
+    verify_flotilla_grant,
+)
 from supabase_config import get_supabase_for_user
 
 
@@ -15,7 +21,7 @@ router = APIRouter()
 SYNC_COOLDOWN_MINUTES = 10
 
 
-def _context(authorization: str) -> dict[str, Any]:
+def _identity_context(authorization: str) -> dict[str, Any]:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
     token = authorization[7:].strip()
@@ -34,6 +40,15 @@ def _context(authorization: str) -> dict[str, Any]:
         "role": access.get("role") or "user",
         "sb": get_supabase_for_user(token),
     }
+
+
+def _context(authorization: str, flotilla_access: str) -> dict[str, Any]:
+    ctx = _identity_context(authorization)
+    try:
+        verify_flotilla_grant(flotilla_access, ctx["user_id"], ctx["tenant_id"])
+    except FlotillaPortalAuthError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    return ctx
 
 
 def _dates(start_date: date | None, end_date: date | None) -> tuple[date, date]:
@@ -60,10 +75,25 @@ def _integration(sb: Any, tenant_id: str) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
+@router.post("/flotilla/grant")
+def create_fleet_grant(authorization: str = Header(default="")):
+    """Issue portal access only immediately after an official password login."""
+    ctx = _identity_context(authorization)
+    try:
+        require_recent_password_login(ctx["token"])
+        grant = issue_flotilla_grant(ctx["user_id"], ctx["tenant_id"])
+    except FlotillaPortalAuthError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    return {"authenticated": True, **grant}
+
+
 @router.get("/flotilla/session")
-def fleet_session(authorization: str = Header(default="")):
+def fleet_session(
+    authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+):
     """Validate the official GE Control session before revealing the portal."""
-    ctx = _context(authorization)
+    ctx = _context(authorization, x_flotilla_access)
     return {
         "authenticated": True,
         "user_id": ctx["user_id"],
@@ -78,8 +108,9 @@ def overview(
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
     authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
 ):
-    ctx = _context(authorization)
+    ctx = _context(authorization, x_flotilla_access)
     start, end = _dates(start_date, end_date)
     sb = ctx["sb"]
     integration = _integration(sb, ctx["tenant_id"])
@@ -152,8 +183,9 @@ def vehicles(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=25, ge=1, le=100),
     authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
 ):
-    ctx = _context(authorization)
+    ctx = _context(authorization, x_flotilla_access)
     rows = (
         ctx["sb"].table("fleet_vehicles")
         .select("id,motive_id,vehicle_number,license_plate_number,make,model,model_year,fuel_type,status,availability_status,out_of_service_reason,current_driver_name,odometer_km,engine_hours,last_seen_at")
@@ -182,8 +214,9 @@ def vehicle_detail(
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
     authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
 ):
-    ctx = _context(authorization)
+    ctx = _context(authorization, x_flotilla_access)
     start, end = _dates(start_date, end_date)
     sb = ctx["sb"]
     rows = sb.table("fleet_vehicles").select("*").eq("tenant_id", ctx["tenant_id"]).eq("id", vehicle_id).limit(1).execute().data or []
@@ -205,8 +238,9 @@ def request_sync(
     background_tasks: BackgroundTasks,
     full: bool = Query(default=False),
     authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
 ):
-    ctx = _context(authorization)
+    ctx = _context(authorization, x_flotilla_access)
     if not motive_is_configured():
         raise HTTPException(503, "La integración Motive no está configurada en el servidor.")
     sb = ctx["sb"]
@@ -229,8 +263,12 @@ def request_sync(
 
 
 @router.get("/flotilla/sync/{run_id}")
-def sync_status(run_id: int, authorization: str = Header(default="")):
-    ctx = _context(authorization)
+def sync_status(
+    run_id: int,
+    authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+):
+    ctx = _context(authorization, x_flotilla_access)
     rows = ctx["sb"].table("fleet_sync_runs").select("id,status,sync_type,started_at,finished_at,heartbeat_at,pages_processed,records_processed,datasets,error_code,error_message").eq("tenant_id", ctx["tenant_id"]).eq("id", run_id).limit(1).execute().data or []
     if not rows:
         raise HTTPException(404, "Sincronización no encontrada.")
