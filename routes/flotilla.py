@@ -308,10 +308,13 @@ def request_sync(
     integration = _integration(sb, ctx["tenant_id"])
     if not integration or integration.get("status") != "active":
         raise HTTPException(409, "El tenant no tiene una integración Motive activa.")
-    active = sb.table("fleet_sync_runs").select("id,status,started_at").eq("integration_id", integration["id"]).in_("status", ["queued", "running"]).order("created_at", desc=True).limit(1).execute().data or []
+    active = sb.table("fleet_sync_runs").select("id,status,started_at,heartbeat_at").eq("integration_id", integration["id"]).in_("status", ["queued", "running"]).order("created_at", desc=True).limit(1).execute().data or []
     if active:
-        started = datetime.fromisoformat(str(active[0].get("started_at") or "").replace("Z", "+00:00"))
-        if datetime.now(timezone.utc) - started <= timedelta(minutes=15):
+        heartbeat_raw = active[0].get("heartbeat_at")
+        if not heartbeat_raw:
+            return {"accepted": True, "reused": True, "sync": active[0]}
+        heartbeat = datetime.fromisoformat(str(heartbeat_raw).replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) - heartbeat <= timedelta(minutes=15):
             return {"accepted": True, "reused": True, "sync": active[0]}
         now = datetime.now(timezone.utc).isoformat()
         sb.table("fleet_sync_runs").update({
