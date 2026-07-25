@@ -149,7 +149,9 @@ def _movement_marker(mov: dict) -> tuple[str, str]:
     tipo = str(mov.get("tipo_movimiento") or "")
     uuid = str(mov.get("uuid") or "").strip().upper()
     if uuid:
-        return tipo, uuid
+        # Un CFDI solo puede aparecer una vez en el reporte, incluso si una carga
+        # posterior lo clasifica de manera distinta por configuración de RFC.
+        return "uuid", uuid
     return tipo, str(mov.get("file_path") or mov.get("_source") or mov.get("fecha_hora") or "")
 
 

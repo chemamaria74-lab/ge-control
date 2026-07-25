@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from routes.auth import obtener_acceso_modulo, verify_token
 from services.motive import motive_is_configured
 from services.motive_sync import sync_motive_tenant
-from services.fleet_reports import build_fleet_report, parse_expense_workbook, parse_maintenance_csv
+from services.fleet_reports import build_fleet_report, fleet_analytics, parse_expense_workbook, parse_maintenance_csv
 from services.flotilla_portal_auth import (
     FlotillaPortalAuthError,
     issue_flotilla_grant,
@@ -333,10 +333,20 @@ def report_catalog(
     start, end = _dates(start_date, end_date)
     groups = ctx["sb"].table("fleet_groups").select("id,motive_id,motive_parent_id,name,path").eq("tenant_id", ctx["tenant_id"]).order("name").execute().data or []
     data = _report_rows(ctx, start, end, group_id)
+    latest_runs = ctx["sb"].table("fleet_sync_runs").select("status,datasets,error_code,error_message,finished_at").eq("tenant_id", ctx["tenant_id"]).order("created_at", desc=True).limit(1).execute().data or []
+    analytics = fleet_analytics(data)
     return {"period": {"start": start, "end": end}, "groups": groups, "counts": {key: len(value) for key, value in data.items()},
             "totals": {"expenses_mxn": round(sum(float(row.get("amount_mxn") or 0) for row in data["expenses"]), 2),
                        "fuel_liters": round(sum(float(row.get("quantity_liters") or 0) for row in data["expenses"]), 2)},
-            "submitters": _submitter_summary(data["expenses"])}
+            "submitters": _submitter_summary(data["expenses"]),
+            "analytics": {
+                "top_units": analytics["units"][:10],
+                "behaviors": analytics["behaviors"][:10],
+                "severity": analytics["severity"],
+                "daily": analytics["daily"],
+                "critical_high": analytics["critical_high"],
+            },
+            "sync": latest_runs[0] if latest_runs else None}
 
 
 def _submitter_summary(expenses: list[dict[str, Any]]) -> list[dict[str, Any]]:
