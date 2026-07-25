@@ -26,20 +26,25 @@
     if (path.startsWith('/transporte-v2')) return {
       tokenKeys: ['sat_token', 'zc_token'],
       login: '/transporte-v2/login-admin?next=/transporte-v2/admin',
+      renewable: true,
     };
     if (path.startsWith('/asistente/gas-lp')) return {
       tokenKeys: ['ge_gaslp_internal_token'], login: '/gas-lp/asistente',
+      internalSection: 'gas_lp',
     };
     if (path.startsWith('/conciliacion/gas-lp')) return {
       tokenKeys: ['ge_gaslp_conciliacion_token'], login: '/gas-lp/conciliacion',
+      internalSection: 'gas_lp',
     };
     if (path.startsWith('/gas-lp/flotilla')) return {
       tokenKeys: ['sat_token', 'zc_token'], login: '/gas-lp/flotilla/acceso',
+      renewable: true,
     };
     if (path === '/app' || path.startsWith('/modulo/gas-lp')) return {
       tokenKeys: ['sat_token', 'zc_token'], login: '/login?next=/app',
+      renewable: true,
     };
-    return {tokenKeys: ['sat_token', 'zc_token'], login: '/choice'};
+    return {tokenKeys: ['sat_token', 'zc_token'], login: '/choice', renewable: true};
   }
 
   function activeToken() {
@@ -194,10 +199,14 @@
     if (authValidation) return authValidation;
     const token = activeToken();
     if (!token) return false;
-    authValidation = nativeFetch('/api/auth/me', {
-      headers: {Authorization: `Bearer ${token}`},
-      cache: 'no-store',
-    }).then(response => response.status === 401)
+    const currentPortal = portal();
+    const validationUrl = currentPortal.internalSection
+      ? `/api/internal-auth/me?token=${encodeURIComponent(token)}&section=${encodeURIComponent(currentPortal.internalSection)}`
+      : '/api/auth/me';
+    const validationInit = currentPortal.internalSection
+      ? {cache: 'no-store'}
+      : {headers: {Authorization: `Bearer ${token}`}, cache: 'no-store'};
+    authValidation = nativeFetch(validationUrl, validationInit).then(response => response.status === 401)
       // Un problema de red o del servidor no demuestra que la sesión venció.
       .catch(() => false)
       .finally(() => { authValidation = null; });
@@ -206,7 +215,8 @@
 
   window.fetch = async function geSessionFetch(input, init) {
     const path = requestPath(input);
-    const canRefresh = path !== '/api/auth/login' && path !== '/api/auth/refresh' && path !== '/api/auth/logout';
+    const canRefresh = portal().renewable === true
+      && path !== '/api/auth/login' && path !== '/api/auth/refresh' && path !== '/api/auth/logout';
     const oldToken = activeToken();
     let freshToken = oldToken;
     if (canRefresh && oldToken && jwtExpiresSoon(oldToken)) {
@@ -236,13 +246,13 @@
   async function resumeSession() {
     if (enforce()) return;
     const token = activeToken();
-    if (token && jwtExpiresSoon(token)) await refreshAccessToken();
+    if (portal().renewable === true && token && jwtExpiresSoon(token)) await refreshAccessToken();
   }
   window.addEventListener('focus', resumeSession);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeSession(); });
   setInterval(enforce, 60 * 1000);
   setInterval(() => {
     const token = activeToken();
-    if (token && jwtExpiresSoon(token)) refreshAccessToken();
+    if (portal().renewable === true && token && jwtExpiresSoon(token)) refreshAccessToken();
   }, 60 * 1000);
 })();
