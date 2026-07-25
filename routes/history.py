@@ -3,6 +3,7 @@
 # v2: soporte multi-empresa via header X-Perfil-Id.
 
 import os
+import json
 import logging
 import xml.etree.ElementTree as ET
 from typing import Optional
@@ -378,6 +379,63 @@ def _merge_derived_records(records: dict, derived: dict) -> dict:
     return merged
 
 
+def _records_from_report_json(report: Optional[dict]) -> dict:
+    """Recupera el último borrador consolidado para impedir regresiones de datos.
+
+    Las facturas de Asistente se consultan en vivo, pero una consulta parcial o
+    una réplica atrasada no debe hacer que un reporte ya generado pierda CFDI al
+    volver a abrirse. El JSON SAT guardado es una instantánea por UUID y se
+    combina con los movimientos vigentes; las cancelaciones se aplican después.
+    """
+    raw = (report or {}).get("json_content")
+    if not raw:
+        return {"entradas": [], "salidas": [], "cancelled_uuids": []}
+    try:
+        payload = json.loads(raw) if isinstance(raw, str) else raw
+        monthly = ((payload.get("Producto") or [{}])[0].get("ReporteDeVolumenMensual") or {})
+    except (AttributeError, IndexError, TypeError, ValueError, json.JSONDecodeError):
+        return {"entradas": [], "salidas": [], "cancelled_uuids": []}
+
+    recovered = {"entradas": [], "salidas": [], "cancelled_uuids": []}
+    for section, key, tipo in (
+        ("Recepciones", "entradas", "entrada"),
+        ("Entregas", "salidas", "salida"),
+    ):
+        complementos = (monthly.get(section) or {}).get("Complemento") or []
+        for comp_index, complemento in enumerate(complementos):
+            nacionales = complemento.get("Nacional") or []
+            if isinstance(nacionales, dict):
+                nacionales = [nacionales]
+            for nacional in nacionales:
+                rfc = str(nacional.get("RfcClienteOProveedor") or "")
+                nombre = str(nacional.get("NombreClienteOProveedor") or "")
+                cfdis = nacional.get("CFDIs") or []
+                if isinstance(cfdis, dict):
+                    cfdis = [cfdis]
+                # El autoconsumo sin CFDI ya vive en records y no tiene UUID
+                # estable para recuperarlo sin riesgo de duplicarlo.
+                for cfdi_index, cfdi in enumerate(cfdis):
+                    uuid = str(cfdi.get("Cfdi") or "").strip()
+                    volumen = _safe_float((cfdi.get("VolumenDocumentado") or {}).get("ValorNumerico"))
+                    fecha_hora = str(cfdi.get("FechaYHoraTransaccion") or "")
+                    if not uuid or volumen <= 0:
+                        continue
+                    recovered[key].append({
+                        "id": f"report-json:{section}:{comp_index}:{cfdi_index}",
+                        "tipo": tipo,
+                        "fecha": fecha_hora[:10],
+                        "volumen_litros": round(volumen, 4),
+                        "uuid": uuid,
+                        "rfc_contraparte": rfc,
+                        "nombre_contraparte": nombre,
+                        "importe": round(_safe_float(cfdi.get("PrecioVentaOCompraOContrap")), 2),
+                        "file_path": f"report-json:{uuid}",
+                        "facility_id": _safe_int((report or {}).get("facility_id")),
+                        "es_autoconsumo": False,
+                    })
+    return recovered
+
+
 def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int, facility_id: Optional[int]) -> dict:
     try:
         scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
@@ -506,9 +564,18 @@ async def get_history(
     records   = get_records(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id)
     totals    = get_period_totals(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id)
     reports   = get_reports(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id)
+    latest    = reports[0] if reports else None
     invoice_records = _history_invoice_records(uid, token, periodo, perfil_id, facility_id)
+    snapshot_records = _records_from_report_json(latest)
+    if snapshot_records["entradas"] or snapshot_records["salidas"]:
+        records = _merge_derived_records(records, snapshot_records)
     if invoice_records["entradas"] or invoice_records["salidas"] or invoice_records.get("cancelled_uuids"):
         records = _merge_derived_records(records, invoice_records)
+    if (
+        snapshot_records["entradas"] or snapshot_records["salidas"]
+        or invoice_records["entradas"] or invoice_records["salidas"]
+        or invoice_records.get("cancelled_uuids")
+    ):
         totals = _totals_from_records(records)
     source = "active"
     if not reports and not records["entradas"] and not records["salidas"]:
@@ -659,6 +726,8 @@ def _regenerate_history_report(uid: str, token: str, periodo: str, perfil_id: in
     data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
     effective_facility_id = facility_id or _safe_int(rep.get("facility_id"))
     records = get_records(data_user_id, periodo, facility_id=effective_facility_id, perfil_id=perfil_id)
+    snapshot_records = _records_from_report_json(rep)
+    records = _merge_derived_records(records, snapshot_records)
     invoice_records = _history_invoice_records(uid, token, periodo, perfil_id, effective_facility_id)
     records = _merge_derived_records(records, invoice_records)
     if not effective_facility_id:
