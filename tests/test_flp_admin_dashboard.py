@@ -83,5 +83,5 @@ def test_report_closure_supports_explicit_and_legacy_months():
     from services.database import report_is_closed
 
     assert report_is_closed({"periodo": "2026-07", "status": "closed"}) is True
-    assert report_is_closed({"periodo": "2000-01", "status": "draft"}) is True
+    assert report_is_closed({"periodo": "2000-01", "status": "draft"}) is False
     assert report_is_closed(None, "2000-01") is False

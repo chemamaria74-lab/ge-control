@@ -4,6 +4,8 @@ os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "test-anon-key")
 
 from routes.cfdi import _merge_movements, _record_to_movement
+from routes.history import _merge_derived_records
+from services.database import report_is_closed
 
 
 def _movement(uuid: str, tipo: str = "salida", litros: float = 10.0) -> dict:
@@ -65,3 +67,58 @@ def test_saved_record_round_trips_as_sat_movement():
     assert movement["volumen_litros"] == 123.45
     assert movement["rfc_cp"] == "XAXX010101000"
     assert movement["es_autoconsumo"] is False
+
+
+def test_assistant_invoices_are_part_of_complementary_upload_balance():
+    assistant = {
+        "entradas": [],
+        "salidas": [
+            {
+                "tipo": "salida",
+                "fecha": "2026-06-01",
+                "volumen_litros": 100.0,
+                "uuid": "ASISTENTE-1",
+                "file_path": "gas_lp_facturas:1:venta:10",
+            },
+            {
+                "tipo": "salida",
+                "fecha": "2026-06-02",
+                "volumen_litros": 200.0,
+                "uuid": "ASISTENTE-2",
+                "file_path": "gas_lp_facturas:2:venta:10",
+            },
+        ],
+        "cancelled_uuids": [],
+    }
+    combined_records = _merge_derived_records(
+        {"entradas": [], "salidas": []},
+        assistant,
+    )
+    existing_movements = [
+        _record_to_movement(row, "salida", "Operador")
+        for row in combined_records["salidas"]
+    ]
+
+    merged, skipped = _merge_movements(
+        existing_movements,
+        [_movement("XML-NUEVO", litros=50.0)],
+        set(),
+    )
+
+    assert len(merged) == 3
+    assert sum(row["volumen_litros"] for row in merged) == 350.0
+    assert skipped == 0
+
+
+def test_admin_reopened_month_is_editable_even_when_historical():
+    assert report_is_closed(
+        {"periodo": "2000-01", "status": "reopened", "closed_at": None},
+        "2000-01",
+    ) is False
+
+
+def test_past_month_does_not_close_automatically():
+    assert report_is_closed(
+        {"periodo": "2000-01", "status": "draft", "closed_at": None},
+        "2000-01",
+    ) is False
