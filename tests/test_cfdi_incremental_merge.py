@@ -1,4 +1,5 @@
 import os
+import json
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "test-anon-key")
@@ -10,6 +11,7 @@ from routes.history import (
     _invoice_is_transfer,
     _merge_derived_records,
     _next_period,
+    _records_from_report_json,
 )
 from services.database import report_is_closed
 
@@ -174,3 +176,41 @@ def test_historical_self_invoice_is_recognized_as_transfer():
     }
 
     assert _invoice_is_transfer(row) is True
+
+
+def test_saved_report_snapshot_prevents_history_from_losing_cfdis():
+    report = {
+        "facility_id": 1011,
+        "json_content": json.dumps({
+            "Producto": [{
+                "ReporteDeVolumenMensual": {
+                    "Recepciones": {"Complemento": []},
+                    "Entregas": {
+                        "Complemento": [{
+                            "Nacional": [{
+                                "RfcClienteOProveedor": "XAX010101000",
+                                "NombreClienteOProveedor": "CLIENTE",
+                                "CFDIs": [{
+                                    "Cfdi": "GUARDADO-EN-REPORTE",
+                                    "FechaYHoraTransaccion": "2026-06-30T12:00:00-06:00",
+                                    "PrecioVentaOCompraOContrap": 1234.50,
+                                    "VolumenDocumentado": {
+                                        "ValorNumerico": 987.65,
+                                        "UnidadDeMedida": "UM03",
+                                    },
+                                }],
+                            }],
+                        }],
+                    },
+                },
+            }],
+        }),
+    }
+
+    snapshot = _records_from_report_json(report)
+    merged = _merge_derived_records({"entradas": [], "salidas": []}, snapshot)
+
+    assert len(merged["salidas"]) == 1
+    assert merged["salidas"][0]["uuid"] == "GUARDADO-EN-REPORTE"
+    assert merged["salidas"][0]["volumen_litros"] == 987.65
+    assert merged["salidas"][0]["facility_id"] == 1011
