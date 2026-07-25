@@ -5,6 +5,10 @@ let satJsonResult = null;
 let satMetaResult = null;
 let satFilenames  = {};
 let authToken     = localStorage.getItem('sat_token') || '';
+window.addEventListener('ge:token-refreshed', event => {
+  const refreshed = String(event.detail?.token || '');
+  if (refreshed) authToken = refreshed;
+});
 let currentUserId = localStorage.getItem('sat_user_id') || '';
 let histPeriodo      = null;
 let histZipFilename  = null;
