@@ -121,9 +121,10 @@
     $('runAnalysis').innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Consultando…';
     notice('Preparando el análisis gerencial…');
     try{
+      await api(`/reports/prepare?${p}`,{method:'POST'});
       const data=await api(`/reports/catalog?${p}`), counts=data.counts||{}, totals=data.totals||{};
       $('executiveDashboard').hidden=false;
-      $('reportExpenses').textContent=money(totals.expenses_mxn,'MXN');
+      $('reportExpenses').textContent=totals.expense_available?`${money(totals.expenses_mxn,'MXN')}${totals.expense_complete?'':' · parcial'}`:'No disponible';
       $('reportSafety').textContent=fmt(counts.driver_events); $('reportSpeeding').textContent=fmt(counts.speeding);
       $('reportActivity').textContent=fmt(counts.activity); $('reportFaults').textContent=fmt(counts.faults);
       $('reportCritical').textContent=fmt(data.analytics?.critical_high);
@@ -166,6 +167,7 @@
     const datasets=sync.datasets||{}, pending=[];
     const unavailable=(key)=>!Object.prototype.hasOwnProperty.call(datasets,key)||(datasets[key]&&typeof datasets[key]==='object'&&datasets[key].status==='unavailable');
     if(unavailable('driving_periods')) pending.push('Actividad');
+    if(unavailable('vehicle_utilization')) pending.push('Utilización y horas motor');
     if(unavailable('fault_codes')) pending.push('Códigos de falla');
     if(unavailable('card_expenses')) pending.push('Motive Card');
     if(sync.status==='failed'){
