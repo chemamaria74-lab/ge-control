@@ -107,6 +107,10 @@
       if(data.cooldown_seconds){ notice(`Los datos ya están recientes. Podrás actualizar nuevamente en ${Math.ceil(data.cooldown_seconds/60)} minutos.`); }
       else notice(data.reused?'Ya existe una actualización en curso.':'Actualización iniciada. Puedes seguir usando el portal.');
       setSync('warn','Actualizando desde Motive…','El último dato válido seguirá disponible.');
+      if(!$('executiveDashboard').hidden){
+        $('dataStatus').className='data-status warn';
+        $('dataStatus').innerHTML='<strong>Sincronización en curso.</strong> Conservamos el último análisis válido mientras Motive termina de entregar las fuentes.';
+      }
       clearInterval(state.syncPoll); state.syncPoll=setInterval(async()=>{ await loadOverview(); const text=$('syncTitle').textContent; if(!text.includes('Actualizando')){clearInterval(state.syncPoll);await loadReportCatalog();$('syncButton').disabled=false;} },5000);
     }catch(error){ notice(error.message,'error'); $('syncButton').disabled=false; }
   }
@@ -154,16 +158,22 @@
 
   function renderDataStatus(sync,counts){
     if(!sync){$('dataStatus').className='data-status warn';$('dataStatus').textContent='Aún no existe una sincronización completa de Motive.';return;}
+    if(sync.status==='running'||sync.status==='queued'){
+      $('dataStatus').className='data-status warn';
+      $('dataStatus').innerHTML='<strong>Sincronización en curso.</strong> Este dashboard conserva el último dato válido y se actualizará al finalizar.';
+      return;
+    }
     const datasets=sync.datasets||{}, pending=[];
-    if(!Object.prototype.hasOwnProperty.call(datasets,'driving_periods')) pending.push('Actividad');
-    if(!Object.prototype.hasOwnProperty.call(datasets,'fault_codes')) pending.push('Códigos de falla');
-    if(!Object.prototype.hasOwnProperty.call(datasets,'card_expenses')) pending.push('Motive Card');
+    const unavailable=(key)=>!Object.prototype.hasOwnProperty.call(datasets,key)||(datasets[key]&&typeof datasets[key]==='object'&&datasets[key].status==='unavailable');
+    if(unavailable('driving_periods')) pending.push('Actividad');
+    if(unavailable('fault_codes')) pending.push('Códigos de falla');
+    if(unavailable('card_expenses')) pending.push('Motive Card');
     if(sync.status==='failed'){
       $('dataStatus').className='data-status error';
       $('dataStatus').innerHTML=`<strong>Sincronización incompleta.</strong> Seguridad y velocidad sí están disponibles; ${esc(pending.join(', ')||'otras fuentes')} quedaron pendientes. Vuelve a actualizar desde Motive.`;
     }else{
-      $('dataStatus').className='data-status ok';
-      $('dataStatus').textContent=pending.length?`Motive conectado. Fuentes sin registros o sin permiso: ${pending.join(', ')}.`:'Todas las fuentes disponibles se sincronizaron correctamente.';
+      $('dataStatus').className=pending.length?'data-status warn':'data-status ok';
+      $('dataStatus').textContent=pending.length?`Sincronización completada. Fuentes no habilitadas o rechazadas por Motive: ${pending.join(', ')}. El resto de los datos sí está actualizado.`:'Todas las fuentes disponibles se sincronizaron correctamente.';
     }
   }
 
