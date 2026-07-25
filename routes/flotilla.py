@@ -11,8 +11,8 @@ from fastapi import APIRouter, BackgroundTasks, File, Header, HTTPException, Que
 from fastapi.responses import StreamingResponse
 
 from routes.auth import obtener_acceso_modulo, verify_token
-from services.motive import motive_is_configured
-from services.motive_sync import sync_motive_tenant
+from services.motive import MotiveAPIError, motive_is_configured
+from services.motive_sync import sync_motive_tenant, sync_vehicle_utilization_range
 from services.fleet_reports import build_fleet_report, comparison_row, fleet_analytics, parse_expense_workbook, parse_maintenance_csv
 from services.fleet_management_exports import build_comparison_excel, build_comparison_pdf, build_zone_pdf
 from services.fleet_alerts import store_webhook_event
@@ -418,16 +418,36 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         .lte("metric_date", end.isoformat())
         .order("metric_date", desc=True)
     )
+    utilization = _collect(
+        sb.table("fleet_vehicle_utilization_rollups")
+        .select("vehicle_id,period_start,period_end,utilization_pct,driving_hours,idle_hours,engine_hours,driving_fuel_liters,idle_fuel_liters,fuel_consumed_liters")
+        .eq("tenant_id", tenant_id)
+        .eq("period_start", start.isoformat())
+        .eq("period_end", end.isoformat())
+    )
+    latest_runs = (
+        sb.table("fleet_sync_runs")
+        .select("status,datasets,finished_at")
+        .eq("tenant_id", tenant_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute().data or []
+    )
+    latest_sync = latest_runs[0] if latest_runs else {}
     return {
         "vehicles": selected_vehicles, "expenses": attach(expenses), "fuel": attach(fuel),
         "driver_events": attach(events), "speeding": attach(speeding), "activity": attach(activity),
         "faults": attach(faults), "inspections": selected_inspections, "defects": attach(defects),
-        "metrics": attach(metrics), "_period_days": (end - start).days + 1,
+        "metrics": attach(metrics), "utilization": attach(utilization),
+        "_period_days": (end - start).days + 1, "_sync": latest_sync,
     }
 
 
 def _filter_report_data(data: dict[str, Any], vehicle_ids: set[int]) -> dict[str, Any]:
-    filtered: dict[str, Any] = {"_period_days": data.get("_period_days", 1)}
+    filtered: dict[str, Any] = {
+        "_period_days": data.get("_period_days", 1),
+        "_sync": data.get("_sync", {}),
+    }
     for key, rows in data.items():
         if key.startswith("_"):
             continue
@@ -436,6 +456,35 @@ def _filter_report_data(data: dict[str, Any], vehicle_ids: set[int]) -> dict[str
             if row.get("vehicle_id") is not None and int(row["vehicle_id"]) in vehicle_ids
         ]
     return filtered
+
+
+@router.post("/flotilla/reports/prepare")
+def prepare_report_metrics(
+    start_date: date | None = Query(default=None), end_date: date | None = Query(default=None),
+    authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+):
+    """Carga una vez las métricas exactas del periodo; análisis posteriores usan Supabase."""
+    ctx = _context(authorization, x_flotilla_access)
+    start, end = _dates(start_date, end_date)
+    integration = _integration(get_supabase_admin(), ctx["tenant_id"])
+    if not integration or integration.get("status") != "active":
+        raise HTTPException(409, "El tenant no tiene una integración Motive activa.")
+    admin = get_supabase_admin()
+    previous_end = start - timedelta(days=1)
+    previous_start = previous_end - (end - start)
+    try:
+        current = sync_vehicle_utilization_range(
+            admin, tenant_id=ctx["tenant_id"], integration_id=int(integration["id"]),
+            period_start=start, period_end=end,
+        )
+        previous = sync_vehicle_utilization_range(
+            admin, tenant_id=ctx["tenant_id"], integration_id=int(integration["id"]),
+            period_start=previous_start, period_end=previous_end,
+        )
+    except MotiveAPIError as exc:
+        raise HTTPException(502, f"No fue posible preparar utilización y horas motor: {exc}") from exc
+    return {"prepared": True, "current_records": current, "previous_records": previous}
 
 
 @router.get("/flotilla/reports/catalog")
