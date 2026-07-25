@@ -850,9 +850,27 @@ function openProcessSubpanel(tabName) {
   if (panel) panel.classList.add('active');
 }
 
+function setSupplementalUploadMode(enabled, kind = '') {
+  const params = document.getElementById('processParametersCard');
+  const context = document.getElementById('supplementalUploadContext');
+  if (params) params.style.display = enabled ? 'none' : '';
+  if (context) context.style.display = enabled ? '' : 'none';
+  if (!enabled) return;
+
+  const { anio, mes, facilityId } = histSelectedPeriodAndFacility();
+  const monthName = document.getElementById('histMes')?.selectedOptions?.[0]?.textContent || `${mes}`;
+  const facility = _facilities.find(f => Number(f.id) === Number(facilityId));
+  const facilityName = facility?.nombre || facility?.clave_instalacion || `Planta #${facilityId}`;
+  const action = kind === 'autoconsumo' ? 'Autoconsumo' : 'XML complementarios';
+  const title = document.getElementById('supplementalUploadTitle');
+  if (title) title.textContent = `${action} · ${monthName.trim()} ${anio} · ${facilityName}`;
+  if (typeof autofillInvInicial === 'function') autofillInvInicial();
+}
+
 document.getElementById('btnHistUploadProvider')?.addEventListener('click', () => {
   if (!syncProcessPeriodAndFacilityFromHistory()) return;
   openProcessSubpanel('cfdi');
+  setSupplementalUploadMode(true, 'cfdi');
   setHistCloseInfo('Sube los XML/ZIP pendientes del proveedor externo y procesa el CFDI para alimentar el mes seleccionado.');
   const drop = document.getElementById('dropCFDI');
   if (drop) drop.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -861,6 +879,7 @@ document.getElementById('btnHistUploadProvider')?.addEventListener('click', () =
 document.getElementById('btnHistAutoconsumo')?.addEventListener('click', () => {
   if (!syncProcessPeriodAndFacilityFromHistory()) return;
   openProcessSubpanel('autoconsumo');
+  setSupplementalUploadMode(true, 'autoconsumo');
   const date = document.getElementById('ac_fecha');
   const { anio, mes } = histSelectedPeriodAndFacility();
   if (date && !date.value) date.value = `${anio}-${mes}-01`;
