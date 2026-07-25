@@ -252,6 +252,8 @@ document.getElementById('btnLoadControles').addEventListener('click', async () =
 
 // ── Procesar CFDI (múltiples archivos) ────────────────────────────────────
 let _cfdiProcessing = false;
+let _supplementalUploadActive = false;
+let _supplementalUploadKind = '';
 async function processCFDI(files) {
   if (_cfdiProcessing) return;
   _cfdiProcessing = true;
@@ -453,7 +455,17 @@ async function processCFDI(files) {
     document.getElementById('logPre').textContent = logs.slice(-30).join('\n');
     _cfdiProcessing = false;
     document.getElementById('btnCFDI').disabled = false;
-    rc.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (_supplementalUploadActive) {
+      setSupplementalUploadMode(false);
+      await switchTab('historial');
+      await loadHistorial();
+      setHistCloseInfo(
+        `Carga consolidada correctamente: ${data.conteo_compras || 0} recepciones y ${data.conteo_ventas || 0} entregas vigentes. Revisa el mes, registra autoconsumo si aplica y ciérralo únicamente al terminar.`,
+        true,
+      );
+    } else {
+      rc.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   } catch (err) {
     document.getElementById('loadCFDI').style.display = 'none';
     const el = document.getElementById('errorCard');
@@ -851,10 +863,17 @@ function openProcessSubpanel(tabName) {
 }
 
 function setSupplementalUploadMode(enabled, kind = '') {
+  _supplementalUploadActive = enabled;
+  _supplementalUploadKind = enabled ? kind : '';
   const params = document.getElementById('processParametersCard');
   const context = document.getElementById('supplementalUploadContext');
+  const processButton = document.getElementById('btnCFDI');
   if (params) params.style.display = enabled ? 'none' : '';
   if (context) context.style.display = enabled ? '' : 'none';
+  if (processButton) {
+    const label = processButton.querySelector('span');
+    if (label) label.textContent = enabled ? 'Procesar y volver a Reportes SAT' : 'Procesar CFDI';
+  }
   if (!enabled) return;
 
   const { anio, mes, facilityId } = histSelectedPeriodAndFacility();
@@ -887,7 +906,7 @@ document.getElementById('btnHistAutoconsumo')?.addEventListener('click', () => {
   setTimeout(cargarAutoconsumos, 100);
 });
 
-document.getElementById('btnCloseHistMonth')?.addEventListener('click', async () => {
+async function closeSelectedHistMonth() {
   if (!syncProcessPeriodAndFacilityFromHistory()) return;
   setHistCloseInfo('Cerrando mes: revisando registros y preparando descarga ZIP por instalación...');
   const btn = document.getElementById('btnCloseHistMonth');
@@ -925,6 +944,39 @@ document.getElementById('btnCloseHistMonth')?.addEventListener('click', async ()
       btn.innerHTML = originalHtml || 'Cerrar y descargar ZIP';
     }
   }
+}
+
+document.getElementById('btnCloseHistMonth')?.addEventListener('click', () => {
+  const { anio, mes } = histSelectedPeriodAndFacility();
+  showConfirmModal(
+    `<b>Cerrar definitivamente ${anio}-${mes}</b><br><br>
+     Antes de continuar confirma que ya subiste todos los XML externos y registraste todo el autoconsumo.<br><br>
+     <span style="color:#991b1b"><b>Después del cierre el mes queda bloqueado</b> y ya no admite facturas, autoconsumos ni correcciones.</span>`,
+    closeSelectedHistMonth,
+  );
+});
+
+document.getElementById('btnReopenHistMonth')?.addEventListener('click', () => {
+  const { anio, mes, facilityId } = histSelectedPeriodAndFacility();
+  if (!anio || !mes || !facilityId) return;
+  showConfirmModal(
+    `<b>Reabrir ${anio}-${mes} para corregirlo</b><br><br>
+     Esta excepción administrativa volverá a permitir XML y autoconsumo. Después de corregir y revisar el balance deberás cerrar el mes nuevamente.`,
+    async () => {
+      try {
+        const res = await fetch(`/api/history/${anio}-${mes}/reopen?facility_id=${facilityId}`, {
+          method: 'POST',
+          headers: authHeader(),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || 'No fue posible reabrir el mes.');
+        await loadHistorial();
+        setHistCloseInfo('Mes reabierto para corrección. Ya puedes subir XML o registrar autoconsumo; vuelve a cerrarlo al terminar.', true);
+      } catch (e) {
+        setHistCloseInfo(e.message || 'No fue posible reabrir el mes.', false);
+      }
+    },
+  );
 });
 
 async function loadHistorial() {
@@ -1063,9 +1115,11 @@ async function loadHistorial() {
     const uploadBtn = document.getElementById('btnHistUploadProvider');
     const autoBtn = document.getElementById('btnHistAutoconsumo');
     const closeBtn = document.getElementById('btnCloseHistMonth');
+    const reopenBtn = document.getElementById('btnReopenHistMonth');
     if (uploadBtn) uploadBtn.disabled = _histMonthClosed;
     if (autoBtn) autoBtn.disabled = _histMonthClosed;
     if (closeBtn) closeBtn.style.display = _histMonthClosed ? 'none' : '';
+    if (reopenBtn) reopenBtn.style.display = (_histMonthClosed && currentUserRole === 'admin') ? '' : 'none';
     if (_histMonthClosed && data.report) {
       document.getElementById('btnDlHistZIP').style.display = '';
     }
