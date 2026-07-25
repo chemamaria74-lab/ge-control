@@ -46,12 +46,11 @@
       </div>
     </section>
 
-    <section class="fleet-filters" aria-label="Filtros">
+    <section class="fleet-filters dashboard-filters" aria-label="Filtros">
       <label>Desde<input id="startDate" type="date"></label>
       <label>Hasta<input id="endDate" type="date"></label>
-      <label class="search-field">Buscar unidad<div><i class="fa-solid fa-magnifying-glass"></i><input id="vehicleSearch" placeholder="Número, placas, marca, modelo o conductor"></div></label>
-      <label>Estado<select id="statusFilter"><option value="">Todos</option><option value="active">Activas</option><option value="in_service">En servicio</option><option value="out_of_service">Fuera de servicio</option></select></label>
-      <label>Combustible<select id="fuelFilter"><option value="">Todos</option><option value="diesel">Diésel</option><option value="gasoline">Gasolina</option><option value="propane">Propano</option><option value="cng">GNC</option></select></label>
+      <label>Grupo / zona<select id="reportGroup"><option value="">Toda la flotilla</option></select></label>
+      <label class="search-field">Buscar una unidad<div><i class="fa-solid fa-magnifying-glass"></i><input id="vehicleSearch" placeholder="Escribe número, placas, modelo o conductor"></div></label>
     </section>
 
     <div class="fleet-notice" id="fleetNotice" role="status" aria-live="polite"></div>
@@ -66,24 +65,27 @@
     </section>
 
     <section class="fleet-card report-center">
-      <div class="section-head"><div><span class="eyebrow"><i class="fa-solid fa-file-excel"></i> Centro de reportes</span><h3>Reportes listos, sin acomodar Excel</h3><p>Filtra por grupo o zona, actualiza Motive y descarga el informe consolidado en MXN.</p></div></div>
-      <div class="report-controls">
-        <label>Grupo / zona<select id="reportGroup"><option value="">Toda la flotilla</option></select></label>
-        <div class="report-step"><strong>1. Actualiza</strong><span>Trae grupos, seguridad, velocidad, actividad y fallas desde Motive.</span></div>
-        <div class="report-step"><strong>2. Complementa gastos</strong><span>Sube el CSV de mantenimiento Motive o el Excel de CREDES.</span></div>
+      <div class="section-head report-heading"><div><span class="eyebrow"><i class="fa-solid fa-chart-line"></i> Dashboard ejecutivo</span><h3>Lo importante de la flotilla, sin revisar unidad por unidad</h3><p>El Excel descargable conserva este resumen y agrega el detalle para auditoría.</p></div>
+        <div class="report-actions">
         <label class="upload-button"><i class="fa-solid fa-cloud-arrow-up"></i> Importar gastos<input id="expenseFile" type="file" accept=".csv,.xlsx" hidden></label>
-        <button class="btn-primary" id="downloadReport" type="button"><i class="fa-solid fa-download"></i> Descargar informe Excel</button>
+        <button class="btn-primary" id="downloadReport" type="button"><i class="fa-solid fa-download"></i> Descargar informe ejecutivo</button>
+        </div>
       </div>
       <div class="report-stats">
         <div><span>Gastos MXN</span><strong id="reportExpenses">$0.00</strong></div><div><span>Litros</span><strong id="reportLiters">0</strong></div>
         <div><span>Seguridad</span><strong id="reportSafety">0</strong></div><div><span>Velocidad</span><strong id="reportSpeeding">0</strong></div>
         <div><span>Actividad</span><strong id="reportActivity">0</strong></div><div><span>Fallas</span><strong id="reportFaults">0</strong></div>
       </div>
-      <div class="submitter-list" id="submitterList">Aún no hay gastos importados para mostrar responsables.</div>
+      <div class="data-status" id="dataStatus">Comprobando las fuentes de información…</div>
+      <div class="dashboard-grid">
+        <article class="dashboard-panel"><div class="panel-title"><h4>Unidades que requieren atención</h4><span>Índice explícito por severidad</span></div><div id="riskRanking" class="bar-list"><div class="empty">Cargando…</div></div></article>
+        <article class="dashboard-panel"><div class="panel-title"><h4>Conductas más frecuentes</h4><span>Eventos de seguridad</span></div><div id="behaviorRanking" class="bar-list"><div class="empty">Cargando…</div></div></article>
+        <article class="dashboard-panel compact-panel"><div class="panel-title"><h4>Quién registró gastos</h4><span>Para seguimiento y bonos</span></div><div id="submitterList">Sin movimientos importados.</div></article>
+      </div>
     </section>
 
-    <section class="fleet-card">
-      <div class="section-head"><div><h3>Unidades</h3><p id="vehicleCount">Cargando catálogo…</p></div><button class="btn-ghost" id="clearFilters" type="button">Limpiar filtros</button></div>
+    <section class="fleet-card search-results" id="vehicleResults" hidden>
+      <div class="section-head"><div><h3>Resultados de búsqueda</h3><p id="vehicleCount">Escribe una unidad para consultar su expediente.</p></div><button class="btn-ghost" id="clearFilters" type="button">Cerrar resultados</button></div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Unidad</th><th>Vehículo</th><th>Conductor</th><th>Combustible</th><th>Estado</th><th>Odómetro</th><th>Actualización</th><th></th></tr></thead>
@@ -101,6 +103,6 @@
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
 
   <script src="/static/js/session_timeout.js?v=20260724c"></script>
-  <script src="/static/js/gas_lp/flotilla.js?v=20260724d"></script>
+  <script src="/static/js/gas_lp/flotilla.js?v=20260725a"></script>
 </body>
 </html>
