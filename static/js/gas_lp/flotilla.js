@@ -51,8 +51,7 @@
     const response = await fetch(`/api/flotilla${path}`, {...options, headers:{...headers(),...(options.headers||{})}});
     const data = await response.json().catch(()=>({detail:'Respuesta inválida del servidor.'}));
     if(response.status===401){
-      redirectToLogin();
-      throw new Error(data.detail||'El acceso a Flotilla 360 expiró.');
+      throw new Error(data.detail||'No se pudo validar la sesión. Reintenta; si expiró, el sistema solicitará acceso nuevamente.');
     }
     if(!response.ok) throw new Error(data.detail || 'No se pudo completar la operación.');
     return data;
@@ -168,19 +167,20 @@
     }
   }
 
-  async function downloadReport(){
+  async function downloadReport(reportType,format,button){
     const p=params(); if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
-    $('downloadReport').disabled=true; notice('Preparando el Excel consolidado…');
+    p.set('report_type',reportType); p.set('format',format);
+    button.disabled=true;
+    notice(reportType==='comparison'?`Preparando el comparativo de todas las zonas en ${format.toUpperCase()}…`:`Preparando el informe de la zona en ${format.toUpperCase()}…`);
     try{
       const response=await fetch(`/api/flotilla/reports/download?${p}`,{headers:headers()});
-      if(response.status===401){redirectToLogin();return;}
       if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.detail||'No se pudo generar el informe.');}
       const blob=await response.blob(), disposition=response.headers.get('Content-Disposition')||'';
       const filename=(disposition.match(/filename="?([^";]+)"?/)||[])[1]||'INFORME_FLOTILLA_360.xlsx';
       const url=URL.createObjectURL(blob), link=document.createElement('a'); link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
-      notice('Informe descargado. Ya incluye hojas separadas y cifras en MXN.');
+      notice(reportType==='comparison'?'Comparativo de dirección descargado.':'Informe de la zona descargado.');
     }catch(error){notice(error.message,'error');}
-    finally{$('downloadReport').disabled=false;}
+    finally{button.disabled=false;}
   }
 
   function initializeDates(){ const today=new Date(), first=new Date(today.getFullYear(),today.getMonth(),1); $('endDate').value=today.toISOString().slice(0,10); $('startDate').value=first.toISOString().slice(0,10); }
@@ -197,6 +197,7 @@
   $('searchVehicle').onclick=()=>{state.page=1;loadVehicles();};
   $('vehicleSearch').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();state.page=1;loadVehicles();}});
   $('clearFilters').onclick=()=>{$('vehicleSearch').value='';$('vehicleResults').hidden=true;};
-  $('runAnalysis').onclick=loadReportCatalog; $('downloadReport').onclick=downloadReport;
+  $('runAnalysis').onclick=loadReportCatalog;
+  document.querySelectorAll('.report-download').forEach(button=>button.addEventListener('click',()=>downloadReport(button.dataset.reportType,button.dataset.format,button)));
   validatePortalSession().then(ok=>{if(ok){loadOverview();loadGroups();}});
 })();
