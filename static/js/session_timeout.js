@@ -91,7 +91,10 @@
     if (portal().noTimeout) return false;
     const token = activeToken();
     const last = lastActivity();
-    return Boolean(token) && (jwtExpired(token, now) || (last > 0 && now - last >= TIMEOUT_MS));
+    // La caducidad corta del JWT no equivale a dos horas de inactividad: el
+    // refresh token puede renovarlo. Esto importa cuando Safari suspende los
+    // temporizadores de una pestaña en segundo plano y se vuelve a ella después.
+    return Boolean(token) && last > 0 && now - last >= TIMEOUT_MS;
   }
 
   function markActivity(force = false) {
@@ -230,8 +233,13 @@
   ['click', 'keydown', 'pointerdown', 'scroll', 'touchstart'].forEach(eventName => {
     window.addEventListener(eventName, () => { if (!enforce()) markActivity(); }, {passive: true});
   });
-  window.addEventListener('focus', enforce);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) enforce(); });
+  async function resumeSession() {
+    if (enforce()) return;
+    const token = activeToken();
+    if (token && jwtExpiresSoon(token)) await refreshAccessToken();
+  }
+  window.addEventListener('focus', resumeSession);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeSession(); });
   setInterval(enforce, 60 * 1000);
   setInterval(() => {
     const token = activeToken();
