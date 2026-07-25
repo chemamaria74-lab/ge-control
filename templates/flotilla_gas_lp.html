@@ -7,8 +7,8 @@
   <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
-  <link rel="stylesheet" href="/static/css/gas_lp/flotilla.css?v=20260724b">
-  <link rel="stylesheet" href="/static/css/gas_lp/flotilla_reports.css?v=20260724a">
+  <link rel="stylesheet" href="/static/css/gas_lp/flotilla.css?v=20260725b">
+  <link rel="stylesheet" href="/static/css/gas_lp/flotilla_reports.css?v=20260725b">
   <link rel="stylesheet" href="/static/css/gas_lp/flotilla_auth_gate.css?v=20260724b">
 </head>
 <body>
@@ -36,8 +36,8 @@
     <section class="fleet-hero">
       <div>
         <span class="eyebrow"><i class="fa-solid fa-satellite-dish"></i> Integración Motive</span>
-        <h2>Control integral de la flotilla</h2>
-        <p>Gastos, consumo, inspecciones y rendimiento consolidados por unidad.</p>
+        <h2>Informe gerencial de flotilla</h2>
+        <p>Selecciona una zona y obtén las prioridades que debe atender su gerente.</p>
       </div>
       <div class="sync-box">
         <div><span class="sync-dot" id="syncDot"></span><strong id="syncTitle">Comprobando conexión…</strong></div>
@@ -46,41 +46,47 @@
       </div>
     </section>
 
-    <section class="fleet-filters dashboard-filters" aria-label="Filtros">
-      <label>Desde<input id="startDate" type="date"></label>
-      <label>Hasta<input id="endDate" type="date"></label>
-      <label>Grupo / zona<select id="reportGroup"><option value="">Toda la flotilla</option></select></label>
-      <label class="search-field">Buscar una unidad<div><i class="fa-solid fa-magnifying-glass"></i><input id="vehicleSearch" placeholder="Escribe número, placas, modelo o conductor"></div></label>
-    </section>
-
     <div class="fleet-notice" id="fleetNotice" role="status" aria-live="polite"></div>
 
-    <section class="kpi-grid" aria-label="Indicadores">
-      <article class="kpi"><span>Unidades</span><strong id="kpiVehicles">—</strong><small id="kpiActive">— activas</small></article>
-      <article class="kpi"><span>Fuera de servicio</span><strong id="kpiOut">—</strong><small>Estado actual</small></article>
-      <article class="kpi"><span>Combustible</span><strong id="kpiLiters">—</strong><small>Litros del periodo</small></article>
-      <article class="kpi"><span>Gasto combustible</span><strong id="kpiCost">—</strong><small id="kpiCurrency">Periodo seleccionado</small></article>
-      <article class="kpi"><span>Inspecciones</span><strong id="kpiInspections">—</strong><small>Realizadas en el periodo</small></article>
-      <article class="kpi"><span>Defectos abiertos</span><strong id="kpiDefects">—</strong><small id="kpiMajor">— graves</small></article>
+    <section class="fleet-card executive-query">
+      <div class="query-copy">
+        <span class="eyebrow"><i class="fa-solid fa-filter"></i> Preparar informe</span>
+        <h3>¿Qué zona quieres revisar?</h3>
+        <p>GE Control consultará Supabase solamente cuando presiones “Generar análisis”.</p>
+      </div>
+      <div class="dashboard-filters" aria-label="Filtros del informe">
+        <label>Desde<input id="startDate" type="date"></label>
+        <label>Hasta<input id="endDate" type="date"></label>
+        <label class="group-field">Grupo / zona<select id="reportGroup"><option value="">Toda la flotilla</option></select></label>
+        <button class="btn-primary query-button" id="runAnalysis" type="button"><i class="fa-solid fa-chart-column"></i> Generar análisis</button>
+      </div>
+      <div class="unit-query">
+        <div><strong>Consulta puntual de una unidad</strong><small>Busca expediente, consumo e inspecciones solo cuando lo necesites.</small></div>
+        <label class="search-field"><div><i class="fa-solid fa-magnifying-glass"></i><input id="vehicleSearch" placeholder="Número, placas, modelo o conductor"></div></label>
+        <button class="btn-ghost" id="searchVehicle" type="button">Buscar unidad</button>
+      </div>
     </section>
 
-    <section class="fleet-card report-center">
-      <div class="section-head report-heading"><div><span class="eyebrow"><i class="fa-solid fa-chart-line"></i> Dashboard ejecutivo</span><h3>Lo importante de la flotilla, sin revisar unidad por unidad</h3><p>El Excel descargable conserva este resumen y agrega el detalle para auditoría.</p></div>
+    <section class="fleet-card report-center" id="executiveDashboard" hidden>
+      <div class="section-head report-heading"><div><span class="eyebrow"><i class="fa-solid fa-chart-line"></i> Dashboard ejecutivo</span><h3>Lo que debe atender el gerente</h3><p>Prioridades de la zona seleccionada, ordenadas por impacto.</p></div>
         <div class="report-actions">
-        <label class="upload-button"><i class="fa-solid fa-cloud-arrow-up"></i> Importar gastos<input id="expenseFile" type="file" accept=".csv,.xlsx" hidden></label>
         <button class="btn-primary" id="downloadReport" type="button"><i class="fa-solid fa-download"></i> Descargar informe ejecutivo</button>
         </div>
       </div>
       <div class="report-stats">
-        <div><span>Gastos MXN</span><strong id="reportExpenses">$0.00</strong></div><div><span>Litros</span><strong id="reportLiters">0</strong></div>
-        <div><span>Seguridad</span><strong id="reportSafety">0</strong></div><div><span>Velocidad</span><strong id="reportSpeeding">0</strong></div>
-        <div><span>Actividad</span><strong id="reportActivity">0</strong></div><div><span>Fallas</span><strong id="reportFaults">0</strong></div>
+        <div><span>Eventos de seguridad</span><strong id="reportSafety">—</strong></div>
+        <div><span>Excesos de velocidad</span><strong id="reportSpeeding">—</strong></div>
+        <div><span>Críticos / altos</span><strong id="reportCritical">—</strong></div>
+        <div><span>Periodos de actividad</span><strong id="reportActivity">—</strong></div>
+        <div><span>Códigos de falla</span><strong id="reportFaults">—</strong></div>
+        <div><span>Gasto documentado MXN</span><strong id="reportExpenses">—</strong></div>
       </div>
       <div class="data-status" id="dataStatus">Comprobando las fuentes de información…</div>
+      <div class="manager-brief" id="managerBrief"></div>
       <div class="dashboard-grid">
         <article class="dashboard-panel"><div class="panel-title"><h4>Unidades que requieren atención</h4><span>Índice explícito por severidad</span></div><div id="riskRanking" class="bar-list"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel"><div class="panel-title"><h4>Conductas más frecuentes</h4><span>Eventos de seguridad</span></div><div id="behaviorRanking" class="bar-list"><div class="empty">Cargando…</div></div></article>
-        <article class="dashboard-panel compact-panel"><div class="panel-title"><h4>Quién registró gastos</h4><span>Para seguimiento y bonos</span></div><div id="submitterList">Sin movimientos importados.</div></article>
+        <article class="dashboard-panel compact-panel"><div class="panel-title"><h4>Seguimiento operativo</h4><span>Datos documentados en Motive</span></div><div id="submitterList">Sin movimientos documentados.</div></article>
       </div>
     </section>
 
