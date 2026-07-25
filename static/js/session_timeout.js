@@ -14,6 +14,7 @@
   let lastWrite = 0;
   let redirecting = false;
   let authValidation = null;
+  let refreshPromise = null;
 
   function portal() {
     const path = location.pathname;
@@ -76,6 +77,15 @@
     } catch (_err) { return false; }
   }
 
+  function jwtExpiresSoon(token, windowMs = 5 * 60 * 1000, now = Date.now()) {
+    if (!token || token.split('.').length !== 3) return false;
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      const expiresAt = Number(payload.exp || 0) * 1000;
+      return expiresAt > 0 && now + windowMs >= expiresAt;
+    } catch (_err) { return false; }
+  }
+
   function lastActivity() { return Number(localStorage.getItem(sessionKey()) || 0) || 0; }
   function isExpired(now = Date.now()) {
     if (portal().noTimeout) return false;
@@ -132,6 +142,44 @@
   // Convierte respuestas de autenticación vencida en una salida clara. Un 403 es
   // un problema de permisos y deliberadamente no cierra una sesión válida.
   const nativeFetch = window.fetch.bind(window);
+  async function refreshAccessToken() {
+    if (refreshPromise) return refreshPromise;
+    refreshPromise = nativeFetch('/api/auth/refresh', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+    }).then(async response => {
+      if (!response.ok) return '';
+      const data = await response.json();
+      const token = String(data.token || '');
+      if (!token) return '';
+      const currentPortal = portal();
+      currentPortal.tokenKeys.forEach(key => {
+        if (localStorage.getItem(key)) localStorage.setItem(key, token);
+      });
+      if (currentPortal.tokenKeys.includes('sat_token')) localStorage.setItem('sat_token', token);
+      window.dispatchEvent(new CustomEvent('ge:token-refreshed', {detail: {token}}));
+      markActivity(true);
+      return token;
+    }).catch(() => '')
+      .finally(() => { refreshPromise = null; });
+    return refreshPromise;
+  }
+
+  function requestPath(input) {
+    try {
+      const raw = typeof input === 'string' ? input : input?.url;
+      return new URL(raw, location.origin).pathname;
+    } catch (_err) { return ''; }
+  }
+
+  function withFreshAuthorization(input, init, oldToken, newToken) {
+    if (!newToken || newToken === oldToken) return init;
+    const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+    const authorization = headers.get('Authorization') || '';
+    if (authorization === `Bearer ${oldToken}`) headers.set('Authorization', `Bearer ${newToken}`);
+    return {...(init || {}), headers};
+  }
   function isAuthValidationRequest(input) {
     try {
       const raw = typeof input === 'string' ? input : input?.url;
@@ -154,7 +202,22 @@
   }
 
   window.fetch = async function geSessionFetch(input, init) {
-    const response = await nativeFetch(input, init);
+    const path = requestPath(input);
+    const canRefresh = path !== '/api/auth/login' && path !== '/api/auth/refresh' && path !== '/api/auth/logout';
+    const oldToken = activeToken();
+    let freshToken = oldToken;
+    if (canRefresh && oldToken && jwtExpiresSoon(oldToken)) {
+      freshToken = await refreshAccessToken() || oldToken;
+    }
+    let requestInit = withFreshAuthorization(input, init, oldToken, freshToken);
+    let response = await nativeFetch(input, requestInit);
+    if (response.status === 401 && canRefresh && activeToken()) {
+      const renewed = await refreshAccessToken();
+      if (renewed) {
+        requestInit = withFreshAuthorization(input, requestInit, freshToken, renewed);
+        response = await nativeFetch(input, requestInit);
+      }
+    }
     if (response.status === 401 && activeToken() && !portal().noTimeout) {
       if (isAuthValidationRequest(input) || await sessionIsInvalid()) logoutExpired();
     }
@@ -170,4 +233,8 @@
   window.addEventListener('focus', enforce);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) enforce(); });
   setInterval(enforce, 60 * 1000);
+  setInterval(() => {
+    const token = activeToken();
+    if (token && jwtExpiresSoon(token)) refreshAccessToken();
+  }, 60 * 1000);
 })();
