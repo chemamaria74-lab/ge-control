@@ -237,14 +237,14 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
     dashboard.hide_gridlines(2); dashboard.set_tab_color("#6B1022")
     dashboard.set_column("A:A", 2); dashboard.set_column("B:M", 13)
     dashboard.set_row(0, 10); dashboard.merge_range("B2:M3", "INFORME EJECUTIVO · FLOTILLA 360", title)
-    dashboard.merge_range("B4:M4", f"{group_name or 'Toda la flotilla'}  |  {start:%d/%m/%Y} al {end:%d/%m/%Y}", subtitle)
+    dashboard.merge_range("B4:M4", f"{(group_name or 'Toda la flotilla').upper()}  |  {start:%d/%m/%Y} al {end:%d/%m/%Y}", subtitle)
     metrics = [
-        ("GASTOS MXN", sum(float(x.get("amount_mxn") or 0) for x in data.get("expenses", [])), True),
-        ("LITROS", sum(float(x.get("quantity_liters") or 0) for x in data.get("expenses", [])), False),
-        ("SEGURIDAD", len(data.get("driver_events", [])), False),
-        ("VELOCIDAD", len(data.get("speeding", [])), False),
+        ("UNIDADES ANALIZADAS", len(analytics["units"]), False),
+        ("EVENTOS TOTALES", len(data.get("driver_events", [])) + len(data.get("speeding", [])), False),
+        ("EVENTOS DE SEGURIDAD", len(data.get("driver_events", [])), False),
+        ("EXCESOS DE VELOCIDAD", len(data.get("speeding", [])), False),
         ("CRÍTICOS / ALTOS", analytics["critical_high"], False),
-        ("FALLAS", len(data.get("faults", [])), False),
+        ("ACTIVIDAD REGISTRADA", len(data.get("activity", [])), False),
     ]
     for index, (label, value, is_money) in enumerate(metrics):
         column = 1 + index * 2
@@ -296,10 +296,30 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         behavior_chart.set_y_axis({"major_gridlines": {"visible": False}})
         behavior_chart.set_style(10)
         dashboard.insert_chart("H15", behavior_chart, {"x_scale": 1.18, "y_scale": 0.82})
-    if not data.get("expenses"):
-        dashboard.merge_range("B30:M31", "Gastos: no hay movimientos importados en este periodo. Importe el CSV de mantenimiento o el Excel de CREDES; esto no significa que el gasto real sea $0.", note)
+    action_title = workbook.add_format({"bold": True, "font_size": 12, "font_color": "#6B1022", "bg_color": "#F7F2EC", "border": 1, "valign": "vcenter"})
+    action_text = workbook.add_format({"font_size": 10, "font_color": "#29231F", "bg_color": "#FFFFFF", "border": 1, "text_wrap": True, "valign": "top"})
+    dashboard.merge_range("B30:M30", "DECISIONES RECOMENDADAS PARA EL GERENTE", section)
+    top_unit = ranking[0] if ranking else None
+    top_behavior = behavior_rows[0] if behavior_rows else None
+    dashboard.merge_range("B31:E31", "1 · CORREGIR LA MAYOR EXPOSICIÓN", action_title)
+    dashboard.merge_range("B32:E34", (
+        f"Revisar la unidad {top_unit['vehicle_number']}: concentra "
+        f"{top_unit['security'] + top_unit['speeding']:,} eventos y un índice de atención de {top_unit['attention_index']:,}."
+        if top_unit else "No se detectaron unidades con eventos en el periodo."
+    ), action_text)
+    dashboard.merge_range("F31:I31", "2 · ATACAR LA CONDUCTA DOMINANTE", action_title)
+    dashboard.merge_range("F32:I34", (
+        f"Aplicar retroalimentación y seguimiento sobre “{top_behavior['label']}”, "
+        f"que representa {top_behavior['count']:,} eventos del periodo."
+        if top_behavior else "No se detectaron conductas de seguridad en el periodo."
+    ), action_text)
+    dashboard.merge_range("J31:M31", "3 · VALIDAR EL CIERRE", action_title)
+    dashboard.merge_range("J32:M34", (
+        f"Asignar responsable y fecha compromiso. Dar seguimiento a {analytics['critical_high']:,} "
+        "eventos críticos/altos y comprobar la reducción en el siguiente informe."
+    ), action_text)
     if not data.get("activity") or not data.get("faults"):
-        dashboard.merge_range("B33:M34", "Fuentes pendientes: Actividad o Códigos de falla no entregaron registros en la última sincronización completa. El portal mostrará su estado para evitar interpretar un dato pendiente como cero.", note)
+        dashboard.merge_range("B36:M37", "Cobertura del informe: alguna fuente de Motive no entregó registros en este corte. Un espacio sin datos se presenta como “no disponible” y no como cero operativo.", note)
 
     summary = workbook.add_worksheet("Resumen por unidad")
     summary.freeze_panes(1, 0)

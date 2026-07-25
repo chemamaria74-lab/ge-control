@@ -286,6 +286,8 @@ def build_sat_report(
     anio: Optional[int] = None,
     mes:  Optional[int] = None,
     capacidad_tanque: Optional[float] = None,
+    capacidad_margen_pct: float = 0.20,
+    aplicar_ajuste_capacidad: bool = True,
     inventario_final_medido: Optional[float] = None,
     temperatura_medicion: float = 20.0,
     composicion_propano: Optional[float] = None,
@@ -420,10 +422,18 @@ def build_sat_report(
         )
         vol_existencias_raw = 0.0
 
-    # ── Límite de capacidad ───────────────────────────────────────────────────
-    cap_limit   = capacidad_tanque if (capacidad_tanque and capacidad_tanque > 0) else CAPACIDAD_MAX
-    cap_applied = vol_existencias_raw > cap_limit
-    vol_existencias = round(min(vol_existencias_raw, cap_limit), 2)
+    # ── Capacidad + margen operativo ──────────────────────────────────────────
+    capacidad_fisica = capacidad_tanque if (capacidad_tanque and capacidad_tanque > 0) else CAPACIDAD_MAX
+    margen_pct = max(0.0, float(capacidad_margen_pct or 0.0))
+    cap_limit = round(capacidad_fisica * (1.0 + margen_pct), 2)
+    cap_exceeded = vol_existencias_raw > cap_limit
+    cap_applied = bool(cap_exceeded and aplicar_ajuste_capacidad)
+    # En borrador se conserva el cálculo real para que autoconsumos y movimientos
+    # posteriores sigan actualizando el balance. El ajuste solo ocurre al cerrar.
+    vol_existencias = round(
+        min(vol_existencias_raw, cap_limit) if aplicar_ajuste_capacidad else vol_existencias_raw,
+        2,
+    )
 
     # ── Tolerancia dinámica por incertidumbre del medidor ─────────────────────
     _incert  = incertidumbre_medidor if (incertidumbre_medidor and 0 < incertidumbre_medidor < 0.1) else 0.005
@@ -642,7 +652,11 @@ def build_sat_report(
                     f"Ajuste justificado incluido en el reporte mensual de controles volumétricos SAT."
                 ),
             }); n += 1
-            vol_existencias = round(min(inventario_final_medido, cap_limit), 2)
+            vol_existencias = round(
+                min(inventario_final_medido, cap_limit)
+                if aplicar_ajuste_capacidad else inventario_final_medido,
+                2,
+            )
 
     # 2. Cierre del periodo — CORRECCIÓN: ahora incluye UsuarioResponsable
     bitacora.append({
@@ -774,7 +788,10 @@ def build_sat_report(
         "cnt_compras":               cnt_rec,
         "cnt_ventas":                cnt_ent,
         "alerta_capacidad":          cap_applied,
+        "cap_exceeded":              cap_exceeded,
         "cap_applied":               cap_applied,
+        "capacidad_fisica":          round(capacidad_fisica, 2),
+        "capacidad_margen_pct":      round(margen_pct, 4),
         "cap_limit":                 round(cap_limit, 2),
         "tolerancia_inventario_l":   TOLERANCIA_DINAMICA,
         "vcm": {
