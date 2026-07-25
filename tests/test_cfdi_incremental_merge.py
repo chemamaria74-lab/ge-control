@@ -122,3 +122,19 @@ def test_past_month_does_not_close_automatically():
         {"periodo": "2000-01", "status": "draft", "closed_at": None},
         "2000-01",
     ) is False
+
+
+def test_history_deduplicates_assistant_uuid_case_insensitively():
+    stored = {
+        "entradas": [],
+        "salidas": [{"tipo": "salida", "uuid": "ABC-123", "fecha": "2026-06-01"}],
+    }
+    derived = {
+        "entradas": [],
+        "salidas": [{"tipo": "salida", "uuid": "abc-123", "fecha": "2026-06-01"}],
+        "cancelled_uuids": [],
+    }
+
+    merged = _merge_derived_records(stored, derived)
+
+    assert len(merged["salidas"]) == 1

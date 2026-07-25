@@ -163,9 +163,27 @@ class TestInventario:
             anio=2025, mes=1,
         )
         assert meta["cap_applied"] is True
-        assert meta["vol_existencias_litros"] == 20000.0
+        assert meta["vol_existencias_litros"] == 24000.0
         tipos_evento = [e["TipoEvento"] for e in sat["BitacoraMensual"]]
         assert 7 in tipos_evento, "TipoEvento 7 debe aparecer cuando capacidad es excedida"
+
+    def test_borrador_muestra_inventario_real_sin_recortar_capacidad(self):
+        movs = [_mov("entrada", 30000.0, uuid="CFDI-ENTRADA-BORRADOR")]
+        sat, meta = build_sat_report(
+            movimientos=movs,
+            settings=_settings_base(),
+            inventario_inicial_litros=5000.0,
+            capacidad_tanque=20000.0,
+            capacidad_margen_pct=0.20,
+            aplicar_ajuste_capacidad=False,
+            anio=2025,
+            mes=1,
+        )
+        assert meta["cap_exceeded"] is True
+        assert meta["cap_applied"] is False
+        assert meta["vol_existencias_litros"] == 35000.0
+        tipos_evento = [e["TipoEvento"] for e in sat["BitacoraMensual"]]
+        assert 7 not in tipos_evento
 
 
 class TestAutoconsumo:
