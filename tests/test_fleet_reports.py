@@ -17,8 +17,8 @@ def test_parse_motive_maintenance_preserves_manager_and_mxn():
     assert rows[0]["vehicle_number"] == "87 ALFA AGS"
 
 
-def test_report_has_expected_operational_sheets(tmp_path):
+def test_empty_report_has_executive_sheets_without_misleading_empty_tabs(tmp_path):
     payload = build_fleet_report({"expenses": [], "driver_events": [], "speeding": [], "activity": [], "faults": []}, date(2026, 7, 1), date(2026, 7, 20))
     target = tmp_path / "report.xlsx"; target.write_bytes(payload)
     workbook = load_workbook(target, read_only=True)
-    assert workbook.sheetnames == ["Resumen", "Gastos", "Seguridad", "Exceso velocidad", "Actividad", "Códigos de falla"]
+    assert workbook.sheetnames == ["Dashboard", "Resumen por unidad"]
