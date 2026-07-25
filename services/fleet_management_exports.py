@@ -64,23 +64,42 @@ def build_comparison_excel(
 
     sheet = workbook.add_worksheet("Comparativo dirección")
     sheet.hide_gridlines(2)
-    sheet.freeze_panes(8, 1)
+    sheet.freeze_panes(11, 1)
     sheet.set_tab_color(BURGUNDY)
+    sheet.set_landscape(); sheet.fit_to_pages(1, 0); sheet.set_margins(0.25, 0.25, 0.35, 0.35)
+    sheet.set_header("&LGE CONTROL · FLOTILLA 360&RComparativo de dirección")
+    sheet.set_footer("&LInformación gerencial&C&P de &N&RPeriodo comparado")
     sheet.set_column("A:A", 28)
     sheet.set_column("B:R", 15)
     sheet.merge_range("A1:R2", "COMPARATIVO EJECUTIVO · TODAS LAS ZONAS", title)
     sheet.merge_range("A3:R3", f"Periodo actual: {start:%d/%m/%Y} al {end:%d/%m/%Y}", subtitle)
     sheet.merge_range("A4:R4", f"Comparación: {previous_start:%d/%m/%Y} al {previous_end:%d/%m/%Y}", subtitle)
-    sheet.merge_range("A6:R6", "INDICADORES PARA DIRECCIÓN", section)
+    ordered = sorted(zones, key=lambda row: (-row["critical_high"], -row["events"], row["zone"]))
+    total_units = sum(row["vehicles"] for row in ordered)
+    total_critical = sum(row["critical_high"] for row in ordered)
+    total_expenses = sum(row["expenses_mxn"] for row in ordered)
+    total_overdue = sum(row["overdue_defects"] for row in ordered)
+    kpi_label = workbook.add_format({"bold": True, "font_color": MUTED, "font_size": 9, "align": "center", "bg_color": PALE, "border": 1})
+    kpi_value = workbook.add_format({"bold": True, "font_color": INK, "font_size": 17, "align": "center", "bg_color": "#FFFFFF", "border": 1})
+    kpis = [
+        ("ZONAS", len(ordered), False), ("UNIDADES", total_units, False),
+        ("CRÍTICOS / ALTOS", total_critical, False), ("GASTO TOTAL", total_expenses, True),
+        ("DEFECTOS VENCIDOS", total_overdue, False), ("PRIMERA PRIORIDAD", ordered[0]["zone"] if ordered else "Sin datos", "text"),
+    ]
+    for index, (label, value, kind) in enumerate(kpis):
+        start_col = index * 3
+        sheet.merge_range(5, start_col, 5, start_col + 2, label, kpi_label)
+        display = str(value) if kind == "text" else _money(value) if kind else _n(value)
+        sheet.merge_range(6, start_col, 7, start_col + 2, display, kpi_value)
+    sheet.merge_range("A10:R10", "INDICADORES PARA DIRECCIÓN", section)
     headers = [
         "Zona", "Unidades", "Score conductor", "Eventos", "Críticos/altos",
         "Eventos vs anterior", "Km", "Horas motor", "Utilización", "Gasto total MXN",
         "Mantenimiento MXN", "Gasto vs anterior", "km/L", "Costo/km", "Inspecciones",
         "Defectos abiertos", "Defectos vencidos", "Prioridad",
     ]
-    sheet.write_row(7, 0, headers, header)
-    ordered = sorted(zones, key=lambda row: (-row["critical_high"], -row["events"], row["zone"]))
-    for row_no, item in enumerate(ordered, 8):
+    sheet.write_row(10, 0, headers, header)
+    for row_no, item in enumerate(ordered, 11):
         priority = "Intervención" if item["critical_high"] or item["overdue_defects"] else "Seguimiento"
         values = [
             item["zone"], item["vehicles"], item["driver_score"], item["events"], item["critical_high"],
@@ -103,22 +122,35 @@ def build_comparison_excel(
             else:
                 sheet.write(row_no, col, value, fmt)
     if ordered:
-        last = 7 + len(ordered)
-        sheet.autofilter(7, 0, last, len(headers) - 1)
-        sheet.conditional_format(8, 4, last, 4, {"type": "3_color_scale", "min_color": "#E7F4EC", "mid_color": "#FCE8B2", "max_color": "#F3B7BE"})
-        sheet.conditional_format(8, 16, last, 16, {"type": "data_bar", "bar_color": RED})
+        last = 10 + len(ordered)
+        sheet.autofilter(10, 0, last, len(headers) - 1)
+        sheet.conditional_format(11, 4, last, 4, {"type": "3_color_scale", "min_color": "#E7F4EC", "mid_color": "#FCE8B2", "max_color": "#F3B7BE"})
+        sheet.conditional_format(11, 16, last, 16, {"type": "data_bar", "bar_color": RED})
         chart = workbook.add_chart({"type": "bar"})
         chart.add_series({
             "name": "Críticos / altos",
-            "categories": ["Comparativo dirección", 8, 0, last, 0],
-            "values": ["Comparativo dirección", 8, 4, last, 4],
+            "categories": ["Comparativo dirección", 11, 0, last, 0],
+            "values": ["Comparativo dirección", 11, 4, last, 4],
             "fill": {"color": RED},
             "border": {"none": True},
         })
         chart.set_title({"name": "Exposición crítica por zona"})
         chart.set_legend({"none": True})
         chart.set_y_axis({"reverse": True})
-        sheet.insert_chart("A12", chart, {"x_scale": 1.35, "y_scale": 1.25})
+        chart_row = last + 3
+        sheet.insert_chart(chart_row, 0, chart, {"x_scale": 1.2, "y_scale": 1.05})
+        expense_chart = workbook.add_chart({"type": "column"})
+        expense_chart.add_series({
+            "name": "Gasto total MXN",
+            "categories": ["Comparativo dirección", 11, 0, last, 0],
+            "values": ["Comparativo dirección", 11, 9, last, 9],
+            "fill": {"color": GOLD}, "border": {"none": True},
+        })
+        expense_chart.set_title({"name": "Gasto documentado por zona (MXN)"})
+        expense_chart.set_legend({"none": True})
+        expense_chart.set_y_axis({"num_format": "$#,##0", "major_gridlines": {"visible": False}})
+        sheet.insert_chart(chart_row, 9, expense_chart, {"x_scale": 1.2, "y_scale": 1.05})
+        sheet.print_area(0, 0, chart_row + 16, 17)
 
     detail = workbook.add_worksheet("Lectura ejecutiva")
     detail.hide_gridlines(2)
@@ -168,15 +200,16 @@ def build_zone_pdf(
     actions.append(f"Eventos contra periodo anterior: {_pct(row['events_delta_pct'])}. Gasto contra periodo anterior: {_pct(row['expense_delta_pct'])}.")
     story.append(_bullet_box(actions))
     story.append(Spacer(1, 4 * mm))
-    story.append(_section("Mantenimiento y gasto por unidad"))
+    story.append(_section("Unidades que requieren atención"))
     story.append(_pdf_table(
-        ["Unidad", "Conductor", "Gasto", "Mantenimiento", "Km", "km/L", "$/km"],
-        [[u["vehicle_number"], u["driver_name"] or "Sin asignar", _money(u["expense_mxn"]),
-          _money(u["maintenance_mxn"]), _n(u["distance_km"], 1), _n(u["km_per_liter"], 2),
-          _money(u["cost_per_km"]) if u["cost_per_km"] is not None else "N/D"] for u in top_units],
-        [38, 39, 23, 25, 18, 18, 18],
+        ["Unidad", "Conductor", "Score", "Eventos", "Crít./altos", "Def. abiertos", "Prioridad"],
+        [[u["vehicle_number"], u["driver_name"] or "Sin asignar", _n(u["score"], 1),
+          _n(u["security"] + u["speeding"]), _n(u["critical_high"]), _n(u["open_defects"]),
+          _n(u["attention_index"])] for u in top_units[:8]],
+        [38, 48, 20, 20, 24, 25, 22],
     ))
     story.append(PageBreak())
+    story.extend(_pdf_header(f"Detalle operativo · {zone or 'Toda la flotilla'}", start, end))
     story.append(_section("Scorecard, utilización e inspecciones"))
     story.append(_pdf_table(
         ["Unidad", "Score", "Eventos", "Crít./altos", "Utilización", "Hrs motor", "Inspecciones", "Def. vencidos"],
@@ -185,6 +218,21 @@ def build_zone_pdf(
           _n(u["inspections"]), _n(u["overdue_defects"])] for u in top_units],
         [38, 18, 18, 20, 21, 20, 23, 25],
     ))
+    expense_units = [unit for unit in top_units if unit["expense_mxn"] or unit["maintenance_mxn"]]
+    story.append(Spacer(1, 4 * mm))
+    story.append(_section("Mantenimiento y gasto documentado"))
+    if expense_units:
+        story.append(_pdf_table(
+            ["Unidad", "Gasto total", "Mantenimiento", "Km", "km/L", "$/km"],
+            [[u["vehicle_number"], _money(u["expense_mxn"]), _money(u["maintenance_mxn"]),
+              _n(u["distance_km"], 1), _n(u["km_per_liter"], 2),
+              _money(u["cost_per_km"]) if u["cost_per_km"] is not None else "N/D"] for u in expense_units[:8]],
+            [48, 31, 34, 25, 25, 28],
+        ))
+    else:
+        story.append(_bullet_box([
+            "No hay gastos documentados para esta zona y periodo. Se presenta como fuente pendiente, no como ahorro de $0.",
+        ]))
     return _render_pdf(story, f"Zona {zone or 'Toda la flotilla'}")
 
 
@@ -199,6 +247,21 @@ def build_comparison_pdf(
         "Documento exclusivo para dirección y administración.", _styles()["body"]
     ))
     story.append(Spacer(1, 4 * mm))
+    story.append(_kpi_table([
+        ("Zonas", _n(len(ordered))),
+        ("Unidades", _n(sum(z["vehicles"] for z in ordered))),
+        ("Críticos / altos", _n(sum(z["critical_high"] for z in ordered))),
+        ("Gasto total", _money(sum(z["expenses_mxn"] for z in ordered))),
+        ("Defectos vencidos", _n(sum(z["overdue_defects"] for z in ordered))),
+        ("Prioridad", ordered[0]["zone"] if ordered else "Sin datos"),
+    ]))
+    story.append(Spacer(1, 4 * mm))
+    if ordered:
+        story.append(_bullet_box([
+            f"Primera zona a revisar: {ordered[0]['zone']} con {ordered[0]['critical_high']} eventos críticos/altos.",
+            "Las variaciones se calculan contra un periodo anterior de la misma duración; si no existe base comparable se indica expresamente.",
+        ]))
+        story.append(Spacer(1, 4 * mm))
     story.append(_section("Prioridades de dirección"))
     story.append(_pdf_table(
         ["Zona", "Unid.", "Score", "Eventos", "Crít./altos", "Δ eventos", "Gasto", "Δ gasto", "Def. venc."],

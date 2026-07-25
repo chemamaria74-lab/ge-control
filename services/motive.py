@@ -33,20 +33,25 @@ def _api_key() -> str:
     return key
 
 
-def motive_get(path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+def motive_get(
+    path: str, *, params: dict[str, Any] | None = None,
+    timezone_header: str = "America/Mexico_City",
+) -> dict[str, Any]:
     if not path.startswith("/") or path.startswith("//"):
         raise ValueError("La ruta de Motive debe ser relativa y comenzar con '/'.")
     response = None
     for attempt in range(MOTIVE_MAX_RETRIES):
         try:
+            headers = {
+                "x-api-key": _api_key(),
+                "Accept": "application/json",
+                "X-Metric-Units": "true",
+            }
+            if timezone_header:
+                headers["X-Time-Zone"] = timezone_header
             response = requests.get(
                 f"{MOTIVE_BASE_URL}{path}",
-                headers={
-                    "x-api-key": _api_key(),
-                    "Accept": "application/json",
-                    "X-Time-Zone": "America/Mexico_City",
-                    "X-Metric-Units": "true",
-                },
+                headers=headers,
                 params=params or {},
                 timeout=(5, 20),
             )
@@ -98,16 +103,19 @@ def motive_get_all_pages(
     per_page: int = 100,
     max_pages: int = 1000,
     page_param: str = "page_no",
+    timezone_header: str = "America/Mexico_City",
 ) -> list[Any]:
     """Recorre paginación page_no/per_page sin asumir que una página contiene todo."""
     records: list[Any] = []
     base_params = dict(params or {})
     page_no = 1
     while page_no <= max_pages:
-        page = motive_get(
-            path,
-            params={**base_params, "per_page": per_page, page_param: page_no},
-        )
+        request_kwargs: dict[str, Any] = {
+            "params": {**base_params, "per_page": per_page, page_param: page_no},
+        }
+        if timezone_header != "America/Mexico_City":
+            request_kwargs["timezone_header"] = timezone_header
+        page = motive_get(path, **request_kwargs)
         batch = page.get(collection_key) or []
         if not isinstance(batch, list):
             raise MotiveAPIError(502, f"Motive devolvió {collection_key} en un formato inesperado.")
