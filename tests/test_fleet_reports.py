@@ -2,7 +2,7 @@ from datetime import date
 
 from openpyxl import load_workbook
 
-from services.fleet_reports import build_fleet_report, parse_maintenance_csv
+from services.fleet_reports import build_fleet_report, fleet_analytics, parse_maintenance_csv
 
 
 def test_parse_motive_maintenance_preserves_manager_and_mxn():
@@ -22,3 +22,23 @@ def test_empty_report_has_executive_sheets_without_misleading_empty_tabs(tmp_pat
     target = tmp_path / "report.xlsx"; target.write_bytes(payload)
     workbook = load_workbook(target, read_only=True)
     assert workbook.sheetnames == ["Dashboard", "Resumen por unidad"]
+
+
+def test_analytics_uses_consumed_fuel_and_exact_utilization_rollup():
+    analytics = fleet_analytics({
+        "vehicles": [{"vehicle_number": "U-1"}],
+        "metrics": [{"vehicle_number": "U-1", "metric_date": "2026-07-01", "distance_km": 100}],
+        "fuel": [{"vehicle_number": "U-1", "quantity_liters": 30, "total_cost": 900}],
+        "utilization": [{
+            "vehicle_number": "U-1", "engine_hours": 8, "fuel_consumed_liters": 20,
+            "utilization_pct": 0.8,
+        }],
+        "_sync": {"datasets": {"card_expenses": {"status": "unavailable"}}},
+    })
+    unit = analytics["units"][0]
+    assert unit["purchased_liters"] == 30
+    assert unit["liters"] == 20
+    assert unit["engine_hours"] == 8
+    assert unit["utilization_pct"] == 0.8
+    assert unit["km_per_liter"] == 5
+    assert analytics["totals"]["expense_complete"] is False

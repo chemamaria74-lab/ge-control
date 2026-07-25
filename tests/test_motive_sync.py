@@ -3,6 +3,7 @@ from decimal import Decimal
 from services.motive_sync import (
     GALLONS_TO_LITERS, normalize_driver_event, normalize_fault, normalize_fuel_purchase,
     normalize_inspection, normalize_speeding_event, normalize_vehicle,
+    normalize_vehicle_utilization,
 )
 
 
@@ -45,3 +46,26 @@ def test_fault_and_speeding_normalizers():
     speeding = normalize_speeding_event({"speeding_event": {"id": 7, "start_time": "2026-07-20T10:00:00Z", "max_over_speed_in_kph": "21", "vehicle": {"id": 8}}}, integration_id=3, tenant_id="tenant")
     assert fault["source_key"] == "9" and fault["status"] == "open"
     assert speeding["max_over_kph"] == 21.0
+
+
+def test_vehicle_utilization_normalizer_separates_engine_and_consumed_fuel():
+    row = normalize_vehicle_utilization(
+        {"vehicle_idle_rollup": {
+            "vehicle": {"id": 8},
+            "utilization": "81.42",
+            "driving_time": 7200,
+            "idle_time": 1800,
+            "driving_fuel": "20.5",
+            "idle_fuel": "2.5",
+        }},
+        integration_id=3,
+        tenant_id="tenant",
+        period_start="2026-07-01",
+        period_end="2026-07-25",
+    )
+    assert row["motive_vehicle_id"] == 8
+    assert row["utilization_pct"] == 0.8142
+    assert row["driving_hours"] == 2
+    assert row["idle_hours"] == 0.5
+    assert row["engine_hours"] == 2.5
+    assert row["fuel_consumed_liters"] == 23
