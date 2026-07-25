@@ -3,7 +3,7 @@ from decimal import Decimal
 from services.motive_sync import (
     GALLONS_TO_LITERS, normalize_driver_event, normalize_fault, normalize_fuel_purchase,
     normalize_inspection, normalize_speeding_event, normalize_vehicle,
-    normalize_vehicle_utilization,
+    normalize_vehicle_mileage, normalize_vehicle_utilization,
 )
 
 
@@ -69,3 +69,14 @@ def test_vehicle_utilization_normalizer_separates_engine_and_consumed_fuel():
     assert row["idle_hours"] == 0.5
     assert row["engine_hours"] == 2.5
     assert row["fuel_consumed_liters"] == 23
+
+
+def test_vehicle_mileage_normalizer_converts_miles_and_accepts_wrappers():
+    motive_id, distance_km = normalize_vehicle_mileage({
+        "ifta_summary": {
+            "vehicle": {"id": 8, "metric_units": False},
+            "distance": "100",
+        }
+    })
+    assert motive_id == 8
+    assert distance_km == 160.934

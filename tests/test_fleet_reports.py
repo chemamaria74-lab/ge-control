@@ -42,3 +42,14 @@ def test_analytics_uses_consumed_fuel_and_exact_utilization_rollup():
     assert unit["utilization_pct"] == 0.8
     assert unit["km_per_liter"] == 5
     assert analytics["totals"]["expense_complete"] is False
+
+
+def test_analytics_prioritizes_exact_mileage_rollup_without_double_counting():
+    analytics = fleet_analytics({
+        "vehicles": [{"vehicle_number": "U-1"}],
+        "mileage": [{"vehicle_number": "U-1", "distance_km": 250}],
+        "metrics": [{"vehicle_number": "U-1", "metric_date": "2026-07-01", "distance_km": 100}],
+        "activity": [{"vehicle_number": "U-1", "started_at": "2026-07-01", "distance_km": 75}],
+    })
+    assert analytics["units"][0]["distance_km"] == 250
+    assert analytics["totals"]["distance_km"] == 250
