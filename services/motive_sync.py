@@ -305,9 +305,17 @@ def _lookback_dates(full: bool) -> tuple[str, str]:
 
 
 def _upsert(sb: Any, table: str, rows: list[dict[str, Any]], on_conflict: str, batch_size: int = 250) -> int:
-    for start in range(0, len(rows), batch_size):
-        sb.table(table).upsert(rows[start : start + batch_size], on_conflict=on_conflict).execute()
-    return len(rows)
+    conflict_keys = [key.strip() for key in on_conflict.split(",") if key.strip()]
+    unique_rows: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for row in rows:
+        key = tuple(row.get(column) for column in conflict_keys)
+        # Motive puede repetir un registro entre páginas. PostgreSQL rechaza que
+        # el mismo UPSERT intente actualizar dos veces la misma clave en un lote.
+        unique_rows[key] = row
+    deduplicated = list(unique_rows.values())
+    for start in range(0, len(deduplicated), batch_size):
+        sb.table(table).upsert(deduplicated[start : start + batch_size], on_conflict=on_conflict).execute()
+    return len(deduplicated)
 
 
 def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full: bool = False) -> dict[str, Any]:
@@ -403,6 +411,8 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
         if driver_events:
             datasets["driver_events"] = _upsert(sb, "fleet_driver_events", driver_events, "integration_id,motive_id")
+        elif "driver_events" not in datasets:
+            datasets["driver_events"] = 0
 
         speeding_items = _optional_pages(datasets, "speeding_events", "/v1/speeding_events", "speeding_events", params={"start_date": start_date, "end_date": end_date})
         speeding = [normalize_speeding_event(item, integration_id=integration_id, tenant_id=tenant_id) for item in speeding_items]
@@ -410,6 +420,8 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
         if speeding:
             datasets["speeding_events"] = _upsert(sb, "fleet_speeding_events", speeding, "integration_id,motive_id")
+        elif "speeding_events" not in datasets:
+            datasets["speeding_events"] = 0
 
         period_items = _optional_pages(datasets, "driving_periods", "/v1/driving_periods", "driving_periods", params={"start_date": start_date, "end_date": end_date})
         periods = [normalize_driving_period(item, integration_id=integration_id, tenant_id=tenant_id) for item in period_items]
@@ -417,6 +429,8 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
         if periods:
             datasets["driving_periods"] = _upsert(sb, "fleet_driving_periods", periods, "integration_id,motive_id")
+        elif "driving_periods" not in datasets:
+            datasets["driving_periods"] = 0
 
         fault_items = _optional_pages(datasets, "fault_codes", "/v1/fault_codes", "fault_codes", params={"start_date": start_date, "end_date": end_date})
         faults = [normalize_fault(item, integration_id=integration_id, tenant_id=tenant_id) for item in fault_items]
@@ -424,6 +438,8 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
         if faults:
             datasets["fault_codes"] = _upsert(sb, "fleet_fault_codes", faults, "integration_id,source_key")
+        elif "fault_codes" not in datasets:
+            datasets["fault_codes"] = 0
 
         card_items = _optional_pages(datasets, "card_expenses", "/motive_card/v2/transactions", "transactions",
                                      params={"start_date": start_date, "end_date": end_date, "date_range_filter_type": "transaction_time"},
@@ -434,6 +450,8 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
             row["vehicle_id"] = vehicle_ids.get(int(raw_vehicle_id)) if raw_vehicle_id is not None else None
         if card_expenses:
             datasets["card_expenses"] = _upsert(sb, "fleet_expenses", card_expenses, "tenant_id,source,source_key")
+        elif "card_expenses" not in datasets:
+            datasets["card_expenses"] = 0
 
         finished = datetime.now(timezone.utc).isoformat()
         total = sum(int(value) for value in datasets.values() if isinstance(value, int))

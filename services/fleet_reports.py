@@ -4,6 +4,7 @@ import csv
 import hashlib
 import io
 import re
+from collections import Counter, defaultdict
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -132,46 +133,212 @@ def _month(value: Any) -> int:
     return names.get(_text(value).lower(), 1)
 
 
+BEHAVIOR_LABELS = {
+    "seat_belt_violation": "Cinturón de seguridad",
+    "cell_phone": "Uso de celular",
+    "tailgating": "Seguimiento cercano",
+    "close_following": "Seguimiento cercano",
+    "stop_sign_violation": "Señal de alto",
+    "distraction": "Distracción",
+    "near_miss": "Casi colisión",
+    "hard_brake": "Frenado brusco",
+    "drowsiness": "Somnolencia",
+    "hard_corner": "Giro brusco",
+    "unsafe_lane_change": "Cambio de carril peligroso",
+    "driver_facing_cam_obstruction": "Cámara del conductor obstruida",
+    "road_facing_cam_obstruction": "Cámara frontal obstruida",
+    "smoking": "Fumar",
+    "crash": "Colisión",
+    "speeding": "Exceso de velocidad",
+}
+
+
+def behavior_label(value: Any) -> str:
+    raw = _text(value)
+    key = re.sub(r"[\s\-]+", "_", raw.casefold())
+    return BEHAVIOR_LABELS.get(key, raw.replace("_", " ").strip().capitalize() or "Sin clasificar")
+
+
+def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    unit_rows: dict[str, dict[str, Any]] = {}
+    behaviors: Counter[str] = Counter()
+    severity: Counter[str] = Counter()
+    daily: Counter[str] = Counter()
+
+    def unit(value: Any) -> dict[str, Any]:
+        name = _text(value) or "Sin unidad vinculada"
+        return unit_rows.setdefault(name, {
+            "vehicle_number": name, "driver_name": "", "security": 0, "speeding": 0,
+            "critical_high": 0, "faults": 0, "expense_mxn": 0.0, "liters": 0.0,
+            "attention_index": 0,
+        })
+
+    for row in data.get("driver_events", []):
+        item = unit(row.get("vehicle_number"))
+        item["security"] += 1
+        item["driver_name"] = item["driver_name"] or _text(row.get("driver_name"))
+        level = _text(row.get("severity")).casefold()
+        severity[level or "sin clasificar"] += 1
+        weight = {"critical": 5, "severe": 4, "high": 3, "medium": 2, "low": 1}.get(level, 1)
+        item["attention_index"] += weight
+        if level in {"critical", "severe", "high"}:
+            item["critical_high"] += 1
+        label = behavior_label(row.get("primary_behavior") or row.get("event_type"))
+        behaviors[label] += 1
+        day = _text(row.get("started_at"))[:10]
+        if day:
+            daily[day] += 1
+    for row in data.get("speeding", []):
+        item = unit(row.get("vehicle_number"))
+        item["speeding"] += 1
+        item["driver_name"] = item["driver_name"] or _text(row.get("driver_name"))
+        level = _text(row.get("severity")).casefold()
+        weight = {"critical": 5, "severe": 4, "high": 3, "medium": 2, "low": 1}.get(level, 2)
+        item["attention_index"] += weight
+        if level in {"critical", "severe", "high"}:
+            item["critical_high"] += 1
+        day = _text(row.get("started_at"))[:10]
+        if day:
+            daily[day] += 1
+    for row in data.get("faults", []):
+        unit(row.get("vehicle_number"))["faults"] += int(row.get("occurrence_count") or 1)
+    for row in data.get("expenses", []):
+        item = unit(row.get("vehicle_number"))
+        item["expense_mxn"] += float(row.get("amount_mxn") or 0)
+        item["liters"] += float(row.get("quantity_liters") or 0)
+
+    units = sorted(unit_rows.values(), key=lambda row: (-row["attention_index"], -row["expense_mxn"], row["vehicle_number"]))
+    return {
+        "units": units,
+        "behaviors": [{"label": name, "count": count} for name, count in behaviors.most_common()],
+        "severity": [{"label": name, "count": count} for name, count in severity.most_common()],
+        "daily": [{"date": day, "count": daily[day]} for day in sorted(daily)],
+        "critical_high": sum(row["critical_high"] for row in units),
+    }
+
+
 def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: date, group_name: str = "") -> bytes:
     buffer = io.BytesIO()
     workbook = xlsxwriter.Workbook(buffer, {"in_memory": True})
-    title = workbook.add_format({"bold": True, "font_size": 16, "font_color": "#6B1022"})
-    header = workbook.add_format({"bold": True, "bg_color": "#6B1022", "font_color": "#FFFFFF", "border": 1})
+    analytics = fleet_analytics(data)
+    title = workbook.add_format({"bold": True, "font_size": 24, "font_color": "#6B1022"})
+    subtitle = workbook.add_format({"font_size": 11, "font_color": "#6F665E"})
+    section = workbook.add_format({"bold": True, "font_size": 13, "font_color": "#FFFFFF", "bg_color": "#6B1022", "align": "left", "valign": "vcenter"})
+    header = workbook.add_format({"bold": True, "bg_color": "#6B1022", "font_color": "#FFFFFF", "border": 1, "align": "center"})
     money = workbook.add_format({"num_format": '$#,##0.00;[Red]-$#,##0.00', "border": 1})
     number = workbook.add_format({"num_format": '#,##0.00', "border": 1})
     cell = workbook.add_format({"border": 1, "valign": "top"})
     date_fmt = workbook.add_format({"num_format": "dd/mm/yyyy hh:mm", "border": 1})
+    kpi_label = workbook.add_format({"bold": True, "font_color": "#6F665E", "font_size": 9, "align": "center", "bg_color": "#F7F2EC", "border": 1})
+    kpi_value = workbook.add_format({"bold": True, "font_color": "#171513", "font_size": 18, "align": "center", "bg_color": "#FFFFFF", "border": 1})
+    note = workbook.add_format({"font_color": "#6F665E", "bg_color": "#FFF8E8", "border": 1, "text_wrap": True, "valign": "vcenter"})
 
-    summary = workbook.add_worksheet("Resumen")
-    summary.set_column("A:A", 28); summary.set_column("B:B", 20)
-    summary.write("A1", "INFORME FLOTILLA 360", title)
-    summary.write("A3", "Grupo / zona", header); summary.write("B3", group_name or "Todos", cell)
-    summary.write("A4", "Periodo", header); summary.write("B4", f"{start:%d/%m/%Y} a {end:%d/%m/%Y}", cell)
-    metrics = [("Gastos y mantenimiento", sum(float(x.get("amount_mxn") or 0) for x in data.get("expenses", []))),
-               ("Eventos de seguridad", len(data.get("driver_events", []))), ("Excesos de velocidad", len(data.get("speeding", []))),
-               ("Periodos de actividad", len(data.get("activity", []))), ("Códigos de falla", len(data.get("faults", [])))]
-    for row, (label, value) in enumerate(metrics, 6):
-        summary.write(row - 1, 0, label, header); summary.write(row - 1, 1, value, money if row == 6 else number)
+    dashboard = workbook.add_worksheet("Dashboard")
+    dashboard.hide_gridlines(2); dashboard.set_tab_color("#6B1022")
+    dashboard.set_column("A:A", 2); dashboard.set_column("B:M", 13)
+    dashboard.set_row(0, 10); dashboard.merge_range("B2:M3", "INFORME EJECUTIVO · FLOTILLA 360", title)
+    dashboard.merge_range("B4:M4", f"{group_name or 'Toda la flotilla'}  |  {start:%d/%m/%Y} al {end:%d/%m/%Y}", subtitle)
+    metrics = [
+        ("GASTOS MXN", sum(float(x.get("amount_mxn") or 0) for x in data.get("expenses", [])), True),
+        ("LITROS", sum(float(x.get("quantity_liters") or 0) for x in data.get("expenses", [])), False),
+        ("SEGURIDAD", len(data.get("driver_events", [])), False),
+        ("VELOCIDAD", len(data.get("speeding", [])), False),
+        ("CRÍTICOS / ALTOS", analytics["critical_high"], False),
+        ("FALLAS", len(data.get("faults", [])), False),
+    ]
+    for index, (label, value, is_money) in enumerate(metrics):
+        column = 1 + index * 2
+        dashboard.merge_range(5, column, 5, column + 1, label, kpi_label)
+        display = f"${value:,.2f}" if is_money else f"{value:,.0f}"
+        dashboard.merge_range(6, column, 7, column + 1, display, kpi_value)
+    dashboard.merge_range("B10:G10", "Unidades que requieren atención", section)
+    dashboard.merge_range("I10:M10", "Conductas más frecuentes", section)
+    ranking = analytics["units"][:10]
+    for row_index, item in enumerate(ranking, 11):
+        dashboard.write(row_index, 1, row_index - 10, cell)
+        dashboard.merge_range(row_index, 2, row_index, 4, item["vehicle_number"], cell)
+        dashboard.write(row_index, 5, item["security"] + item["speeding"], number)
+        dashboard.write(row_index, 6, item["attention_index"], number)
+    dashboard.write_row("B11", ["#", "Unidad", "", "", "Eventos", "Índice"], header)
+    behavior_rows = analytics["behaviors"][:10]
+    dashboard.write_row("I11", ["Conducta", "", "", "Eventos", "%"], header)
+    total_behaviors = sum(item["count"] for item in analytics["behaviors"]) or 1
+    for row_index, item in enumerate(behavior_rows, 11):
+        dashboard.merge_range(row_index, 8, row_index, 10, item["label"], cell)
+        dashboard.write(row_index, 11, item["count"], number)
+        dashboard.write_number(row_index, 12, item["count"] / total_behaviors, workbook.add_format({"num_format": "0.0%", "border": 1}))
+    if ranking:
+        risk_chart = workbook.add_chart({"type": "bar"})
+        risk_chart.add_series({
+            "name": "Índice de atención",
+            "categories": ["Dashboard", 11, 2, 10 + len(ranking), 2],
+            "values": ["Dashboard", 11, 6, 10 + len(ranking), 6],
+            "fill": {"color": "#8B1E34"},
+            "border": {"none": True},
+        })
+        risk_chart.set_title({"name": "Prioridad por unidad"})
+        risk_chart.set_legend({"none": True})
+        risk_chart.set_x_axis({"name": "Puntos por severidad", "major_gridlines": {"visible": False}})
+        risk_chart.set_y_axis({"reverse": True})
+        risk_chart.set_style(10)
+        dashboard.insert_chart("B15", risk_chart, {"x_scale": 1.18, "y_scale": 0.82})
+    if behavior_rows:
+        behavior_chart = workbook.add_chart({"type": "column"})
+        behavior_chart.add_series({
+            "name": "Eventos",
+            "categories": ["Dashboard", 11, 8, 10 + len(behavior_rows), 8],
+            "values": ["Dashboard", 11, 11, 10 + len(behavior_rows), 11],
+            "fill": {"color": "#C8A96B"},
+            "border": {"none": True},
+        })
+        behavior_chart.set_title({"name": "Conductas más frecuentes"})
+        behavior_chart.set_legend({"none": True})
+        behavior_chart.set_y_axis({"major_gridlines": {"visible": False}})
+        behavior_chart.set_style(10)
+        dashboard.insert_chart("H15", behavior_chart, {"x_scale": 1.18, "y_scale": 0.82})
+    if not data.get("expenses"):
+        dashboard.merge_range("B30:M31", "Gastos: no hay movimientos importados en este periodo. Importe el CSV de mantenimiento o el Excel de CREDES; esto no significa que el gasto real sea $0.", note)
+    if not data.get("activity") or not data.get("faults"):
+        dashboard.merge_range("B33:M34", "Fuentes pendientes: Actividad o Códigos de falla no entregaron registros en la última sincronización completa. El portal mostrará su estado para evitar interpretar un dato pendiente como cero.", note)
 
-    _sheet(workbook, "Gastos", data.get("expenses", []), [
+    summary = workbook.add_worksheet("Resumen por unidad")
+    summary.freeze_panes(1, 0)
+    unit_headers = ["Unidad", "Conductor", "Seguridad", "Velocidad", "Críticos / altos", "Fallas", "Gastos MXN", "Litros", "Índice de atención"]
+    summary.write_row(0, 0, unit_headers, header)
+    summary.set_column("A:B", 25); summary.set_column("C:I", 16)
+    for row_index, item in enumerate(analytics["units"], 1):
+        values = [item["vehicle_number"], item["driver_name"], item["security"], item["speeding"], item["critical_high"],
+                  item["faults"], item["expense_mxn"], item["liters"], item["attention_index"]]
+        for column, value in enumerate(values):
+            summary.write(row_index, column, value, money if column == 6 else cell)
+    if analytics["units"]:
+        summary.autofilter(0, 0, len(analytics["units"]), len(unit_headers) - 1)
+        summary.conditional_format(1, 8, len(analytics["units"]), 8, {"type": "data_bar", "bar_color": "#8B1E34"})
+
+    _sheet_if_rows(workbook, "Gastos", data.get("expenses", []), [
         ("Fecha", "occurred_at"), ("Grupo", "group_name"), ("Zona", "zone_name"), ("Unidad", "vehicle_number"),
         ("Tipo", "expense_type"), ("Categoría", "category"), ("Descripción", "description"), ("Litros", "quantity_liters"),
         ("Importe MXN", "amount_mxn"), ("Registró", "submitted_by")], header, cell, date_fmt, money)
-    _sheet(workbook, "Seguridad", data.get("driver_events", []), [
+    _sheet_if_rows(workbook, "Seguridad", data.get("driver_events", []), [
         ("Fecha", "started_at"), ("Unidad", "vehicle_number"), ("Conductor", "driver_name"), ("Evento", "event_type"),
         ("Conducta", "primary_behavior"), ("Gravedad", "severity"), ("Duración s", "duration_seconds"), ("Ubicación", "location")], header, cell, date_fmt, money)
-    _sheet(workbook, "Exceso velocidad", data.get("speeding", []), [
+    _sheet_if_rows(workbook, "Exceso velocidad", data.get("speeding", []), [
         ("Fecha", "started_at"), ("Unidad", "vehicle_number"), ("Conductor", "driver_name"), ("Gravedad", "severity"),
         ("Límite km/h", "posted_limit_kph"), ("Máx. superada km/h", "max_over_kph"), ("Promedio km/h", "avg_speed_kph"),
         ("Duración s", "duration_seconds"), ("Ubicación", "location")], header, cell, date_fmt, money)
-    _sheet(workbook, "Actividad", data.get("activity", []), [
+    _sheet_if_rows(workbook, "Actividad", data.get("activity", []), [
         ("Inicio", "started_at"), ("Fin", "ended_at"), ("Unidad", "vehicle_number"), ("Conductor", "driver_name"),
         ("Origen", "origin"), ("Destino", "destination"), ("Distancia km", "distance_km"), ("Estado", "status")], header, cell, date_fmt, money)
-    _sheet(workbook, "Códigos de falla", data.get("faults", []), [
+    _sheet_if_rows(workbook, "Códigos de falla", data.get("faults", []), [
         ("Primera detección", "occurred_at"), ("Unidad", "vehicle_number"), ("Código", "code"), ("Etiqueta", "code_label"),
         ("Descripción", "description"), ("Estado", "status"), ("Ocurrencias", "occurrence_count")], header, cell, date_fmt, money)
     workbook.close()
     return buffer.getvalue()
+
+
+def _sheet_if_rows(workbook: xlsxwriter.Workbook, name: str, rows: list[dict[str, Any]], columns: list[tuple[str, str]], header: Any, cell: Any, date_fmt: Any, money: Any) -> None:
+    if rows:
+        _sheet(workbook, name, rows, columns, header, cell, date_fmt, money)
 
 
 def _sheet(workbook: xlsxwriter.Workbook, name: str, rows: list[dict[str, Any]], columns: list[tuple[str, str]], header: Any, cell: Any, date_fmt: Any, money: Any) -> None:
