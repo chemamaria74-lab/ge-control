@@ -12,7 +12,9 @@ from fastapi.responses import StreamingResponse
 
 from routes.auth import obtener_acceso_modulo, verify_token
 from services.motive import MotiveAPIError, motive_is_configured
-from services.motive_sync import sync_motive_tenant, sync_vehicle_utilization_range
+from services.motive_sync import (
+    sync_motive_tenant, sync_vehicle_mileage_range, sync_vehicle_utilization_range,
+)
 from services.fleet_reports import build_fleet_report, comparison_row, fleet_analytics, parse_expense_workbook, parse_maintenance_csv
 from services.fleet_management_exports import build_comparison_excel, build_comparison_pdf, build_zone_pdf
 from services.fleet_alerts import store_webhook_event
@@ -425,6 +427,13 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         .eq("period_start", start.isoformat())
         .eq("period_end", end.isoformat())
     )
+    mileage = _collect(
+        sb.table("fleet_vehicle_mileage_rollups")
+        .select("vehicle_id,period_start,period_end,distance_km,source")
+        .eq("tenant_id", tenant_id)
+        .eq("period_start", start.isoformat())
+        .eq("period_end", end.isoformat())
+    )
     latest_runs = (
         sb.table("fleet_sync_runs")
         .select("status,datasets,finished_at")
@@ -438,7 +447,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         "vehicles": selected_vehicles, "expenses": attach(expenses), "fuel": attach(fuel),
         "driver_events": attach(events), "speeding": attach(speeding), "activity": attach(activity),
         "faults": attach(faults), "inspections": selected_inspections, "defects": attach(defects),
-        "metrics": attach(metrics), "utilization": attach(utilization),
+        "metrics": attach(metrics), "utilization": attach(utilization), "mileage": attach(mileage),
         "_period_days": (end - start).days + 1, "_sync": latest_sync,
     }
 
@@ -482,9 +491,22 @@ def prepare_report_metrics(
             admin, tenant_id=ctx["tenant_id"], integration_id=int(integration["id"]),
             period_start=previous_start, period_end=previous_end,
         )
+        current_mileage = sync_vehicle_mileage_range(
+            admin, tenant_id=ctx["tenant_id"], integration_id=int(integration["id"]),
+            period_start=start, period_end=end,
+        )
+        previous_mileage = sync_vehicle_mileage_range(
+            admin, tenant_id=ctx["tenant_id"], integration_id=int(integration["id"]),
+            period_start=previous_start, period_end=previous_end,
+        )
     except MotiveAPIError as exc:
-        raise HTTPException(502, f"No fue posible preparar utilización y horas motor: {exc}") from exc
-    return {"prepared": True, "current_records": current, "previous_records": previous}
+        raise HTTPException(502, f"No fue posible preparar kilometraje, utilización y horas motor: {exc}") from exc
+    return {
+        "prepared": True,
+        "current_records": current, "previous_records": previous,
+        "current_mileage_records": current_mileage,
+        "previous_mileage_records": previous_mileage,
+    }
 
 
 @router.get("/flotilla/reports/catalog")
