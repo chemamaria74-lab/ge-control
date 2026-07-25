@@ -228,7 +228,12 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         item["purchased_liters"] += float(row.get("quantity_liters") or 0)
         if not has_card_expenses:
             item["expense_mxn"] += float(row.get("total_cost") or 0)
-    use_activity_distance = not data.get("metrics")
+    # El rollup IFTA es la fuente oficial del periodo. Actividad/métricas solo son
+    # respaldo para datos históricos creados antes de habilitar este endpoint.
+    has_mileage_rollup = bool(data.get("mileage"))
+    for row in data.get("mileage", []):
+        unit(row.get("vehicle_number"))["distance_km"] += float(row.get("distance_km") or 0)
+    use_activity_distance = not has_mileage_rollup and not data.get("metrics")
     for row in data.get("activity", []):
         item = unit(row.get("vehicle_number"))
         if use_activity_distance:
@@ -238,8 +243,9 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             item["active_days"].add(day)
     for row in data.get("metrics", []):
         item = unit(row.get("vehicle_number"))
-        item["distance_km"] += float(row.get("distance_km") or 0)
-        if float(row.get("distance_km") or 0) > 0:
+        if not has_mileage_rollup:
+            item["distance_km"] += float(row.get("distance_km") or 0)
+        if not has_mileage_rollup and float(row.get("distance_km") or 0) > 0:
             item["active_days"].add(_text(row.get("metric_date")))
     for row in data.get("utilization", []):
         item = unit(row.get("vehicle_number"))

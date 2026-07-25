@@ -126,6 +126,68 @@ def motive_get_all_pages(
     raise MotiveAPIError(502, "La paginación de Motive excedió el límite de seguridad.")
 
 
+def motive_get_all_pages_flexible(
+    path: str,
+    *,
+    collection_keys: tuple[str, ...],
+    params: dict[str, Any] | None = None,
+    per_page: int = 100,
+    max_pages: int = 1000,
+) -> list[Any]:
+    """Pagina endpoints de Motive cuyo nombre de colección varía entre versiones."""
+    records: list[Any] = []
+    base_params = dict(params or {})
+    for page_no in range(1, max_pages + 1):
+        payload = motive_get(
+            path,
+            params={**base_params, "per_page": per_page, "page_no": page_no},
+        )
+        batch: list[Any] | None = None
+        for key in collection_keys:
+            value = payload.get(key)
+            if isinstance(value, list):
+                batch = value
+                break
+        if batch is None:
+            # Algunos despliegues envuelven la colección bajo data/result.
+            for wrapper_key in ("data", "result"):
+                wrapper = payload.get(wrapper_key)
+                if not isinstance(wrapper, dict):
+                    continue
+                for key in collection_keys:
+                    value = wrapper.get(key)
+                    if isinstance(value, list):
+                        batch = value
+                        break
+                if batch is not None:
+                    break
+        if batch is None:
+            # Último respaldo: identifica una colección de filas de millaje por
+            # su contenido, sin confundirla con pagination u otra metadata.
+            candidates = [
+                value for value in payload.values()
+                if isinstance(value, list)
+                and value
+                and isinstance(value[0], dict)
+                and (
+                    "distance" in value[0]
+                    or any(
+                        isinstance(value[0].get(key), dict)
+                        and "distance" in value[0][key]
+                        for key in ("ifta_summary", "mileage_summary", "summary")
+                    )
+                )
+            ]
+            if len(candidates) == 1:
+                batch = candidates[0]
+        if batch is None:
+            raise MotiveAPIError(502, "Motive devolvió el resumen de kilometraje en un formato inesperado.")
+        records.extend(batch)
+        if len(batch) < per_page:
+            return records
+    raise MotiveAPIError(502, "La paginación de kilometraje Motive excedió el límite de seguridad.")
+
+
 def _unwrap_vehicle(item: Any) -> dict[str, Any]:
     if not isinstance(item, dict):
         return {}

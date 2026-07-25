@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from services.motive import MotiveAPIError, motive_get_all_pages
+from services.motive import MotiveAPIError, motive_get_all_pages, motive_get_all_pages_flexible
 from services.fleet_alerts import create_sync_alerts
 
 logger = logging.getLogger(__name__)
@@ -442,6 +442,89 @@ def sync_vehicle_utilization_range(
     rows = [row for row in rows if row.get("vehicle_id") is not None]
     return _upsert(
         sb, "fleet_vehicle_utilization_rollups", rows,
+        "integration_id,vehicle_id,period_start,period_end",
+    )
+
+
+def _mileage_record(item: Any) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        return {}
+    for key in ("ifta_summary", "mileage_summary", "summary"):
+        if isinstance(item.get(key), dict):
+            return item[key]
+    return item
+
+
+def normalize_vehicle_mileage(item: Any) -> tuple[int, float] | None:
+    """Devuelve (vehicle_motive_id, km) para una fila del resumen IFTA."""
+    record = _mileage_record(item)
+    vehicle = record.get("vehicle") if isinstance(record.get("vehicle"), dict) else record
+    motive_id = vehicle.get("id") or record.get("vehicle_id")
+    distance = _decimal(record.get("distance"))
+    if motive_id is None or distance is None:
+        return None
+    metric_units = record.get("metric_units")
+    if metric_units is None:
+        metric_units = vehicle.get("metric_units")
+    if metric_units is False or str(metric_units).strip().lower() in {"false", "0", "no"}:
+        distance *= MILES_TO_KM
+    return int(motive_id), _number(distance, 3) or 0.0
+
+
+def sync_vehicle_mileage_range(
+    sb: Any, *, tenant_id: str, integration_id: int,
+    period_start: date, period_end: date,
+) -> int:
+    """Guarda kilometraje oficial del periodo y evita llamar de nuevo a Motive."""
+    start_text, end_text = period_start.isoformat(), period_end.isoformat()
+    cached = (
+        sb.table("fleet_vehicle_mileage_rollups")
+        .select("id", count="exact")
+        .eq("tenant_id", tenant_id)
+        .eq("integration_id", integration_id)
+        .eq("period_start", start_text)
+        .eq("period_end", end_text)
+        .limit(1).execute()
+    )
+    if (cached.count or 0) > 0:
+        return 0
+    stored_vehicles = (
+        sb.table("fleet_vehicles").select("id,motive_id")
+        .eq("integration_id", integration_id).execute().data or []
+    )
+    vehicle_ids = {int(row["motive_id"]): int(row["id"]) for row in stored_vehicles}
+    items = motive_get_all_pages_flexible(
+        "/v1/ifta/summary",
+        collection_keys=(
+            "ifta_summaries", "mileage_summaries", "summaries",
+            "ifta_summary", "mileage_summary", "vehicles",
+        ),
+        params={"start_date": start_text, "end_date": end_text},
+    )
+    totals: dict[int, Decimal] = {}
+    for item in items:
+        normalized = normalize_vehicle_mileage(item)
+        if normalized is None:
+            continue
+        motive_id, distance_km = normalized
+        totals[motive_id] = totals.get(motive_id, Decimal(0)) + Decimal(str(distance_km))
+    now = datetime.now(timezone.utc).isoformat()
+    rows = [
+        {
+            "integration_id": integration_id,
+            "tenant_id": tenant_id,
+            "vehicle_id": vehicle_ids[motive_id],
+            "period_start": start_text,
+            "period_end": end_text,
+            "distance_km": _number(distance, 3) or 0,
+            "source": "motive_ifta_summary",
+            "updated_at": now,
+        }
+        for motive_id, distance in totals.items()
+        if motive_id in vehicle_ids
+    ]
+    return _upsert(
+        sb, "fleet_vehicle_mileage_rollups", rows,
         "integration_id,vehicle_id,period_start,period_end",
     )
 
