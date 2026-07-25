@@ -65,10 +65,6 @@
   async function loadOverview(){
     try{
       const data=await api(`/overview?${params()}`); const k=data.kpis||{};
-      $('kpiVehicles').textContent=fmt(k.vehicles); $('kpiActive').textContent=`${fmt(k.active_vehicles)} activas`;
-      $('kpiOut').textContent=fmt(k.out_of_service); $('kpiLiters').textContent=fmt(k.fuel_liters);
-      $('kpiCost').textContent=money(k.fuel_cost,k.currency); $('kpiCurrency').textContent=k.currency||'Periodo seleccionado';
-      $('kpiInspections').textContent=fmt(k.inspections); $('kpiDefects').textContent=fmt(k.open_defects); $('kpiMajor').textContent=`${fmt(k.major_defects)} graves`;
       if(!data.configured) setSync('error','Motive sin configurar','Falta la clave API en el servidor.');
       else if(data.sync?.status==='running'||data.sync?.status==='queued') setSync('warn','Actualizando desde Motive…',`Procesados: ${fmt(data.sync.records_processed)}`);
       else if(data.connected) setSync('ok','Motive conectado',`Última actualización: ${dateText(data.integration.last_success_at)}`);
@@ -118,19 +114,25 @@
 
   async function loadReportCatalog(){
     const p=params(); if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
+    $('runAnalysis').disabled=true;
+    $('runAnalysis').innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Consultando…';
+    notice('Preparando el análisis gerencial…');
     try{
       const data=await api(`/reports/catalog?${p}`), counts=data.counts||{}, totals=data.totals||{};
-      const selected=$('reportGroup').value;
-      $('reportGroup').innerHTML='<option value="">Toda la flotilla</option>'+(data.groups||[]).map(g=>`<option value="${Number(g.id)}">${esc(g.name||'Grupo sin nombre')}</option>`).join('');
-      $('reportGroup').value=selected;
-      $('reportExpenses').textContent=money(totals.expenses_mxn,'MXN'); $('reportLiters').textContent=fmt(totals.fuel_liters);
+      $('executiveDashboard').hidden=false;
+      $('reportExpenses').textContent=money(totals.expenses_mxn,'MXN');
       $('reportSafety').textContent=fmt(counts.driver_events); $('reportSpeeding').textContent=fmt(counts.speeding);
       $('reportActivity').textContent=fmt(counts.activity); $('reportFaults').textContent=fmt(counts.faults);
+      $('reportCritical').textContent=fmt(data.analytics?.critical_high);
       renderDashboard(data.analytics||{});
       renderDataStatus(data.sync||null,counts);
       const submitters=data.submitters||[];
       $('submitterList').innerHTML=submitters.length?submitters.slice(0,8).map((row,index)=>`<div class="submitter-row"><span>${index+1}. ${esc(row.name)}</span><strong>${fmt(row.records)} · ${money(row.amount_mxn,'MXN')}</strong></div>`).join(''):'Sin gastos importados en el periodo. No se interpreta como $0 real.';
+      renderManagerBrief(data.analytics||{},counts);
+      notice('');
+      $('executiveDashboard').scrollIntoView({behavior:'smooth',block:'start'});
     }catch(error){ notice(error.message,'error'); }
+    finally{$('runAnalysis').disabled=false;$('runAnalysis').innerHTML='<i class="fa-solid fa-chart-column"></i> Generar análisis';}
   }
 
   function renderDashboard(analytics){
@@ -140,6 +142,15 @@
     $('riskRanking').innerHTML=units.length?units.map((row,index)=>`<button class="bar-row unit-risk" type="button" data-unit-search="${esc(row.vehicle_number)}"><span class="bar-label"><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${fmt(row.security+row.speeding)} eventos · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${Math.max(4,Number(row.attention_index||0)/maxUnit*100)}%"></i></span><strong>${fmt(row.attention_index)}</strong></button>`).join(''):'<div class="empty">No hay eventos en este periodo.</div>';
     $('behaviorRanking').innerHTML=behaviors.length?behaviors.map(row=>`<div class="bar-row"><span class="bar-label"><b>${esc(row.label)}</b></span><span class="bar-track gold"><i style="width:${Math.max(4,Number(row.count||0)/maxBehavior*100)}%"></i></span><strong>${fmt(row.count)}</strong></div>`).join(''):'<div class="empty">No hay conductas registradas.</div>';
     document.querySelectorAll('[data-unit-search]').forEach(button=>button.addEventListener('click',()=>{$('vehicleSearch').value=button.dataset.unitSearch;state.page=1;loadVehicles();}));
+  }
+
+  function renderManagerBrief(analytics,counts){
+    const top=(analytics.top_units||[])[0], behavior=(analytics.behaviors||[])[0];
+    const messages=[];
+    if(top) messages.push(`<li><i class="fa-solid fa-triangle-exclamation"></i><span><strong>Primera prioridad:</strong> revisar ${esc(top.vehicle_number)} por ${fmt(top.security+top.speeding)} eventos y un índice de atención de ${fmt(top.attention_index)}.</span></li>`);
+    if(behavior) messages.push(`<li><i class="fa-solid fa-person-circle-exclamation"></i><span><strong>Conducta dominante:</strong> ${esc(behavior.label)}, con ${fmt(behavior.count)} incidencias. Conviene definir una acción correctiva y responsable.</span></li>`);
+    if(Number(counts.speeding||0)>0) messages.push(`<li><i class="fa-solid fa-gauge-high"></i><span><strong>Velocidad:</strong> ${fmt(counts.speeding)} eventos requieren seguimiento con los conductores de mayor recurrencia.</span></li>`);
+    $('managerBrief').innerHTML=`<div><span class="eyebrow">Resumen para el gerente</span><h4>Acciones sugeridas para esta zona</h4></div><ul>${messages.join('')||'<li>No se detectaron eventos que requieran acción en el periodo.</li>'}</ul>`;
   }
 
   function renderDataStatus(sync,counts){
@@ -155,19 +166,6 @@
       $('dataStatus').className='data-status ok';
       $('dataStatus').textContent=pending.length?`Motive conectado. Fuentes sin registros o sin permiso: ${pending.join(', ')}.`:'Todas las fuentes disponibles se sincronizaron correctamente.';
     }
-  }
-
-  async function importExpenses(file){
-    if(!file)return;
-    const form=new FormData(); form.append('file',file);
-    notice(`Importando ${file.name}…`);
-    try{
-      const data=await api('/import/expenses',{method:'POST',body:form});
-      const missing=(data.unmatched_vehicles||[]).length;
-      notice(`Listo: ${fmt(data.imported)} movimientos importados y ${fmt(data.matched_vehicles)} vinculados a unidades.${missing?' '+missing+' nombres requieren homologación.':''}`);
-      await loadReportCatalog();
-    }catch(error){notice(error.message,'error');}
-    finally{$('expenseFile').value='';}
   }
 
   async function downloadReport(){
@@ -186,14 +184,19 @@
   }
 
   function initializeDates(){ const today=new Date(), first=new Date(today.getFullYear(),today.getMonth(),1); $('endDate').value=today.toISOString().slice(0,10); $('startDate').value=first.toISOString().slice(0,10); }
-  function refresh(){ state.page=1; loadOverview(); loadReportCatalog(); if($('vehicleSearch').value.trim())loadVehicles(); }
+  async function loadGroups(){
+    try{
+      const data=await api('/groups');
+      $('reportGroup').innerHTML='<option value="">Toda la flotilla</option>'+(data.items||[]).map(g=>`<option value="${Number(g.id)}">${esc(g.path||g.name||'Grupo sin nombre')}</option>`).join('');
+    }catch(error){notice(error.message,'error');}
+  }
   initializeDates();
   $('fleetBack').onclick=()=>{clearPortalAccess();location.href='/modulo/gas-lp/roles';}; $('fleetLogout').onclick=logout; $('syncButton').onclick=requestSync;
-  $('fleetAuthRetry').onclick=()=>validatePortalSession().then(ok=>{if(ok){loadOverview();loadReportCatalog();}});
+  $('fleetAuthRetry').onclick=()=>validatePortalSession().then(ok=>{if(ok){loadOverview();loadGroups();}});
   $('drawerClose').onclick=closeDrawer; $('drawerBackdrop').onclick=closeDrawer; $('prevPage').onclick=()=>{if(state.page>1){state.page--;loadVehicles();}}; $('nextPage').onclick=()=>{if(state.page*state.perPage<state.total){state.page++;loadVehicles();}};
-  $('vehicleSearch').addEventListener('input',()=>{clearTimeout(state.debounce);state.debounce=setTimeout(()=>{state.page=1;loadVehicles();},250);});
-  ['startDate','endDate'].forEach(id=>$(id).addEventListener('change',refresh));
+  $('searchVehicle').onclick=()=>{state.page=1;loadVehicles();};
+  $('vehicleSearch').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();state.page=1;loadVehicles();}});
   $('clearFilters').onclick=()=>{$('vehicleSearch').value='';$('vehicleResults').hidden=true;};
-  $('reportGroup').addEventListener('change',loadReportCatalog); $('expenseFile').addEventListener('change',event=>importExpenses(event.target.files?.[0])); $('downloadReport').onclick=downloadReport;
-  validatePortalSession().then(ok=>{if(ok){loadOverview();loadReportCatalog();}});
+  $('runAnalysis').onclick=loadReportCatalog; $('downloadReport').onclick=downloadReport;
+  validatePortalSession().then(ok=>{if(ok){loadOverview();loadGroups();}});
 })();
