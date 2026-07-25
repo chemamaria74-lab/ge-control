@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from services.database import (
     get_records, get_reports, get_available_periods, get_period_totals,
     delete_period, delete_all_periods, get_archived_records, get_archived_reports,
-    get_facility, get_closed_report, mark_reports_closed, report_is_closed, save_report,
+    get_facility, get_closed_report, mark_reports_closed, reopen_reports, report_is_closed, save_report,
 )
 from services.sat_transformer import (
     build_sat_report,
@@ -721,6 +721,13 @@ async def close_month_report(
     sat_dict, sat_meta, settings = _regenerate_history_report(
         uid, token, periodo, perfil_id, facility_id, rep,
     )
+    if sat_meta.get("cap_applied"):
+        raise HTTPException(
+            409,
+            "No se puede cerrar el mes porque el inventario calculado supera la capacidad "
+            "de la planta. Revisa que estén incluidas todas las entregas de Asistente, "
+            "los XML complementarios y el autoconsumo antes de cerrar.",
+        )
 
     if not existing:
         filename_base = generate_filename(
@@ -745,6 +752,30 @@ async def close_month_report(
         )
 
     return _stream_regenerated_report(sat_dict, sat_meta, settings, "zip")
+
+
+@router.post("/history/{periodo}/reopen")
+async def reopen_month_report(
+    periodo:       str,
+    facility_id:   Optional[int] = Query(default=None),
+    authorization: str = Header(default=""),
+    x_perfil_id:   str = Header(default=""),
+):
+    """Excepción administrativa para corregir un cierre equivocado."""
+    uid, token = _auth(authorization)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
+    role = (obtener_acceso_modulo(uid, "gas_lp", access_token=token).get("role") or "").lower()
+    if role != "admin":
+        raise HTTPException(403, "Solo un administrador puede reabrir un mes cerrado.")
+    if facility_id is None:
+        raise HTTPException(400, "Selecciona una planta antes de reabrir el mes.")
+    scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+    data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
+    if not get_closed_report(data_user_id, periodo, facility_id, perfil_id):
+        raise HTTPException(409, "El mes seleccionado no está cerrado.")
+    if not reopen_reports(data_user_id, periodo, facility_id, perfil_id):
+        raise HTTPException(500, "No fue posible reabrir el mes.")
+    return JSONResponse(content={"ok": True, "periodo": periodo, "status": "reopened"})
 
 
 @router.get("/history/{periodo}/download/{fmt}")

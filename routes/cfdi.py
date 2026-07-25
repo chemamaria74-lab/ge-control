@@ -470,6 +470,35 @@ async def _upload_cfdi_impl(
 
     if periodo_inferido:
         existing = get_records(data_user_id, periodo_inferido, facility_id=fid, perfil_id=perfil_id)
+        # Las facturas emitidas por Asistente viven en gas_lp_facturas, no
+        # necesariamente en records. Historial ya las muestra como movimientos
+        # derivados; el regenerador CFDI debe usar exactamente la misma fuente
+        # para que una carga complementaria no construya el balance solo con los
+        # XML recién subidos.
+        try:
+            from routes.history import _history_invoice_records, _merge_derived_records
+
+            assistant_records = _history_invoice_records(
+                user_id, _token, periodo_inferido, perfil_id, fid,
+            )
+            cancelled_uuids.update(
+                str(uuid or "").strip().upper()
+                for uuid in (assistant_records.get("cancelled_uuids") or [])
+                if str(uuid or "").strip()
+            )
+            existing = _merge_derived_records(existing, assistant_records)
+            assistant_count = (
+                len(assistant_records.get("entradas") or [])
+                + len(assistant_records.get("salidas") or [])
+            )
+            if assistant_count:
+                todos_logs.append(
+                    f"Facturas de Asistente incorporadas al periodo {periodo_inferido}: "
+                    f"{assistant_count} movimiento(s)."
+                )
+        except Exception as e:
+            todos_logs.append(f"Advertencia: no fue posible consultar facturas de Asistente — {e}")
+
         existing_movs = [
             *(
                 _record_to_movement(row, "entrada", display_name or user_id)
