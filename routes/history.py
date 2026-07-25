@@ -54,7 +54,7 @@ GAS_LP_HISTORY_FACTURAS_SELECT = ",".join([
     "destino_facility_id",
     "metadata",
 ])
-GAS_LP_HISTORY_FACTURAS_LIMIT = 1000
+GAS_LP_HISTORY_FACTURAS_LIMIT = 10000
 
 
 def _auth(authorization: str) -> tuple[str, str]:
@@ -224,6 +224,17 @@ def _previous_period(periodo: str) -> str:
         return ""
 
 
+def _next_period(periodo: str) -> str:
+    try:
+        anio = int(str(periodo)[:4])
+        mes = int(str(periodo)[5:7])
+        if mes == 12:
+            return f"{anio + 1}-01"
+        return f"{anio}-{mes + 1:02d}"
+    except Exception:
+        return ""
+
+
 def _previous_inventory_final(user_id: str, periodo: str, facility_id: Optional[int], perfil_id: int) -> Optional[float]:
     prev = _previous_period(periodo)
     if not prev:
@@ -240,12 +251,21 @@ def _previous_inventory_final(user_id: str, periodo: str, facility_id: Optional[
 
 def _invoice_facility_id(row: dict) -> Optional[int]:
     md = _metadata(row)
-    return _safe_int(row.get("facility_id") or md.get("facility_id") or md.get("origen_facility_id"))
+    return _safe_int(
+        row.get("origen_facility_id")
+        or row.get("facility_id")
+        or md.get("origen_facility_id")
+        or md.get("facility_id")
+    )
 
 
 def _invoice_destino_id(row: dict) -> Optional[int]:
     md = _metadata(row)
-    return _safe_int(md.get("destino_facility_id") or md.get("instalacion_destino_id"))
+    return _safe_int(
+        row.get("destino_facility_id")
+        or md.get("destino_facility_id")
+        or md.get("instalacion_destino_id")
+    )
 
 
 def _invoice_is_transfer(row: dict) -> bool:
@@ -255,7 +275,21 @@ def _invoice_is_transfer(row: dict) -> bool:
         str(md.get("operation_type") or "").strip().lower(),
         str(row.get("tipo_operacion") or "").strip().lower(),
     }
-    return bool(md.get("is_transfer") is True or markers.intersection({"traspaso", "transfer", "traslado"}))
+    explicit = bool(
+        row.get("is_transfer") is True
+        or md.get("is_transfer") is True
+        or markers.intersection({"traspaso", "transfer", "traslado"})
+    )
+    if explicit:
+        return True
+
+    # Compatibilidad con traspasos históricos: el CFDI de ingreso se emitía al
+    # mismo RFC de la empresa, pero algunos registros no conservaron el flag en
+    # metadata. No confundir con Carta Porte (Tipo T), que se excluye antes.
+    emisor = _invoice_emisor_rfc(row)
+    receptor = _clean_rfc(row.get("rfc_receptor") or md.get("receptor_rfc") or "")
+    tipo = str(row.get("tipo_comprobante") or md.get("tipo_comprobante") or "I").upper()
+    return bool(tipo == "I" and emisor and receptor and emisor == receptor)
 
 
 def _invoice_is_carta_porte(row: dict) -> bool:
@@ -363,7 +397,23 @@ def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int,
             q = q.eq("tenant_id", tenant_id)
         else:
             q = q.eq("user_id", owner_user_id)
-        rows = q.order("created_at", desc=True).limit(GAS_LP_HISTORY_FACTURAS_LIMIT).execute().data or []
+        # Filtrar el mes en Supabase ANTES del límite. Antes se pedían las
+        # últimas 1,000 facturas de toda la empresa y luego se filtraba junio
+        # en Python; al acumular facturas de julio, cientos de CFDI vigentes de
+        # junio quedaban fuera del reporte aunque sí existieran en Asistente.
+        next_period = _next_period(periodo)
+        if len(periodo) == 7 and next_period:
+            q = (
+                q.gte("fecha_emision", f"{periodo}-01T00:00:00-06:00")
+                 .lt("fecha_emision", f"{next_period}-01T00:00:00-06:00")
+            )
+        rows = (
+            q.order("fecha_emision", desc=False)
+             .limit(GAS_LP_HISTORY_FACTURAS_LIMIT)
+             .execute()
+             .data
+            or []
+        )
 
         entradas: list[dict] = []
         salidas: list[dict] = []
