@@ -1018,7 +1018,14 @@ async function loadHistorial() {
     // mes calendario inmediato anterior como inventario inicial propuesto.
     let invIni = (hasReport && rep.inventario_inicial != null) ? Number(rep.inventario_inicial) : null;
     if (invIni == null && prevInv != null) invIni = prevInv;
+    const liveRecepciones = Number(totals.total_entradas || 0);
+    const liveEntregas = Number(totals.total_salidas || 0);
     let invFin = (hasReport && rep.vol_existencias != null) ? Number(rep.vol_existencias) : null;
+    if (!_histMonthClosed && invIni != null) {
+      // Un borrador siempre refleja los movimientos vigentes, incluidos
+      // autoconsumos y traspasos agregados después de generar el último archivo.
+      invFin = Math.max(0, invIni + liveRecepciones - liveEntregas);
+    }
     if (invIni == null && hasReport && invFin != null) {
       const calc = invFin + (rep.total_entregas || 0) - (rep.total_recepciones || 0);
       if (calc > 0) invIni = calc;
@@ -1031,11 +1038,11 @@ async function loadHistorial() {
     reportInfo.style.color = _histMonthClosed ? '#15803d' : '#b45309';
     document.getElementById('htFormula').style.display      = hasReport ? '' : 'none';
     document.getElementById('htInvIni').textContent = invIni != null ? fmt(invIni) + ' L' : '—';
-    document.getElementById('htRec').textContent = hasReport
-      ? fmt(rep.total_recepciones) + ' L' : fmt(totals.total_entradas) + ' L';
+    document.getElementById('htRec').textContent = _histMonthClosed && hasReport
+      ? fmt(rep.total_recepciones) + ' L' : fmt(liveRecepciones) + ' L';
     document.getElementById('htRecCount').textContent = totals.cnt_entradas || 0;
-    document.getElementById('htEnt').textContent = hasReport
-      ? fmt(rep.total_entregas)    + ' L' : fmt(totals.total_salidas)  + ' L';
+    document.getElementById('htEnt').textContent = _histMonthClosed && hasReport
+      ? fmt(rep.total_entregas)    + ' L' : fmt(liveEntregas)  + ' L';
     document.getElementById('htEntCount').textContent = totals.cnt_salidas || 0;
     document.getElementById('htExist').textContent = invFin != null ? fmt(invFin) + ' L' : '—';
 

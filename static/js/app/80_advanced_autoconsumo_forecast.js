@@ -339,6 +339,15 @@ async function registrarAutoconsumo() {
         ? `Self-consumption of ${volumen.toLocaleString('es-MX',{minimumFractionDigits:2})} L registered.`
         : `Autoconsumo de ${volumen.toLocaleString('es-MX',{minimumFractionDigits:2})} L registrado.`, 'success');
       cargarAutoconsumos();
+      if (typeof _supplementalUploadActive !== 'undefined' && _supplementalUploadActive) {
+        setSupplementalUploadMode(false);
+        await switchTab('historial');
+        await loadHistorial();
+        setHistCloseInfo(
+          `Autoconsumo agregado: ${volumen.toLocaleString('es-MX',{minimumFractionDigits:2})} L. El inventario final del borrador ya fue recalculado; revísalo antes de cerrar.`,
+          true,
+        );
+      }
     } else {
       resultEl.style.display  = '';
       resultEl.style.background = '#fef2f2';
