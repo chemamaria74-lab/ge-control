@@ -212,6 +212,25 @@ def vehicles(
     return {"items": rows[start : start + per_page], "page": page, "per_page": per_page, "total": total}
 
 
+@router.get("/flotilla/groups")
+def fleet_groups(
+    authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+):
+    """Catálogo liviano para seleccionar la zona antes de ejecutar el análisis."""
+    ctx = _context(authorization, x_flotilla_access)
+    rows = (
+        ctx["sb"].table("fleet_groups")
+        .select("id,motive_id,motive_parent_id,name,path")
+        .eq("tenant_id", ctx["tenant_id"])
+        .order("path")
+        .execute()
+        .data
+        or []
+    )
+    return {"items": rows}
+
+
 @router.get("/flotilla/vehicles/{vehicle_id}")
 def vehicle_detail(
     vehicle_id: int,

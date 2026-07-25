@@ -93,9 +93,10 @@ def _deny_assistant_json(uid: str, token: str) -> None:
 
 def _alerta_capacidad_msg(cap_limit: float, raw: float, capped: float) -> str:
     return (
-        f"⚠ AJUSTE DE CAPACIDAD: El inventario calculado ({raw:,.2f} L) supera "
-        f"la capacidad física del tanque ({cap_limit:,.2f} L). "
-        f"VolumenExistenciasMes ajustado a {capped:,.2f} L y registrado en BitácoraMensual."
+        f"⚠ BORRADOR SOBRE MARGEN: El inventario calculado ({raw:,.2f} L) supera "
+        f"el límite de revisión con margen del 20% ({cap_limit:,.2f} L). "
+        f"No se ajustó: el borrador conserva {capped:,.2f} L para que agregues "
+        "autoconsumo o movimientos pendientes antes del cierre."
     )
 
 
@@ -678,6 +679,8 @@ async def _upload_cfdi_impl(
             anio=int(periodo_inferido[:4]) if periodo_inferido else None,
             mes=int(periodo_inferido[5:7]) if periodo_inferido else None,
             capacidad_tanque=fac_capacidad,
+            capacidad_margen_pct=0.20,
+            aplicar_ajuste_capacidad=False,
             inventario_final_medido=float(inventario_final) if inventario_final is not None else None,
             temperatura_medicion=temp_final,
             composicion_propano=float(prop_final) if prop_final is not None else None,
@@ -686,7 +689,7 @@ async def _upload_cfdi_impl(
             permiso_alm_lookup_fn=_permiso_alm_fn,
         )
 
-        if sat_meta.get("cap_applied"):
+        if sat_meta.get("cap_exceeded"):
             todas_alertas.append(_alerta_capacidad_msg(
                 cap_limit=sat_meta["cap_limit"],
                 raw=sat_meta["vol_existencias_raw"],

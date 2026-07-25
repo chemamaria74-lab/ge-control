@@ -327,7 +327,7 @@ def _merge_derived_records(records: dict, derived: dict) -> dict:
     }
     def marker_for(row: dict, key: str) -> tuple[str, str, str]:
         tipo = str(row.get("tipo") or key)
-        uuid = str(row.get("uuid") or "").strip()
+        uuid = str(row.get("uuid") or "").strip().upper()
         if uuid:
             return (tipo, "uuid", uuid)
         return (tipo, str(row.get("file_path") or ""), str(row.get("id") or ""))
@@ -646,7 +646,12 @@ def _regenerate_history_report(uid: str, token: str, periodo: str, perfil_id: in
         anio=anio,
         mes=mes,
         capacidad_tanque=capacidad_tanque,
-        inventario_final_medido=_safe_float(rep.get("vol_existencias")) if rep.get("vol_existencias") is not None else None,
+        capacidad_margen_pct=0.20,
+        aplicar_ajuste_capacidad=True,
+        # reports.vol_existencias es el resultado calculado del borrador anterior,
+        # no una lectura física capturada. Reutilizarlo como "medido" congelaba el
+        # inventario aunque después se agregara autoconsumo u otro movimiento.
+        inventario_final_medido=None,
     )
     return sat_dict, sat_meta, settings
 
@@ -721,7 +726,7 @@ async def close_month_report(
     sat_dict, sat_meta, settings = _regenerate_history_report(
         uid, token, periodo, perfil_id, facility_id, rep,
     )
-    if sat_meta.get("cap_applied"):
+    if sat_meta.get("cap_exceeded"):
         raise HTTPException(
             409,
             "No se puede cerrar el mes porque el inventario calculado supera la capacidad "
