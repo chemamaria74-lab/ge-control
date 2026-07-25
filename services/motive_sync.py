@@ -297,6 +297,38 @@ def normalize_driving_period(item: Any, *, integration_id: int, tenant_id: str) 
     }
 
 
+def normalize_vehicle_utilization(
+    item: Any, *, integration_id: int, tenant_id: str,
+    period_start: str, period_end: str,
+) -> dict[str, Any]:
+    rollup = _inner(item, "vehicle_idle_rollup")
+    vehicle = _entity(rollup, "vehicle")
+    if vehicle.get("id") is None:
+        raise ValueError("Utilización Motive sin vehículo.")
+    utilization = _decimal(rollup.get("utilization"))
+    if utilization is not None and utilization > 1:
+        utilization /= Decimal(100)
+    driving_hours = (_decimal(rollup.get("driving_time")) or Decimal(0)) / Decimal(3600)
+    idle_hours = (_decimal(rollup.get("idle_time")) or Decimal(0)) / Decimal(3600)
+    driving_fuel = _decimal(rollup.get("driving_fuel")) or Decimal(0)
+    idle_fuel = _decimal(rollup.get("idle_fuel")) or Decimal(0)
+    return {
+        "integration_id": integration_id,
+        "tenant_id": tenant_id,
+        "motive_vehicle_id": int(vehicle["id"]),
+        "period_start": period_start,
+        "period_end": period_end,
+        "utilization_pct": _number(utilization, 6),
+        "driving_hours": _number(driving_hours, 3) or 0,
+        "idle_hours": _number(idle_hours, 3) or 0,
+        "engine_hours": _number(driving_hours + idle_hours, 3) or 0,
+        "driving_fuel_liters": _number(driving_fuel, 4) or 0,
+        "idle_fuel_liters": _number(idle_fuel, 4) or 0,
+        "fuel_consumed_liters": _number(driving_fuel + idle_fuel, 4) or 0,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def normalize_fault(item: Any, *, integration_id: int, tenant_id: str) -> dict[str, Any]:
     fault = _inner(item, "fault_code")
     vehicle = _entity(fault, "vehicle")
@@ -369,6 +401,49 @@ def _upsert(sb: Any, table: str, rows: list[dict[str, Any]], on_conflict: str, b
     for start in range(0, len(deduplicated), batch_size):
         sb.table(table).upsert(deduplicated[start : start + batch_size], on_conflict=on_conflict).execute()
     return len(deduplicated)
+
+
+def sync_vehicle_utilization_range(
+    sb: Any, *, tenant_id: str, integration_id: int,
+    period_start: date, period_end: date,
+) -> int:
+    """Consulta un periodo solicitado una vez y reutiliza el rollup guardado."""
+    start_text, end_text = period_start.isoformat(), period_end.isoformat()
+    cached = (
+        sb.table("fleet_vehicle_utilization_rollups")
+        .select("id", count="exact")
+        .eq("tenant_id", tenant_id)
+        .eq("integration_id", integration_id)
+        .eq("period_start", start_text)
+        .eq("period_end", end_text)
+        .limit(1).execute()
+    )
+    if (cached.count or 0) > 0:
+        return 0
+    stored_vehicles = (
+        sb.table("fleet_vehicles").select("id,motive_id")
+        .eq("integration_id", integration_id).execute().data or []
+    )
+    vehicle_ids = {int(row["motive_id"]): int(row["id"]) for row in stored_vehicles}
+    items = motive_get_all_pages(
+        "/v1/vehicle_utilization",
+        collection_key="vehicle_idle_rollups",
+        params={"start_date": start_text, "end_date": end_text},
+    )
+    rows = [
+        normalize_vehicle_utilization(
+            item, integration_id=integration_id, tenant_id=tenant_id,
+            period_start=start_text, period_end=end_text,
+        )
+        for item in items
+    ]
+    for row in rows:
+        row["vehicle_id"] = vehicle_ids.get(int(row.pop("motive_vehicle_id")))
+    rows = [row for row in rows if row.get("vehicle_id") is not None]
+    return _upsert(
+        sb, "fleet_vehicle_utilization_rollups", rows,
+        "integration_id,vehicle_id,period_start,period_end",
+    )
 
 
 def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full: bool = False) -> dict[str, Any]:
@@ -500,6 +575,30 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
             datasets["driving_periods"] = 0
         pulse()
 
+        utilization_start = date.today().replace(day=1).isoformat()
+        utilization_items = _optional_pages(
+            datasets, "vehicle_utilization", "/v1/vehicle_utilization", "vehicle_idle_rollups",
+            params={"start_date": utilization_start, "end_date": end_date},
+        )
+        utilization = [
+            normalize_vehicle_utilization(
+                item, integration_id=integration_id, tenant_id=tenant_id,
+                period_start=utilization_start, period_end=end_date,
+            )
+            for item in utilization_items
+        ]
+        for row in utilization:
+            row["vehicle_id"] = vehicle_ids.get(int(row.pop("motive_vehicle_id")))
+        utilization = [row for row in utilization if row.get("vehicle_id") is not None]
+        if utilization:
+            datasets["vehicle_utilization"] = _upsert(
+                sb, "fleet_vehicle_utilization_rollups", utilization,
+                "integration_id,vehicle_id,period_start,period_end",
+            )
+        elif "vehicle_utilization" not in datasets:
+            datasets["vehicle_utilization"] = 0
+        pulse()
+
         fault_items = _optional_pages(datasets, "fault_codes", "/v1/fault_codes", "fault_codes", params={"start_date": start_date, "end_date": end_date})
         faults = [normalize_fault(item, integration_id=integration_id, tenant_id=tenant_id) for item in fault_items]
         for row in faults:
@@ -512,7 +611,7 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
 
         card_items = _optional_pages(datasets, "card_expenses", "/motive_card/v1/transactions", "transactions",
                                      params={"start_date": start_date, "end_date": end_date, "date_range_filter_type": "transaction_time"},
-                                     per_page=1000, page_param="page_no", timezone_header="Mexico City")
+                                     per_page=1000, page_param="page_no", timezone_header="UTC")
         card_expenses = [normalize_card_expense(item, integration_id=integration_id, tenant_id=tenant_id) for item in card_items]
         for row in card_expenses:
             raw_vehicle_id = row["raw_metadata"].get("motive_vehicle_id")

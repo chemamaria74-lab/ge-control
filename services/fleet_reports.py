@@ -164,15 +164,23 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     behaviors: Counter[str] = Counter()
     severity: Counter[str] = Counter()
     daily: Counter[str] = Counter()
+    datasets = (data.get("_sync") or {}).get("datasets") or {}
+    card_status = datasets.get("card_expenses")
+    expense_complete = not (
+        isinstance(card_status, dict) and card_status.get("status") == "unavailable"
+    )
+    expense_available = bool(data.get("expenses") or data.get("fuel")) or expense_complete
 
     def unit(value: Any) -> dict[str, Any]:
         name = _text(value) or "Sin unidad vinculada"
         return unit_rows.setdefault(name, {
             "vehicle_number": name, "driver_name": "", "security": 0, "speeding": 0,
             "critical_high": 0, "faults": 0, "expense_mxn": 0.0, "liters": 0.0,
+            "purchased_liters": 0.0, "fuel_consumption_available": False,
             "maintenance_mxn": 0.0, "distance_km": 0.0, "engine_hours": 0.0,
             "active_days": set(), "inspections": 0, "open_defects": 0,
             "overdue_defects": 0, "score": None, "attention_index": 0,
+            "utilization_pct": None, "engine_hours_available": False,
         })
 
     for row in data.get("vehicles", []):
@@ -211,13 +219,13 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     for row in data.get("expenses", []):
         item = unit(row.get("vehicle_number"))
         item["expense_mxn"] += float(row.get("amount_mxn") or 0)
-        item["liters"] += float(row.get("quantity_liters") or 0)
+        item["purchased_liters"] += float(row.get("quantity_liters") or 0)
         if _text(row.get("expense_type")).casefold() == "mantenimiento":
             item["maintenance_mxn"] += float(row.get("amount_mxn") or 0)
     has_card_expenses = any(_text(row.get("source")).casefold() == "motive_card" for row in data.get("expenses", []))
     for row in data.get("fuel", []):
         item = unit(row.get("vehicle_number"))
-        item["liters"] += float(row.get("quantity_liters") or 0)
+        item["purchased_liters"] += float(row.get("quantity_liters") or 0)
         if not has_card_expenses:
             item["expense_mxn"] += float(row.get("total_cost") or 0)
     use_activity_distance = not data.get("metrics")
@@ -231,9 +239,16 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     for row in data.get("metrics", []):
         item = unit(row.get("vehicle_number"))
         item["distance_km"] += float(row.get("distance_km") or 0)
-        item["engine_hours"] += float(row.get("engine_hours") or 0)
-        if float(row.get("distance_km") or 0) > 0 or float(row.get("engine_hours") or 0) > 0:
+        if float(row.get("distance_km") or 0) > 0:
             item["active_days"].add(_text(row.get("metric_date")))
+    for row in data.get("utilization", []):
+        item = unit(row.get("vehicle_number"))
+        item["engine_hours"] += float(row.get("engine_hours") or 0)
+        item["engine_hours_available"] = True
+        item["liters"] += float(row.get("fuel_consumed_liters") or 0)
+        item["fuel_consumption_available"] = True
+        if row.get("utilization_pct") is not None:
+            item["utilization_pct"] = float(row["utilization_pct"])
     for row in data.get("inspections", []):
         unit(row.get("vehicle_number"))["inspections"] += 1
     for row in data.get("defects", []):
@@ -254,9 +269,16 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         item["active_days"] = len(item["active_days"])
         if item["score"] is None and (item["security"] or item["speeding"]):
             item["score"] = max(0.0, 100.0 - float(item["attention_index"]))
-        item["utilization_pct"] = min(item["active_days"] / period_days, 1.0)
-        item["km_per_liter"] = item["distance_km"] / item["liters"] if item["liters"] > 0 else None
-        item["cost_per_km"] = item["expense_mxn"] / item["distance_km"] if item["distance_km"] > 0 else None
+        if item["utilization_pct"] is None:
+            item["utilization_pct"] = min(item["active_days"] / period_days, 1.0)
+        item["km_per_liter"] = (
+            item["distance_km"] / item["liters"]
+            if item["fuel_consumption_available"] and item["liters"] > 0 else None
+        )
+        item["cost_per_km"] = (
+            item["expense_mxn"] / item["distance_km"]
+            if expense_available and item["distance_km"] > 0 else None
+        )
         item["events_per_1000_km"] = (
             (item["security"] + item["speeding"]) * 1000 / item["distance_km"]
             if item["distance_km"] > 0 else None
@@ -265,6 +287,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         "expenses_mxn": sum(row["expense_mxn"] for row in units),
         "maintenance_mxn": sum(row["maintenance_mxn"] for row in units),
         "liters": sum(row["liters"] for row in units),
+        "purchased_liters": sum(row["purchased_liters"] for row in units),
         "distance_km": sum(row["distance_km"] for row in units),
         "engine_hours": sum(row["engine_hours"] for row in units),
         "inspections": sum(row["inspections"] for row in units),
@@ -272,9 +295,18 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         "overdue_defects": sum(row["overdue_defects"] for row in units),
     }
     totals["distance_available"] = any(row["distance_km"] > 0 for row in units)
-    totals["engine_hours_available"] = any(row["engine_hours"] > 0 for row in units)
-    totals["km_per_liter"] = totals["distance_km"] / totals["liters"] if totals["liters"] else None
-    totals["cost_per_km"] = totals["expenses_mxn"] / totals["distance_km"] if totals["distance_km"] else None
+    totals["engine_hours_available"] = any(row["engine_hours_available"] for row in units)
+    totals["fuel_consumption_available"] = any(row["fuel_consumption_available"] for row in units)
+    totals["km_per_liter"] = (
+        totals["distance_km"] / totals["liters"]
+        if totals["fuel_consumption_available"] and totals["liters"] else None
+    )
+    totals["cost_per_km"] = (
+        totals["expenses_mxn"] / totals["distance_km"]
+        if expense_available and totals["distance_km"] else None
+    )
+    totals["expense_complete"] = expense_complete
+    totals["expense_available"] = expense_available
     score_values = [row["score"] for row in units if row["score"] is not None]
     totals["driver_score"] = sum(score_values) / len(score_values) if score_values else None
     drivers: dict[str, dict[str, Any]] = {}
@@ -322,6 +354,8 @@ def comparison_row(name: str, analytics: dict[str, Any], previous: dict[str, Any
             if analytics["units"] else 0
         ),
         "expenses_mxn": totals["expenses_mxn"],
+        "expense_available": totals["expense_available"],
+        "expense_complete": totals["expense_complete"],
         "maintenance_mxn": totals["maintenance_mxn"],
         "km_per_liter": totals["km_per_liter"],
         "cost_per_km": totals["cost_per_km"],
@@ -373,10 +407,10 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         ("CRÍTICOS / ALTOS", analytics["critical_high"], False),
         ("INSPECCIONES", analytics["totals"]["inspections"], False),
         ("DEFECTOS ABIERTOS", analytics["totals"]["open_defects"], False),
-        ("KILÓMETROS", analytics["totals"]["distance_km"] or None, False),
-        ("HORAS MOTOR", analytics["totals"]["engine_hours"] or None, False),
+        ("KILÓMETROS", analytics["totals"]["distance_km"] if analytics["totals"]["distance_available"] else None, False),
+        ("HORAS MOTOR", analytics["totals"]["engine_hours"] if analytics["totals"]["engine_hours_available"] else None, False),
         ("UTILIZACIÓN", avg_utilization, "percent"),
-        ("GASTO TOTAL MXN", analytics["totals"]["expenses_mxn"], True),
+        ("GASTO DOCUMENTADO MXN", analytics["totals"]["expenses_mxn"] if analytics["totals"]["expense_available"] else None, True),
         ("RENDIMIENTO KM/L", analytics["totals"]["km_per_liter"], False),
         ("COSTO POR KM", analytics["totals"]["cost_per_km"], True),
     ]
@@ -456,8 +490,14 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         f"Asignar responsable y fecha compromiso. Dar seguimiento a {analytics['critical_high']:,} "
         "eventos críticos/altos y comprobar la reducción en el siguiente informe."
     ), action_text)
+    coverage_notes = []
     if not data.get("activity") or not data.get("faults"):
-        dashboard.merge_range("B48:M49", "Cobertura del informe: alguna fuente de Motive no entregó registros en este corte. Un espacio sin datos se presenta como “no disponible” y no como cero operativo.", note)
+        coverage_notes.append("Alguna fuente de Motive no entregó registros en este corte.")
+    if not analytics["totals"]["expense_complete"]:
+        coverage_notes.append("El gasto es parcial porque Motive Card no estuvo disponible.")
+    if coverage_notes:
+        coverage_notes.append("Un dato ausente se presenta como “no disponible” y no como cero operativo.")
+        dashboard.merge_range("B48:M49", "Cobertura del informe: " + " ".join(coverage_notes), note)
     dashboard.print_area("B2:M49")
 
     summary = workbook.add_worksheet("Resumen por unidad")
@@ -465,7 +505,7 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
     summary.freeze_panes(2, 2)
     unit_headers = [
         "Unidad", "Conductor", "Score", "Seguridad", "Velocidad", "Críticos / altos",
-        "Fallas", "Gasto total MXN", "Mantenimiento MXN", "Litros", "Kilómetros",
+        "Fallas", "Gasto total MXN", "Mantenimiento MXN", "Consumo L", "Kilómetros",
         "Horas motor", "Utilización", "km/L", "Costo/km", "Inspecciones",
         "Defectos abiertos", "Defectos vencidos", "Índice de atención",
     ]

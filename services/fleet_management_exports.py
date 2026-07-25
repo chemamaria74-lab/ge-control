@@ -186,7 +186,7 @@ def build_zone_pdf(
         ("Score conductores", _n(row["driver_score"], 1)),
         ("Km", _n(row["distance_km"], 1)),
         ("Horas motor", _n(row["engine_hours"], 1)),
-        ("Gasto total", _money(row["expenses_mxn"])),
+        ("Gasto documentado", _money(row["expenses_mxn"]) if row["expense_available"] else "No disponible"),
         ("Costo/km", _money(row["cost_per_km"]) if row["cost_per_km"] is not None else "No disponible"),
     ]))
     story.append(Spacer(1, 5 * mm))
@@ -197,6 +197,8 @@ def build_zone_pdf(
         actions.append(f"Atender primero {leader['vehicle_number']}: {leader['critical_high']} eventos críticos/altos y {leader['open_defects']} defectos abiertos.")
     if row["overdue_defects"]:
         actions.append(f"Cerrar {row['overdue_defects']} defectos vencidos y documentar responsable y fecha compromiso.")
+    if not row["expense_complete"]:
+        actions.append("El gasto mostrado es parcial: Motive Card no estuvo disponible; no debe interpretarse como gasto total de la zona.")
     actions.append(f"Eventos contra periodo anterior: {_pct(row['events_delta_pct'])}. Gasto contra periodo anterior: {_pct(row['expense_delta_pct'])}.")
     story.append(_bullet_box(actions))
     story.append(Spacer(1, 4 * mm))
