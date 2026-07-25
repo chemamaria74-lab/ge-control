@@ -542,20 +542,13 @@ def get_reports(user_id: str, periodo: Optional[str] = None,
 
 
 def report_is_closed(report: Optional[dict], periodo: Optional[str] = None) -> bool:
-    """Determina si un reporte mensual ya es inmutable.
-
-    Los cierres nuevos usan ``status/closed_at``. Para reportes históricos
-    creados antes de incorporar el cierre explícito, un reporte de un mes
-    anterior se considera cerrado automáticamente.
-    """
+    """Determina si el usuario cerró explícitamente el reporte mensual."""
     if not report:
         return False
     status = str(report.get("status") or "").strip().lower()
     if status in {"closed", "cerrado"} or report.get("closed_at"):
         return True
-    period = str(periodo or report.get("periodo") or "")[:7]
-    current_period = datetime.now(ZoneInfo("America/Mexico_City")).strftime("%Y-%m")
-    return bool(period and period < current_period)
+    return False
 
 
 def get_closed_report(user_id: str, periodo: str,
@@ -582,6 +575,26 @@ def mark_reports_closed(user_id: str, periodo: str,
         return get_closed_report(user_id, periodo, facility_id, perfil_id) is not None
     except Exception as e:
         logger.error("mark_reports_closed: %s", e)
+        return False
+
+
+def reopen_reports(user_id: str, periodo: str,
+                   facility_id: Optional[int] = None,
+                   perfil_id: Optional[int] = None) -> bool:
+    """Reabre explícitamente un cierre para corrección administrativa."""
+    try:
+        q = (get_supabase_admin().table("reports")
+             .update({"status": "reopened", "closed_at": None})
+             .eq("user_id", user_id).eq("periodo", periodo))
+        if facility_id is not None:
+            q = q.eq("facility_id", facility_id)
+        if perfil_id is not None:
+            q = q.eq("perfil_id", perfil_id)
+        q.execute()
+        reports = get_reports(user_id, periodo, facility_id, perfil_id)
+        return bool(reports and not report_is_closed(reports[0], periodo))
+    except Exception as e:
+        logger.error("reopen_reports: %s", e)
         return False
 
 
