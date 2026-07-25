@@ -78,7 +78,10 @@
   }
 
   async function loadVehicles(){
-    const p=new URLSearchParams({page:state.page,per_page:state.perPage,search:$('vehicleSearch').value.trim(),status:$('statusFilter').value,fuel_type:$('fuelFilter').value});
+    const search=$('vehicleSearch').value.trim();
+    if(!search){$('vehicleResults').hidden=true;return;}
+    $('vehicleResults').hidden=false;
+    const p=new URLSearchParams({page:state.page,per_page:state.perPage,search});
     try{
       const data=await api(`/vehicles?${p}`); state.total=data.total||0; renderVehicles(data.items||[]);
       $('vehicleCount').textContent=`${fmt(state.total)} unidades encontradas`; $('pageLabel').textContent=`Página ${state.page}`;
@@ -109,7 +112,7 @@
       if(data.cooldown_seconds){ notice(`Los datos ya están recientes. Podrás actualizar nuevamente en ${Math.ceil(data.cooldown_seconds/60)} minutos.`); }
       else notice(data.reused?'Ya existe una actualización en curso.':'Actualización iniciada. Puedes seguir usando el portal.');
       setSync('warn','Actualizando desde Motive…','El último dato válido seguirá disponible.');
-      clearInterval(state.syncPoll); state.syncPoll=setInterval(async()=>{ await loadOverview(); const text=$('syncTitle').textContent; if(!text.includes('Actualizando')){clearInterval(state.syncPoll);await loadVehicles();$('syncButton').disabled=false;} },5000);
+      clearInterval(state.syncPoll); state.syncPoll=setInterval(async()=>{ await loadOverview(); const text=$('syncTitle').textContent; if(!text.includes('Actualizando')){clearInterval(state.syncPoll);await loadReportCatalog();$('syncButton').disabled=false;} },5000);
     }catch(error){ notice(error.message,'error'); $('syncButton').disabled=false; }
   }
 
@@ -123,9 +126,35 @@
       $('reportExpenses').textContent=money(totals.expenses_mxn,'MXN'); $('reportLiters').textContent=fmt(totals.fuel_liters);
       $('reportSafety').textContent=fmt(counts.driver_events); $('reportSpeeding').textContent=fmt(counts.speeding);
       $('reportActivity').textContent=fmt(counts.activity); $('reportFaults').textContent=fmt(counts.faults);
+      renderDashboard(data.analytics||{});
+      renderDataStatus(data.sync||null,counts);
       const submitters=data.submitters||[];
-      $('submitterList').innerHTML=submitters.length?'<strong>Quién registró gastos:</strong> '+submitters.slice(0,8).map(row=>`${esc(row.name)} · ${fmt(row.records)} registros · ${money(row.amount_mxn,'MXN')}`).join(' &nbsp;|&nbsp; '):'Aún no hay gastos importados para mostrar responsables.';
+      $('submitterList').innerHTML=submitters.length?submitters.slice(0,8).map((row,index)=>`<div class="submitter-row"><span>${index+1}. ${esc(row.name)}</span><strong>${fmt(row.records)} · ${money(row.amount_mxn,'MXN')}</strong></div>`).join(''):'Sin gastos importados en el periodo. No se interpreta como $0 real.';
     }catch(error){ notice(error.message,'error'); }
+  }
+
+  function renderDashboard(analytics){
+    const units=analytics.top_units||[], behaviors=analytics.behaviors||[];
+    const maxUnit=Math.max(...units.map(row=>Number(row.attention_index||0)),1);
+    const maxBehavior=Math.max(...behaviors.map(row=>Number(row.count||0)),1);
+    $('riskRanking').innerHTML=units.length?units.map((row,index)=>`<button class="bar-row unit-risk" type="button" data-unit-search="${esc(row.vehicle_number)}"><span class="bar-label"><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${fmt(row.security+row.speeding)} eventos · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${Math.max(4,Number(row.attention_index||0)/maxUnit*100)}%"></i></span><strong>${fmt(row.attention_index)}</strong></button>`).join(''):'<div class="empty">No hay eventos en este periodo.</div>';
+    $('behaviorRanking').innerHTML=behaviors.length?behaviors.map(row=>`<div class="bar-row"><span class="bar-label"><b>${esc(row.label)}</b></span><span class="bar-track gold"><i style="width:${Math.max(4,Number(row.count||0)/maxBehavior*100)}%"></i></span><strong>${fmt(row.count)}</strong></div>`).join(''):'<div class="empty">No hay conductas registradas.</div>';
+    document.querySelectorAll('[data-unit-search]').forEach(button=>button.addEventListener('click',()=>{$('vehicleSearch').value=button.dataset.unitSearch;state.page=1;loadVehicles();}));
+  }
+
+  function renderDataStatus(sync,counts){
+    if(!sync){$('dataStatus').className='data-status warn';$('dataStatus').textContent='Aún no existe una sincronización completa de Motive.';return;}
+    const datasets=sync.datasets||{}, pending=[];
+    if(!Object.prototype.hasOwnProperty.call(datasets,'driving_periods')) pending.push('Actividad');
+    if(!Object.prototype.hasOwnProperty.call(datasets,'fault_codes')) pending.push('Códigos de falla');
+    if(!Object.prototype.hasOwnProperty.call(datasets,'card_expenses')) pending.push('Motive Card');
+    if(sync.status==='failed'){
+      $('dataStatus').className='data-status error';
+      $('dataStatus').innerHTML=`<strong>Sincronización incompleta.</strong> Seguridad y velocidad sí están disponibles; ${esc(pending.join(', ')||'otras fuentes')} quedaron pendientes. Vuelve a actualizar desde Motive.`;
+    }else{
+      $('dataStatus').className='data-status ok';
+      $('dataStatus').textContent=pending.length?`Motive conectado. Fuentes sin registros o sin permiso: ${pending.join(', ')}.`:'Todas las fuentes disponibles se sincronizaron correctamente.';
+    }
   }
 
   async function importExpenses(file){
@@ -157,14 +186,14 @@
   }
 
   function initializeDates(){ const today=new Date(), first=new Date(today.getFullYear(),today.getMonth(),1); $('endDate').value=today.toISOString().slice(0,10); $('startDate').value=first.toISOString().slice(0,10); }
-  function refresh(){ state.page=1; loadOverview(); loadVehicles(); loadReportCatalog(); }
+  function refresh(){ state.page=1; loadOverview(); loadReportCatalog(); if($('vehicleSearch').value.trim())loadVehicles(); }
   initializeDates();
   $('fleetBack').onclick=()=>{clearPortalAccess();location.href='/modulo/gas-lp/roles';}; $('fleetLogout').onclick=logout; $('syncButton').onclick=requestSync;
-  $('fleetAuthRetry').onclick=()=>validatePortalSession().then(ok=>{if(ok){loadOverview();loadVehicles();}});
+  $('fleetAuthRetry').onclick=()=>validatePortalSession().then(ok=>{if(ok){loadOverview();loadReportCatalog();}});
   $('drawerClose').onclick=closeDrawer; $('drawerBackdrop').onclick=closeDrawer; $('prevPage').onclick=()=>{if(state.page>1){state.page--;loadVehicles();}}; $('nextPage').onclick=()=>{if(state.page*state.perPage<state.total){state.page++;loadVehicles();}};
   $('vehicleSearch').addEventListener('input',()=>{clearTimeout(state.debounce);state.debounce=setTimeout(()=>{state.page=1;loadVehicles();},250);});
-  ['statusFilter','fuelFilter'].forEach(id=>$(id).addEventListener('change',()=>{state.page=1;loadVehicles();})); ['startDate','endDate'].forEach(id=>$(id).addEventListener('change',refresh));
-  $('clearFilters').onclick=()=>{$('vehicleSearch').value='';$('statusFilter').value='';$('fuelFilter').value='';refresh();};
+  ['startDate','endDate'].forEach(id=>$(id).addEventListener('change',refresh));
+  $('clearFilters').onclick=()=>{$('vehicleSearch').value='';$('vehicleResults').hidden=true;};
   $('reportGroup').addEventListener('change',loadReportCatalog); $('expenseFile').addEventListener('change',event=>importExpenses(event.target.files?.[0])); $('downloadReport').onclick=downloadReport;
-  validatePortalSession().then(ok=>{if(ok){loadOverview();loadVehicles();loadReportCatalog();}});
+  validatePortalSession().then(ok=>{if(ok){loadOverview();loadReportCatalog();}});
 })();
