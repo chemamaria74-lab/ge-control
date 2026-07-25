@@ -170,8 +170,14 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         return unit_rows.setdefault(name, {
             "vehicle_number": name, "driver_name": "", "security": 0, "speeding": 0,
             "critical_high": 0, "faults": 0, "expense_mxn": 0.0, "liters": 0.0,
-            "attention_index": 0,
+            "maintenance_mxn": 0.0, "distance_km": 0.0, "engine_hours": 0.0,
+            "active_days": set(), "inspections": 0, "open_defects": 0,
+            "overdue_defects": 0, "score": None, "attention_index": 0,
         })
+
+    for row in data.get("vehicles", []):
+        item = unit(row.get("vehicle_number"))
+        item["driver_name"] = _text(row.get("current_driver_name"))
 
     for row in data.get("driver_events", []):
         item = unit(row.get("vehicle_number"))
@@ -206,14 +212,126 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         item = unit(row.get("vehicle_number"))
         item["expense_mxn"] += float(row.get("amount_mxn") or 0)
         item["liters"] += float(row.get("quantity_liters") or 0)
+        if _text(row.get("expense_type")).casefold() == "mantenimiento":
+            item["maintenance_mxn"] += float(row.get("amount_mxn") or 0)
+    has_card_expenses = any(_text(row.get("source")).casefold() == "motive_card" for row in data.get("expenses", []))
+    for row in data.get("fuel", []):
+        item = unit(row.get("vehicle_number"))
+        item["liters"] += float(row.get("quantity_liters") or 0)
+        if not has_card_expenses:
+            item["expense_mxn"] += float(row.get("total_cost") or 0)
+    use_activity_distance = not data.get("metrics")
+    for row in data.get("activity", []):
+        item = unit(row.get("vehicle_number"))
+        if use_activity_distance:
+            item["distance_km"] += float(row.get("distance_km") or 0)
+        day = _text(row.get("started_at"))[:10]
+        if day:
+            item["active_days"].add(day)
+    for row in data.get("metrics", []):
+        item = unit(row.get("vehicle_number"))
+        item["distance_km"] += float(row.get("distance_km") or 0)
+        item["engine_hours"] += float(row.get("engine_hours") or 0)
+        if float(row.get("distance_km") or 0) > 0 or float(row.get("engine_hours") or 0) > 0:
+            item["active_days"].add(_text(row.get("metric_date")))
+    for row in data.get("inspections", []):
+        unit(row.get("vehicle_number"))["inspections"] += 1
+    for row in data.get("defects", []):
+        item = unit(row.get("vehicle_number"))
+        if _text(row.get("status")).casefold() in {"open", "pending", "unresolved", "with_defects"}:
+            item["open_defects"] += 1
+            if bool(row.get("is_overdue")):
+                item["overdue_defects"] += 1
+    for row in data.get("scorecards", []):
+        item = unit(row.get("vehicle_number") or row.get("driver_name"))
+        item["driver_name"] = item["driver_name"] or _text(row.get("driver_name"))
+        if row.get("performance_score") is not None:
+            item["score"] = float(row["performance_score"])
 
     units = sorted(unit_rows.values(), key=lambda row: (-row["attention_index"], -row["expense_mxn"], row["vehicle_number"]))
+    period_days = max(int(data.get("_period_days") or 1), 1)
+    for item in units:
+        item["active_days"] = len(item["active_days"])
+        if item["score"] is None and (item["security"] or item["speeding"]):
+            item["score"] = max(0.0, 100.0 - float(item["attention_index"]))
+        item["utilization_pct"] = min(item["active_days"] / period_days, 1.0)
+        item["km_per_liter"] = item["distance_km"] / item["liters"] if item["liters"] > 0 else None
+        item["cost_per_km"] = item["expense_mxn"] / item["distance_km"] if item["distance_km"] > 0 else None
+        item["events_per_1000_km"] = (
+            (item["security"] + item["speeding"]) * 1000 / item["distance_km"]
+            if item["distance_km"] > 0 else None
+        )
+    totals = {
+        "expenses_mxn": sum(row["expense_mxn"] for row in units),
+        "maintenance_mxn": sum(row["maintenance_mxn"] for row in units),
+        "liters": sum(row["liters"] for row in units),
+        "distance_km": sum(row["distance_km"] for row in units),
+        "engine_hours": sum(row["engine_hours"] for row in units),
+        "inspections": sum(row["inspections"] for row in units),
+        "open_defects": sum(row["open_defects"] for row in units),
+        "overdue_defects": sum(row["overdue_defects"] for row in units),
+    }
+    totals["km_per_liter"] = totals["distance_km"] / totals["liters"] if totals["liters"] else None
+    totals["cost_per_km"] = totals["expenses_mxn"] / totals["distance_km"] if totals["distance_km"] else None
+    score_values = [row["score"] for row in units if row["score"] is not None]
+    totals["driver_score"] = sum(score_values) / len(score_values) if score_values else None
+    drivers: dict[str, dict[str, Any]] = {}
+    for row in units:
+        name = row["driver_name"] or "Sin conductor asignado"
+        driver = drivers.setdefault(name, {
+            "driver_name": name, "units": set(), "security": 0, "speeding": 0,
+            "critical_high": 0, "attention_index": 0,
+        })
+        driver["units"].add(row["vehicle_number"])
+        for key in ("security", "speeding", "critical_high", "attention_index"):
+            driver[key] += row[key]
+    driver_rows = []
+    for driver in drivers.values():
+        driver["vehicles"] = ", ".join(sorted(driver.pop("units")))
+        driver["score"] = max(0.0, 100.0 - float(driver["attention_index"]))
+        driver_rows.append(driver)
+    driver_rows.sort(key=lambda row: (row["score"], -row["critical_high"], row["driver_name"]))
     return {
         "units": units,
+        "drivers": driver_rows,
         "behaviors": [{"label": name, "count": count} for name, count in behaviors.most_common()],
         "severity": [{"label": name, "count": count} for name, count in severity.most_common()],
         "daily": [{"date": day, "count": daily[day]} for day in sorted(daily)],
         "critical_high": sum(row["critical_high"] for row in units),
+        "totals": totals,
+    }
+
+
+def comparison_row(name: str, analytics: dict[str, Any], previous: dict[str, Any] | None = None) -> dict[str, Any]:
+    totals = analytics["totals"]
+    previous_totals = (previous or {}).get("totals", {})
+    events = sum(row["security"] + row["speeding"] for row in analytics["units"])
+    previous_events = sum(row["security"] + row["speeding"] for row in (previous or {}).get("units", []))
+    return {
+        "zone": name or "Toda la flotilla",
+        "vehicles": len(analytics["units"]),
+        "driver_score": totals["driver_score"],
+        "events": events,
+        "critical_high": analytics["critical_high"],
+        "distance_km": totals["distance_km"],
+        "engine_hours": totals["engine_hours"],
+        "utilization_pct": (
+            sum(row["utilization_pct"] for row in analytics["units"]) / len(analytics["units"])
+            if analytics["units"] else 0
+        ),
+        "expenses_mxn": totals["expenses_mxn"],
+        "maintenance_mxn": totals["maintenance_mxn"],
+        "km_per_liter": totals["km_per_liter"],
+        "cost_per_km": totals["cost_per_km"],
+        "inspections": totals["inspections"],
+        "open_defects": totals["open_defects"],
+        "overdue_defects": totals["overdue_defects"],
+        "events_delta_pct": ((events - previous_events) / previous_events) if previous_events else None,
+        "expense_delta_pct": (
+            (totals["expenses_mxn"] - float(previous_totals.get("expenses_mxn") or 0))
+            / float(previous_totals.get("expenses_mxn") or 1)
+            if previous_totals.get("expenses_mxn") else None
+        ),
     }
 
 
@@ -240,16 +358,16 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
     dashboard.merge_range("B4:M4", f"{(group_name or 'Toda la flotilla').upper()}  |  {start:%d/%m/%Y} al {end:%d/%m/%Y}", subtitle)
     metrics = [
         ("UNIDADES ANALIZADAS", len(analytics["units"]), False),
-        ("EVENTOS TOTALES", len(data.get("driver_events", [])) + len(data.get("speeding", [])), False),
-        ("EVENTOS DE SEGURIDAD", len(data.get("driver_events", [])), False),
-        ("EXCESOS DE VELOCIDAD", len(data.get("speeding", [])), False),
-        ("CRÍTICOS / ALTOS", analytics["critical_high"], False),
-        ("ACTIVIDAD REGISTRADA", len(data.get("activity", [])), False),
+        ("SCORE CONDUCTORES", analytics["totals"]["driver_score"], False),
+        ("KILÓMETROS", analytics["totals"]["distance_km"], False),
+        ("GASTO TOTAL MXN", analytics["totals"]["expenses_mxn"], True),
+        ("RENDIMIENTO KM/L", analytics["totals"]["km_per_liter"], False),
+        ("COSTO POR KM", analytics["totals"]["cost_per_km"], True),
     ]
     for index, (label, value, is_money) in enumerate(metrics):
         column = 1 + index * 2
         dashboard.merge_range(5, column, 5, column + 1, label, kpi_label)
-        display = f"${value:,.2f}" if is_money else f"{value:,.0f}"
+        display = "NO DISPONIBLE" if value is None else (f"${value:,.2f}" if is_money else f"{value:,.1f}")
         dashboard.merge_range(6, column, 7, column + 1, display, kpi_value)
     dashboard.merge_range("B10:G10", "Unidades que requieren atención", section)
     dashboard.merge_range("I10:M10", "Conductas más frecuentes", section)
@@ -323,17 +441,30 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
 
     summary = workbook.add_worksheet("Resumen por unidad")
     summary.freeze_panes(1, 0)
-    unit_headers = ["Unidad", "Conductor", "Seguridad", "Velocidad", "Críticos / altos", "Fallas", "Gastos MXN", "Litros", "Índice de atención"]
+    unit_headers = [
+        "Unidad", "Conductor", "Score", "Seguridad", "Velocidad", "Críticos / altos",
+        "Fallas", "Gasto total MXN", "Mantenimiento MXN", "Litros", "Kilómetros",
+        "Horas motor", "Utilización", "km/L", "Costo/km", "Inspecciones",
+        "Defectos abiertos", "Defectos vencidos", "Índice de atención",
+    ]
     summary.write_row(0, 0, unit_headers, header)
     summary.set_column("A:B", 25); summary.set_column("C:I", 16)
     for row_index, item in enumerate(analytics["units"], 1):
-        values = [item["vehicle_number"], item["driver_name"], item["security"], item["speeding"], item["critical_high"],
-                  item["faults"], item["expense_mxn"], item["liters"], item["attention_index"]]
+        values = [
+            item["vehicle_number"], item["driver_name"], item["score"], item["security"], item["speeding"],
+            item["critical_high"], item["faults"], item["expense_mxn"], item["maintenance_mxn"], item["liters"],
+            item["distance_km"], item["engine_hours"], item["utilization_pct"], item["km_per_liter"],
+            item["cost_per_km"], item["inspections"], item["open_defects"], item["overdue_defects"],
+            item["attention_index"],
+        ]
         for column, value in enumerate(values):
-            summary.write(row_index, column, value, money if column == 6 else cell)
+            if value is None:
+                summary.write(row_index, column, "No disponible", cell)
+            else:
+                summary.write(row_index, column, value, money if column in {7, 8, 14} else cell)
     if analytics["units"]:
         summary.autofilter(0, 0, len(analytics["units"]), len(unit_headers) - 1)
-        summary.conditional_format(1, 8, len(analytics["units"]), 8, {"type": "data_bar", "bar_color": "#8B1E34"})
+        summary.conditional_format(1, 18, len(analytics["units"]), 18, {"type": "data_bar", "bar_color": "#8B1E34"})
 
     _sheet_if_rows(workbook, "Gastos", data.get("expenses", []), [
         ("Fecha", "occurred_at"), ("Grupo", "group_name"), ("Zona", "zone_name"), ("Unidad", "vehicle_number"),
@@ -341,17 +472,28 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         ("Importe MXN", "amount_mxn"), ("Registró", "submitted_by")], header, cell, date_fmt, money)
     _sheet_if_rows(workbook, "Seguridad", data.get("driver_events", []), [
         ("Fecha", "started_at"), ("Unidad", "vehicle_number"), ("Conductor", "driver_name"), ("Evento", "event_type"),
-        ("Conducta", "primary_behavior"), ("Gravedad", "severity"), ("Duración s", "duration_seconds"), ("Ubicación", "location")], header, cell, date_fmt, money)
+        ("Conducta", "primary_behavior"), ("Gravedad", "severity"), ("Duración s", "duration_seconds")], header, cell, date_fmt, money)
     _sheet_if_rows(workbook, "Exceso velocidad", data.get("speeding", []), [
         ("Fecha", "started_at"), ("Unidad", "vehicle_number"), ("Conductor", "driver_name"), ("Gravedad", "severity"),
         ("Límite km/h", "posted_limit_kph"), ("Máx. superada km/h", "max_over_kph"), ("Promedio km/h", "avg_speed_kph"),
-        ("Duración s", "duration_seconds"), ("Ubicación", "location")], header, cell, date_fmt, money)
+        ("Duración s", "duration_seconds")], header, cell, date_fmt, money)
     _sheet_if_rows(workbook, "Actividad", data.get("activity", []), [
         ("Inicio", "started_at"), ("Fin", "ended_at"), ("Unidad", "vehicle_number"), ("Conductor", "driver_name"),
-        ("Origen", "origin"), ("Destino", "destination"), ("Distancia km", "distance_km"), ("Estado", "status")], header, cell, date_fmt, money)
+        ("Distancia km", "distance_km"), ("Estado", "status")], header, cell, date_fmt, money)
     _sheet_if_rows(workbook, "Códigos de falla", data.get("faults", []), [
         ("Primera detección", "occurred_at"), ("Unidad", "vehicle_number"), ("Código", "code"), ("Etiqueta", "code_label"),
         ("Descripción", "description"), ("Estado", "status"), ("Ocurrencias", "occurrence_count")], header, cell, date_fmt, money)
+    _sheet_if_rows(workbook, "Inspecciones", data.get("inspections", []), [
+        ("Fecha", "inspected_at"), ("Unidad", "vehicle_number"), ("Tipo", "inspection_type"),
+        ("Estado", "status"), ("Rechazada", "is_rejected"), ("Odómetro km", "odometer_km")], header, cell, date_fmt, money)
+    _sheet_if_rows(workbook, "Defectos", data.get("defects", []), [
+        ("Unidad", "vehicle_number"), ("Categoría", "category"), ("Defecto", "title"),
+        ("Gravedad", "severity"), ("Estado", "status"), ("Vencido", "is_overdue"),
+        ("Notas", "notes"), ("Resuelto", "resolved_at")], header, cell, date_fmt, money)
+    _sheet_if_rows(workbook, "Scorecard conductores", analytics.get("drivers", []), [
+        ("Conductor", "driver_name"), ("Unidades", "vehicles"), ("Score / 100", "score"),
+        ("Seguridad", "security"), ("Velocidad", "speeding"), ("Críticos / altos", "critical_high"),
+        ("Puntos descontados", "attention_index")], header, cell, date_fmt, money)
     workbook.close()
     return buffer.getvalue()
 

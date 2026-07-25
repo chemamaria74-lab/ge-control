@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from services.motive import MotiveAPIError, motive_get_all_pages
+from services.fleet_alerts import create_sync_alerts
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,52 @@ def _iso(value: Any) -> str | None:
         return datetime.fromisoformat(text).astimezone(timezone.utc).isoformat()
     except ValueError:
         return None
+
+
+def _daily_metrics(
+    *, integration_id: int, tenant_id: str, periods: list[dict[str, Any]],
+    fuels: list[dict[str, Any]], inspections: list[dict[str, Any]],
+    defects: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: dict[tuple[int, str], dict[str, Any]] = {}
+
+    def metric(vehicle_id: Any, timestamp: Any) -> dict[str, Any] | None:
+        if vehicle_id is None or not timestamp:
+            return None
+        day = str(timestamp)[:10]
+        key = (int(vehicle_id), day)
+        return rows.setdefault(key, {
+            "integration_id": integration_id, "tenant_id": tenant_id,
+            "vehicle_id": int(vehicle_id), "metric_date": day,
+            "distance_km": 0, "engine_hours": 0, "idle_hours": 0,
+            "fuel_liters": 0, "fuel_cost": 0, "inspection_count": 0,
+            "open_defect_count": 0,
+        })
+
+    for period in periods:
+        row = metric(period.get("vehicle_id"), period.get("started_at"))
+        if row:
+            row["distance_km"] += float(period.get("distance_km") or 0)
+    for fuel in fuels:
+        row = metric(fuel.get("vehicle_id"), fuel.get("purchased_at"))
+        if row:
+            row["fuel_liters"] += float(fuel.get("quantity_liters") or 0)
+            row["fuel_cost"] += float(fuel.get("total_cost") or 0)
+    inspection_by_id = {}
+    for inspection in inspections:
+        row = metric(inspection.get("vehicle_id"), inspection.get("inspected_at"))
+        if row:
+            row["inspection_count"] += 1
+            inspection_by_id[int(inspection["motive_id"])] = row
+    for defect in defects:
+        if str(defect.get("status") or "").lower() not in {"open", "pending", "unresolved", "with_defects"}:
+            continue
+        # Defects are already linked to the stored inspection; the report also reads
+        # the live defect table. Daily metrics only count defects when linkage exists.
+    for row in rows.values():
+        row["km_per_liter"] = row["distance_km"] / row["fuel_liters"] if row["fuel_liters"] else None
+        row["cost_per_km"] = row["fuel_cost"] / row["distance_km"] if row["distance_km"] else None
+    return list(rows.values())
 
 
 def normalize_vehicle(item: Any, *, integration_id: int, tenant_id: str) -> dict[str, Any]:
@@ -452,6 +499,20 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
             datasets["card_expenses"] = _upsert(sb, "fleet_expenses", card_expenses, "tenant_id,source,source_key")
         elif "card_expenses" not in datasets:
             datasets["card_expenses"] = 0
+
+        metric_rows = _daily_metrics(
+            integration_id=integration_id, tenant_id=tenant_id,
+            periods=periods, fuels=fuels, inspections=inspections, defects=defects,
+        )
+        datasets["daily_metrics"] = _upsert(
+            sb, "fleet_vehicle_metrics_daily", metric_rows,
+            "integration_id,vehicle_id,metric_date",
+        )
+
+        datasets["alerts"] = create_sync_alerts(
+            sb, tenant_id=tenant_id, integration_id=integration_id,
+            driver_events=driver_events, faults=faults, defects=defects,
+        )
 
         finished = datetime.now(timezone.utc).isoformat()
         total = sum(int(value) for value in datasets.values() if isinstance(value, int))
