@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import hashlib
+import os
+import secrets
 from io import BytesIO
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, File, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from routes.auth import obtener_acceso_modulo, verify_token
 from services.motive import motive_is_configured
 from services.motive_sync import sync_motive_tenant
-from services.fleet_reports import build_fleet_report, fleet_analytics, parse_expense_workbook, parse_maintenance_csv
+from services.fleet_reports import build_fleet_report, comparison_row, fleet_analytics, parse_expense_workbook, parse_maintenance_csv
+from services.fleet_management_exports import build_comparison_excel, build_comparison_pdf, build_zone_pdf
+from services.fleet_alerts import store_webhook_event
 from services.flotilla_portal_auth import (
     FlotillaPortalAuthError,
     issue_flotilla_grant,
@@ -23,6 +28,35 @@ from supabase_config import get_supabase_admin
 
 router = APIRouter()
 SYNC_COOLDOWN_MINUTES = 10
+
+
+@router.post("/flotilla/webhooks/motive", status_code=202)
+async def motive_webhook(
+    request: Request,
+    tenant_id: str = Query(...),
+    x_motive_webhook_secret: str = Header(default="", alias="X-Motive-Webhook-Secret"),
+    x_webhook_secret: str = Header(default="", alias="X-Webhook-Secret"),
+):
+    """Recepción idempotente; la URL y el secreto se configuran en Motive Developers."""
+    expected = os.getenv("MOTIVE_WEBHOOK_SECRET", "").strip()
+    received = x_motive_webhook_secret or x_webhook_secret
+    if not expected or not received or not secrets.compare_digest(received, expected):
+        raise HTTPException(401, "Webhook no autorizado.")
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Payload de webhook inválido.")
+    admin = get_supabase_admin()
+    integration = _integration(admin, tenant_id)
+    if not integration:
+        raise HTTPException(404, "Integración Motive no encontrada.")
+    event_type = str(payload.get("action") or payload.get("event_type") or payload.get("type") or "unknown")
+    event_id = payload.get("id") or payload.get("event_id") or payload.get("request_id")
+    source_key = str(event_id or hashlib.sha256(str(sorted(payload.items())).encode()).hexdigest()[:48])
+    store_webhook_event(
+        admin, tenant_id=tenant_id, integration_id=int(integration["id"]),
+        event_type=event_type, payload=payload, source_key=source_key,
+    )
+    return {"accepted": True}
 
 
 def _identity_context(authorization: str) -> dict[str, Any]:
@@ -52,6 +86,8 @@ def _context(authorization: str, flotilla_access: str) -> dict[str, Any]:
         verify_flotilla_grant(flotilla_access, ctx["user_id"], ctx["tenant_id"])
     except FlotillaPortalAuthError as exc:
         raise HTTPException(401, str(exc)) from exc
+    if str(ctx.get("role") or "").lower() != "admin":
+        raise HTTPException(403, "Flotilla 360 está disponible únicamente para administración y dirección.")
     return ctx
 
 
@@ -83,6 +119,8 @@ def _integration(sb: Any, tenant_id: str) -> dict[str, Any] | None:
 def create_fleet_grant(authorization: str = Header(default="")):
     """Issue portal access only immediately after an official password login."""
     ctx = _identity_context(authorization)
+    if str(ctx.get("role") or "").lower() != "admin":
+        raise HTTPException(403, "Flotilla 360 está disponible únicamente para administración y dirección.")
     try:
         require_recent_password_login(ctx["token"])
         grant = issue_flotilla_grant(ctx["user_id"], ctx["tenant_id"])
@@ -313,9 +351,11 @@ def _collect(query: Any, page_size: int = 1000) -> list[dict[str, Any]]:
         offset += page_size
 
 
-def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | None = None) -> dict[str, list[dict[str, Any]]]:
+def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | None = None) -> dict[str, Any]:
     sb, tenant_id = ctx["sb"], ctx["tenant_id"]
-    vehicles = sb.table("fleet_vehicles").select("id,vehicle_number,motive_id").eq("tenant_id", tenant_id).execute().data or []
+    vehicles = sb.table("fleet_vehicles").select(
+        "id,vehicle_number,motive_id,current_driver_name,status,availability_status,odometer_km,engine_hours"
+    ).eq("tenant_id", tenant_id).execute().data or []
     vehicle_by_id = {int(row["id"]): row for row in vehicles}
     allowed_vehicle_ids: set[int] | None = None
     if group_id is not None:
@@ -334,12 +374,57 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
             result.append(item)
         return result
 
+    selected_vehicles = attach(vehicles)
     expenses = _collect(_between(sb.table("fleet_expenses").select("vehicle_id,occurred_at,vehicle_number,group_name,zone_name,expense_type,category,description,fuel_type,quantity_liters,unit_cost,amount_mxn,submitted_by,source"), "occurred_at", start, end).eq("tenant_id", tenant_id).order("occurred_at", desc=True))
+    fuel = _collect(_between(sb.table("fleet_fuel_purchases").select("vehicle_id,purchased_at,fuel_type,quantity_liters,total_cost,currency,vendor,odometer_km"), "purchased_at", start, end).eq("tenant_id", tenant_id).order("purchased_at", desc=True))
     events = _collect(_between(sb.table("fleet_driver_events").select("vehicle_id,started_at,ended_at,driver_name,event_type,primary_behavior,secondary_behaviors,severity,duration_seconds,location"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
     speeding = _collect(_between(sb.table("fleet_speeding_events").select("vehicle_id,started_at,ended_at,driver_name,severity,duration_seconds,location,posted_limit_kph,max_over_kph,avg_over_kph,avg_speed_kph,distance_km"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
     activity = _collect(_between(sb.table("fleet_driving_periods").select("vehicle_id,started_at,ended_at,driver_name,status,period_type,origin,destination,distance_km,notes"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
     faults = _collect(_between(sb.table("fleet_fault_codes").select("vehicle_id,code,code_label,description,severity,status,occurrence_count,occurred_at,cleared_at"), "occurred_at", start, end).eq("tenant_id", tenant_id).order("occurred_at", desc=True))
-    return {"expenses": attach(expenses), "driver_events": attach(events), "speeding": attach(speeding), "activity": attach(activity), "faults": attach(faults)}
+    inspections = _collect(_between(sb.table("fleet_inspections").select("id,vehicle_id,inspected_at,inspection_type,status,is_rejected,odometer_km"), "inspected_at", start, end).eq("tenant_id", tenant_id).order("inspected_at", desc=True))
+    selected_inspections = attach(inspections)
+    inspection_vehicle = {int(row["id"]): row.get("vehicle_id") for row in selected_inspections}
+    inspection_ids = list(inspection_vehicle)
+    defects: list[dict[str, Any]] = []
+    if inspection_ids:
+        defects = _collect(
+            sb.table("fleet_inspection_defects")
+            .select("inspection_id,category,title,severity,status,notes,resolved_at,created_at")
+            .eq("tenant_id", tenant_id)
+            .in_("inspection_id", inspection_ids)
+        )
+        for defect in defects:
+            defect["vehicle_id"] = inspection_vehicle.get(int(defect["inspection_id"]))
+            defect["is_overdue"] = (
+                str(defect.get("status") or "").lower() in {"open", "pending", "unresolved", "with_defects"}
+                and str(defect.get("created_at") or "")[:10] < (end - timedelta(days=7)).isoformat()
+            )
+    metrics = _collect(
+        sb.table("fleet_vehicle_metrics_daily")
+        .select("vehicle_id,metric_date,distance_km,engine_hours,idle_hours,fuel_liters,fuel_cost,km_per_liter,cost_per_km,inspection_count,open_defect_count")
+        .eq("tenant_id", tenant_id)
+        .gte("metric_date", start.isoformat())
+        .lte("metric_date", end.isoformat())
+        .order("metric_date", desc=True)
+    )
+    return {
+        "vehicles": selected_vehicles, "expenses": attach(expenses), "fuel": attach(fuel),
+        "driver_events": attach(events), "speeding": attach(speeding), "activity": attach(activity),
+        "faults": attach(faults), "inspections": selected_inspections, "defects": attach(defects),
+        "metrics": attach(metrics), "_period_days": (end - start).days + 1,
+    }
+
+
+def _filter_report_data(data: dict[str, Any], vehicle_ids: set[int]) -> dict[str, Any]:
+    filtered: dict[str, Any] = {"_period_days": data.get("_period_days", 1)}
+    for key, rows in data.items():
+        if key.startswith("_"):
+            continue
+        filtered[key] = [
+            row for row in rows
+            if row.get("vehicle_id") is not None and int(row["vehicle_id"]) in vehicle_ids
+        ]
+    return filtered
 
 
 @router.get("/flotilla/reports/catalog")
@@ -352,19 +437,38 @@ def report_catalog(
     start, end = _dates(start_date, end_date)
     groups = ctx["sb"].table("fleet_groups").select("id,motive_id,motive_parent_id,name,path").eq("tenant_id", ctx["tenant_id"]).order("name").execute().data or []
     data = _report_rows(ctx, start, end, group_id)
+    previous_end = start - timedelta(days=1)
+    previous_start = previous_end - (end - start)
+    previous = _report_rows(ctx, previous_start, previous_end, group_id)
     latest_runs = ctx["sb"].table("fleet_sync_runs").select("status,datasets,error_code,error_message,finished_at").eq("tenant_id", ctx["tenant_id"]).order("created_at", desc=True).limit(1).execute().data or []
     analytics = fleet_analytics(data)
-    return {"period": {"start": start, "end": end}, "groups": groups, "counts": {key: len(value) for key, value in data.items()},
+    previous_analytics = fleet_analytics(previous)
+    comparison = comparison_row("", analytics, previous_analytics)
+    alerts = (
+        ctx["sb"].table("fleet_alerts").select("id,severity,status", count="exact")
+        .eq("tenant_id", ctx["tenant_id"]).in_("status", ["open", "acknowledged"]).execute()
+    )
+    return {"period": {"start": start, "end": end}, "groups": groups,
+            "counts": {key: len(value) for key, value in data.items() if isinstance(value, list)},
             "totals": {"expenses_mxn": round(sum(float(row.get("amount_mxn") or 0) for row in data["expenses"]), 2),
-                       "fuel_liters": round(sum(float(row.get("quantity_liters") or 0) for row in data["expenses"]), 2)},
+                       "fuel_liters": round(analytics["totals"]["liters"], 2),
+                       **analytics["totals"]},
             "submitters": _submitter_summary(data["expenses"]),
             "analytics": {
                 "top_units": analytics["units"][:10],
+                "drivers": analytics["drivers"][:10],
                 "behaviors": analytics["behaviors"][:10],
                 "severity": analytics["severity"],
                 "daily": analytics["daily"],
                 "critical_high": analytics["critical_high"],
+                "comparison": {
+                    "events_delta_pct": comparison["events_delta_pct"],
+                    "expense_delta_pct": comparison["expense_delta_pct"],
+                    "previous_start": previous_start,
+                    "previous_end": previous_end,
+                },
             },
+            "open_alerts": alerts.count or 0,
             "sync": latest_runs[0] if latest_runs else None}
 
 
@@ -412,19 +516,72 @@ async def import_expenses(
 @router.get("/flotilla/reports/download")
 def download_report(
     start_date: date | None = Query(default=None), end_date: date | None = Query(default=None),
-    group_id: int | None = Query(default=None), authorization: str = Header(default=""),
+    group_id: int | None = Query(default=None),
+    report_type: str = Query(default="zone", pattern="^(zone|comparison)$"),
+    format: str = Query(default="xlsx", pattern="^(xlsx|pdf)$"),
+    authorization: str = Header(default=""),
     x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
 ):
     ctx = _context(authorization, x_flotilla_access)
     start, end = _dates(start_date, end_date)
+    previous_end = start - timedelta(days=1)
+    previous_start = previous_end - (end - start)
+    if report_type == "comparison":
+        groups = (
+            ctx["sb"].table("fleet_groups")
+            .select("id,motive_id,motive_parent_id,name,path")
+            .eq("tenant_id", ctx["tenant_id"])
+            .order("path")
+            .execute().data or []
+        )
+        parent_ids = {int(row["motive_parent_id"]) for row in groups if row.get("motive_parent_id") is not None}
+        leaves = [row for row in groups if int(row["motive_id"]) not in parent_ids]
+        memberships = (
+            ctx["sb"].table("fleet_vehicle_groups").select("group_id,vehicle_id")
+            .eq("tenant_id", ctx["tenant_id"]).execute().data or []
+        )
+        members_by_group: dict[int, set[int]] = {}
+        for membership in memberships:
+            members_by_group.setdefault(int(membership["group_id"]), set()).add(int(membership["vehicle_id"]))
+        current_all = _report_rows(ctx, start, end)
+        previous_all = _report_rows(ctx, previous_start, previous_end)
+        zone_rows: list[dict[str, Any]] = []
+        for group in leaves:
+            member_ids = members_by_group.get(int(group["id"]), set())
+            current_data = _filter_report_data(current_all, member_ids)
+            if not current_data["vehicles"]:
+                continue
+            previous_data = _filter_report_data(previous_all, member_ids)
+            zone_rows.append(comparison_row(
+                str(group.get("path") or group.get("name") or "Zona"),
+                fleet_analytics(current_data),
+                fleet_analytics(previous_data),
+            ))
+        if format == "pdf":
+            content = build_comparison_pdf(zone_rows, start, end, previous_start, previous_end)
+            media_type, extension = "application/pdf", "pdf"
+        else:
+            content = build_comparison_excel(zone_rows, start, end, previous_start, previous_end)
+            media_type, extension = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"
+        filename = f"COMPARATIVO_FLOTILLA_TODAS_LAS_ZONAS_{start:%Y%m%d}_{end:%Y%m%d}.{extension}"
+        return StreamingResponse(BytesIO(content), media_type=media_type,
+                                 headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
     group_name = ""
     if group_id is not None:
         rows = ctx["sb"].table("fleet_groups").select("name").eq("tenant_id", ctx["tenant_id"]).eq("id", group_id).limit(1).execute().data or []
         if not rows:
             raise HTTPException(404, "Grupo no encontrado.")
         group_name = rows[0]["name"]
-    content = build_fleet_report(_report_rows(ctx, start, end, group_id), start, end, group_name)
+    data = _report_rows(ctx, start, end, group_id)
+    previous_data = _report_rows(ctx, previous_start, previous_end, group_id)
+    if format == "pdf":
+        content = build_zone_pdf(data, start, end, group_name, previous_data)
+        media_type, extension = "application/pdf", "pdf"
+    else:
+        content = build_fleet_report(data, start, end, group_name)
+        media_type, extension = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"
     safe_group = "_" + "".join(ch if ch.isalnum() else "_" for ch in group_name) if group_name else ""
-    filename = f"INFORME_FLOTILLA{safe_group}_{start:%Y%m%d}_{end:%Y%m%d}.xlsx"
-    return StreamingResponse(BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    filename = f"INFORME_FLOTILLA{safe_group}_{start:%Y%m%d}_{end:%Y%m%d}.{extension}"
+    return StreamingResponse(BytesIO(content), media_type=media_type,
                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
