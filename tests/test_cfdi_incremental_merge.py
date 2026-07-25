@@ -4,7 +4,13 @@ os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "test-anon-key")
 
 from routes.cfdi import _merge_movements, _record_to_movement
-from routes.history import _merge_derived_records
+from routes.history import (
+    _invoice_destino_id,
+    _invoice_facility_id,
+    _invoice_is_transfer,
+    _merge_derived_records,
+    _next_period,
+)
 from services.database import report_is_closed
 
 
@@ -138,3 +144,33 @@ def test_history_deduplicates_assistant_uuid_case_insensitively():
     merged = _merge_derived_records(stored, derived)
 
     assert len(merged["salidas"]) == 1
+
+
+def test_history_month_query_uses_next_calendar_period():
+    assert _next_period("2026-06") == "2026-07"
+    assert _next_period("2026-12") == "2027-01"
+
+
+def test_transfer_uses_operational_columns_not_only_metadata():
+    row = {
+        "is_transfer": True,
+        "origen_facility_id": 1011,
+        "destino_facility_id": 1012,
+        "facility_id": None,
+        "metadata": {},
+    }
+
+    assert _invoice_is_transfer(row) is True
+    assert _invoice_facility_id(row) == 1011
+    assert _invoice_destino_id(row) == 1012
+
+
+def test_historical_self_invoice_is_recognized_as_transfer():
+    row = {
+        "tipo_comprobante": "I",
+        "rfc_emisor": "GLU760309457",
+        "rfc_receptor": "GLU760309457",
+        "metadata": {},
+    }
+
+    assert _invoice_is_transfer(row) is True

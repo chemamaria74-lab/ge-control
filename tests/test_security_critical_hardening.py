@@ -94,3 +94,30 @@ def test_login_failure_log_does_not_include_email(caplog, monkeypatch):
         asyncio.run(auth.login(payload, request))
 
     assert "sensitive.user@example.com" not in caplog.text.lower()
+
+
+def test_refresh_rotates_access_token_in_httponly_cookie(monkeypatch):
+    class _Auth:
+        def refresh_session(self, refresh_token):
+            assert refresh_token == "refresh-old"
+            return SimpleNamespace(
+                session=SimpleNamespace(
+                    access_token="access-new",
+                    refresh_token="refresh-new",
+                ),
+                user=SimpleNamespace(id="user-a"),
+            )
+
+    monkeypatch.setattr(auth, "get_supabase", lambda: SimpleNamespace(auth=_Auth()))
+    request = SimpleNamespace(
+        cookies={auth.REFRESH_COOKIE: "refresh-old"},
+        url=SimpleNamespace(scheme="https"),
+    )
+
+    response = asyncio.run(auth.refresh(request))
+
+    assert b'"token":"access-new"' in response.body
+    cookie = response.headers["set-cookie"].lower()
+    assert "httponly" in cookie
+    assert "secure" in cookie
+    assert "refresh-new" in cookie
