@@ -310,7 +310,15 @@ def request_sync(
         raise HTTPException(409, "El tenant no tiene una integración Motive activa.")
     active = sb.table("fleet_sync_runs").select("id,status,started_at").eq("integration_id", integration["id"]).in_("status", ["queued", "running"]).order("created_at", desc=True).limit(1).execute().data or []
     if active:
-        return {"accepted": True, "reused": True, "sync": active[0]}
+        started = datetime.fromisoformat(str(active[0].get("started_at") or "").replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) - started <= timedelta(minutes=15):
+            return {"accepted": True, "reused": True, "sync": active[0]}
+        now = datetime.now(timezone.utc).isoformat()
+        sb.table("fleet_sync_runs").update({
+            "status": "failed", "finished_at": now, "heartbeat_at": now,
+            "error_code": "stale_worker",
+            "error_message": "La sincronización perdió actividad y fue cerrada automáticamente.",
+        }).eq("id", active[0]["id"]).execute()
     if not full and integration.get("last_success_at"):
         try:
             last_success = datetime.fromisoformat(str(integration["last_success_at"]).replace("Z", "+00:00"))

@@ -25,6 +25,8 @@ from services.security import client_ip, enforce_rate_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+REFRESH_COOKIE = "ge_refresh_token"
+REFRESH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60
 
 Section = Literal["gas_lp", "transporte"]
 SECCIONES_VALIDAS = {"gas_lp", "transporte"}
@@ -514,7 +516,7 @@ async def login(payload: LoginPayload, request: Request):
     acceso       = _resolve_active_module_access(user_id, requested, access_token=access_token)
     role         = (acceso.get("role") or app_meta.get("role") or "user").lower()
 
-    return JSONResponse(content={
+    response = JSONResponse(content={
         "success":      True,
         "token":        access_token,
         "user_id":      user_id,
@@ -524,6 +526,55 @@ async def login(payload: LoginPayload, request: Request):
         "modulo":       requested,
         "modulos":      secciones,
     })
+    response.set_cookie(
+        REFRESH_COOKIE,
+        session.refresh_token,
+        max_age=REFRESH_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+        path="/api/auth",
+    )
+    return response
+
+
+@router.post("/auth/refresh")
+async def refresh(request: Request):
+    """Renueva el JWT sin exponer el refresh token a JavaScript."""
+    refresh_token = request.cookies.get(REFRESH_COOKIE, "")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="No hay una sesión renovable.")
+    try:
+        auth_resp = get_supabase().auth.refresh_session(refresh_token)
+        session = getattr(auth_resp, "session", None)
+        user = getattr(auth_resp, "user", None)
+        if not session or not user:
+            raise HTTPException(status_code=401, detail="La sesión ya no se puede renovar.")
+        response = JSONResponse(content={
+            "success": True,
+            "token": session.access_token,
+            "user_id": user.id,
+        })
+        response.set_cookie(
+            REFRESH_COOKIE,
+            session.refresh_token or refresh_token,
+            max_age=REFRESH_COOKIE_MAX_AGE,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="lax",
+            path="/api/auth",
+        )
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.info("Refresh de sesión rechazado: %s", type(e).__name__)
+        response = JSONResponse(
+            status_code=401,
+            content={"detail": "La sesión expiró; inicia sesión nuevamente."},
+        )
+        response.delete_cookie(REFRESH_COOKIE, path="/api/auth")
+        return response
 
 
 @router.get("/auth/me")
@@ -582,4 +633,6 @@ async def logout(authorization: str = Header(default="")):
             get_supabase().auth.sign_out()
         except Exception:
             pass
-    return JSONResponse(content={"success": True})
+    response = JSONResponse(content={"success": True})
+    response.delete_cookie(REFRESH_COOKIE, path="/api/auth")
+    return response
