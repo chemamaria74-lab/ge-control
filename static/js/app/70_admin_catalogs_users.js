@@ -483,6 +483,7 @@ function internalRoleLabel(role) {
 let _gasInternalUsers = [];
 let _gasInternalActiveTab = 'assistant';
 let _gasFleetSettings = null;
+let _gasFleetDetectedZoneIds = [];
 
 function selectedNumericValues(id) {
   const el = document.getElementById(id);
@@ -492,7 +493,9 @@ function selectedNumericValues(id) {
 function updateGasInternalPortalFields() {
   const isFleet = document.getElementById('gasInternalPortal')?.value === 'fleet';
   const fields = document.getElementById('gasInternalFleetFields');
+  const button = document.getElementById('gasInternalCreateBtn');
   if (fields) fields.style.display = isFleet ? '' : 'none';
+  if (button) button.textContent = isFleet ? 'Crear gerente' : 'Crear asistente';
 }
 
 function showGasInternalTab(tab) {
@@ -513,6 +516,57 @@ function fleetGroupOption(group) {
   return `<option value="${Number(group.id)}">${label}</option>`;
 }
 
+function fleetLeafZones(rootId) {
+  const groups = _gasFleetSettings?.groups || [];
+  const root = groups.find(group => Number(group.id) === Number(rootId));
+  if (!root) return [];
+  const descendantMotiveIds = new Set([Number(root.motive_id)]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    groups.forEach(group => {
+      if (descendantMotiveIds.has(Number(group.motive_parent_id)) && !descendantMotiveIds.has(Number(group.motive_id))) {
+        descendantMotiveIds.add(Number(group.motive_id));
+        changed = true;
+      }
+    });
+  }
+  const descendants = groups.filter(group =>
+    Number(group.id) !== Number(root.id) && descendantMotiveIds.has(Number(group.motive_id))
+  );
+  const parentMotiveIds = new Set(descendants.map(group => Number(group.motive_parent_id)));
+  const leaves = descendants.filter(group => !parentMotiveIds.has(Number(group.motive_id)));
+  return leaves.length ? leaves : descendants;
+}
+
+function renderManagerZoneChoices(zones) {
+  const host = document.getElementById('gasInternalFleetZones');
+  if (!host) return;
+  host.innerHTML = zones.length ? zones.map(group => `
+    <label style="display:flex;align-items:center;gap:.55rem;padding:.55rem .65rem;background:#fff;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer">
+      <input class="gas-fleet-zone-check" type="checkbox" value="${Number(group.id)}" checked style="width:18px;height:18px">
+      <span>${escapeHtml(group.path || group.name || `Zona ${group.id}`)}</span>
+    </label>`).join('') : '<span style="color:#64748b">Primero selecciona la empresa en Motive.</span>';
+}
+
+function updateFleetDetectedZones() {
+  const rootId = Number(document.getElementById('gasFleetRootGroup')?.value || 0);
+  const zones = fleetLeafZones(rootId);
+  _gasFleetDetectedZoneIds = zones.map(group => Number(group.id));
+  const host = document.getElementById('gasFleetDetectedZones');
+  if (host) {
+    host.innerHTML = zones.length
+      ? zones.map(group => `<div style="padding:.5rem .6rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:7px;color:#166534"><i class="fa-solid fa-circle-check" style="margin-right:.35rem"></i>${escapeHtml(group.path || group.name || `Zona ${group.id}`)}</div>`).join('')
+      : 'Esta empresa todavía no tiene zonas hijas detectadas.';
+  }
+  renderManagerZoneChoices(zones);
+}
+
+function checkedFleetZoneValues() {
+  return Array.from(document.querySelectorAll('.gas-fleet-zone-check:checked'))
+    .map(input => Number(input.value)).filter(Boolean);
+}
+
 async function loadFleetProfileSettings() {
   if (!perfilId()) return;
   const status = document.getElementById('gasFleetSettingsStatus');
@@ -523,25 +577,15 @@ async function loadFleetProfileSettings() {
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible cargar los grupos de Motive.');
     _gasFleetSettings = data;
-    const options = (data.groups || []).map(fleetGroupOption).join('');
+    const parentMotiveIds = new Set((data.groups || []).map(group => Number(group.motive_parent_id)).filter(Boolean));
+    const companyGroups = (data.groups || []).filter(group => parentMotiveIds.has(Number(group.motive_id)));
+    const options = companyGroups.map(fleetGroupOption).join('');
     const root = document.getElementById('gasFleetRootGroup');
-    const profileZones = document.getElementById('gasFleetProfileZones');
-    const userZones = document.getElementById('gasInternalFleetZones');
     if (root) {
-      root.innerHTML = '<option value="">Selecciona el grupo raíz</option>' + options;
+      root.innerHTML = '<option value="">Selecciona una empresa</option>' + options;
       root.value = data.root_group_id || '';
     }
-    if (profileZones) {
-      profileZones.innerHTML = options;
-      const selected = new Set((data.zone_group_ids || []).map(Number));
-      Array.from(profileZones.options).forEach(option => { option.selected = selected.has(Number(option.value)); });
-    }
-    if (userZones) {
-      const allowed = new Set((data.zone_group_ids || []).map(Number));
-      userZones.innerHTML = (data.groups || []).filter(group => allowed.has(Number(group.id))).map(fleetGroupOption).join('');
-    }
-    const code = document.getElementById('gasFleetOrganizationCode');
-    if (code) code.value = data.organization?.access_code || '';
+    updateFleetDetectedZones();
     if (status) status.textContent = '';
   } catch (error) {
     _gasFleetSettings = null;
@@ -556,14 +600,13 @@ async function saveFleetProfileSettings() {
   const status = document.getElementById('gasFleetSettingsStatus');
   const payload = {
     perfil_id: perfilId(),
-    organization_code: document.getElementById('gasFleetOrganizationCode')?.value.trim() || '',
     root_group_id: Number(document.getElementById('gasFleetRootGroup')?.value || 0),
-    zone_group_ids: selectedNumericValues('gasFleetProfileZones'),
+    zone_group_ids: _gasFleetDetectedZoneIds,
   };
-  if (!payload.perfil_id || !payload.organization_code || !payload.root_group_id || !payload.zone_group_ids.length) {
+  if (!payload.perfil_id || !payload.root_group_id || !payload.zone_group_ids.length) {
     if (status) {
       status.style.color = '#b91c1c';
-      status.textContent = 'Completa código, grupo empresa y al menos una zona.';
+      status.textContent = 'Selecciona la empresa en Motive. Sus zonas se detectarán automáticamente.';
     }
     return;
   }
@@ -673,9 +716,9 @@ async function createInternalUserGasLp() {
     role: document.getElementById('gasInternalPortal').value === 'fleet' ? 'flotilla_gerente' : 'asistente_facturacion',
     portal_scope: document.getElementById('gasInternalPortal').value,
     fleet_access_level: document.getElementById('gasInternalPortal').value === 'fleet'
-      ? document.getElementById('gasInternalFleetLevel').value : null,
+      ? 'zone_manager' : null,
     fleet_group_ids: document.getElementById('gasInternalPortal').value === 'fleet'
-      ? selectedNumericValues('gasInternalFleetZones') : [],
+      ? checkedFleetZoneValues() : [],
     perfil_id: perfilId(),
     code: document.getElementById('gasInternalCode').value.trim(),
     pin: document.getElementById('gasInternalPin').value.trim(),
