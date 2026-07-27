@@ -498,6 +498,34 @@ function updateGasInternalPortalFields() {
   if (button) button.textContent = isFleet ? 'Crear gerente' : 'Crear asistente';
 }
 
+function setGasAdminView(view) {
+  const motive = view === 'motive';
+  const motivePanel = document.getElementById('gasFleetProfileSettings');
+  const userPanel = document.getElementById('gasInternalUserEditor');
+  const userButton = document.getElementById('gasAdminAddUserViewBtn');
+  const motiveButton = document.getElementById('gasAdminMotiveViewBtn');
+  if (motivePanel) motivePanel.hidden = !motive;
+  if (userPanel) userPanel.hidden = motive;
+  if (userButton) {
+    userButton.style.background = motive ? '#fff' : '#7f1d1d';
+    userButton.style.color = motive ? '#334155' : '#fff';
+    userButton.style.borderColor = motive ? '#cbd5e1' : '#7f1d1d';
+  }
+  if (motiveButton) {
+    motiveButton.style.background = motive ? '#7f1d1d' : '#fff';
+    motiveButton.style.color = motive ? '#fff' : '#334155';
+    motiveButton.style.borderColor = motive ? '#7f1d1d' : '#cbd5e1';
+  }
+}
+
+function showGasAdminUserView() {
+  setGasAdminView('users');
+}
+
+function showGasAdminMotiveView() {
+  setGasAdminView('motive');
+}
+
 function showGasInternalTab(tab) {
   _gasInternalActiveTab = tab === 'fleet' ? 'fleet' : 'assistant';
   ['assistant','fleet'].forEach(value => {
@@ -586,6 +614,14 @@ async function loadFleetProfileSettings() {
       root.value = data.root_group_id || '';
     }
     updateFleetDetectedZones();
+    const summary = document.getElementById('gasFleetConfigurationSummary');
+    const selectedRoot = (data.groups || []).find(group => Number(group.id) === Number(data.root_group_id));
+    if (summary) {
+      summary.innerHTML = data.root_group_id
+        ? `<i class="fa-solid fa-circle-check" style="color:#15803d;margin-right:.25rem"></i>Motive: <b>${escapeHtml(selectedRoot?.name || selectedRoot?.path || 'configurado')}</b> · ${_gasFleetDetectedZoneIds.length} zona(s)`
+        : '<i class="fa-solid fa-circle-exclamation" style="color:#b45309;margin-right:.25rem"></i>Falta configurar Motive';
+    }
+    if (!data.root_group_id) showGasAdminMotiveView();
     if (status) status.textContent = '';
   } catch (error) {
     _gasFleetSettings = null;
@@ -628,6 +664,7 @@ async function saveFleetProfileSettings() {
     status.textContent = `Guardado: ${data.zones} zona(s).`;
   }
   await loadFleetProfileSettings();
+  showGasAdminUserView();
 }
 
 function renderInternalUsersGasLp() {
