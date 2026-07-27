@@ -666,6 +666,22 @@ def report_catalog(
     analytics = fleet_analytics(data)
     previous_analytics = fleet_analytics(previous)
     comparison = comparison_row("", analytics, previous_analytics)
+    dated_sources = (
+        ("driver_events", "started_at"),
+        ("speeding", "started_at"),
+        ("activity", "started_at"),
+        ("faults", "occurred_at"),
+        ("inspections", "inspected_at"),
+        ("expenses", "occurred_at"),
+        ("fuel", "purchased_at"),
+    )
+    latest_values = [
+        str(row.get(column))
+        for key, column in dated_sources
+        for row in data.get(key, [])
+        if row.get(column)
+    ]
+    latest_event_at = max(latest_values) if latest_values else None
     explorer_units = sorted(
         [{"id": int(row["id"]), "name": str(row.get("vehicle_number") or "Sin número")}
          for row in data["vehicles"] if row.get("id") is not None],
@@ -703,6 +719,11 @@ def report_catalog(
             },
             "open_alerts": alerts.count or 0,
             "explorer": {"units": explorer_units, "drivers": explorer_drivers},
+            "freshness": {
+                "requested_through": end,
+                "latest_event_at": latest_event_at,
+                "latest_event_date": latest_event_at[:10] if latest_event_at else None,
+            },
             "sync": latest_runs[0] if latest_runs else None}
 
 
@@ -891,8 +912,8 @@ def download_report(
     previous_end = start - timedelta(days=1)
     previous_start = previous_end - (end - start)
     if report_type == "comparison":
-        if ctx.get("fleet_access_level") != "direction":
-            raise HTTPException(403, "El comparativo de todas las zonas es exclusivo de dirección.")
+        if ctx.get("identity_type") != "official":
+            raise HTTPException(403, "El comparativo de todas las zonas es exclusivo del administrador.")
         groups = (
             ctx["sb"].table("fleet_groups")
             .select("id,motive_id,motive_parent_id,name,path")
