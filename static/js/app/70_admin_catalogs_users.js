@@ -474,8 +474,165 @@ function internalRoleLabel(role) {
     solo_lectura: 'Solo lectura',
     operador: 'Operador',
     admin: 'Admin',
+    flotilla_gerente: 'Gerente de zona',
+    flotilla_direccion: 'Dirección',
   };
   return labels[role] || role || '—';
+}
+
+let _gasInternalUsers = [];
+let _gasInternalActiveTab = 'assistant';
+let _gasFleetSettings = null;
+
+function selectedNumericValues(id) {
+  const el = document.getElementById(id);
+  return el ? Array.from(el.selectedOptions).map(option => Number(option.value)).filter(Boolean) : [];
+}
+
+function updateGasInternalPortalFields() {
+  const isFleet = document.getElementById('gasInternalPortal')?.value === 'fleet';
+  const fields = document.getElementById('gasInternalFleetFields');
+  if (fields) fields.style.display = isFleet ? '' : 'none';
+}
+
+function showGasInternalTab(tab) {
+  _gasInternalActiveTab = tab === 'fleet' ? 'fleet' : 'assistant';
+  ['assistant','fleet'].forEach(value => {
+    const button = document.getElementById(value === 'fleet' ? 'gasInternalTabFleet' : 'gasInternalTabAssistant');
+    if (!button) return;
+    const active = value === _gasInternalActiveTab;
+    button.style.background = active ? '#7f1d1d' : '#fff';
+    button.style.color = active ? '#fff' : '#334155';
+    button.style.borderColor = active ? '#7f1d1d' : '#cbd5e1';
+  });
+  renderInternalUsersGasLp();
+}
+
+function fleetGroupOption(group) {
+  const label = group.path || group.name || `Grupo ${group.id}`;
+  return `<option value="${Number(group.id)}">${label}</option>`;
+}
+
+async function loadFleetProfileSettings() {
+  if (!perfilId()) return;
+  const status = document.getElementById('gasFleetSettingsStatus');
+  try {
+    const res = await fetch(`/api/internal-users-flotilla/settings?perfil_id=${encodeURIComponent(perfilId())}`, {
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible cargar los grupos de Motive.');
+    _gasFleetSettings = data;
+    const options = (data.groups || []).map(fleetGroupOption).join('');
+    const root = document.getElementById('gasFleetRootGroup');
+    const profileZones = document.getElementById('gasFleetProfileZones');
+    const userZones = document.getElementById('gasInternalFleetZones');
+    if (root) {
+      root.innerHTML = '<option value="">Selecciona el grupo raíz</option>' + options;
+      root.value = data.root_group_id || '';
+    }
+    if (profileZones) {
+      profileZones.innerHTML = options;
+      const selected = new Set((data.zone_group_ids || []).map(Number));
+      Array.from(profileZones.options).forEach(option => { option.selected = selected.has(Number(option.value)); });
+    }
+    if (userZones) {
+      const allowed = new Set((data.zone_group_ids || []).map(Number));
+      userZones.innerHTML = (data.groups || []).filter(group => allowed.has(Number(group.id))).map(fleetGroupOption).join('');
+    }
+    const code = document.getElementById('gasFleetOrganizationCode');
+    if (code) code.value = data.organization?.access_code || '';
+    if (status) status.textContent = '';
+  } catch (error) {
+    _gasFleetSettings = null;
+    if (status) {
+      status.style.color = '#b91c1c';
+      status.textContent = error.message;
+    }
+  }
+}
+
+async function saveFleetProfileSettings() {
+  const status = document.getElementById('gasFleetSettingsStatus');
+  const payload = {
+    perfil_id: perfilId(),
+    organization_code: document.getElementById('gasFleetOrganizationCode')?.value.trim() || '',
+    root_group_id: Number(document.getElementById('gasFleetRootGroup')?.value || 0),
+    zone_group_ids: selectedNumericValues('gasFleetProfileZones'),
+  };
+  if (!payload.perfil_id || !payload.organization_code || !payload.root_group_id || !payload.zone_group_ids.length) {
+    if (status) {
+      status.style.color = '#b91c1c';
+      status.textContent = 'Completa código, grupo empresa y al menos una zona.';
+    }
+    return;
+  }
+  const res = await fetch('/api/internal-users-flotilla/settings', {
+    method: 'PUT',
+    headers: { ...authHeader(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    if (status) {
+      status.style.color = '#b91c1c';
+      status.textContent = data.detail || 'No fue posible guardar la relación.';
+    }
+    return;
+  }
+  if (status) {
+    status.style.color = '#15803d';
+    status.textContent = `Guardado: ${data.zones} zona(s).`;
+  }
+  await loadFleetProfileSettings();
+}
+
+function renderInternalUsersGasLp() {
+  const tbody = document.getElementById('gasInternalTbody');
+  const empty = document.getElementById('gasInternalEmpty');
+  if (!tbody) return;
+  const users = _gasInternalUsers.filter(user =>
+    _gasInternalActiveTab === 'fleet'
+      ? user.portal_scope === 'fleet'
+      : user.portal_scope !== 'fleet'
+  );
+  tbody.innerHTML = '';
+  if (!users.length) {
+    if (empty) {
+      empty.style.display = '';
+      empty.textContent = _gasInternalActiveTab === 'fleet'
+        ? 'No hay usuarios de Flotilla 360 para esta empresa.'
+        : 'No hay asistentes para esta empresa.';
+    }
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  tbody.innerHTML = users.map(u => {
+    const active = (u.status || 'active') === 'active';
+    const lockedUntil = u.locked_until ? new Date(u.locked_until) : null;
+    const locked = lockedUntil && !Number.isNaN(lockedUntil.getTime()) && lockedUntil.getTime() > Date.now();
+    const badge = locked
+      ? `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">Bloqueado temporal</span>`
+      : (active
+        ? '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">Activo</span>'
+        : `<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">${u.status || 'Inactivo'}</span>`);
+    const zones = (u.fleet_groups || []).map(group => group.name || group.path).filter(Boolean).join(', ');
+    const access = u.portal_scope === 'fleet'
+      ? `<b>${internalRoleLabel(u.role)}</b><div style="font-size:.72rem;color:#64748b">${zones || 'Sin zonas'}</div>`
+      : '<b>Asistente Gas LP</b>';
+    return `<tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:.55rem .8rem;font-weight:600">${u.display_name || '—'}</td>
+      <td style="padding:.55rem .8rem;font-family:monospace">${u.code || '—'}</td>
+      <td style="padding:.55rem .8rem">${access}</td>
+      <td style="padding:.55rem .8rem">${badge}</td>
+      <td style="padding:.55rem .8rem;color:#94a3b8;font-size:.78rem">${u.last_access_at ? String(u.last_access_at).slice(0,16).replace('T',' ') : '—'}</td>
+      <td style="padding:.55rem .8rem;display:flex;gap:.35rem;flex-wrap:wrap">
+        <button onclick="resetInternalPinGasLp(${Number(u.id)})" style="padding:.32rem .65rem;border:1px solid #cbd5e1;background:#fff;border-radius:7px;font-size:.76rem;cursor:pointer">Nueva contraseña</button>
+        <button onclick="setInternalStatusGasLp(${Number(u.id)}, '${active ? 'inactive' : 'active'}')" style="padding:.32rem .65rem;border:1px solid ${active?'#fca5a5':'#86efac'};background:${active?'#fff1f2':'#f0fdf4'};color:${active?'#dc2626':'#15803d'};border-radius:7px;font-size:.76rem;cursor:pointer">${active ? 'Desactivar' : 'Activar'}</button>
+        <button onclick="deleteInternalUserGasLp(${Number(u.id)})" style="padding:.32rem .65rem;border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:7px;font-size:.76rem;cursor:pointer">Eliminar seguro</button>
+      </td>
+    </tr>`;
+  }).join('');
 }
 
 async function loadInternalUsersGasLp() {
@@ -496,37 +653,9 @@ async function loadInternalUsersGasLp() {
     const res = await fetch(url, { headers: { ...authHeader(), 'Content-Type': 'application/json' } });
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible cargar usuarios internos.');
-    const users = data.users || [];
-    if (!users.length) {
-      if (empty) {
-        empty.style.display = '';
-        empty.textContent = 'Sin permisos registrados';
-      }
-      return;
-    }
-    tbody.innerHTML = users.map(u => {
-      const active = (u.status || 'active') === 'active';
-      const lockedUntil = u.locked_until ? new Date(u.locked_until) : null;
-      const locked = lockedUntil && !Number.isNaN(lockedUntil.getTime()) && lockedUntil.getTime() > Date.now();
-      const badge = locked
-        ? `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">Bloqueado temporal</span>`
-        : (active
-          ? '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">Activo</span>'
-          : `<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">${u.status || 'Inactivo'}</span>`);
-      return `<tr style="border-bottom:1px solid #f1f5f9">
-        <td style="padding:.55rem .8rem;font-weight:600">${u.display_name || '—'}</td>
-        <td style="padding:.55rem .8rem;font-family:monospace">${u.code || '—'}</td>
-        <td style="padding:.55rem .8rem">${internalRoleLabel(u.role)}</td>
-        <td style="padding:.55rem .8rem">${badge}</td>
-        <td style="padding:.55rem .8rem;color:#94a3b8;font-size:.78rem">${u.last_access_at ? String(u.last_access_at).slice(0,16).replace('T',' ') : '—'}</td>
-        <td style="padding:.55rem .8rem;display:flex;gap:.35rem;flex-wrap:wrap">
-          <button onclick="editInternalRoleGasLp(${Number(u.id)}, '${u.role || ''}')" style="padding:.32rem .65rem;border:1px solid #cbd5e1;background:#fff;border-radius:7px;font-size:.76rem;cursor:pointer">Editar rol</button>
-          <button onclick="resetInternalPinGasLp(${Number(u.id)})" style="padding:.32rem .65rem;border:1px solid #cbd5e1;background:#fff;border-radius:7px;font-size:.76rem;cursor:pointer">Resetear PIN</button>
-          <button onclick="setInternalStatusGasLp(${Number(u.id)}, '${active ? 'inactive' : 'active'}')" style="padding:.32rem .65rem;border:1px solid ${active?'#fca5a5':'#86efac'};background:${active?'#fff1f2':'#f0fdf4'};color:${active?'#dc2626':'#15803d'};border-radius:7px;font-size:.76rem;cursor:pointer">${active ? 'Desactivar' : 'Activar'}</button>
-          <button onclick="deleteInternalUserGasLp(${Number(u.id)})" style="padding:.32rem .65rem;border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:7px;font-size:.76rem;cursor:pointer">Eliminar seguro</button>
-        </td>
-      </tr>`;
-    }).join('');
+    _gasInternalUsers = data.users || [];
+    renderInternalUsersGasLp();
+    await loadFleetProfileSettings();
   } catch(e) {
     if (empty) {
       empty.style.display = '';
@@ -541,7 +670,12 @@ async function createInternalUserGasLp() {
   const payload = {
     display_name: document.getElementById('gasInternalName').value.trim(),
     section: 'gas_lp',
-    role: document.getElementById('gasInternalRole').value,
+    role: document.getElementById('gasInternalPortal').value === 'fleet' ? 'flotilla_gerente' : 'asistente_facturacion',
+    portal_scope: document.getElementById('gasInternalPortal').value,
+    fleet_access_level: document.getElementById('gasInternalPortal').value === 'fleet'
+      ? document.getElementById('gasInternalFleetLevel').value : null,
+    fleet_group_ids: document.getElementById('gasInternalPortal').value === 'fleet'
+      ? selectedNumericValues('gasInternalFleetZones') : [],
     perfil_id: perfilId(),
     code: document.getElementById('gasInternalCode').value.trim(),
     pin: document.getElementById('gasInternalPin').value.trim(),
@@ -550,6 +684,13 @@ async function createInternalUserGasLp() {
     if (statusEl) {
       statusEl.style.color = '#dc2626';
       statusEl.textContent = 'Nombre, usuario, contraseña y empresa activa son obligatorios.';
+    }
+    return;
+  }
+  if (payload.portal_scope === 'fleet' && !payload.fleet_group_ids.length) {
+    if (statusEl) {
+      statusEl.style.color = '#dc2626';
+      statusEl.textContent = 'Selecciona al menos una zona para el usuario de Flotilla 360.';
     }
     return;
   }
@@ -566,6 +707,7 @@ async function createInternalUserGasLp() {
       statusEl.innerHTML = `Creado. Código: <b>${data.user.code}</b> | PIN temporal: <b>${data.temporary_pin}</b>`;
     }
     ['gasInternalName','gasInternalCode','gasInternalPin'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    showGasInternalTab(payload.portal_scope);
     await loadInternalUsersGasLp();
   } catch(e) {
     if (statusEl) {
