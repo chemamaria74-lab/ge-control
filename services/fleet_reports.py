@@ -575,6 +575,33 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         ("Conductor", "driver_name"), ("Unidades", "vehicles"), ("Score / 100", "score"),
         ("Seguridad", "security"), ("Velocidad", "speeding"), ("Críticos / altos", "critical_high"),
         ("Puntos descontados", "attention_index")], header, cell, date_fmt, money)
+    chronology = []
+    for row in data.get("driver_events", []):
+        chronology.append({
+            "date": row.get("started_at"), "vehicle_number": row.get("vehicle_number"),
+            "driver_name": row.get("driver_name"), "kind": "Seguridad",
+            "detail": behavior_label(row.get("primary_behavior") or row.get("event_type")),
+            "severity": row.get("severity"),
+        })
+    for row in data.get("speeding", []):
+        chronology.append({
+            "date": row.get("started_at"), "vehicle_number": row.get("vehicle_number"),
+            "driver_name": row.get("driver_name"), "kind": "Velocidad",
+            "detail": f"Exceso máximo {float(row.get('max_over_kph') or 0):g} km/h",
+            "severity": row.get("severity"),
+        })
+    for row in data.get("faults", []):
+        chronology.append({
+            "date": row.get("occurred_at"), "vehicle_number": row.get("vehicle_number"),
+            "driver_name": "", "kind": "Falla",
+            "detail": row.get("code_label") or row.get("code") or "Código de falla",
+            "severity": row.get("severity"),
+        })
+    chronology.sort(key=lambda row: str(row.get("date") or ""), reverse=True)
+    _sheet_if_rows(workbook, "Cronología ejecutiva", chronology, [
+        ("Fecha", "date"), ("Unidad", "vehicle_number"), ("Conductor", "driver_name"),
+        ("Tipo", "kind"), ("Detalle", "detail"), ("Gravedad", "severity"),
+    ], header, cell, date_fmt, money)
     workbook.close()
     return buffer.getvalue()
 
@@ -595,7 +622,7 @@ def _sheet(workbook: xlsxwriter.Workbook, name: str, rows: list[dict[str, Any]],
     for row_index, row in enumerate(rows, 1):
         for column, (_, key) in enumerate(columns):
             value = row.get(key)
-            if key in {"occurred_at", "started_at", "ended_at", "inspected_at", "resolved_at", "purchased_at"} and value:
+            if key in {"date", "occurred_at", "started_at", "ended_at", "inspected_at", "resolved_at", "purchased_at"} and value:
                 try:
                     sheet.write_datetime(row_index, column, datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None), date_fmt)
                     continue
