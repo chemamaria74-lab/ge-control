@@ -5,6 +5,7 @@ from services.motive_sync import (
     normalize_inspection, normalize_speeding_event, normalize_vehicle,
     normalize_vehicle_mileage, normalize_vehicle_utilization,
 )
+from services.motive import motive_get_all_pages_flexible
 
 
 def test_vehicle_normalizer_keeps_only_dashboard_fields():
@@ -80,3 +81,20 @@ def test_vehicle_mileage_normalizer_converts_miles_and_accepts_wrappers():
     })
     assert motive_id == 8
     assert distance_km == 160.934
+
+
+def test_flexible_mileage_pages_accept_unknown_nested_collection(monkeypatch):
+    monkeypatch.setattr(
+        "services.motive.motive_get",
+        lambda *_args, **_kwargs: {
+            "result": {"vehicle_mileage": [{
+                "ifta_summary": {"vehicle": {"id": 8}, "distance": "25"}
+            }]},
+            "pagination": {"page_no": 1},
+        },
+    )
+    rows = motive_get_all_pages_flexible(
+        "/v1/ifta/summary",
+        collection_keys=("summaries",),
+    )
+    assert rows[0]["ifta_summary"]["distance"] == "25"
