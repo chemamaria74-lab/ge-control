@@ -6,6 +6,7 @@ import os
 import secrets
 from io import BytesIO
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -15,7 +16,10 @@ from services.motive import MotiveAPIError, motive_is_configured
 from services.motive_sync import (
     sync_motive_tenant, sync_vehicle_mileage_range, sync_vehicle_utilization_range,
 )
-from services.fleet_reports import build_fleet_report, comparison_row, fleet_analytics, parse_expense_workbook, parse_maintenance_csv
+from services.fleet_reports import (
+    behavior_label, build_fleet_report, comparison_row, fleet_analytics,
+    parse_expense_workbook, parse_maintenance_csv,
+)
 from services.fleet_management_exports import build_comparison_excel, build_comparison_pdf, build_zone_pdf
 from services.fleet_alerts import store_webhook_event
 from services.flotilla_portal_auth import (
@@ -82,7 +86,75 @@ def _identity_context(authorization: str) -> dict[str, Any]:
     }
 
 
+def _internal_fleet_context(session_token: str) -> dict[str, Any]:
+    if not session_token:
+        raise HTTPException(401, "Sesión de Flotilla 360 requerida.")
+    sb = get_supabase_admin()
+    token_hash = hashlib.sha256(session_token.encode()).hexdigest()
+    sessions = (
+        sb.table("internal_user_sessions").select("*")
+        .eq("token_hash", token_hash)
+        .eq("section", "gas_lp")
+        .eq("portal_scope", "fleet")
+        .limit(1).execute().data or []
+    )
+    if not sessions:
+        raise HTTPException(401, "Sesión de Flotilla 360 inválida o expirada.")
+    session = sessions[0]
+    try:
+        expires_at = datetime.fromisoformat(str(session.get("expires_at") or "").replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        raise HTTPException(401, "Sesión de Flotilla 360 inválida o expirada.")
+    if expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(401, "La sesión de Flotilla 360 expiró.")
+    users = (
+        sb.table("internal_users").select("*")
+        .eq("id", session["internal_user_id"])
+        .eq("tenant_id", session["tenant_id"])
+        .eq("perfil_id", session["perfil_id"])
+        .eq("section", "gas_lp")
+        .eq("portal_scope", "fleet")
+        .eq("status", "active")
+        .limit(1).execute().data or []
+    )
+    if not users:
+        raise HTTPException(403, "El acceso de Flotilla 360 está inactivo.")
+    user = users[0]
+    scopes = (
+        sb.table("fleet_internal_user_group_scopes").select("group_id")
+        .eq("internal_user_id", user["id"])
+        .eq("tenant_id", user["tenant_id"])
+        .eq("profile_id", user["perfil_id"])
+        .execute().data or []
+    )
+    group_ids = sorted({int(row["group_id"]) for row in scopes})
+    if not group_ids:
+        raise HTTPException(403, "Este usuario no tiene zonas asignadas.")
+    refreshed_expires_at = datetime.now(timezone.utc) + timedelta(hours=2)
+    try:
+        sb.table("internal_user_sessions").update({
+            "expires_at": refreshed_expires_at.isoformat(),
+        }).eq("id", session["id"]).execute()
+    except Exception:
+        pass
+    return {
+        "token": "",
+        "user_id": f"internal:{user['id']}",
+        "internal_user_id": int(user["id"]),
+        "tenant_id": str(user["tenant_id"]),
+        "perfil_id": user["perfil_id"],
+        "role": user["role"],
+        "fleet_access_level": user.get("fleet_access_level"),
+        "allowed_group_ids": group_ids,
+        "display_name": user.get("display_name") or user.get("code") or "Flotilla 360",
+        "identity_type": "internal",
+        "sb": sb,
+    }
+
+
 def _context(authorization: str, flotilla_access: str) -> dict[str, Any]:
+    if not authorization.startswith("Bearer "):
+        return _internal_fleet_context(flotilla_access)
     ctx = _identity_context(authorization)
     try:
         verify_flotilla_grant(flotilla_access, ctx["user_id"], ctx["tenant_id"])
@@ -90,7 +162,35 @@ def _context(authorization: str, flotilla_access: str) -> dict[str, Any]:
         raise HTTPException(401, str(exc)) from exc
     if str(ctx.get("role") or "").lower() != "admin":
         raise HTTPException(403, "Flotilla 360 está disponible únicamente para administración y dirección.")
+    ctx.update({
+        "identity_type": "official",
+        "allowed_group_ids": None,
+        "fleet_access_level": "direction",
+        "display_name": "",
+    })
     return ctx
+
+
+def _require_group_access(ctx: dict[str, Any], group_id: int | None) -> None:
+    allowed = ctx.get("allowed_group_ids")
+    if allowed is not None and group_id is not None and int(group_id) not in set(allowed):
+        raise HTTPException(403, "La zona solicitada no está asignada a este usuario.")
+
+
+def _scoped_vehicle_ids(ctx: dict[str, Any], group_id: int | None = None) -> set[int] | None:
+    _require_group_access(ctx, group_id)
+    allowed = ctx.get("allowed_group_ids")
+    if allowed is None and group_id is None:
+        return None
+    group_ids = [int(group_id)] if group_id is not None else list(allowed or [])
+    if not group_ids:
+        return set()
+    memberships = (
+        ctx["sb"].table("fleet_vehicle_groups").select("vehicle_id")
+        .eq("tenant_id", ctx["tenant_id"]).in_("group_id", group_ids)
+        .execute().data or []
+    )
+    return {int(row["vehicle_id"]) for row in memberships}
 
 
 def _dates(start_date: date | None, end_date: date | None) -> tuple[date, date]:
@@ -144,6 +244,10 @@ def fleet_session(
         "tenant_id": ctx["tenant_id"],
         "perfil_id": ctx.get("perfil_id"),
         "role": ctx.get("role") or "user",
+        "display_name": ctx.get("display_name") or "",
+        "identity_type": ctx.get("identity_type"),
+        "fleet_access_level": ctx.get("fleet_access_level"),
+        "allowed_group_ids": ctx.get("allowed_group_ids"),
     }
 
 
@@ -161,10 +265,13 @@ def overview(
     if not integration:
         return {"configured": motive_is_configured(), "connected": False, "period": {"start": start, "end": end}, "kpis": {}}
 
+    scoped_ids = _scoped_vehicle_ids(ctx)
     vehicles = sb.table("fleet_vehicles").select("id,status,availability_status").eq("tenant_id", ctx["tenant_id"]).execute().data or []
+    if scoped_ids is not None:
+        vehicles = [row for row in vehicles if int(row["id"]) in scoped_ids]
     fuel = (
         sb.table("fleet_fuel_purchases")
-        .select("quantity_liters,total_cost,currency")
+        .select("vehicle_id,quantity_liters,total_cost,currency")
         .eq("tenant_id", ctx["tenant_id"])
         .gte("purchased_at", f"{start.isoformat()}T00:00:00+00:00")
         .lte("purchased_at", f"{end.isoformat()}T23:59:59.999999+00:00")
@@ -172,9 +279,11 @@ def overview(
         .data
         or []
     )
+    if scoped_ids is not None:
+        fuel = [row for row in fuel if row.get("vehicle_id") is not None and int(row["vehicle_id"]) in scoped_ids]
     inspections = (
         sb.table("fleet_inspections")
-        .select("id")
+        .select("id,vehicle_id")
         .eq("tenant_id", ctx["tenant_id"])
         .gte("inspected_at", f"{start.isoformat()}T00:00:00+00:00")
         .lte("inspected_at", f"{end.isoformat()}T23:59:59.999999+00:00")
@@ -182,7 +291,16 @@ def overview(
         .data
         or []
     )
-    defects = sb.table("fleet_inspection_defects").select("id,status,severity").eq("tenant_id", ctx["tenant_id"]).execute().data or []
+    if scoped_ids is not None:
+        inspections = [row for row in inspections if row.get("vehicle_id") is not None and int(row["vehicle_id"]) in scoped_ids]
+    inspection_ids = [int(row["id"]) for row in inspections]
+    defects = []
+    if inspection_ids:
+        defects = (
+            sb.table("fleet_inspection_defects").select("id,status,severity")
+            .eq("tenant_id", ctx["tenant_id"]).in_("inspection_id", inspection_ids)
+            .execute().data or []
+        )
     latest_runs = (
         sb.table("fleet_sync_runs")
         .select("id,status,sync_type,started_at,finished_at,records_processed,datasets,error_code,error_message")
@@ -239,6 +357,9 @@ def vehicles(
         .data
         or []
     )
+    scoped_ids = _scoped_vehicle_ids(ctx)
+    if scoped_ids is not None:
+        rows = [row for row in rows if int(row["id"]) in scoped_ids]
     needle = search.strip().lower()
     if needle:
         keys = ("vehicle_number", "license_plate_number", "make", "model", "current_driver_name")
@@ -268,6 +389,9 @@ def fleet_groups(
         .data
         or []
     )
+    if ctx.get("allowed_group_ids") is not None:
+        allowed = set(ctx["allowed_group_ids"])
+        rows = [row for row in rows if int(row["id"]) in allowed]
     return {"items": rows}
 
 
@@ -282,6 +406,9 @@ def vehicle_detail(
     ctx = _context(authorization, x_flotilla_access)
     start, end = _dates(start_date, end_date)
     sb = ctx["sb"]
+    scoped_ids = _scoped_vehicle_ids(ctx)
+    if scoped_ids is not None and vehicle_id not in scoped_ids:
+        raise HTTPException(404, "Unidad no encontrada.")
     rows = sb.table("fleet_vehicles").select("*").eq("tenant_id", ctx["tenant_id"]).eq("id", vehicle_id).limit(1).execute().data or []
     if not rows:
         raise HTTPException(404, "Unidad no encontrada.")
@@ -304,6 +431,8 @@ def request_sync(
     x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
 ):
     ctx = _context(authorization, x_flotilla_access)
+    if ctx.get("identity_type") == "internal":
+        raise HTTPException(403, "La sincronización con Motive solo puede iniciarla el administrador.")
     if not motive_is_configured():
         raise HTTPException(503, "La integración Motive no está configurada en el servidor.")
     sb = ctx["sb"]
@@ -370,10 +499,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         "id,vehicle_number,motive_id,current_driver_name,status,availability_status,odometer_km,engine_hours"
     ).eq("tenant_id", tenant_id).execute().data or []
     vehicle_by_id = {int(row["id"]): row for row in vehicles}
-    allowed_vehicle_ids: set[int] | None = None
-    if group_id is not None:
-        memberships = sb.table("fleet_vehicle_groups").select("vehicle_id").eq("tenant_id", tenant_id).eq("group_id", group_id).execute().data or []
-        allowed_vehicle_ids = {int(row["vehicle_id"]) for row in memberships}
+    allowed_vehicle_ids = _scoped_vehicle_ids(ctx, group_id)
 
     def attach(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         result = []
@@ -387,7 +513,10 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
             result.append(item)
         return result
 
-    selected_vehicles = attach(vehicles)
+    selected_vehicles = [
+        dict(row) for row in vehicles
+        if allowed_vehicle_ids is None or int(row["id"]) in allowed_vehicle_ids
+    ]
     expenses = _collect(_between(sb.table("fleet_expenses").select("vehicle_id,occurred_at,vehicle_number,group_name,zone_name,expense_type,category,description,fuel_type,quantity_liters,unit_cost,amount_mxn,submitted_by,source"), "occurred_at", start, end).eq("tenant_id", tenant_id).order("occurred_at", desc=True))
     fuel = _collect(_between(sb.table("fleet_fuel_purchases").select("vehicle_id,purchased_at,fuel_type,quantity_liters,total_cost,currency,vendor,odometer_km"), "purchased_at", start, end).eq("tenant_id", tenant_id).order("purchased_at", desc=True))
     events = _collect(_between(sb.table("fleet_driver_events").select("vehicle_id,started_at,ended_at,driver_name,event_type,primary_behavior,secondary_behaviors,severity,duration_seconds,location"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
@@ -460,6 +589,12 @@ def _filter_report_data(data: dict[str, Any], vehicle_ids: set[int]) -> dict[str
     for key, rows in data.items():
         if key.startswith("_"):
             continue
+        if key == "vehicles":
+            filtered[key] = [
+                row for row in rows
+                if row.get("id") is not None and int(row["id"]) in vehicle_ids
+            ]
+            continue
         filtered[key] = [
             row for row in rows
             if row.get("vehicle_id") is not None and int(row["vehicle_id"]) in vehicle_ids
@@ -476,6 +611,8 @@ def prepare_report_metrics(
     """Carga una vez las métricas exactas del periodo; análisis posteriores usan Supabase."""
     ctx = _context(authorization, x_flotilla_access)
     start, end = _dates(start_date, end_date)
+    if ctx.get("identity_type") == "internal":
+        return {"prepared": False, "cached": True, "message": "Se usaron los datos sincronizados por administración."}
     integration = _integration(get_supabase_admin(), ctx["tenant_id"])
     if not integration or integration.get("status") != "active":
         raise HTTPException(409, "El tenant no tiene una integración Motive activa.")
@@ -518,6 +655,9 @@ def report_catalog(
     ctx = _context(authorization, x_flotilla_access)
     start, end = _dates(start_date, end_date)
     groups = ctx["sb"].table("fleet_groups").select("id,motive_id,motive_parent_id,name,path").eq("tenant_id", ctx["tenant_id"]).order("name").execute().data or []
+    if ctx.get("allowed_group_ids") is not None:
+        allowed = set(ctx["allowed_group_ids"])
+        groups = [row for row in groups if int(row["id"]) in allowed]
     data = _report_rows(ctx, start, end, group_id)
     previous_end = start - timedelta(days=1)
     previous_start = previous_end - (end - start)
@@ -526,6 +666,17 @@ def report_catalog(
     analytics = fleet_analytics(data)
     previous_analytics = fleet_analytics(previous)
     comparison = comparison_row("", analytics, previous_analytics)
+    explorer_units = sorted(
+        [{"id": int(row["id"]), "name": str(row.get("vehicle_number") or "Sin número")}
+         for row in data["vehicles"] if row.get("id") is not None],
+        key=lambda row: row["name"],
+    )
+    explorer_drivers = sorted({
+        str(row.get("driver_name") or row.get("current_driver_name") or "").strip()
+        for key in ("vehicles", "driver_events", "speeding", "activity")
+        for row in data.get(key, [])
+        if str(row.get("driver_name") or row.get("current_driver_name") or "").strip()
+    })
     alerts = (
         ctx["sb"].table("fleet_alerts").select("id,severity,status", count="exact")
         .eq("tenant_id", ctx["tenant_id"]).in_("status", ["open", "acknowledged"]).execute()
@@ -551,7 +702,94 @@ def report_catalog(
                 },
             },
             "open_alerts": alerts.count or 0,
+            "explorer": {"units": explorer_units, "drivers": explorer_drivers},
             "sync": latest_runs[0] if latest_runs else None}
+
+
+@router.get("/flotilla/reports/explore")
+def explore_report_entity(
+    entity_type: str = Query(..., pattern="^(unit|driver)$"),
+    vehicle_id: int | None = Query(default=None),
+    driver_name: str | None = Query(default=None, max_length=180),
+    start_date: date | None = Query(default=None), end_date: date | None = Query(default=None),
+    group_id: int | None = Query(default=None), authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+):
+    """Detalle visual desde Supabase; nunca vuelve a consultar Motive."""
+    ctx = _context(authorization, x_flotilla_access)
+    start, end = _dates(start_date, end_date)
+    data = _report_rows(ctx, start, end, group_id)
+    if entity_type == "unit":
+        if vehicle_id is None:
+            raise HTTPException(422, "Selecciona una unidad.")
+        filtered = _filter_report_data(data, {vehicle_id})
+        selected_name = next(
+            (str(row.get("vehicle_number") or "") for row in data["vehicles"] if int(row.get("id") or 0) == vehicle_id),
+            "Unidad",
+        )
+    else:
+        selected_name = str(driver_name or "").strip()
+        if not selected_name:
+            raise HTTPException(422, "Selecciona un chofer.")
+        selected_key = selected_name.casefold()
+        filtered = {"_period_days": data["_period_days"], "_sync": data["_sync"]}
+        related_vehicle_ids: set[int] = set()
+        for key in ("driver_events", "speeding", "activity"):
+            rows = [
+                row for row in data.get(key, [])
+                if str(row.get("driver_name") or "").strip().casefold() == selected_key
+            ]
+            filtered[key] = rows
+            related_vehicle_ids.update(int(row["vehicle_id"]) for row in rows if row.get("vehicle_id") is not None)
+        for key, rows in data.items():
+            if key.startswith("_") or key in filtered:
+                continue
+            if key == "vehicles":
+                filtered[key] = [
+                    row for row in rows
+                    if row.get("id") is not None and int(row["id"]) in related_vehicle_ids
+                ]
+                continue
+            filtered[key] = [
+                row for row in rows
+                if row.get("vehicle_id") is not None and int(row["vehicle_id"]) in related_vehicle_ids
+            ]
+    analytics = fleet_analytics(filtered)
+    time_analysis = _event_time_analysis(filtered)
+    timeline: list[dict[str, Any]] = []
+    for row in filtered.get("driver_events", []):
+        timeline.append({"date": row.get("started_at"), "kind": "Seguridad",
+                         "detail": behavior_label(row.get("primary_behavior") or row.get("event_type")),
+                         "severity": row.get("severity"), "vehicle": row.get("vehicle_number")})
+    for row in filtered.get("speeding", []):
+        timeline.append({"date": row.get("started_at"), "kind": "Velocidad",
+                         "detail": f"Exceso máximo: {float(row.get('max_over_kph') or 0):g} km/h",
+                         "severity": row.get("severity"), "vehicle": row.get("vehicle_number")})
+    for row in filtered.get("faults", []):
+        timeline.append({"date": row.get("occurred_at"), "kind": "Falla",
+                         "detail": row.get("code_label") or row.get("code") or "Código de falla",
+                         "severity": row.get("severity"), "vehicle": row.get("vehicle_number")})
+    for row in filtered.get("inspections", []):
+        timeline.append({"date": row.get("inspected_at"), "kind": "Inspección",
+                         "detail": row.get("inspection_type") or row.get("status") or "Inspección",
+                         "severity": "high" if row.get("is_rejected") else "info",
+                         "vehicle": row.get("vehicle_number")})
+    timeline.sort(key=lambda row: str(row.get("date") or ""), reverse=True)
+    totals = analytics["totals"]
+    return {
+        "entity": {"type": entity_type, "name": selected_name},
+        "period": {"start": start, "end": end},
+        "kpis": {
+            "events": sum(row["security"] + row["speeding"] for row in analytics["units"]),
+            "critical_high": analytics["critical_high"], "score": totals["driver_score"],
+            "distance_km": totals["distance_km"] if totals["distance_available"] else None,
+            "engine_hours": totals["engine_hours"] if totals["engine_hours_available"] else None,
+            "inspections": totals["inspections"],
+        },
+        "behaviors": analytics["behaviors"][:10], "daily": analytics["daily"],
+        "units": analytics["units"], "timeline": timeline[:100],
+        "time_analysis": time_analysis,
+    }
 
 
 def _submitter_summary(expenses: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -563,12 +801,56 @@ def _submitter_summary(expenses: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(summary.values(), key=lambda row: (-row["records"], row["name"]))
 
 
+def _event_time_analysis(data: dict[str, Any]) -> dict[str, Any]:
+    local_zone = ZoneInfo("America/Mexico_City")
+    hour_counts = {hour: 0 for hour in range(24)}
+    weekday_labels = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    weekday_counts = {index: 0 for index in range(7)}
+    outside_shift = 0
+    total = 0
+    for key in ("driver_events", "speeding"):
+        for row in data.get(key, []):
+            raw = row.get("started_at")
+            if not raw:
+                continue
+            try:
+                moment = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                if moment.tzinfo is None:
+                    moment = moment.replace(tzinfo=timezone.utc)
+                moment = moment.astimezone(local_zone)
+            except (TypeError, ValueError):
+                continue
+            hour_counts[moment.hour] += 1
+            weekday_counts[moment.weekday()] += 1
+            total += 1
+            if moment.hour < 6 or moment.hour >= 18:
+                outside_shift += 1
+    populated_hours = [{"hour": hour, "label": f"{hour:02d}:00", "count": count}
+                       for hour, count in hour_counts.items() if count]
+    populated_weekdays = [{"day": index, "label": weekday_labels[index], "count": weekday_counts[index]}
+                          for index in range(7)]
+    peak_hour = max(populated_hours, key=lambda row: row["count"], default=None)
+    peak_day = max(populated_weekdays, key=lambda row: row["count"], default=None)
+    return {
+        "hourly": populated_hours,
+        "weekdays": populated_weekdays,
+        "total_timed_events": total,
+        "outside_shift": outside_shift,
+        "outside_shift_pct": (outside_shift / total * 100) if total else 0,
+        "peak_hour": peak_hour,
+        "peak_weekday": peak_day if peak_day and peak_day["count"] else None,
+        "shift": {"start": "06:00", "end": "18:00"},
+    }
+
+
 @router.post("/flotilla/import/expenses")
 async def import_expenses(
     file: UploadFile = File(...), authorization: str = Header(default=""),
     x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
 ):
     ctx = _context(authorization, x_flotilla_access)
+    if ctx.get("identity_type") == "internal":
+        raise HTTPException(403, "La importación de gastos solo puede realizarla el administrador.")
     filename = str(file.filename or "").lower()
     if not filename.endswith((".csv", ".xlsx")):
         raise HTTPException(400, "Sube el CSV de mantenimiento Motive o el XLSX de gastos CREDES.")
@@ -609,6 +891,8 @@ def download_report(
     previous_end = start - timedelta(days=1)
     previous_start = previous_end - (end - start)
     if report_type == "comparison":
+        if ctx.get("fleet_access_level") != "direction":
+            raise HTTPException(403, "El comparativo de todas las zonas es exclusivo de dirección.")
         groups = (
             ctx["sb"].table("fleet_groups")
             .select("id,motive_id,motive_parent_id,name,path")
