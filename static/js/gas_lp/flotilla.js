@@ -3,16 +3,20 @@
   const portalAccess = sessionStorage.getItem('ge_flotilla_access') || '';
   const LOGIN_URL = '/gas-lp/flotilla/acceso';
   const $ = id => document.getElementById(id);
-  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null};
+  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, identity:null};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const fmt = value => new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(Number(value||0));
   const money = (value,currency) => new Intl.NumberFormat('es-MX',{style:'currency',currency:currency||'MXN',maximumFractionDigits:2}).format(Number(value||0));
   const dateText = value => value ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)) : 'Sin datos';
-  const headers = () => ({Authorization:`Bearer ${token}`,'X-Flotilla-Access':portalAccess});
+  const headers = () => ({
+    ...(token ? {Authorization:`Bearer ${token}`} : {}),
+    'X-Flotilla-Access':portalAccess,
+  });
 
   function clearPortalAccess(){
     sessionStorage.removeItem('ge_flotilla_access');
     sessionStorage.removeItem('ge_flotilla_expires_at');
+    sessionStorage.removeItem('ge_flotilla_identity');
   }
   function clearOfficialSession(){
     ['sat_token','zc_token','sat_user_id','sat_email','sat_display_name','sat_role','sat_assigned_perfil_id','sat_modulo'].forEach(key=>localStorage.removeItem(key));
@@ -26,7 +30,7 @@
     $('fleetAuthActions').hidden=!retry;
   }
   async function validatePortalSession(){
-    if(!token || !portalAccess){ redirectToLogin(); return false; }
+    if(!portalAccess){ redirectToLogin(); return false; }
     $('fleetAuthSpinner').hidden=false; $('fleetAuthActions').hidden=true;
     try{
       const response=await fetch('/api/flotilla/session',{headers:headers(),cache:'no-store'});
@@ -37,7 +41,12 @@
         return false;
       }
       if(!response.ok) throw new Error(data.detail||'No se pudo validar el acceso al portal.');
-      $('fleetUser').textContent=localStorage.getItem('sat_display_name')||localStorage.getItem('sat_email')||'Usuario GE Control';
+      state.identity=data;
+      $('fleetUser').textContent=data.display_name||localStorage.getItem('sat_display_name')||localStorage.getItem('sat_email')||'Usuario GE Control';
+      const internal=data.identity_type==='internal';
+      $('syncButton').hidden=internal;
+      $('fleetBack').hidden=internal;
+      if($('directionDownloads')) $('directionDownloads').hidden=internal&&data.fleet_access_level!=='direction';
       document.documentElement.classList.remove('fleet-auth-pending');
       $('fleetAuthGate').hidden=true;
       return true;
@@ -56,7 +65,14 @@
     if(!response.ok) throw new Error(data.detail || 'No se pudo completar la operación.');
     return data;
   }
-  function logout(){ window.GESessionTimeout?.clear(); clearOfficialSession(); location.replace(LOGIN_URL); }
+  async function logout(){
+    if(!token&&portalAccess){
+      await fetch('/api/internal-auth/logout',{
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:portalAccess}),
+      }).catch(()=>{});
+    }
+    window.GESessionTimeout?.clear(); clearPortalAccess(); clearOfficialSession(); location.replace(LOGIN_URL);
+  }
   function params(extra={}){ const p=new URLSearchParams(extra); if($('startDate').value)p.set('start_date',$('startDate').value); if($('endDate').value)p.set('end_date',$('endDate').value); return p; }
   function notice(message,type=''){ const el=$('fleetNotice'); el.textContent=message||''; el.className=`fleet-notice${message?' show':''}${type?' '+type:''}`; }
   function setSync(kind,title,meta){ $('syncDot').className=`sync-dot ${kind||''}`; $('syncTitle').textContent=title; $('syncMeta').textContent=meta; }
@@ -129,6 +145,7 @@
       $('reportActivity').textContent=fmt(counts.activity); $('reportFaults').textContent=fmt(counts.faults);
       $('reportCritical').textContent=fmt(data.analytics?.critical_high);
       renderDashboard(data.analytics||{});
+      populateExplorer(data.explorer||{});
       renderDataStatus(data.sync||null,counts);
       const submitters=data.submitters||[];
       $('submitterList').innerHTML=submitters.length?submitters.slice(0,8).map((row,index)=>`<div class="submitter-row"><span>${index+1}. ${esc(row.name)}</span><strong>${fmt(row.records)} · ${money(row.amount_mxn,'MXN')}</strong></div>`).join(''):'Sin gastos importados en el periodo. No se interpreta como $0 real.';
@@ -146,6 +163,59 @@
     $('riskRanking').innerHTML=units.length?units.map((row,index)=>`<button class="bar-row unit-risk" type="button" data-unit-search="${esc(row.vehicle_number)}"><span class="bar-label"><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${fmt(row.security+row.speeding)} eventos · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${Math.max(4,Number(row.attention_index||0)/maxUnit*100)}%"></i></span><strong>${fmt(row.attention_index)}</strong></button>`).join(''):'<div class="empty">No hay eventos en este periodo.</div>';
     $('behaviorRanking').innerHTML=behaviors.length?behaviors.map(row=>`<div class="bar-row"><span class="bar-label"><b>${esc(row.label)}</b></span><span class="bar-track gold"><i style="width:${Math.max(4,Number(row.count||0)/maxBehavior*100)}%"></i></span><strong>${fmt(row.count)}</strong></div>`).join(''):'<div class="empty">No hay conductas registradas.</div>';
     document.querySelectorAll('[data-unit-search]').forEach(button=>button.addEventListener('click',()=>{$('vehicleSearch').value=button.dataset.unitSearch;state.page=1;loadVehicles();}));
+  }
+
+  function populateExplorer(explorer){
+    const currentUnit=$('explorerUnit').value, currentDriver=$('explorerDriver').value;
+    $('explorerUnit').innerHTML='<option value="">Selecciona una unidad</option>'+(explorer.units||[]).map(row=>`<option value="${Number(row.id)}">${esc(row.name)}</option>`).join('');
+    $('explorerDriver').innerHTML='<option value="">Selecciona un chofer</option>'+(explorer.drivers||[]).map(name=>`<option value="${esc(name)}">${esc(name)}</option>`).join('');
+    if(currentUnit)$('explorerUnit').value=currentUnit;
+    if(currentDriver)$('explorerDriver').value=currentDriver;
+  }
+
+  async function runExplorer(){
+    const type=$('explorerType').value, p=params({entity_type:type});
+    if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
+    if(type==='unit'){
+      if(!$('explorerUnit').value)return notice('Selecciona una unidad para analizar.','error');
+      p.set('vehicle_id',$('explorerUnit').value);
+    }else{
+      if(!$('explorerDriver').value)return notice('Selecciona un chofer para analizar.','error');
+      p.set('driver_name',$('explorerDriver').value);
+    }
+    $('runExplorer').disabled=true;$('runExplorer').innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Analizando…';
+    try{
+      const data=await api(`/reports/explore?${p}`);
+      renderExplorer(data);notice('');
+    }catch(error){notice(error.message,'error');}
+    finally{$('runExplorer').disabled=false;$('runExplorer').innerHTML='<i class="fa-solid fa-chart-simple"></i> Ver desempeño';}
+  }
+
+  function renderExplorer(data){
+    const result=$('explorerResults'), k=data.kpis||{}, behaviors=data.behaviors||[], daily=data.daily||[], timeline=data.timeline||[], time=data.time_analysis||{};
+    const maxBehavior=Math.max(...behaviors.map(row=>Number(row.count||0)),1), maxDaily=Math.max(...daily.map(row=>Number(row.count||0)),1);
+    const hours=time.hourly||[], weekdays=time.weekdays||[];
+    const maxHour=Math.max(...hours.map(row=>Number(row.count||0)),1), maxWeekday=Math.max(...weekdays.map(row=>Number(row.count||0)),1);
+    const value=v=>v==null?'No disponible':fmt(v);
+    const behaviorHtml=behaviors.length?behaviors.map(row=>`<div class="bar-row"><span class="bar-label"><b>${esc(row.label)}</b></span><span class="bar-track gold"><i style="width:${Math.max(4,Number(row.count||0)/maxBehavior*100)}%"></i></span><strong>${fmt(row.count)}</strong></div>`).join(''):'<div class="empty">Sin conductas registradas.</div>';
+    const dailyHtml=daily.length?daily.map(row=>`<div class="bar-row"><span class="bar-label"><b>${esc(row.date)}</b></span><span class="bar-track"><i style="width:${Math.max(4,Number(row.count||0)/maxDaily*100)}%"></i></span><strong>${fmt(row.count)}</strong></div>`).join(''):'<div class="empty">Sin eventos por fecha.</div>';
+    const timelineHtml=timeline.length?timeline.map(row=>`<div class="timeline-row"><span>${esc(dateText(row.date))}</span><b>${esc(row.vehicle||'—')}</b><span>${esc(row.detail||row.kind)}</span><span class="timeline-pill">${esc(row.kind)}${row.severity?' · '+esc(row.severity):''}</span></div>`).join(''):'<div class="empty">No hay incidencias en este periodo.</div>';
+    const hourlyHtml=hours.length?hours.map(row=>`<div class="time-bar${Number(row.hour)<6||Number(row.hour)>=18?' outside':''}"><span>${esc(row.label)}</span><i><b style="width:${Math.max(5,Number(row.count||0)/maxHour*100)}%"></b></i><strong>${fmt(row.count)}</strong></div>`).join(''):'<div class="empty">Sin eventos con horario disponible.</div>';
+    const weekdayHtml=weekdays.map(row=>`<div class="time-bar"><span>${esc(row.label)}</span><i><b style="width:${Number(row.count||0)?Math.max(5,Number(row.count||0)/maxWeekday*100):0}%"></b></i><strong>${fmt(row.count)}</strong></div>`).join('');
+    const worstDate=daily.reduce((best,row)=>!best||Number(row.count||0)>Number(best.count||0)?row:best,null);
+    result.hidden=false;
+    result.innerHTML=`<div class="panel-title"><h4>${esc(data.entity?.name||'Desempeño')}</h4><span>${esc(data.period?.start)} al ${esc(data.period?.end)}</span></div>
+      <div class="explorer-kpis">
+        <div><span>Eventos</span><strong>${value(k.events)}</strong></div><div><span>Críticos / altos</span><strong>${value(k.critical_high)}</strong></div>
+        <div><span>Score</span><strong>${k.score==null?'No disponible':fmt(k.score)+'/100'}</strong></div><div><span>Kilómetros</span><strong>${k.distance_km==null?'No disponible':fmt(k.distance_km)+' km'}</strong></div>
+        <div><span>Horas motor</span><strong>${k.engine_hours==null?'No disponible':fmt(k.engine_hours)+' h'}</strong></div><div><span>Inspecciones</span><strong>${value(k.inspections)}</strong></div>
+        <div><span>Fuera de 06–18 h</span><strong>${fmt(time.outside_shift||0)} <small>(${fmt(time.outside_shift_pct||0)}%)</small></strong></div><div><span>Día con más eventos</span><strong>${worstDate?esc(worstDate.date):'Sin datos'}</strong></div>
+      </div>
+      <div class="explorer-insight">${time.peak_hour?`<strong>Hora crítica:</strong> ${esc(time.peak_hour.label)} con ${fmt(time.peak_hour.count)} eventos.`:'Sin una hora crítica identificable.'} ${time.peak_weekday?`<strong>Día recurrente:</strong> ${esc(time.peak_weekday.label)}.`:''} <span>El horario operativo considerado es de 06:00 a 18:00.</span></div>
+      <div class="explorer-layout"><div class="explorer-box"><h5>Conductas más frecuentes</h5>${behaviorHtml}<h5 style="margin-top:20px">Eventos por fecha</h5>${dailyHtml}</div>
+      <div class="explorer-box"><h5>Cuándo sucedió y qué ocurrió</h5><div class="event-timeline">${timelineHtml}</div></div></div>
+      <div class="explorer-time-grid"><div class="explorer-box"><h5>Incidencias por hora</h5><p class="chart-note">Las barras rojas están fuera del horario 06:00–18:00.</p>${hourlyHtml}</div><div class="explorer-box"><h5>Concentración por día de la semana</h5><p class="chart-note">Ayuda a programar supervisión y retroalimentación.</p>${weekdayHtml}</div></div>`;
+    result.scrollIntoView({behavior:'smooth',block:'nearest'});
   }
 
   function renderManagerBrief(analytics,counts){
@@ -199,7 +269,10 @@
   async function loadGroups(){
     try{
       const data=await api('/groups');
-      $('reportGroup').innerHTML='<option value="">Toda la flotilla</option>'+(data.items||[]).map(g=>`<option value="${Number(g.id)}">${esc(g.path||g.name||'Grupo sin nombre')}</option>`).join('');
+      const internal=state.identity?.identity_type==='internal';
+      const groups=data.items||[];
+      $('reportGroup').innerHTML=`<option value="">${internal?'Todas mis zonas':'Toda la flotilla'}</option>`+groups.map(g=>`<option value="${Number(g.id)}">${esc(g.path||g.name||'Grupo sin nombre')}</option>`).join('');
+      if(internal&&groups.length===1)$('reportGroup').value=String(groups[0].id);
     }catch(error){notice(error.message,'error');}
   }
   initializeDates();
@@ -210,6 +283,11 @@
   $('vehicleSearch').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();state.page=1;loadVehicles();}});
   $('clearFilters').onclick=()=>{$('vehicleSearch').value='';$('vehicleResults').hidden=true;};
   $('runAnalysis').onclick=loadReportCatalog;
+  $('explorerType').onchange=()=>{
+    const unit=$('explorerType').value==='unit';
+    $('explorerUnitLabel').hidden=!unit;$('explorerDriverLabel').hidden=unit;$('explorerResults').hidden=true;
+  };
+  $('runExplorer').onclick=runExplorer;
   document.querySelectorAll('.report-download').forEach(button=>button.addEventListener('click',()=>downloadReport(button.dataset.reportType,button.dataset.format,button)));
   validatePortalSession().then(ok=>{if(ok){loadOverview();loadGroups();}});
 })();
