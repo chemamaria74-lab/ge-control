@@ -65,7 +65,7 @@
     try{
       const data=await api(`/overview?${params()}`); const k=data.kpis||{};
       if(!data.configured) setSync('error','Motive sin configurar','Falta la clave API en el servidor.');
-      else if(data.sync?.status==='running'||data.sync?.status==='queued') setSync('warn','Actualizando desde Motive…',`Procesados: ${fmt(data.sync.records_processed)}`);
+      else if(data.sync?.status==='running'||data.sync?.status==='queued') setSync('warn','Actualizando desde Motive…',`Registros revisados: ${fmt(data.sync.records_processed)} · los existentes se actualizan, no se duplican`);
       else if(data.connected) setSync('ok','Motive conectado',`Última actualización: ${dateText(data.integration.last_success_at)}`);
       else if(data.integration?.last_error_at) setSync('error','Conexión pendiente',`Último intento: ${dateText(data.integration.last_error_at)}`);
       else setSync('warn','Listo para sincronizar','Presiona Actualizar desde Motive para cargar la flotilla.');
