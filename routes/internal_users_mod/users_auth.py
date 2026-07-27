@@ -17,12 +17,25 @@ def _auth_admin(authorization: str) -> tuple[str, str]:
     return uid, token
 
 
-def _clean_payload(payload: InternalUserCreate) -> tuple[str, str, str]:
+def _clean_payload(payload: InternalUserCreate) -> tuple[str, str, str, str, str | None]:
     section = (payload.section or "").strip().lower()
     role = (payload.role or "").strip().lower()
+    portal_scope = (payload.portal_scope or ("assistant" if section == "gas_lp" else "legacy")).strip().lower()
+    fleet_access_level = (payload.fleet_access_level or "").strip().lower() or None
     name = (payload.display_name or "").strip()
     if section not in SECTIONS:
         raise HTTPException(400, "Módulo inválido.")
+    if section == "gas_lp" and portal_scope == "assistant":
+        role = "asistente_facturacion"
+        fleet_access_level = None
+    elif section == "gas_lp" and portal_scope == "fleet":
+        if fleet_access_level not in {"zone_manager", "direction"}:
+            raise HTTPException(400, "Selecciona acceso de gerente de zona o dirección.")
+        role = "flotilla_direccion" if fleet_access_level == "direction" else "flotilla_gerente"
+        if not payload.fleet_group_ids:
+            raise HTTPException(400, "Asigna al menos una zona de Flotilla 360.")
+    elif portal_scope != "legacy":
+        raise HTTPException(400, "El portal seleccionado no corresponde al módulo.")
     if role not in ROLES:
         raise HTTPException(400, "Rol inválido.")
     if not name:
@@ -36,7 +49,26 @@ def _clean_payload(payload: InternalUserCreate) -> tuple[str, str, str]:
             raise HTTPException(400, "El usuario de asistente Gas LP es obligatorio.")
         if not (payload.pin or "").strip():
             raise HTTPException(400, "La contraseña de asistente Gas LP es obligatoria.")
-    return name, section, role
+    return name, section, role, portal_scope, fleet_access_level
+
+
+def _fleet_group_ids(values: list[int] | None) -> list[int]:
+    return sorted({int(value) for value in (values or []) if int(value) > 0})
+
+
+def _replace_internal_fleet_scopes(sb, user: dict, group_ids: list[int], created_by: str) -> None:
+    user_id = int(user["id"])
+    sb.table("fleet_internal_user_group_scopes").delete().eq("internal_user_id", user_id).execute()
+    if not group_ids:
+        return
+    rows = [{
+        "internal_user_id": user_id,
+        "tenant_id": user["tenant_id"],
+        "profile_id": user["perfil_id"],
+        "group_id": group_id,
+        "created_by": created_by,
+    } for group_id in group_ids]
+    sb.table("fleet_internal_user_group_scopes").insert(rows).execute()
 
 
 def _candidate_code(section: str, tenant_id: str) -> str:
@@ -156,15 +188,32 @@ async def list_internal_users(
     elif perfil_id:
         q = q.eq("perfil_id", perfil_id)
     rows = q.order("created_at", desc=True).execute().data or []
+    fleet_ids = [int(row["id"]) for row in rows if row.get("portal_scope") == "fleet"]
+    scope_rows = []
+    if fleet_ids:
+        scope_rows = (
+            get_supabase_for_user(token).table("fleet_internal_user_group_scopes")
+            .select("internal_user_id,group_id,fleet_groups(name,path)")
+            .in_("internal_user_id", fleet_ids)
+            .execute().data or []
+        )
+    scopes_by_user: dict[int, list[dict]] = {}
+    for scope in scope_rows:
+        scopes_by_user.setdefault(int(scope["internal_user_id"]), []).append({
+            "group_id": int(scope["group_id"]),
+            "name": (scope.get("fleet_groups") or {}).get("name") or "",
+            "path": (scope.get("fleet_groups") or {}).get("path") or "",
+        })
     for row in rows:
         row.pop("pin_hash", None)
+        row["fleet_groups"] = scopes_by_user.get(int(row["id"]), [])
     return JSONResponse({"ok": True, "users": rows})
 
 
 @router.post("/internal-users")
 async def create_internal_user(payload: InternalUserCreate, authorization: str = Header(default="")):
     admin_uid, token = _auth_admin(authorization)
-    name, section, role = _clean_payload(payload)
+    name, section, role, portal_scope, fleet_access_level = _clean_payload(payload)
     perfil = _profile_for_admin(admin_uid, payload.perfil_id, token)
     tenant_id = perfil["tenant_id"]
     requested_code = (
@@ -188,12 +237,23 @@ async def create_internal_user(payload: InternalUserCreate, authorization: str =
         "status": "active",
         "chofer_id": payload.chofer_id,
         "permissions": payload.permissions or {},
+        "portal_scope": portal_scope,
+        "fleet_access_level": fleet_access_level,
         "failed_attempts": 0,
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
     try:
-        response, code = _create_unique_internal_user(get_supabase_for_user(token), row, requested_code)
+        sb = get_supabase_for_user(token)
+        response, code = _create_unique_internal_user(sb, row, requested_code)
+        if portal_scope == "fleet":
+            try:
+                _replace_internal_fleet_scopes(
+                    sb, response, _fleet_group_ids(payload.fleet_group_ids), admin_uid
+                )
+            except Exception:
+                sb.table("internal_users").delete().eq("id", response["id"]).execute()
+                raise
     except Exception as e:
         if isinstance(e, HTTPException):
             raise
@@ -227,7 +287,13 @@ async def update_internal_user(internal_user_id: int, payload: InternalUserUpdat
     admin_uid, token = _auth_admin(authorization)
     tenant_id = _tenant_id_for_user(admin_uid, access_token=token)
     data = {"updated_at": _now_iso()}
-    if payload.role is not None:
+    requested_fleet_level = (payload.fleet_access_level or "").strip().lower() or None
+    if requested_fleet_level:
+        if requested_fleet_level not in {"zone_manager", "direction"}:
+            raise HTTPException(400, "Nivel de Flotilla 360 inválido.")
+        data["fleet_access_level"] = requested_fleet_level
+        data["role"] = "flotilla_direccion" if requested_fleet_level == "direction" else "flotilla_gerente"
+    elif payload.role is not None:
         role = (payload.role or "").strip().lower()
         if role not in ROLES:
             raise HTTPException(400, "Rol inválido.")
@@ -238,10 +304,101 @@ async def update_internal_user(internal_user_id: int, payload: InternalUserUpdat
             raise HTTPException(400, "Nombre requerido.")
         data["display_name"] = name
     try:
-        get_supabase_for_user(token).table("internal_users").update(data).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+        sb = get_supabase_for_user(token)
+        updated = (
+            sb.table("internal_users").update(data)
+            .eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid)
+            .execute().data or []
+        )
+        if payload.fleet_group_ids is not None:
+            if not updated or updated[0].get("portal_scope") != "fleet":
+                raise HTTPException(400, "Las zonas solo pueden asignarse a usuarios de Flotilla 360.")
+            group_ids = _fleet_group_ids(payload.fleet_group_ids)
+            if not group_ids:
+                raise HTTPException(400, "Asigna al menos una zona de Flotilla 360.")
+            _replace_internal_fleet_scopes(sb, updated[0], group_ids, admin_uid)
     except Exception as e:
         raise _safe_internal_error("update", e)
     return JSONResponse({"ok": True})
+
+
+@router.get("/internal-users-flotilla/settings")
+async def get_fleet_profile_settings(
+    perfil_id: int,
+    authorization: str = Header(default=""),
+):
+    admin_uid, token = _auth_admin(authorization)
+    perfil = _profile_for_admin(admin_uid, perfil_id, token)
+    tenant_id = perfil["tenant_id"]
+    sb = get_supabase_for_user(token)
+    groups = (
+        sb.table("fleet_groups").select("id,motive_id,motive_parent_id,name,path")
+        .eq("tenant_id", tenant_id).order("path").execute().data or []
+    )
+    mappings = (
+        sb.table("fleet_profile_group_scopes").select("group_id,scope_type,status")
+        .eq("tenant_id", tenant_id).eq("profile_id", perfil_id).eq("status", "active")
+        .execute().data or []
+    )
+    code_rows = (
+        sb.table("fleet_tenant_access_codes").select("access_code,display_name,status")
+        .eq("tenant_id", tenant_id).limit(1).execute().data or []
+    )
+    return {
+        "ok": True,
+        "profile": {"id": perfil["id"], "name": perfil.get("nombre") or ""},
+        "organization": code_rows[0] if code_rows else None,
+        "groups": groups,
+        "root_group_id": next((int(row["group_id"]) for row in mappings if row["scope_type"] == "company_root"), None),
+        "zone_group_ids": [int(row["group_id"]) for row in mappings if row["scope_type"] == "zone"],
+    }
+
+
+@router.put("/internal-users-flotilla/settings")
+async def update_fleet_profile_settings(
+    payload: FleetProfileScopeUpdate,
+    authorization: str = Header(default=""),
+):
+    admin_uid, token = _auth_admin(authorization)
+    perfil = _profile_for_admin(admin_uid, payload.perfil_id, token)
+    tenant_id = perfil["tenant_id"]
+    access_code = re.sub(r"[^A-Z0-9_-]", "", (payload.organization_code or "").strip().upper())
+    zone_ids = _fleet_group_ids(payload.zone_group_ids)
+    if len(access_code) < 3:
+        raise HTTPException(400, "El código de organización debe tener al menos 3 caracteres.")
+    if payload.root_group_id <= 0 or not zone_ids:
+        raise HTTPException(400, "Selecciona el grupo empresa y al menos una zona.")
+    all_ids = [payload.root_group_id, *zone_ids]
+    sb = get_supabase_for_user(token)
+    valid = (
+        sb.table("fleet_groups").select("id").eq("tenant_id", tenant_id)
+        .in_("id", all_ids).execute().data or []
+    )
+    if {int(row["id"]) for row in valid} != set(all_ids):
+        raise HTTPException(400, "Uno de los grupos seleccionados no pertenece a este cliente.")
+    sb.table("fleet_tenant_access_codes").upsert({
+        "tenant_id": tenant_id,
+        "access_code": access_code,
+        "display_name": perfil.get("nombre") or "",
+        "status": "active",
+        "updated_at": _now_iso(),
+    }, on_conflict="tenant_id").execute()
+    sb.table("fleet_profile_group_scopes").delete().eq("tenant_id", tenant_id).eq("profile_id", payload.perfil_id).execute()
+    mappings = [{
+        "tenant_id": tenant_id,
+        "profile_id": payload.perfil_id,
+        "group_id": payload.root_group_id,
+        "scope_type": "company_root",
+        "created_by": admin_uid,
+    }, *[{
+        "tenant_id": tenant_id,
+        "profile_id": payload.perfil_id,
+        "group_id": group_id,
+        "scope_type": "zone",
+        "created_by": admin_uid,
+    } for group_id in zone_ids]]
+    sb.table("fleet_profile_group_scopes").insert(mappings).execute()
+    return {"ok": True, "organization_code": access_code, "zones": len(zone_ids)}
 
 
 @router.post("/internal-users/{internal_user_id}/reset-pin")
@@ -389,6 +546,105 @@ async def internal_login(payload: InternalLogin):
         }).execute()
         result["operator_url"] = f"/operador/transporte?token={operator_token}"
     return JSONResponse(result)
+
+
+@router.post("/internal-auth/flotilla/login")
+async def fleet_internal_login(payload: FleetInternalLogin):
+    organization_code = re.sub(
+        r"[^A-Z0-9_-]", "", (payload.organization_code or "").strip().upper()
+    )
+    login = _clean_login(payload.code)
+    if len(organization_code) < 3 or not login or not payload.pin:
+        raise HTTPException(400, "Organización, usuario y contraseña son obligatorios.")
+    sb = get_supabase_admin()
+    organizations = (
+        sb.table("fleet_tenant_access_codes")
+        .select("tenant_id,status")
+        .eq("access_code", organization_code)
+        .eq("status", "active")
+        .limit(1).execute().data or []
+    )
+    if not organizations:
+        raise HTTPException(401, "Organización, usuario o contraseña incorrectos.")
+    tenant_id = organizations[0]["tenant_id"]
+    candidates = (
+        sb.table("internal_users").select("*")
+        .eq("tenant_id", tenant_id)
+        .eq("section", "gas_lp")
+        .eq("portal_scope", "fleet")
+        .eq("code", _normalize_gas_lp_username(payload.code))
+        .limit(2).execute().data or []
+    )
+    user = candidates[0] if candidates else None
+    if not user:
+        raise HTTPException(401, "Organización, usuario o contraseña incorrectos.")
+    locked_until = None
+    try:
+        if user.get("locked_until"):
+            locked_until = datetime.fromisoformat(str(user["locked_until"]).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        locked_until = None
+    if locked_until and locked_until > _now():
+        raise HTTPException(423, "Acceso bloqueado temporalmente. Intenta más tarde.")
+    if (user.get("status") or "active") != "active":
+        raise HTTPException(403, "Este acceso está inactivo. Contacta al administrador.")
+    if not _verify_secret(payload.pin, user.get("pin_hash") or ""):
+        failed = int(user.get("failed_attempts") or 0) + 1
+        update = {"failed_attempts": failed, "updated_at": _now_iso()}
+        if failed >= MAX_FAILED_ATTEMPTS:
+            update.update({
+                "status": "locked",
+                "locked_until": (_now() + timedelta(minutes=LOCK_MINUTES)).isoformat(),
+            })
+        sb.table("internal_users").update(update).eq("id", user["id"]).eq("tenant_id", tenant_id).execute()
+        raise HTTPException(401, "Organización, usuario o contraseña incorrectos.")
+    if user.get("role") not in {"flotilla_gerente", "flotilla_direccion"}:
+        raise HTTPException(403, "El usuario no tiene un permiso válido de Flotilla 360.")
+    scopes = (
+        sb.table("fleet_internal_user_group_scopes")
+        .select("group_id,fleet_groups(name,path)")
+        .eq("internal_user_id", user["id"])
+        .eq("tenant_id", tenant_id)
+        .eq("profile_id", user["perfil_id"])
+        .execute().data or []
+    )
+    if not scopes:
+        raise HTTPException(403, "Este usuario todavía no tiene zonas asignadas.")
+    session_token = secrets.token_urlsafe(32)
+    expires_at = _now() + timedelta(hours=SESSION_HOURS)
+    sb.table("internal_user_sessions").insert({
+        "internal_user_id": user["id"],
+        "tenant_id": tenant_id,
+        "perfil_id": user["perfil_id"],
+        "section": "gas_lp",
+        "role": user["role"],
+        "portal_scope": "fleet",
+        "fleet_access_level": user["fleet_access_level"],
+        "token_hash": _hash_token(session_token),
+        "expires_at": expires_at.isoformat(),
+        "created_at": _now_iso(),
+    }).execute()
+    sb.table("internal_users").update({
+        "failed_attempts": 0,
+        "locked_until": None,
+        "status": "active",
+        "last_access_at": _now_iso(),
+        "updated_at": _now_iso(),
+    }).eq("id", user["id"]).eq("tenant_id", tenant_id).execute()
+    return JSONResponse({
+        "ok": True,
+        "token": session_token,
+        "expires_at": expires_at.isoformat(),
+        "display_name": user.get("display_name") or user.get("code"),
+        "role": user["role"],
+        "fleet_access_level": user["fleet_access_level"],
+        "perfil_id": user["perfil_id"],
+        "groups": [{
+            "id": int(scope["group_id"]),
+            "name": (scope.get("fleet_groups") or {}).get("name") or "",
+            "path": (scope.get("fleet_groups") or {}).get("path") or "",
+        } for scope in scopes],
+    })
 
 
 @router.get("/internal-auth/me")

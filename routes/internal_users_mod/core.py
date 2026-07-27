@@ -281,7 +281,11 @@ def get_supabase_for_user(token: str):
     return _supabase_get_supabase_for_user(token)
 
 
-ROLES = {"admin", "operador", "asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"}
+ROLES = {
+    "admin", "operador", "asistente_facturacion", "asistente_operativo",
+    "conciliacion", "planta", "solo_lectura",
+    "flotilla_gerente", "flotilla_direccion",
+}
 SECTIONS = {"transporte", "gas_lp"}
 MAX_FAILED_ATTEMPTS = 5
 LOCK_MINUTES = 15
@@ -305,6 +309,9 @@ class InternalUserCreate(BaseModel):
     code: Optional[str] = ""
     pin: Optional[str] = ""
     permissions: Optional[dict] = None
+    portal_scope: Optional[str] = None
+    fleet_access_level: Optional[str] = None
+    fleet_group_ids: Optional[list[int]] = None
 
 
 class InternalUserStatus(BaseModel):
@@ -314,6 +321,15 @@ class InternalUserStatus(BaseModel):
 class InternalUserUpdate(BaseModel):
     role: Optional[str] = None
     display_name: Optional[str] = None
+    fleet_access_level: Optional[str] = None
+    fleet_group_ids: Optional[list[int]] = None
+
+
+class FleetProfileScopeUpdate(BaseModel):
+    perfil_id: int
+    organization_code: str
+    root_group_id: int
+    zone_group_ids: list[int]
 
 
 class InternalResetPin(BaseModel):
@@ -322,6 +338,12 @@ class InternalResetPin(BaseModel):
 
 class InternalLogin(BaseModel):
     section: str = "transporte"
+    code: str
+    pin: str
+
+
+class FleetInternalLogin(BaseModel):
+    organization_code: str
     code: str
     pin: str
 
@@ -2181,13 +2203,15 @@ def _gas_lp_month_created_range(month: str) -> tuple[str, str] | None:
 
 
 def _gas_lp_realized_day_range(day: str) -> tuple[str, str] | None:
-    """Rango de FechaTimbrado del PAC, almacenada como hora local sin zona."""
+    """Convierte un día civil de México al rango UTC almacenado en fecha_timbrado."""
     try:
-        start = datetime.strptime(str(day or "")[:10], "%Y-%m-%d")
+        start = datetime.strptime(str(day or "")[:10], "%Y-%m-%d").replace(tzinfo=_gas_lp_cfdi_timezone())
     except ValueError:
         return None
     end = start + timedelta(days=1)
-    return start.strftime("%Y-%m-%dT00:00:00"), end.strftime("%Y-%m-%dT00:00:00")
+    start_utc = start.astimezone(timezone.utc)
+    end_utc = end.astimezone(timezone.utc)
+    return start_utc.isoformat().replace("+00:00", "Z"), end_utc.isoformat().replace("+00:00", "Z")
 
 
 def _gas_lp_apply_created_range(query, created_range: tuple[str, str] | None):
