@@ -38,6 +38,7 @@
     };
     if (path.startsWith('/gas-lp/flotilla')) return {
       tokenKeys: ['sat_token', 'zc_token'], login: '/gas-lp/flotilla/acceso',
+      sessionTokenKey: 'ge_flotilla_access',
       renewable: true,
     };
     if (path === '/app' || path.startsWith('/modulo/gas-lp')) return {
@@ -52,6 +53,8 @@
       const value = localStorage.getItem(key);
       if (value) return value;
     }
+    const sessionTokenKey = portal().sessionTokenKey;
+    if (sessionTokenKey) return sessionStorage.getItem(sessionTokenKey) || '';
     return '';
   }
 
@@ -69,6 +72,7 @@
     AUTH_KEYS.forEach(key => localStorage.removeItem(key));
     sessionStorage.removeItem('ge_flotilla_access');
     sessionStorage.removeItem('ge_flotilla_expires_at');
+    sessionStorage.removeItem('ge_flotilla_identity');
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith(LAST_ACTIVITY_PREFIX)) localStorage.removeItem(key);
     });
@@ -200,6 +204,16 @@
     const token = activeToken();
     if (!token) return false;
     const currentPortal = portal();
+    const internalFleet = currentPortal.sessionTokenKey && !localStorage.getItem('sat_token') && !localStorage.getItem('zc_token');
+    if (internalFleet) {
+      authValidation = nativeFetch('/api/flotilla/session', {
+        headers: {'X-Flotilla-Access': token},
+        cache: 'no-store',
+      }).then(response => response.status === 401)
+        .catch(() => false)
+        .finally(() => { authValidation = null; });
+      return authValidation;
+    }
     const validationUrl = currentPortal.internalSection
       ? `/api/internal-auth/me?token=${encodeURIComponent(token)}&section=${encodeURIComponent(currentPortal.internalSection)}`
       : '/api/auth/me';
@@ -246,13 +260,13 @@
   async function resumeSession() {
     if (enforce()) return;
     const token = activeToken();
-    if (portal().renewable === true && token && jwtExpiresSoon(token)) await refreshAccessToken();
+    if (portal().renewable === true && token && token.split('.').length === 3 && jwtExpiresSoon(token)) await refreshAccessToken();
   }
   window.addEventListener('focus', resumeSession);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeSession(); });
   setInterval(enforce, 60 * 1000);
   setInterval(() => {
     const token = activeToken();
-    if (portal().renewable === true && token && jwtExpiresSoon(token)) refreshAccessToken();
+    if (portal().renewable === true && token && token.split('.').length === 3 && jwtExpiresSoon(token)) refreshAccessToken();
   }, 60 * 1000);
 })();
