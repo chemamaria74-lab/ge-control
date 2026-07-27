@@ -30,11 +30,10 @@
     <h1>Flotilla 360</h1>
     <div class="sub">Inicia sesión para consultar gastos, consumo, inspecciones, mantenimiento y rendimiento.</div>
     <div class="mode">
-      <button id="internalMode" class="active" type="button">Gerente / Dirección</button>
+      <button id="internalMode" class="active" type="button">Gerente</button>
       <button id="adminMode" type="button">Administrador</button>
     </div>
     <form id="loginForm">
-      <div class="field" id="organizationField"><label for="organization">Código de organización</label><input id="organization" autocomplete="organization" placeholder="Ej. ASMONA" maxlength="32"></div>
       <div class="field"><label for="user" id="userLabel">Usuario</label><input id="user" autocomplete="username" placeholder="Tu usuario" required></div>
       <div class="field"><label for="password">Contraseña</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••" required></div>
       <button class="btn" id="submitButton" type="submit">Iniciar sesión</button>
@@ -61,8 +60,6 @@
     function setLoginMode(mode) {
       loginMode = mode;
       const internal = mode === 'internal';
-      document.getElementById('organizationField').hidden = !internal;
-      document.getElementById('organization').required = internal;
       document.getElementById('userLabel').textContent = internal ? 'Usuario' : 'Correo oficial';
       document.getElementById('user').placeholder = internal ? 'Tu usuario de Flotilla 360' : 'correo@empresa.com';
       document.getElementById('internalMode').classList.toggle('active', internal);
@@ -86,14 +83,13 @@
             method: 'POST',
             headers: {'Content-Type':'application/json'},
             body: JSON.stringify({
-              organization_code: document.getElementById('organization').value.trim(),
               code: document.getElementById('user').value.trim(),
               pin: document.getElementById('password').value,
             }),
           });
           const session = await readJson(response);
           if (!response.ok || !session.ok || !session.token) {
-            throw new Error(session.detail || 'Organización, usuario o contraseña incorrectos.');
+            throw new Error(session.detail || 'Usuario o contraseña incorrectos.');
           }
           ['sat_token','zc_token','sat_user_id','sat_email','sat_role','sat_assigned_perfil_id'].forEach(key => localStorage.removeItem(key));
           localStorage.setItem('sat_modulo', 'gas_lp');
