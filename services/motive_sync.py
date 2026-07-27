@@ -379,7 +379,10 @@ def _optional_pages(datasets: dict[str, Any], name: str, path: str, collection_k
 
 
 def _lookback_dates(full: bool) -> tuple[str, str]:
-    default_days = 365 if full else 14
+    # La primera carga conserva un año. Las actualizaciones posteriores vuelven
+    # a revisar tres días para captar correcciones tardías sin descargar dos
+    # semanas completas en cada clic.
+    default_days = 365 if full else 3
     env_name = "MOTIVE_INITIAL_LOOKBACK_DAYS" if full else "MOTIVE_INCREMENTAL_LOOKBACK_DAYS"
     try:
         days = min(max(int(os.getenv(env_name, default_days)), 1), 730)
@@ -449,7 +452,7 @@ def sync_vehicle_utilization_range(
 def _mileage_record(item: Any) -> dict[str, Any]:
     if not isinstance(item, dict):
         return {}
-    for key in ("ifta_summary", "mileage_summary", "summary"):
+    for key in ("ifta_trip", "ifta_summary", "mileage_summary", "summary"):
         if isinstance(item.get(key), dict):
             return item[key]
     return item
@@ -493,14 +496,25 @@ def sync_vehicle_mileage_range(
         .eq("integration_id", integration_id).execute().data or []
     )
     vehicle_ids = {int(row["motive_id"]): int(row["id"]) for row in stored_vehicles}
-    items = motive_get_all_pages_flexible(
-        "/v1/ifta/summary",
-        collection_keys=(
-            "ifta_summaries", "mileage_summaries", "summaries",
-            "ifta_summary", "mileage_summary", "vehicles",
-        ),
-        params={"start_date": start_text, "end_date": end_text},
-    )
+    try:
+        items = motive_get_all_pages_flexible(
+            "/v1/ifta/summary",
+            collection_keys=(
+                "ifta_summaries", "mileage_summaries", "summaries",
+                "ifta_summary", "mileage_summary", "vehicles", "data",
+            ),
+            params={"start_date": start_text, "end_date": end_text},
+        )
+        mileage_source = "motive_ifta_summary"
+    except MotiveAPIError:
+        # Algunas cuentas no exponen el rollup con la misma estructura. Los
+        # viajes contienen la misma distancia y permiten construir el total.
+        items = motive_get_all_pages_flexible(
+            "/v1/ifta/trips",
+            collection_keys=("ifta_trips", "trips", "ifta_trip", "data"),
+            params={"start_date": start_text, "end_date": end_text},
+        )
+        mileage_source = "motive_ifta_trips"
     totals: dict[int, Decimal] = {}
     for item in items:
         normalized = normalize_vehicle_mileage(item)
@@ -509,6 +523,8 @@ def sync_vehicle_mileage_range(
         motive_id, distance_km = normalized
         totals[motive_id] = totals.get(motive_id, Decimal(0)) + Decimal(str(distance_km))
     now = datetime.now(timezone.utc).isoformat()
+    # Guardamos también cero para unidades sin viaje: marca el periodo como
+    # consultado y evita llamar indefinidamente a Motive.
     rows = [
         {
             "integration_id": integration_id,
@@ -516,12 +532,11 @@ def sync_vehicle_mileage_range(
             "vehicle_id": vehicle_ids[motive_id],
             "period_start": start_text,
             "period_end": end_text,
-            "distance_km": _number(distance, 3) or 0,
-            "source": "motive_ifta_summary",
+            "distance_km": _number(totals.get(motive_id, Decimal(0)), 3) or 0,
+            "source": mileage_source,
             "updated_at": now,
         }
-        for motive_id, distance in totals.items()
-        if motive_id in vehicle_ids
+        for motive_id in vehicle_ids
     ]
     return _upsert(
         sb, "fleet_vehicle_mileage_rollups", rows,

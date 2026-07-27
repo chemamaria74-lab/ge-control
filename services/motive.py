@@ -135,6 +135,49 @@ def motive_get_all_pages_flexible(
     max_pages: int = 1000,
 ) -> list[Any]:
     """Pagina endpoints de Motive cuyo nombre de colección varía entre versiones."""
+    def locate_collection(payload: dict[str, Any]) -> list[Any] | None:
+        for key in collection_keys:
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+            if isinstance(value, dict):
+                nested = locate_collection(value)
+                if nested is not None:
+                    return nested
+
+        lists: list[list[Any]] = []
+
+        def visit(value: Any, depth: int = 0) -> None:
+            if depth > 4:
+                return
+            if isinstance(value, list):
+                lists.append(value)
+                return
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if key not in {"pagination", "meta", "links"}:
+                        visit(child, depth + 1)
+
+        visit(payload)
+        populated_distance_lists = [
+            value for value in lists
+            if value and isinstance(value[0], dict)
+            and (
+                "distance" in value[0]
+                or any(
+                    isinstance(value[0].get(key), dict)
+                    and "distance" in value[0][key]
+                    for key in ("ifta_trip", "ifta_summary", "mileage_summary", "summary")
+                )
+            )
+        ]
+        if len(populated_distance_lists) == 1:
+            return populated_distance_lists[0]
+        # Una respuesta válida sin recorridos suele traer una sola colección vacía.
+        if len(lists) == 1:
+            return lists[0]
+        return None
+
     records: list[Any] = []
     base_params = dict(params or {})
     for page_no in range(1, max_pages + 1):
@@ -142,44 +185,7 @@ def motive_get_all_pages_flexible(
             path,
             params={**base_params, "per_page": per_page, "page_no": page_no},
         )
-        batch: list[Any] | None = None
-        for key in collection_keys:
-            value = payload.get(key)
-            if isinstance(value, list):
-                batch = value
-                break
-        if batch is None:
-            # Algunos despliegues envuelven la colección bajo data/result.
-            for wrapper_key in ("data", "result"):
-                wrapper = payload.get(wrapper_key)
-                if not isinstance(wrapper, dict):
-                    continue
-                for key in collection_keys:
-                    value = wrapper.get(key)
-                    if isinstance(value, list):
-                        batch = value
-                        break
-                if batch is not None:
-                    break
-        if batch is None:
-            # Último respaldo: identifica una colección de filas de millaje por
-            # su contenido, sin confundirla con pagination u otra metadata.
-            candidates = [
-                value for value in payload.values()
-                if isinstance(value, list)
-                and value
-                and isinstance(value[0], dict)
-                and (
-                    "distance" in value[0]
-                    or any(
-                        isinstance(value[0].get(key), dict)
-                        and "distance" in value[0][key]
-                        for key in ("ifta_summary", "mileage_summary", "summary")
-                    )
-                )
-            ]
-            if len(candidates) == 1:
-                batch = candidates[0]
+        batch = locate_collection(payload)
         if batch is None:
             raise MotiveAPIError(502, "Motive devolvió el resumen de kilometraje en un formato inesperado.")
         records.extend(batch)
