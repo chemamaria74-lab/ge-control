@@ -58,6 +58,7 @@ function usePublicoGeneral(){
   markInvoiceInteraction();
   if(tipoOperacion.value !== 'venta') return;
   clienteSelect.value = '';
+  syncClienteComboboxSelection();
   btnPublicoGeneral.classList.add('active');
   resetInvoiceTransientState({keepCliente:true, keepStatus:true});
   setPublicoGeneralDefaults();
@@ -74,6 +75,7 @@ async function loadClientes(){
   CLIENTES = data.clientes || [];
   clienteSelect.innerHTML = '<option value="">Público en general</option>' + CLIENTES.map(c=>`<option value="${esc(c.id)}">${esc(c.nombre)} · ${esc(c.rfc)}</option>`).join('');
   if(selectedId) clienteSelect.value = selectedId;
+  syncClienteComboboxSelection();
   selectCliente();
   renderClientesList();
   if(DESCUENTOS_SEARCHED) renderDescuentosList();
@@ -105,8 +107,92 @@ function selectClienteFromList(id){
   switchPortalTab('facturacion','facturar');
   clienteSelect.value = String(id);
   selectCliente();
-  clienteSelect.focus();
+  syncClienteComboboxSelection();
+  clienteSearchSelect.focus();
 }
+
+function clienteSearchText(value){
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+}
+function clienteComboboxRows(){
+  const q = clienteSearchText(clienteSearchSelect?.value).trim();
+  return CLIENTES.filter(c => !q || clienteSearchText(`${c.nombre || ''} ${c.rfc || ''}`).includes(q));
+}
+function renderClienteCombobox(){
+  if(!window.clienteOptions) return;
+  const rows = clienteComboboxRows();
+  clienteOptions.dataset.activeIndex = '-1';
+  clienteOptions.innerHTML = rows.length ? rows.map((c,index)=>`
+    <button type="button" class="client-combobox-option" role="option"
+      aria-selected="${String(c.id) === String(clienteSelect.value)}" data-client-id="${esc(c.id)}"
+      onclick="selectClienteComboboxOption(${Number(c.id)})">
+      ${esc(c.nombre)} · ${esc(c.rfc)}
+    </button>`).join('') : '<div class="client-combobox-empty">No hay clientes que coincidan.</div>';
+}
+function openClienteCombobox({showAll=false}={}){
+  if(!window.clienteOptions) return;
+  if(showAll) clienteSearchSelect.value = '';
+  renderClienteCombobox();
+  clienteOptions.classList.remove('hide');
+  clienteSearchSelect.setAttribute('aria-expanded','true');
+}
+function closeClienteCombobox({restore=true}={}){
+  if(!window.clienteOptions) return;
+  clienteOptions.classList.add('hide');
+  clienteSearchSelect.setAttribute('aria-expanded','false');
+  if(restore) syncClienteComboboxSelection();
+}
+function toggleClienteCombobox(){
+  if(clienteOptions.classList.contains('hide')){
+    clienteSearchSelect.focus();
+    clienteSearchSelect.select();
+    openClienteCombobox();
+  } else {
+    closeClienteCombobox();
+  }
+}
+function filterClienteCombobox(){
+  openClienteCombobox();
+}
+function selectClienteComboboxOption(id){
+  clienteSelect.value = id ? String(id) : '';
+  selectCliente();
+  closeClienteCombobox();
+}
+function syncClienteComboboxSelection(){
+  if(!window.clienteSearchSelect) return;
+  const selected = CLIENTES.find(c => String(c.id) === String(clienteSelect.value));
+  clienteSearchSelect.value = selected ? `${selected.nombre} · ${selected.rfc}` : 'Público en general';
+}
+function handleClienteComboboxKey(event){
+  if(event.key === 'Escape'){
+    closeClienteCombobox();
+    clienteSearchSelect.blur();
+    return;
+  }
+  if(event.key === 'Tab'){
+    closeClienteCombobox();
+    return;
+  }
+  if(!['ArrowDown','ArrowUp','Enter'].includes(event.key)) return;
+  event.preventDefault();
+  if(clienteOptions.classList.contains('hide')) openClienteCombobox();
+  const options = [...clienteOptions.querySelectorAll('.client-combobox-option')];
+  if(!options.length) return;
+  let index = Number(clienteOptions.dataset.activeIndex || 0);
+  if(event.key === 'ArrowDown') index = Math.min(index + 1, options.length - 1);
+  if(event.key === 'ArrowUp') index = Math.max(index - 1, 0);
+  if(event.key === 'Enter'){
+    options[Math.max(0,index)].click();
+    return;
+  }
+  clienteOptions.dataset.activeIndex = String(index);
+  options.forEach((option,i)=>option.classList.toggle('active',i === index));
+  options[index].scrollIntoView({block:'nearest'});
+}
+document.addEventListener('mousedown',event=>{
+  if(window.clienteCombobox && !clienteCombobox.contains(event.target)) closeClienteCombobox();
+});
 function openClienteFormFromTab(){
   setClientesTabDefaults();
   clienteFormClientes.classList.remove('hide');
