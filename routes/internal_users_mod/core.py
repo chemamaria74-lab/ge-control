@@ -327,7 +327,6 @@ class InternalUserUpdate(BaseModel):
 
 class FleetProfileScopeUpdate(BaseModel):
     perfil_id: int
-    organization_code: str
     root_group_id: int
     zone_group_ids: list[int]
 
@@ -343,7 +342,6 @@ class InternalLogin(BaseModel):
 
 
 class FleetInternalLogin(BaseModel):
-    organization_code: str
     code: str
     pin: str
 
