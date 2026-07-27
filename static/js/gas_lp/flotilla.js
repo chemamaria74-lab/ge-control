@@ -46,7 +46,7 @@
       const internal=data.identity_type==='internal';
       $('syncButton').hidden=internal;
       $('fleetBack').hidden=internal;
-      if($('directionDownloads')) $('directionDownloads').hidden=internal&&data.fleet_access_level!=='direction';
+      if($('directionDownloads')) $('directionDownloads').hidden=internal;
       document.documentElement.classList.remove('fleet-auth-pending');
       $('fleetAuthGate').hidden=true;
       return true;
@@ -146,7 +146,7 @@
       $('reportCritical').textContent=fmt(data.analytics?.critical_high);
       renderDashboard(data.analytics||{});
       populateExplorer(data.explorer||{});
-      renderDataStatus(data.sync||null,counts);
+      renderDataStatus(data.sync||null,counts,data.freshness||null);
       const submitters=data.submitters||[];
       $('submitterList').innerHTML=submitters.length?submitters.slice(0,8).map((row,index)=>`<div class="submitter-row"><span>${index+1}. ${esc(row.name)}</span><strong>${fmt(row.records)} · ${money(row.amount_mxn,'MXN')}</strong></div>`).join(''):'Sin gastos importados en el periodo. No se interpreta como $0 real.';
       renderManagerBrief(data.analytics||{},counts);
@@ -159,10 +159,57 @@
   function renderDashboard(analytics){
     const units=analytics.top_units||[], behaviors=analytics.behaviors||[];
     const maxUnit=Math.max(...units.map(row=>Number(row.attention_index||0)),1);
-    const maxBehavior=Math.max(...behaviors.map(row=>Number(row.count||0)),1);
     $('riskRanking').innerHTML=units.length?units.map((row,index)=>`<button class="bar-row unit-risk" type="button" data-unit-search="${esc(row.vehicle_number)}"><span class="bar-label"><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${fmt(row.security+row.speeding)} eventos · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${Math.max(4,Number(row.attention_index||0)/maxUnit*100)}%"></i></span><strong>${fmt(row.attention_index)}</strong></button>`).join(''):'<div class="empty">No hay eventos en este periodo.</div>';
-    $('behaviorRanking').innerHTML=behaviors.length?behaviors.map(row=>`<div class="bar-row"><span class="bar-label"><b>${esc(row.label)}</b></span><span class="bar-track gold"><i style="width:${Math.max(4,Number(row.count||0)/maxBehavior*100)}%"></i></span><strong>${fmt(row.count)}</strong></div>`).join(''):'<div class="empty">No hay conductas registradas.</div>';
+    $('behaviorRanking').innerHTML=behaviorDonutHtml(behaviors);
     document.querySelectorAll('[data-unit-search]').forEach(button=>button.addEventListener('click',()=>{$('vehicleSearch').value=button.dataset.unitSearch;state.page=1;loadVehicles();}));
+  }
+
+  function behaviorDonutHtml(rows){
+    if(!rows.length)return '<div class="empty">No hay conductas registradas.</div>';
+    const palette=['#7a1e2c','#c8a96b','#b94c61','#dfc77f','#4d1420','#d98b70'];
+    const top=rows.slice(0,6), total=top.reduce((sum,row)=>sum+Number(row.count||0),0)||1;
+    let cursor=0;
+    const stops=top.map((row,index)=>{
+      const start=cursor; cursor+=Number(row.count||0)/total*100;
+      return `${palette[index]} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`;
+    }).join(',');
+    const legend=top.map((row,index)=>`<div class="donut-legend-row"><i style="background:${palette[index]}"></i><span>${esc(row.label)}</span><strong>${fmt(row.count)}</strong></div>`).join('');
+    return `<div class="donut-layout"><div class="donut-chart" style="background:conic-gradient(${stops})"><div><strong>${fmt(total)}</strong><span>eventos</span></div></div><div class="donut-legend">${legend}</div></div>`;
+  }
+
+  function trendChartHtml(rows){
+    if(!rows.length)return '<div class="empty">Sin eventos por fecha.</div>';
+    const values=rows.map(row=>Number(row.count||0)), max=Math.max(...values,1);
+    const points=values.map((value,index)=>{
+      const x=values.length===1?50:4+(index/(values.length-1))*92;
+      const y=92-(value/max)*76;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const dots=values.map((value,index)=>{
+      const x=values.length===1?50:4+(index/(values.length-1))*92;
+      const y=92-(value/max)*76;
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.8"><title>${esc(rows[index].date)}: ${fmt(value)} eventos</title></circle>`;
+    }).join('');
+    return `<div class="trend-chart"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Tendencia de eventos"><polyline class="trend-area" points="4,92 ${points} 96,92"></polyline><polyline class="trend-line" points="${points}"></polyline>${dots}</svg><div><span>${esc(rows[0].date)}</span><b>Pico: ${fmt(max)}</b><span>${esc(rows[rows.length-1].date)}</span></div></div>`;
+  }
+
+  function hourHeatmapHtml(rows){
+    if(!rows.length)return '<div class="empty">Sin eventos con horario disponible.</div>';
+    const byHour=new Map(rows.map(row=>[Number(row.hour),Number(row.count||0)])), max=Math.max(...byHour.values(),1);
+    return `<div class="hour-heatmap">${Array.from({length:24},(_,hour)=>{
+      const count=byHour.get(hour)||0, outside=hour<6||hour>=18;
+      const opacity=count?(.18+.82*count/max):.06;
+      return `<div class="${outside?'outside':''}" style="--heat:${opacity.toFixed(2)}"><span>${String(hour).padStart(2,'0')}h</span><strong>${fmt(count)}</strong></div>`;
+    }).join('')}</div>`;
+  }
+
+  function weekdayBubbleHtml(rows){
+    const max=Math.max(...rows.map(row=>Number(row.count||0)),1);
+    return `<div class="weekday-bubbles">${rows.map(row=>{
+      const scale=.72+.38*(Number(row.count||0)/max);
+      const opacity=Number(row.count||0)?(.45+.55*Number(row.count||0)/max):.18;
+      return `<div><span style="transform:scale(${scale.toFixed(2)});opacity:${opacity.toFixed(2)}">${fmt(row.count)}</span><b>${esc(row.label)}</b></div>`;
+    }).join('')}</div>`;
   }
 
   function populateExplorer(explorer){
@@ -193,15 +240,13 @@
 
   function renderExplorer(data){
     const result=$('explorerResults'), k=data.kpis||{}, behaviors=data.behaviors||[], daily=data.daily||[], timeline=data.timeline||[], time=data.time_analysis||{};
-    const maxBehavior=Math.max(...behaviors.map(row=>Number(row.count||0)),1), maxDaily=Math.max(...daily.map(row=>Number(row.count||0)),1);
     const hours=time.hourly||[], weekdays=time.weekdays||[];
-    const maxHour=Math.max(...hours.map(row=>Number(row.count||0)),1), maxWeekday=Math.max(...weekdays.map(row=>Number(row.count||0)),1);
     const value=v=>v==null?'No disponible':fmt(v);
-    const behaviorHtml=behaviors.length?behaviors.map(row=>`<div class="bar-row"><span class="bar-label"><b>${esc(row.label)}</b></span><span class="bar-track gold"><i style="width:${Math.max(4,Number(row.count||0)/maxBehavior*100)}%"></i></span><strong>${fmt(row.count)}</strong></div>`).join(''):'<div class="empty">Sin conductas registradas.</div>';
-    const dailyHtml=daily.length?daily.map(row=>`<div class="bar-row"><span class="bar-label"><b>${esc(row.date)}</b></span><span class="bar-track"><i style="width:${Math.max(4,Number(row.count||0)/maxDaily*100)}%"></i></span><strong>${fmt(row.count)}</strong></div>`).join(''):'<div class="empty">Sin eventos por fecha.</div>';
+    const behaviorHtml=behaviorDonutHtml(behaviors);
+    const dailyHtml=trendChartHtml(daily);
     const timelineHtml=timeline.length?timeline.map(row=>`<div class="timeline-row"><span>${esc(dateText(row.date))}</span><b>${esc(row.vehicle||'—')}</b><span>${esc(row.detail||row.kind)}</span><span class="timeline-pill">${esc(row.kind)}${row.severity?' · '+esc(row.severity):''}</span></div>`).join(''):'<div class="empty">No hay incidencias en este periodo.</div>';
-    const hourlyHtml=hours.length?hours.map(row=>`<div class="time-bar${Number(row.hour)<6||Number(row.hour)>=18?' outside':''}"><span>${esc(row.label)}</span><i><b style="width:${Math.max(5,Number(row.count||0)/maxHour*100)}%"></b></i><strong>${fmt(row.count)}</strong></div>`).join(''):'<div class="empty">Sin eventos con horario disponible.</div>';
-    const weekdayHtml=weekdays.map(row=>`<div class="time-bar"><span>${esc(row.label)}</span><i><b style="width:${Number(row.count||0)?Math.max(5,Number(row.count||0)/maxWeekday*100):0}%"></b></i><strong>${fmt(row.count)}</strong></div>`).join('');
+    const hourlyHtml=hourHeatmapHtml(hours);
+    const weekdayHtml=weekdayBubbleHtml(weekdays);
     const worstDate=daily.reduce((best,row)=>!best||Number(row.count||0)>Number(best.count||0)?row:best,null);
     result.hidden=false;
     result.innerHTML=`<div class="panel-title"><h4>${esc(data.entity?.name||'Desempeño')}</h4><span>${esc(data.period?.start)} al ${esc(data.period?.end)}</span></div>
@@ -227,7 +272,7 @@
     $('managerBrief').innerHTML=`<div><span class="eyebrow">Resumen para el gerente</span><h4>Acciones sugeridas para esta zona</h4></div><ul>${messages.join('')||'<li>No se detectaron eventos que requieran acción en el periodo.</li>'}</ul>`;
   }
 
-  function renderDataStatus(sync,counts){
+  function renderDataStatus(sync,counts,freshness){
     if(!sync){$('dataStatus').className='data-status warn';$('dataStatus').textContent='Aún no existe una sincronización completa de Motive.';return;}
     if(sync.status==='running'||sync.status==='queued'){
       $('dataStatus').className='data-status warn';
@@ -245,7 +290,12 @@
       $('dataStatus').innerHTML=`<strong>Sincronización incompleta.</strong> Seguridad y velocidad sí están disponibles; ${esc(pending.join(', ')||'otras fuentes')} quedaron pendientes. Vuelve a actualizar desde Motive.`;
     }else{
       $('dataStatus').className=pending.length?'data-status warn':'data-status ok';
-      $('dataStatus').textContent=pending.length?`Sincronización completada. Fuentes no habilitadas o rechazadas por Motive: ${pending.join(', ')}. El resto de los datos sí está actualizado.`:'Todas las fuentes disponibles se sincronizaron correctamente.';
+      const latest=freshness?.latest_event_date;
+      const requested=freshness?.requested_through;
+      const dateNote=latest&&requested&&latest<requested
+        ? ` Periodo solicitado hasta ${requested}; el último evento disponible es del ${latest}. Los días posteriores no tienen eventos registrados.`
+        : (latest?` Último evento disponible: ${latest}.`:' No hay eventos registrados en el periodo.');
+      $('dataStatus').textContent=(pending.length?`Sincronización completada. Fuentes no habilitadas o rechazadas por Motive: ${pending.join(', ')}. El resto de los datos sí está actualizado.`:'Todas las fuentes disponibles se sincronizaron correctamente.')+dateNote;
     }
   }
 
