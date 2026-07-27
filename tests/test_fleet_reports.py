@@ -24,6 +24,21 @@ def test_empty_report_has_executive_sheets_without_misleading_empty_tabs(tmp_pat
     assert workbook.sheetnames == ["Dashboard", "Resumen por unidad"]
 
 
+def test_report_adds_executive_chronology_when_events_exist(tmp_path):
+    payload = build_fleet_report({
+        "driver_events": [{
+            "started_at": "2026-07-10T12:00:00Z", "vehicle_number": "U-1",
+            "driver_name": "Ana", "primary_behavior": "hard_brake", "severity": "high",
+        }],
+        "speeding": [], "faults": [], "expenses": [], "activity": [],
+    }, date(2026, 7, 1), date(2026, 7, 20))
+    target = tmp_path / "report.xlsx"; target.write_bytes(payload)
+    workbook = load_workbook(target, read_only=True)
+    assert "Cronología ejecutiva" in workbook.sheetnames
+    sheet = workbook["Cronología ejecutiva"]
+    assert sheet["E2"].value == "Frenado brusco"
+
+
 def test_analytics_uses_consumed_fuel_and_exact_utilization_rollup():
     analytics = fleet_analytics({
         "vehicles": [{"vehicle_number": "U-1"}],
