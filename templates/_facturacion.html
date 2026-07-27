@@ -20,7 +20,21 @@
         <div class="form-grid">
           <div><label>Operación</label><select id="tipoOperacion" onchange="updateOperacionUI()"><option value="venta">Venta a cliente</option><option value="traspaso">Traspaso a estación</option></select></div>
           <div id="facilityField" class="field-attention"><label>Instalación origen *</label><select id="facilitySelect" required onchange="onFacilityChange()"><option value="">Selecciona instalación</option></select></div>
-          <div id="clienteField"><label>Cliente</label><select id="clienteSelect" onchange="selectCliente()"><option value="">Público en general</option></select></div>
+          <div id="clienteField">
+            <label for="clienteSearchSelect">Cliente</label>
+            <div class="client-combobox" id="clienteCombobox">
+              <div class="client-combobox-control">
+                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                <input id="clienteSearchSelect" type="text" placeholder="Escribe nombre o RFC" autocomplete="off"
+                  role="combobox" aria-autocomplete="list" aria-controls="clienteOptions" aria-expanded="false"
+                  onfocus="openClienteCombobox({showAll:true})" oninput="filterClienteCombobox()" onkeydown="handleClienteComboboxKey(event)">
+                <button type="button" class="client-combobox-toggle" aria-label="Mostrar todos los clientes"
+                  onclick="toggleClienteCombobox()"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button>
+              </div>
+              <div id="clienteOptions" class="client-combobox-options hide" role="listbox"></div>
+            </div>
+            <select id="clienteSelect" class="hide" aria-hidden="true" tabindex="-1" onchange="selectCliente()"><option value="">Público en general</option></select>
+          </div>
           <div id="facturaGlobalField" class="hide"><label>Factura global público general</label><select id="facturaGlobal"><option value="0">No global</option><option value="1">Factura global mensual</option></select></div>
           <div id="clientePreview" class="client-preview form-span">
             <div class="client-preview-head">

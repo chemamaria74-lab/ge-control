@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <link rel="stylesheet" href="/static/css/gas_lp/flotilla.css?v=20260725b">
   <link rel="stylesheet" href="/static/css/gas_lp/flotilla_reports.css?v=20260725b">
+  <link rel="stylesheet" href="/static/css/gas_lp/flotilla_explorer.css?v=20260727a">
   <link rel="stylesheet" href="/static/css/gas_lp/flotilla_downloads.css?v=20260725a">
   <link rel="stylesheet" href="/static/css/gas_lp/flotilla_auth_gate.css?v=20260724b">
   <style>
@@ -88,7 +89,7 @@
             <strong>Descargar informe de la zona</strong>
             <div><button class="btn-primary report-download" data-report-type="zone" data-format="xlsx" type="button"><i class="fa-solid fa-file-excel"></i> Excel</button><button class="btn-ghost report-download" data-report-type="zone" data-format="pdf" type="button"><i class="fa-solid fa-file-pdf"></i> PDF</button></div>
           </div>
-          <div class="download-product direction-only">
+          <div class="download-product direction-only" id="directionDownloads">
             <span>Exclusivo para dirección / administrador</span>
             <strong>Descargar comparativo de todas las zonas</strong>
             <div><button class="btn-primary report-download" data-report-type="comparison" data-format="xlsx" type="button"><i class="fa-solid fa-file-excel"></i> Excel</button><button class="btn-ghost report-download" data-report-type="comparison" data-format="pdf" type="button"><i class="fa-solid fa-file-pdf"></i> PDF</button></div>
@@ -110,6 +111,16 @@
         <article class="dashboard-panel"><div class="panel-title"><h4>Conductas más frecuentes</h4><span>Eventos de seguridad</span></div><div id="behaviorRanking" class="bar-list"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel compact-panel"><div class="panel-title"><h4>Seguimiento operativo</h4><span>Datos documentados en Motive</span></div><div id="submitterList">Sin movimientos documentados.</div></article>
       </div>
+      <section class="performance-explorer">
+        <div class="panel-title"><div><span class="eyebrow"><i class="fa-solid fa-magnifying-glass-chart"></i> Análisis detallado</span><h4>Explorar una unidad o un chofer</h4></div><span>Consulta Supabase; no vuelve a llamar a Motive</span></div>
+        <div class="explorer-filters">
+          <label>Analizar por<select id="explorerType"><option value="unit">Unidad</option><option value="driver">Chofer</option></select></label>
+          <label id="explorerUnitLabel">Unidad<select id="explorerUnit"><option value="">Selecciona una unidad</option></select></label>
+          <label id="explorerDriverLabel" hidden>Chofer<select id="explorerDriver"><option value="">Selecciona un chofer</option></select></label>
+          <button class="btn-primary" id="runExplorer" type="button"><i class="fa-solid fa-chart-simple"></i> Ver desempeño</button>
+        </div>
+        <div id="explorerResults" class="explorer-results" hidden></div>
+      </section>
     </section>
 
     <section class="fleet-card search-results" id="vehicleResults" hidden>
@@ -130,7 +141,7 @@
   </aside>
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
 
-  <script src="/static/js/session_timeout.js?v=two-hour-all-portals-20260725"></script>
-  <script src="/static/js/gas_lp/flotilla.js?v=20260725e"></script>
+  <script src="/static/js/session_timeout.js?v=flotilla-internal-20260727"></script>
+  <script src="/static/js/gas_lp/flotilla.js?v=20260727a"></script>
 </body>
 </html>
