@@ -1766,26 +1766,51 @@
     <div>
       <h2 style="margin:0"><i class="fa-solid fa-users-gear" style="margin-right:.35rem"></i>Usuarios y permisos</h2>
       <div id="gasInternalScopeHint" style="font-size:.78rem;color:#64748b;margin-top:.3rem;line-height:1.45">
-        Crea asistentes internos solo para la empresa activa. No son usuarios globales del SaaS.
+        Crea accesos separados para Asistente Gas LP o Flotilla 360 dentro de la empresa activa.
       </div>
     </div>
     <button onclick="loadInternalUsersGasLp()" style="
       padding:.4rem .9rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;
       font-size:.78rem;cursor:pointer;font-family:inherit"><i class="fa-solid fa-arrows-rotate" style="margin-right:.35rem"></i> Actualizar</button>
   </div>
+  <div id="gasFleetProfileSettings" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem;margin:.8rem 0">
+    <div style="font-weight:700;margin-bottom:.2rem"><i class="fa-solid fa-sitemap" style="margin-right:.35rem"></i>Relación de esta empresa con Motive</div>
+    <div style="font-size:.74rem;color:#64748b;margin-bottom:.7rem">Define una sola vez qué grupo representa a la empresa y cuáles son sus zonas. Después podrás asignarlas a cada gerente.</div>
+    <div class="grid2">
+      <div class="field"><label>Código de organización</label><input id="gasFleetOrganizationCode" maxlength="32" placeholder="Ej. ASMONA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9_-]/g,'')"></div>
+      <div class="field"><label>Grupo empresa en Motive</label><select id="gasFleetRootGroup"><option value="">Selecciona el grupo raíz</option></select></div>
+    </div>
+    <div class="field"><label>Zonas permitidas para esta empresa</label>
+      <select id="gasFleetProfileZones" multiple size="5"></select>
+      <div style="font-size:.68rem;color:#64748b;margin-top:.25rem">Usa Ctrl/Cmd para seleccionar varias zonas.</div>
+    </div>
+    <button id="gasFleetSaveSettingsBtn" onclick="saveFleetProfileSettings()" style="padding:.45rem .9rem;background:#7f1d1d;color:#fff;border:0;border-radius:7px;font-weight:600;cursor:pointer">Guardar relación con Motive</button>
+    <span id="gasFleetSettingsStatus" style="font-size:.78rem;margin-left:.6rem"></span>
+  </div>
   <div class="grid2" style="margin-top:.6rem">
-    <div class="field"><label>Nombre</label><input id="gasInternalName" type="text" placeholder="Nombre del asistente"></div>
-    <div class="field"><label>Rol</label>
-      <select id="gasInternalRole">
-        <option value="asistente_facturacion">Asistente de facturación</option>
-        <option value="asistente_operativo">Asistente operativo</option>
-        <option value="planta">Planta</option>
-        <option value="solo_lectura">Solo lectura</option>
+    <div class="field"><label>Nombre</label><input id="gasInternalName" type="text" placeholder="Nombre de la persona"></div>
+    <div class="field"><label>Acceso</label>
+      <select id="gasInternalPortal" onchange="updateGasInternalPortalFields()">
+        <option value="assistant">Asistente Gas LP</option>
+        <option value="fleet">Flotilla 360</option>
       </select>
-      <div style="font-size:.68rem;color:#64748b;margin-top:.25rem">Facturación: factura y carga XML. Operativo: apoya operación. Planta: captura de planta. Solo lectura: consulta.</div>
+      <div style="font-size:.68rem;color:#64748b;margin-top:.25rem">Cada usuario solo podrá iniciar sesión en el portal seleccionado.</div>
     </div>
     <div class="field"><label>Usuario</label><input id="gasInternalCode" type="text" placeholder="Ej. MARTHA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
     <div class="field"><label>Contraseña</label><input id="gasInternalPin" type="text" placeholder="Ej. MARTHA"></div>
+  </div>
+  <div id="gasInternalFleetFields" style="display:none;background:#fff7ed;border:1px solid #fed7aa;border-radius:9px;padding:.75rem;margin-top:.7rem">
+    <div class="grid2">
+      <div class="field"><label>Nivel Flotilla 360</label>
+        <select id="gasInternalFleetLevel">
+          <option value="zone_manager">Gerente de zona</option>
+          <option value="direction">Dirección</option>
+        </select>
+      </div>
+      <div class="field"><label>Zonas asignadas</label>
+        <select id="gasInternalFleetZones" multiple size="4"></select>
+      </div>
+    </div>
   </div>
   <div style="display:flex;align-items:center;gap:.8rem;margin-top:.8rem;flex-wrap:wrap">
     <button onclick="createInternalUserGasLp()" style="
@@ -1795,12 +1820,16 @@
     </button>
     <span id="gasInternalStatus" style="font-size:.83rem"></span>
   </div>
-  <div style="overflow-x:auto;margin-top:1rem">
+  <div style="display:flex;gap:.5rem;margin-top:1rem">
+    <button id="gasInternalTabAssistant" onclick="showGasInternalTab('assistant')" style="padding:.4rem .9rem;border:1px solid #7f1d1d;background:#7f1d1d;color:#fff;border-radius:999px;cursor:pointer">Asistentes</button>
+    <button id="gasInternalTabFleet" onclick="showGasInternalTab('fleet')" style="padding:.4rem .9rem;border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:999px;cursor:pointer">Flotilla 360</button>
+  </div>
+  <div style="overflow-x:auto;margin-top:.6rem">
     <table style="width:100%;border-collapse:collapse;font-size:.84rem">
       <thead><tr style="border-bottom:2px solid #e2e8f0;text-align:left">
         <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Usuario</th>
         <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Código</th>
-        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Rol</th>
+        <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Acceso / zonas</th>
         <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Estado</th>
         <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Último acceso</th>
         <th style="padding:.5rem .8rem;color:#64748b;font-weight:600">Acciones</th>
