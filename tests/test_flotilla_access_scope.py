@@ -1,5 +1,11 @@
+import os
+
 import pytest
 from fastapi import HTTPException
+
+os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
+os.environ.setdefault("SUPABASE_KEY", "test-key")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
 
 from routes.flotilla import _event_time_analysis, _require_group_access
 from services.flotilla_access_scope import (

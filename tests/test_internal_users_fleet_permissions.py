@@ -5,6 +5,9 @@ import pytest
 from fastapi import HTTPException
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
+os.environ.setdefault("SUPABASE_KEY", "test-key")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
 
 from routes.internal_users_mod.core import InternalUserCreate
 from routes.internal_users_mod.users_auth import _clean_payload
@@ -35,14 +38,14 @@ def test_assistant_role_is_forced_server_side():
     )
 
 
-def test_fleet_direction_role_is_derived_server_side():
+def test_fleet_user_is_always_a_zone_manager_server_side():
     cleaned = _clean_payload(payload(
         portal_scope="fleet",
         fleet_access_level="direction",
         fleet_group_ids=[11, 12],
     ))
 
-    assert cleaned[2:] == ("flotilla_direccion", "fleet", "direction")
+    assert cleaned[2:] == ("flotilla_gerente", "fleet", "zone_manager")
 
 
 def test_fleet_user_requires_at_least_one_zone():

@@ -75,6 +75,10 @@ def test_session_gate_returns_resolved_server_context(monkeypatch):
         "tenant_id": "tenant-safe",
         "perfil_id": 42,
         "role": "admin",
+        "identity_type": None,
+        "fleet_access_level": None,
+        "display_name": "",
+        "allowed_group_ids": None,
     }
 
 
