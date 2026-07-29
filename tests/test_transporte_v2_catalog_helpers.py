@@ -1,5 +1,9 @@
+import asyncio
 import os
 from pathlib import Path
+
+import pytest
+from fastapi import HTTPException
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "dummy")
@@ -18,6 +22,7 @@ from routes.transporte_v2 import (
     _permiso_payload,
     _permiso_product_family_match,
     _stamp_internal_product_keys,
+    _validate_catalog_payload,
 )
 
 
@@ -109,7 +114,12 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
     admin_section = template.split('id="trv2-tab-administracion"', 1)[1]
     assert "Nómina operadores" in template
     assert "Nómina de operadores" in section
-    assert "Pago por periodo" in section
+    assert "> Por pagar</button>" in section
+    assert "> Pagados</button>" in section
+    assert "> Configuración</button>" in section
+    assert section.count('data-payroll-workspace="pending"') == 1
+    assert section.count('data-payroll-workspace="history"') == 1
+    assert section.count('data-payroll-workspace="config"') == 1
     assert 'data-payment-tab="baja-laboral"' not in section
     assert 'data-payment-panel="baja-laboral" hidden' in section
     assert "trv2CalculateTermination" in frontend
@@ -145,14 +155,18 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
     assert "trv2OperatorPayrollBase" in frontend
     assert "bases_json" in frontend
     assert "payroll-history-tabs-20260724" in shell
-    assert 'data-payment-period-view="historial"' in section
     assert 'id="trv2-payment-history-table"' in section
     assert "operator-payments/history" in frontend
     assert "trv2ExportHistoricalOperatorPayment" in frontend
     payment_tabs = section.split('aria-label="Pago y seguimiento de operadores"', 1)[1].split("</nav>", 1)[0]
-    assert 'data-payment-tab="bases"' in payment_tabs
-    assert 'data-payment-period-view="pendientes"' in payment_tabs
-    assert 'data-payment-period-view="historial"' in payment_tabs
+    assert 'data-payroll-workspace="pending"' in payment_tabs
+    assert 'data-payroll-workspace="history"' in payment_tabs
+    assert 'data-payroll-workspace="config"' in payment_tabs
+    assert 'id="trv2-payment-history-from"' in section
+    assert 'id="trv2-payment-history-to"' in section
+    assert 'id="trv2-payment-history-operator"' in section
+    assert "Todos los pendientes (últimos 12 meses)" in section
+    assert "Pendientes desde" in section
     assert "trv2SetOperatorPaymentView('liquidaciones')" in frontend
     history_source = Path(transporte_v2.__file__).read_text(encoding="utf-8").split(
         'def transporte_v2_operator_payments_history(', 1
@@ -435,3 +449,60 @@ def test_trailer_catalog_exposes_capacity_at_ninety_percent_for_carta_porte_pdf(
     assert "Serie / número de fabricación" in frontend
     assert "['Capacidad 90%', 'capacidad_litros']" in frontend
     assert '"capacidad_litros", "activo", "metadata"' in backend
+
+
+def test_transport_installations_require_valid_cre_permit():
+    assert "permiso_cre" in transporte_v2.CATALOG_CONFIG["origenes"]["required"]
+    assert "permiso_cre" in transporte_v2.CATALOG_CONFIG["destinos"]["required"]
+
+    with pytest.raises(HTTPException) as exc:
+        _validate_catalog_payload("destinos", {"nombre": "Cliente Norte", "permiso_cre": "x"})
+
+    assert exc.value.status_code == 400
+    assert "formato inválido" in str(exc.value.detail)
+
+
+def test_transport_company_selector_requests_validation_instead_of_direct_activation():
+    root = Path(__file__).parents[1]
+    template = (root / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
+    frontend = (root / "static/js/transporte_v2/10_api.js").read_text(encoding="utf-8")
+    migration = (root / "migrations/transporte_company_activation_requests_deferred_20260728.sql").read_text(encoding="utf-8")
+
+    assert "Solicitar otra empresa" in template
+    assert "GE Control valide RFC, contrato y suscripción" in template
+    assert "/api/tr-v2/admin/company-requests" in frontend
+    assert "tr_company_activation_requests" in migration
+    assert "status text not null default 'pendiente'" in migration
+
+
+def test_direct_transport_profile_creation_is_blocked_pending_ge_control_validation(monkeypatch):
+    from routes import perfiles
+
+    monkeypatch.setattr(perfiles, "_auth", lambda _authorization: ("user-1", "token"))
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(perfiles.create_perfil(
+            perfiles.PerfilPayload(nombre="Empresa nueva", rfc="AAA010101AAA"),
+            authorization="Bearer token",
+            module="transporte",
+        ))
+
+    assert exc.value.status_code == 403
+    assert "validación de RFC, contrato y suscripción" in str(exc.value.detail)
+
+
+def test_transport_subscription_metering_and_operator_retention_contract_are_visible():
+    root = Path(__file__).parents[1]
+    template = (root / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
+    frontend = (root / "static/js/transporte_v2/85_administracion.js").read_text(encoding="utf-8")
+    backend = Path(transporte_v2.__file__).read_text(encoding="utf-8")
+    revoke_source = backend.split("async def transporte_v2_operator_access_delete(", 1)[1].split(
+        '@router.post("/tr-v2/operator/login")', 1
+    )[0]
+
+    assert "Suscripción y alta" in template
+    assert 'id="trv2-onboarding-checklist"' in template
+    assert "/api/tr-v2/admin/subscription-summary" in frontend
+    assert "timbres_included_monthly" in backend
+    assert '"retention_days": 365' in revoke_source
+    assert ".delete()" not in revoke_source
+    assert '"session_hash": None' in revoke_source

@@ -2,6 +2,7 @@ import asyncio
 import base64
 import os
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -269,6 +270,20 @@ def test_operator_cannot_access_carta_porte_xml():
 
     assert exc.value.status_code == 403
     assert "solo puede consultar el PDF" in str(exc.value.detail)
+
+
+def test_operator_portal_includes_empty_trip_and_one_time_location_notice():
+    root = Path(__file__).parents[1]
+    template = (root / "templates/transporte_v2/operador.html").read_text(encoding="utf-8")
+    frontend = (root / "static/js/transporte_v2/operator_portal.js").read_text(encoding="utf-8")
+    migration = (root / "migrations/transporte_operador_auth_formal_deferred_20260728.sql").read_text(encoding="utf-8")
+
+    assert 'id="trv2-operator-pretrip"' in template
+    assert 'id="trv2-operator-privacy"' in template
+    assert "INICIAR_VACIO" in frontend
+    assert "LLEGADA_TERMINAL" in frontend
+    assert "/api/tr-v2/operator/privacy/accept" in frontend
+    assert "pretrip_json" in migration
 
 
 def test_tolerant_trip_insert_retries_without_missing_optional_column():

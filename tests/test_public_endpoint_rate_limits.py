@@ -31,17 +31,38 @@ def test_operator_login_rate_limits_repeated_credential_without_exposing_it(monk
 
     def fake_context(token, usuario=""):
         seen.append((token, usuario))
-        return object(), {"id": 1, "perfil_id": 7, "chofer_id": 9, "chofer": {"nombre": "Operador"}}
+        raise HTTPException(401, "Acceso inválido.")
 
     monkeypatch.setattr(transporte_v2, "_operator_context", fake_context)
+    monkeypatch.setattr(transporte_v2, "_operator_password_login", lambda usuario, password: None)
     payload = transporte_v2.TransporteV2OperatorLoginRequest(usuario="operador", pin="pin-super-secreto")
-    for _ in range(8):
-        response = asyncio.run(transporte_v2.transporte_v2_operator_login(payload, _request()))
-        assert response["ok"] is True
+    for _ in range(5):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(transporte_v2.transporte_v2_operator_login(payload, _request()))
+        assert exc.value.status_code == 401
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(transporte_v2.transporte_v2_operator_login(payload, _request()))
     assert exc.value.status_code == 429
-    assert len(seen) == 8
+    assert len(seen) == 6
     assert all("pin-super-secreto" not in key for key in security._RATE_BUCKETS)
+    security._RATE_BUCKETS.clear()
+
+
+def test_operator_successful_logins_do_not_consume_failed_attempt_lock(monkeypatch):
+    security._RATE_BUCKETS.clear()
+    monkeypatch.setattr(transporte_v2, "_operator_password_login", lambda usuario, password: None)
+    monkeypatch.setattr(
+        transporte_v2,
+        "_operator_context",
+        lambda token, usuario="": (
+            object(),
+            {"id": 1, "perfil_id": 7, "chofer_id": 9, "chofer": {"nombre": "Operador"}},
+        ),
+    )
+    payload = transporte_v2.TransporteV2OperatorLoginRequest(usuario="operador", pin="pin-super-secreto")
+    for _ in range(7):
+        response = asyncio.run(transporte_v2.transporte_v2_operator_login(payload, _request()))
+        assert response["ok"] is True
+    assert not any(key.startswith("operator-login:credential:") for key in security._RATE_BUCKETS)
     security._RATE_BUCKETS.clear()

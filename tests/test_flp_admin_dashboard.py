@@ -1,4 +1,23 @@
 import asyncio
+import os
+
+
+os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
+os.environ.setdefault("SUPABASE_KEY", "test-anon-key")
+
+
+def _mock_tenant_context():
+    from services.tenant_context import TenantContext
+
+    return TenantContext(
+        auth_user_id="user-1",
+        data_user_id="user-1",
+        tenant_id="tenant-1",
+        perfil_id=8,
+        company_id=8,
+        sections=frozenset({"gas_lp"}),
+        roles=frozenset({"admin"}),
+    )
 
 
 def test_ventas_analytics_includes_live_invoices_without_closed_report(monkeypatch):
@@ -7,6 +26,11 @@ def test_ventas_analytics_includes_live_invoices_without_closed_report(monkeypat
 
     monkeypatch.setattr(analytics, "_auth", lambda _authorization: ("user-1", "token"))
     monkeypatch.setattr(analytics, "_require_perfil", lambda *_args: 8)
+    monkeypatch.setattr(
+        analytics,
+        "resolve_tenant_context",
+        lambda *_args, **_kwargs: _mock_tenant_context(),
+    )
     monkeypatch.setattr(analytics, "get_reports", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(analytics, "get_records_for_year", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(
@@ -48,6 +72,11 @@ def test_ventas_analytics_removes_cancelled_uuid_from_stored_records(monkeypatch
 
     monkeypatch.setattr(analytics, "_auth", lambda _authorization: ("user-1", "token"))
     monkeypatch.setattr(analytics, "_require_perfil", lambda *_args: 8)
+    monkeypatch.setattr(
+        analytics,
+        "resolve_tenant_context",
+        lambda *_args, **_kwargs: _mock_tenant_context(),
+    )
     monkeypatch.setattr(analytics, "get_reports", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(
         analytics,
