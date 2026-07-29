@@ -48,6 +48,10 @@ def _clean_payload(payload: InternalUserCreate) -> tuple[str, str, str, str, str
             raise HTTPException(400, "El usuario es obligatorio.")
         if not (payload.pin or "").strip():
             raise HTTPException(400, "La contraseña es obligatoria.")
+        if len(payload.pin) < 8:
+            raise HTTPException(400, "La contraseña debe tener al menos 8 caracteres.")
+        if payload.pin_confirmation is not None and payload.pin != payload.pin_confirmation:
+            raise HTTPException(400, "Las contraseñas no coinciden.")
     return name, section, role, portal_scope, fleet_access_level
 
 
@@ -236,7 +240,9 @@ async def create_internal_user(payload: InternalUserCreate, authorization: str =
     if section == "gas_lp":
         _ensure_gas_lp_username_available(requested_code)
     code = requested_code or _candidate_code(section, tenant_id)
-    temp_pin = (payload.pin or "").strip() or f"{secrets.randbelow(900000) + 100000}"
+    temp_pin = payload.pin if payload.pin is not None else ""
+    if not temp_pin:
+        temp_pin = f"{secrets.randbelow(900000) + 100000}"
     row = {
         "tenant_id": tenant_id,
         "owner_user_id": admin_uid,
@@ -402,7 +408,9 @@ async def update_fleet_profile_settings(
 async def reset_internal_pin(internal_user_id: int, payload: InternalResetPin, authorization: str = Header(default="")):
     admin_uid, token = _auth_admin(authorization)
     tenant_id = _tenant_id_for_user(admin_uid, access_token=token)
-    temp_pin = (payload.pin or "").strip() or f"{secrets.randbelow(900000) + 100000}"
+    temp_pin = payload.pin if payload.pin is not None else ""
+    if not temp_pin:
+        temp_pin = f"{secrets.randbelow(900000) + 100000}"
     if len(temp_pin) < 8:
         raise HTTPException(400, "La contraseña debe tener al menos 8 caracteres.")
     try:
@@ -512,7 +520,12 @@ async def internal_login(payload: InternalLogin):
     _validate_internal_scope(user)
     if locked_until_active:
         raise HTTPException(423, "Usuario bloqueado temporalmente. Intenta más tarde.")
-    if not _verify_secret(payload.pin, user.get("pin_hash") or ""):
+    password_matches = _verify_secret(payload.pin, user.get("pin_hash") or "")
+    # Compatibilidad con contraseñas creadas antes de 2026-07-29, cuando el
+    # alta y el restablecimiento eliminaban espacios exteriores al guardarlas.
+    if not password_matches and payload.pin != payload.pin.strip():
+        password_matches = _verify_secret(payload.pin.strip(), user.get("pin_hash") or "")
+    if not password_matches:
         failed = int(user.get("failed_attempts") or 0) + 1
         update = {"failed_attempts": failed, "updated_at": _now_iso()}
         if failed >= MAX_FAILED_ATTEMPTS:

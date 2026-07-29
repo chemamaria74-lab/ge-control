@@ -308,6 +308,7 @@ class InternalUserCreate(BaseModel):
     chofer_id: Optional[int] = None
     code: Optional[str] = ""
     pin: Optional[str] = ""
+    pin_confirmation: Optional[str] = None
     permissions: Optional[dict] = None
     portal_scope: Optional[str] = None
     fleet_access_level: Optional[str] = None
@@ -2567,15 +2568,33 @@ def _gas_lp_company_facturas_rows_impl(
         filters.append({"discount": "descuento_total/descuento_confirmado/descuento_por_litro > 0"})
 
     try:
-        rows = (
+        ordered_query = (
             query
             .order("fecha_timbrado" if realized_range else "fecha_emision", desc=True)
             .order("created_at", desc=True)
-            .limit(page_limit)
-            .execute()
-            .data
-            or []
         )
+        if ppd_pending:
+            # La cartera PPD abarca todos los meses. Supabase/PostgREST entrega
+            # como máximo 1,000 filas por solicitud y `fecha_emision DESC`
+            # puede colocar primero registros legados con fecha nula. Recorrer
+            # todas las páginas evita que facturas PPD recientes desaparezcan
+            # antes de aplicar la normalización de pago y complementos.
+            rows = []
+            offset = 0
+            while True:
+                page = (
+                    ordered_query
+                    .range(offset, offset + GAS_LP_LIST_LIMIT_MAX - 1)
+                    .execute()
+                    .data
+                    or []
+                )
+                rows.extend(page)
+                if len(page) < GAS_LP_LIST_LIMIT_MAX:
+                    break
+                offset += GAS_LP_LIST_LIMIT_MAX
+        else:
+            rows = ordered_query.limit(page_limit).execute().data or []
     except Exception as exc:
         msg = str(exc)
         schema_fallback = any(
@@ -2609,6 +2628,21 @@ def _gas_lp_company_facturas_rows_impl(
         except Exception:
             raise exc
     rows = _dedupe_rows_by_id(rows)
+    if ppd_pending:
+        # El saldo definitivo se resuelve después de adjuntar los complementos;
+        # aquí solo reducimos la cartera a candidatos PPD válidos.
+        ppd_candidates = []
+        for row in rows:
+            md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            is_transfer = (
+                row.get("tipo_operacion") == "traspaso"
+                or row.get("is_transfer")
+                or md.get("tipo_operacion") == "traspaso"
+                or md.get("is_transfer")
+            )
+            if _gas_lp_factura_metodo_pago(row) == "PPD" and not _gas_lp_factura_cancelada(row) and not is_transfer:
+                ppd_candidates.append(row)
+        rows = ppd_candidates
     if discounted_only:
         rows = [row for row in rows if _gas_lp_factura_has_discount(row)]
     if visibility_log:
