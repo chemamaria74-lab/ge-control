@@ -122,9 +122,34 @@
   </div>
 
   <div class="commercial-tab" id="commercial-tab-catalog">
+    <form class="card plan-version-editor" onsubmit="createCommercialPlanVersion(event)">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Edición segura</span>
+          <h3>Crear una nueva versión del plan</h3>
+          <p class="step-help">El plan vigente no se sobrescribe. Se guarda otra versión en borrador para conservar los acuerdos anteriores.</p>
+        </div>
+        <span class="safe-draft-badge"><i class="fa-solid fa-shield-halved"></i> Sin activar clientes</span>
+      </div>
+      <div class="friendly-form-grid">
+        <label>Plan editable<select id="cpvPlan" required onchange="prefillCommercialPlanEditor()"></select></label>
+        <label>Precio mensual antes de IVA<input id="cpvMonthlyPrice" type="number" min="0" step="0.01" required></label>
+        <label>Vehículos activos<input id="cpvVehicleLimit" type="number" min="0" step="1"></label>
+        <label>Viajes fiscales por mes<input id="cpvTripLimit" type="number" min="0" step="1"></label>
+        <label>Administradores<input id="cpvAdminLimit" type="number" min="1" step="1"></label>
+        <label>IVA<select id="cpvTaxRate"><option value="0.16">16%</option><option value="0">0%</option></select></label>
+      </div>
+      <label class="plan-configurable-toggle"><input id="cpvConfigurable" type="checkbox" onchange="toggleCommercialPlanLimits()"> Límites configurables (por ejemplo, Enterprise)</label>
+      <label>Motivo del cambio<textarea id="cpvNotes" required minlength="5" maxlength="1000" placeholder="Ej. Ajuste comercial autorizado para la siguiente versión"></textarea></label>
+      <div class="plan-editor-actions">
+        <button class="btn" id="cpvSubmit" type="submit"><i class="fa-solid fa-layer-group"></i> Guardar nueva versión en borrador</button>
+        <span class="status" id="cpvMsg"></span>
+      </div>
+      <p class="hint">El plan Legado $2,800 está protegido y no aparece en este editor.</p>
+    </form>
     <div class="card">
       <h3>Catálogo versionado</h3>
-      <p class="muted">Las versiones iniciales permanecen en borrador. Publicar o retirar versiones se habilitará cuando exista el esquema consolidado.</p>
+      <p class="muted">Cada cambio crea historial. Publicar o retirar versiones seguirá deshabilitado hasta que autorices la activación comercial.</p>
       <div id="commercialCatalog"></div>
     </div>
   </div>

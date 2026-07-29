@@ -82,4 +82,23 @@
           <table><thead><tr><th>Usuario</th><th>Acceso</th><th>Status</th><th>Último acceso</th></tr></thead><tbody id="adminUsersRows"></tbody></table>
           <div class="actions"><button class="btn btn-ghost" onclick="showPanel('usuarios')">Herramientas avanzadas de usuarios</button></div>
         </div>
+        <details class="support-tools">
+          <summary>
+            <span><i class="fa-solid fa-screwdriver-wrench"></i><b>Soporte y diagnóstico</b></span>
+            <small>Herramientas internas para revisar o reparar cuentas</small>
+          </summary>
+          <div class="support-tools-body">
+            <div class="notice-box"><b>Uso excepcional.</b> Estas pantallas muestran identificadores y estructuras anteriores. No son necesarias para dar de alta ni administrar clientes comerciales.</div>
+            <div class="support-tools-grid">
+              <button class="btn btn-ghost" onclick="showPanel('dashboard')"><i class="fa-solid fa-gauge"></i><span><b>Diagnóstico general</b><small>Salud de tenants, perfiles y módulos.</small></span></button>
+              <button class="btn btn-ghost" onclick="showPanel('clientes')"><i class="fa-solid fa-network-wired"></i><span><b>Cuentas anteriores</b><small>Licencias y accesos del modelo runtime.</small></span></button>
+              <button class="btn btn-ghost" onclick="showPanel('empresas')"><i class="fa-solid fa-building"></i><span><b>Empresas legacy</b><small>Perfiles y RFC del sistema anterior.</small></span></button>
+              <button class="btn btn-ghost" onclick="showPanel('usuarios')"><i class="fa-solid fa-users"></i><span><b>Accesos técnicos</b><small>Auth, tenant, perfil y módulos.</small></span></button>
+              <button class="btn btn-ghost" onclick="showPanel('suscripciones')"><i class="fa-solid fa-credit-card"></i><span><b>Suscripciones anteriores</b><small>Configuración runtime todavía vigente.</small></span></button>
+              <button class="btn btn-ghost" onclick="showPanel('modulos')"><i class="fa-solid fa-toggle-on"></i><span><b>Módulos</b><small>Control técnico de secciones.</small></span></button>
+              <button class="btn btn-ghost" onclick="showPanel('reparacion')"><i class="fa-solid fa-toolbox"></i><span><b>Reparación</b><small>Corregir relaciones inconsistentes.</small></span></button>
+              <button class="btn btn-ghost" onclick="showPanel('auditoria')"><i class="fa-solid fa-clipboard-list"></i><span><b>Auditoría</b><small>Revisar acciones administrativas.</small></span></button>
+            </div>
+          </div>
+        </details>
       </section>
