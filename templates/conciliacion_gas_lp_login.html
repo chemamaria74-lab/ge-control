@@ -3,20 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GE CONTROL | Conciliación Gas LP</title>
+  <title>GE CONTROL | Supervisión Gas LP</title>
   <link rel="icon" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <style>
-    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f5f5;font-family:var(--ge-font);padding:22px;color:#111}.card{width:min(420px,100%);background:#fff;border:1px solid #e7e3dc;border-radius:8px;padding:28px;box-shadow:0 24px 70px rgba(0,0,0,.14)}.logo{width:190px;display:block;margin:0 auto 20px}h1{font-size:22px;margin:0 0 4px;text-align:center}.sub{text-align:center;color:#6F6A64;margin-bottom:22px}label{display:block;font-size:12px;font-weight:800;color:#6F6A64;margin:0 0 6px}input{width:100%;border:1px solid #d8d0c4;border-radius:8px;padding:13px 14px;font:inherit}.field{margin-bottom:14px}.btn{width:100%;border:0;border-radius:8px;background:#7A1E2C;color:#fff;padding:13px;font:inherit;font-weight:800;cursor:pointer}.err{color:#b91c1c;font-size:13px;min-height:18px;margin:12px 0;text-align:center;font-weight:700}.back{text-align:center;margin-top:16px}.back a{color:#5B0F1D;text-decoration:none;font-weight:800}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f5f5;font-family:var(--ge-font);padding:22px;color:#111}.card{width:min(470px,100%);background:#fff;border:1px solid #e7e3dc;border-radius:8px;padding:28px;box-shadow:0 24px 70px rgba(0,0,0,.14)}.logo{width:190px;display:block;margin:0 auto 20px}h1{font-size:22px;margin:0 0 4px;text-align:center}.sub{text-align:center;color:#6F6A64;margin-bottom:18px}.areas{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;background:#f2eee8;border-radius:9px;padding:4px;margin-bottom:20px}.areas button{border:0;border-radius:7px;padding:10px 4px;background:transparent;color:#6F6A64;font:inherit;font-size:12px;font-weight:800;cursor:pointer}.areas button.active{background:#fff;color:#7A1E2C;box-shadow:0 2px 8px rgba(0,0,0,.08)}label{display:block;font-size:12px;font-weight:800;color:#6F6A64;margin:0 0 6px}input{width:100%;border:1px solid #d8d0c4;border-radius:8px;padding:13px 14px;font:inherit}.field{margin-bottom:14px}.btn{width:100%;border:0;border-radius:8px;background:#7A1E2C;color:#fff;padding:13px;font:inherit;font-weight:800;cursor:pointer}.err{color:#b91c1c;font-size:13px;min-height:18px;margin:12px 0;text-align:center;font-weight:700}.back{text-align:center;margin-top:16px}.back a{color:#5B0F1D;text-decoration:none;font-weight:800}@media(max-width:420px){.card{padding:24px 17px}.areas button{font-size:11px}}
   </style>
 </head>
 <body>
   <main class="card">
     <img class="logo" src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
-    <h1>Conciliación Gas LP</h1>
-    <div class="sub">Facturas, complementos y cancelación</div>
+    <h1>Supervisión Gas LP</h1>
+    <div class="sub" id="areaDescription">Facturas, complementos, consultas y cancelación.</div>
+    <div class="areas" role="tablist" aria-label="Área administrativa">
+      <button class="active" type="button" data-area="contable">Contable</button>
+      <button type="button" data-area="gastos">Gastos</button>
+      <button type="button" data-area="flotilla">Flotilla</button>
+    </div>
     <form id="loginForm">
-      <div class="field"><label>Usuario o correo</label><input id="code" autocomplete="username"></div>
+      <div class="field"><label>Correo del cliente</label><input id="code" type="email" autocomplete="username" placeholder="correo@empresa.com"></div>
       <div class="field"><label>Contraseña</label><input id="pin" type="password" autocomplete="current-password"></div>
       <button class="btn" type="submit">Entrar</button>
     </form>
@@ -25,12 +30,23 @@
   </main>
   <script src="/static/js/session_timeout.js?v=two-hour-all-portals-20260725"></script>
   <script>
-    const ALLOWED_ROLES = ['admin','conciliacion','asistente_facturacion'];
+    const AREA_CONFIG = {
+      contable:{description:'Facturas, complementos, consultas y cancelación.',roles:['admin','conciliacion','asistente_facturacion'],destination:'/conciliacion/gas-lp'},
+      gastos:{description:'Revisión de gastos, envío a contadora y registro de pagos.',roles:['admin','conciliacion'],destination:'/gas-lp/gastos'},
+      flotilla:{description:'Supervisión completa de unidades, zonas y rendimiento.',roles:['admin'],destination:'/gas-lp/flotilla'}
+    };
     const CONCILIACION_TOKEN_KEY = 'ge_gaslp_conciliacion_token';
+    const FLOTILLA_ACCESS_KEY = 'ge_flotilla_access';
+    let selectedArea = 'contable';
     localStorage.removeItem(CONCILIACION_TOKEN_KEY);
-    function roleAllowed(role) {
-      return ALLOWED_ROLES.includes(String(role || '').toLowerCase());
-    }
+    document.querySelectorAll('[data-area]').forEach(button => button.onclick=()=>{
+      selectedArea=button.dataset.area;
+      document.querySelectorAll('[data-area]').forEach(item=>item.classList.toggle('active',item===button));
+      areaDescription.textContent=AREA_CONFIG[selectedArea].description;
+      err.textContent='';
+    });
+    const requestedArea=new URLSearchParams(location.search).get('area');
+    if(AREA_CONFIG[requestedArea]) document.querySelector(`[data-area="${requestedArea}"]`).click();
     async function readJson(res) {
       try { return await res.json(); } catch (_) { return {}; }
     }
@@ -42,19 +58,10 @@
       });
       const data = await readJson(res);
       if (!res.ok || !data.success) throw new Error(data.detail || 'Usuario o contraseña incorrectos.');
-      if (!roleAllowed(data.role)) throw new Error('Tu rol Gas LP no permite entrar a conciliación.');
-      return data.token;
-    }
-    async function loginInternal(user, pass) {
-      const res = await fetch('/api/internal-auth/login', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({section:'gas_lp',code:user,pin:pass})
-      });
-      const data = await readJson(res);
-      if (!res.ok || !data.ok) throw new Error(data.detail || 'Usuario o contraseña incorrectos.');
-      if (!roleAllowed(data.role)) throw new Error('Tu rol Gas LP no permite entrar a conciliación.');
-      return data.token;
+      if (!AREA_CONFIG[selectedArea].roles.includes(String(data.role||'').toLowerCase())) {
+        throw new Error(`Tu permiso Gas LP no permite entrar al área de ${selectedArea}.`);
+      }
+      return data;
     }
     loginForm.addEventListener('submit', async e => {
       e.preventDefault(); err.textContent = '';
@@ -62,16 +69,19 @@
       const pass = pin.value;
       if (!user || !pass) { err.textContent = 'Ingresa usuario y contraseña.'; return; }
       try {
-        let token = '';
-        if (user.includes('@')) {
-          token = await loginSupabase(user, pass);
-        } else {
-          try { token = await loginInternal(user, pass); }
-          catch (_) { token = await loginSupabase(user, pass); }
+        const login = await loginSupabase(user, pass);
+        localStorage.setItem(CONCILIACION_TOKEN_KEY, login.token);
+        localStorage.setItem('sat_token', login.token);
+        localStorage.setItem('zc_token', login.token);
+        if(selectedArea==='flotilla'){
+          const grantResponse=await fetch('/api/flotilla/grant',{method:'POST',headers:{Authorization:`Bearer ${login.token}`},cache:'no-store'});
+          const grant=await readJson(grantResponse);
+          if(!grantResponse.ok||!grant.access) throw new Error(grant.detail||'No se pudo habilitar la supervisión de flotilla.');
+          sessionStorage.setItem(FLOTILLA_ACCESS_KEY,grant.access);
+          sessionStorage.setItem('ge_flotilla_expires_at',String(grant.expires_at||''));
         }
-        localStorage.setItem(CONCILIACION_TOKEN_KEY, token);
         window.GESessionTimeout?.markLogin();
-        location.href = '/gas-lp/conciliacion/inicio';
+        location.href = AREA_CONFIG[selectedArea].destination;
       } catch(ex) { err.textContent = ex.message; }
     });
   </script>
