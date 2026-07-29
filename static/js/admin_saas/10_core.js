@@ -11,7 +11,7 @@ function cleanErrorText(detail){
 async function api(path, opts={}){ const r=await fetch('/api/admin-saas'+path, opts); const d=await r.json().catch(()=>({})); if(!r.ok){ throw new Error(cleanErrorText(d.detail || d.error)); } return d; }
 function showPanel(name){
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.panel===name));
+  document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.panel===name && !b.dataset.commercialNav));
   const panel=document.getElementById('panel-'+name);
   if(panel) panel.classList.add('active');
   if(name==='clientes')loadTenants();
@@ -21,6 +21,11 @@ function showPanel(name){
   if(name==='auditoria')loadAudit();
   if(name==='facturacion-ge')loadBillingInvoices();
   if(name==='administracion'){ loadBillingSettings(); loadLandingSettings(); loadUsers(); }
+}
+function openCommercial(tab='overview'){
+  showPanel('comercial');
+  showCommercialTab(tab);
+  document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.commercialNav===tab));
 }
 function msg(id,text,ok=true){ const el=document.getElementById(id); if(el){el.textContent=text; el.className='status '+(ok?'ok':'err');} }
 function showAdminLogin(message='') {
