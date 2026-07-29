@@ -38,10 +38,10 @@
   </section>
   <header class="fleet-topbar">
     <a class="fleet-brand" href="/choice" aria-label="GE Control"><img src="/static/img/ge-isotype-light.svg" alt="GE"></a>
-    <div class="fleet-title"><span class="fleet-module">Gas LP</span><h1>Gerentes · Flotilla</h1></div>
+    <div class="fleet-title"><span class="fleet-module">Gas LP</span><h1 id="fleetPortalTitle">Gerentes · Flotilla</h1></div>
     <div class="fleet-top-actions">
-      <a class="btn-light" href="/gas-lp/gerentes/inicio"><i class="fa-solid fa-table-cells-large"></i> Inicio</a>
-      <a class="btn-light" href="/gas-lp/gerentes/gastos"><i class="fa-solid fa-receipt"></i> Vales y gastos</a>
+      <a class="btn-light" id="managerHomeLink" href="/gas-lp/gerentes/inicio"><i class="fa-solid fa-table-cells-large"></i> Inicio</a>
+      <a class="btn-light" id="managerExpensesLink" href="/gas-lp/gerentes/gastos"><i class="fa-solid fa-receipt"></i> Vales y gastos</a>
       <span class="fleet-user" id="fleetUser">—</span>
       <button class="btn-light" id="fleetBack" type="button"><i class="fa-solid fa-layer-group"></i> Portales</button>
       <button class="btn-light" id="fleetLogout" type="button"><i class="fa-solid fa-arrow-right-from-bracket"></i> Salir</button>
@@ -68,12 +68,12 @@
       <div class="query-copy">
         <span class="eyebrow"><i class="fa-solid fa-filter"></i> Preparar informe</span>
         <h3>¿Qué zona quieres revisar?</h3>
-        <p>Mostramos automáticamente el último análisis guardado. “Actualizar desde Motive” permanece como una acción separada.</p>
+        <p>El análisis se carga únicamente cuando eliges una zona y presionas “Generar análisis”. “Actualizar desde Motive” permanece como una acción separada.</p>
       </div>
       <div class="dashboard-filters" aria-label="Filtros del informe">
         <label>Desde<input id="startDate" type="date"></label>
         <label>Hasta<input id="endDate" type="date"></label>
-        <label class="group-field">Grupo / zona<select id="reportGroup"><option value="">Toda la flotilla</option></select></label>
+        <label class="group-field">Grupo / zona<select id="reportGroup"><option value="">Selecciona una zona</option></select></label>
         <button class="btn-primary query-button" id="runAnalysis" type="button"><i class="fa-solid fa-chart-column"></i> Generar análisis</button>
       </div>
       <div class="unit-query">

@@ -7,7 +7,7 @@
   <link rel="icon" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="/static/css/gas_lp/conciliacion.css">
+  <link rel="stylesheet" href="/static/css/gas_lp/conciliacion.css?v=conciliacion-grupos-20260729b">
 </head>
 <body>
   <header class="top">
@@ -15,7 +15,7 @@
       <div class="brand"><img src="/static/img/ge-isotype-light.svg" alt="GE"><span>GE CONTROL</span></div>
       <span class="module-pill">Conciliación Gas LP</span>
       <div class="top-actions">
-        <button class="btn top-btn sm" type="button" onclick="location.href='/gas-lp/conciliacion/inicio'"><i class="fa-solid fa-layer-group"></i> Cambiar espacio</button>
+        <button class="btn top-btn sm" type="button" onclick="changeSupervisionSpace('contable')"><i class="fa-solid fa-layer-group"></i> Cambiar espacio</button>
         <div class="top-company">
           <select id="empresaSelect" class="company-select" onchange="changeEmpresa()"><option value="">Cargando empresas...</option></select>
           <span class="top-rfc" id="topRfcLabel">RFC -</span>
@@ -39,9 +39,9 @@
   <!-- ge-include: gas_lp/conciliacion/_modals.html -->
   <script src="/static/js/session_timeout.js?v=two-hour-all-portals-20260725"></script>
   <script src="/static/js/gas_lp/conciliacion/00_state.js"></script>
-  <script src="/static/js/gas_lp/conciliacion/10_utils.js"></script>
-  <script src="/static/js/gas_lp/conciliacion/20_data_filters.js"></script>
-  <script src="/static/js/gas_lp/conciliacion/30_facturas_render.js"></script>
+  <script src="/static/js/gas_lp/conciliacion/10_utils.js?v=conciliacion-grupos-20260729b"></script>
+  <script src="/static/js/gas_lp/conciliacion/20_data_filters.js?v=conciliacion-clientes-20260729a"></script>
+  <script src="/static/js/gas_lp/conciliacion/30_facturas_render.js?v=conciliacion-clientes-20260729a"></script>
   <script src="/static/js/gas_lp/conciliacion/40_complementos_credito.js?v=search-independent-20260717"></script>
   <script src="/static/js/gas_lp/conciliacion/45_descuentos.js?v=discount-dashboard-20260717"></script>
   <script src="/static/js/gas_lp/conciliacion/50_sat_publico_export.js?v=module-logout-20260714"></script>

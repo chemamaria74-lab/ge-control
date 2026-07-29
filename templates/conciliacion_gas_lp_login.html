@@ -38,7 +38,8 @@
     const CONCILIACION_TOKEN_KEY = 'ge_gaslp_conciliacion_token';
     const FLOTILLA_ACCESS_KEY = 'ge_flotilla_access';
     let selectedArea = 'contable';
-    localStorage.removeItem(CONCILIACION_TOKEN_KEY);
+    [CONCILIACION_TOKEN_KEY,'sat_token','zc_token','sat_user_id','sat_email','sat_role','sat_assigned_perfil_id'].forEach(key=>localStorage.removeItem(key));
+    [FLOTILLA_ACCESS_KEY,'ge_flotilla_expires_at','ge_flotilla_identity'].forEach(key=>sessionStorage.removeItem(key));
     document.querySelectorAll('[data-area]').forEach(button => button.onclick=()=>{
       selectedArea=button.dataset.area;
       document.querySelectorAll('[data-area]').forEach(item=>item.classList.toggle('active',item===button));
